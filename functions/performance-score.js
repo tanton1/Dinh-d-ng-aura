@@ -3,12 +3,14 @@ const { HttpsError } = require('firebase-functions/v2/https')
 const { createHash } = require('node:crypto')
 const { trustedAccessContext, requireCapability } = require('./identity-access')
 
-const PERFORMANCE_SCHEMA_VERSION = 1
-const PERFORMANCE_POLICY_VERSION = 'aura-performance-v1'
+const PERFORMANCE_SCHEMA_VERSION = 2
+const PERFORMANCE_POLICY_VERSION = 'aura-pt-performance-v1.0-2026-09-07'
 const EVIDENCE_STATUSES = new Set(['submitted', 'needs_revision', 'approved', 'rejected', 'withdrawn'])
 const REVIEW_STATUSES = new Set(['approved', 'needs_revision', 'rejected'])
 const EVIDENCE_TYPES = new Set(['personal_content', 'aura_assignment'])
 const PLATFORMS = new Set(['facebook', 'instagram', 'tiktok', 'youtube', 'group', 'other'])
+const PERFORMANCE_GATE_IDS = Object.freeze(['quality', 'attendance', 'client_safety', 'integrity'])
+const PERFORMANCE_REVIEW_SOURCES = new Set(['manager_review', 'system_auto', 'system_fallback', 'rolling_average', 'neutral_score'])
 const PROFILE_CHECKLIST_KEYS = Object.freeze([
   'photo',
   'bio',
@@ -21,15 +23,233 @@ const PROFILE_CHECKLIST_KEYS = Object.freeze([
   'schedule',
   'contact',
 ])
+// This is the locked KPI policy from the Aura PT Growth System. Keep the
+// weights here as the single source of truth; the payroll policy is a
+// separate concern and must not silently change the Performance Score.
 const PERFORMANCE_CATEGORIES = Object.freeze([
-  { id: 'reliability', label: 'Độ tin cậy & thực hiện ca', weight: 22 },
-  { id: 'coaching_quality', label: 'Chất lượng huấn luyện', weight: 23 },
-  { id: 'student_experience', label: 'Trải nghiệm học viên', weight: 17 },
-  { id: 'student_progress', label: 'Tiến bộ & gắn kết học viên', weight: 13 },
-  { id: 'operations', label: 'Vận hành & phối hợp', weight: 10 },
-  { id: 'renewal', label: 'Gia hạn có quy thuộc', weight: 5 },
-  { id: 'brand', label: 'Thương hiệu cá nhân / Aura Brand', weight: 10 },
+  {
+    id: 'coaching_quality', label: 'Chất lượng huấn luyện', weight: 25,
+    submetrics: [
+      { id: 'customer_rating', label: 'Customer Rating', weight: 10 },
+      { id: 'coaching_audit', label: 'Coaching Audit', weight: 8 },
+      { id: 'client_progress', label: 'Client Progress', weight: 7 },
+    ],
+  },
+  {
+    id: 'client_care', label: 'Chăm sóc học viên', weight: 15,
+    submetrics: [
+      { id: 'weekly_checkin', label: 'Weekly Check-in', weight: 6 },
+      { id: 'at_risk_followup', label: 'At-risk Follow-up', weight: 4 },
+      { id: 'progress_review', label: 'Progress Review', weight: 3 },
+      { id: 'communication', label: 'Communication', weight: 2 },
+    ],
+  },
+  {
+    id: 'nutrition_care', label: 'Chăm sóc dinh dưỡng', weight: 10,
+    submetrics: [
+      { id: 'nutrition_review_completion', label: 'Nutrition Review Completion', weight: 4 },
+      { id: 'feedback_sla', label: 'Feedback SLA', weight: 3 },
+      { id: 'compliance_management', label: 'Compliance Management', weight: 3 },
+    ],
+  },
+  {
+    id: 'retention_renew', label: 'Duy trì & tái ký', weight: 20,
+    submetrics: [
+      { id: 'renew_rate', label: 'Renew Rate', weight: 15 },
+      { id: 'renewal_process', label: 'Renewal Process', weight: 3 },
+      { id: 'churn_documentation', label: 'Churn Documentation', weight: 2 },
+    ],
+  },
+  {
+    id: 'business_contribution', label: 'Đóng góp kinh doanh', weight: 10,
+    submetrics: [
+      { id: 'self_generated_revenue', label: 'Doanh thu tự tạo so target', weight: 4 },
+      { id: 'renew_cash_vs_forecast', label: 'Renew thực thu so forecast', weight: 2 },
+      { id: 'qualified_lead_conversion', label: 'Qualified Lead Conversion', weight: 2 },
+      { id: 'quality_new_referral', label: 'Khách mới / referral chất lượng', weight: 2 },
+    ],
+  },
+  {
+    id: 'brand', label: 'Thương hiệu cá nhân / Aura Brand', weight: 10,
+    submetrics: [
+      { id: 'personal_brand', label: 'Personal Brand', weight: 5 },
+      { id: 'aura_brand', label: 'Aura Brand', weight: 3 },
+      { id: 'profile_quality', label: 'Profile Quality', weight: 2 },
+    ],
+  },
+  {
+    id: 'operations_discipline', label: 'Vận hành & kỷ luật', weight: 10,
+    submetrics: [
+      { id: 'attendance', label: 'Attendance', weight: 3 },
+      { id: 'schedule_management', label: 'Schedule Management', weight: 2 },
+      { id: 'training_notes', label: 'Training / Data Notes', weight: 2 },
+      { id: 'sop', label: 'SOP', weight: 2 },
+      { id: 'teamwork', label: 'Teamwork', weight: 1 },
+    ],
+  },
 ])
+
+const PERFORMANCE_METRIC_INDEX = new Map(PERFORMANCE_CATEGORIES.flatMap((category) => (
+  category.submetrics.map((metric) => [metric.id, { ...metric, categoryId: category.id }])
+)))
+const RATIO_METRICS = new Set([
+  'weekly_checkin', 'at_risk_followup', 'progress_review', 'nutrition_review_completion',
+  'feedback_sla', 'renewal_process', 'churn_documentation', 'quality_new_referral',
+])
+const DIRECT_REVIEW_METRICS = new Set([
+  'client_progress', 'communication', 'compliance_management', 'schedule_management',
+  'training_notes', 'sop', 'teamwork',
+])
+const BRAND_METRIC_IDS = new Set(['personal_brand', 'aura_brand', 'profile_quality'])
+const FALLBACK_SOURCES = new Set(['system_fallback', 'rolling_average', 'neutral_score'])
+const BONUS_BANDS = Object.freeze([
+  { minimum: 95, classification: 'Outstanding', bonusAmount: 3_000_000 },
+  { minimum: 90, classification: 'Excellent', bonusAmount: 2_000_000 },
+  { minimum: 85, classification: 'Very Good', bonusAmount: 1_500_000 },
+  { minimum: 80, classification: 'Good', bonusAmount: 1_000_000 },
+  { minimum: 70, classification: 'Pass', bonusAmount: 500_000 },
+  { minimum: 0, classification: 'Improvement Required', bonusAmount: 0 },
+])
+
+function finiteNumber(value) {
+  const result = Number(value)
+  return Number.isFinite(result) ? result : null
+}
+
+function rounded(value, digits = 1) {
+  const factor = 10 ** digits
+  return Math.round((Number(value) + Number.EPSILON) * factor) / factor
+}
+
+function boundedNumber(value, minimum, maximum) {
+  const result = finiteNumber(value)
+  return result !== null && result >= minimum && result <= maximum ? result : null
+}
+
+function metricUnavailable(metric, input = {}, reason = 'Chưa có dữ liệu đã xác minh cho kỳ đánh giá.') {
+  return {
+    ...metric,
+    score: null,
+    status: 'not_available',
+    source: typeof input.source === 'string' ? input.source : '',
+    actual: finiteNumber(input.actual),
+    target: finiteNumber(input.target),
+    numerator: finiteNumber(input.numerator),
+    denominator: finiteNumber(input.denominator),
+    sampleSize: Math.max(0, Math.trunc(finiteNumber(input.sampleSize) || 0)),
+    note: typeof input.note === 'string' ? input.note : '',
+    evidenceRefs: Array.isArray(input.evidenceRefs) ? input.evidenceRefs.slice(0, 20) : [],
+    reason,
+  }
+}
+
+function metricAvailable(metric, input, score, extra = {}) {
+  return {
+    ...metric,
+    score: rounded(Math.max(0, Math.min(metric.weight, score))),
+    status: 'available',
+    source: typeof input.source === 'string' ? input.source : 'manager_review',
+    actual: finiteNumber(input.actual),
+    target: finiteNumber(input.target),
+    numerator: finiteNumber(input.numerator),
+    denominator: finiteNumber(input.denominator),
+    sampleSize: Math.max(0, Math.trunc(finiteNumber(input.sampleSize) || 0)),
+    note: typeof input.note === 'string' ? input.note : '',
+    evidenceRefs: Array.isArray(input.evidenceRefs) ? input.evidenceRefs.slice(0, 20) : [],
+    reason: '',
+    ...extra,
+  }
+}
+
+function thresholdScore(value, bands) {
+  return bands.find((band) => value >= band.minimum)?.score ?? null
+}
+
+function calculateMetricScore(metricId, rawInput = {}) {
+  const metric = PERFORMANCE_METRIC_INDEX.get(metricId)
+  if (!metric) throw new Error(`Unknown performance metric: ${metricId}`)
+  const input = rawInput && typeof rawInput === 'object' ? rawInput : {}
+  if (BRAND_METRIC_IDS.has(metricId)) return metricUnavailable(metric, input, 'Brand được tính từ bằng chứng đã duyệt, không chấm tay.')
+  const source = PERFORMANCE_REVIEW_SOURCES.has(input.source) ? input.source : 'manager_review'
+  const normalized = { ...input, source }
+  const manualScore = boundedNumber(input.manualScore ?? input.score, 0, metric.weight)
+  if (FALLBACK_SOURCES.has(source) && manualScore !== null) {
+    return metricAvailable(metric, normalized, manualScore, { calculation: 'approved_fallback' })
+  }
+  if (DIRECT_REVIEW_METRICS.has(metricId)) {
+    return manualScore === null
+      ? metricUnavailable(metric, normalized, 'Chỉ số rubric cần điểm được Manager/Head Coach duyệt.')
+      : metricAvailable(metric, normalized, manualScore, { calculation: 'approved_rubric' })
+  }
+
+  const actual = finiteNumber(input.actual)
+  const target = finiteNumber(input.target)
+  const numerator = finiteNumber(input.numerator)
+  const denominator = finiteNumber(input.denominator)
+  if (metricId === 'customer_rating') {
+    if (actual === null || actual < 1 || actual > 5) return metricUnavailable(metric, normalized, 'Cần điểm rating trung bình hợp lệ từ 1 đến 5.')
+    const exactScore = thresholdScore(actual, [
+      { minimum: 4.8, score: 10 }, { minimum: 4.7, score: 9 }, { minimum: 4.6, score: 8 },
+      { minimum: 4.5, score: 7 }, { minimum: 4.3, score: 5 },
+    ])
+    if (exactScore === null && manualScore === null) {
+      return { ...metricUnavailable(metric, normalized, 'Rating dưới 4,30 cần Manager chấm rubric complaint từ 0 đến 4 điểm.'), status: 'needs_review' }
+    }
+    return metricAvailable(metric, normalized, exactScore ?? manualScore, { calculation: exactScore === null ? 'complaint_rubric' : 'rating_band' })
+  }
+  if (metricId === 'coaching_audit') {
+    if (actual === null || actual < 0 || actual > 100) return metricUnavailable(metric, normalized, 'Cần kết quả Coaching Audit từ 0 đến 100.')
+    return metricAvailable(metric, normalized, actual / 100 * metric.weight, { calculation: 'audit_percentage' })
+  }
+  if (RATIO_METRICS.has(metricId)) {
+    if (numerator === null || denominator === null || numerator < 0 || denominator <= 0 || numerator > denominator) {
+      return metricUnavailable(metric, normalized, 'Cần số hoàn tất và tổng số đến hạn hợp lệ.')
+    }
+    return metricAvailable(metric, normalized, numerator / denominator * metric.weight, { calculation: 'completion_ratio' })
+  }
+  if (metricId === 'renew_rate') {
+    const rate = actual !== null ? actual : (numerator !== null && denominator && denominator > 0 ? numerator / denominator * 100 : null)
+    if (rate === null || rate < 0 || rate > 100) return metricUnavailable(metric, normalized, 'Cần Renew Rate hợp lệ từ 0 đến 100%.')
+    const exactScore = thresholdScore(rate, [
+      { minimum: 80, score: 15 }, { minimum: 70, score: 14 }, { minimum: 60, score: 12 },
+      { minimum: 50, score: 10 }, { minimum: 40, score: 7 },
+    ])
+    if (exactScore === null && manualScore === null) {
+      return { ...metricUnavailable(metric, { ...normalized, actual: rate }, 'Renew Rate dưới 40% cần Manager chấm rubric từ 0 đến 5 điểm.'), status: 'needs_review' }
+    }
+    return metricAvailable(metric, { ...normalized, actual: rate }, exactScore ?? manualScore, { calculation: exactScore === null ? 'renew_rubric' : 'renew_band' })
+  }
+  if (metricId === 'self_generated_revenue') {
+    if (actual === null || target === null || actual < 0 || target <= 0) return metricUnavailable(metric, normalized, 'Cần doanh thu tự tạo thực thu và target đã duyệt.')
+    const rate = actual / target * 100
+    const score = rate >= 100 ? 4 : rate >= 80 ? 3 : rate >= 50 ? 2 : 0
+    return metricAvailable(metric, normalized, score, { calculation: 'business_band', achievementRate: rounded(rate) })
+  }
+  if (metricId === 'renew_cash_vs_forecast') {
+    if (actual === null || target === null || actual < 0 || target <= 0) return metricUnavailable(metric, normalized, 'Cần Renew thực thu và forecast đã duyệt.')
+    const rate = actual / target * 100
+    const score = rate >= 90 ? 2 : rate >= 70 ? 1 : 0
+    return metricAvailable(metric, normalized, score, { calculation: 'business_band', achievementRate: rounded(rate) })
+  }
+  if (metricId === 'qualified_lead_conversion') {
+    if (actual === null || target === null || actual < 0 || target <= 0) return metricUnavailable(metric, normalized, 'Cần tỷ lệ chuyển đổi thực tế và target đã duyệt.')
+    const rate = actual / target * 100
+    const score = rate >= 100 ? 2 : rate >= 70 ? 1 : 0
+    return metricAvailable(metric, normalized, score, { calculation: 'business_band', achievementRate: rounded(rate) })
+  }
+  if (metricId === 'attendance') {
+    if (actual === null || actual < 0 || actual > 100) return metricUnavailable(metric, normalized, 'Cần tỷ lệ tuân thủ lịch hợp lệ từ 0 đến 100%.')
+    const score = actual >= 98 ? 3 : actual >= 96 ? 2 : actual >= 94 ? 1 : 0
+    return metricAvailable(metric, normalized, score, { calculation: 'attendance_band' })
+  }
+  return metricUnavailable(metric, normalized)
+}
+
+function bonusForScore(score) {
+  if (!Number.isFinite(score)) return { classification: 'Chưa đủ dữ liệu', bonusAmount: null }
+  const band = BONUS_BANDS.find((item) => score >= item.minimum) || BONUS_BANDS.at(-1)
+  return { classification: band.classification, bonusAmount: band.bonusAmount }
+}
 
 function boundedText(value, label, maximum, required = false) {
   const result = typeof value === 'string' ? value.trim().replace(/\s+/g, ' ').slice(0, maximum + 1) : ''
@@ -163,19 +383,106 @@ function serializeEvidence(snapshot, signedUrl = '') {
   }
 }
 
-function performanceSummary(evidence, locked = false) {
+function gateResult(id, status, source, reason, evidenceRefs = []) {
+  return {
+    id,
+    label: {
+      quality: 'Quality Gate', attendance: 'Attendance Gate',
+      client_safety: 'Client Safety Gate', integrity: 'Integrity Gate',
+    }[id],
+    status: ['pass', 'fail'].includes(status) ? status : 'unknown',
+    source: source || '',
+    reason: reason || '',
+    evidenceRefs: Array.isArray(evidenceRefs) ? evidenceRefs.slice(0, 20) : [],
+  }
+}
+
+function calculatePerformanceSummary({ evidence = [], metricInputs = {}, gateInputs = {}, locked = false } = {}) {
   const brand = calculateBrandPerformance(evidence)
   const pendingCount = evidence.filter((item) => ['submitted', 'needs_revision'].includes(item.status)).length
+  const brandMetrics = {
+    personal_brand: metricAvailable(PERFORMANCE_METRIC_INDEX.get('personal_brand'), {
+      source: 'approved_evidence', sampleSize: brand.personal.approvedCount,
+      note: 'Chỉ tính nội dung đã được duyệt trong kỳ.',
+    }, brand.personal.score, { calculation: 'brand_evidence' }),
+    aura_brand: metricAvailable(PERFORMANCE_METRIC_INDEX.get('aura_brand'), {
+      source: 'approved_evidence', sampleSize: brand.aura.approvedCount,
+      note: 'Chỉ tính nhiệm vụ đúng brief đã được duyệt trong kỳ.',
+    }, brand.aura.score, { calculation: 'aura_brief_evidence' }),
+    profile_quality: metricAvailable(PERFORMANCE_METRIC_INDEX.get('profile_quality'), {
+      source: 'approved_checklist', sampleSize: brand.profile.completedCount,
+      note: 'Checklist 10 mục, mỗi mục đạt 0,2 điểm.',
+    }, brand.profile.score, { calculation: 'profile_checklist' }),
+  }
+  const categories = PERFORMANCE_CATEGORIES.map((category) => {
+    const submetrics = category.submetrics.map((definition) => (
+      brandMetrics[definition.id] || calculateMetricScore(definition.id, metricInputs[definition.id] || {})
+    ))
+    const available = submetrics.filter((metric) => metric.status === 'available')
+    const availableWeight = available.reduce((sum, metric) => sum + metric.weight, 0)
+    const score = rounded(available.reduce((sum, metric) => sum + metric.score, 0))
+    return {
+      id: category.id,
+      label: category.label,
+      weight: category.weight,
+      score: available.length ? score : null,
+      availableWeight,
+      status: availableWeight === category.weight ? 'available' : availableWeight > 0 ? 'partial' : 'not_available',
+      submetrics,
+    }
+  })
+  const availableWeight = categories.reduce((sum, category) => sum + category.availableWeight, 0)
+  const rawScore = rounded(categories.reduce((sum, category) => sum + (category.score || 0), 0))
+  const scoreValue = availableWeight === 100 ? rawScore : null
+  const qualityCategory = categories.find((category) => category.id === 'coaching_quality')
+  const attendanceMetric = categories.flatMap((category) => category.submetrics).find((metric) => metric.id === 'attendance')
+  const qualityGate = qualityCategory?.availableWeight === 25
+    ? gateResult('quality', qualityCategory.score >= 20 ? 'pass' : 'fail', 'score_engine', `Coaching Quality ${qualityCategory.score}/25; yêu cầu tối thiểu 20/25.`)
+    : gateResult('quality', 'unknown', 'score_engine', 'Chưa đủ toàn bộ dữ liệu Coaching Quality để đánh giá Gate.')
+  const manualGate = (id) => {
+    const input = gateInputs[id] && typeof gateInputs[id] === 'object' ? gateInputs[id] : {}
+    return gateResult(id, input.status, input.source || 'manager_review', input.reason || 'Chưa có kết luận Gate.', input.evidenceRefs)
+  }
+  const reviewedAttendanceGate = manualGate('attendance')
+  const attendanceGate = reviewedAttendanceGate.status !== 'unknown'
+    ? reviewedAttendanceGate
+    : attendanceMetric?.status === 'available' && Number.isFinite(attendanceMetric.actual)
+      ? gateResult('attendance', attendanceMetric.actual >= 98 ? 'pass' : 'fail', attendanceMetric.source, `Tuân thủ lịch ${rounded(attendanceMetric.actual)}%; yêu cầu tối thiểu 98%.`, attendanceMetric.evidenceRefs)
+      : gateResult('attendance', 'unknown', 'score_engine', 'Chưa có tỷ lệ tuân thủ lịch đã xác minh.')
+  const gates = [qualityGate, attendanceGate, manualGate('client_safety'), manualGate('integrity')]
+  const allGatesPass = gates.every((gate) => gate.status === 'pass')
+  const anyGateFail = gates.some((gate) => gate.status === 'fail')
+  const band = bonusForScore(scoreValue)
+  const bonus = {
+    eligibility: anyGateFail ? 'ineligible' : allGatesPass && scoreValue !== null ? 'eligible' : 'pending',
+    recommendedAmount: anyGateFail ? 0 : allGatesPass ? band.bonusAmount : null,
+    classification: band.classification,
+    reason: anyGateFail
+      ? `Không đủ điều kiện thưởng vì Gate không đạt: ${gates.filter((gate) => gate.status === 'fail').map((gate) => gate.label).join(', ')}.`
+      : allGatesPass && scoreValue !== null ? 'Đã đủ điểm và vượt cả bốn Gate.' : 'Chưa đủ dữ liệu hoặc chưa kết luận đủ bốn Gate.',
+  }
   return {
     schemaVersion: PERFORMANCE_SCHEMA_VERSION,
     formulaVersion: PERFORMANCE_POLICY_VERSION,
     amountImpact: 'none',
     locked,
-    coverage: { availableWeight: 10, totalWeight: 100, confidence: 'low' },
-    score: { value: null, maximum: 100, reason: 'Các cấu phần ngoài Brand chưa đủ dữ liệu đã xác minh; Aura không mặc định quy đổi thành 0 điểm.' },
-    categories: PERFORMANCE_CATEGORIES.map((category) => category.id === 'brand'
-      ? { ...category, score: brand.total, status: 'available' }
-      : { ...category, score: null, status: 'not_available' }),
+    coverage: {
+      availableWeight,
+      totalWeight: 100,
+      confidence: availableWeight === 100 ? 'high' : availableWeight >= 70 ? 'medium' : 'low',
+      missingMetricIds: categories.flatMap((category) => category.submetrics).filter((metric) => metric.status !== 'available').map((metric) => metric.id),
+    },
+    score: {
+      value: scoreValue,
+      provisionalValue: rawScore,
+      maximum: 100,
+      reason: scoreValue === null
+        ? `Đã xác minh ${availableWeight}/100 trọng số. Dữ liệu thiếu được ghi N/A, không tự quy đổi thành 0.`
+        : 'Điểm tổng được tính từ đủ 100/100 trọng số đã xác minh.',
+    },
+    categories,
+    gates,
+    bonus,
     brand,
     evidence: {
       total: evidence.filter((item) => item.type !== 'profile_checklist' && item.status !== 'withdrawn').length,
@@ -185,8 +492,16 @@ function performanceSummary(evidence, locked = false) {
   }
 }
 
+function performanceSummary(evidence, locked = false) {
+  return calculatePerformanceSummary({ evidence, locked })
+}
+
 function canReview(actor) {
   return ['admin', 'super_admin'].includes(actor.accessRole) || actor.positions.includes('branch_manager') || actor.capabilities.includes('performance.evidence.review')
+}
+
+function assertTrainerTarget(target) {
+  if (!target.positions.includes('trainer_pt')) throw new HttpsError('failed-precondition', 'Aura PT Performance Score chỉ áp dụng cho nhân sự có chức danh PT.')
 }
 
 function assertReviewer(actor) {
@@ -230,9 +545,13 @@ async function assertScreenshot(storage, { path, ownerUid, period, evidenceId })
 }
 
 async function evidenceForStaff(db, staffId, period) {
-  const snapshot = await db.collection('performanceEvidence').where('staffId', '==', staffId).limit(300).get()
-  if (snapshot.size === 300) throw new HttpsError('resource-exhausted', 'Kỳ đánh giá có quá nhiều bằng chứng để tổng hợp an toàn.')
-  return snapshot.docs.filter((item) => item.data().periodId === period).map((item) => ({ id: item.id, ...item.data() }))
+  const snapshot = await db.collection('performanceEvidence')
+    .where('staffId', '==', staffId)
+    .where('periodId', '==', period)
+    .limit(301)
+    .get()
+  if (snapshot.size > 300) throw new HttpsError('resource-exhausted', 'Kỳ đánh giá có quá nhiều bằng chứng để tổng hợp an toàn.')
+  return snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))
 }
 
 async function isSnapshotLocked(db, staffId, period) {
@@ -241,21 +560,9 @@ async function isSnapshotLocked(db, staffId, period) {
 }
 
 async function rebuildBrandSnapshot(db, staffId, period, actorUid = 'system:performance-score') {
-  const reference = db.doc(`performanceSnapshots/${period}_${staffId}`)
-  const existing = await reference.get()
-  if (existing.exists && existing.data().locked === true) return existing.data()
-  const evidence = await evidenceForStaff(db, staffId, period)
-  const summary = performanceSummary(evidence, false)
-  const value = {
-    ...summary,
-    staffId,
-    periodId: period,
-    brand: summary.brand,
-    generatedAt: FieldValue.serverTimestamp(),
-    generatedBy: actorUid,
-  }
-  await reference.set(value, { merge: true })
-  return value
+  const target = await targetStaff(db, staffId)
+  assertTrainerTarget(target)
+  return rebuildPerformanceSnapshot(db, target, period, actorUid)
 }
 
 async function targetStaff(db, staffId) {
@@ -308,6 +615,144 @@ async function staffDirectory(db, actor) {
   }).sort((left, right) => left.name.localeCompare(right.name, 'vi'))
 }
 
+function shiftPeriod(period, offset) {
+  const [year, month] = period.split('-').map(Number)
+  const shifted = new Date(Date.UTC(year, month - 1 + offset, 1))
+  return `${shifted.getUTCFullYear()}-${String(shifted.getUTCMonth() + 1).padStart(2, '0')}`
+}
+
+async function loadPerformanceAssessment(db, staffId, period) {
+  const snapshot = await db.doc(`performanceAssessments/${period}_${staffId}`).get()
+  const data = snapshot.exists ? snapshot.data() || {} : {}
+  return {
+    revision: Math.max(0, Math.trunc(Number(data.revision || 0))),
+    metrics: data.metrics && typeof data.metrics === 'object' ? data.metrics : {},
+    gates: data.gates && typeof data.gates === 'object' ? data.gates : {},
+    updatedAt: iso(data.updatedAt),
+    updatedBy: data.updatedBy || '',
+  }
+}
+
+async function automaticPerformanceMetrics(db, target, period) {
+  const trainerIds = [...new Set([target.staffId, target.ownerUid].filter(Boolean))]
+  const from = `${shiftPeriod(period, -2)}-01`
+  const to = `${period}-31`
+  const snapshots = await Promise.all(trainerIds.map((trainerId) => db.collection('sessionFeedback')
+    .where('trainerId', '==', trainerId)
+    .where('sessionDate', '>=', from)
+    .where('sessionDate', '<=', to)
+    .limit(501)
+    .get()))
+  if (snapshots.some((snapshot) => snapshot.size > 500)) {
+    throw new HttpsError('resource-exhausted', 'Dữ liệu rating ba tháng vượt giới hạn tổng hợp an toàn.')
+  }
+  const rows = new Map()
+  snapshots.forEach((snapshot) => snapshot.docs.forEach((item) => {
+    const value = item.data() || {}
+    const rating = Number(value.overallScore)
+    const date = typeof value.sessionDate === 'string' ? value.sessionDate.slice(0, 10) : ''
+    if (rating >= 1 && rating <= 5 && date >= from && date <= to && value.invalidated !== true) {
+      rows.set(item.id, { id: item.id, rating, date })
+    }
+  }))
+  const current = [...rows.values()].filter((item) => item.date.startsWith(`${period}-`))
+  const selected = current.length >= 5 ? current : [...rows.values()]
+  const metrics = {}
+  if (selected.length) {
+    metrics.customer_rating = {
+      source: current.length >= 5 ? 'system_auto' : 'rolling_average',
+      actual: rounded(selected.reduce((sum, item) => sum + item.rating, 0) / selected.length, 2),
+      sampleSize: selected.length,
+      evidenceRefs: selected.slice(0, 20).map((item) => `sessionFeedback/${item.id}`),
+      note: current.length >= 5
+        ? `${current.length} phản hồi hợp lệ trong tháng.`
+        : `Tháng có ${current.length}/5 phản hồi; dùng rolling 3 tháng (${selected.length} phản hồi).`,
+    }
+  }
+  return metrics
+}
+
+async function performanceComputation(db, target, period, locked = false) {
+  const [evidence, assessment, automatic] = await Promise.all([
+    evidenceForStaff(db, target.staffId, period),
+    loadPerformanceAssessment(db, target.staffId, period),
+    automaticPerformanceMetrics(db, target, period),
+  ])
+  const summary = calculatePerformanceSummary({
+    evidence,
+    metricInputs: { ...automatic, ...assessment.metrics },
+    gateInputs: assessment.gates,
+    locked,
+  })
+  return { summary, assessment, automatic }
+}
+
+async function rebuildPerformanceSnapshot(db, target, period, actorUid = 'system:performance-score') {
+  const reference = db.doc(`performanceSnapshots/${period}_${target.staffId}`)
+  const existing = await reference.get()
+  if (existing.exists && existing.data().locked === true) return existing.data()
+  const result = await performanceComputation(db, target, period, false)
+  const value = {
+    ...result.summary,
+    staffId: target.staffId,
+    ownerUid: target.ownerUid,
+    staffName: target.name,
+    branchIds: target.branchIds,
+    periodId: period,
+    assessmentRevision: result.assessment.revision,
+    generatedAt: FieldValue.serverTimestamp(),
+    generatedBy: actorUid,
+  }
+  await reference.set(value, { merge: true })
+  return value
+}
+
+function sanitizeMetricAssessment(input, metricId) {
+  const metric = PERFORMANCE_METRIC_INDEX.get(metricId)
+  if (!metric || BRAND_METRIC_IDS.has(metricId)) throw new HttpsError('invalid-argument', 'Chỉ số Performance không thể chấm tay.')
+  const source = boundedText(input?.source, 'Nguồn đánh giá', 40, true)
+  if (!PERFORMANCE_REVIEW_SOURCES.has(source) || source === 'system_auto') throw new HttpsError('invalid-argument', 'Nguồn đánh giá không hợp lệ.')
+  const optionalNumber = (value, label, minimum, maximum) => {
+    if (value === '' || value === null || value === undefined) return null
+    const result = Number(value)
+    if (!Number.isFinite(result) || result < minimum || result > maximum) throw new HttpsError('invalid-argument', `${label} không hợp lệ.`)
+    return result
+  }
+  const value = {
+    source,
+    actual: optionalNumber(input.actual, 'Giá trị thực tế', 0, 10_000_000_000),
+    target: optionalNumber(input.target, 'Mục tiêu', 0, 10_000_000_000),
+    numerator: optionalNumber(input.numerator, 'Số hoàn tất', 0, 1_000_000),
+    denominator: optionalNumber(input.denominator, 'Tổng số đến hạn', 0, 1_000_000),
+    manualScore: optionalNumber(input.manualScore ?? input.score, 'Điểm duyệt', 0, metric.weight),
+    sampleSize: optionalNumber(input.sampleSize, 'Cỡ mẫu', 0, 1_000_000) || 0,
+    note: boundedText(input.note, 'Lý do và ghi chú', 500, true),
+    evidenceRefs: Array.isArray(input.evidenceRefs)
+      ? [...new Set(input.evidenceRefs.map((item) => boundedText(item, 'Bằng chứng', 300)).filter(Boolean))].slice(0, 20)
+      : [],
+  }
+  if (value.note.length < 3) throw new HttpsError('invalid-argument', 'Cần ghi rõ nguồn, lý do hoặc ghi chú chấm điểm.')
+  const calculated = calculateMetricScore(metricId, value)
+  if (calculated.status !== 'available') throw new HttpsError('invalid-argument', calculated.reason || 'Dữ liệu chỉ số chưa đủ để tính điểm.')
+  return { ...value, computedScore: calculated.score, calculation: calculated.calculation || '' }
+}
+
+function sanitizeGateAssessment(input, gateId) {
+  if (!['attendance', 'client_safety', 'integrity'].includes(gateId)) throw new HttpsError('invalid-argument', 'Gate này được tính tự động từ Score.')
+  const status = boundedText(input?.status, 'Kết luận Gate', 20, true)
+  if (!['pass', 'fail', 'unknown'].includes(status)) throw new HttpsError('invalid-argument', 'Kết luận Gate không hợp lệ.')
+  const reason = boundedText(input?.reason, 'Lý do kết luận Gate', 500, true)
+  if (reason.length < 3) throw new HttpsError('invalid-argument', 'Cần ghi rõ lý do kết luận Gate.')
+  return {
+    status,
+    source: 'manager_review',
+    reason,
+    evidenceRefs: Array.isArray(input?.evidenceRefs)
+      ? [...new Set(input.evidenceRefs.map((item) => boundedText(item, 'Bằng chứng Gate', 300)).filter(Boolean))].slice(0, 20)
+      : [],
+  }
+}
+
 function createPerformanceScoreFunctions({ db, onCall, storage, logger = console }) {
   const performanceCall = (handler) => onCall({
     cpu: 'gcf_gen1', memory: '256MiB', maxInstances: 1, concurrency: 1, timeoutSeconds: 120,
@@ -319,8 +764,22 @@ function createPerformanceScoreFunctions({ db, onCall, storage, logger = console
     requireCapability(actor, 'performance.self.view')
     const period = periodId(request.data?.periodId)
     const staffId = documentId(actor.legacyStaffId || actor.uid, 'Mã nhân sự')
-    const evidence = await evidenceForStaff(db, staffId, period)
-    return { staffId, periodId: period, ...performanceSummary(evidence, await isSnapshotLocked(db, staffId, period)) }
+    const target = await targetStaff(db, staffId)
+    assertTrainerTarget(target)
+    const snapshot = await db.doc(`performanceSnapshots/${period}_${staffId}`).get()
+    if (snapshot.exists && snapshot.data().locked === true) {
+      const value = snapshot.data()
+      return { ...value, staffId, periodId: period, generatedAt: iso(value.generatedAt), locked: true }
+    }
+    const result = await performanceComputation(db, target, period, false)
+    return {
+      staffId,
+      periodId: period,
+      staffName: target.name,
+      assessmentRevision: result.assessment.revision,
+      generatedAt: new Date().toISOString(),
+      ...result.summary,
+    }
   })
 
   const listMyPerformanceEvidence = performanceCall(async (request) => {
@@ -329,6 +788,7 @@ function createPerformanceScoreFunctions({ db, onCall, storage, logger = console
     requireCapability(actor, 'performance.self.view')
     const period = periodId(request.data?.periodId)
     const staffId = documentId(actor.legacyStaffId || actor.uid, 'Mã nhân sự')
+    assertTrainerTarget(await targetStaff(db, staffId))
     const evidence = await evidenceForStaff(db, staffId, period)
     const rows = await Promise.all(evidence.sort((left, right) => iso(right.submittedAt).localeCompare(iso(left.submittedAt))).map(async (item) => (
       serializeEvidence(item, await signedEvidenceUrl(storage, item.screenshotPath))
@@ -359,6 +819,7 @@ function createPerformanceScoreFunctions({ db, onCall, storage, logger = console
     const title = boundedText(request.data?.title, 'Nội dung bằng chứng', 200, true)
     const note = boundedText(request.data?.note, 'Ghi chú', 500)
     const staffId = documentId(actor.legacyStaffId || actor.uid, 'Mã nhân sự')
+    assertTrainerTarget(await targetStaff(db, staffId))
     if (await isSnapshotLocked(db, staffId, period)) throw new HttpsError('failed-precondition', 'Kỳ đánh giá đã khóa, không thể bổ sung bằng chứng hồi tố.')
     await assertScreenshot(storage, { path: screenshotPath, ownerUid: actor.uid, period, evidenceId })
     const duplicateKey = proofKey({ type, url, contentHash, briefId, screenshotPath })
@@ -420,6 +881,7 @@ function createPerformanceScoreFunctions({ db, onCall, storage, logger = console
 
   const withdrawPerformanceBrandEvidence = performanceCall(async (request) => {
     const actor = await trustedAccessContext(request, db)
+    if (actor.accessRole !== 'staff') throw new HttpsError('permission-denied', 'Chỉ nhân sự Aura được rút bằng chứng của chính mình.')
     requireCapability(actor, 'performance.evidence.submit')
     const evidenceId = documentId(request.data?.evidenceId, 'Mã bằng chứng')
     const reference = db.doc(`performanceEvidence/${evidenceId}`)
@@ -537,6 +999,7 @@ function createPerformanceScoreFunctions({ db, onCall, storage, logger = console
     const period = periodId(request.data?.periodId)
     const staffId = documentId(request.data?.staffId, 'Mã nhân sự')
     const target = await targetStaff(db, staffId)
+    assertTrainerTarget(target)
     assertBranchScope(actor, target.branchIds)
     if (await isSnapshotLocked(db, target.staffId, period)) throw new HttpsError('failed-precondition', 'Kỳ đánh giá đã khóa.')
     const source = request.data?.checklist && typeof request.data.checklist === 'object' ? request.data.checklist : {}
@@ -565,6 +1028,225 @@ function createPerformanceScoreFunctions({ db, onCall, storage, logger = console
     return { evidenceId, completedCount: PROFILE_CHECKLIST_KEYS.filter((key) => checklist[key]).length, status: 'approved' }
   })
 
+  const getPerformanceStaffScore = performanceCall(async (request) => {
+    const actor = await trustedAccessContext(request, db)
+    requireCapability(actor, 'performance.assessment.manage')
+    const period = periodId(request.data?.periodId)
+    const staffId = documentId(request.data?.staffId, 'Mã nhân sự')
+    const target = await targetStaff(db, staffId)
+    assertTrainerTarget(target)
+    assertBranchScope(actor, target.branchIds)
+    const snapshot = await db.doc(`performanceSnapshots/${period}_${target.staffId}`).get()
+    if (snapshot.exists && snapshot.data().locked === true) {
+      const value = snapshot.data()
+      return { ...value, generatedAt: iso(value.generatedAt), locked: true }
+    }
+    const result = await performanceComputation(db, target, period, false)
+    return {
+      staffId: target.staffId,
+      ownerUid: target.ownerUid,
+      staffName: target.name,
+      branchIds: target.branchIds,
+      periodId: period,
+      assessmentRevision: result.assessment.revision,
+      assessmentUpdatedAt: result.assessment.updatedAt,
+      generatedAt: new Date().toISOString(),
+      ...result.summary,
+    }
+  })
+
+  const savePerformanceMetricAssessment = performanceCall(async (request) => {
+    const actor = await trustedAccessContext(request, db)
+    requireCapability(actor, 'performance.assessment.manage')
+    const period = periodId(request.data?.periodId)
+    const staffId = documentId(request.data?.staffId, 'Mã nhân sự')
+    const metricId = documentId(request.data?.metricId, 'Mã chỉ số')
+    const expectedRevision = Number(request.data?.expectedRevision)
+    if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0) throw new HttpsError('invalid-argument', 'Phiên bản phiếu chấm không hợp lệ.')
+    const target = await targetStaff(db, staffId)
+    assertTrainerTarget(target)
+    assertBranchScope(actor, target.branchIds)
+    const assessment = sanitizeMetricAssessment(request.data || {}, metricId)
+    const reference = db.doc(`performanceAssessments/${period}_${target.staffId}`)
+    const snapshotReference = db.doc(`performanceSnapshots/${period}_${target.staffId}`)
+    let revision = 0
+    await db.runTransaction(async (transaction) => {
+      const [current, scoreSnapshot] = await Promise.all([transaction.get(reference), transaction.get(snapshotReference)])
+      if (scoreSnapshot.exists && scoreSnapshot.data().locked === true) throw new HttpsError('failed-precondition', 'Kỳ đánh giá đã khóa.')
+      const currentRevision = Math.max(0, Math.trunc(Number(current.data()?.revision || 0)))
+      if (currentRevision !== expectedRevision) throw new HttpsError('aborted', 'Phiếu chấm đã được cập nhật. Hãy tải lại trước khi lưu.')
+      const before = current.data()?.metrics?.[metricId] || null
+      revision = currentRevision + 1
+      transaction.set(reference, {
+        schemaVersion: PERFORMANCE_SCHEMA_VERSION,
+        formulaVersion: PERFORMANCE_POLICY_VERSION,
+        staffId: target.staffId,
+        ownerUid: target.ownerUid,
+        branchIds: target.branchIds,
+        periodId: period,
+        metrics: { ...(current.data()?.metrics || {}), [metricId]: { ...assessment, updatedAt: FieldValue.serverTimestamp(), updatedBy: actor.uid } },
+        revision,
+        updatedAt: FieldValue.serverTimestamp(),
+        updatedBy: actor.uid,
+        ...(!current.exists ? { createdAt: FieldValue.serverTimestamp(), createdBy: actor.uid } : {}),
+      }, { merge: true })
+      transaction.create(db.collection('performanceAuditLogs').doc(), {
+        schemaVersion: PERFORMANCE_SCHEMA_VERSION,
+        formulaVersion: PERFORMANCE_POLICY_VERSION,
+        action: 'performance.metric.assessed',
+        actorUid: actor.uid,
+        staffId: target.staffId,
+        periodId: period,
+        metricId,
+        before,
+        after: assessment,
+        reason: assessment.note,
+        revision,
+        createdAt: FieldValue.serverTimestamp(),
+      })
+    })
+    await rebuildPerformanceSnapshot(db, target, period, actor.uid)
+    return { staffId: target.staffId, periodId: period, metricId, revision, computedScore: assessment.computedScore }
+  })
+
+  const savePerformanceGateAssessment = performanceCall(async (request) => {
+    const actor = await trustedAccessContext(request, db)
+    requireCapability(actor, 'performance.assessment.manage')
+    const period = periodId(request.data?.periodId)
+    const staffId = documentId(request.data?.staffId, 'Mã nhân sự')
+    const gateId = documentId(request.data?.gateId, 'Mã Gate')
+    const expectedRevision = Number(request.data?.expectedRevision)
+    if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0) throw new HttpsError('invalid-argument', 'Phiên bản phiếu chấm không hợp lệ.')
+    const target = await targetStaff(db, staffId)
+    assertTrainerTarget(target)
+    assertBranchScope(actor, target.branchIds)
+    const gate = sanitizeGateAssessment(request.data || {}, gateId)
+    const reference = db.doc(`performanceAssessments/${period}_${target.staffId}`)
+    const snapshotReference = db.doc(`performanceSnapshots/${period}_${target.staffId}`)
+    let revision = 0
+    await db.runTransaction(async (transaction) => {
+      const [current, scoreSnapshot] = await Promise.all([transaction.get(reference), transaction.get(snapshotReference)])
+      if (scoreSnapshot.exists && scoreSnapshot.data().locked === true) throw new HttpsError('failed-precondition', 'Kỳ đánh giá đã khóa.')
+      const currentRevision = Math.max(0, Math.trunc(Number(current.data()?.revision || 0)))
+      if (currentRevision !== expectedRevision) throw new HttpsError('aborted', 'Phiếu chấm đã được cập nhật. Hãy tải lại trước khi lưu.')
+      const before = current.data()?.gates?.[gateId] || null
+      revision = currentRevision + 1
+      transaction.set(reference, {
+        schemaVersion: PERFORMANCE_SCHEMA_VERSION,
+        formulaVersion: PERFORMANCE_POLICY_VERSION,
+        staffId: target.staffId,
+        ownerUid: target.ownerUid,
+        branchIds: target.branchIds,
+        periodId: period,
+        gates: { ...(current.data()?.gates || {}), [gateId]: { ...gate, updatedAt: FieldValue.serverTimestamp(), updatedBy: actor.uid } },
+        revision,
+        updatedAt: FieldValue.serverTimestamp(),
+        updatedBy: actor.uid,
+        ...(!current.exists ? { createdAt: FieldValue.serverTimestamp(), createdBy: actor.uid } : {}),
+      }, { merge: true })
+      transaction.create(db.collection('performanceAuditLogs').doc(), {
+        schemaVersion: PERFORMANCE_SCHEMA_VERSION,
+        formulaVersion: PERFORMANCE_POLICY_VERSION,
+        action: 'performance.gate.assessed',
+        actorUid: actor.uid,
+        staffId: target.staffId,
+        periodId: period,
+        gateId,
+        before,
+        after: gate,
+        reason: gate.reason,
+        revision,
+        createdAt: FieldValue.serverTimestamp(),
+      })
+    })
+    await rebuildPerformanceSnapshot(db, target, period, actor.uid)
+    return { staffId: target.staffId, periodId: period, gateId, revision }
+  })
+
+  const refreshPerformanceSnapshot = performanceCall(async (request) => {
+    const actor = await trustedAccessContext(request, db)
+    requireCapability(actor, 'performance.assessment.manage')
+    const period = periodId(request.data?.periodId)
+    const staffId = documentId(request.data?.staffId, 'Mã nhân sự')
+    const target = await targetStaff(db, staffId)
+    assertTrainerTarget(target)
+    assertBranchScope(actor, target.branchIds)
+    await rebuildPerformanceSnapshot(db, target, period, actor.uid)
+    const snapshot = await db.doc(`performanceSnapshots/${period}_${target.staffId}`).get()
+    const value = snapshot.data() || {}
+    return { ...value, staffId: target.staffId, periodId: period, generatedAt: iso(value.generatedAt) }
+  })
+
+  const setPerformanceSnapshotLock = performanceCall(async (request) => {
+    const actor = await trustedAccessContext(request, db)
+    requireCapability(actor, 'performance.snapshot.lock')
+    const period = periodId(request.data?.periodId)
+    const staffId = documentId(request.data?.staffId, 'Mã nhân sự')
+    const locked = request.data?.locked === true
+    const reason = boundedText(request.data?.reason, 'Lý do khóa hoặc mở kỳ', 500, true)
+    if (reason.length < 3) throw new HttpsError('invalid-argument', 'Cần ghi rõ lý do khóa hoặc mở kỳ.')
+    const target = await targetStaff(db, staffId)
+    assertTrainerTarget(target)
+    assertBranchScope(actor, target.branchIds)
+    const snapshotReference = db.doc(`performanceSnapshots/${period}_${target.staffId}`)
+    if (!locked) {
+      await db.runTransaction(async (transaction) => {
+        const current = await transaction.get(snapshotReference)
+        if (!current.exists || current.data().locked !== true) throw new HttpsError('failed-precondition', 'Kỳ đánh giá chưa bị khóa.')
+        transaction.update(snapshotReference, {
+          locked: false, unlockedAt: FieldValue.serverTimestamp(), unlockedBy: actor.uid,
+          unlockReason: reason, updatedAt: FieldValue.serverTimestamp(),
+        })
+        transaction.create(db.collection('performanceAuditLogs').doc(), {
+          schemaVersion: PERFORMANCE_SCHEMA_VERSION, formulaVersion: PERFORMANCE_POLICY_VERSION,
+          action: 'performance.snapshot.unlocked', actorUid: actor.uid, staffId: target.staffId,
+          periodId: period, reason, createdAt: FieldValue.serverTimestamp(),
+        })
+      })
+      await rebuildPerformanceSnapshot(db, target, period, actor.uid)
+      const refreshed = await snapshotReference.get()
+      const value = refreshed.data() || {}
+      return { ...value, generatedAt: iso(value.generatedAt), locked: false }
+    }
+    const computation = await performanceComputation(db, target, period, false)
+    if (computation.summary.coverage.availableWeight !== 100) throw new HttpsError('failed-precondition', 'Chưa thể khóa kỳ khi Score chưa đủ 100/100 trọng số đã xác minh.')
+    if (computation.summary.gates.some((gate) => gate.status === 'unknown')) throw new HttpsError('failed-precondition', 'Chưa thể khóa kỳ khi còn Gate chưa có kết luận.')
+    await db.runTransaction(async (transaction) => {
+      const [assessmentSnapshot, current] = await Promise.all([
+        transaction.get(db.doc(`performanceAssessments/${period}_${target.staffId}`)),
+        transaction.get(snapshotReference),
+      ])
+      const revision = Math.max(0, Math.trunc(Number(assessmentSnapshot.data()?.revision || 0)))
+      if (revision !== computation.assessment.revision) throw new HttpsError('aborted', 'Phiếu chấm vừa thay đổi. Hãy tải lại trước khi khóa kỳ.')
+      if (current.exists && current.data().locked === true) return
+      transaction.set(snapshotReference, {
+        ...computation.summary,
+        staffId: target.staffId,
+        ownerUid: target.ownerUid,
+        staffName: target.name,
+        branchIds: target.branchIds,
+        periodId: period,
+        assessmentRevision: revision,
+        locked: true,
+        lockedAt: FieldValue.serverTimestamp(),
+        lockedBy: actor.uid,
+        lockReason: reason,
+        generatedAt: FieldValue.serverTimestamp(),
+        generatedBy: actor.uid,
+      }, { merge: true })
+      transaction.create(db.collection('performanceAuditLogs').doc(), {
+        schemaVersion: PERFORMANCE_SCHEMA_VERSION, formulaVersion: PERFORMANCE_POLICY_VERSION,
+        action: 'performance.snapshot.locked', actorUid: actor.uid, staffId: target.staffId,
+        periodId: period, reason, score: computation.summary.score.value,
+        gates: computation.summary.gates.map((gate) => ({ id: gate.id, status: gate.status })),
+        createdAt: FieldValue.serverTimestamp(),
+      })
+    })
+    const lockedSnapshot = await snapshotReference.get()
+    const value = lockedSnapshot.data() || {}
+    return { ...value, generatedAt: iso(value.generatedAt), locked: true }
+  })
+
   return {
     getMyPerformanceScore,
     listMyPerformanceEvidence,
@@ -573,6 +1255,11 @@ function createPerformanceScoreFunctions({ db, onCall, storage, logger = console
     listPerformanceReviewQueue,
     reviewPerformanceBrandEvidence,
     savePerformanceProfileChecklist,
+    getPerformanceStaffScore,
+    savePerformanceMetricAssessment,
+    savePerformanceGateAssessment,
+    refreshPerformanceSnapshot,
+    setPerformanceSnapshotLock,
   }
 }
 
@@ -580,6 +1267,9 @@ module.exports = {
   PERFORMANCE_CATEGORIES,
   PROFILE_CHECKLIST_KEYS,
   calculateBrandPerformance,
+  calculateMetricScore,
+  calculatePerformanceSummary,
+  bonusForScore,
   normalizeUrl,
   proofKey,
   assertBranchScope,

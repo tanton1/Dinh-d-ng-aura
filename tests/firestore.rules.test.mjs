@@ -625,6 +625,23 @@ describe('Aura PT Firestore rules', () => {
     }
   })
 
+  test('Performance score assessments, snapshots and audit logs are callable-only', async () => {
+    for (const db of [
+      authenticatedDb('client-1', 'student'),
+      authenticatedDb('manager-1', 'manager'),
+      authenticatedDb('admin-1', 'admin'),
+    ]) {
+      for (const [collectionName, documentId] of [
+        ['performanceAssessments', '2026-09_legacy-staff-1'],
+        ['performanceSnapshots', '2026-09_legacy-staff-1'],
+        ['performanceAuditLogs', 'audit-1'],
+      ]) {
+        await assertFails(getDoc(doc(db, collectionName, documentId)))
+        await assertFails(setDoc(doc(db, collectionName, documentId), { forged: true }))
+      }
+    }
+  })
+
   test('PT change, OFF and preservation policy records are callable-only', async () => {
     const adminDb = authenticatedDb('admin-1', 'admin')
     const studentDb = authenticatedDb('client-1', 'student')

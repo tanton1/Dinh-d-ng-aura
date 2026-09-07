@@ -83,7 +83,7 @@ export default function StaffPerformanceBrandPanel({ periodId, isDemo = false }:
     setLoading(true); setError('')
     try {
       if (isDemo) {
-        setScore({ schemaVersion: 1, formulaVersion: 'aura-performance-v1', staffId: 'demo-trainer', periodId, amountImpact: 'none', locked: false, coverage: { availableWeight: 10, totalWeight: 100, confidence: 'low' }, score: { value: null, maximum: 100, reason: 'Bản demo chỉ minh họa cấu phần Brand.' }, categories: [], brand: { total: 0, maximum: 10, personal: { approvedCount: 0, target: 4, score: 0, maximum: 5 }, aura: { approvedCount: 0, target: 3, score: 0, maximum: 3 }, profile: { completedCount: 0, target: 10, score: 0, maximum: 2, checklist: {} } }, evidence: { total: 0, pending: 0, approved: 0 } })
+        setScore({ schemaVersion: 2, formulaVersion: 'aura-pt-performance-v1.0-2026-09-07', staffId: 'demo-trainer', staffName: 'PT Demo', periodId, assessmentRevision: 0, generatedAt: '', amountImpact: 'none', locked: false, coverage: { availableWeight: 10, totalWeight: 100, confidence: 'low', missingMetricIds: [] }, score: { value: null, provisionalValue: 0, maximum: 100, reason: 'Bản demo chỉ minh họa cấu phần Brand.' }, categories: [], gates: [], bonus: { eligibility: 'pending', recommendedAmount: null, classification: 'Chưa đủ dữ liệu', reason: 'Bản demo chưa có phiếu chấm.' }, brand: { total: 0, maximum: 10, personal: { approvedCount: 0, target: 4, score: 0, maximum: 5 }, aura: { approvedCount: 0, target: 3, score: 0, maximum: 3 }, profile: { completedCount: 0, target: 10, score: 0, maximum: 2, checklist: {} } }, evidence: { total: 0, pending: 0, approved: 0 } })
         setEvidence([])
       } else {
         const [nextScore, nextEvidence] = await Promise.all([getMyPerformanceScore(periodId), listMyPerformanceEvidence(periodId)])
@@ -118,23 +118,32 @@ export default function StaffPerformanceBrandPanel({ periodId, isDemo = false }:
     catch (cause) { setNotice(errorMessage(cause)) }
   }
 
+  const displayScore = score?.score.value ?? score?.score.provisionalValue ?? null
+
   return <section className="performance-brand" aria-label="Aura Performance Score và bằng chứng thương hiệu">
     <header className="performance-brand__head">
       <div className="performance-brand__mark"><Award size={25} /></div>
-      <div><small>AURA PERFORMANCE SCORE · 10/100 ĐIỂM</small><h2>Thương hiệu cá nhân / Aura Brand</h2><p>Gửi link bài cụ thể hoặc ảnh chụp bài đăng trên trang cá nhân và hội nhóm.</p></div>
-      <div className="performance-brand__score"><strong>{brand?.total ?? '—'}</strong><span>/ 10 điểm</span></div>
+      <div><small>AURA PT PERFORMANCE SCORE · 100 ĐIỂM</small><h2>Hiệu suất tháng của bạn</h2><p>Minh bạch theo 25 chỉ số, 7 nhóm KPI và 4 Gate bắt buộc.</p></div>
+      <div className="performance-brand__score"><strong>{displayScore ?? '—'}</strong><span>/ 100 điểm</span></div>
     </header>
 
     {loading && <div className="performance-brand__state"><LoaderCircle className="spin" /> Đang đồng bộ điểm Brand…</div>}
     {error && <div className="performance-brand__state is-error"><AlertCircle /> <span>{error}</span><button type="button" onClick={() => void load()}><RotateCcw /> Thử lại</button></div>}
     {!loading && score && <>
+      <div className="performance-brand__overview">
+        <article><small>DỮ LIỆU ĐÃ XÁC MINH</small><strong>{score.coverage.availableWeight}/100</strong><span>{score.score.value === null ? 'Điểm đang tạm tính' : 'Đã đủ dữ liệu tính điểm'}</span></article>
+        <article><small>XẾP LOẠI</small><strong>{score.bonus.classification}</strong><span>{score.locked ? 'Kỳ đã khóa' : 'Kỳ đang cập nhật'}</span></article>
+        <article><small>THƯỞNG KPI ĐỀ XUẤT</small><strong>{score.bonus.recommendedAmount === null ? 'Chờ đủ Gate' : `${score.bonus.recommendedAmount.toLocaleString('vi-VN')}đ`}</strong><span>{score.bonus.reason}</span></article>
+      </div>
+      <div className="performance-brand__gates" aria-label="Bốn Gate bắt buộc">{score.gates.map((gate) => <span className={`is-${gate.status}`} key={gate.id}><b>{gate.label}</b><em>{gate.status === 'pass' ? 'Đạt' : gate.status === 'fail' ? 'Không đạt' : 'Chờ kết luận'}</em></span>)}</div>
+      <div className="performance-brand__section-title"><div><small>PERSONAL & AURA BRAND · 10/100</small><strong>Bằng chứng thương hiệu</strong></div><span>{brand?.total ?? 0}/10 điểm</span></div>
       <div className="performance-brand__metrics">
-        <article><span><UserRound /></span><div><small>PERSONAL BRAND · 5 ĐIỂM</small><strong>{brand?.personal.approvedCount || 0}/4 nội dung</strong><p>Điểm hiện tại {brand?.personal.score || 0}/5</p></div></article>
-        <article><span><Megaphone /></span><div><small>AURA BRAND · 3 ĐIỂM</small><strong>{brand?.aura.approvedCount || 0}/3 nhiệm vụ</strong><p>Đúng brief và được duyệt</p></div></article>
+        <article><span><UserRound /></span><div><small>PERSONAL BRAND · 5 ĐIỂM</small><strong>{brand?.personal.approvedCount || 0}/4 nội dung</strong><p>1/2/3/≥4 bài = 1/2,5/4/5 điểm</p></div></article>
+        <article><span><Megaphone /></span><div><small>AURA BRAND · 3 ĐIỂM</small><strong>{brand?.aura.approvedCount || 0}/3 nhiệm vụ</strong><p>Mỗi nhiệm vụ đúng brief = 1 điểm</p></div></article>
         <article><span><ShieldCheck /></span><div><small>PROFILE QUALITY · 2 ĐIỂM</small><strong>{brand?.profile.completedCount || 0}/10 mục</strong><p>Quản lý đánh giá checklist hồ sơ</p></div></article>
       </div>
-      <div className="performance-brand__rules"><CheckCircle2 /><p>Một nội dung đăng lại nhiều nơi chỉ tính một asset. Không chấm theo follower hoặc lượt thích; nội dung vi phạm bản quyền, consent hình ảnh khách hàng hoặc tuyên bố y khoa sai lệch sẽ không được duyệt.</p></div>
-      <details className="performance-brand__framework"><summary>Khung Aura Performance Score 100 điểm</summary><div>{score.categories.map((category) => <span key={category.id}><b>{category.label}</b><em>{category.status === 'available' ? `${category.score ?? 0}/${category.weight}` : `N/A · trọng số ${category.weight}`}</em></span>)}</div><p>Dữ liệu chưa đủ được ghi N/A, không tự quy đổi thành 0. V1 chỉ phân tích và không tự thay đổi lương hoặc cấp bậc.</p></details>
+      <div className="performance-brand__rules"><CheckCircle2 /><p>Gửi ảnh chụp hoặc link bài đăng trên trang cá nhân/hội nhóm. Một nội dung đăng lại nhiều nơi chỉ tính một asset. Không chấm theo follower hoặc lượt thích; nội dung vi phạm bản quyền, consent hình ảnh khách hàng hoặc tuyên bố y khoa sai lệch sẽ không được duyệt.</p></div>
+      <details className="performance-brand__framework" open><summary>Chi tiết 7 nhóm Performance Score</summary><div className="performance-brand__framework-groups">{score.categories.map((category) => <section key={category.id}><header><b>{category.label}</b><em>{category.score === null ? `N/A · trọng số ${category.weight}` : `${category.score}/${category.weight}${category.status === 'partial' ? ' · chưa đủ dữ liệu' : ''}`}</em></header><div>{category.submetrics.map((metric) => <span key={metric.id} title={metric.reason || metric.note}><b>{metric.label}</b><em>{metric.status === 'available' ? `${metric.score ?? 0}/${metric.weight}` : metric.status === 'needs_review' ? `Cần duyệt · ${metric.weight}` : `N/A · ${metric.weight}`}</em></span>)}</div></section>)}</div><p>{score.score.reason} Brand chỉ được cộng khi bằng chứng ảnh/link đã được duyệt; phiếu điểm không tự thay đổi lương hoặc cấp bậc.</p></details>
       <div className="performance-brand__actions"><div><strong>{score.evidence.pending} chờ duyệt</strong><span>{score.evidence.approved} bằng chứng đã duyệt trong kỳ</span></div><button type="button" disabled={isDemo || score.locked} onClick={() => setShowForm((current) => !current)}><Plus /> Gửi bằng chứng</button></div>
     </>}
 

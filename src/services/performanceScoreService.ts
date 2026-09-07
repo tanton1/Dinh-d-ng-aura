@@ -45,7 +45,37 @@ export interface PerformanceCategoryScore {
   label: string
   weight: number
   score: number | null
-  status: 'available' | 'not_available'
+  availableWeight: number
+  status: 'available' | 'partial' | 'not_available'
+  submetrics: PerformanceSubmetricScore[]
+}
+
+export interface PerformanceSubmetricScore {
+  id: string
+  label: string
+  weight: number
+  score: number | null
+  status: 'available' | 'needs_review' | 'not_available'
+  source: string
+  actual: number | null
+  target: number | null
+  numerator: number | null
+  denominator: number | null
+  sampleSize: number
+  note: string
+  evidenceRefs: string[]
+  reason: string
+  calculation: string
+  achievementRate: number | null
+}
+
+export interface PerformanceGateResult {
+  id: 'quality' | 'attendance' | 'client_safety' | 'integrity'
+  label: string
+  status: 'pass' | 'fail' | 'unknown'
+  source: string
+  reason: string
+  evidenceRefs: string[]
 }
 
 export interface MyPerformanceScore {
@@ -53,11 +83,16 @@ export interface MyPerformanceScore {
   formulaVersion: string
   staffId: string
   periodId: string
+  staffName: string
+  assessmentRevision: number
+  generatedAt: string
   amountImpact: 'none'
   locked: boolean
-  coverage: { availableWeight: number; totalWeight: number; confidence: 'low' | 'medium' | 'high' }
-  score: { value: number | null; maximum: number; reason: string }
+  coverage: { availableWeight: number; totalWeight: number; confidence: 'low' | 'medium' | 'high'; missingMetricIds: string[] }
+  score: { value: number | null; provisionalValue: number; maximum: number; reason: string }
   categories: PerformanceCategoryScore[]
+  gates: PerformanceGateResult[]
+  bonus: { eligibility: 'eligible' | 'ineligible' | 'pending'; recommendedAmount: number | null; classification: string; reason: string }
   brand: {
     total: number
     maximum: 10
@@ -66,6 +101,24 @@ export interface MyPerformanceScore {
     profile: { completedCount: number; target: 10; score: number; maximum: 2; checklist: Partial<Record<PerformanceProfileKey, boolean>> }
   }
   evidence: { total: number; pending: number; approved: number }
+}
+
+export type PerformanceAssessmentSource = 'manager_review' | 'system_fallback' | 'rolling_average' | 'neutral_score'
+
+export interface PerformanceMetricAssessmentInput {
+  periodId: string
+  staffId: string
+  metricId: string
+  expectedRevision: number
+  source: PerformanceAssessmentSource
+  actual?: number | null
+  target?: number | null
+  numerator?: number | null
+  denominator?: number | null
+  manualScore?: number | null
+  sampleSize?: number | null
+  note: string
+  evidenceRefs?: string[]
 }
 
 export interface PerformanceStaffDirectoryItem {
@@ -88,6 +141,10 @@ function text(value: unknown) {
 function number(value: unknown) {
   const parsed = Number(value)
   return Number.isFinite(parsed) ? parsed : 0
+}
+
+function nullableNumber(value: unknown) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
 }
 
 function stringArray(value: unknown) {
@@ -144,16 +201,47 @@ function normalizeScore(value: unknown, periodId: string): MyPerformanceScore {
   const coverage = object(raw.coverage)
   const score = object(raw.score)
   const evidence = object(raw.evidence)
+  const bonus = object(raw.bonus)
   return {
     schemaVersion: number(raw.schemaVersion) || 1,
-    formulaVersion: text(raw.formulaVersion) || 'aura-performance-v1',
-    staffId: text(raw.staffId), periodId: text(raw.periodId) || periodId, amountImpact: 'none', locked: raw.locked === true,
-    coverage: { availableWeight: number(coverage.availableWeight), totalWeight: number(coverage.totalWeight) || 100, confidence: ['medium', 'high'].includes(text(coverage.confidence)) ? text(coverage.confidence) as 'medium' | 'high' : 'low' },
-    score: { value: typeof score.value === 'number' ? score.value : null, maximum: number(score.maximum) || 100, reason: text(score.reason) },
+    formulaVersion: text(raw.formulaVersion) || 'aura-pt-performance-v1.0-2026-09-07',
+    staffId: text(raw.staffId), staffName: text(raw.staffName), periodId: text(raw.periodId) || periodId,
+    assessmentRevision: number(raw.assessmentRevision), generatedAt: text(raw.generatedAt), amountImpact: 'none', locked: raw.locked === true,
+    coverage: { availableWeight: number(coverage.availableWeight), totalWeight: number(coverage.totalWeight) || 100, confidence: ['medium', 'high'].includes(text(coverage.confidence)) ? text(coverage.confidence) as 'medium' | 'high' : 'low', missingMetricIds: stringArray(coverage.missingMetricIds) },
+    score: { value: nullableNumber(score.value), provisionalValue: number(score.provisionalValue), maximum: number(score.maximum) || 100, reason: text(score.reason) },
     categories: Array.isArray(raw.categories) ? raw.categories.map((item) => {
       const category = object(item)
-      return { id: text(category.id), label: text(category.label), weight: number(category.weight), score: typeof category.score === 'number' ? category.score : null, status: category.status === 'available' ? 'available' as const : 'not_available' as const }
+      const submetrics: PerformanceSubmetricScore[] = Array.isArray(category.submetrics) ? category.submetrics.flatMap((rawMetric) => {
+        const metric = object(rawMetric)
+        const id = text(metric.id)
+        return id ? [{
+          id,
+          label: text(metric.label),
+          weight: number(metric.weight),
+          score: nullableNumber(metric.score),
+          status: metric.status === 'available' ? 'available' as const : metric.status === 'needs_review' ? 'needs_review' as const : 'not_available' as const,
+          source: text(metric.source), actual: nullableNumber(metric.actual), target: nullableNumber(metric.target),
+          numerator: nullableNumber(metric.numerator), denominator: nullableNumber(metric.denominator), sampleSize: number(metric.sampleSize),
+          note: text(metric.note), evidenceRefs: stringArray(metric.evidenceRefs), reason: text(metric.reason), calculation: text(metric.calculation),
+          achievementRate: nullableNumber(metric.achievementRate),
+        }] : []
+      }) : []
+      return { id: text(category.id), label: text(category.label), weight: number(category.weight), score: nullableNumber(category.score), availableWeight: number(category.availableWeight), status: category.status === 'available' ? 'available' as const : category.status === 'partial' ? 'partial' as const : 'not_available' as const, submetrics }
     }) : [],
+    gates: Array.isArray(raw.gates) ? raw.gates.flatMap((value) => {
+      const gate = object(value)
+      const id = text(gate.id)
+      if (!['quality', 'attendance', 'client_safety', 'integrity'].includes(id)) return []
+      return [{
+        id: id as PerformanceGateResult['id'], label: text(gate.label),
+        status: gate.status === 'pass' ? 'pass' as const : gate.status === 'fail' ? 'fail' as const : 'unknown' as const,
+        source: text(gate.source), reason: text(gate.reason), evidenceRefs: stringArray(gate.evidenceRefs),
+      }]
+    }) : [],
+    bonus: {
+      eligibility: bonus.eligibility === 'eligible' ? 'eligible' : bonus.eligibility === 'ineligible' ? 'ineligible' : 'pending',
+      recommendedAmount: nullableNumber(bonus.recommendedAmount), classification: text(bonus.classification), reason: text(bonus.reason),
+    },
     brand: {
       total: number(brand.total), maximum: 10,
       personal: { approvedCount: number(personal.approvedCount), target: 4, score: number(personal.score), maximum: 5 },
@@ -249,4 +337,34 @@ export async function reviewPerformanceBrandEvidence(input: { evidenceId: string
 
 export async function savePerformanceProfileChecklist(input: { periodId: string; staffId: string; checklist: Record<PerformanceProfileKey, boolean>; reason?: string }) {
   return call<typeof input, { evidenceId: string; completedCount: number; status: 'approved' }>('savePerformanceProfileChecklist', input)
+}
+
+export async function getPerformanceStaffScore(periodId: string, staffId: string) {
+  return normalizeScore(await call<{ periodId: string; staffId: string }, UnknownRecord>('getPerformanceStaffScore', { periodId, staffId }), periodId)
+}
+
+export async function savePerformanceMetricAssessment(input: PerformanceMetricAssessmentInput) {
+  const result = await call<PerformanceMetricAssessmentInput, { revision: number; computedScore: number; snapshot?: unknown }>('savePerformanceMetricAssessment', input)
+  return { revision: number(result.revision), computedScore: number(result.computedScore) }
+}
+
+export async function savePerformanceGateAssessment(input: {
+  periodId: string
+  staffId: string
+  gateId: 'attendance' | 'client_safety' | 'integrity'
+  expectedRevision: number
+  status: 'pass' | 'fail' | 'unknown'
+  reason: string
+  evidenceRefs?: string[]
+}) {
+  const result = await call<typeof input, { revision: number }>('savePerformanceGateAssessment', input)
+  return { revision: number(result.revision) }
+}
+
+export async function refreshPerformanceSnapshot(periodId: string, staffId: string) {
+  return normalizeScore(await call<{ periodId: string; staffId: string }, UnknownRecord>('refreshPerformanceSnapshot', { periodId, staffId }), periodId)
+}
+
+export async function setPerformanceSnapshotLock(input: { periodId: string; staffId: string; locked: boolean; reason: string }) {
+  return normalizeScore(await call<typeof input, UnknownRecord>('setPerformanceSnapshotLock', input), input.periodId)
 }

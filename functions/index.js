@@ -631,6 +631,11 @@ exports.withdrawPerformanceBrandEvidenceV2 = performanceScoreV2Functions.withdra
 exports.listPerformanceReviewQueueV2 = performanceScoreV2Functions.listPerformanceReviewQueue
 exports.reviewPerformanceBrandEvidenceV2 = performanceScoreV2Functions.reviewPerformanceBrandEvidence
 exports.savePerformanceProfileChecklistV2 = performanceScoreV2Functions.savePerformanceProfileChecklist
+exports.getPerformanceStaffScoreV2 = performanceScoreV2Functions.getPerformanceStaffScore
+exports.savePerformanceMetricAssessmentV2 = performanceScoreV2Functions.savePerformanceMetricAssessment
+exports.savePerformanceGateAssessmentV2 = performanceScoreV2Functions.savePerformanceGateAssessment
+exports.refreshPerformanceSnapshotV2 = performanceScoreV2Functions.refreshPerformanceSnapshot
+exports.setPerformanceSnapshotLockV2 = performanceScoreV2Functions.setPerformanceSnapshotLock
 const businessReportingFunctions = createBusinessReportingFunctions({ db, onCall })
 Object.assign(exports, businessReportingFunctions)
 // Static exports make the three endpoints selectable in a safe rollout.

@@ -1312,6 +1312,10 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    match /performanceAssessments/{assessmentId} {
+      allow read, write: if false;
+    }
+
     match /performanceEvidence/{evidenceId} {
       allow read, write: if false;
     }

@@ -10,6 +10,7 @@ import {
   type PerformanceProfileKey,
   type PerformanceStaffDirectoryItem,
 } from '../../services/performanceScoreService'
+import PerformanceScorecardReviewPanel from './PerformanceScorecardReviewPanel'
 import './PerformanceBrandReviewPanel.css'
 
 const PROFILE_LABELS: Record<PerformanceProfileKey, string> = {
@@ -129,6 +130,7 @@ export default function PerformanceBrandReviewPanel({ isDemo = false }: { isDemo
     {error && <div className="performance-review__state is-error"><AlertTriangle /> {error}</div>}
     {notice && <div className="performance-review__state"><CheckCircle2 /> {notice}</div>}
     {loading && <div className="performance-review__state"><LoaderCircle className="spin" /> Đang tải hàng chờ…</div>}
+    {!loading && <PerformanceScorecardReviewPanel periodId={periodId} staff={staff} isDemo={isDemo} />}
     {!loading && <div className="performance-review__layout">
       <div className="performance-review__queue">
         <header><div><small>HÀNG CHỜ BẰNG CHỨNG</small><strong>{rows.length} hồ sơ</strong></div><span>Link hoặc ảnh chụp</span></header>
