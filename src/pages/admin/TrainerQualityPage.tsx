@@ -7,6 +7,7 @@ import {
   type SessionFeedbackStatus,
   type TrainerFeedbackAdminResponse,
 } from '../../services/sessionFeedbackService'
+import PerformanceBrandReviewPanel from '../../components/performance/PerformanceBrandReviewPanel'
 import './TrainerQualityPage.css'
 
 const STATUS_LABELS: Record<SessionFeedbackStatus, string> = {
@@ -55,6 +56,7 @@ export default function TrainerQualityPage({ isDemo = false }: { isDemo?: boolea
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [note, setNote] = useState('')
   const [action, setAction] = useState('')
+  const [workspace, setWorkspace] = useState<'feedback' | 'performance'>('feedback')
 
   const load = useCallback(async () => {
     setLoading(true); setError('')
@@ -64,7 +66,7 @@ export default function TrainerQualityPage({ isDemo = false }: { isDemo?: boolea
       setError(caught instanceof Error ? caught.message : 'Chưa thể tải dữ liệu chất lượng PT.')
     } finally { setLoading(false) }
   }, [branchId, from, isDemo, score, status, to, trainerId])
-  useEffect(() => { void load() }, [load])
+  useEffect(() => { if (workspace === 'feedback') void load() }, [load, workspace])
 
   const rows = useMemo(() => [...(data?.rows ?? [])].sort((left, right) => {
     const rank = (item: SessionFeedbackAdminRow) => item.status === 'needs_review' ? 0 : item.status === 'reviewing' ? 1 : item.status === 'submitted' ? 2 : 3
@@ -89,6 +91,11 @@ export default function TrainerQualityPage({ isDemo = false }: { isDemo?: boolea
   }
 
   return <main className="trainer-quality-page">
+    <nav className="trainer-quality-workspaces" aria-label="Khu vực chất lượng và hiệu suất PT">
+      <button type="button" className={workspace === 'feedback' ? 'is-active' : ''} onClick={() => setWorkspace('feedback')}><Star /> Phản hồi học viên</button>
+      <button type="button" className={workspace === 'performance' ? 'is-active' : ''} onClick={() => setWorkspace('performance')}><BarChart3 /> Aura Performance Score</button>
+    </nav>
+    {workspace === 'performance' ? <PerformanceBrandReviewPanel isDemo={isDemo} /> : <>
     <section className="trainer-quality-metrics" aria-label="Tổng hợp chất lượng PT">
       <article className="is-primary"><small>ĐIỂM TRUNG BÌNH</small><strong>{data?.summary.averageScore.toFixed(1) ?? '0.0'}<Star fill="currentColor" /></strong><span>{data?.summary.total ?? 0} lượt đánh giá trong kỳ</span></article>
       <article><small>TỶ LỆ PHẢN HỒI</small><strong>{data?.summary.responseRate ?? 0}%</strong><span>{data?.summary.total ?? 0}/{data?.summary.eligibleAttendanceCount ?? 0} buổi có tập</span></article>
@@ -123,6 +130,7 @@ export default function TrainerQualityPage({ isDemo = false }: { isDemo?: boolea
           {selectedId === row.id && <div className="trainer-quality-detail"><div className="trainer-quality-tags">{row.tags.map((tag) => <span key={tag}>{TAG_LABELS[tag] || tag}</span>)}</div><dl><div><dt>Session</dt><dd>{row.sessionId}</dd></div><div><dt>Gửi lúc</dt><dd>{formatDate(row.submittedAt)}</dd></div><div><dt>Nhóm vấn đề</dt><dd>{row.issueCategory === 'none' ? 'Không có' : row.issueCategory}</dd></div></dl><label><span>Ghi chú xử lý</span><textarea rows={3} maxLength={500} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Kết quả xác minh, trao đổi với PT hoặc học viên…" /></label><footer>{row.status === 'needs_review' && <button type="button" disabled={Boolean(action)} onClick={() => void runAction(row.id, 'mark_reviewing')}><Clock3 /> Nhận xử lý</button>}{row.status !== 'resolved' && <button type="button" className="is-resolve" disabled={Boolean(action) || note.trim().length < 3} onClick={() => void runAction(row.id, 'resolve')}><CheckCircle2 /> Hoàn tất</button>}{row.status === 'resolved' && <button type="button" disabled={Boolean(action)} onClick={() => void runAction(row.id, 'reopen')}><RefreshCw /> Mở lại</button>}</footer></div>}
         </article>)}{!rows.length && <div className="trainer-quality-empty"><CheckCircle2 /><strong>Chưa có phản hồi trong bộ lọc</strong><span>Đánh giá mới sẽ xuất hiện sau khi học viên hoàn thành buổi tập.</span></div>}</div>
       </section>
+    </>}
     </>}
   </main>
 }

@@ -14,6 +14,8 @@
     "coach.workspace.view",
     "attendance.self.view",
     "payroll.self.view",
+    "performance.self.view",
+    "performance.evidence.submit",
     "loyalty.student.read"
   ],
   "positionCapabilities": {
@@ -54,6 +56,7 @@
       "renewals.workspace.view",
       "renewals.branch.manage",
       "renewals.approval.manage",
+      "performance.evidence.review",
       "loyalty.dashboard.read",
       "loyalty.redemption.review",
       "loyalty.redemption.fulfill",
@@ -81,6 +84,7 @@
     "renewals.approval.manage",
     "finance.operations.manage",
     "payroll.operations.manage",
+    "performance.evidence.review",
     "attendance.self.view",
     "payroll.self.view",
     "academy.operations.manage",

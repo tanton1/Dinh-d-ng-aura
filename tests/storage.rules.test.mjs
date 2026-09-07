@@ -57,6 +57,13 @@ function uploadProgressPhoto(storage, userId, fileName = 'photo-123.jpg', metada
   })
 }
 
+function uploadPerformanceEvidence(storage, userId, periodId = '2026-09', evidenceId = 'evidence_12345678', metadataOwner = userId) {
+  return uploadBytes(ref(storage, `performance-evidence/${userId}/${periodId}/${evidenceId}/proof.jpg`), validImage, {
+    contentType: 'image/jpeg',
+    customMetadata: { ownerUid: metadataOwner, periodId, evidenceId, resourceKind: 'performance-evidence' },
+  })
+}
+
 describe('Aura Academy Storage rules', () => {
   before(async () => {
     testEnvironment = await initializeTestEnvironment({
@@ -117,6 +124,16 @@ describe('Aura Academy Storage rules', () => {
     await assertFails(uploadProgressPhoto(storageFor('student-1', 'student'), 'student-2'))
     await assertFails(uploadProgressPhoto(storageFor('student-1', 'student'), 'student-1', 'forged.jpg', 'student-2'))
     await assertFails(getBytes(ref(storageFor('trainer-1', 'trainer'), uploaded.ref.fullPath)))
+    await assertSucceeds(getBytes(ref(storageFor('admin-1', 'admin'), uploaded.ref.fullPath)))
+  })
+
+  test('Brand evidence is immutable, owner-uploaded and manager reads use signed URLs', async () => {
+    const trainerStorage = storageFor('trainer-1', 'trainer')
+    const uploaded = await assertSucceeds(uploadPerformanceEvidence(trainerStorage, 'trainer-1'))
+    await assertFails(uploadPerformanceEvidence(trainerStorage, 'trainer-2', '2026-09', 'evidence_cross_123'))
+    await assertFails(uploadPerformanceEvidence(trainerStorage, 'trainer-1', '2026-09', 'evidence_forged_123', 'trainer-2'))
+    await assertSucceeds(getBytes(ref(trainerStorage, uploaded.ref.fullPath)))
+    await assertFails(getBytes(ref(storageFor('manager-1', 'manager'), uploaded.ref.fullPath)))
     await assertSucceeds(getBytes(ref(storageFor('admin-1', 'admin'), uploaded.ref.fullPath)))
   })
 })
