@@ -2038,6 +2038,109 @@ function slotIsPast(week, slotId, now = Date.now()) {
   return Date.parse(`${dateForSlot(week, day)}T${String(hour).padStart(2, '0')}:00:00+07:00`) < now
 }
 
+const HISTORICAL_OCCUPANCY_STATUSES = new Set(['scheduled', 'rescheduled', 'completed', 'attended', 'no_show'])
+const HISTORICAL_INVALID_CONTRACT_STATUSES = new Set(['cancelled', 'canceled', 'void', 'refunded', 'deleted'])
+
+function historicalSessionOccupies(session) {
+  return HISTORICAL_OCCUPANCY_STATUSES.has(String(session?.status || '').toLowerCase())
+    || session?.billingStatus === 'charged'
+}
+
+function historicalContractCandidates(data, studentId, date) {
+  return data.contracts.filter((contract) => contract.studentId === studentId
+    && contract.branchId === data.branch.id
+    && !HISTORICAL_INVALID_CONTRACT_STATUSES.has(String(contract.status || '').toLowerCase())
+    && storedDate(contract.startDate) <= date
+    && storedDate(contract.endDate) >= date
+    && !contractPaused(contract, date))
+    .sort((left, right) => storedDate(left.endDate).localeCompare(storedDate(right.endDate))
+      || storedDate(left.startDate).localeCompare(storedDate(right.startDate))
+      || left.id.localeCompare(right.id))
+}
+
+// A session that already happened is accounting evidence, not a mutable draft
+// entry. Keep contract/date/capacity conflicts hard, while old availability,
+// leave and assignment mismatches become explicit audited warnings: the actual
+// class may legitimately have happened outside the plan registered beforehand.
+function historicalSlotCandidate(data, { student, trainer, slotId }) {
+  const [day, rawHour] = String(slotId).split('-')
+  const hour = Number(rawHour)
+  const date = dateForSlot(data.weekId, day)
+  const hardReasons = []
+  const warningReasons = []
+  const sessions = (data.sessions || []).filter(historicalSessionOccupies)
+  const calendar = data.config || {}
+  const workingDays = Array.isArray(calendar.workingDays) ? calendar.workingDays : []
+  const workingHours = Array.isArray(calendar.workingHours) ? calendar.workingHours.map(Number) : []
+  const holidays = Array.isArray(calendar.holidays) ? calendar.holidays : []
+
+  if ((workingDays.length && !workingDays.includes(day))
+    || (workingHours.length && !workingHours.includes(hour))
+    || holidays.includes(date)) warningReasons.push('OUTSIDE_WORKING_CALENDAR')
+  if (['archived', 'deleted'].includes(String(student?.status || '').toLowerCase())) hardReasons.push('STUDENT_NOT_ACTIVE')
+  else if (String(student?.status || '').toLowerCase() === 'inactive') warningReasons.push('STUDENT_NOT_ACTIVE')
+  if (student?.branchId !== data.branch.id) hardReasons.push('STUDENT_BRANCH_MISMATCH')
+  if (!trainer || trainer.status === 'inactive') hardReasons.push('TRAINER_NOT_ACTIVE')
+  else if (trainer.branchId !== data.branch.id) hardReasons.push('TRAINER_BRANCH_MISMATCH')
+
+  const dateContracts = historicalContractCandidates(data, student.id, date)
+  const quotaContracts = dateContracts.filter((contract) => Number(contract.remainingSchedulableSessions
+    ?? contract.remainingEntitlementSessions
+    ?? (Number(contract.totalSessions || 0) - Number(contract.usedSessions || 0))) > 0)
+  const contract = quotaContracts[0] || null
+  if (!dateContracts.length) {
+    const paused = data.contracts.some((candidate) => candidate.studentId === student.id
+      && candidate.branchId === data.branch.id
+      && storedDate(candidate.startDate) <= date
+      && storedDate(candidate.endDate) >= date
+      && contractPaused(candidate, date))
+    hardReasons.push(paused ? 'CONTRACT_PAUSED' : 'ACTIVE_CONTRACT_NOT_FOUND')
+  } else if (!contract) hardReasons.push('CONTRACT_SESSION_QUOTA_EXCEEDED')
+
+  const sameStudentDate = sessions.some((session) => session.studentId === student.id && storedDate(session.date) === date)
+  if (sameStudentDate) hardReasons.push('STUDENT_MULTIPLE_SESSIONS_PER_DAY')
+  const trainerSlotSessions = sessions.filter((session) => session.trainerId === trainer.id
+    && storedDate(session.date) === date
+    && Number(session.hour) === hour)
+  if (new Set(trainerSlotSessions.map((session) => session.studentId)).size >= normalizedCapacity(trainer.slotCapacity)) {
+    hardReasons.push('TRAINER_CAPACITY_EXCEEDED')
+  }
+
+  const configuredBranchCapacity = branchSlotCapacity(calendar, data.branch.id, slotId)
+  const branchSlotCount = sessions.filter((session) => session.branchId === data.branch.id
+    && storedDate(session.date) === date
+    && Number(session.hour) === hour).length
+  if (configuredBranchCapacity !== null && branchSlotCount >= configuredBranchCapacity) hardReasons.push('BRANCH_CAPACITY_REACHED')
+
+  const matchesStudentAvailability = ['submitted', 'locked', 'inherited', 'recurring'].includes(student.availabilityStatus)
+    && Array.isArray(student.availableSlots)
+    && student.availableSlots.includes(slotId)
+  if (!['submitted', 'locked', 'inherited', 'recurring'].includes(student.availabilityStatus)) warningReasons.push('AVAILABILITY_NOT_SUBMITTED')
+  else if (!matchesStudentAvailability) warningReasons.push('OUTSIDE_STUDENT_AVAILABILITY')
+  if (trainer?.availabilityMode === 'unconfigured') warningReasons.push('TRAINER_AVAILABILITY_UNCONFIGURED')
+  else if (trainer && !trainerIsAvailable(trainer, slotId)) warningReasons.push('OUTSIDE_TRAINER_AVAILABILITY')
+  if (trainer && data.leaves.some((leave) => leaveCovers(leave, trainer.id, date))) warningReasons.push('TRAINER_ON_LEAVE')
+
+  const assigned = assignedTrainerIds(contract)
+  const trainerAssignmentWarning = assigned.length > 0 && !assigned.includes(trainer.id)
+  const reasons = [...new Set([...hardReasons, ...warningReasons])]
+  const availabilityReason = reasons.find((reason) => STUDENT_AVAILABILITY_REASON_CODES.has(reason)) || null
+  return {
+    eligible: reasons.length === 0,
+    reasons,
+    hardReasons: [...new Set(hardReasons)],
+    warningReasons: [...new Set(warningReasons)],
+    contractId: contract?.id || null,
+    date,
+    matchesStudentAvailability,
+    manualSelectable: hardReasons.length === 0,
+    availabilityReason,
+    trainerAssignmentWarning,
+    assignedTrainerIds: assigned,
+    historical: true,
+  }
+}
+
 function protectedFromOptimizer(entry) {
   return entry.type === 'off' || entry.isLocked === true || entry.source === 'manual_v2'
     || entry.source === 'published_existing' || entry.availabilityOverride === true
@@ -2472,6 +2575,7 @@ function createPtScheduleV2Functions({ db, onCall, actorForBranch = scheduleActo
     if (!trainer) throw new HttpsError('not-found', 'Không tìm thấy PT trong chi nhánh.')
     const rawSearch = typeof request.data?.search === 'string' ? request.data.search.trim().slice(0, 100) : ''
     const search = normalizedSearchText(rawSearch)
+    const historical = request.data?.historical === true && slotIsPast(week, slotId)
     const scheduledCounts = scheduleStudentCounts(data.schedule)
     const studentsById = new Map(data.students.map((student) => [student.id, student]))
     const branchCandidates = data.students.filter((student) => !search
@@ -2480,14 +2584,16 @@ function createPtScheduleV2Functions({ db, onCall, actorForBranch = scheduleActo
       studentId: student.id,
       name: student.name,
       phone: student.phone,
-      ...manualSlotCandidate(candidateForSlot(data, { student, trainer, slotId, schedule: data.schedule })),
+      ...(historical
+        ? historicalSlotCandidate(data, { student, trainer, slotId })
+        : manualSlotCandidate(candidateForSlot(data, { student, trainer, slotId, schedule: data.schedule }))),
     }))
 
     // Tìm học viên khác cơ sở chỉ khi admin chủ động nhập từ khóa.
     // Mỗi kết quả được nạp lại bằng hồ sơ, hợp đồng, lịch rảnh và
     // session chính xác trước khi trả về; staff chi nhánh không nhìn thấy dữ liệu này.
     let crossBranchCandidates = []
-    if (activeAdministrator(actor) && search.length >= 2) {
+    if (!historical && activeAdministrator(actor) && search.length >= 2) {
       const globalStudents = await db.collection('students').limit((MAX_STUDENTS * 3) + 1).get()
       const externalMatches = globalStudents.docs
         .filter((item) => item.data().branchId !== branchId)
@@ -2534,6 +2640,185 @@ function createPtScheduleV2Functions({ db, onCall, actorForBranch = scheduleActo
           || left.name.localeCompare(right.name, 'vi')
       }).slice(0, 100),
     }
+  })
+
+  const createHistoricalPtSession = onCall(async (request) => {
+    const week = weekId(request.data?.weekId)
+    const branchId = documentId(request.data?.branchId, 'Mã chi nhánh')
+    const trainerId = documentId(request.data?.trainerId, 'Mã PT')
+    const studentId = documentId(request.data?.studentId, 'Mã học viên')
+    const contractId = documentId(request.data?.contractId, 'Mã hợp đồng')
+    const slotId = typeof request.data?.slotId === 'string' ? request.data.slotId : ''
+    if (!/^(T[2-7]|CN)-(?:[0-9]|1[0-9]|2[0-3])$/.test(slotId)) throw new HttpsError('invalid-argument', 'Ô lịch không hợp lệ.')
+    if (!slotIsPast(week, slotId)) throw new HttpsError('failed-precondition', 'Ca chưa qua giờ; hãy lưu vào draft và publish theo luồng xếp lịch.')
+    const reason = typeof request.data?.reason === 'string' ? request.data.reason.trim().slice(0, 300) : ''
+    if (reason.length < 8) throw new HttpsError('invalid-argument', 'Hãy nhập lý do bổ sung tối thiểu 8 ký tự để lưu audit.')
+    const idempotencyKey = typeof request.data?.idempotencyKey === 'string' ? request.data.idempotencyKey.trim() : ''
+    if (!/^[A-Za-z0-9:_-]{8,200}$/.test(idempotencyKey)) throw new HttpsError('invalid-argument', 'Khóa chống lặp không hợp lệ.')
+    const actor = await actorForBranch(request, db, branchId)
+    const data = await branchData(db, branchId, week)
+    data.weekId = week
+    const student = data.students.find((item) => item.id === studentId)
+    const trainer = data.trainers.find((item) => item.id === trainerId)
+    if (!student || !trainer) throw new HttpsError('not-found', 'Không tìm thấy PT hoặc học viên trong chi nhánh.')
+    const candidate = historicalSlotCandidate(data, { student, trainer, slotId })
+    if (!candidate.manualSelectable || candidate.contractId !== contractId) {
+      throw new HttpsError('failed-precondition', 'Ca bổ sung chưa đủ điều kiện ghi vào lịch sử.', {
+        issueCode: 'HISTORICAL_SESSION_REJECTED',
+        errors: candidate.hardReasons?.length ? candidate.hardReasons : candidate.reasons,
+      })
+    }
+    const acknowledgedWarnings = new Set(Array.isArray(request.data?.acknowledgedWarnings)
+      ? request.data.acknowledgedWarnings.filter((value) => typeof value === 'string').slice(0, 20)
+      : [])
+    if (candidate.warningReasons.some((warning) => !acknowledgedWarnings.has(warning))) {
+      throw new HttpsError('failed-precondition', 'Hãy xác nhận các lưu ý của ca đã qua trước khi ghi lịch sử.', {
+        issueCode: 'HISTORICAL_WARNING_CONFIRMATION_REQUIRED',
+        errors: candidate.warningReasons,
+      })
+    }
+
+    const [day, rawHour] = slotId.split('-')
+    const targetDate = dateForSlot(week, day)
+    const targetHour = Number(rawHour)
+    const scheduleId = `schedule_${week}`
+    const scheduleEntryId = `${scheduleId}-${slotId}-${studentId}`
+    const sessionDigest = createHash('sha256').update(`${scheduleId}|${branchId}|${slotId}|${studentId}`).digest('hex').slice(0, 40)
+    const sessionReference = db.doc(`sessions/pt_${sessionDigest}`)
+    const receipt = db.doc(`ptScheduleCommandReceipts/${commandReceiptId(actor.uid, branchId, week, idempotencyKey)}`)
+    const studentReference = db.doc(`students/${studentId}`)
+    const trainerReference = db.doc(`trainers/${trainerId}`)
+    const contractReference = db.doc(`contracts/${contractId}`)
+    const branchReference = db.doc(`branches/${branchId}`)
+    const payrollReference = db.doc(`payrollRuns/${targetDate.slice(0, 7)}`)
+    const nextDate = new Date(`${targetDate}T00:00:00.000Z`)
+    nextDate.setUTCDate(nextDate.getUTCDate() + 1)
+    const targetDateEnd = nextDate.toISOString().slice(0, 10)
+    const trainerDayQuery = db.collection('sessions').where('trainerId', '==', trainerId).where('date', '>=', targetDate).where('date', '<', targetDateEnd).limit(201)
+    const studentDayQuery = db.collection('sessions').where('studentId', '==', studentId).where('date', '>=', targetDate).where('date', '<', targetDateEnd).limit(201)
+    const contractSessionsQuery = db.collection('sessions').where('contractId', '==', contractId).limit(1001)
+
+    return db.runTransaction(async (transaction) => {
+      const [existingReceipt, existingSession, currentStudent, currentTrainer, currentContract, currentBranch, payroll, trainerDay, studentDay, contractSessions] = await Promise.all([
+        transaction.get(receipt),
+        transaction.get(sessionReference),
+        transaction.get(studentReference),
+        transaction.get(trainerReference),
+        transaction.get(contractReference),
+        transaction.get(branchReference),
+        transaction.get(payrollReference),
+        transaction.get(trainerDayQuery),
+        transaction.get(studentDayQuery),
+        transaction.get(contractSessionsQuery),
+      ])
+      if (existingReceipt.exists) return existingReceipt.data().result
+      if (existingSession.exists) {
+        const existing = existingSession.data()
+        if (existing.studentId === studentId && existing.trainerId === trainerId && storedDate(existing.date) === targetDate && Number(existing.hour) === targetHour) {
+          return { unchanged: true, sessionId: sessionReference.id, contractId: existing.contractId || contractId, status: existing.status || 'scheduled', warnings: candidate.warningReasons, payrollAdjustmentRequired: existing.payrollAdjustmentRequired === true }
+        }
+        throw new HttpsError('already-exists', 'Mã buổi lịch sử đã được dùng cho dữ liệu khác.')
+      }
+      if (!currentBranch.exists || currentBranch.data().status === 'archived') throw new HttpsError('failed-precondition', 'Chi nhánh không hoạt động.')
+      if (!currentStudent.exists || currentStudent.data().branchId !== branchId) throw new HttpsError('failed-precondition', 'Học viên không còn thuộc chi nhánh đang điều chỉnh.')
+      if (!currentTrainer.exists || currentTrainer.data().branchId !== branchId || currentTrainer.data().status === 'inactive') throw new HttpsError('failed-precondition', 'PT không còn hoạt động tại chi nhánh này.')
+      if (!currentContract.exists || currentContract.data().studentId !== studentId || currentContract.data().branchId !== branchId) throw new HttpsError('failed-precondition', 'Hợp đồng không khớp học viên hoặc chi nhánh.')
+      const contract = currentContract.data()
+      if (HISTORICAL_INVALID_CONTRACT_STATUSES.has(String(contract.status || '').toLowerCase())
+        || storedDate(contract.startDate) > targetDate
+        || storedDate(contract.endDate) < targetDate
+        || contractPaused(contract, targetDate)) throw new HttpsError('failed-precondition', 'Hợp đồng không có hiệu lực tại ngày bổ sung.')
+      if (trainerDay.size > 200 || studentDay.size > 200 || contractSessions.size > 1000) throw new HttpsError('resource-exhausted', 'Dữ liệu lịch sử vượt giới hạn đối chiếu an toàn.')
+      const contractSessionRows = contractSessions.docs.map((item) => ({ id: item.id, ...item.data() }))
+      const usage = summarizeContractUsage(contract, contractSessionRows)
+      const heldSessions = contractSessionRows.filter((session) => ['scheduled', 'rescheduled'].includes(String(session.status || '').toLowerCase()) && session.billingStatus !== 'charged').length
+      if (usage.remainingSessions - heldSessions < 1) throw new HttpsError('failed-precondition', 'Hợp đồng không còn buổi để ghi nhận ca bổ sung.', { issueCode: 'CONTRACT_SESSION_QUOTA_EXCEEDED' })
+      const studentConflict = studentDay.docs.some((item) => historicalSessionOccupies(item.data()))
+      if (studentConflict) throw new HttpsError('already-exists', 'Học viên đã có một buổi khác trong ngày này.', { issueCode: 'STUDENT_MULTIPLE_SESSIONS_PER_DAY' })
+      const trainerSlotStudents = new Set(trainerDay.docs.filter((item) => historicalSessionOccupies(item.data()) && Number(item.data().hour) === targetHour).map((item) => item.data().studentId))
+      if (trainerSlotStudents.size >= normalizedCapacity(currentTrainer.data().slotCapacity)) throw new HttpsError('resource-exhausted', 'Ca của PT đã đủ học viên.', { issueCode: 'TRAINER_CAPACITY_EXCEEDED' })
+
+      const payrollAdjustmentRequired = payroll.exists && payroll.data().status !== 'draft'
+      const result = {
+        unchanged: false,
+        sessionId: sessionReference.id,
+        contractId,
+        status: 'scheduled',
+        warnings: candidate.warningReasons,
+        payrollAdjustmentRequired,
+      }
+      transaction.create(sessionReference, {
+        schemaVersion: 2,
+        scheduleEntryId,
+        scheduleWeekId: week,
+        slotId,
+        studentId,
+        accountUid: currentStudent.data().accountUid || currentStudent.data().uid || null,
+        trainerId,
+        contractId,
+        branchId,
+        date: targetDate,
+        hour: targetHour,
+        status: 'scheduled',
+        scheduleStatus: 'scheduled',
+        billingStatus: 'pending',
+        attendanceStatus: 'pending',
+        source: 'admin_historical_supplement',
+        historicalCorrection: true,
+        historicalCorrectionReason: reason,
+        requiresPtConfirmation: true,
+        ...(candidate.trainerAssignmentWarning ? { trainerAssignmentWarning: true } : {}),
+        ...(candidate.warningReasons.length ? { historicalWarnings: candidate.warningReasons } : {}),
+        ...(payrollAdjustmentRequired ? { payrollAdjustmentRequired: true, payrollPeriodId: payroll.id } : {}),
+        revision: 0,
+        verifiedByStudent: false,
+        createdAt: FieldValue.serverTimestamp(),
+        createdBy: actor.uid,
+        updatedAt: FieldValue.serverTimestamp(),
+        updatedBy: actor.uid,
+      })
+      transaction.create(db.collection('sessionEvents').doc(), {
+        schemaVersion: 2,
+        type: 'historical_session_supplemented',
+        sessionId: sessionReference.id,
+        studentId,
+        trainerId,
+        contractId,
+        branchId,
+        to: { date: targetDate, hour: targetHour, trainerId },
+        reason,
+        warnings: candidate.warningReasons,
+        payrollAdjustmentRequired,
+        createdAt: FieldValue.serverTimestamp(),
+        createdBy: actor.uid,
+      })
+      transaction.create(db.collection('ptOperationsAuditLogs').doc(), {
+        schemaVersion: 2,
+        action: 'pt_schedule.historical_session_supplemented',
+        actorUid: actor.uid,
+        branchId,
+        weekId: week,
+        slotId,
+        sessionId: sessionReference.id,
+        studentId,
+        trainerId,
+        contractId,
+        reason,
+        warnings: candidate.warningReasons,
+        payrollAdjustmentRequired,
+        createdAt: FieldValue.serverTimestamp(),
+      })
+      if (payroll.exists && payroll.data().status === 'draft') transaction.update(payrollReference, {
+        requiresRebuild: true,
+        sourceDataStale: true,
+        sourceDataChangedAt: FieldValue.serverTimestamp(),
+        sourceDataChangedBy: actor.uid,
+        sourceDataChangeReason: reason,
+        updatedAt: FieldValue.serverTimestamp(),
+      })
+      transaction.create(receipt, { actorUid: actor.uid, branchId, weekId: week, command: 'create_historical_session', idempotencyKey, result, createdAt: FieldValue.serverTimestamp() })
+      return result
+    })
   })
 
   const savePtStudentAvailability = onCall(async (request) => {
@@ -2795,7 +3080,7 @@ function createPtScheduleV2Functions({ db, onCall, actorForBranch = scheduleActo
     })
   })
 
-  return { listPtScheduleBranches, getPtScheduleWorkspace, generatePtScheduleDraft, getPtScheduleSlotCandidates, savePtStudentAvailability, applyPtScheduleDraftCommand }
+  return { listPtScheduleBranches, getPtScheduleWorkspace, generatePtScheduleDraft, getPtScheduleSlotCandidates, createHistoricalPtSession, savePtStudentAvailability, applyPtScheduleDraftCommand }
 }
 
 module.exports = {
@@ -2809,6 +3094,7 @@ module.exports = {
   compactPairedSlots,
   createsThreeConsecutiveTrainingDays,
   generateSchedule,
+  historicalSlotCandidate,
   manualSlotCandidate,
   maximumFeasibleSessionsForStudent,
   repairCoverageWithRelocations,

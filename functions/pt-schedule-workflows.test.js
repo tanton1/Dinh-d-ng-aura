@@ -1,7 +1,7 @@
 'use strict'
 const test = require('node:test')
 const assert = require('node:assert/strict')
-const { createPtScheduleV2Functions, loadManualMutationData, generateSchedule, repairCoverageWithRelocations, compactPairedSlots, candidateForSlot } = require('./pt-schedule-v2')
+const { createPtScheduleV2Functions, loadManualMutationData, generateSchedule, historicalSlotCandidate, repairCoverageWithRelocations, compactPairedSlots, candidateForSlot } = require('./pt-schedule-v2')
 const WEEK = '2090-01-02', BRANCH = 'b'
 const entry = (id = 'a', trainerId = 't') => ({ studentId: id, trainerId, contractId: `c-${id}`, branchId: BRANCH, type: 'training', source: 'auto_v4' })
 function fixture() {
@@ -47,6 +47,29 @@ test('slot candidates complete for Admin and scoped staff, including cross-branc
     assert.equal(result.candidates[0].studentId, 'a')
     assert.equal(result.candidates[0].eligible, true)
   }
+})
+test('historical supplement accepts an expired contract that was valid on the actual session date', () => {
+  const data = fixture()
+  data.contracts[0].status = 'expired'
+  data.students[0].availabilityStatus = 'missing'
+  data.students[0].availableSlots = []
+  const result = historicalSlotCandidate(data, { student: data.students[0], trainer: data.trainers[0], slotId: 'T2-6' })
+  assert.equal(result.manualSelectable, true)
+  assert.equal(result.contractId, 'c-a')
+  assert.ok(result.warningReasons.includes('AVAILABILITY_NOT_SUBMITTED'))
+  assert.equal(result.hardReasons.length, 0)
+})
+test('historical supplement blocks duplicate learner days and exhausted contracts', () => {
+  const data = fixture()
+  data.sessions = [{ id: 'existing', studentId: 'a', trainerId: 't', contractId: 'c-a', branchId: BRANCH, date: WEEK, hour: 6, status: 'completed', billingStatus: 'charged' }]
+  let result = historicalSlotCandidate(data, { student: data.students[0], trainer: data.trainers[0], slotId: 'T2-6' })
+  assert.equal(result.manualSelectable, false)
+  assert.ok(result.hardReasons.includes('STUDENT_MULTIPLE_SESSIONS_PER_DAY'))
+  data.sessions = []
+  data.contracts[0].remainingSchedulableSessions = 0
+  result = historicalSlotCandidate(data, { student: data.students[0], trainer: data.trainers[0], slotId: 'T2-6' })
+  assert.equal(result.manualSelectable, false)
+  assert.ok(result.hardReasons.includes('CONTRACT_SESSION_QUOTA_EXCEEDED'))
 })
 test('actual manual loader uses weekly override and add preserves every other override', async () => {
   const { api, db, docs } = harness()

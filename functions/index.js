@@ -473,6 +473,7 @@ exports.listPtScheduleBranches = ptScheduleV2Functions.listPtScheduleBranches
 exports.getPtScheduleWorkspace = ptScheduleV2Functions.getPtScheduleWorkspace
 exports.generatePtScheduleDraft = ptScheduleV2Functions.generatePtScheduleDraft
 exports.getPtScheduleSlotCandidates = ptScheduleV2Functions.getPtScheduleSlotCandidates
+exports.createHistoricalPtSession = ptScheduleV2Functions.createHistoricalPtSession
 exports.savePtStudentAvailability = ptScheduleV2Functions.savePtStudentAvailability
 exports.applyPtScheduleDraftCommand = ptScheduleV2Functions.applyPtScheduleDraftCommand
 // Regional overflow endpoint for optimizer-v4. Asia-southeast1 currently

@@ -300,6 +300,10 @@ export interface PtScheduleSlotCandidate {
   /** Ngoại lệ chỉ admin được xác nhận: học viên tập khác cơ sở hồ sơ. */
   studentBranchWarning?: boolean
   studentHomeBranchId?: string
+  /** Ca đã qua giờ: được ghi thẳng vào lịch sử có audit, không đi qua draft. */
+  historical?: boolean
+  hardReasons?: string[]
+  warningReasons?: string[]
 }
 
 export type PtScheduleDraftCommand =
@@ -553,8 +557,30 @@ export function getPtScheduleSlotCandidates(input: {
   trainerId: string
   slotId: string
   search?: string
+  historical?: boolean
 }) {
   return invoke<typeof input, { schemaVersion: number; candidates: PtScheduleSlotCandidate[] }>('getPtScheduleSlotCandidates', input)
+}
+
+export function createHistoricalPtSession(input: {
+  weekId: string
+  branchId: string
+  trainerId: string
+  studentId: string
+  contractId: string
+  slotId: string
+  reason: string
+  acknowledgedWarnings: string[]
+  idempotencyKey: string
+}) {
+  return invoke<typeof input, {
+    unchanged: boolean
+    sessionId: string
+    contractId: string
+    status: string
+    warnings: string[]
+    payrollAdjustmentRequired: boolean
+  }>('createHistoricalPtSession', input)
 }
 
 export function savePtStudentAvailability(input: {
