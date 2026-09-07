@@ -260,9 +260,11 @@ export default function TrainerPayroll({ profile }: Props) {
     audience: 'employee' as 'employee' | 'collaborator' | 'all',
     eligibleProfiles: ['official'] as PayrollProfile[],
     effectiveFrom: currentDateOnly(),
-    ratePerSession: '20000',
-    rateAfterDailyThreshold: '70000',
-    rateAfterDailyThresholdEvening: '80000',
+    ratePerSession: '',
+    dailySessionThreshold: '',
+    rateAfterDailyThreshold: '',
+    eveningStartHour: '',
+    rateAfterDailyThresholdEvening: '',
   })
   const [intelligenceForm, setIntelligenceForm] = useState({
     name: 'KPI & Attribution Aura',
@@ -283,6 +285,22 @@ export default function TrainerPayroll({ profile }: Props) {
   const trainerById = useMemo(() => new Map(trainers.map((trainer) => [trainer.id, trainer])), [trainers])
   const branchById = useMemo(() => new Map(branches.map((branch) => [branch.id, branch])), [branches])
   const activePolicies = useMemo(() => policies.filter((policy) => policy.status === 'active'), [policies])
+
+  const openPolicyEditor = () => {
+    const base = activePolicies[0]
+    setPolicyForm({
+      name: base?.name || 'Chính sách lương PT',
+      audience: base?.audience || 'employee',
+      eligibleProfiles: base?.eligibleProfiles?.length ? base.eligibleProfiles : ['official'],
+      effectiveFrom: currentDateOnly(),
+      ratePerSession: base ? String(base.ratePerSession) : '',
+      dailySessionThreshold: base ? String(base.dailySessionThreshold) : '',
+      rateAfterDailyThreshold: base ? String(base.rateAfterDailyThreshold) : '',
+      eveningStartHour: base ? String(base.eveningStartHour) : '',
+      rateAfterDailyThresholdEvening: base ? String(base.rateAfterDailyThresholdEvening) : '',
+    })
+    setShowPolicyForm(true)
+  }
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -412,9 +430,6 @@ export default function TrainerPayroll({ profile }: Props) {
         ...current,
         eligibleProfiles,
         audience: includesCollaborator && includesEmployee ? 'all' : includesCollaborator ? 'collaborator' : 'employee',
-        ...(includesCollaborator && !current.eligibleProfiles.includes('collaborator')
-          ? { ratePerSession: '50000', rateAfterDailyThreshold: '75000', rateAfterDailyThresholdEvening: '100000' }
-          : {}),
       }
     })
   }
@@ -519,10 +534,14 @@ export default function TrainerPayroll({ profile }: Props) {
   const submitPolicy = async () => {
     if (busyAction) return
     const ratePerSession = Number(policyForm.ratePerSession)
+    const dailySessionThreshold = Number(policyForm.dailySessionThreshold)
     const rateAfterDailyThreshold = Number(policyForm.rateAfterDailyThreshold)
+    const eveningStartHour = Number(policyForm.eveningStartHour)
     const rateAfterDailyThresholdEvening = Number(policyForm.rateAfterDailyThresholdEvening)
-    if (![ratePerSession, rateAfterDailyThreshold, rateAfterDailyThresholdEvening].every((rate) => Number.isSafeInteger(rate) && rate >= 1_000)) {
-      setError('Các đơn giá ca dạy phải là số nguyên từ 1.000đ.')
+    if (![ratePerSession, rateAfterDailyThreshold, rateAfterDailyThresholdEvening].every((rate) => Number.isSafeInteger(rate) && rate >= 1_000)
+      || !Number.isSafeInteger(dailySessionThreshold) || dailySessionThreshold < 1 || dailySessionThreshold > 24
+      || !Number.isSafeInteger(eveningStartHour) || eveningStartHour < 0 || eveningStartHour > 23) {
+      setError('Nhập đủ đơn giá, số ca chuẩn mỗi ngày (1–24) và giờ bắt đầu ca tối (0–23) theo chính sách.')
       return
     }
     if (policyForm.eligibleProfiles.includes('collaborator') && [ratePerSession, rateAfterDailyThreshold, rateAfterDailyThresholdEvening].some((rate) => rate < 50_000 || rate > 100_000)) {
@@ -539,9 +558,9 @@ export default function TrainerPayroll({ profile }: Props) {
         eligibleProfiles: policyForm.eligibleProfiles,
         effectiveFrom: policyForm.effectiveFrom,
         ratePerSession,
-        dailySessionThreshold: 8,
+        dailySessionThreshold,
         rateAfterDailyThreshold,
-        eveningStartHour: 20,
+        eveningStartHour,
         rateAfterDailyThresholdEvening,
       })
       setMessage(result.unchanged ? 'Chính sách này đã tồn tại.' : 'Đã lưu phiên bản chính sách mới; kỳ cũ không bị thay đổi.')
@@ -874,7 +893,7 @@ export default function TrainerPayroll({ profile }: Props) {
           <div><span>Chính sách đang có</span><strong>{policies.length} phiên bản</strong></div>
           <div className="payroll-policy__heading-actions">
             <AuraHelpPopover title="Nguyên tắc phiên bản" label="Nguyên tắc phiên bản"><p>Có thể tạo nhiều chính sách. Khi lập kỳ, chọn theo hồ sơ nhân viên, từng HLV hoặc ngày hiệu lực. Kỳ cũ luôn giữ snapshot riêng.</p></AuraHelpPopover>
-            <button className="payroll-policy__create" type="button" disabled={!canManage || !!busyAction} onClick={() => setShowPolicyForm(true)}><Plus size={15} /> Tạo chính sách</button>
+             <button className="payroll-policy__create" type="button" disabled={!canManage || !!busyAction} onClick={openPolicyEditor}><Plus size={15} /> Tạo chính sách</button>
           </div>
         </div>
         {policies.length ? policies.map((policy) => <article className={policy.status === 'inactive' ? 'is-inactive' : ''} key={policy.id}>
@@ -889,9 +908,11 @@ export default function TrainerPayroll({ profile }: Props) {
           <label><span>Tên chính sách</span><input value={policyForm.name} maxLength={100} onChange={(event) => setPolicyForm((current) => ({ ...current, name: event.target.value }))} /></label>
           <div className="payroll-policy__profiles"><span>Nhóm nhân viên áp dụng</span><div>{(['probation', 'official', 'senior', 'part_time', 'collaborator'] as PayrollProfile[]).map((profile) => <button key={profile} type="button" className={policyForm.eligibleProfiles.includes(profile) ? 'is-active' : ''} onClick={() => togglePolicyProfile(profile)}>{payrollProfileLabel(profile)}</button>)}</div></div>
           <label><span>Hiệu lực từ</span><input type="date" value={policyForm.effectiveFrom} onChange={(event) => setPolicyForm((current) => ({ ...current, effectiveFrom: event.target.value }))} /></label>
-          <label><span>Đơn giá ca 1–8</span><input type="number" min="1000" step="1000" inputMode="numeric" value={policyForm.ratePerSession} onChange={(event) => setPolicyForm((current) => ({ ...current, ratePerSession: event.target.value }))} /></label>
-          <label><span>Từ ca thứ 9</span><input type="number" min="1000" step="1000" inputMode="numeric" value={policyForm.rateAfterDailyThreshold} onChange={(event) => setPolicyForm((current) => ({ ...current, rateAfterDailyThreshold: event.target.value }))} /></label>
-          <label><span>Ca thứ 9+ sau 20h</span><input type="number" min="1000" step="1000" inputMode="numeric" value={policyForm.rateAfterDailyThresholdEvening} onChange={(event) => setPolicyForm((current) => ({ ...current, rateAfterDailyThresholdEvening: event.target.value }))} /></label>
+          <label><span>Đơn giá ca chuẩn</span><input type="number" min="1000" step="1000" inputMode="numeric" value={policyForm.ratePerSession} onChange={(event) => setPolicyForm((current) => ({ ...current, ratePerSession: event.target.value }))} /></label>
+          <label><span>Số ca chuẩn mỗi ngày</span><input type="number" min="1" max="24" step="1" inputMode="numeric" value={policyForm.dailySessionThreshold} onChange={(event) => setPolicyForm((current) => ({ ...current, dailySessionThreshold: event.target.value }))} /></label>
+          <label><span>Đơn giá ca ngoài giờ</span><input type="number" min="1000" step="1000" inputMode="numeric" value={policyForm.rateAfterDailyThreshold} onChange={(event) => setPolicyForm((current) => ({ ...current, rateAfterDailyThreshold: event.target.value }))} /></label>
+          <label><span>Giờ bắt đầu ca tối</span><input type="number" min="0" max="23" step="1" inputMode="numeric" value={policyForm.eveningStartHour} onChange={(event) => setPolicyForm((current) => ({ ...current, eveningStartHour: event.target.value }))} /></label>
+          <label><span>Đơn giá ca ngoài giờ tối</span><input type="number" min="1000" step="1000" inputMode="numeric" value={policyForm.rateAfterDailyThresholdEvening} onChange={(event) => setPolicyForm((current) => ({ ...current, rateAfterDailyThresholdEvening: event.target.value }))} /></label>
           <div className="payroll-policy__form-actions"><button className="payroll-page__secondary" type="button" onClick={() => setShowPolicyForm(false)}>Hủy</button><button className="payroll-page__primary" type="button" disabled={!canManage || !!busyAction} onClick={() => void submitPolicy()}><ShieldCheck size={17} /> Lưu phiên bản</button></div>
         </div>
         <p className="payroll-policy__scope">Áp dụng cho: {policyForm.eligibleProfiles.map(payrollProfileLabel).join(' · ')}. {policyForm.eligibleProfiles.includes('collaborator') ? 'Chính sách có CTV phải dùng đơn giá 50.000–100.000đ/ca.' : 'Nhân viên hưởng lương cơ bản theo ngày công và tiền ca theo chính sách.'} Mức ca tối chỉ áp dụng từ ca thứ 9 trở đi; một khung giờ có hai học viên vẫn chỉ tính một ca.</p>
