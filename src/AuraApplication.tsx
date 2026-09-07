@@ -1037,9 +1037,14 @@ function AuraApplication() {
       case 'staff-quotes': return <AuraOperationsFrame><SalesPortalV2 /></AuraOperationsFrame>
       case 'staff-renewals': return <AuraOperationsFrame><ContractRenewals onNavigate={(view) => navigate(view as ViewId)} /></AuraOperationsFrame>
       case 'staff-payroll': return <AuraOperationsFrame><StaffPayrollPage /></AuraOperationsFrame>
-      case 'staff-performance': return <AuraOperationsFrame>{backendMode === 'firebase' && (!authzReady || !hasCapability('performance.self.view') || !staffPositions.includes('trainer_pt'))
-        ? <div className="course-detail-state" role={authzReady ? 'alert' : 'status'}><h1>{authzReady ? 'Chưa được cấp quyền Performance Score' : 'Đang xác minh quyền Performance Score'}</h1><p>{authzReady ? 'Trang này chỉ dành cho tài khoản Staff có chức danh PT đang hoạt động.' : 'Aura đang đối chiếu chức danh và quyền xem điểm cá nhân.'}</p></div>
-        : <StaffPerformancePage isDemo={backendMode === 'demo'} onNavigate={navigate} />}</AuraOperationsFrame>
+      case 'staff-performance': {
+        const performanceReviewer = staffPositions.includes('branch_manager') && hasCapability('performance.evidence.review')
+        const performanceSelf = staffPositions.includes('trainer_pt') && hasCapability('performance.self.view')
+        const canOpenPerformance = performanceReviewer || performanceSelf
+        return <AuraOperationsFrame>{backendMode === 'firebase' && (!authzReady || !canOpenPerformance)
+          ? <div className="course-detail-state" role={authzReady ? 'alert' : 'status'}><h1>{authzReady ? 'Chưa được cấp quyền Performance Score' : 'Đang xác minh quyền Performance Score'}</h1><p>{authzReady ? 'Trang này chỉ dành cho PT hoặc quản lý có quyền Performance trong phạm vi được cấp.' : 'Aura đang đối chiếu chức danh và quyền Performance.'}</p></div>
+          : <StaffPerformancePage isDemo={backendMode === 'demo'} reviewer={backendMode === 'demo' ? role === 'manager' : performanceReviewer && !performanceSelf} onNavigate={navigate} />}</AuraOperationsFrame>
+      }
 
       case 'pt-workout': return <StudentPtWorkoutPage isDemo={backendMode === 'demo'} ownerId={user?.uid ?? 'demo'} />
 

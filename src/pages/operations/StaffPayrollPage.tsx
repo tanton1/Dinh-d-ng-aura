@@ -14,9 +14,6 @@ import {
   WalletCards,
 } from 'lucide-react'
 import AuraMetricCarousel, { type AuraMetricSlide } from '../../components/admin/pt/AuraMetricCarousel'
-import StaffPerformanceBrandPanel from '../../components/performance/StaffPerformanceBrandPanel'
-import PerformanceBrandReviewPanel from '../../components/performance/PerformanceBrandReviewPanel'
-import { useAuth } from '../../contexts/AuthContext'
 import {
   getMyStaffPayroll,
   submitMyPayrollInquiry,
@@ -97,7 +94,6 @@ function friendlyError(cause: unknown) {
 }
 
 export default function StaffPayrollPage() {
-  const { accessContext, backendMode } = useAuth()
   const [periodId, setPeriodId] = useState(currentPeriod)
   const [data, setData] = useState<MyStaffPayroll | null>(null)
   const [loading, setLoading] = useState(true)
@@ -202,9 +198,6 @@ export default function StaffPayrollPage() {
       </div>
       <span className={`staff-payroll__policy-status ${data.compensationPolicy.id ? 'is-ready' : 'is-missing'}`}>{data.compensationPolicy.id ? 'Đang áp dụng' : 'Cần thiết lập'}</span>
     </section>}
-
-    {(backendMode === 'demo' || accessContext?.positions.includes('trainer_pt')) && <StaffPerformanceBrandPanel periodId={periodId} isDemo={backendMode === 'demo'} />}
-    {accessContext?.positions.includes('branch_manager') && <PerformanceBrandReviewPanel isDemo={backendMode === 'demo'} />}
 
     {showInquiry && <section className="staff-payroll__inquiry">
       <header><div><span>Gửi phản hồi</span><strong>Yêu cầu đối soát kỳ {periodLabel(periodId)}</strong></div></header>

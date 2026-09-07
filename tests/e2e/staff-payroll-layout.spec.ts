@@ -13,6 +13,8 @@ for (const width of [360, 390, 430]) {
     await expect(page.getByTestId('staff-payroll-page')).toBeVisible()
     await expect(page.getByRole('navigation', { name: 'Điều hướng Staff' })).toBeVisible()
     await expect(page.getByRole('region', { name: 'Tổng quan bảng lương cá nhân' })).toBeVisible()
+    await expect(page.getByRole('region', { name: 'Aura Performance Score và bằng chứng thương hiệu' })).toHaveCount(0)
+    await expect(page.getByText('Hiệu suất tháng của bạn', { exact: true })).toHaveCount(0)
 
     const geometry = await page.getByTestId('staff-payroll-page').evaluate((element) => {
       const rect = element.getBoundingClientRect()
@@ -38,6 +40,7 @@ test('staff payroll uses the full operations workspace on desktop', async ({ pag
 
   const payroll = page.getByTestId('staff-payroll-page')
   await expect(payroll).toBeVisible()
+  await expect(payroll.getByRole('region', { name: 'Aura Performance Score và bằng chứng thương hiệu' })).toHaveCount(0)
   const geometry = await payroll.evaluate((element) => {
     const rect = element.getBoundingClientRect()
     return { width: rect.width, pageWidth: document.documentElement.scrollWidth, viewportWidth: window.innerWidth }

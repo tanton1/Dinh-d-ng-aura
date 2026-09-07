@@ -173,7 +173,7 @@ const staffPositionRoutes: Record<StaffPosition, ViewId[]> = {
   trainer_pt: ['staff-dashboard', 'staff-students', 'staff-schedule', 'staff-workouts', 'staff-nutrition-reviews', 'staff-renewals', 'staff-performance', 'staff-payroll'],
   coach_online: ['staff-dashboard', 'staff-students', 'staff-nutrition-reviews', 'staff-payroll'],
   sales: ['staff-dashboard', 'staff-quotes', 'staff-renewals', 'staff-payroll'],
-  branch_manager: ['staff-dashboard', 'admin-pt-schedule', 'admin-loyalty', 'staff-workouts', 'staff-renewals', 'staff-payroll'],
+  branch_manager: ['staff-dashboard', 'admin-pt-schedule', 'admin-loyalty', 'staff-workouts', 'staff-renewals', 'staff-performance', 'staff-payroll'],
   academy_editor: ['staff-dashboard', 'courses', 'staff-payroll'],
   shipper: ['delivery'],
 }
