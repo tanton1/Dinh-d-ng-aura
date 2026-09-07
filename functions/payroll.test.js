@@ -91,11 +91,12 @@ test('two learners in the same trainer slot count as one paid class and daily ti
   assert.equal(slots.reduce((sum, slot) => sum + slot.rate, 0), 310_000)
 })
 
-test('every evening class uses the evening rate even when it is within the first eight classes', () => {
+test('an evening class inside the first eight remains standard and only overtime uses higher policy tiers', () => {
   const result = teachingSlotsFromSessions([
-    { id: 'morning', status: 'completed', trainerId: 'trainer-a', studentId: 'student-a', date: '2026-08-26', hour: 7 },
-    { id: 'evening-a', status: 'completed', trainerId: 'trainer-a', studentId: 'student-b', date: '2026-08-26', hour: 20 },
-    { id: 'evening-b', status: 'completed', trainerId: 'trainer-a', studentId: 'student-c', date: '2026-08-26', hour: 21 },
+    { id: 'standard-evening', status: 'completed', trainerId: 'trainer-a', studentId: 'student-evening', date: '2026-08-25', hour: 20 },
+    ...[6, 7, 8, 9, 10, 11, 12, 13].map((hour, index) => ({ id: `standard-${index}`, status: 'completed', trainerId: 'trainer-a', studentId: `student-${index}`, date: '2026-08-26', hour })),
+    { id: 'overtime-day', status: 'completed', trainerId: 'trainer-a', studentId: 'student-8', date: '2026-08-26', hour: 19 },
+    { id: 'overtime-evening', status: 'completed', trainerId: 'trainer-a', studentId: 'student-9', date: '2026-08-26', hour: 21 },
   ], {
     ratePerSession: 20_000,
     dailySessionThreshold: 8,
@@ -105,11 +106,18 @@ test('every evening class uses the evening rate even when it is within the first
   })
   const slots = result.trainers.get('trainer-a')
 
-  assert.equal(slots[0].rate, 20_000)
-  assert.equal(slots[1].dailyPosition, 2)
-  assert.equal(slots[1].tier, 'after_threshold_evening')
-  assert.equal(slots[1].rate, 80_000)
-  assert.equal(slots[2].rate, 80_000)
+  const standardEvening = slots.find((slot) => slot.date === '2026-08-25' && slot.hour === 20)
+  const overtimeDay = slots.find((slot) => slot.date === '2026-08-26' && slot.hour === 19)
+  const overtimeEvening = slots.find((slot) => slot.date === '2026-08-26' && slot.hour === 21)
+  assert.equal(standardEvening.dailyPosition, 1)
+  assert.equal(standardEvening.tier, 'standard')
+  assert.equal(standardEvening.rate, 20_000)
+  assert.equal(overtimeDay.dailyPosition, 9)
+  assert.equal(overtimeDay.tier, 'after_threshold')
+  assert.equal(overtimeDay.rate, 70_000)
+  assert.equal(overtimeEvening.dailyPosition, 10)
+  assert.equal(overtimeEvening.tier, 'after_threshold_evening')
+  assert.equal(overtimeEvening.rate, 80_000)
 })
 
 test('canonical completed sessions produce the same paired teaching shifts without attendance fan-out reads', () => {
@@ -454,7 +462,7 @@ test('payroll UI uses canonical runs and cannot edit teaching sessions', () => {
   assert.match(source, /Nguồn: ngày công \+ ca dạy đã điểm danh/)
   assert.match(source, /Đơn giá ca 1–8/)
   assert.match(source, /Từ ca thứ 9/)
-  assert.match(source, /Ca từ 20h/)
+  assert.match(source, /Ca thứ 9\+ sau 20h/)
   assert.match(source, /deleteDraftPayrollRun/)
   assert.match(source, /managePayrollPolicy/)
   assert.match(source, /Theo từng HLV/)

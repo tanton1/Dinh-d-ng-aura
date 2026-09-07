@@ -313,9 +313,9 @@ function priceTeachingSlots(slots, resolvePolicy) {
       }
       const policy = payrollPolicyConfiguration(selected.configuration)
       const afterThreshold = position > policy.dailySessionThreshold
-      // The evening tier is independent from the daily threshold: every slot
-      // beginning at the configured evening hour uses the evening rate.
-      const evening = slot.hour >= policy.eveningStartHour
+      // The evening premium applies only to overtime slots. All rates and the
+      // threshold come from the selected, versioned payroll policy.
+      const evening = afterThreshold && slot.hour >= policy.eveningStartHour
       const rate = evening
         ? policy.rateAfterDailyThresholdEvening
         : afterThreshold ? policy.rateAfterDailyThreshold : policy.ratePerSession

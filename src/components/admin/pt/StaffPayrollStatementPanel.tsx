@@ -77,7 +77,7 @@ function profileLabel(data: MyStaffPayroll) {
 }
 
 function tierLabel(tier: StaffTeachingSlot['tier']) {
-  if (tier === 'after_threshold_evening') return 'Ca từ 20h'
+  if (tier === 'after_threshold_evening') return 'Ca thứ 9+ sau 20h'
   if (tier === 'after_threshold') return 'Từ ca thứ 9'
   return 'Ca tiêu chuẩn'
 }
@@ -184,7 +184,7 @@ export default function StaffPayrollStatementPanel({ data, periodId, loading, er
       <section className="staff-payroll__teaching" aria-label="Chi tiết ca dạy nhân viên">
         <div className="staff-payroll__section-title"><div><span>Ca dạy PT</span><strong>{filteredTeaching.length}/{data.teachingSlots.length} ca</strong></div><small>Hai học viên cùng giờ chỉ tính một ca</small></div>
         <div className="staff-payroll__segmented" role="group" aria-label="Lọc loại ca dạy">
-          {([['all', 'Tất cả'], ['standard', 'Ca 1–8'], ['after_threshold', 'Từ ca 9'], ['after_threshold_evening', 'Ca từ 20h']] as const).map(([id, label]) => <button type="button" className={teachingFilter === id ? 'is-active' : ''} onClick={() => setTeachingFilter(id)} key={id}>{label}</button>)}
+          {([['all', 'Tất cả'], ['standard', 'Ca 1–8'], ['after_threshold', 'Từ ca 9'], ['after_threshold_evening', 'Ca 9+ sau 20h']] as const).map(([id, label]) => <button type="button" className={teachingFilter === id ? 'is-active' : ''} onClick={() => setTeachingFilter(id)} key={id}>{label}</button>)}
         </div>
         {filteredTeaching.length ? <div className="staff-payroll__teaching-list">{filteredTeaching.map((slot) => <article key={slot.key}><time>{dateLabel(slot.date)}<b>{String(slot.hour).padStart(2, '0')}:00</b></time><div><strong>{slot.studentCount} học viên · {tierLabel(slot.tier)}</strong><span>{slot.policyName || 'Chính sách kỳ lương'} · ca thứ {slot.dailyPosition}</span></div><em>{money(slot.rate)}</em></article>)}</div> : <div className="staff-payroll__empty"><Dumbbell size={27} /><strong>Không có ca thuộc bộ lọc</strong><p>Ca chỉ được tính sau khi điểm danh hợp lệ.</p></div>}
       </section>
