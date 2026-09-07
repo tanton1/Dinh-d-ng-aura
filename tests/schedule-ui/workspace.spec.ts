@@ -71,6 +71,9 @@ test('learner name controls reveal availability and scheduled sessions without o
   await expect(studentName).toHaveAttribute('aria-pressed', 'true')
   await expect(page.locator('.schedule-cell.is-student-highlight')).toHaveCount(1)
   await expect(page.getByRole('dialog', { name: 'Chỉnh ô lịch' })).toBeHidden()
+
+  await studentName.dispatchEvent('pointerenter', { pointerType: 'touch' })
+  await expect(page.locator('.schedule-cell.is-availability-hover')).toHaveCount(0)
 })
 
 test('manager opportunity pool shows strict tiers and filters against learner availability on mobile', async ({ page }) => {
@@ -101,7 +104,9 @@ test('warning center separates learner input from real PT capacity', async ({ pa
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto('/tests/schedule-ui/index.html')
   await page.getByRole('tab', { name: /Cảnh báo/ }).click()
-  await expect(page.getByText('Do hợp đồng', { exact: true })).toBeVisible()
+  await expect(page.locator('.schedule-warning-summary .is-contract')).toContainText('Do hợp đồng')
+  await expect(page.locator('.schedule-warning-student').filter({ hasText: 'Hợp đồng vừa hết' })).toBeVisible()
+  await expect(page.locator('.schedule-warning-student').filter({ hasText: 'Hợp đồng cũ' })).toHaveCount(0)
   await page.locator('.schedule-warning-summary')
     .getByRole('button', { name: /Do lịch khách/ })
     .click()

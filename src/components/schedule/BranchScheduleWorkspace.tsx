@@ -463,7 +463,9 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
   useEffect(() => {
     const hasDialog = Boolean(inspectorSlotId || publishPreview || resetDraftOpen || restoreCandidate)
     if (!hasDialog) return undefined
-    const focusTimer = window.setTimeout(() => activeDialogRef.current?.querySelector<HTMLElement>('button, input, select, [tabindex="0"]')?.focus(), 0)
+    const focusTimer = window.setTimeout(() => activeDialogRef.current
+      ?.querySelector<HTMLElement>('button, input, select, [tabindex="0"]')
+      ?.focus({ preventScroll: true }), 0)
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key !== 'Escape' || busyRef.current) return
       if (inspectorSlotId) {
@@ -1091,9 +1093,6 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
       ...unassignedEntries.map((entry) => entry.studentId),
       ...studentWarnings.map((row) => row.student.id),
       ...ineligibleDraftRows.map((row) => row.student.id),
-      // Contract/date/quota issues must be visible even when the learner has
-      // no draft entry yet; previously only paused contracts reached this list.
-      ...workspace.students.filter((student) => student.eligibleForWeek !== true || student.eligibilityReasons.length > 0).map((student) => student.id),
     ])
     return [...affectedIds].map((studentId) => {
       const student = workspace.students.find((item) => item.id === studentId)
@@ -1125,12 +1124,20 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
           && (!validDates.size || validDates.has(weekDates[day as keyof typeof weekDates]?.full))))
       const availabilityDayShortfall = Math.max(0, missingSessions - remainingAvailabilityDays.size)
       const reasonCodes = new Set<string>([
-        ...(unassigned?.reasonCodes || unassigned?.reasons || []),
-        ...(student.eligibleForWeek ? [] : student.eligibilityReasons || []),
+        // Contract diagnostics in a stored draft may belong to an older
+        // entitlement. Always rebuild contract reasons from the latest live
+        // student projection so an expired renewal chain cannot reappear.
+        ...(unassigned?.reasonCodes || unassigned?.reasons || []).filter((code) => !CONTRACT_WARNING_REASONS.has(code)),
+        ...(student.eligibilityReasons || []),
       ])
+      if (student.contractStatus === 'expiring') reasonCodes.add('CONTRACT_EXPIRES_DURING_WEEK')
+      else if (student.contractStatus === 'quota_exhausted') reasonCodes.add('CONTRACT_SESSION_QUOTA_EXCEEDED')
+      else if (student.contractStatus === 'expired') reasonCodes.add('CONTRACT_EXPIRED_BEFORE_WEEK')
+      else if (student.contractStatus === 'paused') reasonCodes.add('CONTRACT_PAUSED')
+      else if (student.contractStatus === 'missing') reasonCodes.add('ACTIVE_CONTRACT_NOT_FOUND')
+      else if (student.contractStatus === 'not_started_or_ended') reasonCodes.add('CONTRACT_NOT_STARTED_IN_WEEK')
       if (!CONFIRMED_AVAILABILITY_STATUSES.has(student.availabilityStatus)) reasonCodes.add('AVAILABILITY_NOT_SUBMITTED')
       if (hasConfirmedAvailability && availabilityDayShortfall > 0) reasonCodes.add('STUDENT_AVAILABILITY_DAYS_INSUFFICIENT')
-      if (student.contractStatus === 'expiring') reasonCodes.add('CONTRACT_EXPIRES_DURING_WEEK')
       if (missingSessions > 0 && !reasonCodes.size) reasonCodes.add('STUDENT_UNSCHEDULED')
       const orderedReasonCodes = [...reasonCodes]
         .sort((left, right) => warningReasonPriority(left) - warningReasonPriority(right) || left.localeCompare(right))
@@ -1177,13 +1184,12 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
             : null,
       }
     }).filter((profile): profile is NonNullable<typeof profile> => Boolean(profile))
-      // Hồ sơ không đủ điều kiện chỉ còn giá trị vận hành nếu vừa có lịch ở
-      // tuần liền trước, hoặc đang có một ca draft cần xử lý ở tuần hiện tại.
-      // Điều này loại học viên hết hạn từ nhiều tháng/năm trước khỏi cảnh báo.
+      // Chỉ giữ hồ sơ đang xếp tuần này hoặc vừa có lịch ở tuần liền trước.
+      // Hợp đồng/quota cũ và chẩn đoán còn sót trong draft không được kéo học
+      // viên lịch sử trở lại trung tâm cảnh báo.
       .filter((profile) => profile.student.eligibleForWeek === true
         || Number(profile.student.previousWeekScheduledSessions || 0) > 0
-        || profile.scheduledEntries.length > 0
-        || ['quota_exhausted', 'expiring', 'missing'].includes(String(profile.student.contractStatus || '')))
+        || profile.scheduledEntries.length > 0)
       .sort((left, right) => {
         const priority = (profile: typeof left) => warningReasonPriority(profile.primaryReasonCode || 'STUDENT_UNSCHEDULED')
         return priority(left) - priority(right)
@@ -1715,7 +1721,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
                     : `${scheduleSlotLabel(slotId, weekDates)} · ${selectedTrainer?.name || 'PT'} · ${trainingEntries.length} học viên`
                 return <td key={slotId} className={`${selectedDays.includes(day) ? 'is-mobile-visible' : ''}${holiday ? ' is-holiday' : ''}`}><div role={trainingEntries.length ? undefined : 'button'} tabIndex={!selectedTrainerId || holiday || trainingEntries.length ? -1 : 0} aria-label={cellDescription} aria-disabled={!selectedTrainerId || holiday} className={`schedule-cell${holiday ? ' is-holiday' : ''}${isOff ? ' is-off' : ''}${entries.length ? ' has-entry' : ''}${showsAvailability ? ' is-availability-hover' : ''}${showsStudentSchedule ? ' is-student-highlight' : ''}${opportunity ? ` is-opportunity-tier-${opportunity.priorityTier}` : ''}`} onClick={openInspector} onKeyDown={(event) => { if (event.target !== event.currentTarget) return; if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openInspector() } }}><span className="schedule-cell__count">{holiday ? 'NGHỈ' : isOff ? 'OFF' : `${trainingEntries.length}/${selectedTrainer?.slotCapacity || 2}`}</span>{holiday ? <><CalendarOff /><small>Không xếp lịch</small></> : isOff ? <CalendarOff /> : trainingEntries.length ? trainingEntries.map((entry) => {
                   const assignmentWarning = trainerAssignmentWarningKeys.has(`${slotId}|${entry.studentId}|${entry.trainerId}`)
-                  return <button type="button" className={`schedule-cell__student${highlightedStudentId === entry.studentId ? ' is-selected' : ''}${assignmentWarning ? ' has-assignment-warning' : ''}`} key={`${entry.studentId}-${entry.trainerId}`} onPointerEnter={() => setHoveredStudentId(entry.studentId)} onPointerLeave={() => setHoveredStudentId((current) => current === entry.studentId ? null : current)} onFocus={() => setHoveredStudentId(entry.studentId)} onBlur={() => setHoveredStudentId((current) => current === entry.studentId ? null : current)} onClick={(event) => { event.preventDefault(); event.stopPropagation(); toggleStudentSchedule(entry.studentId) }} aria-pressed={highlightedStudentId === entry.studentId} title={assignmentWarning ? 'Chạm hoặc rê chuột: xem lịch rảnh · Bấm chọn: xem lịch đã xếp · PT hỗ trợ ngoài danh sách chính/phụ' : 'Chạm hoặc rê chuột: xem lịch rảnh · Bấm chọn: xem lịch đã xếp'}><span>{studentName(entry.studentId)}</span>{assignmentWarning && <AlertTriangle size={11} aria-label="PT hỗ trợ" />}{entry.isLocked && <Lock size={11} aria-label="Ca đã khóa" />}</button>
+                  return <button type="button" className={`schedule-cell__student${highlightedStudentId === entry.studentId ? ' is-selected' : ''}${assignmentWarning ? ' has-assignment-warning' : ''}`} key={`${entry.studentId}-${entry.trainerId}`} onPointerEnter={(event) => { if (event.pointerType === 'mouse') setHoveredStudentId(entry.studentId) }} onPointerLeave={(event) => { if (event.pointerType === 'mouse') setHoveredStudentId((current) => current === entry.studentId ? null : current) }} onFocus={(event) => { if (event.currentTarget.matches(':focus-visible') && window.matchMedia('(hover: hover) and (pointer: fine)').matches) setHoveredStudentId(entry.studentId) }} onBlur={() => setHoveredStudentId((current) => current === entry.studentId ? null : current)} onClick={(event) => { event.preventDefault(); event.stopPropagation(); setHoveredStudentId(null); toggleStudentSchedule(entry.studentId) }} aria-pressed={highlightedStudentId === entry.studentId} title={assignmentWarning ? 'Rê chuột: xem lịch rảnh · Chọn: xem lịch đã xếp · PT hỗ trợ ngoài danh sách chính/phụ' : 'Rê chuột: xem lịch rảnh · Chọn: xem lịch đã xếp'}><span>{studentName(entry.studentId)}</span>{assignmentWarning && <AlertTriangle size={11} aria-label="PT hỗ trợ" />}{entry.isLocked && <Lock size={11} aria-label="Ca đã khóa" />}</button>
                 }) : <small>Chạm để xếp</small>}</div></td>
               })}</tr>)}</tbody>
             </table>
