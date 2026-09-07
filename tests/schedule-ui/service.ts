@@ -33,3 +33,11 @@ export const publishPtSchedule = async (input: any) => { track('publish', input)
 export const listPtScheduleVersions = async () => ({ currentDraftRevision: workspace.draftRevision, currentVersion: 1, versions: [] })
 export const restorePtScheduleVersionToDraft = async () => ({ version: 1, draftRevision: workspace.draftRevision })
 export const savePtStudentAvailability = async () => ({ availableSlots: [], availabilityRevision: 2, availabilityStatus: 'submitted' })
+// The production component imports this callable unconditionally. Keep the
+// fixture adapter's export surface in sync even though no historical session
+// is persisted by the UI test.
+export const createHistoricalPtSession = async (input: any) => {
+  track('historical', input)
+  await sleep(50)
+  return { sessionId: `historical-${input.studentId}-${input.slotId}`, draftRevision: workspace.draftRevision }
+}

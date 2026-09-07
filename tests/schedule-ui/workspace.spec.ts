@@ -16,6 +16,7 @@ for (const width of [360, 390, 430]) {
     expect(Math.abs(manualFooterLayout!.inspectorBottom - manualFooterLayout!.footerBottom)).toBeLessThanOrEqual(1)
     expect(manualFooterLayout!.footerTop).toBeGreaterThan(manualFooterLayout!.viewportHeight * .7)
     expect(await page.evaluate(() => (window as any).__scheduleCalls.filter((x: any) => x.operation === 'command').length)).toBe(0)
+    expect(await page.evaluate(() => (window as any).__scheduleCalls.filter((x: any) => x.operation === 'candidates').length)).toBe(0)
     await page.getByRole('button', { name: 'Xác nhận xếp ca', exact: true }).click()
     await expect(page.locator('.schedule-assigned-row').filter({ hasText: 'Ngọc' })).toBeVisible()
     await page.keyboard.press('Escape')
@@ -65,6 +66,7 @@ test('learner name controls reveal availability and scheduled sessions without o
   await studentName.focus()
   await expect(page.locator('.schedule-student-focus')).toContainText('Bình')
   await expect(page.locator('.schedule-cell.is-availability-hover')).toHaveCount(3)
+  expect(await page.locator('.schedule-cell.is-availability-hover[class*="is-opportunity-tier"]').count()).toBe(0)
 
   await studentName.click()
   await expect(page.locator('.schedule-student-focus')).toContainText('Bình')

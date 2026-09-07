@@ -35,6 +35,7 @@ const MAX_DRAFT_ENTRIES = 440
 // while a malformed draft still cannot grow without bounds.
 const MAX_DRAFT_DOCUMENT_ENTRIES = 700
 const MAX_ENTRIES_PER_SLOT = 100
+const MAX_ACTIVE_RESERVATION_SESSIONS = 3000
 const DEFAULT_DAILY_SESSION_TARGET = 8
 const OPTIMIZER_VERSION = 'optimizer-v12'
 const MAX_DEEP_OPTIMIZATION_PASSES = 3
@@ -219,6 +220,41 @@ async function exactAvailabilityForTrainers(db, trainerIds, week) {
   return snapshots.flat().filter((item) => item.exists)
 }
 
+async function activeSessionsForStudents(db, studentIds, week) {
+  if (!studentIds.length) return []
+  // Do not scan every scheduled session in the project. Quota reservations
+  // are learner-scoped, so query only the students that can affect this
+  // branch/week and only from the selected week forward. Firestore permits
+  // one `in` filter per query, so issue the two small status queries in
+  // parallel rather than reading completed or cancelled history and filtering
+  // it after the fact.
+  const snapshots = await Promise.all(['scheduled', 'rescheduled'].flatMap((status) => splitChunks(studentIds, 30).map((ids) => db.collection('sessions')
+    .where('studentId', 'in', ids)
+    .where('status', '==', status)
+    .where('date', '>=', week)
+    .limit(1001)
+    .get())))
+  const documents = snapshots.flatMap((snapshot) => snapshot.docs)
+  if (snapshots.some((snapshot) => snapshot.size > 1000) || documents.length > MAX_ACTIVE_RESERVATION_SESSIONS) {
+    throw new HttpsError('resource-exhausted', 'Số buổi đang giữ chỗ vượt giới hạn workspace an toàn.')
+  }
+  return documents
+}
+
+async function approvedLeavesForTrainers(db, trainerIds) {
+  const ids = [...trainerIds]
+  if (!ids.length) return []
+  // Leave requests are consumed only for PT availability. The previous
+  // status-only query read up to 1,001 approved requests from every branch on
+  // every workspace load. Chunking by the already-loaded trainer ids keeps
+  // the read set local to the selected branch.
+  const snapshots = await Promise.all(splitChunks(ids, 30).map((chunk) => db.collection('leaveRequests')
+    .where('trainerId', 'in', chunk)
+    .limit(1001)
+    .get()))
+  return snapshots.flatMap((snapshot) => snapshot.docs).filter((item) => item.data()?.status === 'approved')
+}
+
 function trainerProfileForWeek(profile = {}, weekly = null, week = '') {
   if (!weekly || weekly.weekId !== week || !['submitted', 'locked'].includes(String(weekly.status || ''))) return profile
   const slots = Array.isArray(weekly.slots) ? weekly.slots.slice(0, 100) : []
@@ -242,7 +278,7 @@ function leaveCovers(leave, trainerId, date) {
 
 async function loadBranchData(db, branchId, week) {
   const priorWeek = previousWeek(week)
-  const [branch, legacySchedule, draft, students, trainers, weekSessions, previousWeekSessions, activeSessions, config, leaves] = await Promise.all([
+  const [branch, legacySchedule, draft, students, trainers, weekSessions, previousWeekSessions, config] = await Promise.all([
     db.doc(`branches/${branchId}`).get(),
     db.doc(`schedules/schedule_${week}`).get(),
     draftReference(db, branchId, week).get(),
@@ -250,12 +286,11 @@ async function loadBranchData(db, branchId, week) {
     db.collection('trainers').where('branchId', '==', branchId).limit(MAX_TRAINERS + 1).get(),
     db.collection('sessions').where('branchId', '==', branchId).where('date', '>=', week).where('date', '<', nextWeek(week)).limit(1001).get(),
     db.collection('sessions').where('branchId', '==', branchId).where('date', '>=', priorWeek).where('date', '<', week).limit(1001).get(),
-    db.collection('sessions').where('branchId', '==', branchId).where('status', 'in', ['scheduled', 'rescheduled']).limit(3001).get(),
     db.doc('settings/scheduleConfig').get(),
-    db.collection('leaveRequests').where('status', '==', 'approved').limit(1001).get(),
   ])
+  const leaves = await approvedLeavesForTrainers(db, trainers.docs.map((item) => item.id))
   if (!branch.exists || branch.data().status === 'archived') throw new HttpsError('failed-precondition', 'Chi nhánh không hoạt động.')
-  if (students.size > MAX_STUDENTS || trainers.size > MAX_TRAINERS || weekSessions.size > 1000 || previousWeekSessions.size > 1000 || activeSessions.size > 3000 || leaves.size > 1000) {
+  if (students.size > MAX_STUDENTS || trainers.size > MAX_TRAINERS || weekSessions.size > 1000 || previousWeekSessions.size > 1000 || leaves.length > 1000) {
     throw new HttpsError('resource-exhausted', 'Dữ liệu chi nhánh vượt giới hạn workspace an toàn.')
   }
   const studentIds = students.docs.map((item) => item.id)
@@ -264,14 +299,35 @@ async function loadBranchData(db, branchId, week) {
   // Fetch exact weekly availability by deterministic document id. The old
   // week-wide query scanned every branch and could truncate before reaching
   // the selected branch when migrated data was large.
-  const [contracts, availability, trainerAvailability] = await Promise.all([
+  const [contracts, trainerAvailability] = await Promise.all([
     contractsForStudents(db, studentIds),
-    exactAvailabilityForStudents(db, studentIds, week),
     exactAvailabilityForTrainers(db, trainerIds, week),
   ])
   const studentMap = new Map(students.docs.map((item) => [item.id, item.data()]))
   const trainerMap = new Map(trainers.docs.map((item) => [item.id, item.data()]))
-  const sessionRowsById = new Map([...weekSessions.docs, ...activeSessions.docs]
+  const legacy = legacySchedule.exists ? legacySchedule.data() : {}
+  const draftData = draft.exists ? draft.data() : null
+  const weeklySessionTargets = safeWeeklySessionTargets(draftData?.weeklySessionTargets, studentSet)
+  const schedule = draftData
+    ? safeSchedule(draftData.schedule)
+    : branchScheduleSnapshot(legacy.schedule || {}, branchId, studentMap, trainerMap)
+  const previousWeekSessionCounts = new Map()
+  previousWeekSessions.docs.forEach((item) => {
+    const session = item.data()
+    const status = String(session.status || '').toLowerCase()
+    if (!studentSet.has(session.studentId) || ['cancelled', 'canceled', 'deleted', 'void'].includes(status)) return
+    previousWeekSessionCounts.set(session.studentId, (previousWeekSessionCounts.get(session.studentId) || 0) + 1)
+  })
+  const scheduledStudentIds = new Set(Object.values(schedule).flat()
+    .filter((entry) => entry.type !== 'off')
+    .map((entry) => entry.studentId))
+  const activeContractStudentIds = new Set(contracts
+    .filter((contract) => ['active', 'future'].includes(String(contract.status || 'active').toLowerCase()))
+    .map((contract) => contract.studentId)
+    .filter((studentId) => studentSet.has(studentId)))
+  const reservationStudentIds = new Set([...activeContractStudentIds, ...scheduledStudentIds, ...previousWeekSessionCounts.keys()])
+  const activeSessions = await activeSessionsForStudents(db, [...reservationStudentIds], week)
+  const sessionRowsById = new Map([...weekSessions.docs, ...activeSessions]
     .map((item) => ({ id: item.id, ...item.data() }))
     .filter((item) => studentSet.has(item.studentId))
     .map((item) => [item.id, item]))
@@ -282,21 +338,7 @@ async function loadBranchData(db, branchId, week) {
     if (!sessionsByContract.has(session.contractId)) sessionsByContract.set(session.contractId, [])
     sessionsByContract.get(session.contractId).push(session)
   }
-  const previousWeekSessionCounts = new Map()
-  previousWeekSessions.docs.forEach((item) => {
-    const session = item.data()
-    const status = String(session.status || '').toLowerCase()
-    if (!studentSet.has(session.studentId) || ['cancelled', 'canceled', 'deleted', 'void'].includes(status)) return
-    previousWeekSessionCounts.set(session.studentId, (previousWeekSessionCounts.get(session.studentId) || 0) + 1)
-  })
-  const weeklyAvailability = new Map(availability.map((item) => item.data()).filter((item) => studentSet.has(item.studentId)).map((item) => [item.studentId, item]))
   const weeklyTrainerAvailability = new Map(trainerAvailability.map((item) => item.data()).filter((item) => trainerIds.has(item.trainerId)).map((item) => [item.trainerId, item]))
-  const legacy = legacySchedule.exists ? legacySchedule.data() : {}
-  const draftData = draft.exists ? draft.data() : null
-  const weeklySessionTargets = safeWeeklySessionTargets(draftData?.weeklySessionTargets, studentSet)
-  const schedule = draftData
-    ? safeSchedule(draftData.schedule)
-    : branchScheduleSnapshot(legacy.schedule || {}, branchId, studentMap, trainerMap)
   const mappedContracts = contracts.map((contract) => {
     const contractSessions = sessionsByContract.get(contract.id) || []
     const usage = summarizeContractUsage(contract, contractSessions)
@@ -339,15 +381,17 @@ async function loadBranchData(db, branchId, week) {
     if (!mappedContractsByStudent.has(contract.studentId)) mappedContractsByStudent.set(contract.studentId, [])
     mappedContractsByStudent.get(contract.studentId).push(contract)
   }
-  const scheduledStudentIds = new Set(Object.values(schedule).flat()
-    .filter((entry) => entry.type !== 'off')
-    .map((entry) => entry.studentId))
   const fallbackStudentMap = new Map([...studentMap.entries()].filter(([studentId, profile]) => {
     const inactive = ['inactive', 'archived', 'deleted'].includes(String(profile.status || '').toLowerCase())
     if (inactive) return false
     if (scheduledStudentIds.has(studentId) || previousWeekSessionCounts.has(studentId)) return true
     return studentWeekEligibility(mappedContractsByStudent.get(studentId) || [], studentId, branchId, week).eligible
   }))
+  // Read exact weekly availability only for learners who can affect this
+  // workspace. The old implementation issued one document read for every
+  // historical profile in the branch, including contracts expired years ago.
+  const availability = await exactAvailabilityForStudents(db, [...fallbackStudentMap.keys()], week)
+  const weeklyAvailability = new Map(availability.map((item) => item.data()).filter((item) => studentSet.has(item.studentId)).map((item) => [item.studentId, item]))
   // Migrated profiles without the denormalized latest submission need a
   // bounded historical lookup. Only learners who can affect this workspace
   // are resolved, so old expired profiles no longer add hundreds of reads to
@@ -477,7 +521,7 @@ async function loadBranchData(db, branchId, week) {
     contracts: mappedContracts,
     availability: weeklyAvailability,
     sessions: sessionRows,
-    leaves: leaves.docs.map((item) => ({ id: item.id, ...item.data() })).filter((item) => trainerIds.has(item.trainerId)),
+    leaves: leaves.map((item) => ({ id: item.id, ...item.data() })).filter((item) => trainerIds.has(item.trainerId)),
     config: normalizedScheduleConfig(config.data()),
   }
 }

@@ -392,7 +392,12 @@ test('authenticated bootstrap confirms server data and defers nutrition history 
 })
 
 test('schedule workspace scopes exact availability reads and bounds legacy fallback rounds', () => {
-  assert.match(ptScheduleV2Source, /exactAvailabilityForStudents\(db, studentIds, week\)/)
+  assert.match(ptScheduleV2Source, /exactAvailabilityForStudents\(db, \[\.\.\.fallbackStudentMap\.keys\(\)\], week\)/)
+  assert.match(ptScheduleV2Source, /activeSessionsForStudents\(db, \[\.\.\.reservationStudentIds\], week\)/)
+  assert.match(ptScheduleV2Source, /MAX_ACTIVE_RESERVATION_SESSIONS = 3000/)
+  assert.doesNotMatch(ptScheduleV2Source, /collection\('sessions'\)\.where\('branchId', '==', branchId\)\.where\('status', 'in', \['scheduled', 'rescheduled'\]\)/)
+  assert.match(ptScheduleV2Source, /approvedLeavesForTrainers\(db, trainers\.docs\.map\(\(item\) => item\.id\)\)/)
+  assert.doesNotMatch(ptScheduleV2Source, /collection\('leaveRequests'\)\.where\('status', '==', 'approved'\)\.limit\(1001\)/)
   assert.match(ptScheduleV2Source, /db\.doc\(`ptAvailability\/\$\{studentId\}_\$\{week\}`\)/)
   assert.doesNotMatch(ptScheduleV2Source, /collection\('ptAvailability'\)\.where\('weekId', '==', week\)/)
   assert.match(ptSchedulePublishSource, /exactAvailabilitySnapshots\(db, scheduledStudentIds, week\)/)
@@ -401,6 +406,13 @@ test('schedule workspace scopes exact availability reads and bounds legacy fallb
   assert.match(studentAvailabilitySource, /slice\(index, index \+ 50\)/)
   assert.match(ptScheduleV2Source, /where\('date', '>=', priorWeek\)\.where\('date', '<', week\)/)
   assert.match(ptScheduleV2Source, /previousWeekScheduledSessions: previousWeekSessionCounts\.get\(item\.id\) \|\| 0/)
+})
+
+test('schedule matrix applies the scoped draft stream directly without polling or adjacent-week prefetch reads', () => {
+  assert.match(branchScheduleWorkspaceSource, /workspaceFromDraftSnapshot\(value, raw\)/)
+  assert.doesNotMatch(branchScheduleWorkspaceSource, /setInterval\([^)]*loadWorkspace/)
+  assert.doesNotMatch(branchScheduleWorkspaceSource, /prefetchWorkspace/)
+  assert.match(branchScheduleWorkspaceSource, /if \(!shouldAskServer\)[\s\S]*?candidateCache\.current\.set/)
 })
 
 test('access context retries transient infrastructure failures without retrying authorization failures', () => {
