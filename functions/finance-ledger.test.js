@@ -163,3 +163,12 @@ test('contract collections create an immutable linked receipt voucher and revers
   assert.match(ledgerSource, /documentType: 'receipt_voucher_reversal'/)
   assert.match(ledgerSource, /status: 'reversed'/)
 })
+
+test('contract refund creates a next-period Renew commission reversal from original rate and split', () => {
+  assert.match(ledgerSource, /type: 'renew_commission_reversal'/)
+  assert.match(ledgerSource, /sourceEarningEventId: original\.id/)
+  assert.match(ledgerSource, /amount \* originalRate \/ 100 \* attributionPercent \/ 100/)
+  assert.match(ledgerSource, /nextFinancePeriodId/)
+  assert.match(ledgerSource, /status: 'approved'/)
+  assert.doesNotMatch(ledgerSource, /transaction\.update\([^)]*payrollRuns[^)]*commission/)
+})

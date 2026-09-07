@@ -93,7 +93,7 @@ test('payroll intelligence is snapshotted without changing payroll money fields'
   assert.match(source, /incentiveAmountImpact:\s*'none'/)
   assert.match(source, /intelligencePolicySnapshot:/)
   assert.match(source, /evidenceLedger:/)
-  assert.match(source, /const teachingPayAmount = teachingSlots\.reduce/)
+  assert.match(source, /teachingPayAmount/)
   assert.match(index, /exports\.listPayrollIntelligencePoliciesV2/)
   assert.match(index, /exports\.savePayrollIntelligencePolicyV2/)
   assert.match(index, /exports\.managePayrollIntelligencePolicyV2/)

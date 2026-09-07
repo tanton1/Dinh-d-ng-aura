@@ -1,6 +1,6 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
-const { addMonthsDateKey, normalizeInstallments, renewalRisk, renewalHandoverProjection, latestContractsByStudent, requiresRenewalApproval, renewalQueueFingerprint, matchesRenewalSegment, renewalStats, renewalMessageTemplates, caseAssignedToTrainer, canViewCase } = require('./contract-renewals')
+const { addMonthsDateKey, normalizeInstallments, renewalRisk, renewalEligibility, renewalHandoverProjection, latestContractsByStudent, requiresRenewalApproval, renewalQueueFingerprint, matchesRenewalSegment, renewalStats, renewalMessageTemplates, caseAssignedToTrainer, canViewCase } = require('./contract-renewals')
 
 test('renewal calendar uses real months and clamps month-end dates', () => {
   assert.equal(addMonthsDateKey('2026-01-31', 1), '2026-02-28')
@@ -32,6 +32,13 @@ test('renewal risk prioritises exhausted, expired and near-expiry contracts', ()
   assert.equal(renewalRisk({ endDate: '2026-08-20', totalSessions: 10, usedSessions: 5 }, '2026-08-24').category, 'expired')
   assert.equal(renewalRisk({ endDate: '2026-08-30', totalSessions: 10, usedSessions: 5 }, '2026-08-24').category, 'critical')
   assert.equal(renewalRisk({ endDate: '2026-09-15', totalSessions: 10, usedSessions: 5 }, '2026-08-24').category, 'upcoming')
+})
+
+test('renewal cohort requires both a configured end threshold and consumed program ratio', () => {
+  const policy = { maxDaysRemaining: 30, maxSessionsRemaining: 6, minConsumedPercent: 70, requireMostlyUsedProgram: true }
+  assert.equal(renewalEligibility({ endDate: '2026-09-20', totalSessions: 100, usedSessions: 70 }, policy, '2026-09-01').eligible, true)
+  assert.equal(renewalEligibility({ endDate: '2026-09-20', totalSessions: 100, usedSessions: 30 }, policy, '2026-09-01').eligible, false)
+  assert.equal(renewalEligibility({ endDate: '2026-12-20', totalSessions: 20, usedSessions: 14 }, policy, '2026-09-01').eligible, true)
 })
 
 test('renewal carousel segments and counts share exact non-overlapping expiry rules', () => {

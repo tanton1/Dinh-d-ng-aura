@@ -4,6 +4,8 @@ import { firebaseFunctions, firebaseScheduleOptimizerFunctions } from '../lib/fi
 export type PayrollRunStatus = 'draft' | 'reviewed' | 'locked' | 'paid'
 export type PayrollPolicyApplicationMode = 'single' | 'staff_profile' | 'trainer_assignment' | 'effective_date'
 export type PayrollProfile = 'probation' | 'official' | 'senior' | 'part_time' | 'collaborator'
+export type PayrollRankCode = 'p0' | 'p1' | 'p2' | 'p3' | 'p4'
+export type PayrollTeachingRateMode = 'absolute' | 'percent_of_rank_rate'
 export type PayrollRemediation = 'workdays' | 'teaching_history' | 'staff_profile' | 'policy' | 'delete_rebuild' | 'retry'
 
 export interface PayrollViolation {
@@ -68,6 +70,28 @@ export interface PayrollAdjustment {
   voidedAt: string
 }
 
+export type PayrollEarningStatus = 'pending_review' | 'approved' | 'disputed' | 'rejected' | 'reversed' | 'paid'
+export interface PayrollEarningEvent {
+  id: string
+  periodId: string
+  staffId: string
+  type: 'renew_commission' | 'self_generated_commission' | 'kpi_bonus' | 'bonus' | 'deduction' | 'renew_commission_reversal' | 'other'
+  sourceType: string
+  sourceId: string
+  grossAmount: number
+  signedAmount: number
+  evidenceReference: string
+  description: string
+  status: PayrollEarningStatus
+  reviewReason: string
+  createdAt: string
+  reviewedAt: string
+  deadline: string
+  originalRate?: number
+  attributionPercent?: number
+  commissionBaseAmount?: number
+}
+
 export interface PayrollRunSummary {
   id: string
   periodId: string
@@ -98,6 +122,13 @@ export interface PayrollRunSummary {
   commissionAmount: number
   bonusAmount: number
   deductionAmount: number
+  earningEventApprovedAmount?: number
+  earningEventPendingAmount?: number
+  earningEventDisputedAmount?: number
+  sessionEvidencePendingAmount?: number
+  targetStatus?: 'approved' | 'provisional' | 'not_required' | ''
+  targetSource?: 'current_period' | 'manager_input' | 'previous_period' | 'policy_default' | ''
+  targetSourcePeriodId?: string
   grossAmount: number
   adjustmentAmount: number
   finalAmount: number
@@ -128,15 +159,42 @@ export interface PayrollPolicy {
   eligibleProfiles: PayrollProfile[]
   version: number
   effectiveFrom: string
+  teachingRateMode: PayrollTeachingRateMode
+  defaultRankCode: PayrollRankCode
+  rankRateCards: Record<PayrollRankCode, number>
+  rateTierPercents: { standard: number; afterThreshold: number; evening: number; afterThresholdEvening: number }
+  eveningRequiresOvertime: true
   ratePerSession: number
   dailySessionThreshold: number
   rateAfterDailyThreshold: number
   eveningStartHour: number
   rateAfterDailyThresholdEvening: number
+  capabilities: {
+    baseSalaryEnabled: boolean
+    teachingCommissionEnabled: boolean
+    kpiBonusEnabled: boolean
+    renewCommissionEnabled: boolean
+    selfGeneratedCommissionEnabled: boolean
+    additionalBonusEnabled: boolean
+  }
+  renewEligibility: { maxDaysRemaining: number; maxSessionsRemaining: number; minConsumedPercent: number; requireMostlyUsedProgram: boolean }
+  sessionEvidence: { enabled: boolean; noteSlaHours: number; requiredFields: string[]; allowManagerOverride: boolean }
+  dispute: { resolutionSlaHours: number; allowPartialPayment: boolean }
   status: 'active' | 'inactive'
   usageCount: number
   canDelete: boolean
   createdAt: string
+}
+
+export interface PayrollTarget {
+  periodId: string
+  status: 'approved' | 'provisional'
+  source: 'current_period' | 'manager_input' | 'previous_period' | 'policy_default'
+  sourcePeriodId: string
+  metricTargets: Record<string, number>
+  reason: string
+  approvedBy: string
+  approvedAt: string
 }
 
 export interface PayrollIntelligenceMetric {
@@ -272,6 +330,10 @@ export interface PayrollRunItem {
   }
   bonusAmount: number
   deductionAmount: number
+  earningEventApprovedAmount?: number
+  earningEventPendingAmount?: number
+  earningEventDisputedAmount?: number
+  sessionEvidencePendingAmount?: number
   recurringBonusAmount: number
   manualBonusAmount: number
   manualDeductionAmount: number
@@ -455,6 +517,13 @@ function normaliseRun(value: unknown): PayrollRunSummary {
     commissionAmount: amount(raw.commissionAmount),
     bonusAmount: amount(raw.bonusAmount),
     deductionAmount: amount(raw.deductionAmount),
+    earningEventApprovedAmount: amount(raw.earningEventApprovedAmount),
+    earningEventPendingAmount: amount(raw.earningEventPendingAmount),
+    earningEventDisputedAmount: amount(raw.earningEventDisputedAmount),
+    sessionEvidencePendingAmount: amount(raw.sessionEvidencePendingAmount),
+    targetStatus: ['approved', 'provisional', 'not_required'].includes(String(raw.targetStatus)) ? raw.targetStatus as PayrollRunSummary['targetStatus'] : '',
+    targetSource: ['current_period', 'manager_input', 'previous_period', 'policy_default'].includes(String(raw.targetSource)) ? raw.targetSource as PayrollRunSummary['targetSource'] : '',
+    targetSourcePeriodId: typeof raw.targetSourcePeriodId === 'string' ? raw.targetSourcePeriodId : '',
     grossAmount: amount(raw.grossAmount),
     adjustmentAmount: amount(raw.adjustmentAmount),
     finalAmount: amount(raw.finalAmount || raw.grossAmount),
@@ -655,6 +724,10 @@ export async function getPayrollRun(runId: string): Promise<PayrollRunDetail> {
       } : undefined,
       bonusAmount: amount(raw.bonusAmount),
       deductionAmount: amount(raw.deductionAmount),
+      earningEventApprovedAmount: amount(raw.earningEventApprovedAmount),
+      earningEventPendingAmount: amount(raw.earningEventPendingAmount),
+      earningEventDisputedAmount: amount(raw.earningEventDisputedAmount),
+      sessionEvidencePendingAmount: amount(raw.sessionEvidencePendingAmount),
       recurringBonusAmount: amount(raw.recurringBonusAmount ?? raw.bonusAmount),
       manualBonusAmount: amount(raw.manualBonusAmount),
       manualDeductionAmount: amount(raw.manualDeductionAmount),
@@ -724,6 +797,12 @@ export async function listPayrollPolicies(): Promise<PayrollPolicy[]> {
     const raw = value as Record<string, unknown>
     const id = typeof raw.id === 'string' ? raw.id : ''
     if (!id) return []
+    const rankRates = raw.rankRateCards && typeof raw.rankRateCards === 'object' ? raw.rankRateCards as Record<string, unknown> : {}
+    const tierPercents = raw.rateTierPercents && typeof raw.rateTierPercents === 'object' ? raw.rateTierPercents as Record<string, unknown> : {}
+    const capabilities = raw.capabilities && typeof raw.capabilities === 'object' ? raw.capabilities as Record<string, unknown> : {}
+    const renew = raw.renewEligibility && typeof raw.renewEligibility === 'object' ? raw.renewEligibility as Record<string, unknown> : {}
+    const evidence = raw.sessionEvidence && typeof raw.sessionEvidence === 'object' ? raw.sessionEvidence as Record<string, unknown> : {}
+    const dispute = raw.dispute && typeof raw.dispute === 'object' ? raw.dispute as Record<string, unknown> : {}
     return [{
       id,
       name: typeof raw.name === 'string' ? raw.name : 'Chính sách lương PT',
@@ -733,11 +812,45 @@ export async function listPayrollPolicies(): Promise<PayrollPolicy[]> {
         : raw.audience === 'collaborator' ? ['collaborator'] : raw.audience === 'all' ? ['probation', 'official', 'senior', 'part_time', 'collaborator'] : ['probation', 'official', 'senior', 'part_time'],
       version: amount(raw.version) || 1,
       effectiveFrom: typeof raw.effectiveFrom === 'string' ? raw.effectiveFrom : '',
+      teachingRateMode: raw.teachingRateMode === 'percent_of_rank_rate' ? 'percent_of_rank_rate' : 'absolute',
+      defaultRankCode: ['p0', 'p1', 'p2', 'p3', 'p4'].includes(String(raw.defaultRankCode)) ? raw.defaultRankCode as PayrollRankCode : 'p0',
+      rankRateCards: Object.fromEntries((['p0', 'p1', 'p2', 'p3', 'p4'] as PayrollRankCode[]).map((code) => [code, amount(rankRates[code] ?? raw.ratePerSession)])) as Record<PayrollRankCode, number>,
+      rateTierPercents: {
+        standard: amount(tierPercents.standard) || 100,
+        afterThreshold: amount(tierPercents.afterThreshold) || 100,
+        evening: amount(tierPercents.evening) || 100,
+        afterThresholdEvening: amount(tierPercents.afterThresholdEvening) || 100,
+      },
+      eveningRequiresOvertime: true,
       ratePerSession: amount(raw.ratePerSession),
       dailySessionThreshold: Math.max(1, Math.trunc(amount(raw.dailySessionThreshold)) || 8),
       rateAfterDailyThreshold: amount(raw.rateAfterDailyThreshold ?? raw.ratePerSession),
       eveningStartHour: Math.max(0, Math.min(23, Math.trunc(amount(raw.eveningStartHour ?? 20)))),
       rateAfterDailyThresholdEvening: amount(raw.rateAfterDailyThresholdEvening ?? raw.rateAfterDailyThreshold ?? raw.ratePerSession),
+      capabilities: {
+        baseSalaryEnabled: capabilities.baseSalaryEnabled !== false,
+        teachingCommissionEnabled: capabilities.teachingCommissionEnabled !== false,
+        kpiBonusEnabled: capabilities.kpiBonusEnabled !== false,
+        renewCommissionEnabled: capabilities.renewCommissionEnabled !== false,
+        selfGeneratedCommissionEnabled: capabilities.selfGeneratedCommissionEnabled !== false,
+        additionalBonusEnabled: capabilities.additionalBonusEnabled !== false,
+      },
+      renewEligibility: {
+        maxDaysRemaining: Math.max(0, Math.trunc(amount(renew.maxDaysRemaining)) || 30),
+        maxSessionsRemaining: Math.max(0, Math.trunc(amount(renew.maxSessionsRemaining)) || 6),
+        minConsumedPercent: amount(renew.minConsumedPercent) || 70,
+        requireMostlyUsedProgram: renew.requireMostlyUsedProgram !== false,
+      },
+      sessionEvidence: {
+        enabled: evidence.enabled === true,
+        noteSlaHours: Math.max(1, Math.trunc(amount(evidence.noteSlaHours)) || 12),
+        requiredFields: Array.isArray(evidence.requiredFields) ? evidence.requiredFields.filter((field): field is string => typeof field === 'string') : [],
+        allowManagerOverride: evidence.allowManagerOverride !== false,
+      },
+      dispute: {
+        resolutionSlaHours: Math.max(1, Math.trunc(amount(dispute.resolutionSlaHours)) || 72),
+        allowPartialPayment: dispute.allowPartialPayment !== false,
+      },
       status: raw.status === 'inactive' ? 'inactive' : 'active',
       usageCount: Math.max(0, Math.trunc(amount(raw.usageCount))),
       canDelete: raw.canDelete === true,
@@ -772,16 +885,102 @@ export async function managePayrollIntelligencePolicy(policyId: string, action: 
   return result.data
 }
 
+export async function reviewPayrollSessionEvidence(sessionId: string, decision: 'approved' | 'rejected' | 'reset', reason = '') {
+  const input = { sessionId, decision, reason }
+  const result = await callable<typeof input, { sessionId: string; decision: string; unchanged: boolean }>('reviewPayrollSessionEvidence')(input)
+  return result.data
+}
+
+export async function listPayrollEarningEvents(periodId: string, staffId?: string): Promise<{ events: PayrollEarningEvent[]; summary: { approvedAmount: number; pendingAmount: number; disputedAmount: number; rejectedAmount: number; payableAmount: number } }> {
+  const result = await callable<{ periodId: string; staffId?: string }, { events?: unknown[]; summary?: Record<string, unknown> }>('listPayrollEarningEvents')({ periodId, staffId })
+  const events = Array.isArray(result.data.events) ? result.data.events.flatMap((value) => {
+    const raw = value && typeof value === 'object' ? value as Record<string, unknown> : {}
+    const id = typeof raw.id === 'string' ? raw.id : ''
+    if (!id) return []
+    return [{
+      id,
+      periodId: typeof raw.periodId === 'string' ? raw.periodId : periodId,
+      staffId: typeof raw.staffId === 'string' ? raw.staffId : '',
+      type: String(raw.type || 'other') as PayrollEarningEvent['type'],
+      sourceType: typeof raw.sourceType === 'string' ? raw.sourceType : '',
+      sourceId: typeof raw.sourceId === 'string' ? raw.sourceId : '',
+      grossAmount: amount(raw.grossAmount), signedAmount: amount(raw.signedAmount),
+      evidenceReference: typeof raw.evidenceReference === 'string' ? raw.evidenceReference : '',
+      description: typeof raw.description === 'string' ? raw.description : '',
+      status: String(raw.status || 'pending_review') as PayrollEarningStatus,
+      reviewReason: typeof raw.reviewReason === 'string' ? raw.reviewReason : '',
+      originalRate: amount(raw.originalRate), attributionPercent: amount(raw.attributionPercent) || 100, commissionBaseAmount: amount(raw.commissionBaseAmount),
+      createdAt: typeof raw.createdAt === 'string' ? raw.createdAt : '', reviewedAt: typeof raw.reviewedAt === 'string' ? raw.reviewedAt : '', deadline: typeof raw.deadline === 'string' ? raw.deadline : '',
+    }]
+  }) : []
+  const summary = result.data.summary || {}
+  return { events, summary: { approvedAmount: amount(summary.approvedAmount), pendingAmount: amount(summary.pendingAmount), disputedAmount: amount(summary.disputedAmount), rejectedAmount: amount(summary.rejectedAmount), payableAmount: amount(summary.payableAmount) } }
+}
+
+export async function savePayrollEarningEvent(input: { periodId: string; staffId: string; type: PayrollEarningEvent['type']; grossAmount: number; sourceType: string; sourceId: string; evidenceReference: string; description: string; deadlineHours?: number; originalRate?: number; attributionPercent?: number; commissionBaseAmount?: number }) {
+  const result = await callable<typeof input, { eventId: string; unchanged: boolean; status: PayrollEarningStatus }>('savePayrollEarningEvent')(input)
+  return result.data
+}
+
+export async function reviewPayrollEarningEvent(eventId: string, decision: 'approved' | 'disputed' | 'rejected' | 'pending_review', reason: string) {
+  const result = await callable<{ eventId: string; decision: typeof decision; reason: string }, { eventId: string; status: PayrollEarningStatus; unchanged: boolean }>('reviewPayrollEarningEvent')({ eventId, decision, reason })
+  return result.data
+}
+
+export async function approveRenewAttribution(input: { caseId: string; reason: string; splits: Array<{ staffId: string; role: string; percent: number }> }) {
+  const result = await callable<typeof input, { caseId: string; splits: typeof input.splits }>('approveRenewAttribution')(input)
+  return result.data
+}
+
+export async function getPayrollTarget(periodId: string): Promise<PayrollTarget> {
+  const result = await callable<{ periodId: string }, { target?: unknown }>('getPayrollTarget')({ periodId })
+  const raw = result.data.target && typeof result.data.target === 'object' ? result.data.target as Record<string, unknown> : {}
+  const metricTargets = raw.metricTargets && typeof raw.metricTargets === 'object'
+    ? Object.fromEntries(Object.entries(raw.metricTargets as Record<string, unknown>).flatMap(([key, value]) => {
+      const target = amount(value)
+      return target > 0 ? [[key, target] as const] : []
+    }))
+    : {}
+  return {
+    periodId: typeof raw.periodId === 'string' ? raw.periodId : periodId,
+    status: raw.status === 'approved' ? 'approved' : 'provisional',
+    source: ['current_period', 'manager_input', 'previous_period', 'policy_default'].includes(String(raw.source)) ? raw.source as PayrollTarget['source'] : 'policy_default',
+    sourcePeriodId: typeof raw.sourcePeriodId === 'string' ? raw.sourcePeriodId : '',
+    metricTargets,
+    reason: typeof raw.reason === 'string' ? raw.reason : '',
+    approvedBy: typeof raw.approvedBy === 'string' ? raw.approvedBy : '',
+    approvedAt: typeof raw.approvedAt === 'string' ? raw.approvedAt : '',
+  }
+}
+
+export async function savePayrollTarget(input: { periodId: string; metricTargets: Record<string, number>; reason: string }) {
+  const result = await callable<typeof input, { periodId: string; status: 'provisional'; revision: number }>('savePayrollTarget')(input)
+  return result.data
+}
+
+export async function approvePayrollTarget(periodId: string, reason: string) {
+  const result = await callable<{ periodId: string; reason: string }, { periodId: string; status: 'approved' }>('approvePayrollTarget')({ periodId, reason })
+  return result.data
+}
+
 export async function savePayrollPolicy(input: {
   name: string
   audience: 'employee' | 'collaborator' | 'all'
   eligibleProfiles: PayrollProfile[]
   effectiveFrom: string
+  teachingRateMode: PayrollTeachingRateMode
+  defaultRankCode: PayrollRankCode
+  rankRateCards: Record<PayrollRankCode, number>
+  rateTierPercents: PayrollPolicy['rateTierPercents']
   ratePerSession: number
   dailySessionThreshold: number
   rateAfterDailyThreshold: number
   eveningStartHour: number
   rateAfterDailyThresholdEvening: number
+  capabilities: PayrollPolicy['capabilities']
+  renewEligibility: PayrollPolicy['renewEligibility']
+  sessionEvidence: PayrollPolicy['sessionEvidence']
+  dispute: PayrollPolicy['dispute']
 }) {
   const result = await callable<typeof input, { policyId: string; unchanged: boolean }>('savePayrollPolicy')(input)
   return result.data

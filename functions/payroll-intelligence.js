@@ -12,7 +12,7 @@ const KNOWN_METRIC_SOURCES = new Set([
 
 const DEFAULT_ATTRIBUTION_RULES = Object.freeze([
   { sourceType: 'revenue', priority: ['referralStaffId', 'assignedSalesId'], splitMode: 'single' },
-  { sourceType: 'renewal', priority: ['assignedSalesId', 'trainerId', 'trainerIds', 'nutritionPTIds'], splitMode: 'single' },
+  { sourceType: 'renewal', priority: ['trainerId', 'trainerIds', 'nutritionPTIds'], splitMode: 'single' },
   { sourceType: 'feedback', priority: ['actualTrainerId', 'trainerId'], splitMode: 'single' },
   { sourceType: 'teaching', priority: ['trainerId'], splitMode: 'single' },
   { sourceType: 'workdays', priority: ['trainerId'], splitMode: 'single' },
@@ -228,8 +228,25 @@ function buildEvidenceLedger({ staffId, teachingSlots = [], referralEvidence = {
     const wonStages = policy?.renew?.wonStages?.length ? policy.renew.wonStages : ['won']
     const isWon = wonStages.includes(String(value.stage || '').toLowerCase()) || value.renewedContractId
     if (!isWon) continue
-    const attribution = resolveAttribution(event, policy)
-    if (attribution.staffIds.includes(staffId)) ledger.push(ledgerEntry({ event, staffId, attribution, value: number(value.wonValue || value.expectedValue), quantity: 1, reason: 'Hồ sơ gia hạn đã ghi nhận.' }))
+    const approvedSplit = Array.isArray(value.approvedAttribution?.splits)
+      && value.approvedAttribution?.approvedBy
+      && value.approvedAttribution.splits.reduce((sum, item) => sum + number(item?.percent), 0) === 100
+      ? value.approvedAttribution.splits
+      : null
+    if (approvedSplit) {
+      const share = approvedSplit.find((item) => item?.staffId === staffId)
+      if (share) ledger.push(ledgerEntry({
+        event,
+        staffId,
+        attribution: { staffIds: approvedSplit.map((item) => item.staffId), role: text(share.role, 'renewal'), splitMode: 'approved', conflict: false },
+        value: number(value.wonValue || value.expectedValue) * number(share.percent) / 100,
+        quantity: number(share.percent) / 100,
+        reason: `Gia hạn chia ${number(share.percent)}% theo quyết định đã duyệt.`,
+      }))
+    } else {
+      const attribution = resolveAttribution(event, policy)
+      if (attribution.staffIds.includes(staffId)) ledger.push(ledgerEntry({ event, staffId, attribution, value: number(value.wonValue || value.expectedValue), quantity: 1, reason: 'Không có quyết định chia; PT chính nhận 100% quy thuộc.' }))
+    }
   }
   const workdayCount = number(workdays.paidDays || workdays.estimatedPaidDays || 0)
   if (workdayCount > 0) {

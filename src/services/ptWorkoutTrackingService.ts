@@ -105,6 +105,7 @@ export interface PtWorkoutLog {
   sets: PtWorkoutSet[]
   coachNotes?: string
   painNotes?: string
+  nextSessionPlan?: string
   metrics: {
     completedSets: number
     totalVolumeKg: number
@@ -165,6 +166,7 @@ export async function savePtSessionWorkoutLog(input: {
   sessionReadiness?: number
   painNotes?: string
   coachNotes?: string
+  nextSessionPlan?: string
 }) {
   const response = await callable<typeof input, {
     logId: string

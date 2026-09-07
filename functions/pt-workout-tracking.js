@@ -490,7 +490,7 @@ function createPtWorkoutTrackingFunctions({ db, onCall }) {
         programRevision: integer(program.revision, 1, 1, 1_000_000), trainingDayId: dayId, trainingDayTitle: text(trainingDay.title, 160),
         planSnapshot: trainingDay, sets, metrics: workoutMetrics(sets), status, revision: nextRevision,
         sessionReadiness: integer(request.data?.sessionReadiness, 0, 0, 10), painNotes: text(request.data?.painNotes, 500),
-        coachNotes: text(request.data?.coachNotes, 1_200), updatedBy: actor.uid, updatedAt: FieldValue.serverTimestamp(),
+        coachNotes: text(request.data?.coachNotes, 1_200), nextSessionPlan: text(request.data?.nextSessionPlan, 1_200), updatedBy: actor.uid, updatedAt: FieldValue.serverTimestamp(),
         ...(logSnapshot.exists ? {} : { createdBy: actor.uid, createdAt: FieldValue.serverTimestamp() }),
         ...(status === 'completed' ? { completedBy: actor.uid, completedAt: FieldValue.serverTimestamp() } : {}),
       }

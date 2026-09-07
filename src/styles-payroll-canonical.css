@@ -296,10 +296,18 @@
 .payroll-policy__actions { display: flex; flex-wrap: wrap; gap: 6px; }
 .payroll-policy__actions button { display: inline-flex; min-height: 30px; align-items: center; gap: 5px; border: 1px solid #eadce3; border-radius: 9px; padding: 0 9px; background: #fff; color: #705b68; font-size: 10px; font-weight: 850; }
 .payroll-policy__actions button.is-danger { border-color: #ffd6df; background: #fff3f6; color: #b52652; }
-.payroll-policy__rates { display: grid !important; grid-template-columns: repeat(3, auto); gap: 6px !important; }
+.payroll-policy__rates { display: grid !important; grid-template-columns: repeat(auto-fit, minmax(86px, 1fr)); gap: 6px !important; }
 .payroll-policy__rates > span { display: grid; min-width: 86px; gap: 2px; border-radius: 10px; padding: 7px 9px; background: #fff4f7; text-align: right; }
 .payroll-policy__rates small { color: #9b8490; font-size: 9px; }
 .payroll-policy__rates b { color: var(--payroll-pink); font-size: 12px; }
+.payroll-policy__tier-note { margin-top: 7px; color: #806875; font-size: 10px; line-height: 1.45; }
+.payroll-policy__fields .payroll-policy__check { align-content: center; grid-template-columns: auto 1fr; align-items: center; min-height: 42px; padding: 8px 10px; border-radius: 12px; background: #fff8fa; }
+.payroll-policy__fields .payroll-policy__check input { width: 18px; height: 18px; }
+.payroll-earning-events__actions { display: flex; flex-wrap: wrap; gap: 5px; }
+.payroll-earning-events__actions button { min-height: 30px; padding: 5px 8px; border-radius: 9px; background: #fff4f7; color: #8d3e61; font-size: 10px; font-weight: 700; }
+.payroll-earning-events article.is-disputed { background: #fff9ed; }
+.payroll-earning-events article.is-approved { background: #f2fbf7; }
+.payroll-adjustments__legacy-title { margin-top: 22px; }
 .payroll-policy__profiles { display: grid; grid-column: 1 / -1; gap: 7px; }
 .payroll-policy__profiles > span { color: #725f6a; font-size: 10px; font-weight: 900; }
 .payroll-policy__profiles > div { display: flex; flex-wrap: wrap; gap: 7px; }
@@ -604,3 +612,43 @@
 .payroll-intelligence-policy__metrics input { min-width: 0; padding: 7px; }
 @media (max-width: 600px) { .payroll-intelligence-policy { border-inline: 0; border-radius: 0; margin-inline: 0; padding: 14px; }.payroll-intelligence-policy__list article { display: grid; }.payroll-intelligence-policy__list article > div:last-child { justify-items: start; }.payroll-intelligence-policy__metrics { grid-template-columns: 1fr; }.payroll-intelligence-policy__metrics label { grid-template-columns: minmax(0,1fr) 62px 80px; } }
 @media (max-width: 600px) { .payroll-trainer-item__intelligence { grid-template-columns: repeat(2,minmax(0,1fr)); } }
+.payroll-target-panel {
+  margin-top: 18px;
+  padding: 18px;
+  border: 1px solid rgba(15, 74, 110, .12);
+  border-radius: 18px;
+  background: linear-gradient(145deg, rgba(244, 250, 253, .96), rgba(255, 255, 255, .98));
+}
+
+.payroll-target-panel__metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.payroll-target-panel__metrics label,
+.payroll-target-panel__reason {
+  display: grid;
+  gap: 6px;
+  color: #536775;
+  font-size: .82rem;
+}
+
+.payroll-target-panel input {
+  min-width: 0;
+  width: 100%;
+  border: 1px solid rgba(15, 74, 110, .16);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: #fff;
+  color: #17384b;
+}
+
+.payroll-target-panel__reason { margin-top: 12px; }
+.payroll-target-panel__actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 14px; }
+
+@media (max-width: 640px) {
+  .payroll-target-panel { margin-inline: -4px; padding: 14px; border-radius: 14px; }
+  .payroll-target-panel__metrics { grid-template-columns: 1fr 1fr; }
+  .payroll-target-panel__actions button { flex: 1; }
+}

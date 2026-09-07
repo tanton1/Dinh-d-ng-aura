@@ -162,6 +162,20 @@ function renewalRisk(contract, today = vietnamDateKey()) {
   return { category: 'healthy', daysLeft, sessionsLeft }
 }
 
+function renewalEligibility(contract, configuration = {}, today = vietnamDateKey()) {
+  const totalSessions = Math.max(0, Number(contract.totalSessions || 0))
+  const usedSessions = Math.max(0, Math.min(totalSessions, Number(contract.usedSessions || 0)))
+  const sessionsLeft = Math.max(0, totalSessions - usedSessions)
+  const daysLeft = dateOrdinal(contract.endDate) - dateOrdinal(today)
+  const maxDaysRemaining = Math.max(0, Number(configuration.maxDaysRemaining ?? 30))
+  const maxSessionsRemaining = Math.max(0, Number(configuration.maxSessionsRemaining ?? 6))
+  const minConsumedPercent = Math.max(0, Math.min(100, Number(configuration.minConsumedPercent ?? 70)))
+  const consumedPercent = totalSessions > 0 ? Math.round(usedSessions / totalSessions * 10_000) / 100 : 0
+  const nearEnd = daysLeft <= maxDaysRemaining || sessionsLeft <= maxSessionsRemaining
+  const mostlyUsed = configuration.requireMostlyUsedProgram === false || consumedPercent >= minConsumedPercent
+  return { eligible: nearEnd && mostlyUsed, nearEnd, mostlyUsed, daysLeft, sessionsLeft, consumedPercent, maxDaysRemaining, maxSessionsRemaining, minConsumedPercent }
+}
+
 function renewalHandoverProjection(source, nextContract, today = vietnamDateKey()) {
   const sourceRemaining = Math.max(0, Number(source?.totalSessions || 0) - Number(source?.usedSessions || 0))
   const packageSessions = Math.max(0, Number(nextContract?.packageSessions || 0))
@@ -527,10 +541,11 @@ async function renewalOptions(db, actor) {
 
 async function refreshRenewalQueueCore({ db, dryRun = true, actorUid = 'scheduler' }) {
   const today = vietnamDateKey()
-  const [contractsSnapshot, studentsSnapshot, packagesSnapshot, branchesSnapshot, casesSnapshot, assignmentsSnapshot] = await Promise.all([
+  const [contractsSnapshot, studentsSnapshot, packagesSnapshot, branchesSnapshot, casesSnapshot, assignmentsSnapshot, policySnapshot] = await Promise.all([
     db.collection('contracts').limit(maximumContracts + 1).get(), db.collection('students').limit(5000).get(),
     db.collection('packages').limit(500).get(), db.collection('branches').limit(100).get(),
     db.collection('contractRenewalCases').limit(maximumCases + 1).get(), db.collection('roleAssignments').limit(500).get(),
+    db.collection('payrollPolicies').orderBy('effectiveFrom', 'desc').limit(20).get(),
   ])
   const contracts = contractsSnapshot.docs.slice(0, maximumContracts).map((item) => ({ id: item.id, ...item.data() }))
   const students = new Map(studentsSnapshot.docs.map((item) => [item.id, { id: item.id, ...item.data() }]))
@@ -538,14 +553,20 @@ async function refreshRenewalQueueCore({ db, dryRun = true, actorUid = 'schedule
   const branches = new Map(branchesSnapshot.docs.map((item) => [item.id, item.data().name || item.id]))
   const existing = new Map(casesSnapshot.docs.map((item) => [item.id, { id: item.id, ...item.data() }]))
   const activeSales = new Set(assignmentsSnapshot.docs.filter((item) => item.data().status === 'active' && (item.data().positions || []).includes('sales')).map((item) => item.id))
+  const renewPolicy = policySnapshot.docs.map((item) => item.data() || {}).find((item) => item.status !== 'inactive' && item.audience !== 'collaborator')?.renewEligibility || {
+    maxDaysRemaining: 30, maxSessionsRemaining: 6, minConsumedPercent: 70, requireMostlyUsedProgram: true,
+  }
   const desired = new Map()
   for (const contract of latestContractsByStudent(contracts).values()) {
     if (!contract.endDate || !activeContractStatuses.has(contract.status || 'active')) continue
     const risk = renewalRisk(contract, today)
     if (risk.category === 'healthy') continue
+    const eligibility = renewalEligibility(contract, renewPolicy, today)
+    const current = existing.get(contract.id) || {}
+    const managerOverride = current.renewEligibilityOverride?.status === 'approved'
+    if (!eligibility.eligible && !managerOverride) continue
     const student = students.get(contract.studentId)
     if (!student || ['inactive', 'archived'].includes(student.status)) continue
-    const current = existing.get(contract.id) || {}
     if (closedStages.has(current.stage)) continue
     const trainingPackage = packages.get(contract.packageId) || {}
     const branchId = contract.branchId || student.branchId || trainingPackage.branchId || ''
@@ -559,6 +580,7 @@ async function refreshRenewalQueueCore({ db, dryRun = true, actorUid = 'schedule
       branchName: branches.get(branchId) || 'Chưa phân chi nhánh', assignedSalesId, assignedSalesName: current.assignedSalesName || '',
       stage, probability: probabilityByStage[stage], active: true, riskCategory: risk.category,
       daysLeft: risk.daysLeft, sessionsLeft: risk.sessionsLeft, slaDueAt,
+      renewEligibility: { ...eligibility, managerOverride, policySnapshot: renewPolicy },
       priorityScore: priorityScore(risk, slaDueAt, today), expectedValue: Math.max(0, Number(trainingPackage.price || contract.totalPrice || 0)),
       studentSnapshot: { id: student.id, name: student.name || student.displayName || 'Chưa cập nhật tên', phone: student.phone || student.phoneNumber || '', email: student.email || '' },
       contractSnapshot: {
@@ -1110,4 +1132,4 @@ function createContractRenewalFunctions({ db, onCall, onSchedule, logger }) {
   }
 }
 
-module.exports = { createContractRenewalFunctions, refreshRenewalQueueCore, createRenewalInternalReminders, activateDueRenewalContractsCore, renewalHandoverProjection, addMonthsDateKey, normalizeInstallments, renewalRisk, latestContractsByStudent, priorityScore, slaStatus, requiresRenewalApproval, renewalQueueFingerprint, matchesRenewalSegment, renewalStats, renewalMessageTemplates, caseAssignedToTrainer, canViewCase }
+module.exports = { createContractRenewalFunctions, refreshRenewalQueueCore, createRenewalInternalReminders, activateDueRenewalContractsCore, renewalHandoverProjection, addMonthsDateKey, normalizeInstallments, renewalRisk, renewalEligibility, latestContractsByStudent, priorityScore, slaStatus, requiresRenewalApproval, renewalQueueFingerprint, matchesRenewalSegment, renewalStats, renewalMessageTemplates, caseAssignedToTrainer, canViewCase }

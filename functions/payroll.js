@@ -90,6 +90,83 @@ function periodDateBounds(periodId) {
   }
 }
 
+function previousPayrollPeriod(periodId) {
+  const [year, month] = period(periodId).split('-').map(Number)
+  return month === 1 ? `${year - 1}-12` : `${year}-${String(month - 1).padStart(2, '0')}`
+}
+
+function payrollTargetMetrics(value = {}) {
+  const source = value && typeof value === 'object' ? value : {}
+  return Object.fromEntries(Object.entries(source).slice(0, 30).flatMap(([key, raw]) => {
+    if (!/^[A-Za-z0-9_-]{1,50}$/.test(key)) return []
+    const target = Number(raw)
+    return Number.isFinite(target) && target > 0 ? [[key, Math.round(target * 100) / 100]] : []
+  }))
+}
+
+function resolvedPayrollTarget(periodId, current = null, previous = null, policy = null) {
+  const currentValue = current?.exists ? current.data() || {} : null
+  const previousValue = previous?.exists ? previous.data() || {} : null
+  const policyTargets = Object.fromEntries(Object.entries(policy?.metrics || {}).flatMap(([key, metric]) => Number(metric?.target) > 0 ? [[key, Number(metric.target)]] : []))
+  const source = currentValue || previousValue || {}
+  const metricTargets = Object.keys(payrollTargetMetrics(source.metricTargets)).length
+    ? payrollTargetMetrics(source.metricTargets)
+    : policyTargets
+  return {
+    periodId,
+    status: currentValue?.status === 'approved' ? 'approved' : 'provisional',
+    source: currentValue ? (currentValue.source || 'current_period') : previousValue ? 'previous_period' : 'policy_default',
+    sourcePeriodId: currentValue?.sourcePeriodId || (previousValue ? previousPayrollPeriod(periodId) : ''),
+    metricTargets,
+    reason: currentValue?.reason || '',
+    approvedBy: currentValue?.approvedBy || '',
+    approvedAt: currentValue?.approvedAt || null,
+  }
+}
+
+function applyPayrollTarget(policy, target) {
+  if (!policy || !target?.metricTargets) return policy
+  return {
+    ...policy,
+    metrics: Object.fromEntries(Object.entries(policy.metrics || {}).map(([key, metric]) => [
+      key,
+      Number(target.metricTargets[key]) > 0 ? { ...metric, target: Number(target.metricTargets[key]) } : metric,
+    ])),
+  }
+}
+
+function renewCohortByStaff(documents, allowedStaffIds = new Set()) {
+  const result = new Map()
+  for (const document of documents || []) {
+    const value = typeof document?.data === 'function' ? document.data() || {} : document || {}
+    if (value.active === false || !value.renewEligibility?.eligible && !value.renewEligibility?.managerOverride) continue
+    const contract = value.contractSnapshot && typeof value.contractSnapshot === 'object' ? value.contractSnapshot : {}
+    const primaryTrainerId = String(contract.trainerId || value.trainerId || '')
+    const staffIds = [...new Set([primaryTrainerId, ...(Array.isArray(contract.trainerIds) ? contract.trainerIds : []), ...(Array.isArray(contract.nutritionPTIds) ? contract.nutritionPTIds : [])].filter(Boolean))]
+      .filter((staffId) => !allowedStaffIds.size || allowedStaffIds.has(staffId))
+    for (const staffId of staffIds) {
+      const current = result.get(staffId) || []
+      current.push({
+        caseId: document.id || value.id || '',
+        sourceContractId: value.sourceContractId || contract.id || '',
+        studentId: value.studentId || '',
+        studentName: value.studentSnapshot?.name || '',
+        totalSessions: Number(contract.totalSessions || 0),
+        usedSessions: Number(contract.usedSessions || 0),
+        consumedPercent: Number(value.renewEligibility?.consumedPercent || 0),
+        daysRemaining: Number(value.daysLeft ?? value.renewEligibility?.daysRemaining ?? 0),
+        sessionsRemaining: Number(value.sessionsLeft ?? value.renewEligibility?.sessionsRemaining ?? 0),
+        reasonCodes: Array.isArray(value.renewEligibility?.reasonCodes) ? value.renewEligibility.reasonCodes.slice(0, 10) : [],
+        managerOverride: value.renewEligibility?.managerOverride === true,
+        primaryTrainerId,
+        role: staffId === primaryTrainerId ? 'primary' : 'support',
+      })
+      result.set(staffId, current.slice(0, 500))
+    }
+  }
+  return result
+}
+
 function payrollPeriodClosed(periodId, now = new Date()) {
   const date = now?.toDate ? now.toDate() : now instanceof Date ? now : new Date(now)
   return Number.isFinite(date.getTime()) && date.getTime() >= periodBounds(period(periodId)).end.toMillis()
@@ -195,18 +272,103 @@ function boundedInteger(value, label, minimum, maximum, fallback) {
   return parsed
 }
 
+const PAYROLL_RANK_CODES = ['p0', 'p1', 'p2', 'p3', 'p4']
+const PAYROLL_EVIDENCE_FIELDS = ['goal', 'mainExercises', 'loadOrRpe', 'painResponse', 'nextSessionPlan']
+
+function payrollRankCode(value, fallback = 'p0') {
+  const normalized = typeof value === 'string' ? value.trim().toLowerCase() : ''
+  return PAYROLL_RANK_CODES.includes(normalized) ? normalized : fallback
+}
+
+function policyPercent(value, label, fallback) {
+  const parsed = value === undefined || value === null || value === '' ? fallback : Number(value)
+  if (!Number.isFinite(parsed) || parsed < 0 || parsed > 1_000) {
+    throw new HttpsError('invalid-argument', `${label} phải từ 0% đến 1.000%.`)
+  }
+  return Math.round(parsed * 100) / 100
+}
+
+function policyCapabilities(value = {}, audience = 'employee') {
+  const collaborator = audience === 'collaborator'
+  const source = value && typeof value === 'object' ? value : {}
+  return {
+    baseSalaryEnabled: collaborator ? false : source.baseSalaryEnabled !== false,
+    teachingCommissionEnabled: source.teachingCommissionEnabled !== false,
+    kpiBonusEnabled: collaborator ? false : source.kpiBonusEnabled !== false,
+    renewCommissionEnabled: collaborator ? false : source.renewCommissionEnabled !== false,
+    selfGeneratedCommissionEnabled: collaborator ? false : source.selfGeneratedCommissionEnabled !== false,
+    additionalBonusEnabled: collaborator ? false : source.additionalBonusEnabled !== false,
+  }
+}
+
+function renewEligibilityConfiguration(value = {}) {
+  const source = value && typeof value === 'object' ? value : {}
+  return {
+    maxDaysRemaining: boundedInteger(source.maxDaysRemaining, 'Số ngày còn lại để vào mẫu Renew', 0, 365, 30),
+    maxSessionsRemaining: boundedInteger(source.maxSessionsRemaining, 'Số buổi còn lại để vào mẫu Renew', 0, 500, 6),
+    minConsumedPercent: policyPercent(source.minConsumedPercent, 'Tỷ lệ chương trình đã dùng', 70),
+    requireMostlyUsedProgram: source.requireMostlyUsedProgram !== false,
+  }
+}
+
+function sessionEvidenceConfiguration(value = {}) {
+  const source = value && typeof value === 'object' ? value : {}
+  const requiredFields = Array.isArray(source.requiredFields)
+    ? [...new Set(source.requiredFields.filter((field) => PAYROLL_EVIDENCE_FIELDS.includes(field)))]
+    : [...PAYROLL_EVIDENCE_FIELDS]
+  return {
+    enabled: source.enabled === true,
+    noteSlaHours: boundedInteger(source.noteSlaHours, 'SLA bổ sung session note', 1, 168, 12),
+    requiredFields: requiredFields.length ? requiredFields : [...PAYROLL_EVIDENCE_FIELDS],
+    allowManagerOverride: source.allowManagerOverride !== false,
+  }
+}
+
+function disputeConfiguration(value = {}) {
+  const source = value && typeof value === 'object' ? value : {}
+  return {
+    resolutionSlaHours: boundedInteger(source.resolutionSlaHours, 'SLA xử lý tranh chấp', 1, 720, 72),
+    allowPartialPayment: source.allowPartialPayment !== false,
+  }
+}
+
 function payrollPolicyConfiguration(value = {}) {
-  const ratePerSession = policyRate(value.ratePerSession)
+  const audience = policyAudience(value.audience)
+  const teachingRateMode = value.teachingRateMode === 'percent_of_rank_rate' ? 'percent_of_rank_rate' : 'absolute'
+  const defaultRankCode = payrollRankCode(value.defaultRankCode)
+  const rankRateSource = value.rankRateCards && typeof value.rankRateCards === 'object' ? value.rankRateCards : {}
+  const fallbackRate = value.ratePerSession ?? rankRateSource[defaultRankCode]
+  const ratePerSession = policyRate(fallbackRate)
+  const rankRateCards = Object.fromEntries(PAYROLL_RANK_CODES.map((rankCode) => [
+    rankCode,
+    policyRate(rankRateSource[rankCode] ?? ratePerSession),
+  ]))
   const dailySessionThreshold = boundedInteger(value.dailySessionThreshold, 'Số ca tiêu chuẩn mỗi ngày', 1, 24, 8)
   const rateAfterDailyThreshold = policyRate(value.rateAfterDailyThreshold ?? ratePerSession)
   const eveningStartHour = boundedInteger(value.eveningStartHour, 'Giờ bắt đầu ca tối', 0, 23, 20)
   const rateAfterDailyThresholdEvening = policyRate(value.rateAfterDailyThresholdEvening ?? rateAfterDailyThreshold)
+  const tierSource = value.rateTierPercents && typeof value.rateTierPercents === 'object' ? value.rateTierPercents : {}
+  const rateTierPercents = {
+    standard: policyPercent(tierSource.standard, 'Tỷ lệ ca chuẩn', 100),
+    afterThreshold: policyPercent(tierSource.afterThreshold, 'Tỷ lệ ca ngoài giờ', Math.round(rateAfterDailyThreshold / ratePerSession * 10_000) / 100),
+    evening: policyPercent(tierSource.evening, 'Tỷ lệ ca tối', 100),
+    afterThresholdEvening: policyPercent(tierSource.afterThresholdEvening, 'Tỷ lệ ca ngoài giờ tối', Math.round(rateAfterDailyThresholdEvening / ratePerSession * 10_000) / 100),
+  }
   return {
+    teachingRateMode,
+    defaultRankCode,
+    rankRateCards,
+    rateTierPercents,
+    eveningRequiresOvertime: true,
     ratePerSession,
     dailySessionThreshold,
     rateAfterDailyThreshold,
     eveningStartHour,
     rateAfterDailyThresholdEvening,
+    capabilities: policyCapabilities(value.capabilities, audience),
+    renewEligibility: renewEligibilityConfiguration(value.renewEligibility),
+    sessionEvidence: sessionEvidenceConfiguration(value.sessionEvidence),
+    dispute: disputeConfiguration(value.dispute),
   }
 }
 
@@ -286,7 +448,46 @@ function payrollAdjustmentText(value, label, minimum, maximum) {
   return result
 }
 
-function priceTeachingSlots(slots, resolvePolicy) {
+const PAYROLL_EARNING_TYPES = new Set(['renew_commission', 'self_generated_commission', 'kpi_bonus', 'bonus', 'deduction', 'renew_commission_reversal', 'other'])
+const PAYROLL_EARNING_STATUSES = new Set(['pending_review', 'approved', 'disputed', 'rejected', 'reversed', 'paid'])
+
+function payrollEarningType(value) {
+  if (PAYROLL_EARNING_TYPES.has(value)) return value
+  throw new HttpsError('invalid-argument', 'Loại khoản thu nhập không hợp lệ.')
+}
+
+function payrollEarningStatus(value) {
+  return PAYROLL_EARNING_STATUSES.has(value) ? value : 'pending_review'
+}
+
+function payrollEarningSignedAmount(value = {}) {
+  const gross = payrollAdjustmentAmount(value.grossAmount)
+  return value.type === 'deduction' || value.type === 'renew_commission_reversal' ? -gross : gross
+}
+
+function payrollEarningBuckets(events = []) {
+  return events.reduce((result, event) => {
+    const signedAmount = Number(event.signedAmount || 0)
+    const magnitude = Math.abs(signedAmount)
+    if (event.status === 'approved' || event.status === 'paid') {
+      result.approvedAmount += magnitude
+      result.payableAmount += signedAmount
+    } else if (event.status === 'disputed') result.disputedAmount += magnitude
+    else if (event.status === 'pending_review') result.pendingAmount += magnitude
+    else result.rejectedAmount += magnitude
+    return result
+  }, { approvedAmount: 0, pendingAmount: 0, disputedAmount: 0, rejectedAmount: 0, payableAmount: 0 })
+}
+
+function payrollEarningAllowedByPolicy(event, capabilities = {}) {
+  if (event.type === 'deduction' || event.type === 'renew_commission_reversal') return true
+  if (event.type === 'renew_commission') return capabilities.renewCommissionEnabled === true
+  if (event.type === 'self_generated_commission') return capabilities.selfGeneratedCommissionEnabled === true
+  if (event.type === 'kpi_bonus') return capabilities.kpiBonusEnabled === true
+  return capabilities.additionalBonusEnabled === true
+}
+
+function priceTeachingSlots(slots, resolvePolicy, staff = {}) {
   const dailyPosition = new Map()
   return [...slots]
     .sort((left, right) => left.date.localeCompare(right.date) || left.hour - right.hour || left.key.localeCompare(right.key))
@@ -316,9 +517,18 @@ function priceTeachingSlots(slots, resolvePolicy) {
       // The evening premium applies only to overtime slots. All rates and the
       // threshold come from the selected, versioned payroll policy.
       const evening = afterThreshold && slot.hour >= policy.eveningStartHour
-      const rate = evening
+      const tier = evening ? 'after_threshold_evening' : afterThreshold ? 'after_threshold' : 'standard'
+      const rankCode = payrollRankCode(staff.compensationRank || staff.payrollRank || staff.rankCode, policy.defaultRankCode)
+      const rankBaseRate = policy.rankRateCards[rankCode] || policy.rankRateCards[policy.defaultRankCode] || policy.ratePerSession
+      const tierPercent = tier === 'after_threshold_evening'
+        ? policy.rateTierPercents.afterThresholdEvening
+        : tier === 'after_threshold' ? policy.rateTierPercents.afterThreshold : policy.rateTierPercents.standard
+      const absoluteRate = evening
         ? policy.rateAfterDailyThresholdEvening
         : afterThreshold ? policy.rateAfterDailyThreshold : policy.ratePerSession
+      const rate = policy.teachingRateMode === 'percent_of_rank_rate'
+        ? Math.round(rankBaseRate * tierPercent / 100)
+        : absoluteRate
       return {
         key: slot.key,
         date: slot.date,
@@ -333,8 +543,12 @@ function priceTeachingSlots(slots, resolvePolicy) {
           : Array.isArray(slot.branchIds) ? slot.branchIds : (slot.branchId ? [slot.branchId] : []),
         crossBranchWarning: slot.crossBranchWarning === true,
         dailyPosition: position,
-        tier: evening ? 'after_threshold_evening' : afterThreshold ? 'after_threshold' : 'standard',
+        tier,
         rate,
+        teachingRateMode: policy.teachingRateMode,
+        rankCode,
+        rankBaseRate,
+        tierPercent,
         policyId: selected.id || '',
         policyName: selected.name || 'Chính sách lương PT',
         studentCount: slot.studentIds?.size ?? slot.studentCount ?? 0,
@@ -345,6 +559,70 @@ function priceTeachingSlots(slots, resolvePolicy) {
         attendanceEventIds: slot.attendanceEventIds instanceof Set ? [...slot.attendanceEventIds] : [...(slot.attendanceEventIds || [])],
       }
     })
+}
+
+function sessionEvidenceDeadline(session, noteSlaHours) {
+  const date = vietnamDateKey(session.date, { sessionId: session.id || '' })
+  const hour = teachingHour(session.hour, session.id || '')
+  return new Date(`${date}T00:00:00+07:00`).getTime() + (hour + 1 + noteSlaHours) * 3_600_000
+}
+
+function evaluateSessionNoteEvidence(session, log, configuration, now = new Date()) {
+  const policy = payrollPolicyConfiguration(configuration)
+  if (!policy.sessionEvidence.enabled) return { status: 'not_required', missingFields: [], deadline: '' }
+  const reviewStatus = session?.payrollEvidenceReview?.status
+  if (reviewStatus === 'approved') return { status: 'complete', missingFields: [], deadline: '', managerOverride: true }
+  if (reviewStatus === 'rejected') return { status: 'rejected', missingFields: policy.sessionEvidence.requiredFields, deadline: '', managerOverride: true }
+  const value = log && typeof log === 'object' ? log : {}
+  const completedSets = Array.isArray(value.sets) ? value.sets.filter((set) => set?.completed !== false) : []
+  const evidence = {
+    goal: Boolean(String(value.goal || value.trainingDayTitle || value.planSnapshot?.title || '').trim() || value.planSnapshot?.focusMuscles?.length),
+    mainExercises: completedSets.some((set) => String(set?.exerciseName || set?.catalogExerciseId || '').trim()),
+    loadOrRpe: completedSets.some((set) => Number(set?.weightKg || 0) > 0 || Number(set?.rpe || 0) > 0 || Number(set?.reps || 0) > 0 || Number(set?.durationSeconds || 0) > 0 || Number(set?.distanceMeters || 0) > 0),
+    painResponse: Boolean(String(value.painNotes || '').trim()) || completedSets.some((set) => Object.prototype.hasOwnProperty.call(set || {}, 'painLevel')),
+    nextSessionPlan: Boolean(String(value.nextSessionPlan || '').trim()),
+  }
+  const missingFields = policy.sessionEvidence.requiredFields.filter((field) => !evidence[field])
+  if (value.status === 'completed' && !missingFields.length) return { status: 'complete', missingFields, deadline: '' }
+  const deadlineMs = sessionEvidenceDeadline(session, policy.sessionEvidence.noteSlaHours)
+  const deadline = new Date(deadlineMs).toISOString()
+  const nowDate = now?.toDate?.() || (now instanceof Date ? now : new Date(now))
+  return nowDate.getTime() <= deadlineMs
+    ? { status: 'pending_evidence', missingFields, deadline }
+    : { status: 'invalid_after_sla', missingFields, deadline }
+}
+
+function applySessionEvidencePolicy(teaching, sessionsById, logsBySessionId, policiesById, now = new Date()) {
+  const trainers = new Map()
+  const evidence = []
+  let payableTeachingSlotCount = 0
+  for (const [trainerId, slots] of teaching.trainers) {
+    const payableSlots = []
+    for (const slot of slots) {
+      const policy = policiesById.get(slot.policyId)
+      const configuration = policy?.configuration || {}
+      const results = slot.sessionIds.map((sessionId) => {
+        const session = sessionsById.get(sessionId) || { id: sessionId, date: slot.date, hour: slot.hour }
+        return { sessionId, ...evaluateSessionNoteEvidence(session, logsBySessionId.get(sessionId), configuration, now) }
+      })
+      const blocking = results.filter((result) => !['not_required', 'complete'].includes(result.status))
+      if (blocking.length) {
+        evidence.push(...blocking.map((result, index) => ({ ...result, trainerId, date: slot.date, hour: slot.hour, policyId: slot.policyId, amount: index === 0 ? Number(slot.rate || 0) : 0, studentIds: slot.studentIds || [] })))
+      } else {
+        payableSlots.push({ ...slot, sessionEvidenceStatus: results.some((result) => result.status === 'complete') ? 'complete' : 'not_required' })
+        payableTeachingSlotCount += 1
+      }
+    }
+    trainers.set(trainerId, payableSlots)
+  }
+  return {
+    ...teaching,
+    trainers,
+    payableTeachingSlotCount,
+    sessionEvidence: evidence.slice(0, 500),
+    sessionEvidenceReviewRequiredCount: evidence.length,
+    sessionEvidenceReviewRequiredSessionIds: [...new Set(evidence.map((item) => item.sessionId))].slice(0, 500),
+  }
 }
 
 function teachingSlotsFromAttendance(attendanceDocuments, sessionsById, policyValue) {
@@ -723,7 +1001,7 @@ function payrollPolicyRecord(snapshot) {
     status: data.status === 'inactive' ? 'inactive' : 'active',
     audience: policyAudience(data.audience),
     eligibleProfiles: payrollPolicyProfiles(data.eligibleProfiles, policyAudience(data.audience)),
-    configuration: payrollPolicyConfiguration(data),
+    configuration: payrollPolicyConfiguration({ ...data, audience: policyAudience(data.audience) }),
   }
 }
 
@@ -771,6 +1049,7 @@ function applyPayrollPolicyPlan(teaching, plan, policies) {
   const trainers = new Map()
   for (const [trainerId, slots] of teaching.trainers) {
     const profile = plan.staffProfiles?.get(trainerId) || 'official'
+    const staff = plan.staffRecords?.get(trainerId) || {}
     const profilePolicyId = plan.staffPolicyAssignments?.get(trainerId) || ''
     const profilePolicy = policiesById.get(profilePolicyId)
     const assignedPolicy = plan.applicationMode === 'staff_profile'
@@ -828,7 +1107,7 @@ function applyPayrollPolicyPlan(teaching, plan, policies) {
         )
       }
       return assignedPolicy
-    }))
+    }, staff))
   }
   return { ...teaching, trainers }
 }
@@ -979,17 +1258,14 @@ function createPayrollFunctions({ db, onCall, logger = console }) {
     return {
       policies: snapshot.docs.map((item) => {
         const data = item.data()
+        const configuration = payrollPolicyConfiguration({ ...data, audience: policyAudience(data.audience) })
         const usageCount = Number(usage.get(item.id) || 0)
         return {
           id: item.id,
           name: data.name || 'Chính sách lương PT',
           version: Number(data.version || 1),
           effectiveFrom: iso(data.effectiveFrom),
-          ratePerSession: Number(data.ratePerSession || 0),
-          dailySessionThreshold: Number(data.dailySessionThreshold || 8),
-          rateAfterDailyThreshold: Number(data.rateAfterDailyThreshold || data.ratePerSession || 0),
-          eveningStartHour: Number(data.eveningStartHour ?? 20),
-          rateAfterDailyThresholdEvening: Number(data.rateAfterDailyThresholdEvening || data.rateAfterDailyThreshold || data.ratePerSession || 0),
+          ...configuration,
           audience: policyAudience(data.audience),
           eligibleProfiles: payrollPolicyProfiles(data.eligibleProfiles, policyAudience(data.audience)),
           status: data.status === 'inactive' ? 'inactive' : 'active',
@@ -1099,18 +1375,112 @@ function createPayrollFunctions({ db, onCall, logger = console }) {
     })
   })
 
+  const getPayrollTarget = payrollCall(async (request) => {
+    await payrollActor(request, db)
+    const periodId = period(request.data?.periodId)
+    const reference = db.doc(`payrollTargets/${periodId}`)
+    const previousPeriodId = previousPayrollPeriod(periodId)
+    const previousReference = db.doc(`payrollTargets/${previousPeriodId}`)
+    const target = await db.runTransaction(async (transaction) => {
+      const [current, previous] = await Promise.all([transaction.get(reference), transaction.get(previousReference)])
+      const resolved = resolvedPayrollTarget(periodId, current, previous)
+      if (!current.exists && Object.keys(resolved.metricTargets).length) {
+        transaction.create(reference, {
+          schemaVersion: 1,
+          periodId,
+          status: 'provisional',
+          source: resolved.source,
+          sourcePeriodId: resolved.sourcePeriodId || null,
+          metricTargets: resolved.metricTargets,
+          createdAt: FieldValue.serverTimestamp(),
+          createdBy: 'system:payroll-target-fallback',
+          updatedAt: FieldValue.serverTimestamp(),
+        })
+      }
+      return resolved
+    })
+    return { target: { ...target, approvedAt: iso(target.approvedAt) } }
+  })
+
+  const savePayrollTarget = payrollCall(async (request) => {
+    const actor = await payrollActor(request, db)
+    const periodId = period(request.data?.periodId)
+    const metricTargets = payrollTargetMetrics(request.data?.metricTargets)
+    if (!Object.keys(metricTargets).length) throw new HttpsError('invalid-argument', 'Cần nhập ít nhất một mục tiêu KPI lớn hơn 0.')
+    const reason = payrollAdjustmentText(request.data?.reason, 'Lý do điều chỉnh target', 3, 500)
+    const reference = db.doc(`payrollTargets/${periodId}`)
+    const runReference = db.doc(`payrollRuns/${periodId}`)
+    return db.runTransaction(async (transaction) => {
+      const [current, run] = await Promise.all([transaction.get(reference), transaction.get(runReference)])
+      if (run.exists) {
+        const status = run.data().status || 'draft'
+        throw payrollViolationError(
+          ['locked', 'paid'].includes(status) ? 'PAYROLL_TARGET_IMMUTABLE' : 'PAYROLL_TARGET_REBUILD_REQUIRED',
+          ['locked', 'paid'].includes(status) ? 'Kỳ đã khóa target' : 'Kỳ nháp cần lập lại sau khi đổi target',
+          ['locked', 'paid'].includes(status)
+            ? 'Target đã được snapshot vào kỳ khóa và không thể thay đổi hồi tố.'
+            : 'Xóa kỳ nháp hiện tại, cập nhật target rồi lập lại để KPI dùng đúng dữ liệu.',
+          ['locked', 'paid'].includes(status) ? 'retry' : 'delete_rebuild',
+          { periodId, runStatus: status },
+        )
+      }
+      const revision = Number(current.data()?.revision || 0) + 1
+      transaction.set(reference, {
+        schemaVersion: 1,
+        periodId,
+        status: 'provisional',
+        source: 'manager_input',
+        sourcePeriodId: null,
+        metricTargets,
+        reason,
+        revision,
+        approvedBy: FieldValue.delete(),
+        approvedAt: FieldValue.delete(),
+        updatedAt: FieldValue.serverTimestamp(),
+        updatedBy: actor.uid,
+        ...(current.exists ? {} : { createdAt: FieldValue.serverTimestamp(), createdBy: actor.uid }),
+      }, { merge: true })
+      transaction.create(db.collection('payrollAuditLogs').doc(), { schemaVersion: 7, action: 'payroll.target.saved', periodId, actorUid: actor.uid, metricTargets, reason, revision, createdAt: FieldValue.serverTimestamp() })
+      return { periodId, status: 'provisional', revision }
+    })
+  })
+
+  const approvePayrollTarget = payrollCall(async (request) => {
+    const actor = await payrollActor(request, db)
+    const periodId = period(request.data?.periodId)
+    const reason = payrollAdjustmentText(request.data?.reason, 'Lý do duyệt target', 3, 500)
+    const reference = db.doc(`payrollTargets/${periodId}`)
+    const runReference = db.doc(`payrollRuns/${periodId}`)
+    return db.runTransaction(async (transaction) => {
+      const [current, run] = await Promise.all([transaction.get(reference), transaction.get(runReference)])
+      if (!current.exists) throw new HttpsError('failed-precondition', 'Chưa có target tạm dùng hoặc target do Manager nhập để duyệt.')
+      if (run.exists && ['locked', 'paid'].includes(run.data().status)) throw new HttpsError('failed-precondition', 'Kỳ đã khóa; không thể duyệt lại target hồi tố.')
+      const metricTargets = payrollTargetMetrics(current.data().metricTargets)
+      if (!Object.keys(metricTargets).length) throw new HttpsError('failed-precondition', 'Target chưa có chỉ số hợp lệ.')
+      if (run.exists && JSON.stringify(payrollTargetMetrics(run.data().targetSnapshot?.metricTargets)) !== JSON.stringify(metricTargets)) {
+        throw payrollViolationError('PAYROLL_TARGET_REBUILD_REQUIRED', 'Target khác snapshot kỳ nháp', 'Xóa và lập lại kỳ nháp trước khi duyệt target mới.', 'delete_rebuild', { periodId })
+      }
+      transaction.update(reference, { status: 'approved', reason, approvedAt: FieldValue.serverTimestamp(), approvedBy: actor.uid, updatedAt: FieldValue.serverTimestamp(), updatedBy: actor.uid })
+      if (run.exists) transaction.update(runReference, { targetStatus: 'approved', 'targetSnapshot.status': 'approved', 'targetSnapshot.reason': reason, 'targetSnapshot.approvedBy': actor.uid, 'targetSnapshot.approvedAt': FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() })
+      transaction.create(db.collection('payrollAuditLogs').doc(), { schemaVersion: 7, action: 'payroll.target.approved', periodId, actorUid: actor.uid, metricTargets, reason, createdAt: FieldValue.serverTimestamp() })
+      return { periodId, status: 'approved' }
+    })
+  })
+
   const savePayrollPolicy = payrollCall(async (request) => {
     const actor = await payrollActor(request, db)
     const effective = policyEffectiveDate(request.data?.effectiveFrom)
-    const rates = payrollPolicyConfiguration(request.data || {})
     const name = policyName(request.data?.name)
     const requestedAudience = policyAudience(request.data?.audience)
     const eligibleProfiles = payrollPolicyProfiles(request.data?.eligibleProfiles, requestedAudience)
     const audience = policyAudienceFromProfiles(eligibleProfiles)
+    const rates = payrollPolicyConfiguration({ ...(request.data || {}), audience })
+    if (eligibleProfiles.includes('collaborator') && eligibleProfiles.length !== 1) {
+      throw new HttpsError('invalid-argument', 'CTV phải dùng một phiên bản chính sách riêng, không gộp chung với nhân viên P0–P4.')
+    }
     if (eligibleProfiles.includes('collaborator')) {
-      const collaboratorRates = [rates.ratePerSession, rates.rateAfterDailyThreshold, rates.rateAfterDailyThresholdEvening]
-      if (collaboratorRates.some((rate) => rate < 50_000 || rate > 100_000)) {
-        throw new HttpsError('invalid-argument', 'Chính sách CTV phải có đơn giá từ 50.000đ đến 100.000đ mỗi ca.')
+      if (rates.teachingRateMode !== 'absolute') {
+        throw new HttpsError('invalid-argument', 'CTV dùng đơn giá ca riêng và không tham gia thang P0–P4.')
       }
     }
     const fingerprint = createHash('sha256')
@@ -1138,7 +1508,7 @@ function createPayrollFunctions({ db, onCall, logger = console }) {
       }
       const version = Number(effective.value.replaceAll('-', ''))
       transaction.create(reference, {
-        schemaVersion: 5,
+        schemaVersion: 6,
         scope: 'global',
         audience,
         eligibleProfiles,
@@ -1152,7 +1522,7 @@ function createPayrollFunctions({ db, onCall, logger = console }) {
         updatedAt: FieldValue.serverTimestamp(),
       })
       transaction.create(db.collection('payrollAuditLogs').doc(), {
-        schemaVersion: 5,
+        schemaVersion: 6,
         policyId,
         action: 'payroll.policy.created',
         actorUid: actor.uid,
@@ -1204,6 +1574,170 @@ function createPayrollFunctions({ db, onCall, logger = console }) {
         createdAt: FieldValue.serverTimestamp(),
       })
       return { policyId, action, unchanged: false }
+    })
+  })
+
+  const reviewPayrollSessionEvidence = payrollCall(async (request) => {
+    const actor = await payrollActor(request, db)
+    const sessionId = payrollDocumentId(request.data?.sessionId, 'Mã ca tập')
+    const decision = request.data?.decision
+    if (!['approved', 'rejected', 'reset'].includes(decision)) throw new HttpsError('invalid-argument', 'Quyết định bằng chứng ca tập không hợp lệ.')
+    const reason = decision === 'reset' ? '' : payrollAdjustmentText(request.data?.reason, 'Lý do quyết định', 3, 500)
+    const reference = db.doc(`sessions/${sessionId}`)
+    return db.runTransaction(async (transaction) => {
+      const snapshot = await transaction.get(reference)
+      if (!snapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy ca tập cần duyệt bằng chứng.')
+      const session = snapshot.data() || {}
+      if (!['completed', 'attended'].includes(session.status)) throw new HttpsError('failed-precondition', 'Chỉ duyệt bằng chứng cho ca đã hoàn thành.')
+      const currentStatus = session.payrollEvidenceReview?.status || ''
+      if (decision === 'reset') {
+        transaction.update(reference, { payrollEvidenceReview: FieldValue.delete(), updatedAt: FieldValue.serverTimestamp() })
+      } else {
+        transaction.update(reference, {
+          payrollEvidenceReview: { status: decision, reason, reviewedBy: actor.uid, reviewedAt: FieldValue.serverTimestamp() },
+          updatedAt: FieldValue.serverTimestamp(),
+        })
+      }
+      transaction.create(db.collection('payrollAuditLogs').doc(), {
+        schemaVersion: 6,
+        action: `payroll.session_evidence.${decision}`,
+        sessionId,
+        actorUid: actor.uid,
+        previousStatus: currentStatus,
+        decision,
+        reason,
+        createdAt: FieldValue.serverTimestamp(),
+      })
+      return { sessionId, decision, unchanged: currentStatus === decision }
+    })
+  })
+
+  const listPayrollEarningEvents = payrollCall(async (request) => {
+    await payrollActor(request, db)
+    const periodId = period(request.data?.periodId)
+    const staffId = typeof request.data?.staffId === 'string' && request.data.staffId.trim()
+      ? payrollDocumentId(request.data.staffId, 'Mã nhân viên')
+      : ''
+    const snapshot = await db.collection('payrollEarningEvents').where('periodId', '==', periodId).limit(1001).get()
+    if (snapshot.size > 1000) throw new HttpsError('resource-exhausted', 'Kỳ có hơn 1.000 khoản thu nhập; hãy dùng bộ lọc nhân viên để đối soát.')
+    const events = snapshot.docs
+      .map((item) => ({ id: item.id, ...item.data() }))
+      .filter((item) => !staffId || item.staffId === staffId)
+      .sort((left, right) => String(right.createdAt?.toMillis?.() || '').localeCompare(String(left.createdAt?.toMillis?.() || '')))
+      .map((item) => ({
+        ...item,
+        grossAmount: Number(item.grossAmount || 0),
+        signedAmount: Number(item.signedAmount || 0),
+        createdAt: iso(item.createdAt),
+        reviewedAt: iso(item.reviewedAt),
+        deadline: iso(item.deadline),
+      }))
+    return { events, summary: payrollEarningBuckets(events) }
+  })
+
+  const savePayrollEarningEvent = payrollCall(async (request) => {
+    const actor = await payrollActor(request, db)
+    const periodId = period(request.data?.periodId)
+    const staffId = payrollDocumentId(request.data?.staffId, 'Mã nhân viên')
+    const type = payrollEarningType(request.data?.type)
+    const grossAmount = payrollAdjustmentAmount(request.data?.grossAmount)
+    const sourceType = payrollAdjustmentText(request.data?.sourceType, 'Nguồn khoản thu nhập', 2, 80)
+    const sourceId = payrollAdjustmentText(request.data?.sourceId, 'Mã nguồn khoản thu nhập', 2, 200)
+    const evidenceReference = payrollAdjustmentText(request.data?.evidenceReference, 'Bằng chứng', 2, 500)
+    const description = payrollAdjustmentText(request.data?.description, 'Nội dung khoản thu nhập', 3, 500)
+    const deadlineHours = boundedInteger(request.data?.deadlineHours, 'SLA duyệt khoản thu nhập', 1, 720, 72)
+    const originalRate = Number(request.data?.originalRate || 0)
+    const attributionPercent = request.data?.attributionPercent === undefined ? 100 : Number(request.data.attributionPercent)
+    const commissionBaseAmount = Number(request.data?.commissionBaseAmount || 0)
+    if (type === 'renew_commission' && (!Number.isFinite(originalRate) || originalRate <= 0 || originalRate > 100)) throw new HttpsError('invalid-argument', 'Hoa hồng Renew cần tỷ lệ gốc từ 0 đến 100%.')
+    if (!Number.isFinite(attributionPercent) || attributionPercent <= 0 || attributionPercent > 100) throw new HttpsError('invalid-argument', 'Tỷ lệ quy thuộc khoản thu nhập phải từ 0 đến 100%.')
+    const eventId = `earning_${createHash('sha256').update(`${periodId}|${staffId}|${type}|${sourceType}|${sourceId}`).digest('hex').slice(0, 32)}`
+    const reference = db.doc(`payrollEarningEvents/${eventId}`)
+    const runReference = db.doc(`payrollRuns/${periodId}`)
+    return db.runTransaction(async (transaction) => {
+      const [existing, run] = await Promise.all([transaction.get(reference), transaction.get(runReference)])
+      if (existing.exists) return { eventId, unchanged: true, status: existing.data().status || 'pending_review' }
+      if (run.exists && ['locked', 'paid'].includes(run.data().status)) throw new HttpsError('failed-precondition', 'Kỳ lương đã khóa; khoản phát sinh phải được ghi vào kỳ sau.')
+      const signedAmount = payrollEarningSignedAmount({ type, grossAmount })
+      transaction.create(reference, {
+        schemaVersion: 1,
+        periodId,
+        staffId,
+        type,
+        sourceType,
+        sourceId,
+        grossAmount,
+        signedAmount,
+        evidenceReference,
+        description,
+        originalRate: type === 'renew_commission' ? Math.round(originalRate * 100) / 100 : 0,
+        attributionPercent: Math.round(attributionPercent * 100) / 100,
+        commissionBaseAmount: Math.max(0, Math.round(commissionBaseAmount)),
+        status: 'pending_review',
+        deadline: Timestamp.fromMillis(Date.now() + deadlineHours * 3_600_000),
+        createdAt: FieldValue.serverTimestamp(),
+        createdBy: actor.uid,
+        updatedAt: FieldValue.serverTimestamp(),
+      })
+      transaction.create(db.collection('payrollAuditLogs').doc(), { schemaVersion: 6, action: 'payroll.earning_event.created', eventId, periodId, staffId, actorUid: actor.uid, type, grossAmount, createdAt: FieldValue.serverTimestamp() })
+      return { eventId, unchanged: false, status: 'pending_review' }
+    })
+  })
+
+  const reviewPayrollEarningEvent = payrollCall(async (request) => {
+    const actor = await payrollActor(request, db)
+    const eventId = payrollDocumentId(request.data?.eventId, 'Mã khoản thu nhập')
+    const decision = request.data?.decision
+    if (!['approved', 'disputed', 'rejected', 'pending_review'].includes(decision)) throw new HttpsError('invalid-argument', 'Quyết định khoản thu nhập không hợp lệ.')
+    const reason = payrollAdjustmentText(request.data?.reason, 'Lý do quyết định', 3, 500)
+    const reference = db.doc(`payrollEarningEvents/${eventId}`)
+    return db.runTransaction(async (transaction) => {
+      const snapshot = await transaction.get(reference)
+      if (!snapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy khoản thu nhập cần duyệt.')
+      const event = snapshot.data() || {}
+      const run = await transaction.get(db.doc(`payrollRuns/${event.periodId}`))
+      if (run.exists && ['locked', 'paid'].includes(run.data().status)) throw new HttpsError('failed-precondition', 'Kỳ đã khóa; không được thay đổi trạng thái khoản thu nhập hồi tố.')
+      if (['reversed', 'paid'].includes(event.status)) throw new HttpsError('failed-precondition', 'Khoản thu nhập đã thanh toán hoặc đảo nên không thể sửa.')
+      transaction.update(reference, { status: decision, reviewReason: reason, reviewedBy: actor.uid, reviewedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() })
+      transaction.create(db.collection('payrollAuditLogs').doc(), { schemaVersion: 6, action: `payroll.earning_event.${decision}`, eventId, periodId: event.periodId, staffId: event.staffId, actorUid: actor.uid, previousStatus: payrollEarningStatus(event.status), reason, createdAt: FieldValue.serverTimestamp() })
+      return { eventId, status: decision, unchanged: event.status === decision }
+    })
+  })
+
+  const approveRenewAttribution = payrollCall(async (request) => {
+    const actor = await payrollActor(request, db)
+    const caseId = payrollDocumentId(request.data?.caseId, 'Mã hồ sơ gia hạn')
+    const reason = payrollAdjustmentText(request.data?.reason, 'Lý do chia quy thuộc', 3, 500)
+    const rawSplits = Array.isArray(request.data?.splits) ? request.data.splits : []
+    if (rawSplits.length < 1 || rawSplits.length > 5) throw new HttpsError('invalid-argument', 'Cần từ một đến năm nhân sự trong quyết định quy thuộc.')
+    const splits = rawSplits.map((item) => ({
+      staffId: payrollDocumentId(item?.staffId, 'Mã nhân sự quy thuộc'),
+      role: typeof item?.role === 'string' && item.role.trim() ? item.role.trim().slice(0, 40) : 'support',
+      percent: policyPercent(item?.percent, 'Tỷ lệ quy thuộc', 0),
+    }))
+    if (splits.some((item) => item.percent <= 0)) throw new HttpsError('invalid-argument', 'Mỗi tỷ lệ quy thuộc phải lớn hơn 0%.')
+    if (new Set(splits.map((item) => item.staffId)).size !== splits.length) throw new HttpsError('invalid-argument', 'Một nhân sự không thể xuất hiện hai lần trong quyết định chia.')
+    if (Math.abs(splits.reduce((sum, item) => sum + item.percent, 0) - 100) > 0.001) throw new HttpsError('invalid-argument', 'Tổng tỷ lệ quy thuộc phải bằng 100%.')
+    const reference = db.doc(`contractRenewalCases/${caseId}`)
+    return db.runTransaction(async (transaction) => {
+      const snapshot = await transaction.get(reference)
+      if (!snapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy hồ sơ gia hạn.')
+      const value = snapshot.data() || {}
+      const periodId = typeof value.wonAt?.toDate === 'function'
+        ? new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit' }).format(value.wonAt.toDate()).slice(0, 7)
+        : String(value.updatedAt?.toDate?.()?.toISOString?.() || '').slice(0, 7)
+      if (periodId) {
+        const run = await transaction.get(db.doc(`payrollRuns/${periodId}`))
+        if (run.exists && ['locked', 'paid'].includes(run.data().status)) throw new HttpsError('failed-precondition', 'Kỳ lương liên quan đã khóa; không được thay đổi attribution hồi tố.')
+      }
+      transaction.update(reference, {
+        approvedAttribution: { splits, reason, approvedBy: actor.uid, approvedAt: FieldValue.serverTimestamp() },
+        revision: Number(value.revision || 0) + 1,
+        updatedAt: FieldValue.serverTimestamp(),
+        updatedBy: actor.uid,
+      })
+      transaction.create(db.collection('payrollAuditLogs').doc(), { schemaVersion: 6, action: 'payroll.renew_attribution.approved', caseId, actorUid: actor.uid, splits, reason, createdAt: FieldValue.serverTimestamp() })
+      return { caseId, splits }
     })
   })
 
@@ -1374,6 +1908,10 @@ function createPayrollFunctions({ db, onCall, logger = console }) {
           attendanceReviewRequiredCount: Number(data.attendanceReviewRequiredCount || 0),
           calendarReviewRequiredCount: Number(data.calendarReviewRequiredCount || 0),
           teachingEvidenceReviewRequiredCount: Number(data.teachingEvidenceReviewRequiredCount || 0),
+          teachingEvidenceReviewRequiredSessionIds: Array.isArray(data.teachingEvidenceReviewRequiredSessionIds) ? data.teachingEvidenceReviewRequiredSessionIds.slice(0, 500) : [],
+          targetStatus: data.targetStatus || data.targetSnapshot?.status || '',
+          targetSource: data.targetSource || data.targetSnapshot?.source || '',
+          targetSourcePeriodId: data.targetSnapshot?.sourcePeriodId || '',
           validationViolationCount: Number(data.validationViolationCount || 0),
           validationViolations: Array.isArray(data.validationViolations) ? data.validationViolations : [],
           attendanceReviewRequired: data.attendanceReviewRequired === true,
@@ -1382,6 +1920,10 @@ function createPayrollFunctions({ db, onCall, logger = console }) {
           commissionAmount: Number(data.commissionAmount || 0),
           bonusAmount: Number(data.bonusAmount || 0),
           deductionAmount: Number(data.deductionAmount || 0),
+          earningEventApprovedAmount: Number(data.earningEventApprovedAmount || 0),
+          earningEventPendingAmount: Number(data.earningEventPendingAmount || 0),
+          earningEventDisputedAmount: Number(data.earningEventDisputedAmount || 0),
+          sessionEvidencePendingAmount: Number(data.sessionEvidencePendingAmount || 0),
           grossAmount: Number(data.grossAmount || 0),
           adjustmentAmount: Number(data.adjustmentAmount || 0),
           finalAmount: Number(data.finalAmount || data.grossAmount || 0),
@@ -1486,6 +2028,7 @@ function createPayrollFunctions({ db, onCall, logger = console }) {
     const periodId = period(request.data?.periodId)
     const { start, end } = periodBounds(periodId)
     const dateBounds = periodDateBounds(periodId)
+    const previousTargetPeriodId = previousPayrollPeriod(periodId)
     const requestedPlan = payrollRunPolicyPlan(request.data || {})
     // One deterministic document per business period prevents two admins from
     // creating duplicate payroll runs concurrently.
@@ -1495,11 +2038,16 @@ function createPayrollFunctions({ db, onCall, logger = console }) {
       const existing = await transaction.get(runReference)
       if (existing.exists) return { runId: existing.id, unchanged: true, status: existing.data().status }
 
-      const [sessionSnapshot, staffSnapshot, trainerRecordsSnapshot, assignmentSnapshot, workdayAttendanceSnapshot, calendarSnapshot, schedulePolicySnapshot, referralLedgerSnapshot, adjustmentSnapshot, intelligencePolicySnapshot, renewalSnapshot, feedbackSnapshot] = await Promise.all([
+      const [sessionSnapshot, workoutLogSnapshot, staffSnapshot, trainerRecordsSnapshot, assignmentSnapshot, workdayAttendanceSnapshot, calendarSnapshot, schedulePolicySnapshot, referralLedgerSnapshot, adjustmentSnapshot, earningEventSnapshot, intelligencePolicySnapshot, targetSnapshot, previousTargetSnapshot, renewalSnapshot, renewalCohortSourceSnapshot, feedbackSnapshot] = await Promise.all([
         transaction.get(db.collection('sessions')
           .where('date', '>=', dateBounds.start)
           .where('date', '<', dateBounds.end)
-          .select('status', 'trainerId', 'studentId', 'date', 'hour', 'branchId', 'attendanceEventId', 'attendanceStatus', 'confirmationSource', 'recognitionReviewRequired')
+          .select('status', 'trainerId', 'studentId', 'date', 'hour', 'branchId', 'attendanceEventId', 'attendanceStatus', 'confirmationSource', 'recognitionReviewRequired', 'payrollEvidenceReview')
+          .limit(3001)),
+        transaction.get(db.collection('ptWorkoutLogs')
+          .where('date', '>=', dateBounds.start)
+          .where('date', '<', dateBounds.end)
+          .select('sessionId', 'status', 'trainingDayTitle', 'planSnapshot', 'sets', 'painNotes', 'nextSessionPlan')
           .limit(3001)),
         transaction.get(db.collection('staff').limit(451)),
         transaction.get(db.collection('trainers').limit(451)),
@@ -1513,19 +2061,23 @@ function createPayrollFunctions({ db, onCall, logger = console }) {
           .select('type', 'status', 'cashImpact', 'amount', 'contractId', 'referralCode', 'referralStaffId', 'referralCommissionRate')
           .limit(5001)),
         transaction.get(db.collection('payrollAdjustments').where('periodId', '==', periodId).limit(1001)),
+        transaction.get(db.collection('payrollEarningEvents').where('periodId', '==', periodId).limit(1001)),
         // Supplemental performance data is read as evidence only. It never
         // participates in the existing salary/teaching-pay/commission math.
         transaction.get(db.collection('payrollIncentivePolicies').limit(100)),
+        transaction.get(db.doc(`payrollTargets/${periodId}`)),
+        transaction.get(db.doc(`payrollTargets/${previousTargetPeriodId}`)),
         transaction.get(db.collection('contractRenewalCases')
           .where('updatedAt', '>=', start)
           .where('updatedAt', '<', end)
           .limit(3001)),
+        transaction.get(db.collection('contractRenewalCases').where('active', '==', true).limit(1001)),
         transaction.get(db.collection('sessionFeedback')
           .where('submittedAt', '>=', start)
           .where('submittedAt', '<', end)
           .limit(3001)),
       ])
-      if (sessionSnapshot.size > 3000 || staffSnapshot.size > 450 || trainerRecordsSnapshot.size > 450 || assignmentSnapshot.size > 450 || workdayAttendanceSnapshot.size > 5000 || calendarSnapshot.size > 100 || referralLedgerSnapshot.size > 5000 || adjustmentSnapshot.size > 1000) {
+      if (sessionSnapshot.size > 3000 || workoutLogSnapshot.size > 3000 || staffSnapshot.size > 450 || trainerRecordsSnapshot.size > 450 || assignmentSnapshot.size > 450 || workdayAttendanceSnapshot.size > 5000 || calendarSnapshot.size > 100 || referralLedgerSnapshot.size > 5000 || adjustmentSnapshot.size > 1000 || earningEventSnapshot.size > 1000 || renewalCohortSourceSnapshot.size > 1000) {
         throw payrollViolationError(
           'PAYROLL_DATA_LIMIT_EXCEEDED',
           'Dữ liệu kỳ lương vượt giới hạn an toàn',
@@ -1534,14 +2086,19 @@ function createPayrollFunctions({ db, onCall, logger = console }) {
           {
             periodId,
             sessionCount: sessionSnapshot.size,
+            workoutLogCount: workoutLogSnapshot.size,
             staffCount: staffSnapshot.size,
             attendanceDayCount: workdayAttendanceSnapshot.size,
             adjustmentCount: adjustmentSnapshot.size,
+            earningEventCount: earningEventSnapshot.size,
+            renewCohortCount: renewalCohortSourceSnapshot.size,
           },
           'resource-exhausted',
         )
       }
       const trainerRecordById = new Map(trainerRecordsSnapshot.docs.map((item) => [item.id, item.data() || {}]))
+      const sessionsById = new Map(sessionSnapshot.docs.map((item) => [item.id, { id: item.id, ...item.data() }]))
+      const logsBySessionId = new Map(workoutLogSnapshot.docs.map((item) => [item.data()?.sessionId || '', item.data() || {}]))
       const staffRecordById = new Map(staffSnapshot.docs
         .map((item) => ({ id: item.id, userId: item.id, ...(trainerRecordById.get(item.id) || {}), ...item.data() }))
         .filter((item) => item.status !== 'inactive')
@@ -1594,10 +2151,12 @@ function createPayrollFunctions({ db, onCall, logger = console }) {
         'policy',
         { periodId },
       )
-      const intelligencePolicy = chooseEffectivePayrollIntelligencePolicy(
+      const baseIntelligencePolicy = chooseEffectivePayrollIntelligencePolicy(
         intelligencePolicySnapshot.docs.map((item) => ({ id: item.id, ...item.data() })),
         dateBounds.start,
       )
+      const target = resolvedPayrollTarget(periodId, targetSnapshot, previousTargetSnapshot, baseIntelligencePolicy)
+      const intelligencePolicy = applyPayrollTarget(baseIntelligencePolicy, target)
       if (selectedPolicies.some((policy) => policy.status !== 'active')) {
         throw payrollViolationError(
           'PAYROLL_POLICY_INACTIVE',
@@ -1667,6 +2226,7 @@ function createPayrollFunctions({ db, onCall, logger = console }) {
         ...requestedPlan,
         defaultPolicyId,
         staffProfiles: new Map([...staffRecordById].map(([staffId, staff]) => [staffId, payrollProfile(staff)])),
+        staffRecords: new Map(staffRecordById),
         staffPolicyAssignments: new Map([...staffRecordById]
           .filter(([, staff]) => typeof staff.payrollPolicyId === 'string' && staff.payrollPolicyId)
           .map(([staffId, staff]) => [staffId, staff.payrollPolicyId])),
@@ -1677,11 +2237,14 @@ function createPayrollFunctions({ db, onCall, logger = console }) {
       }
       const groupedTeaching = teachingSlotsFromSessions(sessionSnapshot.docs, selectedPolicies[0].configuration)
       const teaching = applyPayrollPolicyPlan(groupedTeaching, policyPlan, selectedPolicies)
+      const evidencePoliciesById = new Map(selectedPolicies.map((policy) => [policy.id, policy]))
+      const teachingWithEvidence = applySessionEvidencePolicy(teaching, sessionsById, logsBySessionId, evidencePoliciesById, new Date())
       const activeAdjustments = adjustmentSnapshot.docs
         .map((item) => ({ id: item.id, ...item.data() }))
         .filter((item) => item.status !== 'voided' && (item.type === 'bonus' || item.type === 'deduction') && Number(item.amount || 0) > 0)
+      const earningEvents = earningEventSnapshot.docs.map((item) => ({ id: item.id, ...item.data(), status: payrollEarningStatus(item.data()?.status), signedAmount: Number(item.data()?.signedAmount || 0) }))
       const activeStaff = [...staffRecordById.values()]
-      const staffIds = [...new Set([...activeStaff.map((item) => item.id), ...teaching.trainers.keys(), ...activeAdjustments.map((item) => item.staffId).filter(Boolean)])]
+      const staffIds = [...new Set([...activeStaff.map((item) => item.id), ...teachingWithEvidence.trainers.keys(), ...activeAdjustments.map((item) => item.staffId).filter(Boolean), ...earningEvents.map((item) => item.staffId).filter(Boolean)])]
       if (staffIds.length > 450) throw payrollViolationError(
         'PAYROLL_STAFF_LIMIT_EXCEEDED',
         'Quá nhiều nhân sự trong kỳ',
@@ -1725,11 +2288,17 @@ function createPayrollFunctions({ db, onCall, logger = console }) {
         current.push(item)
         adjustmentsByStaff.set(item.staffId, current)
       })
+      const earningEventsByStaff = new Map()
+      earningEvents.forEach((event) => {
+        const current = earningEventsByStaff.get(event.staffId) || []
+        current.push(event)
+        earningEventsByStaff.set(event.staffId, current)
+      })
       const itemRecords = staffIds.map((staffId) => {
         const staff = { ...(trainerRecordById.get(staffId) || {}), ...(staffRecordById.get(staffId) || {}) }
         const identity = identityById.get(staffId) || {}
         const calendar = mergeWorkCalendar(periodId, globalCalendar, calendars.get(identity.branchId) || {}, schedulePolicy)
-        const teachingSlots = teaching.trainers.get(staffId) || []
+        const teachingSlots = teachingWithEvidence.trainers.get(staffId) || []
         const workdays = calculateWorkdayPayroll({
           periodId,
           calendar,
@@ -1738,29 +2307,53 @@ function createPayrollFunctions({ db, onCall, logger = console }) {
           staff,
           today: vietnamDateKey(new Date()),
         })
-        const teachingPayAmount = teachingSlots.reduce((total, slot) => total + slot.rate, 0)
-        const referral = referralEvidence.byStaff.get(staffId) || {
+        const itemPolicyIds = [...new Set(teachingSlots.map((slot) => slot.policyId).filter(Boolean))]
+        const staffPayrollProfile = payrollProfile(staff)
+        const compensationPolicy = selectedPolicyById.get(itemPolicyIds[0])
+          || selectedPolicyById.get(typeof staff.payrollPolicyId === 'string' ? staff.payrollPolicyId : '')
+          || [...selectedPolicies].reverse().find((policy) => policySupportsProfile(policy, staffPayrollProfile))
+          || defaultPolicy
+        const capabilities = compensationPolicy.configuration.capabilities
+        const staffEarningEvents = (earningEventsByStaff.get(staffId) || []).map((event) => ({ ...event, policyEligible: payrollEarningAllowedByPolicy(event, capabilities) }))
+        const earningBuckets = payrollEarningBuckets(staffEarningEvents.filter((event) => event.policyEligible))
+        const earningEventPayableAmount = staffEarningEvents
+          .filter((event) => event.policyEligible && ['approved', 'paid'].includes(event.status))
+          .reduce((total, event) => total + Number(event.signedAmount || 0), 0)
+        const earningEventBonusAmount = Math.max(0, earningEventPayableAmount)
+        const earningEventDeductionAmount = Math.max(0, -earningEventPayableAmount)
+        const payableWorkdays = {
+          ...workdays,
+          baseSalaryEarned: capabilities.baseSalaryEnabled ? workdays.baseSalaryEarned : 0,
+          fixedBonus: capabilities.additionalBonusEnabled ? workdays.fixedBonus : 0,
+        }
+        const teachingPayAmount = capabilities.teachingCommissionEnabled
+          ? teachingSlots.reduce((total, slot) => total + slot.rate, 0)
+          : 0
+        const referralSource = referralEvidence.byStaff.get(staffId) || {
           cashCollectedAmount: 0, cashReversedAmount: 0, netCashAmount: 0,
           commissionAmount: 0, reversalAmount: 0, contractCount: 0, evidence: [], rate: 0,
         }
-        const baseAmounts = payrollAmounts(workdays, {
+        const referral = capabilities.selfGeneratedCommissionEnabled
+          ? referralSource
+          : { ...referralSource, commissionAmount: 0, reversalAmount: 0, disabledByPolicy: true }
+        const baseAmounts = payrollAmounts(payableWorkdays, {
           grossAmount: teachingPayAmount,
           commissionAmount: referral.commissionAmount,
           deductionAmount: referral.reversalAmount,
         })
         const payrollAdjustments = adjustmentsByStaff.get(staffId) || []
-        const manualBonusAmount = payrollAdjustments
+        const manualBonusAmount = capabilities.additionalBonusEnabled ? payrollAdjustments
           .filter((item) => item.type === 'bonus')
-          .reduce((total, item) => total + Number(item.amount || 0), 0)
+          .reduce((total, item) => total + Number(item.amount || 0), 0) : 0
         const manualDeductionAmount = payrollAdjustments
           .filter((item) => item.type === 'deduction')
           .reduce((total, item) => total + Number(item.amount || 0), 0)
         const amounts = {
           ...baseAmounts,
-          bonusAmount: baseAmounts.bonusAmount + manualBonusAmount,
-          deductionAmount: baseAmounts.deductionAmount + manualDeductionAmount,
-          grossAmount: baseAmounts.grossAmount + manualBonusAmount,
-          finalAmount: Math.max(0, baseAmounts.finalAmount + manualBonusAmount - manualDeductionAmount),
+          bonusAmount: baseAmounts.bonusAmount + manualBonusAmount + earningEventBonusAmount,
+          deductionAmount: baseAmounts.deductionAmount + manualDeductionAmount + earningEventDeductionAmount,
+          grossAmount: baseAmounts.grossAmount + manualBonusAmount + earningEventBonusAmount,
+          finalAmount: Math.max(0, baseAmounts.finalAmount + manualBonusAmount + earningEventBonusAmount - manualDeductionAmount - earningEventDeductionAmount),
         }
         const intelligence = buildPayrollIntelligence({
           staffId,
@@ -1771,8 +2364,6 @@ function createPayrollFunctions({ db, onCall, logger = console }) {
           workdays,
           policy: intelligencePolicy,
         })
-        const itemPolicyIds = [...new Set(teachingSlots.map((slot) => slot.policyId).filter(Boolean))]
-        const staffPayrollProfile = payrollProfile(staff)
         const unsupportedPolicy = itemPolicyIds
           .map((policyId) => selectedPolicyById.get(policyId))
           .find((policy) => policy && !policySupportsProfile(policy, staffPayrollProfile))
@@ -1785,14 +2376,24 @@ function createPayrollFunctions({ db, onCall, logger = console }) {
             { periodId, staffId, staffName: identity.name || staffId, payrollProfile: staffPayrollProfile, policyId: unsupportedPolicy.id },
           )
         }
-        return { staffId, staff, identity, calendar, workdays, teachingSlots, amounts, baseAmounts, referral, intelligence, itemPolicyIds, staffPayrollProfile, payrollAdjustments, manualBonusAmount, manualDeductionAmount }
+        return { staffId, staff, identity, calendar, workdays, teachingSlots, amounts, baseAmounts, referral, intelligence, itemPolicyIds, staffPayrollProfile, payrollAdjustments, manualBonusAmount, manualDeductionAmount, compensationPolicy, capabilities, staffEarningEvents, earningBuckets, earningEventBonusAmount, earningEventDeductionAmount }
       })
+      const renewCohorts = renewCohortByStaff(renewalCohortSourceSnapshot.docs, new Set(staffIds))
+      if (renewCohorts.size > 100 || staffIds.length + renewCohorts.size > 480) throw payrollViolationError(
+        'PAYROLL_SNAPSHOT_WRITE_LIMIT_EXCEEDED',
+        'Quá nhiều snapshot trong một kỳ',
+        'Số nhân sự và mẫu Renew vượt giới hạn giao dịch an toàn. Hãy liên hệ quản trị để tách luồng snapshot.',
+        'retry',
+        { periodId, staffCount: staffIds.length, renewCohortStaffCount: renewCohorts.size },
+        'resource-exhausted',
+      )
       const grossAmount = itemRecords.reduce((total, item) => total + item.amounts.grossAmount, 0)
       const finalAmount = itemRecords.reduce((total, item) => total + item.amounts.finalAmount, 0)
       const workdayStaffCount = itemRecords.filter((item) => item.workdays.workdayEnabled).length
       const attendanceReviewRequiredCount = itemRecords.filter((item) => item.workdays.attendanceReviewRequired).length
       const calendarReviewRequiredCount = itemRecords.filter((item) => item.workdays.calendarReviewRequired).length
-      const teachingEvidenceReviewRequiredCount = Number(teaching.teachingEvidenceReviewRequiredCount || 0)
+      const hardTeachingEvidenceReviewRequiredCount = Number(teaching.teachingEvidenceReviewRequiredCount || 0)
+      const teachingEvidenceReviewRequiredCount = hardTeachingEvidenceReviewRequiredCount + Number(teachingWithEvidence.sessionEvidenceReviewRequiredCount || 0)
       const intelligenceItems = itemRecords.map((item) => item.intelligence).filter(Boolean)
       const intelligenceRankCounts = intelligenceItems.reduce((result, item) => {
         const key = item.rank?.code || 'unconfigured'
@@ -1814,8 +2415,36 @@ function createPayrollFunctions({ db, onCall, logger = console }) {
         amountImpact: 'none',
         sourceTruncated: renewalSnapshot.size > 3000 || feedbackSnapshot.size > 3000,
       }
+      if (intelligencePolicy?.enabled && !targetSnapshot.exists) {
+        transaction.create(db.doc(`payrollTargets/${periodId}`), {
+          schemaVersion: 1,
+          periodId,
+          status: 'provisional',
+          source: target.source,
+          sourcePeriodId: target.sourcePeriodId || null,
+          metricTargets: target.metricTargets,
+          createdAt: FieldValue.serverTimestamp(),
+          createdBy: 'system:payroll-run',
+          updatedAt: FieldValue.serverTimestamp(),
+        })
+      }
+      for (const [staffId, cases] of renewCohorts) {
+        transaction.create(db.doc(`renewCohortSnapshots/${periodId}_${staffId}`), {
+          schemaVersion: 1,
+          periodId,
+          staffId,
+          status: 'draft',
+          cases,
+          includedCount: cases.length,
+          excluded: [],
+          policySnapshot: selectedPolicies.find((policy) => policy.configuration.capabilities.renewCommissionEnabled)?.configuration.renewEligibility || defaultPolicy.configuration.renewEligibility,
+          createdAt: FieldValue.serverTimestamp(),
+          createdBy: actor.uid,
+          updatedAt: FieldValue.serverTimestamp(),
+        })
+      }
       transaction.create(runReference, {
-        schemaVersion: 7,
+        schemaVersion: 8,
         commissionFormulaVersion: 2,
         revision: 1,
         periodId,
@@ -1829,21 +2458,35 @@ function createPayrollFunctions({ db, onCall, logger = console }) {
         trainerPolicyAssignments: Object.fromEntries(policyPlan.trainerAssignments),
         status: 'draft',
         attendanceCount: teaching.teachingSlotCount,
-        teachingSlotCount: teaching.teachingSlotCount,
+        teachingSlotCount: teachingWithEvidence.payableTeachingSlotCount,
         attendanceEventCount: teaching.attendanceEventCount,
         trainerCount: teaching.trainers.size,
         staffCount: itemRecords.length,
         workdayStaffCount,
-        attendanceReviewRequired: attendanceReviewRequiredCount > 0 || calendarReviewRequiredCount > 0 || teachingEvidenceReviewRequiredCount > 0,
+        attendanceReviewRequired: attendanceReviewRequiredCount > 0 || calendarReviewRequiredCount > 0 || hardTeachingEvidenceReviewRequiredCount > 0,
         attendanceReviewRequiredCount,
         calendarReviewRequiredCount,
         teachingEvidenceReviewRequiredCount,
-        teachingEvidenceReviewRequiredSessionIds: teaching.teachingEvidenceReviewRequiredSessionIds || [],
+        teachingEvidenceReviewRequiredSessionIds: [...new Set([...(teaching.teachingEvidenceReviewRequiredSessionIds || []), ...(teachingWithEvidence.sessionEvidenceReviewRequiredSessionIds || [])])].slice(0, 500),
         crossBranchWarningCount: Number(teaching.crossBranchWarningCount || 0),
+        sessionEvidenceReviewRequired: teachingWithEvidence.sessionEvidence || [],
+        sessionEvidencePendingAmount: (teachingWithEvidence.sessionEvidence || []).reduce((total, item) => total + Number(item.amount || 0), 0),
         intelligenceSchemaVersion: INTELLIGENCE_SCHEMA_VERSION,
         intelligencePolicyId: intelligencePolicy?.id || '',
         intelligencePolicySnapshot: payrollIntelligencePolicySnapshot(intelligencePolicy),
         intelligenceSummary,
+        targetStatus: intelligencePolicy?.enabled ? target.status : 'not_required',
+        targetSource: target.source,
+        targetSnapshot: {
+          periodId,
+          status: intelligencePolicy?.enabled ? target.status : 'not_required',
+          source: target.source,
+          sourcePeriodId: target.sourcePeriodId || null,
+          metricTargets: target.metricTargets,
+          reason: target.reason || '',
+          approvedBy: target.approvedBy || null,
+          approvedAt: target.approvedAt || null,
+        },
         baseSalaryAmount: itemRecords.reduce((total, item) => total + item.amounts.baseSalaryAmount, 0),
         teachingPayAmount: itemRecords.reduce((total, item) => total + item.amounts.teachingPayAmount, 0),
         commissionAmount: itemRecords.reduce((total, item) => total + item.amounts.commissionAmount, 0),
@@ -1855,6 +2498,13 @@ function createPayrollFunctions({ db, onCall, logger = console }) {
           invalidRateEntryCount: referralEvidence.invalidRateEntryCount,
         },
         adjustmentCount: activeAdjustments.length,
+        earningEventCount: earningEvents.length,
+        earningEventApprovedAmount: itemRecords.reduce((total, item) => total + item.earningBuckets.approvedAmount, 0),
+        earningEventPendingAmount: itemRecords.reduce((total, item) => total + item.earningBuckets.pendingAmount, 0),
+        earningEventDisputedAmount: itemRecords.reduce((total, item) => total + item.earningBuckets.disputedAmount, 0),
+        earningEventRejectedAmount: itemRecords.reduce((total, item) => total + item.earningBuckets.rejectedAmount, 0),
+        renewCohortStaffCount: renewCohorts.size,
+        renewCohortCaseCount: [...renewCohorts.values()].reduce((total, cases) => total + cases.length, 0),
         grossAmount,
         adjustmentAmount: 0,
         finalAmount,
@@ -1864,7 +2514,7 @@ function createPayrollFunctions({ db, onCall, logger = console }) {
         updatedAt: FieldValue.serverTimestamp(),
       })
       for (const item of itemRecords) {
-        const { staffId, identity, calendar, workdays, teachingSlots, amounts, baseAmounts, referral, intelligence, itemPolicyIds, staffPayrollProfile, payrollAdjustments, manualBonusAmount, manualDeductionAmount } = item
+        const { staffId, identity, calendar, workdays, teachingSlots, amounts, baseAmounts, referral, intelligence, itemPolicyIds, staffPayrollProfile, payrollAdjustments, manualBonusAmount, manualDeductionAmount, compensationPolicy, capabilities, staffEarningEvents, earningBuckets, earningEventBonusAmount, earningEventDeductionAmount } = item
         const itemReference = db.doc(`payrollRunItems/${periodId}_${staffId}`)
         const tierSummary = teachingSlots.reduce((result, slot) => {
           if (slot.tier === 'standard') { result.standardCount += 1; result.standardAmount += slot.rate }
@@ -1873,7 +2523,7 @@ function createPayrollFunctions({ db, onCall, logger = console }) {
           return result
         }, { standardCount: 0, standardAmount: 0, afterThresholdCount: 0, afterThresholdAmount: 0, afterThresholdEveningCount: 0, afterThresholdEveningAmount: 0 })
         transaction.create(itemReference, {
-          schemaVersion: 7,
+          schemaVersion: 8,
           commissionFormulaVersion: 2,
           runId: runReference.id,
           periodId,
@@ -1885,6 +2535,8 @@ function createPayrollFunctions({ db, onCall, logger = console }) {
           employmentLevel: staffPayrollProfile === 'probation' || staffPayrollProfile === 'senior' ? staffPayrollProfile : 'official',
           payrollProfile: staffPayrollProfile,
           assignedPayrollPolicyId: typeof item.staff.payrollPolicyId === 'string' ? item.staff.payrollPolicyId : '',
+          compensationPolicyId: compensationPolicy.id,
+          compensationCapabilities: capabilities,
           policyIds: itemPolicyIds,
           policySnapshots: policySnapshots.filter((policy) => itemPolicyIds.includes(policy.id)),
           sessionCount: teachingSlots.length,
@@ -1945,6 +2597,12 @@ function createPayrollFunctions({ db, onCall, logger = console }) {
             reason: adjustment.reason || '',
             evidenceReference: adjustment.evidenceReference || '',
           })),
+          earningEvents: staffEarningEvents.map((event) => ({ id: event.id, type: event.type, sourceType: event.sourceType || '', sourceId: event.sourceId || '', grossAmount: Number(event.grossAmount || 0), signedAmount: Number(event.signedAmount || 0), status: event.status, policyEligible: event.policyEligible, evidenceReference: event.evidenceReference || '', reviewReason: event.reviewReason || '' })),
+          earningEventSummary: { ...earningBuckets, bonusAmount: earningEventBonusAmount, deductionAmount: earningEventDeductionAmount },
+          earningEventApprovedAmount: earningBuckets.approvedAmount,
+          earningEventPendingAmount: earningBuckets.pendingAmount,
+          earningEventDisputedAmount: earningBuckets.disputedAmount,
+          sessionEvidencePendingAmount: (teachingWithEvidence.sessionEvidence || []).filter((evidence) => evidence.trainerId === staffId).reduce((total, evidence) => total + Number(evidence.amount || 0), 0),
           grossAmount: amounts.grossAmount,
           adjustmentAmount: 0,
           finalAmount: amounts.finalAmount,
@@ -1953,7 +2611,7 @@ function createPayrollFunctions({ db, onCall, logger = console }) {
           createdAt: FieldValue.serverTimestamp(),
         })
       }
-      transaction.create(db.collection('payrollAuditLogs').doc(), { schemaVersion: 5, runId: runReference.id, action: 'payroll.created', actorUid: actor.uid, toStatus: 'draft', policyIds, policyApplicationMode: selectedPolicies.length === 1 ? 'single' : policyPlan.applicationMode, staffCount: itemRecords.length, workdayStaffCount, attendanceReviewRequiredCount, calendarReviewRequiredCount, teachingEvidenceReviewRequiredCount, createdAt: FieldValue.serverTimestamp() })
+      transaction.create(db.collection('payrollAuditLogs').doc(), { schemaVersion: 6, runId: runReference.id, action: 'payroll.created', actorUid: actor.uid, toStatus: 'draft', policyIds, policyApplicationMode: selectedPolicies.length === 1 ? 'single' : policyPlan.applicationMode, staffCount: itemRecords.length, workdayStaffCount, attendanceReviewRequiredCount, calendarReviewRequiredCount, teachingEvidenceReviewRequiredCount, sessionEvidenceReviewRequiredCount: teachingWithEvidence.sessionEvidenceReviewRequiredCount || 0, createdAt: FieldValue.serverTimestamp() })
       return { runId: runReference.id, unchanged: false, status: 'draft' }
       })
     } catch (cause) {
@@ -1995,16 +2653,19 @@ function createPayrollFunctions({ db, onCall, logger = console }) {
     const runId = period(request.data?.runId)
     const runReference = db.doc(`payrollRuns/${runId}`)
     return db.runTransaction(async (transaction) => {
-      const [run, items] = await Promise.all([
+      const [run, items, cohorts] = await Promise.all([
         transaction.get(runReference),
         transaction.get(db.collection('payrollRunItems').where('runId', '==', runId).limit(451)),
+        transaction.get(db.collection('renewCohortSnapshots').where('periodId', '==', runId).limit(101)),
       ])
       if (!run.exists) return { runId, unchanged: true }
       if (run.data().status !== 'draft') {
         throw new HttpsError('failed-precondition', 'Chỉ kỳ lương chưa duyệt mới được xóa để lập lại.')
       }
       if (items.size > 450) throw new HttpsError('resource-exhausted', 'Kỳ lương có quá nhiều dòng để xóa an toàn.')
+      if (cohorts.size > 100) throw new HttpsError('resource-exhausted', 'Kỳ lương có quá nhiều mẫu Renew để xóa an toàn.')
       items.docs.forEach((item) => transaction.delete(item.ref))
+      cohorts.docs.forEach((item) => transaction.delete(item.ref))
       transaction.delete(runReference)
       transaction.create(db.collection('payrollAuditLogs').doc(), {
         schemaVersion: 4,
@@ -2012,6 +2673,7 @@ function createPayrollFunctions({ db, onCall, logger = console }) {
         action: 'payroll.draft.deleted',
         actorUid: actor.uid,
         deletedItemCount: items.size,
+        deletedCohortCount: cohorts.size,
         createdAt: FieldValue.serverTimestamp(),
       })
       return { runId, unchanged: false }
@@ -2035,6 +2697,7 @@ function createPayrollFunctions({ db, onCall, logger = console }) {
       if (to === 'reviewed' && snapshot.data().attendanceReviewRequired === true) {
         throw new HttpsError('failed-precondition', 'Ngày công, lịch làm việc hoặc bằng chứng ca dạy của kỳ chưa được đối soát đầy đủ.')
       }
+      let renewCohorts = []
       if (to === 'reviewed') {
         const runPeriodId = period(snapshot.data().periodId || runId)
         const dateBounds = periodDateBounds(runPeriodId)
@@ -2055,8 +2718,12 @@ function createPayrollFunctions({ db, onCall, logger = console }) {
         }
         const duplicateLearnerDays = await enrichPayrollViolations(db, duplicateLearnerDayViolations(sessions.docs), transaction)
         if (duplicateLearnerDays.length) throw payrollViolationsError(duplicateLearnerDays)
+        const cohortSnapshot = await transaction.get(db.collection('renewCohortSnapshots').where('periodId', '==', runPeriodId).limit(101))
+        if (cohortSnapshot.size > 100) throw new HttpsError('resource-exhausted', 'Kỳ có quá nhiều mẫu Renew để khóa an toàn.')
+        renewCohorts = cohortSnapshot.docs
       }
       transaction.update(reference, { status: to, ...fields, [`${to}At`]: FieldValue.serverTimestamp(), [`${to}By`]: actor.uid, updatedAt: FieldValue.serverTimestamp() })
+      renewCohorts.forEach((cohort) => transaction.update(cohort.ref, { status: 'locked', lockedAt: FieldValue.serverTimestamp(), lockedBy: actor.uid, updatedAt: FieldValue.serverTimestamp() }))
       transaction.create(db.collection('payrollAuditLogs').doc(), { schemaVersion: 1, runId, action: `payroll.${to}`, actorUid: actor.uid, fromStatus: from, toStatus: to, createdAt: FieldValue.serverTimestamp() })
     })
     return { runId, status: to }
@@ -2076,6 +2743,15 @@ function createPayrollFunctions({ db, onCall, logger = console }) {
       if (run.data().status === 'locked') return
       if (run.data().status !== 'reviewed') throw new HttpsError('failed-precondition', 'Kỳ lương phải ở trạng thái reviewed.')
       assertPayrollPeriodClosed(period(run.data().periodId || runId))
+      if (run.data().intelligenceSummary?.enabled === true && run.data().targetStatus !== 'approved') {
+        throw payrollViolationError(
+          'PAYROLL_TARGET_APPROVAL_REQUIRED',
+          'Target KPI chưa được duyệt',
+          'Hãy duyệt target của kỳ. Nếu đang tạm dùng target tháng trước, Manager cần xác nhận rõ trước khi khóa lương.',
+          'policy',
+          { periodId: run.data().periodId || runId, targetStatus: run.data().targetStatus || 'provisional' },
+        )
+      }
       const periodId = period(run.data().periodId)
       const finalAmount = Math.max(0, Number(run.data().finalAmount || run.data().grossAmount || 0))
       if (!Number.isSafeInteger(finalAmount) || finalAmount <= 0) throw new HttpsError('failed-precondition', 'Kỳ lương không có số tiền hợp lệ để khóa.')
@@ -2235,10 +2911,18 @@ function createPayrollFunctions({ db, onCall, logger = console }) {
   return {
     listPayrollPolicies,
     listPayrollIntelligencePolicies,
+    getPayrollTarget,
+    savePayrollTarget,
+    approvePayrollTarget,
     savePayrollIntelligencePolicy,
     managePayrollIntelligencePolicy,
     savePayrollPolicy,
     managePayrollPolicy,
+    reviewPayrollSessionEvidence,
+    listPayrollEarningEvents,
+    savePayrollEarningEvent,
+    reviewPayrollEarningEvent,
+    approveRenewAttribution,
     listPayrollAdjustments,
     savePayrollAdjustment,
     voidPayrollAdjustment,
@@ -2269,5 +2953,7 @@ module.exports = {
   payrollRunPolicyPlan,
   applyPayrollPolicyPlan,
   priceTeachingSlots,
+  evaluateSessionNoteEvidence,
+  applySessionEvidencePolicy,
   payrollIntelligencePolicyInput,
 }

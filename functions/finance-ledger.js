@@ -237,6 +237,11 @@ function financePeriodId(value) {
   return vietnamDateKey(value).slice(0, 7)
 }
 
+function nextFinancePeriodId(periodId) {
+  const [year, month] = String(periodId || '').split('-').map(Number)
+  return month === 12 ? `${year + 1}-01` : `${year}-${String(month + 1).padStart(2, '0')}`
+}
+
 function encodeCursor(document) {
   return Buffer.from(JSON.stringify({
     id: document.id,
@@ -709,6 +714,21 @@ function createFinanceLedgerFunctions({ db, onCall }) {
       const deferredReduction = Math.min(amount, Math.max(0, Number(contract.data().paidAmount || 0) - recognisedToDate))
       const renewalCaseReference = contract.data().renewalCaseId ? db.doc(`contractRenewalCases/${contract.data().renewalCaseId}`) : null
       const renewalCase = renewalCaseReference ? await transaction.get(renewalCaseReference) : null
+      const renewSourceIds = [...new Set([contract.data().renewalCaseId, contractId].filter(Boolean))]
+      const renewCommissionSnapshots = await Promise.all(renewSourceIds.map((sourceId) => transaction.get(db.collection('payrollEarningEvents').where('sourceId', '==', sourceId).limit(101))))
+      if (renewCommissionSnapshots.some((snapshot) => snapshot.size > 100)) throw new HttpsError('resource-exhausted', 'Có quá nhiều khoản hoa hồng Renew liên quan để đảo tự động an toàn.')
+      const originalRenewCommissions = [...new Map(renewCommissionSnapshots.flatMap((snapshot) => snapshot.docs).map((item) => [item.id, item])).values()]
+        .filter((item) => item.data().type === 'renew_commission' && ['approved', 'paid'].includes(item.data().status) && Number(item.data().originalRate || 0) > 0)
+      const requestedPayrollPeriodId = financePeriodId(effectiveAt)
+      let reversalPeriodId = requestedPayrollPeriodId
+      if (originalRenewCommissions.length) {
+        const requestedPayrollRun = await transaction.get(db.doc(`payrollRuns/${requestedPayrollPeriodId}`))
+        reversalPeriodId = requestedPayrollRun.exists && ['locked', 'paid'].includes(requestedPayrollRun.data().status)
+          ? nextFinancePeriodId(requestedPayrollPeriodId)
+          : requestedPayrollPeriodId
+        const reversalPayrollRun = reversalPeriodId === requestedPayrollPeriodId ? requestedPayrollRun : await transaction.get(db.doc(`payrollRuns/${reversalPeriodId}`))
+        if (reversalPayrollRun.exists && ['locked', 'paid'].includes(reversalPayrollRun.data().status)) throw new HttpsError('failed-precondition', 'Kỳ nhận khoản đảo hoa hồng đã khóa. Hãy mở kỳ kế tiếp trước khi ghi hoàn tiền.')
+      }
       const paymentMethod = text(request.data?.paymentMethod || 'transfer', 'Phương thức hoàn')
       const accountingCashAccountType = inferredCashAccountType(paymentMethod, cashAccount)
       const advanceAccountCode = contractAdvanceAccountCode(contract.data(), effectiveAt)
@@ -716,6 +736,36 @@ function createFinanceLedgerFunctions({ db, onCall }) {
       const journalLines = reversedJournalLines(paymentJournal.lines)
       const code = referenceCode('HOAN', reference)
       transaction.create(reference, { schemaVersion: 4, type: 'refund', eventClass: 'cash_refund', source: 'pt_gym', renewalCaseId: contract.data().renewalCaseId || null, contractId, studentId: contract.data().studentId || '', branchId: contract.data().branchId || '', installmentId: installmentId || null, cashAccountId: cashAccountId || null, journalEntryId: journalReference.id, accountingCashAccountType, accountingAdvanceAccountCode: advanceAccountCode, cashbookReconciliationRequired: !cashAccount, ...referralSnapshot(contract.data()), amount: -amount, cashImpact: -amount, revenueImpact: 0, expenseImpact: 0, receivableImpact: amount - deferredReduction, deferredRevenueImpact: -deferredReduction, reconciliationRequired: amount > deferredReduction, effectiveAt, createdAt: FieldValue.serverTimestamp(), createdBy: actor.uid, paymentMethod, referenceCode: code, idempotencyKey, reason, status: 'posted' })
+      originalRenewCommissions.forEach((original) => {
+        const value = original.data()
+        const originalRate = Number(value.originalRate || 0)
+        const attributionPercent = Number(value.attributionPercent || 100)
+        const reversalAmount = Math.round(amount * originalRate / 100 * attributionPercent / 100)
+        if (reversalAmount <= 0) return
+        transaction.create(db.doc(`payrollEarningEvents/reversal_${reference.id}_${original.id}`), {
+          schemaVersion: 1,
+          periodId: reversalPeriodId,
+          staffId: value.staffId || '',
+          type: 'renew_commission_reversal',
+          sourceType: 'contract_refund',
+          sourceId: reference.id,
+          sourceEarningEventId: original.id,
+          originalRate,
+          attributionPercent,
+          refundAmount: amount,
+          grossAmount: reversalAmount,
+          signedAmount: -reversalAmount,
+          evidenceReference: `ledgerEntries/${reference.id}`,
+          description: `Đảo hoa hồng Renew theo khoản hoàn ${code}`,
+          status: 'approved',
+          reviewReason: 'Tự động theo khoản hoàn tiền đã hạch toán.',
+          reviewedBy: actor.uid,
+          reviewedAt: FieldValue.serverTimestamp(),
+          createdAt: FieldValue.serverTimestamp(),
+          createdBy: actor.uid,
+          updatedAt: FieldValue.serverTimestamp(),
+        })
+      })
       createJournalEntry(transaction, journalReference, { documentType: 'contract_refund', documentId: reference.id, referenceCode: code, branchId: contract.data().branchId, effectiveAt, lines: journalLines, actorUid: actor.uid })
       transaction.update(contractReference, { paidAmount: Number(contract.data().paidAmount || 0) - amount, accountingAdvanceAccountCode: advanceAccountCode, ...(installmentPatch || {}), financeProjectionUpdatedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() })
       if (renewalCase?.exists) transaction.update(renewalCaseReference, { collectedValue: FieldValue.increment(-amount), updatedAt: FieldValue.serverTimestamp() })

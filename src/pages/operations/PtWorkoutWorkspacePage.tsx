@@ -127,6 +127,7 @@ export default function PtWorkoutWorkspacePage({ isDemo = false, canPublishCatal
   const [historyLoading, setHistoryLoading] = useState(false)
   const [coachNotes, setCoachNotes] = useState('')
   const [painNotes, setPainNotes] = useState('')
+  const [nextSessionPlan, setNextSessionPlan] = useState('')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -212,6 +213,7 @@ export default function PtWorkoutWorkspacePage({ isDemo = false, canPublishCatal
     setSets(log?.trainingDayId === selectedDay.id ? clone(log.sets) : localSets || defaultSets(selectedDay))
     setCoachNotes(log?.coachNotes || '')
     setPainNotes(log?.painNotes || '')
+    setNextSessionPlan(log?.nextSessionPlan || '')
   }, [selectedDay?.id, selectedSession?.id, workspace.logs])
   useEffect(() => {
     if (!selectedStudentId) { setHistory(null); return }
@@ -294,12 +296,12 @@ export default function PtWorkoutWorkspacePage({ isDemo = false, canPublishCatal
         const log: PtWorkoutLog = {
           id: `demo-${selectedSession.id}`, sessionId: selectedSession.id, studentId: selectedSession.studentId,
           date: selectedSession.date, hour: selectedSession.hour, trainingDayId: selectedDay.id, trainingDayTitle: selectedDay.title,
-          status, revision: (selectedLog?.revision || 0) + 1, sets: clone(sets), coachNotes, painNotes,
+          status, revision: (selectedLog?.revision || 0) + 1, sets: clone(sets), coachNotes, painNotes, nextSessionPlan,
           metrics: { completedSets: sets.filter((set) => set.completed).length, totalVolumeKg: sets.reduce((sum, set) => sum + (set.completed ? set.weightKg * set.reps : 0), 0), maximumWeightKg: Math.max(0, ...sets.map((set) => set.completed ? set.weightKg : 0)), maximumRpe: Math.max(0, ...sets.map((set) => set.rpe)), painAlert: sets.some((set) => set.painLevel >= 4) },
         }
         setWorkspace((current) => ({ ...current, logs: [...current.logs.filter((item) => item.sessionId !== selectedSession.id), log] }))
       } else {
-        const result = await savePtSessionWorkoutLog({ sessionId: selectedSession.id, studentId: selectedSession.studentId, expectedRevision: selectedLog?.revision || 0, trainingDayId: selectedDay.id, status, sets, coachNotes, painNotes })
+        const result = await savePtSessionWorkoutLog({ sessionId: selectedSession.id, studentId: selectedSession.studentId, expectedRevision: selectedLog?.revision || 0, trainingDayId: selectedDay.id, status, sets, coachNotes, painNotes, nextSessionPlan })
         const log: PtWorkoutLog = {
           id: result.logId,
           sessionId: selectedSession.id,
@@ -313,6 +315,7 @@ export default function PtWorkoutWorkspacePage({ isDemo = false, canPublishCatal
           sets: clone(sets),
           coachNotes,
           painNotes,
+          nextSessionPlan,
           metrics: result.metrics,
         }
         setWorkspace((current) => ({
@@ -395,7 +398,7 @@ export default function PtWorkoutWorkspacePage({ isDemo = false, canPublishCatal
                     </div>)}
                   </article>)}
                 </div>
-                <div className="pt-workout-workspace__notes"><label>Ghi chú PT<textarea disabled={selectedLogLocked} value={coachNotes} onChange={(event) => setCoachNotes(event.target.value)} placeholder="Kỹ thuật, cảm nhận, điều chỉnh buổi sau…" /></label><label className={sets.some((set) => set.painLevel >= 4) ? 'has-alert' : ''}>Đau / hạn chế vận động<textarea disabled={selectedLogLocked} value={painNotes} onChange={(event) => setPainNotes(event.target.value)} placeholder="Chỉ ghi khi cần lưu ý an toàn" /></label></div>
+                <div className="pt-workout-workspace__notes"><label>Ghi chú PT<textarea disabled={selectedLogLocked} value={coachNotes} onChange={(event) => setCoachNotes(event.target.value)} placeholder="Mục tiêu, kỹ thuật và phản hồi của buổi tập" /></label><label className={sets.some((set) => set.painLevel >= 4) ? 'has-alert' : ''}>Đau / hạn chế vận động<textarea disabled={selectedLogLocked} value={painNotes} onChange={(event) => setPainNotes(event.target.value)} placeholder="Ghi “không đau” hoặc mô tả phản ứng cần lưu ý" /></label><label>Kế hoạch buổi sau<textarea disabled={selectedLogLocked} value={nextSessionPlan} onChange={(event) => setNextSessionPlan(event.target.value)} placeholder="Bài chính, mức tải hoặc điều chỉnh dự kiến" /></label></div>
                 {!selectedLogLocked && <footer><span className="pt-workout-workspace__autosave">Tự lưu trên thiết bị</span><button onClick={() => void saveLog('draft')} disabled={saving}><Save />Lưu nháp</button><button className="is-primary" onClick={() => void saveLog('completed')} disabled={saving}><Check />Hoàn thành buổi</button></footer>}
               </>}
         </div>

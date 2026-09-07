@@ -5,6 +5,7 @@ const path = require('node:path')
 
 const {
   applyPayrollPolicyPlan,
+  applySessionEvidencePolicy,
   duplicateLearnerDayViolations,
   payrollRunPolicyPlan,
   periodBounds,
@@ -42,19 +43,29 @@ test('payroll policy rejects impossible dates and unsafe rates', () => {
   assert.throws(() => policyRate(999), /Đơn giá/)
   assert.equal(policyEffectiveDate('2026-08-01').timestamp.toDate().toISOString(), '2026-07-31T17:00:00.000Z')
   assert.equal(policyRate(20_000), 20_000)
-  assert.deepEqual(payrollPolicyConfiguration({
-    ratePerSession: 20_000,
-    dailySessionThreshold: 8,
-    rateAfterDailyThreshold: 70_000,
-    eveningStartHour: 20,
-    rateAfterDailyThresholdEvening: 80_000,
-  }), {
+  const configuration = payrollPolicyConfiguration({
     ratePerSession: 20_000,
     dailySessionThreshold: 8,
     rateAfterDailyThreshold: 70_000,
     eveningStartHour: 20,
     rateAfterDailyThresholdEvening: 80_000,
   })
+  assert.deepEqual({
+    ratePerSession: configuration.ratePerSession,
+    dailySessionThreshold: configuration.dailySessionThreshold,
+    rateAfterDailyThreshold: configuration.rateAfterDailyThreshold,
+    eveningStartHour: configuration.eveningStartHour,
+    rateAfterDailyThresholdEvening: configuration.rateAfterDailyThresholdEvening,
+  }, {
+    ratePerSession: 20_000,
+    dailySessionThreshold: 8,
+    rateAfterDailyThreshold: 70_000,
+    eveningStartHour: 20,
+    rateAfterDailyThresholdEvening: 80_000,
+  })
+  assert.equal(configuration.teachingRateMode, 'absolute')
+  assert.equal(configuration.eveningRequiresOvertime, true)
+  assert.equal(configuration.sessionEvidence.enabled, false)
 })
 
 test('two learners in the same trainer slot count as one paid class and daily tiers start after class eight', () => {
@@ -262,6 +273,96 @@ test('invalid completed sessions return actionable payroll validation details', 
   })
 })
 
+test('rank-based payroll selects one percentage tier and snapshots its calculation', () => {
+  const configuration = payrollPolicyConfiguration({
+    teachingRateMode: 'percent_of_rank_rate',
+    defaultRankCode: 'p0',
+    rankRateCards: { p0: 20_000, p1: 22_000, p2: 25_000, p3: 30_000, p4: 35_000 },
+    rateTierPercents: { standard: 100, afterThreshold: 280, evening: 110, afterThresholdEvening: 320 },
+    ratePerSession: 20_000,
+    dailySessionThreshold: 1,
+    rateAfterDailyThreshold: 70_000,
+    eveningStartHour: 20,
+    rateAfterDailyThresholdEvening: 80_000,
+  })
+  const result = teachingSlotsFromSessions([
+    { id: 'rank-standard', status: 'completed', trainerId: 'trainer-a', studentId: 'student-a', date: '2026-08-25', hour: 19 },
+    { id: 'rank-overtime-evening', status: 'completed', trainerId: 'trainer-a', studentId: 'student-b', date: '2026-08-25', hour: 20 },
+  ], configuration)
+  const policies = [{ id: 'rank-policy', name: 'P0-P4', effectiveDate: '2026-08-01', eligibleProfiles: ['official'], configuration }]
+  const priced = applyPayrollPolicyPlan(result, {
+    ...payrollRunPolicyPlan({ policyIds: ['rank-policy'], defaultPolicyId: 'rank-policy' }),
+    staffProfiles: new Map([['trainer-a', 'official']]),
+    staffRecords: new Map([['trainer-a', { compensationRank: 'P2' }]]),
+  }, policies).trainers.get('trainer-a')
+
+  assert.equal(priced[0].rankCode, 'p2')
+  assert.equal(priced[0].rankBaseRate, 25_000)
+  assert.equal(priced[0].tierPercent, 100)
+  assert.equal(priced[0].rate, 25_000)
+  assert.equal(priced[1].tier, 'after_threshold_evening')
+  assert.equal(priced[1].tierPercent, 320)
+  assert.equal(priced[1].rate, 80_000)
+})
+
+test('collaborator policy capabilities default to teaching pay only', () => {
+  const configuration = payrollPolicyConfiguration({
+    audience: 'collaborator',
+    ratePerSession: 70_000,
+    rateAfterDailyThreshold: 70_000,
+    rateAfterDailyThresholdEvening: 70_000,
+  })
+  assert.deepEqual(configuration.capabilities, {
+    baseSalaryEnabled: false,
+    teachingCommissionEnabled: true,
+    kpiBonusEnabled: false,
+    renewCommissionEnabled: false,
+    selfGeneratedCommissionEnabled: false,
+    additionalBonusEnabled: false,
+  })
+})
+
+test('session note evidence remains pending inside SLA and leaves pay after SLA until review', () => {
+  const policy = {
+    id: 'evidence-policy',
+    configuration: payrollPolicyConfiguration({
+      ratePerSession: 20_000,
+      sessionEvidence: { enabled: true, noteSlaHours: 12 },
+    }),
+  }
+  const base = {
+    trainers: new Map([['trainer-a', [{
+      key: 'trainer-a|2026-08-25|6', trainerId: 'trainer-a', date: '2026-08-25', hour: 6,
+      rate: 20_000, policyId: policy.id, sessionIds: ['session-a'], studentIds: ['student-a'], attendanceEventIds: ['event-a'],
+    }]]]),
+  }
+  const sessions = new Map([['session-a', { id: 'session-a', date: '2026-08-25', hour: 6 }]])
+  const logs = new Map()
+  const insideSla = applySessionEvidencePolicy(base, sessions, logs, new Map([[policy.id, policy]]), new Date('2026-08-25T10:00:00+07:00'))
+  assert.equal(insideSla.sessionEvidence[0].status, 'pending_evidence')
+  assert.equal(insideSla.trainers.get('trainer-a').length, 0)
+  const expired = applySessionEvidencePolicy(base, sessions, logs, new Map([[policy.id, policy]]), new Date('2026-08-26T10:00:00+07:00'))
+  assert.equal(expired.sessionEvidence[0].status, 'invalid_after_sla')
+  assert.equal(expired.trainers.get('trainer-a').length, 0)
+})
+
+test('complete session note evidence keeps one paid teaching slot', () => {
+  const policy = {
+    id: 'evidence-policy',
+    configuration: payrollPolicyConfiguration({ ratePerSession: 20_000, sessionEvidence: { enabled: true, noteSlaHours: 12 } }),
+  }
+  const base = { trainers: new Map([['trainer-a', [{ key: 'slot', trainerId: 'trainer-a', date: '2026-08-25', hour: 6, rate: 20_000, policyId: policy.id, sessionIds: ['session-a'], studentIds: ['student-a'], attendanceEventIds: ['event-a'] }]]]) }
+  const sessions = new Map([['session-a', { id: 'session-a', date: '2026-08-25', hour: 6 }]])
+  const logs = new Map([['session-a', {
+    status: 'completed', trainingDayTitle: 'Thân dưới', painNotes: 'Không đau', nextSessionPlan: 'Tăng 2kg nếu RPE dưới 8',
+    sets: [{ completed: true, exerciseName: 'Hip thrust', weightKg: 50, reps: 10, rpe: 8, painLevel: 0 }],
+  }]])
+  const result = applySessionEvidencePolicy(base, sessions, logs, new Map([[policy.id, policy]]), new Date('2026-08-27T10:00:00+07:00'))
+  assert.equal(result.sessionEvidenceReviewRequiredCount, 0)
+  assert.equal(result.trainers.get('trainer-a').length, 1)
+  assert.equal(result.trainers.get('trainer-a')[0].sessionEvidenceStatus, 'complete')
+})
+
 test('payroll creation is one deterministic transaction per period', () => {
   const source = fs.readFileSync(path.join(__dirname, 'payroll.js'), 'utf8')
   const createBlock = source.match(/const createPayrollRun[\s\S]*?\n  async function transition/)?.[0] || ''
@@ -271,7 +372,8 @@ test('payroll creation is one deterministic transaction per period', () => {
   assert.match(createBlock, /transaction\.create\(runReference/)
   assert.match(createBlock, /payrollRunItems\/\$\{periodId\}_\$\{staffId\}/)
   assert.match(createBlock, /teachingSlotsFromSessions\(sessionSnapshot\.docs/)
-  assert.match(createBlock, /\.select\('status', 'trainerId', 'studentId', 'date', 'hour', 'branchId', 'attendanceEventId', 'attendanceStatus', 'confirmationSource', 'recognitionReviewRequired'\)/)
+  assert.match(createBlock, /\.select\('status', 'trainerId', 'studentId', 'date', 'hour', 'branchId', 'attendanceEventId', 'attendanceStatus', 'confirmationSource', 'recognitionReviewRequired', 'payrollEvidenceReview'\)/)
+  assert.match(createBlock, /db\.collection\('ptWorkoutLogs'\)/)
   assert.doesNotMatch(createBlock, /Promise\.all\(sessionIds\.map/)
   assert.doesNotMatch(createBlock, /db\.collection\('payrollRuns'\)\.doc\(\)/)
 })
@@ -479,4 +581,35 @@ test('payroll UI uses canonical runs and cannot edit teaching sessions', () => {
   assert.doesNotMatch(source, /commissionPerSession\s*\|\|\s*20000/)
   assert.doesNotMatch(source, /confirmSessionAttendance|cancelSession|rescheduleSession|swapSessions/)
   assert.doesNotMatch(source, /Ước tính đối soát PT/)
+})
+
+test('period targets are provisional, auditable and required before KPI lock', () => {
+  const source = fs.readFileSync(path.join(__dirname, 'payroll.js'), 'utf8')
+  const index = fs.readFileSync(path.join(__dirname, 'index.js'), 'utf8')
+  assert.match(source, /const getPayrollTarget = payrollCall/)
+  assert.match(source, /const savePayrollTarget = payrollCall/)
+  assert.match(source, /const approvePayrollTarget = payrollCall/)
+  assert.match(source, /previousValue \? 'previous_period' : 'policy_default'/)
+  assert.match(source, /PAYROLL_TARGET_APPROVAL_REQUIRED/)
+  assert.match(source, /targetSnapshot:/)
+  assert.match(index, /exports\.getPayrollTargetV2/)
+  assert.match(index, /exports\.approvePayrollTargetV2/)
+})
+
+test('renew cohort and earning disputes remain separate immutable snapshots', () => {
+  const source = fs.readFileSync(path.join(__dirname, 'payroll.js'), 'utf8')
+  const rules = fs.readFileSync(path.join(__dirname, '..', 'firestore.rules'), 'utf8')
+  assert.match(source, /renewCohortSnapshots\/\$\{periodId\}_\$\{staffId\}/)
+  assert.match(source, /status: 'locked'/)
+  assert.match(source, /earningEventPendingAmount/)
+  assert.match(source, /earningEventDisputedAmount/)
+  assert.match(source, /allowPartialPayment/)
+  assert.match(rules, /match \/payrollTargets\/\{periodId\}[\s\S]*allow read, write: if false/)
+  assert.match(rules, /match \/renewCohortSnapshots\/\{snapshotId\}[\s\S]*allow read, write: if false/)
+})
+
+test('collaborator policy uses configurable teaching rates without hard-coded money bands', () => {
+  const source = fs.readFileSync(path.join(__dirname, 'payroll.js'), 'utf8')
+  assert.match(source, /CTV dùng đơn giá ca riêng/)
+  assert.doesNotMatch(source, /CTV phải có đơn giá từ 50\.000đ đến 100\.000đ/)
 })

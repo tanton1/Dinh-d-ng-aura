@@ -218,7 +218,7 @@ function calculateWorkdayPayroll({ periodId, calendar, attendance = [], teaching
   const employmentType = normalizedEmploymentType(staff.employmentType)
   const employmentLevel = normalizedEmploymentLevel(staff.employmentLevel)
   const baseSalary = employmentType === 'collaborator' ? 0 : safeMoney(staff.baseSalary)
-  const fixedBonus = safeMoney(staff.bonusMonthly)
+  const fixedBonus = employmentType === 'collaborator' ? 0 : safeMoney(staff.bonusMonthly)
   const standardDates = monthDateKeys(normalizedPeriod).filter((date) => !weeklyRestDays.includes(weekday(date)) && !holidayMap.has(date))
   const eligibleDates = standardDates.filter((date) => (!employment.start || date >= employment.start) && (!employment.end || date <= employment.end))
   const eligibleSet = new Set(eligibleDates)
@@ -516,12 +516,17 @@ function createStaffPayrollFunctions({ db, onCall, logger, priceTeachingSlots, p
     const previewPolicy = assignedPolicy || policies[0]
     const teachingSlots = itemSnapshot.exists || !previewPolicy || typeof priceTeachingSlots !== 'function'
       ? storedTeachingSlots
-      : priceTeachingSlots(storedTeachingSlots, () => previewPolicy)
+      : priceTeachingSlots(storedTeachingSlots, () => previewPolicy, staff)
     const workdays = calculateWorkdayPayroll({ periodId, calendar, attendance, teachingSlots, staff })
+    const collaboratorPreview = profile === 'collaborator'
+    const previewCapabilities = previewPolicy?.configuration?.capabilities && typeof previewPolicy.configuration.capabilities === 'object'
+      ? previewPolicy.configuration.capabilities
+      : {}
+    const previewAllowsReferral = !collaboratorPreview && previewCapabilities.selfGeneratedCommissionEnabled !== false
     const amountSource = itemSnapshot.exists ? payrollItem : {
       teachingPayAmount: teachingSlots.reduce((total, slot) => total + safeMoney(slot.rate, 10_000_000), 0),
-      commissionAmount: referral.commissionAmount,
-      deductionAmount: referral.reversalAmount,
+      commissionAmount: previewAllowsReferral ? referral.commissionAmount : 0,
+      deductionAmount: previewAllowsReferral ? referral.reversalAmount : 0,
     }
     const amounts = payrollAmounts(workdays, amountSource)
     const run = runSnapshot.exists ? runSnapshot.data() : {}
@@ -718,7 +723,7 @@ function createStaffPayrollFunctions({ db, onCall, logger, priceTeachingSlots, p
             pricedTeachingSlots = priceTeachingSlots(teachingSlots, (slot) => {
               if (assignedPolicy?.effectiveDate <= slot.date) return assignedPolicy
               return eligiblePolicies.find((policy) => policy.effectiveDate <= slot.date)
-            })
+            }, staff)
           } catch {
             policyConfigured = false
             pricedTeachingSlots = []
@@ -729,10 +734,13 @@ function createStaffPayrollFunctions({ db, onCall, logger, priceTeachingSlots, p
           cashCollectedAmount: 0, cashReversedAmount: 0, netCashAmount: 0,
           commissionAmount: 0, reversalAmount: 0, contractCount: 0, evidence: [], rate: 0,
         }
+        const collaboratorPreview = profile === 'collaborator'
+        const previewCapabilities = (assignedPolicy || eligiblePolicies[0])?.configuration?.capabilities || {}
+        const previewAllowsReferral = !collaboratorPreview && previewCapabilities.selfGeneratedCommissionEnabled !== false
         const amounts = payrollAmounts(workdays, {
           teachingPayAmount: pricedTeachingSlots.reduce((total, slot) => total + safeMoney(slot.rate, 10_000_000), 0),
-          commissionAmount: referral.commissionAmount,
-          deductionAmount: referral.reversalAmount,
+          commissionAmount: previewAllowsReferral ? referral.commissionAmount : 0,
+          deductionAmount: previewAllowsReferral ? referral.reversalAmount : 0,
         })
         return {
           staffId: staff.id,

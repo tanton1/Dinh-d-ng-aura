@@ -32,9 +32,11 @@ import {
   createPayrollRun,
   deleteDraftPayrollRun,
   getPayrollRun,
+  getPayrollTarget,
   listPayrollAdjustments,
   listPayrollPolicies,
   listPayrollIntelligencePolicies,
+  listPayrollEarningEvents,
   managePayrollIntelligencePolicy,
   listPayrollRuns,
   lockPayrollRun,
@@ -42,15 +44,21 @@ import {
   managePayrollPolicy,
   parsePayrollFailure,
   reviewPayrollRun,
-  savePayrollAdjustment,
+  savePayrollEarningEvent,
   savePayrollPolicy,
+  savePayrollTarget,
+  approvePayrollTarget,
   savePayrollIntelligencePolicy,
   voidPayrollAdjustment,
+  reviewPayrollEarningEvent,
   type PayrollAdjustment,
+  type PayrollEarningEvent,
   type PayrollFailure,
   type PayrollPolicy,
+  type PayrollTarget,
   type PayrollIntelligencePolicy,
   type PayrollProfile,
+  type PayrollRankCode,
   type PayrollPolicyApplicationMode,
   type PayrollRunDetail,
   type PayrollRunStatus,
@@ -254,17 +262,29 @@ export default function TrainerPayroll({ profile }: Props) {
   const [policyApplicationMode, setPolicyApplicationMode] = useState<PolicyApplicationMode>('trainer_assignment')
   const [trainerPolicyAssignments, setTrainerPolicyAssignments] = useState<Record<string, string>>({})
   const [adjustmentForm, setAdjustmentForm] = useState({ staffId: '', type: 'bonus' as 'bonus' | 'deduction', amount: '', reason: '', evidenceReference: '' })
+  const [earningEvents, setEarningEvents] = useState<PayrollEarningEvent[]>([])
+  const [earningSummary, setEarningSummary] = useState({ approvedAmount: 0, pendingAmount: 0, disputedAmount: 0, rejectedAmount: 0, payableAmount: 0 })
+  const [payrollTarget, setPayrollTarget] = useState<PayrollTarget | null>(null)
+  const [targetForm, setTargetForm] = useState<Record<string, string>>({})
+  const [targetReason, setTargetReason] = useState('')
   const [pendingConfirmation, setPendingConfirmation] = useState<PendingConfirmation | null>(null)
   const [policyForm, setPolicyForm] = useState({
     name: 'Chính sách lương PT',
     audience: 'employee' as 'employee' | 'collaborator' | 'all',
     eligibleProfiles: ['official'] as PayrollProfile[],
     effectiveFrom: currentDateOnly(),
+    teachingRateMode: 'absolute' as 'absolute' | 'percent_of_rank_rate',
+    defaultRankCode: 'p0' as PayrollRankCode,
+    rankRateCards: { p0: '', p1: '', p2: '', p3: '', p4: '' } as Record<PayrollRankCode, string>,
+    rateTierPercents: { standard: '100', afterThreshold: '100', evening: '100', afterThresholdEvening: '100' },
     ratePerSession: '',
     dailySessionThreshold: '',
     rateAfterDailyThreshold: '',
     eveningStartHour: '',
     rateAfterDailyThresholdEvening: '',
+    renewEligibility: { maxDaysRemaining: '30', maxSessionsRemaining: '6', minConsumedPercent: '70' },
+    sessionEvidence: { enabled: false, noteSlaHours: '12' },
+    disputeResolutionSlaHours: '72',
   })
   const [intelligenceForm, setIntelligenceForm] = useState({
     name: 'KPI & Attribution Aura',
@@ -278,7 +298,7 @@ export default function TrainerPayroll({ profile }: Props) {
     },
     rankBandsText: 'A:90-100\nB:75-89.99\nC:60-74.99\nD:0-59.99',
     wonStages: 'won',
-    attributionText: 'revenue:referralStaffId,assignedSalesId\nrenewal:assignedSalesId,trainerId,trainerIds,nutritionPTIds\nfeedback:actualTrainerId,trainerId\nteaching:trainerId\nworkdays:trainerId',
+    attributionText: 'revenue:referralStaffId,assignedSalesId\nrenewal:trainerId,trainerIds,nutritionPTIds\nfeedback:actualTrainerId,trainerId\nteaching:trainerId\nworkdays:trainerId',
   })
 
   const canManage = profile?.role === 'admin' || profile?.role === 'super_admin'
@@ -293,11 +313,27 @@ export default function TrainerPayroll({ profile }: Props) {
       audience: base?.audience || 'employee',
       eligibleProfiles: base?.eligibleProfiles?.length ? base.eligibleProfiles : ['official'],
       effectiveFrom: currentDateOnly(),
+      teachingRateMode: base?.teachingRateMode || 'absolute',
+      defaultRankCode: base?.defaultRankCode || 'p0',
+      rankRateCards: Object.fromEntries((['p0', 'p1', 'p2', 'p3', 'p4'] as PayrollRankCode[]).map((rank) => [rank, base ? String(base.rankRateCards[rank]) : ''])) as Record<PayrollRankCode, string>,
+      rateTierPercents: {
+        standard: String(base?.rateTierPercents.standard ?? 100),
+        afterThreshold: String(base?.rateTierPercents.afterThreshold ?? 100),
+        evening: String(base?.rateTierPercents.evening ?? 100),
+        afterThresholdEvening: String(base?.rateTierPercents.afterThresholdEvening ?? 100),
+      },
       ratePerSession: base ? String(base.ratePerSession) : '',
       dailySessionThreshold: base ? String(base.dailySessionThreshold) : '',
       rateAfterDailyThreshold: base ? String(base.rateAfterDailyThreshold) : '',
       eveningStartHour: base ? String(base.eveningStartHour) : '',
       rateAfterDailyThresholdEvening: base ? String(base.rateAfterDailyThresholdEvening) : '',
+      renewEligibility: {
+        maxDaysRemaining: String(base?.renewEligibility.maxDaysRemaining ?? 30),
+        maxSessionsRemaining: String(base?.renewEligibility.maxSessionsRemaining ?? 6),
+        minConsumedPercent: String(base?.renewEligibility.minConsumedPercent ?? 70),
+      },
+      sessionEvidence: { enabled: base?.sessionEvidence.enabled ?? false, noteSlaHours: String(base?.sessionEvidence.noteSlaHours ?? 12) },
+      disputeResolutionSlaHours: String(base?.dispute.resolutionSlaHours ?? 72),
     })
     setShowPolicyForm(true)
   }
@@ -305,13 +341,15 @@ export default function TrainerPayroll({ profile }: Props) {
   const refresh = useCallback(async () => {
     setLoading(true)
     setError('')
-    const [runsResult, policiesResult, accountsResult, liveResult, adjustmentsResult, intelligencePoliciesResult] = await Promise.allSettled([
+    const [runsResult, policiesResult, accountsResult, liveResult, adjustmentsResult, earningEventsResult, intelligencePoliciesResult, targetResult] = await Promise.allSettled([
       listPayrollRuns(36),
       listPayrollPolicies(),
       listCashAccounts(),
       listStaffPayrollAttendance(periodId),
       listPayrollAdjustments(periodId),
+      listPayrollEarningEvents(periodId),
       listPayrollIntelligencePolicies(),
+      getPayrollTarget(periodId),
     ])
     if (runsResult.status === 'fulfilled') setRuns(runsResult.value)
     if (policiesResult.status === 'fulfilled') setPolicies(policiesResult.value)
@@ -329,9 +367,24 @@ export default function TrainerPayroll({ profile }: Props) {
     }
     if (adjustmentsResult.status === 'fulfilled') setAdjustments(adjustmentsResult.value)
     else setAdjustments([])
+    if (earningEventsResult.status === 'fulfilled') { setEarningEvents(earningEventsResult.value.events); setEarningSummary(earningEventsResult.value.summary) }
+    else { setEarningEvents([]); setEarningSummary({ approvedAmount: 0, pendingAmount: 0, disputedAmount: 0, rejectedAmount: 0, payableAmount: 0 }) }
     if (intelligencePoliciesResult.status === 'fulfilled') setIntelligencePolicies(intelligencePoliciesResult.value)
     else setIntelligencePolicies([])
-    const failure = [runsResult, policiesResult, accountsResult, liveResult, adjustmentsResult, intelligencePoliciesResult].find((result) => result.status === 'rejected')
+    if (targetResult.status === 'fulfilled') {
+      setPayrollTarget(targetResult.value)
+      const fallbackMetrics = intelligencePoliciesResult.status === 'fulfilled'
+        ? intelligencePoliciesResult.value.find((policy) => policy.status === 'active')?.metrics || {}
+        : {}
+      const values = Object.keys(targetResult.value.metricTargets).length
+        ? targetResult.value.metricTargets
+        : Object.fromEntries(Object.entries(fallbackMetrics).filter(([, metric]) => metric.enabled && metric.target > 0).map(([key, metric]) => [key, metric.target]))
+      setTargetForm(Object.fromEntries(Object.entries(values).map(([key, value]) => [key, String(value)])))
+    } else {
+      setPayrollTarget(null)
+      setTargetForm({})
+    }
+    const failure = [runsResult, policiesResult, accountsResult, liveResult, adjustmentsResult, earningEventsResult, intelligencePoliciesResult, targetResult].find((result) => result.status === 'rejected')
     if (failure?.status === 'rejected') setError(friendlyError(failure.reason))
     setLoading(false)
   }, [periodId])
@@ -420,16 +473,21 @@ export default function TrainerPayroll({ profile }: Props) {
 
   const togglePolicyProfile = (profile: PayrollProfile) => {
     setPolicyForm((current) => {
-      const eligibleProfiles = current.eligibleProfiles.includes(profile)
+      const toggledProfiles = current.eligibleProfiles.includes(profile)
         ? current.eligibleProfiles.filter((item) => item !== profile)
         : [...current.eligibleProfiles, profile]
+      const eligibleProfiles = profile === 'collaborator' && !current.eligibleProfiles.includes(profile)
+        ? ['collaborator'] as PayrollProfile[]
+        : profile !== 'collaborator' && !current.eligibleProfiles.includes(profile)
+          ? toggledProfiles.filter((item) => item !== 'collaborator')
+          : toggledProfiles
       if (!eligibleProfiles.length) return current
       const includesCollaborator = eligibleProfiles.includes('collaborator')
-      const includesEmployee = eligibleProfiles.some((item) => item !== 'collaborator')
       return {
         ...current,
         eligibleProfiles,
-        audience: includesCollaborator && includesEmployee ? 'all' : includesCollaborator ? 'collaborator' : 'employee',
+        audience: includesCollaborator ? 'collaborator' : 'employee',
+        teachingRateMode: includesCollaborator ? 'absolute' : current.teachingRateMode,
       }
     })
   }
@@ -533,18 +591,29 @@ export default function TrainerPayroll({ profile }: Props) {
 
   const submitPolicy = async () => {
     if (busyAction) return
-    const ratePerSession = Number(policyForm.ratePerSession)
+    const collaboratorPolicy = policyForm.eligibleProfiles.includes('collaborator')
+    const rankRateCards = Object.fromEntries((['p0', 'p1', 'p2', 'p3', 'p4'] as PayrollRankCode[]).map((rank) => [rank, Number(policyForm.rankRateCards[rank])])) as Record<PayrollRankCode, number>
+    const rateTierPercents = Object.fromEntries(Object.entries(policyForm.rateTierPercents).map(([key, value]) => [key, Number(value)])) as { standard: number; afterThreshold: number; evening: number; afterThresholdEvening: number }
+    const configuredBaseRate = policyForm.teachingRateMode === 'percent_of_rank_rate' ? rankRateCards[policyForm.defaultRankCode] : Number(policyForm.ratePerSession)
+    const ratePerSession = configuredBaseRate
     const dailySessionThreshold = Number(policyForm.dailySessionThreshold)
-    const rateAfterDailyThreshold = Number(policyForm.rateAfterDailyThreshold)
+    const rateAfterDailyThreshold = policyForm.teachingRateMode === 'percent_of_rank_rate'
+      ? Math.round(configuredBaseRate * rateTierPercents.afterThreshold / 100)
+      : Number(policyForm.rateAfterDailyThreshold)
     const eveningStartHour = Number(policyForm.eveningStartHour)
-    const rateAfterDailyThresholdEvening = Number(policyForm.rateAfterDailyThresholdEvening)
+    const rateAfterDailyThresholdEvening = policyForm.teachingRateMode === 'percent_of_rank_rate'
+      ? Math.round(configuredBaseRate * rateTierPercents.afterThresholdEvening / 100)
+      : Number(policyForm.rateAfterDailyThresholdEvening)
+    const percentModeInvalid = policyForm.teachingRateMode === 'percent_of_rank_rate'
+      && (!Object.values(rankRateCards).every((rate) => Number.isSafeInteger(rate) && rate >= 1_000)
+        || !Object.values(rateTierPercents).every((percent) => Number.isFinite(percent) && percent >= 0 && percent <= 1_000))
     if (![ratePerSession, rateAfterDailyThreshold, rateAfterDailyThresholdEvening].every((rate) => Number.isSafeInteger(rate) && rate >= 1_000)
       || !Number.isSafeInteger(dailySessionThreshold) || dailySessionThreshold < 1 || dailySessionThreshold > 24
-      || !Number.isSafeInteger(eveningStartHour) || eveningStartHour < 0 || eveningStartHour > 23) {
+      || !Number.isSafeInteger(eveningStartHour) || eveningStartHour < 0 || eveningStartHour > 23 || percentModeInvalid) {
       setError('Nhập đủ đơn giá, số ca chuẩn mỗi ngày (1–24) và giờ bắt đầu ca tối (0–23) theo chính sách.')
       return
     }
-    if (policyForm.eligibleProfiles.includes('collaborator') && [ratePerSession, rateAfterDailyThreshold, rateAfterDailyThresholdEvening].some((rate) => rate < 50_000 || rate > 100_000)) {
+    if (collaboratorPolicy && [ratePerSession, rateAfterDailyThreshold, rateAfterDailyThresholdEvening].some((rate) => rate < 50_000 || rate > 100_000)) {
       setError('Chính sách CTV cần đơn giá từ 50.000đ đến 100.000đ mỗi ca.')
       return
     }
@@ -557,11 +626,36 @@ export default function TrainerPayroll({ profile }: Props) {
         audience: policyForm.audience,
         eligibleProfiles: policyForm.eligibleProfiles,
         effectiveFrom: policyForm.effectiveFrom,
+        teachingRateMode: policyForm.teachingRateMode,
+        defaultRankCode: policyForm.defaultRankCode,
+        rankRateCards,
+        rateTierPercents,
         ratePerSession,
         dailySessionThreshold,
         rateAfterDailyThreshold,
         eveningStartHour,
         rateAfterDailyThresholdEvening,
+        capabilities: {
+          baseSalaryEnabled: !collaboratorPolicy,
+          teachingCommissionEnabled: true,
+          kpiBonusEnabled: !collaboratorPolicy,
+          renewCommissionEnabled: !collaboratorPolicy,
+          selfGeneratedCommissionEnabled: !collaboratorPolicy,
+          additionalBonusEnabled: !collaboratorPolicy,
+        },
+        renewEligibility: {
+          maxDaysRemaining: Number(policyForm.renewEligibility.maxDaysRemaining),
+          maxSessionsRemaining: Number(policyForm.renewEligibility.maxSessionsRemaining),
+          minConsumedPercent: Number(policyForm.renewEligibility.minConsumedPercent),
+          requireMostlyUsedProgram: true,
+        },
+        sessionEvidence: {
+          enabled: policyForm.sessionEvidence.enabled,
+          noteSlaHours: Number(policyForm.sessionEvidence.noteSlaHours),
+          requiredFields: ['goal', 'mainExercises', 'loadOrRpe', 'painResponse', 'nextSessionPlan'],
+          allowManagerOverride: true,
+        },
+        dispute: { resolutionSlaHours: Number(policyForm.disputeResolutionSlaHours), allowPartialPayment: true },
       })
       setMessage(result.unchanged ? 'Chính sách này đã tồn tại.' : 'Đã lưu phiên bản chính sách mới; kỳ cũ không bị thay đổi.')
       setShowPolicyForm(false)
@@ -625,6 +719,36 @@ export default function TrainerPayroll({ profile }: Props) {
     }
   }
 
+  const submitPayrollTarget = async (approve: boolean) => {
+    if (busyAction) return
+    const metricTargets = Object.fromEntries(Object.entries(targetForm).flatMap(([key, value]) => {
+      const target = Number(value)
+      return Number.isFinite(target) && target > 0 ? [[key, target] as const] : []
+    }))
+    if (!Object.keys(metricTargets).length || targetReason.trim().length < 3) {
+      setError('Cần nhập mục tiêu KPI hợp lệ và lý do ít nhất 3 ký tự.')
+      return
+    }
+    setBusyAction(approve ? 'target:approve' : 'target:save')
+    setError('')
+    setMessage('')
+    try {
+      const currentTargets = payrollTarget?.metricTargets || {}
+      if (JSON.stringify(currentTargets) !== JSON.stringify(metricTargets)) {
+        await savePayrollTarget({ periodId, metricTargets, reason: targetReason.trim() })
+      }
+      if (approve) await approvePayrollTarget(periodId, targetReason.trim())
+      setMessage(approve ? 'Đã duyệt target KPI cho kỳ. Snapshot kỳ lương không bị thay đổi âm thầm.' : 'Đã lưu target tạm thời. Manager cần duyệt trước khi khóa KPI.')
+      await refresh()
+    } catch (cause) {
+      const parsed = parsePayrollFailure(cause)
+      setPayrollFailure(parsed)
+      setError(parsed.message)
+    } finally {
+      setBusyAction('')
+    }
+  }
+
   const toggleIntelligencePolicy = async (policyId: string, status: 'active' | 'inactive') => {
     if (busyAction) return
     setBusyAction(`intelligence-policy:${policyId}`)
@@ -656,26 +780,49 @@ export default function TrainerPayroll({ profile }: Props) {
       setError('Nhập lý do ít nhất 5 ký tự để lưu bằng chứng.')
       return
     }
+    if (adjustmentForm.evidenceReference.trim().length < 2) {
+      setError('Nhập mã ca, biên bản hoặc liên kết bằng chứng trước khi gửi duyệt.')
+      return
+    }
     setBusyAction('adjustment:create')
     setMessage('')
     setError('')
     setPayrollFailure(null)
     try {
-      await savePayrollAdjustment({
+      await savePayrollEarningEvent({
         periodId,
         staffId: adjustmentForm.staffId,
         type: adjustmentForm.type,
-        amount,
-        reason: adjustmentForm.reason.trim(),
+        grossAmount: amount,
+        sourceType: 'manual_adjustment',
+        sourceId: `manual-${Date.now()}-${globalThis.crypto?.randomUUID?.() || Math.random().toString(36).slice(2)}`,
         evidenceReference: adjustmentForm.evidenceReference.trim(),
+        description: adjustmentForm.reason.trim(),
+        deadlineHours: 72,
       })
       setAdjustmentForm((current) => ({ ...current, amount: '', reason: '', evidenceReference: '' }))
-      setMessage(`Đã lưu ${adjustmentForm.type === 'bonus' ? 'thưởng' : 'khấu trừ'} cho kỳ ${periodLabel(periodId)}. Khoản này sẽ vào snapshot khi tạo kỳ.`)
+      setMessage(`Đã gửi ${adjustmentForm.type === 'bonus' ? 'thưởng' : 'khấu trừ'} chờ duyệt cho kỳ ${periodLabel(periodId)}. Phần lương khác không bị giữ lại.`)
       await refresh()
     } catch (cause) {
       const failure = friendlyFailure(cause)
       setError(failure.message)
       setPayrollFailure(failure)
+    } finally {
+      setBusyAction('')
+    }
+  }
+
+  const reviewEarning = async (eventId: string, decision: 'approved' | 'disputed' | 'rejected') => {
+    const reason = window.prompt(decision === 'approved' ? 'Nhập căn cứ duyệt khoản này' : decision === 'disputed' ? 'Nhập nội dung đang tranh chấp' : 'Nhập lý do từ chối')?.trim() || ''
+    if (reason.length < 3 || busyAction) return
+    setBusyAction(`earning:${eventId}`)
+    setError('')
+    try {
+      await reviewPayrollEarningEvent(eventId, decision, reason)
+      setMessage(decision === 'approved' ? 'Đã duyệt khoản thu nhập; khoản này sẽ vào kỳ lương khi lập snapshot.' : decision === 'disputed' ? 'Đã tách khoản tranh chấp. Phần lương còn lại vẫn được chi trả.' : 'Đã từ chối khoản thu nhập; lịch sử quyết định được giữ lại.')
+      await refresh()
+    } catch (cause) {
+      setError(friendlyError(cause))
     } finally {
       setBusyAction('')
     }
@@ -789,11 +936,6 @@ export default function TrainerPayroll({ profile }: Props) {
     })
     return violations
   }), [liveRows, periodId])
-  const adjustmentTotals = useMemo(() => adjustments.filter((item) => item.status === 'active').reduce((result, item) => {
-    if (item.type === 'bonus') result.bonus += item.amount
-    else result.deduction += item.amount
-    return result
-  }, { bonus: 0, deduction: 0 }), [adjustments])
   const subpageActive = showRunSetup || Boolean(pendingConfirmation) || Boolean(detail) || detailLoading
   useEffect(() => { if (subpageActive) window.scrollTo({ top: 0, behavior: 'smooth' }) }, [subpageActive])
 
@@ -854,7 +996,7 @@ export default function TrainerPayroll({ profile }: Props) {
             </button>
             <div className="payroll-run-card__actions">
               {run.status === 'draft' && <><button className="is-danger-ghost" type="button" disabled={!!busyAction} onClick={() => setPendingConfirmation({ kind: 'delete-run', id: run.id, label: periodLabel(run.periodId) })}><Trash2 size={15} /> Xóa nháp</button><button type="button" disabled={!!busyAction || run.requiresRebuild || run.attendanceReviewRequired || !payrollPeriodEnded(run.periodId)} title={run.requiresRebuild ? 'Xóa kỳ nháp cũ và tạo lại trước khi gửi duyệt' : !payrollPeriodEnded(run.periodId) ? 'Chỉ gửi duyệt sau khi kỳ lương đã kết thúc' : run.attendanceReviewRequired ? 'Đối soát đủ ngày công, lịch làm việc và bằng chứng ca dạy trước khi gửi duyệt' : undefined} onClick={() => void runAction('review', run)}><FileCheck2 size={15} /> {run.requiresRebuild ? 'Cần tạo lại' : !payrollPeriodEnded(run.periodId) ? 'Chờ hết kỳ' : run.attendanceReviewRequired ? 'Chờ đối soát' : 'Gửi duyệt'}</button></>}
-              {run.status === 'reviewed' && <button type="button" disabled={!!busyAction} onClick={() => void runAction('lock', run)}><LockKeyhole size={15} /> Khóa kỳ</button>}
+              {run.status === 'reviewed' && <button type="button" disabled={!!busyAction || run.targetStatus === 'provisional'} title={run.targetStatus === 'provisional' ? 'Manager cần duyệt target KPI trước khi khóa kỳ' : undefined} onClick={() => void runAction('lock', run)}><LockKeyhole size={15} /> {run.targetStatus === 'provisional' ? 'Chờ duyệt target' : 'Khóa kỳ'}</button>}
               {run.status === 'locked' && <button type="button" onClick={() => void openRun(run.id)}><WalletCards size={15} /> Chi lương</button>}
               {run.status === 'paid' && <span><CheckCircle2 size={15} /> Đã hoàn tất</span>}
             </div>
@@ -863,28 +1005,36 @@ export default function TrainerPayroll({ profile }: Props) {
       </section>
     </> : view === 'adjustments' ? <section className="payroll-adjustments" aria-label="Thưởng và phạt theo kỳ">
       <div className="payroll-adjustments__summary">
-        <div><span>Thưởng theo kỳ</span><strong>{money(adjustmentTotals.bonus)}</strong></div>
-        <div><span>Khấu trừ theo kỳ</span><strong>{money(adjustmentTotals.deduction)}</strong></div>
-        <p><ShieldCheck size={17} /> Thưởng tháng cố định được cài ở <button type="button" onClick={() => { window.location.hash = '#/admin-hr' }}>Hồ sơ đội ngũ</button>. Tab này dùng cho khoản phát sinh riêng từng kỳ và luôn lưu người tạo, lý do, bằng chứng.</p>
+        <div><span>Đã duyệt</span><strong>{money(earningSummary.approvedAmount)}</strong></div>
+        <div><span>Chờ duyệt</span><strong>{money(earningSummary.pendingAmount)}</strong></div>
+        <div><span>Tranh chấp</span><strong>{money(earningSummary.disputedAmount)}</strong></div>
+        <p><ShieldCheck size={17} /> Kỳ lương chỉ cộng khoản đã duyệt. Khoản đang chờ hoặc tranh chấp được giữ riêng nên không chặn phần lương còn lại.</p>
       </div>
       <div className="payroll-adjustments__layout">
         <div className="payroll-adjustments__form">
-          <div className="payroll-page__section-title"><div><span>Khoản phát sinh</span><strong>Thêm thưởng / phạt</strong></div><small>{periodLabel(periodId)}</small></div>
+          <div className="payroll-page__section-title"><div><span>Khoản phát sinh</span><strong>Gửi duyệt thưởng / phạt</strong></div><small>{periodLabel(periodId)}</small></div>
           <label><span>Nhân viên</span><select value={adjustmentForm.staffId} onChange={(event) => setAdjustmentForm((current) => ({ ...current, staffId: event.target.value }))}><option value="">Chọn nhân viên</option>{liveRows.map((row) => <option key={row.staffId} value={row.staffId}>{row.name} · {branchById.get(row.branchId)?.name || 'Chưa gắn chi nhánh'}</option>)}</select></label>
           <div className="payroll-adjustments__type" role="radiogroup" aria-label="Loại điều chỉnh"><button type="button" role="radio" aria-checked={adjustmentForm.type === 'bonus'} className={adjustmentForm.type === 'bonus' ? 'is-active' : ''} onClick={() => setAdjustmentForm((current) => ({ ...current, type: 'bonus' }))}>Thưởng</button><button type="button" role="radio" aria-checked={adjustmentForm.type === 'deduction'} className={adjustmentForm.type === 'deduction' ? 'is-active is-deduction' : ''} onClick={() => setAdjustmentForm((current) => ({ ...current, type: 'deduction' }))}>Phạt / khấu trừ</button></div>
           <label><span>Số tiền</span><input type="number" min="1000" step="1000" inputMode="numeric" value={adjustmentForm.amount} onChange={(event) => setAdjustmentForm((current) => ({ ...current, amount: event.target.value }))} placeholder="Ví dụ: 200000" /></label>
           <label><span>Lý do bắt buộc</span><textarea rows={3} maxLength={500} value={adjustmentForm.reason} onChange={(event) => setAdjustmentForm((current) => ({ ...current, reason: event.target.value }))} placeholder="Nêu rõ thành tích hoặc vi phạm" /></label>
           <label><span>Bằng chứng / tham chiếu</span><input maxLength={200} value={adjustmentForm.evidenceReference} onChange={(event) => setAdjustmentForm((current) => ({ ...current, evidenceReference: event.target.value }))} placeholder="Biên bản, link hoặc mã ca" /></label>
-          <button className="payroll-page__primary" type="button" disabled={!canManage || !!busyAction} onClick={() => void submitAdjustment()}><Save size={17} /> {busyAction === 'adjustment:create' ? 'Đang lưu…' : 'Lưu khoản phát sinh'}</button>
+          <button className="payroll-page__primary" type="button" disabled={!canManage || !!busyAction} onClick={() => void submitAdjustment()}><Save size={17} /> {busyAction === 'adjustment:create' ? 'Đang gửi…' : 'Gửi chờ duyệt'}</button>
         </div>
         <div className="payroll-adjustments__history">
-          <div className="payroll-page__section-title"><div><span>Nhật ký kỳ</span><strong>{adjustments.filter((item) => item.status === 'active').length} khoản đang áp dụng</strong></div><small>Không sửa chứng từ đã duyệt</small></div>
+          <div className="payroll-page__section-title"><div><span>Luồng duyệt</span><strong>{earningEvents.length} khoản trong kỳ</strong></div><small>Pending · approved · disputed</small></div>
+          {earningEvents.length ? <div className="payroll-adjustments__list payroll-earning-events">{earningEvents.map((item) => <article className={`is-${item.status}`} key={item.id}>
+            <span className={item.signedAmount >= 0 ? 'is-bonus' : 'is-deduction'}>{item.status === 'approved' ? 'Đã duyệt' : item.status === 'disputed' ? 'Tranh chấp' : item.status === 'rejected' ? 'Từ chối' : 'Chờ duyệt'}</span>
+            <div><strong>{trainerById.get(item.staffId)?.name || liveRows.find((row) => row.staffId === item.staffId)?.name || item.staffId}</strong><p>{item.description}</p><small>{item.evidenceReference}{item.reviewReason ? ` · ${item.reviewReason}` : ''}</small></div>
+            <b>{item.signedAmount >= 0 ? '+' : '−'}{money(Math.abs(item.signedAmount))}</b>
+            {item.status === 'pending_review' && <div className="payroll-earning-events__actions"><button type="button" disabled={!!busyAction} onClick={() => void reviewEarning(item.id, 'approved')}>Duyệt</button><button type="button" disabled={!!busyAction} onClick={() => void reviewEarning(item.id, 'disputed')}>Tranh chấp</button><button type="button" disabled={!!busyAction} onClick={() => void reviewEarning(item.id, 'rejected')}>Từ chối</button></div>}
+          </article>)}</div> : <div className="payroll-page__empty"><Gift size={30} /><strong>Chưa có khoản chờ duyệt</strong><p>Thêm khoản phát sinh kèm bằng chứng ở biểu mẫu bên cạnh.</p></div>}
+          {adjustments.length > 0 && <><div className="payroll-page__section-title payroll-adjustments__legacy-title"><div><span>Dữ liệu cũ</span><strong>{adjustments.filter((item) => item.status === 'active').length} khoản trực tiếp</strong></div><small>Giữ để đối soát</small></div>
           {adjustments.length ? <div className="payroll-adjustments__list">{adjustments.map((item) => <article className={item.status === 'voided' ? 'is-voided' : ''} key={item.id}>
             <span className={item.type === 'bonus' ? 'is-bonus' : 'is-deduction'}>{item.type === 'bonus' ? 'Thưởng' : 'Khấu trừ'}</span>
             <div><strong>{item.staffSnapshot.name || trainerById.get(item.staffId)?.name || item.staffId}</strong><p>{item.reason}</p><small>{item.evidenceReference || 'Không có tham chiếu bổ sung'}{item.status === 'voided' ? ' · Đã hủy' : ''}</small></div>
             <b>{item.type === 'bonus' ? '+' : '−'}{money(item.amount)}</b>
             {item.status === 'active' && <button type="button" aria-label={`Hủy khoản của ${item.staffSnapshot.name || item.staffId}`} disabled={!!busyAction} onClick={() => void voidAdjustment(item.id)}><Trash2 size={15} /> Hủy</button>}
-          </article>)}</div> : <div className="payroll-page__empty"><Gift size={30} /><strong>Chưa có thưởng/phạt phát sinh</strong><p>Thưởng tháng cố định vẫn tự lấy từ hồ sơ nhân viên. Chỉ thêm ở đây khi có khoản riêng của kỳ.</p></div>}
+          </article>)}</div> : null}</>}
         </div>
       </div>
     </section> : <section className={`payroll-policy ${showPolicyForm ? 'is-creating' : ''}`} aria-label="Chính sách lương">
@@ -898,7 +1048,7 @@ export default function TrainerPayroll({ profile }: Props) {
         </div>
         {policies.length ? policies.map((policy) => <article className={policy.status === 'inactive' ? 'is-inactive' : ''} key={policy.id}>
           <div className="payroll-policy__identity"><div><strong>{policy.name}</strong><span>{policy.eligibleProfiles.map(payrollProfileLabel).join(' · ')} · Hiệu lực {dateLabel(policy.effectiveFrom)} · {policy.status === 'active' ? 'Đang dùng' : 'Đã ẩn'} · {policy.usageCount} kỳ</span></div><div className="payroll-policy__actions">{policy.status === 'active' ? <button type="button" onClick={() => setPendingConfirmation({ kind: 'policy', id: policy.id, label: policy.name, action: 'hide' })}><EyeOff size={14} /> Ẩn</button> : <button type="button" onClick={() => setPendingConfirmation({ kind: 'policy', id: policy.id, label: policy.name, action: 'restore' })}><Eye size={14} /> Mở lại</button>}{policy.canDelete && <button className="is-danger" type="button" onClick={() => setPendingConfirmation({ kind: 'policy', id: policy.id, label: policy.name, action: 'delete' })}><Trash2 size={14} /> Xóa</button>}</div></div>
-          <div className="payroll-policy__rates"><span><small>Ca 1–{policy.dailySessionThreshold}</small><b>{money(policy.ratePerSession)}</b></span><span><small>Từ ca {policy.dailySessionThreshold + 1}</small><b>{money(policy.rateAfterDailyThreshold)}</b></span><span><small>Ca {policy.dailySessionThreshold + 1}+ sau {policy.eveningStartHour}h</small><b>{money(policy.rateAfterDailyThresholdEvening)}</b></span></div>
+          {policy.teachingRateMode === 'percent_of_rank_rate' ? <><div className="payroll-policy__rates">{(['p0', 'p1', 'p2', 'p3', 'p4'] as PayrollRankCode[]).map((rank) => <span key={rank}><small>Đơn giá {rank.toUpperCase()}</small><b>{money(policy.rankRateCards[rank])}</b></span>)}</div><div className="payroll-policy__tier-note">Ca chuẩn {policy.rateTierPercents.standard}% · từ ca {policy.dailySessionThreshold + 1}: {policy.rateTierPercents.afterThreshold}% · sau {policy.eveningStartHour}h và vượt ngưỡng: {policy.rateTierPercents.afterThresholdEvening}%</div></> : <div className="payroll-policy__rates"><span><small>Ca 1–{policy.dailySessionThreshold}</small><b>{money(policy.ratePerSession)}</b></span><span><small>Từ ca {policy.dailySessionThreshold + 1}</small><b>{money(policy.rateAfterDailyThreshold)}</b></span><span><small>Ca {policy.dailySessionThreshold + 1}+ sau {policy.eveningStartHour}h</small><b>{money(policy.rateAfterDailyThresholdEvening)}</b></span></div>}
         </article>) : <div className="payroll-page__empty"><Settings2 size={30} /><strong>Chưa có chính sách</strong><p>Dùng nút “Tạo chính sách” để thiết lập phiên bản đầu tiên.</p></div>}
       </div>
 
@@ -908,15 +1058,31 @@ export default function TrainerPayroll({ profile }: Props) {
           <label><span>Tên chính sách</span><input value={policyForm.name} maxLength={100} onChange={(event) => setPolicyForm((current) => ({ ...current, name: event.target.value }))} /></label>
           <div className="payroll-policy__profiles"><span>Nhóm nhân viên áp dụng</span><div>{(['probation', 'official', 'senior', 'part_time', 'collaborator'] as PayrollProfile[]).map((profile) => <button key={profile} type="button" className={policyForm.eligibleProfiles.includes(profile) ? 'is-active' : ''} onClick={() => togglePolicyProfile(profile)}>{payrollProfileLabel(profile)}</button>)}</div></div>
           <label><span>Hiệu lực từ</span><input type="date" value={policyForm.effectiveFrom} onChange={(event) => setPolicyForm((current) => ({ ...current, effectiveFrom: event.target.value }))} /></label>
-          <label><span>Đơn giá ca chuẩn</span><input type="number" min="1000" step="1000" inputMode="numeric" value={policyForm.ratePerSession} onChange={(event) => setPolicyForm((current) => ({ ...current, ratePerSession: event.target.value }))} /></label>
+          <label><span>Cách tính tiền ca</span><select disabled={policyForm.eligibleProfiles.includes('collaborator')} value={policyForm.teachingRateMode} onChange={(event) => setPolicyForm((current) => ({ ...current, teachingRateMode: event.target.value as 'absolute' | 'percent_of_rank_rate' }))}><option value="absolute">Đơn giá tuyệt đối</option><option value="percent_of_rank_rate">Tỷ lệ theo cấp P0–P4</option></select></label>
+          {policyForm.teachingRateMode === 'absolute' ? <label><span>Đơn giá ca chuẩn</span><input type="number" min="1000" step="1000" inputMode="numeric" value={policyForm.ratePerSession} onChange={(event) => setPolicyForm((current) => ({ ...current, ratePerSession: event.target.value }))} /></label> : <>
+            <label><span>Cấp mặc định</span><select value={policyForm.defaultRankCode} onChange={(event) => setPolicyForm((current) => ({ ...current, defaultRankCode: event.target.value as PayrollRankCode }))}>{(['p0', 'p1', 'p2', 'p3', 'p4'] as PayrollRankCode[]).map((rank) => <option key={rank} value={rank}>{rank.toUpperCase()}</option>)}</select></label>
+            {(['p0', 'p1', 'p2', 'p3', 'p4'] as PayrollRankCode[]).map((rank) => <label key={rank}><span>Đơn giá {rank.toUpperCase()}</span><input type="number" min="1000" step="1000" inputMode="numeric" value={policyForm.rankRateCards[rank]} onChange={(event) => setPolicyForm((current) => ({ ...current, rankRateCards: { ...current.rankRateCards, [rank]: event.target.value } }))} /></label>)}
+            {Object.entries({ standard: 'Ca chuẩn (%)', afterThreshold: 'Ca sau ngưỡng (%)', evening: 'Ca tối (%)', afterThresholdEvening: 'Ca tối sau ngưỡng (%)' }).map(([tier, label]) => <label key={tier}><span>{label}</span><input type="number" min="0" max="1000" step="1" inputMode="decimal" value={policyForm.rateTierPercents[tier as keyof typeof policyForm.rateTierPercents]} onChange={(event) => setPolicyForm((current) => ({ ...current, rateTierPercents: { ...current.rateTierPercents, [tier]: event.target.value } }))} /></label>)}
+          </>}
           <label><span>Số ca chuẩn mỗi ngày</span><input type="number" min="1" max="24" step="1" inputMode="numeric" value={policyForm.dailySessionThreshold} onChange={(event) => setPolicyForm((current) => ({ ...current, dailySessionThreshold: event.target.value }))} /></label>
-          <label><span>Đơn giá ca ngoài giờ</span><input type="number" min="1000" step="1000" inputMode="numeric" value={policyForm.rateAfterDailyThreshold} onChange={(event) => setPolicyForm((current) => ({ ...current, rateAfterDailyThreshold: event.target.value }))} /></label>
+          {policyForm.teachingRateMode === 'absolute' && <label><span>Đơn giá ca ngoài giờ</span><input type="number" min="1000" step="1000" inputMode="numeric" value={policyForm.rateAfterDailyThreshold} onChange={(event) => setPolicyForm((current) => ({ ...current, rateAfterDailyThreshold: event.target.value }))} /></label>}
           <label><span>Giờ bắt đầu ca tối</span><input type="number" min="0" max="23" step="1" inputMode="numeric" value={policyForm.eveningStartHour} onChange={(event) => setPolicyForm((current) => ({ ...current, eveningStartHour: event.target.value }))} /></label>
-          <label><span>Đơn giá ca ngoài giờ tối</span><input type="number" min="1000" step="1000" inputMode="numeric" value={policyForm.rateAfterDailyThresholdEvening} onChange={(event) => setPolicyForm((current) => ({ ...current, rateAfterDailyThresholdEvening: event.target.value }))} /></label>
+          {policyForm.teachingRateMode === 'absolute' && <label><span>Đơn giá ca ngoài giờ tối</span><input type="number" min="1000" step="1000" inputMode="numeric" value={policyForm.rateAfterDailyThresholdEvening} onChange={(event) => setPolicyForm((current) => ({ ...current, rateAfterDailyThresholdEvening: event.target.value }))} /></label>}
+          {!policyForm.eligibleProfiles.includes('collaborator') && <><label><span>Renew · ngày còn lại</span><input type="number" min="0" max="365" value={policyForm.renewEligibility.maxDaysRemaining} onChange={(event) => setPolicyForm((current) => ({ ...current, renewEligibility: { ...current.renewEligibility, maxDaysRemaining: event.target.value } }))} /></label><label><span>Renew · buổi còn lại</span><input type="number" min="0" max="500" value={policyForm.renewEligibility.maxSessionsRemaining} onChange={(event) => setPolicyForm((current) => ({ ...current, renewEligibility: { ...current.renewEligibility, maxSessionsRemaining: event.target.value } }))} /></label><label><span>Renew · đã dùng tối thiểu (%)</span><input type="number" min="0" max="100" value={policyForm.renewEligibility.minConsumedPercent} onChange={(event) => setPolicyForm((current) => ({ ...current, renewEligibility: { ...current.renewEligibility, minConsumedPercent: event.target.value } }))} /></label></>}
+          <label className="payroll-policy__check"><input type="checkbox" checked={policyForm.sessionEvidence.enabled} onChange={(event) => setPolicyForm((current) => ({ ...current, sessionEvidence: { ...current.sessionEvidence, enabled: event.target.checked } }))} /><span>Kiểm tra session note trước khi tính ca</span></label>
+          {policyForm.sessionEvidence.enabled && <label><span>SLA bổ sung note (giờ)</span><input type="number" min="1" max="168" value={policyForm.sessionEvidence.noteSlaHours} onChange={(event) => setPolicyForm((current) => ({ ...current, sessionEvidence: { ...current.sessionEvidence, noteSlaHours: event.target.value } }))} /></label>}
+          <label><span>SLA xử lý tranh chấp (giờ)</span><input type="number" min="1" max="720" value={policyForm.disputeResolutionSlaHours} onChange={(event) => setPolicyForm((current) => ({ ...current, disputeResolutionSlaHours: event.target.value }))} /></label>
           <div className="payroll-policy__form-actions"><button className="payroll-page__secondary" type="button" onClick={() => setShowPolicyForm(false)}>Hủy</button><button className="payroll-page__primary" type="button" disabled={!canManage || !!busyAction} onClick={() => void submitPolicy()}><ShieldCheck size={17} /> Lưu phiên bản</button></div>
         </div>
-        <p className="payroll-policy__scope">Áp dụng cho: {policyForm.eligibleProfiles.map(payrollProfileLabel).join(' · ')}. {policyForm.eligibleProfiles.includes('collaborator') ? 'Chính sách có CTV phải dùng đơn giá 50.000–100.000đ/ca.' : 'Nhân viên hưởng lương cơ bản theo ngày công và tiền ca theo chính sách.'} Mức ca tối chỉ áp dụng từ ca thứ 9 trở đi; một khung giờ có hai học viên vẫn chỉ tính một ca.</p>
+        <p className="payroll-policy__scope">Áp dụng cho: {policyForm.eligibleProfiles.map(payrollProfileLabel).join(' · ')}. {policyForm.eligibleProfiles.includes('collaborator') ? 'CTV chỉ nhận tiền ca theo đơn giá của phiên bản chính sách này.' : 'Nhân viên hưởng lương cơ bản theo ngày công và tiền ca theo chính sách.'} Mức ca tối chỉ áp dụng sau ngưỡng ca; một khung giờ có hai học viên vẫn chỉ tính một ca.</p>
       </div>}
+
+      <div className="payroll-target-panel">
+        <div className="payroll-page__section-title"><div><span>Target {periodLabel(periodId)}</span><strong>{payrollTarget?.status === 'approved' ? 'Đã duyệt' : 'Đang tạm dùng'}</strong></div><small>{payrollTarget?.source === 'previous_period' ? `Từ kỳ ${payrollTarget.sourcePeriodId}` : payrollTarget?.source === 'manager_input' ? 'Manager nhập' : 'Theo chính sách KPI'}</small></div>
+        <div className="payroll-target-panel__metrics">{Object.entries(targetForm).map(([key, value]) => <label key={key}><span>{intelligencePolicies.find((policy) => policy.status === 'active')?.metrics[key]?.label || key}</span><input type="number" min="0.01" value={value} onChange={(event) => setTargetForm((current) => ({ ...current, [key]: event.target.value }))} /></label>)}</div>
+        <label className="payroll-target-panel__reason"><span>Lý do / căn cứ</span><input value={targetReason} maxLength={500} placeholder="Ví dụ: Duyệt dùng target tháng trước" onChange={(event) => setTargetReason(event.target.value)} /></label>
+        <div className="payroll-target-panel__actions"><button type="button" disabled={!canManage || !!busyAction || !Object.keys(targetForm).length} onClick={() => void submitPayrollTarget(false)}><Save size={15} /> Lưu tạm</button><button className="payroll-page__primary" type="button" disabled={!canManage || !!busyAction || payrollTarget?.status === 'approved' || !Object.keys(targetForm).length} onClick={() => void submitPayrollTarget(true)}><ShieldCheck size={15} /> Duyệt target</button></div>
+      </div>
 
       <div className="payroll-intelligence-policy">
         <div className="payroll-page__section-title"><div><span>Lớp phân tích bổ sung</span><strong>KPI · Renew · Attribution · Rank</strong></div><button className="payroll-policy__create" type="button" disabled={!canManage || !!busyAction} onClick={() => setShowIntelligenceForm((current) => !current)}><Plus size={15} /> {showIntelligenceForm ? 'Đóng' : 'Cấu hình'}</button></div>
