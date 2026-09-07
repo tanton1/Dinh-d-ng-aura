@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
+  Award,
   BarChart3,
   BookOpen,
   CalendarDays,
@@ -17,6 +18,7 @@ import {
 } from 'lucide-react'
 import AuraMetricCarousel, { type AuraMetricSlide } from '../../components/admin/pt/AuraMetricCarousel'
 import type { StaffPosition } from '../../identity/access'
+import { getMyPerformanceScore, type MyPerformanceScore } from '../../services/performanceScoreService'
 import { getMySalesWorkspace, getMyTrainerWorkspace, type CoachWorkspaceScope, type SalesWorkspace, type TrainerSessionSummary } from '../../services/ptOperationsV2Service'
 import { getMyStaffPayroll } from '../../services/staffPayrollService'
 import type { ViewId } from '../../types'
@@ -73,6 +75,37 @@ function demoPayrollSnapshot(periodId: string): StaffDashboardPayrollSnapshot {
     run: { official: false },
   }
 }
+function demoPerformanceScore(periodId: string): MyPerformanceScore {
+  return {
+    schemaVersion: 2,
+    formulaVersion: 'aura-pt-performance-v1.0-2026-09-07',
+    staffId: 'demo-staff',
+    staffName: 'PT Demo',
+    periodId,
+    assessmentRevision: 1,
+    generatedAt: new Date().toISOString(),
+    amountImpact: 'none',
+    locked: false,
+    coverage: { availableWeight: 82, totalWeight: 100, confidence: 'high', missingMetricIds: ['renew_rate'] },
+    score: { value: null, provisionalValue: 82, maximum: 100, reason: 'Còn chỉ số chờ quản lý xác minh.' },
+    categories: [],
+    gates: [
+      { id: 'quality', label: 'Quality Gate', status: 'pass', source: 'system_auto', reason: 'Đạt điểm chất lượng.', evidenceRefs: [] },
+      { id: 'attendance', label: 'Attendance Gate', status: 'pass', source: 'manager_review', reason: 'Đạt tỷ lệ hiện diện.', evidenceRefs: [] },
+      { id: 'client_safety', label: 'Client Safety Gate', status: 'pass', source: 'manager_review', reason: 'Không có vi phạm.', evidenceRefs: [] },
+      { id: 'integrity', label: 'Integrity Gate', status: 'unknown', source: '', reason: 'Chờ kết luận.', evidenceRefs: [] },
+    ],
+    bonus: { eligibility: 'pending', recommendedAmount: null, classification: 'Strong', reason: 'Chờ đủ Gate.' },
+    brand: {
+      total: 6.5,
+      maximum: 10,
+      personal: { approvedCount: 3, target: 4, score: 4, maximum: 5 },
+      aura: { approvedCount: 2, target: 3, score: 2, maximum: 3 },
+      profile: { completedCount: 3, target: 10, score: 0.6, maximum: 2, checklist: {} },
+    },
+    evidence: { total: 7, pending: 2, approved: 5 },
+  }
+}
 function sessionAttendance(session: TrainerSessionSummary) {
   if (session.attendanceStatus && session.attendanceStatus !== 'policy_charge') return session.attendanceStatus
   if (['completed', 'attended'].includes(session.status)) return 'present'
@@ -109,6 +142,7 @@ export default function StaffDashboardPage({ onNavigate, capabilities, positions
   const today = dateKey()
   const periodId = today.slice(0, 7)
   const effectivePositions = useMemo<StaffPosition[]>(() => positions.length ? positions : isDemo ? ['trainer_pt'] : [], [isDemo, positions])
+  const isTrainer = effectivePositions.includes('trainer_pt')
   const coachDashboard = effectivePositions.some((position) => position === 'trainer_pt' || position === 'coach_online')
   const salesDashboard = effectivePositions.includes('sales')
   const managerDashboard = effectivePositions.includes('branch_manager')
@@ -118,18 +152,24 @@ export default function StaffDashboardPage({ onNavigate, capabilities, positions
   const [sessions, setSessions] = useState<TrainerSessionSummary[]>([])
   const [sales, setSales] = useState<SalesWorkspace | null>(null)
   const [payroll, setPayroll] = useState<StaffDashboardPayrollSnapshot | null>(null)
+  const [performance, setPerformance] = useState<MyPerformanceScore | null>(null)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [payrollLoading, setPayrollLoading] = useState(true)
+  const [performanceLoading, setPerformanceLoading] = useState(true)
   const [error, setError] = useState('')
   const [payrollError, setPayrollError] = useState('')
+  const [performanceError, setPerformanceError] = useState('')
   const loadedRef = useRef(false)
   const canViewPayroll = capabilities.includes('payroll.self.view') || isDemo
+  const canViewPerformance = isTrainer && (capabilities.includes('performance.self.view') || isDemo)
 
   const load = useCallback(async () => {
     if (loadedRef.current) setRefreshing(true)
     else setLoading(true)
-    setError(''); setPayrollError(''); setPayrollLoading(canViewPayroll && !loadedRef.current)
+    setError(''); setPayrollError(''); setPerformanceError('')
+    setPayrollLoading(canViewPayroll && !loadedRef.current)
+    setPerformanceLoading(canViewPerformance && !loadedRef.current)
     if (isDemo) {
       const demoSessions: TrainerSessionSummary[] = [
         { id: 'demo-5', studentId: 'demo-e', trainerId: 'demo-staff', studentName: 'Đỗ Khánh Linh', date: today, hour: 6, status: 'attended', attendanceStatus: 'present', billingStatus: 'charged', timeZone: 'Asia/Ho_Chi_Minh' },
@@ -143,12 +183,13 @@ export default function StaffDashboardPage({ onNavigate, capabilities, positions
         { id: 'demo-4', studentId: 'demo-d', trainerId: 'demo-staff', studentName: 'Phạm Thảo Vy', date: addDays(today, 1), hour: 7, status: 'scheduled', attendanceStatus: 'pending', billingStatus: 'pending', timeZone: 'Asia/Ho_Chi_Minh' },
       ]
       setScope({ schemaVersion: 1, source: 'pt_contract_assignments', staffId: 'demo-staff', tabs: { students: true, schedule: true, requests: true, nutrition: true }, counts: { primaryStudents: 8, secondaryStudents: 3, nutritionStudents: 5, teachingSessions: 24, pendingRequests: 2 } })
-      setSessions(demoSessions); setPayroll(demoPayrollSnapshot(periodId)); setLoading(false); setRefreshing(false); setPayrollLoading(false); loadedRef.current = true; return
+      setSessions(demoSessions); setPayroll(demoPayrollSnapshot(periodId)); setPerformance(demoPerformanceScore(periodId)); setLoading(false); setRefreshing(false); setPayrollLoading(false); setPerformanceLoading(false); loadedRef.current = true; return
     }
-    const [workspaceResult, salesResult, payrollResult] = await Promise.allSettled([
+    const [workspaceResult, salesResult, payrollResult, performanceResult] = await Promise.allSettled([
       coachDashboard ? getMyTrainerWorkspace('schedule', today, today, 500) : Promise.resolve(null),
       salesDashboard ? getMySalesWorkspace(100) : Promise.resolve(null),
       canViewPayroll ? getMyStaffPayroll(periodId) : Promise.resolve(null),
+      canViewPerformance ? getMyPerformanceScore(periodId) : Promise.resolve(null),
     ])
     if (workspaceResult.status === 'fulfilled' && workspaceResult.value) {
       setScope(workspaceResult.value.scope); setSessions(workspaceResult.value.sessions)
@@ -166,9 +207,15 @@ export default function StaffDashboardPage({ onNavigate, capabilities, positions
       setPayroll(null)
       setPayrollError(payrollResult.reason instanceof Error ? payrollResult.reason.message : 'Chưa thể tải dữ liệu thu nhập tháng này.')
     }
+    if (performanceResult.status === 'fulfilled') {
+      setPerformance(performanceResult.value)
+    } else {
+      setPerformance(null)
+      setPerformanceError(performanceResult.reason instanceof Error ? performanceResult.reason.message : 'Chưa thể tải Aura Performance Score tháng này.')
+    }
     loadedRef.current = true
-    setLoading(false); setRefreshing(false); setPayrollLoading(false)
-  }, [canViewPayroll, coachDashboard, isDemo, periodId, salesDashboard, today])
+    setLoading(false); setRefreshing(false); setPayrollLoading(false); setPerformanceLoading(false)
+  }, [canViewPayroll, canViewPerformance, coachDashboard, isDemo, periodId, salesDashboard, today])
 
   useEffect(() => { void load() }, [load])
 
@@ -220,6 +267,7 @@ export default function StaffDashboardPage({ onNavigate, capabilities, positions
       { id: 'schedule', label: 'Lịch & yêu cầu', detail: 'Ca dạy, lịch rảnh và đổi ca', view: 'staff-schedule', icon: CalendarDays },
       { id: 'students', label: 'Học viên phụ trách', detail: 'Hợp đồng, lịch và giáo án', view: 'staff-students', icon: Users },
     )
+    if (canViewPerformance) actions.push({ id: 'performance', label: 'Hiệu suất của tôi', detail: 'Điểm KPI, Gate và bằng chứng Brand', view: 'staff-performance', icon: Award })
     if (salesDashboard) actions.push(
       { id: 'quotes', label: 'Báo giá', detail: 'Tạo và theo dõi báo giá', view: 'staff-quotes', icon: ClipboardList },
       { id: 'renewals', label: 'Tái ký', detail: 'Khách hàng cần chăm sóc', view: 'staff-renewals', icon: RefreshCw },
@@ -230,7 +278,7 @@ export default function StaffDashboardPage({ onNavigate, capabilities, positions
     )
     if (academyDashboard) actions.push({ id: 'academy', label: 'Aura Academy', detail: 'Nội dung học và thư viện', view: 'courses', icon: BookOpen })
     return actions.filter((item, index) => actions.findIndex((candidate) => candidate.view === item.view) === index)
-  }, [academyDashboard, coachDashboard, managerDashboard, salesDashboard])
+  }, [academyDashboard, canViewPerformance, coachDashboard, managerDashboard, salesDashboard])
 
   return <main className="staff-dashboard" data-testid="staff-dashboard-page">
     <header className="staff-dashboard__heading">
@@ -240,6 +288,29 @@ export default function StaffDashboardPage({ onNavigate, capabilities, positions
 
     <AuraMetricCarousel slides={slides} label="Tổng quan công việc Staff" loading={loading} />
     {error && <section className="staff-dashboard__state"><Clock3 size={20} /><div><strong>Chưa tải đủ dữ liệu công việc</strong><p>{error}</p></div><button type="button" onClick={() => void load()}>Thử lại</button></section>}
+
+    {canViewPerformance && <section className="staff-dashboard__performance" aria-label="Tóm tắt Aura PT Performance Score" aria-busy={performanceLoading}>
+      <header>
+        <div><small>AURA PT PERFORMANCE SCORE · {periodLabel(periodId).toUpperCase()}</small><h2>Hiệu suất tháng của tôi</h2></div>
+        <button type="button" onClick={() => onNavigate('staff-performance')}>Xem chi tiết <Award size={17} /></button>
+      </header>
+      {performanceLoading ? <div className="staff-dashboard__performance-loading"><span /><span /><span /></div>
+        : performanceError ? <div className="staff-dashboard__performance-state"><Award /><div><strong>Chưa tải được Performance Score</strong><p>{performanceError}</p></div><button type="button" onClick={() => void load()}>Thử lại</button></div>
+          : performance ? <div className="staff-dashboard__performance-body">
+            <article className="staff-dashboard__performance-score">
+              <span>{performance.score.value === null ? 'ĐIỂM TẠM TÍNH' : 'ĐIỂM ĐÃ XÁC MINH'}</span>
+              <strong>{performance.score.value ?? performance.score.provisionalValue}<small>/100</small></strong>
+              <div role="progressbar" aria-label="Trọng số Performance đã xác minh" aria-valuemin={0} aria-valuemax={100} aria-valuenow={performance.coverage.availableWeight}><i style={{ width: `${performance.coverage.availableWeight}%` }} /></div>
+              <p>{performance.coverage.availableWeight}/100 trọng số đã xác minh · Độ tin cậy {performance.coverage.confidence === 'high' ? 'cao' : performance.coverage.confidence === 'medium' ? 'trung bình' : 'thấp'}</p>
+            </article>
+            <dl>
+              <div><dt>Xếp loại</dt><dd>{performance.bonus.classification || 'Chưa đủ dữ liệu'}</dd></div>
+              <div><dt>Personal & Aura Brand</dt><dd>{performance.brand.total}/10</dd><small>{performance.evidence.pending} bằng chứng chờ duyệt</small></div>
+              <div><dt>Gate bắt buộc</dt><dd>{performance.gates.filter((gate) => gate.status === 'pass').length}/4 đạt</dd><small>{performance.gates.some((gate) => gate.status === 'fail') ? 'Có Gate không đạt' : performance.gates.some((gate) => gate.status === 'unknown') ? 'Còn Gate chờ kết luận' : 'Đã đủ kết luận'}</small></div>
+              <div><dt>Thưởng KPI đề xuất</dt><dd>{performance.bonus.recommendedAmount === null ? 'Chờ đủ Gate' : money(performance.bonus.recommendedAmount)}</dd><small>Không tự ghi vào bảng lương</small></div>
+            </dl>
+          </div> : <div className="staff-dashboard__performance-state"><Award /><div><strong>Chưa có phiếu Performance</strong><p>Phiếu tháng sẽ xuất hiện khi dữ liệu được tổng hợp.</p></div></div>}
+    </section>}
 
     {roleActions.length > 0 && <section className="staff-dashboard__role-actions">
       <header><div><small>TRUY CẬP THEO VAI TRÒ</small><h2>Việc cần làm</h2></div></header>

@@ -10,6 +10,7 @@
 .staff-dashboard > .aura-metric-carousel,
 .staff-dashboard__today,
 .staff-dashboard__role-actions,
+.staff-dashboard__performance,
 .staff-dashboard__payroll,
 .staff-dashboard__state {
   width: min(1180px, 100%);
@@ -94,6 +95,7 @@
 
 .staff-dashboard__today,
 .staff-dashboard__role-actions,
+.staff-dashboard__performance,
 .staff-dashboard__payroll {
   margin-top: 14px;
   padding: 18px;
@@ -105,6 +107,7 @@
 
 .staff-dashboard__today > header,
 .staff-dashboard__role-actions > header,
+.staff-dashboard__performance > header,
 .staff-dashboard__payroll > header {
   display: flex;
   align-items: center;
@@ -114,6 +117,7 @@
 
 .staff-dashboard__today h2,
 .staff-dashboard__role-actions h2,
+.staff-dashboard__performance h2,
 .staff-dashboard__payroll h2 {
   margin: 3px 0 0;
   font-size: 20px;
@@ -125,6 +129,90 @@
   font-weight: 900;
   letter-spacing: .14em;
 }
+
+.staff-dashboard__performance > header small {
+  color: #b82850;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: .1em;
+}
+
+.staff-dashboard__performance > header > button {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  border-radius: 12px;
+  padding: 0 13px;
+  background: #2b2027;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.staff-dashboard__performance-body {
+  display: grid;
+  grid-template-columns: minmax(210px, .75fr) minmax(0, 1.8fr);
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.staff-dashboard__performance-score {
+  display: grid;
+  align-content: center;
+  gap: 7px;
+  border-radius: 16px;
+  padding: 16px;
+  background: linear-gradient(135deg, #2b2027, #4a303f);
+  color: #fff;
+}
+
+.staff-dashboard__performance-score > span { color: #ffc0d8; font-size: 10px; font-weight: 900; letter-spacing: .1em; }
+.staff-dashboard__performance-score > strong { font-size: 36px; line-height: 1; }
+.staff-dashboard__performance-score > strong small { margin-left: 3px; color: #e9cad6; font-size: 13px; }
+.staff-dashboard__performance-score > div { overflow: hidden; height: 7px; border-radius: 999px; background: rgba(255, 255, 255, .16); }
+.staff-dashboard__performance-score > div i { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #ec2c76, #ff7a45); }
+.staff-dashboard__performance-score > p { margin: 0; color: #e9d9df; font-size: 11px; line-height: 1.45; }
+
+.staff-dashboard__performance-body dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+  margin: 0;
+}
+
+.staff-dashboard__performance-body dl > div {
+  display: grid;
+  align-content: center;
+  gap: 3px;
+  border: 1px solid #f0dfe6;
+  border-radius: 14px;
+  padding: 12px;
+  background: #fffafb;
+}
+
+.staff-dashboard__performance-body dt { color: #816d77; font-size: 10px; font-weight: 850; text-transform: uppercase; }
+.staff-dashboard__performance-body dd { margin: 0; color: #2b2027; font-size: 17px; font-weight: 900; }
+.staff-dashboard__performance-body dl small { color: #8b7781; font-size: 10px; }
+
+.staff-dashboard__performance-state {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+  border-radius: 14px;
+  padding: 14px;
+  background: #fff5f8;
+  color: #8c3155;
+}
+
+.staff-dashboard__performance-state > svg { flex: none; }
+.staff-dashboard__performance-state > div { min-width: 0; flex: 1; }
+.staff-dashboard__performance-state p { margin: 3px 0 0; font-size: 12px; }
+.staff-dashboard__performance-state > button { border: 0; border-radius: 10px; padding: 8px 10px; background: #fff; color: inherit; font-weight: 850; }
+.staff-dashboard__performance-loading { display: grid; grid-template-columns: .8fr 1fr 1fr; gap: 9px; margin-top: 14px; }
+.staff-dashboard__performance-loading span { height: 88px; border-radius: 14px; background: linear-gradient(100deg, #f7e7ee 20%, #fff 45%, #f7e7ee 70%); background-size: 220% 100%; animation: staff-dashboard-shimmer 1.2s linear infinite; }
 
 .staff-dashboard__role-actions > div {
   display: grid;
@@ -445,6 +533,7 @@
   .staff-dashboard { padding-top: 22px; }
   .staff-dashboard__today,
   .staff-dashboard__role-actions,
+  .staff-dashboard__performance,
   .staff-dashboard__payroll { padding: 22px; }
   .staff-dashboard__timeline { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
@@ -455,6 +544,7 @@
   .staff-dashboard > .aura-metric-carousel { width: 100%; margin-top: 8px; }
   .staff-dashboard__today,
   .staff-dashboard__role-actions,
+  .staff-dashboard__performance,
   .staff-dashboard__payroll {
     padding: 16px 13px;
     border-right: 0;
@@ -462,7 +552,10 @@
     border-radius: 22px;
   }
   .staff-dashboard__today > header button,
+  .staff-dashboard__performance > header button,
   .staff-dashboard__payroll > header button { padding: 9px 10px; }
+  .staff-dashboard__performance-body { grid-template-columns: 1fr; }
+  .staff-dashboard__performance-body dl { grid-template-columns: 1fr 1fr; }
   .staff-dashboard__payroll-summary { gap: 7px; }
   .staff-dashboard__payroll-summary article { padding: 11px 9px; }
   .staff-dashboard__payroll-summary span { font-size: 10px; }
@@ -474,4 +567,14 @@
   }
   .staff-dashboard__bars { height: 140px; }
   .staff-dashboard__payroll > footer small { width: 100%; margin-left: 0; }
+}
+
+@media (max-width: 360px) {
+  .staff-dashboard__performance > header { align-items: flex-start; }
+  .staff-dashboard__performance > header > button { width: 44px; padding: 0; justify-content: center; font-size: 0; }
+  .staff-dashboard__performance-body dl { grid-template-columns: 1fr; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .staff-dashboard__performance-loading span { animation: none; }
 }

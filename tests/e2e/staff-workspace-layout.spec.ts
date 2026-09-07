@@ -24,14 +24,28 @@ test('staff dock prioritizes work modules and schedule tools share one weekly wo
   await expect(page).toHaveURL(/#\/staff-dashboard$/)
   await expect(page.getByTestId('staff-dashboard-page')).toBeVisible()
   await expect(page.getByRole('region', { name: 'Tổng quan công việc Staff' })).toBeVisible()
+  const performanceSummary = page.getByRole('region', { name: 'Tóm tắt Aura PT Performance Score' })
+  await expect(performanceSummary).toBeVisible()
+  await expect(performanceSummary.getByText('82/100', { exact: true })).toBeVisible()
+  await expect(performanceSummary.getByText('6.5/10', { exact: true })).toBeVisible()
   await expect(page.getByRole('region', { name: 'Biểu đồ lương và hoa hồng ca dạy trong tháng' })).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Truy cập nhanh' })).toHaveCount(0)
   await expect(page.locator('.staff-dashboard__timeline > button')).toHaveCount(7)
 
+  await performanceSummary.getByRole('button', { name: /Xem chi tiết/ }).click()
+  await expect(page).toHaveURL(/#\/staff-performance$/)
+  await expect(page.getByTestId('staff-performance-page')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Hiệu suất của tôi' })).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Aura Performance Score và bằng chứng thương hiệu' })).toBeVisible()
+  await expect(page.getByText('PERSONAL & AURA BRAND · 10/100')).toBeVisible()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1)
+  await page.getByRole('button', { name: 'Về Tổng quan Staff' }).click()
+  await expect(page).toHaveURL(/#\/staff-dashboard$/)
+
   await page.getByRole('button', { name: 'Mở menu' }).click()
   const sidebar = page.locator('#app-sidebar')
   await expect(sidebar.getByText('CÔNG VIỆC', { exact: true })).toBeVisible()
-  for (const label of ['Tổng quan Staff', 'Học viên phụ trách', 'Lịch làm việc', 'Giáo án & mức tạ', 'Duyệt món', 'Tái ký', 'Lương của tôi']) {
+  for (const label of ['Tổng quan Staff', 'Học viên phụ trách', 'Lịch làm việc', 'Giáo án & mức tạ', 'Duyệt món', 'Tái ký', 'Hiệu suất PT', 'Lương của tôi']) {
     await expect(sidebar.getByRole('button', { name: new RegExp(label) })).toBeVisible()
   }
   await expect(sidebar.getByRole('button', { name: /Báo giá/ })).toHaveCount(0)

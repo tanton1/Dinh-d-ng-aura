@@ -203,7 +203,7 @@ export default function StaffPayrollPage() {
       <span className={`staff-payroll__policy-status ${data.compensationPolicy.id ? 'is-ready' : 'is-missing'}`}>{data.compensationPolicy.id ? 'Đang áp dụng' : 'Cần thiết lập'}</span>
     </section>}
 
-    <StaffPerformanceBrandPanel periodId={periodId} isDemo={backendMode === 'demo'} />
+    {(backendMode === 'demo' || accessContext?.positions.includes('trainer_pt')) && <StaffPerformanceBrandPanel periodId={periodId} isDemo={backendMode === 'demo'} />}
     {accessContext?.positions.includes('branch_manager') && <PerformanceBrandReviewPanel isDemo={backendMode === 'demo'} />}
 
     {showInquiry && <section className="staff-payroll__inquiry">

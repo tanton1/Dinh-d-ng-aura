@@ -51,6 +51,7 @@ const validViews: ViewId[] = [
   'staff-quotes',
   'staff-renewals',
   'staff-payroll',
+  'staff-performance',
   'student-360',
   'progress',
   'progress-photo-studio',

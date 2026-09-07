@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { prefetchRoute } from '../utils/routePreloader'
 import {
+  Award,
   BarChart3,
   Bell,
   Bot,
@@ -133,6 +134,7 @@ const staffNavSections: ShellNavSection[] = [
       { id: 'staff-nutrition-reviews' as const, label: 'Duyệt món', icon: Check },
       { id: 'staff-quotes' as const, label: 'Báo giá', icon: ClipboardList },
       { id: 'staff-renewals' as const, label: 'Tái ký', icon: RefreshCw },
+      { id: 'staff-performance' as const, label: 'Hiệu suất PT', icon: Award },
       { id: 'staff-payroll' as const, label: 'Lương của tôi', icon: WalletCards },
     ],
   },
@@ -162,12 +164,13 @@ const staffMobileNav: ShellNavItem[] = [
   { id: 'staff-workouts', label: 'Giáo án', icon: Dumbbell },
   { id: 'staff-nutrition-reviews', label: 'Duyệt món', icon: Check },
   { id: 'staff-payroll', label: 'Lương', icon: WalletCards },
+  { id: 'staff-performance', label: 'Hiệu suất', icon: Award },
   { id: 'staff-renewals', label: 'Tái ký', icon: RefreshCw },
   { id: 'courses', label: 'Academy', icon: BookOpen },
 ]
 
 const staffPositionRoutes: Record<StaffPosition, ViewId[]> = {
-  trainer_pt: ['staff-dashboard', 'staff-students', 'staff-schedule', 'staff-workouts', 'staff-nutrition-reviews', 'staff-renewals', 'staff-payroll'],
+  trainer_pt: ['staff-dashboard', 'staff-students', 'staff-schedule', 'staff-workouts', 'staff-nutrition-reviews', 'staff-renewals', 'staff-performance', 'staff-payroll'],
   coach_online: ['staff-dashboard', 'staff-students', 'staff-nutrition-reviews', 'staff-payroll'],
   sales: ['staff-dashboard', 'staff-quotes', 'staff-renewals', 'staff-payroll'],
   branch_manager: ['staff-dashboard', 'admin-pt-schedule', 'admin-loyalty', 'staff-workouts', 'staff-renewals', 'staff-payroll'],
@@ -328,6 +331,7 @@ const viewTitles: Partial<Record<ViewId, string>> = {
   'staff-nutrition-reviews': 'Duyệt món học viên',
   'staff-quotes': 'Báo giá',
   'staff-renewals': 'Tái ký và gia hạn',
+  'staff-performance': 'Hiệu suất của tôi',
   'staff-payroll': 'Lương của tôi',
   progress: 'Tiến độ & ôn tập',
   schedule: 'Lịch học viên',

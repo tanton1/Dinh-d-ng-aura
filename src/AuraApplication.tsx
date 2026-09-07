@@ -98,6 +98,7 @@ const StaffScheduleWorkspace = lazyWithRetry(() => import('./pages/operations/St
 const SalesPortalV2 = lazyWithRetry(() => import('./pages/operations/SalesPortalV2'))
 const StaffNutritionReviewsPage = lazyWithRetry(() => import('./pages/operations/StaffNutritionReviewsPage'))
 const StaffPayrollPage = lazyWithRetry(() => import('./pages/operations/StaffPayrollPage'))
+const StaffPerformancePage = lazyWithRetry(() => import('./pages/operations/StaffPerformancePage'))
 const PtWorkoutWorkspacePage = lazyWithRetry(() => import('./pages/operations/PtWorkoutWorkspacePage'))
 const Student360Page = lazyWithRetry(() => import('./features/student-360/Student360Page'))
 
@@ -1036,6 +1037,9 @@ function AuraApplication() {
       case 'staff-quotes': return <AuraOperationsFrame><SalesPortalV2 /></AuraOperationsFrame>
       case 'staff-renewals': return <AuraOperationsFrame><ContractRenewals onNavigate={(view) => navigate(view as ViewId)} /></AuraOperationsFrame>
       case 'staff-payroll': return <AuraOperationsFrame><StaffPayrollPage /></AuraOperationsFrame>
+      case 'staff-performance': return <AuraOperationsFrame>{backendMode === 'firebase' && (!authzReady || !hasCapability('performance.self.view') || !staffPositions.includes('trainer_pt'))
+        ? <div className="course-detail-state" role={authzReady ? 'alert' : 'status'}><h1>{authzReady ? 'Chưa được cấp quyền Performance Score' : 'Đang xác minh quyền Performance Score'}</h1><p>{authzReady ? 'Trang này chỉ dành cho tài khoản Staff có chức danh PT đang hoạt động.' : 'Aura đang đối chiếu chức danh và quyền xem điểm cá nhân.'}</p></div>
+        : <StaffPerformancePage isDemo={backendMode === 'demo'} onNavigate={navigate} />}</AuraOperationsFrame>
 
       case 'pt-workout': return <StudentPtWorkoutPage isDemo={backendMode === 'demo'} ownerId={user?.uid ?? 'demo'} />
 
