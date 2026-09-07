@@ -9,7 +9,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock3,
-  Eye,
   History,
   Lock,
   Minus,
@@ -349,6 +348,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
   const [candidateLoading, setCandidateLoading] = useState(false)
   const [pendingManualCandidate, setPendingManualCandidate] = useState<PtScheduleSlotCandidate | null>(null)
   const [pendingMove, setPendingMove] = useState<{ studentId: string; fromSlotId: string; fromTrainerId: string; slotId: string; trainerId: string } | null>(null)
+  const [hoveredStudentId, setHoveredStudentId] = useState<string | null>(null)
   const [highlightedStudentId, setHighlightedStudentId] = useState<string | null>(null)
   const [offConfirmation, setOffConfirmation] = useState(false)
   const [studentSearch, setStudentSearch] = useState('')
@@ -529,6 +529,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
     setInspectorSlotId(null)
     setPendingManualCandidate(null)
     setPendingMove(null)
+    setHoveredStudentId(null)
     setHighlightedStudentId(null)
     candidateCache.current.clear()
     setMobilePage(0)
@@ -1376,13 +1377,11 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
 
   const studentName = (studentId: string) => workspace?.students.find((student) => student.id === studentId)?.name || 'Học viên đã xóa'
   const highlightedStudent = workspace?.students.find((student) => student.id === highlightedStudentId) || null
+  const hoveredStudent = workspace?.students.find((student) => student.id === hoveredStudentId) || null
   const selectedDays = mobileGroups[mobilePage] || mobileGroups[0] || []
 
-  const showStudentWeek = (studentId: string) => {
-    setHighlightedStudentId(studentId)
-    setInspectorSlotId(null)
-    setPendingManualCandidate(null)
-    setPendingMove(null)
+  const toggleStudentSchedule = (studentId: string) => {
+    setHighlightedStudentId((current) => current === studentId ? null : studentId)
   }
 
   if (!branchId && branchCatalogState === 'loading') {
@@ -1501,9 +1500,9 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
             <button type="button" disabled={mobilePage >= mobileGroups.length - 1} onClick={() => setMobilePage((value) => Math.min(mobileGroups.length - 1, value + 1))}><ChevronRight /></button>
           </div>
 
-          {highlightedStudent && <div className="schedule-student-focus" role="status">
-            <div><strong>{highlightedStudent.name}</strong><span><i className="is-available" /> Lịch rảnh</span><span><i className="is-scheduled" /> Lịch đã xếp</span></div>
-            <button type="button" onClick={() => setHighlightedStudentId(null)}>Tắt hiển thị</button>
+          {(highlightedStudent || hoveredStudent) && <div className={`schedule-student-focus${highlightedStudent ? ' is-pinned' : ''}`} role="status">
+            <span>{highlightedStudent ? <><strong>{highlightedStudent.name}</strong> · ô đỏ là lịch đã xếp trong tuần</> : <><strong>{hoveredStudent?.name}</strong> · ô xanh là lịch rảnh đã đăng ký</>}</span>
+            {highlightedStudent && <button type="button" onClick={() => setHighlightedStudentId(null)}>Tắt hiển thị</button>}
           </div>}
 
           <div className="branch-schedule__matrix-shell">
@@ -1519,7 +1518,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
                 const allSlotEntries = workspace.schedule[slotId] || []
                 const isOff = entries.some((entry) => entry.type === 'off')
                 const holiday = holidayDates.has(weekDates[day as keyof typeof weekDates]?.full || '')
-                const showsAvailability = Boolean(highlightedStudent?.availableSlots.includes(slotId))
+                const showsAvailability = Boolean(hoveredStudent?.availableSlots.includes(slotId))
                 const showsStudentSchedule = Boolean(highlightedStudentId && allSlotEntries.some((entry) => entry.type !== 'off' && entry.studentId === highlightedStudentId))
                 const openInspector = () => {
                   if (!selectedTrainerId || holiday) return
@@ -1534,13 +1533,9 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
                   : isOff
                     ? `${scheduleSlotLabel(slotId, weekDates)} · ${selectedTrainer?.name || 'PT'} nghỉ`
                     : `${scheduleSlotLabel(slotId, weekDates)} · ${selectedTrainer?.name || 'PT'} · ${trainingEntries.length} học viên`
-                return <td key={slotId} className={`${selectedDays.includes(day) ? 'is-mobile-visible' : ''}${holiday ? ' is-holiday' : ''}`}><div role="button" tabIndex={!selectedTrainerId || holiday ? -1 : 0} aria-label={cellDescription} aria-disabled={!selectedTrainerId || holiday} className={`schedule-cell${holiday ? ' is-holiday' : ''}${isOff ? ' is-off' : ''}${entries.length ? ' has-entry' : ''}${showsAvailability ? ' is-availability-highlight' : ''}${showsStudentSchedule ? ' is-scheduled-highlight' : ''}`} onClick={openInspector} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openInspector() } }}><span className="schedule-cell__count">{holiday ? 'NGHỈ' : isOff ? 'OFF' : `${trainingEntries.length}/${selectedTrainer?.slotCapacity || 2}`}</span>{holiday ? <><CalendarOff /><small>Không xếp lịch</small></> : isOff ? <CalendarOff /> : trainingEntries.length ? trainingEntries.map((entry) => {
+                return <td key={slotId} className={`${selectedDays.includes(day) ? 'is-mobile-visible' : ''}${holiday ? ' is-holiday' : ''}`}><div role={trainingEntries.length ? undefined : 'button'} tabIndex={!selectedTrainerId || holiday || trainingEntries.length ? -1 : 0} aria-label={cellDescription} aria-disabled={!selectedTrainerId || holiday} className={`schedule-cell${holiday ? ' is-holiday' : ''}${isOff ? ' is-off' : ''}${entries.length ? ' has-entry' : ''}${showsAvailability ? ' is-availability-hover' : ''}${showsStudentSchedule ? ' is-student-highlight' : ''}`} onClick={openInspector} onKeyDown={(event) => { if (event.target !== event.currentTarget) return; if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openInspector() } }}><span className="schedule-cell__count">{holiday ? 'NGHỈ' : isOff ? 'OFF' : `${trainingEntries.length}/${selectedTrainer?.slotCapacity || 2}`}</span>{holiday ? <><CalendarOff /><small>Không xếp lịch</small></> : isOff ? <CalendarOff /> : trainingEntries.length ? trainingEntries.map((entry) => {
                   const assignmentWarning = trainerAssignmentWarningKeys.has(`${slotId}|${entry.studentId}|${entry.trainerId}`)
-                  // Keep the matrix cell as the only interactive control. A
-                  // nested button previously captured clicks on the lock icon,
-                  // toggled a full-grid highlight and looked like a screen
-                  // flash on touch devices instead of opening the inspector.
-                  return <span className={`schedule-cell__student${assignmentWarning ? ' has-assignment-warning' : ''}`} key={`${entry.studentId}-${entry.trainerId}`}><span>{studentName(entry.studentId)}</span>{assignmentWarning && <AlertTriangle size={11} aria-label="PT hỗ trợ" />}{entry.isLocked && <Lock size={11} aria-label="Ca đã khóa" />}</span>
+                  return <button type="button" className={`schedule-cell__student${highlightedStudentId === entry.studentId ? ' is-selected' : ''}${assignmentWarning ? ' has-assignment-warning' : ''}`} key={`${entry.studentId}-${entry.trainerId}`} onPointerEnter={() => setHoveredStudentId(entry.studentId)} onPointerLeave={() => setHoveredStudentId((current) => current === entry.studentId ? null : current)} onFocus={() => setHoveredStudentId(entry.studentId)} onBlur={() => setHoveredStudentId((current) => current === entry.studentId ? null : current)} onClick={(event) => { event.preventDefault(); event.stopPropagation(); toggleStudentSchedule(entry.studentId) }} aria-pressed={highlightedStudentId === entry.studentId} title={assignmentWarning ? 'Chạm hoặc rê chuột: xem lịch rảnh · Bấm chọn: xem lịch đã xếp · PT hỗ trợ ngoài danh sách chính/phụ' : 'Chạm hoặc rê chuột: xem lịch rảnh · Bấm chọn: xem lịch đã xếp'}><span>{studentName(entry.studentId)}</span>{assignmentWarning && <AlertTriangle size={11} aria-label="PT hỗ trợ" />}{entry.isLocked && <Lock size={11} aria-label="Ca đã khóa" />}</button>
                 }) : <small>Chạm để xếp</small>}</div></td>
               })}</tr>)}</tbody>
             </table>
@@ -1664,7 +1659,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
               <section><div className="schedule-inspector__section-title"><strong>Trong ca</strong><span>{inspectorEntries.some((entry) => entry.type === 'off') ? 'PT nghỉ' : `${inspectorEntries.filter((entry) => entry.type !== 'off').length} học viên`}</span></div>
                 {inspectorEntries.filter((entry) => entry.type !== 'off').map((entry) => {
                   const assignmentWarning = trainerAssignmentWarningKeys.has(`${inspectorSlotId}|${entry.studentId}|${entry.trainerId}`)
-                  return <article className={`schedule-assigned-row${assignmentWarning ? ' has-assignment-warning' : ''}`} key={entry.studentId}><div><strong>{studentName(entry.studentId)}{assignmentWarning && <AlertTriangle size={14} aria-label="PT hỗ trợ" />}</strong><span>{assignmentWarning ? 'PT hỗ trợ ngoài danh sách PT chính/phụ' : entry.source === 'published_existing' ? 'Đã publish · điều chỉnh qua lịch sử' : entry.isLocked ? 'Đã khóa khỏi auto-arrange' : entry.source === 'manual_v2' ? 'Xếp tay · được giữ khi tối ưu' : 'Có thể xếp lại'}</span></div><div><button type="button" title="Xem lịch rảnh và lịch đã xếp" aria-label={`So sánh lịch tuần của ${studentName(entry.studentId)}`} onClick={() => showStudentWeek(entry.studentId)}><Eye /></button><button type="button" title={entry.isLocked ? 'Mở khóa' : 'Khóa'} disabled={busy} onClick={() => void runCommand(entry.isLocked ? 'unlock_entry' : 'lock_entry', { slotId: inspectorSlotId, trainerId: selectedTrainerId, studentId: entry.studentId })}>{entry.isLocked ? <Unlock /> : <Lock />}</button><button type="button" title="Chuyển ca" aria-label={`Chuyển ca của ${studentName(entry.studentId)}`} disabled={busy || entry.isLocked || entry.source === 'published_existing'} onClick={() => setPendingMove({ studentId: entry.studentId, fromSlotId: inspectorSlotId!, fromTrainerId: selectedTrainerId, slotId: inspectorSlotId!, trainerId: selectedTrainerId })}><CalendarRange /></button><button type="button" className="is-remove" disabled={busy || entry.isLocked || entry.source === 'published_existing'} onClick={() => void runCommand('remove_student', { slotId: inspectorSlotId, trainerId: selectedTrainerId, studentId: entry.studentId })}><X /></button></div></article>
+                  return <article className={`schedule-assigned-row${assignmentWarning ? ' has-assignment-warning' : ''}`} key={entry.studentId}><div><strong>{studentName(entry.studentId)}{assignmentWarning && <AlertTriangle size={14} aria-label="PT hỗ trợ" />}</strong><span>{assignmentWarning ? 'PT hỗ trợ ngoài danh sách PT chính/phụ' : entry.source === 'published_existing' ? 'Đã publish · điều chỉnh qua lịch sử' : entry.isLocked ? 'Đã khóa khỏi auto-arrange' : entry.source === 'manual_v2' ? 'Xếp tay · được giữ khi tối ưu' : 'Có thể xếp lại'}</span></div><div><button type="button" title={entry.isLocked ? 'Mở khóa' : 'Khóa'} disabled={busy} onClick={() => void runCommand(entry.isLocked ? 'unlock_entry' : 'lock_entry', { slotId: inspectorSlotId, trainerId: selectedTrainerId, studentId: entry.studentId })}>{entry.isLocked ? <Unlock /> : <Lock />}</button><button type="button" title="Chuyển ca" aria-label={`Chuyển ca của ${studentName(entry.studentId)}`} disabled={busy || entry.isLocked || entry.source === 'published_existing'} onClick={() => setPendingMove({ studentId: entry.studentId, fromSlotId: inspectorSlotId!, fromTrainerId: selectedTrainerId, slotId: inspectorSlotId!, trainerId: selectedTrainerId })}><CalendarRange /></button><button type="button" className="is-remove" disabled={busy || entry.isLocked || entry.source === 'published_existing'} onClick={() => void runCommand('remove_student', { slotId: inspectorSlotId, trainerId: selectedTrainerId, studentId: entry.studentId })}><X /></button></div></article>
                 })}
                 {!inspectorEntries.filter((entry) => entry.type !== 'off').length && !inspectorEntries.some((entry) => entry.type === 'off') && <div className="schedule-inspector__empty">Ca đang trống.</div>}
                 {inspectorEntries.some((entry) => entry.type === 'off') ? <button className="schedule-off-action" type="button" disabled={busy} onClick={() => void runCommand('clear_trainer_off', { slotId: inspectorSlotId, trainerId: selectedTrainerId }, 'Mở lại ca PT')}>Mở lại ca</button> : !offConfirmation ? <button className="schedule-off-action" type="button" onClick={() => setOffConfirmation(true)}><CalendarOff /> Đánh dấu PT nghỉ</button> : <div className="schedule-off-confirm"><strong>Đưa {inspectorEntries.filter((entry) => entry.type !== 'off').length} học viên về danh sách chưa xếp?</strong><p>Lịch sử thay đổi và lý do sẽ được lưu audit.</p><div><button type="button" onClick={() => setOffConfirmation(false)}>Quay lại</button><button type="button" disabled={busy} onClick={() => void runCommand('set_trainer_off', { slotId: inspectorSlotId, trainerId: selectedTrainerId, disposition: 'requeue' }, 'PT nghỉ, đưa học viên về hàng chờ')}>Xác nhận PT nghỉ</button></div></div>}
@@ -1699,9 +1694,9 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
                     return <article key={candidate.studentId} className={`${candidate.eligible ? 'is-eligible' : manualSelectable ? 'is-override' : 'is-disabled'}${candidate.trainerAssignmentWarning ? ' has-assignment-warning' : ''}${candidate.studentBranchWarning ? ' has-branch-warning' : ''}${selected ? ' is-selected' : ''}`}><div><strong>{candidate.name}{(candidate.trainerAssignmentWarning || candidate.studentBranchWarning) && <AlertTriangle size={13} aria-label="Ca cần xác nhận" />}</strong><span>{candidate.eligible ? `Đã đăng ký rảnh đúng ca này${assignmentNote}${branchNote}` : manualSelectable && outsideAvailability ? `${ptScheduleConflictLabel(candidate.availabilityReason || candidate.reasons[0])} · Có thể xếp tay${assignmentNote}${branchNote}` : `${candidate.reasons.map(ptScheduleConflictLabel).join(' · ')}${branchNote}`}</span></div><button type="button" aria-label={selected ? `Bỏ chọn ${candidate.name}` : `Chọn ${candidate.name}`} aria-pressed={selected} disabled={!manualSelectable || busy || inspectorEntries.filter((entry) => entry.type !== 'off').length >= selectedTrainer.slotCapacity} onClick={() => setPendingManualCandidate((current) => current?.studentId === candidate.studentId ? null : candidate)}>{selected ? <CheckCircle2 /> : <UserPlus />}</button></article>
                   })}
                 </section>)}</div>
-                <footer className="schedule-manual-confirm"><div>{pendingManualCandidate ? <><span>Đang chọn</span><strong>{pendingManualCandidate.name}</strong></> : <><span>Chưa chọn học viên</span><strong>Chọn một hồ sơ ở trên</strong></>}</div><button type="button" onClick={() => setPendingManualCandidate(null)} disabled={!pendingManualCandidate || busy}>Hủy</button><button type="button" className="is-confirm" disabled={!pendingManualCandidate || busy} onClick={() => void confirmManualCandidate()}>{busy ? 'Đang xác nhận…' : 'Xác nhận xếp ca'}</button></footer>
               </section>}
             </div>
+            {!inspectorEntries.some((entry) => entry.type === 'off') && <footer className="schedule-manual-confirm"><div>{pendingManualCandidate ? <><span>Đang chọn</span><strong>{pendingManualCandidate.name}</strong></> : <><span>Chưa chọn học viên</span><strong>Chọn một hồ sơ ở trên</strong></>}</div><button type="button" onClick={() => setPendingManualCandidate(null)} disabled={!pendingManualCandidate || busy}>Hủy</button><button type="button" className="is-confirm" disabled={!pendingManualCandidate || busy} onClick={() => void confirmManualCandidate()}>{busy ? 'Đang xác nhận…' : 'Xác nhận xếp ca'}</button></footer>}
           </aside>
         </div>
       )}

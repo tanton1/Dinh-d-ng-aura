@@ -7,6 +7,14 @@ for (const width of [360, 390, 430]) {
     await page.locator('.schedule-cell').filter({ hasText: 'Lan' }).focus()
     await page.keyboard.press('Enter')
     await page.getByRole('button', { name: 'Chọn Ngọc', exact: true }).click()
+    const manualFooterLayout = await page.evaluate(() => {
+      const inspector = document.querySelector('.schedule-inspector')?.getBoundingClientRect()
+      const footer = document.querySelector('.schedule-manual-confirm')?.getBoundingClientRect()
+      return inspector && footer ? { inspectorBottom: inspector.bottom, footerTop: footer.top, footerBottom: footer.bottom, viewportHeight: window.innerHeight } : null
+    })
+    expect(manualFooterLayout).not.toBeNull()
+    expect(Math.abs(manualFooterLayout!.inspectorBottom - manualFooterLayout!.footerBottom)).toBeLessThanOrEqual(1)
+    expect(manualFooterLayout!.footerTop).toBeGreaterThan(manualFooterLayout!.viewportHeight * .7)
     expect(await page.evaluate(() => (window as any).__scheduleCalls.filter((x: any) => x.operation === 'command').length)).toBe(0)
     await page.getByRole('button', { name: 'Xác nhận xếp ca', exact: true }).click()
     await expect(page.locator('.schedule-assigned-row').filter({ hasText: 'Ngọc' })).toBeVisible()
@@ -46,22 +54,21 @@ test('publish error opens the exact slot popup without navigating away', async (
   await expect(page).toHaveURL(/tests\/schedule-ui\/index.html$/)
 })
 
-test('clicking a locked learner opens one stable inspector without flashing the matrix', async ({ page }) => {
+test('learner name controls reveal availability and scheduled sessions without opening inspector', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto('/tests/schedule-ui/index.html')
 
   const lockedCell = page.locator('.schedule-cell').filter({ hasText: 'Bình' })
   await expect(lockedCell.locator('svg[aria-label="Ca đã khóa"]')).toBeVisible()
-  await expect(lockedCell.locator('button')).toHaveCount(0)
-  await lockedCell.getByText('Bình', { exact: true }).click()
-
-  await expect(page.getByRole('dialog', { name: 'Chỉnh ô lịch' })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Mở khóa', exact: true })).toBeVisible()
-  await expect(page.locator('.schedule-student-focus, .schedule-cell.is-scheduled-highlight, .schedule-cell.is-availability-highlight')).toHaveCount(0)
-
-  await page.getByRole('button', { name: 'So sánh lịch tuần của Bình', exact: true }).click()
-  await expect(page.getByRole('dialog', { name: 'Chỉnh ô lịch' })).toBeHidden()
+  const studentName = lockedCell.locator('.schedule-cell__student')
+  await expect(studentName).toHaveAttribute('aria-pressed', 'false')
+  await studentName.focus()
   await expect(page.locator('.schedule-student-focus')).toContainText('Bình')
-  await expect(page.locator('.schedule-cell.is-scheduled-highlight')).toHaveCount(1)
-  await expect(page.locator('.schedule-cell.is-availability-highlight')).toHaveCount(3)
+  await expect(page.locator('.schedule-cell.is-availability-hover')).toHaveCount(3)
+
+  await studentName.click()
+  await expect(page.locator('.schedule-student-focus')).toContainText('Bình')
+  await expect(studentName).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.locator('.schedule-cell.is-student-highlight')).toHaveCount(1)
+  await expect(page.getByRole('dialog', { name: 'Chỉnh ô lịch' })).toBeHidden()
 })
