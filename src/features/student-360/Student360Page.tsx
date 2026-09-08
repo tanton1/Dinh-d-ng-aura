@@ -158,7 +158,7 @@ function demoOverview(studentId: string): Student360Overview {
   const future = new Date(today.getTime() + 86_400_000)
   const toKey = (date: Date) => date.toISOString().slice(0, 10)
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     formulaVersion: 'student-health-v1',
     studentId,
     accountUid: 'demo-account',
@@ -472,6 +472,12 @@ export default function Student360Page({ studentId, source, isDemo = false, onBa
     }
   }
 
+  const openNutritionTimeline = () => {
+    setTimelineFilter('nutrition')
+    setActiveTab('activity')
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
   useEffect(() => {
     if (!nutritionDetailEvent) return
     const closeOnEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') closeNutritionDetail() }
@@ -644,7 +650,7 @@ export default function Student360Page({ studentId, source, isDemo = false, onBa
       {activeTab === 'activity' && <section className="student360-section">
         <div className="student360-section-heading"><div><small>CRM TIMELINE</small><h2>Toàn bộ hoạt động</h2><p>Một dòng thời gian hợp nhất, đã loại bản ghi trùng và tôn trọng quyền truy cập.</p></div><details className="student360-timeline-source-help"><summary><Info size={15} /> Nguồn dữ liệu</summary><div><p>Timeline chỉ đọc từ dữ liệu nghiệp vụ gốc. Mỗi sự kiện có nhãn nguồn; mở rộng để xem trường đối chiếu khi cần.</p>{timelineSourceGuide.map((item) => <article key={item.label}><strong>{item.label}</strong><code>{item.source}</code><span>{item.detail}</span></article>)}</div></details></div>
         <div className="student360-timeline-toolbar"><div className="student360-filter-chips">{timelineFilters.map((filter) => <button type="button" key={filter.id} className={timelineFilter === filter.id ? 'active' : ''} onClick={() => setTimelineFilter(filter.id)}>{filter.label}</button>)}</div><div className="student360-filter-chips is-range">{timelineRanges.map((range) => <button type="button" key={range.id} className={timelineRange === range.id ? 'active' : ''} onClick={() => setTimelineRange(range.id)}>{range.label}</button>)}</div></div>
-        <div className="student360-timeline">{timeline.map((item) => <TimelineActivityCard key={item.id} item={item} onOpenNutrition={(value) => void openNutritionDetail(value)} />)}{timelineError && <State type="error"><AlertTriangle /><h3>Không thể tải CRM Timeline</h3><p>{timelineError}</p><button type="button" onClick={() => void loadTimeline(false)}>Thử lại</button></State>}{!timeline.length && !timelineLoading && !timelineError && <State><History /><h3>{timelineFilter === 'training' ? 'Chưa có buổi tập chuẩn' : 'Chưa có hoạt động'}</h3><p>{timelineFilter === 'training' ? 'Timeline chỉ lấy buổi đã tạo trong sessions. Lịch nháp hoặc ô ma trận cũ chưa phát sinh session sẽ không được tính là lịch sử tập.' : 'Không có sự kiện phù hợp bộ lọc hiện tại.'}</p></State>}{timelineLoading && <State><LoaderCircle className="is-spinning" /> Đang tải hoạt động…</State>}</div>
+        <div className="student360-timeline">{timeline.map((item) => <TimelineActivityCard key={item.id} item={item} onOpenNutrition={(value) => void openNutritionDetail(value)} />)}{timelineError && <State type="error"><AlertTriangle /><h3>Không thể tải CRM Timeline</h3><p>{timelineError}</p><button type="button" onClick={() => void loadTimeline(false)}>Thử lại</button></State>}{!timeline.length && !timelineLoading && !timelineError && <State><History /><h3>{timelineFilter === 'training' ? 'Chưa có buổi tập chuẩn' : timelineFilter === 'nutrition' ? 'Chưa có nhật ký dinh dưỡng' : 'Chưa có hoạt động'}</h3><p>{timelineFilter === 'training' ? 'Timeline chỉ lấy buổi đã tạo trong sessions. Lịch nháp hoặc ô ma trận cũ chưa phát sinh session sẽ không được tính là lịch sử tập.' : timelineFilter === 'nutrition' ? (overview.identity.accountUid ? 'Chưa có bữa ăn được ghi nhận trong tài khoản Aura.' : 'Học viên chưa liên kết tài khoản Aura nên chưa thể đọc nhật ký bữa ăn.') : 'Không có sự kiện phù hợp bộ lọc hiện tại.'}</p></State>}{timelineLoading && <State><LoaderCircle className="is-spinning" /> Đang tải hoạt động…</State>}</div>
         {timelineHasMore && <button type="button" className="student360-load-more" disabled={timelineLoading} onClick={() => void loadTimeline(true)}>Tải thêm hoạt động</button>}
       </section>}
 
@@ -660,7 +666,7 @@ export default function Student360Page({ studentId, source, isDemo = false, onBa
           {permissions.canViewProgress && <Card title="Chỉ số cơ thể" icon={Scale}>
             {progress ? <><div className="student360-progress-summary is-detail"><div><Scale /><strong>{progress.latestWeightKg ?? '—'}<small>kg</small></strong><span>{progress.weightChangeKg === null ? '—' : `${progress.weightChangeKg > 0 ? '+' : ''}${progress.weightChangeKg}kg`}</span></div><div><Ruler /><strong>{progress.latestWaistCm ?? '—'}<small>cm eo</small></strong><span>{progress.waistChangeCm === null ? '—' : `${progress.waistChangeCm > 0 ? '+' : ''}${progress.waistChangeCm}cm`}</span></div><div><HeartPulse /><strong>{progress.latestBodyFatPercent ?? '—'}<small>% mỡ</small></strong><span>{progress.bodyFatChangePercent === null ? '—' : `${progress.bodyFatChangePercent > 0 ? '+' : ''}${progress.bodyFatChangePercent}%`}</span></div></div><p className="student360-updated">Cập nhật {safeDate(progress.latestDate)} · {progress.measurementCount} lần đo</p></> : <p className="student360-empty">Chưa có dữ liệu cân đo.</p>}
           </Card>}
-          {permissions.canViewNutrition && <Card title="Dinh dưỡng" icon={Salad}>
+          {permissions.canViewNutrition && <Card title="Dinh dưỡng" icon={Salad} action={<button type="button" className="student360-link" onClick={openNutritionTimeline}>Mở nhật ký</button>}>
             {nutrition ? <div className="student360-nutrition is-detail"><div><strong>{nutrition.averageCalories}</strong><span>kcal/ngày</span><small>Mục tiêu {nutrition.targetCalories ?? '—'}</small></div><div><strong>{nutrition.averageProtein}g</strong><span>protein/ngày</span><small>Mục tiêu {nutrition.targetProtein ?? '—'}g</small></div><div><strong>{nutrition.loggedMeals}</strong><span>bữa đã ghi</span><small>{nutrition.loggedDays}/7 ngày</small></div></div> : <p className="student360-empty">Chưa có dữ liệu dinh dưỡng.</p>}
           </Card>}
           {permissions.canViewProgressPhotos && <Card title="Ảnh tiến độ" icon={ImageIcon} className="student360-photo-card">

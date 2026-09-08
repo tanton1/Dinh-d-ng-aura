@@ -41,7 +41,7 @@ export interface Student360Action extends Student360Alert {
 }
 
 export interface Student360Overview {
-  schemaVersion: 1
+  schemaVersion: 2
   formulaVersion: 'student-health-v1'
   studentId: string
   accountUid: string | null

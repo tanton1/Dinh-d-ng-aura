@@ -5,7 +5,10 @@ const { trustedAccessContext } = require('./identity-access')
 const { PT_OPERATIONS_POLICY_EFFECTIVE_FROM, PT_OPERATIONS_POLICY_VERSION } = require('./pt-policy')
 
 const TIME_ZONE = 'Asia/Ho_Chi_Minh'
-const OVERVIEW_SCHEMA_VERSION = 1
+// Bump the projection schema when account-link resolution changes. Existing
+// cached views are rebuilt lazily on the next read, so old data is never
+// overwritten by a client-side migration.
+const OVERVIEW_SCHEMA_VERSION = 2
 const HEALTH_FORMULA_VERSION = 'student-health-v1'
 // Canonical write triggers keep active students fresh. A long fallback TTL
 // prevents an unchanged profile from re-reading every history collection each
@@ -794,14 +797,54 @@ async function latestSnapshot(query, field, limit) {
   return query.orderBy(field, 'desc').orderBy(FieldPath.documentId(), 'desc').limit(limit).get()
 }
 
+function safeAccountUid(value) {
+  const accountUid = bounded(value, 200)
+  return accountUid && !accountUid.includes('/') ? accountUid : ''
+}
+
+/**
+ * Resolve the canonical Aura account without guessing that a CRM student id
+ * is an Auth uid. New records store students.accountUid directly. Older
+ * account provisioning records only have roleAssignments/{uid}.crmProfileId;
+ * that reverse link is unambiguous and is safe to use as a read-only fallback.
+ */
+async function studentAccountLink(db, student) {
+  const directUid = safeAccountUid(student?.accountUid)
+  if (directUid) return { accountUid: directUid, source: 'students.accountUid' }
+
+  const studentId = bounded(student?.id, 200)
+  if (!studentId || studentId.includes('/')) return { accountUid: '', source: 'missing' }
+  try {
+    const assignments = await db.collection('roleAssignments')
+      .where('crmProfileId', '==', studentId)
+      .limit(2)
+      .get()
+    const candidates = assignments.docs.filter((item) => {
+      const value = item.data() || {}
+      const role = bounded(value.accessRole || value.role, 40)
+      return !role || role === 'student'
+    })
+    if (candidates.length !== 1) {
+      return { accountUid: '', source: candidates.length > 1 ? 'ambiguous' : 'missing' }
+    }
+    return { accountUid: safeAccountUid(candidates[0].id), source: 'roleAssignments.crmProfileId' }
+  } catch {
+    // A missing/temporarily unavailable legacy index must not make the whole
+    // Student 360 page fail. The scheduled reconciliation can retry later.
+    return { accountUid: '', source: 'unavailable' }
+  }
+}
+
 async function studentAccountProfile(db, student) {
-  const accountUid = bounded(student.accountUid, 200)
-  if (!accountUid || accountUid.includes('/')) return { accountUid: '', profile: null }
+  const link = await studentAccountLink(db, student)
+  const accountUid = link.accountUid
+  if (!accountUid) return { accountUid: '', profile: null, source: link.source }
   const chosen = await db.doc(`users/${accountUid}`).get()
-  if (!chosen.exists) return { accountUid, profile: null }
+  if (!chosen.exists) return { accountUid, profile: null, source: link.source }
   return {
     accountUid,
     profile: { id: accountUid, ...chosen.data() },
+    source: link.source,
   }
 }
 
@@ -853,6 +896,7 @@ async function projectionSources(db, studentId, weekId) {
     availability: availabilitySnapshot.exists ? { id: availabilitySnapshot.id, ...availabilitySnapshot.data() } : null,
     profile,
     accountUid,
+    accountLinkSource: profileResult.source || (accountUid ? 'students.accountUid' : 'missing'),
     mealLogs,
     mealReviews,
     bodyMetrics: uniqueProgressDocuments([...bodyMetrics, ...bodyMeasurements, ...weightLogs]),
@@ -988,6 +1032,35 @@ async function upsertTimeline(db, events) {
     const batch = db.batch()
     events.slice(offset, offset + 400).forEach((event) => batch.set(db.doc(`studentTimelineEvents/${event.id}`), event, { merge: true }))
     await batch.commit()
+  }
+}
+
+/**
+ * Return the minimum evidence needed to repair a missing nutrition timeline.
+ * This deliberately reads only one meal and one review, keeping the fallback
+ * cheap for a first visit while the full projection performs the bounded
+ * 120-item read once a link is confirmed.
+ */
+async function nutritionTimelineEvidence(db, studentId, projection) {
+  let accountUid = safeAccountUid(projection?.accountUid)
+  let accountLinkSource = accountUid ? 'projection' : ''
+  if (!accountUid) {
+    const studentSnapshot = await db.doc(`students/${studentId}`).get()
+    if (studentSnapshot.exists) {
+      const link = await studentAccountLink(db, { id: studentSnapshot.id, ...studentSnapshot.data() })
+      accountUid = link.accountUid
+      accountLinkSource = link.source
+    }
+  }
+  if (!accountUid) return { accountUid: '', accountLinkSource, hasEvidence: false }
+  const [mealSnapshot, reviewSnapshot] = await Promise.all([
+    db.collection(`users/${accountUid}/mealLogs`).limit(1).get(),
+    db.collection('mealReviews').where('userId', '==', accountUid).limit(1).get(),
+  ])
+  return {
+    accountUid,
+    accountLinkSource,
+    hasEvidence: !mealSnapshot.empty || !reviewSnapshot.empty,
   }
 }
 
@@ -1190,6 +1263,7 @@ async function buildStudent360Projection({ db, studentId, weekId = mondayDateKey
     nextActions: actions,
     dataQuality: [
       !sources.accountUid ? { code: 'MISSING_ACCOUNT_LINK', severity: 'warning', message: 'Học viên chưa liên kết tài khoản Aura; tiến độ và dinh dưỡng có thể thiếu.' } : null,
+      sources.accountUid && sources.accountLinkSource === 'roleAssignments.crmProfileId' ? { code: 'LEGACY_ACCOUNT_LINK', severity: 'warning', message: 'Đang dùng liên kết tài khoản từ dữ liệu cũ; dữ liệu dinh dưỡng vẫn được đồng bộ an toàn.' } : null,
       usage.reconciliationStatus !== 'matched' ? { code: 'CONTRACT_USAGE_MISMATCH', severity: 'warning', message: 'Số buổi hợp đồng cần đối soát với lịch sử.' } : null,
       sources.sessions.length >= 1000 ? { code: 'SESSION_LIMIT_REACHED', severity: 'warning', message: 'Lịch sử vượt giới hạn xem nhanh.' } : null,
     ].filter(Boolean),
@@ -1325,8 +1399,23 @@ function safeTimelineEvent(event, permissions) {
 }
 
 async function studentIdFromAccountUid(db, accountUid) {
-  const snapshot = await db.collection('students').where('accountUid', '==', accountUid).limit(2).get()
-  return snapshot.size === 1 ? snapshot.docs[0].id : null
+  const uid = safeAccountUid(accountUid)
+  if (!uid) return null
+  const snapshot = await db.collection('students').where('accountUid', '==', uid).limit(2).get()
+  if (snapshot.size === 1) return snapshot.docs[0].id
+
+  // Legacy provisioning stored the CRM id on the role assignment but did not
+  // backfill students.accountUid. Resolve only an explicit student assignment
+  // and verify that the CRM profile still exists; never infer from a name or
+  // phone number.
+  const assignment = await db.doc(`roleAssignments/${uid}`).get()
+  if (!assignment.exists) return null
+  const value = assignment.data() || {}
+  const role = bounded(value.accessRole || value.role, 40)
+  const crmProfileId = safeAccountUid(value.crmProfileId)
+  if ((role && role !== 'student') || !crmProfileId) return null
+  const student = await db.doc(`students/${crmProfileId}`).get()
+  return student.exists ? crmProfileId : null
 }
 
 async function resolveEventStudentId(db, event) {
@@ -1890,6 +1979,7 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
     }
 
     let result = await readPage()
+    let timelineProjection = projection
     // Historical projects may already have a cached overview while their old
     // sessions have never been materialized into studentTimelineEvents. Repair
     // only when the requested training tab is empty and source evidence exists.
@@ -1900,7 +1990,20 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
         db.collection('ptWorkoutLogs').where('studentId', '==', studentId).limit(1).get(),
       ])
       if (!sessionEvidence.empty || !workoutEvidence.empty || !ptWorkoutEvidence.empty) {
-        await buildStudent360Projection({ db, studentId, weekId, persist: true })
+        timelineProjection = await buildStudent360Projection({ db, studentId, weekId, persist: true })
+        result = await readPage()
+      }
+    }
+    // Meal logs/reviews created before the Student 360 triggers were deployed
+    // have no materialized timeline event. Repair on demand when the nutrition
+    // tab is empty (and on an entirely empty "Tất cả" timeline), without
+    // touching the source meal data or persisting private media.
+    const nutritionFilterRequested = !requestedTypes.length || requestedTypes.includes('nutrition')
+    if (!result.rows.length && nutritionFilterRequested) {
+      const evidence = await nutritionTimelineEvidence(db, studentId, timelineProjection)
+      const needsLinkRefresh = Boolean(evidence.accountUid && !timelineProjection.accountUid)
+      if (evidence.hasEvidence || needsLinkRefresh) {
+        timelineProjection = await buildStudent360Projection({ db, studentId, weekId, persist: true })
         result = await readPage()
       }
     }
@@ -1909,13 +2012,13 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
     const page = await hydrateNutritionTimelineMedia({
       db,
       storage,
-      projection,
+      projection: timelineProjection,
       rows: rows.slice(0, pageSize),
       logger,
     })
     return {
       schemaVersion: 1,
-      studentId: projection.studentId,
+      studentId: timelineProjection.studentId,
       rows: page,
       hasMore,
       nextCursor: hasMore
@@ -2066,8 +2169,11 @@ module.exports = {
   sourceTimelineEvents,
   sessionDateTimeMillis,
   safeTimelineEvent,
+  safeAccountUid,
+  studentAccountLink,
   studentIdFromAccountUid,
   studentAccountProfile,
+  nutritionTimelineEvidence,
   syncStudent360ProjectionFromEvent,
   timelineCursor,
   vietnamDateKey,

@@ -13,6 +13,7 @@ const {
   safeTimelineEvent,
   sessionDateTimeMillis,
   sourceTimelineEvents,
+  studentAccountLink,
   studentIdFromAccountUid,
   studentAccountProfile,
   uniqueProgressDocuments,
@@ -96,13 +97,51 @@ test('student profile lookup requires the canonical accountUid and never assumes
   }
 
   const missing = await studentAccountProfile(db, { id: 'student-document-id' })
-  assert.deepEqual(missing, { accountUid: '', profile: null })
+  assert.deepEqual(missing, { accountUid: '', profile: null, source: 'unavailable' })
   assert.deepEqual(reads, [])
 
   const linked = await studentAccountProfile(db, { id: 'student-document-id', accountUid: 'firebase-auth-uid' })
   assert.equal(linked.accountUid, 'firebase-auth-uid')
   assert.equal(linked.profile.id, 'firebase-auth-uid')
   assert.deepEqual(reads, ['users/firebase-auth-uid'])
+})
+
+test('student profile lookup repairs an unambiguous legacy role assignment link', async () => {
+  const reads = []
+  const db = {
+    collection(name) {
+      assert.equal(name, 'roleAssignments')
+      return {
+        where(field, operator, value) {
+          assert.deepEqual([field, operator, value], ['crmProfileId', '==', 'student-legacy'])
+          return { limit: () => ({ get: async () => ({ docs: [{ id: 'firebase-legacy-uid', data: () => ({ accessRole: 'student', crmProfileId: 'student-legacy' }) }] }) }) }
+        },
+      }
+    },
+    doc(path) {
+      reads.push(path)
+      return { get: async () => ({ exists: true, id: path.split('/').at(-1), data: () => ({ displayName: 'Học viên cũ' }) }) }
+    },
+  }
+  const result = await require('./student-360').studentAccountProfile(db, { id: 'student-legacy' })
+  assert.equal(result.accountUid, 'firebase-legacy-uid')
+  assert.equal(result.source, 'roleAssignments.crmProfileId')
+  assert.equal(result.profile.displayName, 'Học viên cũ')
+  assert.deepEqual(reads, ['users/firebase-legacy-uid'])
+})
+
+test('legacy account link resolution rejects ambiguous assignments', async () => {
+  const db = {
+    collection() {
+      return { where: () => ({ limit: () => ({ get: async () => ({ docs: [
+        { id: 'uid-a', data: () => ({ accessRole: 'student' }) },
+        { id: 'uid-b', data: () => ({ accessRole: 'student' }) },
+      ] }) }) }) }
+    },
+    doc() { throw new Error('ambiguous links must not read a user profile') },
+  }
+  const result = await studentAccountLink(db, { id: 'student-ambiguous' })
+  assert.deepEqual(result, { accountUid: '', source: 'ambiguous' })
 })
 
 test('profile triggers resolve students only through an unambiguous accountUid link', async () => {
