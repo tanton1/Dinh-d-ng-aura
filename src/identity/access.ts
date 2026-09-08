@@ -89,6 +89,7 @@ export const routeCapabilities = {
   'admin-training-history': 'pt.operations.manage',
   'admin-pt-workouts': 'pt.workout.manage',
   'admin-trainer-quality': 'pt.operations.manage',
+  'admin-performance': 'performance.evidence.review',
   'admin-renewals': 'renewals.workspace.view',
   'admin-report': 'pt.operations.manage',
   'admin-finance': 'finance.operations.manage',

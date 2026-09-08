@@ -198,6 +198,7 @@ export type AdminView =
   | 'admin-training-history'
   | 'admin-pt-workouts'
   | 'admin-trainer-quality'
+  | 'admin-performance'
   | 'admin-renewals'
   | 'admin-report'
   | 'admin-finance'

@@ -24,6 +24,7 @@ test('admin quality page starts with metrics and exposes low-score review detail
   await expect(page.getByText('ĐIỂM TRUNG BÌNH')).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Mức độ hài lòng' })).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Chất lượng PT' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Aura Performance Score' })).toHaveCount(0)
   const lowFeedback = page.locator('.trainer-quality-list .trainer-quality-row').filter({ hasText: 'PT Minh' }).first()
   await lowFeedback.click()
   await expect(page.getByText('Ghi chú xử lý')).toBeVisible()
@@ -31,4 +32,19 @@ test('admin quality page starts with metrics and exposes low-score review detail
 
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
   expect(overflow).toBeLessThanOrEqual(1)
+})
+
+test('admin Performance is a standalone module outside quality and payroll', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto('/#/admin-performance')
+
+  await expect(page).toHaveURL(/#\/admin-performance$/)
+  await expect(page.getByTestId('performance-review-page')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Performance PT', exact: true })).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Duyệt Thương hiệu cá nhân và Aura Brand' })).toBeVisible()
+  await expect(page.getByTestId('staff-payroll-page')).toHaveCount(0)
+
+  await page.getByRole('button', { name: 'Mở menu' }).click()
+  await expect(page.locator('#app-sidebar').getByRole('button', { name: 'Performance PT' })).toBeVisible()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1)
 })

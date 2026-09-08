@@ -99,6 +99,7 @@ const SalesPortalV2 = lazyWithRetry(() => import('./pages/operations/SalesPortal
 const StaffNutritionReviewsPage = lazyWithRetry(() => import('./pages/operations/StaffNutritionReviewsPage'))
 const StaffPayrollPage = lazyWithRetry(() => import('./pages/operations/StaffPayrollPage'))
 const StaffPerformancePage = lazyWithRetry(() => import('./pages/operations/StaffPerformancePage'))
+const PerformanceReviewPage = lazyWithRetry(() => import('./pages/operations/PerformanceReviewPage'))
 const PtWorkoutWorkspacePage = lazyWithRetry(() => import('./pages/operations/PtWorkoutWorkspacePage'))
 const Student360Page = lazyWithRetry(() => import('./features/student-360/Student360Page'))
 
@@ -1043,7 +1044,12 @@ function AuraApplication() {
         const canOpenPerformance = performanceReviewer || performanceSelf
         return <AuraOperationsFrame>{backendMode === 'firebase' && (!authzReady || !canOpenPerformance)
           ? <div className="course-detail-state" role={authzReady ? 'alert' : 'status'}><h1>{authzReady ? 'Chưa được cấp quyền Performance Score' : 'Đang xác minh quyền Performance Score'}</h1><p>{authzReady ? 'Trang này chỉ dành cho PT hoặc quản lý có quyền Performance trong phạm vi được cấp.' : 'Aura đang đối chiếu chức danh và quyền Performance.'}</p></div>
-          : <StaffPerformancePage isDemo={backendMode === 'demo'} reviewer={backendMode === 'demo' ? role === 'manager' : performanceReviewer && !performanceSelf} onNavigate={navigate} />}</AuraOperationsFrame>
+          : backendMode === 'demo' ? role === 'manager'
+            ? <PerformanceReviewPage isDemo onNavigate={navigate} backView="staff-dashboard" scopeLabel="Tổng quan Staff" />
+            : <StaffPerformancePage isDemo onNavigate={navigate} />
+          : performanceReviewer && !performanceSelf
+            ? <PerformanceReviewPage onNavigate={navigate} backView="staff-dashboard" scopeLabel="Tổng quan Staff" />
+            : <StaffPerformancePage onNavigate={navigate} />}</AuraOperationsFrame>
       }
 
       case 'pt-workout': return <StudentPtWorkoutPage isDemo={backendMode === 'demo'} ownerId={user?.uid ?? 'demo'} />
@@ -1059,6 +1065,7 @@ function AuraApplication() {
       case 'admin-training-history': return <AuraOperationsFrame><TrainingHistoryWorkspace /></AuraOperationsFrame>
       case 'admin-pt-workouts': return <AuraOperationsFrame><PtWorkoutWorkspacePage isDemo={backendMode === 'demo'} canPublishCatalog={accessContext?.accessRole === 'admin' || accessContext?.accessRole === 'super_admin' || role === 'admin' || role === 'super_admin'} initialStudentId={staffStudentFocus?.id} /></AuraOperationsFrame>
       case 'admin-trainer-quality': return <AuraOperationsFrame><TrainerQualityPage isDemo={backendMode === 'demo'} /></AuraOperationsFrame>
+      case 'admin-performance': return <AuraOperationsFrame><PerformanceReviewPage isDemo={backendMode === 'demo'} onNavigate={navigate} backView="admin-dashboard" scopeLabel="Trung tâm điều hành" /></AuraOperationsFrame>
       case 'admin-renewals': return <AuraOperationsFrame><ContractRenewals onNavigate={(view) => navigate(view as ViewId)} /></AuraOperationsFrame>
       case 'admin-report': return backendMode === 'firebase' && (!authzReady || !hasCapability('pt.operations.manage'))
         ? <div className="course-detail-state" role="status"><h1>{authzReady ? 'Không có quyền mở Tổng quan' : 'Đang xác minh quyền Tổng quan'}</h1><p>{authzReady ? 'Khu vực này chỉ dành cho quản trị viên hoặc quản lý có quyền vận hành.' : 'Aura đang đối chiếu phạm vi vận hành trước khi tải dữ liệu.'}</p></div>

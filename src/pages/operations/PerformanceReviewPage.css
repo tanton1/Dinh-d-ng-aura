@@ -1,0 +1,61 @@
+.performance-review-page {
+  width: min(1240px, 100%);
+  min-height: 100%;
+  margin-inline: auto;
+  padding: 14px clamp(10px, 2.4vw, 30px) calc(118px + env(safe-area-inset-bottom));
+  color: #2b2027;
+}
+
+.performance-review-page__header {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.performance-review-page__header > button,
+.performance-review-page__header > span {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  border-radius: 12px;
+}
+
+.performance-review-page__header > button {
+  border: 1px solid #eedce3;
+  background: #fff;
+  color: #b82850;
+}
+
+.performance-review-page__header > span {
+  background: linear-gradient(135deg, #ec2c76, #ff7a45);
+  color: #fff;
+}
+
+.performance-review-page__header svg { width: 19px; }
+.performance-review-page__header small { color: #b82850; font-size: 11px; font-weight: 900; letter-spacing: .1em; }
+.performance-review-page__header h1 { margin: 3px 0; font-size: clamp(25px, 3vw, 34px); }
+.performance-review-page__header p { margin: 0; color: #776670; font-size: 12px; line-height: 1.5; }
+
+.performance-review-page__scope {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin-bottom: 12px;
+  border: 1px solid #d7ebe2;
+  border-radius: 14px;
+  padding: 11px 12px;
+  background: #f0f8f4;
+  color: #32604d;
+}
+
+.performance-review-page__scope svg { width: 19px; flex: none; }
+.performance-review-page__scope p { margin: 0; font-size: 12px; line-height: 1.5; }
+
+@media (max-width: 760px) {
+  .performance-review-page { padding: 10px 8px calc(112px + env(safe-area-inset-bottom)); }
+  .performance-review-page__header { grid-template-columns: auto minmax(0, 1fr); align-items: start; }
+  .performance-review-page__header > span { display: none; }
+}
