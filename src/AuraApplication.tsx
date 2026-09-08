@@ -1042,7 +1042,7 @@ function AuraApplication() {
         const performanceReviewer = staffPositions.includes('branch_manager') && hasCapability('performance.evidence.review')
         const performanceSelf = staffPositions.includes('trainer_pt') && hasCapability('performance.self.view')
         const canOpenPerformance = performanceReviewer || performanceSelf
-        return <AuraOperationsFrame>{backendMode === 'firebase' && (!authzReady || !canOpenPerformance)
+        return <AuraOperationsFrame className="aura-operations-page--performance">{backendMode === 'firebase' && (!authzReady || !canOpenPerformance)
           ? <div className="course-detail-state" role={authzReady ? 'alert' : 'status'}><h1>{authzReady ? 'Chưa được cấp quyền Performance Score' : 'Đang xác minh quyền Performance Score'}</h1><p>{authzReady ? 'Trang này chỉ dành cho PT hoặc quản lý có quyền Performance trong phạm vi được cấp.' : 'Aura đang đối chiếu chức danh và quyền Performance.'}</p></div>
           : backendMode === 'demo' ? role === 'manager'
             ? <PerformanceReviewPage isDemo onNavigate={navigate} backView="staff-dashboard" scopeLabel="Tổng quan Staff" />
@@ -1065,7 +1065,7 @@ function AuraApplication() {
       case 'admin-training-history': return <AuraOperationsFrame><TrainingHistoryWorkspace /></AuraOperationsFrame>
       case 'admin-pt-workouts': return <AuraOperationsFrame><PtWorkoutWorkspacePage isDemo={backendMode === 'demo'} canPublishCatalog={accessContext?.accessRole === 'admin' || accessContext?.accessRole === 'super_admin' || role === 'admin' || role === 'super_admin'} initialStudentId={staffStudentFocus?.id} /></AuraOperationsFrame>
       case 'admin-trainer-quality': return <AuraOperationsFrame><TrainerQualityPage isDemo={backendMode === 'demo'} /></AuraOperationsFrame>
-      case 'admin-performance': return <AuraOperationsFrame><PerformanceReviewPage isDemo={backendMode === 'demo'} onNavigate={navigate} backView="admin-dashboard" scopeLabel="Trung tâm điều hành" /></AuraOperationsFrame>
+      case 'admin-performance': return <AuraOperationsFrame className="aura-operations-page--performance"><PerformanceReviewPage isDemo={backendMode === 'demo'} onNavigate={navigate} backView="admin-dashboard" scopeLabel="Trung tâm điều hành" /></AuraOperationsFrame>
       case 'admin-renewals': return <AuraOperationsFrame><ContractRenewals onNavigate={(view) => navigate(view as ViewId)} /></AuraOperationsFrame>
       case 'admin-report': return backendMode === 'firebase' && (!authzReady || !hasCapability('pt.operations.manage'))
         ? <div className="course-detail-state" role="status"><h1>{authzReady ? 'Không có quyền mở Tổng quan' : 'Đang xác minh quyền Tổng quan'}</h1><p>{authzReady ? 'Khu vực này chỉ dành cho quản trị viên hoặc quản lý có quyền vận hành.' : 'Aura đang đối chiếu phạm vi vận hành trước khi tải dữ liệu.'}</p></div>

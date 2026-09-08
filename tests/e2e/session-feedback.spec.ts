@@ -49,6 +49,12 @@ test('admin Performance is a standalone module outside quality and payroll', asy
   await expect(page.getByRole('heading', { name: 'Chất lượng hồ sơ PT' })).toBeVisible()
   await expect(page.getByTestId('staff-payroll-page')).toHaveCount(0)
 
+  const performanceWidth = await page.getByTestId('performance-review-page').evaluate((element) => ({
+    page: element.getBoundingClientRect().width,
+    viewport: document.documentElement.clientWidth,
+  }))
+  expect(performanceWidth.viewport - performanceWidth.page).toBeLessThanOrEqual(1)
+
   await page.getByRole('button', { name: 'Mở menu' }).click()
   await expect(page.locator('#app-sidebar').getByRole('button', { name: 'Performance PT' })).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1)

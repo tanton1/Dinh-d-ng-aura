@@ -38,6 +38,26 @@
 .aura-operations-page--schedule .aura-operations-page__orb { display:none; }
 .aura-operations-page--schedule .aura-operations-sync { width:100%; max-width:none; margin:0; border-width:0 0 1px; border-radius:0; box-shadow:none; }
 
+/* Performance is an operational workspace, not a centered marketing card.
+   Let its canvas and command surfaces use the full width available beside the
+   app rail, while each section owns a small responsive reading gutter. */
+.aura-operations-page.aura-operations-page--performance {
+  min-height: calc(100dvh - var(--shell-topbar-height, 72px));
+  overflow: visible;
+  padding: 0;
+  background: #f7f8fa;
+}
+.aura-operations-page--performance .aura-operations-page__content { width: 100%; max-width: none; margin: 0; }
+.aura-operations-page--performance .aura-operations-page__orb { display: none; }
+.aura-operations-page--performance .aura-operations-sync {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  border-width: 0 0 1px;
+  border-radius: 0;
+  box-shadow: none;
+}
+
 .aura-operations-page--schedule .schedule-workspace {
   display:flex; flex-direction:column; gap:0 !important;
   width:100%; min-width:0; padding:0 0 112px !important;
@@ -667,6 +687,10 @@
 
 @media (max-width: 640px) {
   .aura-operations-page { padding: 14px 12px calc(92px + env(safe-area-inset-bottom)); }
+  .aura-operations-page.aura-operations-page--performance {
+    min-height: calc(100dvh - var(--shell-mobile-topbar-height, 56px));
+    padding: 0;
+  }
   .aura-operations-page .max-w-2xl { max-width: 100%; }
   .aura-operations-page :is(.fixed.inset-0) { padding: 10px; }
 

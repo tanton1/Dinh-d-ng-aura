@@ -13,14 +13,19 @@ test('staff dock prioritizes work modules and schedule tools share one weekly wo
   await expect(dock).toBeVisible()
   await expect(dock.getByRole('button')).toHaveCount(5)
   expect(await dock.getByRole('button').allTextContents()).toEqual([
-    'Tổng quan',
+    'Hôm nay',
     'Học viên',
     'Lịch',
     'Giáo án',
-    'Duyệt món',
+    'Thêm',
   ])
 
-  await dock.getByRole('button', { name: 'Tổng quan' }).click()
+  await dock.getByRole('button', { name: 'Thêm' }).click()
+  const moreSheet = page.getByRole('dialog')
+  await expect(moreSheet.getByRole('button', { name: /Hiệu suất/ })).toBeVisible()
+  await page.keyboard.press('Escape')
+
+  await dock.getByRole('button', { name: 'Hôm nay' }).click()
   await expect(page).toHaveURL(/#\/staff-dashboard$/)
   await expect(page.getByTestId('staff-dashboard-page')).toBeVisible()
   await expect(page.getByRole('region', { name: 'Tổng quan công việc Staff' })).toBeVisible()
@@ -38,6 +43,11 @@ test('staff dock prioritizes work modules and schedule tools share one weekly wo
   await expect(page.getByRole('heading', { name: 'Hiệu suất của tôi' })).toBeVisible()
   await expect(page.getByRole('region', { name: 'Aura Performance Score và bằng chứng thương hiệu' })).toBeVisible()
   await expect(page.getByText('PERSONAL & AURA BRAND · 10/100')).toBeVisible()
+  const staffPerformanceWidth = await page.getByTestId('staff-performance-page').evaluate((element) => ({
+    page: element.getBoundingClientRect().width,
+    viewport: document.documentElement.clientWidth,
+  }))
+  expect(staffPerformanceWidth.viewport - staffPerformanceWidth.page).toBeLessThanOrEqual(1)
   expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1)
   await page.getByRole('button', { name: 'Về Tổng quan Staff' }).click()
   await expect(page).toHaveURL(/#\/staff-dashboard$/)

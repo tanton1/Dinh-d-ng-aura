@@ -416,9 +416,12 @@ export default function AppShell({ children, mode, view, onNavigate, onModeChang
     try { window.localStorage.setItem(`aura:staff-workspace:v1:${userId}`, staffWorkspace) } catch { /* storage is optional */ }
   }, [effectiveStaffPositions, isStaffWorkspace, staffWorkspace, userId])
   const mobileAdminItems = (shellV4 ? adminV4MobileNav : adminMobileNav).filter((item) => hasPermission(role, item.permission) && canNavigate(item.id))
-  const mobileStaffItems = shellV4
-    ? staffWorkspaceDock[staffWorkspace].filter((item) => allowedStaffRoutes.has(item.id) && canNavigate(item.id)).slice(0, 4)
-    : staffMobileNav.filter((item) => allowedStaffRoutes.has(item.id) && canNavigate(item.id)).slice(0, 5)
+  // Staff always uses the role-aware four-item dock plus “Thêm”. Keeping the
+  // fallback five-item slice hid lower-priority modules such as Performance
+  // whenever the global shell rollout flag had not reached that account yet.
+  const mobileStaffItems = staffWorkspaceDock[staffWorkspace]
+    .filter((item) => allowedStaffRoutes.has(item.id) && canNavigate(item.id))
+    .slice(0, 4)
   const isImmersive = view === 'workout' || view === 'delivery' || view === 'course-detail' || view === 'student-360'
   const [searchQuery, setSearchQuery] = useState('')
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false)
@@ -754,7 +757,7 @@ export default function AppShell({ children, mode, view, onNavigate, onModeChang
                 </button>
               )
             })}
-            {shellV4 && <button type="button" aria-expanded={mobileMoreOpen} onClick={() => setMobileMoreOpen(true)}><Menu size={21} /><span>Thêm</span></button>}
+            {(shellV4 || isStaffWorkspace) && <button type="button" aria-expanded={mobileMoreOpen} onClick={() => setMobileMoreOpen(true)}><Menu size={21} /><span>Thêm</span></button>}
           </nav>
         ) : (
           <nav className={`mobile-bottom-nav admin-mobile-nav${mobileDockHidden ? ' is-scroll-hidden' : ''}`} aria-label="Điều hướng quản trị">
@@ -780,7 +783,7 @@ export default function AppShell({ children, mode, view, onNavigate, onModeChang
           </nav>
         )}
       </div>
-      <Sheet open={shellV4 && mobileMoreOpen} onClose={() => setMobileMoreOpen(false)} title={isStaffWorkspace ? `Không gian ${staffWorkspaceLabels[staffWorkspace]}` : 'Thêm trong Aura'} description="Chỉ hiển thị các khu vực tài khoản của bạn được phép sử dụng.">
+      <Sheet open={(shellV4 || isStaffWorkspace) && mobileMoreOpen} onClose={() => setMobileMoreOpen(false)} title={isStaffWorkspace ? `Không gian ${staffWorkspaceLabels[staffWorkspace]}` : 'Thêm trong Aura'} description="Chỉ hiển thị các khu vực tài khoản của bạn được phép sử dụng.">
         {isStaffWorkspace && effectiveStaffPositions.length > 1 && <div className="aura-mobile-more__workspaces" role="group" aria-label="Chọn không gian làm việc">{effectiveStaffPositions.map((position) => <button key={position} type="button" className={staffWorkspace === position ? 'is-active' : ''} onClick={() => selectStaffWorkspace(position)}>{staffWorkspaceLabels[position]}{staffWorkspace === position && <Check size={15} />}</button>)}</div>}
         <nav className="aura-mobile-more__routes" aria-label="Các khu vực khác">{v4MoreItems.map((item) => { const Icon = item.icon; const href = item.href; return <button type="button" key={`${item.id}:${item.label}`} onClick={() => { if (href) window.location.hash = href; else onNavigate(item.id); setMobileMoreOpen(false) }}><span><Icon size={19} /></span><strong>{item.label}</strong><ChevronRight size={18} /></button> })}</nav>
         {backendMode === 'firebase' && <button type="button" className="aura-mobile-more__signout" onClick={() => { setMobileMoreOpen(false); onSignOut() }}><LogOut size={18} /> Đăng xuất</button>}

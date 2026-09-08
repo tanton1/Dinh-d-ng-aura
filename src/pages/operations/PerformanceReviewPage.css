@@ -6,11 +6,12 @@
   --performance-pink: #ec2c76;
   --performance-orange: #ff7a45;
   --performance-success: #14805e;
-  width: min(1280px, 100%);
+  width: 100%;
   min-height: 100%;
-  margin-inline: auto;
-  padding: 18px clamp(14px, 2.4vw, 32px) calc(118px + env(safe-area-inset-bottom));
+  margin: 0;
+  padding: 0 0 calc(118px + env(safe-area-inset-bottom));
   color: var(--performance-ink);
+  background: var(--performance-canvas);
 }
 
 .performance-review-page__hero {
@@ -20,10 +21,11 @@
   align-items: center;
   gap: 24px;
   overflow: hidden;
-  margin-bottom: 10px;
-  border: 1px solid var(--performance-line);
-  border-radius: 18px;
-  padding: 20px 22px 23px;
+  margin: 0;
+  border: 0;
+  border-bottom: 1px solid var(--performance-line);
+  border-radius: 0;
+  padding: 22px clamp(16px, 2.6vw, 40px) 25px;
   background: #fff;
 }
 
@@ -99,9 +101,11 @@
 }
 
 .performance-review-page__scope {
-  margin-bottom: 10px;
+  margin: 0;
   border-bottom: 1px solid var(--performance-line);
+  padding-inline: clamp(16px, 2.6vw, 40px);
   color: #50665d;
+  background: #fff;
 }
 
 .performance-review-page__scope summary {
@@ -120,6 +124,11 @@
 .performance-review-page__scope svg { width: 17px; flex: none; color: var(--performance-success); }
 .performance-review-page__scope p { max-width: 820px; margin: -1px 0 10px 25px; color: var(--performance-muted); font-size: 12px; line-height: 1.55; }
 
+.performance-review-page > .performance-review {
+  width: 100%;
+  padding: 0 clamp(16px, 2.6vw, 40px) 24px;
+}
+
 .performance-review-page :is(button, input, select, textarea, summary):focus-visible {
   outline: 3px solid rgba(236, 44, 118, .22);
   outline-offset: 2px;
@@ -132,8 +141,8 @@
 }
 
 @media (max-width: 760px) {
-  .performance-review-page { padding: 10px 8px calc(112px + env(safe-area-inset-bottom)); }
-  .performance-review-page__hero { gap: 14px; border-radius: 15px; padding: 14px 13px 19px; }
+  .performance-review-page { padding-bottom: calc(112px + env(safe-area-inset-bottom)); }
+  .performance-review-page__hero { gap: 14px; padding: 14px 10px 19px; }
   .performance-review-page__heading { gap: 10px; }
   .performance-review-page__heading > button { width: 40px; height: 40px; border-radius: 11px; }
   .performance-review-page__heading span { font-size: 11px; }
@@ -145,7 +154,9 @@
   .performance-review-page__framework dt { display: none; }
   .performance-review-page__framework strong { font-size: 19px; }
   .performance-review-page__framework span { overflow: hidden; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+  .performance-review-page__scope { padding-inline: 10px; }
   .performance-review-page__scope summary { padding-block: 8px; }
+  .performance-review-page > .performance-review { padding: 0 8px 18px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -162,14 +162,16 @@ export default function StaffDashboardPage({ onNavigate, capabilities, positions
   const [performanceError, setPerformanceError] = useState('')
   const loadedRef = useRef(false)
   const canViewPayroll = capabilities.includes('payroll.self.view') || isDemo
-  const canViewPerformance = isTrainer && (capabilities.includes('performance.self.view') || isDemo)
+  const canViewOwnPerformance = isTrainer && (capabilities.includes('performance.self.view') || isDemo)
+  const canReviewPerformance = managerDashboard && (capabilities.includes('performance.evidence.review') || isDemo)
+  const canOpenPerformance = canViewOwnPerformance || canReviewPerformance
 
   const load = useCallback(async () => {
     if (loadedRef.current) setRefreshing(true)
     else setLoading(true)
     setError(''); setPayrollError(''); setPerformanceError('')
     setPayrollLoading(canViewPayroll && !loadedRef.current)
-    setPerformanceLoading(canViewPerformance && !loadedRef.current)
+    setPerformanceLoading(canViewOwnPerformance && !loadedRef.current)
     if (isDemo) {
       const demoSessions: TrainerSessionSummary[] = [
         { id: 'demo-5', studentId: 'demo-e', trainerId: 'demo-staff', studentName: 'Đỗ Khánh Linh', date: today, hour: 6, status: 'attended', attendanceStatus: 'present', billingStatus: 'charged', timeZone: 'Asia/Ho_Chi_Minh' },
@@ -189,7 +191,7 @@ export default function StaffDashboardPage({ onNavigate, capabilities, positions
       coachDashboard ? getMyTrainerWorkspace('schedule', today, today, 500) : Promise.resolve(null),
       salesDashboard ? getMySalesWorkspace(100) : Promise.resolve(null),
       canViewPayroll ? getMyStaffPayroll(periodId) : Promise.resolve(null),
-      canViewPerformance ? getMyPerformanceScore(periodId) : Promise.resolve(null),
+      canViewOwnPerformance ? getMyPerformanceScore(periodId) : Promise.resolve(null),
     ])
     if (workspaceResult.status === 'fulfilled' && workspaceResult.value) {
       setScope(workspaceResult.value.scope); setSessions(workspaceResult.value.sessions)
@@ -215,7 +217,7 @@ export default function StaffDashboardPage({ onNavigate, capabilities, positions
     }
     loadedRef.current = true
     setLoading(false); setRefreshing(false); setPayrollLoading(false); setPerformanceLoading(false)
-  }, [canViewPayroll, canViewPerformance, coachDashboard, isDemo, periodId, salesDashboard, today])
+  }, [canViewOwnPerformance, canViewPayroll, coachDashboard, isDemo, periodId, salesDashboard, today])
 
   useEffect(() => { void load() }, [load])
 
@@ -267,7 +269,13 @@ export default function StaffDashboardPage({ onNavigate, capabilities, positions
       { id: 'schedule', label: 'Lịch & yêu cầu', detail: 'Ca dạy, lịch rảnh và đổi ca', view: 'staff-schedule', icon: CalendarDays },
       { id: 'students', label: 'Học viên phụ trách', detail: 'Hợp đồng, lịch và giáo án', view: 'staff-students', icon: Users },
     )
-    if (canViewPerformance) actions.push({ id: 'performance', label: 'Hiệu suất của tôi', detail: 'Điểm KPI, Gate và bằng chứng Brand', view: 'staff-performance', icon: Award })
+    if (canOpenPerformance) actions.push({
+      id: 'performance',
+      label: canReviewPerformance && !canViewOwnPerformance ? 'Duyệt Performance PT' : 'Hiệu suất của tôi',
+      detail: canReviewPerformance && !canViewOwnPerformance ? 'Phiếu 100 điểm và bằng chứng của chi nhánh' : 'Điểm KPI, Gate và bằng chứng Brand',
+      view: 'staff-performance',
+      icon: Award,
+    })
     if (salesDashboard) actions.push(
       { id: 'quotes', label: 'Báo giá', detail: 'Tạo và theo dõi báo giá', view: 'staff-quotes', icon: ClipboardList },
       { id: 'renewals', label: 'Tái ký', detail: 'Khách hàng cần chăm sóc', view: 'staff-renewals', icon: RefreshCw },
@@ -278,7 +286,7 @@ export default function StaffDashboardPage({ onNavigate, capabilities, positions
     )
     if (academyDashboard) actions.push({ id: 'academy', label: 'Aura Academy', detail: 'Nội dung học và thư viện', view: 'courses', icon: BookOpen })
     return actions.filter((item, index) => actions.findIndex((candidate) => candidate.view === item.view) === index)
-  }, [academyDashboard, canViewPerformance, coachDashboard, managerDashboard, salesDashboard])
+  }, [academyDashboard, canOpenPerformance, canReviewPerformance, canViewOwnPerformance, coachDashboard, managerDashboard, salesDashboard])
 
   return <main className="staff-dashboard" data-testid="staff-dashboard-page">
     <header className="staff-dashboard__heading">
@@ -289,12 +297,14 @@ export default function StaffDashboardPage({ onNavigate, capabilities, positions
     <AuraMetricCarousel slides={slides} label="Tổng quan công việc Staff" loading={loading} />
     {error && <section className="staff-dashboard__state"><Clock3 size={20} /><div><strong>Chưa tải đủ dữ liệu công việc</strong><p>{error}</p></div><button type="button" onClick={() => void load()}>Thử lại</button></section>}
 
-    {canViewPerformance && <section className="staff-dashboard__performance" aria-label="Tóm tắt Aura PT Performance Score" aria-busy={performanceLoading}>
+    {canOpenPerformance && <section className="staff-dashboard__performance" aria-label="Tóm tắt Aura PT Performance Score" aria-busy={canViewOwnPerformance && performanceLoading}>
       <header>
-        <div><small>AURA PT PERFORMANCE SCORE · {periodLabel(periodId).toUpperCase()}</small><h2>Hiệu suất tháng của tôi</h2></div>
-        <button type="button" onClick={() => onNavigate('staff-performance')}>Xem chi tiết <Award size={17} /></button>
+        <div><small>AURA PT PERFORMANCE SCORE · {periodLabel(periodId).toUpperCase()}</small><h2>{canReviewPerformance && !canViewOwnPerformance ? 'Duyệt hiệu suất đội ngũ' : 'Hiệu suất tháng của tôi'}</h2></div>
+        <button type="button" onClick={() => onNavigate('staff-performance')}>{canReviewPerformance && !canViewOwnPerformance ? 'Mở trung tâm duyệt' : 'Xem chi tiết'} <Award size={17} /></button>
       </header>
-      {performanceLoading ? <div className="staff-dashboard__performance-loading"><span /><span /><span /></div>
+      {canReviewPerformance && !canViewOwnPerformance
+        ? <div className="staff-dashboard__performance-state"><Award /><div><strong>Performance đã có trong Staff</strong><p>Chấm phiếu 100 điểm, kết luận Gate và duyệt bằng chứng trong phạm vi chi nhánh được giao.</p></div><button type="button" onClick={() => onNavigate('staff-performance')}>Mở duyệt</button></div>
+        : performanceLoading ? <div className="staff-dashboard__performance-loading"><span /><span /><span /></div>
         : performanceError ? <div className="staff-dashboard__performance-state"><Award /><div><strong>Chưa tải được Performance Score</strong><p>{performanceError}</p></div><button type="button" onClick={() => void load()}>Thử lại</button></div>
           : performance ? <div className="staff-dashboard__performance-body">
             <article className="staff-dashboard__performance-score">

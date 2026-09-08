@@ -75,7 +75,11 @@ export const routeCapabilities = {
   'staff-quotes': 'sales.quotes.self.manage',
   'staff-renewals': 'renewals.workspace.view',
   'staff-payroll': 'payroll.self.view',
-  'staff-performance': 'performance.self.view',
+  // This route serves two actor-scoped workspaces: PTs view their own score,
+  // while branch managers review their assigned team. Use the shared Staff
+  // entry capability here; the route component and callables enforce the
+  // stronger self/reviewer capability for the workspace that is rendered.
+  'staff-performance': 'dashboard.view',
   // Legacy operations pages still read admin-only collections while their
   // actor-scoped replacements are being rolled out. Bind every such route to
   // the Identity v2 access context so a legacy UI role alone cannot open it.

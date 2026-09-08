@@ -1,9 +1,10 @@
 .staff-performance-page {
-  width: min(1180px, 100%);
+  width: 100%;
   min-height: 100%;
-  margin-inline: auto;
-  padding: 14px clamp(10px, 2.4vw, 30px) calc(118px + env(safe-area-inset-bottom));
+  margin: 0;
+  padding: 0 0 calc(118px + env(safe-area-inset-bottom));
   color: #2b2027;
+  background: #f7f8fa;
 }
 
 .staff-performance-page__header {
@@ -11,7 +12,10 @@
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 14px;
-  margin-bottom: 12px;
+  margin: 0;
+  border-bottom: 1px solid #e8e1e5;
+  padding: 18px clamp(14px, 2.6vw, 38px);
+  background: #fff;
 }
 
 .staff-performance-page__header .is-back {
@@ -75,7 +79,7 @@
   display: flex;
   align-items: flex-start;
   gap: 9px;
-  margin-bottom: 12px;
+  margin: 12px clamp(14px, 2.6vw, 38px);
   border: 1px solid #d7ebe2;
   border-radius: 14px;
   padding: 11px 12px;
@@ -86,13 +90,22 @@
 .staff-performance-page__privacy svg { width: 19px; flex: none; }
 .staff-performance-page__privacy p { margin: 0; font-size: 12px; line-height: 1.5; }
 
+.staff-performance-page > .performance-brand {
+  margin-inline: clamp(14px, 2.6vw, 38px);
+  border-radius: 14px;
+  box-shadow: none;
+}
+
 @media (max-width: 760px) {
-  .staff-performance-page { padding: 10px 8px calc(112px + env(safe-area-inset-bottom)); }
+  .staff-performance-page { padding-bottom: calc(112px + env(safe-area-inset-bottom)); }
+  .staff-performance-page__header { padding: 12px 8px; }
   .staff-performance-page__header { grid-template-columns: auto minmax(0, 1fr); align-items: start; }
   .staff-performance-page__actions { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr auto; }
   .staff-performance-page__actions label { border: 1px solid #ead8df; border-radius: 12px; padding: 6px 9px; background: #fff; }
   .staff-performance-page__actions input { min-height: 32px; border: 0; padding: 0; }
   .staff-performance-page__header p { line-height: 1.45; }
+  .staff-performance-page__privacy { margin: 8px; }
+  .staff-performance-page > .performance-brand { margin-inline: 8px; }
 }
 
 @media (max-width: 390px) {
