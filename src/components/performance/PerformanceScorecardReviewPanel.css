@@ -75,7 +75,7 @@
 .performance-scorecard-review__categories > section > div { display: grid; }
 .performance-scorecard-review__categories article { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 8px; border-top: 1px solid #f0eaed; padding: 9px 10px; }
 .performance-scorecard-review__categories article:first-child { border-top: 0; }
-.performance-scorecard-review__categories article > span { display: grid; min-width: 0; gap: 2px; }
+.performance-scorecard-review__categories article > div { display: grid; min-width: 0; gap: 2px; }
 .performance-scorecard-review__categories article strong { font-size: 11px; }
 .performance-scorecard-review__categories article small { overflow: hidden; color: #73676d; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
 .performance-scorecard-review__categories article em { color: #a08f97; font-size: 8px; font-style: normal; }
@@ -83,6 +83,21 @@
 .performance-scorecard-review__categories article > button { display: grid; width: 32px; height: 32px; place-items: center; border: 1px solid #e8e1e5; border-radius: 9px; color: #b82850; background: #fff; }
 .performance-scorecard-review__categories article > button svg { width: 14px; }
 .performance-scorecard-review__categories article.is-not_available, .performance-scorecard-review__categories article.is-needs_review { background: #fffdfa; }
+.performance-scorecard-review__automation { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 9px; border: 1px solid #cfe8dc; border-radius: 12px; padding: 9px 11px; color: #145f47; background: #f2faf6; }
+.performance-scorecard-review__automation > svg { width: 17px; }
+.performance-scorecard-review__automation > span { display: grid; gap: 1px; }
+.performance-scorecard-review__automation strong { font-size: 11px; }
+.performance-scorecard-review__automation small, .performance-scorecard-review__automation em { font-size: 9px; font-style: normal; }
+.performance-scorecard-review__automation.has-warning { border-color: #efd7b8; color: #8c4c13; background: #fff8ef; }
+.performance-scorecard-review__categories article.is-automatic { box-shadow: inset 3px 0 #14805e; }
+.performance-scorecard-review__categories article.is-automatic > div > em { color: #14805e; font-weight: 800; }
+.performance-scorecard-review__categories article details { margin-top: 3px; color: #685b62; font-size: 9px; }
+.performance-scorecard-review__categories article summary { width: max-content; cursor: pointer; color: #386bc1; font-weight: 750; }
+.performance-scorecard-review__categories article dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; margin: 7px 0 2px; }
+.performance-scorecard-review__categories article dl > div { min-width: 0; border-left: 2px solid #e7e1e4; padding-left: 6px; }
+.performance-scorecard-review__categories article dt { color: #96878e; }
+.performance-scorecard-review__categories article dd { overflow-wrap: anywhere; margin: 1px 0 0; color: #493f44; font-weight: 700; }
+.performance-scorecard-review__categories article details p { margin: 5px 0 0; color: #a65a16; line-height: 1.4; }
 
 .performance-scorecard-review__lock { display: grid; grid-template-columns: minmax(0, 1fr) minmax(220px, 320px) auto; align-items: center; gap: 10px; border: 1px solid #e8e1e5; border-radius: 13px; padding: 11px 12px; background: #fff; }
 .performance-scorecard-review__lock > div { display: grid; gap: 2px; }
@@ -117,6 +132,9 @@
 @keyframes performance-scorecard-spin { to { transform: rotate(360deg); } }
 
 @media (max-width: 800px) {
+  .performance-scorecard-review__automation { grid-template-columns: auto minmax(0, 1fr); }
+  .performance-scorecard-review__automation > em { grid-column: 2; }
+  .performance-scorecard-review__categories article dl { grid-template-columns: 1fr; }
   .performance-scorecard-review__header { grid-template-columns: auto minmax(0, 1fr) auto; }
   .performance-scorecard-review__header label { grid-column: 1 / -1; }
   .performance-scorecard-review__summary { grid-template-columns: 1fr; }

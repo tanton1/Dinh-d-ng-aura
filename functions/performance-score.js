@@ -2,9 +2,10 @@ const { FieldValue } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
 const { createHash } = require('node:crypto')
 const { trustedAccessContext, requireCapability } = require('./identity-access')
+const { automaticOperationalMetrics } = require('./performance-automatic')
 
 const PERFORMANCE_SCHEMA_VERSION = 2
-const PERFORMANCE_POLICY_VERSION = 'aura-pt-performance-v1.0-2026-09-07'
+const PERFORMANCE_POLICY_VERSION = 'aura-pt-performance-v1.1-2026-09-08'
 const EVIDENCE_STATUSES = new Set(['submitted', 'needs_revision', 'approved', 'rejected', 'withdrawn'])
 const REVIEW_STATUSES = new Set(['approved', 'needs_revision', 'rejected'])
 const EVIDENCE_TYPES = new Set(['personal_content', 'aura_assignment'])
@@ -101,6 +102,13 @@ const DIRECT_REVIEW_METRICS = new Set([
   'training_notes', 'sop', 'teamwork',
 ])
 const BRAND_METRIC_IDS = new Set(['personal_brand', 'aura_brand', 'profile_quality'])
+const AUTOMATIC_OPERATIONAL_METRIC_IDS = Object.freeze([
+  'client_progress', 'weekly_checkin', 'at_risk_followup', 'progress_review', 'communication',
+  'nutrition_review_completion', 'feedback_sla', 'compliance_management',
+  'renew_rate', 'renewal_process', 'churn_documentation',
+  'self_generated_revenue', 'renew_cash_vs_forecast', 'qualified_lead_conversion', 'quality_new_referral',
+  'attendance', 'schedule_management', 'training_notes',
+])
 const FALLBACK_SOURCES = new Set(['system_fallback', 'rolling_average', 'neutral_score'])
 const BONUS_BANDS = Object.freeze([
   { minimum: 95, classification: 'Outstanding', bonusAmount: 3_000_000 },
@@ -139,6 +147,7 @@ function metricUnavailable(metric, input = {}, reason = 'Chưa có dữ liệu �
     sampleSize: Math.max(0, Math.trunc(finiteNumber(input.sampleSize) || 0)),
     note: typeof input.note === 'string' ? input.note : '',
     evidenceRefs: Array.isArray(input.evidenceRefs) ? input.evidenceRefs.slice(0, 20) : [],
+    provenance: metricProvenance(input),
     reason,
   }
 }
@@ -156,8 +165,30 @@ function metricAvailable(metric, input, score, extra = {}) {
     sampleSize: Math.max(0, Math.trunc(finiteNumber(input.sampleSize) || 0)),
     note: typeof input.note === 'string' ? input.note : '',
     evidenceRefs: Array.isArray(input.evidenceRefs) ? input.evidenceRefs.slice(0, 20) : [],
+    provenance: metricProvenance(input),
     reason: '',
     ...extra,
+  }
+}
+
+function metricProvenance(input = {}) {
+  const raw = input.provenance && typeof input.provenance === 'object' ? input.provenance : {}
+  const source = typeof input.source === 'string' ? input.source : ''
+  const mode = ['automatic', 'approved_evidence', 'manual'].includes(raw.mode)
+    ? raw.mode
+    : source === 'system_auto' || source === 'rolling_average'
+      ? 'automatic'
+      : source.startsWith('approved_') ? 'approved_evidence' : 'manual'
+  return {
+    mode,
+    collections: Array.isArray(raw.collections)
+      ? [...new Set(raw.collections.filter((item) => typeof item === 'string'))].slice(0, 20)
+      : [],
+    periodStart: typeof raw.periodStart === 'string' ? raw.periodStart : '',
+    periodEnd: typeof raw.periodEnd === 'string' ? raw.periodEnd : '',
+    generatedAt: typeof raw.generatedAt === 'string' ? raw.generatedAt : '',
+    completeness: raw.completeness === 'partial' ? 'partial' : 'complete',
+    warnings: Array.isArray(raw.warnings) ? raw.warnings.filter((item) => typeof item === 'string').slice(0, 10) : [],
   }
 }
 
@@ -172,14 +203,19 @@ function calculateMetricScore(metricId, rawInput = {}) {
   if (BRAND_METRIC_IDS.has(metricId)) return metricUnavailable(metric, input, 'Brand được tính từ bằng chứng đã duyệt, không chấm tay.')
   const source = PERFORMANCE_REVIEW_SOURCES.has(input.source) ? input.source : 'manager_review'
   const normalized = { ...input, source }
+  if (source === 'system_auto' && normalized.provenance?.completeness === 'partial') {
+    return metricUnavailable(metric, normalized, `Nguồn tự động chưa đầy đủ: ${(normalized.provenance.warnings || []).join('; ') || 'cần chạy lại tổng hợp'}.`)
+  }
   const manualScore = boundedNumber(input.manualScore ?? input.score, 0, metric.weight)
   if (FALLBACK_SOURCES.has(source) && manualScore !== null) {
     return metricAvailable(metric, normalized, manualScore, { calculation: 'approved_fallback' })
   }
   if (DIRECT_REVIEW_METRICS.has(metricId)) {
     return manualScore === null
-      ? metricUnavailable(metric, normalized, 'Chỉ số rubric cần điểm được Manager/Head Coach duyệt.')
-      : metricAvailable(metric, normalized, manualScore, { calculation: 'approved_rubric' })
+      ? metricUnavailable(metric, normalized, normalized.provenance?.mode === 'automatic'
+        ? 'Chưa có đủ mẫu dữ liệu hệ thống trong kỳ để tính chỉ số.'
+        : 'Chỉ số rubric cần điểm được Manager/Head Coach duyệt.')
+      : metricAvailable(metric, normalized, manualScore, { calculation: normalized.provenance?.mode === 'automatic' ? 'operational_ratio' : 'approved_rubric' })
   }
 
   const actual = finiteNumber(input.actual)
@@ -203,7 +239,9 @@ function calculateMetricScore(metricId, rawInput = {}) {
   }
   if (RATIO_METRICS.has(metricId)) {
     if (numerator === null || denominator === null || numerator < 0 || denominator <= 0 || numerator > denominator) {
-      return metricUnavailable(metric, normalized, 'Cần số hoàn tất và tổng số đến hạn hợp lệ.')
+      return metricUnavailable(metric, normalized, normalized.provenance?.mode === 'automatic'
+        ? 'Kỳ này chưa có đối tượng đến hạn hợp lệ để tính tỷ lệ.'
+        : 'Cần số hoàn tất và tổng số đến hạn hợp lệ.')
     }
     return metricAvailable(metric, normalized, numerator / denominator * metric.weight, { calculation: 'completion_ratio' })
   }
@@ -323,6 +361,7 @@ function personalBrandScore(count) {
 
 function calculateBrandPerformance(evidence = []) {
   const approved = evidence.filter((item) => item?.status === 'approved')
+  const reviewed = evidence.filter((item) => ['approved', 'rejected'].includes(item?.status))
   const personalKeys = new Set()
   const auraKeys = new Set()
   let profileCompleted = 0
@@ -347,9 +386,9 @@ function calculateBrandPerformance(evidence = []) {
   return {
     total,
     maximum: 10,
-    personal: { approvedCount: personalCount, target: 4, score: personalScore, maximum: 5 },
-    aura: { approvedCount: auraCount, target: 3, score: auraScore, maximum: 3 },
-    profile: { completedCount: profileCompleted, target: 10, score: profileScore, maximum: 2, checklist: latestProfile?.checklist || {} },
+    personal: { approvedCount: personalCount, reviewedCount: reviewed.filter((item) => item.type === 'personal_content').length, target: 4, score: personalScore, maximum: 5 },
+    aura: { approvedCount: auraCount, reviewedCount: reviewed.filter((item) => item.type === 'aura_assignment').length, target: 3, score: auraScore, maximum: 3 },
+    profile: { completedCount: profileCompleted, assessed: Boolean(latestProfile), target: 10, score: profileScore, maximum: 2, checklist: latestProfile?.checklist || {} },
   }
 }
 
@@ -401,18 +440,27 @@ function calculatePerformanceSummary({ evidence = [], metricInputs = {}, gateInp
   const brand = calculateBrandPerformance(evidence)
   const pendingCount = evidence.filter((item) => ['submitted', 'needs_revision'].includes(item.status)).length
   const brandMetrics = {
-    personal_brand: metricAvailable(PERFORMANCE_METRIC_INDEX.get('personal_brand'), {
+    personal_brand: brand.personal.reviewedCount > 0 ? metricAvailable(PERFORMANCE_METRIC_INDEX.get('personal_brand'), {
       source: 'approved_evidence', sampleSize: brand.personal.approvedCount,
       note: 'Chỉ tính nội dung đã được duyệt trong kỳ.',
-    }, brand.personal.score, { calculation: 'brand_evidence' }),
-    aura_brand: metricAvailable(PERFORMANCE_METRIC_INDEX.get('aura_brand'), {
+      provenance: { mode: 'approved_evidence', collections: ['performanceEvidence'] },
+    }, brand.personal.score, { calculation: 'brand_evidence' }) : metricUnavailable(PERFORMANCE_METRIC_INDEX.get('personal_brand'), {
+      source: 'approved_evidence', provenance: { mode: 'approved_evidence', collections: ['performanceEvidence'] },
+    }, 'Chưa có bằng chứng Personal Brand được duyệt hoặc từ chối trong kỳ.'),
+    aura_brand: brand.aura.reviewedCount > 0 ? metricAvailable(PERFORMANCE_METRIC_INDEX.get('aura_brand'), {
       source: 'approved_evidence', sampleSize: brand.aura.approvedCount,
       note: 'Chỉ tính nhiệm vụ đúng brief đã được duyệt trong kỳ.',
-    }, brand.aura.score, { calculation: 'aura_brief_evidence' }),
-    profile_quality: metricAvailable(PERFORMANCE_METRIC_INDEX.get('profile_quality'), {
+      provenance: { mode: 'approved_evidence', collections: ['performanceEvidence'] },
+    }, brand.aura.score, { calculation: 'aura_brief_evidence' }) : metricUnavailable(PERFORMANCE_METRIC_INDEX.get('aura_brand'), {
+      source: 'approved_evidence', provenance: { mode: 'approved_evidence', collections: ['performanceEvidence'] },
+    }, 'Chưa có nhiệm vụ Aura Brand được duyệt hoặc từ chối trong kỳ.'),
+    profile_quality: brand.profile.assessed ? metricAvailable(PERFORMANCE_METRIC_INDEX.get('profile_quality'), {
       source: 'approved_checklist', sampleSize: brand.profile.completedCount,
       note: 'Checklist 10 mục, mỗi mục đạt 0,2 điểm.',
-    }, brand.profile.score, { calculation: 'profile_checklist' }),
+      provenance: { mode: 'approved_evidence', collections: ['performanceEvidence'] },
+    }, brand.profile.score, { calculation: 'profile_checklist' }) : metricUnavailable(PERFORMANCE_METRIC_INDEX.get('profile_quality'), {
+      source: 'approved_checklist', provenance: { mode: 'approved_evidence', collections: ['performanceEvidence'] },
+    }, 'Profile Quality chưa được Manager xác nhận checklist trong kỳ.'),
   }
   const categories = PERFORMANCE_CATEGORIES.map((category) => {
     const submetrics = category.submetrics.map((definition) => (
@@ -633,7 +681,7 @@ async function loadPerformanceAssessment(db, staffId, period) {
   }
 }
 
-async function automaticPerformanceMetrics(db, target, period) {
+async function automaticFeedbackMetrics(db, target, period) {
   const trainerIds = [...new Set([target.staffId, target.ownerUid].filter(Boolean))]
   const from = `${shiftPeriod(period, -2)}-01`
   const to = `${period}-31`
@@ -657,7 +705,17 @@ async function automaticPerformanceMetrics(db, target, period) {
   }))
   const current = [...rows.values()].filter((item) => item.date.startsWith(`${period}-`))
   const selected = current.length >= 5 ? current : [...rows.values()]
-  const metrics = {}
+  const range = periodRangeForProvenance(period)
+  const metrics = {
+    customer_rating: {
+      source: 'system_auto', actual: null, sampleSize: 0, evidenceRefs: [],
+      note: 'Chưa có phản hồi hợp lệ trong kỳ hoặc rolling ba tháng.',
+      provenance: {
+        mode: 'automatic', collections: ['sessionFeedback'], periodStart: range.start,
+        periodEnd: range.end, generatedAt: new Date().toISOString(), completeness: 'complete', warnings: [],
+      },
+    },
+  }
   if (selected.length) {
     metrics.customer_rating = {
       source: current.length >= 5 ? 'system_auto' : 'rolling_average',
@@ -672,19 +730,83 @@ async function automaticPerformanceMetrics(db, target, period) {
   return metrics
 }
 
+function mergeAutomaticMetricInputs(automatic = {}, assessment = {}) {
+  const result = { ...assessment }
+  for (const [metricId, automaticInput] of Object.entries(automatic)) {
+    const reviewed = assessment[metricId] && typeof assessment[metricId] === 'object' ? assessment[metricId] : {}
+    const rubricAllowed = metricId === 'customer_rating' || metricId === 'renew_rate'
+    const manualScore = boundedNumber(reviewed.manualScore ?? reviewed.score, 0, PERFORMANCE_METRIC_INDEX.get(metricId)?.weight || 0)
+    result[metricId] = rubricAllowed && manualScore !== null
+      ? {
+          ...automaticInput,
+          manualScore,
+          note: [automaticInput.note, `Rubric ngoại lệ: ${reviewed.note || 'Manager đã duyệt.'}`].filter(Boolean).join(' '),
+          evidenceRefs: [...new Set([...(automaticInput.evidenceRefs || []), ...(reviewed.evidenceRefs || [])])].slice(0, 20),
+        }
+      : automaticInput
+  }
+  return result
+}
+
+async function automaticPerformanceMetrics(db, target, period) {
+  const range = periodRangeForProvenance(period)
+  const [feedback, operationalResult] = await Promise.all([
+    automaticFeedbackMetrics(db, target, period).catch((error) => ({
+      customer_rating: {
+        source: 'system_auto', actual: null, sampleSize: 0,
+        note: 'Nguồn phản hồi tự động chưa tổng hợp được; không dùng phiếu tay thay thế dữ liệu hệ thống.',
+        provenance: {
+          mode: 'automatic', collections: ['sessionFeedback'], periodStart: range.start, periodEnd: range.end,
+          generatedAt: new Date().toISOString(), completeness: 'partial',
+          warnings: [`sessionFeedback: ${error?.code || error?.message || 'unknown'}`],
+        },
+      },
+    })),
+    automaticOperationalMetrics(db, target, period).catch((error) => ({
+      metrics: Object.fromEntries(AUTOMATIC_OPERATIONAL_METRIC_IDS.map((metricId) => [metricId, {
+        source: 'system_auto', sampleSize: 0,
+        note: 'Nguồn vận hành tự động chưa tổng hợp được; không dùng phiếu tay thay thế dữ liệu hệ thống.',
+        provenance: {
+          mode: 'automatic', collections: [], periodStart: range.start, periodEnd: range.end,
+          generatedAt: new Date().toISOString(), completeness: 'partial',
+          warnings: [`performance-automatic: ${error?.code || error?.message || 'unknown'}`],
+        },
+      }])),
+      diagnostics: { sourceWarnings: [`performance-automatic: ${error?.code || error?.message || 'unknown'}`], generatedAt: new Date().toISOString() },
+    })),
+  ])
+  if (feedback.customer_rating && !feedback.customer_rating.provenance) {
+    feedback.customer_rating.provenance = {
+      mode: 'automatic', collections: ['sessionFeedback'], periodStart: range.start,
+      periodEnd: range.end, generatedAt: new Date().toISOString(), completeness: 'complete', warnings: [],
+    }
+  }
+  return {
+    metrics: { ...operationalResult.metrics, ...feedback },
+    diagnostics: operationalResult.diagnostics || {},
+  }
+}
+
+function periodRangeForProvenance(period) {
+  const [year, month] = period.split('-').map(Number)
+  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate()
+  return { start: `${period}-01`, end: `${period}-${String(lastDay).padStart(2, '0')}` }
+}
+
 async function performanceComputation(db, target, period, locked = false) {
-  const [evidence, assessment, automatic] = await Promise.all([
+  const [evidence, assessment, automaticResult] = await Promise.all([
     evidenceForStaff(db, target.staffId, period),
     loadPerformanceAssessment(db, target.staffId, period),
     automaticPerformanceMetrics(db, target, period),
   ])
   const summary = calculatePerformanceSummary({
     evidence,
-    metricInputs: { ...automatic, ...assessment.metrics },
+    metricInputs: mergeAutomaticMetricInputs(automaticResult.metrics, assessment.metrics),
     gateInputs: assessment.gates,
     locked,
   })
-  return { summary, assessment, automatic }
+  summary.automation = automaticResult.diagnostics
+  return { summary, assessment, automatic: automaticResult.metrics }
 }
 
 async function rebuildPerformanceSnapshot(db, target, period, actorUid = 'system:performance-score') {
@@ -1269,6 +1391,7 @@ module.exports = {
   calculateBrandPerformance,
   calculateMetricScore,
   calculatePerformanceSummary,
+  mergeAutomaticMetricInputs,
   bonusForScore,
   normalizeUrl,
   proofKey,

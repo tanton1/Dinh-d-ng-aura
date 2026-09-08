@@ -64,6 +64,18 @@ function gateCopy(status: PerformanceGateResult['status']) {
   return status === 'pass' ? 'Đạt' : status === 'fail' ? 'Không đạt' : 'Chờ kết luận'
 }
 
+function sourceCopy(metric: PerformanceSubmetricScore) {
+  if (metric.provenance.mode === 'automatic') return metric.provenance.completeness === 'partial' ? 'Nguồn tự động cần đối soát' : 'Tự động từ hệ thống'
+  if (metric.provenance.mode === 'approved_evidence') return 'Bằng chứng đã duyệt'
+  return 'Manager/Head Coach đánh giá'
+}
+
+function formatGeneratedAt(value: string) {
+  if (!value) return 'Chưa ghi nhận'
+  const parsed = new Date(value)
+  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString('vi-VN')
+}
+
 export default function PerformanceScorecardReviewPanel({ periodId, staff, isDemo = false }: {
   periodId: string
   staff: PerformanceStaffDirectoryItem[]
@@ -172,14 +184,30 @@ export default function PerformanceScorecardReviewPanel({ periodId, staff, isDem
         <article><small>Xếp loại</small><strong>{score.bonus.classification}</strong><span>{score.bonus.eligibility === 'eligible' ? 'Đủ điều kiện thưởng' : score.bonus.eligibility === 'ineligible' ? 'Không đủ Gate' : 'Chờ đủ dữ liệu/Gate'}</span></article>
         <article><small>Thưởng đề xuất</small><strong>{score.bonus.recommendedAmount === null ? '—' : `${score.bonus.recommendedAmount.toLocaleString('vi-VN')}đ`}</strong><span>Chưa tự ghi vào bảng lương</span></article>
       </div>
+      <div className={`performance-scorecard-review__automation ${score.automation.sourceWarnings.length ? 'has-warning' : ''}`}>
+        <CheckCircle2 /><span><strong>Nguồn vận hành tự động</strong><small>{score.automation.trainerStudentCount} học viên PT · {score.automation.nutritionStudentCount} học viên dinh dưỡng · {score.automation.sessionCount} ca trong kỳ</small></span>
+        <em>{score.automation.sourceWarnings.length ? `${score.automation.sourceWarnings.length} nguồn cần đối soát` : score.automation.projectionMetricsSkipped ? 'Không dùng projection hiện tại cho kỳ này' : `Đồng bộ ${formatGeneratedAt(score.automation.generatedAt)}`}</em>
+      </div>
       <div className="performance-scorecard-review__gates">{score.gates.map((gate) => <button type="button" className={`is-${gate.status}`} key={gate.id} disabled={score.locked || gate.id === 'quality'} onClick={() => openGate(gate)}><span><b>{gate.label}</b><small>{gate.reason}</small></span><em>{gateCopy(gate.status)}</em>{gate.id !== 'quality' && !score.locked && <Edit3 />}</button>)}</div>
       <div className="performance-scorecard-review__categories">{score.categories.map((category) => <section key={category.id}>
         <header><div><strong>{category.label}</strong><small>{category.availableWeight}/{category.weight} trọng số có dữ liệu</small></div><b>{category.score === null ? 'N/A' : `${category.score}/${category.weight}`}</b></header>
-        <div>{category.submetrics.map((metric) => <article className={`is-${metric.status}`} key={metric.id}>
-          <span><strong>{metric.label}</strong><small>{metric.note || metric.reason || statusCopy(metric.status)}</small><em>{metric.source || 'Chưa xác định nguồn'}</em></span>
-          <b>{metric.score === null ? 'N/A' : `${metric.score}/${metric.weight}`}</b>
-          {!BRAND_METRICS.has(metric.id) && <button type="button" disabled={score.locked} onClick={() => openMetric(metric)} aria-label={`Chấm ${metric.label}`}><Edit3 /></button>}
-        </article>)}</div>
+        <div>{category.submetrics.map((metric) => {
+          const automatic = metric.provenance.mode === 'automatic'
+          const rubricException = metric.status === 'needs_review' || ['complaint_rubric', 'renew_rubric'].includes(metric.calculation)
+          const editable = !BRAND_METRICS.has(metric.id) && (!automatic || rubricException)
+          return <article className={`is-${metric.status} ${automatic ? 'is-automatic' : ''}`} key={metric.id}>
+            <div><strong>{metric.label}</strong><small>{metric.note || metric.reason || statusCopy(metric.status)}</small><em>{sourceCopy(metric)}</em>
+              <details><summary>Chi tiết nguồn & phép tính</summary><dl>
+                <div><dt>Collection</dt><dd>{metric.provenance.collections.join(', ') || metric.source || 'Chưa xác định'}</dd></div>
+                <div><dt>Kỳ dữ liệu</dt><dd>{metric.provenance.periodStart ? `${metric.provenance.periodStart} → ${metric.provenance.periodEnd}` : periodId}</dd></div>
+                <div><dt>Mẫu tính</dt><dd>{metric.numerator !== null && metric.denominator !== null ? `${metric.numerator}/${metric.denominator}` : metric.actual !== null && metric.target !== null ? `${metric.actual}/${metric.target}` : metric.actual !== null ? String(metric.actual) : 'Rubric đã duyệt'}{metric.sampleSize ? ` · n=${metric.sampleSize}` : ''}</dd></div>
+                <div><dt>Đồng bộ</dt><dd>{formatGeneratedAt(metric.provenance.generatedAt)}</dd></div>
+              </dl>{metric.provenance.warnings.length > 0 && <p>{metric.provenance.warnings.join(' · ')}</p>}</details>
+            </div>
+            <b>{metric.score === null ? 'N/A' : `${metric.score}/${metric.weight}`}</b>
+            {editable && <button type="button" disabled={score.locked} onClick={() => openMetric(metric)} aria-label={`${rubricException ? 'Duyệt rubric' : 'Chấm'} ${metric.label}`}><Edit3 /></button>}
+          </article>
+        })}</div>
       </section>)}</div>
       {canLock && <footer className="performance-scorecard-review__lock"><div><strong>{score.locked ? 'Kỳ đã khóa' : 'Khóa kỳ sau khi đủ dữ liệu và Gate'}</strong><span>Khóa giữ nguyên công thức, chi tiết chỉ số và bằng chứng để đối soát.</span></div><input value={lockReason} maxLength={500} onChange={(event) => setLockReason(event.target.value)} placeholder="Lý do khóa/mở kỳ…" /><button type="button" disabled={Boolean(working)} onClick={() => void toggleLock()}>{score.locked ? <Unlock /> : <Lock />} {score.locked ? 'Mở kỳ' : 'Khóa kỳ'}</button></footer>}
     </>}

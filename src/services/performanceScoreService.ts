@@ -67,6 +67,15 @@ export interface PerformanceSubmetricScore {
   reason: string
   calculation: string
   achievementRate: number | null
+  provenance: {
+    mode: 'automatic' | 'approved_evidence' | 'manual'
+    collections: string[]
+    periodStart: string
+    periodEnd: string
+    generatedAt: string
+    completeness: 'complete' | 'partial'
+    warnings: string[]
+  }
 }
 
 export interface PerformanceGateResult {
@@ -101,6 +110,14 @@ export interface MyPerformanceScore {
     profile: { completedCount: number; target: 10; score: number; maximum: 2; checklist: Partial<Record<PerformanceProfileKey, boolean>> }
   }
   evidence: { total: number; pending: number; approved: number }
+  automation: {
+    sourceWarnings: string[]
+    trainerStudentCount: number
+    nutritionStudentCount: number
+    sessionCount: number
+    projectionMetricsSkipped: boolean
+    generatedAt: string
+  }
 }
 
 export type PerformanceAssessmentSource = 'manager_review' | 'system_fallback' | 'rolling_average' | 'neutral_score'
@@ -202,9 +219,10 @@ function normalizeScore(value: unknown, periodId: string): MyPerformanceScore {
   const score = object(raw.score)
   const evidence = object(raw.evidence)
   const bonus = object(raw.bonus)
+  const automation = object(raw.automation)
   return {
     schemaVersion: number(raw.schemaVersion) || 1,
-    formulaVersion: text(raw.formulaVersion) || 'aura-pt-performance-v1.0-2026-09-07',
+    formulaVersion: text(raw.formulaVersion) || 'aura-pt-performance-v1.1-2026-09-08',
     staffId: text(raw.staffId), staffName: text(raw.staffName), periodId: text(raw.periodId) || periodId,
     assessmentRevision: number(raw.assessmentRevision), generatedAt: text(raw.generatedAt), amountImpact: 'none', locked: raw.locked === true,
     coverage: { availableWeight: number(coverage.availableWeight), totalWeight: number(coverage.totalWeight) || 100, confidence: ['medium', 'high'].includes(text(coverage.confidence)) ? text(coverage.confidence) as 'medium' | 'high' : 'low', missingMetricIds: stringArray(coverage.missingMetricIds) },
@@ -213,6 +231,7 @@ function normalizeScore(value: unknown, periodId: string): MyPerformanceScore {
       const category = object(item)
       const submetrics: PerformanceSubmetricScore[] = Array.isArray(category.submetrics) ? category.submetrics.flatMap((rawMetric) => {
         const metric = object(rawMetric)
+        const provenance = object(metric.provenance)
         const id = text(metric.id)
         return id ? [{
           id,
@@ -224,6 +243,12 @@ function normalizeScore(value: unknown, periodId: string): MyPerformanceScore {
           numerator: nullableNumber(metric.numerator), denominator: nullableNumber(metric.denominator), sampleSize: number(metric.sampleSize),
           note: text(metric.note), evidenceRefs: stringArray(metric.evidenceRefs), reason: text(metric.reason), calculation: text(metric.calculation),
           achievementRate: nullableNumber(metric.achievementRate),
+          provenance: {
+            mode: ['automatic', 'approved_evidence'].includes(text(provenance.mode)) ? text(provenance.mode) as 'automatic' | 'approved_evidence' : 'manual',
+            collections: stringArray(provenance.collections), periodStart: text(provenance.periodStart), periodEnd: text(provenance.periodEnd),
+            generatedAt: text(provenance.generatedAt), completeness: provenance.completeness === 'partial' ? 'partial' : 'complete',
+            warnings: stringArray(provenance.warnings),
+          },
         }] : []
       }) : []
       return { id: text(category.id), label: text(category.label), weight: number(category.weight), score: nullableNumber(category.score), availableWeight: number(category.availableWeight), status: category.status === 'available' ? 'available' as const : category.status === 'partial' ? 'partial' as const : 'not_available' as const, submetrics }
@@ -249,6 +274,11 @@ function normalizeScore(value: unknown, periodId: string): MyPerformanceScore {
       profile: { completedCount: number(profile.completedCount), target: 10, score: number(profile.score), maximum: 2, checklist: normalizeEvidence({ type: 'profile_checklist', checklist: profile.checklist }).checklist },
     },
     evidence: { total: number(evidence.total), pending: number(evidence.pending), approved: number(evidence.approved) },
+    automation: {
+      sourceWarnings: stringArray(automation.sourceWarnings), trainerStudentCount: number(automation.trainerStudentCount),
+      nutritionStudentCount: number(automation.nutritionStudentCount), sessionCount: number(automation.sessionCount),
+      projectionMetricsSkipped: automation.projectionMetricsSkipped === true, generatedAt: text(automation.generatedAt),
+    },
   }
 }
 

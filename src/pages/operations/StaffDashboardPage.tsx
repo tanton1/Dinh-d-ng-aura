@@ -78,7 +78,7 @@ function demoPayrollSnapshot(periodId: string): StaffDashboardPayrollSnapshot {
 function demoPerformanceScore(periodId: string): MyPerformanceScore {
   return {
     schemaVersion: 2,
-    formulaVersion: 'aura-pt-performance-v1.0-2026-09-07',
+    formulaVersion: 'aura-pt-performance-v1.1-2026-09-08',
     staffId: 'demo-staff',
     staffName: 'PT Demo',
     periodId,
@@ -104,6 +104,7 @@ function demoPerformanceScore(periodId: string): MyPerformanceScore {
       profile: { completedCount: 3, target: 10, score: 0.6, maximum: 2, checklist: {} },
     },
     evidence: { total: 7, pending: 2, approved: 5 },
+    automation: { sourceWarnings: [], trainerStudentCount: 12, nutritionStudentCount: 4, sessionCount: 18, projectionMetricsSkipped: false, generatedAt: new Date().toISOString() },
   }
 }
 function sessionAttendance(session: TrainerSessionSummary) {

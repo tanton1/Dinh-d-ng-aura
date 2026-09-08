@@ -8,6 +8,7 @@ const {
   calculateBrandPerformance,
   calculateMetricScore,
   calculatePerformanceSummary,
+  mergeAutomaticMetricInputs,
   bonusForScore,
   normalizeUrl,
   proofKey,
@@ -179,6 +180,30 @@ test('missing data remains N/A and never silently becomes zero', () => {
   assert.equal(summary.bonus.eligibility, 'pending')
 })
 
+test('Brand without reviewed evidence remains N/A instead of claiming verified zero', () => {
+  const empty = calculatePerformanceSummary({ evidence: [] })
+  const pending = calculatePerformanceSummary({ evidence: [{ id: 'pending', type: 'personal_content', status: 'submitted' }] })
+  assert.equal(empty.coverage.availableWeight, 0)
+  assert.equal(empty.categories.find((item) => item.id === 'brand').score, null)
+  assert.equal(pending.categories.find((item) => item.id === 'brand').availableWeight, 0)
+})
+
+test('automatic operational data cannot be overwritten by a stored manual assessment', () => {
+  const automatic = {
+    attendance: { source: 'system_auto', actual: 98, provenance: { mode: 'automatic' } },
+    customer_rating: { source: 'system_auto', actual: 4.8, note: '5 feedback', evidenceRefs: ['sessionFeedback/a'], provenance: { mode: 'automatic' } },
+  }
+  const assessments = {
+    attendance: { source: 'manager_review', actual: 50, note: 'old manual value' },
+    customer_rating: { source: 'manager_review', actual: 1, manualScore: 2, note: 'complaint rubric', evidenceRefs: ['incident/x'] },
+  }
+  const merged = mergeAutomaticMetricInputs(automatic, assessments)
+  assert.equal(merged.attendance.actual, 98)
+  assert.equal(merged.customer_rating.actual, 4.8)
+  assert.equal(merged.customer_rating.manualScore, 2)
+  assert.deepEqual(merged.customer_rating.evidenceRefs, ['sessionFeedback/a', 'incident/x'])
+})
+
 test('bonus bands match the issued Performance Score policy', () => {
   assert.deepEqual([95, 90, 85, 80, 70, 69.99].map((score) => bonusForScore(score).bonusAmount), [3_000_000, 2_000_000, 1_500_000, 1_000_000, 500_000, 0])
 })
@@ -213,10 +238,13 @@ test('manager reviews are branch scoped while Admin can review the whole system'
 test('Firestore and Storage deny direct evidence writes while callable exports remain explicit', () => {
   const root = path.join(__dirname, '..')
   const firestoreRules = fs.readFileSync(path.join(root, 'firestore.rules'), 'utf8')
+  const firestoreIndexes = fs.readFileSync(path.join(root, 'firestore.indexes.json'), 'utf8')
   const storageRules = fs.readFileSync(path.join(root, 'storage.rules'), 'utf8')
   const indexSource = fs.readFileSync(path.join(__dirname, 'index.js'), 'utf8')
   assert.match(firestoreRules, /match \/performanceEvidence\/\{evidenceId\}[\s\S]*?allow read, write: if false/)
   assert.match(firestoreRules, /match \/performanceAssessments\/\{assessmentId\}[\s\S]*?allow read, write: if false/)
+  assert.match(firestoreIndexes, /"collectionGroup": "attendanceEvents"[\s\S]*?"fieldPath": "trainerId"[\s\S]*?"fieldPath": "occurredAt"/)
+  assert.match(firestoreIndexes, /"collectionGroup": "ledgerEntries"[\s\S]*?"fieldPath": "referralStaffId"[\s\S]*?"fieldPath": "effectiveAt"/)
   assert.match(storageRules, /match \/performance-evidence\/\{userId\}\/\{periodId\}\/\{evidenceId\}\/\{fileName\}[\s\S]*?request\.resource\.metadata\.ownerUid == userId/)
   assert.match(indexSource, /exports\.submitPerformanceBrandEvidenceV2/)
   assert.match(indexSource, /exports\.reviewPerformanceBrandEvidenceV2/)
