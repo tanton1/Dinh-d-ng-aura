@@ -19,6 +19,7 @@ export interface NutritionMealReview {
   isOverdue: boolean
   time: string
   image: string
+  imageStoragePath: string
   note: string
   mealType: string
   totalKcal: number
@@ -34,6 +35,11 @@ export interface NutritionMealReview {
   confidence: 'low' | 'medium' | 'high'
   coachFeedback: string
   revision: number
+  mealRevision: number
+  snapshotHash: string
+  calorieRange: { low: number; high: number } | null
+  unresolvedQuestions: string[]
+  nutrientSources: Record<string, unknown>
   items: Array<{ name: string; weight: number; kcal: number; protein: number }>
   suggestions: Array<{ type: 'pass' | 'warn'; text: string }>
   analysis: {
@@ -127,7 +133,7 @@ export async function reviewNutritionMeal(input: {
     reviewId: string
     status: NutritionReviewStatus
     revision: number
-    reviewedAt: number
+    reviewedAt: number | null
   }>(functionsOrThrow(), 'reviewNutritionMeal')
   try {
     return (await callable(input)).data

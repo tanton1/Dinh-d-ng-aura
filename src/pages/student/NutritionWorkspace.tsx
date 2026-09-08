@@ -59,7 +59,7 @@ export interface NutritionMealEntry {
   image?: string
   confidence?: NutritionDataConfidence
   sourceLabel?: string
-  reviewStatus?: 'pending' | 'reviewed'
+  reviewStatus?: 'pending' | 'approved' | 'rejected'
   cookingNote?: string
   portionNote?: string
   coachFeedback?: string
@@ -374,10 +374,10 @@ export function NutritionDiaryPage({
 
   const filteredTimeline = useMemo(() => timeline.filter((event) => {
     if (activeFilter === 'all') return true
-    if (activeFilter === 'review') return event.kind === 'meal' && (event.item.reviewStatus === 'pending' || event.item.confidence !== 'verified')
+    if (activeFilter === 'review') return event.kind === 'meal' && (event.item.reviewStatus === 'pending' || event.item.reviewStatus === 'rejected' || event.item.confidence !== 'verified')
     return event.kind === activeFilter
   }), [activeFilter, timeline])
-  const needsReviewCount = useMemo(() => meals.filter((meal) => meal.reviewStatus === 'pending' || meal.confidence !== 'verified').length, [meals])
+  const needsReviewCount = useMemo(() => meals.filter((meal) => meal.reviewStatus === 'pending' || meal.reviewStatus === 'rejected' || meal.confidence !== 'verified').length, [meals])
   const summaryByDate = useMemo(() => new Map(daySummaries.map((item) => [item.date, item])), [daySummaries])
   const visibleDateKeys = diaryPeriodKeys(dateKey, activeView)
   const periodSummary = visibleDateKeys.reduce((result, item) => {
@@ -539,8 +539,8 @@ export function NutritionDiaryPage({
               {filteredTimeline.map((event) => {
                 if (event.kind === 'meal') {
                   const meal = event.item
-                  const statusLabel = meal.reviewStatus === 'reviewed' ? 'Đã duyệt' : meal.reviewStatus === 'pending' ? 'Chờ coach' : confidenceCopy(meal.confidence)
-                  const statusTone = meal.reviewStatus === 'reviewed' ? 'reviewed' : meal.reviewStatus === 'pending' ? 'pending' : meal.confidence ?? 'verified'
+                  const statusLabel = meal.reviewStatus === 'approved' ? 'Đã duyệt' : meal.reviewStatus === 'pending' ? 'Chờ coach' : meal.reviewStatus === 'rejected' ? 'Cần chỉnh' : confidenceCopy(meal.confidence)
+                  const statusTone = meal.reviewStatus === 'approved' ? 'reviewed' : meal.reviewStatus === 'pending' ? 'pending' : meal.reviewStatus === 'rejected' ? 'needs-review' : meal.confidence ?? 'verified'
                   return (
                     <li key={event.id} className="nutrition-diary-event nutrition-diary-event--meal">
                       <time>{meal.time}</time>
@@ -666,7 +666,7 @@ export function NutritionClassicDiaryPage({
     ...waterEntries.map((item) => ({ kind: 'water' as const, id: `water-${item.id}`, time: item.time, item })),
   ].sort((left, right) => left.time.localeCompare(right.time)), [activities, meals, waterEntries])
   const remaining = targets.calories - totals.calories
-  const reviewCount = meals.filter((meal) => meal.reviewStatus === 'pending' || (meal.confidence && meal.confidence !== 'verified')).length
+  const reviewCount = meals.filter((meal) => meal.reviewStatus === 'pending' || meal.reviewStatus === 'rejected' || (meal.confidence && meal.confidence !== 'verified')).length
   const shiftDay = (direction: -1 | 1) => {
     const next = shiftDiaryDate(dateKey, direction, 'day')
     if (next >= historyFromDate && next <= todayKey) onSelectDate(next)

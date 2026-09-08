@@ -15,13 +15,27 @@ import {
   type Query,
   type Unsubscribe,
 } from 'firebase/firestore'
+import { httpsCallable } from 'firebase/functions'
+import { getDownloadURL, ref, uploadBytes } from 'firebase/storage'
+import { firebaseAuth } from '../lib/firebase'
 import { firestoreDb } from '../lib/firebaseFirestore'
+import { firebaseFunctions } from '../lib/firebaseFunctions'
+import { firebaseStorage } from '../lib/firebaseStorage'
 import { readVersionedCache, writeVersionedCache } from '../dataSync/versionedCache'
 import type { DataSyncState } from '../dataSync/profileSync'
 
 function requireDb() {
   if (!firestoreDb) throw new Error('Firebase chưa được cấu hình. Hãy kiểm tra file .env.local.')
   return firestoreDb
+}
+
+function requireNutritionCloud(userId: string) {
+  const currentUser = firebaseAuth?.currentUser
+  if (!currentUser || currentUser.uid !== userId) {
+    throw new Error('Bạn cần đăng nhập đúng tài khoản học viên để cập nhật nhật ký dinh dưỡng.')
+  }
+  if (!firebaseFunctions) throw new Error('Firebase Functions chưa được cấu hình.')
+  return firebaseFunctions
 }
 
 function withoutUndefined<T>(value: T): T {
@@ -88,6 +102,45 @@ export async function cleanMealForStorage<T extends Record<string, any>>(meal: T
   return cleaned
 }
 
+function dataUrlToBlob(dataUrl: string) {
+  const [header, encoded] = dataUrl.split(',', 2)
+  const contentType = /^data:(image\/(?:jpeg|png|webp));base64$/i.exec(header)?.[1]?.toLowerCase()
+  if (!contentType || !encoded) throw new Error('Ảnh bữa ăn không hợp lệ.')
+  const binary = atob(encoded)
+  const bytes = new Uint8Array(binary.length)
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index)
+  return new Blob([bytes], { type: contentType })
+}
+
+const mealPhotoUrlCache = new Map<string, Promise<string>>()
+
+async function mealPhotoUrl(storagePath: string) {
+  if (!firebaseStorage || !storagePath) return ''
+  let pending = mealPhotoUrlCache.get(storagePath)
+  if (!pending) {
+    pending = getDownloadURL(ref(firebaseStorage, storagePath)).catch((error) => {
+      mealPhotoUrlCache.delete(storagePath)
+      throw error
+    })
+    mealPhotoUrlCache.set(storagePath, pending)
+  }
+  return pending
+}
+
+async function hydrateMealImages(items: Record<string, unknown>[]) {
+  return Promise.all(items.map(async (item) => {
+    const normalizedItem = item.reviewStatus === 'reviewed' ? { ...item, reviewStatus: 'approved' } : item
+    const storagePath = typeof item.imageStoragePath === 'string' ? item.imageStoragePath : ''
+    if (!storagePath) return normalizedItem
+    try {
+      return { ...normalizedItem, image: await mealPhotoUrl(storagePath) }
+    } catch {
+      const legacyImage = typeof item.image === 'string' && !item.image.startsWith('data:') ? item.image : ''
+      return { ...normalizedItem, image: legacyImage }
+    }
+  }))
+}
+
 async function saveUserLog(collectionName: 'mealLogs' | 'waterLogs' | 'activityLogs', userId: string, value: Record<string, unknown> & { id: string }) {
   const reference = doc(requireDb(), 'users', userId, collectionName, value.id)
   await setDoc(reference, withoutUndefined({ ...value, updatedAt: serverTimestamp(), createdAt: value.createdAt ?? serverTimestamp() }), { merge: true })
@@ -119,7 +172,8 @@ function subscribeToUserLog(
 
   return onSnapshot(source, { includeMetadataChanges: true }, (snapshot) => {
     const items = filterItems(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })))
-    onData(items)
+    if (collectionName === 'mealLogs') void hydrateMealImages(items).then(onData).catch(() => onData(items))
+    else onData(items)
     const previous = confirmedCache()
     if (snapshot.metadata.hasPendingWrites) {
       onSync?.({ status: 'pending-local-change', revision: previous?.revision ?? 0, cachedAt: previous?.cachedAt ?? null })
@@ -135,7 +189,9 @@ function subscribeToUserLog(
     }
   }, (error) => {
     const fallback = confirmedCache()
-    onData(filterItems(fallback?.value ?? []))
+    const fallbackItems = filterItems(fallback?.value ?? [])
+    if (collectionName === 'mealLogs') void hydrateMealImages(fallbackItems).then(onData).catch(() => onData(fallbackItems))
+    else onData(fallbackItems)
     onSync?.({
       status: typeof navigator !== 'undefined' && !navigator.onLine && fallback ? 'offline-readonly' : 'sync-failed',
       revision: fallback?.revision ?? 0,
@@ -163,7 +219,7 @@ async function loadUserLog(
     const items = filterItems(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })))
     const written = writeVersionedCache(key, userId, cacheName, items)
     onSync?.({ status: 'synced', revision: written?.revision ?? Date.now(), cachedAt: written?.cachedAt ?? null })
-    return items
+    return collectionName === 'mealLogs' ? await hydrateMealImages(items) : items
   } catch (error) {
     const fallback = readVersionedCache(key, userId, cacheName, isLogArray)
     onSync?.({
@@ -171,15 +227,55 @@ async function loadUserLog(
       revision: fallback?.revision ?? 0,
       cachedAt: fallback?.cachedAt ?? null,
     })
-    if (fallback) return filterItems(fallback.value)
+    if (fallback) {
+      const items = filterItems(fallback.value)
+      return collectionName === 'mealLogs' ? await hydrateMealImages(items) : items
+    }
     throw error
   }
 }
 
 export async function saveUserMealLog(userId: string, meal: Record<string, unknown> & { id: string }) {
-  return saveUserLog('mealLogs', userId, await cleanMealForStorage(meal))
+  const functions = requireNutritionCloud(userId)
+  const cleaned = await cleanMealForStorage(meal)
+  const payload: Record<string, unknown> = { ...cleaned, id: meal.id }
+  const rawImage = typeof payload.image === 'string' ? payload.image : ''
+  if (rawImage.startsWith('data:image')) {
+    if (!firebaseStorage) throw new Error('Firebase Storage chưa được cấu hình.')
+    const compressed = await compressBase64Image(rawImage, 1_200, .78)
+    const blob = dataUrlToBlob(compressed)
+    if (blob.size > 8 * 1024 * 1024) throw new Error('Ảnh bữa ăn vượt quá giới hạn 8 MB.')
+    const extension = blob.type === 'image/png' ? 'png' : blob.type === 'image/webp' ? 'webp' : 'jpg'
+    const storagePath = `users/${userId}/meal-photos/${meal.id}/original.${extension}`
+    const imageReference = ref(firebaseStorage, storagePath)
+    const alreadyUploaded = await getDownloadURL(imageReference).then(() => true).catch(() => false)
+    if (!alreadyUploaded) {
+      await uploadBytes(imageReference, blob, {
+        contentType: blob.type,
+        cacheControl: 'private, max-age=300',
+        customMetadata: {
+          ownerUid: userId,
+          mealId: meal.id,
+          resourceKind: 'nutrition-meal-photo',
+        },
+      })
+    }
+    payload.imageStoragePath = storagePath
+    delete payload.image
+    mealPhotoUrlCache.delete(storagePath)
+  }
+  if (typeof payload.imageStoragePath === 'string' && payload.imageStoragePath) delete payload.image
+  const callable = httpsCallable<
+    { meal: Record<string, unknown> },
+    { mealId: string; mealRevision: number; reviewInvalidated: boolean }
+  >(functions, 'saveNutritionMealLog')
+  return (await callable({ meal: withoutUndefined(payload) })).data
 }
-export async function deleteUserMealLog(userId: string, mealId: string) { await deleteDoc(doc(requireDb(), 'users', userId, 'mealLogs', mealId)) }
+export async function deleteUserMealLog(userId: string, mealId: string) {
+  const functions = requireNutritionCloud(userId)
+  const callable = httpsCallable<{ mealId: string }, { mealId: string; deleted: boolean }>(functions, 'deleteNutritionMealLog')
+  await callable({ mealId })
+}
 export function subscribeToUserMealLogs(userId: string, onData: (items: any[]) => void, onError?: (error: Error) => void, onSync?: (state: DataSyncState) => void) { return subscribeToUserLog('mealLogs', 'user_meal_logs', userId, onData, onError, onSync) }
 export function subscribeToUserMealLogsForDate(userId: string, date: string, onData: (items: any[]) => void, onError?: (error: Error) => void) {
   return subscribeToUserLog('mealLogs', 'user_meal_logs_day', userId, onData, onError, undefined, {

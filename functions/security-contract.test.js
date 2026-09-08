@@ -113,19 +113,21 @@ test('Eat Clean config writes cannot bypass callable readiness and revision guar
 
 test('meal reviews and notifications are owner scoped', () => {
   assert.match(rules, /match \/mealReviews\/\{reviewId\}[\s\S]*?resource\.data\.userId == request\.auth\.uid/)
-  assert.match(rules, /request\.resource\.data\.userId == resource\.data\.userId/)
+  assert.match(rules, /match \/mealReviews\/\{reviewId\}[\s\S]*?allow create, update, delete: if false/)
+  assert.match(rules, /match \/mealLogs\/\{mealId\}[\s\S]*?allow create, update, delete: if false/)
   assert.match(rules, /match \/notifications\/\{notificationId\}[\s\S]*?allow read: if isOwner\(userId\)/)
 })
 
 test('meal approval preserves the immutable structured AI analysis snapshot', () => {
-  assert.match(firebaseServiceSource, /resolveMealAnalysisSnapshot/)
-  assert.match(firebaseServiceSource, /data\.meal\?\.aiAnalysis/)
-  assert.match(firebaseServiceSource, /if \(!existingAnalysis && reviewAnalysis\)/)
-  assert.doesNotMatch(firebaseServiceSource, /aiAnalysis:\s*data\.aiAnalysis\s*\|\|\s*sanitizedUpdates\.aiAnalysis\s*\|\|\s*null/)
+  const nutritionReviewSource = readFileSync(join(repositoryRoot, 'functions', 'nutrition-reviews.js'), 'utf8')
+  assert.match(nutritionReviewSource, /const snapshotAnalysis = review\.analysisSnapshot \|\| meal\.analysisSnapshot \|\| meal\.aiAnalysis \|\| review\.aiAnalysis/)
+  assert.match(nutritionReviewSource, /if \(!logData\.aiAnalysis && snapshotAnalysis/)
+  assert.match(nutritionReviewSource, /reviewMealRevision !== currentMealRevision/)
+  assert.match(firebaseServiceSource, /submitNutritionMealReview/)
   assert.doesNotMatch(mealDetailSource, /generateMealReview/)
   assert.match(mealDetailSource, /submitMealReview\([^\n]+, meal\)/)
 
-  const reviewUpdateRule = rules.match(/match \/mealReviews\/\{reviewId\}[\s\S]*?allow delete: if isAdmin\(\);/)?.[0] ?? ''
+  const reviewUpdateRule = rules.match(/match \/mealReviews\/\{reviewId\}[\s\S]*?allow create, update, delete: if false;/)?.[0] ?? ''
   assert.doesNotMatch(reviewUpdateRule, /'aiAnalysis'/)
   assert.doesNotMatch(reviewUpdateRule, /'analysisSnapshot'/)
 })

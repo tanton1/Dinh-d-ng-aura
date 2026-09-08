@@ -62,7 +62,7 @@ function configuredRealtimeDatabase() {
 }
 const realtimeDb = configuredRealtimeDatabase()
 
-async function cleanupStaleAiCoachImages(now = Date.now()) {
+async function cleanupStaleNutritionScanImages(now = Date.now()) {
   const [files] = await storage.bucket().getFiles({
     prefix: 'nutrition-scans/',
     maxResults: 500,
@@ -72,7 +72,7 @@ async function cleanupStaleAiCoachImages(now = Date.now()) {
   const staleFiles = files.filter((file) => {
     const purpose = file.metadata?.metadata?.purpose
     const createdAt = Date.parse(file.metadata?.timeCreated || file.metadata?.updated || '')
-    return ['ai-coach-body', 'ai-coach-meal'].includes(purpose)
+    return ['food-analysis', 'ai-coach-body', 'ai-coach-meal'].includes(purpose)
       && Number.isFinite(createdAt)
       && createdAt <= cutoff
   })
@@ -198,7 +198,7 @@ exports.cleanupEatCleanLiveLocations = onSchedule({
     deletedLocations = Object.keys(updates).length
     if (deletedLocations) await realtimeDb.ref('eatCleanLiveLocations').update(updates)
   }
-  const imageCleanup = await cleanupStaleAiCoachImages()
+  const imageCleanup = await cleanupStaleNutritionScanImages()
   logger.info('Stale private location and AI image cleanup completed', {
     deletedLocations,
     ...imageCleanup,
@@ -304,6 +304,9 @@ Object.assign(exports, nutritionReviewFunctions)
 exports.listNutritionMealReviews = nutritionReviewFunctions.listNutritionMealReviews
 exports.assignNutritionCoach = nutritionReviewFunctions.assignNutritionCoach
 exports.reviewNutritionMeal = nutritionReviewFunctions.reviewNutritionMeal
+exports.saveNutritionMealLog = nutritionReviewFunctions.saveNutritionMealLog
+exports.deleteNutritionMealLog = nutritionReviewFunctions.deleteNutritionMealLog
+exports.submitNutritionMealReview = nutritionReviewFunctions.submitNutritionMealReview
 Object.assign(exports, createOperationsDashboardFunctions({ db, onCall, logger }))
 exports.cleanupOperationsDashboardCache = onSchedule({
   schedule: 'every 6 hours',

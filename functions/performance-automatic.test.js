@@ -107,7 +107,7 @@ test('nutrition automation measures completion, SLA and compliance only from ass
     ids: ['coach'], range, nutritionStudents: ['a'], accountByStudent: new Map([['a', 'uid-a']]), reviewSlaMinutes: 240,
     dailyCheckins: [{ studentId: 'a', date: '2026-09-02', compliance: 80 }],
     mealReviews: [
-      { id: 'm1', userId: 'uid-a', status: 'approved', reviewedBy: 'coach', createdAt: '2026-09-02T01:00:00Z', updatedAt: '2026-09-02T02:00:00Z' },
+      { id: 'm1', userId: 'uid-a', status: 'approved', reviewedBy: 'coach', createdAt: '2026-09-02T01:00:00Z', reviewedAt: '2026-09-02T02:00:00Z' },
       { id: 'm2', userId: 'uid-a', status: 'pending', createdAt: '2026-09-03T01:00:00Z' },
       { id: 'm3', userId: 'other', status: 'approved', createdAt: '2026-09-03T01:00:00Z', updatedAt: '2026-09-03T02:00:00Z' },
     ],
@@ -122,7 +122,7 @@ test('nutrition automation accepts both CRM id and linked account UID', () => {
   const result = nutritionMetrics({
     ids: ['coach'], range, nutritionStudents: ['crm-a'], accountByStudent: new Map([['crm-a', 'uid-a']]), reviewSlaMinutes: 240,
     dailyCheckins: [{ studentId: 'uid-a', canonicalStudentId: 'crm-a', date: '2026-09-02', compliance: 100 }],
-    mealReviews: [{ id: 'm1', userId: 'crm-a', status: 'approved', reviewedBy: 'coach', createdAt: '2026-09-02T01:00:00Z', updatedAt: '2026-09-02T02:00:00Z' }],
+    mealReviews: [{ id: 'm1', userId: 'crm-a', status: 'approved', reviewedBy: 'coach', createdAt: '2026-09-02T01:00:00Z', reviewedAt: '2026-09-02T02:00:00Z' }],
   })
   assert.equal(result.nutrition_review_completion.numerator, 1)
   assert.equal(result.compliance_management.manualScore, 3)

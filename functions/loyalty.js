@@ -820,8 +820,8 @@ function nutritionDailySummaries(reviews = []) {
     current.meals += 1
     current.calories += positive(meal.calories, meal.totalKcal, totals.calories, review.totalKcal)
     current.protein += positive(meal.protein, meal.totalProtein, totals.protein, review.totalProtein)
-    current.calorieTarget = current.calorieTarget || positive(review.targetKcal, meal.targetKcal)
-    current.proteinTarget = current.proteinTarget || positive(review.targetProtein, meal.targetProtein)
+    current.calorieTarget = current.calorieTarget || positive(review.targetKcal, meal.targetKcal, meal.targetSnapshot?.calories)
+    current.proteinTarget = current.proteinTarget || positive(review.targetProtein, meal.targetProtein, meal.targetSnapshot?.protein)
     days.set(date, current)
   }
   return [...days.values()].sort((left, right) => left.date.localeCompare(right.date)).map((day) => ({

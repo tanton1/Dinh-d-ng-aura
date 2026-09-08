@@ -154,6 +154,23 @@ service firebase.storage {
       allow delete: if isOwner(userId);
     }
 
+    match /users/{userId}/meal-photos/{mealId}/{fileName} {
+      // The learner owns the persistent original. Coaches receive a short-lived
+      // signed URL only after the review callable verifies assignment scope.
+      allow read: if isOwner(userId);
+      allow create: if isOwner(userId)
+                    && mealId.matches('[A-Za-z0-9_-]{1,200}')
+                    && fileName.matches('original\\.(jpg|jpeg|png|webp)')
+                    && request.resource.size > 0
+                    && request.resource.size <= 8 * 1024 * 1024
+                    && request.resource.contentType.matches('image/(jpeg|png|webp)')
+                    && request.resource.metadata.ownerUid == userId
+                    && request.resource.metadata.mealId == mealId
+                    && request.resource.metadata.resourceKind == 'nutrition-meal-photo';
+      allow update: if false;
+      allow delete: if isOwner(userId);
+    }
+
     match /users/{userId}/progress-photos/{fileName} {
       // The learner owns uploads. Assigned Staff receive only short-lived
       // signed URLs from Student 360 after the server verifies assignment.

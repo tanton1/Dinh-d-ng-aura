@@ -68,7 +68,7 @@ export interface MealLogItem {
   coachFeedbackSuggestion?: string
   cookingNote?: string
   portionNote?: string
-  reviewStatus?: 'pending' | 'reviewed'
+  reviewStatus?: 'pending' | 'approved' | 'rejected'
 }
 
 import { useAuth } from '../../contexts/AuthContext'
@@ -105,7 +105,7 @@ export const CapturedMealDetail: React.FC<CapturedMealDetailProps> = ({
       setReviewSubmitted(true)
     } catch (error) {
       console.error(error)
-      alert('Có lỗi xảy ra khi gửi.')
+      alert(error instanceof Error ? error.message : 'Không thể gửi Coach duyệt. Bữa ăn vẫn được giữ trong Nhật ký.')
     } finally {
       setIsSubmittingReview(false)
     }
@@ -579,14 +579,15 @@ export const CapturedMealDetail: React.FC<CapturedMealDetailProps> = ({
           type="button"
           className="fdet-btn-secondary"
           onClick={handleSubmitReview}
-          disabled={isSubmittingReview || reviewSubmitted || meal.reviewStatus === 'pending' || meal.reviewStatus === 'reviewed'}
-          style={{ color: (reviewSubmitted || meal.reviewStatus) ? '#10b981' : undefined }}
+          disabled={isSubmittingReview || reviewSubmitted || meal.reviewStatus === 'pending' || meal.reviewStatus === 'approved'}
+          style={{ color: meal.reviewStatus === 'rejected' ? '#b82850' : (reviewSubmitted || meal.reviewStatus === 'approved') ? '#14805e' : undefined }}
         >
-          {isSubmittingReview ? <LoaderCircle size={16} className="animate-spin" /> : (reviewSubmitted || meal.reviewStatus) ? <Check size={16} /> : <ScanLine size={16} />}
+          {isSubmittingReview ? <LoaderCircle size={16} className="animate-spin" /> : (reviewSubmitted || meal.reviewStatus === 'pending' || meal.reviewStatus === 'approved') ? <Check size={16} /> : <ScanLine size={16} />}
           <span>
             {isSubmittingReview ? 'Đang gửi...' 
-             : meal.reviewStatus === 'reviewed' ? 'Đã duyệt'
+             : meal.reviewStatus === 'approved' ? 'Đã duyệt'
              : (reviewSubmitted || meal.reviewStatus === 'pending') ? 'Đang chờ duyệt' 
+             : meal.reviewStatus === 'rejected' ? 'Gửi duyệt lại'
              : 'Gửi duyệt'}
           </span>
         </button>

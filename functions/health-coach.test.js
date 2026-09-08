@@ -355,7 +355,7 @@ test('Storage permits only the three private nutrition image purposes', () => {
 
 test('hourly cleanup removes abandoned AI Coach images without deleting retained food scans', () => {
   assert.match(functionsIndexSource, /prefix: 'nutrition-scans\/'/)
-  assert.match(functionsIndexSource, /\['ai-coach-body', 'ai-coach-meal'\]\.includes\(purpose\)/)
+  assert.match(functionsIndexSource, /\['food-analysis', 'ai-coach-body', 'ai-coach-meal'\]\.includes\(purpose\)/)
   assert.match(functionsIndexSource, /now - 24 \* 60 \* 60 \* 1000/)
   assert.match(functionsIndexSource, /file\.delete\(\{ ignoreNotFound: true \}\)/)
   assert.match(functionsIndexSource, /cpu: 'gcf_gen1'[\s\S]*memory: '256MiB'[\s\S]*maxInstances: 1/)

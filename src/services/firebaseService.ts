@@ -27,7 +27,6 @@ import { firebaseStorage } from '../lib/firebaseStorage'
 import { safeLocalStorageSet } from '../lib/safeStorage'
 import { reportClientIssue } from './clientTelemetryService'
 import { callReadOnlyFunction } from './readOnlyCallableService'
-import { compressBase64Image } from './firebaseNutritionLogService'
 export {
   cleanMealForStorage,
   compressBase64Image,
@@ -985,71 +984,15 @@ export async function seedAuraDemoData() {
 }
 
 export async function submitMealReview(userId: string, userName: string, meal: any) {
-  const db = requireDb()
-  const reference = doc(db, 'mealReviews', meal.id)
-  
-  let cleanedMeal = { ...meal }
-  const analysisSnapshot = resolveMealAnalysisSnapshot(meal.analysisSnapshot, meal.aiAnalysis)
-  if (analysisSnapshot) {
-    // Keep the snapshot next to the meal for backwards-compatible readers and
-    // at the review root as the immutable source used during approval.
-    cleanedMeal.aiAnalysis = analysisSnapshot
-    cleanedMeal.analysisSnapshot = analysisSnapshot
-  }
-  const rawImg = meal.image || meal.imageUrl || meal.img || meal.fileName
-  if (rawImg && typeof rawImg === 'string' && rawImg.startsWith('data:image')) {
-    try {
-      const compressed = await compressBase64Image(rawImg)
-      if (cleanedMeal.image) cleanedMeal.image = compressed
-      if (cleanedMeal.imageUrl) cleanedMeal.imageUrl = compressed
-      if (cleanedMeal.img) cleanedMeal.img = compressed
-      if (cleanedMeal.fileName) cleanedMeal.fileName = compressed
-    } catch (e) {
-      console.warn('Image compression error:', e)
-    }
-  }
-
-  let studentGoal = meal.studentGoal || meal.userGoal
-  let studentCondition = meal.studentCondition || meal.userCondition
-
-  if (!studentGoal || !studentCondition) {
-    try {
-      const userDoc = await getDoc(doc(db, 'users', userId))
-      if (userDoc.exists()) {
-        const uData = userDoc.data()
-        const np = uData.nutritionProfile || uData.profile || uData
-        if (np) {
-          const goalStr = np.goal === 'lose-fat' ? 'Giảm mỡ thâm hụt calo' : np.goal === 'gain-muscle' ? 'Tăng cơ nạc' : 'Duy trì vóc dáng'
-          const sexStr = np.biologicalSex === 'female' ? 'Nữ' : np.biologicalSex === 'male' ? 'Nam' : ''
-          const ageStr = np.age ? `${np.age} tuổi` : ''
-          const hStr = np.heightCm ? `Cao ${np.heightCm}cm` : ''
-          const wStr = np.weightKg ? `Nặng ${np.weightKg}kg` : ''
-          const trStr = np.trainingSessions ? `Tập ${np.trainingSessions} buổi/tuần` : ''
-          if (!studentGoal) studentGoal = goalStr
-          if (!studentCondition) studentCondition = [sexStr, ageStr, hStr, wStr, trStr].filter(Boolean).join(', ')
-        }
-      }
-    } catch (e) {
-      console.warn('Could not fetch user profile for meal review:', e)
-    }
-  }
-
-  await setDoc(
-    reference,
-    withoutUndefined({
-      id: meal.id,
-      userId,
-      userName,
-      studentGoal: studentGoal || 'Giảm mỡ thâm hụt calo & Tăng cơ nạc',
-      studentCondition: studentCondition || 'Tập gym 3-4 buổi/tuần (Chỉ số theo nhật ký)',
-      meal: cleanedMeal,
-      analysisSnapshot,
-      status: 'pending',
-      updatedAt: serverTimestamp(),
-      createdAt: serverTimestamp(),
-    }),
-    { merge: true },
+  if (!firebaseFunctions || !firebaseAuth?.currentUser) throw new Error('Bạn cần đăng nhập để gửi Coach duyệt món.')
+  if (firebaseAuth.currentUser.uid !== userId) throw new Error('Tài khoản hiện tại không thể gửi bữa ăn này.')
+  if (!meal?.id) throw new Error('Bữa ăn chưa được lưu nên chưa thể gửi duyệt.')
+  void userName
+  const callable = httpsCallable<{ mealId: string }, { reviewId: string; status: 'pending'; revision: number }>(
+    firebaseFunctions,
+    'submitNutritionMealReview',
   )
+  return (await callable({ mealId: meal.id })).data
 }
 
 export enum OperationType {
@@ -1071,78 +1014,20 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
 }
 
 export async function updateMealReview(reviewId: string, updates: any) {
-  const db = requireDb()
-  
-  // Clean updates to prevent duplicating large base64 image strings in secondary fields
-  let sanitizedUpdates = { ...updates }
-  if (sanitizedUpdates.approvedMeal && typeof sanitizedUpdates.approvedMeal === 'object') {
-    const cleanApproved = { ...sanitizedUpdates.approvedMeal }
-    if (cleanApproved.img && cleanApproved.img.length > 50000) delete cleanApproved.img
-    if (cleanApproved.image && cleanApproved.image.length > 50000) delete cleanApproved.image
-    if (cleanApproved.fileName && cleanApproved.fileName.length > 50000) delete cleanApproved.fileName
-    sanitizedUpdates.approvedMeal = cleanApproved
-  }
-
-  const reference = doc(db, 'mealReviews', reviewId)
-  try {
-    await updateDoc(
-      reference,
-      withoutUndefined({
-        ...sanitizedUpdates,
-        updatedAt: serverTimestamp(),
-      })
-    )
-  } catch (error) {
-    handleFirestoreError(error, OperationType.UPDATE, `mealReviews/${reviewId}`)
-  }
-
-  // If coach feedback is provided, sync to user's mealLogs
-  if (sanitizedUpdates.coachFeedback) {
-    let reviewSnap
-    try {
-      reviewSnap = await getDoc(reference)
-    } catch (error) {
-      handleFirestoreError(error, OperationType.GET, `mealReviews/${reviewId}`)
-      return
-    }
-
-    if (reviewSnap.exists()) {
-      const data = reviewSnap.data()
-      if (data.userId && data.meal?.id) {
-        const mealRef = doc(db, 'users', data.userId, 'mealLogs', data.meal.id)
-        try {
-          const mealSnapshot = await getDoc(mealRef)
-          const existingAnalysis = mealSnapshot.exists()
-            ? resolveMealAnalysisSnapshot(
-                mealSnapshot.data().analysisSnapshot,
-                mealSnapshot.data().aiAnalysis,
-              )
-            : undefined
-          const reviewAnalysis = resolveMealAnalysisSnapshot(
-            data.analysisSnapshot,
-            data.meal?.analysisSnapshot,
-            data.meal?.aiAnalysis,
-            data.aiAnalysis,
-            sanitizedUpdates.analysisSnapshot,
-            sanitizedUpdates.aiAnalysis,
-          )
-          const mealLogUpdate: Record<string, unknown> = {
-            coachFeedback: sanitizedUpdates.coachFeedback,
-            reviewStatus: sanitizedUpdates.status || 'approved',
-            updatedAt: serverTimestamp(),
-          }
-          // Never overwrite an existing structured analysis. Only repair an
-          // older null/missing log from the immutable review snapshot.
-          if (!existingAnalysis && reviewAnalysis) {
-            mealLogUpdate.aiAnalysis = reviewAnalysis
-          }
-          await setDoc(mealRef, withoutUndefined(mealLogUpdate), { merge: true })
-        } catch (error) {
-          handleFirestoreError(error, OperationType.WRITE, `users/${data.userId}/mealLogs/${data.meal.id}`)
-        }
-      }
-    }
-  }
+  if (!firebaseFunctions) throw new Error('Firebase Functions chưa được cấu hình.')
+  const snapshot = await getDoc(doc(requireDb(), 'mealReviews', reviewId))
+  if (!snapshot.exists()) throw new Error('Không tìm thấy bữa ăn cần duyệt.')
+  const action = updates?.status === 'approved' ? 'approve' : updates?.status === 'rejected' ? 'reject' : 'feedback'
+  const callable = httpsCallable<
+    { reviewId: string; action: 'approve' | 'reject' | 'feedback'; feedback: string; expectedRevision: number },
+    { reviewId: string; status: 'pending' | 'approved' | 'rejected'; revision: number }
+  >(firebaseFunctions, 'reviewNutritionMeal')
+  await callable({
+    reviewId,
+    action,
+    feedback: String(updates?.coachFeedback || '').trim(),
+    expectedRevision: Number(snapshot.data()?.revision || 0),
+  })
 }
 
 function safeGetCache(key: string, defaultValue: any) {

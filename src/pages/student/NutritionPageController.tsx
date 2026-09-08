@@ -1271,7 +1271,7 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
       summary.calories += Math.max(0, Number(meal.calories) || 0)
       summary.protein += Math.max(0, Number(meal.protein) || 0)
       const confidence = meal.confidence ?? (meal.source === 'ai-scan' ? 'estimated' : 'verified')
-      if (meal.reviewStatus === 'pending' || confidence !== 'verified') summary.reviewCount += 1
+      if (meal.reviewStatus === 'pending' || meal.reviewStatus === 'rejected' || confidence !== 'verified') summary.reviewCount += 1
     })
     activities.forEach((activity) => { read(activity.date).activityCount += 1 })
     Object.entries(waterByDate).forEach(([date, amount]) => { read(date).waterMl = Math.max(0, Number(amount) || 0) })
@@ -1929,6 +1929,16 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
   const deleteMeal = async (mealId: string) => {
     const deletedMeal = meals.find((meal) => meal.id === mealId)
     if (!deletedMeal) return
+    const restoredMeal: MealLog = {
+      ...deletedMeal,
+      reviewStatus: undefined,
+      coachFeedback: undefined,
+      reviewedBy: undefined,
+      reviewedAt: undefined,
+      feedbackBy: undefined,
+      feedbackAt: undefined,
+      reviewRevision: undefined,
+    }
     setMeals((current) => current.filter((meal) => meal.id !== mealId))
     beginNutritionMutation('meals', mealId)
     try {
@@ -1943,10 +1953,10 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
     showMessage(`Đã xóa ${deletedMeal.title}`, {
       label: 'Hoàn tác',
       onClick: () => { void (async () => {
-        setMeals((current) => current.some((meal) => meal.id === deletedMeal.id) ? current : [deletedMeal, ...current])
+        setMeals((current) => current.some((meal) => meal.id === deletedMeal.id) ? current : [restoredMeal, ...current])
         beginNutritionMutation('meals', deletedMeal.id)
         try {
-          if (isCloudLogEnabled) await saveUserMealLog(resolvedOwnerId, deletedMeal as any)
+          if (isCloudLogEnabled) await saveUserMealLog(resolvedOwnerId, restoredMeal as any)
           completeNutritionMutation('meals')
         } catch (error) {
           setMeals((current) => current.filter((meal) => meal.id !== deletedMeal.id))
@@ -1990,6 +2000,12 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
         sugar: item.sugar === undefined ? undefined : scaleOneDecimal(item.sugar),
         sodium: item.sodium === undefined ? undefined : Math.round(item.sodium * multiplier),
       })),
+      reviewStatus: original.reviewStatus ? 'rejected' : undefined,
+      coachFeedback: original.reviewStatus ? 'Bữa ăn vừa được chỉnh sửa. Hãy gửi lại để Coach kiểm tra phiên bản mới.' : undefined,
+      reviewedBy: undefined,
+      reviewedAt: undefined,
+      feedbackBy: undefined,
+      feedbackAt: undefined,
     }
     setMeals((current) => current.map((meal) => meal.id === mealId ? updated : meal))
     beginNutritionMutation('meals', mealId)
@@ -2008,10 +2024,19 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
     showMessage(`Đã cập nhật ${updated.title}`, {
       label: 'Hoàn tác',
       onClick: () => { void (async () => {
-        setMeals((current) => current.map((meal) => meal.id === mealId ? original : meal))
+        const restored: MealLog = {
+          ...original,
+          reviewStatus: original.reviewStatus ? 'rejected' : undefined,
+          coachFeedback: original.reviewStatus ? 'Bữa ăn vừa được chỉnh sửa. Hãy gửi lại để Coach kiểm tra phiên bản mới.' : undefined,
+          reviewedBy: undefined,
+          reviewedAt: undefined,
+          feedbackBy: undefined,
+          feedbackAt: undefined,
+        }
+        setMeals((current) => current.map((meal) => meal.id === mealId ? restored : meal))
         beginNutritionMutation('meals', mealId)
         try {
-          if (isCloudLogEnabled) await saveUserMealLog(resolvedOwnerId, original as any)
+          if (isCloudLogEnabled) await saveUserMealLog(resolvedOwnerId, restored as any)
           completeNutritionMutation('meals')
         } catch (error) {
           setMeals((current) => current.map((meal) => meal.id === mealId ? updated : meal))
@@ -2079,7 +2104,7 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
       confidence: finalNutrition?.confidence ?? (meal.source === 'ai-scan' ? 'estimated' : 'needs-review'),
       calorieRange: meal.calorieRange ?? { low: Math.max(0, Math.round(meal.calories * .88)), high: Math.round(meal.calories * 1.12) },
       items: meal.items,
-      reviewStatus: meal.submitForReview ? 'pending' : undefined,
+      reviewStatus: undefined,
       aiAnalysis: {
         dishName: canonicalDishName,
         quantityAndCookingAnalysis: meal.quantityCookingAnalysis,
@@ -2110,14 +2135,17 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
     }
     setMeals((current) => [newMealLog, ...current])
     beginNutritionMutation('meals', newMealLog.id)
+    let reviewSubmissionFailed = false
     try {
       if (isCloudLogEnabled) {
         await saveUserMealLog(resolvedOwnerId, newMealLog as any)
         if (meal.submitForReview) {
           try {
             await submitMealReview(resolvedOwnerId, firstName || 'Học viên', newMealLog as any)
+            setMeals((current) => current.map((item) => item.id === newMealLog.id ? { ...item, reviewStatus: 'pending' } : item))
           } catch {
-            showMessage('Đã lưu bữa ăn, nhưng chưa gửi được yêu cầu PT kiểm tra.')
+            reviewSubmissionFailed = true
+            setMeals((current) => current.map((item) => item.id === newMealLog.id ? { ...item, reviewStatus: undefined } : item))
           }
         }
       }
@@ -2133,7 +2161,9 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
     setSelectedDate(loggedDate)
     navigateNutrition('today')
     const loggedDateLabel = new Intl.DateTimeFormat('vi-VN', { weekday: 'long', day: 'numeric', month: 'long' }).format(dateFromLocalKey(loggedDate))
-    showMessage(`Đã lưu món ăn vào ${loggedDateLabel.toLocaleLowerCase('vi-VN')}`)
+    showMessage(reviewSubmissionFailed
+      ? 'Đã lưu bữa ăn, nhưng chưa gửi được yêu cầu Coach kiểm tra. Bạn có thể gửi lại trong Nhật ký.'
+      : `Đã lưu món ăn vào ${loggedDateLabel.toLocaleLowerCase('vi-VN')}`)
   }
 
   const queueCatalogFood = async (food: NutritionFoodCatalogItem, multiplier = 1, hydrateDetails = true) => {

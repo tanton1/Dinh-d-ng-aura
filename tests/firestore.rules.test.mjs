@@ -667,7 +667,7 @@ describe('Aura PT Firestore rules', () => {
     await assertFails(setDoc(reference, { version: 999 }))
   })
 
-  test('meal reviews are private and only the assigned coach or admin can moderate', async () => {
+  test('meal reviews are private and browser moderation is callable-only', async () => {
     const reviewPath = ['mealReviews', 'review-1']
     await assertSucceeds(getDoc(doc(authenticatedDb('client-1', 'student'), ...reviewPath)))
     await assertSucceeds(getDoc(doc(authenticatedDb('coach-1', 'coach'), ...reviewPath)))
@@ -683,7 +683,12 @@ describe('Aura PT Firestore rules', () => {
       status: 'approved',
       updatedAt: serverTimestamp(),
     }))
-    await assertSucceeds(updateDoc(doc(authenticatedDb('coach-1', 'coach'), ...reviewPath), {
+    await assertFails(updateDoc(doc(authenticatedDb('coach-1', 'coach'), ...reviewPath), {
+      status: 'approved',
+      coachFeedback: 'Balanced meal',
+      updatedAt: serverTimestamp(),
+    }))
+    await assertFails(updateDoc(doc(authenticatedDb('admin-1', 'admin'), ...reviewPath), {
       status: 'approved',
       coachFeedback: 'Balanced meal',
       updatedAt: serverTimestamp(),
@@ -691,6 +696,9 @@ describe('Aura PT Firestore rules', () => {
     await assertFails(updateDoc(doc(authenticatedDb('coach-1', 'coach'), ...reviewPath), {
       userId: 'other-client',
       updatedAt: serverTimestamp(),
+    }))
+    await assertFails(setDoc(doc(authenticatedDb('client-1', 'student'), 'users', 'client-1', 'mealLogs', 'meal-browser'), {
+      id: 'meal-browser', date: '2026-09-08', type: 'lunch', status: 'logged',
     }))
   })
 

@@ -512,12 +512,9 @@ service cloud.firestore {
 
       match /mealLogs/{mealId} {
         allow read: if isOwner(userId) || isAdmin() || coachOwnsClient(userId);
-        allow create, update: if isOwner(userId) || isAdmin();
-        allow update: if coachOwnsClient(userId)
-                      && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-                        'coachFeedback', 'aiAnalysis', 'reviewStatus', 'updatedAt'
-                      ]);
-        allow delete: if isOwner(userId) || isAdmin();
+        // Canonical meal writes run through callable transactions so review
+        // snapshots, revisions and audit records cannot diverge.
+        allow create, update, delete: if false;
       }
 
       match /favoriteMeals/{mealId} {
@@ -1376,21 +1373,9 @@ service cloud.firestore {
                   && (resource.data.userId == request.auth.uid
                       || isAdmin()
                       || coachOwnsClient(resource.data.userId));
-      allow create: if signedIn()
-                    && request.resource.data.userId == request.auth.uid
-                    && request.resource.data.status == 'pending'
-                    && request.resource.data.createdAt == request.time
-                    && request.resource.data.updatedAt == request.time;
-      allow update: if (isAdmin() || coachOwnsClient(resource.data.userId))
-                    && request.resource.data.userId == resource.data.userId
-                    && request.resource.data.createdAt == resource.data.createdAt
-                    && request.resource.data.status in ['pending', 'approved', 'rejected']
-                    && request.resource.data.updatedAt == request.time
-                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-                      'status', 'coachFeedback', 'approvedMeal',
-                      'approvedAtTimestamp', 'updatedAt'
-                    ]);
-      allow delete: if isAdmin();
+      // Submission, feedback, approval, rejection and deletion are atomic
+      // server operations with assignment checks and append-only audit logs.
+      allow create, update, delete: if false;
     }
 
     match /{document=**} {

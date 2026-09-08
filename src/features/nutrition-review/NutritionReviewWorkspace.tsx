@@ -232,7 +232,7 @@ export function NutritionReviewWorkspace({
 
   const submit = async (action: 'approve' | 'reject' | 'feedback') => {
     if (!selected || submitting) return
-    if (action !== 'reject' && feedback.trim().length < 3) {
+    if (feedback.trim().length < 3) {
       setError('Vui lòng nhập nhận xét từ 3 ký tự trước khi gửi.')
       goToDetailSlide(2)
       return
@@ -273,7 +273,7 @@ export function NutritionReviewWorkspace({
       <div className="nrw-kpis" aria-label="Tổng quan duyệt món">
         <article><strong>{summary.pending}</strong><span>chờ duyệt</span></article>
         <article className={summary.overdue ? 'is-alert' : ''}><strong>{summary.overdue}</strong><span>quá SLA {durationLabel(slaMinutes)}</span></article>
-        <article><strong>{summary.students}</strong><span>học viên</span></article>
+        <article><strong>{summary.approved}</strong><span>đã duyệt</span></article>
       </div>
     </header>
 
@@ -298,7 +298,7 @@ export function NutritionReviewWorkspace({
     {notice && <div className="nrw-message is-success" role="status"><CheckCircle2 size={18} />{notice}<button onClick={() => setNotice('')} aria-label="Đóng">×</button></div>}
     {error && <div className="nrw-message is-error" role="alert"><AlertCircle size={18} />{error}<button onClick={() => setError('')} aria-label="Đóng">×</button></div>}
 
-    {loading ? <div className="nrw-empty"><RefreshCw className="is-spinning" /><strong>Đang đồng bộ bữa ăn…</strong><span>Chỉ tải dữ liệu thuộc phạm vi HLV đã được phân công.</span></div> : filtered.length === 0 ? <div className="nrw-empty"><CheckCircle2 /><strong>Không có bữa ăn trong bộ lọc này</strong><span>Hãy đổi trạng thái, HLV hoặc từ khóa tìm kiếm.</span></div> : <>
+    {loading ? <div className="nrw-empty"><RefreshCw className="is-spinning" /><strong>Đang đồng bộ bữa ăn…</strong><span>Chỉ tải dữ liệu thuộc phạm vi HLV đã được phân công.</span></div> : filtered.length === 0 ? <div className="nrw-empty"><CheckCircle2 /><strong>Không có bữa ăn trong bộ lọc này</strong><span>Hãy đổi trạng thái, HLV hoặc từ khóa tìm kiếm.</span>{hasMore && nextCursor && <button type="button" onClick={() => void requestPage(nextCursor, true)} disabled={loadingMore}>{loadingMore ? 'Đang tải…' : 'Tìm tiếp trong lịch sử'}</button>}</div> : <>
       <div className="nrw-review-carousel" aria-label="Danh sách bữa ăn dạng carousel">
         {filtered.map((item) => <button
           type="button"
@@ -335,6 +335,9 @@ export function NutritionReviewWorkspace({
                 <article><strong>Cân bằng macro</strong><p>{selected.analysis.macroBalanceAssessment || 'Chưa có đánh giá macro riêng.'}</p></article>
                 <article><strong>Khẩu phần & chế biến</strong><p>{selected.analysis.quantityAndCookingAnalysis || selected.analysis.portionAndCalorieRationale || 'Chưa có mô tả chi tiết.'}</p></article>
                 <article><strong>Gợi ý tối ưu</strong><p>{selected.analysis.calorieOptimizationTip || selected.analysis.aiSuggestion || 'HLV bổ sung nhận xét ở slide tiếp theo.'}</p></article>
+                {selected.items.length > 0 && <article><strong>Thành phần AI nhận diện</strong><p>{selected.items.map((item) => `${item.name || 'Thành phần'} · ${Math.round(item.weight)}g · ${Math.round(item.kcal)} kcal`).join(' • ')}</p></article>}
+                {selected.calorieRange && <article><strong>Khoảng năng lượng ước tính</strong><p>{Math.round(selected.calorieRange.low)}–{Math.round(selected.calorieRange.high)} kcal. Coach cần đối chiếu khẩu phần và cách chế biến trước khi duyệt.</p></article>}
+                {selected.unresolvedQuestions.length > 0 && <article><strong>Câu hỏi còn thiếu dữ liệu</strong><p>{selected.unresolvedQuestions.join(' • ')}</p></article>}
               </div>
             </section>
             <section className="nrw-slide nrw-feedback-slide">

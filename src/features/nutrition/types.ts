@@ -96,6 +96,7 @@ export interface NutritionMealDraft {
   mealDate?: string
   mealTime?: string
   image?: string
+  imageStoragePath?: string
   calories: number
   protein?: number
   carbs?: number
@@ -213,7 +214,13 @@ export interface MealLog {
   confidence?: 'verified' | 'estimated' | 'needs-review'
   calorieRange?: { low: number; high: number }
   items?: AiFoodItem[]
-  reviewStatus?: 'pending' | 'reviewed'
+  reviewStatus?: 'pending' | 'approved' | 'rejected'
+  mealRevision?: number
+  reviewRevision?: number
+  reviewedBy?: string
+  reviewedAt?: unknown
+  feedbackBy?: string
+  feedbackAt?: unknown
   coachFeedback?: string
   aiAnalysis?: any
   cookingNote?: string

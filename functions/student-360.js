@@ -770,13 +770,14 @@ function sourceTimelineEvents(studentId, sources) {
   }
   for (const meal of sources.mealLogs) {
     const occurred = timestampMillis(meal.createdAt || meal.timestamp) || dateKeyMillis(meal.date || meal.mealDate)
-    values.push(timelineEvent(studentId, 'nutrition', meal.id, occurred, 'Đã ghi nhận bữa ăn', meal.name || meal.mealName || meal.mealType || 'Nhật ký dinh dưỡng', 'coaching', { mealId: meal.id }))
+    values.push(timelineEvent(studentId, 'nutrition', meal.id, occurred, 'Đã ghi nhận bữa ăn', meal.dishName || meal.title || meal.name || meal.mealName || meal.mealType || meal.type || 'Nhật ký dinh dưỡng', 'coaching', { mealId: meal.id }))
   }
   for (const review of sources.mealReviews || []) {
     const occurred = timestampMillis(review.reviewedAt || review.updatedAt || review.createdAt) || dateKeyMillis(review.date || review.mealDate)
     const status = bounded(review.status, 40) || 'pending'
     const title = status === 'approved' ? 'Bữa ăn đã được duyệt' : status === 'rejected' ? 'Bữa ăn cần điều chỉnh' : 'Bữa ăn chờ duyệt'
-    values.push(timelineEvent(studentId, 'nutrition', `meal-review:${review.id}`, occurred, title, review.mealName || review.name || review.mealType || 'Đánh giá dinh dưỡng', 'coaching', { reviewId: review.id, status }))
+    const reviewedMeal = review.meal && typeof review.meal === 'object' ? review.meal : {}
+    values.push(timelineEvent(studentId, 'nutrition', `meal-review:${review.id}`, occurred, title, reviewedMeal.dishName || reviewedMeal.title || review.mealName || review.name || review.mealType || reviewedMeal.type || 'Đánh giá dinh dưỡng', 'coaching', { reviewId: review.id, status }))
   }
   for (const checkin of sources.dailyCheckins || []) {
     const occurred = timestampMillis(checkin.createdAt || checkin.updatedAt) || dateKeyMillis(checkin.date)

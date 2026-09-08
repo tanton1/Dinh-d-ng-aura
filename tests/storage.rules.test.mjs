@@ -57,6 +57,13 @@ function uploadProgressPhoto(storage, userId, fileName = 'photo-123.jpg', metada
   })
 }
 
+function uploadMealPhoto(storage, userId, mealId = 'meal-123', metadataOwner = userId) {
+  return uploadBytes(ref(storage, `users/${userId}/meal-photos/${mealId}/original.jpg`), validImage, {
+    contentType: 'image/jpeg',
+    customMetadata: { ownerUid: metadataOwner, mealId, resourceKind: 'nutrition-meal-photo' },
+  })
+}
+
 function uploadPerformanceEvidence(storage, userId, periodId = '2026-09', evidenceId = 'evidence_12345678', metadataOwner = userId) {
   return uploadBytes(ref(storage, `performance-evidence/${userId}/${periodId}/${evidenceId}/proof.jpg`), validImage, {
     contentType: 'image/jpeg',
@@ -125,6 +132,18 @@ describe('Aura Academy Storage rules', () => {
     await assertFails(uploadProgressPhoto(storageFor('student-1', 'student'), 'student-1', 'forged.jpg', 'student-2'))
     await assertFails(getBytes(ref(storageFor('trainer-1', 'trainer'), uploaded.ref.fullPath)))
     await assertSucceeds(getBytes(ref(storageFor('admin-1', 'admin'), uploaded.ref.fullPath)))
+  })
+
+  test('meal photos are private, immutable and owner-uploaded with canonical metadata', async () => {
+    const studentStorage = storageFor('student-1', 'student')
+    const mealId = `meal-${Date.now()}`
+    const uploaded = await assertSucceeds(uploadMealPhoto(studentStorage, 'student-1', mealId))
+    await assertSucceeds(getBytes(ref(studentStorage, uploaded.ref.fullPath)))
+    await assertFails(getBytes(ref(storageFor('trainer-1', 'trainer'), uploaded.ref.fullPath)))
+    await assertFails(getBytes(ref(storageFor('admin-1', 'admin'), uploaded.ref.fullPath)))
+    await assertFails(uploadMealPhoto(studentStorage, 'student-2', `${mealId}-cross`))
+    await assertFails(uploadMealPhoto(studentStorage, 'student-1', `${mealId}-forged`, 'student-2'))
+    await assertFails(uploadMealPhoto(studentStorage, 'student-1', mealId))
   })
 
   test('Brand evidence is immutable, owner-uploaded and manager reads use signed URLs', async () => {

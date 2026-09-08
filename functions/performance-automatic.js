@@ -230,7 +230,7 @@ async function loadOperationalSources(db, target, period) {
     ledgerEntries, salesLeads: salesLeads.filter((item) => inRange(item.createdAt, range)),
     contractApprovals: contractApprovals.filter((item) => inRange(item.createdAt, range)),
     targets: targetSnapshot?.exists ? targetSnapshot.data()?.metricTargets || {} : {},
-    reviewSlaMinutes: Math.max(15, finite(reviewSettings?.exists ? reviewSettings.data()?.slaMinutes : 0, 240)),
+    reviewSlaMinutes: Math.max(30, finite(reviewSettings?.exists ? reviewSettings.data()?.slaMinutes : 0, 120)),
     attendanceBySession,
     trainerStudents,
     nutritionStudents,
@@ -340,10 +340,10 @@ function nutritionMetrics(source) {
   const { ids, range, nutritionStudents, accountByStudent, dailyCheckins, mealReviews, reviewSlaMinutes } = source
   const subjects = new Set(nutritionStudents.flatMap((id) => [id, accountByStudent.get(id)]).filter(Boolean))
   const relevant = mealReviews.filter((item) => subjects.has(item.userId))
-  const reviewed = relevant.filter((item) => (['approved', 'rejected'].includes(item.status) || item.reviewedBy) && ids.includes(item.reviewedBy))
+  const reviewed = relevant.filter((item) => ['approved', 'rejected'].includes(item.status) && ids.includes(item.reviewedBy))
   const withinSla = reviewed.filter((item) => {
     const created = timestampMillis(item.createdAt || item.meal?.createdAt)
-    const completed = timestampMillis(item.reviewedAt || item.approvedAt || item.updatedAt) || finite(item.approvedAtTimestamp)
+    const completed = timestampMillis(item.reviewedAt || item.approvedAt) || finite(item.approvedAtTimestamp)
     return created && completed && completed >= created && completed - created <= reviewSlaMinutes * 60_000
   })
   const nutritionCheckins = dailyCheckins.filter((item) => nutritionStudents.includes(item.canonicalStudentId || item.studentId) && inEffectiveRange(item.date, range))

@@ -2,7 +2,7 @@ const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const path = require('node:path')
 const test = require('node:test')
-const { reviewPriority, reviewRecord, reviewSummary } = require('./nutrition-reviews')
+const { nextPageCursor, pageCursor, reviewPriority, reviewRecord, reviewSummary, sanitizeMealInput, snapshotHash } = require('./nutrition-reviews')
 
 test('identity contracts expose one staff workspace while student relationships scope each HLV tab', () => {
   const deployable = require('./identity-contract.json')
@@ -25,23 +25,53 @@ test('public review record keeps explicit nutrition values and coach assignment'
       status: 'pending',
       revision: 2,
       meal: {
-        mealType: 'Bữa trưa',
+        type: 'lunch',
         calories: 430,
         protein: 35,
-        carb: 41,
+        carbs: 41,
         fat: 12,
-        items: [{ name: 'Ức gà', kcal: 210, protein: 31 }],
+        targetSnapshot: { calories: 1_800, protein: 110 },
+        items: [{ name: 'Ức gà', grams: 150, calories: 210, protein: 31 }],
       },
     }),
   }
   const result = reviewRecord(snapshot, {}, { coachId: 'coach-1', coachIds: ['coach-1'] }, 'HLV Dinh dưỡng')
   assert.equal(result.totalKcal, 430)
   assert.equal(result.totalProtein, 35)
+  assert.equal(result.totalCarb, 41)
+  assert.equal(result.mealType, 'Bữa trưa')
+  assert.equal(result.items[0].weight, 150)
+  assert.equal(result.items[0].kcal, 210)
+  assert.equal(result.targetKcal, 1_800)
+  assert.equal(result.targetProtein, 110)
   assert.equal(result.fiber, 0)
   assert.equal(result.assignedCoachId, 'coach-1')
   assert.deepEqual(result.assignedCoachIds, ['coach-1'])
   assert.equal(result.assignedCoachName, 'HLV Dinh dưỡng')
   assert.equal(result.revision, 2)
+})
+
+test('meal input strips review fields and accepts only canonical owner photo paths', () => {
+  const meal = sanitizeMealInput({
+    id: 'meal-1', date: '2026-09-08', type: 'lunch', status: 'logged', title: 'Cơm gà',
+    calories: 450, imageStoragePath: 'users/student-1/meal-photos/meal-1/original.jpg',
+    reviewStatus: 'approved', reviewedBy: 'forged-coach',
+  }, 'student-1')
+  assert.equal(meal.reviewStatus, undefined)
+  assert.equal(meal.reviewedBy, undefined)
+  assert.equal(meal.imageStoragePath, 'users/student-1/meal-photos/meal-1/original.jpg')
+  assert.throws(() => sanitizeMealInput({
+    id: 'meal-1', date: '2026-09-08', type: 'lunch', status: 'logged',
+    imageStoragePath: 'users/other/meal-photos/meal-1/original.jpg',
+  }, 'student-1'))
+})
+
+test('review cursor v2 is stable by timestamp and document id', () => {
+  const snapshot = { id: 'review-1', data: () => ({ createdAt: new Date('2026-09-08T03:00:00Z') }) }
+  const encoded = nextPageCursor('pending', snapshot)
+  assert.deepEqual(pageCursor(encoded, 'pending'), { createdAt: Date.parse('2026-09-08T03:00:00Z'), id: 'review-1' })
+  assert.throws(() => pageCursor(encoded, 'approved'))
+  assert.equal(snapshotHash({ a: 1 }), snapshotHash({ a: 1 }))
 })
 
 test('review images reject file names and preserve safe persistent sources', () => {
