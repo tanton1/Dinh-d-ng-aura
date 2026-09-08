@@ -376,6 +376,11 @@ function desiredEntries({ scheduleId, week, branchId, schedule, trainers, studen
   let context = {}
   const addError = (code) => { errors.push(code); if (errorDetails.length < 100) errorDetails.push({ code, ...context }) }
   const warnings = []
+  const warningDetails = []
+  const addWarning = (code, detail = {}) => {
+    warnings.push(code)
+    if (warningDetails.length < 100) warningDetails.push({ code, ...context, ...detail })
+  }
   const studentDays = new Set()
   const studentSessions = new Map()
   const trainerSlots = new Map()
@@ -444,7 +449,10 @@ function desiredEntries({ scheduleId, week, branchId, schedule, trainers, studen
       }
       if (!trainer || trainer.status === 'inactive') addError('TRAINER_NOT_ACTIVE')
       if (!student || student.status === 'inactive') addError('STUDENT_NOT_ACTIVE')
-      if (student?.branchId && student.branchId !== branchId) warnings.push('STUDENT_BRANCH_MISMATCH')
+      if (student?.branchId && student.branchId !== branchId) addWarning('STUDENT_BRANCH_MISMATCH', {
+        studentHomeBranchId: student.branchId,
+        targetBranchId: branchId,
+      })
       const availabilityMode = trainerAvailabilityMode(trainer)
       if (trainer?.employmentType === 'collaborator') {
         if (!Array.isArray(trainer.availableSlots) || !trainer.availableSlots.length) addError('TRAINER_AVAILABILITY_UNCONFIGURED')
@@ -471,10 +479,10 @@ function desiredEntries({ scheduleId, week, branchId, schedule, trainers, studen
       let availabilityIssue = null
       if (!effectiveAvailability.confirmed) availabilityIssue = 'AVAILABILITY_NOT_SUBMITTED'
       else if (!slots.has(slotId)) availabilityIssue = 'OUTSIDE_STUDENT_AVAILABILITY'
-      if (availabilityIssue && override) warnings.push('MANUAL_STUDENT_AVAILABILITY_OVERRIDE')
+      if (availabilityIssue && override) addWarning('MANUAL_STUDENT_AVAILABILITY_OVERRIDE')
       else if (availabilityIssue) addError(availabilityIssue)
-      if (effectiveAvailability.source === 'inherited_weekly') warnings.push('INHERITED_AVAILABILITY_FALLBACK')
-      if (effectiveAvailability.source === 'legacy_default') warnings.push('LEGACY_AVAILABILITY_FALLBACK')
+      if (effectiveAvailability.source === 'inherited_weekly') addWarning('INHERITED_AVAILABILITY_FALLBACK')
+      if (effectiveAvailability.source === 'legacy_default') addWarning('LEGACY_AVAILABILITY_FALLBACK')
 
       const dateCandidates = contracts.filter((contract) => contract.studentId === studentId
         && ['active', 'future'].includes(String(contract.status || 'active').toLowerCase())
@@ -500,7 +508,7 @@ function desiredEntries({ scheduleId, week, branchId, schedule, trainers, studen
         ...(Array.isArray(contract.trainerIds) ? contract.trainerIds : []),
       ].filter(Boolean))]
       const trainerAssignmentWarning = assignedTrainerIds.length > 0 && !assignedTrainerIds.includes(trainerId)
-      if (trainerAssignmentWarning) warnings.push('TRAINER_ASSIGNMENT_MISMATCH')
+      if (trainerAssignmentWarning) addWarning('TRAINER_ASSIGNMENT_MISMATCH')
       const pauses = Array.isArray(contract.pausePeriods) ? contract.pausePeriods : []
       if (pauses.some((period) => {
         const pauseStart = storedDate(period?.startDate)
@@ -555,7 +563,7 @@ function desiredEntries({ scheduleId, week, branchId, schedule, trainers, studen
     if (Number.isInteger(target) && target >= 0 && count > target) addError('STUDENT_WEEKLY_TARGET_REACHED')
   }
   if (desired.size > MAX_SCHEDULE_ENTRIES) addError('SCHEDULE_TOO_LARGE')
-  return { desired, errorDetails, errors: [...new Set(errors)], warnings: [...new Set(warnings)] }
+  return { desired, errorDetails, errors: [...new Set(errors)], warnings: [...new Set(warnings)], warningDetails }
 }
 
 function createPtSchedulePublishFunctions({ db, onCall }) {
@@ -678,6 +686,17 @@ function createPtSchedulePublishFunctions({ db, onCall }) {
         trainerLeaves: trainerLeavesSnapshot.docs.map((item) => item.data()),
       })
       if (prepared.errors.length) throw scheduleError('SCHEDULE_VALIDATION_FAILED', 'Lịch nháp còn xung đột và chưa thể publish.', { errors: prepared.errors, errorDetails: prepared.errorDetails })
+      const acknowledgedWarnings = new Set(Array.isArray(request.data?.acknowledgedWarnings)
+        ? request.data.acknowledgedWarnings.filter((value) => typeof value === 'string').slice(0, 20)
+        : [])
+      const confirmationWarnings = prepared.warnings.filter((code) => code === 'STUDENT_BRANCH_MISMATCH')
+      if (!validateOnly && confirmationWarnings.some((code) => !acknowledgedWarnings.has(code))) {
+        throw new HttpsError('failed-precondition', 'Lịch có học viên tập khác cơ sở hồ sơ. Hãy xác nhận cảnh báo trước khi publish.', {
+          issueCode: 'PUBLISH_WARNING_CONFIRMATION_REQUIRED',
+          errors: confirmationWarnings,
+          warningDetails: prepared.warningDetails,
+        })
+      }
 
       const existingScoped = weekSessionsSnapshot.docs.filter((item) => {
         const session = item.data()
@@ -702,6 +721,7 @@ function createPtSchedulePublishFunctions({ db, onCall }) {
       for (const item of activeSessionDocs) {
         if (scopedExistingIds.has(item.id)) continue
         const value = item.data()
+        if (value.branchId && value.branchId !== branchId) continue
         const slotId = slotIdForDateHour(week, storedDate(value.date), storedHour(value.hour, item.id))
         if (slotId) totalBranchLoadBySlot.set(slotId, (totalBranchLoadBySlot.get(slotId) || 0) + 1)
       }
@@ -767,7 +787,7 @@ function createPtSchedulePublishFunctions({ db, onCall }) {
       const immutableRemoved = existingScoped.filter((item) => isImmutableSession(item.data()) && !prepared.desired.has(item.data().scheduleEntryId))
       if (immutableRemoved.length) throw scheduleError('CHARGED_SESSION_IMMUTABLE', 'Không thể loại buổi đã được tính hoặc xác nhận khỏi lịch publish.')
       const diff = { create: creates.length, update: updates.length, cancel: cancellations.length, unchanged: unchanged.length }
-      if (validateOnly) return { unchanged: false, validateOnly: true, draftRevision, version: nextVersion, diff, warnings: prepared.warnings }
+      if (validateOnly) return { unchanged: false, validateOnly: true, draftRevision, version: nextVersion, diff, warnings: prepared.warnings, warningDetails: prepared.warningDetails }
 
       const writeCount = creates.length + updates.length + cancellations.length + (v2DraftSnapshot.exists ? 4 : 3)
       if (writeCount > MAX_TRANSACTION_WRITES) throw new HttpsError('resource-exhausted', 'Lịch có quá nhiều thay đổi để publish trong một giao dịch.')

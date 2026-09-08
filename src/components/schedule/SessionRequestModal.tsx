@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { CalendarClock, Check, CircleAlert, RefreshCw, UsersRound, X } from 'lucide-react'
+import { CalendarClock, Check, CircleAlert, MapPin, RefreshCw, UsersRound, X } from 'lucide-react'
 import { createMySessionRequest, getMySessionChangeSuggestions, type SessionChangeSuggestionPage } from '../../services/sessionOperationsService'
 
 interface RequestableSession {
@@ -123,6 +123,7 @@ export default function SessionRequestModal({ onClose, onCreated, session }: Pro
                 <span className="student-change-suggestion__check">{selectedCandidateId === candidate.candidateId ? <Check size={14} /> : candidate.rank}</span>
                 <strong>{formatDate(candidate.date)} · {String(candidate.hour).padStart(2, '0')}:00</strong>
                 <span>{candidate.trainerName}</span>
+                <small className={`student-suggestion-branch${candidate.isCrossBranch ? ' is-cross-branch' : ''}`}><MapPin size={13} /> Tập tại {candidate.branchName}{candidate.isCrossBranch ? ` · khác ${candidate.homeBranchName || suggestionPage?.homeBranchName || 'cơ sở hồ sơ'}` : ''}</small>
                 <small><UsersRound size={13} /> {candidate.occupancy}/{candidate.capacity} học viên · dự kiến {candidate.dailyLoadAfter ?? (candidate.dailyLoad + Number(!candidate.pairsExistingSession))} ca · mốc cân tải {candidate.dailyTarget}</small>
                 <em>{candidate.pairsExistingSession ? 'Còn 1 ghế trong ca' : candidate.isPrimaryTrainer ? 'PT chính' : candidate.isCurrentTrainer ? 'PT hiện tại' : candidate.isAssignedTrainer ? 'PT phụ trách' : 'PT chính thức'}</em>
                 {candidate.createsThreeConsecutiveDays && <i>3 ngày liên tiếp</i>}
@@ -132,6 +133,7 @@ export default function SessionRequestModal({ onClose, onCreated, session }: Pro
               </section>)}
             </div>
           </section>}
+          {type === 'reschedule' && selectedSuggestion?.isCrossBranch && <div className="student-cross-branch-note"><MapPin size={17} /><p><strong>Ca đổi thuộc {selectedSuggestion.branchName}.</strong> Khi gửi, quản lý sẽ duyệt việc tập khác {selectedSuggestion.homeBranchName || suggestionPage?.homeBranchName || 'cơ sở hồ sơ'} và lịch chỉ chuyển sau khi được xác nhận.</p></div>}
           <label className="student-policy-reason"><span>Lý do</span><textarea required maxLength={500} value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Cho Aura biết lý do để vận hành hỗ trợ tốt hơn…" /></label>
           {error && <p className="student-policy-error" role="alert">{error}</p>}
           <footer><button type="button" className="secondary" onClick={onClose}>Để sau</button><button type="submit" disabled={isSubmitting || (type === 'reschedule' && (!selectedSuggestion || isLoadingSuggestions))}>{isSubmitting ? 'Đang gửi…' : 'Gửi yêu cầu'}</button></footer>

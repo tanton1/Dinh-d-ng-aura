@@ -17,6 +17,12 @@ export interface PtSchedulePublishResult {
   version: number
   diff: PtSchedulePublishDiff
   warnings: string[]
+  warningDetails?: PtScheduleWarningDetail[]
+}
+
+export interface PtScheduleWarningDetail extends PtScheduleErrorDetail {
+  studentHomeBranchId?: string
+  targetBranchId?: string
 }
 
 export interface PtScheduleVersionSummary {
@@ -494,7 +500,7 @@ export function validatePtScheduleDraft(input: { weekId: string; branchId: strin
   return invoke<typeof input, PtSchedulePublishResult>('validatePtScheduleDraft', input)
 }
 
-export function publishPtSchedule(input: { weekId: string; branchId: string; expectedDraftRevision: number }) {
+export function publishPtSchedule(input: { weekId: string; branchId: string; expectedDraftRevision: number; acknowledgedWarnings?: string[] }) {
   return invoke<typeof input, PtSchedulePublishResult>('publishPtSchedule', input)
 }
 

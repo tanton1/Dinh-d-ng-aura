@@ -47,6 +47,8 @@ const OPERATIONS_REQUEST_HISTORY_LIMIT = 500
 const SESSION_CHANGE_SUGGESTION_LIMIT = 18
 const SESSION_CHANGE_WINDOW_DAYS = 21
 const SESSION_CHANGE_DATA_LIMIT = 2000
+const SESSION_CHANGE_TRAINER_LIMIT = 400
+const SESSION_CHANGE_BRANCH_LIMIT = 50
 const ATTENDANCE_STATUSES = new Set(['present', 'late', 'no_show'])
 const NO_SHOW_REASONS = new Set(['', 'busy', 'sick', 'forgot', 'unreachable', 'other'])
 const BILLING_REVIEW_STATUS = 'review_required'
@@ -179,8 +181,10 @@ function policyFailure(error) {
 
 function requestInstant(value, fallbackValue) {
   if (value && typeof value.toDate === 'function') return value.toDate()
-  const candidate = value instanceof Date ? value : new Date(value || fallbackValue || '')
-  return Number.isNaN(candidate.getTime()) ? null : candidate
+  const candidate = value instanceof Date ? value : new Date(value || '')
+  if (!Number.isNaN(candidate.getTime())) return candidate
+  const fallback = fallbackValue instanceof Date ? fallbackValue : new Date(fallbackValue || '')
+  return Number.isNaN(fallback.getTime()) ? null : fallback
 }
 
 function optionalText(value, maximum = 500) {
@@ -284,11 +288,39 @@ function hasThreeConsecutiveTrainingDays(existingDates, candidateDate) {
   return false
 }
 
-function sessionChangeCandidateId({ sessionId, revision, date: targetDate, hour: targetHour, trainerId }) {
+function sessionChangeCandidateId({ sessionId, revision, date: targetDate, hour: targetHour, trainerId, branchId = '' }) {
   return createHash('sha256')
-    .update(`${sessionId}|${revision}|${targetDate}|${targetHour}|${trainerId}`)
+    .update(`${sessionId}|${revision}|${targetDate}|${targetHour}|${trainerId}|${branchId}`)
     .digest('hex')
     .slice(0, 32)
+}
+
+async function loadSuggestionNetwork(db, homeBranchId, rangeStart, rangeEnd) {
+  const [branchesSnapshot, trainersSnapshot, sessionsSnapshot] = await Promise.all([
+    db.collection('branches').limit(SESSION_CHANGE_BRANCH_LIMIT + 1).get(),
+    db.collection('trainers').limit(SESSION_CHANGE_TRAINER_LIMIT + 1).get(),
+    db.collection('sessions').where('date', '>=', rangeStart).where('date', '<', addDateDays(rangeEnd, 1)).limit(SESSION_CHANGE_DATA_LIMIT + 1).get(),
+  ])
+  if (branchesSnapshot.size > SESSION_CHANGE_BRANCH_LIMIT || trainersSnapshot.size > SESSION_CHANGE_TRAINER_LIMIT || sessionsSnapshot.size > SESSION_CHANGE_DATA_LIMIT) {
+    throw new HttpsError('resource-exhausted', 'Dữ liệu liên chi nhánh vượt giới hạn gợi ý an toàn.')
+  }
+  const knownBranchIds = new Set(branchesSnapshot.docs.map((item) => item.id))
+  const branches = new Map(branchesSnapshot.docs
+    .filter((item) => !['archived', 'inactive'].includes(String(item.data().status || '').toLowerCase()))
+    .map((item) => [item.id, {
+      id: item.id,
+      name: optionalText(item.data().name, 160) || 'Chi nhánh Aura',
+    }]))
+  // Một số bộ dữ liệu cũ chưa có document branches. Vẫn cho gợi ý trong
+  // phạm vi chi nhánh xuất hiện trên hồ sơ PT, nhưng không bịa tên cơ sở.
+  if (!branches.size) {
+    trainersSnapshot.docs.forEach((item) => {
+      const trainerBranchId = optionalText(item.data().branchId, 128)
+      if (trainerBranchId && !branches.has(trainerBranchId)) branches.set(trainerBranchId, { id: trainerBranchId, name: 'Chi nhánh Aura' })
+    })
+  }
+  if (homeBranchId && !knownBranchIds.has(homeBranchId) && !branches.has(homeBranchId)) branches.set(homeBranchId, { id: homeBranchId, name: 'Chi nhánh Aura' })
+  return { branches, trainersSnapshot, sessionsSnapshot }
 }
 
 async function readOperationsPolicy(db) {
@@ -389,15 +421,15 @@ async function buildSessionChangeSuggestions({ db, sessionId, expectedRevision, 
   const weekIds = new Set()
   for (let targetDate = rangeStart; targetDate <= rangeEnd; targetDate = addDateDays(targetDate, 1)) weekIds.add(mondayForDate(targetDate))
   const availabilityReferences = [...weekIds].map((weekId) => db.doc(`ptAvailability/${studentId}_${weekId}`))
-  const [trainersSnapshot, sessionsSnapshot, studentSessionsSnapshot, leavesSnapshot, configSnapshot, ...availabilitySnapshots] = await Promise.all([
-    db.collection('trainers').where('branchId', '==', branchId).limit(201).get(),
-    db.collection('sessions').where('branchId', '==', branchId).where('date', '>=', rangeStart).where('date', '<', addDateDays(rangeEnd, 1)).limit(SESSION_CHANGE_DATA_LIMIT + 1).get(),
+  const [network, studentSessionsSnapshot, leavesSnapshot, configSnapshot, ...availabilitySnapshots] = await Promise.all([
+    loadSuggestionNetwork(db, branchId, rangeStart, rangeEnd),
     db.collection('sessions').where('studentId', '==', studentId).where('date', '>=', rangeStart).where('date', '<', addDateDays(rangeEnd, 1)).limit(SESSION_CHANGE_DATA_LIMIT + 1).get(),
     db.collection('leaveRequests').where('status', '==', 'approved').limit(1001).get(),
     db.getAll(db.doc('settings/scheduleConfig')).then((values) => values[0]),
     ...availabilityReferences.map((reference) => db.getAll(reference).then((values) => values[0])),
   ])
-  if (trainersSnapshot.size > 200 || studentSessionsSnapshot.size > SESSION_CHANGE_DATA_LIMIT || leavesSnapshot.size > 1000) throw new HttpsError('resource-exhausted', 'Dữ liệu PT, học viên hoặc OFF vượt giới hạn gợi ý an toàn.')
+  const { branches, trainersSnapshot, sessionsSnapshot } = network
+  if (studentSessionsSnapshot.size > SESSION_CHANGE_DATA_LIMIT || leavesSnapshot.size > 1000) throw new HttpsError('resource-exhausted', 'Dữ liệu PT, học viên hoặc OFF vượt giới hạn gợi ý an toàn.')
   const sessions = activeSessionRows(sessionsSnapshot, sessionId)
   const studentSessions = activeSessionRows(studentSessionsSnapshot, sessionId)
   const assignedTrainerIds = new Set([
@@ -407,6 +439,7 @@ async function buildSessionChangeSuggestions({ db, sessionId, expectedRevision, 
   ].filter(Boolean))
   const trainers = trainersSnapshot.docs.map((item) => ({ id: item.id, ...item.data() }))
     .filter((trainer) => trainer.status !== 'inactive')
+    .filter((trainer) => trainer.branchId && branches.has(trainer.branchId))
     .filter((trainer) => assignedTrainerIds.has(trainer.id) || trainerPolicy(trainer).employmentType === 'full_time')
   const trainerAvailabilityReferences = trainers.flatMap((trainer) => [...weekIds].map((targetWeek) => db.doc(`trainerAvailability/${trainer.id}_${targetWeek}`)))
   const [studentAvailabilityByWeek, trainerAvailability] = await Promise.all([
@@ -429,6 +462,9 @@ async function buildSessionChangeSuggestions({ db, sessionId, expectedRevision, 
 
     for (const baseTrainer of trainers) {
       const trainer = effectiveTrainerForWeek(baseTrainer, trainerAvailability, targetWeek)
+      const targetBranchId = optionalText(trainer.branchId, 128)
+      const targetBranchName = branches.get(targetBranchId)?.name || 'Chi nhánh Aura'
+      const isCrossBranch = targetBranchId !== branchId
       const policyData = trainerPolicy(trainer)
       const trainerOnLeave = leavesSnapshot.docs.some((item) => {
         const leave = item.data()
@@ -451,8 +487,8 @@ async function buildSessionChangeSuggestions({ db, sessionId, expectedRevision, 
         const occupancy = new Set(atSlot.map((item) => item.studentId)).size
         const capacity = normalizedTrainerCapacity(trainer.slotCapacity)
         if (occupancy >= capacity) continue
-        const siteCapacity = branchSlotCapacity(scheduleConfig, branchId, slotId)
-        const siteOccupancy = sessions.filter((item) => storedDateKey(item.date, 'Ngày lịch chi nhánh') === targetDate && storedSessionHour(item.hour, item.id, 'Giờ lịch chi nhánh') === targetHour && (!item.branchId || item.branchId === branchId)).length
+        const siteCapacity = branchSlotCapacity(scheduleConfig, targetBranchId, slotId)
+        const siteOccupancy = sessions.filter((item) => storedDateKey(item.date, 'Ngày lịch chi nhánh') === targetDate && storedSessionHour(item.hour, item.id, 'Giờ lịch chi nhánh') === targetHour && item.branchId === targetBranchId).length
         if (siteCapacity !== null && siteOccupancy >= siteCapacity) continue
         const uniqueTeachingSlots = new Set(sameTrainerDate.map((item) => storedSessionHour(item.hour, item.id, 'Giờ lịch PT'))).size
         const pairsExistingSession = occupancy === 1 && capacity === 2
@@ -475,17 +511,23 @@ async function buildSessionChangeSuggestions({ db, sessionId, expectedRevision, 
           + (trainer.id === session.trainerId ? 2500 : 0)
           + (isPrimaryTrainer ? 2200 : 0)
           + (policyData.employmentType === 'full_time' ? 1800 : 0)
+          + (isCrossBranch ? -900 : 1400)
           + Math.max(0, policyData.dailySessionTarget - projectedTeachingSlots) * 180
           - policyData.schedulingPriority
           - projectedTeachingSlots * 25
           - daysFromStart * 5
           - (createsThreeConsecutiveDays ? 3500 : 0)
         candidates.push({
-          candidateId: sessionChangeCandidateId({ sessionId, revision, date: targetDate, hour: targetHour, trainerId: trainer.id }),
+          candidateId: sessionChangeCandidateId({ sessionId, revision, date: targetDate, hour: targetHour, trainerId: trainer.id, branchId: targetBranchId }),
           date: targetDate,
           hour: targetHour,
           trainerId: trainer.id,
           trainerName: optionalText(trainer.name, 160) || 'PT chưa cập nhật tên',
+          branchId: targetBranchId,
+          branchName: targetBranchName,
+          homeBranchId: branchId,
+          homeBranchName: branches.get(branchId)?.name || 'Chi nhánh Aura',
+          isCrossBranch,
           occupancy,
           capacity,
           pairsExistingSession,
@@ -511,6 +553,8 @@ async function buildSessionChangeSuggestions({ db, sessionId, expectedRevision, 
   candidates.sort((left, right) => right.score - left.score || left.date.localeCompare(right.date) || left.hour - right.hour || left.trainerName.localeCompare(right.trainerName, 'vi'))
   return {
     policy,
+    homeBranchId: branchId,
+    homeBranchName: branches.get(branchId)?.name || 'Chi nhánh Aura',
     suggestions: candidates.slice(0, SESSION_CHANGE_SUGGESTION_LIMIT).map(({ score, ...candidate }, index) => ({ ...candidate, rank: index + 1 })),
     issueCodes: candidates.length ? [] : ['NO_MATCHING_SLOT'],
   }
@@ -603,9 +647,8 @@ async function buildAdditionalSessionSuggestions({ db, studentId, now }) {
   const weekIds = new Set()
   for (let targetDate = rangeStart; targetDate <= rangeEnd; targetDate = addDateDays(targetDate, 1)) weekIds.add(mondayForDate(targetDate))
   const availabilityReferences = [...weekIds].map((weekId) => db.doc(`ptAvailability/${studentId}_${weekId}`))
-  const [trainersSnapshot, sessionsSnapshot, leavesSnapshot, requestsSnapshot, contractSessionsSnapshot, studentSessionsSnapshot, configSnapshot, ...availabilitySnapshots] = await Promise.all([
-    db.collection('trainers').where('branchId', '==', branchId).limit(201).get(),
-    db.collection('sessions').where('branchId', '==', branchId).where('date', '>=', rangeStart).where('date', '<', addDateDays(rangeEnd, 1)).limit(SESSION_CHANGE_DATA_LIMIT + 1).get(),
+  const [network, leavesSnapshot, requestsSnapshot, contractSessionsSnapshot, studentSessionsSnapshot, configSnapshot, ...availabilitySnapshots] = await Promise.all([
+    loadSuggestionNetwork(db, branchId, rangeStart, rangeEnd),
     db.collection('leaveRequests').where('status', '==', 'approved').limit(1001).get(),
     db.collection('sessionRequests').where('studentId', '==', studentId).limit(100).get(),
     db.collection('sessions').where('contractId', '==', contract.id).limit(SESSION_CHANGE_DATA_LIMIT + 1).get(),
@@ -613,7 +656,8 @@ async function buildAdditionalSessionSuggestions({ db, studentId, now }) {
     db.getAll(db.doc('settings/scheduleConfig')).then((values) => values[0]),
     ...availabilityReferences.map((reference) => db.getAll(reference).then((values) => values[0])),
   ])
-  if (trainersSnapshot.size > 200 || sessionsSnapshot.size > SESSION_CHANGE_DATA_LIMIT || contractSessionsSnapshot.size > SESSION_CHANGE_DATA_LIMIT || studentSessionsSnapshot.size > SESSION_CHANGE_DATA_LIMIT || leavesSnapshot.size > 1000) {
+  const { branches, trainersSnapshot, sessionsSnapshot } = network
+  if (contractSessionsSnapshot.size > SESSION_CHANGE_DATA_LIMIT || studentSessionsSnapshot.size > SESSION_CHANGE_DATA_LIMIT || leavesSnapshot.size > 1000) {
     throw new HttpsError('resource-exhausted', 'Dữ liệu lịch vượt giới hạn an toàn để gợi ý ca bổ sung.')
   }
   if (requestsSnapshot.docs.some((item) => item.data().type === 'additional' && item.data().status === 'pending')) {
@@ -630,6 +674,7 @@ async function buildAdditionalSessionSuggestions({ db, studentId, now }) {
   const assignedTrainerIds = new Set([contract.trainerId, ...(Array.isArray(contract.trainerIds) ? contract.trainerIds : [])].filter(Boolean))
   const trainers = trainersSnapshot.docs.map((item) => ({ id: item.id, ...item.data() }))
     .filter((trainer) => trainer.status !== 'inactive')
+    .filter((trainer) => trainer.branchId && branches.has(trainer.branchId))
     .filter((trainer) => assignedTrainerIds.has(trainer.id) || trainerPolicy(trainer).employmentType === 'full_time')
   const trainerAvailabilityReferences = trainers.flatMap((trainer) => [...weekIds].map((targetWeek) => db.doc(`trainerAvailability/${trainer.id}_${targetWeek}`)))
   const [studentAvailabilityByWeek, trainerAvailability] = await Promise.all([
@@ -654,6 +699,9 @@ async function buildAdditionalSessionSuggestions({ db, studentId, now }) {
     if (weekScheduled >= weeklyMaximum) continue
     for (const baseTrainer of trainers) {
       const trainer = effectiveTrainerForWeek(baseTrainer, trainerAvailability, targetWeek)
+      const targetBranchId = optionalText(trainer.branchId, 128)
+      const targetBranchName = branches.get(targetBranchId)?.name || 'Chi nhánh Aura'
+      const isCrossBranch = targetBranchId !== branchId
       const policyData = trainerPolicy(trainer)
       const trainerOnLeave = leavesSnapshot.docs.some((item) => {
         const leave = item.data()
@@ -674,8 +722,8 @@ async function buildAdditionalSessionSuggestions({ db, studentId, now }) {
         const occupancy = new Set(atSlot.map((item) => item.studentId)).size
         const capacity = normalizedTrainerCapacity(trainer.slotCapacity)
         if (occupancy >= capacity) continue
-        const siteCapacity = branchSlotCapacity(scheduleConfig, branchId, slotId)
-        const siteOccupancy = sessions.filter((item) => storedDateKey(item.date, 'Ngày lịch chi nhánh') === targetDate && storedSessionHour(item.hour, item.id, 'Giờ lịch chi nhánh') === targetHour && (!item.branchId || item.branchId === branchId)).length
+        const siteCapacity = branchSlotCapacity(scheduleConfig, targetBranchId, slotId)
+        const siteOccupancy = sessions.filter((item) => storedDateKey(item.date, 'Ngày lịch chi nhánh') === targetDate && storedSessionHour(item.hour, item.id, 'Giờ lịch chi nhánh') === targetHour && item.branchId === targetBranchId).length
         if (siteCapacity !== null && siteOccupancy >= siteCapacity) continue
         const uniqueTeachingSlots = new Set(sameTrainerDate.map((item) => storedSessionHour(item.hour, item.id, 'Giờ lịch PT'))).size
         const pairsExistingSession = occupancy === 1 && capacity === 2
@@ -686,12 +734,14 @@ async function buildAdditionalSessionSuggestions({ db, studentId, now }) {
         const createsThreeConsecutiveDays = hasThreeConsecutiveTrainingDays(studentTrainingDates, targetDate)
         const daysFromStart = inclusiveDateDays(rangeStart, targetDate) - 1
         const score = (4 - priorityTier) * 100000 + (assigned ? 6000 : 0) + (isPrimaryTrainer ? 2200 : 0)
-          + (policyData.employmentType === 'full_time' ? 1800 : 0) + Math.max(0, policyData.dailySessionTarget - projectedTeachingSlots) * 180
+          + (policyData.employmentType === 'full_time' ? 1800 : 0) + (isCrossBranch ? -900 : 1400) + Math.max(0, policyData.dailySessionTarget - projectedTeachingSlots) * 180
           - policyData.schedulingPriority - projectedTeachingSlots * 25 - daysFromStart * 5 - (createsThreeConsecutiveDays ? 3500 : 0)
         candidates.push({
-          candidateId: createHash('sha256').update(`additional|${contract.id}|${targetDate}|${targetHour}|${trainer.id}`).digest('hex').slice(0, 32),
+          candidateId: createHash('sha256').update(`additional|${contract.id}|${targetDate}|${targetHour}|${trainer.id}|${targetBranchId}`).digest('hex').slice(0, 32),
           contractId: contract.id, date: targetDate, hour: targetHour, trainerId: trainer.id,
           trainerName: optionalText(trainer.name, 160) || 'PT chưa cập nhật tên', occupancy, capacity,
+          branchId: targetBranchId, branchName: targetBranchName, homeBranchId: branchId,
+          homeBranchName: branches.get(branchId)?.name || 'Chi nhánh Aura', isCrossBranch,
           pairsExistingSession, priorityTier, isPrimaryTrainer, isAssignedTrainer: assigned,
           employmentType: policyData.employmentType, dailyLoad: uniqueTeachingSlots, dailyLoadBefore: uniqueTeachingSlots,
           dailyLoadAfter: projectedTeachingSlots, dailyTarget: policyData.dailySessionTarget,
@@ -707,6 +757,8 @@ async function buildAdditionalSessionSuggestions({ db, studentId, now }) {
     policy,
     contractId: contract.id,
     contractName: optionalText(contract.packageName, 160) || null,
+    homeBranchId: branchId,
+    homeBranchName: branches.get(branchId)?.name || 'Chi nhánh Aura',
     weeklyTarget: Number(student.sessionsPerWeek || 0),
     weeklyMaximum: Math.max(1, Number(student.maxWeeklySessions || 7)),
     suggestions: candidates.slice(0, SESSION_CHANGE_SUGGESTION_LIMIT).map(({ score, ...candidate }, index) => ({ ...candidate, rank: index + 1 })),
@@ -1655,6 +1707,9 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
         newHour: Number.isInteger(item.newHour) ? item.newHour : null,
         newTrainerId: newTrainerId || null,
         newTrainerName: newTrainerId ? optionalText(newTrainer.name, 160) || 'PT chưa xác định' : null,
+        newBranchId: optionalText(item.newBranchId, 128) || null,
+        newBranchName: optionalText(item.newBranchName, 160) || null,
+        crossBranchWarning: item.crossBranchWarning === true,
         suggestionRank: Number(item.suggestionRank || 0) || null,
         priorityTier: Number.isInteger(item.priorityTier) && item.priorityTier >= 1 && item.priorityTier <= 3 ? item.priorityTier : null,
         isPrimaryTrainer: item.isPrimaryTrainer === true,
@@ -1688,7 +1743,7 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
     const [usageSnapshot] = await db.getAll(policyUsageReference(db, studentId, monthKey))
     const approvedCount = Number(usageSnapshot?.data()?.approvedChangeCancelCount || 0)
     return {
-      schemaVersion: 2,
+      schemaVersion: 3,
       sessionId,
       revision: expectedRevision,
       policyMonth: monthKey,
@@ -1697,6 +1752,8 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
         approvedChangeCancelCount: approvedCount,
         complimentaryRemaining: Math.max(0, result.policy.complimentaryChangeCancelPerMonth - approvedCount),
       },
+      homeBranchId: result.homeBranchId || '',
+      homeBranchName: result.homeBranchName || 'Chi nhánh Aura',
       suggestions: result.suggestions,
       issueCodes: result.issueCodes,
     }
@@ -1707,11 +1764,13 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
     const studentId = linkedStudentId(actor)
     const result = await buildAdditionalSessionSuggestions({ db, studentId, now: now() })
     return {
-      schemaVersion: 1,
+      schemaVersion: 2,
       contractId: result.contractId || null,
       contractName: result.contractName || null,
       weeklyTarget: result.weeklyTarget || 0,
       weeklyMaximum: result.weeklyMaximum || 7,
+      homeBranchId: result.homeBranchId || '',
+      homeBranchName: result.homeBranchName || 'Chi nhánh Aura',
       policy: result.policy,
       suggestions: result.suggestions,
       issueCodes: result.issueCodes,
@@ -1742,6 +1801,7 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
     if (!selectedSuggestion) {
       throw new HttpsError('failed-precondition', 'Ca đăng ký thêm không còn phù hợp. Hãy tải lại danh sách ca trống.', { issueCode: 'ADDITIONAL_SESSION_SUGGESTION_STALE' })
     }
+    const targetBranchId = id(selectedSuggestion.branchId || suggestionResult.homeBranchId, 'Mã chi nhánh ca đăng ký')
     const contractReference = db.doc(`contracts/${selectedSuggestion.contractId}`)
     const studentReference = db.doc(`students/${studentId}`)
 
@@ -1776,7 +1836,7 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
         throw new HttpsError('failed-precondition', 'Hợp đồng đã hết số buổi có thể xếp.')
       }
       const targetWeek = mondayForDate(selectedSuggestion.date)
-      const [trainerSnapshot, trainerDay, studentDay, availabilitySnapshot, trainerAvailabilitySnapshot, leavesSnapshot, studentSessionsSnapshot, configSnapshot] = await Promise.all([
+      const [trainerSnapshot, trainerDay, studentDay, availabilitySnapshot, trainerAvailabilitySnapshot, leavesSnapshot, studentSessionsSnapshot, configSnapshot, targetBranchSnapshot, branchDay] = await Promise.all([
         transaction.get(db.doc(`trainers/${selectedSuggestion.trainerId}`)),
         transaction.get(dailySessionsQuery(db, 'trainerId', selectedSuggestion.trainerId, selectedSuggestion.date)),
         transaction.get(dailySessionsQuery(db, 'studentId', studentId, selectedSuggestion.date)),
@@ -1785,12 +1845,16 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
         transaction.get(db.collection('leaveRequests').where('status', '==', 'approved').limit(1001)),
         transaction.get(db.collection('sessions').where('studentId', '==', studentId).limit(SESSION_CHANGE_DATA_LIMIT + 1)),
         transaction.get(db.doc('settings/scheduleConfig')),
+        transaction.get(db.doc(`branches/${targetBranchId}`)),
+        transaction.get(dailySessionsQuery(db, 'branchId', targetBranchId, selectedSuggestion.date)),
       ])
       if (!trainerSnapshot.exists || trainerSnapshot.data().status === 'inactive') throw new HttpsError('failed-precondition', 'PT của ca đăng ký không còn hoạt động.')
       if (leavesSnapshot.size > 1000 || studentSessionsSnapshot.size > SESSION_CHANGE_DATA_LIMIT) throw new HttpsError('resource-exhausted', 'Dữ liệu lịch vượt giới hạn xác minh an toàn.')
       const trainer = trainerProfileForWeek(trainerSnapshot.data(), trainerAvailabilitySnapshot.exists ? trainerAvailabilitySnapshot.data() : null, targetWeek)
       const expectedBranchId = contract.branchId || student.branchId
-      if (expectedBranchId && trainer.branchId !== expectedBranchId) throw new HttpsError('failed-precondition', 'PT của ca đăng ký không thuộc đúng chi nhánh.')
+      if (trainer.branchId && trainer.branchId !== targetBranchId) throw new HttpsError('failed-precondition', 'PT không còn thuộc chi nhánh của ca đã chọn.')
+      if (targetBranchSnapshot.exists && ['archived', 'inactive'].includes(String(targetBranchSnapshot.data().status || '').toLowerCase())) throw new HttpsError('failed-precondition', 'Chi nhánh của ca đã chọn không còn hoạt động.')
+      if (targetBranchId !== expectedBranchId && !targetBranchSnapshot.exists) throw new HttpsError('failed-precondition', 'Không tìm thấy chi nhánh của ca tập khác cơ sở.')
       const assignedTrainerIds = new Set([contract.trainerId, ...(Array.isArray(contract.trainerIds) ? contract.trainerIds : [])].filter(Boolean))
       if (!assignedTrainerIds.has(selectedSuggestion.trainerId) && trainerPolicy(trainer).employmentType !== 'full_time') throw new HttpsError('failed-precondition', 'Ca ngoài PT phụ trách chỉ được chọn PT chính thức toàn thời gian.')
       const { slotId } = assertOperatingCalendar(configSnapshot.exists ? configSnapshot.data() : {}, selectedSuggestion.date, selectedSuggestion.hour)
@@ -1812,6 +1876,8 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
       const targetCapacity = normalizedTrainerCapacity(trainer.slotCapacity)
       if (activeHourDocuments(trainerDay, selectedSuggestion.hour).length >= targetCapacity) throw new HttpsError('resource-exhausted', 'Khung giờ của PT đã đủ học viên.')
       if (activeDayDocuments(studentDay).length > 0) throw new HttpsError('already-exists', 'Học viên đã có một buổi tập trong ngày này.')
+      const siteCapacity = branchSlotCapacity(normalizedScheduleConfig(configSnapshot.exists ? configSnapshot.data() : {}), targetBranchId, slotId)
+      if (siteCapacity !== null && activeHourDocuments(branchDay, selectedSuggestion.hour).length >= siteCapacity) throw new HttpsError('resource-exhausted', 'Chi nhánh đã đủ sức chứa trong khung giờ này.')
       const weeklyStart = mondayForDate(selectedSuggestion.date)
       const weeklyScheduled = activeSessionRows(studentSessionsSnapshot).filter((item) => {
         const itemDate = storedDateKey(item.date, 'Ngày lịch học viên')
@@ -1825,11 +1891,11 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
       } catch (error) {
         throw policyFailure(error)
       }
-      const expectedCandidateId = createHash('sha256').update(`additional|${selectedSuggestion.contractId}|${selectedSuggestion.date}|${selectedSuggestion.hour}|${selectedSuggestion.trainerId}`).digest('hex').slice(0, 32)
+      const expectedCandidateId = createHash('sha256').update(`additional|${selectedSuggestion.contractId}|${selectedSuggestion.date}|${selectedSuggestion.hour}|${selectedSuggestion.trainerId}|${targetBranchId}`).digest('hex').slice(0, 32)
       if (selectedSuggestion.candidateId !== expectedCandidateId) throw new HttpsError('aborted', 'Ca đăng ký đã thay đổi. Hãy tải lại danh sách ca trống.')
       transaction.create(requestReference, {
-        schemaVersion: 1,
-        policyVersion: 'additional-session-v1',
+        schemaVersion: 2,
+        policyVersion: 'additional-session-v2',
         type: 'additional',
         sessionId: null,
         studentId,
@@ -1837,6 +1903,11 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
         contractId: selectedSuggestion.contractId,
         trainerId: selectedSuggestion.trainerId,
         newTrainerId: selectedSuggestion.trainerId,
+        newBranchId: targetBranchId,
+        newBranchName: selectedSuggestion.branchName || (targetBranchSnapshot.exists ? optionalText(targetBranchSnapshot.data().name, 160) : '') || 'Chi nhánh Aura',
+        homeBranchId: expectedBranchId || '',
+        homeBranchName: selectedSuggestion.homeBranchName || '',
+        crossBranchWarning: targetBranchId !== expectedBranchId,
         newDate: selectedSuggestion.date,
         newHour: selectedSuggestion.hour,
         candidateId: expectedCandidateId,
@@ -1964,6 +2035,11 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
         newDate,
         newHour,
         newTrainerId,
+        newBranchId: selectedSuggestion?.branchId || null,
+        newBranchName: selectedSuggestion?.branchName || null,
+        homeBranchId: selectedSuggestion?.homeBranchId || session.branchId || null,
+        homeBranchName: selectedSuggestion?.homeBranchName || null,
+        crossBranchWarning: selectedSuggestion?.isCrossBranch === true,
         candidateId: selectedSuggestion?.candidateId || null,
         suggestionRank: selectedSuggestion?.rank || null,
         pairsExistingSession: selectedSuggestion?.pairsExistingSession === true,
@@ -2441,13 +2517,15 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
         const targetDate = date(requestData.newDate)
         const targetHour = hour(requestData.newHour)
         const trainerId = id(requestData.newTrainerId || requestData.trainerId, 'Mã HLV')
+        const trainerSnapshot = await transaction.get(db.doc(`trainers/${trainerId}`))
+        if (!trainerSnapshot.exists || trainerSnapshot.data().status === 'inactive') throw new HttpsError('failed-precondition', 'PT của ca đăng ký không còn hoạt động.')
+        const targetBranchId = id(requestData.newBranchId || trainerSnapshot.data().branchId || requestData.homeBranchId || '', 'Mã chi nhánh ca đăng ký')
         const sessionId = `additional-${requestId}`
         const sessionReference = db.doc(`sessions/${sessionId}`)
         const targetWeek = mondayForDate(targetDate)
-        const [contractSnapshot, studentSnapshot, trainerSnapshot, trainerDay, studentDay, availabilitySnapshot, trainerAvailabilitySnapshot, leavesSnapshot, contractSessionsSnapshot, studentSessionsSnapshot, existingSession, configSnapshot] = await Promise.all([
+        const [contractSnapshot, studentSnapshot, trainerDay, studentDay, availabilitySnapshot, trainerAvailabilitySnapshot, leavesSnapshot, contractSessionsSnapshot, studentSessionsSnapshot, existingSession, configSnapshot, targetBranchSnapshot, branchDay] = await Promise.all([
           transaction.get(db.doc(`contracts/${contractId}`)),
           transaction.get(db.doc(`students/${studentId}`)),
-          transaction.get(db.doc(`trainers/${trainerId}`)),
           transaction.get(dailySessionsQuery(db, 'trainerId', trainerId, targetDate)),
           transaction.get(dailySessionsQuery(db, 'studentId', studentId, targetDate)),
           transaction.get(db.doc(`ptAvailability/${studentId}_${targetWeek}`)),
@@ -2457,6 +2535,8 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
           transaction.get(db.collection('sessions').where('studentId', '==', studentId).limit(SESSION_CHANGE_DATA_LIMIT + 1)),
           transaction.get(sessionReference),
           transaction.get(db.doc('settings/scheduleConfig')),
+          transaction.get(db.doc(`branches/${targetBranchId}`)),
+          transaction.get(dailySessionsQuery(db, 'branchId', targetBranchId, targetDate)),
         ])
         if (existingSession.exists) throw new HttpsError('already-exists', 'Buổi đăng ký thêm đã được tạo; hãy tải lại danh sách yêu cầu.')
         if (!contractSnapshot.exists || !studentSnapshot.exists) throw new HttpsError('failed-precondition', 'Thiếu hợp đồng hoặc hồ sơ học viên.')
@@ -2472,10 +2552,11 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
         const contractSessions = activeSessionRows(contractSessionsSnapshot)
         const contractUsage = summarizeContractUsage(contract, contractSessionRows)
         if (contractSessions.filter((item) => item.contractId === contractId).length >= contractUsage.remainingSessions) throw new HttpsError('failed-precondition', 'Hợp đồng đã hết số buổi có thể xếp.')
-        if (!trainerSnapshot.exists || trainerSnapshot.data().status === 'inactive') throw new HttpsError('failed-precondition', 'PT của ca đăng ký không còn hoạt động.')
         const trainer = trainerProfileForWeek(trainerSnapshot.data(), trainerAvailabilitySnapshot.exists ? trainerAvailabilitySnapshot.data() : null, targetWeek)
         const expectedBranchId = contract.branchId || student.branchId
-        if (expectedBranchId && trainer.branchId !== expectedBranchId) throw new HttpsError('failed-precondition', 'PT của ca đăng ký không thuộc đúng chi nhánh.')
+        if (trainer.branchId && trainer.branchId !== targetBranchId) throw new HttpsError('failed-precondition', 'PT không còn thuộc chi nhánh của ca đã chọn.')
+        if (targetBranchSnapshot.exists && ['archived', 'inactive'].includes(String(targetBranchSnapshot.data().status || '').toLowerCase())) throw new HttpsError('failed-precondition', 'Chi nhánh của ca đã chọn không còn hoạt động.')
+        if (targetBranchId !== expectedBranchId && !targetBranchSnapshot.exists) throw new HttpsError('failed-precondition', 'Không tìm thấy chi nhánh của ca tập khác cơ sở.')
         const assignedTrainerIds = new Set([contract.trainerId, ...(Array.isArray(contract.trainerIds) ? contract.trainerIds : [])].filter(Boolean))
         if (!assignedTrainerIds.has(trainerId) && trainerPolicy(trainer).employmentType !== 'full_time') throw new HttpsError('failed-precondition', 'Ca ngoài PT phụ trách chỉ được chọn PT chính thức toàn thời gian.')
         const { slotId } = assertOperatingCalendar(configSnapshot.exists ? configSnapshot.data() : {}, targetDate, targetHour)
@@ -2496,12 +2577,8 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
         if (trainerUnavailable) throw new HttpsError('failed-precondition', 'PT đang OFF ở ngày đăng ký.')
         if (activeHourDocuments(trainerDay, targetHour).length >= normalizedTrainerCapacity(trainer.slotCapacity)) throw new HttpsError('resource-exhausted', 'Khung giờ của PT đã đủ học viên.')
         if (activeDayDocuments(studentDay).length > 0) throw new HttpsError('already-exists', 'Học viên đã có một buổi tập trong ngày này.')
-        const branchId = id(expectedBranchId || trainer.branchId, 'Mã chi nhánh')
-        const siteCapacity = branchSlotCapacity(normalizedScheduleConfig(configSnapshot.exists ? configSnapshot.data() : {}), branchId, slotId)
-        if (siteCapacity !== null) {
-          const branchDay = await transaction.get(dailySessionsQuery(db, 'branchId', branchId, targetDate))
-          if (activeHourDocuments(branchDay, targetHour).length >= siteCapacity) throw new HttpsError('resource-exhausted', 'Chi nhánh đã đủ sức chứa trong khung giờ này.')
-        }
+        const siteCapacity = branchSlotCapacity(normalizedScheduleConfig(configSnapshot.exists ? configSnapshot.data() : {}), targetBranchId, slotId)
+        if (siteCapacity !== null && activeHourDocuments(branchDay, targetHour).length >= siteCapacity) throw new HttpsError('resource-exhausted', 'Chi nhánh đã đủ sức chứa trong khung giờ này.')
         const weeklyStart = mondayForDate(targetDate)
         const weeklyScheduled = activeSessionRows(studentSessionsSnapshot).filter((item) => {
           const itemDate = storedDateKey(item.date, 'Ngày lịch học viên')
@@ -2521,7 +2598,8 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
           accountUid: requestData.accountUid || null,
           trainerId,
           contractId,
-          branchId,
+          branchId: targetBranchId,
+          ...(targetBranchId !== expectedBranchId ? { studentBranchWarning: true, studentHomeBranchId: expectedBranchId || student.branchId || '' } : {}),
           date: targetDate,
           hour: targetHour,
           status: 'scheduled',
@@ -2544,7 +2622,8 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
           studentId,
           trainerId,
           contractId,
-          to: { date: targetDate, hour: targetHour, trainerId },
+          to: { date: targetDate, hour: targetHour, trainerId, branchId: targetBranchId },
+          crossBranchWarning: targetBranchId !== expectedBranchId,
           priorityTier: Number(requestData.priorityTier || 3),
           createdAt: FieldValue.serverTimestamp(),
           createdBy: actor.uid,
@@ -2659,6 +2738,7 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
       let newDate = ''
       let newHour = 0
       let trainerId = ''
+      let targetBranchId = ''
       let trainerDay = null
       let studentDay = null
       let trainerSnapshot = null
@@ -2668,6 +2748,7 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
       let trainerLeaves = null
       let branchDay = null
       let targetSiteCapacity = null
+      let homeBranchId = ''
       if (requestType === 'reschedule') {
         newDate = date(requestData.newDate)
         newHour = hour(requestData.newHour)
@@ -2688,15 +2769,19 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
         if (!trainerSnapshot.exists || trainerSnapshot.data().status === 'inactive') throw new HttpsError('failed-precondition', 'PT của ca đề xuất không còn hoạt động.')
         if (!studentSnapshot.exists) throw new HttpsError('failed-precondition', 'Hồ sơ học viên không tồn tại.')
         const trainer = trainerProfileForWeek(trainerSnapshot.data(), trainerAvailabilitySnapshot.exists ? trainerAvailabilitySnapshot.data() : null, targetWeek)
-        const expectedBranchId = session.branchId || contract.branchId
-        if (expectedBranchId && trainer.branchId !== expectedBranchId) throw new HttpsError('failed-precondition', 'PT của ca đề xuất không thuộc đúng chi nhánh.')
+        homeBranchId = optionalText(contract.branchId || studentSnapshot.data().branchId || session.branchId, 128)
+        const targetBranchCandidate = requestData.newBranchId || trainer.branchId || session.branchId || homeBranchId
+        targetBranchId = targetBranchCandidate ? id(targetBranchCandidate, 'Mã chi nhánh ca thay thế') : ''
+        if (trainer.branchId && trainer.branchId !== targetBranchId) throw new HttpsError('failed-precondition', 'PT không còn thuộc chi nhánh của ca đã chọn.')
+        const targetBranchSnapshot = targetBranchId ? await transaction.get(db.doc(`branches/${targetBranchId}`)) : null
+        if (targetBranchSnapshot?.exists && ['archived', 'inactive'].includes(String(targetBranchSnapshot.data().status || '').toLowerCase())) throw new HttpsError('failed-precondition', 'Chi nhánh của ca đã chọn không còn hoạt động.')
+        if (targetBranchId && homeBranchId && targetBranchId !== homeBranchId && !targetBranchSnapshot?.exists) throw new HttpsError('failed-precondition', 'Không tìm thấy chi nhánh của ca tập khác cơ sở.')
         const assignedTrainerIds = new Set([session.trainerId, contract.trainerId, ...(Array.isArray(contract.trainerIds) ? contract.trainerIds : [])].filter(Boolean))
         if (!assignedTrainerIds.has(trainerId) && trainerPolicy(trainer).employmentType !== 'full_time') {
           throw new HttpsError('failed-precondition', 'Ca thay thế ngoài PT phụ trách chỉ được chọn PT chính thức toàn thời gian.')
         }
         const { slotId } = assertOperatingCalendar(configSnapshot.exists ? configSnapshot.data() : {}, newDate, newHour)
         if (!trainerIsAvailable(trainer, slotId)) throw new HttpsError('failed-precondition', 'Ca đề xuất không còn nằm trong lịch rảnh PT tuần này.')
-        const targetBranchId = expectedBranchId || trainer.branchId || ''
         targetSiteCapacity = targetBranchId ? branchSlotCapacity(normalizedScheduleConfig(configSnapshot.exists ? configSnapshot.data() : {}), targetBranchId, slotId) : null
         if (targetSiteCapacity !== null) branchDay = await transaction.get(dailySessionsQuery(db, 'branchId', targetBranchId, newDate))
         const studentData = studentSnapshot.data()
@@ -2791,11 +2876,15 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
         if (activeHourDocuments(trainerDay, newHour, [sessionId]).length >= targetCapacity) throw new HttpsError('resource-exhausted', 'Khung giờ của HLV đã đủ học viên.')
         if (activeDayDocuments(studentDay, [sessionId]).length > 0) throw new HttpsError('already-exists', 'Học viên đã có một buổi tập trong ngày này.')
         if (branchDay && activeHourDocuments(branchDay, newHour, [sessionId]).length >= targetSiteCapacity) throw new HttpsError('resource-exhausted', 'Chi nhánh đã đủ sức chứa trong khung giờ này.')
+        const isCrossBranch = Boolean(targetBranchId && homeBranchId && targetBranchId !== homeBranchId)
         transaction.update(sessionReference, {
-          previousSchedule: FieldValue.arrayUnion({ date: session.date, hour: session.hour ?? null, trainerId: session.trainerId, changedAt: new Date().toISOString() }),
+          previousSchedule: FieldValue.arrayUnion({ date: session.date, hour: session.hour ?? null, trainerId: session.trainerId, branchId: session.branchId || null, changedAt: new Date().toISOString() }),
           date: newDate,
           hour: newHour,
           trainerId,
+          ...(targetBranchId ? { branchId: targetBranchId } : {}),
+          studentBranchWarning: isCrossBranch,
+          studentHomeBranchId: isCrossBranch ? homeBranchId : null,
           status: 'scheduled',
           scheduleStatus: 'rescheduled',
           billingStatus: 'pending',
@@ -2811,7 +2900,7 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
           changeSuggestionId: requestData.candidateId || null,
           loyaltyEntitlementId: loyaltyEntitlementReference?.id || null,
         })
-        transaction.create(eventReference, { schemaVersion: 2, sessionId, requestId, type: 'rescheduled', from: { date: session.date, hour: session.hour ?? null, trainerId: session.trainerId }, to: { date: newDate, hour: newHour, trainerId }, policyMonth: policyMonth || null, policySequence: policyDecision.sequence || null, previousSlotCountsTowardContract: policyDecision.countsTowardContract, loyaltyEntitlementId: loyaltyEntitlementReference?.id || null, createdAt: FieldValue.serverTimestamp(), createdBy: actor.uid })
+        transaction.create(eventReference, { schemaVersion: 2, sessionId, requestId, type: 'rescheduled', from: { date: session.date, hour: session.hour ?? null, trainerId: session.trainerId, branchId: session.branchId || null }, to: { date: newDate, hour: newHour, trainerId, branchId: targetBranchId || null }, crossBranchWarning: isCrossBranch, policyMonth: policyMonth || null, policySequence: policyDecision.sequence || null, previousSlotCountsTowardContract: policyDecision.countsTowardContract, loyaltyEntitlementId: loyaltyEntitlementReference?.id || null, createdAt: FieldValue.serverTimestamp(), createdBy: actor.uid })
       }
 
       if (requestedBy === 'student') {

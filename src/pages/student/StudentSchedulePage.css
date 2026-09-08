@@ -607,6 +607,12 @@
 .student-additional-suggestions__group button small { display:flex; align-items:center; gap:4px; color:#97858e; font-size:9px; }
 .student-additional-suggestions__group button em,.student-additional-suggestions__group button i { width:max-content; padding:3px 6px; border-radius:999px; font-size:9px; font-style:normal; font-weight:850; color:#147653; background:#e7f8f0; }
 .student-additional-suggestions__group button i { color:#9a621f; background:#fff2dd; }
+.student-additional-suggestions__group button small.student-suggestion-branch,.student-change-suggestions__rail small.student-suggestion-branch { color:#3d6d5a; }
+.student-additional-suggestions__group button small.student-suggestion-branch.is-cross-branch,.student-change-suggestions__rail small.student-suggestion-branch.is-cross-branch { width:max-content; max-width:100%; border-radius:999px; padding:4px 7px; color:#9b3e62; background:#fff0f6; }
+.student-cross-branch-note { display:grid; grid-template-columns:20px minmax(0,1fr); gap:8px; margin:10px 0; padding:11px 12px; border-radius:14px; color:#71344e; background:#fff0f6; }
+.student-cross-branch-note > svg { margin-top:1px; color:#d52d73; }
+.student-cross-branch-note p { margin:0; font-size:10px; line-height:1.5; }
+.student-cross-branch-note strong { display:block; margin-bottom:2px; color:#582638; font-size:11px; }
 @media (max-width:620px) {
   .student-request-center > header { display:grid; }
   .student-request-center__actions { justify-content:stretch; }

@@ -296,6 +296,7 @@ export default function SchedulerWrapper({ user, profile, accessContext, backend
         weekId: targetWeek,
         branchId: schedulingBranchId,
         expectedDraftRevision: publishPreview.draftRevision,
+        acknowledgedWarnings: publishPreview.warnings,
       });
       setPublishPreview(null);
       setDebugData({

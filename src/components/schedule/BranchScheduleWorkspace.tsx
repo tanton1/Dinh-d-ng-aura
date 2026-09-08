@@ -499,6 +499,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
   const [publishIssues, setPublishIssues] = useState<Array<{ code: string; slotId?: string; studentId?: string; studentName?: string; trainerId?: string; trainerName?: string }>>([])
   const [notice, setNotice] = useState<string | null>(null)
   const [publishPreview, setPublishPreview] = useState<PtSchedulePublishResult | null>(null)
+  const [publishCrossBranchConfirmed, setPublishCrossBranchConfirmed] = useState(false)
   const [history, setHistory] = useState<PtScheduleVersionListResult | null>(null)
   const [restoreCandidate, setRestoreCandidate] = useState<PtScheduleVersionSummary | null>(null)
   const [inspectorSlotId, setInspectorSlotId] = useState<string | null>(null)
@@ -1630,7 +1631,10 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
         branchId,
         expectedDraftRevision: workspace.draftRevision,
       })
-      if (activeWorkspaceScopeRef.current === commandScope) setPublishPreview(preview)
+      if (activeWorkspaceScopeRef.current === commandScope) {
+        setPublishCrossBranchConfirmed(false)
+        setPublishPreview(preview)
+      }
     } catch (validateError) {
       if (activeWorkspaceScopeRef.current !== commandScope) return
       const normalized = asPtSchedulePublishError(validateError)
@@ -1645,6 +1649,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
 
   const confirmPublish = async () => {
     if (!publishPreview || busyRef.current) return
+    if (publishPreview.warnings.includes('STUDENT_BRANCH_MISMATCH') && !publishCrossBranchConfirmed) return
     const commandScope = workspaceScope
     busyRef.current = true
     setBusy(true)
@@ -1654,6 +1659,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
         weekId: currentWeekId,
         branchId,
         expectedDraftRevision: publishPreview.draftRevision,
+        acknowledgedWarnings: publishCrossBranchConfirmed ? ['STUDENT_BRANCH_MISMATCH'] : [],
       })
       if (activeWorkspaceScopeRef.current !== commandScope) return
       setPublishPreview(null)
@@ -2145,7 +2151,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
         </div>
       )}
 
-      {publishPreview && <div className="schedule-publish-backdrop"><section ref={activeDialogRef} className="schedule-publish-dialog" role="dialog" aria-modal="true" aria-labelledby="branch-publish-title"><div className="schedule-publish-dialog__accent" /><p className="schedule-publish-dialog__eyebrow">AURA PT · XÁC NHẬN</p><h2 id="branch-publish-title">Publish v{publishPreview.version}?</h2><p>Session đã tính buổi hoặc xác nhận được khóa bất biến. Toàn bộ diff còn lại chạy trong một transaction.</p><div className="schedule-publish-diff"><div><strong>{publishPreview.diff.create}</strong><span>Tạo mới</span></div><div><strong>{publishPreview.diff.update}</strong><span>Điều chỉnh</span></div><div><strong>{publishPreview.diff.cancel}</strong><span>Hủy</span></div><div><strong>{publishPreview.diff.unchanged}</strong><span>Giữ nguyên</span></div></div>{publishPreview.warnings.length > 0 && <div className="schedule-publish-warnings"><AlertTriangle size={17} /><div><strong>{publishPreview.warnings.length} lưu ý không chặn publish</strong><span>{publishPreview.warnings.map(ptScheduleConflictLabel).join(' · ')}</span></div></div>}<div className="schedule-publish-dialog__actions"><button type="button" onClick={() => setPublishPreview(null)}>Quay lại</button><button type="button" onClick={() => void confirmPublish()} disabled={busy}>{busy ? 'Đang publish…' : `Publish v${publishPreview.version}`}</button></div></section></div>}
+      {publishPreview && <div className="schedule-publish-backdrop"><section ref={activeDialogRef} className="schedule-publish-dialog" role="dialog" aria-modal="true" aria-labelledby="branch-publish-title"><div className="schedule-publish-dialog__accent" /><p className="schedule-publish-dialog__eyebrow">AURA PT · XÁC NHẬN</p><h2 id="branch-publish-title">Publish v{publishPreview.version}?</h2><p>Session đã tính buổi hoặc xác nhận được khóa bất biến. Toàn bộ diff còn lại chạy trong một transaction.</p><div className="schedule-publish-diff"><div><strong>{publishPreview.diff.create}</strong><span>Tạo mới</span></div><div><strong>{publishPreview.diff.update}</strong><span>Điều chỉnh</span></div><div><strong>{publishPreview.diff.cancel}</strong><span>Hủy</span></div><div><strong>{publishPreview.diff.unchanged}</strong><span>Giữ nguyên</span></div></div>{publishPreview.warnings.length > 0 && <div className="schedule-publish-warnings"><AlertTriangle size={17} /><div><strong>{publishPreview.warnings.length} lưu ý không chặn publish</strong><span>{publishPreview.warnings.map(ptScheduleConflictLabel).join(' · ')}</span></div></div>}{publishPreview.warnings.includes('STUDENT_BRANCH_MISMATCH') && <label className="schedule-publish-branch-ack"><input type="checkbox" checked={publishCrossBranchConfirmed} onChange={(event) => setPublishCrossBranchConfirmed(event.target.checked)} /><span><strong>Xác nhận lịch khác cơ sở</strong><small>{publishPreview.warningDetails?.filter((item) => item.code === 'STUDENT_BRANCH_MISMATCH').map((item) => `${item.studentName || 'Học viên'}: ${branches.find((branch) => branch.id === item.studentHomeBranchId)?.name || 'cơ sở hồ sơ'} → ${branches.find((branch) => branch.id === item.targetBranchId)?.name || workspace?.branch.name || 'cơ sở tập'}`).join(' · ') || 'Các học viên được đánh dấu sẽ tập tại cơ sở đang publish.'}</small></span></label>}<div className="schedule-publish-dialog__actions"><button type="button" onClick={() => { setPublishPreview(null); setPublishCrossBranchConfirmed(false) }}>Quay lại</button><button type="button" onClick={() => void confirmPublish()} disabled={busy || (publishPreview.warnings.includes('STUDENT_BRANCH_MISMATCH') && !publishCrossBranchConfirmed)}>{busy ? 'Đang publish…' : `Publish v${publishPreview.version}`}</button></div></section></div>}
 
       {resetDraftOpen && <div className="schedule-publish-backdrop"><section ref={activeDialogRef} className="schedule-publish-dialog" role="alertdialog" aria-modal="true" aria-labelledby="branch-reset-title"><div className="schedule-publish-dialog__accent" /><p className="schedule-publish-dialog__eyebrow">AURA PT · ĐẶT LẠI DRAFT</p><h2 id="branch-reset-title">Xếp lại từ đầu tuần này?</h2><p>Gỡ {draftResetSummary.resettableEntries} buổi nháp của {draftResetSummary.affectedStudents} học viên. {draftResetSummary.protectedEntries} ca OFF, ca khóa hoặc session đã publish vẫn được giữ nguyên.</p><div className="schedule-publish-dialog__actions"><button type="button" onClick={() => setResetDraftOpen(false)}>Quay lại</button><button type="button" onClick={() => void resetDraft()} disabled={busy}>{busy ? 'Đang đặt lại…' : 'Đặt lại draft'}</button></div></section></div>}
 

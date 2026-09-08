@@ -317,6 +317,42 @@ test('learner receives pairing-first change suggestions and a two-request Aura p
   assert.equal(saved.policyVersion, 'pt-change-cancel-v2')
 })
 
+test('learner can select and approve a clearly labelled cross-branch paired slot', async () => {
+  const state = operationsFor({
+    'settings/scheduleConfig': { complimentaryChangeCancelPerMonth: 2, sessionChangeDeadlineHours: 12 },
+    'branches/branch-1': { name: 'Aura Cơ sở 1', status: 'active' },
+    'branches/branch-2': { name: 'Aura Cơ sở 2', status: 'active' },
+    'sessions/source-cross-branch': { status: 'scheduled', studentId: 'student-1', trainerId: 'trainer-1', contractId: 'contract-1', branchId: 'branch-1', date: '2026-08-22', hour: 7, revision: 2 },
+    'sessions/open-cross-branch-pair': { status: 'scheduled', studentId: 'student-2', trainerId: 'trainer-2', contractId: 'contract-2', branchId: 'branch-2', date: '2026-08-21', hour: 10, revision: 0 },
+    'contracts/contract-1': { status: 'active', studentId: 'student-1', trainerId: 'trainer-1', branchId: 'branch-1', startDate: '2026-08-01', endDate: '2026-09-30', totalSessions: 24, usedSessions: 2 },
+    'students/student-1': { status: 'active', branchId: 'branch-1', isScheduleConfirmed: true, availableSlots: ['T6-10'] },
+    'trainers/trainer-1': { status: 'active', name: 'PT Cơ sở 1', branchId: 'branch-1', employmentType: 'full_time', availableSlots: [], slotCapacity: 2 },
+    'trainers/trainer-2': { status: 'active', name: 'PT Cơ sở 2', branchId: 'branch-2', employmentType: 'full_time', availableSlots: ['T6-10'], slotCapacity: 2 },
+  })
+
+  const page = await state.getMySessionChangeSuggestions({ data: { sessionId: 'source-cross-branch', expectedRevision: 2 } })
+  const candidate = page.suggestions.find((item) => item.branchId === 'branch-2' && item.date === '2026-08-21' && item.hour === 10)
+  assert.ok(candidate)
+  assert.equal(page.homeBranchName, 'Aura Cơ sở 1')
+  assert.equal(candidate.branchName, 'Aura Cơ sở 2')
+  assert.equal(candidate.homeBranchName, 'Aura Cơ sở 1')
+  assert.equal(candidate.isCrossBranch, true)
+  assert.equal(candidate.pairsExistingSession, true)
+
+  const created = await state.createMySessionRequest({ data: {
+    sessionId: 'source-cross-branch', expectedRevision: 2, type: 'reschedule', reason: 'Đổi sang cơ sở thuận tiện', idempotencyKey: 'cross-branch-request', candidateId: candidate.candidateId,
+  } })
+  const request = state.read(`sessionRequests/${created.requestId}`)
+  assert.equal(request.newBranchId, 'branch-2')
+  assert.equal(request.crossBranchWarning, true)
+
+  await state.approveSessionRequest({ data: { requestId: created.requestId, expectedSessionRevision: 2 } })
+  const moved = state.read('sessions/source-cross-branch')
+  assert.equal(moved.branchId, 'branch-2')
+  assert.equal(moved.studentBranchWarning, true)
+  assert.equal(moved.studentHomeBranchId, 'branch-1')
+})
+
 test('change suggestions honor the PT weekly override instead of the recurring profile', async () => {
   const state = operationsFor({
     'settings/scheduleConfig': { sessionChangeDeadlineHours: 12 },

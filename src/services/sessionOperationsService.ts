@@ -41,6 +41,9 @@ export interface PtSessionOperationsRequest extends PtOperationsRequestBase {
   newHour: number | null
   newTrainerId: string | null
   newTrainerName: string | null
+  newBranchId?: string | null
+  newBranchName?: string | null
+  crossBranchWarning?: boolean
   suggestionRank: number | null
   pairsExistingSession: boolean
   policyMonth: string | null
@@ -148,6 +151,11 @@ export interface SessionChangeSuggestion {
   hour: number
   trainerId: string
   trainerName: string
+  branchId: string
+  branchName: string
+  homeBranchId?: string
+  homeBranchName?: string
+  isCrossBranch: boolean
   occupancy: number
   capacity: number
   pairsExistingSession: boolean
@@ -173,6 +181,8 @@ export interface SessionChangeSuggestionPage {
   sessionId: string
   revision: number
   policyMonth: string
+  homeBranchId?: string
+  homeBranchName?: string
   policy: {
     complimentaryChangeCancelPerMonth: number
     sessionChangeDeadlineHours: number
@@ -209,6 +219,8 @@ export interface AdditionalSessionSuggestionPage {
   contractName?: string | null
   weeklyTarget: number
   weeklyMaximum: number
+  homeBranchId?: string
+  homeBranchName?: string
   policy: {
     sessionChangeDeadlineHours: number
   }
