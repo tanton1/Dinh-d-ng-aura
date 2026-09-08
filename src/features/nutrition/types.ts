@@ -80,6 +80,8 @@ export interface NutritionClarificationAnswer {
 }
 
 export interface NutritionMealDraft {
+  /** Stable identifier for one save attempt; reused by retries to prevent duplicate meal logs. */
+  idempotencyKey?: string
   /** Canonical dish title returned by the scan. Keep separate from ingredient fallback name. */
   dishName?: string
   cookingNote?: string
@@ -140,6 +142,7 @@ export type NutritionClarificationResponse = 'confirmed' | 'adjust' | 'unknown'
 
 export interface PersistedScanReview {
   ownerId: string
+  saveAttemptId?: string
   dishName: string
   items: AiFoodItem[]
   resultMode: 'live' | 'demo'

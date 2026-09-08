@@ -235,7 +235,11 @@ async function loadUserLog(
   }
 }
 
-export async function saveUserMealLog(userId: string, meal: Record<string, unknown> & { id: string }) {
+export async function saveUserMealLog(
+  userId: string,
+  meal: Record<string, unknown> & { id: string },
+  options: { idempotencyKey?: string } = {},
+) {
   const functions = requireNutritionCloud(userId)
   const cleaned = await cleanMealForStorage(meal)
   const payload: Record<string, unknown> = { ...cleaned, id: meal.id }
@@ -266,10 +270,13 @@ export async function saveUserMealLog(userId: string, meal: Record<string, unkno
   }
   if (typeof payload.imageStoragePath === 'string' && payload.imageStoragePath) delete payload.image
   const callable = httpsCallable<
-    { meal: Record<string, unknown> },
-    { mealId: string; mealRevision: number; reviewInvalidated: boolean }
+    { meal: Record<string, unknown>; idempotencyKey?: string },
+    { mealId: string; mealRevision: number; reviewInvalidated: boolean; unchanged?: boolean }
   >(functions, 'saveNutritionMealLog')
-  return (await callable({ meal: withoutUndefined(payload) })).data
+  return (await callable({
+    meal: withoutUndefined(payload),
+    ...(options.idempotencyKey ? { idempotencyKey: options.idempotencyKey } : {}),
+  })).data
 }
 export async function deleteUserMealLog(userId: string, mealId: string) {
   const functions = requireNutritionCloud(userId)

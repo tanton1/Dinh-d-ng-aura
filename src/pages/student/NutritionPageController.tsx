@@ -2076,7 +2076,7 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
     const mealLabels: Record<NutritionMealDraft['mealType'], string> = { breakfast: 'Bữa sáng', lunch: 'Bữa trưa', dinner: 'Bữa tối', snack: 'Bữa phụ' }
     const newMealLog: MealLog = {
       targetSnapshot: loggedDate === todayKey ? targetSnapshot : undefined,
-      id: `ai-${Date.now()}`,
+      id: `ai-${meal.idempotencyKey ?? crypto.randomUUID()}`,
       date: loggedDate,
       type: meal.mealType,
       label: mealLabels[meal.mealType],
@@ -2138,7 +2138,7 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
     let reviewSubmissionFailed = false
     try {
       if (isCloudLogEnabled) {
-        await saveUserMealLog(resolvedOwnerId, newMealLog as any)
+        await saveUserMealLog(resolvedOwnerId, newMealLog as any, { idempotencyKey: meal.idempotencyKey })
         if (meal.submitForReview) {
           try {
             await submitMealReview(resolvedOwnerId, firstName || 'Học viên', newMealLog as any)
@@ -2154,7 +2154,7 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
       setMeals((current) => current.filter((item) => item.id !== newMealLog.id))
       failNutritionMutation('meals', error)
       showMessage('Không thể lưu bữa ăn. Dữ liệu chưa được ghi nhận trên máy chủ.')
-      return
+      throw error
     }
     onMealSaved?.(meal)
     setHomeWeekStart(getCalendarStart(dateFromLocalKey(loggedDate)))
@@ -2234,7 +2234,7 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
     const mealLabels: Record<NutritionMealDraft['mealType'], string> = { breakfast: 'Bữa sáng', lunch: 'Bữa trưa', dinner: 'Bữa tối', snack: 'Bữa phụ' }
     const newMealLog: MealLog = {
       targetSnapshot: context.date === todayKey ? targetSnapshot : undefined,
-      id: `catalog-${Date.now()}`,
+      id: `catalog-${context.idempotencyKey}`,
       catalogId: food.id,
       plannedMealId: diaryCatalogDefaults?.plannedMealId,
       servingMultiplier: diaryCatalogDefaults?.servingMultiplier ?? 1,
@@ -2260,7 +2260,7 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
     setMeals((current) => [newMealLog, ...current])
     beginNutritionMutation('meals', newMealLog.id)
     try {
-      if (isCloudLogEnabled) await saveUserMealLog(resolvedOwnerId, newMealLog as any)
+      if (isCloudLogEnabled) await saveUserMealLog(resolvedOwnerId, newMealLog as any, { idempotencyKey: context.idempotencyKey })
       completeNutritionMutation('meals')
     } catch (error) {
       setMeals((current) => current.filter((meal) => meal.id !== newMealLog.id))

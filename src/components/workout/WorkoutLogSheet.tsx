@@ -20,6 +20,7 @@ import {
   X,
   Zap
 } from 'lucide-react'
+import { runSingleFlight } from '../../utils/singleFlight'
 
 export type WorkoutActivityKind = 'strength' | 'running' | 'walking' | 'cycling' | 'hiit' | 'swimming' | 'yoga' | 'other'
 export type WorkoutIntensityLevel = 'low' | 'moderate' | 'high'
@@ -39,7 +40,7 @@ export interface WorkoutLogSheetProps {
   dateLabel?: string
   weightKg?: number
   onClose: () => void
-  onSave: (activity: WorkoutLogDraft) => void
+  onSave: (activity: WorkoutLogDraft) => Promise<void> | void
 }
 
 const ACTIVITY_LIST: Array<{
@@ -67,12 +68,17 @@ export function WorkoutLogSheet({ dateLabel = 'hôm nay', weightKg = 0, onClose,
   const [durationMinutes, setDurationMinutes] = useState(30)
   const [intensity, setIntensity] = useState<WorkoutIntensityLevel>('moderate')
   const [activitySelectorOpen, setActivitySelectorOpen] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
 
   const modalRef = useRef<HTMLDivElement>(null)
+  const saveInFlightRef = useRef<Promise<void> | null>(null)
+  const requestClose = () => {
+    if (!saveInFlightRef.current) onClose()
+  }
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
+      if (e.key === 'Escape') requestClose()
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
@@ -114,17 +120,24 @@ export function WorkoutLogSheet({ dateLabel = 'hôm nay', weightKg = 0, onClose,
   }
 
   const handleSubmit = () => {
-    if (!safeDuration || !startTime) return
-    onSave({
-      startTime,
-      kind,
-      title: option.label,
-      durationMinutes: safeDuration,
-      intensity,
-      estimatedCalories,
-      met,
-      weightKgAtEstimate: weightKg,
-    })
+    if (!safeDuration || !startTime || saveInFlightRef.current) return Promise.resolve()
+    return runSingleFlight(saveInFlightRef, async () => {
+      setIsSaving(true)
+      try {
+        await onSave({
+          startTime,
+          kind,
+          title: option.label,
+          durationMinutes: safeDuration,
+          intensity,
+          estimatedCalories,
+          met,
+          weightKgAtEstimate: weightKg,
+        })
+      } finally {
+        setIsSaving(false)
+      }
+    }).catch(() => undefined)
   }
 
   const SelectedIcon = option.icon
@@ -132,7 +145,7 @@ export function WorkoutLogSheet({ dateLabel = 'hôm nay', weightKg = 0, onClose,
   return (
     <div
       className="workout-log-sheet-backdrop"
-      onClick={(e) => e.target === e.currentTarget && onClose()}
+      onClick={(e) => e.target === e.currentTarget && requestClose()}
     >
       <div ref={modalRef} className="workout-log-sheet-modal">
         {/* Header */}
@@ -148,7 +161,8 @@ export function WorkoutLogSheet({ dateLabel = 'hôm nay', weightKg = 0, onClose,
           </div>
           <button
             type="button"
-            onClick={onClose}
+            onClick={requestClose}
+            disabled={isSaving}
             className="wls-close-btn"
             aria-label="Đóng"
           >
@@ -417,12 +431,12 @@ export function WorkoutLogSheet({ dateLabel = 'hôm nay', weightKg = 0, onClose,
         <div className="wls-footer">
           <button
             type="button"
-            disabled={!safeDuration || !startTime}
-            onClick={handleSubmit}
+            disabled={!safeDuration || !startTime || isSaving}
+            onClick={() => void handleSubmit()}
             className="wls-save-btn"
           >
             <Check size={20} strokeWidth={3} />
-            <span>Lưu buổi tập</span>
+            <span>{isSaving ? 'Đang lưu…' : 'Lưu buổi tập'}</span>
           </button>
         </div>
       </div>

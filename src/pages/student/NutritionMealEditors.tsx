@@ -1,14 +1,16 @@
 import { nutritionQuality } from '../../services/nutritionSyncService'
-import React, { useState } from 'react'
+import React, { useRef, useState } from 'react'
 import { Check, Info, Scale, X } from 'lucide-react'
 import NutritionGroupIcon from '../../components/NutritionGroupIcon'
 import { useAccessibleDialog } from '../../features/nutrition/useAccessibleDialog'
 import type { MealLog, NutritionFoodCatalogItem, NutritionMealDraft } from '../../features/nutrition/types'
+import { runSingleFlight } from '../../utils/singleFlight'
 
 export interface MealEditorContext {
   date: string
   mealType: NutritionMealDraft['mealType']
   time: string
+  idempotencyKey: string
 }
 
 export interface MealLogEditDraft {
@@ -40,33 +42,49 @@ interface MealEditorSheetProps {
   lockDate?: boolean
   isSaving?: boolean
   onClose: () => void
-  onConfirm: (food: NutritionFoodCatalogItem, context: MealEditorContext) => void
+  onConfirm: (food: NutritionFoodCatalogItem, context: MealEditorContext) => Promise<void>
 }
 
 export const MealEditorSheet = React.memo(function MealEditorSheet({ food, initialDate, initialMealType = 'lunch', initialTime, mode = 'diary', lockDate = false, isSaving = false, onClose, onConfirm }: MealEditorSheetProps) {
   const [date, setDate] = useState(initialDate)
   const [mealType, setMealType] = useState<NutritionMealDraft['mealType']>(initialMealType)
   const [time, setTime] = useState(() => initialTime || new Date().toTimeString().slice(0, 5))
-  const dialogRef = useAccessibleDialog(onClose)
+  const [submitting, setSubmitting] = useState(false)
+  const submitInFlightRef = useRef<Promise<void> | null>(null)
+  const attemptIdRef = useRef(crypto.randomUUID())
+  const saving = isSaving || submitting
+  const requestClose = () => {
+    if (!submitInFlightRef.current && !isSaving) onClose()
+  }
+  const dialogRef = useAccessibleDialog(requestClose)
   const hasCompleteCoreNutrition = canLogCatalogFood(food)
   const isPlan = mode === 'plan'
 
-  return <div className="nutrition-sheet-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+  const submit = () => runSingleFlight(submitInFlightRef, async () => {
+    setSubmitting(true)
+    try {
+      await onConfirm(food, { date, mealType, time, idempotencyKey: attemptIdRef.current })
+    } finally {
+      setSubmitting(false)
+    }
+  })
+
+  return <div className="nutrition-sheet-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && requestClose()}>
     <section ref={dialogRef} className="nutrition-meal-editor" role="dialog" aria-modal="true" aria-labelledby="nutrition-meal-editor-title">
-      <header><div><span className="nutrition-kicker">{isPlan ? 'THÊM VÀO KẾ HOẠCH' : 'THÊM VÀO NHẬT KÝ'}</span><h2 id="nutrition-meal-editor-title">{isPlan ? 'Sắp bữa trong tuần' : 'Kiểm tra bữa ăn'}</h2></div><button type="button" onClick={onClose} aria-label="Đóng" disabled={isSaving}><X size={20} /></button></header>
+      <header><div><span className="nutrition-kicker">{isPlan ? 'THÊM VÀO KẾ HOẠCH' : 'THÊM VÀO NHẬT KÝ'}</span><h2 id="nutrition-meal-editor-title">{isPlan ? 'Sắp bữa trong tuần' : 'Kiểm tra bữa ăn'}</h2></div><button type="button" onClick={requestClose} aria-label="Đóng" disabled={saving}><X size={20} /></button></header>
       <div className="nutrition-meal-editor__food">
         <span><NutritionGroupIcon categoryName={food.category?.nameVi} kind={food.kind ?? 'food'} size={24} /></span>
         <div><strong>{food.name}</strong><p>{food.servingLabel ?? (food.servingGrams !== null ? `${formatNumber(food.servingGrams)} g` : 'Khẩu phần theo nguồn')} · {food.calories === null ? 'Chưa có kcal' : `${formatNumber(food.calories)} kcal`}</p></div>
       </div>
       {nutritionQuality(food).map((reason) => <p role="alert" key={reason}>{reason}</p>)}
       <div className="nutrition-meal-editor__grid">
-        <label><span>Ngày</span><input data-dialog-autofocus type="date" value={date} onChange={(event) => setDate(event.target.value)} disabled={lockDate || isSaving} /></label>
-        <label><span>Thời gian</span><input type="time" value={time} onChange={(event) => setTime(event.target.value)} disabled={isSaving} /></label>
-        <label><span>Loại bữa</span><select value={mealType} onChange={(event) => setMealType(event.target.value as NutritionMealDraft['mealType'])} disabled={isSaving}><option value="breakfast">Bữa sáng</option><option value="lunch">Bữa trưa</option><option value="dinner">Bữa tối</option><option value="snack">Bữa phụ</option></select></label>
+        <label><span>Ngày</span><input data-dialog-autofocus type="date" value={date} onChange={(event) => setDate(event.target.value)} disabled={lockDate || saving} /></label>
+        <label><span>Thời gian</span><input type="time" value={time} onChange={(event) => setTime(event.target.value)} disabled={saving} /></label>
+        <label><span>Loại bữa</span><select value={mealType} onChange={(event) => setMealType(event.target.value as NutritionMealDraft['mealType'])} disabled={saving}><option value="breakfast">Bữa sáng</option><option value="lunch">Bữa trưa</option><option value="dinner">Bữa tối</option><option value="snack">Bữa phụ</option></select></label>
         <div><span>Nguồn dữ liệu</span><strong>{food.source ?? 'Viện Dinh dưỡng Quốc gia'}</strong><small>Giá trị được lưu thành snapshot tại thời điểm ghi.</small></div>
       </div>
       <p className="nutrition-meal-editor__notice"><Info size={14} /> {hasCompleteCoreNutrition ? (isPlan ? 'Món được lưu vào tuần này với kcal và macro tại thời điểm chọn.' : 'Dữ liệu được lưu thành snapshot; vi chất còn thiếu vẫn giữ là “—”.') : `Bản ghi nguồn còn thiếu kcal hoặc macro nên chưa thể thêm vào ${isPlan ? 'kế hoạch' : 'nhật ký'}.`}</p>
-      <button type="button" className="nutrition-primary-button" disabled={!date || !time || !hasCompleteCoreNutrition || isSaving} onClick={() => onConfirm(food, { date, mealType, time })}><Check size={17} /> {isSaving ? 'Đang lưu…' : isPlan ? 'Xác nhận món' : 'Thêm vào nhật ký'}</button>
+      <button type="button" className="nutrition-primary-button" disabled={!date || !time || !hasCompleteCoreNutrition || saving} onClick={() => void submit()}><Check size={17} /> {saving ? 'Đang lưu…' : isPlan ? 'Xác nhận món' : 'Thêm vào nhật ký'}</button>
     </section>
   </div>
 })

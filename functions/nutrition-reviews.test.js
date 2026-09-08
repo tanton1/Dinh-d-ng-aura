@@ -2,7 +2,17 @@ const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const path = require('node:path')
 const test = require('node:test')
-const { nextPageCursor, pageCursor, reviewPriority, reviewRecord, reviewSummary, sanitizeMealInput, snapshotHash } = require('./nutrition-reviews')
+const {
+  createNutritionReviewFunctions,
+  nextPageCursor,
+  nutritionMealWriteReceiptId,
+  pageCursor,
+  reviewPriority,
+  reviewRecord,
+  reviewSummary,
+  sanitizeMealInput,
+  snapshotHash,
+} = require('./nutrition-reviews')
 
 test('identity contracts expose one staff workspace while student relationships scope each HLV tab', () => {
   const deployable = require('./identity-contract.json')
@@ -72,6 +82,62 @@ test('review cursor v2 is stable by timestamp and document id', () => {
   assert.deepEqual(pageCursor(encoded, 'pending'), { createdAt: Date.parse('2026-09-08T03:00:00Z'), id: 'review-1' })
   assert.throws(() => pageCursor(encoded, 'approved'))
   assert.equal(snapshotHash({ a: 1 }), snapshotHash({ a: 1 }))
+})
+
+test('meal save retries use one receipt and do not increment the meal revision twice', async () => {
+  const records = new Map()
+  const reference = (documentPath) => ({ path: documentPath, id: documentPath.split('/').at(-1) })
+  const snapshot = (ref) => ({ exists: records.has(ref.path), data: () => records.get(ref.path) })
+  const db = {
+    doc: reference,
+    collection: (collectionPath) => ({ doc: (id = 'auto-' + (records.size + 1)) => reference(collectionPath + '/' + id) }),
+    async runTransaction(handler) {
+      return handler({
+        get: async (ref) => snapshot(ref),
+        set: (ref, value, options) => records.set(
+          ref.path,
+          options?.merge ? { ...(records.get(ref.path) || {}), ...value } : value,
+        ),
+        create: (ref, value) => {
+          if (records.has(ref.path)) throw new Error('already-exists')
+          records.set(ref.path, value)
+        },
+        update: (ref, value) => records.set(ref.path, { ...(records.get(ref.path) || {}), ...value }),
+      })
+    },
+  }
+  const api = createNutritionReviewFunctions({ db, onCall: (...args) => args.at(-1) })
+  const meal = {
+    id: 'ai-attempt-1',
+    date: '2026-09-08',
+    type: 'lunch',
+    status: 'logged',
+    title: 'Cơm gà',
+    calories: 450,
+  }
+  const request = {
+    auth: { uid: 'student-1' },
+    data: { meal, idempotencyKey: 'scan-attempt-123' },
+  }
+
+  const created = await api.saveNutritionMealLog(request)
+  const retried = await api.saveNutritionMealLog(request)
+  const receiptPath = 'nutritionMealWriteReceipts/' + nutritionMealWriteReceiptId('student-1', 'scan-attempt-123')
+
+  assert.equal(created.unchanged, false)
+  assert.equal(retried.unchanged, true)
+  assert.equal(created.mealId, retried.mealId)
+  assert.equal(created.mealRevision, 1)
+  assert.equal(retried.mealRevision, 1)
+  assert.equal(records.get('users/student-1/mealLogs/ai-attempt-1').mealRevision, 1)
+  assert.equal(records.get(receiptPath).mealId, 'ai-attempt-1')
+})
+
+test('meal receipt id is scoped by both user and save attempt', () => {
+  const id = nutritionMealWriteReceiptId('student-1', 'scan-attempt-123')
+  assert.equal(id, nutritionMealWriteReceiptId('student-1', 'scan-attempt-123'))
+  assert.notEqual(id, nutritionMealWriteReceiptId('student-2', 'scan-attempt-123'))
+  assert.notEqual(id, nutritionMealWriteReceiptId('student-1', 'scan-attempt-456'))
 })
 
 test('review images reject file names and preserve safe persistent sources', () => {

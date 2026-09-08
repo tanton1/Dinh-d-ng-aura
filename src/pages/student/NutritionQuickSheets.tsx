@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { Bookmark, Camera, Droplets, Dumbbell, Plus, Search, Sparkles, X } from 'lucide-react'
 import { useAccessibleDialog } from '../../features/nutrition/useAccessibleDialog'
+import { runSingleFlight } from '../../utils/singleFlight'
 
 export interface NutritionQuickAddSheetProps {
   savedCount: number
@@ -18,7 +19,7 @@ export interface NutritionWaterLogSheetProps {
   dateLabel: string
   todayEntries?: Array<{ id: string; time: string; amountMl: number }>
   onClose: () => void
-  onLog: (amount: number) => void
+  onLog: (amount: number) => Promise<void>
   onRemoveEntry?: (id: string) => void
 }
 
@@ -68,19 +69,32 @@ export function NutritionQuickAddSheet({ savedCount, onClose, onScan, onCatalog,
 
 export function NutritionWaterLogSheet({ current, goal, dateLabel, todayEntries = [], onClose, onLog, onRemoveEntry }: NutritionWaterLogSheetProps) {
   const [amount, setAmount] = useState(250)
-  const dialogRef = useAccessibleDialog(onClose)
+  const [isSaving, setIsSaving] = useState(false)
+  const saveInFlightRef = useRef<Promise<void> | null>(null)
+  const requestClose = () => {
+    if (!saveInFlightRef.current) onClose()
+  }
+  const dialogRef = useAccessibleDialog(requestClose)
   const safeAmount = Number.isFinite(amount) ? Math.min(5000, Math.max(0, Math.round(amount))) : 0
   const percentage = Math.min(100, Math.round((current / (goal || 2000)) * 100))
+  const save = () => runSingleFlight(saveInFlightRef, async () => {
+    setIsSaving(true)
+    try {
+      await onLog(safeAmount)
+    } finally {
+      setIsSaving(false)
+    }
+  }).catch(() => undefined)
 
   return (
-    <div className="nutrition-sheet-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-      <section ref={dialogRef} className="nutrition-water-sheet pink-orange-sheet" role="dialog" aria-modal="true" aria-labelledby="nutrition-water-sheet-title" aria-describedby="nutrition-water-sheet-description">
+    <div className="nutrition-sheet-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && requestClose()}>
+      <section ref={dialogRef} className="nutrition-water-sheet pink-orange-sheet" role="dialog" aria-modal="true" aria-labelledby="nutrition-water-sheet-title" aria-describedby="nutrition-water-sheet-description" aria-busy={isSaving}>
         <header>
           <div>
             <span className="nutrition-kicker pink-orange-badge"><Sparkles size={12} /> HYDRATION TRACKER</span>
             <h2 id="nutrition-water-sheet-title">Ghi lượng nước uống</h2>
           </div>
-          <button type="button" onClick={onClose} aria-label="Đóng bảng ghi nước"><X size={20} /></button>
+          <button type="button" onClick={requestClose} disabled={isSaving} aria-label="Đóng bảng ghi nước"><X size={20} /></button>
         </header>
 
         <div className="water-progress-card-po">
@@ -102,10 +116,10 @@ export function NutritionWaterLogSheet({ current, goal, dateLabel, todayEntries 
         <label className="nutrition-water-sheet__input">
           <span>Lượng muốn thêm (ml)</span>
           <div className="water-input-stepper-po">
-            <button type="button" className="water-step-btn-po" onClick={() => setAmount(Math.max(50, (amount || 250) - 50))}>-50</button>
-            <input type="number" inputMode="numeric" min="1" max="5000" step="50" value={amount || ''} onChange={(event) => setAmount(Number(event.target.value))} aria-describedby="nutrition-water-limit" />
+            <button type="button" className="water-step-btn-po" disabled={isSaving} onClick={() => setAmount(Math.max(50, (amount || 250) - 50))}>-50</button>
+            <input type="number" inputMode="numeric" min="1" max="5000" step="50" value={amount || ''} onChange={(event) => setAmount(Number(event.target.value))} disabled={isSaving} aria-describedby="nutrition-water-limit" />
             <b>ml</b>
-            <button type="button" className="water-step-btn-po" onClick={() => setAmount(Math.min(5000, (amount || 0) + 50))}>+50</button>
+            <button type="button" className="water-step-btn-po" disabled={isSaving} onClick={() => setAmount(Math.min(5000, (amount || 0) + 50))}>+50</button>
           </div>
           <small id="nutrition-water-limit">Tối đa 5.000 ml mỗi lần ghi.</small>
         </label>
@@ -117,7 +131,7 @@ export function NutritionWaterLogSheet({ current, goal, dateLabel, todayEntries 
             { value: 750, label: '+750 ml', desc: '1 bình thể thao' },
             { value: 1000, label: '+1.000 ml', desc: '1 lít nước' },
           ].map((preset) => (
-            <button type="button" key={preset.value} className={amount === preset.value ? 'active' : ''} aria-pressed={amount === preset.value} onClick={() => setAmount(preset.value)}>
+            <button type="button" key={preset.value} className={amount === preset.value ? 'active' : ''} aria-pressed={amount === preset.value} disabled={isSaving} onClick={() => setAmount(preset.value)}>
               <Droplets size={18} />
               <strong>{preset.label}</strong>
               <small>{preset.desc}</small>
@@ -125,8 +139,8 @@ export function NutritionWaterLogSheet({ current, goal, dateLabel, todayEntries 
           ))}
         </div>
 
-        <button type="button" className="nutrition-water-sheet__submit pink-orange-submit" disabled={safeAmount <= 0} onClick={() => onLog(safeAmount)}>
-          <Plus size={18} /> Ghi +{formatNumber(safeAmount)} ml nước
+        <button type="button" className="nutrition-water-sheet__submit pink-orange-submit" disabled={safeAmount <= 0 || isSaving} onClick={() => void save()}>
+          <Plus size={18} /> {isSaving ? 'Đang lưu…' : `Ghi +${formatNumber(safeAmount)} ml nước`}
         </button>
 
         {todayEntries.length > 0 && (

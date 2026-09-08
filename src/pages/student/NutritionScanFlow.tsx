@@ -15,6 +15,7 @@ import {
   nutritionConfidenceLabel, perGramNutrition,
 } from '../../features/nutrition/analysis'
 import { useAccessibleDialog } from '../../features/nutrition/useAccessibleDialog'
+import { runSingleFlight } from '../../utils/singleFlight'
 
 const INITIAL_ANALYSIS: AiFoodItem[] = [
   { id: 'rice', name: 'Cơm gạo lứt đỏ', grams: 180, calories: 216, protein: 4.5, carbs: 45.0, fat: 1.6, confidence: 'high' },
@@ -86,7 +87,7 @@ function loadPendingScanReview(ownerId: string): PersistedScanReview | null {
   }
 }
 
-const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOwnerId, allowDemo = false, onClose, onSave, onAnalyzeImage, presentation = 'modal' }: { initialDate: string; storageOwnerId: string; allowDemo?: boolean; onClose: () => void; onSave: (meal: NutritionMealDraft) => void; onAnalyzeImage?: NutritionPageProps['onAnalyzeImage']; presentation?: 'modal' | 'page' }) {
+const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOwnerId, allowDemo = false, onClose, onSave, onAnalyzeImage, presentation = 'modal' }: { initialDate: string; storageOwnerId: string; allowDemo?: boolean; onClose: () => void; onSave: (meal: NutritionMealDraft) => Promise<void>; onAnalyzeImage?: NutritionPageProps['onAnalyzeImage']; presentation?: 'modal' | 'page' }) {
   const reviewStorageKey = scanReviewSessionKey(storageOwnerId)
   const [restoredReview] = useState(() => {
     const step = new URLSearchParams(window.location.hash.split('?')[1] ?? '').get('step')
@@ -141,13 +142,19 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
     const step = new URLSearchParams(window.location.hash.split('?')[1] ?? '').get('step')
     return step === 'review' && !restoredReview ? 'Kết quả phân tích của phiên trước không còn trong tab này. Hãy chọn lại ảnh để phân tích; Aura chưa lưu món vào nhật ký.' : ''
   })
+  const [isSaving, setIsSaving] = useState(false)
   const [lastFile, setLastFile] = useState<File | null>(null)
   const galleryInputRef = useRef<HTMLInputElement>(null)
   const cameraInputRef = useRef<HTMLInputElement>(null)
   const galleryInputId = useId()
   const cameraInputId = useId()
   const analyzeTimerRef = useRef<number | null>(null)
-  const dialogRef = useAccessibleDialog(onClose)
+  const saveInFlightRef = useRef<Promise<void> | null>(null)
+  const saveAttemptIdRef = useRef(restoredReview?.saveAttemptId ?? crypto.randomUUID())
+  const requestClose = () => {
+    if (!saveInFlightRef.current) onClose()
+  }
+  const dialogRef = useAccessibleDialog(requestClose)
 
   const totals = useMemo(() => items.reduce((sum, item) => ({
     calories: sum.calories + item.calories,
@@ -357,6 +364,7 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
     if (stage !== 'result' || !hasAnalysisResult) return
     const review: PersistedScanReview = {
       ownerId: storageOwnerId,
+      saveAttemptId: saveAttemptIdRef.current,
       dishName,
       items,
       resultMode,
@@ -586,50 +594,58 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
   }
 
   const saveMeal = (submitForReview = false) => {
-    if (!canSaveMeal) return
-    clearPendingScanReview(storageOwnerId)
-    onSave({
-      dishName: dishName.trim() || 'Bữa ăn dinh dưỡng',
-      name: items.map((item) => item.name.trim()).filter(Boolean).slice(0, 2).join(', '),
-      mealType,
-      mealDate,
-      mealTime,
-      image: previewUrl || undefined,
-      calories: Math.round(adjustedTotals.calories),
-      protein: Math.round(adjustedTotals.protein),
-      carbs: Math.round(adjustedTotals.carbs),
-      fat: Math.round(adjustedTotals.fat),
-      finalNutrition,
-      clarifications: analysisQuestions.map((question) => ({
-        question,
-        response: questionResponses[question] ?? 'unknown',
-        adjustmentNote: dynamicAnswers[question]?.customText?.trim() || undefined,
-      })),
-      calorieRange: adjustedRange,
-      items,
-      source: resultMode === 'live' ? 'ai-scan' : 'demo',
-      submitForReview,
-      cookingNote: cookingNote.trim() || undefined,
-      portionNote: portionNote.trim() || undefined,
-      quantityCookingAnalysis,
-      portionCalorieRationale,
-      goalAlignmentAssessment,
-      calorieOptimizationTip,
-      macroBalanceAssessment,
-      coachFeedbackSuggestion
-    })
+    if (!canSaveMeal || saveInFlightRef.current) return (saveInFlightRef.current ?? Promise.resolve()).catch(() => undefined)
+    return runSingleFlight(saveInFlightRef, async () => {
+      setIsSaving(true)
+      try {
+        await onSave({
+          idempotencyKey: saveAttemptIdRef.current,
+          dishName: dishName.trim() || 'Bữa ăn dinh dưỡng',
+          name: items.map((item) => item.name.trim()).filter(Boolean).slice(0, 2).join(', '),
+          mealType,
+          mealDate,
+          mealTime,
+          image: previewUrl || undefined,
+          calories: Math.round(adjustedTotals.calories),
+          protein: Math.round(adjustedTotals.protein),
+          carbs: Math.round(adjustedTotals.carbs),
+          fat: Math.round(adjustedTotals.fat),
+          finalNutrition,
+          clarifications: analysisQuestions.map((question) => ({
+            question,
+            response: questionResponses[question] ?? 'unknown',
+            adjustmentNote: dynamicAnswers[question]?.customText?.trim() || undefined,
+          })),
+          calorieRange: adjustedRange,
+          items,
+          source: resultMode === 'live' ? 'ai-scan' : 'demo',
+          submitForReview,
+          cookingNote: cookingNote.trim() || undefined,
+          portionNote: portionNote.trim() || undefined,
+          quantityCookingAnalysis,
+          portionCalorieRationale,
+          goalAlignmentAssessment,
+          calorieOptimizationTip,
+          macroBalanceAssessment,
+          coachFeedbackSuggestion,
+        })
+        clearPendingScanReview(storageOwnerId)
+      } finally {
+        setIsSaving(false)
+      }
+    }).catch(() => undefined)
   }
 
   return (
-    <div className={presentation === 'page' ? 'nutrition-route-page nutrition-route-page--scan' : 'nutrition-modal-backdrop'} role="presentation" onMouseDown={(event) => presentation === 'modal' && event.target === event.currentTarget && onClose()}>
-      <section ref={presentation === 'modal' ? dialogRef : undefined} className={`nutrition-scan-modal ${presentation === 'page' ? 'nutrition-scan-modal--page' : ''} ${stage === 'result' ? 'nutrition-scan-modal--result' : ''}`} role={presentation === 'modal' ? 'dialog' : 'region'} aria-modal={presentation === 'modal' ? true : undefined} aria-labelledby="nutrition-scan-title" data-testid="nutrition-scan-modal">
+    <div className={presentation === 'page' ? 'nutrition-route-page nutrition-route-page--scan' : 'nutrition-modal-backdrop'} role="presentation" onMouseDown={(event) => presentation === 'modal' && event.target === event.currentTarget && requestClose()}>
+      <section ref={presentation === 'modal' ? dialogRef : undefined} className={`nutrition-scan-modal ${presentation === 'page' ? 'nutrition-scan-modal--page' : ''} ${stage === 'result' ? 'nutrition-scan-modal--result' : ''}`} role={presentation === 'modal' ? 'dialog' : 'region'} aria-modal={presentation === 'modal' ? true : undefined} aria-labelledby="nutrition-scan-title" aria-busy={isSaving} data-testid="nutrition-scan-modal">
         {stage !== 'result' && (
           <header className={`nutrition-scan-modal__header`}>
             <div>
               <span className="nutrition-ai-mark"><Sparkles size={15} /> Aura Vision</span>
               <h2 id="nutrition-scan-title">Phân tích món ăn</h2>
             </div>
-            <button type="button" className="nutrition-close-button" onClick={onClose} aria-label={presentation === 'page' ? 'Quay lại trang dinh dưỡng' : 'Đóng'}>
+            <button type="button" className="nutrition-close-button" onClick={requestClose} disabled={isSaving} aria-label={presentation === 'page' ? 'Quay lại trang dinh dưỡng' : 'Đóng'}>
               {presentation === 'page' ? <ArrowLeft size={20} /> : <X size={20} />}
             </button>
           </header>
@@ -734,7 +750,7 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
 
               {/* Hero Overlaid Controls */}
               <div className="nutrition-scan-result__hero-overlay fdet-hero-overlay">
-                <button type="button" className="nutrition-scan-result__icon-button" onClick={onClose} title="Quay lại" aria-label="Quay lại trang dinh dưỡng">
+                <button type="button" className="nutrition-scan-result__icon-button" onClick={requestClose} disabled={isSaving} title="Quay lại" aria-label="Quay lại trang dinh dưỡng">
                   <ArrowLeft size={20} />
                 </button>
 
@@ -1197,20 +1213,20 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
                   type="button"
                   className="nutrition-scan-result__action nutrition-scan-result__action--save"
                   onClick={() => saveMeal(false)}
-                  disabled={!canSaveMeal}
+                  disabled={!canSaveMeal || isSaving}
                 >
-                  <Check size={18} className="shrink-0" />
-                  <span className="truncate">Lưu vào nhật ký</span>
+                  {isSaving ? <RefreshCw size={18} className="shrink-0 animate-spin" /> : <Check size={18} className="shrink-0" />}
+                  <span className="truncate">{isSaving ? 'Đang lưu…' : 'Lưu vào nhật ký'}</span>
                 </button>
 
                 <button
                   type="button"
                   className="nutrition-scan-result__action nutrition-scan-result__action--review"
                   onClick={() => saveMeal(true)}
-                  disabled={!canSaveMeal}
+                  disabled={!canSaveMeal || isSaving}
                 >
-                  <Sparkles size={18} className="shrink-0" />
-                  <span className="truncate">Gửi thông tin cho Coach</span>
+                  {isSaving ? <RefreshCw size={18} className="shrink-0 animate-spin" /> : <Sparkles size={18} className="shrink-0" />}
+                  <span className="truncate">{isSaving ? 'Đang lưu…' : 'Gửi thông tin cho Coach'}</span>
                 </button>
               </div>
             </div>

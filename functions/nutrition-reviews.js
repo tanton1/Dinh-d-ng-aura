@@ -142,6 +142,19 @@ function snapshotHash(value) {
   return createHash('sha256').update(JSON.stringify(canonical(value))).digest('hex')
 }
 
+function nutritionMealWriteReceiptId(uid, idempotencyKey) {
+  return createHash('sha256').update(`${uid}:${idempotencyKey}`).digest('hex')
+}
+
+function nutritionMealWriteIdempotencyKey(value) {
+  const key = boundedString(value, 200)
+  if (!key) return ''
+  if (!/^[A-Za-z0-9:_-]{8,200}$/.test(key)) {
+    throw new HttpsError('invalid-argument', 'Khóa chống gửi trùng không hợp lệ.')
+  }
+  return key
+}
+
 function mealNotification(transaction, db, uid, reviewId, action, feedback) {
   const labels = {
     approve: { title: 'Coach đã duyệt bữa ăn', message: feedback || 'Bữa ăn đã được Coach xác nhận.' },
@@ -540,14 +553,33 @@ function createNutritionReviewFunctions({ db, onCall }) {
   const saveNutritionMealLog = reviewCall(async (request) => {
     const uid = requireOwner(request)
     const meal = sanitizeMealInput(request.data?.meal, uid)
+    const idempotencyKey = nutritionMealWriteIdempotencyKey(request.data?.idempotencyKey)
     const mealRef = db.doc(`users/${uid}/mealLogs/${meal.id}`)
     const reviewRef = db.doc(`mealReviews/${meal.id}`)
+    const receiptRef = idempotencyKey
+      ? db.doc(`nutritionMealWriteReceipts/${nutritionMealWriteReceiptId(uid, idempotencyKey)}`)
+      : null
+    const payloadHash = idempotencyKey ? snapshotHash(mealSnapshot(meal)) : ''
     let result
     await db.runTransaction(async (transaction) => {
-      const [mealLogSnapshot, reviewSnapshot] = await Promise.all([
+      const [mealLogSnapshot, reviewSnapshot, receiptSnapshot] = await Promise.all([
         transaction.get(mealRef),
         transaction.get(reviewRef),
+        receiptRef ? transaction.get(receiptRef) : Promise.resolve(null),
       ])
+      if (receiptSnapshot?.exists) {
+        const receipt = receiptSnapshot.data() || {}
+        if (receipt.actorUid !== uid || receipt.mealId !== meal.id || receipt.payloadHash !== payloadHash) {
+          throw new HttpsError('failed-precondition', 'Thao tác lưu này đã được dùng cho dữ liệu khác. Hãy tải lại nhật ký.')
+        }
+        result = {
+          mealId: receipt.mealId,
+          mealRevision: Math.max(1, Math.trunc(finite(receipt.mealRevision, 1))),
+          reviewInvalidated: Boolean(receipt.reviewInvalidated),
+          unchanged: true,
+        }
+        return
+      }
       const previous = mealLogSnapshot.exists ? mealLogSnapshot.data() || {} : {}
       const mealRevision = Math.max(0, Math.trunc(finite(previous.mealRevision))) + 1
       const storedMeal = {
@@ -603,7 +635,19 @@ function createNutritionReviewFunctions({ db, onCall }) {
         })
         reviewInvalidated = true
       }
-      result = { mealId: meal.id, mealRevision, reviewInvalidated }
+      result = { mealId: meal.id, mealRevision, reviewInvalidated, unchanged: false }
+      if (receiptRef) {
+        transaction.create(receiptRef, {
+          schemaVersion: 1,
+          actorUid: uid,
+          mealId: meal.id,
+          payloadHash,
+          mealRevision,
+          reviewInvalidated,
+          createdAt: FieldValue.serverTimestamp(),
+          expiresAt: Timestamp.fromMillis(Date.now() + 30 * 24 * 60 * 60 * 1000),
+        })
+      }
     })
     return result
   })
@@ -920,6 +964,7 @@ module.exports = {
   nextPageCursor,
   sanitizeMealInput,
   snapshotHash,
+  nutritionMealWriteReceiptId,
   ALL_REVIEW_CAPABILITY,
   DEFAULT_REVIEW_SLA_MINUTES,
 }
