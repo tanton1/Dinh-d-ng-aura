@@ -8,7 +8,6 @@ import {
   Sparkles,
   Utensils,
 } from 'lucide-react'
-import { useRef, useState } from 'react'
 import '../styles-home-today-flow.css'
 
 interface TodayMealSummary {
@@ -84,8 +83,6 @@ export default function AuraTodayFlow({
   todaySessionCount = 0,
   nextSession = null,
 }: AuraTodayFlowProps) {
-  const statusTrackRef = useRef<HTMLDivElement>(null)
-  const [activeStatusIndex, setActiveStatusIndex] = useState(0)
   const calorieDelta = nutritionConfigured ? calorieGoal - caloriesConsumed : 0
   const calorieProgress = nutritionConfigured ? percent(caloriesConsumed, calorieGoal) : 0
   const proteinProgress = nutritionConfigured ? percent(proteinConsumed, proteinGoal) : 0
@@ -96,6 +93,11 @@ export default function AuraTodayFlow({
     .filter((meal) => meal.title || meal.label)
     .sort((left, right) => (left.time ?? '').localeCompare(right.time ?? ''))
     .slice(0, 4)
+  const todayLabel = new Intl.DateTimeFormat('vi-VN', {
+    weekday: 'long',
+    day: '2-digit',
+    month: '2-digit',
+  }).format(new Date())
 
   const scheduleCard = scheduleState === 'loading'
     ? { value: '…', unit: 'đang tải lịch PT', detail: 'Aura đang đồng bộ các buổi đã được xếp.', progress: 0, progressLabel: 'Đang đồng bộ lịch PT' }
@@ -148,29 +150,6 @@ export default function AuraTodayFlow({
     },
   ]
 
-  const selectStatus = (index: number) => {
-    const track = statusTrackRef.current
-    const card = track?.children.item(index) as HTMLElement | null
-    const firstCard = track?.children.item(0) as HTMLElement | null
-    if (track && card && firstCard) track.scrollTo({ left: card.offsetLeft - firstCard.offsetLeft, behavior: 'smooth' })
-    setActiveStatusIndex(index)
-  }
-
-  const updateActiveStatus = () => {
-    const track = statusTrackRef.current
-    if (!track) return
-    const cards = Array.from(track.children) as HTMLElement[]
-    if (cards.length === 0) return
-    const firstOffset = cards[0].offsetLeft
-    const index = cards.reduce((closest, card, currentIndex) => (
-      Math.abs(card.offsetLeft - firstOffset - track.scrollLeft)
-        < Math.abs(cards[closest].offsetLeft - firstOffset - track.scrollLeft)
-        ? currentIndex
-        : closest
-    ), 0)
-    setActiveStatusIndex(index)
-  }
-
   const nextAction = !hasMeal
     ? {
         eyebrow: 'VIỆC NÊN LÀM TIẾP THEO',
@@ -219,21 +198,25 @@ export default function AuraTodayFlow({
   return (
     <section className="aura-today-flow" aria-labelledby="aura-today-flow-title">
       <header className="aura-today-flow__heading">
-        <div>
-          <h2 id="aura-today-flow-title">Hôm nay của {firstName}</h2>
+        <div className="aura-today-flow__edition">
+          <span>Aura daily</span>
+          <time>{todayLabel}</time>
         </div>
-        <div className="aura-today-flow__heading-actions">
+        <div className="aura-today-flow__hero-copy">
+          <div>
+            <h1 id="aura-today-flow-title">Hôm nay của {firstName}</h1>
+            <p>Giữ nhịp vừa đủ. Làm gọn từng việc.</p>
+          </div>
           <span className="aura-today-flow__streak" aria-label={`${streak} ngày liên tục`}>
             <Flame size={15} fill="currentColor" aria-hidden="true" />
             <strong>{Math.max(0, streak)}</strong>
-            <span>ngày streak</span>
+            <span>ngày liên tục</span>
           </span>
-          <p>Vuốt để xem · chạm để mở chi tiết</p>
         </div>
       </header>
 
-      <div ref={statusTrackRef} onScroll={updateActiveStatus} className="aura-today-flow__status-track" aria-label="Dinh dưỡng, lịch tập và vận động">
-        {statusCards.map((card) => (
+      <div className="aura-today-flow__status-track" aria-label="Dinh dưỡng, lịch tập và vận động">
+        {statusCards.map((card, index) => (
           <button
             type="button"
             key={card.id}
@@ -241,10 +224,10 @@ export default function AuraTodayFlow({
             onClick={card.action}
             data-testid={`today-status-${card.id}`}
           >
+            <span className="aura-today-flow__status-index">0{index + 1}</span>
             <span className="aura-today-flow__status-icon">{card.icon}</span>
             <span className="aura-today-flow__status-label">{card.label}</span>
-            <strong>{card.value}</strong>
-            <small>{card.unit}</small>
+            <span className="aura-today-flow__status-value"><strong>{card.value}</strong><small>{card.unit}</small></span>
             <p>{card.detail}</p>
             <span
               className="aura-today-flow__status-progress"
@@ -260,17 +243,11 @@ export default function AuraTodayFlow({
           </button>
         ))}
       </div>
-      <div className="aura-today-flow__dots" aria-label="Chọn nhịp hôm nay">
-        {statusCards.map((card, index) => (
-          <button type="button" key={card.id} className={index === activeStatusIndex ? 'is-active' : ''} aria-label={`Xem ${card.label}`} aria-current={index === activeStatusIndex ? 'true' : undefined} onClick={() => selectStatus(index)} />
-        ))}
-      </div>
 
       <article className="aura-today-flow__next">
-        <span>{nextAction.icon}</span>
-        <div>
-          <small>{nextAction.eyebrow}</small>
-          <h3>{nextAction.title}</h3>
+        <div className="aura-today-flow__next-mark"><span>{nextAction.icon}</span><small>{nextAction.eyebrow}</small></div>
+        <div className="aura-today-flow__next-copy">
+          <h2>{nextAction.title}</h2>
           <p>{nextAction.detail}</p>
         </div>
         <button type="button" onClick={nextAction.action}>{nextAction.label} <ArrowRight size={17} /></button>
@@ -279,15 +256,19 @@ export default function AuraTodayFlow({
       <div className="aura-today-flow__rhythm-grid">
         <article className="aura-today-flow__rhythm-card">
           <header>
-            <div><span><Utensils size={16} /> NHỊP BỮA ĂN</span><h3>Dữ liệu hôm nay</h3></div>
+            <div><span><Utensils size={16} /> Nhật ký bữa ăn</span><h2>Đã ghi hôm nay</h2></div>
             <button type="button" onClick={onOpenNutrition}>Chi tiết <ArrowRight size={16} /></button>
           </header>
+          <div className="aura-today-flow__nutrition-ledger" aria-label="Tóm tắt dinh dưỡng hôm nay">
+            <span><small>Năng lượng</small><strong>{formatNumber(caloriesConsumed)}<em>/{nutritionConfigured ? formatNumber(calorieGoal) : '—'} kcal</em></strong></span>
+            <span><small>Đạm</small><strong>{formatNumber(proteinConsumed)}<em>/{nutritionConfigured ? formatNumber(proteinGoal) : '—'} g</em></strong></span>
+            <span><small>Nước</small><strong>{formatNumber(waterMl)}<em>/{formatNumber(waterGoalMl)} ml</em></strong></span>
+          </div>
           {sortedMeals.length > 0 ? (
             <div className="aura-today-flow__meal-list">
               {sortedMeals.map((meal, index) => (
                 <div key={meal.id ?? `${meal.time}-${index}`}>
                   <span>{meal.time || '--:--'}</span>
-                  <i>{index + 1}</i>
                   <p><strong>{meal.label || 'Bữa ăn'}</strong><small>{meal.title || 'Đã ghi nhận'}{meal.calories ? ` · ${formatNumber(meal.calories)} kcal` : ''}</small></p>
                   <Check size={16} />
                 </div>
