@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test'
 for (const width of [360, 390, 430]) {
   test(`production workspace manual confirm and continuation at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 844 })
+    await page.clock.setFixedTime(new Date('2026-09-07T00:00:00+07:00'))
     await page.goto('/tests/schedule-ui/index.html')
     await expect(page.getByRole('heading', { name: 'Xếp lịch PT' })).toBeVisible()
     await page.locator('.schedule-cell').filter({ hasText: 'Lan' }).focus()
@@ -29,6 +30,9 @@ for (const width of [360, 390, 430]) {
   })
 }
 test('failed move leaves inspector and original session intact; retry succeeds', async ({ page }) => {
+  // Keep T2-6 in the future so this regression test is not tied to the CI
+  // runner's weekday or timezone.
+  await page.clock.setFixedTime(new Date('2026-09-07T00:00:00+07:00'))
   await page.goto('/tests/schedule-ui/index.html')
   await page.locator('.schedule-cell').filter({ hasText: 'Lan' }).focus()
     await page.keyboard.press('Enter')
