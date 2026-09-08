@@ -1127,6 +1127,10 @@ export default function CourseEditorPage({ onNavigate, onSave, onDirtyChange, ca
       setSaveError('Tệp slide/video cần Firebase Storage để lưu ổn định. Hãy bật Firebase rồi nhập lại; flashcard và quiz vẫn có thể nhập ở chế độ demo.')
       return
     }
+    if (saveTarget === 'firebase' && (course.revision ?? 0) < 1 && preview.media.some((item) => item.file)) {
+      setSaveError('Hãy lưu khóa học thành bản nháp một lần trước khi tải slide hoặc video lên Firebase.')
+      return
+    }
     const lessonId = mode === 'new-lesson' ? `lesson-${crypto.randomUUID()}` : currentTarget!.id
     if (mode === 'append' && preview.media.length + (currentTarget?.resources?.length ?? 0) > 20) {
       setSaveError('Bài học chỉ hỗ trợ tối đa 20 học liệu. Hãy nhập theo hai lô hoặc thay tài nguyên cùng loại.')
