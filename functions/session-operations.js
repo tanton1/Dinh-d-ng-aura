@@ -5,6 +5,18 @@ const { trustedAccessContext, requireCapability } = require('./identity-access')
 const { ptRevenueRecognitionWrite } = require('./finance-recognition')
 const { serviceRevenueJournal } = require('./accounting-core')
 const {
+  branchSlotCapacity,
+  normalizedScheduleConfig,
+  trainerIsAvailable,
+  trainerProfileForWeek,
+} = require('./pt-schedule-publish')
+const {
+  effectiveStudentAvailability,
+  loadLatestSubmittedFallbacks,
+  normalizedSubmittedAvailability,
+} = require('./student-availability')
+const { summarizeContractUsage } = require('./contract-usage')
+const {
   addDateDays,
   assertSessionChangeDeadline,
   assertWeeklyOffDeadline,
@@ -115,6 +127,14 @@ function activeHourDocuments(snapshot, targetHour, excludedIds = []) {
     && isActiveSessionStatus(item.data().status)
     && storedSessionHour(item.data().hour, item.id, 'Giờ của buổi tập liên quan') === targetHour
   ))
+}
+
+function activeDayDocuments(snapshot, excludedIds = []) {
+  if (snapshot.size >= DAILY_SESSION_QUERY_LIMIT) {
+    throw new HttpsError('resource-exhausted', 'Có quá nhiều buổi trong ngày để xác minh xung đột an toàn. Vui lòng liên hệ quản trị hệ thống.')
+  }
+  const excluded = new Set(excludedIds)
+  return snapshot.docs.filter((item) => !excluded.has(item.id) && isActiveSessionStatus(item.data().status))
 }
 
 function storedContractDate(value, label) {
@@ -276,6 +296,68 @@ async function readOperationsPolicy(db) {
   return normalizedPtOperationsPolicy(snapshot?.exists ? snapshot.data() : {})
 }
 
+async function getAllInChunks(db, references, chunkSize = 100) {
+  const snapshots = []
+  for (let index = 0; index < references.length; index += chunkSize) {
+    snapshots.push(...await db.getAll(...references.slice(index, index + chunkSize)))
+  }
+  return snapshots
+}
+
+async function effectiveStudentAvailabilityByWeek({ db, studentId, student, weekIds, exactSnapshots }) {
+  const exactByWeek = new Map(
+    exactSnapshots
+      .filter((snapshot) => snapshot?.exists)
+      .map((snapshot) => [String(snapshot.data()?.weekId || snapshot.id.slice(-10)), snapshot.data()]),
+  )
+  const result = new Map()
+  const orderedWeeks = [...weekIds].sort()
+  if (!orderedWeeks.length) return result
+  const firstWeek = orderedWeeks[0]
+  const firstExact = exactByWeek.get(firstWeek)
+  const initialFallback = await loadLatestSubmittedFallbacks(
+    db,
+    new Map([[studentId, student]]),
+    new Map(firstExact ? [[studentId, firstExact]] : []),
+    firstWeek,
+  )
+  let inherited = initialFallback.get(studentId)
+  for (const targetWeek of orderedWeeks) {
+    const exact = exactByWeek.get(targetWeek)
+    result.set(targetWeek, effectiveStudentAvailability({
+      targetWeek,
+      exact,
+      inherited,
+      profile: student,
+    }))
+    inherited = normalizedSubmittedAvailability(exact, targetWeek) || inherited
+  }
+  return result
+}
+
+function weeklyTrainerAvailabilityMap(snapshots) {
+  return new Map(snapshots.filter((snapshot) => snapshot?.exists).map((snapshot) => {
+    const value = snapshot.data()
+    return [`${value.trainerId}_${value.weekId}`, value]
+  }))
+}
+
+function effectiveTrainerForWeek(trainer, weeklyAvailability, targetWeek) {
+  return trainerProfileForWeek(trainer, weeklyAvailability.get(`${trainer.id}_${targetWeek}`), targetWeek)
+}
+
+function assertOperatingCalendar(configValue, targetDate, targetHour) {
+  const config = normalizedScheduleConfig(configValue)
+  const dayCode = dayCodeForDate(targetDate)
+  if (!config.workingDays.includes(dayCode) || !config.workingHours.includes(targetHour)) {
+    throw new HttpsError('failed-precondition', 'Ca đề xuất nằm ngoài ngày hoặc giờ hoạt động.', { issueCode: 'OUTSIDE_OPERATING_CALENDAR' })
+  }
+  if (config.holidays.includes(targetDate)) {
+    throw new HttpsError('failed-precondition', 'Ca đề xuất rơi vào ngày nghỉ lễ.', { issueCode: 'SCHEDULE_HOLIDAY' })
+  }
+  return { config, dayCode, slotId: `${dayCode}-${targetHour}` }
+}
+
 async function buildSessionChangeSuggestions({ db, sessionId, expectedRevision, studentId, now }) {
   const sessionReference = db.doc(`sessions/${sessionId}`)
   const [sessionSnapshot, policy] = await Promise.all([
@@ -307,15 +389,17 @@ async function buildSessionChangeSuggestions({ db, sessionId, expectedRevision, 
   const weekIds = new Set()
   for (let targetDate = rangeStart; targetDate <= rangeEnd; targetDate = addDateDays(targetDate, 1)) weekIds.add(mondayForDate(targetDate))
   const availabilityReferences = [...weekIds].map((weekId) => db.doc(`ptAvailability/${studentId}_${weekId}`))
-  const [trainersSnapshot, sessionsSnapshot, leavesSnapshot, ...availabilitySnapshots] = await Promise.all([
+  const [trainersSnapshot, sessionsSnapshot, studentSessionsSnapshot, leavesSnapshot, configSnapshot, ...availabilitySnapshots] = await Promise.all([
     db.collection('trainers').where('branchId', '==', branchId).limit(201).get(),
-    db.collection('sessions').where('date', '>=', rangeStart).where('date', '<', addDateDays(rangeEnd, 1)).limit(SESSION_CHANGE_DATA_LIMIT + 1).get(),
+    db.collection('sessions').where('branchId', '==', branchId).where('date', '>=', rangeStart).where('date', '<', addDateDays(rangeEnd, 1)).limit(SESSION_CHANGE_DATA_LIMIT + 1).get(),
+    db.collection('sessions').where('studentId', '==', studentId).where('date', '>=', rangeStart).where('date', '<', addDateDays(rangeEnd, 1)).limit(SESSION_CHANGE_DATA_LIMIT + 1).get(),
     db.collection('leaveRequests').where('status', '==', 'approved').limit(1001).get(),
+    db.getAll(db.doc('settings/scheduleConfig')).then((values) => values[0]),
     ...availabilityReferences.map((reference) => db.getAll(reference).then((values) => values[0])),
   ])
-  if (trainersSnapshot.size > 200 || leavesSnapshot.size > 1000) throw new HttpsError('resource-exhausted', 'Dữ liệu PT hoặc OFF vượt giới hạn gợi ý an toàn.')
+  if (trainersSnapshot.size > 200 || studentSessionsSnapshot.size > SESSION_CHANGE_DATA_LIMIT || leavesSnapshot.size > 1000) throw new HttpsError('resource-exhausted', 'Dữ liệu PT, học viên hoặc OFF vượt giới hạn gợi ý an toàn.')
   const sessions = activeSessionRows(sessionsSnapshot, sessionId)
-  const availabilityByWeek = new Map(availabilitySnapshots.filter((item) => item?.exists).map((item) => [item.id.slice(-(10)), item.data()]))
+  const studentSessions = activeSessionRows(studentSessionsSnapshot, sessionId)
   const assignedTrainerIds = new Set([
     session.trainerId,
     contract.trainerId,
@@ -324,26 +408,28 @@ async function buildSessionChangeSuggestions({ db, sessionId, expectedRevision, 
   const trainers = trainersSnapshot.docs.map((item) => ({ id: item.id, ...item.data() }))
     .filter((trainer) => trainer.status !== 'inactive')
     .filter((trainer) => assignedTrainerIds.has(trainer.id) || trainerPolicy(trainer).employmentType === 'full_time')
-  const studentTrainingDates = new Set(sessions.filter((item) => item.studentId === studentId).map((item) => storedDateKey(item.date, 'Ngày buổi liên quan')))
+  const trainerAvailabilityReferences = trainers.flatMap((trainer) => [...weekIds].map((targetWeek) => db.doc(`trainerAvailability/${trainer.id}_${targetWeek}`)))
+  const [studentAvailabilityByWeek, trainerAvailability] = await Promise.all([
+    effectiveStudentAvailabilityByWeek({ db, studentId, student, weekIds, exactSnapshots: availabilitySnapshots }),
+    getAllInChunks(db, trainerAvailabilityReferences).then(weeklyTrainerAvailabilityMap),
+  ])
+  const scheduleConfig = normalizedScheduleConfig(configSnapshot?.exists ? configSnapshot.data() : {})
+  const studentTrainingDates = new Set(studentSessions.map((item) => storedDateKey(item.date, 'Ngày buổi liên quan')))
   const candidates = []
 
   for (let targetDate = rangeStart; targetDate <= rangeEnd; targetDate = addDateDays(targetDate, 1)) {
     if (pauseCoversDate(contract, targetDate)) continue
     const dayCode = dayCodeForDate(targetDate)
-    if (dayCode === 'CN') continue
-    const weekly = availabilityByWeek.get(mondayForDate(targetDate))
-    const weeklyReady = weekly && ['submitted', 'locked', 'recurring'].includes(weekly.status)
-    const studentSlots = weeklyReady && Array.isArray(weekly.slots)
-      ? weekly.slots
-      : student.isScheduleConfirmed === true && Array.isArray(student.availableSlots)
-        ? student.availableSlots
-        : []
+    if (!scheduleConfig.workingDays.includes(dayCode) || scheduleConfig.holidays.includes(targetDate)) continue
+    if (studentTrainingDates.has(targetDate)) continue
+    const targetWeek = mondayForDate(targetDate)
+    const effectiveStudentAvailability = studentAvailabilityByWeek.get(targetWeek)
+    const studentSlots = effectiveStudentAvailability?.confirmed ? effectiveStudentAvailability.slots : []
     if (!studentSlots.length) continue
 
-    for (const trainer of trainers) {
+    for (const baseTrainer of trainers) {
+      const trainer = effectiveTrainerForWeek(baseTrainer, trainerAvailability, targetWeek)
       const policyData = trainerPolicy(trainer)
-      const trainerSlots = Array.isArray(trainer.availableSlots) ? trainer.availableSlots : []
-      if (!trainerSlots.length) continue
       const trainerOnLeave = leavesSnapshot.docs.some((item) => {
         const leave = item.data()
         const start = typeof leave.startDate === 'string' ? leave.startDate.slice(0, 10) : ''
@@ -355,16 +441,19 @@ async function buildSessionChangeSuggestions({ db, sessionId, expectedRevision, 
         const isPrimaryTrainer = trainer.id === contract.trainerId
       for (let targetHour = 0; targetHour <= 23; targetHour += 1) {
         const slotId = `${dayCode}-${targetHour}`
-        if (!studentSlots.includes(slotId) || !trainerSlots.includes(slotId)) continue
+        if (!scheduleConfig.workingHours.includes(targetHour)) continue
+        if (!studentSlots.includes(slotId) || !trainerIsAvailable(trainer, slotId)) continue
         if (targetDate === storedDateKey(session.date, 'Ngày buổi gốc') && targetHour === storedSessionHour(session.hour, sessionId, 'Giờ buổi gốc') && trainer.id === session.trainerId) continue
         const slotStart = new Date(`${targetDate}T${String(targetHour).padStart(2, '0')}:00:00+07:00`)
         if (slotStart.getTime() - now.getTime() < policy.sessionChangeDeadlineHours * 60 * 60 * 1000) continue
-        if (sessions.some((item) => item.studentId === studentId && storedDateKey(item.date, 'Ngày lịch học viên') === targetDate && storedSessionHour(item.hour, item.id, 'Giờ lịch học viên') === targetHour)) continue
         const sameTrainerDate = sessions.filter((item) => item.trainerId === trainer.id && storedDateKey(item.date, 'Ngày lịch PT') === targetDate)
         const atSlot = sameTrainerDate.filter((item) => storedSessionHour(item.hour, item.id, 'Giờ lịch PT') === targetHour)
         const occupancy = new Set(atSlot.map((item) => item.studentId)).size
         const capacity = normalizedTrainerCapacity(trainer.slotCapacity)
         if (occupancy >= capacity) continue
+        const siteCapacity = branchSlotCapacity(scheduleConfig, branchId, slotId)
+        const siteOccupancy = sessions.filter((item) => storedDateKey(item.date, 'Ngày lịch chi nhánh') === targetDate && storedSessionHour(item.hour, item.id, 'Giờ lịch chi nhánh') === targetHour && (!item.branchId || item.branchId === branchId)).length
+        if (siteCapacity !== null && siteOccupancy >= siteCapacity) continue
         const uniqueTeachingSlots = new Set(sameTrainerDate.map((item) => storedSessionHour(item.hour, item.id, 'Giờ lịch PT'))).size
         const pairsExistingSession = occupancy === 1 && capacity === 2
         const projectedTeachingSlots = uniqueTeachingSlots + (pairsExistingSession ? 0 : 1)
@@ -509,17 +598,19 @@ async function buildAdditionalSessionSuggestions({ db, studentId, now }) {
   const rangeEndCandidate = addDateDays(rangeStart, SESSION_CHANGE_WINDOW_DAYS)
   const rangeEnd = rangeEndCandidate < contractEnd ? rangeEndCandidate : contractEnd
   if (rangeStart > rangeEnd) return { policy, contractId: contract.id, weeklyTarget: Number(student.sessionsPerWeek || 0), weeklyMaximum: Math.max(1, Number(student.maxWeeklySessions || 7)), suggestions: [], issueCodes: ['NO_CONTRACT_DATE_AVAILABLE'] }
+  const branchId = id(contract.branchId || student.branchId, 'Mã chi nhánh')
 
   const weekIds = new Set()
   for (let targetDate = rangeStart; targetDate <= rangeEnd; targetDate = addDateDays(targetDate, 1)) weekIds.add(mondayForDate(targetDate))
   const availabilityReferences = [...weekIds].map((weekId) => db.doc(`ptAvailability/${studentId}_${weekId}`))
-  const [trainersSnapshot, sessionsSnapshot, leavesSnapshot, requestsSnapshot, contractSessionsSnapshot, studentSessionsSnapshot, ...availabilitySnapshots] = await Promise.all([
-    db.collection('trainers').where('branchId', '==', contract.branchId || student.branchId || '').limit(201).get(),
-    db.collection('sessions').where('date', '>=', rangeStart).where('date', '<', addDateDays(rangeEnd, 1)).limit(SESSION_CHANGE_DATA_LIMIT + 1).get(),
+  const [trainersSnapshot, sessionsSnapshot, leavesSnapshot, requestsSnapshot, contractSessionsSnapshot, studentSessionsSnapshot, configSnapshot, ...availabilitySnapshots] = await Promise.all([
+    db.collection('trainers').where('branchId', '==', branchId).limit(201).get(),
+    db.collection('sessions').where('branchId', '==', branchId).where('date', '>=', rangeStart).where('date', '<', addDateDays(rangeEnd, 1)).limit(SESSION_CHANGE_DATA_LIMIT + 1).get(),
     db.collection('leaveRequests').where('status', '==', 'approved').limit(1001).get(),
     db.collection('sessionRequests').where('studentId', '==', studentId).limit(100).get(),
     db.collection('sessions').where('contractId', '==', contract.id).limit(SESSION_CHANGE_DATA_LIMIT + 1).get(),
     db.collection('sessions').where('studentId', '==', studentId).limit(SESSION_CHANGE_DATA_LIMIT + 1).get(),
+    db.getAll(db.doc('settings/scheduleConfig')).then((values) => values[0]),
     ...availabilityReferences.map((reference) => db.getAll(reference).then((values) => values[0])),
   ])
   if (trainersSnapshot.size > 200 || sessionsSnapshot.size > SESSION_CHANGE_DATA_LIMIT || contractSessionsSnapshot.size > SESSION_CHANGE_DATA_LIMIT || studentSessionsSnapshot.size > SESSION_CHANGE_DATA_LIMIT || leavesSnapshot.size > 1000) {
@@ -530,35 +621,40 @@ async function buildAdditionalSessionSuggestions({ db, studentId, now }) {
   }
   const sessions = activeSessionRows(sessionsSnapshot)
   const studentSessions = activeSessionRows(studentSessionsSnapshot)
+  const contractSessionRows = contractSessionsSnapshot.docs.map((item) => ({ id: item.id, ...item.data() }))
   const contractScheduled = activeSessionRows(contractSessionsSnapshot).length
-  if (Number(contract.usedSessions || 0) + contractScheduled >= Number(contract.totalSessions || 0)) {
+  const contractUsage = summarizeContractUsage(contract, contractSessionRows)
+  if (contractScheduled >= contractUsage.remainingSessions) {
     return { policy, contractId: contract.id, weeklyTarget: Number(student.sessionsPerWeek || 0), weeklyMaximum: Math.max(1, Number(student.maxWeeklySessions || 7)), suggestions: [], issueCodes: ['CONTRACT_QUOTA_EXHAUSTED'] }
   }
-  const availabilityByWeek = new Map(availabilitySnapshots.filter((item) => item?.exists).map((item) => [item.id.slice(-(10)), item.data()]))
   const assignedTrainerIds = new Set([contract.trainerId, ...(Array.isArray(contract.trainerIds) ? contract.trainerIds : [])].filter(Boolean))
   const trainers = trainersSnapshot.docs.map((item) => ({ id: item.id, ...item.data() }))
     .filter((trainer) => trainer.status !== 'inactive')
     .filter((trainer) => assignedTrainerIds.has(trainer.id) || trainerPolicy(trainer).employmentType === 'full_time')
+  const trainerAvailabilityReferences = trainers.flatMap((trainer) => [...weekIds].map((targetWeek) => db.doc(`trainerAvailability/${trainer.id}_${targetWeek}`)))
+  const [studentAvailabilityByWeek, trainerAvailability] = await Promise.all([
+    effectiveStudentAvailabilityByWeek({ db, studentId, student, weekIds, exactSnapshots: availabilitySnapshots }),
+    getAllInChunks(db, trainerAvailabilityReferences).then(weeklyTrainerAvailabilityMap),
+  ])
+  const scheduleConfig = normalizedScheduleConfig(configSnapshot?.exists ? configSnapshot.data() : {})
   const studentTrainingDates = new Set(studentSessions.map((item) => storedDateKey(item.date, 'Ngày buổi liên quan')))
   const candidates = []
   for (let targetDate = rangeStart; targetDate <= rangeEnd; targetDate = addDateDays(targetDate, 1)) {
     if (pauseCoversDate(contract, targetDate)) continue
     const dayCode = dayCodeForDate(targetDate)
-    if (dayCode === 'CN') continue
-    const weekly = availabilityByWeek.get(mondayForDate(targetDate))
-    const weeklyReady = weekly && ['submitted', 'locked', 'recurring'].includes(weekly.status)
-    const studentSlots = weeklyReady && Array.isArray(weekly.slots)
-      ? weekly.slots
-      : student.isScheduleConfirmed === true && Array.isArray(student.availableSlots) ? student.availableSlots : []
+    if (!scheduleConfig.workingDays.includes(dayCode) || scheduleConfig.holidays.includes(targetDate)) continue
+    if (studentTrainingDates.has(targetDate)) continue
+    const targetWeek = mondayForDate(targetDate)
+    const studentAvailability = studentAvailabilityByWeek.get(targetWeek)
+    const studentSlots = studentAvailability?.confirmed ? studentAvailability.slots : []
     if (!studentSlots.length) continue
-    const weekStart = mondayForDate(targetDate)
+    const weekStart = targetWeek
     const weekScheduled = studentSessions.filter((item) => storedDateKey(item.date, 'Ngày lịch học viên') >= weekStart && storedDateKey(item.date, 'Ngày lịch học viên') <= addDateDays(weekStart, 6)).length
     const weeklyMaximum = Math.max(1, Number(student.maxWeeklySessions || 7))
     if (weekScheduled >= weeklyMaximum) continue
-    for (const trainer of trainers) {
+    for (const baseTrainer of trainers) {
+      const trainer = effectiveTrainerForWeek(baseTrainer, trainerAvailability, targetWeek)
       const policyData = trainerPolicy(trainer)
-      const trainerSlots = Array.isArray(trainer.availableSlots) ? trainer.availableSlots : []
-      if (!trainerSlots.length && trainer.availabilityMode !== 'unrestricted') continue
       const trainerOnLeave = leavesSnapshot.docs.some((item) => {
         const leave = item.data()
         const start = typeof leave.startDate === 'string' ? leave.startDate.slice(0, 10) : ''
@@ -570,14 +666,17 @@ async function buildAdditionalSessionSuggestions({ db, studentId, now }) {
       const isPrimaryTrainer = trainer.id === contract.trainerId
       for (const targetHour of Array.from({ length: 24 }, (_, value) => value)) {
         const slotId = `${dayCode}-${targetHour}`
+        if (!scheduleConfig.workingHours.includes(targetHour)) continue
         if (!studentSlots.includes(slotId)) continue
-        if (trainer.availabilityMode !== 'unrestricted' && !trainerSlots.includes(slotId)) continue
-        if (sessions.some((item) => item.studentId === studentId && storedDateKey(item.date, 'Ngày lịch học viên') === targetDate && storedSessionHour(item.hour, item.id, 'Giờ lịch học viên') === targetHour)) continue
+        if (!trainerIsAvailable(trainer, slotId)) continue
         const sameTrainerDate = sessions.filter((item) => item.trainerId === trainer.id && storedDateKey(item.date, 'Ngày lịch PT') === targetDate)
         const atSlot = sameTrainerDate.filter((item) => storedSessionHour(item.hour, item.id, 'Giờ lịch PT') === targetHour)
         const occupancy = new Set(atSlot.map((item) => item.studentId)).size
         const capacity = normalizedTrainerCapacity(trainer.slotCapacity)
         if (occupancy >= capacity) continue
+        const siteCapacity = branchSlotCapacity(scheduleConfig, branchId, slotId)
+        const siteOccupancy = sessions.filter((item) => storedDateKey(item.date, 'Ngày lịch chi nhánh') === targetDate && storedSessionHour(item.hour, item.id, 'Giờ lịch chi nhánh') === targetHour && (!item.branchId || item.branchId === branchId)).length
+        if (siteCapacity !== null && siteOccupancy >= siteCapacity) continue
         const uniqueTeachingSlots = new Set(sameTrainerDate.map((item) => storedSessionHour(item.hour, item.id, 'Giờ lịch PT'))).size
         const pairsExistingSession = occupancy === 1 && capacity === 2
         const projectedTeachingSlots = uniqueTeachingSlots + (pairsExistingSession ? 0 : 1)
@@ -1670,33 +1769,39 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
       const contractEnd = storedContractDate(contract.endDate, 'Ngày kết thúc')
       if (selectedSuggestion.date < contractStart || selectedSuggestion.date > contractEnd) throw new HttpsError('failed-precondition', 'Ca đăng ký nằm ngoài thời hạn hợp đồng.')
       if (pauseCoversDate(contract, selectedSuggestion.date)) throw new HttpsError('failed-precondition', 'Ngày đăng ký nằm trong thời gian OFF hoặc bảo lưu.')
+      const contractSessionRows = contractSessionsSnapshot.docs.map((item) => ({ id: item.id, ...item.data() }))
       const contractSessions = activeSessionRows(contractSessionsSnapshot)
-      if (contractSessionsSnapshot.size > SESSION_CHANGE_DATA_LIMIT || Number(contract.usedSessions || 0) + contractSessions.filter((item) => item.contractId === selectedSuggestion.contractId).length >= Number(contract.totalSessions || 0)) {
+      const contractUsage = summarizeContractUsage(contract, contractSessionRows)
+      if (contractSessionsSnapshot.size > SESSION_CHANGE_DATA_LIMIT || contractSessions.filter((item) => item.contractId === selectedSuggestion.contractId).length >= contractUsage.remainingSessions) {
         throw new HttpsError('failed-precondition', 'Hợp đồng đã hết số buổi có thể xếp.')
       }
-      const [trainerSnapshot, trainerDay, studentDay, availabilitySnapshot, leavesSnapshot, studentSessionsSnapshot, configSnapshot] = await Promise.all([
+      const targetWeek = mondayForDate(selectedSuggestion.date)
+      const [trainerSnapshot, trainerDay, studentDay, availabilitySnapshot, trainerAvailabilitySnapshot, leavesSnapshot, studentSessionsSnapshot, configSnapshot] = await Promise.all([
         transaction.get(db.doc(`trainers/${selectedSuggestion.trainerId}`)),
         transaction.get(dailySessionsQuery(db, 'trainerId', selectedSuggestion.trainerId, selectedSuggestion.date)),
         transaction.get(dailySessionsQuery(db, 'studentId', studentId, selectedSuggestion.date)),
-        transaction.get(db.doc(`ptAvailability/${studentId}_${mondayForDate(selectedSuggestion.date)}`)),
+        transaction.get(db.doc(`ptAvailability/${studentId}_${targetWeek}`)),
+        transaction.get(db.doc(`trainerAvailability/${selectedSuggestion.trainerId}_${targetWeek}`)),
         transaction.get(db.collection('leaveRequests').where('status', '==', 'approved').limit(1001)),
         transaction.get(db.collection('sessions').where('studentId', '==', studentId).limit(SESSION_CHANGE_DATA_LIMIT + 1)),
         transaction.get(db.doc('settings/scheduleConfig')),
       ])
       if (!trainerSnapshot.exists || trainerSnapshot.data().status === 'inactive') throw new HttpsError('failed-precondition', 'PT của ca đăng ký không còn hoạt động.')
       if (leavesSnapshot.size > 1000 || studentSessionsSnapshot.size > SESSION_CHANGE_DATA_LIMIT) throw new HttpsError('resource-exhausted', 'Dữ liệu lịch vượt giới hạn xác minh an toàn.')
-      const trainer = trainerSnapshot.data()
+      const trainer = trainerProfileForWeek(trainerSnapshot.data(), trainerAvailabilitySnapshot.exists ? trainerAvailabilitySnapshot.data() : null, targetWeek)
       const expectedBranchId = contract.branchId || student.branchId
       if (expectedBranchId && trainer.branchId !== expectedBranchId) throw new HttpsError('failed-precondition', 'PT của ca đăng ký không thuộc đúng chi nhánh.')
       const assignedTrainerIds = new Set([contract.trainerId, ...(Array.isArray(contract.trainerIds) ? contract.trainerIds : [])].filter(Boolean))
       if (!assignedTrainerIds.has(selectedSuggestion.trainerId) && trainerPolicy(trainer).employmentType !== 'full_time') throw new HttpsError('failed-precondition', 'Ca ngoài PT phụ trách chỉ được chọn PT chính thức toàn thời gian.')
-      const slotId = `${dayCodeForDate(selectedSuggestion.date)}-${selectedSuggestion.hour}`
-      if (trainer.availabilityMode !== 'unrestricted' && (!Array.isArray(trainer.availableSlots) || !trainer.availableSlots.includes(slotId))) throw new HttpsError('failed-precondition', 'Ca đăng ký không còn nằm trong lịch rảnh PT.')
-      const weeklyAvailability = availabilitySnapshot.exists ? availabilitySnapshot.data() : null
-      const studentSlots = weeklyAvailability && ['submitted', 'locked', 'recurring'].includes(weeklyAvailability.status) && Array.isArray(weeklyAvailability.slots)
-        ? weeklyAvailability.slots
-        : student.isScheduleConfirmed === true && Array.isArray(student.availableSlots) ? student.availableSlots : []
-      if (!studentSlots.includes(slotId)) throw new HttpsError('failed-precondition', 'Ca đăng ký không còn nằm trong lịch rảnh học viên.')
+      const { slotId } = assertOperatingCalendar(configSnapshot.exists ? configSnapshot.data() : {}, selectedSuggestion.date, selectedSuggestion.hour)
+      if (!trainerIsAvailable(trainer, slotId)) throw new HttpsError('failed-precondition', 'Ca đăng ký không còn nằm trong lịch rảnh PT tuần này.')
+      const studentAvailability = effectiveStudentAvailability({
+        targetWeek,
+        exact: availabilitySnapshot.exists ? availabilitySnapshot.data() : null,
+        inherited: null,
+        profile: student,
+      })
+      if (!studentAvailability.confirmed || !studentAvailability.slots.includes(slotId)) throw new HttpsError('failed-precondition', 'Ca đăng ký không còn nằm trong lịch rảnh hiệu lực của học viên.')
       const trainerUnavailable = leavesSnapshot.docs.some((item) => {
         const leave = item.data()
         const start = typeof leave.startDate === 'string' ? leave.startDate.slice(0, 10) : ''
@@ -1706,7 +1811,7 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
       if (trainerUnavailable) throw new HttpsError('failed-precondition', 'PT đang OFF ở ngày đăng ký.')
       const targetCapacity = normalizedTrainerCapacity(trainer.slotCapacity)
       if (activeHourDocuments(trainerDay, selectedSuggestion.hour).length >= targetCapacity) throw new HttpsError('resource-exhausted', 'Khung giờ của PT đã đủ học viên.')
-      if (activeHourDocuments(studentDay, selectedSuggestion.hour).length > 0) throw new HttpsError('already-exists', 'Học viên đã có buổi khác trong khung giờ này.')
+      if (activeDayDocuments(studentDay).length > 0) throw new HttpsError('already-exists', 'Học viên đã có một buổi tập trong ngày này.')
       const weeklyStart = mondayForDate(selectedSuggestion.date)
       const weeklyScheduled = activeSessionRows(studentSessionsSnapshot).filter((item) => {
         const itemDate = storedDateKey(item.date, 'Ngày lịch học viên')
@@ -2283,95 +2388,17 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
     }
   })
 
-  const cancelSession = onCall(async (request) => {
-    const actor = await authorizeAdmin(request, db)
-    const sessionId = id(request.data?.sessionId, 'Mã buổi tập')
-    const expectedRevision = sessionRevision(request.data?.expectedRevision)
-    const cancellationType = request.data?.type === 'trainer_cancelled' ? 'trainer_cancelled' : 'student_cancelled'
-    const reason = typeof request.data?.reason === 'string' ? request.data.reason.trim().slice(0, 500) : ''
-    const reference = db.doc(`sessions/${sessionId}`)
-    return db.runTransaction(async (transaction) => {
-      const snapshot = await transaction.get(reference)
-      if (!snapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy buổi tập.')
-      const session = snapshot.data()
-      const revision = Number(session.revision || 0)
-      if (revision !== expectedRevision) throw new HttpsError('aborted', 'Buổi tập đã thay đổi. Hãy tải lại.')
-      if (!isActiveSessionStatus(session.status)) throw new HttpsError('failed-precondition', 'Chỉ buổi đang lên lịch mới được hủy.')
-      if (isSessionCharged(session)) throw new HttpsError('failed-precondition', 'Buổi đã được tính. Hãy dùng quy trình điều chỉnh có audit thay vì hủy trực tiếp.')
-      transaction.update(reference, { status: cancellationType, scheduleStatus: 'cancelled', billingStatus: 'exempt', attendanceStatus: null, cancellationReason: reason, revision: revision + 1, cancelledAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(), updatedBy: actor.uid })
-      transaction.create(db.collection('sessionEvents').doc(), { schemaVersion: 1, sessionId, type: cancellationType, reason, createdAt: FieldValue.serverTimestamp(), createdBy: actor.uid })
-      return { revision: revision + 1 }
-    })
-  })
-
-  const rescheduleSession = onCall(async (request) => {
-    const actor = await authorizeAdmin(request, db)
-    const sessionId = id(request.data?.sessionId, 'Mã buổi tập')
-    const newDate = date(request.data?.newDate)
-    const newHour = hour(request.data?.newHour)
-    const trainerId = id(request.data?.trainerId, 'Mã HLV')
-    const expectedRevision = sessionRevision(request.data?.expectedRevision)
-    const reference = db.doc(`sessions/${sessionId}`)
-    return db.runTransaction(async (transaction) => {
-      const snapshot = await transaction.get(reference)
-      if (!snapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy buổi tập.')
-      const session = snapshot.data()
-      const revision = Number(session.revision || 0)
-      if (revision !== expectedRevision) throw new HttpsError('aborted', 'Buổi tập đã thay đổi. Hãy tải lại.')
-      if (!isActiveSessionStatus(session.status)) throw new HttpsError('failed-precondition', 'Chỉ có thể dời buổi đang lên lịch.')
-      if (isSessionCharged(session)) throw new HttpsError('failed-precondition', 'Buổi đã được tính nên không thể dời trực tiếp.')
-      const [trainerDay, studentDay] = await Promise.all([
-        transaction.get(dailySessionsQuery(db, 'trainerId', trainerId, newDate)),
-        transaction.get(dailySessionsQuery(db, 'studentId', session.studentId, newDate)),
-      ])
-      if (activeHourDocuments(trainerDay, newHour, [sessionId]).length >= 2) throw new HttpsError('resource-exhausted', 'Khung giờ của HLV đã đủ hai học viên.')
-      if (activeHourDocuments(studentDay, newHour, [sessionId]).length > 0) throw new HttpsError('already-exists', 'Học viên đã có buổi tập khác trong khung giờ này.')
-      transaction.update(reference, { previousSchedule: FieldValue.arrayUnion({ date: session.date, hour: session.hour ?? null, trainerId: session.trainerId, changedAt: new Date().toISOString() }), date: newDate, hour: newHour, trainerId, status: 'scheduled', scheduleStatus: 'rescheduled', billingStatus: 'pending', attendanceStatus: 'pending', rescheduledAt: FieldValue.serverTimestamp(), revision: revision + 1, updatedAt: FieldValue.serverTimestamp(), updatedBy: actor.uid })
-      transaction.create(db.collection('sessionEvents').doc(), { schemaVersion: 1, sessionId, type: 'rescheduled', from: { date: session.date, hour: session.hour ?? null, trainerId: session.trainerId }, to: { date: newDate, hour: newHour, trainerId }, createdAt: FieldValue.serverTimestamp(), createdBy: actor.uid })
-      return { revision: revision + 1 }
-    })
-  })
-
-  const swapSessions = onCall(async (request) => {
-    const actor = await authorizeAdmin(request, db)
-    const firstId = id(request.data?.firstSessionId, 'Buổi thứ nhất')
-    const secondId = id(request.data?.secondSessionId, 'Buổi thứ hai')
-    const firstExpectedRevision = sessionRevision(request.data?.firstExpectedRevision)
-    const secondExpectedRevision = sessionRevision(request.data?.secondExpectedRevision)
-    if (firstId === secondId) throw new HttpsError('invalid-argument', 'Hai buổi tập phải khác nhau.')
-    const firstReference = db.doc(`sessions/${firstId}`)
-    const secondReference = db.doc(`sessions/${secondId}`)
-    return db.runTransaction(async (transaction) => {
-      const [first, second] = await Promise.all([transaction.get(firstReference), transaction.get(secondReference)])
-      if (!first.exists || !second.exists) throw new HttpsError('not-found', 'Không tìm thấy đủ hai buổi tập.')
-      const firstData = first.data()
-      const secondData = second.data()
-      if (!isActiveSessionStatus(firstData.status) || !isActiveSessionStatus(secondData.status)) throw new HttpsError('failed-precondition', 'Chỉ có thể đổi hai buổi đang lên lịch.')
-      if (isSessionCharged(firstData) || isSessionCharged(secondData)) throw new HttpsError('failed-precondition', 'Không thể đổi buổi đã được hệ thống tính.')
-      const firstRevision = Number(firstData.revision || 0)
-      const secondRevision = Number(secondData.revision || 0)
-      if (firstRevision !== firstExpectedRevision || secondRevision !== secondExpectedRevision) throw new HttpsError('aborted', 'Một buổi tập đã thay đổi. Hãy tải lại.')
-      const firstSlot = { date: storedDateKey(firstData.date, 'Ngày buổi thứ nhất'), hour: storedSessionHour(firstData.hour, firstId, 'Giờ buổi thứ nhất'), trainerId: id(firstData.trainerId, 'HLV buổi thứ nhất') }
-      const secondSlot = { date: storedDateKey(secondData.date, 'Ngày buổi thứ hai'), hour: storedSessionHour(secondData.hour, secondId, 'Giờ buổi thứ hai'), trainerId: id(secondData.trainerId, 'HLV buổi thứ hai') }
-      const excludedIds = [firstId, secondId]
-      const [firstTargetTrainerDay, firstTargetStudentDay, secondTargetTrainerDay, secondTargetStudentDay] = await Promise.all([
-        transaction.get(dailySessionsQuery(db, 'trainerId', secondSlot.trainerId, secondSlot.date)),
-        transaction.get(dailySessionsQuery(db, 'studentId', firstData.studentId, secondSlot.date)),
-        transaction.get(dailySessionsQuery(db, 'trainerId', firstSlot.trainerId, firstSlot.date)),
-        transaction.get(dailySessionsQuery(db, 'studentId', secondData.studentId, firstSlot.date)),
-      ])
-      if (activeHourDocuments(firstTargetTrainerDay, secondSlot.hour, excludedIds).length >= 2 || activeHourDocuments(secondTargetTrainerDay, firstSlot.hour, excludedIds).length >= 2) {
-        throw new HttpsError('resource-exhausted', 'Một khung giờ của HLV đã đủ hai học viên.')
-      }
-      if (activeHourDocuments(firstTargetStudentDay, secondSlot.hour, excludedIds).length > 0 || activeHourDocuments(secondTargetStudentDay, firstSlot.hour, excludedIds).length > 0) {
-        throw new HttpsError('already-exists', 'Một học viên đã có buổi tập khác trong khung giờ nhận đổi.')
-      }
-      transaction.update(firstReference, { ...secondSlot, status: 'scheduled', scheduleStatus: 'rescheduled', billingStatus: 'pending', attendanceStatus: 'pending', revision: firstRevision + 1, updatedAt: FieldValue.serverTimestamp(), updatedBy: actor.uid })
-      transaction.update(secondReference, { ...firstSlot, status: 'scheduled', scheduleStatus: 'rescheduled', billingStatus: 'pending', attendanceStatus: 'pending', revision: secondRevision + 1, updatedAt: FieldValue.serverTimestamp(), updatedBy: actor.uid })
-      transaction.create(db.collection('sessionEvents').doc(), { schemaVersion: 1, type: 'swapped', sessionIds: [firstId, secondId], createdAt: FieldValue.serverTimestamp(), createdBy: actor.uid })
-      return { firstRevision: firstRevision + 1, secondRevision: secondRevision + 1 }
-    })
-  })
+  const disabledLegacySessionMutation = async (request) => {
+    await authorizeAdmin(request, db)
+    throw new HttpsError(
+      'failed-precondition',
+      'Thao tác lịch trực tiếp đã ngừng sử dụng. Hãy tạo yêu cầu Đổi/Hủy hoặc dùng Điều chỉnh ca có audit.',
+      { issueCode: 'LEGACY_SESSION_MUTATION_DISABLED' },
+    )
+  }
+  const cancelSession = onCall(disabledLegacySessionMutation)
+  const rescheduleSession = onCall(disabledLegacySessionMutation)
+  const swapSessions = onCall(disabledLegacySessionMutation)
 
   const approveSessionRequest = onCall(async (request) => {
     const actor = await authorizeAdmin(request, db)
@@ -2416,13 +2443,15 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
         const trainerId = id(requestData.newTrainerId || requestData.trainerId, 'Mã HLV')
         const sessionId = `additional-${requestId}`
         const sessionReference = db.doc(`sessions/${sessionId}`)
-        const [contractSnapshot, studentSnapshot, trainerSnapshot, trainerDay, studentDay, availabilitySnapshot, leavesSnapshot, contractSessionsSnapshot, studentSessionsSnapshot, existingSession, configSnapshot] = await Promise.all([
+        const targetWeek = mondayForDate(targetDate)
+        const [contractSnapshot, studentSnapshot, trainerSnapshot, trainerDay, studentDay, availabilitySnapshot, trainerAvailabilitySnapshot, leavesSnapshot, contractSessionsSnapshot, studentSessionsSnapshot, existingSession, configSnapshot] = await Promise.all([
           transaction.get(db.doc(`contracts/${contractId}`)),
           transaction.get(db.doc(`students/${studentId}`)),
           transaction.get(db.doc(`trainers/${trainerId}`)),
           transaction.get(dailySessionsQuery(db, 'trainerId', trainerId, targetDate)),
           transaction.get(dailySessionsQuery(db, 'studentId', studentId, targetDate)),
-          transaction.get(db.doc(`ptAvailability/${studentId}_${mondayForDate(targetDate)}`)),
+          transaction.get(db.doc(`ptAvailability/${studentId}_${targetWeek}`)),
+          transaction.get(db.doc(`trainerAvailability/${trainerId}_${targetWeek}`)),
           transaction.get(db.collection('leaveRequests').where('status', '==', 'approved').limit(1001)),
           transaction.get(db.collection('sessions').where('contractId', '==', contractId).limit(SESSION_CHANGE_DATA_LIMIT + 1)),
           transaction.get(db.collection('sessions').where('studentId', '==', studentId).limit(SESSION_CHANGE_DATA_LIMIT + 1)),
@@ -2439,21 +2468,25 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
         if (targetDate < contractStart || targetDate > contractEnd) throw new HttpsError('failed-precondition', 'Ca đăng ký nằm ngoài thời hạn hợp đồng.')
         if (pauseCoversDate(contract, targetDate)) throw new HttpsError('failed-precondition', 'Ngày đăng ký nằm trong thời gian OFF hoặc bảo lưu.')
         if (contractSessionsSnapshot.size > SESSION_CHANGE_DATA_LIMIT || studentSessionsSnapshot.size > SESSION_CHANGE_DATA_LIMIT || leavesSnapshot.size > 1000) throw new HttpsError('resource-exhausted', 'Dữ liệu lịch vượt giới hạn xác minh an toàn.')
+        const contractSessionRows = contractSessionsSnapshot.docs.map((item) => ({ id: item.id, ...item.data() }))
         const contractSessions = activeSessionRows(contractSessionsSnapshot)
-        if (Number(contract.usedSessions || 0) + contractSessions.filter((item) => item.contractId === contractId).length >= Number(contract.totalSessions || 0)) throw new HttpsError('failed-precondition', 'Hợp đồng đã hết số buổi có thể xếp.')
+        const contractUsage = summarizeContractUsage(contract, contractSessionRows)
+        if (contractSessions.filter((item) => item.contractId === contractId).length >= contractUsage.remainingSessions) throw new HttpsError('failed-precondition', 'Hợp đồng đã hết số buổi có thể xếp.')
         if (!trainerSnapshot.exists || trainerSnapshot.data().status === 'inactive') throw new HttpsError('failed-precondition', 'PT của ca đăng ký không còn hoạt động.')
-        const trainer = trainerSnapshot.data()
+        const trainer = trainerProfileForWeek(trainerSnapshot.data(), trainerAvailabilitySnapshot.exists ? trainerAvailabilitySnapshot.data() : null, targetWeek)
         const expectedBranchId = contract.branchId || student.branchId
         if (expectedBranchId && trainer.branchId !== expectedBranchId) throw new HttpsError('failed-precondition', 'PT của ca đăng ký không thuộc đúng chi nhánh.')
         const assignedTrainerIds = new Set([contract.trainerId, ...(Array.isArray(contract.trainerIds) ? contract.trainerIds : [])].filter(Boolean))
         if (!assignedTrainerIds.has(trainerId) && trainerPolicy(trainer).employmentType !== 'full_time') throw new HttpsError('failed-precondition', 'Ca ngoài PT phụ trách chỉ được chọn PT chính thức toàn thời gian.')
-        const slotId = `${dayCodeForDate(targetDate)}-${targetHour}`
-        if (trainer.availabilityMode !== 'unrestricted' && (!Array.isArray(trainer.availableSlots) || !trainer.availableSlots.includes(slotId))) throw new HttpsError('failed-precondition', 'Ca đăng ký không còn nằm trong lịch rảnh PT.')
-        const weeklyAvailability = availabilitySnapshot.exists ? availabilitySnapshot.data() : null
-        const studentSlots = weeklyAvailability && ['submitted', 'locked', 'recurring'].includes(weeklyAvailability.status) && Array.isArray(weeklyAvailability.slots)
-          ? weeklyAvailability.slots
-          : student.isScheduleConfirmed === true && Array.isArray(student.availableSlots) ? student.availableSlots : []
-        if (!studentSlots.includes(slotId)) throw new HttpsError('failed-precondition', 'Ca đăng ký không còn nằm trong lịch rảnh học viên.')
+        const { slotId } = assertOperatingCalendar(configSnapshot.exists ? configSnapshot.data() : {}, targetDate, targetHour)
+        if (!trainerIsAvailable(trainer, slotId)) throw new HttpsError('failed-precondition', 'Ca đăng ký không còn nằm trong lịch rảnh PT tuần này.')
+        const studentAvailability = effectiveStudentAvailability({
+          targetWeek,
+          exact: availabilitySnapshot.exists ? availabilitySnapshot.data() : null,
+          inherited: null,
+          profile: student,
+        })
+        if (!studentAvailability.confirmed || !studentAvailability.slots.includes(slotId)) throw new HttpsError('failed-precondition', 'Ca đăng ký không còn nằm trong lịch rảnh hiệu lực của học viên.')
         const trainerUnavailable = leavesSnapshot.docs.some((item) => {
           const leave = item.data()
           const start = typeof leave.startDate === 'string' ? leave.startDate.slice(0, 10) : ''
@@ -2462,7 +2495,13 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
         })
         if (trainerUnavailable) throw new HttpsError('failed-precondition', 'PT đang OFF ở ngày đăng ký.')
         if (activeHourDocuments(trainerDay, targetHour).length >= normalizedTrainerCapacity(trainer.slotCapacity)) throw new HttpsError('resource-exhausted', 'Khung giờ của PT đã đủ học viên.')
-        if (activeHourDocuments(studentDay, targetHour).length > 0) throw new HttpsError('already-exists', 'Học viên đã có buổi khác trong khung giờ này.')
+        if (activeDayDocuments(studentDay).length > 0) throw new HttpsError('already-exists', 'Học viên đã có một buổi tập trong ngày này.')
+        const branchId = id(expectedBranchId || trainer.branchId, 'Mã chi nhánh')
+        const siteCapacity = branchSlotCapacity(normalizedScheduleConfig(configSnapshot.exists ? configSnapshot.data() : {}), branchId, slotId)
+        if (siteCapacity !== null) {
+          const branchDay = await transaction.get(dailySessionsQuery(db, 'branchId', branchId, targetDate))
+          if (activeHourDocuments(branchDay, targetHour).length >= siteCapacity) throw new HttpsError('resource-exhausted', 'Chi nhánh đã đủ sức chứa trong khung giờ này.')
+        }
         const weeklyStart = mondayForDate(targetDate)
         const weeklyScheduled = activeSessionRows(studentSessionsSnapshot).filter((item) => {
           const itemDate = storedDateKey(item.date, 'Ngày lịch học viên')
@@ -2476,7 +2515,6 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
         } catch (error) {
           throw policyFailure(error)
         }
-        const branchId = contract.branchId || student.branchId || trainer.branchId || ''
         transaction.create(sessionReference, {
           schemaVersion: 1,
           studentId,
@@ -2626,7 +2664,10 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
       let trainerSnapshot = null
       let studentSnapshot = null
       let availabilitySnapshot = null
+      let trainerAvailabilitySnapshot = null
       let trainerLeaves = null
+      let branchDay = null
+      let targetSiteCapacity = null
       if (requestType === 'reschedule') {
         newDate = date(requestData.newDate)
         newHour = hour(requestData.newHour)
@@ -2634,35 +2675,38 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
         if (Number(contract.usedSessions || 0) >= Number(contract.totalSessions || 0)) throw new HttpsError('failed-precondition', 'Hợp đồng đã hết buổi nên không thể xếp lịch bù.')
         if (newDate < contractStart || newDate > contractEnd) throw new HttpsError('failed-precondition', 'Lịch mới nằm ngoài thời hạn hợp đồng.')
         if (pauseCoversDate(contract, newDate)) throw new HttpsError('failed-precondition', 'Ngày đề xuất nằm trong thời gian OFF hoặc bảo lưu của hợp đồng.')
-        ;[trainerDay, studentDay, trainerSnapshot, studentSnapshot, availabilitySnapshot, trainerLeaves] = await Promise.all([
+        const targetWeek = mondayForDate(newDate)
+        ;[trainerDay, studentDay, trainerSnapshot, studentSnapshot, availabilitySnapshot, trainerAvailabilitySnapshot, trainerLeaves] = await Promise.all([
           transaction.get(dailySessionsQuery(db, 'trainerId', trainerId, newDate)),
           transaction.get(dailySessionsQuery(db, 'studentId', session.studentId, newDate)),
           transaction.get(db.doc(`trainers/${trainerId}`)),
           transaction.get(db.doc(`students/${session.studentId}`)),
-          transaction.get(db.doc(`ptAvailability/${session.studentId}_${mondayForDate(newDate)}`)),
+          transaction.get(db.doc(`ptAvailability/${session.studentId}_${targetWeek}`)),
+          transaction.get(db.doc(`trainerAvailability/${trainerId}_${targetWeek}`)),
           transaction.get(db.collection('leaveRequests').where('status', '==', 'approved').limit(1001)),
         ])
         if (!trainerSnapshot.exists || trainerSnapshot.data().status === 'inactive') throw new HttpsError('failed-precondition', 'PT của ca đề xuất không còn hoạt động.')
         if (!studentSnapshot.exists) throw new HttpsError('failed-precondition', 'Hồ sơ học viên không tồn tại.')
-        const trainer = trainerSnapshot.data()
+        const trainer = trainerProfileForWeek(trainerSnapshot.data(), trainerAvailabilitySnapshot.exists ? trainerAvailabilitySnapshot.data() : null, targetWeek)
         const expectedBranchId = session.branchId || contract.branchId
         if (expectedBranchId && trainer.branchId !== expectedBranchId) throw new HttpsError('failed-precondition', 'PT của ca đề xuất không thuộc đúng chi nhánh.')
         const assignedTrainerIds = new Set([session.trainerId, contract.trainerId, ...(Array.isArray(contract.trainerIds) ? contract.trainerIds : [])].filter(Boolean))
         if (!assignedTrainerIds.has(trainerId) && trainerPolicy(trainer).employmentType !== 'full_time') {
           throw new HttpsError('failed-precondition', 'Ca thay thế ngoài PT phụ trách chỉ được chọn PT chính thức toàn thời gian.')
         }
-        const slotId = `${dayCodeForDate(newDate)}-${newHour}`
-        if (!Array.isArray(trainer.availableSlots) || !trainer.availableSlots.includes(slotId)) {
-          throw new HttpsError('failed-precondition', 'Ca đề xuất không còn nằm trong lịch rảnh PT đã đăng ký.')
-        }
-        const weeklyAvailability = availabilitySnapshot.exists ? availabilitySnapshot.data() : null
+        const { slotId } = assertOperatingCalendar(configSnapshot.exists ? configSnapshot.data() : {}, newDate, newHour)
+        if (!trainerIsAvailable(trainer, slotId)) throw new HttpsError('failed-precondition', 'Ca đề xuất không còn nằm trong lịch rảnh PT tuần này.')
+        const targetBranchId = expectedBranchId || trainer.branchId || ''
+        targetSiteCapacity = targetBranchId ? branchSlotCapacity(normalizedScheduleConfig(configSnapshot.exists ? configSnapshot.data() : {}), targetBranchId, slotId) : null
+        if (targetSiteCapacity !== null) branchDay = await transaction.get(dailySessionsQuery(db, 'branchId', targetBranchId, newDate))
         const studentData = studentSnapshot.data()
-        const studentSlots = weeklyAvailability && ['submitted', 'locked', 'recurring'].includes(weeklyAvailability.status) && Array.isArray(weeklyAvailability.slots)
-          ? weeklyAvailability.slots
-          : studentData.isScheduleConfirmed === true && Array.isArray(studentData.availableSlots)
-            ? studentData.availableSlots
-            : []
-        if (!studentSlots.includes(slotId)) throw new HttpsError('failed-precondition', 'Ca đề xuất không còn nằm trong lịch rảnh học viên.')
+        const studentAvailability = effectiveStudentAvailability({
+          targetWeek,
+          exact: availabilitySnapshot.exists ? availabilitySnapshot.data() : null,
+          inherited: null,
+          profile: studentData,
+        })
+        if (!studentAvailability.confirmed || !studentAvailability.slots.includes(slotId)) throw new HttpsError('failed-precondition', 'Ca đề xuất không còn nằm trong lịch rảnh hiệu lực của học viên.')
         if (trainerLeaves.size > 1000) throw new HttpsError('resource-exhausted', 'Danh sách OFF vượt giới hạn xác minh an toàn.')
         const trainerUnavailable = trainerLeaves.docs.some((item) => {
           const leave = item.data()
@@ -2745,7 +2789,8 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
       } else {
         const targetCapacity = normalizedTrainerCapacity(trainerSnapshot.data().slotCapacity)
         if (activeHourDocuments(trainerDay, newHour, [sessionId]).length >= targetCapacity) throw new HttpsError('resource-exhausted', 'Khung giờ của HLV đã đủ học viên.')
-        if (activeHourDocuments(studentDay, newHour, [sessionId]).length > 0) throw new HttpsError('already-exists', 'Học viên đã có buổi tập khác trong khung giờ này.')
+        if (activeDayDocuments(studentDay, [sessionId]).length > 0) throw new HttpsError('already-exists', 'Học viên đã có một buổi tập trong ngày này.')
+        if (branchDay && activeHourDocuments(branchDay, newHour, [sessionId]).length >= targetSiteCapacity) throw new HttpsError('resource-exhausted', 'Chi nhánh đã đủ sức chứa trong khung giờ này.')
         transaction.update(sessionReference, {
           previousSchedule: FieldValue.arrayUnion({ date: session.date, hour: session.hour ?? null, trainerId: session.trainerId, changedAt: new Date().toISOString() }),
           date: newDate,

@@ -45,6 +45,9 @@ function fakeDatabase(seed) {
     limit(value) {
       return query(path, filters, value)
     },
+    orderBy() {
+      return query(path, filters, maximum)
+    },
     async get() {
       return snapshotFor({ kind: 'query', path, filters, maximum })
     },
@@ -55,10 +58,11 @@ function fakeDatabase(seed) {
       return reference(`${path}/${documentId}`)
     },
   })
-  const matches = (data, filter) => {
-    if (filter.operator === '==') return data[filter.field] === filter.value
-    if (filter.operator === '>=') return data[filter.field] >= filter.value
-    if (filter.operator === '<') return data[filter.field] < filter.value
+  const matches = (data, filter, path = '') => {
+    const candidate = typeof filter.field === 'string' ? data[filter.field] : path.split('/').at(-1)
+    if (filter.operator === '==') return candidate === filter.value
+    if (filter.operator === '>=') return candidate >= filter.value
+    if (filter.operator === '<') return candidate < filter.value
     throw new Error(`Unsupported fake query operator: ${filter.operator}`)
   }
   const snapshotFor = (target) => {
@@ -69,7 +73,7 @@ function fakeDatabase(seed) {
     const prefix = `${target.path}/`
     const docs = [...documents.entries()]
       .filter(([path]) => path.startsWith(prefix) && !path.slice(prefix.length).includes('/'))
-      .filter(([, data]) => target.filters.every((filter) => matches(data, filter)))
+      .filter(([path, data]) => target.filters.every((filter) => matches(data, filter, path)))
       .slice(0, target.maximum)
       .map(([path, data]) => {
         const ref = reference(path)
@@ -313,14 +317,29 @@ test('learner receives pairing-first change suggestions and a two-request Aura p
   assert.equal(saved.policyVersion, 'pt-change-cancel-v2')
 })
 
+test('change suggestions honor the PT weekly override instead of the recurring profile', async () => {
+  const state = operationsFor({
+    'settings/scheduleConfig': { sessionChangeDeadlineHours: 12 },
+    'sessions/source-weekly': { status: 'scheduled', studentId: 'student-1', trainerId: 'trainer-1', contractId: 'contract-1', branchId: 'branch-1', date: '2026-08-22', hour: 7, revision: 1 },
+    'contracts/contract-1': { status: 'active', studentId: 'student-1', trainerId: 'trainer-1', branchId: 'branch-1', startDate: '2026-08-01', endDate: '2026-08-31', totalSessions: 12, usedSessions: 1 },
+    'students/student-1': { status: 'active', branchId: 'branch-1', isScheduleConfirmed: true, availableSlots: ['T6-10', 'T6-11'] },
+    'trainers/trainer-1': { status: 'active', name: 'PT Tuần', branchId: 'branch-1', employmentType: 'full_time', availableSlots: ['T6-10'], slotCapacity: 2 },
+    'trainerAvailability/trainer-1_2026-08-17': { trainerId: 'trainer-1', weekId: '2026-08-17', status: 'submitted', slots: ['T6-11'], revision: 2 },
+  })
+
+  const page = await state.getMySessionChangeSuggestions({ data: { sessionId: 'source-weekly', expectedRevision: 1 } })
+  assert.ok(page.suggestions.some((item) => item.date === '2026-08-21' && item.hour === 11))
+  assert.equal(page.suggestions.some((item) => item.date === '2026-08-21' && item.hour === 10), false)
+})
+
 test('additional-session opportunities strictly rank open 1/2 seat, primary PT under target, then another PT', async () => {
   const state = operationsFor({
     'settings/scheduleConfig': { sessionChangeDeadlineHours: 12 },
-    'students/student-1': { status: 'active', branchId: 'branch-1', sessionsPerWeek: 2, maxWeeklySessions: 7, isScheduleConfirmed: true, availableSlots: ['T6-10', 'T6-11', 'T6-12'] },
+    'students/student-1': { status: 'active', branchId: 'branch-1', sessionsPerWeek: 2, maxWeeklySessions: 7, isScheduleConfirmed: true, availableSlots: ['T6-10', 'T6-11', 'T6-14'] },
     'contracts/contract-1': { status: 'active', studentId: 'student-1', trainerId: 'trainer-primary', branchId: 'branch-1', packageName: 'PT Aura', startDate: '2026-08-01', endDate: '2026-09-30', totalSessions: 24, usedSessions: 2 },
     'trainers/trainer-primary': { status: 'active', name: 'PT Chính', branchId: 'branch-1', employmentType: 'full_time', availableSlots: ['T6-11'], slotCapacity: 2, dailySessionTarget: 8, schedulingPriority: 1 },
     'trainers/trainer-pair': { status: 'active', name: 'PT Ghép', branchId: 'branch-1', employmentType: 'full_time', availableSlots: ['T6-10'], slotCapacity: 2, dailySessionTarget: 8, schedulingPriority: 2 },
-    'trainers/trainer-other': { status: 'active', name: 'PT Hỗ trợ', branchId: 'branch-1', employmentType: 'full_time', availableSlots: ['T6-12'], slotCapacity: 2, dailySessionTarget: 8, schedulingPriority: 3 },
+    'trainers/trainer-other': { status: 'active', name: 'PT Hỗ trợ', branchId: 'branch-1', employmentType: 'full_time', availableSlots: ['T6-14'], slotCapacity: 2, dailySessionTarget: 8, schedulingPriority: 3 },
     'sessions/open-pair': { status: 'scheduled', studentId: 'student-2', trainerId: 'trainer-pair', contractId: 'contract-2', branchId: 'branch-1', date: '2026-08-21', hour: 10, revision: 0 },
   })
 
@@ -425,6 +444,29 @@ test('approval allows a ninth PT teaching slot while preserving hard collision c
   assert.equal(state.read('sessionRequests/request-nine').status, 'approved')
 })
 
+test('approval rejects a stale reschedule after the PT weekly availability changes', async () => {
+  const state = operationsFor({
+    'settings/scheduleConfig': { sessionChangeDeadlineHours: 12 },
+    'sessionRequests/request-weekly-stale': {
+      status: 'pending', type: 'reschedule', sessionId: 'session-weekly-stale', studentId: 'student-1', contractId: 'contract-1', requestedBy: 'student',
+      originalDate: '2026-08-22', originalHour: 7, originalSessionRevision: 0, newDate: '2026-08-25', newHour: 14,
+      newTrainerId: 'trainer-1', submittedAtIso: '2026-08-20T00:00:00.000Z', policyMonth: '2026-08',
+    },
+    'sessions/session-weekly-stale': { status: 'scheduled', studentId: 'student-1', trainerId: 'trainer-1', contractId: 'contract-1', branchId: 'branch-1', date: '2026-08-22', hour: 7, revision: 0 },
+    'contracts/contract-1': { status: 'active', studentId: 'student-1', trainerId: 'trainer-1', branchId: 'branch-1', startDate: '2026-08-01', endDate: '2026-08-31', totalSessions: 20, usedSessions: 1 },
+    'students/student-1': { status: 'active', branchId: 'branch-1', isScheduleConfirmed: true, availableSlots: ['T3-14'] },
+    'trainers/trainer-1': { status: 'active', branchId: 'branch-1', employmentType: 'full_time', availableSlots: ['T3-14'], slotCapacity: 2 },
+    'trainerAvailability/trainer-1_2026-08-24': { trainerId: 'trainer-1', weekId: '2026-08-24', status: 'submitted', slots: ['T3-15'], revision: 3 },
+  })
+
+  await assert.rejects(
+    state.approveSessionRequest({ data: { requestId: 'request-weekly-stale', expectedSessionRevision: 0 } }),
+    (error) => error.code === 'failed-precondition' && error.message.includes('lịch rảnh PT tuần này'),
+  )
+  assert.equal(state.read('sessions/session-weekly-stale').date, '2026-08-22')
+  assert.equal(state.read('sessionRequests/request-weekly-stale').status, 'pending')
+})
+
 test('collision checks cover trainer capacity, student double booking, legacy ISO dates, and bounded query overflow', () => {
   assert.match(source, /const DAILY_SESSION_QUERY_LIMIT = 200/)
   assert.match(source, /function dailySessionsQuery/)
@@ -433,18 +475,20 @@ test('collision checks cover trainer capacity, student double booking, legacy IS
   assert.match(source, /dailySessionsQuery\(db, 'trainerId'/)
   assert.match(source, /dailySessionsQuery\(db, 'studentId'/)
   assert.match(source, /snapshot\.size >= DAILY_SESSION_QUERY_LIMIT/)
-  assert.match(source, /activeHourDocuments\(trainerDay, newHour, \[sessionId\]\)\.length >= 2/)
-  assert.match(source, /activeHourDocuments\(studentDay, newHour, \[sessionId\]\)\.length > 0/)
-  assert.match(source, /firstTargetStudentDay/)
-  assert.match(source, /secondTargetStudentDay/)
+  assert.match(source, /activeDayDocuments\(studentDay, \[sessionId\]\)\.length > 0/)
+  assert.match(source, /activeDayDocuments\(studentDay\)\.length > 0/)
+  assert.match(source, /LEGACY_SESSION_MUTATION_DISABLED/)
 })
 
 test('trainer-created requests carry immutable origin and session revision provenance', () => {
   const creation = trainerOperations.match(/const requestSessionChange[\s\S]*?\n  const listMyQuotes/)?.[0] ?? ''
   assert.match(creation, /requestedBy: 'trainer'/)
-  assert.match(creation, /originalSessionRevision: Number\(session\.data\(\)\.revision \|\| 0\)/)
+  assert.match(creation, /originalSessionRevision: Number\(sessionData\.revision \|\| 0\)/)
   assert.match(creation, /originalHour/)
   assert.match(creation, /assertSessionChangeDeadline/)
+  assert.match(creation, /policy\.sessionChangeDeadlineHours/)
+  assert.match(creation, /idempotencyKey/)
+  assert.match(creation, /đã có một yêu cầu đang chờ xử lý/)
 })
 
 test('attendance uses the session contract link and a deterministic event id', async () => {
@@ -923,14 +967,14 @@ test('trainer cancellation keeps its provenance and never consumes the learner m
   assert.equal(approved.paths().some((path) => path.startsWith('ptPolicyUsage/')), false)
 })
 
-test('reschedule collision rejects atomically for a legacy ISO-date student booking', async () => {
+test('reschedule collision rejects atomically when the learner already has another hour on the same day', async () => {
   const state = operationsFor({
     'sessionRequests/request-3': { status: 'pending', type: 'reschedule', sessionId: 'session-3', studentId: 'student-3', contractId: 'contract-3', originalDate: '2026-08-22', originalHour: 7, originalSessionRevision: 4, newDate: '2026-08-25', newHour: 10, submittedAtIso: '2026-08-20T00:00:00.000Z', policyMonth: '2026-08' },
     'sessions/session-3': { status: 'scheduled', studentId: 'student-3', trainerId: 'trainer-3', contractId: 'contract-3', date: '2026-08-22', hour: 7, revision: 4 },
     'contracts/contract-3': { status: 'active', studentId: 'student-3', startDate: '2026-08-01', endDate: '2026-08-31', totalSessions: 12, usedSessions: 0 },
     'trainers/trainer-3': { status: 'active', availableSlots: ['T3-10'] },
     'students/student-3': { status: 'active', isScheduleConfirmed: true, availableSlots: ['T3-10'] },
-    'sessions/conflict': { status: 'scheduled', studentId: 'student-3', trainerId: 'trainer-4', date: '2026-08-25T00:00:00.000Z', hour: 10, revision: 0 },
+    'sessions/conflict': { status: 'scheduled', studentId: 'student-3', trainerId: 'trainer-4', date: '2026-08-25T00:00:00.000Z', hour: 9, revision: 0 },
   })
   await assert.rejects(
     state.approveSessionRequest({ data: { requestId: 'request-3', expectedSessionRevision: 4 } }),

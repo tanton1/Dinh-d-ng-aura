@@ -341,6 +341,7 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
         reason: requestReason.trim(),
         newDate: requestType === 'reschedule' ? requestDate : undefined,
         newHour: requestType === 'reschedule' ? Number(requestHour) : undefined,
+        idempotencyKey: crypto.randomUUID(),
       })
       setRequestTarget(null)
       setNotice('Đã gửi yêu cầu tới bộ phận xếp lịch. Thay đổi do PT đề nghị không dùng lượt miễn của học viên.')
@@ -440,7 +441,7 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
               {state === 'pending' && started ? <div className="opv2-quick-attendance"><button type="button" disabled={attendanceBusy === session.id} onClick={() => openAttendance(session)}><UserCheck size={17} /> Có tập</button><button type="button" className="is-no-show" disabled={!noShowReady || attendanceBusy === session.id} title={!noShowReady ? 'Có thể xác nhận sau 15 phút từ giờ bắt đầu' : undefined} onClick={() => void markAttendance(session, 'no_show')}><UserX size={17} /> Không đến</button></div> : null}
               {state !== 'pending' ? <button className="opv2-correct-attendance" type="button" onClick={() => openAttendance(session)}>Sửa xác nhận</button> : null}
               {['present', 'late'].includes(state) ? <button className="opv2-kudos" type="button" disabled={kudosBusy === session.id || kudosSent.has(session.id)} onClick={() => void sendKudos(session)}><Sparkles size={15} /> {kudosSent.has(session.id) ? 'Đã gửi Kudos' : kudosBusy === session.id ? 'Đang gửi…' : 'Gửi Kudos'}</button> : null}
-              {!started ? <button className="opv2-request-link" type="button" disabled={!requestable} onClick={() => openRequest(session)}>Đổi / hủy trước 12 giờ</button> : null}
+              {!started ? <button className="opv2-request-link" type="button" disabled={!requestable} onClick={() => openRequest(session)}>Gửi yêu cầu đổi / hủy</button> : null}
             </div>
           </article>
         })}{daySessions.length === 0 && <div className="opv2-state">Không có ca dạy trong ngày đã chọn.</div>}</div>

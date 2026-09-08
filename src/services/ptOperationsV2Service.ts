@@ -422,6 +422,7 @@ export async function requestSessionChange(input: {
   reason: string
   newDate?: string
   newHour?: number
+  idempotencyKey: string
 }) {
   const result = await call<typeof input, { requestId: string }>('requestSessionChange', input)
   invalidateReadCache('getMyCoachWorkspaceScope', 'getMyTrainerWorkspace', 'listMyTrainerSchedule')

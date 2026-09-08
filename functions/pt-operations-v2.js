@@ -1629,23 +1629,81 @@ function createPtOperationsV2Functions({ db, onCall }) {
   const requestSessionChange = staffCall(async (request) => {
     const actor = await trainerActor(request, db)
     const sessionId = documentId(request.data?.sessionId, 'Mã buổi tập')
-    const session = await db.doc(`sessions/${sessionId}`).get()
-    if (!session.exists || ![actor.uid, actor.legacyStaffId].includes(session.data().trainerId)) throw new HttpsError('permission-denied', 'Buổi tập không thuộc lịch của bạn.')
     const type = request.data?.type === 'cancel' ? 'cancel' : 'reschedule'
     const requestedHour = Number(request.data?.newHour)
     if (type === 'reschedule' && (!Number.isInteger(requestedHour) || requestedHour < 0 || requestedHour > 23)) {
       throw new HttpsError('invalid-argument', 'Giờ mới không hợp lệ.')
     }
-    const originalHour = sessionHour(sessionId, session.data().hour)
-    if (originalHour === null) throw new HttpsError('failed-precondition', 'Buổi tập chưa có giờ hợp lệ.')
-    try {
-      assertSessionChangeDeadline(dateKey(session.data().date, 'Ngày buổi tập'), originalHour, new Date())
-    } catch (error) {
-      throw new HttpsError('failed-precondition', error.message, { issueCode: error.issueCode || 'SESSION_CHANGE_DEADLINE_PASSED', deadlineAt: error.deadlineAt || null })
-    }
-    const reference = db.collection('sessionRequests').doc()
-    await reference.create({ schemaVersion: 2, policyVersion: 'pt-change-cancel-v1', sessionId, trainerId: session.data().trainerId, studentId: session.data().studentId, contractId: boundedString(request.data?.contractId, 'Mã hợp đồng', 200), type, requestedBy: 'trainer', originalDate: session.data().date, originalHour, originalSessionRevision: Number(session.data().revision || 0), newDate: type === 'reschedule' ? dateKey(request.data?.newDate, 'Ngày mới') : null, newHour: type === 'reschedule' ? requestedHour : null, reason: boundedString(request.data?.reason, 'Lý do', 500), status: 'pending', deadlineHours: 12, submittedAtIso: new Date().toISOString(), createdBy: actor.uid, createdAt: FieldValue.serverTimestamp() })
-    return { requestId: reference.id }
+    const reason = boundedString(request.data?.reason, 'Lý do', 500)
+    const submittedAt = new Date()
+    const rawIdempotencyKey = typeof request.data?.idempotencyKey === 'string' ? request.data.idempotencyKey.trim() : ''
+    const requestReference = rawIdempotencyKey && /^[A-Za-z0-9_-]+$/.test(rawIdempotencyKey)
+      ? db.doc(`sessionRequests/trainer-${actor.uid}-${rawIdempotencyKey}`)
+      : db.collection('sessionRequests').doc()
+    const sessionReference = db.doc(`sessions/${sessionId}`)
+    return db.runTransaction(async (transaction) => {
+      const [existingRequest, session, pendingRequests, configSnapshot] = await Promise.all([
+        transaction.get(requestReference),
+        transaction.get(sessionReference),
+        transaction.get(db.collection('sessionRequests').where('sessionId', '==', sessionId).limit(20)),
+        transaction.get(db.doc('settings/scheduleConfig')),
+      ])
+      if (existingRequest.exists) return { unchanged: true, requestId: existingRequest.id, status: existingRequest.data().status || 'pending' }
+      if (!session.exists || ![actor.uid, actor.legacyStaffId].includes(session.data().trainerId)) throw new HttpsError('permission-denied', 'Buổi tập không thuộc lịch của bạn.')
+      const sessionData = session.data()
+      if (!['scheduled', 'rescheduled'].includes(String(sessionData.status || '').toLowerCase()) || sessionData.billingStatus === 'charged') {
+        throw new HttpsError('failed-precondition', 'Chỉ buổi đang lên lịch và chưa tính buổi mới được gửi yêu cầu.')
+      }
+      if (pendingRequests.size >= 20) throw new HttpsError('resource-exhausted', 'Buổi tập có quá nhiều yêu cầu để kiểm tra an toàn.')
+      if (pendingRequests.docs.some((item) => item.id !== requestReference.id && item.data().status === 'pending')) {
+        throw new HttpsError('already-exists', 'Buổi tập này đã có một yêu cầu đang chờ xử lý.')
+      }
+      const contractId = documentId(sessionData.contractId || request.data?.contractId, 'Mã hợp đồng')
+      if (request.data?.contractId && request.data.contractId !== contractId) throw new HttpsError('failed-precondition', 'Hợp đồng trên giao diện không còn khớp với buổi tập.')
+      const originalDate = dateKey(sessionData.date, 'Ngày buổi tập')
+      const originalHour = sessionHour(sessionId, sessionData.hour)
+      if (originalHour === null) throw new HttpsError('failed-precondition', 'Buổi tập chưa có giờ hợp lệ.')
+      const policy = normalizedPtOperationsPolicy(configSnapshot.exists ? configSnapshot.data() : {})
+      let deadlineAt
+      try {
+        deadlineAt = assertSessionChangeDeadline(originalDate, originalHour, submittedAt, policy.sessionChangeDeadlineHours)
+      } catch (error) {
+        throw new HttpsError('failed-precondition', error.message, { issueCode: error.issueCode || 'SESSION_CHANGE_DEADLINE_PASSED', deadlineAt: error.deadlineAt || null })
+      }
+      const newDate = type === 'reschedule' ? dateKey(request.data?.newDate, 'Ngày mới') : null
+      if (newDate) {
+        try {
+          assertSessionChangeDeadline(newDate, requestedHour, submittedAt, policy.sessionChangeDeadlineHours)
+        } catch (error) {
+          throw new HttpsError('failed-precondition', error.message, { issueCode: error.issueCode || 'SESSION_CHANGE_DEADLINE_PASSED', deadlineAt: error.deadlineAt || null })
+        }
+      }
+      transaction.create(requestReference, {
+        schemaVersion: 3,
+        policyVersion: 'pt-change-cancel-v2',
+        policySnapshot: policy,
+        sessionId,
+        trainerId: sessionData.trainerId,
+        studentId: sessionData.studentId,
+        contractId,
+        type,
+        requestedBy: 'trainer',
+        originalDate,
+        originalHour,
+        originalSessionRevision: Number(sessionData.revision || 0),
+        newDate,
+        newHour: type === 'reschedule' ? requestedHour : null,
+        reason,
+        status: 'pending',
+        deadlineHours: policy.sessionChangeDeadlineHours,
+        deadlineAt: deadlineAt.toISOString(),
+        idempotencyKey: rawIdempotencyKey || null,
+        submittedAtIso: submittedAt.toISOString(),
+        createdBy: actor.uid,
+        createdAt: FieldValue.serverTimestamp(),
+      })
+      return { unchanged: false, requestId: requestReference.id, status: 'pending', deadlineHours: policy.sessionChangeDeadlineHours }
+    })
   })
 
   const listMyQuotes = staffCall(async (request) => {

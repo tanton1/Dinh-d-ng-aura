@@ -10,18 +10,6 @@ export function confirmSessionAttendance(sessionId: string, expectedRevision: nu
   return call<{ sessionId: string; expectedRevision: number }, { unchanged: boolean; revision: number }>('confirmSessionAttendance', { sessionId, expectedRevision })
 }
 
-export function cancelSession(input: { sessionId: string; expectedRevision: number; type: 'student_cancelled' | 'trainer_cancelled'; reason: string }) {
-  return call<typeof input, { revision: number }>('cancelSession', input)
-}
-
-export function rescheduleSession(input: { sessionId: string; expectedRevision: number; newDate: string; newHour: number; trainerId: string }) {
-  return call<typeof input, { revision: number }>('rescheduleSession', input)
-}
-
-export function swapSessions(input: { firstSessionId: string; secondSessionId: string; firstExpectedRevision: number; secondExpectedRevision: number }) {
-  return call<typeof input, { firstRevision: number; secondRevision: number }>('swapSessions', input)
-}
-
 export type PtOperationsRequestStatus = 'pending' | 'approved' | 'rejected'
 
 interface PtOperationsRequestBase {
