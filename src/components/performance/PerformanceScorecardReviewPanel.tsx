@@ -156,7 +156,7 @@ export default function PerformanceScorecardReviewPanel({ periodId, staff, isDem
   const isFallback = metricDraft.source !== 'manager_review'
   return <section className="performance-scorecard-review" aria-label="Phiếu Aura PT Performance Score">
     <header className="performance-scorecard-review__header">
-      <span><ClipboardCheck /></span><div><small>PHIẾU KPI THÁNG · 100 ĐIỂM</small><h2>Chấm Aura PT Performance Score</h2><p>Điểm, nguồn dữ liệu, Gate và mọi thay đổi đều được lưu lịch sử audit.</p></div>
+      <span><ClipboardCheck /></span><div><small>Phiếu KPI 100 điểm</small><h2>Hiệu suất theo từng PT</h2><p>Chọn nhân sự để xem điểm, nguồn dữ liệu và bốn Gate bắt buộc.</p></div>
       <label><span>Chọn PT</span><select value={staffId} onChange={(event) => setStaffId(event.target.value)}><option value="">Chọn nhân sự</option>{staff.map((item) => <option key={item.staffId} value={item.staffId}>{item.name}</option>)}</select></label>
       <button type="button" disabled={!staffId || loading} onClick={() => void load()} aria-label="Tải lại phiếu"><RefreshCw /></button>
     </header>
@@ -164,12 +164,13 @@ export default function PerformanceScorecardReviewPanel({ periodId, staff, isDem
     {loading && <div className="performance-scorecard-review__state"><LoaderCircle className="spin" /> Đang tổng hợp 25 chỉ số…</div>}
     {error && <div className="performance-scorecard-review__state is-error"><AlertTriangle /> {error}</div>}
     {notice && <div className="performance-scorecard-review__state"><CheckCircle2 /> {notice}</div>}
+    {!loading && !staffId && <div className="performance-scorecard-review__empty"><ClipboardCheck /><strong>Chưa có PT trong phạm vi đánh giá</strong><span>Kiểm tra chức danh PT, chi nhánh được giao hoặc tải lại danh sách nhân sự.</span><button type="button" onClick={() => void load()}><RefreshCw /> Tải lại danh sách</button></div>}
 
     {score && !loading && <>
       <div className="performance-scorecard-review__summary">
-        <article><small>ĐIỂM {score.score.value === null ? 'TẠM TÍNH' : 'CHÍNH THỨC'}</small><strong>{score.score.value ?? score.score.provisionalValue}<em>/100</em></strong><span>{score.coverage.availableWeight}/100 trọng số đã xác minh</span></article>
-        <article><small>XẾP LOẠI</small><strong>{score.bonus.classification}</strong><span>{score.bonus.eligibility === 'eligible' ? 'Đủ điều kiện thưởng' : score.bonus.eligibility === 'ineligible' ? 'Không đủ Gate' : 'Chờ đủ dữ liệu/Gate'}</span></article>
-        <article><small>THƯỞNG ĐỀ XUẤT</small><strong>{score.bonus.recommendedAmount === null ? '—' : `${score.bonus.recommendedAmount.toLocaleString('vi-VN')}đ`}</strong><span>Chưa tự ghi vào payroll</span></article>
+        <article><small>Điểm {score.score.value === null ? 'tạm tính' : 'chính thức'}</small><strong>{score.score.value ?? score.score.provisionalValue}<em>/100</em></strong><span>{score.coverage.availableWeight}/100 trọng số đã xác minh</span></article>
+        <article><small>Xếp loại</small><strong>{score.bonus.classification}</strong><span>{score.bonus.eligibility === 'eligible' ? 'Đủ điều kiện thưởng' : score.bonus.eligibility === 'ineligible' ? 'Không đủ Gate' : 'Chờ đủ dữ liệu/Gate'}</span></article>
+        <article><small>Thưởng đề xuất</small><strong>{score.bonus.recommendedAmount === null ? '—' : `${score.bonus.recommendedAmount.toLocaleString('vi-VN')}đ`}</strong><span>Chưa tự ghi vào bảng lương</span></article>
       </div>
       <div className="performance-scorecard-review__gates">{score.gates.map((gate) => <button type="button" className={`is-${gate.status}`} key={gate.id} disabled={score.locked || gate.id === 'quality'} onClick={() => openGate(gate)}><span><b>{gate.label}</b><small>{gate.reason}</small></span><em>{gateCopy(gate.status)}</em>{gate.id !== 'quality' && !score.locked && <Edit3 />}</button>)}</div>
       <div className="performance-scorecard-review__categories">{score.categories.map((category) => <section key={category.id}>

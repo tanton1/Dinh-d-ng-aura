@@ -42,6 +42,11 @@ test('admin Performance is a standalone module outside quality and payroll', asy
   await expect(page.getByTestId('performance-review-page')).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Performance PT', exact: true })).toBeVisible()
   await expect(page.getByRole('region', { name: 'Duyệt Thương hiệu cá nhân và Aura Brand' })).toBeVisible()
+  await expect(page.getByRole('tab', { name: 'Phiếu 100 điểm' })).toHaveAttribute('aria-selected', 'true')
+  await page.getByRole('tab', { name: 'Duyệt bằng chứng' }).click()
+  await expect(page.getByRole('heading', { name: 'Duyệt bằng chứng Brand' })).toBeVisible()
+  await page.getByRole('tab', { name: 'Hồ sơ PT' }).click()
+  await expect(page.getByRole('heading', { name: 'Chất lượng hồ sơ PT' })).toBeVisible()
   await expect(page.getByTestId('staff-payroll-page')).toHaveCount(0)
 
   await page.getByRole('button', { name: 'Mở menu' }).click()
