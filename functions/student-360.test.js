@@ -8,6 +8,7 @@ const {
   contractUsage,
   permissionsFor,
   normalizeTimelineEvents,
+  nutritionActivityDetailRecord,
   redactProjection,
   safeTimelineEvent,
   sessionDateTimeMillis,
@@ -146,6 +147,47 @@ test('unified timeline includes contract, meal review and daily check-in without
   assert.equal(JSON.stringify(rows).includes('private note'), false)
   assert.equal(JSON.stringify(rows).includes('private'), false)
   assert.deepEqual(rows.find((item) => item.type === 'checkin').metadata, { checkinId: 'checkin-1', compliance: 86 })
+})
+
+test('nutrition timeline merges a meal and its review while exposing only safe summary metadata', () => {
+  const rows = sourceTimelineEvents('student-1', {
+    contracts: [], sessions: [], attendance: [], workoutLogs: [], leaveRequests: [], sessionRequests: [], payments: [], renewals: [],
+    mealLogs: [{ id: 'meal-1', date: '2026-09-05', type: 'lunch', dishName: 'Cơm gà', calories: 520, protein: 36, imageStoragePath: 'users/private/meal-photos/meal-1/original.webp' }],
+    mealReviews: [{ id: 'meal-1', status: 'approved', reviewedAt: '2026-09-05T06:00:00.000Z', coachFeedback: 'private feedback', meal: { id: 'meal-1' } }],
+    dailyCheckins: [], profile: null, bodyMetrics: [], progressPhotos: [],
+  })
+  assert.equal(rows.length, 1)
+  assert.equal(rows[0].title, 'Bữa ăn đã được duyệt')
+  assert.equal(rows[0].sourceCollection, 'mealLogs')
+  assert.deepEqual(rows[0].metadata, {
+    mealId: 'meal-1', reviewId: 'meal-1', status: 'approved', mealType: 'Bữa trưa',
+    calories: 520, protein: 36, hasImage: true, confidence: null,
+  })
+  assert.equal(JSON.stringify(rows[0]).includes('imageStoragePath'), false)
+  assert.equal(JSON.stringify(rows[0]).includes('private feedback'), false)
+})
+
+test('timeline normalization collapses historical review-only and current meal nutrition events', () => {
+  const rows = normalizeTimelineEvents([
+    { id: 'old-review', type: 'nutrition', sourceId: 'meal-review:meal-1', sourceCollection: 'mealReviews', occurredAtMillis: 200, sortKey: 200, metadata: { reviewId: 'meal-1', status: 'approved' } },
+    { id: 'current-meal', type: 'nutrition', sourceId: 'meal-1', sourceCollection: 'mealLogs', occurredAtMillis: 190, sortKey: 190, metadata: { mealId: 'meal-1', status: 'approved', hasImage: true } },
+  ])
+  assert.equal(rows.length, 1)
+  assert.equal(rows[0].id, 'current-meal')
+  assert.equal(rows[0].dedupeKey, 'nutrition:meal-1')
+})
+
+test('nutrition detail creates a bounded response without returning storage paths', () => {
+  const detail = nutritionActivityDetailRecord('meal-1', {
+    id: 'meal-1', date: '2026-09-05', time: '12:00', type: 'lunch', dishName: 'Cơm cá', calories: 480, protein: 31, carbs: 52, fat: 14,
+    imageStoragePath: 'users/private/meal-photos/meal-1/original.webp', items: [{ name: 'Cá', grams: 120, calories: 170, protein: 26 }],
+    aiAnalysis: { macroBalanceAssessment: 'Cân bằng tốt.' },
+  }, { id: 'meal-1', status: 'approved', coachFeedback: 'Tiếp tục duy trì.' }, 'https://signed.example/image')
+  assert.equal(detail.imageUrl, 'https://signed.example/image')
+  assert.equal(detail.mealType, 'Bữa trưa')
+  assert.equal(detail.items[0].protein, 26)
+  assert.equal(detail.review.status, 'approved')
+  assert.equal(JSON.stringify(detail).includes('imageStoragePath'), false)
 })
 
 test('training timeline uses canonical attendance evidence and keeps safe audit metadata', () => {

@@ -616,6 +616,7 @@ test('Student 360 is callable-only and redacts finance, photos and cross-role ac
     'listStudent360Directory',
     'getStudent360Overview',
     'listStudent360Timeline',
+    'getStudent360NutritionActivityDetail',
     'createStudentCareActivity',
     'getStudent360ProgressPhotos',
     'refreshStudent360Projection',
@@ -624,6 +625,7 @@ test('Student 360 is callable-only and redacts finance, photos and cross-role ac
     'listStudent360Directory',
     'getStudent360Overview',
     'listStudent360Timeline',
+    'getStudent360NutritionActivityDetail',
     'createStudentCareActivity',
     'getStudent360ProgressPhotos',
     'refreshStudent360Projection',
@@ -638,6 +640,8 @@ test('Student 360 is callable-only and redacts finance, photos and cross-role ac
   assert.match(student360Source, /canViewFinancialAmounts/)
   assert.match(student360Source, /canViewProgressPhotos/)
   assert.match(student360Source, /event\.type === 'nutrition' && !permissions\.canViewNutrition/)
+  assert.match(student360Source, /reviewSnapshot\.exists && bounded\(review\.userId, 200\) !== accountUid/)
+  assert.match(student360Source, /safeStudentMealImagePath\(source\.imageStoragePath, accountUid, mealId\)/)
   assert.match(student360Source, /event\.type === 'workout' && !permissions\.canViewTraining/)
   assert.match(student360Source, /getSignedUrl\(\{ action: 'read'/)
   assert.match(functionsSource, /syncStudent360ProgressPhoto = student360Trigger\('users\/\{accountUid\}\/progressPhotos\/\{documentId\}'\)/)

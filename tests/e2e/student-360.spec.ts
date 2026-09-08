@@ -43,3 +43,19 @@ test('Student 360 lazily loads heavy tabs in demo without a runtime failure', as
   await page.getByRole('button', { name: 'Hủy', exact: true }).click()
   expect(pageErrors).toEqual([])
 })
+
+test('Student 360 opens nutrition evidence in place without leaving the activity timeline', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto('/#/student-360?studentId=student-demo&source=staff-students')
+  await page.getByRole('button', { name: 'Hoạt động', exact: true }).first().click()
+  await page.getByRole('button', { name: 'Xem chi tiết', exact: true }).click()
+
+  const dialog = page.getByRole('dialog', { name: 'Chi tiết bữa ăn' })
+  await expect(dialog).toBeVisible()
+  await expect(dialog.getByText('420kcal')).toBeVisible()
+  await expect(dialog.getByText('Nhận xét của Coach')).toBeVisible()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+
+  await dialog.getByRole('button', { name: 'Đóng', exact: true }).first().click()
+  await expect(page.getByRole('heading', { name: 'Toàn bộ hoạt động' })).toBeVisible()
+})

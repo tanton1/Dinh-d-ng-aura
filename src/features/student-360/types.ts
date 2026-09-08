@@ -198,6 +198,42 @@ export interface Student360TimelineEvent {
   description: string
   audience: string
   metadata: Record<string, unknown>
+  /** Short-lived media assembled at read time. It is never persisted in CRM Timeline. */
+  media?: { thumbnailUrl: string; expiresInSeconds: number | null }
+}
+
+export interface Student360NutritionActivityDetail {
+  schemaVersion: 1
+  studentId: string
+  mealId: string
+  title: string
+  description: string | null
+  date: string | null
+  time: string | null
+  mealType: string
+  calories: number
+  protein: number
+  carbs: number
+  fat: number
+  fiber: number
+  confidence: string | null
+  source: string | null
+  hasImage: boolean
+  imageUrl: string | null
+  imageExpiresInSeconds: number | null
+  items: Array<{ name: string; weight: number; calories: number; protein: number }>
+  analysis: {
+    portion: string | null
+    goal: string | null
+    suggestion: string | null
+    balance: string | null
+  }
+  review: null | {
+    id: string
+    status: string
+    coachFeedback: string | null
+    reviewedAt: string | null
+  }
 }
 
 export interface Student360ContractInstallment {

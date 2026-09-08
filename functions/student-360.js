@@ -307,6 +307,13 @@ function timelineDedupeKey(type, sourceId, metadata = {}, occurredAtMillis = 0) 
   const contractId = bounded(metadata.contractId, 200)
   const amount = finite(metadata.amount, 0)
   const date = occurredAtMillis ? new Date(occurredAtMillis).toISOString().slice(0, 16) : ''
+  if (type === 'nutrition') {
+    // A submitted review uses the same stable id as its meal log. Historical
+    // projections created a second `meal-review:*` event; normalizing both to
+    // the meal id keeps one activity card while preserving review state.
+    const mealId = bounded(metadata.mealId || metadata.reviewId || String(sourceId || '').replace(/^meal-review:/, ''), 200)
+    if (mealId) return `nutrition:${mealId}`
+  }
   if (type === 'contract' && contractId) {
     // Generic contract snapshots are intentionally a separate key. They can be
     // removed at read time whenever an audited mutation exists for the same HĐ.
@@ -325,6 +332,8 @@ function timelinePriority(event) {
   if (source === 'contractAuditLogs') return 40
   if (source === 'ledgerEntries') return 30
   if (source === 'sessions' || source === 'studentCareActivities') return 25
+  if (source === 'mealLogs') return 22
+  if (source === 'mealReviews') return 21
   if (source === 'payments') return 20
   if (source === 'contracts') return 10
   return 15
@@ -414,6 +423,154 @@ function timelineEvent(studentId, type, sourceId, occurredAtMillis, title, descr
     sourceCollection,
     sourceLabel: TIMELINE_SOURCE_LABELS[sourceCollection] || sourceCollection,
     dedupeKey: timelineDedupeKey(type, sourceId, metadata, stableMillis),
+  }
+}
+
+function mealTypeLabel(value) {
+  const normalized = bounded(value, 80).toLowerCase()
+  const labels = { breakfast: 'Bữa sáng', lunch: 'Bữa trưa', dinner: 'Bữa tối', snack: 'Bữa phụ' }
+  return labels[normalized] || bounded(value, 80) || 'Bữa ăn'
+}
+
+function mealReviewId(review = {}) {
+  const meal = review.meal && typeof review.meal === 'object' ? review.meal : {}
+  return bounded(meal.id || review.mealId || review.id, 200)
+}
+
+function mealTimelineMetadata(meal = {}, review = null) {
+  const reviewedMeal = review?.meal && typeof review.meal === 'object' ? review.meal : {}
+  const totals = meal.totals && typeof meal.totals === 'object'
+    ? meal.totals
+    : reviewedMeal.totals && typeof reviewedMeal.totals === 'object' ? reviewedMeal.totals : {}
+  const source = Object.keys(meal).length ? meal : reviewedMeal
+  const mealId = bounded(meal.id || mealReviewId(review || {}), 200)
+  const reviewId = bounded(review?.id || meal.reviewId, 200)
+  const status = bounded(review?.status || meal.reviewStatus || (meal.status === 'logged' ? 'logged' : ''), 40) || 'logged'
+  const calories = Math.max(0, Math.round(finite(source.calories ?? source.totalKcal ?? totals.calories ?? totals.kcal)))
+  const protein = Math.max(0, Math.round(finite(source.protein ?? source.totalProtein ?? totals.protein)))
+  const storagePath = bounded(source.imageStoragePath || meal.imageStoragePath, 500)
+  const legacyImage = bounded(source.image || source.imageUrl || source.img, 2_000)
+  return {
+    mealId,
+    ...(reviewId ? { reviewId } : {}),
+    status,
+    mealType: mealTypeLabel(source.type || source.mealType || meal.mealType || review?.mealType),
+    calories,
+    protein,
+    hasImage: Boolean(storagePath || legacyImage),
+    confidence: bounded(source.confidence || review?.confidence, 30) || null,
+  }
+}
+
+function mealTimelineCopy(meal = {}, review = null, metadata = mealTimelineMetadata(meal, review)) {
+  const reviewedMeal = review?.meal && typeof review.meal === 'object' ? review.meal : {}
+  const source = Object.keys(meal).length ? meal : reviewedMeal
+  const name = bounded(source.dishName || source.title || source.name || source.mealName || source.description, 180) || metadata.mealType
+  const nutrition = [metadata.calories ? `${metadata.calories} kcal` : '', metadata.protein ? `${metadata.protein}g protein` : ''].filter(Boolean)
+  return [name, ...nutrition].join(' · ')
+}
+
+function mealTimelineTitle(status) {
+  if (status === 'approved') return 'Bữa ăn đã được duyệt'
+  if (status === 'rejected') return 'Bữa ăn cần điều chỉnh'
+  if (status === 'pending') return 'Bữa ăn chờ duyệt'
+  return 'Đã ghi nhận bữa ăn'
+}
+
+function safeStudentMealImagePath(value, accountUid, mealId) {
+  const path = bounded(value, 500)
+  if (!path || !accountUid || !mealId || accountUid.includes('/') || mealId.includes('/')) return ''
+  const prefix = `users/${accountUid}/meal-photos/${mealId}/`
+  return path.startsWith(prefix) && /\/original\.(?:jpe?g|png|webp)$/i.test(path) ? path : ''
+}
+
+function legacyMealImageUrl(value) {
+  const url = bounded(value, 2_000)
+  return /^https:\/\//i.test(url) ? url : ''
+}
+
+async function mealImageUrl(storage, storagePath, legacyUrl, logger, context = {}) {
+  if (storagePath && storage) {
+    try {
+      const [url] = await storage.bucket().file(storagePath).getSignedUrl({ action: 'read', expires: Date.now() + 5 * 60 * 1000 })
+      return url
+    } catch (error) {
+      logger.warn('student_360_meal_image_url_failed', { ...context, code: error?.code || 'unknown' })
+    }
+  }
+  return legacyMealImageUrl(legacyUrl)
+}
+
+async function hydrateNutritionTimelineMedia({ db, storage, projection, rows, logger = console }) {
+  const accountUid = bounded(projection?.accountUid, 200)
+  if (!accountUid || accountUid.includes('/')) return rows
+  const nutritionRows = rows.filter((item) => item.type === 'nutrition' && item.metadata?.hasImage !== false)
+  const mealIds = [...new Set(nutritionRows.map((item) => bounded(item.metadata?.mealId || item.metadata?.reviewId, 200)).filter((id) => /^[A-Za-z0-9_-]+$/.test(id)))]
+  if (!mealIds.length) return rows
+  const snapshots = await db.getAll(...mealIds.map((mealId) => db.doc(`users/${accountUid}/mealLogs/${mealId}`)))
+  const meals = new Map(snapshots.filter((item) => item.exists).map((item) => [item.id, item.data() || {}]))
+  const media = new Map()
+  await Promise.all(mealIds.map(async (mealId) => {
+    const meal = meals.get(mealId)
+    if (!meal) return
+    const storagePath = safeStudentMealImagePath(meal.imageStoragePath, accountUid, mealId)
+    const url = await mealImageUrl(storage, storagePath, meal.image || meal.imageUrl || meal.img, logger, { studentId: projection.studentId, mealId })
+    if (url) media.set(mealId, { thumbnailUrl: url, expiresInSeconds: storagePath ? 300 : null })
+  }))
+  return rows.map((item) => {
+    if (item.type !== 'nutrition') return item
+    const mealId = bounded(item.metadata?.mealId || item.metadata?.reviewId, 200)
+    return media.has(mealId) ? { ...item, media: media.get(mealId) } : item
+  })
+}
+
+function nutritionActivityDetailRecord(mealId, meal = {}, review = {}, imageUrl = '') {
+  const reviewedMeal = review.meal && typeof review.meal === 'object' ? review.meal : {}
+  const source = Object.keys(meal).length ? meal : reviewedMeal
+  const totals = source.totals && typeof source.totals === 'object' ? source.totals : {}
+  const analysis = source.aiAnalysis && typeof source.aiAnalysis === 'object'
+    ? source.aiAnalysis
+    : review.analysisSnapshot && typeof review.analysisSnapshot === 'object' ? review.analysisSnapshot : {}
+  const items = Array.isArray(source.items) ? source.items : Array.isArray(analysis.items) ? analysis.items : []
+  const text = (value, maximum = 800) => bounded(value, maximum) || null
+  const number = (value) => Math.max(0, Math.round(finite(value) * 10) / 10)
+  const imageStoragePath = bounded(source.imageStoragePath, 500)
+  return {
+    schemaVersion: 1,
+    mealId,
+    title: bounded(source.dishName || source.title || source.name || source.description, 200) || mealTypeLabel(source.type || source.mealType),
+    description: text(source.description || source.portionNote, 1_000),
+    date: bounded(source.date || source.mealDate, 10) || null,
+    time: bounded(source.time || source.mealTime, 20) || null,
+    mealType: mealTypeLabel(source.type || source.mealType || review.mealType),
+    calories: number(source.calories ?? source.totalKcal ?? totals.calories ?? totals.kcal),
+    protein: number(source.protein ?? source.totalProtein ?? totals.protein),
+    carbs: number(source.carbs ?? source.carb ?? source.totalCarb ?? totals.carbs ?? totals.carb),
+    fat: number(source.fat ?? source.totalFat ?? totals.fat),
+    fiber: number(source.fiber ?? totals.fiber),
+    confidence: bounded(source.confidence || review.confidence, 30) || null,
+    source: bounded(source.source, 40) || null,
+    hasImage: Boolean(imageStoragePath || source.image || source.imageUrl || source.img),
+    imageUrl: imageUrl || null,
+    imageExpiresInSeconds: imageUrl && imageStoragePath ? 300 : null,
+    items: items.slice(0, 30).map((item) => ({
+      name: bounded(item?.name || item?.nameVi, 160) || 'Thành phần',
+      weight: number(item?.grams ?? item?.estimatedGrams ?? item?.weight),
+      calories: number(item?.calories ?? item?.nutrition?.calories ?? item?.kcal),
+      protein: number(item?.protein ?? item?.nutrition?.proteinG),
+    })),
+    analysis: {
+      portion: text(analysis.quantityAndCookingAnalysis || analysis.portionAndCalorieRationale),
+      goal: text(analysis.goalAlignmentAssessment),
+      suggestion: text(analysis.calorieOptimizationTip || analysis.aiSuggestion || analysis.aiFeedback),
+      balance: text(analysis.macroBalanceAssessment),
+    },
+    review: review.id ? {
+      id: bounded(review.id, 200),
+      status: bounded(review.status, 40) || 'pending',
+      coachFeedback: text(review.coachFeedback, 2_000),
+      reviewedAt: iso(review.reviewedAt || review.updatedAt),
+    } : null,
   }
 }
 
@@ -768,16 +925,26 @@ function sourceTimelineEvents(studentId, sources) {
   for (const request of sources.sessionRequests) {
     values.push(timelineEvent(studentId, 'schedule_change', request.id, timestampMillis(request.createdAt) || dateKeyMillis(request.originalDate), request.type === 'cancel' ? 'Yêu cầu hủy lịch' : 'Yêu cầu đổi lịch', request.reason || request.originalDate || '', 'operations', { status: request.status || '' }))
   }
-  for (const meal of sources.mealLogs) {
-    const occurred = timestampMillis(meal.createdAt || meal.timestamp) || dateKeyMillis(meal.date || meal.mealDate)
-    values.push(timelineEvent(studentId, 'nutrition', meal.id, occurred, 'Đã ghi nhận bữa ăn', meal.dishName || meal.title || meal.name || meal.mealName || meal.mealType || meal.type || 'Nhật ký dinh dưỡng', 'coaching', { mealId: meal.id }))
+  const reviewsByMealId = new Map((sources.mealReviews || []).map((review) => [mealReviewId(review), review]).filter(([mealId]) => mealId))
+  const consumedReviewIds = new Set()
+  for (const meal of sources.mealLogs || []) {
+    const review = reviewsByMealId.get(bounded(meal.id, 200)) || null
+    if (review?.id) consumedReviewIds.add(review.id)
+    const metadata = mealTimelineMetadata(meal, review)
+    const occurred = Math.max(
+      timestampMillis(meal.updatedAt || meal.createdAt || meal.timestamp) || dateKeyMillis(meal.date || meal.mealDate),
+      review ? timestampMillis(review.reviewedAt || review.updatedAt || review.createdAt) : 0,
+    )
+    values.push(timelineEvent(studentId, 'nutrition', metadata.mealId || meal.id, occurred, mealTimelineTitle(metadata.status), mealTimelineCopy(meal, review, metadata), 'coaching', metadata, 'mealLogs'))
   }
+  // Preserve legacy review-only evidence when its original meal log no longer
+  // exists. It remains detail-viewable from the immutable review snapshot.
   for (const review of sources.mealReviews || []) {
-    const occurred = timestampMillis(review.reviewedAt || review.updatedAt || review.createdAt) || dateKeyMillis(review.date || review.mealDate)
-    const status = bounded(review.status, 40) || 'pending'
-    const title = status === 'approved' ? 'Bữa ăn đã được duyệt' : status === 'rejected' ? 'Bữa ăn cần điều chỉnh' : 'Bữa ăn chờ duyệt'
+    if (consumedReviewIds.has(review.id)) continue
     const reviewedMeal = review.meal && typeof review.meal === 'object' ? review.meal : {}
-    values.push(timelineEvent(studentId, 'nutrition', `meal-review:${review.id}`, occurred, title, reviewedMeal.dishName || reviewedMeal.title || review.mealName || review.name || review.mealType || reviewedMeal.type || 'Đánh giá dinh dưỡng', 'coaching', { reviewId: review.id, status }))
+    const metadata = mealTimelineMetadata(reviewedMeal, review)
+    const occurred = timestampMillis(review.reviewedAt || review.updatedAt || review.createdAt) || dateKeyMillis(reviewedMeal.date || review.date || review.mealDate)
+    values.push(timelineEvent(studentId, 'nutrition', metadata.mealId || `meal-review:${review.id}`, occurred, mealTimelineTitle(metadata.status), mealTimelineCopy(reviewedMeal, review, metadata), 'coaching', metadata, 'mealReviews'))
   }
   for (const checkin of sources.dailyCheckins || []) {
     const occurred = timestampMillis(checkin.createdAt || checkin.updatedAt) || dateKeyMillis(checkin.date)
@@ -1739,7 +1906,13 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
     }
     const rows = result.rows
     const hasMore = rows.length > pageSize || (!result.sourceExhausted && result.scanned > 0)
-    const page = rows.slice(0, pageSize)
+    const page = await hydrateNutritionTimelineMedia({
+      db,
+      storage,
+      projection,
+      rows: rows.slice(0, pageSize),
+      logger,
+    })
     return {
       schemaVersion: 1,
       studentId: projection.studentId,
@@ -1748,6 +1921,39 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
       nextCursor: hasMore
         ? page[page.length - 1]?.sortKey || result.scanCursor || null
         : null,
+    }
+  })
+
+  const getStudent360NutritionActivityDetail = readCall(async (request) => {
+    const actor = await trustedAccessContext(request, db)
+    const studentId = documentId(request.data?.studentId)
+    const requestedMealId = documentId(request.data?.mealId || request.data?.reviewId, 'Mã bữa ăn')
+    const requestedReviewId = request.data?.reviewId ? documentId(request.data.reviewId, 'Mã bản duyệt') : requestedMealId
+    const { projection, permissions } = await loadAuthorizedProjection(db, actor, studentId, mondayDateKey(), false)
+    if (!permissions.canViewNutrition) throw new HttpsError('permission-denied', 'Bạn không có quyền xem hoạt động dinh dưỡng của học viên này.')
+    const accountUid = bounded(projection.accountUid, 200)
+    if (!accountUid || accountUid.includes('/')) throw new HttpsError('failed-precondition', 'Học viên chưa liên kết tài khoản Aura để đọc nhật ký dinh dưỡng.')
+
+    const reviewSnapshot = await db.doc(`mealReviews/${requestedReviewId}`).get()
+    const review = reviewSnapshot.exists ? { id: reviewSnapshot.id, ...reviewSnapshot.data() } : {}
+    if (reviewSnapshot.exists && bounded(review.userId, 200) !== accountUid) {
+      throw new HttpsError('not-found', 'Không tìm thấy bản duyệt thuộc học viên này.')
+    }
+    const reviewedMealId = mealReviewId(review)
+    if (reviewedMealId && reviewedMealId !== requestedMealId) {
+      throw new HttpsError('failed-precondition', 'Bản duyệt không khớp bữa ăn đang mở.')
+    }
+    const mealId = requestedMealId
+    const mealSnapshot = await db.doc(`users/${accountUid}/mealLogs/${documentId(mealId, 'Mã bữa ăn')}`).get()
+    const meal = mealSnapshot.exists ? { id: mealSnapshot.id, ...mealSnapshot.data() } : {}
+    if (!mealSnapshot.exists && !reviewSnapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy bữa ăn trong nhật ký của học viên.')
+
+    const source = Object.keys(meal).length ? meal : review.meal && typeof review.meal === 'object' ? review.meal : {}
+    const storagePath = safeStudentMealImagePath(source.imageStoragePath, accountUid, mealId)
+    const imageUrl = await mealImageUrl(storage, storagePath, source.image || source.imageUrl || source.img, logger, { studentId, mealId })
+    return {
+      ...nutritionActivityDetailRecord(mealId, meal, review, imageUrl),
+      studentId,
     }
   })
 
@@ -1836,7 +2042,7 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
     return { studentId, generatedAt: projection.generatedAt, dataQuality: projection.dataQuality }
   })
 
-  return { getStudent360Overview, listStudent360Directory, listStudent360Timeline, createStudentCareActivity, getStudent360ProgressPhotos, refreshStudent360Projection, getStudent360ContractWorkspace, mutateStudent360Contract }
+  return { getStudent360Overview, listStudent360Directory, listStudent360Timeline, getStudent360NutritionActivityDetail, createStudentCareActivity, getStudent360ProgressPhotos, refreshStudent360Projection, getStudent360ContractWorkspace, mutateStudent360Contract }
 }
 
 module.exports = {
@@ -1854,6 +2060,7 @@ module.exports = {
   redactProjection,
   reconcileStudent360ProjectionBatch,
   normalizeTimelineEvents,
+  nutritionActivityDetailRecord,
   uniqueProgressDocuments,
   uniqueProgressPhotos,
   sourceTimelineEvents,

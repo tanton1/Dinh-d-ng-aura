@@ -37,6 +37,7 @@ import {
 import type { ViewId } from '../../types'
 import {
   createStudentCareActivity,
+  getStudent360NutritionActivityDetail,
   getStudent360Overview,
   getStudent360ProgressPhotos,
   listStudent360Timeline,
@@ -44,6 +45,7 @@ import {
 } from './student360Service'
 import type {
   Student360Action,
+  Student360NutritionActivityDetail,
   Student360Overview,
   Student360Photo,
   Student360Tab,
@@ -88,7 +90,7 @@ const timelineSourceGuide = [
   { label: 'Hợp đồng', source: 'contracts + contractAuditLogs', detail: 'Tạo, sửa, gia hạn, mua thêm buổi, bảo lưu và hủy. Audit ghi người thao tác, revision và trường thay đổi.' },
   { label: 'Thanh toán', source: 'ledgerEntries (chuẩn) · payments (cũ)', detail: 'Chỉ lấy payment, refund, reversal hoặc adjustment. Revenue recognition nội bộ không hiển thị để tránh nhân đôi doanh thu.' },
   { label: 'Buổi tập', source: 'sessions', detail: 'Lịch đã xếp, đã tập, đi trễ, vắng hoặc trạng thái buổi. Mã session là khóa đối chiếu với lịch sử.' },
-  { label: 'Dinh dưỡng', source: 'users/{uid}/mealLogs + mealReviews', detail: 'Bữa ăn học viên gửi và trạng thái PT/coach duyệt; nội dung phân tích riêng tư không đưa vào timeline.' },
+  { label: 'Dinh dưỡng', source: 'users/{uid}/mealLogs + mealReviews', detail: 'Một bữa là một sự kiện. Ảnh và nhận xét riêng tư chỉ được tải khi người có quyền mở chi tiết.' },
   { label: 'Check-in & tiến độ', source: 'dailyCheckins + bodyMetrics + progressPhotos', detail: 'Check-in hằng ngày, số đo và ảnh tiến độ; chỉ lưu metadata, không nhúng ảnh hoặc ghi chú nhạy cảm.' },
   { label: 'Chăm sóc & gia hạn', source: 'studentCareActivities + contractRenewalCases', detail: 'Cuộc gọi, Zalo, ghi chú, việc cần làm và các bước chăm sóc tái ký.' },
 ] as const
@@ -184,7 +186,7 @@ function demoTimeline(): Student360TimelineEvent[] {
   const now = Date.now()
   return [
     { id: 'timeline-1', type: 'training', group: 'training', groupLabel: 'Buổi tập', sourceLabel: 'Lịch buổi tập', sourceCollection: 'sessions', occurredAt: new Date(now - 60 * 60_000).toISOString(), sortKey: now * 1000, title: 'PT xác nhận có mặt', description: 'Buổi Lower Body · 17:00', audience: 'operations', metadata: {} },
-    { id: 'timeline-2', type: 'nutrition', group: 'nutrition', groupLabel: 'Dinh dưỡng', sourceLabel: 'Nhật ký bữa ăn', sourceCollection: 'mealLogs', occurredAt: new Date(now - 8 * 60 * 60_000).toISOString(), sortKey: (now - 8 * 60 * 60_000) * 1000, title: 'Đã ghi nhận bữa sáng', description: 'Bữa sáng giàu đạm · 420 kcal', audience: 'coaching', metadata: {} },
+    { id: 'timeline-2', type: 'nutrition', group: 'nutrition', groupLabel: 'Dinh dưỡng', sourceLabel: 'Nhật ký bữa ăn', sourceCollection: 'mealLogs', occurredAt: new Date(now - 8 * 60 * 60_000).toISOString(), sortKey: (now - 8 * 60 * 60_000) * 1000, title: 'Bữa ăn đã được duyệt', description: 'Bữa sáng giàu đạm · 420 kcal · 32g protein', audience: 'coaching', metadata: { mealId: 'meal-demo', reviewId: 'meal-demo', status: 'approved', mealType: 'Bữa sáng', calories: 420, protein: 32, hasImage: false, confidence: 'verified' } },
     { id: 'timeline-3', type: 'progress', group: 'progress', groupLabel: 'Tiến độ', sourceLabel: 'Số đo cơ thể', sourceCollection: 'bodyMetrics', occurredAt: new Date(now - 86_400_000).toISOString(), sortKey: (now - 86_400_000) * 1000, title: 'Cập nhật chỉ số cơ thể', description: '59,9kg · eo 70cm', audience: 'coaching', metadata: {} },
   ]
 }
@@ -211,6 +213,50 @@ function State({ type, children }: { type?: 'error'; children: React.ReactNode }
   return <div className={`student360-state${type ? ` is-${type}` : ''}`}>{children}</div>
 }
 
+function nutritionStatusCopy(status: unknown) {
+  if (status === 'approved') return 'Đã duyệt'
+  if (status === 'rejected') return 'Cần chỉnh'
+  if (status === 'pending') return 'Chờ duyệt'
+  return 'Đã ghi'
+}
+
+function confidenceLabel(value: unknown) {
+  if (value === 'verified' || value === 'high') return 'Tin cậy cao'
+  if (value === 'needs-review' || value === 'low') return 'Cần kiểm tra'
+  if (value === 'estimated' || value === 'medium') return 'Ước tính'
+  return ''
+}
+
+function TimelineActivityCard({ item, onOpenNutrition }: { item: Student360TimelineEvent; onOpenNutrition: (item: Student360TimelineEvent) => void }) {
+  const isNutrition = item.type === 'nutrition'
+  const mealId = typeof item.metadata.mealId === 'string' ? item.metadata.mealId : typeof item.metadata.reviewId === 'string' ? item.metadata.reviewId : ''
+  const calories = typeof item.metadata.calories === 'number' ? item.metadata.calories : 0
+  const protein = typeof item.metadata.protein === 'number' ? item.metadata.protein : 0
+  const thumbnailUrl = item.media?.thumbnailUrl || ''
+  const openable = isNutrition && Boolean(mealId)
+  const icon = item.type === 'training' || item.type === 'workout' ? <Dumbbell /> : isNutrition ? <Salad /> : item.type === 'progress' || item.type === 'checkin' ? <Activity /> : item.type === 'finance' ? <CircleDollarSign /> : item.type === 'care' ? <MessageCircle /> : <FileText />
+  return <article className={isNutrition ? 'is-nutrition' : undefined}>
+    {isNutrition ? <button type="button" className={`student360-timeline-media${thumbnailUrl ? ' has-image' : ''}`} disabled={!openable} onClick={() => onOpenNutrition(item)} aria-label={`Xem chi tiết ${item.description}`}>
+      {thumbnailUrl ? <img loading="lazy" src={thumbnailUrl} alt="" /> : typeof item.metadata.hasImage === 'boolean' && item.metadata.hasImage ? <ImageIcon /> : <Salad />}
+      <span>{thumbnailUrl ? 'Mở ảnh' : 'Xem bữa'}</span>
+    </button> : <div className={`student360-timeline-icon is-${item.type}`}>{icon}</div>}
+    <div className="student360-timeline-copy">
+      <div className="student360-timeline-meta"><time>{safeDate(item.occurredAt, true)}{typeof item.metadata.actorName === 'string' && item.metadata.actorName ? ` · ${item.metadata.actorName}` : ''}</time><span>{item.groupLabel || item.type}</span></div>
+      <strong>{item.title}</strong>
+      <p>{item.description}</p>
+      {typeof item.metadata.amount === 'number' && <small>{currency.format(item.metadata.amount)}đ</small>}
+      {isNutrition && <div className="student360-timeline-nutrition-meta">
+        {typeof item.metadata.mealType === 'string' && item.metadata.mealType && <span>{item.metadata.mealType}</span>}
+        {calories > 0 && <span>{calories} kcal</span>}
+        {protein > 0 && <span>{protein}g protein</span>}
+        <b className={`is-${String(item.metadata.status || 'logged')}`}>{nutritionStatusCopy(item.metadata.status)}</b>
+        {openable && <button type="button" onClick={() => onOpenNutrition(item)}>Xem chi tiết</button>}
+      </div>}
+      <details className="student360-timeline-details"><summary>Chi tiết đối chiếu</summary><div><span>Nguồn</span><b>{item.sourceLabel || item.sourceCollection || 'CRM Timeline'}</b>{typeof item.metadata.contractId === 'string' && item.metadata.contractId && <><span>Mã hợp đồng</span><b>{item.metadata.contractId}</b></>}{typeof item.metadata.sessionId === 'string' && item.metadata.sessionId && <><span>Mã buổi</span><b>{item.metadata.sessionId}</b></>}{typeof item.metadata.attendanceEventId === 'string' && item.metadata.attendanceEventId && <><span>Mã điểm danh</span><b>{item.metadata.attendanceEventId}</b></>}{typeof item.metadata.confirmationSource === 'string' && item.metadata.confirmationSource && <><span>Nguồn xác nhận</span><b>{item.metadata.confirmationSource === 'auto_after_48h' ? 'Tự động sau 48 giờ' : item.metadata.confirmationSource === 'manual' ? 'Nhân sự xác nhận' : item.metadata.confirmationSource}</b></>}{typeof item.metadata.confirmedAt === 'string' && item.metadata.confirmedAt && <><span>Xác nhận lúc</span><b>{safeDate(item.metadata.confirmedAt, true)}</b></>}{typeof item.metadata.lateMinutes === 'number' && item.metadata.lateMinutes > 0 && <><span>Đi trễ</span><b>{item.metadata.lateMinutes} phút</b></>}{typeof item.metadata.referenceCode === 'string' && item.metadata.referenceCode && <><span>Mã giao dịch</span><b>{item.metadata.referenceCode}</b></>}{isNutrition && mealId && <><span>Mã bữa ăn</span><b>{mealId}</b></>}</div></details>
+    </div>
+  </article>
+}
+
 export default function Student360Page({ studentId, source, isDemo = false, onBack, onNavigate }: Props) {
   const student360V4 = useAuraUiSurface('student-360')
   const [activeTab, setActiveTab] = useState<Student360Tab>('overview')
@@ -232,6 +278,11 @@ export default function Student360Page({ studentId, source, isDemo = false, onBa
   const [photoCursor, setPhotoCursor] = useState<string | null>(null)
   const [photoHasMore, setPhotoHasMore] = useState(false)
   const activePhotoStudentRef = useRef(studentId)
+  const nutritionRequestRef = useRef(0)
+  const [nutritionDetailEvent, setNutritionDetailEvent] = useState<Student360TimelineEvent | null>(null)
+  const [nutritionDetail, setNutritionDetail] = useState<Student360NutritionActivityDetail | null>(null)
+  const [nutritionDetailLoading, setNutritionDetailLoading] = useState(false)
+  const [nutritionDetailError, setNutritionDetailError] = useState('')
   const [careType, setCareType] = useState<'call' | 'zalo' | 'note' | 'action_completed' | null>(null)
   const [careActionId, setCareActionId] = useState<string | undefined>()
   const [careNote, setCareNote] = useState('')
@@ -316,10 +367,14 @@ export default function Student360Page({ studentId, source, isDemo = false, onBa
 
   useEffect(() => {
     activePhotoStudentRef.current = studentId
+    nutritionRequestRef.current += 1
     setPhotos([])
     setPhotosLoaded(false)
     setPhotoCursor(null)
     setPhotoHasMore(false)
+    setNutritionDetailEvent(null)
+    setNutritionDetail(null)
+    setNutritionDetailError('')
   }, [studentId])
 
   useEffect(() => {
@@ -385,6 +440,44 @@ export default function Student360Page({ studentId, source, isDemo = false, onBa
       setNotice('Không thể sao chép tự động. Số điện thoại: ' + overview.identity.phone)
     }
   }
+
+  const closeNutritionDetail = () => {
+    nutritionRequestRef.current += 1
+    setNutritionDetailEvent(null)
+    setNutritionDetail(null)
+    setNutritionDetailError('')
+    setNutritionDetailLoading(false)
+  }
+
+  const openNutritionDetail = async (item: Student360TimelineEvent) => {
+    const mealId = typeof item.metadata.mealId === 'string' ? item.metadata.mealId : typeof item.metadata.reviewId === 'string' ? item.metadata.reviewId : ''
+    if (!mealId) return
+    const reviewId = typeof item.metadata.reviewId === 'string' ? item.metadata.reviewId : undefined
+    const requestId = nutritionRequestRef.current + 1
+    nutritionRequestRef.current = requestId
+    setNutritionDetailEvent(item)
+    setNutritionDetail(null)
+    setNutritionDetailError('')
+    setNutritionDetailLoading(true)
+    try {
+      const result = isDemo ? {
+        schemaVersion: 1 as const, studentId, mealId, title: 'Bữa sáng giàu đạm', description: 'Khẩu phần cân bằng cho ngày tập.', date: new Date().toISOString().slice(0, 10), time: '08:00', mealType: 'Bữa sáng', calories: 420, protein: 32, carbs: 41, fat: 13, fiber: 7, confidence: 'verified', source: 'ai-scan', hasImage: false, imageUrl: null, imageExpiresInSeconds: null,
+        items: [{ name: 'Trứng và rau', weight: 220, calories: 260, protein: 24 }], analysis: { portion: 'Khẩu phần phù hợp.', goal: 'Phù hợp mục tiêu hiện tại.', suggestion: 'Giữ lượng rau và đạm như hiện tại.', balance: 'Đạm và chất xơ tốt.' }, review: { id: mealId, status: 'approved', coachFeedback: 'Bữa ăn cân bằng, tiếp tục duy trì.', reviewedAt: new Date().toISOString() },
+      } : await getStudent360NutritionActivityDetail({ studentId, mealId, ...(reviewId ? { reviewId } : {}) })
+      if (nutritionRequestRef.current === requestId) setNutritionDetail(result)
+    } catch (cause) {
+      if (nutritionRequestRef.current === requestId) setNutritionDetailError(cause instanceof Error ? cause.message : 'Không thể tải chi tiết bữa ăn.')
+    } finally {
+      if (nutritionRequestRef.current === requestId) setNutritionDetailLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (!nutritionDetailEvent) return
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') closeNutritionDetail() }
+    window.addEventListener('keydown', closeOnEscape)
+    return () => window.removeEventListener('keydown', closeOnEscape)
+  }, [nutritionDetailEvent])
 
   const openCare = (type: NonNullable<typeof careType>, actionId?: string, initialNote = '') => {
     setCareType(type)
@@ -551,7 +644,7 @@ export default function Student360Page({ studentId, source, isDemo = false, onBa
       {activeTab === 'activity' && <section className="student360-section">
         <div className="student360-section-heading"><div><small>CRM TIMELINE</small><h2>Toàn bộ hoạt động</h2><p>Một dòng thời gian hợp nhất, đã loại bản ghi trùng và tôn trọng quyền truy cập.</p></div><details className="student360-timeline-source-help"><summary><Info size={15} /> Nguồn dữ liệu</summary><div><p>Timeline chỉ đọc từ dữ liệu nghiệp vụ gốc. Mỗi sự kiện có nhãn nguồn; mở rộng để xem trường đối chiếu khi cần.</p>{timelineSourceGuide.map((item) => <article key={item.label}><strong>{item.label}</strong><code>{item.source}</code><span>{item.detail}</span></article>)}</div></details></div>
         <div className="student360-timeline-toolbar"><div className="student360-filter-chips">{timelineFilters.map((filter) => <button type="button" key={filter.id} className={timelineFilter === filter.id ? 'active' : ''} onClick={() => setTimelineFilter(filter.id)}>{filter.label}</button>)}</div><div className="student360-filter-chips is-range">{timelineRanges.map((range) => <button type="button" key={range.id} className={timelineRange === range.id ? 'active' : ''} onClick={() => setTimelineRange(range.id)}>{range.label}</button>)}</div></div>
-        <div className="student360-timeline">{timeline.map((item) => <article key={item.id}><div className={`student360-timeline-icon is-${item.type}`}>{item.type === 'training' || item.type === 'workout' ? <Dumbbell /> : item.type === 'nutrition' ? <Salad /> : item.type === 'progress' || item.type === 'checkin' ? <Activity /> : item.type === 'finance' ? <CircleDollarSign /> : item.type === 'care' ? <MessageCircle /> : <FileText />}</div><div><div className="student360-timeline-meta"><time>{safeDate(item.occurredAt, true)}{typeof item.metadata.actorName === 'string' && item.metadata.actorName ? ` · ${item.metadata.actorName}` : ''}</time><span>{item.groupLabel || item.type}</span></div><strong>{item.title}</strong><p>{item.description}</p>{typeof item.metadata.amount === 'number' && <small>{currency.format(item.metadata.amount)}đ</small>}<details className="student360-timeline-details"><summary>Chi tiết đối chiếu</summary><div><span>Nguồn</span><b>{item.sourceLabel || item.sourceCollection || 'CRM Timeline'}</b>{typeof item.metadata.contractId === 'string' && item.metadata.contractId && <><span>Mã hợp đồng</span><b>{item.metadata.contractId}</b></>}{typeof item.metadata.sessionId === 'string' && item.metadata.sessionId && <><span>Mã buổi</span><b>{item.metadata.sessionId}</b></>}{typeof item.metadata.attendanceEventId === 'string' && item.metadata.attendanceEventId && <><span>Mã điểm danh</span><b>{item.metadata.attendanceEventId}</b></>}{typeof item.metadata.confirmationSource === 'string' && item.metadata.confirmationSource && <><span>Nguồn xác nhận</span><b>{item.metadata.confirmationSource === 'auto_after_48h' ? 'Tự động sau 48 giờ' : item.metadata.confirmationSource === 'manual' ? 'Nhân sự xác nhận' : item.metadata.confirmationSource}</b></>}{typeof item.metadata.confirmedAt === 'string' && item.metadata.confirmedAt && <><span>Xác nhận lúc</span><b>{safeDate(item.metadata.confirmedAt, true)}</b></>}{typeof item.metadata.lateMinutes === 'number' && item.metadata.lateMinutes > 0 && <><span>Đi trễ</span><b>{item.metadata.lateMinutes} phút</b></>}{typeof item.metadata.referenceCode === 'string' && item.metadata.referenceCode && <><span>Mã giao dịch</span><b>{item.metadata.referenceCode}</b></>}</div></details></div></article>)}{timelineError && <State type="error"><AlertTriangle /><h3>Không thể tải CRM Timeline</h3><p>{timelineError}</p><button type="button" onClick={() => void loadTimeline(false)}>Thử lại</button></State>}{!timeline.length && !timelineLoading && !timelineError && <State><History /><h3>{timelineFilter === 'training' ? 'Chưa có buổi tập chuẩn' : 'Chưa có hoạt động'}</h3><p>{timelineFilter === 'training' ? 'Timeline chỉ lấy buổi đã tạo trong sessions. Lịch nháp hoặc ô ma trận cũ chưa phát sinh session sẽ không được tính là lịch sử tập.' : 'Không có sự kiện phù hợp bộ lọc hiện tại.'}</p></State>}{timelineLoading && <State><LoaderCircle className="is-spinning" /> Đang tải hoạt động…</State>}</div>
+        <div className="student360-timeline">{timeline.map((item) => <TimelineActivityCard key={item.id} item={item} onOpenNutrition={(value) => void openNutritionDetail(value)} />)}{timelineError && <State type="error"><AlertTriangle /><h3>Không thể tải CRM Timeline</h3><p>{timelineError}</p><button type="button" onClick={() => void loadTimeline(false)}>Thử lại</button></State>}{!timeline.length && !timelineLoading && !timelineError && <State><History /><h3>{timelineFilter === 'training' ? 'Chưa có buổi tập chuẩn' : 'Chưa có hoạt động'}</h3><p>{timelineFilter === 'training' ? 'Timeline chỉ lấy buổi đã tạo trong sessions. Lịch nháp hoặc ô ma trận cũ chưa phát sinh session sẽ không được tính là lịch sử tập.' : 'Không có sự kiện phù hợp bộ lọc hiện tại.'}</p></State>}{timelineLoading && <State><LoaderCircle className="is-spinning" /> Đang tải hoạt động…</State>}</div>
         {timelineHasMore && <button type="button" className="student360-load-more" disabled={timelineLoading} onClick={() => void loadTimeline(true)}>Tải thêm hoạt động</button>}
       </section>}
 
@@ -597,6 +690,25 @@ export default function Student360Page({ studentId, source, isDemo = false, onBa
     </div>
 
     <nav className="student360-tabs student360-tabs--mobile" aria-label="Nội dung Học viên 360 trên điện thoại">{tabs.map(({ id, label, icon: Icon }) => <button key={id} type="button" className={activeTab === id ? 'active' : ''} aria-current={activeTab === id ? 'page' : undefined} onClick={() => { setActiveTab(id); window.scrollTo({ top: 0, behavior: 'smooth' }) }}><Icon /><span>{label}</span></button>)}</nav>
+
+    {nutritionDetailEvent && <div className="student360-dialog-layer" role="presentation">
+      <button type="button" className="student360-dialog-backdrop" aria-label="Đóng chi tiết bữa ăn" onClick={closeNutritionDetail} />
+      <section className="student360-dialog student360-nutrition-dialog" role="dialog" aria-modal="true" aria-labelledby="student360-nutrition-title">
+        <header><div><small>HOẠT ĐỘNG DINH DƯỠNG</small><h2 id="student360-nutrition-title">Chi tiết bữa ăn</h2></div><button type="button" aria-label="Đóng" onClick={closeNutritionDetail}><X /></button></header>
+        {nutritionDetailLoading && <State><LoaderCircle className="is-spinning" /><h3>Đang mở bữa ăn</h3><p>Aura đang tạo quyền xem ảnh riêng tư.</p></State>}
+        {nutritionDetailError && <State type="error"><AlertTriangle /><h3>Chưa thể mở bữa ăn</h3><p>{nutritionDetailError}</p><button type="button" onClick={() => void openNutritionDetail(nutritionDetailEvent)}>Thử lại</button></State>}
+        {nutritionDetail && <div className="student360-nutrition-detail">
+          {nutritionDetail.imageUrl ? <figure><img src={nutritionDetail.imageUrl} alt={`Bữa ăn ${nutritionDetail.title}`} /><figcaption>Ảnh riêng tư · quyền xem có thời hạn</figcaption></figure> : nutritionDetail.hasImage ? <div className="student360-nutrition-image-state"><ImageIcon /><span>Ảnh đã được ghi nhận nhưng chưa thể tải.</span></div> : null}
+          <div className="student360-nutrition-detail__heading"><div><span>{nutritionDetail.mealType}{nutritionDetail.date ? ` · ${safeDate(nutritionDetail.date)}` : ''}{nutritionDetail.time ? ` · ${nutritionDetail.time}` : ''}</span><h3>{nutritionDetail.title}</h3>{nutritionDetail.description && <p>{nutritionDetail.description}</p>}</div>{nutritionDetail.review && <b className={`is-${nutritionDetail.review.status}`}>{nutritionStatusCopy(nutritionDetail.review.status)}</b>}</div>
+          <div className="student360-nutrition-macros"><span><b>{nutritionDetail.calories}</b>kcal</span><span><b>{nutritionDetail.protein}g</b>protein</span><span><b>{nutritionDetail.carbs}g</b>carb</span><span><b>{nutritionDetail.fat}g</b>chất béo</span></div>
+          {(confidenceLabel(nutritionDetail.confidence) || nutritionDetail.source) && <div className="student360-nutrition-evidence"><ShieldCheck /> <span>{confidenceLabel(nutritionDetail.confidence) || 'Nhật ký học viên'}{nutritionDetail.source ? ` · ${nutritionDetail.source === 'ai-scan' ? 'AI phân tích ảnh' : nutritionDetail.source}` : ''}</span></div>}
+          {nutritionDetail.items.length > 0 && <section className="student360-nutrition-detail__section"><h4>Thành phần</h4><div className="student360-nutrition-items">{nutritionDetail.items.map((item, index) => <div key={`${item.name}-${index}`}><span><b>{item.name}</b>{item.weight > 0 && <small>{item.weight}g</small>}</span><strong>{item.calories > 0 ? `${item.calories} kcal` : '—'}</strong></div>)}</div></section>}
+          {Object.values(nutritionDetail.analysis).some(Boolean) && <section className="student360-nutrition-detail__section"><h4>Nhận định</h4><div className="student360-nutrition-analysis">{nutritionDetail.analysis.portion && <p><b>Khẩu phần</b><span>{nutritionDetail.analysis.portion}</span></p>}{nutritionDetail.analysis.balance && <p><b>Cân bằng</b><span>{nutritionDetail.analysis.balance}</span></p>}{nutritionDetail.analysis.goal && <p><b>Mục tiêu</b><span>{nutritionDetail.analysis.goal}</span></p>}{nutritionDetail.analysis.suggestion && <p><b>Gợi ý</b><span>{nutritionDetail.analysis.suggestion}</span></p>}</div></section>}
+          {nutritionDetail.review?.coachFeedback && <section className="student360-nutrition-feedback"><MessageCircle /><div><b>Nhận xét của Coach</b><p>{nutritionDetail.review.coachFeedback}</p>{nutritionDetail.review.reviewedAt && <small>{safeDate(nutritionDetail.review.reviewedAt, true)}</small>}</div></section>}
+        </div>}
+        <footer><button type="button" onClick={closeNutritionDetail}>Đóng</button></footer>
+      </section>
+    </div>}
 
     {careType && <div className="student360-dialog-layer" role="presentation"><button type="button" className="student360-dialog-backdrop" aria-label="Đóng" onClick={() => setCareType(null)} /><section className="student360-dialog" role="dialog" aria-modal="true" aria-labelledby="student360-care-title"><header><div><small>NHẬT KÝ CHĂM SÓC</small><h2 id="student360-care-title">{careType === 'call' ? 'Ghi nhận cuộc gọi' : careType === 'zalo' ? 'Ghi nhận liên hệ Zalo' : careType === 'action_completed' ? 'Hoàn tất việc cần làm' : 'Thêm ghi chú'}</h2></div><button type="button" aria-label="Đóng" onClick={() => setCareType(null)}><X /></button></header><p>{identity.name} · {identity.phone || 'Chưa có số điện thoại'}</p><label>Ghi chú<textarea rows={4} maxLength={1000} value={careNote} onChange={(event) => setCareNote(event.target.value)} placeholder="Nội dung trao đổi, kết quả hoặc việc cần theo dõi tiếp…" /></label><footer><button type="button" onClick={() => setCareType(null)}>Hủy</button><button type="button" disabled={careSaving || (careType === 'note' && careNote.trim().length < 2)} onClick={() => void saveCare()}>{careSaving ? 'Đang lưu…' : 'Lưu vào lịch sử'}</button></footer></section></div>}
 

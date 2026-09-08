@@ -1,7 +1,7 @@
 import { httpsCallable } from 'firebase/functions'
 import { firebaseFunctions, firebaseStudent360Functions } from '../../lib/firebaseFunctions'
 import { callReadOnlyFunction } from '../../services/readOnlyCallableService'
-import type { Student360ContractMutation, Student360ContractWorkspace, Student360DirectoryItem, Student360Overview, Student360Photo, Student360TimelineEvent } from './types'
+import type { Student360ContractMutation, Student360ContractWorkspace, Student360DirectoryItem, Student360NutritionActivityDetail, Student360Overview, Student360Photo, Student360TimelineEvent } from './types'
 
 function functionError(cause: unknown, fallback: string) {
   const outer = cause && typeof cause === 'object' ? cause as { cause?: unknown } : {}
@@ -72,6 +72,17 @@ export async function listStudent360Timeline(input: { studentId: string; types?:
     )
   } catch (cause) {
     throw functionError(cause, 'Không thể tải dòng hoạt động.')
+  }
+}
+
+export async function getStudent360NutritionActivityDetail(input: { studentId: string; mealId: string; reviewId?: string }) {
+  try {
+    return await callStudent360Read<typeof input, Student360NutritionActivityDetail>(
+      'getStudent360NutritionActivityDetail',
+      input,
+    )
+  } catch (cause) {
+    throw functionError(cause, 'Không thể tải chi tiết bữa ăn.')
   }
 }
 
