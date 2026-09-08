@@ -68,8 +68,12 @@ service firebase.storage {
 
     function isExerciseCatalogStaff() {
       return signedIn()
-             && (request.auth.token.role in ['coach', 'trainer', 'editor', 'admin', 'super_admin']
-                 || request.auth.token.accessRole in ['staff', 'admin', 'super_admin']);
+             && ((request.auth.token.keys().hasAll(['role'])
+                  && request.auth.token.role is string
+                  && request.auth.token.role in ['coach', 'trainer', 'editor', 'admin', 'super_admin'])
+                 || (request.auth.token.keys().hasAll(['accessRole'])
+                     && request.auth.token.accessRole is string
+                     && request.auth.token.accessRole in ['staff', 'admin', 'super_admin']));
     }
 
     function isSupportedExerciseImage() {
@@ -103,6 +107,7 @@ service firebase.storage {
       // staff may upload them, and their ownership metadata is immutable.
       allow read: if true;
       allow create: if isAcademyStaff()
+                    && resource == null
                     && courseId.matches('[A-Za-z0-9_-]{1,200}')
                     && fileName.matches('[A-Za-z0-9._-]{1,240}')
                     && isSupportedCourseCover()
@@ -118,6 +123,7 @@ service firebase.storage {
       // entitlement check and short-lived signed URLs.
       allow read: if isAcademyStaff();
       allow create: if canManageCourseMedia()
+                    && resource == null
                     && isSupportedCourseMedia()
                     && hasValidCourseMediaMetadata(courseId, lessonId);
       allow update: if isAdmin()
@@ -138,6 +144,7 @@ service firebase.storage {
     match /nutrition-scans/{userId}/{scanId}/{fileName} {
       allow read: if isOwner(userId);
       allow create: if isOwner(userId)
+                    && resource == null
                     && scanId.matches('[A-Za-z0-9_-]{8,80}')
                     && fileName.matches('original\\.(jpg|jpeg|png|webp)')
                     && request.resource.size > 0
@@ -159,6 +166,7 @@ service firebase.storage {
       // signed URL only after the review callable verifies assignment scope.
       allow read: if isOwner(userId);
       allow create: if isOwner(userId)
+                    && resource == null
                     && mealId.matches('[A-Za-z0-9_-]{1,200}')
                     && fileName.matches('original\\.(jpg|jpeg|png|webp)')
                     && request.resource.size > 0
@@ -190,6 +198,7 @@ service firebase.storage {
       // signed URLs only after the callable verifies their branch scope.
       allow read: if isOwner(userId) || isAdmin();
       allow create: if isOwner(userId)
+                    && resource == null
                     && periodId.matches('\\d{4}-(0[1-9]|1[0-2])')
                     && evidenceId.matches('[A-Za-z0-9_-]{8,200}')
                     && fileName.matches('[A-Za-z0-9._-]{1,240}')
@@ -219,6 +228,7 @@ service firebase.storage {
     match /exercise-catalog/{exerciseId}/{fileName} {
       allow read: if signedIn();
       allow create: if isExerciseCatalogStaff()
+                    && resource == null
                     && exerciseId.matches('[A-Za-z0-9_-]{1,160}')
                     && fileName.matches('[A-Za-z0-9_-]{8,160}\\.webp')
                     && isSupportedExerciseImage()

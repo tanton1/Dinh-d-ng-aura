@@ -89,6 +89,7 @@ describe('Aura Academy Storage rules', () => {
     const uploaded = await assertSucceeds(uploadCover(staffStorage, path, 'cover.jpg'))
     const publicStorage = testEnvironment.unauthenticatedContext().storage()
     await assertSucceeds(getBytes(ref(publicStorage, uploaded.ref.fullPath)))
+    await assertFails(uploadCover(staffStorage, path, 'cover.jpg'))
   })
 
   test('students, unsupported images and forged metadata are denied', async () => {
@@ -109,6 +110,7 @@ describe('Aura Academy Storage rules', () => {
     const editorStorage = storageFor('editor-1', 'editor')
     const uploaded = await assertSucceeds(uploadExerciseImage(editorStorage, 'aura_hip_thrust', 'media-12345678'))
     await assertSucceeds(getBytes(ref(storageFor('student-1', 'student'), uploaded.ref.fullPath)))
+    await assertFails(uploadExerciseImage(editorStorage, 'aura_hip_thrust', 'media-12345678'))
   })
 
   test('exercise image uploads reject students, forged metadata and unsupported formats', async () => {
@@ -120,6 +122,7 @@ describe('Aura Academy Storage rules', () => {
   test('learners can upload only actor-owned temporary food and AI Coach images', async () => {
     const studentStorage = storageFor('student-1', 'student')
     await assertSucceeds(uploadPrivateCoachImage(studentStorage, 'student-1', 'scan_food_123', 'food-analysis'))
+    await assertFails(uploadPrivateCoachImage(studentStorage, 'student-1', 'scan_food_123', 'food-analysis'))
     await assertSucceeds(uploadPrivateCoachImage(studentStorage, 'student-1', 'scan_body_123', 'ai-coach-body'))
     await assertSucceeds(uploadPrivateCoachImage(studentStorage, 'student-1', 'scan_meal_123', 'ai-coach-meal'))
     await assertFails(uploadPrivateCoachImage(studentStorage, 'student-2', 'scan_cross_123', 'ai-coach-body'))
@@ -149,6 +152,7 @@ describe('Aura Academy Storage rules', () => {
   test('Brand evidence is immutable, owner-uploaded and manager reads use signed URLs', async () => {
     const trainerStorage = storageFor('trainer-1', 'trainer')
     const uploaded = await assertSucceeds(uploadPerformanceEvidence(trainerStorage, 'trainer-1'))
+    await assertFails(uploadPerformanceEvidence(trainerStorage, 'trainer-1'))
     await assertFails(uploadPerformanceEvidence(trainerStorage, 'trainer-2', '2026-09', 'evidence_cross_123'))
     await assertFails(uploadPerformanceEvidence(trainerStorage, 'trainer-1', '2026-09', 'evidence_forged_123', 'trainer-2'))
     await assertSucceeds(getBytes(ref(trainerStorage, uploaded.ref.fullPath)))

@@ -230,7 +230,7 @@ test('nutrition exposes both the goal-based meal plan and full food catalog whil
   const contractOverflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
   expect(contractOverflow).toBeLessThanOrEqual(1)
   await page.goto('/#/schedule?tab=requests')
-  await expect(page.getByRole('heading', { name: 'Đổi, hủy, OFF và bảo lưu' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Đổi, hủy, thêm buổi, OFF và bảo lưu' })).toBeVisible()
 })
 
 test('Today Flow belongs to Home while nutrition guidance follows the three-slide carousel', async ({ page }) => {

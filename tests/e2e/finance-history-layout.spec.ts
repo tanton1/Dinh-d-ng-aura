@@ -113,8 +113,8 @@ test.describe('Aura Finance Intelligence responsive workspace', () => {
     await expect(payroll.getByText('Phiên bản mới')).toHaveCount(0)
     await payroll.getByRole('button', { name: 'Tạo chính sách' }).click()
     await expect(payroll.getByText('Phiên bản mới')).toBeVisible()
-    await expect(payroll.getByText('Đơn giá ca 1–8')).toBeVisible()
-    await expect(payroll.getByText('Từ ca thứ 9', { exact: true })).toBeVisible()
+    await expect(payroll.getByText('Đơn giá ca chuẩn')).toBeVisible()
+    await expect(payroll.getByText('Đơn giá ca ngoài giờ', { exact: true })).toBeVisible()
     await expectNoHorizontalOverflow(page)
   })
 
