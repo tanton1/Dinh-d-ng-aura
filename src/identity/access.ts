@@ -89,7 +89,10 @@ export const routeCapabilities = {
   'admin-training-history': 'pt.operations.manage',
   'admin-pt-workouts': 'pt.workout.manage',
   'admin-trainer-quality': 'pt.operations.manage',
-  'admin-performance': 'performance.evidence.review',
+  // Keep the Admin workspace reachable for existing production access
+  // contexts. The Performance callables still enforce reviewer scope and
+  // branch redaction server-side; branch managers use staff-performance.
+  'admin-performance': 'pt.operations.manage',
   'admin-renewals': 'renewals.workspace.view',
   'admin-report': 'pt.operations.manage',
   'admin-finance': 'finance.operations.manage',
