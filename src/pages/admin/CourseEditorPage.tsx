@@ -28,6 +28,7 @@ import {
 } from 'lucide-react'
 import { auraFoundationCourse } from '../../course-template'
 import AcademyLessonMemoryEditor from '../../components/academy/AcademyLessonMemoryEditor'
+import CourseNotebookLmImportPanel from '../../components/academy/CourseNotebookLmImportPanel'
 import CourseEditorSidebar from '../../components/admin/CourseEditorSidebar'
 import CourseEditorValidationPanel, { type CourseEditorValidationIssue } from '../../components/admin/CourseEditorValidationPanel'
 import {
@@ -49,7 +50,9 @@ import {
   type CourseRevisionSummary,
 } from '../../services/firebaseService'
 import { generateCourseMemory, generateCourseOutline, generateCourseQuiz } from '../../services/generativeAiService'
+import type { NotebookLmImportMode, NotebookLmImportPreview } from '../../services/courseNotebookLmImportService'
 import type {
+  CourseContentProvenance,
   CourseDraftInput,
   CourseQuizAnswerKeys,
   CourseLessonDraft,
@@ -1088,6 +1091,201 @@ export default function CourseEditorPage({ onNavigate, onSave, onDirtyChange, ca
     }
   }
 
+  const importNotebookLmContent = async (preview: NotebookLmImportPreview, mode: NotebookLmImportMode) => {
+    if (isContentLocked) {
+      setSaveError('Phiên bản này đã khóa nội dung. Hãy khôi phục thành bản nháp trước khi nhập.')
+      return
+    }
+    const targetModule = course.modules[detailLessonModuleIndex]
+    if (!targetModule) {
+      setSaveError('Chọn một chương trước khi nhập nội dung NotebookLM.')
+      return
+    }
+    if (preview.manifest?.courseId && preview.manifest.courseId !== course.id) {
+      setSaveError(`Manifest thuộc khóa học “${preview.manifest.courseId}”, không phải khóa học đang mở.`)
+      return
+    }
+    if (preview.manifest?.moduleId && preview.manifest.moduleId !== targetModule.id) {
+      setSaveError('Manifest thuộc một chương khác. Hãy chọn đúng chương rồi nhập lại.')
+      return
+    }
+    const source: CourseContentProvenance = preview.source
+    const currentTarget = targetModule.lessons[detailLessonIndex]
+    if (mode !== 'new-lesson' && !currentTarget) {
+      setSaveError('Chọn một bài học đích trước khi nhập nội dung NotebookLM.')
+      return
+    }
+    if (mode !== 'new-lesson' && preview.manifest?.lessonId && preview.manifest.lessonId !== currentTarget?.id) {
+      setSaveError('Manifest thuộc một bài học khác. Hãy chọn đúng bài học hoặc dùng “Tạo bài học mới trong chương”.')
+      return
+    }
+    if (mode !== 'new-lesson' && currentTarget?.provenance?.artifactHash === source.artifactHash) {
+      setSaveError('Lô nội dung này đã được nhập vào bài học đang chọn. Không tạo bản sao.')
+      return
+    }
+    if (saveTarget !== 'firebase' && preview.media.some((item) => item.file)) {
+      setSaveError('Tệp slide/video cần Firebase Storage để lưu ổn định. Hãy bật Firebase rồi nhập lại; flashcard và quiz vẫn có thể nhập ở chế độ demo.')
+      return
+    }
+    const lessonId = mode === 'new-lesson' ? `lesson-${crypto.randomUUID()}` : currentTarget!.id
+    if (mode === 'append' && preview.media.length + (currentTarget?.resources?.length ?? 0) > 20) {
+      setSaveError('Bài học chỉ hỗ trợ tối đa 20 học liệu. Hãy nhập theo hai lô hoặc thay tài nguyên cùng loại.')
+      return
+    }
+    if (mode === 'append' && currentTarget && getAcademyLessonContent(currentTarget).flashcards.length + preview.flashcards.length > 50) {
+      setSaveError('Bài học chỉ hỗ trợ tối đa 50 flashcard. Hãy dùng chế độ thay nội dung cùng loại hoặc giảm số thẻ.')
+      return
+    }
+    if (mode === 'append' && currentTarget?.type === 'Quiz' && (currentTarget.quiz?.questions.length ?? 0) + preview.quizQuestions.length > 100) {
+      setSaveError('Quiz chỉ hỗ trợ tối đa 100 câu hỏi. Hãy dùng chế độ thay nội dung cùng loại hoặc chia thành bài kiểm tra mới.')
+      return
+    }
+    const newLessonCount = mode === 'new-lesson'
+      ? ((preview.media.length > 0 || preview.flashcards.length > 0) && preview.quizQuestions.length > 0 ? 2 : 1)
+      : preview.quizQuestions.length > 0 && currentTarget?.type !== 'Quiz' ? 1 : 0
+    if (targetModule.lessons.length + newLessonCount > 50) {
+      setSaveError('Chương đã đạt giới hạn 50 bài học. Hãy chọn chương khác hoặc tách bớt nội dung.')
+      return
+    }
+
+    const importedResources: LessonResourceDraft[] = []
+    try {
+      for (const item of preview.media) {
+        const resourceId = `resource-${crypto.randomUUID()}`
+        let assetRef: Awaited<ReturnType<typeof uploadCourseMedia>> | undefined
+        if (item.file && saveTarget === 'firebase') {
+          setMediaUploads((current) => ({ ...current, [resourceId]: { progress: 0 } }))
+          assetRef = await uploadCourseMedia(
+            { courseId: course.id, lessonId, kind: item.kind },
+            item.file,
+            (progress) => setMediaUploads((current) => ({ ...current, [resourceId]: { progress } })),
+          )
+          setMediaUploads((current) => ({ ...current, [resourceId]: { progress: 100 } }))
+        }
+        const cleanName = item.title.trim() || 'Học liệu NotebookLM'
+        importedResources.push({
+          id: resourceId,
+          kind: item.kind,
+          title: cleanName,
+          url: item.url ?? '',
+          note: 'Nhập từ NotebookLM · cần kiểm duyệt trước khi xuất bản',
+          ...(assetRef ? { assetRef } : {}),
+          source,
+        })
+      }
+    } catch (error) {
+      setSaveError(error instanceof Error ? `Không thể tải học liệu NotebookLM: ${error.message}` : 'Không thể tải học liệu NotebookLM lên Firebase.')
+      return
+    }
+
+    const importedQuestions: LessonQuizDraft['questions'] = preview.quizQuestions.map((question) => ({
+      id: `question-${crypto.randomUUID()}`,
+      question: question.question,
+      options: question.options,
+      correctIndex: question.correctIndex,
+      ...(question.explanation ? { explanation: question.explanation } : {}),
+      ...(question.difficulty ? { difficulty: question.difficulty } : {}),
+      ...(question.mustPass ? { mustPass: true } : {}),
+    }))
+    setCourse((current) => ({
+      ...current,
+      modules: current.modules.map((module, moduleIndex) => {
+        if (moduleIndex !== detailLessonModuleIndex) return module
+        if (mode === 'new-lesson') {
+          const hasLessonContent = importedResources.length > 0 || preview.flashcards.length > 0
+          const primaryResource = importedResources.find((resource) => resource.kind === 'video') ?? importedResources[0]
+          const baseLesson: CourseLessonDraft = {
+            id: lessonId,
+            title: preview.manifest?.lessonTitle?.trim() || 'Nội dung nhập từ NotebookLM',
+            type: hasLessonContent ? (importedResources.some((resource) => resource.kind === 'video') ? 'Video' : 'Bài đọc') : 'Quiz',
+            duration: '15 phút',
+            summary: preview.manifest?.chapterTitle ? `Nội dung thuộc ${preview.manifest.chapterTitle}.` : 'Nội dung được nhập từ NotebookLM.',
+            resources: importedResources,
+            primaryContent: primaryResource ? { kind: 'resource', resourceId: primaryResource.id } : undefined,
+            provenance: source,
+            memory: toAcademyLessonMemory({
+              minuteSummary: '',
+              keyTakeaways: [],
+              terms: [],
+              recallPrompts: [],
+              flashcards: preview.flashcards.map((card) => ({ id: `card-${crypto.randomUUID()}`, ...card })),
+            }),
+            ...(!hasLessonContent && importedQuestions.length ? { quiz: { ...createDefaultQuiz(), questions: importedQuestions } } : {}),
+          }
+          const quizLesson: CourseLessonDraft | null = hasLessonContent && importedQuestions.length ? ensureLessonMeta({
+            id: `lesson-${crypto.randomUUID()}`,
+            title: `${baseLesson.title} · Kiểm tra`,
+            type: 'Quiz',
+            duration: '5 phút',
+            summary: 'Kiểm tra kiến thức của nội dung vừa học.',
+            quiz: { ...createDefaultQuiz(), questions: importedQuestions },
+            completionPolicy: { mode: 'quiz-pass' },
+            resources: [],
+            provenance: source,
+          }) : null
+          return { ...module, lessons: [...module.lessons, ensureLessonMeta(baseLesson), ...(quizLesson ? [quizLesson] : [])] }
+        }
+        const updatedLessons = module.lessons.map((lesson, lessonIndex) => {
+          if (lessonIndex !== detailLessonIndex) return lesson
+          const existingContent = getAcademyLessonContent(lesson)
+          const existingCards = existingContent.flashcards
+          const incomingCards = preview.flashcards.map((card) => ({ id: `card-${crypto.randomUUID()}`, ...card }))
+          const cardKey = (card: { front: string; back: string }) => `${card.front.trim().toLowerCase()}::${card.back.trim().toLowerCase()}`
+          const mergedCards = mode === 'replace' && incomingCards.length
+            ? incomingCards
+            : [...existingCards, ...incomingCards.filter((card) => !existingCards.some((item) => cardKey(item) === cardKey(card)))]
+          const currentQuiz = lesson.quiz
+          const mergedQuestions = mode === 'replace' && importedQuestions.length
+            ? importedQuestions
+            : [...(currentQuiz?.questions ?? []), ...importedQuestions.filter((question) => !(currentQuiz?.questions ?? []).some((item) => item.question.trim().toLowerCase() === question.question.trim().toLowerCase()))]
+          const existingResources = lesson.resources ?? []
+          const incomingResources = importedResources.filter((resource) => !existingResources.some((item) => (
+            item.source?.artifactHash === source.artifactHash && item.kind === resource.kind && item.title.trim().toLowerCase() === resource.title.trim().toLowerCase()
+          )))
+          const importedKinds = new Set(importedResources.map((resource) => resource.kind))
+          const resources = mode === 'replace' && importedResources.length
+            ? [...existingResources.filter((resource) => !importedKinds.has(resource.kind)), ...importedResources]
+            : [...existingResources, ...incomingResources]
+          const nextContent = {
+            ...existingContent,
+            flashcards: mergedCards,
+          }
+          return ensureLessonMeta({
+            ...lesson,
+            resources,
+            provenance: source,
+            memory: toAcademyLessonMemory(nextContent),
+            ...(lesson.type === 'Quiz' && importedQuestions.length ? { quiz: { ...(currentQuiz ?? createDefaultQuiz()), questions: mergedQuestions } } : {}),
+            ...(lesson.primaryContent || resources[0] ? {
+              primaryContent: lesson.primaryContent ?? {
+                kind: 'resource',
+                resourceId: (lesson.type === 'Video' ? resources.find((resource) => resource.kind === 'video') : undefined)?.id ?? resources[0].id,
+              },
+            } : {}),
+          })
+        })
+        const needsQuizLesson = importedQuestions.length > 0 && currentTarget?.type !== 'Quiz'
+        return {
+          ...module,
+          lessons: needsQuizLesson ? [...updatedLessons, ensureLessonMeta({
+            id: `lesson-${crypto.randomUUID()}`,
+            title: `${currentTarget?.title || preview.manifest?.lessonTitle || 'Nội dung NotebookLM'} · Kiểm tra`,
+            type: 'Quiz',
+            duration: '5 phút',
+            summary: 'Kiểm tra kiến thức của nội dung vừa học.',
+            quiz: { ...createDefaultQuiz(), questions: importedQuestions },
+            completionPolicy: { mode: 'quiz-pass' },
+            resources: [],
+            provenance: source,
+          })] : updatedLessons,
+        }
+      }),
+    }))
+    if (mode === 'new-lesson') setDetailLessonIndex(targetModule.lessons.length)
+    setSaveError(null)
+    setSavedMode(null)
+  }
+
   const focusCoverInput = () => {
     setActiveStep(1)
     window.setTimeout(() => coverInputRef.current?.click(), 0)
@@ -1216,6 +1414,7 @@ export default function CourseEditorPage({ onNavigate, onSave, onDirtyChange, ca
             <section className="editor-step-panel" id="course-curriculum">
               <div className="builder-heading"><div><span className="eyebrow">BƯỚC 2 / 4</span><h1>Nội dung Aura Academy</h1><p>Thiết kế khóa đào tạo dinh dưỡng chuyên sâu, độc lập hoàn toàn với giáo án PT.</p></div><div className="builder-heading-actions"><button className="outline-button academy-curriculum-import" onClick={applyAuraNutritionCurriculum}><BookOpen size={17} /> Nạp giáo trình 20 chương</button><button className="outline-button" onClick={handleGenerateOutline} disabled={generatingOutline} style={{color: '#8b5cf6', border: '1px solid #8b5cf6'}}><Sparkles size={17} /> {generatingOutline ? 'Đang tạo...' : 'AI Lên sườn nội dung'}</button><button className="outline-button" onClick={addModule}><Plus size={17} /> Thêm chương</button></div></div>
               <div className="builder-tip"><span>📚</span><p><strong>Giáo trình AURA 2026 đã sẵn sàng</strong>Nút “Nạp giáo trình 20 chương” tạo 4 chặng, 60 bài micro-learning, bài thực hành, active recall, flashcard và checkpoint có đáp án bảo mật. Khóa được đặt miễn phí, mở toàn bộ cho mọi thành viên sau khi xuất bản.</p></div>
+              <CourseNotebookLmImportPanel disabled={isContentLocked} onImport={importNotebookLmContent} />
               <div className="module-list">
                 {course.modules.map((module, moduleIndex) => (
                   <article className="builder-module editable" key={module.id}>

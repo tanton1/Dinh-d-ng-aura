@@ -2640,6 +2640,77 @@
   opacity: .78;
 }
 
+/* NotebookLM import surface: a quiet utility panel that keeps the editor focused on the lesson. */
+.notebooklm-import-panel {
+  margin: 0 0 16px;
+  border: 1px solid #e8e2ff;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #fcfbff 0%, #f8f6ff 100%);
+  overflow: hidden;
+}
+.notebooklm-import-head {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 13px 15px;
+}
+.notebooklm-import-mark {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  color: #6748e8;
+  background: #ece8ff;
+  border-radius: 10px;
+}
+.notebooklm-import-head > div:nth-child(2) { min-width: 0; flex: 1; }
+.notebooklm-import-head strong { display: block; color: #29253b; font-size: 12px; }
+.notebooklm-import-head p { margin: 3px 0 0; color: #77728a; font-size: 11px; line-height: 1.45; }
+.notebooklm-import-head .outline-button { flex: 0 0 auto; white-space: nowrap; }
+.notebooklm-import-body { padding: 0 15px 14px; border-top: 1px solid #eeeaff; }
+.notebooklm-import-dropzone {
+  position: relative;
+  min-height: 84px;
+  margin-top: 13px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  color: #6748e8;
+  border: 1px dashed #bcb0f4;
+  border-radius: 11px;
+  background: rgba(255,255,255,.68);
+  text-align: center;
+}
+.notebooklm-import-dropzone input[type="file"] { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+.notebooklm-import-dropzone strong { color: #39334f; font-size: 11px; }
+.notebooklm-import-dropzone span { color: #89839c; font-size: 10px; }
+.notebooklm-import-preview { margin-top: 12px; padding: 11px; border-radius: 10px; background: #fff; border: 1px solid #efedf6; }
+.notebooklm-import-summary { display: flex; flex-wrap: wrap; gap: 6px 14px; color: #625d75; font-size: 10px; }
+.notebooklm-import-summary span { display: inline-flex; align-items: center; gap: 4px; }
+.notebooklm-import-manifest { display: flex; flex-direction: column; gap: 2px; margin-top: 9px; padding-top: 9px; border-top: 1px solid #f0eef6; }
+.notebooklm-import-manifest strong { color: #2f2942; font-size: 11px; }
+.notebooklm-import-manifest span { overflow: hidden; color: #858097; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.notebooklm-import-issues { display: flex; flex-direction: column; gap: 5px; margin-top: 10px; }
+.notebooklm-import-issues > div { display: flex; align-items: flex-start; gap: 6px; padding: 7px 8px; border-radius: 7px; font-size: 10px; line-height: 1.4; }
+.notebooklm-import-issues .is-error { color: #a23c48; background: #fff1f2; }
+.notebooklm-import-issues .is-warning { color: #8b641d; background: #fff9e8; }
+.notebooklm-import-actions { display: flex; align-items: flex-end; gap: 10px; margin-top: 11px; }
+.notebooklm-import-actions label { display: flex; flex: 1; flex-direction: column; gap: 5px; color: #716b82; font-size: 10px; }
+.notebooklm-import-actions select { min-height: 35px; padding: 7px 9px; color: #353047; border: 1px solid #dfdbea; border-radius: 8px; background: #fff; font: inherit; }
+.notebooklm-import-actions .primary-button { min-height: 35px; white-space: nowrap; }
+.notebooklm-import-note { display: block; margin-top: 9px; color: #8c879a; font-size: 10px; line-height: 1.45; }
+.notebooklm-import-panel .spin { animation: notebooklm-spin .9s linear infinite; }
+@keyframes notebooklm-spin { to { transform: rotate(360deg); } }
+@media (max-width: 640px) {
+  .notebooklm-import-head { align-items: flex-start; flex-wrap: wrap; }
+  .notebooklm-import-head .outline-button { margin-left: 45px; }
+  .notebooklm-import-actions { align-items: stretch; flex-direction: column; }
+  .notebooklm-import-actions .primary-button { justify-content: center; }
+}
+
 .academy-content-lock,
 .academy-workflow-card,
 .academy-revision-card {

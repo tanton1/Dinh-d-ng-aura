@@ -9,6 +9,8 @@ const repositoryRoot = join(__dirname, '..')
 const functionsSource = readFileSync(join(__dirname, 'index.js'), 'utf8')
 const serviceSource = readFileSync(join(repositoryRoot, 'src', 'services', 'firebaseService.ts'), 'utf8')
 const editorSource = readFileSync(join(repositoryRoot, 'src', 'pages', 'admin', 'CourseEditorPage.tsx'), 'utf8')
+const notebookImporterSource = readFileSync(join(repositoryRoot, 'src', 'services', 'courseNotebookLmImportService.ts'), 'utf8')
+const notebookPanelSource = readFileSync(join(repositoryRoot, 'src', 'components', 'academy', 'CourseNotebookLmImportPanel.tsx'), 'utf8')
 const typesSource = readFileSync(join(repositoryRoot, 'src', 'types.ts'), 'utf8')
 const hookSource = readFileSync(join(repositoryRoot, 'src', 'hooks', 'useCourses.ts'), 'utf8')
 const storageRules = readFileSync(join(repositoryRoot, 'storage.rules'), 'utf8')
@@ -61,6 +63,21 @@ test('Academy save is one server transaction with optimistic concurrency', () =>
   assert.match(block, /transaction\.create\(db\.doc\(`courseRevisions\/\$\{revisionId\}`\)/)
   assert.match(block, /transaction\.set\(db\.collection\('auditLogs'\)\.doc\(\)/)
   assert.match(block, /Buffer\.byteLength\(revisionPayload, 'utf8'\) > 750 \* 1024/)
+})
+
+test('NotebookLM content enters Academy through a reviewed idempotent draft import', () => {
+  const saveBlock = functionsSource.match(/exports\.saveCourseDraftAtomic = onCall[\s\S]*?return \{ courseId: normalized\.identifier, revision: savedRevision, status: normalized\.requestedStatus \}\s*\}\)/)?.[0] ?? ''
+  assert.match(notebookImporterSource, /parseNotebookLmFiles/)
+  assert.match(notebookImporterSource, /artifactHash/)
+  assert.match(notebookImporterSource, /front.*back.*hint/s)
+  assert.match(notebookImporterSource, /correctIndex/)
+  assert.match(notebookPanelSource, /Nhập vào bản nháp/)
+  assert.match(editorSource, /currentTarget\?\.provenance\?\.artifactHash === source\.artifactHash/)
+  assert.match(editorSource, /uploadCourseMedia/)
+  assert.match(functionsSource, /normalizeCourseContentProvenance/)
+  assert.match(functionsSource, /courseImportBatches/)
+  assert.match(saveBlock, /transaction\.set\(db\.collection\('courseImportBatches'\)/)
+  assert.doesNotMatch(functionsSource.match(/exports\.saveMealPlanRecipe = onCall[\s\S]*?return \{ recipe:/)?.[0] ?? '', /courseImportBatches/)
 })
 
 test('Academy callables remain browser-invocable and authorize inside their handlers', () => {
@@ -157,6 +174,8 @@ test('learner Academy payload never exposes answer keys or explanations', () => 
   const serializer = functionsSource.match(/function academyModulesForLearner[\s\S]*?\n\}/)?.[0] ?? ''
   assert.match(serializer, /correctIndex: _answerKey/)
   assert.match(serializer, /explanation: _answerExplanation/)
+  assert.match(serializer, /provenance: _importProvenance/)
+  assert.match(serializer, /source: _resourceProvenance/)
   assert.match(serializer, /return safeQuestion/)
 })
 

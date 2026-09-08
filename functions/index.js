@@ -1968,6 +1968,28 @@ function normalizeCourseAssetReference(value, courseIdentifier, lessonIdentifier
   }
 }
 
+function normalizeCourseContentProvenance(value) {
+  if (!isPlainObject(value) || value.provider !== 'NotebookLM') return undefined
+  const importBatchId = courseString(value.importBatchId, 'Mã lô nhập NotebookLM', 200)
+  const sourceUrl = typeof value.sourceUrl === 'string' && value.sourceUrl.trim()
+    ? courseString(value.sourceUrl, 'Nguồn NotebookLM', 2000, false)
+    : ''
+  if (sourceUrl && !/^https?:\/\//i.test(sourceUrl)) {
+    throw new HttpsError('invalid-argument', 'Nguồn NotebookLM phải là URL HTTP hoặc HTTPS.')
+  }
+  return {
+    provider: 'NotebookLM',
+    importBatchId,
+    ...(sourceUrl ? { sourceUrl } : {}),
+    ...(typeof value.generatedAt === 'string' && value.generatedAt.trim()
+      ? { generatedAt: courseString(value.generatedAt, 'Thời điểm tạo nội dung', 100, false) }
+      : {}),
+    ...(typeof value.artifactHash === 'string' && value.artifactHash.trim()
+      ? { artifactHash: courseString(value.artifactHash, 'Mã kiểm tra nội dung', 200, false) }
+      : {}),
+  }
+}
+
 function normalizeCourseDraftInput(value) {
   if (!isPlainObject(value)) throw new HttpsError('invalid-argument', 'Dữ liệu khóa học không hợp lệ.')
   const identifier = courseId(value.id, 'Mã khóa học')
@@ -2037,6 +2059,7 @@ function normalizeCourseDraftInput(value) {
         if (resourceUrl && !/^https?:\/\//i.test(resourceUrl) && !resourceUrl.startsWith('/')) {
           throw new HttpsError('invalid-argument', 'Liên kết học liệu phải dùng HTTP, HTTPS hoặc đường dẫn nội bộ.')
         }
+        const source = normalizeCourseContentProvenance(resource.source)
         return {
           id: resourceIdentifier,
           kind: resource.kind,
@@ -2045,6 +2068,7 @@ function normalizeCourseDraftInput(value) {
           ...(typeof resource.note === 'string' ? { note: courseString(resource.note, 'Ghi chú học liệu', 3000, false) } : {}),
           ...(assetRef ? { assetRef } : {}),
           ...(resource.isPrimary === true ? { isPrimary: true } : {}),
+          ...(source ? { source } : {}),
         }
       })
 
@@ -2164,6 +2188,7 @@ function normalizeCourseDraftInput(value) {
 
       const memory = normalizeCourseMemory(lesson.memory)
       const learningDesign = normalizeCourseLearningDesign(lesson.learningDesign)
+      const provenance = normalizeCourseContentProvenance(lesson.provenance)
       return {
         id: lessonIdentifier,
         title: courseString(lesson.title, 'Tên bài học', 300, false),
@@ -2179,6 +2204,7 @@ function normalizeCourseDraftInput(value) {
         ...(quiz ? { quiz } : {}),
         ...(primaryContent ? { primaryContent } : {}),
         ...(completionPolicy ? { completionPolicy } : {}),
+        ...(provenance ? { provenance } : {}),
       }
     })
     return {
@@ -2442,6 +2468,19 @@ exports.saveCourseDraftAtomic = onCall({ cpu: 'gcf_gen1', maxInstances: 3, invok
       revision: savedRevision,
       createdAt: FieldValue.serverTimestamp(),
     })
+    const importBatchIds = [...new Set(normalized.course.modules.flatMap((module) => module.lessons
+      .map((lesson) => lesson.provenance?.importBatchId)
+      .filter((batchId) => typeof batchId === 'string' && batchId.length > 0)))]
+    for (const importBatchId of importBatchIds) {
+      transaction.set(db.collection('courseImportBatches').doc(`${normalized.identifier}_${importBatchId}`), {
+        courseId: normalized.identifier,
+        importBatchId,
+        source: 'NotebookLM',
+        latestRevision: savedRevision,
+        updatedBy: actor.actorId,
+        updatedAt: FieldValue.serverTimestamp(),
+      }, { merge: true })
+    }
   })
   return { courseId: normalized.identifier, revision: savedRevision, status: normalized.requestedStatus }
 })
@@ -3211,7 +3250,14 @@ function academyModulesForLearner(modules, mode, maxFullModuleIndex = Number.POS
             preview: lesson.preview === true,
           }
         }
-        const { coachNotes: _instructorNotes, workoutRef: _legacyWorkout, ...safeLesson } = lesson
+        const { coachNotes: _instructorNotes, workoutRef: _legacyWorkout, provenance: _importProvenance, ...safeLesson } = lesson
+        if (Array.isArray(safeLesson.resources)) {
+          safeLesson.resources = safeLesson.resources.map((resource) => {
+            if (!isPlainObject(resource)) return resource
+            const { source: _resourceProvenance, ...safeResource } = resource
+            return safeResource
+          })
+        }
         if (isPlainObject(safeLesson.quiz) && Array.isArray(safeLesson.quiz.questions)) {
           safeLesson.quiz = {
             ...safeLesson.quiz,

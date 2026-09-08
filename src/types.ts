@@ -690,6 +690,16 @@ export interface LessonResourceDraft {
   note?: string
   assetRef?: MediaAssetReference
   isPrimary?: boolean
+  /** Provenance for imported material; kept separate from the learner-facing title. */
+  source?: CourseContentProvenance
+}
+
+export interface CourseContentProvenance {
+  provider: 'NotebookLM'
+  sourceUrl?: string
+  generatedAt?: string
+  artifactHash?: string
+  importBatchId: string
 }
 
 export interface LessonQuizQuestionDraft {
@@ -740,6 +750,8 @@ export interface CourseLessonDraft {
   primaryContent?: LessonPrimaryContent
   completionPolicy?: LessonCompletionPolicy
   workoutRef?: LessonWorkoutReference
+  /** Provenance for content imported from an external authoring tool. */
+  provenance?: CourseContentProvenance
 }
 
 export interface CourseModuleDraft {
