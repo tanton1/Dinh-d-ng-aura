@@ -14,9 +14,9 @@ export default function PerformanceReviewPage({ isDemo = false, onNavigate, back
       <div className="performance-review-page__heading">
         <button type="button" onClick={() => onNavigate(backView)} aria-label={`Về ${scopeLabel}`}><ArrowLeft /></button>
         <div>
-          <span>Aura Operations</span>
+          <span>AURA PERFORMANCE / OPERATIONS</span>
           <h1>Performance PT</h1>
-          <p>Đánh giá hiệu suất công bằng từ dữ liệu vận hành, bằng chứng đã duyệt và tiêu chuẩn nghề nghiệp.</p>
+          <p>Dữ liệu thật, bằng chứng rõ và tiêu chuẩn nghề nghiệp có thể đối soát.</p>
         </div>
       </div>
       <dl className="performance-review-page__framework" aria-label="Khung Performance Score">
@@ -26,6 +26,13 @@ export default function PerformanceReviewPage({ isDemo = false, onNavigate, back
       </dl>
       <div className="performance-review-page__scoreline" aria-hidden="true"><i /></div>
     </header>
+
+    <div className="performance-review-page__ticker" aria-label="Nguyên tắc chấm Performance">
+      <span>THỰC CHIẾN</span><i aria-hidden="true" />
+      <span>MINH BẠCH</span><i aria-hidden="true" />
+      <span>CÓ BẰNG CHỨNG</span><i aria-hidden="true" />
+      <span>ĐỐI SOÁT ĐƯỢC</span>
+    </div>
 
     <details className="performance-review-page__scope">
       <summary><ShieldCheck /><span>Quyền truy cập và lịch sử chỉnh sửa</span></summary>

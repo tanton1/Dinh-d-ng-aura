@@ -24,15 +24,21 @@ export default function StaffPerformancePage({ isDemo = false, onNavigate }: {
     <header className="staff-performance-page__header">
       <button type="button" className="is-back" onClick={() => onNavigate('staff-dashboard')} aria-label="Về Tổng quan Staff"><ArrowLeft /></button>
       <div>
-        <small>AURA PT · PERFORMANCE SCORE</small>
+        <small>AURA PERFORMANCE / CÁ NHÂN</small>
         <h1>Hiệu suất của tôi</h1>
-        <p>{periodLabel(periodId)} · Điểm, bằng chứng và trạng thái duyệt được cập nhật cùng một nơi.</p>
+        <p>{periodLabel(periodId)}. Theo dõi điểm, Gate và bằng chứng Brand trong cùng một nơi.</p>
       </div>
       <div className="staff-performance-page__actions">
         <label><CalendarDays /><span>Kỳ đánh giá</span><input type="month" value={periodId} onChange={(event) => setPeriodId(event.target.value)} /></label>
         <button type="button" onClick={() => onNavigate('staff-payroll')}><WalletCards /> Xem bảng lương</button>
       </div>
     </header>
+
+    <div className="staff-performance-page__ticker" aria-label="Nguyên tắc Performance cá nhân">
+      <span>DỮ LIỆU THẬT</span><i aria-hidden="true" />
+      <span>LÀM THẬT</span><i aria-hidden="true" />
+      <span>GHI NHẬN ĐÚNG</span>
+    </div>
 
     <aside className="staff-performance-page__privacy">
       <ShieldCheck />
