@@ -13,20 +13,20 @@
   width: 100%;
   margin: 16px 0;
   padding: 17px 19px;
-  border: 1px solid rgba(255, 255, 255, .1);
+  border: 1px solid rgba(255, 255, 255, .08);
   border-radius: 21px;
   color: #fff;
-  background: #17201b;
-  box-shadow: 0 14px 36px rgba(23, 32, 27, .14);
+  background: radial-gradient(circle at 92% 0, rgba(255, 77, 158, .35), transparent 20rem), linear-gradient(135deg, #171217, #3c1729);
+  box-shadow: 0 14px 36px rgba(29, 16, 23, .14);
   text-align: left;
   cursor: pointer;
 }
-.loyalty-home-card__icon { display: grid; place-items: center; width: 46px; height: 46px; border-radius: 14px; color: #f4cd76; background: rgba(217, 164, 65, .14); }
+.loyalty-home-card__icon { display: grid; place-items: center; width: 46px; height: 46px; border-radius: 15px; color: #fff0aa; background: rgba(255, 255, 255, .1); }
 .loyalty-home-card__main { min-width: 0; }
-.loyalty-home-card__main small { display: block; color: #dfb45f; font-size: 10px; font-weight: 900; letter-spacing: .11em; }
+.loyalty-home-card__main small { display: block; color: #ff9dcc; font-size: 10px; font-weight: 900; letter-spacing: .11em; }
 .loyalty-home-card__main strong { display: block; margin: 2px 0; font-size: 19px; }
 .loyalty-home-card__main em { display: block; overflow: hidden; color: rgba(255, 255, 255, .68); font-size: 12px; font-style: normal; text-overflow: ellipsis; white-space: nowrap; }
-.loyalty-home-card__action { display: flex; gap: 4px; color: #dff3e8; }
+.loyalty-home-card__action { display: flex; gap: 4px; color: #ffadd2; }
 .loyalty-home-card__action svg { width: 18px; }
 
 .loyalty-hero {

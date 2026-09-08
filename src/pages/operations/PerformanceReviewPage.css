@@ -1,13 +1,16 @@
 .performance-review-page {
-  --performance-ink: #15171a;
-  --performance-muted: #65676d;
-  --performance-line: rgba(21, 23, 26, .09);
-  --performance-canvas: #f7f5f0;
-  --performance-pink: #ec2c76;
-  --performance-red: #e8523f;
-  --performance-gold: #f2b544;
-  --performance-mint: #ddf4e8;
-  --performance-success: #18745a;
+  --performance-ink: var(--aura-neutral-950, #19161a);
+  --performance-muted: var(--aura-neutral-700, #5f5961);
+  --performance-line: var(--aura-neutral-150, #ece8ec);
+  --performance-canvas: var(--aura-neutral-75, #f7f4f6);
+  --performance-brand: var(--aura-brand-pink, #ec2c76);
+  --performance-brand-strong: var(--aura-pink-dark, #b50055);
+  --performance-accent: var(--aura-brand-orange, #ff7a45);
+  --performance-brand-soft: var(--aura-pink-soft, #fff0f7);
+  --performance-mint: var(--nutrition-green-soft, #e9f5f0);
+  --performance-success: var(--aura-success, #14805e);
+  --performance-warning: var(--aura-warning, #a65a16);
+  --performance-danger: var(--aura-danger, #b82850);
   width: 100%;
   min-height: 100%;
   margin: 0;
@@ -53,13 +56,13 @@
 }
 
 .performance-review-page__heading > button:hover {
-  border-color: rgba(232, 82, 63, .42);
-  color: var(--performance-red);
-  background: #fff8f3;
+  border-color: var(--aura-pink-border, #ffc2dd);
+  color: var(--performance-brand);
+  background: var(--performance-brand-soft);
 }
 
 .performance-review-page__heading svg { width: 19px; }
-.performance-review-page__heading span { color: var(--performance-red); font-size: 12px; font-weight: 900; letter-spacing: .08em; }
+.performance-review-page__heading span { color: var(--performance-brand); font-size: 12px; font-weight: 900; letter-spacing: .08em; }
 .performance-review-page__heading h1 { margin: 4px 0 7px; font-size: clamp(42px, 5.1vw, 72px); font-weight: 900; line-height: .98; letter-spacing: -.055em; }
 .performance-review-page__heading p { max-width: 620px; margin: 0; color: var(--performance-muted); font-size: 15px; line-height: 1.58; }
 
@@ -79,7 +82,7 @@
   padding: 9px 18px;
 }
 
-.performance-review-page__framework dt { display: grid; margin: 0; color: #95868e; }
+.performance-review-page__framework dt { display: grid; margin: 0; color: var(--aura-neutral-500, #817982); }
 .performance-review-page__framework dt svg { width: 17px; }
 .performance-review-page__framework dd { display: grid; gap: 1px; margin: 0; }
 .performance-review-page__framework strong { font-size: 22px; line-height: 1; }
@@ -88,8 +91,8 @@
   border: 0;
   border-radius: 22px;
   color: #fff;
-  background: var(--performance-red);
-  box-shadow: 6px 6px 0 var(--performance-gold);
+  background: var(--performance-brand);
+  box-shadow: 6px 6px 0 var(--performance-accent);
 }
 .performance-review-page__framework .is-score :is(dt, strong, span) { color: #fff; }
 .performance-review-page__framework .is-score strong { font-size: 30px; }
@@ -100,14 +103,14 @@
   bottom: 0;
   left: 0;
   height: 5px;
-  background: var(--performance-gold);
+  background: var(--performance-accent);
 }
 
 .performance-review-page__scoreline i {
   display: block;
   width: 38%;
   height: 100%;
-  background: var(--performance-red);
+  background: var(--performance-brand);
 }
 
 .performance-review-page__ticker {
@@ -124,7 +127,7 @@
 }
 .performance-review-page__ticker::-webkit-scrollbar { display: none; }
 .performance-review-page__ticker span { flex: 0 0 auto; font-size: 12px; font-weight: 900; letter-spacing: .09em; }
-.performance-review-page__ticker i { width: 7px; height: 7px; flex: 0 0 auto; background: var(--performance-gold); transform: rotate(45deg); }
+.performance-review-page__ticker i { width: 7px; height: 7px; flex: 0 0 auto; background: var(--performance-accent); transform: rotate(45deg); }
 
 .performance-review-page__scope {
   margin: 0;
@@ -155,18 +158,18 @@
   padding: 18px clamp(18px, 3.2vw, 52px) 28px;
 }
 
-/* Editorial Operations theme for the review workspaces. The red/gold pair is
-   reserved for direction and action; mint continues to mean verified/safe. */
+/* Keep the editorial layout, but inherit Aura's canonical brand and semantic
+   colors so Admin and Staff read as one product. */
 .performance-review-page .performance-review {
-  --pr-pink: var(--performance-red);
-  --pr-orange: var(--performance-gold);
+  --pr-pink: var(--performance-brand);
+  --pr-orange: var(--performance-accent);
   --pr-ink: var(--performance-ink);
   --pr-muted: var(--performance-muted);
   --pr-line: var(--performance-line);
-  --pr-soft: #f2f0ea;
+  --pr-soft: var(--performance-canvas);
   --pr-success: var(--performance-success);
-  --pr-warning: #9a6118;
-  --pr-danger: #b73d35;
+  --pr-warning: var(--performance-warning);
+  --pr-danger: var(--performance-danger);
   gap: 16px;
 }
 .performance-review-page .performance-review__commandbar {
@@ -176,17 +179,17 @@
   background: #fff;
 }
 .performance-review-page .performance-review__workspaces button { min-height: 58px; padding-inline: 17px; font-size: 13px; }
-.performance-review-page .performance-review__workspaces button.is-active::after { background: var(--performance-red); }
-.performance-review-page .performance-review__workspaces button.is-active svg { color: var(--performance-red); }
+.performance-review-page .performance-review__workspaces button.is-active::after { background: var(--performance-brand); }
+.performance-review-page .performance-review__workspaces button.is-active svg { color: var(--performance-brand); }
 .performance-review-page .performance-review__period { align-items: center; padding: 7px 9px 7px 0; }
 .performance-review-page .performance-review__period label span { font-size: 11px; }
 .performance-review-page .performance-review__period input { min-height: 42px; border-radius: 13px; font-size: 13px; }
-.performance-review-page .performance-review__period > button { width: 42px; height: 42px; border-radius: 13px; color: var(--performance-red); }
+.performance-review-page .performance-review__period > button { width: 42px; height: 42px; border-radius: 13px; color: var(--performance-brand); }
 .performance-review-page .performance-review__section-heading h2,
 .performance-review-page .performance-review__profile h2 { font-size: 24px; font-weight: 850; }
 .performance-review-page .performance-review__section-heading p,
 .performance-review-page .performance-review__profile header p { font-size: 14px; line-height: 1.6; }
-.performance-review-page .performance-review__section-heading > span { border-color: rgba(232, 82, 63, .2); color: #a83d31; background: #fff4ed; }
+.performance-review-page .performance-review__section-heading > span { border-color: var(--aura-pink-border, #ffc2dd); color: var(--performance-brand-strong); background: var(--performance-brand-soft); }
 .performance-review-page .performance-review__toolbar { border-radius: 18px; padding: 12px; }
 .performance-review-page .performance-review__toolbar label > span,
 .performance-review-page .performance-review__profile-staff > span,
@@ -200,17 +203,17 @@
 .performance-review-page .performance-review__queue,
 .performance-review-page .performance-review__detail,
 .performance-review-page .performance-review__profile { border-radius: 22px; }
-.performance-review-page .performance-review__queue > header { padding: 15px 17px; background: #f2f0ea; }
+.performance-review-page .performance-review__queue > header { padding: 15px 17px; background: var(--performance-canvas); }
 .performance-review-page .performance-review__queue > header strong { font-size: 15px; }
 .performance-review-page .performance-review__queue > button { min-height: 72px; padding: 14px 16px; }
-.performance-review-page .performance-review__queue > button.is-selected { box-shadow: inset 4px 0 var(--performance-red); background: #fff6f0; }
-.performance-review-page .performance-review__kind { color: #a83d31; background: #ffe8df; }
-.performance-review-page .performance-review__kind.is-aura_assignment { color: #765017; background: #fff0c7; }
+.performance-review-page .performance-review__queue > button.is-selected { box-shadow: inset 4px 0 var(--performance-brand); background: var(--performance-brand-soft); }
+.performance-review-page .performance-review__kind { color: var(--performance-brand-strong); background: var(--performance-brand-soft); }
+.performance-review-page .performance-review__kind.is-aura_assignment { color: var(--performance-warning); background: #fff4e7; }
 .performance-review-page .performance-review__queue > button small,
 .performance-review-page .performance-review__queue > button em { font-size: 12px; }
 .performance-review-page .performance-review__queue > button strong { font-size: 14px; }
 .performance-review-page .performance-review__detail { padding: 18px; }
-.performance-review-page .performance-review__detail header small { color: var(--performance-red); font-size: 12px; }
+.performance-review-page .performance-review__detail header small { color: var(--performance-brand); font-size: 12px; }
 .performance-review-page .performance-review__detail h3 { font-size: 22px; }
 .performance-review-page .performance-review__detail header p,
 .performance-review-page .performance-review__detail dt,
@@ -218,7 +221,7 @@
 .performance-review-page .performance-review__note,
 .performance-review-page .performance-review__criteria label,
 .performance-review-page .performance-review__reason span { font-size: 13px; }
-.performance-review-page .performance-review__proof a { min-height: 44px; border-radius: 13px; color: #a83d31; font-size: 12px; }
+.performance-review-page .performance-review__proof a { min-height: 44px; border-radius: 13px; color: var(--performance-brand-strong); font-size: 12px; }
 .performance-review-page .performance-review__profile { padding: 20px; }
 .performance-review-page .performance-review__checklist label { min-height: 46px; border-radius: 13px; font-size: 13px; }
 .performance-review-page .performance-review__checklist label:has(input:checked) { border-color: rgba(24, 116, 90, .2); background: var(--performance-mint); }
@@ -231,41 +234,41 @@
 .performance-review-page .performance-scorecard-review__categories > section,
 .performance-review-page .performance-scorecard-review__lock { border-color: var(--performance-line); border-radius: 22px; }
 .performance-review-page .performance-scorecard-review__header { padding: 17px; }
-.performance-review-page .performance-scorecard-review__header > span { color: var(--performance-red); background: #ffe8df; }
-.performance-review-page .performance-scorecard-review__header small { color: var(--performance-red); font-size: 12px; }
+.performance-review-page .performance-scorecard-review__header > span { color: var(--performance-brand); background: var(--performance-brand-soft); }
+.performance-review-page .performance-scorecard-review__header small { color: var(--performance-brand); font-size: 12px; }
 .performance-review-page .performance-scorecard-review__header h2 { font-size: 23px; font-weight: 850; }
 .performance-review-page .performance-scorecard-review__header p { font-size: 13px; line-height: 1.55; }
 .performance-review-page .performance-scorecard-review__header select { min-height: 46px; border-radius: 13px; font-size: 14px; }
-.performance-review-page .performance-scorecard-review__header > button { width: 46px; height: 46px; border-radius: 13px; color: var(--performance-red); }
+.performance-review-page .performance-scorecard-review__header > button { width: 46px; height: 46px; border-radius: 13px; color: var(--performance-brand); }
 .performance-review-page .performance-scorecard-review__summary article { padding: 17px 19px; }
-.performance-review-page .performance-scorecard-review__summary article:first-child { box-shadow: inset 5px 0 var(--performance-red); }
+.performance-review-page .performance-scorecard-review__summary article:first-child { box-shadow: inset 5px 0 var(--performance-brand); }
 .performance-review-page .performance-scorecard-review__summary small,
 .performance-review-page .performance-scorecard-review__summary span { font-size: 12px; }
 .performance-review-page .performance-scorecard-review__summary strong { font-size: 28px; }
 .performance-review-page .performance-scorecard-review__gates { overflow: hidden; }
 .performance-review-page .performance-scorecard-review__gates button { min-height: 68px; padding: 11px 13px; }
 .performance-review-page .performance-scorecard-review__gates button.is-pass { box-shadow: inset 0 4px var(--performance-success); background: #f5fbf8; }
-.performance-review-page .performance-scorecard-review__gates button.is-fail { box-shadow: inset 0 4px #b73d35; background: #fff7f4; }
-.performance-review-page .performance-scorecard-review__gates button.is-unknown { box-shadow: inset 0 4px var(--performance-gold); background: #fffbef; }
+.performance-review-page .performance-scorecard-review__gates button.is-fail { box-shadow: inset 0 4px var(--performance-danger); background: #fff0f4; }
+.performance-review-page .performance-scorecard-review__gates button.is-unknown { box-shadow: inset 0 4px var(--performance-warning); background: #fff4e7; }
 .performance-review-page .performance-scorecard-review__gates b { font-size: 12px; }
 .performance-review-page .performance-scorecard-review__gates small,
 .performance-review-page .performance-scorecard-review__gates em { font-size: 10px; }
 .performance-review-page .performance-scorecard-review__categories { gap: 14px; }
 .performance-review-page .performance-scorecard-review__categories > section { border-radius: 22px; }
-.performance-review-page .performance-scorecard-review__categories > section > header { padding: 14px 15px; background: #f2f0ea; }
+.performance-review-page .performance-scorecard-review__categories > section > header { padding: 14px 15px; background: var(--performance-canvas); }
 .performance-review-page .performance-scorecard-review__categories > section > header strong { font-size: 14px; }
-.performance-review-page .performance-scorecard-review__categories > section > header > b { color: #a83d31; font-size: 14px; }
+.performance-review-page .performance-scorecard-review__categories > section > header > b { color: var(--performance-brand-strong); font-size: 14px; }
 .performance-review-page .performance-scorecard-review__categories article { min-height: 56px; padding: 11px 13px; }
 .performance-review-page .performance-scorecard-review__categories article strong { font-size: 13px; }
 .performance-review-page .performance-scorecard-review__categories article small { font-size: 11px; }
-.performance-review-page .performance-scorecard-review__categories article > button { width: 36px; height: 36px; border-radius: 11px; color: var(--performance-red); }
+.performance-review-page .performance-scorecard-review__categories article > button { width: 36px; height: 36px; border-radius: 11px; color: var(--performance-brand); }
 .performance-review-page .performance-scorecard-review__lock { padding: 15px 16px; }
 .performance-review-page .performance-scorecard-review__lock strong { font-size: 14px; }
 .performance-review-page .performance-scorecard-review__lock span { font-size: 12px; }
 .performance-review-page .performance-scorecard-review__lock button { background: var(--performance-ink); }
 
 .performance-review-page :is(button, input, select, textarea, summary):focus-visible {
-  outline: 3px solid rgba(236, 44, 118, .22);
+  outline: 3px solid var(--aura-focus-ring, rgba(255, 45, 145, .3));
   outline-offset: 2px;
 }
 
@@ -289,7 +292,7 @@
   .performance-review-page__framework dt { display: none; }
   .performance-review-page__framework strong { font-size: 19px; }
   .performance-review-page__framework span { overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
-  .performance-review-page__framework .is-score { border-radius: 16px; box-shadow: 4px 4px 0 var(--performance-gold); }
+  .performance-review-page__framework .is-score { border-radius: 16px; box-shadow: 4px 4px 0 var(--performance-accent); }
   .performance-review-page__ticker { justify-content: flex-start; min-height: 38px; gap: 18px; padding-inline: 12px; }
   .performance-review-page__ticker span { font-size: 10px; }
   .performance-review-page__scope { padding-inline: 12px; }
