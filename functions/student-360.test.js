@@ -4,6 +4,7 @@ const {
   addCalendarMonths,
   buildHealthScore,
   contractInstallments,
+  contractAssigneeIssues,
   contractMutationTitle,
   contractUsage,
   permissionsFor,
@@ -68,6 +69,24 @@ test('contract workspace exposes named, immutable CRM actions', () => {
   assert.equal(contractMutationTitle('freeze'), 'Đã bảo lưu hợp đồng')
   assert.equal(contractMutationTitle('reopen'), 'Đã mở lại hợp đồng')
   assert.equal(contractMutationTitle('cancel'), 'Đã hủy hợp đồng')
+})
+
+test('contract assignee validation identifies hidden legacy links by name and reason', () => {
+  const snapshot = (value) => ({ exists: true, data: () => value })
+  assert.deepEqual(contractAssigneeIssues(
+    ['same', 'moved', 'inactive', 'missing'],
+    [
+      snapshot({ name: 'PT cùng cơ sở', branchId: 'branch-a', status: 'active' }),
+      snapshot({ name: 'PT đã chuyển cơ sở', branchId: 'branch-b', status: 'active' }),
+      snapshot({ name: 'PT đã nghỉ', branchId: 'branch-a', status: 'inactive' }),
+      { exists: false },
+    ],
+    'branch-a',
+  ), [
+    { id: 'moved', name: 'PT đã chuyển cơ sở', issue: 'branch_mismatch', branchId: 'branch-b' },
+    { id: 'inactive', name: 'PT đã nghỉ', issue: 'inactive', branchId: 'branch-a' },
+    { id: 'missing', name: 'PT/coach không còn tồn tại', issue: 'not_found', branchId: null },
+  ])
 })
 
 test('contract installment edits preserve posted history and reconcile outstanding debt', () => {

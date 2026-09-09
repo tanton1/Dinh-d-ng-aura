@@ -164,7 +164,14 @@ function demoWorkspace(overview: Student360Overview): Workspace {
     permissions: { canManageContract: true, canCreateContract: true, canEditFinancialTerms: true, canCollectPayments: true, canViewFinancialAmounts: true },
     contracts: record ? [record] : [],
     packages: [{ id: 'package-demo', name: contract?.packageName || 'PT 1:1 · 6 tháng', totalSessions: contract?.totalSessions || 72, price: contract?.payment?.total || 18_000_000, durationMonths: 6, branchId: overview.assignments.branchId || null }],
-    trainers: overview.assignments.trainerIds.map((id, index) => ({ id, name: overview.assignments.trainerNames[index] || id, branchId: overview.assignments.branchId || null })),
+    trainers: overview.assignments.trainerIds.map((id, index) => ({
+      id,
+      name: overview.assignments.trainerNames[index] || id,
+      branchId: overview.assignments.branchId || null,
+      branchName: overview.assignments.branchName || null,
+      status: 'active',
+      referencedByContract: true,
+    })),
     branches: [{ id: overview.assignments.branchId || 'branch-demo', name: overview.assignments.branchName || 'Aura Fitness' }],
   }
 }
@@ -222,6 +229,28 @@ export default function Student360ContractWorkspace({ studentId, overview, sourc
 
   useEffect(() => { void load() }, [load])
   const selected = useMemo(() => workspace?.contracts.find((item) => item.id === selectedId) || null, [selectedId, workspace])
+  const trainerById = useMemo(() => new Map((workspace?.trainers || []).map((item) => [item.id, item])), [workspace?.trainers])
+  const selectableTrainers = useMemo(() => {
+    if (!workspace || !form) return []
+    return workspace.trainers.filter((item) => item.status !== 'inactive' && (!item.branchId || item.branchId === form.branchId))
+  }, [form, workspace])
+  const assignmentIssues = useMemo(() => {
+    if (!form) return []
+    const rows: Array<{ id: string; kind: 'trainer' | 'nutrition'; name: string; reason: string }> = []
+    const inspect = (id: string, kind: 'trainer' | 'nutrition') => {
+      const trainer = trainerById.get(id)
+      if (!trainer) {
+        rows.push({ id, kind, name: 'PT/coach không còn trong hệ thống', reason: 'Không tìm thấy hồ sơ nhân sự' })
+      } else if (trainer.status === 'inactive') {
+        rows.push({ id, kind, name: trainer.name, reason: 'Nhân sự đã ngừng hoạt động' })
+      } else if (form.branchId && trainer.branchId && trainer.branchId !== form.branchId) {
+        rows.push({ id, kind, name: trainer.name, reason: `Đang thuộc ${trainer.branchName || 'chi nhánh khác'}` })
+      }
+    }
+    form.trainerIds.forEach((id) => inspect(id, 'trainer'))
+    form.nutritionPTIds.forEach((id) => inspect(id, 'nutrition'))
+    return rows
+  }, [form, trainerById])
   const selectedUsage = selected?.usage
   const selectedUsedSessions = selectedUsage?.usedSessions ?? selected?.usedSessions ?? 0
   const selectedRemainingSessions = selectedUsage?.remainingSessions ?? Math.max(0, (selected?.totalSessions || 0) - selectedUsedSessions)
@@ -259,6 +288,24 @@ export default function Student360ContractWorkspace({ studentId, overview, sourc
     const item = workspace.packages.find((value) => value.id === packageId)
     if (!item) return
     setForm({ ...form, packageId, totalSessions: item.totalSessions, totalPrice: item.price, endDate: addMonths(form.startDate, item.durationMonths) })
+  }
+
+  const removeAssignmentIssue = (id: string, kind: 'trainer' | 'nutrition') => {
+    if (!form) return
+    setForm(kind === 'trainer'
+      ? { ...form, trainerIds: form.trainerIds.filter((value) => value !== id) }
+      : { ...form, nutritionPTIds: form.nutritionPTIds.filter((value) => value !== id) })
+  }
+
+  const removeAllAssignmentIssues = () => {
+    if (!form || !assignmentIssues.length) return
+    const invalidTrainerIds = new Set(assignmentIssues.filter((item) => item.kind === 'trainer').map((item) => item.id))
+    const invalidNutritionIds = new Set(assignmentIssues.filter((item) => item.kind === 'nutrition').map((item) => item.id))
+    setForm({
+      ...form,
+      trainerIds: form.trainerIds.filter((id) => !invalidTrainerIds.has(id)),
+      nutritionPTIds: form.nutritionPTIds.filter((id) => !invalidNutritionIds.has(id)),
+    })
   }
 
   const saveForm = async () => {
@@ -417,7 +464,16 @@ export default function Student360ContractWorkspace({ studentId, overview, sourc
       <label>Ngày kết thúc<input required type="date" min={form.startDate} value={form.endDate} onChange={(event) => setForm({ ...form, endDate: event.target.value })} /></label>
       <label>Tổng số buổi<input required type="number" min={formMode === 'edit' ? selected?.usedSessions || 0 : 0} value={form.totalSessions} onChange={(event) => setForm({ ...form, totalSessions: Number(event.target.value) })} /></label>
       {workspace.permissions.canEditFinancialTerms && <><label>Giá trị hợp đồng<input required type="number" min="0" value={form.totalPrice} onChange={(event) => setForm({ ...form, totalPrice: Number(event.target.value) })} /></label><label>Giảm giá<input required type="number" min="0" max={form.totalPrice} value={form.discount} onChange={(event) => setForm({ ...form, discount: Number(event.target.value) })} /></label></>}
-    </div><fieldset><legend>PT chính/phụ</legend><div className="student360-contract-person-picker">{workspace.trainers.filter((item) => !item.branchId || item.branchId === form.branchId).map((item) => <label key={item.id}><input type="checkbox" checked={form.trainerIds.includes(item.id)} onChange={() => setForm({ ...form, trainerIds: form.trainerIds.includes(item.id) ? form.trainerIds.filter((id) => id !== item.id) : [...form.trainerIds, item.id] })} />{item.name}</label>)}</div></fieldset><fieldset><legend>Coach dinh dưỡng</legend><div className="student360-contract-person-picker">{workspace.trainers.filter((item) => !item.branchId || item.branchId === form.branchId).map((item) => <label key={item.id}><input type="checkbox" checked={form.nutritionPTIds.includes(item.id)} onChange={() => setForm({ ...form, nutritionPTIds: form.nutritionPTIds.includes(item.id) ? form.nutritionPTIds.filter((id) => id !== item.id) : [...form.nutritionPTIds, item.id] })} />{item.name}</label>)}</div></fieldset>{workspace.permissions.canEditFinancialTerms && <fieldset><legend>Kế hoạch trả góp</legend><div className="student360-contract-form-installments">{form.installments.map((item) => <div key={item.id}><input type="date" disabled={item.status !== 'pending'} value={item.date} onChange={(event) => setForm({ ...form, installments: form.installments.map((value) => value.id === item.id ? { ...value, date: event.target.value } : value) })} /><input type="number" min="0" disabled={item.status !== 'pending'} value={item.amount || 0} onChange={(event) => setForm({ ...form, installments: form.installments.map((value) => value.id === item.id ? { ...value, amount: Number(event.target.value) } : value) })} /><span>{installmentLabel(item.status)}</span>{item.status === 'pending' && <button type="button" onClick={() => setForm({ ...form, installments: form.installments.filter((value) => value.id !== item.id) })}><X /></button>}</div>)}<button type="button" onClick={() => setForm({ ...form, installments: [...form.installments, { id: `installment-${crypto.randomUUID()}`, date: form.startDate, amount: 0, status: 'pending' }] })}>+ Thêm kỳ thanh toán</button></div></fieldset>}<label>Ghi chú<textarea rows={3} maxLength={1000} value={form.note} onChange={(event) => setForm({ ...form, note: event.target.value })} /></label><footer><button type="button" onClick={() => setFormMode(null)}>Hủy</button><button type="submit" disabled={saving}>{saving ? 'Đang lưu…' : 'Lưu hợp đồng'}</button></footer></form></div>}
+    </div>
+      {assignmentIssues.length > 0 && <section className="student360-contract-assignment-issues" role="alert">
+        <header><span><AlertTriangle /><strong>Liên kết PT cần xử lý</strong></span><button type="button" onClick={removeAllAssignmentIssues}>Gỡ tất cả</button></header>
+        <p>Các liên kết cũ vẫn được hiện để bạn chủ động gỡ. Lịch sử ca dạy và hoa hồng không bị xóa.</p>
+        <div>{assignmentIssues.map((item) => <article key={`${item.kind}-${item.id}`}><span><strong>{item.name}</strong><small>{item.kind === 'trainer' ? 'PT chính/phụ' : 'Coach dinh dưỡng'} · {item.reason}</small></span><button type="button" onClick={() => removeAssignmentIssue(item.id, item.kind)}>Gỡ</button></article>)}</div>
+      </section>}
+      <fieldset><legend>PT chính/phụ</legend><div className="student360-contract-person-picker">{selectableTrainers.map((item) => <label key={item.id}><input type="checkbox" checked={form.trainerIds.includes(item.id)} onChange={() => setForm({ ...form, trainerIds: form.trainerIds.includes(item.id) ? form.trainerIds.filter((id) => id !== item.id) : [...form.trainerIds, item.id] })} />{item.name}</label>)}</div></fieldset>
+      <fieldset><legend>Coach dinh dưỡng</legend><div className="student360-contract-person-picker">{selectableTrainers.map((item) => <label key={item.id}><input type="checkbox" checked={form.nutritionPTIds.includes(item.id)} onChange={() => setForm({ ...form, nutritionPTIds: form.nutritionPTIds.includes(item.id) ? form.nutritionPTIds.filter((id) => id !== item.id) : [...form.nutritionPTIds, item.id] })} />{item.name}</label>)}</div></fieldset>
+      {workspace.permissions.canEditFinancialTerms && <fieldset><legend>Kế hoạch trả góp</legend><div className="student360-contract-form-installments">{form.installments.map((item) => <div key={item.id}><input type="date" disabled={item.status !== 'pending'} value={item.date} onChange={(event) => setForm({ ...form, installments: form.installments.map((value) => value.id === item.id ? { ...value, date: event.target.value } : value) })} /><input type="number" min="0" disabled={item.status !== 'pending'} value={item.amount || 0} onChange={(event) => setForm({ ...form, installments: form.installments.map((value) => value.id === item.id ? { ...value, amount: Number(event.target.value) } : value) })} /><span>{installmentLabel(item.status)}</span>{item.status === 'pending' && <button type="button" onClick={() => setForm({ ...form, installments: form.installments.filter((value) => value.id !== item.id) })}><X /></button>}</div>)}<button type="button" onClick={() => setForm({ ...form, installments: [...form.installments, { id: `installment-${crypto.randomUUID()}`, date: form.startDate, amount: 0, status: 'pending' }] })}>+ Thêm kỳ thanh toán</button></div></fieldset>}
+      <label>Ghi chú<textarea rows={3} maxLength={1000} value={form.note} onChange={(event) => setForm({ ...form, note: event.target.value })} /></label><footer><button type="button" onClick={() => setFormMode(null)}>Hủy</button><button type="submit" disabled={saving || assignmentIssues.length > 0}>{saving ? 'Đang lưu…' : assignmentIssues.length ? `Gỡ ${assignmentIssues.length} liên kết để lưu` : 'Lưu hợp đồng'}</button></footer></form></div>}
 
     {extendOpen && selected && <div className="student360-dialog-layer"><button type="button" className="student360-dialog-backdrop" aria-label="Đóng" onClick={() => setExtendOpen(false)} /><form className="student360-dialog" onSubmit={(event) => { event.preventDefault(); void mutate({ studentId, contractId: selected.id, expectedRevision: selected.revision, action: 'extend', newEndDate, reason }, 'Đã gia hạn ngày và lưu vào CRM Timeline.') }}><header><div><small>GIA HẠN NGÀY</small><h2>Điều chỉnh hạn sử dụng</h2></div><button type="button" onClick={() => setExtendOpen(false)}><X /></button></header><p>Hạn hiện tại: <strong>{dateLabel(selected.endDate)}</strong></p><label>Ngày hết hạn mới<input required type="date" min={selected.endDate} value={newEndDate} onChange={(event) => setNewEndDate(event.target.value)} /></label><label>Lý do<textarea required minLength={2} rows={3} value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Ví dụ: bù thời gian gián đoạn đã xác minh…" /></label><footer><button type="button" onClick={() => setExtendOpen(false)}>Hủy</button><button type="submit" disabled={saving}>{saving ? 'Đang lưu…' : 'Xác nhận gia hạn'}</button></footer></form></div>}
 

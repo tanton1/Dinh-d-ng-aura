@@ -293,7 +293,14 @@ export interface Student360ContractWorkspace {
   }
   contracts: Student360ContractRecord[]
   packages: Array<{ id: string; name: string; totalSessions: number; price: number; durationMonths: number; branchId: string | null }>
-  trainers: Array<{ id: string; name: string; branchId: string | null }>
+  trainers: Array<{
+    id: string
+    name: string
+    branchId: string | null
+    branchName: string | null
+    status: 'active' | 'inactive'
+    referencedByContract: boolean
+  }>
   branches: Array<{ id: string; name: string }>
 }
 

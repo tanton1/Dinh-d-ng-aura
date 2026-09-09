@@ -717,6 +717,26 @@ function contractWorkspaceRecord(snapshot, canViewFinancialAmounts, canManageCon
   return record
 }
 
+function contractAssigneeIssues(assigneeIds, assigneeSnapshots, requestedBranchId) {
+  const issues = []
+  assigneeSnapshots.forEach((item, index) => {
+    const assigneeId = assigneeIds[index]
+    if (!item?.exists) {
+      issues.push({ id: assigneeId, name: 'PT/coach không còn tồn tại', issue: 'not_found', branchId: null })
+      return
+    }
+    const value = item.data() || {}
+    const name = bounded(value.name, 160) || 'PT/coach chưa có tên'
+    const assigneeBranch = bounded(value.branchId, 200) || null
+    if (value.status === 'inactive') {
+      issues.push({ id: assigneeId, name, issue: 'inactive', branchId: assigneeBranch })
+    } else if (assigneeBranch && assigneeBranch !== requestedBranchId) {
+      issues.push({ id: assigneeId, name, issue: 'branch_mismatch', branchId: assigneeBranch })
+    }
+  })
+  return issues
+}
+
 function profileProgress(profile = {}, metricDocs = []) {
   const history = Array.isArray(profile.history) ? profile.history : []
   const values = uniqueProgressDocuments([...history, ...metricDocs])
@@ -1558,12 +1578,31 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
         branchId: bounded(item.data()?.branchId, 200) || null,
       }))
       .sort((left, right) => left.name.localeCompare(right.name, 'vi'))
+    const referencedAssigneeIds = new Set(contracts.flatMap((contract) => [
+      ...normalizedArray(contract.trainerIds?.length ? contract.trainerIds : [contract.trainerId]),
+      ...normalizedArray(contract.nutritionPTIds),
+    ]))
+    const branchNames = new Map(branchSnapshot.docs.map((item) => [item.id, bounded(item.data()?.name, 160) || item.id]))
     const trainers = trainerSnapshot.docs
       .filter((item) => {
         const itemBranch = bounded(item.data()?.branchId, 200)
-        return item.data()?.status !== 'inactive' && (systemScope || !itemBranch || allowedBranches.has(itemBranch) || itemBranch === branchId)
+        const selectable = item.data()?.status !== 'inactive'
+          && (systemScope || !itemBranch || allowedBranches.has(itemBranch) || itemBranch === branchId)
+        // Keep legacy assignees visible on the exact authorized contract so
+        // an Admin can explicitly remove a stale cross-branch/inactive link.
+        return selectable || referencedAssigneeIds.has(item.id)
       })
-      .map((item) => ({ id: item.id, name: bounded(item.data()?.name, 160) || item.id, branchId: bounded(item.data()?.branchId, 200) || null }))
+      .map((item) => {
+        const itemBranch = bounded(item.data()?.branchId, 200) || null
+        return {
+          id: item.id,
+          name: bounded(item.data()?.name, 160) || item.id,
+          branchId: itemBranch,
+          branchName: itemBranch ? branchNames.get(itemBranch) || null : null,
+          status: item.data()?.status === 'inactive' ? 'inactive' : 'active',
+          referencedByContract: referencedAssigneeIds.has(item.id),
+        }
+      })
       .sort((left, right) => left.name.localeCompare(right.name, 'vi'))
     return {
       schemaVersion: 1,
@@ -1644,11 +1683,15 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
         const assigneeIds = [...new Set([...trainerIds, ...nutritionPTIds])]
         if (assigneeIds.length) {
           const assignees = await Promise.all(assigneeIds.map((id) => transaction.get(db.doc(`trainers/${documentId(id, 'Nhân sự')}`))))
-          assignees.forEach((item) => {
-            if (!item.exists || item.data()?.status === 'inactive') throw new HttpsError('failed-precondition', 'Một PT/coach đã chọn không còn hoạt động.')
-            const assigneeBranch = bounded(item.data()?.branchId, 200)
-            if (assigneeBranch && assigneeBranch !== requestedBranchId) throw new HttpsError('failed-precondition', 'PT/coach phải thuộc cùng chi nhánh hợp đồng.')
-          })
+          const invalidAssignees = contractAssigneeIssues(assigneeIds, assignees, requestedBranchId)
+          if (invalidAssignees.length) {
+            const names = invalidAssignees.map((item) => item.name).join(', ')
+            throw new HttpsError(
+              'failed-precondition',
+              `Không thể lưu vì PT/coach cần xử lý: ${names}. Hãy gỡ hoặc chọn lại người cùng chi nhánh.`,
+              { issueCode: 'CONTRACT_ASSIGNEE_INVALID', assignees: invalidAssignees },
+            )
+          }
         }
         const startDate = contractDateKey(input.startDate || current?.startDate, 'Ngày bắt đầu')
         const endDate = contractDateKey(input.endDate || current?.endDate || addCalendarMonths(startDate, packageValue.durationMonths), 'Ngày kết thúc')
@@ -2157,6 +2200,7 @@ module.exports = {
   buildStudent360Projection,
   contractUsage,
   contractInstallments,
+  contractAssigneeIssues,
   contractMutationTitle,
   createStudent360Functions,
   permissionsFor,
