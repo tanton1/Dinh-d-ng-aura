@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import {
   friendlyReadOnlyCallableMessage,
@@ -50,6 +51,20 @@ test('raw internal and rate limit failures become actionable Vietnamese messages
   assert.equal(isRetryableReadOnlyCallableError({ message: 'Rate exceeded.' }), true)
   assert.doesNotMatch(friendlyReadOnlyCallableMessage({ code: 'functions/internal', message: 'internal' }), /^internal$/i)
   assert.match(friendlyReadOnlyCallableMessage({ code: 'functions/resource-exhausted', message: 'Rate exceeded.' }), /nhiều lượt truy cập/)
+})
+
+test('Operations dashboard uses the bounded read-only retry and auth recovery path', () => {
+  const source = readFileSync(new URL('../src/services/operationsDashboardService.ts', import.meta.url), 'utf8')
+  const dashboardLoader = source.slice(
+    source.indexOf('export async function getOperationsDashboard'),
+    source.indexOf('export async function listStaffAttendance'),
+  )
+
+  assert.match(source, /import \{ callReadOnlyFunction \} from '\.\/readOnlyCallableService'/)
+  assert.match(dashboardLoader, /callReadOnlyFunction<[^>]+, unknown>\('getOperationsDashboard', input, \{/)
+  assert.match(dashboardLoader, /timeoutMs: 30_000/)
+  assert.match(dashboardLoader, /maximumAttempts: 2/)
+  assert.doesNotMatch(dashboardLoader, /httpsCallable/)
 })
 
 test('Staff student detail makes legacy and malformed callable rows safe to render', () => {

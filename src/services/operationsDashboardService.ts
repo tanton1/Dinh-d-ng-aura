@@ -1,12 +1,27 @@
 import { httpsCallable } from 'firebase/functions'
 import { firebaseFunctions } from '../lib/firebaseFunctions'
 import { normalizeOperationsDashboardData, type OperationsDashboardData } from '../utils/operationsDashboardNormalization'
+import { reportClientIssue } from './clientTelemetryService'
+import { callReadOnlyFunction } from './readOnlyCallableService'
 export type { DashboardActionMetric, OperationsDashboardData } from '../utils/operationsDashboardNormalization'
 
 const dashboardPreviewEnabled = import.meta.env.MODE === 'e2e'
 const dashboardRequests = new Map<string, Promise<OperationsDashboardData>>()
 const dashboardResponses = new Map<string, { value: OperationsDashboardData; expiresAt: number }>()
 const DASHBOARD_CLIENT_CACHE_MS = 15_000
+
+function normalizeDashboardResponse(response: unknown) {
+  try {
+    return normalizeOperationsDashboardData(response)
+  } catch (error) {
+    reportClientIssue('firestore', error, {
+      phase: 'normalize_operations_dashboard',
+      route: typeof window === 'undefined' ? '' : window.location.hash,
+      retryable: false,
+    })
+    throw new Error('Dữ liệu Tổng quan phản hồi chưa đúng định dạng. Aura đã ghi nhận lỗi để đối soát.', { cause: error })
+  }
+}
 
 function previewDashboard(input: { startAt?: string; endAt?: string; branchId?: string }) {
   const startAt = input.startAt || '2026-08-01T00:00:00.000+07:00'
@@ -88,8 +103,11 @@ export async function getOperationsDashboard(input: { startAt?: string; endAt?: 
   } else {
     dashboardResponses.delete(requestKey)
   }
-  const pending = httpsCallable<typeof input, unknown>(firebaseFunctions, 'getOperationsDashboard', { timeout: 30_000 })(input)
-    .then((result) => normalizeOperationsDashboardData(result.data))
+  const pending = callReadOnlyFunction<typeof input, unknown>('getOperationsDashboard', input, {
+    timeoutMs: 30_000,
+    maximumAttempts: 2,
+  })
+    .then(normalizeDashboardResponse)
     .then((value) => {
       dashboardResponses.set(requestKey, { value, expiresAt: Date.now() + DASHBOARD_CLIENT_CACHE_MS })
       return value

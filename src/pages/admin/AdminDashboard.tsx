@@ -61,6 +61,7 @@ function dashboardErrorMessage(error: unknown) {
   if (code.includes('permission-denied')) return 'Tài khoản chưa có quyền xem Tổng quan hoặc phạm vi chi nhánh chưa được đồng bộ.'
   if (code.includes('unauthenticated')) return 'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại để tải Tổng quan.'
   if (code.includes('resource-exhausted')) return 'Dữ liệu trong kỳ quá lớn. Hãy chọn khoảng thời gian ngắn hơn rồi thử lại.'
+  if (error instanceof Error && error.message.trim()) return error.message.trim()
   return 'Dịch vụ Tổng quan chưa phản hồi. Các số liệu cũ không được giả định là dữ liệu mới.'
 }
 
