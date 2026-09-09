@@ -126,7 +126,11 @@ test.describe('Home V3 mobile layout', () => {
   })
 
   test('uses the same remaining kcal on Home and Nutrition and ignores a legacy target override', async ({ page }) => {
-    const homeValue = (await page.getByTestId('today-status-nutrition').locator('strong').first().textContent())?.trim()
+    const homeCalories = page.getByTestId('today-status-nutrition').locator('strong').first()
+    // Demo profile hydration runs after first paint; do not capture the initial
+    // unconfigured placeholder as if it were a confirmed nutrition target.
+    await expect(homeCalories).toHaveText(/^\d[\d.,]*$/)
+    const homeValue = (await homeCalories.textContent())?.trim()
     expect(homeValue).toBeTruthy()
     expect(homeValue).not.toBe('2.084')
 

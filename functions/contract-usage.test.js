@@ -112,9 +112,11 @@ test('exact history projection contract remains the terminal projection source',
   assert.match(source, /afterUsed > safeCount\(contract\.totalSessions\) \? 'over_entitlement' : 'matched'/)
 })
 
-test('student detail always exposes callable history and explains charged attendance pending', () => {
-  const source = readFileSync(path.join(__dirname, '..', 'src', 'components', 'admin', 'pt', 'StudentDetail.tsx'), 'utf8')
-  assert.match(source, /id: 'history'.+visible: true/)
-  assert.match(source, /chargedPendingAttendanceSessions/)
-  assert.match(source, />Chờ PT</)
+test('Student 360 exposes callable history and explains pending contract reconciliation', () => {
+  const source = readFileSync(path.join(__dirname, '..', 'src', 'features', 'student-360', 'Student360ContractWorkspace.tsx'), 'utf8')
+  const history = readFileSync(path.join(__dirname, '..', 'src', 'components', 'admin', 'pt', 'TrainingHistoryPanel.tsx'), 'utf8')
+  assert.match(source, /getStudent360ContractWorkspace/)
+  assert.match(source, /pendingReconciliationSessions/)
+  assert.match(source, /chờ đối soát/)
+  assert.match(history, /listStudentTrainingHistory/)
 })

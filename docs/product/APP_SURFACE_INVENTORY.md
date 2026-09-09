@@ -49,7 +49,7 @@ component; reference and production-traffic verification are required first.
 | `staff-availability` | `pt.availability.self.manage` | Canonical | Revisioned personal PT availability |
 | `staff-requests` | `coach.workspace.view` | Canonical | Session change/cancel request callables |
 | `staff-nutrition-reviews` | `coach.workspace.view` plus server assignment scope | Canonical | Shared nutrition review workspace with SLA and server redaction |
-| `staff-quotes` | `sales.quotes.self.manage` | Transitional | Quote browser writes must move to idempotent callable commands |
+| `staff-quotes` | `sales.quotes.self.manage` | Transitional | Staff sales callables remain; consolidate wire contracts only after scope/parity verification |
 | `staff-renewals` | `renewals.workspace.view` | Canonical | Renewal queue overlays `contractUsageViews`; mutations remain sales scoped |
 | `staff-payroll` | `payroll.self.view` | Canonical | Self-only payroll callable; never grants admin payroll access |
 | `staff-performance` | `performance.self.view` or `performance.evidence.review` | Canonical | Navigation and route admission must use this union, not `dashboard.view` |
@@ -78,8 +78,8 @@ component; reference and production-traffic verification are required first.
 | `admin-hr` | `identity.staff_position.manage` · Canonical | users, assignments, branch scope | Replace legacy multi-collection listeners gradually |
 | `admin-payroll` | `payroll.operations.manage` · Canonical | payroll v2 callables | Never merge Performance into Payroll |
 | `admin-packages` | `pt.operations.manage` · Transitional read | package collection plus revisioned package commands | Browser writes are blocked; replace the remaining collection listener with a bounded query after quote/settings migration |
-| `admin-quotes` | `sales.operations.manage` · Transitional | quotes and contract directory | Remove direct schedule/quote writes |
-| `admin-schedule-settings` | `pt.operations.manage` · Transitional | schedule config | Add server capability, revision and audit |
+| `admin-quotes` | `sales.operations.manage` · Transitional | scoped quote-management callables | Verify production revisions and consolidate Staff/Admin read contracts |
+| `admin-schedule-settings` | `pt.operations.manage` · Transitional | schedule config and revisioned save callable | Retain settings read adapter until scoped read migration |
 | `admin-nutrition-reviews` | `nutrition.meals.all.review` · Canonical | shared review workspace | Keep meal detail redacted by scope |
 | `admin-eat-clean` | `eat_clean.operations.manage` · Canonical | Eat Clean operations callables | Verify finance/order capability separation |
 | `admin-notifications` | `identity.staff_position.manage`; rollout requires Super Admin · Canonical | notification and UI rollout config | Audit every rollout mutation |
@@ -103,16 +103,18 @@ telemetry demonstrates that saved links and old clients no longer use them.
 
 ## Orphan and duplicate-code candidates
 
-These are removal candidates, not deletion instructions:
+The following unreachable source trees were removed in the safe local cleanup on 2026-09-09. Their recovery references are in `scripts/legacy-surfaces-manifest.json`. Canonical routes and compatibility redirects remain. This is source cleanup, not confirmation of production rollout or permission to delete backing data.
 
-| Candidate | Reason | Required evidence before removal |
+| Retired source | Reason | Replacement / retained contract |
 | --- | --- | --- |
-| `src/pages/student/MealPlanPage.tsx` | Replaced by Nutrition Plan section | zero imports, route telemetry, storage-key parity |
-| `src/components/admin/pt/StudentDetail.tsx` | Replaced by Student 360 | zero imports, Staff/Admin workflow parity |
-| legacy `AdminDashboard` / `AdminReportDashboard` tree | Replaced by `admin-dashboard` | redirect telemetry and KPI parity |
-| `PersonalDashboard` | No canonical route | dependency graph and traffic check |
-| `AdminTeamHub` | HR is canonical | role-management parity and traffic check |
-| `MigrationTool` | Operational scripts are canonical | confirm no package/workflow/runtime reference |
+| `src/pages/student/MealPlanPage.tsx` | Replaced by the connected Nutrition Plan section | Removed; connected renderer and its shared CSS remain |
+| `src/components/admin/pt/StudentDetail.tsx` | Replaced by Student 360 | Removed with exclusive modal/helper tree; tests transferred to canonical workspace |
+| legacy `AdminDashboard` / `AdminReportDashboard` tree | Replaced by `admin-dashboard` | Removed; finance safety checks transferred to live dashboard |
+| `PersonalDashboard` | No canonical route | Removed with exclusive food/check-in helpers |
+| `AdminTeamHub` | HR is canonical | Removed; `AdminRolesPage` and current payroll panels remain |
+| `MigrationTool` | Operational scripts are canonical | Removed; production migration/verification tools remain |
+
+Still live and deliberately retained: `classic-diary`, `ConnectedMealPlanPage`, the demo scheduler/worker, `TrainerPortalV2`, Student 360 Regional/fallback endpoints, and both old/new data schemas. Their retirement needs separate business/data verification.
 
 ## Migration order
 

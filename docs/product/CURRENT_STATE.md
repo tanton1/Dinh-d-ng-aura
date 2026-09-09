@@ -2,6 +2,14 @@
 
 Last reviewed: 2026-09-09
 
+## Safe source cleanup (local; not deployed)
+
+- Removed 41 unreachable legacy TS/TSX modules and 161 one-off root patch scripts. Immutable Git blob/commit recovery references are recorded in `scripts/legacy-surfaces-manifest.json` and `scripts/archive-manifest.json`.
+- Contract, finance and request UI contract tests now cover the live Student 360, Admin Dashboard and Operations Request Center instead of retired components.
+- Kept all compatibility redirects, shared CSS, public export barrels, canonical business APIs and legacy production data fallbacks. No Firestore/Storage/Auth data, deployed Function, or migration was changed by this cleanup.
+- Progress photo cache accepts empty snapshots and resets private component state by owner; old cache keys remain compatible with the photo studio.
+- See `docs/operations/SAFE_CLEANUP.md` for recovery and remaining cleanup gates.
+
 ## Canonical capabilities
 
 | Domain | Current source of truth | Read models / adapters |
@@ -32,7 +40,7 @@ Last reviewed: 2026-09-09
 - Contract usage fallback cannot be disabled until projection verification reaches the agreed safe coverage.
 - Dashboard `actionSummary` remains for compatibility while Action Center pilot metrics are collected.
 - Large domain modules and legacy root scripts need gradual strangler/archive work after reference verification.
-- Admin quote generation and schedule settings remain the next direct-write paths to migrate after training packages.
+- Admin quote generation, schedule settings, student edits and branch management use callable commands. Remaining work is paginated reads and production revision verification, not a new browser-write migration.
 - Production release tooling resolves each deployed Function's actual Firebase region/service before promote, health-check and rollback; it no longer assumes every Function is in `asia-southeast1`.
 - The route, capability, data-source and deprecation contract is tracked in `APP_SURFACE_INVENTORY.md`.
 

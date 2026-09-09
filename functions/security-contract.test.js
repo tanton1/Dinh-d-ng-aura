@@ -25,7 +25,7 @@ const auraTeamPolicySettingsSource = readFileSync(join(repositoryRoot, 'src', 'c
 const scheduleConfigManagementSource = readFileSync(join(__dirname, 'schedule-config-management.js'), 'utf8')
 const studentManagementSource = readFileSync(join(__dirname, 'student-management.js'), 'utf8')
 const branchManagementSource = readFileSync(join(__dirname, 'branch-management.js'), 'utf8')
-const addSessionsModalSource = readFileSync(join(repositoryRoot, 'src', 'components', 'admin', 'pt', 'AddSessionsModal.tsx'), 'utf8')
+const contractWorkspaceSource = readFileSync(join(repositoryRoot, 'src', 'features', 'student-360', 'Student360ContractWorkspace.tsx'), 'utf8')
 const renewContractModalSource = readFileSync(join(repositoryRoot, 'src', 'components', 'admin', 'pt', 'RenewContractModal.tsx'), 'utf8')
 const contractRenewalSource = readFileSync(join(__dirname, 'contract-renewals.js'), 'utf8')
 const adminRolesSource = readFileSync(join(repositoryRoot, 'src', 'pages', 'admin', 'AdminRolesPage.tsx'), 'utf8')
@@ -87,7 +87,10 @@ test('in-person PT programs and set logs are revisioned, actor-scoped and callab
 })
 
 const runtimeSource = readRuntimeSources(join(repositoryRoot, 'src'))
-const adminRuntimeSource = readRuntimeSources(join(repositoryRoot, 'src', 'components', 'admin'))
+const adminRuntimeSource = [
+  readRuntimeSources(join(repositoryRoot, 'src', 'components', 'admin')),
+  readRuntimeSources(join(repositoryRoot, 'src', 'pages', 'admin')),
+].join('\n')
 
 test('profile rules prevent client role and membership changes', () => {
   assert.match(rules, /function hasOnlySafeUserChanges\(\)/)
@@ -183,7 +186,8 @@ test('admin browser code cannot provision Firebase Auth users or use phone numbe
   assert.doesNotMatch(adminRuntimeSource, /\bgetAuth\s*\(/)
   assert.doesNotMatch(adminRuntimeSource, /\binitializeApp\s*\(/)
   assert.doesNotMatch(adminRuntimeSource, /password\s*[:=][^\n]*(?:phone|phoneNumber|student\.phone)/i)
-  assert.match(adminRuntimeSource, /createAccountInvite/)
+  assert.match(adminRuntimeSource, /await provisionStudentAccount\(/)
+  assert.match(adminRuntimeSource, /await provisionStaffAccount\(/)
 })
 
 test('account invitation duplicate checks do not depend on an undeployed compound index', () => {
@@ -236,12 +240,10 @@ test('Firestore rules deny hard-delete of legacy finance and all browser session
   assert.doesNotMatch(sessionsBlock, /allow[^;]*(?:create|update|delete)[^;]*if isAdmin\(\)/)
 })
 
-test('unsafe purchase stays locked while contract renewal uses one server transaction', () => {
-  const purchaseSubmit = addSessionsModalSource.match(/const handleSubmit[\s\S]*?\n  \};/)?.[0] ?? ''
-
-  assert.doesNotMatch(purchaseSubmit, /onSave|addPayment|addContract|updateContract|setDoc|updateDoc/)
-  assert.match(addSessionsModalSource, /Tạm khóa để bảo vệ sổ tài chính/)
-  assert.match(addSessionsModalSource, /type="submit"[\s\S]*?disabled[\s\S]*?Đang nâng cấp an toàn/)
+test('additional sessions and renewal use canonical commands instead of legacy browser writes', () => {
+  assert.match(contractWorkspaceSource, /action: 'add_sessions'/)
+  assert.match(contractWorkspaceSource, /await mutateStudent360Contract\(/)
+  assert.doesNotMatch(contractWorkspaceSource, /\b(?:addPayment|addContract|updateContract|setDoc|updateDoc|deleteDoc)\s*\(/)
   assert.match(renewContractModalSource, /await renewPtContract\(/)
   assert.doesNotMatch(renewContractModalSource, /addPayment|addContract|updateContract|setDoc|updateDoc/)
   const renewalCallable = contractRenewalSource.match(/const renewPtContract = renewalCall[\s\S]*?\n  \}\)/)?.[0] ?? ''

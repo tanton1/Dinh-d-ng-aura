@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { validateRetiredEntries, verifyRetiredSurfaces } from './verification/legacy-cleanup.mjs'
 
 const root = process.cwd()
 const forbidden = /^(fix|patch|rewrite|update)[^/]*\.(?:c?js|mjs|ts|tsx|py)$/i
@@ -37,7 +38,15 @@ const manifestPath = join(root, 'scripts/archive-manifest.json')
 if (existsSync(manifestPath)) {
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
   const entries = new Map((Array.isArray(manifest.entries) ? manifest.entries : []).map((entry) => [entry.legacyPath, entry]))
-  const trackedLegacy = git(['ls-files']).split(/\r?\n/).filter((file) => file && !file.includes('/') && forbidden.test(file))
+  const archived = [...entries.values()].filter((entry) => entry.status === 'archived_in_git')
+  const archiveErrors = validateRetiredEntries(root, archived)
+  if (archiveErrors.length) {
+    console.error(archiveErrors.join('\n'))
+    process.exitCode = 1
+  }
+  // Include untracked additions but not tracked deletions awaiting commit.
+  const trackedLegacy = git(['ls-files', '--cached', '--others', '--exclude-standard']).split(/\r?\n/)
+    .filter((file) => file && !file.includes('/') && forbidden.test(file) && existsSync(join(root, file)))
   const invalid = trackedLegacy.filter((file) => {
     const entry = entries.get(file)
     if (!entry || !existsSync(join(root, file))) return true
@@ -50,6 +59,12 @@ if (existsSync(manifestPath)) {
   }
 } else {
   console.error('scripts/archive-manifest.json is required.')
+  process.exitCode = 1
+}
+
+const surfaceErrors = verifyRetiredSurfaces(root)
+if (surfaceErrors.length) {
+  console.error(surfaceErrors.join('\n'))
   process.exitCode = 1
 }
 
