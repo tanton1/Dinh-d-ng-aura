@@ -44,3 +44,34 @@
   .pt-workout-workspace__logger>footer{bottom:calc(88px + env(safe-area-inset-bottom));margin-right:56px;flex-wrap:wrap}
   .pt-workout-workspace__autosave{width:100%;text-align:center}
 }
+
+.pt-workout-workspace__student-picker{position:relative;z-index:12;display:grid;gap:3px;width:min(390px,100%);min-width:280px}
+.pt-workout-workspace__student-picker>label{color:#786870;font-size:9px;font-weight:900;letter-spacing:.1em;text-transform:uppercase}
+.pt-workout-workspace__student-search{display:flex;align-items:center;gap:8px;min-height:42px;border:1px solid #ead9df;border-radius:12px;background:#fff;padding:0 9px}
+.pt-workout-workspace__student-search:focus-within{border-color:#d55b88;box-shadow:0 0 0 3px rgba(245,47,123,.1)}
+.pt-workout-workspace__student-search>svg{width:17px;flex:none;color:#c43d70}
+.pt-workout-workspace__student-search input{width:100%;min-width:0;min-height:39px;border:0!important;outline:0;background:transparent!important;padding:0!important;color:#282027;font-size:13px;font-weight:750}
+.pt-workout-workspace__student-search button{display:grid;place-items:center;width:28px;height:28px;flex:none;border:0;border-radius:9px;background:#f8eef2;color:#806771}
+.pt-workout-workspace__student-search button svg{width:14px}
+.pt-workout-workspace__student-results{position:absolute;top:100%;left:0;right:0;z-index:20;display:grid;max-height:330px;margin-top:5px;padding:6px;overflow-y:auto;border:1px solid #ead9df;border-radius:15px;background:#fff;box-shadow:0 18px 38px rgba(61,34,47,.16)}
+.pt-workout-workspace__student-results>button{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;min-height:48px;border:0;border-radius:10px;background:transparent;padding:7px 9px;color:#34272e;text-align:left}
+.pt-workout-workspace__student-results>button:hover,.pt-workout-workspace__student-results>button:focus-visible,.pt-workout-workspace__student-results>button.is-selected{outline:0;background:#fff1f5;color:#9f2856}
+.pt-workout-workspace__student-results span{display:grid;gap:2px;min-width:0}.pt-workout-workspace__student-results strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}.pt-workout-workspace__student-results small{color:#88737d;font-size:10px}.pt-workout-workspace__student-results svg{width:16px;flex:none;color:#26835a}
+.pt-workout-workspace__student-results>p{margin:0;padding:15px 10px;color:#7d6973;text-align:center;font-size:11px}
+
+.pt-workout-workspace__day-navigation{display:flex;align-items:flex-end;gap:8px;margin-top:12px}
+.pt-workout-workspace__day-navigation .pt-workout-workspace__day-tabs{min-width:0;flex:1;margin-top:0}
+.pt-workout-workspace__delete-day{display:flex;align-items:center;justify-content:center;gap:6px;min-height:37px;flex:none;border:1px solid #f0c8c2;border-radius:11px;background:#fff7f5;padding:0 11px;color:#b42318;font-size:11px;font-weight:850;white-space:nowrap}
+.pt-workout-workspace__delete-day:hover:not(:disabled),.pt-workout-workspace__delete-day:focus-visible{outline:0;border-color:#d92d20;background:#fff0ed}.pt-workout-workspace__delete-day svg{width:14px}
+
+.pt-workout-workspace__dialog-backdrop{position:fixed;inset:0;z-index:1000;display:grid;place-items:center;padding:18px;background:rgba(29,20,25,.48);backdrop-filter:blur(5px)}
+.pt-workout-workspace__dialog{display:grid;grid-template-columns:46px minmax(0,1fr);gap:11px;width:min(440px,100%);border:1px solid rgba(255,255,255,.7);border-radius:22px;background:#fff;padding:18px;box-shadow:0 28px 70px rgba(44,23,33,.28)}
+.pt-workout-workspace__dialog-icon{display:grid;place-items:center;width:46px;height:46px;border-radius:15px;background:#fff0ed;color:#b42318}.pt-workout-workspace__dialog-icon svg{width:21px}
+.pt-workout-workspace__dialog span{color:#a33a32;font-size:9px;font-weight:850;letter-spacing:.13em}.pt-workout-workspace__dialog h2{margin:4px 0 0;color:#2d2228;font-size:20px}.pt-workout-workspace__dialog>p{grid-column:1/-1;margin:2px 0;color:#6f5d66;font-size:13px;line-height:1.55}
+.pt-workout-workspace__dialog-actions{grid-column:1/-1;display:flex;justify-content:flex-end;gap:8px;margin-top:3px}.pt-workout-workspace__dialog-actions button{min-height:42px;border:1px solid #e7dadd;border-radius:12px;background:#fff;padding:0 15px;color:#5f4d56;font-weight:800}.pt-workout-workspace__dialog-actions button.is-danger{border-color:#b42318;background:#b42318;color:#fff}.pt-workout-workspace__dialog-actions button:focus-visible{outline:3px solid rgba(38,122,80,.24);outline-offset:2px}
+
+@media(max-width:600px){
+  .pt-workout-workspace__student-picker{width:100%;min-width:0}.pt-workout-workspace__toolbar:has(.pt-workout-workspace__student-picker){display:grid;grid-template-columns:minmax(0,1fr) 42px}.pt-workout-workspace__student-results{position:fixed;top:auto;right:10px;bottom:calc(92px + env(safe-area-inset-bottom));left:10px;max-height:min(52vh,420px)}
+  .pt-workout-workspace__day-navigation{align-items:stretch;flex-direction:column}.pt-workout-workspace__delete-day{align-self:flex-end}
+  .pt-workout-workspace__dialog-backdrop{align-items:end;padding:10px}.pt-workout-workspace__dialog{border-radius:23px;padding:17px}.pt-workout-workspace__dialog-actions button{flex:1}
+}

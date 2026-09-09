@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Activity, AlertTriangle, BarChart3, BookOpen, CalendarDays, Check, ChevronRight, Dumbbell,
-  History, Plus, RefreshCw, Save, Search, Sparkles, Target, Trash2, Users, Weight,
+  History, Plus, RefreshCw, Save, Search, Sparkles, Target, Trash2, Users, Weight, X,
 } from 'lucide-react'
 import { listExerciseCatalog } from '../../services/exerciseCatalogService'
 import type { ExerciseCatalogItem } from '../../types'
@@ -29,6 +29,9 @@ type WorkspaceTab = 'today' | 'program' | 'library' | 'history'
 const dateFormatter = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit', day: '2-digit' })
 function todayKey() { return dateFormatter.format(new Date()) }
 function clone<T>(value: T): T { return JSON.parse(JSON.stringify(value)) as T }
+function normalizeSearchText(value: string) {
+  return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[đĐ]/g, 'd').toLocaleLowerCase('vi-VN').trim()
+}
 function emptyProgram(): PtTrainingProgram {
   return {
     title: 'Giáo án PT Aura', goal: '', coachNotes: '', status: 'active', revision: 0,
@@ -115,6 +118,8 @@ export default function PtWorkoutWorkspacePage({ isDemo = false, canPublishCatal
   const [trainerFilter, setTrainerFilter] = useState('all')
   const [workspace, setWorkspace] = useState<PtWorkoutWorkspace>({ sessions: [], students: [], programs: [], logs: [] })
   const [selectedStudentId, setSelectedStudentId] = useState(initialStudentId)
+  const [studentSearchQuery, setStudentSearchQuery] = useState('')
+  const [studentPickerOpen, setStudentPickerOpen] = useState(false)
   const [selectedSessionId, setSelectedSessionId] = useState('')
   const [programDraft, setProgramDraft] = useState<PtTrainingProgram>(emptyProgram)
   const [selectedDayId, setSelectedDayId] = useState('')
@@ -132,13 +137,23 @@ export default function PtWorkoutWorkspacePage({ isDemo = false, canPublishCatal
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const [pendingDeleteDayId, setPendingDeleteDayId] = useState('')
+  const deleteConfirmRef = useRef<HTMLButtonElement>(null)
 
   const studentMap = useMemo(() => new Map(workspace.students.map((student) => [student.id, student])), [workspace.students])
   const eligibleStudents = useMemo(() => workspace.students.filter((student) => student.eligibleForNewProgram !== false && student.assignmentSource !== 'teaching_session'), [workspace.students])
+  const matchingStudents = useMemo(() => {
+    const query = normalizeSearchText(studentSearchQuery)
+    return eligibleStudents
+      .filter((student) => !query || normalizeSearchText(`${student.name} ${student.phone || ''}`).includes(query))
+      .sort((left, right) => left.name.localeCompare(right.name, 'vi'))
+      .slice(0, 10)
+  }, [eligibleStudents, studentSearchQuery])
   const programMap = useMemo(() => new Map(workspace.programs.map((program) => [program.studentId || program.id || '', program])), [workspace.programs])
   const selectedSession = workspace.sessions.find((session) => session.id === selectedSessionId) || null
   const selectedProgram = programMap.get(selectedStudentId) || null
   const selectedDay = programDraft.trainingDays.find((day) => day.id === selectedDayId) || programDraft.trainingDays[0]
+  const pendingDeleteDay = programDraft.trainingDays.find((day) => day.id === pendingDeleteDayId) || null
   const selectedLog = workspace.logs.find((log) => log.sessionId === selectedSessionId && log.studentId === selectedStudentId) || null
   const branchOptions = useMemo(() => [...new Map(workspace.sessions.filter((session) => session.branchId).map((session) => [session.branchId as string, session.branchName || 'Chi nhánh Aura'])).entries()], [workspace.sessions])
   const trainerOptions = useMemo(() => [...new Map(workspace.sessions.filter((session) => session.trainerId).map((session) => [session.trainerId, session.trainerName || 'PT Aura'])).entries()], [workspace.sessions])
@@ -199,6 +214,18 @@ export default function PtWorkoutWorkspacePage({ isDemo = false, canPublishCatal
     setProgramDraft(next)
     setSelectedDayId(next.trainingDays[0]?.id || '')
   }, [selectedProgram, selectedStudentId])
+  useEffect(() => {
+    setStudentSearchQuery(studentMap.get(selectedStudentId)?.name || '')
+  }, [selectedStudentId, studentMap])
+  useEffect(() => {
+    if (!pendingDeleteDayId) return
+    deleteConfirmRef.current?.focus()
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !saving) setPendingDeleteDayId('')
+    }
+    window.addEventListener('keydown', closeOnEscape)
+    return () => window.removeEventListener('keydown', closeOnEscape)
+  }, [pendingDeleteDayId, saving])
   useEffect(() => {
     if (!selectedSession || !selectedDay) { setSets([]); return }
     const log = workspace.logs.find((item) => item.sessionId === selectedSession.id && item.studentId === selectedSession.studentId)
@@ -262,29 +289,62 @@ export default function PtWorkoutWorkspacePage({ isDemo = false, canPublishCatal
     updateDay((day) => ({ ...day, exercises: [...day.exercises, exerciseFromCatalog(item)] }))
   }
 
-  const saveProgram = async () => {
-    if (!selectedStudentId || !programDraft.trainingDays.every((day) => day.exercises.length)) { setError('Mỗi buổi giáo án cần ít nhất một bài tập.'); return }
+  const saveProgram = async (
+    draft: PtTrainingProgram = programDraft,
+    options: { successMessage?: string; stayOnProgram?: boolean; nextDayId?: string } = {},
+  ) => {
+    if (!selectedStudentId || !draft.trainingDays.every((day) => day.exercises.length)) { setError('Mỗi buổi giáo án cần ít nhất một bài tập.'); return false }
     setSaving(true); setError('')
     try {
       if (isDemo) {
-        const next = { ...programDraft, studentId: selectedStudentId, revision: programDraft.revision + 1 }
+        const next = { ...draft, studentId: selectedStudentId, revision: draft.revision + 1 }
         setWorkspace((current) => ({ ...current, programs: [...current.programs.filter((item) => (item.studentId || item.id) !== selectedStudentId), next] }))
         setProgramDraft(next)
       } else {
         const result = await savePtStudentTrainingPlan({
-          studentId: selectedStudentId, expectedRevision: programDraft.revision,
-          program: { title: programDraft.title, goal: programDraft.goal, coachNotes: programDraft.coachNotes, status: programDraft.status, trainingDays: programDraft.trainingDays },
+          studentId: selectedStudentId, expectedRevision: draft.revision,
+          program: { title: draft.title, goal: draft.goal, coachNotes: draft.coachNotes, status: draft.status, trainingDays: draft.trainingDays },
         })
-        const next = { ...clone(programDraft), id: selectedStudentId, studentId: selectedStudentId, revision: result.revision }
+        const next = { ...clone(draft), id: selectedStudentId, studentId: selectedStudentId, revision: result.revision }
         setProgramDraft(next)
         setWorkspace((current) => ({
           ...current,
           programs: [...current.programs.filter((item) => (item.studentId || item.id) !== selectedStudentId), next],
         }))
       }
-      setNotice('Đã lưu giáo án.'); setTab('today')
-    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Không thể lưu giáo án.') }
+      if (options.nextDayId) setSelectedDayId(options.nextDayId)
+      setNotice(options.successMessage || 'Đã lưu giáo án.')
+      if (!options.stayOnProgram) setTab('today')
+      return true
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Không thể lưu giáo án.'); return false }
     finally { setSaving(false) }
+  }
+
+  const requestDeleteDay = () => {
+    if (!selectedDay) return
+    if (programDraft.trainingDays.length <= 1) {
+      setError('Giáo án phải còn ít nhất một buổi. Hãy thêm buổi mới trước khi xóa buổi này.')
+      return
+    }
+    setError(''); setNotice(''); setPendingDeleteDayId(selectedDay.id)
+  }
+
+  const confirmDeleteDay = async () => {
+    if (!pendingDeleteDay) return
+    const remainingDays = programDraft.trainingDays
+      .filter((day) => day.id !== pendingDeleteDay.id)
+      .map((day, order) => ({ ...day, order }))
+    const currentIndex = programDraft.trainingDays.findIndex((day) => day.id === pendingDeleteDay.id)
+    const nextDay = remainingDays[Math.min(currentIndex, remainingDays.length - 1)]
+    const saved = await saveProgram(
+      { ...programDraft, trainingDays: remainingDays },
+      {
+        successMessage: `Đã xóa ${pendingDeleteDay.title} khỏi giáo án. Lịch sử tập và mức tạ cũ vẫn được giữ nguyên.`,
+        stayOnProgram: true,
+        nextDayId: nextDay?.id,
+      },
+    )
+    if (saved) setPendingDeleteDayId('')
   }
 
   const saveLog = async (status: 'draft' | 'completed') => {
@@ -357,7 +417,37 @@ export default function PtWorkoutWorkspacePage({ isDemo = false, canPublishCatal
         {tab === 'today' && <label>Ngày tập<input type="date" value={date} onChange={(event) => setDate(event.target.value)} /></label>}
         {tab === 'today' && branchOptions.length > 1 && <label>Chi nhánh<select value={branchFilter} onChange={(event) => setBranchFilter(event.target.value)}><option value="all">Tất cả</option>{branchOptions.map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></label>}
         {tab === 'today' && trainerOptions.length > 1 && <label>PT<select value={trainerFilter} onChange={(event) => setTrainerFilter(event.target.value)}><option value="all">Tất cả</option>{trainerOptions.map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></label>}
-        {(tab === 'program' || tab === 'history') && <label>Học viên<select value={selectedStudentId} onChange={(event) => setSelectedStudentId(event.target.value)}><option value="">Chọn học viên</option>{eligibleStudents.map((student) => <option key={student.id} value={student.id}>{student.name}</option>)}</select></label>}
+        {(tab === 'program' || tab === 'history') && <div className="pt-workout-workspace__student-picker">
+          <label htmlFor="pt-workout-student-search">Tìm học viên</label>
+          <div className="pt-workout-workspace__student-search">
+            <Search aria-hidden="true" />
+            <input
+              id="pt-workout-student-search"
+              value={studentSearchQuery}
+              onFocus={(event) => { event.currentTarget.select(); setStudentPickerOpen(true) }}
+              onBlur={() => window.setTimeout(() => setStudentPickerOpen(false), 120)}
+              onChange={(event) => { setStudentSearchQuery(event.target.value); setStudentPickerOpen(true) }}
+              placeholder="Nhập tên hoặc số điện thoại"
+              autoComplete="off"
+              aria-label="Tìm nhanh học viên theo tên hoặc số điện thoại"
+              aria-expanded={studentPickerOpen}
+              aria-controls="pt-workout-student-results"
+            />
+            {studentSearchQuery && <button type="button" aria-label="Xóa nội dung tìm kiếm" onMouseDown={(event) => event.preventDefault()} onClick={() => { setStudentSearchQuery(''); setStudentPickerOpen(true) }}><X /></button>}
+          </div>
+          {studentPickerOpen && <div id="pt-workout-student-results" className="pt-workout-workspace__student-results" role="listbox" aria-label="Kết quả học viên">
+            {matchingStudents.map((student) => <button
+              type="button"
+              role="option"
+              aria-selected={student.id === selectedStudentId}
+              className={student.id === selectedStudentId ? 'is-selected' : ''}
+              key={student.id}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => { setSelectedStudentId(student.id); setStudentSearchQuery(student.name); setStudentPickerOpen(false) }}
+            ><span><strong>{student.name}</strong><small>{student.phone || 'Chưa có số điện thoại'}</small></span>{student.id === selectedStudentId && <Check />}</button>)}
+            {!matchingStudents.length && <p>Không tìm thấy học viên còn hợp đồng.</p>}
+          </div>}
+        </div>}
         <button className="pt-workout-workspace__refresh" onClick={() => void load(true)} disabled={loading}><RefreshCw />{loading ? 'Đang tải' : 'Làm mới'}</button>
       </div>
 
@@ -409,7 +499,10 @@ export default function PtWorkoutWorkspacePage({ isDemo = false, canPublishCatal
           <div className="pt-workout-workspace__program-editor">
             <header><div><span>GIÁO ÁN ĐANG ÁP DỤNG</span><h2>{studentMap.get(selectedStudentId)?.name}</h2></div><em>Revision {programDraft.revision}</em></header>
             <div className="pt-workout-workspace__program-fields"><label>Tên giáo án<input value={programDraft.title} onChange={(event) => setProgramDraft((current) => ({ ...current, title: event.target.value }))} /></label><label>Mục tiêu<input value={programDraft.goal} onChange={(event) => setProgramDraft((current) => ({ ...current, goal: event.target.value }))} placeholder="Tăng cơ mông, cải thiện sức mạnh…" /></label></div>
-            <div className="pt-workout-workspace__day-tabs">{programDraft.trainingDays.map((day) => <button key={day.id} className={day.id === selectedDay?.id ? 'is-active' : ''} onClick={() => setSelectedDayId(day.id)}>{day.title}</button>)}<button onClick={() => { const id = crypto.randomUUID(); setProgramDraft((current) => ({ ...current, trainingDays: [...current.trainingDays, { id, title: `Buổi ${current.trainingDays.length + 1}`, focusMuscles: [], notes: '', order: current.trainingDays.length, exercises: [] }] })); setSelectedDayId(id) }}><Plus />Buổi</button></div>
+            <div className="pt-workout-workspace__day-navigation">
+              <div className="pt-workout-workspace__day-tabs">{programDraft.trainingDays.map((day) => <button type="button" key={day.id} className={day.id === selectedDay?.id ? 'is-active' : ''} onClick={() => setSelectedDayId(day.id)}>{day.title}</button>)}<button type="button" onClick={() => { const id = crypto.randomUUID(); setProgramDraft((current) => ({ ...current, trainingDays: [...current.trainingDays, { id, title: `Buổi ${current.trainingDays.length + 1}`, focusMuscles: [], notes: '', order: current.trainingDays.length, exercises: [] }] })); setSelectedDayId(id) }}><Plus />Buổi</button></div>
+              <button type="button" className="pt-workout-workspace__delete-day" onClick={requestDeleteDay} disabled={!selectedDay || programDraft.trainingDays.length <= 1} title={programDraft.trainingDays.length <= 1 ? 'Giáo án phải còn ít nhất một buổi' : `Xóa ${selectedDay?.title || 'buổi này'}`}><Trash2 />Xóa buổi</button>
+            </div>
             {selectedDay && <>
               <div className="pt-workout-workspace__day-fields"><input value={selectedDay.title} onChange={(event) => updateDay((day) => ({ ...day, title: event.target.value }))} aria-label="Tên buổi" /><input value={selectedDay.focusMuscles.join(', ')} onChange={(event) => updateDay((day) => ({ ...day, focusMuscles: event.target.value.split(',').map((item) => item.trim()).filter(Boolean) }))} placeholder="Nhóm cơ: Mông, Đùi sau…" aria-label="Nhóm cơ" /></div>
               <div className="pt-workout-workspace__prescriptions">
@@ -441,6 +534,15 @@ export default function PtWorkoutWorkspacePage({ isDemo = false, canPublishCatal
           <div className="pt-workout-workspace__history-grid"><div><div className="pt-workout-workspace__section-title"><div><span>LỊCH SỬ</span><h2>Các buổi đã ghi</h2></div><History /></div>{history.logs.map((log) => <article className="pt-workout-workspace__history-log" key={log.id}><time>{log.date} · {String(log.hour).padStart(2, '0')}:00</time><div><b>{log.trainingDayTitle}</b><span>{log.metrics.completedSets} hiệp · {log.metrics.totalVolumeKg.toLocaleString('vi-VN')} kg</span></div><em className={log.status === 'completed' ? 'is-done' : ''}>{log.status === 'completed' ? 'Hoàn thành' : 'Nháp'}</em></article>)}{!history.logs.length && <div className="pt-workout-workspace__empty is-compact"><BarChart3 /><strong>Chưa có nhật ký</strong><span>Tiến bộ sẽ xuất hiện sau buổi tập đầu tiên.</span></div>}</div><aside><div className="pt-workout-workspace__section-title"><div><span>KỶ LỤC</span><h2>Mức tạ tốt nhất</h2></div><Sparkles /></div>{history.analytics.personalRecords.map((record) => <article key={record.catalogExerciseId}><span><b>{record.exerciseName}</b><small>Volume hiệp tốt nhất {record.maximumSetVolumeKg.toLocaleString('vi-VN')} kg</small></span><strong>{record.maximumWeightKg} kg</strong></article>)}</aside></div>
         </>}
       </section>}
+
+      {pendingDeleteDay && <div className="pt-workout-workspace__dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !saving) setPendingDeleteDayId('') }}>
+        <section className="pt-workout-workspace__dialog" role="dialog" aria-modal="true" aria-labelledby="delete-training-day-title" aria-describedby="delete-training-day-description">
+          <div className="pt-workout-workspace__dialog-icon"><Trash2 /></div>
+          <div><span>XÓA BUỔI GIÁO ÁN</span><h2 id="delete-training-day-title">Xóa “{pendingDeleteDay.title}”?</h2></div>
+          <p id="delete-training-day-description">Buổi này sẽ được xóa khỏi giáo án hiện tại của {studentMap.get(selectedStudentId)?.name || 'học viên'}. Các buổi đã tập, mức tạ và lịch sử tiến bộ trước đây vẫn được giữ nguyên.</p>
+          <div className="pt-workout-workspace__dialog-actions"><button type="button" onClick={() => setPendingDeleteDayId('')} disabled={saving}>Giữ lại</button><button ref={deleteConfirmRef} type="button" className="is-danger" onClick={() => void confirmDeleteDay()} disabled={saving}>{saving ? 'Đang xóa…' : 'Xóa buổi'}</button></div>
+        </section>
+      </div>}
     </main>
   )
 }

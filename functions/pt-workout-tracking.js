@@ -250,6 +250,13 @@ function normalizeProgramDraft(raw) {
   }
 }
 
+function deletedTrainingDays(previousProgram, nextProgram) {
+  const nextIds = new Set((nextProgram?.trainingDays || []).map((day) => text(day?.id, 100)).filter(Boolean))
+  return (previousProgram?.trainingDays || [])
+    .map((day) => ({ id: text(day?.id, 100), title: text(day?.title, 120) || 'Buổi tập' }))
+    .filter((day) => day.id && !nextIds.has(day.id))
+}
+
 async function hydrateProgramExercises(db, draft) {
   const ids = [...new Set(draft.trainingDays.flatMap((day) => day.exercises.map((exercise) => exercise.catalogExerciseId)))]
   const snapshots = await db.getAll(...ids.map((id) => db.doc(`exercises/${id}`)))
@@ -429,6 +436,7 @@ function createPtWorkoutTrackingFunctions({ db, onCall }) {
       const revision = current.exists ? integer(current.data().revision, 0, 0, 1_000_000) : 0
       if (revision !== expectedRevision) throw new HttpsError('aborted', 'Giáo án đã được cập nhật ở thiết bị khác. Hãy tải lại.', { issueCode: 'REVISION_CONFLICT', currentRevision: revision })
       const nextRevision = revision + 1
+      const removedDays = deletedTrainingDays(current.exists ? current.data() : null, hydrated)
       const payload = {
         ...hydrated,
         studentId,
@@ -443,7 +451,9 @@ function createPtWorkoutTrackingFunctions({ db, onCall }) {
       })
       transaction.create(db.collection('ptWorkoutAuditLogs').doc(), {
         schemaVersion: 1, action: 'training_program.saved', actorUid: actor.uid, studentId,
-        previousRevision: revision, nextRevision, createdAt: FieldValue.serverTimestamp(),
+        previousRevision: revision, nextRevision, trainingDayCount: hydrated.trainingDays.length,
+        ...(removedDays.length ? { changeType: 'training_days.deleted', removedDays } : {}),
+        createdAt: FieldValue.serverTimestamp(),
       })
       return { studentId, revision: nextRevision }
     })
@@ -533,6 +543,7 @@ function createPtWorkoutTrackingFunctions({ db, onCall }) {
 
 module.exports = {
   createPtWorkoutTrackingFunctions,
+  deletedTrainingDays,
   historyAnalytics,
   isEffectiveWorkoutContract,
   logDocumentId,

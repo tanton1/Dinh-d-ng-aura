@@ -1,6 +1,7 @@
 const assert = require('node:assert/strict')
 const test = require('node:test')
 const {
+  deletedTrainingDays,
   historyAnalytics,
   isEffectiveWorkoutContract,
   logDocumentId,
@@ -10,6 +11,14 @@ const {
   workoutMetrics,
   workoutSessionWriteIssue,
 } = require('./pt-workout-tracking')
+
+test('program deletion audit identifies removed days without touching retained days', () => {
+  const removed = deletedTrainingDays(
+    { trainingDays: [{ id: 'day-a', title: 'Mông đùi' }, { id: 'day-b', title: 'Thân trên' }] },
+    { trainingDays: [{ id: 'day-b', title: 'Thân trên' }] },
+  )
+  assert.deepEqual(removed, [{ id: 'day-a', title: 'Mông đùi' }])
+})
 
 test('program draft preserves muscle-day structure and bounded prescription', () => {
   const program = normalizeProgramDraft({ title: 'Mông đùi A', trainingDays: [{
