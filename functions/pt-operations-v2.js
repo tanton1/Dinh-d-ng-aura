@@ -6,7 +6,7 @@ const {
   completeSessionAttendanceTransaction,
   recordSessionAttendanceTransaction,
 } = require('./session-operations')
-const { assertSessionChangeDeadline, normalizedPtOperationsPolicy } = require('./pt-policy')
+const { assertSessionChangeDeadline, ptOperationsPolicySnapshot } = require('./pt-policy')
 const {
   effectiveStudentAvailability,
   loadLatestSubmittedFallbacks,
@@ -311,14 +311,15 @@ function availabilityWeekId(value) {
   return result
 }
 
-function availabilityCutoff(weekId) {
+function availabilityCutoff(weekId, policyValue = {}) {
+  const policy = ptOperationsPolicySnapshot(policyValue)
   const monday = Date.parse(`${weekId}T00:00:00+07:00`)
-  // 10:00 Sunday in Asia/Ho_Chi_Minh, fourteen hours before Monday 00:00.
-  return new Date(monday - 14 * 60 * 60 * 1000)
+  const daysBefore = (1 - policy.availabilityRegistrationCutoffDayOfWeek + 7) % 7 || 7
+  return new Date(monday - daysBefore * 24 * 60 * 60 * 1000 + policy.availabilityRegistrationCutoffHour * 60 * 60 * 1000)
 }
 
-function availabilityState(weekId, value, now = new Date()) {
-  const cutoff = availabilityCutoff(weekId)
+function availabilityState(weekId, value, now = new Date(), policyValue = {}) {
+  const cutoff = availabilityCutoff(weekId, policyValue)
   const locked = now.getTime() >= cutoff.getTime()
   const slots = Array.isArray(value?.slots) ? value.slots : []
   const source = value?.source || 'weekly'
@@ -470,7 +471,7 @@ function scheduleConfig(value = {}) {
   return {
     workingDays: workingDays.length ? [...new Set(workingDays)] : DEFAULT_WORKING_DAYS,
     workingHours: workingHours.length ? [...new Set(workingHours)].sort((left, right) => left - right) : DEFAULT_WORKING_HOURS,
-    ...normalizedPtOperationsPolicy(value),
+    ...ptOperationsPolicySnapshot(value),
   }
 }
 
@@ -892,7 +893,7 @@ function createPtOperationsV2Functions({ db, onCall }) {
       ? trainerSlotsWithoutOffDates(normalizedAvailabilitySlots(weeklyValue.slots || [], config, false), offDates, requestedWeekId)
       : null
     const slots = weeklySlots || baseSlots
-    const cutoff = requestedWeekId ? availabilityCutoff(requestedWeekId) : null
+    const cutoff = requestedWeekId ? availabilityCutoff(requestedWeekId, config) : null
     const reopenedUntil = weeklyValue?.reopenedUntil?.toDate?.() || (weeklyValue?.reopenedUntil ? new Date(weeklyValue.reopenedUntil) : null)
     const locked = Boolean(cutoff && Date.now() >= cutoff.getTime() && (!reopenedUntil || reopenedUntil.getTime() <= Date.now()))
     return serialize({
@@ -936,7 +937,7 @@ function createPtOperationsV2Functions({ db, onCall }) {
     const expectedRevision = integer(request.data?.expectedRevision, 0, 0, 1000000)
     if (requestedWeekId) {
       const reference = db.doc(`trainerAvailability/${profile.id}_${requestedWeekId}`)
-      const cutoffAt = availabilityCutoff(requestedWeekId)
+      const cutoffAt = availabilityCutoff(requestedWeekId, config)
       const submittedAtIso = new Date().toISOString()
       const result = await db.runTransaction(async (transaction) => {
         const [current, currentProfile] = await Promise.all([transaction.get(reference), transaction.get(profile.reference)])
@@ -1190,7 +1191,7 @@ function createPtOperationsV2Functions({ db, onCall }) {
     const availability = availabilityState(requestedAvailabilityWeekId, {
       ...storedAvailability,
       slots: normalizedAvailabilitySlots(storedAvailability.slots || [], config, false),
-    })
+    }, new Date(), config)
     return {
       schemaVersion: 4,
       linked: true,
@@ -1240,9 +1241,9 @@ function createPtOperationsV2Functions({ db, onCall }) {
     const minimumSlots = Math.max(5, requiredSessions)
     const confirmBelowMinimum = request.data?.confirmBelowMinimum === true
     const submittedAtIso = new Date().toISOString()
-    const cutoffAt = availabilityCutoff(weekId)
+    const cutoffAt = availabilityCutoff(weekId, config)
     if (Date.now() >= cutoffAt.getTime()) {
-      throw new HttpsError('failed-precondition', 'Lịch rảnh của tuần này đã khóa lúc 10:00 Chủ nhật.', {
+      throw new HttpsError('failed-precondition', 'Lịch rảnh của tuần này đã khóa theo thời hạn đăng ký đang áp dụng.', {
         issueCode: 'AVAILABILITY_LOCKED',
         action: 'contact_admin',
         cutoffAt: cutoffAt.toISOString(),
@@ -1338,7 +1339,7 @@ function createPtOperationsV2Functions({ db, onCall }) {
         confirmed: true,
         source: 'weekly',
         sourceWeekId: weekId,
-      })),
+      }, new Date(), config)),
     }
   })
 
@@ -1475,7 +1476,7 @@ function createPtOperationsV2Functions({ db, onCall }) {
       source: effectiveAvailability.source,
       sourceWeekId: effectiveAvailability.sourceWeekId,
       updatedAt: effectiveAvailability.updatedAt,
-    })
+    }, new Date(), config)
     const student = studentSnapshot.data() || {}
     const effectiveBranchId = projectedContracts.find((contract) => contract.schedulableToday)?.branchId
       || studentContracts.find((contract) => isEffectiveStaffContract(contract))?.branchId
@@ -1663,7 +1664,7 @@ function createPtOperationsV2Functions({ db, onCall }) {
       const originalDate = dateKey(sessionData.date, 'Ngày buổi tập')
       const originalHour = sessionHour(sessionId, sessionData.hour)
       if (originalHour === null) throw new HttpsError('failed-precondition', 'Buổi tập chưa có giờ hợp lệ.')
-      const policy = normalizedPtOperationsPolicy(configSnapshot.exists ? configSnapshot.data() : {})
+      const policy = ptOperationsPolicySnapshot(configSnapshot.exists ? configSnapshot.data() : {})
       let deadlineAt
       try {
         deadlineAt = assertSessionChangeDeadline(originalDate, originalHour, submittedAt, policy.sessionChangeDeadlineHours)

@@ -5,6 +5,12 @@ const { FieldValue } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
 const { trustedAccessContext, requireCapability } = require('./identity-access')
 const { withFunctionTelemetry } = require('./observability')
+const {
+  PT_OPERATIONS_POLICY_SCHEMA_VERSION,
+  normalizedPtOperationsPolicy,
+  ptOperationsPolicyHash,
+  vietnamDateKey,
+} = require('./pt-policy')
 
 const SCHEDULE_CONFIG_CAPABILITY = 'pt.operations.manage'
 const DAYS = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7']
@@ -72,6 +78,7 @@ function normalizeBranchCapacity(value) {
 }
 
 function normalizeScheduleConfig(value = {}) {
+  const operationsPolicy = normalizedPtOperationsPolicy(value)
   const workingDays = [...new Set(Array.isArray(value.workingDays) ? value.workingDays : [])]
   if (!workingDays.length || workingDays.some((day) => !DAY_SET.has(day))) throw new HttpsError('invalid-argument', 'Cần chọn ít nhất một ngày làm việc hợp lệ.')
   const workingHours = [...new Set(Array.isArray(value.workingHours) ? value.workingHours.map(Number) : [])]
@@ -93,15 +100,7 @@ function normalizeScheduleConfig(value = {}) {
     holidays: details.map((item) => item.date),
     holidayDetails: details,
     branchCapacityBySlot: normalizeBranchCapacity(value.branchCapacityBySlot),
-    complimentaryChangeCancelPerMonth: Number(value.complimentaryChangeCancelPerMonth) === 2 ? 2 : 1,
-    sessionChangeDeadlineHours: integer(value.sessionChangeDeadlineHours ?? 12, 'Hạn đổi/hủy ca', 1, 168),
-    offMaxDaysPerRequest: integer(value.offMaxDaysPerRequest ?? 14, 'Số ngày OFF tối đa', 1, 90),
-    offRegistrationCutoffHour: integer(value.offRegistrationCutoffHour ?? 10, 'Giờ chốt đăng ký OFF', 0, 23),
-    offLimitsByDuration: {
-      threeMonths: integer(value.offLimitsByDuration?.threeMonths ?? 1, 'Hạn mức OFF gói 3 tháng', 0, 48),
-      sixMonths: integer(value.offLimitsByDuration?.sixMonths ?? 3, 'Hạn mức OFF gói 6 tháng', 0, 48),
-      twelveMonths: integer(value.offLimitsByDuration?.twelveMonths ?? 6, 'Hạn mức OFF gói 12 tháng', 0, 48),
-    },
+    ...operationsPolicy,
   }
 }
 
@@ -132,6 +131,7 @@ async function saveScheduleConfigCommand({ db, actor, data, correlationId }) {
       return { ...receipt.result, unchanged: true }
     }
     const configSnapshot = await transaction.get(configReference)
+    const currentConfig = configSnapshot.exists ? configSnapshot.data() || {} : {}
     const currentRevision = Number.isInteger(configSnapshot.data()?.revision) ? configSnapshot.data().revision : 0
     if (currentRevision !== expectedRevision) throw new HttpsError('aborted', 'Cấu hình lịch vừa được người khác cập nhật. Hãy tải lại dữ liệu.')
     for (const branchId of Object.keys(config.branchCapacityBySlot)) {
@@ -140,11 +140,37 @@ async function saveScheduleConfigCommand({ db, actor, data, correlationId }) {
     }
     const revision = currentRevision + 1
     const now = FieldValue.serverTimestamp()
-    const next = { ...config, schemaVersion: 2, revision, updatedAt: now, updatedBy: actor.uid }
+    const policyHash = ptOperationsPolicyHash(config)
+    const currentPolicyHash = configSnapshot.exists ? ptOperationsPolicyHash(currentConfig) : ''
+    const currentPolicyRecord = currentConfig.operationsPolicy && typeof currentConfig.operationsPolicy === 'object'
+      ? currentConfig.operationsPolicy
+      : {}
+    const currentPolicyEffectiveFrom = clean(currentPolicyRecord.effectiveFrom, 10)
+    const currentPolicyMetadataValid = Boolean(
+      clean(currentPolicyRecord.version, 80)
+      && DATE_PATTERN.test(currentPolicyEffectiveFrom)
+      && !Number.isNaN(Date.parse(`${currentPolicyEffectiveFrom}T00:00:00Z`))
+      && currentPolicyRecord.hash === policyHash,
+    )
+    const policyChanged = !configSnapshot.exists || policyHash !== currentPolicyHash || !currentPolicyMetadataValid
+    const policyVersion = policyChanged
+      ? `pt-operations-r${revision}`
+      : clean(currentPolicyRecord.version, 80) || `pt-operations-r${revision}`
+    const policyEffectiveFrom = policyChanged
+      ? vietnamDateKey()
+      : currentPolicyEffectiveFrom
+    const operationsPolicy = {
+      schemaVersion: PT_OPERATIONS_POLICY_SCHEMA_VERSION,
+      version: policyVersion,
+      effectiveFrom: policyEffectiveFrom,
+      hash: policyHash,
+      values: normalizedPtOperationsPolicy(config),
+    }
+    const next = { ...config, operationsPolicy, schemaVersion: 3, revision, updatedAt: now, updatedBy: actor.uid }
     transaction.set(configReference, next)
-    const result = { schemaVersion: 1, revision, config: { ...config, schemaVersion: 2, revision }, unchanged: false }
+    const result = { schemaVersion: 2, revision, config: { ...config, operationsPolicy, schemaVersion: 3, revision }, unchanged: false }
     transaction.create(receiptReference, { schemaVersion: 1, operation: 'save', actorUid: actor.uid, payloadHash, result, createdAt: now })
-    transaction.create(auditReference, { schemaVersion: 1, action: 'schedule_config.save', domain: 'schedule', sourceType: 'schedule_config', sourceId: 'scheduleConfig', revision, actorUid: actor.uid, correlationId: correlationId || null, createdAt: now })
+    transaction.create(auditReference, { schemaVersion: 2, action: 'schedule_config.save', domain: 'schedule', sourceType: 'schedule_config', sourceId: 'scheduleConfig', revision, actorUid: actor.uid, correlationId: correlationId || null, policyChanged, beforePolicyHash: currentPolicyHash || null, afterPolicyHash: policyHash, policyVersion, createdAt: now })
     return result
   })
 }

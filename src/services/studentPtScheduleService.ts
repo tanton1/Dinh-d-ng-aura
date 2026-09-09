@@ -193,11 +193,16 @@ export interface StudentPtScheduleData {
   scheduleConfig: {
     workingDays: string[]
     workingHours: number[]
-    complimentaryChangeCancelPerMonth?: 1 | 2
+    complimentaryChangeCancelPerMonth?: number
     sessionChangeDeadlineHours?: number
     offMaxDaysPerRequest?: number
     offRegistrationCutoffHour?: number
+    availabilityRegistrationCutoffDayOfWeek?: number
+    availabilityRegistrationCutoffHour?: number
     offLimitsByDuration?: { threeMonths: number; sixMonths: number; twelveMonths: number }
+    policyVersion?: string
+    policyEffectiveFrom?: string
+    policyHash?: string
   }
   sessions: StudentPtSession[]
   sessionsTruncated?: boolean

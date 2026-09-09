@@ -115,6 +115,28 @@ jobs:
       - run: npm ci
       - run: npm --prefix functions ci
 
+      - name: Enforce production configuration gate
+        shell: bash
+        env:
+          VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY || vars.VITE_FIREBASE_API_KEY }}
+          VITE_FIREBASE_AUTH_DOMAIN: ${{ secrets.VITE_FIREBASE_AUTH_DOMAIN || vars.VITE_FIREBASE_AUTH_DOMAIN }}
+          VITE_FIREBASE_PROJECT_ID: ${{ secrets.VITE_FIREBASE_PROJECT_ID || vars.VITE_FIREBASE_PROJECT_ID }}
+          VITE_FIREBASE_STORAGE_BUCKET: ${{ secrets.VITE_FIREBASE_STORAGE_BUCKET || vars.VITE_FIREBASE_STORAGE_BUCKET }}
+          VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.VITE_FIREBASE_MESSAGING_SENDER_ID || vars.VITE_FIREBASE_MESSAGING_SENDER_ID }}
+          VITE_FIREBASE_APP_ID: ${{ secrets.VITE_FIREBASE_APP_ID || vars.VITE_FIREBASE_APP_ID }}
+          VITE_FIREBASE_DATABASE_ID: ${{ secrets.VITE_FIREBASE_DATABASE_ID || vars.VITE_FIREBASE_DATABASE_ID }}
+          VITE_FIREBASE_APP_CHECK_SITE_KEY: ${{ secrets.VITE_FIREBASE_APP_CHECK_SITE_KEY || vars.VITE_FIREBASE_APP_CHECK_SITE_KEY }}
+          VITE_ENABLE_DEMO_OTP: 'false'
+          VITE_FORCE_DEMO: 'false'
+          ENFORCE_APP_CHECK: ${{ vars.ENFORCE_APP_CHECK }}
+          ENFORCE_AI_APP_CHECK: ${{ vars.ENFORCE_AI_APP_CHECK }}
+        run: |
+          if [ "${{ inputs.allow_pending_app_check }}" = "true" ]; then
+            npm run production:gate -- --allow-pending-app-check
+          else
+            npm run production:gate
+          fi
+
       - name: Authenticate the production deploy identity
         uses: google-github-actions/auth@v2
         with:

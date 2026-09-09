@@ -22,7 +22,7 @@ const {
   assertWeeklyOffDeadline,
   contractDurationMonths,
   inclusiveDateDays,
-  normalizedPtOperationsPolicy,
+  ptOperationsPolicySnapshot,
   offRegistrationLimit,
   policyUsageDecision,
   storedDateShape,
@@ -325,7 +325,7 @@ async function loadSuggestionNetwork(db, homeBranchId, rangeStart, rangeEnd) {
 
 async function readOperationsPolicy(db) {
   const [snapshot] = await db.getAll(db.doc('settings/scheduleConfig'))
-  return normalizedPtOperationsPolicy(snapshot?.exists ? snapshot.data() : {})
+  return ptOperationsPolicySnapshot(snapshot?.exists ? snapshot.data() : {})
 }
 
 async function getAllInChunks(db, references, chunkSize = 100) {
@@ -1885,7 +1885,7 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
       }).length
       const weeklyMaximum = Math.max(1, Number(student.maxWeeklySessions || 7))
       if (weeklyScheduled >= weeklyMaximum) throw new HttpsError('failed-precondition', 'Bạn đã đạt số buổi tối đa trong tuần.')
-      const operationsPolicy = normalizedPtOperationsPolicy(configSnapshot.exists ? configSnapshot.data() : {})
+      const operationsPolicy = ptOperationsPolicySnapshot(configSnapshot.exists ? configSnapshot.data() : {})
       try {
         assertSessionChangeDeadline(selectedSuggestion.date, selectedSuggestion.hour, submittedAt, operationsPolicy.sessionChangeDeadlineHours)
       } catch (error) {
@@ -1968,7 +1968,7 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
         transaction.get(policyUsageReference(db, studentId, monthKey)),
         transaction.get(db.doc('settings/scheduleConfig')),
       ])
-      const transactionPolicy = normalizedPtOperationsPolicy(configSnapshot.exists ? configSnapshot.data() : operationsPolicy)
+      const transactionPolicy = ptOperationsPolicySnapshot(configSnapshot.exists ? configSnapshot.data() : operationsPolicy)
       if (existingRequest.exists) {
         const existing = existingRequest.data()
         return {
@@ -2586,7 +2586,7 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
         }).length
         const weeklyMaximum = Math.max(1, Number(student.maxWeeklySessions || 7))
         if (weeklyScheduled >= weeklyMaximum) throw new HttpsError('failed-precondition', 'Học viên đã đạt số buổi tối đa trong tuần.')
-        const operationsPolicy = normalizedPtOperationsPolicy(configSnapshot.exists ? configSnapshot.data() : {})
+        const operationsPolicy = ptOperationsPolicySnapshot(configSnapshot.exists ? configSnapshot.data() : {})
         try {
           assertSessionChangeDeadline(targetDate, targetHour, now(), operationsPolicy.sessionChangeDeadlineHours)
         } catch (error) {
@@ -2692,7 +2692,7 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
       const contractEnd = storedContractDate(contract.endDate, 'Ngày kết thúc')
       if (originalDate < contractStart || originalDate > contractEnd) throw new HttpsError('failed-precondition', 'Buổi gốc nằm ngoài thời hạn hợp đồng.')
       const configSnapshot = await transaction.get(db.doc('settings/scheduleConfig'))
-      const operationsPolicy = normalizedPtOperationsPolicy(requestData.policySnapshot || (configSnapshot.exists ? configSnapshot.data() : {}))
+      const operationsPolicy = ptOperationsPolicySnapshot(requestData.policySnapshot || (configSnapshot.exists ? configSnapshot.data() : {}))
 
       let policyMonth = ''
       let usageReference = null
@@ -3038,7 +3038,7 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
         transaction.get(contractReference),
         transaction.get(db.doc('settings/scheduleConfig')),
       ])
-      const operationsPolicy = normalizedPtOperationsPolicy(configSnapshot.exists ? configSnapshot.data() : {})
+      const operationsPolicy = ptOperationsPolicySnapshot(configSnapshot.exists ? configSnapshot.data() : {})
       if (type === 'off' && durationDays > operationsPolicy.offMaxDaysPerRequest) throw new HttpsError('failed-precondition', `OFF tối đa ${operationsPolicy.offMaxDaysPerRequest} ngày mỗi lần. Khoảng dài hơn phải đăng ký bảo lưu.`, { issueCode: 'PRESERVATION_REQUIRED' })
       if (type === 'preservation' && durationDays <= operationsPolicy.offMaxDaysPerRequest) throw new HttpsError('failed-precondition', `Khoảng nghỉ từ ${operationsPolicy.offMaxDaysPerRequest} ngày trở xuống hãy đăng ký OFF.`, { issueCode: 'USE_OFF_REQUEST' })
       if (existingRequest.exists) {
@@ -3144,7 +3144,7 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
       const endDate = date(requestData.endDate)
       const durationDays = inclusiveDateDays(startDate, endDate)
       const configSnapshot = await transaction.get(db.doc('settings/scheduleConfig'))
-      const operationsPolicy = normalizedPtOperationsPolicy(requestData.policySnapshot || (configSnapshot.exists ? configSnapshot.data() : {}))
+      const operationsPolicy = ptOperationsPolicySnapshot(requestData.policySnapshot || (configSnapshot.exists ? configSnapshot.data() : {}))
       // Legacy leave requests did not store a type. Infer it conservatively from
       // the approved duration so old pending data remains processable.
       const type = requestData.type === 'off' || requestData.type === 'preservation'

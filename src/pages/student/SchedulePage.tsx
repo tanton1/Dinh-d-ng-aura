@@ -36,6 +36,7 @@ import '../../styles-coaching.css'
 import './StudentSchedulePage.css'
 import { useAuraUiSurface } from '../../features/ui-rollout/AuraUiRolloutContext'
 import { vietnamBusinessDayCode } from '../../utils/dateUtils'
+import { PT_OPERATIONS_POLICY_DEFAULTS } from '../../config/ptOperationsPolicy'
 
 const DEFAULT_DAYS = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7']
 const DEFAULT_HOURS = [6, 7, 8, 9, 10, 11, 14, 15, 16, 17, 18, 19, 20]
@@ -85,7 +86,7 @@ function issueCopy(issue: StudentPtScheduleServiceError) {
     case 'REVISION_CONFLICT':
       return { title: 'Lịch rảnh vừa được cập nhật ở nơi khác', description: 'Aura đã tải lại phiên bản mới nhất. Hãy kiểm tra và chọn lại các thay đổi cần lưu.' }
     case 'AVAILABILITY_LOCKED':
-      return { title: 'Lịch rảnh của tuần đã khóa', description: 'Hạn gửi là 10:00 Chủ nhật trước tuần tập. Hãy chọn tuần kế tiếp hoặc liên hệ vận hành khi cần điều chỉnh.' }
+      return { title: 'Lịch rảnh của tuần đã khóa', description: 'Hạn gửi được áp dụng theo chính sách của tuần. Hãy chọn tuần kế tiếp hoặc liên hệ vận hành khi cần điều chỉnh.' }
     case 'MINIMUM_AVAILABILITY_REQUIRED':
       return { title: 'Chưa đủ khung giờ rảnh', description: issue.message }
     case 'AVAILABILITY_EMPTY':
@@ -260,9 +261,9 @@ export default function SchedulePage({ onNavigate, isDemo = false }: { onNavigat
     }
   }, [isDemo, load, loading])
 
-  const changeDeadlineHours = data?.scheduleConfig.sessionChangeDeadlineHours ?? 12
-  const complimentaryChangeCancelPerMonth = data?.scheduleConfig.complimentaryChangeCancelPerMonth ?? 1
-  const offMaxDaysPerRequest = data?.scheduleConfig.offMaxDaysPerRequest ?? 14
+  const changeDeadlineHours = data?.scheduleConfig.sessionChangeDeadlineHours ?? PT_OPERATIONS_POLICY_DEFAULTS.sessionChangeDeadlineHours
+  const complimentaryChangeCancelPerMonth = data?.scheduleConfig.complimentaryChangeCancelPerMonth ?? PT_OPERATIONS_POLICY_DEFAULTS.complimentaryChangeCancelPerMonth
+  const offMaxDaysPerRequest = data?.scheduleConfig.offMaxDaysPerRequest ?? PT_OPERATIONS_POLICY_DEFAULTS.offMaxDaysPerRequest
   const upcomingSessions = useMemo(() => (data?.sessions ?? [])
     .filter((session) => session.date >= toIsoDate(today) && session.status === 'scheduled')
     .sort((left, right) => `${left.date}-${left.hour ?? 99}`.localeCompare(`${right.date}-${right.hour ?? 99}`)), [data?.sessions, today])

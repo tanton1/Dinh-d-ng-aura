@@ -1,5 +1,5 @@
 const { FieldValue, Timestamp } = require('firebase-admin/firestore')
-const { PT_OPERATIONS_POLICY_EFFECTIVE_FROM, PT_OPERATIONS_POLICY_VERSION } = require('./pt-policy')
+const { ptOperationsPolicySnapshot } = require('./pt-policy')
 const { HttpsError } = require('firebase-functions/v2/https')
 const { trustedAccessContext, requireCapability } = require('./identity-access')
 const { cashAccountForMovement, createCashMovement, createReceiptVoucher, assertFinancePeriodOpen } = require('./finance-ledger')
@@ -1006,17 +1006,18 @@ function createContractRenewalFunctions({ db, onCall, onSchedule, logger }) {
     const paymentReference = db.collection('ledgerEntries').doc()
     const paymentJournalReference = db.doc(`journalEntries/${paymentReference.id}`)
     return db.runTransaction(async (transaction) => {
-      const baseReads = [transaction.get(sourceReference), transaction.get(packageReference), transaction.get(caseReference), transaction.get(sourceUsageReference)]
+      const baseReads = [transaction.get(sourceReference), transaction.get(packageReference), transaction.get(caseReference), transaction.get(sourceUsageReference), transaction.get(db.doc('settings/scheduleConfig'))]
       if (quoteReference) baseReads.push(transaction.get(quoteReference))
       if (approvalReference) baseReads.push(transaction.get(approvalReference))
       const results = await Promise.all(baseReads)
-      const [sourceSnapshot, packageSnapshot, caseSnapshot, sourceUsageSnapshot] = results
-      const quoteSnapshot = quoteReference ? results[4] : null
-      const approvalSnapshot = approvalReference ? results[quoteReference ? 5 : 4] : null
+      const [sourceSnapshot, packageSnapshot, caseSnapshot, sourceUsageSnapshot, policyConfigSnapshot] = results
+      const quoteSnapshot = quoteReference ? results[5] : null
+      const approvalSnapshot = approvalReference ? results[quoteReference ? 6 : 5] : null
       if (!sourceSnapshot.exists || !caseSnapshot.exists || caseSnapshot.data().sourceContractId !== sourceContractId) throw new HttpsError('not-found', 'Hợp đồng nguồn hoặc hồ sơ tái ký không hợp lệ.')
       if (!packageSnapshot.exists || ['inactive', 'archived'].includes(packageSnapshot.data().status)) throw new HttpsError('not-found', 'Gói tập không còn hiệu lực.')
       const source = sourceSnapshot.data()
       const renewalCase = caseSnapshot.data()
+      const operationsPolicy = ptOperationsPolicySnapshot(policyConfigSnapshot.exists ? policyConfigSnapshot.data() : {})
       assertCaseScope(actor, renewalCase)
       if (source.status === 'cancelled') throw new HttpsError('failed-precondition', 'Hợp đồng đã hủy không thể tái ký.')
       if (source.renewalIdempotencyKey === idempotencyKey && source.renewedByContractId) return { contractId: source.renewedByContractId, paymentEntryId: source.renewalPaymentEntryId || null, unchanged: true }
@@ -1080,7 +1081,8 @@ function createContractRenewalFunctions({ db, onCall, onSchedule, logger }) {
         renewalQuoteId: quoteId || null, renewalApprovalId: approvalId || null, renewalType: 'renewal', revision: 0, note,
         sourceUsageSource: sourceUsage.source,
         sourceUsageFallbackReason: sourceUsage.fallbackReason,
-        policyVersion: PT_OPERATIONS_POLICY_VERSION, policyEffectiveFrom: PT_OPERATIONS_POLICY_EFFECTIVE_FROM,
+        policyVersion: operationsPolicy.policyVersion, policyEffectiveFrom: operationsPolicy.policyEffectiveFrom,
+        policyHash: operationsPolicy.policyHash, policySnapshot: operationsPolicy,
         createdAt: FieldValue.serverTimestamp(), createdBy: actor.uid, updatedAt: FieldValue.serverTimestamp(),
       }
       transaction.create(newContractReference, newContract)

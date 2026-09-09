@@ -538,9 +538,10 @@ test('Student 360 overview reads canonical contract usage with a bounded legacy 
 
 test('new contracts snapshot the effective operations policy without rewriting legacy rights', () => {
   const source = require('node:fs').readFileSync(require('node:path').join(__dirname, 'student-360.js'), 'utf8')
-  assert.match(source, /if \(action === 'create'\) \{\n\s+next\.policyVersion = PT_OPERATIONS_POLICY_VERSION/)
-  assert.match(source, /policyEffectiveFrom = PT_OPERATIONS_POLICY_EFFECTIVE_FROM/)
-  assert.match(source, /next\.policyVersion = PT_OPERATIONS_POLICY_VERSION/)
+  assert.match(source, /transaction\.get\(db\.doc\('settings\/scheduleConfig'\)\)/)
+  assert.match(source, /ptOperationsPolicySnapshot\(policyConfigSnapshot\.exists/)
+  assert.match(source, /next\.policyHash = operationsPolicy\.policyHash/)
+  assert.match(source, /next\.policySnapshot = operationsPolicy/)
 })
 
 test('Student 360 callables use quota-safe fractional CPU with bounded concurrency', () => {

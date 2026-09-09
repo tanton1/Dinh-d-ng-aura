@@ -69,6 +69,10 @@ test('trainer weekly availability uses a Vietnam Monday, Sunday cutoff and exact
   assert.equal(availabilityWeekId('2026-08-31'), '2026-08-31')
   assert.throws(() => availabilityWeekId('2026-09-01'), /thứ Hai/)
   assert.equal(availabilityCutoff('2026-08-31').toISOString(), '2026-08-30T03:00:00.000Z')
+  assert.equal(availabilityCutoff('2026-08-31', {
+    availabilityRegistrationCutoffDayOfWeek: 6,
+    availabilityRegistrationCutoffHour: 18,
+  }).toISOString(), '2026-08-29T11:00:00.000Z')
 
   const offDates = normalizedTrainerOffDates(['2026-09-01', '2026-09-01', '2026-09-07'], '2026-08-31')
   assert.deepEqual(offDates, ['2026-09-01'])
@@ -177,7 +181,7 @@ test('learner and staff personal Gym schedule is self-scoped and availability wr
   assert.match(studentScheduleBlock, /issueCode: 'REVISION_CONFLICT'/)
   assert.match(studentScheduleBlock, /ptAvailability\/\$\{profile\.id\}_\$\{weekId\}/)
   assert.match(studentScheduleBlock, /const minimumSlots = Math\.max\(5, requiredSessions\)/)
-  assert.match(studentScheduleBlock, /availabilityCutoff\(weekId\)/)
+  assert.match(studentScheduleBlock, /availabilityCutoff\(weekId, config\)/)
   assert.match(studentScheduleBlock, /issueCode: 'AVAILABILITY_LOCKED'/)
   assert.match(studentScheduleBlock, /if \(!slots\.length\)/)
   assert.match(studentScheduleBlock, /issueCode: 'AVAILABILITY_EMPTY'/)

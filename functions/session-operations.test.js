@@ -959,6 +959,7 @@ test('approved OFF cancels overlapping scheduled sessions without charging and e
 
 test('legacy approved leave without a type still consumes the three-month OFF allowance', async () => {
   const state = operationsFor({
+    'settings/scheduleConfig': { offLimitsByDuration: { threeMonths: 1, sixMonths: 3, twelveMonths: 5 } },
     'leaveRequests/legacy-off': { status: 'approved', studentId: 'student-1', contractId: 'contract-1', startDate: '2026-08-01', endDate: '2026-08-05', reason: 'Nghỉ theo lịch cũ' },
     'contracts/contract-1': { status: 'active', studentId: 'student-1', packageId: 'package-3m', startDate: '2026-08-01', endDate: '2026-10-31', totalSessions: 36, usedSessions: 3 },
     'packages/package-3m': { durationMonths: 3 },
@@ -971,9 +972,9 @@ test('legacy approved leave without a type still consumes the three-month OFF al
   assert.equal(state.read('leaveRequests/student-student-account-legacy-allowance-check'), undefined)
 })
 
-test('admin approval rechecks the Sunday 10:00 OFF submission cutoff', async () => {
+test('admin approval rechecks the configured Sunday 09:00 OFF submission cutoff', async () => {
   const state = operationsFor({
-    'leaveRequests/late-off': { status: 'pending', type: 'off', studentId: 'student-1', contractId: 'contract-1', startDate: '2026-08-24', endDate: '2026-08-25', reason: 'Gửi trễ', submittedAtIso: '2026-08-23T03:00:00.000Z', revision: 0 },
+    'leaveRequests/late-off': { status: 'pending', type: 'off', studentId: 'student-1', contractId: 'contract-1', startDate: '2026-08-24', endDate: '2026-08-25', reason: 'Gửi trễ', submittedAtIso: '2026-08-23T02:00:00.000Z', revision: 0 },
     'contracts/contract-1': { status: 'active', studentId: 'student-1', packageId: 'package-3m', startDate: '2026-08-01', endDate: '2026-10-31', totalSessions: 36, usedSessions: 3 },
     'packages/package-3m': { durationMonths: 3 },
   })

@@ -3,6 +3,7 @@ import { collection, doc, setDoc, deleteDoc, runTransaction, updateDoc, onSnapsh
 import { db } from '../lib/firebaseFirestore'
 import { useAuth } from './AuthContext'
 import { createScheduleConfigCommandKey, saveScheduleConfig } from '../services/scheduleConfigManagementService'
+import { PT_OPERATIONS_POLICY_DEFAULTS } from '../config/ptOperationsPolicy'
 import { createStudentCommandKey, updateStudentProfile } from '../services/studentManagementService'
 import { archiveBranch, createBranchCommandKey, upsertBranch } from '../services/branchManagementService'
 import type {
@@ -37,11 +38,7 @@ const DEFAULT_SCHEDULE_CONFIG: ScheduleConfig = {
   workingHours: [6, 7, 8, 9, 10, 11, 14, 15, 16, 17, 18, 19, 20],
   lockDayOfWeek: 6,
   lockHour: 12,
-  complimentaryChangeCancelPerMonth: 1,
-  sessionChangeDeadlineHours: 12,
-  offMaxDaysPerRequest: 14,
-  offRegistrationCutoffHour: 10,
-  offLimitsByDuration: { threeMonths: 1, sixMonths: 3, twelveMonths: 6 },
+  ...PT_OPERATIONS_POLICY_DEFAULTS,
 }
 const LEGACY_DIRECTORY_LIMIT = 2500
 const LEGACY_SESSION_LIMIT = 3000

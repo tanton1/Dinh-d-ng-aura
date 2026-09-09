@@ -348,7 +348,29 @@ export interface ScheduleBranchCapacity {
   [slotId: string]: number | null | undefined
 }
 
-export interface ScheduleConfig {
+export interface PtOperationsPolicyValues {
+  complimentaryChangeCancelPerMonth?: number
+  sessionChangeDeadlineHours?: number
+  offMaxDaysPerRequest?: number
+  offRegistrationCutoffHour?: number
+  availabilityRegistrationCutoffDayOfWeek?: number
+  availabilityRegistrationCutoffHour?: number
+  offLimitsByDuration?: {
+    threeMonths: number
+    sixMonths: number
+    twelveMonths: number
+  }
+}
+
+export interface PtOperationsPolicyRecord {
+  schemaVersion: 1
+  version: string
+  effectiveFrom: string
+  hash: string
+  values: PtOperationsPolicyValues
+}
+
+export interface ScheduleConfig extends PtOperationsPolicyValues {
   /** Missing on legacy configuration; the first callable save migrates revision 0 to 1. */
   revision?: number
   schemaVersion?: number
@@ -360,15 +382,7 @@ export interface ScheduleConfig {
   holidays?: string[]
   holidayDetails?: ScheduleHoliday[]
   branchCapacityBySlot?: Record<string, ScheduleBranchCapacity>
-  complimentaryChangeCancelPerMonth?: 1 | 2
-  sessionChangeDeadlineHours?: number
-  offMaxDaysPerRequest?: number
-  offRegistrationCutoffHour?: number
-  offLimitsByDuration?: {
-    threeMonths: number
-    sixMonths: number
-    twelveMonths: number
-  }
+  operationsPolicy?: PtOperationsPolicyRecord
 }
 
 export interface Session {

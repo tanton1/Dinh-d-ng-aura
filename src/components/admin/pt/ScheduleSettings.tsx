@@ -16,6 +16,7 @@ const ALL_DAYS: { id: Day; label: string }[] = [
 export default function ScheduleSettings() {
   const { branches, scheduleConfig, updateScheduleConfig } = useDatabase();
   const [config, setConfig] = useState<ScheduleConfig>({
+    ...scheduleConfig,
     workingDays: scheduleConfig?.workingDays || ['T2', 'T3', 'T4', 'T5', 'T6', 'T7'],
     workingHours: scheduleConfig?.workingHours || [6, 7, 8, 9, 10, 11, 14, 15, 16, 17, 18, 19, 20],
     lockDayOfWeek: scheduleConfig?.lockDayOfWeek ?? 6,
@@ -33,6 +34,7 @@ export default function ScheduleSettings() {
 
   useEffect(() => {
     setConfig({
+      ...scheduleConfig,
       workingDays: scheduleConfig?.workingDays || ['T2', 'T3', 'T4', 'T5', 'T6', 'T7'],
       workingHours: scheduleConfig?.workingHours || [6, 7, 8, 9, 10, 11, 14, 15, 16, 17, 18, 19, 20],
       lockDayOfWeek: scheduleConfig?.lockDayOfWeek ?? 6,

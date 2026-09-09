@@ -2,7 +2,7 @@ const { createHash } = require('node:crypto')
 const { FieldPath, FieldValue } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
 const { trustedAccessContext } = require('./identity-access')
-const { PT_OPERATIONS_POLICY_EFFECTIVE_FROM, PT_OPERATIONS_POLICY_VERSION } = require('./pt-policy')
+const { ptOperationsPolicySnapshot } = require('./pt-policy')
 const { usageSummaryFromView } = require('./contract-usage-view')
 const { canViewAction } = require('./action-center')
 
@@ -1846,8 +1846,12 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
           note: bounded(input.note, 1_000) || bounded(current?.note, 1_000),
         }
         if (action === 'create') {
-          next.policyVersion = PT_OPERATIONS_POLICY_VERSION
-          next.policyEffectiveFrom = PT_OPERATIONS_POLICY_EFFECTIVE_FROM
+          const policyConfigSnapshot = await transaction.get(db.doc('settings/scheduleConfig'))
+          const operationsPolicy = ptOperationsPolicySnapshot(policyConfigSnapshot.exists ? policyConfigSnapshot.data() : {})
+          next.policyVersion = operationsPolicy.policyVersion
+          next.policyEffectiveFrom = operationsPolicy.policyEffectiveFrom
+          next.policyHash = operationsPolicy.policyHash
+          next.policySnapshot = operationsPolicy
         }
       } else if (action === 'add_sessions') {
         if (!canManageFinancials) throw new HttpsError('permission-denied', 'Chỉ bộ phận tài chính được ghi nhận mua thêm buổi.')

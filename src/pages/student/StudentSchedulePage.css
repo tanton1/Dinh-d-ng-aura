@@ -898,12 +898,6 @@
 .student-change-suggestions__group > header { display:flex; align-items:baseline; justify-content:space-between; gap:8px; }
 .student-change-suggestions__group > header strong { color:#4b3742; font-size:11px; }
 .student-change-suggestions__group > header span { color:#8c7782; font-size:9px; line-height:1.35; text-align:right; }
-.student-change-suggestions__group.is-tier-1 { border-color:#f4c9d9; background:#fff8fb; }
-.student-change-suggestions__group.is-tier-1 > header strong { color:#c52e6b; }
-.student-change-suggestions__group.is-tier-2 { border-color:#cfe8dc; background:#f8fdf9; }
-.student-change-suggestions__group.is-tier-2 > header strong { color:#227552; }
-.student-change-suggestions__group.is-tier-3 { border-color:#d8e2f2; background:#fafcff; }
-.student-change-suggestions__group.is-tier-3 > header strong { color:#386bc1; }
 .student-change-suggestions__group .student-change-suggestions__rail { padding-bottom:2px; }
 
 @media (min-width: 641px) {

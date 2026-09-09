@@ -56,9 +56,21 @@ test('saves the full normalized schedule policy with revision, receipt and audit
   assert.equal(first.unchanged, false)
   assert.equal(second.unchanged, true)
   assert.equal(db.documents.get('settings/scheduleConfig').revision, 1)
+  assert.equal(db.documents.get('settings/scheduleConfig').schemaVersion, 3)
   assert.equal(db.documents.get('settings/scheduleConfig').branchCapacityBySlot['branch-a']['T2-18'], 10)
+  assert.equal(db.documents.get('settings/scheduleConfig').operationsPolicy.version, 'pt-operations-r1')
+  assert.match(db.documents.get('settings/scheduleConfig').operationsPolicy.hash, /^[a-f0-9]{64}$/)
   assert.equal([...db.documents.keys()].filter((path) => path.startsWith('scheduleConfigCommandReceipts/')).length, 1)
   assert.equal([...db.documents.keys()].filter((path) => path.startsWith('auditLogs/schedule_config_')).length, 1)
+})
+
+test('keeps the same policy version when only layout settings change', async () => {
+  const db = memoryDb({ 'branches/branch-a': { status: 'active' } })
+  const functions = api(db)
+  const first = await functions.saveScheduleConfig({ data: { config: config(), expectedRevision: 0, idempotencyKey: 'schedule-config-keep-policy-1' } })
+  const second = await functions.saveScheduleConfig({ data: { config: { ...first.config, lockHour: 13 }, expectedRevision: 1, idempotencyKey: 'schedule-config-keep-policy-2' } })
+  assert.equal(second.config.operationsPolicy.version, 'pt-operations-r1')
+  assert.equal(second.config.operationsPolicy.hash, first.config.operationsPolicy.hash)
 })
 
 test('rejects stale revision and idempotency key reuse with a different policy', async () => {
