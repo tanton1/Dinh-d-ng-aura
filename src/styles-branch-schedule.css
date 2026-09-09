@@ -876,6 +876,16 @@
 .schedule-opportunity-matrix td button.is-available { border-color:#e7dfe3; color:#625860; background:#fbfafb; }
 .schedule-opportunity-matrix td button.is-empty { color:#94878e; background:#f5f3f4; cursor:default; }
 .schedule-opportunity-matrix td button i { color:#756b71; background:#efedef; }
+/* Priority colors are deliberately scoped to the opportunity matrix.  The
+   PT's personal schedule uses the neutral schedule-cell surface and never
+   inherits these tier colors. */
+.schedule-opportunity-matrix td button.is-available[data-priority="1"],
+.schedule-opportunity-matrix__legend span[data-priority="1"] { border-color:#8bd4b5; color:#155e4b; background:#e6f7ef; }
+.schedule-opportunity-matrix td button.is-available[data-priority="2"],
+.schedule-opportunity-matrix__legend span[data-priority="2"] { border-color:#9ab5f2; color:#284f9f; background:#eef3ff; }
+.schedule-opportunity-matrix td button.is-available[data-priority="3"],
+.schedule-opportunity-matrix__legend span[data-priority="3"] { border-color:#f3b48c; color:#8a461d; background:#fff2e8; }
+.schedule-opportunity-matrix__legend span[data-priority="0"] { border:1px solid #e3dfe1; color:#756b71; background:#f1eef0; }
 .schedule-opportunities__groups { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; }
 .schedule-opportunities__group { min-width:0; overflow:hidden; border:1px solid rgba(126,94,112,.12); border-radius:15px; background:#fff; }
 .schedule-opportunities__group > header { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:13px 14px; border-bottom:1px solid rgba(126,94,112,.1); }

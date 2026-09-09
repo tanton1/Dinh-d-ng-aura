@@ -92,7 +92,16 @@ test('manager opportunity pool shows strict tiers and filters against learner av
   expect(await opportunityMatrix.locator('button[data-priority="1"]').count()).toBeGreaterThan(0)
   expect(await opportunityMatrix.locator('button[data-priority="2"]').count()).toBeGreaterThan(0)
   expect(await opportunityMatrix.locator('button[data-priority="3"]').count()).toBeGreaterThan(0)
-  expect(await opportunityMatrix.locator('button.is-available').evaluateAll((nodes) => new Set(nodes.map((node) => getComputedStyle(node).backgroundColor)).size)).toBe(1)
+  const priorityBackgrounds = await opportunityMatrix.locator('button.is-available').evaluateAll((nodes) => {
+    const backgrounds = new Map<string, string>()
+    for (const node of nodes) {
+      const priority = node.getAttribute('data-priority')
+      if (priority) backgrounds.set(priority, getComputedStyle(node).backgroundColor)
+    }
+    return Object.fromEntries(backgrounds)
+  })
+  expect(Object.keys(priorityBackgrounds)).toEqual(expect.arrayContaining(['1', '2', '3']))
+  expect(new Set(Object.values(priorityBackgrounds)).size).toBe(3)
   await expect(page.getByText('Ưu tiên 1 · Ghép vào ca 1/2')).toBeVisible()
   await expect(page.getByText('Ưu tiên 3 · Các PT cùng chi nhánh còn lại')).toBeVisible()
   const officialPtSlots = page.locator('.schedule-opportunities__group[data-priority="2"]')

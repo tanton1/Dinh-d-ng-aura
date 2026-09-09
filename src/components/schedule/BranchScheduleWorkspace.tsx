@@ -1963,7 +1963,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
             <div className="schedule-opportunities__legend"><span>1 · Ghép ca 1/2</span><span>2 · PT chính thức dưới mốc</span><span>3 · PT cùng CN còn lại</span><span>PT chính/phụ được xếp đầu</span></div>
           </div>
           <section className="schedule-opportunity-matrix" aria-label="Ma trận tải ca còn trống">
-            <header><div><strong>Ma trận tải ca còn trống</strong><small>Mỗi ô hiển thị tổng chỗ còn nhận và số PT. Mức ưu tiên chỉ dùng để sắp thứ tự, không tô màu ô lịch.</small></div><div className="schedule-opportunity-matrix__legend"><span>1 · Ghép</span><span>2 · Dưới mốc</span><span>3 · Còn slot</span><span>0 · Hết ca</span></div></header>
+            <header><div><strong>Ma trận tải ca còn trống</strong><small>Mỗi ô hiển thị tổng chỗ còn nhận và số PT. Màu ưu tiên chỉ dùng trong kho ca; lịch cá nhân của PT giữ nguyên kiểu hiển thị riêng.</small></div><div className="schedule-opportunity-matrix__legend"><span data-priority="1">1 · Ghép</span><span data-priority="2">2 · Dưới mốc</span><span data-priority="3">3 · Còn slot</span><span data-priority="0">0 · Hết ca</span></div></header>
             <div className="schedule-opportunity-matrix__mobile-days">
               <button type="button" aria-label="Xem nhóm ngày trước" disabled={mobilePage === 0} onClick={() => setMobilePage((value) => Math.max(0, value - 1))}><ChevronLeft /></button>
               <strong>{selectedDays.map((day) => DAY_LABELS[day] || day).join(' · ')}</strong>
