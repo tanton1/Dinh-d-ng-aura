@@ -120,6 +120,11 @@ function toInvoiceStudent(workspace: Workspace): Student {
 function toInvoiceContract(contract: Student360ContractRecord): StudentContract {
   return {
     ...contract,
+    // Invoice view only supports the persisted contract statuses.  Invalid
+    // records are never billable, so render them as expired here while the
+    // Student 360 workspace continues to expose the canonical `invalid`
+    // status and its data-quality warning.
+    status: contract.status === 'invalid' ? 'expired' : contract.status,
     branchId: contract.branchId,
     trainerId: contract.trainerId,
     frozenAt: contract.frozenAt || undefined,
