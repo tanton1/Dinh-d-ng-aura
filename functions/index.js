@@ -104,7 +104,8 @@ exports.syncContractUsageView = onDocumentWritten({
   document: 'contracts/{contractId}',
   database: databaseId,
   region: 'asia-southeast1',
-  maxInstances: 3,
+  cpu: 'gcf_gen1',
+  maxInstances: 1,
   retry: true,
 }, async (event) => syncContractUsageView({ db, event, logger }))
 
@@ -112,7 +113,8 @@ exports.syncSessionContractUsageView = onDocumentWritten({
   document: 'sessions/{sessionId}',
   database: databaseId,
   region: 'asia-southeast1',
-  maxInstances: 3,
+  cpu: 'gcf_gen1',
+  maxInstances: 1,
   retry: true,
 }, async (event) => syncContractUsageView({ db, event, logger }))
 
@@ -120,7 +122,8 @@ const operationalActionTrigger = (document) => onDocumentWritten({
   document,
   database: databaseId,
   region: 'asia-southeast1',
-  maxInstances: 3,
+  cpu: 'gcf_gen1',
+  maxInstances: 1,
   retry: true,
 }, async (event) => syncOperationalActionSource({ db, event, logger }))
 

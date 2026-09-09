@@ -92,6 +92,7 @@ test('learner actions require an explicit staff assignment outside Admin and bra
 
 test('Action Center and contract usage maintenance exports stay deployable and bounded', () => {
   assert.match(functionsSource, /const \{ FieldPath, FieldValue, Timestamp, getFirestore \}/)
+  assert.match(functionsSource, /const operationalActionTrigger = \(document\) => onDocumentWritten\(\{[\s\S]*?cpu: 'gcf_gen1',[\s\S]*?maxInstances: 1,[\s\S]*?retry: true/)
   for (const exportName of [
     'syncContractOperationalActions',
     'syncContractUsageOperationalActions',
