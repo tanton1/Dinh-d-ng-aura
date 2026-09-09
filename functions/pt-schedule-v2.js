@@ -24,6 +24,11 @@ const {
 } = require('./student-availability')
 const { summarizeContractUsage } = require('./contract-usage')
 const { contractEffectiveOnDate } = require('./contract-status')
+const {
+  contractCanParticipateInWeek,
+  contractSchedulingEntitlement,
+  resolveSchedulingContract,
+} = require('./contract-scheduling')
 
 const MAX_STUDENTS = 500
 const MAX_TRAINERS = 100
@@ -38,7 +43,7 @@ const MAX_DRAFT_DOCUMENT_ENTRIES = 700
 const MAX_ENTRIES_PER_SLOT = 100
 const MAX_ACTIVE_RESERVATION_SESSIONS = 3000
 const DEFAULT_DAILY_SESSION_TARGET = 8
-const OPTIMIZER_VERSION = 'optimizer-v12'
+const OPTIMIZER_VERSION = 'optimizer-v13'
 const MAX_DEEP_OPTIMIZATION_PASSES = 3
 // A bounded repair search can relocate auto-generated sessions from earlier
 // rounds. This closes the remaining gap between fair one-seat rounds and the
@@ -160,6 +165,10 @@ function safeSchedule(value) {
         branchId: String(entry?.branchId || ''),
         type,
         ...(entry?.contractId ? { contractId: String(entry.contractId) } : {}),
+        ...(entry?.renewalHandoverPending === true && entry?.sourceContractId ? {
+          renewalHandoverPending: true,
+          sourceContractId: String(entry.sourceContractId),
+        } : {}),
         ...(entry?.isLocked === true ? { isLocked: true } : {}),
         ...(entry?.trainerAssignmentWarning === true ? { trainerAssignmentWarning: true } : {}),
         ...(entry?.studentBranchWarning === true ? {
@@ -373,6 +382,8 @@ async function loadBranchData(db, branchId, week) {
     carriedOverSessions: Number(contract.carriedOverSessions || 0),
     carryOverRequested: contract.carryOverRequested === true,
     carryOverPending: contract.carryOverPending === true,
+    earlyHandoverRequested: contract.earlyHandoverRequested !== false,
+    renewalType: contract.renewalType || '',
     sourceContractId: contract.sourceContractId || '',
     renewedByContractId: contract.renewedByContractId || '',
     }
@@ -582,6 +593,14 @@ async function loadManualMutationData(db, branchId, week, trainerId, studentId, 
       activeScheduledSessions: activeContractSessions.length,
       activeScheduledThisWeek,
       remainingSchedulableSessions: Math.max(0, remainingEntitlementSessions - activeContractSessions.length),
+      packageSessions: Number(contract.packageSessions || 0),
+      plannedCarryOverSessions: Number(contract.plannedCarryOverSessions || 0),
+      carriedOverSessions: Number(contract.carriedOverSessions || 0),
+      carryOverRequested: contract.carryOverRequested === true,
+      carryOverPending: contract.carryOverPending === true,
+      earlyHandoverRequested: contract.earlyHandoverRequested !== false,
+      renewalType: contract.renewalType || '',
+      sourceContractId: contract.sourceContractId || '',
     }
   })
   const exactMap = new Map(exactAvailability.exists ? [[studentId, exactAvailability.data()]] : [])
@@ -685,8 +704,9 @@ function studentWeekEligibility(contracts, studentId, branchId, week, referenceD
   const weekStart = weekDates[0]
   const weekEnd = weekDates[weekDates.length - 1]
   const allStudentContracts = contracts.filter((contract) => contract.studentId === studentId)
+  const emptyReservations = new Map()
   const operationalContracts = contracts.filter((contract) => contract.studentId === studentId
-    && weekDates.some((date) => contractEffectiveOnDate(contract, date)))
+    && contractCanParticipateInWeek(contract, allStudentContracts, weekDates, emptyReservations))
   if (!operationalContracts.length) {
     const datedContracts = allStudentContracts.map((contract) => ({
       status: String(contract.status || '').toLowerCase(),
@@ -730,8 +750,12 @@ function studentWeekEligibility(contracts, studentId, branchId, week, referenceD
     const startDate = storedDate(contract.startDate)
     const endDate = storedDate(contract.endDate)
     if (!startDate || !endDate) continue
-    const contractEntitlement = Math.max(0, Number(contract.remainingEntitlementSessions
-      ?? (Number(contract.totalSessions || 0) - Number(contract.usedSessions || 0))))
+    const schedulingEntitlement = contractSchedulingEntitlement(contract)
+    const contractEntitlement = Math.max(0, Math.min(
+      schedulingEntitlement,
+      Number(contract.remainingEntitlementSessions
+        ?? (schedulingEntitlement - Number(contract.usedSessions || 0))),
+    ))
     const contractActiveScheduled = Math.max(0, Number(contract.activeScheduledSessions || 0))
     const contractActiveThisWeek = Math.max(0, Number(contract.activeScheduledThisWeek || 0))
     const contractSchedulable = Math.max(0, Number(contract.remainingSchedulableSessions
@@ -744,7 +768,9 @@ function studentWeekEligibility(contracts, studentId, branchId, week, referenceD
     if (contractWeeklyCapacity > 0) hasRemainingSessions = true
     let contractUsableInWeek = false
     for (const date of dates) {
-      if (date < startDate || date > endDate) continue
+      const directDate = date >= startDate && date <= endDate && contractEffectiveOnDate(contract, date)
+      const chainDate = contractCanParticipateInWeek(contract, branchContracts, [date], emptyReservations)
+      if (!directDate && !chainDate) continue
       overlapsWeek = true
       if (contractWeeklyCapacity < 1) continue
       if (contractPaused(contract, date)) {
@@ -774,19 +800,15 @@ function studentWeekEligibility(contracts, studentId, branchId, week, referenceD
   if (overlapsWeek && hasRemainingSessions && !validDates.length && pausedDates.length) reasons.add('CONTRACT_PAUSED')
 
   for (const date of [...new Set(validDates)]) {
-    const matching = branchContracts.filter((contract) => {
-      const entitlement = Math.max(0, Number(contract.remainingEntitlementSessions
-        ?? (Number(contract.totalSessions || 0) - Number(contract.usedSessions || 0))))
-      const activeScheduled = Math.max(0, Number(contract.activeScheduledSessions || 0))
-      const schedulable = Math.max(0, Number(contract.remainingSchedulableSessions
-        ?? (entitlement - activeScheduled)))
-      const activeThisWeek = Math.max(0, Number(contract.activeScheduledThisWeek || 0))
-      return Math.min(entitlement, schedulable + activeThisWeek) > 0
-        && storedDate(contract.startDate) <= date
-        && storedDate(contract.endDate) >= date
-        && !contractPaused(contract, date)
+    const resolution = resolveSchedulingContract({
+      contracts: branchContracts,
+      studentId,
+      branchId,
+      date,
+      reservationsByContract: emptyReservations,
+      allowCrossBranch,
     })
-    if (matching.length > 1) reasons.add('AMBIGUOUS_ACTIVE_CONTRACT')
+    if (resolution.reasons.includes('AMBIGUOUS_ACTIVE_CONTRACT')) reasons.add('AMBIGUOUS_ACTIVE_CONTRACT')
   }
 
   return {
@@ -804,28 +826,32 @@ function studentWeekEligibility(contracts, studentId, branchId, week, referenceD
 }
 
 function resolveContract(data, studentId, trainerId, date, schedule = null, schedulingState = null) {
-  const dateCandidates = data.contracts.filter((contract) => contract.studentId === studentId
-    && contractCanServeScheduledDate(contract, date))
-  if (dateCandidates.some((contract) => !contract.branchId)) return { contract: null, reasons: ['CONTRACT_BRANCH_REQUIRED'] }
   const allowCrossBranch = data.allowCrossBranchStudentIds instanceof Set && data.allowCrossBranchStudentIds.has(studentId)
-  const candidates = dateCandidates.filter((contract) => allowCrossBranch || contract.branchId === data.branch.id)
-  if (!candidates.length) return { contract: null, reasons: ['ACTIVE_CONTRACT_NOT_FOUND'] }
-  if (candidates.length > 1) return { contract: null, reasons: ['AMBIGUOUS_ACTIVE_CONTRACT'] }
-  const contract = candidates[0]
-  if (contractPaused(contract, date)) return { contract: null, reasons: ['CONTRACT_PAUSED'] }
+  const counts = contractReservationCounts(data, schedule, schedulingState)
+  const reservationsByContract = new Map()
+  for (const contract of data.contracts) reservationsByContract.set(contract.id,
+    (counts.active.get(contract.id) || 0) + (counts.draft.get(contract.id) || 0))
+  const resolution = resolveSchedulingContract({
+    contracts: data.contracts,
+    studentId,
+    branchId: data.branch.id,
+    date,
+    reservationsByContract,
+    allowCrossBranch,
+  })
+  if (!resolution.contract) return resolution
+  const contract = resolution.contract
   const assigned = assignedTrainerIds(contract)
   // PT chính/phụ là thứ tự ưu tiên vận hành, không phải khóa cứng. Khi cả hai
   // đều không thể nhận ca, mọi PT đang hoạt động trong cùng chi nhánh vẫn có
   // thể dạy để không bỏ sót quyền lợi của học viên. Entry sẽ mang cờ cảnh báo
   // để UI, publish và audit cùng nhận diện đây là ca PT hỗ trợ.
   const trainerAssignmentWarning = assigned.length > 0 && !assigned.includes(trainerId)
-  const reservations = contractReservationCounts(data, schedule, schedulingState)
-  const activeForContract = reservations.active.get(contract.id) || 0
-  const draftForContract = reservations.draft.get(contract.id) || 0
-  if (contract.usedSessions + activeForContract + draftForContract >= contract.totalSessions) {
-    return { contract: null, reasons: ['CONTRACT_SESSION_QUOTA_EXCEEDED'] }
+  return {
+    ...resolution,
+    trainerAssignmentWarning,
+    assignedTrainerIds: assigned,
   }
-  return { contract, reasons: [], trainerAssignmentWarning, assignedTrainerIds: assigned }
 }
 
 function contractReservationCounts(data, schedule, state) {
@@ -1021,6 +1047,8 @@ function candidateForSlot(data, { student, trainer, slotId, schedule, scheduling
     eligible: reasons.length === 0,
     reasons: [...new Set(reasons)],
     contractId: contractResult.contract?.id || null,
+    earlyHandover: contractResult.earlyHandover === true,
+    sourceContractId: contractResult.sourceContractId || '',
     trainerAssignmentWarning: contractResult.trainerAssignmentWarning === true,
     studentBranchWarning,
     assignedTrainerIds: contractResult.assignedTrainerIds || [],
@@ -1222,6 +1250,8 @@ function candidateRecord(data, schedule, schedulingState, contractCache, student
     slotId,
     trainer,
     contractId: result.contractId,
+    earlyHandover: result.earlyHandover === true,
+    sourceContractId: result.sourceContractId || '',
     assignmentOrder: assignmentIndex >= 0 ? assignmentIndex : 1000,
     trainerAssignmentWarning: result.trainerAssignmentWarning === true,
     score: generationScore({ student, contract, targetDate: result.date }),
@@ -1447,6 +1477,10 @@ function autoEntryForCandidate(data, student, candidate, template = null) {
     branchId: data.branch.id,
     type: 'training',
     source: template?.source || 'auto_v4',
+    ...(candidate.earlyHandover && candidate.sourceContractId ? {
+      renewalHandoverPending: true,
+      sourceContractId: candidate.sourceContractId,
+    } : {}),
     ...(candidate.trainerAssignmentWarning ? { trainerAssignmentWarning: true } : {}),
   }
 }

@@ -308,6 +308,45 @@ test('accepts a future renewal only on or after its concrete start date', () => 
   assert.equal([...result.desired.values()][0].contractId, 'contract-a')
 })
 
+test('publish binds chronological sessions across source and pending renewal without a contract gap', () => {
+  const fixture = baseFixture()
+  fixture.schedule = {
+    'T2-6': [{ studentId: 'student-a', trainerId: 'trainer-a', type: 'training', contractId: 'contract-a' }],
+    'T3-6': [{ studentId: 'student-a', trainerId: 'trainer-a', type: 'training', contractId: 'contract-renewal' }],
+  }
+  fixture.students.get('student-a').sessionsPerWeek = 2
+  fixture.trainers.get('trainer-a').availableSlots = ['T2-6', 'T3-6']
+  fixture.availability.get('student-a').slots = ['T2-6', 'T3-6']
+  fixture.contracts[0] = {
+    ...fixture.contracts[0],
+    totalSessions: 12,
+    usedSessions: 11,
+    renewedByContractId: 'contract-renewal',
+  }
+  fixture.contracts.push({
+    id: 'contract-renewal',
+    studentId: 'student-a',
+    branchId: BRANCH_ID,
+    trainerId: 'trainer-a',
+    status: 'future',
+    startDate: '2026-09-07',
+    endDate: '2026-12-07',
+    totalSessions: 36,
+    packageSessions: 36,
+    usedSessions: 0,
+    sourceContractId: 'contract-a',
+    earlyHandoverRequested: true,
+  })
+
+  const result = desiredEntries(fixture)
+  assert.deepEqual(result.errors, [])
+  const sessions = [...result.desired.values()].sort((left, right) => left.date.localeCompare(right.date))
+  assert.equal(sessions[0].contractId, 'contract-a')
+  assert.equal(sessions[1].contractId, 'contract-renewal')
+  assert.equal(sessions[1].renewalHandoverPending, true)
+  assert.equal(sessions[1].sourceContractId, 'contract-a')
+})
+
 test('rejects entries outside submitted weekly availability', () => {
   const fixture = baseFixture()
   fixture.availability.set('student-a', { studentId: 'student-a', status: 'submitted', slots: ['T3-6'] })

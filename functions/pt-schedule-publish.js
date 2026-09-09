@@ -8,7 +8,10 @@ const {
   effectiveStudentAvailability,
   loadLatestSubmittedFallbacks,
 } = require('./student-availability')
-const { contractEffectiveOnDate } = require('./contract-status')
+const {
+  contractSchedulingEntitlement,
+  resolveSchedulingContract,
+} = require('./contract-scheduling')
 
 // Keep enough headroom for schedule/version/audit writes in the same atomic
 // publish transaction. A paired session still occupies one trainer time slot,
@@ -369,7 +372,7 @@ async function publisherActor(request, db, branchId) {
   return actor
 }
 
-function desiredEntries({ scheduleId, week, branchId, schedule, trainers, students, contracts, availability, inheritedAvailability = new Map(), config, trainerLeaves = [] }) {
+function desiredEntries({ scheduleId, week, branchId, schedule, trainers, students, contracts, availability, inheritedAvailability = new Map(), config, trainerLeaves = [], activeSessions = [] }) {
   const calendar = normalizedScheduleConfig(config)
   const desired = new Map()
   const errors = []
@@ -390,8 +393,24 @@ function desiredEntries({ scheduleId, week, branchId, schedule, trainers, studen
   const workingDays = new Set(calendar.workingDays)
   const workingHours = new Set(calendar.workingHours)
   const holidays = new Set(calendar.holidays)
+  const reservationsByContract = new Map()
+  for (const session of activeSessions) {
+    if (!session?.contractId || !ACTIVE_SESSION_STATUSES.has(String(session.status || '').toLowerCase()) || session.billingStatus === 'charged') continue
+    // Sessions published from this branch/week are represented by the draft
+    // being validated, so counting them here would reserve the same right
+    // twice. Other weeks/branches remain real external reservations.
+    const belongsToCurrentDraft = session.branchId === branchId
+      && (session.scheduleWeekId === week || String(session.scheduleEntryId || '').startsWith(`${scheduleId}-`))
+    if (!belongsToCurrentDraft) reservationsByContract.set(session.contractId, (reservationsByContract.get(session.contractId) || 0) + 1)
+  }
 
-  for (const [slotId, rawEntries] of Object.entries(schedule || {})) {
+  const orderedSchedule = Object.entries(schedule || {}).sort(([left], [right]) => {
+    const [leftDay, leftHour] = left.split('-')
+    const [rightDay, rightHour] = right.split('-')
+    return (DAY_OFFSETS.get(leftDay) ?? 99) - (DAY_OFFSETS.get(rightDay) ?? 99)
+      || Number(leftHour) - Number(rightHour)
+  })
+  for (const [slotId, rawEntries] of orderedSchedule) {
     context = { slotId }
     if (!Array.isArray(rawEntries)) continue
     const match = /^(T[2-7]|CN)-(\d{1,2})$/.exec(slotId)
@@ -485,23 +504,24 @@ function desiredEntries({ scheduleId, week, branchId, schedule, trainers, studen
       if (effectiveAvailability.source === 'inherited_weekly') addWarning('INHERITED_AVAILABILITY_FALLBACK')
       if (effectiveAvailability.source === 'legacy_default') addWarning('LEGACY_AVAILABILITY_FALLBACK')
 
-      const dateCandidates = contracts.filter((contract) => contract.studentId === studentId
-        && contractEffectiveOnDate(contract, date))
-      if (dateCandidates.some((contract) => !contract.branchId)) addError('CONTRACT_BRANCH_REQUIRED')
       const confirmedCrossBranch = raw.source === 'manual_v2'
         && raw.studentBranchWarning === true
         && Boolean(raw.contractId)
         && Boolean(student?.branchId)
         && student.branchId !== branchId
         && raw.studentHomeBranchId === student.branchId
-      const contractCandidates = dateCandidates.filter((contract) => confirmedCrossBranch
-        ? contract.id === raw.contractId && contract.branchId === student.branchId
-        : contract.branchId === branchId)
-      if (contractCandidates.length !== 1) {
-        addError(contractCandidates.length ? 'AMBIGUOUS_ACTIVE_CONTRACT' : 'ACTIVE_CONTRACT_NOT_FOUND')
+      const contractResolution = resolveSchedulingContract({
+        contracts,
+        studentId,
+        branchId: confirmedCrossBranch ? student.branchId : branchId,
+        date,
+        reservationsByContract,
+      })
+      if (!contractResolution.contract) {
+        contractResolution.reasons.forEach(addError)
         continue
       }
-      const contract = contractCandidates[0]
+      const contract = contractResolution.contract
       const assignedTrainerIds = [...new Set([
         contract.trainerId,
         ...(Array.isArray(contract.trainerIds) ? contract.trainerIds : []),
@@ -537,10 +557,15 @@ function desiredEntries({ scheduleId, week, branchId, schedule, trainers, studen
         scheduleStatus: 'scheduled',
         billingStatus: 'pending',
         attendanceStatus: 'pending',
+        ...(contractResolution.earlyHandover ? {
+          renewalHandoverPending: true,
+          sourceContractId: contractResolution.sourceContractId,
+        } : {}),
         ...(trainerAssignmentWarning ? { trainerAssignmentWarning: true } : {}),
         ...(confirmedCrossBranch ? { studentBranchWarning: true, studentHomeBranchId: student.branchId } : {}),
         ...(override || {}),
       })
+      reservationsByContract.set(contract.id, (reservationsByContract.get(contract.id) || 0) + 1)
     }
   }
 
@@ -683,6 +708,7 @@ function createPtSchedulePublishFunctions({ db, onCall }) {
         inheritedAvailability,
         config: configSnapshot.data() || {},
         trainerLeaves: trainerLeavesSnapshot.docs.map((item) => item.data()),
+        activeSessions: activeSessionDocs.map((item) => ({ id: item.id, ...item.data() })),
       })
       if (prepared.errors.length) throw scheduleError('SCHEDULE_VALIDATION_FAILED', 'Lịch nháp còn xung đột và chưa thể publish.', { errors: prepared.errors, errorDetails: prepared.errorDetails })
       const acknowledgedWarnings = new Set(Array.isArray(request.data?.acknowledgedWarnings)
@@ -761,7 +787,7 @@ function createPtSchedulePublishFunctions({ db, onCall }) {
             && ACTIVE_SESSION_STATUSES.has(value.status)
             && value.billingStatus !== 'charged'
         }).length
-        if (Number(contract?.usedSessions || 0) + otherPlanned + count > Number(contract?.totalSessions || 0)) {
+        if (Number(contract?.usedSessions || 0) + otherPlanned + count > contractSchedulingEntitlement(contract)) {
           throw scheduleError('CONTRACT_SESSION_QUOTA_EXCEEDED', 'Số buổi đã học và đang xếp vượt quá gói tập.')
         }
       }

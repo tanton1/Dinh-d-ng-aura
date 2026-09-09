@@ -1,6 +1,6 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
-const { addMonthsDateKey, normalizeInstallments, renewalRisk, renewalEligibility, renewalHandoverProjection, latestContractsByStudent, requiresRenewalApproval, renewalQueueFingerprint, matchesRenewalSegment, renewalStats, renewalMessageTemplates, caseAssignedToTrainer, canViewCase } = require('./contract-renewals')
+const { addMonthsDateKey, normalizeInstallments, renewalRisk, renewalEligibility, renewalHandoverProjection, renewalActivationProjection, latestContractsByStudent, requiresRenewalApproval, renewalQueueFingerprint, matchesRenewalSegment, renewalStats, renewalMessageTemplates, caseAssignedToTrainer, canViewCase } = require('./contract-renewals')
 
 test('renewal calendar uses real months and clamps month-end dates', () => {
   assert.equal(addMonthsDateKey('2026-01-31', 1), '2026-02-28')
@@ -25,6 +25,33 @@ test('future renewal transfers the exact remaining quota only on its handover da
     carriedOverSessions: 1,
     totalSessions: 37,
   })
+})
+
+test('an exhausted source activates its renewal early without shortening the sold validity', () => {
+  const source = { totalSessions: 12, usedSessions: 12 }
+  const next = {
+    status: 'future',
+    startDate: '2026-09-21',
+    endDate: '2026-12-21',
+    durationMonths: 3,
+    packageSessions: 36,
+    carryOverPending: true,
+    earlyHandoverRequested: true,
+  }
+  assert.deepEqual(renewalActivationProjection(source, next, '2026-09-10'), {
+    handoverDue: true,
+    earlyHandover: true,
+    reason: 'SOURCE_QUOTA_EXHAUSTED',
+    sourceRemaining: 0,
+    durationMonths: 3,
+    effectiveStartDate: '2026-09-10',
+    effectiveEndDate: '2026-12-21',
+    packageSessions: 36,
+    carriedOverSessions: 0,
+    totalSessions: 36,
+  })
+  assert.equal(renewalActivationProjection({ ...source, usedSessions: 11 }, next, '2026-09-10').handoverDue, false)
+  assert.equal(renewalActivationProjection(source, { ...next, earlyHandoverRequested: false }, '2026-09-10').handoverDue, false)
 })
 
 test('renewal risk prioritises exhausted, expired and near-expiry contracts', () => {

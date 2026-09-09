@@ -224,6 +224,75 @@ test('future renewal contract is usable only from its concrete start date', () =
   assert.equal(resolveContract(data, 'student-a', 'trainer-a', '2026-08-29').contract.id, 'contract-a')
 })
 
+test('next-week scheduling consumes the last source session then continues on the sold renewal', () => {
+  const data = fixture()
+  data.students[0].sessionsPerWeek = 4
+  data.students[0].availableSlots = ['T2-6', 'T3-6', 'T4-6', 'T5-6']
+  data.trainers[0].availableSlots = [...data.students[0].availableSlots]
+  data.contracts[0] = {
+    ...data.contracts[0],
+    totalSessions: 12,
+    usedSessions: 11,
+    remainingEntitlementSessions: 1,
+    activeScheduledSessions: 0,
+    activeScheduledThisWeek: 0,
+    remainingSchedulableSessions: 1,
+    renewedByContractId: 'contract-renewal',
+  }
+  data.contracts.push({
+    id: 'contract-renewal',
+    studentId: 'student-a',
+    trainerId: 'trainer-a',
+    trainerIds: [],
+    branchId: BRANCH,
+    status: 'future',
+    startDate: '2026-09-07',
+    endDate: '2026-12-07',
+    totalSessions: 36,
+    packageSessions: 36,
+    usedSessions: 0,
+    sourceContractId: 'contract-a',
+    earlyHandoverRequested: true,
+    carryOverPending: false,
+  })
+
+  const eligibility = studentWeekEligibility(data.contracts, 'student-a', BRANCH, WEEK, WEEK)
+  assert.equal(eligibility.remainingSessions, 37)
+  assert.ok(eligibility.eligibleContractIds.includes('contract-renewal'))
+
+  const generated = generateSchedule(data)
+  const entries = Object.entries(generated.schedule)
+    .flatMap(([slotId, values]) => values.map((entry) => ({ slotId, ...entry })))
+    .filter((entry) => entry.studentId === 'student-a')
+    .sort((left, right) => left.slotId.localeCompare(right.slotId))
+  assert.equal(entries.length, 4)
+  assert.equal(entries.filter((entry) => entry.contractId === 'contract-a').length, 1)
+  assert.equal(entries.filter((entry) => entry.contractId === 'contract-renewal').length, 3)
+  assert.ok(entries.filter((entry) => entry.contractId === 'contract-renewal')
+    .every((entry) => entry.renewalHandoverPending === true && entry.sourceContractId === 'contract-a'))
+})
+
+test('an explicit hard renewal date still blocks early handover after source quota is reserved', () => {
+  const data = fixture()
+  data.contracts[0].totalSessions = 1
+  data.contracts.push({
+    ...data.contracts[0],
+    id: 'contract-renewal',
+    status: 'future',
+    startDate: '2026-09-07',
+    endDate: '2026-12-07',
+    totalSessions: 36,
+    packageSessions: 36,
+    usedSessions: 0,
+    sourceContractId: 'contract-a',
+    earlyHandoverRequested: false,
+  })
+  const draft = {
+    'T2-6': [{ studentId: 'student-a', trainerId: 'trainer-a', contractId: 'contract-a', branchId: BRANCH, type: 'training' }],
+  }
+  assert.deepEqual(resolveContract(data, 'student-a', 'trainer-a', '2026-08-26', draft).reasons, ['CONTRACT_SESSION_QUOTA_EXCEEDED'])
+})
+
 test('weekly targets are bounded, scoped and do not mutate the profile default', () => {
   assert.deepEqual(safeWeeklySessionTargets({ 'student-a': 2, stranger: 4, invalid: 9 }, new Set(['student-a'])), { 'student-a': 2 })
   const data = fixture()

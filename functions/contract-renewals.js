@@ -195,32 +195,66 @@ function renewalHandoverProjection(source, nextContract, today = vietnamDateKey(
 async function activateDueRenewalContractsCore({ db, today = vietnamDateKey(), actorUid = 'scheduler:contract-renewals' }) {
   const snapshot = await db.collection('contracts').where('status', '==', 'future').limit(1001).get()
   if (snapshot.size > 1000) throw new Error('Future contract inventory exceeds the safe activation limit.')
-  const due = snapshot.docs.filter((item) => String(item.data().startDate || '') <= today).slice(0, 1000)
+  const earlySourceIds = [...new Set(snapshot.docs
+    .map((item) => item.data())
+    .filter((contract) => String(contract.startDate || '') > today
+      && contract.earlyHandoverRequested !== false
+      && typeof contract.sourceContractId === 'string'
+      && contract.sourceContractId)
+    .map((contract) => contract.sourceContractId))]
+  const earlySources = new Map()
+  for (let offset = 0; offset < earlySourceIds.length; offset += 100) {
+    const references = earlySourceIds.slice(offset, offset + 100).map((id) => db.doc(`contracts/${id}`))
+    const sources = references.length ? await db.getAll(...references) : []
+    sources.filter((item) => item.exists).forEach((item) => earlySources.set(item.id, item.data()))
+  }
+  // Keep non-due renewals out of transactions. The one bounded getAll above
+  // is enough to detect source exhaustion without turning every future
+  // contract into a daily read/write contention point.
+  const activationCandidates = snapshot.docs.filter((item) => {
+    const contract = item.data()
+    if (String(contract.startDate || '') <= today) return true
+    const source = earlySources.get(contract.sourceContractId)
+    return Boolean(source) && Number(source.usedSessions || 0) >= Number(source.totalSessions || 0)
+  })
   let activated = 0
+  let due = 0
+  let earlyActivated = 0
   let transferredSessions = 0
   let withoutSource = 0
-  for (const item of due) {
+  for (const item of activationCandidates) {
     const nextReference = item.ref
     const sourceId = typeof item.data().sourceContractId === 'string' ? item.data().sourceContractId : ''
     const result = await db.runTransaction(async (transaction) => {
       const nextSnapshot = await transaction.get(nextReference)
-      if (!nextSnapshot.exists || nextSnapshot.data().status !== 'future' || String(nextSnapshot.data().startDate || '') > today) return { activated: false, transferredSessions: 0, withoutSource: false }
+      if (!nextSnapshot.exists || nextSnapshot.data().status !== 'future') return { activated: false, due: false, earlyHandover: false, transferredSessions: 0, withoutSource: false }
       if (!sourceId) {
+        const projection = renewalActivationProjection(null, nextSnapshot.data(), today)
+        if (!projection.handoverDue) return { activated: false, due: false, earlyHandover: false, transferredSessions: 0, withoutSource: false }
         transaction.update(nextReference, {
           status: 'active', activatedAt: FieldValue.serverTimestamp(), activatedBy: actorUid,
+          handoverStatus: 'active', activationDate: projection.effectiveStartDate,
           updatedAt: FieldValue.serverTimestamp(), revision: Number(nextSnapshot.data().revision || 0) + 1,
         })
-        return { activated: true, transferredSessions: 0, withoutSource: true }
+        return { activated: true, due: true, earlyHandover: false, transferredSessions: 0, withoutSource: true }
       }
       const sourceReference = db.doc(`contracts/${sourceId}`)
       const sourceSnapshot = await transaction.get(sourceReference)
       if (!sourceSnapshot.exists) throw new Error(`Renewal source is missing for contract ${nextSnapshot.id}.`)
-      const projection = renewalHandoverProjection(sourceSnapshot.data(), nextSnapshot.data(), today)
+      const projection = renewalActivationProjection(sourceSnapshot.data(), nextSnapshot.data(), today)
+      if (!projection.handoverDue) return { activated: false, due: false, earlyHandover: false, transferredSessions: 0, withoutSource: false }
       if (!projection.handoverDue || projection.packageSessions < 1) throw new Error(`Renewal handover is invalid for contract ${nextSnapshot.id}.`)
       transaction.update(nextReference, {
         status: 'active', totalSessions: projection.totalSessions,
+        startDate: projection.effectiveStartDate, endDate: projection.effectiveEndDate,
+        originalStartDate: nextSnapshot.data().originalStartDate || nextSnapshot.data().startDate,
+        originalEndDate: nextSnapshot.data().originalEndDate || nextSnapshot.data().endDate,
+        durationMonths: projection.durationMonths,
         carriedOverSessions: projection.carriedOverSessions,
         carryOverPending: false, carryOverTransferredAt: FieldValue.serverTimestamp(),
+        handoverStatus: 'active', handoverReason: projection.reason,
+        activationDate: projection.effectiveStartDate,
+        ...(projection.earlyHandover ? { earlyHandoverAt: FieldValue.serverTimestamp() } : {}),
         activatedAt: FieldValue.serverTimestamp(), activatedBy: actorUid,
         updatedAt: FieldValue.serverTimestamp(), revision: Number(nextSnapshot.data().revision || 0) + 1,
       })
@@ -230,13 +264,61 @@ async function activateDueRenewalContractsCore({ db, today = vietnamDateKey(), a
         carryOverTransferredAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(), revision: Number(sourceSnapshot.data().revision || 0) + 1,
       })
-      return { activated: true, transferredSessions: projection.carriedOverSessions, withoutSource: false }
+      return { activated: true, due: true, earlyHandover: projection.earlyHandover, transferredSessions: projection.carriedOverSessions, withoutSource: false }
     })
+    if (result.due) due += 1
     if (result.activated) activated += 1
+    if (result.earlyHandover) earlyActivated += 1
     transferredSessions += result.transferredSessions
     if (result.withoutSource) withoutSource += 1
   }
-  return { evaluated: snapshot.size, due: due.length, activated, transferredSessions, withoutSource }
+  return { evaluated: snapshot.size, due, activated, earlyActivated, transferredSessions, withoutSource }
+}
+
+function inferredDurationMonths(startDate, endDate) {
+  const start = String(startDate || '').split('-').map(Number)
+  const end = String(endDate || '').split('-').map(Number)
+  if (start.length !== 3 || end.length !== 3 || start.some(Number.isNaN) || end.some(Number.isNaN)) return 0
+  return Math.max(1, Math.min(60, (end[0] - start[0]) * 12 + end[1] - start[1]))
+}
+
+function renewalActivationProjection(source, nextContract, today = vietnamDateKey()) {
+  const sourceRemaining = source
+    ? Math.max(0, Number(source.totalSessions || 0) - Number(source.usedSessions || 0))
+    : 0
+  const plannedStartDate = dateKey(nextContract.startDate, 'Ngày bắt đầu hợp đồng gia hạn')
+  const dueByDate = plannedStartDate <= today
+  const dueBySourceExhaustion = Boolean(source)
+    && nextContract.earlyHandoverRequested !== false
+    && sourceRemaining === 0
+  const handoverDue = dueByDate || dueBySourceExhaustion
+  const earlyHandover = handoverDue && dueBySourceExhaustion && !dueByDate
+  const effectiveStartDate = earlyHandover ? today : plannedStartDate
+  const durationMonths = safeInteger(
+    nextContract.durationMonths || inferredDurationMonths(plannedStartDate, nextContract.endDate),
+    'Thời hạn gói',
+    1,
+    60,
+  )
+  // Opening the next package early must never shorten a customer's promised
+  // validity or push existing instalments outside the contract window. Keep
+  // the sold end date; the early transition days are an Aura benefit.
+  const effectiveEndDate = dateKey(nextContract.endDate, 'Ngày kết thúc hợp đồng gia hạn')
+  const packageSessions = Math.max(0, Number(nextContract.packageSessions || 0))
+  const carryOverRequested = nextContract.carryOverRequested === true || nextContract.carryOverPending === true
+  const carriedOverSessions = carryOverRequested && handoverDue ? sourceRemaining : 0
+  return {
+    handoverDue,
+    earlyHandover,
+    reason: earlyHandover ? 'SOURCE_QUOTA_EXHAUSTED' : dueByDate ? 'PLANNED_START_DATE_REACHED' : 'WAITING',
+    sourceRemaining,
+    durationMonths,
+    effectiveStartDate,
+    effectiveEndDate,
+    packageSessions,
+    carriedOverSessions,
+    totalSessions: packageSessions + carriedOverSessions,
+  }
 }
 
 async function reconcileContractStatusesCore({ db, today = vietnamDateKey(), actorUid = 'scheduler:contract-status', dryRun = false, limit = 1000 }) {
@@ -1050,7 +1132,7 @@ function createContractRenewalFunctions({ db, onCall, onSchedule, logger }) {
         trainerIds: trainerIds.length ? trainerIds : (Array.isArray(source.trainerIds) ? source.trainerIds : source.trainerId ? [source.trainerId] : []),
         nutritionPTIds: nutritionPTIds.length ? nutritionPTIds : (Array.isArray(source.nutritionPTIds) ? source.nutritionPTIds : []),
         branchId: renewalCase.branchId || source.branchId || trainingPackage.branchId || null, packageId, packageName: trainingPackage.name || 'Gói tập Aura',
-        startDate, endDate, originalEndDate: endDate,
+        startDate, endDate, originalStartDate: startDate, originalEndDate: endDate, durationMonths,
         // `totalSessions` remains the projected entitlement for display while
         // a future renewal is pending. At the handover date the scheduler
         // recalculates the exact unused source quota in one transaction so
@@ -1060,6 +1142,13 @@ function createContractRenewalFunctions({ db, onCall, onSchedule, logger }) {
         carriedOverSessions: handoverDue ? carriedOverSessions : 0,
         carryOverRequested: carryOver,
         carryOverPending,
+        // A sold renewal is ready to continue as soon as the source consumes
+        // its final right. Scheduling may reserve the following sessions in
+        // advance; the nightly handover still performs the status/date change
+        // transactionally after the source is actually exhausted.
+        earlyHandoverRequested: true,
+        handoverStatus: handoverDue ? 'active' : 'pending',
+        plannedActivationDate: startDate,
         usedSessions: 0, totalPrice: packagePrice, discount, paidAmount: initialPayment, accountingAdvanceAccountCode: '131', status: startDate > today ? 'future' : 'active',
         installments, nextPaymentDate: installments[0]?.date || null, sourceContractId, renewalCaseId: caseId,
         referralCode: source.referralCode || null,
@@ -1189,4 +1278,4 @@ function createContractRenewalFunctions({ db, onCall, onSchedule, logger }) {
   }
 }
 
-module.exports = { createContractRenewalFunctions, refreshRenewalQueueCore, createRenewalInternalReminders, activateDueRenewalContractsCore, reconcileContractStatusesCore, renewalHandoverProjection, addMonthsDateKey, normalizeInstallments, renewalRisk, renewalEligibility, latestContractsByStudent, priorityScore, slaStatus, requiresRenewalApproval, renewalQueueFingerprint, matchesRenewalSegment, renewalStats, renewalMessageTemplates, caseAssignedToTrainer, canViewCase }
+module.exports = { createContractRenewalFunctions, refreshRenewalQueueCore, createRenewalInternalReminders, activateDueRenewalContractsCore, reconcileContractStatusesCore, renewalHandoverProjection, renewalActivationProjection, addMonthsDateKey, normalizeInstallments, renewalRisk, renewalEligibility, latestContractsByStudent, priorityScore, slaStatus, requiresRenewalApproval, renewalQueueFingerprint, matchesRenewalSegment, renewalStats, renewalMessageTemplates, caseAssignedToTrainer, canViewCase }
