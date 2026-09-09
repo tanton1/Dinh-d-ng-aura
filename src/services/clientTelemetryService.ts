@@ -9,6 +9,7 @@ interface ClientIssueContext {
   host?: string
   provider?: 'google' | 'phone' | 'email' | 'password' | 'gemini' | 'openrouter' | 'apikey_fun'
   retryable?: boolean
+  correlationId?: string
 }
 
 const reportedIssueKeys = new Map<string, number>()
@@ -45,6 +46,7 @@ export function reportClientIssue(
   context: ClientIssueContext,
 ) {
   const code = safeErrorCode(error)
+  const correlationId = context.correlationId || createClientCorrelationId()
   const issueKey = `${context.phase}:${code}:${context.provider ?? ''}`
   if (!shouldReportIssue(issueKey)) return
   if (import.meta.env.DEV) {
@@ -57,6 +59,7 @@ export function reportClientIssue(
     route: string
     host: string
     incidentId?: string
+    correlationId: string
     provider?: ClientIssueContext['provider']
     retryable?: boolean
     release: string
@@ -67,6 +70,7 @@ export function reportClientIssue(
     route: (context.route || window.location.hash || '#/').slice(0, 160),
     host: (context.host || window.location.hostname || 'unknown').slice(0, 120),
     incidentId: context.incidentId?.slice(0, 80),
+    correlationId: correlationId.slice(0, 100),
     provider: context.provider,
     retryable: context.retryable,
     release: (import.meta.env.VITE_APP_RELEASE || 'web').slice(0, 80),
@@ -86,6 +90,12 @@ export function reportClientIssue(
     )
     return report(payload)
   }).catch(() => undefined)
+}
+
+export function createClientCorrelationId() {
+  return typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : `aura-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
 }
 
 /**

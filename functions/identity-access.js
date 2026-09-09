@@ -688,6 +688,7 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
         const assignmentRef = db.doc(`roleAssignments/${uid}`)
         const clientRef = db.doc(`coachClients/${uid}`)
         const legacyStudentRef = legacyStudent ? db.doc(`students/${crmProfileId}`) : null
+        const identityLinkRef = legacyStudent ? db.doc(`accountIdentityLinks/${uid}`) : null
         if ((await transaction.get(userRef)).exists) throw new HttpsError('already-exists', 'Hồ sơ Aura đã tồn tại.')
         if (legacyStudentRef && (await transaction.get(legacyStudentRef)).exists) throw new HttpsError('already-exists', 'Hồ sơ học viên PT đã tồn tại.')
         transaction.create(userRef, {
@@ -706,7 +707,25 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
           clientId: uid, displayName, email, phoneNumber, coachingStatus: 'onboarding', goal,
           createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
         })
-        if (legacyStudentRef) transaction.create(legacyStudentRef, { ...legacyStudent, accountUid: uid, createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() })
+        if (legacyStudentRef) transaction.create(legacyStudentRef, {
+          ...legacyStudent,
+          accountUid: uid,
+          identityLinkStatus: 'linked',
+          identityLinkVersion: 2,
+          identityLinkedAt: FieldValue.serverTimestamp(),
+          identityLinkedBy: actor.uid,
+          schemaVersion: 1,
+          revision: 1,
+          createdAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
+        })
+        if (identityLinkRef) transaction.create(identityLinkRef, {
+          studentId: crmProfileId,
+          status: 'active',
+          source: 'manual',
+          linkedAt: FieldValue.serverTimestamp(),
+          linkedBy: actor.uid,
+        })
         transaction.create(db.collection('identityAuditLogs').doc(), {
           action: 'student_account.provisioned', actorUid: actor.uid, targetUid: uid,
           after: { accessRole: 'student', crmProfileId: crmProfileId || uid }, createdAt: FieldValue.serverTimestamp(),

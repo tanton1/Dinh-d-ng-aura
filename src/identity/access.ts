@@ -75,11 +75,10 @@ export const routeCapabilities = {
   'staff-quotes': 'sales.quotes.self.manage',
   'staff-renewals': 'renewals.workspace.view',
   'staff-payroll': 'payroll.self.view',
-  // This route serves two actor-scoped workspaces: PTs view their own score,
-  // while branch managers review their assigned team. Use the shared Staff
-  // entry capability here; the route component and callables enforce the
-  // stronger self/reviewer capability for the workspace that is rendered.
-  'staff-performance': 'dashboard.view',
+  // PTs view their own score while branch managers review their scoped team.
+  // Route admission and navigation use the same any-of rule so the menu never
+  // exposes a destination that immediately rejects the actor.
+  'staff-performance': ['performance.self.view', 'performance.evidence.review'],
   // Legacy operations pages still read admin-only collections while their
   // actor-scoped replacements are being rolled out. Bind every such route to
   // the Identity v2 access context so a legacy UI role alone cannot open it.
@@ -110,3 +109,14 @@ export const routeCapabilities = {
   'admin-eat-clean': 'eat_clean.operations.manage',
   'admin-notifications': 'identity.staff_position.manage',
 } as const
+
+export function hasRouteCapability(
+  view: string,
+  hasCapability: (capability: string) => boolean,
+) {
+  const requirement = routeCapabilities[view as keyof typeof routeCapabilities]
+  if (!requirement) return true
+  return Array.isArray(requirement)
+    ? requirement.some((capability) => hasCapability(capability))
+    : hasCapability(requirement as string)
+}

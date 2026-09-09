@@ -42,6 +42,11 @@ test('trainer scheduling policy exposes a soft daily workload target and ignores
 test('Functions package includes the same deployable identity contract as the web app', () => {
   assert.deepEqual(functionsIdentityContract, sharedIdentityContract)
   assert.match(identity, /require\('\.\/identity-contract\.json'\)/)
+  assert.ok(!sharedIdentityContract.staffCapabilities.includes('performance.self.view'))
+  assert.ok(!sharedIdentityContract.staffCapabilities.includes('performance.evidence.submit'))
+  assert.ok(sharedIdentityContract.positionCapabilities.trainer_pt.includes('performance.self.view'))
+  assert.ok(sharedIdentityContract.positionCapabilities.trainer_pt.includes('performance.evidence.submit'))
+  assert.ok(sharedIdentityContract.positionCapabilities.branch_manager.includes('performance.evidence.review'))
 })
 
 test('Express rejects unverifiable Firebase tokens without unsigned decode fallback', () => {

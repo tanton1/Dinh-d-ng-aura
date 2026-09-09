@@ -1,0 +1,1295 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-09-09",
+  "policy": "Inventory only. Legacy root patch scripts remain untouched until CI, package, Firebase and deployment references are verified.",
+  "entries": [
+    {
+      "legacyPath": "fix-admin.js",
+      "sha256": "5628cc9583556c1a18f49b39e902dfb5496d5b3a367a99aefecc8d3926b58245",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "a1f33837ca72d7a657308d167e412c5e4020b55b",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "fix-admin2.js",
+      "sha256": "3c3749659f6ca66ab4e1c8473c459db617a1f22ae6968b7dfbdd9a7a5d9961e2",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "a1f33837ca72d7a657308d167e412c5e4020b55b",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "fix-bad-quotes.js",
+      "sha256": "f4337fb07f4da9a50bea29614c4c96d76949801e5786313944317b182268dd08",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "a1f33837ca72d7a657308d167e412c5e4020b55b",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "fix-course-detail.js",
+      "sha256": "d7e7055d4e53b64f73bbf32947b58795dd0898b4417d4ce6a50e868f720b0756",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "a1f33837ca72d7a657308d167e412c5e4020b55b",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "fix-course-editor.js",
+      "sha256": "d5b0c6318502c26e183262dca344e62c2ada097af3e9a50be998de2e47552add",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "a1f33837ca72d7a657308d167e412c5e4020b55b",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "fix-imports.js",
+      "sha256": "b2493b6c13b24cda8377a19160e4bcc5e71c18305f011198e84994339d9396bf",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "a1f33837ca72d7a657308d167e412c5e4020b55b",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "fix-paths.js",
+      "sha256": "991d29494654eaa4dcb37624618ff31c8182e1e2c342498b7c0cbe739b0b0140",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "a1f33837ca72d7a657308d167e412c5e4020b55b",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "fix-regex.js",
+      "sha256": "32b4eddc34ec81d14dd1d9b17de7ceb65719011c935e99605b6af51679854fd6",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "d90ab53fbc4e55866574c6462e912881fced786c",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "fix-regex2.js",
+      "sha256": "bf2043d7a329b0f1e4a38c4dc1001cc30fbc7052d77b3687c79cc0419730abe2",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "d90ab53fbc4e55866574c6462e912881fced786c",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "fix-server.js",
+      "sha256": "66d1207ba17ecdc76bac2196f0c4bf24a24394a109f1705e857d79ec6d5b22ff",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "d90ab53fbc4e55866574c6462e912881fced786c",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "fix2.py",
+      "sha256": "a2b20d4aa2e4d4967ff658b707b5a1c91b0d00a6f5d2d3f25ca9650a6af1c564",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "bc170671ee7acabfda8d1cd5e6fc3bd718a911d8",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "fixApp.js",
+      "sha256": "5a93b9ac28118edde68c33e2b07296745c4c12e803ec498bb481ad7abbce67fa",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "6e4f3bc3022d4ad23e628cb44be8e16acec1d309",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "fix_app.cjs",
+      "sha256": "49566ac9a5c4fd241296fad589e3980e20588f59e131c6878977e0d93815e168",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "fix_app2.cjs",
+      "sha256": "38935bd34ff7ae7801760fdeab752671b4dfcecef680f8c30e5f3b8e1058505b",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "fix_app3.cjs",
+      "sha256": "6f399433326ddaa72236e73122e652f866f30df68f3bc62bf40f52c75a26e26f",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "fix_app4.cjs",
+      "sha256": "901eda33c6cab2687e8bd320664b02b6547e03dd89787098474313264790d872",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "fix_app_age.cjs",
+      "sha256": "b5bb935ca9d7306846c8af4b75e8cee1e46ff250bbaa482c71a959ed28284a0d",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "fix_app_cast.cjs",
+      "sha256": "ab6dc97deb58dca6ab6fc0e132c19a8e5520eab955deb42c9d18825525d49fd2",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "fix_app_complete.cjs",
+      "sha256": "ceb9eb18da372bd33480edf7bea26479e8fded82ec27f59768e263d6e2b8e62a",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "fix_app_duplicate.cjs",
+      "sha256": "4b3ef5c5cd22207c7e5168fefc6e153dfe7342862214b4e0063cf3ba0c3fe32d",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "fix_app_goal.cjs",
+      "sha256": "441ae722f174e14e9d46022e4b0ae62fad1161989aacc699dd28fc3e4f44f2c1",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "fix_app_loading.cjs",
+      "sha256": "9be498f9e4d02674258a0292cd948dfe45ab26738b3ce486daad4ee4ccc8032d",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "fix_app_onboarding.cjs",
+      "sha256": "c800aad8efd9627399ef4a6b5c4187295eb87efbde1ee105803757ffa69a68fe",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "fix_app_onboarding_merge.cjs",
+      "sha256": "4a5ae0eb6accbe51fba4e12a339243621d7050eb57001a426ce719d5bfc15a2c",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "fix_app_pace.cjs",
+      "sha256": "29a55631b2661d1e9ad4a65b347e99934164c925171564315c93842c4d33122c",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "fix_app_profile.cjs",
+      "sha256": "2dab8e520b15d289d8c152521122f29122d46efd3738271908f9f36a4d29df1c",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "fix_app_profileeditor.cjs",
+      "sha256": "d3b21b88b14a5cebb6f67cf172db8cf7f55541a8ec0f3c17f0ab618755eb01aa",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "fix_app_profileeditor2.cjs",
+      "sha256": "348f6543296d74287d49499473972045fec0128fb465633c6d13edcc1e7dd8da",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "fix_app_profileeditor3.cjs",
+      "sha256": "4241810c42ba28b4d84510916af3d81cbcc855c5bf481e237a648c5534668173",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "fix_app_profileeditor4.cjs",
+      "sha256": "f5677306f314921e2bd75b38f71adc9c33ec20cfddfd84e6a86b78d6d9b8344a",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "fix_app_saveprofile.cjs",
+      "sha256": "16c449dcbf0862482218d5f9cded161d3635b9fc8b94463cc623ac4ded25cb32",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "fix_app_sex.cjs",
+      "sha256": "98e5681bd8b84f57876592c449c7016e9f09258879a07d3617b9e2bba2c08489",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "fix_app_ts.cjs",
+      "sha256": "036e7258133e850293f5c2ca0d2869bd7180674dc20b127979a3f48744c30cdf",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "fix_attributes.cjs",
+      "sha256": "cb5b3228c819cfc81b8ac4a43fc04d30323ad67639ed681ac28f7cdf38c70ce6",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "fix_buttons.cjs",
+      "sha256": "30945b52ed67bdec004a4f63962c4abdd4b3de9d511b91215b972f65f96bf472",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "fix_create_profile.cjs",
+      "sha256": "a92f38ceb49fa7fccf4e914d636d303fa38fa72422b29fb6fd2586763763538c",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "fix_destructure.cjs",
+      "sha256": "ad2a4686d52db90c8bac8d1a104c46db0e52f2b5fe2158310746446f452e9c44",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "fix_divs.ts",
+      "sha256": "a4b91ea24c6f794360ef46142b4a99dfba8292a34bd1529c77bd6b2a30b69042",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "91d0602e4e9f7dd50fee28c968e3a46188987187",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "fix_eating_style.cjs",
+      "sha256": "a98d65e98a708073af073359759b467d03a9dc17fe8820d70e8acca0c2b22c7f",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "fix_fallback.cjs",
+      "sha256": "06c0b981fe9c075080b791cc766d0a4b1a19b11749ac4232d35957aa9956b5f6",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "fix_final_2.cjs",
+      "sha256": "3641dad356bfe7d59713e0fa70c8320b36cddd0fd5da1d02757463cd9655de03",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "fix_grad.cjs",
+      "sha256": "3b5962122938d78991c0f252800407ea93e9587e8e2b1ec045fafb8d04305115",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "fix_h_w_screens.cjs",
+      "sha256": "b734b2bdd2574479c38cfb4387a6504dbd86e4dcc2f44036070342feb1b06bc5",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "fix_imports.cjs",
+      "sha256": "746cf75aede7f2b2c0058373dcf5832da77eed1a8c586e7a9b51f881bd3b1360",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "fix_index.cjs",
+      "sha256": "6016588856b78821dfb67d5054c4e976fc6e2dcd9ac238ff49c7b227e04aeff4",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "fix_index_again.cjs",
+      "sha256": "b26cdf98e71fad5fcb5d30d7dedfbbf253b706207154e6f8d3d65816e58304ee",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "fix_index_loading.cjs",
+      "sha256": "c08e236f062de04ea671d6e0f2ca592e0c85988aed9b0f2feb51890027fa175e",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "fix_jsx.ts",
+      "sha256": "1f23c92bf232bc6e42297d0526f78d529eea264485cbea42ffc56acd7725341c",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "91d0602e4e9f7dd50fee28c968e3a46188987187",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "fix_lint.cjs",
+      "sha256": "e90705b9866333a24638899d96622302ad1d8fac9b9ec5c8c6b05204d49ce1d4",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "fix_lint2.cjs",
+      "sha256": "cd98834ced0ca5f99d0e9c9a92b73debac72cbc46786bd3d32d92aa7ebea5a9c",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "fix_lint3.cjs",
+      "sha256": "067e650cd5c4931f8cd8a3ff4dac43b734cbad3320e54d68303c2917774c0df4",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "fix_loading.cjs",
+      "sha256": "e7c75660638c75191ed089034b43bf11efee2f753e216735ea3aab032dc4c59b",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "fix_nutrition_goal.cjs",
+      "sha256": "d71a42a365694b65bacab6309c2b48ba2c513effe9484fa3a97d665033bfa31f",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "fix_nutrition_goal_tolower.cjs",
+      "sha256": "27821baa9659a7c0385ed4b2368ecd7abe6bdccfe9b478e0aefac433abd25fd4",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "fix_nutritionpage_gettargets.cjs",
+      "sha256": "d6931cb49d4d5f2f1e5aa7dcb9b947d91a1e800b6b6461a6e708d0b5a56a2e9e",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "fix_onboarding.cjs",
+      "sha256": "6617bfb684e129a93e02ee1a9821b1b9a53fa7cd873e371791af427d4c68a256",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "fix_onboarding_css.cjs",
+      "sha256": "f7c4d0d1b7cd08392d293db51912a27122fe2a73748717b8ff80b08d21efdc89",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "fix_onboarding_flow.cjs",
+      "sha256": "8a2cb2bad4b6481481bbb8e921a1460dafee5e6bf9c67637b88623a1ea4679dc",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "fix_onboarding_tsx.cjs",
+      "sha256": "68d3fed7b9ca1b6aaa165de8380f449564fbefa4a0ebccaa012c826a12dca93c",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "fix_onboarding_types.cjs",
+      "sha256": "cbff47e50210db3395b2333641e994abe67722a37d53e4b46507681710efa0c3",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "fix_photos.py",
+      "sha256": "d0111a2e7c7a1a845c7e556f70a6dcb9d175783890719020b755d49ed115f92c",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "bc170671ee7acabfda8d1cd5e6fc3bd718a911d8",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "fix_profile.cjs",
+      "sha256": "adc0486fd1767729dde849e4cf23f0a0b5799b5c4cb43ed4a66185aed79a7289",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "fix_profile2.cjs",
+      "sha256": "6944785de3e348c6fd9ea79c68a6a7cc809cad89db23ee7822a4607c065aa2fe",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "fix_profile_plan.cjs",
+      "sha256": "14744cdb0cd6e5f0531d25b41a78633fd9586b41ba36e734855fb74af63123d9",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "fix_screens4.cjs",
+      "sha256": "d51b5429e4267b7d39454d3d8232141b581479fa07c8a98e3d8c46f0040db301",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "fix_screens_styles.cjs",
+      "sha256": "ac3e938a0a3b23064a27419d7254fca8717e16de7853a1fd688518d9d9f66cfd",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "fix_server_import.cjs",
+      "sha256": "12ad4867c0c7c7038ee47efdef553b0430d18eb4ccb078c0dfec254e90bf8f84",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "fix_server_import_2.cjs",
+      "sha256": "c6ea19cac55f7e8ead2a53589a466218ea13b871d23fc6e72a4e4ea04d0ac8c5",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "fix_server_onboarding.cjs",
+      "sha256": "99a5b2645ec28246e1a76029d1aa374d2e4e4808d5209cb3c9e2517bb017052e",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "fix_slash_n.cjs",
+      "sha256": "6a48d799b73d3f8a198cf08776c37712c502d1656b73b0b6daa1d0e2aab92118",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "fix_slash_n_2.cjs",
+      "sha256": "940f7b142987e0e2966b3d7a92ee142656798305c2372e8f895c79e074ce6545",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "fix_sleep.cjs",
+      "sha256": "4c19e7916e7016c07ba7ef4224b3fde7494d4469f7c0af97918c0ae884e1d060",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "fix_spinner.cjs",
+      "sha256": "6de17506ed7bc4e0efbcc0688de8c7021670c12fa182fc084548f245edcbb081",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "fix_ts.cjs",
+      "sha256": "ad381049e55d58728deac1075ef1acf4702c3270b40285acdb75135f40a3dabd",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "fix_ts.py",
+      "sha256": "cc1b256ef4ac6ed01cf29baf97d2fe5bf8ee515059894274f4506d68273f7289",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "bc170671ee7acabfda8d1cd5e6fc3bd718a911d8",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "fix_tws.cjs",
+      "sha256": "ba16f3b6b3ea9b430323799a1d8dedd39402a8bf89c036e10e87f75ea2acf1c8",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "fix_types.cjs",
+      "sha256": "8d12b34d67d8bd6d52b0f914d8a98e3d113541b3c6392d7950f5dc8f42eadd30",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "fix_ui.cjs",
+      "sha256": "f597555341e06198072ada5e6af0f2f1e47c270e860591c230d226dfc3f41b01",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "fix_welcome.cjs",
+      "sha256": "855b225e078ae2a0db0f51c3fa22b1333da87d08a53a8fc9b8fe2488e59f3007",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "fix_welcome_logo.cjs",
+      "sha256": "78062692a4ae0ba9757048ea193c5f2cd4e34ba8e227ca5f62295e601a689cfc",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "fix_welcome_screen.cjs",
+      "sha256": "58188f9082ffc47be64c8a5f056a85c4d0a8d2ba770619061e58862000aa8ffd",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "patch-server.js",
+      "sha256": "488de03837066ac256fac00f73d7959bcf1f5ac83781a6f9fae7dd320e2bfbf7",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "6e4f3bc3022d4ad23e628cb44be8e16acec1d309",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "patch.cjs",
+      "sha256": "26bf7cae3ae51f85231a195106cec5f0a7b630980820cd641c3f18d71e0cf581",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "b09f512da3ee5d596fc39666a325582edd5c564a",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "patch.js",
+      "sha256": "6db5c35a1f3ebe69e86437621a71564f683284238eb04c72f438b947a49781ff",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "a1f33837ca72d7a657308d167e412c5e4020b55b",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "patch10.ts",
+      "sha256": "c6ab18ab99be118bd9416fb744ef7769ad04a943e2598174c08b779509ccab11",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "91d0602e4e9f7dd50fee28c968e3a46188987187",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "patch11.ts",
+      "sha256": "718768acd2f37dadb31145a2466574b4f14569cdded65ef92fe8518b74d21776",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "91d0602e4e9f7dd50fee28c968e3a46188987187",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "patch12.ts",
+      "sha256": "ddea727c70caad668c0c371be5dcc0d3c30222ff47901c34a30d1f7aafb86582",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "91d0602e4e9f7dd50fee28c968e3a46188987187",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "patch13.ts",
+      "sha256": "06add23363ead195da7ea49c899f44086a237ef6dad229d39f9d4958c61c142e",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "91d0602e4e9f7dd50fee28c968e3a46188987187",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "patch14.ts",
+      "sha256": "2681b3ac18479ec058dbd62919a31803853ba0edcbf0ba419b6e93fef665723b",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "91d0602e4e9f7dd50fee28c968e3a46188987187",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "patch15.ts",
+      "sha256": "ac753c3b0f049fb2a0bc88d95321a8af9b03dd34d02326ecb8e8a7323da9d263",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "91d0602e4e9f7dd50fee28c968e3a46188987187",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "patch16.ts",
+      "sha256": "8ff33e9ab53acd208568ba5e907216cb1ce1b1885fed6567a562cb2357c3de77",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "91d0602e4e9f7dd50fee28c968e3a46188987187",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "patch17.ts",
+      "sha256": "c6e92acfbf4c47880f9c94e07b972401f248a3492941599b171d361a7c8f802b",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "91d0602e4e9f7dd50fee28c968e3a46188987187",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "patch2.cjs",
+      "sha256": "9b1caac8b09ea427ea10dac4c26eccdf79618027d2154c8685f0a4df07871f3c",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "b09f512da3ee5d596fc39666a325582edd5c564a",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "patch2.js",
+      "sha256": "bf37b813791e1eda0587b77078d367c6bbc12a409033ec9bc48a120ec330e580",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "a1f33837ca72d7a657308d167e412c5e4020b55b",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "patch3.cjs",
+      "sha256": "811cbc00330dee6eaa63a2dff7f87daf4b13bca70b5f91bec1fe3569c76f5a82",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "b09f512da3ee5d596fc39666a325582edd5c564a",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "patch3.js",
+      "sha256": "b0e35492bedbd908a858b92bf7808ae98398a72ebe2fb05faa69b1c6af72dd2d",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "a1f33837ca72d7a657308d167e412c5e4020b55b",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "patch3.ts",
+      "sha256": "634bd949f6ffd84acd60efdf137a1dfd212fe8c9aec1b1ad1f058e7e5f157e45",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "91d0602e4e9f7dd50fee28c968e3a46188987187",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "patch4.cjs",
+      "sha256": "2628584f9be86537cdb7805f08dc0a566fcc5cd735ddacc0e5c9a6dba2aadf62",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "b09f512da3ee5d596fc39666a325582edd5c564a",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "patch4.js",
+      "sha256": "9d53bb8cd6fc203d3be74188f196182f30c368d4446750d83ce11c20b40ada94",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "a1f33837ca72d7a657308d167e412c5e4020b55b",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "patch4.ts",
+      "sha256": "7e23bc16376615680995e3093cc459cb75ba2d9f823f8f71ddb884ad92d13536",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "91d0602e4e9f7dd50fee28c968e3a46188987187",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "patch5.cjs",
+      "sha256": "056a266c7a90d7622f61da53795762e1e0105ee2368d535737bfdfa02ecb969e",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "b09f512da3ee5d596fc39666a325582edd5c564a",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "patch5.js",
+      "sha256": "13eabb51299ddb8506b812ce4ccd3fbcab9ef1e81410c85e02aea0b303ecebf2",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "a1f33837ca72d7a657308d167e412c5e4020b55b",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "patch5.ts",
+      "sha256": "92fb44be860b04081e521f58023f65c89a45039d5369274dd672731a1784c53c",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "91d0602e4e9f7dd50fee28c968e3a46188987187",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "patch6.cjs",
+      "sha256": "2ae10c573610fe3cf83457919dac2e290a661ef3d581e3316d9831d8135f4ba2",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "b09f512da3ee5d596fc39666a325582edd5c564a",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "patch6.js",
+      "sha256": "70a164d0be653305833eada42ef3242fc5c0a6d29050d9338161eed9fd172519",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "a1f33837ca72d7a657308d167e412c5e4020b55b",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "patch6.ts",
+      "sha256": "b7b4eeeeb4e091e3bf342649c9825308e690c018a13293ca47d64b3a7d68bfec",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "91d0602e4e9f7dd50fee28c968e3a46188987187",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "patch7.cjs",
+      "sha256": "a0717a2d4fb282b1ab94ec205be5e7ab76ccbe76688b42a1cdec53fd62df74f6",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "b09f512da3ee5d596fc39666a325582edd5c564a",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "patch7.ts",
+      "sha256": "be8153c8e521f305251617c17716bf8031561ae07fa827d209a6ecbc2822ae5b",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "91d0602e4e9f7dd50fee28c968e3a46188987187",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "patch8.cjs",
+      "sha256": "c2f9bb0a962970f1869b0082ed71192bfc818c36ce1721ab35e64598ed90f4de",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "b09f512da3ee5d596fc39666a325582edd5c564a",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "patch8.ts",
+      "sha256": "867e006d52dd22b3b52d81fb5302746e599c6f58d1ce06a5eff55be5d92a852a",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "91d0602e4e9f7dd50fee28c968e3a46188987187",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "patch9.ts",
+      "sha256": "3da35214eab465aa7dcf616a7a6dfdcff07a075cd60f32a24d0115ae08d453d0",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "91d0602e4e9f7dd50fee28c968e3a46188987187",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "patch_admin_nutrition.cjs",
+      "sha256": "6d61771a05cd0a133f82e708de2ec7dce79fa2db2b85f2629649fc81e87b07ae",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "b828f1d18880a6c159bd3d56f3f001de60228511",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "patch_app.cjs",
+      "sha256": "b3703cba273162770ac6860d56e3a94711c33e1caecc859da84c5093ba2ee844",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "patch_auth_context.py",
+      "sha256": "f50c72a89964df46d354b1fb95147ba764cf93ccda83a44f145eff15026cdec8",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "1ee63b739ba0533dfcb88167830ca8d7c598cde7",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "patch_avatar.py",
+      "sha256": "5758914707636337a81dff15932d3ba9adb9ff92eb5fa69ab62b4cd4adf52118",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "1ee63b739ba0533dfcb88167830ca8d7c598cde7",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "patch_avatar2.py",
+      "sha256": "37c71a6e957f0f289b4f0eaa2f55f0f6d5da4cb4d553c13508d6f842c293dee4",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "1ee63b739ba0533dfcb88167830ca8d7c598cde7",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "patch_avatar3.py",
+      "sha256": "1bbf132ddb548e06dde3494516e2140ffbadf1ecd51384c9c1c5cc89757a3a0c",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "1ee63b739ba0533dfcb88167830ca8d7c598cde7",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "patch_course_detail.cjs",
+      "sha256": "42992e638fa72abe4bf6c236133b5dc3500410e6d6bb72937feaf6744605d50b",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "patch_env.py",
+      "sha256": "48755148304db885f0f438fc3c5c86defd59cd5668a6c4a1e6ee3c86d4fc3cdf",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "1ee63b739ba0533dfcb88167830ca8d7c598cde7",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "patch_env2.py",
+      "sha256": "ac390126855976f821d932a4a55b720ea2882472c22da6fa3b48e859bbc989cb",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "1ee63b739ba0533dfcb88167830ca8d7c598cde7",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "patch_fcm.py",
+      "sha256": "eec352e3de32d62a6283797653b3b1f5e5bcc4fce7c4d66f15800c2c9694585f",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "1ee63b739ba0533dfcb88167830ca8d7c598cde7",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "patch_main.py",
+      "sha256": "f15d2215447c815b3d5a870ae21a3ebce08e68ea8bc2472ac3b75922df1e443e",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "1ee63b739ba0533dfcb88167830ca8d7c598cde7",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "patch_notif.py",
+      "sha256": "2c3c33c37546c11d71b3e00768a8f8ad4a91c65ea5ae1ed0bf237dea678dbaaa",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "1ee63b739ba0533dfcb88167830ca8d7c598cde7",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "patch_outline.cjs",
+      "sha256": "f63a7cf84e84b3c14849aaf2d76408ad7a48b79a2759e288b31f41f9d709ba08",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "patch_outline2.cjs",
+      "sha256": "a0b2fff756afeb3906afcffe466ffb2ce95a71bc595fc156b87c99b6dd73aafc",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "patch_outline3.cjs",
+      "sha256": "6e6cf54d34cf182bae467b1068ee8244f368a9ba052539b9350a5660d9ed026b",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "patch_photos.py",
+      "sha256": "72dc27e13ed62d6b20d9cdc8d6098eec816831e45b16c02ff744c5103275254f",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "bc170671ee7acabfda8d1cd5e6fc3bd718a911d8",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "patch_profile.py",
+      "sha256": "09243d2c5def3d1541095b1f391c6c4850b5c4d0f7059e2eccd2457b0addd618",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "1ee63b739ba0533dfcb88167830ca8d7c598cde7",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "patch_profile_tsx.py",
+      "sha256": "394d213ebdab8a8f022885c007559c38164631fde49fcaef33b2b5818ad66aff",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "1ee63b739ba0533dfcb88167830ca8d7c598cde7",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "patch_profile_tsx_header.py",
+      "sha256": "953108ed879d068426e4f462c80e8558b9daf697cbde102f8b860eb97b4bdcef",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "1ee63b739ba0533dfcb88167830ca8d7c598cde7",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "patch_rules.py",
+      "sha256": "9b4516de8832e13cb968682c5793f8d4e9260651e20384520c43ceaa31d6d101",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "1ee63b739ba0533dfcb88167830ca8d7c598cde7",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "patch_server.cjs",
+      "sha256": "c4015f6039cdf0bd23ca94ab277508e2c1bf1dfc67eda700e9e5d148723b63cc",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "patch_server.py",
+      "sha256": "226c1e9e9373ef0e7110f3f977150e17c6d67eeea6ee2d9421f9fe727e6a2664",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "1ee63b739ba0533dfcb88167830ca8d7c598cde7",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "patch_server2.py",
+      "sha256": "3ea87913090713c43bb838c693ad4f6b9e46534193fb08c58b13f3a15b9187a2",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "1ee63b739ba0533dfcb88167830ca8d7c598cde7",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "patch_server3.py",
+      "sha256": "199e140a291f97a7a240d04271e1d5788eb9f87456bcfb2122113653905d8fb1",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "1ee63b739ba0533dfcb88167830ca8d7c598cde7",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "patch_server_admin.py",
+      "sha256": "372bd92b8930fe458bf9dd5788264d0d6355c7d937b0a71c9e6405208e6cc043",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "1ee63b739ba0533dfcb88167830ca8d7c598cde7",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "patch_server_admin_init.py",
+      "sha256": "bb000655ee07b02bd3d10b25748cafa7faecc4c04efff4e3f775388d73295338",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "1ee63b739ba0533dfcb88167830ca8d7c598cde7",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "patch_summarize.cjs",
+      "sha256": "5f7401dba2207bfe662f75d71d4a2cb942ab7798c6139a21cddc1f93bd5fe87e",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "rewrite.ts",
+      "sha256": "2990168356057b269f7a36272782448d1cb042e1f781ac42cfffd54c6d09a155",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "91d0602e4e9f7dd50fee28c968e3a46188987187",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "rewrite_birth.cjs",
+      "sha256": "8db4907e5acf33b7ba10331c6be8e66913cf13f95464dec7b2538a6bbaf7aaa0",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "rewrite_html.cjs",
+      "sha256": "33c76a21450b65c2bc0832722cd951e8e1cae8b57a089500ee5bd0910a3a3b9b",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "rewrite_manifest.cjs",
+      "sha256": "803a556d47917504517e86b3016eb5466f3e66ddf8835fd5a7087aa12303eb45",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "rewrite_measurements.cjs",
+      "sha256": "34614b7be362ed6eadac8abaa1b040ee0a0a4ffba9ab633b0c84f9040f6d221d",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "rewrite_notif.cjs",
+      "sha256": "fc5bd6b873312fd914c200fa190c49771d73f64f5383403433e2d5f72102fbc9",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "rewrite_premium_onboarding.cjs",
+      "sha256": "9195671813a5e7b41657f87a8c2211dcf02c74b02cc5aa8d4df8c1034ab33cbc",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "rewrite_premium_onboarding_activity.cjs",
+      "sha256": "fe4328626bdc84fe64a19cf749b89a8c57a54d985805acc7ca991a3fa3f7f19e",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "rewrite_premium_onboarding_diet.cjs",
+      "sha256": "d7f26f2888e2c7a7ba0fcf7ad5fb89f6cc9852aa336e6c20889b9135815444c9",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "rewrite_premium_onboarding_goal.cjs",
+      "sha256": "2ad706e1d25856ee39416ec0ec49b65971efd7092a9688a59f0d9d6a32c64030",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "rewrite_premium_sliders.cjs",
+      "sha256": "50d6866d6c8aa508b60f0ab99759a9a8616f0b871e456df2208b40d015a0b316",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "rewrite_profile.cjs",
+      "sha256": "8800f9a0eb710c5605a2aca2568bd1ecebe3b2f0ef6dcbc82bef85ec491a4b09",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "rewrite_profile_page.cjs",
+      "sha256": "a899749b4c5257d9b241167c1325c2b7223c6226c693a6e4d05a4f8c9c194c54",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "rewrite_target.cjs",
+      "sha256": "112deb0b65dbe0213390c32bd0b760d4f4f078d0f430a54a30d4dd8b73c1fdf7",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "rewrite_welcome.cjs",
+      "sha256": "e7d5b830bdd588a5def94ad21fb6824c108e07dfd4b3873bc13e0bf155974b93",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "rewrite_welcome2.cjs",
+      "sha256": "61c7c835081cd2309187156760d98d8f4729d57f3bfed636ba7c67454988ac43",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "rewrite_welcome3.cjs",
+      "sha256": "6bc71ea2fcb6673af7c90bfbbc57225f03e453aa22011c82adc6f0171b5ea50d",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "update_app.cjs",
+      "sha256": "abdfb9d26282eeb1174d77e2930b29614d301f11326a0e0f07fda6c846d4556d",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "update_nutrition.cjs",
+      "sha256": "1a35462a422e6682b046eeeaed839f593c67e06b77f2f18dfd1a68f0663bf16a",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "update_onboarding.cjs",
+      "sha256": "9dc967841074ffc45db35ebcec70aa5226e101bfb6c22b6ee69406464e15f376",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "update_photos_card.py",
+      "sha256": "46a2be90d0df5dddb72a12ac7bf83ad0e2dd96090ed209ea32e063c843a12eb1",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "bc170671ee7acabfda8d1cd5e6fc3bd718a911d8",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "update_server_calories.cjs",
+      "sha256": "65b71699a6d57dee2c659d18a9b8936cf78e25bc9a828b1d696f4782320c8f79",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "0f850cb0612848c165fc2eda98df4f497599e6cd",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    },
+    {
+      "legacyPath": "update_streaks_badges.py",
+      "sha256": "39c7a7f8dcec8ba86fa7f21f1eb95816c713ddaa341bd38b51aadfba0cede1b0",
+      "purpose": "Legacy one-off patch helper; exact intent remains subject to historical verification.",
+      "lastCommit": "bc170671ee7acabfda8d1cd5e6fc3bd718a911d8",
+      "replacement": null,
+      "status": "retained_pending_reference_verification"
+    }
+  ]
+}

@@ -1,0 +1,45 @@
+# Aura Operating System — Current State
+
+Last reviewed: 2026-09-09
+
+## Canonical capabilities
+
+| Domain | Current source of truth | Read models / adapters |
+| --- | --- | --- |
+| Learner identity | `students/{studentId}`, `users/{accountUid}`, `roleAssignments/{uid}` | Identity Link V2 migration is ready; canonical reverse index is `accountIdentityLinks/{accountUid}`; legacy role-assignment fallback remains enabled |
+| Contract usage | sessions/attendance plus `functions/contract-usage.js` | `contractUsageViews/{contractId}` dual-read rollout; bounded rebuild cursor; `legacyProjectionAdjustment` remains explicit |
+| Finance | `ledgerEntries` | operations daily aggregates and finance dashboards |
+| Student 360 | `studentOperationalViews/{studentId}` | overview, timeline, contract workspace; overview can consume durable actions when the Action Center flag is enabled |
+| Timeline | `studentTimelineEvents` | append-only, role-redacted callable |
+| Operations | dashboard `actionSummary` plus source domain records | `operationalActions/{actionId}` with claim/resolve/snooze lifecycle; UI rollout flag defaults to `off` |
+| Scheduling | optimizer-v12 and schedule/session collections | bounded repair/rescue passes plus quality metadata; 8 sessions is a soft target |
+
+## Rollout status
+
+- **Release 0:** domain documentation, ADRs and repository hygiene checks are implemented.
+- **Release 1:** the target-only Identity Link V2 migration supports dry-run, digest-gated apply/repair, verify and quarantine rollback. It has **not** been applied to production.
+- **Release 2:** contract usage projection and callable adapters are implemented. Consumers keep a bounded fallback while dual-read reconciliation is observed.
+- Renewal list/detail reads now overlay canonical usage. Carry-over sales rebuild and re-read `contractUsageViews` inside the renewal transaction; an unavailable or truncated canonical view fails closed instead of transferring a legacy count.
+- **Release 3:** durable Action Center APIs, source triggers, audit trail and role-redacted Admin/Staff UI are implemented behind `action-center`. Schedule drafts create deterministic per-student tasks and classify contract/availability blockers before capacity or optimizer gaps. The UI now consumes cursor pagination and exposes claim, resolve and one-day snooze lifecycle actions. The flag remains `off` until pilot approval.
+- **Release 4:** optimizer-v12 behavior is unchanged; quality output now includes bounded-search and unassigned-reason metadata.
+- **Release 5:** strangler module split remains incremental. Existing exports and production adapters are retained.
+- **Release 6:** request correlation and structured Cloud Logging fields are implemented; Monitoring dashboards and alert policies still require environment rollout.
+- **P0 mutation hardening:** training packages now use `upsertTrainingPackage` and `archiveTrainingPackage` callable commands with capability checks, branch scope, optimistic revision, idempotency receipts and audit records. Browser package writes are denied; legacy package reads remain temporarily available to the Admin list.
+
+## Remaining controlled debt
+
+- Production identity linking requires an approved dry-run report and batch rollout; ambiguous matches remain quarantined.
+- Contract usage fallback cannot be disabled until projection verification reaches the agreed safe coverage.
+- Dashboard `actionSummary` remains for compatibility while Action Center pilot metrics are collected.
+- Large domain modules and legacy root scripts need gradual strangler/archive work after reference verification.
+- Admin quote generation and schedule settings remain the next direct-write paths to migrate after training packages.
+- Production release tooling resolves each deployed Function's actual Firebase region/service before promote, health-check and rollback; it no longer assumes every Function is in `asia-southeast1`.
+- The route, capability, data-source and deprecation contract is tracked in `APP_SURFACE_INVENTORY.md`.
+
+## Compatibility rules
+
+- Existing callable names and route hashes remain supported during migration.
+- Legacy identity fallback remains read-only until identity-link verification is complete.
+- No source collection is deleted by a projection or migration.
+- Feature flags default to the existing UI when configuration is unavailable.
+- No production migration is run merely by deploying this code.

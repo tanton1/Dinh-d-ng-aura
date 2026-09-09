@@ -1,7 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Save, Clock, CalendarDays, Lock, CalendarOff, Gauge, X } from 'lucide-react';
 import { ScheduleConfig, Day } from '../../../types';
 import { useDatabase } from '../../../contexts/DatabaseContext';
+import { ErrorState } from '../../ui';
 
 const ALL_DAYS: { id: Day; label: string }[] = [
   { id: 'T2', label: 'Thứ 2' },
@@ -26,6 +27,9 @@ export default function ScheduleSettings() {
   });
   const [isSaving, setIsSaving] = useState(false);
   const [newHoliday, setNewHoliday] = useState('');
+  const [notice, setNotice] = useState('');
+  const [error, setError] = useState('');
+  const pendingRef = useRef(false);
 
   useEffect(() => {
     setConfig({
@@ -93,14 +97,18 @@ export default function ScheduleSettings() {
   };
 
   const handleSave = async () => {
+    if (pendingRef.current) return;
+    pendingRef.current = true;
     setIsSaving(true);
+    setNotice('');
+    setError('');
     try {
       await updateScheduleConfig(config);
-      alert('Đã lưu cấu hình tuần lễ');
-    } catch (error) {
-      console.error(error);
-      alert('Lỗi lưu cấu hình');
+      setNotice('Đã lưu cấu hình lịch. Phiên bản mới đã được ghi vào nhật ký kiểm toán.');
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message.replace(/^FirebaseError:\s*/i, '') : 'Chưa thể lưu cấu hình lịch.');
     } finally {
+      pendingRef.current = false;
       setIsSaving(false);
     }
   };
@@ -108,6 +116,8 @@ export default function ScheduleSettings() {
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300">
       <h1 className="aura-visually-hidden">Cấu hình lịch và ca làm việc</h1>
+      {notice && <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800" role="status" aria-live="polite">{notice}</div>}
+      {error && <ErrorState title="Chưa thể lưu cấu hình lịch" description={error} />}
       <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
         <h3 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
           <CalendarDays className="w-5 h-5 text-pink-500" />

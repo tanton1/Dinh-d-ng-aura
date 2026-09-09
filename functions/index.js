@@ -1,7 +1,7 @@
 const { initializeApp } = require('firebase-admin/app')
 const { getAuth } = require('firebase-admin/auth')
 const { getDatabase } = require('firebase-admin/database')
-const { FieldPath, FieldValue, getFirestore } = require('firebase-admin/firestore')
+const { FieldPath, FieldValue, Timestamp, getFirestore } = require('firebase-admin/firestore')
 const { getMessaging } = require('firebase-admin/messaging')
 const { getStorage } = require('firebase-admin/storage')
 const { HttpsError, onCall: firebaseOnCall } = require('firebase-functions/v2/https')
@@ -36,6 +36,13 @@ const { createNutritionReviewFunctions } = require('./nutrition-reviews')
 const { createContractRenewalFunctions } = require('./contract-renewals')
 const { createLoyaltyFunctions, reconcileAttendance: reconcileLoyaltyAttendance, reconcileAttendanceMissions, reconcileContractSpend: reconcileLoyaltyContractSpend, reconcileMemberReferral, reconcileNutritionReview, reconcilePendingMemberReferrals, vestPendingSources } = require('./loyalty')
 const { syncContractUsageProjection } = require('./contract-usage')
+const { buildContractUsageView, createContractUsageViewFunctions, syncContractUsageView } = require('./contract-usage-view')
+const { createActionCenterFunctions, syncOperationalActionSource } = require('./action-center')
+const { createPackageManagementFunctions } = require('./package-management')
+const { createQuoteManagementFunctions } = require('./quote-management')
+const { createScheduleConfigManagementFunctions } = require('./schedule-config-management')
+const { createStudentManagementFunctions } = require('./student-management')
+const { createBranchManagementFunctions } = require('./branch-management')
 const { createStudent360Functions, reconcileStudent360ProjectionBatch, syncStudent360ProjectionFromEvent } = require('./student-360')
 const { loggedMealSlots } = require('./meal-reminder-policy')
 
@@ -92,6 +99,110 @@ exports.syncPtContractUsageProjection = onDocumentWritten({
   region: 'asia-southeast1',
   maxInstances: 3,
 }, async (event) => syncContractUsageProjection({ db, event, logger }))
+
+exports.syncContractUsageView = onDocumentWritten({
+  document: 'contracts/{contractId}',
+  database: databaseId,
+  region: 'asia-southeast1',
+  maxInstances: 3,
+  retry: true,
+}, async (event) => syncContractUsageView({ db, event, logger }))
+
+exports.syncSessionContractUsageView = onDocumentWritten({
+  document: 'sessions/{sessionId}',
+  database: databaseId,
+  region: 'asia-southeast1',
+  maxInstances: 3,
+  retry: true,
+}, async (event) => syncContractUsageView({ db, event, logger }))
+
+const operationalActionTrigger = (document) => onDocumentWritten({
+  document,
+  database: databaseId,
+  region: 'asia-southeast1',
+  maxInstances: 3,
+  retry: true,
+}, async (event) => syncOperationalActionSource({ db, event, logger }))
+
+exports.syncContractOperationalActions = operationalActionTrigger('contracts/{contractId}')
+exports.syncContractUsageOperationalActions = operationalActionTrigger('contractUsageViews/{contractId}')
+exports.syncSessionRequestOperationalActions = operationalActionTrigger('sessionRequests/{requestId}')
+exports.syncMealReviewOperationalActions = operationalActionTrigger('mealReviews/{reviewId}')
+exports.syncSessionOperationalActions = operationalActionTrigger('sessions/{sessionId}')
+exports.syncStudentOperationalActions = operationalActionTrigger('students/{studentId}')
+exports.syncStudent360OperationalActions = operationalActionTrigger('studentOperationalViews/{studentId}')
+exports.syncScheduleDraftOperationalActions = operationalActionTrigger('ptScheduleDrafts/{documentId}')
+exports.syncRenewalOperationalActions = operationalActionTrigger('contractRenewalCases/{documentId}')
+
+exports.rebuildContractUsageViewsScheduled = onSchedule({
+  schedule: 'every 60 minutes',
+  timeZone: 'Asia/Ho_Chi_Minh',
+  region: 'asia-southeast1',
+  retryCount: 1,
+  maxInstances: 1,
+  timeoutSeconds: 540,
+  memory: '512MiB',
+}, async () => {
+  const stateReference = db.doc('systemJobs/contractUsageViewReconciliation')
+  const state = await stateReference.get()
+  const cursor = typeof state.data()?.cursor === 'string' ? state.data().cursor : ''
+  let query = db.collection('contracts').orderBy(FieldPath.documentId()).limit(25)
+  if (cursor) query = query.startAfter(cursor)
+  let snapshot = await query.get()
+  if (snapshot.empty && cursor) snapshot = await db.collection('contracts').orderBy(FieldPath.documentId()).limit(25).get()
+  let rebuilt = 0
+  for (const item of snapshot.docs) {
+    if (await buildContractUsageView({ db, contractId: item.id, contract: item.data(), logger })) rebuilt += 1
+  }
+  const nextCursor = snapshot.size < 25 ? '' : snapshot.docs[snapshot.docs.length - 1].id
+  await stateReference.set({ cursor: nextCursor, scanned: snapshot.size, rebuilt, updatedAt: FieldValue.serverTimestamp() }, { merge: true })
+  logger.info('contract_usage_views_scheduled_rebuild', { scanned: snapshot.size, rebuilt, cursor: nextCursor })
+  return { scanned: snapshot.size, rebuilt, cursor: nextCursor }
+})
+
+exports.reopenSnoozedOperationalActionsScheduled = onSchedule({
+  schedule: 'every 15 minutes',
+  timeZone: 'Asia/Ho_Chi_Minh',
+  region: 'asia-southeast1',
+  retryCount: 1,
+  maxInstances: 1,
+  timeoutSeconds: 120,
+}, async () => {
+  const now = Timestamp.now()
+  const snapshot = await db.collection('operationalActions').where('status', '==', 'snoozed').limit(200).get()
+  const due = snapshot.docs.filter((item) => {
+    const until = item.data()?.snoozedUntil
+    return until && until.toMillis?.() <= now.toMillis()
+  })
+  if (due.length) {
+    const batch = db.batch()
+    due.forEach((item) => batch.update(item.ref, { status: 'open', snoozedUntil: null, updatedAt: FieldValue.serverTimestamp() }))
+    await batch.commit()
+  }
+  // Time alone can turn a pending meal review into an SLA breach, so the
+  // write trigger is not sufficient. Refresh only records whose projected
+  // severity has not yet advanced to warning; both scans remain bounded.
+  const pendingReviews = await db.collection('mealReviews').where('status', '==', 'pending').limit(200).get()
+  let refreshedMealReviews = 0
+  for (const review of pendingReviews.docs) {
+    const createdAt = review.data()?.createdAt || review.data()?.submittedAt
+    const createdAtMillis = createdAt?.toMillis?.() || createdAt?.toDate?.()?.getTime?.() || Date.parse(String(createdAt || ''))
+    if (!Number.isFinite(createdAtMillis) || now.toMillis() - createdAtMillis <= 24 * 60 * 60 * 1000) continue
+    const action = await db.doc(`operationalActions/meal_review:${review.id}:review`).get()
+    if (action.exists && action.data()?.severity === 'warning' && ['open', 'in_progress'].includes(action.data()?.status)) continue
+    await syncOperationalActionSource({
+      db,
+      event: {
+        params: { reviewId: review.id },
+        data: { after: { exists: true, data: () => review.data(), ref: review.ref }, before: { exists: false } },
+      },
+      logger,
+    })
+    refreshedMealReviews += 1
+  }
+  logger.info('operational_actions_scheduled_maintenance', { reopened: due.length, refreshedMealReviews })
+  return { reopened: due.length, refreshedMealReviews }
+})
 
 const operationsAggregateTriggerOptions = (document) => ({
   document,
@@ -308,6 +419,23 @@ exports.saveNutritionMealLog = nutritionReviewFunctions.saveNutritionMealLog
 exports.deleteNutritionMealLog = nutritionReviewFunctions.deleteNutritionMealLog
 exports.submitNutritionMealReview = nutritionReviewFunctions.submitNutritionMealReview
 Object.assign(exports, createOperationsDashboardFunctions({ db, onCall, logger }))
+Object.assign(exports, createContractUsageViewFunctions({ db, onCall, logger }))
+Object.assign(exports, createActionCenterFunctions({ db, onCall, logger }))
+const packageManagementFunctions = createPackageManagementFunctions({ db, onCall })
+exports.upsertTrainingPackage = packageManagementFunctions.upsertTrainingPackage
+exports.archiveTrainingPackage = packageManagementFunctions.archiveTrainingPackage
+const quoteManagementFunctions = createQuoteManagementFunctions({ db, onCall })
+exports.listSalesQuotes = quoteManagementFunctions.listSalesQuotes
+exports.createSalesQuote = quoteManagementFunctions.createSalesQuote
+exports.archiveSalesQuote = quoteManagementFunctions.archiveSalesQuote
+exports.acceptSalesQuote = quoteManagementFunctions.acceptSalesQuote
+const scheduleConfigManagementFunctions = createScheduleConfigManagementFunctions({ db, onCall })
+exports.saveScheduleConfig = scheduleConfigManagementFunctions.saveScheduleConfig
+const studentManagementFunctions = createStudentManagementFunctions({ db, onCall })
+exports.updateStudentProfile = studentManagementFunctions.updateStudentProfile
+const branchManagementFunctions = createBranchManagementFunctions({ db, onCall })
+exports.upsertBranch = branchManagementFunctions.upsertBranch
+exports.archiveBranch = branchManagementFunctions.archiveBranch
 exports.cleanupOperationsDashboardCache = onSchedule({
   schedule: 'every 6 hours',
   region: 'asia-southeast1',
@@ -392,6 +520,7 @@ const student360Trigger = (document) => onDocumentWritten({
 // leaves the workspace permanently unavailable.
 exports.syncStudent360Student = student360Trigger('students/{studentId}')
 exports.syncStudent360Contract = student360Trigger('contracts/{documentId}')
+exports.syncStudent360ContractUsage = student360Trigger('contractUsageViews/{documentId}')
 exports.syncStudent360Session = student360Trigger('sessions/{documentId}')
 exports.syncStudent360Attendance = student360Trigger('attendanceEvents/{documentId}')
 exports.syncStudent360Availability = student360Trigger('ptAvailability/{availabilityId}')
@@ -752,18 +881,20 @@ const auraUiSurfaces = [
   'student-360',
   'admin-dashboard',
   'member-nutrition',
+  'action-center',
 ]
 const auraUiSurfaceSet = new Set(auraUiSurfaces)
 const auraUiAudienceSet = new Set(['off', 'admin', 'staff', 'all'])
 
-function normalizeAuraUiSurfaces(value) {
+function normalizeAuraUiSurfaces(value, fallback = {}) {
   if (!isPlainObject(value)) throw new HttpsError('invalid-argument', 'Cấu hình rollout không hợp lệ.')
   const normalized = {}
   for (const surface of auraUiSurfaces) {
-    if (!auraUiAudienceSet.has(value[surface])) {
+    const audience = value[surface] === undefined ? fallback[surface] ?? 'off' : value[surface]
+    if (!auraUiAudienceSet.has(audience)) {
       throw new HttpsError('invalid-argument', `Audience của ${surface} không hợp lệ.`)
     }
-    normalized[surface] = value[surface]
+    normalized[surface] = audience
   }
   if (Object.keys(value).some((surface) => !auraUiSurfaceSet.has(surface))) {
     throw new HttpsError('invalid-argument', 'Cấu hình chứa surface không được hỗ trợ.')
@@ -790,10 +921,12 @@ exports.updateAuraUiRollout = onCall({
   const action = request.data?.action
   const updatedAt = new Date().toISOString()
   if (action === 'config') {
-    const surfaces = normalizeAuraUiSurfaces(request.data?.surfaces)
+    const requestedSurfaces = request.data?.surfaces
     const reference = db.doc('system/ui_public_config')
+    let surfaces = null
     await db.runTransaction(async (transaction) => {
       const previous = await transaction.get(reference)
+      surfaces = normalizeAuraUiSurfaces(requestedSurfaces, previous.exists ? previous.data()?.surfaces : {})
       transaction.set(reference, { schemaVersion: 1, surfaces, updatedAt, updatedBy: actorUid })
       transaction.create(db.collection('auditLogs').doc(), {
         action: 'ui.rollout.config.updated',
@@ -2832,6 +2965,7 @@ exports.reportClientIssue = onCall({
   const host = boundedIncidentValue(request.data?.host, 120)
   const provider = boundedIncidentValue(request.data?.provider, 20)
   const incidentId = boundedIncidentValue(request.data?.incidentId, 80)
+  const correlationId = boundedIncidentValue(request.data?.correlationId, 100)
   const release = boundedIncidentValue(request.data?.release, 80)
   if (!clientIssueAreas.has(area) || !/^[a-zA-Z0-9_./:-]{1,80}$/.test(code) || !phase) {
     throw new HttpsError('invalid-argument', 'Báo cáo sự cố không hợp lệ.')
@@ -2848,6 +2982,7 @@ exports.reportClientIssue = onCall({
     host: /^[a-zA-Z0-9.-]{1,120}$/.test(host) ? host : 'unknown',
     provider: provider || null,
     incidentId: incidentId || null,
+    correlationId: /^[A-Za-z0-9._:-]{8,100}$/.test(correlationId) ? correlationId : null,
     release: release || 'web',
     retryable: request.data?.retryable === true,
     authenticated: Boolean(request.auth?.uid),

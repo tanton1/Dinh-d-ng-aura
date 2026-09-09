@@ -28,12 +28,22 @@ test('canonical usage counts explicit charges and compatible legacy history exac
   assert.equal(summary.presentSessions, 4)
   assert.equal(summary.lateSessions, 1)
   assert.equal(summary.noShowSessions, 1)
+  assert.equal(summary.chargedNoShowSessions, 1)
   assert.equal(summary.policyChargedSessions, 1)
   assert.equal(summary.exemptSessions, 1)
   assert.equal(summary.pendingSessions, 2)
   assert.equal(summary.legacyChargedSessions, 1)
   assert.equal(sessionCountsTowardContract({ billingStatus: 'exempt', status: 'completed' }), false)
   assert.equal(sessionCountsTowardContract({ billingStatus: 'review_required', attendanceStatus: 'present', status: 'completed' }), false)
+})
+
+test('charged no-show count excludes exempt no-shows', () => {
+  const summary = summarizeSessionUsage([
+    { status: 'no_show', attendanceStatus: 'no_show', billingStatus: 'charged' },
+    { status: 'no_show', attendanceStatus: 'no_show', billingStatus: 'exempt' },
+  ])
+  assert.equal(summary.noShowSessions, 2)
+  assert.equal(summary.chargedNoShowSessions, 1)
 })
 
 test('contract summary exposes legacy projection delta without inventing attendance', () => {

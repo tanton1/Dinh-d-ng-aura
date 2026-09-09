@@ -153,20 +153,53 @@ jobs:
           BACKEND_FUNCTIONS: ${{ steps.backend.outputs.targets }}
           FUNCTIONS_DISCOVERY_TIMEOUT: 60
         run: |
+          BEFORE_MANIFEST="$RUNNER_TEMP/firebase-functions-before.json"
+          CURRENT_MANIFEST="$RUNNER_TEMP/firebase-functions-current.json"
+          npx --yes firebase-tools@15.9.1 functions:list --project gen-lang-client-0815966909 --json > "$BEFORE_MANIFEST"
+
+          rollback_previous() {
+            local function_name="$1"
+            local previous_region previous_service
+            previous_region="$(node scripts/firebase-function-region.cjs --file="$BEFORE_MANIFEST" --function="$function_name" --field=region --allow-missing)"
+            previous_service="$(node scripts/firebase-function-region.cjs --file="$BEFORE_MANIFEST" --function="$function_name" --field=service --allow-missing)"
+            if [ -n "$previous_region" ] && [ -n "$previous_service" ]; then
+              node scripts/cloud-run-functions-rollback.cjs \
+                --functions="$previous_service" \
+                --region="$previous_region" \
+                --confirm="gen-lang-client-0815966909/$previous_region" || true
+            fi
+          }
+
           IFS=',' read -ra TARGETS <<< "$BACKEND_FUNCTIONS"
           for FUNCTION_NAME in "${TARGETS[@]}"; do
             echo "Deploying ${FUNCTION_NAME}..."
-            SERVICE_NAME="$(printf '%s' "$FUNCTION_NAME" | tr '[:upper:]' '[:lower:]')"
             if ! npx --yes firebase-tools@15.9.1 deploy --only "functions:${FUNCTION_NAME}" --project gen-lang-client-0815966909 --non-interactive; then
-              node scripts/cloud-run-functions-rollback.cjs --functions="$SERVICE_NAME" --confirm=gen-lang-client-0815966909/asia-southeast1 || true
+              rollback_previous "$FUNCTION_NAME"
               exit 1
             fi
-            if ! node scripts/cloud-run-functions-promote-latest.cjs --functions="$SERVICE_NAME" --confirm=gen-lang-client-0815966909/asia-southeast1; then
-              node scripts/cloud-run-functions-rollback.cjs --functions="$SERVICE_NAME" --confirm=gen-lang-client-0815966909/asia-southeast1 || true
+
+            FUNCTION_REGION=""
+            SERVICE_NAME=""
+            for ATTEMPT in $(seq 1 12); do
+              npx --yes firebase-tools@15.9.1 functions:list --project gen-lang-client-0815966909 --json > "$CURRENT_MANIFEST"
+              FUNCTION_REGION="$(node scripts/firebase-function-region.cjs --file="$CURRENT_MANIFEST" --function="$FUNCTION_NAME" --field=region --allow-missing)"
+              SERVICE_NAME="$(node scripts/firebase-function-region.cjs --file="$CURRENT_MANIFEST" --function="$FUNCTION_NAME" --field=service --allow-missing)"
+              if [ -n "$FUNCTION_REGION" ] && [ -n "$SERVICE_NAME" ]; then break; fi
+              sleep 5
+            done
+            if [ -z "$FUNCTION_REGION" ] || [ -z "$SERVICE_NAME" ]; then
+              echo "Không xác định được region/service của ${FUNCTION_NAME} sau deploy." >&2
+              rollback_previous "$FUNCTION_NAME"
               exit 1
             fi
-            if ! node scripts/cloud-run-functions-health.cjs --functions="$SERVICE_NAME" --fail-on-unhealthy; then
-              node scripts/cloud-run-functions-rollback.cjs --functions="$SERVICE_NAME" --confirm=gen-lang-client-0815966909/asia-southeast1
+
+            CONFIRMATION="gen-lang-client-0815966909/$FUNCTION_REGION"
+            if ! node scripts/cloud-run-functions-promote-latest.cjs --functions="$SERVICE_NAME" --region="$FUNCTION_REGION" --confirm="$CONFIRMATION"; then
+              node scripts/cloud-run-functions-rollback.cjs --functions="$SERVICE_NAME" --region="$FUNCTION_REGION" --confirm="$CONFIRMATION" || true
+              exit 1
+            fi
+            if ! node scripts/cloud-run-functions-health.cjs --functions="$SERVICE_NAME" --region="$FUNCTION_REGION" --fail-on-unhealthy; then
+              node scripts/cloud-run-functions-rollback.cjs --functions="$SERVICE_NAME" --region="$FUNCTION_REGION" --confirm="$CONFIRMATION"
               exit 1
             fi
           done

@@ -14,7 +14,7 @@
     "test:storage": "npx --yes firebase-tools@15.9.1 emulators:exec --only storage --project demo-aura-fitness-storage \"node --test tests/storage.rules.test.mjs\"",
     "test:rtdb": "npx --yes firebase-tools@15.9.1 emulators:exec --only database --project demo-aura-fitness-rtdb \"node --test tests/database.rules.test.mjs\"",
     "test:functions": "npm --prefix functions test",
-    "test:profile-sync": "tsx --test tests/profile-sync.test.ts tests/date-utils.test.ts tests/finance-ledger-normalization.test.ts tests/operations-dashboard-normalization.test.ts tests/nutrition-review-display.test.ts tests/student-eligibility.test.ts tests/staff-dashboard-payroll.test.ts tests/daily-nutrition-targets.test.ts tests/nutrition-progress-safety.test.ts tests/student-home-schedule.test.ts tests/exercise-muscle-groups.test.ts tests/read-only-callable.test.ts tests/production-release-safety.test.ts tests/aura-nutrition-curriculum.test.ts tests/course-notebooklm-import.test.ts tests/student-360-routing.test.ts tests/ui-rollout.test.ts tests/nutrition-routing.test.ts tests/single-flight.test.ts",
+    "test:profile-sync": "tsx --test tests/profile-sync.test.ts tests/date-utils.test.ts tests/finance-ledger-normalization.test.ts tests/operations-dashboard-normalization.test.ts tests/nutrition-review-display.test.ts tests/student-eligibility.test.ts tests/staff-dashboard-payroll.test.ts tests/daily-nutrition-targets.test.ts tests/nutrition-progress-safety.test.ts tests/student-home-schedule.test.ts tests/exercise-muscle-groups.test.ts tests/read-only-callable.test.ts tests/production-release-safety.test.ts tests/access-routing.test.ts tests/aura-nutrition-curriculum.test.ts tests/course-notebooklm-import.test.ts tests/student-360-routing.test.ts tests/ui-rollout.test.ts tests/nutrition-routing.test.ts tests/single-flight.test.ts",
     "test:schedule-ui": "playwright test --config playwright.schedule.config.ts",
     "test:e2e": "playwright test",
     "test": "npm run test:profile-sync && npm run test:functions",
@@ -23,10 +23,11 @@
     "production:smoke": "node scripts/production-smoke.mjs",
     "security:secrets": "node scripts/check-secrets.mjs",
     "security:audit": "npm audit --omit=dev --audit-level=high && npm --prefix functions audit --omit=dev --audit-level=high",
+    "check:repo-hygiene": "node scripts/check-repo-hygiene.mjs",
     "exercise:compare": "node scripts/compare-exercise-sources.cjs",
     "exercise:release": "node scripts/release-free-exercise-catalog.cjs",
-    "ci": "npm run typecheck && npm run test:profile-sync && npm run build && npm run performance:check && npm --prefix functions run check && npm --prefix functions run check:apikey-fun",
-    "typecheck": "tsc -b",
+    "ci": "npm run check:repo-hygiene && npm run typecheck && npm run test:profile-sync && npm run build && npm run performance:check && npm --prefix functions run check && npm --prefix functions run check:apikey-fun",
+    "typecheck": "tsc -b --force",
     "start": "vite preview --host 0.0.0.0"
   },
   "dependencies": {

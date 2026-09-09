@@ -41,7 +41,7 @@ import type {
 import { flattenCourseLessons, getInitialDemoCompletedLessonIds } from './utils/courseContent'
 import ChunkErrorBoundary, { lazyWithRetry } from './components/ChunkErrorBoundary'
 import { adminViewPermissions, adminViews, canonicalRouteHash, eatCleanRouteHash, getCurrentRoute, isSameRoute, resolveSupportedView, routeHash, student360RouteHash, type AuraRoute, type Student360Source } from './routing/appRouting'
-import { routeCapabilities, type StaffPosition } from './identity/access'
+import { hasRouteCapability, type StaffPosition } from './identity/access'
 import { toCourseDraft } from './utils/courseDraft'
 import { DatabaseProvider } from './contexts/DatabaseContext'
 import './styles.css'
@@ -410,8 +410,7 @@ function AuraApplication() {
 
   const goTo = (next: ViewId, courseId?: string | null, lessonId?: string | null) => {
     const supportedNext = resolveSupportedView(next)
-    const capability = routeCapabilities[supportedNext as keyof typeof routeCapabilities]
-    if (backendMode === 'firebase' && capability && (!authzReady || !hasCapability(capability))) return
+    if (backendMode === 'firebase' && (!authzReady || !hasRouteCapability(supportedNext, hasCapability))) return
     if (adminViews.includes(supportedNext) && !canAccessAdmin) return
     const requiredPermission = adminViewPermissions[supportedNext]
     if (requiredPermission && !hasPermission(role, requiredPermission)) return
@@ -528,8 +527,7 @@ function AuraApplication() {
       goTo('home')
       return
     }
-    const capability = routeCapabilities[view as keyof typeof routeCapabilities]
-    const outsideCapabilityBoundary = backendMode === 'firebase' && Boolean(capability) && authzReady && !hasCapability(capability)
+    const outsideCapabilityBoundary = backendMode === 'firebase' && authzReady && !hasRouteCapability(view, hasCapability)
     if (outsideAdminBoundary || outsideCapabilityBoundary || (requiredPermission && !hasPermission(role, requiredPermission))) goTo('home')
   }, [authzReady, backendMode, canAccessAdmin, hasCapability, isStaffWorkspace, loading, role, user, view])
 
@@ -1213,8 +1211,7 @@ function AuraApplication() {
           : 'admin-courses')
       }}
       canNavigate={(nextView) => {
-        const capability = routeCapabilities[nextView as keyof typeof routeCapabilities]
-        return backendMode !== 'firebase' || !capability || (authzReady && hasCapability(capability))
+        return backendMode !== 'firebase' || (authzReady && hasRouteCapability(nextView, hasCapability))
       }}
       authorizationError={authorizationError}
       aiCoachConversationScope={`progress-${user?.uid ?? 'demo'}`}

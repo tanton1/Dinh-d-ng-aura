@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import { db } from '../../../lib/firebaseFirestore';
 import { getDatesForWeek } from '../../../utils/dateUtils';
 import { User as UserIcon, Building, Plus, Trash2, Edit2, ShieldCheck, Users, AlertCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -20,7 +19,7 @@ type HRFormData = Partial<Omit<Trainer, 'status'>>
   & Partial<Omit<StaffMember, 'status'>>
   & { status?: Trainer['status'] | Branch['status'] | StaffMember['status'] };
 
-export default function HRManagement({ user, manageIdentity = true }: Props) {
+export default function HRManagement({ user, manageIdentity = false }: Props) {
   const {
     trainers,
     branches,
@@ -196,7 +195,7 @@ export default function HRManagement({ user, manageIdentity = true }: Props) {
         setAlertMessage(`Đã tạo lời mời nhân viên ${invite.inviteId}. Không có mật khẩu mặc định.`);
       }
 
-      if (staffUid && db) {
+      if (staffUid) {
         const role = (formData as StaffMember).role || 'trainer';
 
         const sanitize = (obj: any) => {
@@ -428,7 +427,7 @@ export default function HRManagement({ user, manageIdentity = true }: Props) {
                       </button>
                     </div>
                   </div>
-                  <div className="flex gap-2 self-start mt-1">
+                  {manageIdentity && <div className="flex gap-2 self-start mt-1">
                    <button 
                      onClick={() => {
                        const newStatus = t.status === 'inactive' ? 'active' : 'inactive';
@@ -445,7 +444,7 @@ export default function HRManagement({ user, manageIdentity = true }: Props) {
                    </button>
                    <button onClick={() => { setEditingItem(t); setFormData(t); setSelectedSlots(new Set(t.availableSlots || [])); setError(null); setIsAdding(true); }} className="p-2 text-zinc-400 hover:text-white"><Edit2 className="w-4 h-4" /></button>
                    <button onClick={() => handleDelete(t.id)} className="p-2 text-red-400 hover:text-red-300"><Trash2 className="w-4 h-4" /></button>
-                 </div>
+                 </div>}
                 </div>
                 
                 {/* Expanded Details */}

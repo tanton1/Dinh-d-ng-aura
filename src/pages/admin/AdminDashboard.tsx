@@ -39,6 +39,7 @@ import {
 import { useDebounce } from '../../hooks/useDebounce'
 import { trackProductEvent } from '../../services/analyticsService'
 import { useAuraUiSurface } from '../../features/ui-rollout/AuraUiRolloutContext'
+import OperationalActionCenter from '../../components/operations/OperationalActionCenter'
 
 function money(value: number) {
   const amount = Number(value)
@@ -284,6 +285,7 @@ export default function AdminDashboard({
   canManageEnrollments = false,
 }: Props) {
   const dashboardV4 = useAuraUiSurface('admin-dashboard')
+  const actionCenterEnabled = useAuraUiSurface('action-center')
   const [data, setData] = useState<OperationsDashboardData | null>(null)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
@@ -629,6 +631,13 @@ export default function AdminDashboard({
             </div>}
       </section>
     </div>
+
+    {actionCenterEnabled && <OperationalActionCenter
+      isDemo={isDemo}
+      onOpenStudent={(studentId) => {
+        window.location.hash = `#/student-360?studentId=${encodeURIComponent(studentId)}&source=admin-pt-students`
+      }}
+    />}
 
     <AuraMetricCarousel slides={reportSlides} label="Báo cáo nhanh theo kỳ" loading={loading && !data} />
 

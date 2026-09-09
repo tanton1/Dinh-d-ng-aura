@@ -259,6 +259,7 @@ function TimelineActivityCard({ item, onOpenNutrition }: { item: Student360Timel
 
 export default function Student360Page({ studentId, source, isDemo = false, onBack, onNavigate }: Props) {
   const student360V4 = useAuraUiSurface('student-360')
+  const actionCenterEnabled = useAuraUiSurface('action-center')
   const [activeTab, setActiveTab] = useState<Student360Tab>('overview')
   const [overview, setOverview] = useState<Student360Overview | null>(null)
   const [loading, setLoading] = useState(true)
@@ -279,6 +280,7 @@ export default function Student360Page({ studentId, source, isDemo = false, onBa
   const [photoHasMore, setPhotoHasMore] = useState(false)
   const activePhotoStudentRef = useRef(studentId)
   const nutritionRequestRef = useRef(0)
+  const loyaltyAnchorRef = useRef<HTMLDivElement>(null)
   const [nutritionDetailEvent, setNutritionDetailEvent] = useState<Student360TimelineEvent | null>(null)
   const [nutritionDetail, setNutritionDetail] = useState<Student360NutritionActivityDetail | null>(null)
   const [nutritionDetailLoading, setNutritionDetailLoading] = useState(false)
@@ -288,14 +290,15 @@ export default function Student360Page({ studentId, source, isDemo = false, onBa
   const [careNote, setCareNote] = useState('')
   const [careSaving, setCareSaving] = useState(false)
   const [loyaltyAccount, setLoyaltyAccount] = useState<LoyaltyAccount | null>(null)
+  const [loyaltyRequested, setLoyaltyRequested] = useState(false)
 
   const loadOverview = useCallback(async (force = false) => {
     force ? setRefreshing(true) : setLoading(true)
     setError('')
     try {
       const result = isDemo ? demoOverview(studentId) : force
-        ? (await refreshStudent360Projection(studentId), await getStudent360Overview(studentId))
-        : await getStudent360Overview(studentId)
+        ? (await refreshStudent360Projection(studentId), await getStudent360Overview(studentId, undefined, actionCenterEnabled))
+        : await getStudent360Overview(studentId, undefined, actionCenterEnabled)
       setOverview(result)
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Không thể tải Học viên 360.')
@@ -303,10 +306,32 @@ export default function Student360Page({ studentId, source, isDemo = false, onBa
       setLoading(false)
       setRefreshing(false)
     }
-  }, [isDemo, studentId])
+  }, [actionCenterEnabled, isDemo, studentId])
 
   useEffect(() => { void loadOverview(false) }, [loadOverview])
   useEffect(() => {
+    setLoyaltyAccount(null)
+    setLoyaltyRequested(false)
+  }, [studentId])
+
+  useEffect(() => {
+    if (activeTab !== 'overview' || !overview || loyaltyRequested) return
+    const anchor = loyaltyAnchorRef.current
+    if (!anchor || typeof IntersectionObserver === 'undefined') {
+      const timer = window.setTimeout(() => setLoyaltyRequested(true), 800)
+      return () => window.clearTimeout(timer)
+    }
+    const observer = new IntersectionObserver((entries) => {
+      if (!entries.some((entry) => entry.isIntersecting)) return
+      setLoyaltyRequested(true)
+      observer.disconnect()
+    }, { rootMargin: '320px 0px' })
+    observer.observe(anchor)
+    return () => observer.disconnect()
+  }, [activeTab, loyaltyRequested, overview])
+
+  useEffect(() => {
+    if (!loyaltyRequested) return
     let active = true
     if (isDemo) {
       setLoyaltyAccount({ studentId, status: 'active', availablePoints: 2_480, pendingPoints: 180, reservedPoints: 0, debtPoints: 0, lifetimeEarnedPoints: 3_180, lifetimeRedeemedPoints: 700, tierQualifyingValue: 38_000_000, tier: 'gold', tierProgress: { tier: 'gold', nextTier: 'diamond', currentValue: 38_000_000, targetValue: 50_000_000, remainingValue: 12_000_000, percent: 52 }, revision: 1 })
@@ -314,7 +339,7 @@ export default function Student360Page({ studentId, source, isDemo = false, onBa
     }
     void getStudentLoyaltySummary(studentId).then((result) => { if (active) setLoyaltyAccount(result.account) }).catch(() => { if (active) setLoyaltyAccount(null) })
     return () => { active = false }
-  }, [isDemo, studentId])
+  }, [isDemo, loyaltyRequested, studentId])
 
   const loadTimeline = useCallback(async (append = false) => {
     if (timelineLoading) return
@@ -520,7 +545,7 @@ export default function Student360Page({ studentId, source, isDemo = false, onBa
   }
 
   const reportToManager = (item: Student360Action) => {
-    openCare('note', item.id, `Báo quản lý: ${item.title}. ${item.description}`)
+    openCare('note', item.operationalActionId || item.id, `Báo quản lý: ${item.title}. ${item.description}`)
   }
 
   const performAction = (item: Student360Action) => {
@@ -534,7 +559,7 @@ export default function Student360Page({ studentId, source, isDemo = false, onBa
     if (item.action === 'renewal') return onNavigate(staff ? 'staff-renewals' : 'admin-renewals', studentId, overview.identity.name)
     if (item.action === 'contract') { setActiveTab('contract'); return }
     if (item.action === 'finance') return onNavigate('admin-finance', studentId, overview.identity.name)
-    openCare(item.action === 'contact' ? 'call' : 'action_completed', item.id)
+    openCare(item.action === 'contact' ? 'call' : 'action_completed', item.operationalActionId || item.id)
   }
 
   const latestProgramDays = useMemo(() => overview?.training.program?.trainingDays || [], [overview])
@@ -633,9 +658,11 @@ export default function Student360Page({ studentId, source, isDemo = false, onBa
             <div className="student360-score-components">{health.components.map((component) => <details key={component.id}><summary><span>{component.label}<small>{component.available ? `${component.weight}% trọng số` : 'Chưa đủ dữ liệu'}</small></span><b>{component.score ?? '—'}</b><ChevronDown /></summary><p>{component.reason}</p></details>)}</div>
           </Card>
 
-          {loyaltyAccount && <Card title="Aura Club" icon={Coins}>
-            <div className="student360-loyalty-summary"><div><strong>{new Intl.NumberFormat('vi-VN').format(loyaltyAccount.availablePoints)}</strong><span>Điểm Aura khả dụng</span></div><div><b>{loyaltyAccount.tier}</b><small>{loyaltyAccount.pendingPoints ? `${new Intl.NumberFormat('vi-VN').format(loyaltyAccount.pendingPoints)} điểm đang chờ` : 'Không có điểm chờ'}</small></div>{loyaltyAccount.debtPoints > 0 && <p><AlertTriangle /> Cần đối soát {new Intl.NumberFormat('vi-VN').format(loyaltyAccount.debtPoints)} điểm nghĩa vụ.</p>}</div>
-          </Card>}
+          <div ref={loyaltyAnchorRef} className="student360-loyalty-slot">
+            {loyaltyAccount && <Card title="Aura Club" icon={Coins}>
+              <div className="student360-loyalty-summary"><div><strong>{new Intl.NumberFormat('vi-VN').format(loyaltyAccount.availablePoints)}</strong><span>Điểm Aura khả dụng</span></div><div><b>{loyaltyAccount.tier}</b><small>{loyaltyAccount.pendingPoints ? `${new Intl.NumberFormat('vi-VN').format(loyaltyAccount.pendingPoints)} điểm đang chờ` : 'Không có điểm chờ'}</small></div>{loyaltyAccount.debtPoints > 0 && <p><AlertTriangle /> Cần đối soát {new Intl.NumberFormat('vi-VN').format(loyaltyAccount.debtPoints)} điểm nghĩa vụ.</p>}</div>
+            </Card>}
+          </div>
 
           {!student360V4 && permissions.canViewOperations && <Card title="Tỷ lệ đi tập" icon={Activity}>
             <div className="student360-attendance-chart">{attendance.weeklyTrend.map((week) => <div key={week.weekStart}><span><i style={{ height: `${Math.max(5, week.rate ?? 0)}%` }} /></span><small>{safeDate(week.weekStart).slice(0, 5)}</small><b>{week.rate === null ? '—' : `${week.rate}%`}</b></div>)}</div>

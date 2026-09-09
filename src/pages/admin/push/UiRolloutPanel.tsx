@@ -14,6 +14,7 @@ const surfaceLabels: Record<AuraUiSurface, string> = {
   'student-360': 'Học viên 360',
   'admin-dashboard': 'Admin Dashboard',
   'member-nutrition': 'Học viên · Dinh dưỡng',
+  'action-center': 'Action Center · Tác vụ vận hành',
 }
 
 const audienceLabels: Record<AuraUiAudience, string> = {

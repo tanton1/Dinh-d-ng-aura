@@ -897,7 +897,11 @@ service cloud.firestore {
     // direct browser access is deliberately limited to a verified admin whose
     // Auth claim matches the role stored in users/{uid}.
     match /students/{documentId} {
-      allow read, create, update, delete: if isAdmin();
+      allow read: if isAdmin();
+      // Student identity, status and scheduling projections are revisioned,
+      // scoped and audited by Cloud Functions. Browser writes cannot keep the
+      // linked users/{accountUid} profile and operational projections atomic.
+      allow create, update, delete: if false;
     }
 
     match /contracts/{documentId} {
@@ -923,19 +927,25 @@ service cloud.firestore {
     }
 
     match /trainers/{documentId} {
-      allow read, create, update, delete: if isAdmin();
+      allow read: if isAdmin();
+      allow create, update, delete: if false;
     }
 
     match /branches/{documentId} {
-      allow read, create, update, delete: if isAdmin();
+      allow read: if isAdmin();
+      allow create, update, delete: if false;
     }
 
     match /packages/{documentId} {
-      allow read, create, update, delete: if isAdmin();
+      // Package mutations are revisioned, idempotent and audited by Cloud
+      // Functions. Browsers retain the transitional Admin read only.
+      allow read: if isAdmin();
+      allow create, update, delete: if false;
     }
 
     match /staff/{documentId} {
-      allow read, create, update, delete: if isAdmin();
+      allow read: if isAdmin();
+      allow create, update, delete: if false;
     }
 
     match /dailyCheckins/{documentId} {
@@ -971,7 +981,8 @@ service cloud.firestore {
     }
 
     match /settings/scheduleConfig {
-      allow read, create, update, delete: if isAdmin();
+      allow read: if isAdmin();
+      allow create, update, delete: if false;
     }
 
     match /auditLogs/{logId} {
@@ -1376,6 +1387,41 @@ service cloud.firestore {
       // Submission, feedback, approval, rejection and deletion are atomic
       // server operations with assignment checks and append-only audit logs.
       allow create, update, delete: if false;
+    }
+
+    // Identity links, contract usage read models and operational actions are
+    // server-owned projections. Callables enforce scope and redaction before
+    // returning them; direct browser reads must remain closed.
+    match /accountIdentityLinks/{accountUid} {
+      allow read, write: if false;
+    }
+
+    match /contractUsageViews/{contractId} {
+      allow read, write: if false;
+    }
+
+    match /operationalActions/{actionId} {
+      allow read, write: if false;
+    }
+
+    match /packageCommandReceipts/{receiptId} {
+      allow read, write: if false;
+    }
+
+    match /quoteCommandReceipts/{receiptId} {
+      allow read, write: if false;
+    }
+
+    match /studentCommandReceipts/{receiptId} {
+      allow read, write: if false;
+    }
+
+    match /branchCommandReceipts/{receiptId} {
+      allow read, write: if false;
+    }
+
+    match /scheduleConfigCommandReceipts/{receiptId} {
+      allow read, write: if false;
     }
 
     match /{document=**} {

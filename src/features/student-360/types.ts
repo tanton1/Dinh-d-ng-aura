@@ -38,6 +38,9 @@ export interface Student360Alert {
 export interface Student360Action extends Student360Alert {
   priority: number
   description: string
+  /** Present when the action comes from the durable Action Center projection. */
+  operationalActionId?: string
+  status?: 'open' | 'in_progress'
 }
 
 export interface Student360Overview {
@@ -87,7 +90,7 @@ export interface Student360Overview {
     remainingSessions: number
     legacyProjectionAdjustment: number
     projectionDelta: number
-    reconciliationStatus: 'matched' | 'legacy_projection' | 'projection_behind' | 'over_entitlement'
+    reconciliationStatus: 'matched' | 'legacy_projection' | 'projection_behind' | 'over_entitlement' | 'evidence_truncated'
     payment: null | {
       status: 'paid' | 'due' | 'overdue'
       nextPaymentDate: string | null
@@ -276,7 +279,7 @@ export interface Student360ContractRecord {
     pendingReconciliationSessions: number
     usedSessions: number
     remainingSessions: number
-    reconciliationStatus: 'matched' | 'legacy_projection' | 'projection_behind' | 'over_entitlement'
+    reconciliationStatus: 'matched' | 'legacy_projection' | 'projection_behind' | 'over_entitlement' | 'evidence_truncated'
   }
 }
 
@@ -293,7 +296,15 @@ export interface Student360ContractWorkspace {
   }
   contracts: Student360ContractRecord[]
   packages: Array<{ id: string; name: string; totalSessions: number; price: number; durationMonths: number; branchId: string | null }>
-  trainers: Array<{ id: string; name: string; branchId: string | null }>
+  trainers: Array<{
+    id: string
+    name: string
+    branchId: string | null
+    /** Optional while older regional endpoints drain during a rolling deploy. */
+    branchName?: string
+    /** Older responses omitted this after filtering inactive trainers server-side. */
+    status?: 'active' | 'inactive' | 'archived'
+  }>
   branches: Array<{ id: string; name: string }>
 }
 

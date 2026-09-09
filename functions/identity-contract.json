@@ -14,8 +14,6 @@
     "coach.workspace.view",
     "attendance.self.view",
     "payroll.self.view",
-    "performance.self.view",
-    "performance.evidence.submit",
     "loyalty.student.read"
   ],
   "positionCapabilities": {
@@ -31,6 +29,8 @@
       "pt.session.self.manage",
       "pt.workout_note.create",
       "pt.workout.manage",
+      "performance.self.view",
+      "performance.evidence.submit",
       "renewals.workspace.view",
       "renewals.case.assigned_student.support",
       "loyalty.kudos.create"

@@ -16,6 +16,15 @@ const typesSource = readFileSync(join(repositoryRoot, 'src', 'types.ts'), 'utf8'
 const serverSource = readFileSync(join(repositoryRoot, 'server.ts'), 'utf8')
 const packageManifest = JSON.parse(readFileSync(join(repositoryRoot, 'package.json'), 'utf8'))
 const databaseContextSource = readFileSync(join(repositoryRoot, 'src', 'contexts', 'DatabaseContext.tsx'), 'utf8')
+const packageSettingsSource = readFileSync(join(repositoryRoot, 'src', 'components', 'admin', 'pt', 'PackageSettings.tsx'), 'utf8')
+const packageManagementSource = readFileSync(join(__dirname, 'package-management.js'), 'utf8')
+const quoteGeneratorSource = readFileSync(join(repositoryRoot, 'src', 'components', 'admin', 'pt', 'QuoteGenerator.tsx'), 'utf8')
+const quoteManagementSource = readFileSync(join(__dirname, 'quote-management.js'), 'utf8')
+const scheduleSettingsSource = readFileSync(join(repositoryRoot, 'src', 'components', 'admin', 'pt', 'ScheduleSettings.tsx'), 'utf8')
+const auraTeamPolicySettingsSource = readFileSync(join(repositoryRoot, 'src', 'components', 'admin', 'pt', 'AuraTeamPolicySettings.tsx'), 'utf8')
+const scheduleConfigManagementSource = readFileSync(join(__dirname, 'schedule-config-management.js'), 'utf8')
+const studentManagementSource = readFileSync(join(__dirname, 'student-management.js'), 'utf8')
+const branchManagementSource = readFileSync(join(__dirname, 'branch-management.js'), 'utf8')
 const addSessionsModalSource = readFileSync(join(repositoryRoot, 'src', 'components', 'admin', 'pt', 'AddSessionsModal.tsx'), 'utf8')
 const renewContractModalSource = readFileSync(join(repositoryRoot, 'src', 'components', 'admin', 'pt', 'RenewContractModal.tsx'), 'utf8')
 const contractRenewalSource = readFileSync(join(__dirname, 'contract-renewals.js'), 'utf8')
@@ -411,6 +420,111 @@ test('schedule workspace scopes exact availability reads and bounds legacy fallb
   assert.match(ptScheduleV2Source, /previousWeekScheduledSessions: previousWeekSessionCounts\.get\(item\.id\) \|\| 0/)
 })
 
+test('training packages use revisioned callable commands and reject every browser mutation', () => {
+  const packagesBlock = rules.match(/match \/packages\/\{documentId\} \{[\s\S]*?\n    \}/)?.[0] ?? ''
+  assert.match(packagesBlock, /allow read: if isAdmin\(\)/)
+  assert.match(packagesBlock, /allow create, update, delete: if false/)
+  assert.doesNotMatch(packagesBlock, /allow[^;]*(?:create|update|delete)[^;]*if isAdmin\(\)/)
+
+  for (const functionName of ['addPackage', 'updatePackage', 'deletePackage']) {
+    const command = databaseContextSource.match(new RegExp(`const ${functionName} = async[\\s\\S]*?\\n  \\}`))?.[0] ?? ''
+    assert.match(command, /throw new Error/)
+    assert.doesNotMatch(command, /setDoc|updateDoc|deleteDoc|transaction\.(?:set|update|delete)/)
+  }
+  assert.match(packageSettingsSource, /await upsertTrainingPackage\(input\)/)
+  assert.match(packageSettingsSource, /await archiveTrainingPackage\(/)
+  assert.match(packageSettingsSource, /pendingRef\.current/)
+  assert.match(packageSettingsSource, /disabled=\{busyAction === 'save'/)
+  assert.doesNotMatch(packageSettingsSource, /\bconfirm\(/)
+  assert.doesNotMatch(packageSettingsSource, /addPackage|updatePackage|deletePackage/)
+  assert.match(packageManagementSource, /requireCapability\(actor, PACKAGE_CAPABILITY\)/)
+  assert.match(packageManagementSource, /db\.runTransaction/)
+  assert.match(packageManagementSource, /packageCommandReceipts/)
+  assert.doesNotMatch(packageManagementSource, /transaction\.delete|\.delete\(\)/)
+  assert.match(functionsSource, /exports\.upsertTrainingPackage = packageManagementFunctions\.upsertTrainingPackage/)
+  assert.match(functionsSource, /exports\.archiveTrainingPackage = packageManagementFunctions\.archiveTrainingPackage/)
+})
+
+test('admin quotes use scoped revisioned callables and never create contracts in the browser', () => {
+  const quotesBlock = rules.match(/match \/quotes\/\{quoteId\} \{[\s\S]*?\n    \}/)?.[0] ?? ''
+  const receiptsBlock = rules.match(/match \/quoteCommandReceipts\/\{receiptId\} \{[\s\S]*?\n    \}/)?.[0] ?? ''
+  assert.match(quotesBlock, /allow write: if false/)
+  assert.match(receiptsBlock, /allow read, write: if false/)
+  assert.match(quoteGeneratorSource, /await createSalesQuote\(/)
+  assert.match(quoteGeneratorSource, /await archiveSalesQuote\(/)
+  assert.match(quoteGeneratorSource, /await acceptSalesQuote\(/)
+  assert.match(quoteGeneratorSource, /pendingRef\.current/)
+  assert.doesNotMatch(quoteGeneratorSource, /firebase\/firestore|useDatabase|setDoc|addStudent|addContract|\balert\(|\bconfirm\(/)
+  assert.match(quoteManagementSource, /requireCapability\(actor, QUOTE_CAPABILITY\)/)
+  assert.match(quoteManagementSource, /quoteCommandReceipts/)
+  assert.match(quoteManagementSource, /contractApprovals/)
+  assert.doesNotMatch(quoteManagementSource, /transaction\.delete|\.delete\(\)/)
+  assert.match(functionsSource, /exports\.listSalesQuotes = quoteManagementFunctions\.listSalesQuotes/)
+  assert.match(functionsSource, /exports\.createSalesQuote = quoteManagementFunctions\.createSalesQuote/)
+  assert.match(functionsSource, /exports\.archiveSalesQuote = quoteManagementFunctions\.archiveSalesQuote/)
+  assert.match(functionsSource, /exports\.acceptSalesQuote = quoteManagementFunctions\.acceptSalesQuote/)
+})
+
+test('schedule configuration is revisioned, audited and callable-only', () => {
+  const settingsBlock = rules.match(/match \/settings\/scheduleConfig \{[\s\S]*?\n    \}/)?.[0] ?? ''
+  const receiptsBlock = rules.match(/match \/scheduleConfigCommandReceipts\/\{receiptId\} \{[\s\S]*?\n    \}/)?.[0] ?? ''
+  const contextCommand = databaseContextSource.match(/const updateScheduleConfig = async[\s\S]*?\n  \}/)?.[0] ?? ''
+  assert.match(settingsBlock, /allow create, update, delete: if false/)
+  assert.match(receiptsBlock, /allow read, write: if false/)
+  assert.match(contextCommand, /await saveScheduleConfig\(/)
+  assert.doesNotMatch(contextCommand, /setDoc|updateDoc|deleteDoc|runTransaction/)
+  assert.match(scheduleSettingsSource, /pendingRef\.current/)
+  assert.match(auraTeamPolicySettingsSource, /pendingRef\.current/)
+  assert.doesNotMatch(scheduleSettingsSource, /\balert\(|\bconfirm\(/)
+  assert.match(scheduleConfigManagementSource, /requireCapability\(actor, SCHEDULE_CONFIG_CAPABILITY\)/)
+  assert.match(scheduleConfigManagementSource, /scheduleConfigCommandReceipts/)
+  assert.match(scheduleConfigManagementSource, /db\.runTransaction/)
+  assert.match(functionsSource, /exports\.saveScheduleConfig = scheduleConfigManagementFunctions\.saveScheduleConfig/)
+})
+
+test('student profile updates are scoped revisioned callables and browser writes fail closed', () => {
+  const studentsBlock = rules.match(/match \/students\/\{documentId\} \{[\s\S]*?\n    \}/)?.[0] ?? ''
+  const receiptsBlock = rules.match(/match \/studentCommandReceipts\/\{receiptId\} \{[\s\S]*?\n    \}/)?.[0] ?? ''
+  const updateCommand = databaseContextSource.match(/const updateStudent = async[\s\S]*?\n  \}/)?.[0] ?? ''
+  const createCommand = databaseContextSource.match(/const addStudent = async[\s\S]*?\n  \}/)?.[0] ?? ''
+  assert.match(studentsBlock, /allow create, update, delete: if false/)
+  assert.match(receiptsBlock, /allow read, write: if false/)
+  assert.match(updateCommand, /await updateStudentProfile\(/)
+  assert.doesNotMatch(updateCommand, /setDoc|updateDoc|deleteDoc|runTransaction/)
+  assert.match(createCommand, /throw new Error/)
+  assert.doesNotMatch(createCommand, /setDoc|updateDoc|deleteDoc|runTransaction/)
+  assert.match(studentManagementSource, /studentCommandReceipts/)
+  assert.match(studentManagementSource, /db\.runTransaction/)
+  assert.doesNotMatch(studentManagementSource, /transaction\.delete|\.delete\(\)/)
+  assert.match(functionsSource, /exports\.updateStudentProfile = studentManagementFunctions\.updateStudentProfile/)
+})
+
+test('branch management is revisioned, audited and callable-only', () => {
+  const branchesBlock = rules.match(/match \/branches\/\{documentId\} \{[\s\S]*?\n    \}/)?.[0] ?? ''
+  const receiptsBlock = rules.match(/match \/branchCommandReceipts\/\{receiptId\} \{[\s\S]*?\n    \}/)?.[0] ?? ''
+  const branchCommand = databaseContextSource.match(/const addBranch = async[\s\S]*?\n  \}/)?.[0] ?? ''
+  assert.match(branchesBlock, /allow create, update, delete: if false/)
+  assert.match(receiptsBlock, /allow read, write: if false/)
+  assert.match(branchCommand, /await upsertBranch\(/)
+  assert.doesNotMatch(branchCommand, /setDoc|updateDoc|deleteDoc|runTransaction/)
+  assert.match(branchManagementSource, /db\.runTransaction/)
+  assert.doesNotMatch(branchManagementSource, /transaction\.delete|\.delete\(\)/)
+  assert.match(functionsSource, /exports\.upsertBranch = branchManagementFunctions\.upsertBranch/)
+  assert.match(functionsSource, /exports\.archiveBranch = branchManagementFunctions\.archiveBranch/)
+})
+
+test('legacy trainer and staff mutations are disabled in the browser', () => {
+  for (const collectionName of ['trainers', 'staff']) {
+    const block = rules.match(new RegExp(`match \\/${collectionName}\\/\\{documentId\\} \\{[\\s\\S]*?\\n    \\}`))?.[0] ?? ''
+    assert.match(block, /allow create, update, delete: if false/)
+  }
+  for (const functionName of ['addTrainer', 'updateTrainer', 'deleteTrainer', 'addStaff', 'updateStaff', 'deleteStaff']) {
+    const command = databaseContextSource.match(new RegExp(`const ${functionName} = async[\\s\\S]*?\\n  \\}`))?.[0] ?? ''
+    assert.match(command, /throw new Error/)
+    assert.doesNotMatch(command, /setDoc|updateDoc|deleteDoc|transaction\\.(?:set|update|delete)/)
+  }
+})
+
 test('schedule matrix applies the scoped draft stream directly without polling or adjacent-week prefetch reads', () => {
   assert.match(branchScheduleWorkspaceSource, /workspaceFromDraftSnapshot\(value, raw\)/)
   assert.doesNotMatch(branchScheduleWorkspaceSource, /setInterval\([^)]*loadWorkspace/)
@@ -437,6 +551,7 @@ test('legacy operations listeners are route scoped and never load the admin dash
   assert.match(viewScope, /'admin-finance': \['branches', 'contracts', 'students'\]/)
   assert.match(viewScope, /'admin-payroll': \['trainers', 'branches'\]/)
   assert.match(viewScope, /'admin-schedule-settings': \['scheduleConfig', 'branches'\]/)
+  assert.doesNotMatch(viewScope, /'admin-quotes':/, 'the quote facade must use its actor-scoped cursor API')
   assert.doesNotMatch(viewScope, /'admin-pt-schedule':/, 'the V2 schedule workspace must not attach any legacy collection listener')
   assert.match(databaseContextSource, /const activeSources = new Set<LegacyOperationSource>\(LEGACY_OPERATIONS_VIEW_SOURCES\[operationsView\]\)/)
   assert.match(databaseContextSource, /const expectedInitialSnapshots = new Set<LegacyOperationSource>\(activeSources\)/)
@@ -485,7 +600,8 @@ test('student identity linking is target-only, digest-gated, scoped to learners,
   assert.doesNotMatch(studentIdentityLinkSource, /gen-lang-client-0246058381|aura-fitness-db/)
   assert.match(studentIdentityLinkSource, /suppliedDigest !== actualDigest/)
   assert.match(studentIdentityLinkSource, /dryRun\.report\.planDigest !== plan\.planDigest/)
-  assert.match(studentIdentityLinkSource, /confirmation !== APPLY_CONFIRMATION/)
+  assert.match(studentIdentityLinkSource, /confirmation !== expectedConfirmation/)
+  assert.match(studentIdentityLinkSource, /expectedConfirmation = APPLY_CONFIRMATION/)
   assert.match(studentIdentityLinkSource, /accessRole: 'student'/)
   assert.match(studentIdentityLinkSource, /crmProfileId: item\.student\.id/)
   assert.match(studentIdentityLinkSource, /const studentData = item\.student\.data \|\| \{\}/)
@@ -495,6 +611,14 @@ test('student identity linking is target-only, digest-gated, scoped to learners,
   assert.match(studentIdentityLinkSource, /staff_record_match/)
   assert.match(studentIdentityLinkSource, /auth_matches_multiple_crm_profiles/)
   assert.match(studentIdentityLinkSource, /UIDs and CRM IDs are SHA-256 hashed/)
+  for (const command of ['dry-run', 'apply', 'verify', 'repair', 'rollback']) {
+    assert.match(studentIdentityLinkSource, new RegExp(`command === '${command}'`))
+  }
+  assert.match(studentIdentityLinkSource, /updateWrite\('accountIdentityLinks'/)
+  assert.match(studentIdentityLinkSource, /identityLinkStatus: 'linked'/)
+  assert.match(studentIdentityLinkSource, /identityLinkStatus: 'quarantined'/)
+  assert.match(studentIdentityLinkSource, /student_identity\.rollback_quarantined/)
+  assert.match(studentIdentityLinkSource, /successfulLinks \|\| \[\]\)\.filter\(\(item\) => item\.changed === true\)/)
   assert.doesNotMatch(studentIdentityLinkSource, /console\.(?:log|error)\([^)]*(?:email|phone|displayName)/)
 
   const applyCandidateSource = studentIdentityLinkSource.match(/async function applyCandidate[\s\S]*?\n\}/)?.[0] ?? ''

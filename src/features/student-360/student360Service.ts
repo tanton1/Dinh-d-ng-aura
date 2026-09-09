@@ -36,11 +36,11 @@ async function callStudent360Read<Input, Output>(
   return callReadOnlyFunction<Input, Output>(name, input, { timeoutMs, maximumAttempts: 2 })
 }
 
-export async function getStudent360Overview(studentId: string, weekId?: string) {
+export async function getStudent360Overview(studentId: string, weekId?: string, includeOperationalActions = false) {
   try {
-    return await callStudent360Read<{ studentId: string; weekId?: string; forceRefresh?: boolean }, Student360Overview>(
+    return await callStudent360Read<{ studentId: string; weekId?: string; includeOperationalActions?: boolean }, Student360Overview>(
       'getStudent360Overview',
-      { studentId, ...(weekId ? { weekId } : {}) },
+      { studentId, ...(weekId ? { weekId } : {}), ...(includeOperationalActions ? { includeOperationalActions: true } : {}) },
     )
   } catch (cause) {
     throw functionError(cause, 'Không thể tải Học viên 360.')

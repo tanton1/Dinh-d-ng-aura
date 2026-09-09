@@ -1,6 +1,6 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
-const { addMonthsDateKey, normalizeInstallments, renewalRisk, renewalEligibility, renewalHandoverProjection, latestContractsByStudent, requiresRenewalApproval, renewalQueueFingerprint, matchesRenewalSegment, renewalStats, renewalMessageTemplates, caseAssignedToTrainer, canViewCase } = require('./contract-renewals')
+const { addMonthsDateKey, normalizeInstallments, renewalRisk, renewalEligibility, renewalHandoverProjection, renewalUsageProjection, latestContractsByStudent, requiresRenewalApproval, renewalQueueFingerprint, matchesRenewalSegment, renewalStats, renewalMessageTemplates, caseAssignedToTrainer, canViewCase } = require('./contract-renewals')
 
 test('renewal calendar uses real months and clamps month-end dates', () => {
   assert.equal(addMonthsDateKey('2026-01-31', 1), '2026-02-28')
@@ -25,6 +25,48 @@ test('future renewal transfers the exact remaining quota only on its handover da
     carriedOverSessions: 1,
     totalSessions: 37,
   })
+})
+
+test('renewal carry-over uses canonical usage even when the stored contract projection differs', () => {
+  const generatedAt = { toMillis: () => Date.parse('2026-09-09T01:00:00Z') }
+  const usage = renewalUsageProjection('contract-1', {
+    totalSessions: 36,
+    usedSessions: 2,
+  }, {
+    contractId: 'contract-1',
+    sourceVersion: 'contract-usage-v2',
+    generatedAt,
+    entitlementSessions: 36,
+    usedSessions: 31,
+    remainingSessions: 5,
+    reconciliationStatus: 'legacy_projection',
+  }, true)
+  assert.deepEqual(usage, {
+    totalSessions: 36,
+    usedSessions: 31,
+    remainingSessions: 5,
+    source: 'contract-usage-v2',
+    fallbackReason: null,
+    generatedAt,
+  })
+})
+
+test('renewal carry-over fails closed when canonical usage is unavailable', () => {
+  assert.throws(
+    () => renewalUsageProjection('contract-1', { totalSessions: 36, usedSessions: 2 }, null, true),
+    /Quyền lợi buổi chưa được đối soát/,
+  )
+  assert.deepEqual(
+    renewalUsageProjection('contract-1', { totalSessions: 36, usedSessions: 2 }, null, false),
+    {
+      totalSessions: 36,
+      usedSessions: 2,
+      remainingSessions: 34,
+      source: 'contract-document-fallback',
+      fallbackReason: 'missing_view',
+      generatedAt: null,
+    },
+  )
 })
 
 test('renewal risk prioritises exhausted, expired and near-expiry contracts', () => {
@@ -122,6 +164,9 @@ test('renewal transaction requires a quote, approval evidence and checks idempot
   assert.ok(source.indexOf("source.renewalIdempotencyKey === idempotencyKey") < source.indexOf("Number(source.revision || 0) !== expectedSourceRevision"))
   assert.match(source, /plannedCarryOverSessions: carriedOverSessions/)
   assert.match(source, /carryOverPending/)
+  assert.match(source, /buildContractUsageView\(\{ db, contractId: sourceContractId/)
+  assert.match(source, /transaction\.get\(sourceUsageReference\)/)
+  assert.doesNotMatch(source, /const remainingSessions = Math\.max\(0, Number\(source\.totalSessions \|\| 0\) - Number\(source\.usedSessions \|\| 0\)\)/)
 })
 
 test('daily renewal reminders are internal, deterministic and never auto-send externally', () => {

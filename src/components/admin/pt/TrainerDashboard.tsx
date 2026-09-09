@@ -3,6 +3,8 @@ import { UserProfile, Session, StudentContract } from '../../../types';
 import { useDatabase } from '../../../contexts/DatabaseContext';
 import { Users, User, ArrowRight, Activity, Calendar, Calendar as CalendarIcon, Search, AlertCircle, CheckCircle, Clock, Download } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import OperationalActionCenter from '../../operations/OperationalActionCenter';
+import { useAuraUiSurface } from '../../../features/ui-rollout/AuraUiRolloutContext';
 
 
 import { User as FirebaseUser } from 'firebase/auth';
@@ -17,6 +19,7 @@ interface Props {
 
 export default function TrainerDashboard({ profile, user, trainerId: propTrainerId, explicitTrainerId, onNavigate }: Props) {
   const { students, contracts, sessions, trainers } = useDatabase();
+  const actionCenterEnabled = useAuraUiSurface('action-center');
 
   const getCalculatedUsedSessions = (contract: StudentContract | undefined, _allSessions: Session[]) => contract
     ? Math.max(0, Math.floor(Number(contract.usedSessions || 0)))
@@ -328,6 +331,8 @@ export default function TrainerDashboard({ profile, user, trainerId: propTrainer
           <p className="text-sm text-zinc-400">Chúc bạn một ngày làm việc hiệu quả.</p>
         </div>
       </div>
+
+      {actionCenterEnabled && <OperationalActionCenter onOpenStudent={openStudent360} />}
 
       {/* Stats Grid */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">

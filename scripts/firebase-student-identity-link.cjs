@@ -14,10 +14,14 @@ const TARGET_PROJECT = 'gen-lang-client-0815966909'
 const TARGET_DATABASE = 'ai-studio-aurafitnesselear-0f7609b4-b8d1-4fb3-9d62-99a2c03e1ce7'
 const TARGET_RESOURCE = `projects/${TARGET_PROJECT}/databases/${TARGET_DATABASE}`
 const APPLY_CONFIRMATION = `${TARGET_RESOURCE}:link-student-identities`
+const REPAIR_CONFIRMATION = `${TARGET_RESOURCE}:repair-student-identities`
+const ROLLBACK_CONFIRMATION = `${TARGET_RESOURCE}:rollback-student-identities`
 const PRIVATE_DIRECTORY = path.resolve('.migration-private')
 const DEFAULT_REPORTS = {
   'dry-run': path.join(PRIVATE_DIRECTORY, 'student-identity-link-dry-run.json'),
   apply: path.join(PRIVATE_DIRECTORY, 'student-identity-link-apply.json'),
+  repair: path.join(PRIVATE_DIRECTORY, 'student-identity-link-repair.json'),
+  rollback: path.join(PRIVATE_DIRECTORY, 'student-identity-link-rollback.json'),
   verify: path.join(PRIVATE_DIRECTORY, 'student-identity-link-verify.json'),
 }
 
@@ -35,7 +39,9 @@ const USAGE = [
   'Usage:',
   '  node scripts/firebase-student-identity-link.cjs dry-run [--report=.migration-private/report.json]',
   `  node scripts/firebase-student-identity-link.cjs apply --dry-run-report=<path> --dry-run-digest=<sha256> --confirm=${APPLY_CONFIRMATION} [--report=.migration-private/report.json]`,
+  `  node scripts/firebase-student-identity-link.cjs repair --dry-run-report=<path> --dry-run-digest=<sha256> --confirm=${REPAIR_CONFIRMATION} [--report=.migration-private/report.json]`,
   '  node scripts/firebase-student-identity-link.cjs verify --apply-report=<path> [--report=.migration-private/report.json]',
+  `  node scripts/firebase-student-identity-link.cjs rollback --apply-report=<path> --apply-digest=<sha256> --confirm=${ROLLBACK_CONFIRMATION} [--report=.migration-private/report.json]`,
   '',
   'dry-run and verify are target-only reads. apply is blocked without the exact report digest and confirmation value.',
 ].join('\n')
@@ -91,7 +97,9 @@ function parseArguments(argv) {
   const allowed = {
     'dry-run': new Set(['report']),
     apply: new Set(['dry-run-report', 'dry-run-digest', 'confirm', 'report']),
+    repair: new Set(['dry-run-report', 'dry-run-digest', 'confirm', 'report']),
     verify: new Set(['apply-report', 'report']),
+    rollback: new Set(['apply-report', 'apply-digest', 'confirm', 'report']),
   }[command]
   if (!allowed) throw new PublicError('unknown_command', USAGE)
   for (const key of Object.keys(flags)) {
@@ -138,10 +146,11 @@ function readReport(filePath, expectedMode) {
   } catch {
     throw new PublicError('report_invalid', `The ${expectedMode} report is not valid JSON.`)
   }
-  if (report?.mode !== expectedMode
+  const expectedModes = Array.isArray(expectedMode) ? expectedMode : [expectedMode]
+  if (!expectedModes.includes(report?.mode)
       || report?.target?.projectId !== TARGET_PROJECT
       || report?.target?.databaseId !== TARGET_DATABASE) {
-    throw new PublicError('report_target_mismatch', `The ${expectedMode} report does not belong to this target.`)
+    throw new PublicError('report_target_mismatch', `The ${expectedModes.join('/')} report does not belong to this target.`)
   }
   return { resolved, raw, report }
 }
@@ -276,6 +285,9 @@ function firestoreFingerprint(student, assignment, profile) {
     student: {
       id: student.id,
       directUids: directUidValues(student).sort(),
+      accountUid: typeof student.data?.accountUid === 'string' ? student.data.accountUid.trim() : '',
+      identityLinkStatus: typeof student.data?.identityLinkStatus === 'string' ? student.data.identityLinkStatus : '',
+      identityLinkVersion: Number(student.data?.identityLinkVersion || 0),
       email: normalizeEmail(student.data?.email || student.data?.emailAddress),
       phone: normalizePhone(student.data?.phone || student.data?.phoneNumber),
     },
@@ -333,9 +345,11 @@ function publicCandidate(candidate) {
     strategy: candidate.strategy,
     authzVersion: candidate.authzVersion,
     firestoreWriteRequired: candidate.firestoreWriteRequired,
+    studentWriteRequired: candidate.studentWriteRequired,
+    identityLinkWriteRequired: candidate.identityLinkWriteRequired,
     claimsWriteRequired: candidate.claimsWriteRequired,
     stateDigest: candidate.combinedStateDigest,
-    canonical: !candidate.firestoreWriteRequired && !candidate.claimsWriteRequired,
+    canonical: !candidate.firestoreWriteRequired && !candidate.studentWriteRequired && !candidate.identityLinkWriteRequired && !candidate.claimsWriteRequired,
   }
 }
 
@@ -351,6 +365,11 @@ function buildPlan(state) {
   const indexes = authIndexes(state.authUsers)
   const profiles = documentMap(state.users)
   const assignments = documentMap(state.roleAssignments)
+  const identityLinks = documentMap(state.accountIdentityLinks || [])
+  const identityLinksByStudent = new Map()
+  for (const link of state.accountIdentityLinks || []) {
+    if (link.data?.status === 'active' && typeof link.data?.studentId === 'string') addToIndex(identityLinksByStudent, link.data.studentId, link)
+  }
   const staffRecords = [...state.staff, ...state.trainers]
   const preliminary = []
   const quarantined = []
@@ -410,6 +429,9 @@ function buildPlan(state) {
     const authUser = indexes.uid.get(item.uid)
     const profile = profiles.get(item.uid) || null
     const assignment = assignments.get(item.uid) || null
+    const existingAccountUid = typeof item.student.data?.accountUid === 'string' ? item.student.data.accountUid.trim() : ''
+    const existingLink = identityLinks.get(item.uid) || null
+    const otherActiveStudentLinks = (identityLinksByStudent.get(item.student.id) || []).filter((link) => link.id !== item.uid)
     const reasons = []
     if (!authUser || authUser.disabled === true) reasons.push('auth_missing_or_disabled')
     if (authUser) reasons.push(...unsafeClaimCodes(authUser.customClaims))
@@ -419,6 +441,9 @@ function buildPlan(state) {
     if (assignment && !['', 'active'].includes(String(assignment.status || ''))) reasons.push('assignment_not_active')
     if (assignment?.crmProfileId && assignment.crmProfileId !== item.student.id) reasons.push('assignment_crm_conflict')
     if (profile?.crmProfileId && profile.crmProfileId !== item.student.id) reasons.push('profile_crm_conflict')
+    if (existingAccountUid && existingAccountUid !== item.uid) reasons.push('student_account_uid_conflict')
+    if (existingLink?.studentId && existingLink.studentId !== item.student.id) reasons.push('account_link_conflict')
+    if (otherActiveStudentLinks.length) reasons.push('student_reverse_link_conflict')
     if (authUser && staffEvidence(staffRecords, authUser)) reasons.push('staff_record_match')
 
     if (reasons.length > 0) {
@@ -460,8 +485,23 @@ function buildPlan(state) {
       accessRole: 'student',
       authzVersion,
     }
+    const desiredStudent = {
+      accountUid: item.uid,
+      identityLinkStatus: 'linked',
+      identityLinkVersion: 2,
+      identityLinkSource: item.strategy === 'direct_uid' ? 'manual' : item.strategy === 'phone' ? 'verified_phone' : 'verified_email',
+    }
+    const desiredIdentityLink = {
+      schemaVersion: 1,
+      studentId: item.student.id,
+      status: 'active',
+      source: desiredStudent.identityLinkSource,
+      identityLinkVersion: 2,
+    }
     const firestoreWriteRequired = !exactObjectSubset(assignment, desiredAssignment)
       || !exactObjectSubset(profile, desiredProfile)
+    const studentWriteRequired = !exactObjectSubset(item.student.data, desiredStudent)
+    const identityLinkWriteRequired = !exactObjectSubset(existingLink, desiredIdentityLink)
     const claimsWriteRequired = stableJson(authUser.customClaims || {}) !== stableJson(nextClaims)
     const authFingerprint = claimsFingerprint(authUser)
     const databaseFingerprint = firestoreFingerprint(item.student, assignment, profile)
@@ -474,11 +514,15 @@ function buildPlan(state) {
       nextClaims,
       desiredAssignment,
       desiredProfile,
+      desiredStudent,
+      desiredIdentityLink,
       firestoreWriteRequired,
+      studentWriteRequired,
+      identityLinkWriteRequired,
       claimsWriteRequired,
       authFingerprint,
       databaseFingerprint,
-      combinedStateDigest: stateDigest({ authFingerprint, databaseFingerprint }),
+      combinedStateDigest: stateDigest({ authFingerprint, databaseFingerprint, existingLink: existingLink ? { studentId: existingLink.studentId, status: existingLink.status } : null }),
     })
   }
 
@@ -674,9 +718,10 @@ async function loadTargetState() {
     const students = await readCollection(accessToken, 'students')
     const users = await readCollection(accessToken, 'users')
     const roleAssignments = await readCollection(accessToken, 'roleAssignments')
+    const accountIdentityLinks = await readCollection(accessToken, 'accountIdentityLinks')
     const staff = await readCollection(accessToken, 'staff')
     const trainers = await readCollection(accessToken, 'trainers')
-    return { app, auth, accessToken, authUsers, students, users, roleAssignments, staff, trainers }
+    return { app, auth, accessToken, authUsers, students, users, roleAssignments, accountIdentityLinks, staff, trainers }
   } catch (error) {
     await deleteApp(app)
     throw error
@@ -700,11 +745,12 @@ function countsFor(state, plan) {
     crmStudentProfiles: state.students.length,
     userProfiles: state.users.length,
     roleAssignments: state.roleAssignments.length,
+    accountIdentityLinks: (state.accountIdentityLinks || []).length,
     staffRecords: state.staff.length,
     trainerRecords: state.trainers.length,
     deterministicMatches: plan.candidates.length,
-    readyToApply: plan.candidates.filter((item) => item.firestoreWriteRequired || item.claimsWriteRequired).length,
-    alreadyCanonical: plan.candidates.filter((item) => !item.firestoreWriteRequired && !item.claimsWriteRequired).length,
+    readyToApply: plan.candidates.filter((item) => item.firestoreWriteRequired || item.studentWriteRequired || item.identityLinkWriteRequired || item.claimsWriteRequired).length,
+    alreadyCanonical: plan.candidates.filter((item) => !item.firestoreWriteRequired && !item.studentWriteRequired && !item.identityLinkWriteRequired && !item.claimsWriteRequired).length,
     quarantined: plan.quarantined.length,
     unmatched: plan.unmatched.length,
     matchStrategies: strategies,
@@ -749,10 +795,10 @@ async function dryRun(flags) {
   }
 }
 
-function assertApprovedDryRun(flags, plan) {
+function assertApprovedDryRun(flags, plan, expectedConfirmation = APPLY_CONFIRMATION) {
   const confirmation = requiredFlag(flags, 'confirm')
-  if (confirmation !== APPLY_CONFIRMATION) {
-    throw new PublicError('production_confirmation_failed', `--confirm must equal ${APPLY_CONFIRMATION}.`)
+  if (confirmation !== expectedConfirmation) {
+    throw new PublicError('production_confirmation_failed', `--confirm must equal ${expectedConfirmation}.`)
   }
   const suppliedDigest = requiredFlag(flags, 'dry-run-digest').toLowerCase()
   if (!/^[a-f0-9]{64}$/.test(suppliedDigest)) throw new PublicError('dry_run_digest_invalid', 'The dry-run digest must be SHA-256.')
@@ -818,15 +864,17 @@ async function writeIdentityDocuments(state, candidate, planDigest) {
   const studentName = documentResource('students', candidate.crmProfileId)
   const assignmentName = documentResource('roleAssignments', candidate.uid)
   const profileName = documentResource('users', candidate.uid)
+  const identityLinkName = documentResource('accountIdentityLinks', candidate.uid)
   try {
     const rows = await requestJson(state.accessToken, `${databaseBase()}/documents:batchGet`, {
       method: 'POST',
-      body: JSON.stringify({ documents: [studentName, assignmentName, profileName], transaction }),
+      body: JSON.stringify({ documents: [studentName, assignmentName, profileName, identityLinkName], transaction }),
       errorCode: 'transaction_read_failed',
     })
     const liveStudent = batchGetEntry(rows, studentName)
     const liveAssignment = batchGetEntry(rows, assignmentName)
     const liveProfile = batchGetEntry(rows, profileName)
+    const liveIdentityLink = batchGetEntry(rows, identityLinkName)
     if (!liveStudent) throw new PublicError('student_precondition_changed', 'A CRM student record changed during apply.')
     if (firestoreFingerprint(liveStudent, liveAssignment?.data || null, liveProfile?.data || null) !== candidate.databaseFingerprint) {
       throw new PublicError('firestore_precondition_changed', 'A target identity record changed during apply.')
@@ -844,7 +892,7 @@ async function writeIdentityDocuments(state, candidate, planDigest) {
     }
     const auditId = `student_identity_link_${sha256(`${candidate.uid}:${candidate.crmProfileId}`).slice(0, 40)}`
     const auditFields = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       action: 'student_identity.linked',
       actorType: 'migration',
       targetUidHash: sha256(candidate.uid),
@@ -852,12 +900,32 @@ async function writeIdentityDocuments(state, candidate, planDigest) {
       authzVersion: candidate.authzVersion,
       planDigest,
     }
+    if (liveIdentityLink?.data?.studentId && liveIdentityLink.data.studentId !== candidate.crmProfileId) {
+      throw new PublicError('account_link_conflict', 'The account identity link belongs to another CRM student.')
+    }
+    const studentFields = {
+      ...candidate.desiredStudent,
+      identityLinkedBy: 'migration:student-identity-link',
+    }
+    const identityLinkFields = {
+      ...candidate.desiredIdentityLink,
+      linkedBy: 'migration:student-identity-link',
+    }
     const writes = [
       updateWrite('roleAssignments', candidate.uid, assignmentFields, [
         'updatedAt',
         ...(!liveAssignment ? ['createdAt'] : []),
       ]),
       updateWrite('users', candidate.uid, profileFields, ['updatedAt']),
+      updateWrite('students', candidate.crmProfileId, studentFields, [
+        ...(!liveStudent.data?.identityLinkedAt ? ['identityLinkedAt'] : []),
+        'updatedAt',
+      ]),
+      updateWrite('accountIdentityLinks', candidate.uid, identityLinkFields, [
+        ...(!liveIdentityLink?.data?.linkedAt ? ['linkedAt'] : []),
+        'updatedAt',
+        ...(!liveIdentityLink ? ['createdAt'] : []),
+      ]),
       updateWrite('identityAuditLogs', auditId, auditFields, ['createdAt']),
     ]
     await requestJson(state.accessToken, `${databaseBase()}/documents:commit`, {
@@ -875,7 +943,7 @@ async function applyCandidate(state, candidate, planDigest) {
   const currentAuth = await state.auth.getUser(candidate.uid)
   if (claimsFingerprint(currentAuth) !== candidate.authFingerprint) throw new PublicError('auth_precondition_changed', 'An Auth record changed during apply.')
 
-  if (candidate.firestoreWriteRequired) {
+  if (candidate.firestoreWriteRequired || candidate.studentWriteRequired || candidate.identityLinkWriteRequired) {
     await writeIdentityDocuments(state, candidate, planDigest)
   }
 
@@ -886,29 +954,141 @@ async function applyCandidate(state, candidate, planDigest) {
   if (candidate.claimsWriteRequired) await state.auth.setCustomUserClaims(candidate.uid, candidate.nextClaims)
 
   const verifiedAuth = await state.auth.getUser(candidate.uid)
-  const [verifiedAssignment, verifiedProfile] = await Promise.all([
+  const [verifiedStudent, verifiedAssignment, verifiedProfile, verifiedIdentityLink] = await Promise.all([
+    readDocument(state.accessToken, 'students', candidate.crmProfileId),
     readDocument(state.accessToken, 'roleAssignments', candidate.uid),
     readDocument(state.accessToken, 'users', candidate.uid),
+    readDocument(state.accessToken, 'accountIdentityLinks', candidate.uid),
   ])
   const verified = stableJson(verifiedAuth.customClaims || {}) === stableJson(candidate.nextClaims)
+    && Boolean(verifiedStudent)
+    && exactObjectSubset(verifiedStudent?.data, candidate.desiredStudent)
     && Boolean(verifiedAssignment)
     && exactObjectSubset(verifiedAssignment?.data, candidate.desiredAssignment)
     && Boolean(verifiedProfile)
     && exactObjectSubset(verifiedProfile?.data, candidate.desiredProfile)
+    && Boolean(verifiedIdentityLink)
+    && exactObjectSubset(verifiedIdentityLink?.data, candidate.desiredIdentityLink)
   if (!verified) throw new PublicError('post_write_verification_failed', 'A linked identity did not pass post-write verification.')
   return {
     uidHash: sha256(candidate.uid),
     crmProfileIdHash: sha256(candidate.crmProfileId),
-    changed: candidate.firestoreWriteRequired || candidate.claimsWriteRequired,
+    changed: candidate.firestoreWriteRequired || candidate.studentWriteRequired || candidate.identityLinkWriteRequired || candidate.claimsWriteRequired,
     verified: true,
   }
 }
 
-async function apply(flags) {
+async function quarantineIdentityLink(state, candidate, sourcePlanDigest) {
+  const begin = await requestJson(state.accessToken, `${databaseBase()}/documents:beginTransaction`, {
+    method: 'POST',
+    body: JSON.stringify({ options: { readWrite: {} } }),
+    errorCode: 'transaction_begin_failed',
+  })
+  const transaction = begin?.transaction
+  if (!transaction) throw new PublicError('transaction_begin_invalid', 'Unable to begin a rollback transaction.')
+  const studentName = documentResource('students', candidate.crmProfileId)
+  const identityLinkName = documentResource('accountIdentityLinks', candidate.uid)
+  try {
+    const rows = await requestJson(state.accessToken, `${databaseBase()}/documents:batchGet`, {
+      method: 'POST',
+      body: JSON.stringify({ documents: [studentName, identityLinkName], transaction }),
+      errorCode: 'transaction_read_failed',
+    })
+    const student = batchGetEntry(rows, studentName)
+    const identityLink = batchGetEntry(rows, identityLinkName)
+    if (!student || student.data?.accountUid !== candidate.uid) throw new PublicError('rollback_student_precondition_failed', 'The student identity link changed after apply; rollback is blocked for this record.')
+    if (!identityLink || identityLink.data?.studentId !== candidate.crmProfileId || identityLink.data?.status !== 'active') throw new PublicError('rollback_link_precondition_failed', 'The reverse identity link changed after apply; rollback is blocked for this record.')
+    const auditId = `student_identity_rollback_${sha256(`${candidate.uid}:${candidate.crmProfileId}:${sourcePlanDigest}`).slice(0, 40)}`
+    const writes = [
+      updateWrite('students', candidate.crmProfileId, {
+        accountUid: null,
+        identityLinkStatus: 'quarantined',
+        identityLinkVersion: 2,
+        identityLinkSource: 'rollback',
+        identityLinkedAt: null,
+        identityLinkedBy: 'migration:student-identity-link-rollback',
+      }, ['updatedAt']),
+      updateWrite('accountIdentityLinks', candidate.uid, {
+        studentId: candidate.crmProfileId,
+        status: 'quarantined',
+        source: identityLink.data?.source || 'manual',
+        identityLinkVersion: 2,
+        linkedBy: 'migration:student-identity-link-rollback',
+      }, ['updatedAt']),
+      updateWrite('identityAuditLogs', auditId, {
+        schemaVersion: 2,
+        action: 'student_identity.rollback_quarantined',
+        actorType: 'migration',
+        targetUidHash: sha256(candidate.uid),
+        crmProfileIdHash: sha256(candidate.crmProfileId),
+        sourcePlanDigest,
+      }, ['createdAt']),
+    ]
+    await requestJson(state.accessToken, `${databaseBase()}/documents:commit`, {
+      method: 'POST',
+      body: JSON.stringify({ transaction, writes }),
+      errorCode: 'transaction_commit_failed',
+    })
+    return { uidHash: sha256(candidate.uid), crmProfileIdHash: sha256(candidate.crmProfileId), quarantined: true }
+  } catch (error) {
+    await rollbackTransaction(state.accessToken, transaction)
+    throw error
+  }
+}
+
+async function rollback(flags) {
+  const confirmation = requiredFlag(flags, 'confirm')
+  if (confirmation !== ROLLBACK_CONFIRMATION) throw new PublicError('production_confirmation_failed', `--confirm must equal ${ROLLBACK_CONFIRMATION}.`)
+  const suppliedDigest = requiredFlag(flags, 'apply-digest').toLowerCase()
+  if (!/^[a-f0-9]{64}$/.test(suppliedDigest)) throw new PublicError('apply_digest_invalid', 'The apply report digest must be SHA-256.')
+  const approved = readReport(requiredFlag(flags, 'apply-report'), ['apply', 'repair'])
+  const actualDigest = sha256(Buffer.from(approved.raw, 'utf8'))
+  if (actualDigest !== suppliedDigest) throw new PublicError('apply_digest_mismatch', 'The apply report digest does not match the approved digest.')
   const state = await loadTargetState()
   try {
     const plan = buildPlan(state)
-    const dryRun = assertApprovedDryRun(flags, plan)
+    const candidates = new Map(plan.candidates.map((item) => [`${sha256(item.uid)}:${sha256(item.crmProfileId)}`, item]))
+    // Never quarantine links that were already canonical before this run.
+    // Rollback is limited to records the approved apply/repair report actually
+    // changed, which keeps pre-existing production identity data intact.
+    const changedLinks = (approved.report.successfulLinks || []).filter((item) => item.changed === true)
+    const targets = changedLinks.map((item) => candidates.get(`${item.uidHash}:${item.crmProfileIdHash}`)).filter(Boolean)
+    if (targets.length !== changedLinks.length) throw new PublicError('rollback_target_mismatch', 'One or more approved identity links can no longer be resolved safely; no rollback writes were started.')
+    const results = []
+    const errors = []
+    for (const candidate of targets) {
+      try {
+        results.push(await quarantineIdentityLink(state, candidate, approved.report.planDigest || 'unknown'))
+      } catch (error) {
+        errors.push({ uidHash: sha256(candidate.uid), crmProfileIdHash: sha256(candidate.crmProfileId), code: error instanceof PublicError ? error.code : 'rollback_failed', errorDigest: sha256(String(error?.message || error?.code || 'rollback_failed')) })
+      }
+    }
+    const report = {
+      schemaVersion: 1,
+      mode: 'rollback',
+      generatedAt: new Date().toISOString(),
+      target: { projectId: TARGET_PROJECT, databaseId: TARGET_DATABASE },
+      sourceApplyDigest: actualDigest,
+      sourceApplyPlanDigest: approved.report.planDigest || null,
+      counts: { approved: targets.length, quarantined: results.length, failed: errors.length },
+      rolledBackLinks: results,
+      errors,
+      rollbackPolicy: 'Only the V2 account link is quarantined. Legacy role/profile fallback and source business data are preserved.',
+      piiPolicy: 'UIDs and CRM IDs are SHA-256 hashed; email, phone, name, and address are omitted.',
+    }
+    const reportPath = writeReport(flags.report || DEFAULT_REPORTS.rollback, report)
+    console.log(JSON.stringify({ mode: 'rollback', ...report.counts, reportPath }, null, 2))
+    if (errors.length) throw new PublicError('partial_rollback', 'Rollback quarantined only the records that passed live preconditions; review the report before retrying.')
+  } finally {
+    await closeTargetState(state)
+  }
+}
+
+async function apply(flags, mode = 'apply') {
+  const state = await loadTargetState()
+  try {
+    const plan = buildPlan(state)
+    const dryRun = assertApprovedDryRun(flags, plan, mode === 'repair' ? REPAIR_CONFIRMATION : APPLY_CONFIRMATION)
     const results = []
     const errors = []
     for (const candidate of plan.candidates) {
@@ -926,7 +1106,7 @@ async function apply(flags) {
 
     const report = {
       schemaVersion: 1,
-      mode: 'apply',
+      mode,
       generatedAt: new Date().toISOString(),
       target: { projectId: TARGET_PROJECT, databaseId: TARGET_DATABASE },
       approvedDryRunDigest: sha256(Buffer.from(dryRun.raw, 'utf8')),
@@ -945,8 +1125,8 @@ async function apply(flags) {
       errors,
       piiPolicy: 'UIDs and CRM IDs are SHA-256 hashed; email, phone, name, and address are omitted.',
     }
-    const reportPath = writeReport(flags.report || DEFAULT_REPORTS.apply, report)
-    console.log(JSON.stringify({ mode: 'apply', ...report.counts, planDigest: report.planDigest, reportPath }, null, 2))
+    const reportPath = writeReport(flags.report || DEFAULT_REPORTS[mode], report)
+    console.log(JSON.stringify({ mode, ...report.counts, planDigest: report.planDigest, reportPath }, null, 2))
     if (errors.length > 0) throw new PublicError('partial_apply', 'Identity linking completed with failures; rerun dry-run before any retry.')
   } finally {
     await closeTargetState(state)
@@ -954,7 +1134,7 @@ async function apply(flags) {
 }
 
 async function verify(flags) {
-  const applyReport = readReport(requiredFlag(flags, 'apply-report'), 'apply').report
+  const applyReport = readReport(requiredFlag(flags, 'apply-report'), ['apply', 'repair']).report
   const state = await loadTargetState()
   try {
     const plan = buildPlan(state)
@@ -999,7 +1179,9 @@ async function main() {
   const { command, flags } = parseArguments(process.argv.slice(2))
   if (command === 'dry-run') return dryRun(flags)
   if (command === 'apply') return apply(flags)
+  if (command === 'repair') return apply(flags, 'repair')
   if (command === 'verify') return verify(flags)
+  if (command === 'rollback') return rollback(flags)
   throw new PublicError('unknown_command', USAGE)
 }
 

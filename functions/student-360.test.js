@@ -5,6 +5,7 @@ const {
   buildHealthScore,
   contractInstallments,
   contractMutationTitle,
+  contractWorkspaceTrainerDirectory,
   contractUsage,
   permissionsFor,
   normalizeTimelineEvents,
@@ -68,6 +69,35 @@ test('contract workspace exposes named, immutable CRM actions', () => {
   assert.equal(contractMutationTitle('freeze'), 'Đã bảo lưu hợp đồng')
   assert.equal(contractMutationTitle('reopen'), 'Đã mở lại hợp đồng')
   assert.equal(contractMutationTitle('cancel'), 'Đã hủy hợp đồng')
+})
+
+test('contract workspace returns active candidates and keeps invalid current assignees explainable', () => {
+  const document = (id, value) => ({ id, data: () => value })
+  const trainers = contractWorkspaceTrainerDirectory({
+    trainerDocuments: [
+      document('active-local', { name: 'PT An', branchId: 'branch-a', status: 'active' }),
+      document('inactive-assigned', { name: 'PT Bình', branchId: 'branch-a', status: 'inactive' }),
+      document('moved-assigned', { name: 'PT Chi', branchId: 'branch-b', status: 'active' }),
+      document('out-of-scope', { name: 'PT Dũng', branchId: 'branch-b', status: 'active' }),
+    ],
+    branchDocuments: [
+      document('branch-a', { name: 'Aura Hải Châu' }),
+      document('branch-b', { name: 'Aura Sơn Trà' }),
+    ],
+    contracts: [{ trainerIds: ['inactive-assigned', 'moved-assigned'] }],
+    allowedBranchIds: ['branch-a'],
+    studentBranchId: 'branch-a',
+  })
+
+  assert.deepEqual(trainers.map((item) => item.id), ['active-local', 'inactive-assigned', 'moved-assigned'])
+  assert.deepEqual(trainers.find((item) => item.id === 'inactive-assigned'), {
+    id: 'inactive-assigned',
+    name: 'PT Bình',
+    branchId: 'branch-a',
+    branchName: 'Aura Hải Châu',
+    status: 'inactive',
+  })
+  assert.equal(trainers.find((item) => item.id === 'moved-assigned').branchName, 'Aura Sơn Trà')
 })
 
 test('contract installment edits preserve posted history and reconcile outstanding debt', () => {
@@ -481,6 +511,29 @@ test('contract workspace mutations are revisioned, audited and no longer rely on
   assert.match(source, /studentTimelineEvents/)
   assert.match(source, /canManageFinancials/)
   assert.doesNotMatch(source, /paidAmount:\s*finite\(request\.data/)
+})
+
+test('Student 360 contract workspace prefers canonical usage views with bounded legacy fallback', () => {
+  const source = require('node:fs').readFileSync(require('node:path').join(__dirname, 'student-360.js'), 'utf8')
+  assert.match(source, /contractUsageViews\//)
+  assert.match(source, /usageSummaryFromView\(usageView, value\)/)
+  assert.match(source, /where\('crmProfileId', '==', studentId\)/)
+  assert.match(source, /where\('studentId', '==', studentId\)\.limit\(1000\)/)
+})
+
+test('Student 360 overview prefers durable operational actions when available', () => {
+  const source = require('node:fs').readFileSync(require('node:path').join(__dirname, 'student-360.js'), 'utf8')
+  assert.match(source, /operationalActions/)
+  assert.match(source, /request\.data\?\.includeOperationalActions === true/)
+  assert.match(source, /studentOperationalActions\(db, actor, studentId\)/)
+  assert.match(source, /operationalActions\.length \? \{ nextActions: operationalActions \}/)
+})
+
+test('Student 360 overview reads canonical contract usage with a bounded legacy fallback', () => {
+  const source = require('node:fs').readFileSync(require('node:path').join(__dirname, 'student-360.js'), 'utf8')
+  assert.match(source, /contractUsageViews\/\$\{contract\.id\}/)
+  assert.match(source, /usageView\?\.exists[\s\S]*?usageSummaryFromView\(usageView\.data\(\), contract\)[\s\S]*?: contractUsage/)
+  assert.match(source, /where\('crmProfileId', '==', studentId\)/)
 })
 
 test('new contracts snapshot the effective operations policy without rewriting legacy rights', () => {

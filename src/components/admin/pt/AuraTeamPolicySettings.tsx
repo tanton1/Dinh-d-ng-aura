@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { CalendarClock, CalendarOff, CalendarRange, CheckCircle2, Plus, Save, ShieldCheck, Trash2 } from 'lucide-react'
 import { useDatabase } from '../../../contexts/DatabaseContext'
 import type { ScheduleConfig, ScheduleHoliday } from '../../../types'
@@ -56,6 +56,7 @@ export default function AuraTeamPolicySettings({ canEdit = false }: { canEdit?: 
   const [holidayDetails, setHolidayDetails] = useState<ScheduleHoliday[]>(() => normalizedHolidayDetails(scheduleConfig))
   const [holidayDate, setHolidayDate] = useState('')
   const [holidayName, setHolidayName] = useState('')
+  const pendingRef = useRef(false)
 
   useEffect(() => {
     setDraft(fromConfig(scheduleConfig))
@@ -88,7 +89,8 @@ export default function AuraTeamPolicySettings({ canEdit = false }: { canEdit?: 
   }
 
   const save = async () => {
-    if (!canEdit) return
+    if (!canEdit || pendingRef.current) return
+    pendingRef.current = true
     setSaving(true); setError(''); setMessage('')
     try {
       await updateScheduleConfig({
@@ -101,6 +103,7 @@ export default function AuraTeamPolicySettings({ canEdit = false }: { canEdit?: 
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Không thể lưu chính sách Aura.')
     } finally {
+      pendingRef.current = false
       setSaving(false)
     }
   }

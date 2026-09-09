@@ -2406,6 +2406,15 @@ function generateScheduleAttempt(data) {
     warnings.push({ code: 'STUDENT_UNSCHEDULED', ...unassigned })
   }
   if (capacityReached) warnings.unshift({ code: 'DRAFT_CAPACITY_REACHED', entryCount, maxEntries: MAX_DRAFT_ENTRIES })
+  const unassignedReasonCounts = unassignedEntries.reduce((counts, item) => {
+    const key = item.primaryReasonCode || item.blockerType || 'STUDENT_UNSCHEDULED'
+    counts[key] = (counts[key] || 0) + 1
+    return counts
+  }, {})
+  const feasibilityGapSessions = finalFeasibility.reduce((total, item) => total + Math.max(
+    0,
+    Number(item.maximumFeasibleSessions || 0) - Number(item.scheduledSessions || 0),
+  ), 0)
   const optimizationSummary = {
     objectiveOrder: ['learner_coverage', 'weekly_target_fulfilment', 'pairing', 'trainer_assignment', 'trainer_consecutive_blocks', 'soft_load_balance', 'learner_spacing'],
     loadPolicyVersion: 'soft-consecutive-blocks-v2',
@@ -2418,8 +2427,12 @@ function generateScheduleAttempt(data) {
     rescueAssignments,
     rescueRelocations,
     rescueSearchNodes,
+    searchBudgetUsed: rescueSearchNodes,
     rescueEvaluatedPlans,
     rescueSearchLimitReached,
+    optimalityGap: rescueSearchLimitReached ? feasibilityGapSessions : 0,
+    unassignedReasonCounts,
+    qualityVersion: 'schedule-quality-v1',
     // Backward-compatible aliases for clients deployed before optimizer v10.
     repairAssignments: rescueAssignments,
     repairRelocations: rescueRelocations,

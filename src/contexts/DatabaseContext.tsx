@@ -2,6 +2,9 @@ import React, { createContext, useContext, useState, useEffect, ReactNode } from
 import { collection, doc, setDoc, deleteDoc, runTransaction, updateDoc, onSnapshot, query, where, orderBy, limit } from 'firebase/firestore'
 import { db } from '../lib/firebaseFirestore'
 import { useAuth } from './AuthContext'
+import { createScheduleConfigCommandKey, saveScheduleConfig } from '../services/scheduleConfigManagementService'
+import { createStudentCommandKey, updateStudentProfile } from '../services/studentManagementService'
+import { archiveBranch, createBranchCommandKey, upsertBranch } from '../services/branchManagementService'
 import type {
   Student,
   StudentContract,
@@ -114,7 +117,6 @@ const LEGACY_OPERATIONS_VIEW_SOURCES = {
   // unnecessarily slow on mobile.
   'admin-payroll': ['trainers', 'branches'],
   'admin-packages': ['packages', 'branches'],
-  'admin-quotes': ['students', 'contracts', 'packages', 'branches'],
   'admin-schedule-settings': ['scheduleConfig', 'branches'],
   // Identity v2 assignment editor only needs branch labels; it must not
   // revive the former whole-operations listener set on the roles route.
@@ -490,7 +492,9 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
       }, (err) => listenerError('branches', err)))
 
       if (activeSources.has('packages')) unsubs.push(onSnapshot(collection(db, 'packages'), (snapshot) => {
-        setPackages(snapshot.docs.map(document => withDocumentId<TrainingPackage>(document)))
+        setPackages(snapshot.docs
+          .map(document => withDocumentId<TrainingPackage>(document))
+          .filter((item) => item.status !== 'archived'))
         markReady('packages')
       }, (err) => listenerError('packages', err)))
 
@@ -561,19 +565,30 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
   }
 
   const addStudent = async (student: Student) => {
-    assertLegacyWriteAccess()
-    if (!db) return
-    await setDoc(doc(db, 'students', student.id), sanitize(student), { merge: true })
+    if (import.meta.env.MODE === 'e2e' || backendMode === 'demo') {
+      setStudents((current) => [...current.filter((item) => item.id !== student.id), student])
+      return
+    }
+    throw new Error('Học viên mới chỉ được tạo qua dịch vụ cấp tài khoản Aura có liên kết định danh và audit.')
   }
   const updateStudent = async (id: string, updates: Partial<Student>) => {
     assertLegacyWriteAccess()
-    if (!db) return
-    await updateDoc(doc(db, 'students', id), sanitize(updates))
+    const current = students.find((item) => item.id === id)
+    if (!current) throw new Error('Không tìm thấy hồ sơ học viên trong danh sách hiện tại.')
+    const normalizedUpdates = sanitize(updates)
+    if (import.meta.env.MODE === 'e2e' || backendMode === 'demo') {
+      setStudents((items) => items.map((item) => item.id === id ? { ...item, ...normalizedUpdates, revision: Number(item.revision || 0) + 1 } : item))
+      return
+    }
+    await updateStudentProfile({
+      studentId: id,
+      expectedRevision: Number(current.revision || 0),
+      idempotencyKey: createStudentCommandKey(),
+      updates: normalizedUpdates,
+    })
   }
   const deleteStudent = async (id: string) => {
-    assertLegacyWriteAccess()
-    if (!db) return
-    await updateDoc(doc(db, 'students', id), { status: 'inactive' })
+    await updateStudent(id, { status: 'inactive' })
   }
 
   const addContract = async (contract: StudentContract) => {
@@ -620,64 +635,66 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
   }
 
   const addTrainer = async (trainer: Trainer) => {
-    assertLegacyWriteAccess()
-    if (!db) return
-    await setDoc(doc(db, 'trainers', trainer.id), sanitize(trainer))
+    void trainer
+    throw new Error('Hồ sơ PT chỉ được quản lý qua Vai trò & quyền và dịch vụ hồ sơ nhân viên có audit.')
   }
   const updateTrainer = async (trainer: Trainer) => {
-    assertLegacyWriteAccess()
-    if (!db) return
-    await setDoc(doc(db, 'trainers', trainer.id), sanitize(trainer), { merge: true })
+    void trainer
+    throw new Error('Hồ sơ PT chỉ được quản lý qua Vai trò & quyền và dịch vụ hồ sơ nhân viên có audit.')
   }
   const deleteTrainer = async (id: string) => {
-    assertLegacyWriteAccess()
-    if (!db) return
-    await setDoc(doc(db, 'trainers', id), { status: 'inactive' }, { merge: true })
+    void id
+    throw new Error('Hồ sơ PT không thể xóa hoặc sửa trực tiếp. Hãy khóa tài khoản qua Vai trò & quyền.')
   }
 
   const addBranch = async (branch: Branch) => {
     assertLegacyWriteAccess()
-    if (!db) return
-    await setDoc(doc(db, 'branches', branch.id), sanitize(branch))
+    if (import.meta.env.MODE === 'e2e' || backendMode === 'demo') {
+      setBranches((current) => [...current.filter((item) => item.id !== branch.id), branch])
+      return
+    }
+    await upsertBranch({ name: branch.name, address: branch.address, expectedRevision: 0, idempotencyKey: createBranchCommandKey() })
   }
   const updateBranch = async (branch: Branch) => {
     assertLegacyWriteAccess()
-    if (!db) return
-    await setDoc(doc(db, 'branches', branch.id), sanitize(branch), { merge: true })
+    if (import.meta.env.MODE === 'e2e' || backendMode === 'demo') {
+      setBranches((current) => current.map((item) => item.id === branch.id ? { ...item, ...branch, revision: Number(item.revision || 0) + 1 } : item))
+      return
+    }
+    await upsertBranch({ branchId: branch.id, name: branch.name, address: branch.address, expectedRevision: Number(branch.revision || 0), idempotencyKey: createBranchCommandKey() })
   }
   const deleteBranch = async (id: string) => {
     assertLegacyWriteAccess()
-    if (!db) return
-    await setDoc(doc(db, 'branches', id), { status: 'archived', archivedAt: new Date().toISOString() }, { merge: true })
+    const current = branches.find((item) => item.id === id)
+    if (!current) throw new Error('Không tìm thấy chi nhánh trong danh sách hiện tại.')
+    if (import.meta.env.MODE === 'e2e' || backendMode === 'demo') {
+      setBranches((items) => items.map((item) => item.id === id ? { ...item, status: 'archived', revision: Number(item.revision || 0) + 1 } : item))
+      return
+    }
+    await archiveBranch({ branchId: id, expectedRevision: Number(current.revision || 0), idempotencyKey: createBranchCommandKey() })
   }
 
-  const addPackage = async (pkg: TrainingPackage) => {
-    if (!db) return
-    await setDoc(doc(db, 'packages', pkg.id), sanitize(pkg))
+  const addPackage = async (_pkg: TrainingPackage) => {
+    throw new Error('Gói tập chỉ được tạo qua dịch vụ máy chủ có revision và audit.')
   }
-  const updatePackage = async (pkg: TrainingPackage) => {
-    if (!db) return
-    await setDoc(doc(db, 'packages', pkg.id), sanitize(pkg), { merge: true })
+  const updatePackage = async (_pkg: TrainingPackage) => {
+    throw new Error('Gói tập chỉ được cập nhật qua dịch vụ máy chủ có revision và audit.')
   }
-  const deletePackage = async (id: string) => {
-    if (!db) return
-    await deleteDoc(doc(db, 'packages', id))
+  const deletePackage = async (_id: string) => {
+    throw new Error('Gói tập không thể xóa cứng. Hãy dùng lệnh ngừng áp dụng có audit.')
   }
 
   const addStaff = async (staffMember: StaffMember) => {
-    assertLegacyWriteAccess()
-    if (!db) return
-    await setDoc(doc(db, 'staff', staffMember.id), sanitize(staffMember))
+    void staffMember
+    throw new Error('Nhân viên chỉ được tạo qua dịch vụ cấp tài khoản có audit.')
   }
   const updateStaff = async (staffMember: StaffMember) => {
-    assertLegacyWriteAccess()
-    if (!db) return
-    await setDoc(doc(db, 'staff', staffMember.id), sanitize(staffMember), { merge: true })
+    void staffMember
+    throw new Error('Nhân viên chỉ được cập nhật qua hồ sơ vận hành có audit.')
   }
   const deleteStaff = async (id: string) => {
-    assertLegacyWriteAccess()
-    if (!db) return
-    await setDoc(doc(db, 'staff', id), { status: 'inactive' }, { merge: true })
+    void id
+    throw new Error('Nhân viên không thể xóa trực tiếp. Hãy khóa tài khoản qua Vai trò & quyền.')
   }
 
   const addDailyCheckin = async (checkin: DailyCheckin) => {
@@ -805,8 +822,16 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
   }
 
   const updateScheduleConfig = async (config: ScheduleConfig) => {
-    if (!db) return
-    await setDoc(doc(db, 'settings', 'scheduleConfig'), sanitize(config), { merge: true })
+    if (backendMode === 'demo') {
+      setScheduleConfig((current) => ({ ...current, ...config, revision: (current.revision ?? 0) + 1 }))
+      return
+    }
+    const result = await saveScheduleConfig({
+      config,
+      expectedRevision: scheduleConfig.revision ?? 0,
+      idempotencyKey: createScheduleConfigCommandKey(),
+    })
+    setScheduleConfig(result.config)
   }
 
   const updateUserProfile = async (uid: string, data: any) => {

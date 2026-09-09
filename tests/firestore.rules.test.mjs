@@ -195,6 +195,9 @@ async function seedPtSecurityFixtures() {
         workingDays: ['T2', 'T3', 'T4', 'T5', 'T6', 'T7'],
         workingHours: [6, 7, 8],
       }),
+      setDoc(doc(db, 'packages', 'legacy-package-1'), {
+        id: 'legacy-package-1', name: 'Gói legacy', totalSessions: 12, durationMonths: 2, price: 5000000,
+      }),
       setDoc(doc(db, 'ptScheduleDrafts', 'branch-a_2026-08-24'), {
         branchId: 'branch-a', weekId: '2026-08-24', revision: 2, schedule: {},
       }),
@@ -580,10 +583,13 @@ describe('Aura PT Firestore rules', () => {
       await assertFails(getDoc(doc(mismatchedAdminDb, ...documentPath)))
     }
 
-    await assertSucceeds(updateDoc(doc(adminDb, 'staff', 'legacy-staff-1'), {
+    await assertFails(updateDoc(doc(adminDb, 'staff', 'legacy-staff-1'), {
       status: 'active',
     }))
     await assertFails(updateDoc(doc(studentDb, 'staff', 'legacy-staff-1'), {
+      status: 'inactive',
+    }))
+    await assertFails(updateDoc(doc(adminDb, 'students', 'legacy-student-1'), {
       status: 'inactive',
     }))
   })
@@ -625,6 +631,20 @@ describe('Aura PT Firestore rules', () => {
     }
   })
 
+  test('training packages remain Admin-readable but all browser mutations are callable-only', async () => {
+    const studentDb = authenticatedDb('client-1', 'student')
+    const adminDb = authenticatedDb('admin-1', 'admin')
+    await assertFails(getDoc(doc(studentDb, 'packages', 'legacy-package-1')))
+    await assertSucceeds(getDoc(doc(adminDb, 'packages', 'legacy-package-1')))
+    await assertFails(setDoc(doc(adminDb, 'packages', 'forged-package'), {
+      name: 'Gói giả', totalSessions: 99, durationMonths: 12, price: 1,
+    }))
+    await assertFails(updateDoc(doc(adminDb, 'packages', 'legacy-package-1'), { price: 1 }))
+    await assertFails(deleteDoc(doc(adminDb, 'packages', 'legacy-package-1')))
+    await assertFails(getDoc(doc(adminDb, 'packageCommandReceipts', 'receipt-1')))
+    await assertFails(setDoc(doc(adminDb, 'packageCommandReceipts', 'receipt-1'), { forged: true }))
+  })
+
   test('Performance score assessments, snapshots and audit logs are callable-only', async () => {
     for (const db of [
       authenticatedDb('client-1', 'student'),
@@ -638,6 +658,23 @@ describe('Aura PT Firestore rules', () => {
       ]) {
         await assertFails(getDoc(doc(db, collectionName, documentId)))
         await assertFails(setDoc(doc(db, collectionName, documentId), { forged: true }))
+      }
+    }
+  })
+
+  test('identity, contract usage and Action Center projections are server-owned', async () => {
+    for (const db of [
+      authenticatedDb('client-1', 'student'),
+      authenticatedDb('coach-1', 'coach'),
+      authenticatedDb('admin-1', 'admin'),
+    ]) {
+      for (const [collectionName, documentId] of [
+        ['accountIdentityLinks', 'account-1'],
+        ['contractUsageViews', 'contract-1'],
+        ['operationalActions', 'contract:contract-1:renewal_due'],
+      ]) {
+        await assertFails(getDoc(doc(db, collectionName, documentId)))
+        await assertFails(setDoc(doc(db, collectionName, `${documentId}-forged`), { forged: true }))
       }
     }
   })

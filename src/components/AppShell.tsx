@@ -302,9 +302,7 @@ const adminMobileNav: ShellAdminNavItem[] = [
   { id: 'admin-dashboard', label: 'Tổng quan', icon: LayoutDashboard, permission: 'dashboard.view' },
   { id: 'admin-pt-students', label: 'Học viên PT', icon: Users, permission: 'student.view_assigned' },
   { id: 'admin-pt-schedule', label: 'Lịch & YC', icon: CalendarDays, permission: 'dashboard.view' },
-  { id: 'admin-renewals', label: 'Tái ký', icon: RefreshCw, permission: 'dashboard.view' },
   { id: 'admin-finance', label: 'Tài chính', icon: BarChart3, permission: 'analytics.view_all' },
-  { id: 'admin-courses', label: 'Academy', icon: GraduationCap, permission: 'course.view' },
 ]
 
 const adminV4MobileNav: ShellAdminNavItem[] = [
@@ -395,7 +393,7 @@ export default function AppShell({ children, mode, view, onNavigate, onModeChang
     : adminNavSections
       .map((section) => ({
         ...section,
-        items: section.items.filter((item) => hasPermission(role, item.permission)),
+        items: section.items.filter((item) => hasPermission(role, item.permission) && canNavigate(item.id)),
       }))
       .filter((section) => section.items.length > 0)
   const effectiveStaffPositions = useMemo(() => staffWorkspaceOptions(staffPositions, role), [role, staffPositions])

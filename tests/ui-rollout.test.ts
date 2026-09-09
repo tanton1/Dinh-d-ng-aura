@@ -23,6 +23,15 @@ test('invalid or missing rollout configuration fails closed', () => {
   assert.equal(Object.keys(normalized.surfaces).length, AURA_UI_SURFACES.length)
 })
 
+test('stored config from before a new surface keeps existing rollout and defaults the new surface off', () => {
+  const legacySurfaces = Object.fromEntries(AURA_UI_SURFACES
+    .filter((surface) => surface !== 'action-center')
+    .map((surface) => [surface, surface === 'shell' ? 'staff' : 'off']))
+  const normalized = normalizeAuraUiRolloutConfig({ schemaVersion: 1, surfaces: legacySurfaces })
+  assert.equal(normalized.surfaces.shell, 'staff')
+  assert.equal(normalized.surfaces['action-center'], 'off')
+})
+
 test('audiences enable only their intended roles', () => {
   const config = rollout({ shell: 'staff', 'admin-dashboard': 'admin', 'member-home': 'all' })
   assert.equal(isAuraUiSurfaceEnabled('shell', 'trainer', config, null), true)
