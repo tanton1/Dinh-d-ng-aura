@@ -420,7 +420,7 @@ export default function PtWorkoutWorkspacePage({ isDemo = false, canPublishCatal
         {(tab === 'program' || tab === 'history') && <div className="pt-workout-workspace__student-picker">
           <label htmlFor="pt-workout-student-search">Tìm học viên</label>
           <div className="pt-workout-workspace__student-search">
-            <Search aria-hidden="true" />
+            <span className="pt-workout-workspace__student-search-icon" aria-hidden="true"><Search /></span>
             <input
               id="pt-workout-student-search"
               value={studentSearchQuery}
