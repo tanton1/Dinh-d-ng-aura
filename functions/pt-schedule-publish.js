@@ -8,6 +8,7 @@ const {
   effectiveStudentAvailability,
   loadLatestSubmittedFallbacks,
 } = require('./student-availability')
+const { contractEffectiveOnDate } = require('./contract-status')
 
 // Keep enough headroom for schedule/version/audit writes in the same atomic
 // publish transaction. A paired session still occupies one trainer time slot,
@@ -485,9 +486,7 @@ function desiredEntries({ scheduleId, week, branchId, schedule, trainers, studen
       if (effectiveAvailability.source === 'legacy_default') addWarning('LEGACY_AVAILABILITY_FALLBACK')
 
       const dateCandidates = contracts.filter((contract) => contract.studentId === studentId
-        && ['active', 'future'].includes(String(contract.status || 'active').toLowerCase())
-        && storedDate(contract.startDate) <= date
-        && storedDate(contract.endDate) >= date)
+        && contractEffectiveOnDate(contract, date))
       if (dateCandidates.some((contract) => !contract.branchId)) addError('CONTRACT_BRANCH_REQUIRED')
       const confirmedCrossBranch = raw.source === 'manual_v2'
         && raw.studentBranchWarning === true

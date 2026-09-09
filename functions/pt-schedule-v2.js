@@ -23,6 +23,7 @@ const {
   studentAvailabilityProfilePatch,
 } = require('./student-availability')
 const { summarizeContractUsage } = require('./contract-usage')
+const { contractEffectiveOnDate } = require('./contract-status')
 
 const MAX_STUDENTS = 500
 const MAX_TRAINERS = 100
@@ -675,9 +676,7 @@ function todayInHoChiMinh() {
 }
 
 function contractCanServeScheduledDate(contract, date) {
-  const status = String(contract?.status || 'active').toLowerCase()
-  if (!['active', 'future'].includes(status)) return false
-  return storedDate(contract.startDate) <= date && storedDate(contract.endDate) >= date
+  return contractEffectiveOnDate(contract, date)
 }
 
 function studentWeekEligibility(contracts, studentId, branchId, week, referenceDate = todayInHoChiMinh(), allowCrossBranch = false) {
@@ -687,7 +686,7 @@ function studentWeekEligibility(contracts, studentId, branchId, week, referenceD
   const weekEnd = weekDates[weekDates.length - 1]
   const allStudentContracts = contracts.filter((contract) => contract.studentId === studentId)
   const operationalContracts = contracts.filter((contract) => contract.studentId === studentId
-    && ['active', 'future'].includes(String(contract.status || 'active').toLowerCase()))
+    && weekDates.some((date) => contractEffectiveOnDate(contract, date)))
   if (!operationalContracts.length) {
     const datedContracts = allStudentContracts.map((contract) => ({
       status: String(contract.status || '').toLowerCase(),
@@ -1897,7 +1896,7 @@ function blockersForStudent(data, student, schedule, schedulingState, contractCa
   const weekEnd = weekDates[weekDates.length - 1]
   const contracts = data.contracts.filter((contract) => contract.studentId === student.id)
   const branchContracts = contracts.filter((contract) => !contract.branchId || contract.branchId === data.branch.id)
-  const operationalContracts = branchContracts.filter((contract) => ['active', 'future'].includes(String(contract.status || 'active').toLowerCase()))
+  const operationalContracts = branchContracts.filter((contract) => weekDates.some((date) => contractEffectiveOnDate(contract, date)))
   const validDates = new Set(Array.isArray(student.validScheduleDates) && student.validScheduleDates.length
     ? student.validScheduleDates
     : weekDates.filter((date) => operationalContracts.some((contract) => contractCanServeScheduledDate(contract, date) && !contractPaused(contract, date))))

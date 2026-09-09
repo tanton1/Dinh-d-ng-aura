@@ -1,6 +1,7 @@
 import React from 'react';
 import { Student, Schedule, Warning, Branch, StudentContract, Trainer, ScheduleEntry } from '../../types';
 import { AlertTriangle, MessageSquare, Trash2, Edit2, CheckCircle2, Circle, MapPin, Lock, Unlock, AlertCircle } from 'lucide-react';
+import { effectiveContractStatus } from '../../domain/contracts/contractStatus';
 
 interface Props {
   students: Student[];
@@ -23,6 +24,8 @@ export default function StudentList({ students, schedule, warnings, branches, co
   const [expandedStudentId, setExpandedStudentId] = React.useState<string | null>(null);
   const [filterTab, setFilterTab] = React.useState<'all' | 'no_slots' | 'not_enough_days' | 'low_slots' | 'no_contract'>('all');
   const [filterBranch, setFilterBranch] = React.useState<string>('all');
+  const todayContractDate = React.useMemo(() => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }).format(new Date()), []);
+  const isCurrentContract = React.useCallback((contract: StudentContract) => effectiveContractStatus(contract, todayContractDate) === 'active', [todayContractDate]);
 
   const toggleExpand = (id: string) => {
     setExpandedStudentId(prev => (prev === id ? null : id));
@@ -203,9 +206,9 @@ export default function StudentList({ students, schedule, warnings, branches, co
                               <div className="space-y-3">
                                 <div>
                                   <span className="text-[10px] text-zinc-500 uppercase font-bold block mb-1">PT Phụ trách</span>
-                                  {contracts.filter(c => c.studentId === student.id && c.status === 'active').length > 0 ? (
+                                  {contracts.filter(c => c.studentId === student.id && isCurrentContract(c)).length > 0 ? (
                                     <div className="flex flex-wrap gap-1">
-                                      {contracts.filter(c => c.studentId === student.id && c.status === 'active').flatMap(c => {
+                                      {contracts.filter(c => c.studentId === student.id && isCurrentContract(c)).flatMap(c => {
                                         const ptIds = new Set<string>();
                                         if (c.trainerId) ptIds.add(c.trainerId);
                                         if (c.trainerIds) c.trainerIds.forEach((id: string) => ptIds.add(id));
@@ -342,7 +345,7 @@ export default function StudentList({ students, schedule, warnings, branches, co
               // Check for warnings
               const now = new Date();
               const activeContract = contracts.find(c => {
-                if (c.studentId !== student.id || c.status !== 'active') return false;
+                if (c.studentId !== student.id || !isCurrentContract(c)) return false;
                 const endDate = new Date(c.endDate);
                 const timeDiff = endDate.getTime() - now.getTime();
                 const daysLeft = Math.ceil(timeDiff / (1000 * 3600 * 24));
@@ -483,9 +486,9 @@ export default function StudentList({ students, schedule, warnings, branches, co
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
                           <span className="text-xs text-zinc-500 uppercase font-bold block mb-1">PT Phụ trách</span>
-                          {contracts.filter(c => c.studentId === student.id && c.status === 'active').length > 0 ? (
+                          {contracts.filter(c => c.studentId === student.id && isCurrentContract(c)).length > 0 ? (
                             <div className="flex flex-wrap gap-2">
-                              {contracts.filter(c => c.studentId === student.id && c.status === 'active').flatMap(c => {
+                              {contracts.filter(c => c.studentId === student.id && isCurrentContract(c)).flatMap(c => {
                                 const ptIds = new Set<string>();
                                 if (c.trainerId) ptIds.add(c.trainerId);
                                 if (c.trainerIds) c.trainerIds.forEach((id: string) => ptIds.add(id));

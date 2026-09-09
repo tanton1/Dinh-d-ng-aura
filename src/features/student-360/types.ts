@@ -56,7 +56,7 @@ export interface Student360Overview {
     email: string
     dob: string | null
     avatarUrl: string | null
-    status: 'active' | 'frozen' | 'expired' | 'inactive'
+    status: 'active' | 'future' | 'frozen' | 'expired' | 'inactive' | 'invalid'
     joinDate: string | null
     goals: string[]
     sessionsPerWeek: number
@@ -75,6 +75,7 @@ export interface Student360Overview {
     id: string
     packageName: string
     status: string
+    storedStatus?: string
     startDate: string | null
     endDate: string | null
     daysRemaining: number | null
@@ -257,7 +258,8 @@ export interface Student360ContractRecord {
   frozenAt: string | null
   totalSessions: number
   usedSessions: number
-  status: 'active' | 'future' | 'expired' | 'cancelled' | 'frozen'
+  status: 'active' | 'future' | 'expired' | 'cancelled' | 'frozen' | 'invalid'
+  storedStatus?: 'active' | 'future' | 'expired' | 'cancelled' | 'frozen'
   nextPaymentDate: string | null
   installments: Student360ContractInstallment[]
   extensions: Array<{ id: string; oldEndDate: string; newEndDate: string; reason: string; createdAt: string | null }>

@@ -74,6 +74,16 @@ test('validates a legacy branch-less entry and binds it to the exact contract', 
   assert.equal(session.hour, 6)
 })
 
+test('publish derives active state from the session date when stored status is stale', () => {
+  const fixture = baseFixture()
+  fixture.contracts[0].status = 'future'
+  assert.deepEqual(desiredEntries(fixture).errors, [])
+
+  fixture.contracts[0].status = 'active'
+  fixture.contracts[0].endDate = '2026-08-23'
+  assert.ok(desiredEntries(fixture).errors.includes('ACTIVE_CONTRACT_NOT_FOUND'))
+})
+
 test('publish accepts a ninth teaching slot because the daily PT target is not a hard cap', () => {
   const fixture = baseFixture()
   const slots = Array.from({ length: 9 }, (_, index) => `T2-${index + 6}`)

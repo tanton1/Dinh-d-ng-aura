@@ -2,6 +2,7 @@ const { createHash } = require('node:crypto')
 const { FieldValue } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
 const { trustedAccessContext, requireCapability } = require('./identity-access')
+const { contractEffectiveOnDate } = require('./contract-status')
 
 const ACTIVE_SESSION_STATUSES = new Set(['scheduled', 'rescheduled', 'completed', 'attended', 'no_show'])
 const ACTIVE_ASSIGNMENT_CONTRACT_STATUSES = new Set(['active'])
@@ -55,7 +56,7 @@ function pauseCoversDate(contract, referenceDate) {
 
 function isEffectiveWorkoutContract(contract, referenceDate = currentDateKey()) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(referenceDate)) return false
-  if (!ACTIVE_ASSIGNMENT_CONTRACT_STATUSES.has(text(contract?.status || 'active', 40).toLowerCase())) return false
+  if (!contractEffectiveOnDate(contract, referenceDate)) return false
   const startDate = storedDateKey(contract?.startDate)
   const endDate = storedDateKey(contract?.endDate)
   const totalSessions = Math.max(0, Number(contract?.totalSessions || 0))

@@ -1,5 +1,6 @@
 const { FieldPath, FieldValue, Timestamp } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
+const { effectiveContractStatus } = require('./contract-status')
 const { createHash } = require('node:crypto')
 const { trustedAccessContext, requireCapability } = require('./identity-access')
 const { ptRevenueRecognitionWrite } = require('./finance-recognition')
@@ -625,7 +626,7 @@ async function buildAdditionalSessionSuggestions({ db, studentId, now }) {
   const student = studentSnapshot.data()
   const today = vietnamDateKey(now)
   const activeContracts = contractsSnapshot.docs.map((item) => ({ id: item.id, ...item.data() }))
-    .filter((contract) => contract.status === 'active')
+    .filter((contract) => ['active', 'future'].includes(effectiveContractStatus(contract, today)))
     .filter((contract) => {
       try {
         const start = storedContractDate(contract.startDate, 'Ngày bắt đầu')

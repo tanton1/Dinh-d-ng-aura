@@ -3,6 +3,7 @@ const { FieldPath, FieldValue } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
 const { trustedAccessContext } = require('./identity-access')
 const { PT_OPERATIONS_POLICY_EFFECTIVE_FROM, PT_OPERATIONS_POLICY_VERSION } = require('./pt-policy')
+const { effectiveContractStatus } = require('./contract-status')
 
 const TIME_ZONE = 'Asia/Ho_Chi_Minh'
 // Bump the projection schema when account-link resolution changes. Existing
@@ -157,9 +158,10 @@ function contractUsage(contract = {}, sessions = []) {
 
 function activeContract(contracts, today) {
   const ranked = [...contracts].sort((left, right) => bounded(right.startDate, 10).localeCompare(bounded(left.startDate, 10)))
-  return ranked.find((item) => item.status === 'active' && item.startDate <= today && item.endDate >= today)
-    || ranked.find((item) => item.status === 'frozen')
-    || ranked.find((item) => item.status === 'future')
+  return ranked.find((item) => effectiveContractStatus(item, today) === 'active')
+    || ranked.find((item) => effectiveContractStatus(item, today) === 'frozen')
+    || ranked.filter((item) => effectiveContractStatus(item, today) === 'future')
+      .sort((left, right) => bounded(left.startDate, 10).localeCompare(bounded(right.startDate, 10)))[0]
     || ranked[0]
     || null
 }
@@ -681,7 +683,8 @@ function contractWorkspaceRecord(snapshot, canViewFinancialAmounts, canManageCon
     frozenAt: iso(value.frozenAt) || bounded(value.frozenAt, 40) || null,
     totalSessions: Math.max(0, Math.floor(finite(value.totalSessions))),
     usedSessions: Math.max(0, Math.floor(finite(value.usedSessions))),
-    status: bounded(value.status, 30) || 'active',
+    status: effectiveContractStatus(value, vietnamDateKey()),
+    storedStatus: bounded(value.status, 30) || 'active',
     nextPaymentDate: bounded(value.nextPaymentDate, 30).slice(0, 10) || null,
     installments: canViewFinancialAmounts && Array.isArray(value.installments) ? value.installments.slice(0, 24).map((item) => ({
       id: bounded(item?.id, 100),
@@ -1088,6 +1091,7 @@ async function buildStudent360Projection({ db, studentId, weekId = mondayDateKey
   const today = vietnamDateKey()
   const sources = await projectionSources(db, studentId, weekId)
   const contract = activeContract(sources.contracts, today)
+  const contractEffectiveStatus = contract ? effectiveContractStatus(contract, today) : null
   const usage = contractUsage(contract || {}, sources.sessions)
   const payment = paymentProjection(contract, today)
   const assignments = await assignmentNames(db, sources, contract)
@@ -1143,11 +1147,16 @@ async function buildStudent360Projection({ db, studentId, weekId = mondayDateKey
     .sort((left, right) => sessionDate(right).localeCompare(sessionDate(left)))
     .findIndex((item) => item.normalizedAttendance !== 'no_show')
   const noShowStreak = consecutiveNoShows === -1 ? attendanceRows.length : consecutiveNoShows
-  const futureInvalidSessions = sources.sessions.filter((item) => sessionDate(item) >= today && ACTIVE_SESSION_STATUSES.has(bounded(item.status, 40).toLowerCase()) && (!contract || !['active', 'future'].includes(contract.status))).length
+  const futureInvalidSessions = sources.sessions.filter((item) => {
+    const date = sessionDate(item)
+    return date >= today
+      && ACTIVE_SESSION_STATUSES.has(bounded(item.status, 40).toLowerCase())
+      && (!contract || effectiveContractStatus(contract, date) !== 'active')
+  }).length
   const alerts = []
   if (futureInvalidSessions) alerts.push(alert('invalid-future-sessions', 'red', 'Lịch tương lai không còn hợp đồng hợp lệ', `${futureInvalidSessions} buổi cần được quản lý đối chiếu.`, 'schedule'))
   if (payment?.status === 'overdue') alerts.push(alert('payment-overdue', 'red', 'Thanh toán quá hạn', 'Khoản thanh toán của hợp đồng cần được xử lý.', 'finance', 'finance'))
-  if (contract?.status === 'active' && ((attendanceAgeDays !== null && attendanceAgeDays >= 14) || (attendanceAgeDays === null && contractAgeDays !== null && contractAgeDays >= 14))) alerts.push(alert('inactive-14-days', 'red', '14 ngày chưa tập', 'Hãy liên hệ hỏi thăm và sắp lại lịch phù hợp.', 'contact'))
+  if (contractEffectiveStatus === 'active' && ((attendanceAgeDays !== null && attendanceAgeDays >= 14) || (attendanceAgeDays === null && contractAgeDays !== null && contractAgeDays >= 14))) alerts.push(alert('inactive-14-days', 'red', '14 ngày chưa tập', 'Hãy liên hệ hỏi thăm và sắp lại lịch phù hợp.', 'contact'))
   if (noShowStreak >= 3) alerts.push(alert('three-no-shows', 'red', 'Ba lần không đến liên tiếp', 'Cần liên hệ trực tiếp trước khi xếp thêm lịch.', 'contact'))
   if (usage.reconciliationStatus !== 'matched') alerts.push(alert('contract-reconciliation', usage.reconciliationStatus === 'over_entitlement' ? 'red' : 'amber', 'Số buổi cần đối soát', 'Lịch sử tính buổi và projection hợp đồng chưa khớp hoàn toàn.', 'contract'))
   if (attendanceRate !== null && attendanceRate < 75) alerts.push(alert('low-attendance', 'amber', 'Tỷ lệ đi tập đang thấp', `${attendanceRate}% trong 28 ngày gần nhất.`, 'training'))
@@ -1203,7 +1212,7 @@ async function buildStudent360Projection({ db, studentId, weekId = mondayDateKey
       email: sources.student.email || sources.profile?.email || '',
       dob: sources.student.dob || null,
       avatarUrl: sources.profile?.photoURL || null,
-      status: contract?.status === 'frozen' ? 'frozen' : sources.student.status === 'inactive' ? 'inactive' : contract?.status === 'expired' ? 'expired' : 'active',
+      status: contractEffectiveStatus === 'frozen' ? 'frozen' : sources.student.status === 'inactive' ? 'inactive' : contractEffectiveStatus === 'expired' ? 'expired' : contractEffectiveStatus === 'future' ? 'future' : contractEffectiveStatus === 'invalid' ? 'invalid' : 'active',
       joinDate: sources.student.joinDate || null,
       goals: normalizedArray(sources.profile?.goals),
       sessionsPerWeek: requiredPerWeek,
@@ -1212,7 +1221,8 @@ async function buildStudent360Projection({ db, studentId, weekId = mondayDateKey
     contract: contract ? {
       id: contract.id,
       packageName: contract.packageName || 'Gói tập Aura',
-      status: contract.status || 'active',
+      status: contractEffectiveStatus || 'invalid',
+      storedStatus: contract.status || 'active',
       startDate: contract.startDate || null,
       endDate: contract.endDate || null,
       daysRemaining,
@@ -1844,6 +1854,12 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
         }
       }
 
+      if (['create', 'edit', 'add_sessions', 'extend', 'reopen'].includes(action)
+        && !['cancelled', 'frozen'].includes(bounded(next.status, 30))) {
+        const status = effectiveContractStatus(next, vietnamDateKey(new Date(now)))
+        if (['active', 'future', 'expired'].includes(status)) next.status = status
+      }
+
       const changedFields = current
         ? [...new Set([...Object.keys(current), ...Object.keys(next)])].filter((key) => JSON.stringify(current[key]) !== JSON.stringify(next[key])).slice(0, 80)
         : Object.keys(next).slice(0, 80)
@@ -2196,6 +2212,7 @@ module.exports = {
   HEALTH_FORMULA_VERSION,
   OVERVIEW_SCHEMA_VERSION,
   addCalendarMonths,
+  activeContract,
   buildHealthScore,
   buildStudent360Projection,
   contractUsage,

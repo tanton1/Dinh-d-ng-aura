@@ -3,6 +3,7 @@ const { FieldPath, FieldValue, Timestamp } = require('firebase-admin/firestore')
 const { getStorage } = require('firebase-admin/storage')
 const { HttpsError } = require('firebase-functions/v2/https')
 const { trustedAccessContext } = require('./identity-access')
+const { effectiveContractStatus } = require('./contract-status')
 
 const ALL_REVIEW_CAPABILITY = 'nutrition.meals.all.review'
 const DEFAULT_REVIEW_SLA_MINUTES = 120
@@ -11,6 +12,14 @@ const MAX_ASSIGNED_CLIENTS = 400
 const REVIEW_PAGE_SCAN_LIMIT = 300
 const REVIEW_IMAGE_URL_TTL_MS = 15 * 60 * 1000
 const REVIEW_STATUSES = new Set(['pending', 'approved', 'rejected'])
+
+function currentContractDateKey(reference = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(reference)
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]))
+  return `${values.year}-${values.month}-${values.day}`
+}
 const USER_MEAL_FIELDS = new Set([
   'id', 'catalogId', 'plannedMealId', 'servingMultiplier', 'targetSnapshot',
   'date', 'type', 'label', 'time', 'title', 'dishName', 'description',
@@ -297,12 +306,13 @@ function canReviewAssigned(context) {
 }
 
 async function assignedClientIds(db, context) {
+  const today = currentContractDateKey()
   const coachIds = [...new Set([context.uid, context.legacyStaffId].filter(Boolean))]
   const contractSnapshots = await Promise.all(coachIds.map((coachId) => (
       db.collection('contracts').where('nutritionPTIds', 'array-contains', coachId).limit(200).get()
   )))
   const contractClients = contractSnapshots.flatMap((snapshot) => snapshot.docs
-    .filter((item) => ['active', 'future', 'frozen'].includes(item.data()?.status || 'active'))
+    .filter((item) => effectiveContractStatus(item.data(), today) === 'active')
     .map((item) => item.data()?.studentId)
     .filter((value) => typeof value === 'string'))
   const crmIds = [...new Set(contractClients)].slice(0, 200)
@@ -346,13 +356,14 @@ async function hydrateReviews(db, documents, context, options = {}) {
   clientIds.forEach((id) => { if (!crmIdByClientId.has(id)) crmIdByClientId.set(id, id) })
   const crmIds = [...new Set(crmIdByClientId.values())]
   const contracts = []
+  const today = currentContractDateKey()
   for (let index = 0; index < crmIds.length; index += 30) {
     const chunk = crmIds.slice(index, index + 30)
     if (!chunk.length) continue
     const snapshot = await db.collection('contracts').where('studentId', 'in', chunk).get()
     snapshot.docs.forEach((item) => {
       const value = item.data() || {}
-      if (['active', 'future', 'frozen'].includes(value.status || 'active')) contracts.push({ id: item.id, ...value })
+      if (effectiveContractStatus(value, today) === 'active') contracts.push({ id: item.id, ...value })
     })
   }
   const contractByStudentId = new Map()
@@ -860,9 +871,10 @@ function createNutritionReviewFunctions({ db, onCall }) {
           ...linkedStudents.docs.map((item) => item.id),
         ])]
         const contractSnapshot = await transaction.get(db.collection('contracts').where('studentId', 'in', studentIds).limit(20))
+        const today = currentContractDateKey()
         const ownsNutritionCare = contractSnapshot.docs.some((item) => {
           const nutritionCoachIds = Array.isArray(item.data()?.nutritionPTIds) ? item.data().nutritionPTIds : []
-          return ['active', 'future', 'frozen'].includes(item.data()?.status || 'active')
+          return effectiveContractStatus(item.data(), today) === 'active'
             && [context.uid, context.legacyStaffId].some((actorId) => nutritionCoachIds.includes(actorId))
         })
         if (!ownsNutritionCare) {

@@ -2,6 +2,7 @@ const assert = require('node:assert/strict')
 const test = require('node:test')
 const {
   addCalendarMonths,
+  activeContract,
   buildHealthScore,
   contractInstallments,
   contractAssigneeIssues,
@@ -21,6 +22,23 @@ const {
   uniqueProgressPhotos,
   timelineCursor,
 } = require('./student-360')
+
+test('Student 360 selects contracts by effective dates instead of stale stored status', () => {
+  const contracts = [
+    { id: 'stale-active', status: 'active', startDate: '2026-01-01', endDate: '2026-09-08' },
+    { id: 'current-future-stored-active', status: 'future', startDate: '2026-09-09', endDate: '2026-10-09' },
+    { id: 'later-future', status: 'active', startDate: '2026-11-01', endDate: '2026-12-01' },
+  ]
+  assert.equal(activeContract(contracts, '2026-09-09').id, 'current-future-stored-active')
+})
+
+test('Student 360 chooses the nearest future contract when no contract is active', () => {
+  const contracts = [
+    { id: 'later', status: 'active', startDate: '2026-12-01', endDate: '2027-01-01' },
+    { id: 'nearest', status: 'future', startDate: '2026-10-01', endDate: '2026-11-01' },
+  ]
+  assert.equal(activeContract(contracts, '2026-09-09').id, 'nearest')
+})
 
 test('CRM timeline treats an omitted first-page cursor as the newest boundary', () => {
   assert.equal(timelineCursor(null), Number.MAX_SAFE_INTEGER)

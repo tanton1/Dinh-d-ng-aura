@@ -4,6 +4,7 @@ const { HttpsError } = require('firebase-functions/v2/https')
 const { trustedAccessContext, requireCapability } = require('./identity-access')
 const { cashAccountForMovement, createCashMovement, createReceiptVoucher, assertFinancePeriodOpen } = require('./finance-ledger')
 const { contractPaymentJournal } = require('./accounting-core')
+const { contractStatusProjection } = require('./contract-status')
 
 const renewalStages = new Set(['uncontacted', 'contacted', 'interested', 'quote_sent', 'follow_up', 'won', 'lost'])
 const closedStages = new Set(['won', 'lost'])
@@ -236,6 +237,55 @@ async function activateDueRenewalContractsCore({ db, today = vietnamDateKey(), a
     if (result.withoutSource) withoutSource += 1
   }
   return { evaluated: snapshot.size, due: due.length, activated, transferredSessions, withoutSource }
+}
+
+async function reconcileContractStatusesCore({ db, today = vietnamDateKey(), actorUid = 'scheduler:contract-status', dryRun = false, limit = 1000 }) {
+  const snapshots = await Promise.all(['active', 'future', 'expired'].map((status) => db.collection('contracts')
+    .where('status', '==', status)
+    .limit(limit + 1)
+    .get()))
+  if (snapshots.some((snapshot) => snapshot.size > limit)) throw new Error('Contract status inventory exceeds the safe reconciliation limit.')
+  const contracts = new Map()
+  snapshots.forEach((snapshot) => snapshot.docs.forEach((item) => contracts.set(item.id, item)))
+  const updates = [...contracts.values()].map((item) => {
+    const projection = contractStatusProjection(item.data(), today)
+    return { item, projection }
+  }).filter(({ projection }) => projection.statusMismatch && ['active', 'future', 'expired'].includes(projection.effectiveStatus))
+  const counts = updates.reduce((result, { projection }) => {
+    result[`${projection.storedStatus}_to_${projection.effectiveStatus}`] = (result[`${projection.storedStatus}_to_${projection.effectiveStatus}`] || 0) + 1
+    return result
+  }, {})
+  if (!dryRun) {
+    for (let offset = 0; offset < updates.length; offset += 200) {
+      const batch = db.batch()
+      updates.slice(offset, offset + 200).forEach(({ item, projection }) => {
+        batch.update(item.ref, {
+          status: projection.effectiveStatus,
+          statusReconciledAt: FieldValue.serverTimestamp(),
+          statusReconciledBy: actorUid,
+          statusReconciliationDate: today,
+          statusPreviousValue: projection.storedStatus,
+          updatedAt: FieldValue.serverTimestamp(),
+          revision: Number(item.data().revision || 0) + 1,
+        })
+        const auditReference = db.collection('contractAuditLogs').doc(`status-${today}-${item.id}`)
+        batch.set(auditReference, {
+          schemaVersion: 1,
+          action: 'contract.status.reconciled',
+          contractId: item.id,
+          studentId: item.data().studentId || '',
+          branchId: item.data().branchId || '',
+          beforeStatus: projection.storedStatus,
+          afterStatus: projection.effectiveStatus,
+          referenceDate: today,
+          createdBy: actorUid,
+          createdAt: FieldValue.serverTimestamp(),
+        }, { merge: true })
+      })
+      await batch.commit()
+    }
+  }
+  return { dryRun, today, evaluated: contracts.size, changed: updates.length, counts }
 }
 
 function latestContractsByStudent(contracts) {
@@ -1116,20 +1166,27 @@ function createContractRenewalFunctions({ db, onCall, onSchedule, logger }) {
     return refreshRenewalQueueCore({ db, dryRun: request.data?.apply !== true, actorUid: actor.uid })
   })
 
+  const reconcileContractStatuses = renewalCall(async (request) => {
+    const actor = await renewalActor(request, db)
+    if (actor.renewalScope !== 'system') throw new HttpsError('permission-denied', 'Chỉ quản trị hệ thống được đối soát trạng thái hợp đồng.')
+    return reconcileContractStatusesCore({ db, dryRun: request.data?.apply !== true, actorUid: actor.uid })
+  })
+
   const scheduled = onSchedule ? onSchedule({ schedule: '5 0 * * *', region: 'asia-southeast1', timeZone: 'Asia/Ho_Chi_Minh', retryCount: 1, cpu: 'gcf_gen1', maxInstances: 1 }, async () => {
     const activations = await activateDueRenewalContractsCore({ db })
+    const statuses = await reconcileContractStatusesCore({ db })
     const result = await refreshRenewalQueueCore({ db, dryRun: false, actorUid: 'scheduler:contract-renewals' })
     const reminders = await createRenewalInternalReminders(db)
-    logger?.info?.('contract_renewal_queue_refreshed', { ...result, activations, reminders })
+    logger?.info?.('contract_renewal_queue_refreshed', { ...result, activations, statuses, reminders })
   }) : null
 
   return {
     listContractRenewalCases, listContractRenewalPipeline, listRenewalMessageTemplates, getContractRenewalCaseDetail,
     recordContractRenewalActivity, updateContractRenewalCase, assignContractRenewalCase, transferRenewalCases,
     createRenewalQuote, submitRenewalApproval, decideRenewalApproval, renewPtContract,
-    listRenewalCalendar, getRenewalAnalytics, refreshContractRenewalQueue,
+    listRenewalCalendar, getRenewalAnalytics, refreshContractRenewalQueue, reconcileContractStatuses,
     ...(scheduled ? { refreshContractRenewalQueueScheduled: scheduled } : {}),
   }
 }
 
-module.exports = { createContractRenewalFunctions, refreshRenewalQueueCore, createRenewalInternalReminders, activateDueRenewalContractsCore, renewalHandoverProjection, addMonthsDateKey, normalizeInstallments, renewalRisk, renewalEligibility, latestContractsByStudent, priorityScore, slaStatus, requiresRenewalApproval, renewalQueueFingerprint, matchesRenewalSegment, renewalStats, renewalMessageTemplates, caseAssignedToTrainer, canViewCase }
+module.exports = { createContractRenewalFunctions, refreshRenewalQueueCore, createRenewalInternalReminders, activateDueRenewalContractsCore, reconcileContractStatusesCore, renewalHandoverProjection, addMonthsDateKey, normalizeInstallments, renewalRisk, renewalEligibility, latestContractsByStudent, priorityScore, slaStatus, requiresRenewalApproval, renewalQueueFingerprint, matchesRenewalSegment, renewalStats, renewalMessageTemplates, caseAssignedToTrainer, canViewCase }

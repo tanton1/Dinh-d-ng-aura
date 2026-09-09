@@ -98,6 +98,7 @@ export interface StudentPtContractSummary {
   id: string
   packageName: string
   status: string
+  storedStatus?: string
   startDate: string
   endDate: string
   totalSessions: number
@@ -137,7 +138,9 @@ export function isStudentPtContractSchedulableOn(
   const dateKey = normalizedScheduleDate(date)
   const startDate = normalizedScheduleDate(contract.startDate)
   const endDate = normalizedScheduleDate(contract.endDate)
-  if (!dateKey || !startDate || !endDate || !allowedStatuses.includes(String(contract.status || '').toLowerCase())) return false
+  const storedStatus = String(contract.status || '').toLowerCase()
+  const terminalStatus = ['cancelled', 'inactive', 'archived', 'draft'].includes(storedStatus)
+  if (!dateKey || !startDate || !endDate || terminalStatus || (storedStatus === 'frozen' && !allowedStatuses.includes('frozen'))) return false
   if (dateKey < startDate || dateKey > endDate || Number(contract.remainingSessions || 0) <= 0) return false
   return !(contract.pausePeriods || []).some((period) => {
     const pauseStart = normalizedScheduleDate(period.startDate)

@@ -1,5 +1,6 @@
 const { FieldValue, Timestamp } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
+const { contractEffectiveOnDate, effectiveContractStatus } = require('./contract-status')
 const { trustedAccessContext, requireCapability } = require('./identity-access')
 const {
   chargeSessionTransaction,
@@ -87,7 +88,7 @@ function mondayDateKey(referenceDate = currentDateKey()) {
 
 function isEffectiveStaffContract(contract = {}, referenceDate = currentDateKey()) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(referenceDate)) return false
-  if (String(contract.status || 'active').toLowerCase() !== 'active') return false
+  if (!contractEffectiveOnDate(contract, referenceDate)) return false
   const startDate = storedDateKey(contract.startDate)
   const endDate = storedDateKey(contract.endDate)
   const totalSessions = Math.max(0, Number(contract.totalSessions || 0))
@@ -102,11 +103,7 @@ function isEffectiveStaffContract(contract = {}, referenceDate = currentDateKey(
 }
 
 function contractCoversDate(contract = {}, referenceDate = currentDateKey()) {
-  const status = String(contract.status || 'active').toLowerCase()
-  if (['draft', 'cancelled', 'inactive', 'archived'].includes(status)) return false
-  const startDate = storedDateKey(contract.startDate)
-  const endDate = storedDateKey(contract.endDate)
-  if (!startDate || !endDate || startDate > referenceDate || endDate < referenceDate) return false
+  if (!contractEffectiveOnDate(contract, referenceDate)) return false
   return !(Array.isArray(contract.pausePeriods) && contract.pausePeriods.some((period) => {
     if (String(period?.type || '').toLowerCase() !== 'preservation') return false
     const pauseStart = storedDateKey(period.startDate)
@@ -123,7 +120,7 @@ function isContractSchedulableOn(contract = {}, referenceDate = currentDateKey()
   const remainingSessions = remainingSessionsOverride === undefined
     ? Math.max(0, Number(contract.remainingSessions ?? Number(contract.totalSessions || 0) - Number(contract.usedSessions || 0)))
     : Math.max(0, Number(remainingSessionsOverride))
-  if (String(contract.status || 'active').toLowerCase() !== 'active') return false
+  if (!contractEffectiveOnDate(contract, referenceDate)) return false
   const startDate = storedDateKey(contract.startDate)
   const endDate = storedDateKey(contract.endDate)
   if (!startDate || !endDate || startDate > referenceDate || endDate < referenceDate || remainingSessions <= 0) return false
@@ -208,7 +205,8 @@ function studentContractProjection(id, contract = {}, today = currentDateKey(), 
   return {
     id,
     packageName: contract.packageName || 'Gói tập Aura',
-    status: contract.status || 'active',
+    status: effectiveContractStatus(contract, today),
+    storedStatus: contract.status || 'active',
     startDate,
     endDate,
     totalSessions,
@@ -234,11 +232,9 @@ function studentContractProjection(id, contract = {}, today = currentDateKey(), 
 
 function studentContractAlerts(contracts, today = currentDateKey()) {
   const alerts = []
-  const activeContracts = contracts.filter((contract) => String(contract.status || '').toLowerCase() === 'active'
-    && contract.startDate && contract.startDate <= today
-    && (!contract.endDate || contract.endDate >= today))
+  const activeContracts = contracts.filter((contract) => effectiveContractStatus(contract, today) === 'active')
   const futureContract = contracts
-    .filter((contract) => ['active', 'future'].includes(String(contract.status || '').toLowerCase()) && contract.startDate > today)
+    .filter((contract) => effectiveContractStatus(contract, today) === 'future')
     .sort((left, right) => left.startDate.localeCompare(right.startDate))[0]
 
   for (const contract of contracts) {
@@ -727,9 +723,8 @@ async function assignedStudentsForActor(db, actor, limit) {
   const today = currentDateKey()
   const datedContracts = assigned.filter((contract) => {
     const projection = studentContractProjection(contract.id, contract, today, [], false)
-    return String(contract.status || 'active').toLowerCase() === 'active'
-      && projection.startDate && projection.startDate <= today
-      && projection.endDate && projection.endDate >= today
+    return effectiveContractStatus(contract, today) === 'active'
+      && projection.startDate && projection.endDate
       && !projection.pausedToday
   })
   const sessionsByContract = await sessionsForContracts(db, datedContracts.map((contract) => contract.id))

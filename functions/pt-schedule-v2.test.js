@@ -90,6 +90,20 @@ test('auto scheduling never creates a draft on a configured holiday', () => {
   assert.equal(Object.values(generateSchedule(data).schedule).flat().length, 0)
 })
 
+test('week eligibility derives contract state from dates when stored status is stale', () => {
+  const data = fixture()
+  data.contracts[0].status = 'future'
+  const eligibility = studentWeekEligibility(data.contracts, 'student-a', BRANCH, WEEK, WEEK)
+  assert.equal(eligibility.eligible, true)
+  assert.deepEqual(eligibility.eligibleContractIds, ['contract-a'])
+
+  data.contracts[0].status = 'active'
+  data.contracts[0].endDate = '2026-08-23'
+  const staleActive = studentWeekEligibility(data.contracts, 'student-a', BRANCH, WEEK, WEEK)
+  assert.equal(staleActive.eligible, false)
+  assert.ok(staleActive.reasonCodes.includes('CONTRACT_EXPIRED_BEFORE_WEEK'))
+})
+
 test('OFF markers use a separate document guard from publishable learner sessions', () => {
   const offSchedule = Object.fromEntries(Array.from({ length: 5 }, (_, dayIndex) => [
     `T${dayIndex + 2}-6`,

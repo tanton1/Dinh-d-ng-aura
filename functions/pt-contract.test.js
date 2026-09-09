@@ -30,7 +30,7 @@ const {
 test('staff student scope only accepts active contracts in date with remaining sessions', () => {
   const base = { status: 'active', startDate: '2026-08-01', endDate: '2026-09-30', totalSessions: 36, usedSessions: 12 }
   assert.equal(isEffectiveStaffContract(base, '2026-08-29'), true)
-  assert.equal(isEffectiveStaffContract({ ...base, status: 'future' }, '2026-08-29'), false)
+  assert.equal(isEffectiveStaffContract({ ...base, status: 'future', startDate: '2026-10-01' }, '2026-08-29'), false)
   assert.equal(isEffectiveStaffContract({ ...base, status: 'frozen' }, '2026-08-29'), false)
   assert.equal(isEffectiveStaffContract({ ...base, endDate: '2026-08-28' }, '2026-08-29'), false)
   assert.equal(isEffectiveStaffContract({ ...base, startDate: '2026-08-30' }, '2026-08-29'), false)

@@ -82,7 +82,7 @@ test('workspace includes assigned learners without requiring a session in the se
 test('workout contracts require active date quota and no preservation', () => {
   const base = { status: 'active', startDate: '2026-01-01', endDate: '2026-12-31', totalSessions: 20, usedSessions: 3 }
   assert.equal(isEffectiveWorkoutContract(base, '2026-09-02'), true)
-  assert.equal(isEffectiveWorkoutContract({ ...base, status: 'future' }, '2026-09-02'), false)
+  assert.equal(isEffectiveWorkoutContract({ ...base, status: 'future', startDate: '2026-10-01' }, '2026-09-02'), false)
   assert.equal(isEffectiveWorkoutContract({ ...base, status: 'frozen' }, '2026-09-02'), false)
   assert.equal(isEffectiveWorkoutContract({ ...base, startDate: '2026-10-01' }, '2026-09-02'), false)
   assert.equal(isEffectiveWorkoutContract({ ...base, endDate: '2026-08-31' }, '2026-09-02'), false)

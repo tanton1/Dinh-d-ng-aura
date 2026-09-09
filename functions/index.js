@@ -512,6 +512,7 @@ exports.renewPtContract = contractRenewalFunctions.renewPtContract
 exports.listRenewalCalendar = contractRenewalFunctions.listRenewalCalendar
 exports.getRenewalAnalytics = contractRenewalFunctions.getRenewalAnalytics
 exports.refreshContractRenewalQueue = contractRenewalFunctions.refreshContractRenewalQueue
+exports.reconcileContractStatuses = contractRenewalFunctions.reconcileContractStatuses
 exports.refreshContractRenewalQueueScheduled = contractRenewalFunctions.refreshContractRenewalQueueScheduled
 const sessionOperationFunctions = createSessionOperationFunctions({ db, onCall, logger })
 Object.assign(exports, sessionOperationFunctions)

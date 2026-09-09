@@ -1,4 +1,5 @@
 import type { Student, StudentContract } from '../../types'
+import { contractPausedOn, contractSchedulableOn } from '../contracts/contractStatus'
 
 const DAY_MS = 86_400_000
 
@@ -35,12 +36,7 @@ function weekDates(weekId: string) {
 }
 
 function pausedOn(contract: StudentContract, date: string) {
-  if (contract.status === 'frozen') return true
-  return (contract.pausePeriods || []).some((period) => {
-    const start = normalizedDateId(period.startDate)
-    const end = normalizedDateId(period.endDate)
-    return Boolean(start && end && date >= start && date <= end)
-  })
+  return contractPausedOn(contract, date)
 }
 
 export interface StudentWeekEligibility {
@@ -72,14 +68,14 @@ export function studentEligibilityForWeek(
   let remainingSessions = 0
 
   for (const contract of contracts) {
-    if (contract.studentId !== student.id || !['active', 'future'].includes(contract.status) || contract.branchId !== student.branchId) continue
+    if (contract.studentId !== student.id || contract.branchId !== student.branchId) continue
     const start = normalizedDateId(contract.startDate)
     const end = normalizedDateId(contract.endDate)
     const remaining = Math.max(0, Number(contract.totalSessions || 0) - Number(contract.usedSessions || 0))
     if (!start || !end || remaining < 1) continue
     let usable = false
     for (const date of dates) {
-      if (date < start || date > end) continue
+      if (date < start || date > end || !contractSchedulableOn(contract, date)) continue
       if (pausedOn(contract, date)) {
         pausedDates.add(date)
         continue

@@ -7,6 +7,7 @@ import {
   StudentContract,
   ScheduleConfig,
 } from "../types";
+import { contractSchedulableOn } from "../domain/contracts/contractStatus";
 
 function getDayIndex(day: string, config: ScheduleConfig): number {
   return config.workingDays.indexOf(day as any);
@@ -48,16 +49,8 @@ function slotDateKey(targetDate: Date, day: string): string {
 }
 
 export function isContractSchedulableOn(contract: StudentContract, date: string): boolean {
-  const status = String(contract.status || "").toLowerCase();
-  const start = dateKey(contract.startDate);
-  const end = dateKey(contract.endDate);
-  if (!date || !start || !end || !["active", "future"].includes(status) || date < start || date > end) return false;
   if (Math.max(0, Number(contract.totalSessions || 0) - Number(contract.usedSessions || 0)) <= 0) return false;
-  return !(contract.pausePeriods || []).some((period) => {
-    const pauseStart = dateKey(period.startDate);
-    const pauseEnd = dateKey(period.endDate);
-    return Boolean(pauseStart && pauseEnd && pauseStart <= date && pauseEnd >= date);
-  });
+  return contractSchedulableOn(contract, date);
 }
 
 function trainerSlotCapacity(trainer: Trainer): number {
@@ -696,7 +689,7 @@ export function getActiveContract(studentId: string, contracts: StudentContract[
   const today = todayDateKey();
   const studentContracts = contracts
     .filter((contract) => {
-      if (contract.studentId !== studentId || String(contract.status || "").toLowerCase() !== "active") return false;
+      if (contract.studentId !== studentId) return false;
       if (!isContractSchedulableOn(contract, today)) return false;
       return true;
     })
