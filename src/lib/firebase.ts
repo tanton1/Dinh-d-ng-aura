@@ -1,6 +1,15 @@
 import { getApp, getApps, initializeApp, type FirebaseApp } from 'firebase/app'
 import type { AppCheck } from 'firebase/app-check'
-import { connectAuthEmulator, getAuth, type Auth } from 'firebase/auth'
+import {
+  browserLocalPersistence,
+  browserPopupRedirectResolver,
+  browserSessionPersistence,
+  connectAuthEmulator,
+  getAuth,
+  indexedDBLocalPersistence,
+  initializeAuth,
+  type Auth,
+} from 'firebase/auth'
 
 export const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -65,7 +74,26 @@ if (isFirebaseConfigured) {
     firebaseAppCheckStatus = 'missing_site_key'
   }
 
-  firebaseAuth = getAuth(firebaseApp)
+  try {
+    // Firebase defaults to IndexedDB first. Some embedded/mobile browsers can
+    // close that database while the tab is briefly hidden during sign-in,
+    // leaving a valid session stuck behind the login screen. localStorage keeps
+    // durable cross-tab sessions without that lifecycle race; sessionStorage and
+    // IndexedDB remain migration/fallback stores for restricted environments.
+    firebaseAuth = initializeAuth(firebaseApp, {
+      popupRedirectResolver: browserPopupRedirectResolver,
+      persistence: [
+        browserLocalPersistence,
+        browserSessionPersistence,
+        indexedDBLocalPersistence,
+      ],
+    })
+  } catch (error) {
+    // HMR or another Firebase SDK can initialize Auth before this module. Reuse
+    // that singleton instead of breaking local development or an existing tab.
+    if ((error as { code?: string })?.code !== 'auth/already-initialized') throw error
+    firebaseAuth = getAuth(firebaseApp)
+  }
   
   if (useFirebaseEmulators) {
     connectAuthEmulator(firebaseAuth, 'http://127.0.0.1:9099', { disableWarnings: true })

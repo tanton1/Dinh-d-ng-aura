@@ -22,14 +22,23 @@ test('demo progress opens without registering Firebase-only subscriptions', asyn
 
 test('demo Eat Clean admin uses its local snapshot without calling production', async ({ page }) => {
   const productionCallableRequests: string[] = []
+  const pageErrors: string[] = []
+  page.on('pageerror', (error) => pageErrors.push(error.message))
   page.on('request', (request) => {
     if (/eatCleanAdminSnapshot|eatCleanDispatchSnapshot/i.test(request.url())) productionCallableRequests.push(request.url())
   })
 
   await page.goto('/#/admin-eat-clean')
   await expect(page.getByRole('heading', { name: 'Trung tâm vận hành Eat Clean' })).toBeVisible()
+  for (const tabName of ['Điều phối', 'Đơn hàng', 'Thực đơn', 'Tồn kho', 'Vận hành']) {
+    const tab = page.getByRole('tab', { name: tabName })
+    await tab.click()
+    await expect(tab).toHaveAttribute('aria-selected', 'true')
+    await expect(page.getByRole('tabpanel')).toBeVisible()
+  }
   await expect(page.getByText('Aura đang gặp sự cố')).toHaveCount(0)
   expect(productionCallableRequests).toEqual([])
+  expect(pageErrors).toEqual([])
 })
 
 test('nutrition assistant exposes private body and meal image choices', async ({ page }) => {
