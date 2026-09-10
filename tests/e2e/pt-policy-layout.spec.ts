@@ -36,7 +36,9 @@ for (const width of [360, 390, 430]) {
     const pauseDialog = page.getByRole('dialog', { name: 'Đăng ký OFF / Bảo lưu' })
     await expect(pauseDialog).toBeVisible()
     await expect(pauseDialog.getByText(/OFF tối đa 14 ngày\/lần/i)).toBeVisible()
-    await expect(pauseDialog.getByText(/3 tháng có 1 lượt OFF/i)).toBeVisible()
+    // Allowances are editable operations policy, so the layout contract must
+    // verify the rendered policy shape instead of freezing today's values.
+    await expect(pauseDialog.getByText(/Hợp đồng 3 tháng có \d+ lượt OFF, 6 tháng có \d+ lượt, 12 tháng có \d+ lượt/i)).toBeVisible()
 
     const pauseGeometry = await pauseDialog.locator('.student-policy-sheet').evaluate((element) => {
       const box = element.getBoundingClientRect()
