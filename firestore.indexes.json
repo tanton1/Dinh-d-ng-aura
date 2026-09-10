@@ -1,6 +1,22 @@
 {
   "indexes": [
     {
+      "collectionGroup": "operationalActions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "snoozedUntil", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "mealReviews",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "submittedAt", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "courses",
       "queryScope": "COLLECTION",
       "fields": [

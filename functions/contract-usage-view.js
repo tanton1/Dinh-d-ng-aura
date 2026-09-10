@@ -1,13 +1,18 @@
 'use strict'
 
+const { createHash } = require('node:crypto')
 const { FieldValue } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
-const { summarizeContractUsage } = require('./contract-usage')
+const { sessionCountsTowardContract, summarizeContractUsage } = require('./contract-usage')
 const { trustedAccessContext } = require('./identity-access')
 const { withFunctionTelemetry } = require('./observability')
 
 const MAX_SESSION_EVIDENCE = 5000
 const MAX_CONTRACTS_PER_STUDENT = 100
+const USAGE_VIEW_SCHEMA_VERSION = 1
+const USAGE_VIEW_RECONCILIATION_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000
+const SESSION_USAGE_FIELDS = Object.freeze(['contractId', 'billingStatus', 'status', 'attendanceStatus'])
+const CONTRACT_USAGE_FIELDS = Object.freeze(['studentId', 'crmProfileId', 'totalSessions', 'usedSessions'])
 
 function text(value, fallback = '') {
   return typeof value === 'string' && value.trim() ? value.trim() : fallback
@@ -17,6 +22,55 @@ function id(value, label) {
   const result = text(value)
   if (!/^[A-Za-z0-9_-]{1,200}$/.test(result)) throw new HttpsError('invalid-argument', `${label} không hợp lệ.`)
   return result
+}
+
+function comparableSource(value, fields) {
+  if (!value) return null
+  return fields.reduce((result, field) => {
+    const current = value[field]
+    result[field] = typeof current === 'string' ? current.trim() : current ?? null
+    return result
+  }, {})
+}
+
+function usageSourceChanged(before, after, fields) {
+  return JSON.stringify(comparableSource(before, fields)) !== JSON.stringify(comparableSource(after, fields))
+}
+
+function usageViewFingerprint(view = {}) {
+  const canonical = Object.keys(view)
+    .filter((key) => !['generatedAt', 'sourceFingerprint', 'projectionChanged'].includes(key))
+    .sort()
+    .reduce((result, key) => {
+      result[key] = view[key] ?? null
+      return result
+    }, {})
+  return createHash('sha256').update(JSON.stringify(canonical)).digest('hex')
+}
+
+function timestampMillis(value) {
+  if (value?.toMillis) return value.toMillis()
+  if (value?.toDate) return value.toDate().getTime()
+  const parsed = Date.parse(String(value || ''))
+  return Number.isFinite(parsed) ? parsed : 0
+}
+
+function contractUsageViewNeedsRebuild(contract = {}, storedView = null, nowMillis = Date.now(), maxAgeMillis = USAGE_VIEW_RECONCILIATION_MAX_AGE_MS) {
+  if (!storedView || Number(storedView.schemaVersion || 0) !== USAGE_VIEW_SCHEMA_VERSION) return true
+  if (Number(storedView.entitlementSessions || 0) !== Number(contract.totalSessions || 0)) return true
+  if (Number(storedView.storedUsedSessions || 0) !== Number(contract.usedSessions || 0)) return true
+  if (text(storedView.studentId) !== text(contract.studentId || contract.crmProfileId)) return true
+  const generatedAtMillis = timestampMillis(storedView.generatedAt)
+  return !generatedAtMillis || nowMillis - generatedAtMillis >= Math.max(60_000, maxAgeMillis)
+}
+
+function affectedContractIds(before, after) {
+  const ids = new Set()
+  for (const value of [before, after]) {
+    const contractId = text(value?.contractId)
+    if (contractId && sessionCountsTowardContract(value)) ids.add(contractId)
+  }
+  return [...ids]
 }
 
 function canReadUsage(actor) {
@@ -54,7 +108,7 @@ function requireContractScope(contract, actor) {
 
 function viewFromSummary(contractId, contract, summary, source = 'contract-usage-v2') {
   return {
-    schemaVersion: 1,
+    schemaVersion: USAGE_VIEW_SCHEMA_VERSION,
     contractId,
     studentId: text(contract.studentId || contract.crmProfileId, null),
     entitlementSessions: summary.totalSessions,
@@ -163,11 +217,19 @@ async function buildContractUsageView({ db, contractId, contract = null, logger 
     evidenceTruncated: evidence.truncated,
     ...(evidence.truncated ? { reconciliationStatus: 'evidence_truncated' } : {}),
   }
-  await db.doc(`contractUsageViews/${contractId}`).set({
-    ...view,
-    generatedAt: FieldValue.serverTimestamp(),
-  }, { merge: true })
-  logger.info?.('contract_usage_view_rebuilt', {
+  const reference = db.doc(`contractUsageViews/${contractId}`)
+  const sourceFingerprint = usageViewFingerprint(view)
+  const projectionChanged = await db.runTransaction(async (transaction) => {
+    const stored = await transaction.get(reference)
+    if (stored.exists && stored.data()?.sourceFingerprint === sourceFingerprint) return false
+    transaction.set(reference, {
+      ...view,
+      sourceFingerprint,
+      generatedAt: FieldValue.serverTimestamp(),
+    }, { merge: true })
+    return true
+  })
+  logger.info?.(projectionChanged ? 'contract_usage_view_rebuilt' : 'contract_usage_view_unchanged', {
     contractId,
     studentId: view.studentId,
     remainingSessions: view.remainingSessions,
@@ -175,7 +237,7 @@ async function buildContractUsageView({ db, contractId, contract = null, logger 
     evidenceSessions: evidence.sessions.length,
     evidenceTruncated: evidence.truncated,
   })
-  return view
+  return { ...view, sourceFingerprint, projectionChanged }
 }
 
 async function getStoredOrFreshView(db, contractId) {
@@ -269,11 +331,12 @@ async function syncContractUsageView({ db, event, logger = console }) {
     logger.info?.('contract_usage_view_removed', { contractId: event.params.contractId })
     return { contractIds: [event.params.contractId], rebuilt: 0, removed: 1 }
   }
-  const contractIds = new Set()
-  if (event.params?.contractId) contractIds.add(event.params.contractId)
-  for (const value of [before, after]) {
-    if (value?.contractId) contractIds.add(value.contractId)
+  const sourceFields = event.params?.sessionId ? SESSION_USAGE_FIELDS : CONTRACT_USAGE_FIELDS
+  if (!usageSourceChanged(before, after, sourceFields)) {
+    return { contractIds: [], rebuilt: 0, removed: 0, skippedUnchangedSource: 1 }
   }
+  const contractIds = new Set(event.params?.sessionId ? affectedContractIds(before, after) : [])
+  if (event.params?.contractId) contractIds.add(event.params.contractId)
   const results = []
   for (const contractId of contractIds) {
     const view = await buildContractUsageView({ db, contractId, logger })
@@ -283,9 +346,16 @@ async function syncContractUsageView({ db, event, logger = console }) {
 }
 
 module.exports = {
+  affectedContractIds,
+  CONTRACT_USAGE_FIELDS,
   MAX_SESSION_EVIDENCE,
+  SESSION_USAGE_FIELDS,
+  USAGE_VIEW_RECONCILIATION_MAX_AGE_MS,
   viewFromSummary,
   usageSummaryFromView,
+  usageSourceChanged,
+  usageViewFingerprint,
+  contractUsageViewNeedsRebuild,
   contractWithUsageView,
   overlayContractUsageViews,
   contractVisibleToActor,

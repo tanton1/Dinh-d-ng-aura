@@ -106,7 +106,8 @@ test('Action Center and contract usage maintenance exports stay deployable and b
   ]) assert.match(functionsSource, new RegExp(`exports\\.${exportName} = operationalActionTrigger`))
   assert.match(functionsSource, /systemJobs\/contractUsageViewReconciliation/)
   assert.match(functionsSource, /collection\('contracts'\)\.orderBy\(FieldPath\.documentId\(\)\)\.limit\(25\)/)
-  assert.match(functionsSource, /collection\('operationalActions'\)\.where\('status', '==', 'snoozed'\)\.limit\(200\)/)
+  assert.match(functionsSource, /collection\('operationalActions'\)[\s\S]*?where\('status', '==', 'snoozed'\)[\s\S]*?where\('snoozedUntil', '<=', now\)[\s\S]*?limit\(200\)/)
+  assert.match(functionsSource, /collection\('mealReviews'\)[\s\S]*?where\('createdAt', '<=', reviewCutoff\)[\s\S]*?limit\(200\)/)
 })
 
 test('redaction returns only safe operational fields', () => {

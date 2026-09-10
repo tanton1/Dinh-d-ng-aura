@@ -36,7 +36,7 @@ const { createNutritionReviewFunctions } = require('./nutrition-reviews')
 const { createContractRenewalFunctions } = require('./contract-renewals')
 const { createLoyaltyFunctions, reconcileAttendance: reconcileLoyaltyAttendance, reconcileAttendanceMissions, reconcileContractSpend: reconcileLoyaltyContractSpend, reconcileMemberReferral, reconcileNutritionReview, reconcilePendingMemberReferrals, vestPendingSources } = require('./loyalty')
 const { syncContractUsageProjection } = require('./contract-usage')
-const { buildContractUsageView, createContractUsageViewFunctions, syncContractUsageView } = require('./contract-usage-view')
+const { buildContractUsageView, contractUsageViewNeedsRebuild, createContractUsageViewFunctions, syncContractUsageView } = require('./contract-usage-view')
 const { createActionCenterFunctions, syncOperationalActionSource } = require('./action-center')
 const { createPackageManagementFunctions } = require('./package-management')
 const { createQuoteManagementFunctions } = require('./quote-management')
@@ -153,14 +153,25 @@ exports.rebuildContractUsageViewsScheduled = onSchedule({
   if (cursor) query = query.startAfter(cursor)
   let snapshot = await query.get()
   if (snapshot.empty && cursor) snapshot = await db.collection('contracts').orderBy(FieldPath.documentId()).limit(25).get()
+  const storedViews = snapshot.empty
+    ? []
+    : await db.getAll(...snapshot.docs.map((item) => db.doc(`contractUsageViews/${item.id}`)))
   let rebuilt = 0
-  for (const item of snapshot.docs) {
-    if (await buildContractUsageView({ db, contractId: item.id, contract: item.data(), logger })) rebuilt += 1
+  let skippedFresh = 0
+  for (let index = 0; index < snapshot.docs.length; index += 1) {
+    const item = snapshot.docs[index]
+    const stored = storedViews[index]
+    if (!contractUsageViewNeedsRebuild(item.data(), stored?.exists ? stored.data() : null)) {
+      skippedFresh += 1
+      continue
+    }
+    const result = await buildContractUsageView({ db, contractId: item.id, contract: item.data(), logger })
+    if (result?.projectionChanged !== false) rebuilt += 1
   }
   const nextCursor = snapshot.size < 25 ? '' : snapshot.docs[snapshot.docs.length - 1].id
-  await stateReference.set({ cursor: nextCursor, scanned: snapshot.size, rebuilt, updatedAt: FieldValue.serverTimestamp() }, { merge: true })
-  logger.info('contract_usage_views_scheduled_rebuild', { scanned: snapshot.size, rebuilt, cursor: nextCursor })
-  return { scanned: snapshot.size, rebuilt, cursor: nextCursor }
+  await stateReference.set({ cursor: nextCursor, scanned: snapshot.size, rebuilt, skippedFresh, updatedAt: FieldValue.serverTimestamp() }, { merge: true })
+  logger.info('contract_usage_views_scheduled_rebuild', { scanned: snapshot.size, rebuilt, skippedFresh, cursor: nextCursor })
+  return { scanned: snapshot.size, rebuilt, skippedFresh, cursor: nextCursor }
 })
 
 exports.reopenSnoozedOperationalActionsScheduled = onSchedule({
@@ -172,11 +183,13 @@ exports.reopenSnoozedOperationalActionsScheduled = onSchedule({
   timeoutSeconds: 120,
 }, async () => {
   const now = Timestamp.now()
-  const snapshot = await db.collection('operationalActions').where('status', '==', 'snoozed').limit(200).get()
-  const due = snapshot.docs.filter((item) => {
-    const until = item.data()?.snoozedUntil
-    return until && until.toMillis?.() <= now.toMillis()
-  })
+  const snapshot = await db.collection('operationalActions')
+    .where('status', '==', 'snoozed')
+    .where('snoozedUntil', '<=', now)
+    .orderBy('snoozedUntil', 'asc')
+    .limit(200)
+    .get()
+  const due = snapshot.docs
   if (due.length) {
     const batch = db.batch()
     due.forEach((item) => batch.update(item.ref, { status: 'open', snoozedUntil: null, updatedAt: FieldValue.serverTimestamp() }))
@@ -185,12 +198,29 @@ exports.reopenSnoozedOperationalActionsScheduled = onSchedule({
   // Time alone can turn a pending meal review into an SLA breach, so the
   // write trigger is not sufficient. Refresh only records whose projected
   // severity has not yet advanced to warning; both scans remain bounded.
-  const pendingReviews = await db.collection('mealReviews').where('status', '==', 'pending').limit(200).get()
+  const reviewCutoff = Timestamp.fromMillis(now.toMillis() - 24 * 60 * 60 * 1000)
+  const [createdAtReviews, submittedAtReviews] = await Promise.all([
+    db.collection('mealReviews')
+      .where('status', '==', 'pending')
+      .where('createdAt', '<=', reviewCutoff)
+      .orderBy('createdAt', 'asc')
+      .limit(200)
+      .get(),
+    db.collection('mealReviews')
+      .where('status', '==', 'pending')
+      .where('submittedAt', '<=', reviewCutoff)
+      .orderBy('submittedAt', 'asc')
+      .limit(200)
+      .get(),
+  ])
+  const pendingReviews = [...new Map(
+    [...createdAtReviews.docs, ...submittedAtReviews.docs].map((item) => [item.id, item]),
+  ).values()].slice(0, 200)
   let refreshedMealReviews = 0
-  for (const review of pendingReviews.docs) {
+  for (const review of pendingReviews) {
     const createdAt = review.data()?.createdAt || review.data()?.submittedAt
     const createdAtMillis = createdAt?.toMillis?.() || createdAt?.toDate?.()?.getTime?.() || Date.parse(String(createdAt || ''))
-    if (!Number.isFinite(createdAtMillis) || now.toMillis() - createdAtMillis <= 24 * 60 * 60 * 1000) continue
+    if (!Number.isFinite(createdAtMillis) || createdAtMillis > reviewCutoff.toMillis()) continue
     const action = await db.doc(`operationalActions/meal_review:${review.id}:review`).get()
     if (action.exists && action.data()?.severity === 'warning' && ['open', 'in_progress'].includes(action.data()?.status)) continue
     await syncOperationalActionSource({

@@ -2,7 +2,18 @@
 
 const assert = require('node:assert/strict')
 const test = require('node:test')
-const { contractVisibleToActor, contractWithUsageView, usageSummaryFromView, viewFromSummary } = require('./contract-usage-view')
+const {
+  CONTRACT_USAGE_FIELDS,
+  SESSION_USAGE_FIELDS,
+  affectedContractIds,
+  contractUsageViewNeedsRebuild,
+  contractVisibleToActor,
+  contractWithUsageView,
+  usageSourceChanged,
+  usageSummaryFromView,
+  usageViewFingerprint,
+  viewFromSummary,
+} = require('./contract-usage-view')
 
 test('contract usage view preserves canonical summary and legacy adjustment', () => {
   const view = viewFromSummary('contract-1', { studentId: 'student-1' }, {
@@ -92,4 +103,49 @@ test('contract usage scope follows assignment or branch management instead of da
   assert.equal(contractVisibleToActor(contract, { accessRole: 'staff', uid: 'other', branchIds: ['b1'], capabilities: ['dashboard.view'] }), false)
   assert.equal(contractVisibleToActor(contract, { accessRole: 'staff', uid: 'manager', branchIds: ['b1'], capabilities: ['branch.operations.view'] }), true)
   assert.equal(contractVisibleToActor(contract, { accessRole: 'staff', uid: 'manager', branchIds: ['b2'], capabilities: ['branch.operations.view'] }), false)
+})
+
+test('usage view fingerprint ignores freshness metadata but detects business changes', () => {
+  const baseline = { schemaVersion: 1, contractId: 'c1', remainingSessions: 7, generatedAt: '2026-09-10T00:00:00.000Z' }
+  assert.equal(
+    usageViewFingerprint(baseline),
+    usageViewFingerprint({ ...baseline, generatedAt: '2026-09-11T00:00:00.000Z', projectionChanged: false }),
+  )
+  assert.notEqual(usageViewFingerprint(baseline), usageViewFingerprint({ ...baseline, remainingSessions: 6 }))
+})
+
+test('session updates rebuild usage only when usage fields change', () => {
+  const before = { contractId: 'c1', status: 'scheduled', billingStatus: 'pending', attendanceStatus: 'pending', note: 'old' }
+  assert.equal(usageSourceChanged(before, { ...before, note: 'new', revision: 2 }, SESSION_USAGE_FIELDS), false)
+  assert.equal(usageSourceChanged(before, { ...before, attendanceStatus: 'present' }, SESSION_USAGE_FIELDS), true)
+  assert.equal(usageSourceChanged(before, { ...before, contractId: 'c2' }, SESSION_USAGE_FIELDS), true)
+})
+
+test('pending session edits do not scan contract history until charge membership changes', () => {
+  const pending = { contractId: 'c1', status: 'scheduled', billingStatus: 'pending', attendanceStatus: 'pending' }
+  assert.deepEqual(affectedContractIds(null, pending), [])
+  assert.deepEqual(affectedContractIds(pending, { ...pending, attendanceStatus: 'present' }), [])
+  assert.deepEqual(affectedContractIds(pending, { ...pending, billingStatus: 'charged' }), ['c1'])
+  assert.deepEqual(affectedContractIds({ ...pending, billingStatus: 'charged' }, { ...pending, contractId: 'c2', billingStatus: 'charged' }), ['c1', 'c2'])
+})
+
+test('contract updates rebuild usage only for canonical usage and identity facts', () => {
+  const before = { studentId: 's1', totalSessions: 24, usedSessions: 7, status: 'active', note: 'old' }
+  assert.equal(usageSourceChanged(before, { ...before, note: 'new' }, CONTRACT_USAGE_FIELDS), false)
+  assert.equal(usageSourceChanged(before, { ...before, totalSessions: 36 }, CONTRACT_USAGE_FIELDS), true)
+})
+
+test('scheduled reconciliation skips a fresh matching projection', () => {
+  const now = Date.parse('2026-09-10T12:00:00.000Z')
+  const contract = { studentId: 's1', totalSessions: 24, usedSessions: 7 }
+  const matching = {
+    schemaVersion: 1,
+    studentId: 's1',
+    entitlementSessions: 24,
+    storedUsedSessions: 7,
+    generatedAt: '2026-09-10T11:00:00.000Z',
+  }
+  assert.equal(contractUsageViewNeedsRebuild(contract, matching, now), false)
+  assert.equal(contractUsageViewNeedsRebuild(contract, { ...matching, storedUsedSessions: 6 }, now), true)
+  assert.equal(contractUsageViewNeedsRebuild(contract, { ...matching, generatedAt: '2026-09-01T00:00:00.000Z' }, now), true)
 })
