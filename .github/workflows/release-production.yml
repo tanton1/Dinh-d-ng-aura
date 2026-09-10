@@ -60,7 +60,7 @@ jobs:
       - run: npm run security:secrets
       - run: npm run security:audit
       - run: npm run ci
-      - run: npx playwright install --with-deps chromium
+      - run: npx playwright install --with-deps chromium webkit
       - run: npm run test:e2e
       - run: npm run test:schedule-ui
       - run: npm run test:rules
