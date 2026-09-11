@@ -17,6 +17,7 @@ test('one progress check-in atomically projects measurements, weight and grouped
   assert.match(operation, /'bodyMeasurements', input\.id/)
   assert.match(operation, /'weightLogs', input\.id/)
   assert.match(operation, /'progressPhotos', photo\.id/)
+  assert.match(operation, /schemaVersion: 1/)
   assert.match(operation, /checkInId: input\.id/)
   assert.match(operation, /await batch\.commit\(\)/)
 })
@@ -40,4 +41,12 @@ test('progress body surface uses the combined card instead of separate photo and
   assert.doesNotMatch(progressPage, /<StreaksAndBadgesCard/)
   assert.doesNotMatch(progressPage, /<DailyActionsCard/)
   assert.doesNotMatch(progressPage, /<NutritionChartsCard/)
+})
+
+test('progress check-in normalizes camera images before parallel upload and keeps retry state', () => {
+  const studioSource = readFileSync(new URL('../src/pages/student/ProgressPhotoStudio.tsx', import.meta.url), 'utf8')
+  assert.match(studioSource, /export async function prepareProgressPhoto/)
+  assert.match(studioSource, /canvas\.toBlob\(resolve, 'image\/jpeg'/)
+  assert.match(studioSource, /Promise\.allSettled\(preparedEntries\.map/)
+  assert.match(studioSource, /Ảnh và số đo vẫn được giữ/)
 })
