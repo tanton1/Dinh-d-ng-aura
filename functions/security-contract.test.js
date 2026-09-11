@@ -666,6 +666,7 @@ test('Student 360 is callable-only and redacts finance, photos and cross-role ac
   assert.match(student360Source, /event\.type === 'workout' && !permissions\.canViewTraining/)
   assert.match(student360Source, /getSignedUrl\(\{ action: 'read'/)
   assert.match(functionsSource, /syncStudent360ProgressPhoto = student360Trigger\('users\/\{accountUid\}\/progressPhotos\/\{documentId\}'\)/)
+  assert.match(functionsSource, /syncStudent360ProgressCheckIn = student360Trigger\('users\/\{accountUid\}\/progressCheckIns\/\{documentId\}'\)/)
   assert.match(student360Source, /progress_photos`\)\.select\('date', 'createdAt', 'updatedAt'\)/)
 })
 

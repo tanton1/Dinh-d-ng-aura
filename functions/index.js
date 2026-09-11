@@ -410,6 +410,7 @@ exports.syncStudent360BodyMeasurement = student360Trigger('users/{accountUid}/bo
 exports.syncStudent360WeightLog = student360Trigger('users/{accountUid}/weightLogs/{documentId}')
 exports.syncStudent360LegacyProgressPhoto = student360Trigger('users/{accountUid}/progress_photos/{documentId}')
 exports.syncStudent360ProgressPhoto = student360Trigger('users/{accountUid}/progressPhotos/{documentId}')
+exports.syncStudent360ProgressCheckIn = student360Trigger('users/{accountUid}/progressCheckIns/{documentId}')
 exports.reconcileStudent360ProjectionsScheduled = onSchedule({
   schedule: 'every 60 minutes',
   timeZone: 'Asia/Ho_Chi_Minh',
