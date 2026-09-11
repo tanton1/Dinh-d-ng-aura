@@ -9,6 +9,7 @@ import {
   FilePlus2,
   FileText,
   LoaderCircle,
+  MoreHorizontal,
   PauseCircle,
   PlayCircle,
   PlusCircle,
@@ -418,27 +419,29 @@ export default function Student360ContractWorkspace({ studentId, overview, sourc
 
   return <div className="student360-contract-workspace">
     <section className="student360-contract-commandbar">
-      <div><small>TRUNG TÂM NGHIỆP VỤ</small><strong>Thao tác ngay tại Học viên 360</strong><span>Mọi thay đổi được kiểm tra phiên bản, lưu audit và đưa vào CRM Timeline.</span></div>
+      <div><small>Thao tác hợp đồng</small><strong>{selected ? selected.packageName : 'Quản lý quyền lợi học viên'}</strong><span>Thay đổi được lưu vào nhật ký để đối soát.</span></div>
       <div>
-        {selected && workspace.permissions.canViewFinancialAmounts && <button type="button" onClick={() => setInvoiceOpen(true)}><Printer /> Xem / In HĐ</button>}
         {selected && workspace.permissions.canManageContract && <button type="button" onClick={() => openForm('edit')}><FilePenLine /> Chỉnh sửa</button>}
-        {selected && workspace.permissions.canEditFinancialTerms && ['active', 'future', 'frozen'].includes(selected.status) && <button type="button" onClick={openAddSessions}><PlusCircle /> Mua thêm buổi</button>}
-        {selected && workspace.permissions.canManageContract && selected.status !== 'cancelled' && <button type="button" onClick={() => { setNewEndDate(selected.endDate); setReason(''); setExtendOpen(true) }}><CalendarClock /> Gia hạn ngày</button>}
-        {selected && workspace.permissions.canManageContract && selected.status === 'active' && <button type="button" onClick={() => setConfirmation({ action: 'freeze', title: 'Xác nhận bảo lưu', message: 'Học viên sẽ tạm ngừng nhận lịch mới. Quyền lợi và lịch sử vẫn được giữ nguyên.' })}><PauseCircle /> Bảo lưu</button>}
-        {selected && workspace.permissions.canManageContract && selected.status === 'frozen' && <button type="button" onClick={() => setConfirmation({ action: 'reopen', title: 'Mở lại hợp đồng', message: 'Aura sẽ cộng số ngày bảo lưu vào ngày hết hạn và cho phép xếp lịch trở lại.' })}><PlayCircle /> Mở bảo lưu</button>}
-        {selected && workspace.permissions.canManageContract && selected.status !== 'cancelled' && <button type="button" className="is-danger" onClick={() => { setReason(''); setConfirmation({ action: 'cancel', title: 'Hủy hợp đồng', message: 'Hợp đồng sẽ dừng hiệu lực. Công nợ không bị xóa và lịch sử vẫn được giữ.' }) }}><Trash2 /> Hủy HĐ</button>}
         {workspace.permissions.canCreateContract && <button type="button" onClick={() => openForm('create')}><FilePlus2 /> Tạo hợp đồng</button>}
-        {overview.permissions.canViewRenewal && <button type="button" onClick={() => onNavigate(source.startsWith('staff') ? 'staff-renewals' : 'admin-renewals', studentId, workspace.student.name)}><Sparkles /> Tái ký</button>}
+        {selected && <details className="student360-contract-more-actions"><summary><MoreHorizontal /> Thêm</summary><div>
+          {workspace.permissions.canViewFinancialAmounts && <button type="button" onClick={() => setInvoiceOpen(true)}><Printer /> Xem / In hợp đồng</button>}
+          {workspace.permissions.canEditFinancialTerms && ['active', 'future', 'frozen'].includes(selected.status) && <button type="button" onClick={openAddSessions}><PlusCircle /> Mua thêm buổi</button>}
+          {workspace.permissions.canManageContract && selected.status !== 'cancelled' && <button type="button" onClick={() => { setNewEndDate(selected.endDate); setReason(''); setExtendOpen(true) }}><CalendarClock /> Gia hạn ngày</button>}
+          {workspace.permissions.canManageContract && selected.status === 'active' && <button type="button" onClick={() => setConfirmation({ action: 'freeze', title: 'Xác nhận bảo lưu', message: 'Học viên sẽ tạm ngừng nhận lịch mới. Quyền lợi và lịch sử vẫn được giữ nguyên.' })}><PauseCircle /> Bảo lưu</button>}
+          {workspace.permissions.canManageContract && selected.status === 'frozen' && <button type="button" onClick={() => setConfirmation({ action: 'reopen', title: 'Mở lại hợp đồng', message: 'Aura sẽ cộng số ngày bảo lưu vào ngày hết hạn và cho phép xếp lịch trở lại.' })}><PlayCircle /> Mở bảo lưu</button>}
+          {overview.permissions.canViewRenewal && <button type="button" onClick={() => onNavigate(source.startsWith('staff') ? 'staff-renewals' : 'admin-renewals', studentId, workspace.student.name)}><Sparkles /> Mở hồ sơ tái ký</button>}
+          {workspace.permissions.canManageContract && selected.status !== 'cancelled' && <button type="button" className="is-danger" onClick={() => { setReason(''); setConfirmation({ action: 'cancel', title: 'Hủy hợp đồng', message: 'Hợp đồng sẽ dừng hiệu lực. Công nợ không bị xóa và lịch sử vẫn được giữ.' }) }}><Trash2 /> Hủy hợp đồng</button>}
+        </div></details>}
       </div>
     </section>
 
     {workspace.contracts.length > 1 && <section className="student360-contract-history-strip" aria-label="Lịch sử hợp đồng">
-      {workspace.contracts.map((item) => <button type="button" key={item.id} className={selectedId === item.id ? 'active' : ''} aria-current={selectedId === item.id ? 'true' : undefined} title={`${item.packageName} · ${dateLabel(item.startDate)} → ${dateLabel(item.endDate)}`} onClick={() => setSelectedId(item.id)}><span className={`is-${item.status}`}>{statusLabel(item.status)}</span><strong>{item.packageName}</strong><small>#{item.id.slice(-8)} · {item.usage?.usedSessions ?? item.usedSessions}/{item.totalSessions} buổi</small></button>)}
+      {workspace.contracts.map((item) => <button type="button" key={item.id} className={selectedId === item.id ? 'active' : ''} aria-current={selectedId === item.id ? 'true' : undefined} title={`${item.packageName} · ${dateLabel(item.startDate)} → ${dateLabel(item.endDate)}`} onClick={() => setSelectedId(item.id)}><span className={`is-${item.status}`}>{statusLabel(item.status)}</span><strong>{item.packageName}</strong><small>{dateLabel(item.startDate)} → {dateLabel(item.endDate)}</small></button>)}
     </section>}
 
     {!selected ? <div className="student360-contract-workspace-state"><FileText /><strong>Chưa có hợp đồng</strong><span>Tạo hợp đồng đầu tiên ngay tại đây, không cần quay lại hồ sơ cũ.</span>{workspace.permissions.canCreateContract && <button type="button" onClick={() => openForm('create')}>Tạo hợp đồng mới</button>}</div> : <>
       <section className="student360-contract-live-summary">
-        <header><div><span className={`is-${selected.status}`}>{statusLabel(selected.status)}</span><h3>{selected.packageName}</h3><p>Mã {selected.id} · Revision {selected.revision}</p></div><strong>{selectedRemainingSessions}<small>buổi còn lại</small></strong></header>
+        <header><div><span className={`is-${selected.status}`}>{statusLabel(selected.status)}</span><h3>{selected.packageName}</h3><p>{dateLabel(selected.startDate)} → {dateLabel(selected.endDate)}</p></div><strong>{selectedRemainingSessions}<small>buổi còn lại</small></strong></header>
         <div className="student360-contract-facts">
           <div><FileText /><span>Quyền lợi<b>{selectedUsedSessions}/{selected.totalSessions} buổi</b></span></div>
           <div><Clock3 /><span>Hiệu lực<b>{dateLabel(selected.startDate)} → {dateLabel(selected.endDate)}</b></span></div>

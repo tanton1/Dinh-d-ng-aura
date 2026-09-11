@@ -59,3 +59,15 @@ test('Student 360 uses the overflow region and only read calls retain legacy fal
   assert.match(service, /mutateStudent360ContractRegional/)
   assert.doesNotMatch(service, /mutateStudent360ContractRegional[\s\S]{0,400}callReadOnlyFunction/)
 })
+
+test('Student 360 keeps one clear home for schedule, coaching and history data', () => {
+  const root = process.cwd()
+  const page = readFileSync(join(root, 'src', 'features', 'student-360', 'Student360Page.tsx'), 'utf8')
+  assert.match(page, /id: 'more', label: 'Lịch'/)
+  assert.match(page, /id: 'coaching', label: 'Chuyên môn'/)
+  assert.match(page, /id: 'activity', label: 'Nhật ký'/)
+  assert.match(page, /Lịch rảnh đang áp dụng/)
+  assert.match(page, /Mục tiêu hiện tại/)
+  assert.doesNotMatch(page, /Kế hoạch chăm sóc/)
+  assert.doesNotMatch(page, /label: 'Thêm'/)
+})
