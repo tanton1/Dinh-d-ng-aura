@@ -110,6 +110,92 @@ function documentId(value, label = 'Mã học viên') {
   return normalized
 }
 
+const PROGRESS_MEASUREMENT_LIMITS = {
+  weightKg: [25, 300],
+  bodyFatPercentage: [2, 70],
+  muscleMassKg: [5, 150],
+  waistCm: [30, 200],
+  hipsCm: [40, 220],
+  thighCm: [20, 120],
+  armCm: [10, 80],
+  chestCm: [40, 220],
+}
+
+function normalizeProgressCheckInInput(value = {}) {
+  const input = value && typeof value === 'object' ? value : {}
+  const id = bounded(input.id || input.checkInId, 120)
+  if (!/^[A-Za-z0-9_-]{8,120}$/.test(id)) throw new HttpsError('invalid-argument', 'Mã lần ghi nhận không hợp lệ.')
+  const date = bounded(input.date, 10)
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || date > vietnamDateKey()) {
+    throw new HttpsError('invalid-argument', 'Ngày ghi nhận không hợp lệ hoặc đang ở tương lai.')
+  }
+  const measurements = {}
+  for (const [key, [minimum, maximum]] of Object.entries(PROGRESS_MEASUREMENT_LIMITS)) {
+    if (input[key] === undefined || input[key] === null || input[key] === '') continue
+    const number = Number(String(input[key]).replace(',', '.'))
+    if (!Number.isFinite(number) || number < minimum || number > maximum) {
+      throw new HttpsError('invalid-argument', `${key} cần nằm trong khoảng ${minimum}–${maximum}.`)
+    }
+    measurements[key] = Number(number.toFixed(1))
+  }
+  const photosProvided = Array.isArray(input.photos)
+  if (photosProvided && input.photos.length > 4) throw new HttpsError('invalid-argument', 'Mỗi lần ghi nhận hỗ trợ tối đa 4 góc ảnh.')
+  const photos = photosProvided ? input.photos.slice(0, 4).map((photo, index) => {
+    const item = photo && typeof photo === 'object' ? photo : {}
+    const photoId = bounded(item.id, 120)
+    const angle = bounded(item.angle, 20)
+    if (!/^[A-Za-z0-9_-]{8,120}$/.test(photoId)) throw new HttpsError('invalid-argument', `Mã ảnh thứ ${index + 1} không hợp lệ.`)
+    if (!['front', 'back', 'left', 'right'].includes(angle)) throw new HttpsError('invalid-argument', 'Góc ảnh tiến độ không hợp lệ.')
+    const imageUrl = typeof (item.imageUrl || item.url) === 'string' ? String(item.imageUrl || item.url).trim() : ''
+    // The browser resizes photos before encoding them. Keep a generous per
+    // image ceiling while rejecting silently truncated callable payloads.
+    if (imageUrl.length > 1_500_000) throw new HttpsError('invalid-argument', 'Ảnh tiến độ sau khi tối ưu vẫn quá lớn. Hãy chọn ảnh khác.')
+    if (!imageUrl.startsWith('data:image/')) throw new HttpsError('invalid-argument', 'Ảnh nhân sự cập nhật phải được chọn từ thiết bị.')
+    return { id: photoId, angle, imageUrl }
+  }) : null
+  if (photos && new Set(photos.map((photo) => photo.angle)).size !== photos.length) {
+    throw new HttpsError('invalid-argument', 'Mỗi góc ảnh chỉ được ghi nhận một lần.')
+  }
+  if (!Object.keys(measurements).length && !photos?.length) {
+    throw new HttpsError('invalid-argument', 'Hãy thêm ít nhất một ảnh hoặc một chỉ số trước khi lưu.')
+  }
+  const measurementNote = bounded(input.measurementNote || input.note, 240)
+  return { id, date, measurements, measurementNote, photos, photosProvided }
+}
+
+function decodeProgressPhotoDataUrl(value) {
+  const match = String(value || '').match(/^data:(image\/(?:jpeg|jpg|png|webp));base64,([A-Za-z0-9+/=]+)$/i)
+  if (!match) throw new HttpsError('invalid-argument', 'Ảnh tiến độ không đúng định dạng JPG, PNG hoặc WebP.')
+  const contentType = match[1].toLowerCase() === 'image/jpg' ? 'image/jpeg' : match[1].toLowerCase()
+  const buffer = Buffer.from(match[2], 'base64')
+  if (!buffer.length || buffer.length > 10 * 1024 * 1024) throw new HttpsError('invalid-argument', 'Ảnh tiến độ phải nhỏ hơn 10MB sau khi tối ưu.')
+  return { buffer, contentType }
+}
+
+async function persistProgressPhotoForStaff(storage, accountUid, photo, checkInId, actor) {
+  if (!storage) throw new HttpsError('failed-precondition', 'Kho ảnh tiến độ chưa sẵn sàng.')
+  const { buffer, contentType } = decodeProgressPhotoDataUrl(photo.imageUrl)
+  const checksum = createHash('sha256').update(buffer).digest('hex')
+  const extension = contentType === 'image/png' ? 'png' : contentType === 'image/webp' ? 'webp' : 'jpg'
+  const storagePath = `users/${accountUid}/progress-photos/${photo.id}-${checksum.slice(0, 16)}.${extension}`
+  const file = storage.bucket().file(storagePath)
+  await file.save(buffer, {
+    resumable: false,
+    metadata: {
+      contentType,
+      metadata: {
+        ownerUid: accountUid,
+        resourceKind: 'progress-photo',
+        uploadedBy: actor.uid,
+        checkInId,
+        angle: photo.angle,
+        checksum,
+      },
+    },
+  })
+  return { id: photo.id, angle: photo.angle, imageUrl: '', storagePath, checksum }
+}
+
 function sessionDate(session = {}) {
   return bounded(session.date || session.sessionDate || session.occurredDate, 10)
 }
@@ -1171,6 +1257,7 @@ function sourceTimelineEvents(studentId, sources) {
         ...(entry.checkInId ? { checkInId: entry.checkInId, photoCount: images.length } : {}),
         ...(metric?.id ? { metricId: metric.id } : {}),
         ...(photo?.id ? { progressPhotoId: photo.id } : {}),
+        ...(photo?.recordedByName ? { recordedByName: bounded(photo.recordedByName, 160), recordedBy: bounded(photo.recordedBy, 200), verificationStatus: bounded(photo.verificationStatus, 40) } : {}),
       },
       canonical ? 'progressCheckIns' : metric ? 'bodyMetrics' : 'progressPhotos',
     ))
@@ -1460,6 +1547,10 @@ function permissionsFor(actor, projection) {
     canViewNutrition: admin || assignedTrainer || assignedCoach,
     canViewProgress: admin || assignedTrainer || assignedCoach,
     canViewProgressPhotos: admin || assignedTrainer || assignedCoach,
+    // Progress check-ins may be recorded by the branch manager or the
+    // assigned coaching team. The write still goes through the callable so
+    // Staff never needs broad Firestore/Storage write rules.
+    canManageProgress: admin || manager || assignedTrainer || assignedCoach,
     canViewFinancialStatus: true,
     canViewFinancialAmounts,
     canViewRenewal: admin || manager || assignedSales || actor.capabilities.includes('renewals.case.assigned_student.support'),
@@ -1815,6 +1906,127 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
     const studentId = documentId(request.data?.studentId)
     const { projection, permissions } = await loadAuthorizedProjection(db, actor, studentId, mondayDateKey(), false)
     return contractWorkspace(actor, studentId, projection, permissions)
+  })
+
+  const saveStudent360ProgressCheckIn = writeCall(async (request) => {
+    const actor = await trustedAccessContext(request, db)
+    const studentId = documentId(request.data?.studentId)
+    const rawCheckIn = request.data?.checkIn && typeof request.data.checkIn === 'object'
+      ? request.data.checkIn
+      : request.data
+    const input = normalizeProgressCheckInInput(rawCheckIn)
+    const { projection, permissions } = await loadAuthorizedProjection(db, actor, studentId, mondayDateKey(), false)
+    if (!permissions.canManageProgress) {
+      throw new HttpsError('permission-denied', 'Bạn chưa được cấp quyền cập nhật tiến độ của học viên này.')
+    }
+    const accountUid = bounded(projection.accountUid, 200)
+    if (!accountUid || accountUid.includes('/')) {
+      throw new HttpsError('failed-precondition', 'Học viên chưa liên kết tài khoản Aura để lưu tiến độ.')
+    }
+
+    const checkInReference = db.doc(`users/${accountUid}/progressCheckIns/${input.id}`)
+    const existingCheckIn = await checkInReference.get()
+    const uploadedPaths = []
+    const source = ['admin', 'super_admin'].includes(actor.accessRole) ? 'admin' : 'trainer'
+    try {
+      let canonicalPhotos = null
+      if (input.photosProvided) {
+        canonicalPhotos = await Promise.all(input.photos.map(async (photo) => {
+          const persisted = await persistProgressPhotoForStaff(storage, accountUid, photo, input.id, actor)
+          uploadedPaths.push(persisted.storagePath)
+          return persisted
+        }))
+      }
+
+      const measuredValues = {
+        checkInId: input.id,
+        date: input.date,
+        ...input.measurements,
+        ...(input.measurementNote ? { measurementNote: input.measurementNote } : {}),
+        ...(input.measurements.bodyFatPercentage !== undefined ? { bodyFatStatus: 'Đã cập nhật' } : {}),
+        ...(input.measurements.muscleMassKg !== undefined ? { muscleStatus: 'Đã cập nhật' } : {}),
+        ...(input.measurements.waistCm !== undefined ? { waistStatus: 'Đã cập nhật' } : {}),
+        updatedAt: FieldValue.serverTimestamp(),
+        syncedAt: FieldValue.serverTimestamp(),
+        schemaVersion: 2,
+      }
+      const auditFields = {
+        source,
+        verificationStatus: 'verified',
+        recordedBy: actor.uid,
+        recordedByName: actor.actorName,
+        updatedBy: actor.uid,
+        updatedByName: actor.actorName,
+      }
+      const checkInData = {
+        ...measuredValues,
+        ...auditFields,
+        id: input.id,
+        checkInId: input.id,
+        date: input.date,
+        ...(canonicalPhotos ? { photos: canonicalPhotos.map(({ id, angle, storagePath, checksum }) => ({ id, angle, storagePath, checksum, imageUrl: '' })) } : {}),
+        ...(existingCheckIn.exists && existingCheckIn.data()?.createdAt ? { createdAt: existingCheckIn.data().createdAt } : { createdAt: FieldValue.serverTimestamp() }),
+        updatedAt: FieldValue.serverTimestamp(),
+        schemaVersion: 2,
+      }
+      const batch = db.batch()
+      batch.set(checkInReference, checkInData, { merge: true })
+      const hasMeasurements = Object.keys(input.measurements).length > 0
+      if (hasMeasurements) {
+        batch.set(db.doc(`users/${accountUid}/bodyMeasurements/current`), measuredValues, { merge: true })
+        batch.set(db.doc(`users/${accountUid}/bodyMeasurements/${input.id}`), {
+          ...measuredValues,
+          ...auditFields,
+          createdAt: FieldValue.serverTimestamp(),
+        }, { merge: true })
+      }
+      if (input.measurements.weightKg !== undefined) {
+        batch.set(db.doc(`users/${accountUid}/weightLogs/${input.id}`), {
+          id: input.id,
+          checkInId: input.id,
+          date: input.date,
+          label: input.date.slice(5).split('-').reverse().join('/'),
+          weightKg: input.measurements.weightKg,
+          trendKg: input.measurements.weightKg,
+          ...(input.measurementNote ? { note: input.measurementNote } : {}),
+          ...auditFields,
+          createdAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
+          schemaVersion: 2,
+        }, { merge: true })
+      }
+      if (canonicalPhotos) {
+        canonicalPhotos.forEach((photo) => {
+          batch.set(db.doc(`users/${accountUid}/progressPhotos/${photo.id}`), {
+            id: photo.id,
+            checkInId: input.id,
+            date: input.date,
+            recordedAt: input.date,
+            angle: photo.angle,
+            imageUrl: '',
+            storagePath: photo.storagePath,
+            checksum: photo.checksum,
+            images: [{ storagePath: photo.storagePath, checksum: photo.checksum, angle: photo.angle }],
+            ...input.measurements,
+            ...(input.measurements.bodyFatPercentage !== undefined ? { bodyFat: input.measurements.bodyFatPercentage } : {}),
+            ...(input.measurementNote ? { notes: input.measurementNote, note: input.measurementNote } : {}),
+            privacy: 'private',
+            isPrivate: true,
+            ...auditFields,
+            createdAt: FieldValue.serverTimestamp(),
+            updatedAt: FieldValue.serverTimestamp(),
+            schemaVersion: 3,
+          }, { merge: true })
+        })
+      }
+      await batch.commit()
+      return { studentId, accountUid, checkInId: input.id, source, verificationStatus: 'verified' }
+    } catch (error) {
+      if (uploadedPaths.length && storage) {
+        await Promise.allSettled(uploadedPaths.map((path) => storage.bucket().file(path).delete({ ignoreNotFound: true })))
+      }
+      throw error
+    }
   })
 
   const mutateStudent360Contract = writeCall(async (request) => {
@@ -2377,7 +2589,7 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
     return { studentId, generatedAt: projection.generatedAt, dataQuality: projection.dataQuality }
   })
 
-  return { getStudent360Overview, listStudent360Directory, listStudent360Timeline, getStudent360NutritionActivityDetail, createStudentCareActivity, getStudent360ProgressPhotos, refreshStudent360Projection, getStudent360ContractWorkspace, mutateStudent360Contract }
+  return { getStudent360Overview, listStudent360Directory, listStudent360Timeline, getStudent360NutritionActivityDetail, createStudentCareActivity, getStudent360ProgressPhotos, saveStudent360ProgressCheckIn, refreshStudent360Projection, getStudent360ContractWorkspace, mutateStudent360Contract }
 }
 
 module.exports = {
@@ -2410,4 +2622,6 @@ module.exports = {
   syncStudent360ProjectionFromEvent,
   timelineCursor,
   vietnamDateKey,
+  normalizeProgressCheckInInput,
+  decodeProgressPhotoDataUrl,
 }

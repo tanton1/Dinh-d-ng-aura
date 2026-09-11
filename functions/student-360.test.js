@@ -20,6 +20,8 @@ const {
   uniqueProgressDocuments,
   uniqueProgressPhotos,
   timelineCursor,
+  normalizeProgressCheckInInput,
+  decodeProgressPhotoDataUrl,
 } = require('./student-360')
 
 test('CRM timeline treats an omitted first-page cursor as the newest boundary', () => {
@@ -462,6 +464,28 @@ test('assigned trainer receives coaching data and payment status without amounts
   const redacted = redactProjection(projection(), permissions)
   assert.deepEqual(redacted.contract.payment, { status: 'overdue', nextPaymentDate: '2026-09-01' })
   assert.equal(redacted.alerts[0].message.includes('5.000.000'), false)
+})
+
+test('progress updates are scoped to coaching staff and validate the staff payload', () => {
+  const permissions = permissionsFor({
+    uid: 'manager-1', legacyStaffId: 'manager-1', accessRole: 'staff', branchIds: ['branch-1'],
+    capabilities: ['branch.operations.view'],
+  }, projection())
+  assert.equal(permissions.canManageProgress, true)
+  const input = normalizeProgressCheckInInput({
+    id: 'checkin-staff-1', date: '2026-09-09', weightKg: '59,8', measurementNote: 'Đo buổi sáng', photos: [],
+  })
+  assert.equal(input.measurements.weightKg, 59.8)
+  assert.equal(input.photosProvided, true)
+  assert.throws(() => normalizeProgressCheckInInput({ id: 'checkin-staff-2', date: '2026-09-09', photos: [{ id: 'photo-123', angle: 'front', imageUrl: 'https://example.com/a.jpg' }] }), /nhân sự cập nhật/)
+  assert.equal(decodeProgressPhotoDataUrl('data:image/jpeg;base64,aGVsbG8=').contentType, 'image/jpeg')
+})
+
+test('Student 360 exposes a callable-only progress mutation for Admin and Staff', () => {
+  const source = require('node:fs').readFileSync(require('node:path').join(__dirname, 'student-360.js'), 'utf8')
+  assert.match(source, /const saveStudent360ProgressCheckIn = writeCall\(/)
+  assert.match(source, /canManageProgress/)
+  assert.match(require('node:fs').readFileSync(require('node:path').join(__dirname, 'index.js'), 'utf8'), /saveStudent360ProgressCheckInRegional/)
 })
 
 test('sales receives care, renewal and payment status without operational or coaching detail', () => {

@@ -40,7 +40,7 @@ import type {
 } from './types'
 import { flattenCourseLessons, getInitialDemoCompletedLessonIds } from './utils/courseContent'
 import ChunkErrorBoundary, { lazyWithRetry } from './components/ChunkErrorBoundary'
-import { adminViewPermissions, adminViews, canonicalRouteHash, eatCleanRouteHash, getCurrentRoute, isSameRoute, resolveSupportedView, routeHash, student360RouteHash, type AuraRoute, type Student360Source } from './routing/appRouting'
+import { adminViewPermissions, adminViews, canonicalRouteHash, eatCleanRouteHash, getCurrentRoute, isSameRoute, progressPhotoStudioRouteHash, resolveSupportedView, routeHash, student360RouteHash, type AuraRoute, type Student360Source } from './routing/appRouting'
 import { hasRouteCapability, type StaffPosition } from './identity/access'
 import { toCourseDraft } from './utils/courseDraft'
 import { DatabaseProvider } from './contexts/DatabaseContext'
@@ -469,7 +469,28 @@ function AuraApplication() {
   }
   const navigateStaffStudent = (next: ViewId, studentId?: string, studentName?: string) => {
     if (next === 'student-360' && studentId) {
-      openStudent360(studentId, 'staff-students', studentName)
+      openStudent360(studentId, route.source || 'staff-students', studentName)
+      return
+    }
+    if (next === 'progress-photo-studio' && studentId) {
+      const source = route.source || 'staff-students'
+      const nextRoute: AuraRoute = {
+        view: 'progress-photo-studio',
+        courseId: null,
+        lessonId: null,
+        studentId,
+        source,
+        eatCleanScreen: 'store',
+        mealId: null,
+        orderId: null,
+        loyaltyTab: 'rewards',
+      }
+      setStaffStudentFocus({ id: studentId, name: studentName || '' })
+      routeRef.current = nextRoute
+      setRoute(nextRoute)
+      const nextHash = progressPhotoStudioRouteHash(studentId, source)
+      if (window.location.hash !== nextHash) window.location.hash = nextHash
+      window.scrollTo({ top: 0, behavior: 'smooth' })
       return
     }
     setStaffStudentFocus(studentId ? { id: studentId, name: studentName || '' } : null)
@@ -912,7 +933,20 @@ function AuraApplication() {
           }}
         />
       }
-      case 'progress-photo-studio': return <ProgressPhotoStudio onNavigate={navigate} ownerId={backendMode === 'firebase' ? (user?.uid ?? 'anonymous') : 'demo'} />
+      case 'progress-photo-studio': {
+        const internalActor = backendMode === 'demo'
+          || accessContext?.accessRole === 'staff'
+          || accessContext?.accessRole === 'admin'
+          || accessContext?.accessRole === 'super_admin'
+          || ['coach', 'trainer', 'manager', 'admin', 'super_admin'].includes(role)
+        const staffEditor = backendMode === 'firebase' && internalActor && Boolean(route.studentId)
+        return <ProgressPhotoStudio
+          onNavigate={staffEditor ? navigateStaffStudent : navigate}
+          ownerId={backendMode === 'firebase' ? (user?.uid ?? 'anonymous') : 'demo'}
+          targetStudentId={staffEditor ? route.studentId : null}
+          targetStudentName={staffEditor ? staffStudentFocus?.name : undefined}
+        />
+      }
       case 'progress': return <ProgressPage ownerId={backendMode === 'firebase' ? (user?.uid ?? 'anonymous') : 'demo'} courseItems={studentCourses} progressItems={backendMode === 'firebase' ? learningData.progress : Array.from(demoProgressByCourseId.values())} loading={studentCourseData.loading || learningData.loading} error={studentCourseData.error || learningData.error} onOpenCourse={openCourse} onNavigate={navigate} weightKg={effectiveWeight} targetWeightDeltaKg={effectiveTargetWeightDeltaKg} targetTimeframeMonths={effectiveTargetTimeframeMonths} heightCm={effectiveHeight} nutritionProfile={effectiveNutritionProfile} />
       case 'student-360': {
         const source = route.source || (canAccessAdmin ? 'admin-pt-students' : 'staff-students')

@@ -202,6 +202,11 @@ export function student360RouteHash(studentId: string, source: Student360Source)
   return `#/student-360?${params.toString()}`
 }
 
+export function progressPhotoStudioRouteHash(studentId: string, source: Student360Source) {
+  const params = new URLSearchParams({ studentId, source })
+  return `#/progress-photo-studio?${params.toString()}`
+}
+
 export function eatCleanRouteHash(
   screen: AuraRoute['eatCleanScreen'] = 'store',
   resourceId?: string | null,
