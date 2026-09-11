@@ -69,6 +69,26 @@ function api(db, actor = adminActor) {
   })
 }
 
+test('list quotes uses a quota-safe public callable configuration', () => {
+  const calls = []
+  createQuoteManagementFunctions({
+    db: memoryDb(),
+    onCall: (...args) => {
+      calls.push(args)
+      return args.at(-1)
+    },
+    accessContextResolver: async () => adminActor,
+  })
+  assert.deepEqual(calls[0][0], {
+    cpu: 'gcf_gen1',
+    concurrency: 1,
+    maxInstances: 1,
+    invoker: 'public',
+  })
+  assert.equal(typeof calls[0][1], 'function')
+  assert.equal(calls.slice(1).every((args) => args.length === 1), true)
+})
+
 function seedCatalog(extra = {}) {
   return {
     'branches/branch-a': { name: 'Aura A', status: 'active' },

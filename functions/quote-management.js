@@ -491,7 +491,11 @@ async function acceptSalesQuoteCommand({ db, actor, data, correlationId }) {
 }
 
 function createQuoteManagementFunctions({ db, onCall, accessContextResolver = trustedAccessContext }) {
-  const listSalesQuotes = onCall(withFunctionTelemetry('listSalesQuotes', async (request) => {
+  // Directory reads are Firestore-bound and do not benefit from a full CPU.
+  // Keep this endpoint publicly invokable for Firebase callable auth, while
+  // bounding cold starts independently from the quote mutation endpoints.
+  const quoteReadOptions = { cpu: 'gcf_gen1', concurrency: 1, maxInstances: 1, invoker: 'public' }
+  const listSalesQuotes = onCall(quoteReadOptions, withFunctionTelemetry('listSalesQuotes', async (request) => {
     const actor = await accessContextResolver(request, db)
     return listSalesQuotesQuery({ db, actor, data: request.data || {} })
   }))

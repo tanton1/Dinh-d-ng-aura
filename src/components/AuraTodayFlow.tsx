@@ -100,7 +100,7 @@ export default function AuraTodayFlow({
   const scheduleCard = scheduleState === 'loading'
     ? { value: '…', unit: 'đang tải lịch PT', detail: 'Aura đang đồng bộ các buổi đã được xếp.', progress: 0, progressLabel: 'Đang đồng bộ lịch PT' }
     : scheduleState === 'unlinked'
-      ? { value: 'Chưa nối', unit: 'hồ sơ lịch PT', detail: 'Mở lịch để kiểm tra liên kết tài khoản.', progress: 0, progressLabel: 'Hồ sơ lịch PT chưa liên kết' }
+      ? { value: 'Chưa liên kết', unit: 'hồ sơ học viên', detail: 'Tài khoản này chưa được liên kết với hồ sơ học viên. Lịch PT chưa áp dụng.', progress: 0, progressLabel: 'Chưa liên kết hồ sơ học viên' }
       : scheduleState === 'unavailable'
         ? { value: 'Tạm lỗi', unit: 'đồng bộ lịch PT', detail: 'Chạm để mở lịch và thử tải lại.', progress: 0, progressLabel: 'Chưa đồng bộ được lịch PT' }
         : todaySessionCount > 0

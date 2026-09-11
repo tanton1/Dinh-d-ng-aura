@@ -5506,7 +5506,12 @@ exports.savePtWorkoutLog = onCall(async (request) => {
 })
 
 /** Lists only PT-domain client data for a coach/admin, never Academy progress. */
-exports.listPtClients = onCall(async (request) => {
+exports.listPtClients = onCall({
+  cpu: 'gcf_gen1',
+  concurrency: 1,
+  maxInstances: 1,
+  invoker: 'public',
+}, async (request) => {
   const actorId = requireCaller(request)
   const actorSnapshot = await db.doc(`users/${actorId}`).get()
   const actor = actorSnapshot.data()

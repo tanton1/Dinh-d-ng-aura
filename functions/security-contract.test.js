@@ -460,11 +460,22 @@ test('admin quotes use scoped revisioned callables and never create contracts in
   assert.match(quoteManagementSource, /requireCapability\(actor, QUOTE_CAPABILITY\)/)
   assert.match(quoteManagementSource, /quoteCommandReceipts/)
   assert.match(quoteManagementSource, /contractApprovals/)
+  assert.match(quoteManagementSource, /quoteReadOptions = \{ cpu: 'gcf_gen1', concurrency: 1, maxInstances: 1, invoker: 'public' \}/)
+  assert.match(quoteManagementSource, /listSalesQuotes = onCall\(quoteReadOptions/)
   assert.doesNotMatch(quoteManagementSource, /transaction\.delete|\.delete\(\)/)
   assert.match(functionsSource, /exports\.listSalesQuotes = quoteManagementFunctions\.listSalesQuotes/)
   assert.match(functionsSource, /exports\.createSalesQuote = quoteManagementFunctions\.createSalesQuote/)
   assert.match(functionsSource, /exports\.archiveSalesQuote = quoteManagementFunctions\.archiveSalesQuote/)
   assert.match(functionsSource, /exports\.acceptSalesQuote = quoteManagementFunctions\.acceptSalesQuote/)
+})
+
+test('PT client directory uses a quota-safe public callable configuration', () => {
+  const listPtClientsBlock = functionsSource.match(/exports\.listPtClients = onCall\([\s\S]*?const ptScheduleEventTypes/)?.[0] ?? ''
+  assert.match(listPtClientsBlock, /cpu: 'gcf_gen1'/)
+  assert.match(listPtClientsBlock, /concurrency: 1/)
+  assert.match(listPtClientsBlock, /maxInstances: 1/)
+  assert.match(listPtClientsBlock, /invoker: 'public'/)
+  assert.match(listPtClientsBlock, /requireCaller\(request\)/)
 })
 
 test('schedule configuration is revisioned, audited and callable-only', () => {
