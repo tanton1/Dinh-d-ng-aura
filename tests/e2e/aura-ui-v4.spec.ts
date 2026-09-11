@@ -333,7 +333,7 @@ test(`Student 360 V4 stays immersive and defers timeline at ${width}px`, async (
 
   await expect(page.getByRole('heading', { name: 'Nguyễn Minh Anh' })).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Cần xử lý' })).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'Sức khỏe hành trình' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Tình trạng chăm sóc' })).toBeVisible()
   await expect(page.locator('.student360-timeline')).toHaveCount(0)
   await expect(page.locator('.mobile-bottom-nav')).toHaveCount(0)
   await expect(page.getByRole('region', { name: 'Chỉ số nhanh' }).locator('.student360-metric')).toHaveCount(4)

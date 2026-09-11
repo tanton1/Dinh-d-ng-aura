@@ -13,7 +13,7 @@ for (const width of [360, 390, 430]) {
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
 
     await localNavigation.getByRole('button', { name: 'Hợp đồng' }).click()
-    await expect(page.getByRole('heading', { name: 'Hợp đồng và quyền lợi' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Quyền lợi & thanh toán' })).toBeVisible()
     const contractSummary = page.locator('.student360-contract-live-summary')
     await expect(contractSummary).toBeVisible()
     const dockBox = await localNavigation.boundingBox()
@@ -28,15 +28,16 @@ test('Student 360 lazily loads heavy tabs in demo without a runtime failure', as
   const pageErrors: string[] = []
   page.on('pageerror', (error) => pageErrors.push(error.message))
   await page.goto('/#/student-360?studentId=student-demo&source=admin-pt-students')
-  await page.getByRole('button', { name: 'Hoạt động', exact: true }).first().click()
-  await expect(page.getByRole('heading', { name: 'Toàn bộ hoạt động' })).toBeVisible()
-  await page.getByRole('button', { name: 'Huấn luyện', exact: true }).first().click()
-  await expect(page.getByRole('heading', { name: 'Huấn luyện & tiến độ' })).toBeVisible()
+  await page.getByRole('button', { name: 'Nhật ký', exact: true }).first().click()
+  await expect(page.getByRole('heading', { name: 'Lịch sử học viên' })).toBeVisible()
+  await page.getByRole('button', { name: 'Chuyên môn', exact: true }).first().click()
+  await expect(page.getByRole('heading', { name: 'Huấn luyện & sức khỏe' })).toBeVisible()
   await page.getByRole('button', { name: 'Hợp đồng', exact: true }).first().click()
-  await expect(page.getByText('Thao tác ngay tại Học viên 360')).toBeVisible()
+  await expect(page.getByText('Thay đổi được lưu vào nhật ký để đối soát.')).toBeVisible()
   await page.getByRole('button', { name: /Chỉnh sửa/ }).click()
   await expect(page.getByRole('heading', { name: 'Chỉnh sửa hợp đồng' })).toBeVisible()
   await page.getByRole('button', { name: 'Hủy', exact: true }).click()
+  await page.getByText('Thêm', { exact: true }).click()
   await page.getByRole('button', { name: /Mua thêm buổi/ }).click()
   await expect(page.getByRole('heading', { name: 'Mua thêm buổi' })).toBeVisible()
   await expect(page.getByText('Aura tạo khoản phải thu riêng')).toBeVisible()
@@ -47,7 +48,7 @@ test('Student 360 lazily loads heavy tabs in demo without a runtime failure', as
 test('Student 360 opens nutrition evidence in place without leaving the activity timeline', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto('/#/student-360?studentId=student-demo&source=staff-students')
-  await page.getByRole('button', { name: 'Hoạt động', exact: true }).first().click()
+  await page.getByRole('button', { name: 'Nhật ký', exact: true }).first().click()
   await page.getByRole('button', { name: 'Xem chi tiết', exact: true }).click()
 
   const dialog = page.getByRole('dialog', { name: 'Chi tiết bữa ăn' })
@@ -57,5 +58,5 @@ test('Student 360 opens nutrition evidence in place without leaving the activity
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
 
   await dialog.getByRole('button', { name: 'Đóng', exact: true }).first().click()
-  await expect(page.getByRole('heading', { name: 'Toàn bộ hoạt động' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Lịch sử học viên' })).toBeVisible()
 })

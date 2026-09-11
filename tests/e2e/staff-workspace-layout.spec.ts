@@ -96,17 +96,17 @@ test('staff dock prioritizes work modules and schedule tools share one weekly wo
   const studentDetail = page.getByRole('main')
   const studentTabs = page.getByRole('navigation', { name: 'Nội dung Học viên 360 trên điện thoại' })
   await expect(studentTabs.getByRole('button')).toHaveCount(5)
-  await expect(studentDetail.getByText('Lịch tuần này')).toBeVisible()
+  await expect(studentDetail.getByText('Lịch tuần', { exact: true })).toBeVisible()
 
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
   expect(overflow).toBeLessThanOrEqual(1)
 
-  await studentTabs.getByRole('button', { name: 'Hoạt động' }).click()
-  await expect(studentDetail.getByRole('heading', { name: 'Toàn bộ hoạt động' })).toBeVisible()
+  await studentTabs.getByRole('button', { name: 'Nhật ký' }).click()
+  await expect(studentDetail.getByRole('heading', { name: 'Lịch sử học viên' })).toBeVisible()
   await expect(studentDetail.getByText(/Firebase Functions chưa/)).toHaveCount(0)
 
-  await studentTabs.getByRole('button', { name: 'Huấn luyện' }).click()
-  await expect(studentDetail.getByRole('heading', { name: 'Huấn luyện & tiến độ' })).toBeVisible()
+  await studentTabs.getByRole('button', { name: 'Chuyên môn' }).click()
+  await expect(studentDetail.getByRole('heading', { name: 'Huấn luyện & sức khỏe' })).toBeVisible()
   await studentDetail.locator('.student360-program-days summary').first().click()
   await expect(studentDetail.getByText('Hip Thrust')).toBeVisible()
 

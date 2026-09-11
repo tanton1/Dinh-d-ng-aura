@@ -123,8 +123,8 @@ test('Student 360 replaces the legacy detail with four metrics and five focused 
   await expect(tabs).toBeVisible()
   await expect(tabs.getByRole('button')).toHaveCount(5)
   await expect(page.locator('.mobile-bottom-nav')).toHaveCount(0)
-  await tabs.getByRole('button', { name: 'Hoạt động' }).click()
-  await expect(page.getByRole('heading', { name: 'Toàn bộ hoạt động' })).toBeVisible()
+  await tabs.getByRole('button', { name: 'Nhật ký' }).click()
+  await expect(page.getByRole('heading', { name: 'Lịch sử học viên' })).toBeVisible()
 })
 
 test('Student 360 activity timeline keeps filters compact and remains mobile-safe', async ({ page }) => {
@@ -133,13 +133,13 @@ test('Student 360 activity timeline keeps filters compact and remains mobile-saf
   const studentCard = page.locator('.student-management__card').first()
   await expect(studentCard).toBeVisible()
   await studentCard.getByRole('button', { name: /Mở Học viên 360/i }).click()
-  await page.getByRole('navigation', { name: 'Nội dung Học viên 360 trên điện thoại' }).getByRole('button', { name: 'Hoạt động' }).click()
+  await page.getByRole('navigation', { name: 'Nội dung Học viên 360 trên điện thoại' }).getByRole('button', { name: 'Nhật ký' }).click()
 
   const activity = page.locator('.student360-section')
-  await expect(activity.getByRole('heading', { name: 'Toàn bộ hoạt động' })).toBeVisible()
+  await expect(activity.getByRole('heading', { name: 'Lịch sử học viên' })).toBeVisible()
   const typeFilters = activity.locator('.student360-filter-chips').first()
-  await expect(typeFilters.getByRole('button')).toHaveCount(9)
-  await typeFilters.getByRole('button', { name: 'Buổi tập' }).click()
+  await expect(typeFilters.getByRole('button')).toHaveCount(5)
+  await typeFilters.getByRole('button', { name: 'Tập luyện' }).click()
   await expect(activity.locator('.student360-timeline')).toBeVisible()
 
   const dimensions = await page.evaluate(() => ({

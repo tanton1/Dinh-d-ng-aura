@@ -57,3 +57,233 @@
 .student360-progress-extra{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:7px;margin-top:9px}.student360-progress-extra>span{display:grid;gap:3px;border-radius:11px;background:#faf6f8;padding:9px}.student360-progress-extra small{color:#897982;font-size:8px}.student360-progress-extra strong{color:#3a2c34;font-size:10px;font-weight:750}
 .student360-progress-media-block{display:grid;gap:10px;margin-top:15px;border-top:1px solid #f0e3e8;padding-top:14px}.student360-progress-media-heading{display:flex;align-items:end;justify-content:space-between;gap:12px}.student360-progress-media-heading strong{font-size:10px}.student360-progress-media-heading small{color:#897982;font-size:8px;text-align:right}
 @media(max-width:680px){.student360-progress-extra{grid-template-columns:repeat(2,minmax(0,1fr))}.student360-progress-extra>span:last-child{grid-column:1/-1}}
+
+/* Student 360 information architecture: calm Aura canvas, one primary home for
+   each data group, and borderless reading on small screens. */
+.student360-page.student360-page--v4 {
+  --s360-canvas: #fff9fb;
+  --s360-line: #f0e5e9;
+  background: #fff9fb;
+  color: #2b2027;
+}
+
+.student360-page--v4 .student360-header,
+.student360-page--v4 .student360-tabs--desktop {
+  border-color: #f0e5e9;
+  background: rgb(255 255 255 / 94%);
+  box-shadow: none;
+}
+
+.student360-page--v4 .student360-identity small,
+.student360-page--v4 .student360-section-heading small,
+.student360-page--v4 .student360-metric > span {
+  text-transform: none;
+  letter-spacing: .02em;
+  font-weight: 700;
+}
+
+.student360-page--v4 .student360-status-row {
+  position: relative;
+  gap: 10px;
+  background: transparent;
+}
+
+.student360-profile-summary { position: relative; }
+.student360-profile-summary > summary {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  border-radius: 999px;
+  background: #f7f1f4;
+  padding: 5px 9px;
+  color: #6f6269;
+  cursor: pointer;
+  list-style: none;
+}
+.student360-profile-summary > summary::-webkit-details-marker { display: none; }
+.student360-profile-summary > summary svg { width: 13px; transition: transform .18s ease; }
+.student360-profile-summary[open] > summary svg { transform: rotate(180deg); }
+.student360-profile-summary > dl {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 50;
+  display: grid;
+  width: min(390px, calc(100vw - 24px));
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid #eadde2;
+  border-radius: 16px;
+  background: #fff;
+  padding: 8px 14px;
+  box-shadow: 0 18px 50px rgb(53 30 42 / 14%);
+}
+.student360-profile-summary dl > div {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr);
+  gap: 12px;
+  border-bottom: 1px solid #f3eaed;
+  padding: 9px 0;
+}
+.student360-profile-summary dl > div:last-child { border-bottom: 0; }
+.student360-profile-summary dt { color: #80727a; }
+.student360-profile-summary dd { margin: 0; overflow-wrap: anywhere; color: #33292e; font-weight: 650; text-align: right; }
+
+.student360-page--v4 .student360-metrics {
+  border-color: #eee3e7;
+  background: #fff;
+}
+.student360-page--v4 .student360-metric { background: #fff; }
+.student360-page--v4 .student360-metric strong { color: #d92b6b; }
+.student360-page--v4 .student360-metric.is-stable strong { color: #14805e; }
+.student360-page--v4 .student360-metric.is-attention strong { color: #a65a16; }
+.student360-page--v4 .student360-metric.is-action_required strong { color: #b82850; }
+
+.student360-page--v4 .student360-content { width: min(1280px, 100%); }
+.student360-page--v4 .student360-card {
+  border-color: #eee3e7;
+  background: #fff;
+  box-shadow: 0 4px 18px rgb(62 36 49 / 4%);
+}
+.student360-page--v4 .student360-card h2 { font-weight: 750; }
+.student360-page--v4 .student360-side-column { top: 76px; }
+
+.student360-week-snapshot {
+  display: grid;
+  gap: 7px;
+  margin-top: 16px;
+  border-top: 1px solid #f0e5e9;
+  padding-top: 13px;
+}
+.student360-week-snapshot > div { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.student360-week-snapshot > div span { color: #786a72; }
+.student360-week-snapshot > span { display: block; height: 7px; overflow: hidden; border-radius: 999px; background: #f2e9ed; }
+.student360-week-snapshot > span i { display: block; height: 100%; border-radius: inherit; background: #ec2c76; }
+.student360-week-snapshot > small { color: #786a72; }
+
+.student360-care-health { display: flex; align-items: center; gap: 14px; }
+.student360-care-health > strong { display: flex; align-items: baseline; color: #14805e; font-size: 34px; }
+.student360-care-health > strong small { color: #786a72; font-size: 12px; }
+.student360-care-health > div { display: grid; gap: 3px; }
+.student360-care-health > div b { font-size: 14px; }
+.student360-care-health > div span { color: #786a72; }
+.student360-health-details { margin-top: 13px; border-top: 1px solid #f0e5e9; padding-top: 10px; }
+.student360-health-details > summary { display: flex; align-items: center; justify-content: space-between; color: #786a72; cursor: pointer; list-style: none; }
+.student360-health-details > summary::-webkit-details-marker { display: none; }
+.student360-health-details > summary svg { width: 14px; }
+.student360-health-details[open] > summary svg { transform: rotate(180deg); }
+.student360-health-details > div { display: grid; gap: 2px; margin-top: 8px; }
+.student360-health-details p { display: flex; justify-content: space-between; margin: 0; border-radius: 9px; padding: 7px 8px; }
+.student360-health-details p:nth-child(odd) { background: #faf7f8; }
+
+.student360-schedule-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-items: start; }
+.student360-schedule-attendance { grid-column: 1 / -1; }
+
+.student360-menu-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 4px;
+  border-radius: 11px;
+  background: #fff6e8;
+  color: #784514;
+  padding: 10px;
+}
+.student360-menu-warning > svg { flex: none; width: 15px; }
+.student360-menu-warning > span { display: grid; gap: 2px; }
+.student360-menu-warning small { color: #805e3d; font-weight: 500; line-height: 1.45; }
+
+.student360-contract-more-actions { position: relative; }
+.student360-contract-more-actions > summary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 37px;
+  border: 1px solid rgb(255 255 255 / 15%);
+  border-radius: 11px;
+  background: rgb(255 255 255 / 10%);
+  color: #fff;
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 750;
+  cursor: pointer;
+  list-style: none;
+}
+.student360-contract-more-actions > summary::-webkit-details-marker { display: none; }
+.student360-contract-more-actions > summary svg { width: 15px; }
+.student360-contract-more-actions > div {
+  position: absolute;
+  top: calc(100% + 7px);
+  right: 0;
+  z-index: 55;
+  display: grid;
+  width: 220px;
+  gap: 3px;
+  border: 1px solid #eadde2;
+  border-radius: 14px;
+  background: #fff;
+  padding: 6px;
+  box-shadow: 0 18px 50px rgb(38 23 31 / 20%);
+}
+.student360-contract-more-actions > div button {
+  justify-content: flex-start;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: #3d3037;
+}
+.student360-contract-more-actions > div button:hover { background: #fff1f6; }
+.student360-contract-more-actions > div button.is-danger { color: #ad294d; }
+
+@media (max-width: 900px) {
+  .student360-schedule-grid { grid-template-columns: 1fr; }
+  .student360-schedule-attendance { grid-column: auto; }
+}
+
+@media (max-width: 680px) {
+  .student360-page.student360-page--v4 { background: #fff; }
+  .student360-page--v4 .student360-header { position: relative; }
+  .student360-page--v4 .student360-header__bar { padding-inline: 10px; }
+  .student360-page--v4 .student360-status-row { padding: 7px 10px 10px; overflow: visible; }
+  .student360-profile-summary { position: static; }
+  .student360-profile-summary > dl { position: absolute; top: calc(100% - 4px); left: 10px; }
+  .student360-page--v4 .student360-metrics { margin: 0 10px 8px; border-radius: 14px; }
+  .student360-page--v4 .student360-metric { min-width: 0; min-height: 75px; padding: 11px 12px; }
+  .student360-page--v4 .student360-metric strong { white-space: normal; font-size: 19px; }
+  .student360-page--v4 .student360-metric small { white-space: normal; line-height: 1.35; }
+  .student360-page--v4 .student360-content { padding: 8px 0 18px; }
+  .student360-page--v4 .student360-section-heading { padding: 10px 14px 5px; }
+  .student360-page--v4 .student360-overview-grid,
+  .student360-page--v4 .student360-main-column,
+  .student360-page--v4 .student360-side-column,
+  .student360-page--v4 .student360-coaching-grid,
+  .student360-page--v4 .student360-schedule-grid { gap: 0; }
+  .student360-page--v4 .student360-card {
+    border: 0;
+    border-bottom: 8px solid #fff9fb;
+    border-radius: 0;
+    background: #fff;
+    padding: 16px 14px 18px;
+    box-shadow: none;
+  }
+  .student360-page--v4 .student360-card:last-child { border-bottom-color: transparent; }
+  .student360-page--v4 .student360-v4-priority .student360-card { border-bottom-color: #fff9fb; }
+  .student360-page--v4 .student360-section { gap: 0; }
+  .student360-page--v4 .student360-side-column { position: static; }
+  .student360-page--v4 .student360-timeline { gap: 0; }
+  .student360-page--v4 .student360-timeline > article {
+    border: 0;
+    border-bottom: 1px solid #f0e5e9;
+    border-radius: 0;
+    padding: 14px;
+    box-shadow: none;
+  }
+  .student360-page--v4 .student360-contract-workspace { gap: 8px; }
+  .student360-page--v4 .student360-contract-commandbar,
+  .student360-page--v4 .student360-contract-live-summary,
+  .student360-page--v4 .student360-contract-payment-board,
+  .student360-page--v4 .student360-contract-ledger > div { border-right: 0; border-left: 0; border-radius: 0; box-shadow: none; }
+  .student360-contract-more-actions { position: static; }
+  .student360-contract-more-actions > div { position: fixed; top: auto; right: 10px; bottom: calc(78px + env(safe-area-inset-bottom)); left: 10px; width: auto; max-height: 60dvh; overflow: auto; }
+}
