@@ -1,5 +1,5 @@
 export type ProgressPeriod = '7-days' | '30-days' | '90-days' | 'all'
-export type ProgressCategory = 'overview' | 'body' | 'nutrition' | 'workout' | 'achievements'
+export type ProgressCategory = 'overview' | 'body' | 'history'
 
 export interface WeightRecord {
   id: string
@@ -26,6 +26,33 @@ export interface BodyMeasurements {
   /** Optional context recorded with the measurement, never used as a diagnosis. */
   measurementNote?: string
   updatedAt: string
+}
+
+export interface ProgressCheckInPhoto {
+  id: string
+  angle: 'front' | 'back' | 'left' | 'right'
+  imageUrl: string
+  storagePath?: string
+}
+
+export interface ProgressCheckInRecord {
+  id: string
+  checkInId: string
+  date: string
+  weightKg?: number
+  bodyFatPercentage?: number
+  muscleMassKg?: number
+  waistCm?: number
+  hipsCm?: number
+  thighCm?: number
+  armCm?: number
+  chestCm?: number
+  measurementNote?: string
+  photos: ProgressCheckInPhoto[]
+  source?: 'student' | 'trainer' | 'admin' | 'legacy'
+  verificationStatus?: 'self_reported' | 'verified'
+  createdAt?: unknown
+  updatedAt?: unknown
 }
 
 export interface DailyTask {

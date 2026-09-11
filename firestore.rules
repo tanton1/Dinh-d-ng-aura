@@ -493,6 +493,13 @@ service cloud.firestore {
         allow read: if isAdmin();
       }
 
+      match /progressCheckIns/{checkInId} {
+        // Một lần ghi nhận là nguồn chuẩn gồm số đo và tham chiếu ảnh.
+        // Staff đọc qua Student 360 callable để quyền xem ảnh luôn được kiểm tra.
+        allow read, write: if isOwner(userId);
+        allow read: if isAdmin();
+      }
+
       match /weightLogs/{logId} {
         allow read, write: if isOwner(userId);
         allow read: if isAdmin();

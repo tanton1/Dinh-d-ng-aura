@@ -63,7 +63,9 @@ export {
   subscribeToUserBodyMeasurements,
   subscribeToUserGamification,
   subscribeToUserProgressPhotos,
+  subscribeToUserProgressCheckIns,
   subscribeToUserWeightLogs,
+  type ProgressCheckInRecord,
   uploadUserProgressPhoto,
 } from './firebaseProgressService'
 import type {

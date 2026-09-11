@@ -12,6 +12,7 @@ test('one progress check-in atomically projects measurements, weight and grouped
     service.indexOf('export async function saveUserGamification'),
   )
   assert.match(operation, /const batch = writeBatch\(database\)/)
+  assert.match(operation, /'progressCheckIns', input\.id/)
   assert.match(operation, /'bodyMeasurements', 'current'/)
   assert.match(operation, /'bodyMeasurements', input\.id/)
   assert.match(operation, /'weightLogs', input\.id/)
@@ -27,7 +28,16 @@ test('progress entry form supports four photo angles and all requested body meas
 })
 
 test('progress body surface uses the combined card instead of separate photo and measurement cards', () => {
-  assert.match(progressPage, /<ProgressCheckInCard/)
+  assert.match(progressPage, /\['overview', 'Tổng quan'\]/)
+  assert.match(progressPage, /\['body', 'Cơ thể'\]/)
+  assert.match(progressPage, /\['history', 'Nhật ký'\]/)
+  assert.match(progressPage, /<JourneyHero/)
+  assert.match(progressPage, /<CheckInHistory/)
+  assert.match(progressPage, /getMyLoyaltyDashboard/)
+  assert.match(progressPage, /Aura Club/)
   assert.doesNotMatch(progressPage, /<ProgressPhotosCard/)
   assert.doesNotMatch(progressPage, /<BodyMeasurementsModal/)
+  assert.doesNotMatch(progressPage, /<StreaksAndBadgesCard/)
+  assert.doesNotMatch(progressPage, /<DailyActionsCard/)
+  assert.doesNotMatch(progressPage, /<NutritionChartsCard/)
 })
