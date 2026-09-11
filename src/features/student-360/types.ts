@@ -9,6 +9,7 @@ export interface Student360PermissionSet {
   canViewNutrition: boolean
   canViewProgress: boolean
   canViewProgressPhotos: boolean
+  canManageProgress: boolean
   canViewFinancialStatus: boolean
   canViewFinancialAmounts: boolean
   canViewRenewal: boolean

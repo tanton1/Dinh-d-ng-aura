@@ -2,6 +2,7 @@ import { httpsCallable } from 'firebase/functions'
 import { firebaseFunctions, firebaseStudent360Functions } from '../../lib/firebaseFunctions'
 import { callReadOnlyFunction } from '../../services/readOnlyCallableService'
 import type { Student360ContractMutation, Student360ContractWorkspace, Student360DirectoryItem, Student360NutritionActivityDetail, Student360Overview, Student360Photo, Student360TimelineEvent } from './types'
+import type { ProgressCheckInInput } from '../../services/firebaseProgressService'
 
 function functionError(cause: unknown, fallback: string) {
   const outer = cause && typeof cause === 'object' ? cause as { cause?: unknown } : {}
@@ -94,6 +95,20 @@ export async function getStudent360ProgressPhotos(studentId: string, cursor?: st
     )
   } catch (cause) {
     throw functionError(cause, 'Không thể tải ảnh tiến độ.')
+  }
+}
+
+/** Staff/Admin writes go through the scoped Student 360 callable. This avoids
+ * granting broad Firestore or Storage write access to every staff account. */
+export async function saveStudent360ProgressCheckIn(input: { studentId: string; checkIn: ProgressCheckInInput }) {
+  const functionsClient = firebaseStudent360Functions || firebaseFunctions
+  if (!functionsClient) throw new Error('Firebase Student 360 chưa sẵn sàng.')
+  try {
+    const callableName = firebaseStudent360Functions ? 'saveStudent360ProgressCheckInRegional' : 'saveStudent360ProgressCheckIn'
+    const callable = httpsCallable<typeof input, { studentId: string; accountUid: string; checkInId: string; source: string; verificationStatus: string }>(functionsClient, callableName, { timeout: 60_000 })
+    return (await callable(input)).data
+  } catch (cause) {
+    throw functionError(cause, 'Không thể lưu tiến độ cho học viên.')
   }
 }
 

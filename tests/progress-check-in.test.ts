@@ -50,3 +50,14 @@ test('progress check-in normalizes camera images before parallel upload and keep
   assert.match(studioSource, /Promise\.allSettled\(preparedEntries\.map/)
   assert.match(studioSource, /Ảnh và số đo vẫn được giữ/)
 })
+
+test('Admin and Staff save a scoped learner check-in through Student 360', () => {
+  const application = readFileSync(new URL('../src/AuraApplication.tsx', import.meta.url), 'utf8')
+  const student360 = readFileSync(new URL('../src/features/student-360/Student360Page.tsx', import.meta.url), 'utf8')
+  const service = readFileSync(new URL('../src/features/student-360/student360Service.ts', import.meta.url), 'utf8')
+  assert.match(application, /targetStudentId=\{staffEditor \? route\.studentId : null\}/)
+  assert.match(student360, /permissions\.canManageProgress/)
+  assert.match(student360, /onNavigate\('progress-photo-studio', studentId, identity\.name\)/)
+  assert.match(service, /saveStudent360ProgressCheckInRegional/)
+  assert.match(studio, /isStaffEditor && targetStudentId/)
+})

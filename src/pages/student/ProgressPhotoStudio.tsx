@@ -10,6 +10,7 @@ import {
   type ProgressCheckInAngle,
   type ProgressCheckInInput,
 } from '../../services/firebaseService'
+import { saveStudent360ProgressCheckIn } from '../../features/student-360/student360Service'
 import type { BodyMeasurements, WeightRecord } from '../../types/progressTypes'
 import './ProgressPhotoStudio.css'
 
@@ -111,7 +112,7 @@ function saveErrorMessage(cause: unknown, stage: SaveStage) {
   if (message === 'PROGRESS_IMAGE_UNSUPPORTED') return 'Điện thoại chưa đọc được định dạng ảnh này. Hãy chọn ảnh JPG/PNG hoặc chụp lại bằng camera.'
   if (message === 'PROGRESS_IMAGE_PROCESSING_FAILED') return 'Chưa thể tối ưu ảnh đã chọn. Hãy chọn lại ảnh khác hoặc chụp lại.'
   if (message === 'PROGRESS_UPLOAD_TIMEOUT' || code.includes('retry-limit-exceeded')) return 'Tải ảnh quá lâu do kết nối yếu. Ảnh và số đo vẫn được giữ để bạn thử lại.'
-  if (code.includes('unauthorized') || code.includes('permission-denied')) return 'Phiên đăng nhập chưa có quyền lưu tiến độ. Hãy tải lại ứng dụng, đăng nhập lại rồi thử lần nữa.'
+  if (code.includes('unauthorized') || code.includes('permission-denied')) return 'Tài khoản chưa được cấp quyền lưu tiến độ cho hồ sơ này. Học viên tự lưu trong hồ sơ của mình; Admin/Staff hãy mở từ Học viên 360 và thử lại.'
   if (code.includes('network') || code.includes('unavailable') || message === 'PROGRESS_OFFLINE') return 'Mạng đang gián đoạn. Ảnh và số đo vẫn được giữ; hãy thử lại khi có kết nối.'
   if (stage === 'uploading') return 'Chưa tải được một trong các ảnh. Dữ liệu đã nhập vẫn được giữ để thử lại.'
   if (stage === 'saving') return 'Ảnh đã xử lý nhưng chưa ghi được số đo. Hãy bấm “Thử lưu lại”.'
@@ -127,7 +128,15 @@ function readList<T>(key: string): T[] {
   }
 }
 
-export function ProgressPhotoStudio({ onNavigate, ownerId }: { onNavigate: (path: any) => void; ownerId: string }) {
+interface ProgressPhotoStudioProps {
+  onNavigate: (path: any, studentId?: string, studentName?: string) => void
+  ownerId: string
+  targetStudentId?: string | null
+  targetStudentName?: string
+}
+
+export function ProgressPhotoStudio({ onNavigate, ownerId, targetStudentId, targetStudentName }: ProgressPhotoStudioProps) {
+  const isStaffEditor = Boolean(targetStudentId)
   const [date, setDate] = useState(todayKey)
   const [photos, setPhotos] = useState<PhotoDrafts>({})
   const photoDraftsRef = useRef<PhotoDrafts>({})
@@ -227,14 +236,16 @@ export function ProgressPhotoStudio({ onNavigate, ownerId }: { onNavigate: (path
       setSaveStage('uploading')
       const photoProgress = preparedEntries.map(() => 0)
       const outcomes = await Promise.allSettled(preparedEntries.map(async ([angle, file], index) => {
-        const imageUrl = isCloudAccount
+        const imageUrl = isStaffEditor
+          ? await fileAsDataUrl(file)
+          : isCloudAccount
           ? await uploadUserProgressPhoto(ownerId, file, (percent) => {
             photoProgress[index] = percent
             const average = photoProgress.reduce((sum, value) => sum + value, 0) / Math.max(1, photoProgress.length)
             setUploadPercent(Math.round(18 + average * .72))
           })
           : await fileAsDataUrl(file)
-        if (isCloudAccount) uploadedPhotosRef.current.push(imageUrl)
+        if (isCloudAccount && !isStaffEditor) uploadedPhotosRef.current.push(imageUrl)
         return { id: `${checkInId}-${angle}`, angle, imageUrl }
       }))
       const failedUpload = outcomes.find((outcome): outcome is PromiseRejectedResult => outcome.status === 'rejected')
@@ -247,39 +258,47 @@ export function ProgressPhotoStudio({ onNavigate, ownerId }: { onNavigate: (path
       failedStage = 'saving'
       setSaveStage('saving')
       setUploadPercent(94)
-      if (isCloudAccount) await saveUserProgressCheckIn(ownerId, payload)
+      if (isStaffEditor && targetStudentId) {
+        await saveStudent360ProgressCheckIn({ studentId: targetStudentId, checkIn: payload })
+      } else if (isCloudAccount) {
+        await saveUserProgressCheckIn(ownerId, payload)
+      }
 
       const metricsKey = `aura:progress:body-measurements:${ownerId}`
-      if (Object.keys(values).length) {
+      if (!isStaffEditor && Object.keys(values).length) {
         let previousMetrics: Partial<BodyMeasurements> = {}
         try { previousMetrics = JSON.parse(localStorage.getItem(metricsKey) || '{}') } catch { previousMetrics = {} }
         safeLocalStorageSet(metricsKey, JSON.stringify({ ...previousMetrics, ...values, measurementNote: payload.measurementNote, updatedAt: date }))
       }
 
-      if (values.weightKg) {
+      if (!isStaffEditor && values.weightKg) {
         const weightKey = `aura:progress:weight-records:${ownerId}`
         const previous = readList<WeightRecord>(weightKey)
         const record: WeightRecord = { id: checkInId, date, label: date.slice(5).split('-').reverse().join('/'), weightKg: values.weightKg, trendKg: values.weightKg, note: payload.measurementNote }
         safeLocalStorageSet(weightKey, JSON.stringify([...previous.filter((item) => item.id !== checkInId), record]))
       }
 
-      const localPhotoRows = uploadedPhotos.map((photo: ProgressCheckInInput['photos'][number]) => ({ ...photo, checkInId, date, recordedAt: date, weightKg: values.weightKg, bodyFat: values.bodyFatPercentage, muscleMassKg: values.muscleMassKg, waistCm: values.waistCm, hipsCm: values.hipsCm, thighCm: values.thighCm, armCm: values.armCm, chestCm: values.chestCm, notes: payload.measurementNote || '', isPrivate: true, createdAt: new Date().toISOString() }))
-      const photoKey = `aura:progress-photos:${ownerId}`
-      const nextPhotos = [...localPhotoRows, ...readList<Record<string, unknown>>(photoKey)]
-      safeLocalStorageSet(photoKey, JSON.stringify(nextPhotos))
-      safeLocalStorageSet(`aura:cache:user_progress_photos:${ownerId}`, JSON.stringify(nextPhotos))
-      const canonicalKey = `aura:cache:user_progress_checkins:${ownerId}`
-      const canonicalRow = { ...payload, checkInId, source: 'student', verificationStatus: 'self_reported', createdAt: new Date().toISOString() }
-      safeLocalStorageSet(canonicalKey, JSON.stringify([canonicalRow, ...readList<Record<string, unknown>>(canonicalKey).filter((item) => item.id !== checkInId)]))
-      window.dispatchEvent(new Event('aura:progress-photos-updated'))
-      window.dispatchEvent(new Event('aura:progress-updated'))
+      if (!isStaffEditor) {
+        const localPhotoRows = uploadedPhotos.map((photo: ProgressCheckInInput['photos'][number]) => ({ ...photo, checkInId, date, recordedAt: date, weightKg: values.weightKg, bodyFat: values.bodyFatPercentage, muscleMassKg: values.muscleMassKg, waistCm: values.waistCm, hipsCm: values.hipsCm, thighCm: values.thighCm, armCm: values.armCm, chestCm: values.chestCm, notes: payload.measurementNote || '', isPrivate: true, createdAt: new Date().toISOString() }))
+        const photoKey = `aura:progress-photos:${ownerId}`
+        const nextPhotos = [...localPhotoRows, ...readList<Record<string, unknown>>(photoKey)]
+        safeLocalStorageSet(photoKey, JSON.stringify(nextPhotos))
+        safeLocalStorageSet(`aura:cache:user_progress_photos:${ownerId}`, JSON.stringify(nextPhotos))
+        const canonicalKey = `aura:cache:user_progress_checkins:${ownerId}`
+        const canonicalRow = { ...payload, checkInId, source: 'student', verificationStatus: 'self_reported', createdAt: new Date().toISOString() }
+        safeLocalStorageSet(canonicalKey, JSON.stringify([canonicalRow, ...readList<Record<string, unknown>>(canonicalKey).filter((item) => item.id !== checkInId)]))
+        window.dispatchEvent(new Event('aura:progress-photos-updated'))
+        window.dispatchEvent(new Event('aura:progress-updated'))
+      }
 
       setUploadPercent(100)
       uploadedPhotosRef.current = []
       setSaveStage('done')
       setSaved(true)
       completed = true
-      window.setTimeout(() => onNavigate('progress'), 250)
+      window.setTimeout(() => isStaffEditor && targetStudentId
+        ? onNavigate('student-360', targetStudentId, targetStudentName)
+        : onNavigate('progress'), 250)
     } catch (cause) {
       // A failed metadata batch or upload should not leave newly uploaded
       // private assets behind. Existing assets are never touched.
@@ -301,8 +320,8 @@ export function ProgressPhotoStudio({ onNavigate, ownerId }: { onNavigate: (path
   return (
     <main className="progress-checkin-page">
       <header className="progress-checkin-header">
-        <button type="button" onClick={() => onNavigate('progress')} aria-label="Quay lại trang tiến độ"><ArrowLeft /></button>
-        <div><h1>Ảnh & số đo hôm nay</h1><p>Lưu cùng một lần để dễ đối chiếu.</p></div>
+        <button type="button" onClick={() => isStaffEditor && targetStudentId ? onNavigate('student-360', targetStudentId, targetStudentName) : onNavigate('progress')} aria-label="Quay lại trang tiến độ"><ArrowLeft /></button>
+        <div><h1>{isStaffEditor ? `Cập nhật tiến độ${targetStudentName ? ` · ${targetStudentName}` : ''}` : 'Ảnh & số đo hôm nay'}</h1><p>{isStaffEditor ? 'Ghi nhận thay mặt học viên. Dữ liệu sẽ lưu vào hồ sơ 360.' : 'Lưu cùng một lần để dễ đối chiếu.'}</p></div>
         <span>{completionText}</span>
       </header>
 
@@ -339,7 +358,7 @@ export function ProgressPhotoStudio({ onNavigate, ownerId }: { onNavigate: (path
           <label className="progress-checkin-note"><span>Ghi chú <small>không bắt buộc</small></span><textarea rows={3} maxLength={240} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Ví dụ: đo buổi sáng, trước khi ăn…" /></label>
         </section>
 
-        <aside className="progress-checkin-privacy"><LockKeyhole /><span><strong>Ảnh được bảo vệ</strong><small>Chỉ bạn và đội ngũ Aura có quyền chăm sóc hồ sơ mới xem được.</small></span></aside>
+        <aside className="progress-checkin-privacy"><LockKeyhole /><span><strong>Ảnh được bảo vệ</strong><small>{isStaffEditor ? 'Ảnh được lưu riêng trong hồ sơ học viên và chỉ người có quyền chăm sóc mới xem được.' : 'Chỉ bạn và đội ngũ Aura có quyền chăm sóc hồ sơ mới xem được.'}</small></span></aside>
         <div className="progress-checkin-submit-wrap">
           <div><Info /><span>{saveStatus}</span></div>
           <span className="progress-checkin-save-progress" aria-hidden="true"><i style={{ width: `${saving || saved ? uploadPercent : 0}%` }} /></span>
