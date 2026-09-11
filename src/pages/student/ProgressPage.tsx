@@ -11,17 +11,15 @@ import { WeeklyScoreCard } from '../../components/progress/WeeklyScoreCard'
 import { DailyActionsCard } from '../../components/progress/DailyActionsCard'
 import { WeightTrackerCard } from '../../components/progress/WeightTrackerCard'
 import { WeightChartCard } from '../../components/progress/WeightChartCard'
-import { BodyMetricsCard } from '../../components/progress/BodyMetricsCard'
+import { ProgressCheckInCard } from '../../components/progress/ProgressCheckInCard'
 import { NutritionProgressCard } from '../../components/progress/NutritionProgressCard'
 import { NutritionChartsCard } from '../../components/progress/NutritionChartsCard'
 import { EnergyBalanceCard } from '../../components/progress/EnergyBalanceCard'
-import { ProgressPhotosCard } from '../../components/progress/ProgressPhotosCard'
 import { StreaksAndBadgesCard } from '../../components/progress/StreaksAndBadgesCard'
 import { AiWeeklyAnalysisCard } from '../../components/progress/AiWeeklyAnalysisCard'
 
 import { QuickLogBottomSheet } from '../../components/progress/QuickLogBottomSheet'
 import { WeightLogModal } from '../../components/progress/WeightLogModal'
-import { BodyMeasurementsModal } from '../../components/progress/BodyMeasurementsModal'
 import { firebaseAuth } from '../../lib/firebase'
 import { AiCoachBottomSheet } from '../../components/progress/AiCoachBottomSheet'
 import { prewarmAiCoachAppCheck } from '../../services/nutritionService'
@@ -33,7 +31,6 @@ import { toLocalDateKey } from '../../features/nutrition/routing'
 import {
   saveUserWeightLog,
   subscribeToUserWeightLogs,
-  saveUserBodyMeasurements,
   subscribeToUserBodyMeasurements,
   subscribeToUserGamification,
   subscribeToRecentUserMealLogs,
@@ -103,9 +100,7 @@ export default function ProgressPage({
   // Modals & Bottom Sheets state
   const [quickLogOpen, setQuickLogOpen] = useState(false)
   const [weightModalOpen, setWeightModalOpen] = useState(false)
-  const [metricsModalOpen, setMetricsModalOpen] = useState(false)
   const [coachSheetOpen, setCoachSheetOpen] = useState(false)
-  const [triggerPhotoUpload, setTriggerPhotoUpload] = useState(false)
   const [progressMutationError, setProgressMutationError] = useState<string | null>(null)
 
   // Do not invent a measurement for a real account. Demo mode keeps its
@@ -412,28 +407,7 @@ export default function ProgressPage({
     }
   }
 
-  const handleSaveMetrics = async (updated: Partial<BodyMeasurements>) => {
-    const next = { ...bodyMetrics, ...updated }
-    const previous = bodyMetrics
-    setProgressMutationError(null)
-    setBodyMetrics(next)
-    safeLocalStorageSet(`aura:progress:body-measurements:${ownerId}`, JSON.stringify(next))
-
-    if (ownerId && ownerId !== 'anonymous' && ownerId !== 'demo') {
-      try {
-        await saveUserBodyMeasurements(ownerId, next as any)
-      } catch (err) {
-        setBodyMetrics(previous)
-        safeLocalStorageSet(`aura:progress:body-measurements:${ownerId}`, JSON.stringify(previous))
-        const message = 'Chưa thể đồng bộ chỉ số cơ thể. Vui lòng thử lại.'
-        setProgressMutationError(message)
-        throw err instanceof Error ? err : new Error(message)
-      }
-    }
-  }
-
   const userProfile = nutritionProfile
-  const isFemale = userProfile?.biologicalSex === 'female'
 
   // Get actual weight in the last 30 days based on weight history of this user
   const actual30DayWeight = useMemo(() => recentAverageWeight(weightRecords, baseWeight), [weightRecords, baseWeight])
@@ -703,7 +677,7 @@ export default function ProgressPage({
     } else if (action === 'workout') {
       onNavigate?.('pt-workout')
     } else if (action === 'measurement') {
-      setMetricsModalOpen(true)
+      onNavigate?.('progress-photo-studio')
     } else if (action === 'photo') {
       onNavigate?.('progress-photo-studio')
     } else if (action === 'water') {
@@ -814,7 +788,7 @@ export default function ProgressPage({
           <div className="pg-overview-weight">
             <WeightTrackerCard currentWeightKg={currentWeight} startWeightKg={startWeightKg} goalWeightKg={goalWeightKg} targetDateText={targetDateText} onOpenLogWeight={() => setWeightModalOpen(true)} />
           </div>
-          <BodyMetricsCard metrics={mergedBodyMetrics} heightCm={heightCm} isFemale={isFemale} onOpenDetails={() => setMetricsModalOpen(true)} />
+          <ProgressCheckInCard ownerId={resolvedOwnerId} metrics={mergedBodyMetrics} currentWeightKg={currentWeight} onOpenCheckIn={() => onNavigate?.('progress-photo-studio')} />
           <div className="pg-overview-nutrition">
             <NutritionProgressCard
               onOpenDetails={() => onNavigate?.('nutrition')}
@@ -839,12 +813,11 @@ export default function ProgressPage({
 
       {category === 'body' && (
         <>
-          <BodyMetricsCard metrics={mergedBodyMetrics} heightCm={heightCm} isFemale={isFemale} onOpenDetails={() => setMetricsModalOpen(true)} />
+          <ProgressCheckInCard ownerId={resolvedOwnerId} metrics={mergedBodyMetrics} currentWeightKg={currentWeight} onOpenCheckIn={() => onNavigate?.('progress-photo-studio')} />
           <div className="pg-weight-grid">
             <WeightTrackerCard currentWeightKg={currentWeight} startWeightKg={startWeightKg} goalWeightKg={goalWeightKg} targetDateText={targetDateText} onOpenLogWeight={() => setWeightModalOpen(true)} />
             <WeightChartCard records={weightRecords} goalWeightKg={goalWeightKg} />
           </div>
-          <ProgressPhotosCard ownerId={resolvedOwnerId} triggerAddPhoto={triggerPhotoUpload} onAddPhotoTriggered={() => setTriggerPhotoUpload(false)} onNavigateToStudio={() => onNavigate?.('progress-photo-studio')} />
         </>
       )}
 
@@ -878,7 +851,7 @@ export default function ProgressPage({
         <>
           <DailyActionsCard todayMealCount={todayMealsCount} todayWaterMl={todayWaterMl} waterTargetMl={nutritionProgressData.waterGoal} todayWeightLogged={todayWeightLogged} todayWorkoutLogged={todayWorkoutLogged} onOpenQuickLog={(type) => type === 'weight' ? setWeightModalOpen(true) : type === 'meal' ? onNavigate?.('nutrition') : setQuickLogOpen(true)} />
           <WeightChartCard records={weightRecords} goalWeightKg={goalWeightKg} />
-          <ProgressPhotosCard ownerId={resolvedOwnerId} triggerAddPhoto={triggerPhotoUpload} onAddPhotoTriggered={() => setTriggerPhotoUpload(false)} onNavigateToStudio={() => onNavigate?.('progress-photo-studio')} />
+          <ProgressCheckInCard ownerId={resolvedOwnerId} metrics={mergedBodyMetrics} currentWeightKg={currentWeight} onOpenCheckIn={() => onNavigate?.('progress-photo-studio')} />
         </>
       )}
 
@@ -914,15 +887,6 @@ export default function ProgressPage({
           currentWeight={currentWeight}
           onClose={() => setWeightModalOpen(false)}
           onSave={handleSaveWeight}
-        />
-      )}
-
-      {metricsModalOpen && (
-        <BodyMeasurementsModal
-          metrics={mergedBodyMetrics}
-          isFemale={isFemale}
-          onClose={() => setMetricsModalOpen(false)}
-          onSave={handleSaveMetrics}
         />
       )}
 

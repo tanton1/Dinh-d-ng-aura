@@ -1,4 +1,4 @@
-import { collection, deleteDoc, doc, getDoc, limit, onSnapshot, orderBy, query, serverTimestamp, setDoc, type Unsubscribe } from 'firebase/firestore'
+import { collection, deleteDoc, doc, getDoc, limit, onSnapshot, orderBy, query, serverTimestamp, setDoc, writeBatch, type Unsubscribe } from 'firebase/firestore'
 import { deleteObject, getDownloadURL, ref as storageRef, uploadBytes, uploadBytesResumable } from 'firebase/storage'
 import { firestoreDb } from '../lib/firebaseFirestore'
 import { firebaseStorage } from '../lib/firebaseStorage'
@@ -79,6 +79,136 @@ export function subscribeToUserWeightLogs(userId: string, onData: (records: any[
 export async function saveUserBodyMeasurements(userId: string, measurements: Record<string, unknown>) { await saveProgressDocument(userId, 'bodyMeasurements', 'current', measurements) }
 export function subscribeToUserBodyMeasurements(userId: string, onData: (value: any) => void, onError?: (error: Error) => void) { return subscribeToDocument(userId, 'bodyMeasurements', 'current', 'user_body_measurements', onData, onError) }
 
+export type ProgressCheckInAngle = 'front' | 'back' | 'left' | 'right'
+
+export interface ProgressCheckInPhotoInput {
+  id: string
+  angle: ProgressCheckInAngle
+  imageUrl: string
+}
+
+export interface ProgressCheckInInput {
+  id: string
+  date: string
+  weightKg?: number
+  bodyFatPercentage?: number
+  muscleMassKg?: number
+  waistCm?: number
+  hipsCm?: number
+  thighCm?: number
+  armCm?: number
+  chestCm?: number
+  measurementNote?: string
+  photos: ProgressCheckInPhotoInput[]
+}
+
+function assertProgressCheckInId(value: string, label: string) {
+  if (!/^[A-Za-z0-9_-]{8,120}$/.test(value)) throw new Error(`${label} không hợp lệ.`)
+}
+
+/**
+ * Persists one progress moment as a single Firestore batch. The current
+ * measurement projection and legacy weight log remain available to existing
+ * charts, while the dated document and grouped photos preserve the complete
+ * historical check-in.
+ */
+export async function saveUserProgressCheckIn(userId: string, input: ProgressCheckInInput) {
+  assertProgressCheckInId(input.id, 'Mã lần ghi nhận')
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(input.date)) throw new Error('Ngày ghi nhận không hợp lệ.')
+  if (input.photos.length > 4) throw new Error('Mỗi lần ghi nhận hỗ trợ tối đa 4 góc ảnh.')
+
+  const database = requireDb()
+  const batch = writeBatch(database)
+  const measuredValues = clean({
+    checkInId: input.id,
+    date: input.date,
+    weightKg: input.weightKg,
+    bodyFatPercentage: input.bodyFatPercentage,
+    muscleMassKg: input.muscleMassKg,
+    waistCm: input.waistCm,
+    hipsCm: input.hipsCm,
+    thighCm: input.thighCm,
+    armCm: input.armCm,
+    chestCm: input.chestCm,
+    measurementNote: input.measurementNote,
+    ...(input.bodyFatPercentage ? { bodyFatStatus: 'Đã cập nhật' } : {}),
+    ...(input.muscleMassKg ? { muscleStatus: 'Đã cập nhật' } : {}),
+    ...(input.waistCm ? { waistStatus: 'Đã cập nhật' } : {}),
+    updatedAt: input.date,
+    syncedAt: serverTimestamp(),
+    schemaVersion: 2,
+  })
+
+  const measurementKeys = ['weightKg', 'bodyFatPercentage', 'muscleMassKg', 'waistCm', 'hipsCm', 'thighCm', 'armCm', 'chestCm'] as const
+  const hasMeasurementValues = measurementKeys.some((key) => input[key] !== undefined)
+  if (hasMeasurementValues) {
+    batch.set(doc(database, 'users', userId, 'bodyMeasurements', 'current'), measuredValues, { merge: true })
+    batch.set(doc(database, 'users', userId, 'bodyMeasurements', input.id), {
+      ...measuredValues,
+      createdAt: serverTimestamp(),
+    }, { merge: true })
+  }
+
+  if (input.weightKg) {
+    batch.set(doc(database, 'users', userId, 'weightLogs', input.id), {
+      id: input.id,
+      checkInId: input.id,
+      date: input.date,
+      label: input.date.slice(5).split('-').reverse().join('/'),
+      weightKg: input.weightKg,
+      trendKg: input.weightKg,
+      note: input.measurementNote || '',
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+      schemaVersion: 2,
+    }, { merge: true })
+  }
+
+  input.photos.forEach((photo) => {
+    assertProgressCheckInId(photo.id, 'Mã ảnh')
+    const storagePath = storagePathFromDownloadUrl(photo.imageUrl)
+    batch.set(doc(database, 'users', userId, 'progressPhotos', photo.id), clean({
+      id: photo.id,
+      checkInId: input.id,
+      date: input.date,
+      recordedAt: input.date,
+      angle: photo.angle,
+      imageUrl: photo.imageUrl,
+      storagePath,
+      images: [{ ...(storagePath ? { storagePath } : { url: photo.imageUrl }), angle: photo.angle }],
+      weightKg: input.weightKg,
+      bodyFat: input.bodyFatPercentage,
+      bodyFatPercentage: input.bodyFatPercentage,
+      muscleMassKg: input.muscleMassKg,
+      waistCm: input.waistCm,
+      hipsCm: input.hipsCm,
+      thighCm: input.thighCm,
+      armCm: input.armCm,
+      chestCm: input.chestCm,
+      notes: input.measurementNote || '',
+      note: input.measurementNote || '',
+      privacy: 'private',
+      isPrivate: true,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+      schemaVersion: 3,
+    }), { merge: true })
+  })
+
+  try {
+    await batch.commit()
+  } catch (error) {
+    // Storage uploads happen before the metadata batch. If that batch fails,
+    // remove only this new check-in's uploaded files so failed saves do not
+    // leave private orphan assets behind.
+    if (firebaseStorage) {
+      const paths = input.photos.map((photo) => storagePathFromDownloadUrl(photo.imageUrl)).filter(Boolean)
+      await Promise.allSettled(paths.map((path) => deleteObject(storageRef(firebaseStorage!, path))))
+    }
+    throw error
+  }
+}
+
 export async function saveUserGamification(userId: string, data: Record<string, unknown>) { await saveProgressDocument(userId, 'gamification', 'stats', data) }
 export function subscribeToUserGamification(userId: string, onData: (value: any) => void, onError?: (error: Error) => void) { return subscribeToDocument(userId, 'gamification', 'stats', 'user_gamification', onData, onError) }
 
@@ -134,7 +264,27 @@ export async function deleteUserProgressPhoto(userId: string, photoId: string) {
   await deleteDoc(reference)
   if (firebaseStorage) await Promise.allSettled(paths.map((path) => deleteObject(storageRef(firebaseStorage!, path))))
 }
-export function subscribeToUserProgressPhotos(userId: string, onData: (photos: any[]) => void, onError?: (error: Error) => void) { return subscribeToCollection(userId, 'progressPhotos', 'user_progress_photos', onData, onError) }
+export function subscribeToUserProgressPhotos(userId: string, onData: (photos: any[]) => void, onError?: (error: Error) => void) {
+  const reference = query(
+    collection(requireDb(), 'users', userId, 'progressPhotos'),
+    orderBy('date', 'desc'),
+    limit(80),
+  )
+  return onSnapshot(reference, (snapshot) => {
+    const photos = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))
+    writeCache(`user_progress_photos:${userId}`, photos)
+    onData(photos)
+  }, (error) => {
+    onData(readCache(`user_progress_photos:${userId}`, []))
+    onError?.(error)
+  })
+}
+
+export async function deleteUploadedProgressPhotoAsset(imageUrl: string) {
+  if (!firebaseStorage) return
+  const path = storagePathFromDownloadUrl(imageUrl)
+  if (path) await deleteObject(storageRef(firebaseStorage, path))
+}
 
 export async function uploadUserProgressPhoto(userId: string, file: File, onProgress?: (percent: number) => void): Promise<string> {
   if (!firebaseStorage) throw new Error('Firebase Storage is not initialized.')
