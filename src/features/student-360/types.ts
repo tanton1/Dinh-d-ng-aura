@@ -156,6 +156,11 @@ export interface Student360Overview {
     latestWeightKg: number | null
     latestWaistCm: number | null
     latestBodyFatPercent: number | null
+    latestHipsCm?: number | null
+    latestThighCm?: number | null
+    latestArmCm?: number | null
+    latestChestCm?: number | null
+    latestMuscleMassKg?: number | null
     weightChangeKg: number | null
     waistChangeCm: number | null
     bodyFatChangePercent: number | null
@@ -316,8 +321,9 @@ export type Student360ContractMutation =
 
 export interface Student360Photo {
   id: string
+  checkInId?: string
   date: string
-  images: Array<{ url: string; storagePath: string | null; legacy: boolean }>
+  images: Array<{ url: string; storagePath: string | null; angle?: string | null; legacy: boolean }>
 }
 
 export interface Student360DirectoryItem {

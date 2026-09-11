@@ -88,7 +88,7 @@ export async function getStudent360NutritionActivityDetail(input: { studentId: s
 
 export async function getStudent360ProgressPhotos(studentId: string, cursor?: string | null) {
   try {
-    return await callStudent360Read<{ studentId: string; cursor?: string }, { schemaVersion: 1; studentId: string; rows: Student360Photo[]; hasMore: boolean; nextCursor: string | null; hasLegacyImages: boolean; expiresInSeconds: number }>(
+    return await callStudent360Read<{ studentId: string; cursor?: string }, { schemaVersion: 1 | 2; studentId: string; rows: Student360Photo[]; hasMore: boolean; nextCursor: string | null; hasLegacyImages: boolean; expiresInSeconds: number }>(
       'getStudent360ProgressPhotos',
       { studentId, ...(cursor ? { cursor } : {}) },
     )

@@ -27,9 +27,7 @@ export function ProgressHeader({
   const categoryOptions: Array<{ id: ProgressCategory; label: string }> = [
     { id: 'overview', label: 'Tổng quan' },
     { id: 'body', label: 'Cơ thể' },
-    { id: 'nutrition', label: 'Dinh dưỡng' },
-    { id: 'workout', label: 'Vận động' },
-    { id: 'achievements', label: 'Thành tích' },
+    { id: 'history', label: 'Nhật ký' },
   ]
 
   return (

@@ -91,7 +91,7 @@ const timelineSourceGuide = [
   { label: 'Thanh toán', source: 'ledgerEntries (chuẩn) · payments (cũ)', detail: 'Chỉ lấy payment, refund, reversal hoặc adjustment. Revenue recognition nội bộ không hiển thị để tránh nhân đôi doanh thu.' },
   { label: 'Buổi tập', source: 'sessions', detail: 'Lịch đã xếp, đã tập, đi trễ, vắng hoặc trạng thái buổi. Mã session là khóa đối chiếu với lịch sử.' },
   { label: 'Dinh dưỡng', source: 'users/{uid}/mealLogs + mealReviews', detail: 'Một bữa là một sự kiện. Ảnh và nhận xét riêng tư chỉ được tải khi người có quyền mở chi tiết.' },
-  { label: 'Check-in & tiến độ', source: 'dailyCheckins + bodyMetrics + progressPhotos', detail: 'Check-in hằng ngày, số đo và ảnh tiến độ; chỉ lưu metadata, không nhúng ảnh hoặc ghi chú nhạy cảm.' },
+  { label: 'Check-in & tiến độ', source: 'dailyCheckins + progressCheckIns (chuẩn) · bodyMetrics/progressPhotos (cũ)', detail: 'Một lần ghi nhận mới gom số đo và bộ ảnh vào cùng check-in. Timeline chỉ lưu metadata, không nhúng ảnh hoặc ghi chú nhạy cảm.' },
   { label: 'Chăm sóc & gia hạn', source: 'studentCareActivities + contractRenewalCases', detail: 'Cuộc gọi, Zalo, ghi chú, việc cần làm và các bước chăm sóc tái ký.' },
 ] as const
 
@@ -172,7 +172,7 @@ function demoOverview(studentId: string): Student360Overview {
     attendance: { rate28Days: 92, attended: 11, late: 1, noShow: 1, total: 12, weeklyTrend: [{ weekStart: '2026-08-10', rate: 100, total: 3 }, { weekStart: '2026-08-17', rate: 100, total: 3 }, { weekStart: '2026-08-24', rate: 67, total: 3 }, { weekStart: '2026-08-31', rate: 100, total: 3 }], lastAttendanceAt: new Date().toISOString() },
     training: { adherence28Days: 92, completed28Days: 11, target28Days: 12, workoutLogCount: 18, latestWorkoutAt: new Date().toISOString(), program: { id: 'program-1', title: 'Build Strength · Phase 2', goal: 'Glute strength · Core stability · Fat loss', status: 'active', revision: 3, trainingDays: [{ id: 'day-1', title: 'Lower Body', focusMuscles: ['Mông', 'Đùi'], exercises: [{ id: 'hip-thrust', nameVi: 'Hip Thrust', sets: 4, repMinimum: 10, repMaximum: 10, targetWeightKg: 70 }] }] }, recentLogs: [{ id: 'log-1', date: toKey(today), title: 'Lower Body', painNotes: null, completedSets: 16, totalVolumeKg: 4620, maximumWeightKg: 70 }] },
     nutrition: { loggedMeals: 16, loggedDays: 6, averageCalories: 1618, averageProtein: 102, targetCalories: 1650, targetProtein: 110, lastMealAt: new Date().toISOString() },
-    progress: { latestDate: toKey(today), latestWeightKg: 59.9, latestWaistCm: 70, latestBodyFatPercent: 27, weightChangeKg: -4.9, waistChangeCm: -8, bodyFatChangePercent: -5, measurementCount: 8 },
+    progress: { latestDate: toKey(today), latestWeightKg: 59.9, latestWaistCm: 70, latestBodyFatPercent: 27, latestHipsCm: 94, latestThighCm: 54, latestArmCm: 27, latestChestCm: 84, latestMuscleMassKg: 23.5, weightChangeKg: -4.9, waistChangeCm: -8, bodyFatChangePercent: -5, measurementCount: 8 },
     renewal: { caseId: 'renewal-demo', stage: 'uncontacted', probability: 76, riskCategory: 'early', lastContactAt: null, nextActionAt: null, assignedSalesId: 'sales-1' },
     health: { score: 82, status: 'stable', confidence: 'high', observedWeight: 100, components: [{ id: 'attendance', label: 'Tập đều', weight: 25, score: 92, reason: '92% buổi có mặt trong 28 ngày.', available: true }, { id: 'training', label: 'Hoàn thành lịch tập', weight: 20, score: 92, reason: '11/12 buổi mục tiêu.', available: true }, { id: 'nutrition', label: 'Dinh dưỡng', weight: 15, score: 83, reason: '6/7 ngày có nhật ký ăn.', available: true }, { id: 'progress', label: 'Tiến độ cơ thể', weight: 15, score: 85, reason: 'Đã cập nhật trong tuần.', available: true }, { id: 'engagement', label: 'Tương tác', weight: 10, score: 80, reason: 'Lịch rảnh và hoạt động đầy đủ.', available: true }, { id: 'payment', label: 'Thanh toán', weight: 5, score: 65, reason: 'Còn khoản cần thanh toán.', available: true }, { id: 'renewal', label: 'Sẵn sàng gia hạn', weight: 10, score: 76, reason: 'Còn 105 ngày và 38 buổi.', available: true }] },
     alerts: [{ id: 'weekly-schedule-short', severity: 'amber', title: 'Tuần này chưa đủ lịch', message: 'Đã xếp 2/3 buổi mục tiêu.', action: 'schedule', audience: 'operations' }],
@@ -207,6 +207,20 @@ function Metric({ label, value, note, tone }: { label: string; value: string | n
 
 function Card({ title, icon: Icon, action, children, className = '' }: { title: string; icon: typeof Activity; action?: React.ReactNode; children: React.ReactNode; className?: string }) {
   return <article className={`student360-card ${className}`}><header><div><Icon size={18} /><h2>{title}</h2></div>{action}</header>{children}</article>
+}
+
+function ProgressSummary({ progress, detailed = false }: { progress: NonNullable<Student360Overview['progress']>; detailed?: boolean }) {
+  const extra = [
+    ['Vòng mông', progress.latestHipsCm, 'cm'],
+    ['Vòng đùi', progress.latestThighCm, 'cm'],
+    ['Bắp tay', progress.latestArmCm, 'cm'],
+    ['Vòng ngực', progress.latestChestCm, 'cm'],
+    ['Khối lượng cơ', progress.latestMuscleMassKg, 'kg'],
+  ] as const
+  return <>
+    <div className={`student360-progress-summary${detailed ? ' is-detail' : ''}`}><div><Scale /><strong>{progress.latestWeightKg ?? '—'}<small>kg</small></strong><span>{progress.weightChangeKg === null ? 'Chưa có so sánh' : `${progress.weightChangeKg > 0 ? '+' : ''}${progress.weightChangeKg}kg`}</span></div><div><Ruler /><strong>{progress.latestWaistCm ?? '—'}<small>cm eo</small></strong><span>{progress.waistChangeCm === null ? 'Chưa có so sánh' : `${progress.waistChangeCm > 0 ? '+' : ''}${progress.waistChangeCm}cm`}</span></div><div><HeartPulse /><strong>{progress.latestBodyFatPercent ?? '—'}<small>% mỡ</small></strong><span>{progress.bodyFatChangePercent === null ? 'Chưa có so sánh' : `${progress.bodyFatChangePercent > 0 ? '+' : ''}${progress.bodyFatChangePercent}%`}</span></div></div>
+    {detailed && <div className="student360-progress-extra">{extra.map(([label, value, unit]) => <span key={label}><small>{label}</small><strong>{value ?? '—'}{value !== null && value !== undefined ? ` ${unit}` : ''}</strong></span>)}</div>}
+  </>
 }
 
 function State({ type, children }: { type?: 'error'; children: React.ReactNode }) {
@@ -615,7 +629,7 @@ export default function Student360Page({ studentId, source, isDemo = false, onBa
           </Card>}
 
           {permissions.canViewProgress && <Card title="Tiến độ gần nhất" icon={Activity} action={<button type="button" className="student360-link" onClick={() => setActiveTab('coaching')}>Xem chi tiết</button>}>
-            {progress ? <div className="student360-progress-summary"><div><Scale /><strong>{progress.latestWeightKg ?? '—'}<small>kg</small></strong><span>{progress.weightChangeKg === null ? 'Chưa có so sánh' : `${progress.weightChangeKg > 0 ? '+' : ''}${progress.weightChangeKg}kg`}</span></div><div><Ruler /><strong>{progress.latestWaistCm ?? '—'}<small>cm eo</small></strong><span>{progress.waistChangeCm === null ? 'Chưa có so sánh' : `${progress.waistChangeCm > 0 ? '+' : ''}${progress.waistChangeCm}cm`}</span></div><div><HeartPulse /><strong>{progress.latestBodyFatPercent ?? '—'}<small>% mỡ</small></strong><span>{progress.bodyFatChangePercent === null ? 'Chưa có so sánh' : `${progress.bodyFatChangePercent > 0 ? '+' : ''}${progress.bodyFatChangePercent}%`}</span></div></div> : <p className="student360-empty">Chưa có dữ liệu cân đo hoặc bạn không có quyền xem.</p>}
+            {progress ? <ProgressSummary progress={progress} /> : <p className="student360-empty">Chưa có dữ liệu cân đo hoặc bạn không có quyền xem.</p>}
           </Card>}
 
           {permissions.canViewNutrition && <Card title="Dinh dưỡng 7 ngày" icon={Salad} action={<button type="button" className="student360-link" onClick={() => onNavigate(source.startsWith('staff') ? 'staff-nutrition-reviews' : 'admin-nutrition-reviews', studentId, identity.name)}>Mở duyệt món</button>}>
@@ -663,14 +677,15 @@ export default function Student360Page({ studentId, source, isDemo = false, onBa
           {permissions.canViewTraining && <Card title="Nhật ký tập gần đây" icon={Activity}>
             <div className="student360-workout-logs">{training.recentLogs?.map((log) => <article key={log.id}><time>{safeDate(log.date)}</time><div><strong>{log.title}</strong><span>{log.completedSets ? `${log.completedSets} hiệp` : 'Đã ghi nhận'}{log.totalVolumeKg ? ` · ${currency.format(Math.round(log.totalVolumeKg))}kg tổng tải` : ''}{log.maximumWeightKg ? ` · tối đa ${log.maximumWeightKg}kg` : ''}</span>{log.painNotes && <small><AlertTriangle /> {log.painNotes}</small>}</div></article>)}{!training.recentLogs?.length && <p className="student360-empty">Chưa có nhật ký mức tạ.</p>}</div>
           </Card>}
-          {permissions.canViewProgress && <Card title="Chỉ số cơ thể" icon={Scale}>
-            {progress ? <><div className="student360-progress-summary is-detail"><div><Scale /><strong>{progress.latestWeightKg ?? '—'}<small>kg</small></strong><span>{progress.weightChangeKg === null ? '—' : `${progress.weightChangeKg > 0 ? '+' : ''}${progress.weightChangeKg}kg`}</span></div><div><Ruler /><strong>{progress.latestWaistCm ?? '—'}<small>cm eo</small></strong><span>{progress.waistChangeCm === null ? '—' : `${progress.waistChangeCm > 0 ? '+' : ''}${progress.waistChangeCm}cm`}</span></div><div><HeartPulse /><strong>{progress.latestBodyFatPercent ?? '—'}<small>% mỡ</small></strong><span>{progress.bodyFatChangePercent === null ? '—' : `${progress.bodyFatChangePercent > 0 ? '+' : ''}${progress.bodyFatChangePercent}%`}</span></div></div><p className="student360-updated">Cập nhật {safeDate(progress.latestDate)} · {progress.measurementCount} lần đo</p></> : <p className="student360-empty">Chưa có dữ liệu cân đo.</p>}
+          {(permissions.canViewProgress || permissions.canViewProgressPhotos) && <Card title="Tiến độ cơ thể" icon={Scale} className="student360-photo-card">
+            {permissions.canViewProgress && (progress ? <><ProgressSummary progress={progress} detailed /><p className="student360-updated">Cập nhật {safeDate(progress.latestDate)} · {progress.measurementCount} lần ghi nhận</p></> : <p className="student360-empty">Chưa có dữ liệu cân đo.</p>)}
+            {permissions.canViewProgressPhotos && <div className="student360-progress-media-block">
+              <div className="student360-progress-media-heading"><strong>Bộ ảnh theo lần ghi nhận</strong><small>Ảnh chỉ tải khi người có quyền mở mục này.</small></div>
+              {!photosLoaded && photosLoading ? <State><LoaderCircle className="is-spinning" /> Đang mở ảnh riêng tư…</State> : photos.length ? <><div className="student360-photo-list">{photos.map((record) => <article key={record.id}><time>{safeDate(record.date)}</time><div>{record.images.map((image, index) => <button type="button" key={`${record.id}-${index}`} onClick={() => window.open(image.url, '_blank', 'noopener,noreferrer')}><img loading="lazy" src={image.url} alt={`Tiến độ ${identity.name} ngày ${safeDate(record.date)}`} />{image.angle && <span>{image.angle === 'front' ? 'Trước' : image.angle === 'back' ? 'Sau' : image.angle === 'left' ? 'Nghiêng trái' : image.angle === 'right' ? 'Nghiêng phải' : image.angle}</span>}{!image.angle && image.legacy && <span>Ảnh cũ</span>}</button>)}</div></article>)}</div>{photoHasMore && <button type="button" className="student360-load-more" disabled={photosLoading} onClick={() => void loadMorePhotos()}>{photosLoading ? 'Đang tải thêm…' : 'Tải thêm ảnh'}</button>}</> : <p className="student360-empty">Chưa có ảnh tiến độ hoặc ảnh đang chờ chuyển sang kho riêng tư.</p>}
+            </div>}
           </Card>}
           {permissions.canViewNutrition && <Card title="Dinh dưỡng" icon={Salad} action={<button type="button" className="student360-link" onClick={openNutritionTimeline}>Mở nhật ký</button>}>
             {nutrition ? <div className="student360-nutrition is-detail"><div><strong>{nutrition.averageCalories}</strong><span>kcal/ngày</span><small>Mục tiêu {nutrition.targetCalories ?? '—'}</small></div><div><strong>{nutrition.averageProtein}g</strong><span>protein/ngày</span><small>Mục tiêu {nutrition.targetProtein ?? '—'}g</small></div><div><strong>{nutrition.loggedMeals}</strong><span>bữa đã ghi</span><small>{nutrition.loggedDays}/7 ngày</small></div></div> : <p className="student360-empty">Chưa có dữ liệu dinh dưỡng.</p>}
-          </Card>}
-          {permissions.canViewProgressPhotos && <Card title="Ảnh tiến độ" icon={ImageIcon} className="student360-photo-card">
-            {!photosLoaded && photosLoading ? <State><LoaderCircle className="is-spinning" /> Đang mở ảnh riêng tư…</State> : photos.length ? <><div className="student360-photo-list">{photos.map((record) => <article key={record.id}><time>{safeDate(record.date)}</time><div>{record.images.map((image, index) => <button type="button" key={`${record.id}-${index}`} onClick={() => window.open(image.url, '_blank', 'noopener,noreferrer')}><img loading="lazy" src={image.url} alt={`Tiến độ ${identity.name} ngày ${safeDate(record.date)}`} />{image.legacy && <span>Ảnh cũ</span>}</button>)}</div></article>)}</div>{photoHasMore && <button type="button" className="student360-load-more" disabled={photosLoading} onClick={() => void loadMorePhotos()}>{photosLoading ? 'Đang tải thêm…' : 'Tải thêm ảnh'}</button>}</> : <p className="student360-empty">Chưa có ảnh tiến độ hoặc ảnh đang chờ chuyển sang kho riêng tư.</p>}
           </Card>}
         </div>}
       </section>}

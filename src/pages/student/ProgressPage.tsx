@@ -1,42 +1,51 @@
-import React, { useState, useEffect, useMemo } from 'react'
-import { safeLocalStorageSet } from '../../lib/safeStorage'
-import '../../styles-progress.css'
-import { AlertCircle, LoaderCircle, Plus } from 'lucide-react'
+import React, { useEffect, useMemo, useState } from 'react'
+import {
+  AlertCircle,
+  ArrowRight,
+  Camera,
+  CheckCircle2,
+  ChevronRight,
+  CircleGauge,
+  Dumbbell,
+  Image as ImageIcon,
+  LoaderCircle,
+  Ruler,
+  Sparkles,
+  Target,
+  Utensils,
+  Waves,
+} from 'lucide-react'
 
 import type { Course, CourseProgress } from '../../types'
-import type { BodyMeasurements, ProgressCategory, ProgressPeriod, WeightRecord } from '../../types/progressTypes'
-
-import { ProgressHeader } from '../../components/progress/ProgressHeader'
-import { WeeklyScoreCard } from '../../components/progress/WeeklyScoreCard'
-import { DailyActionsCard } from '../../components/progress/DailyActionsCard'
-import { WeightTrackerCard } from '../../components/progress/WeightTrackerCard'
-import { WeightChartCard } from '../../components/progress/WeightChartCard'
-import { ProgressCheckInCard } from '../../components/progress/ProgressCheckInCard'
-import { NutritionProgressCard } from '../../components/progress/NutritionProgressCard'
-import { NutritionChartsCard } from '../../components/progress/NutritionChartsCard'
-import { EnergyBalanceCard } from '../../components/progress/EnergyBalanceCard'
-import { StreaksAndBadgesCard } from '../../components/progress/StreaksAndBadgesCard'
-import { AiWeeklyAnalysisCard } from '../../components/progress/AiWeeklyAnalysisCard'
-
-import { QuickLogBottomSheet } from '../../components/progress/QuickLogBottomSheet'
-import { WeightLogModal } from '../../components/progress/WeightLogModal'
-import { firebaseAuth } from '../../lib/firebase'
-import { AiCoachBottomSheet } from '../../components/progress/AiCoachBottomSheet'
-import { prewarmAiCoachAppCheck } from '../../services/nutritionService'
-import { calculateProgressScore } from '../../utils/progressScoreCalculator'
+import type {
+  BodyMeasurements,
+  ProgressCategory,
+  ProgressCheckInPhoto,
+  ProgressCheckInRecord,
+  ProgressPeriod,
+  WeightRecord,
+} from '../../types/progressTypes'
 import type { NutritionProfileDraft } from '../../features/nutrition/types'
-import { completeMealDates, periodEnergy } from '../../features/nutrition/progressNutrition'
+import type { LoyaltyDashboard } from '../../features/loyalty/types'
+import { completeMealDates } from '../../features/nutrition/progressNutrition'
 import { resolveDailyNutritionTargets, recentAverageWeight } from '../../features/nutrition/dailyNutritionTargets'
 import { toLocalDateKey } from '../../features/nutrition/routing'
+import { demoLoyaltyDashboard, getMyLoyaltyDashboard } from '../../features/loyalty/loyaltyService'
+import { AiCoachBottomSheet } from '../../components/progress/AiCoachBottomSheet'
+import { prewarmAiCoachAppCheck } from '../../services/nutritionService'
+import { firebaseAuth } from '../../lib/firebase'
 import {
-  saveUserWeightLog,
-  subscribeToUserWeightLogs,
-  subscribeToUserBodyMeasurements,
-  subscribeToUserGamification,
+  subscribeToRecentUserActivityLogs,
   subscribeToRecentUserMealLogs,
   subscribeToRecentUserWaterLogs,
-  subscribeToRecentUserActivityLogs,
+  subscribeToUserBodyMeasurements,
+  subscribeToUserProgressCheckIns,
+  subscribeToUserProgressPhotos,
+  subscribeToUserWeightLogs,
 } from '../../services/firebaseService'
+import { safeLocalStorageSet } from '../../lib/safeStorage'
+import '../../styles-progress.css'
+import './ProgressPage.css'
 
 interface ProgressPageProps {
   courseItems?: Course[]
@@ -53,849 +62,390 @@ interface ProgressPageProps {
   nutritionProfile?: NutritionProfileDraft | null
 }
 
+type LegacyPhoto = Partial<ProgressCheckInRecord> & {
+  id: string
+  imageUrl?: string
+  angle?: string
+  recordedAt?: string
+}
+
+type MetricId = 'weightKg' | 'waistCm' | 'hipsCm' | 'bodyFatPercentage' | 'muscleMassKg'
+
+const metricDefinitions: Array<{ id: MetricId; label: string; unit: string }> = [
+  { id: 'weightKg', label: 'Cân nặng', unit: 'kg' },
+  { id: 'waistCm', label: 'Vòng eo', unit: 'cm' },
+  { id: 'hipsCm', label: 'Vòng mông', unit: 'cm' },
+  { id: 'bodyFatPercentage', label: 'Mỡ cơ thể', unit: '%' },
+  { id: 'muscleMassKg', label: 'Khối lượng cơ', unit: 'kg' },
+]
+
+const allMeasurementDefinitions: Array<{ id: keyof ProgressCheckInRecord; label: string; unit: string }> = [
+  ...metricDefinitions,
+  { id: 'thighCm', label: 'Vòng đùi', unit: 'cm' },
+  { id: 'armCm', label: 'Bắp tay', unit: 'cm' },
+  { id: 'chestCm', label: 'Vòng ngực', unit: 'cm' },
+]
+
+function positive(value: unknown) {
+  const number = Number(value)
+  return Number.isFinite(number) && number > 0 ? number : null
+}
+
+function readLocal<T>(key: string, fallback: T): T {
+  try {
+    const raw = localStorage.getItem(key)
+    return raw ? JSON.parse(raw) as T : fallback
+  } catch {
+    return fallback
+  }
+}
+
+function formatDate(value?: string) {
+  if (!value) return 'Chưa có ngày'
+  const date = new Date(`${value.slice(0, 10)}T12:00:00`)
+  return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(date)
+}
+
+function normalizeAngle(value: unknown): ProgressCheckInPhoto['angle'] {
+  if (value === 'back' || value === 'left' || value === 'right') return value
+  return 'front'
+}
+
+function daysAgoKey(days: number) {
+  const date = new Date()
+  date.setDate(date.getDate() - days + 1)
+  return toLocalDateKey(date)
+}
+
+function changeCopy(value: number | null, unit: string) {
+  if (value === null) return 'Chưa đủ dữ liệu'
+  if (Math.abs(value) < 0.05) return `Không đổi ${unit}`
+  return `${value > 0 ? '+' : ''}${value.toFixed(1)} ${unit}`
+}
+
+function photoFor(record: ProgressCheckInRecord | undefined) {
+  if (!record?.photos?.length) return null
+  return record.photos.find((photo) => photo.angle === 'front') || record.photos[0]
+}
+
+function ProgressImage({ record, label }: { record?: ProgressCheckInRecord; label: string }) {
+  const photo = photoFor(record)
+  return <figure className={`progress-v2-journey__photo${photo ? ' has-photo' : ''}`}>
+    {photo ? <img src={photo.imageUrl} alt={`${label} ngày ${formatDate(record?.date)}`} /> : <span><ImageIcon /><small>Chưa có ảnh</small></span>}
+    <figcaption><span>{label}</span><strong>{formatDate(record?.date)}</strong></figcaption>
+  </figure>
+}
+
+function JourneyHero({ baseline, latest, onOpenCheckIn }: { baseline?: ProgressCheckInRecord; latest?: ProgressCheckInRecord; onOpenCheckIn: () => void }) {
+  const deltas = [
+    { label: 'Cân nặng', value: baseline && latest && positive(baseline.weightKg) && positive(latest.weightKg) ? Number(latest.weightKg) - Number(baseline.weightKg) : null, unit: 'kg' },
+    { label: 'Vòng eo', value: baseline && latest && positive(baseline.waistCm) && positive(latest.waistCm) ? Number(latest.waistCm) - Number(baseline.waistCm) : null, unit: 'cm' },
+    { label: 'Mỡ cơ thể', value: baseline && latest && positive(baseline.bodyFatPercentage) && positive(latest.bodyFatPercentage) ? Number(latest.bodyFatPercentage) - Number(baseline.bodyFatPercentage) : null, unit: '%' },
+  ]
+  const hasComparison = Boolean(baseline && latest && baseline.id !== latest.id)
+
+  return <section className="progress-v2-journey" aria-labelledby="progress-journey-title">
+    <div className="progress-v2-journey__heading">
+      <div><h2 id="progress-journey-title">Hành trình của bạn</h2><p>{hasComparison ? 'So sánh lần đầu và lần gần nhất trong khoảng đang xem.' : 'Ghi nhận ít nhất hai lần để nhìn thấy thay đổi.'}</p></div>
+      <button type="button" onClick={onOpenCheckIn}><Camera /> Ghi nhận</button>
+    </div>
+    <div className="progress-v2-journey__visual">
+      <ProgressImage record={baseline} label="Trước" />
+      <span className="progress-v2-journey__connector" aria-hidden="true"><ArrowRight /></span>
+      <ProgressImage record={latest} label="Hiện tại" />
+    </div>
+    <div className="progress-v2-journey__changes">
+      {deltas.map((item) => <div key={item.label}><span>{item.label}</span><strong>{changeCopy(item.value, item.unit)}</strong></div>)}
+    </div>
+  </section>
+}
+
+function BodyTrend({ records }: { records: ProgressCheckInRecord[] }) {
+  const [metricId, setMetricId] = useState<MetricId>('weightKg')
+  const metric = metricDefinitions.find((item) => item.id === metricId) || metricDefinitions[0]
+  const points = useMemo(() => records
+    .map((record) => ({ date: record.date, value: positive(record[metricId]) }))
+    .filter((item): item is { date: string; value: number } => item.value !== null)
+    .sort((a, b) => a.date.localeCompare(b.date)), [metricId, records])
+  const geometry = useMemo(() => {
+    if (points.length < 2) return null
+    const min = Math.min(...points.map((item) => item.value))
+    const max = Math.max(...points.map((item) => item.value))
+    const range = Math.max(1, max - min)
+    const coords = points.map((item, index) => ({ ...item, x: 24 + index * (572 / Math.max(1, points.length - 1)), y: 184 - ((item.value - min) / range) * 142 }))
+    return { coords, path: coords.map((item, index) => `${index ? 'L' : 'M'} ${item.x} ${item.y}`).join(' ') }
+  }, [points])
+
+  return <section className="progress-v2-section progress-v2-trend" aria-labelledby="body-trend-title">
+    <header><div><h2 id="body-trend-title">Xu hướng cơ thể</h2><p>Chọn một chỉ số để xem thay đổi qua từng lần ghi nhận.</p></div></header>
+    <div className="progress-v2-metric-tabs" role="tablist" aria-label="Chọn chỉ số cơ thể">
+      {metricDefinitions.map((item) => <button type="button" role="tab" aria-selected={metricId === item.id} className={metricId === item.id ? 'is-active' : ''} onClick={() => setMetricId(item.id)} key={item.id}>{item.label}</button>)}
+    </div>
+    {geometry ? <div className="progress-v2-chart">
+      <div className="progress-v2-chart__summary"><strong>{points.at(-1)?.value.toFixed(1)} {metric.unit}</strong><span>{formatDate(points.at(-1)?.date)}</span></div>
+      <svg viewBox="0 0 620 220" role="img" aria-label={`Biểu đồ ${metric.label.toLowerCase()}`} preserveAspectRatio="none">
+        <defs><linearGradient id="progress-line-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#d90068" stopOpacity=".2" /><stop offset="1" stopColor="#d90068" stopOpacity="0" /></linearGradient></defs>
+        {[42, 89, 136, 183].map((y) => <line key={y} x1="24" y1={y} x2="596" y2={y} stroke="#e7e4e8" strokeWidth="1" />)}
+        <path d={`${geometry.path} L 596 202 L 24 202 Z`} fill="url(#progress-line-fill)" />
+        <path d={geometry.path} fill="none" stroke="#d90068" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+        {geometry.coords.map((item) => <circle key={`${item.date}-${item.value}`} cx={item.x} cy={item.y} r="5" fill="#fff" stroke="#d90068" strokeWidth="3" vectorEffect="non-scaling-stroke" />)}
+      </svg>
+      <div className="progress-v2-chart__dates"><span>{formatDate(points[0].date)}</span><span>{formatDate(points.at(-1)?.date)}</span></div>
+    </div> : <div className="progress-v2-empty"><CircleGauge /><strong>Chưa đủ dữ liệu {metric.label.toLowerCase()}</strong><span>Cần ít nhất hai lần ghi nhận chỉ số này để tạo biểu đồ.</span></div>}
+  </section>
+}
+
+function CheckInHistory({ records, onOpenCheckIn }: { records: ProgressCheckInRecord[]; onOpenCheckIn: () => void }) {
+  if (!records.length) return <section className="progress-v2-section"><div className="progress-v2-empty"><Camera /><strong>Chưa có lần ghi nhận</strong><span>Thêm ảnh hoặc số đo đầu tiên để bắt đầu hành trình.</span><button type="button" onClick={onOpenCheckIn}>Ghi nhận tiến độ</button></div></section>
+  return <section className="progress-v2-section progress-v2-history" aria-labelledby="progress-history-title">
+    <header><div><h2 id="progress-history-title">Các lần ghi nhận</h2><p>Mỗi ngày chỉ hiển thị một bản gồm toàn bộ ảnh và số đo liên quan.</p></div><span>{records.length} lần</span></header>
+    <div className="progress-v2-history__list">
+      {records.map((record) => {
+        const measurements = allMeasurementDefinitions.filter((item) => positive(record[item.id]) !== null)
+        return <article key={record.id}>
+          <div className="progress-v2-history__media">
+            {record.photos?.slice(0, 4).map((photo) => <img key={photo.id || photo.angle} src={photo.imageUrl} alt={`Ảnh ${photo.angle} ngày ${formatDate(record.date)}`} loading="lazy" />)}
+            {!record.photos?.length && <span><Ruler /></span>}
+          </div>
+          <div className="progress-v2-history__copy"><time>{formatDate(record.date)}</time><strong>{record.photos?.length || 0} ảnh · {measurements.length} chỉ số</strong><small>{record.verificationStatus === 'verified' ? 'PT đã xác nhận' : record.source === 'legacy' ? 'Dữ liệu cũ' : 'Học viên tự ghi'}</small>{record.measurementNote && <p>{record.measurementNote}</p>}</div>
+          <div className="progress-v2-history__metrics">{measurements.slice(0, 4).map((item) => <span key={String(item.id)}>{item.label}<b>{positive(record[item.id])} {item.unit}</b></span>)}</div>
+        </article>
+      })}
+    </div>
+  </section>
+}
+
 export default function ProgressPage({
-  courseItems = [],
-  progressItems = [],
   loading = false,
   error = null,
-  onOpenCourse,
   onNavigate,
   ownerId = 'demo',
   weightKg,
   targetWeightDeltaKg,
   targetTimeframeMonths,
-  heightCm,
   nutritionProfile = null,
 }: ProgressPageProps) {
+  const [period, setPeriod] = useState<ProgressPeriod>('30-days')
+  const [category, setCategory] = useState<ProgressCategory>('overview')
+  const [coachOpen, setCoachOpen] = useState(false)
+  const resolvedOwnerId = ownerId?.trim() || firebaseAuth?.currentUser?.uid || 'demo'
+  const isDemo = resolvedOwnerId === 'demo'
+  const recentNutritionFromDate = useMemo(() => daysAgoKey(90), [])
+
+  const [allMeals, setAllMeals] = useState<any[]>(() => readLocal(`aura:nutrition:meals:v2:${resolvedOwnerId}`, []))
+  const [allActivities, setAllActivities] = useState<any[]>(() => readLocal(`aura:nutrition:activities:v1:${resolvedOwnerId}`, []))
+  const [allWater, setAllWater] = useState<any[]>(() => readLocal(`aura:nutrition:water-entries:v1:${resolvedOwnerId}`, []))
+  const [weightRecords, setWeightRecords] = useState<WeightRecord[]>(() => readLocal(`aura:progress:weight-records:${resolvedOwnerId}`, []))
+  const emptyMetrics: BodyMeasurements = { bmi: 0, bmiCategory: 'Chưa cập nhật', bodyFatPercentage: 0, bodyFatStatus: 'Chưa cập nhật', muscleMassKg: 0, muscleStatus: 'Chưa cập nhật', waistCm: 0, waistStatus: 'Chưa cập nhật', updatedAt: '' }
+  const [bodyMetrics, setBodyMetrics] = useState<BodyMeasurements>(() => readLocal(`aura:progress:body-measurements:${resolvedOwnerId}`, emptyMetrics))
+  const [canonicalCheckIns, setCanonicalCheckIns] = useState<ProgressCheckInRecord[]>(() => readLocal(`aura:cache:user_progress_checkins:${resolvedOwnerId}`, []))
+  const [legacyPhotos, setLegacyPhotos] = useState<LegacyPhoto[]>(() => readLocal(`aura:cache:user_progress_photos:${resolvedOwnerId}`, []))
+  const [loyalty, setLoyalty] = useState<LoyaltyDashboard | null>(isDemo ? demoLoyaltyDashboard() : null)
+
   useEffect(() => {
-    // Mobile users do not have a hover event. Warm App Check only while the
-    // browser is idle so it cannot compete with the progress page's first paint.
+    const refreshLocal = () => {
+      setAllMeals(readLocal(`aura:nutrition:meals:v2:${resolvedOwnerId}`, []))
+      setAllActivities(readLocal(`aura:nutrition:activities:v1:${resolvedOwnerId}`, []))
+      setAllWater(readLocal(`aura:nutrition:water-entries:v1:${resolvedOwnerId}`, []))
+    }
+    refreshLocal()
+    window.addEventListener('storage', refreshLocal)
+    window.addEventListener('aura:nutrition:updated', refreshLocal)
+    if (isDemo || resolvedOwnerId === 'anonymous') return () => {
+      window.removeEventListener('storage', refreshLocal)
+      window.removeEventListener('aura:nutrition:updated', refreshLocal)
+    }
+    const unsubscribers = [
+      subscribeToRecentUserMealLogs(resolvedOwnerId, recentNutritionFromDate, setAllMeals),
+      subscribeToRecentUserWaterLogs(resolvedOwnerId, recentNutritionFromDate, setAllWater),
+      subscribeToRecentUserActivityLogs(resolvedOwnerId, recentNutritionFromDate, setAllActivities),
+    ]
+    return () => {
+      window.removeEventListener('storage', refreshLocal)
+      window.removeEventListener('aura:nutrition:updated', refreshLocal)
+      unsubscribers.forEach((unsubscribe) => unsubscribe())
+    }
+  }, [isDemo, recentNutritionFromDate, resolvedOwnerId])
+
+  useEffect(() => {
+    setWeightRecords(readLocal(`aura:progress:weight-records:${resolvedOwnerId}`, []))
+    setBodyMetrics(readLocal(`aura:progress:body-measurements:${resolvedOwnerId}`, emptyMetrics))
+    setCanonicalCheckIns(readLocal(`aura:cache:user_progress_checkins:${resolvedOwnerId}`, []))
+    setLegacyPhotos(readLocal(`aura:cache:user_progress_photos:${resolvedOwnerId}`, []))
+    if (isDemo || resolvedOwnerId === 'anonymous') return
+    const unsubscribers = [
+      subscribeToUserWeightLogs(resolvedOwnerId, (rows) => {
+        const sorted = [...rows].sort((a, b) => String(a.date).localeCompare(String(b.date)))
+        setWeightRecords(sorted)
+        safeLocalStorageSet(`aura:progress:weight-records:${resolvedOwnerId}`, JSON.stringify(sorted))
+      }),
+      subscribeToUserBodyMeasurements(resolvedOwnerId, (value) => {
+        if (!value) return
+        setBodyMetrics(value)
+        safeLocalStorageSet(`aura:progress:body-measurements:${resolvedOwnerId}`, JSON.stringify(value))
+      }),
+      subscribeToUserProgressCheckIns(resolvedOwnerId, setCanonicalCheckIns),
+      subscribeToUserProgressPhotos(resolvedOwnerId, setLegacyPhotos),
+    ]
+    return () => unsubscribers.forEach((unsubscribe) => unsubscribe())
+  }, [isDemo, resolvedOwnerId])
+
+  useEffect(() => {
+    let active = true
+    if (isDemo) {
+      setLoyalty(demoLoyaltyDashboard())
+      return () => { active = false }
+    }
+    getMyLoyaltyDashboard().then((value) => { if (active) setLoyalty(value) }).catch(() => { if (active) setLoyalty(null) })
+    return () => { active = false }
+  }, [isDemo])
+
+  useEffect(() => {
     if (!window.matchMedia('(hover: none), (pointer: coarse)').matches) return undefined
-    const idleWindow = window as typeof window & {
-      requestIdleCallback?: (callback: () => void, options?: { timeout?: number }) => number
-      cancelIdleCallback?: (handle: number) => void
-    }
-    if (idleWindow.requestIdleCallback) {
-      const handle = idleWindow.requestIdleCallback(prewarmAiCoachAppCheck, { timeout: 2_500 })
-      return () => idleWindow.cancelIdleCallback?.(handle)
-    }
     const timer = window.setTimeout(prewarmAiCoachAppCheck, 1_500)
     return () => window.clearTimeout(timer)
   }, [])
 
-  const [period, setPeriod] = useState<ProgressPeriod>('7-days')
-  const [category, setCategory] = useState<ProgressCategory>('overview')
+  const checkIns = useMemo(() => {
+    const records = new Map<string, ProgressCheckInRecord>()
+    canonicalCheckIns.forEach((item) => {
+      const id = item.checkInId || item.id
+      records.set(id, { ...item, id, checkInId: id, photos: Array.isArray(item.photos) ? item.photos.filter((photo) => photo?.imageUrl) : [] })
+    })
+    const groupedLegacy = new Map<string, LegacyPhoto[]>()
+    legacyPhotos.forEach((photo) => {
+      if (!photo?.imageUrl) return
+      const date = String(photo.date || photo.recordedAt || '').slice(0, 10)
+      const key = photo.checkInId || `legacy-${date}`
+      groupedLegacy.set(key, [...(groupedLegacy.get(key) || []), photo])
+    })
+    groupedLegacy.forEach((photos, id) => {
+      if (records.has(id)) return
+      const sample = photos[0]
+      records.set(id, {
+        id, checkInId: id, date: String(sample.date || sample.recordedAt || '').slice(0, 10), source: 'legacy', verificationStatus: 'self_reported',
+        weightKg: positive(sample.weightKg) || undefined,
+        bodyFatPercentage: positive(sample.bodyFatPercentage ?? (sample as any).bodyFat) || undefined,
+        muscleMassKg: positive(sample.muscleMassKg) || undefined,
+        waistCm: positive(sample.waistCm) || undefined,
+        hipsCm: positive(sample.hipsCm) || undefined,
+        thighCm: positive(sample.thighCm) || undefined,
+        armCm: positive(sample.armCm) || undefined,
+        chestCm: positive(sample.chestCm) || undefined,
+        measurementNote: sample.measurementNote,
+        photos: photos.slice(0, 4).map((photo) => ({ id: photo.id, angle: normalizeAngle(photo.angle), imageUrl: String(photo.imageUrl) })),
+      })
+    })
+    weightRecords.forEach((weight) => {
+      const matching = [...records.values()].find((record) => record.id === weight.id || record.date === weight.date)
+      if (matching) {
+        if (!positive(matching.weightKg)) matching.weightKg = weight.weightKg
+        return
+      }
+      records.set(weight.id, { id: weight.id, checkInId: weight.id, date: weight.date, weightKg: weight.weightKg, measurementNote: weight.note, photos: [], source: 'legacy', verificationStatus: 'self_reported' })
+    })
+    if (bodyMetrics.updatedAt) {
+      const matching = [...records.values()].find((record) => record.date === bodyMetrics.updatedAt)
+      if (matching) Object.assign(matching, Object.fromEntries(allMeasurementDefinitions.flatMap((item) => positive(bodyMetrics[item.id as keyof BodyMeasurements]) ? [[item.id, bodyMetrics[item.id as keyof BodyMeasurements]]] : [])))
+    }
+    return [...records.values()].filter((record) => /^\d{4}-\d{2}-\d{2}$/.test(record.date)).sort((a, b) => b.date.localeCompare(a.date))
+  }, [bodyMetrics, canonicalCheckIns, legacyPhotos, weightRecords])
 
-  // Keep demo data isolated even when Firebase Auth still has a signed-in
-  // session (for example role preview/E2E). Replacing `demo` with that UID
-  // would start Firestore subscriptions while the app is intentionally using
-  // the local backend and can crash the whole progress route.
-  const resolvedOwnerId = ownerId?.trim() || firebaseAuth?.currentUser?.uid || 'demo'
-  const recentNutritionFromDate = useMemo(() => {
-    const firstDay = new Date()
-    firstDay.setDate(firstDay.getDate() - 89)
-    return toLocalDateKey(firstDay)
-  }, [])
-
-  // Modals & Bottom Sheets state
-  const [quickLogOpen, setQuickLogOpen] = useState(false)
-  const [weightModalOpen, setWeightModalOpen] = useState(false)
-  const [coachSheetOpen, setCoachSheetOpen] = useState(false)
-  const [progressMutationError, setProgressMutationError] = useState<string | null>(null)
-
-  // Do not invent a measurement for a real account. Demo mode keeps its
-  // sample value, while production stays empty until the member records one.
-  const baseWeight = weightKg ?? nutritionProfile?.weightKg ?? (ownerId === 'demo' ? 65.0 : 0)
-  const startWeightKg = baseWeight
+  const days = period === '7-days' ? 7 : period === '90-days' ? 90 : 30
+  const periodStart = daysAgoKey(days)
+  const periodCheckIns = checkIns.filter((record) => record.date >= periodStart)
+  const latest = periodCheckIns[0]
+  const baseline = periodCheckIns.length > 1 ? periodCheckIns.at(-1) : undefined
+  const baseWeight = weightKg ?? nutritionProfile?.weightKg ?? 0
+  const sortedWeights = [...weightRecords].sort((a, b) => a.date.localeCompare(b.date))
+  const currentWeight = positive(latest?.weightKg) ?? positive(sortedWeights.at(-1)?.weightKg) ?? baseWeight
+  const startWeight = positive(sortedWeights[0]?.weightKg) ?? positive(checkIns.at(-1)?.weightKg) ?? baseWeight
   const configuredTargetDelta = targetWeightDeltaKg ?? nutritionProfile?.targetWeightDeltaKg ?? null
-  const goalWeightKg = nutritionProfile?.targetWeightKg ?? (baseWeight > 0 && configuredTargetDelta !== null
-    ? Number((baseWeight + configuredTargetDelta).toFixed(1))
-    : 0)
+  const goalWeight = nutritionProfile?.targetWeightKg ?? (startWeight && configuredTargetDelta !== null ? Number((startWeight + configuredTargetDelta).toFixed(1)) : 0)
+  const actual30DayWeight = recentAverageWeight(weightRecords, currentWeight || baseWeight)
+  const nutritionTargets = resolveDailyNutritionTargets(nutritionProfile, actual30DayWeight > 0 ? actual30DayWeight : undefined)
 
-  // Live Nutrition Data States
-  const [allMeals, setAllMeals] = useState<any[]>(() => {
-    try {
-      const raw = localStorage.getItem(`aura:nutrition:meals:v2:${resolvedOwnerId}`)
-      return raw ? JSON.parse(raw) : []
-    } catch {
-      return []
-    }
-  })
+  const periodSummary = useMemo(() => {
+    const meals = allMeals.filter((meal: any) => (!meal.status || meal.status === 'logged') && meal.date >= periodStart)
+    const mealDays = completeMealDates(meals, nutritionProfile?.mealsPerDay || 3).size
+    const waterByDate = new Map<string, number>()
+    allWater.filter((entry: any) => entry.date >= periodStart).forEach((entry: any) => waterByDate.set(entry.date, (waterByDate.get(entry.date) || 0) + (Number(entry.amountMl) || 0)))
+    const waterDays = [...waterByDate.values()].filter((amount) => nutritionTargets.waterGoal > 0 && amount >= nutritionTargets.waterGoal * .8).length
+    const activityDays = new Set(allActivities.filter((entry: any) => entry.date >= periodStart).map((entry: any) => entry.date)).size
+    const expectedActivities = Math.max(1, Math.round(days * ((nutritionProfile?.trainingSessions || 3) / 7)))
+    const adherence = Math.round(Math.min(100, mealDays / days * 100) * .5 + Math.min(100, activityDays / expectedActivities * 100) * .3 + Math.min(100, waterDays / days * 100) * .2)
+    return { mealDays, waterDays, activityDays, expectedActivities, adherence }
+  }, [allActivities, allMeals, allWater, days, nutritionProfile?.mealsPerDay, nutritionProfile?.trainingSessions, nutritionTargets.waterGoal, periodStart])
 
-  const [allActivities, setAllActivities] = useState<any[]>(() => {
-    try {
-      const raw = localStorage.getItem(`aura:nutrition:activities:v1:${resolvedOwnerId}`)
-      return raw ? JSON.parse(raw) : []
-    } catch {
-      return []
-    }
-  })
-
-  const [allWater, setAllWater] = useState<any[]>(() => {
-    try {
-      const raw = localStorage.getItem(`aura:nutrition:water-entries:v1:${resolvedOwnerId}`)
-      return raw ? JSON.parse(raw) : []
-    } catch {
-      return []
-    }
-  })
-
-  useEffect(() => {
-    const loadFromStorage = () => {
-      try {
-        const rawM = localStorage.getItem(`aura:nutrition:meals:v2:${resolvedOwnerId}`)
-        if (rawM) setAllMeals(JSON.parse(rawM))
-        const rawA = localStorage.getItem(`aura:nutrition:activities:v1:${resolvedOwnerId}`)
-        if (rawA) setAllActivities(JSON.parse(rawA))
-        const rawW = localStorage.getItem(`aura:nutrition:water-entries:v1:${resolvedOwnerId}`)
-        if (rawW) setAllWater(JSON.parse(rawW))
-      } catch (e) {
-        console.error(e)
-      }
-    }
-
-    loadFromStorage()
-
-    const handleStorage = () => loadFromStorage()
-    window.addEventListener('storage', handleStorage)
-    window.addEventListener('aura:nutrition:updated', handleStorage)
-
-    if (resolvedOwnerId && resolvedOwnerId !== 'anonymous' && resolvedOwnerId !== 'demo') {
-      const unsubM = subscribeToRecentUserMealLogs(resolvedOwnerId, recentNutritionFromDate, (remote) => {
-        if (remote && Array.isArray(remote)) {
-          setAllMeals(remote)
-        }
-      })
-      const unsubW = subscribeToRecentUserWaterLogs(resolvedOwnerId, recentNutritionFromDate, (remote) => {
-        if (remote && Array.isArray(remote)) {
-          setAllWater(remote)
-        }
-      })
-      const unsubA = subscribeToRecentUserActivityLogs(resolvedOwnerId, recentNutritionFromDate, (remote) => {
-        if (remote && Array.isArray(remote)) {
-          setAllActivities(remote)
-        }
-      })
-      return () => {
-        window.removeEventListener('storage', handleStorage)
-        window.removeEventListener('aura:nutrition:updated', handleStorage)
-        unsubM()
-        unsubW()
-        unsubA()
-      }
-    }
-
-    return () => {
-      window.removeEventListener('storage', handleStorage)
-      window.removeEventListener('aura:nutrition:updated', handleStorage)
-    }
-  }, [recentNutritionFromDate, resolvedOwnerId])
-
-  // Weight Data State
-  const [weightRecords, setWeightRecords] = useState<WeightRecord[]>(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        const raw = window.localStorage.getItem(`aura:progress:weight-records:${ownerId}`)
-        if (raw) {
-          const parsed = JSON.parse(raw)
-          if (Array.isArray(parsed) && parsed.length > 0) return parsed
-        }
-      } catch (e) {
-        console.error('Error loading weight records:', e)
-      }
-    }
-    // Generate initial default records if empty
-    if (ownerId === 'demo') {
-      return [
-        { id: '1', date: '2026-07-29', label: '29/07', weightKg: Number((baseWeight + 0.1).toFixed(1)), trendKg: Number((baseWeight + 0.4).toFixed(1)) },
-        { id: '2', date: '2026-07-30', label: '30/07', weightKg: Number((baseWeight + 0.7).toFixed(1)), trendKg: Number((baseWeight + 0.3).toFixed(1)) },
-        { id: '3', date: '2026-07-31', label: '31/07', weightKg: Number((baseWeight + 0.5).toFixed(1)), trendKg: Number((baseWeight + 0.2).toFixed(1)) },
-        { id: '4', date: '2026-08-01', label: '01/08', weightKg: Number((baseWeight - 0.5).toFixed(1)), trendKg: Number((baseWeight + 0.1).toFixed(1)) },
-        { id: '5', date: '2026-08-02', label: '02/08', weightKg: Number((baseWeight + 0.2).toFixed(1)), trendKg: Number((baseWeight + 0.0).toFixed(1)) },
-        { id: '6', date: '2026-08-03', label: '03/08', weightKg: Number((baseWeight - 0.5).toFixed(1)), trendKg: Number((baseWeight - 0.1).toFixed(1)) },
-        { id: '7', date: '2026-08-04', label: '04/08', weightKg: Number((baseWeight).toFixed(1)), trendKg: Number((baseWeight - 0.1).toFixed(1)) },
-      ]
-    }
-    return []
-  })
-
-  // Body Metrics State
-  const [bodyMetrics, setBodyMetrics] = useState<BodyMeasurements>(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        const raw = window.localStorage.getItem(`aura:progress:body-measurements:${ownerId}`)
-        if (raw) return JSON.parse(raw)
-      } catch (e) {
-        console.error('Error loading body metrics:', e)
-      }
-    }
-    const isDemo = ownerId === 'demo'
-    return {
-      bmi: isDemo ? 23.0 : 0,
-      bmiCategory: isDemo ? 'Khỏe mạnh' : 'Chưa cập nhật',
-      bodyFatPercentage: isDemo ? 21.3 : 0,
-      bodyFatStatus: isDemo ? 'Ổn định' : 'Chưa cập nhật',
-      muscleMassKg: isDemo ? 27.6 : 0,
-      muscleStatus: isDemo ? 'Tốt' : 'Chưa cập nhật',
-      waistCm: isDemo ? 76 : 0,
-      waistStatus: isDemo ? 'Tốt' : 'Chưa cập nhật',
-      updatedAt: isDemo ? '2026-08-04' : '',
-    }
-  })
-
-  // Streak state
-  const [streak, setStreak] = useState<number>(() => {
-    const isDemoUser = ownerId === 'demo'
-    const cached = typeof window !== 'undefined' ? localStorage.getItem(`aura:gamification:streak:${ownerId}`) : null
-    return cached ? parseInt(cached, 10) : (isDemoUser ? 5 : 0)
-  })
-
-  // Dynamically calculate target date based on targetTimeframeMonths
+  const latestDateAge = latest ? Math.max(0, Math.floor((Date.now() - new Date(`${latest.date}T12:00:00`).getTime()) / 86_400_000)) : null
+  const nextMission = loyalty?.missions.find((mission) => mission.status !== 'completed' && mission.status !== 'claimed') || loyalty?.missions[0]
+  const recognition = loyalty?.recognition
   const targetDateText = useMemo(() => {
-    const timeframe = targetTimeframeMonths ?? nutritionProfile?.targetTimeframeMonths ?? (ownerId === 'demo' ? 3 : null)
-    if (!timeframe || timeframe <= 0) return 'Chưa thiết lập'
-    const targetDate = new Date()
-    targetDate.setMonth(targetDate.getMonth() + timeframe)
-    return `${String(targetDate.getDate()).padStart(2, '0')}/${String(targetDate.getMonth() + 1).padStart(2, '0')}/${targetDate.getFullYear()}`
-  }, [ownerId, targetTimeframeMonths, nutritionProfile?.targetTimeframeMonths])
+    const months = targetTimeframeMonths ?? nutritionProfile?.targetTimeframeMonths
+    if (!months || months <= 0) return 'Chưa đặt thời hạn'
+    const anchor = sortedWeights[0]?.date ? new Date(`${sortedWeights[0].date}T12:00:00`) : new Date()
+    anchor.setMonth(anchor.getMonth() + months)
+    return formatDate(toLocalDateKey(anchor))
+  }, [nutritionProfile?.targetTimeframeMonths, sortedWeights, targetTimeframeMonths])
 
-  const currentWeight = weightRecords[weightRecords.length - 1]?.weightKg ?? baseWeight
+  const openCheckIn = () => onNavigate?.('progress-photo-studio')
+  const insight = latestDateAge === null
+    ? 'Ghi nhận ảnh hoặc số đo đầu tiên để Aura bắt đầu theo dõi thay đổi.'
+    : latestDateAge > 14
+      ? `Lần ghi nhận gần nhất đã cách ${latestDateAge} ngày. Một lần cập nhật mới sẽ giúp so sánh chính xác hơn.`
+      : baseline && latest && positive(baseline.waistCm) && positive(latest.waistCm)
+        ? `Vòng eo thay đổi ${changeCopy(Number(latest.waistCm) - Number(baseline.waistCm), 'cm')} trong khoảng đang xem.`
+        : 'Dữ liệu mới đã được ghi nhận. Tiếp tục duy trì cùng điều kiện đo để so sánh đáng tin cậy.'
 
-  // Subscribe to weight records and body measurements in Firestore
-  useEffect(() => {
-    const isDemoUser = ownerId === 'demo'
-    
-    // Reset / load local storage values or defaults first
-    let initialWeightRecords = []
-    try {
-      const raw = window.localStorage.getItem(`aura:progress:weight-records:${ownerId}`)
-      if (raw) {
-        const parsed = JSON.parse(raw)
-        if (Array.isArray(parsed)) initialWeightRecords = parsed
-      }
-    } catch (e) {
-      console.error(e)
-    }
-    
-    if (initialWeightRecords.length > 0) {
-      setWeightRecords(initialWeightRecords)
-    } else if (isDemoUser) {
-      setWeightRecords([
-        { id: '1', date: '2026-07-29', label: '29/07', weightKg: Number((baseWeight + 0.1).toFixed(1)), trendKg: Number((baseWeight + 0.4).toFixed(1)) },
-        { id: '2', date: '2026-07-30', label: '30/07', weightKg: Number((baseWeight + 0.7).toFixed(1)), trendKg: Number((baseWeight + 0.3).toFixed(1)) },
-        { id: '3', date: '2026-07-31', label: '31/07', weightKg: Number((baseWeight + 0.5).toFixed(1)), trendKg: Number((baseWeight + 0.2).toFixed(1)) },
-        { id: '4', date: '2026-08-01', label: '01/08', weightKg: Number((baseWeight - 0.5).toFixed(1)), trendKg: Number((baseWeight + 0.1).toFixed(1)) },
-        { id: '5', date: '2026-08-02', label: '02/08', weightKg: Number((baseWeight + 0.2).toFixed(1)), trendKg: Number((baseWeight + 0.0).toFixed(1)) },
-        { id: '6', date: '2026-08-03', label: '03/08', weightKg: Number((baseWeight - 0.5).toFixed(1)), trendKg: Number((baseWeight - 0.1).toFixed(1)) },
-        { id: '7', date: '2026-08-04', label: '04/08', weightKg: Number((baseWeight).toFixed(1)), trendKg: Number((baseWeight - 0.1).toFixed(1)) },
-      ])
-    } else {
-      setWeightRecords([])
-    }
+  return <main className="progress-center-page progress-v2-page">
+    {loading && <div className="pg-data-state is-loading" role="status"><LoaderCircle className="spin" /><span>Đang đồng bộ tiến độ…</span></div>}
+    {!loading && error && <div className="pg-data-state is-error" role="alert"><AlertCircle /><span>{error}</span></div>}
 
-    let initialBodyMetrics = null
-    try {
-      const raw = window.localStorage.getItem(`aura:progress:body-measurements:${ownerId}`)
-      if (raw) initialBodyMetrics = JSON.parse(raw)
-    } catch (e) {
-      console.error(e)
-    }
+    <header className="progress-v2-header">
+      <div><h1>Tiến độ</h1><p>Nhìn lại thay đổi của cơ thể và mức độ bám kế hoạch.</p></div>
+      <button type="button" onClick={openCheckIn}><Camera /> Ghi nhận tiến độ</button>
+    </header>
 
-    if (initialBodyMetrics) {
-      setBodyMetrics(initialBodyMetrics)
-    } else if (isDemoUser) {
-      setBodyMetrics({
-        bmi: 23.0,
-        bmiCategory: 'Khỏe mạnh',
-        bodyFatPercentage: 21.3,
-        bodyFatStatus: 'Ổn định',
-        muscleMassKg: 27.6,
-        muscleStatus: 'Tốt',
-        waistCm: 76,
-        waistStatus: 'Tốt',
-        updatedAt: '2026-08-04',
-      })
-    } else {
-      setBodyMetrics({
-        bmi: 0,
-        bmiCategory: 'Chưa cập nhật',
-        bodyFatPercentage: 0,
-        bodyFatStatus: 'Chưa cập nhật',
-        muscleMassKg: 0,
-        muscleStatus: 'Chưa cập nhật',
-        waistCm: 0,
-        waistStatus: 'Chưa cập nhật',
-        updatedAt: '',
-      })
-    }
-
-    if (!ownerId || ownerId === 'demo' || ownerId === 'anonymous') return
-
-    let unsubscribeWeight: (() => void) | undefined
-    let unsubscribeMetrics: (() => void) | undefined
-    let unsubscribeGamification: (() => void) | undefined
-
-    try {
-      unsubscribeWeight = subscribeToUserWeightLogs(ownerId, (remoteRecords) => {
-        if (!Array.isArray(remoteRecords)) return
-        const sorted = [...remoteRecords].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
-        // An empty server snapshot is authoritative; do not resurrect deleted
-        // records from the local cache after a refresh.
-        setWeightRecords(sorted)
-        safeLocalStorageSet(`aura:progress:weight-records:${ownerId}`, JSON.stringify(sorted))
-      }, (err) => {
-        console.warn('Error subscribing to weight logs:', err)
-      })
-
-      unsubscribeMetrics = subscribeToUserBodyMeasurements(ownerId, (remoteMetrics) => {
-        const nextMetrics: BodyMeasurements = remoteMetrics && typeof remoteMetrics === 'object'
-          ? remoteMetrics as BodyMeasurements
-          : { bmi: 0, bmiCategory: 'Chưa cập nhật', bodyFatPercentage: 0, bodyFatStatus: 'Chưa cập nhật', muscleMassKg: 0, muscleStatus: 'Chưa cập nhật', waistCm: 0, waistStatus: 'Chưa cập nhật', updatedAt: '' }
-        setBodyMetrics(nextMetrics)
-        safeLocalStorageSet(`aura:progress:body-measurements:${ownerId}`, JSON.stringify(nextMetrics))
-      }, (err) => {
-        console.warn('Error subscribing to body measurements:', err)
-      })
-
-      unsubscribeGamification = subscribeToUserGamification(ownerId, (remote) => {
-        if (remote && typeof remote === 'object' && remote !== null) {
-          const remoteStreak = Number(remote.streak) || 0
-          setStreak(remoteStreak)
-          safeLocalStorageSet(`aura:gamification:streak:${ownerId}`, String(remoteStreak))
-        }
-      }, (err) => {
-        console.warn('Error subscribing to gamification:', err)
-      })
-    } catch (e) {
-      console.warn('Failed to register Firestore subscriptions:', e)
-    }
-
-    return () => {
-      if (unsubscribeWeight) unsubscribeWeight()
-      if (unsubscribeMetrics) unsubscribeMetrics()
-      if (unsubscribeGamification) unsubscribeGamification()
-    }
-  }, [ownerId, baseWeight])
-
-  const handleSaveWeight = async (weightKgVal: number, note?: string) => {
-    const today = new Date()
-    const label = `${String(today.getDate()).padStart(2, '0')}/${String(today.getMonth() + 1).padStart(2, '0')}`
-    const newRecord: WeightRecord = {
-      id: Date.now().toString(),
-      date: today.toISOString().split('T')[0],
-      label,
-      weightKg: weightKgVal,
-      trendKg: Number(((currentWeight + weightKgVal) / 2).toFixed(1)),
-      note,
-    }
-    const updated = [...weightRecords, newRecord]
-    const previous = weightRecords
-    setProgressMutationError(null)
-    setWeightRecords(updated)
-    safeLocalStorageSet(`aura:progress:weight-records:${ownerId}`, JSON.stringify(updated))
-
-    if (ownerId && ownerId !== 'anonymous' && ownerId !== 'demo') {
-      try {
-        await saveUserWeightLog(ownerId, newRecord as any)
-      } catch (err) {
-        setWeightRecords(previous)
-        safeLocalStorageSet(`aura:progress:weight-records:${ownerId}`, JSON.stringify(previous))
-        const message = 'Chưa thể đồng bộ cân nặng. Vui lòng thử lại.'
-        setProgressMutationError(message)
-        throw err instanceof Error ? err : new Error(message)
-      }
-    }
-  }
-
-  const userProfile = nutritionProfile
-
-  // Get actual weight in the last 30 days based on weight history of this user
-  const actual30DayWeight = useMemo(() => recentAverageWeight(weightRecords, baseWeight), [weightRecords, baseWeight])
-
-  // Progress, Home and Nutrition must read the same canonical targets.  Do
-  // not silently invent age/height/sex/goal values for a real member; an
-  // incomplete profile is shown as "chưa thiết lập" by the cards instead.
-  const nutritionTargets = useMemo(() => {
-    return resolveDailyNutritionTargets(userProfile, actual30DayWeight > 0 ? actual30DayWeight : undefined)
-  }, [userProfile, actual30DayWeight])
-
-  // Calculate body metrics dynamically so BMI is NEVER 0
-  const currentBmi = useMemo(() => {
-    const w = actual30DayWeight
-    const h = heightCm ?? 0
-    const hM = h / 100
-    if (hM <= 0 || w <= 0) return 0
-    return Number((w / (hM * hM)).toFixed(1))
-  }, [heightCm, actual30DayWeight])
-
-  const currentBmiCategory = useMemo(() => {
-    if (currentBmi <= 0) return 'Chưa cập nhật'
-    if (currentBmi < 18.5) return 'Thiếu cân'
-    if (currentBmi < 25.0) return 'Khỏe mạnh'
-    if (currentBmi < 30.0) return 'Thừa cân'
-    return 'Béo phì'
-  }, [currentBmi])
-
-  const mergedBodyMetrics = useMemo(() => {
-    return {
-      ...bodyMetrics,
-      bmi: currentBmi,
-      bmiCategory: currentBmiCategory,
-      bodyFatPercentage: bodyMetrics.bodyFatPercentage || 0,
-      bodyFatStatus: bodyMetrics.bodyFatPercentage ? bodyMetrics.bodyFatStatus : 'Chưa cập nhật',
-      muscleMassKg: bodyMetrics.muscleMassKg || 0,
-      muscleStatus: bodyMetrics.muscleMassKg ? bodyMetrics.muscleStatus : 'Chưa cập nhật',
-      waistCm: bodyMetrics.waistCm || 0,
-      waistStatus: bodyMetrics.waistCm ? bodyMetrics.waistStatus : 'Chưa cập nhật',
-    }
-  }, [bodyMetrics, currentBmi, currentBmiCategory])
-
-  // Energy balance calculation based on real local storage log history and actual 30-day weight
-  const energyBalanceData = useMemo(() => {
-    const daysCount = period === '7-days' ? 7 : period === '30-days' ? 30 : 90
-    const today = new Date()
-    const dateKeys: string[] = []
-    for (let i = daysCount - 1; i >= 0; i--) {
-      const d = new Date(today)
-      d.setDate(today.getDate() - i)
-      const yr = d.getFullYear()
-      const mo = String(d.getMonth() + 1).padStart(2, '0')
-      const dy = String(d.getDate()).padStart(2, '0')
-      dateKeys.push(`${yr}-${mo}-${dy}`)
-    }
-
-    const energy = periodEnergy(allMeals, dateKeys, nutritionTargets, userProfile?.mealsPerDay || 3)
-    return { ...energy, goal: userProfile?.goal || 'maintain', workoutDays: new Set(allActivities.filter((a: any) => dateKeys.includes(a.date)).map((a: any) => a.date)).size, configured: nutritionTargets.configured }
-  }, [period, allMeals, allActivities, userProfile, nutritionTargets])
-
-  // Nutrition progress calculation based on real log history and actual 30-day weight
-  const nutritionProgressData = useMemo(() => {
-    const daysCount = period === '7-days' ? 7 : period === '30-days' ? 30 : 90
-    const today = new Date()
-    const dateKeys: string[] = []
-    for (let i = daysCount - 1; i >= 0; i--) {
-      const d = new Date(today)
-      d.setDate(today.getDate() - i)
-      const yr = d.getFullYear()
-      const mo = String(d.getMonth() + 1).padStart(2, '0')
-      const dy = String(d.getDate()).padStart(2, '0')
-      dateKeys.push(`${yr}-${mo}-${dy}`)
-    }
-
-    const calorieGoal = nutritionTargets.calorieGoal
-    const proteinGoal = nutritionTargets.proteinGoal
-    const carbGoal = nutritionTargets.carbGoal
-    const fatGoal = nutritionTargets.fatGoal
-    const fiberGoal = nutritionTargets.configured ? 25 : 0
-    const waterGoal = nutritionTargets.waterGoal
-
-    const isMealLogged = (m: any) => !m.status || m.status === 'logged'
-    const observedMeals = allMeals.filter((m: any) => isMealLogged(m) && dateKeys.includes(m.date))
-    const completeDates = completeMealDates(observedMeals, userProfile?.mealsPerDay || 3)
-    const periodMeals = observedMeals.filter((m: any) => completeDates.has(m.date))
-    const uniqueDaysWithMeals = new Set(periodMeals.map((m: any) => m.date)).size
-    const divisor = Math.max(1, uniqueDaysWithMeals)
-    
-    const avgCalories = Math.round(periodMeals.reduce((sum: number, m: any) => sum + (Number(m.calories) || 0), 0) / divisor)
-    const avgProtein = Math.round(periodMeals.reduce((sum: number, m: any) => sum + (Number(m.protein) || 0), 0) / divisor)
-    const avgCarbs = Math.round(periodMeals.reduce((sum: number, m: any) => sum + (Number(m.carbs) || 0), 0) / divisor)
-    const avgFat = Math.round(periodMeals.reduce((sum: number, m: any) => sum + (Number(m.fat) || 0), 0) / divisor)
-    const avgFiber = Math.round(periodMeals.reduce((sum: number, m: any) => sum + (Number(m.fiber) || 0), 0) / divisor)
-
-    const periodWater = allWater.filter((w: any) => dateKeys.includes(w.date))
-    const waterDays = new Set(periodWater.map((w: any) => w.date)).size
-    const avgWater = waterDays > 0 ? Math.round(periodWater.reduce((sum: number, w: any) => sum + (Number(w.amountMl) || 0), 0) / waterDays) : 0
-
-    return {
-      avgCalories: uniqueDaysWithMeals > 0 ? avgCalories : 0,
-      targetCalories: calorieGoal,
-      avgProtein: uniqueDaysWithMeals > 0 ? avgProtein : 0,
-      proteinGoal,
-      avgCarbs: uniqueDaysWithMeals > 0 ? avgCarbs : 0,
-      carbGoal,
-      avgFat: uniqueDaysWithMeals > 0 ? avgFat : 0,
-      fatGoal,
-      avgFiber: uniqueDaysWithMeals > 0 ? avgFiber : 0,
-      fiberGoal,
-      avgWater: uniqueDaysWithMeals > 0 ? avgWater : 0,
-      waterGoal,
-      activeDays: uniqueDaysWithMeals,
-      configured: nutritionTargets.configured,
-    }
-  }, [period, resolvedOwnerId, allMeals, allWater, nutritionTargets, userProfile])
-
-  // Real Progress Score calculation based on real user logged data
-  const realProgressInput = useMemo(() => {
-    const daysCount = period === '7-days' ? 7 : period === '30-days' ? 30 : 90
-    const today = new Date()
-    const dateKeys: string[] = []
-    for (let i = daysCount - 1; i >= 0; i--) {
-      const d = new Date(today)
-      d.setDate(today.getDate() - i)
-      const yr = d.getFullYear()
-      const mo = String(d.getMonth() + 1).padStart(2, '0')
-      const dy = String(d.getDate()).padStart(2, '0')
-      dateKeys.push(`${yr}-${mo}-${dy}`)
-    }
-
-    const isMealLogged = (m: any) => !m.status || m.status === 'logged'
-    const periodMeals = allMeals.filter((m: any) => isMealLogged(m) && dateKeys.includes(m.date))
-    const uniqueDaysWithMeals = new Set(periodMeals.map((m: any) => m.date)).size
-    const mealLoggingRate = Math.round((uniqueDaysWithMeals / daysCount) * 100)
-
-    // Calculate calorie and protein adherence per day
-    let totalCalorieScoreSum = 0
-    let totalProteinScoreSum = 0
-    const targetCal = nutritionProgressData.targetCalories
-    const targetProt = nutritionProgressData.proteinGoal
-    const canScoreNutrition = nutritionTargets.configured && targetCal > 0 && targetProt > 0
-
-    dateKeys.forEach(date => {
-      const dayMeals = periodMeals.filter((m: any) => m.date === date)
-      if (completeMealDates(dayMeals, userProfile?.mealsPerDay || 3).has(date) && canScoreNutrition) {
-        const dayCalories = dayMeals.reduce((sum: number, m: any) => sum + (Number(m.calories) || 0), 0)
-        const dayProtein = dayMeals.reduce((sum: number, m: any) => sum + (Number(m.protein) || 0), 0)
-        
-        const daySnapshot = dayMeals.find((m: any) => m.targetSnapshot?.calories > 0)?.targetSnapshot
-        const dayTargetCal = daySnapshot?.calories ?? targetCal
-        const dayTargetProtein = daySnapshot?.protein ?? targetProt
-        const cRatio = dayTargetCal > 0 ? dayCalories / dayTargetCal : 0
-        const cScore = cRatio === 0 ? 0 : cRatio >= 0.85 && cRatio <= 1.15 ? 100 : Math.max(0, Math.round((1 - Math.min(1, Math.abs(1 - cRatio))) * 100))
-        totalCalorieScoreSum += cScore
-
-        const pRatio = dayTargetProtein > 0 ? dayProtein / dayTargetProtein : 0
-        const pScore = pRatio === 0 ? 0 : pRatio >= 0.85 && pRatio <= 1.15 ? 100 : Math.max(0, Math.round((1 - Math.min(1, Math.abs(1 - pRatio))) * 100))
-        totalProteinScoreSum += pScore
-      }
-    })
-
-    const calorieTargetRate = uniqueDaysWithMeals > 0 ? Math.round(totalCalorieScoreSum / daysCount) : 0
-    const proteinTargetRate = uniqueDaysWithMeals > 0 ? Math.round(totalProteinScoreSum / daysCount) : 0
-
-    // Hydration rate
-    const periodWater = allWater.filter((w: any) => dateKeys.includes(w.date))
-    let hydrationOnTargetDays = 0
-    const waterGoal = nutritionProgressData.waterGoal
-    dateKeys.forEach(date => {
-      const dayWater = periodWater.filter((w: any) => w.date === date)
-      const totalWater = dayWater.reduce((sum: number, w: any) => sum + (Number(w.amountMl) || 0), 0)
-      if (waterGoal > 0 && totalWater >= waterGoal * 0.8) {
-        hydrationOnTargetDays++
-      }
-    })
-    const hydrationRate = Math.round((hydrationOnTargetDays / daysCount) * 100)
-
-    // Workouts
-    const periodActivities = allActivities.filter((a: any) => dateKeys.includes(a.date))
-    const daysWithWorkout = new Set(periodActivities.map((a: any) => a.date)).size
-    const expectedWorkouts = Math.max(0, Math.round(daysCount * ((userProfile?.trainingSessions ?? 0) / 7)))
-    const workoutCompletionScore = expectedWorkouts > 0 ? Math.min(100, Math.round((daysWithWorkout / expectedWorkouts) * 100)) : 0
-
-    // Weight tracking rate
-    const limitDateStr = new Date(today.getTime() - daysCount * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
-    const periodWeights = weightRecords.filter(w => w.date >= limitDateStr)
-    const expectedWeightLogs = Math.max(1, Math.round(daysCount / 7)) // 1 log per week
-    const weightTrackingRate = Math.min(100, Math.round((periodWeights.length / expectedWeightLogs) * 100))
-
-    return {
-      adherence: {
-        mealLoggingRate,
-        calorieTargetRate,
-        proteinTargetRate,
-        hydrationRate,
-        dailyTaskRate: Math.round((mealLoggingRate + hydrationRate + weightTrackingRate) / 3),
-      },
-      nutrition: {
-        calorieScore: calorieTargetRate,
-        proteinScore: proteinTargetRate,
-        fiberScore: undefined,
-        fruitVegetableScore: undefined,
-        mealDistributionScore: undefined,
-      },
-      activity: {
-        workoutCompletionScore,
-        activeMinutesScore: workoutCompletionScore,
-        consistencyScore: Math.round((daysWithWorkout / daysCount) * 100),
-      },
-      body: {
-        // A measurement is evidence, not a score. Without a user target or a
-        // prior comparison point Aura must keep the progress score neutral
-        // instead of manufacturing 65/70/80-point estimates.
-        weightTrendScore: undefined,
-        measurementTrendScore: undefined,
-        bodyCompositionScore: undefined,
-        progressPhotoScore: undefined,
-      },
-      tracking: {
-        mealTrackingRate: mealLoggingRate,
-        weightTrackingRate,
-        workoutTrackingRate: workoutCompletionScore,
-        hydrationTrackingRate: hydrationRate,
-        measurementTrackingRate: bodyMetrics.updatedAt ? 100 : 0,
-      }
-    }
-  }, [allMeals, allWater, allActivities, weightRecords, nutritionProgressData, nutritionTargets, period, userProfile])
-
-  const trackedDataDays = useMemo(() => {
-    const dates = new Set<string>()
-    for (const item of [...allMeals, ...allWater, ...allActivities, ...weightRecords]) {
-      if (typeof item?.date === 'string' && item.date) dates.add(item.date)
-    }
-    if (bodyMetrics.updatedAt) dates.add(bodyMetrics.updatedAt)
-    return dates.size
-  }, [allActivities, allMeals, allWater, bodyMetrics.updatedAt, weightRecords])
-  const progressScore = useMemo(() => {
-    const daysCount = period === '7-days' ? 7 : period === '30-days' ? 30 : 90
-    return calculateProgressScore(realProgressInput, Math.min(daysCount, trackedDataDays))
-  }, [realProgressInput, period, trackedDataDays])
-
-  // Calculate weight difference over the period
-  const weightChangeText = useMemo(() => {
-    const daysCount = period === '7-days' ? 7 : period === '30-days' ? 30 : 90
-    const today = new Date()
-    const limitDate = new Date(today.getTime() - daysCount * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
-    
-    const sortedWeights = [...weightRecords].sort((a, b) => a.date.localeCompare(b.date))
-    const periodWeights = sortedWeights.filter(w => w.date >= limitDate)
-    
-    if (periodWeights.length >= 2) {
-      const diff = periodWeights[periodWeights.length - 1].weightKg - periodWeights[0].weightKg
-      return `${diff >= 0 ? '+' : ''}${diff.toFixed(1)} kg`
-    } else if (weightRecords.length >= 2) {
-      const diff = weightRecords[weightRecords.length - 1].weightKg - weightRecords[0].weightKg
-      return `${diff >= 0 ? '+' : ''}${diff.toFixed(1)} kg`
-    }
-    return '--'
-  }, [weightRecords, period])
-
-  const handleSelectQuickAction = (action: 'weight' | 'meal' | 'workout' | 'measurement' | 'photo' | 'water') => {
-    setQuickLogOpen(false)
-    if (action === 'weight') {
-      setWeightModalOpen(true)
-    } else if (action === 'meal') {
-      window.location.hash = '#/nutrition?section=scan'
-    } else if (action === 'workout') {
-      onNavigate?.('pt-workout')
-    } else if (action === 'measurement') {
-      onNavigate?.('progress-photo-studio')
-    } else if (action === 'photo') {
-      onNavigate?.('progress-photo-studio')
-    } else if (action === 'water') {
-      window.location.hash = '#/nutrition?action=water'
-    }
-  }
-
-  const todayStr = useMemo(() => {
-    const d = new Date()
-    const yr = d.getFullYear()
-    const mo = String(d.getMonth() + 1).padStart(2, '0')
-    const dy = String(d.getDate()).padStart(2, '0')
-    return `${yr}-${mo}-${dy}`
-  }, [])
-
-  const todayMealsCount = useMemo(() => {
-    return allMeals.filter((m: any) => (!m.status || m.status === 'logged') && m.date === todayStr).length
-  }, [allMeals, todayStr])
-
-  const todayWaterMl = useMemo(() => {
-    return allWater.filter((w: any) => w.date === todayStr).reduce((sum: number, w: any) => sum + (Number(w.amountMl) || 0), 0)
-  }, [allWater, todayStr])
-
-  const todayWeightLogged = useMemo(() => {
-    return weightRecords.some(r => r.date === todayStr)
-  }, [weightRecords, todayStr])
-
-  const todayWorkoutLogged = useMemo(() => {
-    return allActivities.some(a => a.date === todayStr)
-  }, [allActivities, todayStr])
-
-  const aiWeeklySummary = useMemo(() => {
-    const recentDates = new Set<string>()
-    const today = new Date()
-    for (let offset = 0; offset < 7; offset += 1) {
-      const date = new Date(today)
-      date.setDate(today.getDate() - offset)
-      recentDates.add(toLocalDateKey(date))
-    }
-    const loggedMeals = allMeals.filter((meal: any) => (
-      recentDates.has(meal.date) && (!meal.status || meal.status === 'logged')
-    ))
-    const recentWater = allWater.filter((entry: any) => recentDates.has(entry.date))
-    const recentActivities = allActivities.filter((activity: any) => recentDates.has(activity.date))
-    const oldestDate = [...recentDates].sort()[0]
-    return {
-      mealLoggedDays: new Set(loggedMeals.map((meal: any) => meal.date)).size,
-      mealCount: loggedMeals.length,
-      waterLoggedDays: new Set(recentWater.map((entry: any) => entry.date)).size,
-      workoutDays: new Set(recentActivities.map((activity: any) => activity.date)).size,
-      weightLogCount: weightRecords.filter((record) => record.date >= oldestDate && recentDates.has(record.date)).length,
-    }
-  }, [allActivities, allMeals, allWater, weightRecords])
-
-  return (
-    <div className="progress-center-page">
-      {loading && <div className="pg-data-state is-loading" role="status" aria-live="polite">
-        <LoaderCircle className="spin" size={17} aria-hidden="true" />
-        <span className="pg-data-state__copy"><strong>Đang đồng bộ dữ liệu tiến độ</strong><span>Aura đang tải nhật ký học tập mới nhất. Các chỉ số sẽ cập nhật sau khi đồng bộ xong.</span></span>
-      </div>}
-      {!loading && error && <div className="pg-data-state is-error" role="alert">
-        <AlertCircle size={17} aria-hidden="true" />
-        <span className="pg-data-state__copy"><strong>Chưa thể tải đầy đủ dữ liệu tiến độ</strong><span>{error}</span></span>
-      </div>}
-      {progressMutationError && <div className="pg-inline-error" role="alert">{progressMutationError}</div>}
-      {/* Header with Time Selector & Category Pills & Coach Button */}
-      <ProgressHeader
-        period={period}
-        onPeriodChange={setPeriod}
-        category={category}
-        onCategoryChange={setCategory}
-        onOpenCoach={() => setCoachSheetOpen(true)}
-      />
-
-      {/* Overview: one scan-friendly summary. Heavy charts, photos and AI stay in their own tabs. */}
-      {category === 'overview' && (
-        <>
-          <WeeklyScoreCard
-            scoreResult={progressScore}
-            maxScore={100}
-            weightChangeText={weightChangeText}
-            weightSubText={period === '7-days' ? "So với đầu tuần" : period === '30-days' ? "So với 30 ngày trước" : "So với 90 ngày trước"}
-            nutritionPercent={Math.round((realProgressInput.adherence.mealLoggingRate + realProgressInput.adherence.calorieTargetRate) / 2)}
-            workoutsCount={energyBalanceData.workoutDays}
-            streakDays={streak}
-            insightText={
-              progressScore.total >= 85 ? (
-                <><strong style={{ color: '#14805e' }}>Tiến độ xuất sắc!</strong> Bạn đang duy trì kỷ luật và thói quen rất tốt.</>
-              ) : progressScore.total >= 60 ? (
-                <><strong style={{ color: '#a65a16' }}>Tiến độ ổn định.</strong> Hãy tiếp tục bổ sung thông tin đều đặn nhé!</>
-              ) : (
-                <><strong style={{ color: '#b82850' }}>Cần thêm dữ liệu.</strong> Hãy ghi nhận dinh dưỡng và vận động đầy đủ để theo dõi tốt hơn!</>
-              )
-            }
-          />
-          <DailyActionsCard
-            todayMealCount={todayMealsCount}
-            todayWaterMl={todayWaterMl}
-            waterTargetMl={nutritionProgressData.waterGoal}
-            todayWeightLogged={todayWeightLogged}
-            todayWorkoutLogged={todayWorkoutLogged}
-            onOpenQuickLog={(type) => {
-              if (type === 'weight') setWeightModalOpen(true)
-              else if (type === 'meal') onNavigate?.('nutrition')
-              else setQuickLogOpen(true)
-            }}
-          />
-          <div className="pg-overview-weight">
-            <WeightTrackerCard currentWeightKg={currentWeight} startWeightKg={startWeightKg} goalWeightKg={goalWeightKg} targetDateText={targetDateText} onOpenLogWeight={() => setWeightModalOpen(true)} />
-          </div>
-          <ProgressCheckInCard ownerId={resolvedOwnerId} metrics={mergedBodyMetrics} currentWeightKg={currentWeight} onOpenCheckIn={() => onNavigate?.('progress-photo-studio')} />
-          <div className="pg-overview-nutrition">
-            <NutritionProgressCard
-              onOpenDetails={() => onNavigate?.('nutrition')}
-              onLogMeal={() => onNavigate?.('nutrition')}
-              avgCalories={nutritionProgressData.avgCalories}
-              targetCalories={nutritionProgressData.targetCalories}
-              proteinGrams={nutritionProgressData.avgProtein}
-              proteinGoal={nutritionProgressData.proteinGoal}
-              carbGrams={nutritionProgressData.avgCarbs}
-              carbGoal={nutritionProgressData.carbGoal}
-              fatGrams={nutritionProgressData.avgFat}
-              fatGoal={nutritionProgressData.fatGoal}
-              fiberGrams={nutritionProgressData.avgFiber}
-              fiberGoal={nutritionProgressData.fiberGoal}
-              waterMl={nutritionProgressData.avgWater}
-              waterGoal={nutritionProgressData.waterGoal}
-              activeDays={nutritionProgressData.activeDays} totalPeriodDays={period === '7-days' ? 7 : period === '30-days' ? 30 : 90}
-            />
-          </div>
-        </>
-      )}
-
-      {category === 'body' && (
-        <>
-          <ProgressCheckInCard ownerId={resolvedOwnerId} metrics={mergedBodyMetrics} currentWeightKg={currentWeight} onOpenCheckIn={() => onNavigate?.('progress-photo-studio')} />
-          <div className="pg-weight-grid">
-            <WeightTrackerCard currentWeightKg={currentWeight} startWeightKg={startWeightKg} goalWeightKg={goalWeightKg} targetDateText={targetDateText} onOpenLogWeight={() => setWeightModalOpen(true)} />
-            <WeightChartCard records={weightRecords} goalWeightKg={goalWeightKg} />
-          </div>
-        </>
-      )}
-
-      {category === 'nutrition' && (
-        <>
-          <div className="pg-nutrition-grid">
-            <NutritionProgressCard
-              onOpenDetails={() => onNavigate?.('nutrition')}
-              onLogMeal={() => onNavigate?.('nutrition')}
-              avgCalories={nutritionProgressData.avgCalories}
-              targetCalories={nutritionProgressData.targetCalories}
-              proteinGrams={nutritionProgressData.avgProtein}
-              proteinGoal={nutritionProgressData.proteinGoal}
-              carbGrams={nutritionProgressData.avgCarbs}
-              carbGoal={nutritionProgressData.carbGoal}
-              fatGrams={nutritionProgressData.avgFat}
-              fatGoal={nutritionProgressData.fatGoal}
-              fiberGrams={nutritionProgressData.avgFiber}
-              fiberGoal={nutritionProgressData.fiberGoal}
-              waterMl={nutritionProgressData.avgWater}
-              waterGoal={nutritionProgressData.waterGoal}
-              activeDays={nutritionProgressData.activeDays} totalPeriodDays={period === '7-days' ? 7 : period === '30-days' ? 30 : 90}
-            />
-            <EnergyBalanceCard onOpenDetails={() => onNavigate?.('nutrition')} onLogMeal={() => onNavigate?.('nutrition')} onLogWorkout={() => onNavigate?.('pt-workout')} intake={energyBalanceData.intake} basal={energyBalanceData.basal} dailyActivity={energyBalanceData.dailyActivity} workout={energyBalanceData.workout} thermicEffect={energyBalanceData.thermicEffect} confidence={energyBalanceData.confidence} goal={energyBalanceData.goal} periodDays={energyBalanceData.periodDays} totalPeriodDays={energyBalanceData.totalPeriodDays} activeDays={energyBalanceData.activeDays} workoutDays={energyBalanceData.workoutDays} />
-          </div>
-          <NutritionChartsCard mealLogs={allMeals} waterLogs={allWater} />
-        </>
-      )}
-
-      {category === 'workout' && (
-        <>
-          <DailyActionsCard todayMealCount={todayMealsCount} todayWaterMl={todayWaterMl} waterTargetMl={nutritionProgressData.waterGoal} todayWeightLogged={todayWeightLogged} todayWorkoutLogged={todayWorkoutLogged} onOpenQuickLog={(type) => type === 'weight' ? setWeightModalOpen(true) : type === 'meal' ? onNavigate?.('nutrition') : setQuickLogOpen(true)} />
-          <WeightChartCard records={weightRecords} goalWeightKg={goalWeightKg} />
-          <ProgressCheckInCard ownerId={resolvedOwnerId} metrics={mergedBodyMetrics} currentWeightKg={currentWeight} onOpenCheckIn={() => onNavigate?.('progress-photo-studio')} />
-        </>
-      )}
-
-      {category === 'achievements' && (
-        <>
-          <StreaksAndBadgesCard ownerId={resolvedOwnerId} progressItems={progressItems} />
-          <AiWeeklyAnalysisCard summary={aiWeeklySummary} onPrepareCoach={prewarmAiCoachAppCheck} onOpenCoach={() => setCoachSheetOpen(true)} />
-        </>
-      )}
-
-      {/* Floating Quick Log Button */}
-      <div className="pg-floating-log">
-        <button
-          type="button"
-          onClick={() => setQuickLogOpen(true)}
-          className="pg-primary-action pg-quick-log-action"
-        >
-          <Plus size={20} strokeWidth={3} />
-          <span>Ghi nhanh</span>
-        </button>
+    <div className="progress-v2-controls">
+      <div className="progress-v2-period" role="group" aria-label="Khoảng thời gian">
+        {([['7-days', '7 ngày'], ['30-days', '30 ngày'], ['90-days', '90 ngày']] as const).map(([id, label]) => <button type="button" className={period === id ? 'is-active' : ''} aria-pressed={period === id} onClick={() => setPeriod(id)} key={id}>{label}</button>)}
       </div>
-
-      {/* Modals and Bottom Sheets */}
-      {quickLogOpen && (
-        <QuickLogBottomSheet
-          onClose={() => setQuickLogOpen(false)}
-          onSelectAction={handleSelectQuickAction}
-        />
-      )}
-
-      {weightModalOpen && (
-        <WeightLogModal
-          currentWeight={currentWeight}
-          onClose={() => setWeightModalOpen(false)}
-          onSave={handleSaveWeight}
-        />
-      )}
-
-      {coachSheetOpen && (
-        <AiCoachBottomSheet
-          onClose={() => setCoachSheetOpen(false)}
-          conversationScope={`progress-${resolvedOwnerId}`}
-        />
-      )}
+      <nav className="progress-v2-tabs" aria-label="Nội dung tiến độ">
+        {([['overview', 'Tổng quan'], ['body', 'Cơ thể'], ['history', 'Nhật ký']] as const).map(([id, label]) => <button type="button" className={category === id ? 'is-active' : ''} aria-current={category === id ? 'page' : undefined} onClick={() => setCategory(id)} key={id}>{label}</button>)}
+      </nav>
     </div>
-  )
+
+    {category === 'overview' && <div className="progress-v2-stack">
+      <JourneyHero baseline={baseline} latest={latest} onOpenCheckIn={openCheckIn} />
+      <section className="progress-v2-section progress-v2-goal" aria-labelledby="progress-goal-title">
+        <header><div><h2 id="progress-goal-title">Mục tiêu cơ thể</h2><p>{goalWeight > 0 ? `Dự kiến đến ${targetDateText}` : 'Bổ sung mục tiêu trong hồ sơ để theo dõi chính xác.'}</p></div><Target /></header>
+        <div><span><small>Bắt đầu</small><strong>{startWeight ? `${startWeight.toFixed(1)} kg` : '—'}</strong></span><i /><span><small>Hiện tại</small><strong>{currentWeight ? `${currentWeight.toFixed(1)} kg` : '—'}</strong></span><i /><span><small>Mục tiêu</small><strong>{goalWeight > 0 ? `${goalWeight.toFixed(1)} kg` : '—'}</strong></span></div>
+      </section>
+      <section className="progress-v2-section progress-v2-adherence" aria-labelledby="progress-adherence-title">
+        <header><div><h2 id="progress-adherence-title">Bám kế hoạch</h2><p>Dựa trên những ngày đã ghi nhận trong {days} ngày gần nhất.</p></div><strong>{periodSummary.adherence}%</strong></header>
+        <div className="progress-v2-adherence__rows">
+          <div><Utensils /><span><strong>Dinh dưỡng</strong><small>{periodSummary.mealDays}/{days} ngày đủ khung bữa</small></span></div>
+          <div><Dumbbell /><span><strong>Vận động</strong><small>{periodSummary.activityDays}/{periodSummary.expectedActivities} ngày mục tiêu</small></span></div>
+          <div><Waves /><span><strong>Nước uống</strong><small>{periodSummary.waterDays}/{days} ngày đạt ít nhất 80%</small></span></div>
+        </div>
+      </section>
+      <section className="progress-v2-insight" aria-labelledby="progress-insight-title"><Sparkles /><div><h2 id="progress-insight-title">Điều đáng chú ý</h2><p>{insight}</p></div><button type="button" onPointerEnter={prewarmAiCoachAppCheck} onFocus={prewarmAiCoachAppCheck} onClick={() => setCoachOpen(true)}>Trao đổi với Aura <ChevronRight /></button></section>
+      <section className="progress-v2-section progress-v2-club" aria-labelledby="progress-club-title">
+        <header><div><h2 id="progress-club-title">Aura Club</h2><p>Thành tích và quyền lợi dùng cùng dữ liệu đã được Aura xác minh.</p></div><button type="button" onClick={() => onNavigate?.('aura-club')}>Mở Aura Club <ChevronRight /></button></header>
+        {nextMission ? <div className="progress-v2-club__mission"><CheckCircle2 /><span><strong>{nextMission.title || 'Nhiệm vụ Aura'}</strong><small>{Number(nextMission.progress || 0)}/{Math.max(1, Number(nextMission.target || 1))} · +{Number(nextMission.rewardPoints || 0)} Điểm Aura</small></span><i><b style={{ width: `${Math.min(100, Number(nextMission.progress || 0) / Math.max(1, Number(nextMission.target || 1)) * 100)}%` }} /></i></div> : <div className="progress-v2-club__empty">Chưa có nhiệm vụ đang hoạt động.</div>}
+        <div className="progress-v2-club__stats"><span><strong>{recognition?.totalXp || 0}</strong><small>XP động lực</small></span><span><strong>{recognition?.totalKudos || 0}</strong><small>lời khen từ PT</small></span><span><strong>{recognition?.badges.length || 0}</strong><small>huy hiệu xác minh</small></span></div>
+      </section>
+    </div>}
+
+    {category === 'body' && <div className="progress-v2-stack">
+      <BodyTrend records={periodCheckIns} />
+      <section className="progress-v2-section progress-v2-measurements" aria-labelledby="latest-measurements-title">
+        <header><div><h2 id="latest-measurements-title">Số đo gần nhất</h2><p>{latest ? `Ghi nhận ngày ${formatDate(latest.date)}` : 'Chưa có dữ liệu cơ thể.'}</p></div><Ruler /></header>
+        <div>{allMeasurementDefinitions.map((item) => <span key={String(item.id)}><small>{item.label}</small><strong>{positive(latest?.[item.id]) ?? '—'}{positive(latest?.[item.id]) ? ` ${item.unit}` : ''}</strong></span>)}</div>
+      </section>
+    </div>}
+
+    {category === 'history' && <CheckInHistory records={checkIns} onOpenCheckIn={openCheckIn} />}
+    {coachOpen && <AiCoachBottomSheet onClose={() => setCoachOpen(false)} conversationScope={`progress-${resolvedOwnerId}`} />}
+  </main>
 }

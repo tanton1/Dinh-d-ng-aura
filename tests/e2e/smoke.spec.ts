@@ -14,8 +14,25 @@ test('demo progress opens without registering Firebase-only subscriptions', asyn
   const pageErrors: string[] = []
   page.on('pageerror', (error) => pageErrors.push(error.message))
 
+  await page.setViewportSize({ width: 360, height: 800 })
+  await page.addInitScript(() => {
+    const day = (offset: number) => {
+      const value = new Date()
+      value.setDate(value.getDate() - offset)
+      return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`
+    }
+    localStorage.setItem('aura:cache:user_progress_checkins:demo', JSON.stringify([
+      { id: 'checkin-latest', checkInId: 'checkin-latest', date: day(1), weightKg: 58.4, waistCm: 68, hipsCm: 94, bodyFatPercentage: 25, photos: [], source: 'student', verificationStatus: 'self_reported' },
+      { id: 'checkin-start', checkInId: 'checkin-start', date: day(20), weightKg: 60.2, waistCm: 72, hipsCm: 93, bodyFatPercentage: 27, photos: [], source: 'student', verificationStatus: 'self_reported' },
+    ]))
+  })
+
   await page.goto('/#/progress')
   await expect(page.getByRole('heading', { name: 'Tiến độ', exact: true })).toBeVisible()
+  await expect(page.getByRole('navigation', { name: 'Nội dung tiến độ' }).getByRole('button')).toHaveCount(3)
+  await expect(page.getByRole('heading', { name: 'Hành trình của bạn' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Aura Club' })).toBeVisible()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
   await expect(page.getByText('Aura đang gặp sự cố')).toHaveCount(0)
   expect(pageErrors).toEqual([])
 })

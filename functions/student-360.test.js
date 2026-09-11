@@ -81,6 +81,37 @@ test('progress migration mirrors are collapsed before Student 360 calculations',
   assert.deepEqual(photos.map((item) => item.id), ['photo-1', 'photo-2'])
 })
 
+test('one canonical progress check-in is counted and rendered once across projections', () => {
+  const metrics = uniqueProgressDocuments([
+    { id: 'checkin-1', checkInId: 'checkin-1', date: '2026-09-01', weightKg: 60, waistCm: 70 },
+    { id: 'checkin-1', checkInId: 'checkin-1', date: '2026-09-01', weightKg: 60 },
+    { id: 'checkin-1', checkInId: 'checkin-1', date: '2026-09-01', bodyFatPercentage: 25 },
+  ])
+  assert.equal(metrics.length, 1)
+  assert.equal(metrics[0].bodyFatPercentage, 25)
+
+  const photos = uniqueProgressPhotos([
+    { id: 'checkin-1-front', checkInId: 'checkin-1', date: '2026-09-01', imageUrl: 'https://example.com/front.jpg', angle: 'front' },
+    { id: 'checkin-1-back', checkInId: 'checkin-1', date: '2026-09-01', imageUrl: 'https://example.com/back.jpg', angle: 'back' },
+    { id: 'checkin-1', checkInId: 'checkin-1', date: '2026-09-01', photos: [
+      { imageUrl: 'https://example.com/front.jpg', angle: 'front' },
+      { imageUrl: 'https://example.com/back.jpg', angle: 'back' },
+    ] },
+  ])
+  assert.equal(photos.length, 1)
+  assert.equal(photos[0].images.length, 2)
+
+  const timeline = sourceTimelineEvents('student-1', {
+    profile: {}, contracts: [], sessions: [], workoutLogs: [], leaveRequests: [], sessionRequests: [], mealLogs: [], mealReviews: [], dailyCheckins: [], payments: [], renewals: [],
+    bodyMetrics: metrics,
+    progressPhotos: photos,
+  })
+  const progressEvents = timeline.filter((event) => event.type === 'progress')
+  assert.equal(progressEvents.length, 1)
+  assert.equal(progressEvents[0].title, 'Ghi nhận tiến độ')
+  assert.equal(progressEvents[0].metadata.photoCount, 2)
+})
+
 test('contract workspace exposes named, immutable CRM actions', () => {
   assert.equal(contractMutationTitle('edit'), 'Đã cập nhật hợp đồng')
   assert.equal(contractMutationTitle('add_sessions'), 'Đã mua thêm buổi')

@@ -183,18 +183,28 @@ function paymentProjection(contract, today) {
 function uniqueProgressDocuments(documents = []) {
   const unique = new Map()
   documents.forEach((item, index) => {
-    const value = typeof item?.data === 'function' ? item.data() : item || {}
+    const raw = typeof item?.data === 'function' ? item.data() : item || {}
+    const value = { id: bounded(item?.id || raw.id, 120), ...raw }
     const date = bounded(value.date || value.recordedAt || value.createdAt, 32)
       || (iso(value.createdAt) || '').slice(0, 10)
     const weight = value.weightKg ?? value.weight ?? ''
     const waist = value.waistCm ?? value.waist ?? ''
-    const bodyFat = value.bodyFatPercent ?? value.body_fat ?? value.bodyFat ?? ''
-    const explicitId = bounded(item?.id || value.id, 120)
+    const bodyFat = value.bodyFatPercentage ?? value.bodyFatPercent ?? value.body_fat ?? value.bodyFat ?? ''
+    const explicitId = bounded(value.id, 120)
+    const checkInId = bounded(value.checkInId || (/^checkin-/.test(explicitId) ? explicitId : ''), 120)
     const hasMeasurement = [weight, waist, bodyFat].some((entry) => entry !== '' && entry !== null && entry !== undefined)
-    const key = hasMeasurement ? `${date}|${weight}|${waist}|${bodyFat}` : explicitId
+    const key = checkInId ? `checkin:${checkInId}` : hasMeasurement ? `${date}|${weight}|${waist}|${bodyFat}` : explicitId
     // Later sources are preferred: canonical collections are appended after
     // legacy collections by projectionSources().
-    unique.set(key || `progress-${index}`, item)
+    const current = unique.get(key || `progress-${index}`) || {}
+    unique.set(key || `progress-${index}`, {
+      ...current,
+      ...value,
+      id: checkInId || explicitId || current.id || `progress-${index}`,
+      checkInId: checkInId || current.checkInId || null,
+      date: date || current.date || '',
+      ...(bodyFat !== '' && bodyFat !== null && bodyFat !== undefined ? { bodyFatPercentage: bodyFat } : {}),
+    })
   })
   return [...unique.values()]
 }
@@ -202,11 +212,35 @@ function uniqueProgressDocuments(documents = []) {
 function uniqueProgressPhotos(documents = []) {
   const unique = new Map()
   documents.forEach((item, index) => {
-    const value = typeof item?.data === 'function' ? item.data() : item || {}
+    const raw = typeof item?.data === 'function' ? item.data() : item || {}
+    const value = { id: bounded(item?.id || raw.id, 120), ...raw }
     const date = bounded(value.date || value.createdAt || value.updatedAt, 32)
       || (iso(value.createdAt || value.updatedAt) || '').slice(0, 10)
-    const key = bounded(item?.id || value.id, 120) || `${date}|${value.checksum || value.storagePath || ''}|${index}`
-    unique.set(key, item)
+    const explicitId = bounded(value.id, 120)
+    const checkInId = bounded(value.checkInId || (/^checkin-/.test(explicitId) ? explicitId.replace(/-(front|back|left|right)$/, '') : ''), 120)
+    const key = checkInId ? `checkin:${checkInId}` : explicitId || `${date}|${value.checksum || value.storagePath || ''}|${index}`
+    const candidates = Array.isArray(value.photos) ? value.photos
+      : Array.isArray(value.images) ? value.images
+        : value.storagePath ? [{ storagePath: value.storagePath, angle: value.angle }]
+          : value.imageUrl ? [{ url: value.imageUrl, angle: value.angle }] : []
+    const current = unique.get(key) || { images: [] }
+    const mergedImages = [...(Array.isArray(current.images) ? current.images : []), ...candidates]
+    const seen = new Set()
+    const images = mergedImages.filter((candidate) => {
+      const image = typeof candidate === 'string' ? { url: candidate } : candidate || {}
+      const imageKey = bounded(image.storagePath || image.url || image.imageUrl || image.id || image.angle, 2_000)
+      if (!imageKey || seen.has(imageKey)) return false
+      seen.add(imageKey)
+      return true
+    })
+    unique.set(key, {
+      ...current,
+      ...value,
+      id: checkInId || explicitId || current.id || `progress-photo-${index}`,
+      checkInId: checkInId || current.checkInId || null,
+      date: date || current.date || '',
+      images,
+    })
   })
   return [...unique.values()]
 }
@@ -284,6 +318,7 @@ const TIMELINE_SOURCE_LABELS = {
   contractRenewalCases: 'Hồ sơ gia hạn',
   bodyMetrics: 'Số đo cơ thể',
   progressPhotos: 'Ảnh tiến độ',
+  progressCheckIns: 'Ghi nhận tiến độ',
   studentCareActivities: 'Nhật ký chăm sóc',
   studentTimelineEvents: 'CRM Timeline',
 }
@@ -318,6 +353,11 @@ function timelineDedupeKey(type, sourceId, metadata = {}, occurredAtMillis = 0) 
     // the meal id keeps one activity card while preserving review state.
     const mealId = bounded(metadata.mealId || metadata.reviewId || String(sourceId || '').replace(/^meal-review:/, ''), 200)
     if (mealId) return `nutrition:${mealId}`
+  }
+  if (type === 'progress') {
+    const candidate = bounded(metadata.checkInId || metadata.metricId || metadata.progressPhotoId, 200)
+    const checkInId = /^checkin-/.test(candidate) ? candidate.replace(/-(front|back|left|right)$/, '') : ''
+    if (checkInId) return `progress:${checkInId}`
   }
   if (type === 'contract' && contractId) {
     // Generic contract snapshots are intentionally a separate key. They can be
@@ -745,10 +785,16 @@ function profileProgress(profile = {}, metricDocs = []) {
   const values = uniqueProgressDocuments([...history, ...metricDocs])
     .map((item, index) => ({
       id: bounded(item.id, 100) || `metric-${index}`,
+      checkInId: bounded(item.checkInId, 120) || null,
       date: bounded(item.date || item.recordedAt || item.createdAt, 10) || (iso(item.createdAt) || '').slice(0, 10),
       weight: finite(item.weightKg ?? item.weight, NaN),
       waist: finite(item.waistCm ?? item.waist, NaN),
-      bodyFat: finite(item.bodyFatPercent ?? item.body_fat ?? item.bodyFat, NaN),
+      hips: finite(item.hipsCm ?? item.hips, NaN),
+      thigh: finite(item.thighCm ?? item.thigh, NaN),
+      arm: finite(item.armCm ?? item.arm, NaN),
+      chest: finite(item.chestCm ?? item.chest, NaN),
+      muscleMass: finite(item.muscleMassKg ?? item.muscleMass, NaN),
+      bodyFat: finite(item.bodyFatPercentage ?? item.bodyFatPercent ?? item.body_fat ?? item.bodyFat, NaN),
     }))
     .filter((item) => item.date)
     .sort((left, right) => left.date.localeCompare(right.date))
@@ -762,6 +808,11 @@ function profileProgress(profile = {}, metricDocs = []) {
       latestWeightKg: Number.isFinite(latest.weight) ? latest.weight : null,
       latestWaistCm: Number.isFinite(latest.waist) ? latest.waist : null,
       latestBodyFatPercent: Number.isFinite(latest.bodyFat) ? latest.bodyFat : null,
+      latestHipsCm: Number.isFinite(latest.hips) ? latest.hips : null,
+      latestThighCm: Number.isFinite(latest.thigh) ? latest.thigh : null,
+      latestArmCm: Number.isFinite(latest.arm) ? latest.arm : null,
+      latestChestCm: Number.isFinite(latest.chest) ? latest.chest : null,
+      latestMuscleMassKg: Number.isFinite(latest.muscleMass) ? latest.muscleMass : null,
       weightChangeKg: delta('weight'),
       waistChangeCm: delta('waist'),
       bodyFatChangePercent: delta('bodyFat'),
@@ -892,16 +943,17 @@ async function projectionSources(db, studentId, weekId) {
   ])
   const profile = profileResult.profile
   const accountUid = profileResult.accountUid
-  const [mealLogs, mealReviews, bodyMetrics, bodyMeasurements, weightLogs, trainingProgramSnapshot, legacyProgressPhotos, progressPhotos] = accountUid ? await Promise.all([
+  const [mealLogs, mealReviews, bodyMetrics, bodyMeasurements, weightLogs, progressCheckIns, trainingProgramSnapshot, legacyProgressPhotos, progressPhotos] = accountUid ? await Promise.all([
     latestDocuments(db.collection(`users/${accountUid}/mealLogs`), 'date', 120),
     latestDocuments(db.collection('mealReviews').where('userId', '==', accountUid), 'createdAt', 120),
     latestDocuments(db.collection(`users/${accountUid}/bodyMetrics`), 'date', 100),
     latestDocuments(db.collection(`users/${accountUid}/bodyMeasurements`), 'date', 100),
     latestDocuments(db.collection(`users/${accountUid}/weightLogs`), 'date', 100),
+    latestDocuments(db.collection(`users/${accountUid}/progressCheckIns`), 'date', 100),
     db.doc(`ptTrainingPrograms/${studentId}`).get(),
     latestDocuments(db.collection(`users/${accountUid}/progress_photos`).select('date', 'createdAt', 'updatedAt'), 'date', 60),
     latestDocuments(db.collection(`users/${accountUid}/progressPhotos`).select('date', 'createdAt', 'updatedAt'), 'date', 60),
-  ]) : [[], [], [], [], [], await db.doc(`ptTrainingPrograms/${studentId}`).get(), [], []]
+  ]) : [[], [], [], [], [], [], await db.doc(`ptTrainingPrograms/${studentId}`).get(), [], []]
   return {
     student,
     contracts,
@@ -922,8 +974,8 @@ async function projectionSources(db, studentId, weekId) {
     accountLinkSource: profileResult.source || (accountUid ? 'students.accountUid' : 'missing'),
     mealLogs,
     mealReviews,
-    bodyMetrics: uniqueProgressDocuments([...bodyMetrics, ...bodyMeasurements, ...weightLogs]),
-    progressPhotos: uniqueProgressPhotos([...legacyProgressPhotos, ...progressPhotos]),
+    bodyMetrics: uniqueProgressDocuments([...bodyMetrics, ...bodyMeasurements, ...weightLogs, ...progressCheckIns]),
+    progressPhotos: uniqueProgressPhotos([...legacyProgressPhotos, ...progressPhotos, ...progressCheckIns]),
     trainingProgram: trainingProgramSnapshot.exists ? { id: trainingProgramSnapshot.id, ...trainingProgramSnapshot.data() } : null,
   }
 }
@@ -1038,14 +1090,47 @@ function sourceTimelineEvents(studentId, sources) {
     const occurred = timestampMillis(renewal.updatedAt || renewal.createdAt) || Date.now()
     values.push(timelineEvent(studentId, 'renewal', renewal.id, occurred, 'Cập nhật chăm sóc gia hạn', renewal.stage || 'Chưa liên hệ', 'sales', { stage: renewal.stage || '', caseId: renewal.id }))
   }
+  const progressEvents = new Map()
   const progress = profileProgress(sources.profile || {}, sources.bodyMetrics).values
   for (const item of progress) {
-    values.push(timelineEvent(studentId, 'progress', item.id, dateKeyMillis(item.date), 'Cập nhật chỉ số cơ thể', [Number.isFinite(item.weight) ? `${item.weight}kg` : '', Number.isFinite(item.waist) ? `eo ${item.waist}cm` : ''].filter(Boolean).join(' · ') || 'Đã ghi nhận số đo', 'coaching', { metricId: item.id }))
+    const checkInId = bounded(item.checkInId, 120)
+    const key = checkInId ? `checkin:${checkInId}` : `metric:${item.id}`
+    progressEvents.set(key, { ...(progressEvents.get(key) || {}), checkInId, metric: item })
   }
   for (const item of sources.progressPhotos) {
-    const date = bounded(item.date, 10) || (iso(item.createdAt || item.updatedAt) || '').slice(0, 10)
-    const occurred = timestampMillis(item.createdAt || item.updatedAt) || dateKeyMillis(date)
-    values.push(timelineEvent(studentId, 'progress', `progress-photo:${item.id}`, occurred, 'Đã cập nhật ảnh tiến độ', date ? `Ảnh tiến độ ngày ${date}` : 'Ảnh tiến độ mới', 'coaching', { progressPhotoId: item.id }))
+    const checkInId = bounded(item.checkInId, 120)
+    const key = checkInId ? `checkin:${checkInId}` : `photo:${item.id}`
+    progressEvents.set(key, { ...(progressEvents.get(key) || {}), checkInId, photo: item })
+  }
+  for (const [key, entry] of progressEvents) {
+    const metric = entry.metric || null
+    const photo = entry.photo || null
+    const date = bounded(metric?.date || photo?.date, 10) || (iso(photo?.createdAt || photo?.updatedAt) || '').slice(0, 10)
+    const occurred = timestampMillis(photo?.createdAt || photo?.updatedAt) || dateKeyMillis(date)
+    const images = Array.isArray(photo?.images) ? photo.images : []
+    const measurementCopy = [
+      Number.isFinite(metric?.weight) ? `${metric.weight}kg` : '',
+      Number.isFinite(metric?.waist) ? `eo ${metric.waist}cm` : '',
+      Number.isFinite(metric?.bodyFat) ? `mỡ ${metric.bodyFat}%` : '',
+    ].filter(Boolean)
+    const description = [...measurementCopy, images.length ? `${images.length} ảnh` : ''].filter(Boolean).join(' · ')
+      || (date ? `Ghi nhận ngày ${date}` : 'Đã cập nhật tiến độ')
+    const canonical = Boolean(entry.checkInId)
+    values.push(timelineEvent(
+      studentId,
+      'progress',
+      canonical ? entry.checkInId : key,
+      occurred,
+      canonical ? 'Ghi nhận tiến độ' : metric ? 'Cập nhật chỉ số cơ thể' : 'Đã cập nhật ảnh tiến độ',
+      description,
+      'coaching',
+      {
+        ...(entry.checkInId ? { checkInId: entry.checkInId, photoCount: images.length } : {}),
+        ...(metric?.id ? { metricId: metric.id } : {}),
+        ...(photo?.id ? { progressPhotoId: photo.id } : {}),
+      },
+      canonical ? 'progressCheckIns' : metric ? 'bodyMetrics' : 'progressPhotos',
+    ))
   }
   return normalizeTimelineEvents(values.filter((item) => item.occurredAtMillis > 0)).slice(0, 400)
 }
@@ -2161,36 +2246,38 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
     if (!accountUid || accountUid.includes('/')) throw new HttpsError('failed-precondition', 'Học viên chưa liên kết tài khoản Aura để đọc ảnh tiến độ.')
     const offset = Math.max(0, Math.min(100, Math.floor(finite(request.data?.cursor, 0))))
     const pageSize = Math.max(1, Math.min(20, Math.floor(finite(request.data?.pageSize, 12))))
-    const [legacy, current] = await Promise.all([
+    const [legacy, current, checkIns] = await Promise.all([
       latestSnapshot(db.collection(`users/${accountUid}/progress_photos`), 'date', 30),
       latestSnapshot(db.collection(`users/${accountUid}/progressPhotos`), 'date', 30),
+      latestSnapshot(db.collection(`users/${accountUid}/progressCheckIns`), 'date', 30),
     ])
-    const documents = [...new Map([...legacy.docs, ...current.docs].map((item) => [item.id, item])).values()]
+    const documents = uniqueProgressPhotos([...legacy.docs, ...current.docs, ...checkIns.docs])
     const rows = []
     for (const document of documents) {
-      const value = document.data() || {}
+      const value = typeof document?.data === 'function' ? document.data() || {} : document || {}
+      const progressPhotoId = bounded(document.id || value.id || value.checkInId, 120)
       const candidates = Array.isArray(value.images) ? value.images : Array.isArray(value.photos) ? value.photos : value.storagePath ? [{ storagePath: value.storagePath }] : value.imageUrl ? [{ url: value.imageUrl }] : []
       const images = []
       for (const candidate of candidates.slice(0, 4)) {
         const storagePath = typeof candidate === 'string' ? '' : bounded(candidate.storagePath, 500)
-        const legacyUrl = typeof candidate === 'string' ? candidate : bounded(candidate.url, 2_000)
+        const legacyUrl = typeof candidate === 'string' ? candidate : bounded(candidate.url || candidate.imageUrl, 2_000)
         if (storagePath && storage) {
           try {
             const [url] = await storage.bucket().file(storagePath).getSignedUrl({ action: 'read', expires: Date.now() + 5 * 60 * 1000 })
-            images.push({ url, storagePath, legacy: false })
+            images.push({ url, storagePath, angle: bounded(candidate.angle, 20) || null, legacy: false })
           } catch (error) {
-            logger.warn('student_360_progress_photo_url_failed', { studentId, photoId: document.id, code: error?.code || 'unknown' })
+            logger.warn('student_360_progress_photo_url_failed', { studentId, photoId: progressPhotoId, code: error?.code || 'unknown' })
           }
         } else if (legacyUrl && (legacyUrl.startsWith('data:image/') || legacyUrl.startsWith('https://'))) {
-          images.push({ url: legacyUrl, storagePath: null, legacy: legacyUrl.startsWith('data:image/') })
+          images.push({ url: legacyUrl, storagePath: null, angle: typeof candidate === 'string' ? null : bounded(candidate.angle, 20) || null, legacy: legacyUrl.startsWith('data:image/') })
         }
       }
-      if (images.length) rows.push({ id: document.id, date: bounded(value.date, 10) || document.id.slice(0, 10), images })
+      if (images.length) rows.push({ id: progressPhotoId, checkInId: bounded(value.checkInId, 120) || progressPhotoId, date: bounded(value.date, 10) || progressPhotoId.slice(0, 10), images })
     }
     rows.sort((left, right) => right.date.localeCompare(left.date))
     const page = rows.slice(offset, offset + pageSize)
     const hasMore = offset + pageSize < rows.length
-    return { schemaVersion: 1, studentId, rows: page, hasMore, nextCursor: hasMore ? String(offset + pageSize) : null, truncated: legacy.size >= 30 || current.size >= 30, hasLegacyImages: rows.some((row) => row.images.some((image) => image.legacy)), expiresInSeconds: 300 }
+    return { schemaVersion: 2, studentId, rows: page, hasMore, nextCursor: hasMore ? String(offset + pageSize) : null, truncated: legacy.size >= 30 || current.size >= 30 || checkIns.size >= 30, hasLegacyImages: rows.some((row) => row.images.some((image) => image.legacy)), expiresInSeconds: 300 }
   })
 
   const refreshStudent360Projection = writeCall(async (request) => {

@@ -102,6 +102,14 @@ export interface ProgressCheckInInput {
   photos: ProgressCheckInPhotoInput[]
 }
 
+export interface ProgressCheckInRecord extends ProgressCheckInInput {
+  checkInId: string
+  source?: 'student' | 'trainer' | 'admin' | 'legacy'
+  verificationStatus?: 'self_reported' | 'verified'
+  createdAt?: unknown
+  updatedAt?: unknown
+}
+
 function assertProgressCheckInId(value: string, label: string) {
   if (!/^[A-Za-z0-9_-]{8,120}$/.test(value)) throw new Error(`${label} không hợp lệ.`)
 }
@@ -141,6 +149,22 @@ export async function saveUserProgressCheckIn(userId: string, input: ProgressChe
 
   const measurementKeys = ['weightKg', 'bodyFatPercentage', 'muscleMassKg', 'waistCm', 'hipsCm', 'thighCm', 'armCm', 'chestCm'] as const
   const hasMeasurementValues = measurementKeys.some((key) => input[key] !== undefined)
+  const canonicalPhotos = input.photos.map((photo) => {
+    const storagePath = storagePathFromDownloadUrl(photo.imageUrl)
+    return clean({ id: photo.id, angle: photo.angle, imageUrl: photo.imageUrl, storagePath })
+  })
+  batch.set(doc(database, 'users', userId, 'progressCheckIns', input.id), clean({
+    ...measuredValues,
+    id: input.id,
+    checkInId: input.id,
+    date: input.date,
+    photos: canonicalPhotos,
+    source: 'student',
+    verificationStatus: 'self_reported',
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+    schemaVersion: 1,
+  }), { merge: true })
   if (hasMeasurementValues) {
     batch.set(doc(database, 'users', userId, 'bodyMeasurements', 'current'), measuredValues, { merge: true })
     batch.set(doc(database, 'users', userId, 'bodyMeasurements', input.id), {
@@ -207,6 +231,22 @@ export async function saveUserProgressCheckIn(userId: string, input: ProgressChe
     }
     throw error
   }
+}
+
+export function subscribeToUserProgressCheckIns(userId: string, onData: (records: ProgressCheckInRecord[]) => void, onError?: (error: Error) => void) {
+  const reference = query(
+    collection(requireDb(), 'users', userId, 'progressCheckIns'),
+    orderBy('date', 'desc'),
+    limit(120),
+  )
+  return onSnapshot(reference, (snapshot) => {
+    const records = snapshot.docs.map((item) => ({ id: item.id, ...item.data() })) as ProgressCheckInRecord[]
+    writeCache(`user_progress_checkins:${userId}`, records)
+    onData(records)
+  }, (error) => {
+    onData(readCache<ProgressCheckInRecord[]>(`user_progress_checkins:${userId}`, []))
+    onError?.(error)
+  })
 }
 
 export async function saveUserGamification(userId: string, data: Record<string, unknown>) { await saveProgressDocument(userId, 'gamification', 'stats', data) }

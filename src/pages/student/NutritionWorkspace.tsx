@@ -30,8 +30,6 @@ import {
 import { useEffect, useId, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import '../../styles-nutrition-workspace.css'
 
-const ProgressPage = React.lazy(() => import('./ProgressPage'))
-
 export type NutritionWorkspaceSection = 'today' | 'diary' | 'classic-diary' | 'plan' | 'menu' | 'explore' | 'catalog' | 'insights'
 export type NutritionMealType = 'breakfast' | 'lunch' | 'dinner' | 'snack'
 export type NutritionDataConfidence = 'verified' | 'estimated' | 'needs-review'
@@ -1060,20 +1058,8 @@ function NutritionWorkspace({
           {activeSection === 'classic-diary' && <NutritionClassicDiaryPage {...diary} />}
           {activeSection === 'plan' && (legacyPlanContent ?? <NutritionPlanPage {...plan} />)}
           {activeSection === 'menu' && menu && <NutritionMenuPage {...menu} />}
-          {v4 && activeSection === 'explore' && <section className="nutrition-explore" aria-labelledby="nutrition-explore-title"><header><small>KHÁM PHÁ DINH DƯỠNG</small><h2 id="nutrition-explore-title">Tìm món và hiểu tiến độ</h2><p>Các công cụ tham khảo được gom tại đây để phần Hôm nay luôn tập trung vào việc cần làm.</p></header><div><button type="button" onClick={onOpenCatalog}><span><Database size={21} /></span><strong>Thư viện món ăn</strong><small>Tìm món theo khẩu phần và macro</small><ChevronRight size={18} /></button><button type="button" onClick={onOpenSaved ?? onOpenCatalog}><span><Salad size={21} /></span><strong>Món đã lưu</strong><small>Mở nhanh món bạn dùng thường xuyên</small><ChevronRight size={18} /></button><button type="button" onClick={() => onSectionChange('insights')}><span><BarChart3 size={21} /></span><strong>Tiến độ dinh dưỡng</strong><small>Xem xu hướng cân nặng và thói quen</small><ChevronRight size={18} /></button>{onOpenEatClean && <button type="button" onClick={onOpenEatClean}><span><ShoppingBasket size={21} /></span><strong>Eat Clean</strong><small>Chọn món phù hợp mục tiêu hôm nay</small><ChevronRight size={18} /></button>}</div></section>}
-          {activeSection === 'insights' && (
-            <React.Suspense fallback={<div role="status" aria-live="polite">Đang tải phân tích tiến độ…</div>}>
-              <ProgressPage
-                ownerId={ownerId}
-                onNavigate={(view) => { if (typeof view === 'string') onSectionChange(view as any) }}
-                weightKg={weightKg}
-                targetWeightDeltaKg={targetWeightDeltaKg}
-                targetTimeframeMonths={targetTimeframeMonths}
-                heightCm={heightCm}
-                nutritionProfile={nutritionProfile}
-              />
-            </React.Suspense>
-          )}
+          {v4 && activeSection === 'explore' && <section className="nutrition-explore" aria-labelledby="nutrition-explore-title"><header><small>KHÁM PHÁ DINH DƯỠNG</small><h2 id="nutrition-explore-title">Tìm món và hiểu tiến độ</h2><p>Các công cụ tham khảo được gom tại đây để phần Hôm nay luôn tập trung vào việc cần làm.</p></header><div><button type="button" onClick={onOpenCatalog}><span><Database size={21} /></span><strong>Thư viện món ăn</strong><small>Tìm món theo khẩu phần và macro</small><ChevronRight size={18} /></button><button type="button" onClick={onOpenSaved ?? onOpenCatalog}><span><Salad size={21} /></span><strong>Món đã lưu</strong><small>Mở nhanh món bạn dùng thường xuyên</small><ChevronRight size={18} /></button><button type="button" onClick={() => { window.location.hash = '#/progress' }}><span><BarChart3 size={21} /></span><strong>Tiến độ</strong><small>Mở hành trình cơ thể và thói quen</small><ChevronRight size={18} /></button>{onOpenEatClean && <button type="button" onClick={onOpenEatClean}><span><ShoppingBasket size={21} /></span><strong>Eat Clean</strong><small>Chọn món phù hợp mục tiêu hôm nay</small><ChevronRight size={18} /></button>}</div></section>}
+          {activeSection === 'insights' && <section className="nutrition-explore" aria-labelledby="nutrition-progress-link-title"><header><h2 id="nutrition-progress-link-title">Tiến độ đã có trang riêng</h2><p>Ảnh, số đo, xu hướng và Aura Club được gom trong một hành trình thống nhất.</p></header><div><button type="button" onClick={() => { window.location.hash = '#/progress' }}><span><BarChart3 size={21} /></span><strong>Mở trang Tiến độ</strong><small>Không tải lại dữ liệu dinh dưỡng trùng lặp</small><ChevronRight size={18} /></button></div></section>}
         </>}
       </div>
       {assistant && !assistantIsPage && <AskAuraPanel {...assistant} />}
