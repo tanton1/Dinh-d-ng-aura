@@ -51,6 +51,16 @@ test('progress check-in combines four photo angles and body measurements on mobi
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
 })
 
+test('progress check-in saves a measurement without a long navigation wait', async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 800 })
+  await page.goto('/#/progress-photo-studio')
+  await page.locator('.progress-checkin-measurement-grid input').first().fill('58.4')
+  await page.getByRole('button', { name: 'Lưu tiến độ' }).click()
+  await expect(page).toHaveURL(/#\/progress$/)
+  await page.getByRole('navigation', { name: 'Nội dung tiến độ' }).getByRole('button', { name: 'Nhật ký' }).click()
+  await expect(page.getByText('58.4 kg', { exact: true })).toBeVisible()
+})
+
 test('demo Eat Clean admin uses its local snapshot without calling production', async ({ page }) => {
   const productionCallableRequests: string[] = []
   page.on('request', (request) => {

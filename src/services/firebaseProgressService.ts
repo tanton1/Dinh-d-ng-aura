@@ -328,12 +328,32 @@ export async function deleteUploadedProgressPhotoAsset(imageUrl: string) {
 
 export async function uploadUserProgressPhoto(userId: string, file: File, onProgress?: (percent: number) => void): Promise<string> {
   if (!firebaseStorage) throw new Error('Firebase Storage is not initialized.')
-  const extension = file.name.split('.').pop() ?? 'jpg'
+  const extension = file.type === 'image/webp' ? 'webp' : 'jpg'
   const reference = storageRef(firebaseStorage, `users/${userId}/progress-photos/${Date.now()}-${Math.random().toString(36).slice(2)}.${extension}`)
   return new Promise((resolve, reject) => {
     const task = uploadBytesResumable(reference, file, { contentType: file.type, customMetadata: { ownerUid: userId, resourceKind: 'progress-photo' } })
-    task.on('state_changed', (snapshot) => onProgress?.(Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100)), reject, async () => {
-      try { resolve(await getDownloadURL(task.snapshot.ref)) } catch (error) { reject(error) }
+    let settled = false
+    const timeout = globalThis.setTimeout(() => {
+      if (settled) return
+      task.cancel()
+      const error = Object.assign(new Error('PROGRESS_UPLOAD_TIMEOUT'), { code: 'storage/retry-limit-exceeded' })
+      settled = true
+      reject(error)
+    }, 90_000)
+    const fail = (error: unknown) => {
+      if (settled) return
+      settled = true
+      globalThis.clearTimeout(timeout)
+      reject(error)
+    }
+    task.on('state_changed', (snapshot) => onProgress?.(Math.round((snapshot.bytesTransferred / Math.max(1, snapshot.totalBytes)) * 100)), fail, async () => {
+      if (settled) return
+      try {
+        const url = await getDownloadURL(task.snapshot.ref)
+        settled = true
+        globalThis.clearTimeout(timeout)
+        resolve(url)
+      } catch (error) { fail(error) }
     })
   })
 }
