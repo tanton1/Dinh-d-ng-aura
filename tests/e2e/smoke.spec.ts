@@ -20,6 +20,20 @@ test('demo progress opens without registering Firebase-only subscriptions', asyn
   expect(pageErrors).toEqual([])
 })
 
+test('progress check-in combines four photo angles and body measurements on mobile', async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 800 })
+  await page.goto('/#/progress-photo-studio')
+
+  await expect(page.getByRole('heading', { name: 'Ảnh & số đo hôm nay' })).toBeVisible()
+  await expect(page.getByText('Mặt trước', { exact: true })).toBeVisible()
+  await expect(page.getByText('Nghiêng phải', { exact: true })).toBeVisible()
+  await expect(page.getByText('Vòng eo', { exact: true })).toBeVisible()
+  await expect(page.getByText('Vòng mông', { exact: true })).toBeVisible()
+  await expect(page.getByText('Vòng đùi', { exact: true })).toBeVisible()
+  await expect(page.getByText('Bắp tay', { exact: true })).toBeVisible()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+})
+
 test('demo Eat Clean admin uses its local snapshot without calling production', async ({ page }) => {
   const productionCallableRequests: string[] = []
   const pageErrors: string[] = []

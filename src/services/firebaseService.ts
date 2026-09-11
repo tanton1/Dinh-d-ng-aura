@@ -51,10 +51,14 @@ export {
 } from './firebaseNutritionLogService'
 export {
   deleteUserProgressPhoto,
+  deleteUploadedProgressPhotoAsset,
   deleteUserWeightLog,
   saveUserBodyMeasurements,
   saveUserGamification,
   saveUserProgressPhoto,
+  saveUserProgressCheckIn,
+  type ProgressCheckInAngle,
+  type ProgressCheckInInput,
   saveUserWeightLog,
   subscribeToUserBodyMeasurements,
   subscribeToUserGamification,

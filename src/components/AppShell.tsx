@@ -365,7 +365,7 @@ const viewTitles: Partial<Record<ViewId, string>> = {
   'admin-nutrition-reviews': 'Duyệt ăn',
   'admin-eat-clean': 'Vận hành Eat Clean',
   'admin-notifications': 'Cài đặt Push Notifications',
-  'progress-photo-studio': 'Thêm ảnh tiến độ',
+  'progress-photo-studio': 'Ghi nhận tiến độ',
 }
 
 function isNavigationActive(view: ViewId, itemId: ViewId, mobile = false) {
