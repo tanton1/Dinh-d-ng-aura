@@ -246,7 +246,10 @@ jobs:
 
       - name: Post-deploy smoke
         env:
-          AURA_PROD_URL: ${{ steps.deploy.outputs.url }}
+          # Vercel can protect the immutable deployment hostname even after
+          # the production alias has been promoted. Smoke the public alias;
+          # the expected SHA check below still proves it serves this release.
+          AURA_PROD_URL: https://dinh-duong-aura.vercel.app
           AURA_EXPECTED_RELEASE_SHA: ${{ steps.revision.outputs.sha }}
         run: npm run production:smoke
 
