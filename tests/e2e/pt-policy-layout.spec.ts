@@ -6,7 +6,10 @@ for (const width of [360, 390, 430]) {
     await page.goto('/#/schedule')
     await expect(page.getByRole('heading', { name: /^Lịch tập luyện$/i })).toBeVisible()
 
-    await page.locator('.upcoming-item').first().click()
+    // The first fixture session is intentionally inside the configurable
+    // change deadline. Pick the next scheduled session so the policy action
+    // is available regardless of the current wall-clock time.
+    await page.locator('.upcoming-item').nth(1).click()
     await page.getByRole('button', { name: 'Đổi / hủy buổi' }).click()
     const sessionDialog = page.getByRole('dialog', { name: 'Đổi hoặc hủy buổi tập' })
     await expect(sessionDialog).toBeVisible()

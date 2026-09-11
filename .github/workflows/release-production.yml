@@ -29,7 +29,10 @@ concurrency:
 jobs:
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    # Playwright's first install on a fresh runner can take ~20 minutes
+    # (system dependencies + WebKit). Leave enough headroom for the full
+    # E2E, schedule UI and emulator suites instead of cancelling mid-verify.
+    timeout-minutes: 45
     outputs:
       sha: ${{ steps.revision.outputs.sha }}
     steps:
