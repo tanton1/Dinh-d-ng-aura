@@ -67,6 +67,10 @@ test('nutrition catalog is served only after authenticated account verification'
   assert.doesNotMatch(identity, /listInternalNutritionCatalog[\s\S]*?requireCapability\(actor, 'nutrition\.catalog\.internal\.view'\)/)
   assert.match(identity, /collection\('nutritionCatalog'\)/)
   assert.match(identity, /nutritionCatalogTotal\(db\)/)
+  assert.match(identity, /nutritionCatalogBrowseQuery\(db/)
+  assert.match(identity, /\.orderBy\('nameAscii'\)/)
+  assert.match(identity, /await browseQuery\.count\(\)\.get\(\)/)
+  assert.match(identity, /if \(!requestedIds\.length && !query\)/)
   assert.match(identity, /nextCursor/)
   assert.match(identity, /Math\.min\(60, Math\.max\(12, requestedLimit\)\)/)
   assert.match(identity, /filterNutritionCatalogEntries\(catalogIndex\.entries/)
@@ -81,6 +85,8 @@ test('nutrition catalog is served only after authenticated account verification'
   assert.doesNotMatch(nutritionPage, /limit: 180/)
   assert.match(nutritionCatalogService, /category: input\.category/)
   assert.match(nutritionCatalogService, /catalogVersion: input\.catalogVersion/)
+  assert.match(nutritionCatalogService, /requestCatalogPage/)
+  assert.match(nutritionCatalogService, /isRetryableCatalogError/)
 })
 
 test('nutrition route keeps a small orchestrator and lazy task boundaries', () => {

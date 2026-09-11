@@ -66,6 +66,34 @@ export interface NutritionCatalogPage {
 const CATALOG_PAGE_CACHE_MS = 2 * 60 * 1000
 const catalogRequests = new Map<string, { expiresAt: number; request: Promise<NutritionCatalogPage> }>()
 
+function isRetryableCatalogError(error: unknown) {
+  if (!error || typeof error !== 'object') return false
+  const code = typeof (error as { code?: unknown }).code === 'string'
+    ? String((error as { code?: unknown }).code)
+    : ''
+  return ['unavailable', 'deadline-exceeded', 'internal', 'resource-exhausted', 'functions/unavailable', 'functions/deadline-exceeded', 'functions/internal'].includes(code)
+}
+
+function waitForCatalogRetry() {
+  return new Promise<void>((resolve) => {
+    const timer = typeof window !== 'undefined' ? window.setTimeout : setTimeout
+    timer(resolve, 350)
+  })
+}
+
+async function requestCatalogPage(input: InternalNutritionCatalogQuery) {
+  try {
+    return await listInternalNutritionCatalog(input)
+  } catch (error) {
+    // A Functions cold start can briefly fail while the server warms its
+    // catalog index. One bounded retry recovers that transient without
+    // multiplying requests during a persistent outage.
+    if (!isRetryableCatalogError(error)) throw error
+    await waitForCatalogRetry()
+    return listInternalNutritionCatalog(input)
+  }
+}
+
 export function loadNutritionCatalogPage(input: InternalNutritionCatalogQuery = {}) {
   const key = JSON.stringify({
     query: input.query?.trim() ?? '',
@@ -80,7 +108,7 @@ export function loadNutritionCatalogPage(input: InternalNutritionCatalogQuery = 
   if (cached && cached.expiresAt > Date.now()) return cached.request
   if (cached) catalogRequests.delete(key)
   if (!catalogRequests.has(key)) {
-    const request = listInternalNutritionCatalog(input).then((payload) => {
+    const request = requestCatalogPage(input).then((payload) => {
       if (!Array.isArray(payload.items)) throw new Error('catalog_response_invalid')
       const legacyTotal = Number.isInteger(payload.totalCount) && payload.totalCount >= 0 ? payload.totalCount : 0
       const catalogTotal = typeof payload.catalogTotal === 'number' && Number.isInteger(payload.catalogTotal) && payload.catalogTotal >= 0

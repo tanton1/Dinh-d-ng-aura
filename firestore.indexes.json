@@ -1,6 +1,31 @@
 {
   "indexes": [
     {
+      "collectionGroup": "nutritionCatalog",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "kind", "order": "ASCENDING" },
+        { "fieldPath": "nameAscii", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "nutritionCatalog",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "category.nameVi", "order": "ASCENDING" },
+        { "fieldPath": "nameAscii", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "nutritionCatalog",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "kind", "order": "ASCENDING" },
+        { "fieldPath": "category.nameVi", "order": "ASCENDING" },
+        { "fieldPath": "nameAscii", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "operationalActions",
       "queryScope": "COLLECTION",
       "fields": [
