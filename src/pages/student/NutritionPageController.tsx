@@ -1429,11 +1429,9 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
       loadRecentUserActivityLogs(resolvedOwnerId, recentNutritionFromDate, (state) => updateNutritionSync('activities', state)),
     ]).then(([remoteMeals, remoteWater, remoteActivities]) => {
       if (!active) return
-      const recentMeals = mergeJournalHistory<MealLog>(remoteMeals, liveJournalDays.current.meals)
       const recentWater = mergeJournalHistory<NutritionWaterLog>(remoteWater, liveJournalDays.current.water)
-      const recentActivities = mergeJournalHistory<NutritionActivityLog>(remoteActivities, liveJournalDays.current.activities)
-      setMeals((current) => [...recentMeals, ...current.filter((item) => item.date < recentNutritionFromDate)])
-      setWaterEntries((current) => [...recentWater, ...current.filter((item) => item.date < recentNutritionFromDate)])
+      setMeals((current) => mergeJournalHistory<MealLog>([...remoteMeals, ...current.filter((item) => item.date < recentNutritionFromDate)], liveJournalDays.current.meals))
+      setWaterEntries((current) => mergeJournalHistory([...remoteWater, ...current.filter((item) => item.date < recentNutritionFromDate)], liveJournalDays.current.water))
       const recentTotals = recentWater.reduce<Record<string, number>>((result, entry) => {
         result[entry.date] = (result[entry.date] ?? 0) + Math.max(0, Number(entry.amountMl) || 0)
         return result
@@ -1442,7 +1440,7 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
         ...Object.fromEntries(Object.entries(current).filter(([date]) => date < recentNutritionFromDate)),
         ...recentTotals,
       }))
-      setActivities((current) => [...recentActivities, ...current.filter((item) => item.date < recentNutritionFromDate)])
+      setActivities((current) => mergeJournalHistory([...remoteActivities, ...current.filter((item) => item.date < recentNutritionFromDate)], liveJournalDays.current.activities))
     }).catch((error) => {
       if (active) console.error('Error loading nutrition history:', error)
     })

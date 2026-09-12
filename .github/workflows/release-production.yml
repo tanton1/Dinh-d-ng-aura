@@ -73,7 +73,8 @@ jobs:
   deploy:
     needs: verify
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    # Capacity releases update the 360 callables and source triggers one by one.
+    timeout-minutes: 150
     permissions:
       contents: read
       id-token: write
@@ -173,7 +174,7 @@ jobs:
           IFS=',' read -ra REQUESTED_TARGETS <<< "$TARGETS"
           for FUNCTION_NAME in "${REQUESTED_TARGETS[@]}"; do
             case "$FUNCTION_NAME" in
-              getStudent360Overview|getStudent360OverviewRegional) ;;
+              getStudent360*|listStudent360*|refreshStudent360*|saveStudent360*|mutateStudent360*|createStudentCareActivity*|syncStudent360*|reconcileStudent360ProjectionsScheduled|listInternalNutritionCatalog) ;;
               *) STUDENT_360_ONLY="false" ;;
             esac
           done

@@ -192,7 +192,7 @@ export default function StudentAvailabilityPage({ onNavigate, isDemo = false }: 
   const weekId = useMemo(() => toIsoDate(weekStart), [weekStart])
   const range = useMemo(() => ({ from: toIsoDate(weekStart), to: toIsoDate(addDays(weekStart, 6)) }), [weekStart])
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (discardDraft = false) => {
     const requestId = ++requestIdRef.current
     const background = loadedWeekRef.current === weekId
     setLoading(!background)
@@ -205,7 +205,7 @@ export default function StudentAvailabilityPage({ onNavigate, isDemo = false }: 
         : await listMyStudentPtSchedule(range.from, range.to, weekId)
       if (requestId !== requestIdRef.current) return
       // A user may begin editing while the background read is in flight.
-      if (background && dirtyRef.current) return
+      if (background && dirtyRef.current && !discardDraft) return
       loadedWeekRef.current = weekId
       setData(response)
       setSelectedSlots(new Set(response.student?.availability?.slots ?? response.student?.availableSlots ?? []))
@@ -411,7 +411,7 @@ export default function StudentAvailabilityPage({ onNavigate, isDemo = false }: 
         : 'Đã gửi lịch rảnh. Bộ phận vận hành sẽ rà soát các ca cần xếp lại.')
     } catch (caught) {
       const nextIssue = asStudentPtScheduleError(caught)
-      if (nextIssue.issueCode === 'REVISION_CONFLICT') await load()
+      if (nextIssue.issueCode === 'REVISION_CONFLICT') await load(true)
       setIssue(nextIssue)
     } finally {
       setSaving(false)

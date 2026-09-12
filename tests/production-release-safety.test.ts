@@ -61,7 +61,8 @@ test('Student 360 rollout does not require access to unrelated AI secrets', () =
 
   assert.match(workflow, /AURA_FIREBASE_DISCOVERY_SCOPE/)
   assert.match(workflow, /NODE_ENV:[\s\S]*?aura-student360-discovery/)
-  assert.match(workflow, /getStudent360Overview\|getStudent360OverviewRegional/)
+  assert.match(workflow, /getStudent360\*\|listStudent360\*/)
+  assert.match(workflow, /syncStudent360\*\|reconcileStudent360ProjectionsScheduled\|listInternalNutritionCatalog/)
   assert.match(workflow, /DISCOVERY_SCOPE="student360"/)
   assert.doesNotMatch(workflow, /OPENROUTER_API_KEY:\s*['"]?placeholder/i)
   assert.match(functionsEntry, /isStudent360Discovery/)
