@@ -7,6 +7,7 @@ const { effectiveContractStatus } = require('./contract-status')
 const { ptOperationsPolicySnapshot } = require('./pt-policy')
 const { usageSummaryFromView } = require('./contract-usage-view')
 const { canViewAction } = require('./action-center')
+const { sourceChanged, coalesceProjectionRebuild, upsertChangedTimeline } = require('./student-360-projection-writes')
 
 const TIME_ZONE = 'Asia/Ho_Chi_Minh'
 // Bump the projection schema when account-link resolution changes. Existing
@@ -1299,11 +1300,7 @@ function sourceTimelineEvents(studentId, sources) {
 }
 
 async function upsertTimeline(db, events) {
-  for (let offset = 0; offset < events.length; offset += 400) {
-    const batch = db.batch()
-    events.slice(offset, offset + 400).forEach((event) => batch.set(db.doc(`studentTimelineEvents/${event.id}`), event, { merge: true }))
-    await batch.commit()
-  }
+  return upsertChangedTimeline(db, events)
 }
 
 /**
@@ -1775,11 +1772,16 @@ async function resolveEventStudentId(db, event) {
 }
 
 async function syncStudent360ProjectionFromEvent({ db, event, logger = console }) {
+  if (!sourceChanged(event)) return { skipped: true, reason: 'source_unchanged' }
   const studentId = await resolveEventStudentId(db, event)
   if (!studentId) return { skipped: true, reason: 'student_not_resolved' }
   try {
-    await buildStudent360Projection({ db, studentId, weekId: mondayDateKey(), persist: true })
-    return { skipped: false, studentId }
+    const result = await coalesceProjectionRebuild({
+      db, studentId, event,
+      rebuild: () => buildStudent360Projection({ db, studentId, weekId: mondayDateKey(), persist: true }),
+    })
+    logger.info('student_360_trigger_rebuild', { studentId, ...result })
+    return { skipped: !result.rebuilt, studentId }
   } catch (error) {
     if (error?.code === 'functions/not-found' || error?.code === 'not-found') return { skipped: true, reason: 'student_deleted', studentId }
     logger.error('student_360_projection_sync_failed', { studentId, code: error?.code || 'unknown' })

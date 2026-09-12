@@ -165,17 +165,20 @@ export default function StaffDashboardPage({ onNavigate, capabilities, positions
   const [payrollError, setPayrollError] = useState('')
   const [performanceError, setPerformanceError] = useState('')
   const loadedRef = useRef(false)
+  const requestIdRef = useRef(0)
   const canViewPayroll = capabilities.includes('payroll.self.view') || isDemo
   const canViewOwnPerformance = isTrainer && (capabilities.includes('performance.self.view') || isDemo)
   const canReviewPerformance = managerDashboard && (capabilities.includes('performance.evidence.review') || isDemo)
   const canOpenPerformance = canViewOwnPerformance || canReviewPerformance
 
   const load = useCallback(async () => {
+    const requestId = ++requestIdRef.current
+    const current = () => requestId === requestIdRef.current
     if (loadedRef.current) setRefreshing(true)
     else setLoading(true)
     setError(''); setPayrollError(''); setPerformanceError('')
-    setPayrollLoading(canViewPayroll && !loadedRef.current)
-    setPerformanceLoading(canViewOwnPerformance && !loadedRef.current)
+    setPayrollLoading(canViewPayroll)
+    setPerformanceLoading(canViewOwnPerformance)
     if (isDemo) {
       const demoSessions: TrainerSessionSummary[] = [
         { id: 'demo-5', studentId: 'demo-e', trainerId: 'demo-staff', studentName: 'Đỗ Khánh Linh', date: today, hour: 6, status: 'attended', attendanceStatus: 'present', billingStatus: 'charged', timeZone: 'Asia/Ho_Chi_Minh' },
@@ -191,39 +194,28 @@ export default function StaffDashboardPage({ onNavigate, capabilities, positions
       setScope({ schemaVersion: 1, source: 'pt_contract_assignments', staffId: 'demo-staff', tabs: { students: true, schedule: true, requests: true, nutrition: true }, counts: { primaryStudents: 8, secondaryStudents: 3, nutritionStudents: 5, teachingSessions: 24, pendingRequests: 2 } })
       setSessions(demoSessions); setPayroll(demoPayrollSnapshot(periodId)); setPerformance(demoPerformanceScore(periodId)); setLoading(false); setRefreshing(false); setPayrollLoading(false); setPerformanceLoading(false); loadedRef.current = true; return
     }
-    const [workspaceResult, salesResult, payrollResult, performanceResult] = await Promise.allSettled([
-      coachDashboard ? getMyTrainerWorkspace('schedule', today, today, 500) : Promise.resolve(null),
-      salesDashboard ? getMySalesWorkspace(100) : Promise.resolve(null),
-      canViewPayroll ? getMyStaffPayroll(periodId) : Promise.resolve(null),
-      canViewOwnPerformance ? getMyPerformanceScore(periodId) : Promise.resolve(null),
-    ])
-    if (workspaceResult.status === 'fulfilled' && workspaceResult.value) {
-      setScope(workspaceResult.value.scope); setSessions(workspaceResult.value.sessions)
-    } else if (workspaceResult.status === 'rejected') {
-      setError(workspaceResult.reason instanceof Error ? workspaceResult.reason.message : 'Chưa thể tải tổng quan công việc Staff.')
-    }
-    if (salesResult.status === 'fulfilled' && salesResult.value) {
-      setSales(salesResult.value)
-    } else if (salesResult.status === 'rejected') {
-      setError((current) => current || (salesResult.reason instanceof Error ? salesResult.reason.message : 'Chưa thể tải tổng quan Sales.'))
-    }
-    if (payrollResult.status === 'fulfilled') {
-      setPayroll(payrollResult.value)
-    } else {
-      setPayroll(null)
-      setPayrollError(payrollResult.reason instanceof Error ? payrollResult.reason.message : 'Chưa thể tải dữ liệu thu nhập tháng này.')
-    }
-    if (performanceResult.status === 'fulfilled') {
-      setPerformance(performanceResult.value)
-    } else {
-      setPerformance(null)
-      setPerformanceError(performanceResult.reason instanceof Error ? performanceResult.reason.message : 'Chưa thể tải Aura Performance Score tháng này.')
-    }
-    loadedRef.current = true
-    setLoading(false); setRefreshing(false); setPayrollLoading(false); setPerformanceLoading(false)
+    // Each panel settles independently. Payroll/score must not hold today's schedule.
+    const workspaceTask = (coachDashboard ? getMyTrainerWorkspace('schedule', today, today, 500) : Promise.resolve(null))
+      .then((value) => { if (current() && value) { setScope(value.scope); setSessions(value.sessions) } })
+      .catch((cause) => { if (current()) setError(cause instanceof Error ? cause.message : 'Chưa thể tải công việc Staff.') })
+    const salesTask = (salesDashboard ? getMySalesWorkspace(100) : Promise.resolve(null))
+      .then((value) => { if (current()) setSales(value) })
+      .catch((cause) => { if (current()) setError((value) => value || (cause instanceof Error ? cause.message : 'Chưa thể tải công việc Sales.')) })
+    const primaryTask = Promise.allSettled([workspaceTask, salesTask]).then(() => {
+      if (current()) { loadedRef.current = true; setLoading(false); setRefreshing(false) }
+    })
+    const payrollTask = (canViewPayroll ? getMyStaffPayroll(periodId) : Promise.resolve(null))
+      .then((value) => { if (current()) setPayroll(value) })
+      .catch((cause) => { if (current()) { setPayroll(null); setPayrollError(cause instanceof Error ? cause.message : 'Chưa thể tải thu nhập tháng này.') } })
+      .finally(() => { if (current()) setPayrollLoading(false) })
+    const performanceTask = (canViewOwnPerformance ? getMyPerformanceScore(periodId) : Promise.resolve(null))
+      .then((value) => { if (current()) setPerformance(value) })
+      .catch((cause) => { if (current()) { setPerformance(null); setPerformanceError(cause instanceof Error ? cause.message : 'Chưa thể tải Performance Score.') } })
+      .finally(() => { if (current()) setPerformanceLoading(false) })
+    await Promise.allSettled([primaryTask, payrollTask, performanceTask])
   }, [canViewOwnPerformance, canViewPayroll, coachDashboard, isDemo, periodId, salesDashboard, today])
 
-  useEffect(() => { void load() }, [load])
+  useEffect(() => { void load(); return () => { requestIdRef.current += 1 } }, [load])
 
   const todaySessions = useMemo(() => sessions
     .filter((session) => session.date === today && !['cancelled', 'student_cancelled', 'trainer_cancelled'].includes(session.status))
@@ -295,7 +287,7 @@ export default function StaffDashboardPage({ onNavigate, capabilities, positions
   return <main className="staff-dashboard" data-testid="staff-dashboard-page">
     <header className="staff-dashboard__heading">
       <div><small>AURA STAFF · {roleLabel.toUpperCase()}</small><h1>Tổng quan công việc</h1><p>{today.split('-').reverse().join('/')} · Dữ liệu chỉ trong phạm vi được phân công</p></div>
-      <button type="button" aria-label="Tải lại tổng quan Staff" disabled={loading || refreshing} onClick={() => void load()}><RefreshCw className={loading || refreshing ? 'is-spinning' : ''} size={19} /></button>
+      <button type="button" aria-label="Tải lại tổng quan Staff" disabled={loading || refreshing || payrollLoading || performanceLoading} onClick={() => void load()}><RefreshCw className={loading || refreshing ? 'is-spinning' : ''} size={19} /></button>
     </header>
 
     <AuraMetricCarousel slides={slides} label="Tổng quan công việc Staff" loading={loading} />

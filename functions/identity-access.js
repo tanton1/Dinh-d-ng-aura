@@ -613,6 +613,24 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
       ? [...new Set(request.data.ids.map(catalogDocumentId))].slice(0, 250)
       : []
 
+    // Known IDs (saved meals / plan entries) do not need the full search index.
+    // Keep the old text-search path below for queries with ingredient matching.
+    if (requestedIds.length && !query) {
+      const [documents, totalCount] = await Promise.all([
+        db.getAll(...requestedIds.map((id) => db.doc(`nutritionCatalog/${id}`))),
+        nutritionCatalogTotal(db),
+      ])
+      const entries = documents.filter((document) => document.exists).map((document) => {
+        const item = catalogItem(document)
+        return { id: document.id, item, categoryKeys: [item.category?.id, item.category?.nameVi, item.category?.nameEn].filter(Boolean).map(foldCatalogText), searchText: '' }
+      })
+      const facets = filterNutritionCatalogEntries(entries, { query: '', kind, category: '' })
+      const items = filterNutritionCatalogEntries(facets, { query: '', kind: 'all', category })
+        .sort((a, b) => foldCatalogText(a.item.nameAscii || a.item.nameVi).localeCompare(foldCatalogText(b.item.nameAscii || b.item.nameVi)) || a.id.localeCompare(b.id))
+        .map((entry) => entry.item)
+      return { items, hasMore: false, nextCursor: null, totalCount, catalogTotal: totalCount, filteredCount: items.length, catalogVersion: `catalog-${totalCount}`, categories: nutritionCatalogCategories(facets), restricted: true }
+    }
+
     // Browse views only need one ordered page. Avoid the previous cold-start
     // path that downloaded and sorted all 2,000+ documents before returning
     // the first 30-36 items. Search requests below retain the full in-memory

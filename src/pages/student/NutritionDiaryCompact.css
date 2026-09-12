@@ -1,0 +1,24 @@
+/* Diary is a record browser; its summary supports, rather than precedes, the records. */
+.nutrition-diary .nutrition-diary-overview {
+  color: var(--nw-ink);
+  background: #fff;
+  border: 1px solid var(--nw-line);
+  border-radius: 16px;
+  box-shadow: none;
+  padding: 16px;
+}
+.nutrition-diary .nutrition-diary-overview::after { display: none; }
+.nutrition-diary .nutrition-diary-overview__main > span,
+.nutrition-diary .nutrition-diary-overview__main > small,
+.nutrition-diary .nutrition-diary-overview__stats small { color: var(--nw-muted); }
+.nutrition-diary .nutrition-diary-overview__main > div strong { color: #b82850; font-size: 32px; }
+.nutrition-diary .nutrition-diary-overview__stats > div { background: #faf7f8; border-color: var(--nw-line); }
+.nutrition-diary .nutrition-diary-overview__stats > .needs-attention { background: #fff5e8; color: #874512; }
+.nutrition-diary .nutrition-diary-overview__stats strong em { font-size: 12px; }
+.nutrition-diary .nutrition-diary-overview__bar { background: #f5e9ee; height: 3px; }
+.nutrition-diary .nutrition-diary-overview__bar span { background: #ec2c76; }
+@media (max-width: 767px) {
+  .nutrition-diary .nutrition-diary-overview { gap: 10px; padding: 12px; }
+  .nutrition-diary .nutrition-diary-overview__stats > div { min-height: 54px; padding: 7px; }
+  .nutrition-diary .nutrition-diary-overview__main p { display: none; } /* date remains in the toolbar */
+}

@@ -1,6 +1,18 @@
 # Aura Operating System — Current State
 
-Last reviewed: 2026-09-09
+Last reviewed: 2026-09-12
+
+## Capacity hardening (prepared from origin/main; not deployed)
+
+- Member Nutrition keeps a live subscription for the selected day after Diary/Plan history is loaded. The history snapshot is merged by stable record ID so a later review or deletion is not overwritten by a stale one-time read.
+- Meal log metadata no longer waits for Storage download URLs. Visible rows resolve private meal photos lazily with owner-scoped paths and a bounded client cache.
+- Schedule and availability refresh in the background without hiding the current data. Dirty availability selections and stale requests are protected; visible polling uses a small per-tab jitter.
+- Staff Dashboard settles schedule/Sales independently from payroll and Performance. A slow optional panel no longer blocks the primary work queue.
+- Student 360 projection triggers coalesce same-commit mirrors per student, retry leased work safely, and skip unchanged timeline writes. Source collections and audit history remain canonical; no data cleanup is performed.
+- Known nutrition catalog IDs are read directly instead of constructing the full search index. Browse/search pagination and server redaction remain unchanged.
+- Progress only reads the selected nutrition period and no longer enables Academy enrollment subscriptions for the Progress route.
+- The responsive Diary summary is intentionally quieter on mobile: records appear before quick-add actions, semantic text remains legible and Aura Coach collapses to a non-blocking launcher.
+- Capacity tests cover 500 learners, 10 Staff and 2 Admin assumptions. They are bounded contract/load-shape tests, not a claim of 500 concurrent production capacity.
 
 ## Safe source cleanup (local; not deployed)
 

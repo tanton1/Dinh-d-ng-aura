@@ -187,6 +187,7 @@ export interface NutritionPageProps {
 
 export interface MealLog {
   id: string
+  imageStoragePath?: string
   /** Stable library reference used to reconcile a planned meal with its diary record. */
   catalogId?: string
   /** Exact weekly-plan meal that produced this diary entry. */

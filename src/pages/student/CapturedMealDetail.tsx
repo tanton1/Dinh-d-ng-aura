@@ -19,6 +19,7 @@ import {
   Info,
 } from 'lucide-react'
 import '../../styles-nutrition-detail.css'
+import { useMealImage } from '../../components/nutrition/MealImage'
 
 export interface AiFoodItem {
   id: string
@@ -54,6 +55,7 @@ export interface MealLogItem {
   status: 'logged' | 'planned'
   tone?: 'violet' | 'orange' | 'green' | 'pink'
   image?: string
+  imageStoragePath?: string
   source?: 'ai-scan' | 'demo' | 'catalog' | 'manual'
   confidence?: 'verified' | 'estimated' | 'needs-review'
   calorieRange?: { low: number; high: number }
@@ -179,7 +181,7 @@ export const CapturedMealDetail: React.FC<CapturedMealDetailProps> = ({
 
   // Image Fallback
   const heroImageUrl =
-    meal.image ||
+    useMealImage(meal.image, meal.imageStoragePath) ||
     'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=1200&q=80'
 
   const formattedTime = meal.time || '10:57'

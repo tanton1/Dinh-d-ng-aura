@@ -29,6 +29,8 @@ import {
 } from 'lucide-react'
 import { useEffect, useId, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import '../../styles-nutrition-workspace.css'
+import './NutritionDiaryCompact.css'
+import MealImage from '../../components/nutrition/MealImage'
 
 export type NutritionWorkspaceSection = 'today' | 'diary' | 'classic-diary' | 'plan' | 'menu' | 'explore' | 'catalog' | 'insights'
 export type NutritionMealType = 'breakfast' | 'lunch' | 'dinner' | 'snack'
@@ -44,6 +46,7 @@ export interface NutritionDailyTargets {
 }
 
 export interface NutritionMealEntry {
+  imageStoragePath?: string
   id: string
   time: string
   type: NutritionMealType
@@ -545,7 +548,7 @@ export function NutritionDiaryPage({
                       <span className="nutrition-diary-event__node"><Utensils size={16} /></span>
                       <article>
                         <div className="nutrition-diary-event__visual" onClick={() => onOpenMeal?.(meal.id)} style={{ cursor: onOpenMeal ? 'pointer' : 'default' }}>
-                          {meal.image ? <img src={meal.image} alt="" /> : <span><Salad size={22} /></span>}
+                          <MealImage image={meal.image} storagePath={meal.imageStoragePath} fallback={<Salad size={22} />} />
                         </div>
                         <div className="nutrition-diary-event__content">
                           <div className="nutrition-diary-event__meta">
@@ -702,7 +705,7 @@ export function NutritionClassicDiaryPage({
         <div className="nutrition-diary-timeline">
           <div className="nutrition-workspace-section-heading"><div><h2>Dòng thời gian</h2><p>{timeline.length ? `${timeline.length} hoạt động trong ngày` : 'Chưa có hoạt động'}</p></div><button type="button" onClick={onAddMeal}><Plus size={16} /> Thêm món</button></div>
           {timeline.length ? <ol className="nutrition-diary-events">{timeline.map((event) => {
-            if (event.kind === 'meal') return <li key={event.id} className="nutrition-diary-event nutrition-diary-event--meal"><time>{event.time}</time><span className="nutrition-diary-event__node"><Utensils size={16} /></span><article><div className="nutrition-diary-event__visual">{event.item.image ? <img src={event.item.image} alt="" /> : <span><Salad size={22} /></span>}</div><div className="nutrition-diary-event__content"><div className="nutrition-diary-event__meta"><span>{event.item.label || MEAL_TYPE_LABELS[event.item.type]}</span><span className={`nutrition-confidence nutrition-confidence--${event.item.confidence ?? 'verified'}`}>{confidenceCopy(event.item.confidence)}</span></div><button type="button" className="nutrition-diary-event__title" onClick={() => onOpenMeal?.(event.item.id)} disabled={!onOpenMeal}>{event.item.title}</button><div className="nutrition-diary-event__nutrition"><strong>{formatNumber(event.item.calories)} kcal</strong><span>{formatNumber(event.item.protein)}g P</span><span>{formatNumber(event.item.carbs)}g C</span><span>{formatNumber(event.item.fat)}g F</span></div></div>{(onEditMeal || onDeleteMeal) && <div className="nutrition-diary-event__actions">{onEditMeal && <button type="button" onClick={() => onEditMeal(event.item.id)} aria-label={`Chỉnh ${event.item.title}`}><MoreHorizontal size={18} /></button>}{onDeleteMeal && <button type="button" onClick={() => onDeleteMeal(event.item.id)} aria-label={`Xóa ${event.item.title}`}><Trash2 size={16} /></button>}</div>}</article></li>
+            if (event.kind === 'meal') return <li key={event.id} className="nutrition-diary-event nutrition-diary-event--meal"><time>{event.time}</time><span className="nutrition-diary-event__node"><Utensils size={16} /></span><article><div className="nutrition-diary-event__visual"><MealImage image={event.item.image} storagePath={event.item.imageStoragePath} fallback={<Salad size={22} />} /></div><div className="nutrition-diary-event__content"><div className="nutrition-diary-event__meta"><span>{event.item.label || MEAL_TYPE_LABELS[event.item.type]}</span><span className={`nutrition-confidence nutrition-confidence--${event.item.confidence ?? 'verified'}`}>{confidenceCopy(event.item.confidence)}</span></div><button type="button" className="nutrition-diary-event__title" onClick={() => onOpenMeal?.(event.item.id)} disabled={!onOpenMeal}>{event.item.title}</button><div className="nutrition-diary-event__nutrition"><strong>{formatNumber(event.item.calories)} kcal</strong><span>{formatNumber(event.item.protein)}g P</span><span>{formatNumber(event.item.carbs)}g C</span><span>{formatNumber(event.item.fat)}g F</span></div></div>{(onEditMeal || onDeleteMeal) && <div className="nutrition-diary-event__actions">{onEditMeal && <button type="button" onClick={() => onEditMeal(event.item.id)} aria-label={`Chỉnh ${event.item.title}`}><MoreHorizontal size={18} /></button>}{onDeleteMeal && <button type="button" onClick={() => onDeleteMeal(event.item.id)} aria-label={`Xóa ${event.item.title}`}><Trash2 size={16} /></button>}</div>}</article></li>
             if (event.kind === 'activity') return <li key={event.id} className="nutrition-diary-event nutrition-diary-event--activity"><time>{event.time}</time><span className="nutrition-diary-event__node"><Activity size={16} /></span><article><span className="nutrition-diary-event__compact-icon"><Dumbbell size={20} /></span><div className="nutrition-diary-event__content"><div className="nutrition-diary-event__meta"><span>LUYỆN TẬP</span></div><strong className="nutrition-diary-event__plain-title">{event.item.title}</strong><p>{event.item.durationMinutes} phút · {formatNumber(event.item.estimatedCalories)} kcal</p></div></article></li>
             return <li key={event.id} className="nutrition-diary-event nutrition-diary-event--water"><time>{event.time}</time><span className="nutrition-diary-event__node"><Droplets size={16} /></span><article><span className="nutrition-diary-event__compact-icon"><Droplets size={20} /></span><div className="nutrition-diary-event__content"><div className="nutrition-diary-event__meta"><span>NƯỚC</span></div><strong className="nutrition-diary-event__plain-title">+{formatNumber(event.item.amountMl)} ml</strong></div></article></li>
           })}</ol> : <div className="nutrition-workspace-empty"><span><Utensils size={23} /></span><h3>Bắt đầu bằng bữa ăn đầu tiên</h3><p>Chụp ảnh hoặc ghi bữa ăn để theo dõi dinh dưỡng nhất quán hơn.</p><button type="button" onClick={onAddMeal}><Plus size={16} /> Ghi bữa ăn</button></div>}

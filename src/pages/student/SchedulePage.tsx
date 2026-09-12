@@ -171,6 +171,9 @@ export default function SchedulePage({ onNavigate, isDemo = false }: { onNavigat
     ? toIsoDate(addDays(startOfWeek(today), 7))
     : toIsoDate(today))
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
+  const requestIdRef = useRef(0)
+  const loadedWeekRef = useRef('')
   const [loadIssue, setLoadIssue] = useState<StudentPtScheduleServiceError | null>(null)
   const [message, setMessage] = useState<string | null>(null)
   const [requestSession, setRequestSession] = useState<StudentPtSession | null>(null)
@@ -184,7 +187,10 @@ export default function SchedulePage({ onNavigate, isDemo = false }: { onNavigat
   const availabilityWeekId = useMemo(() => toIsoDate(weekStart), [weekStart])
 
   const load = useCallback(async () => {
-    setLoading(true)
+    const requestId = ++requestIdRef.current
+    const background = loadedWeekRef.current === availabilityWeekId
+    setLoading(!background)
+    setRefreshing(background)
     setLoadIssue(null)
     try {
       if (isDemo) {
@@ -212,19 +218,22 @@ export default function SchedulePage({ onNavigate, isDemo = false }: { onNavigat
           sessionRequests: [],
           pauseRequests: [],
         }
+        loadedWeekRef.current = availabilityWeekId
         setData(demo)
         return
       }
       const response = await listMyStudentPtSchedule(range.from, range.to, availabilityWeekId)
+      if (requestId !== requestIdRef.current) return
+      loadedWeekRef.current = availabilityWeekId
       setData(response)
     } catch (caught) {
-      setLoadIssue(asStudentPtScheduleError(caught))
+      if (requestId === requestIdRef.current) setLoadIssue(asStudentPtScheduleError(caught))
     } finally {
-      setLoading(false)
+      if (requestId === requestIdRef.current) { setLoading(false); setRefreshing(false) }
     }
   }, [availabilityWeekId, isDemo, range.from, range.to, today, weekStart])
 
-  useEffect(() => { void load() }, [load])
+  useEffect(() => { void load(); return () => { requestIdRef.current += 1 } }, [load])
   useEffect(() => {
     const syncTabFromRoute = () => {
       const nextTab = scheduleTabFromRoute()
@@ -249,17 +258,17 @@ export default function SchedulePage({ onNavigate, isDemo = false }: { onNavigat
   useEffect(() => {
     if (isDemo) return
     const refresh = () => {
-      if (document.hidden || loading) return
+      if (document.hidden || loading || refreshing) return
       void load()
     }
     const onVisibilityChange = () => { if (!document.hidden) refresh() }
     document.addEventListener('visibilitychange', onVisibilityChange)
-    const timer = window.setInterval(refresh, 90_000)
+    const timer = window.setInterval(refresh, 90_000 + Math.floor(Math.random() * 15_000))
     return () => {
       document.removeEventListener('visibilitychange', onVisibilityChange)
       window.clearInterval(timer)
     }
-  }, [isDemo, load, loading])
+  }, [isDemo, load, loading, refreshing])
 
   const changeDeadlineHours = data?.scheduleConfig.sessionChangeDeadlineHours ?? PT_OPERATIONS_POLICY_DEFAULTS.sessionChangeDeadlineHours
   const complimentaryChangeCancelPerMonth = data?.scheduleConfig.complimentaryChangeCancelPerMonth ?? PT_OPERATIONS_POLICY_DEFAULTS.complimentaryChangeCancelPerMonth
@@ -379,11 +388,12 @@ export default function SchedulePage({ onNavigate, isDemo = false }: { onNavigat
 
   return (
     <div className={`page schedule-page pt-schedule-page student-schedule-page student-schedule-page--classic${scheduleV4 ? ' aura-ui-v4-surface aura-ui-v4-member student-schedule-page--v4' : ''}`} aria-busy={loading}>
+      {refreshing && <span role="status">Đang cập nhật lịch…</span>}
       {loading && <div className="student-schedule-state" role="status"><LoaderCircle className="spin" size={30} /><strong>Đang liên kết lịch học viên</strong><span>Aura đang tải lịch tuần và khung giờ rảnh của bạn.</span></div>}
       {!loading && loadIssue && loadIssueContent && <div className="student-schedule-state is-error" role="alert"><AlertCircle size={28} /><strong>{loadIssueContent.title}</strong><span>{loadIssueContent.description}</span><button type="button" onClick={() => void load()}><RefreshCw size={16} /> {loadIssue.retryable ? 'Thử lại' : 'Kiểm tra lại'}</button>{scheduleV4 && <details className="student-schedule-technical"><summary>Chi tiết kỹ thuật</summary><code>{loadIssue.issueCode}</code></details>}</div>}
       {!loading && !loadIssue && data && !data.linked && <div className="student-schedule-state is-warning"><Link2 size={28} /><strong>Chưa liên kết hồ sơ học viên</strong><span>{missingProfileDescription}</span></div>}
 
-      {!loading && !loadIssue && data?.student && <>
+      {!loading && data?.student && <>
         {attentionAlerts.length > 0 && <section className="student-attention-center" aria-label="Thông tin bạn cần lưu ý">
           <header><span><AlertCircle size={19} /></span><div><small>AURA NHẮC BẠN</small><h2>{attentionAlerts.length} việc cần lưu ý</h2></div></header>
           <div className="student-attention-center__rail">

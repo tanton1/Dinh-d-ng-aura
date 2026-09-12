@@ -117,7 +117,7 @@ test('nutrition diary is a touch-safe history workspace with day, week and month
   const timelineBox = await diary.locator('.nutrition-diary-timeline').boundingBox()
   expect(quickBox).not.toBeNull()
   expect(timelineBox).not.toBeNull()
-  expect(quickBox!.y).toBeLessThan(timelineBox!.y)
+  expect(quickBox!.y).toBeGreaterThan(timelineBox!.y)
 
   const views = diary.getByRole('tablist', { name: 'Chế độ xem nhật ký' })
   await expect(views.getByRole('tab')).toHaveCount(3)

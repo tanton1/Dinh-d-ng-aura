@@ -1497,7 +1497,7 @@
 .nutrition-meal-rhythm__copy { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .nutrition-meal-rhythm__copy strong,
 .nutrition-meal-rhythm__copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.nutrition-meal-rhythm__copy strong { font-size: 10px; }
+.nutrition-meal-rhythm__copy strong { font-size: 12px; }
 .nutrition-meal-rhythm__copy small { color: var(--aura-muted); font-size: 8px; }
 .nutrition-meal-rhythm__grid em { grid-column: 2; color: var(--aura-pink); font-size: 8px; font-style: normal; font-weight: 800; }
 .connect-btn:disabled { cursor: default; opacity: .72; }

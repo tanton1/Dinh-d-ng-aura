@@ -20,6 +20,8 @@ import {
   Utensils,
 } from 'lucide-react'
 
+import MealImage from '../../components/nutrition/MealImage'
+
 export interface NutritionHomeDay {
   id: string
   day: string
@@ -39,6 +41,7 @@ export interface NutritionHomeMeal {
   carbs: number
   fat: number
   image?: string
+  imageStoragePath?: string
   type: 'breakfast' | 'lunch' | 'dinner' | 'snack'
   source?: 'ai-scan' | 'demo' | 'catalog' | 'manual'
   confidence?: 'verified' | 'estimated' | 'needs-review'
@@ -122,9 +125,8 @@ function progressStyle(percent: number) {
 }
 
 function MealVisual({ meal }: { meal: NutritionHomeMeal }) {
-  if (meal.image) return <img src={meal.image} alt={meal.title} />
   const Icon = meal.type === 'breakfast' ? Coffee : meal.type === 'snack' ? Salad : Utensils
-  return <div className="meal-fallback-icon"><Icon size={24} /></div>
+  return <MealImage image={meal.image} storagePath={meal.imageStoragePath} alt={meal.title} fallback={<div className="meal-fallback-icon"><Icon size={24} /></div>} />
 }
 
 export default React.memo(NutritionDashboardHome)

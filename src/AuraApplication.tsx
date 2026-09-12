@@ -158,7 +158,7 @@ function resolveCanonicalNutritionProfile(profile: any, localProfile: NutritionP
   }
 }
 
-const learnerAcademyViews = new Set<ViewId>(['courses', 'course-detail', 'progress'])
+const learnerAcademyViews = new Set<ViewId>(['courses', 'course-detail'])
 const adminAcademyViews = new Set<ViewId>(['admin-courses', 'admin-course-editor', 'admin-academy-students', 'admin-students'])
 const adminDirectoryViews = new Set<ViewId>(['admin-academy-students', 'admin-students', 'admin-roles', 'admin-hr', 'admin-notifications'])
 const adminAcademyAnalyticsViews = new Set<ViewId>(['admin-courses', 'admin-academy-students', 'admin-students'])

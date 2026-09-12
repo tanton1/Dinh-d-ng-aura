@@ -114,31 +114,25 @@ function dataUrlToBlob(dataUrl: string) {
 
 const mealPhotoUrlCache = new Map<string, Promise<string>>()
 
-async function mealPhotoUrl(storagePath: string) {
+export async function mealPhotoUrl(storagePath: string) {
   if (!firebaseStorage || !storagePath) return ''
-  let pending = mealPhotoUrlCache.get(storagePath)
+  const ownerId = firebaseAuth?.currentUser?.uid
+  if (!ownerId || !storagePath.startsWith(`users/${ownerId}/meal-photos/`)) return ''
+  const key = `${ownerId}:${storagePath}`
+  let pending = mealPhotoUrlCache.get(key)
   if (!pending) {
     pending = getDownloadURL(ref(firebaseStorage, storagePath)).catch((error) => {
-      mealPhotoUrlCache.delete(storagePath)
+      mealPhotoUrlCache.delete(key)
       throw error
     })
-    mealPhotoUrlCache.set(storagePath, pending)
+    if (mealPhotoUrlCache.size >= 200) mealPhotoUrlCache.delete(mealPhotoUrlCache.keys().next().value!)
+    mealPhotoUrlCache.set(key, pending)
   }
   return pending
 }
 
-async function hydrateMealImages(items: Record<string, unknown>[]) {
-  return Promise.all(items.map(async (item) => {
-    const normalizedItem = item.reviewStatus === 'reviewed' ? { ...item, reviewStatus: 'approved' } : item
-    const storagePath = typeof item.imageStoragePath === 'string' ? item.imageStoragePath : ''
-    if (!storagePath) return normalizedItem
-    try {
-      return { ...normalizedItem, image: await mealPhotoUrl(storagePath) }
-    } catch {
-      const legacyImage = typeof item.image === 'string' && !item.image.startsWith('data:') ? item.image : ''
-      return { ...normalizedItem, image: legacyImage }
-    }
-  }))
+function normalizeMealLogs(items: Record<string, unknown>[]) {
+  return items.map((item) => item.reviewStatus === 'reviewed' ? { ...item, reviewStatus: 'approved' } : item)
 }
 
 async function saveUserLog(collectionName: 'mealLogs' | 'waterLogs' | 'activityLogs', userId: string, value: Record<string, unknown> & { id: string }) {
@@ -172,7 +166,7 @@ function subscribeToUserLog(
 
   return onSnapshot(source, { includeMetadataChanges: true }, (snapshot) => {
     const items = filterItems(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })))
-    if (collectionName === 'mealLogs') void hydrateMealImages(items).then(onData).catch(() => onData(items))
+    if (collectionName === 'mealLogs') onData(normalizeMealLogs(items))
     else onData(items)
     const previous = confirmedCache()
     if (snapshot.metadata.hasPendingWrites) {
@@ -190,7 +184,7 @@ function subscribeToUserLog(
   }, (error) => {
     const fallback = confirmedCache()
     const fallbackItems = filterItems(fallback?.value ?? [])
-    if (collectionName === 'mealLogs') void hydrateMealImages(fallbackItems).then(onData).catch(() => onData(fallbackItems))
+    if (collectionName === 'mealLogs') onData(normalizeMealLogs(fallbackItems))
     else onData(fallbackItems)
     onSync?.({
       status: typeof navigator !== 'undefined' && !navigator.onLine && fallback ? 'offline-readonly' : 'sync-failed',
@@ -219,7 +213,7 @@ async function loadUserLog(
     const items = filterItems(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })))
     const written = writeVersionedCache(key, userId, cacheName, items)
     onSync?.({ status: 'synced', revision: written?.revision ?? Date.now(), cachedAt: written?.cachedAt ?? null })
-    return collectionName === 'mealLogs' ? await hydrateMealImages(items) : items
+    return collectionName === 'mealLogs' ? normalizeMealLogs(items) : items
   } catch (error) {
     const fallback = readVersionedCache(key, userId, cacheName, isLogArray)
     onSync?.({
@@ -229,7 +223,7 @@ async function loadUserLog(
     })
     if (fallback) {
       const items = filterItems(fallback.value)
-      return collectionName === 'mealLogs' ? await hydrateMealImages(items) : items
+      return collectionName === 'mealLogs' ? normalizeMealLogs(items) : items
     }
     throw error
   }
@@ -266,7 +260,7 @@ export async function saveUserMealLog(
     }
     payload.imageStoragePath = storagePath
     delete payload.image
-    mealPhotoUrlCache.delete(storagePath)
+    mealPhotoUrlCache.delete(`${userId}:${storagePath}`)
   }
   if (typeof payload.imageStoragePath === 'string' && payload.imageStoragePath) delete payload.image
   const callable = httpsCallable<

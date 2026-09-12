@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle,
   ArrowLeft,
@@ -142,21 +142,35 @@ export default function StudentPtWorkoutPage({ isDemo = false, ownerId = 'demo' 
     try { return new Set(JSON.parse(window.localStorage.getItem(favoritesStorageKey) || '[]')) } catch { return new Set() }
   })
   const [loading, setLoading] = useState(true)
+  const requestIdRef = useRef(0)
+  const inFlightRef = useRef(false)
+  const programIdRef = useRef<string | undefined>(undefined)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
 
   const load = async () => {
+    if (inFlightRef.current) return
+    inFlightRef.current = true
+    const requestId = ++requestIdRef.current
     setLoading(true); setError('')
     if (isDemo) {
       setProgram(null)
       setHistory({ studentId: 'student-demo', logs: [], analytics: { completedWorkouts: 0, totalVolumeKg: 0, painAlerts: 0, personalRecords: [] } })
       setDayIndex(0)
       setLoading(false)
+      inFlightRef.current = false
       return
     }
     const results = await Promise.allSettled([getPtStudentTrainingPlan(), listPtWorkoutHistory()])
+    if (requestId !== requestIdRef.current) return
     const messages: string[] = []
-    if (results[0].status === 'fulfilled') { setProgram(results[0].value); setDayIndex(0) }
+    if (results[0].status === 'fulfilled') {
+      const next = results[0].value
+      setProgram(next)
+      const sameProgram = next?.id === programIdRef.current
+      setDayIndex((index) => !sameProgram ? 0 : Math.min(index, Math.max(0, (next?.trainingDays.length || 1) - 1)))
+      programIdRef.current = next?.id
+    }
     else {
       setProgram(null)
       messages.push(results[0].reason instanceof Error ? results[0].reason.message : 'Không thể tải giáo án.')
@@ -167,6 +181,7 @@ export default function StudentPtWorkoutPage({ isDemo = false, ownerId = 'demo' 
       messages.push(results[1].reason instanceof Error ? results[1].reason.message : 'Không thể tải lịch sử tập luyện.')
     }
     setError(messages.join(' '))
+    inFlightRef.current = false
     setLoading(false)
   }
   const loadCatalog = async () => {
@@ -177,13 +192,13 @@ export default function StudentPtWorkoutPage({ isDemo = false, ownerId = 'demo' 
     catch (cause) { setCatalogError(cause instanceof Error ? cause.message : 'Không thể tải thư viện bài tập.') }
     finally { setCatalogLoading(false) }
   }
-  useEffect(() => { void load() }, [isDemo])
+  useEffect(() => { void load(); return () => { requestIdRef.current += 1; inFlightRef.current = false } }, [isDemo])
   useEffect(() => {
     if (isDemo) return
     const refresh = () => { if (!document.hidden) void load() }
     const onVisibilityChange = () => { if (!document.hidden) refresh() }
     document.addEventListener('visibilitychange', onVisibilityChange)
-    const timer = window.setInterval(refresh, 90_000)
+    const timer = window.setInterval(refresh, 90_000 + Math.floor(Math.random() * 15_000))
     return () => {
       document.removeEventListener('visibilitychange', onVisibilityChange)
       window.clearInterval(timer)

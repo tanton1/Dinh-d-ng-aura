@@ -1,4 +1,5 @@
 import { useNutritionWeight } from '../../hooks/useNutritionWeight'
+import { mergeJournalHistory } from '../../features/nutrition/journalMerge'
 import { scaleCatalogServing } from '../../features/nutrition/servings'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from '../../contexts/AuthContext'
@@ -1108,6 +1109,10 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
   const [nutritionLogSyncState, setNutritionLogSyncState] = useState<DataSyncState>({ status: 'synced', revision: 0, cachedAt: null })
   const [nutritionMutation, setNutritionMutation] = useState<{ scope: 'meals' | 'water' | 'activities'; id: string } | null>(null)
   const [historySyncStarted, setHistorySyncStarted] = useState(false)
+  const liveJournalDays = useRef({ ownerId: resolvedOwnerId, meals: new Map<string, MealLog[]>(), water: new Map<string, NutritionWaterLog[]>(), activities: new Map<string, NutritionActivityLog[]>() })
+  if (liveJournalDays.current.ownerId !== resolvedOwnerId) {
+    liveJournalDays.current = { ownerId: resolvedOwnerId, meals: new Map(), water: new Map(), activities: new Map() }
+  }
   const nutritionSyncScopes = useRef<Record<'meals' | 'water' | 'activities', DataSyncState>>({
     meals: { status: 'synced', revision: 0, cachedAt: null },
     water: { status: 'synced', revision: 0, cachedAt: null },
@@ -1249,6 +1254,7 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
     carbs: meal.carbs,
     fat: meal.fat,
     image: meal.image,
+    imageStoragePath: meal.imageStoragePath,
     confidence: meal.confidence ?? (meal.source === 'ai-scan' ? 'estimated' : 'verified'),
     sourceLabel: meal.source === 'ai-scan' ? 'Aura Vision + dữ liệu dinh dưỡng' : meal.source === 'catalog' ? 'Thư viện dinh dưỡng Aura' : meal.source === 'manual' ? 'Học viên nhập tay' : undefined,
     reviewStatus: meal.reviewStatus,
@@ -1412,15 +1418,20 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
   useEffect(() => {
     if (!firestoreDb || resolvedOwnerId === 'anonymous' || !historySyncStarted) return
     let active = true
+    // Only snapshots received during this request can override its result.
+    // Previously visited days may have changed on another device since then.
+    liveJournalDays.current.meals.clear()
+    liveJournalDays.current.water.clear()
+    liveJournalDays.current.activities.clear()
     void Promise.all([
       loadRecentUserMealLogs(resolvedOwnerId, recentNutritionFromDate, (state) => updateNutritionSync('meals', state)),
       loadRecentUserWaterLogs(resolvedOwnerId, recentNutritionFromDate, (state) => updateNutritionSync('water', state)),
       loadRecentUserActivityLogs(resolvedOwnerId, recentNutritionFromDate, (state) => updateNutritionSync('activities', state)),
     ]).then(([remoteMeals, remoteWater, remoteActivities]) => {
       if (!active) return
-      const recentMeals = Array.isArray(remoteMeals) ? remoteMeals.filter((item): item is MealLog => Boolean(item && typeof item === 'object' && item.id)) : []
-      const recentWater = Array.isArray(remoteWater) ? remoteWater.filter((item): item is NutritionWaterLog => Boolean(item && typeof item === 'object' && item.id)) : []
-      const recentActivities = Array.isArray(remoteActivities) ? remoteActivities.filter((item): item is NutritionActivityLog => Boolean(item && typeof item === 'object' && item.id)) : []
+      const recentMeals = mergeJournalHistory<MealLog>(remoteMeals, liveJournalDays.current.meals)
+      const recentWater = mergeJournalHistory<NutritionWaterLog>(remoteWater, liveJournalDays.current.water)
+      const recentActivities = mergeJournalHistory<NutritionActivityLog>(remoteActivities, liveJournalDays.current.activities)
       setMeals((current) => [...recentMeals, ...current.filter((item) => item.date < recentNutritionFromDate)])
       setWaterEntries((current) => [...recentWater, ...current.filter((item) => item.date < recentNutritionFromDate)])
       const recentTotals = recentWater.reduce<Record<string, number>>((result, entry) => {
@@ -1439,15 +1450,19 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
   }, [historySyncStarted, recentNutritionFromDate, resolvedOwnerId, updateNutritionSync])
 
   useEffect(() => {
-    const coveredByRecentSubscription = historySyncStarted && selectedDate >= recentNutritionFromDate
-    if (!firestoreDb || resolvedOwnerId === 'anonymous' || coveredByRecentSubscription) return
+    if (!firestoreDb || isDemo || resolvedOwnerId === 'anonymous') return
+    let active = true
 
     const unsubscribeMeals = subscribeToUserMealLogsForDate(resolvedOwnerId, selectedDate, (remoteMeals) => {
+      if (!active) return
       const dayItems = Array.isArray(remoteMeals) ? remoteMeals.filter((item): item is MealLog => Boolean(item && typeof item === 'object' && item.id)) : []
+      liveJournalDays.current.meals.set(selectedDate, dayItems)
       setMeals((current) => [...current.filter((item) => item.date !== selectedDate), ...dayItems])
     })
     const unsubscribeWater = subscribeToUserWaterLogsForDate(resolvedOwnerId, selectedDate, (remoteWater) => {
+      if (!active) return
       const dayItems = Array.isArray(remoteWater) ? remoteWater.filter((item): item is NutritionWaterLog => Boolean(item && typeof item === 'object' && item.id)) : []
+      liveJournalDays.current.water.set(selectedDate, dayItems)
       setWaterEntries((current) => [...current.filter((item) => item.date !== selectedDate), ...dayItems])
       setWaterByDate((current) => ({
         ...current,
@@ -1455,16 +1470,19 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
       }))
     })
     const unsubscribeActivities = subscribeToUserActivityLogsForDate(resolvedOwnerId, selectedDate, (remoteActivities) => {
+      if (!active) return
       const dayItems = Array.isArray(remoteActivities) ? remoteActivities.filter((item): item is NutritionActivityLog => Boolean(item && typeof item === 'object' && item.id)) : []
+      liveJournalDays.current.activities.set(selectedDate, dayItems)
       setActivities((current) => [...current.filter((item) => item.date !== selectedDate), ...dayItems])
     })
 
     return () => {
+      active = false
       unsubscribeMeals()
       unsubscribeWater()
       unsubscribeActivities()
     }
-  }, [historySyncStarted, recentNutritionFromDate, resolvedOwnerId, selectedDate])
+  }, [isDemo, resolvedOwnerId, selectedDate])
 
   useEffect(() => {
     if (!isDemo) return

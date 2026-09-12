@@ -139,8 +139,15 @@ body:has([role='dialog'][aria-modal='true'], [role='alertdialog'][aria-modal='tr
   .ai-coach-global-launcher {
     right: 13px;
     min-height: 48px;
-    padding: 5px 11px 5px 6px;
+    width: 48px;
+    min-width: 48px;
+    max-width: 48px;
+    padding: 6px;
   }
+  .ai-coach-global-launcher__copy,
+  .ai-coach-global-launcher__status { display: none; }
+  .app-shell[data-view='nutrition'] .ai-coach-global-launcher { left: 13px; right: auto; }
+  .app-shell[data-view='courses'] .ai-coach-global-launcher { bottom: calc(150px + env(safe-area-inset-bottom)); }
 
   .ai-coach-global-launcher__orb {
     width: 34px;

@@ -179,6 +179,9 @@ export default function StudentAvailabilityPage({ onNavigate, isDemo = false }: 
   const [data, setData] = useState<StudentPtScheduleData | null>(null)
   const [selectedSlots, setSelectedSlots] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
+  const requestIdRef = useRef(0)
+  const loadedWeekRef = useRef('')
   const [saving, setSaving] = useState(false)
   const [issue, setIssue] = useState<StudentPtScheduleServiceError | null>(null)
   const [message, setMessage] = useState<string | null>(null)
@@ -190,23 +193,30 @@ export default function StudentAvailabilityPage({ onNavigate, isDemo = false }: 
   const range = useMemo(() => ({ from: toIsoDate(weekStart), to: toIsoDate(addDays(weekStart, 6)) }), [weekStart])
 
   const load = useCallback(async () => {
-    setLoading(true)
+    const requestId = ++requestIdRef.current
+    const background = loadedWeekRef.current === weekId
+    setLoading(!background)
+    setRefreshing(background)
     setIssue(null)
     setMessage(null)
     try {
       const response = isDemo
         ? demoAvailabilityData(today, weekStart, weekId)
         : await listMyStudentPtSchedule(range.from, range.to, weekId)
+      if (requestId !== requestIdRef.current) return
+      // A user may begin editing while the background read is in flight.
+      if (background && dirtyRef.current) return
+      loadedWeekRef.current = weekId
       setData(response)
       setSelectedSlots(new Set(response.student?.availability?.slots ?? response.student?.availableSlots ?? []))
     } catch (caught) {
-      setIssue(asStudentPtScheduleError(caught))
+      if (requestId === requestIdRef.current) setIssue(asStudentPtScheduleError(caught))
     } finally {
-      setLoading(false)
+      if (requestId === requestIdRef.current) { setLoading(false); setRefreshing(false) }
     }
   }, [isDemo, range.from, range.to, today, weekId, weekStart])
 
-  useEffect(() => { void load() }, [load])
+  useEffect(() => { void load(); return () => { requestIdRef.current += 1 } }, [load])
 
   const workingDays = data?.scheduleConfig.workingDays?.length ? data.scheduleConfig.workingDays : DEFAULT_DAYS
   const workingHours = data?.scheduleConfig.workingHours?.length ? data.scheduleConfig.workingHours : DEFAULT_HOURS
@@ -305,17 +315,17 @@ export default function StudentAvailabilityPage({ onNavigate, isDemo = false }: 
   useEffect(() => {
     if (isDemo) return
     const refresh = () => {
-      if (document.hidden || dirtyRef.current || loading) return
+      if (document.hidden || dirtyRef.current || loading || refreshing || saving) return
       void load()
     }
     const onVisibilityChange = () => { if (!document.hidden) refresh() }
     document.addEventListener('visibilitychange', onVisibilityChange)
-    const timer = window.setInterval(refresh, 90_000)
+    const timer = window.setInterval(refresh, 90_000 + Math.floor(Math.random() * 15_000))
     return () => {
       document.removeEventListener('visibilitychange', onVisibilityChange)
       window.clearInterval(timer)
     }
-  }, [isDemo, load, loading])
+  }, [isDemo, load, loading, refreshing, saving])
 
   const toggleSlot = (slotId: string) => {
     if (saving || locked) return
@@ -340,6 +350,8 @@ export default function StudentAvailabilityPage({ onNavigate, isDemo = false }: 
       setConfirmBelowMinimum(true)
       return
     }
+    requestIdRef.current += 1
+    setRefreshing(false)
     setSaving(true)
     setIssue(null)
     setMessage(null)

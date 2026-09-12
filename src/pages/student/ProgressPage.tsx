@@ -275,7 +275,7 @@ export default function ProgressPage({
   const [coachOpen, setCoachOpen] = useState(false)
   const resolvedOwnerId = ownerId?.trim() || firebaseAuth?.currentUser?.uid || 'demo'
   const isDemo = resolvedOwnerId === 'demo'
-  const recentNutritionFromDate = useMemo(() => daysAgoKey(90), [])
+  const recentNutritionFromDate = useMemo(() => daysAgoKey(period === '7-days' ? 7 : period === '90-days' ? 90 : 30), [period])
 
   const [allMeals, setAllMeals] = useState<any[]>(() => readLocal(`aura:nutrition:meals:v2:${resolvedOwnerId}`, []))
   const [allActivities, setAllActivities] = useState<any[]>(() => readLocal(`aura:nutrition:activities:v1:${resolvedOwnerId}`, []))
@@ -447,7 +447,7 @@ export default function ProgressPage({
         ? `Vòng eo thay đổi ${changeCopy(Number(latest.waistCm) - Number(baseline.waistCm), 'cm')} trong khoảng đang xem.`
         : 'Dữ liệu mới đã được ghi nhận. Tiếp tục duy trì cùng điều kiện đo để so sánh đáng tin cậy.'
 
-  return <main className="progress-center-page progress-v2-page">
+  return <section className="progress-center-page progress-v2-page" aria-label="Tiến độ cơ thể">
     {loading && <div className="pg-data-state is-loading" role="status"><LoaderCircle className="spin" /><span>Đang đồng bộ tiến độ…</span></div>}
     {!loading && error && <div className="pg-data-state is-error" role="alert"><AlertCircle /><span>{error}</span></div>}
 
@@ -498,5 +498,5 @@ export default function ProgressPage({
 
     {category === 'history' && <CheckInHistory records={checkIns} onOpenCheckIn={openCheckIn} />}
     {coachOpen && <AiCoachBottomSheet onClose={() => setCoachOpen(false)} conversationScope={`progress-${resolvedOwnerId}`} />}
-  </main>
+  </section>
 }

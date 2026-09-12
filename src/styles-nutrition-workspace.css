@@ -1200,7 +1200,7 @@
   .nutrition-diary-month__grid span { display: none; }
   .nutrition-diary .nutrition-diary-timeline,
   .nutrition-diary .nutrition-diary-quick { padding: 13px; border-radius: 15px; }
-  .nutrition-diary .nutrition-diary-quick { order: -1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .nutrition-diary .nutrition-diary-quick { order: 1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
   .nutrition-diary-quick > .nutrition-workspace-eyebrow,
   .nutrition-diary-quick > h2,
   .nutrition-diary-quick > p,
@@ -1214,7 +1214,7 @@
   .nutrition-diary .nutrition-diary-event { grid-template-columns: 40px minmax(0, 1fr); gap: 6px; }
   .nutrition-diary .nutrition-diary-event::before,
   .nutrition-diary .nutrition-diary-event__node { display: none; }
-  .nutrition-diary .nutrition-diary-event > time { font-size: 11px; }
+  .nutrition-diary .nutrition-diary-event > time { font-size: 12px; }
   .nutrition-diary .nutrition-diary-event > article,
   .nutrition-diary .nutrition-diary-event--activity > article,
   .nutrition-diary .nutrition-diary-event--water > article { grid-column: 2; grid-template-columns: 48px minmax(0, 1fr) 44px; gap: 8px; padding: 9px; }
