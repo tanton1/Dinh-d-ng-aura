@@ -2,7 +2,12 @@ const { FieldPath, FieldValue } = require('firebase-admin/firestore')
 const { defineSecret } = require('firebase-functions/params')
 const { HttpsError } = require('firebase-functions/v2/https')
 
-const YMOVE_API_KEY = defineSecret('YMOVE_API_KEY', {
+// Source discovery for a catalog-only rollout must not inspect provider secrets
+// that are unrelated to the paginated learner list. The normal runtime keeps
+// the declared secret for the external-provider callables.
+const isExerciseCatalogDiscovery = process.env.AURA_FIREBASE_DISCOVERY_SCOPE === 'exerciseCatalog'
+  || process.env.NODE_ENV === 'aura-exercise-catalog-discovery'
+const YMOVE_API_KEY = isExerciseCatalogDiscovery ? null : defineSecret('YMOVE_API_KEY', {
   description: 'Server-side API key for the YMove exercise media provider.',
 })
 const YMOVE_API_BASE_URL = 'https://exercise-api.ymove.app/api/v2'
@@ -517,7 +522,7 @@ function createExerciseCatalogFunctions({ db, onCall }) {
     return { schemaVersion: 1, item, editItem: editableItem(snapshot, actor) }
   })
 
-  const searchExternalExerciseCatalog = onCall({ secrets: [YMOVE_API_KEY], timeoutSeconds: 20 }, async (request) => {
+  const searchExternalExerciseCatalog = onCall({ secrets: YMOVE_API_KEY ? [YMOVE_API_KEY] : [], timeoutSeconds: 20 }, async (request) => {
     const actor = await actorContext(request, db)
     if (!actor.isStaff) throw new HttpsError('permission-denied', 'Chỉ nhân sự Aura được đồng bộ thư viện ngoài.')
     const provider = externalProviders.has(request.data?.provider) ? request.data.provider : 'exercisedb'
@@ -563,7 +568,7 @@ function createExerciseCatalogFunctions({ db, onCall }) {
     return { provider, providerConfigured: true, items, total: Number.isFinite(total) ? total : items.length, page, pageSize }
   })
 
-  const getExternalExercisePreview = onCall({ secrets: [YMOVE_API_KEY], timeoutSeconds: 20 }, async (request) => {
+  const getExternalExercisePreview = onCall({ secrets: YMOVE_API_KEY ? [YMOVE_API_KEY] : [], timeoutSeconds: 20 }, async (request) => {
     const actor = await actorContext(request, db)
     if (!actor.isStaff) throw new HttpsError('permission-denied', 'Chỉ nhân sự Aura được xem trước thư viện ngoài.')
     const provider = externalProviders.has(request.data?.provider) ? request.data.provider : 'exercisedb'
@@ -587,7 +592,7 @@ function createExerciseCatalogFunctions({ db, onCall }) {
     return { provider, providerConfigured: true, item, transientMedia: true }
   })
 
-  const getExerciseCatalogMedia = onCall({ secrets: [YMOVE_API_KEY], timeoutSeconds: 20 }, async (request) => {
+  const getExerciseCatalogMedia = onCall({ secrets: YMOVE_API_KEY ? [YMOVE_API_KEY] : [], timeoutSeconds: 20 }, async (request) => {
     const actor = await actorContext(request, db)
     const exerciseId = safeId(request.data?.exerciseId)
     const snapshot = await db.doc(`exercises/${exerciseId}`).get()

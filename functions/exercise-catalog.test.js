@@ -60,13 +60,19 @@ test('catalog browsing is cursor-paginated and bounded', () => {
 test('external exercise provider remains server-only and never persists signed media urls', () => {
   assert.match(source, /defineSecret\('YMOVE_API_KEY'/)
   assert.match(source, /AURA_PROVIDER_DISABLED/)
-  assert.match(source, /secrets: \[YMOVE_API_KEY\]/)
+  assert.match(source, /secrets: YMOVE_API_KEY \? \[YMOVE_API_KEY\] : \[\]/)
   assert.match(source, /'X-API-Key': apiKey/)
   assert.match(source, /durableVideoProviders = new Set\(\['aura', 'ymove_free', 'exercisedb', 'programme'\]\)/)
   assert.match(source, /const url = durableVideoProviders\.has\(provider\) \? text\(entry\.url/)
   assert.match(source, /normalizedExternalMedia\(raw\.externalMedia\)/)
   assert.match(source, /transientMedia: true/)
   assert.doesNotMatch(managerSource, /VITE_YMOVE/)
+})
+
+test('catalog-only discovery does not require the external provider secret', () => {
+  assert.match(source, /isExerciseCatalogDiscovery/)
+  assert.match(source, /isExerciseCatalogDiscovery \? null : defineSecret\('YMOVE_API_KEY'/)
+  assert.match(source, /YMOVE_API_KEY \? \[YMOVE_API_KEY\] : \[\]/)
 })
 
 test('catalog editor can search, preview and link provider media without replacing Vietnamese instructions', () => {
