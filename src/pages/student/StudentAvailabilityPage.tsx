@@ -411,7 +411,6 @@ export default function StudentAvailabilityPage({ onNavigate, isDemo = false }: 
         : 'Đã gửi lịch rảnh. Bộ phận vận hành sẽ rà soát các ca cần xếp lại.')
     } catch (caught) {
       const nextIssue = asStudentPtScheduleError(caught)
-      // Compatibility contract: the legacy path was `if (nextIssue.issueCode === 'REVISION_CONFLICT') await load()`.
       // The explicit argument discards the stale draft before retrying.
       if (nextIssue.issueCode === 'REVISION_CONFLICT') await load(true)
       setIssue(nextIssue)
