@@ -399,3 +399,107 @@
 @media (prefers-reduced-motion: reduce) {
   .loyalty-spin { animation-duration: 1.8s; }
 }
+
+/* Aura Club 2026: a calm loyalty wallet, not a separate dark product. */
+.loyalty-page {
+  --loyalty-pink: #ec2c76;
+  --loyalty-orange: #ff7a45;
+  --loyalty-green: #14805e;
+  --loyalty-canvas: #fff9fb;
+}
+
+.loyalty-hero,
+.loyalty-hero--silver,
+.loyalty-hero--gold,
+.loyalty-hero--diamond {
+  border: 1px solid #f0e2e7;
+  color: #2b2027;
+  background:
+    radial-gradient(circle at 88% 10%, rgb(255 122 69 / 13%), transparent 20rem),
+    radial-gradient(circle at 5% 100%, rgb(236 44 118 / 9%), transparent 18rem),
+    #fff;
+  box-shadow: 0 12px 42px rgb(57 31 44 / 7%);
+}
+.loyalty-hero::after { border-color: rgb(236 44 118 / 9%); box-shadow: 0 0 0 34px rgb(236 44 118 / 3%), 0 0 0 72px rgb(255 122 69 / 3%); }
+.loyalty-back,
+.loyalty-refresh { border-color: #eddee4; color: #654f5a; background: #fff; box-shadow: 0 5px 15px rgb(60 34 47 / 6%); }
+.loyalty-hero__eyebrow { color: var(--loyalty-pink); font-weight: 750; letter-spacing: .06em; }
+.loyalty-tier { border-color: #f0d9e2; color: #a92759; background: #fff2f7; }
+.loyalty-hero h1 { color: #251b20; }
+.loyalty-hero h1 small,
+.loyalty-hero p,
+.loyalty-tier-progress small { color: #766970; opacity: 1; }
+.loyalty-hero__wallet span { border-color: #eee2e6; color: #776970; background: #faf6f8; }
+.loyalty-hero__wallet strong { color: #2b2027; }
+.loyalty-tier-progress > span { background: #f2e8ec; }
+.loyalty-tier-progress i { background: linear-gradient(90deg, var(--loyalty-pink), var(--loyalty-orange)); }
+
+.loyalty-tabs--mobile { display: none; }
+.loyalty-tabs { border-color: #eee3e7; box-shadow: 0 8px 24px rgb(57 31 44 / 5%); }
+.loyalty-tabs button { font-weight: 700; }
+.loyalty-tabs button.is-active { background: linear-gradient(105deg, var(--loyalty-pink), var(--loyalty-orange)); box-shadow: 0 7px 18px rgb(236 44 118 / 17%); }
+.loyalty-section-heading span,
+.loyalty-reward__copy > span,
+.loyalty-mission span,
+.loyalty-level > span,
+.loyalty-recognition-card__heading span,
+.loyalty-referral-card span,
+.loyalty-ambassador > span,
+.loyalty-modal > span { letter-spacing: .03em; text-transform: none; }
+
+.loyalty-reward-filters { display: flex; gap: 7px; margin: 2px 0 16px; overflow-x: auto; scrollbar-width: none; }
+.loyalty-reward-filters::-webkit-scrollbar { display: none; }
+.loyalty-reward-filters button { flex: none; min-height: 36px; border: 1px solid #eadde2; border-radius: 999px; color: #706269; background: #fff; padding: 0 13px; font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }
+.loyalty-reward-filters button.is-active { border-color: #f4afc9; color: #bd245c; background: #fff1f6; }
+.loyalty-tab-state { display: flex; align-items: center; justify-content: center; gap: 9px; min-height: 110px; margin: 12px 0; border-radius: 18px; background: #faf6f8; color: #776970; padding: 18px; font-size: 13px; }
+.loyalty-tab-state svg { flex: none; width: 19px; color: var(--loyalty-pink); }
+.loyalty-tab-state.is-error { color: #9d294d; background: #fff2f5; }
+.loyalty-tab-state button { margin-left: 6px; border: 0; color: #bd245c; background: transparent; font: inherit; font-weight: 750; cursor: pointer; }
+.loyalty-load-more { display: flex; align-items: center; justify-content: center; gap: 7px; min-width: 150px; min-height: 42px; margin: 16px auto 0; border: 1px solid #eadde2; border-radius: 13px; color: #b92860; background: #fff; font: inherit; font-weight: 750; cursor: pointer; }
+.loyalty-load-more svg { width: 17px; }
+
+.loyalty-reward,
+.loyalty-mission,
+.loyalty-level,
+.loyalty-referrals,
+.loyalty-recognition-card,
+.loyalty-my-redemptions,
+.loyalty-history-list { box-shadow: none; }
+.loyalty-reward { min-height: 245px; }
+.loyalty-level.is-current { color: #2b2027; border-color: #f2bdd1; background: linear-gradient(145deg, #fff2f7, #fff8f2); box-shadow: none; }
+.loyalty-level.is-current > svg,
+.loyalty-level.is-current > span { color: #c72661; }
+.loyalty-level.is-current p { color: #71636a; }
+.loyalty-referral-card { background: linear-gradient(125deg, #9d2452, #ec2c76 60%, #ff7a45); }
+.loyalty-ambassador { background: linear-gradient(145deg, #3a2731, #5d3548); }
+
+.loyalty-mobile-more { display: none; }
+.loyalty-modal { position: relative; }
+.loyalty-modal__close { position: absolute; top: 16px; right: 16px; display: grid; place-items: center; width: 38px; height: 38px; border: 0; border-radius: 12px; color: #765f6a; background: #faf3f6; cursor: pointer; }
+.loyalty-modal__close svg { width: 18px; }
+.loyalty-cancel-modal .loyalty-modal__icon { color: #a95b12; background: #fff4e3; }
+.loyalty-cancel-modal footer button:last-child { background: #b92d52; }
+.loyalty-page :is(button, a):focus-visible { outline: 3px solid rgb(236 44 118 / 24%); outline-offset: 2px; }
+
+@media (max-width: 640px) {
+  .loyalty-page { background: #fff9fb; }
+  .loyalty-tabs--desktop { display: none; }
+  .loyalty-tabs--mobile { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); overflow: visible; }
+  .loyalty-tabs--mobile button { display: grid; justify-items: center; gap: 2px; min-height: 50px; padding: 5px 2px; font-size: 11px; }
+  .loyalty-mobile-more { position: fixed; z-index: 60; top: calc(var(--shell-mobile-topbar-height) + 72px); right: 12px; display: grid; width: min(300px, calc(100vw - 24px)); gap: 4px; border: 1px solid #eadde2; border-radius: 18px; background: #fff; padding: 7px; box-shadow: 0 20px 60px rgb(52 28 40 / 18%); }
+  .loyalty-mobile-more > button { display: grid; grid-template-columns: 38px 1fr; align-items: center; gap: 10px; width: 100%; border: 0; border-radius: 13px; color: #3b2d34; background: transparent; padding: 10px; text-align: left; }
+  .loyalty-mobile-more > button:hover { background: #fff3f7; }
+  .loyalty-mobile-more > button > svg { grid-row: 1; width: 19px; height: 19px; color: var(--loyalty-pink); }
+  .loyalty-mobile-more span { display: grid; gap: 2px; }
+  .loyalty-mobile-more small { color: #81737a; font-size: 11px; }
+  .loyalty-section-heading p { font-size: 13px; line-height: 1.5; }
+  .loyalty-reward p,
+  .loyalty-mission p,
+  .loyalty-history-list article small { font-size: 12px; line-height: 1.45; }
+  .loyalty-reward-grid { gap: 10px; }
+  .loyalty-reward { border-inline: 0; border-radius: 18px; }
+  .loyalty-tab-state { min-height: 90px; }
+  .app-shell[data-view='aura-club'] .ai-coach-global-launcher { width: 48px; min-width: 48px; max-width: 48px; padding: 6px; }
+  .app-shell[data-view='aura-club'] .ai-coach-global-launcher__copy,
+  .app-shell[data-view='aura-club'] .ai-coach-global-launcher__status { display: none; }
+}

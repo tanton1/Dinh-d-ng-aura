@@ -998,6 +998,7 @@ function AuraApplication() {
         ? <div className="course-detail-state" role="status"><h1>{authzReady ? 'Không có quyền mở Aura Club' : 'Đang xác minh quyền Aura Club'}</h1><p>{authzReady ? 'Tài khoản chưa được cấp quyền điều hành loyalty.' : 'Aura đang đối chiếu phạm vi quản trị.'}</p></div>
         : <AuraOperationsFrame><AdminLoyaltyPage
           isDemo={backendMode === 'demo'}
+          initialStudentId={staffStudentFocus?.id}
           canRunBackfill={accessContext?.accessRole === 'admin' || accessContext?.accessRole === 'super_admin'}
           canManagePolicy={backendMode === 'demo' || hasCapability('loyalty.policy.manage')}
           canManageRewards={backendMode === 'demo' || hasCapability('loyalty.reward.manage')}

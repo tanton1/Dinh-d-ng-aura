@@ -87,6 +87,7 @@ function demoDashboard(): LoyaltyAdminDashboard {
 
 interface AdminLoyaltyPageProps {
   isDemo?: boolean
+  initialStudentId?: string
   canRunBackfill?: boolean
   canManagePolicy?: boolean
   canManageRewards?: boolean
@@ -105,6 +106,7 @@ function launchDateToday() {
 
 export default function AdminLoyaltyPage({
   isDemo = false,
+  initialStudentId,
   canRunBackfill = false,
   canManagePolicy = false,
   canManageRewards = false,
@@ -291,7 +293,7 @@ export default function AdminLoyaltyPage({
         </section>
       </div>
 
-      <AdminLoyaltyOperations isDemo={isDemo} canManageRewards={canManageRewards} canManageAmbassadors={canManageAmbassadors} canAudit={canAudit} canAdjust={canAdjust} canApproveAdjustments={canApproveAdjustments} largeAdjustmentThreshold={policyConfig.largeAdjustmentThreshold} />
+      <AdminLoyaltyOperations initialStudentId={initialStudentId} isDemo={isDemo} canManageRewards={canManageRewards} canManageAmbassadors={canManageAmbassadors} canAudit={canAudit} canAdjust={canAdjust} canApproveAdjustments={canApproveAdjustments} largeAdjustmentThreshold={policyConfig.largeAdjustmentThreshold} />
 
       {canReviewRedemptions ? <section className="loyalty-admin-card loyalty-admin-queue">
         <header><div><span>ĐỔI THƯỞNG</span><h2>Yêu cầu cần xử lý</h2></div><Clock3 /></header>

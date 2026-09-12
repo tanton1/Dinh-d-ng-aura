@@ -289,3 +289,34 @@
   .student360-contract-more-actions { position: static; }
   .student360-contract-more-actions > div { position: fixed; top: auto; right: 10px; bottom: calc(78px + env(safe-area-inset-bottom)); left: 10px; width: auto; max-height: 60dvh; overflow: auto; }
 }
+
+/* Final Student 360 readability pass: secondary data is available on demand,
+   while daily operational facts stay readable on a phone. */
+.student360-generated-at { margin-left: auto; color: #8a7c83; font-size: 12px; }
+.student360-session-main { display: grid; min-width: 0; gap: 3px; }
+.student360-session-main small { overflow: hidden; color: #7d7077; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.student360-inline-state { display: flex; align-items: center; gap: 8px; min-height: 56px; border-radius: 14px; background: #faf6f8; color: #756970; padding: 12px; font-size: 12px; }
+.student360-inline-state svg { flex: none; width: 17px; color: #ec2c76; }
+.student360-inline-state.is-error { background: #fff3f5; color: #9e2b4d; }
+.student360-inline-state button { margin-left: auto; border: 0; background: transparent; color: #cf2865; font: inherit; font-weight: 750; cursor: pointer; }
+.student360-loyalty-breakdown { display: grid !important; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px !important; }
+.student360-loyalty-breakdown > span { display: grid; gap: 3px; border-radius: 12px; background: #faf6f8; padding: 9px; }
+.student360-loyalty-breakdown small { color: #82747b; font-size: 11px; }
+.student360-loyalty-breakdown b { color: #352a30; font-size: 13px; }
+.student360-page--v4 :is(button, a, summary):focus-visible { outline: 3px solid rgb(236 44 118 / 24%); outline-offset: 2px; }
+
+@media (max-width: 680px) {
+  .student360-page--v4:not([data-tab='overview']) .student360-metrics { display: none; }
+  .student360-page--v4 .student360-status-row { flex-wrap: wrap; white-space: normal; }
+  .student360-generated-at { flex-basis: 100%; margin-left: 0; padding: 0 6px 2px; font-size: 11px; }
+  .student360-session-list > div { padding: 11px 12px; }
+  .student360-session-list time { font-size: 13px; }
+  .student360-session-main small { font-size: 11px; }
+  .student360-page--v4 .student360-section-heading p,
+  .student360-page--v4 .student360-timeline p,
+  .student360-page--v4 .student360-actions small { font-size: 12px; line-height: 1.5; }
+  .student360-page--v4 .student360-timeline time,
+  .student360-page--v4 .student360-timeline-meta > span,
+  .student360-page--v4 .student360-timeline-nutrition-meta > :is(span, b, button) { font-size: 11px; }
+  .student360-page--v4 .student360-timeline strong { font-size: 13px; }
+}

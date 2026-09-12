@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle,
   Award,
@@ -40,6 +40,7 @@ type OperationsTab = 'rewards' | 'ambassadors' | 'accounts' | 'adjustments' | 'i
 
 interface AdminLoyaltyOperationsProps {
   isDemo?: boolean
+  initialStudentId?: string
   canManageRewards?: boolean
   canManageAmbassadors?: boolean
   canAudit?: boolean
@@ -95,6 +96,7 @@ function issueLabel(value: string) {
 
 export default function AdminLoyaltyOperations({
   isDemo = false,
+  initialStudentId,
   canManageRewards = false,
   canManageAmbassadors = false,
   canAudit = false,
@@ -124,10 +126,28 @@ export default function AdminLoyaltyOperations({
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const selectedAccountRef = useRef<HTMLElement>(null)
+  const appliedStudentRef = useRef('')
 
   useEffect(() => {
     if (!availableTabs.some((item) => item.id === activeTab)) setActiveTab(availableTabs[0]?.id || 'accounts')
   }, [activeTab, availableTabs])
+
+  useEffect(() => {
+    if (!initialStudentId || appliedStudentRef.current === initialStudentId) return
+    appliedStudentRef.current = initialStudentId
+    setActiveTab('accounts')
+    setQuery(initialStudentId)
+  }, [initialStudentId])
+
+  useEffect(() => {
+    if (activeTab !== 'accounts' || loading || !initialStudentId) return
+    const timer = window.setTimeout(() => {
+      selectedAccountRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      selectedAccountRef.current?.focus({ preventScroll: true })
+    }, 80)
+    return () => window.clearTimeout(timer)
+  }, [accounts, activeTab, initialStudentId, loading])
 
   const loadTab = async (tab: OperationsTab) => {
     setLoading(true)
@@ -304,7 +324,7 @@ export default function AdminLoyaltyOperations({
 
     {!loading && activeTab === 'accounts' ? <div className="loyalty-admin-accounts">
       <label className="loyalty-admin-search"><Search /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Tìm tên, mã học viên hoặc chi nhánh" /></label>
-      <div className="loyalty-admin-list">{visibleAccounts.length ? visibleAccounts.map((item) => <article key={item.studentId}>
+      <div className="loyalty-admin-list">{visibleAccounts.length ? visibleAccounts.map((item) => <article key={item.studentId} ref={item.studentId === initialStudentId ? selectedAccountRef : undefined} tabIndex={item.studentId === initialStudentId ? -1 : undefined} className={item.studentId === initialStudentId ? 'is-focused-account' : undefined}>
         <div className="loyalty-admin-list__identity"><strong>{item.studentName}</strong><span>{item.studentId} · {item.branchId || 'Chưa có chi nhánh'}</span><small>{item.tier.toUpperCase()} · Tier Credit {formatMoney(item.tierQualifyingValue)}</small></div>
         <div><span>Khả dụng</span><strong>{formatNumber(item.availablePoints)}</strong><small>{formatNumber(item.pendingPoints)} đang chờ</small></div>
         <div><span>Đã đổi</span><strong>{formatNumber(item.lifetimeRedeemedPoints)}</strong><small>{item.debtPoints ? `Nợ ${formatNumber(item.debtPoints)}` : 'Không có điểm âm'}</small></div>

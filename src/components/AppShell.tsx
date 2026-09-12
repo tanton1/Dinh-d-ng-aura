@@ -437,7 +437,7 @@ export default function AppShell({ children, mode, view, onNavigate, onModeChang
   // Progress already has a contextual AI Coach action in its header. Keep a
   // single launcher there while preserving an open global conversation when
   // the member navigates into the page.
-  const showAiCoachLauncher = showAiCoach && view !== 'progress'
+  const showAiCoachLauncher = showAiCoach && view !== 'progress' && view !== 'student-360'
 
   useEffect(() => {
     if (!showAiCoach) setAiCoachOpen(false)

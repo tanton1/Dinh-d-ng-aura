@@ -1,4 +1,4 @@
-export type Student360Tab = 'overview' | 'activity' | 'coaching' | 'contract' | 'more'
+export type Student360Tab = 'overview' | 'activity' | 'coaching' | 'contract' | 'schedule'
 export type Student360HealthStatus = 'stable' | 'attention' | 'action_required'
 export type Student360Severity = 'red' | 'amber' | 'green'
 
@@ -105,8 +105,27 @@ export interface Student360Overview {
     weekEnd: string
     requiredSessions: number
     bookedSessions: number
-    nextSession: null | { id: string; date: string; hour: number | null; trainerId: string; status: string }
-    sessions: Array<{ id: string; date: string; hour: number | null; status: string; attendanceStatus: string }>
+    nextSession: null | {
+      id: string
+      date: string
+      hour: number | null
+      trainerId: string
+      trainerName: string
+      branchId: string
+      branchName: string
+      status: string
+    }
+    sessions: Array<{
+      id: string
+      date: string
+      hour: number | null
+      trainerId: string
+      trainerName: string
+      branchId: string
+      branchName: string
+      status: string
+      attendanceStatus: string
+    }>
     availability: { slots: string[]; confirmed: boolean; source: string; sourceWeekId: string | null; minimumSlots: number }
   }
   attendance: {
