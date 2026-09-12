@@ -18,7 +18,7 @@ import {
   Weight,
 } from 'lucide-react'
 import { getPtStudentTrainingPlan, listPtWorkoutHistory, type PtTrainingProgram, type PtWorkoutHistory } from '../../services/ptWorkoutTrackingService'
-import { listExerciseCatalog } from '../../services/exerciseCatalogService'
+import { listExerciseCatalogPage } from '../../services/exerciseCatalogService'
 import type { ExerciseCatalogItem, ExerciseCatalogMediaImage } from '../../types'
 import { exerciseMatchesMuscleGroup, exerciseMuscleGroupOptions, type ExerciseMuscleGroupId } from '../../utils/exerciseMuscleGroups'
 import ExerciseMediaPlayer from '../../components/exercise-catalog/ExerciseMediaPlayer'
@@ -132,6 +132,8 @@ export default function StudentPtWorkoutPage({ isDemo = false, ownerId = 'demo' 
   const [catalog, setCatalog] = useState<ExerciseCatalogItem[]>([])
   const [catalogLoading, setCatalogLoading] = useState(false)
   const [catalogRequested, setCatalogRequested] = useState(false)
+  const [catalogHasMore, setCatalogHasMore] = useState(false)
+  const [catalogCursor, setCatalogCursor] = useState<string | null>(null)
   const [catalogError, setCatalogError] = useState('')
   const [catalogQuery, setCatalogQuery] = useState('')
   const [catalogFilter, setCatalogFilter] = useState<LibraryFilter>('all')
@@ -143,6 +145,7 @@ export default function StudentPtWorkoutPage({ isDemo = false, ownerId = 'demo' 
   })
   const [loading, setLoading] = useState(true)
   const requestIdRef = useRef(0)
+  const catalogRequestIdRef = useRef(0)
   const inFlightRef = useRef(false)
   const programIdRef = useRef<string | undefined>(undefined)
   const [error, setError] = useState('')
@@ -184,13 +187,29 @@ export default function StudentPtWorkoutPage({ isDemo = false, ownerId = 'demo' 
     inFlightRef.current = false
     setLoading(false)
   }
-  const loadCatalog = async () => {
-    if (catalogLoading) return
+  const loadCatalog = async (append = false) => {
+    const requestId = ++catalogRequestIdRef.current
     setCatalogRequested(true)
     setCatalogLoading(true); setCatalogError('')
-    try { setCatalog(isDemo ? demoCatalog() : await listExerciseCatalog()) }
-    catch (cause) { setCatalogError(cause instanceof Error ? cause.message : 'Không thể tải thư viện bài tập.') }
-    finally { setCatalogLoading(false) }
+    try {
+      if (isDemo) {
+        setCatalog(demoCatalog()); setCatalogHasMore(false); setCatalogCursor(null)
+      } else {
+        const page = await listExerciseCatalogPage({
+          query: catalogQuery.trim(),
+          difficulty: catalogFilter === 'beginner' || catalogFilter === 'intermediate' || catalogFilter === 'advanced' ? catalogFilter : '',
+          environment: catalogFilter === 'home' ? 'home' : '',
+          cursor: append ? catalogCursor : null,
+          pageSize: 36,
+        })
+        if (requestId !== catalogRequestIdRef.current) return
+        setCatalog((current) => append ? [...new Map([...current, ...page.items].map((item) => [item.id, item])).values()] : page.items)
+        setCatalogHasMore(page.hasMore)
+        setCatalogCursor(page.nextCursor)
+      }
+    }
+    catch (cause) { if (requestId === catalogRequestIdRef.current) setCatalogError(cause instanceof Error ? cause.message : 'Không thể tải thư viện bài tập.') }
+    finally { if (requestId === catalogRequestIdRef.current) setCatalogLoading(false) }
   }
   useEffect(() => { void load(); return () => { requestIdRef.current += 1; inFlightRef.current = false } }, [isDemo])
   useEffect(() => {
@@ -205,6 +224,11 @@ export default function StudentPtWorkoutPage({ isDemo = false, ownerId = 'demo' 
     }
   }, [isDemo])
   useEffect(() => { if (activeTab === 'library' && !catalogRequested) void loadCatalog() }, [activeTab, catalogRequested])
+  useEffect(() => {
+    if (activeTab !== 'library' || !catalogRequested) return
+    const timer = window.setTimeout(() => { void loadCatalog(false) }, 300)
+    return () => window.clearTimeout(timer)
+  }, [catalogFilter, catalogQuery])
   useEffect(() => { try { window.localStorage.setItem(favoritesStorageKey, JSON.stringify([...savedIds])) } catch { /* unavailable in private mode */ } }, [favoritesStorageKey, savedIds])
   useEffect(() => {
     try { setSavedIds(new Set(JSON.parse(window.localStorage.getItem(favoritesStorageKey) || '[]'))) } catch { setSavedIds(new Set()) }
@@ -276,11 +300,14 @@ export default function StudentPtWorkoutPage({ isDemo = false, ownerId = 'demo' 
         <div className="student-library__filter-block is-secondary"><strong>Mức độ</strong><div className="student-library__filters" role="group" aria-label="Lọc theo mức độ">{(Object.keys(libraryFilterLabels) as LibraryFilter[]).map((filter) => <button type="button" className={catalogFilter === filter ? 'is-active' : ''} onClick={() => setCatalogFilter(filter)} key={filter}>{libraryFilterLabels[filter]}</button>)}</div></div>
         {catalogError && <div className="student-library__inline-error" role="alert"><AlertTriangle />{catalogError}<button type="button" onClick={() => void loadCatalog()}>Thử lại</button></div>}
         {catalogLoading && <div className="student-library__loading" role="status" aria-live="polite"><RefreshCw />Đang tải thư viện bài tập…</div>}
-        {!catalogLoading && !catalogError && <>
+        {(!catalogLoading || catalog.length > 0) && !catalogError && <>
           <div className="student-library__section-heading"><div><h3>Gợi ý cho bạn</h3><p>{filteredCatalog.length} bài tập đã xuất bản</p></div><span>{savedIds.size} đã lưu</span></div>
           {visibleCatalog[0] && <button type="button" className="student-library__featured" onClick={() => setSelectedExercise(visibleCatalog[0])}><ExerciseVisual item={visibleCatalog[0]} /><span><small>{visibleCatalog[0].targetMuscles.join(' · ').toLocaleUpperCase('vi')}</small><strong>{visibleCatalog[0].nameVi}</strong><em>{difficultyLabel(visibleCatalog[0].difficulty)} · Xem kỹ thuật từng bước →</em></span></button>}
           <div className="student-library__grid">{visibleCatalog.slice(1).map((item) => <button type="button" className="student-library__card" onClick={() => setSelectedExercise(item)} key={item.id}><span className="student-library__card-media"><ExerciseVisual item={item} /><span className="student-library__difficulty">{difficultyLabel(item.difficulty)}</span><span className="student-library__save" aria-label={savedIds.has(item.id) ? 'Đã lưu' : 'Lưu bài tập'} onClick={(event) => { event.stopPropagation(); toggleSaved(item.id) }}>{savedIds.has(item.id) ? <BookmarkCheck /> : <Bookmark />}</span></span><span className="student-library__card-copy"><strong>{item.nameVi}</strong><small>{item.targetMuscles.join(' · ') || item.bodyParts.join(' · ')}</small></span></button>)}</div>
-          {visibleCatalog.length < filteredCatalog.length && <button type="button" className="student-library__load-more" onClick={() => setVisibleCatalogCount((current) => current + 24)}>Xem thêm {Math.min(24, filteredCatalog.length - visibleCatalog.length)} bài tập</button>}
+          {(visibleCatalog.length < filteredCatalog.length || catalogHasMore) && <button type="button" className="student-library__load-more" onClick={() => {
+            if (visibleCatalog.length < filteredCatalog.length) setVisibleCatalogCount((current) => current + 24)
+            else void loadCatalog(true)
+          }} disabled={catalogLoading}>{catalogLoading ? 'Đang tải…' : visibleCatalog.length < filteredCatalog.length ? `Xem thêm ${Math.min(24, filteredCatalog.length - visibleCatalog.length)} bài tập` : 'Tải thêm bài tập'}</button>}
           {!filteredCatalog.length && <div className="student-library__empty"><Search /><strong>Không tìm thấy bài tập</strong><span>Thử từ khóa khác hoặc bỏ bớt bộ lọc.</span></div>}
         </>}
       </>}

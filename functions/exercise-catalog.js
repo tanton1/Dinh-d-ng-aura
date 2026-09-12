@@ -1,4 +1,4 @@
-const { FieldValue } = require('firebase-admin/firestore')
+const { FieldPath, FieldValue } = require('firebase-admin/firestore')
 const { defineSecret } = require('firebase-functions/params')
 const { HttpsError } = require('firebase-functions/v2/https')
 
@@ -441,21 +441,70 @@ function createExerciseCatalogFunctions({ db, onCall }) {
     const bodyPart = text(request.data?.bodyPart, 80).toLocaleLowerCase('vi')
     const equipment = text(request.data?.equipment, 80).toLocaleLowerCase('vi')
     const difficulty = text(request.data?.difficulty, 20)
-    // Free Exercise DB is the canonical learner source. ExerciseDB records are
-    // retained only as reviewed women-focused fallbacks when the canonical
-    // source has no equivalent. Keep this bounded, but high enough that
-    // published items are not silently omitted once the catalog grows.
-    const snapshots = await db.collection('exercises').limit(500).get()
-    const items = snapshots.docs.map(publicItem).filter((item) => {
-      // Staff can review published + draft/review records from one workspace,
-      // while archived provider fallbacks stay out of the active catalog. The
-      // learner path remains published-only.
-      if (item.status === 'archived' || (!includeReview && item.status !== 'published')) return false
-      const searchable = [item.nameVi, item.nameEn, ...item.aliasesVi, ...item.targetMuscles, ...item.bodyParts].join(' ').toLocaleLowerCase('vi')
-      return (!query || searchable.includes(query)) && (!bodyPart || item.bodyParts.some((value) => value.toLocaleLowerCase('vi') === bodyPart))
-        && (!equipment || item.equipment.some((value) => value.toLocaleLowerCase('vi') === equipment)) && (!difficulty || item.difficulty === difficulty)
-    }).sort((a, b) => a.nameVi.localeCompare(b.nameVi, 'vi')).slice(0, 400)
-    return { schemaVersion: 1, items, total: items.length }
+    const environment = text(request.data?.environment, 20)
+    const status = includeReview && ['popular', 'published', 'review', 'draft', 'working'].includes(request.data?.status)
+      ? request.data.status
+      : 'all'
+    const pageSize = Math.min(60, Math.max(12, Math.round(Number(request.data?.pageSize) || 36)))
+    const requestedCursor = text(request.data?.cursor, 160)
+    if (requestedCursor && !/^[A-Za-z0-9_-]+$/.test(requestedCursor)) throw new HttpsError('invalid-argument', 'Con trỏ thư viện không hợp lệ.')
+
+    // Catalog documents predate normalized search fields. Scan a bounded,
+    // document-id ordered window so old records remain searchable while the
+    // initial route no longer reads the entire 500-item collection. The
+    // cursor always points at the last inspected document, not merely the last
+    // matching item, which keeps sparse filtered pages stable and duplicate-free.
+    const maximumScanned = Math.max(pageSize, Math.min(240, Math.round(Number(request.data?.scanLimit) || pageSize * 4)))
+    const scanBatchSize = Math.min(80, Math.max(24, pageSize * 2))
+    const items = []
+    let sourceCursor = requestedCursor
+    let scanned = 0
+    let exhausted = false
+    let hasMore = false
+    while (items.length < pageSize && scanned < maximumScanned && !exhausted) {
+      const batchSize = Math.min(scanBatchSize, maximumScanned - scanned)
+      let sourceQuery = db.collection('exercises').orderBy(FieldPath.documentId(), 'asc').limit(batchSize)
+      if (sourceCursor) sourceQuery = sourceQuery.startAfter(sourceCursor)
+      const snapshot = await sourceQuery.get()
+      if (!snapshot.size) { exhausted = true; break }
+      let consumed = 0
+      for (const document of snapshot.docs) {
+        consumed += 1
+        scanned += 1
+        sourceCursor = document.id
+        const item = publicItem(document)
+        // Staff can review published + draft/review records from one workspace,
+        // while archived provider fallbacks stay out of the active catalog. The
+        // learner path remains published-only.
+        if (item.status === 'archived' || (!includeReview && item.status !== 'published')) continue
+        const matchesStatus = status === 'all' || (status === 'popular' && item.popularForWomen === true)
+          || (status === 'working' && item.hasWorkingDraft === true) || item.status === status
+        if (!matchesStatus) continue
+        const searchable = [item.nameVi, item.nameEn, ...item.aliasesVi, ...item.targetMuscles, ...item.secondaryMuscles, ...item.bodyParts, ...item.equipment].join(' ').toLocaleLowerCase('vi')
+        const matches = (!query || searchable.includes(query))
+          && (!bodyPart || item.bodyParts.some((value) => value.toLocaleLowerCase('vi') === bodyPart))
+          && (!equipment || item.equipment.some((value) => value.toLocaleLowerCase('vi') === equipment))
+          && (!difficulty || item.difficulty === difficulty)
+          && (!environment || item.environment.includes(environment))
+        if (matches) items.push(item)
+        if (items.length >= pageSize) break
+      }
+      if (items.length >= pageSize) {
+        hasMore = consumed < snapshot.size || snapshot.size === batchSize
+        break
+      }
+      exhausted = snapshot.size < batchSize
+    }
+    if (!exhausted && scanned >= maximumScanned) hasMore = true
+    return {
+      schemaVersion: 2,
+      items: items.sort((a, b) => a.nameVi.localeCompare(b.nameVi, 'vi')),
+      total: null,
+      hasMore,
+      nextCursor: hasMore ? sourceCursor || null : null,
+      scanned,
+      pageSize,
+    }
   })
 
   const getExerciseCatalogItem = onCall(async (request) => {

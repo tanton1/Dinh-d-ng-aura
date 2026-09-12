@@ -3,7 +3,7 @@ import {
   Activity, AlertTriangle, BarChart3, BookOpen, CalendarDays, Check, ChevronRight, Dumbbell,
   History, Plus, RefreshCw, Save, Search, Sparkles, Target, Trash2, Users, Weight, X,
 } from 'lucide-react'
-import { listExerciseCatalog } from '../../services/exerciseCatalogService'
+import { listExerciseCatalogPage } from '../../services/exerciseCatalogService'
 import type { ExerciseCatalogItem } from '../../types'
 import { exerciseMatchesMuscleGroup, exerciseMuscleGroupOptions, type ExerciseMuscleGroupId } from '../../utils/exerciseMuscleGroups'
 import {
@@ -125,6 +125,9 @@ export default function PtWorkoutWorkspacePage({ isDemo = false, canPublishCatal
   const [selectedDayId, setSelectedDayId] = useState('')
   const [sets, setSets] = useState<PtWorkoutSet[]>([])
   const [catalog, setCatalog] = useState<ExerciseCatalogItem[]>([])
+  const [catalogLoading, setCatalogLoading] = useState(false)
+  const [catalogHasMore, setCatalogHasMore] = useState(false)
+  const [catalogCursor, setCatalogCursor] = useState<string | null>(null)
   const [catalogQuery, setCatalogQuery] = useState('')
   const [muscleFilter, setMuscleFilter] = useState<ExerciseMuscleGroupId>('all')
   const [catalogVisibleCount, setCatalogVisibleCount] = useState(24)
@@ -139,6 +142,7 @@ export default function PtWorkoutWorkspacePage({ isDemo = false, canPublishCatal
   const [notice, setNotice] = useState('')
   const [pendingDeleteDayId, setPendingDeleteDayId] = useState('')
   const deleteConfirmRef = useRef<HTMLButtonElement>(null)
+  const catalogRequestIdRef = useRef(0)
 
   const studentMap = useMemo(() => new Map(workspace.students.map((student) => [student.id, student])), [workspace.students])
   const eligibleStudents = useMemo(() => workspace.students.filter((student) => student.eligibleForNewProgram !== false && student.assignmentSource !== 'teaching_session'), [workspace.students])
@@ -205,10 +209,30 @@ export default function PtWorkoutWorkspacePage({ isDemo = false, canPublishCatal
     setSelectedSessionId(first?.id || '')
     if (first && tab === 'today') setSelectedStudentId(first.studentId)
   }, [selectedSessionId, tab, visibleSessions])
+  const loadCatalog = useCallback(async (append = false) => {
+    const requestId = ++catalogRequestIdRef.current
+    setCatalogLoading(true)
+    if (!append) { setCatalog([]); setCatalogCursor(null); setCatalogHasMore(false) }
+    try {
+      if (isDemo) {
+        if (requestId === catalogRequestIdRef.current) setCatalog(demoWorkspace(date).programs.flatMap((program) => program.trainingDays.flatMap((day) => day.exercises)).map((exercise) => ({ id: exercise.catalogExerciseId, schemaVersion: 1, revision: 1, status: 'published', nameVi: exercise.nameVi, nameEn: exercise.nameVi, aliasesVi: [], bodyParts: exercise.targetMuscles, targetMuscles: exercise.targetMuscles, secondaryMuscles: exercise.secondaryMuscles, equipment: exercise.equipment, environment: ['gym'], difficulty: 'beginner', goals: [], instructionsVi: exercise.instructionsVi, cuesVi: exercise.cuesVi, commonMistakesVi: [], media: {}, defaultPrescription: { sets: exercise.sets, reps: `${exercise.repMinimum}–${exercise.repMaximum}`, restSeconds: exercise.restSeconds, rpe: exercise.targetRpe }, source: { provider: 'aura', sourceExerciseId: exercise.catalogExerciseId, sourceVersion: 'demo', license: 'Aura-owned' }, sourceAttribution: 'Aura Fitness' } as ExerciseCatalogItem)))
+        setCatalogHasMore(false); setCatalogCursor(null)
+      } else {
+        const page = await listExerciseCatalogPage({ query: catalogQuery.trim(), cursor: append ? catalogCursor : null, pageSize: 36 })
+        if (requestId !== catalogRequestIdRef.current) return
+        setCatalog((current) => append ? [...new Map([...current, ...page.items].map((item) => [item.id, item])).values()] : page.items)
+        setCatalogHasMore(page.hasMore); setCatalogCursor(page.nextCursor)
+      }
+    } catch (cause) { if (requestId === catalogRequestIdRef.current) setError(cause instanceof Error ? cause.message : 'Không thể tải thư viện bài tập.') }
+    finally { if (requestId === catalogRequestIdRef.current) setCatalogLoading(false) }
+  }, [catalogCursor, catalogQuery, date, isDemo])
+
+  useEffect(() => { if (tab === 'program' && !catalog.length && !catalogLoading) void loadCatalog(false) }, [catalog.length, catalogLoading, loadCatalog, tab])
   useEffect(() => {
-    if (tab !== 'program' || catalog.length || isDemo) return
-    void listExerciseCatalog({ includeReview: false }).then(setCatalog).catch((cause) => setError(cause instanceof Error ? cause.message : 'Không thể tải thư viện bài tập.'))
-  }, [catalog.length, isDemo, tab])
+    if (tab !== 'program' || !catalog.length) return
+    const timer = window.setTimeout(() => { void loadCatalog(false) }, 300)
+    return () => window.clearTimeout(timer)
+  }, [catalogQuery])
   useEffect(() => {
     const next = selectedProgram ? clone(selectedProgram) : emptyProgram()
     setProgramDraft(next)
@@ -530,7 +554,10 @@ export default function PtWorkoutWorkspacePage({ isDemo = false, canPublishCatal
             <label className="pt-workout-workspace__search"><Search /><input value={catalogQuery} onChange={(event) => setCatalogQuery(event.target.value)} placeholder="Tìm bài tập…" /></label>
             <div className="pt-workout-workspace__muscles" role="group" aria-label="Lọc bài tập theo nhóm cơ">{muscleGroups.map((group) => <button className={group.id === muscleFilter ? 'is-active' : ''} onClick={() => setMuscleFilter(group.id)} key={group.id}>{group.label}<small>{group.count}</small></button>)}</div>
             <div className="pt-workout-workspace__catalog-list">{visibleCatalog.map((item) => <button key={item.id} onClick={() => addExercise(item)} disabled={selectedDay?.exercises.some((exercise) => exercise.catalogExerciseId === item.id)}>{item.media.posterUrl || item.media.startImageUrl ? <img src={item.media.posterUrl || item.media.startImageUrl} alt="" /> : <Dumbbell />}<span><b>{item.nameVi}</b><small>{item.targetMuscles.join(' · ') || item.bodyParts.join(' · ')}</small></span><Plus /></button>)}</div>
-            {visibleCatalog.length < filteredCatalog.length && <button className="pt-workout-workspace__catalog-more" onClick={() => setCatalogVisibleCount((current) => current + 24)}>Xem thêm {Math.min(24, filteredCatalog.length - visibleCatalog.length)} bài</button>}
+            {(visibleCatalog.length < filteredCatalog.length || catalogHasMore) && <button className="pt-workout-workspace__catalog-more" onClick={() => {
+              if (visibleCatalog.length < filteredCatalog.length) setCatalogVisibleCount((current) => current + 24)
+              else void loadCatalog(true)
+            }} disabled={catalogLoading}>{catalogLoading ? 'Đang tải…' : visibleCatalog.length < filteredCatalog.length ? `Xem thêm ${Math.min(24, filteredCatalog.length - visibleCatalog.length)} bài` : 'Tải thêm bài'}</button>}
           </aside>
         </>}
       </section>}

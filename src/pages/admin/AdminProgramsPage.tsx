@@ -25,12 +25,12 @@
   Video,
   X,
 } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import '../../styles-admin.css'
 import ExercisePrescriptionFields from '../../components/coaching/ExercisePrescriptionFields'
 import { PageHeader } from '../../components/ui'
 import { workoutExercises } from '../../data'
-import { exerciseCatalogSnapshot, listExerciseCatalog } from '../../services/exerciseCatalogService'
+import { exerciseCatalogSnapshot, listExerciseCatalogPage } from '../../services/exerciseCatalogService'
 import { listManagedPtPrograms, loadManagedPtProgram, readPtExercisePrescription, visibleExerciseTags, type ManagedPtProgramSummary } from '../../services/ptCoachingProgramService'
 import '../../styles-coaching.css'
 import type {
@@ -184,7 +184,10 @@ export default function AdminProgramsPage({ initialProgram, onSave, onRetry, can
   const [programLoading, setProgramLoading] = useState(false)
   const [catalogItems, setCatalogItems] = useState<ExerciseCatalogItem[]>([])
   const [catalogLoading, setCatalogLoading] = useState(true)
+  const [catalogHasMore, setCatalogHasMore] = useState(false)
+  const [catalogCursor, setCatalogCursor] = useState<string | null>(null)
   const [catalogError, setCatalogError] = useState<string | null>(null)
+  const catalogRequestIdRef = useRef(0)
 
   useEffect(() => {
     let active = true
@@ -199,15 +202,24 @@ export default function AdminProgramsPage({ initialProgram, onSave, onRetry, can
     return () => { active = false }
   }, [])
 
+  const loadCatalog = async (append = false) => {
+    const requestId = ++catalogRequestIdRef.current
+    setCatalogLoading(true); setCatalogError(null)
+    if (!append) { setCatalogItems([]); setCatalogCursor(null); setCatalogHasMore(false) }
+    try {
+      const page = await listExerciseCatalogPage({ includeReview: true, query: exerciseQuery.trim(), cursor: append ? catalogCursor : null, pageSize: 36 })
+      if (requestId !== catalogRequestIdRef.current) return
+      setCatalogItems((current) => append ? [...new Map([...current, ...page.items].map((item) => [item.id, item])).values()] : page.items)
+      setCatalogHasMore(page.hasMore); setCatalogCursor(page.nextCursor)
+    } catch {
+      if (requestId === catalogRequestIdRef.current) setCatalogError('Chưa thể đồng bộ catalog; đang dùng thư viện dự phòng.')
+    } finally { if (requestId === catalogRequestIdRef.current) setCatalogLoading(false) }
+  }
+
   useEffect(() => {
-    let active = true
-    setCatalogLoading(true)
-    listExerciseCatalog({ includeReview: true })
-      .then((items) => { if (active) setCatalogItems(items) })
-      .catch(() => { if (active) setCatalogError('Chưa thể đồng bộ catalog; đang dùng thư viện dự phòng.') })
-      .finally(() => { if (active) setCatalogLoading(false) })
-    return () => { active = false }
-  }, [])
+    const timer = window.setTimeout(() => { void loadCatalog(false) }, 300)
+    return () => window.clearTimeout(timer)
+  }, [exerciseQuery])
 
   const currentWeek = Math.min(Math.max(week, 1), program.durationWeeks)
   const currentWeekSessions = useMemo(
@@ -763,8 +775,8 @@ export default function AdminProgramsPage({ initialProgram, onSave, onRetry, can
       <section className="program-builder-layout">
         <aside className="exercise-library card">
           <div className="library-heading">
-            <div><h2>Kho bài tập Aura</h2><span>{catalogLoading ? 'Đang tải…' : `${catalogItems.length || workoutExercises.length} bài tập`}</span></div>
-            <button title="Nạp lại" onClick={() => window.location.reload()}><Upload size={17} /></button>
+            <div><h2>Kho bài tập Aura</h2><span>{catalogLoading && !catalogItems.length ? 'Đang tải…' : `${catalogItems.length || workoutExercises.length} bài đang xem`}</span></div>
+            <button title="Nạp lại" onClick={() => void loadCatalog(false)} disabled={catalogLoading}><Upload size={17} /></button>
           </div>
           <div className="library-search"><Search size={17} /><input value={exerciseQuery} onChange={(event) => setExerciseQuery(event.target.value)} placeholder="Tìm bài tập..." /></div>
           <div className="muscle-pills">
@@ -782,6 +794,7 @@ export default function AdminProgramsPage({ initialProgram, onSave, onRetry, can
               </button>
             ))}
           </div>
+          {catalogHasMore && <button className="create-exercise" type="button" onClick={() => void loadCatalog(true)} disabled={catalogLoading}>{catalogLoading ? 'Đang tải…' : 'Tải thêm bài tập'}</button>}
           <button className="create-exercise" onClick={() => updateSession((session) => ({ ...session, exercises: [...session.exercises, createExerciseDraft({ name: 'Bài tập mới', origin: 'custom' })] }))}><Plus size={16} /> Tạo bài tập riêng</button>
         </aside>
 

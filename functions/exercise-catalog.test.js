@@ -45,6 +45,18 @@ test('catalog callables are statically deployable', () => {
   }
 })
 
+test('catalog browsing is cursor-paginated and bounded', () => {
+  assert.match(source, /FieldPath\.documentId\(\), 'asc'/)
+  assert.match(source, /sourceQuery = sourceQuery\.startAfter\(sourceCursor\)/)
+  assert.match(source, /maximumScanned/)
+  assert.match(source, /nextCursor: hasMore \? sourceCursor \|\| null : null/)
+  assert.doesNotMatch(source, /collection\('exercises'\)\.limit\(500\)/)
+  assert.match(serviceSource, /listExerciseCatalogPage/)
+  assert.match(managerSource, /listExerciseCatalogPage/)
+  assert.match(studentLibrarySource, /listExerciseCatalogPage/)
+  assert.match(trainerWorkspaceSource, /listExerciseCatalogPage/)
+})
+
 test('external exercise provider remains server-only and never persists signed media urls', () => {
   assert.match(source, /defineSecret\('YMOVE_API_KEY'/)
   assert.match(source, /AURA_PROVIDER_DISABLED/)

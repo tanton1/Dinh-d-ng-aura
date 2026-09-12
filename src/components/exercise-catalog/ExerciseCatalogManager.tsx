@@ -8,7 +8,7 @@ import type { ExerciseCatalogItem, ExerciseCatalogMedia, ExerciseCatalogMediaIma
 import {
   getExerciseCatalogItem,
   getExternalExercisePreview,
-  listExerciseCatalog,
+  listExerciseCatalogPage,
   publishExerciseCatalogItem,
   saveExerciseCatalogDraft,
   searchExternalExerciseCatalog,
@@ -223,6 +223,7 @@ export default function ExerciseCatalogManager({ canPublish, isDemo = false }: {
   const [query, setQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<CatalogStatusFilter>('all')
   const [muscleFilter, setMuscleFilter] = useState<ExerciseMuscleGroupId>('all')
+  const [hasMore, setHasMore] = useState(false)
   const [activeStep, setActiveStep] = useState(0)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -245,13 +246,26 @@ export default function ExerciseCatalogManager({ canPublish, isDemo = false }: {
   const editorRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const changeVersionRef = useRef(0)
+  const catalogCursorRef = useRef<string | null>(null)
+  const catalogRequestIdRef = useRef(0)
 
-  const loadItems = useCallback(async () => {
+  const loadItems = useCallback(async (append = false) => {
+    const requestId = ++catalogRequestIdRef.current
     setLoading(true); setError('')
-    try { setItems(isDemo ? demoCatalog() : await listExerciseCatalog({ includeReview: true })) }
-    catch (cause) { setError(cause instanceof Error ? cause.message : 'Không thể tải thư viện bài tập.') }
-    finally { setLoading(false) }
-  }, [isDemo])
+    if (!append) { setItems([]); catalogCursorRef.current = null; setHasMore(false) }
+    try {
+      if (isDemo) {
+        setItems(demoCatalog()); catalogCursorRef.current = null; setHasMore(false)
+      } else {
+        const page = await listExerciseCatalogPage({ includeReview: true, query: query.trim(), status: statusFilter === 'archived' ? 'all' : statusFilter, cursor: append ? catalogCursorRef.current : null, pageSize: 36 })
+        if (requestId !== catalogRequestIdRef.current) return
+        setItems((current) => append ? [...new Map([...current, ...page.items].map((item) => [item.id, item])).values()] : page.items)
+        catalogCursorRef.current = page.nextCursor; setHasMore(page.hasMore)
+      }
+    }
+    catch (cause) { if (requestId === catalogRequestIdRef.current) setError(cause instanceof Error ? cause.message : 'Không thể tải thư viện bài tập.') }
+    finally { if (requestId === catalogRequestIdRef.current) setLoading(false) }
+  }, [isDemo, query, statusFilter])
 
   useEffect(() => { void loadItems() }, [loadItems])
   useEffect(() => {
@@ -455,6 +469,7 @@ export default function ExerciseCatalogManager({ canPublish, isDemo = false }: {
       <aside className="exercise-catalog-manager__browser"><div className="exercise-catalog-manager__tools"><label><Search /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Tên bài, nhóm cơ, dụng cụ…" aria-label="Tìm trong thư viện bài tập" /></label><button onClick={() => void loadItems()} disabled={loading} aria-label="Tải lại thư viện"><RefreshCw /></button></div><div className="exercise-catalog-manager__filters">{(['all', 'popular', 'published', 'review', 'draft', 'working'] as CatalogStatusFilter[]).map((status) => <button className={`${statusFilter === status ? 'is-active' : ''} ${status === 'popular' ? 'is-popular' : ''}`} onClick={() => setStatusFilter(status)} key={status}>{status === 'popular' && <Flame />}{statusLabels[status]}</button>)}</div><div className="exercise-catalog-manager__muscle-filters" role="group" aria-label="Lọc thư viện theo nhóm cơ">{muscleGroups.map((group) => <button className={muscleFilter === group.id ? 'is-active' : ''} onClick={() => setMuscleFilter(group.id)} key={group.id}>{group.label}<small>{group.count}</small></button>)}</div><div className="exercise-catalog-manager__list">
         {filteredItems.map((item) => <button className={`${selectedId === item.id ? 'is-active' : ''} ${isPopularForWomen(item) ? 'is-popular' : ''}`} onClick={() => void selectItem(item)} key={item.id}><span className="exercise-catalog-manager__thumb">{item.media.posterUrl || item.media.startImageUrl ? <img src={item.media.posterUrl || item.media.startImageUrl} alt="" loading="lazy" /> : <Dumbbell />}</span><span><b>{item.nameVi}</b><small>{item.targetMuscles.join(' · ') || item.bodyParts.join(' · ') || 'Chưa phân nhóm'}</small><span className="exercise-catalog-manager__badges">{isPopularForWomen(item) && <em className="is-popular"><Flame />Nữ hay chọn</em>}<em className={`is-${item.hasWorkingDraft ? 'working' : item.status}`}>{item.hasWorkingDraft ? 'Đang sửa' : statusLabels[item.status]}</em></span></span>{(!item.instructionsVi.length || !item.media.startImageUrl) ? <AlertTriangle aria-label="Thiếu dữ liệu xuất bản" /> : <ChevronRight aria-label="Xem chi tiết" />}</button>)}
         {!loading && !filteredItems.length && <div className="exercise-catalog-manager__empty"><Library /><strong>Không có bài tập phù hợp</strong><span>Đổi bộ lọc hoặc thêm một bài mới.</span></div>}
+        {hasMore && <button type="button" className="exercise-catalog-manager__load-more" onClick={() => void loadItems(true)} disabled={loading}>{loading ? 'Đang tải…' : 'Tải thêm bài tập'}</button>}
       </div></aside>
       <div className="exercise-catalog-manager__editor" ref={editorRef}>
         {detailLoading ? <div className="exercise-catalog-manager__empty is-large is-loading" role="status"><RefreshCw className="is-spinning" /><strong>Đang tải chi tiết bài tập…</strong><span>Đang đồng bộ thông tin và media mới nhất.</span></div> : !selectedId ? <div className="exercise-catalog-manager__empty is-large"><Dumbbell /><strong>Chọn hoặc thêm bài tập</strong><span>Biên tập khoa học theo 5 bước, không cần điền một form dài.</span></div> : <>

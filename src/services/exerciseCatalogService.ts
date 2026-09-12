@@ -7,12 +7,25 @@ import type {
   ExerciseCatalogMediaVideo,
 } from '../types'
 
-type CatalogFilters = {
+export type CatalogFilters = {
   query?: string
   bodyPart?: string
   equipment?: string
   difficulty?: ExerciseCatalogItem['difficulty'] | ''
+  environment?: 'gym' | 'home' | ''
+  status?: 'all' | 'popular' | 'published' | 'review' | 'draft' | 'working'
   includeReview?: boolean
+  cursor?: string | null
+  pageSize?: number
+}
+
+export interface ExerciseCatalogPage {
+  items: ExerciseCatalogItem[]
+  hasMore: boolean
+  nextCursor: string | null
+  total: number | null
+  scanned: number
+  pageSize: number
 }
 
 export type ExerciseCatalogDraft = Omit<ExerciseCatalogItem, 'id' | 'schemaVersion' | 'revision' | 'status' | 'hasWorkingDraft' | 'editRevision' | 'editStatus'> & {
@@ -225,15 +238,28 @@ function parseExternalExercise(value: unknown): ExternalExerciseCandidate | null
   }
 }
 
-export async function listExerciseCatalog(filters: CatalogFilters = {}): Promise<ExerciseCatalogItem[]> {
-  if (!firebaseFunctions) return []
+export async function listExerciseCatalogPage(filters: CatalogFilters = {}): Promise<ExerciseCatalogPage> {
+  if (!firebaseFunctions) return { items: [], hasMore: false, nextCursor: null, total: 0, scanned: 0, pageSize: Math.max(12, filters.pageSize || 36) }
   const callable = httpsCallable<CatalogFilters, unknown>(firebaseFunctions, 'listExerciseCatalog')
   const response = await callable(filters)
   const payload = record(response.data)
-  return Array.isArray(payload?.items) ? payload.items.flatMap((item) => {
+  const items = Array.isArray(payload?.items) ? payload.items.flatMap((item) => {
     const parsed = parseCatalogItem(item)
     return parsed ? [parsed] : []
   }) : []
+  return {
+    items,
+    hasMore: payload?.hasMore === true,
+    nextCursor: typeof payload?.nextCursor === 'string' && payload.nextCursor ? payload.nextCursor : null,
+    total: typeof payload?.total === 'number' && Number.isFinite(payload.total) ? payload.total : null,
+    scanned: typeof payload?.scanned === 'number' && Number.isFinite(payload.scanned) ? payload.scanned : items.length,
+    pageSize: typeof payload?.pageSize === 'number' && Number.isFinite(payload.pageSize) ? payload.pageSize : Math.max(12, filters.pageSize || items.length || 36),
+  }
+}
+
+/** Compatibility adapter for callers that only need the first bounded page. */
+export async function listExerciseCatalog(filters: CatalogFilters = {}): Promise<ExerciseCatalogItem[]> {
+  return (await listExerciseCatalogPage(filters)).items
 }
 
 export async function getExerciseCatalogItem(exerciseId: string): Promise<ExerciseCatalogDetail> {
