@@ -68,7 +68,20 @@ function compactDate(value: string) {
   return `${day}/${month}`
 }
 function normalizedSearch(value: string) {
-  return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('vi-VN').trim()
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[đĐ]/g, 'd')
+    .replace(/[\u200B-\u200D\uFEFF]/g, '')
+    .toLocaleLowerCase('vi-VN')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim()
+    .replace(/\s+/g, ' ')
+}
+function matchesStudentSearch(student: TrainerStudentSummary, query: string) {
+  if (!query) return true
+  const searchable = normalizedSearch(`${student.name} ${student.phone} ${student.email}`)
+  return query.split(' ').every((term) => searchable.includes(term))
 }
 function sessionStartsAt(session: TrainerSessionSummary) {
   if (!Number.isInteger(session.hour)) return Number.NaN
@@ -154,7 +167,7 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
   const filteredStudents = useMemo(() => {
     const query = normalizedSearch(studentQuery)
     return students.filter((student) => {
-      const matchesQuery = !query || normalizedSearch(`${student.name} ${student.phone} ${student.email}`).includes(query)
+      const matchesQuery = matchesStudentSearch(student, query)
       const matchesBranch = studentBranch === 'all' || student.branchId === studentBranch
       const matchesScope = studentScope === 'all'
         || student.assignmentRole === studentScope

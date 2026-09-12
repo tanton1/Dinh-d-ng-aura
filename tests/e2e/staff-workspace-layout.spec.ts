@@ -90,6 +90,18 @@ test('staff dock prioritizes work modules and schedule tools share one weekly wo
   await expect(page.getByRole('combobox', { name: 'Lọc theo phân công' })).toBeVisible()
   await expect(page.getByText('buổi được phân công')).toHaveCount(0)
 
+  const studentSearch = page.getByRole('textbox', { name: 'Tìm học viên' })
+  const studentSearchBox = await studentSearch.boundingBox()
+  expect(studentSearchBox).not.toBeNull()
+  expect(studentSearchBox!.width).toBeGreaterThan(220)
+  await studentSearch.fill('nguyen anh')
+  await expect(page.locator('.opv2-student-card')).toHaveCount(1)
+  await expect(page.locator('.opv2-student-card')).toContainText('Nguyễn Minh Anh')
+  await studentSearch.fill('0900 000 002')
+  await expect(page.locator('.opv2-student-card')).toHaveCount(1)
+  await expect(page.locator('.opv2-student-card')).toContainText('Trần Thu Hà')
+  await studentSearch.clear()
+
   await page.getByRole('button', { name: 'Mở Học viên 360' }).first().click()
   await expect(page).toHaveURL(/#\/student-360\?studentId=student-a&source=staff-students/)
   await expect(page.getByRole('heading', { name: 'Nguyễn Minh Anh' })).toBeVisible()
