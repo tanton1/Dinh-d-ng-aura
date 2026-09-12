@@ -14,7 +14,6 @@ import {
   ClipboardList,
   Cloud,
   Dumbbell,
-  GraduationCap,
   History,
   Home,
   LayoutDashboard,
@@ -39,6 +38,7 @@ import type { AiCoachLearningContext } from '../services/nutritionService'
 import NotificationCenter from './NotificationCenter'
 import { Sheet } from './ui'
 import { useAuraUiSurface } from '../features/ui-rollout/AuraUiRolloutContext'
+import { isNavigationViewVisible } from '../config/navigationAvailability'
 
 // Keep the conversation out of the initial shell bundle. The coach is
 // available from every learner page, but its chat UI and Firebase calls are
@@ -77,27 +77,32 @@ type ShellNavSection = { label: string; items: ShellNavItem[] }
 
 const studentNavSections: ShellNavSection[] = [
   {
-    label: 'TỔNG QUAN',
+    label: 'HÔM NAY',
     items: [
       { id: 'home' as const, label: 'Hôm nay', icon: Home },
       { id: 'aura-club' as const, label: 'Aura Club', icon: WalletCards },
     ],
   },
   {
-    label: 'AURA ACADEMY & DINH DƯỠNG',
+    label: 'SỨC KHỎE CỦA TÔI',
     items: [
-      { id: 'courses' as const, label: 'Học chuyên sâu', icon: BookOpen },
       { id: 'nutrition' as const, label: 'Dinh dưỡng', icon: Soup },
-      { id: 'eat-clean' as const, label: 'Đặt món Eat Clean', icon: ShoppingBasket },
-      { id: 'progress' as const, label: 'Tiến độ & ôn tập', icon: BarChart3 },
+      { id: 'progress' as const, label: 'Tiến độ cơ thể', icon: BarChart3 },
     ],
   },
   {
-    label: 'PT COACHING & GYM',
+    label: 'LỊCH & TẬP LUYỆN',
     items: [
       { id: 'schedule' as const, label: 'Lịch học viên', icon: CalendarDays },
       { id: 'student-availability' as const, label: 'Lịch rảnh', icon: CalendarClock },
       { id: 'pt-workout' as const, label: 'Tập luyện', icon: Dumbbell },
+    ],
+  },
+  {
+    label: 'HỌC & DỊCH VỤ',
+    items: [
+      { id: 'courses' as const, label: 'Học cùng Aura', icon: BookOpen },
+      { id: 'eat-clean' as const, label: 'Đặt món Eat Clean', icon: ShoppingBasket },
     ],
   },
   {
@@ -123,29 +128,44 @@ const studentV4MobileNav: ShellNavItem[] = [
 
 const staffNavSections: ShellNavSection[] = [
   {
-    label: 'CÔNG VIỆC',
+    label: 'HÔM NAY',
     items: [
-      { id: 'staff-dashboard' as const, label: 'Tổng quan Staff', icon: LayoutDashboard },
-      { id: 'staff-students' as const, label: 'Học viên phụ trách', icon: Users },
-      { id: 'staff-schedule' as const, label: 'Lịch làm việc', icon: CalendarDays },
-      { id: 'admin-pt-schedule' as const, label: 'Lịch chi nhánh', icon: CalendarDays },
-      { id: 'admin-loyalty' as const, label: 'Aura Club chi nhánh', icon: WalletCards },
-      { id: 'staff-workouts' as const, label: 'Giáo án & mức tạ', icon: Dumbbell },
-      { id: 'staff-nutrition-reviews' as const, label: 'Duyệt món', icon: Check },
-      { id: 'staff-quotes' as const, label: 'Báo giá', icon: ClipboardList },
-      { id: 'staff-renewals' as const, label: 'Tái ký', icon: RefreshCw },
-      { id: 'staff-performance' as const, label: 'Hiệu suất PT', icon: Award },
-      { id: 'staff-payroll' as const, label: 'Lương của tôi', icon: WalletCards },
+      { id: 'staff-dashboard' as const, label: 'Việc cần làm', icon: LayoutDashboard },
     ],
   },
   {
-    label: 'CÁ NHÂN AURA',
+    label: 'HỌC VIÊN & CHĂM SÓC',
+    items: [
+      { id: 'staff-students' as const, label: 'Học viên phụ trách', icon: Users },
+      { id: 'staff-nutrition-reviews' as const, label: 'Duyệt món', icon: Check },
+      { id: 'staff-renewals' as const, label: 'Tái ký & gia hạn', icon: RefreshCw },
+    ],
+  },
+  {
+    label: 'LỊCH & HUẤN LUYỆN',
+    items: [
+      { id: 'staff-schedule' as const, label: 'Lịch làm việc', icon: CalendarDays },
+      { id: 'admin-pt-schedule' as const, label: 'Lịch chi nhánh', icon: CalendarDays },
+      { id: 'staff-workouts' as const, label: 'Giáo án & mức tạ', icon: Dumbbell },
+    ],
+  },
+  {
+    label: 'KINH DOANH & KẾT QUẢ',
+    items: [
+      { id: 'staff-quotes' as const, label: 'Báo giá', icon: ClipboardList },
+      { id: 'staff-performance' as const, label: 'Hiệu suất PT', icon: Award },
+      { id: 'staff-payroll' as const, label: 'Lương của tôi', icon: WalletCards },
+      { id: 'admin-loyalty' as const, label: 'Aura Club chi nhánh', icon: WalletCards },
+    ],
+  },
+  {
+    label: 'AURA CỦA TÔI',
     items: [
       { id: 'home' as const, label: 'Hôm nay', icon: Home },
       { id: 'nutrition' as const, label: 'Dinh dưỡng', icon: Soup },
       { id: 'schedule' as const, label: 'Lịch học viên', icon: CalendarDays },
       { id: 'progress' as const, label: 'Tiến độ', icon: BarChart3 },
-      { id: 'courses' as const, label: 'Học', icon: BookOpen },
+      { id: 'courses' as const, label: 'Học cùng Aura', icon: BookOpen },
       { id: 'eat-clean' as const, label: 'Đặt món Eat Clean', icon: ShoppingBasket },
     ],
   },
@@ -160,12 +180,13 @@ const staffMobileNav: ShellNavItem[] = [
   { id: 'staff-students', label: 'Học viên', icon: Users },
   { id: 'staff-schedule', label: 'Lịch', icon: CalendarDays },
   { id: 'admin-pt-schedule', label: 'Lịch CN', icon: CalendarDays },
-  { id: 'staff-quotes', label: 'Báo giá', icon: ClipboardList },
   { id: 'staff-workouts', label: 'Giáo án', icon: Dumbbell },
   { id: 'staff-nutrition-reviews', label: 'Duyệt món', icon: Check },
-  { id: 'staff-payroll', label: 'Lương', icon: WalletCards },
-  { id: 'staff-performance', label: 'Hiệu suất', icon: Award },
   { id: 'staff-renewals', label: 'Tái ký', icon: RefreshCw },
+  { id: 'staff-quotes', label: 'Báo giá', icon: ClipboardList },
+  { id: 'staff-performance', label: 'Hiệu suất', icon: Award },
+  { id: 'staff-payroll', label: 'Lương', icon: WalletCards },
+  { id: 'admin-loyalty', label: 'Aura Club', icon: WalletCards },
   { id: 'courses', label: 'Academy', icon: BookOpen },
 ]
 
@@ -209,8 +230,8 @@ const staffWorkspaceDock: Record<StaffPosition, ShellNavItem[]> = {
   branch_manager: [
     { id: 'staff-dashboard', label: 'Tổng quan', icon: LayoutDashboard },
     { id: 'admin-pt-schedule', label: 'Lịch CN', icon: CalendarDays },
-    { id: 'admin-loyalty', label: 'Aura Club', icon: WalletCards },
-    { id: 'staff-workouts', label: 'Giáo án', icon: Dumbbell },
+    { id: 'staff-renewals', label: 'Tái ký', icon: RefreshCw },
+    { id: 'staff-performance', label: 'Hiệu suất', icon: Award },
   ],
   academy_editor: [
     { id: 'staff-dashboard', label: 'Tổng quan', icon: LayoutDashboard },
@@ -248,50 +269,46 @@ function staffWorkspaceOptions(positions: StaffPosition[], role: UserRole) {
 
 const adminNavSections: Array<{ label: string; items: ShellAdminNavItem[] }> = [
   {
-    label: 'HỆ THỐNG',
+    label: 'TỔNG QUAN',
     items: [
       { id: 'admin-dashboard' as const, label: 'Trung tâm điều hành', icon: LayoutDashboard, permission: 'dashboard.view' as Permission },
+    ],
+  },
+  {
+    label: 'HỌC VIÊN & CHĂM SÓC',
+    items: [
+      { id: 'admin-pt-students' as const, label: 'Học viên PT Gym', icon: Users, permission: 'student.view_assigned' as Permission },
+      { id: 'admin-renewals' as const, label: 'Tái ký & gia hạn', icon: RefreshCw, permission: 'dashboard.view' as Permission },
       { id: 'admin-loyalty' as const, label: 'Aura Club', icon: WalletCards, permission: 'dashboard.view' as Permission },
     ],
   },
   {
-    label: 'KHÁCH HÀNG & LỊCH PT',
+    label: 'LỊCH & HUẤN LUYỆN',
     items: [
-      { id: 'admin-pt-students' as const, label: 'Học viên PT Gym', icon: Users, permission: 'student.view_assigned' as Permission },
       { id: 'admin-pt-schedule' as const, label: 'Lịch PT & Yêu cầu', icon: CalendarDays, permission: 'dashboard.view' as Permission },
       { id: 'admin-training-history' as const, label: 'Lịch sử tập & lịch dạy', icon: History, permission: 'analytics.view_all' as Permission },
       { id: 'admin-pt-workouts' as const, label: 'Giáo án & mức tạ', icon: Dumbbell, permission: 'program.view' as Permission },
-      { id: 'admin-trainer-quality' as const, label: 'Chất lượng PT', icon: Sparkles, permission: 'analytics.view_all' as Permission },
-      { id: 'admin-performance' as const, label: 'Performance PT', icon: Award, permission: 'analytics.view_all' as Permission },
-      { id: 'admin-renewals' as const, label: 'Tái ký & gia hạn', icon: RefreshCw, permission: 'dashboard.view' as Permission },
     ],
   },
   {
-    label: 'VẬN HÀNH NỘI BỘ',
+    label: 'ĐỘI NGŨ & HIỆU SUẤT',
+    items: [
+      { id: 'admin-performance' as const, label: 'Performance PT', icon: Award, permission: 'analytics.view_all' as Permission },
+      { id: 'admin-trainer-quality' as const, label: 'Chất lượng PT', icon: Sparkles, permission: 'analytics.view_all' as Permission },
+      { id: 'admin-hr' as const, label: 'Đội ngũ Aura', icon: Users, permission: 'team.view' as Permission },
+      { id: 'admin-payroll' as const, label: 'Bảng lương', icon: WalletCards, permission: 'analytics.view_assigned' as Permission },
+    ],
+  },
+  {
+    label: 'TÀI CHÍNH & DỊCH VỤ',
     items: [
       { id: 'admin-finance' as const, label: 'Tài chính', icon: LayoutDashboard, permission: 'analytics.view_all' as Permission },
-      { id: 'admin-payroll' as const, label: 'Bảng lương', icon: WalletCards, permission: 'analytics.view_assigned' as Permission },
-      { id: 'admin-hr' as const, label: 'Đội ngũ Aura', icon: Users, permission: 'team.view' as Permission },
-    ],
-  },
-  {
-    label: 'AURA ACADEMY',
-    items: [
-      { id: 'admin-courses' as const, label: 'Khóa học Academy', icon: GraduationCap, permission: 'course.view' as Permission },
-      { id: 'admin-academy-students' as const, label: 'Học viên Academy', icon: Users, permission: 'enrollment.manage' as Permission },
-    ],
-  },
-  {
-    label: 'ONLINE COACHING & EAT CLEAN',
-    items: [
-      { id: 'admin-students' as const, label: 'Khách hàng Online', icon: Users, permission: 'student.view_assigned' as Permission },
-      { id: 'admin-programs' as const, label: 'Giáo án gym online', icon: ClipboardList, permission: 'program.view' as Permission },
       { id: 'admin-eat-clean' as const, label: 'Vận hành Eat Clean', icon: ShoppingBasket, permission: 'eat_clean.manage' as Permission },
       { id: 'admin-nutrition-reviews' as const, label: 'Duyệt ăn', icon: Check, permission: 'student.view_assigned' as Permission },
     ],
   },
   {
-    label: 'QUẢN TRỊ',
+    label: 'CÀI ĐẶT',
     items: [
       { id: 'admin-notifications' as const, label: 'Push Notifications & Cài đặt', icon: Bell, permission: 'team.view' as Permission },
     ],
@@ -384,16 +401,16 @@ export default function AppShell({ children, mode, view, onNavigate, onModeChang
   const allowedStaffRoutes = staffRouteSet(staffPositions, role)
   const navSections: ShellNavSection[] = isStaffWorkspace
     ? staffNavSections
-      .map((section) => ({ ...section, items: section.items.filter((item) => allowedStaffRoutes.has(item.id) && canNavigate(item.id)) }))
+      .map((section) => ({ ...section, items: section.items.filter((item) => isNavigationViewVisible(item.id) && allowedStaffRoutes.has(item.id) && canNavigate(item.id)) }))
       .filter((section) => section.items.length > 0)
     : mode === 'student'
       ? studentNavSections
-        .map((section) => ({ ...section, items: section.items.filter((item) => canNavigate(item.id)) }))
+        .map((section) => ({ ...section, items: section.items.filter((item) => isNavigationViewVisible(item.id) && canNavigate(item.id)) }))
         .filter((section) => section.items.length > 0)
     : adminNavSections
       .map((section) => ({
         ...section,
-        items: section.items.filter((item) => hasPermission(role, item.permission) && canNavigate(item.id)),
+        items: section.items.filter((item) => isNavigationViewVisible(item.id) && hasPermission(role, item.permission) && canNavigate(item.id)),
       }))
       .filter((section) => section.items.length > 0)
   const effectiveStaffPositions = useMemo(() => staffWorkspaceOptions(staffPositions, role), [role, staffPositions])
@@ -413,12 +430,12 @@ export default function AppShell({ children, mode, view, onNavigate, onModeChang
     if (!isStaffWorkspace || !effectiveStaffPositions.includes(staffWorkspace)) return
     try { window.localStorage.setItem(`aura:staff-workspace:v1:${userId}`, staffWorkspace) } catch { /* storage is optional */ }
   }, [effectiveStaffPositions, isStaffWorkspace, staffWorkspace, userId])
-  const mobileAdminItems = (shellV4 ? adminV4MobileNav : adminMobileNav).filter((item) => hasPermission(role, item.permission) && canNavigate(item.id))
+  const mobileAdminItems = (shellV4 ? adminV4MobileNav : adminMobileNav).filter((item) => isNavigationViewVisible(item.id) && hasPermission(role, item.permission) && canNavigate(item.id))
   // Staff always uses the role-aware four-item dock plus “Thêm”. Keeping the
   // fallback five-item slice hid lower-priority modules such as Performance
   // whenever the global shell rollout flag had not reached that account yet.
   const mobileStaffItems = staffWorkspaceDock[staffWorkspace]
-    .filter((item) => allowedStaffRoutes.has(item.id) && canNavigate(item.id))
+    .filter((item) => isNavigationViewVisible(item.id) && allowedStaffRoutes.has(item.id) && canNavigate(item.id))
     .slice(0, 4)
   const isImmersive = view === 'workout' || view === 'delivery' || view === 'course-detail' || view === 'student-360'
   const [searchQuery, setSearchQuery] = useState('')
@@ -505,7 +522,7 @@ export default function AppShell({ children, mode, view, onNavigate, onModeChang
   const v4MoreItems = useMemo<ShellMoreNavItem[]>(() => {
     if (isStaffWorkspace) {
       const direct = new Set(mobileStaffItems.map((item) => item.id))
-      return staffMobileNav.filter((item) => allowedStaffRoutes.has(item.id) && canNavigate(item.id) && !direct.has(item.id))
+      return staffMobileNav.filter((item) => isNavigationViewVisible(item.id) && allowedStaffRoutes.has(item.id) && canNavigate(item.id) && !direct.has(item.id))
     }
     if (mode === 'student') {
       return [
@@ -515,11 +532,11 @@ export default function AppShell({ children, mode, view, onNavigate, onModeChang
         { id: 'courses', label: 'Aura Academy', icon: BookOpen },
         { id: 'eat-clean', label: 'Eat Clean', icon: ShoppingBasket },
         { id: 'profile', label: 'Cá nhân', icon: UserRound },
-      ].filter((item) => canNavigate(item.id as ViewId)) as ShellMoreNavItem[]
+        ].filter((item) => isNavigationViewVisible(item.id as ViewId) && canNavigate(item.id as ViewId)) as ShellMoreNavItem[]
     }
     const direct = new Set(mobileAdminItems.map((item) => item.id))
     return adminNavSections.flatMap((section) => section.items)
-      .filter((item, index, values) => hasPermission(role, item.permission) && canNavigate(item.id) && !direct.has(item.id) && values.findIndex((candidate) => candidate.id === item.id) === index)
+      .filter((item, index, values) => isNavigationViewVisible(item.id) && hasPermission(role, item.permission) && canNavigate(item.id) && !direct.has(item.id) && values.findIndex((candidate) => candidate.id === item.id) === index)
   }, [allowedStaffRoutes, canNavigate, isStaffWorkspace, mobileAdminItems, mobileStaffItems, mode, role])
 
   const submitSearch = (event: FormEvent) => {
@@ -628,7 +645,7 @@ export default function AppShell({ children, mode, view, onNavigate, onModeChang
           </div>
           <form className="topbar-search" onSubmit={submitSearch}>
             <button type="submit" aria-label="Tìm"><Search size={19} /></button>
-            <input aria-label="Tìm kiếm" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder={mode === 'student' ? 'Tìm trong Aura Academy...' : 'Tìm nội dung hoặc khách hàng...'} />
+            <input aria-label="Tìm kiếm" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder={isStaffWorkspace || mode === 'admin' ? 'Tìm học viên theo tên hoặc số điện thoại...' : 'Tìm bài học hoặc chủ đề...'} />
             <kbd>Enter</kbd>
           </form>
           <div className="topbar-actions">
@@ -725,10 +742,10 @@ export default function AppShell({ children, mode, view, onNavigate, onModeChang
               </header>
               <form onSubmit={submitSearch}>
                 <Search size={20} />
-                <input ref={mobileSearchInputRef} aria-label="Từ khóa tìm kiếm" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder={mode === 'student' ? 'Khóa học, chủ đề dinh dưỡng...' : 'Khóa học hoặc khách hàng...'} />
+                <input ref={mobileSearchInputRef} aria-label="Từ khóa tìm kiếm" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder={isStaffWorkspace || mode === 'admin' ? 'Tên hoặc số điện thoại học viên' : 'Bài học hoặc chủ đề dinh dưỡng'} />
                 <button type="submit">Tìm</button>
               </form>
-              <p>{mode === 'student' ? 'Aura sẽ đưa bạn tới kết quả phù hợp trong khu vực Học.' : 'Kết quả được mở trong workspace quản trị phù hợp với quyền của bạn.'}</p>
+              <p>{isStaffWorkspace || mode === 'admin' ? 'Kết quả được mở trong danh sách học viên đúng với phạm vi tài khoản.' : 'Aura sẽ đưa bạn tới kết quả phù hợp trong khu vực Học.'}</p>
             </section>
           </div>
         )}

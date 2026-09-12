@@ -29,6 +29,9 @@ type WorkspaceTab = 'today' | 'program' | 'library' | 'history'
 const dateFormatter = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit', day: '2-digit' })
 function todayKey() { return dateFormatter.format(new Date()) }
 function clone<T>(value: T): T { return JSON.parse(JSON.stringify(value)) as T }
+function normalizeSearch(value: string) {
+  return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('vi').trim()
+}
 function emptyProgram(): PtTrainingProgram {
   return {
     title: 'Giáo án PT Aura', goal: '', coachNotes: '', status: 'active', revision: 0,
@@ -121,6 +124,7 @@ export default function PtWorkoutWorkspacePage({ isDemo = false, canPublishCatal
   const [sets, setSets] = useState<PtWorkoutSet[]>([])
   const [catalog, setCatalog] = useState<ExerciseCatalogItem[]>([])
   const [catalogQuery, setCatalogQuery] = useState('')
+  const [studentQuery, setStudentQuery] = useState('')
   const [muscleFilter, setMuscleFilter] = useState<ExerciseMuscleGroupId>('all')
   const [catalogVisibleCount, setCatalogVisibleCount] = useState(24)
   const [history, setHistory] = useState<PtWorkoutHistory | null>(null)
@@ -135,6 +139,15 @@ export default function PtWorkoutWorkspacePage({ isDemo = false, canPublishCatal
 
   const studentMap = useMemo(() => new Map(workspace.students.map((student) => [student.id, student])), [workspace.students])
   const eligibleStudents = useMemo(() => workspace.students.filter((student) => student.eligibleForNewProgram !== false && student.assignmentSource !== 'teaching_session'), [workspace.students])
+  const normalizedStudentQuery = normalizeSearch(studentQuery)
+  const matchingStudents = useMemo(() => {
+    if (!normalizedStudentQuery) return workspace.students
+    return workspace.students.filter((student) => normalizeSearch(`${student.name} ${student.phone}`).includes(normalizedStudentQuery))
+  }, [normalizedStudentQuery, workspace.students])
+  const matchingStudentIds = useMemo(() => new Set(matchingStudents.map((student) => student.id)), [matchingStudents])
+  const eligibleStudentOptions = useMemo(() => eligibleStudents.filter((student) => (
+    !normalizedStudentQuery || matchingStudentIds.has(student.id) || student.id === selectedStudentId
+  )), [eligibleStudents, matchingStudentIds, normalizedStudentQuery, selectedStudentId])
   const programMap = useMemo(() => new Map(workspace.programs.map((program) => [program.studentId || program.id || '', program])), [workspace.programs])
   const selectedSession = workspace.sessions.find((session) => session.id === selectedSessionId) || null
   const selectedProgram = programMap.get(selectedStudentId) || null
@@ -142,7 +155,11 @@ export default function PtWorkoutWorkspacePage({ isDemo = false, canPublishCatal
   const selectedLog = workspace.logs.find((log) => log.sessionId === selectedSessionId && log.studentId === selectedStudentId) || null
   const branchOptions = useMemo(() => [...new Map(workspace.sessions.filter((session) => session.branchId).map((session) => [session.branchId as string, session.branchName || 'Chi nhánh Aura'])).entries()], [workspace.sessions])
   const trainerOptions = useMemo(() => [...new Map(workspace.sessions.filter((session) => session.trainerId).map((session) => [session.trainerId, session.trainerName || 'PT Aura'])).entries()], [workspace.sessions])
-  const visibleSessions = useMemo(() => workspace.sessions.filter((session) => (branchFilter === 'all' || session.branchId === branchFilter) && (trainerFilter === 'all' || session.trainerId === trainerFilter)), [branchFilter, trainerFilter, workspace.sessions])
+  const visibleSessions = useMemo(() => workspace.sessions.filter((session) => (
+    (branchFilter === 'all' || session.branchId === branchFilter)
+    && (trainerFilter === 'all' || session.trainerId === trainerFilter)
+    && (!normalizedStudentQuery || matchingStudentIds.has(session.studentId))
+  )), [branchFilter, matchingStudentIds, normalizedStudentQuery, trainerFilter, workspace.sessions])
   const sessionGroups = useMemo(() => groupedSessions(visibleSessions), [visibleSessions])
   const distinctSessionCount = sessionGroups.length
   const completedVisibleCount = useMemo(() => {
@@ -354,17 +371,18 @@ export default function PtWorkoutWorkspacePage({ isDemo = false, canPublishCatal
       {(error || notice) && <div className={`pt-workout-workspace__message ${error ? 'is-error' : 'is-success'}`} role={error ? 'alert' : 'status'}>{error || notice}</div>}
 
       <div className="pt-workout-workspace__toolbar">
+        <label className="pt-workout-workspace__student-search"><span>Tìm nhanh học viên</span><div><Search /><input aria-label="Tìm nhanh học viên" value={studentQuery} onChange={(event) => setStudentQuery(event.target.value)} placeholder="Nhập tên hoặc số điện thoại" /></div><small aria-live="polite">{normalizedStudentQuery ? `${matchingStudents.length} kết quả` : `${workspace.students.length} học viên trong phạm vi`}</small></label>
         {tab === 'today' && <label>Ngày tập<input type="date" value={date} onChange={(event) => setDate(event.target.value)} /></label>}
         {tab === 'today' && branchOptions.length > 1 && <label>Chi nhánh<select value={branchFilter} onChange={(event) => setBranchFilter(event.target.value)}><option value="all">Tất cả</option>{branchOptions.map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></label>}
         {tab === 'today' && trainerOptions.length > 1 && <label>PT<select value={trainerFilter} onChange={(event) => setTrainerFilter(event.target.value)}><option value="all">Tất cả</option>{trainerOptions.map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></label>}
-        {(tab === 'program' || tab === 'history') && <label>Học viên<select value={selectedStudentId} onChange={(event) => setSelectedStudentId(event.target.value)}><option value="">Chọn học viên</option>{eligibleStudents.map((student) => <option key={student.id} value={student.id}>{student.name}</option>)}</select></label>}
+        {(tab === 'program' || tab === 'history') && <label>Học viên<select value={selectedStudentId} onChange={(event) => setSelectedStudentId(event.target.value)}><option value="">Chọn học viên</option>{eligibleStudentOptions.map((student) => <option key={student.id} value={student.id}>{student.name}</option>)}</select></label>}
         <button className="pt-workout-workspace__refresh" onClick={() => void load(true)} disabled={loading}><RefreshCw />{loading ? 'Đang tải' : 'Làm mới'}</button>
       </div>
 
       {tab === 'today' && <section className="pt-workout-workspace__today">
         <aside className="pt-workout-workspace__session-rail">
           <div className="pt-workout-workspace__section-title"><div><span>CA DẠY</span><h2>{date === todayKey() ? 'Hôm nay' : date}</h2></div><Users /></div>
-          {!loading && !sessionGroups.length && <div className="pt-workout-workspace__empty"><Check /><strong>Không có ca trong ngày</strong><span>Chọn ngày khác để xem lịch.</span></div>}
+          {!loading && !sessionGroups.length && <div className="pt-workout-workspace__empty"><Check /><strong>{normalizedStudentQuery ? 'Không tìm thấy ca phù hợp' : 'Không có ca trong ngày'}</strong><span>{normalizedStudentQuery ? 'Thử tên, số điện thoại khác hoặc xóa bộ lọc tìm kiếm.' : 'Chọn ngày khác để xem lịch.'}</span></div>}
           {sessionGroups.map(([key, sessions]) => <div className="pt-workout-workspace__session-group" key={key}>
             <strong>{String(sessions[0].hour).padStart(2, '0')}:00</strong><span>{sessions.length > 1 ? `Ca đôi · ${sessions.length} học viên` : 'Ca cá nhân'} · {sessions[0].trainerName || 'PT Aura'}{sessions[0].branchName ? ` · ${sessions[0].branchName}` : ''}</span>
             {sessions.map((session) => {

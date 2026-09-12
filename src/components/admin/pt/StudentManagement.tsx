@@ -19,6 +19,7 @@ interface Props {
   user: User | null;
   profile: UserProfile | null;
   initialStudentId?: string | null;
+  initialSearchQuery?: string;
   onOpenStudent360: (studentId: string, studentName: string) => void;
 }
 
@@ -41,7 +42,7 @@ function adminStudentListMemory() {
   }
 }
 
-export default function StudentManagement({ user, profile, initialStudentId = null, onOpenStudent360 }: Props) {
+export default function StudentManagement({ user, profile, initialStudentId = null, initialSearchQuery = '', onOpenStudent360 }: Props) {
   const { authzReady, hasCapability } = useAuth();
   const { 
     students, contracts, packages, trainers, branches, sessions, ptAvailability,
@@ -56,7 +57,7 @@ export default function StudentManagement({ user, profile, initialStudentId = nu
     ? Math.max(0, Math.floor(Number(contract.usedSessions || 0)))
     : 0;
   
-  const [searchTerm, setSearchTerm] = useState(() => adminStudentListMemory().search || '');
+  const [searchTerm, setSearchTerm] = useState(() => initialSearchQuery.trim() || adminStudentListMemory().search || '');
   const [selectedBranchId, setSelectedBranchId] = useState<string>(() => adminStudentListMemory().branchId || 'all');
   const [selectedTrainerId, setSelectedTrainerId] = useState<string>(() => adminStudentListMemory().trainerId || 'all');
   const [selectedNutritionPTId, setSelectedNutritionPTId] = useState<string>(() => adminStudentListMemory().nutritionPTId || 'all');
@@ -88,6 +89,13 @@ export default function StudentManagement({ user, profile, initialStudentId = nu
   const [cashAccounts, setCashAccounts] = useState<CashAccount[]>([]);
   const filterInitializationRef = useRef(false);
   const listScrollRestoredRef = useRef(false);
+
+  useEffect(() => {
+    const nextQuery = initialSearchQuery.trim();
+    if (!nextQuery) return;
+    setSearchTerm(nextQuery);
+    setStudentPage(1);
+  }, [initialSearchQuery]);
 
   // Student 360 is the only supported detail surface. The initial focus is
   // kept for backwards-compatible deep links, but it is immediately handed

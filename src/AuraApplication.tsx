@@ -46,7 +46,6 @@ import { toCourseDraft } from './utils/courseDraft'
 import { DatabaseProvider } from './contexts/DatabaseContext'
 import './styles.css'
 import './styles-aura.css'
-import './styles-progress.css'
 import './styles-ai-coach.css'
 import './styles-ui-v4.css'
 import { AuraUiRolloutProvider } from './features/ui-rollout/AuraUiRolloutContext'
@@ -957,7 +956,7 @@ function AuraApplication() {
       case 'delivery': return <DeliveryPage driverId={user?.uid ?? 'demo-shipper'} displayName={effectiveDisplayName ?? 'Shipper Aura'} onSignOut={signOut} />
       case 'admin-dashboard': return backendMode === 'firebase' && (!authzReady || !hasCapability('pt.operations.manage'))
         ? <div className="course-detail-state" role="status"><h1>{authzReady ? 'Không có quyền mở Tổng quan' : 'Đang xác minh quyền Tổng quan'}</h1><p>{authzReady ? 'Khu vực này chỉ dành cho quản trị viên hoặc quản lý có quyền vận hành.' : 'Aura đang đối chiếu phạm vi vận hành trước khi tải dữ liệu.'}</p></div>
-        : <AdminDashboard adminName={effectiveDisplayName ?? 'Admin Aura'} isDemo={backendMode === 'demo'} canViewPayroll={backendMode === 'demo' || hasCapability('payroll.operations.manage')} canCreate={hasPermission(role, 'course.create')} canManageAcademy={canManageAcademy} canManageCoaching={canManageCoaching} canManageEnrollments={hasPermission(role, 'enrollment.manage')} onNavigate={navigate} />
+        : <AdminDashboard adminName={effectiveDisplayName ?? 'Admin Aura'} isDemo={backendMode === 'demo'} canViewPayroll={backendMode === 'demo' || hasCapability('payroll.operations.manage')} canManageCoaching={canManageCoaching} onNavigate={navigate} />
       case 'admin-loyalty': return backendMode === 'firebase' && (!authzReady || !hasCapability('loyalty.dashboard.read'))
         ? <div className="course-detail-state" role="status"><h1>{authzReady ? 'Không có quyền mở Aura Club' : 'Đang xác minh quyền Aura Club'}</h1><p>{authzReady ? 'Tài khoản chưa được cấp quyền điều hành loyalty.' : 'Aura đang đối chiếu phạm vi quản trị.'}</p></div>
         : <AuraOperationsFrame><AdminLoyaltyPage
@@ -1025,7 +1024,7 @@ function AuraApplication() {
 
       // PT Coaching & Gym Management Views
       case 'trainer-portal':
-      case 'staff-students': return <AuraOperationsFrame><TrainerPortalV2 section="students" isDemo={backendMode === 'demo'} onNavigate={navigateStaffStudent} /></AuraOperationsFrame>
+      case 'staff-students': return <AuraOperationsFrame><TrainerPortalV2 section="students" isDemo={backendMode === 'demo'} initialSearchQuery={globalSearchQuery} onNavigate={navigateStaffStudent} /></AuraOperationsFrame>
       case 'staff-dashboard': return <AuraOperationsFrame><StaffDashboardPage onNavigate={navigate} capabilities={accessContext?.capabilities || []} positions={staffPositions} branchCount={accessContext?.branchIds.length || 0} isDemo={backendMode === 'demo'} /></AuraOperationsFrame>
       case 'staff-schedule': return <AuraOperationsFrame><StaffScheduleWorkspace initialTab="teaching" canManageAvailability={backendMode === 'demo' || hasCapability('pt.availability.self.manage')} isDemo={backendMode === 'demo'} onNavigate={navigate} /></AuraOperationsFrame>
       case 'staff-workouts': return <AuraOperationsFrame><PtWorkoutWorkspacePage isDemo={backendMode === 'demo'} canPublishCatalog={role === 'admin' || role === 'super_admin'} initialStudentId={staffStudentFocus?.id} /></AuraOperationsFrame>
@@ -1052,7 +1051,7 @@ function AuraApplication() {
 
       case 'pt-workout': return <StudentPtWorkoutPage isDemo={backendMode === 'demo'} ownerId={user?.uid ?? 'demo'} />
 
-      case 'admin-pt-students': return <AuraOperationsFrame className="aura-operations-page--students"><AdminPTStudentManagement user={user as any} profile={profile} initialStudentId={staffStudentFocus?.id} onOpenStudent360={(studentId, studentName) => openStudent360(studentId, 'admin-pt-students', studentName)} /></AuraOperationsFrame>
+      case 'admin-pt-students': return <AuraOperationsFrame className="aura-operations-page--students"><AdminPTStudentManagement user={user as any} profile={profile} initialStudentId={staffStudentFocus?.id} initialSearchQuery={globalSearchQuery} onOpenStudent360={(studentId, studentName) => openStudent360(studentId, 'admin-pt-students', studentName)} /></AuraOperationsFrame>
       case 'admin-pt-schedule': return <AuraOperationsFrame className="aura-operations-page--schedule">{backendMode === 'firebase'
         ? !authzReady
           ? <div className="course-detail-state" role="status"><h1>Đang xác minh phạm vi lịch</h1><p>Aura đang tải quyền chi nhánh trước khi mở công cụ xếp lịch.</p></div>
@@ -1067,7 +1066,7 @@ function AuraApplication() {
       case 'admin-renewals': return <AuraOperationsFrame><ContractRenewals onNavigate={(view) => navigate(view as ViewId)} /></AuraOperationsFrame>
       case 'admin-report': return backendMode === 'firebase' && (!authzReady || !hasCapability('pt.operations.manage'))
         ? <div className="course-detail-state" role="status"><h1>{authzReady ? 'Không có quyền mở Tổng quan' : 'Đang xác minh quyền Tổng quan'}</h1><p>{authzReady ? 'Khu vực này chỉ dành cho quản trị viên hoặc quản lý có quyền vận hành.' : 'Aura đang đối chiếu phạm vi vận hành trước khi tải dữ liệu.'}</p></div>
-        : <AdminDashboard adminName={effectiveDisplayName ?? 'Admin Aura'} isDemo={backendMode === 'demo'} canViewPayroll={backendMode === 'demo' || hasCapability('payroll.operations.manage')} canCreate={hasPermission(role, 'course.create')} canManageAcademy={canManageAcademy} canManageCoaching={canManageCoaching} canManageEnrollments={hasPermission(role, 'enrollment.manage')} onNavigate={navigate} />
+        : <AdminDashboard adminName={effectiveDisplayName ?? 'Admin Aura'} isDemo={backendMode === 'demo'} canViewPayroll={backendMode === 'demo' || hasCapability('payroll.operations.manage')} canManageCoaching={canManageCoaching} onNavigate={navigate} />
       case 'admin-finance': return <AuraOperationsFrame><AdminFinanceHub user={user as any} profile={profile} /></AuraOperationsFrame>
       case 'admin-hr': return <AuraOperationsFrame><AdminRolesPage users={adminUsers} currentRole={role} currentUserUid={user?.uid} loading={adminUsersLoading} onRoleChange={updateUserRole} /></AuraOperationsFrame>
       case 'admin-payroll': return <AuraOperationsFrame>{backendMode === 'firebase' && (!authzReady || !hasCapability('payroll.operations.manage'))
@@ -1094,7 +1093,7 @@ function AuraApplication() {
 
   if ((user || backendMode === 'demo') && showOnboarding) {
     return (
-      <Suspense fallback={<RouteLoadingFallback />}>
+      <Suspense fallback={<RouteLoadingFallback view="profile" />}>
         <Onboarding
           initialProfile={
             (() => {
@@ -1201,14 +1200,15 @@ function AuraApplication() {
       onSignOut={signOut}
       onSearch={(query) => {
         setGlobalSearchQuery(query)
+        if (isStaffWorkspace) {
+          navigate('staff-students')
+          return
+        }
         if (mode !== 'admin') {
           navigate('courses')
           return
         }
-        const inCoachingWorkspace = view === 'admin-students' || view === 'admin-programs'
-        navigate((inCoachingWorkspace || !canManageAcademy) && canManageCoaching
-          ? 'admin-students'
-          : 'admin-courses')
+        navigate('admin-pt-students')
       }}
       canNavigate={(nextView) => {
         return backendMode !== 'firebase' || (authzReady && hasRouteCapability(nextView, hasCapability))
@@ -1218,7 +1218,7 @@ function AuraApplication() {
       aiCoachLearningContext={aiCoachLearningContext}
     >
       <ChunkErrorBoundary>
-        <Suspense fallback={<RouteLoadingFallback />}>
+        <Suspense fallback={<RouteLoadingFallback view={view} />}>
           {renderPage()}
         </Suspense>
       </ChunkErrorBoundary>
@@ -1227,12 +1227,26 @@ function AuraApplication() {
   )
 }
 
-function RouteLoadingFallback() {
+function routeLoadingLabel(view: ViewId) {
+  if (view === 'student-360') return 'Đang mở hồ sơ Học viên 360'
+  if (view.includes('schedule') || view.includes('availability')) return 'Đang mở lịch Aura'
+  if (view === 'nutrition' || view === 'eat-clean') return 'Đang mở không gian dinh dưỡng'
+  if (view === 'courses' || view === 'course-detail') return 'Đang mở Aura Academy'
+  if (view.startsWith('admin-') || view.startsWith('staff-')) return 'Đang mở không gian vận hành'
+  return 'Đang mở không gian của bạn'
+}
+
+function RouteLoadingFallback({ view }: { view: ViewId }) {
   return (
-    <div className="aura-route-fallback-card" role="status" aria-live="polite">
-      <h1>Chào mừng bạn đến với Aura Fitness</h1>
-      <p>Nội dung đang được đồng bộ.</p>
-      <span className="aura-loading-progress"><i /></span>
+    <div className="aura-route-loading" role="status" aria-live="polite" aria-label={routeLoadingLabel(view)}>
+      <header className="aura-route-loading__header">
+        <span className="aura-route-loading__mark" aria-hidden="true">A</span>
+        <span><strong>{routeLoadingLabel(view)}</strong><small>Nội dung chính tải trước; dữ liệu chi tiết sẽ xuất hiện khi cần.</small></span>
+      </header>
+      <div className="aura-route-loading__line" aria-hidden="true"><i /></div>
+      <div className="aura-route-loading__layout" aria-hidden="true">
+        <i className="is-wide" /><i /><i /><i className="is-wide" />
+      </div>
     </div>
   )
 }

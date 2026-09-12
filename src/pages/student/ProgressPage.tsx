@@ -10,21 +10,13 @@ import { ProgressHeader } from '../../components/progress/ProgressHeader'
 import { WeeklyScoreCard } from '../../components/progress/WeeklyScoreCard'
 import { DailyActionsCard } from '../../components/progress/DailyActionsCard'
 import { WeightTrackerCard } from '../../components/progress/WeightTrackerCard'
-import { WeightChartCard } from '../../components/progress/WeightChartCard'
 import { BodyMetricsCard } from '../../components/progress/BodyMetricsCard'
 import { NutritionProgressCard } from '../../components/progress/NutritionProgressCard'
-import { NutritionChartsCard } from '../../components/progress/NutritionChartsCard'
-import { EnergyBalanceCard } from '../../components/progress/EnergyBalanceCard'
-import { ProgressPhotosCard } from '../../components/progress/ProgressPhotosCard'
-import { StreaksAndBadgesCard } from '../../components/progress/StreaksAndBadgesCard'
-import { AiWeeklyAnalysisCard } from '../../components/progress/AiWeeklyAnalysisCard'
 
 import { QuickLogBottomSheet } from '../../components/progress/QuickLogBottomSheet'
 import { WeightLogModal } from '../../components/progress/WeightLogModal'
 import { BodyMeasurementsModal } from '../../components/progress/BodyMeasurementsModal'
 import { firebaseAuth } from '../../lib/firebase'
-import { AiCoachBottomSheet } from '../../components/progress/AiCoachBottomSheet'
-import { prewarmAiCoachAppCheck } from '../../services/nutritionService'
 import { calculateProgressScore } from '../../utils/progressScoreCalculator'
 import type { NutritionProfileDraft } from '../../features/nutrition/types'
 import { completeMealDates, periodEnergy } from '../../features/nutrition/progressNutrition'
@@ -40,6 +32,25 @@ import {
   subscribeToRecentUserWaterLogs,
   subscribeToRecentUserActivityLogs,
 } from '../../services/firebaseService'
+
+const WeightChartCard = React.lazy(() => import('../../components/progress/WeightChartCard').then((module) => ({ default: module.WeightChartCard })))
+const NutritionChartsCard = React.lazy(() => import('../../components/progress/NutritionChartsCard').then((module) => ({ default: module.NutritionChartsCard })))
+const EnergyBalanceCard = React.lazy(() => import('../../components/progress/EnergyBalanceCard').then((module) => ({ default: module.EnergyBalanceCard })))
+const ProgressPhotosCard = React.lazy(() => import('../../components/progress/ProgressPhotosCard').then((module) => ({ default: module.ProgressPhotosCard })))
+const StreaksAndBadgesCard = React.lazy(() => import('../../components/progress/StreaksAndBadgesCard').then((module) => ({ default: module.StreaksAndBadgesCard })))
+const AiWeeklyAnalysisCard = React.lazy(() => import('../../components/progress/AiWeeklyAnalysisCard').then((module) => ({ default: module.AiWeeklyAnalysisCard })))
+const AiCoachBottomSheet = React.lazy(() => import('../../components/progress/AiCoachBottomSheet').then((module) => ({ default: module.AiCoachBottomSheet })))
+
+function prewarmAiCoach() {
+  void Promise.all([
+    import('../../components/progress/AiCoachBottomSheet'),
+    import('../../services/nutritionService').then((module) => module.prewarmAiCoachAppCheck()),
+  ]).catch(() => undefined)
+}
+
+function ProgressSectionFallback() {
+  return <div className="pg-data-state is-loading pg-section-loading" role="status" aria-live="polite"><LoaderCircle className="spin" size={17} aria-hidden="true" /><span className="pg-data-state__copy"><strong>Đang mở phần chi tiết</strong><span>Biểu đồ và ảnh chỉ được tải khi bạn cần xem.</span></span></div>
+}
 
 interface ProgressPageProps {
   courseItems?: Course[]
@@ -79,10 +90,10 @@ export default function ProgressPage({
       cancelIdleCallback?: (handle: number) => void
     }
     if (idleWindow.requestIdleCallback) {
-      const handle = idleWindow.requestIdleCallback(prewarmAiCoachAppCheck, { timeout: 2_500 })
+      const handle = idleWindow.requestIdleCallback(prewarmAiCoach, { timeout: 2_500 })
       return () => idleWindow.cancelIdleCallback?.(handle)
     }
-    const timer = window.setTimeout(prewarmAiCoachAppCheck, 1_500)
+    const timer = window.setTimeout(prewarmAiCoach, 1_500)
     return () => window.clearTimeout(timer)
   }, [])
 
@@ -96,9 +107,10 @@ export default function ProgressPage({
   const resolvedOwnerId = ownerId?.trim() || firebaseAuth?.currentUser?.uid || 'demo'
   const recentNutritionFromDate = useMemo(() => {
     const firstDay = new Date()
-    firstDay.setDate(firstDay.getDate() - 89)
+    const periodDays = period === '7-days' ? 7 : period === '30-days' ? 30 : 90
+    firstDay.setDate(firstDay.getDate() - (periodDays - 1))
     return toLocalDateKey(firstDay)
-  }, [])
+  }, [period])
 
   // Modals & Bottom Sheets state
   const [quickLogOpen, setQuickLogOpen] = useState(false)
@@ -838,18 +850,18 @@ export default function ProgressPage({
       )}
 
       {category === 'body' && (
-        <>
+        <React.Suspense fallback={<ProgressSectionFallback />}>
           <BodyMetricsCard metrics={mergedBodyMetrics} heightCm={heightCm} isFemale={isFemale} onOpenDetails={() => setMetricsModalOpen(true)} />
           <div className="pg-weight-grid">
             <WeightTrackerCard currentWeightKg={currentWeight} startWeightKg={startWeightKg} goalWeightKg={goalWeightKg} targetDateText={targetDateText} onOpenLogWeight={() => setWeightModalOpen(true)} />
             <WeightChartCard records={weightRecords} goalWeightKg={goalWeightKg} />
           </div>
           <ProgressPhotosCard ownerId={resolvedOwnerId} triggerAddPhoto={triggerPhotoUpload} onAddPhotoTriggered={() => setTriggerPhotoUpload(false)} onNavigateToStudio={() => onNavigate?.('progress-photo-studio')} />
-        </>
+        </React.Suspense>
       )}
 
       {category === 'nutrition' && (
-        <>
+        <React.Suspense fallback={<ProgressSectionFallback />}>
           <div className="pg-nutrition-grid">
             <NutritionProgressCard
               onOpenDetails={() => onNavigate?.('nutrition')}
@@ -871,22 +883,22 @@ export default function ProgressPage({
             <EnergyBalanceCard onOpenDetails={() => onNavigate?.('nutrition')} onLogMeal={() => onNavigate?.('nutrition')} onLogWorkout={() => onNavigate?.('pt-workout')} intake={energyBalanceData.intake} basal={energyBalanceData.basal} dailyActivity={energyBalanceData.dailyActivity} workout={energyBalanceData.workout} thermicEffect={energyBalanceData.thermicEffect} confidence={energyBalanceData.confidence} goal={energyBalanceData.goal} periodDays={energyBalanceData.periodDays} totalPeriodDays={energyBalanceData.totalPeriodDays} activeDays={energyBalanceData.activeDays} workoutDays={energyBalanceData.workoutDays} />
           </div>
           <NutritionChartsCard mealLogs={allMeals} waterLogs={allWater} />
-        </>
+        </React.Suspense>
       )}
 
       {category === 'workout' && (
-        <>
+        <React.Suspense fallback={<ProgressSectionFallback />}>
           <DailyActionsCard todayMealCount={todayMealsCount} todayWaterMl={todayWaterMl} waterTargetMl={nutritionProgressData.waterGoal} todayWeightLogged={todayWeightLogged} todayWorkoutLogged={todayWorkoutLogged} onOpenQuickLog={(type) => type === 'weight' ? setWeightModalOpen(true) : type === 'meal' ? onNavigate?.('nutrition') : setQuickLogOpen(true)} />
           <WeightChartCard records={weightRecords} goalWeightKg={goalWeightKg} />
           <ProgressPhotosCard ownerId={resolvedOwnerId} triggerAddPhoto={triggerPhotoUpload} onAddPhotoTriggered={() => setTriggerPhotoUpload(false)} onNavigateToStudio={() => onNavigate?.('progress-photo-studio')} />
-        </>
+        </React.Suspense>
       )}
 
       {category === 'achievements' && (
-        <>
+        <React.Suspense fallback={<ProgressSectionFallback />}>
           <StreaksAndBadgesCard ownerId={resolvedOwnerId} progressItems={progressItems} />
-          <AiWeeklyAnalysisCard summary={aiWeeklySummary} onPrepareCoach={prewarmAiCoachAppCheck} onOpenCoach={() => setCoachSheetOpen(true)} />
-        </>
+          <AiWeeklyAnalysisCard summary={aiWeeklySummary} onPrepareCoach={prewarmAiCoach} onOpenCoach={() => setCoachSheetOpen(true)} />
+        </React.Suspense>
       )}
 
       {/* Floating Quick Log Button */}
@@ -927,10 +939,12 @@ export default function ProgressPage({
       )}
 
       {coachSheetOpen && (
-        <AiCoachBottomSheet
-          onClose={() => setCoachSheetOpen(false)}
-          conversationScope={`progress-${resolvedOwnerId}`}
-        />
+        <React.Suspense fallback={null}>
+          <AiCoachBottomSheet
+            onClose={() => setCoachSheetOpen(false)}
+            conversationScope={`progress-${resolvedOwnerId}`}
+          />
+        </React.Suspense>
       )}
     </div>
   )

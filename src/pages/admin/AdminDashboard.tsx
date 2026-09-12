@@ -12,7 +12,6 @@ import {
   CircleHelp,
   Clock3,
   ClipboardCheck,
-  GraduationCap,
   RefreshCw,
   Salad,
   UserPlus,
@@ -268,10 +267,7 @@ interface Props {
    * while authz is still resolving or when a stale hash opens this page.
    */
   canViewPayroll?: boolean
-  canCreate?: boolean
-  canManageAcademy?: boolean
   canManageCoaching?: boolean
-  canManageEnrollments?: boolean
 }
 
 export default function AdminDashboard({
@@ -279,10 +275,7 @@ export default function AdminDashboard({
   adminName = 'Admin Aura',
   isDemo = false,
   canViewPayroll = false,
-  canCreate = false,
-  canManageAcademy = false,
   canManageCoaching = false,
-  canManageEnrollments = false,
 }: Props) {
   const dashboardV4 = useAuraUiSurface('admin-dashboard')
   const actionCenterEnabled = useAuraUiSurface('action-center')
@@ -573,12 +566,9 @@ export default function AdminDashboard({
       data.permissions.renewals && { id: 'renewals', label: 'Tái ký', view: 'admin-renewals' as ViewId, icon: <ClipboardCheck size={20} /> },
       payrollEnabled && { id: 'payroll', label: 'Lương', view: 'admin-payroll' as ViewId, icon: <CircleDollarSign size={20} /> },
       data.permissions.nutritionReviews && { id: 'reviews', label: 'Duyệt món', view: 'admin-nutrition-reviews' as ViewId, icon: <Salad size={20} /> },
-      data.permissions.academy && canManageAcademy && { id: 'academy', label: 'Khóa học', view: 'admin-courses' as ViewId, icon: <GraduationCap size={20} /> },
       data.permissions.operations && canManageCoaching && { id: 'history', label: 'Lịch sử tập', view: 'admin-training-history' as ViewId, icon: <BookOpen size={20} /> },
-      data.permissions.academy && canManageEnrollments && { id: 'academy-students', label: 'Học viên Academy', view: 'admin-academy-students' as ViewId, icon: <Users size={20} /> },
-      data.permissions.academy && canCreate && { id: 'create-course', label: 'Tạo khóa học', view: 'admin-course-editor' as ViewId, icon: <GraduationCap size={20} /> },
     ].filter(Boolean) as Array<{ id: string; label: string; view: ViewId; icon: ReactNode }>
-  }, [canCreate, canManageAcademy, canManageCoaching, canManageEnrollments, data, payrollEnabled])
+  }, [canManageCoaching, data, payrollEnabled])
 
   const selectedPayrollStaff = useMemo(
     () => payrollRoster.find((staff) => staff.staffId === selectedPayrollStaffId) || null,

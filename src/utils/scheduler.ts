@@ -7,6 +7,12 @@ import {
   StudentContract,
   ScheduleConfig,
 } from "../types";
+import {
+  calculateWarnings,
+  getStudentSessionsPerWeek,
+} from "./schedulerWarnings";
+
+export { calculateWarnings, getStudentSessionsPerWeek } from "./schedulerWarnings";
 
 function getDayIndex(day: string, config: ScheduleConfig): number {
   return config.workingDays.indexOf(day as any);
@@ -63,17 +69,6 @@ export function isContractSchedulableOn(contract: StudentContract, date: string)
 function trainerSlotCapacity(trainer: Trainer): number {
   const configured = Number(trainer.slotCapacity);
   return Number.isInteger(configured) && configured >= 1 && configured <= 4 ? configured : 2;
-}
-
-export function getStudentSessionsPerWeek(
-  student: Student,
-  config: ScheduleConfig,
-  overriddenSessions?: Record<string, number>,
-): number {
-  if (overriddenSessions && overriddenSessions[student.id] !== undefined) {
-    return overriddenSessions[student.id];
-  }
-  return Number(student.sessionsPerWeek) || 0;
 }
 
 function getSessionsLeft(contract: StudentContract, allSessions: import("../types").Session[]): number {
@@ -330,97 +325,6 @@ export function generateSchedule(
   };
 }
 
-export function calculateWarnings(
-  students: Student[],
-  trainers: Trainer[],
-  schedule: Schedule,
-  config: ScheduleConfig,
-  overriddenSessions?: Record<string, number>,
-): Warning[] {
-  const warnings: Warning[] = [];
-  const studentScheduledSlots: Record<string, string[]> = {};
-
-  for (const s of students) {
-    studentScheduledSlots[s.id] = [];
-  }
-
-  for (const day of config.workingDays) {
-    for (const hour of config.workingHours) {
-      const slotId = `${day}-${hour}`;
-      const entries = schedule[slotId] || [];
-      for (const entry of entries) {
-        if (
-          entry.studentId !== "OFF" &&
-          studentScheduledSlots[entry.studentId]
-        ) {
-          studentScheduledSlots[entry.studentId].push(slotId);
-        }
-      }
-    }
-  }
-
-  for (const student of students) {
-    const slots = studentScheduledSlots[student.id] || [];
-    const scheduled = slots.length;
-    const requested = getStudentSessionsPerWeek(
-      student,
-      config,
-      overriddenSessions,
-    );
-
-    const dayCounts: Record<string, number> = {};
-    const slotCounts: Record<string, number> = {};
-
-    slots.forEach((slot) => {
-      const day = slot.split("-")[0];
-      dayCounts[day] = (dayCounts[day] || 0) + 1;
-      slotCounts[slot] = (slotCounts[slot] || 0) + 1;
-    });
-
-    const multipleSessionsDays = Object.keys(dayCounts).filter(
-      (day) => dayCounts[day] > 1,
-    );
-    const overlappingSlots = Object.keys(slotCounts).filter(
-      (slot) => slotCounts[slot] > 1,
-    );
-
-    if (scheduled < requested) {
-      const suggestions = getSuggestions(
-        student,
-        schedule,
-        trainers,
-        studentScheduledSlots[student.id],
-        config,
-      );
-      const warningObj: Warning = {
-        studentId: student.id,
-        scheduled,
-        requested,
-        suggestions,
-      };
-      if (multipleSessionsDays.length > 0) warningObj.multipleSessionsDays = multipleSessionsDays;
-      if (overlappingSlots.length > 0) warningObj.overlappingSlots = overlappingSlots;
-      warnings.push(warningObj);
-    } else if (
-      scheduled > requested ||
-      multipleSessionsDays.length > 0 ||
-      overlappingSlots.length > 0
-    ) {
-      const warningObj: Warning = {
-        studentId: student.id,
-        scheduled,
-        requested,
-        suggestions: [],
-      };
-      if (multipleSessionsDays.length > 0) warningObj.multipleSessionsDays = multipleSessionsDays;
-      if (overlappingSlots.length > 0) warningObj.overlappingSlots = overlappingSlots;
-      warnings.push(warningObj);
-    }
-  }
-
-  return warnings;
-}
-
 function scheduleStudentWithTrainer(
   student: Student,
   trainer: Trainer,
@@ -635,61 +539,6 @@ function scheduleStudentWithTrainer(
       `Thất bại: HV ${student.name} + PT ${trainer.name}: Lịch rảnh rải rác hoặc không thoả mãn điều kiện xếp ${needed} buổi.`,
     );
   }
-}
-
-function getSuggestions(
-  student: Student,
-  schedule: Schedule,
-  trainers: Trainer[],
-  scheduledSlots: string[],
-  config: ScheduleConfig,
-): string[] {
-  const suggestions: string[] = [];
-  const scoredSlots: { slot: string; score: number }[] = [];
-
-  for (const day of config.workingDays) {
-    for (const hour of config.workingHours) {
-      const slot = `${day}-${hour}`;
-      if (scheduledSlots.includes(slot)) continue;
-
-      let capacity = 0;
-      let hasHalfFullPT = false;
-      let currentStudents = 0;
-
-      for (let i = 0; i < trainers.length; i++) {
-        const t = trainers[i];
-
-        const trainerEntries = (schedule[slot] || []).filter(
-          (e) => e.trainerId === t.id,
-        );
-        const isOff = trainerEntries.some(
-          (e) => e.type === "off" || e.studentId === "OFF",
-        );
-        if (isOff) continue;
-
-        const trainerCapacity = trainerSlotCapacity(t);
-        capacity += trainerCapacity;
-        const count = trainerEntries.length;
-        currentStudents += count;
-        if (count > 0 && count < trainerCapacity) hasHalfFullPT = true;
-      }
-
-      if (currentStudents < capacity) {
-        let score = 0;
-        if (currentStudents > 0) {
-          score += 10;
-          if (hasHalfFullPT) score += 5;
-        } else {
-          score += 1;
-        }
-        scoredSlots.push({ slot, score });
-      }
-    }
-  }
-
-  scoredSlots.sort((a, b) => b.score - a.score);
-  suggestions.push(...scoredSlots.slice(0, 6).map((s) => s.slot));
-  return suggestions;
 }
 
 export function getActiveContract(studentId: string, contracts: StudentContract[]): StudentContract | undefined {

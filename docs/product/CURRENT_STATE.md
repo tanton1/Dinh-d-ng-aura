@@ -1,6 +1,36 @@
 # Aura Operating System — Current State
 
-Last reviewed: 2026-09-09
+Last reviewed: 2026-09-12
+
+## Navigation information architecture — 2026-09-12
+
+- Shared navigation no longer advertises unfinished Admin Academy and online
+  coaching areas: course catalogue/editor, Academy enrollment, online clients
+  and online gym programmes. Their route implementations and data stay intact
+  for compatibility and a later controlled rollout.
+- Admin navigation now follows the operational sequence: Overview; Student &
+  Care; Schedule & Training; Team & Performance; Finance & Services; Settings.
+- Staff navigation now follows the daily workflow and remains filtered by the
+  active staff position. Branch managers receive Renewals and Performance in
+  their four-item mobile dock; lower-frequency tools stay in More.
+- Member navigation separates health, schedule/training, and learning/services.
+- Admin and Staff global search now opens the scoped canonical student
+  directory instead of hidden Academy/online-coaching pages.
+
+## Performance and surface audit — 2026-09-12
+
+- The first measured cleanup moved Progress CSS, charts, photos, badges and AI
+  behind route/interaction boundaries; the authenticated shell is 4.3 KiB gzip
+  smaller and the Progress route JS is 12.8 KiB gzip smaller.
+- Scheduler draft warnings are now a lightweight module. The demo/fallback
+  optimizer is a separate 3.39 KiB gzip chunk and is no longer parsed just to
+  open the schedule editor.
+- Progress nutrition listeners now request the selected 7/30/90-day period
+  instead of always opening a 90-day query on first load.
+- Production prefetch now targets the canonical Eat Clean, Admin Finance and V2
+  Schedule entries. Redirect-only routes no longer preload retired surfaces.
+- Full findings and deletion gates are recorded in
+  `APP_PERFORMANCE_AND_DUPLICATION_AUDIT_2026-09-12.md`.
 
 ## Safe source cleanup (local; not deployed)
 

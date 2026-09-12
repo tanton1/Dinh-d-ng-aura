@@ -1,4 +1,5 @@
 import React, { useEffect, useId, useRef, useState } from 'react'
+import '../../styles-progress.css'
 import {
   Bot,
   Camera,

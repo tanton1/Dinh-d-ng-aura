@@ -41,6 +41,75 @@ test('demo Eat Clean admin uses its local snapshot without calling production', 
   expect(pageErrors).toEqual([])
 })
 
+test('Admin menu follows the operational workflow and hides unfinished modules', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 960 })
+  await page.goto('/#/admin-dashboard')
+
+  const navigation = page.getByRole('navigation', { name: 'Điều hướng chính' })
+  await expect(navigation).toBeVisible()
+  await expect(navigation.locator('.sidebar-nav__section > p')).toHaveText([
+    'TỔNG QUAN',
+    'HỌC VIÊN & CHĂM SÓC',
+    'LỊCH & HUẤN LUYỆN',
+    'ĐỘI NGŨ & HIỆU SUẤT',
+    'TÀI CHÍNH & DỊCH VỤ',
+    'CÀI ĐẶT',
+  ])
+
+  for (const hiddenLabel of ['Giáo án gym online', 'Khách hàng Online', 'Học viên Academy', 'Khóa học Academy']) {
+    await expect(navigation.getByText(hiddenLabel, { exact: true })).toHaveCount(0)
+  }
+
+  const search = page.getByRole('textbox', { name: 'Tìm kiếm' })
+  await search.fill('Nguyễn An')
+  await search.press('Enter')
+  await expect(page).toHaveURL(/#\/admin-pt-students$/)
+  await expect(page.getByRole('textbox', { name: 'Tìm tên, SĐT học viên...' })).toHaveValue('Nguyễn An')
+})
+
+test('Staff student search stays readable and workout workspaces filter students quickly', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto('/#/staff-students')
+
+  const staffSearch = page.getByRole('textbox', { name: 'Tìm học viên' })
+  await expect(staffSearch).toBeVisible()
+  const searchAppearance = await staffSearch.evaluate((element) => {
+    const input = element as HTMLInputElement
+    const style = getComputedStyle(input)
+    const placeholder = getComputedStyle(input, '::placeholder')
+    return {
+      color: style.color,
+      fontSize: Number.parseFloat(style.fontSize),
+      placeholderColor: placeholder.color,
+      placeholderOpacity: Number.parseFloat(placeholder.opacity),
+      width: input.getBoundingClientRect().width,
+    }
+  })
+  expect(searchAppearance.color).toBe('rgb(33, 24, 39)')
+  expect(searchAppearance.fontSize).toBeGreaterThanOrEqual(14)
+  expect(searchAppearance.placeholderColor).toBe('rgb(117, 101, 109)')
+  expect(searchAppearance.placeholderOpacity).toBe(1)
+  expect(searchAppearance.width).toBeGreaterThan(160)
+
+  for (const route of ['staff-workouts', 'admin-pt-workouts']) {
+    await page.goto(`/#/${route}`)
+    await page.getByRole('button', { name: 'Ca tập', exact: true }).click()
+    const workoutSearch = page.getByRole('textbox', { name: 'Tìm nhanh học viên' })
+    await expect(workoutSearch).toBeVisible()
+    expect(await workoutSearch.evaluate((element) => element.getBoundingClientRect().width)).toBeGreaterThan(160)
+    await workoutSearch.fill('Trần Thu Hà')
+    await expect(page.getByText('1 kết quả', { exact: true })).toBeVisible()
+    await expect(page.locator('.pt-workout-workspace__session-group').getByRole('button')).toHaveCount(1)
+    await expect(page.locator('.pt-workout-workspace__session-group').getByRole('button')).toContainText('Trần Thu Hà')
+    await page.getByRole('button', { name: 'Giáo án', exact: true }).click()
+    const studentSelect = page.getByRole('combobox', { name: 'Học viên', exact: true })
+    await expect(studentSelect).toContainText('Trần Thu Hà')
+    await studentSelect.selectOption({ label: 'Trần Thu Hà' })
+    await expect(page.getByRole('heading', { name: 'Trần Thu Hà', exact: true })).toBeVisible()
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+  }
+})
+
 test('nutrition assistant exposes private body and meal image choices', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await page.addInitScript(() => {

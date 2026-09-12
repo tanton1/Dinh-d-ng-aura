@@ -96,7 +96,15 @@ function attendanceLabel(session: TrainerSessionSummary) {
   return 'Chờ xác nhận'
 }
 
-export default function TrainerPortalV2({ section = 'students', embedded = false, isDemo = false, onNavigate }: { section?: TrainerWorkspaceSection; embedded?: boolean; isDemo?: boolean; onNavigate?: (view: ViewId, studentId?: string, studentName?: string) => void }) {
+interface TrainerPortalV2Props {
+  section?: TrainerWorkspaceSection
+  embedded?: boolean
+  isDemo?: boolean
+  initialSearchQuery?: string
+  onNavigate?: (view: ViewId, studentId?: string, studentName?: string) => void
+}
+
+export default function TrainerPortalV2({ section = 'students', embedded = false, isDemo = false, initialSearchQuery = '', onNavigate }: TrainerPortalV2Props) {
   const [workspace, setWorkspace] = useState<CoachWorkspaceScope | null>(null)
   const [scopeLoading, setScopeLoading] = useState(true)
   const [scopeError, setScopeError] = useState('')
@@ -123,7 +131,7 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
   const [clockNow, setClockNow] = useState(() => Date.now())
   const [noShowReason, setNoShowReason] = useState<'' | 'busy' | 'sick' | 'forgot' | 'unreachable' | 'other'>('')
   const [attendanceNote, setAttendanceNote] = useState('')
-  const [studentQuery, setStudentQuery] = useState(() => staffStudentListMemory().query || '')
+  const [studentQuery, setStudentQuery] = useState(() => initialSearchQuery.trim() || staffStudentListMemory().query || '')
   const [studentBranch, setStudentBranch] = useState(() => staffStudentListMemory().branch || 'all')
   const [studentScope, setStudentScope] = useState<'all' | 'primary' | 'secondary' | 'schedule'>(() => staffStudentListMemory().scope || 'all')
   const loadedRef = useRef(false)
@@ -143,6 +151,11 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
     ...sessions.filter((session) => session.studentName).map((session) => [session.studentId, session.studentName as string] as const),
   ]), [sessions, students])
   const branchNames = useMemo(() => new Map(branches.map((branch) => [branch.id, branch.name])), [branches])
+
+  useEffect(() => {
+    const nextQuery = initialSearchQuery.trim()
+    if (nextQuery) setStudentQuery(nextQuery)
+  }, [initialSearchQuery])
   const scheduledByStudent = useMemo(() => {
     const mapped = new Map<string, TrainerSessionSummary[]>()
     sessions.filter((session) => ['scheduled', 'rescheduled', 'completed', 'attended', 'no_show'].includes(session.status)).forEach((session) => {
