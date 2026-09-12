@@ -22,16 +22,20 @@ const firebaseDiscoveryScope = String(process.env.AURA_FIREBASE_DISCOVERY_SCOPE 
 // the dedicated value below is never written to a deployed endpoint.
 const isStudent360Discovery = firebaseDiscoveryScope === 'student360'
   || process.env.NODE_ENV === 'aura-student360-discovery'
+const isExerciseCatalogDiscovery = firebaseDiscoveryScope === 'exerciseCatalog'
+  || process.env.NODE_ENV === 'aura-exercise-catalog-discovery'
 let createGenerativeAiFunctions
 let createNutritionFunctions
 let createNutritionPlanFunctions
 let createEatCleanFunctions
 let createExerciseCatalogFunctions
-if (!isStudent360Discovery) {
+if (!isStudent360Discovery && !isExerciseCatalogDiscovery) {
   ;({ createGenerativeAiFunctions } = require('./generative-ai'))
   ;({ createNutritionFunctions } = require('./nutrition'))
   ;({ createNutritionPlanFunctions } = require('./nutrition-plans'))
   ;({ createEatCleanFunctions } = require('./eat-clean'))
+}
+if (!isStudent360Discovery) {
   ;({ createExerciseCatalogFunctions } = require('./exercise-catalog'))
 }
 const { buildCompletedOnboardingDefaultsPatch } = require('./profile-defaults')
@@ -438,7 +442,7 @@ setGlobalOptions({
   labels: { 'aura-release': 'quota-safe-v1-20260830' },
 })
 
-if (!isStudent360Discovery) {
+if (!isStudent360Discovery && !isExerciseCatalogDiscovery) {
   Object.assign(exports, createNutritionFunctions({ app, db }))
   const nutritionPlanFunctions = createNutritionPlanFunctions({ db, onCall, requireStudent: requireStudentAccount })
   Object.assign(exports, nutritionPlanFunctions)

@@ -171,20 +171,35 @@ jobs:
           fi
           DISCOVERY_SCOPE=""
           STUDENT_360_ONLY="true"
+          EXERCISE_CATALOG_ONLY="true"
           IFS=',' read -ra REQUESTED_TARGETS <<< "$TARGETS"
           for FUNCTION_NAME in "${REQUESTED_TARGETS[@]}"; do
             case "$FUNCTION_NAME" in
               getStudent360*|listStudent360*|refreshStudent360*|saveStudent360*|mutateStudent360*|createStudentCareActivity*|syncStudent360*|reconcileStudent360ProjectionsScheduled|listInternalNutritionCatalog) ;;
               *) STUDENT_360_ONLY="false" ;;
             esac
+            case "$FUNCTION_NAME" in
+              listExerciseCatalog|getExerciseCatalogItem|searchExternalExerciseCatalog|getExternalExercisePreview|getExerciseCatalogMedia|saveExerciseCatalogDraft|publishExerciseCatalogItem) ;;
+              *) EXERCISE_CATALOG_ONLY="false" ;;
+            esac
           done
           if [ "$STUDENT_360_ONLY" = "true" ]; then
             DISCOVERY_SCOPE="student360"
             echo "Student 360 discovery scope enabled; unrelated AI secrets will not be inspected."
+          elif [ "$EXERCISE_CATALOG_ONLY" = "true" ]; then
+            DISCOVERY_SCOPE="exerciseCatalog"
+            echo "Exercise Catalog discovery scope enabled; unrelated AI secrets will not be inspected."
           fi
           echo "enabled=true" >> "$GITHUB_OUTPUT"
           echo "targets=$TARGETS" >> "$GITHUB_OUTPUT"
           echo "discovery_scope=$DISCOVERY_SCOPE" >> "$GITHUB_OUTPUT"
+          if [ "$DISCOVERY_SCOPE" = "student360" ]; then
+            echo "discovery_node_env=aura-student360-discovery" >> "$GITHUB_OUTPUT"
+          elif [ "$DISCOVERY_SCOPE" = "exerciseCatalog" ]; then
+            echo "discovery_node_env=aura-exercise-catalog-discovery" >> "$GITHUB_OUTPUT"
+          else
+            echo "discovery_node_env=" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Deploy backend Functions sequentially and require healthy revisions
         if: steps.backend.outputs.enabled == 'true'
@@ -194,7 +209,7 @@ jobs:
           AURA_FIREBASE_DISCOVERY_SCOPE: ${{ steps.backend.outputs.discovery_scope }}
           # firebase-tools forwards NODE_ENV (but not arbitrary shell variables)
           # to the source-discovery child on Linux.
-          NODE_ENV: ${{ steps.backend.outputs.discovery_scope == 'student360' && 'aura-student360-discovery' || '' }}
+          NODE_ENV: ${{ steps.backend.outputs.discovery_node_env }}
           FUNCTIONS_DISCOVERY_TIMEOUT: 60
         run: |
           BEFORE_MANIFEST="$RUNNER_TEMP/firebase-functions-before.json"

@@ -60,15 +60,29 @@ test('Student 360 rollout does not require access to unrelated AI secrets', () =
   const functionsEntry = readFileSync('functions/index.js', 'utf8')
 
   assert.match(workflow, /AURA_FIREBASE_DISCOVERY_SCOPE/)
-  assert.match(workflow, /NODE_ENV:[\s\S]*?aura-student360-discovery/)
+  assert.match(workflow, /discovery_node_env=aura-student360-discovery/)
+  assert.match(workflow, /NODE_ENV:\s*\$\{\{ steps\.backend\.outputs\.discovery_node_env \}\}/)
   assert.match(workflow, /getStudent360\*\|listStudent360\*/)
   assert.match(workflow, /syncStudent360\*\|reconcileStudent360ProjectionsScheduled\|listInternalNutritionCatalog/)
   assert.match(workflow, /DISCOVERY_SCOPE="student360"/)
   assert.doesNotMatch(workflow, /OPENROUTER_API_KEY:\s*['"]?placeholder/i)
   assert.match(functionsEntry, /isStudent360Discovery/)
   assert.match(functionsEntry, /process\.env\.NODE_ENV === 'aura-student360-discovery'/)
-  assert.match(functionsEntry, /if \(!isStudent360Discovery\) \{[\s\S]*?require\('\.\/generative-ai'\)/)
+  assert.match(functionsEntry, /if \(!isStudent360Discovery && !isExerciseCatalogDiscovery\) \{[\s\S]*?require\('\.\/generative-ai'\)/)
   assert.match(functionsEntry, /if \(!isStudent360Discovery\) \{[\s\S]*?createExerciseCatalogFunctions/)
+})
+
+test('Exercise Catalog rollout does not inspect unrelated OpenRouter secrets', () => {
+  const functionsEntry = readFileSync('functions/index.js', 'utf8')
+
+  assert.match(workflow, /EXERCISE_CATALOG_ONLY="true"/)
+  assert.match(workflow, /listExerciseCatalog\|getExerciseCatalogItem\|searchExternalExerciseCatalog/)
+  assert.match(workflow, /DISCOVERY_SCOPE="exerciseCatalog"/)
+  assert.match(workflow, /aura-exercise-catalog-discovery/)
+  assert.match(functionsEntry, /isExerciseCatalogDiscovery/)
+  assert.match(functionsEntry, /process\.env\.NODE_ENV === 'aura-exercise-catalog-discovery'/)
+  assert.match(functionsEntry, /if \(!isStudent360Discovery && !isExerciseCatalogDiscovery\) \{[\s\S]*?require\('\.\/generative-ai'\)/)
+  assert.match(functionsEntry, /if \(!isStudent360Discovery\) \{[\s\S]*?require\('\.\/exercise-catalog'\)/)
 })
 
 test('production smoke retries a complete cache-busted alias snapshot', () => {
