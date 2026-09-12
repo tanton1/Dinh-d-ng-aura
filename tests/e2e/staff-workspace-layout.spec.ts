@@ -54,9 +54,14 @@ test('staff dock prioritizes work modules and schedule tools share one weekly wo
 
   await page.getByRole('button', { name: 'Mở menu' }).click()
   const sidebar = page.locator('#app-sidebar')
-  await expect(sidebar.getByText('CÔNG VIỆC', { exact: true })).toBeVisible()
-  for (const label of ['Tổng quan Staff', 'Học viên phụ trách', 'Lịch làm việc', 'Giáo án & mức tạ', 'Duyệt món', 'Tái ký', 'Hiệu suất PT', 'Lương của tôi']) {
+  for (const section of ['HỌC VIÊN & CHĂM SÓC', 'LỊCH & HUẤN LUYỆN', 'KINH DOANH & KẾT QUẢ']) {
+    await expect(sidebar.getByText(section, { exact: true })).toBeVisible()
+  }
+  for (const label of ['Việc cần làm', 'Học viên phụ trách', 'Lịch làm việc', 'Giáo án & mức tạ', 'Duyệt món', 'Tái ký', 'Hiệu suất PT', 'Lương của tôi']) {
     await expect(sidebar.getByRole('button', { name: new RegExp(label) })).toBeVisible()
+  }
+  for (const hiddenLabel of ['Giáo án gym online', 'Khách hàng Online', 'Học viên Academy', 'Khóa học Academy']) {
+    await expect(sidebar.getByText(hiddenLabel, { exact: true })).toHaveCount(0)
   }
   await expect(sidebar.getByRole('button', { name: /Báo giá/ })).toHaveCount(0)
   await expect(sidebar.getByRole('button', { name: /Lịch rảnh/ })).toHaveCount(0)
