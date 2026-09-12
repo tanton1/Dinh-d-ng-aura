@@ -60,10 +60,12 @@ test('Student 360 rollout does not require access to unrelated AI secrets', () =
   const functionsEntry = readFileSync('functions/index.js', 'utf8')
 
   assert.match(workflow, /AURA_FIREBASE_DISCOVERY_SCOPE/)
+  assert.match(workflow, /NODE_ENV:[\s\S]*?aura-student360-discovery/)
   assert.match(workflow, /getStudent360Overview\|getStudent360OverviewRegional/)
   assert.match(workflow, /DISCOVERY_SCOPE="student360"/)
   assert.doesNotMatch(workflow, /OPENROUTER_API_KEY:\s*['"]?placeholder/i)
   assert.match(functionsEntry, /isStudent360Discovery/)
+  assert.match(functionsEntry, /process\.env\.NODE_ENV === 'aura-student360-discovery'/)
   assert.match(functionsEntry, /if \(!isStudent360Discovery\) \{[\s\S]*?require\('\.\/generative-ai'\)/)
   assert.match(functionsEntry, /if \(!isStudent360Discovery\) \{[\s\S]*?createExerciseCatalogFunctions/)
 })

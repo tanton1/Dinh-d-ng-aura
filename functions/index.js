@@ -17,7 +17,11 @@ const { createHash } = require('node:crypto')
 // the manifest. The variable is not persisted to deployed Functions, so their
 // normal runtime continues to expose the complete backend.
 const firebaseDiscoveryScope = String(process.env.AURA_FIREBASE_DISCOVERY_SCOPE || '').trim()
+// firebase-tools deliberately passes only a small allow-list of environment
+// variables to its Linux discovery child. NODE_ENV is on that allow-list;
+// the dedicated value below is never written to a deployed endpoint.
 const isStudent360Discovery = firebaseDiscoveryScope === 'student360'
+  || process.env.NODE_ENV === 'aura-student360-discovery'
 let createGenerativeAiFunctions
 let createNutritionFunctions
 let createNutritionPlanFunctions

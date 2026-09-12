@@ -191,6 +191,9 @@ jobs:
         env:
           BACKEND_FUNCTIONS: ${{ steps.backend.outputs.targets }}
           AURA_FIREBASE_DISCOVERY_SCOPE: ${{ steps.backend.outputs.discovery_scope }}
+          # firebase-tools forwards NODE_ENV (but not arbitrary shell variables)
+          # to the source-discovery child on Linux.
+          NODE_ENV: ${{ steps.backend.outputs.discovery_scope == 'student360' && 'aura-student360-discovery' || '' }}
           FUNCTIONS_DISCOVERY_TIMEOUT: 60
         run: |
           BEFORE_MANIFEST="$RUNNER_TEMP/firebase-functions-before.json"
