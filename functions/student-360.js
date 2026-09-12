@@ -1113,23 +1113,32 @@ async function assignmentNames(db, sources, contract) {
   const trainerIds = normalizedArray([contract?.trainerId, ...(contract?.trainerIds || [])])
   const nutritionCoachIds = normalizedArray(contract?.nutritionPTIds)
   const salesIds = normalizedArray([sources.student.assignedSalesId, contract?.assignedSalesId])
-  const ids = normalizedArray([...trainerIds, ...nutritionCoachIds, ...salesIds])
+  // A scheduled session can legitimately use a supporting PT outside the
+  // contract assignment. Resolve those identities as well so Student 360
+  // never labels the actual session with the first assigned PT by mistake.
+  const sessionTrainerIds = normalizedArray((sources.sessions || []).map((item) => item.trainerId)).slice(0, 120)
+  const ids = normalizedArray([...trainerIds, ...nutritionCoachIds, ...salesIds, ...sessionTrainerIds])
   const snapshots = ids.length ? await db.getAll(...ids.map((id) => db.doc(`trainers/${id}`))) : []
   const fallbackSnapshots = ids.length ? await db.getAll(...ids.map((id) => db.doc(`users/${id}`))) : []
   const names = new Map()
   snapshots.forEach((item) => { if (item.exists) names.set(item.id, item.data().name || item.data().displayName || 'HLV Aura') })
   fallbackSnapshots.forEach((item) => { if (item.exists && !names.has(item.id)) names.set(item.id, item.data().displayName || item.data().name || 'HLV Aura') })
   const branchId = contract?.branchId || sources.student.branchId || ''
-  const branchSnapshot = branchId ? await db.doc(`branches/${branchId}`).get() : null
+  const sessionBranchIds = normalizedArray((sources.sessions || []).map((item) => item.branchId)).slice(0, 60)
+  const branchIds = normalizedArray([branchId, ...sessionBranchIds])
+  const branchSnapshots = branchIds.length ? await db.getAll(...branchIds.map((id) => db.doc(`branches/${id}`))) : []
+  const branchNames = new Map(branchSnapshots.filter((item) => item.exists).map((item) => [item.id, item.data().name || item.data().branchName || item.id]))
   return {
     branchId,
-    branchName: branchSnapshot?.exists ? branchSnapshot.data().name || branchId : branchId,
+    branchName: branchNames.get(branchId) || branchId,
     trainerIds,
     trainerNames: trainerIds.map((id) => names.get(id) || 'HLV Aura'),
     nutritionCoachIds,
     nutritionCoachNames: nutritionCoachIds.map((id) => names.get(id) || 'Coach Aura'),
     salesIds,
     salesNames: salesIds.map((id) => names.get(id) || 'Sales Aura'),
+    trainerNameById: Object.fromEntries(ids.map((id) => [id, names.get(id) || 'PT Aura'])),
+    branchNameById: Object.fromEntries(branchIds.map((id) => [id, branchNames.get(id) || id])),
   }
 }
 
@@ -1311,7 +1320,8 @@ async function buildStudent360Projection({ db, studentId, weekId = mondayDateKey
     ? usageSummaryFromView(usageView.data(), contract)
     : contractUsage(contract || {}, sources.sessions)
   const payment = paymentProjection(contract, today)
-  const assignments = await assignmentNames(db, sources, contract)
+  const assignmentDirectory = await assignmentNames(db, sources, contract)
+  const { trainerNameById, branchNameById, ...assignments } = assignmentDirectory
   const currentWeekEnd = addDays(weekId, 6)
   const weekSessions = sources.sessions.filter((item) => {
     const date = sessionDate(item)
@@ -1452,9 +1462,22 @@ async function buildStudent360Projection({ db, studentId, weekId = mondayDateKey
         date: sessionDate(upcoming[0]),
         hour: finite(upcoming[0].hour, null),
         trainerId: upcoming[0].trainerId || '',
+        trainerName: bounded(upcoming[0].trainerName, 160) || trainerNameById[upcoming[0].trainerId] || 'PT Aura',
+        branchId: upcoming[0].branchId || assignments.branchId || '',
+        branchName: bounded(upcoming[0].branchName, 160) || branchNameById[upcoming[0].branchId] || (upcoming[0].branchId === assignments.branchId ? assignments.branchName : '') || 'Chi nhánh Aura',
         status: upcoming[0].status || 'scheduled',
       } : null,
-      sessions: weekSessions.slice(0, 8).map((item) => ({ id: item.id, date: sessionDate(item), hour: finite(item.hour, null), status: item.status || '', attendanceStatus: sessionAttendance(item) })),
+      sessions: weekSessions.slice(0, 8).map((item) => ({
+        id: item.id,
+        date: sessionDate(item),
+        hour: finite(item.hour, null),
+        trainerId: item.trainerId || '',
+        trainerName: bounded(item.trainerName, 160) || trainerNameById[item.trainerId] || 'PT Aura',
+        branchId: item.branchId || assignments.branchId || '',
+        branchName: bounded(item.branchName, 160) || branchNameById[item.branchId] || (item.branchId === assignments.branchId ? assignments.branchName : '') || 'Chi nhánh Aura',
+        status: item.status || '',
+        attendanceStatus: sessionAttendance(item),
+      })),
       availability: {
         slots,
         confirmed: confirmedAvailability,

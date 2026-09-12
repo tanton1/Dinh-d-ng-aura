@@ -161,3 +161,8 @@
   .loyalty-admin-editor__grid label.is-wide { grid-column: auto; }
   .loyalty-policy-rules__grid { grid-template-columns: 1fr; max-height: 360px; }
 }
+.loyalty-admin-list > article.is-focused-account {
+  border-color: #f0a9c4;
+  background: #fff4f8;
+  box-shadow: 0 0 0 3px rgb(236 44 118 / 9%);
+}
