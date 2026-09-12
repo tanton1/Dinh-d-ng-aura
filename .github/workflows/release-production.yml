@@ -168,14 +168,29 @@ jobs:
             echo "backend_functions must be a comma-separated list of exported Function names." >&2
             exit 1
           fi
+          DISCOVERY_SCOPE=""
+          STUDENT_360_ONLY="true"
+          IFS=',' read -ra REQUESTED_TARGETS <<< "$TARGETS"
+          for FUNCTION_NAME in "${REQUESTED_TARGETS[@]}"; do
+            case "$FUNCTION_NAME" in
+              getStudent360Overview|getStudent360OverviewRegional) ;;
+              *) STUDENT_360_ONLY="false" ;;
+            esac
+          done
+          if [ "$STUDENT_360_ONLY" = "true" ]; then
+            DISCOVERY_SCOPE="student360"
+            echo "Student 360 discovery scope enabled; unrelated AI secrets will not be inspected."
+          fi
           echo "enabled=true" >> "$GITHUB_OUTPUT"
           echo "targets=$TARGETS" >> "$GITHUB_OUTPUT"
+          echo "discovery_scope=$DISCOVERY_SCOPE" >> "$GITHUB_OUTPUT"
 
       - name: Deploy backend Functions sequentially and require healthy revisions
         if: steps.backend.outputs.enabled == 'true'
         shell: bash
         env:
           BACKEND_FUNCTIONS: ${{ steps.backend.outputs.targets }}
+          AURA_FIREBASE_DISCOVERY_SCOPE: ${{ steps.backend.outputs.discovery_scope }}
           FUNCTIONS_DISCOVERY_TIMEOUT: 60
         run: |
           BEFORE_MANIFEST="$RUNNER_TEMP/firebase-functions-before.json"

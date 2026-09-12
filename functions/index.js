@@ -10,10 +10,26 @@ const { onDocumentWritten } = require('firebase-functions/v2/firestore')
 const { setGlobalOptions } = require('firebase-functions/v2/options')
 const { logger } = require('firebase-functions')
 const { createHash } = require('node:crypto')
-const { createGenerativeAiFunctions } = require('./generative-ai')
-const { createNutritionFunctions } = require('./nutrition')
-const { createNutritionPlanFunctions } = require('./nutrition-plans')
-const { createEatCleanFunctions } = require('./eat-clean')
+// Firebase resolves every declared secret before it applies a function-name
+// filter. A narrow Student 360 rollout therefore used to require the deploy
+// identity to inspect unrelated AI secrets. Release automation may opt into a
+// discovery-only scope so those factories are not loaded while the CLI builds
+// the manifest. The variable is not persisted to deployed Functions, so their
+// normal runtime continues to expose the complete backend.
+const firebaseDiscoveryScope = String(process.env.AURA_FIREBASE_DISCOVERY_SCOPE || '').trim()
+const isStudent360Discovery = firebaseDiscoveryScope === 'student360'
+let createGenerativeAiFunctions
+let createNutritionFunctions
+let createNutritionPlanFunctions
+let createEatCleanFunctions
+let createExerciseCatalogFunctions
+if (!isStudent360Discovery) {
+  ;({ createGenerativeAiFunctions } = require('./generative-ai'))
+  ;({ createNutritionFunctions } = require('./nutrition'))
+  ;({ createNutritionPlanFunctions } = require('./nutrition-plans'))
+  ;({ createEatCleanFunctions } = require('./eat-clean'))
+  ;({ createExerciseCatalogFunctions } = require('./exercise-catalog'))
+}
 const { buildCompletedOnboardingDefaultsPatch } = require('./profile-defaults')
 const { createIdentityAccessFunctions } = require('./identity-access')
 const { createPtOperationsV2Functions } = require('./pt-operations-v2')
@@ -30,7 +46,6 @@ const { pruneExpiredDashboardCache } = require('./operations-dashboard-cache')
 const { rebuildOperationsDailyAggregates, syncDailyAggregateWrite } = require('./operations-dashboard-aggregates')
 const { createCashbookFunctions } = require('./cashbook')
 const { createBusinessReportingFunctions } = require('./business-reporting')
-const { createExerciseCatalogFunctions } = require('./exercise-catalog')
 const { createPtWorkoutTrackingFunctions } = require('./pt-workout-tracking')
 const { createNutritionReviewFunctions } = require('./nutrition-reviews')
 const { createContractRenewalFunctions } = require('./contract-renewals')
@@ -419,15 +434,17 @@ setGlobalOptions({
   labels: { 'aura-release': 'quota-safe-v1-20260830' },
 })
 
-Object.assign(exports, createNutritionFunctions({ app, db }))
-const nutritionPlanFunctions = createNutritionPlanFunctions({ db, onCall, requireStudent: requireStudentAccount })
-Object.assign(exports, nutritionPlanFunctions)
-exports.getMyNutritionPlanWorkspace = nutritionPlanFunctions.getMyNutritionPlanWorkspace
-exports.generateMyNutritionPlanDraft = nutritionPlanFunctions.generateMyNutritionPlanDraft
-exports.mutateMyNutritionPlanMeal = nutritionPlanFunctions.mutateMyNutritionPlanMeal
-exports.confirmMyNutritionPlan = nutritionPlanFunctions.confirmMyNutritionPlan
-Object.assign(exports, createGenerativeAiFunctions({ db }))
-Object.assign(exports, createEatCleanFunctions({ db, realtimeDb, onCall, requireTrustedAdmin, logger }))
+if (!isStudent360Discovery) {
+  Object.assign(exports, createNutritionFunctions({ app, db }))
+  const nutritionPlanFunctions = createNutritionPlanFunctions({ db, onCall, requireStudent: requireStudentAccount })
+  Object.assign(exports, nutritionPlanFunctions)
+  exports.getMyNutritionPlanWorkspace = nutritionPlanFunctions.getMyNutritionPlanWorkspace
+  exports.generateMyNutritionPlanDraft = nutritionPlanFunctions.generateMyNutritionPlanDraft
+  exports.mutateMyNutritionPlanMeal = nutritionPlanFunctions.mutateMyNutritionPlanMeal
+  exports.confirmMyNutritionPlan = nutritionPlanFunctions.confirmMyNutritionPlan
+  Object.assign(exports, createGenerativeAiFunctions({ db }))
+  Object.assign(exports, createEatCleanFunctions({ db, realtimeDb, onCall, requireTrustedAdmin, logger }))
+}
 const identityAccessFunctions = createIdentityAccessFunctions({ db, auth, onCall, logger })
 Object.assign(exports, identityAccessFunctions)
 exports.getMyAccessContext = identityAccessFunctions.getMyAccessContext
@@ -814,15 +831,17 @@ exports.listBusinessPerformance = businessReportingFunctions.listBusinessPerform
 exports.listStudentTrainingHistory = businessReportingFunctions.listStudentTrainingHistory
 exports.listTrainerTeachingHistory = businessReportingFunctions.listTrainerTeachingHistory
 exports.getStudentContractUsage = businessReportingFunctions.getStudentContractUsage
-const exerciseCatalogFunctions = createExerciseCatalogFunctions({ db, onCall })
-Object.assign(exports, exerciseCatalogFunctions)
-exports.listExerciseCatalog = exerciseCatalogFunctions.listExerciseCatalog
-exports.getExerciseCatalogItem = exerciseCatalogFunctions.getExerciseCatalogItem
-exports.searchExternalExerciseCatalog = exerciseCatalogFunctions.searchExternalExerciseCatalog
-exports.getExternalExercisePreview = exerciseCatalogFunctions.getExternalExercisePreview
-exports.getExerciseCatalogMedia = exerciseCatalogFunctions.getExerciseCatalogMedia
-exports.saveExerciseCatalogDraft = exerciseCatalogFunctions.saveExerciseCatalogDraft
-exports.publishExerciseCatalogItem = exerciseCatalogFunctions.publishExerciseCatalogItem
+if (!isStudent360Discovery) {
+  const exerciseCatalogFunctions = createExerciseCatalogFunctions({ db, onCall })
+  Object.assign(exports, exerciseCatalogFunctions)
+  exports.listExerciseCatalog = exerciseCatalogFunctions.listExerciseCatalog
+  exports.getExerciseCatalogItem = exerciseCatalogFunctions.getExerciseCatalogItem
+  exports.searchExternalExerciseCatalog = exerciseCatalogFunctions.searchExternalExerciseCatalog
+  exports.getExternalExercisePreview = exerciseCatalogFunctions.getExternalExercisePreview
+  exports.getExerciseCatalogMedia = exerciseCatalogFunctions.getExerciseCatalogMedia
+  exports.saveExerciseCatalogDraft = exerciseCatalogFunctions.saveExerciseCatalogDraft
+  exports.publishExerciseCatalogItem = exerciseCatalogFunctions.publishExerciseCatalogItem
+}
 const ptWorkoutTrackingFunctions = createPtWorkoutTrackingFunctions({ db, onCall })
 Object.assign(exports, ptWorkoutTrackingFunctions)
 exports.getPtWorkoutWorkspace = ptWorkoutTrackingFunctions.getPtWorkoutWorkspace
