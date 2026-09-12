@@ -319,8 +319,12 @@ export default function ProgressPage({
     setLegacyPhotos(readCachedPhotos(resolvedOwnerId))
     const refreshProgressPhotos = () => setLegacyPhotos(readCachedPhotos(resolvedOwnerId))
     window.addEventListener('aura:progress-photos-updated', refreshProgressPhotos)
+    // Legacy photo metadata is only needed by the body/history tabs.  The
+    // overview uses the canonical check-in summary and should not open an
+    // unbounded progressPhotos listener just to render its first viewport.
+    const needsLegacyPhotos = category === 'body' || category === 'history'
     if (isDemo || resolvedOwnerId === 'anonymous') return () => window.removeEventListener('aura:progress-photos-updated', refreshProgressPhotos)
-    const unsubscribers = [
+    const unsubscribers: Array<() => void> = [
       subscribeToUserWeightLogs(resolvedOwnerId, (rows) => {
         const sorted = [...rows].sort((a, b) => String(a.date).localeCompare(String(b.date)))
         setWeightRecords(sorted)
@@ -332,13 +336,13 @@ export default function ProgressPage({
         safeLocalStorageSet(`aura:progress:body-measurements:${resolvedOwnerId}`, JSON.stringify(value))
       }),
       subscribeToUserProgressCheckIns(resolvedOwnerId, setCanonicalCheckIns),
-      subscribeToUserProgressPhotos(resolvedOwnerId, setLegacyPhotos),
     ]
+    if (needsLegacyPhotos) unsubscribers.push(subscribeToUserProgressPhotos(resolvedOwnerId, setLegacyPhotos))
     return () => {
       window.removeEventListener('aura:progress-photos-updated', refreshProgressPhotos)
       unsubscribers.forEach((unsubscribe) => unsubscribe())
     }
-  }, [isDemo, resolvedOwnerId])
+  }, [category, isDemo, resolvedOwnerId])
 
   useEffect(() => {
     let active = true

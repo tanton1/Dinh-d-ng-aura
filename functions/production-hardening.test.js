@@ -17,6 +17,7 @@ const nutritionCatalogFlow = readFileSync(join(root, 'src', 'pages', 'student', 
 const nutritionAssistantController = readFileSync(join(root, 'src', 'features', 'nutrition', 'useNutritionAssistantController.ts'), 'utf8')
 const nutritionPage = [nutritionController, nutritionCatalogFlow].join('\n')
 const nutritionCatalogService = readFileSync(join(root, 'src', 'features', 'nutrition', 'catalog.ts'), 'utf8')
+const progressPage = readFileSync(join(root, 'src', 'pages', 'student', 'ProgressPage.tsx'), 'utf8')
 const sharedIdentityContract = JSON.parse(readFileSync(join(root, 'shared', 'identity', 'identity-contract.json'), 'utf8'))
 const functionsIdentityContract = JSON.parse(readFileSync(join(__dirname, 'identity-contract.json'), 'utf8'))
 const { normalizedTrainerSchedulingPolicy } = require('./identity-access')
@@ -96,6 +97,11 @@ test('nutrition route keeps a small orchestrator and lazy task boundaries', () =
   assert.doesNotMatch(nutritionController, /const FoodScanModal = React\.memo/)
   assert.doesNotMatch(nutritionController, /const FoodCatalogModal = React\.memo/)
   assert.match(nutritionAssistantController, /export function useNutritionAssistantController/)
+})
+
+test('progress overview does not open the legacy progress-photo listener', () => {
+  assert.match(progressPage, /const needsLegacyPhotos = category === 'body' \|\| category === 'history'/)
+  assert.match(progressPage, /if \(needsLegacyPhotos\) unsubscribers\.push\(subscribeToUserProgressPhotos/)
 })
 
 test('Aura UI rollout is Super Admin-only, fail-closed and audited', () => {
