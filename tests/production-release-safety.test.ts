@@ -4,6 +4,7 @@ import { createRequire } from 'node:module'
 import test from 'node:test'
 
 const workflow = readFileSync('.github/workflows/release-production.yml', 'utf8')
+const productionSmoke = readFileSync('scripts/production-smoke.mjs', 'utf8')
 const healthAudit = readFileSync('scripts/cloud-run-functions-health.cjs', 'utf8')
 const rollback = readFileSync('scripts/cloud-run-functions-rollback.cjs', 'utf8')
 const require = createRequire(import.meta.url)
@@ -53,4 +54,12 @@ test('production health audit checks the effective traffic revision', () => {
   assert.match(healthAudit, /latestCreatedRevision/)
   assert.match(healthAudit, /latestCreatedIsReady/)
   assert.match(healthAudit, /createdRevision === readyRevision/)
+})
+
+test('production smoke retries a complete cache-busted alias snapshot', () => {
+  assert.match(productionSmoke, /readConsistentProductionSnapshot/)
+  assert.match(productionSmoke, /url\.searchParams\.set\('aura-smoke'/)
+  assert.match(productionSmoke, /cache:\s*'no-store'/)
+  assert.match(productionSmoke, /Public alias has not promoted release/)
+  assert.match(productionSmoke, /await wait\(snapshotRetryDelayMs\)/)
 })
