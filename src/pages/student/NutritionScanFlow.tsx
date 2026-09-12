@@ -144,6 +144,11 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
   })
   const [isSaving, setIsSaving] = useState(false)
   const [lastFile, setLastFile] = useState<File | null>(null)
+  // Some mobile browsers can reject FileReader for a photo picked from the
+  // native gallery even though the File itself is valid. Keep an object URL
+  // only for the temporary preview and send the original File to the upload
+  // pipeline so a preview failure never blocks AI analysis.
+  const previewObjectUrlRef = useRef<string | null>(null)
   const galleryInputRef = useRef<HTMLInputElement>(null)
   const cameraInputRef = useRef<HTMLInputElement>(null)
   const galleryInputId = useId()
@@ -155,6 +160,10 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
     if (!saveInFlightRef.current) onClose()
   }
   const dialogRef = useAccessibleDialog(requestClose)
+
+  useEffect(() => () => {
+    if (previewObjectUrlRef.current) URL.revokeObjectURL(previewObjectUrlRef.current)
+  }, [])
 
   const totals = useMemo(() => items.reduce((sum, item) => ({
     calories: sum.calories + item.calories,
@@ -499,29 +508,56 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
       setStage('upload')
       return
     }
-    const reader = new FileReader()
+    const startDirectAnalysis = () => {
+      setFileName(file.name)
+      try {
+        if (previewObjectUrlRef.current) URL.revokeObjectURL(previewObjectUrlRef.current)
+        const objectUrl = URL.createObjectURL(file)
+        previewObjectUrlRef.current = objectUrl
+        setPreviewUrl(objectUrl)
+      } catch {
+        // A preview is optional; the File can still be uploaded and analyzed.
+        setPreviewUrl('')
+      }
+      void runImageAnalysis(file)
+    }
+
+    let reader: FileReader
+    try {
+      reader = new FileReader()
+    } catch {
+      startDirectAnalysis()
+      return
+    }
     reader.onload = async () => {
       try {
         const rawUrl = String(reader.result ?? '')
         const compressedUrl = await compressBase64Image(rawUrl, 600, 0.68)
+        if (previewObjectUrlRef.current) {
+          URL.revokeObjectURL(previewObjectUrlRef.current)
+          previewObjectUrlRef.current = null
+        }
         setPreviewUrl(compressedUrl)
         setFileName(file.name)
         const analysisFile = compressedUrl !== rawUrl ? dataUrlToImageFile(compressedUrl, file.name) : file
         void runImageAnalysis(analysisFile)
       } catch (error) {
-        setStage('upload')
-        setUploadError(getFoodAnalysisErrorMessage(error))
+        // Compression is an optimization only. Continue with the original
+        // image when decoding/canvas APIs are unavailable on the device.
+        startDirectAnalysis()
       }
     }
     reader.onerror = () => {
-      setStage('upload')
-      setUploadError('Không thể đọc tệp ảnh này. Vui lòng chọn một ảnh khác.')
+      startDirectAnalysis()
     }
     reader.onabort = () => {
-      setStage('upload')
-      setUploadError('Việc đọc ảnh đã bị gián đoạn. Vui lòng thử lại.')
+      startDirectAnalysis()
     }
-    reader.readAsDataURL(file)
+    try {
+      reader.readAsDataURL(file)
+    } catch {
+      startDirectAnalysis()
+    }
   }
 
   const handleInputChange = (event: ChangeEvent<HTMLInputElement>) => {
@@ -605,7 +641,8 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
           mealType,
           mealDate,
           mealTime,
-          image: previewUrl || undefined,
+          // Blob URLs are scoped to this tab and must never be persisted.
+          image: previewUrl.startsWith('data:image/') ? previewUrl : undefined,
           calories: Math.round(adjustedTotals.calories),
           protein: Math.round(adjustedTotals.protein),
           carbs: Math.round(adjustedTotals.carbs),

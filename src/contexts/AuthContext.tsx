@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
   EmailAuthProvider,
   GoogleAuthProvider,
@@ -25,6 +25,7 @@ import {
   type ConfirmationResult
 } from 'firebase/auth'
 import { firebaseAuth, isFirebaseConfigured } from '../lib/firebase'
+import { shouldRecoverAuthenticatedSession } from '../auth/authSessionRecovery'
 import { reportClientIssue } from '../services/clientTelemetryService'
 import type { AppUser, UserProfile, UserRole } from '../types'
 import { emptyStudentAccessContext, type AccessContext } from '../identity/access'
@@ -175,6 +176,17 @@ function effectiveRole(tokenRole: UserRole, storedRole: unknown): UserRole {
   return storedRole === tokenRole ? tokenRole : 'student'
 }
 
+function compatibilityRoleFromAccess(context: AccessContext): UserRole {
+  if (context.accessRole === 'admin' || context.accessRole === 'super_admin') return context.accessRole
+  if (context.accessRole === 'student') return 'student'
+  if (context.positions.includes('trainer_pt')) return 'trainer'
+  if (context.positions.includes('sales')) return 'sales'
+  if (context.positions.includes('branch_manager')) return 'manager'
+  if (context.positions.includes('academy_editor')) return 'editor'
+  if (context.positions.includes('shipper')) return 'shipper'
+  return 'coach'
+}
+
 function clearUserScopedStorage(userId: string) {
   if (typeof window === 'undefined') return
   for (const key of Object.keys(window.localStorage)) {
@@ -191,6 +203,19 @@ function toAppUser(user: { uid: string; email: string | null; displayName: strin
     phoneNumber: user.phoneNumber ?? null,
     emailVerified: Boolean(user.emailVerified),
     providerIds: [...new Set((user.providerData ?? []).map((provider) => provider.providerId))],
+  }
+}
+
+function provisionalProfileFor(user: { uid: string; email: string | null; displayName: string | null; photoURL?: string | null; phoneNumber?: string | null }): UserProfile {
+  return {
+    uid: user.uid,
+    email: user.email ?? '',
+    displayName: user.displayName ?? 'Thành viên Aura',
+    photoURL: user.photoURL ?? null,
+    phoneNumber: user.phoneNumber ?? undefined,
+    role: 'student',
+    membership: 'free',
+    onboardingCompleted: false,
   }
 }
 
@@ -264,12 +289,74 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [authorizationError, setAuthorizationError] = useState<string | null>(null)
   const [authzReady, setAuthzReady] = useState(!isFirebaseConfigured)
   const [profileSyncState, setProfileSyncState] = useState<DataSyncState>(initialProfileSyncState)
+  const observedAuthUidRef = useRef<string | null>(null)
+  const authObserverLagTimerRef = useRef<number | null>(null)
+  const accessHydrationRef = useRef<{ uid: string; promise: Promise<void> } | null>(null)
+
+  const hydrateAccessContext = useCallback((firebaseUser: NonNullable<typeof firebaseAuth>['currentUser'] & {}) => {
+    if (!firebaseUser) return Promise.resolve()
+    const pending = accessHydrationRef.current
+    if (pending?.uid === firebaseUser.uid) return pending.promise
+
+    const isCurrent = () => firebaseAuth?.currentUser?.uid === firebaseUser.uid
+      || observedAuthUidRef.current === firebaseUser.uid
+    let promise: Promise<void>
+    promise = getMyAccessContext(firebaseUser.uid)
+      .then((nextAccessContext) => {
+        if (!isCurrent()) return
+        setAccessContext(nextAccessContext)
+        setProfile((current) => current?.uid === firebaseUser.uid
+          ? { ...current, role: compatibilityRoleFromAccess(nextAccessContext) }
+          : current)
+        setAuthorizationError(nextAccessContext.status === 'active'
+          ? null
+          : 'Tài khoản đang bị tạm khóa hoặc chưa hoàn tất lời mời.')
+      })
+      .catch((error) => {
+        if (!isCurrent()) return
+        setAccessContext(emptyStudentAccessContext(firebaseUser.uid))
+        setAuthorizationError(error instanceof Error && error.message.includes('Quyền tài khoản chưa đồng bộ')
+          ? 'Quyền tài khoản chưa đồng bộ. Vui lòng đăng nhập lại hoặc liên hệ quản trị viên.'
+          : 'Chưa thể xác minh phạm vi quyền. Các chức năng nhân viên đang được khóa an toàn.')
+        reportClientIssue('auth', error, { phase: 'access_context_sync', retryable: true })
+      })
+      .finally(() => {
+        if (isCurrent()) setAuthzReady(true)
+        if (accessHydrationRef.current?.promise === promise) accessHydrationRef.current = null
+      })
+    accessHydrationRef.current = { uid: firebaseUser.uid, promise }
+    return promise
+  }, [])
+
+  const publishProvisionalSession = useCallback((firebaseUser: NonNullable<typeof firebaseAuth>['currentUser'] & {}) => {
+    if (!firebaseUser) return
+    setUser(toAppUser(firebaseUser))
+    setProfile((current) => current?.uid === firebaseUser.uid ? current : provisionalProfileFor(firebaseUser))
+    setAuthorizationError(null)
+    setAuthzReady(false)
+    setLoading(false)
+    void hydrateAccessContext(firebaseUser)
+
+    if (authObserverLagTimerRef.current !== null) window.clearTimeout(authObserverLagTimerRef.current)
+    authObserverLagTimerRef.current = window.setTimeout(() => {
+      if (firebaseAuth?.currentUser?.uid !== firebaseUser.uid || observedAuthUidRef.current === firebaseUser.uid) return
+      reportClientIssue('auth', new Error('Firebase Auth observer did not publish the authenticated user in time.'), {
+        phase: 'auth_observer_lag',
+        retryable: true,
+      })
+      // The credential is already valid. Keep Aura usable while the observer and
+      // permission/profile hydration recover in the background.
+      setUser(toAppUser(firebaseUser))
+      setLoading(false)
+    }, 5_000)
+  }, [hydrateAccessContext])
 
   useEffect(() => {
     if (!firebaseAuth || !hasFreshGoogleRedirectMarker()) return
     void getRedirectResult(firebaseAuth)
       .then(async (result) => {
         if (!result) return
+        publishProvisionalSession(result.user)
         await createOrUpdateUserProfile({
           uid: result.user.uid,
           email: result.user.email ?? '',
@@ -291,7 +378,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         window.dispatchEvent(new CustomEvent('aura-auth-redirect-error', { detail: friendlyMessage }))
       })
       .finally(clearGoogleRedirectMarker)
-  }, [])
+  }, [publishProvisionalSession])
 
   useEffect(() => {
     if (!isFirebaseConfigured || !firebaseAuth) {
@@ -307,12 +394,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     let unsubscribeProfile: (() => void) | undefined
     let authGeneration = 0
     const unsubscribeAuth = onIdTokenChanged(firebaseAuth, async (firebaseUser) => {
+      observedAuthUidRef.current = firebaseUser?.uid ?? null
+      if (authObserverLagTimerRef.current !== null) {
+        window.clearTimeout(authObserverLagTimerRef.current)
+        authObserverLagTimerRef.current = null
+      }
       const generation = ++authGeneration
       const isCurrent = () => generation === authGeneration
       clearTimeout(safetyTimeout)
       unsubscribeProfile?.()
 
       if (!firebaseUser) {
+        accessHydrationRef.current = null
         setUser(null)
         setProfile(null)
         setAccessContext(null)
@@ -324,16 +417,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       setUser(toAppUser(firebaseUser))
-      const provisionalProfile: UserProfile = {
-        uid: firebaseUser.uid,
-        email: firebaseUser.email ?? '',
-        displayName: firebaseUser.displayName ?? 'Thành viên Aura',
-        photoURL: firebaseUser.photoURL,
-        phoneNumber: firebaseUser.phoneNumber ?? undefined,
-        role: 'student',
-        membership: 'free',
-        onboardingCompleted: false,
-      }
+      const provisionalProfile = provisionalProfileFor(firebaseUser)
       setProfile(provisionalProfile)
       setAuthorizationError(null)
       setAuthzReady(false)
@@ -342,27 +426,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setLoading(false)
 
       // Resolve the capability scope in parallel with the locally cached ID
-      // token. Previously this request started only after token decoding and
-      // blocked profile hydration/listeners for the full callable cold start.
-      void getMyAccessContext(firebaseUser.uid)
-        .then((nextAccessContext) => {
-          if (!isCurrent()) return
-          setAccessContext(nextAccessContext)
-          if (nextAccessContext.status !== 'active') {
-            setAuthorizationError('Tài khoản đang bị tạm khóa hoặc chưa hoàn tất lời mời.')
-          }
-        })
-        .catch((error) => {
-          if (!isCurrent()) return
-          setAccessContext(emptyStudentAccessContext(firebaseUser.uid))
-          setAuthorizationError(error instanceof Error && error.message.includes('Quyền tài khoản chưa đồng bộ')
-            ? 'Quyền tài khoản chưa đồng bộ. Vui lòng đăng nhập lại hoặc liên hệ quản trị viên.'
-            : 'Chưa thể xác minh phạm vi quyền. Các chức năng nhân viên đang được khóa an toàn.')
-          reportClientIssue('auth', error, { phase: 'access_context_sync', retryable: true })
-        })
-        .finally(() => {
-          if (isCurrent()) setAuthzReady(true)
-        })
+      // token. The same single-flight hydrator is also used by a provisional
+      // login, so an observer/persistence race cannot strand Staff in a learner
+      // shell while their valid session is being recovered.
+      void hydrateAccessContext(firebaseUser)
 
       // A cache is display-only. Only a versioned envelope previously written
       // from a confirmed Firestore snapshot is accepted here.
@@ -505,11 +572,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     return () => {
       authGeneration += 1
+      if (authObserverLagTimerRef.current !== null) window.clearTimeout(authObserverLagTimerRef.current)
       unsubscribeProfile?.()
       unsubscribeAuth()
       clearRecaptchaVerifier()
     }
-  }, [])
+  }, [hydrateAccessContext])
 
   const value = useMemo<AuthContextValue>(() => ({
     user,
@@ -529,15 +597,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!firebaseAuth) {
         throw new Error('Firebase chưa được cấu hình.')
       }
+      let authenticatedUser: NonNullable<typeof firebaseAuth.currentUser>
       try {
         const result = await signInWithEmailAndPassword(firebaseAuth, email, password)
-        if (pendingGoogleCredential) {
-          await linkWithCredential(result.user, pendingGoogleCredential)
-          pendingGoogleCredential = null
-        }
+        authenticatedUser = result.user
       } catch (error) {
+        const recoveredUser = firebaseAuth.currentUser
+        if (shouldRecoverAuthenticatedSession(error, recoveredUser?.uid)) {
+          publishProvisionalSession(recoveredUser!)
+          reportClientIssue('auth', error, { phase: 'auth_persistence_recovered', provider: 'password', retryable: false })
+          return
+        }
         reportClientIssue('auth', error, { phase: 'email_signin', provider: 'password', retryable: true })
         throw error
+      }
+      publishProvisionalSession(authenticatedUser)
+      if (pendingGoogleCredential) {
+        try {
+          await linkWithCredential(authenticatedUser, pendingGoogleCredential)
+          pendingGoogleCredential = null
+        } catch (error) {
+          reportClientIssue('auth', error, { phase: 'google_link_after_email_signin', provider: 'google', retryable: true })
+        }
       }
     },
     signUp: async (displayName, email, password) => {
@@ -546,7 +627,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       try {
         const credential = await createUserWithEmailAndPassword(firebaseAuth, email, password)
+        publishProvisionalSession(credential.user)
         await updateProfile(credential.user, { displayName })
+        setUser(toAppUser(credential.user))
         await createOrUpdateUserProfile({
           uid: credential.user.uid,
           email,
@@ -571,6 +654,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           return
         }
         const credential = await signInWithPopup(firebaseAuth, provider)
+        publishProvisionalSession(credential.user)
         const userEmail = credential.user.email ?? ''
         await createOrUpdateUserProfile({
           uid: credential.user.uid,

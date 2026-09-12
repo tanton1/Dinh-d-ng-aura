@@ -1,7 +1,6 @@
 import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { Student, UserProfile, StudentContract, TrainingPackage, Trainer, Branch } from '../../../types';
 import { User } from 'firebase/auth';
-import { db } from '../../../lib/firebaseFirestore';
 import { Search, Plus, Edit2, Trash2, Phone, Mail, Calendar, CheckCircle, XCircle, AlertCircle, User as UserIcon, Package, RefreshCw, SlidersHorizontal, ChevronRight } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import DateRangeFilter from './DateRangeFilter';
@@ -46,9 +45,8 @@ export default function StudentManagement({ user, profile, initialStudentId = nu
   const { authzReady, hasCapability } = useAuth();
   const { 
     students, contracts, packages, trainers, branches, sessions, ptAvailability,
-    updateStudent, deleteStudent,
+    updateStudent,
     addContract, updateContract, deleteContract,
-    updateUserProfile
   } = useDatabase();
   const canManageStudents = (authzReady && hasCapability('pt.operations.manage')) || import.meta.env.MODE === 'e2e';
   const canInviteStudents = authzReady && hasCapability('identity.invite.manage');
@@ -499,15 +497,9 @@ export default function StudentManagement({ user, profile, initialStudentId = nu
       // Send only the updates to Firestore to avoid overwriting fields like availableSlots
       await updateStudent(editingStudent.id, sanitize(updates));
       
-      // Update User Profile in Firestore if it exists
-      try {
-        await updateUserProfile(editingStudent.id, {
-          name: formData.name,
-          branchId: formData.branchId || profile?.branchId || '',
-        });
-      } catch (e) {
-        console.error("Error updating linked user profile:", e);
-      }
+      // The callable synchronizes display name and branch to users/{accountUid}
+      // only when the CRM profile has a canonical identity link. It never
+      // assumes the student document id is a Firebase Auth uid.
     } else {
       if (!formData.phone) {
         setError('Cần số điện thoại để tạo tài khoản học viên.');
@@ -566,7 +558,7 @@ export default function StudentManagement({ user, profile, initialStudentId = nu
       setShowDeleteConfirm(false);
       return;
     }
-    if (!studentToDelete || !db) return;
+    if (!studentToDelete) return;
     try {
       await updateStudent(studentToDelete, { status: 'inactive' });
       setAlertMessage('Đã lưu trữ học viên. Hợp đồng, chứng từ và lịch sử buổi tập được giữ nguyên.');

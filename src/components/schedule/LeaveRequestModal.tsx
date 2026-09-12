@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from 'react'
 import { CalendarRange, CircleAlert, ShieldCheck, X } from 'lucide-react'
 import { createMyContractPauseRequest } from '../../services/sessionOperationsService'
+import { PT_OPERATIONS_POLICY_DEFAULTS } from '../../config/ptOperationsPolicy'
 
 interface Props {
   onClose: () => void
@@ -35,9 +36,9 @@ export default function LeaveRequestModal({ onClose, onCreated, contractId, poli
   const [error, setError] = useState('')
   const idempotencyKey = useRef(newKey())
   const durationDays = useMemo(() => duration(startDate, endDate), [startDate, endDate])
-  const offMaxDays = policy?.offMaxDaysPerRequest ?? 14
-  const cutoffHour = policy?.offRegistrationCutoffHour ?? 10
-  const offLimits = policy?.offLimitsByDuration ?? { threeMonths: 1, sixMonths: 3, twelveMonths: 6 }
+  const offMaxDays = policy?.offMaxDaysPerRequest ?? PT_OPERATIONS_POLICY_DEFAULTS.offMaxDaysPerRequest
+  const cutoffHour = policy?.offRegistrationCutoffHour ?? PT_OPERATIONS_POLICY_DEFAULTS.offRegistrationCutoffHour
+  const offLimits = policy?.offLimitsByDuration ?? PT_OPERATIONS_POLICY_DEFAULTS.offLimitsByDuration
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault()

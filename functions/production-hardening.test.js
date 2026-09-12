@@ -42,6 +42,11 @@ test('trainer scheduling policy exposes a soft daily workload target and ignores
 test('Functions package includes the same deployable identity contract as the web app', () => {
   assert.deepEqual(functionsIdentityContract, sharedIdentityContract)
   assert.match(identity, /require\('\.\/identity-contract\.json'\)/)
+  assert.ok(!sharedIdentityContract.staffCapabilities.includes('performance.self.view'))
+  assert.ok(!sharedIdentityContract.staffCapabilities.includes('performance.evidence.submit'))
+  assert.ok(sharedIdentityContract.positionCapabilities.trainer_pt.includes('performance.self.view'))
+  assert.ok(sharedIdentityContract.positionCapabilities.trainer_pt.includes('performance.evidence.submit'))
+  assert.ok(sharedIdentityContract.positionCapabilities.branch_manager.includes('performance.evidence.review'))
 })
 
 test('Express rejects unverifiable Firebase tokens without unsigned decode fallback', () => {
@@ -62,6 +67,10 @@ test('nutrition catalog is served only after authenticated account verification'
   assert.doesNotMatch(identity, /listInternalNutritionCatalog[\s\S]*?requireCapability\(actor, 'nutrition\.catalog\.internal\.view'\)/)
   assert.match(identity, /collection\('nutritionCatalog'\)/)
   assert.match(identity, /nutritionCatalogTotal\(db\)/)
+  assert.match(identity, /nutritionCatalogBrowseQuery\(db/)
+  assert.match(identity, /\.orderBy\('nameAscii'\)/)
+  assert.match(identity, /await browseQuery\.count\(\)\.get\(\)/)
+  assert.match(identity, /if \(!requestedIds\.length && !query\)/)
   assert.match(identity, /nextCursor/)
   assert.match(identity, /Math\.min\(60, Math\.max\(12, requestedLimit\)\)/)
   assert.match(identity, /filterNutritionCatalogEntries\(catalogIndex\.entries/)
@@ -76,6 +85,8 @@ test('nutrition catalog is served only after authenticated account verification'
   assert.doesNotMatch(nutritionPage, /limit: 180/)
   assert.match(nutritionCatalogService, /category: input\.category/)
   assert.match(nutritionCatalogService, /catalogVersion: input\.catalogVersion/)
+  assert.match(nutritionCatalogService, /requestCatalogPage/)
+  assert.match(nutritionCatalogService, /isRetryableCatalogError/)
 })
 
 test('nutrition route keeps a small orchestrator and lazy task boundaries', () => {

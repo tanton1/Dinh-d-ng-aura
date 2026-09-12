@@ -1,17 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { CalendarClock, CalendarOff, CalendarRange, CheckCircle2, Plus, Save, ShieldCheck, Trash2 } from 'lucide-react'
 import { useDatabase } from '../../../contexts/DatabaseContext'
 import type { ScheduleConfig, ScheduleHoliday } from '../../../types'
-
-type PolicyDraft = Required<Pick<ScheduleConfig,
-  | 'complimentaryChangeCancelPerMonth'
-  | 'sessionChangeDeadlineHours'
-  | 'offMaxDaysPerRequest'
-  | 'offRegistrationCutoffHour'
-  | 'offLimitsByDuration'
->>
+import { ptOperationsPolicyFromConfig, type PtOperationsPolicyDraft } from '../../../config/ptOperationsPolicy'
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/
+const WEEKDAY_OPTIONS = ['Chủ nhật', 'Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7']
 
 function normalizedHolidayDetails(config: ScheduleConfig): ScheduleHoliday[] {
   const detailsByDate = new Map<string, ScheduleHoliday>()
@@ -33,32 +27,19 @@ function normalizedHolidayDetails(config: ScheduleConfig): ScheduleHoliday[] {
   return [...detailsByDate.values()].sort((left, right) => left.date.localeCompare(right.date))
 }
 
-function fromConfig(config: ScheduleConfig): PolicyDraft {
-  return {
-    complimentaryChangeCancelPerMonth: config.complimentaryChangeCancelPerMonth === 2 ? 2 : 1,
-    sessionChangeDeadlineHours: Number(config.sessionChangeDeadlineHours || 12),
-    offMaxDaysPerRequest: Number(config.offMaxDaysPerRequest || 14),
-    offRegistrationCutoffHour: Number(config.offRegistrationCutoffHour ?? 10),
-    offLimitsByDuration: {
-      threeMonths: Number(config.offLimitsByDuration?.threeMonths ?? 1),
-      sixMonths: Number(config.offLimitsByDuration?.sixMonths ?? 3),
-      twelveMonths: Number(config.offLimitsByDuration?.twelveMonths ?? 6),
-    },
-  }
-}
-
 export default function AuraTeamPolicySettings({ canEdit = false }: { canEdit?: boolean }) {
   const { scheduleConfig, updateScheduleConfig } = useDatabase()
-  const [draft, setDraft] = useState<PolicyDraft>(() => fromConfig(scheduleConfig))
+  const [draft, setDraft] = useState<PtOperationsPolicyDraft>(() => ptOperationsPolicyFromConfig(scheduleConfig))
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
   const [holidayDetails, setHolidayDetails] = useState<ScheduleHoliday[]>(() => normalizedHolidayDetails(scheduleConfig))
   const [holidayDate, setHolidayDate] = useState('')
   const [holidayName, setHolidayName] = useState('')
+  const pendingRef = useRef(false)
 
   useEffect(() => {
-    setDraft(fromConfig(scheduleConfig))
+    setDraft(ptOperationsPolicyFromConfig(scheduleConfig))
     setHolidayDetails(normalizedHolidayDetails(scheduleConfig))
   }, [scheduleConfig])
 
@@ -88,7 +69,8 @@ export default function AuraTeamPolicySettings({ canEdit = false }: { canEdit?: 
   }
 
   const save = async () => {
-    if (!canEdit) return
+    if (!canEdit || pendingRef.current) return
+    pendingRef.current = true
     setSaving(true); setError(''); setMessage('')
     try {
       await updateScheduleConfig({
@@ -101,15 +83,17 @@ export default function AuraTeamPolicySettings({ canEdit = false }: { canEdit?: 
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Không thể lưu chính sách Aura.')
     } finally {
+      pendingRef.current = false
       setSaving(false)
     }
   }
 
   return <section className="aura-team-policy">
-    <header><span><ShieldCheck size={22} /></span><div><small>AURA · QUY ĐỊNH VẬN HÀNH</small><h2>Chính sách lịch & OFF</h2><p>Mỗi yêu cầu sẽ lưu một bản chụp chính sách để quản lý duyệt đúng quy định tại thời điểm khách gửi.</p></div></header>
+    <header><span><ShieldCheck size={22} /></span><div><small>AURA · QUY ĐỊNH VẬN HÀNH</small><h2>Chính sách lịch & OFF</h2><p>Mỗi yêu cầu lưu bản chụp chính sách đang hiệu lực. Các giá trị có thể điều chỉnh mà không cần sửa hoặc triển khai lại code.</p>{scheduleConfig.operationsPolicy && <p className="aura-team-policy__version">Đang áp dụng {scheduleConfig.operationsPolicy.version} · hiệu lực {scheduleConfig.operationsPolicy.effectiveFrom.split('-').reverse().join('/')} · mã {scheduleConfig.operationsPolicy.hash.slice(0, 10)}</p>}</div></header>
     <div className="aura-team-policy__grid">
-      <article><div><CalendarClock /><span><strong>Đổi / hủy ca</strong><small>Hạn mức miễn tính buổi dùng chung cho cả đổi và hủy.</small></span></div><label><span>Số lượt miễn / tháng</span><select value={draft.complimentaryChangeCancelPerMonth} onChange={(event) => setDraft((current) => ({ ...current, complimentaryChangeCancelPerMonth: Number(event.target.value) === 2 ? 2 : 1 }))}><option value={1}>1 lượt / tháng</option><option value={2}>2 lượt / tháng</option></select></label><label><span>Gửi trước buổi tập</span><select value={draft.sessionChangeDeadlineHours} onChange={(event) => setDraft((current) => ({ ...current, sessionChangeDeadlineHours: Number(event.target.value) }))}><option value={12}>12 giờ</option><option value={24}>24 giờ</option><option value={48}>48 giờ</option></select></label></article>
-      <article><div><CalendarOff /><span><strong>OFF hợp đồng</strong><small>OFF ngắn hơn ngưỡng được cộng ngày; dài hơn chuyển bảo lưu.</small></span></div><label><span>Tối đa mỗi lần</span><select value={draft.offMaxDaysPerRequest} onChange={(event) => setDraft((current) => ({ ...current, offMaxDaysPerRequest: Number(event.target.value) }))}><option value={7}>7 ngày</option><option value={14}>14 ngày</option><option value={21}>21 ngày</option></select></label><label><span>Hạn đăng ký Chủ nhật</span><select value={draft.offRegistrationCutoffHour} onChange={(event) => setDraft((current) => ({ ...current, offRegistrationCutoffHour: Number(event.target.value) }))}>{[8,9,10,11,12].map((hour) => <option key={hour} value={hour}>{String(hour).padStart(2, '0')}:00</option>)}</select></label></article>
+      <article><div><CalendarClock /><span><strong>Đổi / hủy ca</strong><small>Hạn mức miễn tính buổi dùng chung cho cả đổi và hủy.</small></span></div><label><span>Số lượt miễn / tháng</span><input type="number" min={0} max={12} value={draft.complimentaryChangeCancelPerMonth} onChange={(event) => setDraft((current) => ({ ...current, complimentaryChangeCancelPerMonth: Math.max(0, Math.min(12, Math.trunc(Number(event.target.value) || 0))) }))} /></label><label><span>Gửi trước buổi tập (giờ)</span><input type="number" min={1} max={168} value={draft.sessionChangeDeadlineHours} onChange={(event) => setDraft((current) => ({ ...current, sessionChangeDeadlineHours: Math.max(1, Math.min(168, Math.trunc(Number(event.target.value) || 1))) }))} /></label></article>
+      <article><div><CalendarOff /><span><strong>OFF hợp đồng</strong><small>OFF ngắn hơn ngưỡng được cộng ngày; dài hơn chuyển bảo lưu.</small></span></div><label><span>Tối đa mỗi lần (ngày)</span><input type="number" min={1} max={90} value={draft.offMaxDaysPerRequest} onChange={(event) => setDraft((current) => ({ ...current, offMaxDaysPerRequest: Math.max(1, Math.min(90, Math.trunc(Number(event.target.value) || 1))) }))} /></label><label><span>Giờ chốt Chủ nhật</span><input type="number" min={0} max={23} value={draft.offRegistrationCutoffHour} onChange={(event) => setDraft((current) => ({ ...current, offRegistrationCutoffHour: Math.max(0, Math.min(23, Math.trunc(Number(event.target.value) || 0))) }))} /></label></article>
+      <article><div><CalendarRange /><span><strong>Khóa lịch rảnh tuần</strong><small>Áp dụng cho cả học viên và PT trước tuần cần xếp.</small></span></div><label><span>Ngày khóa</span><select value={draft.availabilityRegistrationCutoffDayOfWeek} onChange={(event) => setDraft((current) => ({ ...current, availabilityRegistrationCutoffDayOfWeek: Number(event.target.value) }))}>{WEEKDAY_OPTIONS.map((label, day) => <option key={label} value={day}>{label}</option>)}</select></label><label><span>Giờ khóa</span><input type="number" min={0} max={23} value={draft.availabilityRegistrationCutoffHour} onChange={(event) => setDraft((current) => ({ ...current, availabilityRegistrationCutoffHour: Math.max(0, Math.min(23, Math.trunc(Number(event.target.value) || 0))) }))} /></label></article>
     </div>
     <div className="aura-team-policy__allowances"><strong>Số lượt OFF theo thời hạn hợp đồng</strong>{([['threeMonths','Gói 3 tháng'],['sixMonths','Gói 6 tháng'],['twelveMonths','Gói 12 tháng']] as const).map(([key,label]) => <label key={key}><span>{label}</span><input type="number" min={0} max={48} value={draft.offLimitsByDuration[key]} onChange={(event) => setDraft((current) => ({ ...current, offLimitsByDuration: { ...current.offLimitsByDuration, [key]: Math.max(0, Math.min(48, Number(event.target.value) || 0)) } }))} /><small>lượt</small></label>)}</div>
     <article className="aura-team-policy__holidays">

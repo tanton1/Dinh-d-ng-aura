@@ -39,6 +39,9 @@ export interface Student360Alert {
 export interface Student360Action extends Student360Alert {
   priority: number
   description: string
+  /** Present when the action comes from the durable Action Center projection. */
+  operationalActionId?: string
+  status?: 'open' | 'in_progress'
 }
 
 export interface Student360Overview {
@@ -89,7 +92,7 @@ export interface Student360Overview {
     remainingSessions: number
     legacyProjectionAdjustment: number
     projectionDelta: number
-    reconciliationStatus: 'matched' | 'legacy_projection' | 'projection_behind' | 'over_entitlement'
+    reconciliationStatus: 'matched' | 'legacy_projection' | 'projection_behind' | 'over_entitlement' | 'evidence_truncated'
     payment: null | {
       status: 'paid' | 'due' | 'overdue'
       nextPaymentDate: string | null
@@ -303,7 +306,7 @@ export interface Student360ContractRecord {
     pendingReconciliationSessions: number
     usedSessions: number
     remainingSessions: number
-    reconciliationStatus: 'matched' | 'legacy_projection' | 'projection_behind' | 'over_entitlement'
+    reconciliationStatus: 'matched' | 'legacy_projection' | 'projection_behind' | 'over_entitlement' | 'evidence_truncated'
   }
 }
 
@@ -325,8 +328,9 @@ export interface Student360ContractWorkspace {
     name: string
     branchId: string | null
     branchName: string | null
-    status: 'active' | 'inactive'
-    referencedByContract: boolean
+    status: 'active' | 'inactive' | 'archived'
+    /** Present on newer responses; older regional endpoints can omit it during rollout. */
+    referencedByContract?: boolean
   }>
   branches: Array<{ id: string; name: string }>
 }

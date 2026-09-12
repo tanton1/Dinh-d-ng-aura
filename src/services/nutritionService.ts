@@ -1,6 +1,6 @@
 import { httpsCallable } from 'firebase/functions'
 import { deleteObject, ref, uploadBytes } from 'firebase/storage'
-import { firebaseAuth, initializeFirebaseAppCheck } from '../lib/firebase'
+import { firebaseAppCheckStatus, firebaseAuth, initializeFirebaseAppCheck, isFirebaseConfigured, useFirebaseEmulators } from '../lib/firebase'
 import { firebaseFunctions } from '../lib/firebaseFunctions'
 import { firebaseStorage } from '../lib/firebaseStorage'
 import { reportClientIssue } from './clientTelemetryService'
@@ -600,7 +600,19 @@ export async function analyzeFoodPhoto(
   assertImage(image)
   validateAnalyzeOptions(options)
   try {
-    await initializeFirebaseAppCheck()
+    const appCheck = await initializeFirebaseAppCheck()
+    // Production AI callables enforce App Check. Fail early with a useful,
+    // actionable message when the web provider is missing or could not start
+    // instead of uploading a photo and returning a generic "internal" error.
+    if (isFirebaseConfigured && !useFirebaseEmulators && !appCheck) {
+      const appCheckError = new Error(
+        firebaseAppCheckStatus === 'missing_site_key'
+          ? 'Aura chưa cấu hình xác thực App Check cho phiên này. Hãy tải lại trang hoặc báo quản trị viên.'
+          : 'Aura chưa xác minh được phiên bảo mật của trình duyệt. Hãy tải lại trang rồi thử lại.',
+      ) as Error & { code?: string }
+      appCheckError.code = 'failed-precondition'
+      throw appCheckError
+    }
     const upload = await uploadFoodPhoto(image)
     return await analyzeUploadedFoodPhoto(upload, options)
   } catch (error) {

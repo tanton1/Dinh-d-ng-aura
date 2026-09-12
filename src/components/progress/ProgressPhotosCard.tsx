@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { safeLocalStorageSet } from '../../lib/safeStorage'
+import { readProgressPhotoCache, shouldApplyPhotoSnapshot, writeProgressPhotoCache } from '../../dataSync/progressPhotoCache'
 import { 
   Camera, 
   ChevronRight, 
@@ -101,7 +102,12 @@ const compressImage = (base64Str: string, maxWidth = 1000, maxHeight = 1000, qua
   })
 }
 
-export function ProgressPhotosCard({ ownerId, triggerAddPhoto, onAddPhotoTriggered, onNavigateToStudio }: ProgressPhotosCardProps) {
+export function ProgressPhotosCard(props: ProgressPhotosCardProps) {
+  // Reset private photo/form state before painting a different account.
+  return <ProgressPhotosCardContent key={props.ownerId} {...props} />
+}
+
+function ProgressPhotosCardContent({ ownerId, triggerAddPhoto, onAddPhotoTriggered, onNavigateToStudio }: ProgressPhotosCardProps) {
   const [photos, setPhotos] = useState<ProgressPhoto[]>([])
   const [activeAngle, setActiveAngle] = useState<'front' | 'side' | 'back'>('front')
   
@@ -182,19 +188,7 @@ export function ProgressPhotosCard({ ownerId, triggerAddPhoto, onAddPhotoTrigger
 
   // Load photos from local storage and sync with Firebase
   const loadLocalPhotos = () => {
-    const cached1 = localStorage.getItem(`aura:progress-photos:${ownerId}`)
-    const cached2 = localStorage.getItem(`aura:cache:user_progress_photos:${ownerId}`)
-    const cached = cached1 || cached2
-    if (cached) {
-      try {
-        const parsed = JSON.parse(cached)
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          setPhotos(parsed)
-        }
-      } catch (e) {
-        console.error('Error parsing cached photos:', e)
-      }
-    }
+    setPhotos(readProgressPhotoCache<ProgressPhoto>(ownerId, (key) => localStorage.getItem(key)))
   }
 
   useEffect(() => {
@@ -204,26 +198,22 @@ export function ProgressPhotosCard({ ownerId, triggerAddPhoto, onAddPhotoTrigger
     }
     window.addEventListener('aura:progress-photos-updated', handleUpdateEvent)
 
-    if (ownerId === 'demo' || ownerId === 'anonymous') {
-      // Just keep local
-    }
-
     return () => {
       window.removeEventListener('aura:progress-photos-updated', handleUpdateEvent)
     }
   }, [ownerId])
 
   useEffect(() => {
+    let active = true
     if (ownerId && ownerId !== 'demo' && ownerId !== 'anonymous') {
       try {
-        const unsub = subscribeToUserProgressPhotos(ownerId, (data) => {
-          if (Array.isArray(data) && data.length > 0) {
+        const unsub = subscribeToUserProgressPhotos(ownerId, (data, serverConfirmed) => {
+          if (active && shouldApplyPhotoSnapshot(data, serverConfirmed)) {
             setPhotos(data)
-            safeLocalStorageSet(`aura:progress-photos:${ownerId}`, JSON.stringify(data))
-            safeLocalStorageSet(`aura:cache:user_progress_photos:${ownerId}`, JSON.stringify(data))
+            if (serverConfirmed) writeProgressPhotoCache(ownerId, data, safeLocalStorageSet)
           }
         })
-        return () => unsub()
+        return () => { active = false; unsub() }
       } catch (err) {
         console.error('Subscribe error', err)
       }

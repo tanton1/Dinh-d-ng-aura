@@ -67,7 +67,7 @@ const [entryCss, entryJs, firebaseAuthVendor, firebaseFirestoreVendor, adminDash
   gzipMatchingAsset(/^CourseDetailPage-[\w-]+\.js$/),
   gzipMatchingAsset(/^CourseLessonRuntime-[\w-]+\.js$/),
   gzipMatchingAsset(/^Student360Page-[\w-]+\.js$/),
-  gzipMatchingAsset(/^SchedulerWrapper-[\w-]+\.js$/),
+  gzipMatchingAsset(/^BranchScheduleWorkspace-[\w-]+\.js$/),
   stat(path.join(rootDir, 'public', 'aura-onboarding.webp')),
   readFile(path.join(rootDir, 'index.html'), 'utf8'),
   readFile(path.join(rootDir, 'dist', 'index.html'), 'utf8'),

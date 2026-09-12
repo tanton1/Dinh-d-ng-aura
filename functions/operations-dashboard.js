@@ -3,6 +3,7 @@ const { HttpsError } = require('firebase-functions/v2/https')
 const { trustedAccessContext, requireCapability } = require('./identity-access')
 const { createSharedDashboardCache, stableDashboardCacheKey } = require('./operations-dashboard-cache')
 const { loadDailyAggregates } = require('./operations-dashboard-aggregates')
+const { overlayContractUsageViews } = require('./contract-usage-view')
 
 const MAX_RANGE_DAYS = 366
 const MAX_SCANNED_DOCUMENTS = 10000
@@ -705,7 +706,11 @@ function createOperationsDashboardFunctions({ db, onCall, logger = console }) {
     ])
 
     const ledgerValues = ledger ? ledger.docs.map((item) => item.data()).filter((value) => scopeMatches(value, scope) && ['posted', 'reversed'].includes(value.status)) : []
-    const contractValues = contracts ? contracts.docs.slice(0, MAX_CONTRACT_DOCUMENTS).map((item) => ({ id: item.id, ...item.data() })).filter((value) => scopeMatches(value, scope)) : []
+    const contractValues = contracts ? (await overlayContractUsageViews(
+      db,
+      contracts.docs.slice(0, MAX_CONTRACT_DOCUMENTS).map((item) => ({ id: item.id, ...item.data() })),
+      MAX_CONTRACT_DOCUMENTS,
+    )).filter((value) => scopeMatches(value, scope)) : []
     const studentValues = students ? students.docs.slice(0, MAX_STUDENT_DOCUMENTS).map((item) => ({ id: item.id, ...item.data() })).filter((value) => scopeMatches(value, scope)) : []
     const trainerValues = trainers ? trainers.docs.slice(0, MAX_TRAINER_DOCUMENTS).map((item) => ({ id: item.id, ...item.data() })).filter((value) => scopeMatches(value, scope)) : []
     const staffValues = staff ? staff.docs.slice(0, MAX_STAFF_DOCUMENTS).map((item) => item.data()).filter((value) => scopeMatches(value, scope)) : []

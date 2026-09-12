@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { CalendarClock, Check, CircleAlert, MapPin, RefreshCw, UsersRound, X } from 'lucide-react'
 import { createMySessionRequest, getMySessionChangeSuggestions, type SessionChangeSuggestionPage } from '../../services/sessionOperationsService'
+import { PT_OPERATIONS_POLICY_DEFAULTS } from '../../config/ptOperationsPolicy'
 
 interface RequestableSession {
   id: string
@@ -43,7 +44,7 @@ export default function SessionRequestModal({ onClose, onCreated, session }: Pro
     return ([1, 2, 3] as const).map((tier) => ({
       tier,
       label: tier === 1 ? 'Ưu tiên ghép ca 1/2' : tier === 2 ? 'PT chính dưới mốc cân tải' : 'PT Aura còn lịch',
-      hint: tier === 1 ? 'Lấp ghế trống, không mở thêm ca cho PT.' : tier === 2 ? 'Mở ca mới khi PT chính chưa đủ mốc 8 ca/ngày.' : 'Phương án dự phòng, vẫn ưu tiên xếp đủ buổi.',
+      hint: tier === 1 ? 'Lấp ghế trống, không mở thêm ca cho PT.' : tier === 2 ? 'Mở ca mới khi PT chính thức còn dưới mốc cân tải được cấu hình.' : 'Phương án dự phòng, vẫn ưu tiên xếp đủ buổi.',
       items: suggestions.filter((candidate) => (candidate.priorityTier ?? (candidate.pairsExistingSession ? 1 : candidate.isPrimaryTrainer ? 2 : 3)) === tier),
     })).filter((group) => group.items.length > 0)
   }, [suggestionPage?.suggestions])
@@ -107,7 +108,7 @@ export default function SessionRequestModal({ onClose, onCreated, session }: Pro
           <div><small>AURA · QUY ĐỊNH LỊCH</small><h2 id="session-policy-title">Đổi hoặc hủy buổi tập</h2></div>
           <button type="button" aria-label="Đóng" onClick={onClose}><X size={20} /></button>
         </header>
-        <div className="student-policy-note"><CircleAlert size={18} /><p><strong>Gửi trước giờ tập ít nhất {policy?.sessionChangeDeadlineHours ?? 12} giờ.</strong> Aura đang áp dụng {policy?.complimentaryChangeCancelPerMonth ?? 1} lượt đổi/hủy không tính buổi mỗi tháng; bạn còn {policy?.complimentaryRemaining ?? '…'} lượt.</p></div>
+        <div className="student-policy-note"><CircleAlert size={18} /><p><strong>Gửi trước giờ tập ít nhất {policy?.sessionChangeDeadlineHours ?? PT_OPERATIONS_POLICY_DEFAULTS.sessionChangeDeadlineHours} giờ.</strong> Aura đang áp dụng {policy?.complimentaryChangeCancelPerMonth ?? PT_OPERATIONS_POLICY_DEFAULTS.complimentaryChangeCancelPerMonth} lượt đổi/hủy không tính buổi mỗi tháng; bạn còn {policy?.complimentaryRemaining ?? '…'} lượt.</p></div>
         <div className="student-policy-current"><small>BUỔI ĐANG CHỌN</small><strong>{sessionLabel}</strong></div>
         <form onSubmit={handleSubmit}>
           <div className="student-policy-segment" aria-label="Loại yêu cầu"><button type="button" className={type === 'cancel' ? 'active' : ''} onClick={() => setType('cancel')}>Hủy buổi</button><button type="button" className={type === 'reschedule' ? 'active' : ''} onClick={() => setType('reschedule')}>Đổi lịch</button></div>

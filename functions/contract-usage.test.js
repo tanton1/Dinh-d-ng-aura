@@ -28,12 +28,22 @@ test('canonical usage counts explicit charges and compatible legacy history exac
   assert.equal(summary.presentSessions, 4)
   assert.equal(summary.lateSessions, 1)
   assert.equal(summary.noShowSessions, 1)
+  assert.equal(summary.chargedNoShowSessions, 1)
   assert.equal(summary.policyChargedSessions, 1)
   assert.equal(summary.exemptSessions, 1)
   assert.equal(summary.pendingSessions, 2)
   assert.equal(summary.legacyChargedSessions, 1)
   assert.equal(sessionCountsTowardContract({ billingStatus: 'exempt', status: 'completed' }), false)
   assert.equal(sessionCountsTowardContract({ billingStatus: 'review_required', attendanceStatus: 'present', status: 'completed' }), false)
+})
+
+test('charged no-show count excludes exempt no-shows', () => {
+  const summary = summarizeSessionUsage([
+    { status: 'no_show', attendanceStatus: 'no_show', billingStatus: 'charged' },
+    { status: 'no_show', attendanceStatus: 'no_show', billingStatus: 'exempt' },
+  ])
+  assert.equal(summary.noShowSessions, 2)
+  assert.equal(summary.chargedNoShowSessions, 1)
 })
 
 test('contract summary exposes legacy projection delta without inventing attendance', () => {
@@ -102,9 +112,11 @@ test('exact history projection contract remains the terminal projection source',
   assert.match(source, /afterUsed > safeCount\(contract\.totalSessions\) \? 'over_entitlement' : 'matched'/)
 })
 
-test('student detail always exposes callable history and explains charged attendance pending', () => {
-  const source = readFileSync(path.join(__dirname, '..', 'src', 'components', 'admin', 'pt', 'StudentDetail.tsx'), 'utf8')
-  assert.match(source, /id: 'history'.+visible: true/)
-  assert.match(source, /chargedPendingAttendanceSessions/)
-  assert.match(source, />Chờ PT</)
+test('Student 360 exposes callable history and explains pending contract reconciliation', () => {
+  const source = readFileSync(path.join(__dirname, '..', 'src', 'features', 'student-360', 'Student360ContractWorkspace.tsx'), 'utf8')
+  const history = readFileSync(path.join(__dirname, '..', 'src', 'components', 'admin', 'pt', 'TrainingHistoryPanel.tsx'), 'utf8')
+  assert.match(source, /getStudent360ContractWorkspace/)
+  assert.match(source, /pendingReconciliationSessions/)
+  assert.match(source, /chờ đối soát/)
+  assert.match(history, /listStudentTrainingHistory/)
 })

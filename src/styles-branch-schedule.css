@@ -141,10 +141,6 @@
 .trainer-availability-chip.is-unrestricted { color: #6c4a9a; background: #f5effc; }
 .schedule-opportunity-inline-legend { display:flex; flex-wrap:wrap; align-items:center; gap:5px; margin-left:auto; }
 .schedule-opportunity-inline-legend span { display:inline-flex; align-items:center; gap:5px; padding:5px 7px; border-radius:999px; color:#665965; background:#f7f4f6; font-size:.55rem; font-weight:760; }
-.schedule-opportunity-inline-legend span::before { width:6px; height:6px; flex:0 0 auto; border-radius:50%; background:var(--opportunity-color); content:""; }
-.schedule-opportunity-inline-legend .is-tier-1 { --opportunity-color:#7658c9; }
-.schedule-opportunity-inline-legend .is-tier-2 { --opportunity-color:#b17a22; }
-.schedule-opportunity-inline-legend .is-tier-3 { --opportunity-color:#66809e; }
 .branch-schedule__draft-meta { display: flex; gap: 6px; margin-left: auto; }
 .branch-schedule__draft-meta span { padding: 7px 9px; border: 1px solid var(--branch-line); border-radius: 8px; color: #76616f; background: #fff; font-size: .66rem; font-weight: 800; }
 .branch-schedule__mobile-days { display: none; }
@@ -217,11 +213,6 @@
 .schedule-cell__student.has-assignment-warning { color:#a9471e; background:linear-gradient(105deg,rgba(255,239,224,.96),rgba(255,248,241,.8)); box-shadow:inset 3px 0 0 #ef7c3a; }
 .schedule-cell__student.has-assignment-warning > svg { flex:0 0 auto; color:#df6728; }
 .schedule-cell.is-student-highlight .schedule-cell__student { color:#fff; }
-.schedule-cell:is(.is-opportunity-tier-1,.is-opportunity-tier-2,.is-opportunity-tier-3) { border-color:rgba(103,88,110,.16); background:rgba(249,247,249,.68); box-shadow:inset 3px 0 0 var(--opportunity-color); }
-.schedule-cell:is(.is-opportunity-tier-1,.is-opportunity-tier-2,.is-opportunity-tier-3)::after { position:absolute; right:6px; bottom:6px; width:6px; height:6px; border-radius:50%; background:var(--opportunity-color); content:""; }
-.schedule-cell.is-opportunity-tier-1 { --opportunity-color:#7658c9; }
-.schedule-cell.is-opportunity-tier-2 { --opportunity-color:#b17a22; }
-.schedule-cell.is-opportunity-tier-3 { --opportunity-color:#66809e; }
 /* Lịch rảnh và lịch đã xếp là hai lớp nhận diện chính. Chúng luôn thắng dấu
    kho ca để người vận hành không hiểu nhầm màu trạng thái khi rê/chọn HV. */
 .schedule-cell.is-availability-hover { border-style:solid; border-color:#219969; background:linear-gradient(145deg,#dcf8e9,#effdf6); box-shadow:inset 0 0 0 2px rgba(33,153,105,.17),0 7px 16px rgba(30,137,91,.10); }
@@ -858,10 +849,7 @@
 .schedule-opportunities__toolbar select { min-height:40px; border:1px solid #eadde4; border-radius:10px; padding:0 11px; color:var(--branch-ink); background:#fff; font-size:.76rem; }
 .schedule-opportunities__legend { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:6px; }
 .schedule-opportunities__legend span { padding:6px 9px; border-radius:999px; font-size:.59rem; font-weight:800; }
-.schedule-opportunities__legend .is-tier-1 { color:#c52e6b; background:#fff0f5; }
-.schedule-opportunities__legend .is-tier-2 { color:#217653; background:#eefaf3; }
-.schedule-opportunities__legend .is-tier-3 { color:#386bc1; background:#eff5ff; }
-.schedule-opportunities__legend .is-assigned { color:#6f626a; background:#f4f1f3; font-weight:650; }
+.schedule-opportunities__legend span { color:#6f626a; background:#f4f1f3; font-weight:650; }
 .schedule-opportunity-matrix { display:grid; gap:10px; min-width:0; padding:14px; border:1px solid rgba(126,94,112,.14); border-radius:16px; background:#fff; box-shadow:0 10px 28px rgba(63,42,56,.04); }
 .schedule-opportunity-matrix > header { display:flex; align-items:center; justify-content:space-between; gap:14px; }
 .schedule-opportunity-matrix > header > div:first-child { display:grid; gap:3px; }
@@ -869,10 +857,7 @@
 .schedule-opportunity-matrix > header small { color:var(--branch-muted); font-size:.64rem; line-height:1.4; }
 .schedule-opportunity-matrix__legend { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:5px; }
 .schedule-opportunity-matrix__legend span { border-radius:999px; padding:5px 8px; font-size:.56rem; font-weight:750; }
-.schedule-opportunity-matrix__legend .is-tier-1 { color:#a8245d; background:#ffe7f0; }
-.schedule-opportunity-matrix__legend .is-tier-2 { color:#176744; background:#e3f7eb; }
-.schedule-opportunity-matrix__legend .is-tier-3 { color:#285caa; background:#e8f1ff; }
-.schedule-opportunity-matrix__legend .is-empty { color:#756b71; background:#f1eef0; }
+.schedule-opportunity-matrix__legend span { color:#756b71; background:#f1eef0; }
 .schedule-opportunity-matrix__mobile-days { display:none; }
 .schedule-opportunity-matrix__shell { min-width:0; overflow:hidden; border:1px solid #eee5e9; border-radius:12px; }
 .schedule-opportunity-matrix table { width:100%; border-spacing:0; table-layout:fixed; }
@@ -888,13 +873,19 @@
 .schedule-opportunity-matrix td button > small { font-size:.54rem; font-weight:650; }
 .schedule-opportunity-matrix td button > span { display:flex; flex-wrap:wrap; justify-content:center; gap:2px; min-height:15px; }
 .schedule-opportunity-matrix td button i { border-radius:999px; padding:2px 4px; font-size:.48rem; font-style:normal; font-weight:750; }
-.schedule-opportunity-matrix td button.is-priority-1 { border-color:#f2bfd3; color:#9f2357; background:#fff0f5; }
-.schedule-opportunity-matrix td button.is-priority-2 { border-color:#bfe2d0; color:#176744; background:#edf9f2; }
-.schedule-opportunity-matrix td button.is-priority-3 { border-color:#cbdcf4; color:#285caa; background:#eff5ff; }
+.schedule-opportunity-matrix td button.is-available { border-color:#e7dfe3; color:#625860; background:#fbfafb; }
 .schedule-opportunity-matrix td button.is-empty { color:#94878e; background:#f5f3f4; cursor:default; }
-.schedule-opportunity-matrix td button i.is-tier-1 { color:#a8245d; background:#ffdbe9; }
-.schedule-opportunity-matrix td button i.is-tier-2 { color:#176744; background:#d9f2e4; }
-.schedule-opportunity-matrix td button i.is-tier-3 { color:#285caa; background:#dce9fc; }
+.schedule-opportunity-matrix td button i { color:#756b71; background:#efedef; }
+/* Priority colors are deliberately scoped to the opportunity matrix.  The
+   PT's personal schedule uses the neutral schedule-cell surface and never
+   inherits these tier colors. */
+.schedule-opportunity-matrix td button.is-available[data-priority="1"],
+.schedule-opportunity-matrix__legend span[data-priority="1"] { border-color:#8bd4b5; color:#155e4b; background:#e6f7ef; }
+.schedule-opportunity-matrix td button.is-available[data-priority="2"],
+.schedule-opportunity-matrix__legend span[data-priority="2"] { border-color:#9ab5f2; color:#284f9f; background:#eef3ff; }
+.schedule-opportunity-matrix td button.is-available[data-priority="3"],
+.schedule-opportunity-matrix__legend span[data-priority="3"] { border-color:#f3b48c; color:#8a461d; background:#fff2e8; }
+.schedule-opportunity-matrix__legend span[data-priority="0"] { border:1px solid #e3dfe1; color:#756b71; background:#f1eef0; }
 .schedule-opportunities__groups { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; }
 .schedule-opportunities__group { min-width:0; overflow:hidden; border:1px solid rgba(126,94,112,.12); border-radius:15px; background:#fff; }
 .schedule-opportunities__group > header { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:13px 14px; border-bottom:1px solid rgba(126,94,112,.1); }
@@ -909,15 +900,8 @@
 .schedule-opportunity-assignment { width:max-content; max-width:100%; overflow:hidden; color:#786c73 !important; font-size:.56rem !important; font-weight:600 !important; line-height:1.2; text-overflow:ellipsis; white-space:nowrap; }
 .schedule-opportunities__group > div em { color:#806b77; font-size:.6rem; font-style:normal; font-weight:750; white-space:nowrap; }
 .schedule-opportunities__group > div svg { color:#bf7896; }
-.schedule-opportunities__group.is-tier-1 { border-color:#f1cada; }
-.schedule-opportunities__group.is-tier-1 > header { background:#fff8fb; }
-.schedule-opportunities__group.is-tier-1 > header strong { color:#c52e6b; }
-.schedule-opportunities__group.is-tier-2 { border-color:#cfe8dc; }
-.schedule-opportunities__group.is-tier-2 > header { background:#f7fdf9; }
-.schedule-opportunities__group.is-tier-2 > header strong { color:#217653; }
-.schedule-opportunities__group.is-tier-3 { border-color:#d8e2f2; }
-.schedule-opportunities__group.is-tier-3 > header { background:#f8fbff; }
-.schedule-opportunities__group.is-tier-3 > header strong { color:#386bc1; }
+.schedule-opportunities__group > header { background:#faf8f9; }
+.schedule-opportunities__group > header strong { color:#594f56; }
 .schedule-opportunities__empty { margin:0; padding:20px 13px; color:var(--branch-muted); font-size:.69rem; line-height:1.45; text-align:center; }
 
 @media (max-width: 760px) {

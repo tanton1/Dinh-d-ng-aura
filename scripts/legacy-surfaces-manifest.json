@@ -1,0 +1,212 @@
+{
+  "schemaVersion": 1,
+  "sourceCommit": "cbf1146c99459e073b76ee3931998bbc1fa58a64",
+  "reason": "Statically unreachable legacy surfaces and private helpers; canonical UI, public export barrels, shared CSS and backend fallback paths are retained.",
+  "entries": [
+    {
+      "path": "src/components/AuraDailyPulse.tsx",
+      "archiveBlob": "d30e1d5e6ff4a12bb4ffb5e8402e84dcddd1903f",
+      "bytes": 4036
+    },
+    {
+      "path": "src/components/OnboardingFlow.tsx",
+      "archiveBlob": "cf5683aa493313ea5e46aa4864f5c752076949f8",
+      "bytes": 39748
+    },
+    {
+      "path": "src/components/admin/pt/AddSessionsModal.tsx",
+      "archiveBlob": "bbce6ef8cdb899fb7efd9a9e8318cd186a624666",
+      "bytes": 6833
+    },
+    {
+      "path": "src/components/admin/pt/AdminDashboard.tsx",
+      "archiveBlob": "a0acb99c29e4bd07e94e0bf3e0a699abb92f1cf7",
+      "bytes": 3453
+    },
+    {
+      "path": "src/components/admin/pt/AdminReportCharts.tsx",
+      "archiveBlob": "e914e8dbe40b1ffa1a643a877ebf668c31959456",
+      "bytes": 3511
+    },
+    {
+      "path": "src/components/admin/pt/AdminReportDashboard.tsx",
+      "archiveBlob": "4995b5aec5f109fd0834ae1b8def6a58985d03de",
+      "bytes": 20358
+    },
+    {
+      "path": "src/components/admin/pt/AdminTeamHub.tsx",
+      "archiveBlob": "80dd5a66e453c202db140ab8802b14060c7d1727",
+      "bytes": 1110
+    },
+    {
+      "path": "src/components/admin/pt/CancelContractModal.tsx",
+      "archiveBlob": "7629c8ce73bf94dc61568bdf3bc9c910946e5b93",
+      "bytes": 3838
+    },
+    {
+      "path": "src/components/admin/pt/EditContractModal.tsx",
+      "archiveBlob": "808b1bbeac38e19001acc15ba3a5879e30604d4e",
+      "bytes": 12917
+    },
+    {
+      "path": "src/components/admin/pt/ExtendContractModal.tsx",
+      "archiveBlob": "1931c02c920856caf6013d5aac0f2c734abb2280",
+      "bytes": 4666
+    },
+    {
+      "path": "src/components/admin/pt/HRManagement.tsx",
+      "archiveBlob": "0060d493d8c990bb68eaf64ac44bca9e20dbe1dd",
+      "bytes": 43004
+    },
+    {
+      "path": "src/components/admin/pt/LeaveApprovals.tsx",
+      "archiveBlob": "7b17b3eb81a98a18d968bce13a672d02773d7a97",
+      "bytes": 4759
+    },
+    {
+      "path": "src/components/admin/pt/MigrationTool.tsx",
+      "archiveBlob": "143b30d4b35db591451a1703af1b76fc62076b8c",
+      "bytes": 6167
+    },
+    {
+      "path": "src/components/admin/pt/OrphanedSessionChecker.tsx",
+      "archiveBlob": "6fa3b10eb5e6967c48490badfee797204b189765",
+      "bytes": 5101
+    },
+    {
+      "path": "src/components/admin/pt/PersonalDashboard.tsx",
+      "archiveBlob": "316ae2416d6506a602567d9ce013434816ea0c42",
+      "bytes": 6174
+    },
+    {
+      "path": "src/components/admin/pt/SessionRequestApprovals.tsx",
+      "archiveBlob": "ca5c636abfebc767634ade4a3aa1657ef10fc243",
+      "bytes": 6650
+    },
+    {
+      "path": "src/components/admin/pt/StaffAttendancePanel.tsx",
+      "archiveBlob": "27b91f2fd49bcaadbcbc715f8a04ae0c17a39251",
+      "bytes": 2187
+    },
+    {
+      "path": "src/components/admin/pt/StudentDetail.tsx",
+      "archiveBlob": "f75abe4da58303a224ca7f8aaf36d6ad02d9365c",
+      "bytes": 84132
+    },
+    {
+      "path": "src/components/admin/pt/StudentProgressAdmin.tsx",
+      "archiveBlob": "32b7d24e8dfcd34b8b4ec2e05ec8faab70a2e3ee",
+      "bytes": 26003
+    },
+    {
+      "path": "src/components/admin/pt/TrainerDashboard.tsx",
+      "archiveBlob": "aac1cbfea2230c3ebd70faf7a218f8e49fc5eee9",
+      "bytes": 26889
+    },
+    {
+      "path": "src/components/admin/pt/TrainerPrioritySelector.tsx",
+      "archiveBlob": "63383cd1090916bdc1a66cba3db4a210f9dff050",
+      "bytes": 4342
+    },
+    {
+      "path": "src/components/admin/pt/WorkoutPlanEditor.tsx",
+      "archiveBlob": "99ba19bb7cdd4b2a5cddcc94a3c926010358ba4d",
+      "bytes": 16161
+    },
+    {
+      "path": "src/components/admin/pt/WorkoutPlanManager.tsx",
+      "archiveBlob": "6cbb48f25bbd8b419d003a9db36a712de08ac2d3",
+      "bytes": 11313
+    },
+    {
+      "path": "src/components/food/WeekPlan.tsx",
+      "archiveBlob": "b90a8603f9f85011e19802a7eae1254d895f31c2",
+      "bytes": 7200
+    },
+    {
+      "path": "src/components/schedule/CheckIn.tsx",
+      "archiveBlob": "ee6178376cdedf3b9ac7a78bd5d4b0d2678ac35d",
+      "bytes": 12925
+    },
+    {
+      "path": "src/components/schedule/ConfirmationModal.tsx",
+      "archiveBlob": "dacd5482c1afa881b3a0cd8e47e58df0f084601a",
+      "bytes": 2861
+    },
+    {
+      "path": "src/components/schedule/TrainerList.tsx",
+      "archiveBlob": "fac7baa0a8e9bca2c53bd4c99fef60503e122984",
+      "bytes": 3562
+    },
+    {
+      "path": "src/components/schedule/WorkoutLoggerModal.tsx",
+      "archiveBlob": "e09cf66b93b0f40a9a569747b768650ba1feb50b",
+      "bytes": 14312
+    },
+    {
+      "path": "src/data/foodDb.ts",
+      "archiveBlob": "8b2315ad353b44bdb72ab4d24ed6c3b90a806a9a",
+      "bytes": 24080
+    },
+    {
+      "path": "src/data/healthyDishes.ts",
+      "archiveBlob": "70d3a7924d7ce2c66b9c09cb6a45ca738e5b1b44",
+      "bytes": 921
+    },
+    {
+      "path": "src/data/mealTemplates.ts",
+      "archiveBlob": "5a959df0adf5ec89e94746836474b6a8385078f3",
+      "bytes": 63779
+    },
+    {
+      "path": "src/data/swapRules.ts",
+      "archiveBlob": "32ccb4eaaf243de34767d7b79ecb265dabc13d66",
+      "bytes": 2937
+    },
+    {
+      "path": "src/data/workoutPlans.ts",
+      "archiveBlob": "2de91556edd42e288f6c80b97d55fdcd87b62c54",
+      "bytes": 103
+    },
+    {
+      "path": "src/firebaseSync.ts",
+      "archiveBlob": "9da3a6ecde03efaf060e10231c4c24d6795b20bd",
+      "bytes": 7781
+    },
+    {
+      "path": "src/hooks/useDailyFoodReminder.ts",
+      "archiveBlob": "83ff38727cf380f4b3fe02a43b629438dff9e8f4",
+      "bytes": 3471
+    },
+    {
+      "path": "src/pages/student/MealPlanPage.tsx",
+      "archiveBlob": "36c41c2b32f6dcce1a699e44be331a2d71bb384c",
+      "bytes": 61165
+    },
+    {
+      "path": "src/services/dishService.ts",
+      "archiveBlob": "b392badcd43afb074a49e0d8b94aec671f7f82d5",
+      "bytes": 2335
+    },
+    {
+      "path": "src/services/mealPlanAdminService.ts",
+      "archiveBlob": "30a8a7e3063e358cd847a184603629c4e79fe78e",
+      "bytes": 2882
+    },
+    {
+      "path": "src/utils/calculations.ts",
+      "archiveBlob": "5c966d7b12baa11c22bd034cc7592f977f715518",
+      "bytes": 2248
+    },
+    {
+      "path": "src/utils/imageCompression.ts",
+      "archiveBlob": "e63c4bf37c6c73549a98febed7f79f7d3a2d8bf8",
+      "bytes": 1284
+    },
+    {
+      "path": "src/utils/mealPlan.ts",
+      "archiveBlob": "f3cc89a7f97f0071c0ef0ef7274cb7a3c70cb81f",
+      "bytes": 2271
+    }
+  ]
+}

@@ -16,6 +16,7 @@ import { listPayrollPolicies, type PayrollPolicy, type PayrollProfile } from '..
 import type { StaffPosition } from '../../identity/access'
 import type { Branch, UserRole } from '../../types'
 import AuraTeamPolicySettings from '../../components/admin/pt/AuraTeamPolicySettings'
+import { PT_OPERATIONS_POLICY_DEFAULTS } from '../../config/ptOperationsPolicy'
 
 export interface AdminRoleUser {
   uid: string
@@ -615,7 +616,7 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
         <span><Building2 /></span><small>CHI NHÁNH</small><strong>{stats.branches}</strong><em>Cơ sở đang hoạt động</em><ArrowRight size={17} />
       </button>
       <button type="button" className={section === 'policy' ? 'active' : ''} onClick={() => setSection('policy')}>
-        <span><KeyRound /></span><small>CHÍNH SÁCH</small><strong>{scheduleConfig.complimentaryChangeCancelPerMonth ?? 1}</strong><em>Lượt đổi/hủy miễn mỗi tháng</em><ArrowRight size={17} />
+        <span><KeyRound /></span><small>CHÍNH SÁCH</small><strong>{scheduleConfig.complimentaryChangeCancelPerMonth ?? PT_OPERATIONS_POLICY_DEFAULTS.complimentaryChangeCancelPerMonth}</strong><em>Lượt đổi/hủy miễn mỗi tháng</em><ArrowRight size={17} />
       </button>
     </div>
 

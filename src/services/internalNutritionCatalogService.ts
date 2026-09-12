@@ -32,6 +32,9 @@ export async function listInternalNutritionCatalog(input: InternalNutritionCatal
   const callable = httpsCallable<InternalNutritionCatalogQuery, InternalNutritionCatalogResponse>(
     requireFunctions(),
     'listInternalNutritionCatalog',
+    // Keep a hung cold start from leaving the Catalog in an endless spinner;
+    // the caller has a bounded retry for transient Functions failures.
+    { timeout: 30_000 },
   )
   return (await callable(input)).data
 }

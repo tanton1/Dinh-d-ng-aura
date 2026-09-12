@@ -27,6 +27,8 @@ import {
   type StaffDashboardPayrollSnapshot,
 } from '../../utils/staffDashboardPayroll'
 import './StaffDashboardPage.css'
+import OperationalActionCenter from '../../components/operations/OperationalActionCenter'
+import { useAuraUiSurface } from '../../features/ui-rollout/AuraUiRolloutContext'
 
 const vietnamDateFormatter = new Intl.DateTimeFormat('en-CA', {
   timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit', day: '2-digit',
@@ -140,6 +142,7 @@ const positionLabels: Record<StaffPosition, string> = {
 }
 
 export default function StaffDashboardPage({ onNavigate, capabilities, positions, branchCount, isDemo = false }: Props) {
+  const actionCenterEnabled = useAuraUiSurface('action-center')
   const today = dateKey()
   const periodId = today.slice(0, 7)
   const effectivePositions = useMemo<StaffPosition[]>(() => positions.length ? positions : isDemo ? ['trainer_pt'] : [], [isDemo, positions])
@@ -296,6 +299,7 @@ export default function StaffDashboardPage({ onNavigate, capabilities, positions
     </header>
 
     <AuraMetricCarousel slides={slides} label="Tổng quan công việc Staff" loading={loading} />
+    {actionCenterEnabled && <OperationalActionCenter onOpenStudent={(studentId) => { window.location.hash = `#/student-360?studentId=${encodeURIComponent(studentId)}&source=staff-students` }} />}
     {error && <section className="staff-dashboard__state"><Clock3 size={20} /><div><strong>Chưa tải đủ dữ liệu công việc</strong><p>{error}</p></div><button type="button" onClick={() => void load()}>Thử lại</button></section>}
 
     {canOpenPerformance && <section className="staff-dashboard__performance" aria-label="Tóm tắt Aura PT Performance Score" aria-busy={canViewOwnPerformance && performanceLoading}>

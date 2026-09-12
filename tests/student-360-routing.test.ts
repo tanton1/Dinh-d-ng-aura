@@ -29,6 +29,21 @@ test('Student 360 rejects an unknown source without losing the student id', () =
   assert.equal(route.source, null)
 })
 
+test('Student 360 restores both Staff and Admin directory state and defers Aura Club', () => {
+  const app = readFileSync('src/AuraApplication.tsx', 'utf8')
+  const staffDirectory = readFileSync('src/pages/operations/TrainerPortalV2.tsx', 'utf8')
+  const adminDirectory = readFileSync('src/components/admin/pt/StudentManagement.tsx', 'utf8')
+  const student360 = readFileSync('src/features/student-360/Student360Page.tsx', 'utf8')
+  assert.match(app, /onBack=\{\(\) => navigate\(source\)\}/)
+  assert.match(staffDirectory, /aura:student-360:return:staff-students/)
+  assert.match(staffDirectory, /scrollY: window\.scrollY/)
+  assert.match(staffDirectory, /window\.scrollTo\(\{ top: scrollY, behavior: 'auto' \}\)/)
+  assert.match(adminDirectory, /aura:student-360:return:admin-pt-students/)
+  assert.match(adminDirectory, /scrollY: window\.scrollY/)
+  assert.match(student360, /IntersectionObserver/)
+  assert.match(student360, /if \(!loyaltyRequested\) return/)
+})
+
 test('route equality includes Student 360 identity', () => {
   installWindow(student360RouteHash('student-a', 'admin-pt-students'))
   const first = getCurrentRoute()

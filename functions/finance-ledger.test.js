@@ -13,7 +13,7 @@ const {
 } = require('./finance-ledger')
 
 const repositoryRoot = join(__dirname, '..')
-const reportSource = readFileSync(join(repositoryRoot, 'src', 'components', 'admin', 'pt', 'AdminReportDashboard.tsx'), 'utf8')
+const reportSource = readFileSync(join(repositoryRoot, 'src', 'pages', 'admin', 'AdminDashboard.tsx'), 'utf8')
 const financeSource = readFileSync(join(repositoryRoot, 'src', 'components', 'admin', 'pt', 'FinanceManagement.tsx'), 'utf8')
 const ledgerSource = readFileSync(join(__dirname, 'finance-ledger.js'), 'utf8')
 

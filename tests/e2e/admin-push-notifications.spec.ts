@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { AURA_UI_SURFACES } from '../../src/features/ui-rollout/types'
 
 async function expectNoPageOverflow(page: Page) {
   const overflow = await page.evaluate(() => ({
@@ -85,11 +86,12 @@ test.describe('Admin Push Notifications mobile', () => {
     await expectNoPageOverflow(page)
   })
 
-  test('shows all seven UI 4.0 rollout surfaces without mobile overflow', async ({ page }) => {
+  test('shows all configured rollout surfaces including Action Center without mobile overflow', async ({ page }) => {
     await page.getByRole('tab', { name: 'UI 4.0' }).click()
     const panel = page.locator('.ui-rollout-panel')
     const audiences = panel.locator('.ui-rollout-grid select')
-    await expect(audiences).toHaveCount(7)
+    await expect(audiences).toHaveCount(AURA_UI_SURFACES.length)
+    await expect(panel.locator('.ui-rollout-grid').getByText('Action Center · Tác vụ vận hành', { exact: true })).toBeVisible()
     await expect(panel.getByRole('button', { name: 'Lưu audience' })).toBeDisabled()
     await expect(panel.getByText(/Chỉ Super Administrator có thể thay đổi/)).toBeVisible()
     await expectNoPageOverflow(page)

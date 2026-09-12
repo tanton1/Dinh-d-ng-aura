@@ -1,0 +1,28 @@
+.student360-contract-assignment-issues {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0.25rem 0 0.9rem;
+  padding: 0.8rem 0.9rem;
+  border: 1px solid rgb(166 90 22 / 28%);
+  border-radius: 12px;
+  background: #fffaf3;
+  color: #713c12;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+
+.student360-contract-assignment-issues > strong {
+  color: #522b0b;
+  font-size: 0.875rem;
+}
+
+.student360-contract-assignment-issues span,
+.student360-contract-assignment-issues b {
+  overflow-wrap: anywhere;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .student360-contract-assignment-issues * {
+    scroll-behavior: auto !important;
+  }
+}

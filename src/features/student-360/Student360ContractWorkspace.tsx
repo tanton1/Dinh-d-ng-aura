@@ -35,6 +35,7 @@ import type {
   Student360ContractWorkspace as Workspace,
   Student360Overview,
 } from './types'
+import './Student360ContractWorkspace.css'
 
 const ContractInvoice = lazy(() => import('../../components/admin/pt/ContractInvoice'))
 const money = new Intl.NumberFormat('vi-VN')

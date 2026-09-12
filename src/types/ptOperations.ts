@@ -97,6 +97,7 @@ export interface Trainer {
 
 export interface Branch {
   id: string
+  revision?: number
   name: string
   address: string
   status?: 'active' | 'archived'
@@ -105,6 +106,8 @@ export interface Branch {
 
 export interface Student {
   id: string
+  /** Missing on legacy rows; the first callable update migrates revision 0 to 1. */
+  revision?: number
   name: string
   phone?: string
   email?: string
@@ -125,6 +128,15 @@ export interface TrainingPackage {
   price: number
   durationMonths: number
   branchId?: string
+  status?: 'active' | 'archived'
+  /** Missing on legacy rows; the first callable update migrates revision 0 to 1. */
+  revision?: number
+  createdAt?: unknown
+  createdBy?: string
+  updatedAt?: unknown
+  updatedBy?: string
+  archivedAt?: unknown
+  archivedBy?: string
 }
 
 export interface Installment {
@@ -336,7 +348,32 @@ export interface ScheduleBranchCapacity {
   [slotId: string]: number | null | undefined
 }
 
-export interface ScheduleConfig {
+export interface PtOperationsPolicyValues {
+  complimentaryChangeCancelPerMonth?: number
+  sessionChangeDeadlineHours?: number
+  offMaxDaysPerRequest?: number
+  offRegistrationCutoffHour?: number
+  availabilityRegistrationCutoffDayOfWeek?: number
+  availabilityRegistrationCutoffHour?: number
+  offLimitsByDuration?: {
+    threeMonths: number
+    sixMonths: number
+    twelveMonths: number
+  }
+}
+
+export interface PtOperationsPolicyRecord {
+  schemaVersion: 1
+  version: string
+  effectiveFrom: string
+  hash: string
+  values: PtOperationsPolicyValues
+}
+
+export interface ScheduleConfig extends PtOperationsPolicyValues {
+  /** Missing on legacy configuration; the first callable save migrates revision 0 to 1. */
+  revision?: number
+  schemaVersion?: number
   workingDays: Day[]
   workingHours: number[]
   isAutoLockEnabled?: boolean
@@ -345,15 +382,7 @@ export interface ScheduleConfig {
   holidays?: string[]
   holidayDetails?: ScheduleHoliday[]
   branchCapacityBySlot?: Record<string, ScheduleBranchCapacity>
-  complimentaryChangeCancelPerMonth?: 1 | 2
-  sessionChangeDeadlineHours?: number
-  offMaxDaysPerRequest?: number
-  offRegistrationCutoffHour?: number
-  offLimitsByDuration?: {
-    threeMonths: number
-    sixMonths: number
-    twelveMonths: number
-  }
+  operationsPolicy?: PtOperationsPolicyRecord
 }
 
 export interface Session {

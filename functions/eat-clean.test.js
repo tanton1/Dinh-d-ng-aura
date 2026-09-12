@@ -666,6 +666,8 @@ test('module exposes the complete callable contract and keeps all writes in back
   ]
   callableNames.forEach((name) => assert.match(source, new RegExp(`const ${name} = onCall\\(`)))
   assert.match(source, /invoker: 'public'/)
+  assert.match(source, /adminReadOptions = \{ \.\.\.callableOptions, concurrency: 1, maxInstances: 1 \}/)
+  assert.match(source, /const listEatCleanAdminData = onCall\(adminReadOptions/)
   assert.match(source, /const createEatCleanOrder[\s\S]*?db\.runTransaction/)
   assert.match(source, /eatCleanQuotes/)
   assert.match(source, /eatCleanQuoteRateLimits/)

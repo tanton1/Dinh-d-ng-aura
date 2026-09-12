@@ -46,6 +46,7 @@ function summarizeSessionUsage(sessions = []) {
     if (attendance === 'present') summary.presentSessions += 1
     if (attendance === 'late') summary.lateSessions += 1
     if (attendance === 'no_show') summary.noShowSessions += 1
+    if (charged && attendance === 'no_show') summary.chargedNoShowSessions += 1
     if (attendance === 'policy_charge') summary.policyChargedSessions += 1
     if (charged && attendance === 'pending') summary.chargedPendingAttendanceSessions += 1
     if (normalized(session.billingStatus) === 'exempt') summary.exemptSessions += 1
@@ -61,6 +62,7 @@ function summarizeSessionUsage(sessions = []) {
     presentSessions: 0,
     lateSessions: 0,
     noShowSessions: 0,
+    chargedNoShowSessions: 0,
     policyChargedSessions: 0,
     chargedPendingAttendanceSessions: 0,
     exemptSessions: 0,

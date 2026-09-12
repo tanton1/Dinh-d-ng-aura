@@ -1959,6 +1959,7 @@ function createEatCleanFunctions(dependencies) {
 
   const callableOptions = { cpu: 'gcf_gen1', maxInstances: 3, invoker: 'public' }
   const writeOptions = { cpu: 'gcf_gen1', maxInstances: 2, invoker: 'public' }
+  const adminReadOptions = { ...callableOptions, concurrency: 1, maxInstances: 1 }
   const mapsCallableOptions = { ...callableOptions, secrets: [googleMapsApiKeySecret] }
   const otpCallableOptions = { ...callableOptions, secrets: [deliveryOtpSecret] }
   const otpWriteOptions = { ...writeOptions, secrets: [deliveryOtpSecret] }
@@ -3929,7 +3930,7 @@ function createEatCleanFunctions(dependencies) {
     return { order: result, ...(realtimeMirror ? { realtimeMirror } : {}) }
   })
 
-  const listEatCleanAdminData = onCall(callableOptions, async (request) => {
+  const listEatCleanAdminData = onCall(adminReadOptions, async (request) => {
     await trustedAdminId(request)
     const serviceDate = request.data?.serviceDate ? dateKey(request.data.serviceDate) : ''
     const status = request.data?.status ? boundedString(request.data.status, 'Trạng thái', 40) : ''

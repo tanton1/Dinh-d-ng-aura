@@ -83,7 +83,7 @@ export default function AdditionalSessionModal({ onClose, onCreated }: Props) {
     <button className="student-policy-modal__backdrop" type="button" aria-label="Đóng" onClick={onClose} />
     <section className="student-policy-sheet student-additional-session-sheet">
       <header><span><CalendarPlus size={21} /></span><div><small>AURA · KHO CA KHẢ DỤNG</small><h2 id="additional-session-title">Đăng ký thêm buổi</h2></div><button type="button" aria-label="Đóng" onClick={onClose}><X size={20} /></button></header>
-      <div className="student-policy-note"><CircleAlert size={18} /><p><strong>Thứ tự ưu tiên:</strong> ghép ca 1/2, PT chính dưới mốc cân tải, rồi đến PT Aura còn slot. Mốc 8 ca/ngày chỉ là tham chiếu cân bằng, không phải giới hạn cứng.</p></div>
+      <div className="student-policy-note"><CircleAlert size={18} /><p><strong>Thứ tự ưu tiên:</strong> ghép ca 1/2, PT chính dưới mốc cân tải được cấu hình, rồi đến PT Aura còn slot. Mốc cân tải chỉ là tham chiếu, không chặn hệ thống xếp thêm để đủ buổi cho học viên.</p></div>
       <form onSubmit={submit}>
         <section className="student-additional-suggestions" aria-busy={loading}>
           <header><div><strong>{page?.suggestions.length ?? 0} ca phù hợp</strong><span>Chọn một khung trong thời hạn gói tập để gửi vận hành xác nhận.</span></div><button type="button" onClick={() => void load()} disabled={loading} aria-label="Tải lại ca trống"><RefreshCw className={loading ? 'is-spinning' : ''} size={17} /></button></header>

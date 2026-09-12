@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type KeyboardEvent } from 'react'
+import { Suspense, useCallback, useEffect, useMemo, useState, type KeyboardEvent } from 'react'
 import {
   AlertCircle,
   AlertTriangle,
@@ -36,12 +36,19 @@ import type {
   UpdateEatCleanOrderInput,
 } from './types'
 import { DEFAULT_EAT_CLEAN_CONFIG, EMPTY_EAT_CLEAN_SUMMARY } from './types'
-import { EatCleanInventoryTab } from './components/EatCleanInventoryTab'
-import { EatCleanMenuTab } from './components/EatCleanMenuTab'
-import { EatCleanOperationsTab } from './components/EatCleanOperationsTab'
-import { EatCleanOrdersTab } from './components/EatCleanOrdersTab'
-import { EatCleanDispatchTab } from './components/EatCleanDispatchTab'
+import { lazyWithRetry } from '../../../components/ChunkErrorBoundary'
 import './AdminEatCleanPage.css'
+
+const EatCleanDispatchTab = lazyWithRetry(() => import('./components/EatCleanDispatchTab')
+  .then((module) => ({ default: module.EatCleanDispatchTab })))
+const EatCleanOrdersTab = lazyWithRetry(() => import('./components/EatCleanOrdersTab')
+  .then((module) => ({ default: module.EatCleanOrdersTab })))
+const EatCleanMenuTab = lazyWithRetry(() => import('./components/EatCleanMenuTab')
+  .then((module) => ({ default: module.EatCleanMenuTab })))
+const EatCleanInventoryTab = lazyWithRetry(() => import('./components/EatCleanInventoryTab')
+  .then((module) => ({ default: module.EatCleanInventoryTab })))
+const EatCleanOperationsTab = lazyWithRetry(() => import('./components/EatCleanOperationsTab')
+  .then((module) => ({ default: module.EatCleanOperationsTab })))
 
 export type EatCleanAdminTab = 'dispatch' | 'orders' | 'menu' | 'inventory' | 'operations'
 
@@ -60,8 +67,28 @@ const TABS: Array<{ id: EatCleanAdminTab; label: string; icon: typeof ShoppingBa
   { id: 'operations', label: 'Vận hành', icon: Settings2 },
 ]
 
+function preloadEatCleanTab(tab: EatCleanAdminTab) {
+  switch (tab) {
+    case 'dispatch': return import('./components/EatCleanDispatchTab')
+    case 'orders': return import('./components/EatCleanOrdersTab')
+    case 'menu': return import('./components/EatCleanMenuTab')
+    case 'inventory': return import('./components/EatCleanInventoryTab')
+    case 'operations': return import('./components/EatCleanOperationsTab')
+  }
+}
+
 function canManageEatClean(role: UserRole): role is Extract<UserRole, 'admin' | 'super_admin'> {
   return role === 'admin' || role === 'super_admin'
+}
+
+function EatCleanTabLoading() {
+  return (
+    <div className="eat-clean-loading" role="status" aria-live="polite">
+      <span className="eat-clean-loader" />
+      <strong>Đang mở khu vực…</strong>
+      <p>Aura chỉ tải công cụ bạn đang dùng.</p>
+    </div>
+  )
 }
 
 export default function AdminEatCleanPage({ currentRole, initialTab = 'dispatch', className = '', isDemo = false }: AdminEatCleanPageProps) {
@@ -106,6 +133,12 @@ export default function AdminEatCleanPage({ currentRole, initialTab = 'dispatch'
   useEffect(() => {
     void loadData()
   }, [loadData])
+
+  useEffect(() => {
+    // Overlap the active tool download with the admin-data request. Other tools
+    // remain outside the initial route and are fetched only on clear user intent.
+    void preloadEatCleanTab(activeTab)
+  }, [activeTab])
 
   const summary = useMemo(() => {
     if (!data) return { pendingOrders: 0, preparingOrders: 0, todayRevenue: 0, lowStockItems: 0 }
@@ -276,6 +309,8 @@ export default function AdminEatCleanPage({ currentRole, initialTab = 'dispatch'
               tabIndex={active ? 0 : -1}
               className={active ? 'active' : ''}
               onClick={() => setActiveTab(tab.id)}
+              onFocus={() => void preloadEatCleanTab(tab.id)}
+              onPointerEnter={() => void preloadEatCleanTab(tab.id)}
               onKeyDown={(event) => handleTabKeyDown(event, index)}
             >
               <Icon size={18} /><span>{tab.label}</span>
@@ -319,18 +354,20 @@ export default function AdminEatCleanPage({ currentRole, initialTab = 'dispatch'
           tabIndex={0}
           className="eat-clean-tab-panel"
         >
-          {activeTab === 'orders' && (
-            <EatCleanOrdersTab
-              orders={data.orders}
-              onUpdateOrder={handleUpdateOrder}
-              onRecordRefundOutcome={handleRecordRefundOutcome}
-              onReverseRefundOutcome={handleReverseRefundOutcome}
-            />
-          )}
-          {activeTab === 'dispatch' && <EatCleanDispatchTab isDemo={isDemo} />}
-          {activeTab === 'menu' && <EatCleanMenuTab meals={data.meals} deliverySlots={data.config.deliverySlots} onSaveMeal={handleSaveMeal} />}
-          {activeTab === 'inventory' && <EatCleanInventoryTab inventory={data.inventory} meals={data.meals} onSaveInventory={handleSaveInventory} />}
-          {activeTab === 'operations' && <EatCleanOperationsTab config={data.config} onSaveConfig={handleSaveConfig} />}
+          <Suspense fallback={<EatCleanTabLoading />}>
+            {activeTab === 'orders' && (
+              <EatCleanOrdersTab
+                orders={data.orders}
+                onUpdateOrder={handleUpdateOrder}
+                onRecordRefundOutcome={handleRecordRefundOutcome}
+                onReverseRefundOutcome={handleReverseRefundOutcome}
+              />
+            )}
+            {activeTab === 'dispatch' && <EatCleanDispatchTab isDemo={isDemo} />}
+            {activeTab === 'menu' && <EatCleanMenuTab meals={data.meals} deliverySlots={data.config.deliverySlots} onSaveMeal={handleSaveMeal} />}
+            {activeTab === 'inventory' && <EatCleanInventoryTab inventory={data.inventory} meals={data.meals} onSaveInventory={handleSaveInventory} />}
+            {activeTab === 'operations' && <EatCleanOperationsTab config={data.config} onSaveConfig={handleSaveConfig} />}
+          </Suspense>
         </div>
       ) : null}
     </main>

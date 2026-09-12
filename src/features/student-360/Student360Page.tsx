@@ -49,6 +49,7 @@ import type {
   Student360TimelineEvent,
 } from './types'
 import './Student360Page.css'
+import { useAuraUiSurface } from '../ui-rollout/AuraUiRolloutContext'
 import { getStudentLoyaltySummary } from '../loyalty/loyaltyService'
 import type { LoyaltyAccount } from '../loyalty/types'
 
@@ -263,6 +264,7 @@ function TimelineActivityCard({ item, onOpenNutrition, showTechnicalDetails }: {
 }
 
 export default function Student360Page({ studentId, source, isDemo = false, onBack, onNavigate }: Props) {
+  const actionCenterEnabled = useAuraUiSurface('action-center')
   const [activeTab, setActiveTab] = useState<Student360Tab>('overview')
   const [overview, setOverview] = useState<Student360Overview | null>(null)
   const [loading, setLoading] = useState(true)
@@ -303,8 +305,8 @@ export default function Student360Page({ studentId, source, isDemo = false, onBa
     setError('')
     try {
       const result = isDemo ? demoOverview(studentId) : force
-        ? (await refreshStudent360Projection(studentId), await getStudent360Overview(studentId))
-        : await getStudent360Overview(studentId)
+        ? (await refreshStudent360Projection(studentId), await getStudent360Overview(studentId, undefined, actionCenterEnabled))
+        : await getStudent360Overview(studentId, undefined, actionCenterEnabled)
       setOverview(result)
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Không thể tải Học viên 360.')
@@ -312,7 +314,7 @@ export default function Student360Page({ studentId, source, isDemo = false, onBa
       setLoading(false)
       setRefreshing(false)
     }
-  }, [isDemo, studentId])
+  }, [actionCenterEnabled, isDemo, studentId])
 
   useEffect(() => { void loadOverview(false) }, [loadOverview])
   useEffect(() => {
@@ -560,7 +562,7 @@ export default function Student360Page({ studentId, source, isDemo = false, onBa
   }
 
   const reportToManager = (item: Student360Action) => {
-    openCare('note', item.id, `Báo quản lý: ${item.title}. ${item.description}`)
+    openCare('note', item.operationalActionId || item.id, `Báo quản lý: ${item.title}. ${item.description}`)
   }
 
   const performAction = (item: Student360Action) => {
@@ -574,7 +576,7 @@ export default function Student360Page({ studentId, source, isDemo = false, onBa
     if (item.action === 'renewal') return onNavigate(staff ? 'staff-renewals' : 'admin-renewals', studentId, overview.identity.name)
     if (item.action === 'contract') { setActiveTab('contract'); return }
     if (item.action === 'finance') return onNavigate('admin-finance', studentId, overview.identity.name)
-    openCare(item.action === 'contact' ? 'call' : 'action_completed', item.id)
+    openCare(item.action === 'contact' ? 'call' : 'action_completed', item.operationalActionId || item.id)
   }
 
   const latestProgramDays = useMemo(() => overview?.training.program?.trainingDays || [], [overview])

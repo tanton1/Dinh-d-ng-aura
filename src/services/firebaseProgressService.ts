@@ -47,13 +47,14 @@ function subscribeToDocument(userId: string, collectionName: string, documentId:
   })
 }
 
-function subscribeToCollection(userId: string, collectionName: string, cacheName: string, onData: (items: any[]) => void, onError?: (error: Error) => void): Unsubscribe {
-  return onSnapshot(collection(requireDb(), 'users', userId, collectionName), (snapshot) => {
+function subscribeToCollection(userId: string, collectionName: string, cacheName: string, onData: (items: any[], serverConfirmed: boolean) => void, onError?: (error: Error) => void): Unsubscribe {
+  return onSnapshot(collection(requireDb(), 'users', userId, collectionName), { includeMetadataChanges: true }, (snapshot) => {
     const items = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))
-    writeCache(`${cacheName}:${userId}`, items)
-    onData(items)
+    const serverConfirmed = !snapshot.metadata.fromCache && !snapshot.metadata.hasPendingWrites
+    if (serverConfirmed) writeCache(`${cacheName}:${userId}`, items)
+    onData(items, serverConfirmed)
   }, (error) => {
-    onData(readCache(`${cacheName}:${userId}`, []))
+    onData(readCache(`${cacheName}:${userId}`, []), false)
     onError?.(error)
   })
 }
@@ -304,21 +305,7 @@ export async function deleteUserProgressPhoto(userId: string, photoId: string) {
   await deleteDoc(reference)
   if (firebaseStorage) await Promise.allSettled(paths.map((path) => deleteObject(storageRef(firebaseStorage!, path))))
 }
-export function subscribeToUserProgressPhotos(userId: string, onData: (photos: any[]) => void, onError?: (error: Error) => void) {
-  const reference = query(
-    collection(requireDb(), 'users', userId, 'progressPhotos'),
-    orderBy('date', 'desc'),
-    limit(80),
-  )
-  return onSnapshot(reference, (snapshot) => {
-    const photos = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))
-    writeCache(`user_progress_photos:${userId}`, photos)
-    onData(photos)
-  }, (error) => {
-    onData(readCache(`user_progress_photos:${userId}`, []))
-    onError?.(error)
-  })
-}
+export function subscribeToUserProgressPhotos(userId: string, onData: (photos: any[], serverConfirmed: boolean) => void, onError?: (error: Error) => void) { return subscribeToCollection(userId, 'progressPhotos', 'user_progress_photos', onData, onError) }
 
 export async function deleteUploadedProgressPhotoAsset(imageUrl: string) {
   if (!firebaseStorage) return

@@ -69,7 +69,6 @@ type WarningFilter = 'priority' | 'contract' | 'learner' | 'capacity' | 'system'
 type WarningCause = 'contract' | 'learner' | 'capacity' | 'system'
 type WorkspaceSyncState = 'connecting' | 'live' | 'syncing' | 'offline'
 const CONFIRMED_AVAILABILITY_STATUSES = new Set(['submitted', 'locked', 'inherited', 'recurring'])
-const OFFICIAL_PT_PRIORITY_LOAD = 8
 const WORKSPACE_CACHE_TTL_MS = 3 * 60_000
 const WORKSPACE_CACHE_REVALIDATE_MS = 60_000
 const WORKSPACE_CACHE_LIMIT = 8
@@ -1079,7 +1078,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
           if (selectedStudent && !matchesStudentAvailability) continue
           const priorityTier: 1 | 2 | 3 = occupancy === 1 && capacity === 2
             ? 1
-            : occupancy === 0 && trainer.employmentType === 'full_time' && dailyLoad < OFFICIAL_PT_PRIORITY_LOAD
+            : occupancy === 0 && trainer.employmentType === 'full_time' && dailyLoad < dailyTarget
               ? 2
               : 3
           results.push({ slotId, date, hour, trainerId: trainer.id, trainerName: trainer.name, occupancy, capacity, dailyLoad, dailyTarget, priorityTier, isPrimaryTrainer, isAssignedTrainer, matchesStudentAvailability, primaryMatchCount, secondaryMatchCount, assignedMatchCount })
@@ -1091,7 +1090,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
       || right.assignedMatchCount - left.assignedMatchCount
       || right.primaryMatchCount - left.primaryMatchCount
       || Number(right.matchesStudentAvailability) - Number(left.matchesStudentAvailability)
-      || Number(left.dailyLoad >= OFFICIAL_PT_PRIORITY_LOAD) - Number(right.dailyLoad >= OFFICIAL_PT_PRIORITY_LOAD)
+      || Number(left.dailyLoad >= left.dailyTarget) - Number(right.dailyLoad >= right.dailyTarget)
       || left.dailyLoad - right.dailyLoad
       || left.date.localeCompare(right.date)
       || left.hour - right.hour
@@ -1737,10 +1736,6 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
     () => new Set((highlightedStudentId ? scheduledEntriesByStudent.get(highlightedStudentId) : [])?.map((entry) => entry.slotId) || []),
     [highlightedStudentId, scheduledEntriesByStudent],
   )
-  const opportunitiesByTrainerSlot = useMemo(
-    () => new Map(scheduleOpportunities.map((item) => [`${item.trainerId}|${item.slotId}`, item])),
-    [scheduleOpportunities],
-  )
   const selectedDays = mobileGroups[mobilePage] || mobileGroups[0] || []
 
   const toggleStudentSchedule = (studentId: string) => {
@@ -1852,7 +1847,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
           <section className="branch-schedule__matrix-toolbar">
             <label><span>Huấn luyện viên</span><select value={selectedTrainerId} onChange={(event) => setSelectedTrainerId(event.target.value)}>{workspace.trainers.map((trainer) => <option key={trainer.id} value={trainer.id}>{trainer.name}</option>)}</select></label>
             {selectedTrainer && <div className={`trainer-availability-chip is-${selectedTrainer.availabilityMode}`}><Clock3 size={14} />{selectedTrainer.availabilityMode === 'configured' ? `${selectedTrainer.availableSlots?.length || 0} khung giờ rảnh` : selectedTrainer.availabilityMode === 'unrestricted' ? 'Không giới hạn' : 'Chưa khai lịch rảnh'}</div>}
-            <div className="schedule-opportunity-inline-legend" aria-label="Chú thích kho ca"><span className="is-tier-1">1/2 · còn ghế</span><span className="is-tier-2">PT chính dưới mốc</span><span className="is-tier-3">PT khác còn slot</span></div>
+            <div className="schedule-opportunity-inline-legend" aria-label="Thứ tự kho ca"><span>Thứ tự: ghép 1/2 → PT chính thức dưới mốc → PT còn slot</span></div>
           </section>
 
           <details className="branch-schedule__trainer-details">
@@ -1908,14 +1903,12 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
                 }
                 const past = scheduleSlotIsPast(slotId, weekDates)
                 const trainingEntries = entries.filter((entry) => entry.type !== 'off')
-                const opportunity = opportunitiesByTrainerSlot.get(`${selectedTrainerId}|${slotId}`)
-                const showOpportunityMarker = Boolean(opportunity && !showsAvailability && !showsStudentSchedule)
                 const cellDescription = holiday
                   ? `${scheduleSlotLabel(slotId, weekDates)} · Ngày nghỉ`
                   : isOff
                     ? `${scheduleSlotLabel(slotId, weekDates)} · ${selectedTrainer?.name || 'PT'} nghỉ`
                     : `${scheduleSlotLabel(slotId, weekDates)} · ${selectedTrainer?.name || 'PT'} · ${trainingEntries.length} học viên`
-                return <td key={slotId} className={`${selectedDays.includes(day) ? 'is-mobile-visible' : ''}${holiday ? ' is-holiday' : ''}`}><div role={trainingEntries.length ? undefined : 'button'} tabIndex={!selectedTrainerId || holiday || trainingEntries.length ? -1 : 0} aria-label={cellDescription} aria-disabled={!selectedTrainerId || holiday} className={`schedule-cell${holiday ? ' is-holiday' : ''}${past ? ' is-past' : ''}${isOff ? ' is-off' : ''}${entries.length ? ' has-entry' : ''}${showsAvailability ? ' is-availability-hover' : ''}${showsStudentSchedule ? ' is-student-highlight' : ''}${showOpportunityMarker ? ` is-opportunity-tier-${opportunity!.priorityTier}` : ''}`} onClick={openInspector} onKeyDown={(event) => { if (event.target !== event.currentTarget) return; if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openInspector() } }}><span className="schedule-cell__count">{holiday ? 'NGHỈ' : isOff ? 'OFF' : `${trainingEntries.length}/${selectedTrainer?.slotCapacity || 2}`}</span>{holiday ? <><CalendarOff /><small>Không xếp lịch</small></> : isOff ? <CalendarOff /> : trainingEntries.length ? trainingEntries.map((entry) => {
+                return <td key={slotId} className={`${selectedDays.includes(day) ? 'is-mobile-visible' : ''}${holiday ? ' is-holiday' : ''}`}><div role={trainingEntries.length ? undefined : 'button'} tabIndex={!selectedTrainerId || holiday || trainingEntries.length ? -1 : 0} aria-label={cellDescription} aria-disabled={!selectedTrainerId || holiday} className={`schedule-cell${holiday ? ' is-holiday' : ''}${past ? ' is-past' : ''}${isOff ? ' is-off' : ''}${entries.length ? ' has-entry' : ''}${showsAvailability ? ' is-availability-hover' : ''}${showsStudentSchedule ? ' is-student-highlight' : ''}`} onClick={openInspector} onKeyDown={(event) => { if (event.target !== event.currentTarget) return; if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openInspector() } }}><span className="schedule-cell__count">{holiday ? 'NGHỈ' : isOff ? 'OFF' : `${trainingEntries.length}/${selectedTrainer?.slotCapacity || 2}`}</span>{holiday ? <><CalendarOff /><small>Không xếp lịch</small></> : isOff ? <CalendarOff /> : trainingEntries.length ? trainingEntries.map((entry) => {
                   const assignmentWarning = trainerAssignmentWarningKeys.has(`${slotId}|${entry.studentId}|${entry.trainerId}`)
                   return <button type="button" className={`schedule-cell__student${highlightedStudentId === entry.studentId ? ' is-selected' : ''}${assignmentWarning ? ' has-assignment-warning' : ''}`} key={`${entry.studentId}-${entry.trainerId}`} onPointerEnter={(event) => { if (event.pointerType === 'mouse') showStudentAvailability(entry.studentId) }} onPointerLeave={(event) => { if (event.pointerType === 'mouse') hideStudentAvailability(entry.studentId) }} onFocus={(event) => { if (event.currentTarget.matches(':focus-visible') && window.matchMedia('(hover: hover) and (pointer: fine)').matches) showStudentAvailability(entry.studentId) }} onBlur={() => hideStudentAvailability(entry.studentId)} onClick={(event) => { event.preventDefault(); event.stopPropagation(); if (hoverClearTimer.current !== null) window.clearTimeout(hoverClearTimer.current); hoverClearTimer.current = null; setHoveredStudentId(null); toggleStudentSchedule(entry.studentId) }} aria-pressed={highlightedStudentId === entry.studentId} title={assignmentWarning ? 'Rê chuột: xem lịch rảnh · Chọn: xem lịch đã xếp · PT hỗ trợ ngoài danh sách chính/phụ' : 'Rê chuột: xem lịch rảnh · Chọn: xem lịch đã xếp'}><span>{studentName(entry.studentId)}</span>{assignmentWarning && <AlertTriangle size={11} aria-label="PT hỗ trợ" />}{entry.isLocked && <Lock size={11} aria-label="Ca đã khóa" />}</button>
                 }) : <small>{past ? 'Bổ sung lịch sử' : 'Chạm để xếp'}</small>}</div></td>
@@ -1964,13 +1957,13 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
 
       {workspace && tab === 'opportunities' && (
         <main id="schedule-panel-opportunities" role="tabpanel" aria-labelledby="schedule-tab-opportunities" className="branch-schedule__opportunities-page">
-          <header><div><p>KHO CA KHẢ DỤNG</p><h2>Điều phối ca trống</h2><span>Chọn học viên để lọc đúng lịch rảnh; ưu tiên ghép ca 1/2, ca trống của PT chính thức cùng chi nhánh đang dưới 8 ca/ngày, rồi các PT cùng chi nhánh còn lại.</span></div><div className="schedule-opportunities__stats"><strong>{scheduleOpportunities.filter((item) => item.priorityTier === 1).length}</strong><span>ghế ghép</span><strong>{scheduleOpportunities.filter((item) => item.priorityTier === 2).length}</strong><span>PT chính thức dưới 8</span><strong>{scheduleOpportunities.filter((item) => item.priorityTier === 3).length}</strong><span>PT còn lại</span></div></header>
+          <header><div><p>KHO CA KHẢ DỤNG</p><h2>Điều phối ca trống</h2><span>Chọn học viên để lọc đúng lịch rảnh; ưu tiên ghép ca 1/2, ca trống của PT chính thức cùng chi nhánh đang dưới mốc cân tải riêng, rồi các PT cùng chi nhánh còn lại. Mốc tải là tham chiếu, không phải trần.</span></div><div className="schedule-opportunities__stats"><strong>{scheduleOpportunities.filter((item) => item.priorityTier === 1).length}</strong><span>ghế ghép</span><strong>{scheduleOpportunities.filter((item) => item.priorityTier === 2).length}</strong><span>PT dưới mốc</span><strong>{scheduleOpportunities.filter((item) => item.priorityTier === 3).length}</strong><span>PT còn lại</span></div></header>
           <div className="schedule-opportunities__toolbar">
             <label><span>Học viên cần xếp / đổi</span><select value={opportunityStudentId} onChange={(event) => setOpportunityStudentId(event.target.value)}><option value="">Tất cả học viên · xem toàn chi nhánh</option>{workspace.students.filter((student) => student.eligibleForWeek !== false).sort((left, right) => left.name.localeCompare(right.name, 'vi')).map((student) => <option key={student.id} value={student.id}>{student.name} · {student.availableSlots.length} slot rảnh</option>)}</select></label>
-            <div className="schedule-opportunities__legend"><span className="is-tier-1">1 · Ghép ca 1/2</span><span className="is-tier-2">2 · PT chính thức dưới 8</span><span className="is-tier-3">3 · PT cùng CN còn lại</span><span className="is-assigned">PT chính/phụ được xếp đầu</span></div>
+            <div className="schedule-opportunities__legend"><span>1 · Ghép ca 1/2</span><span>2 · PT chính thức dưới mốc</span><span>3 · PT cùng CN còn lại</span><span>PT chính/phụ được xếp đầu</span></div>
           </div>
           <section className="schedule-opportunity-matrix" aria-label="Ma trận tải ca còn trống">
-            <header><div><strong>Ma trận tải ca còn trống</strong><small>Mỗi ô hiển thị tổng chỗ còn nhận và số PT theo từng mức ưu tiên.</small></div><div className="schedule-opportunity-matrix__legend"><span className="is-tier-1">Ưu tiên 1</span><span className="is-tier-2">Ưu tiên 2</span><span className="is-tier-3">Ưu tiên 3</span><span className="is-empty">Hết ca</span></div></header>
+            <header><div><strong>Ma trận tải ca còn trống</strong><small>Mỗi ô hiển thị tổng chỗ còn nhận và số PT. Màu ưu tiên chỉ dùng trong kho ca; lịch cá nhân của PT giữ nguyên kiểu hiển thị riêng.</small></div><div className="schedule-opportunity-matrix__legend"><span data-priority="1">1 · Ghép</span><span data-priority="2">2 · Dưới mốc</span><span data-priority="3">3 · Còn slot</span><span data-priority="0">0 · Hết ca</span></div></header>
             <div className="schedule-opportunity-matrix__mobile-days">
               <button type="button" aria-label="Xem nhóm ngày trước" disabled={mobilePage === 0} onClick={() => setMobilePage((value) => Math.max(0, value - 1))}><ChevronLeft /></button>
               <strong>{selectedDays.map((day) => DAY_LABELS[day] || day).join(' · ')}</strong>
@@ -1985,18 +1978,18 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
               const tierCounts = ([1, 2, 3] as const).map((tier) => ({ tier, count: opportunities.filter((item) => item.priorityTier === tier).length }))
               const bestOpportunity = opportunities[0]
               const label = `${scheduleSlotLabel(slotId, weekDates)} · ${availableSeats} chỗ trống · ${trainerCount} PT khả dụng${priority ? ` · ưu tiên ${priority}` : ''}`
-              return <td key={slotId} className={selectedDays.includes(day) ? 'is-mobile-visible' : ''}><button type="button" className={priority ? `is-priority-${priority}` : 'is-empty'} disabled={!bestOpportunity} aria-label={label} onClick={() => bestOpportunity && openScheduleOpportunity(bestOpportunity)}><strong>{availableSeats}</strong><small>{availableSeats ? `${trainerCount} PT` : 'Hết ca'}</small><span>{tierCounts.filter((item) => item.count > 0).map((item) => <i key={item.tier} className={`is-tier-${item.tier}`}>{item.tier}:{item.count}</i>)}</span></button></td>
+              return <td key={slotId} className={selectedDays.includes(day) ? 'is-mobile-visible' : ''}><button type="button" className={bestOpportunity ? 'is-available' : 'is-empty'} data-priority={priority || undefined} disabled={!bestOpportunity} aria-label={label} onClick={() => bestOpportunity && openScheduleOpportunity(bestOpportunity)}><strong>{availableSeats}</strong><small>{availableSeats ? `${trainerCount} PT` : 'Hết ca'}</small><span>{tierCounts.filter((item) => item.count > 0).map((item) => <i key={item.tier}>{item.tier}:{item.count}</i>)}</span></button></td>
             })}</tr>)}</tbody></table></div>
           </section>
           <div className="schedule-opportunities__groups">
             {([1, 2, 3] as const).map((tier) => {
               const items = scheduleOpportunities.filter((item) => item.priorityTier === tier).slice(0, 120)
-              const label = tier === 1 ? 'Ưu tiên 1 · Ghép vào ca 1/2' : tier === 2 ? 'Ưu tiên 2 · PT chính thức cùng chi nhánh dưới 8 ca' : 'Ưu tiên 3 · Các PT cùng chi nhánh còn lại'
-              return <section key={tier} className={`schedule-opportunities__group is-tier-${tier}`}><header><strong>{label}</strong><span>{items.length} cơ hội{items.length === 120 ? ' · đang hiển thị 120 đầu tiên' : ''}</span></header><div>{items.length ? items.map((item) => {
+              const label = tier === 1 ? 'Ưu tiên 1 · Ghép vào ca 1/2' : tier === 2 ? 'Ưu tiên 2 · PT chính thức cùng chi nhánh dưới mốc cân tải' : 'Ưu tiên 3 · Các PT cùng chi nhánh còn lại'
+              return <section key={tier} className="schedule-opportunities__group" data-priority={tier}><header><strong>{label}</strong><span>{items.length} cơ hội{items.length === 120 ? ' · đang hiển thị 120 đầu tiên' : ''}</span></header><div>{items.length ? items.map((item) => {
                 const assignedLabel = opportunityStudentId
                   ? item.isPrimaryTrainer ? 'Khớp PT chính' : item.secondaryMatchCount > 0 ? 'Khớp PT phụ' : ''
                   : item.assignedMatchCount > 0 ? `Khớp PT chính/phụ của ${item.assignedMatchCount} học viên` : ''
-                return <button type="button" key={`${item.trainerId}|${item.slotId}`} onClick={() => openScheduleOpportunity(item)}><span><strong>{scheduleSlotLabel(item.slotId, weekDates)}</strong><small>{item.trainerName}{item.priorityTier === 2 ? ' · PT chính thức · dưới 8 ca' : ' · cùng chi nhánh'}</small>{assignedLabel && <small className="schedule-opportunity-assignment">{assignedLabel} · xếp trước</small>}</span><em>{item.occupancy}/{item.capacity} · {item.occupancy === 1 ? 'còn 1 ghế' : `${item.dailyLoad}/8 ca/ngày`}</em><ChevronRight size={16} /></button>
+                return <button type="button" key={`${item.trainerId}|${item.slotId}`} onClick={() => openScheduleOpportunity(item)}><span><strong>{scheduleSlotLabel(item.slotId, weekDates)}</strong><small>{item.trainerName}{item.priorityTier === 2 ? ` · PT chính thức · dưới mốc ${item.dailyTarget}` : ' · cùng chi nhánh'}</small>{assignedLabel && <small className="schedule-opportunity-assignment">{assignedLabel} · xếp trước</small>}</span><em>{item.occupancy}/{item.capacity} · {item.occupancy === 1 ? 'còn 1 ghế' : `${item.dailyLoad}/${item.dailyTarget} mốc tải`}</em><ChevronRight size={16} /></button>
               }) : <p className="schedule-opportunities__empty">Chưa có cơ hội ở tầng này cho bộ lọc hiện tại.</p>}</div></section>
             })}
           </div>

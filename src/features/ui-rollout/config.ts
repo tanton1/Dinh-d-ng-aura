@@ -22,10 +22,12 @@ export function normalizeAuraUiRolloutConfig(value: unknown): AuraUiRolloutConfi
   const source = value as Partial<AuraUiRolloutConfig>
   if (source.schemaVersion !== 1 || !source.surfaces || typeof source.surfaces !== 'object') return DEFAULT_AURA_UI_ROLLOUT
   const inputSurfaces = source.surfaces as Partial<Record<AuraUiSurface, unknown>>
-  if (AURA_UI_SURFACES.some((surface) => !audienceValues.has(inputSurfaces[surface] as AuraUiAudience))) {
+  // New surfaces are additive. A stored v1 config created by an older client
+  // keeps its existing audiences while newly introduced surfaces fail closed.
+  if (AURA_UI_SURFACES.some((surface) => inputSurfaces[surface] !== undefined && !audienceValues.has(inputSurfaces[surface] as AuraUiAudience))) {
     return DEFAULT_AURA_UI_ROLLOUT
   }
-  const surfaces = Object.fromEntries(AURA_UI_SURFACES.map((surface) => [surface, inputSurfaces[surface]])) as Record<AuraUiSurface, AuraUiAudience>
+  const surfaces = Object.fromEntries(AURA_UI_SURFACES.map((surface) => [surface, inputSurfaces[surface] ?? 'off'])) as Record<AuraUiSurface, AuraUiAudience>
   return {
     schemaVersion: 1,
     surfaces,

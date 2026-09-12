@@ -14,8 +14,7 @@ function mondayOf(value: string) {
 }
 function nextEditableWeek() {
   const currentMonday = mondayOf(dateKey())
-  const cutoff = Date.parse(`${currentMonday}T00:00:00+07:00`) - 14 * 60 * 60 * 1000
-  return Date.now() < cutoff ? currentMonday : addDays(currentMonday, 7)
+  return addDays(currentMonday, 7)
 }
 function weekLabel(weekId: string) {
   const end = addDays(weekId, 5)
@@ -25,6 +24,14 @@ function updatedLabel(value: string | null) {
   if (!value) return 'Chưa lưu lần nào'
   const date = new Date(value)
   return Number.isNaN(date.getTime()) ? 'Đã lưu' : `Đã lưu ${date.toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh', hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })}`
+}
+
+function cutoffLabel(value: string | null) {
+  if (!value) return 'thời hạn đăng ký của tuần'
+  const date = new Date(value)
+  return Number.isNaN(date.getTime())
+    ? 'thời hạn đăng ký của tuần'
+    : new Intl.DateTimeFormat('vi-VN', { weekday: 'long', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Ho_Chi_Minh' }).format(date)
 }
 
 export default function TrainerAvailabilityPage({ embedded = false, isDemo = false }: { embedded?: boolean; isDemo?: boolean }) {
@@ -118,7 +125,7 @@ export default function TrainerAvailabilityPage({ embedded = false, isDemo = fal
     {!loading && data && <section className="trainer-availability-card">
       <header><div><small>{mode === 'weekly' ? `TUẦN ${weekLabel(weekId)}` : 'LỊCH LẶP LẠI'}</small><h2>{data.trainerName}</h2><p>{selected.size} khung giờ có thể nhận lịch · {offDates.size} ngày OFF</p></div><div className="trainer-availability-status"><CheckCircle2 /><span>{data.locked ? 'Đã khóa' : dirty ? 'Có thay đổi' : 'Đã đồng bộ'}</span><small>{updatedLabel(data.updatedAt)}</small></div></header>
       {mode === 'weekly' && <section className="trainer-availability-week-tools"><div><strong>OFF theo ngày</strong><small>Không ảnh hưởng lịch lặp lại và các tuần khác.</small></div><div>{weekDays.map(({ day, date }) => <button type="button" key={date} className={offDates.has(date) ? 'active' : ''} disabled={data.locked || saving} onClick={() => toggleOff(day, date)}><b>{day}</b><span>{date.slice(8, 10)}/{date.slice(5, 7)}</span></button>)}</div><button type="button" disabled={data.locked || saving} onClick={() => { setSelected(new Set(data.baseAvailableSlots)); setOffDates(new Set()) }}>Dùng lịch lặp lại</button></section>}
-      {data.locked && <p className="trainer-availability-lock"><ShieldCheck /> Tuần đã khóa sau 10:00 Chủ nhật. Nếu có phát sinh, hãy gửi quản lý xử lý lịch trực tiếp.</p>}
+      {data.locked && <p className="trainer-availability-lock"><ShieldCheck /> Tuần đã khóa từ {cutoffLabel(data.cutoffAt)}. Nếu có phát sinh, hãy gửi quản lý xử lý lịch trực tiếp.</p>}
       <div className="trainer-availability-legend"><span><i /> Có thể dạy</span><span><ShieldCheck /> Buổi đã publish luôn được giữ nguyên</span></div>
       <AvailabilityMatrix days={data.scheduleConfig.workingDays} hours={data.scheduleConfig.workingHours} selected={selected} onChange={setSelected} disabled={saving || data.locked} />
       {error && <p className="trainer-availability-notice is-error">{error}</p>}

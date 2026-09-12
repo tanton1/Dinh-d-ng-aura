@@ -409,6 +409,46 @@ let nutritionCatalogCountCache = { value: 0, expiresAt: 0 }
 let nutritionCatalogIndexCache = { entries: [], catalogVersion: 'unavailable', expiresAt: 0 }
 let nutritionCatalogIndexRequest = null
 
+// Facets are deliberately kept as a tiny, generated-at-import list. The
+// initial page must not scan all catalog documents just to populate a select
+// control; filtered/search requests still use the canonical indexed records.
+const NUTRITION_CATALOG_CATEGORY_LABELS = [
+  'Bánh canh, bánh đa, bún, cháo, súp, hoành thánh, hủ tiếu, miến, mỳ, phở, lẩu',
+  'Bánh đa, bún, phở',
+  'Bún, cơm, xôi, cháo',
+  'Burger, pizza',
+  'Các loại bánh',
+  'Các loại trái cây',
+  'Các món bánh, kẹo',
+  'Các món chế biến sẵn',
+  'Các món khác',
+  'Các món trứng, sữa và chế phẩm',
+  'Các món xôi, chè',
+  'Chè, các loại giải khát',
+  'Chè, caramen, kem',
+  'Cơm các loại',
+  'Cơm, cháo, xôi',
+  'Dầu, mỡ, bơ',
+  'Đồ hộp',
+  'Đồ ngọt (đường, bánh, mứt, kẹo)',
+  'Gia vị, nước chấm',
+  'Giải khát',
+  'Hạt, quả giàu đạm, béo và sản phẩm chế biến',
+  'Khoai củ và sản phẩm chế biến',
+  'Món canh',
+  'Món xào',
+  'Ngao, ốc',
+  'Ngũ cốc và sản phẩm chế biến',
+  'Nước giải khát',
+  'Quả chín',
+  'Rau, quả, củ dùng làm rau',
+  'Sữa và sản phẩm chế biến',
+  'Thịt và sản phẩm chế biến',
+  'Thức ăn truyền thống',
+  'Thủy sản và sản phẩm chế biến',
+  'Trứng và sản phẩm chế biến',
+]
+
 async function nutritionCatalogTotal(db) {
   if (nutritionCatalogCountCache.expiresAt > Date.now()) return nutritionCatalogCountCache.value
   const aggregate = await db.collection('nutritionCatalog').count().get()
@@ -500,6 +540,47 @@ function nutritionCatalogCategories(entries) {
     .sort((left, right) => left.localeCompare(right, 'vi'))
 }
 
+function nutritionCatalogBrowseQuery(db, { kind, category }) {
+  let query = db.collection('nutritionCatalog')
+  if (kind !== 'all') query = query.where('kind', '==', kind)
+  if (category) query = query.where('category.nameVi', '==', category)
+  return query
+}
+
+async function listNutritionCatalogBrowsePage(db, { limit, cursorId, totalCount, kind, category }) {
+  const catalog = db.collection('nutritionCatalog')
+  let cursor = null
+  if (cursorId) {
+    cursor = await catalog.doc(cursorId).get()
+    if (!cursor.exists) throw new HttpsError('invalid-argument', 'Trang Catalog không còn hợp lệ. Hãy tải lại.')
+  }
+
+  const browseQuery = nutritionCatalogBrowseQuery(db, { kind, category })
+  const filteredAggregate = kind === 'all' && !category
+    ? null
+    : await browseQuery.count().get()
+  const filteredCount = filteredAggregate ? Number(filteredAggregate.data().count || 0) : totalCount
+  let pageQuery = browseQuery
+    .select('kind', 'code', 'nameVi', 'nameEn', 'nameAscii', 'category', 'region', 'basis', 'energyKcal', 'macros', 'imageUrl', 'source')
+    .orderBy('nameAscii')
+  if (cursor) pageQuery = pageQuery.startAfter(cursor)
+  const snapshot = await pageQuery.limit(limit + 1).get()
+  const pageDocuments = snapshot.docs.slice(0, limit)
+  const hasMore = snapshot.docs.length > limit
+  const catalogVersion = `catalog-${totalCount}:${kind}:${category || 'all'}:${filteredCount}`
+  return {
+    items: pageDocuments.map(catalogItem),
+    hasMore,
+    nextCursor: hasMore ? pageDocuments.at(-1)?.id || null : null,
+    totalCount: filteredCount,
+    catalogTotal: totalCount,
+    filteredCount,
+    catalogVersion,
+    categories: NUTRITION_CATALOG_CATEGORY_LABELS,
+    restricted: true,
+  }
+}
+
 function invitePublicData(snapshot) {
   const value = snapshot.data()
   return {
@@ -531,6 +612,26 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
     const requestedIds = Array.isArray(request.data?.ids)
       ? [...new Set(request.data.ids.map(catalogDocumentId))].slice(0, 250)
       : []
+
+    // Browse views only need one ordered page. Avoid the previous cold-start
+    // path that downloaded and sorted all 2,000+ documents before returning
+    // the first 30-36 items. Search requests below retain the full in-memory
+    // index so their matching semantics stay unchanged.
+    if (!requestedIds.length && !query) {
+      const totalCount = await nutritionCatalogTotal(db)
+      const firstPage = await listNutritionCatalogBrowsePage(db, {
+        limit,
+        cursorId,
+        totalCount,
+        kind,
+        category,
+      })
+      if (cursorId && requestedCatalogVersion && requestedCatalogVersion !== firstPage.catalogVersion) {
+        throw new HttpsError('failed-precondition', 'Catalog đã được cập nhật. Hãy tải lại từ trang đầu.')
+      }
+      return firstPage
+    }
+
     const [catalogIndex, totalCount] = await Promise.all([
       nutritionCatalogIndex(db),
       nutritionCatalogTotal(db),
@@ -688,6 +789,7 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
         const assignmentRef = db.doc(`roleAssignments/${uid}`)
         const clientRef = db.doc(`coachClients/${uid}`)
         const legacyStudentRef = legacyStudent ? db.doc(`students/${crmProfileId}`) : null
+        const identityLinkRef = legacyStudent ? db.doc(`accountIdentityLinks/${uid}`) : null
         if ((await transaction.get(userRef)).exists) throw new HttpsError('already-exists', 'Hồ sơ Aura đã tồn tại.')
         if (legacyStudentRef && (await transaction.get(legacyStudentRef)).exists) throw new HttpsError('already-exists', 'Hồ sơ học viên PT đã tồn tại.')
         transaction.create(userRef, {
@@ -706,7 +808,25 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
           clientId: uid, displayName, email, phoneNumber, coachingStatus: 'onboarding', goal,
           createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
         })
-        if (legacyStudentRef) transaction.create(legacyStudentRef, { ...legacyStudent, accountUid: uid, createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() })
+        if (legacyStudentRef) transaction.create(legacyStudentRef, {
+          ...legacyStudent,
+          accountUid: uid,
+          identityLinkStatus: 'linked',
+          identityLinkVersion: 2,
+          identityLinkedAt: FieldValue.serverTimestamp(),
+          identityLinkedBy: actor.uid,
+          schemaVersion: 1,
+          revision: 1,
+          createdAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
+        })
+        if (identityLinkRef) transaction.create(identityLinkRef, {
+          studentId: crmProfileId,
+          status: 'active',
+          source: 'manual',
+          linkedAt: FieldValue.serverTimestamp(),
+          linkedBy: actor.uid,
+        })
         transaction.create(db.collection('identityAuditLogs').doc(), {
           action: 'student_account.provisioned', actorUid: actor.uid, targetUid: uid,
           after: { accessRole: 'student', crmProfileId: crmProfileId || uid }, createdAt: FieldValue.serverTimestamp(),

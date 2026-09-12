@@ -1,244 +1,257 @@
-import React, { useState } from 'react';
-import { TrainingPackage, Branch, UserProfile } from '../../../types';
-import { User } from 'firebase/auth';
-import { Package, Plus, Edit2, Trash2, Clock, Hash, DollarSign, Building2 } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
-import { LOGO_URL } from '../../../constants';
-import { useDatabase } from '../../../contexts/DatabaseContext';
+import { useEffect, useMemo, useRef, useState } from 'react'
+import type { User } from 'firebase/auth'
+import { Archive, Building2, Clock, DollarSign, Edit2, Hash, LoaderCircle, Package, Plus } from 'lucide-react'
+import type { TrainingPackage, UserProfile } from '../../../types'
+import { useAuth } from '../../../contexts/AuthContext'
+import { useDatabase } from '../../../contexts/DatabaseContext'
+import { Button, Dialog, EmptyState, ErrorState } from '../../ui'
+import {
+  archiveTrainingPackage,
+  createPackageCommandKey,
+  upsertTrainingPackage,
+} from '../../../services/packageManagementService'
 
 interface Props {
-  user: User | null;
-  profile?: UserProfile | null;
+  user: User | null
+  profile?: UserProfile | null
 }
 
-export default function PackageSettings({ user, profile }: Props) {
-  const isTrainer = profile?.role === 'trainer';
-  const { packages, branches, addPackage, updatePackage, deletePackage } = useDatabase();
-  const [isEditing, setIsEditing] = useState(false);
-  const [editingPackage, setEditingPackage] = useState<TrainingPackage | null>(null);
-  
-  // Form State
-  const [formData, setFormData] = useState<Partial<TrainingPackage>>({
-    name: '',
-    totalSessions: 12,
-    price: 0,
-    durationMonths: 1,
-    branchId: ''
-  });
+const EMPTY_DRAFT: Partial<TrainingPackage> = {
+  name: '',
+  totalSessions: 12,
+  price: 0,
+  durationMonths: 1,
+  branchId: '',
+}
+
+function commandError(error: unknown) {
+  if (error instanceof Error && error.message.trim()) return error.message.replace(/^FirebaseError:\s*/i, '')
+  return 'Chưa thể cập nhật gói tập. Hãy kiểm tra kết nối rồi thử lại.'
+}
+
+function packageDraftValid(value: Partial<TrainingPackage>) {
+  return Boolean(
+    value.name?.trim().length &&
+    Number.isInteger(value.totalSessions) && Number(value.totalSessions) > 0 &&
+    Number.isInteger(value.durationMonths) && Number(value.durationMonths) > 0 &&
+    Number.isInteger(value.price) && Number(value.price) >= 0,
+  )
+}
+
+export default function PackageSettings({ profile }: Props) {
+  const { accessContext, backendMode, hasCapability } = useAuth()
+  const { packages, branches, operationsSync } = useDatabase()
+  const elevatedActor = accessContext?.accessRole === 'admin'
+    || accessContext?.accessRole === 'super_admin'
+    || profile?.role === 'admin'
+    || profile?.role === 'super_admin'
+  const canManagePackages = backendMode === 'demo' || hasCapability('pt.operations.manage')
+  const availableBranches = useMemo(() => elevatedActor
+    ? branches.filter((branch) => branch.status !== 'archived')
+    : branches.filter((branch) => branch.status !== 'archived' && accessContext?.branchIds.includes(branch.id)),
+  [accessContext?.branchIds, branches, elevatedActor])
+  const defaultBranchId = elevatedActor ? '' : availableBranches[0]?.id || ''
+  const [demoPackages, setDemoPackages] = useState<TrainingPackage[]>(() => packages.filter((item) => item.status !== 'archived'))
+  const visiblePackages = (backendMode === 'demo' ? demoPackages : packages).filter((item) => item.status !== 'archived')
+  const [isEditing, setIsEditing] = useState(false)
+  const [editingPackage, setEditingPackage] = useState<TrainingPackage | null>(null)
+  const [archiveCandidate, setArchiveCandidate] = useState<TrainingPackage | null>(null)
+  const [formData, setFormData] = useState<Partial<TrainingPackage>>({ ...EMPTY_DRAFT, branchId: defaultBranchId })
+  const [busyAction, setBusyAction] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
+  const pendingRef = useRef(false)
+
+  useEffect(() => {
+    if (backendMode === 'demo') setDemoPackages(packages.filter((item) => item.status !== 'archived'))
+  }, [backendMode, packages])
+
+  const closeEditor = () => {
+    if (pendingRef.current) return
+    setIsEditing(false)
+    setEditingPackage(null)
+  }
+
+  const openCreate = () => {
+    setError(null)
+    setNotice(null)
+    setEditingPackage(null)
+    setFormData({ ...EMPTY_DRAFT, branchId: defaultBranchId })
+    setIsEditing(true)
+  }
+
+  const openEdit = (item: TrainingPackage) => {
+    setError(null)
+    setNotice(null)
+    setEditingPackage(item)
+    setFormData({ ...item, branchId: item.branchId || '' })
+    setIsEditing(true)
+  }
 
   const handleSave = async () => {
-    if (!formData.name || !formData.totalSessions || !formData.price) {
-      return;
+    if (pendingRef.current || !packageDraftValid(formData)) return
+    pendingRef.current = true
+    setBusyAction('save')
+    setError(null)
+    const idempotencyKey = createPackageCommandKey()
+    try {
+      const input = {
+        ...(editingPackage ? { packageId: editingPackage.id } : {}),
+        expectedRevision: editingPackage?.revision ?? 0,
+        idempotencyKey,
+        name: formData.name!.trim(),
+        totalSessions: Number(formData.totalSessions),
+        durationMonths: Number(formData.durationMonths),
+        price: Number(formData.price),
+        branchId: formData.branchId || null,
+      }
+      const result = backendMode === 'demo'
+        ? {
+            packageId: editingPackage?.id || `demo-package-${Date.now()}`,
+            revision: (editingPackage?.revision ?? 0) + 1,
+            status: 'active' as const,
+          }
+        : await upsertTrainingPackage(input)
+      if (backendMode === 'demo') {
+        const next: TrainingPackage = { ...input, id: result.packageId, branchId: input.branchId || undefined, status: 'active', revision: result.revision }
+        setDemoPackages((current) => editingPackage
+          ? current.map((item) => item.id === editingPackage.id ? next : item)
+          : [next, ...current])
+      }
+      setNotice(editingPackage ? 'Đã cập nhật gói tập.' : 'Đã tạo gói tập mới.')
+      setIsEditing(false)
+      setEditingPackage(null)
+    } catch (caught) {
+      setError(commandError(caught))
+    } finally {
+      pendingRef.current = false
+      setBusyAction(null)
     }
+  }
 
-    if (editingPackage) {
-      await updatePackage({ ...editingPackage, ...formData } as TrainingPackage);
-    } else {
-      const newPkg: TrainingPackage = {
-        id: Date.now().toString(),
-        name: formData.name,
-        totalSessions: formData.totalSessions,
-        price: formData.price,
-        durationMonths: formData.durationMonths || 1,
-        branchId: formData.branchId || undefined,
-      };
-      await addPackage(newPkg);
+  const handleArchive = async () => {
+    if (!archiveCandidate || pendingRef.current) return
+    pendingRef.current = true
+    setBusyAction(`archive:${archiveCandidate.id}`)
+    setError(null)
+    const candidate = archiveCandidate
+    const idempotencyKey = createPackageCommandKey()
+    try {
+      if (backendMode === 'demo') {
+        setDemoPackages((current) => current.filter((item) => item.id !== candidate.id))
+      } else {
+        await archiveTrainingPackage({
+          packageId: candidate.id,
+          expectedRevision: candidate.revision ?? 0,
+          idempotencyKey,
+        })
+      }
+      setArchiveCandidate(null)
+      setNotice(`Đã ngừng áp dụng “${candidate.name}”. Hợp đồng cũ vẫn giữ nguyên thông tin gói.`)
+    } catch (caught) {
+      setError(commandError(caught))
+    } finally {
+      pendingRef.current = false
+      setBusyAction(null)
     }
-
-    setIsEditing(false);
-    setEditingPackage(null);
-    setFormData({ name: '', totalSessions: 12, price: 0, durationMonths: 1 });
-  };
-
-  const handleDelete = async (id: string) => {
-    if (confirm('Bạn có chắc chắn muốn xóa gói tập này?')) {
-      await deletePackage(id);
-    }
-  };
+  }
 
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300">
-      <div className="flex justify-between items-center bg-zinc-900 p-6 rounded-2xl border border-zinc-800">
+      <header className="flex justify-between items-center bg-zinc-900 p-6 rounded-2xl border border-zinc-800">
         <div className="flex items-center gap-3">
-          <img src={LOGO_URL} alt="Aura" className="h-10 w-10 object-contain" />
-          <h2 className="text-xl font-bold text-pink-500 drop-shadow-[0_0_10px_rgba(236,72,153,0.8)] flex items-center gap-2 border-b-2 border-pink-500/30 pb-2 inline-block shadow-[0_4px_0_rgba(236,72,153,0.2)] rounded-xl">
-            <Package className="w-5 h-5 text-pink-500" />
-            Danh sách gói tập
-          </h2>
+          <span className="w-11 h-11 rounded-xl bg-pink-500/10 text-pink-500 flex items-center justify-center"><Package aria-hidden="true" /></span>
+          <div>
+            <p className="text-xs font-bold text-pink-500">SẢN PHẨM & QUYỀN LỢI</p>
+            <h1 className="text-xl font-bold text-white">Gói tập đang áp dụng</h1>
+            <p className="text-sm text-zinc-400">Thay đổi chỉ áp dụng cho hợp đồng tạo sau thời điểm cập nhật.</p>
+          </div>
         </div>
-        {!isTrainer && (
-          <button 
-            onClick={() => {
-              setEditingPackage(null);
-              setFormData({ name: '', totalSessions: 12, price: 0, durationMonths: 1 });
-              setIsEditing(true);
-            }}
-            className="bg-pink-500 text-white px-4 py-2 rounded-xl font-medium hover:bg-pink-600 transition-colors flex items-center gap-2 shadow-[0_0_15px_rgba(255,0,127,0.3)]"
-          >
-            <Plus className="w-4 h-4" /> Thêm gói mới
-          </button>
-        )}
-      </div>
+        {canManagePackages && <Button onClick={openCreate}><Plus size={17} /> Thêm gói</Button>}
+      </header>
+
+      {notice && <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-emerald-700" role="status" aria-live="polite">{notice}</div>}
+      {error && <ErrorState title="Chưa thể cập nhật gói tập" description={error} />}
+      {operationsSync.status === 'error' && <ErrorState title="Danh sách gói chưa đồng bộ đầy đủ" description={operationsSync.error || 'Hãy tải lại trang rồi thử lại.'} />}
 
       <div className="grid grid-cols-1 gap-4">
-        {packages.length > 0 ? packages.map(pkg => (
-          <div key={pkg.id} className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 shadow-sm relative overflow-hidden group">
-            <div className="absolute -right-4 -top-4 w-20 h-20 bg-pink-500/5 rounded-full blur-2xl group-hover:bg-pink-500/10 transition-colors"></div>
-            
-            <div className="flex justify-between items-start relative z-10">
-              <div>
-                <h3 className="text-lg font-bold text-white mb-3">{pkg.name}</h3>
-                <div className="grid grid-cols-2 gap-x-6 gap-y-2">
-                  <div className="flex items-center gap-2 text-sm text-zinc-400">
-                    <Hash className="w-4 h-4 text-zinc-500" />
-                    <span>{pkg.totalSessions} buổi tập</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-sm text-zinc-400">
-                    <Clock className="w-4 h-4 text-zinc-500" />
-                    <span>Hạn {pkg.durationMonths} tháng</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-sm text-zinc-400 col-span-2">
-                    <Building2 className="w-4 h-4 text-zinc-500" />
-                    <span>{pkg.branchId ? branches.find(b => b.id === pkg.branchId)?.name : 'Tất cả chi nhánh'}</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-sm text-pink-500 font-bold col-span-2 mt-1">
-                    <DollarSign className="w-4 h-4" />
-                    <span>{pkg.price.toLocaleString('vi-VN')} VNĐ</span>
-                  </div>
+        {visiblePackages.length > 0 ? visiblePackages.map((item) => (
+          <article key={item.id} className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 shadow-sm">
+            <div className="flex justify-between items-start gap-4">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2 mb-3">
+                  <h2 className="text-lg font-bold text-white">{item.name}</h2>
+                  <span className="rounded-full bg-emerald-500/10 px-2 py-1 text-xs font-bold text-emerald-700">Đang áp dụng</span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2">
+                  <span className="flex items-center gap-2 text-sm text-zinc-400"><Hash size={16} /> {item.totalSessions} buổi tập</span>
+                  <span className="flex items-center gap-2 text-sm text-zinc-400"><Clock size={16} /> {item.durationMonths} tháng</span>
+                  <span className="flex items-center gap-2 text-sm text-zinc-400"><Building2 size={16} /> {item.branchId ? branches.find((branch) => branch.id === item.branchId)?.name || 'Chi nhánh không còn hoạt động' : 'Tất cả chi nhánh'}</span>
+                  <strong className="flex items-center gap-2 text-sm text-pink-500"><DollarSign size={16} /> {item.price.toLocaleString('vi-VN')} VNĐ</strong>
                 </div>
               </div>
-              
-              {!isTrainer && (
-                <div className="flex gap-2">
-                  <button 
-                    onClick={() => {
-                      setEditingPackage(pkg);
-                      setFormData(pkg);
-                      setIsEditing(true);
-                    }}
-                    className="p-2 bg-zinc-800 text-zinc-400 hover:text-white rounded-xl transition-colors"
-                  >
-                    <Edit2 className="w-4 h-4" />
-                  </button>
-                  <button 
-                    onClick={() => handleDelete(pkg.id)}
-                    className="p-2 bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white rounded-xl transition-colors"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-              )}
+              {canManagePackages && <div className="flex gap-2 shrink-0">
+                <button type="button" onClick={() => openEdit(item)} disabled={Boolean(busyAction)} className="p-2 bg-zinc-800 text-zinc-500 hover:text-zinc-900 rounded-xl disabled:opacity-50" aria-label={`Sửa ${item.name}`}><Edit2 size={17} /></button>
+                <button type="button" onClick={() => { setError(null); setNotice(null); setArchiveCandidate(item) }} disabled={Boolean(busyAction)} className="p-2 bg-red-500/10 text-red-600 hover:bg-red-500 hover:text-white rounded-xl disabled:opacity-50" aria-label={`Ngừng áp dụng ${item.name}`}><Archive size={17} /></button>
+              </div>}
             </div>
-          </div>
-        )) : (
-          <div className="text-center py-12 bg-zinc-900 border border-zinc-800 rounded-3xl text-zinc-500">
-            Chưa có gói tập nào. Hãy bấm nút "+" để tạo gói đầu tiên.
-          </div>
-        )}
+          </article>
+        )) : <EmptyState title="Chưa có gói tập đang áp dụng" description="Tạo gói đầu tiên để dùng khi lập hợp đồng cho học viên." action={canManagePackages ? <Button onClick={openCreate}><Plus size={17} /> Thêm gói</Button> : undefined} />}
       </div>
 
-      {/* Add/Edit Modal */}
-      <AnimatePresence>
-        {isEditing && (
-          <div className="fixed inset-0 z-[60] flex items-end justify-center sm:items-center p-4">
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="absolute inset-0 bg-black/80 backdrop-blur-sm"
-              onClick={() => setIsEditing(false)}
-            />
-            <motion.div 
-              role="dialog"
-              aria-modal="true"
-              aria-label={editingPackage ? 'Sửa gói tập' : 'Thêm gói tập mới'}
-              initial={{ opacity: 0, y: '100%' }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: '100%' }}
-              className="relative w-full max-w-md bg-zinc-900 rounded-3xl p-6 shadow-2xl border border-zinc-800"
-            >
-              <h3 className="text-xl font-bold text-white mb-6">
-                {editingPackage ? 'Sửa gói tập' : 'Thêm gói tập mới'}
-              </h3>
-
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-zinc-400 mb-1">Tên gói tập *</label>
-                  <input 
-                    type="text" 
-                    value={formData.name}
-                    onChange={e => setFormData({...formData, name: e.target.value})}
-                    className="w-full p-3 rounded-xl border border-zinc-800 bg-zinc-950 text-white focus:outline-none focus:border-pink-500" 
-                    placeholder="VD: Gói 36 buổi (3 tháng)"
-                  />
-                </div>
-                
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-zinc-400 mb-1">Số buổi tập *</label>
-                    <input 
-                      type="number" 
-                      value={formData.totalSessions}
-                      onChange={e => setFormData({...formData, totalSessions: Number(e.target.value)})}
-                      className="w-full p-3 rounded-xl border border-zinc-800 bg-zinc-950 text-white focus:outline-none focus:border-pink-500" 
-                      placeholder="VD: 36"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-zinc-400 mb-1">Hạn dùng (Tháng)</label>
-                    <input 
-                      type="number" 
-                      value={formData.durationMonths}
-                      onChange={e => setFormData({...formData, durationMonths: Number(e.target.value)})}
-                      className="w-full p-3 rounded-xl border border-zinc-800 bg-zinc-950 text-white focus:outline-none focus:border-pink-500" 
-                      placeholder="VD: 3"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-zinc-400 mb-1">Giá tiền (VNĐ) *</label>
-                  <input 
-                    type="number" 
-                    value={formData.price}
-                    onChange={e => setFormData({...formData, price: Number(e.target.value)})}
-                    className="w-full p-3 rounded-xl border border-zinc-800 bg-zinc-950 text-white focus:outline-none focus:border-pink-500 text-lg font-bold text-pink-500" 
-                    placeholder="VD: 10800000"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-zinc-400 mb-1">Chi nhánh</label>
-                  <select 
-                    value={formData.branchId || ''}
-                    onChange={e => setFormData({...formData, branchId: e.target.value})}
-                    className="w-full p-3 rounded-xl border border-zinc-800 bg-zinc-950 text-white focus:outline-none focus:border-pink-500"
-                  >
-                    <option value="">Tất cả chi nhánh</option>
-                    {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
-                  </select>
-                </div>
-
-                <div className="pt-4 flex gap-3">
-                  <button 
-                    onClick={() => setIsEditing(false)}
-                    className="flex-1 py-3 rounded-xl font-medium text-zinc-400 bg-zinc-800 hover:bg-zinc-700 transition-colors"
-                  >
-                    Hủy
-                  </button>
-                  <button 
-                    onClick={handleSave}
-                    disabled={!formData.name || !formData.totalSessions || !formData.price}
-                    className="flex-1 py-3 rounded-xl font-medium text-white bg-pink-500 hover:bg-pink-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-[0_0_15px_rgba(255,0,127,0.4)]"
-                  >
-                    Lưu gói tập
-                  </button>
-                </div>
-              </div>
-            </motion.div>
+      <Dialog
+        open={isEditing}
+        onClose={closeEditor}
+        title={editingPackage ? 'Sửa gói tập' : 'Tạo gói tập'}
+        description="Tên, quyền lợi, thời hạn và giá sẽ được lưu thành một phiên bản có kiểm toán."
+        footer={<>
+          <Button variant="secondary" onClick={closeEditor} disabled={busyAction === 'save'}>Hủy</Button>
+          <Button onClick={handleSave} disabled={busyAction === 'save' || !packageDraftValid(formData)}>
+            {busyAction === 'save' ? <LoaderCircle className="animate-spin" size={17} /> : null}
+            {busyAction === 'save' ? 'Đang lưu…' : 'Lưu gói tập'}
+          </Button>
+        </>}
+      >
+        <div className="space-y-4">
+          <label className="block text-sm font-medium text-zinc-600">Tên gói tập
+            <input type="text" value={formData.name || ''} onChange={(event) => setFormData({ ...formData, name: event.target.value })} disabled={busyAction === 'save'} className="mt-1 w-full p-3 rounded-xl border border-zinc-300 bg-white text-zinc-900" placeholder="Ví dụ: Gói PT 36 buổi" />
+          </label>
+          <div className="grid grid-cols-2 gap-4">
+            <label className="block text-sm font-medium text-zinc-600">Số buổi
+              <input type="number" min="1" step="1" value={formData.totalSessions ?? 0} onChange={(event) => setFormData({ ...formData, totalSessions: Number(event.target.value) })} disabled={busyAction === 'save'} className="mt-1 w-full p-3 rounded-xl border border-zinc-300 bg-white text-zinc-900" />
+            </label>
+            <label className="block text-sm font-medium text-zinc-600">Thời hạn (tháng)
+              <input type="number" min="1" step="1" value={formData.durationMonths ?? 0} onChange={(event) => setFormData({ ...formData, durationMonths: Number(event.target.value) })} disabled={busyAction === 'save'} className="mt-1 w-full p-3 rounded-xl border border-zinc-300 bg-white text-zinc-900" />
+            </label>
           </div>
-        )}
-      </AnimatePresence>
+          <label className="block text-sm font-medium text-zinc-600">Giá niêm yết (VNĐ)
+            <input type="number" min="0" step="1" value={formData.price ?? 0} onChange={(event) => setFormData({ ...formData, price: Number(event.target.value) })} disabled={busyAction === 'save'} className="mt-1 w-full p-3 rounded-xl border border-zinc-300 bg-white text-zinc-900" />
+          </label>
+          <label className="block text-sm font-medium text-zinc-600">Phạm vi áp dụng
+            <select value={formData.branchId || ''} onChange={(event) => setFormData({ ...formData, branchId: event.target.value })} disabled={busyAction === 'save'} className="mt-1 w-full p-3 rounded-xl border border-zinc-300 bg-white text-zinc-900">
+              {elevatedActor && <option value="">Tất cả chi nhánh</option>}
+              {availableBranches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}
+            </select>
+          </label>
+          {error && <p className="text-sm text-red-600" role="alert">{error}</p>}
+        </div>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(archiveCandidate)}
+        onClose={() => { if (!pendingRef.current) setArchiveCandidate(null) }}
+        title="Ngừng áp dụng gói tập?"
+        description={archiveCandidate ? `“${archiveCandidate.name}” sẽ không còn xuất hiện khi tạo hợp đồng mới.` : undefined}
+        footer={<>
+          <Button variant="secondary" onClick={() => setArchiveCandidate(null)} disabled={Boolean(busyAction)}>Giữ gói này</Button>
+          <Button tone="danger" onClick={handleArchive} disabled={Boolean(busyAction)}>
+            {busyAction?.startsWith('archive:') ? <LoaderCircle className="animate-spin" size={17} /> : <Archive size={17} />}
+            {busyAction?.startsWith('archive:') ? 'Đang xử lý…' : 'Ngừng áp dụng'}
+          </Button>
+        </>}
+      >
+        <p className="text-sm text-zinc-600">Hợp đồng và lịch sử thanh toán đã dùng gói này vẫn được giữ nguyên. Aura không xóa dữ liệu nghiệp vụ cũ.</p>
+      </Dialog>
     </div>
-  );
+  )
 }

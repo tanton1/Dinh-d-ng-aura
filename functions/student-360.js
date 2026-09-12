@@ -4,6 +4,9 @@ const { HttpsError } = require('firebase-functions/v2/https')
 const { trustedAccessContext } = require('./identity-access')
 const { PT_OPERATIONS_POLICY_EFFECTIVE_FROM, PT_OPERATIONS_POLICY_VERSION } = require('./pt-policy')
 const { effectiveContractStatus } = require('./contract-status')
+const { ptOperationsPolicySnapshot } = require('./pt-policy')
+const { usageSummaryFromView } = require('./contract-usage-view')
+const { canViewAction } = require('./action-center')
 
 const TIME_ZONE = 'Asia/Ho_Chi_Minh'
 // Bump the projection schema when account-link resolution changes. Existing
@@ -797,7 +800,10 @@ function contractWorkspaceRecord(snapshot, canViewFinancialAmounts, canManageCon
   const id = snapshot.id || value.id
   const record = {
     id,
-    studentId: bounded(value.studentId, 200),
+    // `crmProfileId` is retained only as a read-compatible legacy alias.
+    // New contracts are expected to carry studentId, but older records must
+    // still render in the shared workspace without losing their identity.
+    studentId: bounded(value.studentId || value.crmProfileId, 200),
     branchId: bounded(value.branchId, 200) || null,
     packageId: bounded(value.packageId, 200),
     packageName: bounded(value.packageName || value.name, 160) || 'Gói tập Aura',
@@ -864,6 +870,64 @@ function contractAssigneeIssues(assigneeIds, assigneeSnapshots, requestedBranchI
     }
   })
   return issues
+}
+
+function trainerWorkspaceStatus(value) {
+  const normalized = bounded(value, 30).toLowerCase()
+  if (normalized === 'inactive' || normalized === 'archived') return normalized
+  return 'active'
+}
+
+function contractWorkspaceTrainerDirectory({
+  trainerDocuments = [],
+  branchDocuments = [],
+  contracts = [],
+  systemScope = false,
+  allowedBranchIds = [],
+  studentBranchId = '',
+} = {}) {
+  const assignedIds = new Set(contracts.flatMap((contract) => normalizedArray([
+    contract?.trainerId,
+    ...(contract?.trainerIds || []),
+    ...(contract?.nutritionPTIds || []),
+  ])))
+  const allowedBranches = new Set(normalizedArray(allowedBranchIds))
+  const branchNames = new Map(branchDocuments.map((item) => {
+    const value = item.data ? item.data() : item
+    const id = item.id || value?.id
+    return [id, bounded(value?.name, 160) || id]
+  }).filter(([id]) => Boolean(id)))
+
+  return trainerDocuments
+    .filter((item) => {
+      const value = item.data ? item.data() : item
+      const id = item.id || value?.id
+      const branchId = bounded(value?.branchId, 200)
+      const status = trainerWorkspaceStatus(value?.status)
+      const selectable = status === 'active' && (
+        systemScope
+        || !branchId
+        || allowedBranches.has(branchId)
+        || branchId === studentBranchId
+      )
+      // Keep only the current assignee when they are no longer selectable so
+      // the contract editor can explain and repair the invalid assignment.
+      // Arbitrary inactive or out-of-scope staff records are never returned.
+      return assignedIds.has(id) || selectable
+    })
+    .map((item) => {
+      const value = item.data ? item.data() : item
+      const id = item.id || value?.id
+      const branchId = bounded(value?.branchId, 200) || null
+      return {
+        id,
+        name: bounded(value?.name, 160) || id,
+        branchId,
+        branchName: branchId ? branchNames.get(branchId) || branchId : '',
+        status: trainerWorkspaceStatus(value?.status),
+      }
+    })
+    .sort((left, right) => left.name.localeCompare(right.name, 'vi'))
 }
 
 function profileProgress(profile = {}, metricDocs = []) {
@@ -1013,7 +1077,10 @@ async function projectionSources(db, studentId, weekId) {
   if (!studentSnapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy học viên.')
   const student = { id: studentSnapshot.id, ...studentSnapshot.data() }
   const [contracts, sessions, attendance, leaveRequests, sessionRequests, legacyWorkoutLogs, ptWorkoutLogs, renewals, dailyCheckins, payments, ledgerEntries, availabilitySnapshot, profileResult] = await Promise.all([
-    latestDocuments(db.collection('contracts').where('studentId', '==', studentId), 'startDate', 50),
+    Promise.all([
+      latestDocuments(db.collection('contracts').where('studentId', '==', studentId), 'startDate', 50),
+      latestDocuments(db.collection('contracts').where('crmProfileId', '==', studentId), 'startDate', 50),
+    ]).then(([canonical, legacy]) => [...new Map([...canonical, ...legacy].map((item) => [item.id, item])).values()].slice(0, 50)),
     latestDocuments(db.collection('sessions').where('studentId', '==', studentId), 'date', 1000),
     latestDocuments(db.collection('attendanceEvents').where('studentId', '==', studentId), 'date', 1000),
     latestDocuments(db.collection('leaveRequests').where('studentId', '==', studentId), 'startDate', 150),
@@ -1273,7 +1340,10 @@ async function buildStudent360Projection({ db, studentId, weekId = mondayDateKey
   const sources = await projectionSources(db, studentId, weekId)
   const contract = activeContract(sources.contracts, today)
   const contractEffectiveStatus = contract ? effectiveContractStatus(contract, today) : null
-  const usage = contractUsage(contract || {}, sources.sessions)
+  const usageView = contract ? await db.doc(`contractUsageViews/${contract.id}`).get() : null
+  const usage = usageView?.exists
+    ? usageSummaryFromView(usageView.data(), contract)
+    : contractUsage(contract || {}, sources.sessions)
   const payment = paymentProjection(contract, today)
   const assignmentDirectory = await assignmentNames(db, sources, contract)
   const { trainerNameById, branchNameById, ...assignments } = assignmentDirectory
@@ -1627,6 +1697,50 @@ function safeTimelineEvent(event, permissions) {
   return result
 }
 
+async function studentOperationalActions(db, actor, studentId) {
+  const snapshot = await db.collection('operationalActions').where('studentId', '==', studentId).limit(30).get()
+  const actionMap = {
+    sessions_exhausted: 'contract',
+    expired: 'contract',
+    renewal_due: 'renewal',
+    payment_overdue: 'finance',
+    usage_mismatch: 'contract',
+    three_no_shows: 'contact',
+    missing_schedule: 'schedule',
+    follow_up: 'renewal',
+    health_alert: 'contact',
+  }
+  const audienceMap = { finance: 'finance', nutrition: 'coaching', renewal: 'sales' }
+  return snapshot.docs
+    .map((item) => item.data() || {})
+    .filter((item) => ['open', 'in_progress'].includes(item.status) && canViewAction(item, actor))
+    .sort((left, right) => {
+      const severity = { critical: 0, warning: 1, info: 2 }
+      const due = (value) => value?.toMillis?.() || Number.MAX_SAFE_INTEGER
+      return (severity[left.severity] ?? 3) - (severity[right.severity] ?? 3) || due(left.dueAt) - due(right.dueAt) || bounded(left.actionId, 300).localeCompare(bounded(right.actionId, 300))
+    })
+    .slice(0, 3)
+    .map((item, index) => {
+      const action = item.sourceType === 'session_request' || item.sourceType === 'schedule_draft'
+        ? 'schedule'
+        : item.sourceType === 'meal_review'
+          ? 'nutrition'
+          : actionMap[item.actionType] || 'contact'
+      return {
+        id: bounded(item.actionId, 300),
+        priority: index + 1,
+        severity: item.severity === 'critical' ? 'red' : item.severity === 'warning' ? 'amber' : 'green',
+        title: bounded(item.title, 180),
+        message: bounded(item.redactedSummary, 500),
+        description: bounded(item.redactedSummary, 500),
+        action,
+        audience: audienceMap[action] || 'operations',
+        operationalActionId: bounded(item.actionId, 300),
+        status: item.status,
+      }
+    })
+}
+
 async function studentIdFromAccountUid(db, accountUid) {
   const uid = safeAccountUid(accountUid)
   if (!uid) return null
@@ -1718,14 +1832,37 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
   const writeCall = (handler) => onCall({ cpu: 'gcf_gen1', concurrency: 1, maxInstances: 4, invoker: 'public' }, handler)
 
   const contractWorkspace = async (actor, studentId, projection, permissions) => {
-    const [contractSnapshot, sessionSnapshot] = await Promise.all([
+    // Read both the canonical studentId field and the legacy crmProfileId
+    // alias during the migration window. De-duplicate by contract id before
+    // applying scope checks so a dual-indexed contract appears once.
+    const [studentContracts, legacyContracts] = await Promise.all([
       db.collection('contracts').where('studentId', '==', studentId).limit(50).get(),
-      db.collection('sessions').where('studentId', '==', studentId).limit(1000).get(),
+      db.collection('contracts').where('crmProfileId', '==', studentId).limit(50).get(),
     ])
+    const contractDocuments = [...new Map(
+      [...studentContracts.docs, ...legacyContracts.docs].map((item) => [item.id, item]),
+    ).values()]
+    const usageViewSnapshots = await Promise.all(
+      contractDocuments.map((item) => db.doc(`contractUsageViews/${item.id}`).get()),
+    )
+    const usageViews = new Map(usageViewSnapshots.filter((item) => item.exists).map((item) => [item.id, item.data()]))
+    const missingUsageIds = contractDocuments.filter((item) => !usageViews.has(item.id)).map((item) => item.id)
+    // Dual-read fallback is bounded and only runs for contracts whose
+    // projection has not been built yet. Once the scheduled/triggered rebuild
+    // catches up, Student 360 no longer scans session history for usage.
+    const sessionSnapshot = missingUsageIds.length
+      ? await db.collection('sessions').where('studentId', '==', studentId).limit(1000).get()
+      : { docs: [] }
     const sessions = sessionSnapshot.docs.map((item) => ({ id: item.id, ...item.data() }))
-    const usageByContract = new Map(contractSnapshot.docs.map((item) => [item.id, contractUsage({ id: item.id, ...item.data() }, sessions)]))
+    const usageByContract = new Map(contractDocuments.map((item) => {
+      const value = item.data() || {}
+      const usageView = usageViews.get(item.id)
+      return [item.id, usageView
+        ? usageSummaryFromView(usageView, value)
+        : contractUsage({ id: item.id, ...value }, sessions)]
+    }))
     const ids = actorIds(actor)
-    const contracts = contractSnapshot.docs
+    const contracts = contractDocuments
       .filter((item) => {
         if (permissions.scope === 'system') return true
         const value = item.data() || {}
@@ -1787,32 +1924,14 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
         branchId: bounded(item.data()?.branchId, 200) || null,
       }))
       .sort((left, right) => left.name.localeCompare(right.name, 'vi'))
-    const referencedAssigneeIds = new Set(contracts.flatMap((contract) => [
-      ...normalizedArray(contract.trainerIds?.length ? contract.trainerIds : [contract.trainerId]),
-      ...normalizedArray(contract.nutritionPTIds),
-    ]))
-    const branchNames = new Map(branchSnapshot.docs.map((item) => [item.id, bounded(item.data()?.name, 160) || item.id]))
-    const trainers = trainerSnapshot.docs
-      .filter((item) => {
-        const itemBranch = bounded(item.data()?.branchId, 200)
-        const selectable = item.data()?.status !== 'inactive'
-          && (systemScope || !itemBranch || allowedBranches.has(itemBranch) || itemBranch === branchId)
-        // Keep legacy assignees visible on the exact authorized contract so
-        // an Admin can explicitly remove a stale cross-branch/inactive link.
-        return selectable || referencedAssigneeIds.has(item.id)
-      })
-      .map((item) => {
-        const itemBranch = bounded(item.data()?.branchId, 200) || null
-        return {
-          id: item.id,
-          name: bounded(item.data()?.name, 160) || item.id,
-          branchId: itemBranch,
-          branchName: itemBranch ? branchNames.get(itemBranch) || null : null,
-          status: item.data()?.status === 'inactive' ? 'inactive' : 'active',
-          referencedByContract: referencedAssigneeIds.has(item.id),
-        }
-      })
-      .sort((left, right) => left.name.localeCompare(right.name, 'vi'))
+    const trainers = contractWorkspaceTrainerDirectory({
+      trainerDocuments: trainerSnapshot.docs,
+      branchDocuments: branchSnapshot.docs,
+      contracts,
+      systemScope,
+      allowedBranchIds: [...allowedBranches],
+      studentBranchId: branchId,
+    })
     return {
       schemaVersion: 1,
       student: {
@@ -2082,8 +2201,12 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
           note: bounded(input.note, 1_000) || bounded(current?.note, 1_000),
         }
         if (action === 'create') {
-          next.policyVersion = PT_OPERATIONS_POLICY_VERSION
-          next.policyEffectiveFrom = PT_OPERATIONS_POLICY_EFFECTIVE_FROM
+          const policyConfigSnapshot = await transaction.get(db.doc('settings/scheduleConfig'))
+          const operationsPolicy = ptOperationsPolicySnapshot(policyConfigSnapshot.exists ? policyConfigSnapshot.data() : {})
+          next.policyVersion = operationsPolicy.policyVersion
+          next.policyEffectiveFrom = operationsPolicy.policyEffectiveFrom
+          next.policyHash = operationsPolicy.policyHash
+          next.policySnapshot = operationsPolicy
         }
       } else if (action === 'add_sessions') {
         if (!canManageFinancials) throw new HttpsError('permission-denied', 'Chỉ bộ phận tài chính được ghi nhận mua thêm buổi.')
@@ -2245,7 +2368,11 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
     const weekId = bounded(request.data?.weekId, 10) || mondayDateKey()
     if (!/^\d{4}-\d{2}-\d{2}$/.test(weekId)) throw new HttpsError('invalid-argument', 'Tuần xem không hợp lệ.')
     const { projection, permissions, cache } = await loadAuthorizedProjection(db, actor, studentId, weekId, false)
-    return { ...redactProjection(projection, permissions), cache }
+    const redacted = redactProjection(projection, permissions)
+    const operationalActions = request.data?.includeOperationalActions === true
+      ? await studentOperationalActions(db, actor, studentId)
+      : []
+    return { ...redacted, ...(operationalActions.length ? { nextActions: operationalActions } : {}), cache }
   })
 
   const listStudent360Directory = readCall(async (request) => {
@@ -2448,7 +2575,7 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
     if (type === 'note' && note.length < 2) throw new HttpsError('invalid-argument', 'Ghi chú cần ít nhất 2 ký tự.')
     const { projection, permissions } = await loadAuthorizedProjection(db, actor, studentId, mondayDateKey(), false)
     if (!permissions.canManageCare) throw new HttpsError('permission-denied', 'Bạn không có quyền ghi nhận chăm sóc.')
-    const actionId = bounded(request.data?.actionId, 200) || null
+    const actionId = bounded(request.data?.actionId, 400) || null
     const activityReference = db.collection('studentCareActivities').doc()
     const now = Date.now()
     const visibility = 'care'
@@ -2541,6 +2668,7 @@ module.exports = {
   contractInstallments,
   contractAssigneeIssues,
   contractMutationTitle,
+  contractWorkspaceTrainerDirectory,
   createStudent360Functions,
   permissionsFor,
   redactProjection,
