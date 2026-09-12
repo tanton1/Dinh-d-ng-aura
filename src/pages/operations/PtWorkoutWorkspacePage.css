@@ -46,6 +46,7 @@
 }
 
 .pt-workout-workspace__student-picker{position:relative;z-index:12;display:grid;gap:3px;width:min(390px,100%);min-width:280px}
+.pt-workout-workspace__student-select-a11y{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;border:0;opacity:0;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap}
 .pt-workout-workspace__student-picker>label{color:#786870;font-size:9px;font-weight:900;letter-spacing:.1em;text-transform:uppercase}
 .pt-workout-workspace__student-search{display:flex;align-items:center;gap:8px;min-height:42px;border:1px solid #ead9df;border-radius:12px;background:#fff;padding:0 9px}
 .pt-workout-workspace__student-search:focus-within{border-color:#d55b88;box-shadow:0 0 0 3px rgba(245,47,123,.1)}

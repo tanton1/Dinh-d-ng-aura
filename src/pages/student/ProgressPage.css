@@ -362,6 +362,30 @@
 .progress-v2-measurements small { color: var(--pv2-muted); font-size: .66rem; }
 .progress-v2-measurements strong { font-size: .9rem; }
 
+.progress-v2-photos__preview {
+  display: grid;
+  grid-template-columns: minmax(150px, 260px) minmax(0, 1fr);
+  align-items: center;
+  gap: 18px;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--pv2-line);
+}
+.progress-v2-photos__preview img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 5;
+  border-radius: 16px;
+  object-fit: cover;
+  content-visibility: visible;
+  background: #f0eef1;
+}
+.progress-v2-photos__preview > div { display: grid; gap: 5px; }
+.progress-v2-photos__preview span { color: var(--pv2-muted); font-size: .72rem; }
+.progress-v2-photos__preview strong { font-size: 1rem; }
+.progress-v2-photos header button { display: inline-flex; min-height: 36px; align-items: center; gap: 6px; border: 0; color: var(--pv2-pink); background: transparent; font-size: .72rem; font-weight: 720; cursor: pointer; }
+.progress-v2-photos header button svg { width: 16px; }
+
 .progress-v2-history { padding: 0; }
 .progress-v2-history > header { padding: 20px; }
 .progress-v2-history > header > span { color: var(--pv2-muted); font-size: .72rem; }
@@ -430,6 +454,7 @@
   .progress-v2-club__stats small { font-size: .6rem; line-height: 1.35; }
   .progress-v2-chart svg { height: 184px; }
   .progress-v2-measurements > div { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .progress-v2-photos__preview { grid-template-columns: 110px minmax(0, 1fr); gap: 12px; }
   .progress-v2-history { margin: 0 -14px; border-right: 0; border-left: 0; border-radius: 0; }
   .progress-v2-history__list > article { grid-template-columns: 92px minmax(0, 1fr); gap: 12px; padding: 14px; }
   .progress-v2-history__media { height: 88px; }

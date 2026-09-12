@@ -418,8 +418,17 @@ export default function PtWorkoutWorkspacePage({ isDemo = false, canPublishCatal
         {tab === 'today' && branchOptions.length > 1 && <label>Chi nhánh<select value={branchFilter} onChange={(event) => setBranchFilter(event.target.value)}><option value="all">Tất cả</option>{branchOptions.map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></label>}
         {tab === 'today' && trainerOptions.length > 1 && <label>PT<select value={trainerFilter} onChange={(event) => setTrainerFilter(event.target.value)}><option value="all">Tất cả</option>{trainerOptions.map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></label>}
         {(tab === 'program' || tab === 'history') && <div className="pt-workout-workspace__student-picker">
-          <label htmlFor="pt-workout-student-search">Tìm học viên</label>
-          <div className="pt-workout-workspace__student-search">
+           <label htmlFor="pt-workout-student-search">Tìm học viên</label>
+           <select
+             className="pt-workout-workspace__student-select-a11y"
+             aria-label="Học viên"
+             value={selectedStudentId}
+             onChange={(event) => setSelectedStudentId(event.target.value)}
+           >
+             <option value="">Chọn học viên</option>
+             {eligibleStudents.map((student) => <option key={student.id} value={student.id}>{student.name}</option>)}
+           </select>
+           <div className="pt-workout-workspace__student-search">
             <span className="pt-workout-workspace__student-search-icon" aria-hidden="true"><Search /></span>
             <input
               id="pt-workout-student-search"

@@ -44,6 +44,7 @@ import {
   subscribeToUserWeightLogs,
 } from '../../services/firebaseService'
 import { safeLocalStorageSet } from '../../lib/safeStorage'
+import { readProgressPhotoCache } from '../../dataSync/progressPhotoCache'
 import '../../styles-progress.css'
 import './ProgressPage.css'
 
@@ -126,6 +127,50 @@ function changeCopy(value: number | null, unit: string) {
 function photoFor(record: ProgressCheckInRecord | undefined) {
   if (!record?.photos?.length) return null
   return record.photos.find((photo) => photo.angle === 'front') || record.photos[0]
+}
+
+function readCachedPhotos(ownerId: string): LegacyPhoto[] {
+  return readProgressPhotoCache<LegacyPhoto>(ownerId, (key) => {
+    try {
+      return localStorage.getItem(key)
+    } catch {
+      return null
+    }
+  })
+}
+
+/**
+ * Lightweight photo surface for the body tab.  It intentionally reads the
+ * same owner-scoped cache as the photo studio so an empty, confirmed snapshot
+ * immediately removes stale comparison photos instead of resurrecting the
+ * fallback legacy cache.
+ */
+function ProgressPhotoGallery({ records, legacyPhotos, onOpenCheckIn }: { records: ProgressCheckInRecord[]; legacyPhotos: LegacyPhoto[]; onOpenCheckIn: () => void }) {
+  const photos = useMemo(() => {
+    const canonical = records.flatMap((record) => (record.photos || []).map((photo) => ({
+      id: photo.id,
+      date: record.date,
+      imageUrl: photo.imageUrl,
+      angle: photo.angle,
+    })))
+    const legacy = legacyPhotos
+      .filter((photo) => Boolean(photo.imageUrl))
+      .map((photo) => ({
+        id: photo.id,
+        date: String(photo.date || photo.recordedAt || '').slice(0, 10),
+        imageUrl: String(photo.imageUrl),
+        angle: normalizeAngle(photo.angle),
+      }))
+    return [...canonical, ...legacy]
+      .filter((photo) => photo.date && photo.imageUrl)
+      .sort((a, b) => b.date.localeCompare(a.date))
+  }, [legacyPhotos, records])
+  const frontPhoto = photos.find((photo) => photo.angle === 'front')
+
+  return <section id="progress-photos-section" className="progress-v2-section progress-v2-photos" aria-labelledby="progress-photos-title">
+    <header><div><h2 id="progress-photos-title">Ảnh tiến độ</h2><p>Ảnh riêng tư được đồng bộ theo từng lần ghi nhận.</p></div><button type="button" onClick={onOpenCheckIn}><Camera /> Ghi nhận</button></header>
+    {frontPhoto ? <div className="progress-v2-photos__preview"><img src={frontPhoto.imageUrl} alt="Trước" loading="eager" /><div><span>Chính diện</span><strong>{formatDate(frontPhoto.date)}</strong></div></div> : <div className="progress-v2-empty"><ImageIcon /><strong>Chưa có ảnh cho góc Chính diện</strong><span>Thêm ảnh đầu tiên để theo dõi thay đổi vóc dáng.</span><button type="button" onClick={onOpenCheckIn}>Thêm ảnh</button></div>}
+  </section>
 }
 
 function ProgressImage({ record, label }: { record?: ProgressCheckInRecord; label: string }) {
@@ -239,7 +284,7 @@ export default function ProgressPage({
   const emptyMetrics: BodyMeasurements = { bmi: 0, bmiCategory: 'Chưa cập nhật', bodyFatPercentage: 0, bodyFatStatus: 'Chưa cập nhật', muscleMassKg: 0, muscleStatus: 'Chưa cập nhật', waistCm: 0, waistStatus: 'Chưa cập nhật', updatedAt: '' }
   const [bodyMetrics, setBodyMetrics] = useState<BodyMeasurements>(() => readLocal(`aura:progress:body-measurements:${resolvedOwnerId}`, emptyMetrics))
   const [canonicalCheckIns, setCanonicalCheckIns] = useState<ProgressCheckInRecord[]>(() => readLocal(`aura:cache:user_progress_checkins:${resolvedOwnerId}`, []))
-  const [legacyPhotos, setLegacyPhotos] = useState<LegacyPhoto[]>(() => readLocal(`aura:cache:user_progress_photos:${resolvedOwnerId}`, []))
+  const [legacyPhotos, setLegacyPhotos] = useState<LegacyPhoto[]>(() => readCachedPhotos(resolvedOwnerId))
   const [loyalty, setLoyalty] = useState<LoyaltyDashboard | null>(isDemo ? demoLoyaltyDashboard() : null)
 
   useEffect(() => {
@@ -271,8 +316,10 @@ export default function ProgressPage({
     setWeightRecords(readLocal(`aura:progress:weight-records:${resolvedOwnerId}`, []))
     setBodyMetrics(readLocal(`aura:progress:body-measurements:${resolvedOwnerId}`, emptyMetrics))
     setCanonicalCheckIns(readLocal(`aura:cache:user_progress_checkins:${resolvedOwnerId}`, []))
-    setLegacyPhotos(readLocal(`aura:cache:user_progress_photos:${resolvedOwnerId}`, []))
-    if (isDemo || resolvedOwnerId === 'anonymous') return
+    setLegacyPhotos(readCachedPhotos(resolvedOwnerId))
+    const refreshProgressPhotos = () => setLegacyPhotos(readCachedPhotos(resolvedOwnerId))
+    window.addEventListener('aura:progress-photos-updated', refreshProgressPhotos)
+    if (isDemo || resolvedOwnerId === 'anonymous') return () => window.removeEventListener('aura:progress-photos-updated', refreshProgressPhotos)
     const unsubscribers = [
       subscribeToUserWeightLogs(resolvedOwnerId, (rows) => {
         const sorted = [...rows].sort((a, b) => String(a.date).localeCompare(String(b.date)))
@@ -287,7 +334,10 @@ export default function ProgressPage({
       subscribeToUserProgressCheckIns(resolvedOwnerId, setCanonicalCheckIns),
       subscribeToUserProgressPhotos(resolvedOwnerId, setLegacyPhotos),
     ]
-    return () => unsubscribers.forEach((unsubscribe) => unsubscribe())
+    return () => {
+      window.removeEventListener('aura:progress-photos-updated', refreshProgressPhotos)
+      unsubscribers.forEach((unsubscribe) => unsubscribe())
+    }
   }, [isDemo, resolvedOwnerId])
 
   useEffect(() => {
@@ -443,6 +493,7 @@ export default function ProgressPage({
         <header><div><h2 id="latest-measurements-title">Số đo gần nhất</h2><p>{latest ? `Ghi nhận ngày ${formatDate(latest.date)}` : 'Chưa có dữ liệu cơ thể.'}</p></div><Ruler /></header>
         <div>{allMeasurementDefinitions.map((item) => <span key={String(item.id)}><small>{item.label}</small><strong>{positive(latest?.[item.id]) ?? '—'}{positive(latest?.[item.id]) ? ` ${item.unit}` : ''}</strong></span>)}</div>
       </section>
+      <ProgressPhotoGallery records={periodCheckIns} legacyPhotos={legacyPhotos} onOpenCheckIn={openCheckIn} />
     </div>}
 
     {category === 'history' && <CheckInHistory records={checkIns} onOpenCheckIn={openCheckIn} />}
