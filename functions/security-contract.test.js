@@ -356,7 +356,7 @@ test('sensitive operations routes require Identity v2 capabilities in addition t
   assert.doesNotMatch(branchScheduleWorkspaceSource, /\.catch\(\(branchError\)[\s\S]{0,300}setError\(asPtSchedulePublishError/)
 })
 
-test('staff keeps learner navigation while every work capability has a separate page', () => {
+test('staff keeps learner navigation while operations routes stay separate and menus follow the workflow', () => {
   assert.match(appSource, /case 'staff-students': return <AuraOperationsFrame><TrainerPortalV2 section="students" isDemo=\{backendMode === 'demo'\}/)
   assert.match(appSource, /case 'staff-schedule': return <AuraOperationsFrame><StaffScheduleWorkspace initialTab="teaching"/)
   assert.match(appSource, /case 'staff-availability': return <AuraOperationsFrame><StaffScheduleWorkspace initialTab="availability"/)
@@ -367,8 +367,8 @@ test('staff keeps learner navigation while every work capability has a separate 
   assert.match(appSource, /case 'staff-renewals':[\s\S]*?<ContractRenewals/)
   assert.match(appSource, /case 'staff-payroll':[\s\S]*?<StaffPayrollPage/)
   assert.doesNotMatch(appSource, /view === 'home'[\s\S]{0,200}trainer-portal/)
-  assert.match(appShellSource, /const staffNavSections[\s\S]*?label: 'CÔNG VIỆC'[\s\S]*?'staff-students'[\s\S]*?'staff-schedule'[\s\S]*?'staff-requests'[\s\S]*?'staff-nutrition-reviews'[\s\S]*?'staff-quotes'[\s\S]*?'staff-renewals'[\s\S]*?'staff-payroll'/)
-  assert.match(appShellSource, /const staffMobileNav[\s\S]*?'staff-dashboard'[\s\S]*?'staff-students'[\s\S]*?'staff-schedule'[\s\S]*?'staff-nutrition-reviews'[\s\S]*?'staff-renewals'[\s\S]*?'staff-payroll'/)
+  assert.match(appShellSource, /const staffNavSections[\s\S]*?label: 'HỌC VIÊN & CHĂM SÓC'[\s\S]*?'staff-students'[\s\S]*?'staff-nutrition-reviews'[\s\S]*?'staff-renewals'[\s\S]*?label: 'LỊCH & HUẤN LUYỆN'[\s\S]*?'staff-schedule'[\s\S]*?'admin-pt-schedule'[\s\S]*?'staff-workouts'[\s\S]*?label: 'KINH DOANH & KẾT QUẢ'[\s\S]*?'staff-quotes'[\s\S]*?'staff-performance'[\s\S]*?'staff-payroll'/)
+  assert.match(appShellSource, /const staffMobileNav[\s\S]*?'staff-dashboard'[\s\S]*?'staff-students'[\s\S]*?'staff-schedule'[\s\S]*?'admin-pt-schedule'[\s\S]*?'staff-workouts'[\s\S]*?'staff-nutrition-reviews'[\s\S]*?'staff-renewals'[\s\S]*?'staff-quotes'[\s\S]*?'staff-performance'[\s\S]*?'staff-payroll'/)
   assert.match(accessRouteSource, /'staff-students': 'coach\.workspace\.view'/)
   assert.match(accessRouteSource, /'staff-nutrition-reviews': 'coach\.workspace\.view'/)
   assert.match(accessRouteSource, /'staff-quotes': 'sales\.quotes\.self\.manage'/)

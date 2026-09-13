@@ -7,7 +7,7 @@ const routeImporters: Partial<Record<ViewId, () => Promise<unknown>>> = {
   courses: () => import('../pages/student/CoursesPage'),
   'course-detail': () => import('../pages/student/CourseDetailPage'),
   nutrition: () => import('../pages/student/NutritionPage'),
-  'eat-clean': () => import('../features/eat-clean/pages/EatCleanPage'),
+  'eat-clean': () => import('../features/eat-clean/EatCleanPage'),
   progress: () => import('../pages/student/ProgressPage'),
   'progress-photo-studio': () => import('../pages/student/ProgressPhotoStudio'),
   schedule: () => import('../pages/student/SchedulePage'),
@@ -15,8 +15,6 @@ const routeImporters: Partial<Record<ViewId, () => Promise<unknown>>> = {
   'pt-workout': () => import('../pages/student/StudentPtWorkoutPage'),
   profile: () => import('../pages/student/ProfilePage'),
   workout: () => import('../pages/student/WorkoutPage'),
-  'trainer-portal': () => import('../pages/operations/TrainerPortalV2'),
-  'sales-portal': () => import('../pages/operations/SalesPortalV2'),
   'staff-dashboard': () => import('../pages/operations/StaffDashboardPage'),
   'staff-students': () => import('../pages/operations/TrainerPortalV2'),
   'staff-schedule': () => import('../pages/operations/StaffScheduleWorkspace'),
@@ -30,17 +28,15 @@ const routeImporters: Partial<Record<ViewId, () => Promise<unknown>>> = {
   'staff-performance': () => import('../pages/operations/StaffPerformancePage'),
   'student-360': () => import('../features/student-360/Student360Page'),
   'admin-pt-students': () => import('../components/admin/pt/StudentManagement'),
-  'admin-pt-schedule': () => Promise.all([
-    import('../components/schedule/SchedulerWrapper'),
-    import('../components/schedule/BranchScheduleWorkspace'),
-  ]),
+  // Production renders the scoped V2 workspace. The demo-only fallback is
+  // intentionally not prefetched because it is another ~100 KiB module.
+  'admin-pt-schedule': () => import('../components/schedule/BranchScheduleWorkspace'),
   'admin-training-history': () => import('../components/admin/pt/TrainingHistoryWorkspace'),
   'admin-pt-workouts': () => import('../pages/operations/PtWorkoutWorkspacePage'),
   'admin-trainer-quality': () => import('../pages/admin/TrainerQualityPage'),
   'admin-performance': () => import('../pages/operations/PerformanceReviewPage'),
   'admin-renewals': () => import('../components/admin/pt/ContractRenewals'),
-  'admin-report': () => import('../pages/admin/AdminDashboard'),
-  'admin-finance': () => import('../components/admin/pt/FinanceManagement'),
+  'admin-finance': () => import('../components/admin/pt/AdminFinanceHub'),
   'admin-payroll': () => import('../components/admin/pt/TrainerPayroll'),
   'admin-hr': () => import('../pages/admin/AdminRolesPage'),
   'admin-packages': () => import('../components/admin/pt/PackageSettings'),
@@ -57,7 +53,6 @@ const routeImporters: Partial<Record<ViewId, () => Promise<unknown>>> = {
   'admin-programs': () => import('../pages/admin/AdminProgramsPage'),
   'admin-eat-clean': () => import('../features/eat-clean/admin/AdminEatCleanPage'),
   'admin-nutrition-reviews': () => import('../pages/admin/AdminNutritionReviewsPage'),
-  'admin-roles': () => import('../pages/admin/AdminRolesPage'),
   'admin-notifications': () => import('../pages/admin/AdminNotificationsPage'),
 }
 

@@ -13,7 +13,7 @@ import {
   ScheduleConfig,
   SchedulerResult,
 } from "../../types";
-import { calculateWarnings } from "../../utils/scheduler";
+import { calculateWarnings } from "../../utils/schedulerWarnings";
 import StudentForm from "../admin/pt/StudentForm";
 import StudentList from "./StudentList";
 import ScheduleWarningsPanel from "./ScheduleWarningsPanel";

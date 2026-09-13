@@ -48,6 +48,14 @@ import { readProgressPhotoCache } from '../../dataSync/progressPhotoCache'
 import '../../styles-progress.css'
 import './ProgressPage.css'
 
+// Keep secondary progress visuals outside the first route chunk. They are
+// loaded only by the corresponding detail surfaces in the full progress UI.
+const ProgressPhotosCard = React.lazy(() => import('../../components/progress/ProgressPhotosCard').then((module) => ({ default: module.ProgressPhotosCard })))
+const NutritionChartsCard = React.lazy(() => import('../../components/progress/NutritionChartsCard').then((module) => ({ default: module.NutritionChartsCard })))
+const EnergyBalanceCard = React.lazy(() => import('../../components/progress/EnergyBalanceCard').then((module) => ({ default: module.EnergyBalanceCard })))
+const StreaksAndBadgesCard = React.lazy(() => import('../../components/progress/StreaksAndBadgesCard').then((module) => ({ default: module.StreaksAndBadgesCard })))
+const AiWeeklyAnalysisCard = React.lazy(() => import('../../components/progress/AiWeeklyAnalysisCard').then((module) => ({ default: module.AiWeeklyAnalysisCard })))
+
 interface ProgressPageProps {
   courseItems?: Course[]
   progressItems?: CourseProgress[]
@@ -405,7 +413,7 @@ export default function ProgressPage({
     return [...records.values()].filter((record) => /^\d{4}-\d{2}-\d{2}$/.test(record.date)).sort((a, b) => b.date.localeCompare(a.date))
   }, [bodyMetrics, canonicalCheckIns, legacyPhotos, weightRecords])
 
-  const days = period === '7-days' ? 7 : period === '90-days' ? 90 : 30
+  const days = period === '7-days' ? 7 : period === '30-days' ? 30 : 90
   const periodStart = daysAgoKey(days)
   const periodCheckIns = checkIns.filter((record) => record.date >= periodStart)
   const latest = periodCheckIns[0]

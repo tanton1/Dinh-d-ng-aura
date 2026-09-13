@@ -297,9 +297,52 @@ select { font-family: var(--aura-font); }
 
 @media (prefers-reduced-motion: reduce) {
   .aura-state--loading > svg { animation: none; }
+  .aura-route-loading__line i,
+  .aura-route-loading__layout i { animation: none; }
   .aura-modal-layer,
   .aura-sheet,
   .aura-dialog { scroll-behavior: auto; }
+}
+
+/* Route loading is a quiet full-width workspace, not another hero card. */
+.aura-route-loading {
+  width: min(100%, 1180px);
+  min-height: min(68dvh, 640px);
+  display: grid;
+  align-content: start;
+  gap: 18px;
+  margin-inline: auto;
+  padding: clamp(18px, 3vw, 36px);
+  color: var(--aura-neutral-950);
+}
+.aura-route-loading__header { display: flex; align-items: center; gap: 13px; min-width: 0; }
+.aura-route-loading__header > span:last-child { min-width: 0; display: grid; gap: 3px; }
+.aura-route-loading__header strong { font-size: clamp(16px, 2vw, 20px); line-height: 1.25; }
+.aura-route-loading__header small { color: var(--aura-neutral-600); font-size: 12px; line-height: 1.5; }
+.aura-route-loading__mark {
+  width: 42px;
+  height: 42px;
+  flex: 0 0 42px;
+  display: grid;
+  place-items: center;
+  border-radius: 13px;
+  color: #fff;
+  background: var(--aura-brand-pink);
+  font-size: 21px;
+  font-weight: 900;
+}
+.aura-route-loading__line { height: 3px; overflow: hidden; border-radius: 999px; background: var(--aura-neutral-150); }
+.aura-route-loading__line i { display: block; width: 38%; height: 100%; border-radius: inherit; background: var(--aura-brand-pink); animation: aura-v4-route-progress 1.05s ease-in-out infinite alternate; }
+.aura-route-loading__layout { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(220px, .8fr); gap: 12px; }
+.aura-route-loading__layout i { min-height: 116px; border: 1px solid var(--aura-neutral-150); border-radius: 16px; background: linear-gradient(100deg, #fff 15%, var(--aura-neutral-75) 40%, #fff 65%); background-size: 240% 100%; animation: aura-v4-route-sheen 1.35s linear infinite; }
+.aura-route-loading__layout .is-wide { grid-column: 1 / -1; min-height: 64px; }
+@keyframes aura-v4-route-progress { to { transform: translateX(165%); } }
+@keyframes aura-v4-route-sheen { to { background-position-x: -240%; } }
+@media (max-width: 680px) {
+  .aura-route-loading { width: 100%; min-height: 60dvh; padding: 16px 12px calc(88px + env(safe-area-inset-bottom, 0px)); }
+  .aura-route-loading__layout { grid-template-columns: 1fr; }
+  .aura-route-loading__layout .is-wide { grid-column: auto; }
+  .aura-route-loading__layout i { min-height: 104px; }
 }
 
 /* Readability floor for V4 content. Large values use heading/strong elements,

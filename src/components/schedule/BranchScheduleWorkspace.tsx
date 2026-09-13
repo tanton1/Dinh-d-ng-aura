@@ -72,12 +72,33 @@ const CONFIRMED_AVAILABILITY_STATUSES = new Set(['submitted', 'locked', 'inherit
 const WORKSPACE_CACHE_TTL_MS = 3 * 60_000
 const WORKSPACE_CACHE_REVALIDATE_MS = 60_000
 const WORKSPACE_CACHE_LIMIT = 8
+const BRANCH_CATALOG_CACHE_TTL_MS = 10 * 60_000
 const MIN_WEEK_OFFSET = -12
 const APP_UPDATE_READY_KEY = 'aura:update-ready'
 const APP_UPDATE_READY_EVENT = 'aura:update-ready'
 
 type WorkspaceCacheEntry = { value: PtScheduleWorkspaceV2Result; storedAt: number }
 const workspaceCache = new Map<string, WorkspaceCacheEntry>()
+
+type BranchCatalogCacheEntry = { branches: PtScheduleBranchOption[]; storedAt: number }
+const branchCatalogCache = new Map<string, BranchCatalogCacheEntry>()
+const branchCatalogRequests = new Map<string, Promise<{ schemaVersion: number; branches: PtScheduleBranchOption[] }>>()
+
+async function getCachedBranchCatalog(ownerScope: string) {
+  const cached = branchCatalogCache.get(ownerScope)
+  if (cached && Date.now() - cached.storedAt < BRANCH_CATALOG_CACHE_TTL_MS) return cached.branches
+  const inFlight = branchCatalogRequests.get(ownerScope)
+  if (inFlight) return (await inFlight).branches
+  const request = listPtScheduleBranches()
+  branchCatalogRequests.set(ownerScope, request)
+  try {
+    const result = await request
+    branchCatalogCache.set(ownerScope, { branches: result.branches, storedAt: Date.now() })
+    return result.branches
+  } finally {
+    if (branchCatalogRequests.get(ownerScope) === request) branchCatalogRequests.delete(ownerScope)
+  }
+}
 
 function readWorkspaceCache(scope: string) {
   const cached = workspaceCache.get(scope)
@@ -650,11 +671,11 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
     setBranchCatalogState('loading')
     setBranchCatalogError(null)
     try {
-      const result = await listPtScheduleBranches()
-      setBranches(result.branches)
-      setBranchId((current) => result.branches.some((branch) => branch.id === current)
+      const nextBranches = await getCachedBranchCatalog(ownerScope)
+      setBranches(nextBranches)
+      setBranchId((current) => nextBranches.some((branch) => branch.id === current)
         ? current
-        : result.branches[0]?.id || '')
+        : nextBranches[0]?.id || '')
       setBranchCatalogState('ready')
     } catch (branchError) {
       const normalized = asPtSchedulePublishError(branchError)
@@ -668,7 +689,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
       setBranchCatalogError(normalized.message)
       setBranchCatalogState('error')
     }
-  }, [accessContext.accessRole, scopedBranchIds])
+  }, [accessContext.accessRole, ownerScope, scopedBranchIds])
 
   useEffect(() => {
     void loadBranches()
@@ -1007,7 +1028,10 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
   }, [workingDays, workspace])
 
   const scheduleOpportunities = useMemo(() => {
-    if (!workspace) return []
+    // This is the heaviest client-side derivation in the workspace. It is
+    // only needed by the Kho ca tab; keeping it lazy makes the first Lịch PT
+    // paint independent from the number of PT × slot combinations.
+    if (!workspace || tab !== 'opportunities') return []
     const selectedStudent = workspace.students.find((student) => student.id === opportunityStudentId) || null
     const trainerAssignmentsByStudent = new Map(workspace.students.map((student) => {
       const eligibleContractIds = new Set(student.eligibleContractIds || [])
@@ -1095,7 +1119,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
       || left.date.localeCompare(right.date)
       || left.hour - right.hour
       || left.trainerName.localeCompare(right.trainerName, 'vi'))
-  }, [holidayDates, operationalStudentRows, opportunityStudentId, weekDates, weekDates.T2.full, workingDays, workingHours, workspace])
+  }, [holidayDates, operationalStudentRows, opportunityStudentId, tab, weekDates, weekDates.T2.full, workingDays, workingHours, workspace])
 
   const scheduleOpportunitiesBySlot = useMemo(() => {
     const grouped = new Map<string, typeof scheduleOpportunities>()
@@ -1796,7 +1820,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
       <section className="branch-schedule__toolbar">
         <div className="branch-schedule__tabs" role="tablist" aria-label="Nội dung xếp lịch">
           <button id="schedule-tab-matrix" type="button" role="tab" aria-selected={tab === 'matrix'} aria-controls="schedule-panel-matrix" tabIndex={tab === 'matrix' ? 0 : -1} className={tab === 'matrix' ? 'is-active' : ''} onClick={() => setTab('matrix')}>Lịch PT</button>
-          <button id="schedule-tab-opportunities" type="button" role="tab" aria-selected={tab === 'opportunities'} aria-controls="schedule-panel-opportunities" tabIndex={tab === 'opportunities' ? 0 : -1} className={tab === 'opportunities' ? 'is-active' : ''} onClick={() => setTab('opportunities')}>Kho ca <b>{scheduleOpportunities.length}</b></button>
+          <button id="schedule-tab-opportunities" type="button" role="tab" aria-selected={tab === 'opportunities'} aria-controls="schedule-panel-opportunities" tabIndex={tab === 'opportunities' ? 0 : -1} className={tab === 'opportunities' ? 'is-active' : ''} onClick={() => setTab('opportunities')}>Kho ca {tab === 'opportunities' && <b>{scheduleOpportunities.length}</b>}</button>
           <button id="schedule-tab-warnings" type="button" role="tab" aria-selected={tab === 'warnings'} aria-controls="schedule-panel-warnings" tabIndex={tab === 'warnings' ? 0 : -1} className={tab === 'warnings' ? 'is-active' : ''} onClick={() => setTab('warnings')}>Cảnh báo <b>{warningCount}</b></button>
           <button id="schedule-tab-students" type="button" role="tab" aria-selected={tab === 'students'} aria-controls="schedule-panel-students" tabIndex={tab === 'students' ? 0 : -1} className={tab === 'students' ? 'is-active' : ''} onClick={() => setTab('students')}>Học viên</button>
         </div>
@@ -1832,7 +1856,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
         Trước → sau: {workspace.optimizationSummary.comparison.before.sessions} → {workspace.optimizationSummary.comparison.after.sessions} buổi · {workspace.optimizationSummary.comparison.before.complete} → {workspace.optimizationSummary.comparison.after.complete} học viên đủ lịch · {workspace.optimizationSummary.comparison.before.paired} → {workspace.optimizationSummary.comparison.after.paired} ca đôi.
       </p>}
       {!optimizationStatus && optimizationTrace.length > 0 && <details className="branch-schedule__optimization-trace">
-        <summary><span><Sparkles size={16} /><strong>{optimizationTrace.length} bước xếp/đổi chỗ gần nhất</strong></span><small>Chạm để xem chuỗi tối ưu</small></summary>
+        <summary><span><Sparkles size={16} /><strong>{optimizationTrace.length} bước xếp/đổi chỗ gần nhất</strong></span><small>Mở chi tiết</small></summary>
         <ol>{optimizationTrace.map((move, index) => {
           const fromTrainer = workspace?.trainers.find((trainer) => trainer.id === move.fromTrainerId)?.name || 'PT cũ'
           const toTrainer = workspace?.trainers.find((trainer) => trainer.id === move.toTrainerId)?.name || 'PT mới'
@@ -1911,7 +1935,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
                 return <td key={slotId} className={`${selectedDays.includes(day) ? 'is-mobile-visible' : ''}${holiday ? ' is-holiday' : ''}`}><div role={trainingEntries.length ? undefined : 'button'} tabIndex={!selectedTrainerId || holiday || trainingEntries.length ? -1 : 0} aria-label={cellDescription} aria-disabled={!selectedTrainerId || holiday} className={`schedule-cell${holiday ? ' is-holiday' : ''}${past ? ' is-past' : ''}${isOff ? ' is-off' : ''}${entries.length ? ' has-entry' : ''}${showsAvailability ? ' is-availability-hover' : ''}${showsStudentSchedule ? ' is-student-highlight' : ''}`} onClick={openInspector} onKeyDown={(event) => { if (event.target !== event.currentTarget) return; if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openInspector() } }}><span className="schedule-cell__count">{holiday ? 'NGHỈ' : isOff ? 'OFF' : `${trainingEntries.length}/${selectedTrainer?.slotCapacity || 2}`}</span>{holiday ? <><CalendarOff /><small>Không xếp lịch</small></> : isOff ? <CalendarOff /> : trainingEntries.length ? trainingEntries.map((entry) => {
                   const assignmentWarning = trainerAssignmentWarningKeys.has(`${slotId}|${entry.studentId}|${entry.trainerId}`)
                   return <button type="button" className={`schedule-cell__student${highlightedStudentId === entry.studentId ? ' is-selected' : ''}${assignmentWarning ? ' has-assignment-warning' : ''}`} key={`${entry.studentId}-${entry.trainerId}`} onPointerEnter={(event) => { if (event.pointerType === 'mouse') showStudentAvailability(entry.studentId) }} onPointerLeave={(event) => { if (event.pointerType === 'mouse') hideStudentAvailability(entry.studentId) }} onFocus={(event) => { if (event.currentTarget.matches(':focus-visible') && window.matchMedia('(hover: hover) and (pointer: fine)').matches) showStudentAvailability(entry.studentId) }} onBlur={() => hideStudentAvailability(entry.studentId)} onClick={(event) => { event.preventDefault(); event.stopPropagation(); if (hoverClearTimer.current !== null) window.clearTimeout(hoverClearTimer.current); hoverClearTimer.current = null; setHoveredStudentId(null); toggleStudentSchedule(entry.studentId) }} aria-pressed={highlightedStudentId === entry.studentId} title={assignmentWarning ? 'Rê chuột: xem lịch rảnh · Chọn: xem lịch đã xếp · PT hỗ trợ ngoài danh sách chính/phụ' : 'Rê chuột: xem lịch rảnh · Chọn: xem lịch đã xếp'}><span>{studentName(entry.studentId)}</span>{assignmentWarning && <AlertTriangle size={11} aria-label="PT hỗ trợ" />}{entry.isLocked && <Lock size={11} aria-label="Ca đã khóa" />}</button>
-                }) : <small>{past ? 'Bổ sung lịch sử' : 'Chạm để xếp'}</small>}</div></td>
+                }) : past ? <small>Bổ sung lịch sử</small> : <Plus size={15} aria-hidden="true" />}</div></td>
               })}</tr>)}</tbody>
             </table>
           </div>

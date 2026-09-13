@@ -1,7 +1,7 @@
 'use strict'
 
 const { createHash } = require('node:crypto')
-const { FieldValue } = require('firebase-admin/firestore')
+const { FieldValue, Timestamp } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
 const { trustedAccessContext, requireCapability } = require('./identity-access')
 const {
@@ -74,6 +74,27 @@ function draftId(branchId, week) {
 
 function draftReference(db, branchId, week) {
   return db.doc(`ptScheduleDrafts/${draftId(branchId, week)}`)
+}
+
+// Drafts are an operational workspace, not a second history store. Keep a
+// short expiry marker on every new revision so Firestore TTL/maintenance can
+// remove weeks that are no longer being worked on. Published sessions,
+// versions and audit events remain the durable history.
+function draftExpiresAt(week) {
+  const nextWeekStart = Date.parse(`${nextWeek(week)}T00:00:00+07:00`)
+  return Number.isFinite(nextWeekStart)
+    ? Timestamp.fromMillis(nextWeekStart + 48 * 60 * 60 * 1000)
+    : null
+}
+
+function scopedDraftData(snapshot, branchId, week) {
+  if (!snapshot?.exists) return null
+  const value = snapshot.data() || {}
+  if (value.branchId && value.branchId !== branchId) return null
+  if (value.weekId && value.weekId !== week) return null
+  const expiresAt = value.expiresAt?.toMillis?.()
+  if (Number.isFinite(expiresAt) && expiresAt <= Date.now()) return null
+  return value
 }
 
 function previousWeek(week) {
@@ -316,7 +337,7 @@ async function loadBranchData(db, branchId, week) {
   const studentMap = new Map(students.docs.map((item) => [item.id, item.data()]))
   const trainerMap = new Map(trainers.docs.map((item) => [item.id, item.data()]))
   const legacy = legacySchedule.exists ? legacySchedule.data() : {}
-  const draftData = draft.exists ? draft.data() : null
+  const draftData = scopedDraftData(draft, branchId, week)
   const weeklySessionTargets = safeWeeklySessionTargets(draftData?.weeklySessionTargets, studentSet)
   const schedule = draftData
     ? safeSchedule(draftData.schedule)
@@ -514,7 +535,7 @@ async function loadBranchData(db, branchId, week) {
   return {
     branch: { id: branchId, name: branch.data().name || branchId, status: branch.data().status || 'active' },
     draft: {
-      exists: draft.exists,
+      exists: Boolean(draftData),
       revision: Number(draftData?.revision ?? legacy.draftRevision ?? 0),
       status: draftData?.status || legacy.publishStatusByBranch?.[branchId] || 'draft',
       publishedVersion: Number(draftData?.publishedVersion || legacy.publishedVersions?.[branchId] || 0),
@@ -556,10 +577,11 @@ async function loadManualMutationData(db, branchId, week, trainerId, studentId, 
   if (!studentSnapshot.exists || (!allowCrossBranchStudent && studentSnapshot.data().branchId !== branchId)) throw new HttpsError('not-found', 'Không tìm thấy học viên trong phạm vi được phép.')
   if (!trainerSnapshot.exists || trainerSnapshot.data().branchId !== branchId) throw new HttpsError('not-found', 'Không tìm thấy PT trong chi nhánh.')
   if (leaves.size > 1000 || sessionSnapshot.size > 1000) throw new HttpsError('resource-exhausted', 'Dữ liệu hồ sơ vượt giới hạn chỉnh ca an toàn.')
+  const draftData = scopedDraftData(draft, branchId, week)
   // A legacy-only week still needs the complete branch schedule so no other
   // learner is dropped while the first v2 draft document is created. Keep
   // that schedule, then use the exact learner/PT payload below for validation.
-  const baseData = !draft.exists ? (loadedBranchData || await loadBranchData(db, branchId, week)) : null
+  const baseData = !draftData ? (loadedBranchData || await loadBranchData(db, branchId, week)) : null
 
   const rawStudent = studentSnapshot.data()
   const rawTrainer = trainerProfileForWeek(trainerSnapshot.data(), exactTrainerAvailability.exists ? exactTrainerAvailability.data() : null, week)
@@ -628,7 +650,7 @@ async function loadManualMutationData(db, branchId, week, trainerId, studentId, 
     status: rawStudent.status || 'active',
     branchId: rawStudent.branchId || '',
     ...weeklyTargetForStudent(rawStudent.sessionsPerWeek,
-      safeWeeklySessionTargets(draft.data()?.weeklySessionTargets)[studentId] ?? null, eligibility),
+      safeWeeklySessionTargets(draftData?.weeklySessionTargets)[studentId] ?? null, eligibility),
     availableSlots: effectiveAvailability.slots.slice(0, 100),
     availabilityStatus,
     eligibleForWeek: !studentInactive && eligibility.eligible,
@@ -652,12 +674,11 @@ async function loadManualMutationData(db, branchId, week, trainerId, studentId, 
     schedulingPriority,
     dailySessionTarget,
   }
-  const draftData = draft.exists ? draft.data() : null
-  const schedule = baseData?.schedule || safeSchedule(draftData.schedule)
+  const schedule = baseData?.schedule || safeSchedule(draftData?.schedule)
   return {
     branch: baseData?.branch || { id: branchId, name: branch.data().name || branchId, status: branch.data().status || 'active' },
     draft: baseData?.draft || {
-      exists: draft.exists,
+      exists: Boolean(draftData),
       revision: Number(draftData?.revision ?? legacySchedule.data()?.draftRevision ?? 0),
     },
     schedule,
@@ -2643,6 +2664,7 @@ function createPtScheduleV2Functions({ db, onCall, actorForBranch = scheduleActo
         warnings: generated.warnings,
         optimizationSummary: generated.optimizationSummary,
         unassignedEntries: generated.unassignedEntries,
+        expiresAt: draftExpiresAt(week),
         updatedAt: FieldValue.serverTimestamp(),
         updatedBy: actor.uid,
         createdAt: current.exists ? current.data().createdAt || FieldValue.serverTimestamp() : FieldValue.serverTimestamp(),
@@ -3160,6 +3182,7 @@ function createPtScheduleV2Functions({ db, onCall, actorForBranch = scheduleActo
         unassignedEntries,
         weeklySessionTargets: currentWeeklyTargets,
         optimizationSummary: FieldValue.delete(),
+        expiresAt: draftExpiresAt(week),
         updatedAt: FieldValue.serverTimestamp(),
         updatedBy: actor.uid,
         createdAt: current.exists ? current.data().createdAt || FieldValue.serverTimestamp() : FieldValue.serverTimestamp(),
