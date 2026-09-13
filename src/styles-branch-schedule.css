@@ -205,6 +205,7 @@
 .schedule-cell.is-holiday svg { width: 17px; }
 .schedule-cell.is-past:not(.is-student-highlight):not(.is-availability-hover) { color:#988993; background:rgba(245,241,243,.46); }
 .schedule-cell.is-past:not(.has-entry) { border-color:rgba(173,153,164,.16); }
+.schedule-cell > svg { justify-self:center; align-self:center; color:#d18aa6; opacity:.72; }
 .schedule-cell__count { justify-self: end; color: #c1296a; font-size: .57rem; font-weight: 900; }
 .schedule-cell__student { display:flex; width:100%; min-width:0; align-items:center; justify-content:space-between; gap:3px; border:0; border-radius:7px; padding:3px 4px; color:#392830; background:transparent; font-size:.66rem; font-weight:800; text-align:left; cursor:pointer; user-select:none; }
 .schedule-cell__student span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }

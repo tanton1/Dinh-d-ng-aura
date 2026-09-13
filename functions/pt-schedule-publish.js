@@ -1,7 +1,7 @@
 'use strict'
 
 const { createHash } = require('node:crypto')
-const { FieldValue } = require('firebase-admin/firestore')
+const { FieldValue, Timestamp } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
 const { trustedAccessContext, requireCapability } = require('./identity-access')
 const {
@@ -23,6 +23,13 @@ const ACTIVE_SESSION_STATUSES = new Set(['scheduled', 'rescheduled'])
 const DAY_OFFSETS = new Map([['T2', 0], ['T3', 1], ['T4', 2], ['T5', 3], ['T6', 4], ['T7', 5], ['CN', 6]])
 const DEFAULT_WORKING_DAYS = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7']
 const DEFAULT_WORKING_HOURS = [6, 7, 8, 9, 10, 11, 14, 15, 16, 17, 18, 19, 20]
+
+function scheduleDraftExpiresAt(week) {
+  const nextWeekStart = Date.parse(`${nextWeek(week)}T00:00:00+07:00`)
+  return Number.isFinite(nextWeekStart)
+    ? Timestamp.fromMillis(nextWeekStart + 48 * 60 * 60 * 1000)
+    : null
+}
 const STUDENT_AVAILABILITY_REASON_CODES = new Set(['AVAILABILITY_NOT_SUBMITTED', 'OUTSIDE_STUDENT_AVAILABILITY'])
 
 function documentId(value, label) {
@@ -962,6 +969,7 @@ function createPtSchedulePublishFunctions({ db, onCall }) {
           revision: nextDraftRevision,
           status: 'draft',
           restoredFromVersion: version,
+          expiresAt: scheduleDraftExpiresAt(week),
           updatedAt: FieldValue.serverTimestamp(),
           updatedBy: actor.uid,
         })

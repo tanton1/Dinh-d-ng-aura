@@ -174,6 +174,58 @@ exports.rebuildContractUsageViewsScheduled = onSchedule({
   return { scanned: snapshot.size, rebuilt, skippedFresh, cursor: nextCursor }
 })
 
+// PT drafts are temporary branch/week workspace state. Once their expiry
+// marker passes, published sessions, version snapshots and audit events remain
+// the durable history; the draft itself is safe to remove. Keep the batch
+// bounded so maintenance never becomes an unbounded collection scan.
+exports.cleanupExpiredPtScheduleDrafts = onSchedule({
+  schedule: 'every 6 hours',
+  timeZone: 'Asia/Ho_Chi_Minh',
+  region: 'asia-southeast1',
+  retryCount: 1,
+  maxInstances: 1,
+  timeoutSeconds: 120,
+}, async () => {
+  const stateReference = db.doc('systemJobs/ptScheduleDraftCleanup')
+  const state = await stateReference.get()
+  const cursor = typeof state.data()?.cursor === 'string' ? state.data().cursor : ''
+  let query = db.collection('ptScheduleDrafts').orderBy(FieldPath.documentId()).limit(200)
+  if (cursor) query = query.startAfter(cursor)
+  let snapshot = await query.get()
+  if (snapshot.empty && cursor) snapshot = await db.collection('ptScheduleDrafts').orderBy(FieldPath.documentId()).limit(200).get()
+
+  const nowParts = Object.fromEntries(new Intl.DateTimeFormat('en', {
+    timeZone: 'Asia/Ho_Chi_Minh',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date()).map((part) => [part.type, part.value]))
+  const monday = new Date(`${nowParts.year}-${nowParts.month}-${nowParts.day}T00:00:00.000Z`)
+  const day = monday.getUTCDay()
+  monday.setUTCDate(monday.getUTCDate() - (day === 0 ? 6 : day - 1))
+  const currentWeek = monday.toISOString().slice(0, 10)
+  const now = Timestamp.now()
+  const expired = snapshot.docs.filter((item) => {
+    const data = item.data() || {}
+    if (data.status === 'published') return false
+    const week = typeof data.weekId === 'string' ? data.weekId.slice(0, 10) : ''
+    const expiresAt = data.expiresAt?.toMillis?.()
+    return (Number.isFinite(expiresAt) && expiresAt <= now.toMillis())
+      || (Boolean(week) && week < currentWeek)
+  })
+  if (!snapshot.size) {
+    await stateReference.set({ cursor: '', updatedAt: FieldValue.serverTimestamp() }, { merge: true })
+    return { deleted: 0, scanned: 0, cursor: '' }
+  }
+  const batch = db.batch()
+  expired.forEach((item) => batch.delete(item.ref))
+  if (expired.length) await batch.commit()
+  const nextCursor = snapshot.size < 200 ? '' : snapshot.docs[snapshot.docs.length - 1].id
+  await stateReference.set({ cursor: nextCursor, scanned: snapshot.size, deleted: expired.length, updatedAt: FieldValue.serverTimestamp() }, { merge: true })
+  logger.info('pt_schedule_expired_drafts_cleaned', { scanned: snapshot.size, deleted: expired.length, cursor: nextCursor })
+  return { deleted: expired.length, scanned: snapshot.size, cursor: nextCursor }
+})
+
 exports.reopenSnoozedOperationalActionsScheduled = onSchedule({
   schedule: 'every 15 minutes',
   timeZone: 'Asia/Ho_Chi_Minh',
