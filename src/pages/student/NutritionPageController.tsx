@@ -107,7 +107,8 @@ import { nutritionEvidenceLabel } from '../../features/nutrition/analysis'
 import { nutritionQuality, canonicalNutritionProfile, calculateNutritionTargets, NUTRITION_FORMULA_VERSION } from '../../services/nutritionSyncService'
 import { useAccessibleDialog } from '../../features/nutrition/useAccessibleDialog'
 import { useNutritionAssistantController } from '../../features/nutrition/useNutritionAssistantController'
-import { MealEditorSheet, MealLogEditorSheet, type MealEditorContext, type MealLogEditDraft } from './NutritionMealEditors'
+import type { MealEditorContext, MealLogEditDraft } from './NutritionMealEditors'
+import { lazyWithRetry } from '../../components/ChunkErrorBoundary'
 import {
   confirmMyNutritionPlan,
   generateMyNutritionPlanDraft,
@@ -119,6 +120,8 @@ import {
 } from '../../services/nutritionPlanService'
 
 const NutritionFoodDetail = React.lazy(() => import('./NutritionFoodDetail'))
+const MealEditorSheet = lazyWithRetry(() => import('./NutritionMealEditors').then((module) => ({ default: module.MealEditorSheet })))
+const MealLogEditorSheet = lazyWithRetry(() => import('./NutritionMealEditors').then((module) => ({ default: module.MealLogEditorSheet })))
 const ConnectedMealPlanPage = React.lazy(() => import('./ConnectedMealPlanPage'))
 const FoodScanModal = React.lazy(() => import('./NutritionScanFlow'))
 const FoodCatalogModal = React.lazy(() => import('./NutritionCatalogFlow'))
@@ -2544,7 +2547,7 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
       onLog={logWater} 
     /></React.Suspense>}
     {exerciseSheetOpen && <React.Suspense fallback={<div role="status" aria-live="polite">Đang tải nhật ký vận động…</div>}><WorkoutLogSheet dateLabel={selectedDateLabel} weightKg={profileDraft.weightKg} onClose={() => setExerciseSheetOpen(false)} onSave={saveActivity} /></React.Suspense>}
-    {pendingFood && <MealEditorSheet
+    {pendingFood && <React.Suspense fallback={<div role="status" aria-live="polite">Đang mở bảng thêm món…</div>}><MealEditorSheet
       food={pendingFood}
       initialDate={planCatalogAction?.dayId ?? diaryCatalogDefaults?.date ?? selectedDate}
       initialMealType={planCatalogAction?.type ?? diaryCatalogDefaults?.type}
@@ -2554,8 +2557,8 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
       isSaving={nutritionPlanSaving || nutritionMutation?.scope === 'meals'}
       onClose={() => { setPendingFood(null); setDiaryCatalogDefaults(null) }}
       onConfirm={commitCatalogFood}
-    />}
-    {editingMeal && <MealLogEditorSheet meal={editingMeal} onClose={() => setEditingMealId(null)} onConfirm={(draft) => editMeal(editingMeal.id, draft)} />}
+    /></React.Suspense>}
+    {editingMeal && <React.Suspense fallback={<div role="status" aria-live="polite">Đang mở bảng sửa bữa ăn…</div>}><MealLogEditorSheet meal={editingMeal} onClose={() => setEditingMealId(null)} onConfirm={(draft) => editMeal(editingMeal.id, draft)} /></React.Suspense>}
   </>
 
   if (activeSection === 'scan') return (

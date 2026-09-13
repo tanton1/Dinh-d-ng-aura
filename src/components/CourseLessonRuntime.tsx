@@ -38,10 +38,10 @@ import {
   ZoomOut,
 } from 'lucide-react'
 import type { CourseLessonDraft, LessonResourceDraft } from '../types'
+import type { AuraNutritionDeepDive } from '../data/auraNutritionStudyGuides'
 import { firebaseAuth } from '../lib/firebase'
 import { courseLoadErrorMessage } from '../features/academy/courseLoadError'
 import { emptyReaderState, flattenPdfOutline, loadReaderState, normalizeReaderState, readerStorageKey, saveReaderState } from '../features/academy/readerState'
-import { auraNutritionStudyGuides } from '../data/auraNutritionStudyGuides'
 import {
   AcademyWorkbookConflictError,
   loadAcademyWorkbookFromCloud,
@@ -537,7 +537,10 @@ function workbookContentSignature(workbook: AcademyWorkbookState) {
 
 function AcademyWorkbookPanel({ lesson, courseId }: { lesson: CourseLessonDraft; courseId: string }) {
   const chapter = lessonChapterNumber(lesson)
-  const deepDive = chapter ? auraNutritionStudyGuides[chapter]?.deepDive : undefined
+  const [deepDive, setDeepDive] = useState<AuraNutritionDeepDive | undefined>(undefined)
+  const [guideChapter, setGuideChapter] = useState<number | null>(null)
+  const [guideError, setGuideError] = useState(false)
+  const [guideRetry, setGuideRetry] = useState(0)
   const ownerId = firebaseAuth?.currentUser?.uid ?? 'demo'
   const [state, setState] = useState<AcademyWorkbookState>(() => loadAcademyWorkbook(ownerId, courseId, lesson.id))
   const [ready, setReady] = useState(false)
@@ -550,6 +553,25 @@ function AcademyWorkbookPanel({ lesson, courseId }: { lesson: CourseLessonDraft;
   const workbookScope = `${ownerId}:${courseId}:${lesson.id}`
   const workbookScopeRef = useRef(workbookScope)
   const mountedRef = useRef(true)
+
+  // Study guides are large editorial data and are only needed inside the
+  // workbook panel. Keep them out of the course runtime's initial chunk.
+  useEffect(() => {
+    let cancelled = false
+    setDeepDive(undefined)
+    setGuideChapter(null)
+    setGuideError(false)
+    if (!chapter) return () => { cancelled = true }
+    void import('../data/auraNutritionStudyGuides').then(({ auraNutritionStudyGuides }) => {
+      if (!cancelled) {
+        setDeepDive(auraNutritionStudyGuides[chapter]?.deepDive)
+        setGuideChapter(chapter)
+      }
+    }).catch(() => {
+      if (!cancelled) setGuideError(true)
+    })
+    return () => { cancelled = true }
+  }, [chapter, guideRetry])
 
   useEffect(() => { stateRef.current = state }, [state])
   useEffect(() => {
@@ -634,6 +656,9 @@ function AcademyWorkbookPanel({ lesson, courseId }: { lesson: CourseLessonDraft;
     }
   }
 
+  if (!chapter) return null
+  if (guideError) return <div className="academy-workbook-sync" role="alert"><p>Chưa tải được nội dung workbook. Bản ghi của bạn vẫn được giữ.</p><button type="button" onClick={() => setGuideRetry((value) => value + 1)}>Thử lại</button></div>
+  if (guideChapter !== chapter) return <div role="status" aria-live="polite">Đang tải workbook…</div>
   if (!deepDive) return null
 
   return (
