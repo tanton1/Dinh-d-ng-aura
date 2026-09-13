@@ -337,17 +337,21 @@ async function prepareSourceMedia(token, source, args, temporaryRoot) {
 function mergedMedia(entry, prepared) {
   const current = entry.target.data.media || {}
   // Do not preserve a legacy copy of the provider GIF as a still image. The
-  // GIF remains in videos; the extracted WebP frames are the canonical stills.
+  // GIF remains in videos; Free Exercise DB stills remain canonical.
   const existingImages = legacyImages(entry.target).filter((image) => !isAnimatedImageUrl(image.url, image.mimeType))
-  const generatedImages = [
+  // Free Exercise DB is the canonical source for still images. Only create
+  // extracted GIF frames when the canonical gallery is missing one or both
+  // stills; never append frames as images 3–4 when the source already has the
+  // required start/end pair. The GIF itself remains in `videos`.
+  const generatedImages = existingImages.length >= 2 ? [] : [
     { id: `exercisedb-frame-${entry.source.exerciseId}-start`, url: prepared.startUrl, storagePath: `exercise-catalog/exercisedb/${slug(entry.source.exerciseId)}/start.webp`, role: existingImages.length ? 'detail' : 'start', order: existingImages.length, alt: `Tư thế bắt đầu · ${entry.target.data.nameVi || entry.source.name}`, mimeType: 'image/webp' },
     { id: `exercisedb-frame-${entry.source.exerciseId}-end`, url: prepared.endUrl, storagePath: `exercise-catalog/exercisedb/${slug(entry.source.exerciseId)}/end.webp`, role: existingImages.length ? 'detail' : 'end', order: existingImages.length + 1, alt: `Tư thế kết thúc · ${entry.target.data.nameVi || entry.source.name}`, mimeType: 'image/webp' },
-  ]
+  ].slice(0, Math.max(0, 2 - existingImages.length))
   const images = [...existingImages, ...generatedImages].map((image, order) => ({ ...image, order }))
   const existingVideos = Array.isArray(current.videos) ? current.videos.filter((video) => !(video?.provider === 'exercisedb' && video?.externalId === entry.source.exerciseId)) : []
   const gif = {
     id: `exercisedb-${entry.source.exerciseId}`, provider: 'exercisedb', externalId: entry.source.exerciseId,
-    url: prepared.gifUrl, posterUrl: prepared.startUrl, tag: 'animation', presenter: /\(female\)/i.test(entry.source.name) ? 'female' : 'neutral', format: 'gif', isPrimary: existingVideos.length === 0,
+    url: prepared.gifUrl, posterUrl: existingImages.find((image) => image.role === 'start')?.url || existingImages[0]?.url || prepared.startUrl, tag: 'animation', presenter: /\(female\)/i.test(entry.source.name) ? 'female' : 'neutral', format: 'gif', isPrimary: existingVideos.length === 0,
   }
   const first = images.find((image) => image.role === 'start') || images[0]
   const end = images.find((image) => image.role === 'end') || images[images.length - 1]

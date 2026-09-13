@@ -78,11 +78,11 @@ const ITEMS = [
     breathingVi: 'Hít sâu tạo áp lực bụng trước mỗi lần kéo, thở ra sau khi qua điểm khó.', defaultPrescription: { sets: 4, reps: '6–10', restSeconds: 120, rpe: 8 },
   }),
   exercise('aura_women_dumbbell_split_squat', 'Split_Squat_with_Dumbbells', {
-    nameVi: 'Split Squat với tạ đơn', nameEn: 'Split Squat with Dumbbells', aliasesVi: ['Chùng chân tại chỗ'], bodyParts: ['Thân dưới'],
-    targetMuscles: ['Đùi trước', 'Mông'], secondaryMuscles: ['Đùi sau', 'Core'], equipment: ['Tạ đơn'], difficulty: 'beginner',
-    instructionsVi: ['Đứng chân trước chân sau đủ rộng, cầm tạ dọc hai bên thân.', 'Giữ thân ổn định và hạ gối sau hướng xuống sàn.', 'Hạ đến khi chân trước chịu lực đều, gót chân không nhấc.', 'Đẩy qua bàn chân trước để trở lại vị trí ban đầu.'],
-    cuesVi: ['Hai chân như đứng trên đường ray', 'Gối trước theo mũi chân', 'Lực chính ở chân trước'], commonMistakesVi: ['Hai chân đứng trên một đường gây mất thăng bằng', 'Bước quá ngắn', 'Dồn lực vào chân sau'],
-    breathingVi: 'Hít khi hạ, thở khi đẩy người lên.', defaultPrescription: { sets: 3, reps: '8–12 mỗi bên', restSeconds: 60, rpe: 8 },
+    nameVi: 'Bulgarian Split Squat với tạ đơn', nameEn: 'Bulgarian Split Squat with Dumbbells', aliasesVi: ['Split Squat với tạ đơn', 'Squat một chân kê sau'], bodyParts: ['Thân dưới'],
+    targetMuscles: ['Đùi trước', 'Mông'], secondaryMuscles: ['Đùi sau', 'Core'], equipment: ['Tạ đơn', 'Ghế tập'], difficulty: 'intermediate',
+    instructionsVi: ['Đặt một ghế thấp phía sau, đứng chân trước chân sau và đặt mu bàn chân sau lên ghế.', 'Cầm hai tạ dọc hai bên thân, giữ chân trước bám chắc và hông hướng thẳng.', 'Hạ gối sau hướng xuống sàn, nghiêng thân nhẹ; gối trước đi cùng hướng mũi chân.', 'Đẩy qua cả bàn chân trước để đứng lên, giữ hông cân bằng rồi đổi bên.'],
+    cuesVi: ['Chân trước chịu lực chính', 'Mu bàn chân sau chỉ tựa ghế', 'Gối trước theo mũi chân'], commonMistakesVi: ['Ghế quá cao hoặc quá xa', 'Dùng chân sau đẩy mạnh', 'Gối trước đổ vào trong'],
+    breathingVi: 'Hít vào khi hạ, thở ra khi đẩy người lên.', defaultPrescription: { sets: 3, reps: '8–12 mỗi bên', restSeconds: 75, rpe: 8 },
   }),
   exercise('aura_women_step_up_knee_raise', 'Step-up_with_Knee_Raise', {
     nameVi: 'Bước bục nâng gối', nameEn: 'Step-up with Knee Raise', aliasesVi: ['Step-up'], bodyParts: ['Thân dưới'],

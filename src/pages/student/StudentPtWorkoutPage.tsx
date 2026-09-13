@@ -31,6 +31,8 @@ type LibraryFilter = 'all' | 'beginner' | 'intermediate' | 'advanced' | 'home'
 const libraryFilterLabels: Record<LibraryFilter, string> = {
   all: 'Tất cả', beginner: 'Cơ bản', intermediate: 'Trung bình', advanced: 'Nâng cao', home: 'Tại nhà',
 }
+const exerciseCatalogPageSize = 60
+const exerciseCatalogMaxPages = 6
 
 function demoCatalog(): ExerciseCatalogItem[] {
   const create = (input: Pick<ExerciseCatalogItem, 'id' | 'nameVi' | 'nameEn' | 'targetMuscles' | 'bodyParts' | 'equipment' | 'difficulty' | 'environment' | 'goals' | 'instructionsVi' | 'cuesVi' | 'commonMistakesVi'>): ExerciseCatalogItem => ({
@@ -195,17 +197,31 @@ export default function StudentPtWorkoutPage({ isDemo = false, ownerId = 'demo' 
       if (isDemo) {
         setCatalog(demoCatalog()); setCatalogHasMore(false); setCatalogCursor(null)
       } else {
-        const page = await listExerciseCatalogPage({
-          query: catalogQuery.trim(),
-          difficulty: catalogFilter === 'beginner' || catalogFilter === 'intermediate' || catalogFilter === 'advanced' ? catalogFilter : '',
-          environment: catalogFilter === 'home' ? 'home' : '',
-          cursor: append ? catalogCursor : null,
-          pageSize: 36,
+        const loaded: ExerciseCatalogItem[] = []
+        let nextCursor = append ? catalogCursor : null
+        let hasMore = true
+        let pageCount = 0
+        while (hasMore && pageCount < exerciseCatalogMaxPages) {
+          const previousCursor = nextCursor
+          const page = await listExerciseCatalogPage({
+            query: catalogQuery.trim(),
+            difficulty: catalogFilter === 'beginner' || catalogFilter === 'intermediate' || catalogFilter === 'advanced' ? catalogFilter : '',
+            environment: catalogFilter === 'home' ? 'home' : '',
+            cursor: nextCursor,
+            pageSize: exerciseCatalogPageSize,
+          })
+          if (requestId !== catalogRequestIdRef.current) return
+          loaded.push(...page.items)
+          nextCursor = page.nextCursor
+          hasMore = page.hasMore && Boolean(nextCursor) && nextCursor !== previousCursor
+          pageCount += 1
+        }
+        setCatalog((current) => {
+          const next = append ? [...current, ...loaded] : loaded
+          return [...new Map(next.map((item) => [item.id, item])).values()]
         })
-        if (requestId !== catalogRequestIdRef.current) return
-        setCatalog((current) => append ? [...new Map([...current, ...page.items].map((item) => [item.id, item])).values()] : page.items)
-        setCatalogHasMore(page.hasMore)
-        setCatalogCursor(page.nextCursor)
+        setCatalogHasMore(hasMore)
+        setCatalogCursor(nextCursor)
       }
     }
     catch (cause) { if (requestId === catalogRequestIdRef.current) setCatalogError(cause instanceof Error ? cause.message : 'Không thể tải thư viện bài tập.') }

@@ -168,6 +168,23 @@ test('exercise media keeps the complete gallery and safely unifies stills with E
   assert.match(source, /startImageUrl: startImage\?\.url \|\| text\(rawMedia\?\.startImageUrl/)
   assert.match(source, /posterUrl: posterImage\?\.url \|\| text\(rawMedia\?\.posterUrl/)
   assert.match(unifiedMediaSync, /legacyImages\(entry\.target\)\.filter\(\(image\) => !isAnimatedImageUrl/)
+  assert.match(unifiedMediaSync, /existingImages\.length >= 2 \? \[\] :/)
+  assert.match(unifiedMediaSync, /2 - existingImages\.length/)
+})
+
+test('Bulgarian split squat content is attached to rear-foot-elevated media, not the side squat', () => {
+  const womenCatalogSource = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'import-aura-women-exercise-catalog.cjs'), 'utf8')
+  const specializedCatalogSource = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'import-aura-women-specialized-catalog.cjs'), 'utf8')
+  assert.match(womenCatalogSource, /exercise\('aura_women_dumbbell_split_squat', 'Split_Squat_with_Dumbbells',[\s\S]*?nameVi: 'Bulgarian Split Squat với tạ đơn'/)
+  assert.match(womenCatalogSource, /đặt mu bàn chân sau lên ghế/)
+  assert.doesNotMatch(specializedCatalogSource, /exercise\('aura_women_bulgarian_split_squat', 'Barbell_Side_Split_Squat',[\s\S]{0,300}?nameVi: 'Bulgarian Split Squat'/)
+  assert.match(specializedCatalogSource, /nameVi: 'Split Squat sang bên với tạ đòn'/)
+})
+
+test('learner discovery eagerly follows catalog cursors until all published exercises are loaded', () => {
+  assert.match(studentLibrarySource, /const exerciseCatalogPageSize = 60/)
+  assert.match(studentLibrarySource, /while \(hasMore && pageCount < exerciseCatalogMaxPages\)/)
+  assert.match(studentLibrarySource, /nextCursor !== previousCursor/)
 })
 
 test('Free Exercise DB is canonical and ExerciseDB V1 is a reviewed GIF fallback', () => {

@@ -52,11 +52,11 @@ const ITEMS = [
     breathingVi: 'Thở ra khi đưa chân ra sau, hít vào khi trở về.', defaultPrescription: { sets: 3, reps: '12–15 mỗi bên', restSeconds: 45, rpe: 7 },
   }),
   exercise('aura_women_bulgarian_split_squat', 'Barbell_Side_Split_Squat', {
-    nameVi: 'Bulgarian Split Squat', nameEn: 'Bulgarian Split Squat', aliasesVi: ['Squat một chân kê sau'], bodyParts: ['Thân dưới'],
-    targetMuscles: ['Mông', 'Đùi trước'], secondaryMuscles: ['Đùi sau', 'Core'], equipment: ['Ghế tập', 'Tạ đơn'], difficulty: 'intermediate',
-    instructionsVi: ['Đứng cách ghế một bước dài, đặt mu bàn chân sau lên ghế.', 'Giữ chân trước bám chắc, nghiêng thân nhẹ về phía trước.', 'Hạ gối sau hướng xuống sàn trong khi gối trước theo mũi chân.', 'Đẩy qua cả bàn chân trước để đứng lên và giữ hông cân bằng.'],
-    cuesVi: ['Lực chính ở chân trước', 'Hai hông hướng thẳng', 'Gối theo mũi chân'], commonMistakesVi: ['Đứng quá gần ghế', 'Dùng chân sau đẩy mạnh', 'Gối trước đổ vào trong'],
-    breathingVi: 'Hít khi hạ, thở ra khi đẩy người lên.', defaultPrescription: { sets: 3, reps: '8–12 mỗi bên', restSeconds: 75, rpe: 8 },
+    nameVi: 'Split Squat sang bên với tạ đòn', nameEn: 'Barbell Side Split Squat', aliasesVi: ['Squat sang ngang với tạ đòn', 'Lateral Split Squat'], bodyParts: ['Thân dưới'],
+    targetMuscles: ['Đùi trước'], secondaryMuscles: ['Đùi trong', 'Mông', 'Đùi sau'], equipment: ['Tạ đòn'], difficulty: 'beginner',
+    instructionsVi: ['Đứng thẳng, đặt tạ đòn trên vai và mở chân rộng hơn vai; mũi chân hơi chếch.', 'Hạ người về phía chân đang chếch sang bên bằng cách gập gối và hông; chân còn lại chỉ hơi chùng.', 'Giữ lưng trung lập, trọng tâm ở gót chân và đầu gối hướng theo mũi chân.', 'Đẩy qua gót chân của chân bên để trở lại tư thế đứng rồi đổi bên sau số lần lặp.'],
+    cuesVi: ['Chân làm việc mở sang bên', 'Lưng giữ trung lập', 'Đầu gối theo mũi chân'], commonMistakesVi: ['Đứng chân quá hẹp', 'Gập lưng khi hạ', 'Đổ gối vào trong'],
+    breathingVi: 'Hít vào khi hạ sang bên, thở ra khi đẩy trở lại.', defaultPrescription: { sets: 3, reps: '8–12 mỗi bên', restSeconds: 75, rpe: 7 },
   }),
   exercise('aura_women_platform_hamstring_slide', 'Platform_Hamstring_Slides', {
     nameVi: 'Trượt gót tập đùi sau', nameEn: 'Platform Hamstring Slides', aliasesVi: ['Hamstring Slide', 'Cuốn đùi sau trượt gót'], bodyParts: ['Thân dưới'],
