@@ -41,6 +41,13 @@ function videoSource(video: ExerciseCatalogMediaVideo) {
   return video.url || video.hlsUrl || ''
 }
 
+function cdnFallbackUrl(source: string) {
+  return source.replace(
+    'https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/',
+    'https://cdn.jsdelivr.net/gh/yuhonas/free-exercise-db@main/',
+  )
+}
+
 function isAnimatedImageVideo(video: ExerciseCatalogMediaVideo) {
   if (video.format === 'gif' || video.format === 'webp') return true
   return /\.(gif|webp)(?:$|[?#])/i.test(videoSource(video))
@@ -90,6 +97,7 @@ export default function ExerciseMediaPlayer({
   const [error, setError] = useState('')
   const [activeKey, setActiveKey] = useState('')
   const [failedKeys, setFailedKeys] = useState<Set<string>>(() => new Set())
+  const [sourceOverrides, setSourceOverrides] = useState<Record<string, string>>({})
   const [replayVersion, setReplayVersion] = useState(0)
   const [autoPlayKey, setAutoPlayKey] = useState('')
   const [playing, setPlaying] = useState(false)
@@ -142,6 +150,7 @@ export default function ExerciseMediaPlayer({
   const retryActiveMedia = () => {
     setError('')
     setFailedKeys(new Set())
+    setSourceOverrides({})
     setReplayVersion((version) => version + 1)
     if (externalMedia && exerciseId) void refresh()
   }
@@ -151,6 +160,26 @@ export default function ExerciseMediaPlayer({
     setAutoPlayKey('')
     setFailedKeys((current) => new Set(current).add(key))
     setError('Video này không tải được. Aura đã chuyển sang media dự phòng; bạn có thể thử tải lại.')
+  }
+
+  const sourceFor = (key: string, source: string) => sourceOverrides[key] || source
+
+  const retryFromCdn = (key: string, source: string) => {
+    const fallback = cdnFallbackUrl(source)
+    if (!fallback || fallback === source || sourceOverrides[key] === fallback) return false
+    setSourceOverrides((current) => current[key] === fallback ? current : { ...current, [key]: fallback })
+    return true
+  }
+
+  const handleMediaError = (entry: MediaEntry) => {
+    const source = entry.kind === 'video' ? videoSource(entry.video) : entry.image.url
+    if (retryFromCdn(entry.key, source)) return
+    failMedia(entry.key)
+  }
+
+  const handleThumbnailError = (key: string, source: string, element: HTMLImageElement) => {
+    if (retryFromCdn(`${key}-thumbnail`, source)) return
+    element.style.visibility = 'hidden'
   }
 
   const playActiveVideo = async () => {
@@ -172,7 +201,7 @@ export default function ExerciseMediaPlayer({
   return <section className={`exercise-media-player ${compact ? 'is-compact' : ''}`} aria-label={`Hình ảnh và video ${name}`}>
     <div className={`exercise-media-player__stage ${active?.kind === 'video' && active.video.orientation === 'portrait' ? 'is-portrait' : ''}`}>
       {loading && !active ? <div className="exercise-media-player__state"><LoaderCircle className="is-spinning" /><span>Đang lấy video mới…</span></div>
-        : active?.kind === 'video' && activeIsAnimatedImage ? <img key={`${active.key}-${replayVersion}`} src={videoSource(active.video)} alt={`Minh họa động ${name}`} loading="eager" onError={() => failMedia(active.key)} />
+        : active?.kind === 'video' && activeIsAnimatedImage ? <img key={`${active.key}-${replayVersion}`} src={sourceFor(active.key, videoSource(active.video))} alt={`Minh họa động ${name}`} loading="eager" onError={() => handleMediaError(active)} />
           : active?.kind === 'video' ? <video
           ref={videoRef}
           key={`${active.key}-${replayVersion}`}
@@ -182,12 +211,12 @@ export default function ExerciseMediaPlayer({
           autoPlay={active.key === autoPlayKey}
           muted={active.key === autoPlayKey}
           poster={active.video.posterUrl || media.posterUrl || media.startImageUrl}
-          src={videoSource(active.video)}
+          src={sourceFor(active.key, videoSource(active.video))}
           onPlaying={() => setPlaying(true)}
           onPause={() => setPlaying(false)}
-          onError={() => failMedia(active.key)}
+          onError={() => handleMediaError(active)}
         >Trình duyệt chưa hỗ trợ video này.</video>
-          : active?.kind === 'image' ? <img src={active.image.url} alt={active.image.alt || name} loading="lazy" onError={() => failMedia(active.key)} />
+          : active?.kind === 'image' ? <img src={sourceFor(active.key, active.image.url)} alt={active.image.alt || name} loading="eager" decoding="async" onError={() => handleMediaError(active)} />
             : <div className="exercise-media-player__state"><Dumbbell /><span>Chưa có media minh họa</span></div>}
       {active?.kind === 'video' && (!playing || activeIsAnimatedImage) && <button type="button" className={`exercise-media-player__play ${activeIsAnimatedImage ? 'is-replay' : ''}`} onClick={() => void playActiveVideo()}>
         {activeIsAnimatedImage ? <RotateCcw /> : <Play />}
@@ -200,8 +229,8 @@ export default function ExerciseMediaPlayer({
     {entries.length > 1 && <div className="exercise-media-player__rail" aria-label="Chọn ảnh hoặc video">
       {entries.map((entry, index) => <button type="button" className={entry.key === active?.key ? 'is-active' : ''} onClick={() => selectEntry(entry)} key={entry.key}>
         {entry.kind === 'video'
-          ? <>{entry.video.posterUrl ? <img src={entry.video.posterUrl} alt="" loading="lazy" /> : <Video />}<i><Play /></i></>
-          : <><img src={entry.image.url} alt="" loading="lazy" /><i><ImageIcon /></i></>}
+          ? <>{entry.video.posterUrl ? <img src={sourceFor(`${entry.key}-thumbnail`, entry.video.posterUrl)} alt="" loading="lazy" onError={(event) => handleThumbnailError(entry.key, entry.video.posterUrl || '', event.currentTarget)} /> : <Video />}<i><Play /></i></>
+          : <><img src={sourceFor(`${entry.key}-thumbnail`, entry.image.url)} alt="" loading="lazy" onError={(event) => handleThumbnailError(entry.key, entry.image.url, event.currentTarget)} /><i><ImageIcon /></i></>}
         <span>{entry.kind === 'video' ? videoLabel(entry.video, entries.slice(0, index + 1).filter((item) => item.kind === 'video').length - 1) : `Ảnh ${entries.slice(0, index + 1).filter((item) => item.kind === 'image').length}`}</span>
       </button>)}
     </div>}

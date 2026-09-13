@@ -93,10 +93,18 @@ function VolumeTrend({ history }: { history: PtWorkoutHistory }) {
   </div>
 }
 
-function ExerciseVisual({ item, className = '' }: { item: ExerciseCatalogItem; className?: string }) {
+function ExerciseVisual({ item, className = '', eager = false }: { item: ExerciseCatalogItem; className?: string; eager?: boolean }) {
   const image = mediaImages(item)[0]
+  const recoverImage = (event: React.SyntheticEvent<HTMLImageElement>) => {
+    const element = event.currentTarget
+    if (element.dataset.fallbackTried === 'true') return
+    const fallback = element.src.replace('https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/', 'https://cdn.jsdelivr.net/gh/yuhonas/free-exercise-db@main/')
+    if (fallback === element.src) return
+    element.dataset.fallbackTried = 'true'
+    element.src = fallback
+  }
   return <div className={`student-library__visual ${className}`}>
-    {image ? <img src={image.url} alt={image.alt || item.nameVi} loading="lazy" /> : <Dumbbell aria-hidden="true" />}
+    {image ? <img src={image.url} alt={image.alt || item.nameVi} loading={eager ? 'eager' : 'lazy'} decoding="async" onError={recoverImage} /> : <Dumbbell aria-hidden="true" />}
     <span className="student-library__visual-glow" aria-hidden="true" />
   </div>
 }
@@ -318,8 +326,8 @@ export default function StudentPtWorkoutPage({ isDemo = false, ownerId = 'demo' 
         {catalogLoading && <div className="student-library__loading" role="status" aria-live="polite"><RefreshCw />Đang tải thư viện bài tập…</div>}
         {(!catalogLoading || catalog.length > 0) && !catalogError && <>
           <div className="student-library__section-heading"><div><h3>Gợi ý cho bạn</h3><p>{filteredCatalog.length} bài tập đã xuất bản</p></div><span>{savedIds.size} đã lưu</span></div>
-          {visibleCatalog[0] && <button type="button" className="student-library__featured" onClick={() => setSelectedExercise(visibleCatalog[0])}><ExerciseVisual item={visibleCatalog[0]} /><span><small>{visibleCatalog[0].targetMuscles.join(' · ').toLocaleUpperCase('vi')}</small><strong>{visibleCatalog[0].nameVi}</strong><em>{difficultyLabel(visibleCatalog[0].difficulty)} · Xem kỹ thuật từng bước →</em></span></button>}
-          <div className="student-library__grid">{visibleCatalog.slice(1).map((item) => <button type="button" className="student-library__card" onClick={() => setSelectedExercise(item)} key={item.id}><span className="student-library__card-media"><ExerciseVisual item={item} /><span className="student-library__difficulty">{difficultyLabel(item.difficulty)}</span><span className="student-library__save" aria-label={savedIds.has(item.id) ? 'Đã lưu' : 'Lưu bài tập'} onClick={(event) => { event.stopPropagation(); toggleSaved(item.id) }}>{savedIds.has(item.id) ? <BookmarkCheck /> : <Bookmark />}</span></span><span className="student-library__card-copy"><strong>{item.nameVi}</strong><small>{item.targetMuscles.join(' · ') || item.bodyParts.join(' · ')}</small></span></button>)}</div>
+          {visibleCatalog[0] && <button type="button" className="student-library__featured" onClick={() => setSelectedExercise(visibleCatalog[0])}><ExerciseVisual item={visibleCatalog[0]} eager /><span><small>{visibleCatalog[0].targetMuscles.join(' · ').toLocaleUpperCase('vi')}</small><strong>{visibleCatalog[0].nameVi}</strong><em>{difficultyLabel(visibleCatalog[0].difficulty)} · Xem kỹ thuật từng bước →</em></span></button>}
+          <div className="student-library__grid">{visibleCatalog.slice(1).map((item) => <button type="button" className="student-library__card" onClick={() => setSelectedExercise(item)} key={item.id}><span className="student-library__card-media"><ExerciseVisual item={item} eager /><span className="student-library__difficulty">{difficultyLabel(item.difficulty)}</span><span className="student-library__save" aria-label={savedIds.has(item.id) ? 'Đã lưu' : 'Lưu bài tập'} onClick={(event) => { event.stopPropagation(); toggleSaved(item.id) }}>{savedIds.has(item.id) ? <BookmarkCheck /> : <Bookmark />}</span></span><span className="student-library__card-copy"><strong>{item.nameVi}</strong><small>{item.targetMuscles.join(' · ') || item.bodyParts.join(' · ')}</small></span></button>)}</div>
           {(visibleCatalog.length < filteredCatalog.length || catalogHasMore) && <button type="button" className="student-library__load-more" onClick={() => {
             if (visibleCatalog.length < filteredCatalog.length) setVisibleCatalogCount((current) => current + 24)
             else void loadCatalog(true)
