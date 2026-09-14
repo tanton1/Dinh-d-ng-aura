@@ -3,6 +3,15 @@ import test from 'node:test'
 import { calculateScheduleOpportunities } from '../src/features/schedule/opportunities'
 import { legacyOpportunities } from './fixtures/legacy-schedule-opportunities'
 import { beginScheduleTiming, measureScheduleTask } from '../src/features/schedule/performance'
+import { hasActionableSearchLimit } from '../src/features/schedule/searchLimit'
+
+test('search-limit notice only appears when unresolved work was actually capped', () => {
+  assert.equal(hasActionableSearchLimit({ rescueSearchLimitReached: true }, [{ primaryReasonCode: 'CONTRACT_SESSION_QUOTA_EXCEEDED' }]), false)
+  assert.equal(hasActionableSearchLimit({ rescueSearchLimitReached: true }, [{ blockerType: 'search_limit_reached' }]), true)
+  assert.equal(hasActionableSearchLimit({ repairSearchLimitReached: true, optimalityGap: 2 }, []), true)
+  assert.equal(hasActionableSearchLimit({ repairSearchLimitReached: true, optimalityGap: 0 }, []), false)
+  assert.equal(hasActionableSearchLimit({ rescueSearchLimitReached: false, optimalityGap: 4 }, [{ primaryReasonCode: 'SEARCH_LIMIT_REACHED' }]), false)
+})
 
 test('local timing is bounded and preserves task results and failures', async () => {
   for (let i = 0; i < 30; i++) beginScheduleTiming('opportunities')()

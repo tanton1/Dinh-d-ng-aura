@@ -253,6 +253,8 @@ export interface PtScheduleOptimizationSummary {
   rescueSearchNodes?: number
   rescueEvaluatedPlans?: number
   rescueSearchLimitReached?: boolean
+  /** Remaining feasible sessions when the bounded rescue search was exhausted. */
+  optimalityGap?: number
   /** Các bước xếp mới/đổi chỗ đã thực hiện trong chuỗi sửa sâu. */
   swapTrace?: PtScheduleSwapMove[]
   optimizationPasses?: number

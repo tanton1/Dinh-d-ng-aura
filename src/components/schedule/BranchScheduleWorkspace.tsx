@@ -60,6 +60,7 @@ import '../../styles-branch-schedule.css'
 import { trainerDailyLoadTarget } from '../../config/scheduleLoadPolicy'
 import { useScheduleOpportunities } from '../../features/schedule/useScheduleOpportunities'
 import { measureScheduleTask } from '../../features/schedule/performance'
+import { hasActionableSearchLimit } from '../../features/schedule/searchLimit'
 
 interface Props {
   accessContext: AccessContext
@@ -1127,6 +1128,11 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
     [unassignedEntries],
   )
 
+  const searchLimitWarning = useMemo(
+    () => hasActionableSearchLimit(workspace?.optimizationSummary, unassignedEntries),
+    [unassignedEntries, workspace?.optimizationSummary],
+  )
+
   const warningProfiles = useMemo(() => {
     if (!workspace) return []
     const operationalByStudent = new Map(operationalStudentRows.map((row) => [row.student.id, row]))
@@ -1526,7 +1532,8 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
         repaired ? `cứu thêm ${repaired} buổi bằng ${relocated} lần đổi chỗ` : '',
       ].filter(Boolean).join(', ')
       const deepRun = passes > 1 ? ` Đã chạy ${passes} lượt tối ưu${improvements ? `, ${improvements}` : ''}.` : ''
-      const searchNote = searchLimitReached ? ' Bộ tìm kiếm đã chạm giới hạn an toàn; các hồ sơ còn lại cần xem ở tab Cảnh báo.' : ''
+      const searchNote = searchLimitReached && hasActionableSearchLimit(result.optimizationSummary, result.unassignedEntries || result.unassigned)
+        ? ' Bộ tìm kiếm đã chạm giới hạn an toàn cho các hồ sơ còn thiếu; hãy bấm Tối ưu tiếp hoặc xử lý ở tab Cảnh báo.' : ''
       setNotice(unresolved
         ? `Đã tối ưu draft r${result.draftRevision}; còn ${unresolved} hồ sơ cần xử lý.${deepRun}${searchNote}`
         : `Đã tối ưu draft r${result.draftRevision}; đã ưu tiên đủ học viên, ca đôi và PT chính/phụ.${deepRun}${searchNote}`)
@@ -1766,7 +1773,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
           return <li key={`${move.studentId}-${move.fromSlotId || 'new'}-${move.toSlotId}-${index}`}><b>{index + 1}</b><div><strong>{move.studentName || studentName(move.studentId)}</strong><span>{move.fromSlotId ? `${scheduleSlotLabel(move.fromSlotId, weekDates)} · ${fromTrainer} → ` : 'Bổ sung vào '}{scheduleSlotLabel(move.toSlotId, weekDates)} · {toTrainer}</span></div></li>
         })}</ol>
       </details>}
-      {!optimizationStatus && (workspace?.optimizationSummary?.rescueSearchLimitReached || workspace?.optimizationSummary?.repairSearchLimitReached) && <div className="branch-schedule__search-limit" role="status"><AlertTriangle size={16} /> Đã chạm giới hạn tìm kiếm an toàn. Các ca thủ công, ca khóa và ca đã publish vẫn được giữ nguyên; hãy xem hồ sơ còn thiếu trong Cảnh báo.</div>}
+      {!optimizationStatus && searchLimitWarning && <div className="branch-schedule__search-limit" role="status"><AlertTriangle size={16} /> Tối ưu đã dừng ở ngân sách tìm kiếm an toàn cho một số hồ sơ còn thiếu. Ca thủ công, ca khóa và ca đã publish vẫn được giữ nguyên; bấm “Tối ưu tiếp” hoặc xử lý hồ sơ trong Cảnh báo.</div>}
       {loading && !workspace && <div className="branch-schedule__loading"><RefreshCw className="is-spinning" /> Đang tải workspace theo phạm vi…</div>}
 
       {workspace && tab === 'matrix' && (

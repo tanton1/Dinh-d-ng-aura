@@ -18,6 +18,11 @@ Status: implemented and verified locally; not yet released to production.
   no longer falls back to a full-branch scan when its row is stale.
 - Local User Timing measures workspace load, opportunity calculation, optimizer
   and publish durations without sending identifiers or adding listeners.
+- The search-budget banner is actionable-only: stale optimizer flags or input
+  blockers (contract/availability/capacity) no longer produce a duplicate
+  reminder. A per-learner fairness slice is not reported as global budget
+  exhaustion; the banner remains only when unresolved work has a real search
+  gap, with `Tối ưu tiếp` available for a larger bounded continuation.
 - Selector parity fixture: 500 learners, 10 PT, 96 slots, all-branch and four
   selected-learner filters. The default ordering and counts match the previous
   selector. This tests local calculation, not concurrent production capacity.

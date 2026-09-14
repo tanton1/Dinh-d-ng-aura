@@ -1776,7 +1776,6 @@ function repairCoverageWithRelocations(data, inputSchedule, students, remainingB
   const swapTrace = []
   let relocations = 0
   let evaluatedPlans = 0
-  let learnerSearchLimitReached = false
   let progress = true
 
   while (progress && assignedStudentIds.length < maxAssignments && budget.nodes < budget.limit) {
@@ -1791,7 +1790,6 @@ function repairCoverageWithRelocations(data, inputSchedule, students, remainingB
       const localBudget = { nodes: 0, limit: Math.min(budget.limit - budget.nodes, Math.max(600, Math.floor(budget.limit / Math.max(1, fairStudents.length)))), offset: budget.offset }
       const alternatives = repairAlternativesForStudent(data, studentMap, student, schedule, localBudget)
       budget.nodes += localBudget.nodes
-      learnerSearchLimitReached ||= localBudget.nodes >= localBudget.limit
       evaluatedPlans += alternatives.length
       const nextRemaining = new Map(localRemaining)
       nextRemaining.set(student.id, Math.max(0, (nextRemaining.get(student.id) || 0) - 1))
@@ -1818,7 +1816,10 @@ function repairCoverageWithRelocations(data, inputSchedule, students, remainingB
     assignments: assignedStudentIds.length,
     relocations,
     searchNodes: budget.nodes,
-    searchLimitReached: budget.nodes >= budget.limit || learnerSearchLimitReached,
+    // A per-learner slice is an intentional fairness partition. It is not a
+    // global safety exhaustion and should not surface as a warning unless the
+    // shared search budget is actually consumed.
+    searchLimitReached: budget.nodes >= budget.limit,
     evaluatedPlans,
     swapTrace,
   }
