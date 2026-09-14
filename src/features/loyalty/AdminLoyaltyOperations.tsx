@@ -295,7 +295,7 @@ export default function AdminLoyaltyOperations({
   const visibleAccounts = accounts.filter((item) => !normalizedQuery || `${item.studentName} ${item.studentId} ${item.branchId}`.toLocaleLowerCase('vi').includes(normalizedQuery))
 
   return <section className="loyalty-admin-card loyalty-admin-operations">
-    <header><div><span>VẬN HÀNH</span><h2>Quản trị Aura Club</h2></div><ShieldCheck /></header>
+    <header><div><span>Vận hành</span><h2>Công cụ quản trị</h2></div><ShieldCheck /></header>
     <nav className="loyalty-admin-operations__tabs" aria-label="Nghiệp vụ Aura Club">
       {availableTabs.map((item) => <button type="button" className={activeTab === item.id ? 'is-active' : ''} key={item.id} onClick={() => { setNotice(''); setError(''); setActiveTab(item.id) }}><item.icon /> {item.label}</button>)}
       <button type="button" className="is-refresh" aria-label="Tải lại tab đang mở" onClick={() => void loadTab(activeTab)}><RefreshCw /></button>

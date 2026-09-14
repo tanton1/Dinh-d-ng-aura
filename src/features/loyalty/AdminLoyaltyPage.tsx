@@ -229,8 +229,8 @@ export default function AdminLoyaltyPage({
   return (
     <div className="loyalty-admin">
       <header className="loyalty-admin__header">
-        <div><span><Sparkles /> AURA CLUB</span><h1>Khách hàng trung thành</h1><p>Điều hành điểm, quyền lợi, referral và nghĩa vụ chi phí từ một nguồn dữ liệu.</p></div>
-        <button type="button" onClick={() => void load()}><RefreshCw /> Tải lại</button>
+        <div><span><Sparkles /> Aura Club</span><h1>Trung tâm Aura Club</h1><p>Theo dõi thành viên, điểm, quyền lợi và các việc cần xử lý trong một màn hình.</p></div>
+        <button type="button" onClick={() => void load()} aria-label="Tải lại dữ liệu Aura Club"><RefreshCw /> <span>Tải lại</span></button>
       </header>
 
       {error ? <div className="loyalty-inline-alert" role="alert"><AlertTriangle size={17} /> {error}</div> : null}
@@ -238,21 +238,29 @@ export default function AdminLoyaltyPage({
 
       <section className="loyalty-admin__metrics" aria-label="Chỉ số Aura Club">
         <article><span><Users /> Thành viên</span><strong>{formatNumber(metrics.memberCount)}</strong><small><ArrowUpRight /> Toàn hệ thống</small></article>
-        <article><span><Coins /> Điểm khả dụng</span><strong>{formatNumber(metrics.availablePoints)}</strong><small>{formatNumber(metrics.pendingPoints)} đang chờ</small></article>
-        <article><span><Gift /> Đã đổi</span><strong>{formatNumber(metrics.lifetimeRedeemedPoints)}</strong><small>{metrics.pendingRedemptions} yêu cầu cần xử lý</small></article>
-        <article className="is-liability"><span><WalletCards /> Nghĩa vụ danh nghĩa</span><strong>{formatMoney(metrics.outstandingNominalValueVnd)}</strong><small><ArrowDownRight /> Theo mốc {formatMoney(policyConfig.pointValueVnd)}/điểm</small></article>
+        <article><span><Coins /> Điểm khả dụng</span><strong>{formatNumber(metrics.availablePoints)}</strong><small>{formatNumber(metrics.pendingPoints)} điểm đang chờ</small></article>
+        <article className={metrics.pendingRedemptions > 0 ? 'is-attention' : ''}><span><Gift /> Đã đổi</span><strong>{formatNumber(metrics.lifetimeRedeemedPoints)}</strong><small>{metrics.pendingRedemptions} yêu cầu cần xử lý</small></article>
+        <article className="is-liability"><span><WalletCards /> Nghĩa vụ điểm</span><strong>{formatMoney(metrics.outstandingNominalValueVnd)}</strong><small><ArrowDownRight /> {formatMoney(policyConfig.pointValueVnd)} mỗi điểm</small></article>
       </section>
 
-      {canRunBackfill ? <section className="loyalty-admin-card loyalty-admin-reconcile">
-        <header><div><span>KIỂM SOÁT RA MẮT</span><h2>Đối soát dữ liệu trước khi phát điểm</h2></div><ScanSearch /></header>
-        <p>Quét thử trước, sau đó mới áp dụng. Lịch sử thực thu chỉ tạo Tier Credit; không đổi XP hay thanh toán cũ thành điểm. Học viên có hợp đồng hiệu lực nhận 200 điểm đúng một lần.</p>
-        <div className="loyalty-admin-reconcile__controls"><label>Ngày ra mắt {dashboard.launchDate ? '· đã khóa' : ''}<input type="date" value={launchDate} disabled={Boolean(dashboard.launchDate)} onChange={(event) => setLaunchDate(event.target.value)} /></label><button type="button" disabled={busy.startsWith('backfill')} onClick={() => void reconcileLaunch('dry_run')}>{busy === 'backfill-dry_run' ? <LoaderCircle className="loyalty-spin" /> : <ScanSearch />} Quét thử</button><button type="button" className="is-primary" disabled={busy.startsWith('backfill')} onClick={() => void reconcileLaunch('apply')}>{busy === 'backfill-apply' ? <LoaderCircle className="loyalty-spin" /> : <ShieldCheck />} Áp dụng an toàn</button></div>
-        {backfill ? <div className="loyalty-admin-reconcile__result"><span><b>{formatNumber(backfill.summary.scannedContracts)}</b> hợp đồng đã quét</span><span><b>{formatMoney(backfill.summary.eligibleTierCreditVnd)}</b> Tier Credit</span><span><b>{formatNumber(backfill.summary.activeLaunchStudents)}</b> học viên hiệu lực</span><span className={backfill.summary.failures || backfill.summary.missingStudentId || backfill.summary.missingStudentProfile ? 'is-warning' : ''}><b>{formatNumber(backfill.summary.failures + backfill.summary.missingStudentId + backfill.summary.missingStudentProfile)}</b> lỗi cần xử lý</span></div> : null}
+      {metrics.debtPoints > 0 ? <aside className="loyalty-admin-risk"><AlertTriangle /><div><strong>{formatNumber(metrics.debtPoints)} điểm nghĩa vụ đang âm</strong><span>Tài khoản liên quan tạm khóa đổi thưởng đến khi có điểm mới hoặc được Admin đối soát.</span></div></aside> : null}
+
+      {canReviewRedemptions ? <section className="loyalty-admin-card loyalty-admin-queue" id="loyalty-redemption-queue">
+        <header><div><span>Đổi thưởng</span><h2>Yêu cầu cần xử lý <b>{pendingQueue.length}</b></h2></div><Clock3 /></header>
+        {pendingQueue.length ? <div className="loyalty-admin-table">
+          <div className="loyalty-admin-table__head"><span>Học viên</span><span>Quyền lợi</span><span>Điểm</span><span>Trạng thái</span><span>Thao tác</span></div>
+          {pendingQueue.map((item) => {
+            const reward = item.rewardSnapshot as { name?: string } | undefined
+            return <article key={item.id}><span className="loyalty-admin-table__student"><strong>{String(item.studentName || item.studentId || 'Học viên Aura')}</strong><small>{item.id.slice(0, 10)}</small></span><span data-label="Quyền lợi">{reward?.name || 'Quyền lợi Aura'}</span><span data-label="Điểm"><strong>{formatNumber(Number(item.pointsCost || 0))}</strong></span><span data-label="Trạng thái"><b className={`loyalty-status-pill loyalty-status-pill--${item.status}`}>{item.status === 'pending' ? 'Chờ duyệt' : 'Đã duyệt'}</b></span><span className="loyalty-admin-actions">{item.status === 'pending' ? <><button type="button" disabled={busy === item.id} onClick={() => void transition(item.id, 'approved')}>Duyệt</button><button type="button" className="is-secondary" disabled={busy === item.id} onClick={() => void transition(item.id, 'rejected')}>Từ chối</button></> : <><button type="button" disabled={busy === item.id} onClick={() => void transition(item.id, 'fulfilled')}>Hoàn tất</button><button type="button" className="is-secondary" disabled={busy === item.id} onClick={() => void transition(item.id, 'cancelled')}>Hủy & hoàn điểm</button></>}</span></article>
+          })}
+        </div> : <div className="loyalty-empty loyalty-empty--compact"><CheckCircle2 /><h3>Đã xử lý hết yêu cầu</h3><p>Yêu cầu mới sẽ xuất hiện tại đây theo phạm vi chi nhánh.</p></div>}
       </section> : null}
+
+      <AdminLoyaltyOperations initialStudentId={initialStudentId} isDemo={isDemo} canManageRewards={canManageRewards} canManageAmbassadors={canManageAmbassadors} canAudit={canAudit} canAdjust={canAdjust} canApproveAdjustments={canApproveAdjustments} largeAdjustmentThreshold={policyConfig.largeAdjustmentThreshold} />
 
       <div className="loyalty-admin__grid">
         <section className="loyalty-admin-card">
-          <header><div><span>CƠ CẤU HẠNG</span><h2>Thành viên theo hạng</h2></div><Crown /></header>
+          <header><div><span>Cơ cấu hạng</span><h2>Thành viên theo hạng</h2></div><Crown /></header>
           <div className="loyalty-tier-chart">
             {dashboard.tiers.map((item) => <div key={item.tier}><span>{item.tier}</span><i><b style={{ width: `${Math.max(4, item.count / maxTier * 100)}%` }} /></i><strong>{formatNumber(item.count)}</strong></div>)}
           </div>
@@ -260,7 +268,7 @@ export default function AdminLoyaltyPage({
         </section>
 
         <section className="loyalty-admin-card loyalty-admin-policy">
-          <header><div><span>CONTROL CENTER</span><h2>Trạng thái phát hành</h2></div><ShieldCheck /></header>
+          <header><div><span>Chính sách</span><h2>Trạng thái chương trình</h2></div><ShieldCheck /></header>
           <p>{canManagePolicy ? 'Mỗi công tắc tạo một phiên bản policy mới. Có thể dừng riêng từng nguồn mà không mất ledger.' : 'Bạn đang xem trạng thái chương trình trong phạm vi được cấp. Chỉ Admin hệ thống được phát hành chính sách.'}</p>
           <div className="loyalty-policy-toggles">
             {([
@@ -293,20 +301,14 @@ export default function AdminLoyaltyPage({
         </section>
       </div>
 
-      <AdminLoyaltyOperations initialStudentId={initialStudentId} isDemo={isDemo} canManageRewards={canManageRewards} canManageAmbassadors={canManageAmbassadors} canAudit={canAudit} canAdjust={canAdjust} canApproveAdjustments={canApproveAdjustments} largeAdjustmentThreshold={policyConfig.largeAdjustmentThreshold} />
-
-      {canReviewRedemptions ? <section className="loyalty-admin-card loyalty-admin-queue">
-        <header><div><span>ĐỔI THƯỞNG</span><h2>Yêu cầu cần xử lý</h2></div><Clock3 /></header>
-        {pendingQueue.length ? <div className="loyalty-admin-table">
-          <div className="loyalty-admin-table__head"><span>Học viên</span><span>Quyền lợi</span><span>Điểm</span><span>Trạng thái</span><span>Thao tác</span></div>
-          {pendingQueue.map((item) => {
-            const reward = item.rewardSnapshot as { name?: string } | undefined
-            return <article key={item.id}><span><strong>{String(item.studentName || item.studentId || 'Học viên Aura')}</strong><small>{item.id.slice(0, 10)}</small></span><span>{reward?.name || 'Quyền lợi Aura'}</span><span><strong>{formatNumber(Number(item.pointsCost || 0))}</strong></span><span><b className={`loyalty-status-pill loyalty-status-pill--${item.status}`}>{item.status === 'pending' ? 'Chờ duyệt' : 'Đã duyệt'}</b></span><span className="loyalty-admin-actions">{item.status === 'pending' ? <><button type="button" disabled={busy === item.id} onClick={() => void transition(item.id, 'approved')}>Duyệt</button><button type="button" className="is-secondary" disabled={busy === item.id} onClick={() => void transition(item.id, 'rejected')}>Từ chối</button></> : <><button type="button" disabled={busy === item.id} onClick={() => void transition(item.id, 'fulfilled')}>Hoàn tất</button><button type="button" className="is-secondary" disabled={busy === item.id} onClick={() => void transition(item.id, 'cancelled')}>Hủy & hoàn điểm</button></>}</span></article>
-          })}
-        </div> : <div className="loyalty-empty loyalty-empty--compact"><CheckCircle2 /><h3>Không có yêu cầu tồn</h3><p>Các yêu cầu mới sẽ xuất hiện ở đây theo đúng phạm vi chi nhánh.</p></div>}
-      </section> : null}
-
-      {metrics.debtPoints > 0 ? <aside className="loyalty-admin-risk"><AlertTriangle /><div><strong>{formatNumber(metrics.debtPoints)} điểm nghĩa vụ đang âm</strong><span>Các tài khoản này bị khóa đổi thưởng cho đến khi điểm kiếm mới bù đủ hoặc Admin đối soát.</span></div></aside> : null}
+      {canRunBackfill ? <details className="loyalty-admin-card loyalty-admin-reconcile">
+        <summary><div><span>Đối soát nâng cao</span><h2>Dữ liệu trước khi phát điểm</h2><p>Quét thử và áp dụng ledger bù mà không sửa dữ liệu tài chính gốc.</p></div><ScanSearch /></summary>
+        <div className="loyalty-admin-reconcile__body">
+          <p>Lịch sử thực thu chỉ tạo Tier Credit; không đổi XP hoặc thanh toán cũ thành điểm. Học viên có hợp đồng hiệu lực nhận 200 điểm đúng một lần.</p>
+          <div className="loyalty-admin-reconcile__controls"><label>Ngày ra mắt {dashboard.launchDate ? '· đã khóa' : ''}<input type="date" value={launchDate} disabled={Boolean(dashboard.launchDate)} onChange={(event) => setLaunchDate(event.target.value)} /></label><button type="button" disabled={busy.startsWith('backfill')} onClick={() => void reconcileLaunch('dry_run')}>{busy === 'backfill-dry_run' ? <LoaderCircle className="loyalty-spin" /> : <ScanSearch />} Quét thử</button><button type="button" className="is-primary" disabled={busy.startsWith('backfill')} onClick={() => void reconcileLaunch('apply')}>{busy === 'backfill-apply' ? <LoaderCircle className="loyalty-spin" /> : <ShieldCheck />} Áp dụng an toàn</button></div>
+          {backfill ? <div className="loyalty-admin-reconcile__result"><span><b>{formatNumber(backfill.summary.scannedContracts)}</b> hợp đồng đã quét</span><span><b>{formatMoney(backfill.summary.eligibleTierCreditVnd)}</b> Tier Credit</span><span><b>{formatNumber(backfill.summary.activeLaunchStudents)}</b> học viên hiệu lực</span><span className={backfill.summary.failures || backfill.summary.missingStudentId || backfill.summary.missingStudentProfile ? 'is-warning' : ''}><b>{formatNumber(backfill.summary.failures + backfill.summary.missingStudentId + backfill.summary.missingStudentProfile)}</b> lỗi cần xử lý</span></div> : null}
+        </div>
+      </details> : null}
     </div>
   )
 }
