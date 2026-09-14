@@ -43,6 +43,7 @@ const MAX_DRAFT_DOCUMENT_ENTRIES = 700
 const MAX_ENTRIES_PER_SLOT = 100
 const MAX_ACTIVE_RESERVATION_SESSIONS = 3000
 const DEFAULT_DAILY_SESSION_TARGET = 8
+const { trainerDailyLoadTarget } = require('./schedule-load-policy')
 const OPTIMIZER_VERSION = 'optimizer-v13'
 const MAX_DEEP_OPTIMIZATION_PASSES = 3
 // A bounded repair search can relocate auto-generated sessions from earlier
@@ -514,7 +515,7 @@ async function loadBranchData(db, branchId, week) {
   const mappedTrainers = trainers.docs.map((item) => {
     const data = trainerProfileForWeek(item.data(), weeklyTrainerAvailability.get(item.id), week)
     const schedulingPriority = Math.max(1, Math.min(999, Math.trunc(Number(data.schedulingPriority ?? data.priority ?? 100) || 100)))
-    const dailySessionTarget = Math.max(1, Math.min(12, Math.trunc(Number(data.dailySessionTarget ?? DEFAULT_DAILY_SESSION_TARGET) || DEFAULT_DAILY_SESSION_TARGET)))
+    const dailySessionTarget = trainerDailyLoadTarget(data, config.data()?.scheduleLoadPolicy)
     return {
       id: item.id,
       name: data.name || 'PT chưa cập nhật tên',
@@ -660,7 +661,7 @@ async function loadManualMutationData(db, branchId, week, trainerId, studentId, 
     pausedScheduleDates: eligibility.pausedDates,
   }
   const schedulingPriority = Math.max(1, Math.min(999, Math.trunc(Number(rawTrainer.schedulingPriority ?? rawTrainer.priority ?? 100) || 100)))
-  const dailySessionTarget = Math.max(1, Math.min(12, Math.trunc(Number(rawTrainer.dailySessionTarget ?? DEFAULT_DAILY_SESSION_TARGET) || DEFAULT_DAILY_SESSION_TARGET)))
+  const dailySessionTarget = trainerDailyLoadTarget(rawTrainer, config.data()?.scheduleLoadPolicy)
   const trainer = {
     id: trainerId,
     name: rawTrainer.name || 'PT chưa cập nhật tên',
@@ -900,9 +901,9 @@ function assignedTrainerIds(contract) {
   ].filter(Boolean))]
 }
 
-function trainerSchedulingPolicy(trainer) {
+function trainerSchedulingPolicy(trainer, config) {
   const schedulingPriority = Math.max(1, Math.min(999, Math.trunc(Number(trainer?.schedulingPriority ?? trainer?.priority ?? 100) || 100)))
-  const dailySessionTarget = Math.max(1, Math.min(12, Math.trunc(Number(trainer?.dailySessionTarget ?? DEFAULT_DAILY_SESSION_TARGET) || DEFAULT_DAILY_SESSION_TARGET)))
+  const dailySessionTarget = trainerDailyLoadTarget(trainer, config?.scheduleLoadPolicy)
   const employmentType = ['full_time', 'part_time', 'collaborator'].includes(trainer?.employmentType)
     ? trainer.employmentType
     : 'full_time'
@@ -1013,7 +1014,7 @@ function candidateForSlot(data, { student, trainer, slotId, schedule, scheduling
   const date = dateForSlot(data.weekId, day)
   const reasons = []
   const state = schedulingState || buildSchedulingState(schedule)
-  const policy = trainerSchedulingPolicy(trainer)
+  const policy = trainerSchedulingPolicy(trainer, data.config)
   const workingDays = Array.isArray(data.config?.workingDays) ? data.config.workingDays : []
   const workingHours = Array.isArray(data.config?.workingHours) ? data.config.workingHours.map(Number) : []
   const holidays = Array.isArray(data.config?.holidays) ? data.config.holidays : []
@@ -1171,9 +1172,9 @@ function trainerLoadsForSchedule(data, schedule, schedulingState = null) {
     ? [...new Set(data.config.workingDays)].filter((day) => DAY_ORDER.has(day)).sort((left, right) => (DAY_ORDER.get(left) ?? 99) - (DAY_ORDER.get(right) ?? 99))
     : [...DAY_ORDER.keys()]
   return [...data.trainers]
-    .sort((left, right) => trainerSchedulingPolicy(left).schedulingPriority - trainerSchedulingPolicy(right).schedulingPriority || left.id.localeCompare(right.id))
+    .sort((left, right) => trainerSchedulingPolicy(left, data.config).schedulingPriority - trainerSchedulingPolicy(right, data.config).schedulingPriority || left.id.localeCompare(right.id))
     .flatMap((trainer) => {
-      const policy = trainerSchedulingPolicy(trainer)
+      const policy = trainerSchedulingPolicy(trainer, data.config)
       return workingDays.map((day) => {
         const teachingSlots = state.trainerSlotsByDay.get(`${trainer.id}|${day}`)?.size || 0
         return {
@@ -1529,7 +1530,7 @@ function boundedRepairCandidates(data, student, schedule, forbiddenTargets, budg
   const candidates = []
   const state = buildSchedulingState(schedule)
   const contractCache = new Map()
-  const trainers = [...data.trainers].sort((left, right) => trainerSchedulingPolicy(left).schedulingPriority - trainerSchedulingPolicy(right).schedulingPriority || left.id.localeCompare(right.id))
+  const trainers = [...data.trainers].sort((left, right) => trainerSchedulingPolicy(left, data.config).schedulingPriority - trainerSchedulingPolicy(right, data.config).schedulingPriority || left.id.localeCompare(right.id))
   const slots = [...new Set(student.availableSlots || [])].sort(compareSlots)
   const offset = Number(budget.offset || 0) % Math.max(1, slots.length)
   search: for (const slotId of [...slots.slice(offset), ...slots.slice(0, offset)]) {

@@ -4,7 +4,8 @@ const assert = require('node:assert/strict')
 const { readFileSync } = require('node:fs')
 const { join } = require('node:path')
 const test = require('node:test')
-const { createScheduleConfigManagementFunctions } = require('./schedule-config-management')
+const { createHash } = require('node:crypto')
+const { createScheduleConfigManagementFunctions, normalizeScheduleConfig } = require('./schedule-config-management')
 
 function clone(value) { return value === undefined ? undefined : structuredClone(value) }
 function memoryDb(seed = {}) {
@@ -71,6 +72,53 @@ test('keeps the same policy version when only layout settings change', async () 
   const second = await functions.saveScheduleConfig({ data: { config: { ...first.config, lockHour: 13 }, expectedRevision: 1, idempotencyKey: 'schedule-config-keep-policy-2' } })
   assert.equal(second.config.operationsPolicy.version, 'pt-operations-r1')
   assert.equal(second.config.operationsPolicy.hash, first.config.operationsPolicy.hash)
+})
+
+test('legacy config saves preserve the newer load policy when the field is omitted', async () => {
+  const db = memoryDb({
+    'branches/branch-a': { status: 'active' },
+    'settings/scheduleConfig': {
+      ...config(),
+      revision: 4,
+      scheduleLoadPolicy: { schemaVersion: 1, defaultDailyTargets: { full_time: 6, part_time: 5, collaborator: 3 } },
+    },
+  })
+  const legacyConfig = config({ lockHour: 13 })
+  delete legacyConfig.scheduleLoadPolicy
+  const result = await api(db).saveScheduleConfig({ data: { config: legacyConfig, expectedRevision: 4, idempotencyKey: 'schedule-legacy-policy-1' } })
+  assert.deepEqual(result.config.scheduleLoadPolicy.defaultDailyTargets, { full_time: 6, part_time: 5, collaborator: 3 })
+})
+
+test('load policy save is audited, replay-safe and rejects invalid configuration', async () => {
+  const db = memoryDb({ 'branches/branch-a': { status: 'active' } })
+  const policy = { schemaVersion: 1, defaultDailyTargets: { full_time: 4, part_time: 3, collaborator: 2 } }
+  const input = { config: config({ scheduleLoadPolicy: policy }), expectedRevision: 0, idempotencyKey: 'schedule-load-policy-1' }
+  const saved = await api(db).saveScheduleConfig({ data: input })
+  assert.deepEqual(saved.config.scheduleLoadPolicy, policy)
+  assert.equal((await api(db).saveScheduleConfig({ data: input })).unchanged, true)
+  const audit = [...db.documents].find(([path]) => path.startsWith('auditLogs/'))[1]
+  assert.equal(audit.loadPolicyChanged, true)
+  assert.equal(audit.beforeLoadPolicy.defaultDailyTargets.full_time, 8)
+  assert.deepEqual(audit.afterLoadPolicy, policy)
+  for (const invalid of [null, { ...policy, schemaVersion: 2 }, { ...policy, defaultDailyTargets: { full_time: 13 } }, { ...policy, defaultDailyTargets: { ...policy.defaultDailyTargets, full_time: 0 } }]) {
+    await assert.rejects(api(db).saveScheduleConfig({ data: { ...input, config: config({ scheduleLoadPolicy: invalid }), expectedRevision: 1, idempotencyKey: 'schedule-invalid-policy' } }), (cause) => cause.code === 'invalid-argument')
+  }
+  assert.equal(db.documents.get('settings/scheduleConfig').revision, 1)
+})
+
+test('receipts written before load policy rollout remain replayable', async () => {
+  const idempotencyKey = 'schedule-pre-rollout-retry'
+  const sha = (text) => createHash('sha256').update(text).digest('hex')
+  const { scheduleLoadPolicy: _loadPolicy, ...legacyNormalized } = normalizeScheduleConfig(config())
+  const receiptId = sha(`${actor.uid}\n${idempotencyKey}`).slice(0, 48)
+  const db = memoryDb({ [`scheduleConfigCommandReceipts/${receiptId}`]: {
+    operation: 'save', payloadHash: sha(JSON.stringify({ operation: 'save', expectedRevision: 0, config: legacyNormalized })),
+    result: { revision: 1, config: legacyNormalized, unchanged: false },
+  } })
+  const result = await api(db).saveScheduleConfig({ data: { config: config(), expectedRevision: 0, idempotencyKey } })
+  assert.equal(result.unchanged, true)
+  assert.equal(result.revision, 1)
+  assert.equal(db.documents.size, 1)
 })
 
 test('rejects stale revision and idempotency key reuse with a different policy', async () => {

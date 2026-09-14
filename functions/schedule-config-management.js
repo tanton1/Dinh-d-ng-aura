@@ -11,6 +11,16 @@ const {
   ptOperationsPolicyHash,
   vietnamDateKey,
 } = require('./pt-policy')
+const { EMPLOYMENT_TYPES, normalizeScheduleLoadPolicy } = require('./schedule-load-policy')
+
+function validateScheduleLoadPolicy(value) {
+  if (value === undefined) return normalizeScheduleLoadPolicy()
+  if (!value || value.schemaVersion !== 1 || !value.defaultDailyTargets || Array.isArray(value.defaultDailyTargets)) {
+    throw new HttpsError('invalid-argument', 'Chính sách cân tải không hợp lệ.')
+  }
+  for (const type of EMPLOYMENT_TYPES) integer(value.defaultDailyTargets[type], `Mốc cân tải ${type}`, 1, 12)
+  return normalizeScheduleLoadPolicy(value)
+}
 
 const SCHEDULE_CONFIG_CAPABILITY = 'pt.operations.manage'
 const DAYS = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7']
@@ -100,6 +110,7 @@ function normalizeScheduleConfig(value = {}) {
     holidays: details.map((item) => item.date),
     holidayDetails: details,
     branchCapacityBySlot: normalizeBranchCapacity(value.branchCapacityBySlot),
+    scheduleLoadPolicy: validateScheduleLoadPolicy(value.scheduleLoadPolicy),
     ...operationsPolicy,
   }
 }
@@ -114,10 +125,14 @@ function receiptId(actorUid, key) {
 
 async function saveScheduleConfigCommand({ db, actor, data, correlationId }) {
   requireCapability(actor, SCHEDULE_CONFIG_CAPABILITY)
-  const config = normalizeScheduleConfig(data.config || {})
+  const normalizedConfig = normalizeScheduleConfig(data.config || {})
+  const loadPolicySupplied = Object.hasOwn(data.config || {}, 'scheduleLoadPolicy')
   const expectedRevision = integer(data.expectedRevision ?? 0, 'Phiên bản cấu hình', 0, 1_000_000_000)
   const idempotencyKey = validIdempotencyKey(data.idempotencyKey)
-  const payloadHash = digest(JSON.stringify({ operation: 'save', expectedRevision, config }))
+  const { scheduleLoadPolicy: _loadPolicy, ...legacyConfig } = normalizedConfig
+  // Preserve receipt hashes for retries created before this additive field.
+  const payloadHash = digest(JSON.stringify({ operation: 'save', expectedRevision,
+    config: loadPolicySupplied ? normalizedConfig : legacyConfig }))
   const commandReceiptId = receiptId(actor.uid, idempotencyKey)
   const configReference = db.doc('settings/scheduleConfig')
   const receiptReference = db.doc(`scheduleConfigCommandReceipts/${commandReceiptId}`)
@@ -132,6 +147,10 @@ async function saveScheduleConfigCommand({ db, actor, data, correlationId }) {
     }
     const configSnapshot = await transaction.get(configReference)
     const currentConfig = configSnapshot.exists ? configSnapshot.data() || {} : {}
+    // Older clients do not send this new field. Their unrelated calendar
+    // changes must not silently reset a newer balancing policy.
+    const config = { ...normalizedConfig, scheduleLoadPolicy: loadPolicySupplied
+      ? normalizedConfig.scheduleLoadPolicy : normalizeScheduleLoadPolicy(currentConfig.scheduleLoadPolicy) }
     const currentRevision = Number.isInteger(configSnapshot.data()?.revision) ? configSnapshot.data().revision : 0
     if (currentRevision !== expectedRevision) throw new HttpsError('aborted', 'Cấu hình lịch vừa được người khác cập nhật. Hãy tải lại dữ liệu.')
     for (const branchId of Object.keys(config.branchCapacityBySlot)) {
@@ -140,6 +159,9 @@ async function saveScheduleConfigCommand({ db, actor, data, correlationId }) {
     }
     const revision = currentRevision + 1
     const now = FieldValue.serverTimestamp()
+    const beforeLoadPolicy = normalizeScheduleLoadPolicy(currentConfig.scheduleLoadPolicy)
+    const afterLoadPolicy = config.scheduleLoadPolicy
+    const loadPolicyChanged = JSON.stringify(beforeLoadPolicy) !== JSON.stringify(afterLoadPolicy)
     const policyHash = ptOperationsPolicyHash(config)
     const currentPolicyHash = configSnapshot.exists ? ptOperationsPolicyHash(currentConfig) : ''
     const currentPolicyRecord = currentConfig.operationsPolicy && typeof currentConfig.operationsPolicy === 'object'
@@ -170,7 +192,7 @@ async function saveScheduleConfigCommand({ db, actor, data, correlationId }) {
     transaction.set(configReference, next)
     const result = { schemaVersion: 2, revision, config: { ...config, operationsPolicy, schemaVersion: 3, revision }, unchanged: false }
     transaction.create(receiptReference, { schemaVersion: 1, operation: 'save', actorUid: actor.uid, payloadHash, result, createdAt: now })
-    transaction.create(auditReference, { schemaVersion: 2, action: 'schedule_config.save', domain: 'schedule', sourceType: 'schedule_config', sourceId: 'scheduleConfig', revision, actorUid: actor.uid, correlationId: correlationId || null, policyChanged, beforePolicyHash: currentPolicyHash || null, afterPolicyHash: policyHash, policyVersion, createdAt: now })
+    transaction.create(auditReference, { schemaVersion: 2, action: 'schedule_config.save', domain: 'schedule', sourceType: 'schedule_config', sourceId: 'scheduleConfig', revision, actorUid: actor.uid, correlationId: correlationId || null, policyChanged, beforePolicyHash: currentPolicyHash || null, afterPolicyHash: policyHash, policyVersion, loadPolicyChanged, beforeLoadPolicy, afterLoadPolicy, createdAt: now })
     return result
   })
 }

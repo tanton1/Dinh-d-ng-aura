@@ -371,6 +371,7 @@ export interface PtOperationsPolicyRecord {
 }
 
 export interface ScheduleConfig extends PtOperationsPolicyValues {
+  scheduleLoadPolicy?: import('../config/scheduleLoadPolicy').ScheduleLoadPolicy
   /** Missing on legacy configuration; the first callable save migrates revision 0 to 1. */
   revision?: number
   schemaVersion?: number

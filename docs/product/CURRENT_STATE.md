@@ -2,6 +2,35 @@
 
 Last reviewed: 2026-09-12
 
+## Schedule load policy and opportunity selector — 2026-09-14
+
+Status: implemented and verified locally; not yet released to production.
+
+- `settings/scheduleConfig.scheduleLoadPolicy` now stores editable default
+  daily targets for full-time PT, part-time PT and CTV. An explicit
+  `trainers.dailySessionTarget` remains authoritative; every target is a soft
+  balancing reference and never a hard cap on learner coverage.
+- Schedule settings validates the policy, records before/after values in the
+  audit event, and preserves a newer policy when an older client saves only
+  calendar fields.
+- The Branch Schedule workspace indexes learners by available slot and scans
+  the draft once when building the opportunity pool. The selected-learner path
+  no longer falls back to a full-branch scan when its row is stale.
+- Local User Timing measures workspace load, opportunity calculation, optimizer
+  and publish durations without sending identifiers or adding listeners.
+- Selector parity fixture: 500 learners, 10 PT, 96 slots, all-branch and four
+  selected-learner filters. The default ordering and counts match the previous
+  selector. This tests local calculation, not concurrent production capacity.
+- Rollout: update `saveScheduleConfig` and the PT schedule v2/v4 callable family
+  together, then publish frontend. Do not edit production policy values as part
+  of deployment. Defaults are 8 for every employment type; existing explicit
+  PT targets retain precedence. No payroll formulas, permissions, migration,
+  new collection or listener were introduced.
+- Follow-up: remaining workspace component boundaries, production read/latency
+  measurements, and canonical eligibility for opportunity suggestions are
+  separate work. The pool remains advisory; mutation callables are authoritative.
+  A server projection and legacy removal are not part of this change.
+
 ## Capacity hardening (prepared from origin/main; not deployed)
 
 - Member Nutrition keeps a live subscription for the selected day after Diary/Plan history is loaded. The history snapshot is merged by stable record ID so a later review or deletion is not overwritten by a stale one-time read.

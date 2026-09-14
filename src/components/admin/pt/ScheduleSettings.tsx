@@ -3,6 +3,7 @@ import { Save, Clock, CalendarDays, Lock, CalendarOff, Gauge, X } from 'lucide-r
 import { ScheduleConfig, Day } from '../../../types';
 import { useDatabase } from '../../../contexts/DatabaseContext';
 import { ErrorState } from '../../ui';
+import { SCHEDULE_EMPLOYMENT_TYPES, normalizeScheduleLoadPolicy, type ScheduleEmploymentType } from '../../../config/scheduleLoadPolicy'
 
 const ALL_DAYS: { id: Day; label: string }[] = [
   { id: 'T2', label: 'Thứ 2' },
@@ -24,7 +25,8 @@ export default function ScheduleSettings() {
     isAutoLockEnabled: scheduleConfig?.isAutoLockEnabled ?? false,
     holidays: scheduleConfig?.holidays || [],
     holidayDetails: scheduleConfig?.holidayDetails || [],
-    branchCapacityBySlot: scheduleConfig?.branchCapacityBySlot || {}
+    branchCapacityBySlot: scheduleConfig?.branchCapacityBySlot || {},
+    scheduleLoadPolicy: normalizeScheduleLoadPolicy(scheduleConfig?.scheduleLoadPolicy),
   });
   const [isSaving, setIsSaving] = useState(false);
   const [newHoliday, setNewHoliday] = useState('');
@@ -43,6 +45,7 @@ export default function ScheduleSettings() {
       holidays: scheduleConfig?.holidays || [],
       holidayDetails: scheduleConfig?.holidayDetails || [],
       branchCapacityBySlot: scheduleConfig?.branchCapacityBySlot || {},
+      scheduleLoadPolicy: normalizeScheduleLoadPolicy(scheduleConfig?.scheduleLoadPolicy),
     });
   }, [scheduleConfig]);
 
@@ -120,6 +123,17 @@ export default function ScheduleSettings() {
       <h1 className="aura-visually-hidden">Cấu hình lịch và ca làm việc</h1>
       {notice && <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800" role="status" aria-live="polite">{notice}</div>}
       {error && <ErrorState title="Chưa thể lưu cấu hình lịch" description={error} />}
+      <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
+        <h3 className="text-lg font-bold text-white mb-2 flex items-center gap-2"><Gauge className="w-5 h-5 text-emerald-400" />Mốc cân tải mặc định</h3>
+        <p className="text-sm text-zinc-400 mb-5">Áp dụng khi hồ sơ PT chưa có mốc riêng; mốc riêng luôn được ưu tiên. Một ca đôi vẫn tính là một ca. Đây không phải trần: Aura vẫn ưu tiên đủ buổi cho học viên. Lịch đã xếp không tự thay đổi khi lưu.</p>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          {SCHEDULE_EMPLOYMENT_TYPES.map((type) => {
+            const value = config.scheduleLoadPolicy?.defaultDailyTargets[type] ?? 8
+            const label = type === 'full_time' ? 'PT chính thức' : type === 'part_time' ? 'PT bán thời gian' : 'CTV'
+            return <label key={type} className="flex items-center justify-between gap-3 bg-zinc-950/70 border border-zinc-800 rounded-xl px-4 py-3"><span><strong className="block text-sm text-white">{label}</strong><small className="text-zinc-500">Ca/ngày tham chiếu</small></span><input type="number" min="1" max="12" inputMode="numeric" aria-label={`Mốc cân tải ${label}`} value={value} onChange={(event) => setConfig((current) => ({ ...current, scheduleLoadPolicy: { ...normalizeScheduleLoadPolicy(current.scheduleLoadPolicy), defaultDailyTargets: { ...normalizeScheduleLoadPolicy(current.scheduleLoadPolicy).defaultDailyTargets, [type as ScheduleEmploymentType]: Math.max(1, Math.min(12, Math.trunc(Number(event.target.value) || 1))) } } }))} className="w-20 bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-right text-white focus:outline-none focus:border-emerald-400" /></label>
+          })}
+        </div>
+      </div>
       <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
         <h3 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
           <CalendarDays className="w-5 h-5 text-pink-500" />

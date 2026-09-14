@@ -4,6 +4,7 @@ import { db } from '../lib/firebaseFirestore'
 import { useAuth } from './AuthContext'
 import { createScheduleConfigCommandKey, saveScheduleConfig } from '../services/scheduleConfigManagementService'
 import { PT_OPERATIONS_POLICY_DEFAULTS } from '../config/ptOperationsPolicy'
+import { normalizeScheduleLoadPolicy } from '../config/scheduleLoadPolicy'
 import { createStudentCommandKey, updateStudentProfile } from '../services/studentManagementService'
 import { archiveBranch, createBranchCommandKey, upsertBranch } from '../services/branchManagementService'
 import type {
@@ -39,6 +40,7 @@ const DEFAULT_SCHEDULE_CONFIG: ScheduleConfig = {
   lockDayOfWeek: 6,
   lockHour: 12,
   ...PT_OPERATIONS_POLICY_DEFAULTS,
+  scheduleLoadPolicy: normalizeScheduleLoadPolicy(),
 }
 const LEGACY_DIRECTORY_LIMIT = 2500
 const LEGACY_SESSION_LIMIT = 3000

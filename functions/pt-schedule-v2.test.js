@@ -90,6 +90,26 @@ test('auto scheduling never creates a draft on a configured holiday', () => {
   assert.equal(Object.values(generateSchedule(data).schedule).flat().length, 0)
 })
 
+test('load policy supplies a configurable soft target without blocking extra coverage', () => {
+  const data = fixture()
+  data.config.scheduleLoadPolicy = { schemaVersion: 1, defaultDailyTargets: { full_time: 3, part_time: 5, collaborator: 2 } }
+  delete data.trainers[0].dailySessionTarget
+  const candidate = candidateForSlot(data, { student: data.students[0], trainer: data.trainers[0], slotId: 'T2-6', schedule: {} })
+  assert.equal(candidate.dailySessionTarget, 3)
+  // The PT already teaches three distinct slots on Monday, equal to the new
+  // reference. Adding another legal slot must still be allowed.
+  const occupied = Object.fromEntries([7, 8, 9].map((hour) => [`T2-${hour}`, [{
+    studentId: `existing-${hour}`, trainerId: 'trainer-a', contractId: 'existing-contract', type: 'training', isLocked: true,
+  }]]))
+  const aboveTarget = candidateForSlot(data, { student: data.students[0], trainer: data.trainers[0], slotId: 'T2-6', schedule: occupied })
+  assert.equal(aboveTarget.currentDailyLoad, 3)
+  assert.equal(aboveTarget.projectedDailyLoad, 4)
+  assert.equal(aboveTarget.eligible, true)
+  const extra = { ...data, schedule: occupied, students: [{ ...data.students[0], sessionsPerWeek: 2, availableSlots: ['T2-6', 'T4-6'] }] }
+  const generated = generateSchedule(extra)
+  assert.equal(Object.values(generated.schedule).flat().filter((entry) => entry.studentId === 'student-a').length, 2)
+})
+
 test('week eligibility derives contract state from dates when stored status is stale', () => {
   const data = fixture()
   data.contracts[0].status = 'future'

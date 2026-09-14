@@ -57,6 +57,9 @@ import {
   type PtScheduleWorkspaceV2Result,
 } from '../../services/ptSchedulePublishService'
 import '../../styles-branch-schedule.css'
+import { trainerDailyLoadTarget } from '../../config/scheduleLoadPolicy'
+import { useScheduleOpportunities } from '../../features/schedule/useScheduleOpportunities'
+import { measureScheduleTask } from '../../features/schedule/performance'
 
 interface Props {
   accessContext: AccessContext
@@ -318,8 +321,8 @@ function workspaceRealtimeFingerprint(value: PtScheduleWorkspaceV2Result | null)
     publishedVersion: value.publishedVersion,
     schedule: value.schedule,
     students: value.students.map((student) => [student.id, student.status, student.sessionsPerWeek, student.availabilityRevision, student.availableSlots, student.remainingEntitlementSessions, student.activeScheduledSessions, student.eligibleForWeek, student.contractStatus]),
-    trainers: value.trainers.map((trainer) => [trainer.id, trainer.status, trainer.availabilityRevision, trainer.availableSlots, trainer.slotCapacity, trainer.dailySessionTarget]),
-    contracts: value.contracts.map((contract) => [contract.id, contract.status, contract.startDate, contract.endDate, contract.usedSessions, contract.remainingSchedulableSessions]),
+    trainers: value.trainers.map((trainer) => [trainer.id, trainer.status, trainer.availabilityRevision, trainer.availableSlots, trainer.availabilityMode, trainer.slotCapacity, trainer.dailySessionTarget, trainer.employmentType]),
+    contracts: value.contracts.map((contract) => [contract.id, contract.status, contract.startDate, contract.endDate, contract.usedSessions, contract.remainingSchedulableSessions, contract.trainerId, contract.trainerIds]),
     calendar: value.scheduleConfig,
   })
 }
@@ -634,7 +637,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
       if (!quiet || !workspaceRef.current) setSyncState('connecting')
       if (!quiet) setError(null)
       try {
-        const result = await getPtScheduleWorkspace({ weekId: currentWeekId, branchId })
+        const result = await measureScheduleTask('workspace', () => getPtScheduleWorkspace({ weekId: currentWeekId, branchId }))
         writeWorkspaceCache(requestScope, result)
         if (activeWorkspaceScopeRef.current !== requestScope) return
         if (workspaceRef.current && result.draftRevision < workspaceRef.current.draftRevision) return
@@ -1027,109 +1030,9 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
     })
   }, [workingDays, workspace])
 
-  const scheduleOpportunities = useMemo(() => {
-    // This is the heaviest client-side derivation in the workspace. It is
-    // only needed by the Kho ca tab; keeping it lazy makes the first Lịch PT
-    // paint independent from the number of PT × slot combinations.
-    if (!workspace || tab !== 'opportunities') return []
-    const selectedStudent = workspace.students.find((student) => student.id === opportunityStudentId) || null
-    const trainerAssignmentsByStudent = new Map(workspace.students.map((student) => {
-      const eligibleContractIds = new Set(student.eligibleContractIds || [])
-      const contracts = workspace.contracts
-        .filter((contract) => contract.studentId === student.id)
-        .sort((left, right) => String(right.endDate || '').localeCompare(String(left.endDate || '')))
-      const contract = contracts.find((item) => eligibleContractIds.has(item.id) && (item.trainerId || item.trainerIds?.length))
-        || contracts.find((item) => item.trainerId || item.trainerIds?.length)
-      const primaryTrainerId = contract?.trainerId || contract?.trainerIds?.[0] || null
-      const assignedTrainerIds = new Set([
-        contract?.trainerId,
-        ...(contract?.trainerIds || []),
-      ].filter((value): value is string => Boolean(value)))
-      return [student.id, { primaryTrainerId, assignedTrainerIds }] as const
-    }))
-    const results: Array<{
-      slotId: string
-      date: string
-      hour: number
-      trainerId: string
-      trainerName: string
-      occupancy: number
-      capacity: number
-      dailyLoad: number
-      dailyTarget: number
-      priorityTier: 1 | 2 | 3
-      isPrimaryTrainer: boolean
-      isAssignedTrainer: boolean
-      matchesStudentAvailability: boolean
-      primaryMatchCount: number
-      secondaryMatchCount: number
-      assignedMatchCount: number
-    }> = []
-    for (const day of workingDays) {
-      const date = weekDates[day as keyof typeof weekDates]?.full || ''
-      if (!date || holidayDates.has(date)) continue
-      for (const hour of workingHours) {
-        const slotId = `${day}-${hour}`
-        for (const trainer of workspace.trainers) {
-          if (trainer.branchId && trainer.branchId !== workspace.branch.id) continue
-          const slotEntries = (workspace.schedule[slotId] || []).filter((entry) => entry.trainerId === trainer.id)
-          if (slotEntries.some((entry) => entry.type === 'off')) continue
-          const trainingEntries = slotEntries.filter((entry) => entry.type !== 'off')
-          const capacity = Math.max(1, Number(trainer.slotCapacity || 2))
-          const occupancy = new Set(trainingEntries.map((entry) => entry.studentId)).size
-          if (occupancy >= capacity) continue
-          const available = trainer.availabilityMode === 'unrestricted'
-            || (trainer.availabilityMode === 'configured' && (trainer.availableSlots || []).includes(slotId))
-          if (!available) continue
-          const dailySlots = new Set(Object.entries(workspace.schedule)
-            .filter(([candidateSlot]) => candidateSlot.split('-')[0] === day)
-            .flatMap(([candidateSlot, entries]) => entries.some((entry) => entry.type !== 'off' && entry.trainerId === trainer.id) ? [candidateSlot] : []))
-          const dailyLoad = dailySlots.size
-          const dailyTarget = Math.max(1, Number(trainer.dailySessionTarget || 8))
-          const matchingRows = selectedStudent
-            ? operationalStudentRows.filter((row) => row.student.id === selectedStudent.id && selectedStudent.availableSlots.includes(slotId))
-            : operationalStudentRows.filter((row) => row.missing > 0
-              && row.student.eligibleForWeek === true
-              && CONFIRMED_AVAILABILITY_STATUSES.has(row.student.availabilityStatus)
-              && row.student.availableSlots.includes(slotId)
-              && (!row.student.validScheduleDates.length || row.student.validScheduleDates.includes(date)))
-          const primaryMatchCount = matchingRows.filter((row) => trainerAssignmentsByStudent.get(row.student.id)?.primaryTrainerId === trainer.id).length
-          const assignedMatchCount = matchingRows.filter((row) => trainerAssignmentsByStudent.get(row.student.id)?.assignedTrainerIds.has(trainer.id)).length
-          const secondaryMatchCount = Math.max(0, assignedMatchCount - primaryMatchCount)
-          const isPrimaryTrainer = primaryMatchCount > 0
-          const isAssignedTrainer = assignedMatchCount > 0
-          const matchesStudentAvailability = matchingRows.length > 0
-          if (selectedStudent && !matchesStudentAvailability) continue
-          const priorityTier: 1 | 2 | 3 = occupancy === 1 && capacity === 2
-            ? 1
-            : occupancy === 0 && trainer.employmentType === 'full_time' && dailyLoad < dailyTarget
-              ? 2
-              : 3
-          results.push({ slotId, date, hour, trainerId: trainer.id, trainerName: trainer.name, occupancy, capacity, dailyLoad, dailyTarget, priorityTier, isPrimaryTrainer, isAssignedTrainer, matchesStudentAvailability, primaryMatchCount, secondaryMatchCount, assignedMatchCount })
-        }
-      }
-    }
-    return results.sort((left, right) => left.priorityTier - right.priorityTier
-      || Number(right.isAssignedTrainer) - Number(left.isAssignedTrainer)
-      || right.assignedMatchCount - left.assignedMatchCount
-      || right.primaryMatchCount - left.primaryMatchCount
-      || Number(right.matchesStudentAvailability) - Number(left.matchesStudentAvailability)
-      || Number(left.dailyLoad >= left.dailyTarget) - Number(right.dailyLoad >= right.dailyTarget)
-      || left.dailyLoad - right.dailyLoad
-      || left.date.localeCompare(right.date)
-      || left.hour - right.hour
-      || left.trainerName.localeCompare(right.trainerName, 'vi'))
-  }, [holidayDates, operationalStudentRows, opportunityStudentId, tab, weekDates, weekDates.T2.full, workingDays, workingHours, workspace])
-
-  const scheduleOpportunitiesBySlot = useMemo(() => {
-    const grouped = new Map<string, typeof scheduleOpportunities>()
-    for (const opportunity of scheduleOpportunities) {
-      const rows = grouped.get(opportunity.slotId) || []
-      rows.push(opportunity)
-      grouped.set(opportunity.slotId, rows)
-    }
-    return grouped
-  }, [scheduleOpportunities])
+  const { items: scheduleOpportunities, bySlot: scheduleOpportunitiesBySlot } = useScheduleOpportunities(
+    workspace, tab === 'opportunities', operationalStudentRows, opportunityStudentId, weekDates, workingDays, workingHours,
+  )
 
   const openScheduleOpportunity = (opportunity: (typeof scheduleOpportunities)[number]) => {
     if (!workspace) return
@@ -1172,7 +1075,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
         return total + Number(hasTeachingSession)
       }, 0)
       const count = finiteCount(backend?.sessionCount, backend?.teachingSlots, backend?.sessions, fallbackCount)
-      const target = Math.max(1, finiteCount(backend?.dailySessionTarget, backend?.target, trainer.dailySessionTarget, 8))
+      const target = Math.max(1, finiteCount(backend?.dailySessionTarget, backend?.target, trainerDailyLoadTarget(trainer, workspace.scheduleConfig.scheduleLoadPolicy)))
       return {
         trainerId: trainer.id,
         trainerName: backend?.trainerName || backend?.name || trainer.name,
@@ -1594,12 +1497,12 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
       setOptimizationStatus('Đang chờ kết quả từ máy chủ. Ca chỉnh tay, ca khóa và lịch đã publish được giữ nguyên…')
     }, 1_200)
     try {
-      const result = await generatePtScheduleDraft({
+      const result = await measureScheduleTask('optimizer', () => generatePtScheduleDraft({
         weekId: currentWeekId,
         branchId,
         expectedDraftRevision: workspace.draftRevision,
         mode,
-      })
+      }))
       if (activeWorkspaceScopeRef.current !== commandScope) return
       setWorkspace((current) => current ? {
         ...current,
@@ -1678,12 +1581,12 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
     setBusy(true)
     setError(null)
     try {
-      const result = await publishPtSchedule({
+      const result = await measureScheduleTask('publish', () => publishPtSchedule({
         weekId: currentWeekId,
         branchId,
         expectedDraftRevision: publishPreview.draftRevision,
         acknowledgedWarnings: publishCrossBranchConfirmed ? ['STUDENT_BRANCH_MISMATCH'] : [],
-      })
+      }))
       if (activeWorkspaceScopeRef.current !== commandScope) return
       setPublishPreview(null)
       setNotice(result.unchanged ? `Lịch đã ở phiên bản v${result.version}.` : `Đã publish an toàn phiên bản v${result.version}.`)
@@ -1882,7 +1785,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
                   const loads = trainerLoads.filter((load) => load.trainerId === trainer.id)
                   const total = loads.reduce((sum, load) => sum + load.count, 0)
                   const priority = finiteCount(trainer.schedulingPriority, trainer.priority)
-                  const target = loads[0]?.target || trainer.dailySessionTarget || 8
+                  const target = loads[0]?.target || trainerDailyLoadTarget(trainer, workspace.scheduleConfig.scheduleLoadPolicy)
                   return <button type="button" key={trainer.id} className={`trainer-workload__card${trainer.id === selectedTrainerId ? ' is-active' : ''}`} onClick={() => setSelectedTrainerId(trainer.id)}>
                     <span className="trainer-workload__identity"><strong>{trainer.name} · {total} ca</strong><small>{trainerEmploymentLabel(trainer.employmentType)} · {priority > 0 ? `hạng #${priority}` : 'tự cân tải'} · mốc cân tải {target}</small></span>
                     <span className="trainer-workload__days">{loads.map((load) => <i key={load.day} className={`is-${load.status}`} title={`${DAY_LABELS[load.day] || load.day}: ${load.count} ca · mốc ${load.target} · ${TRAINER_LOAD_LABELS[load.status]}`}><small>{load.day}</small><b>{load.count}{load.status === 'over_target' ? ` · mốc ${load.target}` : `/${load.target}`}</b></i>)}</span>
