@@ -135,7 +135,11 @@ function readNonNegativeOptionalNumber(value: unknown) {
 export function loadPersistedMeals(storageKey: string, fallback: MealLog[]) {
   if (typeof window === 'undefined') return fallback
   try {
-    const parsed = JSON.parse(window.localStorage.getItem(storageKey) ?? '[]') as unknown
+    // A missing key means this is the first demo session, not an empty diary.
+    // Keep an explicitly persisted [] as an intentional user-cleared state.
+    const raw = window.localStorage.getItem(storageKey)
+    if (raw === null) return fallback
+    const parsed = JSON.parse(raw) as unknown
     if (!Array.isArray(parsed)) return fallback
     const validTypes = new Set<MealLog['type']>(['breakfast', 'lunch', 'dinner', 'snack'])
     const validStatuses = new Set<MealLog['status']>(['logged', 'planned'])
