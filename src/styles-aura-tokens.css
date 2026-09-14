@@ -1,0 +1,87 @@
+/* Aura UI 4.0 token bridge.
+ *
+ * This file is deliberately the last token layer imported by the app. Legacy
+ * selectors can continue to use their old names, while every new surface uses
+ * the same brand, semantic, radius and typography contract. Do not add a new
+ * color token in a feature stylesheet; add a named alias here instead.
+ */
+:root {
+  --aura-brand-pink: #EC2C76;
+  --aura-brand-orange: #FF7A45;
+  --aura-success: #14805E;
+  --aura-warning: #A65A16;
+  --aura-danger: #B82850;
+  --aura-info: #386BC1;
+  --aura-ink: #19161A;
+  --aura-muted: #5F5961;
+  --aura-line: #ECE8EC;
+  --aura-canvas: #F7F4F6;
+  --aura-surface: #FFFFFF;
+  --aura-surface-soft: #FBF9FA;
+  --aura-radius-xs: 8px;
+  --aura-radius-sm: 12px;
+  --aura-radius-md: 16px;
+  --aura-radius-lg: 20px;
+  --aura-radius-pill: 999px;
+  --aura-font: "Be Vietnam Pro", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+
+  /* Compatibility aliases. New code should prefer the semantic Aura names. */
+  --aura-pink: var(--aura-brand-pink);
+  --aura-pink-neon: var(--aura-brand-pink);
+  --aura-pink-dark: #B82850;
+  --aura-pink-soft: #FFF0F6;
+  --aura-pink-border: #F4B7CE;
+  --primary: var(--aura-brand-pink);
+  --primary-dark: var(--aura-danger);
+  --primary-soft: #FFF0F6;
+  --green: var(--aura-success);
+  --green-soft: #E9F5F0;
+  --orange: var(--aura-brand-orange);
+  --orange-soft: #FFF2EB;
+  --blue: var(--aura-info);
+  --ink: var(--aura-ink);
+  --muted: var(--aura-muted);
+  --line: var(--aura-line);
+  --surface: var(--aura-surface);
+  --radius-sm: var(--aura-radius-sm);
+  --radius-md: var(--aura-radius-md);
+  --radius-lg: var(--aura-radius-lg);
+  --nutrition-green: var(--aura-success);
+  --nutrition-green-dark: #0E664A;
+  --nutrition-green-soft: #E9F5F0;
+}
+
+html,
+body,
+button,
+input,
+textarea,
+select { font-family: var(--aura-font); }
+
+.aura-ui-v4-operations {
+  --aura-surface-gap: 12px;
+  --aura-surface-padding: clamp(14px, 2vw, 26px);
+  --aura-operations-canvas: #FBFAFB;
+  --aura-operations-line: #E9E4E8;
+}
+
+.aura-operations-page.aura-ui-v4-operations {
+  background: var(--aura-surface-soft);
+}
+.aura-operations-page.aura-ui-v4-operations > .aura-operations-page__orb {
+  display: none;
+}
+
+.aura-ui-v4-member {
+  --aura-surface-gap: 18px;
+  --aura-surface-padding: clamp(16px, 3vw, 32px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
+}

@@ -1,10 +1,57 @@
 import { httpsCallable } from 'firebase/functions'
 import { firebaseFunctions } from '../lib/firebaseFunctions'
 import { parseAccessContext, type AccessContext, type AccessRole, type StaffPosition } from '../identity/access'
+import type { AdminUserRecord } from '../types'
 
 function requireFunctions() {
   if (!firebaseFunctions) throw new Error('Firebase Identity chưa sẵn sàng.')
   return firebaseFunctions
+}
+
+export interface IdentityDirectoryAssignment {
+  accessRole: AccessRole
+  positions: StaffPosition[]
+  branchIds: string[]
+  status: 'active' | 'suspended' | 'invited'
+}
+
+export interface IdentityDirectoryStaffRecord {
+  availableSlots: string[]
+  slotCapacity: number
+  schedulingPriority: number
+  dailySessionTarget: number
+  name: string
+  email: string
+  phone: string
+  role: string
+  status: string
+  employmentType: 'full_time' | 'part_time' | 'collaborator'
+  employmentLevel: 'probation' | 'official' | 'senior'
+  payrollPolicyId: string
+  baseSalary: number
+  bonusMonthly: number
+  commissionRate: number
+  commissionPerSession: number
+}
+
+export interface IdentityDirectoryEntry {
+  user: AdminUserRecord
+  assignment: IdentityDirectoryAssignment
+  staffOperations: IdentityDirectoryStaffRecord | null
+  managedClientCounts: { main: number; secondary: number; nutrition: number; stale?: boolean; truncated?: boolean } | null
+}
+
+export interface IdentityDirectoryPage {
+  entries: IdentityDirectoryEntry[]
+  hasMore: boolean
+  nextCursor: string | null
+  pageSize: number
+  summary: { accounts: number; staff: number; admins: number }
+}
+
+export async function listIdentityDirectory(input: { section: 'accounts' | 'staff'; pageSize?: number; cursor?: string }): Promise<IdentityDirectoryPage> {
+  const callable = httpsCallable<typeof input, IdentityDirectoryPage>(requireFunctions(), 'listIdentityDirectory', { timeout: 30_000 })
+  return (await callable(input)).data
 }
 
 export interface AccountInviteInput {

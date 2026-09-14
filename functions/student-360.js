@@ -37,6 +37,17 @@ function bounded(value, maximum = 300, fallback = '') {
   return typeof value === 'string' ? value.trim().slice(0, maximum) : fallback
 }
 
+function foldSearchText(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[đĐ]/g, 'd')
+    .toLocaleLowerCase('vi')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 function normalizedArray(value) {
   return Array.isArray(value) ? [...new Set(value.filter((item) => typeof item === 'string' && item.trim()).map((item) => item.trim()))] : []
 }
@@ -2380,7 +2391,11 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
   const listStudent360Directory = readCall(async (request) => {
     const actor = await trustedAccessContext(request, db)
     if (actor.accessRole === 'student') throw new HttpsError('permission-denied', 'Học viên 360 chỉ dành cho nhân sự Aura.')
-    const queryText = bounded(request.data?.query, 100).toLocaleLowerCase('vi')
+    // Search is accent-insensitive so staff can find Vietnamese names from a
+    // phone keyboard without switching input method. The source scan remains
+    // bounded and cursor-first; this only changes comparison normalization.
+    const queryText = foldSearchText(bounded(request.data?.query, 100))
+    const compactQueryText = queryText.replace(/\s/g, '')
     const branchId = bounded(request.data?.branchId, 200)
     const attention = bounded(request.data?.attention, 40)
     const pageSize = Math.max(1, Math.min(50, Math.floor(finite(request.data?.pageSize, 24))))
@@ -2411,8 +2426,9 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
         try { permissions = permissionsFor(actor, projection) } catch { continue }
         if (branchId && projection.assignments?.branchId !== branchId) continue
         if (attention && projection.health?.status !== attention) continue
-        const haystack = `${projection.identity?.name || ''} ${projection.identity?.phone || ''} ${projection.identity?.email || ''}`.toLocaleLowerCase('vi')
-        if (queryText && !haystack.includes(queryText)) continue
+        const haystack = foldSearchText(`${projection.identity?.name || ''} ${projection.identity?.phone || ''} ${projection.identity?.email || ''}`)
+        const compactHaystack = haystack.replace(/\s/g, '')
+        if (queryText && !haystack.includes(queryText) && !compactHaystack.includes(compactQueryText)) continue
         rows.push({
           studentId: item.id,
           name: projection.identity?.name || 'Học viên Aura',
@@ -2692,4 +2708,5 @@ module.exports = {
   vietnamDateKey,
   normalizeProgressCheckInInput,
   decodeProgressPhotoDataUrl,
+  foldSearchText,
 }

@@ -40,25 +40,17 @@ import {
 } from '../../services/firebaseService'
 import {
   Activity,
-  ArrowLeft,
-  ArrowRight,
   Bookmark,
   Camera,
   Check,
-  ChevronRight,
-  CircleAlert,
   Clock3,
   Droplets,
   Dumbbell,
   Info,
   Plus,
-  Salad,
   Search,
   Sparkles,
-  Target,
-  TrendingDown,
   X,
-  CheckCircle2,
 } from 'lucide-react'
 import '../../styles-nutrition.css'
 import '../../styles-nutrition-home.css'
@@ -106,7 +98,26 @@ import {
 import { nutritionEvidenceLabel } from '../../features/nutrition/analysis'
 import { nutritionQuality, canonicalNutritionProfile, calculateNutritionTargets, NUTRITION_FORMULA_VERSION } from '../../services/nutritionSyncService'
 import { useAccessibleDialog } from '../../features/nutrition/useAccessibleDialog'
+import { writeDailyNutritionCache } from '../../features/nutrition/dailyNutritionSummaryCache'
+import { trackProductEvent } from '../../services/analyticsService'
 import { useNutritionAssistantController } from '../../features/nutrition/useNutritionAssistantController'
+import { DEFAULT_PROFILE, GOAL_LABELS } from '../../features/nutrition/profileDefaults'
+import {
+  clearPendingScanReview as clearPendingScanReviewV2,
+  createInitialActivities as createInitialActivitiesV2,
+  createInitialMeals as createInitialMealsV2,
+  formatNutritionNumber as formatNutritionNumberV2,
+  getDailyPlan as getDailyPlanV2,
+  hasCompleteNutritionProfile as hasCompleteNutritionProfileV2,
+  loadPersistedActivities as loadPersistedActivitiesV2,
+  loadPersistedMeals as loadPersistedMealsV2,
+  loadPersistedWater as loadPersistedWaterV2,
+  loadPersistedWaterEntries as loadPersistedWaterEntriesV2,
+  normalizeNutritionProfileDraft as normalizeNutritionProfileDraftV2,
+  NUTRITION_ACTIVITY_OPTIONS,
+  NUTRITION_STORAGE_PREFIXES as NUTRITION_STORAGE_PREFIXES_V2,
+  SCAN_REVIEW_ACTIVE_OWNER_KEY as SCAN_REVIEW_ACTIVE_OWNER_KEY_V2,
+} from '../../features/nutrition/localState'
 import type { MealEditorContext, MealLogEditDraft } from './NutritionMealEditors'
 import { lazyWithRetry } from '../../components/ChunkErrorBoundary'
 import {
@@ -131,6 +142,7 @@ const NutritionDashboardHome = React.lazy(() => import('./NutritionDashboardHome
 const WorkoutLogSheet = React.lazy(() => import('../../components/workout/WorkoutLogSheet'))
 const QuickAddSheet = React.lazy(() => import('./NutritionQuickSheets').then((module) => ({ default: module.NutritionQuickAddSheet })))
 const WaterLogSheet = React.lazy(() => import('./NutritionQuickSheets').then((module) => ({ default: module.NutritionWaterLogSheet })))
+const NutritionSetupPrompt = lazyWithRetry(() => import('./NutritionOnboarding').then((module) => ({ default: module.NutritionSetupPrompt })))
 
 function canLogCatalogFood(food: NutritionFoodCatalogItem): food is NutritionFoodCatalogItem & {
   calories: number
@@ -141,243 +153,13 @@ function canLogCatalogFood(food: NutritionFoodCatalogItem): food is NutritionFoo
   return food.calories !== null && food.protein !== null && food.carbs !== null && food.fat !== null
     && nutritionQuality({ calories: food.calories, protein: food.protein, carbs: food.carbs, fat: food.fat }).length === 0
 }
-const INITIAL_MEALS: Array<Omit<MealLog, 'date'>> = [
-  {
-    id: 'breakfast',
-    type: 'breakfast',
-    label: 'Bữa sáng',
-    time: '07:30',
-    title: 'Bánh mì trứng & bơ',
-    description: '2 trứng · ½ quả bơ · rau xanh',
-    calories: 420,
-    protein: 24,
-    carbs: 42,
-    fat: 18,
-    fiber: 8,
-    sugar: 5,
-    sodium: 620,
-    status: 'logged',
-    tone: 'orange',
-  },
-  {
-    id: 'lunch',
-    type: 'lunch',
-    label: 'Bữa trưa',
-    time: '12:15',
-    title: 'Cơm gà áp chảo',
-    description: 'Cơm trắng · ức gà · rau củ',
-    calories: 610,
-    protein: 42,
-    carbs: 68,
-    fat: 18,
-    fiber: 6,
-    sugar: 4,
-    sodium: 710,
-    status: 'logged',
-    tone: 'green',
-  },
-  {
-    id: 'snack',
-    type: 'snack',
-    label: 'Bữa phụ',
-    time: '15:30',
-    title: 'Sữa chua Hy Lạp',
-    description: 'Không đường · 1 hũ',
-    calories: 120,
-    protein: 12,
-    carbs: 10,
-    fat: 3,
-    fiber: 0,
-    sugar: 7,
-    sodium: 85,
-    status: 'logged',
-    tone: 'pink',
-  },
-  {
-    id: 'dinner',
-    type: 'dinner',
-    label: 'Bữa tối',
-    time: '19:00',
-    title: 'Cá hồi, khoai lang & salad',
-    description: 'Theo kế hoạch · khoảng 470 kcal',
-    calories: 470,
-    protein: 34,
-    carbs: 46,
-    fat: 17,
-    fiber: 9,
-    sugar: 8,
-    sodium: 410,
-    status: 'planned',
-    tone: 'violet',
-  },
-]
-
-const WEEK_PLAN = [
-  { time: '07:30', label: 'Bữa sáng', title: 'Yến mạch chuối & hạt', calories: 390, protein: 18 },
-  { time: '12:15', label: 'Bữa trưa', title: 'Cơm gà áp chảo', calories: 610, protein: 42 },
-  { time: '15:30', label: 'Bữa phụ', title: 'Sữa chua Hy Lạp', calories: 120, protein: 12 },
-  { time: '19:00', label: 'Bữa tối', title: 'Cá hồi & khoai lang', calories: 470, protein: 34 },
-]
-
-
-const ACTIVITY_OPTIONS: Array<{ value: NutritionActivityKind; label: string; met: Record<NutritionActivityIntensity, number> }> = [
-  { value: 'strength', label: 'Tập tạ', met: { low: 3, moderate: 5, high: 6 } },
-  { value: 'running', label: 'Chạy bộ', met: { low: 6, moderate: 8.3, high: 11 } },
-  { value: 'walking', label: 'Đi bộ', met: { low: 2.8, moderate: 3.5, high: 4.8 } },
-  { value: 'cycling', label: 'Đạp xe', met: { low: 4, moderate: 6.8, high: 10 } },
-  { value: 'hiit', label: 'HIIT', met: { low: 5, moderate: 8, high: 10.5 } },
-  { value: 'swimming', label: 'Bơi', met: { low: 4.5, moderate: 6, high: 9 } },
-  { value: 'yoga', label: 'Yoga', met: { low: 2, moderate: 3, high: 4 } },
-  { value: 'other', label: 'Hoạt động khác', met: { low: 2.5, moderate: 4, high: 6 } },
-]
-
 const ACTIVITY_INTENSITY_LABELS: Record<NutritionActivityIntensity, string> = {
   low: 'Nhẹ',
   moderate: 'Vừa',
   high: 'Cao',
 }
 
-const GOAL_LABELS: Record<string, string> = {
-  'lose-fat': 'Giảm mỡ bền vững',
-  'gain-muscle': 'Tăng cơ & phục hồi',
-  maintain: 'Duy trì thể trạng',
-  'fat_loss': 'Giảm mỡ bền vững',
-  'muscle_gain': 'Tăng cơ & phục hồi',
-  'maintenance': 'Duy trì thể trạng',
-  'health': 'Cải thiện sức khỏe'
-}
-
-const GOAL_OPTIONS: Array<{ value: NutritionGoal; title: string; description: string; icon: typeof Target }> = [
-  { value: 'lose-fat', title: 'Giảm mỡ', description: 'Thâm hụt vừa phải, ưu tiên no lâu', icon: TrendingDown },
-  { value: 'gain-muscle', title: 'Tăng cơ', description: 'Đủ đạm và năng lượng để phục hồi', icon: Dumbbell },
-  { value: 'maintain', title: 'Duy trì', description: 'Cân bằng thể chất và hiệu suất', icon: Activity },
-]
-
-const DEFAULT_PROFILE: NutritionProfileDraft = {
-  goal: 'lose-fat',
-  age: 28,
-  biologicalSex: 'female',
-  heightCm: 162,
-  weightKg: 58,
-  targetWeightDeltaKg: -4,
-  targetTimeframeMonths: 3,
-  targetSpeedPace: 'standard',
-  activityLevel: 'moderate',
-  trainingSessions: 4,
-  eatingStyle: 'Không giới hạn',
-  allergies: '',
-  mealsPerDay: 3,
-  dislikes: '',
-  budget: 'medium',
-  prepTime: 'medium',
-  favoriteCuisine: 'Đa dạng',
-  reminders: {
-    water: false,
-    breakfast: false,
-    lunch: false,
-    dinner: false,
-  }
-}
-
-function normalizeNutritionProfileDraft(profile?: NutritionProfileDraft | null): NutritionProfileDraft {
-  const merged = {
-    ...DEFAULT_PROFILE,
-    ...(profile ?? {}),
-    reminders: {
-      ...DEFAULT_PROFILE.reminders,
-      ...(profile?.reminders ?? {}),
-    },
-  }
-  const trainingSessions = Number(merged.trainingSessions)
-  const mealsPerDay = Number(merged.mealsPerDay)
-  return {
-    ...merged,
-    ...canonicalNutritionProfile(merged),
-    reminders: {
-      water: merged.reminders.water ?? false,
-      breakfast: merged.reminders.breakfast ?? false,
-      lunch: merged.reminders.lunch ?? false,
-      dinner: merged.reminders.dinner ?? false,
-    },
-    trainingSessions: Number.isFinite(trainingSessions)
-      ? Math.min(14, Math.max(0, Math.round(trainingSessions)))
-      : DEFAULT_PROFILE.trainingSessions,
-    mealsPerDay: Number.isFinite(mealsPerDay)
-      ? Math.min(5, Math.max(3, Math.round(mealsPerDay)))
-      : DEFAULT_PROFILE.mealsPerDay,
-  }
-}
-
-function hasCompleteNutritionProfile(profile?: NutritionProfileDraft | null) {
-  if (!profile) return false
-  const age = Number(profile.age)
-  const height = Number(profile.heightCm)
-  const weight = Number(profile.weightKg)
-  return Number.isFinite(age) && age >= 13 && age <= 100
-    && Number.isFinite(height) && height >= 80 && height <= 250
-    && Number.isFinite(weight) && weight >= 20 && weight <= 300
-    && ['female', 'male', 'other'].includes(String(profile.biologicalSex))
-    && ['lose-fat', 'gain-muscle', 'maintain'].includes(String(profile.goal))
-}
-
-function formatNumber(value: number) {
-  return new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 0 }).format(value)
-}
-
-function formatDecimal(value: number, maximumFractionDigits = 1) {
-  return new Intl.NumberFormat('vi-VN', { maximumFractionDigits }).format(value)
-}
-
-function getDailyPlan(calorieGoal: number, profile: NutritionProfileDraft) {
-  const eatingStyle = profile.eatingStyle
-  const mealsCount = profile.mealsPerDay || 3
-  const vegetarian = eatingStyle === 'Ăn chay' || eatingStyle === 'Thuần chay'
-  const lowCarb = eatingStyle === 'Ít tinh bột'
-  const isVietnamese = profile.favoriteCuisine === 'Món Việt truyền thống'
-  const isWestern = profile.favoriteCuisine === 'Món Tây / Âu'
-  
-  let titles: string[] = []
-  let ratios: number[] = []
-  let labels: string[] = []
-  let times: string[] = []
-  
-  if (mealsCount === 2) {
-    titles = vegetarian ? ['Salad bơ đậu hũ', 'Cơm lứt rau củ nướng'] : lowCarb ? ['Trứng ốp la & bơ', 'Salad ức gà'] : isVietnamese ? ['Phở bò cốt trong', 'Cơm tấm sườn bi'] : ['Sandwich trứng', 'Cá hồi áp chảo']
-    ratios = [0.45]
-    labels = ['Bữa chính 1', 'Bữa chính 2']
-    times = ['11:30', '18:30']
-  } else if (mealsCount === 4) {
-    titles = vegetarian ? ['Yến mạch', 'Cơm đậu phụ', 'Sữa chua', 'Đậu lăng nướng'] : lowCarb ? ['Trứng bơ', 'Gà salad', 'Hạt', 'Cá áp chảo'] : isVietnamese ? ['Bún mọc', 'Cơm gà', 'Trái cây', 'Cơm cá kho'] : ['Oatmeal', 'Chicken Rice', 'Greek Yogurt', 'Steak']
-    ratios = [0.24, 0.32, 0.1]
-    labels = ['Bữa sáng', 'Bữa trưa', 'Bữa phụ', 'Bữa tối']
-    times = ['07:30', '12:15', '15:30', '19:00']
-  } else if (mealsCount === 5) {
-    titles = vegetarian ? ['Yến mạch', 'Hạt', 'Cơm đậu phụ', 'Sữa chua', 'Đậu lăng'] : lowCarb ? ['Trứng bơ', 'Hạt', 'Gà salad', 'Sữa chua', 'Cá áp chảo'] : isVietnamese ? ['Bún mọc', 'Chuối', 'Cơm gà', 'Sữa chua', 'Cơm cá kho'] : ['Oatmeal', 'Almonds', 'Chicken Rice', 'Yogurt', 'Steak']
-    ratios = [0.20, 0.1, 0.30, 0.1]
-    labels = ['Bữa sáng', 'Bữa phụ sáng', 'Bữa trưa', 'Bữa phụ chiều', 'Bữa tối']
-    times = ['07:30', '10:00', '12:30', '15:30', '19:00']
-  } else {
-    titles = vegetarian ? ['Yến mạch', 'Cơm đậu phụ', 'Đậu lăng nướng'] : lowCarb ? ['Trứng bơ', 'Gà salad', 'Cá áp chảo'] : isVietnamese ? ['Phở bò', 'Cơm sườn', 'Cơm cá kho'] : ['Oatmeal', 'Chicken Salad', 'Steak & Veggies']
-    ratios = [0.30, 0.40]
-    labels = ['Bữa sáng', 'Bữa trưa', 'Bữa tối']
-    times = ['07:30', '12:30', '19:00']
-  }
-
-  const firstMeals = ratios.map((ratio) => Math.round((calorieGoal * ratio) / 10) * 10)
-  const lastMealCalories = calorieGoal - firstMeals.reduce((sum, calories) => sum + calories, 0)
-  
-  return titles.map((title, index) => {
-    const calories = index < firstMeals.length ? firstMeals[index] : lastMealCalories
-    const protein = Math.round(calories * 0.3 / 4) // Giả sử 30% năng lượng từ protein
-    return {
-      time: times[index],
-      label: labels[index],
-      title,
-      calories,
-      protein,
-    }
-  })
-}
+const formatNumber = formatNutritionNumberV2
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null
@@ -485,7 +267,7 @@ function loadPersistedActivities(storageKey: string, fallback: NutritionActivity
     if (!raw) return fallback
     const parsed = JSON.parse(raw) as unknown
     if (!Array.isArray(parsed)) return fallback
-    const validKinds = new Set(ACTIVITY_OPTIONS.map((item) => item.value))
+    const validKinds = new Set(NUTRITION_ACTIVITY_OPTIONS.map((item) => item.value))
     const validIntensities = new Set<NutritionActivityIntensity>(['low', 'moderate', 'high'])
     return parsed.slice(0, 500).map((value): NutritionActivityLog | null => {
       const item = asRecord(value)
@@ -501,7 +283,7 @@ function loadPersistedActivities(storageKey: string, fallback: NutritionActivity
         date: item.date,
         startTime: item.startTime,
         kind: item.kind as NutritionActivityKind,
-        title: item.title.trim() || ACTIVITY_OPTIONS.find((option) => option.value === item.kind)?.label || 'Hoạt động',
+        title: item.title.trim() || NUTRITION_ACTIVITY_OPTIONS.find((option) => option.value === item.kind)?.label || 'Hoạt động',
         durationMinutes,
         intensity: item.intensity as NutritionActivityIntensity,
         estimatedCalories,
@@ -524,318 +306,12 @@ interface NutritionToastState {
   }
 }
 
-const MEAL_STORAGE_PREFIX = 'aura:nutrition:meals:v2'
-const WATER_STORAGE_PREFIX = 'aura:nutrition:water:v2'
-const WATER_ENTRY_STORAGE_PREFIX = 'aura:nutrition:water-entries:v1'
-const SAVED_FOOD_STORAGE_PREFIX = 'aura:nutrition:saved-foods:v2'
-const ACTIVITY_STORAGE_PREFIX = 'aura:nutrition:activities:v1'
-const LEGACY_SCAN_REVIEW_SESSION_KEY = 'aura:nutrition:scan-review:v1'
-const SCAN_REVIEW_SESSION_PREFIX = 'aura:nutrition:scan-review:v2'
-const SCAN_REVIEW_ACTIVE_OWNER_KEY = 'aura:nutrition:scan-review:active-owner:v2'
-
-function scanReviewSessionKey(ownerId: string) {
-  return `${SCAN_REVIEW_SESSION_PREFIX}:${encodeURIComponent(ownerId)}`
-}
-
-function clearPendingScanReview(ownerId: string) {
-  try {
-    window.sessionStorage.removeItem(scanReviewSessionKey(ownerId))
-    window.sessionStorage.removeItem(LEGACY_SCAN_REVIEW_SESSION_KEY)
-  } catch {
-    // Session cleanup must not block the active nutrition flow.
-  }
-}
-
-function createInitialMeals(): MealLog[] {
-  const date = toLocalDateKey(new Date())
-  return INITIAL_MEALS.map((meal) => ({ ...meal, date }))
-}
-
-function createInitialActivities(): NutritionActivityLog[] {
-  const weightKg = DEFAULT_PROFILE.weightKg
-  const durationMinutes = 45
-  const met = ACTIVITY_OPTIONS[0].met.moderate
-  return [{
-    id: 'demo-strength',
-    date: toLocalDateKey(new Date()),
-    startTime: '18:00',
-    kind: 'strength',
-    title: 'Tập tạ toàn thân',
-    durationMinutes,
-    intensity: 'moderate',
-    estimatedCalories: Math.round((met * 3.5 * weightKg / 200) * durationMinutes),
-    met,
-    weightKgAtEstimate: weightKg,
-    source: 'manual',
-    createdAt: Date.now(),
-  }]
-}
-
-function NutritionSetupPrompt({ onStart }: { onStart?: () => void }) {
-  return (
-    <div className="page nutrition-page nutrition-page--workspace nutrition-setup-page" data-testid="nutrition-setup-prompt">
-      <section className="nutrition-setup-card" aria-labelledby="nutrition-setup-title">
-        <div className="nutrition-setup-card__glow nutrition-setup-card__glow--pink" />
-        <div className="nutrition-setup-card__glow nutrition-setup-card__glow--orange" />
-        <span className="nutrition-setup-card__mark"><Target size={25} /></span>
-        <span className="nutrition-kicker">AURA NUTRITION</span>
-        <h1 id="nutrition-setup-title">Thiết lập mục tiêu dinh dưỡng</h1>
-        <p>Hoàn thành onboarding Aura một lần để tính mục tiêu năng lượng, macro và gợi ý phù hợp với cơ thể của bạn.</p>
-        <div className="nutrition-setup-card__facts">
-          <span><CheckCircle2 size={16} /> Chỉ số cơ thể</span>
-          <span><CheckCircle2 size={16} /> Mục tiêu cá nhân</span>
-          <span><CheckCircle2 size={16} /> Nhịp sống & ăn uống</span>
-        </div>
-        <button type="button" className="nutrition-setup-card__button" onClick={onStart} disabled={!onStart}>
-          <Sparkles size={18} /> Thiết lập mục tiêu <ChevronRight size={18} />
-        </button>
-        <small>Bạn có thể cập nhật lại mục tiêu bất cứ lúc nào trong trang Cá nhân.</small>
-      </section>
-    </div>
-  )
-}
-
-function NutritionOnboarding({ onComplete, initialProfile = DEFAULT_PROFILE, onCancel, editing = false }: { onComplete: (profile: NutritionProfileDraft) => void; initialProfile?: NutritionProfileDraft; onCancel?: () => void; editing?: boolean }) {
-  const [step, setStep] = useState(1)
-  const [profile, setProfile] = useState<NutritionProfileDraft>(initialProfile)
-
-  const setField = <K extends keyof NutritionProfileDraft>(field: K, value: NutritionProfileDraft[K]) => {
-    setProfile((current) => {
-      const next = { ...current, [field]: value }
-      if (field === 'targetWeightDeltaKg') next.targetWeightKg = current.weightKg + Number(value)
-      if (field === 'targetSpeedPace') next.targetTimeframeMode = 'pace'
-      if (field === 'targetTimeframeMonths') next.targetTimeframeMode = 'duration'
-      return next
-    })
-  }
-
-  return (
-    <div className="nutrition-onboarding-shell" data-testid="nutrition-onboarding">
-      <div className="nutrition-onboarding-decoration nutrition-onboarding-decoration--one" />
-      <div className="nutrition-onboarding-decoration nutrition-onboarding-decoration--two" />
-      <section className="nutrition-onboarding" aria-labelledby="nutrition-onboarding-title">
-        <header className="nutrition-onboarding__header">
-          <span className="nutrition-ai-mark"><Sparkles size={16} /> {editing ? 'Cập nhật kế hoạch' : 'Aura Nutrition AI'}</span>
-          <span className="nutrition-onboarding__step">Bước {step} / 4</span>
-          <div className="nutrition-onboarding__progress" aria-label={`Tiến độ ${Math.round((step / 4) * 100)}%`}>
-            <span style={{ width: `${(step / 4) * 100}%` }} />
-          </div>
-        </header>
-
-        {step === 1 && (
-          <div className="nutrition-onboarding__body">
-            <span className="nutrition-kicker">BẮT ĐẦU TỪ MỤC TIÊU</span>
-            <h1 id="nutrition-onboarding-title">Bạn muốn thay đổi điều gì?</h1>
-            <p>Aura sẽ dùng mục tiêu này để đề xuất năng lượng, macro và thực đơn phù hợp.</p>
-            <div className="nutrition-goal-grid">
-              {GOAL_OPTIONS.map((option) => {
-                const Icon = option.icon
-                const active = profile.goal === option.value
-                return (
-                  <button
-                    type="button"
-                    className={active ? 'active' : ''}
-                    key={option.value}
-                    onClick={() => {
-                      setField('goal', option.value)
-                      if (option.value === 'lose-fat' && (!profile.targetWeightDeltaKg || profile.targetWeightDeltaKg > 0)) {
-                        setField('targetWeightDeltaKg', -4)
-                      } else if (option.value === 'gain-muscle' && (!profile.targetWeightDeltaKg || profile.targetWeightDeltaKg < 0)) {
-                        setField('targetWeightDeltaKg', 3)
-                      } else if (option.value === 'maintain') {
-                        setField('targetWeightDeltaKg', 0)
-                      }
-                    }}
-                    aria-pressed={active}
-                  >
-                    <span><Icon size={22} /></span>
-                    <strong>{option.title}</strong>
-                    <small>{option.description}</small>
-                    <i>{active && <Check size={14} />}</i>
-                  </button>
-                )
-              })}
-            </div>
-
-            <div className="nutrition-form-grid" style={{ marginTop: '20px', paddingTop: '16px', borderTop: '1px solid var(--nutrition-line, #e5e7eb)' }}>
-              {profile.goal !== 'maintain' ? (
-                <label className="nutrition-field">
-                  <span>Mục tiêu thay đổi (kg)</span>
-                  <div>
-                    <input
-                      type="number"
-                      step="0.5"
-                      value={profile.targetWeightDeltaKg ?? (profile.goal === 'lose-fat' ? -4 : 3)}
-                      onChange={(e) => setField('targetWeightDeltaKg', Number(e.target.value))}
-                    />
-                    <small>kg</small>
-                  </div>
-                </label>
-              ) : (
-                <label className="nutrition-field">
-                  <span>Trạng thái</span>
-                  <div><input type="text" disabled value="Duy trì vóc dáng hiện tại" /></div>
-                </label>
-              )}
-
-              <label className="nutrition-field">
-                <span>Thời gian hoàn thành</span>
-                <select
-                  value={profile.targetTimeframeMonths ?? 3}
-                  onChange={(e) => setField('targetTimeframeMonths', Number(e.target.value))}
-                >
-                  <option value={1}>1 tháng (Cực ngắn)</option>
-                  <option value={2}>2 tháng</option>
-                  <option value={3}>3 tháng (Khuyên dùng)</option>
-                  <option value={4}>4 tháng</option>
-                  <option value={6}>6 tháng (Bền vững)</option>
-                  <option value={9}>9 tháng</option>
-                  <option value={12}>12 tháng (1 năm)</option>
-                </select>
-              </label>
-
-              <label className="nutrition-field" style={{ gridColumn: 'span 2' }}>
-                <span>Tốc độ tiến trình kỳ vọng</span>
-                <select
-                  value={profile.targetSpeedPace || 'standard'}
-                  onChange={(e) => setField('targetSpeedPace', e.target.value as any)}
-                >
-                  <option value="slow">Thong thả & Bền vững (~0.25 - 0.4 kg/tuần)</option>
-                  <option value="standard">Tiêu chuẩn & An toàn (~0.5 - 0.7 kg/tuần - Đề xuất)</option>
-                  <option value="fast">Nhanh & Quyết liệt (~0.8 - 1.0 kg/tuần)</option>
-                </select>
-              </label>
-            </div>
-          </div>
-        )}
-
-        {step === 2 && (
-          <div className="nutrition-onboarding__body">
-            <span className="nutrition-kicker">CHỈ SỐ CƠ BẢN</span>
-            <h1 id="nutrition-onboarding-title">Hiểu cơ thể của bạn</h1>
-            <p>Các số liệu được dùng để ước tính nhu cầu năng lượng ban đầu và có thể chỉnh bất cứ lúc nào.</p>
-            <div className="nutrition-form-grid">
-              <label className="nutrition-field">
-                <span>Tuổi</span>
-                <div><input type="number" min="18" max="90" value={profile.age} onChange={(event) => setField('age', Number(event.target.value))} /><small>tuổi</small></div>
-              </label>
-              <label className="nutrition-field">
-                <span>Giới tính sinh học</span>
-                <select value={profile.biologicalSex} onChange={(event) => setField('biologicalSex', event.target.value as NutritionProfileDraft['biologicalSex'])}>
-                  <option value="female">Nữ</option>
-                  <option value="male">Nam</option>
-                </select>
-              </label>
-              <label className="nutrition-field">
-                <span>Chiều cao</span>
-                <div><input type="number" min="120" max="230" value={profile.heightCm} onChange={(event) => setField('heightCm', Number(event.target.value))} /><small>cm</small></div>
-              </label>
-              <label className="nutrition-field">
-                <span>Cân nặng hiện tại</span>
-                <div><input type="number" min="30" max="250" step="0.1" value={profile.weightKg} onChange={(event) => setField('weightKg', Number(event.target.value))} /><small>kg</small></div>
-              </label>
-            </div>
-            <div className="nutrition-privacy-note"><Info size={16} /><span>Dữ liệu sức khỏe chỉ được dùng để cá nhân hóa kế hoạch của bạn.</span></div>
-          </div>
-        )}
-
-        {step === 3 && (
-          <div className="nutrition-onboarding__body">
-            <span className="nutrition-kicker">NHỊP SỐNG & ĂN UỐNG</span>
-            <h1 id="nutrition-onboarding-title">Một kế hoạch bạn có thể theo lâu dài</h1>
-            <p>Cho Aura biết mức vận động và những ràng buộc quan trọng trong bữa ăn.</p>
-            <div className="nutrition-form-grid">
-              <label className="nutrition-field">
-                <span>Mức vận động hằng ngày</span>
-                <select value={profile.activityLevel} onChange={(event) => setField('activityLevel', event.target.value as NutritionProfileDraft['activityLevel'])}>
-                  <option value="sedentary">Ít vận động, không tập</option><option value="light">Vận động nhẹ</option><option value="low">Vận động nhẹ (hồ sơ cũ)</option>
-                  <option value="moderate">Vận động vừa</option>
-                  <option value="high">Vận động nhiều</option>
-                </select>
-              </label>
-              <label className="nutrition-field">
-                <span>Số buổi tập / tuần</span>
-                <div><input type="number" min="0" max="14" value={profile.trainingSessions} onChange={(event) => setField('trainingSessions', Number(event.target.value))} /><small>buổi</small></div>
-              </label>
-              <label className="nutrition-field">
-                <span>Phong cách ăn uống</span>
-                <select value={profile.eatingStyle} onChange={(event) => setField('eatingStyle', event.target.value)}>
-                  <option>Không giới hạn</option>
-                  <option>Ăn chay</option>
-                  <option>Thuần chay</option>
-                  <option>Ít tinh bột</option>
-                  <option>Không gluten</option>
-                </select>
-              </label>
-              <label className="nutrition-field">
-                <span>Dị ứng / thực phẩm cần tránh</span>
-                <input type="text" value={profile.allergies} placeholder="Ví dụ: hải sản, đậu phộng…" onChange={(event) => setField('allergies', event.target.value)} />
-              </label>
-            </div>
-            <div className="nutrition-safety-note"><CircleAlert size={17} /><span>Nếu bạn đang mang thai, điều trị bệnh hoặc có rối loạn ăn uống, hãy tham khảo chuyên gia trước khi áp dụng.</span></div>
-          </div>
-        )}
-
-        {step === 4 && (
-          <div className="nutrition-onboarding__body">
-            <span className="nutrition-kicker">CÁ THỂ HÓA THỰC ĐƠN</span>
-            <h1 id="nutrition-onboarding-title">Chi tiết cho kế hoạch 7 ngày</h1>
-            <p>Giúp Aura gợi ý thực đơn phù hợp với thời gian, ngân sách và sở thích của bạn.</p>
-            <div className="nutrition-form-grid">
-              <label className="nutrition-field">
-                <span>Số bữa ăn mỗi ngày</span>
-                <select value={profile.mealsPerDay || 3} onChange={(event) => setField('mealsPerDay', Number(event.target.value))}>
-                  <option value={2}>2 bữa (VD: Nhịn ăn gián đoạn)</option>
-                  <option value={3}>3 bữa (Sáng, Trưa, Tối)</option>
-                  <option value={4}>4 bữa (Thêm 1 bữa phụ)</option>
-                  <option value={5}>5 bữa (Chia nhỏ trong ngày)</option>
-                </select>
-              </label>
-              <label className="nutrition-field">
-                <span>Ngân sách thực phẩm</span>
-                <select value={profile.budget || 'medium'} onChange={(event) => setField('budget', event.target.value as any)}>
-                  <option value="low">Tiết kiệm</option>
-                  <option value="medium">Tiêu chuẩn</option>
-                  <option value="high">Linh hoạt / Thoải mái</option>
-                </select>
-              </label>
-              <label className="nutrition-field">
-                <span>Thời gian nấu nướng</span>
-                <select value={profile.prepTime || 'medium'} onChange={(event) => setField('prepTime', event.target.value as any)}>
-                  <option value="quick">Nhanh gọn (&lt; 20 phút)</option>
-                  <option value="medium">Vừa phải (20 - 45 phút)</option>
-                  <option value="long">Có nhiều thời gian (&gt; 45 phút)</option>
-                </select>
-              </label>
-              <label className="nutrition-field">
-                <span>Khẩu vị / Vùng miền yêu thích</span>
-                <select value={profile.favoriteCuisine || 'Đa dạng'} onChange={(event) => setField('favoriteCuisine', event.target.value)}>
-                  <option>Đa dạng</option>
-                  <option>Món Việt truyền thống</option>
-                  <option>Món Tây / Âu</option>
-                  <option>Món Á (Nhật, Hàn, Thái...)</option>
-                </select>
-              </label>
-              <label className="nutrition-field" style={{ gridColumn: 'span 2' }}>
-                <span>Món ăn không thích</span>
-                <input type="text" value={profile.dislikes || ''} placeholder="Ví dụ: hành, mướp đắng, cá mè..." onChange={(event) => setField('dislikes', event.target.value)} />
-              </label>
-            </div>
-          </div>
-        )}
-
-        <footer className="nutrition-onboarding__footer">
-          <button type="button" className="nutrition-secondary-button" onClick={() => step === 1 && onCancel ? onCancel() : setStep((current) => Math.max(1, current - 1))} disabled={step === 1 && !onCancel}>
-            {step === 1 && onCancel ? <X size={17} /> : <ArrowLeft size={17} />} {step === 1 && onCancel ? 'Hủy' : 'Quay lại'}
-          </button>
-          <button type="button" className="nutrition-primary-button" onClick={() => step < 4 ? setStep((current) => current + 1) : onComplete(profile)}>
-            {step < 4 ? 'Tiếp tục' : 'Tạo kế hoạch của tôi'} {step < 4 ? <ArrowRight size={17} /> : <Sparkles size={17} />}
-          </button>
-        </footer>
-      </section>
-    </div>
-  )
-}
+const MEAL_STORAGE_PREFIX = NUTRITION_STORAGE_PREFIXES_V2.meals
+const WATER_STORAGE_PREFIX = NUTRITION_STORAGE_PREFIXES_V2.water
+const WATER_ENTRY_STORAGE_PREFIX = NUTRITION_STORAGE_PREFIXES_V2.waterEntries
+const SAVED_FOOD_STORAGE_PREFIX = NUTRITION_STORAGE_PREFIXES_V2.savedFoods
+const ACTIVITY_STORAGE_PREFIX = NUTRITION_STORAGE_PREFIXES_V2.activities
+const SCAN_REVIEW_ACTIVE_OWNER_KEY = SCAN_REVIEW_ACTIVE_OWNER_KEY_V2
 
 function LegacyQuickAddSheet({ savedCount, onClose, onScan, onCatalog, onSaved, onWater, onExercise }: { savedCount: number; onClose: () => void; onScan?: () => void; onCatalog?: () => void; onSaved?: () => void; onWater: () => void; onExercise: () => void }) {
   const dialogRef = useAccessibleDialog(onClose)
@@ -991,7 +467,7 @@ function ExerciseLogSheet({ dateLabel, weightKg, onClose, onSave }: { dateLabel:
   const [durationMinutes, setDurationMinutes] = useState(30)
   const [intensity, setIntensity] = useState<NutritionActivityIntensity>('moderate')
   const dialogRef = useAccessibleDialog(onClose)
-  const option = ACTIVITY_OPTIONS.find((item) => item.value === kind) ?? ACTIVITY_OPTIONS[0]
+  const option = NUTRITION_ACTIVITY_OPTIONS.find((item) => item.value === kind) ?? NUTRITION_ACTIVITY_OPTIONS[0]
   const safeDuration = Number.isFinite(durationMinutes) ? Math.min(600, Math.max(0, Math.round(durationMinutes))) : 0
   const met = option.met[intensity]
   const estimatedCalories = Math.round((met * 3.5 * Math.max(30, weightKg) / 200) * safeDuration)
@@ -1022,7 +498,7 @@ function ExerciseLogSheet({ dateLabel, weightKg, onClose, onSave }: { dateLabel:
         <p id="nutrition-exercise-sheet-description">Thêm hoạt động cho {dateLabel.toLocaleLowerCase('vi-VN')}. Kcal được ước tính theo cân nặng hiện tại.</p>
 
         <div className="nutrition-exercise-form">
-          <label className="nutrition-exercise-field"><span>Loại hoạt động</span><select data-dialog-autofocus value={kind} onChange={(event) => setKind(event.target.value as NutritionActivityKind)}>{ACTIVITY_OPTIONS.map((item) => <option value={item.value} key={item.value}>{item.label}</option>)}</select></label>
+          <label className="nutrition-exercise-field"><span>Loại hoạt động</span><select data-dialog-autofocus value={kind} onChange={(event) => setKind(event.target.value as NutritionActivityKind)}>{NUTRITION_ACTIVITY_OPTIONS.map((item) => <option value={item.value} key={item.value}>{item.label}</option>)}</select></label>
           <label className="nutrition-exercise-field"><span>Giờ bắt đầu</span><div className="nutrition-exercise-time"><Clock3 size={17} /><input type="time" value={startTime} onInput={(event) => setStartTime(event.currentTarget.value)} /></div></label>
         </div>
 
@@ -1057,9 +533,9 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
   const waterEntryStorageKey = `${WATER_ENTRY_STORAGE_PREFIX}:${resolvedOwnerId}`
   const savedFoodStorageKey = `${SAVED_FOOD_STORAGE_PREFIX}:${resolvedOwnerId}`
   const activityStorageKey = `${ACTIVITY_STORAGE_PREFIX}:${resolvedOwnerId}`
-  const profileIsComplete = isDemo || (hasProfile && hasCompleteNutritionProfile(profile))
+  const profileIsComplete = isDemo || (hasProfile && hasCompleteNutritionProfileV2(profile))
   const [profileReady, setProfileReady] = useState(profileIsComplete)
-  const [profileDraft, setProfileDraft] = useState<NutritionProfileDraft>(() => normalizeNutritionProfileDraft(profile))
+  const [profileDraft, setProfileDraft] = useState<NutritionProfileDraft>(() => normalizeNutritionProfileDraftV2(profile))
   const [todayKey, setTodayKey] = useState(() => toLocalDateKey(new Date()))
   const recentNutritionFromDate = useMemo(() => {
     const firstDay = new Date()
@@ -1105,10 +581,10 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
       return new Set()
     }
   })
-  const [meals, setMeals] = useState<MealLog[]>(() => isDemo ? loadPersistedMeals(mealStorageKey, createInitialMeals()) : [])
-  const [waterByDate, setWaterByDate] = useState<Record<string, number>>(() => isDemo ? loadPersistedWater(waterStorageKey) : {})
-  const [activities, setActivities] = useState<NutritionActivityLog[]>(() => isDemo ? loadPersistedActivities(activityStorageKey, createInitialActivities()) : [])
-  const [waterEntries, setWaterEntries] = useState<NutritionWaterLog[]>(() => isDemo ? loadPersistedWaterEntries(waterEntryStorageKey) : [])
+  const [meals, setMeals] = useState<MealLog[]>(() => isDemo ? loadPersistedMealsV2(mealStorageKey, createInitialMealsV2()) : [])
+  const [waterByDate, setWaterByDate] = useState<Record<string, number>>(() => isDemo ? loadPersistedWaterV2(waterStorageKey) : {})
+  const [activities, setActivities] = useState<NutritionActivityLog[]>(() => isDemo ? loadPersistedActivitiesV2(activityStorageKey, createInitialActivitiesV2()) : [])
+  const [waterEntries, setWaterEntries] = useState<NutritionWaterLog[]>(() => isDemo ? loadPersistedWaterEntriesV2(waterEntryStorageKey) : [])
   const [nutritionLogSyncState, setNutritionLogSyncState] = useState<DataSyncState>({ status: 'synced', revision: 0, cachedAt: null })
   const [nutritionMutation, setNutritionMutation] = useState<{ scope: 'meals' | 'water' | 'activities'; id: string } | null>(null)
   const [historySyncStarted, setHistorySyncStarted] = useState(false)
@@ -1134,6 +610,48 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
   const assistantImageUrlsRef = useRef(new Set<string>())
   const [toast, setToast] = useState<NutritionToastState | null>(null)
   const messageTimer = useRef<number | null>(null)
+  const dailyReadyScope = `${resolvedOwnerId}|${selectedDate}`
+  const dailyReadyTimingRef = useRef({
+    scope: dailyReadyScope,
+    startedAt: typeof performance !== 'undefined' ? performance.now() : Date.now(),
+    sources: new Set<'meals' | 'water' | 'activities'>(),
+    reported: false,
+  })
+
+  const markDailySourceReady = useCallback((source: 'meals' | 'water' | 'activities') => {
+    const timing = dailyReadyTimingRef.current
+    if (timing.scope !== dailyReadyScope || timing.reported) return
+    timing.sources.add(source)
+    if (timing.sources.size < 3) return
+    timing.reported = true
+    const now = typeof performance !== 'undefined' ? performance.now() : Date.now()
+    void trackProductEvent('data_ready', {
+      surface: 'member_nutrition_day',
+      durationMs: Math.max(0, Math.round(now - timing.startedAt)),
+      sourceCount: timing.sources.size,
+      uiVersion: nutritionV4 ? 4 : 3,
+    })
+  }, [dailyReadyScope, nutritionV4])
+  const markDailySourceReadyRef = useRef(markDailySourceReady)
+  markDailySourceReadyRef.current = markDailySourceReady
+
+  useEffect(() => {
+    dailyReadyTimingRef.current = {
+      scope: dailyReadyScope,
+      startedAt: typeof performance !== 'undefined' ? performance.now() : Date.now(),
+      sources: new Set(),
+      reported: false,
+    }
+    if (isDemo) {
+      dailyReadyTimingRef.current.reported = true
+      void trackProductEvent('data_ready', {
+        surface: 'member_nutrition_day',
+        durationMs: 0,
+        sourceCount: 3,
+        uiVersion: nutritionV4 ? 4 : 3,
+      })
+    }
+  }, [dailyReadyScope, isDemo, nutritionV4])
 
   useEffect(() => () => {
     assistantImageUrlsRef.current.forEach((url) => URL.revokeObjectURL(url))
@@ -1168,7 +686,7 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
   const nutritionTargets = resolveDailyNutritionTargets(profileDraft, actual30DayWeight)
   const { calorieGoal, proteinGoal, carbGoal, fatGoal, waterGoal } = nutritionTargets
   const targetSnapshot = nutritionTargets.configured ? { formulaVersion: NUTRITION_FORMULA_VERSION, calories: calorieGoal, protein: proteinGoal, carbs: carbGoal, fat: fatGoal, tdee: nutritionTargets.maintenanceCalories, waterMl: waterGoal, capturedAt: new Date().toISOString() } : undefined
-  const dailyPlan = getDailyPlan(calorieGoal, profileDraft)
+  const dailyPlan = getDailyPlanV2(calorieGoal, profileDraft)
   const selectedDayMeals = meals.filter((meal) => meal.date === selectedDate)
   const loggedMeals = selectedDayMeals.filter((meal) => meal.status === 'logged')
   const selectedDayActivities = activities.filter((activity) => activity.date === selectedDate)
@@ -1366,7 +884,7 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
   useEffect(() => {
     try {
       const previousOwnerId = window.sessionStorage.getItem(SCAN_REVIEW_ACTIVE_OWNER_KEY)
-      if (previousOwnerId && previousOwnerId !== resolvedOwnerId) clearPendingScanReview(previousOwnerId)
+      if (previousOwnerId && previousOwnerId !== resolvedOwnerId) clearPendingScanReviewV2(previousOwnerId)
       window.sessionStorage.setItem(SCAN_REVIEW_ACTIVE_OWNER_KEY, resolvedOwnerId)
     } catch {
       // Owner validation in the scoped review payload remains the fallback.
@@ -1457,24 +975,29 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
     const unsubscribeMeals = subscribeToUserMealLogsForDate(resolvedOwnerId, selectedDate, (remoteMeals) => {
       if (!active) return
       const dayItems = Array.isArray(remoteMeals) ? remoteMeals.filter((item): item is MealLog => Boolean(item && typeof item === 'object' && item.id)) : []
+      writeDailyNutritionCache(resolvedOwnerId, selectedDate, { meals: dayItems })
       liveJournalDays.current.meals.set(selectedDate, dayItems)
       setMeals((current) => [...current.filter((item) => item.date !== selectedDate), ...dayItems])
+      markDailySourceReadyRef.current('meals')
     })
     const unsubscribeWater = subscribeToUserWaterLogsForDate(resolvedOwnerId, selectedDate, (remoteWater) => {
       if (!active) return
       const dayItems = Array.isArray(remoteWater) ? remoteWater.filter((item): item is NutritionWaterLog => Boolean(item && typeof item === 'object' && item.id)) : []
+      writeDailyNutritionCache(resolvedOwnerId, selectedDate, { water: dayItems })
       liveJournalDays.current.water.set(selectedDate, dayItems)
       setWaterEntries((current) => [...current.filter((item) => item.date !== selectedDate), ...dayItems])
       setWaterByDate((current) => ({
         ...current,
         [selectedDate]: dayItems.reduce((sum, item) => sum + Math.max(0, Number(item.amountMl) || 0), 0),
       }))
+      markDailySourceReadyRef.current('water')
     })
     const unsubscribeActivities = subscribeToUserActivityLogsForDate(resolvedOwnerId, selectedDate, (remoteActivities) => {
       if (!active) return
       const dayItems = Array.isArray(remoteActivities) ? remoteActivities.filter((item): item is NutritionActivityLog => Boolean(item && typeof item === 'object' && item.id)) : []
       liveJournalDays.current.activities.set(selectedDate, dayItems)
       setActivities((current) => [...current.filter((item) => item.date !== selectedDate), ...dayItems])
+      markDailySourceReadyRef.current('activities')
     })
 
     return () => {
@@ -1536,7 +1059,7 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
   }, [profileIsComplete])
 
   useEffect(() => {
-    if (profile) setProfileDraft(normalizeNutritionProfileDraft(profile))
+    if (profile) setProfileDraft(normalizeNutritionProfileDraftV2(profile))
   }, [profile])
 
   useEffect(() => {
@@ -2425,7 +1948,7 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
     navigateNutrition('scan')
   }
 
-  if (!profileReady) return <NutritionSetupPrompt onStart={onStartOnboarding} />
+  if (!profileReady) return <React.Suspense fallback={<div className="nutrition-setup-page" role="status">Đang mở thiết lập dinh dưỡng…</div>}><NutritionSetupPrompt onStart={onStartOnboarding} /></React.Suspense>
 
   const profileReadOnly = Boolean(syncState && syncState.status !== 'synced')
   const mutationSyncState: DataSyncState = nutritionMutation

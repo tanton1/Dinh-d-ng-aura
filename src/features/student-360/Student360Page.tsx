@@ -52,6 +52,7 @@ import './Student360Page.css'
 import { useAuraUiSurface } from '../ui-rollout/AuraUiRolloutContext'
 import { getStudentLoyaltySummary } from '../loyalty/loyaltyService'
 import type { LoyaltyAccount } from '../loyalty/types'
+import { trackProductEvent } from '../../services/analyticsService'
 
 const Student360ContractWorkspace = lazy(() => import('./Student360ContractWorkspace'))
 
@@ -299,6 +300,19 @@ export default function Student360Page({ studentId, source, isDemo = false, onBa
   const [loyaltyLoading, setLoyaltyLoading] = useState(false)
   const [loyaltyError, setLoyaltyError] = useState('')
   const [loyaltyExpanded, setLoyaltyExpanded] = useState(false)
+  const overviewReadyTimingRef = useRef({
+    studentId,
+    startedAt: typeof performance !== 'undefined' ? performance.now() : Date.now(),
+    reported: false,
+  })
+
+  useEffect(() => {
+    overviewReadyTimingRef.current = {
+      studentId,
+      startedAt: typeof performance !== 'undefined' ? performance.now() : Date.now(),
+      reported: false,
+    }
+  }, [studentId])
 
   const loadOverview = useCallback(async (force = false) => {
     force ? setRefreshing(true) : setLoading(true)
@@ -308,6 +322,17 @@ export default function Student360Page({ studentId, source, isDemo = false, onBa
         ? (await refreshStudent360Projection(studentId), await getStudent360Overview(studentId, undefined, actionCenterEnabled))
         : await getStudent360Overview(studentId, undefined, actionCenterEnabled)
       setOverview(result)
+      const timing = overviewReadyTimingRef.current
+      if (!force && !timing.reported && timing.studentId === studentId) {
+        timing.reported = true
+        const now = typeof performance !== 'undefined' ? performance.now() : Date.now()
+        void trackProductEvent('data_ready', {
+          surface: 'student_360_overview',
+          durationMs: Math.max(0, Math.round(now - timing.startedAt)),
+          cacheHit: result.cache?.hit === true,
+          uiVersion: 4,
+        })
+      }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Không thể tải Học viên 360.')
     } finally {

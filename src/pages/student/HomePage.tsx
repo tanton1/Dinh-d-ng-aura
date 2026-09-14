@@ -27,6 +27,7 @@ import {
 import type { NutritionProfileDraft } from './NutritionPage'
 import { useAuraUiSurface } from '../../features/ui-rollout/AuraUiRolloutContext'
 import LoyaltyHomeCard from '../../features/loyalty/LoyaltyHomeCard'
+import { readDailyNutritionCache, writeDailyNutritionCache } from '../../features/nutrition/dailyNutritionSummaryCache'
 
 interface DailyPulseMeal {
   id?: string
@@ -119,11 +120,20 @@ export default function HomePage({
     if (isDemo || !ownerId || ownerId === 'anonymous') return
 
     try {
+      const cached = readDailyNutritionCache(ownerId, todayDateId)
+      if (cached) {
+        setDailyPulseMeals(cached.meals as DailyPulseMeal[])
+        setDailyPulseWater(cached.water as DailyPulseWaterEntry[])
+      }
       const unsubscribeMeals = subscribeToUserMealLogsForDate(ownerId, todayDateId, (remoteMeals) => {
-        setDailyPulseMeals(Array.isArray(remoteMeals) ? remoteMeals as DailyPulseMeal[] : [])
+        const next = Array.isArray(remoteMeals) ? remoteMeals as DailyPulseMeal[] : []
+        setDailyPulseMeals(next)
+        writeDailyNutritionCache(ownerId, todayDateId, { meals: next as any })
       })
       const unsubscribeWater = subscribeToUserWaterLogsForDate(ownerId, todayDateId, (remoteWater) => {
-        setDailyPulseWater(Array.isArray(remoteWater) ? remoteWater as DailyPulseWaterEntry[] : [])
+        const next = Array.isArray(remoteWater) ? remoteWater as DailyPulseWaterEntry[] : []
+        setDailyPulseWater(next)
+        writeDailyNutritionCache(ownerId, todayDateId, { water: next as any })
       })
       return () => {
         unsubscribeMeals()

@@ -7,6 +7,7 @@ import { PT_OPERATIONS_POLICY_DEFAULTS } from '../config/ptOperationsPolicy'
 import { normalizeScheduleLoadPolicy } from '../config/scheduleLoadPolicy'
 import { createStudentCommandKey, updateStudentProfile } from '../services/studentManagementService'
 import { archiveBranch, createBranchCommandKey, upsertBranch } from '../services/branchManagementService'
+import { useAuraUiRollout } from '../features/ui-rollout/AuraUiRolloutContext'
 import type {
   Student,
   StudentContract,
@@ -252,6 +253,14 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
     lastSyncedAt: null,
     error: null,
   })
+  const { loading: auraUiRolloutLoading, isEnabled: isAuraUiSurfaceEnabled } = useAuraUiRollout()
+  const studentDirectoryV2Enabled = isAuraUiSurfaceEnabled('admin-student-directory')
+  // Do not briefly open the old broad listeners while the rollout snapshot is
+  // loading. Once the V2 directory is enabled, this also keeps the legacy
+  // operations context empty; the cursor API owns the roster instead.
+  const effectiveOperationsView = auraUiRolloutLoading || (operationsView === 'admin-pt-students' && studentDirectoryV2Enabled)
+    ? null
+    : operationsView
 
   const refreshData = async () => {}
 
@@ -301,7 +310,7 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
     if (!authzReady) {
       setCanUseLegacyOperations(false)
       setOperationsSync({
-        status: operationsView ? 'loading' : 'idle',
+        status: effectiveOperationsView ? 'loading' : 'idle',
         lastSyncedAt: null,
         error: null,
       })
@@ -314,11 +323,11 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
     setCanUseLegacyOperations(canUse)
     if (!canUse) clearLegacyOperationsData()
     setOperationsSync({
-      status: canUse && operationsView ? 'loading' : canUse ? 'idle' : 'forbidden',
+      status: canUse && effectiveOperationsView ? 'loading' : canUse ? 'idle' : 'forbidden',
       lastSyncedAt: null,
       error: canUse ? null : 'Tài khoản này không có quyền truy cập dữ liệu vận hành.',
     })
-  }, [accessContext?.accessRole, authenticatedRole, authenticatedUser?.uid, authzReady, backendMode, operationsView])
+  }, [accessContext?.accessRole, authenticatedRole, authenticatedUser?.uid, authzReady, backendMode, effectiveOperationsView])
 
   useEffect(() => {
     // Browser layout tests use deterministic, non-sensitive PT fixtures. Do
@@ -327,8 +336,8 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
       setOperationsSync({ status: 'ready', lastSyncedAt: new Date().toISOString(), error: null })
       return
     }
-    if (!canUseLegacyOperations || !operationsView) {
-      if (!operationsView) {
+    if (!canUseLegacyOperations || !effectiveOperationsView) {
+      if (!effectiveOperationsView) {
         clearLegacyOperationsData()
         if (canUseLegacyOperations) setOperationsSync({ status: 'idle', lastSyncedAt: null, error: null })
       }
@@ -350,7 +359,7 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
     setOperationsSync({ status: 'loading', lastSyncedAt: null, error: null })
     
     const unsubs: (() => void)[] = []
-    const activeSources = new Set<LegacyOperationSource>(LEGACY_OPERATIONS_VIEW_SOURCES[operationsView])
+    const activeSources = new Set<LegacyOperationSource>(LEGACY_OPERATIONS_VIEW_SOURCES[effectiveOperationsView])
     const expectedInitialSnapshots = new Set<LegacyOperationSource>(activeSources)
     const receivedInitialSnapshots = new Set<LegacyOperationSource>()
     let initialSyncTimeout: number | undefined
@@ -411,7 +420,7 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
       // The student roster only renders upcoming sessions. Historical detail
       // already uses the actor-scoped training-history callable, so loading a
       // 180-day session window on this route duplicated thousands of rows.
-      if (operationsView !== 'admin-pt-students') sessionWindowStart.setDate(sessionWindowStart.getDate() - 180)
+      if (effectiveOperationsView !== 'admin-pt-students') sessionWindowStart.setDate(sessionWindowStart.getDate() - 180)
       const sessionsQuery = query(
         collection(db, 'sessions'),
         where('date', '>=', sessionWindowStart.toISOString().slice(0, 10)),
@@ -540,7 +549,7 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
       if (initialSyncTimeout) window.clearTimeout(initialSyncTimeout)
       unsubs.forEach(unsub => unsub())
     }
-  }, [backendMode, canUseLegacyOperations, operationsView])
+  }, [backendMode, canUseLegacyOperations, effectiveOperationsView])
 
   const migrateData = async () => {
     throw new Error('Công cụ migration phía trình duyệt đã ngừng hoạt động. Hãy dùng quy trình migration có dry-run, manifest và đối soát phía server.')

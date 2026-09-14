@@ -24,7 +24,13 @@ const {
   timelineCursor,
   normalizeProgressCheckInInput,
   decodeProgressPhotoDataUrl,
+  foldSearchText,
 } = require('./student-360')
+
+test('Student directory search folds Vietnamese accents and keeps phone digits searchable', () => {
+  assert.equal(foldSearchText('  Nguyễn Thị Hồng  '), 'nguyen thi hong')
+  assert.equal(foldSearchText('Đặng · 090 123'), 'dang 090 123')
+})
 
 test('Student 360 selects contracts by effective dates instead of stale stored status', () => {
   const contracts = [

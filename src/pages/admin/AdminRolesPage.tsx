@@ -1,17 +1,15 @@
 import '../../styles-admin.css'
 import './AdminRolesPage.css'
-import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import {
   AlertCircle, Building2, CheckCircle2, Columns3, LoaderCircle,
   ArrowRight, BriefcaseBusiness, CalendarClock, Check, KeyRound, Mail, MapPin,
   Phone, Plus, Search, ShieldCheck, SlidersHorizontal, Sparkles, UserCog, Users,
   Trash2, WalletCards, X,
 } from 'lucide-react'
-import { collection, limit, onSnapshot, query as firestoreQuery, where } from 'firebase/firestore'
 import { hasPermission } from '../../config/permissions'
 import { useDatabase } from '../../contexts/DatabaseContext'
-import { firestoreDb } from '../../lib/firebaseFirestore'
-import { applyDefaultTrainerSchedulingPolicy, assignStaffPositions, deleteMemberAccount, deleteUnusedStaffAccount, provisionStaffAccount, provisionStudentAccount, saveStaffOperationsProfile, suspendAccountAccess } from '../../services/identityAccessService'
+import { applyDefaultTrainerSchedulingPolicy, assignStaffPositions, deleteMemberAccount, deleteUnusedStaffAccount, listIdentityDirectory, provisionStaffAccount, provisionStudentAccount, saveStaffOperationsProfile, suspendAccountAccess, type IdentityDirectoryEntry } from '../../services/identityAccessService'
 import { listPayrollPolicies, type PayrollPolicy, type PayrollProfile } from '../../services/payrollService'
 import type { StaffPosition } from '../../identity/access'
 import type { Branch, UserRole } from '../../types'
@@ -289,13 +287,19 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
   const [assignments, setAssignments] = useState<Record<string, RoleAssignmentSummary>>({})
   const [staffOperations, setStaffOperations] = useState<Record<string, StaffOperationsRecord>>({})
   const [payrollPolicies, setPayrollPolicies] = useState<PayrollPolicy[]>([])
-  const [legacyContracts, setLegacyContracts] = useState<Array<Record<string, unknown>>>([])
   const [staffEditor, setStaffEditor] = useState<StaffEditorState | null>(null)
   const [staffSaving, setStaffSaving] = useState(false)
   const [memberDeleteTarget, setMemberDeleteTarget] = useState<AdminRoleUser | null>(null)
   const [memberDeleteConfirmation, setMemberDeleteConfirmation] = useState('')
   const [teamConfirmation, setTeamConfirmation] = useState<TeamConfirmation | null>(null)
   const [teamActionSaving, setTeamActionSaving] = useState(false)
+  const [directoryEntries, setDirectoryEntries] = useState<Record<'accounts' | 'staff', IdentityDirectoryEntry[]>>({ accounts: [], staff: [] })
+  const [directoryCursors, setDirectoryCursors] = useState<Record<'accounts' | 'staff', string | null>>({ accounts: null, staff: null })
+  const [directoryHasMore, setDirectoryHasMore] = useState<Record<'accounts' | 'staff', boolean>>({ accounts: false, staff: false })
+  const [directorySummary, setDirectorySummary] = useState({ accounts: 0, staff: 0, admins: 0 })
+  const [directoryLoading, setDirectoryLoading] = useState(false)
+  const [directoryError, setDirectoryError] = useState(false)
+  const staffDirectoryOpenedRef = useRef(false)
 
   const workingDays = scheduleConfig.workingDays?.length ? scheduleConfig.workingDays : fallbackStaffDays
   const workingHours = scheduleConfig.workingHours?.length ? scheduleConfig.workingHours : fallbackStaffHours
@@ -307,48 +311,54 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
   const canAssignRole = hasPermission(currentRole, 'role.assign')
   const canAssignSuperAdmin = hasPermission(currentRole, 'role.assign_super_admin')
   const canViewTeam = hasPermission(currentRole, 'team.view')
-  useEffect(() => {
-    if (!canViewTeam || !firestoreDb) {
-      setAssignments({})
-      return
-    }
-    return onSnapshot(firestoreQuery(collection(firestoreDb, 'roleAssignments'), limit(2_500)), (snapshot) => {
-      const next: Record<string, RoleAssignmentSummary> = {}
-      snapshot.forEach((item) => {
-        const data = item.data()
-        const accessRole = data.accessRole
-        if (!['student', 'staff', 'admin', 'super_admin'].includes(accessRole)) return
-        next[item.id] = {
-          accessRole,
-          positions: Array.isArray(data.positions) ? data.positions.filter((position): position is StaffPosition => positionOptions.some((option) => option.id === position)) : [],
-          branchIds: Array.isArray(data.branchIds) ? data.branchIds.filter((branchId): branchId is string => typeof branchId === 'string') : [],
-          status: ['active', 'suspended', 'invited'].includes(data.status) ? data.status : 'active',
-        }
+  const loadDirectoryPage = async (target: 'accounts' | 'staff', append = false) => {
+    if (!canViewTeam) return
+    setDirectoryLoading(true)
+    setDirectoryError(false)
+    try {
+      const page = await listIdentityDirectory({
+        section: target,
+        pageSize: 60,
+        ...(append && directoryCursors[target] ? { cursor: directoryCursors[target] } : {}),
       })
-      setAssignments(next)
-    }, () => setAssignments({}))
-  }, [canViewTeam])
-  useEffect(() => {
-    if (section !== 'staff' || !canViewTeam || !firestoreDb) return
-    const stopStaff = onSnapshot(firestoreQuery(collection(firestoreDb, 'staff'), limit(1_500)), (snapshot) => {
-      const next: Record<string, StaffOperationsRecord> = {}
-      snapshot.forEach((item) => { next[item.id] = item.data() as StaffOperationsRecord })
-      setStaffOperations(next)
-    }, () => setStaffOperations({}))
-    const stopTrainers = onSnapshot(firestoreQuery(collection(firestoreDb, 'trainers'), limit(1_500)), (snapshot) => {
-      setStaffOperations((current) => {
+      setDirectoryEntries((current) => ({ ...current, [target]: append ? [...current[target], ...page.entries] : page.entries }))
+      setDirectoryCursors((current) => ({ ...current, [target]: page.nextCursor }))
+      setDirectoryHasMore((current) => ({ ...current, [target]: page.hasMore }))
+      setDirectorySummary(page.summary)
+      setAssignments((current) => {
         const next = { ...current }
-        snapshot.forEach((item) => { next[item.id] = { ...next[item.id], ...(item.data() as StaffOperationsRecord) } })
+        page.entries.forEach((entry) => { next[entry.user.uid] = entry.assignment })
         return next
       })
-    })
-    const activeContractsQuery = firestoreQuery(
-      collection(firestoreDb, 'contracts'),
-      where('status', 'in', ['active', 'future', 'frozen']),
-      limit(5_000),
-    )
-    const stopContracts = onSnapshot(activeContractsQuery, (snapshot) => setLegacyContracts(snapshot.docs.map((item) => item.data() as Record<string, unknown>)), () => setLegacyContracts([]))
-    return () => { stopStaff(); stopTrainers(); stopContracts() }
+      setStaffOperations((current) => {
+        const next = { ...current }
+        page.entries.forEach((entry) => { if (entry.staffOperations) next[entry.user.uid] = entry.staffOperations })
+        return next
+      })
+    } catch {
+      setDirectoryError(true)
+    } finally {
+      setDirectoryLoading(false)
+    }
+  }
+  // Mutations on this page are callable writes, so the directory has no
+  // realtime listener to reconcile them. Refresh only the affected, already
+  // opened section after a successful write instead of reopening every page.
+  const refreshDirectorySection = (target: 'accounts' | 'staff') => {
+    if (target === 'staff' && !staffDirectoryOpenedRef.current) return
+    void loadDirectoryPage(target, false)
+  }
+  useEffect(() => {
+    if (!canViewTeam) return
+    void loadDirectoryPage('accounts')
+    // The staff page is intentionally fetched only when opened; this keeps the
+    // HR route useful on a slow connection without loading two directories.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canViewTeam])
+  useEffect(() => {
+    if (section === 'staff') staffDirectoryOpenedRef.current = true
+    if (section === 'staff' && canViewTeam && !directoryEntries.staff.length && !directoryCursors.staff) void loadDirectoryPage('staff')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [section, canViewTeam])
   useEffect(() => {
     if (!canViewTeam) return
@@ -358,7 +368,9 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
       .catch(() => { if (active) setPayrollPolicies([]) })
     return () => { active = false }
   }, [canViewTeam])
-  const directoryUsers = users
+  const apiAccounts = directoryEntries.accounts.map((entry) => entry.user)
+  const apiStaff = directoryEntries.staff.map((entry) => entry.user)
+  const directoryUsers = apiAccounts.length ? apiAccounts : users
   const memberUsers = useMemo(() => directoryUsers.filter((user) => {
     const assignment = assignments[user.uid]
     return assignment?.accessRole !== 'staff'
@@ -367,12 +379,13 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
       && user.role !== 'super_admin'
   }), [assignments, directoryUsers])
   const filteredUsers = useMemo(() => {
-    const normalizedQuery = query.trim().toLocaleLowerCase('vi')
+    const normalizedQuery = query.trim().toLocaleLowerCase('vi').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd')
     return memberUsers
-      .filter((user) => (!normalizedQuery || `${user.displayName} ${user.email} ${user.phoneNumber || ''}`.toLocaleLowerCase('vi').includes(normalizedQuery)) && (roleFilter === 'all' || user.role === roleFilter))
+      .filter((user) => (!normalizedQuery || `${user.displayName} ${user.email} ${user.phoneNumber || ''}`.toLocaleLowerCase('vi').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').includes(normalizedQuery)) && (roleFilter === 'all' || user.role === roleFilter))
       .sort((left, right) => (left.displayName || left.email).localeCompare(right.displayName || right.email, 'vi'))
   }, [memberUsers, query, roleFilter])
   const staffRows = useMemo(() => {
+    if (apiStaff.length) return apiStaff
     const byUid = new Map(directoryUsers.map((user) => [user.uid, user]))
     const ids = new Set([
       ...Object.entries(staffOperations)
@@ -385,32 +398,31 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
     return [...ids]
       .map((uid) => byUid.get(uid) || profileDirectoryUser(uid, staffOperations[uid] || {}))
       .sort((left, right) => (left.displayName || left.email).localeCompare(right.displayName || right.email, 'vi'))
-  }, [assignments, directoryUsers, staffOperations])
+  }, [apiStaff, assignments, directoryUsers, staffOperations])
   const filteredStaffRows = useMemo(() => {
-    const normalizedQuery = staffQuery.trim().toLocaleLowerCase('vi')
+    const normalizedQuery = staffQuery.trim().toLocaleLowerCase('vi').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd')
     return staffRows.filter((member) => {
       const assignment = assignments[member.uid]
-      const matchesSearch = !normalizedQuery || `${member.displayName} ${member.email} ${member.phoneNumber || ''}`.toLocaleLowerCase('vi').includes(normalizedQuery)
+      const matchesSearch = !normalizedQuery || `${member.displayName} ${member.email} ${member.phoneNumber || ''}`.toLocaleLowerCase('vi').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').includes(normalizedQuery)
       const matchesPosition = staffPositionFilter === 'all' || assignment?.positions.includes(staffPositionFilter)
       return matchesSearch && matchesPosition
     })
   }, [assignments, staffPositionFilter, staffQuery, staffRows])
   const stats = useMemo(() => ({
-    members: memberUsers.length,
-    staff: staffRows.length,
+    members: directorySummary.accounts ? Math.max(0, directorySummary.accounts - directorySummary.staff - directorySummary.admins) : memberUsers.length,
+    staff: directorySummary.staff || staffRows.length,
     branches: branches.filter((branch) => branch.status !== 'archived').length,
     scopedAssignments: Object.values(assignments).filter((assignment) => assignment.accessRole === 'staff' && assignment.positions.length > 0).length,
-  }), [assignments, branches, memberUsers.length, staffRows.length])
+  }), [assignments, branches, directorySummary, memberUsers.length, staffRows.length])
   const accessEditorUser = useMemo(
     () => accessEditorUid ? directoryUsers.find((user) => user.uid === accessEditorUid) ?? staffRows.find((user) => user.uid === accessEditorUid) ?? null : null,
     [accessEditorUid, directoryUsers, staffRows],
   )
-  const countManagedClients = (uid: string, kind: 'main' | 'secondary' | 'nutrition') => legacyContracts.filter((contract) => {
-    const trainerIds = Array.isArray(contract.trainerIds) ? contract.trainerIds : []
-    if (kind === 'main') return contract.trainerId === uid || trainerIds[0] === uid
-    if (kind === 'secondary') return trainerIds.slice(1).includes(uid) || contract.secondaryTrainerId === uid
-    return contract.nutritionTrainerId === uid || (Array.isArray(contract.nutritionTrainerIds) && contract.nutritionTrainerIds.includes(uid))
-  }).length
+  const countManagedClients = (uid: string, kind: 'main' | 'secondary' | 'nutrition') => {
+    const entry = directoryEntries.staff.find((item) => item.user.uid === uid)
+    const counts = entry?.managedClientCounts
+    return counts ? counts[kind] : null
+  }
   const openStaffEditor = (member: AdminRoleUser) => {
     const record = staffOperations[member.uid] || {}
     const assignment = assignments[member.uid]
@@ -439,7 +451,7 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
   const saveStaffProfile = async () => {
     if (!staffEditor) return
     setStaffSaving(true); setError(null)
-    try { await saveStaffOperationsProfile({ uid: staffEditor.uid, displayName: staffEditor.displayName, email: staffEditor.email, phoneNumber: staffEditor.phoneNumber, contactChanges: { email: normalizeStaffEmail(staffEditor.email) !== normalizeStaffEmail(staffEditor.initialEmail), phoneNumber: normalizeStaffPhone(staffEditor.phoneNumber) !== normalizeStaffPhone(staffEditor.initialPhoneNumber) }, employmentType: staffEditor.employmentType, employmentLevel: staffEditor.employmentLevel, payrollPolicyId: staffEditor.payrollPolicyId, availabilitySlots: staffEditor.slots, slotCapacity: staffEditor.slotCapacity, schedulingPriority: staffEditor.schedulingPriority, dailySessionTarget: staffEditor.dailySessionTarget, compensation: staffEditor.compensation }); setStaffEditor(null); setSuccess('Đã lưu hồ sơ, lịch rảnh và mốc cân bằng tải của nhân viên.') }
+    try { await saveStaffOperationsProfile({ uid: staffEditor.uid, displayName: staffEditor.displayName, email: staffEditor.email, phoneNumber: staffEditor.phoneNumber, contactChanges: { email: normalizeStaffEmail(staffEditor.email) !== normalizeStaffEmail(staffEditor.initialEmail), phoneNumber: normalizeStaffPhone(staffEditor.phoneNumber) !== normalizeStaffPhone(staffEditor.initialPhoneNumber) }, employmentType: staffEditor.employmentType, employmentLevel: staffEditor.employmentLevel, payrollPolicyId: staffEditor.payrollPolicyId, availabilitySlots: staffEditor.slots, slotCapacity: staffEditor.slotCapacity, schedulingPriority: staffEditor.schedulingPriority, dailySessionTarget: staffEditor.dailySessionTarget, compensation: staffEditor.compensation }); setStaffEditor(null); setSuccess('Đã lưu hồ sơ, lịch rảnh và mốc cân bằng tải của nhân viên.'); refreshDirectorySection('staff') }
     catch (caught) { setError(caught instanceof Error ? caught.message : 'Không thể lưu hồ sơ vận hành nhân viên.') }
     finally { setStaffSaving(false) }
   }
@@ -486,7 +498,7 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
         branchIds: accessContext.branchIds,
         status: accessContext.status,
       } }))
-      setAccessEditorUid(null); setSuccess(`Đã cập nhật chức danh và phạm vi cho ${user.displayName || user.email || user.uid}. Người dùng cần đăng nhập lại để nhận token mới.`)
+      setAccessEditorUid(null); setSuccess(`Đã cập nhật chức danh và phạm vi cho ${user.displayName || user.email || user.uid}. Người dùng cần đăng nhập lại để nhận token mới.`); refreshDirectorySection(section === 'staff' ? 'staff' : 'accounts')
     } catch (caught) { setError(caught instanceof Error ? caught.message : `Không thể cập nhật quyền cho ${user.displayName || user.email || user.uid}.`) }
     finally { setAccessSaving(false) }
   }
@@ -501,7 +513,7 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
       const result = inviteDraft.accessRole === 'staff'
         ? await provisionStaffAccount({ ...common, positions: inviteDraft.positions, branchIds: inviteDraft.branchIds, employmentType: inviteDraft.employmentType, employmentLevel: inviteDraft.employmentLevel, payrollPolicyId: inviteDraft.payrollPolicyId })
         : await provisionStudentAccount(common)
-      setInviteOpen(false); setInviteDraft(emptyInviteDraft()); setSuccess(`Đã tạo tài khoản cho ${result.displayName}. Email đăng nhập: ${result.email}. Mật khẩu ban đầu là số điện thoại; người dùng có thể đổi trong Hồ sơ cá nhân nếu muốn.`)
+      setInviteOpen(false); setInviteDraft(emptyInviteDraft()); setSuccess(`Đã tạo tài khoản cho ${result.displayName}. Email đăng nhập: ${result.email}. Mật khẩu ban đầu là số điện thoại; người dùng có thể đổi trong Hồ sơ cá nhân nếu muốn.`); refreshDirectorySection(inviteDraft.accessRole === 'staff' ? 'staff' : 'accounts')
     } catch (caught) { setError(caught instanceof Error ? caught.message : 'Không thể tạo tài khoản.') }
     finally { setInviteSaving(false) }
   }
@@ -527,6 +539,7 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
       setSuccess(result.preservedOperationalHistory
         ? `Đã xóa tài khoản đăng nhập của ${target.displayName || target.email || target.uid}. Hồ sơ PT, hợp đồng, lịch tập và tài chính vẫn được giữ để đối soát.`
         : `Đã xóa tài khoản thành viên ${target.displayName || target.email || target.uid}.`)
+      refreshDirectorySection('accounts')
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Không thể xóa tài khoản thành viên.')
     } finally { setSavingUid(null) }
@@ -557,16 +570,19 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
         setSavingUid(user.uid)
         await onRoleChange(user.uid, nextRole)
         setSuccess(`Đã cập nhật ${user.displayName || user.email || user.uid}. Người dùng cần đăng nhập lại để nhận quyền mới.`)
+        refreshDirectorySection('accounts')
       } else if (teamConfirmation.kind === 'suspend_staff') {
         const { member } = teamConfirmation
         setSavingUid(member.uid)
         await suspendAccountAccess(member.uid)
         setSuccess(`Đã khóa và lưu trữ ${member.displayName || member.email || member.uid}. Không xóa lịch sử vận hành.`)
+        refreshDirectorySection('staff')
       } else if (teamConfirmation.kind === 'delete_staff') {
         const { member } = teamConfirmation
         setSavingUid(member.uid)
         await deleteUnusedStaffAccount(member.uid)
         setSuccess(`Đã xóa tài khoản mới tạo ${member.displayName || member.email || member.uid}.`)
+        refreshDirectorySection('staff')
       } else if (teamConfirmation.kind === 'reset_pt_workload') {
         const result = await applyDefaultTrainerSchedulingPolicy()
         setSuccess(`Đã áp dụng mốc cân bằng tải 8 ca/ngày cho ${result.updated} PT đang hoạt động. Hệ thống vẫn có thể xếp thêm để đủ lịch học viên.`)
@@ -641,12 +657,14 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
         <label className="identity-filter"><SlidersHorizontal size={16} /><span>Loại</span><select aria-label="Lọc loại thành viên" value={roleFilter} onChange={(event) => setRoleFilter(event.target.value as 'all' | UserRole)}><option value="all">Tất cả</option><option value="student">Học viên</option><option value="user">Khách vãng lai</option></select></label>
         <div className="roles-column-picker"><button type="button" className="identity-filter" onClick={() => setColumnPickerOpen((current) => !current)} aria-expanded={columnPickerOpen}><Columns3 size={16} />Cột hiển thị</button>{columnPickerOpen && <div className="roles-column-picker__menu">{(Object.keys(directoryColumnMeta) as DirectoryColumn[]).map((column) => <label key={column}><input type="checkbox" checked={visibleColumns[column]} onChange={() => updateColumn(column)} />{directoryColumnMeta[column]}</label>)}</div>}</div>
       </div>
-      <div className="students-table roles-directory identity-members-list" aria-busy={loading}>
+      <div className="students-table roles-directory identity-members-list" aria-busy={loading || directoryLoading}>
         <div className="students-head" style={tableGridStyle}><span>THÀNH VIÊN</span>{visibleColumns.phone && <span>SỐ ĐIỆN THOẠI</span>}{visibleColumns.email && <span>EMAIL ĐĂNG NHẬP</span>}<span>LOẠI TÀI KHOẢN</span>{visibleColumns.scope && <span>QUYỀN & PHẠM VI</span>}{visibleColumns.activity && <span>HOẠT ĐỘNG</span>}{visibleColumns.status && <span>TRẠNG THÁI</span>}<span /></div>
-        {loading && <div className="empty-state"><LoaderCircle size={30} className="spin" /><h3>Đang tải thành viên</h3><p>Dữ liệu tài khoản đang được đồng bộ.</p></div>}
-        {!loading && filteredUsers.map((user, index) => <RoleDirectoryRow key={user.uid} user={user} assignment={assignments[user.uid]} index={index} tableGridStyle={tableGridStyle} visibleColumns={visibleColumns} currentUserUid={currentUserUid} canAssignRole={canAssignRole} canAssignSuperAdmin={canAssignSuperAdmin} isSaving={savingUid === user.uid} branches={branches} onChangeRole={changeRole} onOpenAccessEditor={openAccessEditor} onDeleteMember={openMemberDelete} />)}
-        {!loading && filteredUsers.length === 0 && <div className="empty-state"><Users size={30} /><h3>Không tìm thấy thành viên</h3><p>Thử đổi từ khóa hoặc bộ lọc tài khoản.</p></div>}
+        {(loading || directoryLoading) && !filteredUsers.length && <div className="empty-state"><LoaderCircle size={30} className="spin" /><h3>Đang tải thành viên</h3><p>Dữ liệu tài khoản đang được đồng bộ theo trang.</p></div>}
+        {!loading && !directoryLoading && filteredUsers.map((user, index) => <RoleDirectoryRow key={user.uid} user={user} assignment={assignments[user.uid]} index={index} tableGridStyle={tableGridStyle} visibleColumns={visibleColumns} currentUserUid={currentUserUid} canAssignRole={canAssignRole} canAssignSuperAdmin={canAssignSuperAdmin} isSaving={savingUid === user.uid} branches={branches} onChangeRole={changeRole} onOpenAccessEditor={openAccessEditor} onDeleteMember={openMemberDelete} />)}
+        {!loading && !directoryLoading && filteredUsers.length === 0 && <div className="empty-state"><Users size={30} /><h3>Không tìm thấy thành viên</h3><p>Thử đổi từ khóa hoặc bộ lọc tài khoản.</p></div>}
       </div>
+      {directoryError && <div className="identity-message identity-message--error" role="alert"><AlertCircle size={17} />Chưa thể tải danh sách phân trang. Hãy thử tải lại hoặc kiểm tra quyền quản trị.</div>}
+      {directoryHasMore.accounts && <div className="identity-directory-more"><button type="button" className="outline-button" onClick={() => void loadDirectoryPage('accounts', true)} disabled={directoryLoading}>{directoryLoading ? 'Đang tải...' : 'Tải thêm thành viên'}</button><small>Danh sách tải theo từng trang để không giữ hàng nghìn listener trên trình duyệt.</small></div>}
     </section>}
 
     {section === 'staff' && <section className="identity-section identity-staff">
@@ -668,11 +686,12 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
         return <article key={member.uid} className={isSuspended ? 'is-suspended' : ''}>
           <div className="identity-staff-card__head"><span className="identity-staff-card__person"><i>{initials(member.displayName, member.email)}</i><span><strong>{member.displayName || 'Chưa cập nhật tên'}</strong><small>{member.email || member.phoneNumber || 'Chưa cập nhật liên hệ'}</small></span></span><i className={`status-badge ${isSuspended ? 'attention' : 'published'}`}>{isSuspended ? 'Đã khóa' : 'Hoạt động'}</i></div>
           <div className="identity-staff-card__scope"><strong>{positions}</strong><span><MapPin size={13} />{assignedBranches.length ? assignedBranches.join(' · ') : 'Toàn hệ thống'}</span></div>
-          <div className="identity-staff-card__metrics"><span><small>PT chính</small><strong>{countManagedClients(member.uid, 'main')}</strong></span><span><small>Phối hợp</small><strong>{countManagedClients(member.uid, 'secondary')}</strong></span><span><small>Dinh dưỡng</small><strong>{countManagedClients(member.uid, 'nutrition')}</strong></span></div>
+          <div className="identity-staff-card__metrics"><span><small>PT chính</small><strong>{countManagedClients(member.uid, 'main') ?? '—'}</strong></span><span><small>Phối hợp</small><strong>{countManagedClients(member.uid, 'secondary') ?? '—'}</strong></span><span><small>Dinh dưỡng</small><strong>{countManagedClients(member.uid, 'nutrition') ?? '—'}</strong></span></div>
           <div className="identity-staff-card__facts"><span><WalletCards size={14} />{employmentTypeLabel(record.employmentType)}{record.employmentType === 'full_time' ? ` · ${employmentLevelLabel(record.employmentLevel)}` : ''}</span><span><ShieldCheck size={14} />{payrollPolicies.find((policy) => policy.id === record.payrollPolicyId)?.name || 'Chưa gán chính sách'}</span><span><CalendarClock size={14} />{Array.isArray(record.availableSlots) && record.availableSlots.length ? `${record.availableSlots.length} khung rảnh` : 'Chưa có lịch rảnh'}</span>{(assignment?.positions.includes('trainer_pt') || member.role === 'trainer' || record.role === 'trainer') && <span><SlidersHorizontal size={14} />Hạng {Number(record.schedulingPriority ?? record.priority ?? 100)} · mốc cân tải {Number(record.dailySessionTarget ?? 8)} ca/ngày</span>}</div>
           {canAssignRole && <div className="identity-staff-card__actions">{canEditAccess && <button type="button" className="identity-staff-card__primary" onClick={() => openAccessEditor(member, assignment)}><KeyRound size={15} />Quyền</button>}<button type="button" className="outline-button" onClick={() => openStaffEditor(member)}><CalendarClock size={15} />Hồ sơ</button>{!isSuspended && member.uid !== currentUserUid && <><button type="button" className="outline-button identity-staff-card__archive identity-staff-card__icon-action" aria-label={`Khóa ${member.displayName || member.email || 'nhân viên'}`} title="Khóa tài khoản" onClick={() => void suspendStaff(member)} disabled={savingUid === member.uid}><ShieldCheck size={16} /></button><button type="button" className="outline-button identity-staff-card__delete identity-staff-card__icon-action" aria-label={`Xóa ${member.displayName || member.email || 'nhân viên'}`} title="Xóa tài khoản" onClick={() => void deleteStaff(member)} disabled={savingUid === member.uid}><Trash2 size={16} /></button></>}</div>}
         </article>
       })}{!filteredStaffRows.length && <div className="empty-state"><Users size={30} /><h3>Không tìm thấy nhân viên</h3></div>}</div>
+      {directoryHasMore.staff && <div className="identity-directory-more"><button type="button" className="outline-button" onClick={() => void loadDirectoryPage('staff', true)} disabled={directoryLoading}>{directoryLoading ? 'Đang tải...' : 'Tải thêm nhân viên'}</button><small>Số liệu PT được trả từ projection vận hành; không tải toàn bộ hợp đồng về máy.</small></div>}
     </section>}
 
     {section === 'branches' && <section className="identity-section identity-branches">

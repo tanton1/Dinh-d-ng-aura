@@ -7,6 +7,7 @@ export const AURA_UI_SURFACES = [
   'admin-dashboard',
   'member-nutrition',
   'action-center',
+  'admin-student-directory',
 ] as const
 
 export type AuraUiSurface = typeof AURA_UI_SURFACES[number]

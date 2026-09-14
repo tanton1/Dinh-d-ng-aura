@@ -15,6 +15,7 @@ const surfaceLabels: Record<AuraUiSurface, string> = {
   'admin-dashboard': 'Admin Dashboard',
   'member-nutrition': 'Học viên · Dinh dưỡng',
   'action-center': 'Action Center · Tác vụ vận hành',
+  'admin-student-directory': 'Admin · Danh bạ học viên PT V2',
 }
 
 const audienceLabels: Record<AuraUiAudience, string> = {

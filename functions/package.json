@@ -16,7 +16,7 @@
     "test": "node --test pt-schedule-workflows.test.js nutrition-safety.test.js nutrition-plans.test.js identity-access.test.js nutrition-catalog-ids.test.js production-hardening.test.js nutrition.test.js nutrition-optimization.test.js health-coach.test.js apikey-fun.test.js generative-ai.test.js openrouter.test.js profile-defaults.test.js pt-policy.test.js pt-contract.test.js session-feedback.test.js pt-workout-tracking.test.js pt-schedule-publish.test.js pt-schedule-v2.test.js student-availability.test.js payroll.test.js staff-payroll.test.js referral-commission.test.js finance-ledger.test.js finance-recognition.test.js contract-usage.test.js contract-usage-view.test.js action-center.test.js package-management.test.js quote-management.test.js business-reporting.test.js operations-dashboard.test.js operations-dashboard-cache.test.js operations-dashboard-aggregates.test.js accounting-core.test.js cashbook.test.js session-operations.test.js security-contract.test.js academy-contract.test.js eat-clean.test.js nutrition-reviews.test.js contract-renewals.test.js student-360.test.js student-360-projection-writes.test.js meal-reminder-policy.test.js exercise-catalog.test.js aura-women-exercise-catalog.test.js aura-women-specialized-catalog.test.js schedule-load-policy.test.js loyalty.test.js"
   },
   "dependencies": {
-    "firebase-admin": "^14.3.0",
+    "firebase-admin": "14.4.0",
     "firebase-functions": "^7.3.2"
   }
 }

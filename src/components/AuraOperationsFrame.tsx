@@ -17,7 +17,7 @@ export default function AuraOperationsFrame({ children, className = '' }: AuraOp
   const { operationsSync } = useDatabase()
 
   return (
-    <section className={`aura-operations-page ${className}`.trim()}>
+    <section className={`aura-operations-page aura-ui-v4-surface aura-ui-v4-operations ${className}`.trim()}>
       <span className="aura-operations-page__orb aura-operations-page__orb--pink" aria-hidden="true" />
       <span className="aura-operations-page__orb aura-operations-page__orb--orange" aria-hidden="true" />
       <div className="aura-operations-page__content">

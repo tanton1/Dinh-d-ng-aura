@@ -6,7 +6,40 @@ const {
   initialPasswordFromPhone,
   loginEmailFromPhone,
   resolveStaffContactUpdate,
+  identityDirectoryPageSize,
+  identityDirectoryNextCursor,
+  identityDirectoryAssignment,
+  managedClientCountsFromContracts,
 } = require('./identity-access')
+
+test('identity directory pagination stays bounded and preserves legacy assignment semantics', () => {
+  assert.equal(identityDirectoryPageSize(undefined), 60)
+  assert.equal(identityDirectoryPageSize(1), 20)
+  assert.equal(identityDirectoryPageSize(500), 100)
+  assert.deepEqual(identityDirectoryAssignment({ role: 'trainer', branchId: 'branch-a' }), {
+    accessRole: 'staff',
+    positions: ['trainer_pt'],
+    branchIds: ['branch-a'],
+    status: 'active',
+  })
+})
+
+test('identity directory cursor advances past the complete inspected source window', () => {
+  const sourceDocuments = [{ id: 'user-a' }, { id: 'staff-b' }, { id: 'user-c' }, { id: 'staff-d' }]
+  assert.equal(identityDirectoryNextCursor(sourceDocuments, [{ user: { uid: 'user-a' } }, { user: { uid: 'user-c' } }], 2, true), 'user-c')
+  assert.equal(identityDirectoryNextCursor(sourceDocuments, [{ user: { uid: 'user-c' } }], 4, true), 'staff-d')
+  assert.equal(identityDirectoryNextCursor(sourceDocuments, [], 4, false), null)
+  assert.equal(identityDirectoryNextCursor([], [], 4, true), null)
+})
+
+test('staff directory summaries count active primary, secondary and nutrition assignments once', () => {
+  assert.deepEqual(managedClientCountsFromContracts('pt-1', [
+    { status: 'active', trainerId: 'pt-1' },
+    { status: 'future', trainerIds: ['other', 'pt-1'], nutritionPTIds: ['coach-1'] },
+    { status: 'frozen', secondaryTrainerId: 'pt-1', nutritionTrainerId: 'pt-1' },
+    { status: 'completed', trainerId: 'pt-1', nutritionTrainerId: 'pt-1' },
+  ]), { main: 1, secondary: 2, nutrition: 1 })
+})
 
 test('normalizes a Vietnamese phone for Firebase Auth', () => {
   assert.equal(normalizedPhone('090 123 4567'), '+84901234567')

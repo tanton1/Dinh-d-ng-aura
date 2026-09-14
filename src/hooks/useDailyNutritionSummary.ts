@@ -6,6 +6,7 @@ import {
   resolveDailyNutritionTargets,
 } from '../features/nutrition/dailyNutritionTargets'
 import { subscribeToUserMealLogsForDate } from '../services/firebaseNutritionLogService'
+import { readDailyNutritionCache, writeDailyNutritionCache } from '../features/nutrition/dailyNutritionSummaryCache'
 
 interface DailyMealSummary {
   date?: string
@@ -35,7 +36,13 @@ export function useDailyNutritionSummary(
       return
     }
     const today = localDateKey()
-    return subscribeToUserMealLogsForDate(ownerId, today, (items) => setMeals(items as DailyMealSummary[]), () => setMeals([]))
+    const cached = readDailyNutritionCache(ownerId, today)
+    if (cached) setMeals(cached.meals as DailyMealSummary[])
+    return subscribeToUserMealLogsForDate(ownerId, today, (items) => {
+      const next = items as DailyMealSummary[]
+      setMeals(next)
+      writeDailyNutritionCache(ownerId, today, { meals: next as any })
+    }, () => setMeals([]))
   }, [enabled, ownerId])
 
   return useMemo(() => {

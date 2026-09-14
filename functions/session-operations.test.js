@@ -21,6 +21,7 @@ const requestCenter = readFileSync(join(root, 'src', 'components', 'admin', 'pt'
 const historyWorkspace = readFileSync(join(root, 'src', 'components', 'admin', 'pt', 'TrainingHistoryWorkspace.tsx'), 'utf8')
 const historyPanel = readFileSync(join(root, 'src', 'components', 'admin', 'pt', 'TrainingHistoryPanel.tsx'), 'utf8')
 const branchScheduleWorkspace = readFileSync(join(root, 'src', 'components', 'schedule', 'BranchScheduleWorkspace.tsx'), 'utf8')
+const branchScheduleModel = readFileSync(join(root, 'src', 'features', 'schedule', 'workspaceModel.ts'), 'utf8')
 
 function clone(value) {
   return value === undefined ? undefined : JSON.parse(JSON.stringify(value))
@@ -1163,7 +1164,7 @@ test('request history resolves operational identities and current session revisi
 })
 
 test('new branch schedule keeps learners in a dedicated operational tab without restoring request tabs', () => {
-  assert.match(branchScheduleWorkspace, /WorkspaceTab = 'matrix' \| 'opportunities' \| 'students' \| 'warnings' \| 'history'/)
+  assert.match(`${branchScheduleModel}\n${branchScheduleWorkspace}`, /WorkspaceTab = 'matrix' \| 'opportunities' \| 'students' \| 'warnings' \| 'history'/)
   assert.match(branchScheduleWorkspace, /Kho ca/)
   assert.match(branchScheduleWorkspace, /Tiến độ xếp lịch/)
   assert.match(branchScheduleWorkspace, /Thiếu lịch rảnh/)

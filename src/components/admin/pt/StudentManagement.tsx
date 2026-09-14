@@ -11,9 +11,14 @@ import { useAuth } from '../../../contexts/AuthContext';
 import { provisionStudentAccount } from '../../../services/identityAccessService';
 import { recordContractPayment } from '../../../services/financeLedgerService';
 import { listCashAccounts, type CashAccount } from '../../../services/cashbookService';
+import { trackProductEvent } from '../../../services/analyticsService';
 import StudentRosterTable from './StudentRosterTable';
 import { studentEligibilityForWeek } from '../../../domain/pt/studentEligibility';
+import { useAuraUiSurface } from '../../../features/ui-rollout/AuraUiRolloutContext';
+import { lazyWithRetry } from '../../ChunkErrorBoundary';
 import './StudentManagement.css';
+
+const AdminStudentDirectoryV2 = lazyWithRetry(() => import('./AdminStudentDirectoryV2'));
 
 interface Props {
   user: User | null;
@@ -45,11 +50,12 @@ function adminStudentListMemory() {
 export default function StudentManagement({ user, profile, initialStudentId = null, initialSearchQuery = '', onOpenStudent360 }: Props) {
   const { authzReady, hasCapability } = useAuth();
   const { 
-    students, contracts, packages, trainers, branches, sessions, ptAvailability,
+    students, contracts, packages, trainers, branches, sessions, ptAvailability, operationsSync,
     updateStudent,
     addContract, updateContract, deleteContract,
   } = useDatabase();
   const canManageStudents = (authzReady && hasCapability('pt.operations.manage')) || import.meta.env.MODE === 'e2e';
+  const directoryV2 = useAuraUiSurface('admin-student-directory');
   const canInviteStudents = authzReady && hasCapability('identity.invite.manage');
   const canOpenStudentForm = canInviteStudents || import.meta.env.MODE === 'e2e';
   
@@ -89,6 +95,23 @@ export default function StudentManagement({ user, profile, initialStudentId = nu
   const [cashAccounts, setCashAccounts] = useState<CashAccount[]>([]);
   const filterInitializationRef = useRef(false);
   const listScrollRestoredRef = useRef(false);
+  const dataReadyStartedAtRef = useRef(typeof performance !== 'undefined' ? performance.now() : Date.now());
+  const dataReadyReportedRef = useRef(false);
+
+  useEffect(() => {
+    if (directoryV2) return;
+    if (dataReadyReportedRef.current || operationsSync.status !== 'ready') return;
+    dataReadyReportedRef.current = true;
+    const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    void trackProductEvent('data_ready', {
+      surface: 'admin_pt_students_legacy',
+      durationMs: Math.max(0, Math.round(now - dataReadyStartedAtRef.current)),
+      studentCount: students.length,
+      contractCount: contracts.length,
+      uiVersion: 3,
+    });
+  }, [contracts.length, directoryV2, operationsSync.status, students.length]);
+
 
   useEffect(() => {
     const nextQuery = initialSearchQuery.trim();
@@ -102,17 +125,19 @@ export default function StudentManagement({ user, profile, initialStudentId = nu
   // to the canonical route instead of rendering the legacy StudentDetail.
   useEffect(() => {
     if (!initialStudentId) return;
+    if (directoryV2) return;
     const student = students.find((item) => item.id === initialStudentId);
     if (student) onOpenStudent360(student.id, student.name || '');
-  }, [initialStudentId, onOpenStudent360, students]);
+  }, [directoryV2, initialStudentId, onOpenStudent360, students]);
 
   useEffect(() => {
+    if (directoryV2) return;
     let active = true;
     void listCashAccounts()
       .then((result) => { if (active) setCashAccounts(result.accounts.filter((item) => item.status === 'active')); })
       .catch(() => { if (active) setCashAccounts([]); });
     return () => { active = false; };
-  }, []);
+  }, [directoryV2]);
 
   const allowedStudents = useMemo(() => {
     // This legacy CRM reads admin-only collections. Never fall back to a
@@ -578,6 +603,10 @@ export default function StudentManagement({ user, profile, initialStudentId = nu
     setShowDeleteConfirm(false);
     setStudentToDelete(null);
   };
+
+  if (directoryV2) {
+    return <React.Suspense fallback={<div className="student-management__loading" role="status">Đang tải danh bạ học viên…</div>}><AdminStudentDirectoryV2 initialSearchQuery={initialSearchQuery} initialStudentId={initialStudentId} onOpenStudent360={onOpenStudent360} /></React.Suspense>;
+  }
 
   return (
     <div className="student-management space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-300">

@@ -566,7 +566,8 @@ test('legacy operations listeners are route scoped and never load the admin dash
   assert.match(viewScope, /'admin-schedule-settings': \['scheduleConfig', 'branches'\]/)
   assert.doesNotMatch(viewScope, /'admin-quotes':/, 'the quote facade must use its actor-scoped cursor API')
   assert.doesNotMatch(viewScope, /'admin-pt-schedule':/, 'the V2 schedule workspace must not attach any legacy collection listener')
-  assert.match(databaseContextSource, /const activeSources = new Set<LegacyOperationSource>\(LEGACY_OPERATIONS_VIEW_SOURCES\[operationsView\]\)/)
+  assert.match(databaseContextSource, /const activeSources = new Set<LegacyOperationSource>\(LEGACY_OPERATIONS_VIEW_SOURCES\[effectiveOperationsView\]\)/)
+  assert.match(databaseContextSource, /studentDirectoryV2Enabled/)
   assert.match(databaseContextSource, /const expectedInitialSnapshots = new Set<LegacyOperationSource>\(activeSources\)/)
 
   const scopedListenerCalls = databaseContextSource.match(/if \(activeSources\.has\('[^']+'\)\) unsubs\.push\(onSnapshot/g) ?? []
@@ -805,6 +806,21 @@ test('Student 360 is callable-only and redacts finance, photos and cross-role ac
   assert.match(functionsSource, /syncStudent360ProgressPhoto = student360Trigger\('users\/\{accountUid\}\/progressPhotos\/\{documentId\}'\)/)
   assert.match(functionsSource, /syncStudent360ProgressCheckIn = student360Trigger\('users\/\{accountUid\}\/progressCheckIns\/\{documentId\}'\)/)
   assert.match(student360Source, /progress_photos`\)\.select\('date', 'createdAt', 'updatedAt'\)/)
+})
+
+test('Identity directory is callable-only, cursor bounded, and returns staff summaries without client listeners', () => {
+  assert.match(functionsSource, /exports\.listIdentityDirectory = identityAccessFunctions\.listIdentityDirectory/)
+  assert.match(functionsSource, /exports\.syncStaffOperationalSummary = onDocumentWritten/)
+  assert.match(functionsSource, /staffIdsFromContract\(before\)/)
+  assert.match(identityAccessSource, /const listIdentityDirectory = onCall/)
+  assert.match(identityAccessSource, /requireCapability\(actor, 'identity\.staff_position\.manage'\)/)
+  assert.match(identityAccessSource, /identityDirectoryPageSize\(request\.data\?\.pageSize\)/)
+  assert.match(identityAccessSource, /const sourceLimit = section === 'staff' \? pageSize \+ 1 : Math\.min\(301, pageSize \* 3 \+ 1\)/)
+  assert.match(identityAccessSource, /limit\(sourceLimit\)/)
+  assert.match(identityAccessSource, /identityDirectoryNextCursor\(sourceDocuments, pageEntries, pageSize, hasMore\)/)
+  assert.match(identityAccessSource, /startAfter\(cursor\)/)
+  assert.match(identityAccessSource, /staffOperationalSummaries\//)
+  assert.doesNotMatch(adminRolesSource, /onSnapshot\(firestoreQuery\(collection\(firestoreDb, 'roleAssignments'/)
 })
 
 test('PT schedule migration is target-only, digest-gated, create-only for drafts and preserves sessions', () => {

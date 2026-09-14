@@ -39,7 +39,7 @@ if (!isStudent360Discovery) {
   ;({ createExerciseCatalogFunctions } = require('./exercise-catalog'))
 }
 const { buildCompletedOnboardingDefaultsPatch } = require('./profile-defaults')
-const { createIdentityAccessFunctions } = require('./identity-access')
+const { createIdentityAccessFunctions, refreshStaffManagedClientSummary, staffIdsFromContract } = require('./identity-access')
 const { createPtOperationsV2Functions } = require('./pt-operations-v2')
 const { createSessionFeedbackFunctions } = require('./session-feedback')
 const { createPtSchedulePublishFunctions } = require('./pt-schedule-publish')
@@ -508,6 +508,21 @@ if (!isStudent360Discovery && !isExerciseCatalogDiscovery) {
 const identityAccessFunctions = createIdentityAccessFunctions({ db, auth, onCall, logger })
 Object.assign(exports, identityAccessFunctions)
 exports.getMyAccessContext = identityAccessFunctions.getMyAccessContext
+exports.listIdentityDirectory = identityAccessFunctions.listIdentityDirectory
+exports.syncStaffOperationalSummary = onDocumentWritten({
+  document: 'contracts/{contractId}',
+  database: databaseId,
+  region: 'asia-southeast1',
+  cpu: 'gcf_gen1',
+  maxInstances: 2,
+  retry: true,
+}, async (event) => {
+  const before = event.data?.before?.exists ? event.data.before.data() || {} : {}
+  const after = event.data?.after?.exists ? event.data.after.data() || {} : {}
+  const staffIds = [...new Set([...staffIdsFromContract(before), ...staffIdsFromContract(after)])].slice(0, 20)
+  await Promise.all(staffIds.map((uid) => refreshStaffManagedClientSummary(db, uid)))
+  return { refreshed: staffIds.length }
+})
 // The Firebase CLI can selectively deploy these public account endpoints only
 // when it can discover them as static exports.  Keeping the factory assignment
 // preserves existing exports while avoiding a quota-heavy full Functions deploy.
@@ -998,6 +1013,7 @@ const auraUiSurfaces = [
   'admin-dashboard',
   'member-nutrition',
   'action-center',
+  'admin-student-directory',
 ]
 const auraUiSurfaceSet = new Set(auraUiSurfaces)
 const auraUiAudienceSet = new Set(['off', 'admin', 'staff', 'all'])
@@ -3058,6 +3074,8 @@ const productEventNames = new Set([
   'eat_clean_order_created',
   'eat_clean_consumption_confirmed',
   'admin_dashboard_loaded',
+  'route_loaded',
+  'data_ready',
 ])
 
 const clientIssueAreas = new Set(['auth', 'gemini', 'openrouter', 'apikey_fun', 'firestore', 'push', 'ui'])

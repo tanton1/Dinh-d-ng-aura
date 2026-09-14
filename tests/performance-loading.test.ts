@@ -38,3 +38,14 @@ test('heavy route assets remain behind their interaction boundaries', () => {
   assert.match(preloader, /'admin-finance': \(\) => import\('\.\.\/components\/admin\/pt\/AdminFinanceHub'\)/)
   assert.doesNotMatch(preloader, /features\/eat-clean\/pages\/EatCleanPage/)
 })
+
+test('Student directory V2 disables the broad legacy roster listeners only when its flag is enabled', () => {
+  const database = readFileSync('src/contexts/DatabaseContext.tsx', 'utf8')
+  const directory = readFileSync('src/components/admin/pt/StudentManagement.tsx', 'utf8')
+  const directoryV2 = readFileSync('src/components/admin/pt/AdminStudentDirectoryV2.tsx', 'utf8')
+  assert.match(database, /studentDirectoryV2Enabled = isAuraUiSurfaceEnabled\('admin-student-directory'\)/)
+  assert.match(database, /effectiveOperationsView = auraUiRolloutLoading \|\| \(operationsView === 'admin-pt-students' && studentDirectoryV2Enabled\)/)
+  assert.match(database, /LEGACY_OPERATIONS_VIEW_SOURCES\[effectiveOperationsView\]/)
+  assert.match(directoryV2, /listStudent360Directory/)
+  assert.match(directory, /if \(directoryV2\) return/)
+})

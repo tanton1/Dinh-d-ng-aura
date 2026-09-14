@@ -1,4 +1,4 @@
-const { FieldValue, Timestamp } = require('firebase-admin/firestore')
+const { FieldPath, FieldValue, Timestamp } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
 // Firebase deploy packages only the functions/ directory. Keep the deployable
 // copy here and contract-test it against shared/identity in this repository.
@@ -198,6 +198,161 @@ function publicAccessContext(uid, value) {
     authzVersion,
     status,
   }
+}
+
+const identityDirectorySummaryCache = { expiresAt: 0, value: null }
+const identityDirectoryPageSizes = { minimum: 20, maximum: 100, fallback: 60 }
+const activeContractStatuses = new Set(['active', 'future', 'frozen'])
+
+function identityDirectoryPageSize(value) {
+  const parsed = Number(value)
+  if (!Number.isInteger(parsed)) return identityDirectoryPageSizes.fallback
+  return Math.min(identityDirectoryPageSizes.maximum, Math.max(identityDirectoryPageSizes.minimum, parsed))
+}
+
+function identityDirectoryNextCursor(sourceDocuments, pageEntries, pageSize, hasMore) {
+  if (!hasMore || !Array.isArray(sourceDocuments) || !sourceDocuments.length) return null
+  if (Array.isArray(pageEntries) && pageEntries.length >= pageSize) {
+    return pageEntries.at(-1)?.user?.uid || null
+  }
+  return sourceDocuments.at(-1)?.id || null
+}
+
+function identityDirectoryDate(value) {
+  if (typeof value === 'string') return value.slice(0, 80)
+  if (value && typeof value.toDate === 'function') return value.toDate().toISOString()
+  if (value instanceof Date) return value.toISOString()
+  return ''
+}
+
+function identityDirectoryRole(value) {
+  return typeof value === 'string' && legacyRoleToAccess[value] ? value : 'student'
+}
+
+function identityDirectoryUser(uid, profile = {}) {
+  return {
+    uid,
+    displayName: boundedString(profile.displayName ?? profile.name, 'Tên tài khoản', 160, false),
+    email: boundedString(profile.email, 'Email tài khoản', 320, false),
+    phoneNumber: boundedString(profile.phoneNumber ?? profile.phone, 'Số điện thoại tài khoản', 40, false),
+    role: identityDirectoryRole(profile.role),
+    photoURL: boundedString(profile.photoURL ?? profile.photoUrl, 'Ảnh đại diện', 2_000, false) || null,
+    membership: ['free', 'pro', 'coach'].includes(profile.membership) ? profile.membership : 'free',
+    status: profile.disabled === true ? 'disabled' : profile.status === 'invited' ? 'invited' : 'active',
+    lastActive: identityDirectoryDate(profile.lastActive ?? profile.updatedAt),
+  }
+}
+
+function identityDirectoryAssignment(profile = {}, assignment = null) {
+  const legacy = legacyIdentity(identityDirectoryRole(profile.role))
+  const source = assignment || {
+    ...legacy,
+    branchIds: profile.branchId ? [profile.branchId] : [],
+    status: profile.disabled === true ? 'suspended' : 'active',
+  }
+  return {
+    accessRole: accessRoles.has(source.accessRole) ? source.accessRole : legacy.accessRole,
+    positions: normalizedPositions(Array.isArray(source.positions) ? source.positions : legacy.positions),
+    branchIds: normalizedBranchIds(Array.isArray(source.branchIds) ? source.branchIds : []),
+    status: ['active', 'suspended', 'invited'].includes(source.status) ? source.status : 'active',
+  }
+}
+
+function identityDirectoryStaffRecord(staff = {}, trainer = {}) {
+  const source = { ...trainer, ...staff }
+  const safeSchedulingFallback = {
+    ...source,
+    schedulingPriority: Number.isInteger(source.schedulingPriority ?? source.priority)
+      && Number(source.schedulingPriority ?? source.priority) >= 1
+      && Number(source.schedulingPriority ?? source.priority) <= 999
+      ? Number(source.schedulingPriority ?? source.priority)
+      : 100,
+    dailySessionTarget: Number.isInteger(source.dailySessionTarget)
+      && Number(source.dailySessionTarget) >= 1
+      && Number(source.dailySessionTarget) <= 12
+      ? Number(source.dailySessionTarget)
+      : 8,
+  }
+  const scheduling = normalizedTrainerSchedulingPolicy({}, safeSchedulingFallback)
+  return {
+    availableSlots: Array.isArray(source.availableSlots)
+      ? source.availableSlots.filter((slot) => typeof slot === 'string').slice(0, 168)
+      : [],
+    slotCapacity: Number.isInteger(source.slotCapacity) ? Math.min(4, Math.max(1, Number(source.slotCapacity))) : 2,
+    schedulingPriority: scheduling.schedulingPriority,
+    dailySessionTarget: scheduling.dailySessionTarget,
+    name: boundedString(source.name, 'Tên nhân viên', 160, false),
+    email: boundedString(source.email, 'Email nhân viên', 320, false),
+    phone: boundedString(source.phone, 'Số điện thoại nhân viên', 40, false),
+    role: boundedString(source.role, 'Vai trò nhân viên', 80, false),
+    status: boundedString(source.status, 'Trạng thái nhân viên', 40, false),
+    employmentType: normalizedEmploymentType(source.employmentType),
+    employmentLevel: normalizedEmploymentLevel(source.employmentLevel),
+    payrollPolicyId: boundedString(source.payrollPolicyId, 'Chính sách lương', 200, false),
+    baseSalary: Math.max(0, Number(source.baseSalary || 0)),
+    bonusMonthly: Math.max(0, Number(source.bonusMonthly || 0)),
+    commissionRate: Math.max(0, Number(source.commissionRate || 0)),
+    commissionPerSession: 0,
+  }
+}
+
+function managedClientCountsFromContracts(uid, contracts) {
+  const counts = { main: 0, secondary: 0, nutrition: 0 }
+  contracts.forEach((contract) => {
+    if (!activeContractStatuses.has(contract.status)) return
+    const trainerIds = Array.isArray(contract.trainerIds) ? contract.trainerIds : []
+    if (contract.trainerId === uid || trainerIds[0] === uid) counts.main += 1
+    if (contract.secondaryTrainerId === uid || trainerIds.slice(1).includes(uid)) counts.secondary += 1
+    if (contract.nutritionTrainerId === uid
+      || (Array.isArray(contract.nutritionTrainerIds) && contract.nutritionTrainerIds.includes(uid))
+      || (Array.isArray(contract.nutritionPTIds) && contract.nutritionPTIds.includes(uid))) counts.nutrition += 1
+  })
+  return counts
+}
+
+async function refreshStaffManagedClientSummary(db, uid) {
+  const queries = [
+    db.collection('contracts').where('trainerId', '==', uid).limit(750).get(),
+    db.collection('contracts').where('secondaryTrainerId', '==', uid).limit(750).get(),
+    db.collection('contracts').where('trainerIds', 'array-contains', uid).limit(750).get(),
+    db.collection('contracts').where('nutritionTrainerId', '==', uid).limit(750).get(),
+    db.collection('contracts').where('nutritionTrainerIds', 'array-contains', uid).limit(750).get(),
+    db.collection('contracts').where('nutritionPTIds', 'array-contains', uid).limit(750).get(),
+  ]
+  const snapshots = await Promise.all(queries)
+  const contracts = new Map()
+  snapshots.forEach((snapshot) => snapshot.docs.forEach((document) => contracts.set(document.id, document.data() || {})))
+  const counts = managedClientCountsFromContracts(uid, [...contracts.values()])
+  const truncated = snapshots.some((snapshot) => snapshot.size >= 750)
+  await db.doc(`staffOperationalSummaries/${uid}`).set({
+    schemaVersion: 1,
+    staffUid: uid,
+    managedClientCounts: counts,
+    source: 'contracts',
+    truncated,
+    generatedAt: FieldValue.serverTimestamp(),
+  }, { merge: true })
+  return { ...counts, stale: false, truncated }
+}
+
+async function identityDirectorySummary(db) {
+  if (identityDirectorySummaryCache.value && identityDirectorySummaryCache.expiresAt > Date.now()) {
+    return identityDirectorySummaryCache.value
+  }
+  const [accounts, staff, admins, superAdmins] = await Promise.all([
+    db.collection('users').count().get(),
+    db.collection('roleAssignments').where('accessRole', '==', 'staff').count().get(),
+    db.collection('roleAssignments').where('accessRole', '==', 'admin').count().get(),
+    db.collection('roleAssignments').where('accessRole', '==', 'super_admin').count().get(),
+  ])
+  const value = {
+    accounts: Number(accounts.data().count || 0),
+    staff: Number(staff.data().count || 0),
+    admins: Number(admins.data().count || 0) + Number(superAdmins.data().count || 0),
+  }
+  identityDirectorySummaryCache.value = value
+  identityDirectorySummaryCache.expiresAt = Date.now() + 5 * 60 * 1000
+  return value
 }
 
 async function trustedAccessContext(request, db) {
@@ -599,6 +754,93 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
   const getMyAccessContext = onCall(async (request) => ({
     accessContext: await trustedAccessContext(request, db),
   }))
+
+  const listIdentityDirectory = onCall(async (request) => {
+    const actor = await trustedAccessContext(request, db)
+    requireCapability(actor, 'identity.staff_position.manage')
+    const section = request.data?.section === 'staff' ? 'staff' : 'accounts'
+    const pageSize = identityDirectoryPageSize(request.data?.pageSize)
+    const cursor = request.data?.cursor ? documentId(request.data.cursor, 'Trang danh sách') : ''
+    let sourceQuery = section === 'staff'
+      ? db.collection('roleAssignments').where('accessRole', '==', 'staff').orderBy(FieldPath.documentId())
+      : db.collection('users').orderBy(FieldPath.documentId())
+    if (cursor) sourceQuery = sourceQuery.startAfter(cursor)
+    // Account pages exclude staff/admin records after the server-side join.
+    // Read a bounded window so a mixed users collection still returns a full
+    // page of members without reopening the old client-side listeners.
+    const sourceLimit = section === 'staff' ? pageSize + 1 : Math.min(301, pageSize * 3 + 1)
+    const sourceSnapshot = await sourceQuery.limit(sourceLimit).get()
+    const sourceDocuments = sourceSnapshot.docs.slice(0, sourceLimit - 1)
+    const sourceHasMore = sourceSnapshot.docs.length > sourceDocuments.length
+    const uids = sourceDocuments.map((document) => document.id)
+    const [profiles, assignments, staffRecords, trainerRecords, summaries] = uids.length
+      ? await Promise.all([
+        db.getAll(...uids.map((uid) => db.doc(`users/${uid}`))),
+        db.getAll(...uids.map((uid) => db.doc(`roleAssignments/${uid}`))),
+        db.getAll(...uids.map((uid) => db.doc(`staff/${uid}`))),
+        db.getAll(...uids.map((uid) => db.doc(`trainers/${uid}`))),
+        section === 'staff'
+          ? db.getAll(...uids.map((uid) => db.doc(`staffOperationalSummaries/${uid}`)))
+          : Promise.resolve([]),
+      ])
+      : [[], [], [], [], []]
+    const summaryByUid = new Map(summaries.map((snapshot) => [snapshot.id, snapshot]))
+    if (section === 'staff') {
+      const missingOrStale = uids.filter((uid) => {
+        const snapshot = summaryByUid.get(uid)
+        if (!snapshot?.exists) return true
+        const generatedAt = snapshot.data()?.generatedAt
+        const generatedAtMs = generatedAt && typeof generatedAt.toMillis === 'function' ? generatedAt.toMillis() : 0
+        return generatedAtMs < Date.now() - 6 * 60 * 60 * 1000
+      }).slice(0, 25)
+      const refreshed = await Promise.all(missingOrStale.map(async (uid) => {
+        try { return [uid, await refreshStaffManagedClientSummary(db, uid)] }
+        catch (error) {
+          logger?.warn?.('identity_directory_staff_summary_failed', { uid, code: error?.code || 'unknown' })
+          return [uid, null]
+        }
+      }))
+      refreshed.forEach(([uid, value]) => {
+        if (value) summaryByUid.set(uid, { exists: true, data: () => ({ managedClientCounts: value }) })
+      })
+    }
+    const entries = uids.map((uid, index) => {
+      const profile = profiles[index]?.exists ? profiles[index].data() || {} : {}
+      const assignmentValue = assignments[index]?.exists ? assignments[index].data() || {} : null
+      const assignment = identityDirectoryAssignment(profile, assignmentValue)
+      const summarySnapshot = summaryByUid.get(uid)
+      const summaryValue = summarySnapshot?.exists ? summarySnapshot.data() || {} : {}
+      return {
+        user: identityDirectoryUser(uid, profile),
+        assignment,
+        staffOperations: section === 'staff'
+          ? identityDirectoryStaffRecord(staffRecords[index]?.data() || {}, trainerRecords[index]?.data() || {})
+          : null,
+        managedClientCounts: section === 'staff' && summaryValue.managedClientCounts
+          ? {
+            main: Math.max(0, Number(summaryValue.managedClientCounts.main || 0)),
+            secondary: Math.max(0, Number(summaryValue.managedClientCounts.secondary || 0)),
+            nutrition: Math.max(0, Number(summaryValue.managedClientCounts.nutrition || 0)),
+            stale: summaryValue.managedClientCounts.stale === true,
+            truncated: summaryValue.managedClientCounts.truncated === true || summaryValue.truncated === true,
+          }
+          : null,
+      }
+    }).filter((entry) => section === 'staff' || entry.assignment.accessRole !== 'staff')
+    const pageEntries = entries.slice(0, pageSize)
+    const hasMore = entries.length > pageSize || sourceHasMore
+    // The cursor must advance past hidden staff/admin rows already inspected,
+    // while stopping at the last visible entry when this window contains more
+    // than one member page. This avoids both duplicate rows and skipped users.
+    const nextCursor = identityDirectoryNextCursor(sourceDocuments, pageEntries, pageSize, hasMore)
+    return {
+      entries: pageEntries,
+      hasMore,
+      nextCursor,
+      summary: await identityDirectorySummary(db),
+      pageSize,
+    }
+  })
 
   const listInternalNutritionCatalog = onCall(async (request) => {
     await trustedAccessContext(request, db)
@@ -1503,6 +1745,7 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
 
   return {
     getMyAccessContext,
+    listIdentityDirectory,
     listInternalNutritionCatalog,
     getInternalNutritionCatalogItem,
     createAccountInvite,
@@ -1529,6 +1772,11 @@ module.exports = {
   requireCapability,
   normalizedTrainerSchedulingPolicy,
   normalizedPhone,
+  identityDirectoryPageSize,
+  identityDirectoryNextCursor,
+  identityDirectoryAssignment,
+  managedClientCountsFromContracts,
+  refreshStaffManagedClientSummary,
   resolveStaffContactUpdate,
   initialPasswordFromPhone,
   loginEmailFromPhone,

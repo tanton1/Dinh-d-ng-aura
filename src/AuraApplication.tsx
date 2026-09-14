@@ -48,6 +48,7 @@ import './styles.css'
 import './styles-aura.css'
 import './styles-ai-coach.css'
 import './styles-ui-v4.css'
+import './styles-aura-tokens.css'
 import { AuraUiRolloutProvider } from './features/ui-rollout/AuraUiRolloutContext'
 
 const AdminAcademyStudentsPage = lazyWithRetry(() => import('./pages/admin/AdminAcademyStudentsPage'))
@@ -159,7 +160,10 @@ function resolveCanonicalNutritionProfile(profile: any, localProfile: NutritionP
 
 const learnerAcademyViews = new Set<ViewId>(['courses', 'course-detail'])
 const adminAcademyViews = new Set<ViewId>(['admin-courses', 'admin-course-editor', 'admin-academy-students', 'admin-students'])
-const adminDirectoryViews = new Set<ViewId>(['admin-academy-students', 'admin-students', 'admin-roles', 'admin-hr', 'admin-notifications'])
+// Admin HR owns its own bounded cursor directory. Keeping it out of the
+// application-wide directory subscription prevents roleAssignments/users
+// listeners from opening before the HR surface is actually used.
+const adminDirectoryViews = new Set<ViewId>(['admin-academy-students', 'admin-students', 'admin-notifications'])
 const adminAcademyAnalyticsViews = new Set<ViewId>(['admin-courses', 'admin-academy-students', 'admin-students'])
 
 function AuraApplication() {
@@ -190,6 +194,10 @@ function AuraApplication() {
   const [adminCourseAnalytics, setAdminCourseAnalytics] = useState<CourseAnalytics[]>([])
   const [globalSearchQuery, setGlobalSearchQuery] = useState('')
   const [staffStudentFocus, setStaffStudentFocus] = useState<{ id: string; name: string } | null>(null)
+  const routeStartedAtRef = useRef(typeof performance !== 'undefined' ? performance.now() : Date.now())
+  const markRouteStarted = () => {
+    routeStartedAtRef.current = typeof performance !== 'undefined' ? performance.now() : Date.now()
+  }
   const [localNutritionProfile, setLocalNutritionProfile] = useState<NutritionProfileDraft | null>(null)
   const [forceOnboarding, setForceOnboarding] = useState(false)
   const [localProfile, setLocalProfile] = useState<ProfileUpdateInput | null>(null)
@@ -360,6 +368,17 @@ function AuraApplication() {
   }, [backendMode, route.courseId, user, view])
 
   useEffect(() => {
+    if (!user || backendMode !== 'firebase') return
+    const now = typeof performance !== 'undefined' ? performance.now() : Date.now()
+    const durationMs = Math.max(0, Math.round(now - routeStartedAtRef.current))
+    void trackProductEvent('route_loaded', {
+      view,
+      durationMs,
+      ...(route.courseId ? { hasResource: true } : {}),
+    })
+  }, [backendMode, route.courseId, user, view])
+
+  useEffect(() => {
     routeRef.current = route
   }, [route])
 
@@ -393,6 +412,7 @@ function AuraApplication() {
         courseNoteDirtyRef.current = false
         setCourseNoteDirty(false)
       }
+      markRouteStarted()
       routeRef.current = nextRoute
       setRoute(nextRoute)
     }
@@ -433,6 +453,7 @@ function AuraApplication() {
     if (routeChanges && unsavedWarning && !window.confirm(unsavedWarning)) return
     if (routeChanges && route.view === 'admin-course-editor') setEditorDirty(false)
     if (routeChanges && route.view === 'course-detail') setCourseNoteDirty(false)
+    if (routeChanges) markRouteStarted()
     routeRef.current = nextRoute
     setRoute(nextRoute)
     const nextHash = canonicalRouteHash(next, courseId, lessonId)
@@ -460,6 +481,7 @@ function AuraApplication() {
       loyaltyTab: 'rewards',
     }
     setStaffStudentFocus({ id: studentId, name: studentName })
+    markRouteStarted()
     routeRef.current = nextRoute
     setRoute(nextRoute)
     const nextHash = student360RouteHash(studentId, source)
@@ -485,6 +507,7 @@ function AuraApplication() {
         loyaltyTab: 'rewards',
       }
       setStaffStudentFocus({ id: studentId, name: studentName || '' })
+      markRouteStarted()
       routeRef.current = nextRoute
       setRoute(nextRoute)
       const nextHash = progressPhotoStudioRouteHash(studentId, source)
@@ -497,7 +520,10 @@ function AuraApplication() {
   }
   const navigateEatClean = (screen: AuraRoute['eatCleanScreen'] = 'store', resourceId?: string | null) => {
     const nextHash = eatCleanRouteHash(screen, resourceId)
-    if (window.location.hash !== nextHash) window.location.hash = nextHash
+    if (window.location.hash !== nextHash) {
+      markRouteStarted()
+      window.location.hash = nextHash
+    }
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
   const navigateEatCleanRoute = (next: EatCleanRoute) => {
@@ -1215,7 +1241,6 @@ function AuraApplication() {
   }
 
   return (
-    <AuraUiRolloutProvider userId={user?.uid ?? 'demo'} role={role} demo={backendMode === 'demo'}>
     <AppShell
       mode={mode}
       view={view}
@@ -1258,7 +1283,6 @@ function AuraApplication() {
         </Suspense>
       </ChunkErrorBoundary>
     </AppShell>
-    </AuraUiRolloutProvider>
   )
 }
 
@@ -1291,9 +1315,13 @@ function BookOpenIcon() {
 }
 
 export default function AuthenticatedAuraApplication() {
+  const { user, role, backendMode } = useAuth()
+
   return (
-    <DatabaseProvider>
-      <AuraApplication />
-    </DatabaseProvider>
+    <AuraUiRolloutProvider userId={user?.uid ?? 'demo'} role={role} demo={backendMode === 'demo'}>
+      <DatabaseProvider>
+        <AuraApplication />
+      </DatabaseProvider>
+    </AuraUiRolloutProvider>
   )
 }
