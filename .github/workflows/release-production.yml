@@ -232,7 +232,10 @@ jobs:
           IFS=',' read -ra TARGETS <<< "$BACKEND_FUNCTIONS"
           for FUNCTION_NAME in "${TARGETS[@]}"; do
             echo "Deploying ${FUNCTION_NAME}..."
-            if ! npx --yes firebase-tools@15.9.1 deploy --only "functions:${FUNCTION_NAME}" --project gen-lang-client-0815966909 --non-interactive; then
+            # Explicit backend targets are already reviewed by the release
+            # input. `--force` confirms Firebase's retry-policy prompt for
+            # idempotent triggers without broadening the deployment scope.
+            if ! npx --yes firebase-tools@15.9.1 deploy --only "functions:${FUNCTION_NAME}" --project gen-lang-client-0815966909 --non-interactive --force; then
               rollback_previous "$FUNCTION_NAME"
               exit 1
             fi
