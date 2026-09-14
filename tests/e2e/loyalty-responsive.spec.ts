@@ -39,7 +39,8 @@ for (const width of [360, 390, 430]) {
 
     await expect(page.getByRole('heading', { name: 'Trung tâm Aura Club' })).toBeVisible()
     const metrics = page.getByRole('region', { name: 'Chỉ số Aura Club' })
-    await expect(metrics.locator('article')).toHaveCount(4)
+    await expect(metrics.locator('.aura-metric-carousel__slide')).toHaveCount(4)
+    await expect(metrics.getByRole('button', { name: /Xem thẻ 2:/ })).toBeVisible()
     await expect(page.getByRole('heading', { name: /Yêu cầu cần xử lý/ })).toBeVisible()
     await expect(page.getByRole('navigation', { name: 'Nghiệp vụ Aura Club' })).toBeVisible()
 

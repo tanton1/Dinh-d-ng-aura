@@ -1,8 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   AlertTriangle,
-  ArrowDownRight,
-  ArrowUpRight,
   CheckCircle2,
   Clock3,
   Coins,
@@ -26,6 +24,7 @@ import {
 } from './loyaltyService'
 import type { LoyaltyAdminDashboard, LoyaltyBackfillSummary, LoyaltyDashboard, LoyaltyPolicyConfig } from './types'
 import AdminLoyaltyOperations from './AdminLoyaltyOperations'
+import AuraMetricCarousel, { type AuraMetricSlide } from '../../components/admin/pt/AuraMetricCarousel'
 import './loyalty.css'
 import './loyalty-admin.css'
 
@@ -63,6 +62,7 @@ function demoDashboard(): LoyaltyAdminDashboard {
     scope: 'all',
     metrics: {
       memberCount: 326,
+      walletCount: 15,
       availablePoints: 84_200,
       pendingPoints: 12_460,
       reservedPoints: 3_200,
@@ -226,6 +226,48 @@ export default function AdminLoyaltyPage({
   if (!dashboard) return <div className="loyalty-state loyalty-state--error" role="alert"><AlertTriangle /><strong>Chưa thể tải Aura Club</strong><span>{error}</span><button type="button" onClick={() => void load()}>Thử lại</button></div>
 
   const metrics = dashboard.metrics
+  const metricSlides: AuraMetricSlide[] = [
+    {
+      id: 'members',
+      eyebrow: 'Thành viên Aura Club',
+      value: formatNumber(metrics.memberCount),
+      detail: `${formatNumber(metrics.walletCount ?? metrics.memberCount)} ví đã khởi tạo · Toàn hệ thống`,
+      icon: <Users />,
+      tone: 'pink',
+      actionLabel: 'Mở ví thành viên',
+      onSelect: () => document.getElementById('loyalty-accounts')?.scrollIntoView({ behavior: 'smooth', block: 'start' }),
+    },
+    {
+      id: 'available-points',
+      eyebrow: 'Điểm khả dụng',
+      value: formatNumber(metrics.availablePoints),
+      detail: `${formatNumber(metrics.pendingPoints)} điểm đang chờ xác nhận`,
+      icon: <Coins />,
+      tone: 'orange',
+      actionLabel: 'Xem tổng quan điểm',
+      onSelect: () => document.getElementById('loyalty-accounts')?.scrollIntoView({ behavior: 'smooth', block: 'start' }),
+    },
+    {
+      id: 'redeemed',
+      eyebrow: 'Đã đổi thưởng',
+      value: formatNumber(metrics.lifetimeRedeemedPoints),
+      detail: `${formatNumber(metrics.pendingRedemptions)} yêu cầu đang cần xử lý`,
+      icon: <Gift />,
+      tone: metrics.pendingRedemptions > 0 ? 'sunset' : 'orange',
+      actionLabel: metrics.pendingRedemptions > 0 ? 'Mở hàng chờ xử lý' : 'Xem lịch sử đổi',
+      onSelect: () => document.getElementById('loyalty-redemption-queue')?.scrollIntoView({ behavior: 'smooth', block: 'start' }),
+    },
+    {
+      id: 'liability',
+      eyebrow: 'Nghĩa vụ điểm',
+      value: formatMoney(metrics.outstandingNominalValueVnd),
+      detail: `${formatMoney(policyConfig.pointValueVnd)} giá trị danh nghĩa mỗi điểm · ${formatNumber(metrics.debtPoints)} điểm âm`,
+      icon: <WalletCards />,
+      tone: 'ink',
+      actionLabel: 'Kiểm tra ví & đối soát',
+      onSelect: () => document.getElementById('loyalty-accounts')?.scrollIntoView({ behavior: 'smooth', block: 'start' }),
+    },
+  ]
   return (
     <div className="loyalty-admin">
       <header className="loyalty-admin__header">
@@ -237,10 +279,7 @@ export default function AdminLoyaltyPage({
       {notice ? <div className="loyalty-inline-notice" role="status"><CheckCircle2 size={17} /> {notice}</div> : null}
 
       <section className="loyalty-admin__metrics" aria-label="Chỉ số Aura Club">
-        <article><span><Users /> Thành viên</span><strong>{formatNumber(metrics.memberCount)}</strong><small><ArrowUpRight /> Toàn hệ thống</small></article>
-        <article><span><Coins /> Điểm khả dụng</span><strong>{formatNumber(metrics.availablePoints)}</strong><small>{formatNumber(metrics.pendingPoints)} điểm đang chờ</small></article>
-        <article className={metrics.pendingRedemptions > 0 ? 'is-attention' : ''}><span><Gift /> Đã đổi</span><strong>{formatNumber(metrics.lifetimeRedeemedPoints)}</strong><small>{metrics.pendingRedemptions} yêu cầu cần xử lý</small></article>
-        <article className="is-liability"><span><WalletCards /> Nghĩa vụ điểm</span><strong>{formatMoney(metrics.outstandingNominalValueVnd)}</strong><small><ArrowDownRight /> {formatMoney(policyConfig.pointValueVnd)} mỗi điểm</small></article>
+        <AuraMetricCarousel slides={metricSlides} label="Bốn chỉ số Aura Club" loading={loading && !dashboard} />
       </section>
 
       {metrics.debtPoints > 0 ? <aside className="loyalty-admin-risk"><AlertTriangle /><div><strong>{formatNumber(metrics.debtPoints)} điểm nghĩa vụ đang âm</strong><span>Tài khoản liên quan tạm khóa đổi thưởng đến khi có điểm mới hoặc được Admin đối soát.</span></div></aside> : null}

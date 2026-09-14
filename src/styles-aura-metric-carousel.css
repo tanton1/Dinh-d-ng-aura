@@ -54,7 +54,7 @@ button.aura-metric-carousel__slide:focus-visible { outline: 3px solid rgba(246,4
   .aura-metric-carousel__dots { display: none; }
 }
 @media (max-width: 680px) {
-  .aura-metric-carousel__viewport { grid-auto-columns: min(84vw, 324px); gap: 9px; margin-inline: -2px; padding-bottom: 10px; }
+  .aura-metric-carousel__viewport { grid-auto-columns: min(84vw, 324px); gap: 9px; margin-inline: 0; padding: 2px 14px 10px; scroll-padding-inline: 14px; }
   .aura-metric-carousel__slide { min-height: 166px; padding: 16px; border-radius: 22px; }
   .aura-metric-carousel__slide strong { font-size: 23px; }
 }

@@ -158,6 +158,7 @@ export interface LoyaltyAdminDashboard {
   scope: 'all' | string[]
   metrics: {
     memberCount: number
+    walletCount?: number
     availablePoints: number
     pendingPoints: number
     reservedPoints: number
@@ -200,6 +201,15 @@ export interface LoyaltyBackfillBatchResult {
 export interface LoyaltyAdminAccount extends LoyaltyAccount {
   studentName: string
   branchId: string
+  /** True when a persisted loyaltyAccounts projection exists for this student. */
+  walletInitialized?: boolean
+}
+
+export interface LoyaltyAdminAccountPage {
+  accounts: LoyaltyAdminAccount[]
+  hasMore: boolean
+  nextCursor: string | null
+  totalCount: number
 }
 
 export interface LoyaltyAdminReward extends LoyaltyReward {

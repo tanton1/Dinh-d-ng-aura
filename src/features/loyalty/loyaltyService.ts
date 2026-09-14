@@ -5,6 +5,7 @@ import { firebaseFunctions } from '../../lib/firebaseFunctions'
 import type {
   LoyaltyAccount,
   LoyaltyAdminAccount,
+  LoyaltyAdminAccountPage,
   LoyaltyAdminAmbassador,
   LoyaltyAdminDashboard,
   LoyaltyAdminReward,
@@ -75,8 +76,8 @@ export function listLoyaltyRedemptions(status = '') {
   return call<{ status: string }, { redemptions: Array<Record<string, unknown> & { id: string; status: string }> }>('listLoyaltyRedemptions', { status })
 }
 
-export function listLoyaltyAccounts(pageSize = 100) {
-  return call<{ pageSize: number }, { accounts: LoyaltyAdminAccount[] }>('listLoyaltyAccounts', { pageSize })
+export function listLoyaltyAccounts(input: { pageSize?: number; cursor?: string } = {}) {
+  return call<typeof input, LoyaltyAdminAccountPage>('listLoyaltyAccounts', input)
 }
 
 export function listLoyaltyRewardsAdmin() {
