@@ -200,7 +200,7 @@ export default function ExerciseMediaPlayer({
   }
 
   return <section className={`exercise-media-player ${compact ? 'is-compact' : ''}`} aria-label={`Hình ảnh và video ${name}`}>
-    <div className={`exercise-media-player__stage ${active?.kind === 'video' && active.video.orientation === 'portrait' ? 'is-portrait' : ''} ${activeUsesImageStage ? 'is-still' : ''}`}>
+    <div className={`exercise-media-player__stage ${active?.kind === 'video' && active.video.orientation === 'portrait' ? 'is-portrait' : ''} ${activeUsesImageStage ? 'is-still' : ''} ${activeIsAnimatedImage ? 'is-animation' : ''}`}>
       {loading && !active ? <div className="exercise-media-player__state"><LoaderCircle className="is-spinning" /><span>Đang lấy video mới…</span></div>
         : active?.kind === 'video' && activeIsAnimatedImage ? <img key={`${active.key}-${replayVersion}`} src={sourceFor(active.key, videoSource(active.video))} alt={`Minh họa động ${name}`} loading="eager" onError={() => handleMediaError(active)} />
           : active?.kind === 'video' ? <video
