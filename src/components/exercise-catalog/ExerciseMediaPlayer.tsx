@@ -138,6 +138,7 @@ export default function ExerciseMediaPlayer({
   const active = entries.find((entry) => entry.key === activeKey) || entries[0]
   const currentVideoIndex = active?.kind === 'video' ? entries.filter((entry) => entry.kind === 'video').findIndex((entry) => entry.key === active.key) : -1
   const activeIsAnimatedImage = active?.kind === 'video' && isAnimatedImageVideo(active.video)
+  const activeUsesImageStage = active?.kind === 'image' || activeIsAnimatedImage
 
   const selectEntry = (entry: MediaEntry) => {
     setError('')
@@ -199,7 +200,7 @@ export default function ExerciseMediaPlayer({
   }
 
   return <section className={`exercise-media-player ${compact ? 'is-compact' : ''}`} aria-label={`Hình ảnh và video ${name}`}>
-    <div className={`exercise-media-player__stage ${active?.kind === 'video' && active.video.orientation === 'portrait' ? 'is-portrait' : ''}`}>
+    <div className={`exercise-media-player__stage ${active?.kind === 'video' && active.video.orientation === 'portrait' ? 'is-portrait' : ''} ${activeUsesImageStage ? 'is-still' : ''}`}>
       {loading && !active ? <div className="exercise-media-player__state"><LoaderCircle className="is-spinning" /><span>Đang lấy video mới…</span></div>
         : active?.kind === 'video' && activeIsAnimatedImage ? <img key={`${active.key}-${replayVersion}`} src={sourceFor(active.key, videoSource(active.video))} alt={`Minh họa động ${name}`} loading="eager" onError={() => handleMediaError(active)} />
           : active?.kind === 'video' ? <video
