@@ -50,6 +50,7 @@
   gap: 12px;
   margin: 16px 0;
 }
+.identity-carousel--three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .identity-carousel > button {
   position: relative;
   display: grid;
@@ -95,6 +96,9 @@
   backdrop-filter: blur(16px);
 }
 .identity-admin-page .identity-admin-tabs button { justify-content: center; min-height: 42px; border-radius: 12px; }
+.identity-admin-page .identity-admin-tabs--four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.identity-member-directory-paused { display: flex; align-items: flex-start; gap: 8px; margin: 0 0 14px; color: var(--team-muted); font-size: 12px; line-height: 1.5; }
+.identity-member-directory-paused svg { flex: 0 0 auto; margin-top: 2px; }
 
 .identity-readonly,
 .identity-message {
@@ -219,10 +223,16 @@
 .identity-staff-card__primary { flex: 1 1 145px; justify-content: center; min-height: 40px; border: 0; border-radius: 12px; color: #fff; background: linear-gradient(125deg, var(--team-pink), var(--team-orange)); box-shadow: 0 9px 20px rgba(246,47,130,.18); font-size: 11px; font-weight: 850; }
 .identity-staff-card__actions > .outline-button { flex: 1 1 110px; justify-content: center; min-height: 40px; padding: 0 11px; border-radius: 12px; font-size: 10px; }
 .identity-staff-card__actions > .identity-staff-card__icon-action { width: 40px; flex: 0 0 40px; padding: 0; }
+.identity-staff-card__actions > .identity-staff-card__restore { color: #29754a; border-color: #bce4cf; background: #effaf4; }
 
 .identity-branches { padding: 0 !important; }
 .identity-branch-list { margin: 0; padding: 16px; }
-.identity-admin-page .identity-branch-list article { border-radius: 18px; background: linear-gradient(145deg, #fff, #fff9f4); }
+.identity-admin-page .identity-branch-list article { min-width: 0; border-radius: 18px; background: linear-gradient(145deg, #fff, #fff9f4); }
+.identity-admin-page .identity-branch-list article > span:first-child { flex: 1 1 0; align-items: flex-start; }
+.identity-admin-page .identity-branch-list strong { overflow: visible; white-space: normal; overflow-wrap: anywhere; font-size: 15px; line-height: 1.4; }
+.identity-admin-page .identity-branch-list small { overflow-wrap: anywhere; font-size: 13px; line-height: 1.5; }
+.identity-admin-page .identity-branch-list__actions { min-width: 0; }
+.identity-admin-page .identity-branch-list__actions .outline-button { min-height: 44px; }
 .identity-branch-list article > span:first-child > i { display: grid; width: 40px; height: 40px; flex: 0 0 auto; place-items: center; border-radius: 14px; color: #fff; background: linear-gradient(135deg, var(--team-pink), var(--team-orange)); font-style: normal; }
 
 .identity-forbidden { display: grid; min-height: 320px; place-items: center; align-content: center; gap: 8px; padding: 30px; border: 1px solid var(--team-line); border-radius: 26px; text-align: center; background: #fff; }
@@ -360,7 +370,8 @@
   .identity-carousel > button { min-height: 132px; }
   .identity-admin-page .identity-admin-tabs { top: 4px; width: calc(100% - 24px); margin: 0 12px 12px; }
   .identity-readonly,
-  .identity-message { margin-right: 12px; margin-left: 12px; }
+  .identity-message,
+  .identity-member-directory-paused { margin-right: 12px; margin-left: 12px; }
   .identity-section { border-width: 1px 0; border-radius: 0; box-shadow: none; }
   .identity-section__heading { align-items: center; flex-direction: row; padding: 13px 12px; }
   .identity-section__heading .pink-orange-button { align-self: flex-start; width: auto; min-height: 38px; padding-inline: 13px; }
@@ -414,9 +425,14 @@
 
   .identity-branch-list { padding: 10px; }
   .identity-admin-page .identity-branch-list article { align-items: stretch; flex-direction: column; border-radius: 19px; }
-  .identity-branch-list__actions { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); }
+  .identity-admin-page .identity-branches .identity-section__heading { align-items: stretch; flex-direction: column; gap: 12px; }
+  .identity-admin-page .identity-branches .identity-section__heading > span { min-width: 0; align-items: flex-start; }
+  .identity-admin-page .identity-branches .identity-section__heading > span > svg { flex: 0 0 auto; }
+  .identity-admin-page .identity-branches .identity-section__heading .pink-orange-button { align-self: stretch; justify-content: center; width: 100%; min-height: 48px; }
+  .identity-admin-page .identity-branch-list article > span:first-child { flex-basis: auto; }
+  .identity-admin-page .identity-branch-list__actions { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); width: 100%; }
   .identity-branch-list__actions .status-badge { grid-column: 1 / -1; justify-self: start; }
-  .identity-branch-list__actions button { width: 100%; justify-content: center; }
+  .identity-admin-page .identity-branch-list__actions button { width: 100%; min-width: 0; min-height: 44px; justify-content: center; }
 
   .identity-admin-page .identity-overlay { align-items: stretch; padding: 0 10px calc(112px + env(safe-area-inset-bottom, 0px)); }
   .identity-admin-page .identity-modal { max-height: none; padding: 16px 13px 0; border: 1px solid var(--team-line); border-radius: 22px; }
@@ -434,6 +450,9 @@
 }
 
 @media (max-width: 390px) {
+  .identity-hero { flex-direction: column; gap: 12px; }
+  .identity-hero__copy h1 { font-size: 28px; }
+  .identity-hero__actions { align-self: flex-start; }
   .identity-hero__actions > span { min-height: 36px; padding-inline: 9px; font-size: 10px; }
   .identity-carousel { grid-auto-columns: 84vw; }
   .identity-staff-card__head { align-items: stretch; flex-direction: column; }

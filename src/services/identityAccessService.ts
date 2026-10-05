@@ -320,6 +320,11 @@ export async function suspendAccountAccess(uid: string) {
   try { return (await callable({ uid })).data } catch (error) { throw presentInviteError(error) }
 }
 
+export async function restoreAccountAccess(uid: string) {
+  const callable = httpsCallable<{ uid: string }, { uid: string; restored: boolean; tokenRefreshRequired: boolean }>(requireFunctions(), 'restoreAccountAccess', { timeout: 30_000 })
+  try { return (await callable({ uid })).data } catch (error) { throw presentInviteError(error) }
+}
+
 export async function deleteUnusedStaffAccount(uid: string) {
   const callable = httpsCallable<{ uid: string }, { uid: string; deleted: boolean }>(requireFunctions(), 'deleteUnusedStaffAccount')
   try { return (await callable({ uid })).data } catch (error) { throw presentInviteError(error) }

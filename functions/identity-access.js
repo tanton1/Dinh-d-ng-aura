@@ -1407,6 +1407,81 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
     return { uid: targetUid, suspended: true }
   })
 
+  // Restore a suspended identity without changing its role, branch scope or
+  // operational history. The authorization version is bumped so old tokens
+  // are rejected until the staff member signs in again.
+  const restoreAccountAccess = onCall(async (request) => {
+    const actor = await trustedAccessContext(request, db)
+    requireCapability(actor, 'identity.staff_position.manage')
+    const targetUid = documentId(request.data?.uid, 'UID')
+    if (targetUid === actor.uid) throw new HttpsError('failed-precondition', 'Không thể tự kích hoạt tài khoản của chính mình.')
+    const reference = db.doc(`roleAssignments/${targetUid}`)
+    const userRef = db.doc(`users/${targetUid}`)
+    const staffRef = db.doc(`staff/${targetUid}`)
+    const trainerRef = db.doc(`trainers/${targetUid}`)
+    const [target, targetProfile, assignmentSnapshot] = await Promise.all([
+      auth.getUser(targetUid),
+      userRef.get(),
+      reference.get(),
+    ])
+    if (!targetProfile.exists) throw new HttpsError('not-found', 'Không tìm thấy hồ sơ tài khoản.')
+    const profile = targetProfile.data() || {}
+    const current = assignmentSnapshot.exists ? assignmentSnapshot.data() || {} : null
+    const legacy = legacyIdentity(typeof profile.role === 'string' ? profile.role : 'student')
+    const accessRole = current?.accessRole || legacy.accessRole
+    const positions = current?.accessRole === 'staff' ? normalizedPositions(current.positions || []) : legacy.positions
+    const branchIds = current?.accessRole === 'staff'
+      ? normalizedBranchIds(current.branchIds || [])
+      : (profile.branchId ? [documentId(profile.branchId, 'Mã chi nhánh')] : [])
+    const targetIsElevated = ['admin', 'super_admin'].includes(target.customClaims?.accessRole)
+      || ['admin', 'super_admin'].includes(target.customClaims?.role)
+      || ['admin', 'super_admin'].includes(profile.accessRole)
+      || ['admin', 'super_admin'].includes(profile.role)
+    if (targetIsElevated && actor.accessRole !== 'super_admin') {
+      throw new HttpsError('permission-denied', 'Chỉ Super Admin được kích hoạt tài khoản quản trị.')
+    }
+    if (current?.status !== 'suspended' && profile.disabled !== true && target.disabled !== true) {
+      return { uid: targetUid, restored: true, tokenRefreshRequired: false }
+    }
+    const previousClaims = { ...(target.customClaims || {}) }
+    const authzVersion = Math.max(1, Number(current?.authzVersion || profile.authzVersion || 0) + 1)
+    const nextClaims = { ...previousClaims, accessRole, authzVersion, role: compatibilityRole(accessRole, positions) }
+    await auth.setCustomUserClaims(targetUid, nextClaims)
+    try {
+      await auth.updateUser(targetUid, { disabled: false })
+      await db.runTransaction(async (transaction) => {
+        const [currentAssignment, currentProfile, currentStaff, currentTrainer] = await Promise.all([
+          transaction.get(reference), transaction.get(userRef), transaction.get(staffRef), transaction.get(trainerRef),
+        ])
+        if (!currentProfile.exists) throw new HttpsError('not-found', 'Không tìm thấy hồ sơ tài khoản.')
+        transaction.set(reference, {
+          schemaVersion: 1, uid: targetUid, accessRole, positions, branchIds,
+          capabilities: computedCapabilities(accessRole, positions), authzVersion, status: 'active',
+          updatedBy: actor.uid, updatedAt: FieldValue.serverTimestamp(),
+          ...(!currentAssignment.exists ? { createdBy: actor.uid, createdAt: FieldValue.serverTimestamp() } : {}),
+        }, { merge: true })
+        transaction.set(userRef, { disabled: false, accessRole, authzVersion, role: nextClaims.role, updatedAt: FieldValue.serverTimestamp() }, { merge: true })
+        if (currentStaff.exists) transaction.set(staffRef, { status: 'active', updatedBy: actor.uid, updatedAt: FieldValue.serverTimestamp() }, { merge: true })
+        if (currentTrainer.exists) transaction.set(trainerRef, { status: 'active', updatedBy: actor.uid, updatedAt: FieldValue.serverTimestamp() }, { merge: true })
+        transaction.set(db.collection('identityAuditLogs').doc(), {
+          action: 'account_access.restored', actorUid: actor.uid, targetUid,
+          before: { accessRole, positions, branchIds, status: current?.status || 'suspended' },
+          after: { accessRole, positions, branchIds, authzVersion, status: 'active' },
+          createdAt: FieldValue.serverTimestamp(),
+        })
+      })
+    } catch (error) {
+      try {
+        await auth.setCustomUserClaims(targetUid, previousClaims)
+        await auth.updateUser(targetUid, { disabled: true })
+      } catch (rollbackError) {
+        logger?.error?.('identity_restore_rollback_failed', { uid: targetUid, code: rollbackError?.code || 'unknown' })
+      }
+      throw error
+    }
+    return { uid: targetUid, restored: true, tokenRefreshRequired: true }
+  })
+
   // A hard delete is intentionally limited to a just-created, unused staff
   // account. Once an account is referenced by PT, finance or coaching data,
   // it must be archived instead so historical records stay auditable.
@@ -1661,6 +1736,10 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
       const branchIds = existing?.accessRole === 'staff' ? normalizedBranchIds(existing.branchIds || []) : (profile.branchId ? [documentId(profile.branchId, 'Mã chi nhánh')] : [])
       const previousStaff = staffSnapshot.exists ? staffSnapshot.data() || {} : {}
       const previousTrainer = trainerSnapshot.exists ? trainerSnapshot.data() || {} : {}
+      // Editing an operational profile must never silently unlock a suspended
+      // identity. Only restoreAccountAccess is allowed to move access back to
+      // active; schedule/payroll edits keep the lock visible everywhere.
+      const operationalStatus = existing?.status === 'suspended' || profile.disabled === true ? 'suspended' : 'active'
       const previousSchedulingPolicy = {
         schedulingPriority: Number.isInteger(previousStaff.schedulingPriority ?? previousTrainer.schedulingPriority ?? previousStaff.priority ?? previousTrainer.priority)
           ? Number(previousStaff.schedulingPriority ?? previousTrainer.schedulingPriority ?? previousStaff.priority ?? previousTrainer.priority)
@@ -1677,13 +1756,13 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
       }
       transaction.set(staffRef, {
         id: targetUid, name: displayName, email, phone: phoneNumber,
-        role: positions.includes('trainer_pt') ? 'trainer' : positions[0], branchId: branchIds[0] || '', status: 'active',
+        role: positions.includes('trainer_pt') ? 'trainer' : positions[0], branchId: branchIds[0] || '', status: operationalStatus,
         positions, branchIds, employmentType, employmentLevel, payrollProfile, payrollPolicyId, availableSlots: availabilitySlots, slotCapacity, ...schedulingProjection, ...compensation,
         updatedBy: actor.uid, updatedAt: FieldValue.serverTimestamp(),
       }, { merge: true })
       if (positions.includes('trainer_pt')) transaction.set(trainerRef, {
         id: targetUid, name: displayName, email, phone: phoneNumber,
-        branchId: branchIds[0] || '', status: 'active', employmentType, employmentLevel, payrollProfile, payrollPolicyId, availableSlots: availabilitySlots, slotCapacity, ...schedulingProjection, ...compensation,
+        branchId: branchIds[0] || '', status: operationalStatus, employmentType, employmentLevel, payrollProfile, payrollPolicyId, availableSlots: availabilitySlots, slotCapacity, ...schedulingProjection, ...compensation,
         updatedBy: actor.uid, updatedAt: FieldValue.serverTimestamp(),
       }, { merge: true })
       transaction.set(db.collection('identityAuditLogs').doc(), {
@@ -1767,6 +1846,7 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
     acceptAccountInvite,
     assignStaffPositions,
     suspendAccountAccess,
+    restoreAccountAccess,
     deleteUnusedStaffAccount,
     deleteMemberAccount,
     saveStaffOperationsProfile,

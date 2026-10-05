@@ -808,6 +808,23 @@ test('Student 360 is callable-only and redacts finance, photos and cross-role ac
   assert.match(student360Source, /progress_photos`\)\.select\('date', 'createdAt', 'updatedAt'\)/)
 })
 
+test('suspended staff can be restored only through the audited callable', () => {
+  const restoreHandler = identityAccessSource.match(/const restoreAccountAccess = onCall[\s\S]*?\n  \/\/ A hard delete/)?.[0] ?? ''
+  assert.match(functionsSource, /exports\.restoreAccountAccess = identityAccessFunctions\.restoreAccountAccess/)
+  assert.match(restoreHandler, /requireCapability\(actor, 'identity\.staff_position\.manage'\)/)
+  assert.match(restoreHandler, /actor\.accessRole !== 'super_admin'/)
+  assert.match(restoreHandler, /status: 'active'/)
+  assert.match(restoreHandler, /disabled: false/)
+  assert.match(restoreHandler, /account_access\.restored/)
+  assert.match(restoreHandler, /setCustomUserClaims\(targetUid, nextClaims\)/)
+})
+
+test('staff profile edits do not unlock a suspended identity', () => {
+  const profileHandler = identityAccessSource.match(/const saveStaffOperationsProfile = onCall[\s\S]*?\n  const applyDefaultTrainerSchedulingPolicy/)?.[0] ?? ''
+  assert.match(profileHandler, /operationalStatus = existing\?\.status === 'suspended' \|\| profile\.disabled === true \? 'suspended' : 'active'/)
+  assert.match(profileHandler, /status: operationalStatus/)
+})
+
 test('Identity directory is callable-only, cursor bounded, and returns staff summaries without client listeners', () => {
   assert.match(functionsSource, /exports\.listIdentityDirectory = identityAccessFunctions\.listIdentityDirectory/)
   assert.match(functionsSource, /exports\.syncStaffOperationalSummary = onDocumentWritten/)

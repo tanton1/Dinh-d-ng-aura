@@ -3,18 +3,19 @@ import './AdminRolesPage.css'
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import {
   AlertCircle, Building2, CheckCircle2, Columns3, LoaderCircle,
-  ArrowRight, BriefcaseBusiness, CalendarClock, Check, KeyRound, Mail, MapPin,
+  ArrowRight, BriefcaseBusiness, CalendarClock, Check, KeyRound, LockKeyhole, Mail, MapPin,
   Phone, Plus, Search, ShieldCheck, SlidersHorizontal, Sparkles, UserCog, Users,
   Trash2, WalletCards, X,
 } from 'lucide-react'
 import { hasPermission } from '../../config/permissions'
 import { useDatabase } from '../../contexts/DatabaseContext'
-import { applyDefaultTrainerSchedulingPolicy, assignStaffPositions, deleteMemberAccount, deleteUnusedStaffAccount, listIdentityDirectory, provisionStaffAccount, provisionStudentAccount, saveStaffOperationsProfile, suspendAccountAccess, type IdentityDirectoryEntry } from '../../services/identityAccessService'
+import { applyDefaultTrainerSchedulingPolicy, assignStaffPositions, deleteMemberAccount, deleteUnusedStaffAccount, listIdentityDirectory, provisionStaffAccount, provisionStudentAccount, restoreAccountAccess, saveStaffOperationsProfile, suspendAccountAccess, type IdentityDirectoryEntry } from '../../services/identityAccessService'
 import { listPayrollPolicies, type PayrollPolicy, type PayrollProfile } from '../../services/payrollService'
 import type { StaffPosition } from '../../identity/access'
 import type { Branch, UserRole } from '../../types'
 import AuraTeamPolicySettings from '../../components/admin/pt/AuraTeamPolicySettings'
 import { PT_OPERATIONS_POLICY_DEFAULTS } from '../../config/ptOperationsPolicy'
+import { TEAM_MEMBER_DIRECTORY_ENABLED } from '../../config/teamDirectory'
 
 export interface AdminRoleUser {
   uid: string
@@ -87,6 +88,7 @@ type StaffEditorState = {
 type TeamConfirmation =
   | { kind: 'change_role'; user: AdminRoleUser; nextRole: UserRole }
   | { kind: 'suspend_staff'; member: AdminRoleUser }
+  | { kind: 'restore_staff'; member: AdminRoleUser }
   | { kind: 'delete_staff'; member: AdminRoleUser }
   | { kind: 'reset_pt_workload' }
   | { kind: 'archive_branch'; branch: Branch }
@@ -218,6 +220,14 @@ function teamConfirmationCopy(action: TeamConfirmation) {
     confirmLabel: 'Khóa tài khoản',
     danger: true,
   }
+  if (action.kind === 'restore_staff') return {
+    title: 'Kích hoạt lại nhân viên',
+    subject: action.member.displayName || action.member.email || action.member.uid,
+    detail: 'Nhân viên có thể đăng nhập và nhận công việc trở lại theo chức danh, chi nhánh đã được cấp.',
+    note: 'Không thay đổi quyền, lịch rảnh, chính sách lương hoặc lịch sử. Nhân viên cần đăng nhập lại sau khi kích hoạt.',
+    confirmLabel: 'Kích hoạt',
+    danger: false,
+  }
   if (action.kind === 'delete_staff') return {
     title: 'Xóa tài khoản mới tạo',
     subject: action.member.displayName || action.member.email || action.member.uid,
@@ -264,7 +274,7 @@ function profileDirectoryUser(uid: string, data: Record<string, unknown>): Admin
 
 export default function AdminRolesPage({ users, currentRole, currentUserUid, onRoleChange, loading = false }: AdminRolesPageProps) {
   const { branches, scheduleConfig, addBranch, updateBranch, deleteBranch } = useDatabase()
-  const [section, setSection] = useState<RolesSection>('accounts')
+  const [section, setSection] = useState<RolesSection>('staff')
   const [query, setQuery] = useState('')
   const [roleFilter, setRoleFilter] = useState<'all' | UserRole>('all')
   const [staffQuery, setStaffQuery] = useState('')
@@ -300,6 +310,7 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
   const [directoryLoading, setDirectoryLoading] = useState<Record<'accounts' | 'staff', boolean>>({ accounts: false, staff: false })
   const [directoryError, setDirectoryError] = useState<Record<'accounts' | 'staff', string | null>>({ accounts: null, staff: null })
   const staffDirectoryOpenedRef = useRef(false)
+  const directoryRequestsRef = useRef({ accounts: false, staff: false })
 
   const workingDays = scheduleConfig.workingDays?.length ? scheduleConfig.workingDays : fallbackStaffDays
   const workingHours = scheduleConfig.workingHours?.length ? scheduleConfig.workingHours : fallbackStaffHours
@@ -312,7 +323,8 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
   const canAssignSuperAdmin = hasPermission(currentRole, 'role.assign_super_admin')
   const canViewTeam = hasPermission(currentRole, 'team.view')
   const loadDirectoryPage = async (target: 'accounts' | 'staff', append = false) => {
-    if (!canViewTeam) return
+    if (!canViewTeam || (target === 'accounts' && !TEAM_MEMBER_DIRECTORY_ENABLED) || directoryRequestsRef.current[target]) return
+    directoryRequestsRef.current[target] = true
     setDirectoryLoading((current) => ({ ...current, [target]: true }))
     setDirectoryError((current) => ({ ...current, [target]: null }))
     try {
@@ -343,6 +355,7 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
           : 'Dịch vụ chưa phản hồi. Dữ liệu hiện có vẫn được giữ nguyên; hãy thử lại.',
       }))
     } finally {
+      directoryRequestsRef.current[target] = false
       setDirectoryLoading((current) => ({ ...current, [target]: false }))
     }
   }
@@ -354,25 +367,25 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
     void loadDirectoryPage(target, false)
   }
   useEffect(() => {
-    if (!canViewTeam) return
+    if (!canViewTeam || !TEAM_MEMBER_DIRECTORY_ENABLED || section !== 'accounts') return
     void loadDirectoryPage('accounts')
     // The staff page is intentionally fetched only when opened; this keeps the
     // HR route useful on a slow connection without loading two directories.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canViewTeam])
+  }, [canViewTeam, section])
   useEffect(() => {
     if (section === 'staff') staffDirectoryOpenedRef.current = true
     if (section === 'staff' && canViewTeam && !directoryEntries.staff.length && !directoryCursors.staff) void loadDirectoryPage('staff')
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [section, canViewTeam])
   useEffect(() => {
-    if (!canViewTeam) return
+    if (!canViewTeam || (section !== 'staff' && !staffEditor && inviteDraft.accessRole !== 'staff')) return
     let active = true
     void listPayrollPolicies()
       .then((items) => { if (active) setPayrollPolicies(items.filter((item) => item.status === 'active')) })
       .catch(() => { if (active) setPayrollPolicies([]) })
     return () => { active = false }
-  }, [canViewTeam])
+  }, [canViewTeam, section, Boolean(staffEditor), inviteDraft.accessRole])
   const apiAccounts = directoryEntries.accounts.map((entry) => entry.user)
   const apiStaff = directoryEntries.staff.map((entry) => entry.user)
   const directoryUsers = apiAccounts.length ? apiAccounts : users
@@ -526,6 +539,10 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
     if (!canAssignRole || member.uid === currentUserUid) return
     setTeamConfirmation({ kind: 'suspend_staff', member }); setError(null); setSuccess(null)
   }
+  const restoreStaff = (member: AdminRoleUser) => {
+    if (!canAssignRole || member.uid === currentUserUid || (['admin', 'super_admin'].includes(member.role) && !canAssignSuperAdmin)) return
+    setTeamConfirmation({ kind: 'restore_staff', member }); setError(null); setSuccess(null)
+  }
   const deleteStaff = async (member: AdminRoleUser) => {
     if (!canAssignRole || member.uid === currentUserUid) return
     setTeamConfirmation({ kind: 'delete_staff', member }); setError(null); setSuccess(null)
@@ -580,7 +597,13 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
         const { member } = teamConfirmation
         setSavingUid(member.uid)
         await suspendAccountAccess(member.uid)
-        setSuccess(`Đã khóa và lưu trữ ${member.displayName || member.email || member.uid}. Không xóa lịch sử vận hành.`)
+        setSuccess(`Đã khóa ${member.displayName || member.email || member.uid}. Lịch sử vận hành được giữ nguyên.`)
+        refreshDirectorySection('staff')
+      } else if (teamConfirmation.kind === 'restore_staff') {
+        const { member } = teamConfirmation
+        setSavingUid(member.uid)
+        await restoreAccountAccess(member.uid)
+        setSuccess(`Đã kích hoạt ${member.displayName || member.email || member.uid}. Nhân viên có thể đăng nhập lại.`)
         refreshDirectorySection('staff')
       } else if (teamConfirmation.kind === 'delete_staff') {
         const { member } = teamConfirmation
@@ -601,6 +624,8 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
         ? 'Không thể cập nhật vai trò.'
         : teamConfirmation.kind === 'suspend_staff'
           ? 'Không thể khóa tài khoản nhân viên.'
+          : teamConfirmation.kind === 'restore_staff'
+            ? 'Không thể kích hoạt tài khoản nhân viên.'
           : teamConfirmation.kind === 'delete_staff'
             ? 'Không thể xóa tài khoản nhân viên.'
             : teamConfirmation.kind === 'reset_pt_workload'
@@ -626,10 +651,10 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
       </div>
     </header>
 
-    <div className="identity-carousel" aria-label="Tổng quan Đội ngũ Aura">
-      <button type="button" className={section === 'accounts' ? 'active' : ''} onClick={() => setSection('accounts')}>
+    <div className={`identity-carousel ${!TEAM_MEMBER_DIRECTORY_ENABLED ? 'identity-carousel--three' : ''}`} aria-label="Tổng quan Đội ngũ Aura">
+      {TEAM_MEMBER_DIRECTORY_ENABLED && <button type="button" className={section === 'accounts' ? 'active' : ''} onClick={() => setSection('accounts')}>
         <span><Users /></span><small>THÀNH VIÊN</small><strong>{stats.members}</strong><em>Tài khoản học viên</em><ArrowRight size={17} />
-      </button>
+      </button>}
       <button type="button" className={section === 'staff' ? 'active' : ''} onClick={() => setSection('staff')}>
         <span><BriefcaseBusiness /></span><small>NHÂN VIÊN</small><strong>{stats.staff}</strong><em>Đội ngũ đang quản lý</em><ArrowRight size={17} />
       </button>
@@ -641,18 +666,20 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
       </button>
     </div>
 
-    <nav className="identity-admin-tabs identity-admin-tabs--four" role="tablist" aria-label="Đội ngũ Aura">
-      <button type="button" className={section === 'accounts' ? 'active' : ''} onClick={() => setSection('accounts')} role="tab" aria-selected={section === 'accounts'}><Users size={17} />Thành viên</button>
+    <nav className={`identity-admin-tabs ${TEAM_MEMBER_DIRECTORY_ENABLED ? 'identity-admin-tabs--four' : 'identity-admin-tabs--three'}`} role="tablist" aria-label="Đội ngũ Aura">
+      {TEAM_MEMBER_DIRECTORY_ENABLED && <button type="button" className={section === 'accounts' ? 'active' : ''} onClick={() => setSection('accounts')} role="tab" aria-selected={section === 'accounts'}><Users size={17} />Thành viên</button>}
       <button type="button" className={section === 'staff' ? 'active' : ''} onClick={() => setSection('staff')} role="tab" aria-selected={section === 'staff'}><UserCog size={17} />Nhân viên</button>
       <button type="button" className={section === 'branches' ? 'active' : ''} onClick={() => setSection('branches')} role="tab" aria-selected={section === 'branches'}><Building2 size={17} />Chi nhánh</button>
       <button type="button" className={section === 'policy' ? 'active' : ''} onClick={() => setSection('policy')} role="tab" aria-selected={section === 'policy'}><ShieldCheck size={17} />Chính sách</button>
     </nav>
 
+    {!TEAM_MEMBER_DIRECTORY_ENABLED && <div className="identity-member-directory-paused"><LockKeyhole size={15} /><span>Thành viên đang tạm ẩn để giảm tải. Tài khoản và dữ liệu học viên vẫn được giữ nguyên.</span></div>}
+
     {!canAssignRole && <div className="identity-readonly"><ShieldCheck size={18} />Bạn đang xem ở chế độ chỉ đọc. Chỉ quản trị viên được thay đổi tài khoản, chức danh và chi nhánh.</div>}
     {error && <div className="identity-message identity-message--error" role="alert"><AlertCircle size={17} />{error}</div>}
     {success && <div className="identity-message identity-message--success" role="status"><CheckCircle2 size={18} />{success}</div>}
 
-    {section === 'accounts' && <section className="identity-section identity-members-section">
+    {TEAM_MEMBER_DIRECTORY_ENABLED && section === 'accounts' && <section className="identity-section identity-members-section">
       <div className="identity-section__heading">
         <span><Users size={20} /><span><strong>Thành viên Aura</strong><em className="identity-section__count">{filteredUsers.length}</em></span></span>
         {canAssignRole && <button type="button" className="pink-orange-button" onClick={() => { setInviteDraft(emptyInviteDraft()); setInviteOpen(true); setError(null) }}><Plus size={17} />Thêm thành viên</button>}
@@ -688,12 +715,13 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
         const record = staffOperations[member.uid] || {}
         const isSuspended = assignment?.status === 'suspended' || member.status === 'disabled'
         const canEditAccess = canAssignRole && member.uid !== currentUserUid && member.role !== 'admin' && member.role !== 'super_admin'
+        const canChangeStatus = canAssignRole && member.uid !== currentUserUid && (!['admin', 'super_admin'].includes(member.role) || canAssignSuperAdmin)
         return <article key={member.uid} className={isSuspended ? 'is-suspended' : ''}>
           <div className="identity-staff-card__head"><span className="identity-staff-card__person"><i>{initials(member.displayName, member.email)}</i><span><strong>{member.displayName || 'Chưa cập nhật tên'}</strong><small>{member.email || member.phoneNumber || 'Chưa cập nhật liên hệ'}</small></span></span><i className={`status-badge ${isSuspended ? 'attention' : 'published'}`}>{isSuspended ? 'Đã khóa' : 'Hoạt động'}</i></div>
           <div className="identity-staff-card__scope"><strong>{positions}</strong><span><MapPin size={13} />{assignedBranches.length ? assignedBranches.join(' · ') : 'Toàn hệ thống'}</span></div>
           <div className="identity-staff-card__metrics"><span><small>PT chính</small><strong>{countManagedClients(member.uid, 'main') ?? '—'}</strong></span><span><small>Phối hợp</small><strong>{countManagedClients(member.uid, 'secondary') ?? '—'}</strong></span><span><small>Dinh dưỡng</small><strong>{countManagedClients(member.uid, 'nutrition') ?? '—'}</strong></span></div>
           <div className="identity-staff-card__facts"><span><WalletCards size={14} />{employmentTypeLabel(record.employmentType)}{record.employmentType === 'full_time' ? ` · ${employmentLevelLabel(record.employmentLevel)}` : ''}</span><span><ShieldCheck size={14} />{payrollPolicies.find((policy) => policy.id === record.payrollPolicyId)?.name || 'Chưa gán chính sách'}</span><span><CalendarClock size={14} />{Array.isArray(record.availableSlots) && record.availableSlots.length ? `${record.availableSlots.length} khung rảnh` : 'Chưa có lịch rảnh'}</span>{(assignment?.positions.includes('trainer_pt') || member.role === 'trainer' || record.role === 'trainer') && <span><SlidersHorizontal size={14} />Hạng {Number(record.schedulingPriority ?? record.priority ?? 100)} · mốc cân tải {Number(record.dailySessionTarget ?? 8)} ca/ngày</span>}</div>
-          {canAssignRole && <div className="identity-staff-card__actions">{canEditAccess && <button type="button" className="identity-staff-card__primary" onClick={() => openAccessEditor(member, assignment)}><KeyRound size={15} />Quyền</button>}<button type="button" className="outline-button" onClick={() => openStaffEditor(member)}><CalendarClock size={15} />Hồ sơ</button>{!isSuspended && member.uid !== currentUserUid && <><button type="button" className="outline-button identity-staff-card__archive identity-staff-card__icon-action" aria-label={`Khóa ${member.displayName || member.email || 'nhân viên'}`} title="Khóa tài khoản" onClick={() => void suspendStaff(member)} disabled={savingUid === member.uid}><ShieldCheck size={16} /></button><button type="button" className="outline-button identity-staff-card__delete identity-staff-card__icon-action" aria-label={`Xóa ${member.displayName || member.email || 'nhân viên'}`} title="Xóa tài khoản" onClick={() => void deleteStaff(member)} disabled={savingUid === member.uid}><Trash2 size={16} /></button></>}</div>}
+          {canAssignRole && <div className="identity-staff-card__actions">{canEditAccess && <button type="button" className="identity-staff-card__primary" onClick={() => openAccessEditor(member, assignment)}><KeyRound size={15} />Quyền</button>}<button type="button" className="outline-button" onClick={() => openStaffEditor(member)}><CalendarClock size={15} />Hồ sơ</button>{canChangeStatus && (isSuspended ? <button type="button" className="outline-button identity-staff-card__restore" onClick={() => restoreStaff(member)} disabled={savingUid === member.uid}><CheckCircle2 size={16} />Kích hoạt</button> : <button type="button" className="outline-button identity-staff-card__archive identity-staff-card__icon-action" aria-label={`Khóa ${member.displayName || member.email || 'nhân viên'}`} title="Khóa tài khoản" onClick={() => void suspendStaff(member)} disabled={savingUid === member.uid}><ShieldCheck size={16} /></button>)}{!isSuspended && canEditAccess && <button type="button" className="outline-button identity-staff-card__delete identity-staff-card__icon-action" aria-label={`Xóa ${member.displayName || member.email || 'nhân viên'}`} title="Xóa tài khoản" onClick={() => void deleteStaff(member)} disabled={savingUid === member.uid}><Trash2 size={16} /></button>}</div>}
         </article>
       })}{!directoryLoading.staff && !directoryError.staff && !filteredStaffRows.length && <div className="empty-state"><Users size={30} /><h3>Không tìm thấy nhân viên</h3></div>}</div>
       {directoryError.staff && <div className="identity-message identity-message--error" role="alert"><AlertCircle size={17} /><span>{directoryError.staff}</span><button type="button" className="outline-button" onClick={() => void loadDirectoryPage('staff')} disabled={directoryLoading.staff}>{directoryLoading.staff ? 'Đang thử lại...' : 'Thử lại'}</button></div>}
@@ -701,7 +729,7 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
     </section>}
 
     {section === 'branches' && <section className="identity-section identity-branches">
-      <div className="identity-section__heading"><span><Building2 size={20} /><span><strong>Chi nhánh Aura</strong><small>Tạo cơ sở và dùng làm phạm vi dữ liệu cho Sales, PT hoặc Quản lý chi nhánh.</small></span></span>{canAssignRole && <button type="button" className="pink-orange-button" onClick={() => { setBranchEditor({ name: '', address: '' }); setError(null) }}><Plus size={17} />Thêm chi nhánh</button>}</div>
+      <div className="identity-section__heading"><span><Building2 size={20} /><span><strong>Chi nhánh Aura</strong><small>Quản lý cơ sở và phạm vi làm việc của đội ngũ.</small></span></span>{canAssignRole && <button type="button" className="pink-orange-button" onClick={() => { setBranchEditor({ name: '', address: '' }); setError(null) }}><Plus size={17} />Thêm chi nhánh</button>}</div>
       <div className="identity-branch-list">{branches.length ? branches.map((branch) => <article key={branch.id} className={branch.status === 'archived' ? 'archived' : ''}><span><i><Building2 size={18} /></i><span><strong>{branch.name}</strong><small>{branch.address}</small></span></span><span className="identity-branch-list__actions"><i className={`status-badge ${branch.status === 'archived' ? 'draft' : 'published'}`}>{branch.status === 'archived' ? 'Đã lưu trữ' : 'Đang hoạt động'}</i>{canAssignRole && <><button type="button" className="outline-button" onClick={() => setBranchEditor({ id: branch.id, name: branch.name, address: branch.address })}>Chỉnh sửa</button>{branch.status !== 'archived' && <button type="button" className="outline-button" onClick={() => void archiveBranch(branch)}>Lưu trữ</button>}</>}</span></article>) : <div className="empty-state"><Building2 size={30} /><h3>Chưa có chi nhánh</h3><p>Tạo chi nhánh đầu tiên để cấp phạm vi cho đội ngũ.</p></div>}</div>
     </section>}
     {section === 'policy' && <AuraTeamPolicySettings canEdit={canAssignRole} />}

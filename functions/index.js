@@ -531,6 +531,7 @@ exports.provisionStaffAccount = identityAccessFunctions.provisionStaffAccount
 exports.createAccountInvite = identityAccessFunctions.createAccountInvite
 exports.assignStaffPositions = identityAccessFunctions.assignStaffPositions
 exports.suspendAccountAccess = identityAccessFunctions.suspendAccountAccess
+exports.restoreAccountAccess = identityAccessFunctions.restoreAccountAccess
 exports.deleteUnusedStaffAccount = identityAccessFunctions.deleteUnusedStaffAccount
 exports.deleteMemberAccount = identityAccessFunctions.deleteMemberAccount
 exports.saveStaffOperationsProfile = identityAccessFunctions.saveStaffOperationsProfile
