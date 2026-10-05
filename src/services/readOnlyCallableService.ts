@@ -8,6 +8,9 @@ export interface ReadOnlyCallableOptions {
   signal?: AbortSignal
   timeoutMs?: number
   maximumAttempts?: number
+  /** Initial delay before a transient retry. Quota/instance outages need a
+   * longer backoff than ordinary network jitter. */
+  baseDelayMs?: number
   /** Override the default regional Functions client for overflow read endpoints. */
   functionsClient?: Functions | null
 }
@@ -30,6 +33,7 @@ export async function callReadOnlyFunction<Input, Output>(
   return runReadOnlyWithRetry(async () => (await invoke(correlatedInput)).data, {
     signal: options.signal,
     maximumAttempts: options.maximumAttempts ?? 3,
+    baseDelayMs: options.baseDelayMs ?? 300,
     refreshAuth: currentUser ? () => currentUser.getIdToken(true) : undefined,
     onFinalFailure: (error, context) => {
       reportClientIssue('firestore', error, {

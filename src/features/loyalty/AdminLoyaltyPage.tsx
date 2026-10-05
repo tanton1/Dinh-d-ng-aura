@@ -135,10 +135,14 @@ export default function AdminLoyaltyPage({
     setLoading(true)
     setError('')
     try {
-      const [overview, queue] = await Promise.all([
-        getLoyaltyAdminDashboard(),
-        canReviewRedemptions ? listLoyaltyRedemptions('') : Promise.resolve({ redemptions: [] }),
-      ])
+      // Keep the two quota-sensitive admin callables sequential. Launching
+      // both cold functions at once used to exhaust the regional CPU quota and
+      // surface an opaque `internal` error on mobile. The queue is secondary;
+      // the overview should get the first available instance.
+      const overview = await getLoyaltyAdminDashboard()
+      const queue = canReviewRedemptions
+        ? await listLoyaltyRedemptions('')
+        : { redemptions: [] }
       setDashboard(overview)
       setFeatures(overview.features)
       setPolicyConfig(overview.policy || defaultPolicy)

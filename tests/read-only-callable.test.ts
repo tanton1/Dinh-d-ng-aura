@@ -51,6 +51,7 @@ test('raw internal and rate limit failures become actionable Vietnamese messages
   assert.equal(isRetryableReadOnlyCallableError({ message: 'Rate exceeded.' }), true)
   assert.doesNotMatch(friendlyReadOnlyCallableMessage({ code: 'functions/internal', message: 'internal' }), /^internal$/i)
   assert.match(friendlyReadOnlyCallableMessage({ code: 'functions/resource-exhausted', message: 'Rate exceeded.' }), /nhiều lượt truy cập/)
+  assert.match(friendlyReadOnlyCallableMessage({ code: 'functions/unavailable', message: 'The request was aborted because there was no available instance.' }), /quá tải tạm thời/)
 })
 
 test('Operations dashboard uses the bounded read-only retry and auth recovery path', () => {

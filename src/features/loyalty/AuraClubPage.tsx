@@ -65,7 +65,19 @@ function formatMoney(value: number) {
 }
 
 function friendlyError(error: unknown) {
-  const message = error instanceof Error ? error.message : String(error || '')
+  const message = (error instanceof Error ? error.message : String(error || '')).replace(/^FirebaseError:\s*/i, '').trim()
+  if (/chỉ dành cho tài khoản học viên|chưa có quyền xem dữ liệu|permission-denied|không có quyền/i.test(message)) {
+    return 'Tài khoản này chưa được cấp quyền xem Aura Club học viên.'
+  }
+  if (/chưa được liên kết với tài khoản Aura|liên kết với nhiều hồ sơ|cần Admin đối soát/i.test(message)) {
+    return message
+  }
+  if (/phiên đăng nhập đã hết hạn|đăng nhập lại/i.test(message)) {
+    return 'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại để mở Aura Club.'
+  }
+  if (/tạm gián đoạn|tự thử kết nối lại|quá tải tạm thời|nhiều lượt truy cập|không thể tải dữ liệu lúc này|functions\/internal|\binternal\b/i.test(message)) {
+    return 'Dịch vụ Aura tạm gián đoạn hoặc đang quá tải. Hệ thống đã thử kết nối lại; dữ liệu không bị thay đổi. Vui lòng thử lại sau ít phút.'
+  }
   if (message && [
     'Hồ sơ học viên',
     'tạm dừng',
@@ -75,7 +87,7 @@ function friendlyError(error: unknown) {
     'không còn có thể hủy',
     'đang tạm khóa',
     'đã hết',
-  ].some((part) => message.includes(part))) return message.replace(/^FirebaseError:\s*/i, '')
+  ].some((part) => message.includes(part))) return message
   return 'Aura Club chưa tải được dữ liệu mới nhất. Hãy thử lại.'
 }
 

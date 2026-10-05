@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react'
+import React, { createContext, useContext, useState, useEffect, useRef, ReactNode } from 'react'
 import { collection, doc, setDoc, deleteDoc, runTransaction, updateDoc, onSnapshot, query, where, orderBy, limit } from 'firebase/firestore'
 import { db } from '../lib/firebaseFirestore'
 import { useAuth } from './AuthContext'
@@ -27,7 +27,7 @@ import type {
   SessionRequest,
 } from '../types/ptOperations'
 
-type OperationsSyncStatus = 'idle' | 'loading' | 'ready' | 'forbidden' | 'error'
+type OperationsSyncStatus = 'idle' | 'loading' | 'ready' | 'forbidden' | 'degraded' | 'error'
 
 interface OperationsSyncState {
   status: OperationsSyncStatus
@@ -122,6 +122,20 @@ const LEGACY_OPERATIONS_VIEW_SOURCES = {
   // revive the former whole-operations listener set on the roles route.
   'admin-roles': ['branches', 'scheduleConfig'],
 } as const satisfies Record<string, readonly LegacyOperationSource[]>
+
+// A slow optional adapter must not blank the workspace. These are the minimum
+// sources needed to render each transitional surface; contracts/sessions and
+// other enrichments can arrive later without blocking the page.
+const LEGACY_CORE_SOURCES: Partial<Record<keyof typeof LEGACY_OPERATIONS_VIEW_SOURCES, readonly LegacyOperationSource[]>> = {
+  'admin-pt-students': ['students', 'branches'],
+  'admin-training-history': ['students', 'trainers'],
+  'admin-finance': ['branches', 'students'],
+  'admin-hr': ['branches'],
+  'admin-payroll': ['trainers', 'branches'],
+  'admin-packages': ['packages', 'branches'],
+  'admin-schedule-settings': ['scheduleConfig', 'branches'],
+  'admin-roles': ['branches'],
+}
 
 type LegacyOperationsView = keyof typeof LEGACY_OPERATIONS_VIEW_SOURCES
 
@@ -248,6 +262,8 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
   const [isMigrated, setIsMigrated] = useState(false)
   const [canUseLegacyOperations, setCanUseLegacyOperations] = useState(false)
   const [operationsView, setOperationsView] = useState<LegacyOperationsView | null>(currentLegacyOperationsView)
+  const [operationsSyncAttempt, setOperationsSyncAttempt] = useState(0)
+  const operationsSyncRetryRef = useRef<{ view: LegacyOperationsView | null; attempts: number }>({ view: null, attempts: 0 })
   const [operationsSync, setOperationsSync] = useState<OperationsSyncState>({
     status: 'idle',
     lastSyncedAt: null,
@@ -262,7 +278,12 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
     ? null
     : operationsView
 
-  const refreshData = async () => {}
+  const refreshData = async () => {
+    // Recreate the scoped listeners instead of forcing a full page reload. This
+    // preserves any data already received and is safe for read-only listeners.
+    operationsSyncRetryRef.current = { view: effectiveOperationsView, attempts: 0 }
+    setOperationsSyncAttempt((value) => value + 1)
+  }
 
   const clearLegacyOperationsData = () => {
     setStudents(E2E_PT_STUDENTS)
@@ -353,27 +374,38 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
       return
     }
 
+    const retryingSameView = operationsSyncRetryRef.current.view === effectiveOperationsView && operationsSyncAttempt > 0
+    if (operationsSyncRetryRef.current.view !== effectiveOperationsView) {
+      operationsSyncRetryRef.current = { view: effectiveOperationsView, attempts: 0 }
+    }
+
     // A route change must never leave stale data from a broader legacy view in
-    // memory while the new, narrower subscriptions are loading.
-    clearLegacyOperationsData()
+    // memory while the new, narrower subscriptions are loading. During an
+    // automatic/manual retry, keep already received data visible instead of
+    // flashing an empty page.
+    if (!retryingSameView) clearLegacyOperationsData()
     setOperationsSync({ status: 'loading', lastSyncedAt: null, error: null })
     
     const unsubs: (() => void)[] = []
     const activeSources = new Set<LegacyOperationSource>(LEGACY_OPERATIONS_VIEW_SOURCES[effectiveOperationsView])
+    const coreSources = new Set<LegacyOperationSource>(LEGACY_CORE_SOURCES[effectiveOperationsView] ?? activeSources)
     const expectedInitialSnapshots = new Set<LegacyOperationSource>(activeSources)
     const receivedInitialSnapshots = new Set<LegacyOperationSource>()
+    const failedSources = new Set<LegacyOperationSource>()
+    let retryTimer: number | undefined
+    let retryScheduled = false
     let initialSyncTimeout: number | undefined
     const markReady = (source: LegacyOperationSource) => {
       receivedInitialSnapshots.add(source)
+      failedSources.delete(source)
       if (receivedInitialSnapshots.size === expectedInitialSnapshots.size) {
         if (initialSyncTimeout) window.clearTimeout(initialSyncTimeout)
         setOperationsSync({ status: 'ready', lastSyncedAt: new Date().toISOString(), error: null })
       }
     }
-    const listenerError = (source: string, error: unknown) => {
-      if (initialSyncTimeout) window.clearTimeout(initialSyncTimeout)
+    const listenerError = (source: LegacyOperationSource, error: unknown) => {
       const code = typeof error === 'object' && error && 'code' in error
-        ? String((error as { code?: unknown }).code || '')
+        ? String((error as { code?: unknown }).code || '').replace(/^functions\//, '').toLowerCase()
         : ''
       const requiresPaging = error instanceof Error && error.message === 'DIRECTORY_PAGE_REQUIRED'
       const message = requiresPaging
@@ -381,18 +413,52 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
         : code === 'permission-denied'
         ? 'Firestore đang từ chối quyền đọc dữ liệu vận hành. Hãy đăng xuất và đăng nhập lại tài khoản admin.'
         : `Không thể đồng bộ ${source}.`
-      setOperationsSync({ status: 'error', lastSyncedAt: null, error: message })
+      failedSources.add(source)
+      const retryable = !requiresPaging && !['permission-denied', 'unauthenticated'].includes(code)
+        && (['internal', 'unavailable', 'deadline-exceeded', 'unknown', 'aborted'].includes(code)
+          || /network|failed to fetch|load failed|timed out|quota|no available instance|cpu_allocation/i.test(String((error as { message?: unknown })?.message || '')))
+      const retryAttempts = operationsSyncRetryRef.current.attempts
+      if (retryable && retryAttempts < 2 && !retryScheduled) {
+        operationsSyncRetryRef.current.attempts += 1
+        retryScheduled = true
+        setOperationsSync({
+          status: receivedInitialSnapshots.size ? 'degraded' : 'loading',
+          lastSyncedAt: null,
+          error: `Đang tự kết nối lại dữ liệu ${source}…`,
+        })
+        retryTimer = window.setTimeout(() => {
+          retryScheduled = false
+          setOperationsSyncAttempt((value) => value + 1)
+        }, 600 * (2 ** retryAttempts))
+        console.warn(`${source} listener tạm gián đoạn; sẽ tự thử lại`, error)
+        return
+      }
+      if (initialSyncTimeout) window.clearTimeout(initialSyncTimeout)
+      const hasPartialData = receivedInitialSnapshots.size > 0
+      const status: OperationsSyncStatus = coreSources.has(source) && !hasPartialData ? 'error' : 'degraded'
+      setOperationsSync({ status, lastSyncedAt: null, error: message })
       console.warn(`${source} listener error`, error)
     }
 
     initialSyncTimeout = window.setTimeout(() => {
       const pendingSources = [...expectedInitialSnapshots].filter((source) => !receivedInitialSnapshots.has(source))
       if (!pendingSources.length) return
+      const corePending = pendingSources.filter((source) => coreSources.has(source))
+      const hasPartialData = receivedInitialSnapshots.size > 0
       setOperationsSync({
-        status: 'error',
+        status: corePending.length && !hasPartialData ? 'error' : 'degraded',
         lastSyncedAt: null,
-        error: `Đồng bộ quá thời gian chờ (${pendingSources.join(', ')}). Hãy kiểm tra kết nối và thử lại.`,
+        error: `Đồng bộ chưa hoàn tất (${pendingSources.join(', ')}). Dữ liệu đã tải vẫn được giữ; Aura sẽ thử lại khi kết nối ổn định.`,
       })
+      if (!retryScheduled && operationsSyncRetryRef.current.attempts < 2) {
+        const retryAttempts = operationsSyncRetryRef.current.attempts
+        operationsSyncRetryRef.current.attempts += 1
+        retryScheduled = true
+        retryTimer = window.setTimeout(() => {
+          retryScheduled = false
+          setOperationsSyncAttempt((value) => value + 1)
+        }, 600 * (2 ** retryAttempts))
+      }
     }, 12_000)
 
     const withDocumentId = <T extends { id: string }>(snapshot: { id: string; data: () => unknown }): T => ({
@@ -547,9 +613,10 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
 
     return () => {
       if (initialSyncTimeout) window.clearTimeout(initialSyncTimeout)
+      if (retryTimer) window.clearTimeout(retryTimer)
       unsubs.forEach(unsub => unsub())
     }
-  }, [backendMode, canUseLegacyOperations, effectiveOperationsView])
+  }, [backendMode, canUseLegacyOperations, effectiveOperationsView, operationsSyncAttempt])
 
   const migrateData = async () => {
     throw new Error('Công cụ migration phía trình duyệt đã ngừng hoạt động. Hãy dùng quy trình migration có dry-run, manifest và đối soát phía server.')

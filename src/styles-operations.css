@@ -241,7 +241,27 @@
   font-weight: 650;
 }
 .aura-operations-sync--error { color: #9d3044; border-color: rgba(180, 59, 73, .24); background: #fff0f2; }
+.aura-operations-sync--warning { color: #87521e; border-color: rgba(205, 132, 35, .28); background: #fff8e8; }
+.aura-operations-sync__retry {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  padding: 6px 9px;
+  border: 1px solid currentColor;
+  border-radius: 9px;
+  color: inherit;
+  background: rgba(255, 255, 255, .72);
+  font-size: .78rem;
+  font-weight: 750;
+  white-space: nowrap;
+}
 .aura-operations-sync__spinner { flex: 0 0 auto; animation: aura-operations-spin .8s linear infinite; }
+
+@media (max-width: 560px) {
+  .aura-operations-sync { align-items: flex-start; flex-wrap: wrap; }
+  .aura-operations-sync__retry { margin-left: 27px; }
+}
 
 .aura-operations-page *,
 .aura-operations-page *::before,

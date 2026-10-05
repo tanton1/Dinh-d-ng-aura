@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { AlertTriangle, LoaderCircle } from 'lucide-react'
+import { AlertTriangle, LoaderCircle, RefreshCw } from 'lucide-react'
 import { useDatabase } from '../contexts/DatabaseContext'
 import '../styles-operations.css'
 
@@ -14,7 +14,7 @@ interface AuraOperationsFrameProps {
  * operations screens so legacy application styles cannot leak into them.
  */
 export default function AuraOperationsFrame({ children, className = '' }: AuraOperationsFrameProps) {
-  const { operationsSync } = useDatabase()
+  const { operationsSync, refreshData } = useDatabase()
 
   return (
     <section className={`aura-operations-page aura-ui-v4-surface aura-ui-v4-operations ${className}`.trim()}>
@@ -27,10 +27,14 @@ export default function AuraOperationsFrame({ children, className = '' }: AuraOp
             <span>Đang đồng bộ dữ liệu nhân viên và lịch dạy…</span>
           </div>
         )}
-        {operationsSync.status === 'error' && operationsSync.error && (
-          <div className="aura-operations-sync aura-operations-sync--error" role="alert">
+        {(operationsSync.status === 'error' || operationsSync.status === 'degraded') && operationsSync.error && (
+          <div className={`aura-operations-sync aura-operations-sync--${operationsSync.status === 'degraded' ? 'warning' : 'error'}`} role={operationsSync.status === 'degraded' ? 'status' : 'alert'}>
             <AlertTriangle size={18} aria-hidden="true" />
             <span>{operationsSync.error}</span>
+            <button type="button" className="aura-operations-sync__retry" onClick={() => void refreshData()}>
+              <RefreshCw size={15} aria-hidden="true" />
+              Thử lại
+            </button>
           </div>
         )}
         {children}

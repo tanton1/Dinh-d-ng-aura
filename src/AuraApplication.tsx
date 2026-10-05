@@ -850,7 +850,22 @@ function AuraApplication() {
 
   const renderPage = () => {
     switch (view) {
-      case 'aura-club': return <AuraClubPage isDemo={backendMode === 'demo'} ownerId={user?.uid ?? 'demo'} initialTab={route.loyaltyTab} onNavigate={navigate} />
+      case 'aura-club': {
+        // Aura Club learner endpoints intentionally reject staff/admin actors.
+        // Do not render the learner page for those accounts: doing so caused a
+        // predictable 403 to be shown as a misleading `internal` outage.
+        if (backendMode === 'firebase' && accessContext?.accessRole !== 'student') {
+          const canOpenAdminLoyalty = hasCapability('loyalty.dashboard.read')
+          return <div className="course-detail-state aura-club-access-state" role="status">
+            <h1>Aura Club học viên</h1>
+            <p>Không gian này dành cho tài khoản học viên đã liên kết hồ sơ. Tài khoản nhân sự hãy mở Aura Club chi nhánh để quản lý loyalty.</p>
+            <button type="button" className="primary-button" onClick={() => navigate(canOpenAdminLoyalty ? 'admin-loyalty' : 'home')}>
+              {canOpenAdminLoyalty ? 'Mở Aura Club chi nhánh' : 'Về trang chính'}
+            </button>
+          </div>
+        }
+        return <AuraClubPage isDemo={backendMode === 'demo'} ownerId={user?.uid ?? 'demo'} initialTab={route.loyaltyTab} onNavigate={navigate} />
+      }
       case 'courses': return <CoursesPage onOpenCourse={openCourse} courseItems={studentCourses} loading={studentCourseData.loading || learningData.loading} error={studentCourseData.error} onRetry={studentCourseData.retry} warning={learningData.error} initialQuery={globalSearchQuery} />
       case 'course-detail': return <CourseDetailPage course={selectedCourse} progress={selectedProgress} activeLessonId={selectedLessonId} enrolled={selectedEnrollment} enrolledAt={selectedEnrollmentRecord?.enrolledAt} noteOwnerId={user?.uid ?? 'demo'} onNoteDirtyChange={setCourseNoteDirty} accessLocked={selectedCourseLocked} learningWarning={learningData.error} loadError={isAdminCoursePreview ? adminCourseData.error : studentCourseData.error} onRetry={isAdminCoursePreview ? adminCourseData.retry : studentCourseData.retry} loading={(isAdminCoursePreview ? adminCourseData.loading : studentCourseData.loading) || learningData.loading} allowDemoContent={backendMode === 'demo'} previewMode={isAdminCoursePreview} onBack={() => {
         if (isAdminCoursePreview) {

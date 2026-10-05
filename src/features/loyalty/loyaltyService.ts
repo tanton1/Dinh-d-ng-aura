@@ -2,6 +2,7 @@ import { doc, onSnapshot, type Unsubscribe } from 'firebase/firestore'
 import { httpsCallable } from 'firebase/functions'
 import { firestoreDb } from '../../lib/firebaseFirestore'
 import { firebaseFunctions } from '../../lib/firebaseFunctions'
+import { callReadOnlyFunction } from '../../services/readOnlyCallableService'
 import type {
   LoyaltyAccount,
   LoyaltyAdminAccount,
@@ -28,16 +29,23 @@ async function call<Input, Output>(name: string, input: Input): Promise<Output> 
   return (await httpsCallable<Input, Output>(functionsInstance(), name, { timeout: 30_000 })(input)).data
 }
 
+// Read endpoints are idempotent. Use the shared retry/auth-refresh path for
+// transient Functions outages, while keeping mutations on `call` so a retry
+// can never duplicate a redemption or adjustment.
+function read<Input, Output>(name: string, input: Input) {
+  return callReadOnlyFunction<Input, Output>(name, input, { timeoutMs: 20_000, maximumAttempts: 3, baseDelayMs: 900 })
+}
+
 export function getMyLoyaltyDashboard() {
-  return call<Record<string, never>, LoyaltyDashboard>('getMyLoyaltyDashboard', {})
+  return read<Record<string, never>, LoyaltyDashboard>('getMyLoyaltyDashboard', {})
 }
 
 export function listMyAvailableRewards() {
-  return call<Record<string, never>, { rewards: LoyaltyReward[]; redeemEnabled: boolean }>('listMyAvailableRewards', {})
+  return read<Record<string, never>, { rewards: LoyaltyReward[]; redeemEnabled: boolean }>('listMyAvailableRewards', {})
 }
 
 export function listMyLoyaltyHistory(offset = 0, pageSize = 30) {
-  return call<{ offset: number; pageSize: number }, { entries: LoyaltyHistoryEntry[]; nextOffset: number | null }>('listMyLoyaltyHistory', { offset, pageSize })
+  return read<{ offset: number; pageSize: number }, { entries: LoyaltyHistoryEntry[]; nextOffset: number | null }>('listMyLoyaltyHistory', { offset, pageSize })
 }
 
 export function redeemMyReward(input: { rewardId: string; branchId?: string; idempotencyKey: string }) {
@@ -49,7 +57,7 @@ export function cancelMyPendingRedemption(input: { redemptionId: string; idempot
 }
 
 export function getMyReferralWorkspace() {
-  return call<Record<string, never>, ReferralWorkspace>('getMyReferralWorkspace', {})
+  return read<Record<string, never>, ReferralWorkspace>('getMyReferralWorkspace', {})
 }
 
 export function createMyReferralCode() {
@@ -61,11 +69,11 @@ export function applyForAmbassador(note = '') {
 }
 
 export function getLoyaltyAdminDashboard() {
-  return call<Record<string, never>, LoyaltyAdminDashboard>('getLoyaltyAdminDashboard', {})
+  return read<Record<string, never>, LoyaltyAdminDashboard>('getLoyaltyAdminDashboard', {})
 }
 
 export function getStudentLoyaltySummary(studentId: string) {
-  return call<{ studentId: string }, { studentId: string; studentName: string; account: LoyaltyAccount }>('getStudentLoyaltySummary', { studentId })
+  return read<{ studentId: string }, { studentId: string; studentName: string; account: LoyaltyAccount }>('getStudentLoyaltySummary', { studentId })
 }
 
 export function giveSessionKudos(input: { sessionId: string; studentId: string; message: string }) {
@@ -73,15 +81,15 @@ export function giveSessionKudos(input: { sessionId: string; studentId: string; 
 }
 
 export function listLoyaltyRedemptions(status = '') {
-  return call<{ status: string }, { redemptions: Array<Record<string, unknown> & { id: string; status: string }> }>('listLoyaltyRedemptions', { status })
+  return read<{ status: string }, { redemptions: Array<Record<string, unknown> & { id: string; status: string }> }>('listLoyaltyRedemptions', { status })
 }
 
 export function listLoyaltyAccounts(input: { pageSize?: number; cursor?: string } = {}) {
-  return call<typeof input, LoyaltyAdminAccountPage>('listLoyaltyAccounts', input)
+  return read<typeof input, LoyaltyAdminAccountPage>('listLoyaltyAccounts', input)
 }
 
 export function listLoyaltyRewardsAdmin() {
-  return call<Record<string, never>, { rewards: LoyaltyAdminReward[] }>('listLoyaltyRewardsAdmin', {})
+  return read<Record<string, never>, { rewards: LoyaltyAdminReward[] }>('listLoyaltyRewardsAdmin', {})
 }
 
 export function saveLoyaltyReward(reward: LoyaltyAdminReward) {
@@ -117,7 +125,7 @@ export function saveLoyaltyReward(reward: LoyaltyAdminReward) {
 }
 
 export function listLoyaltyAmbassadors() {
-  return call<Record<string, never>, { ambassadors: LoyaltyAdminAmbassador[] }>('listLoyaltyAmbassadors', {})
+  return read<Record<string, never>, { ambassadors: LoyaltyAdminAmbassador[] }>('listLoyaltyAmbassadors', {})
 }
 
 export function manageAmbassadorProfile(studentId: string, status: 'approved' | 'rejected' | 'suspended') {
@@ -129,11 +137,11 @@ export function approveAmbassadorPayout(studentId: string) {
 }
 
 export function listLoyaltyReconciliationIssues(status = 'open') {
-  return call<{ status: string }, { issues: LoyaltyReconciliationIssue[] }>('listLoyaltyReconciliationIssues', { status })
+  return read<{ status: string }, { issues: LoyaltyReconciliationIssue[] }>('listLoyaltyReconciliationIssues', { status })
 }
 
 export function listLoyaltyAdjustments(status = 'pending_approval') {
-  return call<{ status: string }, { adjustments: LoyaltyAdjustment[] }>('listLoyaltyAdjustments', { status })
+  return read<{ status: string }, { adjustments: LoyaltyAdjustment[] }>('listLoyaltyAdjustments', { status })
 }
 
 export function reviewLoyaltyAdjustment(adjustmentId: string, decision: 'approve' | 'reject') {

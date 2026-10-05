@@ -52,6 +52,9 @@ export function friendlyReadOnlyCallableMessage(error: unknown) {
   if (code === 'resource-exhausted' || /rate exceeded|too many requests|\b429\b/i.test(raw)) {
     return 'Hệ thống Aura đang có nhiều lượt truy cập. Dữ liệu không bị thay đổi; vui lòng thử lại sau ít phút.'
   }
+  if (/no available instance|quota(?: limit)?|cpu_allocation|resource exhausted/i.test(raw)) {
+    return 'Dịch vụ Aura đang quá tải tạm thời. Hệ thống đã tự thử kết nối lại; dữ liệu không bị thay đổi. Vui lòng thử lại sau ít phút.'
+  }
   if (isRetryableReadOnlyCallableError(error)) {
     return 'Dịch vụ Aura tạm gián đoạn. Hệ thống đã tự thử kết nối lại và dữ liệu không bị thay đổi; vui lòng tải lại sau ít phút.'
   }
