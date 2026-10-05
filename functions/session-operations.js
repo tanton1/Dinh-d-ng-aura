@@ -2378,13 +2378,13 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
             scheduledAt: targetStart,
             occurredAt: targetStart,
             scheduleStatus: session.data.scheduleStatus || 'scheduled',
-            billingStatus: session.data.billingStatus || 'charged',
             correctionReason: reason,
             correctedAt: FieldValue.serverTimestamp(),
             correctedBy: actor.uid,
             updatedAt: FieldValue.serverTimestamp(),
             updatedBy: actor.uid,
           }
+          if (!attendanceSnapshot.exists) attendancePatch.billingStatus = session.data.billingStatus || 'charged'
           if (session.item.attendanceStatus) {
             Object.assign(attendancePatch, {
               type: session.item.attendanceStatus === 'no_show' ? 'no_show' : 'attended',
