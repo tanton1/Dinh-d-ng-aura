@@ -2110,9 +2110,14 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
   })
 
   const correctTeachingShift = onCall({
+    // Corrections are infrequent and transactional; serialize them with a
+    // fractional Gen-1 CPU profile so a burst cannot consume the whole
+    // asia-southeast1 Cloud Run allocation.
+    cpu: 'gcf_gen1',
     memory: '512MiB',
     timeoutSeconds: 120,
-    maxInstances: 3,
+    maxInstances: 1,
+    concurrency: 1,
   }, async (request) => {
     const actor = await authorizeAdmin(request, db)
     if (!['admin', 'super_admin'].includes(actor.accessRole)) {

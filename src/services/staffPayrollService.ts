@@ -2,6 +2,7 @@ import { httpsCallable } from 'firebase/functions'
 import { firebaseFunctions, firebaseScheduleOptimizerFunctions } from '../lib/firebaseFunctions'
 import type { PayrollIntelligenceSnapshot } from './payrollService'
 import { reportClientIssue } from './clientTelemetryService'
+import { callReadOnlyFunction } from './readOnlyCallableService'
 
 export type StaffAttendanceStatus =
   | 'present'
@@ -232,6 +233,21 @@ function callable<Input, Output>(name: string) {
   }
 }
 
+/**
+ * Read-only payroll queries use the bounded retry path shared by the rest of
+ * the app. Payroll is intentionally served from the overflow region, so keep
+ * that regional client explicit while retaining the V2 wire contract.
+ */
+function readOnlyCallable<Input, Output>(name: string, timeoutMs = 30_000) {
+  const functions = firebaseScheduleOptimizerFunctions || firebaseFunctions
+  return (input: Input) => callReadOnlyFunction<Input, Output>(`${name}V2`, input, {
+    functionsClient: functions,
+    timeoutMs,
+    maximumAttempts: 3,
+    baseDelayMs: 500,
+  })
+}
+
 function object(value: unknown): UnknownRecord {
   return value && typeof value === 'object' ? value as UnknownRecord : {}
 }
@@ -440,18 +456,18 @@ function normalizeStaffPayrollStatement(rawValue: unknown, periodId: string, sta
 }
 
 export async function getMyStaffPayroll(periodId: string): Promise<MyStaffPayroll> {
-  const result = await callable<{ periodId: string }, UnknownRecord>('getMyStaffPayroll')({ periodId })
-  return normalizeStaffPayrollStatement(result.data, periodId)
+  const result = await readOnlyCallable<{ periodId: string }, UnknownRecord>('getMyStaffPayroll')({ periodId })
+  return normalizeStaffPayrollStatement(result, periodId)
 }
 
 export async function getStaffPayrollStatement(periodId: string, staffId: string): Promise<MyStaffPayroll> {
-  const result = await callable<{ periodId: string; staffId: string }, UnknownRecord>('getStaffPayrollStatement')({ periodId, staffId })
-  return normalizeStaffPayrollStatement(result.data, periodId, staffId)
+  const result = await readOnlyCallable<{ periodId: string; staffId: string }, UnknownRecord>('getStaffPayrollStatement')({ periodId, staffId })
+  return normalizeStaffPayrollStatement(result, periodId, staffId)
 }
 
 export async function listStaffPayrollAttendance(periodId: string, branchId = '') {
-  const result = await callable<{ periodId: string; branchId?: string }, { periodId?: unknown; asOfDate?: unknown; rows?: unknown[]; summary?: unknown; referralDiagnostics?: unknown; truncated?: unknown }>('listStaffPayrollAttendance')({ periodId, branchId })
-  const rows: StaffAttendanceRow[] = Array.isArray(result.data.rows) ? result.data.rows.flatMap((rowValue) => {
+  const result = await readOnlyCallable<{ periodId: string; branchId?: string }, { periodId?: unknown; asOfDate?: unknown; rows?: unknown[]; summary?: unknown; referralDiagnostics?: unknown; truncated?: unknown }>('listStaffPayrollAttendance')({ periodId, branchId })
+  const rows: StaffAttendanceRow[] = Array.isArray(result.rows) ? result.rows.flatMap((rowValue) => {
     const raw = object(rowValue)
     const staffId = text(raw.staffId)
     if (!staffId) return []
@@ -488,7 +504,7 @@ export async function listStaffPayrollAttendance(periodId: string, branchId = ''
       calendarApproved: raw.calendarApproved === true,
     }]
   }) : []
-  const rawSummary = object(result.data.summary)
+  const rawSummary = object(result.summary)
   const summary: StaffPayrollLiveSummary = {
     activeStaffCount: integer(rawSummary.activeStaffCount),
     teachingSlotCount: integer(rawSummary.teachingSlotCount),
@@ -502,22 +518,22 @@ export async function listStaffPayrollAttendance(periodId: string, branchId = ''
     unconfiguredPolicyCount: integer(rawSummary.unconfiguredPolicyCount),
   }
   return {
-    periodId: text(result.data.periodId) || periodId,
-    asOfDate: text(result.data.asOfDate),
+    periodId: text(result.periodId) || periodId,
+    asOfDate: text(result.asOfDate),
     rows,
     summary,
     referralDiagnostics: {
-      unresolvedEntryCount: integer(object(result.data.referralDiagnostics).unresolvedEntryCount),
-      ambiguousCodeEntryCount: integer(object(result.data.referralDiagnostics).ambiguousCodeEntryCount),
-      invalidRateEntryCount: integer(object(result.data.referralDiagnostics).invalidRateEntryCount),
+      unresolvedEntryCount: integer(object(result.referralDiagnostics).unresolvedEntryCount),
+      ambiguousCodeEntryCount: integer(object(result.referralDiagnostics).ambiguousCodeEntryCount),
+      invalidRateEntryCount: integer(object(result.referralDiagnostics).invalidRateEntryCount),
     },
-    truncated: result.data.truncated === true,
+    truncated: result.truncated === true,
   }
 }
 
 export async function getStaffPayrollAttendanceDetail(periodId: string, staffId: string) {
-  const result = await callable<{ periodId: string; staffId: string }, UnknownRecord>('getStaffPayrollAttendanceDetail')({ periodId, staffId })
-  const raw = object(result.data)
+  const result = await readOnlyCallable<{ periodId: string; staffId: string }, UnknownRecord>('getStaffPayrollAttendanceDetail')({ periodId, staffId })
+  const raw = object(result)
   return {
     periodId: text(raw.periodId) || periodId,
     staffId: text(raw.staffId) || staffId,

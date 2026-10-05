@@ -186,6 +186,18 @@ function attachmentUrls(value) {
 }
 
 function createCashbookFunctions({ db, onCall }) {
+  // Admin payroll opens this read-only endpoint together with several other
+  // low-volume panels. Keep its revision fractional-CPU and single-instance
+  // so a refresh does not request a full Cloud Run CPU during a regional
+  // quota spike.
+  const financeReadCall = (handler) => onCall({
+    cpu: 'gcf_gen1',
+    memory: '256MiB',
+    maxInstances: 1,
+    concurrency: 1,
+    timeoutSeconds: 60,
+  }, handler)
+
   const listAccountingCatalog = onCall(async (request) => {
     await actorForFinance(request, db)
     return {
@@ -196,7 +208,7 @@ function createCashbookFunctions({ db, onCall }) {
     }
   })
 
-  const listCashAccounts = onCall(async (request) => {
+  const listCashAccounts = financeReadCall(async (request) => {
     await actorForFinance(request, db)
     const snapshot = await db.collection('cashAccounts').orderBy('name').limit(200).get()
     return { accounts: snapshot.docs.map(serializeAccount) }

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { User as FirebaseUser } from 'firebase/auth'
 import {
   AlertTriangle,
@@ -239,6 +239,7 @@ export default function TrainerPayroll({ profile }: Props) {
   const [expandedTrainerId, setExpandedTrainerId] = useState('')
   const [payoutAccountId, setPayoutAccountId] = useState('')
   const [payoutReference, setPayoutReference] = useState('')
+  const refreshSequence = useRef(0)
 
   useEffect(() => {
     if (!violationDialog) return undefined
@@ -339,25 +340,21 @@ export default function TrainerPayroll({ profile }: Props) {
   }
 
   const refresh = useCallback(async () => {
+    const sequence = refreshSequence.current + 1
+    refreshSequence.current = sequence
     setLoading(true)
     setError('')
-    const [runsResult, policiesResult, accountsResult, liveResult, adjustmentsResult, earningEventsResult, intelligencePoliciesResult, targetResult] = await Promise.allSettled([
-      listPayrollRuns(36),
-      listPayrollPolicies(),
-      listCashAccounts(),
-      listStaffPayrollAttendance(periodId),
-      listPayrollAdjustments(periodId),
-      listPayrollEarningEvents(periodId),
-      listPayrollIntelligencePolicies(),
-      getPayrollTarget(periodId),
-    ])
-    if (runsResult.status === 'fulfilled') setRuns(runsResult.value)
-    if (policiesResult.status === 'fulfilled') setPolicies(policiesResult.value)
-    if (accountsResult.status === 'fulfilled') {
-      const activeAccounts = accountsResult.value.accounts.filter((account) => account.status === 'active')
-      setCashAccounts(activeAccounts)
-      setPayoutAccountId((current) => current || activeAccounts[0]?.id || '')
+    let firstFailure: unknown = null
+    const rememberFailure = (result: PromiseSettledResult<unknown>) => {
+      if (!firstFailure && result.status === 'rejected') firstFailure = result.reason
     }
+
+    // The live staff table is the critical path. Loading it alone first makes
+    // the payroll page useful quickly and avoids eight cold-starts competing
+    // for the project CPU quota at the same time.
+    const [liveResult] = await Promise.allSettled([listStaffPayrollAttendance(periodId)])
+    if (sequence !== refreshSequence.current) return
+    rememberFailure(liveResult)
     if (liveResult.status === 'fulfilled') {
       setLiveRows([...liveResult.value.rows].sort((left, right) => left.name.localeCompare(right.name, 'vi')))
       setLiveAsOfDate(liveResult.value.asOfDate)
@@ -365,12 +362,52 @@ export default function TrainerPayroll({ profile }: Props) {
       setLiveRows([])
       setLiveAsOfDate('')
     }
+
+    // Keep background reads to two concurrent callables. This preserves a
+    // fast first paint while preventing a payroll refresh from creating a
+    // burst of independent Cloud Run revisions in the same region.
+    const [runsResult, policiesResult] = await Promise.allSettled([
+      listPayrollRuns(36),
+      listPayrollPolicies(),
+    ])
+    if (sequence !== refreshSequence.current) return
+    rememberFailure(runsResult)
+    rememberFailure(policiesResult)
+    if (runsResult.status === 'fulfilled') setRuns(runsResult.value)
+    if (policiesResult.status === 'fulfilled') setPolicies(policiesResult.value)
+
+    const [accountsResult, adjustmentsResult] = await Promise.allSettled([
+      listCashAccounts(),
+      listPayrollAdjustments(periodId),
+    ])
+    if (sequence !== refreshSequence.current) return
+    rememberFailure(accountsResult)
+    rememberFailure(adjustmentsResult)
+    if (accountsResult.status === 'fulfilled') {
+      const activeAccounts = accountsResult.value.accounts.filter((account) => account.status === 'active')
+      setCashAccounts(activeAccounts)
+      setPayoutAccountId((current) => current || activeAccounts[0]?.id || '')
+    }
     if (adjustmentsResult.status === 'fulfilled') setAdjustments(adjustmentsResult.value)
     else setAdjustments([])
+
+    const [earningEventsResult, intelligencePoliciesResult] = await Promise.allSettled([
+      listPayrollEarningEvents(periodId),
+      listPayrollIntelligencePolicies(),
+    ])
+    if (sequence !== refreshSequence.current) return
+    rememberFailure(earningEventsResult)
+    rememberFailure(intelligencePoliciesResult)
     if (earningEventsResult.status === 'fulfilled') { setEarningEvents(earningEventsResult.value.events); setEarningSummary(earningEventsResult.value.summary) }
     else { setEarningEvents([]); setEarningSummary({ approvedAmount: 0, pendingAmount: 0, disputedAmount: 0, rejectedAmount: 0, payableAmount: 0 }) }
     if (intelligencePoliciesResult.status === 'fulfilled') setIntelligencePolicies(intelligencePoliciesResult.value)
     else setIntelligencePolicies([])
+
+    // Target is intentionally last because its fallback can use the policy
+    // response above; it is not needed to render the staff table.
+    const [targetResult] = await Promise.allSettled([getPayrollTarget(periodId)])
+    if (sequence !== refreshSequence.current) return
+    rememberFailure(targetResult)
     if (targetResult.status === 'fulfilled') {
       setPayrollTarget(targetResult.value)
       const fallbackMetrics = intelligencePoliciesResult.status === 'fulfilled'
@@ -384,8 +421,7 @@ export default function TrainerPayroll({ profile }: Props) {
       setPayrollTarget(null)
       setTargetForm({})
     }
-    const failure = [runsResult, policiesResult, accountsResult, liveResult, adjustmentsResult, earningEventsResult, intelligencePoliciesResult, targetResult].find((result) => result.status === 'rejected')
-    if (failure?.status === 'rejected') setError(friendlyError(failure.reason))
+    if (firstFailure) setError(friendlyError(firstFailure))
     setLoading(false)
   }, [periodId])
 

@@ -931,7 +931,12 @@ exports.listPtWorkoutHistory = ptWorkoutTrackingFunctions.listPtWorkoutHistory
 exports.repairCompletedOnboardingDefaults = onDocumentWritten({
   document: 'users/{userId}',
   database: databaseId,
-  maxInstances: 3,
+  // This invariant is a bounded repair path, not a latency-critical API.
+  // Keep it serialized and fractional-CPU so ordinary profile writes do not
+  // compete with interactive callables for the regional CPU quota.
+  cpu: 'gcf_gen1',
+  maxInstances: 1,
+  concurrency: 1,
 }, async (event) => {
   const snapshot = event.data?.after
   if (!snapshot?.exists) return
