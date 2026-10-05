@@ -239,6 +239,32 @@ test('admin can resolve a duplicate learner day by correcting attendance without
   assert.equal(state.paths().filter((path) => path.startsWith('attendanceAuditLogs/')).length, 1)
 })
 
+test('admin correction backfills missing legacy attendance evidence while resolving a duplicate', async () => {
+  const state = operationsFor({
+    'trainers/trainer-1': { status: 'active', branchId: 'branch-1', slotCapacity: 2 },
+    // This is a legacy completed row with no attendanceEvents document and an
+    // all-branch marker. It must remain auditable but become editable.
+    'sessions/legacy-duplicate': {
+      status: 'completed', studentId: 'student-1', trainerId: 'trainer-1',
+      contractId: 'contract-1', branchId: 'all', date: '2026-08-18', hour: 8,
+    },
+    'financePeriods/2026-08': { status: 'open' },
+  }, async () => ({ uid: 'admin-1', accessRole: 'admin' }))
+
+  const result = await state.correctTeachingShift({ data: {
+    items: [{ sessionId: 'legacy-duplicate', expectedRevision: 0, attendanceStatus: 'no_show', noShowReason: 'other' }],
+    date: '2026-08-18', hour: 8, trainerId: 'trainer-1', reason: 'Đối soát buổi trùng dữ liệu cũ',
+  } })
+
+  assert.equal(result.unchanged, false)
+  assert.equal(state.read('sessions/legacy-duplicate').status, 'no_show')
+  assert.equal(state.read('sessions/legacy-duplicate').attendanceEventId, 'legacy-duplicate')
+  assert.equal(state.read('sessions/legacy-duplicate').billingStatus, 'charged')
+  assert.equal(state.read('attendanceEvents/legacy-duplicate').sessionId, 'legacy-duplicate')
+  assert.equal(state.read('attendanceEvents/legacy-duplicate').attendanceStatus, 'no_show')
+  assert.equal(state.read('attendanceEvents/legacy-duplicate').noShowReason, 'other')
+})
+
 test('teaching shift correction is admin-only and fails closed after payroll is reviewed', async () => {
   const unauthorized = operationsFor({}, async () => ({ uid: 'staff-1', accessRole: 'staff' }))
   await assert.rejects(

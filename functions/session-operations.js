@@ -2185,7 +2185,12 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
       attendanceSnapshots.forEach((snapshot, index) => {
         const item = sessions[index].item
         if (!item.attendanceStatus) return
-        if (!snapshot.exists || snapshot.data().sessionId !== item.sessionId) {
+        // Legacy sessions can be completed/charged without an
+        // attendanceEvents document. An admin correction is the safe place
+        // to backfill that canonical evidence; rejecting the correction here
+        // made duplicate-day cleanup impossible. We still fail closed when a
+        // document exists but is linked to a different session.
+        if (snapshot.exists && snapshot.data().sessionId !== item.sessionId) {
           throw new HttpsError('failed-precondition', 'Buổi chưa có bản ghi điểm danh hợp lệ để sửa trạng thái.', {
             issueCode: 'TEACHING_SHIFT_ATTENDANCE_MISSING', sessionId: item.sessionId, attendanceEventId: item.attendanceEventId || item.sessionId,
           })
@@ -2200,6 +2205,7 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
       ))
       const attendanceChanged = sessions.some((session, index) => {
         if (!session.item.attendanceStatus) return false
+        if (!attendanceSnapshots[index].exists) return true
         const attendance = attendanceSnapshots[index].data()
         return attendance.attendanceStatus !== session.item.attendanceStatus
           || Number(attendance.lateMinutes || 0) !== Number(session.item.lateMinutes || 0)
@@ -2345,6 +2351,15 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
           branchId: targetBranchId,
           status: nextSessionStatus,
           attendanceStatus: nextAttendanceStatus,
+          ...(session.item.attendanceStatus
+            ? {
+                attendanceEventId: attendanceReferences[index].id,
+                // A manually confirmed legacy row becomes a canonical,
+                // chargeable attendance record. Existing billing values are
+                // preserved when present.
+                billingStatus: session.data.billingStatus || 'charged',
+              }
+            : {}),
           correctedAt: FieldValue.serverTimestamp(),
           correctedBy: actor.uid,
           correctionReason: reason,
@@ -2355,11 +2370,15 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
           updatedAt: FieldValue.serverTimestamp(),
           updatedBy: actor.uid,
         })
-        if (attendanceSnapshot.exists) {
+        if (attendanceSnapshot.exists || session.item.attendanceStatus) {
           const attendancePatch = {
             trainerId: targetTrainerId,
+            studentId: session.data.studentId || '',
+            contractId: session.data.contractId || '',
             scheduledAt: targetStart,
             occurredAt: targetStart,
+            scheduleStatus: session.data.scheduleStatus || 'scheduled',
+            billingStatus: session.data.billingStatus || 'charged',
             correctionReason: reason,
             correctedAt: FieldValue.serverTimestamp(),
             correctedBy: actor.uid,
@@ -2380,7 +2399,15 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
               confirmedBy: actor.uid,
             })
           }
-          transaction.update(attendanceReferences[index], attendancePatch)
+          if (attendanceSnapshot.exists) transaction.update(attendanceReferences[index], attendancePatch)
+          else transaction.create(attendanceReferences[index], {
+            schemaVersion: 3,
+            sessionId: session.id,
+            branchId: targetBranchId,
+            createdAt: FieldValue.serverTimestamp(),
+            createdBy: actor.uid,
+            ...attendancePatch,
+          })
         }
         transaction.create(db.collection('sessionEvents').doc(), {
           schemaVersion: 2,
