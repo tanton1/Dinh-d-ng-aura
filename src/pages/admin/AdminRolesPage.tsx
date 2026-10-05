@@ -297,8 +297,8 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
   const [directoryCursors, setDirectoryCursors] = useState<Record<'accounts' | 'staff', string | null>>({ accounts: null, staff: null })
   const [directoryHasMore, setDirectoryHasMore] = useState<Record<'accounts' | 'staff', boolean>>({ accounts: false, staff: false })
   const [directorySummary, setDirectorySummary] = useState({ accounts: 0, staff: 0, admins: 0 })
-  const [directoryLoading, setDirectoryLoading] = useState(false)
-  const [directoryError, setDirectoryError] = useState(false)
+  const [directoryLoading, setDirectoryLoading] = useState<Record<'accounts' | 'staff', boolean>>({ accounts: false, staff: false })
+  const [directoryError, setDirectoryError] = useState<Record<'accounts' | 'staff', string | null>>({ accounts: null, staff: null })
   const staffDirectoryOpenedRef = useRef(false)
 
   const workingDays = scheduleConfig.workingDays?.length ? scheduleConfig.workingDays : fallbackStaffDays
@@ -313,8 +313,8 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
   const canViewTeam = hasPermission(currentRole, 'team.view')
   const loadDirectoryPage = async (target: 'accounts' | 'staff', append = false) => {
     if (!canViewTeam) return
-    setDirectoryLoading(true)
-    setDirectoryError(false)
+    setDirectoryLoading((current) => ({ ...current, [target]: true }))
+    setDirectoryError((current) => ({ ...current, [target]: null }))
     try {
       const page = await listIdentityDirectory({
         section: target,
@@ -335,10 +335,15 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
         page.entries.forEach((entry) => { if (entry.staffOperations) next[entry.user.uid] = entry.staffOperations })
         return next
       })
-    } catch {
-      setDirectoryError(true)
+    } catch (caught) {
+      setDirectoryError((current) => ({
+        ...current,
+        [target]: caught instanceof Error
+          ? caught.message
+          : 'Dịch vụ chưa phản hồi. Dữ liệu hiện có vẫn được giữ nguyên; hãy thử lại.',
+      }))
     } finally {
-      setDirectoryLoading(false)
+      setDirectoryLoading((current) => ({ ...current, [target]: false }))
     }
   }
   // Mutations on this page are callable writes, so the directory has no
@@ -657,14 +662,14 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
         <label className="identity-filter"><SlidersHorizontal size={16} /><span>Loại</span><select aria-label="Lọc loại thành viên" value={roleFilter} onChange={(event) => setRoleFilter(event.target.value as 'all' | UserRole)}><option value="all">Tất cả</option><option value="student">Học viên</option><option value="user">Khách vãng lai</option></select></label>
         <div className="roles-column-picker"><button type="button" className="identity-filter" onClick={() => setColumnPickerOpen((current) => !current)} aria-expanded={columnPickerOpen}><Columns3 size={16} />Cột hiển thị</button>{columnPickerOpen && <div className="roles-column-picker__menu">{(Object.keys(directoryColumnMeta) as DirectoryColumn[]).map((column) => <label key={column}><input type="checkbox" checked={visibleColumns[column]} onChange={() => updateColumn(column)} />{directoryColumnMeta[column]}</label>)}</div>}</div>
       </div>
-      <div className="students-table roles-directory identity-members-list" aria-busy={loading || directoryLoading}>
+      <div className="students-table roles-directory identity-members-list" aria-busy={loading || directoryLoading.accounts}>
         <div className="students-head" style={tableGridStyle}><span>THÀNH VIÊN</span>{visibleColumns.phone && <span>SỐ ĐIỆN THOẠI</span>}{visibleColumns.email && <span>EMAIL ĐĂNG NHẬP</span>}<span>LOẠI TÀI KHOẢN</span>{visibleColumns.scope && <span>QUYỀN & PHẠM VI</span>}{visibleColumns.activity && <span>HOẠT ĐỘNG</span>}{visibleColumns.status && <span>TRẠNG THÁI</span>}<span /></div>
-        {(loading || directoryLoading) && !filteredUsers.length && <div className="empty-state"><LoaderCircle size={30} className="spin" /><h3>Đang tải thành viên</h3><p>Dữ liệu tài khoản đang được đồng bộ theo trang.</p></div>}
-        {!loading && !directoryLoading && filteredUsers.map((user, index) => <RoleDirectoryRow key={user.uid} user={user} assignment={assignments[user.uid]} index={index} tableGridStyle={tableGridStyle} visibleColumns={visibleColumns} currentUserUid={currentUserUid} canAssignRole={canAssignRole} canAssignSuperAdmin={canAssignSuperAdmin} isSaving={savingUid === user.uid} branches={branches} onChangeRole={changeRole} onOpenAccessEditor={openAccessEditor} onDeleteMember={openMemberDelete} />)}
-        {!loading && !directoryLoading && filteredUsers.length === 0 && <div className="empty-state"><Users size={30} /><h3>Không tìm thấy thành viên</h3><p>Thử đổi từ khóa hoặc bộ lọc tài khoản.</p></div>}
+        {(loading || directoryLoading.accounts) && !filteredUsers.length && <div className="empty-state"><LoaderCircle size={30} className="spin" /><h3>Đang tải thành viên</h3><p>Dữ liệu tài khoản đang được đồng bộ theo trang.</p></div>}
+        {!loading && !directoryLoading.accounts && filteredUsers.map((user, index) => <RoleDirectoryRow key={user.uid} user={user} assignment={assignments[user.uid]} index={index} tableGridStyle={tableGridStyle} visibleColumns={visibleColumns} currentUserUid={currentUserUid} canAssignRole={canAssignRole} canAssignSuperAdmin={canAssignSuperAdmin} isSaving={savingUid === user.uid} branches={branches} onChangeRole={changeRole} onOpenAccessEditor={openAccessEditor} onDeleteMember={openMemberDelete} />)}
+        {!loading && !directoryLoading.accounts && !directoryError.accounts && filteredUsers.length === 0 && <div className="empty-state"><Users size={30} /><h3>Không tìm thấy thành viên</h3><p>Thử đổi từ khóa hoặc bộ lọc tài khoản.</p></div>}
       </div>
-      {directoryError && <div className="identity-message identity-message--error" role="alert"><AlertCircle size={17} />Chưa thể tải danh sách phân trang. Hãy thử tải lại hoặc kiểm tra quyền quản trị.</div>}
-      {directoryHasMore.accounts && <div className="identity-directory-more"><button type="button" className="outline-button" onClick={() => void loadDirectoryPage('accounts', true)} disabled={directoryLoading}>{directoryLoading ? 'Đang tải...' : 'Tải thêm thành viên'}</button><small>Danh sách tải theo từng trang để không giữ hàng nghìn listener trên trình duyệt.</small></div>}
+      {directoryError.accounts && <div className="identity-message identity-message--error" role="alert"><AlertCircle size={17} /><span>{directoryError.accounts}</span><button type="button" className="outline-button" onClick={() => void loadDirectoryPage('accounts')} disabled={directoryLoading.accounts}>{directoryLoading.accounts ? 'Đang thử lại...' : 'Thử lại'}</button></div>}
+      {directoryHasMore.accounts && <div className="identity-directory-more"><button type="button" className="outline-button" onClick={() => void loadDirectoryPage('accounts', true)} disabled={directoryLoading.accounts}>{directoryLoading.accounts ? 'Đang tải...' : 'Tải thêm thành viên'}</button><small>Danh sách tải theo từng trang để không giữ hàng nghìn listener trên trình duyệt.</small></div>}
     </section>}
 
     {section === 'staff' && <section className="identity-section identity-staff">
@@ -676,7 +681,7 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
         <div className="identity-search"><Search size={18} /><input aria-label="Tìm nhân viên" value={staffQuery} onChange={(event) => setStaffQuery(event.target.value)} placeholder="Tìm tên, email hoặc số điện thoại" /></div>
         <label className="identity-filter"><SlidersHorizontal size={16} /><span>Chức danh</span><select aria-label="Lọc chức danh" value={staffPositionFilter} onChange={(event) => setStaffPositionFilter(event.target.value as 'all' | StaffPosition)}><option value="all">Tất cả</option>{positionOptions.map((position) => <option key={position.id} value={position.id}>{position.label}</option>)}</select></label>
       </div>
-      <div className="identity-staff-grid">{filteredStaffRows.map((member) => {
+      <div className="identity-staff-grid" aria-busy={directoryLoading.staff}>{directoryLoading.staff && !filteredStaffRows.length && <div className="empty-state"><LoaderCircle size={30} className="spin" /><h3>Đang tải nhân viên</h3><p>Dữ liệu hồ sơ đang được đồng bộ theo trang.</p></div>}{filteredStaffRows.map((member) => {
         const assignment = assignments[member.uid]
         const positions = assignment?.positions.map(assignmentPositionLabel).join(' · ') || roleMeta[member.role].label
         const assignedBranches = assignment?.branchIds.map((branchId) => branches.find((branch) => branch.id === branchId)?.name || 'Chi nhánh lưu trữ') ?? []
@@ -690,8 +695,9 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
           <div className="identity-staff-card__facts"><span><WalletCards size={14} />{employmentTypeLabel(record.employmentType)}{record.employmentType === 'full_time' ? ` · ${employmentLevelLabel(record.employmentLevel)}` : ''}</span><span><ShieldCheck size={14} />{payrollPolicies.find((policy) => policy.id === record.payrollPolicyId)?.name || 'Chưa gán chính sách'}</span><span><CalendarClock size={14} />{Array.isArray(record.availableSlots) && record.availableSlots.length ? `${record.availableSlots.length} khung rảnh` : 'Chưa có lịch rảnh'}</span>{(assignment?.positions.includes('trainer_pt') || member.role === 'trainer' || record.role === 'trainer') && <span><SlidersHorizontal size={14} />Hạng {Number(record.schedulingPriority ?? record.priority ?? 100)} · mốc cân tải {Number(record.dailySessionTarget ?? 8)} ca/ngày</span>}</div>
           {canAssignRole && <div className="identity-staff-card__actions">{canEditAccess && <button type="button" className="identity-staff-card__primary" onClick={() => openAccessEditor(member, assignment)}><KeyRound size={15} />Quyền</button>}<button type="button" className="outline-button" onClick={() => openStaffEditor(member)}><CalendarClock size={15} />Hồ sơ</button>{!isSuspended && member.uid !== currentUserUid && <><button type="button" className="outline-button identity-staff-card__archive identity-staff-card__icon-action" aria-label={`Khóa ${member.displayName || member.email || 'nhân viên'}`} title="Khóa tài khoản" onClick={() => void suspendStaff(member)} disabled={savingUid === member.uid}><ShieldCheck size={16} /></button><button type="button" className="outline-button identity-staff-card__delete identity-staff-card__icon-action" aria-label={`Xóa ${member.displayName || member.email || 'nhân viên'}`} title="Xóa tài khoản" onClick={() => void deleteStaff(member)} disabled={savingUid === member.uid}><Trash2 size={16} /></button></>}</div>}
         </article>
-      })}{!filteredStaffRows.length && <div className="empty-state"><Users size={30} /><h3>Không tìm thấy nhân viên</h3></div>}</div>
-      {directoryHasMore.staff && <div className="identity-directory-more"><button type="button" className="outline-button" onClick={() => void loadDirectoryPage('staff', true)} disabled={directoryLoading}>{directoryLoading ? 'Đang tải...' : 'Tải thêm nhân viên'}</button><small>Số liệu PT được trả từ projection vận hành; không tải toàn bộ hợp đồng về máy.</small></div>}
+      })}{!directoryLoading.staff && !directoryError.staff && !filteredStaffRows.length && <div className="empty-state"><Users size={30} /><h3>Không tìm thấy nhân viên</h3></div>}</div>
+      {directoryError.staff && <div className="identity-message identity-message--error" role="alert"><AlertCircle size={17} /><span>{directoryError.staff}</span><button type="button" className="outline-button" onClick={() => void loadDirectoryPage('staff')} disabled={directoryLoading.staff}>{directoryLoading.staff ? 'Đang thử lại...' : 'Thử lại'}</button></div>}
+      {directoryHasMore.staff && <div className="identity-directory-more"><button type="button" className="outline-button" onClick={() => void loadDirectoryPage('staff', true)} disabled={directoryLoading.staff}>{directoryLoading.staff ? 'Đang tải...' : 'Tải thêm nhân viên'}</button><small>Số liệu PT được trả từ projection vận hành; không tải toàn bộ hợp đồng về máy.</small></div>}
     </section>}
 
     {section === 'branches' && <section className="identity-section identity-branches">

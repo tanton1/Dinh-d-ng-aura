@@ -755,7 +755,16 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
     accessContext: await trustedAccessContext(request, db),
   }))
 
-  const listIdentityDirectory = onCall(async (request) => {
+  // This low-traffic admin read must not compete for a full CPU with the
+  // scheduler/AI endpoints just to open a directory. Keep auth in the handler.
+  const listIdentityDirectory = onCall({
+    cpu: 'gcf_gen1',
+    memory: '256MiB',
+    concurrency: 1,
+    minInstances: 0,
+    maxInstances: 2,
+    timeoutSeconds: 60,
+  }, async (request) => {
     const actor = await trustedAccessContext(request, db)
     requireCapability(actor, 'identity.staff_position.manage')
     const section = request.data?.section === 'staff' ? 'staff' : 'accounts'
@@ -775,10 +784,12 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
     const uids = sourceDocuments.map((document) => document.id)
     const [profiles, assignments, staffRecords, trainerRecords, summaries] = uids.length
       ? await Promise.all([
-        db.getAll(...uids.map((uid) => db.doc(`users/${uid}`))),
-        db.getAll(...uids.map((uid) => db.doc(`roleAssignments/${uid}`))),
-        db.getAll(...uids.map((uid) => db.doc(`staff/${uid}`))),
-        db.getAll(...uids.map((uid) => db.doc(`trainers/${uid}`))),
+        section === 'accounts' ? Promise.resolve(sourceDocuments)
+          : db.getAll(...uids.map((uid) => db.doc(`users/${uid}`))),
+        section === 'staff' ? Promise.resolve(sourceDocuments)
+          : db.getAll(...uids.map((uid) => db.doc(`roleAssignments/${uid}`))),
+        section === 'staff' ? db.getAll(...uids.map((uid) => db.doc(`staff/${uid}`))) : Promise.resolve([]),
+        section === 'staff' ? db.getAll(...uids.map((uid) => db.doc(`trainers/${uid}`))) : Promise.resolve([]),
         section === 'staff'
           ? db.getAll(...uids.map((uid) => db.doc(`staffOperationalSummaries/${uid}`)))
           : Promise.resolve([]),

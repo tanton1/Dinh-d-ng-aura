@@ -2,6 +2,7 @@ import { httpsCallable } from 'firebase/functions'
 import { firebaseFunctions } from '../lib/firebaseFunctions'
 import { parseAccessContext, type AccessContext, type AccessRole, type StaffPosition } from '../identity/access'
 import type { AdminUserRecord } from '../types'
+import { callReadOnlyFunction } from './readOnlyCallableService'
 
 function requireFunctions() {
   if (!firebaseFunctions) throw new Error('Firebase Identity chưa sẵn sàng.')
@@ -49,9 +50,16 @@ export interface IdentityDirectoryPage {
   summary: { accounts: number; staff: number; admins: number }
 }
 
-export async function listIdentityDirectory(input: { section: 'accounts' | 'staff'; pageSize?: number; cursor?: string }): Promise<IdentityDirectoryPage> {
-  const callable = httpsCallable<typeof input, IdentityDirectoryPage>(requireFunctions(), 'listIdentityDirectory', { timeout: 30_000 })
-  return (await callable(input)).data
+export async function listIdentityDirectory(
+  input: { section: 'accounts' | 'staff'; pageSize?: number; cursor?: string },
+  options: { signal?: AbortSignal } = {},
+): Promise<IdentityDirectoryPage> {
+  return callReadOnlyFunction<typeof input, IdentityDirectoryPage>('listIdentityDirectory', input, {
+    signal: options.signal,
+    timeoutMs: 30_000,
+    maximumAttempts: 2,
+    baseDelayMs: 1_200,
+  })
 }
 
 export interface AccountInviteInput {
