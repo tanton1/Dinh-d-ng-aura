@@ -211,6 +211,34 @@ test('admin corrects a paired teaching shift atomically and invalidates the rela
   assert.equal(state.paths().filter((path) => path.startsWith('attendanceAuditLogs/')).length, 2)
 })
 
+test('admin can resolve a duplicate learner day by correcting attendance without re-triggering the duplicate collision', async () => {
+  const state = operationsFor({
+    'trainers/trainer-1': { status: 'active', branchId: 'branch-1', slotCapacity: 2 },
+    // These legacy rows intentionally represent the duplicate that payroll
+    // surfaced. The correction marks one row as no-show; it is retained for
+    // audit but is no longer treated as a completed learner session.
+    'sessions/duplicate-a': { status: 'completed', attendanceStatus: 'present', studentId: 'student-1', trainerId: 'trainer-1', contractId: 'contract-1', branchId: 'branch-1', date: '2026-08-18', hour: 8, revision: 1 },
+    'sessions/duplicate-b': { status: 'completed', attendanceStatus: 'present', studentId: 'student-1', trainerId: 'trainer-1', contractId: 'contract-1', branchId: 'branch-1', date: '2026-08-18', hour: 10, revision: 2 },
+    'attendanceEvents/duplicate-a': { sessionId: 'duplicate-a', attendanceStatus: 'present', type: 'attended', trainerId: 'trainer-1' },
+    'attendanceEvents/duplicate-b': { sessionId: 'duplicate-b', attendanceStatus: 'present', type: 'attended', trainerId: 'trainer-1' },
+    'financePeriods/2026-08': { status: 'open' },
+  }, async () => ({ uid: 'admin-1', accessRole: 'admin' }))
+
+  const result = await state.correctTeachingShift({ data: {
+    items: [{ sessionId: 'duplicate-a', expectedRevision: 1, attendanceEventId: 'duplicate-a', attendanceStatus: 'no_show', noShowReason: 'other' }],
+    date: '2026-08-18', hour: 8, trainerId: 'trainer-1', reason: 'Xử lý lỗi trùng buổi theo đối soát lịch sử',
+  } })
+
+  assert.equal(result.unchanged, false)
+  assert.equal(state.read('sessions/duplicate-a').status, 'no_show')
+  assert.equal(state.read('sessions/duplicate-a').attendanceStatus, 'no_show')
+  assert.equal(state.read('sessions/duplicate-a').revision, 2)
+  assert.equal(state.read('attendanceEvents/duplicate-a').attendanceStatus, 'no_show')
+  assert.equal(state.read('attendanceEvents/duplicate-a').noShowReason, 'other')
+  assert.equal(state.read('sessions/duplicate-b').status, 'completed')
+  assert.equal(state.paths().filter((path) => path.startsWith('attendanceAuditLogs/')).length, 1)
+})
+
 test('teaching shift correction is admin-only and fails closed after payroll is reviewed', async () => {
   const unauthorized = operationsFor({}, async () => ({ uid: 'staff-1', accessRole: 'staff' }))
   await assert.rejects(

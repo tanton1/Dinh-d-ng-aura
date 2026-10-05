@@ -140,6 +140,10 @@ function correctionFailureMessage(cause: unknown) {
     const supportId = typeof details.supportId === 'string' ? details.supportId : ''
     return `Máy chủ chưa lưu được điều chỉnh ca${supportId ? ` (mã đối soát ${supportId})` : ''}. Dữ liệu cũ vẫn được giữ nguyên; hãy thử lại sau khi tải lại lịch sử.`
   }
+  const code = typeof raw.code === 'string' ? raw.code.replace(/^functions\//, '') : ''
+  if (code === 'internal' || message.trim().toLowerCase() === 'internal') {
+    return 'Máy chủ chưa lưu được điều chỉnh ca. Dữ liệu cũ vẫn được giữ nguyên; hãy tải lại lịch sử và thử lại. Nếu lỗi lặp lại, gửi mã đối soát cho Admin.'
+  }
   return message.replace(/^Firebase:\s*/i, '').replace(/^FunctionsError:\s*/i, '') || 'Không thể điều chỉnh ca. Hãy tải lại lịch sử và thử lại.'
 }
 

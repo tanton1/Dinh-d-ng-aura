@@ -2226,16 +2226,33 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
       const affectedPeriods = [...new Set([...sourcePeriods, targetDate.slice(0, 7)])]
       const payrollReferences = affectedPeriods.map((periodId) => db.doc(`payrollRuns/${periodId}`))
       const financeReferences = affectedPeriods.map((periodId) => db.doc(`financePeriods/${periodId}`))
-      const targetTrainerDayQuery = dailySessionsQuery(db, 'trainerId', targetTrainerId, targetDate)
       const studentIds = [...new Set(sessions.map((session) => id(session.data.studentId, 'Mã học viên của buổi tập')))]
-      const studentDayQueries = studentIds.map((studentId) => dailySessionsQuery(db, 'studentId', studentId, targetDate))
       const correctionContractIds = targetDateChanged ? [...new Set(sessions.map((session) => linkedContractId(session.data)))] : []
       const correctionContractReferences = correctionContractIds.map((contractId) => db.doc(`contracts/${contractId}`))
+      // Attendance-only corrections are also used to resolve legacy duplicate
+      // learner rows. They do not move a session, so querying the learner's
+      // other sessions would rediscover the duplicate we are intentionally
+      // resolving and reject the correction. Only a date/time/PT/physical
+      // branch move needs collision validation.
+      const requiresScheduleCollisionCheck = sessions.some((session) => (
+        storedDateKey(session.data.date, 'Ngày ca gốc') !== targetDate
+        || storedSessionHour(session.data.hour, session.id, 'Giờ ca gốc') !== targetHour
+        || session.data.trainerId !== targetTrainerId
+        || (sourceBranchId && normaliseSessionBranchId(session.data.branchId) && normaliseSessionBranchId(session.data.branchId) !== targetBranchId)
+      ))
+      const targetTrainerDayQuery = requiresScheduleCollisionCheck
+        ? dailySessionsQuery(db, 'trainerId', targetTrainerId, targetDate)
+        : null
+      const studentDayQueries = requiresScheduleCollisionCheck
+        ? studentIds.map((studentId) => dailySessionsQuery(db, 'studentId', studentId, targetDate))
+        : []
       const [payrollSnapshots, financeSnapshots, targetTrainerDay, studentDaySnapshots, correctionContractSnapshots] = await Promise.all([
         Promise.all(payrollReferences.map((reference) => transaction.get(reference))),
         Promise.all(financeReferences.map((reference) => transaction.get(reference))),
-        transaction.get(targetTrainerDayQuery),
-        Promise.all(studentDayQueries.map((query) => transaction.get(query))),
+        requiresScheduleCollisionCheck ? transaction.get(targetTrainerDayQuery) : Promise.resolve(null),
+        requiresScheduleCollisionCheck
+          ? Promise.all(studentDayQueries.map((query) => transaction.get(query)))
+          : Promise.resolve([]),
         Promise.all(correctionContractReferences.map((reference) => transaction.get(reference))),
       ])
 
@@ -2251,7 +2268,7 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
           issueCode: 'FINANCE_PERIOD_LOCKED', periodId: lockedFinance.id, remediation: 'finance_adjustment',
         })
       }
-      if (targetTrainerDay.size >= DAILY_SESSION_QUERY_LIMIT || studentDaySnapshots.some((snapshot) => snapshot.size >= DAILY_SESSION_QUERY_LIMIT)) {
+      if (requiresScheduleCollisionCheck && (targetTrainerDay.size >= DAILY_SESSION_QUERY_LIMIT || studentDaySnapshots.some((snapshot) => snapshot.size >= DAILY_SESSION_QUERY_LIMIT))) {
         throw new HttpsError('resource-exhausted', 'Dữ liệu ca trong ngày vượt giới hạn xác minh an toàn.')
       }
       if (targetDateChanged) {
@@ -2275,29 +2292,33 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
       }
 
       const correctedIds = new Set(sessions.map((session) => session.id))
-      const existingTargetRows = targetTrainerDay.docs
-        .map((snapshot) => ({ id: snapshot.id, ...snapshot.data() }))
-        .filter((session) => !correctedIds.has(session.id) && teachingOccupancyStatus(session.status))
-        .filter((session) => storedSessionHour(session.hour, session.id, 'Giờ ca liên quan') === targetHour)
+      const existingTargetRows = requiresScheduleCollisionCheck
+        ? targetTrainerDay.docs
+          .map((snapshot) => ({ id: snapshot.id, ...snapshot.data() }))
+          .filter((session) => !correctedIds.has(session.id) && teachingOccupancyStatus(session.status))
+          .filter((session) => storedSessionHour(session.hour, session.id, 'Giờ ca liên quan') === targetHour)
+        : []
       // Two sessions at the same PT/time may carry different learner home
       // branches. This is a warning for the audit/reporting layer, not a
       // reason to lose an otherwise valid attendance correction.
       const targetStudentIds = new Set([...studentIds, ...existingTargetRows.map((session) => session.studentId).filter(Boolean)])
-      if (targetStudentIds.size > normalizedTrainerCapacity(targetTrainer.slotCapacity)) {
+      if (requiresScheduleCollisionCheck && targetStudentIds.size > normalizedTrainerCapacity(targetTrainer.slotCapacity)) {
         throw new HttpsError('resource-exhausted', 'Ca đích đã vượt sức chứa của PT.', {
           issueCode: 'TEACHING_SHIFT_CAPACITY_EXCEEDED', date: targetDate, hour: targetHour, trainerId: targetTrainerId,
         })
       }
-      studentDaySnapshots.forEach((snapshot, index) => {
-        const conflict = snapshot.docs
-          .map((item) => ({ id: item.id, ...item.data() }))
-          .find((session) => !correctedIds.has(session.id) && teachingOccupancyStatus(session.status))
-        if (conflict) {
-          throw new HttpsError('already-exists', 'Một học viên trong ca đã có buổi tập khác trong ngày đích.', {
-            issueCode: 'TEACHING_SHIFT_STUDENT_DAY_CONFLICT', studentId: studentIds[index], date: targetDate, conflictingSessionId: conflict.id,
-          })
-        }
-      })
+      if (requiresScheduleCollisionCheck) {
+        studentDaySnapshots.forEach((snapshot, index) => {
+          const conflict = snapshot.docs
+            .map((item) => ({ id: item.id, ...item.data() }))
+            .find((session) => !correctedIds.has(session.id) && teachingOccupancyStatus(session.status))
+          if (conflict) {
+            throw new HttpsError('already-exists', 'Một học viên trong ca đã có buổi tập khác trong ngày đích.', {
+              issueCode: 'TEACHING_SHIFT_STUDENT_DAY_CONFLICT', studentId: studentIds[index], date: targetDate, conflictingSessionId: conflict.id,
+            })
+          }
+        })
+      }
 
       const targetStart = Timestamp.fromDate(targetInstant)
       const revisions = {}
@@ -2408,7 +2429,15 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
         return { unchanged: false, revisions, invalidatedPayrollPeriods }
       })
     } catch (cause) {
+      // In a deployed Functions bundle an HttpsError can cross a module
+      // boundary and fail `instanceof`. Preserve known domain errors instead
+      // of hiding them behind a raw `internal` response.
+      const knownCodes = new Set(['invalid-argument', 'failed-precondition', 'permission-denied', 'not-found', 'already-exists', 'aborted', 'resource-exhausted', 'unauthenticated', 'deadline-exceeded', 'unavailable', 'cancelled'])
+      const rawCode = typeof cause?.code === 'string' ? cause.code.replace(/^functions\//, '') : ''
       if (cause instanceof HttpsError) throw cause
+      if (knownCodes.has(rawCode)) {
+        throw new HttpsError(rawCode, cause?.message || 'Yêu cầu điều chỉnh ca không hợp lệ.', cause?.details)
+      }
       const supportId = createHash('sha256')
         .update(`${actor.uid}|${targetDate}|${targetHour}|${targetTrainerId}|${Date.now()}|${cause?.message || cause?.code || 'unknown'}`)
         .digest('hex')
