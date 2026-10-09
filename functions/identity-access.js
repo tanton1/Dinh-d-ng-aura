@@ -3,6 +3,8 @@ const { HttpsError } = require('firebase-functions/v2/https')
 // Firebase deploy packages only the functions/ directory. Keep the deployable
 // copy here and contract-test it against shared/identity in this repository.
 const identityContract = require('./identity-contract.json')
+const { managedClientCountsFromContracts, staffIdsFromContract, refreshStaffManagedClientSummary, publicStaffManagedCounts } = require('./staff-managed-summary')
+const { withIdentityMutation, assertAccessUnchanged, assertElevatedAccess } = require('./identity-mutation')
 
 const accessRoles = new Set(identityContract.accessRoles)
 const staffPositions = new Set(identityContract.staffPositions)
@@ -202,7 +204,6 @@ function publicAccessContext(uid, value) {
 
 const identityDirectorySummaryCache = { expiresAt: 0, value: null }
 const identityDirectoryPageSizes = { minimum: 20, maximum: 100, fallback: 60 }
-const activeContractStatuses = new Set(['active', 'future', 'frozen'])
 
 function identityDirectoryPageSize(value) {
   const parsed = Number(value)
@@ -294,45 +295,6 @@ function identityDirectoryStaffRecord(staff = {}, trainer = {}) {
     commissionRate: Math.max(0, Number(source.commissionRate || 0)),
     commissionPerSession: 0,
   }
-}
-
-function managedClientCountsFromContracts(uid, contracts) {
-  const counts = { main: 0, secondary: 0, nutrition: 0 }
-  contracts.forEach((contract) => {
-    if (!activeContractStatuses.has(contract.status)) return
-    const trainerIds = Array.isArray(contract.trainerIds) ? contract.trainerIds : []
-    if (contract.trainerId === uid || trainerIds[0] === uid) counts.main += 1
-    if (contract.secondaryTrainerId === uid || trainerIds.slice(1).includes(uid)) counts.secondary += 1
-    if (contract.nutritionTrainerId === uid
-      || (Array.isArray(contract.nutritionTrainerIds) && contract.nutritionTrainerIds.includes(uid))
-      || (Array.isArray(contract.nutritionPTIds) && contract.nutritionPTIds.includes(uid))) counts.nutrition += 1
-  })
-  return counts
-}
-
-async function refreshStaffManagedClientSummary(db, uid) {
-  const queries = [
-    db.collection('contracts').where('trainerId', '==', uid).limit(750).get(),
-    db.collection('contracts').where('secondaryTrainerId', '==', uid).limit(750).get(),
-    db.collection('contracts').where('trainerIds', 'array-contains', uid).limit(750).get(),
-    db.collection('contracts').where('nutritionTrainerId', '==', uid).limit(750).get(),
-    db.collection('contracts').where('nutritionTrainerIds', 'array-contains', uid).limit(750).get(),
-    db.collection('contracts').where('nutritionPTIds', 'array-contains', uid).limit(750).get(),
-  ]
-  const snapshots = await Promise.all(queries)
-  const contracts = new Map()
-  snapshots.forEach((snapshot) => snapshot.docs.forEach((document) => contracts.set(document.id, document.data() || {})))
-  const counts = managedClientCountsFromContracts(uid, [...contracts.values()])
-  const truncated = snapshots.some((snapshot) => snapshot.size >= 750)
-  await db.doc(`staffOperationalSummaries/${uid}`).set({
-    schemaVersion: 1,
-    staffUid: uid,
-    managedClientCounts: counts,
-    source: 'contracts',
-    truncated,
-    generatedAt: FieldValue.serverTimestamp(),
-  }, { merge: true })
-  return { ...counts, stale: false, truncated }
 }
 
 async function identityDirectorySummary(db) {
@@ -796,25 +758,9 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
       ])
       : [[], [], [], [], []]
     const summaryByUid = new Map(summaries.map((snapshot) => [snapshot.id, snapshot]))
-    if (section === 'staff') {
-      const missingOrStale = uids.filter((uid) => {
-        const snapshot = summaryByUid.get(uid)
-        if (!snapshot?.exists) return true
-        const generatedAt = snapshot.data()?.generatedAt
-        const generatedAtMs = generatedAt && typeof generatedAt.toMillis === 'function' ? generatedAt.toMillis() : 0
-        return generatedAtMs < Date.now() - 6 * 60 * 60 * 1000
-      }).slice(0, 25)
-      const refreshed = await Promise.all(missingOrStale.map(async (uid) => {
-        try { return [uid, await refreshStaffManagedClientSummary(db, uid)] }
-        catch (error) {
-          logger?.warn?.('identity_directory_staff_summary_failed', { uid, code: error?.code || 'unknown' })
-          return [uid, null]
-        }
-      }))
-      refreshed.forEach(([uid, value]) => {
-        if (value) summaryByUid.set(uid, { exists: true, data: () => ({ managedClientCounts: value }) })
-      })
-    }
+    // Listing people is read-only. Missing/stale projections are repaired by
+    // contract triggers and the bounded reconciliation job, never by fanning
+    // out up to 150 contract queries in this interactive request.
     const entries = uids.map((uid, index) => {
       const profile = profiles[index]?.exists ? profiles[index].data() || {} : {}
       const assignmentValue = assignments[index]?.exists ? assignments[index].data() || {} : null
@@ -827,15 +773,7 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
         staffOperations: section === 'staff'
           ? identityDirectoryStaffRecord(staffRecords[index]?.data() || {}, trainerRecords[index]?.data() || {})
           : null,
-        managedClientCounts: section === 'staff' && summaryValue.managedClientCounts
-          ? {
-            main: Math.max(0, Number(summaryValue.managedClientCounts.main || 0)),
-            secondary: Math.max(0, Number(summaryValue.managedClientCounts.secondary || 0)),
-            nutrition: Math.max(0, Number(summaryValue.managedClientCounts.nutrition || 0)),
-            stale: summaryValue.managedClientCounts.stale === true,
-            truncated: summaryValue.managedClientCounts.truncated === true || summaryValue.truncated === true,
-          }
-          : null,
+        managedClientCounts: section === 'staff' ? publicStaffManagedCounts(summaryValue) : null,
       }
     }).filter((entry) => section === 'staff' || entry.assignment.accessRole !== 'staff')
     const pageEntries = entries.slice(0, pageSize)
@@ -1282,6 +1220,7 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
     requireCapability(actor, 'identity.staff_position.manage')
     const targetUid = documentId(request.data?.uid, 'UID')
     if (targetUid === actor.uid) throw new HttpsError('failed-precondition', 'Không thể tự thay đổi quyền của chính mình.')
+    return withIdentityMutation(db, targetUid, 'assign', async () => {
     const accessRole = request.data?.accessRole === 'student' ? 'student' : 'staff'
     const positions = accessRole === 'staff' ? normalizedPositions(request.data?.positions || []) : []
     if (accessRole === 'staff' && positions.length === 0) throw new HttpsError('invalid-argument', 'Nhân viên cần ít nhất một chức danh.')
@@ -1306,6 +1245,10 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
     }
     const assignmentReference = db.doc(`roleAssignments/${targetUid}`)
     const previous = await assignmentReference.get()
+    assertElevatedAccess(actor, previous.data(), targetClaims, targetProfile)
+    if (target.disabled === true || targetProfile.disabled === true || previous.data()?.status === 'suspended') {
+      throw new HttpsError('failed-precondition', 'Tài khoản đang bị khóa. Hãy dùng Kích hoạt trước khi thay đổi chức danh.')
+    }
     const authzVersion = Math.max(1, Number(previous.data()?.authzVersion || 0) + 1)
     const nextClaims = { ...(target.customClaims || {}), accessRole, authzVersion, role: compatibilityRole(accessRole, positions) }
     const capabilities = computedCapabilities(accessRole, positions)
@@ -1318,11 +1261,14 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
     await auth.setCustomUserClaims(targetUid, nextClaims)
     try {
       await db.runTransaction(async (transaction) => {
-        const [currentAssignment, currentStaff, currentTrainer] = await Promise.all([
+        const [currentAssignment, currentStaff, currentTrainer, currentProfile] = await Promise.all([
           transaction.get(assignmentReference),
           transaction.get(staffReference),
           transaction.get(trainerReference),
+          transaction.get(db.doc(`users/${targetUid}`)),
         ])
+        assertAccessUnchanged(previous.data(), currentAssignment.data())
+        assertAccessUnchanged(targetProfile, currentProfile.data())
         transaction.set(assignmentReference, {
           schemaVersion: 1, uid: targetUid, accessRole, positions, branchIds,
           capabilities, authzVersion, status: 'active', updatedBy: actor.uid,
@@ -1361,6 +1307,7 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
       throw error
     }
     return { accessContext: publicAccessContext(targetUid, { accessRole, positions, branchIds, authzVersion, status: 'active' }), tokenRefreshRequired: true }
+    })
   })
 
   const suspendAccountAccess = onCall(async (request) => {
@@ -1368,8 +1315,11 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
     requireCapability(actor, 'identity.staff_position.manage')
     const targetUid = documentId(request.data?.uid, 'UID')
     if (targetUid === actor.uid) throw new HttpsError('failed-precondition', 'Không thể tự khóa tài khoản của chính mình.')
+    return withIdentityMutation(db, targetUid, 'suspend', async () => {
     const reference = db.doc(`roleAssignments/${targetUid}`)
     const userRef = db.doc(`users/${targetUid}`)
+    const staffRef = db.doc(`staff/${targetUid}`)
+    const trainerRef = db.doc(`trainers/${targetUid}`)
     const target = await auth.getUser(targetUid)
     const targetClaims = target.customClaims || {}
     const targetProfile = await userRef.get()
@@ -1382,29 +1332,44 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
       throw new HttpsError('permission-denied', 'Chỉ Super Admin được khóa tài khoản quản trị.')
     }
     await db.runTransaction(async (transaction) => {
-      const [snapshot, profileSnapshot] = await Promise.all([transaction.get(reference), transaction.get(userRef)])
+      const [snapshot, profileSnapshot, staffSnapshot, trainerSnapshot] = await Promise.all([
+        transaction.get(reference),
+        transaction.get(userRef),
+        transaction.get(staffRef),
+        transaction.get(trainerRef),
+      ])
       if (!profileSnapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy hồ sơ tài khoản.')
       const profile = profileSnapshot.data() || {}
       const legacy = legacyIdentity(typeof profile.role === 'string' ? profile.role : 'student')
       const current = snapshot.exists ? snapshot.data() || {} : null
+      assertElevatedAccess(actor, current, profile, targetClaims)
       const accessRole = current?.accessRole || legacy.accessRole
       const positions = current?.accessRole === 'staff' ? normalizedPositions(current.positions || []) : legacy.positions
       const branchIds = current?.accessRole === 'staff' ? normalizedBranchIds(current.branchIds || []) : (profile.branchId ? [documentId(profile.branchId, 'Mã chi nhánh')] : [])
-      const authzVersion = Math.max(1, Number(current?.authzVersion || profile.authzVersion || 0) + 1)
+      const alreadySuspended = current?.status === 'suspended' && profile.disabled === true
+      const authzVersion = Math.max(1, Number(current?.authzVersion || profile.authzVersion || 0) + (alreadySuspended ? 0 : 1))
       transaction.set(reference, {
         schemaVersion: 1, uid: targetUid, accessRole, positions, branchIds,
         capabilities: computedCapabilities(accessRole, positions), authzVersion, status: 'suspended',
         updatedBy: actor.uid, updatedAt: FieldValue.serverTimestamp(),
       }, { merge: true })
       transaction.set(userRef, { disabled: true, authzVersion, updatedAt: FieldValue.serverTimestamp() }, { merge: true })
-      transaction.set(db.collection('identityAuditLogs').doc(), {
+      if (staffSnapshot.exists) transaction.set(staffRef, { status: 'inactive', updatedBy: actor.uid, updatedAt: FieldValue.serverTimestamp() }, { merge: true })
+      if (trainerSnapshot.exists) transaction.set(trainerRef, { status: 'inactive', updatedBy: actor.uid, updatedAt: FieldValue.serverTimestamp() }, { merge: true })
+      if (!alreadySuspended) transaction.set(db.collection('identityAuditLogs').doc(), {
         action: 'account_access.suspended', actorUid: actor.uid, targetUid,
         before: { accessRole, positions, branchIds }, createdAt: FieldValue.serverTimestamp(),
       })
     })
-    await auth.updateUser(targetUid, { disabled: true })
-    await auth.revokeRefreshTokens(targetUid)
+    try {
+      await auth.updateUser(targetUid, { disabled: true })
+      await auth.revokeRefreshTokens(targetUid)
+    } catch (error) {
+      logger?.error?.('identity_suspend_auth_sync_failed', { uid: targetUid, code: error?.code || 'unknown' })
+      throw new HttpsError('unavailable', 'Quyền trên Aura đã bị khóa, nhưng chưa xác nhận được bước khóa phiên đăng nhập. Hãy tải lại danh sách và thử khóa lại để hoàn tất.', { errorCode: 'ACCESS_AUTH_SYNC_PENDING', retryable: true })
+    }
     return { uid: targetUid, suspended: true }
+    })
   })
 
   // Restore a suspended identity without changing its role, branch scope or
@@ -1415,24 +1380,27 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
     requireCapability(actor, 'identity.staff_position.manage')
     const targetUid = documentId(request.data?.uid, 'UID')
     if (targetUid === actor.uid) throw new HttpsError('failed-precondition', 'Không thể tự kích hoạt tài khoản của chính mình.')
+    return withIdentityMutation(db, targetUid, 'restore', async () => {
     const reference = db.doc(`roleAssignments/${targetUid}`)
     const userRef = db.doc(`users/${targetUid}`)
     const staffRef = db.doc(`staff/${targetUid}`)
     const trainerRef = db.doc(`trainers/${targetUid}`)
-    const [target, targetProfile, assignmentSnapshot] = await Promise.all([
+    const [target, targetProfile, assignmentSnapshot, staffSnapshot, trainerSnapshot] = await Promise.all([
       auth.getUser(targetUid),
       userRef.get(),
       reference.get(),
+      staffRef.get(), trainerRef.get(),
     ])
     if (!targetProfile.exists) throw new HttpsError('not-found', 'Không tìm thấy hồ sơ tài khoản.')
     const profile = targetProfile.data() || {}
     const current = assignmentSnapshot.exists ? assignmentSnapshot.data() || {} : null
+    assertElevatedAccess(actor, current, profile, target.customClaims)
     const legacy = legacyIdentity(typeof profile.role === 'string' ? profile.role : 'student')
     const accessRole = current?.accessRole || legacy.accessRole
-    const positions = current?.accessRole === 'staff' ? normalizedPositions(current.positions || []) : legacy.positions
-    const branchIds = current?.accessRole === 'staff'
-      ? normalizedBranchIds(current.branchIds || [])
-      : (profile.branchId ? [documentId(profile.branchId, 'Mã chi nhánh')] : [])
+    const positions = accessRole === 'staff' ? normalizedPositions(current ? current.positions || [] : legacy.positions) : []
+    const branchIds = accessRole === 'staff' ? normalizedBranchIds(current ? current.branchIds || [] : profile.branchId ? [profile.branchId] : []) : []
+    const staffStatus = accessRole === 'staff' ? 'active' : 'inactive'
+    const trainerStatus = accessRole === 'staff' && positions.includes('trainer_pt') ? 'active' : 'inactive'
     const targetIsElevated = ['admin', 'super_admin'].includes(target.customClaims?.accessRole)
       || ['admin', 'super_admin'].includes(target.customClaims?.role)
       || ['admin', 'super_admin'].includes(profile.accessRole)
@@ -1440,7 +1408,11 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
     if (targetIsElevated && actor.accessRole !== 'super_admin') {
       throw new HttpsError('permission-denied', 'Chỉ Super Admin được kích hoạt tài khoản quản trị.')
     }
-    if (current?.status !== 'suspended' && profile.disabled !== true && target.disabled !== true) {
+    const projectionsMatch = (!staffSnapshot.exists || staffSnapshot.data()?.status === staffStatus)
+      && (!trainerSnapshot.exists || trainerSnapshot.data()?.status === trainerStatus)
+    const claimsMatch = target.customClaims?.accessRole === accessRole
+      && target.customClaims?.authzVersion === current?.authzVersion
+    if (current?.status === 'active' && profile.disabled !== true && target.disabled !== true && projectionsMatch && claimsMatch) {
       return { uid: targetUid, restored: true, tokenRefreshRequired: false }
     }
     const previousClaims = { ...(target.customClaims || {}) }
@@ -1454,6 +1426,8 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
           transaction.get(reference), transaction.get(userRef), transaction.get(staffRef), transaction.get(trainerRef),
         ])
         if (!currentProfile.exists) throw new HttpsError('not-found', 'Không tìm thấy hồ sơ tài khoản.')
+        assertAccessUnchanged(current || {}, currentAssignment.data())
+        assertAccessUnchanged(profile, currentProfile.data())
         transaction.set(reference, {
           schemaVersion: 1, uid: targetUid, accessRole, positions, branchIds,
           capabilities: computedCapabilities(accessRole, positions), authzVersion, status: 'active',
@@ -1461,8 +1435,8 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
           ...(!currentAssignment.exists ? { createdBy: actor.uid, createdAt: FieldValue.serverTimestamp() } : {}),
         }, { merge: true })
         transaction.set(userRef, { disabled: false, accessRole, authzVersion, role: nextClaims.role, updatedAt: FieldValue.serverTimestamp() }, { merge: true })
-        if (currentStaff.exists) transaction.set(staffRef, { status: 'active', updatedBy: actor.uid, updatedAt: FieldValue.serverTimestamp() }, { merge: true })
-        if (currentTrainer.exists) transaction.set(trainerRef, { status: 'active', updatedBy: actor.uid, updatedAt: FieldValue.serverTimestamp() }, { merge: true })
+        if (currentStaff.exists) transaction.set(staffRef, { status: staffStatus, updatedBy: actor.uid, updatedAt: FieldValue.serverTimestamp() }, { merge: true })
+        if (currentTrainer.exists) transaction.set(trainerRef, { status: trainerStatus, updatedBy: actor.uid, updatedAt: FieldValue.serverTimestamp() }, { merge: true })
         transaction.set(db.collection('identityAuditLogs').doc(), {
           action: 'account_access.restored', actorUid: actor.uid, targetUid,
           before: { accessRole, positions, branchIds, status: current?.status || 'suspended' },
@@ -1480,6 +1454,7 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
       throw error
     }
     return { uid: targetUid, restored: true, tokenRefreshRequired: true }
+    })
   })
 
   // A hard delete is intentionally limited to a just-created, unused staff
@@ -1867,6 +1842,7 @@ module.exports = {
   identityDirectoryNextCursor,
   identityDirectoryAssignment,
   managedClientCountsFromContracts,
+  staffIdsFromContract,
   refreshStaffManagedClientSummary,
   resolveStaffContactUpdate,
   initialPasswordFromPhone,

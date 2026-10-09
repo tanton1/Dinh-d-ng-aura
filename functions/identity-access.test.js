@@ -10,6 +10,7 @@ const {
   identityDirectoryNextCursor,
   identityDirectoryAssignment,
   managedClientCountsFromContracts,
+  staffIdsFromContract,
 } = require('./identity-access')
 
 test('identity directory pagination stays bounded and preserves legacy assignment semantics', () => {
@@ -39,6 +40,18 @@ test('staff directory summaries count active primary, secondary and nutrition as
     { status: 'frozen', secondaryTrainerId: 'pt-1', nutritionTrainerId: 'pt-1' },
     { status: 'completed', trainerId: 'pt-1', nutritionTrainerId: 'pt-1' },
   ]), { main: 1, secondary: 2, nutrition: 1 })
+})
+
+test('contract assignment resolver refreshes every affected staff projection once', () => {
+  assert.deepEqual(staffIdsFromContract({
+    trainerId: 'pt-main',
+    secondaryTrainerId: 'pt-secondary',
+    trainerIds: ['pt-main', 'pt-secondary', 'pt-extra'],
+    nutritionTrainerId: 'coach-nutrition',
+    nutritionTrainerIds: ['coach-nutrition', 'coach-second'],
+    nutritionPTIds: ['coach-second', 'coach-third'],
+  }), ['pt-main', 'pt-secondary', 'coach-nutrition', 'pt-extra', 'coach-second', 'coach-third'])
+  assert.deepEqual(staffIdsFromContract({ trainerId: ' ', trainerIds: [null, 42, 'pt-1', 'pt-1'] }), ['pt-1'])
 })
 
 test('normalizes a Vietnamese phone for Firebase Auth', () => {

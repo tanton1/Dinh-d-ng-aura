@@ -39,7 +39,8 @@ if (!isStudent360Discovery) {
   ;({ createExerciseCatalogFunctions } = require('./exercise-catalog'))
 }
 const { buildCompletedOnboardingDefaultsPatch } = require('./profile-defaults')
-const { createIdentityAccessFunctions, refreshStaffManagedClientSummary, staffIdsFromContract } = require('./identity-access')
+const { createIdentityAccessFunctions } = require('./identity-access')
+const { staffIdsFromContract, syncStaffManagedClientSummary, reconcileStaffManagedClientSummaries } = require('./staff-managed-summary')
 const { createPtOperationsV2Functions } = require('./pt-operations-v2')
 const { createSessionFeedbackFunctions } = require('./session-feedback')
 const { createPtSchedulePublishFunctions } = require('./pt-schedule-publish')
@@ -514,15 +515,23 @@ exports.syncStaffOperationalSummary = onDocumentWritten({
   database: databaseId,
   region: 'asia-southeast1',
   cpu: 'gcf_gen1',
-  maxInstances: 2,
+  maxInstances: 1,
   retry: true,
 }, async (event) => {
   const before = event.data?.before?.exists ? event.data.before.data() || {} : {}
   const after = event.data?.after?.exists ? event.data.after.data() || {} : {}
-  const staffIds = [...new Set([...staffIdsFromContract(before), ...staffIdsFromContract(after)])].slice(0, 20)
-  await Promise.all(staffIds.map((uid) => refreshStaffManagedClientSummary(db, uid)))
-  return { refreshed: staffIds.length }
+  const staffIds = [...new Set([...staffIdsFromContract(before), ...staffIdsFromContract(after)])]
+  return syncStaffManagedClientSummary({ db, event, staffIds })
 })
+exports.reconcileStaffManagedClientSummariesScheduled = onSchedule({
+  schedule: '17,47 * * * *',
+  timeZone: 'Asia/Ho_Chi_Minh',
+  region: 'asia-southeast1',
+  cpu: 'gcf_gen1',
+  maxInstances: 1,
+  retryCount: 1,
+  timeoutSeconds: 540,
+}, async () => reconcileStaffManagedClientSummaries({ db, logger }))
 // The Firebase CLI can selectively deploy these public account endpoints only
 // when it can discover them as static exports.  Keeping the factory assignment
 // preserves existing exports while avoiding a quota-heavy full Functions deploy.

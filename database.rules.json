@@ -3,6 +3,7 @@
     ".read": false,
     ".write": false,
     "eatCleanLiveLocations": {
+      ".indexOn": ["updatedAt"],
       "$orderId": {
         ".read": false,
         ".write": false,

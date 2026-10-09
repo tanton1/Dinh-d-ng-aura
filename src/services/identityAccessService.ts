@@ -3,6 +3,7 @@ import { firebaseFunctions } from '../lib/firebaseFunctions'
 import { parseAccessContext, type AccessContext, type AccessRole, type StaffPosition } from '../identity/access'
 import type { AdminUserRecord } from '../types'
 import { callReadOnlyFunction } from './readOnlyCallableService'
+import { presentIdentityAccessError } from './identityAccessErrors'
 
 function requireFunctions() {
   if (!firebaseFunctions) throw new Error('Firebase Identity chưa sẵn sàng.')
@@ -137,7 +138,12 @@ export interface ProvisionStaffAccountResult {
 function presentInviteError(error: unknown): Error {
   const source = error && typeof error === 'object' ? error as { code?: unknown; message?: unknown } : {}
   const code = typeof source.code === 'string' ? source.code.replace(/^functions\//, '') : ''
-  const message = typeof source.message === 'string' ? source.message.trim() : ''
+  const rawMessage = typeof source.message === 'string' ? source.message.trim() : ''
+  // Firebase sometimes forwards the transport code as the message. Never
+  // expose that implementation detail ("internal") as the user-facing error.
+  const message = rawMessage && !/^(?:firebase:\s*)?(?:functions\/)?(?:internal|unknown|error)(?:\s*\(functions\/(?:internal|unknown)\))?\.?$/i.test(rawMessage)
+    ? rawMessage
+    : ''
 
   if (code === 'already-exists') return new Error('Số điện thoại hoặc email này đã có lời mời hoặc tài khoản Aura. Hãy tìm và dùng tài khoản hiện có.')
   if (code === 'permission-denied') return new Error(message || 'Quyền tài khoản chưa đồng bộ. Hãy đăng nhập lại rồi thử lại.')
@@ -149,7 +155,8 @@ function presentInviteError(error: unknown): Error {
   if (code === 'internal' || code === 'unavailable') {
     return new Error(message || 'Dịch vụ tạo tài khoản chưa phản hồi. Chưa có tài khoản hoặc mật khẩu nào được tạo. Hãy thử lại sau ít phút.')
   }
-  return error instanceof Error ? error : new Error('Chưa thể tạo tài khoản Aura. Vui lòng thử lại.')
+  if (error instanceof Error && !/^(?:internal|unknown|error)$/i.test(error.message.trim())) return error
+  return new Error('Dịch vụ tài khoản Aura đang gián đoạn. Chưa có thay đổi nào được xác nhận; vui lòng thử lại sau ít phút.')
 }
 
 function presentStaffProfileError(error: unknown): Error {
@@ -270,7 +277,7 @@ export async function assignStaffPositions(input: AssignStaffPositionsInput): Pr
     const response = await callable(input)
     return parseAccessContext(response.data.accessContext, input.uid)
   } catch (error) {
-    throw presentInviteError(error)
+    throw presentIdentityAccessError(error, 'assign')
   }
 }
 
@@ -317,17 +324,17 @@ export async function applyDefaultTrainerSchedulingPolicy() {
 
 export async function suspendAccountAccess(uid: string) {
   const callable = httpsCallable<{ uid: string }, { uid: string; suspended: boolean }>(requireFunctions(), 'suspendAccountAccess')
-  try { return (await callable({ uid })).data } catch (error) { throw presentInviteError(error) }
+  try { return (await callable({ uid })).data } catch (error) { throw presentIdentityAccessError(error, 'suspend') }
 }
 
 export async function restoreAccountAccess(uid: string) {
   const callable = httpsCallable<{ uid: string }, { uid: string; restored: boolean; tokenRefreshRequired: boolean }>(requireFunctions(), 'restoreAccountAccess', { timeout: 30_000 })
-  try { return (await callable({ uid })).data } catch (error) { throw presentInviteError(error) }
+  try { return (await callable({ uid })).data } catch (error) { throw presentIdentityAccessError(error, 'restore') }
 }
 
 export async function deleteUnusedStaffAccount(uid: string) {
   const callable = httpsCallable<{ uid: string }, { uid: string; deleted: boolean }>(requireFunctions(), 'deleteUnusedStaffAccount')
-  try { return (await callable({ uid })).data } catch (error) { throw presentInviteError(error) }
+  try { return (await callable({ uid })).data } catch (error) { throw presentIdentityAccessError(error, 'delete') }
 }
 
 export interface DeleteMemberAccountResult {

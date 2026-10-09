@@ -620,6 +620,12 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
       }
       setTeamConfirmation(null)
     } catch (caught) {
+      // Suspend/restore writes the Aura projection before the Auth session
+      // sync. Refresh the staff directory even when the callable reports a
+      // transient error so a partial-but-safe state is visible immediately.
+      if (teamConfirmation.kind === 'suspend_staff' || teamConfirmation.kind === 'restore_staff') {
+        refreshDirectorySection('staff')
+      }
       const fallback = teamConfirmation.kind === 'change_role'
         ? 'Không thể cập nhật vai trò.'
         : teamConfirmation.kind === 'suspend_staff'
