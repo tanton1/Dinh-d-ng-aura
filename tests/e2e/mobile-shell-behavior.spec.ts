@@ -27,9 +27,13 @@ test.describe('Aura mobile shell behavior', () => {
     await expect(dock).toHaveCSS('pointer-events', 'auto')
   })
 
-  test('keeps search text clear of its leading icon', async ({ page }) => {
+  test('keeps staff search text clear of its leading icon', async ({ page }) => {
     await page.goto('/#/admin-roles')
-    const field = page.locator('.roles-directory-toolbar .course-search')
+    // The member directory is intentionally paused to avoid loading every
+    // account on the team surface. Staff remains the default operational
+    // workspace, so assert the active staff search instead of the retired
+    // member-directory toolbar.
+    const field = page.locator('.identity-staff-toolbar .identity-search')
     await expect(field).toBeVisible()
     const geometry = await field.evaluate((element) => {
       const icon = element.querySelector('svg')!.getBoundingClientRect()
