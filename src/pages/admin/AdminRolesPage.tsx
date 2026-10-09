@@ -620,8 +620,8 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
       }
       setTeamConfirmation(null)
     } catch (caught) {
-      // Suspend/restore writes the Aura projection before the Auth session
-      // sync. Refresh the staff directory even when the callable reports a
+      // Auth and Firestore cannot share a transaction. Refresh the staff
+      // directory even when an access callable reports a
       // transient error so a partial-but-safe state is visible immediately.
       if (teamConfirmation.kind === 'suspend_staff' || teamConfirmation.kind === 'restore_staff') {
         refreshDirectorySection('staff')
@@ -743,6 +743,7 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
       <div className="identity-modal identity-modal--compact identity-modal--confirmation">
         <ModalHeader id="team-confirmation-title" title={copy.title} detail={copy.subject} icon={<AlertCircle size={21} />} onClose={() => setTeamConfirmation(null)} />
         <div className={`identity-confirmation-card ${copy.danger ? 'is-danger' : ''}`}><ShieldCheck size={24} /><span><strong>{copy.detail}</strong><small>{copy.note}</small></span></div>
+        {error && <div className="identity-message identity-message--error" role="alert"><AlertCircle size={17} />{error}</div>}
         <div className="identity-modal__actions"><button type="button" className="outline-button" onClick={() => setTeamConfirmation(null)} disabled={teamActionSaving}>Quay lại</button><button type="button" className={copy.danger ? 'identity-danger-button' : 'pink-orange-button'} onClick={() => void confirmTeamAction()} disabled={teamActionSaving}>{teamActionSaving ? 'Đang xử lý...' : copy.confirmLabel}</button></div>
       </div>
     </section> })()}

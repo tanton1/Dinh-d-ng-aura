@@ -1,4 +1,4 @@
-type IdentityAccessOperation = 'invite' | 'assign' | 'suspend' | 'restore' | 'delete' | 'generic'
+type IdentityAccessOperation = 'invite' | 'profile' | 'assign' | 'suspend' | 'restore' | 'delete' | 'generic'
 
 type ErrorRecord = {
   code?: unknown
@@ -40,16 +40,18 @@ function errorDetails(error: unknown) {
 function operationFallback(operation: IdentityAccessOperation, code: string) {
   if (operation === 'suspend') {
     if (code === 'deadline-exceeded') return 'Thao tác khóa tài khoản phản hồi quá thời gian. Hãy tải lại danh sách để kiểm tra trạng thái rồi thử lại nếu cần.'
-    return 'Chưa thể xác nhận đồng bộ khóa tài khoản. Hãy tải lại danh sách; nếu đã hiển thị “Đã khóa” thì không cần thao tác thêm.'
+    return 'Chưa thể xác nhận hoàn tất khóa tài khoản và thu hồi phiên đăng nhập. Hãy tải lại danh sách và thử khóa lại để hoàn tất đồng bộ.'
   }
   if (operation === 'restore') {
     if (code === 'deadline-exceeded') return 'Thao tác kích hoạt phản hồi quá thời gian. Hãy tải lại danh sách để kiểm tra trạng thái rồi thử lại nếu cần.'
-    return 'Chưa thể xác nhận đồng bộ kích hoạt tài khoản. Hãy tải lại danh sách rồi thử lại nếu nhân viên vẫn hiển thị “Đã khóa”.'
+    return 'Chưa thể xác nhận hoàn tất kích hoạt tài khoản. Hãy tải lại danh sách và thử kích hoạt lại để hoàn tất đồng bộ.'
   }
   if (operation === 'assign') return code === 'deadline-exceeded'
     ? 'Cập nhật quyền phản hồi quá thời gian. Hãy tải lại danh sách trước khi thử lại.'
     : 'Dịch vụ quyền tài khoản đang gián đoạn. Hãy tải lại danh sách trước khi thử lại.'
   if (operation === 'delete') return 'Dịch vụ tài khoản đang gián đoạn. Hãy tải lại danh sách rồi thử lại.'
+  if (operation === 'invite') return 'Chưa nhận được kết quả tạo tài khoản. Tài khoản có thể đã được tạo; hãy tải lại danh sách và kiểm tra email hoặc số điện thoại trước khi thử lại.'
+  if (operation === 'profile') return 'Chưa nhận được kết quả lưu hồ sơ. Hãy tải lại danh sách để kiểm tra thông tin trước khi thử lại.'
   return code === 'deadline-exceeded'
     ? 'Dịch vụ tài khoản phản hồi quá thời gian. Hãy thử lại sau ít phút.'
     : 'Dịch vụ tài khoản đang gián đoạn. Hãy thử lại sau ít phút.'
@@ -65,7 +67,7 @@ export function presentIdentityAccessError(error: unknown, operation: IdentityAc
 
   if (detailCode === 'ACCESS_AUTH_SYNC_PENDING') {
     return new Error(operation === 'suspend'
-      ? 'Quyền Aura đã được khóa, nhưng chưa xác nhận việc thu hồi phiên đăng nhập. Hãy tải lại danh sách; nếu trạng thái là “Đã khóa” thì không cần khóa lại.'
+      ? 'Quyền Aura đã được khóa, nhưng chưa xác nhận việc thu hồi phiên đăng nhập. Hãy thử khóa lại để hoàn tất, kể cả khi danh sách đã hiển thị “Đã khóa”.'
       : 'Quyền Aura đã thay đổi, nhưng chưa xác nhận đồng bộ phiên đăng nhập. Hãy tải lại danh sách rồi thử lại nếu cần.')
   }
   if (code === 'already-exists') return new Error('Số điện thoại hoặc email này đã được dùng cho một tài khoản Aura khác.')

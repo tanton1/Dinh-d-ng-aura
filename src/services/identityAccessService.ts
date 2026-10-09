@@ -136,44 +136,11 @@ export interface ProvisionStaffAccountResult {
 }
 
 function presentInviteError(error: unknown): Error {
-  const source = error && typeof error === 'object' ? error as { code?: unknown; message?: unknown } : {}
-  const code = typeof source.code === 'string' ? source.code.replace(/^functions\//, '') : ''
-  const rawMessage = typeof source.message === 'string' ? source.message.trim() : ''
-  // Firebase sometimes forwards the transport code as the message. Never
-  // expose that implementation detail ("internal") as the user-facing error.
-  const message = rawMessage && !/^(?:firebase:\s*)?(?:functions\/)?(?:internal|unknown|error)(?:\s*\(functions\/(?:internal|unknown)\))?\.?$/i.test(rawMessage)
-    ? rawMessage
-    : ''
-
-  if (code === 'already-exists') return new Error('Số điện thoại hoặc email này đã có lời mời hoặc tài khoản Aura. Hãy tìm và dùng tài khoản hiện có.')
-  if (code === 'permission-denied') return new Error(message || 'Quyền tài khoản chưa đồng bộ. Hãy đăng nhập lại rồi thử lại.')
-  if (code === 'unauthenticated') return new Error('Phiên đăng nhập đã hết hạn. Hãy đăng nhập lại rồi thử lại.')
-  if (code === 'invalid-argument' || code === 'failed-precondition') return new Error(message || 'Thông tin tài khoản chưa hợp lệ.')
-  if (code === 'deadline-exceeded') {
-    return new Error(message || 'Dịch vụ tạo tài khoản đang quá thời gian phản hồi. Chưa có tài khoản hoặc mật khẩu nào được tạo.')
-  }
-  if (code === 'internal' || code === 'unavailable') {
-    return new Error(message || 'Dịch vụ tạo tài khoản chưa phản hồi. Chưa có tài khoản hoặc mật khẩu nào được tạo. Hãy thử lại sau ít phút.')
-  }
-  if (error instanceof Error && !/^(?:internal|unknown|error)$/i.test(error.message.trim())) return error
-  return new Error('Dịch vụ tài khoản Aura đang gián đoạn. Chưa có thay đổi nào được xác nhận; vui lòng thử lại sau ít phút.')
+  return presentIdentityAccessError(error, 'invite')
 }
 
 function presentStaffProfileError(error: unknown): Error {
-  const source = error && typeof error === 'object' ? error as { code?: unknown; message?: unknown } : {}
-  const code = typeof source.code === 'string' ? source.code.replace(/^functions\//, '') : ''
-  const message = typeof source.message === 'string' ? source.message.trim() : ''
-
-  if (code === 'already-exists') return new Error('Email hoặc số điện thoại mới đang thuộc tài khoản Aura khác. Các thay đổi hồ sơ chưa được lưu.')
-  if (code === 'permission-denied') return new Error(message || 'Bạn chưa có quyền cập nhật hồ sơ nhân viên.')
-  if (code === 'unauthenticated') return new Error('Phiên đăng nhập đã hết hạn. Hãy đăng nhập lại rồi thử lại.')
-  if (code === 'invalid-argument' || code === 'failed-precondition' || code === 'not-found') {
-    return new Error(message || 'Thông tin hồ sơ nhân viên chưa hợp lệ.')
-  }
-  if (code === 'deadline-exceeded' || code === 'internal' || code === 'unavailable') {
-    return new Error(message || 'Dịch vụ lưu hồ sơ chưa phản hồi. Hãy thử lại sau ít phút.')
-  }
-  return error instanceof Error ? error : new Error('Chưa thể lưu hồ sơ nhân viên. Vui lòng thử lại.')
+  return presentIdentityAccessError(error, 'profile')
 }
 
 export async function createAccountInvite(input: AccountInviteInput): Promise<AccountInviteResult> {
@@ -318,7 +285,7 @@ export async function applyDefaultTrainerSchedulingPolicy() {
   try {
     return (await callable({ dailySessionTarget: 8 })).data
   } catch (error) {
-    throw presentInviteError(error)
+    throw presentIdentityAccessError(error)
   }
 }
 
@@ -357,6 +324,6 @@ export async function deleteMemberAccount(uid: string): Promise<DeleteMemberAcco
   try {
     return (await callable({ uid, confirmUid: uid })).data
   } catch (error) {
-    throw presentInviteError(error)
+    throw presentIdentityAccessError(error, 'delete')
   }
 }
