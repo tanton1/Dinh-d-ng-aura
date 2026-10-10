@@ -267,7 +267,10 @@ jobs:
           done
 
       - name: Deploy Security Rules
-        run: npx --yes firebase-tools@15.9.1 deploy --only firestore:rules,storage --project gen-lang-client-0815966909 --non-interactive
+        # Keep all database surfaces in the same immutable release. The RTDB
+        # rules are exercised in verify (test:rtdb) and must not lag behind
+        # Firestore/Storage after a production deploy.
+        run: npx --yes firebase-tools@15.9.1 deploy --only firestore:rules,database,storage --project gen-lang-client-0815966909 --non-interactive
 
       # Sensitive Vercel variables are deliberately returned as [SENSITIVE] by
       # `vercel env pull`. A local prebuilt deployment would compile those
