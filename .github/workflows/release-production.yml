@@ -266,11 +266,20 @@ jobs:
             fi
           done
 
-      - name: Deploy Security Rules
-        # Keep all database surfaces in the same immutable release. The RTDB
-        # rules are exercised in verify (test:rtdb) and must not lag behind
-        # Firestore/Storage after a production deploy.
-        run: npx --yes firebase-tools@15.9.1 deploy --only firestore:rules,database,storage --project gen-lang-client-0815966909 --non-interactive
+      - name: Deploy Firestore and Storage Rules
+        # Firestore and Storage are always part of the production release.
+        # Keep Realtime Database separate: some production projects do not
+        # expose the Firebase Database Management API to the deploy identity,
+        # and a missing/optional RTDB must not block unrelated releases.
+        run: npx --yes firebase-tools@15.9.1 deploy --only firestore:rules,storage --project gen-lang-client-0815966909 --non-interactive
+
+      - name: Deploy Realtime Database Rules
+        # Enable only after the production deploy identity has access to the
+        # Firebase Database Management API and the RTDB instance is confirmed.
+        # The default is intentionally skipped for releases that do not change
+        # database.rules.json, avoiding a false-negative after Functions ship.
+        if: ${{ vars.DEPLOY_REALTIME_DATABASE_RULES == 'true' }}
+        run: npx --yes firebase-tools@15.9.1 deploy --only database --project gen-lang-client-0815966909 --non-interactive
 
       # Sensitive Vercel variables are deliberately returned as [SENSITIVE] by
       # `vercel env pull`. A local prebuilt deployment would compile those
