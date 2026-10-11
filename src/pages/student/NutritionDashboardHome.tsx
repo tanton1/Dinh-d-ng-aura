@@ -21,6 +21,7 @@ import {
 } from 'lucide-react'
 
 import MealImage from '../../components/nutrition/MealImage'
+import { getDailyPlanMealType } from '../../features/nutrition/localState'
 
 export interface NutritionHomeDay {
   id: string
@@ -149,6 +150,7 @@ function NutritionDashboardHome({
   qualityMetrics,
   water,
   waterGoal,
+  dailyPlan,
   onSelectDate,
   onShiftWeek,
   onOpenQuickAdd,
@@ -229,12 +231,33 @@ function NutritionDashboardHome({
           ? { eyebrow: 'CÂN BẰNG LẠI', title: 'Thêm một hoạt động nhẹ', detail: 'Đi bộ hoặc vận động vừa sức; không tự động bù trừ ngân sách ăn.', label: 'Ghi vận động', icon: Footprints, action: onOpenExercise }
           : { eyebrow: 'ĐANG ĐÚNG NHỊP', title: 'Duy trì lựa chọn hiện tại', detail: 'Macro chính đang cân bằng; tiếp tục ghi lại các bữa còn lại.', label: 'Thêm bữa tiếp theo', icon: Sparkles, action: onOpenQuickAdd }
 
-  const mealRhythm = [
-    { type: 'breakfast' as const, label: 'Bữa sáng', window: '06:00–09:00' },
-    { type: 'lunch' as const, label: 'Bữa trưa', window: '11:00–13:30' },
-    { type: 'snack' as const, label: 'Bữa phụ', window: '14:00–17:00' },
-    { type: 'dinner' as const, label: 'Bữa tối', window: '18:00–21:00' },
-  ].map((slot) => ({ ...slot, meal: meals.find((meal) => meal.type === slot.type) }))
+  // Keep the slot type in the same order as the plan returned by getDailyPlan.
+  // A 5-meal plan has two snack slots, but also a real lunch in the middle;
+  // inferring every middle slot as "snack" makes an already logged lunch look
+  // missing in the rhythm view.
+  const mealTemplate: Array<{ type: NutritionHomeMeal['type']; label: string; time: string }> = dailyPlan.length > 0 ? dailyPlan.map((slot, index) => ({
+    type: getDailyPlanMealType(index, dailyPlan.length),
+    label: slot.label,
+    time: slot.time,
+  })) : [
+    { type: 'breakfast' as const, label: 'Bữa sáng', time: '07:30' },
+    { type: 'lunch' as const, label: 'Bữa trưa', time: '12:30' },
+    { type: 'dinner' as const, label: 'Bữa tối', time: '19:00' },
+  ]
+  const mealsByType = new Map<NutritionHomeMeal['type'], NutritionHomeMeal[]>()
+  meals.forEach((meal) => mealsByType.set(meal.type, [...(mealsByType.get(meal.type) ?? []), meal]))
+  const typeIndexes = new Map<NutritionHomeMeal['type'], number>()
+  const mealRhythm = mealTemplate.map((slot) => {
+    const candidates = mealsByType.get(slot.type) ?? []
+    const occurrence = typeIndexes.get(slot.type) ?? 0
+    typeIndexes.set(slot.type, occurrence + 1)
+    return {
+      type: slot.type,
+      label: slot.label,
+      window: slot.time,
+      meal: candidates[occurrence],
+    }
+  })
 
   const NextActionIcon = nextAction.icon
 
@@ -611,8 +634,8 @@ function NutritionDashboardHome({
 
       <section className="nutrition-meal-rhythm" aria-labelledby="nutrition-meal-rhythm-title">
         <div className="nutrition-meal-rhythm__heading">
-          <div><span>NHỊP BỮA ĂN</span><h2 id="nutrition-meal-rhythm-title">Một ngày, bốn điểm chạm</h2></div>
-          <small>{mealRhythm.filter((slot) => slot.meal).length}/4 đã ghi</small>
+          <div><span>NHỊP BỮA ĂN</span><h2 id="nutrition-meal-rhythm-title">Nhịp bữa ăn hôm nay</h2></div>
+          <small>{mealRhythm.filter((slot) => slot.meal).length}/{mealRhythm.length} đã ghi</small>
         </div>
         <div className="nutrition-meal-rhythm__grid">
           {mealRhythm.map((slot) => (

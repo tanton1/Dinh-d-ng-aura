@@ -85,6 +85,7 @@ import {
   commandKey,
   compareScheduleSlots,
   contractStatusLabel,
+  currentVietnamDateKey,
   diagnosticActionLabel,
   diagnosticReasonLabel,
   finiteCount,
@@ -172,6 +173,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
     reported: false,
     source: 'network' as 'cache' | 'network',
   })
+  const [vietnamDateKey, setVietnamDateKey] = useState(() => currentVietnamDateKey(true))
 
   const weekDates = useMemo(() => getDatesForWeek(weekOffset), [weekOffset])
   const currentWeekId = weekDates.T2.full
@@ -205,6 +207,36 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
     for (let index = 0; index < workingDays.length; index += 2) result.push(workingDays.slice(index, index + 2))
     return result
   }, [workingDays])
+  const pastScheduleSlots = useMemo(() => {
+    const result = new Set<string>()
+    for (const day of workingDays) {
+      for (const hour of workingHours) {
+        const slotId = `${day}-${hour}`
+        if (scheduleSlotIsPast(slotId, weekDates, vietnamDateKey)) result.add(slotId)
+      }
+    }
+    return result
+  }, [vietnamDateKey, weekDates, workingDays, workingHours])
+
+  // The historical-slot boundary is a calendar date, not a Firestore change.
+  // Refresh it while the page is open and immediately when a background tab
+  // becomes visible, so the matrix/inspector switches to the audit flow after
+  // midnight without requiring navigation or a full workspace reload.
+  useEffect(() => {
+    const refreshVietnamDate = () => {
+      const next = currentVietnamDateKey(true)
+      setVietnamDateKey((current) => current === next ? current : next)
+    }
+    const interval = window.setInterval(refreshVietnamDate, 30_000)
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') refreshVietnamDate()
+    }
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    return () => {
+      window.clearInterval(interval)
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+    }
+  }, [])
 
   useEffect(() => {
     workspaceRef.current = workspace
@@ -438,31 +470,40 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
     if (!workspace || !inspectorSlotId || !selectedTrainerId) return []
     return (workspace.schedule[inspectorSlotId] || []).filter((entry) => entry.trainerId === selectedTrainerId)
   }, [inspectorSlotId, selectedTrainerId, workspace])
-  const inspectorSlotIsPast = useMemo(() => scheduleSlotIsPast(inspectorSlotId, weekDates), [inspectorSlotId, weekDates])
+  const inspectorSlotIsPast = inspectorSlotId ? pastScheduleSlots.has(inspectorSlotId) : false
   useEffect(() => { setHistoricalReason('') }, [inspectorSlotId, selectedTrainerId])
 
   const candidateGroups = useMemo(() => {
     const needle = candidateSearch.trim().toLocaleLowerCase('vi-VN')
-    const visible = candidates.filter((candidate) => !inspectorEntries.some((entry) => entry.studentId === candidate.studentId)
+    const assignedStudentIds = new Set(inspectorEntries.map((entry) => entry.studentId))
+    const visible = candidates.filter((candidate) => !assignedStudentIds.has(candidate.studentId)
       && (!needle || candidate.name.toLocaleLowerCase('vi-VN').includes(needle) || candidate.phone.includes(needle)))
+    const available: PtScheduleSlotCandidate[] = []
+    const override: PtScheduleSlotCandidate[] = []
+    const blocked: PtScheduleSlotCandidate[] = []
+    for (const candidate of visible) {
+      if (candidate.eligible && candidateMatchesStudentAvailability(candidate)) available.push(candidate)
+      else if (!candidate.eligible && candidateCanBeManuallyScheduled(candidate)) override.push(candidate)
+      else if (!candidateCanBeManuallyScheduled(candidate)) blocked.push(candidate)
+    }
     return [
       {
         key: 'available',
         label: inspectorSlotIsPast ? 'Khớp dữ liệu đã đăng ký' : 'Rảnh đúng khung giờ',
         hint: inspectorSlotIsPast ? 'Có thể bổ sung lịch sử' : 'Ưu tiên xếp trước',
-        items: visible.filter((candidate) => candidate.eligible && candidateMatchesStudentAvailability(candidate)),
+        items: available,
       },
       {
         key: 'override',
         label: inspectorSlotIsPast ? 'Có lưu ý cần xác nhận' : 'Ngoài lịch rảnh',
         hint: inspectorSlotIsPast ? 'Lưu cùng lý do audit' : 'Vẫn có thể xếp tay',
-        items: visible.filter((candidate) => !candidate.eligible && candidateCanBeManuallyScheduled(candidate)),
+        items: override,
       },
       {
         key: 'blocked',
         label: 'Chưa đủ điều kiện',
         hint: 'Cần xử lý dữ liệu trước',
-        items: visible.filter((candidate) => !candidateCanBeManuallyScheduled(candidate)),
+        items: blocked,
       },
     ]
   }, [candidateSearch, candidates, inspectorEntries, inspectorSlotIsPast])
@@ -470,6 +511,8 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
   const trainerAssignmentWarnings = useMemo(() => {
     if (!workspace) return []
     const contractsById = new Map(workspace.contracts.map((contract) => [contract.id, contract]))
+    const studentsById = new Map(workspace.students.map((student) => [student.id, student]))
+    const trainersById = new Map(workspace.trainers.map((trainer) => [trainer.id, trainer]))
     const rows: Array<{ key: string; slotId: string; studentId: string; trainerId: string; studentName: string; trainerName: string }> = []
     for (const [slotId, entries] of Object.entries(workspace.schedule)) {
       for (const entry of entries) {
@@ -485,8 +528,8 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
           slotId,
           studentId: entry.studentId,
           trainerId: entry.trainerId,
-          studentName: workspace.students.find((student) => student.id === entry.studentId)?.name || 'Học viên chưa cập nhật',
-          trainerName: workspace.trainers.find((trainer) => trainer.id === entry.trainerId)?.name || 'PT chưa cập nhật',
+          studentName: studentsById.get(entry.studentId)?.name || 'Học viên chưa cập nhật',
+          trainerName: trainersById.get(entry.trainerId)?.name || 'PT chưa cập nhật',
         })
       }
     }
@@ -527,6 +570,21 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
     // The weekly workspace should stay operational, not become a second CRM
     // list. Keep currently eligible learners plus anyone who has a current
     // draft or was scheduled last week and has just lost eligibility.
+    const contractsByStudent = new Map<string, typeof workspace.contracts>()
+    for (const contract of workspace.contracts) {
+      const rows = contractsByStudent.get(contract.studentId) || []
+      rows.push(contract)
+      contractsByStudent.set(contract.studentId, rows)
+    }
+    const latestContractByStudent = new Map<string, (typeof workspace.contracts)[number]>()
+    for (const [studentId, contracts] of contractsByStudent) {
+      const latest = contracts.reduce<(typeof workspace.contracts)[number] | undefined>((current, contract) => {
+        if (!current || String(current.endDate || '').localeCompare(String(contract.endDate || '')) < 0) return contract
+        return current
+      }, undefined)
+      if (latest) latestContractByStudent.set(studentId, latest)
+    }
+    const trainersById = new Map(workspace.trainers.map((trainer) => [trainer.id, trainer]))
     return workspace.students
       .filter((student) => !['archived', 'deleted'].includes(String(student.status || '').toLowerCase())
         && (student.eligibleForWeek === true
@@ -537,23 +595,21 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
       const scheduled = scheduledEntries.length
       const missing = Math.max(0, Number(student.sessionsPerWeek || 0) - scheduled)
       const eligibleContractIds = new Set(student.eligibleContractIds || [])
-      const contracts = workspace.contracts
-        .filter((contract) => contract.studentId === student.id && eligibleContractIds.has(contract.id))
+      const contracts = (contractsByStudent.get(student.id) || [])
+        .filter((contract) => eligibleContractIds.has(contract.id))
         .sort((left, right) => String(left.endDate || '').localeCompare(String(right.endDate || '')))
       // The latest entitlement is the clearest summary for a renewal chain;
       // each actual schedule entry is still bound to its date-specific
       // source/new contract by the backend.
       const contract = contracts[contracts.length - 1]
-        || workspace.contracts.filter((item) => item.studentId === student.id)
-          .sort((left, right) => String(left.endDate || '').localeCompare(String(right.endDate || '')))
-          .pop()
+        || latestContractByStudent.get(student.id)
         || null
       const trainerIds = [...new Set([
         contract?.trainerId,
         ...(contract?.trainerIds || []),
         ...scheduledEntries.map((entry) => entry.trainerId),
       ].filter((value): value is string => Boolean(value)))]
-      const trainerNames = trainerIds.map((id) => workspace.trainers.find((trainer) => trainer.id === id)?.name).filter(Boolean).join(', ')
+      const trainerNames = trainerIds.map((id) => trainersById.get(id)?.name).filter(Boolean).join(', ')
       const inputWarning = missing > 0
         || student.eligibleForWeek !== true
         || student.contractStatus === 'expiring'
@@ -915,13 +971,22 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
             : []
   const trainerWarningCount = trainerAssignmentWarnings.length + (workspace?.summary.unconfiguredTrainers || 0)
 
+  // Candidate ranking only depends on the workspace/slot, not on the search
+  // text. Keeping it memoized prevents a full branch scan on every keystroke
+  // in the inspector search box (up to 500 learners and 100 PTs).
+  const localInspectorCandidates = useMemo(
+    () => workspace && inspectorSlotId && selectedTrainerId
+      ? localSlotCandidates(workspace, selectedTrainerId, inspectorSlotId)
+      : [],
+    [inspectorSlotId, selectedTrainerId, workspace],
+  )
+
   useEffect(() => {
     if (!workspace || !inspectorSlotId || !selectedTrainerId) {
       setCandidates([])
       return undefined
     }
     const normalizedCandidateSearch = candidateSearch.trim().toLocaleLowerCase('vi-VN')
-    const localCandidates = localSlotCandidates(workspace, selectedTrainerId, inspectorSlotId)
     const shouldAskServer = inspectorSlotIsPast
       || (['admin', 'super_admin'].includes(accessContext.accessRole) && normalizedCandidateSearch.length >= 2)
     const cacheKey = `${branchId}|${currentWeekId}|${workspace.draftRevision}|${selectedTrainerId}|${inspectorSlotId}|${inspectorSlotIsPast ? 'history' : 'draft'}|${normalizedCandidateSearch}`
@@ -937,9 +1002,9 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
     // full branch merely to render this list wasted reads and made the drawer
     // flash. Ask the server only for historical validation or an Admin search
     // that may intentionally include another branch.
-    setCandidates(inspectorSlotIsPast ? [] : localCandidates)
+    setCandidates(inspectorSlotIsPast ? [] : localInspectorCandidates)
     if (!shouldAskServer) {
-      candidateCache.current.set(cacheKey, localCandidates)
+      candidateCache.current.set(cacheKey, localInspectorCandidates)
       setCandidateLoading(false)
       return undefined
     }
@@ -967,7 +1032,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
       active = false
       window.clearTimeout(debounce)
     }
-  }, [accessContext.accessRole, branchId, candidateSearch, currentWeekId, inspectorSlotId, inspectorSlotIsPast, selectedTrainerId, workspace, workspace?.draftRevision])
+  }, [accessContext.accessRole, branchId, candidateSearch, currentWeekId, inspectorSlotId, inspectorSlotIsPast, localInspectorCandidates, selectedTrainerId, workspace, workspace?.draftRevision])
 
   const runCommand = async (command: PtScheduleDraftCommand, payload: Record<string, unknown>, reason?: string) => {
     if (!workspace || busyRef.current) return false
@@ -1469,7 +1534,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
                   setOffConfirmation(false)
                   setPendingManualCandidate(null)
                 }
-                const past = scheduleSlotIsPast(slotId, weekDates)
+                const past = pastScheduleSlots.has(slotId)
                 const trainingEntries = entries.filter((entry) => entry.type !== 'off')
                 const cellDescription = holiday
                   ? `${scheduleSlotLabel(slotId, weekDates)} · Ngày nghỉ`

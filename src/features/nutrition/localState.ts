@@ -83,6 +83,25 @@ export function formatNutritionNumber(value: number) {
   return new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 0 }).format(value)
 }
 
+/**
+ * Returns the semantic meal type for a generated daily-plan slot.
+ *
+ * The planner supports two snack slots in a five-meal plan, so deriving the
+ * type only from "first" and "last" slots incorrectly turns lunch into a
+ * snack. Keeping this mapping in one place makes the dashboard, planned-menu
+ * cards and diary reconciliation agree on the same rhythm.
+ */
+export function getDailyPlanMealType(index: number, mealCount: number): MealLog['type'] {
+  const typesByCount: Record<number, MealLog['type'][]> = {
+    2: ['breakfast', 'dinner'],
+    3: ['breakfast', 'lunch', 'dinner'],
+    4: ['breakfast', 'lunch', 'snack', 'dinner'],
+    5: ['breakfast', 'snack', 'lunch', 'snack', 'dinner'],
+  }
+  return typesByCount[mealCount]?.[index]
+    ?? (index === 0 ? 'breakfast' : index === mealCount - 1 ? 'dinner' : 'snack')
+}
+
 export function getDailyPlan(calorieGoal: number, profile: NutritionProfileDraft) {
   const vegetarian = profile.eatingStyle === 'Ăn chay' || profile.eatingStyle === 'Thuần chay'
   const lowCarb = profile.eatingStyle === 'Ít tinh bột'

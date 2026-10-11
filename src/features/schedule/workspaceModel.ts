@@ -350,7 +350,11 @@ function workspaceFromDraftSnapshot(
   }
 }
 
-function scheduleSlotIsPast(slotId: string | null, dates: Record<string, { display: string; full: string }>) {
+function scheduleSlotIsPast(
+  slotId: string | null,
+  dates: Record<string, { display: string; full: string }>,
+  today = currentVietnamDateKey(),
+) {
   if (!slotId) return false
   const [day, rawHour] = slotId.split('-')
   const date = dates[day]?.full
@@ -360,14 +364,32 @@ function scheduleSlotIsPast(slotId: string | null, dates: Record<string, { displ
   // The publish transaction still protects completed/charged sessions, while
   // treating only prior calendar dates as historical prevents the matrix from
   // flipping every morning as the clock crosses each hour.
-  const todayParts = Object.fromEntries(new Intl.DateTimeFormat('en', {
-    timeZone: 'Asia/Ho_Chi_Minh',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).formatToParts(new Date()).map((part) => [part.type, part.value]))
-  const today = `${todayParts.year}-${todayParts.month}-${todayParts.day}`
   return date < today
+}
+
+// Keep this formatter and the derived date outside the hot path. The matrix
+// asks whether every visible cell is historical on each render; constructing
+// an Intl formatter (or formatting the current date) for every cell was
+// surprisingly expensive on lower-end tablets.
+const VIETNAM_DATE_FORMATTER = new Intl.DateTimeFormat('en', {
+  timeZone: 'Asia/Ho_Chi_Minh',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+})
+let vietnamDateCacheKey = ''
+let vietnamDateCacheAt = 0
+
+function currentVietnamDateKey(force = false) {
+  const now = Date.now()
+  // A minute is enough precision here: a slot only becomes historical when
+  // its calendar date changes, and this avoids one Intl call per matrix cell.
+  if (force || now - vietnamDateCacheAt > 60_000 || !vietnamDateCacheKey) {
+    const todayParts = Object.fromEntries(VIETNAM_DATE_FORMATTER.formatToParts(new Date()).map((part) => [part.type, part.value]))
+    vietnamDateCacheKey = `${todayParts.year}-${todayParts.month}-${todayParts.day}`
+    vietnamDateCacheAt = now
+  }
+  return vietnamDateCacheKey
 }
 
 function localSlotCandidates(
@@ -382,11 +404,30 @@ function localSlotCandidates(
     : null
   if (sessionDate) sessionDate.setDate(sessionDate.getDate() + dayIndex)
   const date = sessionDate ? sessionDate.toLocaleDateString('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }) : ''
-  const entries = Object.entries(workspace.schedule)
+  // Build the indexes once per picker open instead of scanning every schedule
+  // entry and every contract row for each learner. A branch can contain up to
+  // 500 learners, so the previous nested scans made typing in the picker
+  // noticeably janky even though the resulting ranking was unchanged.
+  const entriesByDay = new Map<string, Set<string>>()
   const scheduledCounts = new Map<string, number>()
-  Object.values(workspace.schedule).flat().forEach((entry) => {
-    if (entry.type !== 'off') scheduledCounts.set(entry.studentId, (scheduledCounts.get(entry.studentId) || 0) + 1)
+  Object.entries(workspace.schedule).forEach(([candidateSlotId, values]) => {
+    const [candidateDay] = candidateSlotId.split('-')
+    const students = entriesByDay.get(candidateDay) || new Set<string>()
+    for (const entry of values) {
+      if (entry.type === 'off') continue
+      students.add(entry.studentId)
+      scheduledCounts.set(entry.studentId, (scheduledCounts.get(entry.studentId) || 0) + 1)
+    }
+    entriesByDay.set(candidateDay, students)
   })
+  const studentsScheduledThisDay = entriesByDay.get(day) || new Set<string>()
+  const contractsByStudent = new Map<string, typeof workspace.contracts>()
+  for (const contract of workspace.contracts) {
+    const contracts = contractsByStudent.get(contract.studentId) || []
+    contracts.push(contract)
+    contractsByStudent.set(contract.studentId, contracts)
+  }
+  const studentsById = new Map(workspace.students.map((student) => [student.id, student]))
   return workspace.students.map((student): PtScheduleSlotCandidate => {
     const reasons = new Set<string>()
     if (student.status === 'inactive' || student.eligibleForWeek !== true) {
@@ -394,8 +435,7 @@ function localSlotCandidates(
     }
     if (student.branchId !== workspace.branch.id) reasons.add('STUDENT_BRANCH_MISMATCH')
     if (date && student.validScheduleDates?.length && !student.validScheduleDates.includes(date)) reasons.add('ACTIVE_CONTRACT_NOT_FOUND')
-    if (entries.some(([candidateSlotId, values]) => candidateSlotId.split('-')[0] === day
-      && values.some((entry) => entry.type !== 'off' && entry.studentId === student.id))) reasons.add('STUDENT_MULTIPLE_SESSIONS_PER_DAY')
+    if (studentsScheduledThisDay.has(student.id)) reasons.add('STUDENT_MULTIPLE_SESSIONS_PER_DAY')
 
     // Older/migrated workspace payloads may omit the denormalized eligible
     // contract id list while still returning the complete branch contract
@@ -403,8 +443,8 @@ function localSlotCandidates(
     // every learner in the manual picker; the command callable remains the
     // canonical final check.
     const eligibleContractIds = new Set(student.eligibleContractIds || [])
-    const eligibleContracts = workspace.contracts.filter((contract) => contract.studentId === student.id
-      && (!eligibleContractIds.size || eligibleContractIds.has(contract.id))
+    const eligibleContracts = (contractsByStudent.get(student.id) || []).filter((contract) =>
+      (!eligibleContractIds.size || eligibleContractIds.has(contract.id))
       && (!date || (String(contract.startDate || '').slice(0, 10) <= date && String(contract.endDate || '').slice(0, 10) >= date)))
     if (!eligibleContracts.length && student.eligibleForWeek) reasons.add('ACTIVE_CONTRACT_NOT_FOUND')
     if (eligibleContracts.length > 1) reasons.add('AMBIGUOUS_ACTIVE_CONTRACT')
@@ -435,8 +475,8 @@ function localSlotCandidates(
     }
   }).sort((left, right) => {
     const rank = (candidate: PtScheduleSlotCandidate) => candidate.eligible ? 0 : candidate.manualSelectable ? 1 : 2
-    const leftStudent = workspace.students.find((student) => student.id === left.studentId)
-    const rightStudent = workspace.students.find((student) => student.id === right.studentId)
+    const leftStudent = studentsById.get(left.studentId)
+    const rightStudent = studentsById.get(right.studentId)
     const leftMissing = Math.max(0, Number(leftStudent?.sessionsPerWeek || 0) - (scheduledCounts.get(left.studentId) || 0))
     const rightMissing = Math.max(0, Number(rightStudent?.sessionsPerWeek || 0) - (scheduledCounts.get(right.studentId) || 0))
     return rank(left) - rank(right)
@@ -466,6 +506,7 @@ export {
   commandKey,
   compareScheduleSlots,
   contractStatusLabel,
+  currentVietnamDateKey,
   diagnosticActionLabel,
   diagnosticReasonLabel,
   finiteCount,

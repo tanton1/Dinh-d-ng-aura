@@ -4,6 +4,7 @@ const { getStorage } = require('firebase-admin/storage')
 const { HttpsError } = require('firebase-functions/v2/https')
 const { trustedAccessContext } = require('./identity-access')
 const { effectiveContractStatus } = require('./contract-status')
+const { nutritionQuality } = require('./nutrition-core.mjs')
 
 const ALL_REVIEW_CAPABILITY = 'nutrition.meals.all.review'
 const DEFAULT_REVIEW_SLA_MINUTES = 120
@@ -115,6 +116,12 @@ function sanitizeMealInput(value, uid) {
     throw new HttpsError('invalid-argument', 'Loại bữa ăn không hợp lệ.')
   }
   if (!['logged', 'planned'].includes(meal.status)) meal.status = 'logged'
+  // A future entry is a plan, not an attendance record. Keep the server as
+  // the final guard because diary date inputs are also reachable from older
+  // clients.
+  if (meal.status === 'logged' && meal.date > currentContractDateKey()) {
+    throw new HttpsError('invalid-argument', 'Không thể ghi bữa ăn đã dùng cho một ngày trong tương lai. Hãy dùng trạng thái kế hoạch.')
+  }
   for (const key of ['calories', 'protein', 'carbs', 'fat', 'fiber', 'sugar', 'sodium']) {
     if (meal[key] === undefined) continue
     const number = Number(meal[key])
@@ -122,6 +129,12 @@ function sanitizeMealInput(value, uid) {
       throw new HttpsError('invalid-argument', 'Chỉ số dinh dưỡng không hợp lệ.')
     }
     meal[key] = number
+  }
+  if (meal.calories > 0 && ['protein', 'carbs', 'fat'].every((key) => typeof meal[key] === 'number')) {
+    const qualityIssues = nutritionQuality(meal)
+    if (qualityIssues.some((issue) => issue.includes('Kcal và macro lệch'))) {
+      throw new HttpsError('invalid-argument', 'Kcal và macro đang lệch quá 20%. Hãy kiểm tra lại khẩu phần trước khi lưu.')
+    }
   }
   meal.title = shortText(meal.title || meal.dishName || 'Bữa ăn dinh dưỡng', 200)
   meal.dishName = shortText(meal.dishName || meal.title, 200)

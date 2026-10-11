@@ -910,10 +910,13 @@ function AuraApplication() {
           const heightStr = p?.heightCm ? `${p.heightCm}cm` : effectiveHeight ? `${effectiveHeight}cm` : ''
           const weightStr = p?.weightKg ? `${p.weightKg}kg` : effectiveWeight ? `${effectiveWeight}kg` : ''
           const targets = p ? calculateNutritionTargets(p) : null
-          const targetCalories = p?.targetCalories ?? targets?.targetCaloriesKcal
-          const targetProtein = p?.protein ?? targets?.proteinG
-          const targetCarbs = p?.carbs ?? targets?.carbsG
-          const targetFat = p?.fat ?? targets?.fatG
+          // Prefer the canonical versioned resolver. Legacy overrides are
+          // only a migration fallback for profiles that are not configured
+          // well enough to calculate a target yet.
+          const targetCalories = targets?.configured ? targets.targetCaloriesKcal : p?.targetCalories
+          const targetProtein = targets?.configured ? targets.proteinG : p?.protein
+          const targetCarbs = targets?.configured ? targets.carbsG : p?.carbs
+          const targetFat = targets?.configured ? targets.fatG : p?.fat
           const targetStr = targetCalories
             ? `Mục tiêu ngày ${Math.round(targetCalories)} kcal, ${Math.round(targetProtein || 0)}g đạm, ${Math.round(targetCarbs || 0)}g carb, ${Math.round(targetFat || 0)}g béo`
             : ''

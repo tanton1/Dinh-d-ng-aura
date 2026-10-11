@@ -528,6 +528,15 @@
         { "fieldPath": "studentId", "order": "ASCENDING" },
         { "fieldPath": "sortKey", "order": "DESCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "studentTimelineEvents",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "studentId", "order": "ASCENDING" },
+        { "fieldPath": "type", "order": "ASCENDING" },
+        { "fieldPath": "sortKey", "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": [

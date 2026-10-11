@@ -150,6 +150,35 @@
 .student360-page--v4 .student360-card h2 { font-weight: 750; }
 .student360-page--v4 .student360-side-column { top: 76px; }
 
+.student360-freshness-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  width: min(1280px, calc(100% - clamp(28px, 6vw, 84px)));
+  margin: 0 auto 12px;
+  border: 1px solid #f1d7b8;
+  border-radius: 14px;
+  background: #fff9ef;
+  color: #88531e;
+  padding: 10px 12px;
+}
+.student360-freshness-banner > svg { flex: none; margin-top: 1px; color: #c47a25; }
+.student360-freshness-banner > span { display: grid; gap: 2px; min-width: 0; }
+.student360-freshness-banner strong { font-size: 10px; }
+.student360-freshness-banner small { color: #906d45; font-size: 9px; line-height: 1.45; }
+.student360-freshness-banner em { margin-left: auto; border-radius: 999px; background: #fbe9ce; padding: 4px 8px; color: #9b5b18; font-size: 8px; font-style: normal; font-weight: 800; white-space: nowrap; }
+.student360-health-details p { align-items: flex-start; gap: 12px; }
+.student360-health-details p > span { display: grid; gap: 2px; min-width: 0; }
+.student360-health-details p > span strong { font-size: 9px; }
+.student360-health-details p > span small { color: #897a81; font-size: 8px; font-weight: 500; line-height: 1.35; }
+.student360-health-details p > b { display: grid; justify-items: end; gap: 2px; flex: none; color: #d92b6b; font-size: 10px; }
+.student360-health-details p > b small { color: #897a81; font-size: 7px; font-weight: 600; white-space: nowrap; }
+
+@media (max-width: 680px) {
+  .student360-freshness-banner { width: calc(100% - 20px); margin-bottom: 10px; }
+  .student360-freshness-banner em { display: none; }
+}
+
 .student360-week-snapshot {
   display: grid;
   gap: 7px;

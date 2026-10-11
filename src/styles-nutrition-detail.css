@@ -561,6 +561,25 @@
   transform: scale(1.02);
 }
 
+.fdet-image-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: #64748b;
+  background: linear-gradient(145deg, #f8fafc 0%, #eef2f7 100%);
+  font-size: 44px;
+  cursor: default;
+}
+
+.fdet-image-placeholder span {
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+}
+
 .fdet-hero-overlay {
   position: absolute;
   top: 0;
@@ -1479,6 +1498,15 @@
   max-height: 75vh;
   object-fit: contain;
   border-radius: 16px;
+}
+
+.fdet-lightbox .fdet-image-placeholder {
+  width: min(72vw, 560px);
+  min-height: min(48vh, 360px);
+  padding: 32px;
+  border-radius: 16px;
+  background: #f8fafc;
+  font-size: 52px;
 }
 
 .fdet-lightbox-caption {

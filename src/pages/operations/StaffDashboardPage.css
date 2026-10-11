@@ -578,3 +578,174 @@
 @media (prefers-reduced-motion: reduce) {
   .staff-dashboard__performance-loading span { animation: none; }
 }
+
+/*
+ * Staff command deck
+ *
+ * The operations dashboard is read in short bursts between sessions. Keep the
+ * visual language quiet and editorial: one clear status row, a complete metric
+ * grid, then today's queue before deeper reporting. The neon accent is reserved
+ * for action and state, so the page remains easy to scan when data is dense.
+ */
+.staff-dashboard {
+  --staff-ink: #1b171c;
+  --staff-muted: #706771;
+  --staff-line: #e9e2e7;
+  --staff-surface: #fff;
+  --staff-soft: #fbf8fa;
+  --staff-pink: #ec2c76;
+  --staff-orange: #ff7a45;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: clamp(18px, 2.6vw, 32px) clamp(12px, 2.4vw, 30px) calc(118px + env(safe-area-inset-bottom));
+  color: var(--staff-ink);
+  background: transparent;
+}
+
+.staff-dashboard__heading { order: 1; align-items: flex-end; gap: 24px; padding: 0 2px 4px; }
+.staff-dashboard__heading-copy { min-width: 0; }
+.staff-dashboard__eyebrow { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; color: var(--staff-pink); font-size: 11px; font-weight: 850; letter-spacing: .1em; }
+.staff-dashboard__eyebrow b { display: inline-flex; align-items: center; min-height: 24px; padding: 0 9px; border: 1px solid #f2d4df; border-radius: 999px; color: #7e6571; background: rgba(255,255,255,.72); font-size: 10px; font-weight: 800; letter-spacing: 0; }
+.staff-dashboard__heading h1 { margin: 8px 0 4px; color: var(--staff-ink); font-size: clamp(26px, 3.4vw, 38px); font-weight: 900; letter-spacing: -.055em; line-height: 1.02; }
+.staff-dashboard__heading p { color: var(--staff-muted); font-size: 12px; }
+.staff-dashboard__heading-actions { display: flex; align-items: center; gap: 10px; flex: none; }
+.staff-dashboard__sync { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; color: #6c646b; font-size: 11px; font-weight: 750; white-space: nowrap; }
+.staff-dashboard__sync i { width: 7px; height: 7px; border-radius: 50%; background: #17a77b; box-shadow: 0 0 0 4px rgba(23,167,123,.12); }
+.staff-dashboard__sync.is-syncing i { background: var(--staff-orange); box-shadow: 0 0 0 4px rgba(255,122,69,.12); }
+.staff-dashboard__heading-actions > button { display: inline-flex; width: auto; min-height: 42px; align-items: center; justify-content: center; gap: 7px; padding: 0 13px; border: 1px solid var(--staff-line); border-radius: 12px; color: var(--staff-ink); background: rgba(255,255,255,.84); box-shadow: 0 7px 18px rgba(50,24,39,.06); font-size: 11px; font-weight: 850; }
+.staff-dashboard__heading-actions > button:hover:not(:disabled) { border-color: #eab0c6; color: var(--staff-pink); background: #fff; }
+.staff-dashboard__heading-actions > button:disabled { cursor: wait; opacity: .68; }
+
+.staff-dashboard > .aura-metric-carousel { order: 2; margin-top: 22px; }
+.staff-dashboard > .aura-metric-carousel .aura-metric-carousel__viewport { grid-template-columns: repeat(4, minmax(0, 1fr)); grid-auto-columns: unset; grid-auto-flow: initial; gap: 10px; overflow: visible; padding: 2px 2px 5px; }
+.staff-dashboard > .aura-metric-carousel .aura-metric-carousel__dots { display: none; }
+.staff-dashboard > .aura-metric-carousel .aura-metric-carousel__slide { min-height: 166px; padding: 16px; border: 1px solid rgba(255,255,255,.22); border-radius: 20px; box-shadow: 0 13px 25px rgba(105,31,65,.14); }
+.staff-dashboard > .aura-metric-carousel .aura-metric-carousel__slide:hover { transform: translateY(-3px); box-shadow: 0 17px 30px rgba(105,31,65,.18); }
+.staff-dashboard > .aura-metric-carousel .aura-metric-carousel__number { font-size: 10px; }
+.staff-dashboard > .aura-metric-carousel .aura-metric-carousel__eyebrow { margin-top: 13px; font-size: 9px; letter-spacing: .08em; }
+.staff-dashboard > .aura-metric-carousel .aura-metric-carousel__slide strong { margin-top: 6px; font-size: clamp(21px, 2.1vw, 28px); }
+.staff-dashboard > .aura-metric-carousel .aura-metric-carousel__slide small { min-height: 30px; font-size: 10px; }
+.staff-dashboard > .aura-metric-carousel .aura-metric-carousel__action { margin-top: 9px; font-size: 9px; }
+
+.staff-dashboard > .operational-action-center { order: 3; width: min(1180px, 100%); margin: 14px auto 0; border-color: rgba(233,226,231,.92); border-radius: 20px; box-shadow: 0 12px 30px rgba(50,24,39,.06); }
+.staff-dashboard__state { order: 4; }
+.staff-dashboard__today { order: 5; margin-top: 18px; border-top: 3px solid var(--staff-pink); }
+.staff-dashboard__performance { order: 6; }
+.staff-dashboard__role-actions { order: 7; border: 0; padding: 0; background: transparent; box-shadow: none; }
+.staff-dashboard__payroll { order: 8; }
+
+.staff-dashboard__today,
+.staff-dashboard__performance,
+.staff-dashboard__payroll { border-color: var(--staff-line); border-radius: 20px; background: rgba(255,255,255,.9); box-shadow: 0 12px 30px rgba(50,24,39,.06); }
+.staff-dashboard__today > header,
+.staff-dashboard__performance > header,
+.staff-dashboard__payroll > header { min-height: 42px; }
+.staff-dashboard__today header small,
+.staff-dashboard__payroll header small { color: var(--staff-pink); letter-spacing: .11em; text-transform: none; }
+.staff-dashboard__today h2,
+.staff-dashboard__performance h2,
+.staff-dashboard__payroll h2,
+.staff-dashboard__role-actions h2 { color: var(--staff-ink); letter-spacing: -.035em; }
+.staff-dashboard__section-actions { display: flex; align-items: center; gap: 10px; }
+.staff-dashboard__section-actions > span { color: var(--staff-muted); font-size: 11px; font-weight: 750; white-space: nowrap; }
+.staff-dashboard__today > header button,
+.staff-dashboard__payroll > header button { min-height: 38px; border-radius: 11px; padding: 0 11px; background: var(--staff-ink); font-size: 11px; }
+.staff-dashboard__today > header button:hover,
+.staff-dashboard__payroll > header button:hover { background: var(--staff-pink); }
+.staff-dashboard__timeline { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 16px; }
+.staff-dashboard__timeline > button { border-color: var(--staff-line); border-radius: 14px; padding: 10px; background: linear-gradient(145deg,#fff,#fdf9fb); transition: border-color .18s ease, transform .18s ease, box-shadow .18s ease; }
+.staff-dashboard__timeline > button:hover { border-color: #efb9ce; transform: translateY(-2px); box-shadow: 0 8px 17px rgba(86,28,58,.08); }
+.staff-dashboard__timeline > button { position: relative; }
+.staff-dashboard__timeline > button .staff-dashboard__timeline-arrow { width: 15px; height: 15px; color: #b7a6af; opacity: .8; }
+.staff-dashboard__timeline time { font-size: 14px; }
+.staff-dashboard__timeline strong { font-size: 12px; }
+.staff-dashboard__timeline small { font-size: 10px; }
+.staff-dashboard__timeline i.is-attention { background: #fff0f2; color: #b82850; }
+.staff-dashboard__timeline i.is-attention + .staff-dashboard__timeline-arrow { color: #b82850; }
+.staff-dashboard__schedule-filters { display: flex; gap: 6px; margin-top: 13px; overflow-x: auto; scrollbar-width: none; }
+.staff-dashboard__schedule-filters::-webkit-scrollbar { display: none; }
+.staff-dashboard__schedule-filters button { display: inline-flex; min-height: 32px; align-items: center; gap: 6px; flex: 0 0 auto; padding: 0 10px; border: 1px solid var(--staff-line); border-radius: 999px; color: #776873; background: #fff; font-size: 10px; font-weight: 800; white-space: nowrap; }
+.staff-dashboard__schedule-filters button:hover { border-color: #efb9ce; color: var(--staff-pink); }
+.staff-dashboard__schedule-filters button.is-active { border-color: transparent; color: #fff; background: linear-gradient(110deg, var(--staff-pink), var(--staff-orange)); box-shadow: 0 5px 12px rgba(236,44,118,.16); }
+.staff-dashboard__schedule-filters button b { display: inline-grid; min-width: 18px; height: 18px; place-items: center; padding: 0 4px; border-radius: 999px; color: #b82850; background: #fff0f2; font-size: 9px; }
+.staff-dashboard__schedule-filters button.is-active b { color: var(--staff-pink); background: #fff; }
+
+.staff-dashboard__role-actions > header { padding: 0 2px; }
+.staff-dashboard__role-actions > header small { color: #876d79; letter-spacing: .1em; text-transform: none; }
+.staff-dashboard__role-actions > div { margin-top: 10px; }
+.staff-dashboard__role-actions button { border-color: var(--staff-line); border-radius: 15px; background: rgba(255,255,255,.82); transition: border-color .18s ease, transform .18s ease, box-shadow .18s ease; }
+.staff-dashboard__role-actions button:hover { border-color: #efb9ce; transform: translateY(-2px); box-shadow: 0 8px 18px rgba(86,28,58,.07); }
+.staff-dashboard__role-actions button > span { border-radius: 11px; background: #fff0f5; }
+
+.staff-dashboard__payroll { display: grid; grid-template-columns: minmax(240px, .78fr) minmax(0, 1.22fr); column-gap: 18px; }
+.staff-dashboard__payroll > header,
+.staff-dashboard__payroll > footer { grid-column: 1 / -1; }
+.staff-dashboard__payroll-summary { grid-column: 1; grid-template-columns: 1fr; align-content: start; margin-top: 14px; }
+.staff-dashboard__payroll-summary article { border-color: var(--staff-line); border-radius: 14px; padding: 12px; }
+.staff-dashboard__chart { grid-column: 2; min-height: 214px; margin-top: 14px; border-color: var(--staff-line); border-radius: 16px; }
+.staff-dashboard__payroll-loading,
+.staff-dashboard__payroll-state { grid-column: 1 / -1; }
+
+.staff-dashboard :is(button, a):focus-visible { outline: 3px solid rgba(236,44,118,.28); outline-offset: 3px; }
+
+@media (max-width: 940px) {
+  .staff-dashboard > .aura-metric-carousel .aura-metric-carousel__viewport { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .staff-dashboard__payroll { grid-template-columns: 1fr; }
+  .staff-dashboard__payroll-summary,
+  .staff-dashboard__chart { grid-column: 1; }
+  .staff-dashboard__payroll-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 640px) {
+  .staff-dashboard { padding: 14px 0 calc(108px + env(safe-area-inset-bottom)); }
+  .staff-dashboard__heading { align-items: flex-start; gap: 12px; padding: 3px 14px 0; }
+  .staff-dashboard__heading h1 { margin-top: 7px; font-size: 27px; }
+  .staff-dashboard__heading p { font-size: 11px; }
+  .staff-dashboard__heading-actions { display: grid; justify-items: end; gap: 6px; }
+  .staff-dashboard__sync { min-height: 24px; font-size: 9px; }
+  .staff-dashboard__heading-actions > button { min-width: 42px; min-height: 42px; padding: 0 10px; }
+  .staff-dashboard__heading-actions > button span { display: none; }
+  .staff-dashboard > .aura-metric-carousel { margin-top: 16px; }
+  .staff-dashboard > .aura-metric-carousel .aura-metric-carousel__viewport { gap: 8px; padding: 2px 14px 4px; }
+  .staff-dashboard > .aura-metric-carousel .aura-metric-carousel__slide { min-height: 148px; padding: 13px; border-radius: 16px; }
+  .staff-dashboard > .aura-metric-carousel .aura-metric-carousel__icon { width: 32px; height: 32px; border-radius: 10px; }
+  .staff-dashboard > .aura-metric-carousel .aura-metric-carousel__icon svg { width: 17px; height: 17px; }
+  .staff-dashboard > .aura-metric-carousel .aura-metric-carousel__number { display: none; }
+  .staff-dashboard > .aura-metric-carousel .aura-metric-carousel__eyebrow { margin-top: 10px; font-size: 8px; }
+  .staff-dashboard > .aura-metric-carousel .aura-metric-carousel__slide strong { font-size: 21px; }
+  .staff-dashboard > .aura-metric-carousel .aura-metric-carousel__slide small { min-height: 28px; font-size: 9px; }
+  .staff-dashboard > .aura-metric-carousel .aura-metric-carousel__action { font-size: 8px; }
+  .staff-dashboard > .operational-action-center { margin-top: 12px; border-right: 0; border-left: 0; border-radius: 0; }
+  .staff-dashboard__today,
+  .staff-dashboard__performance,
+  .staff-dashboard__role-actions,
+  .staff-dashboard__payroll { margin-top: 14px; padding: 15px 13px; border-right: 0; border-left: 0; border-radius: 18px; }
+  .staff-dashboard__today > header,
+  .staff-dashboard__performance > header,
+  .staff-dashboard__payroll > header { align-items: flex-start; }
+  .staff-dashboard__section-actions { align-items: flex-end; flex-direction: column; gap: 5px; }
+  .staff-dashboard__section-actions > span { font-size: 9px; }
+  .staff-dashboard__today > header button,
+  .staff-dashboard__payroll > header button { min-height: 34px; padding-inline: 9px; font-size: 10px; }
+  .staff-dashboard__timeline { grid-template-columns: 1fr; margin-top: 13px; }
+  .staff-dashboard__schedule-filters { margin-top: 11px; }
+  .staff-dashboard__role-actions > div { grid-template-columns: 1fr 1fr; gap: 7px; }
+  .staff-dashboard__role-actions button { grid-template-columns: 32px minmax(0, 1fr); gap: 2px 7px; padding: 10px; }
+  .staff-dashboard__role-actions button > span { width: 32px; height: 32px; }
+  .staff-dashboard__role-actions button strong { font-size: 11px; }
+  .staff-dashboard__role-actions button small { font-size: 9px; line-height: 1.3; }
+  .staff-dashboard__performance-body { gap: 9px; }
+  .staff-dashboard__performance > header > button { min-height: 36px; padding-inline: 10px; font-size: 10px; }
+  .staff-dashboard__payroll-summary { gap: 7px; margin-top: 11px; }
+  .staff-dashboard__payroll-summary article { padding: 10px 9px; }
+  .staff-dashboard__payroll-summary strong { font-size: 16px; }
+  .staff-dashboard__chart { min-height: 194px; margin-top: 10px; padding-inline: 3px; }
+  .staff-dashboard__bars { height: 130px; }
+}
+
+@media (max-width: 360px) {
+  .staff-dashboard > .aura-metric-carousel .aura-metric-carousel__slide { min-height: 144px; padding: 11px; }
+  .staff-dashboard > .aura-metric-carousel .aura-metric-carousel__slide strong { font-size: 19px; }
+  .staff-dashboard__role-actions > div { grid-template-columns: 1fr; }
+}

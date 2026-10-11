@@ -5,6 +5,7 @@ import {
   listInternalNutritionCatalog,
   type InternalNutritionCatalogQuery,
 } from '../../services/internalNutritionCatalogService'
+import { findNutritionDetailRecord } from './catalogDetailParser'
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null
@@ -176,19 +177,6 @@ export function toFoodDetailSummary(food: NutritionFoodCatalogItem): NutritionFo
 export function detailNutrientValue(record: NutritionFoodDetailRecord, key: string) {
   const value = record.nutrients?.find((nutrient) => nutrient.key === key)?.value
   return typeof value === 'number' && Number.isFinite(value) ? value : null
-}
-
-function isNutritionDetailRecord(value: unknown): value is NutritionFoodDetailRecord {
-  const record = asRecord(value)
-  return Boolean(record && typeof record.id === 'string' && typeof record.nameVi === 'string' && (record.kind === 'dish' || record.kind === 'food'))
-}
-
-export function findNutritionDetailRecord(payload: unknown, id: string) {
-  if (Array.isArray(payload)) return payload.find((record) => isNutritionDetailRecord(record) && record.id === id) ?? null
-  const root = asRecord(payload)
-  if (!root) return null
-  if (Array.isArray(root.records)) return root.records.find((record) => isNutritionDetailRecord(record) && record.id === id) ?? null
-  return isNutritionDetailRecord(root[id]) ? root[id] : null
 }
 
 export function scaleOptionalNumber(value: number | null | undefined, multiplier: number) {

@@ -5,6 +5,7 @@ import {
   nutritionSectionFromHash,
   nutritionSectionHash,
 } from '../src/features/nutrition/routing'
+import { findNutritionDetailRecord } from '../src/features/nutrition/catalogDetailParser'
 
 function installHash(hash: string) {
   ;(globalThis as typeof globalThis & { window: unknown }).window = { location: { hash } }
@@ -37,4 +38,12 @@ test('both legacy and UI 4.0 nutrition deep links resolve to the same task', () 
   assert.equal(nutritionSectionFromHash(), 'menu')
   installHash('#/nutrition?section=explore')
   assert.equal(nutritionSectionFromHash(), 'explore')
+})
+
+test('catalog detail parser accepts the callable flat item response', () => {
+  const item = { id: 'dish-1', kind: 'dish' as const, nameVi: 'Cơm gà', nutrients: [] }
+  assert.deepEqual(findNutritionDetailRecord(item, item.id), item)
+  assert.deepEqual(findNutritionDetailRecord({ records: [item] }, item.id), item)
+  assert.deepEqual(findNutritionDetailRecord({ [item.id]: item }, item.id), item)
+  assert.equal(findNutritionDetailRecord({ id: 'other', kind: 'dish', nameVi: 'Khác' }, item.id), null)
 })

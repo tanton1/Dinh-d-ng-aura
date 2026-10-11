@@ -1,6 +1,8 @@
 import { httpsCallable } from 'firebase/functions'
 import { firebaseFunctions, firebaseStudent360Functions } from '../../lib/firebaseFunctions'
 import { callReadOnlyFunction } from '../../services/readOnlyCallableService'
+import { createClientCorrelationId } from '../../services/clientTelemetryService'
+import { readStudent360WithFailover, STUDENT360_READ_TIMEOUT_MS } from './student360ReadPolicy'
 import type { Student360ContractMutation, Student360ContractWorkspace, Student360DirectoryItem, Student360NutritionActivityDetail, Student360Overview, Student360Photo, Student360TimelineEvent } from './types'
 import type { ProgressCheckInInput } from '../../services/firebaseProgressService'
 
@@ -20,21 +22,16 @@ function functionError(cause: unknown, fallback: string) {
 async function callStudent360Read<Input, Output>(
   name: string,
   input: Input,
-  timeoutMs = 30_000,
+  timeoutMs = STUDENT360_READ_TIMEOUT_MS,
 ): Promise<Output> {
-  if (firebaseStudent360Functions) {
-    try {
-      return await callReadOnlyFunction<Input, Output>(`${name}Regional`, input, {
-        functionsClient: firebaseStudent360Functions,
-        timeoutMs,
-        maximumAttempts: 2,
-      })
-    } catch {
-      // Read-only calls can safely fall back while clients and regional
-      // endpoints roll out at different times. Mutations never use this path.
-    }
-  }
-  return callReadOnlyFunction<Input, Output>(name, input, { timeoutMs, maximumAttempts: 2 })
+  const correlationId = createClientCorrelationId()
+  const options = { timeoutMs, maximumAttempts: 1, correlationId }
+  return readStudent360WithFailover(
+    () => callReadOnlyFunction<Input, Output>(name, input, options),
+    firebaseStudent360Functions
+      ? () => callReadOnlyFunction<Input, Output>(`${name}Regional`, input, { ...options, functionsClient: firebaseStudent360Functions })
+      : undefined,
+  )
 }
 
 export async function getStudent360Overview(studentId: string, weekId?: string, includeOperationalActions = false) {

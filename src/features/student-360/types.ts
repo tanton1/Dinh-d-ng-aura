@@ -208,7 +208,7 @@ export interface Student360Overview {
   alerts: Student360Alert[]
   nextActions: Student360Action[]
   dataQuality: Array<{ code: string; severity: 'warning' | 'error'; message: string }>
-  cache: { hit: boolean; stale: boolean; maxAgeSeconds: number }
+  cache: { hit: boolean; stale: boolean; refreshQueued?: boolean; staleReason?: string | null; maxAgeSeconds: number }
 }
 
 export interface Student360TimelineEvent {
