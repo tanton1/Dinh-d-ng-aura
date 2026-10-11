@@ -379,12 +379,12 @@ test('Today Flow belongs to Home while nutrition guidance follows the three-slid
 
   await expect(page.getByText('AURA TODAY FLOW', { exact: true })).toHaveCount(0)
   await expect(page.getByText('AURA DAILY PULSE', { exact: true })).toHaveCount(0)
-  await expect(page.getByRole('heading', { name: /Một ngày, bốn điểm chạm/i })).toBeVisible()
+  await expect(page.getByRole('heading', { name: /Nhịp bữa ăn hôm nay/i })).toBeVisible()
   await expect(page.getByRole('region', { name: 'Việc nên làm tiếp theo' })).toBeVisible()
 
   const carousel = page.getByRole('region', { name: 'Năng lượng và dinh dưỡng hôm nay' })
   const nextAction = page.getByRole('region', { name: 'Việc nên làm tiếp theo' })
-  const mealRhythm = page.getByRole('heading', { name: /Một ngày, bốn điểm chạm/i })
+  const mealRhythm = page.getByRole('heading', { name: /Nhịp bữa ăn hôm nay/i })
   const [carouselBox, nextActionBox, mealRhythmBox] = await Promise.all([
     carousel.boundingBox(),
     nextAction.boundingBox(),
