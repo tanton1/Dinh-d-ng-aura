@@ -366,6 +366,27 @@ function uniqueProgressPhotos(documents = []) {
   return [...unique.values()]
 }
 
+// Signed URLs are expensive (and can briefly spike Storage/CPU usage) when a
+// profile has a large history. Keep the work bounded while preserving the
+// order of the input page so the response remains deterministic.
+async function mapWithConcurrency(items, concurrency, mapper) {
+  const values = Array.isArray(items) ? items : []
+  if (!values.length) return []
+  const limit = Math.max(1, Math.min(values.length, Math.floor(finite(concurrency, 4))))
+  const output = new Array(values.length)
+  let nextIndex = 0
+  const worker = async () => {
+    while (true) {
+      const index = nextIndex
+      nextIndex += 1
+      if (index >= values.length) return
+      output[index] = await mapper(values[index], index)
+    }
+  }
+  await Promise.all(Array.from({ length: limit }, () => worker()))
+  return output
+}
+
 function scoreComponent(id, label, weight, score, reason, available = true) {
   if (!available || !Number.isFinite(score)) return { id, label, weight, score: null, reason, available: false }
   return { id, label, weight, score: Math.max(0, Math.min(100, Math.round(score))), reason, available: true }
@@ -387,6 +408,45 @@ function buildHealthScore(input) {
     ? Math.round(available.reduce((sum, item) => sum + item.score * item.weight, 0) / observedWeight)
     : 0
   return {
+    score,
+    status: score >= 80 ? 'stable' : score >= 60 ? 'attention' : 'action_required',
+    confidence: observedWeight >= 80 ? 'high' : observedWeight >= 55 ? 'medium' : 'low',
+    observedWeight,
+    components,
+  }
+}
+
+function healthComponentAllowed(item, permissions) {
+  if (!item || !permissions) return false
+  if (['attendance', 'engagement'].includes(item.id)) return permissions.canViewOperations
+  if (item.id === 'training') return permissions.canViewTraining
+  if (item.id === 'nutrition') return permissions.canViewNutrition
+  if (item.id === 'progress') return permissions.canViewProgress
+  if (item.id === 'payment') return permissions.canViewFinancialStatus
+  if (item.id === 'renewal') return permissions.canViewRenewal
+  return false
+}
+
+// The canonical health score is calculated from every signal in the durable
+// projection. Once a projection is redacted for a role, the original score
+// must not survive: it would let a restricted user infer hidden training,
+// nutrition or progress data. Recompute only from visible, scored components.
+function redactHealthForPermissions(health, permissions) {
+  if (!health) return health
+  // Old cached projections may not have component detail. Do not return their
+  // aggregate score to a role that cannot prove which signals it may see.
+  if (!Array.isArray(health.components)) return { ...health, score: 0, status: 'action_required', confidence: 'low', observedWeight: 0, components: [] }
+  const components = health.components.filter((item) => healthComponentAllowed(item, permissions))
+  const observed = components
+    .filter((item) => item.available !== false && Number.isFinite(Number(item.score)))
+    .map((item) => ({ ...item, score: Math.max(0, Math.min(100, Math.round(Number(item.score)))), weight: Math.max(0, finite(item.weight)) }))
+    .filter((item) => item.weight > 0)
+  const observedWeight = observed.reduce((sum, item) => sum + item.weight, 0)
+  const score = observedWeight
+    ? Math.round(observed.reduce((sum, item) => sum + item.score * item.weight, 0) / observedWeight)
+    : 0
+  return {
+    ...health,
     score,
     status: score >= 80 ? 'stable' : score >= 60 ? 'attention' : 'action_required',
     confidence: observedWeight >= 80 ? 'high' : observedWeight >= 55 ? 'medium' : 'low',
@@ -1727,17 +1787,7 @@ function redactProjection(projection, permissions) {
   }
   result.alerts = result.alerts.filter((item) => audienceAllowed(item.audience, permissions) && actionAllowed(item.action, permissions)).map((item) => item.audience === 'finance' && !permissions.canViewFinancialAmounts ? { ...item, message: 'Trạng thái thanh toán cần được bộ phận phụ trách xử lý.' } : item)
   result.nextActions = result.nextActions.filter((item) => audienceAllowed(item.audience, permissions) && actionAllowed(item.action, permissions)).slice(0, 3)
-  if (result.health?.components) {
-    result.health.components = result.health.components.filter((item) => {
-      if (['attendance', 'engagement'].includes(item.id)) return permissions.canViewOperations
-      if (item.id === 'training') return permissions.canViewTraining
-      if (item.id === 'nutrition') return permissions.canViewNutrition
-      if (item.id === 'progress') return permissions.canViewProgress
-      if (item.id === 'payment') return permissions.canViewFinancialStatus
-      if (item.id === 'renewal') return permissions.canViewRenewal
-      return false
-    })
-  }
+  result.health = redactHealthForPermissions(result.health, permissions)
   return result
 }
 
@@ -2736,8 +2786,9 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
       latestSnapshot(db.collection(`users/${accountUid}/progressCheckIns`), 'date', 30),
     ])
     const documents = uniqueProgressPhotos([...legacy.docs, ...current.docs, ...checkIns.docs])
-    const rows = []
-    for (const document of documents) {
+      .sort((left, right) => String(right.date || '').localeCompare(String(left.date || '')))
+    const pageDocuments = documents.slice(offset, offset + pageSize)
+    const rows = await mapWithConcurrency(pageDocuments, 6, async (document) => {
       const value = typeof document?.data === 'function' ? document.data() || {} : document || {}
       const progressPhotoId = bounded(document.id || value.id || value.checkInId, 120)
       const candidates = Array.isArray(value.images) ? value.images : Array.isArray(value.photos) ? value.photos : value.storagePath ? [{ storagePath: value.storagePath }] : value.imageUrl ? [{ url: value.imageUrl }] : []
@@ -2756,12 +2807,19 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
           images.push({ url: legacyUrl, storagePath: null, angle: typeof candidate === 'string' ? null : bounded(candidate.angle, 20) || null, legacy: legacyUrl.startsWith('data:image/') })
         }
       }
-      if (images.length) rows.push({ id: progressPhotoId, checkInId: bounded(value.checkInId, 120) || progressPhotoId, date: bounded(value.date, 10) || progressPhotoId.slice(0, 10), images })
-    }
-    rows.sort((left, right) => right.date.localeCompare(left.date))
-    const page = rows.slice(offset, offset + pageSize)
-    const hasMore = offset + pageSize < rows.length
-    return { schemaVersion: 2, studentId, rows: page, hasMore, nextCursor: hasMore ? String(offset + pageSize) : null, truncated: legacy.size >= 30 || current.size >= 30 || checkIns.size >= 30, hasLegacyImages: rows.some((row) => row.images.some((image) => image.legacy)), expiresInSeconds: 300 }
+      return images.length ? { id: progressPhotoId, checkInId: bounded(value.checkInId, 120) || progressPhotoId, date: bounded(value.date, 10) || progressPhotoId.slice(0, 10), images } : null
+    })
+    const page = rows.filter(Boolean)
+    const hasMore = offset + pageSize < documents.length
+    const hasLegacyImages = documents.some((document) => {
+      const value = typeof document?.data === 'function' ? document.data() || {} : document || {}
+      const candidates = Array.isArray(value.images) ? value.images : Array.isArray(value.photos) ? value.photos : value.imageUrl ? [{ url: value.imageUrl }] : []
+      return candidates.some((candidate) => {
+        const url = typeof candidate === 'string' ? candidate : candidate?.url || candidate?.imageUrl
+        return typeof url === 'string' && url.startsWith('data:image/')
+      })
+    })
+    return { schemaVersion: 2, studentId, rows: page, hasMore, nextCursor: hasMore ? String(offset + pageSize) : null, truncated: legacy.size >= 30 || current.size >= 30 || checkIns.size >= 30, hasLegacyImages, expiresInSeconds: 300 }
   })
 
   const refreshStudent360Projection = writeCall(async (request) => {
@@ -2792,7 +2850,9 @@ module.exports = {
   contractMutationTitle,
   contractWorkspaceTrainerDirectory,
   createStudent360Functions,
+  mapWithConcurrency,
   permissionsFor,
+  redactHealthForPermissions,
   redactProjection,
   reconcileStudent360ProjectionBatch,
   normalizeTimelineEvents,

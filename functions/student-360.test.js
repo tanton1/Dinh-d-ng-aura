@@ -9,6 +9,7 @@ const {
   contractMutationTitle,
   contractWorkspaceTrainerDirectory,
   contractUsage,
+  mapWithConcurrency,
   permissionsFor,
   normalizeTimelineEvents,
   nutritionActivityDetailRecord,
@@ -21,6 +22,7 @@ const {
   studentAccountProfile,
   uniqueProgressDocuments,
   uniqueProgressPhotos,
+  redactHealthForPermissions,
   timelineCursor,
   normalizeProgressCheckInInput,
   decodeProgressPhotoDataUrl,
@@ -455,6 +457,43 @@ test('health score reweights only available components and exposes confidence', 
   assert.equal(score.status, 'stable')
   assert.equal(score.confidence, 'medium')
   assert.equal(score.components.find((item) => item.id === 'nutrition').available, false)
+})
+
+test('redacted health score only uses components visible to the current role', () => {
+  const permissions = permissionsFor({
+    uid: 'sales-uid', legacyStaffId: 'sales-uid', accessRole: 'staff', branchIds: [], capabilities: [],
+  }, projection())
+  const redacted = redactHealthForPermissions({
+    score: 99,
+    status: 'stable',
+    confidence: 'high',
+    observedWeight: 100,
+    components: [
+      { id: 'training', weight: 20, score: 100, available: true },
+      { id: 'nutrition', weight: 15, score: 100, available: true },
+      { id: 'payment', weight: 5, score: 30, available: true },
+      { id: 'renewal', weight: 10, score: 90, available: true },
+    ],
+  }, permissions)
+  assert.deepEqual(redacted.components.map((item) => item.id), ['payment', 'renewal'])
+  assert.equal(redacted.score, 70)
+  assert.equal(redacted.observedWeight, 15)
+  assert.equal(redacted.confidence, 'low')
+  assert.equal(redacted.status, 'attention')
+})
+
+test('progress photo URL work is bounded and keeps page order', async () => {
+  let inFlight = 0
+  let maxInFlight = 0
+  const result = await mapWithConcurrency([1, 2, 3, 4, 5], 2, async (value) => {
+    inFlight += 1
+    maxInFlight = Math.max(maxInFlight, inFlight)
+    await new Promise((resolve) => setTimeout(resolve, 2))
+    inFlight -= 1
+    return value * 2
+  })
+  assert.deepEqual(result, [2, 4, 6, 8, 10])
+  assert.ok(maxInFlight <= 2)
 })
 
 test('contract usage keeps legacy projection explicit without double-counting', () => {

@@ -580,7 +580,7 @@ export default function Student360Page({ studentId, source, isDemo = false, onBa
     if (item.action === 'nutrition') return overview.permissions.canViewNutrition
     if (item.action === 'progress') return overview.permissions.canViewProgress
     if (item.action === 'renewal') return overview.permissions.canViewRenewal
-    if (item.action === 'schedule') return overview.permissions.canManageContract
+    if (item.action === 'schedule') return overview.permissions.canViewOperations
     if (item.action === 'contract') return overview.permissions.canManageContract
     if (item.action === 'finance') return source === 'admin-pt-students' && overview.permissions.canViewFinancialAmounts
     return false
@@ -724,7 +724,7 @@ export default function Student360Page({ studentId, source, isDemo = false, onBa
       </section>}
 
       {activeTab === 'schedule' && <section className="student360-section">
-        <div className="student360-section-heading"><div><small>Lịch tập</small><h2>Tuần hiện tại</h2><p>Lịch đã xếp, mức độ tham gia và lịch rảnh đang áp dụng.</p></div>{permissions.canManageContract && <button type="button" onClick={() => onNavigate(source.startsWith('staff') ? 'staff-schedule' : 'admin-pt-schedule', studentId, identity.name)}>Mở ma trận xếp lịch</button>}</div>
+        <div className="student360-section-heading"><div><small>Lịch tập</small><h2>Tuần hiện tại</h2><p>Lịch đã xếp, mức độ tham gia và lịch rảnh đang áp dụng.</p></div>{permissions.canViewOperations && <button type="button" onClick={() => onNavigate(source.startsWith('staff') ? 'staff-schedule' : 'admin-pt-schedule', studentId, identity.name)}>Mở ma trận xếp lịch</button>}</div>
         {!permissions.canViewOperations ? <State type="error"><ShieldCheck /><h3>Lịch vận hành được giới hạn</h3><p>Vai trò hiện tại không có quyền xem lịch chi tiết.</p></State> : <div className="student360-schedule-grid">
           <Card title="Các buổi trong tuần" icon={ClipboardCheck} action={<span className="student360-card-count">{schedule.bookedSessions}/{schedule.requiredSessions} buổi</span>}>
             <div className="student360-week-progress"><i style={{ width: `${weeklyPercent}%` }} /></div>

@@ -329,6 +329,15 @@
       ]
     },
     {
+      "collectionGroup": "contracts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "crmProfileId", "order": "ASCENDING" },
+        { "fieldPath": "startDate", "order": "DESCENDING" },
+        { "fieldPath": "__name__", "order": "DESCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "attendanceEvents",
       "queryScope": "COLLECTION",
       "fields": [
