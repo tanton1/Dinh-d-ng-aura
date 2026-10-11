@@ -108,6 +108,7 @@ import {
   createInitialMeals as createInitialMealsV2,
   formatNutritionNumber as formatNutritionNumberV2,
   getDailyPlan as getDailyPlanV2,
+  getDailyPlanMealType,
   hasCompleteNutritionProfile as hasCompleteNutritionProfileV2,
   loadPersistedActivities as loadPersistedActivitiesV2,
   loadPersistedMeals as loadPersistedMealsV2,
@@ -851,7 +852,7 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
     id: `${day.id}-plan-${index}`,
     dayId: day.id,
     time: meal.time,
-    type: index === 0 ? 'breakfast' : index === dailyPlan.length - 1 ? 'dinner' : dailyPlan.length === 2 ? 'lunch' : 'snack',
+    type: getDailyPlanMealType(index, dailyPlan.length),
     label: meal.label,
     title: meal.title,
     description: `${formatNumber(meal.calories)} kcal · khoảng ${formatNumber(meal.protein)}g đạm`,
@@ -972,6 +973,13 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
     if (!firestoreDb || isDemo || resolvedOwnerId === 'anonymous') return
     let active = true
 
+    const syncError = (scope: 'meals' | 'water' | 'activities') => (error: Error) => updateNutritionSync(scope, {
+      status: 'sync-failed',
+      revision: Date.now(),
+      cachedAt: new Date().toISOString(),
+      message: error.message || 'Không thể đồng bộ nhật ký ngày này.',
+    })
+
     const unsubscribeMeals = subscribeToUserMealLogsForDate(resolvedOwnerId, selectedDate, (remoteMeals) => {
       if (!active) return
       const dayItems = Array.isArray(remoteMeals) ? remoteMeals.filter((item): item is MealLog => Boolean(item && typeof item === 'object' && item.id)) : []
@@ -979,7 +987,7 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
       liveJournalDays.current.meals.set(selectedDate, dayItems)
       setMeals((current) => [...current.filter((item) => item.date !== selectedDate), ...dayItems])
       markDailySourceReadyRef.current('meals')
-    })
+    }, syncError('meals'), (state) => updateNutritionSync('meals', state))
     const unsubscribeWater = subscribeToUserWaterLogsForDate(resolvedOwnerId, selectedDate, (remoteWater) => {
       if (!active) return
       const dayItems = Array.isArray(remoteWater) ? remoteWater.filter((item): item is NutritionWaterLog => Boolean(item && typeof item === 'object' && item.id)) : []
@@ -991,14 +999,14 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
         [selectedDate]: dayItems.reduce((sum, item) => sum + Math.max(0, Number(item.amountMl) || 0), 0),
       }))
       markDailySourceReadyRef.current('water')
-    })
+    }, syncError('water'), (state) => updateNutritionSync('water', state))
     const unsubscribeActivities = subscribeToUserActivityLogsForDate(resolvedOwnerId, selectedDate, (remoteActivities) => {
       if (!active) return
       const dayItems = Array.isArray(remoteActivities) ? remoteActivities.filter((item): item is NutritionActivityLog => Boolean(item && typeof item === 'object' && item.id)) : []
       liveJournalDays.current.activities.set(selectedDate, dayItems)
       setActivities((current) => [...current.filter((item) => item.date !== selectedDate), ...dayItems])
       markDailySourceReadyRef.current('activities')
-    })
+    }, syncError('activities'), (state) => updateNutritionSync('activities', state))
 
     return () => {
       active = false
@@ -1593,6 +1601,28 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
     })
   }
 
+  // Detail view edits (portion and ingredient changes) use the same callable
+  // transaction as the normal editor.  Keeping this path optimistic but
+  // rollback-safe prevents the detail sheet from claiming a change was saved
+  // when the server rejected it.
+  const updateCapturedMeal = async (nextMeal: MealLog) => {
+    const original = meals.find((meal) => meal.id === nextMeal.id)
+    if (!original) throw new Error('Không tìm thấy bữa ăn cần cập nhật.')
+    const updated = { ...original, ...nextMeal }
+    setMeals((current) => current.map((meal) => meal.id === updated.id ? updated : meal))
+    beginNutritionMutation('meals', updated.id)
+    try {
+      if (isCloudLogEnabled) {
+        await saveUserMealLog(resolvedOwnerId, updated as any, { idempotencyKey: `detail-${updated.id}-${crypto.randomUUID()}` })
+      }
+      completeNutritionMutation('meals')
+    } catch (error) {
+      setMeals((current) => current.map((meal) => meal.id === original.id ? original : meal))
+      failNutritionMutation('meals', error)
+      throw error
+    }
+  }
+
   const completeProfile = async (input: NutritionProfileDraft) => {
     const next = canonicalNutritionProfile(input)
     await onProfileComplete?.(next)
@@ -1617,7 +1647,10 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
     const canonicalDishName = meal.dishName?.trim() || meal.name.trim() || 'Bữa ăn dinh dưỡng'
     const mealLabels: Record<NutritionMealDraft['mealType'], string> = { breakfast: 'Bữa sáng', lunch: 'Bữa trưa', dinner: 'Bữa tối', snack: 'Bữa phụ' }
     const newMealLog: MealLog = {
-      targetSnapshot: loggedDate === todayKey ? targetSnapshot : undefined,
+      // Preserve the target used when the entry was recorded, including
+      // backfilled days. Historical diary and Student 360 must not be
+      // re-evaluated against a newer profile target.
+      targetSnapshot,
       id: `ai-${meal.idempotencyKey ?? crypto.randomUUID()}`,
       date: loggedDate,
       type: meal.mealType,
@@ -1775,7 +1808,7 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
     }
     const mealLabels: Record<NutritionMealDraft['mealType'], string> = { breakfast: 'Bữa sáng', lunch: 'Bữa trưa', dinner: 'Bữa tối', snack: 'Bữa phụ' }
     const newMealLog: MealLog = {
-      targetSnapshot: context.date === todayKey ? targetSnapshot : undefined,
+      targetSnapshot,
       id: `catalog-${context.idempotencyKey}`,
       catalogId: food.id,
       plannedMealId: diaryCatalogDefaults?.plannedMealId,
@@ -2015,6 +2048,7 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
             setSelectedLoggedMealId(null)
             setEditingMealId(mealId)
           }}
+          onUpdate={(nextMeal) => updateCapturedMeal(nextMeal as MealLog)}
           onDelete={(mealId) => {
             void deleteMeal(mealId)
             setSelectedLoggedMealId(null)

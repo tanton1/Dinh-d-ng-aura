@@ -594,7 +594,7 @@ export default function Student360Page({ studentId, source, isDemo = false, onBa
     if (!overview) return
     if (!canExecuteAction(item)) return reportToManager(item)
     const staff = source.startsWith('staff')
-    if (item.action === 'schedule') return onNavigate('admin-pt-schedule', studentId, overview.identity.name)
+    if (item.action === 'schedule') return onNavigate(staff ? 'staff-schedule' : 'admin-pt-schedule', studentId, overview.identity.name)
     if (item.action === 'training') { setActiveTab('coaching'); return }
     if (item.action === 'progress') { setActiveTab('coaching'); return }
     if (item.action === 'nutrition') { setActiveTab('coaching'); return }
@@ -614,6 +614,7 @@ export default function Student360Page({ studentId, source, isDemo = false, onBa
   const daysLabel = contract?.daysRemaining === null || contract?.daysRemaining === undefined ? '—' : Math.max(0, contract.daysRemaining)
   const weeklyPercent = Math.min(100, schedule.requiredSessions ? schedule.bookedSessions / schedule.requiredSessions * 100 : 0)
   const paymentStatus = contract?.payment?.status
+  const scheduleView = source.startsWith('staff') ? 'staff-schedule' : 'admin-pt-schedule'
 
   return <main className="student360-page aura-ui-v4-surface aura-ui-v4-operations student360-page--v4" data-tab={activeTab}>
     <header className="student360-header">
@@ -629,7 +630,7 @@ export default function Student360Page({ studentId, source, isDemo = false, onBa
           <details className="student360-business-menu">
             <summary className="student360-icon-button" aria-label="Mở menu nghiệp vụ"><MoreHorizontal /></summary>
             <div>
-              {permissions.canManageContract && <button type="button" onClick={() => onNavigate('admin-pt-schedule', studentId, identity.name)}><CalendarPlus /> Tạo hoặc điều chỉnh lịch</button>}
+              {permissions.canManageContract && <button type="button" onClick={() => onNavigate(scheduleView, studentId, identity.name)}><CalendarPlus /> Tạo hoặc điều chỉnh lịch</button>}
               {permissions.canManageCare && <button type="button" onClick={() => openCare('note')}><MessageCircle /> Ghi chú chăm sóc</button>}
               {permissions.canViewRenewal && <button type="button" onClick={() => onNavigate(source.startsWith('staff') ? 'staff-renewals' : 'admin-renewals', studentId, identity.name)}><Sparkles /> Mở hồ sơ gia hạn</button>}
               {permissions.canManageContract && <button type="button" onClick={() => setActiveTab('contract')}><FileText /> Đổi PT · bảo lưu · sửa hợp đồng</button>}
@@ -645,6 +646,7 @@ export default function Student360Page({ studentId, source, isDemo = false, onBa
         <details className="student360-profile-summary"><summary>Hồ sơ & người phụ trách <ChevronDown /></summary><dl><div><dt>Điện thoại</dt><dd>{identity.phone || 'Chưa cập nhật'}</dd></div><div><dt>Email</dt><dd>{identity.email || 'Chưa cập nhật'}</dd></div><div><dt>Ngày sinh</dt><dd>{safeDate(identity.dob)}</dd></div><div><dt>PT chính/phụ</dt><dd>{assignments.trainerNames.join(' · ') || 'Chưa phân công'}</dd></div><div><dt>Coach dinh dưỡng</dt><dd>{assignments.nutritionCoachNames.join(' · ') || 'Chưa phân công'}</dd></div><div><dt>Sales chăm sóc</dt><dd>{assignments.salesNames.join(' · ') || 'Chưa phân công'}</dd></div></dl></details>
         <time className="student360-generated-at">Cập nhật {safeDate(overview.generatedAt, true)}</time>
       </div>
+      {overview.cache.stale && <div className="student360-freshness-banner" role="status"><RefreshCw size={16} /><span><strong>Đang đối soát dữ liệu nền</strong><small>Đang hiển thị bản tổng hợp gần nhất; lịch và số liệu sẽ tự cập nhật sau khi nguồn gốc được kiểm tra.</small></span>{overview.cache.refreshQueued && <em>Đã xếp hàng</em>}</div>}
       <section className="student360-metrics" aria-label="Chỉ số nhanh">
         <Metric label="Còn buổi" value={contract ? `${contract.remainingSessions}/${contract.totalSessions}` : '—'} note={contract ? `${contract.usedSessions} đã dùng · theo lịch sử` : 'Chưa có hợp đồng'} />
         {permissions.canViewOperations ? <Metric label="Lịch tuần" value={`${schedule.bookedSessions}/${schedule.requiredSessions}`} note={schedule.bookedSessions >= schedule.requiredSessions ? 'Đã đủ lịch mục tiêu' : `Còn thiếu ${Math.max(0, schedule.requiredSessions - schedule.bookedSessions)} buổi`} /> : <Metric label="Phạm vi" value={permissions.scope === 'sales' ? 'CSKH' : 'Coach'} note="Hiển thị theo quyền được cấp" />}
@@ -670,7 +672,7 @@ export default function Student360Page({ studentId, source, isDemo = false, onBa
         <aside className="student360-side-column">
           <Card title="Tình trạng chăm sóc" icon={HeartPulse}>
             <div className="student360-care-health"><strong>{health.score}<small>/100</small></strong><div><b>{healthCopy(health.status)}</b><span>{attendance.rate28Days === null ? 'Chưa đủ dữ liệu tham gia' : `${attendance.rate28Days}% đi tập trong 28 ngày`}</span></div></div>
-            <details className="student360-health-details"><summary>Xem các tín hiệu <ChevronDown /></summary><div>{health.components.filter((component) => component.available).map((component) => <p key={component.id}><span>{component.label}</span><b>{component.score ?? '—'}</b></p>)}</div></details>
+            <details className="student360-health-details"><summary>Xem các tín hiệu <ChevronDown /></summary><div>{health.components.filter((component) => component.available).map((component) => <p key={component.id}><span><strong>{component.label}</strong><small>{component.reason}</small></span><b>{component.score ?? '—'}<small>{component.weight}% trọng số</small></b></p>)}</div></details>
           </Card>
 
           <div ref={loyaltyAnchorRef} className="student360-loyalty-slot">

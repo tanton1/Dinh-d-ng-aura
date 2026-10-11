@@ -44,7 +44,10 @@ const MAX_ENTRIES_PER_SLOT = 100
 const MAX_ACTIVE_RESERVATION_SESSIONS = 3000
 const DEFAULT_DAILY_SESSION_TARGET = 8
 const { trainerDailyLoadTarget } = require('./schedule-load-policy')
-const OPTIMIZER_VERSION = 'optimizer-v13'
+// Bump the generator version when the lexicographic quality objective changes.
+// Existing drafts remain valid, but the version lets audit logs and the UI
+// distinguish schedules generated with the coverage-first/full-target policy.
+const OPTIMIZER_VERSION = 'optimizer-v14'
 const MAX_DEEP_OPTIMIZATION_PASSES = 3
 // A bounded repair search can relocate auto-generated sessions from earlier
 // rounds. This closes the remaining gap between fair one-seat rounds and the
@@ -56,8 +59,20 @@ const MAX_REPAIR_DIRECT_CANDIDATES = 80
 const MAX_REPAIR_DISPLACEMENT_CANDIDATES = 120
 const MAX_RESCUE_PLAN_CANDIDATES = 8
 const MAX_RESCUE_LOOKAHEAD_STUDENTS = 120
+// Capacity-aware cohort selection is intentionally bounded. The repair pass
+// only runs when the selected learners' optimistic slot-seat upper bound is
+// already below their reserved target demand, which keeps broad branches out
+// of the extra matching simulations.
+const MAX_COHORT_REPAIR_ATTEMPTS = 24
+const MAX_COHORT_REPAIR_CANDIDATES = 32
 const DAY_ORDER = new Map([['T2', 0], ['T3', 1], ['T4', 2], ['T5', 3], ['T6', 4], ['T7', 5], ['CN', 6]])
 const STUDENT_AVAILABILITY_REASON_CODES = new Set(['AVAILABILITY_NOT_SUBMITTED', 'OUTSIDE_STUDENT_AVAILABILITY'])
+// The optimizer evaluates the same roster repeatedly (one matching round per
+// weekly session). Keep immutable, derived roster indexes out of that hot
+// loop. A WeakMap avoids retaining a loaded branch after the callable ends and
+// the reference/length guards keep direct test/manual callers safe when they
+// replace a roster array.
+const scheduleIndexCache = new WeakMap()
 
 function normalizedSearchText(value) {
   return String(value || '')
@@ -222,6 +237,164 @@ function splitChunks(values, size = 30) {
   return result
 }
 
+function indexContractsByStudent(contracts = []) {
+  const index = new Map()
+  for (const contract of contracts) {
+    const studentId = contract?.studentId
+    if (!studentId) continue
+    const list = index.get(studentId) || []
+    list.push(contract)
+    index.set(studentId, list)
+  }
+  return index
+}
+
+function scheduleIndexes(data) {
+  if (!data || typeof data !== 'object') return {
+    contractsByStudent: new Map(),
+    contractsById: new Map(),
+    sortedTrainers: [],
+    trainersById: new Map(),
+    trainersBySlot: new Map(),
+    candidateTrainersBySlot: new Map(),
+    weightedDemandBySlot: new Map(),
+    trainerAvailabilityById: new Map(),
+    leavesByTrainer: new Map(),
+    studentSlotsById: new Map(),
+    studentSlotSetsById: new Map(),
+    workingDays: [],
+    workingHours: [],
+    holidays: new Set(),
+  }
+  const contracts = Array.isArray(data.contracts) ? data.contracts : []
+  const trainers = Array.isArray(data.trainers) ? data.trainers : []
+  const students = Array.isArray(data.students) ? data.students : []
+  const leaves = Array.isArray(data.leaves) ? data.leaves : []
+  const previous = scheduleIndexCache.get(data)
+  if (previous
+    && previous.contractsRef === contracts
+    && previous.contractCount === contracts.length
+    && previous.trainersRef === trainers
+    && previous.trainerCount === trainers.length
+    && previous.studentsRef === students
+    && previous.studentCount === students.length
+    && previous.leavesRef === leaves
+    && previous.leaveCount === leaves.length) return previous
+
+  const contractsByStudent = data.contractsByStudent instanceof Map
+    ? data.contractsByStudent
+    : indexContractsByStudent(contracts)
+  const contractsById = new Map(contracts.map((contract) => [contract.id, contract]))
+  const sortedTrainers = [...trainers].sort((left, right) => left.id.localeCompare(right.id))
+  const trainersById = new Map(sortedTrainers.map((trainer) => [trainer.id, trainer]))
+  const trainerAvailabilityById = new Map()
+  for (const trainer of sortedTrainers) {
+    const mode = trainerAvailabilityMode(trainer)
+    trainerAvailabilityById.set(trainer.id, {
+      mode,
+      slots: Array.isArray(trainer.availableSlots) ? new Set(trainer.availableSlots) : new Set(),
+    })
+  }
+  const studentSlotsById = new Map()
+  const studentSlotSetsById = new Map()
+  const allStudentSlots = new Set()
+  for (const student of students) {
+    const slots = [...new Set(Array.isArray(student.availableSlots) ? student.availableSlots : [])].sort(compareSlots)
+    studentSlotsById.set(student.id, slots)
+    studentSlotSetsById.set(student.id, new Set(slots))
+    slots.forEach((slotId) => allStudentSlots.add(slotId))
+  }
+  const trainersBySlot = new Map()
+  for (const slotId of allStudentSlots) {
+    const available = sortedTrainers.filter((trainer) => {
+      if (!trainer || trainer.status === 'inactive' || trainer.branchId !== data.branch?.id) return false
+      const profile = trainerAvailabilityById.get(trainer.id)
+      if (!profile || profile.mode === 'unconfigured') return false
+      if (trainer.employmentType === 'collaborator') return profile.slots.has(slotId)
+      return profile.mode === 'unrestricted' || profile.slots.has(slotId)
+    })
+    if (available.length) trainersBySlot.set(slotId, available)
+  }
+  // Most branches have many PTs but only a handful of learner-seats needed in
+  // any one hour. Keep every trainer for a genuinely concentrated slot, while
+  // limiting broad availability to the number of seats the weekly demand can
+  // actually consume. Preferred/occupied PTs are added back per learner in
+  // feasibleCandidatesForStudent, so this is a safe Cartesian-product bound,
+  // not a hard scheduling capacity.
+  const weightedDemandBySlot = new Map()
+  for (const student of students) {
+    if (student.status === 'inactive' || student.eligibleForWeek === false) continue
+    const slots = studentSlotsById.get(student.id) || []
+    if (!slots.length) continue
+    const demand = Math.max(0, Number(student.sessionsPerWeek || 0)) / slots.length
+    for (const slotId of slots) weightedDemandBySlot.set(slotId, (weightedDemandBySlot.get(slotId) || 0) + demand)
+  }
+  const candidateTrainersBySlot = new Map()
+  for (const [slotId, available] of trainersBySlot) {
+    const configuredCapacity = branchSlotCapacity(data.config, data.branch?.id, slotId)
+    const requiredSeats = Math.max(1, Math.ceil(Math.min(
+      Number(weightedDemandBySlot.get(slotId) || 1),
+      configuredCapacity === null ? Number.POSITIVE_INFINITY : configuredCapacity,
+    )))
+    const orderedAvailable = [...available].sort((left, right) => {
+      const leftPolicy = trainerSchedulingPolicy(left, data.config)
+      const rightPolicy = trainerSchedulingPolicy(right, data.config)
+      const leftTier = schedulingTier({ ...leftPolicy, employmentType: leftPolicy.employmentType, currentDailyLoad: 0 })
+      const rightTier = schedulingTier({ ...rightPolicy, employmentType: rightPolicy.employmentType, currentDailyLoad: 0 })
+      return leftTier - rightTier
+        || leftPolicy.schedulingPriority - rightPolicy.schedulingPriority
+        || left.id.localeCompare(right.id)
+    })
+    const selected = []
+    let seats = 0
+    for (const trainer of orderedAvailable) {
+      selected.push(trainer)
+      seats += Math.max(1, Number(trainer.slotCapacity || 1))
+      // Retain at least two generic PT choices when possible. This keeps the
+      // soft load-balancer effective for equal-demand learners while still
+      // shrinking a 100-PT Cartesian product to the seats the slot needs.
+      if (seats >= requiredSeats && selected.length >= Math.min(2, orderedAvailable.length)) break
+    }
+    candidateTrainersBySlot.set(slotId, selected.length ? selected : orderedAvailable)
+  }
+  const leavesByTrainer = new Map()
+  for (const leave of leaves) {
+    if (!leave?.trainerId) continue
+    const rows = leavesByTrainer.get(leave.trainerId) || []
+    rows.push(leave)
+    leavesByTrainer.set(leave.trainerId, rows)
+  }
+  const config = data.config || {}
+  const workingDays = Array.isArray(config.workingDays) ? config.workingDays : []
+  const workingHours = Array.isArray(config.workingHours) ? config.workingHours.map(Number) : []
+  const result = {
+    contractsRef: contracts,
+    contractCount: contracts.length,
+    trainersRef: trainers,
+    trainerCount: trainers.length,
+    studentsRef: students,
+    studentCount: students.length,
+    leavesRef: leaves,
+    leaveCount: leaves.length,
+    contractsByStudent,
+    contractsById,
+    sortedTrainers,
+    trainersById,
+    trainersBySlot,
+    candidateTrainersBySlot,
+    weightedDemandBySlot,
+    trainerAvailabilityById,
+    leavesByTrainer,
+    studentSlotsById,
+    studentSlotSetsById,
+    workingDays,
+    workingHours,
+    holidays: new Set(Array.isArray(config.holidays) ? config.holidays : []),
+  }
+  scheduleIndexCache.set(data, result)
+  return result
+}
+
 async function contractsForStudents(db, studentIds) {
   if (!studentIds.length) return []
   // Load the complete bounded contract chain for each learner. A renewal that
@@ -320,21 +493,28 @@ async function loadBranchData(db, branchId, week) {
     db.collection('sessions').where('branchId', '==', branchId).where('date', '>=', priorWeek).where('date', '<', week).limit(1001).get(),
     db.doc('settings/scheduleConfig').get(),
   ])
-  const leaves = await approvedLeavesForTrainers(db, trainers.docs.map((item) => item.id))
   if (!branch.exists || branch.data().status === 'archived') throw new HttpsError('failed-precondition', 'Chi nhánh không hoạt động.')
-  if (students.size > MAX_STUDENTS || trainers.size > MAX_TRAINERS || weekSessions.size > 1000 || previousWeekSessions.size > 1000 || leaves.length > 1000) {
+  if (students.size > MAX_STUDENTS || trainers.size > MAX_TRAINERS || weekSessions.size > 1000 || previousWeekSessions.size > 1000) {
     throw new HttpsError('resource-exhausted', 'Dữ liệu chi nhánh vượt giới hạn workspace an toàn.')
   }
   const studentIds = students.docs.map((item) => item.id)
   const trainerIds = new Set(trainers.docs.map((item) => item.id))
   const studentSet = new Set(studentIds)
+  // These reads are independent once the bounded branch roster is known.
+  // Keep them in one fan-out so a slow leave/availability query cannot hold
+  // the contract path hostage on every workspace load.
+  //
   // Fetch exact weekly availability by deterministic document id. The old
   // week-wide query scanned every branch and could truncate before reaching
   // the selected branch when migrated data was large.
-  const [contracts, trainerAvailability] = await Promise.all([
+  const [leaves, contracts, trainerAvailability] = await Promise.all([
+    approvedLeavesForTrainers(db, trainers.docs.map((item) => item.id)),
     contractsForStudents(db, studentIds),
     exactAvailabilityForTrainers(db, trainerIds, week),
   ])
+  if (leaves.length > 1000) {
+    throw new HttpsError('resource-exhausted', 'Dữ liệu chi nhánh vượt giới hạn workspace an toàn.')
+  }
   const studentMap = new Map(students.docs.map((item) => [item.id, item.data()]))
   const trainerMap = new Map(trainers.docs.map((item) => [item.id, item.data()]))
   const legacy = legacySchedule.exists ? legacySchedule.data() : {}
@@ -553,6 +733,7 @@ async function loadBranchData(db, branchId, week) {
     students: mappedStudents,
     trainers: mappedTrainers,
     contracts: mappedContracts,
+    contractsByStudent: indexContractsByStudent(mappedContracts),
     availability: weeklyAvailability,
     sessions: sessionRows,
     leaves: leaves.map((item) => ({ id: item.id, ...item.data() })).filter((item) => trainerIds.has(item.trainerId)),
@@ -686,6 +867,7 @@ async function loadManualMutationData(db, branchId, week, trainerId, studentId, 
     students: [student],
     trainers: [trainer],
     contracts,
+    contractsByStudent: indexContractsByStudent(contracts),
     sessions,
     leaves: leaves.docs.map((item) => ({ id: item.id, ...item.data() })).filter((item) => item.status === 'approved'),
     config: normalizedScheduleConfig(config.data()),
@@ -849,18 +1031,7 @@ function studentWeekEligibility(contracts, studentId, branchId, week, referenceD
 
 function resolveContract(data, studentId, trainerId, date, schedule = null, schedulingState = null) {
   const allowCrossBranch = data.allowCrossBranchStudentIds instanceof Set && data.allowCrossBranchStudentIds.has(studentId)
-  const counts = contractReservationCounts(data, schedule, schedulingState)
-  const reservationsByContract = new Map()
-  for (const contract of data.contracts) reservationsByContract.set(contract.id,
-    (counts.active.get(contract.id) || 0) + (counts.draft.get(contract.id) || 0))
-  const resolution = resolveSchedulingContract({
-    contracts: data.contracts,
-    studentId,
-    branchId: data.branch.id,
-    date,
-    reservationsByContract,
-    allowCrossBranch,
-  })
+  const resolution = resolveSchedulingContractForStudent(data, studentId, date, schedule, schedulingState, allowCrossBranch)
   if (!resolution.contract) return resolution
   const contract = resolution.contract
   const assigned = assignedTrainerIds(contract)
@@ -876,6 +1047,26 @@ function resolveContract(data, studentId, trainerId, date, schedule = null, sche
   }
 }
 
+function resolveSchedulingContractForStudent(data, studentId, date, schedule = null, schedulingState = null, allowCrossBranch = false) {
+  const indexes = scheduleIndexes(data)
+  const learnerContracts = indexes.contractsByStudent.get(studentId) || []
+  const counts = contractReservationCounts(data, schedule, schedulingState)
+  // Reservation counts are shared by every learner/slot edge in a matching
+  // round. Passing the already materialized map avoids rebuilding a map of all
+  // branch contracts for every PT candidate.
+  const resolution = resolveSchedulingContract({
+    contracts: learnerContracts,
+    studentId,
+    branchId: data.branch.id,
+    date,
+    reservationsByContract: counts.byContract,
+    allowCrossBranch,
+  })
+  return resolution.contract
+    ? { ...resolution, assignedTrainerIds: assignedTrainerIds(resolution.contract) }
+    : resolution
+}
+
 function contractReservationCounts(data, schedule, state) {
   if (state?.reservationCounts) return state.reservationCounts
   const active = new Map(), draft = new Map(), identities = new Set()
@@ -889,7 +1080,10 @@ function contractReservationCounts(data, schedule, state) {
     if (entry.type === 'off' || !entry.contractId || identities.has(`${entry.contractId}|${entry.studentId}|${slotId}`)) continue
     draft.set(entry.contractId, (draft.get(entry.contractId) || 0) + 1)
   }
-  const counts = { active, draft }
+  const byContract = new Map()
+  for (const [contractId, count] of active) byContract.set(contractId, count + (draft.get(contractId) || 0))
+  for (const [contractId, count] of draft) if (!byContract.has(contractId)) byContract.set(contractId, count)
+  const counts = { active, draft, byContract }
   if (state) state.reservationCounts = counts
   return counts
 }
@@ -968,6 +1162,10 @@ function buildSchedulingState(schedule) {
 
 function addEntryToSchedulingState(state, slotId, entry) {
   delete state.reservationCounts
+  delete state.reservationsByContract
+  delete state.blockAffinityCache
+  delete state.trainerSlotContextCache
+  delete state.branchCapacityCache
   const [day] = slotId.split('-')
   if (!state.studentDays.has(entry.studentId)) state.studentDays.set(entry.studentId, new Set())
   state.studentDays.get(entry.studentId).add(day)
@@ -983,6 +1181,9 @@ function addEntryToSchedulingState(state, slotId, entry) {
 }
 
 function trainerBlockAffinity(state, trainerId, slotId) {
+  const cache = state.blockAffinityCache || (state.blockAffinityCache = new Map())
+  const cacheKey = `${trainerId}|${slotId}`
+  if (cache.has(cacheKey)) return cache.get(cacheKey)
   const [day, rawHour] = slotId.split('-')
   const hour = Number(rawHour)
   const currentSlots = state.trainerSlotsByDay.get(`${trainerId}|${day}`) || new Set()
@@ -997,7 +1198,7 @@ function trainerBlockAffinity(state, trainerId, slotId) {
   while (occupiedHours.has(blockEnd + 1)) blockEnd += 1
   const resultingBlockLength = blockEnd - blockStart + 1
   const adjacentTeachingSlots = Number(occupiedHours.has(hour - 1)) + Number(occupiedHours.has(hour + 1))
-  return {
+  const result = {
     adjacentTeachingSlots,
     // Aura wants compact blocks of two or three classes. Longer runs remain
     // useful, but they must not outrank the first 2/3-slot block or learner
@@ -1006,6 +1207,55 @@ function trainerBlockAffinity(state, trainerId, slotId) {
     resultingBlockLength,
     isolatedTeachingSlot: currentSlots.size > 0 && adjacentTeachingSlots === 0,
   }
+  cache.set(cacheKey, result)
+  return result
+}
+
+function trainerSlotContext(data, state, trainer, slotId, indexes = scheduleIndexes(data)) {
+  const cache = state.trainerSlotContextCache || (state.trainerSlotContextCache = new Map())
+  const cacheKey = `${trainer.id}|${slotId}`
+  if (cache.has(cacheKey)) return cache.get(cacheKey)
+  const [day] = slotId.split('-')
+  const policy = trainerSchedulingPolicy(trainer, data.config)
+  const trainerSlotKey = `${trainer.id}|${slotId}`
+  const trainerCount = state.trainerSlotCounts.get(trainerSlotKey) || 0
+  const currentDailyLoad = state.trainerSlotsByDay.get(`${trainer.id}|${day}`)?.size || 0
+  const context = {
+    policy,
+    trainerSlotKey,
+    trainerCount,
+    currentDailyLoad,
+    opensTeachingSlot: trainerCount === 0,
+    projectedDailyLoad: currentDailyLoad + (trainerCount === 0 ? 1 : 0),
+    branchCapacity: (() => {
+      if (!state.branchCapacityCache) state.branchCapacityCache = new Map()
+      if (!state.branchCapacityCache.has(slotId)) state.branchCapacityCache.set(slotId, branchSlotCapacity(data.config, data.branch.id, slotId))
+      return state.branchCapacityCache.get(slotId)
+    })(),
+    blockAffinity: trainerBlockAffinity(state, trainer.id, slotId),
+    availability: indexes.trainerAvailabilityById.get(trainer.id),
+  }
+  cache.set(cacheKey, context)
+  return context
+}
+
+function cachedContractResolution(data, studentId, date, schedule, state, contractCache) {
+  if (!contractCache) return resolveSchedulingContractForStudent(data, studentId, date, schedule, state,
+    data.allowCrossBranchStudentIds instanceof Set && data.allowCrossBranchStudentIds.has(studentId))
+  if (contractCache.scheduleIdentity !== schedule || contractCache.schedulingState !== state) {
+    contractCache.clear()
+    contractCache.scheduleIdentity = schedule
+    contractCache.schedulingState = state
+    // The count is only a cache discriminator for callers that mutate the
+    // schedule identity; do it once per round instead of once per edge.
+    contractCache.scheduleEntryCount = scheduleEntryCount(schedule)
+  }
+  const key = `${studentId}|${date}`
+  if (contractCache.has(key)) return contractCache.get(key)
+  const resolution = resolveSchedulingContractForStudent(data, studentId, date, schedule, state,
+    data.allowCrossBranchStudentIds instanceof Set && data.allowCrossBranchStudentIds.has(studentId))
+  contractCache.set(key, resolution)
+  return resolution
 }
 
 function candidateForSlot(data, { student, trainer, slotId, schedule, schedulingState = null, contractCache = null }) {
@@ -1014,13 +1264,15 @@ function candidateForSlot(data, { student, trainer, slotId, schedule, scheduling
   const date = dateForSlot(data.weekId, day)
   const reasons = []
   const state = schedulingState || buildSchedulingState(schedule)
-  const policy = trainerSchedulingPolicy(trainer, data.config)
-  const workingDays = Array.isArray(data.config?.workingDays) ? data.config.workingDays : []
-  const workingHours = Array.isArray(data.config?.workingHours) ? data.config.workingHours.map(Number) : []
-  const holidays = Array.isArray(data.config?.holidays) ? data.config.holidays : []
+  const indexes = scheduleIndexes(data)
+  const context = trainerSlotContext(data, state, trainer, slotId, indexes)
+  const policy = context.policy
+  const workingDays = indexes.workingDays
+  const workingHours = indexes.workingHours
+  const holidays = indexes.holidays
   if ((workingDays.length && !workingDays.includes(day))
     || (workingHours.length && !workingHours.includes(hour))
-    || holidays.includes(date)) reasons.push('OUTSIDE_WORKING_CALENDAR')
+    || holidays.has(date)) reasons.push('OUTSIDE_WORKING_CALENDAR')
   if (data.referenceNow && slotIsPast(data.weekId, slotId, data.referenceNow)) reasons.push('OUTSIDE_WORKING_CALENDAR')
   if (student.eligibleForWeek === false) {
     reasons.push(...(Array.isArray(student.eligibilityReasons) && student.eligibilityReasons.length
@@ -1033,38 +1285,40 @@ function candidateForSlot(data, { student, trainer, slotId, schedule, scheduling
   if (studentBranchWarning && !(data.allowCrossBranchStudentIds instanceof Set && data.allowCrossBranchStudentIds.has(student.id))) reasons.push('STUDENT_BRANCH_MISMATCH')
   if (trainer.status === 'inactive') reasons.push('TRAINER_NOT_ACTIVE')
   if (trainer.branchId !== data.branch.id) reasons.push('TRAINER_BRANCH_MISMATCH')
+  const trainerAvailability = context.availability
   if (policy.employmentType === 'collaborator') {
-    if (!Array.isArray(trainer.availableSlots) || !trainer.availableSlots.length) reasons.push('TRAINER_AVAILABILITY_UNCONFIGURED')
-    else if (!trainer.availableSlots.includes(slotId)) reasons.push('OUTSIDE_TRAINER_AVAILABILITY')
-  } else if (trainer.availabilityMode === 'unconfigured') reasons.push('TRAINER_AVAILABILITY_UNCONFIGURED')
-  else if (!trainerIsAvailable(trainer, slotId)) reasons.push('OUTSIDE_TRAINER_AVAILABILITY')
-  if (data.leaves.some((leave) => leaveCovers(leave, trainer.id, date))) reasons.push('TRAINER_ON_LEAVE')
+    if (!trainerAvailability || !trainerAvailability.slots.size) reasons.push('TRAINER_AVAILABILITY_UNCONFIGURED')
+    else if (!trainerAvailability.slots.has(slotId)) reasons.push('OUTSIDE_TRAINER_AVAILABILITY')
+  } else if (!trainerAvailability || trainerAvailability.mode === 'unconfigured') reasons.push('TRAINER_AVAILABILITY_UNCONFIGURED')
+  else if (trainerAvailability.mode === 'configured' && !trainerAvailability.slots.has(slotId)) reasons.push('OUTSIDE_TRAINER_AVAILABILITY')
+  const trainerLeaves = indexes.leavesByTrainer.get(trainer.id) || []
+  if (trainerLeaves.some((leave) => leaveCovers(leave, trainer.id, date))) reasons.push('TRAINER_ON_LEAVE')
   if (!['submitted', 'locked', 'inherited', 'recurring'].includes(student.availabilityStatus)) reasons.push('AVAILABILITY_NOT_SUBMITTED')
-  else if (!student.availableSlots.includes(slotId)) reasons.push('OUTSIDE_STUDENT_AVAILABILITY')
-  const contractCacheKey = `${student.id}|${trainer.id}|${date}|${scheduleEntryCount(schedule)}`
-  if (contractCache && contractCache.scheduleIdentity !== schedule) {
-    contractCache.clear()
-    contractCache.scheduleIdentity = schedule
-  }
-  const contractResult = contractCache?.has(contractCacheKey)
-    ? contractCache.get(contractCacheKey)
-    : resolveContract(data, student.id, trainer.id, date, schedule, state)
-  if (contractCache && !contractCache.has(contractCacheKey)) contractCache.set(contractCacheKey, contractResult)
+  else if (!(indexes.studentSlotSetsById.get(student.id) || new Set(student.availableSlots || [])).has(slotId)) reasons.push('OUTSIDE_STUDENT_AVAILABILITY')
+  const cachedResolution = cachedContractResolution(data, student.id, date, schedule, state, contractCache)
+  const assigned = cachedResolution.assignedTrainerIds || assignedTrainerIds(cachedResolution.contract)
+  const contractResult = cachedResolution.contract
+    ? {
+        ...cachedResolution,
+        trainerAssignmentWarning: assigned.length > 0 && !assigned.includes(trainer.id),
+        assignedTrainerIds: assigned,
+      }
+    : cachedResolution
   reasons.push(...contractResult.reasons)
   if (state.studentDays.get(student.id)?.has(day)) reasons.push('STUDENT_MULTIPLE_SESSIONS_PER_DAY')
   const scheduledForStudent = state.studentSessionCounts.get(student.id) || 0
   if (Number(student.sessionsPerWeek || 0) >= 0 && scheduledForStudent >= Number(student.sessionsPerWeek || 0)) reasons.push('STUDENT_WEEKLY_TARGET_REACHED')
-  const trainerSlotKey = `${trainer.id}|${slotId}`
+  const trainerSlotKey = context.trainerSlotKey
   if (state.offTrainerSlots.has(trainerSlotKey)) reasons.push('TRAINER_OFF_CONFLICT')
-  const trainerCount = state.trainerSlotCounts.get(trainerSlotKey) || 0
+  const trainerCount = context.trainerCount
   if (trainerCount >= trainer.slotCapacity) reasons.push('TRAINER_CAPACITY_EXCEEDED')
-  const configuredBranchCapacity = branchSlotCapacity(data.config, data.branch.id, slotId)
+  const configuredBranchCapacity = context.branchCapacity
   if (configuredBranchCapacity !== null && (state.branchSlotCounts.get(slotId) || 0) >= configuredBranchCapacity) reasons.push('BRANCH_CAPACITY_REACHED')
-  const currentDailyLoad = state.trainerSlotsByDay.get(`${trainer.id}|${day}`)?.size || 0
-  const opensTeachingSlot = trainerCount === 0
-  const projectedDailyLoad = currentDailyLoad + (opensTeachingSlot ? 1 : 0)
+  const currentDailyLoad = context.currentDailyLoad
+  const opensTeachingSlot = context.opensTeachingSlot
+  const projectedDailyLoad = context.projectedDailyLoad
   const consecutiveDayPenalty = createsThreeConsecutiveTrainingDays(state.studentDays.get(student.id), day) ? 1 : 0
-  const blockAffinity = trainerBlockAffinity(state, trainer.id, slotId)
+  const blockAffinity = context.blockAffinity
   return {
     eligible: reasons.length === 0,
     reasons: [...new Set(reasons)],
@@ -1265,7 +1519,7 @@ function slotUtilizationForSchedule(data, schedule) {
 function candidateRecord(data, schedule, schedulingState, contractCache, student, trainer, slotId) {
   const result = candidateForSlot(data, { student, trainer, slotId, schedule, schedulingState, contractCache })
   if (!result.eligible) return null
-  const contract = data.contracts.find((item) => item.id === result.contractId)
+  const contract = scheduleIndexes(data).contractsById.get(result.contractId)
   const assigned = assignedTrainerIds(contract)
   const assignmentIndex = assigned.indexOf(trainer.id)
   return {
@@ -1294,8 +1548,48 @@ function candidateRecord(data, schedule, schedulingState, contractCache, student
 
 function feasibleCandidatesForStudent(data, schedule, schedulingState, contractCache, student) {
   const candidates = []
-  for (const slotId of [...new Set(student.availableSlots || [])].sort(compareSlots)) {
-    for (const trainer of [...data.trainers].sort((left, right) => left.id.localeCompare(right.id))) {
+  const indexes = scheduleIndexes(data)
+  const slots = indexes.studentSlotsById.get(student.id)
+    || [...new Set(student.availableSlots || [])].sort(compareSlots)
+  const scheduledForStudent = schedulingState.studentSessionCounts.get(student.id) || 0
+  const studentDays = schedulingState.studentDays.get(student.id) || new Set()
+  const branchOverride = data.allowCrossBranchStudentIds instanceof Set && data.allowCrossBranchStudentIds.has(student.id)
+  if (student.status === 'inactive' || student.eligibleForWeek === false
+    || (student.branchId !== data.branch.id && !branchOverride)
+    || scheduledForStudent >= Number(student.sessionsPerWeek || 0)) return candidates
+  for (const slotId of slots) {
+    const [day] = slotId.split('-')
+    const date = dateForSlot(data.weekId, day)
+    if (studentDays.has(day)
+      || (Array.isArray(student.validScheduleDates) && !student.validScheduleDates.includes(date))) continue
+    const configuredBranchCapacity = branchSlotCapacity(data.config, data.branch.id, slotId)
+    if (configuredBranchCapacity !== null && (schedulingState.branchSlotCounts.get(slotId) || 0) >= configuredBranchCapacity) continue
+    // Resolve the learner's renewal chain once for this date, before walking
+    // the PT list. A learner with no usable contract should not pay the
+    // trainer-edge cost at all.
+    const contractResolution = cachedContractResolution(data, student.id, date, schedule, schedulingState, contractCache)
+    if (!contractResolution.contract) continue
+    // Invalid/inactive/unavailable PTs cannot produce a feasible edge. Keeping
+    // them out of the Cartesian product is the largest win on large branches;
+    // candidateForSlot remains exhaustive for the manual inspector path.
+    const allAvailableTrainers = indexes.trainersBySlot.has(slotId)
+      ? indexes.trainersBySlot.get(slotId)
+      : (indexes.studentSlotsById.has(student.id) ? [] : indexes.sortedTrainers)
+    const preferredIds = new Set((indexes.contractsByStudent.get(student.id) || []).flatMap(assignedTrainerIds))
+    const occupied = allAvailableTrainers.filter((trainer) => schedulingState.trainerSlotCounts.has(`${trainer.id}|${slotId}`))
+    const preferred = allAvailableTrainers.filter((trainer) => preferredIds.has(trainer.id))
+    const generic = indexes.candidateTrainersBySlot.get(slotId) || allAvailableTrainers
+    const trainers = [...new Map([...occupied, ...preferred, ...generic].map((trainer) => [trainer.id, trainer])).values()]
+    for (const trainer of trainers) {
+      const context = trainerSlotContext(data, schedulingState, trainer, slotId, indexes)
+      const unavailable = !context.availability
+        || context.availability.mode === 'unconfigured'
+        || (trainer.employmentType === 'collaborator' && !context.availability.slots.has(slotId))
+        || (trainer.employmentType !== 'collaborator' && context.availability.mode === 'configured' && !context.availability.slots.has(slotId))
+      if (schedulingState.offTrainerSlots.has(context.trainerSlotKey)
+        || context.trainerCount >= trainer.slotCapacity
+        || unavailable) continue
+      if ((indexes.leavesByTrainer.get(trainer.id) || []).some((leave) => leaveCovers(leave, trainer.id, date))) continue
       const candidate = candidateRecord(data, schedule, schedulingState, contractCache, student, trainer, slotId)
       if (candidate) candidates.push(candidate)
     }
@@ -1315,9 +1609,10 @@ function feasibleCandidatesForStudent(data, schedule, schedulingState, contractC
  * cannot turn into a hard operational failure.
  */
 function feasibilitySlotIndex(data, schedule, state = buildSchedulingState(schedule)) {
-  const workingDays = Array.isArray(data.config?.workingDays) ? data.config.workingDays : []
-  const workingHours = Array.isArray(data.config?.workingHours) ? data.config.workingHours.map(Number) : []
-  const holidays = Array.isArray(data.config?.holidays) ? data.config.holidays : []
+  const indexes = scheduleIndexes(data)
+  const workingDays = indexes.workingDays
+  const workingHours = indexes.workingHours
+  const holidays = indexes.holidays
   const slots = new Set(data.students.flatMap((student) => Array.isArray(student.availableSlots) ? student.availableSlots : []))
   const feasible = new Set()
   for (const slotId of slots) {
@@ -1326,15 +1621,19 @@ function feasibilitySlotIndex(data, schedule, state = buildSchedulingState(sched
     const date = dateForSlot(data.weekId, day)
     if ((workingDays.length && !workingDays.includes(day))
       || (workingHours.length && !workingHours.includes(hour))
-      || holidays.includes(date)) continue
+      || holidays.has(date)) continue
     const configuredBranchCapacity = branchSlotCapacity(data.config, data.branch.id, slotId)
     if (configuredBranchCapacity !== null && (state.branchSlotCounts.get(slotId) || 0) >= configuredBranchCapacity) continue
-    if (data.trainers.some((trainer) => {
+    const trainers = indexes.trainersBySlot.has(slotId)
+      ? indexes.trainersBySlot.get(slotId)
+      : (indexes.studentSlotsById.size ? [] : indexes.sortedTrainers)
+    if (trainers.some((trainer) => {
       if (!trainer || trainer.status === 'inactive' || trainer.branchId !== data.branch.id) return false
-      if (trainer.employmentType === 'collaborator') {
-        if (!Array.isArray(trainer.availableSlots) || !trainer.availableSlots.length || !trainer.availableSlots.includes(slotId)) return false
-      } else if (trainer.availabilityMode === 'unconfigured' || !trainerIsAvailable(trainer, slotId)) return false
-      if (data.leaves.some((leave) => leaveCovers(leave, trainer.id, date))) return false
+      const availability = indexes.trainerAvailabilityById.get(trainer.id)
+      if (!availability || availability.mode === 'unconfigured') return false
+      if (trainer.employmentType === 'collaborator' && !availability.slots.has(slotId)) return false
+      if (trainer.employmentType !== 'collaborator' && availability.mode === 'configured' && !availability.slots.has(slotId)) return false
+      if ((indexes.leavesByTrainer.get(trainer.id) || []).some((leave) => leaveCovers(leave, trainer.id, date))) return false
       const trainerSlotKey = `${trainer.id}|${slotId}`
       if (state.offTrainerSlots.has(trainerSlotKey)) return false
       return (state.trainerSlotCounts.get(trainerSlotKey) || 0) < Math.max(1, Number(trainer.slotCapacity || 1))
@@ -1372,6 +1671,205 @@ function maximumFeasibleSessionsForStudent(data, student, schedule, prebuiltStat
   return Math.min(7, quota, existingCount + additional)
 }
 
+/**
+ * Return an optimistic upper bound for the number of learner sessions that
+ * can still fit in the current draft. This is deliberately a seat-counting
+ * pass (rather than another learner↔trainer matching pass): it is used only
+ * to decide whether the generator should reserve seats for complete weekly
+ * targets. Candidate validation still enforces every hard rule when entries
+ * are committed.
+ */
+function availableTrainingSeatCapacity(data, schedule, prebuiltState = null) {
+  const indexes = scheduleIndexes(data)
+  const state = prebuiltState || buildSchedulingState(schedule)
+  let total = 0
+  // `studentSlotsById` is keyed by learner id; iterate actual slot ids from
+  // learner availability (and trainer availability for protected/empty seats).
+  const slotIds = new Set([
+    ...indexes.trainersBySlot.keys(),
+    ...[...indexes.studentSlotsById.values()].flat(),
+  ])
+  for (const slotId of slotIds) {
+    const configuredBranchCapacity = branchSlotCapacity(data.config, data.branch.id, slotId)
+    const branchRemaining = configuredBranchCapacity === null
+      ? Number.POSITIVE_INFINITY
+      : Math.max(0, configuredBranchCapacity - (state.branchSlotCounts.get(slotId) || 0))
+    if (branchRemaining < 1) continue
+    const [day] = String(slotId).split('-')
+    const date = dateForSlot(data.weekId, day)
+    let trainerSeats = 0
+    for (const trainer of indexes.trainersBySlot.get(slotId) || []) {
+      const trainerSlotKey = `${trainer.id}|${slotId}`
+      if (state.offTrainerSlots.has(trainerSlotKey)
+        || (indexes.leavesByTrainer.get(trainer.id) || []).some((leave) => leaveCovers(leave, trainer.id, date))) continue
+      trainerSeats += Math.max(0, Math.max(1, Number(trainer.slotCapacity || 1))
+        - (state.trainerSlotCounts.get(trainerSlotKey) || 0))
+    }
+    total += Math.min(branchRemaining, trainerSeats)
+  }
+  return Number.isFinite(total) ? Math.max(0, total) : Number.MAX_SAFE_INTEGER
+}
+
+// An optimistic seat upper bound for just one learner cohort. It deliberately
+// ignores learner↔slot Hall conflicts, but catches concentrated cohorts whose
+// targets cannot fit in the slots they collectively use. This is the cheap
+// guard that decides whether the bounded cohort matching repair below is worth
+// running.
+function cohortSeatUpperBound(data, schedule, students, prebuiltState = null) {
+  const indexes = scheduleIndexes(data)
+  const state = prebuiltState || buildSchedulingState(schedule)
+  const slotIds = new Set(students.flatMap((student) => Array.isArray(student.availableSlots) ? student.availableSlots : []))
+  let total = 0
+  for (const slotId of slotIds) {
+    const configuredBranchCapacity = branchSlotCapacity(data.config, data.branch.id, slotId)
+    const branchRemaining = configuredBranchCapacity === null
+      ? Number.POSITIVE_INFINITY
+      : Math.max(0, configuredBranchCapacity - (state.branchSlotCounts.get(slotId) || 0))
+    if (branchRemaining < 1) continue
+    const [day] = String(slotId).split('-')
+    const date = dateForSlot(data.weekId, day)
+    let trainerSeats = 0
+    for (const trainer of indexes.trainersBySlot.get(slotId) || []) {
+      const trainerSlotKey = `${trainer.id}|${slotId}`
+      if (state.offTrainerSlots.has(trainerSlotKey)
+        || (indexes.leavesByTrainer.get(trainer.id) || []).some((leave) => leaveCovers(leave, trainer.id, date))) continue
+      trainerSeats += Math.max(0, Math.max(1, Number(trainer.slotCapacity || 1))
+        - (state.trainerSlotCounts.get(trainerSlotKey) || 0))
+    }
+    total += Math.min(branchRemaining, trainerSeats)
+  }
+  return Number.isFinite(total) ? Math.max(0, total) : Number.MAX_SAFE_INTEGER
+}
+
+function compareCohortSimulationScores(left, right) {
+  return left.fullCount - right.fullCount || left.assignedCount - right.assignedCount
+}
+
+/**
+ * Run the normal round matcher against a temporary schedule for one proposed
+ * cohort. This is only used by the bounded conflict repair, never by the
+ * broad-branch fast path. It gives the repair an exact hard-rule check without
+ * moving any protected or incumbent entries in the real draft.
+ */
+function simulateCohortCompletion(data, schedule, cohort, remainingByStudent) {
+  const temporary = Object.fromEntries(Object.entries(schedule).map(([slotId, entries]) => [slotId, [...entries]]))
+  const localRemaining = new Map(cohort.map((student) => [student.id, Math.max(0, Number(remainingByStudent.get(student.id) || 0))]))
+  let assignedCount = 0
+  let progress = true
+  while (progress) {
+    const roundStudents = cohort.filter((student) => (localRemaining.get(student.id) || 0) > 0)
+    if (!roundStudents.length) break
+    const assignments = matchSchedulingRound(data, temporary, roundStudents)
+    if (!assignments.length) break
+    progress = false
+    for (const { student, candidate } of assignments) {
+      temporary[candidate.slotId] = [...(temporary[candidate.slotId] || []), autoEntryForCandidate(data, student, candidate)]
+      localRemaining.set(student.id, Math.max(0, (localRemaining.get(student.id) || 0) - 1))
+      assignedCount += 1
+      progress = true
+    }
+  }
+  const counts = scheduleStudentCounts(temporary)
+  const fullCount = cohort.filter((student) => (counts.get(student.id) || 0) >= Number(student.sessionsPerWeek || 0)).length
+  return { schedule: temporary, fullCount, assignedCount }
+}
+
+/**
+ * Pick a bounded cohort whose remaining weekly targets fit inside the current
+ * seat budget. When the branch cannot even give every incomplete learner one
+ * session, completing a smaller cohort is more useful than spreading one
+ * session across everybody. The cohort is intentionally selected only from
+ * learners with an optimistic path to their target; otherwise the normal
+ * coverage-first rounds remain the least surprising result.
+ */
+function completionFirstCohort(data, schedule, students, remainingByStudent, sessionBudget) {
+  const budget = Math.max(0, Number(sessionBudget || 0))
+  if (!budget) return { students: [], reservedSessions: 0, profiles: [] }
+  const state = buildSchedulingState(schedule)
+  const feasibleSlotIds = feasibilitySlotIndex(data, schedule, state)
+  const profiles = students
+    .map((student) => {
+      const scheduled = state.studentSessionCounts.get(student.id) || 0
+      const remaining = Math.max(0, Number(remainingByStudent.get(student.id) || 0))
+      const maximum = maximumFeasibleSessionsForStudent(data, student, schedule, state, feasibleSlotIds)
+      return {
+        student,
+        scheduled,
+        remaining,
+        maximum,
+        feasibleAdditional: Math.max(0, maximum - scheduled),
+      }
+    })
+    .filter((profile) => profile.remaining > 0)
+    .sort((left, right) => left.remaining - right.remaining
+      || left.feasibleAdditional - right.feasibleAdditional
+      || (left.student.availableSlots?.length || 0) - (right.student.availableSlots?.length || 0)
+      || left.student.name.localeCompare(right.student.name, 'vi')
+      || left.student.id.localeCompare(right.student.id))
+  const completable = profiles.filter((profile) => profile.feasibleAdditional >= profile.remaining)
+  const selectedProfiles = []
+  let reservedSessions = 0
+  for (const profile of completable) {
+    if (reservedSessions + profile.remaining > budget) continue
+    selectedProfiles.push(profile)
+    reservedSessions += profile.remaining
+  }
+  if (!selectedProfiles.length) return { students: [], reservedSessions: 0, profiles }
+
+  // The seat budget is optimistic: two learners may each have enough slots in
+  // isolation but compete for the same narrow trainer/slot edges. Only enter
+  // the exact (and bounded) repair when the selected cohort's aggregate slot
+  // seats are already insufficient; broad branches skip this extra matching
+  // work entirely.
+  const selectedStudents = selectedProfiles.map((profile) => profile.student)
+  const cohortUpperBound = cohortSeatUpperBound(data, schedule, selectedStudents, state)
+  if (cohortUpperBound >= reservedSessions || selectedProfiles.length < 2) {
+    return { students: selectedStudents, reservedSessions, profiles }
+  }
+
+  let currentProfiles = [...selectedProfiles]
+  let currentResult = simulateCohortCompletion(data, schedule, currentProfiles.map((profile) => profile.student), remainingByStudent)
+  const unselectedProfiles = completable.filter((profile) => !currentProfiles.some((selected) => selected.student.id === profile.student.id))
+  let attempts = 0
+  let candidateOffset = 0
+  while (attempts < MAX_COHORT_REPAIR_ATTEMPTS && candidateOffset < unselectedProfiles.length) {
+    const incomplete = currentProfiles
+      .filter((profile) => !currentResult.schedule || (scheduleStudentCounts(currentResult.schedule).get(profile.student.id) || 0) < profile.student.sessionsPerWeek)
+      .sort((left, right) => right.remaining - left.remaining || left.student.id.localeCompare(right.student.id))
+    if (!incomplete.length) break
+    let improved = null
+    for (const removed of incomplete) {
+      for (let index = candidateOffset; index < Math.min(unselectedProfiles.length, candidateOffset + MAX_COHORT_REPAIR_CANDIDATES); index += 1) {
+        const added = unselectedProfiles[index]
+        if (currentProfiles.some((profile) => profile.student.id === added.student.id)) continue
+        const nextReserved = reservedSessions - removed.remaining + added.remaining
+        if (nextReserved > budget) continue
+        const trialProfiles = currentProfiles
+          .filter((profile) => profile.student.id !== removed.student.id)
+          .concat(added)
+        const trialResult = simulateCohortCompletion(data, schedule, trialProfiles.map((profile) => profile.student), remainingByStudent)
+        attempts += 1
+        if (compareCohortSimulationScores(trialResult, currentResult) > 0) {
+          improved = { trialProfiles, trialResult, nextReserved }
+          candidateOffset = index + 1
+          break
+        }
+        if (attempts >= MAX_COHORT_REPAIR_ATTEMPTS) break
+      }
+      if (improved || attempts >= MAX_COHORT_REPAIR_ATTEMPTS) break
+    }
+    if (!improved) break
+    currentProfiles = improved.trialProfiles
+    currentResult = improved.trialResult
+    reservedSessions = improved.nextReserved
+  }
+  return {
+    students: currentProfiles.map((profile) => profile.student),
+    reservedSessions,
+    profiles,
+  }
+}
+
 function studentFeasibilityForSchedule(data, schedule, baseSchedule = schedule) {
   const counts = scheduleStudentCounts(schedule)
   const state = buildSchedulingState(baseSchedule)
@@ -1407,8 +1905,17 @@ function matchSchedulingRound(data, schedule, students) {
     const rightCandidates = candidatesByStudent.get(right.id) || []
     const leftUrgency = leftCandidates.reduce((score, candidate) => Math.max(score, candidate.score), 0)
     const rightUrgency = rightCandidates.reduce((score, candidate) => Math.max(score, candidate.score), 0)
+    const leftScheduled = state.studentSessionCounts.get(left.id) || 0
+    const rightScheduled = state.studentSessionCounts.get(right.id) || 0
+    const leftRemainingTarget = Math.max(0, Number(left.sessionsPerWeek || 0) - leftScheduled)
+    const rightRemainingTarget = Math.max(0, Number(right.sessionsPerWeek || 0) - rightScheduled)
     return leftCandidates.length - rightCandidates.length
       || rightUrgency - leftUrgency
+      // When scarcity is equal, close the learner with fewer remaining
+      // sessions first. This is the local ordering that makes the global
+      // lexicographic objective (more fully scheduled learners) visible to
+      // the augmenting-path matcher instead of splitting two targets evenly.
+      || leftRemainingTarget - rightRemainingTarget
       || left.name.localeCompare(right.name, 'vi')
       || left.id.localeCompare(right.id)
   })
@@ -1448,6 +1955,20 @@ function matchSchedulingRound(data, schedule, students) {
     // occupancy check, two learners evaluated from the same empty snapshot can
     // unnecessarily open two 1/2 classes instead of sharing one class.
     const rankedCandidates = [...(candidatesByStudent.get(studentId) || [])].sort((left, right) => {
+      const liveTargetRank = (candidate) => {
+        const targetKey = `${candidate.trainer.id}|${candidate.slotId}`
+        const occupants = occupantsByTarget.get(targetKey) || []
+        const capacity = targetCapacity.get(targetKey) || 0
+        // Pair a live class first, then use an empty seat, and only inspect a
+        // full target when an augmenting path is genuinely necessary. The old
+        // binary "opens slot" rank explored every full target before the first
+        // free one on large branches (quadratic matching time).
+        if (occupants.length > 0 && occupants.length < capacity) return 0
+        if (occupants.length === 0 && capacity > 0) return 1
+        return 2
+      }
+      const rankDifference = liveTargetRank(left) - liveTargetRank(right)
+      if (rankDifference !== 0) return rankDifference
       const liveOpensSlot = (candidate) => {
         const targetKey = `${candidate.trainer.id}|${candidate.slotId}`
         return (state.trainerSlotCounts.get(targetKey) || 0) + (occupantsByTarget.get(targetKey) || []).length === 0
@@ -1644,8 +2165,11 @@ function rescueOutcomeScore(data, schedule, students, remainingByStudent, reloca
   const supportAssignments = Object.values(schedule).flat().filter((entry) => entry.type !== 'off' && entry.trainerAssignmentWarning === true).length
   return [
     uncoveredStudentsWithAPath,
-    futureRescuableSessions,
+    // Once every learner with a feasible path has at least one class, prefer
+    // plans that complete more weekly targets. A plan that adds many partial
+    // sessions must not outrank one that closes a learner's target entirely.
     futureCompletableStudents,
+    futureRescuableSessions,
     utilization.pairedSlots,
     -utilization.singleSlots,
     -supportAssignments,
@@ -1915,13 +2439,17 @@ function compactPairedSlots(data, inputSchedule) {
   return { schedule, moves }
 }
 
-function blockersForStudent(data, student, schedule, schedulingState, contractCache, capacityReached) {
+function blockersForStudent(data, student, schedule, schedulingState, contractCache, capacityReached, capacityReason = 'DRAFT_CAPACITY_REACHED') {
   const reasons = new Set()
   const suggestedSlots = new Set()
   const compatibleSlotIds = new Set()
   const pairedOpportunitySlotIds = new Set()
   const validLearnerAvailabilityDates = new Set()
-  const trainers = [...data.trainers].sort((left, right) => left.id.localeCompare(right.id))
+  const indexes = scheduleIndexes(data)
+  // Once the draft write guard is full, every unresolved learner has the same
+  // actionable blocker. Do not re-run the complete learner×slot×PT validator
+  // merely to rediscover that no new entry can be persisted.
+  const trainers = capacityReached ? [] : indexes.sortedTrainers
   const rawSlots = Array.isArray(student.availableSlots) ? [...new Set(student.availableSlots)].sort(compareSlots) : []
   const scheduledDayCodes = new Set(schedulingState.studentDays.get(student.id) || [])
   const scheduledSessions = Number(schedulingState.studentSessionCounts.get(student.id) || 0)
@@ -1951,7 +2479,7 @@ function blockersForStudent(data, student, schedule, schedulingState, contractCa
   const weekDates = datesForWeek(data.weekId)
   const weekStart = weekDates[0]
   const weekEnd = weekDates[weekDates.length - 1]
-  const contracts = data.contracts.filter((contract) => contract.studentId === student.id)
+  const contracts = indexes.contractsByStudent.get(student.id) || []
   const branchContracts = contracts.filter((contract) => !contract.branchId || contract.branchId === data.branch.id)
   const operationalContracts = branchContracts.filter((contract) => weekDates.some((date) => contractEffectiveOnDate(contract, date)))
   const validDates = new Set(Array.isArray(student.validScheduleDates) && student.validScheduleDates.length
@@ -2001,6 +2529,7 @@ function blockersForStudent(data, student, schedule, schedulingState, contractCa
       diagnostics.contractValidDateCount += 1
       if (!scheduledDayCodes.has(day)) validLearnerAvailabilityDates.add(date)
     }
+    if (capacityReached) continue
     const slotResult = {
       slotId,
       date,
@@ -2059,14 +2588,18 @@ function blockersForStudent(data, student, schedule, schedulingState, contractCa
     else if (diagnostics.blockedByTrainerLeaveCount > 0 && diagnostics.blockedByTrainerLeaveCount >= diagnostics.blockedByTrainerAvailabilityCount) reasons.add('TRAINER_ON_LEAVE')
     else if (diagnostics.blockedByTrainerAvailabilityCount > 0) reasons.add('NO_AVAILABLE_TRAINER_IN_LEARNER_SLOTS')
   }
-  if (capacityReached) reasons.add('DRAFT_CAPACITY_REACHED')
+  if (capacityReached) reasons.add(capacityReason)
 
   let primaryReasonCode = 'STUDENT_UNSCHEDULED'
   let blockerCategory = 'optimizer'
   let actionCode = 'RERUN_OPTIMIZER'
   const contractDaysInsufficient = contractStatus === 'expiring'
     && diagnostics.contractRemainingDayCount < missingSessions
-  if (!diagnostics.learnerAvailabilityCount) {
+  if (capacityReached) {
+    primaryReasonCode = capacityReason
+    blockerCategory = 'capacity'
+    actionCode = 'RERUN_OPTIMIZER'
+  } else if (!diagnostics.learnerAvailabilityCount) {
     primaryReasonCode = 'AVAILABILITY_NOT_SUBMITTED'
     blockerCategory = 'learner_availability'
     actionCode = 'EDIT_STUDENT_AVAILABILITY'
@@ -2308,14 +2841,20 @@ function generateScheduleAttempt(data) {
   const feasibilityBaseSchedule = Object.fromEntries(Object.entries(schedule).map(([slotId, entries]) => [slotId, [...entries]]))
   let entryCount = scheduleEntryCount(schedule)
   let capacityReached = entryCount >= MAX_DRAFT_ENTRIES || scheduleDocumentEntryCount(schedule) >= MAX_DRAFT_DOCUMENT_ENTRIES
+  let capacityExhausted = false
   const scheduledCounts = scheduleStudentCounts(schedule)
   const students = [...data.students]
     .filter((student) => student.status !== 'inactive' && student.eligibleForWeek !== false && student.sessionsPerWeek > 0)
     .sort((left, right) => left.name.localeCompare(right.name, 'vi') || left.id.localeCompare(right.id))
   const remainingByStudent = new Map(students.map((student) => [student.id, Math.max(0, student.sessionsPerWeek - (scheduledCounts.get(student.id) || 0))]))
 
-  const commitRound = (roundStudents) => {
-    const assignments = matchSchedulingRound(data, schedule, roundStudents)
+  const refreshCapacityState = () => {
+    if (capacityReached) return
+    capacityExhausted = availableTrainingSeatCapacity(data, schedule) < 1
+  }
+
+  const commitRound = (roundStudents, precomputedAssignments = null) => {
+    const assignments = precomputedAssignments || matchSchedulingRound(data, schedule, roundStudents)
     let committed = 0
     for (const { student, candidate } of assignments) {
       if (entryCount >= MAX_DRAFT_ENTRIES || scheduleDocumentEntryCount(schedule) >= MAX_DRAFT_DOCUMENT_ENTRIES) {
@@ -2328,21 +2867,23 @@ function generateScheduleAttempt(data) {
       entryCount += 1
       committed += 1
     }
+    refreshCapacityState()
     return committed
   }
 
-  const fillRemainingSessions = () => {
+  const fillRemainingSessions = (roundPool = students, precomputedFirstRound = null) => {
     let committedTotal = 0
     // Maximum-cardinality first-session round. Augmenting paths can move a
     // flexible learner away from the only slot of a constrained learner.
-    committedTotal += commitRound(students.filter((student) => (scheduledCounts.get(student.id) || 0) === 0
-      && (remainingByStudent.get(student.id) || 0) > 0))
+    const firstRoundStudents = roundPool.filter((student) => (scheduledCounts.get(student.id) || 0) === 0
+      && (remainingByStudent.get(student.id) || 0) > 0)
+    committedTotal += commitRound(firstRoundStudents, precomputedFirstRound)
 
     // Later rounds remain fair (one seat per learner per round) while maximizing
     // the number of fulfilled weekly targets in each round.
     let progress = true
-    while (!capacityReached && progress) {
-      const roundStudents = students.filter((student) => (remainingByStudent.get(student.id) || 0) > 0)
+    while (!capacityReached && !capacityExhausted && progress) {
+      const roundStudents = roundPool.filter((student) => (remainingByStudent.get(student.id) || 0) > 0)
       if (!roundStudents.length) break
       const committed = commitRound(roundStudents)
       committedTotal += committed
@@ -2351,7 +2892,55 @@ function generateScheduleAttempt(data) {
     return committedTotal
   }
 
-  fillRemainingSessions()
+  // When one-session matching or the atomic draft budget cannot cover every
+  // incomplete learner, reserve seats for a cohort that can actually reach
+  // its weekly target. On healthy branches we keep the established
+  // coverage-first rounds unchanged.
+  const incompleteStudents = students.filter((student) => (remainingByStudent.get(student.id) || 0) > 0)
+  const draftSessionBudget = Math.max(0, Math.min(
+    MAX_DRAFT_ENTRIES - entryCount,
+    MAX_DRAFT_DOCUMENT_ENTRIES - scheduleDocumentEntryCount(schedule),
+  ))
+  const availableSeatBudget = Math.max(0, Math.min(draftSessionBudget, availableTrainingSeatCapacity(data, schedule)))
+  const totalRemainingTargetSessions = incompleteStudents.reduce((total, student) => total
+    + Math.max(0, Number(remainingByStudent.get(student.id) || 0)), 0)
+  let firstRoundAssignments = null
+  let firstRoundCapacity = incompleteStudents.length
+  if (incompleteStudents.length && draftSessionBudget >= incompleteStudents.length && !capacityReached) {
+    firstRoundAssignments = matchSchedulingRound(data, schedule, incompleteStudents)
+    firstRoundCapacity = firstRoundAssignments.length
+  }
+  const capacityPressure = incompleteStudents.length > 0
+    && (draftSessionBudget < incompleteStudents.length
+      || firstRoundCapacity < incompleteStudents.length
+      // A branch may have enough seats to give everybody one class while
+      // still lacking enough seats to fulfil every weekly target. In that
+      // case reserve seats for a completable cohort before spreading demand.
+      || availableSeatBudget < totalRemainingTargetSessions)
+  let completionFirst = false
+  let completionFirstCohortSize = 0
+  let completionFirstReservedSessions = 0
+  let completionFirstSeatBudget = availableSeatBudget
+  if (capacityPressure && mode !== 'supplement') {
+    const cohort = completionFirstCohort(data, schedule, incompleteStudents, remainingByStudent, completionFirstSeatBudget)
+    if (cohort.students.length) {
+      completionFirst = true
+      completionFirstCohortSize = cohort.students.length
+      completionFirstReservedSessions = cohort.reservedSessions
+      fillRemainingSessions(cohort.students)
+      // If a hard edge conflict prevented the reserved cohort from consuming
+      // all seats, recover the leftover capacity for ordinary coverage.
+      if (!capacityReached && !capacityExhausted) fillRemainingSessions(students)
+    } else {
+      // No learner has an optimistic path to a complete target. Keep the
+      // existing coverage-first behavior instead of manufacturing a cohort
+      // that cannot finish.
+      fillRemainingSessions(incompleteStudents, firstRoundAssignments)
+    }
+  } else {
+    fillRemainingSessions(incompleteStudents, firstRoundAssignments)
+  }
+  refreshCapacityState()
 
   // Deep improvement runs compaction, regular coverage and bounded relocation.
   // Compaction can move a
@@ -2370,7 +2959,11 @@ function generateScheduleAttempt(data) {
   let rescueSearchLimitReached = false
   const swapTrace = []
   let optimizationPasses = 1
-  for (let pass = 0; mode !== 'supplement' && pass < MAX_DEEP_OPTIMIZATION_PASSES; pass += 1) {
+  // Once the atomic draft guard is full there is no room for another learner
+  // session. Pair compaction/relocation would only reshuffle the same entries
+  // while scanning a potentially very large branch, so stop the deep pass and
+  // return the already maximum-cardinality draft immediately.
+  for (let pass = 0; mode !== 'supplement' && !capacityReached && !capacityExhausted && pass < MAX_DEEP_OPTIMIZATION_PASSES; pass += 1) {
     const compacted = compactPairedSlots(data, schedule)
     if (compacted.moves > 0) {
       Object.keys(schedule).forEach((slotId) => delete schedule[slotId])
@@ -2380,13 +2973,13 @@ function generateScheduleAttempt(data) {
     // Reaching the draft-entry guard only disables adding more sessions. A
     // compaction pass still has value because it can turn two 1/2 classes into
     // one 2/2 class without increasing the number of entries.
-    const refilled = capacityReached ? 0 : fillRemainingSessions()
+    const refilled = capacityReached || capacityExhausted ? 0 : fillRemainingSessions()
     refillAssignments += refilled
     const repairCapacity = Math.max(0, Math.min(
       MAX_DRAFT_ENTRIES - entryCount,
       MAX_DRAFT_DOCUMENT_ENTRIES - scheduleDocumentEntryCount(schedule),
     ))
-    const repaired = capacityReached || repairCapacity < 1
+    const repaired = capacityReached || capacityExhausted || repairCapacity < 1
       ? { assignments: 0, relocations: 0, searchNodes: 0, evaluatedPlans: 0, searchLimitReached: false, assignedStudentIds: [], swapTrace: [], schedule }
       : repairCoverageWithRelocations(data, schedule, students, remainingByStudent, {
         maxAssignments: repairCapacity,
@@ -2406,6 +2999,7 @@ function generateScheduleAttempt(data) {
       swapTrace.push(...repaired.swapTrace)
       capacityReached = entryCount >= MAX_DRAFT_ENTRIES || scheduleDocumentEntryCount(schedule) >= MAX_DRAFT_DOCUMENT_ENTRIES
     }
+    refreshCapacityState()
     rescueSearchNodes += repaired.searchNodes
     rescueEvaluatedPlans += repaired.evaluatedPlans
     rescueSearchLimitReached ||= repaired.searchLimitReached
@@ -2436,10 +3030,24 @@ function generateScheduleAttempt(data) {
   for (const student of students) {
     const missingSessions = remainingByStudent.get(student.id) || 0
     if (missingSessions < 1) continue
-    const blockers = blockersForStudent(data, student, schedule, schedulingState, contractCache, capacityReached)
+    // A globally exhausted live seat pool is not the same as the draft write
+    // guard: keep the detailed trainer/leave/availability diagnostics alive
+    // so an unconfigured or full matching PT is reported accurately. The hard
+    // draft cap is the only case where scanning every learner×PT edge is both
+    // unnecessary and guaranteed to produce the same blocker.
+    const capacityBlocked = capacityReached
+    const blockers = blockersForStudent(
+      data,
+      student,
+      schedule,
+      schedulingState,
+      contractCache,
+      capacityBlocked,
+      capacityReached ? 'DRAFT_CAPACITY_REACHED' : 'SCHEDULE_CAPACITY_EXHAUSTED',
+    )
     const feasibility = feasibilityByStudent.get(student.id)
-    const optimizerCouldStillImprove = blockers.suggestedSlots.length > 0
-      || Number(feasibility?.maximumFeasibleSessions || 0) > Number(feasibility?.scheduledSessions || 0)
+    const optimizerCouldStillImprove = !(capacityReached || capacityExhausted) && (blockers.suggestedSlots.length > 0
+      || Number(feasibility?.maximumFeasibleSessions || 0) > Number(feasibility?.scheduledSessions || 0))
     const blockerType = rescueSearchLimitReached && optimizerCouldStillImprove
       ? 'search_limit_reached'
       : optimizerCouldStillImprove
@@ -2462,6 +3070,7 @@ function generateScheduleAttempt(data) {
     warnings.push({ code: 'STUDENT_UNSCHEDULED', ...unassigned })
   }
   if (capacityReached) warnings.unshift({ code: 'DRAFT_CAPACITY_REACHED', entryCount, maxEntries: MAX_DRAFT_ENTRIES })
+  else if (capacityExhausted && unassignedEntries.length) warnings.unshift({ code: 'SCHEDULE_CAPACITY_EXHAUSTED', entryCount })
   const unassignedReasonCounts = unassignedEntries.reduce((counts, item) => {
     const key = item.primaryReasonCode || item.blockerType || 'STUDENT_UNSCHEDULED'
     counts[key] = (counts[key] || 0) + 1
@@ -2471,8 +3080,11 @@ function generateScheduleAttempt(data) {
     0,
     Number(item.maximumFeasibleSessions || 0) - Number(item.scheduledSessions || 0),
   ), 0)
+  const objectiveOrder = completionFirst
+    ? ['fully_scheduled_learners', 'weekly_target_fulfilment', 'learner_coverage', 'pairing', 'trainer_assignment', 'trainer_consecutive_blocks', 'soft_load_balance', 'learner_spacing']
+    : ['learner_coverage', 'fully_scheduled_learners', 'weekly_target_fulfilment', 'pairing', 'trainer_assignment', 'trainer_consecutive_blocks', 'soft_load_balance', 'learner_spacing']
   const optimizationSummary = {
-    objectiveOrder: ['learner_coverage', 'weekly_target_fulfilment', 'pairing', 'trainer_assignment', 'trainer_consecutive_blocks', 'soft_load_balance', 'learner_spacing'],
+    objectiveOrder,
     loadPolicyVersion: 'soft-consecutive-blocks-v2',
     studentCoverage: studentCoverageForSchedule(data, schedule),
     studentFeasibility: finalFeasibility,
@@ -2486,9 +3098,15 @@ function generateScheduleAttempt(data) {
     searchBudgetUsed: rescueSearchNodes,
     rescueEvaluatedPlans,
     rescueSearchLimitReached,
+    capacityReached,
+    capacityExhausted,
+    completionFirst,
+    completionFirstCohortSize,
+    completionFirstReservedSessions,
+    completionFirstSeatBudget,
     optimalityGap: rescueSearchLimitReached ? feasibilityGapSessions : 0,
     unassignedReasonCounts,
-    qualityVersion: 'schedule-quality-v1',
+    qualityVersion: 'schedule-quality-v2',
     // Backward-compatible aliases for clients deployed before optimizer v10.
     repairAssignments: rescueAssignments,
     repairRelocations: rescueRelocations,
@@ -2502,33 +3120,53 @@ function generateScheduleAttempt(data) {
   return { schedule, warnings, optimizationSummary, unassignedEntries }
 }
 
-function scheduleOutcome(data, schedule) {
+function scheduleOutcome(data, schedule, prioritizeCompletion = false) {
   const counts = scheduleStudentCounts(schedule)
   const students = data.students.filter((student) => student.eligibleForWeek !== false && student.sessionsPerWeek > 0)
   const utilization = slotUtilizationForSchedule(data, schedule)
-  return [students.filter((s) => (counts.get(s.id) || 0) > 0).length,
-    students.reduce((sum, s) => sum + Math.min(s.sessionsPerWeek, counts.get(s.id) || 0), 0),
-    students.filter((s) => (counts.get(s.id) || 0) >= s.sessionsPerWeek).length,
-    utilization.pairedSlots, -utilization.singleSlots]
+  const covered = students.filter((s) => (counts.get(s.id) || 0) > 0).length
+  const complete = students.filter((s) => (counts.get(s.id) || 0) >= s.sessionsPerWeek).length
+  const sessions = students.reduce((sum, s) => sum + Math.min(s.sessionsPerWeek, counts.get(s.id) || 0), 0)
+  return prioritizeCompletion
+    ? [complete, covered, sessions, utilization.pairedSlots, -utilization.singleSlots]
+    : [covered, complete, sessions, utilization.pairedSlots, -utilization.singleSlots]
+}
+
+function scheduleDataWithIndexes(data) {
+  if (data.contractsByStudent instanceof Map) return data
+  return { ...data, contractsByStudent: indexContractsByStudent(data.contracts) }
 }
 
 function generateSchedule(data) {
-  let result = generateScheduleAttempt(data)
-  const baseline = safeSchedule(data.schedule)
-  if ((data.generationMode || 'optimize') === 'optimize' && compareScoreVectors(scheduleOutcome(data, baseline), scheduleOutcome(data, result.schedule)) < 0) {
+  // Keep direct/unit-test callers compatible while ensuring production
+  // optimizer attempts reuse one learner→contract index across every round.
+  const indexedData = scheduleDataWithIndexes(data)
+  let result = generateScheduleAttempt(indexedData)
+  const baseline = safeSchedule(indexedData.schedule)
+  const prioritizeCompletion = result.optimizationSummary?.completionFirst === true
+  if ((indexedData.generationMode || 'optimize') === 'optimize'
+    && compareScoreVectors(
+      scheduleOutcome(indexedData, baseline, prioritizeCompletion),
+      scheduleOutcome(indexedData, result.schedule, prioritizeCompletion),
+    ) < 0) {
     // Retain the incumbent only when its mutable entries remain valid under
     // today's input. Invalid old auto entries must not bypass revalidation.
     const valid = Object.entries(baseline).every(([slotId, entries]) => entries.every((entry) => {
       if (protectedFromOptimizer(entry)) return true
-      const student = data.students.find((s) => s.id === entry.studentId), trainer = data.trainers.find((t) => t.id === entry.trainerId)
-      return student && trainer && candidateForSlot(data, { student, trainer, slotId, schedule: scheduleWithoutEntry(baseline, slotId, entry) }).eligible
+      const student = indexedData.students.find((s) => s.id === entry.studentId), trainer = indexedData.trainers.find((t) => t.id === entry.trainerId)
+      return student && trainer && candidateForSlot(indexedData, { student, trainer, slotId, schedule: scheduleWithoutEntry(baseline, slotId, entry) }).eligible
     }))
-    if (valid) result = generateScheduleAttempt({ ...data, generationMode: 'continue' })
+    if (valid) result = generateScheduleAttempt({ ...indexedData, generationMode: 'continue' })
   }
-  const before = scheduleOutcome(data, baseline), after = scheduleOutcome(data, result.schedule)
+  const before = scheduleOutcome(indexedData, baseline), after = scheduleOutcome(indexedData, result.schedule)
   const oldLocations = new Map(Object.entries(baseline).flatMap(([slotId, entries]) => entries.filter((e) => e.type !== 'off').map((e) => [`${e.studentId}|${slotId}|${e.trainerId}`, e])))
   const changedEntries = Object.entries(result.schedule).reduce((sum, [slotId, entries]) => sum + entries.filter((e) => e.type !== 'off' && !oldLocations.has(`${e.studentId}|${slotId}|${e.trainerId}`)).length, 0)
-  result.optimizationSummary.comparison = { before: { covered: before[0], sessions: before[1], complete: before[2], paired: before[3], singles: -before[4] }, after: { covered: after[0], sessions: after[1], complete: after[2], paired: after[3], singles: -after[4] }, addedSessions: after[1] - before[1], changedEntries }
+  result.optimizationSummary.comparison = {
+    before: { covered: before[0], sessions: before[2], complete: before[1], paired: before[3], singles: -before[4] },
+    after: { covered: after[0], sessions: after[2], complete: after[1], paired: after[3], singles: -after[4] },
+    addedSessions: after[2] - before[2],
+    changedEntries,
+  }
   return result
 }
 

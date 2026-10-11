@@ -67,7 +67,8 @@ const { createQuoteManagementFunctions } = require('./quote-management')
 const { createScheduleConfigManagementFunctions } = require('./schedule-config-management')
 const { createStudentManagementFunctions } = require('./student-management')
 const { createBranchManagementFunctions } = require('./branch-management')
-const { createStudent360Functions, reconcileStudent360ProjectionBatch, syncStudent360ProjectionFromEvent } = require('./student-360')
+const { buildStudent360Projection, createStudent360Functions, mondayDateKey, reconcileStudent360ProjectionBatch, syncStudent360ProjectionFromEvent } = require('./student-360')
+const { coalesceProjectionRebuild } = require('./student-360-projection-writes')
 const { loggedMealSlots } = require('./meal-reminder-policy')
 
 const app = initializeApp()
@@ -652,9 +653,56 @@ const student360Trigger = (document) => onDocumentWritten({
   retry: true,
 }, async (event) => syncStudent360ProjectionFromEvent({ db, event, logger }))
 
-// Keep the overview projection fresh from canonical sources. The callable also
-// repairs a missing/stale projection on demand, so a failed trigger never
-// leaves the workspace permanently unavailable.
+// Stale-while-revalidate queue for Student 360. A deterministic queue document
+// absorbs bursts of reads; only a change to requestedAt starts a rebuild, so
+// the completion/status write does not recursively enqueue itself.
+exports.refreshStudent360ProjectionFromQueue = onDocumentWritten({
+  document: 'systemJobs/student360ProjectionRefreshQueue/{studentId}',
+  database: databaseId,
+  region: 'asia-southeast1',
+  cpu: 'gcf_gen1',
+  maxInstances: 2,
+  retry: true,
+}, async (event) => {
+  const before = event.data?.before
+  const after = event.data?.after
+  if (!after?.exists) return { skipped: true, reason: 'queue_deleted' }
+  const previousRequestedAt = before?.exists ? before.data()?.requestedAt : null
+  const requestedAt = after.data()?.requestedAt
+  if (previousRequestedAt && requestedAt && typeof previousRequestedAt.isEqual === 'function' && previousRequestedAt.isEqual(requestedAt)) {
+    return { skipped: true, reason: 'status_update' }
+  }
+  const studentId = String(event.params.studentId || '').trim()
+  const weekId = /^\d{4}-\d{2}-\d{2}$/.test(String(after.data()?.weekId || '')) ? after.data().weekId : mondayDateKey()
+  const reference = db.doc(`systemJobs/student360ProjectionRefreshQueue/${studentId}`)
+  try {
+    const result = await coalesceProjectionRebuild({
+      db,
+      studentId,
+      event,
+      rebuild: () => buildStudent360Projection({ db, studentId, weekId, persist: true }),
+    })
+    await reference.set({
+      status: result.rebuilt ? 'completed' : 'coalesced',
+      processedAt: FieldValue.serverTimestamp(),
+      ...(result.rebuilt ? { lastError: FieldValue.delete() } : {}),
+    }, { merge: true })
+    logger.info('student_360_projection_queue_processed', { studentId, weekId, ...result })
+    return { studentId, ...result }
+  } catch (error) {
+    await reference.set({
+      status: 'failed',
+      processedAt: FieldValue.serverTimestamp(),
+      lastError: String(error?.code || error?.message || 'unknown').slice(0, 160),
+    }, { merge: true }).catch(() => {})
+    logger.error('student_360_projection_queue_failed', { studentId, weekId, code: error?.code || 'unknown' })
+    throw error
+  }
+})
+
+// Keep the overview projection fresh from canonical sources. The callable
+// repairs missing/schema/week projections synchronously; age-only staleness is
+// served stale-while-revalidate through the queue above.
 exports.syncStudent360Student = student360Trigger('students/{studentId}')
 exports.syncStudent360Contract = student360Trigger('contracts/{documentId}')
 exports.syncStudent360ContractUsage = student360Trigger('contractUsageViews/{documentId}')

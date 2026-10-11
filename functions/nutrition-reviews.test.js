@@ -76,6 +76,22 @@ test('meal input strips review fields and accepts only canonical owner photo pat
   }, 'student-1'))
 })
 
+test('meal input rejects future logged dates and inconsistent macro calories', () => {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(new Date())
+  const today = Object.fromEntries(parts.map((part) => [part.type, part.value]))
+  const base = `${today.year}-${today.month}-${today.day}`
+  const future = new Date(`${base}T12:00:00+07:00`)
+  future.setUTCDate(future.getUTCDate() + 1)
+  const futureParts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(future)
+  const futureDate = Object.fromEntries(futureParts.map((part) => [part.type, part.value]))
+  assert.throws(() => sanitizeMealInput({ id: 'future-meal', date: `${futureDate.year}-${futureDate.month}-${futureDate.day}`, type: 'lunch', status: 'logged', title: 'Bữa sau' }, 'student-1'), /ngày trong tương lai/i)
+  assert.throws(() => sanitizeMealInput({ id: 'bad-macro', date: base, type: 'lunch', status: 'logged', title: 'Lệch macro', calories: 100, protein: 40, carbs: 40, fat: 40 }, 'student-1'), /lệch quá 20%/i)
+})
+
 test('review cursor v2 is stable by timestamp and document id', () => {
   const snapshot = { id: 'review-1', data: () => ({ createdAt: new Date('2026-09-08T03:00:00Z') }) }
   const encoded = nextPageCursor('pending', snapshot)

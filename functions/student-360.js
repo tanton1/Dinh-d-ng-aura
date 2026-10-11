@@ -8,6 +8,7 @@ const { ptOperationsPolicySnapshot } = require('./pt-policy')
 const { usageSummaryFromView } = require('./contract-usage-view')
 const { canViewAction } = require('./action-center')
 const { sourceChanged, coalesceProjectionRebuild, upsertChangedTimeline } = require('./student-360-projection-writes')
+const { calculateNutritionTargets, canonicalNutritionProfile } = require('./nutrition-core.mjs')
 
 const TIME_ZONE = 'Asia/Ho_Chi_Minh'
 // Bump the projection schema when account-link resolution changes. Existing
@@ -19,6 +20,25 @@ const HEALTH_FORMULA_VERSION = 'student-health-v1'
 // prevents an unchanged profile from re-reading every history collection each
 // time Staff opens it, while the scheduled reconciler repairs missed triggers.
 const PROJECTION_MAX_AGE_MS = 24 * 60 * 60 * 1000
+const PROJECTION_REFRESH_QUEUE = 'systemJobs/student360ProjectionRefreshQueue'
+const PROJECTION_READ_LIMITS = Object.freeze({
+  leaveRequests: 100,
+  sessionRequests: 150,
+  workoutLogs: 120,
+  ptWorkoutLogs: 120,
+  renewals: 12,
+  dailyCheckins: 90,
+  payments: 150,
+  ledgerEntries: 150,
+  mealLogs: 60,
+  mealReviews: 60,
+  bodyMetrics: 60,
+  bodyMeasurements: 60,
+  weightLogs: 60,
+  progressCheckIns: 60,
+  progressPhotos: 30,
+  legacyProgressPhotos: 30,
+})
 const ACTIVE_CONTRACT_STATUSES = new Set(['active', 'future', 'frozen'])
 const ACTIVE_SESSION_STATUSES = new Set(['scheduled', 'rescheduled', 'attended', 'completed'])
 const TERMINAL_ATTENDANCE = new Set(['present', 'late', 'no_show', 'policy_charge'])
@@ -994,16 +1014,32 @@ function mealProjection(meals, profile, today) {
     return {
       id: item.id || value.id || '',
       date,
+      status: bounded(value.status, 30).toLowerCase(),
       kcal: finite(value.totalKcal ?? value.kcal ?? value.calories ?? nutrition.calories ?? nutrition.kcal),
       protein: finite(value.totalProtein ?? value.protein ?? nutrition.protein),
       createdAt: timestampMillis(value.createdAt || value.timestamp) || dateKeyMillis(date),
     }
-  }).filter((item) => item.date && dateKeyMillis(item.date) >= cutoff)
+  }).filter((item) => item.date
+      && dateKeyMillis(item.date) >= cutoff
+      && dateKeyMillis(item.date) <= dateKeyMillis(today)
+      && (!item.status || item.status === 'logged'))
   const loggedDays = new Set(recent.map((item) => item.date)).size
   const totalKcal = recent.reduce((sum, item) => sum + item.kcal, 0)
   const totalProtein = recent.reduce((sum, item) => sum + item.protein, 0)
-  const targetKcal = finite(profile?.nutritionProfile?.targetCalories ?? profile?.calories)
-  const targetProtein = finite(profile?.nutritionProfile?.protein ?? profile?.protein)
+  let targetKcal = 0
+  let targetProtein = 0
+  try {
+    const canonical = canonicalNutritionProfile(profile || {})
+    const targets = calculateNutritionTargets(canonical)
+    if (targets.configured) {
+      targetKcal = finite(targets.targetCaloriesKcal)
+      targetProtein = finite(targets.proteinG)
+    }
+  } catch {
+    // Keep legacy fields as a migration fallback for incomplete old profiles.
+  }
+  if (!targetKcal) targetKcal = finite(profile?.nutritionProfile?.targetCalories ?? profile?.calories)
+  if (!targetProtein) targetProtein = finite(profile?.nutritionProfile?.protein ?? profile?.protein)
   return {
     loggedMeals: recent.length,
     loggedDays,
@@ -1095,29 +1131,29 @@ async function projectionSources(db, studentId, weekId) {
     ]).then(([canonical, legacy]) => [...new Map([...canonical, ...legacy].map((item) => [item.id, item])).values()].slice(0, 50)),
     latestDocuments(db.collection('sessions').where('studentId', '==', studentId), 'date', 1000),
     latestDocuments(db.collection('attendanceEvents').where('studentId', '==', studentId), 'date', 1000),
-    latestDocuments(db.collection('leaveRequests').where('studentId', '==', studentId), 'startDate', 150),
-    latestDocuments(db.collection('sessionRequests').where('studentId', '==', studentId), 'createdAt', 250),
-    latestDocuments(db.collection('workoutLogs').where('studentId', '==', studentId), 'date', 200),
-    latestDocuments(db.collection('ptWorkoutLogs').where('studentId', '==', studentId), 'date', 200),
-    latestDocuments(db.collection('contractRenewalCases').where('studentId', '==', studentId), 'updatedAt', 20),
-    latestDocuments(db.collection('dailyCheckins').where('studentId', '==', studentId), 'date', 180),
-    latestDocuments(db.collection('payments').where('studentId', '==', studentId), 'effectiveAt', 250),
-    latestDocuments(db.collection('ledgerEntries').where('studentId', '==', studentId), 'effectiveAt', 250),
+    latestDocuments(db.collection('leaveRequests').where('studentId', '==', studentId), 'startDate', PROJECTION_READ_LIMITS.leaveRequests),
+    latestDocuments(db.collection('sessionRequests').where('studentId', '==', studentId), 'createdAt', PROJECTION_READ_LIMITS.sessionRequests),
+    latestDocuments(db.collection('workoutLogs').where('studentId', '==', studentId), 'date', PROJECTION_READ_LIMITS.workoutLogs),
+    latestDocuments(db.collection('ptWorkoutLogs').where('studentId', '==', studentId), 'date', PROJECTION_READ_LIMITS.ptWorkoutLogs),
+    latestDocuments(db.collection('contractRenewalCases').where('studentId', '==', studentId), 'updatedAt', PROJECTION_READ_LIMITS.renewals),
+    latestDocuments(db.collection('dailyCheckins').where('studentId', '==', studentId), 'date', PROJECTION_READ_LIMITS.dailyCheckins),
+    latestDocuments(db.collection('payments').where('studentId', '==', studentId), 'effectiveAt', PROJECTION_READ_LIMITS.payments),
+    latestDocuments(db.collection('ledgerEntries').where('studentId', '==', studentId), 'effectiveAt', PROJECTION_READ_LIMITS.ledgerEntries),
     db.doc(`ptAvailability/${studentId}_${weekId}`).get(),
     studentAccountProfile(db, student),
   ])
   const profile = profileResult.profile
   const accountUid = profileResult.accountUid
   const [mealLogs, mealReviews, bodyMetrics, bodyMeasurements, weightLogs, progressCheckIns, trainingProgramSnapshot, legacyProgressPhotos, progressPhotos] = accountUid ? await Promise.all([
-    latestDocuments(db.collection(`users/${accountUid}/mealLogs`), 'date', 120),
-    latestDocuments(db.collection('mealReviews').where('userId', '==', accountUid), 'createdAt', 120),
-    latestDocuments(db.collection(`users/${accountUid}/bodyMetrics`), 'date', 100),
-    latestDocuments(db.collection(`users/${accountUid}/bodyMeasurements`), 'date', 100),
-    latestDocuments(db.collection(`users/${accountUid}/weightLogs`), 'date', 100),
-    latestDocuments(db.collection(`users/${accountUid}/progressCheckIns`), 'date', 100),
+    latestDocuments(db.collection(`users/${accountUid}/mealLogs`), 'date', PROJECTION_READ_LIMITS.mealLogs),
+    latestDocuments(db.collection('mealReviews').where('userId', '==', accountUid), 'createdAt', PROJECTION_READ_LIMITS.mealReviews),
+    latestDocuments(db.collection(`users/${accountUid}/bodyMetrics`), 'date', PROJECTION_READ_LIMITS.bodyMetrics),
+    latestDocuments(db.collection(`users/${accountUid}/bodyMeasurements`), 'date', PROJECTION_READ_LIMITS.bodyMeasurements),
+    latestDocuments(db.collection(`users/${accountUid}/weightLogs`), 'date', PROJECTION_READ_LIMITS.weightLogs),
+    latestDocuments(db.collection(`users/${accountUid}/progressCheckIns`), 'date', PROJECTION_READ_LIMITS.progressCheckIns),
     db.doc(`ptTrainingPrograms/${studentId}`).get(),
-    latestDocuments(db.collection(`users/${accountUid}/progress_photos`).select('date', 'createdAt', 'updatedAt'), 'date', 60),
-    latestDocuments(db.collection(`users/${accountUid}/progressPhotos`).select('date', 'createdAt', 'updatedAt'), 'date', 60),
+    latestDocuments(db.collection(`users/${accountUid}/progress_photos`).select('date', 'createdAt', 'updatedAt'), 'date', PROJECTION_READ_LIMITS.legacyProgressPhotos),
+    latestDocuments(db.collection(`users/${accountUid}/progressPhotos`).select('date', 'createdAt', 'updatedAt'), 'date', PROJECTION_READ_LIMITS.progressPhotos),
   ]) : [[], [], [], [], [], [], await db.doc(`ptTrainingPrograms/${studentId}`).get(), [], []]
   return {
     student,
@@ -1312,6 +1348,28 @@ function sourceTimelineEvents(studentId, sources) {
 
 async function upsertTimeline(db, events) {
   return upsertChangedTimeline(db, events)
+}
+
+async function queueStudent360ProjectionRefresh(db, studentId, weekId, reason = 'stale') {
+  // One deterministic document per learner prevents a burst of Staff reads
+  // from creating one background job per request. The Firestore trigger in
+  // functions/index.js consumes the newest requestedAt watermark.
+  const reference = db.doc(`${PROJECTION_REFRESH_QUEUE}/${studentId}`)
+  const existing = await reference.get()
+  const current = existing.exists ? existing.data() || {} : {}
+  const requestedAt = timestampMillis(current.requestedAt)
+  const processedAt = timestampMillis(current.processedAt)
+  const now = Date.now()
+  if ((['queued', 'processing'].includes(current.status) && now - requestedAt < 10 * 60 * 1000)
+    || (current.status === 'completed' && now - processedAt < 15 * 60 * 1000)) return false
+  await reference.set({
+    studentId,
+    weekId,
+    reason,
+    requestedAt: FieldValue.serverTimestamp(),
+    status: 'queued',
+  }, { merge: true })
+  return true
 }
 
 /**
@@ -1602,6 +1660,7 @@ function permissionsFor(actor, projection) {
     throw new HttpsError('permission-denied', 'Học viên không thuộc phạm vi được giao.')
   }
   const canViewFinancialAmounts = admin || (sameBranch && actor.capabilities.includes('branch.finance.view'))
+  const canManageCare = admin || manager || assignedTrainer || assignedCoach || assignedSales
   return {
     scope: admin ? 'system' : manager ? 'branch' : assignedSales && !assignedTrainer && !assignedCoach ? 'sales' : 'assigned',
     canViewOperations: admin || manager || assignedTrainer,
@@ -1616,7 +1675,7 @@ function permissionsFor(actor, projection) {
     canViewFinancialStatus: true,
     canViewFinancialAmounts,
     canViewRenewal: admin || manager || assignedSales || actor.capabilities.includes('renewals.case.assigned_student.support'),
-    canManageCare: true,
+    canManageCare,
     canManageContract: admin || manager,
     canRefreshProjection: admin,
   }
@@ -1686,9 +1745,46 @@ async function loadAuthorizedProjection(db, actor, studentId, weekId, forceRefre
   const reference = db.doc(`studentOperationalViews/${studentId}`)
   const snapshot = await reference.get()
   const stored = snapshot.exists ? snapshot.data() : null
-  const stale = !stored || stored.schemaVersion !== OVERVIEW_SCHEMA_VERSION || Date.now() - finite(stored.generatedAtMillis) > PROJECTION_MAX_AGE_MS || stored.schedule?.weekId !== weekId
-  const projection = forceRefresh || stale ? await buildStudent360Projection({ db, studentId, weekId, persist: true }) : stored
-  return { projection, permissions: permissionsFor(actor, projection), cache: { hit: !forceRefresh && !stale, stale: false, maxAgeSeconds: PROJECTION_MAX_AGE_MS / 1000 } }
+  const missing = !stored
+  const schemaStale = Boolean(stored && stored.schemaVersion !== OVERVIEW_SCHEMA_VERSION)
+  const ageStale = Boolean(stored && Date.now() - finite(stored.generatedAtMillis) > PROJECTION_MAX_AGE_MS)
+  const weekStale = Boolean(stored && stored.schedule?.weekId !== weekId)
+  const stale = missing || schemaStale || ageStale || weekStale
+
+  // A fresh-schema projection for the current week can be served stale-while-
+  // revalidate. This keeps the first screen responsive while the durable queue
+  // rebuilds from canonical sources in the background. Missing, schema-old or
+  // wrong-week projections still rebuild synchronously so their shape and
+  // schedule never lie to the operator.
+  // An age-only projection can be served immediately for system admins. Staff
+  // assignment/branch scope is derived from the projection itself; serving it
+  // after it has gone stale could retain access after a reassignment. Staff
+  // therefore keeps the synchronous rebuild path until a canonical assignment
+  // summary is available.
+  const actorCanUseStale = ['admin', 'super_admin'].includes(actor.accessRole) || actor.capabilities.includes('pt.operations.manage')
+  const serveStale = !forceRefresh && actorCanUseStale && !missing && !schemaStale && !weekStale && ageStale
+  let refreshQueued = false
+  let permissions = null
+  if (serveStale) {
+    permissions = permissionsFor(actor, stored)
+    try {
+      refreshQueued = await queueStudent360ProjectionRefresh(db, studentId, weekId, 'age')
+    } catch {
+      // A queue write is an optimization, never a reason to hide a usable
+      // projection. The scheduled reconciler remains the safety net.
+    }
+  }
+  const projection = forceRefresh || (!serveStale && stale)
+    ? await buildStudent360Projection({ db, studentId, weekId, persist: true })
+    : stored
+  const cache = {
+    hit: !forceRefresh && !stale,
+    stale: serveStale,
+    refreshQueued,
+    staleReason: serveStale ? 'age' : null,
+    maxAgeSeconds: PROJECTION_MAX_AGE_MS / 1000,
+  }
+  return { projection, permissions: permissions || permissionsFor(actor, projection), cache }
 }
 
 function safeTimelineEvent(event, permissions) {
@@ -2382,9 +2478,16 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(weekId)) throw new HttpsError('invalid-argument', 'Tuần xem không hợp lệ.')
     const { projection, permissions, cache } = await loadAuthorizedProjection(db, actor, studentId, weekId, false)
     const redacted = redactProjection(projection, permissions)
-    const operationalActions = request.data?.includeOperationalActions === true
-      ? await studentOperationalActions(db, actor, studentId)
-      : []
+    let operationalActions = []
+    if (request.data?.includeOperationalActions === true) {
+      try {
+        operationalActions = await studentOperationalActions(db, actor, studentId)
+      } catch (error) {
+        // Action Center is an optional projection. An index/availability issue
+        // must not turn a valid Student 360 overview into an internal error.
+        logger.warn('student_360_action_center_read_deferred', { studentId, code: error?.code || 'unknown' })
+      }
+    }
     return { ...redacted, ...(operationalActions.length ? { nextActions: operationalActions } : {}), cache }
   })
 
@@ -2472,7 +2575,7 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
     const weekId = mondayDateKey()
     const { projection, permissions } = await loadAuthorizedProjection(db, actor, studentId, weekId, false)
     const pageSize = Math.max(1, Math.min(50, Math.floor(finite(request.data?.pageSize, 30))))
-    const requestedTypes = normalizedArray(request.data?.types).slice(0, 20)
+    const requestedTypes = normalizedArray(request.data?.types).slice(0, 10)
     const cursor = timelineCursor(request.data?.cursor)
     const fromMillis = Math.max(0, Math.floor(finite(request.data?.fromMillis)))
     const readPage = async () => {
@@ -2486,6 +2589,7 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
         let query = db.collection('studentTimelineEvents')
           .where('studentId', '==', studentId)
           .where('sortKey', '<', scanCursor)
+        if (requestedTypes.length) query = query.where('type', 'in', requestedTypes)
         if (fromMillis) query = query.where('sortKey', '>=', fromMillis * 1000)
         const snapshot = await query.orderBy('sortKey', 'desc').limit(scanLimit).get()
         scanned += snapshot.size

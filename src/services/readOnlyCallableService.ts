@@ -5,6 +5,8 @@ import { createClientCorrelationId, reportClientIssue } from './clientTelemetryS
 import { runReadOnlyWithRetry } from './readOnlyCallableCore'
 
 export interface ReadOnlyCallableOptions {
+  /** Reuse the same request identity across explicit regional failover. */
+  correlationId?: string
   signal?: AbortSignal
   timeoutMs?: number
   maximumAttempts?: number
@@ -24,7 +26,7 @@ export async function callReadOnlyFunction<Input, Output>(
     ? firebaseFunctions
     : options.functionsClient
   if (!functionsClient) throw new Error('Firebase Functions chưa sẵn sàng.')
-  const correlationId = createClientCorrelationId()
+  const correlationId = options.correlationId ?? createClientCorrelationId()
   const correlatedInput = input && typeof input === 'object' && !Array.isArray(input)
     ? { ...input, correlationId } as Input
     : input

@@ -71,6 +71,7 @@ export interface MealLogItem {
   cookingNote?: string
   portionNote?: string
   reviewStatus?: 'pending' | 'approved' | 'rejected'
+  servingMultiplier?: number
 }
 
 import { useAuth } from '../../contexts/AuthContext'
@@ -84,6 +85,7 @@ export interface CapturedMealDetailProps {
   onBack: () => void
   onEdit?: (mealId: string) => void
   onDelete?: (mealId: string) => void
+  onUpdate?: (meal: MealLogItem) => Promise<void> | void
 }
 
 export const CapturedMealDetail: React.FC<CapturedMealDetailProps> = ({
@@ -91,6 +93,7 @@ export const CapturedMealDetail: React.FC<CapturedMealDetailProps> = ({
   onBack,
   onEdit,
   onDelete,
+  onUpdate,
 }) => {
   const { user } = useAuth()
   const [isSubmittingReview, setIsSubmittingReview] = useState(false)
@@ -125,6 +128,7 @@ export const CapturedMealDetail: React.FC<CapturedMealDetailProps> = ({
   const [newIngName, setNewIngName] = useState('')
   const [newIngGrams, setNewIngGrams] = useState('50')
   const [newIngCalories, setNewIngCalories] = useState('80')
+  const [isPersisting, setIsPersisting] = useState(false)
 
   // Initial ingredients
   const initialItems = React.useMemo(() => {
@@ -139,11 +143,11 @@ export const CapturedMealDetail: React.FC<CapturedMealDetailProps> = ({
   }
 
   // Multiply scaled values by portion count
-  const totalCal = Math.round((meal.calories || 780) * portionCount)
-  const totalProtein = Math.round((meal.protein || 32) * portionCount)
-  const totalCarbs = Math.round((meal.carbs || 40) * portionCount)
-  const totalFat = Math.round((meal.fat || 12) * portionCount)
-  const totalFiber = Math.round((meal.fiber || 0) * portionCount)
+  const totalCal = Math.round((meal.calories ?? 0) * portionCount)
+  const totalProtein = Math.round((meal.protein ?? 0) * portionCount)
+  const totalCarbs = Math.round((meal.carbs ?? 0) * portionCount)
+  const totalFat = Math.round((meal.fat ?? 0) * portionCount)
+  const totalFiber = typeof meal.fiber === 'number' ? Math.round(meal.fiber * portionCount) : 0
   const storedAiAnalysis = typeof meal.aiAnalysis === 'object' && meal.aiAnalysis !== null ? meal.aiAnalysis : {}
   const displayTitle = (meal.dishName?.trim() || (typeof storedAiAnalysis.dishName === 'string' ? storedAiAnalysis.dishName.trim() : '') || meal.title || 'Bữa ăn dinh dưỡng')
   const quantityAndCookingAnalysis = getUsableFoodAnalysisText(meal.quantityAndCookingAnalysis)
@@ -159,6 +163,43 @@ export const CapturedMealDetail: React.FC<CapturedMealDetailProps> = ({
   
   const macroSumCal = Math.max(1, (totalProtein * 4) + (totalCarbs * 4) + (totalFat * 9))
 
+  const persistDetailUpdate = async (next: MealLogItem, message: string) => {
+    if (!onUpdate) {
+      showToast('Thay đổi chỉ được xem trong phiên này')
+      return
+    }
+    setIsPersisting(true)
+    try {
+      await onUpdate(next)
+      showToast(message)
+    } catch {
+      showToast('Không thể lưu thay đổi. Dữ liệu cũ vẫn được giữ.')
+    } finally {
+      setIsPersisting(false)
+    }
+  }
+
+  const totalsFromIngredients = (items: AiFoodItem[], multiplier = 1) => {
+    const totals = items.reduce((sum, item) => ({
+      calories: sum.calories + (Number(item.calories) || 0),
+      protein: sum.protein + (Number(item.protein) || 0),
+      carbs: sum.carbs + (Number(item.carbs) || 0),
+      fat: sum.fat + (Number(item.fat) || 0),
+      fiber: sum.fiber + (Number(item.fiber) || 0),
+      sugar: sum.sugar + (Number(item.sugar) || 0),
+      sodium: sum.sodium + (Number(item.sodium) || 0),
+    }), { calories: 0, protein: 0, carbs: 0, fat: 0, fiber: 0, sugar: 0, sodium: 0 })
+    return {
+      calories: Math.round(totals.calories * multiplier),
+      protein: Math.round(totals.protein * multiplier),
+      carbs: Math.round(totals.carbs * multiplier),
+      fat: Math.round(totals.fat * multiplier),
+      fiber: items.some((item) => typeof item.fiber === 'number') ? Math.round(totals.fiber * multiplier) : undefined,
+      sugar: items.some((item) => typeof item.sugar === 'number') ? Math.round(totals.sugar * multiplier) : undefined,
+      sodium: items.some((item) => typeof item.sodium === 'number') ? Math.round(totals.sodium * multiplier) : undefined,
+    }
+  }
+
   const handleAddIngredient = (e: React.FormEvent) => {
     e.preventDefault()
     if (!newIngName.trim()) return
@@ -168,23 +209,60 @@ export const CapturedMealDetail: React.FC<CapturedMealDetailProps> = ({
       grams: parseFloat(newIngGrams) || 50,
       calories: parseFloat(newIngCalories) || 80,
     }
-    setIngredients((prev) => [...prev, newItem])
+    const nextIngredients = [...ingredients, newItem]
+    setIngredients(nextIngredients)
     setNewIngName('')
     setShowAddIngredientModal(false)
-    showToast(`Đã thêm thành phần: ${newItem.name}`)
+    const totals = totalsFromIngredients(nextIngredients, portionCount)
+    void persistDetailUpdate({ ...meal, ...totals, items: nextIngredients, servingMultiplier: portionCount }, `Đã thêm thành phần: ${newItem.name}`)
   }
 
   const handleDeleteIngredient = (id: string) => {
-    setIngredients((prev) => prev.filter((item) => item.id !== id))
-    showToast('Đã xóa thành phần')
+    const nextIngredients = ingredients.filter((item) => item.id !== id)
+    setIngredients(nextIngredients)
+    const totals = nextIngredients.length ? totalsFromIngredients(nextIngredients, portionCount) : {
+      calories: meal.calories,
+      protein: meal.protein,
+      carbs: meal.carbs,
+      fat: meal.fat,
+      fiber: meal.fiber,
+      sugar: meal.sugar,
+      sodium: meal.sodium,
+    }
+    void persistDetailUpdate({ ...meal, ...totals, items: nextIngredients, servingMultiplier: portionCount }, 'Đã xóa thành phần')
   }
 
   // Image Fallback
   const heroImageUrl =
-    useMealImage(meal.image, meal.imageStoragePath) ||
-    'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=1200&q=80'
+    useMealImage(meal.image, meal.imageStoragePath) || ''
 
-  const formattedTime = meal.time || '10:57'
+  const formattedTime = meal.time || 'Chưa ghi giờ'
+
+  const updatePortion = (value: number) => {
+    setPortionCount(value)
+    const totals = {
+      calories: Math.round((meal.calories ?? 0) * value),
+      protein: Math.round((meal.protein ?? 0) * value),
+      carbs: Math.round((meal.carbs ?? 0) * value),
+      fat: Math.round((meal.fat ?? 0) * value),
+      fiber: typeof meal.fiber === 'number' ? Math.round(meal.fiber * value) : undefined,
+      sugar: typeof meal.sugar === 'number' ? Math.round(meal.sugar * value) : undefined,
+      sodium: typeof meal.sodium === 'number' ? Math.round(meal.sodium * value) : undefined,
+      items: meal.items?.map((item) => ({
+        ...item,
+        grams: Math.round(item.grams * value * 10) / 10,
+        calories: Math.round(item.calories * value * 10) / 10,
+        protein: typeof item.protein === 'number' ? Math.round(item.protein * value * 10) / 10 : undefined,
+        carbs: typeof item.carbs === 'number' ? Math.round(item.carbs * value * 10) / 10 : undefined,
+        fat: typeof item.fat === 'number' ? Math.round(item.fat * value * 10) / 10 : undefined,
+        fiber: typeof item.fiber === 'number' ? Math.round(item.fiber * value * 10) / 10 : undefined,
+        sugar: typeof item.sugar === 'number' ? Math.round(item.sugar * value * 10) / 10 : undefined,
+        sodium: typeof item.sodium === 'number' ? Math.round(item.sodium * value) : undefined,
+      })),
+      servingMultiplier: value,
+    }
+    void persistDetailUpdate({ ...meal, ...totals }, `Đã lưu khẩu phần: ${value} phần`)
+  }
 
   return (
     <div className="fdet-container">
@@ -203,7 +281,7 @@ export const CapturedMealDetail: React.FC<CapturedMealDetailProps> = ({
             <button className="fdet-lightbox-close" onClick={() => setLightboxOpen(false)}>
               <X size={20} />
             </button>
-            <img src={heroImageUrl} alt={displayTitle} className="fdet-lightbox-img" />
+            {heroImageUrl ? <img src={heroImageUrl} alt={displayTitle} className="fdet-lightbox-img" /> : <div className="fdet-image-placeholder" aria-label="Chưa có ảnh món ăn">🍽️</div>}
             <div className="fdet-lightbox-caption">
               <strong>{displayTitle}</strong>
               <span>{totalCal} kcal · {portionCount} phần</span>
@@ -214,7 +292,7 @@ export const CapturedMealDetail: React.FC<CapturedMealDetailProps> = ({
 
       {/* Hero Top Image Section */}
       <div className="fdet-hero">
-        <img src={heroImageUrl} alt={displayTitle} className="fdet-hero-img" onClick={() => setLightboxOpen(true)} />
+        {heroImageUrl ? <img src={heroImageUrl} alt={displayTitle} className="fdet-hero-img" onClick={() => setLightboxOpen(true)} /> : <div className="fdet-hero-img fdet-image-placeholder" aria-label="Chưa có ảnh món ăn">🍽️<span>Chưa có ảnh món ăn</span></div>}
 
         {/* Overlaid Top Header Controls */}
         <div className="fdet-hero-overlay">
@@ -379,7 +457,7 @@ export const CapturedMealDetail: React.FC<CapturedMealDetailProps> = ({
                   <span className="fdet-macro-icon fdet-icon-fiber">🥦</span>
                   <span className="fdet-macro-label">Chất xơ</span>
                 </div>
-                <span className="fdet-macro-val">{totalFiber || Math.round(totalCarbs * 0.12)} g</span>
+                <span className="fdet-macro-val">{typeof meal.fiber === 'number' ? `${totalFiber} g` : '—'}</span>
               </div>
             </div>
           ) : (
@@ -389,7 +467,7 @@ export const CapturedMealDetail: React.FC<CapturedMealDetailProps> = ({
                   <span className="fdet-macro-icon">🍯</span>
                   <span className="fdet-macro-label">Đường</span>
                 </div>
-                <span className="fdet-macro-val">{Math.round((meal.sugar ?? (meal.carbs * 0.22)) * portionCount)} g</span>
+                <span className="fdet-macro-val">{typeof meal.sugar === 'number' ? `${Math.round(meal.sugar * portionCount)} g` : '—'}</span>
               </div>
 
               <div className="fdet-macro-card">
@@ -397,7 +475,7 @@ export const CapturedMealDetail: React.FC<CapturedMealDetailProps> = ({
                   <span className="fdet-macro-icon">🧂</span>
                   <span className="fdet-macro-label">Muối</span>
                 </div>
-                <span className="fdet-macro-val">{Math.round((meal.sodium ?? 420) * portionCount)} mg</span>
+                <span className="fdet-macro-val">{typeof meal.sodium === 'number' ? `${Math.round(meal.sodium * portionCount)} mg` : '—'}</span>
               </div>
 
               <div className="fdet-macro-card">
@@ -581,7 +659,7 @@ export const CapturedMealDetail: React.FC<CapturedMealDetailProps> = ({
           type="button"
           className="fdet-btn-secondary"
           onClick={handleSubmitReview}
-          disabled={isSubmittingReview || reviewSubmitted || meal.reviewStatus === 'pending' || meal.reviewStatus === 'approved'}
+              disabled={isPersisting || isSubmittingReview || reviewSubmitted || meal.reviewStatus === 'pending' || meal.reviewStatus === 'approved'}
           style={{ color: meal.reviewStatus === 'rejected' ? '#b82850' : (reviewSubmitted || meal.reviewStatus === 'approved') ? '#14805e' : undefined }}
         >
           {isSubmittingReview ? <LoaderCircle size={16} className="animate-spin" /> : (reviewSubmitted || meal.reviewStatus === 'pending' || meal.reviewStatus === 'approved') ? <Check size={16} /> : <ScanLine size={16} />}
@@ -620,9 +698,8 @@ export const CapturedMealDetail: React.FC<CapturedMealDetailProps> = ({
                   type="button"
                   className={`fdet-portion-opt ${portionCount === val ? 'selected' : ''}`}
                   onClick={() => {
-                    setPortionCount(val)
                     setIsEditingPortion(false)
-                    showToast(`Đã cập nhật khẩu phần: ${val} phần`)
+                    updatePortion(val)
                   }}
                 >
                   {val} phần
@@ -686,8 +763,8 @@ export const CapturedMealDetail: React.FC<CapturedMealDetailProps> = ({
                 >
                   Hủy
                 </button>
-                <button type="submit" className="fdet-btn-primary">
-                  Thêm thành phần
+                <button type="submit" className="fdet-btn-primary" disabled={isPersisting}>
+                  {isPersisting ? 'Đang lưu…' : 'Thêm thành phần'}
                 </button>
               </div>
             </form>

@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Award,
+  AlertCircle,
   BarChart3,
   BookOpen,
   CalendarDays,
+  ChevronRight,
   CheckCircle2,
   CircleDollarSign,
   Clock3,
@@ -26,6 +28,7 @@ import {
   buildStaffDashboardPayrollChart,
   type StaffDashboardPayrollSnapshot,
 } from '../../utils/staffDashboardPayroll'
+import { buildStaffDaySchedule, matchesStaffScheduleFilter, staffSessionLabels, type StaffScheduleFilter } from '../../utils/staffDashboardSchedule'
 import './StaffDashboardPage.css'
 import OperationalActionCenter from '../../components/operations/OperationalActionCenter'
 import { useAuraUiSurface } from '../../features/ui-rollout/AuraUiRolloutContext'
@@ -49,7 +52,7 @@ function periodLabel(periodId: string) {
 }
 function chartHeight(value: number, maximum: number) {
   if (value <= 0 || maximum <= 0) return '0%'
-  return `${Math.max(7, Math.round(value / maximum * 100))}%`
+  return `${Math.min(100, value / maximum * 100)}%`
 }
 function demoPayrollSnapshot(periodId: string): StaffDashboardPayrollSnapshot {
   const workdayDates = ['03', '10', '17', '24', '28']
@@ -109,20 +112,12 @@ function demoPerformanceScore(periodId: string): MyPerformanceScore {
     automation: { sourceWarnings: [], trainerStudentCount: 12, nutritionStudentCount: 4, sessionCount: 18, projectionMetricsSkipped: false, generatedAt: new Date().toISOString() },
   }
 }
-function sessionAttendance(session: TrainerSessionSummary) {
-  if (session.attendanceStatus && session.attendanceStatus !== 'policy_charge') return session.attendanceStatus
-  if (['completed', 'attended'].includes(session.status)) return 'present'
-  if (session.status === 'no_show') return 'no_show'
-  return 'pending'
-}
-function statusLabel(session: TrainerSessionSummary) {
-  const attendance = sessionAttendance(session)
-  if (attendance === 'present') return 'Có tập'
-  if (attendance === 'late') return 'Đi trễ'
-  if (attendance === 'no_show') return 'Không đến'
-  const startsAt = Date.parse(`${session.date}T${String(session.hour ?? 0).padStart(2, '0')}:00:00+07:00`)
-  return startsAt > Date.now() ? 'Sắp tới' : 'Chờ xác nhận'
-}
+const scheduleFilters: Array<{ id: StaffScheduleFilter; label: string }> = [
+  { id: 'all', label: 'Tất cả' },
+  { id: 'pending', label: 'Chờ xác nhận' },
+  { id: 'upcoming', label: 'Sắp tới' },
+  { id: 'recorded', label: 'Đã ghi nhận' },
+]
 
 interface Props {
   onNavigate: (view: ViewId) => void
@@ -143,7 +138,9 @@ const positionLabels: Record<StaffPosition, string> = {
 
 export default function StaffDashboardPage({ onNavigate, capabilities, positions, branchCount, isDemo = false }: Props) {
   const actionCenterEnabled = useAuraUiSurface('action-center')
-  const today = dateKey()
+  const [now, setNow] = useState(Date.now)
+  const [scheduleFilter, setScheduleFilter] = useState<StaffScheduleFilter>('all')
+  const today = dateKey(new Date(now))
   const periodId = today.slice(0, 7)
   const effectivePositions = useMemo<StaffPosition[]>(() => positions.length ? positions : isDemo ? ['trainer_pt'] : [], [isDemo, positions])
   const isTrainer = effectivePositions.includes('trainer_pt')
@@ -170,6 +167,15 @@ export default function StaffDashboardPage({ onNavigate, capabilities, positions
   const canViewOwnPerformance = isTrainer && (capabilities.includes('performance.self.view') || isDemo)
   const canReviewPerformance = managerDashboard && (capabilities.includes('performance.evidence.review') || isDemo)
   const canOpenPerformance = canViewOwnPerformance || canReviewPerformance
+
+  useEffect(() => {
+    const updateClock = () => { if (!document.hidden) setNow(Date.now()) }
+    const timer = window.setInterval(updateClock, 60_000)
+    document.addEventListener('visibilitychange', updateClock)
+    return () => { window.clearInterval(timer); document.removeEventListener('visibilitychange', updateClock) }
+  }, [])
+
+  useEffect(() => { setScheduleFilter('all') }, [today])
 
   const load = useCallback(async () => {
     const requestId = ++requestIdRef.current
@@ -217,20 +223,11 @@ export default function StaffDashboardPage({ onNavigate, capabilities, positions
 
   useEffect(() => { void load(); return () => { requestIdRef.current += 1 } }, [load])
 
-  const todaySessions = useMemo(() => sessions
-    .filter((session) => session.date === today && !['cancelled', 'student_cancelled', 'trainer_cancelled'].includes(session.status))
-    .sort((left, right) => Number(left.hour ?? 99) - Number(right.hour ?? 99)), [sessions, today])
-  const todayShiftCount = useMemo(() => new Set(todaySessions.map((session) => `${session.date}:${session.hour}`)).size, [todaySessions])
-  const pendingAttendance = todaySessions.filter((session) => sessionAttendance(session) === 'pending'
-    && Date.parse(`${session.date}T${String(session.hour ?? 0).padStart(2, '0')}:00:00+07:00`) <= Date.now()).length
-  const groupedToday = useMemo(() => {
-    const groups = new Map<string, TrainerSessionSummary[]>()
-    todaySessions.forEach((session) => {
-      const key = `${session.date}:${session.hour}`
-      groups.set(key, [...(groups.get(key) || []), session])
-    })
-    return [...groups.entries()].map(([key, items]) => ({ key, hour: items[0]?.hour, items }))
-  }, [todaySessions])
+  const { sessions: todaySessions, groups: groupedToday, pendingAttendance } = useMemo(
+    () => buildStaffDaySchedule(sessions, today, now), [sessions, today, now],
+  )
+  const todayShiftCount = groupedToday.length
+  const filteredGroups = groupedToday.filter((group) => matchesStaffScheduleFilter(group.states, scheduleFilter))
   const payrollChart = useMemo(() => payroll ? buildStaffDashboardPayrollChart(payroll) : null, [payroll])
   const teachingSlotCount = payrollChart?.buckets.reduce((sum, bucket) => sum + bucket.teachingSlotCount, 0) || 0
 
@@ -286,13 +283,51 @@ export default function StaffDashboardPage({ onNavigate, capabilities, positions
 
   return <main className="staff-dashboard" data-testid="staff-dashboard-page">
     <header className="staff-dashboard__heading">
-      <div><small>AURA STAFF · {roleLabel.toUpperCase()}</small><h1>Tổng quan công việc</h1><p>{today.split('-').reverse().join('/')} · Dữ liệu chỉ trong phạm vi được phân công</p></div>
-      <button type="button" aria-label="Tải lại tổng quan Staff" disabled={loading || refreshing || payrollLoading || performanceLoading} onClick={() => void load()}><RefreshCw className={loading || refreshing ? 'is-spinning' : ''} size={19} /></button>
+      <div className="staff-dashboard__heading-copy">
+        <div className="staff-dashboard__eyebrow"><span>Aura Staff</span><b>{roleLabel}</b></div>
+        <h1>Tổng quan công việc</h1>
+        <p>{today.split('-').reverse().join('/')} · Dữ liệu chỉ trong phạm vi được phân công</p>
+      </div>
+      <div className="staff-dashboard__heading-actions">
+        <span className={`staff-dashboard__sync ${loading || refreshing || payrollLoading || performanceLoading ? 'is-syncing' : ''}`} role="status" aria-live="polite">
+          <i aria-hidden="true" />{loading || refreshing || payrollLoading || performanceLoading ? 'Đang đồng bộ' : 'Đã cập nhật'}
+        </span>
+        <button type="button" aria-label="Tải lại tổng quan Staff" title="Tải lại dữ liệu" disabled={loading || refreshing || payrollLoading || performanceLoading} onClick={() => void load()}>
+          <RefreshCw className={loading || refreshing ? 'is-spinning' : ''} size={18} /><span>Làm mới</span>
+        </button>
+      </div>
     </header>
 
     <AuraMetricCarousel slides={slides} label="Tổng quan công việc Staff" loading={loading} />
     {actionCenterEnabled && <OperationalActionCenter onOpenStudent={(studentId) => { window.location.hash = `#/student-360?studentId=${encodeURIComponent(studentId)}&source=staff-students` }} />}
     {error && <section className="staff-dashboard__state"><Clock3 size={20} /><div><strong>Chưa tải đủ dữ liệu công việc</strong><p>{error}</p></div><button type="button" onClick={() => void load()}>Thử lại</button></section>}
+
+    {coachDashboard && <section className="staff-dashboard__today">
+      <header>
+        <div><small>Hôm nay</small><h2>Lịch dạy và hiện diện</h2></div>
+        <div className="staff-dashboard__section-actions"><span>{pendingAttendance ? `${pendingAttendance} lượt cần xác nhận` : `${todayShiftCount} ca · ${todaySessions.length} học viên`}</span><button type="button" onClick={() => onNavigate('staff-schedule')}>Xem tuần <CalendarDays size={17} /></button></div>
+      </header>
+      {groupedToday.length > 0 && <div className="staff-dashboard__schedule-filters" role="group" aria-label="Lọc ca hôm nay">
+        {scheduleFilters.map((filter) => <button key={filter.id} type="button" className={scheduleFilter === filter.id ? 'is-active' : ''} aria-pressed={scheduleFilter === filter.id} onClick={() => setScheduleFilter(filter.id)}>
+          {filter.label}{filter.id === 'pending' && pendingAttendance > 0 ? <b>{pendingAttendance}</b> : null}
+        </button>)}
+      </div>}
+      {filteredGroups.length ? <div className="staff-dashboard__timeline">{filteredGroups.map((group) => {
+        const pending = group.states.includes('pending')
+        const future = group.states.every((state) => state === 'upcoming')
+        const attention = group.state === 'no_show' || group.state === 'late'
+        const statusIcon = attention ? <AlertCircle /> : pending ? <Clock3 /> : future ? <CalendarDays /> : <CheckCircle2 />
+        const statusText = group.states.length > 1
+          ? group.states.map((state) => staffSessionLabels[state]).join(' · ')
+          : staffSessionLabels[group.state]
+        return <button type="button" key={group.key} onClick={() => onNavigate('staff-schedule')}>
+          <time>{String(group.hour ?? '--').padStart(2, '0')}:00</time>
+          <span><strong>{group.items.map((item) => item.studentName || 'Học viên Aura').join(' · ')}</strong><small>{group.items.length} học viên · {statusText}</small></span>
+          <i className={attention ? 'is-attention' : pending ? 'is-pending' : future ? 'is-future' : 'is-done'}>{statusIcon}</i>
+          <ChevronRight className="staff-dashboard__timeline-arrow" aria-hidden="true" size={15} />
+        </button>
+      })}</div> : groupedToday.length ? <div className="staff-dashboard__empty staff-dashboard__empty--filtered"><AlertCircle size={25} /><strong>Không có ca trong bộ lọc này</strong><p>Chọn “Tất cả” để xem lại toàn bộ lịch hôm nay.</p></div> : <div className="staff-dashboard__empty"><UserRoundCheck size={28} /><strong>Không có ca dạy hôm nay</strong><p>Mở lịch tuần để xem các ca tiếp theo.</p></div>}
+    </section>}
 
     {canOpenPerformance && <section className="staff-dashboard__performance" aria-label="Tóm tắt Aura PT Performance Score" aria-busy={canViewOwnPerformance && performanceLoading}>
       <header>
@@ -322,20 +357,6 @@ export default function StaffDashboardPage({ onNavigate, capabilities, positions
     {roleActions.length > 0 && <section className="staff-dashboard__role-actions">
       <header><div><small>TRUY CẬP THEO VAI TRÒ</small><h2>Việc cần làm</h2></div></header>
       <div>{roleActions.map(({ id, label, detail, view: target, icon: Icon }) => <button type="button" key={id} onClick={() => onNavigate(target)}><span><Icon size={19} /></span><strong>{label}</strong><small>{detail}</small></button>)}</div>
-    </section>}
-
-    {coachDashboard && <section className="staff-dashboard__today">
-      <header><div><small>CA HÔM NAY</small><h2>Lịch dạy và hiện diện</h2></div><button type="button" onClick={() => onNavigate('staff-schedule')}>Xem tuần <CalendarDays size={17} /></button></header>
-      {groupedToday.length ? <div className="staff-dashboard__timeline">{groupedToday.map((group) => {
-        const statuses = group.items.map(statusLabel)
-        const pending = statuses.some((status) => status === 'Chờ xác nhận')
-        const future = statuses.every((status) => status === 'Sắp tới')
-        return <button type="button" key={group.key} onClick={() => onNavigate('staff-schedule')}>
-          <time>{String(group.hour ?? '--').padStart(2, '0')}:00</time>
-          <span><strong>{group.items.map((item) => item.studentName || 'Học viên Aura').join(' · ')}</strong><small>{group.items.length} học viên · {pending ? 'Chờ PT xác nhận' : future ? 'Sắp tới' : statuses.join(' · ')}</small></span>
-          <i className={pending ? 'is-pending' : future ? 'is-future' : 'is-done'}>{pending ? <Clock3 /> : future ? <CalendarDays /> : <CheckCircle2 />}</i>
-        </button>
-      })}</div> : <div className="staff-dashboard__empty"><UserRoundCheck size={28} /><strong>Không có ca dạy hôm nay</strong><p>Mở lịch tuần để xem các ca tiếp theo.</p></div>}
     </section>}
 
     <section className="staff-dashboard__payroll" aria-label="Biểu đồ lương và hoa hồng ca dạy trong tháng" aria-busy={payrollLoading}>

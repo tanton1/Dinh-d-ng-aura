@@ -1,9 +1,19 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import { calculateScheduleOpportunities } from '../src/features/schedule/opportunities'
 import { legacyOpportunities } from './fixtures/legacy-schedule-opportunities'
 import { beginScheduleTiming, measureScheduleTask } from '../src/features/schedule/performance'
 import { hasActionableSearchLimit } from '../src/features/schedule/searchLimit'
+
+test('schedule history boundary refreshes without a workspace reload', () => {
+  const model = readFileSync('src/features/schedule/workspaceModel.ts', 'utf8')
+  const workspace = readFileSync('src/components/schedule/BranchScheduleWorkspace.tsx', 'utf8')
+  assert.match(model, /function scheduleSlotIsPast\([\s\S]*?today = currentVietnamDateKey\(\)/)
+  assert.match(model, /function currentVietnamDateKey\(force = false\)/)
+  assert.match(workspace, /setInterval\(refreshVietnamDate, 30_000\)/)
+  assert.match(workspace, /scheduleSlotIsPast\(slotId, weekDates, vietnamDateKey\)/)
+})
 
 test('search-limit notice only appears when unresolved work was actually capped', () => {
   assert.equal(hasActionableSearchLimit({ rescueSearchLimitReached: true }, [{ primaryReasonCode: 'CONTRACT_SESSION_QUOTA_EXCEEDED' }]), false)

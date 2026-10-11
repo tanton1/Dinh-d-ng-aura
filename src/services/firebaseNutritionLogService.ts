@@ -278,8 +278,8 @@ export async function deleteUserMealLog(userId: string, mealId: string) {
   await callable({ mealId })
 }
 export function subscribeToUserMealLogs(userId: string, onData: (items: any[]) => void, onError?: (error: Error) => void, onSync?: (state: DataSyncState) => void) { return subscribeToUserLog('mealLogs', 'user_meal_logs', userId, onData, onError, onSync) }
-export function subscribeToUserMealLogsForDate(userId: string, date: string, onData: (items: any[]) => void, onError?: (error: Error) => void) {
-  return subscribeToUserLog('mealLogs', 'user_meal_logs_day', userId, onData, onError, undefined, {
+export function subscribeToUserMealLogsForDate(userId: string, date: string, onData: (items: any[]) => void, onError?: (error: Error) => void, onSync?: (state: DataSyncState) => void) {
+  return subscribeToUserLog('mealLogs', `user_meal_logs_day:${date}`, userId, onData, onError, onSync, {
     buildQuery: (reference) => query(reference, where('date', '==', date), limit(100)),
     filterCachedItems: (item) => item.date === date,
   })
@@ -300,8 +300,8 @@ export function loadRecentUserMealLogs(userId: string, fromDate: string, onSync?
 export async function saveUserWaterLog(userId: string, entry: Record<string, unknown> & { id: string }) { return saveUserLog('waterLogs', userId, entry) }
 export async function deleteUserWaterLog(userId: string, entryId: string) { await deleteDoc(doc(requireDb(), 'users', userId, 'waterLogs', entryId)) }
 export function subscribeToUserWaterLogs(userId: string, onData: (items: any[]) => void, onError?: (error: Error) => void, onSync?: (state: DataSyncState) => void) { return subscribeToUserLog('waterLogs', 'user_water_logs', userId, onData, onError, onSync) }
-export function subscribeToUserWaterLogsForDate(userId: string, date: string, onData: (items: any[]) => void, onError?: (error: Error) => void) {
-  return subscribeToUserLog('waterLogs', 'user_water_logs_day', userId, onData, onError, undefined, {
+export function subscribeToUserWaterLogsForDate(userId: string, date: string, onData: (items: any[]) => void, onError?: (error: Error) => void, onSync?: (state: DataSyncState) => void) {
+  return subscribeToUserLog('waterLogs', `user_water_logs_day:${date}`, userId, onData, onError, onSync, {
     buildQuery: (reference) => query(reference, where('date', '==', date), limit(100)),
     filterCachedItems: (item) => item.date === date,
   })
@@ -322,8 +322,8 @@ export function loadRecentUserWaterLogs(userId: string, fromDate: string, onSync
 export async function saveUserActivityLog(userId: string, activity: Record<string, unknown> & { id: string }) { return saveUserLog('activityLogs', userId, activity) }
 export async function deleteUserActivityLog(userId: string, activityId: string) { await deleteDoc(doc(requireDb(), 'users', userId, 'activityLogs', activityId)) }
 export function subscribeToUserActivityLogs(userId: string, onData: (items: any[]) => void, onError?: (error: Error) => void, onSync?: (state: DataSyncState) => void) { return subscribeToUserLog('activityLogs', 'user_activity_logs', userId, onData, onError, onSync) }
-export function subscribeToUserActivityLogsForDate(userId: string, date: string, onData: (items: any[]) => void, onError?: (error: Error) => void) {
-  return subscribeToUserLog('activityLogs', 'user_activity_logs_day', userId, onData, onError, undefined, {
+export function subscribeToUserActivityLogsForDate(userId: string, date: string, onData: (items: any[]) => void, onError?: (error: Error) => void, onSync?: (state: DataSyncState) => void) {
+  return subscribeToUserLog('activityLogs', `user_activity_logs_day:${date}`, userId, onData, onError, onSync, {
     buildQuery: (reference) => query(reference, where('date', '==', date), limit(100)),
     filterCachedItems: (item) => item.date === date,
   })
