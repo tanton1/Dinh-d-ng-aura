@@ -49,3 +49,14 @@ test('Student directory V2 disables the broad legacy roster listeners only when 
   assert.match(directoryV2, /listStudent360Directory/)
   assert.match(directory, /if \(directoryV2\) return/)
 })
+
+test('lazy payroll loading fails closed and invalidates attendance after policy writes', () => {
+  const payroll = readFileSync('src/components/admin/pt/TrainerPayroll.tsx', 'utf8')
+  const workdays = readFileSync('src/components/admin/pt/StaffWorkdayPayrollPanel.tsx', 'utf8')
+  assert.match(payroll, /if \(forceAttendance\) invalidateStaffPayrollAttendance\(\)/)
+  assert.match(payroll, /setPoliciesLoaded\(policiesResult.status === 'fulfilled'\)/)
+  assert.match(payroll, /const loadedPolicies = await ensurePolicies\(\)\s+if \(!loadedPolicies\) return/)
+  const loader = payroll.slice(payroll.indexOf('const ensurePolicies'), payroll.indexOf('const ensureCashAccounts'))
+  assert.match(loader, /catch \(cause\) \{\s+setPoliciesLoaded\(false\)/)
+  assert.match(workdays, /Bộ lọc chỉ áp dụng cho dữ liệu đã tải/)
+})

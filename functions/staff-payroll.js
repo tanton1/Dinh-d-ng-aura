@@ -744,6 +744,7 @@ function createStaffPayrollFunctions({ db, onCall, logger, priceTeachingSlots, p
         })
         return {
           staffId: staff.id,
+          employeeCode: staff.employeeCode || user.employeeCode || '',
           name: staff.name || staff.fullName || staff.displayName || user.name || user.fullName || user.displayName || 'Chưa cập nhật tên',
           branchId: staff.branchId || '',
           employmentType: workdays.employmentType,

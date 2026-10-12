@@ -142,6 +142,7 @@ export default function StaffPayrollStatementPanel({ data, periodId, loading, er
 
     {data && <>
       {!data.run.official && <section className="staff-payroll__state is-estimate"><ShieldCheck size={20} /><div><strong>Sao kê đang tạm tính</strong><p>Ngày công, ca dạy và dòng tiền hoa hồng vẫn có thể thay đổi trước khi khóa kỳ.</p></div></section>}
+      {data.teachingEvidence?.truncated && <section className="staff-payroll__state is-warning"><AlertCircle size={20} /><div><strong>Bằng chứng ca dạy chưa tải đủ</strong><p>Máy chủ đã chạm giới hạn dữ liệu an toàn; số ca và tiền ca đang hiển thị là phần đã tải. Hãy đối soát trước khi duyệt hoặc khóa kỳ.</p></div></section>}
 
       <section className="staff-payroll__policy" aria-label="Hồ sơ và chính sách lương">
         <span className="staff-payroll__policy-icon"><UserRound size={21} /></span>

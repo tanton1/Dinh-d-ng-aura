@@ -24,7 +24,6 @@ export default defineConfig({
           if (id.includes('lucide-react')) return 'vendor-icons'
           if (id.includes('/motion/') || id.includes('/motion-') || id.includes('node_modules\\motion')) return 'vendor-motion'
           if (id.includes('@google/genai')) return 'vendor-ai'
-          if (id.includes('react-hook-form') || id.includes('@hookform') || id.includes('/zod/')) return 'vendor-forms'
           return undefined
         },
       },

@@ -47,6 +47,7 @@
 .staff-payroll__state button { margin-left: auto; border: 0; border-radius: 11px; padding: 9px 12px; background: #fff; color: inherit; font-weight: 800; }
 .staff-payroll__state.is-error { border-color: rgba(208, 56, 88, .2); background: #fff2f5; color: #9d2744; }
 .staff-payroll__state.is-estimate { border-color: rgba(242, 137, 63, .22); background: #fff8ef; color: #914d1d; }
+.staff-payroll__state.is-warning { border-color: rgba(188, 126, 24, .24); background: #fff7df; color: #895313; }
 
 .staff-payroll__policy { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 13px; border: 1px solid rgba(246,47,130,.16); border-radius: 20px; padding: 15px 16px; background: linear-gradient(120deg, #fff0f7, #fff8f2 72%, #fff); box-shadow: 0 13px 30px rgba(108,43,74,.07); }
 .staff-payroll__policy-icon { display: grid; width: 43px; height: 43px; place-items: center; border-radius: 15px; color: #fff; background: linear-gradient(135deg, var(--sp-pink), var(--sp-orange)); box-shadow: 0 9px 20px rgba(246,47,130,.2); }

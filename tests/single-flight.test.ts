@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { runSingleFlight } from '../src/utils/singleFlight'
+import { runKeyedSingleFlight, runSingleFlight } from '../src/utils/singleFlight'
 
 test('single flight collapses rapid duplicate saves into one pending request', async () => {
   let resolvePending!: () => void
@@ -39,4 +39,33 @@ test('single flight unlocks after a failed save so the user can retry', async ()
 
   assert.equal(calls, 2)
   assert.equal(reference.current, null)
+})
+
+test('keyed single flight collapses identical requests but keeps changed payloads independent', async () => {
+  const registry = new Map<string, Promise<number>>()
+  let calls = 0
+  let release!: () => void
+  const gate = new Promise<void>((resolve) => { release = resolve })
+
+  const first = runKeyedSingleFlight(registry, 'meal:one', async () => {
+    calls += 1
+    await gate
+    return 7
+  })
+  const duplicate = runKeyedSingleFlight(registry, 'meal:one', async () => {
+    calls += 1
+    return 99
+  })
+  const changed = runKeyedSingleFlight(registry, 'meal:two', async () => {
+    calls += 1
+    return 11
+  })
+
+  assert.equal(first, duplicate)
+  await Promise.resolve()
+  assert.equal(calls, 2)
+  assert.equal(await changed, 11)
+  release()
+  assert.deepEqual(await Promise.all([first, duplicate]), [7, 7])
+  assert.equal(registry.size, 0)
 })

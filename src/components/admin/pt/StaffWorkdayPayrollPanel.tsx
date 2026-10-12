@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertCircle,
   ArrowLeft,
@@ -15,18 +15,22 @@ import {
 import {
   getStaffPayrollAttendanceDetail,
   fillMissingStaffAttendanceDays,
-  listStaffPayrollAttendance,
   saveStaffAttendanceDay,
   saveWorkCalendar,
-  type StaffAttendanceRow,
   type StaffAttendanceStatus,
   type StaffWorkday,
+  type StaffPayrollAttendanceResult,
   type WorkCalendarHoliday,
 } from '../../../services/staffPayrollService'
 import '../../../styles-staff-workdays.css'
 
 interface Props {
   branches: Array<{ id: string; name: string }>
+  periodId: string
+  attendance: StaffPayrollAttendanceResult | null
+  loading: boolean
+  onPeriodChange: (periodId: string) => void
+  onReload: () => Promise<void>
 }
 
 const editableStatuses: Array<{ id: StaffAttendanceStatus; label: string }> = [
@@ -43,11 +47,6 @@ const editableStatuses: Array<{ id: StaffAttendanceStatus; label: string }> = [
 ]
 
 const weekdayLabels = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7']
-
-function currentPeriod() {
-  const now = new Date()
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
-}
 
 function money(value: unknown) {
   const parsed = Number(value)
@@ -74,12 +73,9 @@ function friendlyError(cause: unknown) {
   return message || 'Không thể xử lý dữ liệu ngày công.'
 }
 
-export default function StaffWorkdayPayrollPanel({ branches }: Props) {
-  const [periodId, setPeriodId] = useState(currentPeriod)
+export default function StaffWorkdayPayrollPanel({ branches, periodId, attendance, loading, onPeriodChange, onReload }: Props) {
   const [branchId, setBranchId] = useState('')
   const [query, setQuery] = useState('')
-  const [rows, setRows] = useState<StaffAttendanceRow[]>([])
-  const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [selectedId, setSelectedId] = useState('')
@@ -92,54 +88,52 @@ export default function StaffWorkdayPayrollPanel({ branches }: Props) {
   const [holidays, setHolidays] = useState<WorkCalendarHoliday[]>([])
   const [holidayDate, setHolidayDate] = useState('')
   const [holidayName, setHolidayName] = useState('')
+  const detailSequence = useRef(0)
+  const rows = attendance?.rows || []
+  const attendanceError = !attendance && !loading ? 'Chưa tải được dữ liệu ngày công của kỳ này.' : ''
 
-  const loadRows = useCallback(async () => {
-    setLoading(true)
-    setError('')
-    try {
-      const result = await listStaffPayrollAttendance(periodId, branchId)
-      setRows(result.rows)
-      if (result.truncated) setNotice('Danh sách đạt giới hạn an toàn. Hãy lọc theo chi nhánh để xem đầy đủ.')
-    } catch (cause) {
-      setRows([])
-      setError(friendlyError(cause))
-    } finally {
-      setLoading(false)
-    }
-  }, [branchId, periodId])
-
-  useEffect(() => { void loadRows() }, [loadRows])
+  useEffect(() => {
+    detailSequence.current += 1
+    setDetail(null)
+    setSelectedId('')
+    setDetailLoading(false)
+  }, [periodId])
 
   const loadDetail = useCallback(async (staffId: string) => {
+    const sequence = detailSequence.current + 1
+    detailSequence.current = sequence
     setSelectedId(staffId)
     setDetail(null)
     setDetailLoading(true)
     setError('')
     try {
       const loaded = await getStaffPayrollAttendanceDetail(periodId, staffId)
+      if (sequence !== detailSequence.current) return
       setDetail(loaded)
       setWeeklyRestDays(loaded.calendar.weeklyRestDays.length ? loaded.calendar.weeklyRestDays : [0])
       setHolidays(loaded.calendar.holidays)
     } catch (cause) {
+      if (sequence !== detailSequence.current) return
       setDetail(null)
       setError(friendlyError(cause))
     } finally {
-      setDetailLoading(false)
+      if (sequence === detailSequence.current) setDetailLoading(false)
     }
   }, [periodId])
 
+  const scopedRows = useMemo(() => branchId ? rows.filter((row) => row.branchId === branchId) : rows, [branchId, rows])
   const visibleRows = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase('vi-VN')
-    return normalized ? rows.filter((row) => row.name.toLocaleLowerCase('vi-VN').includes(normalized)) : rows
-  }, [query, rows])
+    return normalized ? scopedRows.filter((row) => `${row.name} ${row.employeeCode}`.toLocaleLowerCase('vi-VN').includes(normalized)) : scopedRows
+  }, [query, scopedRows])
 
   const summary = useMemo(() => ({
-    total: rows.length,
-    review: rows.filter((row) => row.reviewRequired).length,
-    paidDays: rows.reduce((total, row) => total + row.paidDays, 0),
-    eligibleWorkdays: rows.reduce((total, row) => total + row.eligibleWorkdays, 0),
-    payroll: rows.reduce((total, row) => total + row.finalAmount, 0),
-  }), [rows])
+    total: scopedRows.length,
+    review: scopedRows.filter((row) => row.reviewRequired).length,
+    paidDays: scopedRows.reduce((total, row) => total + row.paidDays, 0),
+    eligibleWorkdays: scopedRows.reduce((total, row) => total + row.eligibleWorkdays, 0),
+    payroll: scopedRows.reduce((total, row) => total + row.finalAmount, 0),
+  }), [scopedRows])
 
   const updateDay = async (day: StaffWorkday, status: StaffAttendanceStatus) => {
     if (!detail || !day.eligible) return
@@ -147,7 +141,8 @@ export default function StaffWorkdayPayrollPanel({ branches }: Props) {
     setError('')
     try {
       await saveStaffAttendanceDay({ staffId: detail.staffId, date: day.date, status })
-      await Promise.all([loadDetail(detail.staffId), loadRows()])
+      await onReload()
+      await loadDetail(detail.staffId)
       setNotice(`Đã cập nhật ngày công ${day.date.split('-').reverse().join('/')}.`)
     } catch (cause) {
       setError(friendlyError(cause))
@@ -182,7 +177,8 @@ export default function StaffWorkdayPayrollPanel({ branches }: Props) {
         holidays,
         expectedRevision: detail.calendar.revision,
       })
-      await Promise.all([loadDetail(detail.staffId), loadRows()])
+      await onReload()
+      await loadDetail(detail.staffId)
       setNotice('Đã duyệt lịch làm việc của chi nhánh cho kỳ này.')
     } catch (cause) {
       setError(friendlyError(cause))
@@ -197,7 +193,8 @@ export default function StaffWorkdayPayrollPanel({ branches }: Props) {
     setError('')
     try {
       const result = await fillMissingStaffAttendanceDays({ staffId: detail.staffId, periodId })
-      await Promise.all([loadDetail(detail.staffId), loadRows()])
+      await onReload()
+      await loadDetail(detail.staffId)
       setNotice(result.createdCount ? `Đã chốt ${result.createdCount} ngày công còn thiếu là Có mặt.` : 'Không còn ngày công trống cần xử lý.')
     } catch (cause) {
       setError(friendlyError(cause))
@@ -208,20 +205,22 @@ export default function StaffWorkdayPayrollPanel({ branches }: Props) {
 
   return <section className={`staff-workdays ${detail || detailLoading && selectedId ? 'is-detail-page' : ''}`} aria-label="Quản lý ngày công nhân viên">
     <div className="staff-workdays__summary">
-      <article><span>Nhân sự</span><strong>{summary.total}</strong><small>trong phạm vi lọc</small></article>
+      <article><span>Nhân sự</span><strong>{summary.total}</strong><small>theo chi nhánh đã chọn</small></article>
       <article className={summary.review ? 'is-warning' : ''}><span>Cần đối soát</span><strong>{summary.review}</strong><small>thiếu công hoặc quyền lợi</small></article>
-      <article><span>Công đã ghi nhận</span><strong>{summary.paidDays}/{summary.eligibleWorkdays}</strong><small>không gồm ngày tương lai</small></article>
+      <article><span>Công đã ghi nhận</span><strong>{summary.paidDays}/{summary.eligibleWorkdays}</strong><small>ngày đã chốt / ngày đủ điều kiện cả kỳ</small></article>
       <article><span>Dự tính toàn kỳ</span><strong>{money(summary.payroll)}</strong><small>gồm lương cơ bản dự phóng</small></article>
     </div>
 
     <div className="staff-workdays__toolbar">
-      <label><span>Kỳ</span><input type="month" value={periodId} onChange={(event) => { setPeriodId(event.target.value); setDetail(null); setSelectedId('') }} /></label>
+      <label><span>Kỳ</span><input type="month" value={periodId} onChange={(event) => { onPeriodChange(event.target.value); setDetail(null); setSelectedId('') }} /></label>
       <label><span>Chi nhánh</span><select value={branchId} onChange={(event) => { setBranchId(event.target.value); setDetail(null); setSelectedId('') }}><option value="">Tất cả</option>{branches.map((branch) => <option value={branch.id} key={branch.id}>{branch.name}</option>)}</select></label>
       <label className="is-search"><span>Tìm nhân viên</span><Search size={16} /><input value={query} placeholder="Tên nhân viên" onChange={(event) => setQuery(event.target.value)} /></label>
-      <button type="button" aria-label="Tải lại ngày công" disabled={loading} onClick={() => void loadRows()}><RefreshCw size={18} /></button>
+      <button type="button" aria-label="Tải lại ngày công" disabled={loading} onClick={() => void onReload()}><RefreshCw size={18} /></button>
     </div>
 
-    {error && <div className="staff-workdays__notice is-error"><AlertCircle size={19} /><span>{error}</span></div>}
+    {(error || attendanceError) && <div className="staff-workdays__notice is-error"><AlertCircle size={19} /><span>{error || attendanceError}</span></div>}
+    {attendance?.truncated && <div className="staff-workdays__notice is-warning"><AlertCircle size={19} /><span>Dữ liệu kỳ này đã chạm giới hạn an toàn; các con số là phần đã tải. Bộ lọc chỉ áp dụng cho dữ liệu đã tải, không bổ sung phần còn thiếu. Cần đối soát nguồn dữ liệu trước khi chốt.</span></div>}
+    {attendance && (attendance.referralDiagnostics.unresolvedEntryCount + attendance.referralDiagnostics.ambiguousCodeEntryCount + attendance.referralDiagnostics.invalidRateEntryCount > 0) && <div className="staff-workdays__notice is-warning"><AlertCircle size={19} /><span>Có giao dịch giới thiệu cần kiểm tra mã nhân viên hoặc tỷ lệ; số tiền này chưa nên xem là đã chốt.</span></div>}
     {notice && <div className="staff-workdays__notice"><CheckCircle2 size={19} /><span>{notice}</span><button type="button" aria-label="Đóng thông báo" onClick={() => setNotice('')}><X size={15} /></button></div>}
 
     <div className={`staff-workdays__layout ${detail || detailLoading && selectedId ? 'is-detail-page' : 'is-list-page'}`}>
@@ -229,15 +228,15 @@ export default function StaffWorkdayPayrollPanel({ branches }: Props) {
         <header><div><span>Danh sách nhân sự</span><strong>{visibleRows.length} người</strong></div><small>Bấm để chốt công</small></header>
         {loading && !rows.length ? <div className="staff-workdays__skeleton" /> : visibleRows.length ? visibleRows.map((row) => <button type="button" key={row.staffId} className={selectedId === row.staffId ? 'is-active' : ''} onClick={() => void loadDetail(row.staffId)}>
           <span className="staff-workdays__avatar">{row.name.slice(0, 1).toUpperCase()}</span>
-          <span className="staff-workdays__person"><strong>{row.name}</strong><small>{row.employmentType === 'collaborator' ? 'CTV' : 'Nhân viên'} · {branches.find((branch) => branch.id === row.branchId)?.name || 'Chưa gắn chi nhánh'}</small></span>
-          <span className="staff-workdays__numbers"><b>{row.paidDays} đã chốt · {row.estimatedPaidDays ?? row.paidDays}/{row.eligibleWorkdays} dự tính</b><small>{teachingCountLabel(row.teachingSlotCount)} · {money(row.finalAmount)} toàn kỳ</small></span>
+          <span className="staff-workdays__person"><strong>{row.name}</strong><small>{row.employeeCode || 'Chưa có mã NV'} · {row.employmentType === 'collaborator' ? 'CTV' : 'Nhân viên'} · {branches.find((branch) => branch.id === row.branchId)?.name || 'Chưa gắn chi nhánh'}</small></span>
+          <span className="staff-workdays__numbers"><b>{row.paidDays} đã ghi nhận · {row.estimatedPaidDays ?? row.paidDays}/{row.eligibleWorkdays} dự tính</b><small>{teachingCountLabel(row.teachingSlotCount)} · {money(row.finalAmount)} dự tính toàn kỳ</small></span>
           {row.reviewRequired && <em>!</em>}<ChevronRight size={17} />
         </button>) : <div className="staff-workdays__empty"><UserRoundCheck size={27} /><strong>Không có nhân sự phù hợp</strong><p>Đổi bộ lọc hoặc kiểm tra hồ sơ đội ngũ.</p></div>}
       </div>}
 
       {(detail || detailLoading && selectedId) && <div className="staff-workdays__detail">
         {detailLoading && !detail ? <div className="staff-workdays__skeleton" /> : detail ? <>
-          <button className="staff-workdays__back" type="button" onClick={() => { setDetail(null); setSelectedId('') }}><ArrowLeft size={18} /> Danh sách ngày công</button><header className="staff-workdays__detail-head"><div><span>{detail.identity.employeeCode || 'NHÂN VIÊN AURA'}</span><strong>{detail.identity.name}</strong><small>{detail.workdays.employmentType === 'collaborator' ? 'CTV · không lương cơ bản' : `${detail.workdays.employmentType === 'part_time' ? 'Part-time' : detail.workdays.employmentLevel === 'senior' ? 'Senior' : detail.workdays.employmentLevel === 'probation' ? 'Thử việc' : 'Chính thức'} · Lương cơ bản ${money(detail.workdays.baseSalary)} · ${money(detail.workdays.dailyRate)}/ngày chuẩn`} · Tự tính {detail.workdays.autoPaidDays} ngày</small></div><div><b>{detail.workdays.paidDays}/{detail.workdays.eligibleWorkdays}</b><small>đã ghi nhận · dự tính {detail.workdays.estimatedPaidDays}/{detail.workdays.eligibleWorkdays}</small>{detail.workdays.workdayEnabled && detail.workdays.pendingDays > 0 && <button type="button" disabled={fillBusy} onClick={() => void fillMissingDays()}>{fillBusy ? 'Đang chốt…' : `Chốt ${detail.workdays.pendingDays} ngày thiếu`}</button>}</div></header>
+          <button className="staff-workdays__back" type="button" onClick={() => { detailSequence.current += 1; setDetail(null); setSelectedId('') }}><ArrowLeft size={18} /> Danh sách ngày công</button><header className="staff-workdays__detail-head"><div><span>{detail.identity.employeeCode || 'NHÂN VIÊN AURA'}</span><strong>{detail.identity.name}</strong><small>{detail.workdays.employmentType === 'collaborator' ? 'CTV · không lương cơ bản' : `${detail.workdays.employmentType === 'part_time' ? 'Part-time' : detail.workdays.employmentLevel === 'senior' ? 'Senior' : detail.workdays.employmentLevel === 'probation' ? 'Thử việc' : 'Chính thức'} · Lương cơ bản ${money(detail.workdays.baseSalary)} · ${money(detail.workdays.dailyRate)}/ngày chuẩn`} · Tự tính {detail.workdays.autoPaidDays} ngày</small></div><div><b>{detail.workdays.paidDays}/{detail.workdays.eligibleWorkdays}</b><small>ngày đã ghi nhận / ngày đủ điều kiện cả kỳ · dự tính {detail.workdays.estimatedPaidDays}/{detail.workdays.eligibleWorkdays}</small>{detail.workdays.workdayEnabled && detail.workdays.pendingDays > 0 && <button type="button" disabled={fillBusy} onClick={() => void fillMissingDays()}>{fillBusy ? 'Đang chốt…' : `Chốt ${detail.workdays.pendingDays} ngày thiếu`}</button>}</div></header>
 
           <div className="staff-workdays__calendar-card">
             <div className="staff-workdays__calendar-title"><div><CalendarCheck2 size={18} /><span><strong>Lịch ngày công</strong><small>Chọn trạng thái trực tiếp trên từng ngày làm việc</small></span></div>{detail.workdays.reviewRequired && <em>Cần đối soát</em>}</div>

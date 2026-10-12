@@ -1,5 +1,6 @@
 import { httpsCallable } from 'firebase/functions'
 import { firebaseFunctions, firebaseScheduleOptimizerFunctions } from '../lib/firebaseFunctions'
+import { firebaseAuth } from '../lib/firebase'
 import type { PayrollIntelligenceSnapshot } from './payrollService'
 import { reportClientIssue } from './clientTelemetryService'
 import { callReadOnlyFunction } from './readOnlyCallableService'
@@ -154,6 +155,8 @@ export interface MyStaffPayroll {
 
 export interface StaffAttendanceRow {
   staffId: string
+  /** Stable identifier for operators when names are duplicated. */
+  employeeCode: string
   name: string
   branchId: string
   employmentType: 'full_time' | 'part_time' | 'collaborator'
@@ -196,6 +199,52 @@ export interface StaffPayrollLiveSummary {
   estimatedTotal: number
   reviewRequiredCount: number
   unconfiguredPolicyCount: number
+}
+
+export interface StaffPayrollAttendanceResult {
+  periodId: string
+  asOfDate: string
+  rows: StaffAttendanceRow[]
+  summary: StaffPayrollLiveSummary
+  referralDiagnostics: {
+    unresolvedEntryCount: number
+    ambiguousCodeEntryCount: number
+    invalidRateEntryCount: number
+  }
+  truncated: boolean
+}
+
+export interface StaffPayrollAttendanceOptions {
+  /** Bypass the short-lived read cache after an attendance/calendar write. */
+  forceRefresh?: boolean
+}
+
+type AttendanceCacheEntry = {
+  value?: StaffPayrollAttendanceResult
+  expiresAt: number
+  promise?: Promise<StaffPayrollAttendanceResult>
+}
+
+// Payroll reads are expensive (the server joins attendance, sessions, policies
+// and ledger evidence). Keep a very short, actor-scoped cache so the carousel,
+// workday tab and adjustment tab share one result without ever sharing data
+// between signed-in accounts. Writes explicitly invalidate this cache below.
+const STAFF_PAYROLL_ATTENDANCE_CACHE_TTL_MS = 20_000
+const staffPayrollAttendanceCache = new Map<string, AttendanceCacheEntry>()
+
+function staffPayrollAttendanceCacheKey(periodId: string, branchId: string) {
+  return `${firebaseAuth?.currentUser?.uid || 'anonymous'}|${periodId}|${branchId || '*'}`
+}
+
+export function invalidateStaffPayrollAttendance(periodId?: string, branchId?: string) {
+  const actorKey = `${firebaseAuth?.currentUser?.uid || 'anonymous'}|`
+  for (const key of staffPayrollAttendanceCache.keys()) {
+    if (!key.startsWith(actorKey)) continue
+    const [, cachedPeriod, cachedBranch] = key.split('|')
+    if (periodId && cachedPeriod !== periodId) continue
+    if (branchId !== undefined && cachedBranch !== (branchId || '*')) continue
+    staffPayrollAttendanceCache.delete(key)
+  }
 }
 
 type UnknownRecord = Record<string, unknown>
@@ -465,14 +514,22 @@ export async function getStaffPayrollStatement(periodId: string, staffId: string
   return normalizeStaffPayrollStatement(result, periodId, staffId)
 }
 
-export async function listStaffPayrollAttendance(periodId: string, branchId = '') {
-  const result = await readOnlyCallable<{ periodId: string; branchId?: string }, { periodId?: unknown; asOfDate?: unknown; rows?: unknown[]; summary?: unknown; referralDiagnostics?: unknown; truncated?: unknown }>('listStaffPayrollAttendance')({ periodId, branchId })
+export async function listStaffPayrollAttendance(periodId: string, branchId = '', options: StaffPayrollAttendanceOptions = {}): Promise<StaffPayrollAttendanceResult> {
+  const cacheKey = staffPayrollAttendanceCacheKey(periodId, branchId)
+  if (options.forceRefresh) staffPayrollAttendanceCache.delete(cacheKey)
+  const cached = staffPayrollAttendanceCache.get(cacheKey)
+  if (cached?.value && cached.expiresAt > Date.now()) return cached.value
+  if (cached?.promise) return cached.promise
+
+  const request = readOnlyCallable<{ periodId: string; branchId?: string }, { periodId?: unknown; asOfDate?: unknown; rows?: unknown[]; summary?: unknown; referralDiagnostics?: unknown; truncated?: unknown }>('listStaffPayrollAttendance')({ periodId, branchId })
+    .then((result) => {
   const rows: StaffAttendanceRow[] = Array.isArray(result.rows) ? result.rows.flatMap((rowValue) => {
     const raw = object(rowValue)
     const staffId = text(raw.staffId)
     if (!staffId) return []
     return [{
       staffId,
+      employeeCode: text(raw.employeeCode),
       name: text(raw.name) || 'Chưa cập nhật tên',
       branchId: text(raw.branchId),
       employmentType: raw.employmentType === 'collaborator' || raw.employmentType === 'part_time' ? raw.employmentType : 'full_time',
@@ -529,6 +586,21 @@ export async function listStaffPayrollAttendance(periodId: string, branchId = ''
     },
     truncated: result.truncated === true,
   }
+    })
+
+  staffPayrollAttendanceCache.set(cacheKey, { promise: request, expiresAt: Date.now() + STAFF_PAYROLL_ATTENDANCE_CACHE_TTL_MS })
+  try {
+    const value = await request
+    // A force refresh may have replaced this request while it was in flight.
+    // Do not let the older response repopulate the cache with stale payroll.
+    if (staffPayrollAttendanceCache.get(cacheKey)?.promise === request) {
+      staffPayrollAttendanceCache.set(cacheKey, { value, expiresAt: Date.now() + STAFF_PAYROLL_ATTENDANCE_CACHE_TTL_MS })
+    }
+    return value
+  } catch (error) {
+    if (staffPayrollAttendanceCache.get(cacheKey)?.promise === request) staffPayrollAttendanceCache.delete(cacheKey)
+    throw error
+  }
 }
 
 export async function getStaffPayrollAttendanceDetail(periodId: string, staffId: string) {
@@ -545,16 +617,19 @@ export async function getStaffPayrollAttendanceDetail(periodId: string, staffId:
 
 export async function saveStaffAttendanceDay(input: { staffId: string; date: string; status: StaffAttendanceStatus; note?: string }) {
   const result = await callable<typeof input, { staffId: string; date: string; status: StaffAttendanceStatus; revision: number }>('saveStaffAttendanceDay')(input)
+  invalidateStaffPayrollAttendance(/^\d{4}-\d{2}/.test(input.date) ? input.date.slice(0, 7) : undefined)
   return result.data
 }
 
 export async function fillMissingStaffAttendanceDays(input: { staffId: string; periodId: string }) {
   const result = await callable<typeof input, { staffId: string; periodId: string; createdCount: number; unchanged: boolean }>('fillMissingStaffAttendanceDays')(input)
+  invalidateStaffPayrollAttendance(input.periodId)
   return result.data
 }
 
 export async function saveWorkCalendar(input: { periodId: string; branchId?: string; weeklyRestDays: number[]; holidays: WorkCalendarHoliday[]; expectedRevision: number }) {
   const result = await callable<typeof input, { periodId: string; branchId: string; revision: number; status: 'approved' }>('saveWorkCalendar')(input)
+  invalidateStaffPayrollAttendance(input.periodId)
   return result.data
 }
 

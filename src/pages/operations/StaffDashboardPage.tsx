@@ -359,9 +359,9 @@ export default function StaffDashboardPage({ onNavigate, capabilities, positions
       <div>{roleActions.map(({ id, label, detail, view: target, icon: Icon }) => <button type="button" key={id} onClick={() => onNavigate(target)}><span><Icon size={19} /></span><strong>{label}</strong><small>{detail}</small></button>)}</div>
     </section>}
 
-    <section className="staff-dashboard__payroll" aria-label="Biểu đồ lương và hoa hồng ca dạy trong tháng" aria-busy={payrollLoading}>
+    <section className="staff-dashboard__payroll" aria-label="Biểu đồ lương và tiền ca dạy trong tháng" aria-busy={payrollLoading}>
       <header>
-        <div><small>THU NHẬP · {periodLabel(periodId).toUpperCase()}</small><h2>Lương & hoa hồng ca dạy</h2></div>
+        <div><small>THU NHẬP · {periodLabel(periodId).toUpperCase()}</small><h2>Lương & tiền ca dạy</h2></div>
         {canViewPayroll && <button type="button" onClick={() => onNavigate('staff-payroll')}>Chi tiết <WalletCards size={17} /></button>}
       </header>
       {payrollLoading ? <div className="staff-dashboard__payroll-loading" aria-label="Đang tải biểu đồ thu nhập"><span /><span /><span /><span /><span /></div>
@@ -369,18 +369,18 @@ export default function StaffDashboardPage({ onNavigate, capabilities, positions
           : payrollChart ? <>
             <div className="staff-dashboard__payroll-summary">
               <article><span><WalletCards size={17} />Lương theo công</span><strong>{money(payrollChart.baseSalaryAmount)}</strong><small>{payrollChart.official ? 'Đã khóa số liệu' : 'Tạm tính trong kỳ'}</small></article>
-              <article><span><CircleDollarSign size={17} />Hoa hồng ca dạy</span><strong>{money(payrollChart.teachingPayAmount)}</strong><small>{teachingSlotCount} ca đã ghi nhận</small></article>
+              <article><span><CircleDollarSign size={17} />Tiền ca dạy</span><strong>{money(payrollChart.teachingPayAmount)}</strong><small>{teachingSlotCount} ca đã ghi nhận</small></article>
             </div>
-            <div className="staff-dashboard__chart" role="img" aria-label={`Biểu đồ ${periodLabel(periodId)}: lương ${money(payrollChart.baseSalaryAmount)}, hoa hồng ca dạy ${money(payrollChart.teachingPayAmount)}`}>
+            <div className="staff-dashboard__chart" role="img" aria-label={`Biểu đồ ${periodLabel(periodId)}: lương ${money(payrollChart.baseSalaryAmount)}, tiền ca dạy ${money(payrollChart.teachingPayAmount)}`}>
               {payrollChart.buckets.map((bucket) => <article key={bucket.id}>
                 <div className="staff-dashboard__bars">
                   <span className="is-salary" style={{ height: chartHeight(bucket.baseSalaryAmount, payrollChart.maxBucketAmount) }} title={`Lương ${bucket.label}: ${money(bucket.baseSalaryAmount)}`} />
-                  <span className="is-teaching" style={{ height: chartHeight(bucket.teachingPayAmount, payrollChart.maxBucketAmount) }} title={`Hoa hồng ca dạy ${bucket.label}: ${money(bucket.teachingPayAmount)}`} />
+                  <span className="is-teaching" style={{ height: chartHeight(bucket.teachingPayAmount, payrollChart.maxBucketAmount) }} title={`Tiền ca dạy ${bucket.label}: ${money(bucket.teachingPayAmount)}`} />
                 </div>
                 <strong>{bucket.label}</strong><small>{bucket.teachingSlotCount} ca</small>
               </article>)}
             </div>
-            <footer><span><i className="is-salary" />Lương theo công</span><span><i className="is-teaching" />Hoa hồng ca dạy</span><small>Tiền ca chỉ ghi nhận sau điểm danh hợp lệ.</small></footer>
+            <footer><span><i className="is-salary" />Lương theo công</span><span><i className="is-teaching" />Tiền ca dạy</span><small>Tiền ca chỉ ghi nhận sau điểm danh hợp lệ.</small></footer>
           </> : <div className="staff-dashboard__payroll-state"><BarChart3 size={28} /><strong>Chưa có dữ liệu thu nhập</strong><p>Bảng lương tháng sẽ xuất hiện khi tài khoản được cấp quyền và có chính sách phù hợp.</p></div>}
     </section>
   </main>

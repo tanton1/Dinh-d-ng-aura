@@ -1,5 +1,7 @@
 import { httpsCallable } from 'firebase/functions'
+import { firebaseAuth } from '../lib/firebase'
 import { firebaseFunctions } from '../lib/firebaseFunctions'
+import { runKeyedSingleFlight } from '../utils/singleFlight'
 
 type AuraAiAction =
   | 'course-outline'
@@ -20,17 +22,32 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
 
+function stableSerialize(value: unknown): string {
+  if (value === undefined) return 'undefined'
+  if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? String(value)
+  if (Array.isArray(value)) return `[${value.map(stableSerialize).join(',')}]`
+  const record = value as Record<string, unknown>
+  return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${stableSerialize(record[key])}`).join(',')}}`
+}
+
+const inFlightContentRequests = new Map<string, Promise<unknown>>()
+
 async function generateAuraContent<T>(action: AuraAiAction, payload: Record<string, unknown>): Promise<T> {
-  if (!firebaseFunctions) throw new Error('Firebase Functions chưa được cấu hình.')
-  const callable = httpsCallable<
-    { action: AuraAiAction; payload: Record<string, unknown> },
-    AuraAiResponse<T>
-  >(firebaseFunctions, 'generateAuraContent', { timeout: 60_000 })
-  const response = await callable({ action, payload })
-  if (response.data?.action !== action || !isRecord(response.data?.data)) {
-    throw new Error('Phản hồi AI không hợp lệ.')
-  }
-  return response.data.data
+  const functions = firebaseFunctions
+  if (!functions) throw new Error('Firebase Functions chưa được cấu hình.')
+  const ownerId = firebaseAuth?.currentUser?.uid ?? 'anonymous'
+  const requestKey = `${ownerId}:${action}:${stableSerialize(payload)}`
+  return runKeyedSingleFlight(inFlightContentRequests, requestKey, async () => {
+    const callable = httpsCallable<
+      { action: AuraAiAction; payload: Record<string, unknown> },
+      AuraAiResponse<T>
+    >(functions, 'generateAuraContent', { timeout: 60_000 })
+    const response = await callable({ action, payload })
+    if (response.data?.action !== action || !isRecord(response.data?.data)) {
+      throw new Error('Phản hồi AI không hợp lệ.')
+    }
+    return response.data.data
+  }) as Promise<T>
 }
 
 export interface GeneratedCourseOutline {

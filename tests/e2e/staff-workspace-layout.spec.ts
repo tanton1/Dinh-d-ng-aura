@@ -33,7 +33,7 @@ test('staff dock prioritizes work modules and schedule tools share one weekly wo
   await expect(performanceSummary).toBeVisible()
   await expect(performanceSummary.getByText('82/100', { exact: true })).toBeVisible()
   await expect(performanceSummary.getByText('6.5/10', { exact: true })).toBeVisible()
-  await expect(page.getByRole('region', { name: 'Biểu đồ lương và hoa hồng ca dạy trong tháng' })).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Biểu đồ lương và tiền ca dạy trong tháng' })).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Truy cập nhanh' })).toHaveCount(0)
   await expect(page.locator('.staff-dashboard__timeline > button')).toHaveCount(7)
 

@@ -72,9 +72,11 @@ import StaffPayrollStatementPanel from './StaffPayrollStatementPanel'
 import TrainingHistoryPanel from './TrainingHistoryPanel'
 import {
   getStaffPayrollStatement,
+  invalidateStaffPayrollAttendance,
   listStaffPayrollAttendance,
   type MyStaffPayroll,
   type StaffAttendanceRow,
+  type StaffPayrollAttendanceResult,
 } from '../../../services/staffPayrollService'
 
 interface Props {
@@ -240,6 +242,7 @@ export default function TrainerPayroll({ profile }: Props) {
   const [payoutAccountId, setPayoutAccountId] = useState('')
   const [payoutReference, setPayoutReference] = useState('')
   const refreshSequence = useRef(0)
+  const staffStatementSequence = useRef(0)
 
   useEffect(() => {
     if (!violationDialog) return undefined
@@ -253,7 +256,10 @@ export default function TrainerPayroll({ profile }: Props) {
   const [showPolicyForm, setShowPolicyForm] = useState(false)
   const [showIntelligenceForm, setShowIntelligenceForm] = useState(false)
   const [liveRows, setLiveRows] = useState<StaffAttendanceRow[]>([])
+  const [liveAttendance, setLiveAttendance] = useState<StaffPayrollAttendanceResult | null>(null)
   const [liveAsOfDate, setLiveAsOfDate] = useState('')
+  const [policiesLoaded, setPoliciesLoaded] = useState(false)
+  const [accountsLoaded, setAccountsLoaded] = useState(false)
   const [staffStatementId, setStaffStatementId] = useState('')
   const [staffStatement, setStaffStatement] = useState<MyStaffPayroll | null>(null)
   const [staffStatementLoading, setStaffStatementLoading] = useState(false)
@@ -339,7 +345,9 @@ export default function TrainerPayroll({ profile }: Props) {
     setShowPolicyForm(true)
   }
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (forceAttendance = false) => {
+    // Policy writes can affect every period, including cached inactive tabs.
+    if (forceAttendance) invalidateStaffPayrollAttendance()
     const sequence = refreshSequence.current + 1
     refreshSequence.current = sequence
     setLoading(true)
@@ -348,97 +356,135 @@ export default function TrainerPayroll({ profile }: Props) {
     const rememberFailure = (result: PromiseSettledResult<unknown>) => {
       if (!firstFailure && result.status === 'rejected') firstFailure = result.reason
     }
+    const needsAttendance = view !== 'policies'
 
-    // The live staff table is the critical path. Loading it alone first makes
-    // the payroll page useful quickly and avoids eight cold-starts competing
-    // for the project CPU quota at the same time.
-    const [liveResult] = await Promise.allSettled([listStaffPayrollAttendance(periodId)])
-    if (sequence !== refreshSequence.current) return
-    rememberFailure(liveResult)
-    if (liveResult.status === 'fulfilled') {
-      setLiveRows([...liveResult.value.rows].sort((left, right) => left.name.localeCompare(right.name, 'vi')))
-      setLiveAsOfDate(liveResult.value.asOfDate)
-    } else {
-      setLiveRows([])
-      setLiveAsOfDate('')
+    // Only the selected tab's data is fetched. Attendance is shared by the
+    // carousel, Ngày công and Thưởng / phạt through the service cache, so a
+    // tab switch never creates a second expensive session/ledger join.
+    if (needsAttendance) {
+      const [liveResult] = await Promise.allSettled([listStaffPayrollAttendance(periodId, '', { forceRefresh: forceAttendance })])
+      if (sequence !== refreshSequence.current) return
+      rememberFailure(liveResult)
+      if (liveResult.status === 'fulfilled') {
+        const sortedRows = [...liveResult.value.rows].sort((left, right) => `${left.name} ${left.employeeCode}`.localeCompare(`${right.name} ${right.employeeCode}`, 'vi'))
+        setLiveAttendance({ ...liveResult.value, rows: sortedRows })
+        setLiveRows(sortedRows)
+        setLiveAsOfDate(liveResult.value.asOfDate)
+      } else {
+        setLiveAttendance(null)
+        setLiveRows([])
+        setLiveAsOfDate('')
+      }
     }
 
-    // Keep background reads to two concurrent callables. This preserves a
-    // fast first paint while preventing a payroll refresh from creating a
-    // burst of independent Cloud Run revisions in the same region.
-    const [runsResult, policiesResult] = await Promise.allSettled([
-      listPayrollRuns(36),
-      listPayrollPolicies(),
-    ])
-    if (sequence !== refreshSequence.current) return
-    rememberFailure(runsResult)
-    rememberFailure(policiesResult)
-    if (runsResult.status === 'fulfilled') setRuns(runsResult.value)
-    if (policiesResult.status === 'fulfilled') setPolicies(policiesResult.value)
+    if (view === 'runs') {
+      const [runsResult] = await Promise.allSettled([listPayrollRuns(36)])
+      if (sequence !== refreshSequence.current) return
+      rememberFailure(runsResult)
+      if (runsResult.status === 'fulfilled') setRuns(runsResult.value)
+    } else if (view === 'adjustments') {
+      const [adjustmentsResult, earningEventsResult] = await Promise.allSettled([
+        listPayrollAdjustments(periodId),
+        listPayrollEarningEvents(periodId),
+      ])
+      if (sequence !== refreshSequence.current) return
+      rememberFailure(adjustmentsResult)
+      rememberFailure(earningEventsResult)
+      if (adjustmentsResult.status === 'fulfilled') setAdjustments(adjustmentsResult.value)
+      else setAdjustments([])
+      if (earningEventsResult.status === 'fulfilled') { setEarningEvents(earningEventsResult.value.events); setEarningSummary(earningEventsResult.value.summary) }
+      else { setEarningEvents([]); setEarningSummary({ approvedAmount: 0, pendingAmount: 0, disputedAmount: 0, rejectedAmount: 0, payableAmount: 0 }) }
+    } else if (view === 'policies') {
+      const [policiesResult, intelligencePoliciesResult] = await Promise.allSettled([
+        listPayrollPolicies(),
+        listPayrollIntelligencePolicies(),
+      ])
+      if (sequence !== refreshSequence.current) return
+      rememberFailure(policiesResult)
+      rememberFailure(intelligencePoliciesResult)
+      setPoliciesLoaded(policiesResult.status === 'fulfilled')
+      if (policiesResult.status === 'fulfilled') setPolicies(policiesResult.value)
+      if (intelligencePoliciesResult.status === 'fulfilled') setIntelligencePolicies(intelligencePoliciesResult.value)
+      else setIntelligencePolicies([])
 
-    const [accountsResult, adjustmentsResult] = await Promise.allSettled([
-      listCashAccounts(),
-      listPayrollAdjustments(periodId),
-    ])
-    if (sequence !== refreshSequence.current) return
-    rememberFailure(accountsResult)
-    rememberFailure(adjustmentsResult)
-    if (accountsResult.status === 'fulfilled') {
-      const activeAccounts = accountsResult.value.accounts.filter((account) => account.status === 'active')
-      setCashAccounts(activeAccounts)
-      setPayoutAccountId((current) => current || activeAccounts[0]?.id || '')
-    }
-    if (adjustmentsResult.status === 'fulfilled') setAdjustments(adjustmentsResult.value)
-    else setAdjustments([])
-
-    const [earningEventsResult, intelligencePoliciesResult] = await Promise.allSettled([
-      listPayrollEarningEvents(periodId),
-      listPayrollIntelligencePolicies(),
-    ])
-    if (sequence !== refreshSequence.current) return
-    rememberFailure(earningEventsResult)
-    rememberFailure(intelligencePoliciesResult)
-    if (earningEventsResult.status === 'fulfilled') { setEarningEvents(earningEventsResult.value.events); setEarningSummary(earningEventsResult.value.summary) }
-    else { setEarningEvents([]); setEarningSummary({ approvedAmount: 0, pendingAmount: 0, disputedAmount: 0, rejectedAmount: 0, payableAmount: 0 }) }
-    if (intelligencePoliciesResult.status === 'fulfilled') setIntelligencePolicies(intelligencePoliciesResult.value)
-    else setIntelligencePolicies([])
-
-    // Target is intentionally last because its fallback can use the policy
-    // response above; it is not needed to render the staff table.
-    const [targetResult] = await Promise.allSettled([getPayrollTarget(periodId)])
-    if (sequence !== refreshSequence.current) return
-    rememberFailure(targetResult)
-    if (targetResult.status === 'fulfilled') {
-      setPayrollTarget(targetResult.value)
-      const fallbackMetrics = intelligencePoliciesResult.status === 'fulfilled'
-        ? intelligencePoliciesResult.value.find((policy) => policy.status === 'active')?.metrics || {}
-        : {}
-      const values = Object.keys(targetResult.value.metricTargets).length
-        ? targetResult.value.metricTargets
-        : Object.fromEntries(Object.entries(fallbackMetrics).filter(([, metric]) => metric.enabled && metric.target > 0).map(([key, metric]) => [key, metric.target]))
-      setTargetForm(Object.fromEntries(Object.entries(values).map(([key, value]) => [key, String(value)])))
-    } else {
-      setPayrollTarget(null)
-      setTargetForm({})
+      // Target is only needed by the Chính sách tab and is intentionally
+      // loaded after the two policy lists so its fallback stays deterministic.
+      const [targetResult] = await Promise.allSettled([getPayrollTarget(periodId)])
+      if (sequence !== refreshSequence.current) return
+      rememberFailure(targetResult)
+      if (targetResult.status === 'fulfilled') {
+        setPayrollTarget(targetResult.value)
+        const fallbackMetrics = intelligencePoliciesResult.status === 'fulfilled'
+          ? intelligencePoliciesResult.value.find((policy) => policy.status === 'active')?.metrics || {}
+          : {}
+        const values = Object.keys(targetResult.value.metricTargets).length
+          ? targetResult.value.metricTargets
+          : Object.fromEntries(Object.entries(fallbackMetrics).filter(([, metric]) => metric.enabled && metric.target > 0).map(([key, metric]) => [key, metric.target]))
+        setTargetForm(Object.fromEntries(Object.entries(values).map(([key, value]) => [key, String(value)])))
+      } else {
+        setPayrollTarget(null)
+        setTargetForm({})
+      }
     }
     if (firstFailure) setError(friendlyError(firstFailure))
     setLoading(false)
+  }, [periodId, view])
+
+  useEffect(() => {
+    setLiveAttendance(null)
+    setLiveRows([])
+    setLiveAsOfDate('')
+    staffStatementSequence.current += 1
+    setStaffStatementId('')
+    setStaffStatement(null)
   }, [periodId])
 
   useEffect(() => { void refresh() }, [refresh])
 
+  const ensurePolicies = useCallback(async (): Promise<PayrollPolicy[] | null> => {
+    if (policiesLoaded) return policies
+    setLoading(true)
+    try {
+      const loaded = await listPayrollPolicies()
+      setPolicies(loaded)
+      setPoliciesLoaded(true)
+      return loaded
+    } catch (cause) {
+      setPoliciesLoaded(false)
+      setError(friendlyError(cause))
+      return null
+    } finally {
+      setLoading(false)
+    }
+  }, [policies, policiesLoaded])
+
+  const ensureCashAccounts = useCallback(async () => {
+    if (accountsLoaded) return cashAccounts
+    const loaded = await listCashAccounts()
+    const activeAccounts = loaded.accounts.filter((account) => account.status === 'active')
+    setCashAccounts(activeAccounts)
+    setPayoutAccountId((current) => current || activeAccounts[0]?.id || '')
+    setAccountsLoaded(true)
+    return activeAccounts
+  }, [accountsLoaded, cashAccounts])
+
   const openStaffStatement = useCallback(async (staffId: string) => {
+    const sequence = staffStatementSequence.current + 1
+    staffStatementSequence.current = sequence
     setStaffStatementId(staffId)
     setStaffStatement(null)
     setStaffStatementError('')
     setStaffStatementLoading(true)
     window.scrollTo({ top: 0, behavior: 'smooth' })
     try {
-      setStaffStatement(await getStaffPayrollStatement(periodId, staffId))
+      const loaded = await getStaffPayrollStatement(periodId, staffId)
+      if (sequence !== staffStatementSequence.current) return
+      setStaffStatement(loaded)
     } catch (cause) {
+      if (sequence !== staffStatementSequence.current) return
       setStaffStatementError(friendlyError(cause))
     } finally {
-      setStaffStatementLoading(false)
+      if (sequence === staffStatementSequence.current) setStaffStatementLoading(false)
     }
   }, [periodId])
 
@@ -448,6 +494,7 @@ export default function TrainerPayroll({ profile }: Props) {
     setError('')
     try {
       const loaded = await getPayrollRun(runId)
+      if (loaded.run.status === 'locked') await ensureCashAccounts()
       setDetail(loaded)
       setRuns((current) => current.map((run) => run.id === runId ? {
         ...run,
@@ -478,17 +525,20 @@ export default function TrainerPayroll({ profile }: Props) {
     } finally {
       setDetailLoading(false)
     }
-  }, [])
+  }, [ensureCashAccounts])
 
-  const openRunSetup = () => {
-    if (!activePolicies.length) {
+  const openRunSetup = async () => {
+    const loadedPolicies = await ensurePolicies()
+    if (!loadedPolicies) return
+    const availablePolicies = loadedPolicies.filter((policy) => policy.status === 'active')
+    if (!availablePolicies.length) {
       setView('policies')
       setShowPolicyForm(true)
       setError('Hãy tạo hoặc mở lại ít nhất một chính sách trước khi lập kỳ lương.')
       return
     }
-    const initial = activePolicies[0]
-    setSelectedPolicyIds(activePolicies.map((policy) => policy.id))
+    const initial = availablePolicies[0]
+    setSelectedPolicyIds(availablePolicies.map((policy) => policy.id))
     setDefaultPolicyId(initial.id)
     setPolicyApplicationMode('staff_profile')
     setTrainerPolicyAssignments({})
@@ -546,7 +596,7 @@ export default function TrainerPayroll({ profile }: Props) {
       })
       setShowRunSetup(false)
       setMessage(result.unchanged ? 'Kỳ lương này đã tồn tại; Aura không tạo trùng.' : 'Đã tạo bản nháp theo cấu hình chính sách đã chọn.')
-      await refresh()
+      await refresh(true)
       await openRun(result.runId)
     } catch (cause) {
       const failure = friendlyFailure(cause)
@@ -580,7 +630,7 @@ export default function TrainerPayroll({ profile }: Props) {
         setPayoutReference('')
         setMessage('Đã ghi nhận chi lương đồng thời vào sổ quỹ và sổ cái.')
       }
-      await refresh()
+      await refresh(true)
       if (run?.id) await openRun(run.id)
     } catch (cause) {
       setError(friendlyError(cause))
@@ -617,7 +667,7 @@ export default function TrainerPayroll({ profile }: Props) {
           : confirmation.action === 'hide' ? 'Đã ẩn chính sách khỏi danh sách lập kỳ mới.' : 'Đã mở lại chính sách.')
       }
       setPendingConfirmation(null)
-      await refresh()
+      await refresh(true)
     } catch (cause) {
       setError(friendlyError(cause))
     } finally {
@@ -695,7 +745,7 @@ export default function TrainerPayroll({ profile }: Props) {
       })
       setMessage(result.unchanged ? 'Chính sách này đã tồn tại.' : 'Đã lưu phiên bản chính sách mới; kỳ cũ không bị thay đổi.')
       setShowPolicyForm(false)
-      await refresh()
+      await refresh(true)
     } catch (cause) {
       setError(friendlyError(cause))
     } finally {
@@ -747,7 +797,7 @@ export default function TrainerPayroll({ profile }: Props) {
       })
       setMessage(result.unchanged ? 'Chính sách phân tích này đã tồn tại.' : 'Đã lưu chính sách KPI – Renew – Attribution. Không thay đổi số tiền lương hiện hữu.')
       setShowIntelligenceForm(false)
-      await refresh()
+      await refresh(true)
     } catch (cause) {
       setError(friendlyError(cause))
     } finally {
@@ -775,7 +825,7 @@ export default function TrainerPayroll({ profile }: Props) {
       }
       if (approve) await approvePayrollTarget(periodId, targetReason.trim())
       setMessage(approve ? 'Đã duyệt target KPI cho kỳ. Snapshot kỳ lương không bị thay đổi âm thầm.' : 'Đã lưu target tạm thời. Manager cần duyệt trước khi khóa KPI.')
-      await refresh()
+      await refresh(true)
     } catch (cause) {
       const parsed = parsePayrollFailure(cause)
       setPayrollFailure(parsed)
@@ -793,7 +843,7 @@ export default function TrainerPayroll({ profile }: Props) {
     try {
       await managePayrollIntelligencePolicy(policyId, status === 'active' ? 'hide' : 'restore')
       setMessage(status === 'active' ? 'Đã ẩn chính sách phân tích.' : 'Đã mở lại chính sách phân tích.')
-      await refresh()
+      await refresh(true)
     } catch (cause) {
       setError(friendlyError(cause))
     } finally {
@@ -838,7 +888,7 @@ export default function TrainerPayroll({ profile }: Props) {
       })
       setAdjustmentForm((current) => ({ ...current, amount: '', reason: '', evidenceReference: '' }))
       setMessage(`Đã gửi ${adjustmentForm.type === 'bonus' ? 'thưởng' : 'khấu trừ'} chờ duyệt cho kỳ ${periodLabel(periodId)}. Phần lương khác không bị giữ lại.`)
-      await refresh()
+      await refresh(true)
     } catch (cause) {
       const failure = friendlyFailure(cause)
       setError(failure.message)
@@ -856,7 +906,7 @@ export default function TrainerPayroll({ profile }: Props) {
     try {
       await reviewPayrollEarningEvent(eventId, decision, reason)
       setMessage(decision === 'approved' ? 'Đã duyệt khoản thu nhập; khoản này sẽ vào kỳ lương khi lập snapshot.' : decision === 'disputed' ? 'Đã tách khoản tranh chấp. Phần lương còn lại vẫn được chi trả.' : 'Đã từ chối khoản thu nhập; lịch sử quyết định được giữ lại.')
-      await refresh()
+      await refresh(true)
     } catch (cause) {
       setError(friendlyError(cause))
     } finally {
@@ -873,7 +923,7 @@ export default function TrainerPayroll({ profile }: Props) {
     try {
       await voidPayrollAdjustment(adjustmentId)
       setMessage('Đã hủy khoản thưởng/phạt. Lịch sử kiểm toán vẫn được giữ.')
-      await refresh()
+      await refresh(true)
     } catch (cause) {
       const failure = friendlyFailure(cause)
       setError(failure.message)
@@ -917,14 +967,14 @@ export default function TrainerPayroll({ profile }: Props) {
       return
     }
     if (showRunSetup) void createConfiguredRun()
-    else void refresh()
+    else void refresh(true)
   }
 
   const slides: AuraMetricSlide[] = liveRows.length ? liveRows.map((row, index) => ({
     id: `staff-${row.staffId}`,
-    eyebrow: `${row.name} · ${periodLabel(periodId)}`,
+    eyebrow: `${row.name}${row.employeeCode ? ` · ${row.employeeCode}` : ''} · ${periodLabel(periodId)}`,
     value: money(row.finalAmount),
-    detail: `${money(row.baseSalaryEarned)} cơ bản · ${money(row.teachingPayAmount)} ca dạy · ${money(row.commissionAmount)} HH ${row.referralCommissionRate ? `${row.referralCommissionRate}%` : ''}`,
+    detail: `${money(row.baseSalaryEarned)} cơ bản dự tính · ${money(row.teachingPayAmount)} tiền ca dạy · ${money(row.commissionAmount)} HH ${row.referralCommissionRate ? `${row.referralCommissionRate}%` : ''}`,
     icon: <Banknote size={20} />,
     tone: (['pink', 'orange', 'sunset', 'ink'] as const)[index % 4],
     actionLabel: row.reviewRequired || !row.policyConfigured ? 'Cần đối soát' : `Dự tính toàn kỳ · dữ liệu đến ${liveAsOfDate ? dateLabel(liveAsOfDate) : 'hiện tại'}`,
@@ -934,6 +984,10 @@ export default function TrainerPayroll({ profile }: Props) {
     detail: 'Chưa tìm thấy staff đang hoạt động trong phạm vi kỳ lương này.',
     icon: <UsersRound size={20} />, tone: 'pink', actionLabel: 'Kiểm tra ngày công', onSelect: () => setView('workdays'),
   }]
+
+  const liveWarningCount = liveAttendance
+    ? liveAttendance.referralDiagnostics.unresolvedEntryCount + liveAttendance.referralDiagnostics.ambiguousCodeEntryCount + liveAttendance.referralDiagnostics.invalidRateEntryCount
+    : 0
 
   const visibleRuns = useMemo(() => {
     const query = search.trim().toLowerCase()
@@ -980,7 +1034,7 @@ export default function TrainerPayroll({ profile }: Props) {
     periodId={periodId}
     loading={staffStatementLoading}
     error={staffStatementError}
-    onBack={() => { setStaffStatementId(''); setStaffStatement(null); setStaffStatementError('') }}
+    onBack={() => { staffStatementSequence.current += 1; setStaffStatementId(''); setStaffStatement(null); setStaffStatementError('') }}
     onRetry={() => void openStaffStatement(staffStatementId)}
   />
 
@@ -1002,6 +1056,11 @@ export default function TrainerPayroll({ profile }: Props) {
       <button type="button" aria-label="Đóng thông báo" onClick={() => { setError(''); setMessage(''); setPayrollFailure(null) }}><X size={16} /></button>
     </div>}
 
+    {view !== 'workdays' && liveAttendance && (liveAttendance.truncated || liveWarningCount > 0) && <div className="payroll-page__notice is-warning" role="status">
+      <AlertTriangle size={18} />
+      <span>{liveAttendance.truncated ? 'Dữ liệu kỳ lương đã chạm giới hạn an toàn; tổng tiền và danh sách đang hiển thị có thể chưa đủ.' : ''}{liveWarningCount > 0 ? `${liveAttendance.truncated ? ' ' : ''}${liveWarningCount} giao dịch giới thiệu cần kiểm tra mã nhân viên hoặc tỷ lệ.` : ''} Đối soát trước khi duyệt hoặc khóa kỳ.</span>
+    </div>}
+
     {payrollFailure && !showRunSetup && <section className="payroll-violations" role="alert" aria-label="Chi tiết lỗi kỳ lương">
       <header><AlertTriangle size={20} /><div><strong>{payrollFailure.message}</strong><span>{payrollFailure.violations.length} vấn đề cần xử lý</span></div><button type="button" aria-label="Đóng cảnh báo" onClick={() => { setPayrollFailure(null); setError('') }}><X size={17} /></button></header>
       <div className="payroll-violations__list">{payrollFailure.violations.length ? payrollFailure.violations.map((violation, index) => <article key={`${violation.code}:${violation.sessionId || violation.staffId || index}`}>
@@ -1010,16 +1069,16 @@ export default function TrainerPayroll({ profile }: Props) {
       </article>) : <article><div><strong>Chưa nhận được chi tiết từ máy chủ</strong><p>Hãy thử lại một lần. Aura sẽ ghi mã đối soát nếu giao dịch tiếp tục thất bại.</p></div><button type="button" onClick={() => void refresh()}>Thử lại<RefreshCw size={15} /></button></article>}</div>
     </section>}
 
-    {view === 'workdays' ? <StaffWorkdayPayrollPanel branches={branches} /> : view === 'runs' ? <>
+    {view === 'workdays' ? <StaffWorkdayPayrollPanel branches={branches} periodId={periodId} attendance={liveAttendance} loading={loading} onPeriodChange={setPeriodId} onReload={() => refresh(true)} /> : view === 'runs' ? <>
       <section className="payroll-page__toolbar" aria-label="Bộ lọc kỳ lương">
         <label><span>Kỳ</span><input aria-label="Kỳ lương" type="month" value={periodId} onChange={(event) => setPeriodId(event.target.value)} /></label>
         <label><span>Trạng thái</span><select aria-label="Lọc trạng thái kỳ lương" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as RunStatusFilter)}><option value="all">Tất cả</option>{Object.entries(statusMeta).map(([id, meta]) => <option key={id} value={id}>{meta.label}</option>)}</select></label>
         <label className="payroll-page__search"><span>Tìm kiếm</span><Search size={17} /><input aria-label="Tìm kỳ lương" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Tháng hoặc chính sách" /></label>
-        <button className="payroll-page__refresh" type="button" aria-label="Tải lại" disabled={loading} onClick={() => void refresh()}><RefreshCw size={18} /></button>
+        <button className="payroll-page__refresh" type="button" aria-label="Tải lại" disabled={loading} onClick={() => void refresh(true)}><RefreshCw size={18} /></button>
         <button className="payroll-page__primary" type="button" disabled={!canManage || !!busyAction || !periodId} onClick={openRunSetup}><Plus size={17} /> Tạo kỳ</button>
       </section>
 
-      {!policies.length && !loading && <section className="payroll-page__setup"><ShieldCheck size={28} /><div><strong>Chưa có chính sách lương hiệu lực</strong><p>Tạo chính sách trước; Aura sẽ không tự đoán đơn giá hoặc dùng phép tính trong trình duyệt.</p></div><button type="button" onClick={() => setView('policies')}>Thiết lập ngay</button></section>}
+      {policiesLoaded && !policies.length && !loading && <section className="payroll-page__setup"><ShieldCheck size={28} /><div><strong>Chưa có chính sách lương hiệu lực</strong><p>Tạo chính sách trước; Aura sẽ không tự đoán đơn giá hoặc dùng phép tính trong trình duyệt.</p></div><button type="button" onClick={() => setView('policies')}>Thiết lập ngay</button></section>}
 
       <section className="payroll-page__runs" aria-label="Danh sách kỳ lương">
         <div className="payroll-page__section-title"><div><span>Kỳ lương chính thức</span><strong>{visibleRuns.length} kỳ</strong></div><small>Nguồn: ngày công + ca dạy đã điểm danh</small></div>
@@ -1203,7 +1262,7 @@ export default function TrainerPayroll({ profile }: Props) {
             subjectName={violationDialog.studentName || violationDialog.studentNames?.[0] || violationDialog.trainerName || violationDialog.trainerNames?.[0] || 'Đối soát buổi tập'}
             focusSessionId={violationSessionId}
             focusDate={violationDialog.date}
-            onCorrectionSaved={() => { setMessage('Đã lưu điều chỉnh ca. Hãy tải lại/ lập lại kỳ nháp để cập nhật đối soát.'); void refresh() }}
+            onCorrectionSaved={() => { setMessage('Đã lưu điều chỉnh ca. Hãy tải lại/ lập lại kỳ nháp để cập nhật đối soát.'); void refresh(true) }}
           />
         </div> : <div className="payroll-correction-modal__empty">Chưa có mã buổi hợp lệ để mở lịch sử. Hãy tải lại dữ liệu đối soát.</div>}
         <footer><button className="payroll-page__secondary" type="button" onClick={() => setViolationDialog(null)}>Đóng, giữ kỳ lương</button></footer>

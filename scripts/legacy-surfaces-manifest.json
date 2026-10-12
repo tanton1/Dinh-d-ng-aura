@@ -207,6 +207,81 @@
       "path": "src/utils/mealPlan.ts",
       "archiveBlob": "f3cc89a7f97f0071c0ef0ef7274cb7a3c70cb81f",
       "bytes": 2271
+    },
+    {
+      "path": "src/components/progress/BodyMeasurementsModal.tsx",
+      "archiveBlob": "a9d894827c1b119014528f5f55325cd80ab5b0ac",
+      "bytes": 7843
+    },
+    {
+      "path": "src/components/progress/BodyMetricsCard.tsx",
+      "archiveBlob": "be1c1752b534e34e5e10725855aa754f7860c3e4",
+      "bytes": 7539
+    },
+    {
+      "path": "src/components/progress/DailyActionsCard.tsx",
+      "archiveBlob": "4aaa7abfb80c382cf57aa429e3763bf50b5889ed",
+      "bytes": 5348
+    },
+    {
+      "path": "src/components/progress/NutritionProgressCard.tsx",
+      "archiveBlob": "3fffabdbd4f81542a45383a71e99d49dc060514a",
+      "bytes": 9661
+    },
+    {
+      "path": "src/components/progress/ProgressCheckInCard.css",
+      "archiveBlob": "eec46d9f321b144ef450b63f812240db213ea285",
+      "bytes": 4345
+    },
+    {
+      "path": "src/components/progress/ProgressCheckInCard.tsx",
+      "archiveBlob": "6ee67c5baa8b6c2589b81e6b424f1c5d8dd6a8c2",
+      "bytes": 9165
+    },
+    {
+      "path": "src/components/progress/ProgressHeader.tsx",
+      "archiveBlob": "47ded286c8e37052919ee4b1f1d2db9ea6e19e27",
+      "bytes": 2477
+    },
+    {
+      "path": "src/components/progress/QuickLogBottomSheet.tsx",
+      "archiveBlob": "6bae8d3711e696f47f0c64e456be51bf487453bc",
+      "bytes": 1951
+    },
+    {
+      "path": "src/components/progress/WeeklyScoreCard.tsx",
+      "archiveBlob": "fc2234ea1833ac0e32cb5bab02f721588ffbf024",
+      "bytes": 14192
+    },
+    {
+      "path": "src/components/progress/WeightChartCard.tsx",
+      "archiveBlob": "16ee7d254bc5fa05b2abb699266130bc6ac54cbc",
+      "bytes": 9729
+    },
+    {
+      "path": "src/components/progress/WeightLogModal.tsx",
+      "archiveBlob": "13562478e75408754bb29c1c59f3239a471d376a",
+      "bytes": 5646
+    },
+    {
+      "path": "src/components/progress/WeightTrackerCard.tsx",
+      "archiveBlob": "dd77686d2bf5f7319b496e11745127ba837df0d2",
+      "bytes": 5234
+    },
+    {
+      "path": "src/features/eat-clean/pages/EatCleanPage.tsx",
+      "archiveBlob": "35156cb4b3525c28ea1c3d9fb7cadedc310f8426",
+      "bytes": 92
+    },
+    {
+      "path": "src/styles-home-pulse.css",
+      "archiveBlob": "cec9833fd278c52bc2365c273271ba4c57a946c6",
+      "bytes": 4566
+    },
+    {
+      "path": "src/utils/progressScoreCalculator.ts",
+      "archiveBlob": "ef0b06bf87f1587db74df4c31a4b9b17daa9336d",
+      "bytes": 10022
     }
   ]
 }

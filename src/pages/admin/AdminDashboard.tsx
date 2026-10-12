@@ -98,7 +98,7 @@ function payrollErrorMessage(error: unknown) {
   const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : ''
   if (code.includes('permission-denied')) return 'Tài khoản chưa có quyền xem bảng lương nhân sự trong phạm vi này.'
   if (code.includes('unauthenticated')) return 'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại để xem bảng lương.'
-  return error instanceof Error && error.message ? error.message : 'Chưa thể tải dữ liệu lương và hoa hồng ca dạy.'
+  return error instanceof Error && error.message ? error.message : 'Chưa thể tải dữ liệu lương và tiền ca dạy.'
 }
 
 interface AdminPayrollStaffTab {
@@ -634,7 +634,7 @@ export default function AdminDashboard({
 
     {payrollEnabled && <section ref={payrollSectionRef} className="admin-dashboard__payroll" aria-labelledby="dashboard-payroll-title" aria-busy={!payrollVisible || payrollRosterLoading || payrollStatementLoading}>
       <header>
-        <div><small>QUỸ LƯƠNG · {periodLabel(currentPayrollPeriodId).toUpperCase()}</small><h2 id="dashboard-payroll-title">Lương & hoa hồng ca dạy</h2><p>Chọn từng nhân sự để xem thu nhập đã ghi nhận theo tuần.</p></div>
+        <div><small>QUỸ LƯƠNG · {periodLabel(currentPayrollPeriodId).toUpperCase()}</small><h2 id="dashboard-payroll-title">Lương & tiền ca dạy</h2><p>Chọn từng nhân sự để xem thu nhập đã ghi nhận theo tuần.</p></div>
         <button type="button" onClick={() => goTo('admin-payroll')}>Xem bảng lương<ArrowRight size={15} /></button>
       </header>
       {!payrollVisible || payrollRosterLoading
@@ -673,18 +673,18 @@ export default function AdminDashboard({
                       </div>
                       <div className="admin-dashboard__payroll-summary">
                         <article><span><WalletCards size={17} />Lương theo công</span><strong>{money(payrollChart.baseSalaryAmount)}</strong><small>{payrollChart.official ? 'Đã khóa số liệu' : 'Tạm tính trong kỳ'}</small></article>
-                        <article><span><CircleDollarSign size={17} />Hoa hồng ca dạy</span><strong>{money(payrollChart.teachingPayAmount)}</strong><small>{payrollTeachingSlotCount} ca đủ điều kiện</small></article>
+                        <article><span><CircleDollarSign size={17} />Tiền ca dạy</span><strong>{money(payrollChart.teachingPayAmount)}</strong><small>{payrollTeachingSlotCount} ca đủ điều kiện</small></article>
                       </div>
-                      <div className="admin-dashboard__payroll-chart" role="img" aria-label={`Biểu đồ thu nhập ${selectedPayrollStaff.name} trong ${periodLabel(currentPayrollPeriodId)}: lương ${money(payrollChart.baseSalaryAmount)}, hoa hồng ca dạy ${money(payrollChart.teachingPayAmount)}`}>
+                      <div className="admin-dashboard__payroll-chart" role="img" aria-label={`Biểu đồ thu nhập ${selectedPayrollStaff.name} trong ${periodLabel(currentPayrollPeriodId)}: lương ${money(payrollChart.baseSalaryAmount)}, tiền ca dạy ${money(payrollChart.teachingPayAmount)}`}>
                         {payrollChart.buckets.map((bucket) => <article key={bucket.id}>
                           <div className="admin-dashboard__payroll-bars">
                             <span className="is-salary" style={{ height: chartHeight(bucket.baseSalaryAmount, payrollChart.maxBucketAmount) }} title={`Lương ${bucket.label}: ${money(bucket.baseSalaryAmount)}`} />
-                            <span className="is-teaching" style={{ height: chartHeight(bucket.teachingPayAmount, payrollChart.maxBucketAmount) }} title={`Hoa hồng ca dạy ${bucket.label}: ${money(bucket.teachingPayAmount)}`} />
+                            <span className="is-teaching" style={{ height: chartHeight(bucket.teachingPayAmount, payrollChart.maxBucketAmount) }} title={`Tiền ca dạy ${bucket.label}: ${money(bucket.teachingPayAmount)}`} />
                           </div>
                           <strong>{bucket.label}</strong><small>{bucket.teachingSlotCount} ca</small>
                         </article>)}
                       </div>
-                      <footer><span><i className="is-salary" />Lương theo công</span><span><i className="is-teaching" />Hoa hồng ca dạy</span><small>Tiền ca chỉ ghi nhận sau điểm danh hợp lệ.</small></footer>
+                      <footer><span><i className="is-salary" />Lương theo công</span><span><i className="is-teaching" />Tiền ca dạy</span><small>Tiền ca chỉ ghi nhận sau điểm danh hợp lệ.</small></footer>
                     </> : <div className="admin-dashboard__payroll-state"><BarChart3 size={27} /><strong>Chưa có dữ liệu thu nhập</strong><p>Nhân sự này chưa có sao kê trong tháng đang xem.</p></div>}
               </div>
             </>}

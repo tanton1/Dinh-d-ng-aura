@@ -580,6 +580,12 @@ service cloud.firestore {
         allow read, write: if false;
       }
 
+      // Meal review results are owner-scoped server cache entries. They are
+      // never a client write surface and may contain provider metadata.
+      match /aiMealReviewCache/{documentId} {
+        allow read, write: if false;
+      }
+
       match /aiRateLimits/{documentId} {
         allow read, write: if false;
       }

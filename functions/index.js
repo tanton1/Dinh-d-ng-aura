@@ -1516,19 +1516,22 @@ exports.dispatchScheduledReminders = onSchedule({
     return { skipped: true, reason: 'disabled' }
   }
 
-  const [templatesSnapshot, userDocuments] = await Promise.all([
-    db.collection('system/push_templates/templates').get(),
-    listScheduledReminderUsers(),
-  ])
-
-  const templates = templatesSnapshot.docs.map((snapshot) => snapshot.data())
+  // The user scan is still required because legacy profiles without an
+  // explicit preference are opted in by default. Avoid the separate template
+  // collection read when this run cannot create meal reminders at all.
+  const userDocuments = await listScheduledReminderUsers()
+  const enabledUserDocuments = userDocuments.filter((snapshot) => snapshot.data()?.disabled !== true)
+  let templates = []
+  if (settings.autoMealReminders && enabledUserDocuments.length) {
+    const templatesSnapshot = await db.collection('system/push_templates/templates').get()
+    templates = templatesSnapshot.docs.map((snapshot) => snapshot.data())
+  }
   const definitions = [
     ['breakfast', 'Bữa sáng', 'breakfast'],
     ['lunch', 'Bữa trưa', 'lunch'],
     ['dinner', 'Bữa tối', 'dinner'],
   ]
   const deliveries = []
-  const enabledUserDocuments = userDocuments.filter((snapshot) => snapshot.data()?.disabled !== true)
 
   for (let offset = 0; offset < enabledUserDocuments.length; offset += 20) {
     const batch = await Promise.all(enabledUserDocuments.slice(offset, offset + 20).map(async (snapshot) => {

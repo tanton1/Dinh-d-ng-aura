@@ -148,7 +148,7 @@ test.describe('Aura Finance Intelligence responsive workspace', () => {
       await expect(dashboard.getByRole('heading', { name: 'Hôm nay cần làm' })).toBeVisible()
       await expect(dashboard.getByRole('heading', { name: 'Ca tập trong ngày' })).toBeVisible()
       const payrollChart = dashboard.locator('.admin-dashboard__payroll')
-      await expect(payrollChart.getByRole('heading', { name: 'Lương & hoa hồng ca dạy' })).toBeVisible()
+      await expect(payrollChart.getByRole('heading', { name: 'Lương & tiền ca dạy' })).toBeVisible()
       // Payroll data is intentionally deferred until this heavier dashboard
       // section approaches the viewport. Exercise the real lazy-load path
       // instead of assuming it was fetched during the initial dashboard boot.

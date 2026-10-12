@@ -6,10 +6,15 @@ const {
   apiKeyFunUsageMetadata,
   buildFoodApiKeyFunRequest,
   buildFoodAnalysisInstructions,
+  buildMealReviewCacheKey,
+  buildMealReviewPrompt,
   enrichAnalysisWithLookups,
   extractApiKeyFunNutritionText,
   foodAnalysisSchema,
   getApiKeyFunFoodModelCandidates,
+  mealReviewRateLimitMutation,
+  normalizeMealReviewRequest,
+  readMealReviewCache,
   sanitizeProviderErrorMessage,
   scaleCatalogNutrition,
   shouldTryNextFoodAnalysisModel,
@@ -77,6 +82,98 @@ test('food analysis prompt asks the model to answer every advisory field separat
   assert.match(instructions, /student goal supplied only as untrusted metadata/)
   assert.match(instructions, /Never add filler, greetings, motivational slogans, body\/beauty claims/)
   assert.match(instructions, /explicit corrections from follow-up answers[\s\S]*?update the affected ingredients, grams, cooking method, totals and calorie range/)
+})
+
+test('meal review input is bounded and its cache key changes with review-relevant data', () => {
+  const normalized = normalizeMealReviewRequest({
+    id: 'meal-1',
+    title: '  Cơm gà  ',
+    calories: 520.123,
+    protein: 38,
+    carbs: 61,
+    fat: 14,
+    ignoredLargeField: 'x'.repeat(20_000),
+  }, { goals: ['gain-muscle', 'gain-muscle'] })
+  assert.deepEqual(normalized.meal, {
+    id: 'meal-1',
+    title: 'Cơm gà',
+    calories: 520.12,
+    protein: 38,
+    carbs: 61,
+    fat: 14,
+  })
+  assert.deepEqual(normalized.goals, ['gain-muscle'])
+  assert.notEqual(
+    buildMealReviewCacheKey(normalized),
+    buildMealReviewCacheKey(normalizeMealReviewRequest({ ...normalized.meal, title: 'Phở bò' }, { goals: normalized.goals })),
+  )
+  assert.notEqual(
+    buildMealReviewCacheKey(normalized),
+    buildMealReviewCacheKey(normalizeMealReviewRequest(normalized.meal, { goals: ['lose-fat'] })),
+  )
+  assert.match(buildMealReviewPrompt(normalized), /gain-muscle|Tăng cơ/)
+  assert.throws(
+    () => normalizeMealReviewRequest({ title: 'x'.repeat(161) }, {}),
+    /too long/,
+  )
+})
+
+test('meal review rate limit resets stale windows and blocks only the bounded quota', () => {
+  const now = 2_000_000
+  const next = mealReviewRateLimitMutation({
+    windowStartedAt: now - (11 * 60 * 1000),
+    dayStartedAt: now - (25 * 60 * 60 * 1000),
+    windowCount: 20,
+    dayCount: 100,
+  }, now)
+  assert.equal(next.windowCount, 1)
+  assert.equal(next.dayCount, 1)
+  assert.throws(
+    () => mealReviewRateLimitMutation({ windowStartedAt: now, dayStartedAt: now, windowCount: 20, dayCount: 20 }, now),
+    (error) => error.code === 'resource-exhausted',
+  )
+  assert.throws(
+    () => mealReviewRateLimitMutation({ windowStartedAt: now, dayStartedAt: now, windowCount: 1, dayCount: 100 }, now),
+    (error) => error.code === 'resource-exhausted',
+  )
+})
+
+test('expired or malformed meal review cache entries never become responses', async () => {
+  const snapshots = new Map()
+  const db = {
+    doc(path) {
+      return {
+        async get() {
+          return snapshots.get(path) || { exists: false, data: () => ({}) }
+        },
+      }
+    },
+  }
+  const key = 'a'.repeat(64)
+  snapshots.set(`users/u/aiMealReviewCache/${key}`, {
+    exists: true,
+    data: () => ({
+      cacheVersion: 1,
+      review: 'cũ',
+      expiresAt: { toMillis: () => Date.now() - 1 },
+    }),
+  })
+  assert.equal(await readMealReviewCache(db, 'u', key), null)
+  snapshots.set(`users/u/aiMealReviewCache/${key}`, {
+    exists: true,
+    data: () => ({
+      cacheVersion: 1,
+      review: 'hợp lệ',
+      expiresAt: { toMillis: () => Date.now() + 60_000 },
+      provider: 'apikey_fun',
+    }),
+  })
+  assert.deepEqual(await readMealReviewCache(db, 'u', key), {
+    review: 'hợp lệ',
+    provider: 'apikey_fun',
+    model: null,
+    providerRequestId: null,
+  })
 })
 
 test('food vision sends image and strict JSON schema through apikey.fun', () => {
