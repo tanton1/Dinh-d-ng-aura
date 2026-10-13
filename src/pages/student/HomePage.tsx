@@ -11,6 +11,7 @@ import AuraTodayFlow from '../../components/AuraTodayFlow'
 import {
   asStudentPtScheduleError,
   listMyStudentPtSchedule,
+  type StudentPtScheduleIssueCode,
   type StudentPtSession,
 } from '../../services/studentPtScheduleService'
 import { buildStudentHomeSchedule } from '../../features/home/studentHomeSchedule'
@@ -110,6 +111,7 @@ export default function HomePage({
   const [upcomingSchedule, setUpcomingSchedule] = useState<StudentPtSession[]>([])
   const [todaySessionCount, setTodaySessionCount] = useState(0)
   const [scheduleState, setScheduleState] = useState<'loading' | 'linked' | 'unlinked' | 'unavailable'>('loading')
+  const [scheduleIssueCode, setScheduleIssueCode] = useState<StudentPtScheduleIssueCode | null>(null)
   const [weeklyScheduleMinutesByDate, setWeeklyScheduleMinutesByDate] = useState<Record<string, number>>({})
   const [weekPanel, setWeekPanel] = useState<'activity' | 'schedule'>('activity')
 
@@ -166,6 +168,7 @@ export default function HomePage({
     }
 
     setScheduleState('loading')
+    setScheduleIssueCode(null)
     applySessions([])
 
     if (isDemo) {
@@ -178,11 +181,13 @@ export default function HomePage({
         { id: 'demo-home-2', date: toLocalDateKey(later), hour: 19, status: 'scheduled', trainerId: 'demo-trainer', trainerName: 'PT Minh', branchId: 'demo-branch', verifiedByStudent: false, scheduleEntryId: '', revision: 1, timeZone: 'Asia/Ho_Chi_Minh' },
       ])
       setScheduleState('linked')
+      setScheduleIssueCode(null)
       return () => { active = false }
     }
 
     if (!ownerId || ownerId === 'anonymous') {
       setScheduleState('unlinked')
+      setScheduleIssueCode(null)
       return () => { active = false }
     }
 
@@ -192,11 +197,13 @@ export default function HomePage({
         if (!active) return
         applySessions(data.sessions)
         setScheduleState(data.linked ? 'linked' : 'unlinked')
+        setScheduleIssueCode(data.linked ? null : 'PROFILE_NOT_LINKED')
       })
       .catch((error) => {
         if (!active) return
         const issue = asStudentPtScheduleError(error)
         setScheduleState(issue.issueCode === 'PROFILE_NOT_LINKED' ? 'unlinked' : 'unavailable')
+        setScheduleIssueCode(issue.issueCode)
       })
 
     return () => { active = false }
@@ -571,6 +578,7 @@ export default function HomePage({
         onOpenProgress={() => onNavigate('progress')}
         onOpenSchedule={() => onNavigate('schedule')}
         scheduleState={scheduleState}
+        scheduleIssueCode={scheduleIssueCode}
         todaySessionCount={todaySessionCount}
         nextSession={upcomingSchedule[0] ? {
           dateLabel: formatScheduleDay(upcomingSchedule[0].date),

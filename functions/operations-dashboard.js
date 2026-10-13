@@ -4,6 +4,7 @@ const { trustedAccessContext, requireCapability } = require('./identity-access')
 const { createSharedDashboardCache, stableDashboardCacheKey } = require('./operations-dashboard-cache')
 const { loadDailyAggregates } = require('./operations-dashboard-aggregates')
 const { overlayContractUsageViews } = require('./contract-usage-view')
+const { normalizeReviewSlaMinutes } = require('./review-sla')
 
 const MAX_RANGE_DAYS = 366
 const MAX_SCANNED_DOCUMENTS = 10000
@@ -583,8 +584,7 @@ async function loadNutritionAction(db, actor, today, available) {
     truncated = unique.size > MAX_ACTION_DOCUMENTS
   }
   const settings = await settingsPromise
-  const configuredSla = Number(settings.exists ? settings.data()?.slaMinutes : 120)
-  const slaMinutes = Number.isFinite(configuredSla) ? Math.min(1440, Math.max(30, configuredSla)) : 120
+  const slaMinutes = normalizeReviewSlaMinutes(settings.exists ? settings.data()?.slaMinutes : undefined)
   const now = Date.now()
   const summary = emptyAction(true)
   const pending = documents.filter((item) => !['approved', 'rejected'].includes(item.data()?.status))

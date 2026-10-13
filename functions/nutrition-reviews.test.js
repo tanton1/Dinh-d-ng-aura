@@ -13,6 +13,16 @@ const {
   sanitizeMealInput,
   snapshotHash,
 } = require('./nutrition-reviews')
+const { normalizeReviewSlaMinutes } = require('./review-sla')
+
+test('review SLA normalization uses one bounded policy across dashboards and automation', () => {
+  assert.equal(normalizeReviewSlaMinutes(undefined), 120)
+  assert.equal(normalizeReviewSlaMinutes(Number.NaN), 120)
+  assert.equal(normalizeReviewSlaMinutes(12), 30)
+  assert.equal(normalizeReviewSlaMinutes(30.9), 30)
+  assert.equal(normalizeReviewSlaMinutes(240.9), 240)
+  assert.equal(normalizeReviewSlaMinutes(9_999), 1440)
+})
 
 test('identity contracts expose one staff workspace while student relationships scope each HLV tab', () => {
   const deployable = require('./identity-contract.json')

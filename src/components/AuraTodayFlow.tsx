@@ -9,6 +9,7 @@ import {
   Utensils,
 } from 'lucide-react'
 import { useRef, useState } from 'react'
+import type { StudentPtScheduleIssueCode } from '../services/studentPtScheduleService'
 import '../styles-home-today-flow.css'
 
 interface TodayMealSummary {
@@ -47,6 +48,7 @@ interface AuraTodayFlowProps {
   onOpenProgress: () => void
   onOpenSchedule: () => void
   scheduleState?: 'loading' | 'linked' | 'unlinked' | 'unavailable'
+  scheduleIssueCode?: StudentPtScheduleIssueCode | null
   todaySessionCount?: number
   nextSession?: TodayScheduleSummary | null
 }
@@ -81,6 +83,7 @@ export default function AuraTodayFlow({
   onOpenProgress,
   onOpenSchedule,
   scheduleState = 'loading',
+  scheduleIssueCode = null,
   todaySessionCount = 0,
   nextSession = null,
 }: AuraTodayFlowProps) {
@@ -97,13 +100,29 @@ export default function AuraTodayFlow({
     .sort((left, right) => (left.time ?? '').localeCompare(right.time ?? ''))
     .slice(0, 4)
 
+  const scheduleIssueCard = scheduleIssueCode === 'AUTH_REQUIRED'
+    ? { value: 'Đăng nhập lại', unit: 'phiên đã hết hạn', detail: 'Mở lịch để đăng nhập lại và xem các buổi PT.', progressLabel: 'Cần đăng nhập lại để xem lịch' }
+    : scheduleIssueCode === 'ACCESS_SYNC_REQUIRED'
+      ? { value: 'Chưa đồng bộ', unit: 'quyền tài khoản', detail: 'Mở lịch để thử lại hoặc liên hệ quản trị viên đồng bộ quyền.', progressLabel: 'Quyền lịch chưa đồng bộ' }
+      : scheduleIssueCode === 'STUDENT_ROLE_REQUIRED'
+        ? { value: 'Chưa có lịch', unit: 'vai trò học viên', detail: 'Tài khoản chưa được cấp phạm vi lịch cá nhân. Mở lịch để xem hướng dẫn.', progressLabel: 'Tài khoản chưa có lịch cá nhân' }
+        : scheduleIssueCode === 'PROFILE_NOT_LINKED'
+          ? { value: 'Chưa liên kết', unit: 'hồ sơ học viên', detail: 'Quản trị viên cần liên kết tài khoản với hồ sơ CRM trước khi lịch hiển thị.', progressLabel: 'Chưa liên kết hồ sơ học viên' }
+          : scheduleIssueCode === 'ACCESS_DENIED'
+            ? { value: 'Không có quyền', unit: 'xem lịch PT', detail: 'Tài khoản chưa được cấp quyền truy cập lịch học viên.', progressLabel: 'Không có quyền xem lịch' }
+            : scheduleIssueCode === 'SYNC_UNAVAILABLE'
+              ? { value: 'Tạm gián đoạn', unit: 'dịch vụ lịch PT', detail: 'Kiểm tra kết nối và mở lịch để thử lại sau ít phút.', progressLabel: 'Dịch vụ lịch đang gián đoạn' }
+              : scheduleIssueCode
+                ? { value: 'Chưa đồng bộ', unit: 'lịch PT', detail: 'Mở lịch để xem chi tiết lỗi và thử tải lại.', progressLabel: 'Chưa đồng bộ được lịch PT' }
+                : null
+
   const scheduleCard = scheduleState === 'loading'
     ? { value: '…', unit: 'đang tải lịch PT', detail: 'Aura đang đồng bộ các buổi đã được xếp.', progress: 0, progressLabel: 'Đang đồng bộ lịch PT' }
-    : scheduleState === 'unlinked'
-      ? { value: 'Chưa liên kết', unit: 'hồ sơ học viên', detail: 'Tài khoản này chưa được liên kết với hồ sơ học viên. Lịch PT chưa áp dụng.', progress: 0, progressLabel: 'Chưa liên kết hồ sơ học viên' }
-      : scheduleState === 'unavailable'
-        ? { value: 'Tạm lỗi', unit: 'đồng bộ lịch PT', detail: 'Chạm để mở lịch và thử tải lại.', progress: 0, progressLabel: 'Chưa đồng bộ được lịch PT' }
-        : todaySessionCount > 0
+    : scheduleIssueCard
+      ? { ...scheduleIssueCard, progress: 0 }
+      : scheduleState === 'unlinked'
+        ? { value: 'Chưa liên kết', unit: 'hồ sơ học viên', detail: 'Tài khoản này chưa được liên kết với hồ sơ học viên. Lịch PT chưa áp dụng.', progress: 0, progressLabel: 'Chưa liên kết hồ sơ học viên' }
+      : todaySessionCount > 0
           ? { value: formatNumber(todaySessionCount), unit: 'buổi hôm nay', detail: nextSession ? `${nextSession.timeLabel} · ${nextSession.trainerName}` : 'Mở lịch để xem chi tiết buổi tập.', progress: 100, progressLabel: `${todaySessionCount} buổi PT hôm nay` }
           : nextSession
             ? { value: nextSession.timeLabel, unit: nextSession.dateLabel, detail: `Buổi PT · ${nextSession.trainerName}`, progress: 100, progressLabel: `Đã đồng bộ buổi PT tiếp theo vào ${nextSession.dateLabel}` }

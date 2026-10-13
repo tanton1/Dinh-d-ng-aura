@@ -5,10 +5,9 @@ const { HttpsError } = require('firebase-functions/v2/https')
 const { trustedAccessContext } = require('./identity-access')
 const { effectiveContractStatus } = require('./contract-status')
 const { nutritionQuality } = require('./nutrition-core.mjs')
+const { DEFAULT_REVIEW_SLA_MINUTES, normalizeReviewSlaMinutes } = require('./review-sla')
 
 const ALL_REVIEW_CAPABILITY = 'nutrition.meals.all.review'
-const DEFAULT_REVIEW_SLA_MINUTES = 120
-const MAX_REVIEW_SLA_MINUTES = 1440
 const MAX_ASSIGNED_CLIENTS = 400
 const REVIEW_PAGE_SCAN_LIMIT = 300
 const REVIEW_IMAGE_URL_TTL_MS = 15 * 60 * 1000
@@ -420,11 +419,6 @@ async function hydrateReviews(db, documents, context, options = {}) {
     }
   }))
   return records
-}
-
-function normalizeReviewSlaMinutes(value) {
-  const minutes = Math.trunc(finite(value, DEFAULT_REVIEW_SLA_MINUTES))
-  return Math.min(MAX_REVIEW_SLA_MINUTES, Math.max(30, minutes))
 }
 
 function reviewSummary(reviews) {

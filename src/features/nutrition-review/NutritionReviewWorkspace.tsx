@@ -107,6 +107,7 @@ export function NutritionReviewWorkspace({
   const detailWindowRef = useRef<HTMLDivElement>(null)
   const detailScrollTimerRef = useRef<number | null>(null)
   const feedbackTextareaRef = useRef<HTMLTextAreaElement>(null)
+  const requestIdRef = useRef(0)
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => setDebouncedQuery(query.trim()), 320)
@@ -114,8 +115,13 @@ export function NutritionReviewWorkspace({
   }, [query])
 
   const requestPage = useCallback(async (cursor: string | null, append: boolean) => {
+    const requestId = requestIdRef.current + 1
+    requestIdRef.current = requestId
     if (append) setLoadingMore(true)
-    else setLoading(true)
+    else {
+      setLoading(true)
+      setLoadingMore(false)
+    }
     setError('')
     try {
       const result = await listNutritionMealReviews({
@@ -125,6 +131,7 @@ export function NutritionReviewWorkspace({
         coachId,
         query: debouncedQuery,
       })
+      if (requestId !== requestIdRef.current) return
       setReviews((current) => append
         ? [...new Map([...current, ...result.reviews].map((item) => [item.id, item])).values()]
         : result.reviews)
@@ -139,11 +146,14 @@ export function NutritionReviewWorkspace({
       setSlaMinutes(result.slaMinutes || 120)
       setSelectedId((current) => append || result.reviews.some((item) => item.id === current) ? current : result.reviews[0]?.id || '')
     } catch (cause) {
+      if (requestId !== requestIdRef.current) return
       setError(cause instanceof Error ? cause.message : 'Không thể tải danh sách bữa ăn được phân công.')
       if (!append) setReviews([])
     } finally {
-      if (append) setLoadingMore(false)
-      else setLoading(false)
+      if (requestId === requestIdRef.current) {
+        if (append) setLoadingMore(false)
+        else setLoading(false)
+      }
     }
   }, [coachId, debouncedQuery, status])
 

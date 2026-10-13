@@ -218,6 +218,8 @@ const remediationLabel: Record<PayrollViolation['remediation'], string> = {
   retry: 'Thử lại',
 }
 
+const CASH_ACCOUNTS_CACHE_TTL_MS = 30_000
+
 export default function TrainerPayroll({ profile }: Props) {
   const { trainers, branches, students } = useDatabase()
   const [view, setView] = useState<PayrollView>('runs')
@@ -260,6 +262,7 @@ export default function TrainerPayroll({ profile }: Props) {
   const [liveAsOfDate, setLiveAsOfDate] = useState('')
   const [policiesLoaded, setPoliciesLoaded] = useState(false)
   const [accountsLoaded, setAccountsLoaded] = useState(false)
+  const [accountsLoadedAt, setAccountsLoadedAt] = useState(0)
   const [staffStatementId, setStaffStatementId] = useState('')
   const [staffStatement, setStaffStatement] = useState<MyStaffPayroll | null>(null)
   const [staffStatementLoading, setStaffStatementLoading] = useState(false)
@@ -458,15 +461,17 @@ export default function TrainerPayroll({ profile }: Props) {
     }
   }, [policies, policiesLoaded])
 
-  const ensureCashAccounts = useCallback(async () => {
-    if (accountsLoaded) return cashAccounts
+  const ensureCashAccounts = useCallback(async (force = false) => {
+    const cacheFresh = accountsLoaded && accountsLoadedAt > 0 && Date.now() - accountsLoadedAt < CASH_ACCOUNTS_CACHE_TTL_MS
+    if (!force && cacheFresh) return cashAccounts
     const loaded = await listCashAccounts()
     const activeAccounts = loaded.accounts.filter((account) => account.status === 'active')
     setCashAccounts(activeAccounts)
     setPayoutAccountId((current) => current || activeAccounts[0]?.id || '')
     setAccountsLoaded(true)
+    setAccountsLoadedAt(Date.now())
     return activeAccounts
-  }, [accountsLoaded, cashAccounts])
+  }, [accountsLoaded, accountsLoadedAt, cashAccounts])
 
   const openStaffStatement = useCallback(async (staffId: string) => {
     const sequence = staffStatementSequence.current + 1
@@ -628,6 +633,10 @@ export default function TrainerPayroll({ profile }: Props) {
         if (!payoutAccountId || !payoutReference.trim()) throw new Error('Chọn quỹ và nhập mã chứng từ trước khi chi lương.')
         await markPayrollRunPaid({ runId: run.id, cashAccountId: payoutAccountId, paymentReference: payoutReference.trim() })
         setPayoutReference('')
+        setAccountsLoaded(false)
+        setAccountsLoadedAt(0)
+        setCashAccounts([])
+        setPayoutAccountId('')
         setMessage('Đã ghi nhận chi lương đồng thời vào sổ quỹ và sổ cái.')
       }
       await refresh(true)

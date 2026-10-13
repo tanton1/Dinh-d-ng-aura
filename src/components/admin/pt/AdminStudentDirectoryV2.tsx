@@ -37,6 +37,8 @@ export default function AdminStudentDirectoryV2({ initialSearchQuery = '', initi
   const [rows, setRows] = useState<Student360DirectoryItem[]>([])
   const [cursor, setCursor] = useState<string | null>(null)
   const [hasMore, setHasMore] = useState(false)
+  const [scanned, setScanned] = useState(0)
+  const [truncated, setTruncated] = useState(false)
   const [loading, setLoading] = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
   const [error, setError] = useState('')
@@ -55,7 +57,11 @@ export default function AdminStudentDirectoryV2({ initialSearchQuery = '', initi
   const load = async (append = false) => {
     const requestId = ++requestIdRef.current
     if (append) setLoadingMore(true)
-    else setLoading(true)
+    else {
+      setLoading(true)
+      setScanned(0)
+      setTruncated(false)
+    }
     setError('')
     try {
       const result = await listStudent360Directory({
@@ -68,6 +74,8 @@ export default function AdminStudentDirectoryV2({ initialSearchQuery = '', initi
       setRows((current) => append ? [...current, ...result.rows] : result.rows)
       setCursor(result.nextCursor)
       setHasMore(result.hasMore)
+      setScanned((current) => append ? current + result.scanned : result.scanned)
+      setTruncated((current) => append ? current || result.truncated : result.truncated)
       if (!append && !readyReportedRef.current) {
         readyReportedRef.current = true
         const now = typeof performance !== 'undefined' ? performance.now() : Date.now()
@@ -118,6 +126,7 @@ export default function AdminStudentDirectoryV2({ initialSearchQuery = '', initi
       <label className="admin-student-directory-v2__filter"><span>Tình trạng</span><select value={attention} onChange={(event) => setAttention(event.target.value as AttentionFilter)}><option value="all">Tất cả</option><option value="stable">Ổn định</option><option value="attention">Cần chú ý</option><option value="action_required">Cần xử lý</option></select></label>
       <div className="admin-student-directory-v2__summary"><span><strong>{counts.total}</strong> đang hiển thị</span><span><strong>{counts.attention}</strong> cần chú ý</span><span><strong>{counts.alerts}</strong> cảnh báo</span></div>
     </div>
+    {truncated && <div className="admin-student-directory-v2__warning" role="status"><AlertCircle size={17} /><span>Nguồn dữ liệu đã chạm giới hạn quét an toàn ({scanned.toLocaleString('vi-VN')} hồ sơ đã quét). Danh sách này có thể chưa đủ; hãy dùng từ khóa hoặc bộ lọc để thu hẹp phạm vi.</span></div>}
     {error && <div className="admin-student-directory-v2__error" role="alert"><AlertCircle size={17} />{error}<button type="button" onClick={() => void load(false)}>Thử lại</button></div>}
     {loading && !rows.length ? <div className="admin-student-directory-v2__state"><LoaderCircle className="is-spinning" /><span>Đang tải danh sách phân trang…</span></div> : rows.length ? <div className="admin-student-directory-v2__table-wrap"><table><thead><tr><th>Học viên</th><th>Chi nhánh</th><th>Hợp đồng</th><th>Lịch sắp tới</th><th>Cảnh báo</th><th /></tr></thead><tbody>{rows.map((row) => <tr key={row.studentId}>
       <td><button type="button" className="admin-student-directory-v2__identity" onClick={() => onOpenStudent360(row.studentId, row.name)}><span className="admin-student-directory-v2__avatar">{row.name.trim().charAt(0).toUpperCase() || '?'}</span><span><strong>{row.name}</strong><small>{row.phone || 'Chưa có SĐT'}</small></span></button></td>

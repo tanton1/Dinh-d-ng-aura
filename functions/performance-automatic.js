@@ -1,5 +1,6 @@
 const AUTO_SOURCE = 'system_auto'
 const MAX_SOURCE_ROWS = 2000
+const { normalizeReviewSlaMinutes } = require('./review-sla')
 
 function finite(value, fallback = 0) {
   const parsed = Number(value)
@@ -230,7 +231,7 @@ async function loadOperationalSources(db, target, period) {
     ledgerEntries, salesLeads: salesLeads.filter((item) => inRange(item.createdAt, range)),
     contractApprovals: contractApprovals.filter((item) => inRange(item.createdAt, range)),
     targets: targetSnapshot?.exists ? targetSnapshot.data()?.metricTargets || {} : {},
-    reviewSlaMinutes: Math.max(30, finite(reviewSettings?.exists ? reviewSettings.data()?.slaMinutes : 0, 120)),
+    reviewSlaMinutes: normalizeReviewSlaMinutes(reviewSettings?.exists ? reviewSettings.data()?.slaMinutes : undefined),
     attendanceBySession,
     trainerStudents,
     nutritionStudents,

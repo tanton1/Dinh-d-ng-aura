@@ -230,6 +230,7 @@ type AttendanceCacheEntry = {
 // workday tab and adjustment tab share one result without ever sharing data
 // between signed-in accounts. Writes explicitly invalidate this cache below.
 const STAFF_PAYROLL_ATTENDANCE_CACHE_TTL_MS = 20_000
+const STAFF_PAYROLL_ATTENDANCE_CACHE_MAX_ENTRIES = 64
 const staffPayrollAttendanceCache = new Map<string, AttendanceCacheEntry>()
 
 function staffPayrollAttendanceCacheKey(periodId: string, branchId: string) {
@@ -244,6 +245,17 @@ export function invalidateStaffPayrollAttendance(periodId?: string, branchId?: s
     if (periodId && cachedPeriod !== periodId) continue
     if (branchId !== undefined && cachedBranch !== (branchId || '*')) continue
     staffPayrollAttendanceCache.delete(key)
+  }
+}
+
+function pruneStaffPayrollAttendanceCache(now = Date.now()) {
+  for (const [key, entry] of staffPayrollAttendanceCache.entries()) {
+    if (entry.expiresAt <= now) staffPayrollAttendanceCache.delete(key)
+  }
+  while (staffPayrollAttendanceCache.size >= STAFF_PAYROLL_ATTENDANCE_CACHE_MAX_ENTRIES) {
+    const removableKey = [...staffPayrollAttendanceCache.entries()].find(([, entry]) => !entry.promise)?.[0]
+    if (!removableKey) break
+    staffPayrollAttendanceCache.delete(removableKey)
   }
 }
 
@@ -515,6 +527,7 @@ export async function getStaffPayrollStatement(periodId: string, staffId: string
 }
 
 export async function listStaffPayrollAttendance(periodId: string, branchId = '', options: StaffPayrollAttendanceOptions = {}): Promise<StaffPayrollAttendanceResult> {
+  pruneStaffPayrollAttendanceCache()
   const cacheKey = staffPayrollAttendanceCacheKey(periodId, branchId)
   if (options.forceRefresh) staffPayrollAttendanceCache.delete(cacheKey)
   const cached = staffPayrollAttendanceCache.get(cacheKey)
@@ -588,7 +601,9 @@ export async function listStaffPayrollAttendance(periodId: string, branchId = ''
   }
     })
 
-  staffPayrollAttendanceCache.set(cacheKey, { promise: request, expiresAt: Date.now() + STAFF_PAYROLL_ATTENDANCE_CACHE_TTL_MS })
+  const requestStartedAt = Date.now()
+  pruneStaffPayrollAttendanceCache(requestStartedAt)
+  staffPayrollAttendanceCache.set(cacheKey, { promise: request, expiresAt: requestStartedAt + STAFF_PAYROLL_ATTENDANCE_CACHE_TTL_MS })
   try {
     const value = await request
     // A force refresh may have replaced this request while it was in flight.
