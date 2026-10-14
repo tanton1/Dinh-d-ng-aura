@@ -533,7 +533,13 @@ function createStudentManagementFunctions({ db, onCall, accessContextResolver = 
     const actor = await accessContextResolver(request, db)
     return updateStudentCommand({ db, actor, data: request.data || {}, correlationId: request.auraCorrelationId })
   }))
-  const hardDeleteStudent = onCall(withFunctionTelemetry('hardDeleteStudent', async (request) => {
+  const hardDeleteStudent = onCall({
+    memory: '256MiB',
+    cpu: 0.1666,
+    maxInstances: 1,
+    concurrency: 1,
+    timeoutSeconds: 120,
+  }, withFunctionTelemetry('hardDeleteStudent', async (request) => {
     const actor = await accessContextResolver(request, db)
     return hardDeleteStudentCommand({ db, actor, data: request.data || {}, correlationId: request.auraCorrelationId })
   }))
