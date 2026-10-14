@@ -689,10 +689,12 @@
 
 .staff-dashboard :is(button, a):focus-visible { outline: 3px solid rgba(236,44,118,.28); outline-offset: 3px; }
 
-/* Keep the command deck readable in a narrowed desktop window while retaining
-   the requested four-card row. Phones switch to a compact two-column grid. */
+/* All four metrics stay visible together on phones. Keep the essential label
+   and value; the entire card remains the navigation target. */
 @media (max-width: 680px) {
-  .staff-dashboard > .aura-metric-carousel .aura-metric-carousel__viewport { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .staff-dashboard > .aura-metric-carousel .aura-metric-carousel__viewport { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; padding-inline: 10px; }
+  .staff-dashboard > .aura-metric-carousel .aura-metric-carousel__slide small,
+  .staff-dashboard > .aura-metric-carousel .aura-metric-carousel__action { display: none; }
   .staff-dashboard__payroll { grid-template-columns: 1fr; }
   .staff-dashboard__payroll-summary,
   .staff-dashboard__chart { grid-column: 1; }
@@ -709,13 +711,13 @@
   .staff-dashboard__heading-actions > button { min-width: 42px; min-height: 42px; padding: 0 10px; }
   .staff-dashboard__heading-actions > button span { display: none; }
   .staff-dashboard > .aura-metric-carousel { margin-top: 16px; }
-  .staff-dashboard > .aura-metric-carousel .aura-metric-carousel__viewport { gap: 8px; padding: 2px 14px 4px; }
-  .staff-dashboard > .aura-metric-carousel .aura-metric-carousel__slide { min-height: 148px; padding: 13px; border-radius: 16px; }
-  .staff-dashboard > .aura-metric-carousel .aura-metric-carousel__icon { width: 32px; height: 32px; border-radius: 10px; }
-  .staff-dashboard > .aura-metric-carousel .aura-metric-carousel__icon svg { width: 17px; height: 17px; }
+  .staff-dashboard > .aura-metric-carousel .aura-metric-carousel__viewport { gap: 6px; padding: 2px 10px 5px; }
+  .staff-dashboard > .aura-metric-carousel .aura-metric-carousel__slide { min-height: 128px; padding: 10px 7px; border-radius: 13px; }
+  .staff-dashboard > .aura-metric-carousel .aura-metric-carousel__icon { width: 28px; height: 28px; border-radius: 9px; }
+  .staff-dashboard > .aura-metric-carousel .aura-metric-carousel__icon svg { width: 16px; height: 16px; }
   .staff-dashboard > .aura-metric-carousel .aura-metric-carousel__number { display: none; }
-  .staff-dashboard > .aura-metric-carousel .aura-metric-carousel__eyebrow { margin-top: 10px; font-size: 8px; }
-  .staff-dashboard > .aura-metric-carousel .aura-metric-carousel__slide strong { font-size: 21px; }
+  .staff-dashboard > .aura-metric-carousel .aura-metric-carousel__eyebrow { min-height: 3.75em; margin-top: 8px; font-size: 10px; line-height: 1.25; letter-spacing: 0; text-transform: none; }
+  .staff-dashboard > .aura-metric-carousel .aura-metric-carousel__slide strong { overflow: visible; font-size: 18px; white-space: normal; overflow-wrap: anywhere; }
   .staff-dashboard > .aura-metric-carousel .aura-metric-carousel__slide small { min-height: 28px; font-size: 9px; }
   .staff-dashboard > .aura-metric-carousel .aura-metric-carousel__action { font-size: 8px; }
   .staff-dashboard > .operational-action-center { margin-top: 12px; border-right: 0; border-left: 0; border-radius: 0; }
@@ -747,7 +749,7 @@
 }
 
 @media (max-width: 360px) {
-  .staff-dashboard > .aura-metric-carousel .aura-metric-carousel__slide { min-height: 144px; padding: 11px; }
-  .staff-dashboard > .aura-metric-carousel .aura-metric-carousel__slide strong { font-size: 19px; }
+  .staff-dashboard > .aura-metric-carousel .aura-metric-carousel__slide { padding-inline: 6px; }
+  .staff-dashboard > .aura-metric-carousel .aura-metric-carousel__slide strong { font-size: 17px; }
   .staff-dashboard__role-actions > div { grid-template-columns: 1fr; }
 }

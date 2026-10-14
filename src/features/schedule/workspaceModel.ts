@@ -8,22 +8,18 @@ import {
   type PtScheduleWorkspaceV2Result,
 } from '../../services/ptSchedulePublishService'
 
+import { readWorkspaceCache, writeWorkspaceCache, WORKSPACE_CACHE_REVALIDATE_MS } from './workspaceCache'
+
 type WorkspaceTab = 'matrix' | 'opportunities' | 'students' | 'warnings' | 'history'
 type StudentFilter = 'all' | 'missing' | 'contract' | 'availability' | 'trainer' | 'ready'
 type WarningFilter = 'priority' | 'contract' | 'learner' | 'capacity' | 'system' | 'pairing' | 'trainer'
 type WarningCause = 'contract' | 'learner' | 'capacity' | 'system'
 type WorkspaceSyncState = 'connecting' | 'live' | 'syncing' | 'offline'
 const CONFIRMED_AVAILABILITY_STATUSES = new Set(['submitted', 'locked', 'inherited', 'recurring'])
-const WORKSPACE_CACHE_TTL_MS = 3 * 60_000
-const WORKSPACE_CACHE_REVALIDATE_MS = 60_000
-const WORKSPACE_CACHE_LIMIT = 8
 const BRANCH_CATALOG_CACHE_TTL_MS = 10 * 60_000
 const MIN_WEEK_OFFSET = -12
 const APP_UPDATE_READY_KEY = 'aura:update-ready'
 const APP_UPDATE_READY_EVENT = 'aura:update-ready'
-
-type WorkspaceCacheEntry = { value: PtScheduleWorkspaceV2Result; storedAt: number }
-const workspaceCache = new Map<string, WorkspaceCacheEntry>()
 
 type BranchCatalogCacheEntry = { branches: PtScheduleBranchOption[]; storedAt: number }
 const branchCatalogCache = new Map<string, BranchCatalogCacheEntry>()
@@ -42,28 +38,6 @@ async function getCachedBranchCatalog(ownerScope: string) {
     return result.branches
   } finally {
     if (branchCatalogRequests.get(ownerScope) === request) branchCatalogRequests.delete(ownerScope)
-  }
-}
-
-function readWorkspaceCache(scope: string) {
-  const cached = workspaceCache.get(scope)
-  if (!cached) return null
-  if (Date.now() - cached.storedAt > WORKSPACE_CACHE_TTL_MS) {
-    workspaceCache.delete(scope)
-    return null
-  }
-  workspaceCache.delete(scope)
-  workspaceCache.set(scope, cached)
-  return cached
-}
-
-function writeWorkspaceCache(scope: string, value: PtScheduleWorkspaceV2Result) {
-  workspaceCache.delete(scope)
-  workspaceCache.set(scope, { value, storedAt: Date.now() })
-  while (workspaceCache.size > WORKSPACE_CACHE_LIMIT) {
-    const oldestScope = workspaceCache.keys().next().value as string | undefined
-    if (!oldestScope) break
-    workspaceCache.delete(oldestScope)
   }
 }
 

@@ -1,4 +1,4 @@
-import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   Activity,
   AlertTriangle,
@@ -61,6 +61,7 @@ import { trainerDailyLoadTarget } from '../../config/scheduleLoadPolicy'
 import { useScheduleOpportunities } from '../../features/schedule/useScheduleOpportunities'
 import { measureScheduleTask } from '../../features/schedule/performance'
 import { hasActionableSearchLimit } from '../../features/schedule/searchLimit'
+import { loadWorkspaceRequest } from '../../features/schedule/workspaceCache'
 
 interface Props {
   accessContext: AccessContext
@@ -303,10 +304,10 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
       if (!quiet || !workspaceRef.current) setSyncState('connecting')
       if (!quiet) setError(null)
       try {
-        const result = await measureScheduleTask('workspace', () => getPtScheduleWorkspace({ weekId: currentWeekId, branchId }))
-        writeWorkspaceCache(requestScope, result)
+        const result = await loadWorkspaceRequest(requestScope, () => measureScheduleTask('workspace', () => getPtScheduleWorkspace({ weekId: currentWeekId, branchId })))
         if (activeWorkspaceScopeRef.current !== requestScope) return
-        if (workspaceRef.current && result.draftRevision < workspaceRef.current.draftRevision) return
+        const current = workspaceRef.current
+        if (current?.branch.id === branchId && current.weekId === currentWeekId && result.draftRevision < current.draftRevision) return
         const changed = workspaceRealtimeFingerprint(workspaceRef.current) !== workspaceRealtimeFingerprint(result)
         if (!quiet) setWorkspace(result)
         else if (changed) startTransition(() => setWorkspace(result))
@@ -320,7 +321,8 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
       } catch (loadError) {
         if (activeWorkspaceScopeRef.current !== requestScope) return
         if (!quiet || !workspaceRef.current) {
-          setWorkspace(null)
+          // A failed refresh must not erase the currently displayed schedule.
+          // On a scope change the layout effect has already cleared old data.
           setError(asPtSchedulePublishError(loadError).message)
         }
         setSyncState('offline')
@@ -364,8 +366,9 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
     void loadBranches()
   }, [loadBranches])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const cached = readWorkspaceCache(workspaceScope)
+    setError(null)
     if (cached) {
       workspaceReadyTimingRef.current.source = 'cache'
       workspaceRef.current = cached.value
@@ -1507,10 +1510,10 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
             <button type="button" disabled={mobilePage >= mobileGroups.length - 1} onClick={() => setMobilePage((value) => Math.min(mobileGroups.length - 1, value + 1))}><ChevronRight /></button>
           </div>
 
-          {(highlightedStudent || hoveredStudent) && <div className={`schedule-student-focus${highlightedStudent ? ' is-pinned' : ''}`} role="status">
-            <span>{highlightedStudent ? <><strong>{highlightedStudent.name}</strong> · ô đỏ là lịch đã xếp trong tuần</> : <><strong>{hoveredStudent?.name}</strong> · ô xanh là lịch rảnh đã đăng ký</>}</span>
-            {highlightedStudent && <button type="button" onClick={() => setHighlightedStudentId(null)}>Tắt hiển thị</button>}
-          </div>}
+          <div className={`schedule-student-focus${highlightedStudent ? ' is-pinned' : ''}`} role="status">
+            <span>{highlightedStudent ? <><strong>{highlightedStudent.name}</strong> · ô đỏ là lịch đã xếp trong tuần</> : hoveredStudent ? <><strong>{hoveredStudent.name}</strong> · ô xanh là lịch rảnh đã đăng ký</> : 'Chọn tên học viên để xem lịch đã xếp; rê chuột để xem lịch rảnh.'}</span>
+            <button type="button" style={{ visibility: highlightedStudent ? 'visible' : 'hidden' }} aria-hidden={!highlightedStudent} tabIndex={highlightedStudent ? 0 : -1} onClick={() => setHighlightedStudentId(null)}>Tắt hiển thị</button>
+          </div>
 
           <div className="branch-schedule__matrix-shell">
             <table className="branch-schedule__grid">
@@ -1528,6 +1531,9 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
                 const showsStudentSchedule = highlightedScheduleSlots.has(slotId)
                 const openInspector = () => {
                   if (!selectedTrainerId || holiday) return
+                  if (hoverClearTimer.current !== null) window.clearTimeout(hoverClearTimer.current)
+                  hoverClearTimer.current = null
+                  setHoveredStudentId(null)
                   setInspectorSlotId(slotId)
                   setCandidateSearch('')
                   setHistoricalReason('')

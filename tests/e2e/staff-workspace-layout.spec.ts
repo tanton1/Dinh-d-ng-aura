@@ -28,7 +28,20 @@ test('staff dock prioritizes work modules and schedule tools share one weekly wo
   await dock.getByRole('button', { name: 'Hôm nay' }).click()
   await expect(page).toHaveURL(/#\/staff-dashboard$/)
   await expect(page.getByTestId('staff-dashboard-page')).toBeVisible()
-  await expect(page.getByRole('region', { name: 'Tổng quan công việc Staff' })).toBeVisible()
+  const workOverview = page.getByRole('region', { name: 'Tổng quan công việc Staff' })
+  await expect(workOverview).toBeVisible()
+  const overviewLayout = await workOverview.locator('.aura-metric-carousel__slide').evaluateAll((cards) => {
+    const tops = cards.map((card) => Math.round(card.getBoundingClientRect().top))
+    const viewport = cards[0]?.parentElement
+    return {
+      count: cards.length,
+      topRange: tops.length ? Math.max(...tops) - Math.min(...tops) : 999,
+      overflow: viewport ? viewport.scrollWidth - viewport.clientWidth : 999,
+    }
+  })
+  expect(overviewLayout.count).toBe(4)
+  expect(overviewLayout.topRange).toBeLessThanOrEqual(1)
+  expect(overviewLayout.overflow).toBeLessThanOrEqual(1)
   const performanceSummary = page.getByRole('region', { name: 'Tóm tắt Aura PT Performance Score' })
   await expect(performanceSummary).toBeVisible()
   await expect(performanceSummary.getByText('82/100', { exact: true })).toBeVisible()

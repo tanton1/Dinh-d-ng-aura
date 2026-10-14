@@ -67,8 +67,11 @@ test('learner name controls reveal availability and scheduled sessions without o
   await expect(lockedCell.locator('svg[aria-label="Ca đã khóa"]')).toBeVisible()
   const studentName = lockedCell.locator('.schedule-cell__student')
   await expect(studentName).toHaveAttribute('aria-pressed', 'false')
+  const matrixTopBeforeFocus = (await page.locator('.branch-schedule__matrix-shell').boundingBox())!.y
   await studentName.focus()
   await expect(page.locator('.schedule-student-focus')).toContainText('Bình')
+  const matrixTopAfterFocus = (await page.locator('.branch-schedule__matrix-shell').boundingBox())!.y
+  expect(Math.abs(matrixTopAfterFocus - matrixTopBeforeFocus)).toBeLessThanOrEqual(1)
   await expect(page.locator('.schedule-cell.is-availability-hover')).toHaveCount(3)
   expect(await page.locator('.schedule-cell.is-availability-hover[class*="is-opportunity-tier"]').count()).toBe(0)
 
