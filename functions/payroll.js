@@ -1219,11 +1219,11 @@ async function legacyPayrollPreview(db, runData, itemValues) {
 }
 
 function createPayrollFunctions({ db, onCall, logger = console }) {
-  // Payroll is a low-volume administrative workflow. Fractional Gen-1 CPU
-  // keeps new revisions deployable even when the regional Cloud Run CPU quota
+  // Payroll is a low-volume administrative workflow. Fractional CPU keeps
+  // rolling revisions deployable even when the regional Cloud Run CPU quota
   // is tight; concurrency must remain one for fractional CPU functions.
   const payrollCall = (handler) => onCall({
-    cpu: 'gcf_gen1',
+    cpu: 0.5,
     memory: '256MiB',
     maxInstances: 1,
     concurrency: 1,
@@ -1233,7 +1233,7 @@ function createPayrollFunctions({ db, onCall, logger = console }) {
   // business period. Keep the regular read endpoints lean, but give this one
   // deterministic write enough headroom to avoid container termination.
   const payrollHeavyCall = (handler) => onCall({
-    cpu: 'gcf_gen1',
+    cpu: 0.5,
     memory: '512MiB',
     maxInstances: 1,
     concurrency: 1,

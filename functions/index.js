@@ -150,7 +150,11 @@ const operationalActionTrigger = (document) => onDocumentWritten({
   document,
   database: databaseId,
   region: 'asia-southeast1',
-  cpu: 'gcf_gen1',
+  // Action Center projections are idempotent, low-volume writes. A fractional
+  // CPU keeps rolling revisions below the regional Cloud Run CPU quota while
+  // preserving the same retry policy and event semantics.
+  cpu: 0.25,
+  concurrency: 1,
   maxInstances: 1,
   retry: true,
 }, async (event) => syncOperationalActionSource({ db, event, logger }))
