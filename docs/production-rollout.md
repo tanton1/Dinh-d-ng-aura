@@ -1,5 +1,14 @@
 # Aura production rollout
 
+## Production project
+
+- Vercel dashboard: https://vercel.com/tanton/aurafitness
+- Public app: https://aurafitness-jet.vercel.app (also https://www.aurafitness.club)
+- Git repository: `tanton1/Dinh-d-ng-aura`; the `main` branch deploys automatically to this project.
+- Verify the production deployment's source commit and Ready status in this dashboard after pushing.
+- Local CLI credentials must have access to the `tanton` team. A local `.vercel/project.json` pointing to `tanton1s-projects/dinh-duong-aura` is a legacy link; use the Git integration while the CLI account lacks access to `tanton`.
+- Manual release credentials (`VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`, `VERCEL_TOKEN`) must belong to this production project and team.
+
 ## Required configuration
 
 - Create a reCAPTCHA Enterprise App Check provider for the Firebase web app and set `VITE_FIREBASE_APP_CHECK_SITE_KEY` in the hosting build environment.
@@ -60,7 +69,7 @@ Store the ignored Functions runtime values in
 ```dotenv
 ENFORCE_APP_CHECK=false
 ENFORCE_AI_APP_CHECK=true
-PUBLIC_APP_URL=https://dinh-duong-aura.vercel.app
+PUBLIC_APP_URL=https://aurafitness-jet.vercel.app
 ```
 
 Then deploy only the paid AI boundary:

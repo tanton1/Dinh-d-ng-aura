@@ -1,4 +1,4 @@
-const baseUrl = (process.env.AURA_PROD_URL || 'https://dinh-duong-aura.vercel.app').replace(/\/$/, '')
+const baseUrl = (process.env.AURA_PROD_URL || 'https://aurafitness-jet.vercel.app').replace(/\/$/, '')
 const expectedRelease = process.env.AURA_EXPECTED_RELEASE_SHA?.trim()
 const maximumSnapshotAttempts = Math.max(1, Number(process.env.AURA_SMOKE_ATTEMPTS || 10))
 const snapshotRetryDelayMs = Math.max(250, Number(process.env.AURA_SMOKE_RETRY_DELAY_MS || 3_000))
