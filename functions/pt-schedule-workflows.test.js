@@ -1,7 +1,7 @@
 'use strict'
 const test = require('node:test')
 const assert = require('node:assert/strict')
-const { createPtScheduleV2Functions, loadManualMutationData, generateSchedule, historicalSlotCandidate, repairCoverageWithRelocations, compactPairedSlots, candidateForSlot } = require('./pt-schedule-v2')
+const { createPtScheduleV2Functions, loadManualMutationData, generateSchedule, historicalSlotCandidate, repairCoverageWithRelocations, compactPairedSlots, candidateForSlot, slotCalendarDateIsPast } = require('./pt-schedule-v2')
 const WEEK = '2090-01-02', BRANCH = 'b'
 const entry = (id = 'a', trainerId = 't') => ({ studentId: id, trainerId, contractId: `c-${id}`, branchId: BRANCH, type: 'training', source: 'auto_v4' })
 function fixture() {
@@ -150,6 +150,42 @@ test('actual manual loader uses weekly override and add preserves every other ov
   assert.equal(docs.get(`ptScheduleDrafts/${BRANCH}_${WEEK}`).schedule['T2-6'][0].studentId, 'a')
   const replay = await api.applyPtScheduleDraftCommand(command('add_student', { studentId: 'a', trainerId: 't', slotId: 'T2-6' }))
   assert.deepEqual(replay, result)
+})
+
+test('manual add keeps an audited override when the learner is outside the selected slot', async () => {
+  const data = fixture()
+  data.students[0].availableSlots = ['T2-6', 'T3-6']
+  data.trainers[0].availableSlots = ['T2-6', 'T3-6', 'T4-6']
+  const { api, docs } = harness(data)
+  const result = await api.applyPtScheduleDraftCommand(command('add_student', {
+    studentId: 'a', trainerId: 't', slotId: 'T4-6', allowOutsideStudentAvailability: true,
+  }, { idempotencyKey: 'outside-availability' }))
+  const saved = docs.get(`ptScheduleDrafts/${BRANCH}_${WEEK}`).schedule['T4-6'][0]
+  assert.equal(result.schedule['T4-6'][0].studentId, 'a')
+  assert.equal(saved.availabilityOverride, true)
+  assert.equal(saved.availabilityOverrideReason, 'OUTSIDE_STUDENT_AVAILABILITY')
+})
+
+test('manual validation rehydrates published occupancy when an old draft is missing the row', async () => {
+  const data = fixture()
+  data.students[0].availableSlots = ['T2-6', 'T3-6']
+  data.students[1].availableSlots = ['T2-6', 'T3-6']
+  data.trainers[0].availableSlots = ['T2-6', 'T3-6']
+  const { api, docs } = harness(data)
+  docs.set('sessions/published-b', {
+    id: 'published-b', studentId: 'b', trainerId: 't', contractId: 'c-b', branchId: BRANCH,
+    date: WEEK, hour: 6, status: 'scheduled', billingStatus: 'pending',
+  })
+  const result = await api.applyPtScheduleDraftCommand(command('add_student', {
+    studentId: 'a', trainerId: 't', slotId: 'T2-6',
+  }, { idempotencyKey: 'published-seat-check' }))
+  assert.deepEqual(result.schedule['T2-6'].map((entry) => entry.studentId).sort(), ['a', 'b'])
+  assert.equal(result.schedule['T2-6'].find((entry) => entry.studentId === 'b').source, 'published_existing')
+})
+
+test('draft mutations use the calendar-day boundary shown by the matrix', () => {
+  assert.equal(slotCalendarDateIsPast('2090-01-02', 'T2-6', '2090-01-02'), false)
+  assert.equal(slotCalendarDateIsPast('2090-01-02', 'T2-6', '2090-01-03'), true)
 })
 test('move writes destination atomically, respects source PT and never loses other learners', async () => {
   const data = fixture(); data.schedule = { 'T2-6': [entry('a'), entry('b')] }

@@ -795,7 +795,7 @@ async function loadBranchData(db, branchId, week) {
 }
 
 async function loadManualMutationData(db, branchId, week, trainerId, studentId, allowCrossBranchStudent = false, loadedBranchData = null) {
-  const [branch, legacySchedule, draft, studentSnapshot, trainerSnapshot, exactAvailability, exactTrainerAvailability, config, leaves, contractSnapshot, sessionSnapshot] = await Promise.all([
+  const [branch, legacySchedule, draft, studentSnapshot, trainerSnapshot, exactAvailability, exactTrainerAvailability, config, leaves, contractSnapshot, sessionSnapshot, branchSessionSnapshot] = await Promise.all([
     db.doc(`branches/${branchId}`).get(),
     db.doc(`schedules/schedule_${week}`).get(),
     draftReference(db, branchId, week).get(),
@@ -807,11 +807,16 @@ async function loadManualMutationData(db, branchId, week, trainerId, studentId, 
     db.collection('leaveRequests').where('trainerId', '==', trainerId).limit(1001).get(),
     db.collection('contracts').where('studentId', '==', studentId).get(),
     db.collection('sessions').where('studentId', '==', studentId).limit(1001).get(),
+    // A v2 draft normally already contains the sessions that were published,
+    // but older/partially migrated weeks can have a draft that predates those
+    // rows. Read the selected branch's week as well so a manual add cannot
+    // miss a real seat, duplicate a learner's day, or reserve quota twice.
+    db.collection('sessions').where('branchId', '==', branchId).where('date', '>=', week).where('date', '<', nextWeek(week)).limit(1001).get(),
   ])
   if (!branch.exists || branch.data().status === 'archived') throw new HttpsError('failed-precondition', 'Chi nhánh không hoạt động.')
   if (!studentSnapshot.exists || (!allowCrossBranchStudent && studentSnapshot.data().branchId !== branchId)) throw new HttpsError('not-found', 'Không tìm thấy học viên trong phạm vi được phép.')
   if (!trainerSnapshot.exists || trainerSnapshot.data().branchId !== branchId) throw new HttpsError('not-found', 'Không tìm thấy PT trong chi nhánh.')
-  if (leaves.size > 1000 || sessionSnapshot.size > 1000) throw new HttpsError('resource-exhausted', 'Dữ liệu hồ sơ vượt giới hạn chỉnh ca an toàn.')
+  if (leaves.size > 1000 || sessionSnapshot.size > 1000 || branchSessionSnapshot.size > 1000) throw new HttpsError('resource-exhausted', 'Dữ liệu hồ sơ vượt giới hạn chỉnh ca an toàn.')
   const draftData = scopedDraftData(draft, branchId, week)
   // A legacy-only week still needs the complete branch schedule so no other
   // learner is dropped while the first v2 draft document is created. Keep
@@ -820,7 +825,8 @@ async function loadManualMutationData(db, branchId, week, trainerId, studentId, 
 
   const rawStudent = studentSnapshot.data()
   const rawTrainer = trainerProfileForWeek(trainerSnapshot.data(), exactTrainerAvailability.exists ? exactTrainerAvailability.data() : null, week)
-  const exactSessions = sessionSnapshot.docs.map((item) => ({ id: item.id, ...item.data() }))
+  const exactSessions = [...branchSessionSnapshot.docs, ...sessionSnapshot.docs]
+    .map((item) => ({ id: item.id, ...item.data() }))
   const sessions = [...new Map([
     ...(baseData?.sessions || []),
     ...exactSessions,
@@ -913,7 +919,20 @@ async function loadManualMutationData(db, branchId, week, trainerId, studentId, 
     schedulingPriority,
     dailySessionTarget,
   }
-  const schedule = baseData?.schedule || safeSchedule(draftData?.schedule)
+  const schedule = safeSchedule(baseData?.schedule || draftData?.schedule)
+  // Keep the manual validator aligned with the workspace projection. A
+  // published session is real occupancy even when an old v2 draft does not
+  // yet contain its `published_existing` row. Without this merge, xếp tay
+  // could incorrectly report an empty seat or allow a second session on the
+  // same learner/day, then fail later at Publish.
+  mergePublishedSessions({
+    weekId: week,
+    branch: { id: branchId },
+    students: [student],
+    crossBranchStudents: [],
+    contracts,
+    sessions,
+  }, schedule, [])
   return {
     branch: baseData?.branch || { id: branchId, name: branch.data().name || branchId, status: branch.data().status || 'active' },
     draft: baseData?.draft || {
@@ -2728,6 +2747,16 @@ function slotIsPast(week, slotId, now = Date.now()) {
   return Date.parse(`${dateForSlot(week, day)}T${String(hour).padStart(2, '0')}:00:00+07:00`) < now
 }
 
+// The matrix intentionally keeps the current calendar day editable until the
+// day closes. Use this boundary for draft mutations so a 08:00 cell opened at
+// 10:00 does not look editable in the UI and then fail with the historical
+// guard. The historical-session callable still uses the exact elapsed-time
+// check above when a caller explicitly records a past session with audit.
+function slotCalendarDateIsPast(week, slotId, today = todayInHoChiMinh()) {
+  const [day] = String(slotId).split('-')
+  return dateForSlot(week, day) < today
+}
+
 const HISTORICAL_OCCUPANCY_STATUSES = new Set(['scheduled', 'rescheduled', 'completed', 'attended', 'no_show'])
 const HISTORICAL_INVALID_CONTRACT_STATUSES = new Set(['cancelled', 'canceled', 'void', 'refunded', 'deleted'])
 
@@ -3807,7 +3836,7 @@ function createPtScheduleV2Functions({ db, onCall, actorForBranch = scheduleActo
       : await branchData(db, branchId, week)
     data.weekId = week
     if (Number(data.draft.revision) !== expectedRevision) throw new HttpsError('aborted', 'Draft đã thay đổi. Hãy tải lại trước khi chỉnh.')
-    if (['add_student', 'move_student', 'set_trainer_off'].includes(command) && slotIsPast(week, slotId)) throw new HttpsError('failed-precondition', 'Ca đã qua giờ. Hãy dùng chức năng điều chỉnh lịch sử có audit.')
+    if (['add_student', 'move_student', 'set_trainer_off'].includes(command) && slotCalendarDateIsPast(week, slotId)) throw new HttpsError('failed-precondition', 'Ca đã qua ngày. Hãy dùng chức năng điều chỉnh lịch sử có audit.')
     if (command === 'move_student') {
       const source = (data.schedule[fromSlotId] || []).filter((entry) => entry.studentId === studentId && entry.trainerId === fromTrainerId && entry.type !== 'off')
       if (source.length !== 1) throw new HttpsError('failed-precondition', 'Không tìm thấy duy nhất một ca nguồn để chuyển.')
@@ -3866,6 +3895,9 @@ function createPtScheduleV2Functions({ db, onCall, actorForBranch = scheduleActo
       const revision = Number(current.exists ? current.data()?.revision || 0 : data.draft.revision)
       if (revision !== expectedRevision) throw new HttpsError('aborted', 'Draft đã thay đổi. Hãy tải lại trước khi chỉnh.')
       schedule = safeSchedule(current.exists ? current.data().schedule : data.schedule)
+      // Rehydrate published occupancy after the transaction re-read as well;
+      // the draft may have been created before the first merge above.
+      mergePublishedSessions({ ...data, weekId: week }, schedule, [])
       const resetRemovedEntries = command === 'reset_draft'
         ? Object.values(schedule).flat().filter((entry) => entry.type !== 'off' && entry.isLocked !== true && entry.source !== 'published_existing')
         : []
@@ -3880,8 +3912,8 @@ function createPtScheduleV2Functions({ db, onCall, actorForBranch = scheduleActo
           || data.sessions.some((session) => session.studentId === entry.studentId && session.trainerId === entry.trainerId
             && publishedSessionSlotId(week, session) === destructiveSlot
             && (session.billingStatus === 'charged' || ['scheduled', 'rescheduled', 'completed', 'attended', 'no_show'].includes(session.status)))
-          || slotIsPast(week, destructiveSlot))
-        if (protectedEntry) throw new HttpsError('failed-precondition', 'Ca đã khóa, đã publish hoặc đã qua giờ. Hãy mở khóa ca nháp, hoặc dùng luồng điều chỉnh lịch sử cho ca đã publish.', { issueCode: 'PROTECTED_SESSION', studentId: protectedEntry.studentId, trainerId: destructiveTrainer, slotId: destructiveSlot })
+          || slotCalendarDateIsPast(week, destructiveSlot))
+        if (protectedEntry) throw new HttpsError('failed-precondition', 'Ca đã khóa, đã publish hoặc đã qua ngày. Hãy mở khóa ca nháp, hoặc dùng luồng điều chỉnh lịch sử cho ca đã publish.', { issueCode: 'PROTECTED_SESSION', studentId: protectedEntry.studentId, trainerId: destructiveTrainer, slotId: destructiveSlot })
       }
       if (command === 'move_student') schedule[fromSlotId] = (schedule[fromSlotId] || []).filter((entry) => !(entry.studentId === studentId && entry.trainerId === fromTrainerId))
       const values = Array.isArray(schedule[slotId]) ? [...schedule[slotId]] : []
@@ -3968,6 +4000,7 @@ module.exports = {
   createsThreeConsecutiveTrainingDays,
   generateSchedule,
   historicalSlotCandidate,
+  slotCalendarDateIsPast,
   manualSlotCandidate,
   maximumFeasibleSessionsForStudent,
   repairCoverageWithRelocations,

@@ -11,6 +11,8 @@ const {
   identityDirectoryAssignment,
   managedClientCountsFromContracts,
   staffIdsFromContract,
+  isReclaimableDeletedStudent,
+  studentProfilePhoneMatches,
 } = require('./identity-access')
 
 test('identity directory pagination stays bounded and preserves legacy assignment semantics', () => {
@@ -74,6 +76,15 @@ test('derives an Aura login email when a personal email is missing', () => {
 
 test('preserves an explicitly supplied legacy Aura email', () => {
   assert.equal(loginEmailFromPhone(' 0901234567@AuraFitness.VN ', '+84901234567'), '0901234567@aurafitness.vn')
+})
+
+test('recognizes only explicitly deleted, unlinked student profiles as reusable', () => {
+  const phone = normalizedPhone('070 272 8851')
+  assert.equal(studentProfilePhoneMatches({ phone: '0702728851' }, phone), true)
+  assert.equal(isReclaimableDeletedStudent({ phone: '0702728851', accountStatus: 'deleted' }, phone), true)
+  assert.equal(isReclaimableDeletedStudent({ phone: '0702728851', accountStatus: 'deleted', accountUid: 'old-uid' }, phone), false)
+  assert.equal(isReclaimableDeletedStudent({ phone: '0702728851', status: 'inactive' }, phone), false)
+  assert.equal(isReclaimableDeletedStudent({ phone: '0900000000', accountStatus: 'deleted' }, phone), false)
 })
 
 test('saving an existing staff profile never migrates its legacy login alias', () => {

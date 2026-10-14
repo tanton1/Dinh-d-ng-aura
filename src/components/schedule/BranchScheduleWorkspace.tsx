@@ -131,6 +131,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
   const [notice, setNotice] = useState<string | null>(null)
   const [publishPreview, setPublishPreview] = useState<PtSchedulePublishResult | null>(null)
   const [publishCrossBranchConfirmed, setPublishCrossBranchConfirmed] = useState(false)
+  const [noticeAction, setNoticeAction] = useState<'publish' | null>(null)
   const [history, setHistory] = useState<PtScheduleVersionListResult | null>(null)
   const [restoreCandidate, setRestoreCandidate] = useState<PtScheduleVersionSummary | null>(null)
   const [inspectorSlotId, setInspectorSlotId] = useState<string | null>(null)
@@ -403,6 +404,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
       void loadWorkspace()
     }
     setNotice(null)
+    setNoticeAction(null)
     setPublishPreview(null)
     setPublishIssues([])
     setHistory(null)
@@ -420,7 +422,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
 
   useEffect(() => {
     if (!notice) return undefined
-    const timeout = window.setTimeout(() => setNotice(null), 3_600)
+    const timeout = window.setTimeout(() => { setNotice(null); setNoticeAction(null) }, 3_600)
     return () => window.clearTimeout(timeout)
   }, [notice])
 
@@ -1105,7 +1107,8 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
         workspaceRef.current = next
         return next
       })
-      setNotice(`Đã lưu draft r${result.draftRevision}.`)
+      setNotice(`Đã lưu draft r${result.draftRevision}. Bấm Publish để đồng bộ lên lịch PT.`)
+      setNoticeAction(['add_student', 'remove_student', 'move_student'].includes(command) ? 'publish' : null)
       setOffConfirmation(false)
       if (command === 'add_student' || command === 'move_student') setPendingManualCandidate(null)
       return true
@@ -1162,6 +1165,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
       setNotice(result.sessionChanged
         ? (command === 'remove_student' ? 'Đã gỡ buổi tập và đồng bộ lịch PT; đã lưu lịch sử điều chỉnh.' : 'Đã chuyển buổi tập và đồng bộ lịch PT; đã lưu lịch sử điều chỉnh.')
         : 'Đã lưu điều chỉnh lịch nháp; cần Publish để áp dụng lên lịch PT.')
+      setNoticeAction(result.sessionChanged ? null : 'publish')
       setPendingMove(null)
       setPendingAdminRemoval(null)
       setAdminEditReason('')
@@ -1220,6 +1224,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
       setPendingManualCandidate(null)
       setHistoricalReason('')
       await loadWorkspace(true)
+      setNoticeAction(null)
       setNotice(result.payrollAdjustmentRequired
         ? 'Đã bổ sung ca vào lịch sử. Kỳ lương đã chốt cần xử lý bằng khoản điều chỉnh.'
         : 'Đã bổ sung ca vào lịch sử và chuyển sang chờ PT xác nhận.')
@@ -1307,6 +1312,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
         } : item),
       } : current)
       setAvailabilityDraft(new Set(result.availableSlots))
+      setNoticeAction(null)
       setNotice(`Đã cập nhật lịch rảnh của ${student.name}.`)
     } catch (cause) {
       const normalized = asPtSchedulePublishError(cause)
@@ -1357,6 +1363,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
       const deepRun = passes > 1 ? ` Đã chạy ${passes} lượt tối ưu${improvements ? `, ${improvements}` : ''}.` : ''
       const searchNote = searchLimitReached && hasActionableSearchLimit(result.optimizationSummary, result.unassignedEntries || result.unassigned)
         ? ' Bộ tìm kiếm đã chạm giới hạn an toàn cho các hồ sơ còn thiếu; hãy bấm Tối ưu tiếp hoặc xử lý ở tab Cảnh báo.' : ''
+      setNoticeAction(null)
       setNotice(unresolved
         ? `Đã tối ưu draft r${result.draftRevision}; còn ${unresolved} hồ sơ cần xử lý.${deepRun}${searchNote}`
         : `Đã tối ưu draft r${result.draftRevision}; đã ưu tiên đủ học viên, ca đôi và PT chính/phụ.${deepRun}${searchNote}`)
@@ -1419,6 +1426,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
       }))
       if (activeWorkspaceScopeRef.current !== commandScope) return
       setPublishPreview(null)
+      setNoticeAction(null)
       setNotice(result.unchanged ? `Lịch đã ở phiên bản v${result.version}.` : `Đã publish an toàn phiên bản v${result.version}.`)
       await loadWorkspace(true)
     } catch (publishError) {
@@ -1467,6 +1475,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
       setRestoreCandidate(null)
       setHistory(null)
       setTab('matrix')
+      setNoticeAction(null)
       setNotice(`Đã tạo draft r${result.draftRevision} từ phiên bản v${result.version}.`)
       await loadWorkspace(true)
     } catch (restoreError) {
@@ -1574,7 +1583,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
         </div>
       </section>
 
-      {notice && <div className="branch-schedule__notice" role="status">{notice}</div>}
+      {notice && <div className="branch-schedule__notice" role="status"><span>{notice}</span>{noticeAction === 'publish' && <button type="button" onClick={() => void validatePublish()} disabled={busy}>Kiểm tra & Publish ngay</button>}</div>}
       {releaseUpdateReady && <div className="branch-schedule__update-ready" role="status"><span>Aura có bản cập nhật mới. Lịch đang mở được giữ nguyên để không mất thao tác.</span><button type="button" onClick={() => window.location.reload()}><RefreshCw size={14} /> Cập nhật khi sẵn sàng</button></div>}
       {branchCatalogError && <div className="branch-schedule__error branch-schedule__branch-warning" role="alert"><span>{branchCatalogError}</span><button type="button" onClick={() => void loadBranches()}><RefreshCw size={15} /> Tải lại chi nhánh</button></div>}
       {error && <div className="branch-schedule__error" role="alert">{error}</div>}
