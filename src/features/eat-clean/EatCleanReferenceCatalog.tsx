@@ -1,80 +1,79 @@
 import { useMemo, useState } from 'react'
-import { CheckCircle2, Info, Search, ShieldCheck } from 'lucide-react'
+import { ArrowRight, Search, ShoppingBag } from 'lucide-react'
 import { formatEatCleanMoney } from './EatCleanUi'
 import {
-  EAT_CLEAN_REFERENCE_GROUPS,
-  FITFOOD_REFERENCE_SOURCE,
-  filterEatCleanReferenceProducts,
-  referenceImagePath,
-  referencePricePerMeal,
-  type EatCleanReferenceGroup,
+  EAT_CLEAN_PACKAGE_GROUPS,
+  filterEatCleanPackages,
+  packageImagePath,
+  packagePricePerMeal,
+  type EatCleanPackageGroup,
 } from './referenceCatalog'
 import './EatCleanReferenceCatalog.css'
 
 const MEAL_LABELS = { breakfast: 'Sáng', lunch: 'Trưa', dinner: 'Tối' } as const
 
-export default function EatCleanReferenceCatalog() {
-  const [group, setGroup] = useState<EatCleanReferenceGroup | 'all'>('all')
+interface EatCleanPackageCatalogProps {
+  onBrowseMenu?: () => void
+}
+
+export default function EatCleanReferenceCatalog({ onBrowseMenu }: EatCleanPackageCatalogProps) {
+  const [group, setGroup] = useState<EatCleanPackageGroup | 'all'>('all')
   const [query, setQuery] = useState('')
-  const products = useMemo(() => filterEatCleanReferenceProducts(group, query), [group, query])
-  const checkedOnLabel = FITFOOD_REFERENCE_SOURCE.checkedOn.split('-').reverse().join('/')
+  const products = useMemo(() => filterEatCleanPackages(group, query), [group, query])
 
   return (
-    <section className="eat-clean-reference" aria-labelledby="eat-clean-reference-title" data-testid="eat-clean-reference-catalog">
+    <section className="eat-clean-reference" aria-labelledby="eat-clean-package-title" data-testid="eat-clean-package-catalog">
       <header className="eat-clean-reference__heading">
         <div>
-          <h2 id="eat-clean-reference-title">Gói tuần & sản phẩm dùng kèm</h2>
-          <p>Danh mục tham khảo đã lưu trong Aura · nguồn đối chiếu Fitfood VN · ngày {checkedOnLabel}.</p>
+          <h2 id="eat-clean-package-title">Combo gói ăn</h2>
+          <p>Chọn sẵn số bữa, khẩu phần và lịch ăn phù hợp với bạn.</p>
         </div>
-        <span className="eat-clean-reference__menu-link"><ShieldCheck size={16} aria-hidden="true" /> Dữ liệu nội bộ</span>
+        {onBrowseMenu && <button type="button" className="eat-clean-reference__menu-link" onClick={onBrowseMenu}><ShoppingBag size={16} aria-hidden="true" /> Chọn món để đặt</button>}
       </header>
 
-      <div className="eat-clean-reference__notice">
-        <strong>Sản phẩm tham khảo, không phải món Aura đang bán.</strong>
-        <p>Giá và dinh dưỡng là dữ liệu đối chiếu đã nhập vào Aura. Aura chưa nhận đơn, ghi tồn kho hoặc cam kết giao các sản phẩm này. Ảnh trên thẻ là ảnh minh họa nội bộ, không phải ảnh chính thức của Fitfood.</p>
-      </div>
-
-      <div className="eat-clean-reference__workflow" data-testid="eat-clean-reference-workflow" aria-label="Luồng quản lý danh mục tham khảo">
-        <div className="eat-clean-reference__workflow-title"><Info size={17} /><strong>Luồng quản lý nội bộ</strong><span>Chỉ dùng để tham khảo</span></div>
-        <ol>
-          <li className="is-complete"><CheckCircle2 size={16} /><span>Đối chiếu dữ liệu</span></li>
-          <li className="is-complete"><CheckCircle2 size={16} /><span>Gắn ảnh nội bộ</span></li>
-          <li className="is-complete"><CheckCircle2 size={16} /><span>Duyệt nội dung</span></li>
-          <li><span className="eat-clean-reference__workflow-dot" /><span>Chưa mở bán Aura</span></li>
-        </ol>
-      </div>
-
       <div className="eat-clean-reference__filters">
-        <label className="eat-clean-search"><Search size={19} aria-hidden="true" /><span className="sr-only">Tìm sản phẩm Fitfood</span><input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Tìm gói, món hoặc loại sản phẩm…" /></label>
-        <div className="eat-clean-categories" aria-label="Nhóm sản phẩm tham khảo">
-          {EAT_CLEAN_REFERENCE_GROUPS.map((item) => <button type="button" key={item.id} aria-pressed={group === item.id} className={group === item.id ? 'is-active' : ''} onClick={() => setGroup(item.id)}>{item.label}</button>)}
+        <label className="eat-clean-search">
+          <Search size={19} aria-hidden="true" />
+          <span className="sr-only">Tìm combo gói ăn</span>
+          <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Tìm combo, món hoặc loại sản phẩm…" />
+        </label>
+        <div className="eat-clean-categories" aria-label="Nhóm combo gói ăn">
+          {EAT_CLEAN_PACKAGE_GROUPS.map((item) => <button type="button" key={item.id} aria-pressed={group === item.id} className={group === item.id ? 'is-active' : ''} onClick={() => setGroup(item.id)}>{item.label}</button>)}
         </div>
       </div>
-      <p className="eat-clean-reference__count" role="status">{products.length} sản phẩm tham khảo</p>
+      <p className="eat-clean-reference__count" role="status">{products.length} combo</p>
 
       {products.length > 0 ? <div className="eat-clean-reference__grid">
-        {products.map((product) => {
-          const perMeal = referencePricePerMeal(product)
+        {products.map((product, index) => {
+          const perMeal = packagePricePerMeal(product)
           return (
-            <article className="eat-clean-reference-product" key={product.id} data-testid="eat-clean-reference-product" data-product-id={product.id}>
+            <article className="eat-clean-reference-product" key={product.id} data-testid="eat-clean-package" data-product-id={product.id}>
               <div className="eat-clean-reference-product__image-wrap">
-                <img className="eat-clean-reference-product__image" src={referenceImagePath(product)} alt={`Ảnh minh họa ${product.name}`} loading="lazy" />
-                <span>Ảnh minh họa</span>
+                <img
+                  className="eat-clean-reference-product__image"
+                  src={packageImagePath(product)}
+                  alt={product.name}
+                  width={640}
+                  height={376}
+                  loading={index < 2 ? 'eager' : 'lazy'}
+                  decoding="async"
+                  fetchPriority={index < 2 ? 'high' : 'auto'}
+                  sizes="(max-width: 600px) 100vw, (max-width: 1100px) 50vw, 33vw"
+                />
               </div>
-              <header><span>{EAT_CLEAN_REFERENCE_GROUPS.find((item) => item.id === product.group)?.label}</span><h3>{product.name}</h3></header>
-              {product.weeklyPlan && <div className="eat-clean-reference-product__meals" aria-label="Bữa ăn trong gói">{product.weeklyPlan.meals.map((meal) => <span key={meal}>{MEAL_LABELS[meal]}</span>)}</div>}
-              <p className="eat-clean-reference-product__description">{product.description}</p>
-              <div className="eat-clean-reference-product__price"><small>Giá tham khảo / {product.weeklyPlan ? 'gói tuần' : 'set hoặc hộp'}</small><strong>{formatEatCleanMoney(product.referencePrice)}</strong><span>{product.unitLabel}</span>{perMeal !== undefined && <small>Khoảng {formatEatCleanMoney(perMeal)}/bữa theo giá gói</small>}</div>
-              {product.nutritionNote && <p className="eat-clean-reference-product__nutrition">{product.nutritionNote}</p>}
-              {product.caution && <p className="eat-clean-reference-product__caution">{product.caution}</p>}
-              <details className="eat-clean-reference-product__source">
-                <summary><Info size={16} aria-hidden="true" /> Thông tin đối chiếu</summary>
-                <p>Nguồn: Fitfood VN · kiểm tra {checkedOnLabel}. Aura lưu bản tham khảo để quản lý nội bộ, không chuyển bạn sang website khác.</p>
-              </details>
+              <div className="eat-clean-reference-product__body">
+                <header><span>{EAT_CLEAN_PACKAGE_GROUPS.find((item) => item.id === product.group)?.label}</span><h3>{product.name}</h3></header>
+                {product.weeklyPlan && <div className="eat-clean-reference-product__meals" aria-label="Bữa ăn trong gói">{product.weeklyPlan.meals.map((meal) => <span key={meal}>{MEAL_LABELS[meal]}</span>)}</div>}
+                <p className="eat-clean-reference-product__description">{product.description}</p>
+                <div className="eat-clean-reference-product__price"><small>Giá combo</small><strong>{formatEatCleanMoney(product.price)}</strong><span>{product.unitLabel}</span>{perMeal !== undefined && <small>Khoảng {formatEatCleanMoney(perMeal)} / bữa</small>}</div>
+                {product.nutritionNote && <p className="eat-clean-reference-product__nutrition">{product.nutritionNote}</p>}
+                {product.caution && <p className="eat-clean-reference-product__caution">{product.caution}</p>}
+                {onBrowseMenu && <button type="button" className="eat-clean-button eat-clean-button--primary eat-clean-reference-product__action" onClick={onBrowseMenu}>Xem món để đặt <ArrowRight size={16} aria-hidden="true" /></button>}
+              </div>
             </article>
           )
         })}
-      </div> : <div className="eat-clean-reference__empty"><p>Không tìm thấy sản phẩm. Thử từ khóa hoặc nhóm khác.</p><button type="button" className="eat-clean-button eat-clean-button--secondary" onClick={() => { setGroup('all'); setQuery('') }}>Xóa bộ lọc</button></div>}
+      </div> : <div className="eat-clean-reference__empty"><p>Không tìm thấy combo. Thử từ khóa hoặc nhóm khác.</p><button type="button" className="eat-clean-button eat-clean-button--secondary" onClick={() => { setGroup('all'); setQuery('') }}>Xóa bộ lọc</button></div>}
     </section>
   )
 }

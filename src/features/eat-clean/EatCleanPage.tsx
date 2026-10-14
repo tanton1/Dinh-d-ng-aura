@@ -75,8 +75,8 @@ import type {
 const DEFAULT_ROUTE: EatCleanRoute = { screen: 'storefront' }
 const EatCleanReferenceCatalog = lazyWithRetry(() => import('./EatCleanReferenceCatalog'))
 
-function ReferenceCatalogPanel() {
-  return <Suspense fallback={<p role="status">Đang mở danh mục tham khảo…</p>}><EatCleanReferenceCatalog /></Suspense>
+function ReferenceCatalogPanel({ onBrowseMenu }: { onBrowseMenu?: () => void } = {}) {
+  return <Suspense fallback={<p role="status">Đang tải combo…</p>}><EatCleanReferenceCatalog onBrowseMenu={onBrowseMenu} /></Suspense>
 }
 
 function vietnamIsoDate(dayOffset = 0) {
@@ -453,7 +453,7 @@ export default function EatCleanPage({
       </header>
 
       {storefront.notice && route.screen === 'storefront' && <div className="eat-clean-notice"><Sparkles size={16} /><span>{storefront.notice}</span></div>}
-      {!storefront.orderingEnabled && route.screen === 'storefront' && <div className="eat-clean-alert" role="status"><Clock3 size={18} /><span>Cửa hàng đang tạm ngừng nhận đơn. Thực đơn vẫn mở để bạn tham khảo.</span></div>}
+      {!storefront.orderingEnabled && route.screen === 'storefront' && <div className="eat-clean-alert" role="status"><Clock3 size={18} /><span>Cửa hàng đang tạm ngừng nhận đơn. Thực đơn vẫn mở để bạn xem trước.</span></div>}
       {actionError && <div className="eat-clean-alert" role="alert"><AlertCircle size={18} /><span>{actionError}</span><button type="button" aria-label="Đóng" onClick={() => setActionError('')}><XCircle size={18} /></button></div>}
 
       {route.screen === 'storefront' && (
@@ -567,7 +567,7 @@ function StorefrontScreen({
 
       <div className="eat-clean-catalog-switch" aria-label="Chọn danh mục Eat Clean">
         <button type="button" aria-pressed={catalogView === 'aura'} aria-controls="eat-clean-aura-catalog" onClick={() => setCatalogView('aura')}>Thực đơn Aura</button>
-        <button type="button" aria-pressed={catalogView === 'reference'} aria-controls="eat-clean-fitfood-catalog" onClick={() => setCatalogView('reference')}>Sản phẩm Fitfood tham khảo</button>
+        <button type="button" aria-pressed={catalogView === 'reference'} aria-controls="eat-clean-package-catalog" onClick={() => setCatalogView('reference')}>Combo gói ăn</button>
       </div>
 
       <section className="eat-clean-catalog" id="eat-clean-aura-catalog" hidden={catalogView !== 'aura'}>
@@ -585,7 +585,7 @@ function StorefrontScreen({
         )}
       </section>
 
-      <div id="eat-clean-fitfood-catalog" hidden={catalogView !== 'reference'}>{catalogView === 'reference' && <ReferenceCatalogPanel />}</div>
+      <div id="eat-clean-package-catalog" hidden={catalogView !== 'reference'}>{catalogView === 'reference' && <ReferenceCatalogPanel onBrowseMenu={() => { setCatalogView('aura'); window.requestAnimationFrame(() => document.getElementById('eat-clean-aura-catalog')?.scrollIntoView({ behavior: 'smooth', block: 'start' })) }} />}</div>
     </div>
   )
 }

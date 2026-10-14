@@ -172,7 +172,7 @@ export const DEMO_EAT_CLEAN_STOREFRONT: EatCleanStorefront = {
     { id: 'cam-le', name: 'Cẩm Lệ', active: true },
     { id: 'lien-chieu', name: 'Liên Chiểu', active: true },
   ],
-  notice: 'Đang hiển thị thực đơn mẫu để bạn khám phá giao diện Eat Clean.',
+  notice: 'Chọn món theo mục tiêu rồi thêm ngay vào giỏ hàng.',
   orders: [],
 }
 
