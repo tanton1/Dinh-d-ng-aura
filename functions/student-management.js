@@ -528,7 +528,7 @@ async function updateStudentCommand({ db, actor, data, correlationId }) {
   })
 }
 
-function createStudentManagementFunctions({ db, onCall, accessContextResolver = trustedAccessContext }) {
+function createStudentManagementFunctions({ db, onCall, hardDeleteOnCall = onCall, accessContextResolver = trustedAccessContext }) {
   const updateStudentProfile = onCall(withFunctionTelemetry('updateStudentProfile', async (request) => {
     const actor = await accessContextResolver(request, db)
     return updateStudentCommand({ db, actor, data: request.data || {}, correlationId: request.auraCorrelationId })
@@ -543,7 +543,17 @@ function createStudentManagementFunctions({ db, onCall, accessContextResolver = 
     const actor = await accessContextResolver(request, db)
     return hardDeleteStudentCommand({ db, actor, data: request.data || {}, correlationId: request.auraCorrelationId })
   }))
-  return { updateStudentProfile, hardDeleteStudent }
+  const hardDeleteStudentRegional = hardDeleteOnCall({
+    memory: '256MiB',
+    cpu: 0.1666,
+    maxInstances: 1,
+    concurrency: 1,
+    timeoutSeconds: 120,
+  }, withFunctionTelemetry('hardDeleteStudentRegional', async (request) => {
+    const actor = await accessContextResolver(request, db)
+    return hardDeleteStudentCommand({ db, actor, data: request.data || {}, correlationId: request.auraCorrelationId })
+  }))
+  return { updateStudentProfile, hardDeleteStudent, hardDeleteStudentRegional }
 }
 
 module.exports = {

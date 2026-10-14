@@ -1,5 +1,5 @@
 import { httpsCallable } from 'firebase/functions'
-import { firebaseFunctions } from '../lib/firebaseFunctions'
+import { firebaseFunctions, firebaseStudentManagementFunctions } from '../lib/firebaseFunctions'
 import { createClientCorrelationId } from './clientTelemetryService'
 import type { Student } from '../types/ptOperations'
 
@@ -61,6 +61,11 @@ function presentError(error: unknown) {
   return error instanceof Error ? error : new Error('Chưa thể cập nhật hồ sơ học viên.')
 }
 
+function hardDeleteFunctionsOrThrow() {
+  if (!firebaseStudentManagementFunctions) throw new Error('Dịch vụ hồ sơ học viên chưa sẵn sàng.')
+  return firebaseStudentManagementFunctions
+}
+
 function errorCode(error: unknown) {
   const value = error && typeof error === 'object' ? (error as { code?: unknown }).code : ''
   return typeof value === 'string' ? value.replace(/^functions\//, '') : ''
@@ -96,7 +101,7 @@ export async function hardDeleteStudent(studentId: string, confirmation = 'XÓA 
   const callable = httpsCallable<
     { studentId: string; confirmation: string },
     HardDeleteStudentResult
-  >(functionsOrThrow(), 'hardDeleteStudent', { timeout: 60_000 })
+  >(hardDeleteFunctionsOrThrow(), 'hardDeleteStudentRegional', { timeout: 60_000 })
   try {
     return (await callable({ studentId, confirmation })).data
   } catch (error) {

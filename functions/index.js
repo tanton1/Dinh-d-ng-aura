@@ -436,6 +436,15 @@ function onCall(optionsOrHandler, maybeHandler) {
   return firebaseOnCall({ invoker: 'public', ...optionsOrHandler, enforceAppCheck }, maybeHandler)
 }
 
+// Low-volume destructive student cleanup runs in the overflow region so a
+// saturated asia-southeast1 Cloud Run CPU quota cannot block the admin tool.
+const asiaEastOnCall = (optionsOrHandler, maybeHandler) => {
+  if (typeof optionsOrHandler === 'function') {
+    return firebaseOnCall({ region: 'asia-east1', invoker: 'public', enforceAppCheck }, optionsOrHandler)
+  }
+  return firebaseOnCall({ region: 'asia-east1', invoker: 'public', ...optionsOrHandler, enforceAppCheck }, maybeHandler)
+}
+
 function boundedIncidentValue(value, maximum) {
   return typeof value === 'string' ? value.trim().slice(0, maximum) : ''
 }
@@ -537,9 +546,10 @@ exports.archiveSalesQuote = quoteManagementFunctions.archiveSalesQuote
 exports.acceptSalesQuote = quoteManagementFunctions.acceptSalesQuote
 const scheduleConfigManagementFunctions = createScheduleConfigManagementFunctions({ db, onCall })
 exports.saveScheduleConfig = scheduleConfigManagementFunctions.saveScheduleConfig
-const studentManagementFunctions = createStudentManagementFunctions({ db, onCall, auth })
+const studentManagementFunctions = createStudentManagementFunctions({ db, onCall, hardDeleteOnCall: asiaEastOnCall, auth })
 exports.updateStudentProfile = studentManagementFunctions.updateStudentProfile
 exports.hardDeleteStudent = studentManagementFunctions.hardDeleteStudent
+exports.hardDeleteStudentRegional = studentManagementFunctions.hardDeleteStudentRegional
 const branchManagementFunctions = createBranchManagementFunctions({ db, onCall })
 exports.upsertBranch = branchManagementFunctions.upsertBranch
 exports.archiveBranch = branchManagementFunctions.archiveBranch
