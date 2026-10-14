@@ -212,7 +212,18 @@ async function main() {
   }, null, 2))
 }
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.message : 'PT schedule audit failed.')
-  process.exitCode = 1
-})
+if (require.main === module) {
+  main().catch((error) => {
+    console.error(error instanceof Error ? error.message : 'PT schedule audit failed.')
+    process.exitCode = 1
+  })
+}
+
+module.exports = {
+  TARGET,
+  accessToken,
+  decodeFields,
+  query,
+  requestJson,
+  scheduleEntryCount,
+}

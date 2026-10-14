@@ -2,7 +2,7 @@
 
 const test = require('node:test')
 const assert = require('node:assert/strict')
-const { MAX_DRAFT_DOCUMENT_ENTRIES, MAX_DRAFT_ENTRIES, OPTIMIZER_VERSION, candidateForSlot, compactPairedSlots, generateSchedule, manualSlotCandidate, previousWeek, repairCoverageWithRelocations, resetDraftSchedule, resolveContract, safeSchedule, safeWeeklySessionTargets, slotUtilizationForSchedule, studentWeekEligibility, trainerProfileForWeek, weeklyTargetForStudent } = require('./pt-schedule-v2')
+const { MAX_DRAFT_DOCUMENT_ENTRIES, MAX_DRAFT_ENTRIES, OPTIMIZER_VERSION, candidateForSlot, compactPairedSlots, generateSchedule, historicalSlotCandidate, manualSlotCandidate, previousWeek, repairCoverageWithRelocations, resetDraftSchedule, resolveContract, safeSchedule, safeWeeklySessionTargets, slotUtilizationForSchedule, studentWeekEligibility, trainerProfileForWeek, weeklyTargetForStudent } = require('./pt-schedule-v2')
 
 const WEEK = '2026-08-24'
 const BRANCH = 'branch-a'
@@ -750,6 +750,48 @@ test('cross-branch learner is selectable only inside the explicit admin override
   assert.equal(result.manualSelectable, true)
   assert.equal(result.studentBranchWarning, true)
   assert.equal(result.contractId, 'contract-a')
+})
+
+test('historical cross-branch learner requires admin confirmation but remains auditable', () => {
+  const data = fixture()
+  data.students[0].branchId = 'branch-home'
+  data.contracts[0].branchId = 'branch-home'
+  let result = historicalSlotCandidate(data, {
+    student: data.students[0],
+    trainer: data.trainers[0],
+    slotId: 'T2-6',
+  })
+  assert.equal(result.manualSelectable, false)
+  assert.ok(result.hardReasons.includes('STUDENT_BRANCH_MISMATCH'))
+
+  data.allowCrossBranchStudentIds = new Set(['student-a'])
+  result = historicalSlotCandidate(data, {
+    student: data.students[0],
+    trainer: data.trainers[0],
+    slotId: 'T2-6',
+  })
+  assert.equal(result.manualSelectable, true)
+  assert.equal(result.studentBranchWarning, true)
+  assert.ok(result.warningReasons.includes('STUDENT_BRANCH_MISMATCH'))
+  assert.equal(result.contractId, 'contract-a')
+})
+
+test('optimizer preserves an assigned cross-branch row without adding it to the auto roster', () => {
+  const data = fixture()
+  data.students[0].branchId = 'branch-home'
+  data.contracts[0].branchId = 'branch-home'
+  data.crossBranchStudents = [{ ...data.students[0], isCrossBranchDisplayOnly: true }]
+  data.students = data.students.slice(1)
+  data.contracts = data.contracts.slice(1)
+  data.schedule = {
+    'T2-6': [{ studentId: 'student-a', trainerId: 'trainer-a', contractId: 'contract-a', branchId: BRANCH, type: 'training', source: 'manual_v2', studentBranchWarning: true }],
+  }
+  const generated = generateSchedule(data)
+  assert.ok(generated.schedule['T2-6'].some((entry) => entry.studentId === 'student-a'))
+  assert.equal(Object.values(generated.schedule).flat().filter((entry) => entry.studentId === 'student-a').length, 1)
+  // The display-only row must not re-enter the automatic roster (and this
+  // fixture intentionally has no second learner to generate).
+  assert.equal(Object.values(generated.schedule).flat().filter((entry) => entry.studentId === 'student-b').length, 0)
 })
 
 test('branch capacity blocks auto and manual candidates even when another trainer still has room', () => {

@@ -471,6 +471,20 @@ test('captures OFF and training entries in an immutable branch draft snapshot', 
   assert.equal(snapshot['T2-6'][1].type, 'off')
 })
 
+test('legacy all filter resolves to the physical PT branch instead of hiding the entry', () => {
+  const students = new Map([
+    ['student-a', { branchId: 'branch-home' }],
+  ])
+  const trainers = new Map([
+    ['trainer-a', { branchId: BRANCH_ID }],
+  ])
+  const snapshot = branchScheduleSnapshot({
+    'T2-6': [{ studentId: 'student-a', trainerId: 'trainer-a', branchId: 'all', type: 'training' }],
+  }, BRANCH_ID, students, trainers)
+  assert.equal(snapshot['T2-6'][0].branchId, BRANCH_ID)
+  assert.equal(snapshot['T2-6'][0].studentId, 'student-a')
+})
+
 test('restoring one branch preserves every entry belonging to another branch', () => {
   const students = new Map([
     ['student-a', { branchId: BRANCH_ID }],

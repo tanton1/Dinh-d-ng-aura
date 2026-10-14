@@ -252,9 +252,13 @@ function manualAvailabilityOverride(entry) {
 
 function rawEntryBranch(entry, students, trainers) {
   if (!entry || typeof entry !== 'object') return ''
-  return entry.branchId
-    || students.get(entry.studentId)?.branchId
+  // `all` was a UI filter value in the legacy schedule editor, not a real
+  // operational branch. Treat it as absent so the canonical PT branch (or
+  // the learner's home branch when no PT is available) can be resolved.
+  const explicitBranchId = entry.branchId && entry.branchId !== 'all' ? entry.branchId : ''
+  return explicitBranchId
     || trainers.get(entry.trainerId)?.branchId
+    || students.get(entry.studentId)?.branchId
     || ''
 }
 
@@ -445,7 +449,7 @@ function desiredEntries({ scheduleId, week, branchId, schedule, trainers, studen
       const trainerSlot = `${date}|${hour}|${trainerId}`
       const trainer = trainers.get(trainerId)
       if (raw.type === 'off') {
-        const offBranchId = raw.branchId || trainer?.branchId
+        const offBranchId = raw.branchId && raw.branchId !== 'all' ? raw.branchId : trainer?.branchId
         if (offBranchId !== branchId) continue
         if (!trainer || trainer.status === 'inactive') addError('TRAINER_NOT_ACTIVE')
         offSlots.add(trainerSlot)
@@ -462,11 +466,12 @@ function desiredEntries({ scheduleId, week, branchId, schedule, trainers, studen
       // Old generated entries did not persist branchId. Resolve that legacy
       // omission only from canonical member/PT data; never treat the UI filter
       // value "all" as a writable branch identifier.
-      const resolvedEntryBranchId = raw.branchId || branchId || student?.branchId || trainer?.branchId
+      const resolvedEntryBranchId = (raw.branchId && raw.branchId !== 'all' ? raw.branchId : '')
+        || branchId || student?.branchId || trainer?.branchId
       // An explicit branch on the schedule is the physical training site and
       // scopes the publish. A learner's profile branch may differ; that is a
       // visible warning, not a publish blocker.
-      if (raw.branchId && raw.branchId !== branchId) continue
+      if (raw.branchId && raw.branchId !== 'all' && raw.branchId !== branchId) continue
       // Keep PT scope strict: a branch manager must not publish a PT from a
       // different operational branch through this branch's schedule.
       if (trainer?.branchId && trainer.branchId !== branchId) continue

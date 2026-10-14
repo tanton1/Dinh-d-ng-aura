@@ -19,9 +19,9 @@ function harness(data = fixture(), options = {}) {
   ])
   const snap = (ref) => ({ id: ref.path.split('/').at(-1), exists: docs.has(ref.path), data: () => docs.get(ref.path) })
   let sequence = 0
-  const reference = (path) => ({ path, get: async () => snap({ path }) })
+  const reference = (path) => ({ path, id: path.split('/').at(-1), get: async () => snap({ path }) })
   const collection = (path, filters = []) => {
-    const query = { path, where: (key, op, val) => collection(path, [...filters, [key, op, val]]), limit: () => query,
+    const query = { path, where: (key, op, val) => collection(path, [...filters, [key, op, val]]), limit: () => query, orderBy: () => query,
       doc: () => reference(`${path}/audit-${sequence++}`), get: async () => {
         const rows = [...docs].filter(([key, value]) => key.startsWith(path + '/') && !key.slice(path.length + 1).includes('/') && filters.every(([f, op, val]) => op === '==' ? value[f] === val : op === 'in' ? val.includes(value[f]) : op === '>=' ? value[f] >= val : value[f] < val)).map(([key]) => snap(reference(key)))
         return { docs: rows, size: rows.length }
@@ -30,14 +30,14 @@ function harness(data = fixture(), options = {}) {
   }
   const db = { doc: reference, collection, getAll: async (...refs) => refs.map(snap), runTransaction: async (fn) => {
     const writes = []
-    const result = await fn({ get: async (ref) => snap(ref), set: (ref, value) => writes.push([ref.path, value]), create: (ref, value) => writes.push([ref.path, value]) })
+    const result = await fn({ get: async (ref) => ref.get(), set: (ref, value) => writes.push([ref.path, value]), create: (ref, value) => writes.push([ref.path, value]), update: (ref, value) => writes.push([ref.path, { ...docs.get(ref.path), ...value }]) })
     for (const [path, value] of writes) docs.set(path, value)
     return result
   } }
   const actor = options.actor || { uid: 'admin', accessRole: 'admin', branchIds: [BRANCH] }
   const actorForBranch = async (request, _db, branch) => { if (actor.accessRole === 'staff' && !actor.branchIds.includes(branch)) throw Error('permission-denied'); return actor }
   const branchData = async () => ({ ...data, schedule: docs.get(`ptScheduleDrafts/${BRANCH}_${WEEK}`)?.schedule || {}, draft: { revision: docs.get(`ptScheduleDrafts/${BRANCH}_${WEEK}`)?.revision || 0 } })
-  return { docs, db, api: createPtScheduleV2Functions({ db, onCall: (...args) => args.at(-1), actorForBranch, branchData }) }
+  return { docs, db, api: createPtScheduleV2Functions({ db, onCall: (...args) => args.at(-1), actorForBranch, ...(options.realBranchData ? {} : { branchData }) }) }
 }
 const command = (name, payload, extra = {}) => ({ data: { branchId: BRANCH, weekId: WEEK, command: name, payload, expectedDraftRevision: 1, idempotencyKey: 'test-command-123', ...extra } })
 test('slot candidates complete for Admin and scoped staff, including cross-branch search', async () => {
@@ -48,6 +48,76 @@ test('slot candidates complete for Admin and scoped staff, including cross-branc
     assert.equal(result.candidates[0].eligible, true)
   }
 })
+
+function crossBranchHarness(role = 'admin') {
+  const data = fixture(), week = '2020-01-06'
+  data.weekId = week
+  data.contracts.forEach((c) => { c.startDate = week; c.endDate = '2020-12-31'; c.status = 'expired' })
+  const h = harness(data, { actor: { uid: role, accessRole: role, branchIds: [BRANCH] } })
+  h.docs.set('students/external', { ...data.students[0], id: 'external', name: 'Lan ngoài cơ sở', branchId: 'home', isScheduleConfirmed: true })
+  h.docs.set('contracts/c-external', { ...data.contracts[0], id: 'c-external', studentId: 'external', branchId: 'home' })
+  const input = { weekId: week, branchId: BRANCH, trainerId: 't', studentId: 'external', contractId: 'c-external', slotId: 'T2-6', reason: 'Admin xác nhận buổi tập lịch sử', idempotencyKey: 'historical-cross-branch', confirmCrossBranchStudent: true }
+  return { ...h, input }
+}
+
+test('historical search returns cross-branch learners only to Admin with an explicit search', async () => {
+  for (const role of ['admin', 'staff']) {
+    const h = crossBranchHarness(role)
+    const result = await h.api.getPtScheduleSlotCandidates({ data: { ...h.input, search: 'Lan ngoai', historical: true } })
+    if (role === 'staff') assert.equal(result.candidates.length, 0)
+    else {
+      assert.equal(result.candidates[0]?.studentId, 'external')
+      assert.equal(result.candidates[0].manualSelectable, true)
+      assert.equal(result.candidates[0].studentBranchWarning, true)
+    }
+  }
+})
+
+test('historical cross-branch write requires Admin confirmation and acknowledgement, without partial writes', async () => {
+  for (const scenario of ['staff', 'no-confirmation', 'no-warning']) {
+    const h = crossBranchHarness(scenario === 'staff' ? 'staff' : 'admin')
+    const before = JSON.stringify([...h.docs])
+    await assert.rejects(h.api.createHistoricalPtSession({ data: { ...h.input, confirmCrossBranchStudent: scenario !== 'no-confirmation', acknowledgedWarnings: [] } }))
+    assert.equal(JSON.stringify([...h.docs]), before)
+  }
+})
+
+test('historical cross-branch save is idempotent and audited without charging attendance or quota', async () => {
+  const h = crossBranchHarness()
+  const result = await h.api.getPtScheduleSlotCandidates({ data: { ...h.input, search: 'Lan ngoai', historical: true } })
+  assert.equal(result.candidates.length, 1)
+  const request = { data: { ...h.input, acknowledgedWarnings: result.candidates[0].warningReasons } }
+  const before = structuredClone(h.docs.get('contracts/c-external'))
+  const saved = await h.api.createHistoricalPtSession(request)
+  const session = h.docs.get(`sessions/${saved.sessionId}`)
+  assert.equal(session.branchId, BRANCH)
+  assert.equal(session.studentHomeBranchId, 'home')
+  assert.equal(session.studentBranchWarning, true)
+  assert.equal(session.attendanceStatus, 'pending')
+  assert.equal(session.billingStatus, 'pending')
+  assert.equal(session.requiresPtConfirmation, true)
+  assert.deepEqual(h.docs.get('contracts/c-external'), before)
+  assert.deepEqual(await h.api.createHistoricalPtSession(request), saved)
+  for (const collection of ['sessions', 'sessionEvents', 'ptOperationsAuditLogs']) assert.equal([...h.docs].filter(([p]) => p.startsWith(`${collection}/`)).length, 1)
+})
+
+test('legacy workspace loads an external learner by PT scope without leaking a local learner assigned elsewhere', async () => {
+  const h = harness(fixture(), { realBranchData: true })
+  h.docs.set('students/external', { id: 'external', name: 'Cross branch', status: 'active', branchId: 'home' })
+  h.docs.set('trainers/external-pt', { id: 'external-pt', status: 'active', branchId: 'home' })
+  h.docs.set('contracts/c-external', { studentId: 'external', branchId: 'home', startDate: WEEK, endDate: '2091-12-31', status: 'active', totalSessions: 40 })
+  h.docs.delete(`ptScheduleDrafts/${BRANCH}_${WEEK}`)
+  h.docs.set(`schedules/schedule_${WEEK}`, { schedule: { 'T2-6': [
+    { studentId: 'external', trainerId: 't', branchId: 'all', contractId: 'c-external' },
+    { studentId: 'a', trainerId: 'external-pt', branchId: 'all', contractId: 'c-a' },
+  ] } })
+  const result = await h.api.getPtScheduleWorkspace({ data: { weekId: WEEK, branchId: BRANCH } })
+  assert.equal(result.students.find((s) => s.id === 'external').isCrossBranchDisplayOnly, true)
+  assert.equal(result.students.find((s) => s.id === 'external').eligibleForWeek, false)
+  assert.equal(result.schedule['T2-6'].length, 1)
+  assert.equal(result.schedule['T2-6'][0].studentId, 'external')
+})
+
 test('historical supplement accepts an expired contract that was valid on the actual session date', () => {
   const data = fixture()
   data.contracts[0].status = 'expired'

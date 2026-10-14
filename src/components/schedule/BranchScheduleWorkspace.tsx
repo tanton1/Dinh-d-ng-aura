@@ -589,7 +589,8 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
     }
     const trainersById = new Map(workspace.trainers.map((trainer) => [trainer.id, trainer]))
     return workspace.students
-      .filter((student) => !['archived', 'deleted'].includes(String(student.status || '').toLowerCase())
+      .filter((student) => !student.isCrossBranchDisplayOnly
+        && !['archived', 'deleted'].includes(String(student.status || '').toLowerCase())
         && (student.eligibleForWeek === true
           || (scheduledEntriesByStudent.get(student.id)?.length || 0) > 0
           || student.hadSchedulePreviousWeek === true))
@@ -624,7 +625,8 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
 
   const studentWarnings = useMemo(() => operationalStudentRows.filter((row) => row.inputWarning), [operationalStudentRows])
   const ineligibleDraftRows = useMemo(() => (workspace?.students || [])
-    .filter((student) => student.eligibleForWeek !== true && (scheduledEntriesByStudent.get(student.id)?.length || 0) > 0)
+    .filter((student) => !student.isCrossBranchDisplayOnly
+      && student.eligibleForWeek !== true && (scheduledEntriesByStudent.get(student.id)?.length || 0) > 0)
     .map((student) => ({ student, scheduledEntries: scheduledEntriesByStudent.get(student.id) || [] })), [scheduledEntriesByStudent, workspace])
   const missingSessions = studentWarnings.reduce((total, item) => total + item.missing, 0)
   const studentRows = useMemo(() => {
@@ -1116,6 +1118,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
         slotId: inspectorSlotId,
         reason: historicalReason.trim(),
         acknowledgedWarnings: pendingManualCandidate.warningReasons || pendingManualCandidate.reasons,
+        ...(pendingManualCandidate.studentBranchWarning ? { confirmCrossBranchStudent: true } : {}),
         idempotencyKey: commandKey(),
       })
       if (activeWorkspaceScopeRef.current !== commandScope) return
@@ -1138,7 +1141,11 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
     if (!pendingMove) return
     const student = workspace?.students.find((item) => item.id === pendingMove.studentId)
     const outside = !student?.availableSlots.includes(pendingMove.slotId)
-    if (await runCommand('move_student', { ...pendingMove, ...(outside ? { allowOutsideStudentAvailability: true } : {}) }, 'Quản lý xác nhận chuyển ca nháp; giữ ca cũ nếu chuyển không thành công')) setPendingMove(null)
+    if (await runCommand('move_student', {
+      ...pendingMove,
+      ...(outside ? { allowOutsideStudentAvailability: true } : {}),
+      ...(student?.studentBranchWarning ? { confirmCrossBranchStudent: true } : {}),
+    }, 'Quản lý xác nhận chuyển ca nháp; giữ ca cũ nếu chuyển không thành công')) setPendingMove(null)
   }
 
   const setWeeklyTarget = async (studentId: string, targetSessions: number | null) => {
@@ -1549,7 +1556,8 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
                     : `${scheduleSlotLabel(slotId, weekDates)} · ${selectedTrainer?.name || 'PT'} · ${trainingEntries.length} học viên`
                 return <td key={slotId} className={`${selectedDays.includes(day) ? 'is-mobile-visible' : ''}${holiday ? ' is-holiday' : ''}`}><div role={trainingEntries.length ? undefined : 'button'} tabIndex={!selectedTrainerId || holiday || trainingEntries.length ? -1 : 0} aria-label={cellDescription} aria-disabled={!selectedTrainerId || holiday} className={`schedule-cell${holiday ? ' is-holiday' : ''}${past ? ' is-past' : ''}${isOff ? ' is-off' : ''}${entries.length ? ' has-entry' : ''}${showsAvailability ? ' is-availability-hover' : ''}${showsStudentSchedule ? ' is-student-highlight' : ''}`} onClick={openInspector} onKeyDown={(event) => { if (event.target !== event.currentTarget) return; if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openInspector() } }}><span className="schedule-cell__count">{holiday ? 'NGHỈ' : isOff ? 'OFF' : `${trainingEntries.length}/${selectedTrainer?.slotCapacity || 2}`}</span>{holiday ? <><CalendarOff /><small>Không xếp lịch</small></> : isOff ? <CalendarOff /> : trainingEntries.length ? trainingEntries.map((entry) => {
                   const assignmentWarning = trainerAssignmentWarningKeys.has(`${slotId}|${entry.studentId}|${entry.trainerId}`)
-                  return <button type="button" className={`schedule-cell__student${highlightedStudentId === entry.studentId ? ' is-selected' : ''}${assignmentWarning ? ' has-assignment-warning' : ''}`} key={`${entry.studentId}-${entry.trainerId}`} onPointerEnter={(event) => { if (event.pointerType === 'mouse') showStudentAvailability(entry.studentId) }} onPointerLeave={(event) => { if (event.pointerType === 'mouse') hideStudentAvailability(entry.studentId) }} onFocus={(event) => { if (event.currentTarget.matches(':focus-visible') && window.matchMedia('(hover: hover) and (pointer: fine)').matches) showStudentAvailability(entry.studentId) }} onBlur={() => hideStudentAvailability(entry.studentId)} onClick={(event) => { event.preventDefault(); event.stopPropagation(); if (hoverClearTimer.current !== null) window.clearTimeout(hoverClearTimer.current); hoverClearTimer.current = null; setHoveredStudentId(null); toggleStudentSchedule(entry.studentId) }} aria-pressed={highlightedStudentId === entry.studentId} title={assignmentWarning ? 'Rê chuột: xem lịch rảnh · Chọn: xem lịch đã xếp · PT hỗ trợ ngoài danh sách chính/phụ' : 'Rê chuột: xem lịch rảnh · Chọn: xem lịch đã xếp'}><span>{studentName(entry.studentId)}</span>{assignmentWarning && <AlertTriangle size={11} aria-label="PT hỗ trợ" />}{entry.isLocked && <Lock size={11} aria-label="Ca đã khóa" />}</button>
+                  const branchWarning = entry.studentBranchWarning === true
+                  return <button type="button" className={`schedule-cell__student${highlightedStudentId === entry.studentId ? ' is-selected' : ''}${assignmentWarning ? ' has-assignment-warning' : ''}${branchWarning ? ' has-branch-warning' : ''}`} key={`${entry.studentId}-${entry.trainerId}`} onPointerEnter={(event) => { if (event.pointerType === 'mouse') showStudentAvailability(entry.studentId) }} onPointerLeave={(event) => { if (event.pointerType === 'mouse') hideStudentAvailability(entry.studentId) }} onFocus={(event) => { if (event.currentTarget.matches(':focus-visible') && window.matchMedia('(hover: hover) and (pointer: fine)').matches) showStudentAvailability(entry.studentId) }} onBlur={() => hideStudentAvailability(entry.studentId)} onClick={(event) => { event.preventDefault(); event.stopPropagation(); if (hoverClearTimer.current !== null) window.clearTimeout(hoverClearTimer.current); hoverClearTimer.current = null; setHoveredStudentId(null); toggleStudentSchedule(entry.studentId) }} aria-pressed={highlightedStudentId === entry.studentId} title={branchWarning ? 'Học viên khác cơ sở hồ sơ · đã được Admin xác nhận' : assignmentWarning ? 'Rê chuột: xem lịch rảnh · Chọn: xem lịch đã xếp · PT hỗ trợ ngoài danh sách chính/phụ' : 'Rê chuột: xem lịch rảnh · Chọn: xem lịch đã xếp'}><span>{studentName(entry.studentId)}</span>{branchWarning && <AlertTriangle size={11} aria-label="Học viên khác cơ sở" />}{assignmentWarning && <AlertTriangle size={11} aria-label="PT hỗ trợ" />}{entry.isLocked && <Lock size={11} aria-label="Ca đã khóa" />}</button>
                 }) : past ? <small>Bổ sung lịch sử</small> : <Plus size={15} aria-hidden="true" />}</div></td>
               })}</tr>)}</tbody>
             </table>
@@ -1764,10 +1772,10 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
                       : ''
                     const candidateText = inspectorSlotIsPast
                       ? candidate.eligible
-                        ? `Hợp đồng đúng ngày · còn buổi · khớp lịch rảnh${assignmentNote}`
+                        ? `Hợp đồng đúng ngày · còn buổi · khớp lịch rảnh${assignmentNote}${branchNote}`
                         : manualSelectable
-                          ? `${candidate.reasons.map(ptScheduleConflictLabel).join(' · ')} · có thể bổ sung kèm audit${assignmentNote}`
-                          : candidate.reasons.map(ptScheduleConflictLabel).join(' · ')
+                          ? `${candidate.reasons.map(ptScheduleConflictLabel).join(' · ')} · có thể bổ sung kèm audit${assignmentNote}${branchNote}`
+                          : `${candidate.reasons.map(ptScheduleConflictLabel).join(' · ')}${branchNote}`
                       : candidate.eligible
                         ? `Đã đăng ký rảnh đúng ca này${assignmentNote}${branchNote}`
                         : manualSelectable && outsideAvailability

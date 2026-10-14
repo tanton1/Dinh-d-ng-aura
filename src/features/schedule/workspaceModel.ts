@@ -402,7 +402,7 @@ function localSlotCandidates(
     contractsByStudent.set(contract.studentId, contracts)
   }
   const studentsById = new Map(workspace.students.map((student) => [student.id, student]))
-  return workspace.students.map((student): PtScheduleSlotCandidate => {
+  return workspace.students.filter((student) => !student.isCrossBranchDisplayOnly).map((student): PtScheduleSlotCandidate => {
     const reasons = new Set<string>()
     if (student.status === 'inactive' || student.eligibleForWeek !== true) {
       ;(student.eligibilityReasons?.length ? student.eligibilityReasons : ['STUDENT_NOT_ACTIVE']).forEach((reason) => reasons.add(reason))

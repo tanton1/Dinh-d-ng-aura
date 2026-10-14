@@ -88,6 +88,10 @@ export interface PtScheduleV2Student extends Student {
   /** Trạng thái hợp đồng đã đối soát cho tuần đang xem. */
   contractStatus?: 'missing' | 'expired' | 'expiring' | 'quota_exhausted' | 'paused' | 'not_started_or_ended' | 'valid' | string
   contractEndDate?: string | null
+  /** Profile is included only to render an already-assigned cross-branch row. */
+  isCrossBranchDisplayOnly?: boolean
+  studentBranchWarning?: boolean
+  studentHomeBranchId?: string
   /** Hồ sơ mặc định; không bị thay đổi khi điều phối riêng một tuần. */
   defaultSessionsPerWeek: number
   /** Override chỉ thuộc draft tuần/chi nhánh hiện tại; null nghĩa là dùng mặc định. */
@@ -579,6 +583,8 @@ export function createHistoricalPtSession(input: {
   slotId: string
   reason: string
   acknowledgedWarnings: string[]
+  /** Required only when an Admin is correcting a cross-branch learner. */
+  confirmCrossBranchStudent?: boolean
   idempotencyKey: string
 }) {
   return invoke<typeof input, {
