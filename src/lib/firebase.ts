@@ -11,25 +11,31 @@ import {
   type Auth,
 } from 'firebase/auth'
 
+// Vite injects `import.meta.env` in the browser build, while Node-based
+// contract/unit tests intentionally load a few shared modules without Vite.
+// Keep the same runtime configuration in the browser and fail closed (with
+// an empty env object) when those modules are evaluated directly by Node.
+const runtimeEnv = import.meta.env ?? {}
+
 export const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID,
+  apiKey: runtimeEnv.VITE_FIREBASE_API_KEY,
+  authDomain: runtimeEnv.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: runtimeEnv.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: runtimeEnv.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: runtimeEnv.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: runtimeEnv.VITE_FIREBASE_APP_ID,
 }
 
-const appCheckSiteKey = import.meta.env.VITE_FIREBASE_APP_CHECK_SITE_KEY?.trim() || ''
+const appCheckSiteKey = runtimeEnv.VITE_FIREBASE_APP_CHECK_SITE_KEY?.trim() || ''
 
-const forceDemoMode = import.meta.env.VITE_FORCE_DEMO === 'true'
-  && (import.meta.env.DEV || import.meta.env.MODE === 'e2e')
+const forceDemoMode = runtimeEnv.VITE_FORCE_DEMO === 'true'
+  && (runtimeEnv.DEV || runtimeEnv.MODE === 'e2e')
 
 export const isFirebaseConfigured = !forceDemoMode && Object.values(firebaseConfig).every(
   (value) => typeof value === 'string' && value.trim().length > 0,
 )
 export const useFirebaseEmulators =
-  import.meta.env.DEV && import.meta.env.VITE_USE_FIREBASE_EMULATORS === 'true'
+  runtimeEnv.DEV && runtimeEnv.VITE_USE_FIREBASE_EMULATORS === 'true'
 
 export let firebaseApp: FirebaseApp | null = null
 export let firebaseAppCheck: AppCheck | null = null
@@ -54,7 +60,7 @@ export function initializeFirebaseAppCheck(): Promise<AppCheck | null> {
       })
       .catch((error) => {
         firebaseAppCheckStatus = 'initialization_error'
-        if (import.meta.env.DEV) console.warn('Firebase App Check failed to initialize', error)
+        if (runtimeEnv.DEV) console.warn('Firebase App Check failed to initialize', error)
         return null
       })
   }
