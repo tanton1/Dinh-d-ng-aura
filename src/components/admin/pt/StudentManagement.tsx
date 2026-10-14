@@ -1054,7 +1054,7 @@ export default function StudentManagement({ user, profile, initialStudentId = nu
                     value={formData.email}
                     onChange={e => setFormData({...formData, email: e.target.value})}
                     className="w-full p-3 rounded-xl border border-zinc-800 bg-zinc-950 text-white focus:outline-none focus:border-pink-500" 
-                    placeholder="Bỏ trống: SĐT@aurafitness.vn"
+                    placeholder="Bỏ trống: SĐT@aurafitness.com"
                   />
                 </div>
 

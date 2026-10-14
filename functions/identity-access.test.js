@@ -64,8 +64,31 @@ test('uses the local phone number as the initial password', () => {
 })
 
 test('derives an Aura login email when a personal email is missing', () => {
-  assert.equal(loginEmailFromPhone('', '+84901234567'), '0901234567@aurafitness.vn')
+  for (const email of [undefined, null, '', '   ']) {
+    for (const phone of ['0901234567', '090 123-4567', '+84901234567', '84901234567']) {
+      assert.equal(loginEmailFromPhone(email, normalizedPhone(phone)), '0901234567@aurafitness.com')
+    }
+  }
   assert.equal(loginEmailFromPhone('  Nhan.Vien@Example.COM ', '+84901234567'), 'nhan.vien@example.com')
+})
+
+test('preserves an explicitly supplied legacy Aura email', () => {
+  assert.equal(loginEmailFromPhone(' 0901234567@AuraFitness.VN ', '+84901234567'), '0901234567@aurafitness.vn')
+})
+
+test('saving an existing staff profile never migrates its legacy login alias', () => {
+  for (const request of [{}, { email: '', contactChanges: { email: true } }]) {
+    assert.deepEqual(resolveStaffContactUpdate(
+      request,
+      { email: '0901234567@aurafitness.com' },
+      { email: '0901234567@aurafitness.vn', phoneNumber: '+84901234567' },
+    ), {
+      email: '0901234567@aurafitness.vn',
+      phoneNumber: '+84901234567',
+      emailChanged: false,
+      phoneChanged: false,
+    })
+  }
 })
 
 test('rejects an invalid optional email instead of silently replacing it', () => {

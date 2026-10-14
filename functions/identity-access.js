@@ -64,7 +64,9 @@ function initialPasswordFromPhone(phoneNumber) {
 function loginEmailFromPhone(value, phoneNumber) {
   const suppliedEmail = normalizedEmail(value)
   if (suppliedEmail) return suppliedEmail
-  return `${initialPasswordFromPhone(phoneNumber)}@aurafitness.vn`
+  // Keep generated login aliases on the current Aura domain. Existing accounts
+  // with the legacy `.vn` alias are intentionally left untouched.
+  return `${initialPasswordFromPhone(phoneNumber)}@aurafitness.com`
 }
 
 function normalizedPositions(value) {

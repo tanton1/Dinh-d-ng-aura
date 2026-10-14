@@ -860,7 +860,7 @@ export default function AdminStudentsPage({
                         onChange={(e) => {
                           setCreateEmail(e.target.value)
                         }}
-                        placeholder="Bỏ trống: SĐT@aurafitness.vn"
+                        placeholder="Bỏ trống: SĐT@aurafitness.com"
                       />
                     </label>
 

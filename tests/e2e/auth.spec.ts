@@ -86,7 +86,7 @@ for (const viewport of [
 test('email remains available as an alternate sign-in method', async ({ page }) => {
   await page.goto('/#/auth-preview')
   await page.getByRole('button', { name: 'Đăng nhập bằng Email' }).click()
-  await expect(page.getByPlaceholder('ban@aurafitness.vn')).toBeVisible()
+  await expect(page.getByPlaceholder('ban@aurafitness.com')).toBeVisible()
   await expect(page.getByPlaceholder('Tối thiểu 6 ký tự')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Quên mật khẩu?' })).toBeVisible()
 })

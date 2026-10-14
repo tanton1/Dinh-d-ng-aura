@@ -365,7 +365,7 @@ export default function AuthPage() {
               <>
                 <label className="auth-field">
                   <span>Email</span>
-                  <div><Mail size={19} /><input required type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="ban@aurafitness.vn" autoComplete="email" /></div>
+                  <div><Mail size={19} /><input required type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="ban@aurafitness.com" autoComplete="email" /></div>
                 </label>
                 <label className="auth-field">
                   <span>Mật khẩu</span>

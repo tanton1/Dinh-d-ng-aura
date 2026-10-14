@@ -122,7 +122,7 @@ export default function AccountConnectionsCard() {
         </div>
         {openForm === 'email' && !emailConnected && (
           <form className="account-link-form account-link-form--email" onSubmit={submitEmail}>
-            <label><span>Email</span><div><Mail size={17} /><input required type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="ban@aurafitness.vn" /></div></label>
+            <label><span>Email</span><div><Mail size={17} /><input required type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="ban@aurafitness.com" /></div></label>
             <label><span>Mật khẩu mới</span><div><KeyRound size={17} /><input required minLength={6} type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Tối thiểu 6 ký tự" /></div></label>
             <button disabled={busy === 'email'}>{busy === 'email' ? <LoaderCircle className="auth-spin" size={16} /> : null}Liên kết email</button>
           </form>
