@@ -271,6 +271,10 @@ function normalizedString(value) {
   return typeof value === 'string' ? value.trim() : ''
 }
 
+function normalizedEmail(value) {
+  return normalizedString(value).toLowerCase()
+}
+
 function normalizedRole(value) {
   return normalizedString(value).toLowerCase()
 }
@@ -333,12 +337,27 @@ function buildPlan(state) {
     const authz = authorizationClaims(authUser)
     const staffRole = normalizedRole(staffRecord?.role)
     const trainerRole = normalizedRole(trainerRecord?.role)
+    const authEmail = normalizedEmail(authUser?.email)
+    // Some legacy PT imports created a minimal users/{uid} projection with
+    // only a name. Treat that projection as repairable only when the same UID
+    // has active trainer evidence and the Auth email matches the imported PT
+    // record exactly. This keeps the migration fail-closed for ambiguous or
+    // orphaned records while allowing Ngọc Vy-style legacy accounts to regain
+    // the intended staff workspace.
+    const profileRoleCanBeRecovered = Boolean(
+      profile
+      && !profileRole
+      && ['active', ''].includes(normalizedRole(staffRecord?.status))
+      && ['active', ''].includes(normalizedRole(trainerRecord?.status))
+      && authEmail
+      && [staffRecord?.email, trainerRecord?.email].some((value) => normalizedEmail(value) === authEmail),
+    )
 
     if (!authUser) reasons.push('auth_missing')
     else if (authUser.disabled) reasons.push('auth_disabled')
     if (!profile) reasons.push('user_profile_missing')
     else if (profile.disabled === true || normalizedRole(profile.status) === 'suspended') reasons.push('user_profile_disabled')
-    if (profile && profileRole !== 'trainer') reasons.push(profileRole === 'admin' || profileRole === 'super_admin' ? 'privileged_profile_quarantined' : 'profile_not_trainer')
+    if (profile && profileRole !== 'trainer' && !profileRoleCanBeRecovered) reasons.push(profileRole === 'admin' || profileRole === 'super_admin' ? 'privileged_profile_quarantined' : 'profile_not_trainer')
     if (profileAccessRole && profileAccessRole !== 'staff') reasons.push('profile_access_conflict')
     if (staffRecord && staffRole !== 'trainer') reasons.push(staffRole === 'admin' ? 'legacy_admin_quarantined' : 'staff_role_conflict')
     if (trainerRecord && trainerRole && trainerRole !== 'trainer') reasons.push('trainer_role_conflict')
