@@ -2,6 +2,7 @@
   {
     "origin": [
       "https://dinh-duong-aura.vercel.app",
+      "https://aurafitness-jet.vercel.app",
       "http://localhost:5173",
       "http://127.0.0.1:4173"
     ],

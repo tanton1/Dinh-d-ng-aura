@@ -214,6 +214,7 @@ test('private PDF reader supports mobile pagination without exposing a redundant
   assert.doesNotMatch(studioSource, /id: 'reader'|Toàn văn|shortLabel: 'Đọc'/)
   assert.match(mobileStyles, /\.lesson-pdf-reader__stage \{ padding: 0;/)
   assert.ok(cors[0]?.origin.includes('https://dinh-duong-aura.vercel.app'))
+  assert.ok(cors[0]?.origin.includes('https://aurafitness-jet.vercel.app'))
   assert.ok(cors[0]?.method.includes('GET'))
   assert.ok(cors[0]?.responseHeader.includes('Range'))
 })

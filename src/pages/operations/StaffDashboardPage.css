@@ -689,7 +689,9 @@
 
 .staff-dashboard :is(button, a):focus-visible { outline: 3px solid rgba(236,44,118,.28); outline-offset: 3px; }
 
-@media (max-width: 940px) {
+/* Keep the command deck readable in a narrowed desktop window while retaining
+   the requested four-card row. Phones switch to a compact two-column grid. */
+@media (max-width: 680px) {
   .staff-dashboard > .aura-metric-carousel .aura-metric-carousel__viewport { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .staff-dashboard__payroll { grid-template-columns: 1fr; }
   .staff-dashboard__payroll-summary,
