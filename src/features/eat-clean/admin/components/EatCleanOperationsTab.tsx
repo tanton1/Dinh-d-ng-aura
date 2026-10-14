@@ -1,11 +1,14 @@
 import { useEffect, useState } from 'react'
-import { Clock3, MapPinned, Plus, Save, Settings2, Trash2, Truck } from 'lucide-react'
+import { CheckCircle2, CircleAlert, Clock3, Image as ImageIcon, ListChecks, MapPinned, Plus, Save, Settings2, Trash2, Truck } from 'lucide-react'
 import { formatCurrency, readableError } from '../adminEatCleanUtils'
-import type { EatCleanConfig, EatCleanDeliverySlot, EatCleanDeliveryZone } from '../types'
+import type { EatCleanConfig, EatCleanDeliverySlot, EatCleanDeliveryZone, EatCleanInventoryItem, EatCleanMeal } from '../types'
+import { isInternalEatCleanImage } from '../../internalImages'
 
 interface EatCleanOperationsTabProps {
   config: EatCleanConfig
   onSaveConfig: (config: EatCleanConfig) => Promise<void>
+  meals?: EatCleanMeal[]
+  inventory?: EatCleanInventoryItem[]
 }
 
 function normalizedId(value: string, prefix: string) {
@@ -21,7 +24,7 @@ function createZone(): EatCleanDeliveryZone {
   return { id: `zone-${Date.now().toString(36)}`, label: 'Khu vực mới', fee: 25_000, enabled: true }
 }
 
-export function EatCleanOperationsTab({ config, onSaveConfig }: EatCleanOperationsTabProps) {
+export function EatCleanOperationsTab({ config, onSaveConfig, meals = [], inventory = [] }: EatCleanOperationsTabProps) {
   const [draft, setDraft] = useState<EatCleanConfig>(config)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -80,9 +83,57 @@ export function EatCleanOperationsTab({ config, onSaveConfig }: EatCleanOperatio
     }
   }
 
+  const trackedMeals = meals.filter((meal) => meal.inventoryTracked)
+  const flow = [
+    {
+      id: 'menu',
+      label: 'Thực đơn',
+      detail: meals.length > 0 && meals.some((meal) => meal.active) ? `${meals.filter((meal) => meal.active).length} món đang bật` : 'Chưa có món đang bật',
+      ready: meals.length > 0 && meals.some((meal) => meal.active),
+      icon: ListChecks,
+    },
+    {
+      id: 'images',
+      label: 'Ảnh nội bộ',
+      detail: meals.length > 0 && meals.every((meal) => isInternalEatCleanImage(meal.imageUrl)) ? 'Mỗi món đã có ảnh Aura' : 'Còn món thiếu ảnh nội bộ',
+      ready: meals.length > 0 && meals.every((meal) => isInternalEatCleanImage(meal.imageUrl)),
+      icon: ImageIcon,
+    },
+    {
+      id: 'inventory',
+      label: 'Tồn kho',
+      detail: trackedMeals.length === 0 ? 'Không có món cần theo dõi kho' : `${inventory.length} bản ghi tồn kho`,
+      ready: trackedMeals.length === 0 || inventory.length > 0,
+      icon: CheckCircle2,
+    },
+    {
+      id: 'delivery',
+      label: 'Giao hàng',
+      detail: `${draft.deliverySlots.filter((slot) => slot.enabled).length} khung · ${draft.deliveryZones.filter((zone) => zone.enabled).length} khu vực`,
+      ready: draft.deliverySlots.some((slot) => slot.enabled) && draft.deliveryZones.some((zone) => zone.enabled),
+      icon: Truck,
+    },
+    {
+      id: 'orders',
+      label: 'Nhận đơn',
+      detail: draft.enabled && draft.acceptingOrders ? 'Storefront đang mở' : 'Đang tạm dừng',
+      ready: draft.enabled && draft.acceptingOrders,
+      icon: Settings2,
+    },
+  ]
+  const flowReady = flow.every((step) => step.ready)
+
   return (
     <section className="eat-clean-panel" aria-labelledby="eat-clean-operations-title">
       <div className="eat-clean-panel__heading"><div><span className="eat-clean-kicker">VẬN HÀNH</span><h2 id="eat-clean-operations-title">Cấu hình nhận và giao đơn</h2><p>Kiểm soát storefront, chính sách đặt món và phạm vi giao tại {draft.cityName}.</p></div></div>
+
+      <section className="eat-clean-operation-flow" data-testid="eat-clean-operations-flow" aria-labelledby="eat-clean-operation-flow-title">
+        <div className="eat-clean-operation-flow__heading"><div><h3 id="eat-clean-operation-flow-title"><ListChecks size={18} /> Luồng đưa món lên phục vụ</h3><p>Kiểm tra tuần tự trước khi bật nhận đơn; trạng thái này không tự thay đổi tồn kho hay đơn hàng.</p></div><span className={flowReady ? 'is-ready' : 'is-pending'}>{flowReady ? 'Sẵn sàng' : 'Cần bổ sung'}</span></div>
+        <ol className="eat-clean-operation-flow__steps">
+          {flow.map((step) => { const Icon = step.icon; return <li key={step.id} className={step.ready ? 'is-ready' : 'is-pending'}><span className="eat-clean-operation-flow__icon">{step.ready ? <CheckCircle2 size={17} /> : <CircleAlert size={17} />}</span><div><strong>{step.label}</strong><small>{step.detail}</small></div><Icon className="eat-clean-operation-flow__step-icon" size={18} aria-hidden="true" /></li> })}
+        </ol>
+        {!flowReady && <p className="eat-clean-operation-flow__hint">Mở tab <strong>Thực đơn</strong> để chọn ảnh nội bộ và tab <strong>Tồn kho</strong> để tạo sức chứa trước khi nhận đơn.</p>}
+      </section>
 
       <div className="eat-clean-operations-layout">
         <div className="eat-clean-settings-stack">

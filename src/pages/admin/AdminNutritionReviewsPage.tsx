@@ -3,8 +3,10 @@ import { NutritionReviewWorkspace } from '../../features/nutrition-review/Nutrit
 
 export default function AdminNutritionReviewsPage({
   onNavigate: _onNavigate,
+  focus = null,
 }: {
   onNavigate: (view: ViewId) => void
+  focus?: string | null
 }) {
-  return <NutritionReviewWorkspace title="Trung tâm duyệt bữa ăn" />
+  return <NutritionReviewWorkspace title="Trung tâm duyệt bữa ăn" initialFocus={focus} />
 }

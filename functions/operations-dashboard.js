@@ -4,7 +4,7 @@ const { trustedAccessContext, requireCapability } = require('./identity-access')
 const { createSharedDashboardCache, stableDashboardCacheKey } = require('./operations-dashboard-cache')
 const { loadDailyAggregates } = require('./operations-dashboard-aggregates')
 const { overlayContractUsageViews } = require('./contract-usage-view')
-const { normalizeReviewSlaMinutes } = require('./review-sla')
+const { normalizeReviewSlaMinutes, reviewTimestampMillis } = require('./review-sla')
 
 const MAX_RANGE_DAYS = 366
 const MAX_SCANNED_DOCUMENTS = 10000
@@ -552,13 +552,6 @@ async function loadScheduleAction(db, actor, scope, today, available) {
   return summary
 }
 
-function timestampMillis(value) {
-  if (typeof value?.toMillis === 'function') return value.toMillis()
-  if (typeof value?.toDate === 'function') return value.toDate().getTime()
-  const result = new Date(value || 0).getTime()
-  return Number.isFinite(result) ? result : 0
-}
-
 async function nutritionClientIds(db, actor) {
   const ids = [...actorTrainerIds(actor)]
   const snapshots = await Promise.all(ids.map((id) => db.collection('contracts').where('nutritionPTIds', 'array-contains', id).limit(200).get()))
@@ -593,7 +586,7 @@ async function loadNutritionAction(db, actor, today, available) {
   summary.truncated = truncated
   for (const item of pending) {
     const value = item.data() || {}
-    const createdAt = timestampMillis(value.createdAt) || timestampMillis(value.meal?.createdAt)
+    const createdAt = reviewTimestampMillis(value)
     if (!createdAt) { summary.warningCount += 1; continue }
     const dueAt = createdAt + slaMinutes * 60_000
     if (dueAt < now) summary.overdueCount += 1

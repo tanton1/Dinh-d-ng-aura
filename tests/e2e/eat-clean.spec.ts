@@ -77,8 +77,9 @@ test.describe('Eat Clean customer journey', () => {
     const products = catalog.getByTestId('eat-clean-reference-product')
     await expect(catalog).toBeVisible()
     await expect(products).toHaveCount(15)
-    await expect(catalog.getByText('Sản phẩm Fitfood, không phải món Aura đang bán.')).toBeVisible()
-    await expect(catalog.getByText(/14\/10\/2026/)).toBeVisible()
+    await expect(catalog.getByText('Sản phẩm tham khảo, không phải món Aura đang bán.')).toBeVisible()
+    await expect(catalog.getByTestId('eat-clean-reference-workflow')).toBeVisible()
+    await expect(catalog.getByText(/14\/10\/2026/).first()).toBeVisible()
     await expect(catalog.getByRole('button', { name: 'Thêm', exact: true })).toHaveCount(0)
 
     await catalog.getByRole('button', { name: 'Gói tuần', exact: true }).click()
@@ -86,8 +87,9 @@ test.describe('Eat Clean customer journey', () => {
     await expect(catalog.getByRole('button', { name: 'Gói tuần', exact: true })).toHaveAttribute('aria-pressed', 'true')
     const fit3 = catalog.locator('[data-product-id="fitfood-fit3"]')
     await expect(fit3.getByText('5 ngày / 10 bữa', { exact: true })).toBeVisible()
-    await expect(fit3.getByRole('link')).toHaveAttribute('href', 'https://fitfood.vn/san-pham/fit3')
-    await expect(fit3.getByRole('link')).toHaveAttribute('rel', 'noopener noreferrer')
+    await expect(fit3.locator('img')).toHaveAttribute('src', /\/images\/eat-clean\//)
+    await expect(fit3.getByRole('link')).toHaveCount(0)
+    await expect(fit3.getByText('Thông tin đối chiếu')).toBeVisible()
     await expectNoHorizontalOverflow(page)
 
     await catalog.getByRole('button', { name: 'Tất cả', exact: true }).click()

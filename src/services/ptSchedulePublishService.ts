@@ -269,6 +269,7 @@ export interface PtScheduleOptimizationSummary {
 }
 
 export interface PtScheduleWorkspaceV2Result extends Omit<BranchScheduleWorkspaceResult, 'students' | 'trainers'> {
+  sessionRefs?: Record<string, { sessionId: string; revision: number }>
   draftStatus: 'draft' | 'published'
   updatedAt: string | null
   updatedBy: string | null
@@ -617,4 +618,26 @@ export function applyPtScheduleDraftCommand(input: {
   payload: Record<string, unknown>
 }) {
   return invoke<typeof input, { draftRevision: number; schedule: Schedule; weeklySessionTargets?: Record<string, number> }>('applyPtScheduleDraftCommand', input)
+}
+
+export type PtScheduleAdminEditCommand = 'move_student' | 'remove_student'
+
+export type PtScheduleAdminEditInput = Record<string, unknown> & {
+  weekId: string
+  branchId: string
+  expectedDraftRevision: number
+  command: PtScheduleAdminEditCommand
+  idempotencyKey: string
+  reason: string
+  payload: Record<string, unknown>
+}
+
+export function applyAdminPtScheduleEdit(input: PtScheduleAdminEditInput) {
+  return invoke<PtScheduleAdminEditInput, {
+    draftRevision: number
+    schedule: Schedule
+    weeklySessionTargets?: Record<string, number>
+    warnings?: string[]
+    sessionChanged?: boolean
+  }>('adminEditPtSchedule', input)
 }

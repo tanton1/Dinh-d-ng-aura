@@ -13,6 +13,8 @@ export interface EatCleanReferenceProduct {
   readonly referencePrice: number
   readonly unitLabel: string
   readonly sourceUrl: string
+  /** Local Aura image used for illustration; never a supplier-hosted image. */
+  readonly imagePath?: string
   readonly nutritionNote?: string
   readonly caution?: string
   readonly weeklyPlan?: {
@@ -27,6 +29,13 @@ export const FITFOOD_REFERENCE_SOURCE = {
   websiteUrl: 'https://fitfood.vn/',
   menuUrl: 'https://fitfood.vn/menu',
 } as const
+
+export const EAT_CLEAN_REFERENCE_IMAGE_BY_GROUP: Record<EatCleanReferenceGroup, string> = {
+  weekly: '/images/eat-clean/hero-bowl.webp',
+  prepared: '/images/eat-clean/chicken-pepper.webp',
+  drinks: '/images/eat-clean/salmon-vegetables.webp',
+  snacks: '/images/eat-clean/beef-egg-salad.webp',
+}
 
 export const EAT_CLEAN_REFERENCE_GROUPS: ReadonlyArray<{ id: EatCleanReferenceGroup | 'all'; label: string }> = [
   { id: 'all', label: 'Tất cả' },
@@ -165,6 +174,10 @@ export function filterEatCleanReferenceProducts(group: EatCleanReferenceGroup | 
     (group === 'all' || product.group === group)
     && (!key || searchKey([product.name, product.description, product.unitLabel].join(' ')).includes(key))
   ))
+}
+
+export function referenceImagePath(product: EatCleanReferenceProduct): string {
+  return product.imagePath || EAT_CLEAN_REFERENCE_IMAGE_BY_GROUP[product.group]
 }
 
 /** Arithmetic comparison only; not a per-meal selling price or shipping quote. */

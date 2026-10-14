@@ -5,13 +5,18 @@ const { HttpsError } = require('firebase-functions/v2/https')
 const { trustedAccessContext } = require('./identity-access')
 const { effectiveContractStatus } = require('./contract-status')
 const { nutritionQuality } = require('./nutrition-core.mjs')
-const { DEFAULT_REVIEW_SLA_MINUTES, normalizeReviewSlaMinutes } = require('./review-sla')
+const { DEFAULT_REVIEW_SLA_MINUTES, normalizeReviewSlaMinutes, reviewTimestampMillis } = require('./review-sla')
+const {
+  ASSIGNMENT_SNAPSHOT_VERSION, reviewActorIds, capturedCoachIds, ownsCapturedPendingReview,
+  resolveNutritionAssignment, capturedPendingQuery,
+} = require('./nutrition-review-assignment')
 
 const ALL_REVIEW_CAPABILITY = 'nutrition.meals.all.review'
 const MAX_ASSIGNED_CLIENTS = 400
 const REVIEW_PAGE_SCAN_LIMIT = 300
 const REVIEW_IMAGE_URL_TTL_MS = 15 * 60 * 1000
 const REVIEW_STATUSES = new Set(['pending', 'approved', 'rejected'])
+const REVIEW_SUMMARY_SCAN_LIMIT = 1000
 
 function currentContractDateKey(reference = new Date()) {
   const parts = new Intl.DateTimeFormat('en-CA', {
@@ -227,15 +232,21 @@ function compactAnalysis(value) {
   }
 }
 
+function assertReviewOwner(snapshot, uid) {
+  if (snapshot.exists && snapshot.data()?.userId !== uid) {
+    throw new HttpsError('permission-denied', 'Mã bữa ăn này đã được sử dụng. Hãy lưu lại bằng một mã bữa ăn mới.')
+  }
+}
+
 function reviewRecord(snapshot, profile = {}, assignment = {}, coachName = '', options = {}) {
   const value = snapshot.data() || {}
   const meal = value.meal && typeof value.meal === 'object' ? value.meal : {}
   const totals = meal.totals && typeof meal.totals === 'object' ? meal.totals : {}
   const analysis = value.analysisSnapshot || meal.analysisSnapshot || meal.aiAnalysis || value.aiAnalysis || {}
-  const createdAt = timestampMillis(value.createdAt) || timestampMillis(meal.createdAt)
+  const createdAt = reviewTimestampMillis(value)
   const status = ['pending', 'approved', 'rejected'].includes(value.status) ? value.status : 'pending'
   const now = Number.isFinite(options.now) ? options.now : Date.now()
-  const slaMinutes = Number.isFinite(options.slaMinutes) ? options.slaMinutes : DEFAULT_REVIEW_SLA_MINUTES
+  const slaMinutes = normalizeReviewSlaMinutes(options.slaMinutes)
   const slaDueAt = createdAt ? createdAt + slaMinutes * 60_000 : 0
   const waitMinutes = createdAt ? Math.max(0, Math.floor((now - createdAt) / 60_000)) : 0
   const overdueMinutes = status === 'pending' && slaDueAt && now > slaDueAt
@@ -345,6 +356,24 @@ async function assignedClientIds(db, context) {
   return [...new Set([...crmIds, ...linkedAccounts])].slice(0, MAX_ASSIGNED_CLIENTS)
 }
 
+async function signReviewImages(records, storage) {
+  if (!records.some((record) => record.imageStoragePath)) return records
+  storage ||= getStorage()
+  await Promise.all(records.map(async (record) => {
+    if (!record.imageStoragePath) return
+    try {
+      const [url] = await storage.bucket().file(record.imageStoragePath).getSignedUrl({
+        action: 'read',
+        expires: Date.now() + REVIEW_IMAGE_URL_TTL_MS,
+      })
+      record.image = url
+    } catch {
+      record.image = ''
+    }
+  }))
+  return records
+}
+
 async function hydrateReviews(db, documents, context, options = {}) {
   const clientIds = [...new Set(documents.map((item) => item.data()?.userId).filter((value) => typeof value === 'string'))]
   const [profiles, identityAssignments] = await Promise.all([
@@ -383,7 +412,10 @@ async function hydrateReviews(db, documents, context, options = {}) {
     const current = contractByStudentId.get(contract.studentId)
     if (!current || String(contract.endDate || '') > String(current.endDate || '')) contractByStudentId.set(contract.studentId, contract)
   })
-  const coachIds = [...new Set(contracts.flatMap((contract) => Array.isArray(contract.nutritionPTIds) ? contract.nutritionPTIds : []))]
+  const coachIds = [...new Set([
+    ...contracts.flatMap((contract) => Array.isArray(contract.nutritionPTIds) ? contract.nutritionPTIds : []),
+    ...documents.flatMap((item) => capturedCoachIds(item.data())),
+  ])]
   const [coachProfiles, trainerProfiles] = await Promise.all([
     coachIds.length ? db.getAll(...coachIds.map((id) => db.doc(`users/${id}`))) : [],
     coachIds.length ? db.getAll(...coachIds.map((id) => db.doc(`trainers/${id}`))) : [],
@@ -400,24 +432,14 @@ async function hydrateReviews(db, documents, context, options = {}) {
   const records = documents.map((item) => {
     const userId = item.data()?.userId
     const contract = contractByStudentId.get(crmIdByClientId.get(userId)) || {}
-    const assignedCoachIds = Array.isArray(contract.nutritionPTIds) ? contract.nutritionPTIds : []
+    const value = item.data() || {}
+    const assignedCoachIds = value.assignmentSnapshotVersion === ASSIGNMENT_SNAPSHOT_VERSION
+      ? capturedCoachIds(value) : Array.isArray(contract.nutritionPTIds) ? contract.nutritionPTIds : []
     const assignment = { coachId: assignedCoachIds[0] || '', coachIds: assignedCoachIds }
     const assignedCoachName = assignedCoachIds.map((id) => coachNames.get(id) || (id === context.legacyStaffId || id === context.uid ? 'Bạn' : 'HLV Aura')).join(' · ')
     return reviewRecord(item, profileMap.get(userId), assignment, assignedCoachName, options)
   })
-  const storage = options.storage || getStorage()
-  await Promise.all(records.map(async (record) => {
-    if (!record.imageStoragePath) return
-    try {
-      const [url] = await storage.bucket().file(record.imageStoragePath).getSignedUrl({
-        action: 'read',
-        expires: Date.now() + REVIEW_IMAGE_URL_TTL_MS,
-      })
-      record.image = url
-    } catch {
-      record.image = ''
-    }
-  }))
+  if (options.signImages !== false) await signReviewImages(records, options.storage)
   return records
 }
 
@@ -472,19 +494,45 @@ function pageCursor(cursor, status) {
   try {
     const parsed = JSON.parse(Buffer.from(String(cursor), 'base64url').toString('utf8'))
     const createdAt = Number(parsed.createdAt)
-    if (parsed.version !== 2 || parsed.status !== status || !Number.isFinite(createdAt) || !/^[A-Za-z0-9_-]+$/.test(parsed.id || '')) throw new Error('invalid')
-    return { createdAt, id: parsed.id }
+    if (parsed.version !== 2 || parsed.status !== status || !Number.isFinite(createdAt) || createdAt <= 0 || !/^[A-Za-z0-9_-]+$/.test(parsed.id || '')) throw new Error('invalid')
+    const key = { createdAt, id: parsed.id }
+    if (parsed.timestamp) {
+      const { seconds, nanoseconds } = parsed.timestamp
+      if (!Number.isInteger(seconds) || !Number.isInteger(nanoseconds) || nanoseconds < 0 || nanoseconds >= 1e9) throw new Error('invalid')
+      const precise = new Timestamp(seconds, nanoseconds)
+      if (Math.abs(precise.toMillis() - createdAt) > 1) throw new Error('invalid')
+      key.timestamp = { seconds, nanoseconds }
+    }
+    return key
   } catch {
     throw new HttpsError('invalid-argument', 'Con trỏ danh sách duyệt món không hợp lệ.')
   }
 }
 
-function nextPageCursor(status, snapshot) {
+function reviewDocumentKey(snapshot, field = 'createdAt') {
+  const value = snapshot.data() || {}
+  const timestamp = value[field] || value.submittedAt
+  return {
+    createdAt: timestampMillis(timestamp) || reviewTimestampMillis(value),
+    id: snapshot.id,
+    ...(Number.isInteger(timestamp?.seconds) && Number.isInteger(timestamp?.nanoseconds)
+      ? { timestamp: { seconds: timestamp.seconds, nanoseconds: timestamp.nanoseconds } } : {}),
+  }
+}
+
+function compareReviewKeys(left, right) {
+  const leftTime = left.timestamp || { seconds: Math.floor(left.createdAt / 1000), nanoseconds: (left.createdAt % 1000) * 1e6 }
+  const rightTime = right.timestamp || { seconds: Math.floor(right.createdAt / 1000), nanoseconds: (right.createdAt % 1000) * 1e6 }
+  return leftTime.seconds - rightTime.seconds || leftTime.nanoseconds - rightTime.nanoseconds
+    || (left.id < right.id ? -1 : left.id > right.id ? 1 : 0)
+}
+
+function nextPageCursor(status, snapshotOrKey) {
+  const key = typeof snapshotOrKey.data === 'function' ? reviewDocumentKey(snapshotOrKey) : snapshotOrKey
   return Buffer.from(JSON.stringify({
     version: 2,
     status,
-    createdAt: timestampMillis(snapshot.data()?.createdAt),
-    id: snapshot.id,
+    ...key,
   }), 'utf8').toString('base64url')
 }
 
@@ -495,32 +543,57 @@ function clientChunks(clientIds) {
   return values
 }
 
-function scopedReviewQuery(db, clientIds, status, direction, cursor = null) {
-  return clientChunks(clientIds).map((ids) => {
+function scopedReviewQuery(db, clientIds, status, direction, cursor = null, timestampField = 'createdAt', overdueCutoff = null, actorIds = []) {
+  const sources = clientChunks(clientIds).map((ids) => {
     let source = db.collection('mealReviews')
     if (ids) source = source.where('userId', 'in', ids)
     if (status !== 'all') source = source.where('status', '==', status)
-    source = source.orderBy('createdAt', direction).orderBy(FieldPath.documentId(), direction)
-    if (cursor) source = source.startAfter(Timestamp.fromMillis(cursor.createdAt), cursor.id)
+    return source
+  })
+  // Merge review documents, never add a captured learner to clientIds: doing
+  // so would incorrectly expose every meal in that learner's history.
+  if (clientIds !== null && actorIds.length && ['pending', 'all'].includes(status)) {
+    sources.push(capturedPendingQuery(db, actorIds))
+  }
+  return sources.map((query) => {
+    let source = query
+    if (overdueCutoff) source = source.where(timestampField, '<', overdueCutoff)
+    source = source.orderBy(timestampField, direction).orderBy(FieldPath.documentId(), direction)
+    if (cursor) source = source.startAfter(cursor.timestamp
+      ? new Timestamp(cursor.timestamp.seconds, cursor.timestamp.nanoseconds)
+      : Timestamp.fromMillis(cursor.createdAt), cursor.id)
     return source
   })
 }
 
-async function fetchReviewDocuments(db, clientIds, status, cursor) {
-  if (Array.isArray(clientIds) && !clientIds.length) return { documents: [], hasMore: false }
+async function fetchReviewDocuments(db, clientIds, status, cursor, { scanLimit = REVIEW_PAGE_SCAN_LIMIT, overdueCutoff = null, actorIds = [] } = {}) {
   const direction = status === 'pending' ? 'asc' : 'desc'
-  const sources = scopedReviewQuery(db, clientIds, status, direction, cursor)
-  const snapshots = await Promise.all(sources.map((source) => source.limit(REVIEW_PAGE_SCAN_LIMIT + 1).get()))
-  const documents = [...new Map(snapshots.flatMap((snapshot) => snapshot.docs).map((item) => [item.id, item])).values()]
-    .sort((left, right) => {
-      const delta = timestampMillis(left.data()?.createdAt) - timestampMillis(right.data()?.createdAt)
-      return direction === 'asc'
-        ? delta || left.id.localeCompare(right.id)
-        : -delta || right.id.localeCompare(left.id)
-    })
+  const take = Math.min(REVIEW_PAGE_SCAN_LIMIT, Math.max(1, Math.trunc(scanLimit)))
+  const compare = (left, right) => compareReviewKeys(left, right) * (direction === 'asc' ? 1 : -1)
+  const streams = ['createdAt', 'submittedAt'].flatMap((field) => (
+    scopedReviewQuery(db, clientIds, status, direction, cursor, field, overdueCutoff, actorIds).map((query) => ({ field, query }))
+  ))
+  const snapshots = await Promise.all(streams.map(async ({ field, query }) => ({ field, docs: (await query.limit(take + 1).get()).docs })))
+  // A full legacy stream may contain only duplicates. Advance through its raw
+  // clock, but never jump over an unread legacy document behind that boundary.
+  // Taking the earliest full-stream boundary keeps one common cursor safe.
+  const boundaries = snapshots.filter(({ docs }) => docs.length > take)
+    .map(({ field, docs }) => reviewDocumentKey(docs[take - 1], field)).sort(compare)
+  const frontier = boundaries[0] || null
+  const candidates = snapshots.flatMap(({ field, docs }) => docs.filter((item) => (
+    // Only createdAt owns modern records; submittedAt supplies missing-field legacy records.
+    (field === 'createdAt' || !timestampMillis(item.data()?.createdAt))
+      && (!cursor || compare(reviewDocumentKey(item, field), cursor) > 0)
+      && (!frontier || compare(reviewDocumentKey(item, field), frontier) <= 0)
+  )))
+  const documents = [...new Map(candidates.map((item) => [item.id, item])).values()]
+    .sort((left, right) => compare(reviewDocumentKey(left), reviewDocumentKey(right)))
+  const bounded = documents.slice(0, take)
+  const resumeKey = documents.length > take ? reviewDocumentKey(bounded.at(-1)) : frontier || (bounded.length ? reviewDocumentKey(bounded.at(-1)) : null)
   return {
-    documents: documents.slice(0, REVIEW_PAGE_SCAN_LIMIT),
-    hasMore: documents.length > REVIEW_PAGE_SCAN_LIMIT,
+    documents: bounded,
+    hasMore: Boolean(frontier || documents.length > take),
+    resumeKey,
   }
 }
 
@@ -536,17 +609,55 @@ async function countScopedReviews(db, clientIds, constraints = []) {
   return snapshots.reduce((sum, snapshot) => sum + finite(snapshot.data()?.count), 0)
 }
 
-async function scopedReviewSummary(db, clientIds, slaMinutes, assignmentCount) {
-  const overdueCutoff = Timestamp.fromMillis(Date.now() - slaMinutes * 60_000)
-  const [total, pending, approved, rejected, overdue, highPriority] = await Promise.all([
+async function scopedReviewSummary(db, clientIds, slaMinutes, assignmentCount, now = Date.now(), actorIds = []) {
+  // A field-select query includes legacy documents with no createdAt and
+  // transfers no meal images/analysis. Active-care counts remain exact; SLA
+  // and captured-task counts declare when their bounded scans are partial.
+  const chunks = clientChunks(clientIds)
+  const pendingQueries = chunks.map((ids) => {
+    const source = db.collection('mealReviews').where('status', '==', 'pending')
+    return ids ? source.where('userId', 'in', ids) : source
+  })
+  const metadataLimit = Math.max(1, Math.floor(REVIEW_SUMMARY_SCAN_LIMIT / Math.max(1, pendingQueries.length)))
+  const [total, pending, approved, rejected, highPriority, pendingSnapshots, capturedPendingSnapshot] = await Promise.all([
     countScopedReviews(db, clientIds),
     countScopedReviews(db, clientIds, [['status', '==', 'pending']]),
     countScopedReviews(db, clientIds, [['status', '==', 'approved']]),
     countScopedReviews(db, clientIds, [['status', '==', 'rejected']]),
-    countScopedReviews(db, clientIds, [['status', '==', 'pending'], ['createdAt', '<', overdueCutoff]]),
     countScopedReviews(db, clientIds, [['status', '==', 'pending'], ['priority', '==', 'high']]),
+    Promise.all(pendingQueries.map((source) => source.select('createdAt', 'submittedAt', 'firstSubmittedAt', 'meal.createdAt', 'meal.submittedAt')
+      .limit(metadataLimit + 1).get())),
+    clientIds !== null && actorIds.length
+      ? capturedPendingQuery(db, actorIds)
+        .select('userId', 'createdAt', 'submittedAt', 'firstSubmittedAt', 'meal.createdAt', 'meal.submittedAt', 'priority')
+        .limit(MAX_ASSIGNED_CLIENTS + 1).get()
+      : Promise.resolve({ docs: [] }),
   ])
-  return { total, pending, approved, rejected, overdue, highPriority, students: assignmentCount }
+  const activeIds = new Set(Array.isArray(clientIds) ? clientIds : [])
+  const capturedExtras = capturedPendingSnapshot.docs.slice(0, MAX_ASSIGNED_CLIENTS)
+    .filter((item) => !activeIds.has(item.data()?.userId))
+  const metadata = [...new Map([
+    ...pendingSnapshots.flatMap((snapshot) => snapshot.docs.slice(0, metadataLimit)),
+    ...capturedExtras,
+  ].map((item) => [item.id, item])).values()]
+  const overdue = metadata.filter((item) => {
+    const createdAt = reviewTimestampMillis(item.data())
+    return createdAt > 0 && createdAt + slaMinutes * 60_000 < now
+  }).length
+  return {
+    summary: {
+      total: total + capturedExtras.length,
+      pending: pending + capturedExtras.length,
+      approved,
+      rejected,
+      overdue,
+      highPriority: highPriority + capturedExtras.filter((item) => item.data()?.priority === 'high').length,
+      students: assignmentCount,
+    },
+    truncated: pendingSnapshots.some((snapshot) => snapshot.docs.length > metadataLimit)
+      || capturedPendingSnapshot.docs.length > MAX_ASSIGNED_CLIENTS,
+    countsTruncated: capturedPendingSnapshot.docs.length > MAX_ASSIGNED_CLIENTS,
+  }
 }
 
 async function availableNutritionCoaches(db) {
@@ -567,6 +678,19 @@ function createNutritionReviewFunctions({ db, onCall }) {
   // These callables are Firestore-bound. The Gen 1 CPU profile prevents the
   // separate Cloud Run services from exhausting regional CPU allocation.
   const reviewCall = (handler) => onCall({ cpu: 'gcf_gen1', maxInstances: 6, invoker: 'public' }, handler)
+  // Only aggregate counts are cached, never identities, permissions or photos.
+  // Re-resolve caller scope on every request; local mutations invalidate it.
+  const summaries = new Map()
+  const cachedSummary = (clientIds, slaMinutes, assignmentCount, now, forceRefresh = false, actorIds = []) => {
+    const key = snapshotHash({ clientIds: clientIds === null ? null : [...clientIds].sort(), slaMinutes, actorIds: [...actorIds].sort() })
+    const cached = summaries.get(key)
+    if (!forceRefresh && cached && cached.expiresAt > now) return cached.promise
+    if (summaries.size >= 50) summaries.delete(summaries.keys().next().value)
+    const promise = scopedReviewSummary(db, clientIds, slaMinutes, assignmentCount, now, actorIds)
+    summaries.set(key, { promise, expiresAt: now + 15_000 })
+    promise.catch(() => { if (summaries.get(key)?.promise === promise) summaries.delete(key) })
+    return promise
+  }
 
   const saveNutritionMealLog = reviewCall(async (request) => {
     const uid = requireOwner(request)
@@ -599,6 +723,7 @@ function createNutritionReviewFunctions({ db, onCall }) {
         return
       }
       const previous = mealLogSnapshot.exists ? mealLogSnapshot.data() || {} : {}
+      assertReviewOwner(reviewSnapshot, uid)
       const mealRevision = Math.max(0, Math.trunc(finite(previous.mealRevision))) + 1
       const storedMeal = {
         ...meal,
@@ -667,6 +792,7 @@ function createNutritionReviewFunctions({ db, onCall }) {
         })
       }
     })
+    summaries.clear()
     return result
   })
 
@@ -682,6 +808,7 @@ function createNutritionReviewFunctions({ db, onCall }) {
         transaction.get(reviewRef),
       ])
       if (!mealLogSnapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy bữa ăn cần xóa.')
+      assertReviewOwner(reviewSnapshot, uid)
       const meal = mealLogSnapshot.data() || {}
       imageStoragePath = safeMealPhotoPath(meal.imageStoragePath, uid, mealId)
       transaction.delete(mealRef)
@@ -700,6 +827,7 @@ function createNutritionReviewFunctions({ db, onCall }) {
     if (imageStoragePath) {
       await getStorage().bucket().file(imageStoragePath).delete({ ignoreNotFound: true }).catch(() => undefined)
     }
+    summaries.clear()
     return { mealId, deleted: true }
   })
 
@@ -716,6 +844,7 @@ function createNutritionReviewFunctions({ db, onCall }) {
         transaction.get(db.doc(`users/${uid}`)),
       ])
       if (!mealLogSnapshot.exists) throw new HttpsError('not-found', 'Hãy lưu bữa ăn trước khi gửi Coach duyệt.')
+      assertReviewOwner(reviewSnapshot, uid)
       const log = mealLogSnapshot.data() || {}
       if (log.status !== 'logged') throw new HttpsError('failed-precondition', 'Chỉ bữa ăn đã ghi nhận mới có thể gửi Coach duyệt.')
       const mealRevision = Math.max(1, Math.trunc(finite(log.mealRevision, 1)))
@@ -724,6 +853,7 @@ function createNutritionReviewFunctions({ db, onCall }) {
         result = { reviewId: mealId, status: 'pending', revision: Math.max(0, Math.trunc(finite(current.revision))), mealRevision, alreadyPending: true }
         return
       }
+      const assignment = await resolveNutritionAssignment(db, (source) => transaction.get(source), uid, currentContractDateKey())
       const profile = profileSnapshot.exists ? profileSnapshot.data() || {} : {}
       const snapshot = mealSnapshot(log)
       const revision = Math.max(0, Math.trunc(finite(current.revision))) + 1
@@ -738,6 +868,12 @@ function createNutritionReviewFunctions({ db, onCall }) {
       transaction.set(reviewRef, {
         id: mealId,
         userId: uid,
+        studentId: assignment.studentId,
+        branchId: assignment.branchIds.length === 1 ? assignment.branchIds[0] : null,
+        assignmentSnapshotVersion: ASSIGNMENT_SNAPSHOT_VERSION,
+        assignedCoachIds: assignment.coachIds,
+        assignmentContractIds: assignment.contractIds,
+        assignmentCapturedAt: FieldValue.serverTimestamp(),
         userName: shortText(profile.displayName || profile.name || 'Học viên Aura', 160),
         studentGoal: shortText(goal, 300),
         studentCondition: shortText(condition, 500),
@@ -779,10 +915,13 @@ function createNutritionReviewFunctions({ db, onCall }) {
         afterStatus: 'pending',
         revision,
         mealRevision,
+        assignedCoachIds: assignment.coachIds,
+        assignmentContractIds: assignment.contractIds,
         createdAt: FieldValue.serverTimestamp(),
       })
       result = { reviewId: mealId, status: 'pending', revision, mealRevision, alreadyPending: false }
     })
+    summaries.clear()
     return result
   })
 
@@ -795,7 +934,8 @@ function createNutritionReviewFunctions({ db, onCall }) {
     const requestedLimit = Number(request.data?.limit)
     const limit = Number.isInteger(requestedLimit) ? Math.min(30, Math.max(6, requestedLimit)) : 24
     const requestedStatus = request.data?.status
-    const status = ['pending', 'approved', 'rejected'].includes(requestedStatus) ? requestedStatus : 'all'
+    const focus = request.data?.focus === 'overdue' ? 'overdue' : 'all'
+    const status = focus === 'overdue' ? 'pending' : ['pending', 'approved', 'rejected'].includes(requestedStatus) ? requestedStatus : 'all'
     const cursor = pageCursor(request.data?.cursor, status)
     const coachId = typeof request.data?.coachId === 'string' && request.data.coachId.trim()
       ? request.data.coachId.trim().slice(0, 200)
@@ -805,13 +945,21 @@ function createNutritionReviewFunctions({ db, onCall }) {
     const [settingsSnapshot] = await Promise.all([db.doc('system/nutrition_review_settings').get()])
     const slaMinutes = normalizeReviewSlaMinutes(settingsSnapshot.exists ? settingsSnapshot.data()?.slaMinutes : undefined)
     const clientIds = allScope ? null : await assignedClientIds(db, context)
+    const actorIds = allScope ? [] : reviewActorIds(context)
     assignmentCount = Array.isArray(clientIds) ? clientIds.length : 0
-    const page = await fetchReviewDocuments(db, clientIds, status, cursor)
-    const [hydrated, coaches] = await Promise.all([
-      hydrateReviews(db, page.documents, context, { now: Date.now(), slaMinutes }),
+    const now = Date.now()
+    const hasDetailFilters = coachId !== 'all' || Boolean(query)
+    const [page, coaches, summaryResult] = await Promise.all([
+      fetchReviewDocuments(db, clientIds, status, cursor, {
+        scanLimit: hasDetailFilters ? REVIEW_PAGE_SCAN_LIMIT : limit,
+        overdueCutoff: focus === 'overdue' ? Timestamp.fromMillis(now - slaMinutes * 60_000) : null,
+        actorIds,
+      }),
       allScope ? availableNutritionCoaches(db) : Promise.resolve([]),
+      cachedSummary(clientIds, slaMinutes, assignmentCount, now, request.data?.forceRefresh === true, actorIds),
     ])
-    const summary = await scopedReviewSummary(db, clientIds, slaMinutes, assignmentCount)
+    const { summary } = summaryResult
+    const hydrated = await hydrateReviews(db, page.documents, context, { now, slaMinutes, signImages: false })
     const filtered = hydrated.filter((item) => {
       if (coachId === 'unassigned' && item.assignedCoachIds.length) return false
       if (coachId !== 'all' && coachId !== 'unassigned' && !item.assignedCoachIds.includes(coachId)) return false
@@ -820,20 +968,26 @@ function createNutritionReviewFunctions({ db, onCall }) {
         .some((value) => String(value || '').toLocaleLowerCase('vi').includes(query))
     })
     const reviews = filtered.slice(0, limit)
+    await signReviewImages(reviews)
     const lastReturnedId = reviews.at(-1)?.id
     const lastReturnedIndex = lastReturnedId ? page.documents.findIndex((item) => item.id === lastReturnedId) : -1
     const consumedIndex = reviews.length >= limit && lastReturnedIndex >= 0 ? lastReturnedIndex : page.documents.length - 1
-    const hasMore = consumedIndex >= 0 && (consumedIndex < page.documents.length - 1 || page.hasMore)
+    const hasUnconsumed = consumedIndex >= 0 && consumedIndex < page.documents.length - 1
+    const hasMore = hasUnconsumed || page.hasMore
+    const resumeKey = hasUnconsumed ? reviewDocumentKey(page.documents[consumedIndex]) : page.resumeKey
     return {
       reviews,
       coaches,
       scope: allScope ? 'all' : 'assigned',
       assignmentCount,
       hasMore,
-      nextCursor: hasMore ? nextPageCursor(status, page.documents[consumedIndex]) : null,
-      filteredCount: status === 'all' ? summary.total : summary[status],
+      nextCursor: hasMore && resumeKey ? nextPageCursor(status, resumeKey) : null,
+      filteredCount: focus === 'overdue' ? summary.overdue : status === 'all' ? summary.total : summary[status],
+      filteredCountExact: !hasDetailFilters && !(focus === 'overdue' && summaryResult.truncated)
+        && !(['pending', 'all'].includes(status) && summaryResult.countsTruncated),
       summary,
-      summaryTruncated: false,
+      summaryTruncated: summaryResult.truncated,
+      summaryCountsTruncated: summaryResult.countsTruncated,
       slaMinutes,
     }
   })
@@ -866,24 +1020,10 @@ function createNutritionReviewFunctions({ db, onCall }) {
       if (currentRevision !== expectedRevision) {
         throw new HttpsError('aborted', 'Bản duyệt đã được cập nhật. Hãy tải lại trước khi thao tác.')
       }
-      if (!allScope) {
-        const identityAssignment = await transaction.get(db.doc(`roleAssignments/${userId}`))
-        const crmProfileId = identityAssignment.exists && typeof identityAssignment.data()?.crmProfileId === 'string'
-          ? identityAssignment.data().crmProfileId
-          : userId
-        const linkedStudents = await transaction.get(db.collection('students').where('accountUid', '==', userId).limit(5))
-        const studentIds = [...new Set([
-          userId,
-          crmProfileId,
-          ...linkedStudents.docs.map((item) => item.id),
-        ])]
-        const contractSnapshot = await transaction.get(db.collection('contracts').where('studentId', 'in', studentIds).limit(20))
-        const today = currentContractDateKey()
-        const ownsNutritionCare = contractSnapshot.docs.some((item) => {
-          const nutritionCoachIds = Array.isArray(item.data()?.nutritionPTIds) ? item.data().nutritionPTIds : []
-          return effectiveContractStatus(item.data(), today) === 'active'
-            && [context.uid, context.legacyStaffId].some((actorId) => nutritionCoachIds.includes(actorId))
-        })
+      const capturedAssignment = ownsCapturedPendingReview(review, context)
+      if (!allScope && !capturedAssignment) {
+        const assignment = await resolveNutritionAssignment(db, (source) => transaction.get(source), userId, currentContractDateKey())
+        const ownsNutritionCare = reviewActorIds(context).some((actorId) => assignment.coachIds.includes(actorId))
         if (!ownsNutritionCare) {
           throw new HttpsError('permission-denied', 'Học viên này không thuộc phạm vi chăm sóc dinh dưỡng của bạn.')
         }
@@ -957,10 +1097,12 @@ function createNutritionReviewFunctions({ db, onCall }) {
         afterStatus: nextStatus,
         revision: nextRevision,
         scope: allScope ? 'all' : 'assigned',
+        assignmentBasis: allScope ? 'all' : capturedAssignment ? 'submission_snapshot' : 'current_contract',
         createdAt: FieldValue.serverTimestamp(),
       })
       result = { reviewId, status: nextStatus, revision: nextRevision, reviewedAt: action === 'feedback' ? null : now }
     })
+    summaries.clear()
     return result
   })
 
@@ -976,6 +1118,12 @@ function createNutritionReviewFunctions({ db, onCall }) {
 
 module.exports = {
   createNutritionReviewFunctions,
+  fetchReviewDocuments,
+  scopedReviewSummary,
+  hydrateReviews,
+  signReviewImages,
+  compareReviewKeys,
+  reviewDocumentKey,
   reviewRecord,
   reviewPriority,
   reviewSummary,

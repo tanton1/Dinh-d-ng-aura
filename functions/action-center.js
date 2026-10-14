@@ -5,6 +5,8 @@ const { FieldPath, FieldValue, Timestamp } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
 const { trustedAccessContext } = require('./identity-access')
 const { withFunctionTelemetry } = require('./observability')
+const { normalizeReviewSlaMinutes, reviewSlaState } = require('./review-sla')
+const { ASSIGNMENT_SNAPSHOT_VERSION } = require('./nutrition-review-assignment')
 
 const MAX_PAGE_SIZE = 100
 const MAX_SCAN = 500
@@ -20,6 +22,31 @@ function timestampMillis(value) {
   if (value?.toDate) return value.toDate().getTime()
   const parsed = value instanceof Date ? value.getTime() : Date.parse(String(value || ''))
   return Number.isFinite(parsed) ? parsed : 0
+}
+
+function reviewSlaLabel(minutes) {
+  if (minutes % 60 === 0) return `${minutes / 60} giờ`
+  return `${minutes} phút`
+}
+
+function mealReviewActionInput(sourceId, value, policy, now = Date.now()) {
+  const slaMinutes = normalizeReviewSlaMinutes(policy)
+  const { dueAt, isOverdue } = reviewSlaState(value, slaMinutes, now)
+  return {
+    sourceType: 'meal_review', sourceId, actionType: 'review',
+    branchId: value.branchId, studentId: value.studentId,
+    assignedStaffIds: [...new Set([
+      value.coachId, value.reviewerId, value.assignedCoachId,
+      ...(value.assignmentSnapshotVersion === ASSIGNMENT_SNAPSHOT_VERSION && Array.isArray(value.assignedCoachIds) ? value.assignedCoachIds : []),
+    ].filter((id) => typeof id === 'string' && id))],
+    severity: isOverdue ? 'warning' : 'info',
+    title: isOverdue ? 'Bữa ăn quá SLA' : 'Bữa ăn chờ duyệt',
+    redactedSummary: isOverdue
+      ? `Có nhật ký dinh dưỡng chờ duyệt quá ${reviewSlaLabel(slaMinutes)}.`
+      : 'Có nhật ký dinh dưỡng đang chờ coach xem.',
+    dueAt: dueAt ? Timestamp.fromMillis(dueAt) : null,
+    allowedRoles: ['admin', 'super_admin', 'staff', 'coach_online'], availableActions: ['review_meal'],
+  }
 }
 
 function vietnamDateKey(value = new Date()) {
@@ -500,7 +527,7 @@ async function operationalStudentContext(db, { studentId: suppliedStudentId = ''
   }
 }
 
-async function syncOperationalActionSource({ db, event, logger = console }) {
+async function syncOperationalActionSource({ db, event, logger = console, reviewSlaMinutes }) {
   const eventCollection = event.data?.after?.ref?.parent?.id || event.data?.before?.ref?.parent?.id || ''
   const collection = ['contracts', 'contractUsageViews', 'sessionRequests', 'mealReviews', 'sessions', 'students', 'studentOperationalViews', 'ptScheduleDrafts', 'contractRenewalCases'].includes(eventCollection)
     ? eventCollection
@@ -533,9 +560,9 @@ async function syncOperationalActionSource({ db, event, logger = console }) {
     inputs = [{ sourceType: 'session_request', sourceId, actionType: 'review', branchId: value.branchId, studentId: value.studentId, assignedStaffIds: [value.trainerId, value.assignedTrainerId, value.createdBy].filter(Boolean), severity: 'warning', title: 'Yêu cầu lịch cần duyệt', redactedSummary: 'Có yêu cầu đổi hoặc bổ sung lịch cần xử lý.', allowedRoles: ['admin', 'super_admin', 'staff', 'trainer_pt', 'branch_manager'], availableActions: ['review_request'] }]
   }
   if (collection === 'mealReviews' && value && ['pending', 'submitted', 'waiting'].includes(String(value.status || '').toLowerCase())) {
-    const createdAt = timestampMillis(value.createdAt || value.submittedAt)
-    const overdue = createdAt > 0 && Date.now() - createdAt > 24 * 60 * 60 * 1000
-    inputs = [{ sourceType: 'meal_review', sourceId, actionType: 'review', branchId: value.branchId, studentId: value.studentId, assignedStaffIds: [value.coachId, value.reviewerId, value.assignedCoachId].filter(Boolean), severity: overdue ? 'warning' : 'info', title: overdue ? 'Bữa ăn quá SLA' : 'Bữa ăn chờ duyệt', redactedSummary: overdue ? 'Có nhật ký dinh dưỡng chờ duyệt quá 24 giờ.' : 'Có nhật ký dinh dưỡng đang chờ coach xem.', allowedRoles: ['admin', 'super_admin', 'staff', 'coach_online'], availableActions: ['review_meal'] }]
+    const settings = reviewSlaMinutes === undefined ? await db.doc('system/nutrition_review_settings').get() : null
+    const slaMinutes = normalizeReviewSlaMinutes(reviewSlaMinutes ?? (settings?.exists ? settings.data()?.slaMinutes : undefined))
+    inputs = [mealReviewActionInput(sourceId, value, slaMinutes)]
   }
   if (collection === 'sessions' && sourceValue.studentId) {
     const studentId = sourceValue.studentId
@@ -657,6 +684,7 @@ async function syncOperationalActionSource({ db, event, logger = console }) {
 }
 
 module.exports = {
+  mealReviewActionInput,
   ACTION_STATUSES,
   actionId,
   actionDocument,

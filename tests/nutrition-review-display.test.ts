@@ -3,6 +3,18 @@ import test from 'node:test'
 import { detailSlideIndex, durationLabel, mealImageShape } from '../src/features/nutrition-review/nutritionReviewDisplay'
 import { nutritionConfidenceLabel } from '../src/features/nutrition/analysis'
 import type { AiFoodItem } from '../src/features/nutrition/types'
+import { getCurrentRoute, isSameRoute } from '../src/routing/appRouting'
+
+test('meal review dashboard focus survives routing and same-page hash navigation', () => {
+  const location = { hash: '#/admin-nutrition-reviews?focus=overdue' }
+  ;(globalThis as typeof globalThis & { window: unknown }).window = { location }
+  const overdue = getCurrentRoute()
+  assert.equal(overdue.focus, 'overdue')
+  location.hash = '#/admin-nutrition-reviews'
+  assert.equal(isSameRoute(overdue, getCurrentRoute()), false)
+  location.hash = '#/staff-nutrition-reviews?focus=overdue'
+  assert.equal(getCurrentRoute().focus, 'overdue')
+})
 
 test('nutrition review wait time uses readable minute, hour and day labels', () => {
   assert.equal(durationLabel(0), '0 phút')

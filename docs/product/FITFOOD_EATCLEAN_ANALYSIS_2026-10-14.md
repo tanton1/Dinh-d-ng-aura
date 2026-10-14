@@ -95,12 +95,14 @@ Giới hạn: Resource Timing có thể không trả đủ dung lượng của t
 - Giữ nguyên thực đơn, giá, tồn kho, cấu hình nhận đơn và lịch sử đơn của Aura.
 - Thêm mục chọn **Thực đơn Aura / Sản phẩm Fitfood tham khảo**; khách không phải cuộn qua toàn bộ món Aura mới tìm thấy catalog mới.
 - Tải mã/CSS catalog tham khảo khi mở mục đó. Không tải ảnh Fitfood, không gọi API Fitfood và không thêm dịch vụ bên thứ ba.
-- Một nguồn dữ liệu cho cả môi trường thật và demo; có ngày đối chiếu, link trang sản phẩm, quy mô gói, giá gói, giá quy đổi/bữa và cảnh báo nguồn.
+- Một nguồn dữ liệu cho cả môi trường thật và demo; có ngày đối chiếu, mã nguồn tham khảo, quy mô gói, giá gói, giá quy đổi/bữa và cảnh báo nguồn. Trải nghiệm khách hàng không còn nút dẫn ra ngoài; chi tiết đối chiếu hiển thị ngay trong thẻ.
 - Tìm kiếm hỗ trợ tiếng Việt không dấu; lọc gói tuần, chế biến sẵn, đồ uống và ăn nhẹ.
+- Mỗi thẻ dùng ảnh minh họa nội bộ từ `/public/images/eat-clean/`, có `alt` và lazy-load; không lấy ảnh từ Fitfood. Phần admin có thư viện chọn ảnh nội bộ, không cho lưu URL ảnh ngoài.
+- Tab Vận hành có luồng kiểm tra: thực đơn → ảnh nội bộ → tồn kho → khung giao/khu vực → nhận đơn. Luồng chỉ báo trạng thái, không tự ghi tồn kho hoặc bật bán.
 - Nếu thực đơn Aura lỗi tải, vẫn giữ thông báo lỗi/thử lại và cho xem mục tham khảo; không tự thay catalog backend bằng sản phẩm mẫu bán được.
 - Không ghi Firestore, không cần seed/migration, không thay đổi dự án cũ và không tự mở bán sản phẩm mới.
 
-Thiết kế giữ bảng màu, font và shell Aura hiện tại. Bố cục tham khảo ưu tiên thông tin gói và nguồn; không dùng ảnh một món lẻ để giả lập một set đồ uống hoặc gói tuần.
+Thiết kế giữ bảng màu, font và shell Aura hiện tại. Bố cục tham khảo ưu tiên thông tin gói và nguồn; ảnh dùng cho thẻ chỉ có vai trò minh họa nhóm và luôn gắn nhãn rõ ràng, không giả lập ảnh chính thức hay cam kết thành phần.
 
 ## 7. Những việc cần xác nhận trước khi bán gói tuần qua Aura
 
@@ -119,7 +121,7 @@ Các bài kiểm tra bảo vệ:
 - Tìm kiếm có/không dấu và kết hợp nhóm sản phẩm.
 - ID tham khảo không trùng món Aura và không vào báo giá demo.
 - CHAY không thành vegan, cơm có vị cá mặn không thành chay, không tự tạo macro chưa xác minh.
-- Catalog tham khảo không có nút thêm giỏ, không gọi dịch vụ ghi dữ liệu hoặc tải ảnh bên ngoài.
+- Catalog tham khảo có ảnh nội bộ, không có nút thêm giỏ, không gọi dịch vụ ghi dữ liệu hoặc tạo request tới `fitfood.vn`.
 - Layout 320 px, lọc/tìm/xóa bộ lọc, quay về Aura và checkout COD demo không bị ảnh hưởng.
 
 Trạng thái phát hành: thay đổi trong source; chưa commit, push hoặc deploy production trong lượt này.

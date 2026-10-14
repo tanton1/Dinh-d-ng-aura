@@ -1,10 +1,11 @@
 import { useMemo, useState } from 'react'
-import { ExternalLink, Search } from 'lucide-react'
+import { CheckCircle2, Info, Search, ShieldCheck } from 'lucide-react'
 import { formatEatCleanMoney } from './EatCleanUi'
 import {
   EAT_CLEAN_REFERENCE_GROUPS,
   FITFOOD_REFERENCE_SOURCE,
   filterEatCleanReferenceProducts,
+  referenceImagePath,
   referencePricePerMeal,
   type EatCleanReferenceGroup,
 } from './referenceCatalog'
@@ -23,14 +24,24 @@ export default function EatCleanReferenceCatalog() {
       <header className="eat-clean-reference__heading">
         <div>
           <h2 id="eat-clean-reference-title">Gói tuần & sản phẩm dùng kèm</h2>
-          <p>Danh mục tham khảo từ <a href={FITFOOD_REFERENCE_SOURCE.websiteUrl} target="_blank" rel="noopener noreferrer">Fitfood VN</a>. Đối chiếu ngày {checkedOnLabel}.</p>
+          <p>Danh mục tham khảo đã lưu trong Aura · nguồn đối chiếu Fitfood VN · ngày {checkedOnLabel}.</p>
         </div>
-        <a className="eat-clean-reference__menu-link" href={FITFOOD_REFERENCE_SOURCE.menuUrl} target="_blank" rel="noopener noreferrer">Thực đơn Fitfood <ExternalLink size={16} aria-hidden="true" /></a>
+        <span className="eat-clean-reference__menu-link"><ShieldCheck size={16} aria-hidden="true" /> Dữ liệu nội bộ</span>
       </header>
 
       <div className="eat-clean-reference__notice">
-        <strong>Sản phẩm Fitfood, không phải món Aura đang bán.</strong>
-        <p>Giá và dinh dưỡng do Fitfood công bố, có thể thay đổi. Aura chưa nhận đơn hoặc cam kết giao các sản phẩm này tại Đà Nẵng. Các số kcal của gói chỉ tính những bữa trong gói, không phải mức năng lượng khuyến nghị cho bạn.</p>
+        <strong>Sản phẩm tham khảo, không phải món Aura đang bán.</strong>
+        <p>Giá và dinh dưỡng là dữ liệu đối chiếu đã nhập vào Aura. Aura chưa nhận đơn, ghi tồn kho hoặc cam kết giao các sản phẩm này. Ảnh trên thẻ là ảnh minh họa nội bộ, không phải ảnh chính thức của Fitfood.</p>
+      </div>
+
+      <div className="eat-clean-reference__workflow" data-testid="eat-clean-reference-workflow" aria-label="Luồng quản lý danh mục tham khảo">
+        <div className="eat-clean-reference__workflow-title"><Info size={17} /><strong>Luồng quản lý nội bộ</strong><span>Chỉ dùng để tham khảo</span></div>
+        <ol>
+          <li className="is-complete"><CheckCircle2 size={16} /><span>Đối chiếu dữ liệu</span></li>
+          <li className="is-complete"><CheckCircle2 size={16} /><span>Gắn ảnh nội bộ</span></li>
+          <li className="is-complete"><CheckCircle2 size={16} /><span>Duyệt nội dung</span></li>
+          <li><span className="eat-clean-reference__workflow-dot" /><span>Chưa mở bán Aura</span></li>
+        </ol>
       </div>
 
       <div className="eat-clean-reference__filters">
@@ -46,13 +57,20 @@ export default function EatCleanReferenceCatalog() {
           const perMeal = referencePricePerMeal(product)
           return (
             <article className="eat-clean-reference-product" key={product.id} data-testid="eat-clean-reference-product" data-product-id={product.id}>
+              <div className="eat-clean-reference-product__image-wrap">
+                <img className="eat-clean-reference-product__image" src={referenceImagePath(product)} alt={`Ảnh minh họa ${product.name}`} loading="lazy" />
+                <span>Ảnh minh họa</span>
+              </div>
               <header><span>{EAT_CLEAN_REFERENCE_GROUPS.find((item) => item.id === product.group)?.label}</span><h3>{product.name}</h3></header>
               {product.weeklyPlan && <div className="eat-clean-reference-product__meals" aria-label="Bữa ăn trong gói">{product.weeklyPlan.meals.map((meal) => <span key={meal}>{MEAL_LABELS[meal]}</span>)}</div>}
               <p className="eat-clean-reference-product__description">{product.description}</p>
               <div className="eat-clean-reference-product__price"><small>Giá tham khảo / {product.weeklyPlan ? 'gói tuần' : 'set hoặc hộp'}</small><strong>{formatEatCleanMoney(product.referencePrice)}</strong><span>{product.unitLabel}</span>{perMeal !== undefined && <small>Khoảng {formatEatCleanMoney(perMeal)}/bữa theo giá gói</small>}</div>
               {product.nutritionNote && <p className="eat-clean-reference-product__nutrition">{product.nutritionNote}</p>}
               {product.caution && <p className="eat-clean-reference-product__caution">{product.caution}</p>}
-              <a className="eat-clean-reference-product__source" href={product.sourceUrl} target="_blank" rel="noopener noreferrer" aria-label={`Xem ${product.name} trên Fitfood`}>Xem trên Fitfood <ExternalLink size={16} aria-hidden="true" /></a>
+              <details className="eat-clean-reference-product__source">
+                <summary><Info size={16} aria-hidden="true" /> Thông tin đối chiếu</summary>
+                <p>Nguồn: Fitfood VN · kiểm tra {checkedOnLabel}. Aura lưu bản tham khảo để quản lý nội bộ, không chuyển bạn sang website khác.</p>
+              </details>
             </article>
           )
         })}

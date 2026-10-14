@@ -98,6 +98,7 @@ export interface AuraRoute {
   mealId: string | null
   orderId: string | null
   loyaltyTab: 'rewards' | 'missions' | 'levels' | 'referral' | 'history'
+  focus?: string | null
 }
 
 const eatCleanScreens = new Set<AuraRoute['eatCleanScreen']>(['store', 'meal', 'cart', 'checkout', 'orders', 'order', 'success'])
@@ -174,6 +175,7 @@ export function getCurrentRoute(): AuraRoute {
     loyaltyTab: loyaltyTabs.has(params.get('tab') as AuraRoute['loyaltyTab'])
       ? params.get('tab') as AuraRoute['loyaltyTab']
       : 'rewards',
+    focus: params.get('focus'),
   }
 }
 
@@ -195,6 +197,7 @@ export function isSameRoute(left: AuraRoute, right: AuraRoute) {
     && left.mealId === right.mealId
     && left.orderId === right.orderId
     && left.loyaltyTab === right.loyaltyTab
+    && left.focus === right.focus
 }
 
 export function student360RouteHash(studentId: string, source: Student360Source) {

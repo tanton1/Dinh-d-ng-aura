@@ -439,6 +439,11 @@
 .schedule-move-form select { min-width: 0; width: 100%; }
 .schedule-move-form p { margin: 0; font-size: .75rem; line-height: 1.5; }
 .schedule-move-form button { min-height: 38px; border: 1px solid #ead8e0; border-radius: 10px; color: #a92865; background: #fff; }
+.schedule-move-form.is-admin-edit { border: 1px solid rgba(213, 107, 45, .22); border-radius: 13px; padding: 11px; background: linear-gradient(125deg, #fff8f1, #fffdfb); }
+.schedule-move-actions { display: flex; gap: 7px; }
+.schedule-move-actions button { flex: 1; }
+.schedule-move-actions button:last-child,
+.schedule-move-form > button:last-child { border: 0; color: #fff; background: linear-gradient(110deg, var(--branch-pink), var(--branch-orange)); }
 .schedule-inspector__body > section { padding: 14px; border: 1px solid #eedce4; border-radius: 18px; background: #fff; }
 .schedule-inspector__section-title { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
 .schedule-inspector__section-title strong { font-size: .9rem; }

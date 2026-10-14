@@ -43,8 +43,10 @@ const { createIdentityAccessFunctions } = require('./identity-access')
 const { staffIdsFromContract, syncStaffManagedClientSummary, reconcileStaffManagedClientSummaries } = require('./staff-managed-summary')
 const { createPtOperationsV2Functions } = require('./pt-operations-v2')
 const { createSessionFeedbackFunctions } = require('./session-feedback')
-const { createPtSchedulePublishFunctions } = require('./pt-schedule-publish')
-const { createPtScheduleV2Functions } = require('./pt-schedule-v2')
+const { createPtSchedulePublishFunctions, documentId: scheduleDocumentId, weekId: scheduleWeekId } = require('./pt-schedule-publish')
+const { createPtScheduleV2Functions, draftExpiresAt, safeSchedule, scopedDraftData } = require('./pt-schedule-v2')
+const { applyAdminScheduleEdit } = require('./pt-schedule-admin-edit')
+const { trustedAccessContext, requireCapability } = require('./identity-access')
 const { createFinanceLedgerFunctions } = require('./finance-ledger')
 const { autoConfirmOverduePtAttendance, chargeDuePtSessions, createSessionOperationFunctions, remindUnconfirmedPtAttendance } = require('./session-operations')
 const { createPayrollFunctions, priceTeachingSlots, payrollPolicyProfiles, payrollProfile, policySupportsProfile } = require('./payroll')
@@ -70,6 +72,7 @@ const { createBranchManagementFunctions } = require('./branch-management')
 const { buildStudent360Projection, createStudent360Functions, mondayDateKey, reconcileStudent360ProjectionBatch, syncStudent360ProjectionFromEvent } = require('./student-360')
 const { coalesceProjectionRebuild } = require('./student-360-projection-writes')
 const { loggedMealSlots } = require('./meal-reminder-policy')
+const { refreshMealReviewActions } = require('./nutrition-review-maintenance')
 
 const app = initializeApp()
 // Keep callable writes on the same named database used by the production web app.
@@ -272,44 +275,7 @@ exports.reopenSnoozedOperationalActionsScheduled = onSchedule({
     due.forEach((item) => batch.update(item.ref, { status: 'open', snoozedUntil: null, updatedAt: FieldValue.serverTimestamp() }))
     await batch.commit()
   }
-  // Time alone can turn a pending meal review into an SLA breach, so the
-  // write trigger is not sufficient. Refresh only records whose projected
-  // severity has not yet advanced to warning; both scans remain bounded.
-  const reviewCutoff = Timestamp.fromMillis(now.toMillis() - 24 * 60 * 60 * 1000)
-  const [createdAtReviews, submittedAtReviews] = await Promise.all([
-    db.collection('mealReviews')
-      .where('status', '==', 'pending')
-      .where('createdAt', '<=', reviewCutoff)
-      .orderBy('createdAt', 'asc')
-      .limit(200)
-      .get(),
-    db.collection('mealReviews')
-      .where('status', '==', 'pending')
-      .where('submittedAt', '<=', reviewCutoff)
-      .orderBy('submittedAt', 'asc')
-      .limit(200)
-      .get(),
-  ])
-  const pendingReviews = [...new Map(
-    [...createdAtReviews.docs, ...submittedAtReviews.docs].map((item) => [item.id, item]),
-  ).values()].slice(0, 200)
-  let refreshedMealReviews = 0
-  for (const review of pendingReviews) {
-    const createdAt = review.data()?.createdAt || review.data()?.submittedAt
-    const createdAtMillis = createdAt?.toMillis?.() || createdAt?.toDate?.()?.getTime?.() || Date.parse(String(createdAt || ''))
-    if (!Number.isFinite(createdAtMillis) || createdAtMillis > reviewCutoff.toMillis()) continue
-    const action = await db.doc(`operationalActions/meal_review:${review.id}:review`).get()
-    if (action.exists && action.data()?.severity === 'warning' && ['open', 'in_progress'].includes(action.data()?.status)) continue
-    await syncOperationalActionSource({
-      db,
-      event: {
-        params: { reviewId: review.id },
-        data: { after: { exists: true, data: () => review.data(), ref: review.ref }, before: { exists: false } },
-      },
-      logger,
-    })
-    refreshedMealReviews += 1
-  }
+  const { refreshed: refreshedMealReviews } = await refreshMealReviewActions({ db, logger })
   logger.info('operational_actions_scheduled_maintenance', { reopened: due.length, refreshedMealReviews })
   return { reopened: due.length, refreshedMealReviews }
 })
@@ -797,6 +763,84 @@ exports.getPtScheduleSlotCandidates = ptScheduleV2Functions.getPtScheduleSlotCan
 exports.createHistoricalPtSession = ptScheduleV2Functions.createHistoricalPtSession
 exports.savePtStudentAvailability = ptScheduleV2Functions.savePtStudentAvailability
 exports.applyPtScheduleDraftCommand = ptScheduleV2Functions.applyPtScheduleDraftCommand
+
+// Admin-only schedule corrections update the real session and the operational
+// draft in one transaction. They intentionally live beside (rather than
+// inside) the optimizer command so staff cannot bypass the normal protected
+// session guards by sending an extra flag.
+const adminScheduleEditReceiptId = (actorUid, branchId, week, idempotencyKey) => createHash('sha256')
+  .update(`${actorUid}|${branchId}|${week}|${idempotencyKey}`)
+  .digest('hex')
+
+const adminEditPtSchedule = ptScheduleOnCall(async (request) => {
+  const week = scheduleWeekId(request.data?.weekId)
+  const branchId = scheduleDocumentId(request.data?.branchId, 'Mã chi nhánh')
+  const actor = await trustedAccessContext(request, db)
+  requireCapability(actor, 'pt.operations.manage')
+  if (!['admin', 'super_admin'].includes(actor.accessRole)) {
+    throw new HttpsError('permission-denied', 'Chỉ Admin được điều chỉnh buổi đã publish hoặc ca đã qua.')
+  }
+  const command = request.data?.command
+  if (!['move_student', 'remove_student'].includes(command)) {
+    throw new HttpsError('invalid-argument', 'Lệnh điều chỉnh Admin không hợp lệ.')
+  }
+  const expectedDraftRevision = Number(request.data?.expectedDraftRevision)
+  if (!Number.isInteger(expectedDraftRevision) || expectedDraftRevision < 0) {
+    throw new HttpsError('invalid-argument', 'Phiên bản draft không hợp lệ.')
+  }
+  const idempotencyKey = typeof request.data?.idempotencyKey === 'string' ? request.data.idempotencyKey.trim() : ''
+  if (!/^[A-Za-z0-9:_-]{8,200}$/.test(idempotencyKey)) {
+    throw new HttpsError('invalid-argument', 'Khóa chống lặp không hợp lệ.')
+  }
+  const rawPayload = request.data?.payload && typeof request.data.payload === 'object' ? request.data.payload : {}
+  const slotPattern = /^(T[2-7]|CN)-(?:[0-9]|1[0-9]|2[0-3])$/
+  const normalizeSlot = (value, label) => {
+    if (typeof value !== 'string' || !slotPattern.test(value)) throw new HttpsError('invalid-argument', `${label} không hợp lệ.`)
+    return value
+  }
+  const normalizeId = (value, label) => scheduleDocumentId(value, label)
+  const slotId = normalizeSlot(rawPayload.slotId, 'Ô lịch đích')
+  const trainerId = normalizeId(rawPayload.trainerId, 'Mã PT đích')
+  const studentId = normalizeId(rawPayload.studentId, 'Mã học viên')
+  const payload = {
+    ...rawPayload,
+    slotId,
+    trainerId,
+    studentId,
+    ...(command === 'move_student' ? {
+      fromSlotId: normalizeSlot(rawPayload.fromSlotId, 'Ô lịch nguồn'),
+      fromTrainerId: normalizeId(rawPayload.fromTrainerId || trainerId, 'Mã PT nguồn'),
+    } : {}),
+    ...(typeof rawPayload.sessionId === 'string' && rawPayload.sessionId.trim() ? { sessionId: normalizeId(rawPayload.sessionId, 'Mã buổi tập') } : {}),
+    ...(rawPayload.expectedSessionRevision === undefined ? {} : {
+      expectedSessionRevision: Number(rawPayload.expectedSessionRevision),
+    }),
+    allowOutsideStudentAvailability: rawPayload.allowOutsideStudentAvailability === true,
+    confirmCrossBranchStudent: rawPayload.confirmCrossBranchStudent === true,
+  }
+  if (payload.expectedSessionRevision !== undefined
+    && (!Number.isInteger(payload.expectedSessionRevision) || payload.expectedSessionRevision < 0)) {
+    throw new HttpsError('invalid-argument', 'Phiên bản buổi tập không hợp lệ.')
+  }
+  const reason = typeof request.data?.reason === 'string' ? request.data.reason.trim().slice(0, 300) : ''
+  if (reason.length < 8) throw new HttpsError('invalid-argument', 'Nhập lý do điều chỉnh tối thiểu 8 ký tự để lưu audit.')
+  const receipt = db.doc(`ptScheduleAdminEditReceipts/${adminScheduleEditReceiptId(actor.uid, branchId, week, idempotencyKey)}`)
+  return applyAdminScheduleEdit({
+    db,
+    actor,
+    branchId,
+    week,
+    command,
+    payload,
+    reason,
+    expectedRevision: expectedDraftRevision,
+    receipt,
+    safeSchedule,
+    scopedDraftData,
+    draftExpiresAt,
+  })
+})
+exports.adminEditPtSchedule = adminEditPtSchedule
 // Regional overflow endpoint for optimizer-v4. Asia-southeast1 currently
 // hosts the large legacy callable fleet and can reject a safe revision before
 // startup when its regional CPU quota is saturated. Only generation is moved;

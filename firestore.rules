@@ -1103,6 +1103,12 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // Privileged schedule corrections use a separate idempotency ledger. It
+    // is server-only so a browser cannot replay or forge an Admin edit receipt.
+    match /ptScheduleAdminEditReceipts/{receiptId} {
+      allow read, write: if false;
+    }
+
     match /ptOperationsAuditLogs/{logId} {
       allow read: if isAdmin();
       allow write: if false;

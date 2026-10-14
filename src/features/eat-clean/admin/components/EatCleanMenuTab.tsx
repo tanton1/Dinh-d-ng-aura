@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react'
-import { ChevronRight, Plus, Search, Star, UtensilsCrossed } from 'lucide-react'
+import { ChevronRight, Image as ImageIcon, Plus, Search, Star, UtensilsCrossed } from 'lucide-react'
 import { MEAL_CATEGORY_LABELS, formatCurrency, readableError } from '../adminEatCleanUtils'
 import type { EatCleanDeliverySlot, EatCleanMeal, EatCleanMealCategory } from '../types'
 import { EatCleanSheet } from './EatCleanSheet'
+import { EAT_CLEAN_INTERNAL_IMAGES, defaultEatCleanImage, isInternalEatCleanImage } from '../../internalImages'
 
 interface EatCleanMenuTabProps {
   meals: EatCleanMeal[]
@@ -22,7 +23,7 @@ function createEmptyMeal(): EatCleanMeal {
     category: 'lunch',
     basePrice: 0,
     compareAtPrice: null,
-    imageUrl: '',
+    imageUrl: defaultEatCleanImage(),
     calories: 0,
     protein: 0,
     carbs: 0,
@@ -114,6 +115,10 @@ export function EatCleanMenuTab({ meals, deliverySlots, onSaveMeal }: EatCleanMe
       setError('Thông tin dinh dưỡng không hợp lệ.')
       return
     }
+    if (editingMeal.imageUrl && !isInternalEatCleanImage(editingMeal.imageUrl)) {
+      setError('Hãy chọn ảnh trong thư viện nội bộ Aura để không phụ thuộc website bên ngoài.')
+      return
+    }
 
     setSaving(true)
     setError('')
@@ -154,8 +159,9 @@ export function EatCleanMenuTab({ meals, deliverySlots, onSaveMeal }: EatCleanMe
       ) : (
         <>
           <div className="eat-clean-desktop-table" role="region" aria-label="Danh sách món Eat Clean" tabIndex={0}>
-            <table><thead><tr><th>Món ăn</th><th>Nhóm</th><th>Dinh dưỡng</th><th>Giá bán</th><th>Hiển thị</th><th><span className="sr-only">Thao tác</span></th></tr></thead><tbody>
+            <table><thead><tr><th>Ảnh</th><th>Món ăn</th><th>Nhóm</th><th>Dinh dưỡng</th><th>Giá bán</th><th>Hiển thị</th><th><span className="sr-only">Thao tác</span></th></tr></thead><tbody>
               {filteredMeals.map((meal) => <tr key={meal.id}>
+                <td><img className="eat-clean-menu-thumb" src={meal.imageUrl || defaultEatCleanImage()} alt="" loading="lazy" /></td>
                 <td><strong>{meal.featured && <Star size={13} aria-label="Món nổi bật" />} {meal.name}</strong><small>{meal.shortDescription || 'Chưa có mô tả ngắn'}</small></td>
                 <td><span>{MEAL_CATEGORY_LABELS[meal.category]}</span><small>{meal.inventoryTracked ? 'Theo dõi tồn kho' : 'Không theo dõi kho'}</small></td>
                 <td><strong>{meal.calories} kcal</strong><small>{meal.protein}g protein · {meal.carbs}g carb</small></td>
@@ -167,7 +173,7 @@ export function EatCleanMenuTab({ meals, deliverySlots, onSaveMeal }: EatCleanMe
           </div>
           <div className="eat-clean-mobile-list">
             {filteredMeals.map((meal, index) => <article className="eat-clean-mobile-card eat-clean-meal-card" key={meal.id}>
-              <div className="eat-clean-meal-card__image"><img src={meal.imageUrl || ['/images/eat-clean/chicken-pepper.webp', '/images/eat-clean/salmon-vegetables.webp', '/images/eat-clean/beef-egg-salad.webp'][index % 3]} alt="" /></div>
+              <div className="eat-clean-meal-card__image"><img src={meal.imageUrl || defaultEatCleanImage(index)} alt="" loading="lazy" /></div>
               <div className="eat-clean-meal-card__content"><header><div><strong>{meal.name}</strong><small>{MEAL_CATEGORY_LABELS[meal.category]}</small></div><span className={`eat-clean-status ${meal.active ? 'eat-clean-status--active' : 'eat-clean-status--inactive'}`}>{meal.active ? 'Đang bán' : 'Đang ẩn'}</span></header><p>{meal.calories} kcal · {meal.protein}g protein</p><div><strong>{formatCurrency(meal.basePrice)}</strong><button type="button" className="eat-clean-link-button" onClick={() => openMeal(meal)}>Chỉnh sửa <ChevronRight size={15} /></button></div></div>
             </article>)}
           </div>
@@ -180,7 +186,13 @@ export function EatCleanMenuTab({ meals, deliverySlots, onSaveMeal }: EatCleanMe
           <div className="eat-clean-form-grid eat-clean-form-grid--2"><label className="eat-clean-field"><span>Nhóm món</span><select value={editingMeal.category} onChange={(event) => updateMeal('category', event.target.value as EatCleanMealCategory)}>{Object.entries(MEAL_CATEGORY_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label className="eat-clean-field"><span>Giá bán (đ)</span><input type="number" min={0} step={1000} value={editingMeal.basePrice} onChange={(event) => updateMeal('basePrice', Number(event.target.value))} /></label></div>
           <label className="eat-clean-field"><span>Mô tả ngắn</span><input value={editingMeal.shortDescription} onChange={(event) => updateMeal('shortDescription', event.target.value)} maxLength={240} /></label>
           <label className="eat-clean-field"><span>Mô tả chi tiết</span><textarea rows={4} value={editingMeal.description} onChange={(event) => updateMeal('description', event.target.value)} maxLength={2000} /><small>{editingMeal.description.length}/2000 ký tự</small></label>
-          <label className="eat-clean-field"><span>URL ảnh món</span><input type="url" value={editingMeal.imageUrl ?? ''} onChange={(event) => updateMeal('imageUrl', event.target.value)} placeholder="https://..." /></label>
+          <section className="eat-clean-image-picker" aria-labelledby="eat-clean-image-picker-title" data-testid="eat-clean-image-picker">
+            <div className="eat-clean-image-picker__heading"><div><h3 id="eat-clean-image-picker-title"><ImageIcon size={17} /> Ảnh món nội bộ</h3><p>Chọn ảnh đã đóng gói trong Aura để storefront không gọi website khác.</p></div><span>{isInternalEatCleanImage(editingMeal.imageUrl) ? 'Đã chọn' : 'Cần chọn ảnh'}</span></div>
+            <div className="eat-clean-image-library">
+              {EAT_CLEAN_INTERNAL_IMAGES.map((image) => <button type="button" key={image.id} className={editingMeal.imageUrl === image.path ? 'is-selected' : ''} onClick={() => updateMeal('imageUrl', image.path)} aria-label={`Chọn ảnh ${image.label}`} aria-pressed={editingMeal.imageUrl === image.path}><img src={image.path} alt="" loading="lazy" /><span>{image.label}</span></button>)}
+            </div>
+            <label className="eat-clean-field"><span>Đường dẫn ảnh tuỳ chọn (chỉ file nội bộ)</span><input type="text" value={editingMeal.imageUrl ?? ''} onChange={(event) => updateMeal('imageUrl', event.target.value)} placeholder="/images/eat-clean/ten-anh.webp" /><small>Chỉ chấp nhận đường dẫn bắt đầu bằng /images/eat-clean/.</small></label>
+          </section>
           <fieldset className="eat-clean-fieldset"><legend>Dinh dưỡng mỗi khẩu phần</legend><div className="eat-clean-form-grid eat-clean-form-grid--3">
             <label className="eat-clean-field"><span>Kcal</span><input type="number" min={0} value={editingMeal.calories} onChange={(event) => updateMeal('calories', Number(event.target.value))} /></label><label className="eat-clean-field"><span>Protein (g)</span><input type="number" min={0} step="0.1" value={editingMeal.protein} onChange={(event) => updateMeal('protein', Number(event.target.value))} /></label><label className="eat-clean-field"><span>Carb (g)</span><input type="number" min={0} step="0.1" value={editingMeal.carbs} onChange={(event) => updateMeal('carbs', Number(event.target.value))} /></label><label className="eat-clean-field"><span>Fat (g)</span><input type="number" min={0} step="0.1" value={editingMeal.fat} onChange={(event) => updateMeal('fat', Number(event.target.value))} /></label><label className="eat-clean-field"><span>Chất xơ (g)</span><input type="number" min={0} step="0.1" value={editingMeal.fiber} onChange={(event) => updateMeal('fiber', Number(event.target.value))} /></label><label className="eat-clean-field"><span>Khẩu phần (g)</span><input type="number" min={0} step="0.1" value={editingMeal.servingGrams} onChange={(event) => updateMeal('servingGrams', Number(event.target.value))} /></label>
           </div></fieldset>

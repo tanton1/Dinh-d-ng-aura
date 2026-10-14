@@ -7,6 +7,7 @@ const test = require('node:test')
 const { actionId, canViewAction, contractActionInputs, hasThreeConsecutiveNoShows, isVisibleToActor, redactedAction, scheduleDraftActionInputs, upsertOperationalAction } = require('./action-center')
 
 const functionsSource = readFileSync(join(__dirname, 'index.js'), 'utf8')
+const nutritionMaintenanceSource = readFileSync(join(__dirname, 'nutrition-review-maintenance.js'), 'utf8')
 
 test('action ids are deterministic and source scoped', () => {
   assert.equal(actionId('contract', 'c1', 'renewal_due'), 'contract:c1:renewal_due')
@@ -107,7 +108,8 @@ test('Action Center and contract usage maintenance exports stay deployable and b
   assert.match(functionsSource, /systemJobs\/contractUsageViewReconciliation/)
   assert.match(functionsSource, /collection\('contracts'\)\.orderBy\(FieldPath\.documentId\(\)\)\.limit\(25\)/)
   assert.match(functionsSource, /collection\('operationalActions'\)[\s\S]*?where\('status', '==', 'snoozed'\)[\s\S]*?where\('snoozedUntil', '<=', now\)[\s\S]*?limit\(200\)/)
-  assert.match(functionsSource, /collection\('mealReviews'\)[\s\S]*?where\('createdAt', '<=', reviewCutoff\)[\s\S]*?limit\(200\)/)
+  assert.match(functionsSource, /refreshMealReviewActions/)
+  assert.match(nutritionMaintenanceSource, /collection\('mealReviews'\)[\s\S]*?where\('status', '==', 'pending'\)[\s\S]*?limit\(200\)/)
 })
 
 test('redaction returns only safe operational fields', () => {

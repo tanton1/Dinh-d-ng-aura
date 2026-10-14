@@ -1101,7 +1101,7 @@ function AuraApplication() {
         }}
       />
       case 'admin-roles': return <AuraOperationsFrame><AdminRolesPage users={adminUsers} currentRole={role} currentUserUid={user?.uid} loading={adminUsersLoading} onRoleChange={updateUserRole} /></AuraOperationsFrame>
-      case 'admin-nutrition-reviews': return <AdminNutritionReviewsPage onNavigate={navigate} />
+      case 'admin-nutrition-reviews': return <AdminNutritionReviewsPage onNavigate={navigate} focus={route.focus} />
       case 'admin-notifications': return <AdminNotificationsPage onNavigate={navigate} users={adminUsers} currentUserUid={user?.uid} canManageUiRollout={role === 'super_admin'} backendMode={backendMode} />
       case 'admin-eat-clean': return <AdminEatCleanPage currentRole={role} isDemo={backendMode === 'demo'} />
 
@@ -1113,7 +1113,7 @@ function AuraApplication() {
       case 'staff-workouts': return <AuraOperationsFrame><PtWorkoutWorkspacePage isDemo={backendMode === 'demo'} canPublishCatalog={role === 'admin' || role === 'super_admin'} initialStudentId={staffStudentFocus?.id} /></AuraOperationsFrame>
       case 'staff-availability': return <AuraOperationsFrame><StaffScheduleWorkspace initialTab="availability" canManageAvailability={backendMode === 'demo' || hasCapability('pt.availability.self.manage')} isDemo={backendMode === 'demo'} onNavigate={navigate} /></AuraOperationsFrame>
       case 'staff-requests': return <AuraOperationsFrame><StaffScheduleWorkspace initialTab="requests" canManageAvailability={backendMode === 'demo' || hasCapability('pt.availability.self.manage')} isDemo={backendMode === 'demo'} onNavigate={navigate} /></AuraOperationsFrame>
-      case 'staff-nutrition-reviews': return <AuraOperationsFrame><StaffNutritionReviewsPage initialStudentName={staffStudentFocus?.name} /></AuraOperationsFrame>
+      case 'staff-nutrition-reviews': return <AuraOperationsFrame><StaffNutritionReviewsPage initialStudentName={staffStudentFocus?.name} focus={route.focus} /></AuraOperationsFrame>
       case 'sales-portal':
       case 'staff-quotes': return <AuraOperationsFrame><SalesPortalV2 /></AuraOperationsFrame>
       case 'staff-renewals': return <AuraOperationsFrame><ContractRenewals onNavigate={(view) => navigate(view as ViewId)} /></AuraOperationsFrame>

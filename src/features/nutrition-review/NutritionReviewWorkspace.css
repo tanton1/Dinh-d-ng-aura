@@ -43,3 +43,33 @@
     min-width:0;
   }
 }
+
+/* The overdue focus is a first-class queue filter, not a hidden dashboard
+   state. Keep it visually quiet beside the search field on desktop and on its
+   own row on touch widths. */
+.nrw-focus-toggle{min-height:42px;border:1px solid #f1d5df;border-radius:14px;padding:0 12px;background:#fff9fb;color:#8d4362;font:inherit;font-size:12px;font-weight:800;white-space:nowrap}
+.nrw-focus-toggle.is-active{border-color:#ef7b76;background:#fff0ea;color:#a63d31;box-shadow:0 7px 16px rgba(222,88,72,.12)}
+@media(min-width:901px){
+  .nrw-toolbar{grid-template-columns:auto minmax(180px,1fr) minmax(160px,auto) 42px}
+  .nrw-status-tabs{grid-column:1/-1;grid-row:1;justify-self:start;max-width:100%;overflow-x:auto}
+  .nrw-focus-toggle{grid-column:1;grid-row:2}
+  .nrw-search{grid-column:2;grid-row:2}
+  .nrw-toolbar select{grid-column:3;grid-row:2;min-width:0;max-width:100%}
+  .nrw-refresh{grid-column:4;grid-row:2}
+}
+@media(max-width:900px){.nrw-focus-toggle{grid-column:1/-1;grid-row:2;justify-self:start}.nrw-search{grid-row:3}.nrw-refresh{grid-row:3}.nrw-toolbar select{grid-row:4}}
+.nrw-actions{border:0;padding:0;min-width:0;margin-inline:0}
+.nrw-actions:disabled button,.nrw-page button:disabled{opacity:.55;cursor:not-allowed}
+.nrw-detail-navigation{display:grid;justify-items:end;gap:8px;flex:none}
+.nrw-feedback-link{min-height:42px;padding:8px 12px;border:1px solid #efcad9;border-radius:12px;color:#a22455;background:#fff;font:inherit;font-size:12px;font-weight:750}
+.nrw-search input{color:var(--nrw-ink);-webkit-text-fill-color:var(--nrw-ink);caret-color:var(--nrw-pink)}
+.nrw-search input::placeholder{color:var(--nrw-muted);-webkit-text-fill-color:var(--nrw-muted);opacity:1}
+.nrw-page :is(button,input,select,textarea):focus-visible{outline:3px solid #cc337b;outline-offset:3px}
+.nrw-message{flex-wrap:wrap}
+.nrw-message>svg{flex:none}
+.nrw-message>span{flex:1;min-width:150px;overflow-wrap:anywhere}
+.nrw-message .nrw-retry,.nrw-empty>button{min-height:42px;margin-left:0;padding:8px 12px;border:1px solid currentColor;border-radius:10px;background:#fff;color:#8d2545;font-size:13px;font-weight:700}
+.nrw-sync-note{color:var(--nrw-muted);font-size:13px}
+.nrw-empty{padding:18px;box-sizing:border-box}
+.nrw-limit-note{flex-wrap:wrap;text-align:center}
+@media(prefers-reduced-motion:reduce){.nrw-detail-window{transition:none;scroll-behavior:auto}}

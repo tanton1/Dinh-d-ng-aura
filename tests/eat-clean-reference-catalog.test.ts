@@ -7,6 +7,7 @@ import {
   FITFOOD_REFERENCE_PRODUCTS,
   FITFOOD_REFERENCE_SOURCE,
   filterEatCleanReferenceProducts,
+  referenceImagePath,
   referencePricePerMeal,
   type EatCleanReferenceProduct,
 } from '../src/features/eat-clean/referenceCatalog'
@@ -79,9 +80,14 @@ test('catalog keeps provider caveats and does not invent nutrition values', () =
   assert.match(chicken.caution!, /trang chi tiết/)
 })
 
-test('catalog view is read-only and uses secure external source links', () => {
+test('catalog view is read-only and uses Aura-hosted illustration images', () => {
   const component = readFileSync(new URL('../src/features/eat-clean/EatCleanReferenceCatalog.tsx', import.meta.url), 'utf8')
-  assert.match(component, /Sản phẩm Fitfood, không phải món Aura đang bán/)
-  assert.match(component, /target="_blank" rel="noopener noreferrer"/)
-  assert.doesNotMatch(component, /onAdd|httpsCallable|\bfetch\(|<img\b/)
+  assert.match(component, /Sản phẩm tham khảo, không phải món Aura đang bán/)
+  assert.match(component, /referenceImagePath\(product\)/)
+  assert.match(component, /Ảnh minh họa/)
+  assert.doesNotMatch(component, /target="_blank"|href=\{product\.sourceUrl\}/)
+  assert.doesNotMatch(component, /onAdd|httpsCallable|\bfetch\(/)
+  for (const product of FITFOOD_REFERENCE_PRODUCTS) {
+    assert.match(referenceImagePath(product), /^\/images\/eat-clean\//)
+  }
 })

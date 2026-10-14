@@ -72,6 +72,8 @@ export interface NutritionReviewListResult {
     students: number
   }
   summaryTruncated: boolean
+  summaryCountsTruncated?: boolean
+  filteredCountExact?: boolean
   slaMinutes: number
 }
 
@@ -85,7 +87,7 @@ function reviewError(cause: unknown) {
   const code = typeof error.code === 'string' ? error.code.replace(/^functions\//, '') : ''
   const message = typeof error.message === 'string' ? error.message.trim() : ''
   if (['internal', 'resource-exhausted', 'unavailable', 'deadline-exceeded'].includes(code)) {
-    return new Error('Dịch vụ duyệt món đang bận. Aura chưa thay đổi dữ liệu; vui lòng thử lại sau ít phút.')
+    return new Error('Dịch vụ duyệt món đang bận hoặc chưa trả kết quả. Hãy tải lại danh sách để kiểm tra trạng thái trước khi gửi lại.')
   }
   if (code === 'unauthenticated') return new Error('Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.')
   return new Error(message || 'Không thể xử lý danh sách duyệt món.')
@@ -98,6 +100,8 @@ export async function listNutritionMealReviews(
     cursor?: string | null
     coachId?: string
     query?: string
+    focus?: 'overdue' | 'all'
+    forceRefresh?: boolean
   } = {},
 ) {
   const callable = httpsCallable<
@@ -107,6 +111,8 @@ export async function listNutritionMealReviews(
       cursor?: string | null
       coachId?: string
       query?: string
+      focus?: 'overdue' | 'all'
+      forceRefresh?: boolean
     },
     NutritionReviewListResult
   >(functionsOrThrow(), 'listNutritionMealReviews')
@@ -117,6 +123,8 @@ export async function listNutritionMealReviews(
       cursor: input.cursor,
       coachId: input.coachId,
       query: input.query,
+      focus: input.focus,
+      forceRefresh: input.forceRefresh,
     })).data
   } catch (cause) {
     throw reviewError(cause)

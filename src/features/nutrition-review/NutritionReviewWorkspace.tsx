@@ -77,22 +77,26 @@ export function NutritionReviewWorkspace({
   compact = false,
   title = 'Duyệt bữa ăn học viên',
   initialQuery = '',
+  initialFocus = null,
 }: {
   compact?: boolean
   title?: string
   initialQuery?: string
+  initialFocus?: string | null
 }) {
   const [reviews, setReviews] = useState<NutritionMealReview[]>([])
   const [scope, setScope] = useState<'all' | 'assigned'>('assigned')
-  const [assignmentCount, setAssignmentCount] = useState(0)
   const [availableCoaches, setAvailableCoaches] = useState<Array<{ id: string; name: string; positions: string[]; branchIds: string[] }>>([])
   const [hasMore, setHasMore] = useState(false)
   const [nextCursor, setNextCursor] = useState<string | null>(null)
   const [filteredCount, setFilteredCount] = useState(0)
+  const [filteredCountExact, setFilteredCountExact] = useState(false)
   const [summary, setSummary] = useState(emptySummary)
   const [summaryTruncated, setSummaryTruncated] = useState(false)
+  const [summaryCountsTruncated, setSummaryCountsTruncated] = useState(false)
   const [slaMinutes, setSlaMinutes] = useState(120)
   const [status, setStatus] = useState<StatusFilter>('pending')
+  const [focus, setFocus] = useState<'overdue' | 'all'>(initialFocus === 'overdue' ? 'overdue' : 'all')
   const [coachId, setCoachId] = useState('all')
   const [query, setQuery] = useState(initialQuery)
   const [debouncedQuery, setDebouncedQuery] = useState(initialQuery.trim())
@@ -103,26 +107,54 @@ export function NutritionReviewWorkspace({
   const [loadingMore, setLoadingMore] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
+  const [loadFailed, setLoadFailed] = useState(false)
   const [notice, setNotice] = useState('')
   const detailWindowRef = useRef<HTMLDivElement>(null)
   const detailScrollTimerRef = useRef<number | null>(null)
+  const feedbackScrollTimerRef = useRef<number | null>(null)
   const feedbackTextareaRef = useRef<HTMLTextAreaElement>(null)
   const requestIdRef = useRef(0)
+  const inFlightReadRef = useRef('')
+  const submittingRef = useRef(false)
+  const dataKeyRef = useRef('')
+
+  useEffect(() => {
+    setFocus(initialFocus === 'overdue' ? 'overdue' : 'all')
+    if (initialFocus === 'overdue') setStatus('pending')
+  }, [initialFocus])
+
+  useEffect(() => {
+    setQuery(initialQuery)
+    setDebouncedQuery(initialQuery.trim())
+  }, [initialQuery])
+
+  useEffect(() => () => { requestIdRef.current += 1; inFlightReadRef.current = '' }, [])
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => setDebouncedQuery(query.trim()), 320)
     return () => window.clearTimeout(timeoutId)
   }, [query])
 
-  const requestPage = useCallback(async (cursor: string | null, append: boolean) => {
+  const requestPage = useCallback(async (cursor: string | null, append: boolean, forceRefresh = false) => {
+    const dataKey = JSON.stringify([coachId, debouncedQuery, focus, status])
+    const readKey = JSON.stringify([dataKey, cursor, append])
+    if (inFlightReadRef.current === readKey) return
+    inFlightReadRef.current = readKey
     const requestId = requestIdRef.current + 1
     requestIdRef.current = requestId
     if (append) setLoadingMore(true)
     else {
       setLoading(true)
       setLoadingMore(false)
+      if (dataKeyRef.current !== dataKey) {
+        setReviews([])
+        setSelectedId('')
+        setHasMore(false)
+        setNextCursor(null)
+      }
     }
     setError('')
+    setLoadFailed(false)
     try {
       const result = await listNutritionMealReviews({
         status,
@@ -130,48 +162,67 @@ export function NutritionReviewWorkspace({
         cursor,
         coachId,
         query: debouncedQuery,
+        focus,
+        forceRefresh,
       })
       if (requestId !== requestIdRef.current) return
+      dataKeyRef.current = dataKey
       setReviews((current) => append
         ? [...new Map([...current, ...result.reviews].map((item) => [item.id, item])).values()]
         : result.reviews)
       setScope(result.scope)
-      setAssignmentCount(result.assignmentCount)
       setAvailableCoaches(result.coaches || [])
       setHasMore(result.hasMore)
       setNextCursor(result.nextCursor)
       setFilteredCount(result.filteredCount)
+      setFilteredCountExact(result.filteredCountExact ?? (!debouncedQuery && coachId === 'all' && focus === 'all'))
       setSummary(result.summary || emptySummary)
       setSummaryTruncated(Boolean(result.summaryTruncated))
+      setSummaryCountsTruncated(Boolean(result.summaryCountsTruncated))
       setSlaMinutes(result.slaMinutes || 120)
       setSelectedId((current) => append || result.reviews.some((item) => item.id === current) ? current : result.reviews[0]?.id || '')
     } catch (cause) {
       if (requestId !== requestIdRef.current) return
       setError(cause instanceof Error ? cause.message : 'Không thể tải danh sách bữa ăn được phân công.')
-      if (!append) setReviews([])
+      setLoadFailed(true)
     } finally {
       if (requestId === requestIdRef.current) {
+        inFlightReadRef.current = ''
         if (append) setLoadingMore(false)
         else setLoading(false)
       }
     }
-  }, [coachId, debouncedQuery, status])
+  }, [coachId, debouncedQuery, focus, status])
 
   const load = useCallback(() => requestPage(null, false), [requestPage])
+  const refresh = useCallback(() => requestPage(null, false, true), [requestPage])
+  const loadRef = useRef(refresh)
+  loadRef.current = refresh
 
   useEffect(() => { void load() }, [load])
 
-  const filtered = reviews
+  const filtered = focus === 'overdue' ? reviews.filter((item) => item.isOverdue) : reviews
 
   const selected = filtered.find((item) => item.id === selectedId) || filtered[0] || null
   const goToDetailSlide = useCallback((value: number, behavior: ScrollBehavior = 'smooth') => {
     const target = Math.min(2, Math.max(0, Math.trunc(value)))
+    if (feedbackScrollTimerRef.current !== null) window.clearTimeout(feedbackScrollTimerRef.current)
+    const scrollBehavior = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : behavior
     setDetailSlide(target)
     const viewport = detailWindowRef.current
     if (!viewport) return
     const overflowX = window.getComputedStyle(viewport).overflowX
     if (overflowX === 'auto' || overflowX === 'scroll') {
-      viewport.scrollTo({ left: viewport.clientWidth * target, behavior })
+      viewport.scrollTo({ left: viewport.clientWidth * target, behavior: scrollBehavior })
+    }
+    // On touch widths the feedback slide lives below the review queue. Move
+    // the document viewport with the horizontal slide so the primary input is
+    // immediately usable instead of leaving the user at the page header.
+    if (target === 2) {
+      feedbackScrollTimerRef.current = window.setTimeout(() => {
+        feedbackScrollTimerRef.current = null
+        feedbackTextareaRef.current?.scrollIntoView({ behavior: scrollBehavior, block: 'center', inline: 'nearest' })
+      }, scrollBehavior === 'smooth' ? 80 : 0)
     }
   }, [])
 
@@ -198,10 +249,15 @@ export function NutritionReviewWorkspace({
     if (detailScrollTimerRef.current !== null) {
       window.clearTimeout(detailScrollTimerRef.current)
     }
+    if (feedbackScrollTimerRef.current !== null) window.clearTimeout(feedbackScrollTimerRef.current)
   }, [])
 
   useEffect(() => {
     if (!selected) return
+    if (feedbackScrollTimerRef.current !== null) {
+      window.clearTimeout(feedbackScrollTimerRef.current)
+      feedbackScrollTimerRef.current = null
+    }
     if (detailScrollTimerRef.current !== null) {
       window.clearTimeout(detailScrollTimerRef.current)
       detailScrollTimerRef.current = null
@@ -241,12 +297,13 @@ export function NutritionReviewWorkspace({
   }, [detailSlide, selected?.id])
 
   const submit = async (action: 'approve' | 'reject' | 'feedback') => {
-    if (!selected || submitting) return
+    if (!selected || submittingRef.current || loading || loadingMore || loadFailed) return
     if (feedback.trim().length < 3) {
       setError('Vui lòng nhập nhận xét từ 3 ký tự trước khi gửi.')
       goToDetailSlide(2)
       return
     }
+    submittingRef.current = true
     setSubmitting(true)
     setError('')
     try {
@@ -257,10 +314,14 @@ export function NutritionReviewWorkspace({
         expectedRevision: selected.revision,
       })
       setNotice(action === 'approve' ? 'Đã duyệt và đồng bộ nhận xét vào nhật ký của học viên.' : action === 'reject' ? 'Đã chuyển bữa ăn sang trạng thái cần chỉnh.' : 'Đã gửi nhận xét cho học viên.')
-      await load()
+      await loadRef.current()
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Không thể cập nhật bản duyệt.')
+      // A timeout/conflict can mean the server already changed the revision.
+      // Do not submit again against stale state before a successful refresh.
+      setLoadFailed(true)
     } finally {
+      submittingRef.current = false
       setSubmitting(false)
     }
   }
@@ -272,17 +333,17 @@ export function NutritionReviewWorkspace({
     all: summary.total,
   }), [summary])
 
-  return <section className={`nrw-page ${compact ? 'is-compact' : ''}`}>
+  return <section className={`nrw-page ${compact ? 'is-compact' : ''}`} aria-busy={loading || loadingMore || submitting}>
     <header className="nrw-hero">
       <div className="nrw-hero-copy">
         <p><Sparkles size={16} /> Aura Nutrition Coach</p>
         <h1>{title}</h1>
-        <span>{scope === 'all' ? 'Toàn bộ học viên · lọc theo HLV chăm dinh dưỡng' : `${assignmentCount} học viên trong phạm vi chăm sóc của bạn`}</span>
+        <span>{scope === 'all' ? 'Toàn bộ học viên · lọc theo HLV chăm dinh dưỡng' : 'Bữa ăn trong phạm vi chăm sóc và bữa đang chờ đã giao cho bạn.'}</span>
       </div>
       <div className="nrw-hero-orb"><CheckCircle2 size={34} /></div>
       <div className="nrw-kpis" aria-label="Tổng quan duyệt món">
-        <article><strong>{summary.pending}</strong><span>chờ duyệt</span></article>
-        <article className={summary.overdue ? 'is-alert' : ''}><strong>{summary.overdue}</strong><span>quá SLA {durationLabel(slaMinutes)}</span></article>
+        <article><strong>{summaryCountsTruncated ? '≥ ' : ''}{summary.pending}</strong><span>chờ duyệt</span></article>
+        <article className={summary.overdue ? 'is-alert' : ''}><strong>{summaryTruncated ? '≥ ' : ''}{summary.overdue}</strong><span>quá SLA {durationLabel(slaMinutes)}</span></article>
         <article><strong>{summary.approved}</strong><span>đã duyệt</span></article>
       </div>
     </header>
@@ -293,27 +354,34 @@ export function NutritionReviewWorkspace({
           type="button"
           key={item}
           className={status === item ? 'is-active' : ''}
-          onClick={() => setStatus(item)}
-        >{item === 'all' ? 'Tất cả' : statusLabel(item)} <b>{statusCount[item]}</b></button>)}
+          aria-pressed={status === item}
+          disabled={submitting}
+          onClick={() => { setStatus(item); setFocus('all') }}
+        >{item === 'all' ? 'Tất cả' : statusLabel(item)} <b>{summaryCountsTruncated && (item === 'pending' || item === 'all') ? '≥ ' : ''}{statusCount[item]}</b></button>)}
       </div>
-      <label className="nrw-search"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Tìm học viên hoặc món ăn" /></label>
-      {scope === 'all' && <select value={coachId} onChange={(event) => setCoachId(event.target.value)} aria-label="Lọc HLV chăm dinh dưỡng">
+      <button type="button" className={`nrw-focus-toggle ${focus === 'overdue' ? 'is-active' : ''}`} aria-pressed={focus === 'overdue'} disabled={submitting} onClick={() => { setStatus('pending'); setFocus((current) => current === 'overdue' ? 'all' : 'overdue') }}>
+        Chỉ bữa quá hạn
+      </button>
+      <label className="nrw-search"><Search size={17} /><input value={query} disabled={submitting} onChange={(event) => setQuery(event.target.value)} aria-label="Tìm học viên hoặc món ăn" placeholder="Tìm học viên hoặc món ăn" /></label>
+      {scope === 'all' && <select value={coachId} disabled={submitting} onChange={(event) => setCoachId(event.target.value)} aria-label="Lọc HLV chăm dinh dưỡng">
         <option value="all">Tất cả HLV dinh dưỡng</option>
         {availableCoaches.map((coach) => <option key={coach.id} value={coach.id}>{coach.name}</option>)}
         <option value="unassigned">Chưa phân HLV</option>
       </select>}
-      <button type="button" className="nrw-refresh" onClick={() => void load()} disabled={loading} aria-label="Làm mới"><RefreshCw size={18} /></button>
+      <button type="button" className="nrw-refresh" onClick={() => void refresh()} disabled={loading || loadingMore || submitting} aria-label="Làm mới"><RefreshCw size={18} /></button>
     </div>
 
     {notice && <div className="nrw-message is-success" role="status"><CheckCircle2 size={18} />{notice}<button onClick={() => setNotice('')} aria-label="Đóng">×</button></div>}
-    {error && <div className="nrw-message is-error" role="alert"><AlertCircle size={18} />{error}<button onClick={() => setError('')} aria-label="Đóng">×</button></div>}
+    {error && <div className="nrw-message is-error" role="alert"><AlertCircle size={18} /><span>{error}</span><button className="nrw-retry" onClick={() => void refresh()} disabled={loading || submitting}>Tải lại</button><button onClick={() => setError('')} aria-label="Đóng">×</button></div>}
+    {loading && filtered.length > 0 && <p className="nrw-sync-note" role="status">Đang làm mới danh sách…</p>}
 
-    {loading ? <div className="nrw-empty"><RefreshCw className="is-spinning" /><strong>Đang đồng bộ bữa ăn…</strong><span>Chỉ tải dữ liệu thuộc phạm vi HLV đã được phân công.</span></div> : filtered.length === 0 ? <div className="nrw-empty"><CheckCircle2 /><strong>Không có bữa ăn trong bộ lọc này</strong><span>Hãy đổi trạng thái, HLV hoặc từ khóa tìm kiếm.</span>{hasMore && nextCursor && <button type="button" onClick={() => void requestPage(nextCursor, true)} disabled={loadingMore}>{loadingMore ? 'Đang tải…' : 'Tìm tiếp trong lịch sử'}</button>}</div> : <>
+    {loading && filtered.length === 0 ? <div className="nrw-empty"><RefreshCw className="is-spinning" /><strong>Đang đồng bộ bữa ăn…</strong><span>Chỉ tải dữ liệu thuộc phạm vi được cấp quyền.</span></div> : loadFailed && filtered.length === 0 ? <div className="nrw-empty"><AlertCircle /><strong>Chưa tải được danh sách bữa ăn</strong><span>Không phải hàng chờ trống. Bấm Tải lại ở thông báo phía trên.</span></div> : filtered.length === 0 ? <div className="nrw-empty"><CheckCircle2 /><strong>{hasMore ? 'Chưa có kết quả trong phần vừa tải' : 'Không có bữa ăn trong bộ lọc này'}</strong><span>{hasMore ? 'Vẫn còn bản ghi để tìm tiếp.' : 'Hãy đổi trạng thái, HLV hoặc từ khóa tìm kiếm.'}</span>{hasMore && nextCursor && <button type="button" onClick={() => void requestPage(nextCursor, true)} disabled={loadingMore}>{loadingMore ? 'Đang tải…' : 'Tìm tiếp trong lịch sử'}</button>}</div> : <>
       <div className="nrw-review-carousel" aria-label="Danh sách bữa ăn dạng carousel">
         {filtered.map((item) => <button
           type="button"
           key={item.id}
           className={`nrw-review-card ${selected?.id === item.id ? 'is-selected' : ''} ${item.isOverdue ? 'is-overdue' : ''}`}
+          disabled={submitting}
           onClick={() => setSelectedId(item.id)}
         >
           <ReviewPhoto source={item.image} alt="Bữa ăn học viên gửi" kind="card" />
@@ -330,7 +398,7 @@ export function NutritionReviewWorkspace({
       {selected && <article className="nrw-detail">
         <div className="nrw-detail-top">
           <div className="nrw-detail-identity"><small>HỒ SƠ DUYỆT · {selected.revision + 1}</small><h2>{selected.studentName}</h2><p>{selected.studentGoal || 'Chưa cập nhật mục tiêu dinh dưỡng'}</p>{scope === 'all' && <div className="nrw-assign-coach"><UsersRound size={15} /><span>HLV dinh dưỡng: {selected.assignedCoachName || 'Chưa phân công'}<small>Gán tại hồ sơ Học viên PT.</small></span></div>}</div>
-          <div className="nrw-slide-control"><button onClick={() => goToDetailSlide(detailSlide - 1)} disabled={detailSlide === 0} aria-label="Slide trước"><ChevronLeft /></button><span>{detailSlide + 1}/3</span><button onClick={() => goToDetailSlide(detailSlide + 1)} disabled={detailSlide === 2} aria-label="Slide sau"><ChevronRight /></button></div>
+          <div className="nrw-detail-navigation"><button type="button" className="nrw-feedback-link" onClick={() => goToDetailSlide(2)}>Viết nhận xét</button><div className="nrw-slide-control"><button onClick={() => goToDetailSlide(detailSlide - 1)} disabled={detailSlide === 0} aria-label="Slide trước"><ChevronLeft /></button><span>{detailSlide + 1}/3</span><button onClick={() => goToDetailSlide(detailSlide + 1)} disabled={detailSlide === 2} aria-label="Slide sau"><ChevronRight /></button></div></div>
         </div>
         <div className="nrw-detail-window" ref={detailWindowRef} onScroll={handleDetailScroll} aria-label="Chi tiết bữa ăn, vuốt ngang để chuyển slide">
           <div className={`nrw-detail-track is-slide-${detailSlide}`} style={{ transform: `translateX(-${detailSlide * 100}%)` }}>
@@ -352,23 +420,23 @@ export function NutritionReviewWorkspace({
             </section>
             <section className="nrw-slide nrw-feedback-slide">
               <div className="nrw-feedback-head"><Send /><div><small>PHẢN HỒI CỦA HLV</small><h3>Ngắn gọn, rõ việc cần làm tiếp</h3></div></div>
-              <div className="nrw-quick-feedback">{quickFeedback.map((item) => <button key={item} type="button" onClick={() => setFeedback(item)}>{item}</button>)}</div>
-              <textarea ref={feedbackTextareaRef} rows={5} value={feedback} onChange={(event) => setFeedback(event.target.value)} maxLength={2000} placeholder="Nhận xét dành riêng cho học viên…" />
-              <div className="nrw-actions">
+              <div className="nrw-quick-feedback">{quickFeedback.map((item) => <button key={item} type="button" disabled={submitting} onClick={() => setFeedback(item)}>{item}</button>)}</div>
+              <textarea ref={feedbackTextareaRef} rows={5} value={feedback} disabled={submitting} aria-label="Nhận xét dành riêng cho học viên" onChange={(event) => setFeedback(event.target.value)} maxLength={2000} placeholder="Nhận xét dành riêng cho học viên…" />
+              <fieldset className="nrw-actions" disabled={submitting || loading || loadingMore || loadFailed}>
                 <button type="button" className="is-secondary" disabled={submitting} onClick={() => void submit('feedback')}><Send size={17} /> Gửi nhận xét</button>
                 <button type="button" className="is-reject" disabled={submitting} onClick={() => void submit('reject')}><XCircle size={17} /> Cần chỉnh</button>
                 <button type="button" className="is-primary" disabled={submitting} onClick={() => void submit('approve')}><CheckCircle2 size={17} /> Duyệt bữa ăn</button>
-              </div>
+              </fieldset>
             </section>
           </div>
         </div>
         <div className="nrw-dots" aria-label="Chọn slide chi tiết">{[0, 1, 2].map((value) => <button key={value} onClick={() => goToDetailSlide(value)} className={detailSlide === value ? 'is-active' : ''} aria-label={`Slide ${value + 1}`} />)}</div>
       </article>}
       <div className="nrw-pagination-note">
-        <p className="nrw-limit-note"><UsersRound size={16} /> Đang hiển thị {reviews.length}/{filteredCount} bản trong bộ lọc. Bữa quá SLA luôn được xếp trước.</p>
+        <p className="nrw-limit-note"><UsersRound size={16} /> Đang hiển thị {filtered.length}{filteredCountExact ? `/${Math.max(filtered.length, filteredCount)}` : ''} bữa ăn{!filteredCountExact && hasMore ? ' · Còn dữ liệu để tìm tiếp' : ''}. {status === 'pending' ? 'Bữa chờ lâu nhất xếp trước.' : 'Lịch sử mới nhất xếp trước.'}</p>
         {hasMore && <button type="button" onClick={() => void requestPage(nextCursor, true)} disabled={loadingMore || !nextCursor}>{loadingMore ? 'Đang tải…' : 'Tải thêm bữa ăn'}</button>}
       </div>
-      {summaryTruncated && <div className="nrw-message is-error"><AlertCircle size={18} />Phạm vi có trên 1.000 bản duyệt. Hãy lọc theo trạng thái/HLV; quản trị viên cần lên kế hoạch lưu trữ lịch sử cũ.</div>}
+      {summaryTruncated && <div className="nrw-message" role="status"><AlertCircle size={18} />{summaryCountsTruncated ? 'Các số có dấu ≥ là mức tối thiểu trong phần dữ liệu đã kiểm tra.' : 'Số bữa quá hạn là mức tối thiểu trong phần dữ liệu đã kiểm tra.'} Bấm Tải thêm để tiếp tục; dữ liệu chưa tải không bị xóa.</div>}
     </>}
   </section>
 }

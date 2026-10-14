@@ -366,7 +366,7 @@ export default function AdminEatCleanPage({ currentRole, initialTab = 'dispatch'
             {activeTab === 'dispatch' && <EatCleanDispatchTab isDemo={isDemo} />}
             {activeTab === 'menu' && <EatCleanMenuTab meals={data.meals} deliverySlots={data.config.deliverySlots} onSaveMeal={handleSaveMeal} />}
             {activeTab === 'inventory' && <EatCleanInventoryTab inventory={data.inventory} meals={data.meals} onSaveInventory={handleSaveInventory} />}
-            {activeTab === 'operations' && <EatCleanOperationsTab config={data.config} onSaveConfig={handleSaveConfig} />}
+            {activeTab === 'operations' && <EatCleanOperationsTab config={data.config} meals={data.meals} inventory={data.inventory} onSaveConfig={handleSaveConfig} />}
           </Suspense>
         </div>
       ) : null}

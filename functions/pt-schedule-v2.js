@@ -3338,6 +3338,11 @@ function createPtScheduleV2Functions({ db, onCall, actorForBranch = scheduleActo
       // protected schedule above. The workspace UI never reads the raw rows;
       // omitting them removes the largest repeated network payload.
       sessions: [],
+      // Small optimistic-concurrency references for privileged edits; never
+      // send raw attendance/billing documents to the scheduling workspace.
+      sessionRefs: Object.fromEntries(data.sessions
+        .filter((session) => session.branchId === branchId && historicalSessionOccupies(session) && publishedSessionSlotId(week, session))
+        .map((session) => [`${session.studentId}|${session.trainerId}|${publishedSessionSlotId(week, session)}`, { sessionId: session.id, revision: Number(session.revision || 0) }])),
       scheduleConfig: data.config,
       warnings: data.draft.warnings,
       // Always derive live workload from the current draft and current trainer
@@ -3969,6 +3974,11 @@ module.exports = {
   studentFeasibilityForSchedule,
   resetDraftSchedule,
   previousWeek,
+  // Shared by the privileged Admin correction callable. Keeping these
+  // helpers here ensures Admin edits use the exact same draft scoping,
+  // expiry and input normalization as the regular schedule workspace.
+  draftExpiresAt,
+  scopedDraftData,
   resolveContract,
   safeSchedule,
   safeWeeklySessionTargets,

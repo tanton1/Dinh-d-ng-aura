@@ -32,6 +32,7 @@ import { trackProductEvent } from '../../services/analyticsService'
 import { getDatesForWeek } from '../../utils/dateUtils'
 import {
   applyPtScheduleDraftCommand,
+  applyAdminPtScheduleEdit,
   asPtSchedulePublishError,
   createHistoricalPtSession,
   generatePtScheduleDraft,
@@ -139,6 +140,8 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
   const [pendingManualCandidate, setPendingManualCandidate] = useState<PtScheduleSlotCandidate | null>(null)
   const [historicalReason, setHistoricalReason] = useState('')
   const [pendingMove, setPendingMove] = useState<{ studentId: string; fromSlotId: string; fromTrainerId: string; slotId: string; trainerId: string } | null>(null)
+  const [pendingAdminRemoval, setPendingAdminRemoval] = useState<{ studentId: string; slotId: string; trainerId: string } | null>(null)
+  const [adminEditReason, setAdminEditReason] = useState('')
   const [hoveredStudentId, setHoveredStudentId] = useState<string | null>(null)
   const [highlightedStudentId, setHighlightedStudentId] = useState<string | null>(null)
   const [offConfirmation, setOffConfirmation] = useState(false)
@@ -183,6 +186,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
   const scopedBranchIds = useMemo(() => accessBranchIdsKey.split(',').filter(Boolean), [accessBranchIdsKey])
   const canListenToDraft = ['admin', 'super_admin'].includes(accessContext.accessRole)
     || (accessContext.accessRole === 'staff' && accessContext.positions.includes('branch_manager'))
+  const isAdmin = accessContext.accessRole === 'admin' || accessContext.accessRole === 'super_admin'
   const ownerScope = `${accessContext.uid}|${accessContext.authzVersion}|${accessContext.accessRole}|${accessBranchIdsKey}`
   const workspaceScope = `${ownerScope}|${branchId}|${currentWeekId}`
   if (workspaceReadyTimingRef.current.scope !== workspaceScope) {
@@ -285,6 +289,8 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
         setInspectorSlotId(null)
         setPendingManualCandidate(null)
         setPendingMove(null)
+        setPendingAdminRemoval(null)
+        setAdminEditReason('')
         setHistoricalReason('')
       } else if (publishPreview) setPublishPreview(null)
       else if (resetDraftOpen) setResetDraftOpen(false)
@@ -402,6 +408,8 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
     setHistory(null)
     setInspectorSlotId(null)
     setPendingManualCandidate(null)
+    setPendingAdminRemoval(null)
+    setAdminEditReason('')
     setHistoricalReason('')
     setPendingMove(null)
     setHoveredStudentId(null)
@@ -486,7 +494,20 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
     return (workspace.schedule[inspectorSlotId] || []).filter((entry) => entry.trainerId === selectedTrainerId)
   }, [inspectorSlotId, selectedTrainerId, workspace])
   const inspectorSlotIsPast = inspectorSlotId ? pastScheduleSlots.has(inspectorSlotId) : false
-  useEffect(() => { setHistoricalReason('') }, [inspectorSlotId, selectedTrainerId])
+  const pendingMoveSourceEntry = pendingMove
+    ? inspectorEntries.find((entry) => entry.studentId === pendingMove.studentId && entry.trainerId === pendingMove.fromTrainerId)
+    : null
+  const pendingMoveSourceSessionRef = pendingMove
+    ? workspace?.sessionRefs?.[`${pendingMove.studentId}|${pendingMove.fromTrainerId}|${pendingMove.fromSlotId}`]
+    : null
+  const pendingMoveRequiresAdminEdit = Boolean(isAdmin && pendingMove && (
+    inspectorSlotIsPast || pendingMoveSourceEntry?.isLocked === true || pendingMoveSourceEntry?.source === 'published_existing' || pendingMoveSourceSessionRef
+  ))
+  useEffect(() => {
+    setHistoricalReason('')
+    setPendingAdminRemoval(null)
+    setAdminEditReason('')
+  }, [inspectorSlotId, selectedTrainerId])
 
   const candidateGroups = useMemo(() => {
     const needle = candidateSearch.trim().toLocaleLowerCase('vi-VN')
@@ -1097,6 +1118,64 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
     }
   }
 
+  const runAdminEdit = async (command: 'move_student' | 'remove_student', payload: Record<string, unknown>, reason: string) => {
+    if (!workspace || busyRef.current) return false
+    const normalizedReason = reason.trim()
+    if (normalizedReason.length < 8) {
+      setError('Nhập lý do điều chỉnh tối thiểu 8 ký tự để lưu audit.')
+      return false
+    }
+    const commandScope = workspaceScope
+    busyRef.current = true
+    setBusy(true)
+    setError(null)
+    try {
+      const sourceRef = workspace.sessionRefs?.[`${payload.studentId}|${payload.fromTrainerId || payload.trainerId}|${payload.fromSlotId || payload.slotId}`]
+      const result = await applyAdminPtScheduleEdit({
+        weekId: currentWeekId,
+        branchId,
+        expectedDraftRevision: workspace.draftRevision,
+        command,
+        payload: { ...payload, ...(sourceRef ? { sessionId: sourceRef.sessionId, expectedSessionRevision: sourceRef.revision } : {}) },
+        reason: normalizedReason,
+        idempotencyKey: commandKey(),
+      })
+      if (activeWorkspaceScopeRef.current !== commandScope) return false
+      setWorkspace((current) => {
+        if (!current) return current
+        const next = workspaceFromDraftSnapshot(current, {
+          revision: result.draftRevision,
+          schedule: result.schedule,
+          status: 'draft',
+          weeklySessionTargets: result.weeklySessionTargets || {},
+          warnings: [],
+          unassignedEntries: [],
+        })
+        workspaceRef.current = next
+        return next
+      })
+      candidateCache.current.clear()
+      await loadWorkspace(true)
+      setNotice(result.sessionChanged
+        ? (command === 'remove_student' ? 'Đã gỡ buổi tập và đồng bộ lịch PT; đã lưu lịch sử điều chỉnh.' : 'Đã chuyển buổi tập và đồng bộ lịch PT; đã lưu lịch sử điều chỉnh.')
+        : 'Đã lưu điều chỉnh lịch nháp; cần Publish để áp dụng lên lịch PT.')
+      setPendingMove(null)
+      setPendingAdminRemoval(null)
+      setAdminEditReason('')
+      setOffConfirmation(false)
+      return true
+    } catch (editError) {
+      if (activeWorkspaceScopeRef.current !== commandScope) return false
+      const normalized = asPtSchedulePublishError(editError)
+      setError(normalized.message)
+      if (normalized.issueCode === 'REVISION_CONFLICT') await loadWorkspace(true)
+      return false
+    } finally {
+      busyRef.current = false
+      setBusy(false)
+    }
+  }
+
   const confirmManualCandidate = async () => {
     if (!pendingManualCandidate || !inspectorSlotId || !selectedTrainerId) return
     const outsideAvailability = !candidateMatchesStudentAvailability(pendingManualCandidate)
@@ -1153,11 +1232,28 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
     if (!pendingMove) return
     const student = workspace?.students.find((item) => item.id === pendingMove.studentId)
     const outside = !student?.availableSlots.includes(pendingMove.slotId)
-    if (await runCommand('move_student', {
+    const payload = {
       ...pendingMove,
       ...(outside ? { allowOutsideStudentAvailability: true } : {}),
-      ...(student?.studentBranchWarning ? { confirmCrossBranchStudent: true } : {}),
-    }, 'Quản lý xác nhận chuyển ca nháp; giữ ca cũ nếu chuyển không thành công')) setPendingMove(null)
+      ...(student && student.branchId !== branchId ? { confirmCrossBranchStudent: true } : {}),
+    }
+    const success = pendingMoveRequiresAdminEdit
+      ? await runAdminEdit('move_student', payload, adminEditReason)
+      : await runCommand('move_student', payload, 'Quản lý xác nhận chuyển ca nháp; giữ ca cũ nếu chuyển không thành công')
+    if (success) setPendingMove(null)
+  }
+
+  const confirmRemove = async () => {
+    if (!pendingAdminRemoval || !workspace) return
+    const student = workspace.students.find((item) => item.id === pendingAdminRemoval.studentId)
+    const payload = {
+      ...pendingAdminRemoval,
+      ...(student && student.branchId !== branchId ? { confirmCrossBranchStudent: true } : {}),
+    }
+    const success = isAdmin
+      ? await runAdminEdit('remove_student', payload, adminEditReason)
+      : await runCommand('remove_student', payload, 'Gỡ học viên khỏi ca nháp')
+    if (success) setPendingAdminRemoval(null)
   }
 
   const setWeeklyTarget = async (studentId: string, targetSessions: number | null) => {
@@ -1740,28 +1836,42 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
       )}
 
       {workspace && inspectorSlotId && selectedTrainer && (
-        <div className="schedule-inspector-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) { setInspectorSlotId(null); setPendingManualCandidate(null); setPendingMove(null); setHistoricalReason('') } }}>
+        <div className="schedule-inspector-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) { setInspectorSlotId(null); setPendingManualCandidate(null); setPendingMove(null); setPendingAdminRemoval(null); setAdminEditReason(''); setHistoricalReason('') } }}>
           <aside ref={activeDialogRef} className="schedule-inspector" role="dialog" aria-modal="true" aria-label="Chỉnh ô lịch">
-            <header><div><p>{DAY_LABELS[inspectorSlotId.split('-')[0]]} · {String(inspectorSlotId.split('-')[1]).padStart(2, '0')}:00</p><h2>{selectedTrainer.name}</h2><span>{inspectorSlotIsPast ? 'Ca đã qua giờ · điều chỉnh có audit' : `Sức chứa ${inspectorEntries.filter((entry) => entry.type !== 'off').length}/${selectedTrainer.slotCapacity}`}</span></div><button type="button" aria-label="Đóng" onClick={() => { setInspectorSlotId(null); setPendingManualCandidate(null); setHistoricalReason('') }}><X /></button></header>
+            <header><div><p>{DAY_LABELS[inspectorSlotId.split('-')[0]]} · {String(inspectorSlotId.split('-')[1]).padStart(2, '0')}:00</p><h2>{selectedTrainer.name}</h2><span>{inspectorSlotIsPast ? 'Ca đã qua giờ · điều chỉnh có audit' : `Sức chứa ${inspectorEntries.filter((entry) => entry.type !== 'off').length}/${selectedTrainer.slotCapacity}`}</span></div><button type="button" aria-label="Đóng" onClick={() => { setInspectorSlotId(null); setPendingManualCandidate(null); setPendingMove(null); setPendingAdminRemoval(null); setAdminEditReason(''); setHistoricalReason('') }}><X /></button></header>
             <div className="schedule-inspector__body">
-              {inspectorSlotIsPast && <div className="schedule-inspector__past-note"><History size={18} /><div><strong>Điều chỉnh ca đã qua</strong><p>Buổi bổ sung được ghi thẳng vào lịch sử, không sửa draft. Trạng thái ban đầu là chờ PT xác nhận; toàn bộ lý do và ngoại lệ được lưu audit.</p></div></div>}
+              {inspectorSlotIsPast && <div className="schedule-inspector__past-note"><History size={18} /><div><strong>Điều chỉnh ca đã qua</strong><p>Admin có thể bổ sung, đổi hoặc gỡ ca sau khi nhập lý do. Buổi mới ghi vào lịch sử; thay đổi buổi đã có được đồng bộ với session thật và lưu audit.</p></div></div>}
               <section><div className="schedule-inspector__section-title"><strong>Trong ca</strong><span>{inspectorEntries.some((entry) => entry.type === 'off') ? 'PT nghỉ' : `${inspectorEntries.filter((entry) => entry.type !== 'off').length} học viên`}</span></div>
                 {inspectorEntries.filter((entry) => entry.type !== 'off').map((entry) => {
                   const assignmentWarning = trainerAssignmentWarningKeys.has(`${inspectorSlotId}|${entry.studentId}|${entry.trainerId}`)
-                  return <article className={`schedule-assigned-row${assignmentWarning ? ' has-assignment-warning' : ''}`} key={entry.studentId}><div><strong>{studentName(entry.studentId)}{assignmentWarning && <AlertTriangle size={14} aria-label="PT hỗ trợ" />}</strong><span>{assignmentWarning ? 'PT hỗ trợ ngoài danh sách PT chính/phụ' : entry.source === 'published_existing' ? 'Đã ghi nhận · điều chỉnh qua lịch sử' : entry.isLocked ? 'Đã khóa khỏi auto-arrange' : entry.source === 'manual_v2' ? 'Xếp tay · được giữ khi tối ưu' : 'Có thể xếp lại'}</span></div><div><button type="button" title={entry.isLocked ? 'Mở khóa' : 'Khóa'} disabled={busy || inspectorSlotIsPast} onClick={() => void runCommand(entry.isLocked ? 'unlock_entry' : 'lock_entry', { slotId: inspectorSlotId, trainerId: selectedTrainerId, studentId: entry.studentId })}>{entry.isLocked ? <Unlock /> : <Lock />}</button><button type="button" title="Chuyển ca" aria-label={`Chuyển ca của ${studentName(entry.studentId)}`} disabled={busy || inspectorSlotIsPast || entry.isLocked || entry.source === 'published_existing'} onClick={() => setPendingMove({ studentId: entry.studentId, fromSlotId: inspectorSlotId!, fromTrainerId: selectedTrainerId, slotId: inspectorSlotId!, trainerId: selectedTrainerId })}><CalendarRange /></button><button type="button" className="is-remove" disabled={busy || inspectorSlotIsPast || entry.isLocked || entry.source === 'published_existing'} onClick={() => void runCommand('remove_student', { slotId: inspectorSlotId, trainerId: selectedTrainerId, studentId: entry.studentId })}><X /></button></div></article>
+                  return <article className={`schedule-assigned-row${assignmentWarning ? ' has-assignment-warning' : ''}`} key={entry.studentId}>
+                    <div><strong>{studentName(entry.studentId)}{assignmentWarning && <AlertTriangle size={14} aria-label="PT hỗ trợ" />}</strong><span>{assignmentWarning ? 'PT hỗ trợ ngoài danh sách PT chính/phụ' : entry.source === 'published_existing' ? 'Đã ghi nhận · điều chỉnh qua lịch sử' : entry.isLocked ? 'Đã khóa khỏi auto-arrange' : entry.source === 'manual_v2' ? 'Xếp tay · được giữ khi tối ưu' : 'Có thể xếp lại'}</span></div>
+                    <div>
+                      <button type="button" title={entry.isLocked ? 'Mở khóa' : 'Khóa'} disabled={busy || inspectorSlotIsPast} onClick={() => void runCommand(entry.isLocked ? 'unlock_entry' : 'lock_entry', { slotId: inspectorSlotId, trainerId: selectedTrainerId, studentId: entry.studentId })}>{entry.isLocked ? <Unlock /> : <Lock />}</button>
+                      <button type="button" title="Chuyển ca" aria-label={`Chuyển ca của ${studentName(entry.studentId)}`} disabled={busy || (!isAdmin && (inspectorSlotIsPast || entry.isLocked || entry.source === 'published_existing'))} onClick={() => { setPendingAdminRemoval(null); setAdminEditReason(''); setPendingMove({ studentId: entry.studentId, fromSlotId: inspectorSlotId!, fromTrainerId: selectedTrainerId, slotId: inspectorSlotId!, trainerId: selectedTrainerId }) }}><CalendarRange /></button>
+                      <button type="button" className="is-remove" title={isAdmin ? 'Gỡ buổi và cập nhật session' : 'Gỡ khỏi draft'} disabled={busy || (!isAdmin && (inspectorSlotIsPast || entry.isLocked || entry.source === 'published_existing'))} onClick={() => { setPendingMove(null); setAdminEditReason(''); setPendingAdminRemoval({ studentId: entry.studentId, slotId: inspectorSlotId!, trainerId: selectedTrainerId }) }}><X /></button>
+                    </div>
+                  </article>
                 })}
                 {!inspectorEntries.filter((entry) => entry.type !== 'off').length && !inspectorEntries.some((entry) => entry.type === 'off') && <div className="schedule-inspector__empty">Ca đang trống.</div>}
                 {!inspectorSlotIsPast && (inspectorEntries.some((entry) => entry.type === 'off') ? <button className="schedule-off-action" type="button" disabled={busy} onClick={() => void runCommand('clear_trainer_off', { slotId: inspectorSlotId, trainerId: selectedTrainerId }, 'Mở lại ca PT')}>Mở lại ca</button> : !offConfirmation ? <button className="schedule-off-action" type="button" onClick={() => setOffConfirmation(true)}><CalendarOff /> Đánh dấu PT nghỉ</button> : <div className="schedule-off-confirm"><strong>Đưa {inspectorEntries.filter((entry) => entry.type !== 'off').length} học viên về danh sách chưa xếp?</strong><p>Lịch sử thay đổi và lý do sẽ được lưu audit.</p><div><button type="button" onClick={() => setOffConfirmation(false)}>Quay lại</button><button type="button" disabled={busy} onClick={() => void runCommand('set_trainer_off', { slotId: inspectorSlotId, trainerId: selectedTrainerId, disposition: 'requeue' }, 'PT nghỉ, đưa học viên về hàng chờ')}>Xác nhận PT nghỉ</button></div></div>)}
               </section>
 
-              {!inspectorSlotIsPast && pendingMove && <section className="schedule-move-form" aria-label="Chuyển ca nháp">
-                <strong>Chuyển ca · {studentName(pendingMove.studentId)}</strong>
+              {(isAdmin || !inspectorSlotIsPast) && pendingMove && <section className="schedule-move-form" aria-label="Chuyển ca nháp">
+                <strong>{pendingMoveRequiresAdminEdit ? 'Admin điều chỉnh ca' : 'Chuyển ca'} · {studentName(pendingMove.studentId)}</strong>
                 <label>Ca đích<select aria-label="Ca đích" value={pendingMove.slotId} onChange={(e) => setPendingMove({ ...pendingMove, slotId: e.target.value })} disabled={busy}>{workingDays.flatMap((day) => workingHours.map((hour) => <option key={`${day}-${hour}`} value={`${day}-${hour}`}>{scheduleSlotLabel(`${day}-${hour}`, weekDates)}</option>))}</select></label>
                 <label>PT đích<select aria-label="PT đích" value={pendingMove.trainerId} onChange={(e) => setPendingMove({ ...pendingMove, trainerId: e.target.value })} disabled={busy}>{visibleTrainers.map((trainer) => <option key={trainer.id} value={trainer.id}>{trainer.name}</option>)}</select></label>
                 {!workspace.students.find((item) => item.id === pendingMove.studentId)?.availableSlots.includes(pendingMove.slotId) && <p role="status">Ngoài lịch rảnh đã đăng ký. Xác nhận chuyển ca sẽ ghi nhận ngoại lệ này.</p>}
-                <p>Máy chủ kiểm tra PT, hợp đồng và sức chứa. Ca cũ chỉ được chuyển khi ca mới hợp lệ.</p>
+                <p>{pendingMoveRequiresAdminEdit ? 'Admin có thể điều chỉnh cả ca đã publish, đã khóa hoặc đã qua. Máy chủ vẫn kiểm tra hợp đồng, trùng ngày, sức chứa và kỳ lương.' : 'Máy chủ kiểm tra PT, hợp đồng và sức chứa. Ca cũ chỉ được chuyển khi ca mới hợp lệ.'}</p>
+                {pendingMoveRequiresAdminEdit && <label className="schedule-history-reason"><span>Lý do điều chỉnh <b>*</b></span><textarea value={adminEditReason} maxLength={300} onChange={(event) => setAdminEditReason(event.target.value)} placeholder="Ví dụ: Admin xác nhận PT đã đổi ca theo yêu cầu học viên" /><small>{adminEditReason.trim().length}/8 ký tự tối thiểu · lưu cùng nhật ký audit</small></label>}
                 <button type="button" onClick={() => setPendingMove(null)} disabled={busy}>Hủy chuyển</button>
-                <button type="button" onClick={() => void confirmMove()} disabled={busy || pendingMove.fromSlotId === pendingMove.slotId && pendingMove.fromTrainerId === pendingMove.trainerId}>Xác nhận chuyển ca</button>
+                <button type="button" onClick={() => void confirmMove()} disabled={busy || pendingMove.fromSlotId === pendingMove.slotId && pendingMove.fromTrainerId === pendingMove.trainerId || pendingMoveRequiresAdminEdit && adminEditReason.trim().length < 8}>Xác nhận chuyển ca</button>
+              </section>}
+              {pendingAdminRemoval && <section className="schedule-move-form is-admin-edit" aria-label="Xác nhận gỡ buổi">
+                <strong>Gỡ buổi · {studentName(pendingAdminRemoval.studentId)}</strong>
+                <p>{isAdmin ? 'Thao tác này cập nhật cả session thật và draft. Buổi đã điểm danh hoặc đã tính buổi sẽ bị từ chối để bảo toàn billing.' : 'Học viên sẽ được đưa khỏi lịch nháp hiện tại.'}</p>
+                {isAdmin && <label className="schedule-history-reason"><span>Lý do điều chỉnh <b>*</b></span><textarea value={adminEditReason} maxLength={300} onChange={(event) => setAdminEditReason(event.target.value)} placeholder="Ví dụ: Admin xác nhận hủy ca do học viên chuyển lịch" /><small>{adminEditReason.trim().length}/8 ký tự tối thiểu · lưu cùng nhật ký audit</small></label>}
+                <div className="schedule-move-actions"><button type="button" onClick={() => setPendingAdminRemoval(null)} disabled={busy}>Hủy</button><button type="button" onClick={() => void confirmRemove()} disabled={busy || isAdmin && adminEditReason.trim().length < 8}>Xác nhận gỡ buổi</button></div>
               </section>}
               {!inspectorEntries.some((entry) => entry.type === 'off') && <section>
                 <div className="schedule-inspector__section-title"><strong>{inspectorSlotIsPast ? 'Bổ sung học viên đã tập' : 'Thêm học viên'}</strong><span>{inspectorSlotIsPast ? 'Đối chiếu theo ngày thực tế' : 'Rảnh đúng ca được ưu tiên'}</span></div>
