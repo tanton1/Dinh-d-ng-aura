@@ -118,6 +118,10 @@
 .eat-clean-text-button { min-height: 44px; padding: 0 10px; color: var(--eat-clean-pink-dark); background: transparent; font-size: 12px; font-weight: 850; }
 
 .eat-clean-catalog { min-width: 0; }
+.eat-clean-page .eat-clean-catalog-switch { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.eat-clean-page .eat-clean-catalog-switch button { min-width: 0; min-height: 50px; padding: 10px 12px; border: 1px solid var(--eat-clean-line); border-radius: 13px; color: #5f5862; background: #fff; font-size: 12px; font-weight: 800; line-height: 1.4; }
+.eat-clean-page .eat-clean-catalog-switch button[aria-pressed="true"] { color: var(--eat-clean-pink-dark); border-color: #d30b66; background: #fff7fa; }
+.eat-clean-page .eat-clean-catalog-switch button:focus-visible { outline: 2px solid var(--eat-clean-pink-dark); outline-offset: 3px; }
 .eat-clean-section-heading { min-width: 0; display: flex; align-items: flex-end; justify-content: space-between; gap: 15px; margin-bottom: 15px; }
 .eat-clean-section-heading > div { min-width: 0; }
 .eat-clean-section-heading small { color: var(--eat-clean-pink-dark); font-size: 10px; font-weight: 900; letter-spacing: 1px; }

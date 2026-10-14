@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertCircle,
   ArrowLeft,
@@ -27,6 +27,7 @@ import {
 import './EatCleanPage.css'
 import { EatCleanDeliveryPanel } from './EatCleanDeliveryPanel'
 import { EatCleanTrackingPanel } from './EatCleanTrackingPanel'
+import { lazyWithRetry } from '../../components/ChunkErrorBoundary'
 import { addEatCleanCartItem, readEatCleanCart, setEatCleanCartQuantity, writeEatCleanCart } from './cartStorage'
 import {
   clearEatCleanCheckoutAttempt,
@@ -72,6 +73,11 @@ import type {
 } from './types'
 
 const DEFAULT_ROUTE: EatCleanRoute = { screen: 'storefront' }
+const EatCleanReferenceCatalog = lazyWithRetry(() => import('./EatCleanReferenceCatalog'))
+
+function ReferenceCatalogPanel() {
+  return <Suspense fallback={<p role="status">Đang mở danh mục tham khảo…</p>}><EatCleanReferenceCatalog /></Suspense>
+}
 
 function vietnamIsoDate(dayOffset = 0) {
   const vietnamTime = new Date(Date.now() + 7 * 60 * 60 * 1000)
@@ -414,6 +420,7 @@ export default function EatCleanPage({
           description={loadError || 'Hãy kiểm tra kết nối và thử lại.'}
           action={<div className="eat-clean-state__actions"><button type="button" className="eat-clean-button eat-clean-button--primary" onClick={() => void loadStorefront()}><RefreshCw size={17} /> Thử lại</button>{isEatCleanDemoMode && <span>Chế độ demo đang bật.</span>}</div>}
         />
+        {route.screen === 'storefront' && <ReferenceCatalogPanel />}
       </main>
     )
   }
@@ -525,6 +532,7 @@ function StorefrontScreen({
 }) {
   const [search, setSearch] = useState('')
   const [category, setCategory] = useState<EatCleanMealCategory | 'all'>('all')
+  const [catalogView, setCatalogView] = useState<'aura' | 'reference'>('aura')
   const normalizedSearch = search.trim().toLocaleLowerCase('vi')
   const meals = storefront.meals.filter((meal) => {
     if (category !== 'all' && meal.category !== category) return false
@@ -541,7 +549,7 @@ function StorefrontScreen({
           <h1>Bữa ngon đúng mục tiêu, giao đến tận tay.</h1>
           <p>{displayName ? `${displayName}, ` : ''}chọn món theo macro rõ ràng và để Aura lo phần chuẩn bị.</p>
           <div>
-            <button type="button" className="eat-clean-button eat-clean-button--light" onClick={onRecommend} disabled={recommending}>
+            <button type="button" className="eat-clean-button eat-clean-button--light" onClick={() => { setCatalogView('aura'); onRecommend() }} disabled={recommending}>
               {recommending ? <LoaderCircle className="eat-clean-spin" size={18} /> : <Sparkles size={18} />}
               {recommending ? 'Đang chọn món…' : 'Gợi ý cho tôi'}
             </button>
@@ -557,7 +565,12 @@ function StorefrontScreen({
 
       {recommendationReason && <div className="eat-clean-recommendation-note"><Sparkles size={17} /><span><strong>Aura gợi ý:</strong> {recommendationReason}</span></div>}
 
-      <section className="eat-clean-catalog">
+      <div className="eat-clean-catalog-switch" aria-label="Chọn danh mục Eat Clean">
+        <button type="button" aria-pressed={catalogView === 'aura'} aria-controls="eat-clean-aura-catalog" onClick={() => setCatalogView('aura')}>Thực đơn Aura</button>
+        <button type="button" aria-pressed={catalogView === 'reference'} aria-controls="eat-clean-fitfood-catalog" onClick={() => setCatalogView('reference')}>Sản phẩm Fitfood tham khảo</button>
+      </div>
+
+      <section className="eat-clean-catalog" id="eat-clean-aura-catalog" hidden={catalogView !== 'aura'}>
         <div className="eat-clean-section-heading"><div><small>THỰC ĐƠN HÔM NAY</small><h2>Chọn bữa phù hợp</h2></div><span>{meals.length} món</span></div>
         <label className="eat-clean-search"><Search size={19} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Tìm món, nguyên liệu hoặc mục tiêu…" /></label>
         <div className="eat-clean-categories" role="list" aria-label="Nhóm món Eat Clean">
@@ -571,6 +584,8 @@ function StorefrontScreen({
           <EatCleanState icon={<Search size={26} />} title="Chưa tìm thấy món" description="Thử từ khóa khác hoặc chọn lại nhóm thực đơn." action={<button type="button" className="eat-clean-button eat-clean-button--secondary" onClick={() => { setSearch(''); setCategory('all') }}>Xóa bộ lọc</button>} />
         )}
       </section>
+
+      <div id="eat-clean-fitfood-catalog" hidden={catalogView !== 'reference'}>{catalogView === 'reference' && <ReferenceCatalogPanel />}</div>
     </div>
   )
 }

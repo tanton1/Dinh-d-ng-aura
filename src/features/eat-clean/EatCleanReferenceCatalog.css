@@ -1,0 +1,41 @@
+.eat-clean-reference { min-width: 0; }
+.eat-clean-reference__heading { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 15px; }
+.eat-clean-reference__heading > div { min-width: 0; flex: 1 1 280px; }
+.eat-clean-reference__heading h2 { margin: 0 0 7px; color: var(--eat-clean-ink); font-size: 24px; line-height: 1.25; }
+.eat-clean-reference__heading p { margin: 0; color: var(--eat-clean-muted); font-size: 12px; line-height: 1.6; }
+.eat-clean-reference a { color: var(--eat-clean-pink-dark); }
+.eat-clean-reference__menu-link { min-height: 44px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 0 12px; border: 1px solid var(--eat-clean-line); border-radius: 12px; background: #fff; font-size: 12px; font-weight: 750; text-decoration: none; }
+.eat-clean-reference__notice { padding: 15px 17px; border-left: 3px solid var(--eat-clean-green); background: #eef8f3; color: #265b43; }
+.eat-clean-reference__notice strong { font-size: 13px; line-height: 1.5; }
+.eat-clean-reference__notice p { max-width: 85ch; margin: 5px 0 0; font-size: 12px; line-height: 1.65; }
+.eat-clean-reference__filters { margin-top: 18px; }
+.eat-clean-reference__count { margin: 0 0 12px; color: var(--eat-clean-muted); font-size: 12px; }
+.eat-clean-reference__grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.eat-clean-reference-product { min-width: 0; display: flex; flex-direction: column; padding: 20px; border: 1px solid var(--eat-clean-line); border-radius: 18px; background: #fff; }
+.eat-clean-reference-product header > span { color: var(--eat-clean-muted); font-size: 11px; }
+.eat-clean-reference-product h3 { margin: 5px 0 0; color: var(--eat-clean-ink); font-size: 20px; line-height: 1.25; overflow-wrap: anywhere; }
+.eat-clean-reference-product__meals { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.eat-clean-reference-product__meals span { padding: 4px 9px; border-radius: 7px; background: #f5f3f5; color: #4f4852; font-size: 11px; }
+.eat-clean-reference-product__description { margin: 13px 0; color: var(--eat-clean-muted); font-size: 12px; line-height: 1.6; }
+.eat-clean-reference-product__price { display: flex; flex-direction: column; gap: 5px; padding: 13px 0; border-block: 1px solid var(--eat-clean-line); }
+.eat-clean-reference-product__price strong { color: var(--eat-clean-pink-dark); font-size: 24px; line-height: 1.3; }
+.eat-clean-reference-product__price > span { color: var(--eat-clean-ink); font-size: 12px; font-weight: 750; }
+.eat-clean-reference-product__price small { color: var(--eat-clean-muted); font-size: 11px; line-height: 1.5; }
+.eat-clean-reference-product__nutrition { margin: 13px 0 0; color: #4f4852; font-size: 11px; line-height: 1.65; }
+.eat-clean-reference-product__caution { margin: 13px 0 0; padding-left: 9px; border-left: 2px solid #c87a22; color: #80531f; font-size: 11px; line-height: 1.65; }
+.eat-clean-reference-product .eat-clean-reference-product__source { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 44px; margin-top: auto; padding-top: 16px; font-size: 12px; font-weight: 750; text-decoration: none; }
+.eat-clean-reference-product__source svg { flex: 0 0 auto; }
+.eat-clean-reference a:focus-visible,
+.eat-clean-reference button:focus-visible { outline: 2px solid var(--eat-clean-pink-dark); outline-offset: 3px; }
+.eat-clean-reference .eat-clean-search:focus-within { outline: 2px solid var(--eat-clean-pink-dark); outline-offset: 2px; }
+.eat-clean-reference__empty { padding: 24px 12px; color: var(--eat-clean-muted); text-align: center; font-size: 13px; }
+
+@media (max-width: 1100px) {
+  .eat-clean-reference__grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 600px) {
+  .eat-clean-reference__grid { grid-template-columns: minmax(0, 1fr); }
+  .eat-clean-reference__heading h2 { font-size: 21px; }
+  .eat-clean-reference-product { padding: 17px; }
+  .eat-clean-reference__notice { padding: 13px; }
+}
