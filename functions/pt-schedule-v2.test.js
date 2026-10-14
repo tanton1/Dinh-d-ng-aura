@@ -2,7 +2,7 @@
 
 const test = require('node:test')
 const assert = require('node:assert/strict')
-const { MAX_DRAFT_DOCUMENT_ENTRIES, MAX_DRAFT_ENTRIES, OPTIMIZER_VERSION, candidateForSlot, compactPairedSlots, generateSchedule, historicalSlotCandidate, manualSlotCandidate, previousWeek, repairCoverageWithRelocations, resetDraftSchedule, resolveContract, safeSchedule, safeWeeklySessionTargets, slotUtilizationForSchedule, studentWeekEligibility, trainerProfileForWeek, weeklyTargetForStudent } = require('./pt-schedule-v2')
+const { MAX_DRAFT_DOCUMENT_ENTRIES, MAX_DRAFT_ENTRIES, OPTIMIZER_VERSION, candidateForSlot, compactPairedSlots, generateSchedule, historicalSlotCandidate, manualSlotCandidate, previousWeek, repairCoverageWithRelocations, resetDraftSchedule, resolveContract, safeSchedule, safeWeeklySessionTargets, slotUtilizationForSchedule, studentWeekEligibility, trainerIsLocked, trainerProfileForWeek, weeklyTargetForStudent } = require('./pt-schedule-v2')
 
 const WEEK = '2026-08-24'
 const BRANCH = 'branch-a'
@@ -339,6 +339,25 @@ test('blocks a trainer whose availability is not configured', () => {
   })
   assert.equal(result.eligible, false)
   assert.ok(result.reasons.includes('TRAINER_AVAILABILITY_UNCONFIGURED'))
+})
+
+test('locked identity states never create new schedule entries', () => {
+  for (const status of ['inactive', 'suspended', 'locked', 'disabled', 'archived', 'invited']) {
+    const data = fixture()
+    data.trainers[0].status = status
+    assert.equal(trainerIsLocked(data.trainers[0]), true, status)
+    const candidate = candidateForSlot(data, {
+      student: data.students[0],
+      trainer: data.trainers[0],
+      slotId: 'T2-6',
+      schedule: {},
+    })
+    assert.equal(candidate.eligible, false, status)
+    assert.ok(candidate.reasons.includes('TRAINER_NOT_ACTIVE'), status)
+    assert.equal(Object.values(generateSchedule(data).schedule).flat().length, 0, status)
+  }
+  assert.equal(trainerIsLocked({ status: 'active', disabled: true }), true)
+  assert.equal(trainerIsLocked({ status: 'active' }), false)
 })
 
 test('accepts a confirmed recurring learner availability for future weeks', () => {

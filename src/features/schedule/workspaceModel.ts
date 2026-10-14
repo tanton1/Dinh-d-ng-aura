@@ -181,6 +181,21 @@ function trainerEmploymentLabel(value: 'full_time' | 'part_time' | 'collaborator
   return 'PT chính thức'
 }
 
+/** Keep locked identity projections available for resolving old entries, but
+ * never expose them as a selectable trainer for new scheduling work. */
+export function isTrainerLocked(trainer: {
+  status?: unknown
+  disabled?: unknown
+  accessStatus?: unknown
+  operationalStatus?: unknown
+  accountStatus?: unknown
+} | null | undefined) {
+  if (!trainer || trainer.disabled === true) return true
+  const lockedStatuses = new Set(['inactive', 'suspended', 'locked', 'disabled', 'archived', 'deleted', 'invited'])
+  return [trainer.status, trainer.accessStatus, trainer.operationalStatus, trainer.accountStatus]
+    .some((value) => typeof value === 'string' && lockedStatuses.has(value.trim().toLowerCase()))
+}
+
 function contractQuota(contract: PtScheduleWorkspaceV2Result['contracts'][number] | null | undefined) {
   if (!contract) return { entitlement: 0, held: 0, schedulable: 0 }
   const entitlement = finiteCount(contract.remainingEntitlementSessions, Number(contract.totalSessions || 0) - Number(contract.usedSessions || 0))

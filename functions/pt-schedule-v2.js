@@ -237,6 +237,16 @@ function splitChunks(values, size = 30) {
   return result
 }
 
+// Trainer projections may come from legacy `trainers` documents or the newer
+// Identity v2 staff projection. Treat every non-operational state as locked
+// for scheduling while retaining the row for historical name resolution.
+function trainerIsLocked(trainer = {}) {
+  if (!trainer || trainer.disabled === true) return true
+  const lockedStatuses = new Set(['inactive', 'suspended', 'locked', 'disabled', 'archived', 'deleted', 'invited'])
+  return [trainer.status, trainer.accessStatus, trainer.operationalStatus, trainer.accountStatus]
+    .some((value) => typeof value === 'string' && lockedStatuses.has(value.trim().toLowerCase()))
+}
+
 // Resolve a bounded set of profile documents without widening a branch
 // workspace into a full CRM read. Cross-branch learners only enter this path
 // when they are already referenced by the selected week's draft/session data.
@@ -321,7 +331,7 @@ function scheduleIndexes(data) {
   const trainersBySlot = new Map()
   for (const slotId of allStudentSlots) {
     const available = sortedTrainers.filter((trainer) => {
-      if (!trainer || trainer.status === 'inactive' || trainer.branchId !== data.branch?.id) return false
+      if (!trainer || trainerIsLocked(trainer) || trainer.branchId !== data.branch?.id) return false
       const profile = trainerAvailabilityById.get(trainer.id)
       if (!profile || profile.mode === 'unconfigured') return false
       if (trainer.employmentType === 'collaborator') return profile.slots.has(slotId)
@@ -1330,7 +1340,7 @@ function candidateForSlot(data, { student, trainer, slotId, schedule, scheduling
   if (student.status === 'inactive') reasons.push('STUDENT_NOT_ACTIVE')
   const studentBranchWarning = student.branchId !== data.branch.id
   if (studentBranchWarning && !(data.allowCrossBranchStudentIds instanceof Set && data.allowCrossBranchStudentIds.has(student.id))) reasons.push('STUDENT_BRANCH_MISMATCH')
-  if (trainer.status === 'inactive') reasons.push('TRAINER_NOT_ACTIVE')
+  if (trainerIsLocked(trainer)) reasons.push('TRAINER_NOT_ACTIVE')
   if (trainer.branchId !== data.branch.id) reasons.push('TRAINER_BRANCH_MISMATCH')
   const trainerAvailability = context.availability
   if (policy.employmentType === 'collaborator') {
@@ -1675,7 +1685,7 @@ function feasibilitySlotIndex(data, schedule, state = buildSchedulingState(sched
       ? indexes.trainersBySlot.get(slotId)
       : (indexes.studentSlotsById.size ? [] : indexes.sortedTrainers)
     if (trainers.some((trainer) => {
-      if (!trainer || trainer.status === 'inactive' || trainer.branchId !== data.branch.id) return false
+      if (!trainer || trainerIsLocked(trainer) || trainer.branchId !== data.branch.id) return false
       const availability = indexes.trainerAvailabilityById.get(trainer.id)
       if (!availability || availability.mode === 'unconfigured') return false
       if (trainer.employmentType === 'collaborator' && !availability.slots.has(slotId)) return false
@@ -2769,7 +2779,7 @@ function historicalSlotCandidate(data, { student, trainer, slotId }) {
     if (allowCrossBranch) warningReasons.push('STUDENT_BRANCH_MISMATCH')
     else hardReasons.push('STUDENT_BRANCH_MISMATCH')
   }
-  if (!trainer || trainer.status === 'inactive') hardReasons.push('TRAINER_NOT_ACTIVE')
+  if (!trainer || trainerIsLocked(trainer)) hardReasons.push('TRAINER_NOT_ACTIVE')
   else if (trainer.branchId !== data.branch.id) hardReasons.push('TRAINER_BRANCH_MISMATCH')
 
   const dateContracts = historicalContractCandidates(data, student.id, date)
@@ -3570,7 +3580,7 @@ function createPtScheduleV2Functions({ db, onCall, actorForBranch = scheduleActo
       if (!currentStudent.exists || !currentStudentBranchId || ['archived', 'deleted'].includes(String(currentStudent.data()?.status || '').toLowerCase())) throw new HttpsError('failed-precondition', 'Hồ sơ học viên không còn hợp lệ.')
       if (currentStudentBranchId !== student.branchId) throw new HttpsError('aborted', 'Học viên đã chuyển cơ sở; hãy tải lại và xác nhận trên hồ sơ mới.')
       if (currentStudentIsCrossBranch && !crossBranchConfirmed) throw new HttpsError('failed-precondition', 'Học viên đã chuyển cơ sở; cần xác nhận lại ngoại lệ khác cơ sở.')
-      if (!currentTrainer.exists || currentTrainer.data().branchId !== branchId || currentTrainer.data().status === 'inactive') throw new HttpsError('failed-precondition', 'PT không còn hoạt động tại chi nhánh này.')
+      if (!currentTrainer.exists || currentTrainer.data().branchId !== branchId || trainerIsLocked(currentTrainer.data())) throw new HttpsError('failed-precondition', 'PT không còn hoạt động tại chi nhánh này.')
       const expectedContractBranchId = currentStudentIsCrossBranch ? currentStudentBranchId : branchId
       if (!currentContract.exists || currentContract.data().studentId !== studentId || currentContract.data().branchId !== expectedContractBranchId) throw new HttpsError('failed-precondition', 'Hợp đồng không khớp học viên hoặc chi nhánh hồ sơ.')
       const contract = currentContract.data()
@@ -3965,6 +3975,7 @@ module.exports = {
   slotUtilizationForSchedule,
   studentWeekEligibility,
   trainerProfileForWeek,
+  trainerIsLocked,
   trainerLoadsForSchedule,
   trainerSchedulingPolicy,
   weeklyTargetForStudent,

@@ -78,6 +78,16 @@ function storedDate(value) {
   return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}/.test(value) ? value.slice(0, 10) : ''
 }
 
+// Keep publish validation aligned with the scheduling workspace. Legacy
+// trainer rows may only have `status`, while Identity v2 can also expose an
+// account/operational status or a disabled flag.
+function trainerIsLocked(trainer = {}) {
+  if (!trainer || trainer.disabled === true) return true
+  const lockedStatuses = new Set(['inactive', 'suspended', 'locked', 'disabled', 'archived', 'deleted', 'invited'])
+  return [trainer.status, trainer.accessStatus, trainer.operationalStatus, trainer.accountStatus]
+    .some((value) => typeof value === 'string' && lockedStatuses.has(value.trim().toLowerCase()))
+}
+
 function storedHour(value, sessionId) {
   if (Number.isInteger(value) && value >= 0 && value <= 23) return value
   const parsed = Number(String(sessionId || '').split('-')[1])
@@ -451,7 +461,7 @@ function desiredEntries({ scheduleId, week, branchId, schedule, trainers, studen
       if (raw.type === 'off') {
         const offBranchId = raw.branchId && raw.branchId !== 'all' ? raw.branchId : trainer?.branchId
         if (offBranchId !== branchId) continue
-        if (!trainer || trainer.status === 'inactive') addError('TRAINER_NOT_ACTIVE')
+        if (!trainer || trainerIsLocked(trainer)) addError('TRAINER_NOT_ACTIVE')
         offSlots.add(trainerSlot)
         continue
       }
@@ -479,7 +489,7 @@ function desiredEntries({ scheduleId, week, branchId, schedule, trainers, studen
         addError('ENTRY_BRANCH_REQUIRED')
         continue
       }
-      if (!trainer || trainer.status === 'inactive') addError('TRAINER_NOT_ACTIVE')
+      if (!trainer || trainerIsLocked(trainer)) addError('TRAINER_NOT_ACTIVE')
       if (!student || student.status === 'inactive') addError('STUDENT_NOT_ACTIVE')
       if (student?.branchId && student.branchId !== branchId) addWarning('STUDENT_BRANCH_MISMATCH', {
         studentHomeBranchId: student.branchId,
@@ -1170,7 +1180,7 @@ function createPtSchedulePublishFunctions({ db, onCall }) {
       for (const entries of Object.values(scopedSchedule)) {
         for (const entry of entries) {
           const trainer = trainers.get(entry.trainerId)
-          if (!trainer || trainer.status === 'inactive' || trainer.branchId !== branchId) throw new HttpsError('failed-precondition', 'Lịch chứa PT không thuộc chi nhánh.')
+          if (!trainer || trainerIsLocked(trainer) || trainer.branchId !== branchId) throw new HttpsError('failed-precondition', 'Lịch chứa PT không thuộc chi nhánh.')
           if (entry.type !== 'off') {
             const student = students.get(entry.studentId)
             if (!student || student.status === 'inactive' || student.branchId !== branchId) throw new HttpsError('failed-precondition', 'Lịch chứa học viên không thuộc chi nhánh.')
@@ -1229,5 +1239,6 @@ module.exports = {
   branchSlotCapacity,
   trainerAvailabilityMode,
   trainerProfileForWeek,
+  trainerIsLocked,
   trainerIsAvailable,
 }

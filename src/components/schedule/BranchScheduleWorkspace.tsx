@@ -105,6 +105,7 @@ import {
   workspaceFromDraftSnapshot,
   workspaceRealtimeFingerprint,
   writeWorkspaceCache,
+  isTrainerLocked,
   type StudentFilter,
   type WarningCause,
   type WarningFilter,
@@ -199,6 +200,12 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
   const workingHours = workspace?.scheduleConfig.workingHours?.length
     ? workspace.scheduleConfig.workingHours
     : Array.from({ length: 16 }, (_, index) => index + 6)
+  // Keep locked/inactive PT projections in the workspace so old schedule
+  // entries can still resolve their names, but never offer them for new work.
+  const visibleTrainers = useMemo(
+    () => workspace?.trainers.filter((trainer) => !isTrainerLocked(trainer)) || [],
+    [workspace?.trainers],
+  )
   const holidayDates = useMemo(
     () => new Set((workspace?.scheduleConfig.holidays || []).map((value) => String(value).slice(0, 10))),
     [workspace?.scheduleConfig.holidays],
@@ -255,11 +262,11 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
       surface: 'schedule_workspace',
       durationMs: Math.max(0, Math.round(now - timing.startedAt)),
       cacheHit: timing.source === 'cache',
-      trainerCount: workspace.trainers.length,
+      trainerCount: visibleTrainers.length,
       studentCount: workspace.students.length,
       uiVersion: 4,
     })
-  }, [branchId, currentWeekId, loading, workspace, workspaceScope])
+  }, [branchId, currentWeekId, loading, visibleTrainers.length, workspace, workspaceScope])
   useEffect(() => { busyRef.current = busy }, [busy])
   useEffect(() => { activeWorkspaceScopeRef.current = workspaceScope }, [workspaceScope])
   useEffect(() => () => {
@@ -313,9 +320,9 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
         else if (changed) startTransition(() => setWorkspace(result))
         setLastSyncedAt(new Date())
         setSyncState('live')
-        const keepValidTrainer = (current: string) => result.trainers.some((trainer) => trainer.id === current)
+        const keepValidTrainer = (current: string) => result.trainers.some((trainer) => trainer.id === current && !isTrainerLocked(trainer))
           ? current
-          : result.trainers[0]?.id || ''
+          : result.trainers.find((trainer) => !isTrainerLocked(trainer))?.id || ''
         if (quiet) startTransition(() => setSelectedTrainerId(keepValidTrainer))
         else setSelectedTrainerId(keepValidTrainer)
       } catch (loadError) {
@@ -373,9 +380,9 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
       workspaceReadyTimingRef.current.source = 'cache'
       workspaceRef.current = cached.value
       setWorkspace(cached.value)
-      setSelectedTrainerId((current) => cached.value.trainers.some((trainer) => trainer.id === current)
+      setSelectedTrainerId((current) => cached.value.trainers.some((trainer) => trainer.id === current && !isTrainerLocked(trainer))
         ? current
-        : cached.value.trainers[0]?.id || '')
+        : cached.value.trainers.find((trainer) => !isTrainerLocked(trainer))?.id || '')
       setLoading(false)
       setLastSyncedAt(new Date(cached.storedAt))
       if (Date.now() - cached.storedAt > WORKSPACE_CACHE_REVALIDATE_MS) {
@@ -468,7 +475,12 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
     return () => document.removeEventListener('mousedown', closeOnOutsideClick)
   }, [])
 
-  const selectedTrainer = workspace?.trainers.find((trainer) => trainer.id === selectedTrainerId) || null
+  const selectedTrainer = visibleTrainers.find((trainer) => trainer.id === selectedTrainerId) || null
+  useEffect(() => {
+    setSelectedTrainerId((current) => visibleTrainers.some((trainer) => trainer.id === current)
+      ? current
+      : visibleTrainers[0]?.id || '')
+  }, [visibleTrainers])
   const inspectorEntries = useMemo(() => {
     if (!workspace || !inspectorSlotId || !selectedTrainerId) return []
     return (workspace.schedule[inspectorSlotId] || []).filter((entry) => entry.trainerId === selectedTrainerId)
@@ -763,7 +775,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
         : workingDays.find((day) => weekDates[day as keyof typeof weekDates]?.full === load.date)
       if (loadDay) backendByKey.set(`${load.trainerId}:${loadDay}`, load)
     }
-    return workspace.trainers.flatMap((trainer) => workingDays.map((day) => {
+    return visibleTrainers.flatMap((trainer) => workingDays.map((day) => {
       const backend = backendByKey.get(`${trainer.id}:${day}`)
       const fallbackCount = workingHours.reduce((total, hour) => {
         const hasTeachingSession = (workspace.schedule[`${day}-${hour}`] || [])
@@ -784,7 +796,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
         status: normalizedTrainerLoadStatus(backend?.status, count, target),
       }
     }))
-  }, [weekDates, workingDays, workingHours, workspace])
+  }, [visibleTrainers, weekDates, workingDays, workingHours, workspace])
 
   const unassignedEntries = useMemo(() => {
     const raw: PtScheduleUnassignedEntry[] = workspace?.unassignedEntries
@@ -1488,7 +1500,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
       {workspace && tab === 'matrix' && (
         <main id="schedule-panel-matrix" role="tabpanel" aria-labelledby="schedule-tab-matrix" className="branch-schedule__workspace">
           <section className="branch-schedule__matrix-toolbar">
-            <label><span>Huấn luyện viên</span><select value={selectedTrainerId} onChange={(event) => setSelectedTrainerId(event.target.value)}>{workspace.trainers.map((trainer) => <option key={trainer.id} value={trainer.id}>{trainer.name}</option>)}</select></label>
+            <label><span>Huấn luyện viên</span><select value={selectedTrainerId} onChange={(event) => setSelectedTrainerId(event.target.value)}>{visibleTrainers.map((trainer) => <option key={trainer.id} value={trainer.id}>{trainer.name}</option>)}</select></label>
             {selectedTrainer && <div className={`trainer-availability-chip is-${selectedTrainer.availabilityMode}`}><Clock3 size={14} />{selectedTrainer.availabilityMode === 'configured' ? `${selectedTrainer.availableSlots?.length || 0} khung giờ rảnh` : selectedTrainer.availabilityMode === 'unrestricted' ? 'Không giới hạn' : 'Chưa khai lịch rảnh'}</div>}
             <div className="schedule-opportunity-inline-legend" aria-label="Thứ tự kho ca"><span>Thứ tự: ghép 1/2 → PT chính thức dưới mốc → PT còn slot</span></div>
           </section>
@@ -1497,7 +1509,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
             <summary><span><strong>Phân bổ ca PT</strong><small>Mốc tải chỉ dùng để cân bằng; Aura vẫn ưu tiên xếp đủ buổi học viên</small></span>{selectedTrainer && <b>{selectedTrainerLoads.reduce((total, load) => total + load.count, 0)} ca tuần <ChevronRight size={15} /></b>}</summary>
             <section className="trainer-workload" aria-label="Tải ca huấn luyện viên theo ngày">
               <div className="trainer-workload__rail">
-                {workspace.trainers.map((trainer) => {
+                {visibleTrainers.map((trainer) => {
                   const loads = trainerLoads.filter((load) => load.trainerId === trainer.id)
                   const total = loads.reduce((sum, load) => sum + load.count, 0)
                   const priority = finiteCount(trainer.schedulingPriority, trainer.priority)
@@ -1675,7 +1687,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
             <div>{trainerAssignmentWarnings.map((row) => <button type="button" key={row.key} onClick={() => { setSelectedTrainerId(row.trainerId); setInspectorSlotId(row.slotId); setCandidateSearch(''); setTab('matrix') }}><AlertTriangle size={16} /><span><strong>{row.studentName}</strong><small>{scheduleSlotLabel(row.slotId, weekDates)} · {row.trainerName}</small></span><ChevronRight size={16} /></button>)}</div>
           </section>}
           <section className="schedule-warning-grid">
-            {warningFilter === 'trainer' && workspace.trainers.filter((trainer) => trainer.availabilityMode === 'unconfigured').map((trainer) => <article key={trainer.id} className="schedule-warning-trainer is-blocking"><Clock3 /><div><strong>{trainer.name}</strong><span>Chưa đăng ký lịch nhận ca</span></div></article>)}
+            {warningFilter === 'trainer' && visibleTrainers.filter((trainer) => trainer.availabilityMode === 'unconfigured').map((trainer) => <article key={trainer.id} className="schedule-warning-trainer is-blocking"><Clock3 /><div><strong>{trainer.name}</strong><span>Chưa đăng ký lịch nhận ca</span></div></article>)}
             {visibleWarningProfiles.map(({ student, missingSessions: missing, trainerNames, contract, scheduledEntries, reasonCodes, primaryReasonCode, warningCause, actionCode, diagnostics, candidateSlots, suggestedSlots, hasConfirmedAvailability }) => {
               const expanded = expandedWarningStudentId === student.id
               const primaryReasons = Array.from(new Set([primaryReasonCode, ...reasonCodes])).filter((code): code is string => Boolean(code)).slice(0, 2)
@@ -1745,7 +1757,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
               {!inspectorSlotIsPast && pendingMove && <section className="schedule-move-form" aria-label="Chuyển ca nháp">
                 <strong>Chuyển ca · {studentName(pendingMove.studentId)}</strong>
                 <label>Ca đích<select aria-label="Ca đích" value={pendingMove.slotId} onChange={(e) => setPendingMove({ ...pendingMove, slotId: e.target.value })} disabled={busy}>{workingDays.flatMap((day) => workingHours.map((hour) => <option key={`${day}-${hour}`} value={`${day}-${hour}`}>{scheduleSlotLabel(`${day}-${hour}`, weekDates)}</option>))}</select></label>
-                <label>PT đích<select aria-label="PT đích" value={pendingMove.trainerId} onChange={(e) => setPendingMove({ ...pendingMove, trainerId: e.target.value })} disabled={busy}>{workspace.trainers.map((trainer) => <option key={trainer.id} value={trainer.id}>{trainer.name}</option>)}</select></label>
+                <label>PT đích<select aria-label="PT đích" value={pendingMove.trainerId} onChange={(e) => setPendingMove({ ...pendingMove, trainerId: e.target.value })} disabled={busy}>{visibleTrainers.map((trainer) => <option key={trainer.id} value={trainer.id}>{trainer.name}</option>)}</select></label>
                 {!workspace.students.find((item) => item.id === pendingMove.studentId)?.availableSlots.includes(pendingMove.slotId) && <p role="status">Ngoài lịch rảnh đã đăng ký. Xác nhận chuyển ca sẽ ghi nhận ngoại lệ này.</p>}
                 <p>Máy chủ kiểm tra PT, hợp đồng và sức chứa. Ca cũ chỉ được chuyển khi ca mới hợp lệ.</p>
                 <button type="button" onClick={() => setPendingMove(null)} disabled={busy}>Hủy chuyển</button>

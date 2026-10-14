@@ -1,5 +1,6 @@
 import { trainerDailyLoadTarget } from '../../config/scheduleLoadPolicy'
 import type { PtScheduleV2Student, PtScheduleWorkspaceV2Result } from '../../services/ptSchedulePublishService'
+import { isTrainerLocked } from './workspaceModel'
 
 export interface OpportunityStudentRow { student: PtScheduleV2Student; missing: number }
 export interface ScheduleOpportunity {
@@ -68,7 +69,7 @@ export function calculateScheduleOpportunities({ workspace, studentRows, student
       dailySlots.set(dayKey, slots)
     }
   }
-  const trainers = workspace.trainers.filter((trainer) => !trainer.branchId || trainer.branchId === workspace.branch.id)
+  const trainers = workspace.trainers.filter((trainer) => !isTrainerLocked(trainer) && (!trainer.branchId || trainer.branchId === workspace.branch.id))
     .map((trainer) => ({ trainer, available: new Set(trainer.availableSlots || []), dailyTarget: trainerDailyLoadTarget(trainer, workspace.scheduleConfig.scheduleLoadPolicy) }))
   const holidays = new Set((workspace.scheduleConfig.holidays || []).map((value) => String(value).slice(0, 10)))
   const result: ScheduleOpportunity[] = []

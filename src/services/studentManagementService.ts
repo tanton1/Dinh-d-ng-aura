@@ -50,6 +50,11 @@ function presentError(error: unknown) {
   return error instanceof Error ? error : new Error('Chưa thể cập nhật hồ sơ học viên.')
 }
 
+function errorCode(error: unknown) {
+  const value = error && typeof error === 'object' ? (error as { code?: unknown }).code : ''
+  return typeof value === 'string' ? value.replace(/^functions\//, '') : ''
+}
+
 export function createStudentCommandKey() {
   return `student-${createClientCorrelationId()}`
 }
@@ -58,11 +63,20 @@ export async function updateStudentProfile(input: UpdateStudentProfileInput) {
   const callable = httpsCallable<UpdateStudentProfileInput & { correlationId: string }, UpdateStudentProfileResult>(
     functionsOrThrow(),
     'updateStudentProfile',
-    { timeout: 20_000 },
+    // Archive/edit commands are idempotent by design. A short retry absorbs a
+    // cold-start or transient regional hiccup without duplicating the write.
+    { timeout: 30_000 },
   )
-  try {
-    return (await callable({ ...input, correlationId: createClientCorrelationId() })).data
-  } catch (error) {
-    throw presentError(error)
+  const payload = { ...input, correlationId: createClientCorrelationId() }
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      return (await callable(payload)).data
+    } catch (error) {
+      const code = errorCode(error)
+      const retryable = ['deadline-exceeded', 'internal', 'unavailable'].includes(code)
+      if (!retryable || attempt === 1) throw presentError(error)
+      await new Promise((resolve) => globalThis.setTimeout(resolve, 350 * (attempt + 1)))
+    }
   }
+  throw new Error('Chưa thể cập nhật hồ sơ học viên.')
 }
