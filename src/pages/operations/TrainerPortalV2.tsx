@@ -445,8 +445,8 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
           <footer><span><i className="is-done" /> Đã xác nhận</span><span><i className="is-pending" /> Chờ PT</span><span><i /> Sắp tới</span></footer>
         </section>
         <div className="opv2-toolbar opv2-today-toolbar"><div><p className="opv2-kicker-dark">Chi tiết ngày</p><h2 className="opv2-section-title">{compactDate(from)}</h2></div><input className="opv2-date" aria-label="Ngày lịch dạy" type="date" value={from} onChange={(event) => setFrom(event.target.value)} /></div>
-        <section className="opv2-attendance-summary" aria-label="Tổng hợp xác nhận ca dạy">
-          <div><strong>{daySessions.length}</strong><span>ca dạy</span></div>
+        <section className="opv2-attendance-summary" aria-label="Tổng hợp xác nhận học viên">
+          <div><strong>{daySessions.length}</strong><span>học viên</span></div>
           <div><strong>{confirmed.length}</strong><span>đã xác nhận</span></div>
           <div><strong>{pendingStarted.length}</strong><span>chờ xác nhận</span></div>
           <div><strong>{future.length}</strong><span>chưa tới giờ</span></div>
@@ -463,7 +463,7 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
             <div className="opv2-session-time"><strong>{String(session.hour ?? '--').padStart(2, '0')}:00</strong><span>60 phút</span></div>
             <div className="opv2-session-main"><div className="opv2-session-title"><h3>{studentNames.get(session.studentId) || 'Học viên chưa đồng bộ tên'}</h3><span className={`opv2-attendance-pill is-${state}`}>{state === 'present' ? <UserCheck size={14} /> : state === 'late' ? <Timer size={14} /> : state === 'no_show' ? <UserX size={14} /> : <Clock3 size={14} />}{attendanceLabel(session)}</span></div>
               <p className={charged ? 'is-charged' : ''}>{charged ? 'Đã tự động tính 1 buổi' : session.billingStatus === 'review_required' ? 'PT vẫn xác nhận hiện diện · quản lý đang đối soát quota' : started ? 'Hệ thống đang hoàn tất tính buổi' : 'Chưa tới giờ · chưa tính buổi'}</p>
-              {state === 'pending' && started ? <small className="opv2-auto-attendance-note"><Clock3 size={13} /> PT có 48 giờ để xác nhận; quá hạn Aura tự ghi Có tập.</small> : null}
+              {state === 'pending' && started ? <small className="opv2-auto-attendance-note"><Clock3 size={13} /> PT có 48 giờ để xác nhận.</small> : null}
               {state === 'pending' && started ? <div className="opv2-quick-attendance"><button type="button" disabled={attendanceBusy === session.id} onClick={() => openAttendance(session)}><UserCheck size={17} /> Có tập</button><button type="button" className="is-no-show" disabled={!noShowReady || attendanceBusy === session.id} title={!noShowReady ? 'Có thể xác nhận sau 15 phút từ giờ bắt đầu' : undefined} onClick={() => void markAttendance(session, 'no_show')}><UserX size={17} /> Không đến</button></div> : null}
               {state !== 'pending' ? <button className="opv2-correct-attendance" type="button" onClick={() => openAttendance(session)}>Sửa xác nhận</button> : null}
               {['present', 'late'].includes(state) ? <button className="opv2-kudos" type="button" disabled={kudosBusy === session.id || kudosSent.has(session.id)} onClick={() => void sendKudos(session)}><Sparkles size={15} /> {kudosSent.has(session.id) ? 'Đã gửi Kudos' : kudosBusy === session.id ? 'Đang gửi…' : 'Gửi Kudos'}</button> : null}
