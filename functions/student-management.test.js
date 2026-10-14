@@ -203,6 +203,9 @@ test('hard delete removes profile-side documents but preserves sessions and cont
     'studentOperationalViews/student-a': { studentId: 'student-a' },
     'ptTrainingPrograms/student-a': { studentId: 'student-a' },
     'ptTrainingPrograms/student-a/revisions/1': { studentId: 'student-a' },
+    'contractRenewalCases/renewal-a': { studentId: 'student-a', status: 'open' },
+    'operationalActions/action-a': { studentId: 'student-a', status: 'open' },
+    'sessionKudos/kudos-a': { studentId: 'student-a', xp: 5 },
     'ptAvailability/student-a_2026-10-12': { studentId: 'student-a' },
     'sessionRequests/request-a': { studentId: 'student-a' },
     'sessions/session-a': { studentId: 'student-a', trainerId: 'trainer-1', status: 'completed' },
@@ -219,6 +222,9 @@ test('hard delete removes profile-side documents but preserves sessions and cont
   assert.equal(db.documents.has('users/member-1/mealLogs/meal-a'), false)
   assert.equal(db.documents.has('users/member-1/progressCheckIns/checkin-a'), false)
   assert.equal(db.documents.has('ptTrainingPrograms/student-a/revisions/1'), false)
+  assert.equal(db.documents.has('contractRenewalCases/renewal-a'), false)
+  assert.equal(db.documents.has('operationalActions/action-a'), false)
+  assert.equal(db.documents.has('sessionKudos/kudos-a'), false)
   assert.equal([...db.documents.keys()].some((path) => path.startsWith('identityAuditLogs/')), true)
 })
 

@@ -180,12 +180,17 @@ const HARD_DELETE_PROFILE_COLLECTIONS = Object.freeze([
   ['ptWorkoutLogs', 'studentId'],
   ['studentTimelineEvents', 'studentId'],
   ['studentCareActivities', 'studentId'],
+  ['contractRenewalCases', 'studentId'],
+  ['operationalActions', 'studentId'],
   ['loyaltyLedgerEntries', 'studentId'],
   ['loyaltySourceBalances', 'studentId'],
   ['loyaltyRedemptions', 'studentId'],
   ['loyaltyMissionProgress', 'studentId'],
   ['memberReferralCodes', 'studentId'],
   ['ambassadorProfiles', 'studentId'],
+  ['sessionKudos', 'studentId'],
+  ['loyaltyAdjustments', 'studentId'],
+  ['loyaltyReconciliationIssues', 'studentId'],
 ])
 
 // Account-scoped data lives below users/{accountUid}; deleting the user
