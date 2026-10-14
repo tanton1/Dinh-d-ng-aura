@@ -130,6 +130,17 @@ export interface PtScheduleStudentCoverage {
   missingSessions?: number
 }
 
+/** Compact weekly attendance/scheduling evidence used by the warning center.
+ * The raw session rows stay server-side; this projection is scoped to the
+ * learners already visible in the selected branch workspace. */
+export interface PtScheduleWeeklyStudentCoverage {
+  total: number
+  currentBranch: number
+  otherBranches: number
+  byBranch: Record<string, number>
+  dates: string[]
+}
+
 export interface PtScheduleTrainerDayLoad {
   day: string
   date: string
@@ -177,6 +188,7 @@ export interface PtScheduleUnassignedEntry {
     contractRemainingDayCount?: number
     requiredSessions?: number
     scheduledSessions?: number
+    crossBranchScheduledSessions?: number
     missingSessions?: number
     availabilityDayShortfall?: number
     contractValidDateCount?: number
@@ -290,6 +302,7 @@ export interface PtScheduleWorkspaceV2Result extends Omit<BranchScheduleWorkspac
   /** Alias tạm thời để tương thích response thử nghiệm trước v3. */
   trainerLoads?: PtScheduleTrainerDailyLoad[]
   studentCoverage?: PtScheduleStudentCoverage
+  weeklySessionCoverage?: Record<string, PtScheduleWeeklyStudentCoverage>
   unassigned?: PtScheduleUnassignedEntry[]
 }
 
@@ -313,6 +326,9 @@ export interface PtScheduleSlotCandidate {
   /** Ngoại lệ chỉ admin được xác nhận: học viên tập khác cơ sở hồ sơ. */
   studentBranchWarning?: boolean
   studentHomeBranchId?: string
+  /** Admin-only placement: all business conflicts are retained as warnings. */
+  adminManualSelectable?: boolean
+  adminOverrideWarnings?: string[]
   /** Ca đã qua giờ: được ghi thẳng vào lịch sử có audit, không đi qua draft. */
   historical?: boolean
   hardReasons?: string[]
@@ -386,6 +402,7 @@ const conflictLabels: Record<string, string> = {
   STUDENT_AVAILABILITY_MISSING: 'Học viên chưa có lịch rảnh để xếp tự động.',
   STUDENT_AVAILABILITY_DAYS_INSUFFICIENT: 'Học viên đăng ký chưa đủ số ngày rảnh để hoàn thành mục tiêu tuần.',
   MANUAL_STUDENT_AVAILABILITY_OVERRIDE: 'Có học viên được quản lý xếp tay ngoài lịch rảnh đã đăng ký.',
+  ADMIN_MANUAL_OVERRIDE: 'Admin đã xếp tay; các xung đột được ghi nhận dưới dạng cảnh báo.',
   TRAINER_OVER_BALANCE_TARGET: 'PT đang cao hơn mốc cân bằng tải; đây là lưu ý và không chặn xếp lịch.',
   TRAINER_NOT_ASSIGNED: 'Chưa có PT phù hợp trong phạm vi chi nhánh.',
   BRANCH_CAPACITY_REACHED: 'Chi nhánh đã đủ công suất trong các khung giờ phù hợp.',
@@ -571,6 +588,8 @@ export function getPtScheduleSlotCandidates(input: {
   slotId: string
   search?: string
   historical?: boolean
+  /** Admin picker optimization: return only cross-branch matches. */
+  crossBranchOnly?: boolean
 }) {
   return invoke<typeof input, { schemaVersion: number; candidates: PtScheduleSlotCandidate[] }>('getPtScheduleSlotCandidates', input)
 }
@@ -617,7 +636,7 @@ export function applyPtScheduleDraftCommand(input: {
   reason?: string
   payload: Record<string, unknown>
 }) {
-  return invoke<typeof input, { draftRevision: number; schedule: Schedule; weeklySessionTargets?: Record<string, number> }>('applyPtScheduleDraftCommand', input)
+  return invoke<typeof input, { draftRevision: number; schedule: Schedule; weeklySessionTargets?: Record<string, number>; warnings?: string[] }>('applyPtScheduleDraftCommand', input)
 }
 
 export type PtScheduleAdminEditCommand = 'move_student' | 'remove_student'
@@ -628,7 +647,7 @@ export type PtScheduleAdminEditInput = Record<string, unknown> & {
   expectedDraftRevision: number
   command: PtScheduleAdminEditCommand
   idempotencyKey: string
-  reason: string
+  reason?: string
   payload: Record<string, unknown>
 }
 

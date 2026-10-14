@@ -319,6 +319,11 @@ export interface ScheduleEntry {
   availabilityOverrideReason?: 'AVAILABILITY_NOT_SUBMITTED' | 'OUTSIDE_STUDENT_AVAILABILITY'
   availabilityOverrideBy?: string
   availabilityOverrideAt?: string
+  /** Admin-only manual placement. Business conflicts are retained as warnings. */
+  adminOverride?: boolean
+  adminOverrideBy?: string
+  adminOverrideAt?: string
+  adminOverrideWarnings?: string[]
 }
 
 export interface Schedule {

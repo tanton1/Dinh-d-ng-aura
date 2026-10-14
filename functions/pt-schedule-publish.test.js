@@ -381,6 +381,38 @@ test('accepts an explicitly audited manual placement outside learner availabilit
   assert.ok(afterAvailabilityChanged.warnings.includes('MANUAL_STUDENT_AVAILABILITY_OVERRIDE'))
 })
 
+test('Admin override publish retains hard conflicts as warnings instead of blocking', () => {
+  const fixture = baseFixture()
+  fixture.availability.set('student-a', { studentId: 'student-a', status: 'submitted', slots: ['T3-7'] })
+  fixture.trainers.set('trainer-a', {
+    ...fixture.trainers.get('trainer-a'),
+    availableSlots: ['T3-7'],
+    slotCapacity: 1,
+  })
+  fixture.contracts[0].endDate = '2026-08-23'
+  fixture.students.get('student-a').sessionsPerWeek = 0
+  fixture.schedule['T2-6'][0] = {
+    studentId: 'student-a',
+    trainerId: 'trainer-a',
+    branchId: BRANCH_ID,
+    type: 'training',
+    source: 'manual_v2',
+    adminOverride: true,
+    adminOverrideBy: 'admin-a',
+    adminOverrideAt: '2026-08-28T10:00:00.000Z',
+    adminOverrideWarnings: ['OUTSIDE_STUDENT_AVAILABILITY'],
+  }
+  const result = desiredEntries({ ...fixture, allowAdminOverrides: true })
+  assert.deepEqual(result.errors, [])
+  assert.ok(result.warnings.includes('ADMIN_MANUAL_OVERRIDE'))
+  assert.ok(result.warnings.includes('OUTSIDE_STUDENT_AVAILABILITY'))
+  assert.ok(result.warnings.includes('OUTSIDE_TRAINER_AVAILABILITY'))
+  assert.ok(result.warnings.includes('ACTIVE_CONTRACT_NOT_FOUND'))
+  assert.ok(result.warnings.includes('STUDENT_WEEKLY_TARGET_REACHED'))
+  const session = [...result.desired.values()][0]
+  assert.equal(session.adminOverride, true)
+})
+
 test('accepts confirmed recurring availability when no weekly document exists', () => {
   const fixture = baseFixture()
   fixture.availability.clear()

@@ -44,7 +44,7 @@ const { staffIdsFromContract, syncStaffManagedClientSummary, reconcileStaffManag
 const { createPtOperationsV2Functions } = require('./pt-operations-v2')
 const { createSessionFeedbackFunctions } = require('./session-feedback')
 const { createPtSchedulePublishFunctions, documentId: scheduleDocumentId, weekId: scheduleWeekId } = require('./pt-schedule-publish')
-const { createPtScheduleV2Functions, draftExpiresAt, safeSchedule, scopedDraftData } = require('./pt-schedule-v2')
+const { createPtScheduleV2Functions, draftExpiresAt, invalidateBranchDataCache, safeSchedule, scopedDraftData } = require('./pt-schedule-v2')
 const { applyAdminScheduleEdit } = require('./pt-schedule-admin-edit')
 const { trustedAccessContext, requireCapability } = require('./identity-access')
 const { createFinanceLedgerFunctions } = require('./finance-ledger')
@@ -751,15 +751,6 @@ exports.reconcileLoyaltyAccount = loyaltyFunctions.reconcileLoyaltyAccount
 exports.runLoyaltyBackfill = loyaltyFunctions.runLoyaltyBackfill
 exports.getStudentLoyaltySummary = loyaltyFunctions.getStudentLoyaltySummary
 exports.giveSessionKudos = loyaltyFunctions.giveSessionKudos
-const ptSchedulePublishFunctions = createPtSchedulePublishFunctions({ db, onCall })
-Object.assign(exports, ptSchedulePublishFunctions)
-// Static exports keep the two rollout endpoints selectable with --only.
-exports.validatePtScheduleDraft = ptSchedulePublishFunctions.validatePtScheduleDraft
-exports.publishPtSchedule = ptSchedulePublishFunctions.publishPtSchedule
-exports.listPtScheduleVersions = ptSchedulePublishFunctions.listPtScheduleVersions
-exports.restorePtScheduleVersionToDraft = ptSchedulePublishFunctions.restorePtScheduleVersionToDraft
-exports.getMyBranchScheduleWorkspace = ptSchedulePublishFunctions.getMyBranchScheduleWorkspace
-exports.saveMyBranchScheduleDraft = ptSchedulePublishFunctions.saveMyBranchScheduleDraft
 // Schedule workspaces are management-only and burst infrequently. A bounded
 // Gen-1 CPU profile avoids exhausting the regional Cloud Run CPU quota while
 // still allowing the optimizer a longer deterministic execution window.
@@ -769,6 +760,20 @@ const ptScheduleOnCall = (optionsOrHandler, maybeHandler) => {
     ? onCall(resourceOptions, optionsOrHandler)
     : onCall({ ...resourceOptions, ...optionsOrHandler }, maybeHandler)
 }
+
+const ptSchedulePublishFunctions = createPtSchedulePublishFunctions({
+  db,
+  onCall: ptScheduleOnCall,
+  onScheduleMutation: (branchId, week) => invalidateBranchDataCache(db, branchId, week),
+})
+Object.assign(exports, ptSchedulePublishFunctions)
+// Static exports keep the two rollout endpoints selectable with --only.
+exports.validatePtScheduleDraft = ptSchedulePublishFunctions.validatePtScheduleDraft
+exports.publishPtSchedule = ptSchedulePublishFunctions.publishPtSchedule
+exports.listPtScheduleVersions = ptSchedulePublishFunctions.listPtScheduleVersions
+exports.restorePtScheduleVersionToDraft = ptSchedulePublishFunctions.restorePtScheduleVersionToDraft
+exports.getMyBranchScheduleWorkspace = ptSchedulePublishFunctions.getMyBranchScheduleWorkspace
+exports.saveMyBranchScheduleDraft = ptSchedulePublishFunctions.saveMyBranchScheduleDraft
 const ptScheduleV2Functions = createPtScheduleV2Functions({ db, onCall: ptScheduleOnCall })
 Object.assign(exports, ptScheduleV2Functions)
 exports.listPtScheduleBranches = ptScheduleV2Functions.listPtScheduleBranches
@@ -838,9 +843,8 @@ const adminEditPtSchedule = ptScheduleOnCall(async (request) => {
     throw new HttpsError('invalid-argument', 'Phiên bản buổi tập không hợp lệ.')
   }
   const reason = typeof request.data?.reason === 'string' ? request.data.reason.trim().slice(0, 300) : ''
-  if (reason.length < 8) throw new HttpsError('invalid-argument', 'Nhập lý do điều chỉnh tối thiểu 8 ký tự để lưu audit.')
   const receipt = db.doc(`ptScheduleAdminEditReceipts/${adminScheduleEditReceiptId(actor.uid, branchId, week, idempotencyKey)}`)
-  return applyAdminScheduleEdit({
+  const result = await applyAdminScheduleEdit({
     db,
     actor,
     branchId,
@@ -854,6 +858,8 @@ const adminEditPtSchedule = ptScheduleOnCall(async (request) => {
     scopedDraftData,
     draftExpiresAt,
   })
+  invalidateBranchDataCache(db, branchId, week)
+  return result
 })
 exports.adminEditPtSchedule = adminEditPtSchedule
 // Regional overflow endpoint for optimizer-v4. Asia-southeast1 currently

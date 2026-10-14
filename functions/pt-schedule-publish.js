@@ -35,6 +35,7 @@ function scheduleDraftExpiresAt(week) {
     : null
 }
 const STUDENT_AVAILABILITY_REASON_CODES = new Set(['AVAILABILITY_NOT_SUBMITTED', 'OUTSIDE_STUDENT_AVAILABILITY'])
+const MAX_ADMIN_OVERRIDE_WARNINGS = 32
 
 function documentId(value, label) {
   const result = typeof value === 'string' ? value.trim() : ''
@@ -244,6 +245,9 @@ function sameSession(left, right) {
     && String(left.availabilityOverrideReason || '') === String(right.availabilityOverrideReason || '')
     && Boolean(left.studentBranchWarning) === Boolean(right.studentBranchWarning)
     && String(left.studentHomeBranchId || '') === String(right.studentHomeBranchId || '')
+    && Boolean(left.adminOverride) === Boolean(right.adminOverride)
+    && String(left.adminOverrideBy || '') === String(right.adminOverrideBy || '')
+    && JSON.stringify(left.adminOverrideWarnings || []) === JSON.stringify(right.adminOverrideWarnings || [])
 }
 
 function manualAvailabilityOverride(entry) {
@@ -289,6 +293,12 @@ function branchScheduleSnapshot(schedule, branchId, students, trainers) {
         ...(entry.studentBranchWarning === true ? {
           studentBranchWarning: true,
           studentHomeBranchId: typeof entry.studentHomeBranchId === 'string' ? entry.studentHomeBranchId.slice(0, 200) : '',
+        } : {}),
+        ...(entry.adminOverride === true ? {
+          adminOverride: true,
+          adminOverrideBy: typeof entry.adminOverrideBy === 'string' ? entry.adminOverrideBy.slice(0, 200) : '',
+          adminOverrideAt: typeof entry.adminOverrideAt === 'string' ? entry.adminOverrideAt.slice(0, 40) : '',
+          ...(Array.isArray(entry.adminOverrideWarnings) ? { adminOverrideWarnings: [...new Set(entry.adminOverrideWarnings.filter((value) => typeof value === 'string').slice(0, MAX_ADMIN_OVERRIDE_WARNINGS))] } : {}),
         } : {}),
         ...(typeof entry.source === 'string' && entry.source ? { source: entry.source.slice(0, 40) } : {}),
         ...(manualAvailabilityOverride(entry) || {}),
@@ -366,6 +376,14 @@ function normalizedDraftSchedule(value, branchId, allowManualAvailabilityOverrid
           studentBranchWarning: true,
           studentHomeBranchId: typeof entry.studentHomeBranchId === 'string' ? entry.studentHomeBranchId.slice(0, 200) : '',
         } : {}),
+        ...(allowManualAvailabilityOverrides && entry?.adminOverride === true ? {
+          adminOverride: true,
+          adminOverrideBy: typeof entry.adminOverrideBy === 'string' ? entry.adminOverrideBy.slice(0, 200) : '',
+          adminOverrideAt: typeof entry.adminOverrideAt === 'string' ? entry.adminOverrideAt.slice(0, 40) : '',
+          ...(Array.isArray(entry.adminOverrideWarnings) ? {
+            adminOverrideWarnings: [...new Set(entry.adminOverrideWarnings.filter((value) => typeof value === 'string').slice(0, MAX_ADMIN_OVERRIDE_WARNINGS))],
+          } : {}),
+        } : {}),
         ...(typeof entry?.source === 'string' && entry.source ? { source: entry.source.slice(0, 40) } : {}),
       }
       return allowManualAvailabilityOverrides
@@ -393,7 +411,7 @@ async function publisherActor(request, db, branchId) {
   return actor
 }
 
-function desiredEntries({ scheduleId, week, branchId, schedule, trainers, students, contracts, availability, inheritedAvailability = new Map(), config, trainerLeaves = [], activeSessions = [] }) {
+function desiredEntries({ scheduleId, week, branchId, schedule, trainers, students, contracts, availability, inheritedAvailability = new Map(), config, trainerLeaves = [], activeSessions = [], allowAdminOverrides = false }) {
   const calendar = normalizedScheduleConfig(config)
   const desired = new Map()
   const errors = []
@@ -415,6 +433,9 @@ function desiredEntries({ scheduleId, week, branchId, schedule, trainers, studen
   const workingHours = new Set(calendar.workingHours)
   const holidays = new Set(calendar.holidays)
   const reservationsByContract = new Map()
+  const adminOverrideTrainerSlots = new Set()
+  const adminOverrideBranchSlots = new Set()
+  const adminOverrideStudents = new Set()
   for (const session of activeSessions) {
     if (!session?.contractId || !ACTIVE_SESSION_STATUSES.has(String(session.status || '').toLowerCase()) || session.billingStatus === 'charged') continue
     // Sessions published from this branch/week are represented by the draft
@@ -442,9 +463,10 @@ function desiredEntries({ scheduleId, week, branchId, schedule, trainers, studen
     const day = match[1]
     const hour = Number(match[2])
     const date = dateForSlot(week, day)
-    if (!workingDays.has(day) || (workingHours.size && !workingHours.has(hour)) || holidays.has(date)) {
-      if (rawEntries.some((entry) => entry?.branchId === branchId)) addError('OUTSIDE_WORKING_CALENDAR')
-      continue
+    const outsideWorkingCalendar = !workingDays.has(day) || (workingHours.size && !workingHours.has(hour)) || holidays.has(date)
+    if (outsideWorkingCalendar && rawEntries.some((entry) => entry?.branchId === branchId)) {
+      if (rawEntries.some((entry) => allowAdminOverrides && entry?.source === 'manual_v2' && entry?.adminOverride === true)) addWarning('OUTSIDE_WORKING_CALENDAR')
+      else addError('OUTSIDE_WORKING_CALENDAR')
     }
     for (const raw of rawEntries) {
       if (!raw) continue
@@ -473,6 +495,17 @@ function desiredEntries({ scheduleId, week, branchId, schedule, trainers, studen
         continue
       }
       const student = students.get(studentId)
+      const adminOverride = allowAdminOverrides && raw.source === 'manual_v2' && raw.adminOverride === true
+      const adminOverrideWarnings = Array.isArray(raw.adminOverrideWarnings)
+        ? [...new Set(raw.adminOverrideWarnings.filter((value) => typeof value === 'string').slice(0, MAX_ADMIN_OVERRIDE_WARNINGS))]
+        : []
+      if (adminOverride) {
+        adminOverrideTrainerSlots.add(trainerSlot)
+        adminOverrideBranchSlots.add(slotId)
+        adminOverrideStudents.add(studentId)
+        addWarning('ADMIN_MANUAL_OVERRIDE', { overrideWarnings: adminOverrideWarnings })
+        adminOverrideWarnings.forEach((code) => addWarning(code))
+      }
       // Old generated entries did not persist branchId. Resolve that legacy
       // omission only from canonical member/PT data; never treat the UI filter
       // value "all" as a writable branch identifier.
@@ -481,30 +514,42 @@ function desiredEntries({ scheduleId, week, branchId, schedule, trainers, studen
       // An explicit branch on the schedule is the physical training site and
       // scopes the publish. A learner's profile branch may differ; that is a
       // visible warning, not a publish blocker.
-      if (raw.branchId && raw.branchId !== 'all' && raw.branchId !== branchId) continue
+      if (raw.branchId && raw.branchId !== 'all' && raw.branchId !== branchId) {
+        if (adminOverride) addWarning('TRAINER_BRANCH_MISMATCH')
+        else continue
+      }
       // Keep PT scope strict: a branch manager must not publish a PT from a
       // different operational branch through this branch's schedule.
-      if (trainer?.branchId && trainer.branchId !== branchId) continue
+      if (trainer?.branchId && trainer.branchId !== branchId) {
+        if (adminOverride) addWarning('TRAINER_BRANCH_MISMATCH')
+        else continue
+      }
       if (!resolvedEntryBranchId) {
         addError('ENTRY_BRANCH_REQUIRED')
         continue
       }
-      if (!trainer || trainerIsLocked(trainer)) addError('TRAINER_NOT_ACTIVE')
-      if (!student || student.status === 'inactive') addError('STUDENT_NOT_ACTIVE')
+      if (!trainer || trainerIsLocked(trainer)) {
+        if (adminOverride) addWarning('TRAINER_NOT_ACTIVE')
+        else addError('TRAINER_NOT_ACTIVE')
+      }
+      if (!student || student.status === 'inactive') {
+        if (adminOverride) addWarning('STUDENT_NOT_ACTIVE')
+        else addError('STUDENT_NOT_ACTIVE')
+      }
       if (student?.branchId && student.branchId !== branchId) addWarning('STUDENT_BRANCH_MISMATCH', {
         studentHomeBranchId: student.branchId,
         targetBranchId: branchId,
       })
       const availabilityMode = trainerAvailabilityMode(trainer)
       if (trainer?.employmentType === 'collaborator') {
-        if (!Array.isArray(trainer.availableSlots) || !trainer.availableSlots.length) addError('TRAINER_AVAILABILITY_UNCONFIGURED')
-        else if (!trainer.availableSlots.includes(slotId)) addError('OUTSIDE_TRAINER_AVAILABILITY')
-      } else if (availabilityMode === 'unconfigured') addError('TRAINER_AVAILABILITY_UNCONFIGURED')
-      else if (!trainerIsAvailable(trainer, slotId)) addError('OUTSIDE_TRAINER_AVAILABILITY')
-      if (trainerIsOnLeave(trainerId, date, trainerLeaves)) addError('TRAINER_ON_LEAVE')
+        if (!Array.isArray(trainer.availableSlots) || !trainer.availableSlots.length) adminOverride ? addWarning('TRAINER_AVAILABILITY_UNCONFIGURED') : addError('TRAINER_AVAILABILITY_UNCONFIGURED')
+        else if (!trainer.availableSlots.includes(slotId)) adminOverride ? addWarning('OUTSIDE_TRAINER_AVAILABILITY') : addError('OUTSIDE_TRAINER_AVAILABILITY')
+      } else if (availabilityMode === 'unconfigured') adminOverride ? addWarning('TRAINER_AVAILABILITY_UNCONFIGURED') : addError('TRAINER_AVAILABILITY_UNCONFIGURED')
+      else if (!trainerIsAvailable(trainer, slotId)) adminOverride ? addWarning('OUTSIDE_TRAINER_AVAILABILITY') : addError('OUTSIDE_TRAINER_AVAILABILITY')
+      if (trainerIsOnLeave(trainerId, date, trainerLeaves)) adminOverride ? addWarning('TRAINER_ON_LEAVE') : addError('TRAINER_ON_LEAVE')
 
       const studentDay = `${studentId}|${date}`
-      if (studentDays.has(studentDay)) addError('STUDENT_MULTIPLE_SESSIONS_PER_DAY')
+      if (studentDays.has(studentDay)) adminOverride ? addWarning('STUDENT_MULTIPLE_SESSIONS_PER_DAY') : addError('STUDENT_MULTIPLE_SESSIONS_PER_DAY')
       studentDays.add(studentDay)
       studentSessions.set(studentId, (studentSessions.get(studentId) || 0) + 1)
       trainerSlots.set(trainerSlot, (trainerSlots.get(trainerSlot) || 0) + 1)
@@ -521,7 +566,7 @@ function desiredEntries({ scheduleId, week, branchId, schedule, trainers, studen
       let availabilityIssue = null
       if (!effectiveAvailability.confirmed) availabilityIssue = 'AVAILABILITY_NOT_SUBMITTED'
       else if (!slots.has(slotId)) availabilityIssue = 'OUTSIDE_STUDENT_AVAILABILITY'
-      if (availabilityIssue && override) addWarning('MANUAL_STUDENT_AVAILABILITY_OVERRIDE')
+      if (availabilityIssue && (override || adminOverride)) addWarning(adminOverride ? availabilityIssue : 'MANUAL_STUDENT_AVAILABILITY_OVERRIDE')
       else if (availabilityIssue) addError(availabilityIssue)
       if (effectiveAvailability.source === 'inherited_weekly') addWarning('INHERITED_AVAILABILITY_FALLBACK')
       if (effectiveAvailability.source === 'legacy_default') addWarning('LEGACY_AVAILABILITY_FALLBACK')
@@ -540,13 +585,25 @@ function desiredEntries({ scheduleId, week, branchId, schedule, trainers, studen
         reservationsByContract,
       })
       if (!contractResolution.contract) {
-        contractResolution.reasons.forEach(addError)
-        continue
+        if (!adminOverride) {
+          contractResolution.reasons.forEach(addError)
+          continue
+        }
+        contractResolution.reasons.forEach(addWarning)
       }
+      // Keep a concrete contract object even for an admin override.  A manual
+      // placement must still produce a deterministic session payload when the
+      // learner has no active contract in the target branch; the contract id
+      // may be empty (or come from the draft entry) and the conflict is
+      // surfaced as a warning instead of crashing publish validation.
       const contract = contractResolution.contract
+        || contracts
+          .filter((item) => item.studentId === studentId)
+          .sort((left, right) => String(right.endDate || '').localeCompare(String(left.endDate || '')))[0]
+        || { id: typeof raw.contractId === 'string' ? raw.contractId : '', trainerId: '', trainerIds: [], pausePeriods: [] }
       const assignedTrainerIds = [...new Set([
-        contract.trainerId,
-        ...(Array.isArray(contract.trainerIds) ? contract.trainerIds : []),
+        contract?.trainerId,
+        ...(Array.isArray(contract?.trainerIds) ? contract.trainerIds : []),
       ].filter(Boolean))]
       const trainerAssignmentWarning = assignedTrainerIds.length > 0 && !assignedTrainerIds.includes(trainerId)
       if (trainerAssignmentWarning) addWarning('TRAINER_ASSIGNMENT_MISMATCH')
@@ -556,12 +613,16 @@ function desiredEntries({ scheduleId, week, branchId, schedule, trainers, studen
         const pauseEnd = storedDate(period?.endDate)
         return pauseStart && pauseEnd && date >= pauseStart && date <= pauseEnd
       })) {
-        addError('CONTRACT_PAUSED')
-        continue
+        if (adminOverride) addWarning('CONTRACT_PAUSED')
+        else {
+          addError('CONTRACT_PAUSED')
+          continue
+        }
       }
       const key = entryKey(scheduleId, slotId, studentId)
       if (desired.has(key)) {
-        addError('DUPLICATE_SCHEDULE_ENTRY')
+        if (adminOverride) addWarning('DUPLICATE_SCHEDULE_ENTRY')
+        else addError('DUPLICATE_SCHEDULE_ENTRY')
         continue
       }
       desired.set(key, {
@@ -579,6 +640,12 @@ function desiredEntries({ scheduleId, week, branchId, schedule, trainers, studen
         scheduleStatus: 'scheduled',
         billingStatus: 'pending',
         attendanceStatus: 'pending',
+        ...(adminOverride ? {
+          adminOverride: true,
+          adminOverrideBy: typeof raw.adminOverrideBy === 'string' ? raw.adminOverrideBy.slice(0, 200) : '',
+          adminOverrideAt: typeof raw.adminOverrideAt === 'string' ? raw.adminOverrideAt.slice(0, 40) : '',
+          ...(adminOverrideWarnings.length ? { adminOverrideWarnings } : {}),
+        } : {}),
         ...(contractResolution.earlyHandover ? {
           renewalHandoverPending: true,
           sourceContractId: contractResolution.sourceContractId,
@@ -595,24 +662,24 @@ function desiredEntries({ scheduleId, week, branchId, schedule, trainers, studen
     const trainerId = key.split('|').at(-1)
     const [date, hour] = key.split('|')
     context = { date, hour: Number(hour), slotId: slotIdForDateHour(week, date, Number(hour)), trainerId, trainerName: trainers.get(trainerId)?.name || null }
-    if (offSlots.has(key)) addError('TRAINER_OFF_CONFLICT')
-    if (count > normalizedCapacity(trainers.get(trainerId)?.slotCapacity)) addError('TRAINER_CAPACITY_EXCEEDED')
+    if (offSlots.has(key)) adminOverrideTrainerSlots.has(key) ? addWarning('TRAINER_OFF_CONFLICT') : addError('TRAINER_OFF_CONFLICT')
+    if (count > normalizedCapacity(trainers.get(trainerId)?.slotCapacity)) adminOverrideTrainerSlots.has(key) ? addWarning('TRAINER_CAPACITY_EXCEEDED') : addError('TRAINER_CAPACITY_EXCEEDED')
   }
   for (const [slotId, count] of branchSlots) {
     context = { slotId }
     const capacity = branchSlotCapacity(calendar, branchId, slotId)
-    if (capacity !== null && count > capacity) addError('BRANCH_CAPACITY_REACHED')
+    if (capacity !== null && count > capacity) adminOverrideBranchSlots.has(slotId) ? addWarning('BRANCH_CAPACITY_REACHED') : addError('BRANCH_CAPACITY_REACHED')
   }
   for (const [studentId, count] of studentSessions) {
     context = { studentId, studentName: students.get(studentId)?.name || null }
     const target = Number(students.get(studentId)?.sessionsPerWeek)
-    if (Number.isInteger(target) && target >= 0 && count > target) addError('STUDENT_WEEKLY_TARGET_REACHED')
+    if (Number.isInteger(target) && target >= 0 && count > target) adminOverrideStudents.has(studentId) ? addWarning('STUDENT_WEEKLY_TARGET_REACHED') : addError('STUDENT_WEEKLY_TARGET_REACHED')
   }
   if (desired.size > MAX_SCHEDULE_ENTRIES) addError('SCHEDULE_TOO_LARGE')
   return { desired, errorDetails, errors: [...new Set(errors)], warnings: [...new Set(warnings)], warningDetails }
 }
 
-function createPtSchedulePublishFunctions({ db, onCall }) {
+function createPtSchedulePublishFunctions({ db, onCall, onScheduleMutation = () => {} }) {
   async function execute(request, validateOnly) {
     const week = weekId(request.data?.weekId)
     const branchId = documentId(request.data?.branchId, 'Mã chi nhánh')
@@ -659,7 +726,7 @@ function createPtSchedulePublishFunctions({ db, onCall }) {
       .where('studentId', '==', studentId)
       .limit(1001))
 
-    return db.runTransaction(async (transaction) => {
+    const result = await db.runTransaction(async (transaction) => {
       const [scheduleSnapshot, v2DraftSnapshot, branchSnapshot, contractsSnapshot, studentsSnapshot, trainersSnapshot, weekSessionsSnapshot, activeSessionsSnapshot, configSnapshot, trainerLeavesSnapshot, availabilitySnapshots, exactStudentSnapshots, exactContractSnapshots, crossBranchSessionSnapshots] = await Promise.all([
         transaction.get(scheduleReference),
         transaction.get(v2DraftReference),
@@ -731,6 +798,7 @@ function createPtSchedulePublishFunctions({ db, onCall }) {
         config: configSnapshot.data() || {},
         trainerLeaves: trainerLeavesSnapshot.docs.map((item) => item.data()),
         activeSessions: activeSessionDocs.map((item) => ({ id: item.id, ...item.data() })),
+        allowAdminOverrides: ['admin', 'super_admin'].includes(actor.accessRole),
       })
       if (prepared.errors.length) throw scheduleError('SCHEDULE_VALIDATION_FAILED', 'Lịch nháp còn xung đột và chưa thể publish.', { errors: prepared.errors, errorDetails: prepared.errorDetails })
       const acknowledgedWarnings = new Set(Array.isArray(request.data?.acknowledgedWarnings)
@@ -774,7 +842,11 @@ function createPtSchedulePublishFunctions({ db, onCall }) {
       }
       for (const [slotId, count] of totalBranchLoadBySlot) {
         const capacity = branchSlotCapacity(configSnapshot.data(), branchId, slotId)
-        if (capacity !== null && count > capacity) throw scheduleError('BRANCH_CAPACITY_REACHED', 'Khung giờ đã vượt công suất tổng của chi nhánh.')
+        if (capacity !== null && count > capacity) {
+          const hasAdminOverride = desiredValues.some((desired) => desired.slotId === slotId && desired.adminOverride === true)
+          if (hasAdminOverride) prepared.warnings.push('BRANCH_CAPACITY_REACHED')
+          else throw scheduleError('BRANCH_CAPACITY_REACHED', 'Khung giờ đã vượt công suất tổng của chi nhánh.')
+        }
       }
       for (const item of activeSessionDocs) {
         const session = item.data()
@@ -782,7 +854,9 @@ function createPtSchedulePublishFunctions({ db, onCall }) {
         const date = storedDate(session.date)
         const hour = storedHour(session.hour, item.id)
         if (desiredValues.some((desired) => desired.studentId === session.studentId && desired.date === date)) {
-          throw scheduleError('STUDENT_MULTIPLE_SESSIONS_PER_DAY', 'Học viên đã có một buổi khác trong ngày được chọn.')
+          const hasAdminOverride = desiredValues.some((desired) => desired.studentId === session.studentId && desired.date === date && desired.adminOverride === true)
+          if (hasAdminOverride) prepared.warnings.push('STUDENT_MULTIPLE_SESSIONS_PER_DAY')
+          else throw scheduleError('STUDENT_MULTIPLE_SESSIONS_PER_DAY', 'Học viên đã có một buổi khác trong ngày được chọn.')
         }
         if (desiredValues.some((desired) => desired.trainerId === session.trainerId && desired.date === date && desired.hour === hour)) {
           const externalCount = activeSessionDocs.filter((candidate) => {
@@ -790,7 +864,11 @@ function createPtSchedulePublishFunctions({ db, onCall }) {
             return !scopedExistingIds.has(candidate.id) && value.trainerId === session.trainerId && storedDate(value.date) === date && storedHour(value.hour, candidate.id) === hour
           }).length
           const desiredCount = desiredValues.filter((desired) => desired.trainerId === session.trainerId && desired.date === date && desired.hour === hour).length
-          if (externalCount + desiredCount > normalizedCapacity(trainers.get(session.trainerId)?.slotCapacity)) throw scheduleError('TRAINER_CAPACITY_EXCEEDED', 'Khung giờ PT đã vượt sức chứa.')
+          if (externalCount + desiredCount > normalizedCapacity(trainers.get(session.trainerId)?.slotCapacity)) {
+            const hasAdminOverride = desiredValues.some((desired) => desired.trainerId === session.trainerId && desired.date === date && desired.hour === hour && desired.adminOverride === true)
+            if (hasAdminOverride) prepared.warnings.push('TRAINER_CAPACITY_EXCEEDED')
+            else throw scheduleError('TRAINER_CAPACITY_EXCEEDED', 'Khung giờ PT đã vượt sức chứa.')
+          }
         }
       }
 
@@ -810,7 +888,9 @@ function createPtSchedulePublishFunctions({ db, onCall }) {
             && value.billingStatus !== 'charged'
         }).length
         if (Number(contract?.usedSessions || 0) + otherPlanned + count > contractSchedulingEntitlement(contract)) {
-          throw scheduleError('CONTRACT_SESSION_QUOTA_EXCEEDED', 'Số buổi đã học và đang xếp vượt quá gói tập.')
+          const hasAdminOverride = desiredValues.some((desired) => desired.contractId === contractId && desired.adminOverride === true)
+          if (hasAdminOverride) prepared.warnings.push('CONTRACT_SESSION_QUOTA_EXCEEDED')
+          else throw scheduleError('CONTRACT_SESSION_QUOTA_EXCEEDED', 'Số buổi đã học và đang xếp vượt quá gói tập.')
         }
       }
 
@@ -858,6 +938,10 @@ function createPtSchedulePublishFunctions({ db, onCall }) {
           trainerAssignmentWarning: desired.trainerAssignmentWarning === true ? true : FieldValue.delete(),
           studentBranchWarning: desired.studentBranchWarning === true ? true : FieldValue.delete(),
           studentHomeBranchId: desired.studentBranchWarning === true ? desired.studentHomeBranchId : FieldValue.delete(),
+          adminOverride: desired.adminOverride === true ? true : FieldValue.delete(),
+          adminOverrideBy: desired.adminOverride === true ? desired.adminOverrideBy || '' : FieldValue.delete(),
+          adminOverrideAt: desired.adminOverride === true ? desired.adminOverrideAt || '' : FieldValue.delete(),
+          adminOverrideWarnings: desired.adminOverride === true ? desired.adminOverrideWarnings || [] : FieldValue.delete(),
           scheduleVersion: nextVersion,
           status: 'scheduled',
           scheduleStatus: 'rescheduled',
@@ -927,6 +1011,8 @@ function createPtSchedulePublishFunctions({ db, onCall }) {
       })
       return { unchanged: false, draftRevision, version: nextVersion, diff, warnings: prepared.warnings }
     })
+    if (!validateOnly) onScheduleMutation(branchId, week)
+    return result
   }
 
   const listPtScheduleVersions = onCall(async (request) => {
@@ -979,7 +1065,7 @@ function createPtSchedulePublishFunctions({ db, onCall }) {
     const v2DraftReference = db.doc(`ptScheduleDrafts/${branchId}_${week}`)
     const versionReference = db.doc(`ptScheduleVersions/${scheduleId}_${branchId}_v${version}`)
 
-    return db.runTransaction(async (transaction) => {
+    const result = await db.runTransaction(async (transaction) => {
       const [scheduleSnapshot, v2DraftSnapshot, versionSnapshot, studentsSnapshot, trainersSnapshot] = await Promise.all([
         transaction.get(scheduleReference),
         transaction.get(v2DraftReference),
@@ -1037,6 +1123,8 @@ function createPtSchedulePublishFunctions({ db, onCall }) {
       })
       return { version, draftRevision: nextDraftRevision }
     })
+    onScheduleMutation(branchId, week)
+    return result
   })
 
   const getMyBranchScheduleWorkspace = onCall(async (request) => {
@@ -1163,7 +1251,7 @@ function createPtSchedulePublishFunctions({ db, onCall }) {
     const actor = await publisherActor(request, db, branchId)
     const scheduleId = `schedule_${week}`
     const scheduleReference = db.doc(`schedules/${scheduleId}`)
-    return db.runTransaction(async (transaction) => {
+    const result = await db.runTransaction(async (transaction) => {
       const [scheduleSnapshot, branchSnapshot, studentsSnapshot, trainersSnapshot] = await Promise.all([
         transaction.get(scheduleReference),
         transaction.get(db.doc(`branches/${branchId}`)),
@@ -1209,6 +1297,8 @@ function createPtSchedulePublishFunctions({ db, onCall }) {
       })
       return { draftRevision: nextDraftRevision }
     })
+    onScheduleMutation(branchId, week)
+    return result
   })
 
   const validatePtScheduleDraft = onCall((request) => execute(request, true))

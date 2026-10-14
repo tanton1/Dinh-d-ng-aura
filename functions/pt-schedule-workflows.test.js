@@ -73,6 +73,20 @@ test('historical search returns cross-branch learners only to Admin with an expl
   }
 })
 
+test('Admin draft search can resolve a cross-branch learner without a full workspace scan', async () => {
+  const h = crossBranchHarness()
+  const result = await h.api.getPtScheduleSlotCandidates({ data: {
+    branchId: BRANCH,
+    weekId: h.input.weekId,
+    trainerId: 't',
+    slotId: 'T2-6',
+    search: 'Lan ngoai',
+    crossBranchOnly: true,
+  } })
+  assert.equal(result.candidates[0]?.studentId, 'external')
+  assert.equal(result.candidates[0]?.studentBranchWarning, true)
+})
+
 test('historical cross-branch write requires Admin confirmation and acknowledgement, without partial writes', async () => {
   for (const scenario of ['staff', 'no-confirmation', 'no-warning']) {
     const h = crossBranchHarness(scenario === 'staff' ? 'staff' : 'admin')
@@ -116,6 +130,25 @@ test('legacy workspace loads an external learner by PT scope without leaking a l
   assert.equal(result.students.find((s) => s.id === 'external').eligibleForWeek, false)
   assert.equal(result.schedule['T2-6'].length, 1)
   assert.equal(result.schedule['T2-6'][0].studentId, 'external')
+})
+
+test('workspace exposes weekly session coverage from every branch without returning raw sessions', async () => {
+  const h = harness(fixture(), { realBranchData: true })
+  h.docs.set('sessions/cross-branch-a', {
+    id: 'cross-branch-a',
+    studentId: 'a',
+    trainerId: 'other-trainer',
+    contractId: 'c-a',
+    branchId: 'branch-b',
+    date: WEEK,
+    hour: 7,
+    status: 'completed',
+  })
+  const result = await h.api.getPtScheduleWorkspace({ data: { weekId: WEEK, branchId: BRANCH } })
+  assert.equal(result.weeklySessionCoverage.a.total, 1)
+  assert.equal(result.weeklySessionCoverage.a.otherBranches, 1)
+  assert.equal(result.weeklySessionCoverage.a.byBranch['branch-b'], 1)
+  assert.deepEqual(result.sessions, [])
 })
 
 test('historical supplement accepts an expired contract that was valid on the actual session date', () => {
@@ -164,6 +197,36 @@ test('manual add keeps an audited override when the learner is outside the selec
   assert.equal(result.schedule['T4-6'][0].studentId, 'a')
   assert.equal(saved.availabilityOverride, true)
   assert.equal(saved.availabilityOverrideReason, 'OUTSIDE_STUDENT_AVAILABILITY')
+})
+
+test('Admin manual placement keeps every scheduling conflict as a warning', async () => {
+  const data = fixture()
+  data.students[0].availableSlots = ['T2-6']
+  data.trainers[0].availableSlots = ['T2-6']
+  const h = harness(data)
+  const result = await h.api.applyPtScheduleDraftCommand(command('add_student', {
+    studentId: 'a', trainerId: 't', slotId: 'T3-6', adminOverride: true,
+  }, { idempotencyKey: 'admin-override-conflicts' }))
+  const saved = h.docs.get(`ptScheduleDrafts/${BRANCH}_${WEEK}`).schedule['T3-6'][0]
+  assert.equal(result.schedule['T3-6'][0].studentId, 'a')
+  assert.equal(saved.adminOverride, true)
+  assert.ok(saved.adminOverrideWarnings.includes('OUTSIDE_STUDENT_AVAILABILITY'))
+  assert.ok(saved.adminOverrideWarnings.includes('OUTSIDE_TRAINER_AVAILABILITY'))
+})
+
+test('Admin manual placement can add a learner from another branch', async () => {
+  const h = harness()
+  h.docs.set('students/external', { ...h.docs.get('students/a'), id: 'external', name: 'Lan ngoài cơ sở', branchId: 'home' })
+  h.docs.set(`ptAvailability/external_${WEEK}`, { studentId: 'external', weekId: WEEK, status: 'submitted', slots: ['T2-6'] })
+  h.docs.set('contracts/c-external', { ...h.docs.get('contracts/c-a'), id: 'c-external', studentId: 'external', branchId: 'home' })
+  const result = await h.api.applyPtScheduleDraftCommand(command('add_student', {
+    studentId: 'external', trainerId: 't', slotId: 'T2-6', adminOverride: true,
+  }, { idempotencyKey: 'admin-cross-branch' }))
+  const saved = h.docs.get(`ptScheduleDrafts/${BRANCH}_${WEEK}`).schedule['T2-6'][0]
+  assert.equal(result.schedule['T2-6'][0].studentId, 'external')
+  assert.equal(saved.studentBranchWarning, true)
+  assert.equal(saved.adminOverride, true)
+  assert.ok(saved.adminOverrideWarnings.includes('STUDENT_BRANCH_MISMATCH'))
 })
 
 test('manual validation rehydrates published occupancy when an old draft is missing the row', async () => {

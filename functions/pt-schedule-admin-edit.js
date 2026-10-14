@@ -17,8 +17,11 @@ const fail = (code, message) => { throw new HttpsError('failed-precondition', me
 async function applyAdminScheduleEdit({ db, actor, branchId, week, command, payload, reason, expectedRevision, receipt, safeSchedule, scopedDraftData, draftExpiresAt }) {
   if (!['admin', 'super_admin'].includes(actor.accessRole)) throw new HttpsError('permission-denied', 'Chỉ Admin được xác nhận điều chỉnh ca đã khóa hoặc đã ghi nhận.')
   if (!['move_student', 'remove_student'].includes(command)) throw new HttpsError('invalid-argument', 'Lệnh điều chỉnh Admin không hợp lệ.')
+  const adminManualOverride = true
   reason = typeof reason === 'string' ? reason.trim().slice(0, 300) : ''
-  if (reason.length < 8) throw new HttpsError('invalid-argument', 'Nhập lý do điều chỉnh tối thiểu 8 ký tự để lưu audit.')
+  // Matrix corrections are intentionally quick. Keep an audit reason, but
+  // use a safe default when Admin moves or removes a row without typing one.
+  if (!reason) reason = command === 'remove_student' ? 'Admin gỡ buổi trực tiếp trên ma trận' : 'Admin điều chỉnh buổi trực tiếp trên ma trận'
   const { studentId, trainerId, slotId } = payload
   const sourceTrainerId = command === 'move_student' ? payload.fromTrainerId : trainerId
   const sourceSlot = command === 'move_student' ? payload.fromSlotId : slotId
@@ -97,22 +100,19 @@ async function applyAdminScheduleEdit({ db, actor, branchId, week, command, payl
       const trainer = trainerProfileForWeek(trainerMap.get(trainerId) || {}, trainerWeek.exists ? trainerWeek.data() : null, week)
       if (!trainerMap.has(trainerId) || ['inactive', 'archived', 'deleted'].includes(trainer.status)) fail('TRAINER_NOT_ACTIVE', 'PT đích không còn hoạt động tại cơ sở này.')
       if (!studentSnapshot.exists || ['archived', 'deleted'].includes(student.status)) fail('STUDENT_NOT_ACTIVE', 'Hồ sơ học viên không còn hợp lệ.')
-      if (student.branchId !== branchId) {
-        if (!student.branchId || payload.confirmCrossBranchStudent !== true) fail('STUDENT_BRANCH_CONFIRMATION_REQUIRED', 'Admin cần xác nhận học viên tập khác cơ sở.')
-        warnings.push('STUDENT_BRANCH_MISMATCH')
-      }
+      if (student.branchId !== branchId) warnings.push('STUDENT_BRANCH_MISMATCH')
       if (!contract || contract.studentId !== studentId || !storedDate(contract.startDate) || !storedDate(contract.endDate)
         || ['cancelled', 'canceled', 'void', 'refunded', 'deleted'].includes(contract.status)
-        || storedDate(contract.startDate) > targetDate || storedDate(contract.endDate) < targetDate) fail('ACTIVE_CONTRACT_NOT_FOUND', 'Hợp đồng gốc không có hiệu lực tại ngày đích.')
-      if ((contract.pausePeriods || []).some((p) => storedDate(p.startDate) <= targetDate && storedDate(p.endDate) >= targetDate)) fail('CONTRACT_PAUSED', 'Ngày đích nằm trong thời gian OFF/bảo lưu hợp đồng.')
+        || storedDate(contract.startDate) > targetDate || storedDate(contract.endDate) < targetDate) warnings.push('ACTIVE_CONTRACT_NOT_FOUND')
+      if ((contract?.pausePeriods || []).some((p) => storedDate(p.startDate) <= targetDate && storedDate(p.endDate) >= targetDate)) warnings.push('CONTRACT_PAUSED')
       if (session && (attendance?.exists || sessionCountsTowardContract(session)) && targetInstant > instant) fail('TEACHING_SHIFT_FUTURE_ATTENDANCE', 'Buổi đã tính hoặc điểm danh không thể chuyển sang tương lai.')
       if (session && sessionCountsTowardContract(session) && sourceDate.slice(0, 7) !== targetDate.slice(0, 7)) fail('TEACHING_SHIFT_CROSS_PERIOD_CORRECTION', 'Buổi đã tính không thể chuyển sang tháng khác; cần dùng bù trừ.')
       const calendar = normalizedScheduleConfig(configSnapshot.data())
       const [day] = slotId.split('-')
-      if (!calendar.workingDays.includes(day) || !calendar.workingHours.includes(targetHour) || calendar.holidays.includes(targetDate)) fail('OUTSIDE_WORKING_CALENDAR', 'Ca đích nằm ngoài lịch hoạt động.')
+      if (!calendar.workingDays.includes(day) || !calendar.workingHours.includes(targetHour) || calendar.holidays.includes(targetDate)) warnings.push('OUTSIDE_WORKING_CALENDAR')
       if (targetInstant > instant) {
-        if (!trainerIsAvailable(trainer, slotId)) fail('OUTSIDE_TRAINER_AVAILABILITY', 'PT không nhận ca tại giờ đích.')
-        if (leaves.docs.some((item) => item.data().status === 'approved' && storedDate(item.data().startDate) <= targetDate && storedDate(item.data().endDate || item.data().startDate) >= targetDate)) fail('TRAINER_ON_LEAVE', 'PT đang nghỉ được duyệt trong ngày đích.')
+        if (!trainerIsAvailable(trainer, slotId)) warnings.push('OUTSIDE_TRAINER_AVAILABILITY')
+        if (leaves.docs.some((item) => item.data().status === 'approved' && storedDate(item.data().startDate) <= targetDate && storedDate(item.data().endDate || item.data().startDate) >= targetDate)) warnings.push('TRAINER_ON_LEAVE')
       }
       // Combine the draft and real sessions, deduplicating by learner/PT/time.
       // This catches collisions even when another session is absent from a draft.
@@ -129,25 +129,29 @@ async function applyAdminScheduleEdit({ db, actor, branchId, week, command, payl
         occupied.set(`${row.studentId}|${row.trainerId}|${slot}`, { ...row, slot })
       }
       const rows = [...occupied.values()]
-      if (rows.some((row) => row.studentId === studentId && row.slot.split('-')[0] === day)) fail('STUDENT_MULTIPLE_SESSIONS_PER_DAY', 'Học viên đã có buổi khác trong ngày đích.')
-      if ((schedule[slotId] || []).some((entry) => entry.type === 'off' && entry.trainerId === trainerId)) fail('TRAINER_OFF_CONFLICT', 'PT đã được đánh dấu nghỉ tại ca đích.')
-      if (rows.filter((row) => row.trainerId === trainerId && row.slot === slotId).length >= normalizedCapacity(trainer.slotCapacity)) fail('TRAINER_CAPACITY_EXCEEDED', 'Ca đích của PT đã đủ học viên.')
+      if (rows.some((row) => row.studentId === studentId && row.slot.split('-')[0] === day)) warnings.push('STUDENT_MULTIPLE_SESSIONS_PER_DAY')
+      if ((schedule[slotId] || []).some((entry) => entry.type === 'off' && entry.trainerId === trainerId)) warnings.push('TRAINER_OFF_CONFLICT')
+      if (rows.filter((row) => row.trainerId === trainerId && row.slot === slotId).length >= normalizedCapacity(trainer.slotCapacity)) warnings.push('TRAINER_CAPACITY_EXCEEDED')
       const capacity = branchSlotCapacity(calendar, branchId, slotId)
-      if (capacity !== null && rows.filter((row) => row.slot === slotId && (!row.branchId || row.branchId === 'all' || row.branchId === branchId)).length >= capacity) fail('BRANCH_CAPACITY_REACHED', 'Ca đích tại cơ sở đã đủ sức chứa.')
+      if (capacity !== null && rows.filter((row) => row.slot === slotId && (!row.branchId || row.branchId === 'all' || row.branchId === branchId)).length >= capacity) warnings.push('BRANCH_CAPACITY_REACHED')
       if (!session) {
         const contractSessions = studentSessions.docs.map((item) => ({ id: item.id, ...item.data() })).filter((row) => row.contractId === contractId)
         const usage = summarizeContractUsage(contract, contractSessions)
         const reserved = new Set(contractSessions.filter((row) => ['scheduled', 'rescheduled'].includes(row.status) && !sessionCountsTowardContract(row)).map((row) => `${row.studentId}|${storedDate(row.date)}|${sessionHour(row, row.id)}`))
         for (const row of rows.filter((row) => row.contractId === contractId)) reserved.add(`${row.studentId}|${dateForSlot(week, row.slot.split('-')[0])}|${row.slot.split('-')[1]}`)
-        if (usage.remainingSessions <= reserved.size) fail('CONTRACT_SESSION_QUOTA_EXCEEDED', 'Hợp đồng không còn buổi để chuyển lịch nháp.')
+        if (!contract || usage.remainingSessions <= reserved.size) warnings.push('CONTRACT_SESSION_QUOTA_EXCEEDED')
       }
       const availability = effectiveStudentAvailability({ targetWeek: week, exact: learnerWeek.exists ? learnerWeek.data() : null, profile: student })
       const availabilityReason = !availability.confirmed ? 'AVAILABILITY_NOT_SUBMITTED' : !availability.slots.includes(slotId) ? 'OUTSIDE_STUDENT_AVAILABILITY' : null
       if (availabilityReason) warnings.push(availabilityReason)
-      const assigned = [contract.trainerId, ...(contract.trainerIds || [])].filter(Boolean)
+      const assigned = [contract?.trainerId, ...(contract?.trainerIds || [])].filter(Boolean)
       if (assigned.length && !assigned.includes(trainerId)) warnings.push('TRAINER_ASSIGNMENT_MISMATCH')
       nextEntry = {
         studentId, trainerId, branchId, contractId, type: 'training', source: 'manual_v2',
+        adminOverride: adminManualOverride,
+        adminOverrideBy: actor.uid,
+        adminOverrideAt: instant.toISOString(),
+        adminOverrideWarnings: [...new Set(warnings)],
         ...(entries[0]?.isLocked || session ? { isLocked: true } : {}),
         ...(student.branchId !== branchId ? { studentBranchWarning: true, studentHomeBranchId: student.branchId } : {}),
         ...(warnings.includes('TRAINER_ASSIGNMENT_MISMATCH') ? { trainerAssignmentWarning: true } : {}),
@@ -163,7 +167,7 @@ async function applyAdminScheduleEdit({ db, actor, branchId, week, command, payl
       return result
     }
     const nextSchedule = reconcile(schedule)
-    const result = { draftRevision: revision + 1, schedule: nextSchedule, weeklySessionTargets: draft?.weeklySessionTargets || {}, adminEdit: true, sessionChanged: Boolean(session), warnings }
+    const result = { draftRevision: revision + 1, schedule: nextSchedule, weeklySessionTargets: draft?.weeklySessionTargets || {}, adminEdit: true, sessionChanged: Boolean(session), warnings: [...new Set(warnings)] }
     const before = { date: sourceDate, hour: sourceHour, trainerId: sourceTrainerId, branchId, ...(session ? { status: session.status || '', billingStatus: session.billingStatus || '', attendanceStatus: session.attendanceStatus || '' } : {}) }
     const after = nextEntry ? { date: targetDate, hour: targetHour, trainerId, branchId } : { status: 'cancelled', billingStatus: 'exempt' }
     if (session) {
@@ -176,6 +180,10 @@ async function applyAdminScheduleEdit({ db, actor, branchId, week, command, payl
         availabilityOverrideReason: nextEntry.availabilityOverrideReason || FieldValue.delete(),
         availabilityOverrideBy: nextEntry.availabilityOverrideBy || FieldValue.delete(),
         availabilityOverrideAt: nextEntry.availabilityOverrideAt || FieldValue.delete(),
+        adminOverride: nextEntry.adminOverride === true ? true : FieldValue.delete(),
+        adminOverrideBy: nextEntry.adminOverride === true ? nextEntry.adminOverrideBy || '' : FieldValue.delete(),
+        adminOverrideAt: nextEntry.adminOverride === true ? nextEntry.adminOverrideAt || '' : FieldValue.delete(),
+        adminOverrideWarnings: nextEntry.adminOverride === true ? nextEntry.adminOverrideWarnings || [] : FieldValue.delete(),
         studentBranchWarning: nextEntry.studentBranchWarning || FieldValue.delete(),
         studentHomeBranchId: nextEntry.studentHomeBranchId || FieldValue.delete(),
         trainerAssignmentWarning: nextEntry.trainerAssignmentWarning || FieldValue.delete(),

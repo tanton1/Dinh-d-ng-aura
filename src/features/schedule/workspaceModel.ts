@@ -170,7 +170,8 @@ function candidateMatchesStudentAvailability(candidate: PtScheduleSlotCandidate)
     ?? !candidate.reasons.some((reason) => STUDENT_AVAILABILITY_CONFLICTS.has(reason))
 }
 
-function candidateCanBeManuallyScheduled(candidate: PtScheduleSlotCandidate) {
+function candidateCanBeManuallyScheduled(candidate: PtScheduleSlotCandidate, adminOverride = false) {
+  if (adminOverride) return true
   return candidate.manualSelectable
     ?? (candidate.eligible || candidate.reasons.every((reason) => STUDENT_AVAILABILITY_CONFLICTS.has(reason)))
 }
@@ -254,6 +255,7 @@ function workspaceRealtimeFingerprint(value: PtScheduleWorkspaceV2Result | null)
     students: value.students.map((student) => [student.id, student.status, student.sessionsPerWeek, student.availabilityRevision, student.availableSlots, student.remainingEntitlementSessions, student.activeScheduledSessions, student.eligibleForWeek, student.contractStatus]),
     trainers: value.trainers.map((trainer) => [trainer.id, trainer.status, trainer.availabilityRevision, trainer.availableSlots, trainer.availabilityMode, trainer.slotCapacity, trainer.dailySessionTarget, trainer.employmentType]),
     contracts: value.contracts.map((contract) => [contract.id, contract.status, contract.startDate, contract.endDate, contract.usedSessions, contract.remainingSchedulableSessions, contract.trainerId, contract.trainerIds]),
+    weeklySessionCoverage: value.weeklySessionCoverage,
     calendar: value.scheduleConfig,
   })
 }

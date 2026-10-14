@@ -20,7 +20,10 @@ const budgets = {
   courseDetailJsGzip: 15_000,
   courseRuntimeJsGzip: 56_000,
   student360JsGzip: 20_000,
-  schedulerWorkspaceJsGzip: 29_000,
+  // The schedule workspace now includes cross-branch search and the admin
+  // warning center. Keep the gate tight while allowing that intentional
+  // feature surface to ship without hiding a regression elsewhere.
+  schedulerWorkspaceJsGzip: 30_000,
   schedulerFallbackJsGzip: 10_000,
   progressPageJsGzip: 20_000,
 }

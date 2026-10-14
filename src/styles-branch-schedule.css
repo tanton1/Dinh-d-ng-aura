@@ -467,6 +467,9 @@
 .schedule-assigned-row.has-assignment-warning,.schedule-candidate-list article.has-assignment-warning { margin-inline:-6px; padding-inline:6px; border-radius:10px; background:linear-gradient(100deg,rgba(255,240,224,.92),transparent); }
 .schedule-assigned-row.has-assignment-warning strong,.schedule-candidate-list article.has-assignment-warning strong { display:flex; align-items:center; gap:5px; color:#9c491f; }
 .schedule-assigned-row.has-assignment-warning strong svg,.schedule-candidate-list article.has-assignment-warning strong svg { color:#df6728; }
+.schedule-assigned-row.has-admin-warning,.schedule-cell__student.has-admin-warning { border-color:rgba(225,104,34,.42); }
+.schedule-assigned-row.has-admin-warning strong,.schedule-cell__student.has-admin-warning { color:#a84c21; }
+.schedule-admin-fast-note { margin: 6px 0; color:#9c5a2b; font-size:.72rem; }
 .schedule-inspector__empty { padding: 13px; border: 1px dashed #ead8e0; border-radius: 11px; color: #9b8792; background: #fffafd; text-align: center; font-size: .7rem; }
 .schedule-off-action { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; min-height: 40px; margin-top: 10px; border: 1px solid #f3d2c2; border-radius: 11px; color: #a64a28; background: #fff6f0; font-size: .72rem; font-weight: 800; }
 .schedule-off-confirm { margin-top: 10px; padding: 12px; border-radius: 12px; color: #733c28; background: #fff1e8; }
@@ -656,7 +659,7 @@
 }
 .schedule-warning-detail .schedule-diagnostic-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
 @media (min-width: 700px) {
-  .schedule-warning-detail .schedule-diagnostic-grid { grid-template-columns:repeat(4,minmax(0,1fr)); }
+  .schedule-warning-detail .schedule-diagnostic-grid { grid-template-columns:repeat(5,minmax(0,1fr)); }
 }
 
 /* Calm, low-noise surface for the scheduling workspace.  The matrix keeps its

@@ -2,7 +2,7 @@
 
 const test = require('node:test')
 const assert = require('node:assert/strict')
-const { MAX_DRAFT_DOCUMENT_ENTRIES, MAX_DRAFT_ENTRIES, OPTIMIZER_VERSION, candidateForSlot, compactPairedSlots, generateSchedule, historicalSlotCandidate, manualSlotCandidate, previousWeek, repairCoverageWithRelocations, resetDraftSchedule, resolveContract, safeSchedule, safeWeeklySessionTargets, slotUtilizationForSchedule, studentWeekEligibility, trainerIsLocked, trainerProfileForWeek, weeklyTargetForStudent } = require('./pt-schedule-v2')
+const { MAX_DRAFT_DOCUMENT_ENTRIES, MAX_DRAFT_ENTRIES, OPTIMIZER_VERSION, candidateForSlot, compactPairedSlots, generateSchedule, historicalSlotCandidate, manualSlotCandidate, previousWeek, repairCoverageWithRelocations, resetDraftSchedule, resolveContract, safeSchedule, safeWeeklySessionTargets, slotUtilizationForSchedule, studentWeekEligibility, trainerIsLocked, trainerProfileForWeek, weeklySessionCoverageForStudents, weeklyTargetForStudent } = require('./pt-schedule-v2')
 
 const WEEK = '2026-08-24'
 const BRANCH = 'branch-a'
@@ -88,6 +88,29 @@ test('auto scheduling never creates a draft on a configured holiday', () => {
   assert.equal(candidate.eligible, false)
   assert.ok(candidate.reasons.includes('OUTSIDE_WORKING_CALENDAR'))
   assert.equal(Object.values(generateSchedule(data).schedule).flat().length, 0)
+})
+
+test('weekly session coverage counts every branch once and ignores cancelled rows', () => {
+  const coverage = weeklySessionCoverageForStudents({
+    weekId: WEEK,
+    branchId: BRANCH,
+    sessions: [
+      { id: 'a-local', studentId: 'student-a', trainerId: 'trainer-a', branchId: BRANCH, date: WEEK, hour: 6, status: 'scheduled' },
+      { id: 'a-other', studentId: 'student-a', trainerId: 'trainer-b', branchId: 'branch-b', date: '2026-08-25', hour: 7, status: 'completed' },
+      // Same legacy row appears twice in an import; the projection must not
+      // turn one real session into two completed sessions.
+      { id: 'a-other', studentId: 'student-a', trainerId: 'trainer-b', branchId: 'branch-b', date: '2026-08-25', hour: 7, status: 'completed' },
+      { id: 'a-cancelled', studentId: 'student-a', trainerId: 'trainer-c', branchId: 'branch-c', date: '2026-08-26', hour: 8, status: 'cancelled' },
+      { id: 'outside-week', studentId: 'student-a', trainerId: 'trainer-b', branchId: 'branch-b', date: '2026-09-01', hour: 7, status: 'scheduled' },
+    ],
+  })
+  assert.deepEqual(coverage['student-a'], {
+    total: 2,
+    currentBranch: 1,
+    otherBranches: 1,
+    byBranch: { [BRANCH]: 1, 'branch-b': 1 },
+    dates: ['2026-08-24', '2026-08-25'],
+  })
 })
 
 test('load policy supplies a configurable soft target without blocking extra coverage', () => {
