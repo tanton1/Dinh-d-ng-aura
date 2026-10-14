@@ -7,6 +7,78 @@ import {
   runReadOnlyWithRetry,
 } from '../src/services/readOnlyCallableCore'
 import { normalizeTrainerStudentDetail } from '../src/services/ptOperationsV2Normalization'
+import { runAcademyReadWithFallback } from '../src/services/academyReadPolicy'
+import { runKeyedSingleFlight } from '../src/utils/singleFlight'
+
+test('Academy reads fail over regional CPU exhaustion and do not duplicate successful reads', async () => {
+  let primaryCalls = 0
+  let fallbackCalls = 0
+  const fallback = async () => { fallbackCalls += 1; return 'legacy' }
+  assert.equal(await runAcademyReadWithFallback(async () => { primaryCalls += 1; return 'regional' }, fallback), 'regional')
+  assert.equal(fallbackCalls, 0)
+  const result = await runAcademyReadWithFallback(async () => {
+    primaryCalls += 1
+    throw new Error('Dịch vụ tạm gián đoạn', { cause: { code: 'functions/unavailable', message: 'CPU allocation quota exceeded' } })
+  }, fallback)
+  assert.equal(result, 'legacy')
+  assert.equal(primaryCalls, 2)
+  assert.equal(fallbackCalls, 1)
+})
+
+test('Academy never fails over authorization, validation, missing content or canceled reads', async () => {
+  for (const code of ['unauthenticated', 'permission-denied', 'not-found', 'failed-precondition', 'invalid-argument']) {
+    const error = new Error('Rejected', { cause: { code: `functions/${code}`, message: 'internal' } })
+    await assert.rejects(runAcademyReadWithFallback(async () => { throw error }, async () => {
+      assert.fail(`Must not retry ${code} in another region`)
+    }), (actual) => actual === error)
+  }
+  const aborted = new DOMException('Aborted', 'AbortError')
+  await assert.rejects(runAcademyReadWithFallback(async () => { throw aborted }, async () => {
+    assert.fail('Canceled request must not fail over')
+  }), (actual) => actual === aborted)
+})
+
+test('Academy shows the final failure if neither region is available', async () => {
+  let fallbackCalls = 0
+  const unavailable = { code: 'functions/internal', message: 'internal' }
+  const finalFailure = new Error('Cả hai vùng tạm gián đoạn')
+  await assert.rejects(runAcademyReadWithFallback(async () => { throw unavailable }, async () => {
+    fallbackCalls += 1
+    throw finalFailure
+  }), (actual) => actual === finalFailure)
+  assert.equal(fallbackCalls, 1)
+})
+
+test('duplicate Academy readers share a pending failover and release it after completion', async () => {
+  const pending = new Map<string, Promise<string>>()
+  let release!: () => void
+  const gate = new Promise<void>((resolve) => { release = resolve })
+  let calls = 0
+  const load = () => runKeyedSingleFlight(pending, 'session:course:enrollment', () => runAcademyReadWithFallback(async () => {
+    calls += 1
+    throw { code: 'functions/resource-exhausted' }
+  }, async () => { calls += 1; await gate; return 'course' }))
+  const first = load()
+  const second = load()
+  assert.equal(first, second)
+  release()
+  assert.deepEqual(await Promise.all([first, second]), ['course', 'course'])
+  assert.equal(calls, 2)
+  assert.equal(pending.size, 0)
+})
+
+test('Academy transport isolates sessions and enrollment revisions without persisting content', () => {
+  const source = readFileSync(new URL('../src/services/academyReadService.ts', import.meta.url), 'utf8')
+  assert.match(source, /WeakMap<User, Map<string, Promise<unknown>>>/)
+  assert.match(source, /firebaseAuth\?\.currentUser !== owner/)
+  assert.match(source, /JSON\.stringify\(\[name, input, accessRevision\]\)/)
+  assert.match(source, /assertSession\(\)\s+return result as Output/)
+  assert.match(source, /type AcademyReadName = 'listAcademyCourses' \| 'getCourseMediaUrl'/)
+  assert.doesNotMatch(source, /localStorage|sessionStorage|enrollInCourse|completeCourseLesson/)
+  const hook = readFileSync(new URL('../src/hooks/useCourses.ts', import.meta.url), 'utf8')
+  assert.match(hook, /readPending\.current \|\| document\.visibilityState !== 'visible'/)
+  assert.match(hook, /< 5 \* 60_000/)
+})
 
 test('read-only callable retries bounded transient failures and returns the successful value', async () => {
   let invocations = 0

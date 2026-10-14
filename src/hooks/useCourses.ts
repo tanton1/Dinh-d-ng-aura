@@ -14,6 +14,7 @@ export function useCourses(enabled: boolean, includeDrafts = false, refreshKey =
   const [error, setError] = useState<string | null>(null)
   const [refreshNonce, setRefreshNonce] = useState(0)
   const lastAutoRefreshAt = useRef(0)
+  const readPending = useRef(false)
   const retry = useCallback(() => {
     if (!enabled || loading) return
     setError(null)
@@ -25,7 +26,7 @@ export function useCourses(enabled: boolean, includeDrafts = false, refreshKey =
     if (!enabled || includeDrafts) return
     const refresh = () => {
       const now = Date.now()
-      if (now - lastAutoRefreshAt.current < 60_000) return
+      if (readPending.current || document.visibilityState !== 'visible' || now - lastAutoRefreshAt.current < 5 * 60_000) return
       lastAutoRefreshAt.current = now
       setRefreshNonce((value) => value + 1)
     }
@@ -52,22 +53,27 @@ export function useCourses(enabled: boolean, includeDrafts = false, refreshKey =
 
     setLoading(true)
     setError(null)
+    readPending.current = true
     lastAutoRefreshAt.current = Date.now()
-    return subscribeToCourses(
+    const unsubscribe = subscribeToCourses(
       includeDrafts,
       (firebaseCourses) => {
         setItems(firebaseCourses)
         setSource('firebase')
         setError(null)
         setLoading(false)
+        readPending.current = false
       },
       (subscriptionError) => {
         setError(courseLoadErrorMessage(subscriptionError))
         setItems(academyDemoFallbackEnabled ? demoCourses : [])
         setSource('firebase')
         setLoading(false)
+        readPending.current = false
       },
+      refreshKey,
     )
+    return () => { readPending.current = false; unsubscribe() }
   }, [enabled, includeDrafts, refreshKey, refreshNonce])
 
   return { courses: items, source, loading, error, retry }

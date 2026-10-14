@@ -4,6 +4,7 @@ const assert = require('node:assert/strict')
 const { readFileSync } = require('node:fs')
 const { join } = require('node:path')
 const test = require('node:test')
+const { runInNewContext } = require('node:vm')
 
 const repositoryRoot = join(__dirname, '..')
 const functionsSource = readFileSync(join(__dirname, 'index.js'), 'utf8')
@@ -24,8 +25,28 @@ test('learner runtime uses fractional CPU with bounded concurrency and keeps ser
   for (const name of ['listAcademyCourses', 'getCourseMediaUrl', 'enrollInCourse', 'completeCourseLesson']) {
     assert.ok(functionsSource.includes('exports.' + name + ' = onCall(academyLearnerRuntime, async (request) => {'))
   }
-  assert.match(serviceSource, /callReadOnlyFunction[^\n]*'listAcademyCourses'/)
-  assert.match(serviceSource, /maximumAttempts: 2, timeoutMs: 20_000/)
+  assert.match(serviceSource, /callAcademyReadFunction[^\n]*'listAcademyCourses'/)
+})
+
+test('Academy regional reads use the exact authorized handlers without duplicating business logic', () => {
+  for (const name of ['listAcademyCourses', 'getCourseMediaUrl']) {
+    const block = functionsSource.match(new RegExp(`exports\\.${name}Regional = onCall\\([\\s\\S]*?\\n\\)`))?.[0]
+    assert.ok(block, `${name}Regional must be deployed independently of the legacy endpoint`)
+    const handler = () => ({ name })
+    const target = { [name]: { run: handler } }
+    let config
+    runInNewContext(block, {
+      exports: target,
+      academyLearnerRuntime: { minInstances: 0, maxInstances: 2, cpu: 'gcf_gen1', memory: '256MiB', concurrency: 1 },
+      onCall: (options, callback) => { config = options; return callback },
+    })
+    assert.equal(target[`${name}Regional`], handler)
+    assert.equal(config.region, 'asia-east1')
+    assert.equal(config.invoker, 'public')
+    assert.equal(config.minInstances, 0)
+    assert.equal(config.maxInstances, 2)
+    assert.equal(config.cpu, 'gcf_gen1')
+  }
 })
 
 test('web, Functions and Firestore Rules share the canonical named database', () => {

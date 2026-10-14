@@ -27,6 +27,7 @@ import { firebaseStorage } from '../lib/firebaseStorage'
 import { safeLocalStorageSet } from '../lib/safeStorage'
 import { reportClientIssue } from './clientTelemetryService'
 import { callReadOnlyFunction } from './readOnlyCallableService'
+import { callAcademyReadFunction } from './academyReadService'
 export {
   cleanMealForStorage,
   compressBase64Image,
@@ -283,6 +284,7 @@ export function subscribeToCourses(
   includeDrafts: boolean,
   onData: (items: Course[]) => void,
   onError: (error: Error) => void,
+  accessRevision = '',
 ): Unsubscribe {
   const db = requireDb()
   if (includeDrafts) {
@@ -303,10 +305,8 @@ export function subscribeToCourses(
   // Learners receive entitlement-filtered content through a callable. The
   // underlying course document is staff-only because it contains full modules.
   let active = true
-  const controller = new AbortController()
-  void callReadOnlyFunction<Record<string, never>, unknown>('listAcademyCourses', {}, {
-    maximumAttempts: 2, timeoutMs: 20_000, signal: controller.signal,
-  }).then((data) => {
+  // Unsubscribing one view must not cancel a read shared with another view.
+  void callAcademyReadFunction<Record<string, never>, unknown>('listAcademyCourses', {}, accessRevision).then((data) => {
       if (!active) return
       const payload = data && typeof data === 'object' ? data as Record<string, unknown> : {}
       if (!Array.isArray(payload.courses)) throw new Error('Phản hồi khóa học chưa đầy đủ. Vui lòng thử tải lại.')
@@ -322,7 +322,7 @@ export function subscribeToCourses(
       if (!active) return
       onError(error)
     })
-  return () => { active = false; controller.abort() }
+  return () => { active = false }
 }
 
 export function subscribeToAllEnrollments(

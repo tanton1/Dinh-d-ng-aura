@@ -1,6 +1,6 @@
 import { httpsCallable } from 'firebase/functions'
 import { firebaseFunctions } from '../lib/firebaseFunctions'
-import { callReadOnlyFunction } from './readOnlyCallableService'
+import { callAcademyReadFunction } from './academyReadService'
 
 export type QuizAnswers = Record<string, number>
 
@@ -150,7 +150,7 @@ export async function getCourseMediaUrl(input: {
     throw new Error('Đường dẫn media không thuộc bài học hiện tại.')
   }
   const payload = { courseId: input.courseId, lessonId: input.lessonId, path: input.storagePath }
-  const response = await callReadOnlyFunction<typeof payload, unknown>('getCourseMediaUrl', payload, { maximumAttempts: 2, timeoutMs: 20_000 })
+  const response = await callAcademyReadFunction<typeof payload, unknown>('getCourseMediaUrl', payload)
   if (!response || typeof response !== 'object') {
     throw new Error('Phản hồi media không hợp lệ.')
   }

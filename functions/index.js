@@ -3682,6 +3682,13 @@ exports.listAcademyCourses = onCall(academyLearnerRuntime, async (request) => {
   return { courses }
 })
 
+// Keep the legacy endpoint for existing app shells. The regional read uses
+// the same handler, including profile, enrollment, drip and answer-key checks.
+exports.listAcademyCoursesRegional = onCall(
+  { ...academyLearnerRuntime, region: 'asia-east1', invoker: 'public' },
+  exports.listAcademyCourses.run,
+)
+
 /** Assigns or cancels an Academy enrollment without coupling it to PT CRM. */
 exports.manageAcademyEnrollment = onCall(async (request) => {
   const actorId = requireCaller(request)
@@ -4201,6 +4208,12 @@ exports.getCourseMediaUrl = onCall(academyLearnerRuntime, async (request) => {
     ...(downloadUrl ? { downloadUrl, fileName: safeFileName } : {}),
   }
 })
+
+// No public Storage access: the fallback still validates each signed URL.
+exports.getCourseMediaUrlRegional = onCall(
+  { ...academyLearnerRuntime, region: 'asia-east1', invoker: 'public' },
+  exports.getCourseMediaUrl.run,
+)
 
 function findProgramSession(versionData, sessionId) {
   const matches = []
