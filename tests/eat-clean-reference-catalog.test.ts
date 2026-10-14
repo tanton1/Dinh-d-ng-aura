@@ -88,6 +88,6 @@ test('catalog view is read-only and uses Aura-hosted illustration images', () =>
   assert.doesNotMatch(component, /target="_blank"|href=\{product\.sourceUrl\}/)
   assert.doesNotMatch(component, /onAdd|httpsCallable|\bfetch\(/)
   for (const product of FITFOOD_REFERENCE_PRODUCTS) {
-    assert.match(referenceImagePath(product), /^\/images\/eat-clean\//)
+    assert.match(referenceImagePath(product), /^\/images\/eat-clean\/reference\//)
   }
 })

@@ -31,10 +31,10 @@ export const FITFOOD_REFERENCE_SOURCE = {
 } as const
 
 export const EAT_CLEAN_REFERENCE_IMAGE_BY_GROUP: Record<EatCleanReferenceGroup, string> = {
-  weekly: '/images/eat-clean/hero-bowl.webp',
-  prepared: '/images/eat-clean/chicken-pepper.webp',
-  drinks: '/images/eat-clean/salmon-vegetables.webp',
-  snacks: '/images/eat-clean/beef-egg-salad.webp',
+  weekly: '/images/eat-clean/reference/combo-weekly.webp',
+  prepared: '/images/eat-clean/reference/combo-prepared.webp',
+  drinks: '/images/eat-clean/reference/combo-drinks.webp',
+  snacks: '/images/eat-clean/reference/combo-snacks.webp',
 }
 
 export const EAT_CLEAN_REFERENCE_GROUPS: ReadonlyArray<{ id: EatCleanReferenceGroup | 'all'; label: string }> = [

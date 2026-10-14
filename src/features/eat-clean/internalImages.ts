@@ -12,6 +12,42 @@ export interface EatCleanInternalImage {
 
 export const EAT_CLEAN_INTERNAL_IMAGES: readonly EatCleanInternalImage[] = [
   {
+    id: 'combo-weekly',
+    label: 'Combo gói tuần',
+    path: '/images/eat-clean/reference/combo-weekly.webp',
+    description: 'Nhiều phần ăn trong một gói tuần cân bằng.',
+  },
+  {
+    id: 'combo-prepared',
+    label: 'Combo chế biến sẵn',
+    path: '/images/eat-clean/reference/combo-prepared.webp',
+    description: 'Nhiều phần ức gà và cơm chuẩn bị sẵn.',
+  },
+  {
+    id: 'combo-low-carb',
+    label: 'Combo low-carb',
+    path: '/images/eat-clean/reference/combo-low-carb.webp',
+    description: 'Set nhiều phần cá và rau củ ít tinh bột.',
+  },
+  {
+    id: 'combo-vegetarian',
+    label: 'Combo thực vật',
+    path: '/images/eat-clean/reference/combo-vegetarian.webp',
+    description: 'Set nhiều phần rau củ và hạt minh họa.',
+  },
+  {
+    id: 'combo-drinks',
+    label: 'Set đồ uống',
+    path: '/images/eat-clean/reference/combo-drinks.webp',
+    description: 'Set nhiều chai đồ uống theo tuần.',
+  },
+  {
+    id: 'combo-snacks',
+    label: 'Set ăn nhẹ',
+    path: '/images/eat-clean/reference/combo-snacks.webp',
+    description: 'Hộp nhiều thanh ăn nhẹ và biscotti.',
+  },
+  {
     id: 'hero-bowl',
     label: 'Bowl Eat Clean',
     path: '/images/eat-clean/hero-bowl.webp',
