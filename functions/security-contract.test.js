@@ -508,8 +508,12 @@ test('student profile updates are scoped revisioned callables and browser writes
   assert.doesNotMatch(createCommand, /setDoc|updateDoc|deleteDoc|runTransaction/)
   assert.match(studentManagementSource, /studentCommandReceipts/)
   assert.match(studentManagementSource, /db\.runTransaction/)
-  assert.doesNotMatch(studentManagementSource, /transaction\.delete|\.delete\(\)/)
+  assert.match(studentManagementSource, /hardDeleteStudentCommand/)
+  assert.match(studentManagementSource, /isHardDeleteActor/)
+  assert.match(studentManagementSource, /preservedSessionCount/)
+  assert.match(studentManagementSource, /uniqueReferencesToDelete\.forEach\(\(reference\) => transaction\.delete\(reference\)/)
   assert.match(functionsSource, /exports\.updateStudentProfile = studentManagementFunctions\.updateStudentProfile/)
+  assert.match(functionsSource, /exports\.hardDeleteStudent = studentManagementFunctions\.hardDeleteStudent/)
 })
 
 test('branch management is revisioned, audited and callable-only', () => {

@@ -119,6 +119,11 @@ export interface Student {
   branchId?: string
   isScheduleConfirmed?: boolean
   nutritionNote?: string
+  /** Auth lifecycle fields are optional on legacy student documents. */
+  accountUid?: string
+  accountStatus?: string
+  identityLinkStatus?: string
+  accountDeletedAt?: unknown
 }
 
 export interface TrainingPackage {

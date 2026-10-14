@@ -158,6 +158,246 @@ function hasCapability(actor, capability) {
   return Array.isArray(actor.capabilities) && actor.capabilities.includes(capability)
 }
 
+function isHardDeleteActor(actor) {
+  return actor?.accessRole === 'admin' || actor?.accessRole === 'super_admin'
+}
+
+function hardDeleteConfirmation(value) {
+  return clean(value, 40).toLocaleUpperCase('vi')
+}
+
+// These collections are learner-facing projections/requests. They are safe to
+// remove after the canonical student document has been explicitly approved for
+// hard deletion. Immutable sessions, attendance evidence and finance records
+// are deliberately not part of this list because payroll and audit depend on
+// them after the learner profile is gone.
+const HARD_DELETE_PROFILE_COLLECTIONS = Object.freeze([
+  ['ptAvailability', 'studentId'],
+  ['sessionRequests', 'studentId'],
+  ['leaveRequests', 'studentId'],
+  ['dailyCheckins', 'studentId'],
+  ['workoutLogs', 'studentId'],
+  ['ptWorkoutLogs', 'studentId'],
+  ['studentTimelineEvents', 'studentId'],
+  ['studentCareActivities', 'studentId'],
+  ['loyaltyLedgerEntries', 'studentId'],
+  ['loyaltySourceBalances', 'studentId'],
+  ['loyaltyRedemptions', 'studentId'],
+  ['loyaltyMissionProgress', 'studentId'],
+  ['memberReferralCodes', 'studentId'],
+  ['ambassadorProfiles', 'studentId'],
+])
+
+// Account-scoped data lives below users/{accountUid}; deleting the user
+// document alone would leave private nutrition, progress and academy data in
+// orphaned subcollections. Keep the allow-list explicit so an unrelated
+// future subcollection is never removed by accident.
+const HARD_DELETE_ACCOUNT_SUBCOLLECTIONS = Object.freeze([
+  'progress',
+  'quizAttempts',
+  'quizAttemptCounters',
+  'courseLessonProofs',
+  'academyNotes',
+  'academyWorkbooks',
+  'academyReviewItems',
+  'workoutLogs',
+  'coachingWorkoutLogs',
+  'bodyMetrics',
+  'bodyMeasurements',
+  'progressCheckIns',
+  'weightLogs',
+  'gamification',
+  'loyaltySummary',
+  'mealLogs',
+  'favoriteMeals',
+  'waterLogs',
+  'activityLogs',
+  'progressPhotos',
+  'progress_photos',
+  'notifications',
+  'aiCoachCache',
+  'aiCoachConversations',
+  'aiCoachTurnReceipts',
+  'aiMealReviewCache',
+  'aiRateLimits',
+  'nutritionPlanDrafts',
+  'nutritionPlans',
+  'eatCleanAddresses',
+])
+
+const HARD_DELETE_TOP_LEVEL_PROFILE_COLLECTIONS = Object.freeze([
+  ['mealReviews', 'userId'],
+])
+
+const HARD_DELETE_QUERY_LIMIT = 100
+// Firestore transactions have a 500-write limit. Leave room for the audit
+// record and keep the operation all-or-nothing; large profiles must use a
+// reviewed migration instead of a partial destructive request.
+const HARD_DELETE_WRITE_LIMIT = 450
+
+async function hardDeleteStudentCommand({ db, auth, actor, data, correlationId }) {
+  if (!isHardDeleteActor(actor)) {
+    throw new HttpsError('permission-denied', 'Chỉ Admin hoặc Super Admin được xóa cứng hồ sơ học viên.')
+  }
+  const studentId = documentId(data.studentId, 'Mã học viên')
+  if (hardDeleteConfirmation(data.confirmation) !== 'XÓA VĨNH VIỄN') {
+    throw new HttpsError('invalid-argument', 'Cần nhập đúng “XÓA VĨNH VIỄN” để xác nhận xóa cứng.')
+  }
+
+  const studentReference = db.doc(`students/${studentId}`)
+  const studentSnapshot = await studentReference.get()
+  if (!studentSnapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy hồ sơ học viên.')
+  const student = studentSnapshot.data() || {}
+  if (student.status !== 'inactive' && student.accountStatus !== 'deleted') {
+    throw new HttpsError('failed-precondition', 'Hãy ngừng hoạt động hồ sơ trước khi xóa cứng.')
+  }
+
+  const [studentContractSnapshot, legacyContractSnapshot, sessionSnapshot, legacyAccountSnapshot] = await Promise.all([
+    db.collection('contracts').where('studentId', '==', studentId).limit(HARD_DELETE_QUERY_LIMIT + 1).get(),
+    db.collection('contracts').where('crmProfileId', '==', studentId).limit(HARD_DELETE_QUERY_LIMIT + 1).get(),
+    db.collection('sessions').where('studentId', '==', studentId).limit(HARD_DELETE_QUERY_LIMIT + 1).get(),
+    db.collection('roleAssignments').where('crmProfileId', '==', studentId).limit(2).get(),
+  ])
+  const contractDocuments = [...new Map([...studentContractSnapshot.docs, ...legacyContractSnapshot.docs].map((item) => [item.id, item])).values()]
+  const contracts = contractDocuments.map((item) => item.data() || {})
+  const activeContracts = contracts.filter((item) => ['active', 'future', 'frozen'].includes(item.status))
+  if (activeContracts.length) {
+    throw new HttpsError('failed-precondition', 'Học viên còn hợp đồng đang hiệu lực. Hãy kết thúc hoặc hủy hợp đồng trước khi xóa cứng.')
+  }
+  if (studentContractSnapshot.size > HARD_DELETE_QUERY_LIMIT || legacyContractSnapshot.size > HARD_DELETE_QUERY_LIMIT || sessionSnapshot.size > HARD_DELETE_QUERY_LIMIT) {
+    throw new HttpsError('resource-exhausted', 'Hồ sơ có quá nhiều liên kết để xóa trong một lần. Hãy dùng quy trình lưu trữ và đối soát.')
+  }
+
+  if (legacyAccountSnapshot.size > 1) {
+    throw new HttpsError('failed-precondition', 'Hồ sơ có nhiều liên kết tài khoản cũ. Hãy đối soát trước khi xóa cứng.')
+  }
+  const accountUid = typeof student.accountUid === 'string' && student.accountUid.trim()
+    ? student.accountUid.trim()
+    : legacyAccountSnapshot.docs[0]?.id || ''
+  const directReferences = [
+    studentReference,
+    db.doc(`studentOperationalViews/${studentId}`),
+    db.doc(`loyaltyAccounts/${studentId}`),
+    db.doc(`ptTrainingPrograms/${studentId}`),
+  ]
+  if (accountUid) {
+    directReferences.push(
+      db.doc(`users/${accountUid}`),
+      db.doc(`roleAssignments/${accountUid}`),
+      db.doc(`coachClients/${accountUid}`),
+      db.doc(`accountIdentityLinks/${accountUid}`),
+    )
+  }
+
+  let authUser = null
+  if (accountUid && auth?.getUser) {
+    try {
+      authUser = await auth.getUser(accountUid)
+      const claims = authUser.customClaims || {}
+      if (['admin', 'super_admin', 'staff'].includes(claims.accessRole) || ['admin', 'super_admin', 'staff'].includes(claims.role)) {
+        throw new HttpsError('failed-precondition', 'Liên kết tài khoản đang thuộc nhân sự/quản trị; không thể xóa cùng hồ sơ học viên.')
+      }
+    } catch (error) {
+      if (error instanceof HttpsError) throw error
+      if (error?.code !== 'auth/user-not-found') throw error
+    }
+  }
+
+  return db.runTransaction(async (transaction) => {
+    const currentStudentSnapshot = await transaction.get(studentReference)
+    if (!currentStudentSnapshot.exists) throw new HttpsError('not-found', 'Hồ sơ học viên đã được xóa trước đó.')
+    const currentStudent = currentStudentSnapshot.data() || {}
+    if (currentStudent.status !== 'inactive' && currentStudent.accountStatus !== 'deleted') {
+      throw new HttpsError('aborted', 'Hồ sơ vừa được kích hoạt lại. Hãy tải lại trước khi xóa.')
+    }
+    const profileSnapshots = await Promise.all(HARD_DELETE_PROFILE_COLLECTIONS.map(([collection, field]) => (
+      transaction.get(db.collection(collection).where(field, '==', studentId).limit(HARD_DELETE_QUERY_LIMIT + 1))
+    )))
+    const accountSnapshots = accountUid
+      ? await Promise.all([
+        ...HARD_DELETE_ACCOUNT_SUBCOLLECTIONS.map((collection) => (
+          transaction.get(db.collection(`users/${accountUid}/${collection}`).limit(HARD_DELETE_QUERY_LIMIT + 1))
+        )),
+        ...HARD_DELETE_TOP_LEVEL_PROFILE_COLLECTIONS.map(([collection, field]) => (
+          transaction.get(db.collection(collection).where(field, '==', accountUid).limit(HARD_DELETE_QUERY_LIMIT + 1))
+        )),
+      ])
+      : []
+    const profileDocuments = profileSnapshots.flatMap((snapshot, index) => {
+      if (snapshot.size > HARD_DELETE_QUERY_LIMIT) {
+        throw new HttpsError('resource-exhausted', `Dữ liệu ${HARD_DELETE_PROFILE_COLLECTIONS[index][0]} vượt giới hạn xóa an toàn.`)
+      }
+      return snapshot.docs
+    })
+    const accountDocuments = accountSnapshots.flatMap((snapshot, index) => {
+      if (snapshot.size > HARD_DELETE_QUERY_LIMIT) {
+        const collection = index < HARD_DELETE_ACCOUNT_SUBCOLLECTIONS.length
+          ? `users/${accountUid}/${HARD_DELETE_ACCOUNT_SUBCOLLECTIONS[index]}`
+          : HARD_DELETE_TOP_LEVEL_PROFILE_COLLECTIONS[index - HARD_DELETE_ACCOUNT_SUBCOLLECTIONS.length][0]
+        throw new HttpsError('resource-exhausted', `Dữ liệu ${collection} vượt giới hạn xóa an toàn.`)
+      }
+      return snapshot.docs
+    })
+    const programReference = db.doc(`ptTrainingPrograms/${studentId}`)
+    const programRevisionSnapshot = await transaction.get(programReference.collection('revisions').limit(HARD_DELETE_QUERY_LIMIT + 1))
+    if (programRevisionSnapshot.size > HARD_DELETE_QUERY_LIMIT) {
+      throw new HttpsError('resource-exhausted', 'Giáo án học viên vượt giới hạn xóa an toàn.')
+    }
+    const referencesToDelete = [
+      ...profileDocuments.map((item) => item.ref),
+      ...accountDocuments.map((item) => item.ref),
+      ...programRevisionSnapshot.docs.map((item) => item.ref),
+      ...directReferences,
+    ]
+    const uniqueReferencesToDelete = [...new Map(referencesToDelete.map((reference) => [reference.path, reference])).values()]
+    if (uniqueReferencesToDelete.length + 1 > HARD_DELETE_WRITE_LIMIT) {
+      throw new HttpsError('resource-exhausted', 'Hồ sơ có quá nhiều dữ liệu phụ để xóa nguyên tử. Hãy dùng quy trình xóa được quản trị viên kiểm duyệt.')
+    }
+    uniqueReferencesToDelete.forEach((reference) => transaction.delete(reference))
+    const auditReference = db.collection('identityAuditLogs').doc()
+    transaction.create(auditReference, {
+      action: 'student.hard_deleted',
+      actorUid: actor.uid,
+      studentId,
+      accountUid: accountUid || null,
+      preserved: {
+        sessions: sessionSnapshot.size,
+        contracts: contractDocuments.length,
+        payrollEvidence: true,
+      },
+      deletedProfileDocuments: uniqueReferencesToDelete.length,
+      correlationId: correlationId || null,
+      createdAt: FieldValue.serverTimestamp(),
+    })
+    return {
+      studentId,
+      deleted: true,
+      preservedSessionCount: sessionSnapshot.size,
+      preservedContractCount: contractDocuments.length,
+      payrollEvidencePreserved: true,
+      deletedProfileDocuments: uniqueReferencesToDelete.length,
+      auditLogId: auditReference.id,
+      authPendingDelete: Boolean(authUser),
+    }
+  }).then(async (result) => {
+    if (authUser && auth?.deleteUser) {
+      try {
+        await auth.deleteUser(accountUid)
+        result.authPendingDelete = false
+      } catch (error) {
+        // Firestore data is already gone, but the Auth identity is not allowed
+        // to remain usable. Disable it and return a visible retry state.
+        try {
+          await auth.updateUser(accountUid, { disabled: true })
+          await auth.revokeRefreshTokens(accountUid)
+        } catch (_) { /* best effort */ }
+        result.authPendingDelete = true
+      }
+    }
+    return result
+  })
+}
+
 function schedulingOnly(updates) {
   return Object.keys(updates).every((key) => SCHEDULING_FIELDS.has(key))
 }
@@ -288,12 +528,17 @@ function createStudentManagementFunctions({ db, onCall, accessContextResolver = 
     const actor = await accessContextResolver(request, db)
     return updateStudentCommand({ db, actor, data: request.data || {}, correlationId: request.auraCorrelationId })
   }))
-  return { updateStudentProfile }
+  const hardDeleteStudent = onCall(withFunctionTelemetry('hardDeleteStudent', async (request) => {
+    const actor = await accessContextResolver(request, db)
+    return hardDeleteStudentCommand({ db, actor, data: request.data || {}, correlationId: request.auraCorrelationId })
+  }))
+  return { updateStudentProfile, hardDeleteStudent }
 }
 
 module.exports = {
   PROFILE_FIELDS,
   createStudentManagementFunctions,
+  hardDeleteStudentCommand,
   normalizeStudentUpdates,
   updateStudentCommand,
 }

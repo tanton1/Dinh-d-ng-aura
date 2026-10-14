@@ -69,6 +69,58 @@ function loginEmailFromPhone(value, phoneNumber) {
   return `${initialPasswordFromPhone(phoneNumber)}@aurafitness.com`
 }
 
+function safeStudentPhone(value) {
+  try {
+    return normalizedPhone(value)
+  } catch (_) {
+    return ''
+  }
+}
+
+function studentProfilePhoneMatches(profile, phoneNumber) {
+  if (!profile || !phoneNumber) return false
+  return [profile.phone, profile.phoneNumber]
+    .some((value) => safeStudentPhone(value) === phoneNumber)
+}
+
+function isReclaimableDeletedStudent(profile, phoneNumber) {
+  return profile?.accountStatus === 'deleted'
+    && !String(profile.accountUid || '').trim()
+    && studentProfilePhoneMatches(profile, phoneNumber)
+}
+
+function phoneLookupValues(phoneNumber) {
+  const local = initialPasswordFromPhone(phoneNumber)
+  return [...new Set([phoneNumber, local, phoneNumber.replace(/^\+/, '')].filter(Boolean))]
+}
+
+async function findStudentProfilesByPhone(db, phoneNumber) {
+  const values = phoneLookupValues(phoneNumber)
+  const requests = []
+  for (const field of ['phone', 'phoneNumber']) {
+    for (const value of values) {
+      requests.push(db.collection('students').where(field, '==', value).limit(25).get())
+    }
+  }
+  const snapshots = await Promise.all(requests)
+  const documents = new Map()
+  snapshots.forEach((snapshot) => snapshot.docs.forEach((document) => documents.set(document.id, document)))
+  return [...documents.values()].filter((document) => studentProfilePhoneMatches(document.data() || {}, phoneNumber))
+}
+
+async function findReclaimableStudentProfile(db, phoneNumber) {
+  const profiles = await findStudentProfilesByPhone(db, phoneNumber)
+  const activeProfiles = profiles.filter((document) => (document.data() || {}).accountStatus !== 'deleted')
+  if (activeProfiles.length) {
+    throw new HttpsError('already-exists', 'Số điện thoại này đã được liên kết với một hồ sơ học viên đang hoạt động.')
+  }
+  const reclaimable = profiles.filter((document) => isReclaimableDeletedStudent(document.data() || {}, phoneNumber))
+  if (reclaimable.length > 1) {
+    throw new HttpsError('failed-precondition', 'Có nhiều hồ sơ đã xóa dùng cùng số điện thoại. Hãy nhờ quản trị viên hợp nhất trước khi tạo lại tài khoản.')
+  }
+  return reclaimable[0] || null
+}
+
 function normalizedPositions(value) {
   if (!Array.isArray(value)) return []
   const positions = [...new Set(value.filter((item) => staffPositions.has(item)))]
@@ -987,6 +1039,30 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
     } : null
 
     await assertUniqueDirectAccount({ auth, email, logger, action })
+    // Deleting a member login intentionally leaves the CRM student document
+    // behind so contracts, sessions and payroll evidence remain auditable.
+    // Reclaim that explicitly deleted profile instead of creating a second
+    // student row with the same phone number. The lookup uses only single
+    // field indexes and is repeated inside the transaction below to avoid a
+    // stale read winning a concurrent provisioning request.
+    const reclaimableStudent = await identityProvisionStep(
+      logger,
+      action,
+      'kiểm tra hồ sơ học viên đã xóa',
+      () => findReclaimableStudentProfile(db, phoneNumber),
+    )
+    const effectiveCrmProfileId = reclaimableStudent?.id || crmProfileId
+    const restoredStudentFields = reclaimableStudent && !legacyStudent
+      ? {
+          id: effectiveCrmProfileId,
+          name: displayName,
+          phone: phoneNumber,
+          email,
+          status: 'active',
+        }
+      : legacyStudent
+        ? { ...legacyStudent, id: effectiveCrmProfileId }
+        : null
 
     const initialPassword = initialPasswordFromPhone(phoneNumber)
     let createdUser = null
@@ -999,10 +1075,15 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
         const userRef = db.doc(`users/${uid}`)
         const assignmentRef = db.doc(`roleAssignments/${uid}`)
         const clientRef = db.doc(`coachClients/${uid}`)
-        const legacyStudentRef = legacyStudent ? db.doc(`students/${crmProfileId}`) : null
-        const identityLinkRef = legacyStudent ? db.doc(`accountIdentityLinks/${uid}`) : null
+        const legacyStudentRef = effectiveCrmProfileId && restoredStudentFields ? db.doc(`students/${effectiveCrmProfileId}`) : null
+        const identityLinkRef = legacyStudentRef ? db.doc(`accountIdentityLinks/${uid}`) : null
         if ((await transaction.get(userRef)).exists) throw new HttpsError('already-exists', 'Hồ sơ Aura đã tồn tại.')
-        if (legacyStudentRef && (await transaction.get(legacyStudentRef)).exists) throw new HttpsError('already-exists', 'Hồ sơ học viên PT đã tồn tại.')
+        const existingStudentSnapshot = legacyStudentRef ? await transaction.get(legacyStudentRef) : null
+        if (existingStudentSnapshot?.exists) {
+          const existingStudent = existingStudentSnapshot.data() || {}
+          const canRestore = isReclaimableDeletedStudent(existingStudent, phoneNumber)
+          if (!canRestore) throw new HttpsError('already-exists', 'Hồ sơ học viên PT đã tồn tại hoặc đang được liên kết với tài khoản khác.')
+        }
         transaction.create(userRef, {
           uid, displayName, name: displayName, email, phoneNumber,
           role: 'student', accessRole: 'student', authzVersion: 1,
@@ -1012,27 +1093,33 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
         transaction.create(assignmentRef, {
           schemaVersion: 1, uid, accessRole: 'student', positions: [], branchIds: [],
           capabilities: computedCapabilities('student', [], []), authzVersion: 1, status: 'active',
-          crmProfileId: crmProfileId || uid, createdBy: actor.uid,
+          crmProfileId: effectiveCrmProfileId || uid, createdBy: actor.uid,
           createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
         })
         transaction.create(clientRef, {
           clientId: uid, displayName, email, phoneNumber, coachingStatus: 'onboarding', goal,
           createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
         })
-        if (legacyStudentRef) transaction.create(legacyStudentRef, {
-          ...legacyStudent,
-          accountUid: uid,
-          identityLinkStatus: 'linked',
-          identityLinkVersion: 2,
-          identityLinkedAt: FieldValue.serverTimestamp(),
-          identityLinkedBy: actor.uid,
-          schemaVersion: 1,
-          revision: 1,
-          createdAt: FieldValue.serverTimestamp(),
-          updatedAt: FieldValue.serverTimestamp(),
-        })
+        if (legacyStudentRef) {
+          const identityFields = {
+            ...restoredStudentFields,
+            accountUid: uid,
+            accountStatus: 'active',
+            accountDeletedAt: FieldValue.delete(),
+            accountDeletedBy: FieldValue.delete(),
+            identityLinkStatus: 'linked',
+            identityLinkVersion: 2,
+            identityLinkedAt: FieldValue.serverTimestamp(),
+            identityLinkedBy: actor.uid,
+            schemaVersion: 1,
+            revision: existingStudentSnapshot?.exists ? Number(existingStudentSnapshot.data()?.revision || 0) + 1 : 1,
+            updatedAt: FieldValue.serverTimestamp(),
+          }
+          if (existingStudentSnapshot?.exists) transaction.set(legacyStudentRef, identityFields, { merge: true })
+          else transaction.create(legacyStudentRef, { ...identityFields, createdAt: FieldValue.serverTimestamp() })
+        }
         if (identityLinkRef) transaction.create(identityLinkRef, {
-          studentId: crmProfileId,
+          studentId: effectiveCrmProfileId,
           status: 'active',
           source: 'manual',
           linkedAt: FieldValue.serverTimestamp(),
@@ -1040,11 +1127,11 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
         })
         transaction.create(db.collection('identityAuditLogs').doc(), {
           action: 'student_account.provisioned', actorUid: actor.uid, targetUid: uid,
-          after: { accessRole: 'student', crmProfileId: crmProfileId || uid }, createdAt: FieldValue.serverTimestamp(),
+          after: { accessRole: 'student', crmProfileId: effectiveCrmProfileId || uid, reusedDeletedProfile: Boolean(reclaimableStudent) }, createdAt: FieldValue.serverTimestamp(),
         })
       }))
       logger?.info?.('identity_provision_completed', { action, targetUid: uid })
-      return { uid, displayName, phoneNumber, email, passwordChangeRequired: false, crmProfileId: crmProfileId || uid }
+      return { uid, displayName, phoneNumber, email, passwordChangeRequired: false, crmProfileId: effectiveCrmProfileId || uid, reusedDeletedProfile: Boolean(reclaimableStudent) }
     } catch (error) {
       if (createdUser) {
         try { await identityProvisionStep(logger, action, 'hoàn tác đăng nhập', () => auth.deleteUser(createdUser.uid), 12_000) } catch (rollbackError) { logger?.error?.('student_provision_rollback_failed', { uid: createdUser.uid, code: rollbackError?.code || 'unknown' }) }
@@ -1849,4 +1936,6 @@ module.exports = {
   resolveStaffContactUpdate,
   initialPasswordFromPhone,
   loginEmailFromPhone,
+  isReclaimableDeletedStudent,
+  studentProfilePhoneMatches,
 }

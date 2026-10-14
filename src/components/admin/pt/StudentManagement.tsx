@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { Student, UserProfile, StudentContract, TrainingPackage, Trainer, Branch } from '../../../types';
 import { User } from 'firebase/auth';
-import { Search, Plus, Edit2, Trash2, Phone, Mail, Calendar, CheckCircle, XCircle, AlertCircle, User as UserIcon, Package, RefreshCw, SlidersHorizontal, ChevronRight } from 'lucide-react';
+import { Search, Plus, Edit2, Trash2, Phone, Mail, Calendar, CheckCircle, XCircle, AlertCircle, User as UserIcon, Package, RefreshCw, SlidersHorizontal, ChevronRight, LoaderCircle, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import DateRangeFilter from './DateRangeFilter';
 import RenewContractModal from './RenewContractModal';
@@ -12,6 +12,7 @@ import { provisionStudentAccount } from '../../../services/identityAccessService
 import { recordContractPayment } from '../../../services/financeLedgerService';
 import { listCashAccounts, type CashAccount } from '../../../services/cashbookService';
 import { trackProductEvent } from '../../../services/analyticsService';
+import { hardDeleteStudent } from '../../../services/studentManagementService';
 import StudentRosterTable from './StudentRosterTable';
 import { studentEligibilityForWeek } from '../../../domain/pt/studentEligibility';
 import { useAuraUiSurface } from '../../../features/ui-rollout/AuraUiRolloutContext';
@@ -57,6 +58,7 @@ export default function StudentManagement({ user, profile, initialStudentId = nu
   const canManageStudents = (authzReady && hasCapability('pt.operations.manage')) || import.meta.env.MODE === 'e2e';
   const directoryV2 = useAuraUiSurface('admin-student-directory');
   const canInviteStudents = authzReady && hasCapability('identity.invite.manage');
+  const canHardDeleteStudents = authzReady && (profile?.accessRole === 'admin' || profile?.accessRole === 'super_admin' || profile?.role === 'admin' || profile?.role === 'super_admin');
   const canOpenStudentForm = canInviteStudents || import.meta.env.MODE === 'e2e';
   
   const getCalculatedUsedSessions = (contract: StudentContract | undefined) => contract
@@ -74,6 +76,10 @@ export default function StudentManagement({ user, profile, initialStudentId = nu
   const [error, setError] = useState<string | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [studentToDelete, setStudentToDelete] = useState<string | null>(null);
+  const [hardDeleteTarget, setHardDeleteTarget] = useState<Student | null>(null);
+  const [hardDeleteConfirmation, setHardDeleteConfirmation] = useState('');
+  const [hardDeleteError, setHardDeleteError] = useState('');
+  const [hardDeleting, setHardDeleting] = useState(false);
   const [alertMessage, setAlertMessage] = useState<string | null>(null);
   const contractCreationPromises = useRef(new Map<string, Promise<void>>());
   const [studentPage, setStudentPage] = useState(() => Math.max(1, Number(adminStudentListMemory().page || 1)));
@@ -488,10 +494,18 @@ export default function StudentManagement({ user, profile, initialStudentId = nu
     };
     const sanitizedFormDataPhone = formData.phone ? sanitizePhone(formData.phone) : '';
 
-    const isDuplicatePhone = students.some(s => 
+    // A deleted login deliberately keeps the CRM profile for contracts,
+    // sessions and finance history. It must not block provisioning a new
+    // login, but an inactive profile with a live/non-deleted identity still
+    // remains a duplicate and must be fixed by an administrator first.
+    const isReusableDeletedProfile = (student: Student) =>
+      student.accountStatus === 'deleted' && !student.accountUid;
+    const isDuplicatePhone = students.some(s =>
+      !isReusableDeletedProfile(s) &&
       s.phone && formData.phone && sanitizePhone(s.phone) === sanitizedFormDataPhone && s.id !== editingStudent?.id
     );
-    const isDuplicateEmail = students.some(s => 
+    const isDuplicateEmail = students.some(s =>
+      !isReusableDeletedProfile(s) &&
       s.email && formData.email && s.email.toLowerCase() === formData.email.toLowerCase() && s.id !== editingStudent?.id
     );
 
@@ -566,7 +580,9 @@ export default function StudentManagement({ user, profile, initialStudentId = nu
         crmProfileId: studentId,
         legacyStudent: newStudent,
       });
-      setAlertMessage(`Đã tạo hồ sơ Aura. Email đăng nhập: ${account.email}. Mật khẩu ban đầu là số điện thoại của học viên; học viên có thể đổi trong Hồ sơ cá nhân.`);
+      setAlertMessage(account.reusedDeletedProfile
+        ? `Đã tạo lại tài khoản Aura và khôi phục liên kết với hồ sơ cũ. Email đăng nhập: ${account.email}. Hợp đồng, lịch sử tập và chứng từ được giữ nguyên; mật khẩu ban đầu là số điện thoại.`
+        : `Đã tạo hồ sơ Aura. Email đăng nhập: ${account.email}. Mật khẩu ban đầu là số điện thoại của học viên; học viên có thể đổi trong Hồ sơ cá nhân.`);
     }
 
     setIsAdding(false);
@@ -604,8 +620,33 @@ export default function StudentManagement({ user, profile, initialStudentId = nu
     setStudentToDelete(null);
   };
 
+  const closeHardDelete = (force = false) => {
+    if (hardDeleting && !force) return;
+    setHardDeleteTarget(null);
+    setHardDeleteConfirmation('');
+    setHardDeleteError('');
+  };
+
+  const confirmHardDelete = async () => {
+    if (!hardDeleteTarget || !canHardDeleteStudents || hardDeleteTarget.status !== 'inactive') return;
+    if (hardDeleteConfirmation.trim().toLocaleUpperCase('vi') !== 'XÓA VĨNH VIỄN') return;
+    setHardDeleting(true);
+    setHardDeleteError('');
+    try {
+      const result = await hardDeleteStudent(hardDeleteTarget.id, hardDeleteConfirmation.trim());
+      setAlertMessage(result.preservedSessionCount
+        ? `Đã xóa hồ sơ ${hardDeleteTarget.name}. Giữ lại ${result.preservedSessionCount} buổi tập và bằng chứng tính lương.`
+        : `Đã xóa cứng hồ sơ ${hardDeleteTarget.name}. Dữ liệu lương/audit được giữ theo chính sách.`);
+      closeHardDelete(true);
+    } catch (cause) {
+      setHardDeleteError(cause instanceof Error ? cause.message : 'Không thể xóa cứng hồ sơ học viên.');
+    } finally {
+      setHardDeleting(false);
+    }
+  };
+
   if (directoryV2) {
-    return <React.Suspense fallback={<div className="student-management__loading" role="status">Đang tải danh bạ học viên…</div>}><AdminStudentDirectoryV2 initialSearchQuery={initialSearchQuery} initialStudentId={initialStudentId} onOpenStudent360={onOpenStudent360} /></React.Suspense>;
+    return <React.Suspense fallback={<div className="student-management__loading" role="status">Đang tải danh bạ học viên…</div>}><AdminStudentDirectoryV2 initialSearchQuery={initialSearchQuery} initialStudentId={initialStudentId} onOpenStudent360={onOpenStudent360} canHardDelete={canHardDeleteStudents} /></React.Suspense>;
   }
 
   return (
@@ -760,6 +801,13 @@ export default function StudentManagement({ user, profile, initialStudentId = nu
           setIsAdding(true);
         }}
         onArchive={handleDelete}
+        canHardDelete={canHardDeleteStudents}
+        onHardDelete={(student) => {
+          if (student.status !== 'inactive') return;
+          setHardDeleteTarget(student);
+          setHardDeleteConfirmation('');
+          setHardDeleteError('');
+        }}
         onRenew={(student, contract) => setRenewingStudent({ student, contract })}
       />
 
@@ -954,6 +1002,20 @@ export default function StudentManagement({ user, profile, initialStudentId = nu
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
+                    {canHardDeleteStudents && student.status === 'inactive' && (
+                      <button
+                        onClick={() => {
+                          setHardDeleteTarget(student);
+                          setHardDeleteConfirmation('');
+                          setHardDeleteError('');
+                        }}
+                        className="p-2 rounded-lg transition-colors text-red-300 hover:text-white bg-red-500/20 hover:bg-red-500/40"
+                        title="Xóa cứng hồ sơ"
+                        aria-label={`Xóa cứng ${student.name}`}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
                   </div>
                 </div>
                 
@@ -1186,6 +1248,39 @@ export default function StudentManagement({ user, profile, initialStudentId = nu
                 >
                   Đồng ý xóa
                 </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {hardDeleteTarget && (
+          <div className="fixed inset-0 z-[80] flex items-center justify-center p-4" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) closeHardDelete(); }}>
+            <motion.div
+              role="alertdialog"
+              aria-modal="true"
+              aria-labelledby="legacy-hard-delete-title"
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="relative w-full max-w-md bg-zinc-900 rounded-3xl p-6 shadow-2xl border border-red-500/30 text-white"
+            >
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="student-management__eyebrow text-red-300">XÓA DỮ LIỆU VĨNH VIỄN</p>
+                  <h3 id="legacy-hard-delete-title" className="mt-1 text-xl font-bold">Xóa {hardDeleteTarget.name}?</h3>
+                </div>
+                <button type="button" onClick={() => closeHardDelete()} disabled={hardDeleting} className="rounded-lg p-2 text-zinc-400 hover:bg-zinc-800 hover:text-white" aria-label="Đóng"><X className="h-5 w-5" /></button>
+              </div>
+              <p className="mt-4 text-sm leading-6 text-zinc-300">Hồ sơ, quyền truy cập và dữ liệu vận hành phụ sẽ bị xóa. Các buổi tập, điểm danh và bằng chứng tính lương vẫn được giữ lại để đối soát.</p>
+              <label className="mt-5 block text-sm text-zinc-300">Nhập <strong className="text-red-300">XÓA VĨNH VIỄN</strong> để xác nhận
+                <input autoFocus value={hardDeleteConfirmation} onChange={(event) => setHardDeleteConfirmation(event.target.value)} placeholder="XÓA VĨNH VIỄN" className="mt-2 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-3 text-white outline-none focus:border-red-400" />
+              </label>
+              {hardDeleteError && <div className="mt-4 flex items-start gap-2 rounded-xl bg-red-500/10 p-3 text-sm text-red-300" role="alert"><AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />{hardDeleteError}</div>}
+              <div className="mt-6 flex gap-3">
+                <button type="button" onClick={() => closeHardDelete()} disabled={hardDeleting} className="flex-1 rounded-xl bg-zinc-800 px-4 py-3 text-sm font-semibold text-zinc-200 hover:bg-zinc-700">Hủy</button>
+                <button type="button" onClick={() => void confirmHardDelete()} disabled={hardDeleting || hardDeleteConfirmation.trim().toLocaleUpperCase('vi') !== 'XÓA VĨNH VIỄN'} className="flex-1 inline-flex items-center justify-center gap-2 rounded-xl bg-red-600 px-4 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50">{hardDeleting ? <><LoaderCircle className="h-4 w-4 animate-spin" /> Đang xóa…</> : <><Trash2 className="h-4 w-4" /> Xóa cứng</>}</button>
               </div>
             </motion.div>
           </div>

@@ -1061,7 +1061,10 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
         candidateCache.current.set(cacheKey, result.candidates)
         setCandidates(result.candidates)
       }).catch((candidateError) => {
-        if (active) setError(asPtSchedulePublishError(candidateError).message)
+        if (active) {
+          const normalized = asPtSchedulePublishError(candidateError)
+          setError([normalized.message, ...normalized.conflicts.map(ptScheduleConflictLabel)].join(' · '))
+        }
       }).finally(() => {
         if (active) setCandidateLoading(false)
       })
@@ -1109,7 +1112,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
     } catch (commandError) {
       if (activeWorkspaceScopeRef.current !== commandScope) return false
       const normalized = asPtSchedulePublishError(commandError)
-      setError(normalized.message)
+      setError([normalized.message, ...normalized.conflicts.map(ptScheduleConflictLabel)].join(' · '))
       if (normalized.issueCode === 'REVISION_CONFLICT') await loadWorkspace(true)
       return false
     } finally {
@@ -1167,7 +1170,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
     } catch (editError) {
       if (activeWorkspaceScopeRef.current !== commandScope) return false
       const normalized = asPtSchedulePublishError(editError)
-      setError(normalized.message)
+      setError([normalized.message, ...normalized.conflicts.map(ptScheduleConflictLabel)].join(' · '))
       if (normalized.issueCode === 'REVISION_CONFLICT') await loadWorkspace(true)
       return false
     } finally {
@@ -1221,7 +1224,10 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
         ? 'Đã bổ sung ca vào lịch sử. Kỳ lương đã chốt cần xử lý bằng khoản điều chỉnh.'
         : 'Đã bổ sung ca vào lịch sử và chuyển sang chờ PT xác nhận.')
     } catch (cause) {
-      if (activeWorkspaceScopeRef.current === commandScope) setError(asPtSchedulePublishError(cause).message)
+      if (activeWorkspaceScopeRef.current === commandScope) {
+        const normalized = asPtSchedulePublishError(cause)
+        setError([normalized.message, ...normalized.conflicts.map(ptScheduleConflictLabel)].join(' · '))
+      }
     } finally {
       busyRef.current = false
       setBusy(false)
@@ -1908,7 +1914,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
                 </section>)}</div>
               </section>}
             </div>
-            {!inspectorEntries.some((entry) => entry.type === 'off') && <footer className="schedule-manual-confirm"><div>{pendingManualCandidate ? <><span>{inspectorSlotIsPast ? 'Bổ sung lịch sử' : 'Đang chọn'}</span><strong>{pendingManualCandidate.name}</strong></> : <><span>Chưa chọn học viên</span><strong>Chọn một hồ sơ ở trên</strong></>}</div><button type="button" onClick={() => setPendingManualCandidate(null)} disabled={!pendingManualCandidate || busy}>Hủy</button><button type="button" className="is-confirm" disabled={!pendingManualCandidate || busy || (inspectorSlotIsPast && historicalReason.trim().length < 8)} onClick={() => void (inspectorSlotIsPast ? confirmHistoricalCandidate() : confirmManualCandidate())}>{busy ? 'Đang xác nhận…' : inspectorSlotIsPast ? 'Ghi nhận ca bổ sung' : 'Xác nhận xếp ca'}</button></footer>}
+            {!inspectorEntries.some((entry) => entry.type === 'off') && <footer className="schedule-manual-confirm"><div>{pendingManualCandidate ? <><span>{inspectorSlotIsPast ? 'Bổ sung lịch sử' : 'Đang chọn'}</span><strong>{pendingManualCandidate.name}</strong></> : <><span>Chưa chọn học viên</span><strong>Chọn một hồ sơ ở trên</strong></>}</div><button type="button" onClick={() => setPendingManualCandidate(null)} disabled={!pendingManualCandidate || busy}>Hủy</button><button type="button" className="is-confirm" disabled={!pendingManualCandidate || busy || (inspectorSlotIsPast && historicalReason.trim().length < 8)} onClick={() => void (inspectorSlotIsPast ? confirmHistoricalCandidate() : confirmManualCandidate())}>{busy ? 'Đang xác nhận…' : inspectorSlotIsPast ? 'Ghi nhận ca bổ sung' : pendingManualCandidate && !candidateMatchesStudentAvailability(pendingManualCandidate) ? 'Xác nhận ngoại lệ & xếp ca' : 'Xác nhận xếp ca'}</button></footer>}
           </aside>
         </div>
       )}

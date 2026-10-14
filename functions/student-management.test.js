@@ -13,10 +13,16 @@ function clone(value) {
 
 function memoryDb(seed = {}) {
   const documents = new Map(Object.entries(seed).map(([path, value]) => [path, clone(value)]))
-  const reference = (path) => ({ path, id: path.split('/').at(-1) })
+  const reference = (path) => ({
+    path,
+    id: path.split('/').at(-1),
+    async get() { return documentSnapshot(this) },
+    collection(name) { return collection(`${path}/${name}`) },
+  })
   const documentSnapshot = (ref) => ({
     exists: documents.has(ref.path),
     id: ref.id,
+    ref,
     data: () => clone(documents.get(ref.path)),
   })
   const querySnapshot = (query) => {
@@ -32,11 +38,13 @@ function memoryDb(seed = {}) {
     collectionPath,
     filters,
     maximum,
+    doc(id) { return reference(`${collectionPath}/${id}`) },
     where(field, operator, value) {
       if (operator !== '==') throw new Error(`unsupported operator ${operator}`)
       return collection(collectionPath, [...filters, [field, value]], maximum)
     },
     limit(value) { return collection(collectionPath, filters, value) },
+    async get() { return querySnapshot(this) },
   })
   const merge = (current, next) => ({ ...(current || {}), ...clone(next) })
   return {
@@ -53,10 +61,13 @@ function memoryDb(seed = {}) {
         set(ref, value, options) {
           documents.set(ref.path, options?.merge ? merge(documents.get(ref.path), value) : clone(value))
         },
-        update(ref, value) {
-          if (!documents.has(ref.path)) throw new Error(`not found: ${ref.path}`)
-          documents.set(ref.path, merge(documents.get(ref.path), value))
-        },
+      update(ref, value) {
+        if (!documents.has(ref.path)) throw new Error(`not found: ${ref.path}`)
+        documents.set(ref.path, merge(documents.get(ref.path), value))
+      },
+      delete(ref) {
+        documents.delete(ref.path)
+      },
       }
       return handler(transaction)
     },
@@ -168,9 +179,60 @@ test('assigned PT can update scheduling fields but cannot edit CRM identity', as
   }), auth: { uid: trainerActor.uid } }), /chỉ được cập nhật thông tin phục vụ xếp lịch/)
 })
 
-test('student management never hard-deletes a learner and is callable-only', () => {
+test('student management remains callable-only and exposes a guarded hard-delete command', () => {
   const source = readFileSync(join(__dirname, 'student-management.js'), 'utf8')
-  assert.doesNotMatch(source, /transaction\.delete|\.delete\(\)/)
   assert.match(source, /withFunctionTelemetry\('updateStudentProfile'/)
   assert.match(source, /student\.archived/)
+  assert.match(source, /withFunctionTelemetry\('hardDeleteStudent'/)
+  assert.match(source, /XÓA VĨNH VIỄN/)
+  assert.match(source, /isHardDeleteActor/)
+  assert.match(source, /preservedSessionCount/)
+  assert.match(source, /uniqueReferencesToDelete\.forEach\(\(reference\) => transaction\.delete\(reference\)/)
+  assert.doesNotMatch(source, /transaction\.delete\(db\.doc\(`sessions\//)
+})
+
+test('hard delete removes profile-side documents but preserves sessions and contracts for payroll/audit', async () => {
+  const db = memoryDb({
+    'students/student-a': { name: 'Học viên A', branchId: 'branch-a', status: 'inactive', accountUid: 'member-1' },
+    'users/member-1': { uid: 'member-1', role: 'student' },
+    'roleAssignments/member-1': { uid: 'member-1', accessRole: 'student' },
+    'coachClients/member-1': { clientId: 'member-1', coachingStatus: 'onboarding' },
+    'accountIdentityLinks/member-1': { studentId: 'student-a', status: 'active' },
+    'users/member-1/mealLogs/meal-a': { id: 'meal-a', calories: 420 },
+    'users/member-1/progressCheckIns/checkin-a': { id: 'checkin-a', date: '2026-10-12' },
+    'studentOperationalViews/student-a': { studentId: 'student-a' },
+    'ptTrainingPrograms/student-a': { studentId: 'student-a' },
+    'ptTrainingPrograms/student-a/revisions/1': { studentId: 'student-a' },
+    'ptAvailability/student-a_2026-10-12': { studentId: 'student-a' },
+    'sessionRequests/request-a': { studentId: 'student-a' },
+    'sessions/session-a': { studentId: 'student-a', trainerId: 'trainer-1', status: 'completed' },
+    'contracts/contract-a': { studentId: 'student-a', status: 'cancelled' },
+  })
+  const result = await api(db).hardDeleteStudent({ data: { studentId: 'student-a', confirmation: 'XÓA VĨNH VIỄN' }, auth: { uid: adminActor.uid } })
+  assert.equal(result.deleted, true)
+  assert.equal(result.preservedSessionCount, 1)
+  assert.equal(result.preservedContractCount, 1)
+  assert.equal(db.documents.has('students/student-a'), false)
+  assert.equal(db.documents.has('sessions/session-a'), true)
+  assert.equal(db.documents.has('contracts/contract-a'), true)
+  assert.equal(db.documents.has('ptAvailability/student-a_2026-10-12'), false)
+  assert.equal(db.documents.has('users/member-1/mealLogs/meal-a'), false)
+  assert.equal(db.documents.has('users/member-1/progressCheckIns/checkin-a'), false)
+  assert.equal(db.documents.has('ptTrainingPrograms/student-a/revisions/1'), false)
+  assert.equal([...db.documents.keys()].some((path) => path.startsWith('identityAuditLogs/')), true)
+})
+
+test('hard delete blocks active contracts and non-admin actors', async () => {
+  const activeDb = memoryDb({
+    'students/student-a': { name: 'Học viên A', status: 'inactive' },
+    'contracts/contract-a': { studentId: 'student-a', status: 'active' },
+  })
+  await assert.rejects(api(activeDb).hardDeleteStudent({ data: { studentId: 'student-a', confirmation: 'XÓA VĨNH VIỄN' }, auth: { uid: adminActor.uid } }), /hợp đồng đang hiệu lực/)
+  const legacyActiveDb = memoryDb({
+    'students/student-a': { name: 'Học viên A', status: 'inactive' },
+    'contracts/contract-legacy': { crmProfileId: 'student-a', status: 'future' },
+  })
+  await assert.rejects(api(legacyActiveDb).hardDeleteStudent({ data: { studentId: 'student-a', confirmation: 'XÓA VĨNH VIỄN' }, auth: { uid: adminActor.uid } }), /hợp đồng đang hiệu lực/)
+  const staffDb = memoryDb({ 'students/student-a': { name: 'Học viên A', status: 'inactive' } })
+  await assert.rejects(api(staffDb, managerActor).hardDeleteStudent({ data: { studentId: 'student-a', confirmation: 'XÓA VĨNH VIỄN' }, auth: { uid: managerActor.uid } }), /Chỉ Admin hoặc Super Admin/)
 })

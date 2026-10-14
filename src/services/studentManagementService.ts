@@ -29,6 +29,17 @@ export interface UpdateStudentProfileResult {
   unchanged: boolean
 }
 
+export interface HardDeleteStudentResult {
+  studentId: string
+  deleted: boolean
+  preservedSessionCount: number
+  preservedContractCount: number
+  payrollEvidencePreserved: boolean
+  deletedProfileDocuments: number
+  auditLogId: string
+  authPendingDelete: boolean
+}
+
 function functionsOrThrow() {
   if (!firebaseFunctions) throw new Error('Dịch vụ hồ sơ học viên chưa sẵn sàng.')
   return firebaseFunctions
@@ -79,4 +90,16 @@ export async function updateStudentProfile(input: UpdateStudentProfileInput) {
     }
   }
   throw new Error('Chưa thể cập nhật hồ sơ học viên.')
+}
+
+export async function hardDeleteStudent(studentId: string, confirmation = 'XÓA VĨNH VIỄN'): Promise<HardDeleteStudentResult> {
+  const callable = httpsCallable<
+    { studentId: string; confirmation: string },
+    HardDeleteStudentResult
+  >(functionsOrThrow(), 'hardDeleteStudent', { timeout: 60_000 })
+  try {
+    return (await callable({ studentId, confirmation })).data
+  } catch (error) {
+    throw presentError(error)
+  }
 }

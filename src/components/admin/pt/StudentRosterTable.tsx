@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { CalendarDays, Edit2, Eye, RefreshCw, UserRoundX } from 'lucide-react';
+import { CalendarDays, Edit2, Eye, RefreshCw, Trash2, UserRoundX } from 'lucide-react';
 import type {
   Branch,
   Session,
@@ -18,9 +18,11 @@ interface StudentRosterTableProps {
   branches: Branch[];
   availability: PtAvailabilityDocument[];
   canManage: boolean;
+  canHardDelete?: boolean;
   onOpen: (studentId: string) => void;
   onEdit: (student: Student) => void;
   onArchive: (studentId: string) => void;
+  onHardDelete?: (student: Student) => void;
   onRenew: (student: Student, contract: StudentContract) => void;
 }
 
@@ -66,9 +68,11 @@ export default function StudentRosterTable({
   branches,
   availability,
   canManage,
+  canHardDelete = false,
   onOpen,
   onEdit,
   onArchive,
+  onHardDelete,
   onRenew,
 }: StudentRosterTableProps) {
   const rows = useMemo(() => {
@@ -201,6 +205,9 @@ export default function StudentRosterTable({
                   )}
                   <button type="button" onClick={() => onEdit(row.student)} disabled={!canManage} aria-label={`Sửa ${row.student.name}`} title="Sửa hồ sơ"><Edit2 size={17} /></button>
                   <button type="button" onClick={() => onArchive(row.student.id)} disabled={!canManage} aria-label={`Lưu trữ ${row.student.name}`} title="Lưu trữ"><UserRoundX size={17} /></button>
+                  {canHardDelete && row.student.status === 'inactive' && onHardDelete && (
+                    <button type="button" onClick={() => onHardDelete(row.student)} aria-label={`Xóa cứng ${row.student.name}`} title="Xóa cứng hồ sơ"><Trash2 size={17} /></button>
+                  )}
                 </div>
               </td>
             </tr>

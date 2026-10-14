@@ -108,6 +108,7 @@ export interface ProvisionStudentAccountResult {
   email: string
   passwordChangeRequired: boolean
   crmProfileId: string
+  reusedDeletedProfile?: boolean
 }
 
 export interface ProvisionStaffAccountInput {
