@@ -143,7 +143,7 @@ export async function getPtWorkoutWorkspace(from: string, to = from): Promise<Pt
 }
 
 export async function getPtStudentTrainingPlan(studentId?: string): Promise<PtTrainingProgram | null> {
-  const response = await callReadOnlyFunction<{ studentId?: string }, { program: PtTrainingProgram | null }>('getPtStudentTrainingPlan', { studentId })
+  const response = await callReadOnlyFunction<{ studentId?: string; personal?: boolean }, { program: PtTrainingProgram | null }>('getPtStudentTrainingPlan', studentId ? { studentId } : { personal: true })
   return response.program
 }
 
@@ -178,5 +178,5 @@ export async function savePtSessionWorkoutLog(input: {
 }
 
 export async function listPtWorkoutHistory(studentId?: string, limit = 60): Promise<PtWorkoutHistory> {
-  return callReadOnlyFunction<{ studentId?: string; limit: number }, PtWorkoutHistory>('listPtWorkoutHistory', { studentId, limit })
+  return callReadOnlyFunction<{ studentId?: string; personal?: boolean; limit: number }, PtWorkoutHistory>('listPtWorkoutHistory', studentId ? { studentId, limit } : { personal: true, limit })
 }

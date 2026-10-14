@@ -10,7 +10,15 @@ const {
   workspaceStudentIds,
   workoutMetrics,
   workoutSessionWriteIssue,
+  isPersonalWorkoutRead,
 } = require('./pt-workout-tracking')
+
+test('staff personal workout reads stay limited to the actor identity', () => {
+  const actor = { accessRole: 'staff', uid: 'auth-staff', legacyStaffId: 'crm-staff' }
+  assert.equal(isPersonalWorkoutRead(actor, { data: { personal: true } }, 'crm-staff'), true)
+  assert.equal(isPersonalWorkoutRead(actor, { data: {} }, 'auth-staff'), true)
+  assert.equal(isPersonalWorkoutRead(actor, { data: { personal: true, studentId: 'student-a' } }, 'student-a'), false)
+})
 
 test('program deletion audit identifies removed days without touching retained days', () => {
   const removed = deletedTrainingDays(

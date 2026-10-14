@@ -42,6 +42,7 @@ import { flattenCourseLessons, getInitialDemoCompletedLessonIds } from './utils/
 import ChunkErrorBoundary, { lazyWithRetry } from './components/ChunkErrorBoundary'
 import { adminViewPermissions, adminViews, canonicalRouteHash, eatCleanRouteHash, getCurrentRoute, isSameRoute, progressPhotoStudioRouteHash, resolveSupportedView, routeHash, student360RouteHash, type AuraRoute, type Student360Source } from './routing/appRouting'
 import { hasRouteCapability, type StaffPosition } from './identity/access'
+import { isStaffPersonalRoute, shouldOpenStaffDashboard } from './routing/staffWorkspace'
 import { toCourseDraft } from './utils/courseDraft'
 import { DatabaseProvider } from './contexts/DatabaseContext'
 import './styles.css'
@@ -171,7 +172,7 @@ function AuraApplication() {
   const canAccessAdmin = hasPermission(role, 'dashboard.view')
   const canManageAcademy = canAccessAdmin && hasPermission(role, 'course.view')
   const canManageCoaching = canAccessAdmin && hasPermission(role, 'program.view')
-  const isStaffWorkspace = accessContext?.accessRole === 'staff'
+  const isStaffAccount = accessContext?.accessRole === 'staff'
     || ['coach', 'trainer', 'sales', 'manager', 'editor'].includes(role)
   const staffPositions = useMemo<StaffPosition[]>(() => {
     if (accessContext?.positions.length) return accessContext.positions
@@ -180,6 +181,7 @@ function AuraApplication() {
   }, [accessContext?.positions, role])
   const [route, setRoute] = useState<AuraRoute>(getCurrentRoute)
   const view = route.view
+  const isStaffWorkspace = isStaffAccount && !isStaffPersonalRoute(route)
   const routeRef = useRef(route)
   const editorDirtyRef = useRef(false)
   const courseNoteDirtyRef = useRef(false)
@@ -565,7 +567,7 @@ function AuraApplication() {
       goTo('delivery')
       return
     }
-    if (isStaffWorkspace && role !== 'shipper' && view === 'home') {
+    if (isStaffAccount && shouldOpenStaffDashboard(view, window.location.hash)) {
       goTo('staff-dashboard')
       return
     }
@@ -574,8 +576,10 @@ function AuraApplication() {
       return
     }
     const outsideCapabilityBoundary = backendMode === 'firebase' && authzReady && !hasRouteCapability(view, hasCapability)
-    if (outsideAdminBoundary || outsideCapabilityBoundary || (requiredPermission && !hasPermission(role, requiredPermission))) goTo('home')
-  }, [authzReady, backendMode, canAccessAdmin, hasCapability, isStaffWorkspace, loading, role, user, view])
+    if (outsideAdminBoundary || outsideCapabilityBoundary || (requiredPermission && !hasPermission(role, requiredPermission))) {
+      goTo(isStaffAccount && hasCapability('dashboard.view') ? 'staff-dashboard' : 'home')
+    }
+  }, [authzReady, backendMode, canAccessAdmin, hasCapability, isStaffAccount, loading, role, user, view])
 
   const studentCourses = useMemo(() => studentCourseData.courses
     .filter((course) => {
@@ -1270,10 +1274,21 @@ function AuraApplication() {
       userRole={roleLabels[role]}
       userId={user?.uid ?? 'demo'}
       role={role}
-      setPreviewRole={setPreviewRole}
+      setPreviewRole={(nextRole) => {
+        if (backendMode !== 'demo') return
+        setPreviewRole(nextRole)
+        // Demo role selection starts in that role's workspace; the personal
+        // switch below deliberately leaves the role/identity unchanged.
+        navigate(nextRole === 'shipper' ? 'delivery' : legacyStaffPosition(nextRole) ? 'staff-dashboard' : 'home')
+      }}
       userPhoto={profile?.photoURL ?? user?.photoURL}
       backendMode={backendMode}
       isStaffWorkspace={isStaffWorkspace}
+      isStaffAccount={isStaffAccount && role !== 'shipper'}
+      onStaffWorkspaceChange={(personal) => {
+        setGlobalSearchQuery('')
+        navigate(personal ? 'home' : 'staff-dashboard')
+      }}
       staffPositions={staffPositions}
       onSignOut={signOut}
       onSearch={(query) => {

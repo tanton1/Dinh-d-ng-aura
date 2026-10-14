@@ -109,6 +109,31 @@ function actorIds(actor) {
   return new Set([actor.uid, actor.legacyStaffId].filter((item) => typeof item === 'string' && item))
 }
 
+function isPersonalWorkoutRead(actor, request, studentId) {
+  // A PT may also have a learner profile. The personal workspace sends no
+  // studentId (or an explicit `personal` marker), so this branch can only
+  // resolve to one of the actor's own verified identity ids. Any requested
+  // learner still goes through the normal assignment scope check below.
+  return actor.accessRole === 'staff'
+    && (request.data?.personal === true || !request.data?.studentId)
+    && actorIds(actor).has(studentId)
+}
+
+async function workoutReadStudentId(db, actor, request) {
+  const requestedId = request.data?.studentId
+  if (requestedId) return safeDocumentId(requestedId, 'Học viên')
+  if (actor.accessRole === 'staff') {
+    // Match the personal schedule resolver: a CRM id is preferred only when
+    // its learner profile exists. A staff-only CRM id must not hide a learner
+    // profile stored at the auth UID. At most two point reads, never a roster.
+    const ids = [...new Set([actor.legacyStaffId, actor.uid].filter(Boolean))]
+      .map((id) => safeDocumentId(id, 'Học viên'))
+    const profiles = await db.getAll(...ids.map((id) => db.doc(`students/${id}`)))
+    return profiles.find((profile) => profile.exists)?.id || actor.uid
+  }
+  return safeDocumentId(actor.legacyStaffId || actor.uid, 'Học viên')
+}
+
 function isOperationsAdmin(actor) {
   return actor.accessRole === 'admin' || actor.accessRole === 'super_admin'
 }
@@ -411,11 +436,11 @@ function createPtWorkoutTrackingFunctions({ db, onCall }) {
 
   const getPtStudentTrainingPlan = readCall(async (request) => {
     const actor = await trustedAccessContext(request, db)
-    const requestedStudentId = safeDocumentId(request.data?.studentId || actor.legacyStaffId || actor.uid, 'Học viên')
+    const requestedStudentId = await workoutReadStudentId(db, actor, request)
     const learnerIds = actorIds(actor)
     if (actor.accessRole === 'student') {
       if (!learnerIds.has(requestedStudentId)) throw new HttpsError('permission-denied', 'Bạn chỉ được xem giáo án của mình.')
-    } else {
+    } else if (!isPersonalWorkoutRead(actor, request, requestedStudentId)) {
       requireCapability(actor, 'pt.workout.manage')
       await assertStudentScope(db, actor, requestedStudentId)
     }
@@ -520,10 +545,10 @@ function createPtWorkoutTrackingFunctions({ db, onCall }) {
 
   const listPtWorkoutHistory = readCall(async (request) => {
     const actor = await trustedAccessContext(request, db)
-    const studentId = safeDocumentId(request.data?.studentId || actor.legacyStaffId || actor.uid, 'Học viên')
+    const studentId = await workoutReadStudentId(db, actor, request)
     if (actor.accessRole === 'student') {
       if (!actorIds(actor).has(studentId)) throw new HttpsError('permission-denied', 'Bạn chỉ được xem lịch sử của mình.')
-    } else {
+    } else if (!isPersonalWorkoutRead(actor, request, studentId)) {
       requireCapability(actor, 'pt.workout.manage')
       await assertStudentScope(db, actor, studentId)
     }
@@ -553,4 +578,5 @@ module.exports = {
   workspaceStudentIds,
   workoutSessionWriteIssue,
   workoutMetrics,
+  isPersonalWorkoutRead,
 }
