@@ -1830,7 +1830,7 @@ function createLoyaltyFunctions({ db, onCall, logger = console }) {
         updatedAt: FieldValue.serverTimestamp(),
       }, { merge: true })
     })
-    return { code, shareUrl: `${boundedString(process.env.PUBLIC_APP_URL || 'https://dinh-duong-aura.vercel.app', 'Địa chỉ Aura', 500)}?ref=${code}` }
+    return { code, shareUrl: `${boundedString(process.env.PUBLIC_APP_URL || 'https://aurafitness-jet.vercel.app', 'Địa chỉ Aura', 500)}?ref=${code}` }
   })
 
   const getMyReferralWorkspace = loyaltyCall(async (request) => {

@@ -914,7 +914,7 @@ test('revenue recognition migration creates only missing entries and preserves r
 })
 
 test('production authentication stays on the authorized Vercel application origin', () => {
-  assert.match(authOriginSource, /https:\/\/dinh-duong-aura\.vercel\.app/)
+  assert.match(authOriginSource, /https:\/\/aurafitness-jet\.vercel\.app/)
   assert.match(authOriginSource, /isLegacyFirebaseHostingOrigin/)
   assert.doesNotMatch(authOriginSource, /`https:\/\/\$\{firebaseProjectId\}\.web\.app`/)
 })

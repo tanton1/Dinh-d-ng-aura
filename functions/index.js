@@ -409,7 +409,7 @@ const enforceAppCheck = process.env.ENFORCE_APP_CHECK === 'true'
 const enforceAiAppCheck = (
   process.env.ENFORCE_AI_APP_CHECK ?? process.env.ENFORCE_APP_CHECK ?? 'true'
 ) === 'true'
-const publicAppUrl = process.env.PUBLIC_APP_URL || 'https://dinh-duong-aura.vercel.app'
+const publicAppUrl = process.env.PUBLIC_APP_URL || 'https://aurafitness-jet.vercel.app'
 const clientIncidentRateWindows = new Map()
 
 const appCheckPolicyLog = {

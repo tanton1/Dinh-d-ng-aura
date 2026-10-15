@@ -99,12 +99,12 @@ test('OpenRouter request enables strict structured output and required parameter
 test('OpenRouter headers keep the key server-side and use configured attribution URL', () => {
   const originalUrl = process.env.PUBLIC_APP_URL
   try {
-    process.env.PUBLIC_APP_URL = 'https://dinh-duong-aura.vercel.app'
+    process.env.PUBLIC_APP_URL = 'https://aurafitness-jet.vercel.app'
     assert.deepEqual(createOpenRouterHeaders('private-test-key'), {
       Authorization: 'Bearer private-test-key',
       'Content-Type': 'application/json',
       'X-OpenRouter-Title': 'Aura Fitness',
-      'HTTP-Referer': 'https://dinh-duong-aura.vercel.app',
+      'HTTP-Referer': 'https://aurafitness-jet.vercel.app',
     })
   } finally {
     if (originalUrl === undefined) delete process.env.PUBLIC_APP_URL

@@ -1,4 +1,4 @@
-const productionAppOrigin = 'https://dinh-duong-aura.vercel.app'
+const productionAppOrigin = 'https://aurafitness-jet.vercel.app'
 const configuredAuthOrigin = import.meta.env.VITE_AUTH_CANONICAL_ORIGIN?.trim()
 
 function isLegacyFirebaseHostingOrigin(value: string) {
