@@ -1,5 +1,6 @@
 'use strict'
 
+const { createHash } = require('node:crypto')
 const { FieldValue, Timestamp } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
 const { branchScheduleSnapshot, branchSlotCapacity, dateForSlot, nextWeek, normalizedCapacity, normalizedScheduleConfig, storedDate, trainerProfileForWeek, trainerIsAvailable } = require('./pt-schedule-publish')
@@ -10,13 +11,17 @@ const occupies = (session) => ['scheduled', 'rescheduled', 'completed', 'attende
 const sessionHour = (session, id) => Number.isInteger(session.hour) ? session.hour : Number(/^(?:T[2-7]|CN)-(\d{1,2})-/.exec(id)?.[1] ?? -1)
 const sameEntry = (entry, studentId, trainerId) => entry.type !== 'off' && entry.studentId === studentId && entry.trainerId === trainerId
 const fail = (code, message) => { throw new HttpsError('failed-precondition', message, { issueCode: code, errors: [code] }) }
+const deterministicAdminSessionId = (week, branchId, slotId, studentId) => {
+  const digest = createHash('sha256').update(`schedule_${week}|${branchId}|${slotId}|${studentId}`).digest('hex').slice(0, 40)
+  return `pt_${digest}`
+}
 
 // Explicit Admin edits reconcile the operational schedule and real session in
 // ONE transaction. They are not an optimizer override and never hard-delete
 // attendance/accounting evidence. Ordinary staff draft commands stay separate.
 async function applyAdminScheduleEdit({ db, actor, branchId, week, command, payload, reason, expectedRevision, receipt, safeSchedule, scopedDraftData, draftExpiresAt }) {
   if (!['admin', 'super_admin'].includes(actor.accessRole)) throw new HttpsError('permission-denied', 'Chỉ Admin được xác nhận điều chỉnh ca đã khóa hoặc đã ghi nhận.')
-  if (!['move_student', 'remove_student'].includes(command)) throw new HttpsError('invalid-argument', 'Lệnh điều chỉnh Admin không hợp lệ.')
+  if (!['add_student', 'move_student', 'remove_student'].includes(command)) throw new HttpsError('invalid-argument', 'Lệnh điều chỉnh Admin không hợp lệ.')
   const adminManualOverride = true
   reason = typeof reason === 'string' ? reason.trim().slice(0, 300) : ''
   // Matrix corrections are intentionally quick. Keep an audit reason, but
@@ -30,13 +35,15 @@ async function applyAdminScheduleEdit({ db, actor, branchId, week, command, payl
   const targetDate = dateForSlot(week, slotId.split('-')[0])
   const targetHour = Number(slotId.split('-')[1])
   if (command === 'move_student' && sourceSlot === slotId && sourceTrainerId === trainerId) throw new HttpsError('invalid-argument', 'Ca đích trùng ca nguồn.')
+  const targetSessionId = deterministicAdminSessionId(week, branchId, slotId, studentId)
+  const targetSessionReference = command === 'add_student' ? db.doc(`sessions/${targetSessionId}`) : null
   const draftRef = db.doc(`ptScheduleDrafts/${branchId}_${week}`)
   const legacyRef = db.doc(`schedules/schedule_${week}`)
   const instant = new Date()
   const targetInstant = new Date(`${targetDate}T${String(targetHour).padStart(2, '0')}:00:00+07:00`)
 
   return db.runTransaction(async (transaction) => {
-    const [prior, draftSnapshot, legacy, studentSnapshot, trainers, trainerWeek, learnerWeek, configSnapshot, studentSessions, branchSessions, contracts, leaves] = await Promise.all([
+    const [prior, draftSnapshot, legacy, studentSnapshot, trainers, trainerWeek, learnerWeek, configSnapshot, studentSessions, branchSessions, contracts, leaves, targetSessionSnapshot] = await Promise.all([
       transaction.get(receipt), transaction.get(draftRef), transaction.get(legacyRef),
       transaction.get(db.doc(`students/${studentId}`)),
       transaction.get(db.collection('trainers').where('branchId', '==', branchId).limit(101)),
@@ -47,6 +54,7 @@ async function applyAdminScheduleEdit({ db, actor, branchId, week, command, payl
       transaction.get(db.collection('sessions').where('branchId', '==', branchId).where('date', '>=', week).where('date', '<', nextWeek(week)).limit(1001)),
       transaction.get(db.collection('contracts').where('studentId', '==', studentId).limit(101)),
       transaction.get(db.collection('leaveRequests').where('trainerId', '==', trainerId).limit(1001)),
+      targetSessionReference ? transaction.get(targetSessionReference) : Promise.resolve(null),
     ])
     if (prior.exists) return prior.data().result
     if (trainers.size > 100 || contracts.size > 100 || studentSessions.size > 1000 || branchSessions.size > 1000 || leaves.size > 1000) throw new HttpsError('resource-exhausted', 'Dữ liệu vượt giới hạn đối chiếu ca an toàn.')
@@ -59,8 +67,17 @@ async function applyAdminScheduleEdit({ db, actor, branchId, week, command, payl
     const entries = (schedule[sourceSlot] || []).filter((entry) => sameEntry(entry, studentId, sourceTrainerId))
     const sourceMatches = studentSessions.docs.filter((item) => occupies(item.data()) && item.data().trainerId === sourceTrainerId
       && storedDate(item.data().date) === sourceDate && sessionHour(item.data(), item.id) === sourceHour)
+    if (command === 'add_student') {
+      if (entries.length) fail('DUPLICATE_SCHEDULE_ENTRY', 'Học viên đã có trong ca này.')
+      if (sourceMatches.length) fail('DUPLICATE_DEPLOYED_SESSION', 'Ca này đã có session thật. Hãy tải lại trước khi xếp thêm.')
+      if (targetSessionSnapshot?.exists) {
+        const existing = targetSessionSnapshot.data() || {}
+        if (occupies(existing)) fail('DUPLICATE_DEPLOYED_SESSION', 'Ca này đã có session thật. Hãy tải lại trước khi xếp thêm.')
+        fail('CANCELLED_SESSION_REINTRODUCED', 'Ca này từng bị hủy. Hãy dùng luồng Publish để tạo phiên bản mới.')
+      }
+    }
     if (entries.length > 1 || sourceMatches.length > 1) fail('DUPLICATE_DEPLOYED_SESSION', 'Ca nguồn bị trùng. Cần đối soát trước khi điều chỉnh.')
-    if (!entries.length && !sourceMatches.length) fail('SOURCE_SESSION_NOT_FOUND', 'Ca nguồn không còn tồn tại. Hãy tải lại lịch.')
+    if (command !== 'add_student' && !entries.length && !sourceMatches.length) fail('SOURCE_SESSION_NOT_FOUND', 'Ca nguồn không còn tồn tại. Hãy tải lại lịch.')
     const source = sourceMatches[0]
     const session = source?.data()
     if (session && session.branchId && !['all', branchId].includes(session.branchId)) throw new HttpsError('permission-denied', 'Buổi tập không thuộc cơ sở đang điều chỉnh.')
@@ -83,9 +100,9 @@ async function applyAdminScheduleEdit({ db, actor, branchId, week, command, payl
     if (payroll.some((item) => item.exists && item.data().status !== 'draft')) fail('PAYROLL_RUN_IMMUTABLE', 'Kỳ lương đã chốt; cần bù trừ, không sửa chứng từ ca gốc.')
     if (finance.some((item) => item.exists && item.data().status === 'locked')) fail('FINANCE_PERIOD_LOCKED', 'Kỳ tài chính đã khóa; cần điều chỉnh tại kỳ mở.')
 
-    const contractId = session?.contractId || entries[0]?.contractId || ''
+    let contractId = session?.contractId || entries[0]?.contractId || ''
     const contractSnapshot = contracts.docs.find((item) => item.id === contractId)
-    const contract = contractSnapshot?.data()
+    let contract = contractSnapshot?.data()
     if (command === 'remove_student' && session
       && (attendance?.exists || sessionCountsTowardContract(session)
         || ['completed', 'attended', 'no_show'].includes(String(session.status || '').toLowerCase()))) {
@@ -158,6 +175,98 @@ async function applyAdminScheduleEdit({ db, actor, branchId, week, command, payl
         ...(availabilityReason ? { availabilityOverride: true, availabilityOverrideReason: availabilityReason, availabilityOverrideBy: actor.uid, availabilityOverrideAt: instant.toISOString() } : {}),
       }
     }
+    if (command === 'add_student') {
+      const trainer = trainerProfileForWeek(trainerMap.get(trainerId) || {}, trainerWeek.exists ? trainerWeek.data() : null, week)
+      if (!trainerMap.has(trainerId) || ['inactive', 'archived', 'deleted'].includes(String(trainer.status || '').toLowerCase())) fail('TRAINER_NOT_ACTIVE', 'PT đích không còn hoạt động tại cơ sở này.')
+      if (!studentSnapshot.exists || ['inactive', 'archived', 'deleted'].includes(String(student.status || '').toLowerCase())) fail('STUDENT_NOT_ACTIVE', 'Hồ sơ học viên không còn hợp lệ.')
+      const crossBranch = Boolean(student.branchId) && student.branchId !== branchId
+      if (crossBranch) {
+        if (!payload.confirmCrossBranchStudent && !payload.adminOverride) fail('STUDENT_BRANCH_CONFIRMATION_REQUIRED', 'Học viên thuộc cơ sở khác; Admin cần xác nhận ngoại lệ trước khi xếp tay.')
+        warnings.push('STUDENT_BRANCH_MISMATCH')
+      }
+      const targetCalendar = normalizedScheduleConfig(configSnapshot.data())
+      const [targetDay] = slotId.split('-')
+      if (!targetCalendar.workingDays.includes(targetDay) || !targetCalendar.workingHours.includes(targetHour) || targetCalendar.holidays.includes(targetDate)) warnings.push('OUTSIDE_WORKING_CALENDAR')
+      if (!trainerIsAvailable(trainer, slotId)) warnings.push('OUTSIDE_TRAINER_AVAILABILITY')
+      if (leaves.docs.some((item) => item.data().status === 'approved'
+        && storedDate(item.data().startDate) <= targetDate
+        && storedDate(item.data().endDate || item.data().startDate) >= targetDate)) warnings.push('TRAINER_ON_LEAVE')
+
+      const studentAvailability = effectiveStudentAvailability({
+        targetWeek: week,
+        exact: learnerWeek.exists ? learnerWeek.data() : null,
+        profile: student,
+      })
+      const availabilityReason = !studentAvailability.confirmed
+        ? 'AVAILABILITY_NOT_SUBMITTED'
+        : !studentAvailability.slots.includes(slotId)
+          ? 'OUTSIDE_STUDENT_AVAILABILITY'
+          : ''
+      if (availabilityReason) warnings.push(availabilityReason)
+
+      const expectedContractBranch = crossBranch ? student.branchId : branchId
+      const contractRows = contracts.docs.map((item) => ({ id: item.id, ...item.data() }))
+        .filter((item) => item.studentId === studentId)
+        .sort((left, right) => String(right.endDate || '').localeCompare(String(left.endDate || '')))
+      const schedulableContract = contractRows.find((item) => {
+        const status = String(item.status || '').toLowerCase()
+        if (!['active', 'future'].includes(status) || (item.branchId && item.branchId !== expectedContractBranch)) return false
+        if (storedDate(item.startDate) > targetDate || storedDate(item.endDate) < targetDate) return false
+        if ((item.pausePeriods || []).some((period) => storedDate(period.startDate) <= targetDate && storedDate(period.endDate) >= targetDate)) return false
+        const usage = summarizeContractUsage(item, studentSessions.docs.filter((row) => row.data().contractId === item.id).map((row) => ({ id: row.id, ...row.data() })))
+        const held = studentSessions.docs.filter((row) => row.data().contractId === item.id
+          && ['scheduled', 'rescheduled'].includes(String(row.data().status || '').toLowerCase())
+          && row.data().billingStatus !== 'charged').length
+        return usage.remainingSessions - held > 0
+      })
+      // Keep a concrete contract link for an Admin exception when the latest
+      // matching record is expired, paused or out of quota, but surface that
+      // fact as a warning instead of presenting it as a valid entitlement.
+      const fallbackContract = contractRows.find((item) => !item.branchId || item.branchId === expectedContractBranch)
+      const selectedContract = schedulableContract || fallbackContract
+      contract = selectedContract || null
+      contractId = selectedContract?.id || ''
+      if (!schedulableContract) warnings.push('ACTIVE_CONTRACT_NOT_FOUND')
+      if (selectedContract) {
+        const usage = summarizeContractUsage(selectedContract, studentSessions.docs.filter((row) => row.data().contractId === selectedContract.id).map((row) => ({ id: row.id, ...row.data() })))
+        const held = studentSessions.docs.filter((row) => row.data().contractId === selectedContract.id
+          && ['scheduled', 'rescheduled'].includes(String(row.data().status || '').toLowerCase())
+          && row.data().billingStatus !== 'charged').length
+        if (usage.remainingSessions - held <= 0) warnings.push('CONTRACT_SESSION_QUOTA_EXCEEDED')
+      }
+
+      const targetDaySessions = studentSessions.docs.filter((item) => occupies(item.data()) && storedDate(item.data().date) === targetDate)
+      if (targetDaySessions.length) warnings.push('STUDENT_MULTIPLE_SESSIONS_PER_DAY')
+      const trainerSlotCount = branchSessions.docs.filter((item) => occupies(item.data())
+        && item.data().trainerId === trainerId
+        && storedDate(item.data().date) === targetDate
+        && sessionHour(item.data(), item.id) === targetHour).length
+      if (trainerSlotCount >= normalizedCapacity(trainer.slotCapacity)) warnings.push('TRAINER_CAPACITY_EXCEEDED')
+      const branchSlotCount = branchSessions.docs.filter((item) => occupies(item.data())
+        && storedDate(item.data().date) === targetDate
+        && sessionHour(item.data(), item.id) === targetHour
+        && (!item.data().branchId || item.data().branchId === branchId)).length
+      const branchCapacity = branchSlotCapacity(targetCalendar, branchId, slotId)
+      if (branchCapacity !== null && branchSlotCount >= branchCapacity) warnings.push('BRANCH_CAPACITY_REACHED')
+
+      const assignedTrainerIds = [...new Set([contract?.trainerId, ...(Array.isArray(contract?.trainerIds) ? contract.trainerIds : [])].filter(Boolean))]
+      if (assignedTrainerIds.length && !assignedTrainerIds.includes(trainerId)) warnings.push('TRAINER_ASSIGNMENT_MISMATCH')
+      nextEntry = {
+        studentId,
+        trainerId,
+        branchId,
+        contractId,
+        type: 'training',
+        source: 'manual_v2',
+        adminOverride: true,
+        adminOverrideBy: actor.uid,
+        adminOverrideAt: instant.toISOString(),
+        adminOverrideWarnings: [...new Set(warnings)],
+        ...(crossBranch ? { studentBranchWarning: true, studentHomeBranchId: student.branchId } : {}),
+        ...(assignedTrainerIds.length && !assignedTrainerIds.includes(trainerId) ? { trainerAssignmentWarning: true } : {}),
+        ...(availabilityReason ? { availabilityOverride: true, availabilityOverrideReason: availabilityReason, availabilityOverrideBy: actor.uid, availabilityOverrideAt: instant.toISOString() } : {}),
+      }
+    }
     if (session && command === 'remove_student' && sessionCountsTowardContract(session) && !contract) fail('ACTIVE_CONTRACT_NOT_FOUND', 'Cần xác định hợp đồng gốc để hoàn đúng số buổi khi gỡ lịch.')
     const reconcile = (original) => {
       const result = { ...original }
@@ -167,7 +276,16 @@ async function applyAdminScheduleEdit({ db, actor, branchId, week, command, payl
       return result
     }
     const nextSchedule = reconcile(schedule)
-    const result = { draftRevision: revision + 1, schedule: nextSchedule, weeklySessionTargets: draft?.weeklySessionTargets || {}, adminEdit: true, sessionChanged: Boolean(session), warnings: [...new Set(warnings)] }
+    const sessionChanged = Boolean(session) || command === 'add_student'
+    const result = {
+      draftRevision: revision + 1,
+      schedule: nextSchedule,
+      weeklySessionTargets: draft?.weeklySessionTargets || {},
+      adminEdit: true,
+      sessionChanged,
+      ...(sessionChanged ? { sessionId: source?.id || targetSessionId, sessionRevision: session ? Number(session.revision || 0) + 1 : 0 } : {}),
+      warnings: [...new Set(warnings)],
+    }
     const before = { date: sourceDate, hour: sourceHour, trainerId: sourceTrainerId, branchId, ...(session ? { status: session.status || '', billingStatus: session.billingStatus || '', attendanceStatus: session.attendanceStatus || '' } : {}) }
     const after = nextEntry ? { date: targetDate, hour: targetHour, trainerId, branchId } : { status: 'cancelled', billingStatus: 'exempt' }
     if (session) {
@@ -209,10 +327,68 @@ async function applyAdminScheduleEdit({ db, actor, branchId, week, command, payl
       for (const item of payroll) if (item.exists) transaction.update(db.doc(`payrollRuns/${item.id}`), { requiresRebuild: true, sourceDataStale: true, sourceDataChangedBy: actor.uid, sourceDataChangedAt: FieldValue.serverTimestamp(), sourceDataChangeReason: reason })
       transaction.create(db.collection('sessionEvents').doc(), { schemaVersion: 2, sessionId: source.id, type: command === 'move_student' ? 'teaching_shift_corrected' : 'admin_schedule_cancelled', from: before, to: after, reason, warnings, createdAt: FieldValue.serverTimestamp(), createdBy: actor.uid })
     }
-    transaction.set(draftRef, { schemaVersion: 2, branchId, weekId: week, schedule: nextSchedule, revision: revision + 1, status: 'draft', weeklySessionTargets: draft?.weeklySessionTargets || {}, unassignedEntries: [], optimizationSummary: FieldValue.delete(), expiresAt: draftExpiresAt(week), updatedAt: FieldValue.serverTimestamp(), updatedBy: actor.uid }, { merge: true })
+    if (command === 'add_student') {
+      transaction.create(targetSessionReference, {
+        schemaVersion: 2,
+        scheduleEntryId: `schedule_${week}-${slotId}-${studentId}`,
+        scheduleWeekId: week,
+        slotId,
+        studentId,
+        accountUid: student.accountUid || student.uid || null,
+        trainerId,
+        contractId,
+        branchId,
+        date: targetDate,
+        hour: targetHour,
+        status: 'scheduled',
+        scheduleStatus: 'scheduled',
+        billingStatus: 'pending',
+        attendanceStatus: 'pending',
+        source: 'admin_manual',
+        adminOverride: true,
+        adminOverrideBy: actor.uid,
+        adminOverrideAt: instant.toISOString(),
+        adminOverrideWarnings: [...new Set(warnings)],
+        ...(nextEntry.studentBranchWarning ? { studentBranchWarning: true, studentHomeBranchId: nextEntry.studentHomeBranchId } : {}),
+        ...(nextEntry.trainerAssignmentWarning ? { trainerAssignmentWarning: true } : {}),
+        ...(nextEntry.availabilityOverride ? { availabilityOverride: true, availabilityOverrideReason: nextEntry.availabilityOverrideReason, availabilityOverrideBy: actor.uid, availabilityOverrideAt: instant.toISOString() } : {}),
+        revision: 0,
+        verifiedByStudent: false,
+        createdAt: FieldValue.serverTimestamp(),
+        createdBy: actor.uid,
+        updatedAt: FieldValue.serverTimestamp(),
+        updatedBy: actor.uid,
+      })
+      transaction.create(db.collection('sessionEvents').doc(), {
+        schemaVersion: 2,
+        sessionId: targetSessionId,
+        type: 'admin_schedule_added',
+        from: null,
+        to: after,
+        reason: reason || 'Admin xếp buổi trực tiếp trên ma trận',
+        warnings,
+        createdAt: FieldValue.serverTimestamp(),
+        createdBy: actor.uid,
+      })
+    }
+    transaction.set(draftRef, {
+      schemaVersion: 2,
+      branchId,
+      weekId: week,
+      schedule: nextSchedule,
+      revision: revision + 1,
+      status: sessionChanged ? 'published' : 'draft',
+      ...(sessionChanged ? { publishedRevision: revision + 1 } : {}),
+      weeklySessionTargets: draft?.weeklySessionTargets || {},
+      unassignedEntries: [],
+      optimizationSummary: FieldValue.delete(),
+      expiresAt: draftExpiresAt(week),
+      updatedAt: FieldValue.serverTimestamp(),
+      updatedBy: actor.uid,
+    }, { merge: true })
     if (legacy.exists) transaction.update(legacyRef, { schedule: reconcile(legacy.data().schedule || {}), draftRevision: Number(legacy.data().draftRevision || 0) + 1, updatedAt: FieldValue.serverTimestamp(), updatedBy: actor.uid })
     transaction.create(receipt, { actorUid: actor.uid, branchId, weekId: week, command, result, createdAt: FieldValue.serverTimestamp() })
-    transaction.create(db.collection('ptOperationsAuditLogs').doc(), { schemaVersion: 2, action: `pt_schedule.admin_${command}`, actorUid: actor.uid, branchId, weekId: week, studentId, sessionId: source?.id || null, previousDraftRevision: revision, nextDraftRevision: revision + 1, from: before, to: after, reason, warnings, createdAt: FieldValue.serverTimestamp() })
+    transaction.create(db.collection('ptOperationsAuditLogs').doc(), { schemaVersion: 2, action: `pt_schedule.admin_${command}`, actorUid: actor.uid, branchId, weekId: week, studentId, sessionId: source?.id || (command === 'add_student' ? targetSessionId : null), previousDraftRevision: revision, nextDraftRevision: revision + 1, from: before, to: after, reason, warnings, createdAt: FieldValue.serverTimestamp() })
     return result
   })
 }

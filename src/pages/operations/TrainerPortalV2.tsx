@@ -248,6 +248,20 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
   }, [isDemo, rangeFrom, section, to])
   useEffect(() => { void load() }, [load])
   useEffect(() => {
+    if (isDemo || !['students', 'schedule'].includes(section)) return undefined
+    const refresh = () => {
+      if (document.hidden || loading || refreshing) return
+      void load()
+    }
+    const onVisibilityChange = () => { if (!document.hidden) refresh() }
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    const timer = window.setInterval(refresh, 5_000)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+      window.clearInterval(timer)
+    }
+  }, [isDemo, load, loading, refreshing, section])
+  useEffect(() => {
     if (section !== 'students') return
     const previous = staffStudentListMemory()
     window.sessionStorage.setItem(STAFF_STUDENT_LIST_MEMORY, JSON.stringify({

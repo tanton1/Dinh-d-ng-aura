@@ -411,7 +411,7 @@ async function publisherActor(request, db, branchId) {
   return actor
 }
 
-function desiredEntries({ scheduleId, week, branchId, schedule, trainers, students, contracts, availability, inheritedAvailability = new Map(), config, trainerLeaves = [], activeSessions = [], allowAdminOverrides = false }) {
+function desiredEntries({ scheduleId, week, branchId, schedule, trainers, students, contracts, availability, inheritedAvailability = new Map(), config, trainerLeaves = [], activeSessions = [], allowAdminOverrides = false, allowPublishWarnings = false }) {
   const calendar = normalizedScheduleConfig(config)
   const desired = new Map()
   const errors = []
@@ -423,6 +423,14 @@ function desiredEntries({ scheduleId, week, branchId, schedule, trainers, studen
   const addWarning = (code, detail = {}) => {
     warnings.push(code)
     if (warningDetails.length < 100) warningDetails.push({ code, ...context, ...detail })
+  }
+  // A confirmed Admin publish is allowed to carry operational exceptions
+  // forward.  Keep malformed rows and immutable session checks outside this
+  // mode, but turn scheduling-policy conflicts into auditable warnings.
+  const adminPublishWarningMode = allowPublishWarnings === true
+  const operationalIssue = (code, detail = {}) => {
+    if (adminPublishWarningMode) addWarning(code, detail)
+    else addError(code)
   }
   const studentDays = new Set()
   const studentSessions = new Map()
@@ -465,7 +473,7 @@ function desiredEntries({ scheduleId, week, branchId, schedule, trainers, studen
     const date = dateForSlot(week, day)
     const outsideWorkingCalendar = !workingDays.has(day) || (workingHours.size && !workingHours.has(hour)) || holidays.has(date)
     if (outsideWorkingCalendar && rawEntries.some((entry) => entry?.branchId === branchId)) {
-      if (rawEntries.some((entry) => allowAdminOverrides && entry?.source === 'manual_v2' && entry?.adminOverride === true)) addWarning('OUTSIDE_WORKING_CALENDAR')
+      if (adminPublishWarningMode || rawEntries.some((entry) => allowAdminOverrides && entry?.source === 'manual_v2' && entry?.adminOverride === true)) addWarning('OUTSIDE_WORKING_CALENDAR')
       else addError('OUTSIDE_WORKING_CALENDAR')
     }
     for (const raw of rawEntries) {
@@ -495,7 +503,12 @@ function desiredEntries({ scheduleId, week, branchId, schedule, trainers, studen
         continue
       }
       const student = students.get(studentId)
-      const adminOverride = allowAdminOverrides && raw.source === 'manual_v2' && raw.adminOverride === true
+      const manualAdminOverride = allowAdminOverrides && raw.source === 'manual_v2' && raw.adminOverride === true
+      // Keep the entry-level marker for an explicitly audited manual row.
+      // Admin publish mode is a publish-level acknowledgement and must not
+      // mark every otherwise valid session as “Admin xếp tay”.
+      const adminOverride = manualAdminOverride
+      const policyOverride = adminPublishWarningMode || adminOverride
       const adminOverrideWarnings = Array.isArray(raw.adminOverrideWarnings)
         ? [...new Set(raw.adminOverrideWarnings.filter((value) => typeof value === 'string').slice(0, MAX_ADMIN_OVERRIDE_WARNINGS))]
         : []
@@ -515,13 +528,13 @@ function desiredEntries({ scheduleId, week, branchId, schedule, trainers, studen
       // scopes the publish. A learner's profile branch may differ; that is a
       // visible warning, not a publish blocker.
       if (raw.branchId && raw.branchId !== 'all' && raw.branchId !== branchId) {
-        if (adminOverride) addWarning('TRAINER_BRANCH_MISMATCH')
+        if (policyOverride) addWarning('TRAINER_BRANCH_MISMATCH')
         else continue
       }
       // Keep PT scope strict: a branch manager must not publish a PT from a
       // different operational branch through this branch's schedule.
       if (trainer?.branchId && trainer.branchId !== branchId) {
-        if (adminOverride) addWarning('TRAINER_BRANCH_MISMATCH')
+        if (policyOverride) addWarning('TRAINER_BRANCH_MISMATCH')
         else continue
       }
       if (!resolvedEntryBranchId) {
@@ -529,11 +542,11 @@ function desiredEntries({ scheduleId, week, branchId, schedule, trainers, studen
         continue
       }
       if (!trainer || trainerIsLocked(trainer)) {
-        if (adminOverride) addWarning('TRAINER_NOT_ACTIVE')
+        if (policyOverride) addWarning('TRAINER_NOT_ACTIVE')
         else addError('TRAINER_NOT_ACTIVE')
       }
       if (!student || student.status === 'inactive') {
-        if (adminOverride) addWarning('STUDENT_NOT_ACTIVE')
+        if (policyOverride) addWarning('STUDENT_NOT_ACTIVE')
         else addError('STUDENT_NOT_ACTIVE')
       }
       if (student?.branchId && student.branchId !== branchId) addWarning('STUDENT_BRANCH_MISMATCH', {
@@ -542,14 +555,14 @@ function desiredEntries({ scheduleId, week, branchId, schedule, trainers, studen
       })
       const availabilityMode = trainerAvailabilityMode(trainer)
       if (trainer?.employmentType === 'collaborator') {
-        if (!Array.isArray(trainer.availableSlots) || !trainer.availableSlots.length) adminOverride ? addWarning('TRAINER_AVAILABILITY_UNCONFIGURED') : addError('TRAINER_AVAILABILITY_UNCONFIGURED')
-        else if (!trainer.availableSlots.includes(slotId)) adminOverride ? addWarning('OUTSIDE_TRAINER_AVAILABILITY') : addError('OUTSIDE_TRAINER_AVAILABILITY')
-      } else if (availabilityMode === 'unconfigured') adminOverride ? addWarning('TRAINER_AVAILABILITY_UNCONFIGURED') : addError('TRAINER_AVAILABILITY_UNCONFIGURED')
-      else if (!trainerIsAvailable(trainer, slotId)) adminOverride ? addWarning('OUTSIDE_TRAINER_AVAILABILITY') : addError('OUTSIDE_TRAINER_AVAILABILITY')
-      if (trainerIsOnLeave(trainerId, date, trainerLeaves)) adminOverride ? addWarning('TRAINER_ON_LEAVE') : addError('TRAINER_ON_LEAVE')
+        if (!Array.isArray(trainer.availableSlots) || !trainer.availableSlots.length) policyOverride ? addWarning('TRAINER_AVAILABILITY_UNCONFIGURED') : operationalIssue('TRAINER_AVAILABILITY_UNCONFIGURED')
+        else if (!trainer.availableSlots.includes(slotId)) policyOverride ? addWarning('OUTSIDE_TRAINER_AVAILABILITY') : operationalIssue('OUTSIDE_TRAINER_AVAILABILITY')
+      } else if (availabilityMode === 'unconfigured') policyOverride ? addWarning('TRAINER_AVAILABILITY_UNCONFIGURED') : operationalIssue('TRAINER_AVAILABILITY_UNCONFIGURED')
+      else if (!trainerIsAvailable(trainer, slotId)) policyOverride ? addWarning('OUTSIDE_TRAINER_AVAILABILITY') : operationalIssue('OUTSIDE_TRAINER_AVAILABILITY')
+      if (trainerIsOnLeave(trainerId, date, trainerLeaves)) policyOverride ? addWarning('TRAINER_ON_LEAVE') : operationalIssue('TRAINER_ON_LEAVE')
 
       const studentDay = `${studentId}|${date}`
-      if (studentDays.has(studentDay)) adminOverride ? addWarning('STUDENT_MULTIPLE_SESSIONS_PER_DAY') : addError('STUDENT_MULTIPLE_SESSIONS_PER_DAY')
+      if (studentDays.has(studentDay)) policyOverride ? addWarning('STUDENT_MULTIPLE_SESSIONS_PER_DAY') : operationalIssue('STUDENT_MULTIPLE_SESSIONS_PER_DAY')
       studentDays.add(studentDay)
       studentSessions.set(studentId, (studentSessions.get(studentId) || 0) + 1)
       trainerSlots.set(trainerSlot, (trainerSlots.get(trainerSlot) || 0) + 1)
@@ -566,17 +579,17 @@ function desiredEntries({ scheduleId, week, branchId, schedule, trainers, studen
       let availabilityIssue = null
       if (!effectiveAvailability.confirmed) availabilityIssue = 'AVAILABILITY_NOT_SUBMITTED'
       else if (!slots.has(slotId)) availabilityIssue = 'OUTSIDE_STUDENT_AVAILABILITY'
-      if (availabilityIssue && (override || adminOverride)) addWarning(adminOverride ? availabilityIssue : 'MANUAL_STUDENT_AVAILABILITY_OVERRIDE')
-      else if (availabilityIssue) addError(availabilityIssue)
+      if (availabilityIssue && (override || policyOverride)) addWarning(policyOverride ? availabilityIssue : 'MANUAL_STUDENT_AVAILABILITY_OVERRIDE')
+      else if (availabilityIssue) operationalIssue(availabilityIssue)
       if (effectiveAvailability.source === 'inherited_weekly') addWarning('INHERITED_AVAILABILITY_FALLBACK')
       if (effectiveAvailability.source === 'legacy_default') addWarning('LEGACY_AVAILABILITY_FALLBACK')
 
-      const confirmedCrossBranch = raw.source === 'manual_v2'
-        && raw.studentBranchWarning === true
-        && Boolean(raw.contractId)
+      const confirmedCrossBranch = (adminPublishWarningMode || raw.source === 'manual_v2')
+        && (adminPublishWarningMode || raw.studentBranchWarning === true)
+        && Boolean(raw.contractId || adminPublishWarningMode)
         && Boolean(student?.branchId)
         && student.branchId !== branchId
-        && raw.studentHomeBranchId === student.branchId
+        && (adminPublishWarningMode || raw.studentHomeBranchId === student.branchId)
       const contractResolution = resolveSchedulingContract({
         contracts,
         studentId,
@@ -585,8 +598,8 @@ function desiredEntries({ scheduleId, week, branchId, schedule, trainers, studen
         reservationsByContract,
       })
       if (!contractResolution.contract) {
-        if (!adminOverride) {
-          contractResolution.reasons.forEach(addError)
+        if (!policyOverride) {
+          contractResolution.reasons.forEach(operationalIssue)
           continue
         }
         contractResolution.reasons.forEach(addWarning)
@@ -613,16 +626,16 @@ function desiredEntries({ scheduleId, week, branchId, schedule, trainers, studen
         const pauseEnd = storedDate(period?.endDate)
         return pauseStart && pauseEnd && date >= pauseStart && date <= pauseEnd
       })) {
-        if (adminOverride) addWarning('CONTRACT_PAUSED')
+        if (policyOverride) addWarning('CONTRACT_PAUSED')
         else {
-          addError('CONTRACT_PAUSED')
+          operationalIssue('CONTRACT_PAUSED')
           continue
         }
       }
       const key = entryKey(scheduleId, slotId, studentId)
       if (desired.has(key)) {
-        if (adminOverride) addWarning('DUPLICATE_SCHEDULE_ENTRY')
-        else addError('DUPLICATE_SCHEDULE_ENTRY')
+        if (policyOverride) addWarning('DUPLICATE_SCHEDULE_ENTRY')
+        else operationalIssue('DUPLICATE_SCHEDULE_ENTRY')
         continue
       }
       desired.set(key, {
@@ -662,18 +675,18 @@ function desiredEntries({ scheduleId, week, branchId, schedule, trainers, studen
     const trainerId = key.split('|').at(-1)
     const [date, hour] = key.split('|')
     context = { date, hour: Number(hour), slotId: slotIdForDateHour(week, date, Number(hour)), trainerId, trainerName: trainers.get(trainerId)?.name || null }
-    if (offSlots.has(key)) adminOverrideTrainerSlots.has(key) ? addWarning('TRAINER_OFF_CONFLICT') : addError('TRAINER_OFF_CONFLICT')
-    if (count > normalizedCapacity(trainers.get(trainerId)?.slotCapacity)) adminOverrideTrainerSlots.has(key) ? addWarning('TRAINER_CAPACITY_EXCEEDED') : addError('TRAINER_CAPACITY_EXCEEDED')
+    if (offSlots.has(key)) adminOverrideTrainerSlots.has(key) ? addWarning('TRAINER_OFF_CONFLICT') : operationalIssue('TRAINER_OFF_CONFLICT')
+    if (count > normalizedCapacity(trainers.get(trainerId)?.slotCapacity)) adminOverrideTrainerSlots.has(key) ? addWarning('TRAINER_CAPACITY_EXCEEDED') : operationalIssue('TRAINER_CAPACITY_EXCEEDED')
   }
   for (const [slotId, count] of branchSlots) {
     context = { slotId }
     const capacity = branchSlotCapacity(calendar, branchId, slotId)
-    if (capacity !== null && count > capacity) adminOverrideBranchSlots.has(slotId) ? addWarning('BRANCH_CAPACITY_REACHED') : addError('BRANCH_CAPACITY_REACHED')
+    if (capacity !== null && count > capacity) adminOverrideBranchSlots.has(slotId) ? addWarning('BRANCH_CAPACITY_REACHED') : operationalIssue('BRANCH_CAPACITY_REACHED')
   }
   for (const [studentId, count] of studentSessions) {
     context = { studentId, studentName: students.get(studentId)?.name || null }
     const target = Number(students.get(studentId)?.sessionsPerWeek)
-    if (Number.isInteger(target) && target >= 0 && count > target) adminOverrideStudents.has(studentId) ? addWarning('STUDENT_WEEKLY_TARGET_REACHED') : addError('STUDENT_WEEKLY_TARGET_REACHED')
+    if (Number.isInteger(target) && target >= 0 && count > target) adminOverrideStudents.has(studentId) ? addWarning('STUDENT_WEEKLY_TARGET_REACHED') : operationalIssue('STUDENT_WEEKLY_TARGET_REACHED')
   }
   if (desired.size > MAX_SCHEDULE_ENTRIES) addError('SCHEDULE_TOO_LARGE')
   return { desired, errorDetails, errors: [...new Set(errors)], warnings: [...new Set(warnings)], warningDetails }
@@ -686,6 +699,10 @@ function createPtSchedulePublishFunctions({ db, onCall, onScheduleMutation = () 
     const expectedDraftRevision = Number(request.data?.expectedDraftRevision)
     if (!Number.isInteger(expectedDraftRevision) || expectedDraftRevision < 0) throw new HttpsError('invalid-argument', 'Phiên bản lịch nháp không hợp lệ.')
     const actor = await publisherActor(request, db, branchId)
+    // Admins may explicitly publish a draft that contains operational policy
+    // conflicts. The validator still rejects malformed rows and immutable
+    // session changes; eligible conflicts are returned as auditable warnings.
+    const adminPublishWarningMode = ['admin', 'super_admin'].includes(actor.accessRole)
     const scheduleId = `schedule_${week}`
     const scheduleReference = db.doc(`schedules/${scheduleId}`)
     const v2DraftReference = db.doc(`ptScheduleDrafts/${branchId}_${week}`)
@@ -798,7 +815,8 @@ function createPtSchedulePublishFunctions({ db, onCall, onScheduleMutation = () 
         config: configSnapshot.data() || {},
         trainerLeaves: trainerLeavesSnapshot.docs.map((item) => item.data()),
         activeSessions: activeSessionDocs.map((item) => ({ id: item.id, ...item.data() })),
-        allowAdminOverrides: ['admin', 'super_admin'].includes(actor.accessRole),
+        allowAdminOverrides: adminPublishWarningMode,
+        allowPublishWarnings: adminPublishWarningMode,
       })
       if (prepared.errors.length) throw scheduleError('SCHEDULE_VALIDATION_FAILED', 'Lịch nháp còn xung đột và chưa thể publish.', { errors: prepared.errors, errorDetails: prepared.errorDetails })
       const acknowledgedWarnings = new Set(Array.isArray(request.data?.acknowledgedWarnings)
@@ -843,7 +861,7 @@ function createPtSchedulePublishFunctions({ db, onCall, onScheduleMutation = () 
       for (const [slotId, count] of totalBranchLoadBySlot) {
         const capacity = branchSlotCapacity(configSnapshot.data(), branchId, slotId)
         if (capacity !== null && count > capacity) {
-          const hasAdminOverride = desiredValues.some((desired) => desired.slotId === slotId && desired.adminOverride === true)
+          const hasAdminOverride = adminPublishWarningMode || desiredValues.some((desired) => desired.slotId === slotId && desired.adminOverride === true)
           if (hasAdminOverride) prepared.warnings.push('BRANCH_CAPACITY_REACHED')
           else throw scheduleError('BRANCH_CAPACITY_REACHED', 'Khung giờ đã vượt công suất tổng của chi nhánh.')
         }
@@ -854,7 +872,7 @@ function createPtSchedulePublishFunctions({ db, onCall, onScheduleMutation = () 
         const date = storedDate(session.date)
         const hour = storedHour(session.hour, item.id)
         if (desiredValues.some((desired) => desired.studentId === session.studentId && desired.date === date)) {
-          const hasAdminOverride = desiredValues.some((desired) => desired.studentId === session.studentId && desired.date === date && desired.adminOverride === true)
+          const hasAdminOverride = adminPublishWarningMode || desiredValues.some((desired) => desired.studentId === session.studentId && desired.date === date && desired.adminOverride === true)
           if (hasAdminOverride) prepared.warnings.push('STUDENT_MULTIPLE_SESSIONS_PER_DAY')
           else throw scheduleError('STUDENT_MULTIPLE_SESSIONS_PER_DAY', 'Học viên đã có một buổi khác trong ngày được chọn.')
         }
@@ -865,7 +883,7 @@ function createPtSchedulePublishFunctions({ db, onCall, onScheduleMutation = () 
           }).length
           const desiredCount = desiredValues.filter((desired) => desired.trainerId === session.trainerId && desired.date === date && desired.hour === hour).length
           if (externalCount + desiredCount > normalizedCapacity(trainers.get(session.trainerId)?.slotCapacity)) {
-            const hasAdminOverride = desiredValues.some((desired) => desired.trainerId === session.trainerId && desired.date === date && desired.hour === hour && desired.adminOverride === true)
+            const hasAdminOverride = adminPublishWarningMode || desiredValues.some((desired) => desired.trainerId === session.trainerId && desired.date === date && desired.hour === hour && desired.adminOverride === true)
             if (hasAdminOverride) prepared.warnings.push('TRAINER_CAPACITY_EXCEEDED')
             else throw scheduleError('TRAINER_CAPACITY_EXCEEDED', 'Khung giờ PT đã vượt sức chứa.')
           }
@@ -888,7 +906,7 @@ function createPtSchedulePublishFunctions({ db, onCall, onScheduleMutation = () 
             && value.billingStatus !== 'charged'
         }).length
         if (Number(contract?.usedSessions || 0) + otherPlanned + count > contractSchedulingEntitlement(contract)) {
-          const hasAdminOverride = desiredValues.some((desired) => desired.contractId === contractId && desired.adminOverride === true)
+          const hasAdminOverride = adminPublishWarningMode || desiredValues.some((desired) => desired.contractId === contractId && desired.adminOverride === true)
           if (hasAdminOverride) prepared.warnings.push('CONTRACT_SESSION_QUOTA_EXCEEDED')
           else throw scheduleError('CONTRACT_SESSION_QUOTA_EXCEEDED', 'Số buổi đã học và đang xếp vượt quá gói tập.')
         }

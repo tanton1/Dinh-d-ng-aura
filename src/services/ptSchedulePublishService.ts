@@ -639,7 +639,7 @@ export function applyPtScheduleDraftCommand(input: {
   return invoke<typeof input, { draftRevision: number; schedule: Schedule; weeklySessionTargets?: Record<string, number>; warnings?: string[] }>('applyPtScheduleDraftCommand', input)
 }
 
-export type PtScheduleAdminEditCommand = 'move_student' | 'remove_student'
+export type PtScheduleAdminEditCommand = 'add_student' | 'move_student' | 'remove_student'
 
 export type PtScheduleAdminEditInput = Record<string, unknown> & {
   weekId: string
@@ -658,5 +658,7 @@ export function applyAdminPtScheduleEdit(input: PtScheduleAdminEditInput) {
     weeklySessionTargets?: Record<string, number>
     warnings?: string[]
     sessionChanged?: boolean
+    sessionId?: string
+    sessionRevision?: number
   }>('adminEditPtSchedule', input)
 }

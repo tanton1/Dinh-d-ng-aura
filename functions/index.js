@@ -801,7 +801,7 @@ const adminEditPtSchedule = ptScheduleOnCall(async (request) => {
     throw new HttpsError('permission-denied', 'Chỉ Admin được điều chỉnh buổi đã publish hoặc ca đã qua.')
   }
   const command = request.data?.command
-  if (!['move_student', 'remove_student'].includes(command)) {
+  if (!['add_student', 'move_student', 'remove_student'].includes(command)) {
     throw new HttpsError('invalid-argument', 'Lệnh điều chỉnh Admin không hợp lệ.')
   }
   const expectedDraftRevision = Number(request.data?.expectedDraftRevision)

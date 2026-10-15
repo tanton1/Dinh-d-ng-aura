@@ -253,8 +253,8 @@ export default function SchedulePage({ onNavigate, isDemo = false }: { onNavigat
   }, [today])
 
   // Keep schedule, attendance and payment alerts fresh without a full page
-  // reload. Poll only while the tab is visible; returning to the tab triggers
-  // an immediate read so staff changes are reflected quickly.
+  // reload. Admin corrections write live sessions directly after publish, so
+  // a short visible-tab poll surfaces them without another Publish action.
   useEffect(() => {
     if (isDemo) return
     const refresh = () => {
@@ -263,7 +263,7 @@ export default function SchedulePage({ onNavigate, isDemo = false }: { onNavigat
     }
     const onVisibilityChange = () => { if (!document.hidden) refresh() }
     document.addEventListener('visibilitychange', onVisibilityChange)
-    const timer = window.setInterval(refresh, 90_000 + Math.floor(Math.random() * 15_000))
+    const timer = window.setInterval(refresh, 5_000)
     return () => {
       document.removeEventListener('visibilitychange', onVisibilityChange)
       window.clearInterval(timer)

@@ -413,6 +413,28 @@ test('Admin override publish retains hard conflicts as warnings instead of block
   assert.equal(session.adminOverride, true)
 })
 
+test('confirmed Admin publish mode carries policy conflicts as warnings without relabeling valid sessions', () => {
+  const fixture = baseFixture()
+  fixture.availability.set('student-a', { studentId: 'student-a', status: 'submitted', slots: ['T3-7'] })
+  fixture.trainers.set('trainer-a', {
+    ...fixture.trainers.get('trainer-a'),
+    availableSlots: ['T3-7'],
+    slotCapacity: 1,
+  })
+  fixture.contracts[0].endDate = '2026-08-23'
+  fixture.students.get('student-a').sessionsPerWeek = 0
+
+  const result = desiredEntries({ ...fixture, allowPublishWarnings: true })
+  assert.deepEqual(result.errors, [])
+  assert.ok(result.warnings.includes('OUTSIDE_STUDENT_AVAILABILITY'))
+  assert.ok(result.warnings.includes('OUTSIDE_TRAINER_AVAILABILITY'))
+  assert.ok(result.warnings.includes('ACTIVE_CONTRACT_NOT_FOUND'))
+  assert.ok(result.warnings.includes('STUDENT_WEEKLY_TARGET_REACHED'))
+  const session = [...result.desired.values()][0]
+  assert.equal(session.adminOverride, undefined)
+  assert.equal(session.adminOverrideBy, undefined)
+})
+
 test('accepts confirmed recurring availability when no weekly document exists', () => {
   const fixture = baseFixture()
   fixture.availability.clear()

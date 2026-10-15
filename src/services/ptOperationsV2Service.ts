@@ -368,11 +368,12 @@ export async function getMyTrainerWorkspace(
   from: string,
   to: string,
   limit = section === 'students' ? 100 : 300,
+  cacheTtlMs = 4_000,
 ) {
   return cachedCall<
     { section: 'students' | 'schedule' | 'requests'; from: string; to: string; limit: number },
     TrainerWorkspaceBootstrap
-  >('getMyTrainerWorkspace', { section, from, to, limit }, 30_000)
+  >('getMyTrainerWorkspace', { section, from, to, limit }, cacheTtlMs)
 }
 
 export async function getMyTrainerStudentDetail(studentId: string, weekId: string) {

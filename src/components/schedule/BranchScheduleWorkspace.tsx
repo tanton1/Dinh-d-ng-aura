@@ -1188,7 +1188,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
     }
   }
 
-  const runAdminEdit = async (command: 'move_student' | 'remove_student', payload: Record<string, unknown>, reason: string) => {
+  const runAdminEdit = async (command: 'add_student' | 'move_student' | 'remove_student', payload: Record<string, unknown>, reason: string) => {
     if (!workspace || busyRef.current) return false
     const normalizedReason = reason.trim()
     const auditReason = normalizedReason || (command === 'remove_student' ? 'Admin gỡ buổi trực tiếp trên ma trận' : 'Admin điều chỉnh buổi trực tiếp trên ma trận')
@@ -1213,18 +1213,36 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
         const next = workspaceFromDraftSnapshot(current, {
           revision: result.draftRevision,
           schedule: result.schedule,
-          status: 'draft',
+          // A direct Admin correction has already reconciled the real session.
+          // Keep the workspace published so the next edit does not force a
+          // second Publish step.
+          status: result.sessionChanged ? 'published' : 'draft',
+          ...(result.sessionChanged ? { publishedRevision: result.draftRevision } : {}),
           weeklySessionTargets: result.weeklySessionTargets || {},
           warnings: [],
           unassignedEntries: [],
         })
+        if (result.sessionChanged) {
+          const refs = { ...(current.sessionRefs || {}) }
+          const sourceKey = `${payload.studentId}|${payload.fromTrainerId || payload.trainerId}|${payload.fromSlotId || payload.slotId}`
+          const targetKey = `${payload.studentId}|${payload.trainerId}|${payload.slotId}`
+          if (command === 'remove_student') delete refs[sourceKey]
+          else {
+            const source = refs[sourceKey]
+            if (command === 'move_student' && sourceKey !== targetKey) delete refs[sourceKey]
+            refs[targetKey] = {
+              sessionId: result.sessionId || source?.sessionId || '',
+              revision: Number(result.sessionRevision ?? (source?.revision || 0) + 1),
+            }
+          }
+          next.sessionRefs = Object.fromEntries(Object.entries(refs).filter(([, value]) => value.sessionId))
+        }
         workspaceRef.current = next
         return next
       })
       candidateCache.current.clear()
-      await loadWorkspace(true)
       setNotice(result.sessionChanged
-        ? (command === 'remove_student' ? 'Đã gỡ buổi tập và đồng bộ lịch PT; đã lưu lịch sử điều chỉnh.' : 'Đã chuyển buổi tập và đồng bộ lịch PT; đã lưu lịch sử điều chỉnh.')
+        ? (command === 'remove_student' ? 'Đã gỡ buổi tập và đồng bộ lịch PT; đã lưu lịch sử điều chỉnh.' : command === 'add_student' ? 'Đã thêm buổi tập và đồng bộ ngay lịch PT, học viên.' : 'Đã chuyển buổi tập và đồng bộ lịch PT; đã lưu lịch sử điều chỉnh.')
         : 'Đã lưu điều chỉnh lịch nháp; cần Publish để áp dụng lên lịch PT.')
       setNoticeAction(result.sessionChanged ? null : 'publish')
       setPendingMove(null)
@@ -1252,14 +1270,20 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
       pendingManualCandidate.trainerAssignmentWarning ? 'PT hỗ trợ ngoài danh sách PT chính/phụ' : '',
       pendingManualCandidate.studentBranchWarning ? 'Xác nhận học viên tập khác cơ sở hồ sơ' : '',
     ].filter(Boolean).join(' · ')
-    await runCommand('add_student', {
+    const payload = {
       slotId: inspectorSlotId,
       trainerId: selectedTrainerId,
       studentId: pendingManualCandidate.studentId,
       ...(isAdmin ? { adminOverride: true } : {}),
       ...(outsideAvailability ? { allowOutsideStudentAvailability: true } : {}),
       ...(pendingManualCandidate.studentBranchWarning ? { confirmCrossBranchStudent: true } : {}),
-    }, reason)
+    }
+    const hasPublishedSchedule = workspace?.draftStatus === 'published' || Number(workspace?.publishedVersion || 0) > 0
+    if (isAdmin && hasPublishedSchedule && !inspectorSlotIsPast) {
+      await runAdminEdit('add_student', payload, reason)
+      return
+    }
+    await runCommand('add_student', payload, reason)
   }
 
   const confirmHistoricalCandidate = async () => {
@@ -1328,6 +1352,22 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
       ? await runAdminEdit('remove_student', payload, adminEditReason)
       : await runCommand('remove_student', payload, 'Gỡ học viên khỏi ca nháp')
     if (success) setPendingAdminRemoval(null)
+  }
+
+  const removeStudentFromSlot = async (studentId: string, slotId: string, trainerId: string) => {
+    if (!isAdmin) {
+      setPendingMove(null)
+      setAdminEditReason('')
+      setPendingAdminRemoval({ studentId, slotId, trainerId })
+      return
+    }
+    const student = workspace?.students.find((item) => item.id === studentId)
+    await runAdminEdit('remove_student', {
+      studentId,
+      slotId,
+      trainerId,
+      ...(student && student.branchId !== branchId ? { confirmCrossBranchStudent: true } : {}),
+    }, '')
   }
 
   const setWeeklyTarget = async (studentId: string, targetSessions: number | null) => {
@@ -1933,7 +1973,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
                     <div>
                       <button type="button" title={entry.isLocked ? 'Mở khóa' : 'Khóa'} disabled={busy || inspectorSlotIsPast} onClick={() => void runCommand(entry.isLocked ? 'unlock_entry' : 'lock_entry', { slotId: inspectorSlotId, trainerId: selectedTrainerId, studentId: entry.studentId })}>{entry.isLocked ? <Unlock /> : <Lock />}</button>
                       <button type="button" title="Chuyển ca" aria-label={`Chuyển ca của ${studentName(entry.studentId)}`} disabled={busy || (!isAdmin && (inspectorSlotIsPast || entry.isLocked || entry.source === 'published_existing'))} onClick={() => { setPendingAdminRemoval(null); setAdminEditReason(''); setPendingMove({ studentId: entry.studentId, fromSlotId: inspectorSlotId!, fromTrainerId: selectedTrainerId, slotId: inspectorSlotId!, trainerId: selectedTrainerId }) }}><CalendarRange /></button>
-                      <button type="button" className="is-remove" title={isAdmin ? 'Gỡ buổi và cập nhật session' : 'Gỡ khỏi draft'} disabled={busy || (!isAdmin && (inspectorSlotIsPast || entry.isLocked || entry.source === 'published_existing'))} onClick={() => { setPendingMove(null); setAdminEditReason(''); setPendingAdminRemoval({ studentId: entry.studentId, slotId: inspectorSlotId!, trainerId: selectedTrainerId }) }}><X /></button>
+                      <button type="button" className="is-remove" title={isAdmin ? 'Gỡ buổi và cập nhật session' : 'Gỡ khỏi draft'} disabled={busy || (!isAdmin && (inspectorSlotIsPast || entry.isLocked || entry.source === 'published_existing'))} onClick={() => void removeStudentFromSlot(entry.studentId, inspectorSlotId!, selectedTrainerId)}><X /></button>
                     </div>
                   </article>
                 })}

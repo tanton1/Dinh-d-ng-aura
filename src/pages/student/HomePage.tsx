@@ -209,6 +209,48 @@ export default function HomePage({
     return () => { active = false }
   }, [isDemo, ownerId])
 
+  useEffect(() => {
+    if (isDemo || !ownerId || ownerId === 'anonymous') return undefined
+    let active = true
+    let refreshInFlight = false
+    const refresh = () => {
+      if (document.hidden || refreshInFlight) return
+      refreshInFlight = true
+      const currentDate = new Date()
+      const weekStart = new Date(currentDate)
+      const weekday = currentDate.getDay()
+      weekStart.setDate(currentDate.getDate() + (weekday === 0 ? -6 : 1 - weekday))
+      const through = new Date(currentDate)
+      through.setDate(through.getDate() + 30)
+      const weekFromDate = toLocalDateKey(weekStart)
+      listMyStudentPtSchedule(weekFromDate, toLocalDateKey(through), weekFromDate)
+        .then((data) => {
+          if (!active) return
+          const summary = buildStudentHomeSchedule(data.sessions, toLocalDateKey(currentDate), weekFromDate, toLocalDateKey(new Date(weekStart.getTime() + 6 * 86_400_000)))
+          setUpcomingSchedule(summary.upcomingSessions)
+          setTodaySessionCount(summary.todaySessionCount)
+          setWeeklyScheduleMinutesByDate(summary.weeklyCompletedMinutesByDate)
+          setScheduleState(data.linked ? 'linked' : 'unlinked')
+          setScheduleIssueCode(data.linked ? null : 'PROFILE_NOT_LINKED')
+        })
+        .catch(() => {
+          // Keep the last usable home snapshot while the background refresh
+          // is unavailable; the dedicated Schedule page exposes retry UI.
+        })
+        .finally(() => {
+          refreshInFlight = false
+        })
+    }
+    const onVisibilityChange = () => { if (!document.hidden) refresh() }
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    const timer = window.setInterval(refresh, 5_000)
+    return () => {
+      active = false
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+      window.clearInterval(timer)
+    }
+  }, [isDemo, ownerId])
+
   const effectiveNutritionWeight = useNutritionWeight(ownerId, nutritionProfile?.weightKg ?? 0, !isDemo)
   const dailyPulseTargets = useMemo(
     () => resolveDailyNutritionTargets(nutritionProfile, effectiveNutritionWeight),

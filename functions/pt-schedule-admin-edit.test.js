@@ -133,6 +133,24 @@ test('Admin can move an explicitly confirmed cross-branch learner', async () => 
   assert.equal(result.schedule['T3-6'][0].studentBranchWarning, true)
 })
 
+test('Admin can add a learner after publish and creates the live session without another Publish', async () => {
+  const harness = makeHarness()
+  const result = await applyAdminScheduleEdit(baseInput(harness, 'add_student', {
+    studentId: STUDENT, trainerId: TRAINER, slotId: 'T3-6', adminOverride: true,
+  }))
+  assert.equal(result.sessionChanged, true)
+  assert.equal(result.draftRevision, 2)
+  assert.equal(result.schedule['T3-6'][0].studentId, STUDENT)
+  assert.equal(result.schedule['T3-6'][0].adminOverride, true)
+  const session = harness.docs.get(`sessions/${result.sessionId}`)
+  assert.equal(session.status, 'scheduled')
+  assert.equal(session.date, '2090-01-03')
+  assert.equal(session.hour, 6)
+  assert.equal(session.source, 'admin_manual')
+  assert.equal(harness.docs.get(harness.draftPath).status, 'published')
+  assert.equal(harness.docs.get(harness.draftPath).publishedRevision, 2)
+})
+
 test('Admin cannot delete a charged or attended session through schedule removal', async () => {
   for (const fixture of [{ billingStatus: 'charged' }, { status: 'completed', billingStatus: '' }]) {
     const harness = makeHarness(fixture)
