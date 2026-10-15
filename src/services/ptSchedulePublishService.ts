@@ -388,7 +388,7 @@ const conflictLabels: Record<string, string> = {
   TRAINER_CAPACITY_EXCEEDED: 'Có ca vượt sức chứa được cấu hình cho PT.',
   CONTRACT_SESSION_QUOTA_EXCEEDED: 'Số buổi đã học và đang xếp vượt quá gói tập.',
   COMPLETED_SESSION_IMMUTABLE: 'Lịch nháp đang thay đổi một buổi đã hoàn thành.',
-  CANCELLED_SESSION_REINTRODUCED: 'Một buổi đã hủy đang được thêm lại trực tiếp.',
+  CANCELLED_SESSION_REINTRODUCED: 'Đã tạo buổi mới từ ô lịch từng bị hủy; lịch sử buổi cũ vẫn được giữ.',
   DUPLICATE_DEPLOYED_SESSION: 'Dữ liệu hiện có chứa buổi tập triển khai bị trùng.',
   SCHEDULE_TOO_LARGE: 'Lịch vượt giới hạn publish an toàn trong một lần.',
   DRAFT_CAPACITY_REACHED: 'Draft đã đạt giới hạn một lần publish; các hồ sơ còn lại được đưa vào cảnh báo.',

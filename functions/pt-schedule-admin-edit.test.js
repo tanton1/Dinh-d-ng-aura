@@ -1,5 +1,6 @@
 'use strict'
 
+const { createHash } = require('node:crypto')
 const test = require('node:test')
 const assert = require('node:assert/strict')
 const { applyAdminScheduleEdit } = require('./pt-schedule-admin-edit')
@@ -10,6 +11,11 @@ const BRANCH = 'branch-a'
 const TRAINER = 'trainer-a'
 const STUDENT = 'student-a'
 const CONTRACT = 'contract-a'
+
+function deterministicSessionId(slotId = 'T2-6') {
+  const digest = createHash('sha256').update(`schedule_${WEEK}|${BRANCH}|${slotId}|${STUDENT}`).digest('hex').slice(0, 40)
+  return `pt_${digest}`
+}
 
 function makeHarness({ source = 'published_existing', status = 'scheduled', billingStatus = 'pending', studentBranchId = BRANCH } = {}) {
   const docs = new Map()
@@ -149,6 +155,27 @@ test('Admin can add a learner after publish and creates the live session without
   assert.equal(session.source, 'admin_manual')
   assert.equal(harness.docs.get(harness.draftPath).status, 'published')
   assert.equal(harness.docs.get(harness.draftPath).publishedRevision, 2)
+})
+
+test('Admin can re-add a cancelled cell while keeping the cancelled session as history', async () => {
+  const harness = makeHarness()
+  const draft = harness.docs.get(harness.draftPath)
+  harness.docs.set(harness.draftPath, { ...draft, schedule: {} })
+  const cancelledId = deterministicSessionId()
+  const cancelled = { ...harness.docs.get('sessions/session-a'), id: cancelledId, status: 'cancelled', scheduleStatus: 'cancelled', billingStatus: 'exempt' }
+  harness.docs.delete('sessions/session-a')
+  harness.docs.set(`sessions/${cancelledId}`, cancelled)
+
+  const result = await applyAdminScheduleEdit(baseInput(harness, 'add_student', {
+    studentId: STUDENT, trainerId: TRAINER, slotId: 'T2-6', adminOverride: true,
+  }))
+  assert.notEqual(result.sessionId, cancelledId)
+  assert.ok(result.warnings.includes('CANCELLED_SESSION_REINTRODUCED'))
+  assert.equal(harness.docs.get(`sessions/${cancelledId}`).status, 'cancelled')
+  const replacement = harness.docs.get(`sessions/${result.sessionId}`)
+  assert.equal(replacement.status, 'scheduled')
+  assert.equal(replacement.reintroducedFromSessionId, cancelledId)
+  assert.equal(replacement.scheduleEntryId, `schedule_${WEEK}-T2-6-${STUDENT}`)
 })
 
 test('Admin cannot delete a charged or attended session through schedule removal', async () => {

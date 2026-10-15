@@ -3,7 +3,7 @@
 const { createHash } = require('node:crypto')
 const { FieldValue, Timestamp } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
-const { branchScheduleSnapshot, branchSlotCapacity, dateForSlot, nextWeek, normalizedCapacity, normalizedScheduleConfig, storedDate, trainerProfileForWeek, trainerIsAvailable } = require('./pt-schedule-publish')
+const { branchScheduleSnapshot, branchSlotCapacity, dateForSlot, nextWeek, normalizedCapacity, normalizedScheduleConfig, reintroducedSessionId, storedDate, trainerProfileForWeek, trainerIsAvailable } = require('./pt-schedule-publish')
 const { effectiveStudentAvailability } = require('./student-availability')
 const { sessionCountsTowardContract, summarizeContractUsage } = require('./contract-usage')
 
@@ -35,8 +35,9 @@ async function applyAdminScheduleEdit({ db, actor, branchId, week, command, payl
   const targetDate = dateForSlot(week, slotId.split('-')[0])
   const targetHour = Number(slotId.split('-')[1])
   if (command === 'move_student' && sourceSlot === slotId && sourceTrainerId === trainerId) throw new HttpsError('invalid-argument', 'Ca đích trùng ca nguồn.')
-  const targetSessionId = deterministicAdminSessionId(week, branchId, slotId, studentId)
-  const targetSessionReference = command === 'add_student' ? db.doc(`sessions/${targetSessionId}`) : null
+  const baseTargetSessionId = deterministicAdminSessionId(week, branchId, slotId, studentId)
+  let targetSessionId = baseTargetSessionId
+  let targetSessionReference = command === 'add_student' ? db.doc(`sessions/${targetSessionId}`) : null
   const draftRef = db.doc(`ptScheduleDrafts/${branchId}_${week}`)
   const legacyRef = db.doc(`schedules/schedule_${week}`)
   const instant = new Date()
@@ -67,13 +68,32 @@ async function applyAdminScheduleEdit({ db, actor, branchId, week, command, payl
     const entries = (schedule[sourceSlot] || []).filter((entry) => sameEntry(entry, studentId, sourceTrainerId))
     const sourceMatches = studentSessions.docs.filter((item) => occupies(item.data()) && item.data().trainerId === sourceTrainerId
       && storedDate(item.data().date) === sourceDate && sessionHour(item.data(), item.id) === sourceHour)
+    let reintroducedFromSessionId = ''
+    let reintroducedAtRevision = 0
     if (command === 'add_student') {
       if (entries.length) fail('DUPLICATE_SCHEDULE_ENTRY', 'Học viên đã có trong ca này.')
       if (sourceMatches.length) fail('DUPLICATE_DEPLOYED_SESSION', 'Ca này đã có session thật. Hãy tải lại trước khi xếp thêm.')
       if (targetSessionSnapshot?.exists) {
         const existing = targetSessionSnapshot.data() || {}
         if (occupies(existing)) fail('DUPLICATE_DEPLOYED_SESSION', 'Ca này đã có session thật. Hãy tải lại trước khi xếp thêm.')
-        fail('CANCELLED_SESSION_REINTRODUCED', 'Ca này từng bị hủy. Hãy dùng luồng Publish để tạo phiên bản mới.')
+        // Keep the cancelled document immutable. Admin re-add creates a new
+        // deterministic session id so the old cancellation remains auditable.
+        reintroducedFromSessionId = targetSessionSnapshot.id
+        reintroducedAtRevision = revision + 1
+        let ordinal = 1
+        while (ordinal <= 20) {
+          const candidateId = reintroducedSessionId(baseTargetSessionId, reintroducedAtRevision, ordinal)
+          const candidateReference = db.doc(`sessions/${candidateId}`)
+          const candidateSnapshot = await transaction.get(candidateReference)
+          if (!candidateSnapshot.exists) {
+            targetSessionId = candidateId
+            targetSessionReference = candidateReference
+            break
+          }
+          if (occupies(candidateSnapshot.data() || {})) fail('DUPLICATE_DEPLOYED_SESSION', 'Ca này đã có session thật. Hãy tải lại trước khi xếp thêm.')
+          ordinal += 1
+        }
+        if (targetSessionId === baseTargetSessionId) throw new HttpsError('resource-exhausted', 'Không tạo được mã buổi mới cho ca đã hủy.')
       }
     }
     if (entries.length > 1 || sourceMatches.length > 1) fail('DUPLICATE_DEPLOYED_SESSION', 'Ca nguồn bị trùng. Cần đối soát trước khi điều chỉnh.')
@@ -112,6 +132,7 @@ async function applyAdminScheduleEdit({ db, actor, branchId, week, command, payl
       })
     }
     const warnings = []
+    if (reintroducedFromSessionId) warnings.push('CANCELLED_SESSION_REINTRODUCED')
     let nextEntry = null
     if (command === 'move_student') {
       const trainer = trainerProfileForWeek(trainerMap.get(trainerId) || {}, trainerWeek.exists ? trainerWeek.data() : null, week)
@@ -173,6 +194,7 @@ async function applyAdminScheduleEdit({ db, actor, branchId, week, command, payl
         ...(student.branchId !== branchId ? { studentBranchWarning: true, studentHomeBranchId: student.branchId } : {}),
         ...(warnings.includes('TRAINER_ASSIGNMENT_MISMATCH') ? { trainerAssignmentWarning: true } : {}),
         ...(availabilityReason ? { availabilityOverride: true, availabilityOverrideReason: availabilityReason, availabilityOverrideBy: actor.uid, availabilityOverrideAt: instant.toISOString() } : {}),
+        ...(reintroducedFromSessionId ? { reintroducedFromSessionId, reintroducedAtRevision } : {}),
       }
     }
     if (command === 'add_student') {
@@ -352,6 +374,7 @@ async function applyAdminScheduleEdit({ db, actor, branchId, week, command, payl
         ...(nextEntry.studentBranchWarning ? { studentBranchWarning: true, studentHomeBranchId: nextEntry.studentHomeBranchId } : {}),
         ...(nextEntry.trainerAssignmentWarning ? { trainerAssignmentWarning: true } : {}),
         ...(nextEntry.availabilityOverride ? { availabilityOverride: true, availabilityOverrideReason: nextEntry.availabilityOverrideReason, availabilityOverrideBy: actor.uid, availabilityOverrideAt: instant.toISOString() } : {}),
+        ...(reintroducedFromSessionId ? { reintroducedFromSessionId, reintroducedAtRevision } : {}),
         revision: 0,
         verifiedByStudent: false,
         createdAt: FieldValue.serverTimestamp(),
@@ -388,7 +411,7 @@ async function applyAdminScheduleEdit({ db, actor, branchId, week, command, payl
     }, { merge: true })
     if (legacy.exists) transaction.update(legacyRef, { schedule: reconcile(legacy.data().schedule || {}), draftRevision: Number(legacy.data().draftRevision || 0) + 1, updatedAt: FieldValue.serverTimestamp(), updatedBy: actor.uid })
     transaction.create(receipt, { actorUid: actor.uid, branchId, weekId: week, command, result, createdAt: FieldValue.serverTimestamp() })
-    transaction.create(db.collection('ptOperationsAuditLogs').doc(), { schemaVersion: 2, action: `pt_schedule.admin_${command}`, actorUid: actor.uid, branchId, weekId: week, studentId, sessionId: source?.id || (command === 'add_student' ? targetSessionId : null), previousDraftRevision: revision, nextDraftRevision: revision + 1, from: before, to: after, reason, warnings, createdAt: FieldValue.serverTimestamp() })
+    transaction.create(db.collection('ptOperationsAuditLogs').doc(), { schemaVersion: 2, action: `pt_schedule.admin_${command}`, actorUid: actor.uid, branchId, weekId: week, studentId, sessionId: source?.id || (command === 'add_student' ? targetSessionId : null), ...(reintroducedFromSessionId ? { reintroducedFromSessionId, reintroducedAtRevision } : {}), previousDraftRevision: revision, nextDraftRevision: revision + 1, from: before, to: after, reason, warnings, createdAt: FieldValue.serverTimestamp() })
     return result
   })
 }

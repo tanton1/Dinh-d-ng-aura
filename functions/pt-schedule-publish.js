@@ -105,6 +105,18 @@ function deterministicSessionId(scheduleId, branchId, slotId, studentId) {
   return `pt_${digest}`
 }
 
+// A cancelled session is historical evidence and must never be resurrected in
+// place. When an Admin intentionally puts the same learner back into the same
+// cell, give the new live session a deterministic id while retaining the old
+// document for audit and billing history.
+function reintroducedSessionId(baseSessionId, version, ordinal = 0) {
+  const digest = createHash('sha256')
+    .update(`${baseSessionId}|schedule-reintroduction|${version}|${ordinal}`)
+    .digest('hex')
+    .slice(0, 40)
+  return `pt_${digest}`
+}
+
 function entryKey(scheduleId, slotId, studentId) {
   return `${scheduleId}-${slotId}-${studentId}`
 }
@@ -274,6 +286,67 @@ function rawEntryBranch(entry, students, trainers) {
     || trainers.get(entry.trainerId)?.branchId
     || students.get(entry.studentId)?.branchId
     || ''
+}
+
+function indexExistingPublishSessions(existingScoped = []) {
+  const existingByEntry = new Map()
+  const cancelledByEntry = new Map()
+  for (const item of existingScoped) {
+    const key = item.data()?.scheduleEntryId
+    if (!key) continue
+    const value = item.data() || {}
+    // Multiple cancelled rows for one schedule cell are valid history after an
+    // Admin removes and later re-adds a learner. Only one active/immutable row
+    // may own the key at a time.
+    if (!ACTIVE_SESSION_STATUSES.has(String(value.status || '').toLowerCase()) && !isImmutableSession(value)) {
+      const history = cancelledByEntry.get(key) || []
+      history.push(item)
+      cancelledByEntry.set(key, history)
+      continue
+    }
+    if (existingByEntry.has(key)) throw scheduleError('DUPLICATE_DEPLOYED_SESSION', 'Có nhiều buổi tập cùng tham chiếu một ô lịch.')
+    existingByEntry.set(key, item)
+  }
+  return { existingByEntry, cancelledByEntry }
+}
+
+function planPublishedSessions({ desired, existingByEntry, cancelledByEntry, adminPublishWarningMode, nextVersion }) {
+  const creates = []
+  const updates = []
+  const unchanged = []
+  const publishedEntries = []
+  const reintroducedSessions = []
+  for (const [key, original] of desired) {
+    const existing = existingByEntry.get(key)
+    if (!existing) {
+      const cancelledHistory = cancelledByEntry.get(key) || []
+      if (cancelledHistory.length) {
+        if (!adminPublishWarningMode) throw scheduleError('CANCELLED_SESSION_REINTRODUCED', 'Một ô lịch đã hủy đang được thêm lại. Hãy tạo yêu cầu điều chỉnh riêng.')
+        const previous = cancelledHistory[cancelledHistory.length - 1]
+        const effective = {
+          ...original,
+          id: reintroducedSessionId(original.id, nextVersion, cancelledHistory.length),
+          reintroducedFromSessionId: previous.id,
+          reintroducedAtVersion: nextVersion,
+        }
+        creates.push(effective)
+        publishedEntries.push(effective)
+        reintroducedSessions.push({ key, previous, next: effective })
+        continue
+      }
+      creates.push(original)
+      publishedEntries.push(original)
+      continue
+    }
+    const effective = { ...original, id: existing.id }
+    if (isImmutableSession(existing.data())) {
+      if (!sameSession({ id: existing.id, ...existing.data() }, original)) throw scheduleError('CHARGED_SESSION_IMMUTABLE', 'Lịch nháp đang thay đổi một buổi đã được tính hoặc xác nhận.')
+      unchanged.push(existing)
+    } else if (sameSession({ id: existing.id, ...existing.data() }, original)) unchanged.push(existing)
+    else updates.push({ existing, desired: effective })
+    publishedEntries.push(effective)
+  }
+  return { creates, updates, unchanged, publishedEntries, reintroducedSessions }
 }
 
 function branchScheduleSnapshot(schedule, branchId, students, trainers) {
@@ -836,13 +909,7 @@ function createPtSchedulePublishFunctions({ db, onCall, onScheduleMutation = () 
         return session.branchId === branchId
           && (session.scheduleWeekId === week || String(session.scheduleEntryId || '').startsWith(`${scheduleId}-`))
       })
-      const existingByEntry = new Map()
-      for (const item of existingScoped) {
-        const key = item.data().scheduleEntryId
-        if (!key) continue
-        if (existingByEntry.has(key)) throw scheduleError('DUPLICATE_DEPLOYED_SESSION', 'Có nhiều buổi tập cùng tham chiếu một ô lịch.')
-        existingByEntry.set(key, item)
-      }
+      const { existingByEntry, cancelledByEntry } = indexExistingPublishSessions(existingScoped)
 
       const desiredValues = [...prepared.desired.values()]
       const desiredStudentIds = new Set(desiredValues.map((item) => item.studentId))
@@ -914,25 +981,32 @@ function createPtSchedulePublishFunctions({ db, onCall, onScheduleMutation = () 
 
       const currentVersion = currentPublishedVersion
       const nextVersion = currentVersion + 1
-      const creates = []
-      const updates = []
-      const unchanged = []
-      for (const [key, desired] of prepared.desired) {
-        const existing = existingByEntry.get(key)
-        if (!existing) creates.push(desired)
-        else if (isImmutableSession(existing.data())) {
-          if (!sameSession({ id: existing.id, ...existing.data() }, desired)) throw scheduleError('CHARGED_SESSION_IMMUTABLE', 'Lịch nháp đang thay đổi một buổi đã được tính hoặc xác nhận.')
-          unchanged.push(existing)
-        } else if (!ACTIVE_SESSION_STATUSES.has(existing.data().status)) {
-          throw scheduleError('CANCELLED_SESSION_REINTRODUCED', 'Một ô lịch đã hủy đang được thêm lại. Hãy tạo yêu cầu điều chỉnh riêng.')
-        } else if (sameSession({ id: existing.id, ...existing.data() }, desired)) unchanged.push(existing)
-        else updates.push({ existing, desired })
+      const publishPlan = planPublishedSessions({
+        desired: prepared.desired,
+        existingByEntry,
+        cancelledByEntry,
+        adminPublishWarningMode,
+        nextVersion,
+      })
+      const { creates, updates, unchanged, publishedEntries, reintroducedSessions } = publishPlan
+      if (reintroducedSessions.length) {
+        const warningCode = 'CANCELLED_SESSION_REINTRODUCED'
+        prepared.warnings.push(warningCode)
+        for (const item of reintroducedSessions) {
+          if (prepared.warningDetails.length >= 100) break
+          prepared.warningDetails.push({
+            code: warningCode,
+            scheduleEntryId: item.key,
+            previousSessionId: item.previous.id,
+            newSessionId: item.next.id,
+          })
+        }
       }
       const cancellations = existingScoped.filter((item) => ACTIVE_SESSION_STATUSES.has(item.data().status) && !isImmutableSession(item.data()) && !prepared.desired.has(item.data().scheduleEntryId))
       const immutableRemoved = existingScoped.filter((item) => isImmutableSession(item.data()) && !prepared.desired.has(item.data().scheduleEntryId))
       if (immutableRemoved.length) throw scheduleError('CHARGED_SESSION_IMMUTABLE', 'Không thể loại buổi đã được tính hoặc xác nhận khỏi lịch publish.')
       const diff = { create: creates.length, update: updates.length, cancel: cancellations.length, unchanged: unchanged.length }
-      if (validateOnly) return { unchanged: false, validateOnly: true, draftRevision, version: nextVersion, diff, warnings: prepared.warnings, warningDetails: prepared.warningDetails }
+      if (validateOnly) return { unchanged: false, validateOnly: true, draftRevision, version: nextVersion, diff, warnings: [...new Set(prepared.warnings)], warningDetails: prepared.warningDetails }
 
       const writeCount = creates.length + updates.length + cancellations.length + (v2DraftSnapshot.exists ? 4 : 3)
       if (writeCount > MAX_TRANSACTION_WRITES) throw new HttpsError('resource-exhausted', 'Lịch có quá nhiều thay đổi để publish trong một giao dịch.')
@@ -993,7 +1067,7 @@ function createPtSchedulePublishFunctions({ db, onCall, onScheduleMutation = () 
         branchId,
         version: nextVersion,
         sourceDraftRevision: draftRevision,
-        entries: desiredValues,
+        entries: publishedEntries,
         branchSchedule: branchScheduleSnapshot(activeDraftData.schedule, branchId, students, trainers),
         diff,
         warnings: prepared.warnings,
@@ -1025,9 +1099,14 @@ function createPtSchedulePublishFunctions({ db, onCall, onScheduleMutation = () 
         version: nextVersion,
         draftRevision,
         diff,
+        reintroducedSessions: reintroducedSessions.slice(0, 100).map((item) => ({
+          scheduleEntryId: item.key,
+          previousSessionId: item.previous.id,
+          newSessionId: item.next.id,
+        })),
         createdAt: FieldValue.serverTimestamp(),
       })
-      return { unchanged: false, draftRevision, version: nextVersion, diff, warnings: prepared.warnings }
+      return { unchanged: false, draftRevision, version: nextVersion, diff, warnings: [...new Set(prepared.warnings)] }
     })
     if (!validateOnly) onScheduleMutation(branchId, week)
     return result
@@ -1334,6 +1413,9 @@ function createPtSchedulePublishFunctions({ db, onCall, onScheduleMutation = () 
 module.exports = {
   createPtSchedulePublishFunctions,
   desiredEntries,
+  indexExistingPublishSessions,
+  planPublishedSessions,
+  reintroducedSessionId,
   branchScheduleSnapshot,
   mergeRestoredBranchSchedule,
   normalizedDraftSchedule,

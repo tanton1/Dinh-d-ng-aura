@@ -2,7 +2,7 @@
 
 const test = require('node:test')
 const assert = require('node:assert/strict')
-const { desiredEntries, branchScheduleSnapshot, mergeRestoredBranchSchedule, normalizedDraftSchedule, trainerProfileForWeek } = require('./pt-schedule-publish')
+const { desiredEntries, branchScheduleSnapshot, indexExistingPublishSessions, mergeRestoredBranchSchedule, normalizedDraftSchedule, planPublishedSessions, reintroducedSessionId, trainerProfileForWeek } = require('./pt-schedule-publish')
 
 const WEEK = '2026-08-24'
 const SCHEDULE_ID = `schedule_${WEEK}`
@@ -433,6 +433,53 @@ test('confirmed Admin publish mode carries policy conflicts as warnings without 
   const session = [...result.desired.values()][0]
   assert.equal(session.adminOverride, undefined)
   assert.equal(session.adminOverrideBy, undefined)
+})
+
+test('Admin publish reintroduces a cancelled cell with a new session id and keeps cancellation history', () => {
+  const fixture = baseFixture()
+  const desired = [...desiredEntries(fixture).desired.values()][0]
+  const cancelled = (id, extra = {}) => ({
+    id,
+    data: () => ({ ...desired, status: 'cancelled', scheduleStatus: 'cancelled', billingStatus: 'exempt', ...extra }),
+  })
+  const firstCancelled = cancelled('pt-cancelled-old')
+  const secondCancelled = cancelled('pt-cancelled-newer')
+  const indexed = indexExistingPublishSessions([firstCancelled, secondCancelled])
+  assert.equal(indexed.existingByEntry.size, 0)
+  assert.equal(indexed.cancelledByEntry.get(desired.scheduleEntryId).length, 2)
+
+  const plan = planPublishedSessions({
+    desired: new Map([[desired.scheduleEntryId, desired]]),
+    ...indexed,
+    adminPublishWarningMode: true,
+    nextVersion: 8,
+  })
+  assert.equal(plan.creates.length, 1)
+  assert.notEqual(plan.creates[0].id, desired.id)
+  assert.equal(plan.creates[0].id, reintroducedSessionId(desired.id, 8, 2))
+  assert.equal(plan.creates[0].reintroducedFromSessionId, secondCancelled.id)
+  assert.equal(plan.publishedEntries[0].id, plan.creates[0].id)
+
+  const active = { ...secondCancelled, id: plan.creates[0].id, data: () => ({ ...desired, status: 'scheduled', scheduleStatus: 'scheduled' }) }
+  const activePlan = planPublishedSessions({
+    desired: new Map([[desired.scheduleEntryId, desired]]),
+    ...indexExistingPublishSessions([firstCancelled, secondCancelled, active]),
+    adminPublishWarningMode: true,
+    nextVersion: 9,
+  })
+  assert.equal(activePlan.creates.length, 0)
+  assert.equal(activePlan.unchanged.length, 1)
+  assert.equal(activePlan.publishedEntries[0].id, active.id)
+
+  assert.throws(
+    () => planPublishedSessions({
+      desired: new Map([[desired.scheduleEntryId, desired]]),
+      ...indexed,
+      adminPublishWarningMode: false,
+      nextVersion: 8,
+    }),
+    (error) => error.details?.issueCode === 'CANCELLED_SESSION_REINTRODUCED',
+  )
 })
 
 test('accepts confirmed recurring availability when no weekly document exists', () => {
