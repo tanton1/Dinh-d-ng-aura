@@ -620,6 +620,144 @@ function leaveCovers(leave, trainerId, date) {
   return Boolean(start && end && date >= start && date <= end)
 }
 
+function initialStudentProjection(item, branchId, displayOnly = false) {
+  const data = item.data() || {}
+  const inactive = ['inactive', 'archived', 'deleted'].includes(String(data.status || '').toLowerCase())
+  const defaultSessionsPerWeek = Math.max(0, Math.min(7, Number(data.sessionsPerWeek || 0)))
+  const availableSlots = Array.isArray(data.availableSlots) ? data.availableSlots.slice(0, 100) : []
+  return {
+    id: item.id,
+    name: data.name || 'Chưa cập nhật tên',
+    phone: data.phone || '',
+    email: data.email || '',
+    status: data.status || 'active',
+    branchId: data.branchId || branchId,
+    ...(displayOnly ? { isCrossBranchDisplayOnly: true, studentBranchWarning: true, studentHomeBranchId: data.branchId } : {}),
+    sessionsPerWeek: defaultSessionsPerWeek,
+    defaultSessionsPerWeek,
+    weeklySessionTargetOverride: null,
+    weeklySessionTargetOverridden: false,
+    availabilityRequestedSessions: null,
+    availabilityTargetOverridden: false,
+    maxWeeklySessions: defaultSessionsPerWeek,
+    schedulableSessionsThisWeek: defaultSessionsPerWeek,
+    availableSlots,
+    availabilityStatus: data.availabilityStatus || (availableSlots.length ? 'recurring' : 'missing'),
+    availabilityRevision: Number(data.availabilityRevision || 0),
+    availabilitySourceRevision: Number(data.availabilitySourceRevision || 0),
+    availabilitySourceWeekId: data.availabilitySourceWeekId || null,
+    availabilitySource: data.availabilitySource || (availableSlots.length ? 'legacy_default' : 'none'),
+    isScheduleConfirmed: data.isScheduleConfirmed === true,
+    eligibleForWeek: false,
+    eligibilityReasons: ['WORKSPACE_HYDRATING'],
+    eligibleContractIds: [],
+    validScheduleDates: [],
+    pausedScheduleDates: [],
+    remainingEntitlementSessions: Number(data.remainingEntitlementSessions || 0),
+    activeScheduledSessions: 0,
+    activeScheduledThisWeek: 0,
+    remainingSchedulableSessions: Number(data.remainingSchedulableSessions || 0),
+    previousWeekScheduledSessions: 0,
+    hadSchedulePreviousWeek: false,
+    contractStatus: inactive || displayOnly ? 'missing' : 'hydrating',
+  }
+}
+
+function initialTrainerProjection(item, branchId, scheduleLoadPolicy) {
+  const data = item.data() || {}
+  const availableSlots = Array.isArray(data.availableSlots) ? data.availableSlots.slice(0, 100) : []
+  const schedulingPriority = Math.max(1, Math.min(999, Math.trunc(Number(data.schedulingPriority ?? data.priority ?? 100) || 100)))
+  return {
+    id: item.id,
+    name: data.name || 'PT chưa cập nhật tên',
+    phone: data.phone || '',
+    email: data.email || '',
+    status: data.status || 'active',
+    branchId,
+    employmentType: ['full_time', 'part_time', 'collaborator'].includes(data.employmentType) ? data.employmentType : 'full_time',
+    employmentLevel: ['probation', 'official', 'senior'].includes(data.employmentLevel) ? data.employmentLevel : 'official',
+    availableSlots,
+    availabilityMode: trainerAvailabilityMode(data),
+    availabilityRevision: Number(data.availabilityRevision || 0),
+    slotCapacity: normalizedCapacity(data.slotCapacity),
+    schedulingPriority,
+    dailySessionTarget: trainerDailyLoadTarget(data, scheduleLoadPolicy),
+  }
+}
+
+async function loadBranchDataInitial(db, branchId, week) {
+  const [branch, legacySchedule, draft, students, trainers, weekSessions, config] = await Promise.all([
+    db.doc(`branches/${branchId}`).get(),
+    db.doc(`schedules/schedule_${week}`).get(),
+    draftReference(db, branchId, week).get(),
+    db.collection('students').where('branchId', '==', branchId).limit(MAX_STUDENTS + 1).get(),
+    db.collection('trainers').where('branchId', '==', branchId).limit(MAX_TRAINERS + 1).get(),
+    db.collection('sessions').where('branchId', '==', branchId).where('date', '>=', week).where('date', '<', nextWeek(week)).limit(1001).get(),
+    db.doc('settings/scheduleConfig').get(),
+  ])
+  if (!branch.exists || branch.data().status === 'archived') throw new HttpsError('failed-precondition', 'Chi nhánh không hoạt động.')
+  if (students.size > MAX_STUDENTS || trainers.size > MAX_TRAINERS || weekSessions.size > 1000) {
+    throw new HttpsError('resource-exhausted', 'Dữ liệu chi nhánh vượt giới hạn workspace an toàn.')
+  }
+
+  const legacy = legacySchedule.exists ? legacySchedule.data() : {}
+  const draftData = scopedDraftData(draft, branchId, week)
+  const studentMap = new Map(students.docs.map((item) => [item.id, item.data()]))
+  const trainerMap = new Map(trainers.docs.map((item) => [item.id, item.data()]))
+  if (!draftData) {
+    const legacyTrainerIds = [...new Set(Object.values(legacy.schedule || {}).flat()
+      .map((entry) => entry?.trainerId).filter((id) => typeof id === 'string' && id && !trainerMap.has(id)))]
+    if (legacyTrainerIds.length > MAX_TRAINERS) throw new HttpsError('resource-exhausted', 'Lịch cũ có quá nhiều PT ngoài chi nhánh.')
+    const legacyTrainers = await documentsByIds(db, 'trainers', legacyTrainerIds)
+    legacyTrainers.forEach((item) => trainerMap.set(item.id, item.data()))
+  }
+  const schedule = draftData
+    ? safeSchedule(draftData.schedule)
+    : branchScheduleSnapshot(legacy.schedule || {}, branchId, studentMap, trainerMap)
+  const referencedStudentIds = new Set([
+    ...Object.values(schedule).flat().filter((entry) => entry.type !== 'off').map((entry) => entry.studentId),
+    ...weekSessions.docs.filter((item) => historicalSessionOccupies(item.data())).map((item) => item.data()?.studentId),
+  ].filter(Boolean))
+  const missingReferencedStudents = [...referencedStudentIds].filter((studentId) => !studentMap.has(studentId))
+  if (missingReferencedStudents.length > MAX_STUDENTS) throw new HttpsError('resource-exhausted', 'Số hồ sơ bổ sung vượt giới hạn workspace an toàn.')
+  const referencedStudentSnapshots = await documentsByIds(db, 'students', missingReferencedStudents)
+  referencedStudentSnapshots.forEach((item) => studentMap.set(item.id, item.data()))
+  const crossBranchStudentIds = new Set([...referencedStudentIds].filter((studentId) => {
+    const profile = studentMap.get(studentId)
+    return profile?.branchId && profile.branchId !== branchId
+  }))
+  const scheduleConfig = normalizedScheduleConfig(config.data())
+  return {
+    partial: true,
+    branch: { id: branchId, name: branch.data().name || branchId, status: branch.data().status || 'active' },
+    draft: {
+      exists: Boolean(draftData),
+      revision: Number(draftData?.revision ?? legacy.draftRevision ?? 0),
+      status: draftData?.status || legacy.publishStatusByBranch?.[branchId] || 'draft',
+      publishedVersion: Number(draftData?.publishedVersion || legacy.publishedVersions?.[branchId] || 0),
+      publishedRevision: Number(draftData?.publishedRevision ?? legacy.publishedRevisions?.[branchId] ?? -1),
+      updatedAt: draftData?.updatedAt?.toDate?.().toISOString?.() || null,
+      updatedBy: draftData?.updatedBy || null,
+      warnings: Array.isArray(draftData?.warnings) ? draftData.warnings.slice(0, 100) : [],
+      optimizationSummary: {},
+      unassignedEntries: [],
+    },
+    schedule,
+    students: students.docs.map((item) => initialStudentProjection(item, branchId)),
+    crossBranchStudents: referencedStudentSnapshots
+      .filter((item) => crossBranchStudentIds.has(item.id))
+      .map((item) => initialStudentProjection(item, branchId, true)),
+    trainers: trainers.docs.map((item) => initialTrainerProjection(item, branchId, scheduleConfig.scheduleLoadPolicy)),
+    contracts: [],
+    contractsByStudent: new Map(),
+    sessions: weekSessions.docs.map((item) => ({ id: item.id, ...item.data() })),
+    leaves: [],
+    availability: new Map(),
+    weeklySessionCoverage: {},
+    config: scheduleConfig,
+  }
+}
+
 async function loadBranchDataFresh(db, branchId, week, options = {}) {
   const priorWeek = previousWeek(week)
   // The matrix projection is allowed to paint from the bounded roster and
@@ -965,9 +1103,10 @@ async function loadBranchDataFresh(db, branchId, week, options = {}) {
 
 async function loadBranchData(db, branchId, week, options = {}) {
   const cache = branchDataCacheFor(db)
+  const initialPaint = options.initialPaint === true
   const fastPublished = options.skipLegacyAvailabilityFallback === true
   const matrixFast = options.workspaceMatrixFast === true
-  const key = `${branchId}|${week}|${matrixFast ? 'matrix' : fastPublished ? 'workspace' : 'full'}`
+  const key = `${branchId}|${week}|${initialPaint ? 'paint' : matrixFast ? 'matrix' : fastPublished ? 'workspace' : 'full'}`
   const now = Date.now()
   const cached = cache.entries.get(key)
   if (cached && now - cached.storedAt < BRANCH_DATA_CACHE_TTL_MS) {
@@ -980,7 +1119,9 @@ async function loadBranchData(db, branchId, week, options = {}) {
   const pending = cache.pending.get(key)
   if (pending) return pending
   const generation = cache.generations.get(key) || 0
-  const request = loadBranchDataFresh(db, branchId, week, options).then((value) => {
+  const request = (initialPaint
+    ? loadBranchDataInitial(db, branchId, week)
+    : loadBranchDataFresh(db, branchId, week, options)).then((value) => {
     if ((cache.generations.get(key) || 0) === generation) {
       cache.entries.delete(key)
       cache.entries.set(key, { value, storedAt: Date.now() })
@@ -3768,7 +3909,9 @@ function createPtScheduleV2Functions({
     const week = weekId(request.data?.weekId)
     const branchId = documentId(request.data?.branchId, 'Mã chi nhánh')
     const actor = await actorForBranch(request, db, branchId)
+    const initialPaint = request.data?.initialPaint === true
     const data = await branchData(db, branchId, week, {
+      initialPaint,
       // A published Admin workspace is read-only from the optimizer's point
       // of view: direct matrix edits use the dedicated reconciliation
       // callable. Do not make the initial paint wait for legacy availability
@@ -3788,14 +3931,18 @@ function createPtScheduleV2Functions({
     mergePublishedSessions({ ...data, weekId: week }, workloadSchedule, [])
     const publishedWorkspace = data.draft.status === 'published' || Number(data.draft.publishedVersion || 0) > 0
     const calculatedOptimizationSummary = {
-      studentCoverage: studentCoverageForSchedule({ ...data, weekId: week }, workloadSchedule),
+      studentCoverage: data.partial
+        ? { eligibleStudents: 0, studentsWithAtLeastOne: 0, fullyScheduledStudents: 0, totalTargetSessions: 0, scheduledEntries: 0, missingSessions: 0 }
+        : studentCoverageForSchedule({ ...data, weekId: week }, workloadSchedule),
       // Feasibility is an optimizer preflight. Re-running it for every
       // published matrix read adds CPU without changing the live schedule;
       // generation/validation still compute it on the full data path.
-      studentFeasibility: publishedWorkspace
+      studentFeasibility: data.partial
+        ? []
+        : publishedWorkspace
         ? (data.draft.optimizationSummary?.studentFeasibility || [])
         : studentFeasibilityForSchedule({ ...data, weekId: week }, workloadSchedule),
-      trainerLoads: trainerLoadsForSchedule({ ...data, weekId: week }, workloadSchedule),
+      trainerLoads: data.partial ? [] : trainerLoadsForSchedule({ ...data, weekId: week }, workloadSchedule),
       slotUtilization: slotUtilizationForSchedule({ ...data, weekId: week }, workloadSchedule),
     }
     const responseContractIds = new Set(Object.values(workloadSchedule).flat()
@@ -3833,6 +3980,7 @@ function createPtScheduleV2Functions({
     }
     return {
       schemaVersion: 2,
+      partial: data.partial === true,
       branch: data.branch,
       weekId: week,
       draftRevision: data.draft.revision,

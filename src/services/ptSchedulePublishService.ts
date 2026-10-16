@@ -285,6 +285,8 @@ export interface PtScheduleOptimizationSummary {
 
 export interface PtScheduleWorkspaceV2Result extends Omit<BranchScheduleWorkspaceResult, 'students' | 'trainers'> {
   sessionRefs?: Record<string, { sessionId: string; revision: number }>
+  /** Initial matrix projection; contracts and diagnostics hydrate in the background. */
+  partial?: boolean
   draftStatus: 'draft' | 'published'
   updatedAt: string | null
   updatedBy: string | null
@@ -585,7 +587,7 @@ export function listPtScheduleBranches() {
   return invoke<Record<string, never>, { schemaVersion: number; branches: PtScheduleBranchOption[] }>('listPtScheduleBranches', {})
 }
 
-export function getPtScheduleWorkspace(input: { weekId: string; branchId: string }) {
+export function getPtScheduleWorkspace(input: { weekId: string; branchId: string; initialPaint?: boolean }) {
   return invoke<typeof input, PtScheduleWorkspaceV2Result>('getPtScheduleWorkspace', input)
 }
 
