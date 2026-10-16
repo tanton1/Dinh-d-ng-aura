@@ -643,7 +643,6 @@ function createOperationsDashboardFunctions({ db, onCall, logger = console }) {
   const getTodaySessions = onCall({
     cpu: 'gcf_gen1',
     maxInstances: 2,
-    concurrency: 8,
   }, async (request) => {
     const startedAt = Date.now()
     const actor = await trustedAccessContext(request, db)
