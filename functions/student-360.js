@@ -1620,6 +1620,7 @@ async function buildStudent360Projection({ db, studentId, weekId = mondayDateKey
     identity: {
       id: studentId,
       accountUid: sources.accountUid || null,
+      revision: Math.max(0, Math.floor(finite(sources.student.revision))),
       branchId: sources.student.branchId || '',
       name: sources.student.name || sources.profile?.displayName || sources.profile?.name || 'Học viên Aura',
       phone: sources.student.phone || sources.profile?.phoneNumber || '',
@@ -2646,8 +2647,12 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
         if (queryText && !haystack.includes(queryText) && !compactHaystack.includes(compactQueryText)) continue
         rows.push({
           studentId: item.id,
+          revision: Math.max(0, Math.floor(finite(projection.identity?.revision))),
           name: projection.identity?.name || 'Học viên Aura',
           phone: projection.identity?.phone || '',
+          email: projection.identity?.email || '',
+          dob: projection.identity?.dob || null,
+          sessionsPerWeek: Math.max(1, Math.floor(finite(projection.identity?.sessionsPerWeek, 3))),
           branchId: projection.assignments?.branchId || '',
           branchName: projection.assignments?.branchName || '',
           status: projection.identity?.status || 'active',

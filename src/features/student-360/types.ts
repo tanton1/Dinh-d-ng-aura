@@ -55,6 +55,8 @@ export interface Student360Overview {
   identity: {
     id: string
     accountUid: string | null
+    /** Optimistic-concurrency revision for scoped profile commands. */
+    revision?: number
     name: string
     phone: string
     email: string
@@ -353,8 +355,13 @@ export interface Student360Photo {
 
 export interface Student360DirectoryItem {
   studentId: string
+  /** Current CRM revision used by edit/archive commands. */
+  revision?: number
   name: string
   phone: string
+  email?: string
+  dob?: string | null
+  sessionsPerWeek?: number
   branchId: string
   branchName: string
   status: Student360Overview['identity']['status']

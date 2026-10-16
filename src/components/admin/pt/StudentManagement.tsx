@@ -661,7 +661,7 @@ export default function StudentManagement({ user, profile, initialStudentId = nu
   };
 
   if (directoryV2) {
-    return <React.Suspense fallback={<div className="student-management__loading" role="status">Đang tải danh bạ học viên…</div>}><AdminStudentDirectoryV2 initialSearchQuery={initialSearchQuery} initialStudentId={initialStudentId} onOpenStudent360={onOpenStudent360} canHardDelete={canHardDeleteStudents} /></React.Suspense>;
+    return <React.Suspense fallback={<div className="student-management__loading" role="status">Đang tải danh bạ học viên…</div>}><AdminStudentDirectoryV2 initialSearchQuery={initialSearchQuery} initialStudentId={initialStudentId} onOpenStudent360={onOpenStudent360} canManage={canManageStudents} canInvite={canInviteStudents || import.meta.env.MODE === 'e2e'} defaultBranchId={profile?.branchId || ''} canHardDelete={canHardDeleteStudents} /></React.Suspense>;
   }
 
   return (

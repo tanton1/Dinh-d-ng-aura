@@ -47,6 +47,11 @@ test('Student directory V2 disables the broad legacy roster listeners only when 
   assert.match(database, /effectiveOperationsView = auraUiRolloutLoading \|\| \(operationsView === 'admin-pt-students' && studentDirectoryV2Enabled\)/)
   assert.match(database, /LEGACY_OPERATIONS_VIEW_SOURCES\[effectiveOperationsView\]/)
   assert.match(directoryV2, /listStudent360Directory/)
+  assert.match(directoryV2, /provisionStudentAccount/)
+  assert.match(directoryV2, /updateStudentProfile/)
+  assert.match(directoryV2, /setArchiveTarget/)
+  assert.match(directory, /canManage=\{canManageStudents\}/)
+  assert.match(directory, /canInvite=\{canInviteStudents\}/)
   assert.match(directory, /if \(directoryV2\) return/)
 })
 
