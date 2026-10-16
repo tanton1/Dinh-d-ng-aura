@@ -761,6 +761,17 @@ const ptScheduleOnCall = (optionsOrHandler, maybeHandler) => {
     : onCall({ ...resourceOptions, ...optionsOrHandler }, maybeHandler)
 }
 
+// Publish and direct Admin corrections are low-volume mutations. Keep their
+// regional alias in the overflow region so a saturated southeast fleet cannot
+// prevent a new revision from starting. The callable still uses the same
+// capability checks and canonical Firestore database.
+const ptSchedulePublishRegionalOnCall = (optionsOrHandler, maybeHandler) => {
+  const resourceOptions = { region: 'asia-east1', cpu: 'gcf_gen1', maxInstances: 1, concurrency: 1, timeoutSeconds: 120 }
+  return typeof optionsOrHandler === 'function'
+    ? onCall(resourceOptions, optionsOrHandler)
+    : onCall({ ...resourceOptions, ...optionsOrHandler }, maybeHandler)
+}
+
 const ptSchedulePublishFunctions = createPtSchedulePublishFunctions({
   db,
   onCall: ptScheduleOnCall,
@@ -774,6 +785,17 @@ exports.listPtScheduleVersions = ptSchedulePublishFunctions.listPtScheduleVersio
 exports.restorePtScheduleVersionToDraft = ptSchedulePublishFunctions.restorePtScheduleVersionToDraft
 exports.getMyBranchScheduleWorkspace = ptSchedulePublishFunctions.getMyBranchScheduleWorkspace
 exports.saveMyBranchScheduleDraft = ptSchedulePublishFunctions.saveMyBranchScheduleDraft
+
+// Regional aliases are used by the current web client for publish/validation;
+// the original southeast names remain available for older clients during the
+// rollout.
+const ptSchedulePublishRegionalFunctions = createPtSchedulePublishFunctions({
+  db,
+  onCall: ptSchedulePublishRegionalOnCall,
+  onScheduleMutation: (branchId, week) => invalidateBranchDataCache(db, branchId, week),
+})
+exports.validatePtScheduleDraftRegional = ptSchedulePublishRegionalFunctions.validatePtScheduleDraft
+exports.publishPtScheduleRegional = ptSchedulePublishRegionalFunctions.publishPtSchedule
 const ptScheduleV2Functions = createPtScheduleV2Functions({ db, onCall: ptScheduleOnCall })
 Object.assign(exports, ptScheduleV2Functions)
 exports.listPtScheduleBranches = ptScheduleV2Functions.listPtScheduleBranches
@@ -792,7 +814,7 @@ const adminScheduleEditReceiptId = (actorUid, branchId, week, idempotencyKey) =>
   .update(`${actorUid}|${branchId}|${week}|${idempotencyKey}`)
   .digest('hex')
 
-const adminEditPtSchedule = ptScheduleOnCall(async (request) => {
+const adminEditPtScheduleHandler = async (request) => {
   const week = scheduleWeekId(request.data?.weekId)
   const branchId = scheduleDocumentId(request.data?.branchId, 'Mã chi nhánh')
   const actor = await trustedAccessContext(request, db)
@@ -860,8 +882,10 @@ const adminEditPtSchedule = ptScheduleOnCall(async (request) => {
   })
   invalidateBranchDataCache(db, branchId, week)
   return result
-})
+}
+const adminEditPtSchedule = ptScheduleOnCall(adminEditPtScheduleHandler)
 exports.adminEditPtSchedule = adminEditPtSchedule
+exports.adminEditPtScheduleRegional = ptSchedulePublishRegionalOnCall(adminEditPtScheduleHandler)
 // Regional overflow endpoint for optimizer-v4. Asia-southeast1 currently
 // hosts the large legacy callable fleet and can reject a safe revision before
 // startup when its regional CPU quota is saturated. Only generation is moved;

@@ -1,5 +1,5 @@
 import { httpsCallable } from 'firebase/functions'
-import { firebaseFunctions, firebaseScheduleOptimizerFunctions } from '../lib/firebaseFunctions'
+import { firebaseFunctions, firebaseScheduleOptimizerFunctions, firebaseSchedulePublishFunctions } from '../lib/firebaseFunctions'
 import type { Schedule, ScheduleConfig, Session, Student, StudentContract, Trainer } from '../types'
 import { reportClientIssue } from './clientTelemetryService'
 
@@ -428,6 +428,14 @@ function functionsInstance() {
   return firebaseFunctions
 }
 
+function functionsInstanceForCallable(name: string) {
+  if (regionalPublishCallableNames.has(name)) {
+    if (!firebaseSchedulePublishFunctions) throw new PtSchedulePublishError('Firebase Functions chưa sẵn sàng.', 'SYNC_UNAVAILABLE', [], true)
+    return firebaseSchedulePublishFunctions
+  }
+  return functionsInstance()
+}
+
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' ? value as Record<string, unknown> : {}
 }
@@ -441,6 +449,11 @@ const retryableReadCallables = new Set([
   'listPtScheduleBranches',
   'listPtScheduleVersions',
   'validatePtScheduleDraft',
+])
+const regionalPublishCallableNames = new Map([
+  ['validatePtScheduleDraft', 'validatePtScheduleDraftRegional'],
+  ['publishPtSchedule', 'publishPtScheduleRegional'],
+  ['adminEditPtSchedule', 'adminEditPtScheduleRegional'],
 ])
 
 function callableErrorCode(error: unknown) {
@@ -497,7 +510,8 @@ export function asPtSchedulePublishError(error: unknown) {
 
 async function invoke<TInput extends Record<string, unknown>, TOutput>(name: string, input: TInput) {
   const timeout = name === 'validatePtScheduleDraft' ? 30_000 : retryableReadCallables.has(name) ? 20_000 : 60_000
-  const callable = httpsCallable<TInput, TOutput>(functionsInstance(), name, { timeout })
+  const callableName = regionalPublishCallableNames.get(name) || name
+  const callable = httpsCallable<TInput, TOutput>(functionsInstanceForCallable(name), callableName, { timeout })
   const maximumAttempts = retryableReadCallables.has(name) ? 2 : 1
   for (let attempt = 0; attempt < maximumAttempts; attempt += 1) {
     try {
