@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { buildStudentHomeSchedule } from '../src/features/home/studentHomeSchedule'
+import { canonicalStudentPtSessions } from '../src/services/studentPtScheduleService'
 import type { StudentPtSession, StudentPtSessionStatus } from '../src/services/studentPtScheduleService'
 
 function session(id: string, date: string, hour: number, status: StudentPtSessionStatus): StudentPtSession {
@@ -40,4 +41,23 @@ test('completed canonical PT sessions contribute to the current-week activity wi
   ], '2026-08-28', '2026-08-24', '2026-08-30')
 
   assert.deepEqual(summary.weeklyCompletedMinutesByDate, { '2026-08-25': 120 })
+})
+
+test('student schedule drops a canceled mirror when the charged no-show has the same published slot', () => {
+  const duplicateSlot = [
+    {
+      ...session('legacy-no-show', '2026-10-16', 20, 'no_show'),
+      scheduleEntryId: 'schedule_2026-10-12-T6-20-student-1',
+      revision: 3,
+    },
+    {
+      ...session('branch-cancelled-mirror', '2026-10-16', 20, 'cancelled'),
+      scheduleEntryId: 'schedule_2026-10-12-T6-20-student-1',
+      revision: 1,
+    },
+  ]
+
+  const canonical = canonicalStudentPtSessions(duplicateSlot)
+  assert.deepEqual(canonical.map((item) => item.id), ['legacy-no-show'])
+  assert.equal(canonical[0]?.status, 'no_show')
 })

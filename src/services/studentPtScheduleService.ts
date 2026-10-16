@@ -63,6 +63,64 @@ export interface StudentPtSession {
   timeZone: string
 }
 
+const STUDENT_PT_CANCELLED_STATUSES = new Set<StudentPtSessionStatus>([
+  'cancelled',
+  'canceled_by_student',
+  'student_cancelled',
+  'trainer_cancelled',
+])
+
+const STUDENT_PT_EVIDENCE_STATUSES = new Set<StudentPtSessionStatus>([
+  'completed',
+  'no_show',
+])
+
+function studentPtSessionIdentity(session: StudentPtSession) {
+  const scheduleEntryId = String(session.scheduleEntryId || '').trim()
+  const date = normalizedScheduleDate(session.date)
+  const hour = session.hour
+  if (!scheduleEntryId || !date || typeof hour !== 'number' || !Number.isInteger(hour) || hour < 0 || hour > 23) return ''
+  return `${scheduleEntryId}|${date}|${hour}`
+}
+
+function studentPtSessionPriority(session: StudentPtSession) {
+  if (STUDENT_PT_EVIDENCE_STATUSES.has(session.status)) return 3
+  if (STUDENT_PT_CANCELLED_STATUSES.has(session.status)) return 0
+  if (session.status === 'scheduled' || session.status === 'rescheduled') return 2
+  return 1
+}
+
+function preferredStudentPtSession(left: StudentPtSession, right: StudentPtSession) {
+  const leftPriority = studentPtSessionPriority(left)
+  const rightPriority = studentPtSessionPriority(right)
+  if (leftPriority !== rightPriority) return leftPriority > rightPriority ? left : right
+  const leftRevision = Number(left.revision || 0)
+  const rightRevision = Number(right.revision || 0)
+  if (leftRevision !== rightRevision) return leftRevision > rightRevision ? left : right
+  return String(left.id || '').localeCompare(String(right.id || '')) <= 0 ? left : right
+}
+
+/**
+ * A published PT slot can be returned twice while a legacy row and its
+ * branch-scoped mirror are both present in Firestore. The backend normally
+ * reconciles these rows, but this final client guard prevents a stale callable
+ * response from rendering the cancelled mirror beside the charged no-show.
+ */
+export function canonicalStudentPtSessions(sessions: StudentPtSession[]) {
+  const grouped = new Map<string, StudentPtSession>()
+  const ungrouped: StudentPtSession[] = []
+  for (const session of Array.isArray(sessions) ? sessions : []) {
+    const key = studentPtSessionIdentity(session)
+    if (!key) {
+      ungrouped.push(session)
+      continue
+    }
+    const current = grouped.get(key)
+    grouped.set(key, current ? preferredStudentPtSession(current, session) : session)
+  }
+  return [...ungrouped, ...grouped.values()]
+}
+
 export interface StudentPtSessionRequestSummary {
   id: string
   type: 'cancel' | 'reschedule' | 'additional'
@@ -260,7 +318,7 @@ export function normalizeStudentPtScheduleData(data: StudentPtScheduleData): Stu
           : 'none',
       } : undefined,
     } : null,
-    sessions: Array.isArray(data?.sessions) ? data.sessions : [],
+    sessions: canonicalStudentPtSessions(Array.isArray(data?.sessions) ? data.sessions : []),
     contracts: Array.isArray(data?.contracts)
       ? data.contracts.filter(Boolean).map((contract) => ({
           ...contract,
