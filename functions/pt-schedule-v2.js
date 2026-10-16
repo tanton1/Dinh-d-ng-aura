@@ -3743,8 +3743,16 @@ function resetDraftSchedule(data, currentSchedule) {
   return schedule
 }
 
-function createPtScheduleV2Functions({ db, onCall, actorForBranch = scheduleActor, branchData = loadBranchData, manualData = loadManualMutationData }) {
-  const listPtScheduleBranches = onCall(async (request) => {
+function createPtScheduleV2Functions({
+  db,
+  onCall,
+  branchCatalogOnCall = onCall,
+  workspaceOnCall = onCall,
+  actorForBranch = scheduleActor,
+  branchData = loadBranchData,
+  manualData = loadManualMutationData,
+}) {
+  const listPtScheduleBranches = branchCatalogOnCall(async (request) => {
     const actor = await trustedAccessContext(request, db)
     requireCapability(actor, 'pt.schedule.branch.publish')
     const snapshot = await db.collection('branches').limit(100).get()
@@ -3756,7 +3764,7 @@ function createPtScheduleV2Functions({ db, onCall, actorForBranch = scheduleActo
     }
   })
 
-  const getPtScheduleWorkspace = onCall(async (request) => {
+  const getPtScheduleWorkspace = workspaceOnCall(async (request) => {
     const week = weekId(request.data?.weekId)
     const branchId = documentId(request.data?.branchId, 'Mã chi nhánh')
     const actor = await actorForBranch(request, db, branchId)

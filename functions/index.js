@@ -788,6 +788,17 @@ const ptSchedulePublishRegionalOnCall = (optionsOrHandler, maybeHandler) => {
     : onCall({ ...resourceOptions, ...optionsOrHandler }, maybeHandler)
 }
 
+// The schedule screen is opened frequently and its first read is the user’s
+// critical path. Keep one small overflow instance warm so a cold Cloud Run
+// startup cannot delay the first matrix paint. Other schedule mutations stay
+// on the burst-only profile above to avoid keeping every callable resident.
+const ptScheduleWorkspaceRegionalOnCall = (optionsOrHandler, maybeHandler) => {
+  const resourceOptions = { region: 'asia-east1', cpu: 'gcf_gen1', minInstances: 1, maxInstances: 2, concurrency: 1, timeoutSeconds: 120 }
+  return typeof optionsOrHandler === 'function'
+    ? onCall(resourceOptions, optionsOrHandler)
+    : onCall({ ...resourceOptions, ...optionsOrHandler }, maybeHandler)
+}
+
 const ptSchedulePublishFunctions = createPtSchedulePublishFunctions({
   db,
   onCall: ptScheduleOnCall,
@@ -829,7 +840,12 @@ exports.applyPtScheduleDraftCommand = ptScheduleV2Functions.applyPtScheduleDraft
 // The selected web client also reads and edits the V2 workspace through the
 // overflow region. This keeps legacy branch-all session reconciliation active
 // even while the saturated southeast fleet is still serving older clients.
-const ptScheduleV2RegionalFunctions = createPtScheduleV2Functions({ db, onCall: ptSchedulePublishRegionalOnCall })
+const ptScheduleV2RegionalFunctions = createPtScheduleV2Functions({
+  db,
+  onCall: ptSchedulePublishRegionalOnCall,
+  branchCatalogOnCall: ptScheduleWorkspaceRegionalOnCall,
+  workspaceOnCall: ptScheduleWorkspaceRegionalOnCall,
+})
 exports.listPtScheduleBranchesRegional = ptScheduleV2RegionalFunctions.listPtScheduleBranches
 exports.getPtScheduleWorkspaceRegional = ptScheduleV2RegionalFunctions.getPtScheduleWorkspace
 exports.getPtScheduleSlotCandidatesRegional = ptScheduleV2RegionalFunctions.getPtScheduleSlotCandidates
