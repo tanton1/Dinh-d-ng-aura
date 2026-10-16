@@ -1665,11 +1665,12 @@ function createPtOperationsV2Functions({ db, onCall }) {
       const sessionData = session.data()
       const isMakeupRequest = type === 'makeup'
       const sourceAttendanceStatus = String(sessionData.attendanceStatus || '').toLowerCase()
+      const sourceAttendancePending = !sourceAttendanceStatus || sourceAttendanceStatus === 'pending'
       const sourceIsNoShow = String(sessionData.status || '').toLowerCase() === 'no_show' || sourceAttendanceStatus === 'no_show'
       if (isMakeupRequest) {
         if (!sourceIsNoShow) throw new HttpsError('failed-precondition', 'Chỉ có thể xếp bù sau khi buổi gốc đã được xác nhận Không đến.')
-      } else if (!['scheduled', 'rescheduled'].includes(String(sessionData.status || '').toLowerCase()) || sessionData.billingStatus === 'charged') {
-        throw new HttpsError('failed-precondition', 'Chỉ buổi đang lên lịch và chưa tính buổi mới được gửi yêu cầu.')
+      } else if (!sourceAttendancePending || !['scheduled', 'rescheduled'].includes(String(sessionData.status || '').toLowerCase())) {
+        throw new HttpsError('failed-precondition', 'Chỉ buổi đang lên lịch và chưa xác nhận đi tập được gửi yêu cầu.')
       }
       if (pendingRequests.size >= 20) throw new HttpsError('resource-exhausted', 'Buổi tập có quá nhiều yêu cầu để kiểm tra an toàn.')
       if (pendingRequests.docs.some((item) => item.id !== requestReference.id && item.data().status === 'pending')) {
@@ -1684,18 +1685,14 @@ function createPtOperationsV2Functions({ db, onCall }) {
       const originalHour = sessionHour(sessionId, sessionData.hour)
       if (originalHour === null) throw new HttpsError('failed-precondition', 'Buổi tập chưa có giờ hợp lệ.')
       const policy = ptOperationsPolicySnapshot(configSnapshot.exists ? configSnapshot.data() : {})
-      let deadlineAt
-      if (!isMakeupRequest) {
-        try {
-          deadlineAt = assertSessionChangeDeadline(originalDate, originalHour, submittedAt, policy.sessionChangeDeadlineHours)
-        } catch (error) {
-          throw new HttpsError('failed-precondition', error.message, { issueCode: error.issueCode || 'SESSION_CHANGE_DEADLINE_PASSED', deadlineAt: error.deadlineAt || null })
-        }
-      }
       const newDate = ['reschedule', 'makeup'].includes(type) ? dateKey(request.data?.newDate, 'Ngày mới') : null
-      if (newDate) {
+      let deadlineAt
+      // PT adjustments are governed by the attendance confirmation state, not
+      // the student-facing change deadline. Keep the target deadline only for
+      // a make-up request, which is created after a confirmed no-show.
+      if (isMakeupRequest && newDate) {
         try {
-          assertSessionChangeDeadline(newDate, requestedHour, submittedAt, policy.sessionChangeDeadlineHours)
+          deadlineAt = assertSessionChangeDeadline(newDate, requestedHour, submittedAt, policy.sessionChangeDeadlineHours)
         } catch (error) {
           throw new HttpsError('failed-precondition', error.message, { issueCode: error.issueCode || 'SESSION_CHANGE_DEADLINE_PASSED', deadlineAt: error.deadlineAt || null })
         }

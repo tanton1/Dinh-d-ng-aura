@@ -19,6 +19,7 @@ const service = readFileSync(join(root, 'src', 'services', 'sessionOperationsSer
 const scheduler = readFileSync(join(root, 'src', 'components', 'schedule', 'SchedulerWrapper.tsx'), 'utf8')
 const contractWorkspace = readFileSync(join(root, 'src', 'features', 'student-360', 'Student360ContractWorkspace.tsx'), 'utf8')
 const trainerOperations = readFileSync(join(__dirname, 'pt-operations-v2.js'), 'utf8')
+const trainerPortal = readFileSync(join(root, 'src', 'pages', 'operations', 'TrainerPortalV2.tsx'), 'utf8')
 const requestCenter = readFileSync(join(root, 'src', 'components', 'admin', 'pt', 'OperationsRequestCenter.tsx'), 'utf8')
 const historyWorkspace = readFileSync(join(root, 'src', 'components', 'admin', 'pt', 'TrainingHistoryWorkspace.tsx'), 'utf8')
 const historyPanel = readFileSync(join(root, 'src', 'components', 'admin', 'pt', 'TrainingHistoryPanel.tsx'), 'utf8')
@@ -653,10 +654,17 @@ test('trainer-created requests carry immutable origin and session revision prove
   assert.match(creation, /requestedBy: 'trainer'/)
   assert.match(creation, /originalSessionRevision: Number\(sessionData\.revision \|\| 0\)/)
   assert.match(creation, /originalHour/)
-  assert.match(creation, /assertSessionChangeDeadline/)
-  assert.match(creation, /policy\.sessionChangeDeadlineHours/)
+  assert.match(creation, /sourceAttendancePending/)
+  assert.match(creation, /isMakeupRequest && newDate/)
+  assert.doesNotMatch(creation, /assertSessionChangeDeadline\(originalDate/)
   assert.match(creation, /idempotencyKey/)
   assert.match(creation, /đã có một yêu cầu đang chờ xử lý/)
+})
+
+test('PT can request an adjustment while attendance is still pending, regardless of start time', () => {
+  assert.match(trainerPortal, /const requestable = attendanceState\(session\) === 'pending'/)
+  assert.match(trainerPortal, /\{requestable \? <button className="opv2-request-link"/)
+  assert.doesNotMatch(trainerPortal, /startsAt - now >= 12 \* 60 \* 60 \* 1000/)
 })
 
 test('attendance uses the session contract link and a deterministic event id', async () => {
@@ -1134,6 +1142,41 @@ test('trainer cancellation keeps its provenance and never consumes the learner m
   assert.equal(approved.read('sessionRequests/request-2').requestedBy, 'trainer')
   assert.equal(result.countsTowardContract, false)
   assert.equal(approved.paths().some((path) => path.startsWith('ptPolicyUsage/')), false)
+})
+
+test('PT can move a charged but unconfirmed session without charging the replacement again', async () => {
+  const state = operationsFor({
+    'sessionRequests/request-charged-trainer': {
+      status: 'pending', type: 'reschedule', sessionId: 'session-charged-trainer', studentId: 'student-charged',
+      contractId: 'contract-charged', trainerId: 'trainer-charged', requestedBy: 'trainer',
+      originalDate: '2026-08-22', originalHour: 8, originalSessionRevision: 2,
+      newDate: '2026-08-25', newHour: 10, reason: 'Điều chỉnh lịch cho học viên',
+    },
+    'sessions/session-charged-trainer': {
+      status: 'scheduled', scheduleStatus: 'scheduled', billingStatus: 'charged', attendanceStatus: 'pending',
+      billingEventId: 'session-charged-trainer', attendanceEventId: 'session-charged-trainer',
+      studentId: 'student-charged', trainerId: 'trainer-charged', contractId: 'contract-charged', branchId: 'branch-1',
+      date: '2026-08-22', hour: 8, revision: 2,
+    },
+    'sessionBillingEvents/session-charged-trainer': { billingStatus: 'charged', sessionId: 'session-charged-trainer' },
+    'attendanceEvents/session-charged-trainer': { billingStatus: 'charged', attendanceStatus: 'pending', sessionId: 'session-charged-trainer' },
+    'contracts/contract-charged': {
+      status: 'active', studentId: 'student-charged', trainerId: 'trainer-charged', branchId: 'branch-1',
+      startDate: '2026-08-01', endDate: '2026-08-31', totalSessions: 12, usedSessions: 1,
+    },
+    'students/student-charged': { status: 'active', branchId: 'branch-1', isScheduleConfirmed: true, availableSlots: ['T3-10'] },
+    'trainers/trainer-charged': { status: 'active', branchId: 'branch-1', employmentType: 'full_time', availableSlots: ['T3-10'], slotCapacity: 2 },
+  }, async () => ({ uid: 'admin-1' }), { now: () => new Date('2026-08-25T03:00:00.000Z') })
+
+  const result = await state.approveSessionRequest({ data: { requestId: 'request-charged-trainer', expectedSessionRevision: 2 } })
+  const session = state.read('sessions/session-charged-trainer')
+  assert.equal(result.type, 'reschedule')
+  assert.equal(session.date, '2026-08-25')
+  assert.equal(session.hour, 10)
+  assert.equal(session.billingStatus, 'charged')
+  assert.equal(session.attendanceStatus, 'pending')
+  assert.equal(state.read('contracts/contract-charged').usedSessions, 1)
+  assert.equal(state.read('sessionRequests/request-charged-trainer').status, 'approved')
 })
 
 test('reschedule collision rejects atomically when the learner already has another hour on the same day', async () => {

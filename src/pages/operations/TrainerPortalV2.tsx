@@ -476,7 +476,12 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
           const noShowReady = startsAt + 15 * 60_000 <= now
           const state = attendanceState(session)
           const makeupRequestExists = requests.some((request) => request.sessionId === session.id && request.type === 'makeup' && ['pending', 'approved'].includes(request.status))
-          const requestable = ['scheduled', 'rescheduled'].includes(session.status) && session.billingStatus !== 'charged' && Boolean(session.contractId) && startsAt - now >= 12 * 60 * 60 * 1000
+          // PT can request an adjustment for as long as attendance is still
+          // pending. The original session's 12-hour student change window
+          // does not apply to this staff workflow.
+          const requestable = attendanceState(session) === 'pending'
+            && ['scheduled', 'rescheduled'].includes(session.status)
+            && Boolean(session.contractId)
           const makeupRequestable = state === 'no_show' && Boolean(session.contractId) && !makeupRequestExists && session.sessionKind !== 'makeup'
           const charged = session.sessionKind !== 'makeup' && (session.billingStatus === 'charged' || ['present', 'late', 'no_show'].includes(state))
           return <article className={`opv2-session-card is-${state}`} key={session.id}>
@@ -488,7 +493,7 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
               {state === 'pending' && started ? <div className="opv2-quick-attendance"><button type="button" disabled={attendanceBusy === session.id} onClick={() => openAttendance(session)}><UserCheck size={17} /> Có tập</button><button type="button" className="is-no-show" disabled={!noShowReady || attendanceBusy === session.id} title={!noShowReady ? 'Có thể xác nhận sau 15 phút từ giờ bắt đầu' : undefined} onClick={() => void markAttendance(session, 'no_show')}><UserX size={17} /> Không đến</button></div> : null}
               {state !== 'pending' ? <button className="opv2-correct-attendance" type="button" onClick={() => openAttendance(session)}>Sửa xác nhận</button> : null}
               {['present', 'late'].includes(state) ? <button className="opv2-kudos" type="button" disabled={kudosBusy === session.id || kudosSent.has(session.id)} onClick={() => void sendKudos(session)}><Sparkles size={15} /> {kudosSent.has(session.id) ? 'Đã gửi Kudos' : kudosBusy === session.id ? 'Đang gửi…' : 'Gửi Kudos'}</button> : null}
-              {!started && requestable ? <button className="opv2-request-link" type="button" onClick={() => openRequest(session)}>Điều chỉnh lịch</button> : null}
+              {requestable ? <button className="opv2-request-link" type="button" onClick={() => openRequest(session)}>Điều chỉnh lịch</button> : null}
               {makeupRequestable ? <button className="opv2-request-link is-makeup" type="button" onClick={() => openRequest(session)}>Xếp lịch bù</button> : null}
               {makeupRequestExists ? <small className="opv2-auto-attendance-note"><Clock3 size={13} /> Đã có yêu cầu bù đang chờ hoặc đã được duyệt.</small> : null}
             </div>

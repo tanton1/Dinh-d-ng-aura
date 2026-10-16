@@ -2988,7 +2988,11 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
         throw new HttpsError('aborted', 'Buổi tập đã thay đổi kể từ khi yêu cầu được tạo. Hãy tạo yêu cầu mới.')
       }
       if (!isActiveSessionStatus(session.status)) throw new HttpsError('failed-precondition', 'Chỉ có thể xử lý buổi đang lên lịch.')
-      if (isSessionCharged(session)) throw new HttpsError('failed-precondition', 'Buổi đã được tính nên yêu cầu đổi/hủy này không còn hợp lệ.')
+      const sourceAttendanceStatus = String(session.attendanceStatus || '').toLowerCase()
+      const sourceAttendancePending = !sourceAttendanceStatus || sourceAttendanceStatus === 'pending'
+      const preservePendingCharge = requestedBy === 'trainer' && sourceAttendancePending && isSessionCharged(session)
+      if (requestedBy === 'trainer' && !sourceAttendancePending) throw new HttpsError('failed-precondition', 'Buổi đã xác nhận hiện diện nên yêu cầu điều chỉnh không còn hợp lệ.')
+      if (isSessionCharged(session) && !preservePendingCharge) throw new HttpsError('failed-precondition', 'Buổi đã được xác nhận hoặc đã khóa tính buổi nên yêu cầu đổi/hủy này không còn hợp lệ.')
       if (session.studentId !== requestData.studentId) throw new HttpsError('failed-precondition', 'Yêu cầu không khớp với học viên của buổi tập.')
       const currentDate = storedDateKey(session.date, 'Ngày hiện tại của buổi tập')
       const originalDate = storedDateKey(requestData.originalDate, 'Ngày gốc trong yêu cầu')
@@ -3175,8 +3179,8 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
         transaction.update(sessionReference, {
           status: cancellationType,
           scheduleStatus: 'cancelled',
-          billingStatus: policyDecision.countsTowardContract ? 'charged' : 'exempt',
-          attendanceStatus: policyDecision.countsTowardContract ? 'policy_charge' : null,
+          billingStatus: preservePendingCharge ? 'charged' : policyDecision.countsTowardContract ? 'charged' : 'exempt',
+          attendanceStatus: preservePendingCharge ? 'pending' : policyDecision.countsTowardContract ? 'policy_charge' : null,
           cancellationReason: reason,
           approvedRequestId: requestId,
           revision: nextRevision,
@@ -3204,7 +3208,7 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
           studentHomeBranchId: isCrossBranch ? homeBranchId : null,
           status: 'scheduled',
           scheduleStatus: 'rescheduled',
-          billingStatus: 'pending',
+          billingStatus: preservePendingCharge ? 'charged' : 'pending',
           attendanceStatus: 'pending',
           approvedRequestId: requestId,
           rescheduledAt: FieldValue.serverTimestamp(),
@@ -3213,11 +3217,11 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
           updatedBy: actor.uid,
           policyMonth: policyMonth || null,
           policySequence: policyDecision.sequence || null,
-          previousSlotCountsTowardContract: policyDecision.countsTowardContract,
+          previousSlotCountsTowardContract: preservePendingCharge || policyDecision.countsTowardContract,
           changeSuggestionId: requestData.candidateId || null,
           loyaltyEntitlementId: loyaltyEntitlementReference?.id || null,
         })
-        transaction.create(eventReference, { schemaVersion: 2, sessionId, requestId, type: 'rescheduled', from: { date: session.date, hour: session.hour ?? null, trainerId: session.trainerId, branchId: session.branchId || null }, to: { date: newDate, hour: newHour, trainerId, branchId: targetBranchId || null }, crossBranchWarning: isCrossBranch, policyMonth: policyMonth || null, policySequence: policyDecision.sequence || null, previousSlotCountsTowardContract: policyDecision.countsTowardContract, loyaltyEntitlementId: loyaltyEntitlementReference?.id || null, createdAt: FieldValue.serverTimestamp(), createdBy: actor.uid })
+        transaction.create(eventReference, { schemaVersion: 2, sessionId, requestId, type: 'rescheduled', from: { date: session.date, hour: session.hour ?? null, trainerId: session.trainerId, branchId: session.branchId || null }, to: { date: newDate, hour: newHour, trainerId, branchId: targetBranchId || null }, crossBranchWarning: isCrossBranch, policyMonth: policyMonth || null, policySequence: policyDecision.sequence || null, previousSlotCountsTowardContract: preservePendingCharge || policyDecision.countsTowardContract, loyaltyEntitlementId: loyaltyEntitlementReference?.id || null, createdAt: FieldValue.serverTimestamp(), createdBy: actor.uid })
       }
 
       if (requestedBy === 'student') {
