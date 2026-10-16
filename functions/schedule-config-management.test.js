@@ -6,6 +6,7 @@ const { join } = require('node:path')
 const test = require('node:test')
 const { createHash } = require('node:crypto')
 const { createScheduleConfigManagementFunctions, normalizeScheduleConfig } = require('./schedule-config-management')
+const { ptOperationsPolicySnapshot } = require('./pt-policy')
 
 function clone(value) { return value === undefined ? undefined : structuredClone(value) }
 function memoryDb(seed = {}) {
@@ -72,6 +73,32 @@ test('keeps the same policy version when only layout settings change', async () 
   const second = await functions.saveScheduleConfig({ data: { config: { ...first.config, lockHour: 13 }, expectedRevision: 1, idempotencyKey: 'schedule-config-keep-policy-2' } })
   assert.equal(second.config.operationsPolicy.version, 'pt-operations-r1')
   assert.equal(second.config.operationsPolicy.hash, first.config.operationsPolicy.hash)
+})
+
+test('saved policy values become the active runtime snapshot instead of the defaults', async () => {
+  const db = memoryDb({ 'branches/branch-a': { status: 'active' } })
+  const saved = await api(db).saveScheduleConfig({ data: {
+    config: config({
+      complimentaryChangeCancelPerMonth: 4,
+      sessionChangeDeadlineHours: 36,
+      offMaxDaysPerRequest: 21,
+      offRegistrationCutoffHour: 7,
+      availabilityRegistrationCutoffDayOfWeek: 6,
+      availabilityRegistrationCutoffHour: 18,
+      offLimitsByDuration: { threeMonths: 4, sixMonths: 7, twelveMonths: 10 },
+    }),
+    expectedRevision: 0,
+    idempotencyKey: 'schedule-runtime-policy-1',
+  } })
+  const active = ptOperationsPolicySnapshot(saved.config)
+  assert.equal(active.complimentaryChangeCancelPerMonth, 4)
+  assert.equal(active.sessionChangeDeadlineHours, 36)
+  assert.equal(active.offMaxDaysPerRequest, 21)
+  assert.equal(active.offRegistrationCutoffHour, 7)
+  assert.equal(active.availabilityRegistrationCutoffDayOfWeek, 6)
+  assert.equal(active.availabilityRegistrationCutoffHour, 18)
+  assert.deepEqual(active.offLimitsByDuration, { threeMonths: 4, sixMonths: 7, twelveMonths: 10 })
+  assert.equal(active.policyVersion, 'pt-operations-r1')
 })
 
 test('legacy config saves preserve the newer load policy when the field is omitted', async () => {

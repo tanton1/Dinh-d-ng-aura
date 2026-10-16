@@ -2,10 +2,18 @@
 
 const test = require('node:test')
 const assert = require('node:assert/strict')
-const { MAX_DRAFT_DOCUMENT_ENTRIES, MAX_DRAFT_ENTRIES, OPTIMIZER_VERSION, candidateForSlot, compactPairedSlots, generateSchedule, historicalSlotCandidate, manualSlotCandidate, previousWeek, repairCoverageWithRelocations, resetDraftSchedule, resolveContract, safeSchedule, safeWeeklySessionTargets, slotUtilizationForSchedule, studentWeekEligibility, trainerIsLocked, trainerProfileForWeek, weeklySessionCoverageForStudents, weeklyTargetForStudent } = require('./pt-schedule-v2')
+const { MAX_DRAFT_DOCUMENT_ENTRIES, MAX_DRAFT_ENTRIES, OPTIMIZER_VERSION, availabilityCutoff, candidateForSlot, compactPairedSlots, generateSchedule, historicalSlotCandidate, manualSlotCandidate, previousWeek, repairCoverageWithRelocations, resetDraftSchedule, resolveContract, safeSchedule, safeWeeklySessionTargets, slotUtilizationForSchedule, studentWeekEligibility, trainerIsLocked, trainerProfileForWeek, weeklySessionCoverageForStudents, weeklyTargetForStudent } = require('./pt-schedule-v2')
 
 const WEEK = '2026-08-24'
 const BRANCH = 'branch-a'
+
+test('Admin availability saves use the editable registration cutoff policy', () => {
+  const cutoff = availabilityCutoff(WEEK, {
+    availabilityRegistrationCutoffDayOfWeek: 6,
+    availabilityRegistrationCutoffHour: 18,
+  })
+  assert.equal(cutoff.toISOString(), '2026-08-22T11:00:00.000Z')
+})
 
 test('previous week window remains exact across month and year boundaries', () => {
   assert.equal(previousWeek('2026-09-07'), '2026-08-31')

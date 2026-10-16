@@ -198,7 +198,10 @@ async function saveScheduleConfigCommand({ db, actor, data, correlationId }) {
 }
 
 function createScheduleConfigManagementFunctions({ db, onCall, accessContextResolver = trustedAccessContext }) {
-  const saveScheduleConfig = onCall(withFunctionTelemetry('saveScheduleConfig', async (request) => {
+  // This is a low-volume Admin write. Keep it on the Gen 1 CPU profile so a
+  // policy edit cannot be blocked by the shared asia-southeast1 Cloud Run
+  // CPU quota used by the rest of the Functions fleet.
+  const saveScheduleConfig = onCall({ cpu: 'gcf_gen1', maxInstances: 1 }, withFunctionTelemetry('saveScheduleConfig', async (request) => {
     const actor = await accessContextResolver(request, db)
     return saveScheduleConfigCommand({ db, actor, data: request.data || {}, correlationId: request.auraCorrelationId })
   }))

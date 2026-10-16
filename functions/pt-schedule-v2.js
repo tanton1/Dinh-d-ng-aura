@@ -29,6 +29,7 @@ const {
   contractSchedulingEntitlement,
   resolveSchedulingContract,
 } = require('./contract-scheduling')
+const { ptOperationsPolicySnapshot } = require('./pt-policy')
 
 const MAX_STUDENTS = 500
 const MAX_TRAINERS = 100
@@ -68,6 +69,13 @@ const MAX_COHORT_REPAIR_ATTEMPTS = 24
 const MAX_COHORT_REPAIR_CANDIDATES = 32
 const DAY_ORDER = new Map([['T2', 0], ['T3', 1], ['T4', 2], ['T5', 3], ['T6', 4], ['T7', 5], ['CN', 6]])
 const STUDENT_AVAILABILITY_REASON_CODES = new Set(['AVAILABILITY_NOT_SUBMITTED', 'OUTSIDE_STUDENT_AVAILABILITY'])
+
+function availabilityCutoff(weekId, policyValue = {}) {
+  const policy = ptOperationsPolicySnapshot(policyValue)
+  const monday = Date.parse(`${weekId}T00:00:00+07:00`)
+  const daysBefore = (1 - policy.availabilityRegistrationCutoffDayOfWeek + 7) % 7 || 7
+  return new Date(monday - daysBefore * 24 * 60 * 60 * 1000 + policy.availabilityRegistrationCutoffHour * 60 * 60 * 1000)
+}
 // The optimizer evaluates the same roster repeatedly (one matching round per
 // weekly session). Keep immutable, derived roster indexes out of that hot
 // loop. A WeakMap avoids retaining a loaded branch after the callable ends and
@@ -4008,8 +4016,8 @@ function createPtScheduleV2Functions({ db, onCall, actorForBranch = scheduleActo
     if (slots.length < minimumSlots) throw new HttpsError('failed-precondition', `Hãy chọn ít nhất ${minimumSlots} khung giờ rảnh.`)
     const reference = db.doc(`ptAvailability/${studentId}_${week}`)
     const studentReference = db.doc(`students/${studentId}`)
-    const cutoff = Date.parse(`${week}T00:00:00+07:00`) - 14 * 60 * 60 * 1000
-    const availabilityStatus = Date.now() >= cutoff ? 'locked' : 'submitted'
+    const cutoff = availabilityCutoff(week, configSnapshot.exists ? configSnapshot.data() : {})
+    const availabilityStatus = Date.now() >= cutoff.getTime() ? 'locked' : 'submitted'
     const submittedAtIso = new Date().toISOString()
     const nextRevision = await db.runTransaction(async (transaction) => {
       const [current, currentProfile] = await Promise.all([
@@ -4318,4 +4326,5 @@ module.exports = {
   trainerSchedulingPolicy,
   weeklySessionCoverageForStudents,
   weeklyTargetForStudent,
+  availabilityCutoff,
 }
