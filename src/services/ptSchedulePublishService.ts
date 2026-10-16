@@ -453,7 +453,17 @@ const retryableReadCallables = new Set([
 const regionalPublishCallableNames = new Map([
   ['validatePtScheduleDraft', 'validatePtScheduleDraftRegional'],
   ['publishPtSchedule', 'publishPtScheduleRegional'],
+  ['listPtScheduleVersions', 'listPtScheduleVersionsRegional'],
+  ['restorePtScheduleVersionToDraft', 'restorePtScheduleVersionToDraftRegional'],
+  ['getMyBranchScheduleWorkspace', 'getMyBranchScheduleWorkspaceRegional'],
+  ['saveMyBranchScheduleDraft', 'saveMyBranchScheduleDraftRegional'],
   ['adminEditPtSchedule', 'adminEditPtScheduleRegional'],
+  ['listPtScheduleBranches', 'listPtScheduleBranchesRegional'],
+  ['getPtScheduleWorkspace', 'getPtScheduleWorkspaceRegional'],
+  ['getPtScheduleSlotCandidates', 'getPtScheduleSlotCandidatesRegional'],
+  ['createHistoricalPtSession', 'createHistoricalPtSessionRegional'],
+  ['savePtStudentAvailability', 'savePtStudentAvailabilityRegional'],
+  ['applyPtScheduleDraftCommand', 'applyPtScheduleDraftCommandRegional'],
 ])
 
 function callableErrorCode(error: unknown) {

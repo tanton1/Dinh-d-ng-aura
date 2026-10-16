@@ -435,6 +435,49 @@ test('confirmed Admin publish mode carries policy conflicts as warnings without 
   assert.equal(session.adminOverrideBy, undefined)
 })
 
+test('publish reuses a legacy branch-all session when schedule metadata is missing', () => {
+  const fixture = baseFixture()
+  const desired = [...desiredEntries(fixture).desired.values()][0]
+  const legacy = {
+    id: 'legacy-session',
+    data: () => ({
+      ...desired,
+      id: 'legacy-session',
+      branchId: 'all',
+      scheduleEntryId: '',
+      scheduleWeekId: '',
+      status: 'scheduled',
+    }),
+  }
+  const indexed = indexExistingPublishSessions([legacy], BRANCH_ID)
+  const plan = planPublishedSessions({
+    desired: new Map([[desired.scheduleEntryId, desired]]),
+    ...indexed,
+    adminPublishWarningMode: true,
+    nextVersion: 8,
+  })
+  assert.equal(plan.creates.length, 0)
+  assert.equal(plan.updates.length, 1)
+  assert.equal(plan.updates[0].existing.id, legacy.id)
+  assert.equal(plan.updates[0].desired.id, legacy.id)
+})
+
+test('publish keeps the oldest legacy row and cancels a branch-scoped duplicate', () => {
+  const fixture = baseFixture()
+  const desired = [...desiredEntries(fixture).desired.values()][0]
+  const legacy = {
+    id: 'legacy-session',
+    data: () => ({ ...desired, id: 'legacy-session', branchId: 'all', status: 'scheduled' }),
+  }
+  const duplicate = {
+    id: 'new-duplicate',
+    data: () => ({ ...desired, id: 'new-duplicate', branchId: BRANCH_ID, status: 'scheduled' }),
+  }
+  const indexed = indexExistingPublishSessions([duplicate, legacy], BRANCH_ID)
+  assert.equal(indexed.existingByEntry.get(desired.scheduleEntryId).id, legacy.id)
+  assert.deepEqual(indexed.duplicates.map((item) => item.id), [duplicate.id])
+})
+
 test('Admin publish reintroduces a cancelled cell with a new session id and keeps cancellation history', () => {
   const fixture = baseFixture()
   const desired = [...desiredEntries(fixture).desired.values()][0]

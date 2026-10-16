@@ -262,6 +262,18 @@ function sameSession(left, right) {
     && JSON.stringify(left.adminOverrideWarnings || []) === JSON.stringify(right.adminOverrideWarnings || [])
 }
 
+// Older session writers did not always persist scheduleEntryId/scheduleWeekId.
+// The learner/date/hour tuple is still a stable identity for one weekly cell,
+// so use it as a migration-safe fallback when reconciling a publish. This is
+// deliberately scoped to the selected week before it reaches this helper.
+function naturalSessionKey(value = {}) {
+  const studentId = typeof value.studentId === 'string' ? value.studentId : ''
+  const date = storedDate(value.date)
+  const hour = storedHour(value.hour, value.id)
+  if (!studentId || !date || !Number.isInteger(hour)) return ''
+  return `${studentId}|${date}|${hour}`
+}
+
 function manualAvailabilityOverride(entry) {
   const reason = STUDENT_AVAILABILITY_REASON_CODES.has(entry?.availabilityOverrideReason)
     ? entry.availabilityOverrideReason
@@ -288,36 +300,87 @@ function rawEntryBranch(entry, students, trainers) {
     || ''
 }
 
-function indexExistingPublishSessions(existingScoped = []) {
+function indexExistingPublishSessions(existingScoped = [], preferredBranchId = '') {
   const existingByEntry = new Map()
+  const existingByNatural = new Map()
   const cancelledByEntry = new Map()
+  const duplicates = []
+  const duplicateIds = new Set()
+
+  const createdMillis = (item) => {
+    const value = item?.data?.() || {}
+    const timestamp = value.createdAt?.toMillis?.() || (typeof value.createdAt === 'string' ? Date.parse(value.createdAt) : NaN)
+    if (Number.isFinite(timestamp)) return timestamp
+    const documentTime = item?.createTime?.toMillis?.() || (typeof item?.createTime === 'string' ? Date.parse(item.createTime) : NaN)
+    return Number.isFinite(documentTime) ? documentTime : Number.MAX_SAFE_INTEGER
+  }
+  const priority = (item) => {
+    const value = item?.data?.() || {}
+    // A legacy `all` row is the source record that the new branch-scoped
+    // writer must reconcile in place. Prefer it over the duplicate branch row
+    // so the original session id and history remain intact.
+    const legacyBranch = value.branchId === 'all' ? 0 : value.branchId === preferredBranchId ? 1 : 2
+    const immutable = isImmutableSession(value) ? 0 : 1
+    return [legacyBranch, createdMillis(item), immutable, String(item?.id || '')]
+  }
+  const before = (left, right) => {
+    const a = priority(left)
+    const b = priority(right)
+    for (let index = 0; index < a.length; index += 1) {
+      if (a[index] < b[index]) return left
+      if (a[index] > b[index]) return right
+    }
+    return left
+  }
+  const recordDuplicate = (item) => {
+    if (!item || duplicateIds.has(item.id)) return
+    duplicateIds.add(item.id)
+    duplicates.push(item)
+  }
+  const addCandidate = (map, key, item) => {
+    if (!key) return
+    const current = map.get(key)
+    if (!current) {
+      map.set(key, item)
+      return
+    }
+    if (current.id === item.id) return
+    const canonical = before(current, item)
+    const duplicate = canonical.id === current.id ? item : current
+    map.set(key, canonical)
+    recordDuplicate(duplicate)
+  }
+
   for (const item of existingScoped) {
-    const key = item.data()?.scheduleEntryId
-    if (!key) continue
     const value = item.data() || {}
+    const key = value.scheduleEntryId
     // Multiple cancelled rows for one schedule cell are valid history after an
     // Admin removes and later re-adds a learner. Only one active/immutable row
     // may own the key at a time.
     if (!ACTIVE_SESSION_STATUSES.has(String(value.status || '').toLowerCase()) && !isImmutableSession(value)) {
+      if (!key) continue
       const history = cancelledByEntry.get(key) || []
       history.push(item)
       cancelledByEntry.set(key, history)
       continue
     }
-    if (existingByEntry.has(key)) throw scheduleError('DUPLICATE_DEPLOYED_SESSION', 'Có nhiều buổi tập cùng tham chiếu một ô lịch.')
-    existingByEntry.set(key, item)
+    addCandidate(existingByEntry, key, item)
+    addCandidate(existingByNatural, naturalSessionKey({ id: item.id, ...value }), item)
   }
-  return { existingByEntry, cancelledByEntry }
+  return { existingByEntry, existingByNatural, cancelledByEntry, duplicates }
 }
 
-function planPublishedSessions({ desired, existingByEntry, cancelledByEntry, adminPublishWarningMode, nextVersion }) {
+function planPublishedSessions({ desired, existingByEntry, existingByNatural, cancelledByEntry, adminPublishWarningMode, nextVersion }) {
   const creates = []
   const updates = []
   const unchanged = []
   const publishedEntries = []
   const reintroducedSessions = []
+  const claimedExistingIds = new Set()
   for (const [key, original] of desired) {
+    const natural = naturalSessionKey(original)
     const existing = existingByEntry.get(key)
+      || (existingByNatural?.get(natural) && !claimedExistingIds.has(existingByNatural.get(natural).id) ? existingByNatural.get(natural) : null)
     if (!existing) {
       const cancelledHistory = cancelledByEntry.get(key) || []
       if (cancelledHistory.length) {
@@ -338,6 +401,7 @@ function planPublishedSessions({ desired, existingByEntry, cancelledByEntry, adm
       publishedEntries.push(original)
       continue
     }
+    claimedExistingIds.add(existing.id)
     const effective = { ...original, id: existing.id }
     if (isImmutableSession(existing.data())) {
       if (!sameSession({ id: existing.id, ...existing.data() }, original)) throw scheduleError('CHARGED_SESSION_IMMUTABLE', 'Lịch nháp đang thay đổi một buổi đã được tính hoặc xác nhận.')
@@ -522,8 +586,11 @@ function desiredEntries({ scheduleId, week, branchId, schedule, trainers, studen
     // Sessions published from this branch/week are represented by the draft
     // being validated, so counting them here would reserve the same right
     // twice. Other weeks/branches remain real external reservations.
-    const belongsToCurrentDraft = session.branchId === branchId
-      && (session.scheduleWeekId === week || String(session.scheduleEntryId || '').startsWith(`${scheduleId}-`))
+    const sessionDate = storedDate(session.date)
+    const belongsToCurrentDraft = (session.branchId === branchId || session.branchId === 'all')
+      && (session.scheduleWeekId === week
+        || String(session.scheduleEntryId || '').startsWith(`${scheduleId}-`)
+        || (session.branchId === 'all' && sessionDate >= week && sessionDate < nextWeek(week)))
     if (!belongsToCurrentDraft) reservationsByContract.set(session.contractId, (reservationsByContract.get(session.contractId) || 0) + 1)
   }
 
@@ -817,7 +884,7 @@ function createPtSchedulePublishFunctions({ db, onCall, onScheduleMutation = () 
       .limit(1001))
 
     const result = await db.runTransaction(async (transaction) => {
-      const [scheduleSnapshot, v2DraftSnapshot, branchSnapshot, contractsSnapshot, studentsSnapshot, trainersSnapshot, weekSessionsSnapshot, activeSessionsSnapshot, configSnapshot, trainerLeavesSnapshot, availabilitySnapshots, exactStudentSnapshots, exactContractSnapshots, crossBranchSessionSnapshots] = await Promise.all([
+      const [scheduleSnapshot, v2DraftSnapshot, branchSnapshot, contractsSnapshot, studentsSnapshot, trainersSnapshot, weekSessionsSnapshot, legacyWeekSessionsSnapshot, activeSessionsSnapshot, legacyActiveSessionsSnapshot, configSnapshot, trainerLeavesSnapshot, availabilitySnapshots, exactStudentSnapshots, exactContractSnapshots, crossBranchSessionSnapshots] = await Promise.all([
         transaction.get(scheduleReference),
         transaction.get(v2DraftReference),
         transaction.get(branchReference),
@@ -825,7 +892,12 @@ function createPtSchedulePublishFunctions({ db, onCall, onScheduleMutation = () 
         transaction.get(db.collection('students').where('branchId', '==', branchId).limit(501)),
         transaction.get(db.collection('trainers').where('branchId', '==', branchId).limit(101)),
         transaction.get(db.collection('sessions').where('branchId', '==', branchId).where('date', '>=', week).where('date', '<', nextWeek(week)).limit(1001)),
+        // Legacy publishers used the UI filter value "all" as the stored
+        // branch. Include those rows so a publish reconciles the original
+        // session in place instead of creating a second branch-scoped row.
+        transaction.get(db.collection('sessions').where('branchId', '==', 'all').where('date', '>=', week).where('date', '<', nextWeek(week)).limit(1001)),
         transaction.get(db.collection('sessions').where('branchId', '==', branchId).where('status', 'in', ['scheduled', 'rescheduled']).limit(3001)),
+        transaction.get(db.collection('sessions').where('branchId', '==', 'all').where('status', 'in', ['scheduled', 'rescheduled']).limit(3001)),
         transaction.get(db.doc('settings/scheduleConfig')),
         transaction.get(db.collection('leaveRequests').where('status', '==', 'approved').limit(1001)),
         Promise.all(availabilityReferences.map((reference) => transaction.get(reference))),
@@ -835,7 +907,7 @@ function createPtSchedulePublishFunctions({ db, onCall, onScheduleMutation = () 
       ])
       if (!scheduleSnapshot.exists && !v2DraftSnapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy lịch nháp của tuần.')
       if (!branchSnapshot.exists || branchSnapshot.data().status === 'archived') throw new HttpsError('failed-precondition', 'Chi nhánh không hoạt động.')
-      if (contractsSnapshot.size > 1000 || studentsSnapshot.size > 500 || trainersSnapshot.size > 100 || weekSessionsSnapshot.size > 1000 || activeSessionsSnapshot.size > 3000 || trainerLeavesSnapshot.size > 1000 || crossBranchSessionSnapshots.some((snapshot) => snapshot.size > 1000)) throw new HttpsError('resource-exhausted', 'Dữ liệu lịch vượt giới hạn kiểm tra an toàn.')
+      if (contractsSnapshot.size > 1000 || studentsSnapshot.size > 500 || trainersSnapshot.size > 100 || weekSessionsSnapshot.size > 1000 || legacyWeekSessionsSnapshot.size > 1000 || activeSessionsSnapshot.size > 3000 || legacyActiveSessionsSnapshot.size > 3000 || trainerLeavesSnapshot.size > 1000 || crossBranchSessionSnapshots.some((snapshot) => snapshot.size > 1000)) throw new HttpsError('resource-exhausted', 'Dữ liệu lịch vượt giới hạn kiểm tra an toàn.')
       const scheduleData = scheduleSnapshot.exists ? scheduleSnapshot.data() : {}
       const activeDraftData = v2DraftSnapshot.exists ? v2DraftSnapshot.data() : scheduleData
       const draftRevision = Number(v2DraftSnapshot.exists ? activeDraftData.revision : scheduleData.draftRevision || 0)
@@ -869,10 +941,21 @@ function createPtSchedulePublishFunctions({ db, onCall, onScheduleMutation = () 
       }))
       const trainers = new Map(trainersSnapshot.docs.map((item) => [item.id, trainerProfileForWeek(item.data(), weeklyTrainerAvailability.get(item.id), week)]))
       const availability = new Map(availabilitySnapshots.filter((item) => item.exists).map((item) => [item.data().studentId, item.data()]))
+      // Legacy rows with branchId="all" are only owned by this branch when
+      // their PT or learner belongs to the selected branch. Without this
+      // scope, publishing one branch could cancel an unrelated legacy row
+      // from another branch simply because both use the old global marker.
+      const legacySessionBelongsToBranch = (item) => {
+        const value = item.data()
+        return value.branchId !== 'all'
+          || trainers.has(value.trainerId)
+          || students.has(value.studentId)
+      }
       const activeSessionDocuments = new Map([
         ...activeSessionsSnapshot.docs,
+        ...legacyActiveSessionsSnapshot.docs.filter(legacySessionBelongsToBranch),
         ...crossBranchSessionSnapshots.flatMap((snapshot) => snapshot.docs)
-          .filter((item) => ACTIVE_SESSION_STATUSES.has(item.data().status)),
+          .filter((item) => ACTIVE_SESSION_STATUSES.has(item.data().status) && legacySessionBelongsToBranch(item)),
       ].map((item) => [item.id, item]))
       const activeSessionDocs = [...activeSessionDocuments.values()]
       const prepared = desiredEntries({
@@ -904,12 +987,19 @@ function createPtSchedulePublishFunctions({ db, onCall, onScheduleMutation = () 
         })
       }
 
-      const existingScoped = weekSessionsSnapshot.docs.filter((item) => {
+      const scopedWeekDocuments = new Map([
+        ...weekSessionsSnapshot.docs,
+        ...legacyWeekSessionsSnapshot.docs,
+      ].map((item) => [item.id, item]))
+      const existingScoped = [...scopedWeekDocuments.values()].filter((item) => {
         const session = item.data()
-        return session.branchId === branchId
-          && (session.scheduleWeekId === week || String(session.scheduleEntryId || '').startsWith(`${scheduleId}-`))
+        return (session.branchId === branchId
+          || (session.branchId === 'all' && (legacySessionBelongsToBranch(item) || prepared.desired.has(session.scheduleEntryId))))
+          && (session.scheduleWeekId === week
+            || String(session.scheduleEntryId || '').startsWith(`${scheduleId}-`)
+            || (session.branchId === 'all' && !session.scheduleWeekId && !session.scheduleEntryId))
       })
-      const { existingByEntry, cancelledByEntry } = indexExistingPublishSessions(existingScoped)
+      const { existingByEntry, existingByNatural, cancelledByEntry, duplicates } = indexExistingPublishSessions(existingScoped, branchId)
 
       const desiredValues = [...prepared.desired.values()]
       const desiredStudentIds = new Set(desiredValues.map((item) => item.studentId))
@@ -959,7 +1049,7 @@ function createPtSchedulePublishFunctions({ db, onCall, onScheduleMutation = () 
 
       const plannedByContract = new Map()
       for (const desired of desiredValues) {
-        const existing = existingByEntry.get(desired.scheduleEntryId)
+        const existing = existingByEntry.get(desired.scheduleEntryId) || existingByNatural.get(naturalSessionKey(desired))
         if (existing && isImmutableSession(existing.data())) continue
         plannedByContract.set(desired.contractId, (plannedByContract.get(desired.contractId) || 0) + 1)
       }
@@ -984,6 +1074,7 @@ function createPtSchedulePublishFunctions({ db, onCall, onScheduleMutation = () 
       const publishPlan = planPublishedSessions({
         desired: prepared.desired,
         existingByEntry,
+        existingByNatural,
         cancelledByEntry,
         adminPublishWarningMode,
         nextVersion,
@@ -1002,8 +1093,30 @@ function createPtSchedulePublishFunctions({ db, onCall, onScheduleMutation = () 
           })
         }
       }
-      const cancellations = existingScoped.filter((item) => ACTIVE_SESSION_STATUSES.has(item.data().status) && !isImmutableSession(item.data()) && !prepared.desired.has(item.data().scheduleEntryId))
-      const immutableRemoved = existingScoped.filter((item) => isImmutableSession(item.data()) && !prepared.desired.has(item.data().scheduleEntryId))
+      if (duplicates.length) {
+        prepared.warnings.push('DUPLICATE_DEPLOYED_SESSION')
+        for (const duplicate of duplicates.slice(0, 100)) {
+          if (prepared.warningDetails.length >= 100) break
+          prepared.warningDetails.push({
+            code: 'DUPLICATE_DEPLOYED_SESSION',
+            duplicateSessionId: duplicate.id,
+            canonicalSessionId: existingByEntry.get(duplicate.data()?.scheduleEntryId)?.id
+              || existingByNatural.get(naturalSessionKey({ id: duplicate.id, ...duplicate.data() }))?.id
+              || null,
+            immutable: isImmutableSession(duplicate.data()),
+          })
+        }
+      }
+      const matchedExistingIds = new Set([
+        ...unchanged.map((item) => item.id),
+        ...updates.map((item) => item.existing.id),
+      ])
+      const duplicateSessionIds = new Set(duplicates.map((item) => item.id))
+      const cancellations = [...new Map([
+        ...existingScoped.filter((item) => ACTIVE_SESSION_STATUSES.has(item.data().status) && !isImmutableSession(item.data()) && !matchedExistingIds.has(item.id) && !prepared.desired.has(item.data().scheduleEntryId)),
+        ...duplicates.filter((item) => ACTIVE_SESSION_STATUSES.has(item.data().status)),
+      ].map((item) => [item.id, item])).values()]
+      const immutableRemoved = existingScoped.filter((item) => isImmutableSession(item.data()) && !duplicateSessionIds.has(item.id) && !matchedExistingIds.has(item.id) && !prepared.desired.has(item.data().scheduleEntryId))
       if (immutableRemoved.length) throw scheduleError('CHARGED_SESSION_IMMUTABLE', 'Không thể loại buổi đã được tính hoặc xác nhận khỏi lịch publish.')
       const diff = { create: creates.length, update: updates.length, cancel: cancellations.length, unchanged: unchanged.length }
       if (validateOnly) return { unchanged: false, validateOnly: true, draftRevision, version: nextVersion, diff, warnings: [...new Set(prepared.warnings)], warningDetails: prepared.warningDetails }
@@ -1051,7 +1164,9 @@ function createPtSchedulePublishFunctions({ db, onCall, onScheduleMutation = () 
           scheduleStatus: 'cancelled',
           billingStatus: 'exempt',
           attendanceStatus: null,
-          cancellationReason: 'Removed by schedule publish',
+          cancellationReason: duplicateSessionIds.has(existing.id)
+            ? 'Duplicate legacy session reconciled by schedule publish'
+            : 'Removed by schedule publish',
           scheduleVersion: nextVersion,
           revision: Number(existing.data().revision || 0) + 1,
           cancelledAt: FieldValue.serverTimestamp(),
@@ -1415,6 +1530,7 @@ module.exports = {
   desiredEntries,
   indexExistingPublishSessions,
   planPublishedSessions,
+  naturalSessionKey,
   reintroducedSessionId,
   branchScheduleSnapshot,
   mergeRestoredBranchSchedule,

@@ -1243,6 +1243,19 @@ test('published sessions are retained and counted once in coverage and PT daily 
   assert.equal(generated.optimizationSummary.trainerLoads.find((load) => load.trainerId === 'trainer-a' && load.day === 'T2').teachingSlots, 1)
 })
 
+test('legacy branch-all published sessions are retained for the owning branch', () => {
+  const data = fixture()
+  data.sessions = [{
+    id: 'legacy-published-a', status: 'scheduled', studentId: 'student-a', trainerId: 'trainer-a', contractId: 'contract-a', branchId: 'all', date: WEEK, hour: 6,
+  }, {
+    id: 'pt-duplicate-a', status: 'scheduled', studentId: 'student-a', trainerId: 'trainer-a', contractId: 'contract-a', branchId: BRANCH, date: WEEK, hour: 6,
+  }]
+  const generated = generateSchedule(data)
+  const rows = Object.values(generated.schedule).flat().filter((entry) => entry.studentId === 'student-a')
+  assert.equal(rows.length, 1)
+  assert.equal(rows[0].source, 'published_existing')
+})
+
 test('legacy published session falls back to the hour encoded in its id', () => {
   const data = fixture()
   data.sessions = [{

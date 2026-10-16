@@ -3021,13 +3021,37 @@ function protectedFromOptimizer(entry) {
 function mergePublishedSessions(data, schedule, warnings) {
   const retainedStatuses = new Set(['scheduled', 'rescheduled', 'completed', 'attended', 'no_show'])
   const studentsById = new Map([...data.students, ...(data.crossBranchStudents || [])].map((student) => [student.id, student]))
-  for (const session of [...(data.sessions || [])].sort((left, right) => String(left.id || '').localeCompare(String(right.id || '')))) {
+  const trainersById = new Map((data.trainers || []).map((trainer) => [trainer.id, trainer]))
+  const sessionPriority = (session) => {
+    const createdAt = session.createdAt?.toMillis?.() || (typeof session.createdAt === 'string' ? Date.parse(session.createdAt) : NaN)
+    return [session.branchId === 'all' ? 0 : 1, Number.isFinite(createdAt) ? createdAt : Number.MAX_SAFE_INTEGER, String(session.id || '')]
+  }
+  const precedes = (left, right) => {
+    const a = sessionPriority(left)
+    const b = sessionPriority(right)
+    for (let index = 0; index < a.length; index += 1) {
+      if (a[index] < b[index]) return true
+      if (a[index] > b[index]) return false
+    }
+    return false
+  }
+  const canonicalByCell = new Map()
+  for (const session of data.sessions || []) {
     // Other-branch sessions are loaded for entitlement/double-booking checks,
     // never as teaching workload for this branch.
-    if (session.branchId !== data.branch.id) continue
+    const belongsToBranch = session.branchId === data.branch.id
+      || (session.branchId === 'all' && (trainersById.has(session.trainerId) || studentsById.has(session.studentId)))
+    if (!belongsToBranch) continue
     if (!retainedStatuses.has(String(session.status || '').toLowerCase()) && session.billingStatus !== 'charged') continue
     const slotId = publishedSessionSlotId(data.weekId, session)
     if (!slotId || !session.studentId || !session.trainerId) continue
+    const cellKey = `${session.studentId}|${slotId}`
+    const current = canonicalByCell.get(cellKey)
+    if (!current) canonicalByCell.set(cellKey, session)
+    else if (precedes(session, current)) canonicalByCell.set(cellKey, session)
+  }
+  for (const session of [...canonicalByCell.values()].sort((left, right) => String(left.id || '').localeCompare(String(right.id || '')))) {
+    const slotId = publishedSessionSlotId(data.weekId, session)
     const values = schedule[slotId] || []
     if (values.some((entry) => entry.type !== 'off' && entry.studentId === session.studentId)) continue
     let contractId = session.contractId || ''

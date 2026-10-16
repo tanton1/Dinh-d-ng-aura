@@ -796,6 +796,10 @@ const ptSchedulePublishRegionalFunctions = createPtSchedulePublishFunctions({
 })
 exports.validatePtScheduleDraftRegional = ptSchedulePublishRegionalFunctions.validatePtScheduleDraft
 exports.publishPtScheduleRegional = ptSchedulePublishRegionalFunctions.publishPtSchedule
+exports.listPtScheduleVersionsRegional = ptSchedulePublishRegionalFunctions.listPtScheduleVersions
+exports.restorePtScheduleVersionToDraftRegional = ptSchedulePublishRegionalFunctions.restorePtScheduleVersionToDraft
+exports.getMyBranchScheduleWorkspaceRegional = ptSchedulePublishRegionalFunctions.getMyBranchScheduleWorkspace
+exports.saveMyBranchScheduleDraftRegional = ptSchedulePublishRegionalFunctions.saveMyBranchScheduleDraft
 const ptScheduleV2Functions = createPtScheduleV2Functions({ db, onCall: ptScheduleOnCall })
 Object.assign(exports, ptScheduleV2Functions)
 exports.listPtScheduleBranches = ptScheduleV2Functions.listPtScheduleBranches
@@ -805,6 +809,17 @@ exports.getPtScheduleSlotCandidates = ptScheduleV2Functions.getPtScheduleSlotCan
 exports.createHistoricalPtSession = ptScheduleV2Functions.createHistoricalPtSession
 exports.savePtStudentAvailability = ptScheduleV2Functions.savePtStudentAvailability
 exports.applyPtScheduleDraftCommand = ptScheduleV2Functions.applyPtScheduleDraftCommand
+
+// The selected web client also reads and edits the V2 workspace through the
+// overflow region. This keeps legacy branch-all session reconciliation active
+// even while the saturated southeast fleet is still serving older clients.
+const ptScheduleV2RegionalFunctions = createPtScheduleV2Functions({ db, onCall: ptSchedulePublishRegionalOnCall })
+exports.listPtScheduleBranchesRegional = ptScheduleV2RegionalFunctions.listPtScheduleBranches
+exports.getPtScheduleWorkspaceRegional = ptScheduleV2RegionalFunctions.getPtScheduleWorkspace
+exports.getPtScheduleSlotCandidatesRegional = ptScheduleV2RegionalFunctions.getPtScheduleSlotCandidates
+exports.createHistoricalPtSessionRegional = ptScheduleV2RegionalFunctions.createHistoricalPtSession
+exports.savePtStudentAvailabilityRegional = ptScheduleV2RegionalFunctions.savePtStudentAvailability
+exports.applyPtScheduleDraftCommandRegional = ptScheduleV2RegionalFunctions.applyPtScheduleDraftCommand
 
 // Admin-only schedule corrections update the real session and the operational
 // draft in one transaction. They intentionally live beside (rather than
