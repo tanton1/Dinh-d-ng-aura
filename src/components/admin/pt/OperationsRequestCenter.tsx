@@ -125,9 +125,9 @@ export default function OperationsRequestCenter({ kind }: Props) {
     }
   }
 
-  const title = kind === 'session' ? 'Đổi, hủy và bù buổi' : 'OFF và bảo lưu'
+  const title = kind === 'session' ? 'Trung tâm yêu cầu vận hành' : 'OFF và bảo lưu'
   const subtitle = kind === 'session'
-    ? 'Duyệt yêu cầu theo buổi, giữ lịch gốc, ca đề xuất và quy tắc không trừ thêm buổi cho ca bù.'
+    ? 'Admin duyệt yêu cầu đổi, hủy, xếp thêm ca và bù buổi. Thông báo học viên vắng trước giờ được ghi nhận ngay, không cần Admin xác nhận.'
     : 'Duyệt quyền lợi hợp đồng, thời gian nghỉ, số ngày cộng hạn và các ca được miễn.'
 
   return <section className="operations-requests" aria-busy={loading}>

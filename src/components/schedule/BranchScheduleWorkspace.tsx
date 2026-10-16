@@ -26,6 +26,7 @@ import {
 } from 'lucide-react'
 import { doc, onSnapshot } from 'firebase/firestore'
 import AvailabilityMatrix from './AvailabilityMatrix'
+import OperationsRequestCenter from '../admin/pt/OperationsRequestCenter'
 import type { AccessContext } from '../../identity/access'
 import { firestoreDb } from '../../lib/firebaseFirestore'
 import { trackProductEvent } from '../../services/analyticsService'
@@ -67,6 +68,7 @@ import { loadWorkspaceRequest } from '../../features/schedule/workspaceCache'
 interface Props {
   accessContext: AccessContext
   onNavigate?: (view: 'admin-pt-students' | 'admin-training-history') => void
+  initialTab?: WorkspaceTab
 }
 
 import {
@@ -123,7 +125,7 @@ function normalizeScheduleSearchText(value: unknown) {
     .trim()
 }
 
-export default function BranchScheduleWorkspace({ accessContext, onNavigate }: Props) {
+export default function BranchScheduleWorkspace({ accessContext, onNavigate, initialTab }: Props) {
   const [branches, setBranches] = useState<PtScheduleBranchOption[]>([])
   const [branchId, setBranchId] = useState(accessContext.branchIds[0] || '')
   const [branchCatalogState, setBranchCatalogState] = useState<'loading' | 'ready' | 'error'>('loading')
@@ -131,7 +133,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
   const [weekOffset, setWeekOffset] = useState(0)
   const [workspace, setWorkspace] = useState<PtScheduleWorkspaceV2Result | null>(null)
   const [selectedTrainerId, setSelectedTrainerId] = useState('')
-  const [tab, setTab] = useState<WorkspaceTab>('matrix')
+  const [tab, setTab] = useState<WorkspaceTab>(initialTab || 'matrix')
   const [opportunityStudentId, setOpportunityStudentId] = useState('')
   const [mobilePage, setMobilePage] = useState(0)
   const [loading, setLoading] = useState(false)
@@ -198,6 +200,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
   const canListenToDraft = ['admin', 'super_admin'].includes(accessContext.accessRole)
     || (accessContext.accessRole === 'staff' && accessContext.positions.includes('branch_manager'))
   const isAdmin = accessContext.accessRole === 'admin' || accessContext.accessRole === 'super_admin'
+  const canManageOperations = accessContext.capabilities.includes('pt.operations.manage')
   const ownerScope = `${accessContext.uid}|${accessContext.authzVersion}|${accessContext.accessRole}|${accessBranchIdsKey}`
   const workspaceScope = `${ownerScope}|${branchId}|${currentWeekId}`
   if (workspaceReadyTimingRef.current.scope !== workspaceScope) {
@@ -261,6 +264,15 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
       document.removeEventListener('visibilitychange', onVisibilityChange)
     }
   }, [])
+
+  useEffect(() => {
+    if (!initialTab) return
+    if (initialTab === 'requests' && !canManageOperations) {
+      setTab('matrix')
+      return
+    }
+    setTab(initialTab)
+  }, [canManageOperations, initialTab])
 
   useEffect(() => {
     workspaceRef.current = workspace
@@ -1720,6 +1732,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
           <button id="schedule-tab-opportunities" type="button" role="tab" aria-selected={tab === 'opportunities'} aria-controls="schedule-panel-opportunities" tabIndex={tab === 'opportunities' ? 0 : -1} className={tab === 'opportunities' ? 'is-active' : ''} onClick={() => setTab('opportunities')}>Kho ca {tab === 'opportunities' && <b>{scheduleOpportunities.length}</b>}</button>
           <button id="schedule-tab-warnings" type="button" role="tab" aria-selected={tab === 'warnings'} aria-controls="schedule-panel-warnings" tabIndex={tab === 'warnings' ? 0 : -1} className={tab === 'warnings' ? 'is-active' : ''} onClick={() => setTab('warnings')}>Cảnh báo <b>{warningCount}</b></button>
           <button id="schedule-tab-students" type="button" role="tab" aria-selected={tab === 'students'} aria-controls="schedule-panel-students" tabIndex={tab === 'students' ? 0 : -1} className={tab === 'students' ? 'is-active' : ''} onClick={() => setTab('students')}>Học viên</button>
+          {canManageOperations && <button id="schedule-tab-requests" type="button" role="tab" aria-selected={tab === 'requests'} aria-controls="schedule-panel-requests" tabIndex={tab === 'requests' ? 0 : -1} className={tab === 'requests' ? 'is-active' : ''} onClick={() => setTab('requests')}>Yêu cầu</button>}
         </div>
         <div className="branch-schedule__actions">
           <button type="button" aria-label="Xếp tối ưu" onClick={() => void autoArrange()} disabled={!workspace || workspaceHydrating || busy}><Sparkles size={16} /><span>Xếp tối ưu</span></button>
@@ -1763,6 +1776,12 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
       {!optimizationStatus && searchLimitWarning && <div className="branch-schedule__search-limit" role="status"><AlertTriangle size={16} /> Tối ưu đã dừng ở ngân sách tìm kiếm an toàn cho một số hồ sơ còn thiếu. Ca thủ công, ca khóa và ca đã publish vẫn được giữ nguyên; bấm “Tối ưu tiếp” hoặc xử lý hồ sơ trong Cảnh báo.</div>}
       {loading && !workspace && <div className="branch-schedule__loading"><RefreshCw className="is-spinning" /> Đang tải workspace theo phạm vi…</div>}
       {workspaceHydrating && <div className="branch-schedule__loading"><RefreshCw className="is-spinning" /> Lịch đã hiện; đang đối soát hợp đồng và cảnh báo…</div>}
+
+      {tab === 'requests' && canManageOperations && (
+        <main id="schedule-panel-requests" role="tabpanel" aria-labelledby="schedule-tab-requests" className="branch-schedule__workspace">
+          <OperationsRequestCenter kind="session" />
+        </main>
+      )}
 
       {workspace && tab === 'matrix' && (
         <main id="schedule-panel-matrix" role="tabpanel" aria-labelledby="schedule-tab-matrix" className="branch-schedule__workspace">

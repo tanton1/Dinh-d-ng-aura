@@ -10,7 +10,7 @@ import {
 
 import { readWorkspaceCache, writeWorkspaceCache, WORKSPACE_CACHE_REVALIDATE_MS } from './workspaceCache'
 
-type WorkspaceTab = 'matrix' | 'opportunities' | 'students' | 'warnings' | 'history'
+type WorkspaceTab = 'matrix' | 'opportunities' | 'students' | 'warnings' | 'history' | 'requests'
 type StudentFilter = 'all' | 'missing' | 'contract' | 'availability' | 'trainer' | 'ready'
 type WarningFilter = 'priority' | 'contract' | 'learner' | 'capacity' | 'system' | 'pairing' | 'trainer'
 type WarningCause = 'contract' | 'learner' | 'capacity' | 'system'
