@@ -29,7 +29,9 @@ const {
   foldSearchText,
   directoryHasSessionEvidence,
   directoryRowVisible,
+  SCHEDULE_VISIBLE_SESSION_STATUSES,
 } = require('./student-360')
+const { canonicalSessionRows } = require('./session-schedule-normalization')
 
 test('Student directory search folds Vietnamese accents and keeps phone digits searchable', () => {
   assert.equal(foldSearchText('  Nguyễn Thị Hồng  '), 'nguyen thi hong')
@@ -42,6 +44,38 @@ test('Student directory keeps empty and long-expired profiles in the searchable 
   assert.equal(directoryRowVisible({ training: { sessionCount: 2 } }, ''), true)
   assert.equal(directoryRowVisible({ identity: { status: 'expired' }, contract: { daysRemaining: -14, historySessions: 3 } }, ''), false)
   assert.equal(directoryRowVisible({ identity: { status: 'expired' }, contract: { daysRemaining: -14, historySessions: 3 } }, 'nguyen'), true)
+})
+
+test('schedule projections keep a charged no-show and hide its cancelled mirror', () => {
+  assert.equal(SCHEDULE_VISIBLE_SESSION_STATUSES.has('no_show'), true)
+  const rows = canonicalSessionRows([
+    {
+      id: 'pt-branch-mirror',
+      studentId: 'student-1',
+      trainerId: 'trainer-1',
+      contractId: 'contract-1',
+      scheduleEntryId: 'schedule-week-T6-20-student-1',
+      date: '2026-10-16',
+      hour: 20,
+      status: 'cancelled',
+      billingStatus: 'exempt',
+      updatedAt: '2026-10-16T02:10:37.956Z',
+    },
+    {
+      id: 'T6-20-student-1-2026-10-16',
+      studentId: 'student-1',
+      trainerId: 'trainer-1',
+      contractId: 'contract-1',
+      scheduleEntryId: 'schedule-week-T6-20-student-1',
+      date: '2026-10-16',
+      hour: 20,
+      status: 'no_show',
+      billingStatus: 'charged',
+      attendanceStatus: 'no_show',
+      updatedAt: '2026-10-16T14:52:46.841Z',
+    },
+  ])
+  assert.deepEqual(rows.map((item) => item.id), ['T6-20-student-1-2026-10-16'])
 })
 
 test('Student 360 selects contracts by effective dates instead of stale stored status', () => {

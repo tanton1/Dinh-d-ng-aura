@@ -17,6 +17,7 @@ const {
 const { summarizeContractUsage } = require('./contract-usage')
 const { normalizeMemberReferralCode } = require('./loyalty-core')
 const { normalizedScheduleConfig } = require('./pt-schedule-publish')
+const { canonicalSessionRows } = require('./session-schedule-normalization')
 
 const TIME_ZONE = 'Asia/Ho_Chi_Minh'
 const DEFAULT_WORKING_DAYS = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7']
@@ -936,8 +937,9 @@ async function trainerScheduleForActor(db, actor, from, to, limit) {
   ])
   const sessions = new Map()
   snapshots.forEach((snapshot) => snapshot.docs.forEach((document) => sessions.set(document.id, serialize({ id: document.id, ...document.data(), timeZone: TIME_ZONE }))))
-  const studentIds = [...new Set([...sessions.values()].map((session) => session.studentId).filter(Boolean))]
-  const contractIds = [...new Set([...sessions.values()].map((session) => session.contractId).filter(Boolean))]
+  const canonicalSessions = canonicalSessionRows([...sessions.values()])
+  const studentIds = [...new Set(canonicalSessions.map((session) => session.studentId).filter(Boolean))]
+  const contractIds = [...new Set(canonicalSessions.map((session) => session.contractId).filter(Boolean))]
   const [studentSnapshots, contractSnapshots] = await Promise.all([
     studentIds.length ? db.getAll(...studentIds.map((id) => db.doc(`students/${id}`))) : [],
     contractIds.length ? db.getAll(...contractIds.map((id) => db.doc(`contracts/${id}`))) : [],
@@ -977,7 +979,7 @@ async function trainerScheduleForActor(db, actor, from, to, limit) {
   }))
   return {
     schemaVersion: 2,
-    sessions: [...sessions.values()].map((session) => {
+    sessions: canonicalSessions.map((session) => {
       const student = studentProfiles.get(session.studentId)
       const contract = contracts.get(session.contractId)
       // A session is valid against the contract on the date it is scheduled,
@@ -1234,12 +1236,12 @@ function createPtOperationsV2Functions({ db, onCall }) {
       db.collection('sessionRequests').where('studentId', '==', profile.id).limit(100).get(),
       db.collection('leaveRequests').where('studentId', '==', profile.id).limit(100).get(),
     ])
-    const sessionRecords = sessionsSnapshot.docs.slice(0, 1000)
+    const sessionRecords = canonicalSessionRows(sessionsSnapshot.docs.slice(0, 1000)
       .map((item) => {
         const session = item.data()
         const hour = sessionHour(item.id, session.hour)
         return { id: item.id, ...session, hour }
-      })
+      }))
       .sort((left, right) => `${left.date}-${String(left.hour ?? 99).padStart(2, '0')}-${left.id}`.localeCompare(`${right.date}-${String(right.hour ?? 99).padStart(2, '0')}-${right.id}`))
     const trainerIds = [...new Set(sessionRecords.map((item) => item.trainerId).filter(Boolean))]
     const trainerSnapshots = trainerIds.length ? await db.getAll(...trainerIds.map((id) => db.doc(`trainers/${id}`))) : []
@@ -1608,7 +1610,7 @@ function createPtOperationsV2Functions({ db, onCall }) {
     ])
     if (sessionsSnapshot.size > 1000) throw new HttpsError('resource-exhausted', 'Lịch sử học viên vượt giới hạn xem nhanh. Hãy mở báo cáo đối soát.')
     if (!studentSnapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy học viên.')
-    const sessionRows = sessionsSnapshot.docs.map((document) => ({ id: document.id, ...document.data() }))
+    const sessionRows = canonicalSessionRows(sessionsSnapshot.docs.map((document) => ({ id: document.id, ...document.data() })))
     const actorIds = new Set([actor.uid, actor.legacyStaffId].filter(Boolean))
     let studentContracts = contracts.filter((item) => item.studentId === studentId)
     const studentValue = studentSnapshot.data() || {}

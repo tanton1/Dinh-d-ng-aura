@@ -9,12 +9,13 @@ const { usageSummaryFromView } = require('./contract-usage-view')
 const { canViewAction } = require('./action-center')
 const { sourceChanged, coalesceProjectionRebuild, upsertChangedTimeline } = require('./student-360-projection-writes')
 const { calculateNutritionTargets, canonicalNutritionProfile } = require('./nutrition-core.mjs')
+const { canonicalSessionRows } = require('./session-schedule-normalization')
 
 const TIME_ZONE = 'Asia/Ho_Chi_Minh'
 // Bump the projection schema when account-link resolution changes. Existing
 // cached views are rebuilt lazily on the next read, so old data is never
 // overwritten by a client-side migration.
-const OVERVIEW_SCHEMA_VERSION = 2
+const OVERVIEW_SCHEMA_VERSION = 3
 const HEALTH_FORMULA_VERSION = 'student-health-v1'
 // Canonical write triggers keep active students fresh. A long fallback TTL
 // prevents an unchanged profile from re-reading every history collection each
@@ -41,6 +42,7 @@ const PROJECTION_READ_LIMITS = Object.freeze({
 })
 const ACTIVE_CONTRACT_STATUSES = new Set(['active', 'future', 'frozen'])
 const ACTIVE_SESSION_STATUSES = new Set(['scheduled', 'rescheduled', 'attended', 'completed'])
+const SCHEDULE_VISIBLE_SESSION_STATUSES = new Set([...ACTIVE_SESSION_STATUSES, 'no_show'])
 const TERMINAL_ATTENDANCE = new Set(['present', 'late', 'no_show', 'policy_charge'])
 
 function finite(value, fallback = 0) {
@@ -1235,7 +1237,7 @@ async function projectionSources(db, studentId, weekId) {
   return {
     student,
     contracts,
-    sessions,
+    sessions: canonicalSessionRows(sessions),
     attendance,
     leaveRequests,
     sessionRequests,
@@ -1498,11 +1500,11 @@ async function buildStudent360Projection({ db, studentId, weekId = mondayDateKey
   const currentWeekEnd = addDays(weekId, 6)
   const weekSessions = sources.sessions.filter((item) => {
     const date = sessionDate(item)
-    return date >= weekId && date <= currentWeekEnd && ACTIVE_SESSION_STATUSES.has(bounded(item.status, 40).toLowerCase())
+    return date >= weekId && date <= currentWeekEnd && SCHEDULE_VISIBLE_SESSION_STATUSES.has(bounded(item.status, 40).toLowerCase())
   })
   const upcoming = sources.sessions.filter((item) => {
     const date = sessionDate(item)
-    return date >= today && ACTIVE_SESSION_STATUSES.has(bounded(item.status, 40).toLowerCase())
+    return date >= today && ['scheduled', 'rescheduled'].includes(bounded(item.status, 40).toLowerCase())
   }).sort((left, right) => sessionDate(left).localeCompare(sessionDate(right)) || finite(left.hour) - finite(right.hour))
   const attendanceCutoff = addDays(today, -27)
   const attendanceRows = (sources.attendance.length ? sources.attendance : sources.sessions)
@@ -2886,6 +2888,7 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
 
 module.exports = {
   ACTIVE_SESSION_STATUSES,
+  SCHEDULE_VISIBLE_SESSION_STATUSES,
   HEALTH_FORMULA_VERSION,
   OVERVIEW_SCHEMA_VERSION,
   addCalendarMonths,
