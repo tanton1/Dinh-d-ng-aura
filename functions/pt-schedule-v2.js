@@ -3507,6 +3507,24 @@ function createPtScheduleV2Functions({ db, onCall, actorForBranch = scheduleActo
       const latestContract = latestContractByStudent.get(student.id)
       if (latestContract) responseContractIds.add(latestContract.id)
     }
+    // Legacy sessions use branchId="all". They still belong to this
+    // workspace when their learner or PT is present in the selected branch;
+    // expose those references so Admin removal can cancel the real session in
+    // the short, idempotent path instead of scanning every session again.
+    const branchStudentIds = new Set([...data.students, ...(data.crossBranchStudents || [])].map((student) => student.id))
+    const branchTrainerIds = new Set((data.trainers || []).map((trainer) => trainer.id))
+    const sessionRefs = {}
+    const referenceSessions = (data.sessions || [])
+      .filter((session) => (session.branchId === branchId
+        || (session.branchId === 'all' && (branchStudentIds.has(session.studentId) || branchTrainerIds.has(session.trainerId))))
+        && historicalSessionOccupies(session)
+        && publishedSessionSlotId(week, session))
+      .sort((left, right) => Number(left.branchId !== 'all') - Number(right.branchId !== 'all'))
+    for (const session of referenceSessions) {
+      const slotId = publishedSessionSlotId(week, session)
+      const key = `${session.studentId}|${session.trainerId}|${slotId}`
+      if (!sessionRefs[key]) sessionRefs[key] = { sessionId: session.id, revision: Number(session.revision || 0) }
+    }
     return {
       schemaVersion: 2,
       branch: data.branch,
@@ -3537,9 +3555,7 @@ function createPtScheduleV2Functions({ db, onCall, actorForBranch = scheduleActo
       weeklySessionCoverage: data.weeklySessionCoverage || {},
       // Small optimistic-concurrency references for privileged edits; never
       // send raw attendance/billing documents to the scheduling workspace.
-      sessionRefs: Object.fromEntries(data.sessions
-        .filter((session) => session.branchId === branchId && historicalSessionOccupies(session) && publishedSessionSlotId(week, session))
-        .map((session) => [`${session.studentId}|${session.trainerId}|${publishedSessionSlotId(week, session)}`, { sessionId: session.id, revision: Number(session.revision || 0) }])),
+      sessionRefs,
       scheduleConfig: data.config,
       warnings: data.draft.warnings,
       // Always derive live workload from the current draft and current trainer

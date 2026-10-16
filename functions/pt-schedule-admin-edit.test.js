@@ -130,6 +130,45 @@ test('Admin can remove a pending published session without leaving a reappearing
   assert.equal(session.scheduleStatus, 'cancelled')
 })
 
+test('Admin removal with a session reference uses the direct reconciliation path', async () => {
+  const harness = makeHarness()
+  const result = await applyAdminScheduleEdit(baseInput(harness, 'remove_student', {
+    studentId: STUDENT, trainerId: TRAINER, slotId: 'T2-6', sessionId: 'session-a', expectedSessionRevision: 0,
+  }))
+  assert.equal(result.sessionChanged, true)
+  assert.equal(result.sessionId, 'session-a')
+  assert.equal(result.sessionRevision, 1)
+  assert.equal(harness.docs.get('sessions/session-a').status, 'cancelled')
+  assert.equal(harness.docs.get(harness.draftPath).status, 'published')
+})
+
+test('Admin can move a published draft-only row and create its missing live session', async () => {
+  const harness = makeHarness({ source: 'manual_v2' })
+  harness.docs.delete('sessions/session-a')
+  const result = await applyAdminScheduleEdit(baseInput(harness, 'move_student', {
+    studentId: STUDENT, fromTrainerId: TRAINER, fromSlotId: 'T2-6', trainerId: TRAINER, slotId: 'T3-6',
+  }))
+  assert.equal(result.sessionChanged, true)
+  assert.equal(result.draftRevision, 2)
+  assert.equal(result.schedule['T2-6'], undefined)
+  assert.equal(result.schedule['T3-6'][0].studentId, STUDENT)
+  const session = harness.docs.get(`sessions/${result.sessionId}`)
+  assert.equal(session.status, 'scheduled')
+  assert.equal(session.date, '2090-01-03')
+  assert.equal(harness.docs.get(harness.draftPath).status, 'published')
+})
+
+test('Admin can remove a published draft-only row without another Publish', async () => {
+  const harness = makeHarness({ source: 'manual_v2' })
+  harness.docs.delete('sessions/session-a')
+  const result = await applyAdminScheduleEdit(baseInput(harness, 'remove_student', {
+    studentId: STUDENT, trainerId: TRAINER, slotId: 'T2-6',
+  }))
+  assert.equal(result.sessionChanged, true)
+  assert.equal(result.schedule['T2-6'], undefined)
+  assert.equal(harness.docs.get(harness.draftPath).status, 'published')
+})
+
 test('Admin can move an explicitly confirmed cross-branch learner', async () => {
   const harness = makeHarness({ studentBranchId: 'branch-home' })
   const result = await applyAdminScheduleEdit(baseInput(harness, 'move_student', {

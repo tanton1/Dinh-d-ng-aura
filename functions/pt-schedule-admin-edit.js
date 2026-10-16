@@ -16,6 +16,172 @@ const deterministicAdminSessionId = (week, branchId, slotId, studentId) => {
   return `pt_${digest}`
 }
 
+// Removing a pending session does not need the full placement validation
+// fan-out below. The workspace already sends the session id and revision, so
+// read that document directly and only check the evidence that could make a
+// cancellation unsafe. This keeps the common "gỡ buổi" action out of the
+// student/branch/availability collection scans.
+async function applyFastAdminRemoval({ db, actor, branchId, week, payload, reason, expectedRevision, receipt, safeSchedule, scopedDraftData, draftExpiresAt }) {
+  const { studentId, trainerId, slotId, sessionId } = payload
+  const sourceDate = dateForSlot(week, slotId.split('-')[0])
+  const sourceHour = Number(slotId.split('-')[1])
+  const draftRef = db.doc(`ptScheduleDrafts/${branchId}_${week}`)
+  const legacyRef = db.doc(`schedules/schedule_${week}`)
+  const sessionRef = db.doc(`sessions/${sessionId}`)
+  const instant = new Date()
+
+  return db.runTransaction(async (transaction) => {
+    const [prior, draftSnapshot, legacy, sessionSnapshot] = await Promise.all([
+      transaction.get(receipt),
+      transaction.get(draftRef),
+      transaction.get(legacyRef),
+      transaction.get(sessionRef),
+    ])
+    if (prior.exists) return prior.data().result
+
+    const draft = scopedDraftData(draftSnapshot, branchId, week)
+    const revision = Number(draft?.revision ?? legacy.data()?.draftRevision ?? 0)
+    if (revision !== expectedRevision) throw new HttpsError('aborted', 'Lịch đã thay đổi. Hãy tải lại trước khi xác nhận.', { issueCode: 'REVISION_CONFLICT' })
+    if (!sessionSnapshot.exists) fail('SOURCE_SESSION_NOT_FOUND', 'Buổi nguồn không còn tồn tại. Hãy tải lại lịch.')
+
+    const session = sessionSnapshot.data() || {}
+    if (session.branchId && !['all', branchId].includes(session.branchId)) throw new HttpsError('permission-denied', 'Buổi tập không thuộc cơ sở đang điều chỉnh.')
+    if (session.studentId !== studentId || session.trainerId !== trainerId
+      || storedDate(session.date) !== sourceDate
+      || sessionHour(session, sessionId) !== sourceHour) {
+      fail('SOURCE_SESSION_NOT_FOUND', 'Buổi nguồn đã thay đổi. Hãy tải lại lịch.')
+    }
+    if (payload.expectedSessionRevision !== undefined
+      && payload.expectedSessionRevision !== Number(session.revision || 0)) {
+      throw new HttpsError('aborted', 'Buổi tập đã thay đổi. Hãy tải lại lịch và xác nhận phiên bản mới.', { issueCode: 'REVISION_CONFLICT' })
+    }
+
+    const attendanceRef = db.doc(`attendanceEvents/${session.attendanceEventId || sessionId}`)
+    const period = (storedDate(session.date) || sourceDate).slice(0, 7)
+    const [attendance, payroll, finance] = await Promise.all([
+      transaction.get(attendanceRef),
+      transaction.get(db.doc(`payrollRuns/${period}`)),
+      transaction.get(db.doc(`financePeriods/${period}`)),
+    ])
+    if (attendance.exists) throw new HttpsError('failed-precondition', 'Buổi đã điểm danh hoặc đã tính buổi; không xóa trực tiếp. Hãy dùng điều chỉnh ca hoặc bù trừ để giữ nguyên billing.', {
+      issueCode: 'TEACHING_SHIFT_STATUS_NOT_EDITABLE',
+      sessionId,
+    })
+    if (sessionCountsTowardContract(session)
+      || ['completed', 'attended', 'no_show'].includes(String(session.status || '').toLowerCase())) {
+      throw new HttpsError('failed-precondition', 'Buổi đã điểm danh hoặc đã tính buổi; không xóa trực tiếp. Hãy dùng điều chỉnh ca hoặc bù trừ để giữ nguyên billing.', {
+        issueCode: 'TEACHING_SHIFT_STATUS_NOT_EDITABLE',
+        sessionId,
+      })
+    }
+    if (payroll.exists && payroll.data().status !== 'draft') throw new HttpsError('failed-precondition', 'Kỳ lương đã chốt; cần bù trừ, không sửa chứng từ ca gốc.', { issueCode: 'PAYROLL_RUN_IMMUTABLE' })
+    if (finance.exists && finance.data().status === 'locked') throw new HttpsError('failed-precondition', 'Kỳ tài chính đã khóa; cần điều chỉnh tại kỳ mở.', { issueCode: 'FINANCE_PERIOD_LOCKED' })
+
+    const schedule = safeSchedule(draft ? draft.schedule : (legacy.data()?.schedule || {}))
+    const nextSchedule = { ...schedule }
+    nextSchedule[slotId] = (nextSchedule[slotId] || []).filter((entry) => !sameEntry(entry, studentId, trainerId))
+    if (!nextSchedule[slotId].length) delete nextSchedule[slotId]
+    const nextRevision = revision + 1
+    const warnings = []
+    const before = {
+      date: storedDate(session.date) || sourceDate,
+      hour: sessionHour(session, sessionId),
+      trainerId: session.trainerId,
+      branchId,
+      status: session.status || '',
+      billingStatus: session.billingStatus || '',
+      attendanceStatus: session.attendanceStatus || '',
+    }
+    const result = {
+      draftRevision: nextRevision,
+      schedule: nextSchedule,
+      weeklySessionTargets: draft?.weeklySessionTargets || {},
+      adminEdit: true,
+      sessionChanged: true,
+      sessionId,
+      sessionRevision: Number(session.revision || 0) + 1,
+      warnings,
+    }
+    transaction.update(sessionRef, {
+      status: 'cancelled',
+      scheduleStatus: 'cancelled',
+      billingStatus: 'exempt',
+      attendanceStatus: null,
+      cancellationReason: reason,
+      cancelledAt: FieldValue.serverTimestamp(),
+      previousSchedule: FieldValue.arrayUnion({ ...before, changedAt: instant.toISOString(), reason }),
+      revision: Number(session.revision || 0) + 1,
+      correctedBy: actor.uid,
+      correctedAt: FieldValue.serverTimestamp(),
+      correctionReason: reason,
+      updatedAt: FieldValue.serverTimestamp(),
+      updatedBy: actor.uid,
+    })
+    if (payroll.exists) transaction.update(db.doc(`payrollRuns/${period}`), {
+      requiresRebuild: true,
+      sourceDataStale: true,
+      sourceDataChangedBy: actor.uid,
+      sourceDataChangedAt: FieldValue.serverTimestamp(),
+      sourceDataChangeReason: reason,
+    })
+    transaction.create(db.collection('sessionEvents').doc(), {
+      schemaVersion: 2,
+      sessionId,
+      type: 'admin_schedule_cancelled',
+      from: before,
+      to: { status: 'cancelled', billingStatus: 'exempt' },
+      reason,
+      warnings,
+      createdAt: FieldValue.serverTimestamp(),
+      createdBy: actor.uid,
+    })
+    transaction.set(draftRef, {
+      schemaVersion: 2,
+      branchId,
+      weekId: week,
+      schedule: nextSchedule,
+      revision: nextRevision,
+      status: 'published',
+      publishedRevision: nextRevision,
+      weeklySessionTargets: draft?.weeklySessionTargets || {},
+      unassignedEntries: [],
+      optimizationSummary: FieldValue.delete(),
+      expiresAt: draftExpiresAt(week),
+      updatedAt: FieldValue.serverTimestamp(),
+      updatedBy: actor.uid,
+    }, { merge: true })
+    if (legacy.exists) {
+      const legacySchedule = { ...(legacy.data()?.schedule || {}) }
+      legacySchedule[slotId] = (legacySchedule[slotId] || []).filter((entry) => !sameEntry(entry, studentId, trainerId))
+      if (!legacySchedule[slotId].length) delete legacySchedule[slotId]
+      transaction.update(legacyRef, {
+        schedule: legacySchedule,
+        draftRevision: Number(legacy.data()?.draftRevision || 0) + 1,
+        updatedAt: FieldValue.serverTimestamp(),
+        updatedBy: actor.uid,
+      })
+    }
+    transaction.create(receipt, { actorUid: actor.uid, branchId, weekId: week, command: 'remove_student', result, createdAt: FieldValue.serverTimestamp() })
+    transaction.create(db.collection('ptOperationsAuditLogs').doc(), {
+      schemaVersion: 2,
+      action: 'pt_schedule.admin_remove_student',
+      actorUid: actor.uid,
+      branchId,
+      weekId: week,
+      studentId,
+      sessionId,
+      previousDraftRevision: revision,
+      nextDraftRevision: nextRevision,
+      from: before,
+      to: { status: 'cancelled', billingStatus: 'exempt' },
+      reason,
+      warnings,
+      createdAt: FieldValue.serverTimestamp(),
+    })
+    return result
+  })
+}
+
 // Explicit Admin edits reconcile the operational schedule and real session in
 // ONE transaction. They are not an optimizer override and never hard-delete
 // attendance/accounting evidence. Ordinary staff draft commands stay separate.
@@ -28,6 +194,21 @@ async function applyAdminScheduleEdit({ db, actor, branchId, week, command, payl
   // use a safe default when Admin moves or removes a row without typing one.
   if (!reason) reason = command === 'remove_student' ? 'Admin gỡ buổi trực tiếp trên ma trận' : 'Admin điều chỉnh buổi trực tiếp trên ma trận'
   const { studentId, trainerId, slotId } = payload
+  if (command === 'remove_student' && typeof payload.sessionId === 'string' && payload.sessionId) {
+    return applyFastAdminRemoval({
+      db,
+      actor,
+      branchId,
+      week,
+      payload,
+      reason,
+      expectedRevision,
+      receipt,
+      safeSchedule,
+      scopedDraftData,
+      draftExpiresAt,
+    })
+  }
   const sourceTrainerId = command === 'move_student' ? payload.fromTrainerId : trainerId
   const sourceSlot = command === 'move_student' ? payload.fromSlotId : slotId
   const sourceDate = dateForSlot(week, sourceSlot.split('-')[0])
@@ -37,7 +218,7 @@ async function applyAdminScheduleEdit({ db, actor, branchId, week, command, payl
   if (command === 'move_student' && sourceSlot === slotId && sourceTrainerId === trainerId) throw new HttpsError('invalid-argument', 'Ca đích trùng ca nguồn.')
   const baseTargetSessionId = deterministicAdminSessionId(week, branchId, slotId, studentId)
   let targetSessionId = baseTargetSessionId
-  let targetSessionReference = command === 'add_student' ? db.doc(`sessions/${targetSessionId}`) : null
+  let targetSessionReference = ['add_student', 'move_student'].includes(command) ? db.doc(`sessions/${targetSessionId}`) : null
   const draftRef = db.doc(`ptScheduleDrafts/${branchId}_${week}`)
   const legacyRef = db.doc(`schedules/schedule_${week}`)
   const instant = new Date()
@@ -68,45 +249,46 @@ async function applyAdminScheduleEdit({ db, actor, branchId, week, command, payl
     const entries = (schedule[sourceSlot] || []).filter((entry) => sameEntry(entry, studentId, sourceTrainerId))
     const sourceMatches = studentSessions.docs.filter((item) => occupies(item.data()) && item.data().trainerId === sourceTrainerId
       && storedDate(item.data().date) === sourceDate && sessionHour(item.data(), item.id) === sourceHour)
+    const source = sourceMatches[0]
+    const session = source?.data()
+    const createsTargetSession = command === 'add_student' || (command === 'move_student' && !session)
     let reintroducedFromSessionId = ''
     let reintroducedAtRevision = 0
     if (command === 'add_student') {
       if (entries.length) fail('DUPLICATE_SCHEDULE_ENTRY', 'Học viên đã có trong ca này.')
       if (sourceMatches.length) fail('DUPLICATE_DEPLOYED_SESSION', 'Ca này đã có session thật. Hãy tải lại trước khi xếp thêm.')
-      if (targetSessionSnapshot?.exists) {
-        const existing = targetSessionSnapshot.data() || {}
-        if (occupies(existing)) fail('DUPLICATE_DEPLOYED_SESSION', 'Ca này đã có session thật. Hãy tải lại trước khi xếp thêm.')
-        // Keep the cancelled document immutable. Admin re-add creates a new
-        // deterministic session id so the old cancellation remains auditable.
-        reintroducedFromSessionId = targetSessionSnapshot.id
-        reintroducedAtRevision = revision + 1
-        let ordinal = 1
-        while (ordinal <= 20) {
-          const candidateId = reintroducedSessionId(baseTargetSessionId, reintroducedAtRevision, ordinal)
-          const candidateReference = db.doc(`sessions/${candidateId}`)
-          const candidateSnapshot = await transaction.get(candidateReference)
-          if (!candidateSnapshot.exists) {
-            targetSessionId = candidateId
-            targetSessionReference = candidateReference
-            break
-          }
-          if (occupies(candidateSnapshot.data() || {})) fail('DUPLICATE_DEPLOYED_SESSION', 'Ca này đã có session thật. Hãy tải lại trước khi xếp thêm.')
-          ordinal += 1
-        }
-        if (targetSessionId === baseTargetSessionId) throw new HttpsError('resource-exhausted', 'Không tạo được mã buổi mới cho ca đã hủy.')
-      }
     }
     if (entries.length > 1 || sourceMatches.length > 1) fail('DUPLICATE_DEPLOYED_SESSION', 'Ca nguồn bị trùng. Cần đối soát trước khi điều chỉnh.')
     if (command !== 'add_student' && !entries.length && !sourceMatches.length) fail('SOURCE_SESSION_NOT_FOUND', 'Ca nguồn không còn tồn tại. Hãy tải lại lịch.')
-    const source = sourceMatches[0]
-    const session = source?.data()
+    if (createsTargetSession && targetSessionSnapshot?.exists) {
+      const existing = targetSessionSnapshot.data() || {}
+      if (occupies(existing)) fail('DUPLICATE_DEPLOYED_SESSION', 'Ca đích đã có session thật. Hãy tải lại trước khi xếp thêm.')
+      // Keep the cancelled document immutable. Admin re-add or move creates a
+      // new deterministic session id so the old cancellation remains auditable.
+      reintroducedFromSessionId = targetSessionSnapshot.id
+      reintroducedAtRevision = revision + 1
+      let ordinal = 1
+      while (ordinal <= 20) {
+        const candidateId = reintroducedSessionId(baseTargetSessionId, reintroducedAtRevision, ordinal)
+        const candidateReference = db.doc(`sessions/${candidateId}`)
+        const candidateSnapshot = await transaction.get(candidateReference)
+        if (!candidateSnapshot.exists) {
+          targetSessionId = candidateId
+          targetSessionReference = candidateReference
+          break
+        }
+        if (occupies(candidateSnapshot.data() || {})) fail('DUPLICATE_DEPLOYED_SESSION', 'Ca đích đã có session thật. Hãy tải lại trước khi xếp thêm.')
+        ordinal += 1
+      }
+      if (targetSessionId === baseTargetSessionId) throw new HttpsError('resource-exhausted', 'Không tạo được mã buổi mới cho ca đã hủy.')
+    }
     if (session && session.branchId && !['all', branchId].includes(session.branchId)) throw new HttpsError('permission-denied', 'Buổi tập không thuộc cơ sở đang điều chỉnh.')
     if (session && ((payload.sessionId && payload.sessionId !== source.id)
       || (payload.expectedSessionRevision !== undefined
         && payload.expectedSessionRevision !== Number(session.revision || 0)))) {
       throw new HttpsError('aborted', 'Buổi tập đã thay đổi. Hãy tải lại lịch và xác nhận phiên bản mới.', { issueCode: 'REVISION_CONFLICT' })
     }
-    if (!session && (payload.sessionId || entries[0]?.source === 'published_existing')) fail('SOURCE_SESSION_NOT_FOUND', 'Không tìm thấy buổi đã ghi nhận tương ứng; chưa thay đổi lịch.')
+    if (!session && payload.sessionId) fail('SOURCE_SESSION_NOT_FOUND', 'Không tìm thấy buổi đã ghi nhận tương ứng; chưa thay đổi lịch.')
     if (!trainerMap.has(sourceTrainerId)) fail('TRAINER_BRANCH_MISMATCH', 'PT nguồn không thuộc cơ sở đang điều chỉnh.')
 
     const attendanceRef = session ? db.doc(`attendanceEvents/${session.attendanceEventId || source.id}`) : null
@@ -298,7 +480,18 @@ async function applyAdminScheduleEdit({ db, actor, branchId, week, command, payl
       return result
     }
     const nextSchedule = reconcile(schedule)
-    const sessionChanged = Boolean(session) || command === 'add_student'
+    const legacyData = legacy.data() || {}
+    const publishedWorkspace = draft?.status === 'published'
+      || Number(draft?.publishedVersion || 0) > 0
+      || legacyData.publishStatusByBranch?.[branchId] === 'published'
+      || Number(legacyData.publishedVersions?.[branchId] || 0) > 0
+    // An Admin edit on a published workspace is the live reconciliation
+    // action. A draft-only move creates the missing live session; a draft-only
+    // removal simply clears the matrix row and keeps the published state.
+    const sessionChanged = Boolean(session)
+      || command === 'add_student'
+      || (command === 'move_student' && !session)
+      || (command === 'remove_student' && publishedWorkspace && !session && entries.length > 0)
     const result = {
       draftRevision: revision + 1,
       schedule: nextSchedule,
@@ -349,7 +542,7 @@ async function applyAdminScheduleEdit({ db, actor, branchId, week, command, payl
       for (const item of payroll) if (item.exists) transaction.update(db.doc(`payrollRuns/${item.id}`), { requiresRebuild: true, sourceDataStale: true, sourceDataChangedBy: actor.uid, sourceDataChangedAt: FieldValue.serverTimestamp(), sourceDataChangeReason: reason })
       transaction.create(db.collection('sessionEvents').doc(), { schemaVersion: 2, sessionId: source.id, type: command === 'move_student' ? 'teaching_shift_corrected' : 'admin_schedule_cancelled', from: before, to: after, reason, warnings, createdAt: FieldValue.serverTimestamp(), createdBy: actor.uid })
     }
-    if (command === 'add_student') {
+    if (command === 'add_student' || (command === 'move_student' && !session)) {
       transaction.create(targetSessionReference, {
         schemaVersion: 2,
         scheduleEntryId: `schedule_${week}-${slotId}-${studentId}`,
@@ -385,7 +578,7 @@ async function applyAdminScheduleEdit({ db, actor, branchId, week, command, payl
       transaction.create(db.collection('sessionEvents').doc(), {
         schemaVersion: 2,
         sessionId: targetSessionId,
-        type: 'admin_schedule_added',
+        type: command === 'move_student' ? 'admin_schedule_moved' : 'admin_schedule_added',
         from: null,
         to: after,
         reason: reason || 'Admin xếp buổi trực tiếp trên ma trận',
@@ -411,7 +604,7 @@ async function applyAdminScheduleEdit({ db, actor, branchId, week, command, payl
     }, { merge: true })
     if (legacy.exists) transaction.update(legacyRef, { schedule: reconcile(legacy.data().schedule || {}), draftRevision: Number(legacy.data().draftRevision || 0) + 1, updatedAt: FieldValue.serverTimestamp(), updatedBy: actor.uid })
     transaction.create(receipt, { actorUid: actor.uid, branchId, weekId: week, command, result, createdAt: FieldValue.serverTimestamp() })
-    transaction.create(db.collection('ptOperationsAuditLogs').doc(), { schemaVersion: 2, action: `pt_schedule.admin_${command}`, actorUid: actor.uid, branchId, weekId: week, studentId, sessionId: source?.id || (command === 'add_student' ? targetSessionId : null), ...(reintroducedFromSessionId ? { reintroducedFromSessionId, reintroducedAtRevision } : {}), previousDraftRevision: revision, nextDraftRevision: revision + 1, from: before, to: after, reason, warnings, createdAt: FieldValue.serverTimestamp() })
+    transaction.create(db.collection('ptOperationsAuditLogs').doc(), { schemaVersion: 2, action: `pt_schedule.admin_${command}`, actorUid: actor.uid, branchId, weekId: week, studentId, sessionId: source?.id || (['add_student', 'move_student'].includes(command) && !session ? targetSessionId : null), ...(reintroducedFromSessionId ? { reintroducedFromSessionId, reintroducedAtRevision } : {}), previousDraftRevision: revision, nextDraftRevision: revision + 1, from: before, to: after, reason, warnings, createdAt: FieldValue.serverTimestamp() })
     return result
   })
 }
