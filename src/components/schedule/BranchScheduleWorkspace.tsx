@@ -557,6 +557,20 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
     ]
   }, [candidateSearch, candidates, inspectorEntries, inspectorSlotIsPast, isAdmin])
 
+  // A normal, current-week candidate has already passed the visible matrix
+  // checks. Place that row immediately; keep a deliberate confirmation for
+  // outside availability, cross-branch/assignment warnings, historical slots,
+  // and Admin overrides so the exceptional action remains explicit.
+  const canPlaceManualCandidateImmediately = (candidate: PtScheduleSlotCandidate) => Boolean(
+    !inspectorSlotIsPast
+      && candidate.eligible
+      && candidateMatchesStudentAvailability(candidate)
+      && !candidate.trainerAssignmentWarning
+      && !candidate.studentBranchWarning
+      && candidateCanBeManuallyScheduled(candidate, isAdmin)
+      && (isAdmin || !selectedTrainer || inspectorEntries.filter((entry) => entry.type !== 'off').length < selectedTrainer.slotCapacity),
+  )
+
   const trainerAssignmentWarnings = useMemo(() => {
     if (!workspace) return []
     const contractsById = new Map(workspace.contracts.map((contract) => [contract.id, contract]))
@@ -1263,22 +1277,23 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
     }
   }
 
-  const confirmManualCandidate = async () => {
-    if (!pendingManualCandidate || !inspectorSlotId || !selectedTrainerId) return
-    const outsideAvailability = !candidateMatchesStudentAvailability(pendingManualCandidate)
+  const confirmManualCandidate = async (candidateOverride?: PtScheduleSlotCandidate) => {
+    const candidate = candidateOverride || pendingManualCandidate
+    if (!candidate || !inspectorSlotId || !selectedTrainerId || busyRef.current) return
+    const outsideAvailability = !candidateMatchesStudentAvailability(candidate)
     const reason = [
       outsideAvailability ? 'Quản lý xác nhận xếp tay ngoài lịch rảnh học viên' : 'Quản lý xác nhận xếp tay',
-      pendingManualCandidate.trainerAssignmentWarning ? 'PT hỗ trợ ngoài danh sách PT chính/phụ' : '',
-      pendingManualCandidate.studentBranchWarning ? 'Xác nhận học viên tập khác cơ sở hồ sơ' : '',
+      candidate.trainerAssignmentWarning ? 'PT hỗ trợ ngoài danh sách PT chính/phụ' : '',
+      candidate.studentBranchWarning ? 'Xác nhận học viên tập khác cơ sở hồ sơ' : '',
     ].filter(Boolean).join(' · ')
     const payload = {
       slotId: inspectorSlotId,
       trainerId: selectedTrainerId,
-      studentId: pendingManualCandidate.studentId,
-      ...(pendingManualCandidate.contractId ? { contractId: pendingManualCandidate.contractId } : {}),
+      studentId: candidate.studentId,
+      ...(candidate.contractId ? { contractId: candidate.contractId } : {}),
       ...(isAdmin ? { adminOverride: true } : {}),
       ...(outsideAvailability ? { allowOutsideStudentAvailability: true } : {}),
-      ...(pendingManualCandidate.studentBranchWarning ? { confirmCrossBranchStudent: true } : {}),
+      ...(candidate.studentBranchWarning ? { confirmCrossBranchStudent: true } : {}),
     }
     if (isAdmin && hasPublishedSchedule && !inspectorSlotIsPast) {
       await runAdminEdit('add_student', payload, reason)
@@ -1363,6 +1378,20 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
       return
     }
     const student = workspace?.students.find((item) => item.id === studentId)
+    const entry = workspace?.schedule[slotId]?.find((item) => item.type !== 'off' && item.studentId === studentId && item.trainerId === trainerId)
+    // A pre-publish row is only a draft map entry. Keep it on the lightweight
+    // draft command so removing it does not invoke the live-session
+    // reconciliation fan-out used after Publish.
+    if (!hasPublishedSchedule && entry?.source !== 'published_existing') {
+      await runCommand('remove_student', {
+        studentId,
+        slotId,
+        trainerId,
+        adminOverride: true,
+        ...(student && student.branchId !== branchId ? { confirmCrossBranchStudent: true } : {}),
+      }, 'Admin gỡ học viên khỏi lịch nháp')
+      return
+    }
     await runAdminEdit('remove_student', {
       studentId,
       slotId,
@@ -2031,7 +2060,8 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
                     const adminConflictNote = isAdmin && !candidate.eligible
                       ? ` · Admin có thể xếp, sẽ ghi cảnh báo${candidate.reasons.length ? `: ${candidate.reasons.map(ptScheduleConflictLabel).join(' · ')}` : ''}`
                       : ''
-                    return <article key={candidate.studentId} className={`${candidate.eligible ? 'is-eligible' : manualSelectable ? 'is-override' : 'is-disabled'}${candidate.trainerAssignmentWarning ? ' has-assignment-warning' : ''}${candidate.studentBranchWarning ? ' has-branch-warning' : ''}${selected ? ' is-selected' : ''}`}><div><strong>{candidate.name}{(candidate.trainerAssignmentWarning || candidate.studentBranchWarning || (isAdmin && !candidate.eligible)) && <AlertTriangle size={13} aria-label="Ca cần xác nhận" />}</strong><span>{candidateText}{adminConflictNote}</span></div><button type="button" aria-label={selected ? `Bỏ chọn ${candidate.name}` : `Chọn ${candidate.name}`} aria-pressed={selected} disabled={!manualSelectable || busy || !isAdmin && inspectorEntries.filter((entry) => entry.type !== 'off').length >= selectedTrainer.slotCapacity} onClick={() => setPendingManualCandidate((current) => current?.studentId === candidate.studentId ? null : candidate)}>{selected ? <CheckCircle2 /> : <UserPlus />}</button></article>
+                    const immediate = canPlaceManualCandidateImmediately(candidate)
+                    return <article key={candidate.studentId} className={`${candidate.eligible ? 'is-eligible' : manualSelectable ? 'is-override' : 'is-disabled'}${candidate.trainerAssignmentWarning ? ' has-assignment-warning' : ''}${candidate.studentBranchWarning ? ' has-branch-warning' : ''}${selected ? ' is-selected' : ''}`}><div><strong>{candidate.name}{(candidate.trainerAssignmentWarning || candidate.studentBranchWarning || (isAdmin && !candidate.eligible)) && <AlertTriangle size={13} aria-label="Ca cần xác nhận" />}</strong><span>{candidateText}{adminConflictNote}</span></div><button type="button" aria-label={immediate ? `Xếp ngay ${candidate.name}` : selected ? `Bỏ chọn ${candidate.name}` : `Chọn ${candidate.name}`} aria-pressed={selected} disabled={!manualSelectable || busy || !isAdmin && inspectorEntries.filter((entry) => entry.type !== 'off').length >= selectedTrainer.slotCapacity} onClick={() => { if (immediate) { setPendingManualCandidate(null); void confirmManualCandidate(candidate) } else setPendingManualCandidate((current) => current?.studentId === candidate.studentId ? null : candidate) }}>{selected ? <CheckCircle2 /> : <UserPlus />}</button></article>
                   })}
                 </section>)}</div>
               </section>}

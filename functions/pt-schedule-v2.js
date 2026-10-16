@@ -621,6 +621,11 @@ function leaveCovers(leave, trainerId, date) {
 
 async function loadBranchDataFresh(db, branchId, week, options = {}) {
   const priorWeek = previousWeek(week)
+  // The matrix projection is allowed to paint from the bounded roster and
+  // denormalized profile data. Previous-week diagnostics and live reservation
+  // reads are still rechecked by generation/publish/write callables, so do not
+  // make an Admin wait for them before the draft matrix becomes interactive.
+  const skipWorkspaceEvidence = options.workspaceMatrixFast === true || options.publishedMatrixFast === true
   const [branch, legacySchedule, draft, students, trainers, weekSessions, previousWeekSessions, config] = await Promise.all([
     db.doc(`branches/${branchId}`).get(),
     db.doc(`schedules/schedule_${week}`).get(),
@@ -628,7 +633,9 @@ async function loadBranchDataFresh(db, branchId, week, options = {}) {
     db.collection('students').where('branchId', '==', branchId).limit(MAX_STUDENTS + 1).get(),
     db.collection('trainers').where('branchId', '==', branchId).limit(MAX_TRAINERS + 1).get(),
     db.collection('sessions').where('branchId', '==', branchId).where('date', '>=', week).where('date', '<', nextWeek(week)).limit(1001).get(),
-    db.collection('sessions').where('branchId', '==', branchId).where('date', '>=', priorWeek).where('date', '<', week).limit(1001).get(),
+    skipWorkspaceEvidence
+      ? Promise.resolve({ docs: [], size: 0 })
+      : db.collection('sessions').where('branchId', '==', branchId).where('date', '>=', priorWeek).where('date', '<', week).limit(1001).get(),
     db.doc('settings/scheduleConfig').get(),
   ])
   if (!branch.exists || branch.data().status === 'archived') throw new HttpsError('failed-precondition', 'Chi nhánh không hoạt động.')
@@ -649,6 +656,8 @@ async function loadBranchDataFresh(db, branchId, week, options = {}) {
     || legacy.publishStatusByBranch?.[branchId] === 'published'
     || Number(legacy.publishedVersions?.[branchId] || 0) > 0
   const fastPublishedWorkspace = options.publishedMatrixFast === true && publishedWorkspace
+  const matrixFastWorkspace = options.workspaceMatrixFast === true
+  const fastWorkspace = matrixFastWorkspace || fastPublishedWorkspace
   // These reads are independent once the bounded branch roster is known.
   // Keep them in one fan-out so a slow leave/availability query cannot hold
   // the contract path hostage on every workspace load.
@@ -718,7 +727,7 @@ async function loadBranchDataFresh(db, branchId, week, options = {}) {
     ? new Set(referencedStudentIds)
     : new Set([...studentSet, ...reservationStudentIds])
   const [activeSessions, weeklyCoverageSessions] = await Promise.all([
-    activeSessionsForStudents(db, [...reservationStudentIds], week),
+    fastWorkspace ? Promise.resolve([]) : activeSessionsForStudents(db, [...reservationStudentIds], week),
     // Coverage is a reporting concern rather than a quota reservation. The
     // published Admin matrix only needs live rows for learners already in the
     // matrix; the full roster remains available to the draft/optimizer path.
@@ -789,7 +798,7 @@ async function loadBranchDataFresh(db, branchId, week, options = {}) {
   // Read exact weekly availability only for learners who can affect this
   // workspace. The old implementation issued one document read for every
   // historical profile in the branch, including contracts expired years ago.
-  const availability = fastPublishedWorkspace
+  const availability = fastWorkspace
     ? []
     : await exactAvailabilityForStudents(db, [...fallbackStudentMap.keys()], week)
   const weeklyAvailability = new Map(availability.map((item) => item.data()).filter((item) => studentMap.has(item.studentId)).map((item) => [item.studentId, item]))
@@ -810,7 +819,7 @@ async function loadBranchDataFresh(db, branchId, week, options = {}) {
   const fallbackProfiles = options.skipLegacyAvailabilityFallback && publishedWorkspace
     ? new Map([...fallbackStudentMap].filter(([studentId]) => referencedStudentIds.has(studentId) || previousWeekSessionCounts.has(studentId)))
     : fallbackStudentMap
-  const inheritedAvailability = fastPublishedWorkspace
+  const inheritedAvailability = fastWorkspace
     ? new Map()
     : options.skipLegacyAvailabilityFallback && publishedWorkspace
       ? await loadLatestSubmittedFallbacks(db, fallbackProfiles, weeklyAvailability, week)
@@ -952,7 +961,8 @@ async function loadBranchDataFresh(db, branchId, week, options = {}) {
 async function loadBranchData(db, branchId, week, options = {}) {
   const cache = branchDataCacheFor(db)
   const fastPublished = options.skipLegacyAvailabilityFallback === true
-  const key = `${branchId}|${week}|${fastPublished ? 'workspace' : 'full'}`
+  const matrixFast = options.workspaceMatrixFast === true
+  const key = `${branchId}|${week}|${matrixFast ? 'matrix' : fastPublished ? 'workspace' : 'full'}`
   const now = Date.now()
   const cached = cache.entries.get(key)
   if (cached && now - cached.storedAt < BRANCH_DATA_CACHE_TTL_MS) {
@@ -3503,6 +3513,213 @@ function commandInput(value) {
   return command
 }
 
+function adminDraftContract(contracts, studentId, preferredId = '') {
+  const rows = contracts.filter((contract) => contract?.studentId === studentId)
+  const preferred = rows.find((contract) => contract.id === preferredId)
+  if (preferred) return preferred
+  return [...rows].sort((left, right) => String(right.endDate || '').localeCompare(String(left.endDate || ''))
+    || String(right.startDate || '').localeCompare(String(left.startDate || ''))
+    || String(left.id || '').localeCompare(String(right.id || '')))[0] || null
+}
+
+function adminDraftAvailabilityWarnings({ student, trainer, exactStudent, exactTrainer, slotId, week, leaves = [], contract = null }) {
+  const warnings = new Set()
+  const effective = effectiveStudentAvailability({
+    targetWeek: week,
+    exact: exactStudent,
+    inherited: null,
+    profile: student,
+  })
+  if (!['submitted', 'locked', 'inherited', 'recurring'].includes(effective.status)) warnings.add('AVAILABILITY_NOT_SUBMITTED')
+  else if (!effective.slots.includes(slotId)) warnings.add('OUTSIDE_STUDENT_AVAILABILITY')
+
+  const weeklyTrainer = trainerProfileForWeek(trainer, exactTrainer, week)
+  const trainerMode = trainerAvailabilityMode(weeklyTrainer)
+  if (trainerMode === 'unconfigured') warnings.add('TRAINER_AVAILABILITY_UNCONFIGURED')
+  else if (!trainerIsAvailable(weeklyTrainer, slotId)) warnings.add('OUTSIDE_TRAINER_AVAILABILITY')
+  const date = dateForSlot(week, slotId.split('-')[0])
+  if (leaves.some((leave) => leaveCovers(leave, trainer.id, date))) warnings.add('TRAINER_ON_LEAVE')
+
+  const assigned = assignedTrainerIds(contract)
+  if (assigned.length > 0 && !assigned.includes(trainer.id)) warnings.add('TRAINER_ASSIGNMENT_MISMATCH')
+  if (student?.branchId && student.branchId !== trainer.branchId) warnings.add('STUDENT_BRANCH_MISMATCH')
+  return [...warnings].slice(0, MAX_ADMIN_OVERRIDE_WARNINGS)
+}
+
+// Before Publish an Admin is editing a draft map, not a live session. The
+// normal draft command still performs the full optimizer validation fan-out;
+// that is useful for staff and for a final publish, but it makes a one-cell
+// Admin correction wait on every contract/session/availability query. This
+// bounded path keeps the write atomic and rechecks the invariants that can
+// corrupt a draft (branch, revision, source row, duplicate cell and locks),
+// while leaving policy conflicts as the same visible Admin warnings.
+async function applyFastAdminDraftCommand({ db, actor, branchId, week, command, payload, reason, expectedRevision, receipt }) {
+  if (!activeAdministrator(actor) || payload?.adminOverride !== true
+    || !['add_student', 'remove_student', 'move_student'].includes(command)) return null
+
+  const draftRef = draftReference(db, branchId, week)
+  const legacyRef = db.doc(`schedules/schedule_${week}`)
+  const branchRef = db.doc(`branches/${branchId}`)
+  const studentId = typeof payload.studentId === 'string' ? payload.studentId : ''
+  const trainerId = typeof payload.trainerId === 'string' ? payload.trainerId : ''
+  const fromTrainerId = command === 'move_student' ? String(payload.fromTrainerId || trainerId) : trainerId
+  const slotId = typeof payload.slotId === 'string' ? payload.slotId : ''
+  const fromSlotId = command === 'move_student' ? String(payload.fromSlotId || '') : slotId
+  const instant = new Date()
+
+  const priorReceipt = await receipt.get()
+  if (priorReceipt.exists) return priorReceipt.data().result
+
+  return db.runTransaction(async (transaction) => {
+    const readRefs = [
+      ['receipt', receipt],
+      ['draft', draftRef],
+      ['legacy', legacyRef],
+      ['branch', branchRef],
+    ]
+    if (command !== 'remove_student') {
+      readRefs.push(
+        ['student', db.doc(`students/${studentId}`)],
+        ['trainer', db.doc(`trainers/${trainerId}`)],
+        ['studentAvailability', db.doc(`ptAvailability/${studentId}_${week}`)],
+        ['trainerAvailability', db.doc(`trainerAvailability/${trainerId}_${week}`)],
+        ['contracts', db.collection('contracts').where('studentId', '==', studentId).limit(101)],
+        ['leaves', db.collection('leaveRequests').where('trainerId', '==', trainerId).limit(1001)],
+      )
+    }
+    const values = await Promise.all(readRefs.map(([, reference]) => transaction.get(reference)))
+    const snapshots = Object.fromEntries(values.map((snapshot, index) => [readRefs[index][0], snapshot]))
+    if (snapshots.receipt.exists) return snapshots.receipt.data().result
+
+    const branch = snapshots.branch
+    if (!branch.exists || branch.data()?.status === 'archived') throw new HttpsError('failed-precondition', 'Chi nhánh không hoạt động.')
+    const legacy = snapshots.legacy.exists ? snapshots.legacy.data() || {} : {}
+    const draft = scopedDraftData(snapshots.draft, branchId, week)
+    // A published draft must go through the live-session reconciliation
+    // callable. Returning null lets the existing canonical path handle it.
+    const published = draft?.status === 'published'
+      || Number(draft?.publishedVersion || 0) > 0
+      || legacy.publishStatusByBranch?.[branchId] === 'published'
+      || Number(legacy.publishedVersions?.[branchId] || 0) > 0
+    if (!draft || published) return null
+
+    const revision = Number(draft.revision || 0)
+    if (revision !== expectedRevision) throw new HttpsError('aborted', 'Draft đã thay đổi. Hãy tải lại trước khi chỉnh.', { issueCode: 'REVISION_CONFLICT' })
+    let schedule = safeSchedule(draft.schedule)
+    const valuesAtTarget = Array.isArray(schedule[slotId]) ? [...schedule[slotId]] : []
+    const sourceValues = command === 'move_student'
+      ? (Array.isArray(schedule[fromSlotId]) ? [...schedule[fromSlotId]] : [])
+      : valuesAtTarget
+    const affected = sourceValues.filter((entry) => entry.type !== 'off'
+      && entry.studentId === studentId
+      && entry.trainerId === (command === 'move_student' ? fromTrainerId : trainerId))
+    const protectedEntry = affected.find((entry) => entry.source === 'published_existing' || entry.isLocked === true)
+    if (protectedEntry || (['remove_student', 'move_student'].includes(command) && slotCalendarDateIsPast(week, command === 'move_student' ? fromSlotId : slotId))) {
+      throw new HttpsError('failed-precondition', 'Ca đã khóa, đã publish hoặc đã qua ngày. Hãy dùng luồng điều chỉnh lịch sử cho ca đã ghi nhận.', { issueCode: 'PROTECTED_SESSION' })
+    }
+    if (command === 'remove_student' && !affected.length) throw new HttpsError('failed-precondition', 'Không tìm thấy ca cần gỡ. Hãy tải lại ma trận.')
+    if (command === 'move_student') {
+      if (fromSlotId === slotId && fromTrainerId === trainerId) throw new HttpsError('invalid-argument', 'Ca đích trùng ca nguồn.')
+      if (affected.length !== 1) throw new HttpsError('failed-precondition', 'Không tìm thấy duy nhất một ca nguồn để chuyển.')
+    }
+    if (['add_student', 'move_student'].includes(command)) {
+      if (valuesAtTarget.some((entry) => entry.type === 'off')) throw new HttpsError('failed-precondition', 'Ca đang được đánh dấu PT nghỉ.')
+      if (valuesAtTarget.some((entry) => entry.type !== 'off' && entry.studentId === studentId && entry.trainerId === trainerId)) {
+        throw new HttpsError('already-exists', 'Học viên đã có trong ca này.', { issueCode: 'DUPLICATE_SCHEDULE_ENTRY' })
+      }
+    }
+
+    let entryMetadata = {}
+    let selectedContractId = ''
+    if (command !== 'remove_student') {
+      const studentSnapshot = snapshots.student
+      const trainerSnapshot = snapshots.trainer
+      if (!studentSnapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy học viên.')
+      if (!trainerSnapshot.exists || trainerSnapshot.data()?.branchId !== branchId) throw new HttpsError('not-found', 'Không tìm thấy PT trong chi nhánh.')
+      const student = studentSnapshot.data() || {}
+      const trainer = { id: trainerId, ...trainerSnapshot.data() }
+      const contracts = snapshots.contracts.docs.map((item) => ({ id: item.id, ...item.data() }))
+      const contract = adminDraftContract(contracts, studentId, typeof payload.contractId === 'string' ? payload.contractId : '')
+      selectedContractId = contract?.id || ''
+      const warnings = adminDraftAvailabilityWarnings({
+        student,
+        trainer,
+        exactStudent: snapshots.studentAvailability.exists ? snapshots.studentAvailability.data() : null,
+        exactTrainer: snapshots.trainerAvailability.exists ? snapshots.trainerAvailability.data() : null,
+        slotId,
+        week,
+        leaves: snapshots.leaves.docs.map((item) => item.data()),
+        contract,
+      })
+      entryMetadata = {
+        ...(warnings.includes('TRAINER_ASSIGNMENT_MISMATCH') ? { trainerAssignmentWarning: true } : {}),
+        ...(warnings.includes('STUDENT_BRANCH_MISMATCH') ? { studentBranchWarning: true, studentHomeBranchId: student.branchId || '' } : {}),
+        adminOverride: true,
+        adminOverrideBy: actor.uid,
+        adminOverrideAt: instant.toISOString(),
+        ...(warnings.length ? { adminOverrideWarnings: warnings } : {}),
+      }
+    }
+
+    const nextSchedule = Object.fromEntries(Object.entries(schedule).map(([key, entries]) => [key, [...entries]]))
+    if (command === 'remove_student') {
+      nextSchedule[slotId] = valuesAtTarget.filter((entry) => !(entry.type !== 'off' && entry.studentId === studentId && entry.trainerId === trainerId))
+    } else {
+      if (command === 'move_student') nextSchedule[fromSlotId] = sourceValues.filter((entry) => !(entry.studentId === studentId && entry.trainerId === fromTrainerId))
+      const nextEntry = {
+        studentId,
+        trainerId,
+        branchId,
+        type: 'training',
+        ...(selectedContractId ? { contractId: selectedContractId } : {}),
+        source: 'manual_v2',
+        ...entryMetadata,
+      }
+      nextSchedule[slotId] = [...valuesAtTarget, nextEntry]
+    }
+    for (const [key, entries] of Object.entries(nextSchedule)) if (!entries.length) delete nextSchedule[key]
+    if (scheduleEntryCount(nextSchedule) > MAX_DRAFT_ENTRIES || scheduleDocumentEntryCount(nextSchedule) > MAX_DRAFT_DOCUMENT_ENTRIES) throw new HttpsError('resource-exhausted', 'Draft vượt giới hạn an toàn.')
+
+    const nextRevision = revision + 1
+    const weeklySessionTargets = safeWeeklySessionTargets(draft.weeklySessionTargets)
+    const warnings = entryMetadata.adminOverrideWarnings || []
+    const result = { draftRevision: nextRevision, schedule: nextSchedule, weeklySessionTargets, warnings }
+    const draftWrite = {
+      schemaVersion: 2,
+      branchId,
+      weekId: week,
+      schedule: nextSchedule,
+      revision: nextRevision,
+      status: 'draft',
+      unassignedEntries: [],
+      weeklySessionTargets,
+      optimizationSummary: FieldValue.delete(),
+      expiresAt: draftExpiresAt(week),
+      updatedAt: FieldValue.serverTimestamp(),
+      updatedBy: actor.uid,
+      createdAt: draft.createdAt || FieldValue.serverTimestamp(),
+    }
+    transaction.update(draftRef, draftWrite)
+    transaction.create(receipt, { actorUid: actor.uid, branchId, weekId: week, command, idempotencyKey: receipt.id, result, createdAt: FieldValue.serverTimestamp() })
+    transaction.create(db.collection('ptOperationsAuditLogs').doc(), {
+      schemaVersion: 2,
+      action: `pt_schedule.${command}`,
+      actorUid: actor.uid,
+      branchId,
+      weekId: week,
+      previousDraftRevision: revision,
+      nextDraftRevision: nextRevision,
+      affectedStudentCount: 1,
+      studentId: studentId || null,
+      adminOverride: true,
+      adminOverrideWarnings: warnings,
+      reason: typeof reason === 'string' ? reason.trim().slice(0, 300) : '',
+      createdAt: FieldValue.serverTimestamp(),
+    })
+    return result
+  })
+}
+
 function resetDraftSchedule(data, currentSchedule) {
   const schedule = {}
   const crossBranchStudentIds = new Set((data.crossBranchStudents || []).map((student) => student.id))
@@ -3542,6 +3759,10 @@ function createPtScheduleV2Functions({ db, onCall, actorForBranch = scheduleActo
       // the compact roster used by the picker. Defer full session/availability
       // reconciliation to the write callable so branch switching stays fast.
       publishedMatrixFast: activeAdministrator(actor),
+      // The same projection keeps an unpublished draft interactive. No real
+      // session is created until Publish, so write/publish paths remain the
+      // canonical place for quota and history evidence.
+      workspaceMatrixFast: activeAdministrator(actor),
     })
     const eligibleStudents = data.students.filter((student) => student.eligibleForWeek === true)
     const workloadSchedule = safeSchedule(data.schedule)
@@ -4108,6 +4329,21 @@ function createPtScheduleV2Functions({ db, onCall, actorForBranch = scheduleActo
     // instead of rejecting the matrix command. Staff keep the guarded path.
     const adminManualOverride = activeAdministrator(actor) && payload.adminOverride === true
     const crossBranchConfirmed = adminManualOverride || (activeAdministrator(actor) && payload.confirmCrossBranchStudent === true)
+    const fastAdminDraftResult = await applyFastAdminDraftCommand({
+      db,
+      actor,
+      branchId,
+      week,
+      command,
+      payload,
+      reason: request.data?.reason,
+      expectedRevision,
+      receipt,
+    })
+    if (fastAdminDraftResult) {
+      invalidateBranchDataCache(db, branchId, week)
+      return fastAdminDraftResult
+    }
     const data = command === 'add_student' || command === 'move_student'
       ? await manualData(db, branchId, week, trainerId, studentId, crossBranchConfirmed)
       : await branchData(db, branchId, week)

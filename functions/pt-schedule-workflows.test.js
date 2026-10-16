@@ -244,6 +244,27 @@ test('Admin manual placement can add a learner from another branch', async () =>
   assert.ok(saved.adminOverrideWarnings.includes('STUDENT_BRANCH_MISMATCH'))
 })
 
+test('Admin draft add, move and remove use one lightweight atomic path', async () => {
+  const h = harness()
+  const call = (commandName, payload, revision, key) => h.api.applyPtScheduleDraftCommand({ data: {
+    branchId: BRANCH,
+    weekId: WEEK,
+    command: commandName,
+    payload: { ...payload, adminOverride: true },
+    expectedDraftRevision: revision,
+    idempotencyKey: key,
+  } })
+  const added = await call('add_student', { studentId: 'a', trainerId: 't', slotId: 'T2-6' }, 1, 'fast-admin-add')
+  assert.equal(added.draftRevision, 2)
+  const moved = await call('move_student', { studentId: 'a', fromTrainerId: 't', fromSlotId: 'T2-6', trainerId: 't', slotId: 'T3-6' }, 2, 'fast-admin-move')
+  assert.equal(moved.draftRevision, 3)
+  assert.equal(moved.schedule['T2-6'], undefined)
+  assert.equal(moved.schedule['T3-6'][0].source, 'manual_v2')
+  const removed = await call('remove_student', { studentId: 'a', trainerId: 't', slotId: 'T3-6' }, 3, 'fast-admin-remove')
+  assert.equal(removed.draftRevision, 4)
+  assert.deepEqual(removed.schedule, {})
+})
+
 test('manual validation rehydrates published occupancy when an old draft is missing the row', async () => {
   const data = fixture()
   data.students[0].availableSlots = ['T2-6', 'T3-6']
