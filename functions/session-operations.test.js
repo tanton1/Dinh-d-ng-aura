@@ -703,8 +703,8 @@ test('PT can request an adjustment while attendance is still pending, regardless
 })
 
 test('PT pre-absence flow is exposed through separate planning and additional-session callables', () => {
-  assert.match(trainerOperations, /const reportMySessionAdvanceAbsence = staffCall/)
-  assert.match(trainerOperations, /const requestStudentSessionAddition = staffCall/)
+  assert.match(trainerOperations, /const reportMySessionAdvanceAbsence = staff(?:Mutation)?Call/)
+  assert.match(trainerOperations, /const requestStudentSessionAddition = staff(?:Mutation)?Call/)
   assert.match(trainerOperations, /reportMySessionAdvanceAbsence, requestStudentSessionAddition/)
   assert.match(trainerPortal, /Báo nghỉ trước giờ/)
   assert.match(trainerPortal, /Thêm học viên vào ca/)

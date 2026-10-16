@@ -1024,6 +1024,10 @@ function createPtOperationsV2Functions({ db, onCall }) {
   // instances and the browser surfaced a generic "service busy" message.
   // Keep the fleet bounded, but let each warm instance serve concurrent I/O.
   const staffCall = (handler) => onCall({ cpu: 1, concurrency: 24, maxInstances: 6, invoker: 'public' }, handler)
+  // Small trainer commands should still start when the project is near its
+  // Cloud Run CPU allocation quota. They perform one short transaction and do
+  // not need the larger read-workspace footprint above.
+  const staffMutationCall = (handler) => onCall({ cpu: 0.25, concurrency: 1, maxInstances: 2, invoker: 'public' }, handler)
 
   const getMyCoachWorkspaceScope = staffCall(async (request) => {
     const actor = await trainerActor(request, db)
@@ -1940,7 +1944,7 @@ function createPtOperationsV2Functions({ db, onCall }) {
     })
   })
 
-  const reportMySessionAdvanceAbsence = staffCall(async (request) => {
+  const reportMySessionAdvanceAbsence = staffMutationCall(async (request) => {
     const actor = await trainerActor(request, db)
     const sessionId = documentId(request.data?.sessionId, 'Mã buổi tập')
     const expectedRevision = integer(request.data?.expectedRevision, 0, 0, 1000000)
@@ -2024,7 +2028,7 @@ function createPtOperationsV2Functions({ db, onCall }) {
     })
   })
 
-  const requestStudentSessionAddition = staffCall(async (request) => {
+  const requestStudentSessionAddition = staffMutationCall(async (request) => {
     const actor = await trainerActor(request, db)
     const sourceSessionId = documentId(request.data?.sourceSessionId, 'Mã buổi được giải phóng')
     const studentId = documentId(request.data?.studentId, 'Mã học viên thêm')
