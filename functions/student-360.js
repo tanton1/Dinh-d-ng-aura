@@ -1249,6 +1249,10 @@ async function assignmentNames(db, sources, contract) {
   // contract assignment. Resolve those identities as well so Student 360
   // never labels the actual session with the first assigned PT by mistake.
   const sessionTrainerIds = normalizedArray((sources.sessions || []).map((item) => item.trainerId)).slice(0, 120)
+  const today = vietnamDateKey()
+  const scheduledTrainerIds = normalizedArray((sources.sessions || [])
+    .filter((item) => sessionDate(item) >= today && ACTIVE_SESSION_STATUSES.has(bounded(item.status, 40).toLowerCase()))
+    .map((item) => item.trainerId)).slice(0, 120)
   const ids = normalizedArray([...trainerIds, ...nutritionCoachIds, ...salesIds, ...sessionTrainerIds])
   const snapshots = ids.length ? await db.getAll(...ids.map((id) => db.doc(`trainers/${id}`))) : []
   const fallbackSnapshots = ids.length ? await db.getAll(...ids.map((id) => db.doc(`users/${id}`))) : []
@@ -1264,6 +1268,7 @@ async function assignmentNames(db, sources, contract) {
     branchId,
     branchName: branchNames.get(branchId) || branchId,
     trainerIds,
+    scheduledTrainerIds,
     trainerNames: trainerIds.map((id) => names.get(id) || 'HLV Aura'),
     nutritionCoachIds,
     nutritionCoachNames: nutritionCoachIds.map((id) => names.get(id) || 'Coach Aura'),
@@ -1585,6 +1590,7 @@ async function buildStudent360Projection({ db, studentId, weekId = mondayDateKey
     identity: {
       id: studentId,
       accountUid: sources.accountUid || null,
+      branchId: sources.student.branchId || '',
       name: sources.student.name || sources.profile?.displayName || sources.profile?.name || 'Học viên Aura',
       phone: sources.student.phone || sources.profile?.phoneNumber || '',
       email: sources.student.email || sources.profile?.email || '',
@@ -1710,32 +1716,39 @@ function permissionsFor(actor, projection) {
   if (!actor || actor.accessRole === 'student') throw new HttpsError('permission-denied', 'Học viên 360 chỉ dành cho nhân sự Aura.')
   const ids = actorIds(actor)
   const admin = ['admin', 'super_admin'].includes(actor.accessRole) || actor.capabilities.includes('pt.operations.manage')
-  const sameBranch = projection.assignments.branchId && normalizedArray(actor.branchIds).includes(projection.assignments.branchId)
-  const manager = sameBranch && actor.capabilities.includes('branch.operations.view')
+  const actorBranchIds = new Set(normalizedArray(actor.branchIds))
+  const contractSameBranch = Boolean(projection.assignments?.branchId && actorBranchIds.has(projection.assignments.branchId))
+  const studentSameBranch = Boolean(projection.identity?.branchId && actorBranchIds.has(projection.identity.branchId))
+  const manager = contractSameBranch && actor.capabilities.includes('branch.operations.view')
+  const branchTrainer = studentSameBranch && actor.accessRole === 'staff' && normalizedArray(actor.positions).includes('trainer_pt')
   const assignedTrainer = includesActor(projection.assignments.trainerIds, ids)
+  const scheduledTrainer = includesActor([
+    ...(projection.assignments?.scheduledTrainerIds || []),
+    ...(projection.schedule?.sessions || []).map((item) => item?.trainerId),
+    projection.schedule?.nextSession?.trainerId,
+  ], ids)
   const assignedCoach = includesActor(projection.assignments.nutritionCoachIds, ids)
   const assignedSales = includesActor(projection.assignments.salesIds, ids)
     || (projection.renewal?.assignedSalesId && ids.has(projection.renewal.assignedSalesId))
-  if (!admin && !manager && !assignedTrainer && !assignedCoach && !assignedSales) {
+  if (!admin && !manager && !branchTrainer && !assignedTrainer && !scheduledTrainer && !assignedCoach && !assignedSales) {
     throw new HttpsError('permission-denied', 'Học viên không thuộc phạm vi được giao.')
   }
-  const canViewFinancialAmounts = admin || (sameBranch && actor.capabilities.includes('branch.finance.view'))
-  const canManageCare = admin || manager || assignedTrainer || assignedCoach || assignedSales
+  const canViewFinancialAmounts = admin || (contractSameBranch && actor.capabilities.includes('branch.finance.view'))
   return {
-    scope: admin ? 'system' : manager ? 'branch' : assignedSales && !assignedTrainer && !assignedCoach ? 'sales' : 'assigned',
-    canViewOperations: admin || manager || assignedTrainer,
-    canViewTraining: admin || assignedTrainer,
-    canViewNutrition: admin || assignedTrainer || assignedCoach,
-    canViewProgress: admin || assignedTrainer || assignedCoach,
-    canViewProgressPhotos: admin || assignedTrainer || assignedCoach,
+    scope: admin ? 'system' : manager || branchTrainer ? 'branch' : assignedSales && !assignedTrainer && !scheduledTrainer && !assignedCoach ? 'sales' : 'assigned',
+    canViewOperations: admin || manager || branchTrainer || assignedTrainer || scheduledTrainer,
+    canViewTraining: admin || branchTrainer || assignedTrainer || scheduledTrainer,
+    canViewNutrition: admin || branchTrainer || assignedTrainer || scheduledTrainer || assignedCoach,
+    canViewProgress: admin || branchTrainer || assignedTrainer || scheduledTrainer || assignedCoach,
+    canViewProgressPhotos: admin || branchTrainer || assignedTrainer || scheduledTrainer || assignedCoach,
     // Progress check-ins may be recorded by the branch manager or the
     // assigned coaching team. The write still goes through the callable so
     // Staff never needs broad Firestore/Storage write rules.
-    canManageProgress: admin || manager || assignedTrainer || assignedCoach,
+    canManageProgress: admin || manager || assignedTrainer || scheduledTrainer || assignedCoach,
     canViewFinancialStatus: true,
     canViewFinancialAmounts,
     canViewRenewal: admin || manager || assignedSales || actor.capabilities.includes('renewals.case.assigned_student.support'),
-    canManageCare,
+    canManageCare: admin || manager || branchTrainer || assignedTrainer || scheduledTrainer || assignedCoach || assignedSales,
     canManageContract: admin || manager,
     canRefreshProjection: admin,
   }
@@ -1796,7 +1809,14 @@ async function loadAuthorizedProjection(db, actor, studentId, weekId, forceRefre
   const snapshot = await reference.get()
   const stored = snapshot.exists ? snapshot.data() : null
   const missing = !stored
-  const schemaStale = Boolean(stored && stored.schemaVersion !== OVERVIEW_SCHEMA_VERSION)
+  // These scope fields were added without changing the public overview
+  // schema number. Rebuild older cached projections before authorizing a new
+  // branch-roster or future-scheduled PT against incomplete assignment data.
+  const scopeShapeStale = Boolean(stored && (
+    !Object.prototype.hasOwnProperty.call(stored.identity || {}, 'branchId')
+    || !Array.isArray(stored.assignments?.scheduledTrainerIds)
+  ))
+  const schemaStale = Boolean(stored && (stored.schemaVersion !== OVERVIEW_SCHEMA_VERSION || scopeShapeStale))
   const ageStale = Boolean(stored && Date.now() - finite(stored.generatedAtMillis) > PROJECTION_MAX_AGE_MS)
   const weekStale = Boolean(stored && stored.schedule?.weekId !== weekId)
   const stale = missing || schemaStale || ageStale || weekStale

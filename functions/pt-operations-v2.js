@@ -692,6 +692,11 @@ async function coachWorkspaceScopeForActor(db, actor) {
   }))
   const trainingStudentIds = new Set(activeTraining.map((contract) => contract.studentId).filter(Boolean))
   const nutritionStudentIds = new Set(activeNutrition.map((contract) => contract.studentId).filter(Boolean))
+  const branchRosterEnabled = actor.accessRole === 'staff'
+    && Array.isArray(actor.positions)
+    && actor.positions.includes('trainer_pt')
+    && Array.isArray(actor.branchIds)
+    && actor.branchIds.length > 0
   const actorAssignmentIds = [actor.uid, actor.legacyStaffId].filter(Boolean)
   const primaryStudentIds = new Set(activeTraining.filter((contract) => {
     const trainerIds = Array.isArray(contract.trainerIds) ? contract.trainerIds : []
@@ -707,7 +712,7 @@ async function coachWorkspaceScopeForActor(db, actor) {
     source: 'pt_contract_assignments',
     staffId: actor.legacyStaffId || actor.uid,
     tabs: {
-      students: trainingStudentIds.size > 0,
+      students: trainingStudentIds.size > 0 || branchRosterEnabled,
       schedule: hasTeachingWork,
       requests: hasTeachingWork,
       nutrition: nutritionStudentIds.size > 0,
@@ -719,14 +724,47 @@ async function coachWorkspaceScopeForActor(db, actor) {
       teachingSessions: teachingSessions.size,
       pendingRequests: pendingRequests.size,
     },
+    branchIds: Array.isArray(actor.branchIds) ? actor.branchIds.slice(0, 20) : [],
   }
 }
 
 async function assignedStudentsForActor(db, actor, limit) {
   const candidateLimit = Math.min(1000, Math.max(300, limit * 3))
   const assigned = await assignedContracts(db, actor, 'training', candidateLimit)
+  // A PT needs the full active roster of every branch in their access scope,
+  // even when a learner has not yet been assigned to that PT in a contract.
+  // Scheduled sessions remain a separate access path and are merged by the
+  // workspace loader below, so a cross-branch learner can still appear when
+  // this PT is the person teaching the session.
+  const branchRosterEnabled = actor.accessRole === 'staff'
+    && Array.isArray(actor.positions)
+    && actor.positions.includes('trainer_pt')
+    && Array.isArray(actor.branchIds)
+    && actor.branchIds.length > 0
+  const branchIds = branchRosterEnabled ? [...new Set(actor.branchIds)].slice(0, 20) : []
+  const branchStudentSnapshots = branchIds.length
+    ? (await Promise.all(branchIds.map((branchId) => db.collection('students')
+      .where('branchId', '==', branchId)
+      .limit(candidateLimit)
+      .get()))).flatMap((snapshot) => snapshot.docs)
+    : []
+  const branchStudentMap = new Map(branchStudentSnapshots.map((snapshot) => [snapshot.id, snapshot]))
+  const branchStudentIds = [...branchStudentMap.keys()]
+  const contractChunks = []
+  for (let offset = 0; offset < branchStudentIds.length; offset += 30) {
+    contractChunks.push(branchStudentIds.slice(offset, offset + 30))
+  }
+  const branchContractSnapshots = contractChunks.length
+    ? (await Promise.all(contractChunks.flatMap((chunk) => [
+      db.collection('contracts').where('studentId', 'in', chunk).limit(1000).get(),
+      db.collection('contracts').where('crmProfileId', 'in', chunk).limit(1000).get(),
+    ]))).flatMap((snapshot) => snapshot.docs)
+    : []
+  const rosterContracts = [...new Map(branchContractSnapshots.map((document) => [document.id, { id: document.id, ...document.data() }])).values()]
+  const allCandidateContracts = [...new Map([...assigned, ...rosterContracts]
+    .map((contract) => [contract.id, { ...contract, studentId: contract.studentId || contract.crmProfileId || '' }])).values()]
   const today = currentDateKey()
-  const datedContracts = assigned.filter((contract) => {
+  const datedContracts = allCandidateContracts.filter((contract) => {
     const projection = studentContractProjection(contract.id, contract, today, [], false)
     return effectiveContractStatus(contract, today) === 'active'
       && projection.startDate && projection.endDate
@@ -738,17 +776,23 @@ async function assignedStudentsForActor(db, actor, limit) {
     usage: studentContractProjection(contract.id, contract, today, sessionsByContract.get(contract.id) || [], true),
   }))
   const contracts = projectedContracts.filter((contract) => contract.usage.schedulableToday)
-  const allStudentIds = [...new Set(contracts.map((item) => item.studentId).filter(Boolean))]
+  const rosterStudentIds = branchStudentSnapshots
+    .filter((snapshot) => !['inactive', 'deleted', 'archived'].includes(String(snapshot.data()?.status || '').toLowerCase()))
+    .map((snapshot) => snapshot.id)
+  const allStudentIds = [...new Set([...rosterStudentIds, ...contracts.map((item) => item.studentId).filter(Boolean)])]
   const studentIds = allStudentIds.slice(0, limit)
   const visibleStudentIds = new Set(studentIds)
-  const visibleContracts = contracts.filter((contract) => visibleStudentIds.has(contract.studentId))
-  const branchIds = [...new Set([...actor.branchIds, ...contracts.map((item) => item.branchId).filter(Boolean)])]
+  const visibleContracts = projectedContracts.filter((contract) => visibleStudentIds.has(contract.studentId)
+    && (contract.usage.schedulableToday || branchStudentMap.has(contract.studentId)))
+  const visibleBranchIds = [...new Set([...actor.branchIds, ...contracts.map((item) => item.branchId).filter(Boolean)])]
   const [studentSnapshots, branchSnapshots] = await Promise.all([
     studentIds.length ? db.getAll(...studentIds.map((id) => db.doc(`students/${id}`))) : [],
-    branchIds.length ? db.getAll(...branchIds.map((id) => db.doc(`branches/${id}`))) : [],
+    visibleBranchIds.length ? db.getAll(...visibleBranchIds.map((id) => db.doc(`branches/${id}`))) : [],
   ])
   const students = studentSnapshots.filter((snapshot) => snapshot.exists).map((snapshot) => {
     const student = snapshot.data()
+    const isBranchRosterStudent = branchStudentMap.has(snapshot.id)
+      && !['inactive', 'deleted', 'archived'].includes(String(student.status || '').toLowerCase())
     const studentContracts = visibleContracts
       .filter((item) => item.studentId === snapshot.id)
       .sort((left, right) => {
@@ -760,16 +804,18 @@ async function assignedStudentsForActor(db, actor, limit) {
         return Number(rightPrimary) - Number(leftPrimary)
           || storedDateKey(left.endDate).localeCompare(storedDateKey(right.endDate))
           || left.id.localeCompare(right.id)
-      })
+    })
     const contract = studentContracts[0]
+    if (!contract && !isBranchRosterStudent) return null
+    const actorIds = [actor.uid, actor.legacyStaffId].filter(Boolean)
+    const contractTrainerIds = Array.isArray(contract?.trainerIds) ? contract.trainerIds : []
+    const assigned = Boolean(contract && actorIds.some((id) => contract.trainerId === id || contractTrainerIds.includes(id)))
     return serialize({
       id: snapshot.id, name: student.name || 'Học viên Aura', phone: student.phone || '', email: student.email || '',
-      branchId: contract?.branchId || student.branchId || '', status: student.status || 'active', sessionsPerWeek: student.sessionsPerWeek || 0,
-      assignmentRole: contract ? (() => {
-        const actorIds = [actor.uid, actor.legacyStaffId].filter(Boolean)
-        const trainerIds = Array.isArray(contract.trainerIds) ? contract.trainerIds : []
-        return actorIds.some((id) => contract.trainerId === id || trainerIds[0] === id) ? 'primary' : 'secondary'
-      })() : 'secondary',
+      branchId: student.branchId || contract?.branchId || '', status: student.status || 'active', sessionsPerWeek: student.sessionsPerWeek || 0,
+      assignmentRole: assigned
+        ? actorIds.some((id) => contract?.trainerId === id || contractTrainerIds[0] === id) ? 'primary' : 'secondary'
+        : 'branch',
       contract: contract ? {
         id: contract.id,
         status: contract.status,
@@ -785,7 +831,7 @@ async function assignedStudentsForActor(db, actor, limit) {
         reconciliationStatus: contract.usage.reconciliationStatus,
       } : null,
     })
-  })
+  }).filter(Boolean)
   const branches = branchSnapshots
     .filter((snapshot) => snapshot.exists)
     .map((snapshot) => ({ id: snapshot.id, name: snapshot.data().name || snapshot.id }))
@@ -1376,18 +1422,28 @@ function createPtOperationsV2Functions({ db, onCall }) {
       const to = dateKey(request.data?.to, 'Ngày kết thúc')
       if (from > to || Date.parse(`${to}T00:00:00+07:00`) - Date.parse(`${from}T00:00:00+07:00`) > 62 * 86400000) throw new HttpsError('invalid-argument', 'Khoảng lịch tối đa là 62 ngày.')
       const requestedLimit = integer(request.data?.limit, 300, 1, 500)
-      const studentLimit = Math.min(200, requestedLimit)
+      const studentLimit = Math.min(500, requestedLimit)
       const scheduleLimit = Math.max(300, requestedLimit)
       const [scope, data, schedule] = await Promise.all([
         scopePromise,
         assignedStudentsForActor(db, actor, studentLimit),
         trainerScheduleForActor(db, actor, from, to, scheduleLimit),
       ])
+      const scheduleBranchIds = [...new Set(schedule.sessions
+        .flatMap((session) => [session.studentBranchId, session.branchId])
+        .filter(Boolean))].slice(0, 50)
+      const scheduleBranchSnapshots = scheduleBranchIds.length
+        ? await db.getAll(...scheduleBranchIds.map((id) => db.doc(`branches/${id}`)))
+        : []
+      const scheduleBranches = scheduleBranchSnapshots
+        .filter((snapshot) => snapshot.exists)
+        .map((snapshot) => ({ id: snapshot.id, name: snapshot.data().name || snapshot.id }))
+      const branches = [...new Map([...data.branches, ...scheduleBranches].map((branch) => [branch.id, branch])).values()]
       return {
         schemaVersion: 3,
         scope,
         students: data.students,
-        branches: data.branches,
+        branches,
         sessions: schedule.sessions,
         requests: [],
         hasMore: data.hasMore,
@@ -1397,7 +1453,10 @@ function createPtOperationsV2Functions({ db, onCall }) {
     const to = dateKey(request.data?.to, 'Ngày kết thúc')
     if (from > to || Date.parse(`${to}T00:00:00+07:00`) - Date.parse(`${from}T00:00:00+07:00`) > 62 * 86400000) throw new HttpsError('invalid-argument', 'Khoảng lịch tối đa là 62 ngày.')
     const limit = integer(request.data?.limit, 300, 1, 500)
-    const [scope, data] = await Promise.all([scopePromise, trainerScheduleForActor(db, actor, from, to, limit)])
+    const [scope, data] = await Promise.all([
+      scopePromise,
+      trainerScheduleForActor(db, actor, from, to, limit),
+    ])
     return { schemaVersion: 2, scope, students: [], branches: [], sessions: data.sessions, requests: data.requests, hasMore: false }
   })
 
@@ -1405,14 +1464,31 @@ function createPtOperationsV2Functions({ db, onCall }) {
     const actor = await trainerActor(request, db)
     const studentId = documentId(request.data?.studentId, 'Mã học viên')
     const weekId = availabilityWeekId(request.data?.weekId || mondayDateKey())
-    const [contracts, sessionsSnapshot] = await Promise.all([
+    const [contracts, sessionsSnapshot, studentSnapshot] = await Promise.all([
       assignedContracts(db, actor, 'training', 300),
       db.collection('sessions').where('studentId', '==', studentId).limit(1001).get(),
+      db.doc(`students/${studentId}`).get(),
     ])
     if (sessionsSnapshot.size > 1000) throw new HttpsError('resource-exhausted', 'Lịch sử học viên vượt giới hạn xem nhanh. Hãy mở báo cáo đối soát.')
+    if (!studentSnapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy học viên.')
     const sessionRows = sessionsSnapshot.docs.map((document) => ({ id: document.id, ...document.data() }))
     const actorIds = new Set([actor.uid, actor.legacyStaffId].filter(Boolean))
     let studentContracts = contracts.filter((item) => item.studentId === studentId)
+    const studentValue = studentSnapshot.data() || {}
+    const branchRosterStudent = actor.accessRole === 'staff'
+      && Array.isArray(actor.positions)
+      && actor.positions.includes('trainer_pt')
+      && Array.isArray(actor.branchIds)
+      && actor.branchIds.includes(studentValue.branchId)
+      && !['inactive', 'deleted', 'archived'].includes(String(studentValue.status || '').toLowerCase())
+    if (branchRosterStudent && !studentContracts.length) {
+      const [canonicalContracts, legacyContracts] = await Promise.all([
+        db.collection('contracts').where('studentId', '==', studentId).limit(50).get(),
+        db.collection('contracts').where('crmProfileId', '==', studentId).limit(50).get(),
+      ])
+      studentContracts = [...new Map([...canonicalContracts.docs, ...legacyContracts.docs]
+        .map((document) => [document.id, { id: document.id, ...document.data(), studentId: document.data()?.studentId || document.data()?.crmProfileId || studentId }])).values()]
+    }
 
     // The Staff student list also includes learners currently scheduled with
     // this PT even when another PT owns the contract. Always merge those
@@ -1427,21 +1503,20 @@ function createPtOperationsV2Functions({ db, onCall }) {
       const scheduledContractSnapshots = await db.getAll(...scheduledContractIds.map((contractId) => db.doc(`contracts/${contractId}`)))
       const scheduledContracts = scheduledContractSnapshots
         .filter((snapshot) => snapshot.exists)
-        .map((snapshot) => ({ id: snapshot.id, ...snapshot.data() }))
+        .map((snapshot) => ({ id: snapshot.id, ...snapshot.data(), studentId: snapshot.data()?.studentId || snapshot.data()?.crmProfileId || studentId }))
         .filter((contract) => contract.studentId === studentId)
       studentContracts = [...new Map([...studentContracts, ...scheduledContracts].map((contract) => [contract.id, contract])).values()]
     }
-    if (!studentContracts.length) throw new HttpsError('permission-denied', 'Học viên không thuộc phạm vi được giao.')
+    const scheduledForActor = sessionRows.some((session) => actorIds.has(session.trainerId))
+    if (!studentContracts.length && !branchRosterStudent && !scheduledForActor) throw new HttpsError('permission-denied', 'Học viên không thuộc phạm vi được giao.')
     const availabilityReference = db.doc(`ptAvailability/${studentId}_${weekId}`)
-    const [studentSnapshot, legacyLogsSnapshot, workoutLogsSnapshot, trainingProgramSnapshot, availabilitySnapshot, configSnapshot] = await Promise.all([
-      db.doc(`students/${studentId}`).get(),
+    const [legacyLogsSnapshot, workoutLogsSnapshot, trainingProgramSnapshot, availabilitySnapshot, configSnapshot] = await Promise.all([
       db.collection('workoutLogs').where('studentId', '==', studentId).limit(100).get(),
       db.collection('ptWorkoutLogs').where('studentId', '==', studentId).limit(100).get(),
       db.doc(`ptTrainingPrograms/${studentId}`).get(),
       availabilityReference.get(),
       db.doc('settings/scheduleConfig').get(),
     ])
-    if (!studentSnapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy học viên.')
     const projectedContracts = studentContracts.map((contract) => {
       const projection = studentContractProjection(
         contract.id,
@@ -1484,7 +1559,7 @@ function createPtOperationsV2Functions({ db, onCall }) {
       sourceWeekId: effectiveAvailability.sourceWeekId,
       updatedAt: effectiveAvailability.updatedAt,
     }, new Date(), config)
-    const student = studentSnapshot.data() || {}
+    const student = studentValue
     const effectiveBranchId = projectedContracts.find((contract) => contract.schedulableToday)?.branchId
       || studentContracts.find((contract) => isEffectiveStaffContract(contract))?.branchId
       || student.branchId
@@ -1523,6 +1598,8 @@ function createPtOperationsV2Functions({ db, onCall }) {
       workoutLogs: serialize(workoutLogs.slice(0, 100)),
     }
   })
+
+
 
   const confirmMySession = staffCall(async (request) => {
     const actor = await trainerActor(request, db)

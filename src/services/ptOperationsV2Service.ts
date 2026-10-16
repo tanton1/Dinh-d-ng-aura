@@ -110,7 +110,7 @@ export interface TrainerStudentSummary {
   branchId: string
   status: string
   sessionsPerWeek: number
-  assignmentRole: 'primary' | 'secondary' | 'schedule'
+  assignmentRole: 'primary' | 'secondary' | 'branch' | 'schedule'
   contract: null | {
     id: string
     status: string
@@ -135,6 +135,7 @@ export interface TrainerSessionSummary {
   studentPhone?: string
   studentEmail?: string
   studentBranchId?: string
+  branchId?: string
   date: string
   hour?: number
   status: string
@@ -161,6 +162,8 @@ export interface CoachWorkspaceScope {
   schemaVersion: number
   source: 'pt_contract_assignments'
   staffId: string
+  /** Branches the signed-in PT is allowed to work in. */
+  branchIds?: string[]
   tabs: {
     students: boolean
     schedule: boolean

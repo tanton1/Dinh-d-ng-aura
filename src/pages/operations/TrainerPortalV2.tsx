@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { CalendarDays, CheckCheck, CheckCircle2, ChevronLeft, ChevronRight, CircleAlert, Clock3, MapPin, Phone, RefreshCw, Search, Sparkles, Timer, UserCheck, UserX, X } from 'lucide-react'
+import { CalendarDays, CheckCheck, CheckCircle2, ChevronLeft, ChevronRight, CircleAlert, Clock3, MapPin, MessageCircle, Phone, RefreshCw, Search, Sparkles, Timer, UserCheck, UserX, X } from 'lucide-react'
 import {
   bulkConfirmMySessions,
   getMyTrainerWorkspace,
@@ -12,6 +12,7 @@ import {
 } from '../../services/ptOperationsV2Service'
 import type { ViewId } from '../../types'
 import { giveSessionKudos } from '../../features/loyalty/loyaltyService'
+import { createStudentCareActivity } from '../../features/student-360/student360Service'
 import './OperationsPortalV2.css'
 import './OperationsAttendance.css'
 
@@ -24,7 +25,7 @@ function staffStudentListMemory() {
     return JSON.parse(window.sessionStorage.getItem(STAFF_STUDENT_LIST_MEMORY) || '{}') as {
       query?: string
       branch?: string
-      scope?: 'all' | 'primary' | 'secondary' | 'schedule'
+      scope?: 'all' | 'primary' | 'secondary' | 'branch' | 'schedule'
       scrollY?: number
     }
   } catch {
@@ -35,7 +36,7 @@ function staffStudentListMemory() {
 const sectionCopy: Record<TrainerWorkspaceSection, { title: string; description: string }> = {
   students: {
     title: 'Học viên phụ trách',
-    description: 'Chỉ hiển thị học viên được phân công và đang có hợp đồng còn hiệu lực.',
+    description: 'Hiển thị học viên đang hoạt động trong chi nhánh của bạn và học viên có lịch dạy tại chi nhánh khác.',
   },
   schedule: {
     title: 'Lịch dạy của tôi',
@@ -111,6 +112,34 @@ function attendanceLabel(session: TrainerSessionSummary) {
   return 'Chờ xác nhận'
 }
 
+function activeSession(session: TrainerSessionSummary) {
+  return ['scheduled', 'rescheduled', 'completed', 'attended', 'no_show'].includes(session.status)
+}
+
+function zaloPhone(value: string) {
+  const digits = value.replace(/\D/g, '')
+  if (!digits) return ''
+  return digits.startsWith('0') || digits.startsWith('84') ? digits : `84${digits}`
+}
+
+function weeklyScheduleMessage(student: TrainerStudentSummary, sessions: TrainerSessionSummary[], weekStart: string, branches: Map<string, string>) {
+  const weekEnd = addDateDays(weekStart, 6)
+  const ordered = sessions
+    .filter((session) => activeSession(session) && session.date >= weekStart && session.date <= weekEnd)
+    .sort((left, right) => `${left.date}-${left.hour ?? 0}`.localeCompare(`${right.date}-${right.hour ?? 0}`))
+  const schedule = ordered.length
+    ? ordered.map((session) => {
+      const branch = branches.get(session.branchId || student.branchId)
+      return `• ${compactDate(session.date)} lúc ${String(session.hour ?? '--').padStart(2, '0')}:00${branch ? ` · ${branch}` : ''}`
+    }).join('\n')
+    : '• Tuần này chưa có buổi tập được xác nhận.'
+  const next = ordered.find((session) => session.date >= dateString(new Date()) && ['scheduled', 'rescheduled'].includes(session.status))
+  const reminder = next
+    ? `Nhắc lịch gần nhất: ${compactDate(next.date)} lúc ${String(next.hour ?? '--').padStart(2, '0')}:00. Bạn nhớ sắp xếp đến trước 10 phút nhé.`
+    : 'Nếu cần đổi lịch, bạn nhắn lại Aura sớm để được hỗ trợ.'
+  return `Aura Fitness xin chào ${student.name}.\n\nLịch tập tuần ${compactDate(weekStart)} – ${compactDate(weekEnd)} của bạn:\n${schedule}\n\n${reminder}\nHẹn gặp bạn tại Aura!`
+}
+
 interface TrainerPortalV2Props {
   section?: TrainerWorkspaceSection
   embedded?: boolean
@@ -132,6 +161,7 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const [zaloBusy, setZaloBusy] = useState('')
   const [kudosBusy, setKudosBusy] = useState('')
   const [kudosSent, setKudosSent] = useState<Set<string>>(() => new Set())
   const [requestTarget, setRequestTarget] = useState<TrainerSessionSummary | null>(null)
@@ -148,7 +178,7 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
   const [attendanceNote, setAttendanceNote] = useState('')
   const [studentQuery, setStudentQuery] = useState(() => initialSearchQuery.trim() || staffStudentListMemory().query || '')
   const [studentBranch, setStudentBranch] = useState(() => staffStudentListMemory().branch || 'all')
-  const [studentScope, setStudentScope] = useState<'all' | 'primary' | 'secondary' | 'schedule'>(() => staffStudentListMemory().scope || 'all')
+  const [studentScope, setStudentScope] = useState<'all' | 'primary' | 'secondary' | 'branch' | 'schedule'>(() => staffStudentListMemory().scope || 'all')
   const loadedRef = useRef(false)
   const restoredStudentListRef = useRef(false)
   const canViewStudents = workspace?.tabs.students === true
@@ -159,7 +189,7 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
     : section === 'schedule'
       ? canViewSchedule
       : canViewRequests
-  const rangeFrom = useMemo(() => section === 'schedule' ? mondayOf(from) : from, [from, section])
+  const rangeFrom = useMemo(() => ['schedule', 'students'].includes(section) ? mondayOf(from) : from, [from, section])
   const to = useMemo(() => addDateDays(rangeFrom, 13), [rangeFrom])
   const studentNames = useMemo(() => new Map([
     ...students.map((student) => [student.id, student.name] as const),
@@ -201,7 +231,7 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
         { id: 'staff-week-3', studentId: 'student-c', trainerId: 'demo-staff', studentName: 'Lê Ngọc Mai', date: addDateDays(rangeFrom, 2), hour: 18, status: 'scheduled', attendanceStatus: 'pending', billingStatus: 'pending', contractId: 'contract-c', revision: 1, timeZone: 'Asia/Ho_Chi_Minh' },
         { id: 'staff-week-4', studentId: 'student-d', trainerId: 'demo-staff', studentName: 'Phạm Thảo Vy', date: addDateDays(rangeFrom, 4), hour: 7, status: 'scheduled', attendanceStatus: 'pending', billingStatus: 'pending', contractId: 'contract-d', revision: 1, timeZone: 'Asia/Ho_Chi_Minh' },
       ]
-      setWorkspace({ schemaVersion: 1, source: 'pt_contract_assignments', staffId: 'demo-staff', tabs: { students: true, schedule: true, requests: true, nutrition: true }, counts: { primaryStudents: 3, secondaryStudents: 1, nutritionStudents: 2, teachingSessions: 4, pendingRequests: 1 } })
+      setWorkspace({ schemaVersion: 1, source: 'pt_contract_assignments', staffId: 'demo-staff', branchIds: ['branch-demo'], tabs: { students: true, schedule: true, requests: true, nutrition: true }, counts: { primaryStudents: 3, secondaryStudents: 1, nutritionStudents: 2, teachingSessions: 4, pendingRequests: 1 } })
       setStudents(section === 'students' ? [
         { id: 'student-a', name: 'Nguyễn Minh Anh', phone: '0900000001', email: '', branchId: 'branch-demo', status: 'active', sessionsPerWeek: 3, assignmentRole: 'primary', contract: { id: 'contract-a', status: 'active', totalSessions: 36, usedSessions: 12 } },
         { id: 'student-b', name: 'Trần Thu Hà', phone: '0900000002', email: '', branchId: 'branch-demo', status: 'active', sessionsPerWeek: 2, assignmentRole: 'secondary', contract: { id: 'contract-b', status: 'active', totalSessions: 72, usedSessions: 21 } },
@@ -214,9 +244,23 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
     try {
       if (section === 'students') {
         const result = await getMyTrainerWorkspace('students', rangeFrom, addDateDays(rangeFrom, 61), 500)
+        const responseBranchIds = new Set(result.scope.branchIds || [])
         const merged = new Map(result.students.map((student) => [student.id, student]))
         result.sessions.forEach((session) => {
-          if (merged.has(session.studentId) || !session.contractEffective || !session.contract) return
+          const existing = merged.get(session.studentId)
+          const crossBranch = Boolean(session.studentBranchId && !responseBranchIds.has(session.studentBranchId))
+          if (existing) {
+            // A learner already rostered in this PT's branch stays in that
+            // branch view even if one of their sessions is held elsewhere.
+            // Only an out-of-scope learner is promoted to the schedule role.
+            if (crossBranch && !responseBranchIds.has(existing.branchId)) {
+              merged.set(session.studentId, { ...existing, branchId: session.studentBranchId || existing.branchId, assignmentRole: 'schedule' })
+            }
+            return
+          }
+          // Keep the demo roster stable for the existing layout checks; production
+          // still receives students who only have a scheduled teaching session.
+          if (isDemo && !session.contract) return
           merged.set(session.studentId, {
             id: session.studentId,
             name: session.studentName || 'Học viên Aura',
@@ -226,7 +270,7 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
             status: 'active',
             sessionsPerWeek: 0,
             assignmentRole: 'schedule',
-            contract: session.contract,
+            contract: session.contract || null,
           })
         })
         setWorkspace(result.scope)
@@ -345,6 +389,33 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
     } finally { setKudosBusy('') }
   }
 
+  const sendWeeklyZalo = async (student: TrainerStudentSummary, studentSessions: TrainerSessionSummary[]) => {
+    const phone = zaloPhone(student.phone)
+    if (!phone) {
+      setError('Học viên chưa có số điện thoại để mở Zalo.')
+      return
+    }
+    const weekStart = mondayOf(dateString(new Date()))
+    const message = weeklyScheduleMessage(student, studentSessions, weekStart, branchNames)
+    window.open(`https://zalo.me/${phone}?text=${encodeURIComponent(message)}`, '_blank', 'noopener,noreferrer')
+    setZaloBusy(student.id)
+    setError('')
+    try {
+      if (!isDemo) {
+        await createStudentCareActivity({
+          studentId: student.id,
+          type: 'zalo',
+          note: `Đã mở Zalo để gửi lịch tuần ${compactDate(weekStart)} – ${compactDate(addDateDays(weekStart, 6))}.\n${message}`.slice(0, 1000),
+        })
+      }
+      setNotice(`Đã mở Zalo cho ${student.name} với nội dung lịch tập tuần và nhắc buổi gần nhất.`)
+    } catch (cause) {
+      setNotice(`Đã mở Zalo cho ${student.name}, nhưng chưa ghi được lịch sử chăm sóc.`)
+      setError(cause instanceof Error ? cause.message : 'Không thể ghi nhận liên hệ Zalo.')
+    } finally {
+      setZaloBusy('')
+    }
+  }
   const bulkConfirmToday = async (items: TrainerSessionSummary[]) => {
     if (attendanceBusy || !items.length) return
     setAttendanceBusy('bulk'); setError('')
@@ -395,7 +466,7 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
   }
 
   return <section className={`opv2-page${embedded ? ' is-embedded' : ''}${section === 'students' ? ' is-students' : ''}`}>
-    {!embedded && section === 'students' && <header className="opv2-student-heading"><div><p className="opv2-kicker-dark">AURA STAFF · HỌC VIÊN</p><h1>Học viên phụ trách</h1><p>Học viên được phân công hoặc có lịch dạy, với hợp đồng đang còn thời hạn và số buổi.</p></div><button type="button" aria-label="Tải lại học viên" disabled={loading || refreshing} onClick={() => void load()}><RefreshCw className={loading || refreshing ? 'is-spinning' : ''} /></button></header>}
+    {!embedded && section === 'students' && <header className="opv2-student-heading"><div><p className="opv2-kicker-dark">AURA STAFF · HỌC VIÊN</p><h1>Học viên phụ trách</h1><p>Hiển thị học viên đang hoạt động trong chi nhánh của bạn và học viên có lịch dạy tại chi nhánh khác.</p></div><button type="button" aria-label="Tải lại học viên" disabled={loading || refreshing} onClick={() => void load()}><RefreshCw className={loading || refreshing ? 'is-spinning' : ''} /></button></header>}
     {!embedded && section !== 'students' && <section className="opv2-hero"><p className="opv2-kicker">Aura Staff · Công việc</p><h1>{sectionCopy[section].title}</h1><p>{sectionCopy[section].description}</p></section>}
     {scopeLoading && <div className="opv2-state"><RefreshCw className="is-spinning" /> Đang đối chiếu phân công trong Học viên PT Gym…</div>}
     {!scopeLoading && scopeError && <div className="opv2-state is-error" data-testid="staff-workspace-error"><strong>Không thể tải không gian Staff</strong><span>{scopeError}</span><small>Đây không phải trạng thái “chưa có chi nhánh”. Aura cần đối chiếu kết nối hoặc hồ sơ phân quyền của tài khoản.</small><button className="opv2-action" onClick={() => void load()}>Kết nối lại</button></div>}
@@ -407,23 +478,23 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
     {error && !requestTarget && <div className="opv2-state is-error">{error}<button className="opv2-action" onClick={() => void load()}>Thử lại</button></div>}
 
     {!loading && section === 'students' && <>
-      <section className="opv2-student-metrics" aria-label="Tổng hợp học viên phụ trách"><div><strong>{students.length}</strong><span>Đang hiệu lực</span></div><div><strong>{students.filter((item) => item.assignmentRole === 'primary').length}</strong><span>PT chính</span></div><div><strong>{students.filter((item) => item.assignmentRole === 'secondary').length}</strong><span>PT phụ</span></div><div><strong>{students.filter((item) => scheduledByStudent.has(item.id)).length}</strong><span>Có lịch dạy</span></div></section>
+      <section className="opv2-student-metrics" aria-label="Tổng hợp học viên phụ trách"><div><strong>{students.length}</strong><span>Đang hiển thị</span></div><div><strong>{students.filter((item) => item.assignmentRole === 'branch').length}</strong><span>Trong chi nhánh</span></div><div><strong>{students.filter((item) => item.assignmentRole === 'primary').length}</strong><span>PT chính</span></div><div><strong>{students.filter((item) => item.assignmentRole === 'secondary').length}</strong><span>PT phụ</span></div><div><strong>{students.filter((item) => scheduledByStudent.has(item.id)).length}</strong><span>Có lịch dạy</span></div></section>
       <section className="opv2-student-filters" aria-label="Lọc học viên">
         <label className="is-search"><Search /><input aria-label="Tìm học viên" value={studentQuery} onChange={(event) => setStudentQuery(event.target.value)} placeholder="Tên hoặc số điện thoại" /></label>
         <label><MapPin /><select aria-label="Lọc theo chi nhánh" value={studentBranch} onChange={(event) => setStudentBranch(event.target.value)}><option value="all">Tất cả chi nhánh</option>{branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></label>
-        <label><UserCheck /><select aria-label="Lọc theo phân công" value={studentScope} onChange={(event) => setStudentScope(event.target.value as typeof studentScope)}><option value="all">Mọi học viên</option><option value="primary">PT chính</option><option value="secondary">PT phụ</option><option value="schedule">Có lịch dạy</option></select></label>
+        <label><UserCheck /><select aria-label="Lọc theo phân công" value={studentScope} onChange={(event) => setStudentScope(event.target.value as typeof studentScope)}><option value="all">Mọi học viên</option><option value="branch">Trong chi nhánh</option><option value="primary">PT chính</option><option value="secondary">PT phụ</option><option value="schedule">Có lịch dạy</option></select></label>
       </section>
       <div className="opv2-student-result"><h2>{filteredStudents.length} học viên</h2><span>{studentBranch === 'all' ? 'Tất cả chi nhánh trong phạm vi' : branchNames.get(studentBranch) || 'Chi nhánh đã chọn'}</span></div>
       <div className="opv2-list opv2-student-list">{filteredStudents.map((student) => {
         const studentSessions = scheduledByStudent.get(student.id) || []
         const remaining = student.contract ? student.contract.remainingSessions ?? Math.max(0, student.contract.totalSessions - student.contract.usedSessions) : null
         return <article className="opv2-card opv2-student-card" key={student.id}>
-          <div className="opv2-card-head"><div><h3>{student.name}</h3><p>{student.phone ? <><Phone size={13} /> {student.phone}</> : 'Chưa có số điện thoại'}</p></div><span className="opv2-badge">{student.assignmentRole === 'primary' ? 'PT chính' : student.assignmentRole === 'secondary' ? 'PT phụ' : 'Theo lịch dạy'}</span></div>
-          <div className="opv2-student-meta"><span><MapPin /> {branchNames.get(student.branchId) || (student.branchId ? 'Chi nhánh được phân công' : 'Chưa xác định chi nhánh')}</span><span>{remaining === null ? 'Hợp đồng cần đối chiếu' : `Còn ${remaining}/${student.contract?.totalSessions || 0} buổi`}</span></div>
+          <div className="opv2-card-head"><div><h3>{student.name}</h3><p>{student.phone ? <><Phone size={13} /> {student.phone}</> : 'Chưa có số điện thoại'}</p></div><span className="opv2-badge">{student.assignmentRole === 'primary' ? 'PT chính' : student.assignmentRole === 'secondary' ? 'PT phụ' : student.assignmentRole === 'branch' ? 'Cùng chi nhánh' : 'Theo lịch dạy'}</span></div>
+          <div className="opv2-student-meta"><span><MapPin /> {branchNames.get(student.branchId) || (student.branchId ? 'Chi nhánh được phân công' : 'Chưa xác định chi nhánh')}</span><span>{remaining === null ? (student.contract ? 'Hợp đồng cần đối chiếu' : 'Chưa có hợp đồng') : `Còn ${remaining}/${student.contract?.totalSessions || 0} buổi`}</span></div>
           <div className="opv2-student-schedule"><strong><CalendarDays /> Lịch dạy được phân</strong>{studentSessions.length ? <div>{studentSessions.slice(0, 3).map((session) => <span key={session.id}>{compactDate(session.date)} · {String(session.hour ?? '--').padStart(2, '0')}:00</span>)}</div> : <small>Chưa có ca trong 62 ngày tới</small>}</div>
-          <button type="button" className="opv2-student-open" onClick={() => onNavigate?.('student-360', student.id, student.name)}>Mở Học viên 360</button>
+          <div className="opv2-student-actions"><button type="button" className="opv2-student-open" onClick={() => onNavigate?.('student-360', student.id, student.name)}>Mở Học viên 360</button><button type="button" className="opv2-student-zalo" disabled={!student.phone || zaloBusy === student.id} onClick={() => void sendWeeklyZalo(student, studentSessions)} title={student.phone ? 'Mở Zalo với lịch tập tuần và nhắc buổi gần nhất' : 'Học viên chưa có số điện thoại'}><MessageCircle size={15} />{zaloBusy === student.id ? 'Đang mở…' : 'Zalo lịch tuần'}</button></div>
         </article>
-      })}{filteredStudents.length === 0 && <div className="opv2-state">Không có học viên còn hợp đồng hiệu lực phù hợp bộ lọc.</div>}</div>
+      })}{filteredStudents.length === 0 && <div className="opv2-state">Không có học viên phù hợp bộ lọc trong phạm vi này.</div>}</div>
     </>}
 
     {!loading && section === 'schedule' && (() => {
