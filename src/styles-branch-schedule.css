@@ -215,6 +215,8 @@
 .schedule-cell__student.is-selected { color:#fff; background:rgba(102,0,38,.24); }
 .schedule-cell__student.has-assignment-warning { color:#a9471e; background:linear-gradient(105deg,rgba(255,239,224,.96),rgba(255,248,241,.8)); box-shadow:inset 3px 0 0 #ef7c3a; }
 .schedule-cell__student.has-assignment-warning > svg { flex:0 0 auto; color:#df6728; }
+.schedule-cell__student.is-makeup { color:#9b3e72; background:linear-gradient(105deg,rgba(255,235,247,.96),rgba(255,248,252,.86)); box-shadow:inset 3px 0 0 #d94c9b; }
+.schedule-cell__student.is-makeup small { flex:0 0 auto; color:#c33b88; font-size:.52rem; font-weight:900; letter-spacing:.04em; }
 .schedule-cell.is-student-highlight .schedule-cell__student { color:#fff; }
 /* Lịch rảnh và lịch đã xếp là hai lớp nhận diện chính. Chúng luôn thắng dấu
    kho ca để người vận hành không hiểu nhầm màu trạng thái khi rê/chọn HV. */

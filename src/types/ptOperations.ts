@@ -307,6 +307,11 @@ export interface ScheduleEntry {
   trainerId: string
   contractId?: string
   isLocked?: boolean
+  /** A session created to compensate a previously missed source session. */
+  sessionKind?: 'regular' | 'makeup'
+  makeupSourceSessionId?: string
+  makeupMode?: 'standalone_shift' | 'paired_existing_shift'
+  commissionEligible?: boolean
   branchId?: string
   type?: 'training' | 'off'
   source?: string

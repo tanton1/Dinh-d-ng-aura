@@ -3104,6 +3104,12 @@ function mergePublishedSessions(data, schedule, warnings) {
       branchId: data.branch.id,
       type: 'training',
       source: 'published_existing',
+      ...(session.sessionKind === 'makeup' || session.makeupSession === true ? {
+        sessionKind: 'makeup',
+        makeupSourceSessionId: typeof session.makeupSourceSessionId === 'string' ? session.makeupSourceSessionId : '',
+        ...(session.makeupMode === 'paired_existing_shift' || session.makeupMode === 'standalone_shift' ? { makeupMode: session.makeupMode } : {}),
+        commissionEligible: session.commissionEligible === false ? false : true,
+      } : {}),
       ...(trainerAssignmentWarning ? { trainerAssignmentWarning: true } : {}),
       ...(session.studentBranchWarning === true ? {
         studentBranchWarning: true,

@@ -5,9 +5,11 @@ const { join } = require('node:path')
 const {
   autoConfirmOverduePtAttendance,
   chargeDuePtSessions,
+  chargeSessionTransaction,
   commitAutomationSessionPage,
   createSessionOperationFunctions,
   readAutomationSessionPage,
+  recordSessionAttendanceTransaction,
 } = require('./session-operations')
 
 const root = join(__dirname, '..')
@@ -209,6 +211,44 @@ test('admin corrects a paired teaching shift atomically and invalidates the rela
   assert.equal(state.read('payrollRuns/2026-08').requiresRebuild, true)
   assert.equal(state.paths().filter((path) => path.startsWith('sessionEvents/')).length, 2)
   assert.equal(state.paths().filter((path) => path.startsWith('attendanceAuditLogs/')).length, 2)
+})
+
+test('PT make-up attendance is recorded without a second contract charge', async () => {
+  const state = fakeDatabase({
+    'sessions/makeup-request-1': {
+      status: 'scheduled', scheduleStatus: 'scheduled', billingStatus: 'exempt', attendanceStatus: 'pending',
+      makeupSession: true, sessionKind: 'makeup', makeupSourceSessionId: 'source-session-1',
+      studentId: 'student-1', trainerId: 'trainer-1', contractId: 'contract-1', branchId: 'branch-1',
+      date: '2026-08-20', hour: 8, revision: 0,
+    },
+    'contracts/contract-1': {
+      status: 'active', studentId: 'student-1', startDate: '2026-08-01', endDate: '2026-09-30',
+      totalSessions: 12, usedSessions: 4, chargedSessionIds: ['s1', 's2', 's3', 's4'],
+    },
+    'financePeriods/2026-08': { status: 'open' },
+  })
+  const now = new Date('2026-08-20T02:00:00.000Z')
+
+  const charge = await chargeSessionTransaction({ db: state.db, sessionId: 'makeup-request-1', expectedRevision: 0, actorUid: 'trainer-1', now })
+  assert.equal(charge.billingStatus, 'exempt')
+  assert.equal(charge.revision, 1)
+  assert.equal(state.read('contracts/contract-1').usedSessions, 4)
+  assert.equal(state.read('sessionBillingEvents/makeup-request-1'), undefined)
+  assert.equal(state.read('attendanceEvents/makeup-request-1').billingStatus, 'exempt')
+
+  const confirmation = await recordSessionAttendanceTransaction({
+    db: state.db,
+    sessionId: 'makeup-request-1',
+    expectedRevision: 1,
+    actorUid: 'trainer-1',
+    attendanceStatus: 'present',
+    now,
+  })
+  assert.equal(confirmation.attendanceStatus, 'present')
+  assert.equal(state.read('sessions/makeup-request-1').billingStatus, 'exempt')
+  assert.equal(state.read('sessions/makeup-request-1').attendanceStatus, 'present')
+  assert.equal(state.read('contracts/contract-1').usedSessions, 4)
+  assert.equal(state.paths().some((path) => path === 'ledgerEntries/pt_session_makeup-request-1'), false)
 })
 
 test('admin can resolve a duplicate learner day by correcting attendance without re-triggering the duplicate collision', async () => {
@@ -480,6 +520,46 @@ test('additional-session request blocks a second pending request for the learner
   const page = await state.getMyAdditionalSessionSuggestions({ data: {} })
   assert.deepEqual(page.issueCodes, ['ADDITIONAL_REQUEST_PENDING'])
   assert.equal(page.suggestions.length, 0)
+})
+
+test('approved PT make-up creates an exempt session and keeps the source no-show intact', async () => {
+  const state = operationsFor({
+    'settings/scheduleConfig': { sessionChangeDeadlineHours: 12 },
+    'sessionRequests/makeup-request-1': {
+      status: 'pending', type: 'makeup', makeupSession: true, makeupSourceSessionId: 'source-no-show',
+      sessionId: 'source-no-show', studentId: 'student-1', trainerId: 'trainer-1', accountUid: 'trainer-account',
+      contractId: 'contract-1', requestedBy: 'trainer', originalSessionRevision: 1,
+      originalDate: '2026-08-20', originalHour: 8, newDate: '2026-08-25', newHour: 10,
+      reason: 'Chủ động bù buổi cho học viên', revision: 0,
+    },
+    'sessions/source-no-show': {
+      status: 'no_show', scheduleStatus: 'scheduled', billingStatus: 'charged', attendanceStatus: 'no_show',
+      studentId: 'student-1', trainerId: 'trainer-1', contractId: 'contract-1', branchId: 'branch-1',
+      date: '2026-08-20', hour: 8, revision: 1, attendanceEventId: 'source-no-show',
+    },
+    'attendanceEvents/source-no-show': {
+      type: 'no_show', sessionId: 'source-no-show', studentId: 'student-1', trainerId: 'trainer-1',
+      contractId: 'contract-1', billingStatus: 'charged', attendanceStatus: 'no_show',
+    },
+    'students/student-1': { status: 'active', branchId: 'branch-1', sessionsPerWeek: 3 },
+    'trainers/trainer-1': { status: 'active', name: 'PT Chính', branchId: 'branch-1', availableSlots: ['T3-10'], slotCapacity: 2 },
+    'contracts/contract-1': {
+      status: 'active', studentId: 'student-1', trainerId: 'trainer-1', branchId: 'branch-1',
+      startDate: '2026-08-01', endDate: '2026-09-30', totalSessions: 12, usedSessions: 4,
+    },
+  }, async () => ({ uid: 'admin-1', accessRole: 'admin' }))
+
+  const approved = await state.approveSessionRequest({ data: { requestId: 'makeup-request-1', expectedSessionRevision: 1 } })
+  const makeup = state.read('sessions/makeup-makeup-request-1')
+  assert.equal(approved.type, 'makeup')
+  assert.equal(approved.makeupMode, 'standalone_shift')
+  assert.equal(makeup.sessionKind, 'makeup')
+  assert.equal(makeup.billingStatus, 'exempt')
+  assert.equal(makeup.countsTowardContract, false)
+  assert.equal(makeup.commissionEligible, false)
+  assert.equal(state.read('sessions/source-no-show').status, 'no_show')
+  assert.equal(state.read('contracts/contract-1').usedSessions, 4)
+  assert.equal(state.read('sessionRequests/makeup-request-1').status, 'approved')
 })
 
 test('change suggestions keep a valid ninth PT slot and label it as soft-target overload', async () => {

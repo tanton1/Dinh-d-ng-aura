@@ -29,7 +29,7 @@ interface PtOperationsRequestBase {
 
 export interface PtSessionOperationsRequest extends PtOperationsRequestBase {
   kind: 'session'
-  type: 'cancel' | 'reschedule' | 'additional'
+  type: 'cancel' | 'reschedule' | 'additional' | 'makeup'
   sessionId: string
   sessionRevision: number
   trainerId: string
@@ -46,6 +46,10 @@ export interface PtSessionOperationsRequest extends PtOperationsRequestBase {
   crossBranchWarning?: boolean
   suggestionRank: number | null
   pairsExistingSession: boolean
+  makeupSession?: boolean
+  makeupSourceSessionId?: string | null
+  makeupMode?: 'standalone_shift' | 'paired_existing_shift' | null
+  commissionEligible?: boolean
   policyMonth: string | null
   policySequence: number | null
   complimentaryLimit: number
@@ -246,7 +250,7 @@ export function createMyAdditionalSessionRequest(input: CreateMyAdditionalSessio
 }
 
 export function approveSessionRequest(input: { requestId: string; expectedSessionRevision: number }) {
-  return call<typeof input, { unchanged: boolean; status: 'approved'; type: 'cancel' | 'reschedule' | 'additional'; revision: number; policyMonth?: string | null; policySequence?: number | null; complimentary?: boolean; complimentaryLimit?: number; countsTowardContract?: boolean; sessionId?: string; date?: string; hour?: number; trainerId?: string }>('approveSessionRequest', input)
+  return call<typeof input, { unchanged: boolean; status: 'approved'; type: 'cancel' | 'reschedule' | 'additional' | 'makeup'; revision: number; policyMonth?: string | null; policySequence?: number | null; complimentary?: boolean; complimentaryLimit?: number; countsTowardContract?: boolean; commissionEligible?: boolean; makeupMode?: 'standalone_shift' | 'paired_existing_shift'; sourceSessionId?: string; sessionId?: string; date?: string; hour?: number; trainerId?: string }>('approveSessionRequest', input)
 }
 
 export function rejectSessionRequest(input: { requestId: string; reason: string }) {

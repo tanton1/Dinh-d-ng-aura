@@ -165,6 +165,16 @@ test('automatic 48-hour attendance remains review evidence and never becomes tea
   assert.deepEqual(result.trainers.get('trainer-a')[0].sessionIds, ['manual'])
 })
 
+test('complimentary make-up sessions remain attendance history but do not create teaching commission', () => {
+  const result = teachingSlotsFromSessions([
+    { id: 'source-no-show', status: 'no_show', trainerId: 'trainer-a', studentId: 'student-a', date: '2026-08-25', hour: 6 },
+    { id: 'makeup', status: 'completed', attendanceStatus: 'present', billingStatus: 'exempt', makeupSession: true, sessionKind: 'makeup', commissionEligible: false, trainerId: 'trainer-a', studentId: 'student-a', date: '2026-08-26', hour: 7 },
+  ], { ratePerSession: 20_000 })
+
+  assert.equal(result.teachingSlotCount, 0)
+  assert.equal((result.trainers.get('trainer-a') || []).length, 0)
+})
+
 test('legacy attendance rebuild excludes automatic review evidence', () => {
   const sessions = new Map([
     ['automatic', { trainerId: 'trainer-a', studentId: 'student-a', date: '2026-08-25', hour: 6, confirmationSource: 'auto_after_48h', recognitionReviewRequired: true }],

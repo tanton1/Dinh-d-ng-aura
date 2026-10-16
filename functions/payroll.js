@@ -649,6 +649,11 @@ function teachingSlotsFromAttendance(attendanceDocuments, sessionsById, policyVa
         { sessionId, attendanceEventId: item?.id || '' },
       )
     }
+    // Complimentary PT make-up attendance is retained for the learner's
+    // history but never creates a standalone teaching commission. When it is
+    // paired with an existing shift, the existing shift's attendance already
+    // supplies the single payable slot.
+    if (session.commissionEligible === false || session.makeupSession === true || session.sessionKind === 'makeup') continue
     if (attendance.recognitionReviewRequired === true || attendance.confirmationSource === 'auto_after_48h'
       || session.recognitionReviewRequired === true || session.confirmationSource === 'auto_after_48h') {
       if (sessionId) reviewRequiredSessionIds.add(sessionId)
@@ -714,6 +719,7 @@ function duplicateLearnerDayViolations(sessionDocuments) {
   for (const item of sessionDocuments || []) {
     const session = typeof item?.data === 'function' ? item.data() : item || {}
     if (!['completed', 'attended'].includes(session.status)) continue
+    if (session.commissionEligible === false || session.makeupSession === true || session.sessionKind === 'makeup') continue
     const studentId = typeof session.studentId === 'string' ? session.studentId.trim() : ''
     const date = typeof session.date === 'string' ? session.date.slice(0, 10) : ''
     if (!studentId || !/^\d{4}-\d{2}-\d{2}$/.test(date)) continue
@@ -879,6 +885,10 @@ function teachingSlotsFromSessions(sessionDocuments, policyValue) {
   for (const item of sessionDocuments) {
     const session = typeof item?.data === 'function' ? item.data() : item || {}
     if (!['completed', 'attended'].includes(session.status)) continue
+    // Complimentary PT make-up sessions remain visible in attendance history,
+    // but they never create a second payable teaching slot. A paired make-up
+    // is already represented by the existing class's slot.
+    if (session.commissionEligible === false || session.makeupSession === true || session.sessionKind === 'makeup') continue
     const sessionId = typeof item?.id === 'string' && item.id
       ? item.id
       : typeof session.id === 'string' ? session.id : ''

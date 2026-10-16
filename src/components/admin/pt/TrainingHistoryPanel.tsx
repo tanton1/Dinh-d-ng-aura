@@ -65,9 +65,11 @@ function formatDate(value: string) {
 
 function attendanceLabel(record: TrainingHistoryPage['records'][number]) {
   const status = record.attendance?.attendanceStatus
-  if (status === 'present') return 'Có tập'
-  if (status === 'late') return `Đi trễ${record.attendance?.lateMinutes ? ` ${record.attendance.lateMinutes}${record.attendance.lateMinutes === 15 ? '+' : ''} phút` : ''}`
-  if (status === 'no_show') return 'Không đến'
+  const makeup = record.attendance?.billingStatus === 'exempt'
+  if (status === 'present') return makeup ? 'Có tập · buổi bù' : 'Có tập'
+  if (status === 'late') return `${makeup ? 'Buổi bù · ' : ''}Đi trễ${record.attendance?.lateMinutes ? ` ${record.attendance.lateMinutes}${record.attendance.lateMinutes === 15 ? '+' : ''} phút` : ''}`
+  if (status === 'no_show') return makeup ? 'Không đến · buổi bù' : 'Không đến'
+  if (makeup) return 'Buổi bù · chưa xác nhận'
   if (record.attendance?.billingStatus === 'charged') return 'Đã tính · chờ PT'
   return 'Chưa tính / xác nhận'
 }
@@ -178,7 +180,7 @@ function RecordAuditDetails({ record }: { record: TrainingHistoryPage['records']
 
 function demoPage(subjectId: string, sessions: TrainerSessionSummary[], startDate: string, endDate: string, status: TrainingHistoryStatus): TrainingHistoryPage {
   const visible = sessions.filter((session) => session.date >= startDate && session.date <= endDate && (status === 'all' || session.status === status))
-  const charged = visible.filter((session) => session.billingStatus === 'charged' || ['completed', 'attended', 'no_show'].includes(session.status))
+  const charged = visible.filter((session) => session.billingStatus !== 'exempt' && (session.billingStatus === 'charged' || ['completed', 'attended', 'no_show'].includes(session.status)))
   const attended = visible.filter((session) => ['present', 'late'].includes(String(session.attendanceStatus || '')) || ['completed', 'attended'].includes(session.status))
   const noShow = visible.filter((session) => session.attendanceStatus === 'no_show' || session.status === 'no_show')
   return {

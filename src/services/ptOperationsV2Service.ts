@@ -141,6 +141,11 @@ export interface TrainerSessionSummary {
   scheduleStatus?: 'scheduled' | 'rescheduled' | 'cancelled'
   billingStatus?: 'pending' | 'charged' | 'exempt' | 'review_required'
   attendanceStatus?: 'pending' | 'present' | 'late' | 'no_show' | 'policy_charge'
+  /** A complimentary make-up session created to compensate a missed source session. */
+  sessionKind?: 'regular' | 'makeup'
+  makeupSourceSessionId?: string | null
+  makeupMode?: 'standalone_shift' | 'paired_existing_shift' | null
+  commissionEligible?: boolean
   lateMinutes?: number | null
   noShowReason?: string
   chargedAt?: string
@@ -306,12 +311,16 @@ export interface TrainerSessionRequestSummary {
   sessionId: string
   studentId: string
   contractId: string
-  type: 'cancel' | 'reschedule'
+  type: 'cancel' | 'reschedule' | 'makeup'
   status: 'pending' | 'approved' | 'rejected'
   originalDate: string
   originalHour?: number
   newDate?: string | null
   newHour?: number | null
+  makeupSession?: boolean
+  makeupSourceSessionId?: string | null
+  makeupMode?: 'standalone_shift' | 'paired_existing_shift' | null
+  commissionEligible?: boolean
   reason: string
   submittedAtIso?: string
   createdAt?: string
@@ -419,7 +428,7 @@ export async function bulkConfirmMySessions(items: Array<{ sessionId: string; ex
 export async function requestSessionChange(input: {
   sessionId: string
   contractId: string
-  type: 'cancel' | 'reschedule'
+  type: 'cancel' | 'reschedule' | 'makeup'
   reason: string
   newDate?: string
   newHour?: number

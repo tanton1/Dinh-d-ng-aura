@@ -388,6 +388,10 @@ function staffStudentSessionDetail(session = {}) {
     scheduleStatus: session.scheduleStatus,
     billingStatus,
     attendanceStatus,
+    sessionKind: session.sessionKind === 'makeup' || session.makeupSession === true ? 'makeup' : 'regular',
+    makeupSourceSessionId: session.makeupSourceSessionId || null,
+    makeupMode: ['standalone_shift', 'paired_existing_shift'].includes(session.makeupMode) ? session.makeupMode : null,
+    commissionEligible: session.commissionEligible !== false,
     lateMinutes: session.lateMinutes,
     noShowReason: session.noShowReason,
     chargedAt: session.chargedAt,
@@ -823,6 +827,10 @@ async function trainerScheduleForActor(db, actor, from, to, limit) {
       originalHour: value.originalHour,
       newDate: value.newDate || null,
       newHour: value.newHour ?? null,
+      makeupSession: value.makeupSession === true,
+      makeupSourceSessionId: value.makeupSourceSessionId || value.sessionId || null,
+      makeupMode: ['standalone_shift', 'paired_existing_shift'].includes(value.makeupMode) ? value.makeupMode : null,
+      commissionEligible: value.commissionEligible !== false,
       reason: value.reason || '',
       submittedAtIso: value.submittedAtIso || null,
       decidedAtIso: value.decidedAtIso || null,
@@ -1123,6 +1131,10 @@ function createPtOperationsV2Functions({ db, onCall }) {
           originalHour: value.originalHour,
           newDate: value.newDate || null,
           newHour: value.newHour ?? null,
+          makeupSession: value.makeupSession === true,
+          makeupSourceSessionId: value.makeupSourceSessionId || value.sessionId || null,
+          makeupMode: ['standalone_shift', 'paired_existing_shift'].includes(value.makeupMode) ? value.makeupMode : null,
+          commissionEligible: value.commissionEligible !== false,
           newTrainerId: value.newTrainerId || value.trainerId || null,
           priorityTier: value.priorityTier || null,
           pairsExistingSession: value.pairsExistingSession === true,
@@ -1625,9 +1637,13 @@ function createPtOperationsV2Functions({ db, onCall }) {
   const requestSessionChange = staffCall(async (request) => {
     const actor = await trainerActor(request, db)
     const sessionId = documentId(request.data?.sessionId, 'Mã buổi tập')
-    const type = request.data?.type === 'cancel' ? 'cancel' : 'reschedule'
+    const type = request.data?.type === 'cancel'
+      ? 'cancel'
+      : request.data?.type === 'makeup'
+        ? 'makeup'
+        : 'reschedule'
     const requestedHour = Number(request.data?.newHour)
-    if (type === 'reschedule' && (!Number.isInteger(requestedHour) || requestedHour < 0 || requestedHour > 23)) {
+    if (['reschedule', 'makeup'].includes(type) && (!Number.isInteger(requestedHour) || requestedHour < 0 || requestedHour > 23)) {
       throw new HttpsError('invalid-argument', 'Giờ mới không hợp lệ.')
     }
     const reason = boundedString(request.data?.reason, 'Lý do', 500)
@@ -1647,12 +1663,20 @@ function createPtOperationsV2Functions({ db, onCall }) {
       if (existingRequest.exists) return { unchanged: true, requestId: existingRequest.id, status: existingRequest.data().status || 'pending' }
       if (!session.exists || ![actor.uid, actor.legacyStaffId].includes(session.data().trainerId)) throw new HttpsError('permission-denied', 'Buổi tập không thuộc lịch của bạn.')
       const sessionData = session.data()
-      if (!['scheduled', 'rescheduled'].includes(String(sessionData.status || '').toLowerCase()) || sessionData.billingStatus === 'charged') {
+      const isMakeupRequest = type === 'makeup'
+      const sourceAttendanceStatus = String(sessionData.attendanceStatus || '').toLowerCase()
+      const sourceIsNoShow = String(sessionData.status || '').toLowerCase() === 'no_show' || sourceAttendanceStatus === 'no_show'
+      if (isMakeupRequest) {
+        if (!sourceIsNoShow) throw new HttpsError('failed-precondition', 'Chỉ có thể xếp bù sau khi buổi gốc đã được xác nhận Không đến.')
+      } else if (!['scheduled', 'rescheduled'].includes(String(sessionData.status || '').toLowerCase()) || sessionData.billingStatus === 'charged') {
         throw new HttpsError('failed-precondition', 'Chỉ buổi đang lên lịch và chưa tính buổi mới được gửi yêu cầu.')
       }
       if (pendingRequests.size >= 20) throw new HttpsError('resource-exhausted', 'Buổi tập có quá nhiều yêu cầu để kiểm tra an toàn.')
       if (pendingRequests.docs.some((item) => item.id !== requestReference.id && item.data().status === 'pending')) {
         throw new HttpsError('already-exists', 'Buổi tập này đã có một yêu cầu đang chờ xử lý.')
+      }
+      if (isMakeupRequest && pendingRequests.docs.some((item) => item.data().type === 'makeup' && item.data().status === 'approved')) {
+        throw new HttpsError('already-exists', 'Buổi tập này đã có buổi bù được duyệt.')
       }
       const contractId = documentId(sessionData.contractId || request.data?.contractId, 'Mã hợp đồng')
       if (request.data?.contractId && request.data.contractId !== contractId) throw new HttpsError('failed-precondition', 'Hợp đồng trên giao diện không còn khớp với buổi tập.')
@@ -1661,12 +1685,14 @@ function createPtOperationsV2Functions({ db, onCall }) {
       if (originalHour === null) throw new HttpsError('failed-precondition', 'Buổi tập chưa có giờ hợp lệ.')
       const policy = ptOperationsPolicySnapshot(configSnapshot.exists ? configSnapshot.data() : {})
       let deadlineAt
-      try {
-        deadlineAt = assertSessionChangeDeadline(originalDate, originalHour, submittedAt, policy.sessionChangeDeadlineHours)
-      } catch (error) {
-        throw new HttpsError('failed-precondition', error.message, { issueCode: error.issueCode || 'SESSION_CHANGE_DEADLINE_PASSED', deadlineAt: error.deadlineAt || null })
+      if (!isMakeupRequest) {
+        try {
+          deadlineAt = assertSessionChangeDeadline(originalDate, originalHour, submittedAt, policy.sessionChangeDeadlineHours)
+        } catch (error) {
+          throw new HttpsError('failed-precondition', error.message, { issueCode: error.issueCode || 'SESSION_CHANGE_DEADLINE_PASSED', deadlineAt: error.deadlineAt || null })
+        }
       }
-      const newDate = type === 'reschedule' ? dateKey(request.data?.newDate, 'Ngày mới') : null
+      const newDate = ['reschedule', 'makeup'].includes(type) ? dateKey(request.data?.newDate, 'Ngày mới') : null
       if (newDate) {
         try {
           assertSessionChangeDeadline(newDate, requestedHour, submittedAt, policy.sessionChangeDeadlineHours)
@@ -1680,6 +1706,7 @@ function createPtOperationsV2Functions({ db, onCall }) {
         policySnapshot: policy,
         sessionId,
         trainerId: sessionData.trainerId,
+        accountUid: actor.uid,
         studentId: sessionData.studentId,
         contractId,
         type,
@@ -1688,17 +1715,21 @@ function createPtOperationsV2Functions({ db, onCall }) {
         originalHour,
         originalSessionRevision: Number(sessionData.revision || 0),
         newDate,
-        newHour: type === 'reschedule' ? requestedHour : null,
+        newHour: ['reschedule', 'makeup'].includes(type) ? requestedHour : null,
+        makeupSession: isMakeupRequest,
+        makeupSourceSessionId: isMakeupRequest ? sessionId : null,
+        countsTowardContract: false,
+        commissionEligible: isMakeupRequest ? false : null,
         reason,
         status: 'pending',
         deadlineHours: policy.sessionChangeDeadlineHours,
-        deadlineAt: deadlineAt.toISOString(),
+        ...(deadlineAt ? { deadlineAt: deadlineAt.toISOString() } : {}),
         idempotencyKey: rawIdempotencyKey || null,
         submittedAtIso: submittedAt.toISOString(),
         createdBy: actor.uid,
         createdAt: FieldValue.serverTimestamp(),
       })
-      return { unchanged: false, requestId: requestReference.id, status: 'pending', deadlineHours: policy.sessionChangeDeadlineHours }
+      return { unchanged: false, requestId: requestReference.id, status: 'pending', deadlineHours: policy.sessionChangeDeadlineHours, type }
     })
   })
 

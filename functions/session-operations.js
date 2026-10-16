@@ -975,6 +975,80 @@ async function chargeSessionTransaction({
     const billingIssueReference = db.doc(`sessionBillingIssues/${sessionId}`)
     const billingSnapshot = await transaction.get(billingReference)
 
+    // Complimentary PT make-up sessions still need a normal attendance record,
+    // but they deliberately bypass contract charging and revenue recognition.
+    // Keeping this path inside the same transaction preserves the usual
+    // revision and idempotency guarantees without creating a billing event.
+    if (session.makeupSession === true && session.billingStatus === 'exempt') {
+      if (billingSnapshot.exists || session.attendanceEventId) {
+        return {
+          unchanged: true,
+          revision,
+          billingStatus: 'exempt',
+          attendanceEventId: session.attendanceEventId || attendanceReference.id,
+        }
+      }
+      if (expectedRevision !== null && revision !== expectedRevision) {
+        throw new HttpsError('aborted', 'Buổi bù đã thay đổi. Hãy tải lại.')
+      }
+      assertSessionCanBeCharged({ ...session, billingStatus: undefined })
+      const startsAt = sessionStartInstant(session, sessionId)
+      if (startsAt.getTime() > now.getTime()) {
+        throw new HttpsError('failed-precondition', 'Chưa đến giờ buổi bù nên chưa thể xác nhận.', {
+          issueCode: 'SESSION_NOT_STARTED',
+          startsAt: startsAt.toISOString(),
+        })
+      }
+      const attendanceSnapshot = await transaction.get(attendanceReference)
+      if (attendanceSnapshot.exists) {
+        return {
+          unchanged: true,
+          revision,
+          billingStatus: 'exempt',
+          attendanceEventId: attendanceReference.id,
+        }
+      }
+      const startsAtTimestamp = Timestamp.fromDate(startsAt)
+      transaction.create(attendanceReference, {
+        schemaVersion: 3,
+        type: 'pending_confirmation',
+        sessionId,
+        studentId: session.studentId,
+        trainerId: session.trainerId || '',
+        contractId: linkedContractId(session),
+        scheduleStatus: session.scheduleStatus || session.status,
+        billingStatus: 'exempt',
+        attendanceStatus: 'pending',
+        scheduledAt: startsAtTimestamp,
+        occurredAt: startsAtTimestamp,
+        chargedAt: null,
+        confirmedAt: null,
+        confirmedBy: '',
+        lateMinutes: null,
+        noShowReason: '',
+        note: '',
+        makeupSession: true,
+        makeupSourceSessionId: session.makeupSourceSessionId || null,
+        commissionEligible: false,
+        createdAt: FieldValue.serverTimestamp(),
+        createdBy: actorUid,
+        timeZone,
+      })
+      transaction.update(sessionReference, {
+        attendanceStatus: 'pending',
+        attendanceEventId: attendanceReference.id,
+        revision: revision + 1,
+        updatedAt: FieldValue.serverTimestamp(),
+        updatedBy: actorUid,
+      })
+      return {
+        unchanged: false,
+        revision: revision + 1,
+        billingStatus: 'exempt',
+        attendanceEventId: attendanceReference.id,
+      }
+    }
+
     if (billingSnapshot.exists || isSessionCharged(session)) {
       return {
         unchanged: true,
@@ -1211,11 +1285,13 @@ async function recordSessionAttendanceTransaction({
     const attendance = attendanceSnapshot.data()
     await assertSessionScope(session)
     const revision = Number(session.revision || 0)
-    const effectiveBillingStatus = isSessionCharged(session) && (!attendance.billingStatus || attendance.billingStatus === 'charged')
-      ? 'charged'
-      : session.billingStatus === BILLING_REVIEW_STATUS && attendance.billingStatus === BILLING_REVIEW_STATUS
-        ? BILLING_REVIEW_STATUS
-        : ''
+    const effectiveBillingStatus = session.makeupSession === true && session.billingStatus === 'exempt'
+      ? 'exempt'
+      : isSessionCharged(session) && (!attendance.billingStatus || attendance.billingStatus === 'charged')
+        ? 'charged'
+        : session.billingStatus === BILLING_REVIEW_STATUS && attendance.billingStatus === BILLING_REVIEW_STATUS
+          ? BILLING_REVIEW_STATUS
+          : ''
     if (!effectiveBillingStatus) {
       throw new HttpsError('failed-precondition', 'Sổ tính buổi chưa hoàn tất. Hãy tải lại sau ít phút.')
     }
@@ -1696,7 +1772,7 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
       }
       return {
         ...common,
-        type: item.type === 'cancel' ? 'cancel' : item.type === 'additional' ? 'additional' : 'reschedule',
+        type: item.type === 'cancel' ? 'cancel' : item.type === 'additional' ? 'additional' : item.type === 'makeup' ? 'makeup' : 'reschedule',
         sessionId: optionalText(item.sessionId, 128),
         sessionRevision: Number(session.revision || 0),
         trainerId,
@@ -1718,6 +1794,10 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
         weeklyScheduled: Number(item.weeklyScheduled || 0),
         weeklyTarget: Number(item.weeklyTarget || 0),
         pairsExistingSession: item.pairsExistingSession === true,
+        makeupSession: item.makeupSession === true,
+        makeupSourceSessionId: optionalText(item.makeupSourceSessionId || item.sessionId, 128) || null,
+        makeupMode: ['standalone_shift', 'paired_existing_shift'].includes(item.makeupMode) ? item.makeupMode : null,
+        commissionEligible: item.commissionEligible !== false,
         policyMonth: optionalText(item.policyMonth, 7) || null,
         policySequence: Number(item.policySequence || item.expectedPolicySequence || 0) || null,
         complimentaryLimit: Number(item.complimentaryLimit || 1),
@@ -2546,7 +2626,7 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
     const requestReference = db.doc(`sessionRequests/${requestId}`)
     return db.runTransaction(async (transaction) => {
       const requestSnapshot = await transaction.get(requestReference)
-      if (!requestSnapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy yêu cầu đổi hoặc hủy lịch.')
+      if (!requestSnapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy yêu cầu đổi, hủy hoặc bù lịch.')
 
       const requestData = requestSnapshot.data()
       if (requestData.status === 'approved') {
@@ -2566,8 +2646,183 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
       }
       if (requestData.status !== 'pending') throw new HttpsError('failed-precondition', 'Yêu cầu này không còn chờ duyệt.')
 
-      const requestType = requestData.type === 'cancel' ? 'cancel' : requestData.type === 'reschedule' ? 'reschedule' : requestData.type === 'additional' ? 'additional' : ''
+      const requestType = requestData.type === 'cancel'
+        ? 'cancel'
+        : requestData.type === 'reschedule'
+          ? 'reschedule'
+          : requestData.type === 'additional'
+            ? 'additional'
+            : requestData.type === 'makeup'
+              ? 'makeup'
+              : ''
       if (!requestType) throw new HttpsError('failed-precondition', 'Loại yêu cầu lịch không hợp lệ.')
+
+      // A PT make-up is a complimentary replacement arranged after the source
+      // session was confirmed as a no-show. It keeps the source attendance and
+      // contract history intact, creates a separate attendance-capable session,
+      // and never creates a second contract charge or teaching commission.
+      if (requestType === 'makeup') {
+        const sourceSessionId = id(requestData.makeupSourceSessionId || requestData.sessionId, 'Mã buổi gốc')
+        const sourceReference = db.doc(`sessions/${sourceSessionId}`)
+        const sourceSnapshot = await transaction.get(sourceReference)
+        if (!sourceSnapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy buổi gốc để xếp bù.')
+        const source = sourceSnapshot.data()
+        const sourceRevision = Number(source.revision || 0)
+        if (Number.isInteger(requestData.originalSessionRevision) && sourceRevision !== requestData.originalSessionRevision) {
+          throw new HttpsError('aborted', 'Buổi gốc đã thay đổi. Hãy tải lại trước khi duyệt.')
+        }
+        const sourceAttendance = source.attendanceEventId
+          ? await transaction.get(db.doc(`attendanceEvents/${source.attendanceEventId}`))
+          : await transaction.get(db.doc(`attendanceEvents/${sourceSessionId}`))
+        const sourceAttendanceStatus = String(sourceAttendance?.data()?.attendanceStatus || '').toLowerCase()
+        const sourceIsNoShow = String(source.status || '').toLowerCase() === 'no_show'
+          || String(source.attendanceStatus || '').toLowerCase() === 'no_show'
+          || sourceAttendanceStatus === 'no_show'
+        if (!sourceIsNoShow) throw new HttpsError('failed-precondition', 'Chỉ được duyệt bù cho buổi gốc đã xác nhận Không đến.')
+        if (source.studentId !== requestData.studentId) throw new HttpsError('failed-precondition', 'Yêu cầu bù không khớp với học viên của buổi gốc.')
+        if (requestData.trainerId && requestData.trainerId !== source.trainerId) throw new HttpsError('aborted', 'PT của buổi gốc đã thay đổi. Hãy tạo yêu cầu mới.')
+
+        const contractId = linkedContractId(source)
+        if (requestData.contractId && requestData.contractId !== contractId) throw new HttpsError('aborted', 'Hợp đồng của yêu cầu bù không còn khớp với buổi gốc.')
+        const contractReference = db.doc(`contracts/${contractId}`)
+        const targetDate = date(requestData.newDate)
+        const targetHour = hour(requestData.newHour)
+        const trainerId = id(source.trainerId, 'Mã PT')
+        const trainerReference = db.doc(`trainers/${trainerId}`)
+        const trainerSnapshot = await transaction.get(trainerReference)
+        if (!trainerSnapshot.exists || ['inactive', 'archived', 'deleted'].includes(String(trainerSnapshot.data().status || '').toLowerCase())) {
+          throw new HttpsError('failed-precondition', 'PT của buổi bù không còn hoạt động.')
+        }
+        const contractSnapshot = await transaction.get(contractReference)
+        const studentReference = db.doc(`students/${source.studentId}`)
+        const studentSnapshot = await transaction.get(studentReference)
+        if (!contractSnapshot.exists || !studentSnapshot.exists) throw new HttpsError('failed-precondition', 'Thiếu hợp đồng hoặc hồ sơ học viên để xếp buổi bù.')
+        const contract = contractSnapshot.data()
+        const student = studentSnapshot.data()
+        if (contract.studentId !== source.studentId || !['active', 'expired'].includes(String(contract.status || '').toLowerCase())) {
+          throw new HttpsError('failed-precondition', 'Hợp đồng của học viên không còn phù hợp để xếp buổi bù.')
+        }
+        const contractStart = storedContractDate(contract.startDate, 'Ngày bắt đầu')
+        const contractEnd = storedContractDate(contract.endDate, 'Ngày kết thúc')
+        if (targetDate < contractStart || targetDate > contractEnd) throw new HttpsError('failed-precondition', 'Ngày bù nằm ngoài thời hạn hợp đồng.')
+        if (pauseCoversDate(contract, targetDate)) throw new HttpsError('failed-precondition', 'Ngày bù nằm trong thời gian OFF hoặc bảo lưu.')
+
+        const targetWeek = mondayForDate(targetDate)
+        const configSnapshot = await transaction.get(db.doc('settings/scheduleConfig'))
+        const trainerAvailabilityReference = db.doc(`trainerAvailability/${trainerId}_${targetWeek}`)
+        const [trainerDay, studentDay, trainerAvailabilitySnapshot, trainerLeaves, branchDay] = await Promise.all([
+          transaction.get(dailySessionsQuery(db, 'trainerId', trainerId, targetDate)),
+          transaction.get(dailySessionsQuery(db, 'studentId', source.studentId, targetDate)),
+          transaction.get(trainerAvailabilityReference),
+          transaction.get(db.collection('leaveRequests').where('status', '==', 'approved').limit(1001)),
+          transaction.get(dailySessionsQuery(db, 'branchId', source.branchId || trainerSnapshot.data().branchId || contract.branchId || student.branchId || '', targetDate)),
+        ])
+        const trainer = trainerProfileForWeek(trainerSnapshot.data(), trainerAvailabilitySnapshot.exists ? trainerAvailabilitySnapshot.data() : null, targetWeek)
+        const targetBranchId = source.branchId || trainer.branchId || contract.branchId || student.branchId || ''
+        const { slotId } = assertOperatingCalendar(configSnapshot.exists ? configSnapshot.data() : {}, targetDate, targetHour)
+        if (!trainerIsAvailable(trainer, slotId)) throw new HttpsError('failed-precondition', 'Khung giờ bù không nằm trong lịch rảnh của PT.')
+        try {
+          assertSessionChangeDeadline(targetDate, targetHour, now(), ptOperationsPolicySnapshot(configSnapshot.exists ? configSnapshot.data() : {}).sessionChangeDeadlineHours)
+        } catch (error) {
+          throw policyFailure(error)
+        }
+        const trainerUnavailable = trainerLeaves.docs.some((item) => {
+          const leave = item.data()
+          const start = typeof leave.startDate === 'string' ? leave.startDate.slice(0, 10) : ''
+          const end = typeof leave.endDate === 'string' ? leave.endDate.slice(0, 10) : start
+          return leave.trainerId === trainerId && start && end && targetDate >= start && targetDate <= end
+        })
+        if (trainerUnavailable) throw new HttpsError('failed-precondition', 'PT đang OFF ở ngày bù.')
+        if (activeDayDocuments(studentDay).length > 0) throw new HttpsError('already-exists', 'Học viên đã có một buổi khác trong ngày bù.')
+        const trainerCapacity = normalizedTrainerCapacity(trainer.slotCapacity)
+        const existingAtHour = activeHourDocuments(trainerDay, targetHour)
+        if (existingAtHour.length >= trainerCapacity) throw new HttpsError('resource-exhausted', 'Khung giờ của PT đã đủ học viên.')
+        const targetSiteCapacity = targetBranchId
+          ? branchSlotCapacity(normalizedScheduleConfig(configSnapshot.exists ? configSnapshot.data() : {}), targetBranchId, slotId)
+          : null
+        if (targetSiteCapacity !== null && activeHourDocuments(branchDay, targetHour).length >= targetSiteCapacity) {
+          throw new HttpsError('resource-exhausted', 'Chi nhánh đã đủ sức chứa trong khung giờ bù.')
+        }
+
+        const sessionId = `makeup-${requestId}`
+        const sessionReference = db.doc(`sessions/${sessionId}`)
+        const existingSession = await transaction.get(sessionReference)
+        if (existingSession.exists) throw new HttpsError('already-exists', 'Buổi bù đã được tạo; hãy tải lại danh sách yêu cầu.')
+        const makeupMode = existingAtHour.length ? 'paired_existing_shift' : 'standalone_shift'
+        const nextSession = {
+          schemaVersion: 2,
+          studentId: source.studentId,
+          accountUid: requestData.accountUid || null,
+          trainerId,
+          contractId,
+          branchId: targetBranchId,
+          date: targetDate,
+          hour: targetHour,
+          status: 'scheduled',
+          scheduleStatus: 'scheduled',
+          billingStatus: 'exempt',
+          attendanceStatus: 'pending',
+          source: 'trainer_makeup_request',
+          sessionKind: 'makeup',
+          makeupSession: true,
+          makeupSourceSessionId: sourceSessionId,
+          makeupMode,
+          commissionEligible: false,
+          countsTowardContract: false,
+          sessionRequestId: requestId,
+          revision: 0,
+          createdAt: FieldValue.serverTimestamp(),
+          createdBy: actor.uid,
+          updatedAt: FieldValue.serverTimestamp(),
+          updatedBy: actor.uid,
+        }
+        transaction.create(sessionReference, nextSession)
+        transaction.create(db.collection('sessionEvents').doc(), {
+          schemaVersion: 2,
+          type: 'makeup_session_approved',
+          sessionId,
+          sourceSessionId,
+          requestId,
+          studentId: source.studentId,
+          trainerId,
+          contractId,
+          to: { date: targetDate, hour: targetHour, trainerId, branchId: targetBranchId },
+          makeupMode,
+          countsTowardContract: false,
+          commissionEligible: false,
+          createdAt: FieldValue.serverTimestamp(),
+          createdBy: actor.uid,
+        })
+        transaction.update(requestReference, {
+          status: 'approved',
+          approvedAt: FieldValue.serverTimestamp(),
+          approvedBy: actor.uid,
+          processedSessionId: sessionId,
+          processedSessionRevision: 0,
+          makeupMode,
+          countsTowardContract: false,
+          commissionEligible: false,
+          revision: Number(requestData.revision || 0) + 1,
+        })
+        const notificationTargets = new Set([requestData.accountUid, trainerId])
+        for (const targetUid of notificationTargets) {
+          if (typeof targetUid !== 'string' || !/^[A-Za-z0-9_-]+$/.test(targetUid)) continue
+          const notificationReference = db.doc(`users/${targetUid}/notifications/pt-session-request-${requestId}-approved`)
+          transaction.create(notificationReference, {
+            id: notificationReference.id,
+            userId: targetUid,
+            title: 'Yêu cầu bù buổi đã được duyệt',
+            message: `${targetDate} · ${String(targetHour).padStart(2, '0')}:00 · không trừ thêm buổi và không tính hoa hồng ca bù`,
+            type: 'pt_schedule',
+            category: 'workout',
+            actionUrl: targetUid === requestData.accountUid ? '#/schedule' : '#/staff-schedule',
+            dedupeKey: notificationReference.id,
+            read: false,
+            createdAt: FieldValue.serverTimestamp(),
+          })
+        }
+        return { unchanged: false, status: 'approved', type: 'makeup', sessionId, sourceSessionId, revision: 0, date: targetDate, hour: targetHour, trainerId, makeupMode, countsTowardContract: false, commissionEligible: false }
+      }
 
       // Additional-session requests do not have a source session to mutate.
       // They still use the same transactional collision and availability
@@ -3382,7 +3637,7 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
     const requestReference = db.doc(`sessionRequests/${requestId}`)
     return db.runTransaction(async (transaction) => {
       const snapshot = await transaction.get(requestReference)
-      if (!snapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy yêu cầu đổi hoặc hủy lịch.')
+      if (!snapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy yêu cầu đổi, hủy hoặc bù lịch.')
       const data = snapshot.data()
       if (data.status === 'rejected') return { unchanged: true, status: 'rejected' }
       if (data.status !== 'pending') throw new HttpsError('failed-precondition', 'Yêu cầu này không còn chờ duyệt.')
@@ -3407,7 +3662,7 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
         transaction.create(notificationReference, {
           id: notificationReference.id,
           userId: data.accountUid,
-          title: data.type === 'additional' ? 'Yêu cầu thêm buổi chưa được duyệt' : data.type === 'cancel' ? 'Yêu cầu hủy ca chưa được duyệt' : 'Yêu cầu đổi ca chưa được duyệt',
+          title: data.type === 'additional' ? 'Yêu cầu thêm buổi chưa được duyệt' : data.type === 'makeup' ? 'Yêu cầu bù buổi chưa được duyệt' : data.type === 'cancel' ? 'Yêu cầu hủy ca chưa được duyệt' : 'Yêu cầu đổi ca chưa được duyệt',
           message: reason,
           type: 'pt_schedule',
           category: 'workout',

@@ -96,6 +96,12 @@ function normalizeSession(value: unknown, index: number, studentId: string): Tra
     attendanceStatus: ['pending', 'present', 'late', 'no_show', 'policy_charge'].includes(asText(session.attendanceStatus))
       ? asText(session.attendanceStatus) as TrainerSessionSummary['attendanceStatus']
       : undefined,
+    sessionKind: asText(session.sessionKind) === 'makeup' ? 'makeup' : 'regular',
+    makeupSourceSessionId: asText(session.makeupSourceSessionId) || null,
+    makeupMode: ['standalone_shift', 'paired_existing_shift'].includes(asText(session.makeupMode))
+      ? asText(session.makeupMode) as TrainerSessionSummary['makeupMode']
+      : null,
+    commissionEligible: typeof session.commissionEligible === 'boolean' ? session.commissionEligible : undefined,
     lateMinutes: session.lateMinutes === null || session.lateMinutes === undefined ? null : asNonNegativeNumber(session.lateMinutes),
     noShowReason: asText(session.noShowReason) || undefined,
     chargedAt: asText(session.chargedAt) || undefined,
