@@ -51,7 +51,7 @@ test('Student directory V2 disables the broad legacy roster listeners only when 
   assert.match(directoryV2, /updateStudentProfile/)
   assert.match(directoryV2, /setArchiveTarget/)
   assert.match(directory, /canManage=\{canManageStudents\}/)
-  assert.match(directory, /canInvite=\{canInviteStudents\}/)
+  assert.match(directory, /canInvite=\{canInviteStudents \|\| import\.meta\.env\.MODE === 'e2e'\}/)
   assert.match(directory, /if \(directoryV2\) return/)
 })
 
