@@ -219,6 +219,26 @@ test('Admin can add a learner after publish and creates the live session without
   assert.equal(harness.docs.get(harness.draftPath).publishedRevision, 2)
 })
 
+test('Admin move with a published session uses the scoped fast path', async () => {
+  const harness = makeHarness()
+  const result = await applyAdminScheduleEdit(baseInput(harness, 'move_student', {
+    studentId: STUDENT,
+    fromTrainerId: TRAINER,
+    fromSlotId: 'T2-6',
+    trainerId: TRAINER,
+    slotId: 'T3-6',
+    sessionId: 'session-a',
+    expectedSessionRevision: 0,
+    adminOverride: true,
+  }))
+  assert.equal(result.sessionId, 'session-a')
+  assert.equal(result.sessionRevision, 1)
+  assert.equal(result.schedule['T2-6'], undefined)
+  assert.equal(result.schedule['T3-6'][0].adminOverride, true)
+  assert.equal(harness.docs.get('sessions/session-a').scheduleStatus, 'rescheduled')
+  assert.equal(harness.docs.get('sessions/session-a').slotId, 'T3-6')
+})
+
 test('Admin can re-add a cancelled cell while keeping the cancelled session as history', async () => {
   const harness = makeHarness()
   const draft = harness.docs.get(harness.draftPath)

@@ -630,6 +630,17 @@ async function loadBranchDataFresh(db, branchId, week, options = {}) {
   const studentIds = students.docs.map((item) => item.id)
   const trainerIds = new Set(trainers.docs.map((item) => item.id))
   const studentSet = new Set(studentIds)
+  const legacy = legacySchedule.exists ? legacySchedule.data() : {}
+  const draftData = scopedDraftData(draft, branchId, week)
+  // A published Admin workspace is a live matrix, not an optimizer
+  // preflight. Keep the roster/contracts needed by the picker, but avoid
+  // fanning out into every learner's weekly evidence just to paint rows. The
+  // write callables still load exact evidence before changing a real session.
+  const publishedWorkspace = draftData?.status === 'published'
+    || Number(draftData?.publishedVersion || 0) > 0
+    || legacy.publishStatusByBranch?.[branchId] === 'published'
+    || Number(legacy.publishedVersions?.[branchId] || 0) > 0
+  const fastPublishedWorkspace = options.publishedMatrixFast === true && publishedWorkspace
   // These reads are independent once the bounded branch roster is known.
   // Keep them in one fan-out so a slow leave/availability query cannot hold
   // the contract path hostage on every workspace load.
@@ -640,15 +651,13 @@ async function loadBranchDataFresh(db, branchId, week, options = {}) {
   const [leaves, contracts, trainerAvailability] = await Promise.all([
     approvedLeavesForTrainers(db, trainers.docs.map((item) => item.id)),
     contractsForStudents(db, studentIds),
-    exactAvailabilityForTrainers(db, trainerIds, week),
+    fastPublishedWorkspace ? Promise.resolve([]) : exactAvailabilityForTrainers(db, trainerIds, week),
   ])
   if (leaves.length > 1000) {
     throw new HttpsError('resource-exhausted', 'Dữ liệu chi nhánh vượt giới hạn workspace an toàn.')
   }
   const studentMap = new Map(students.docs.map((item) => [item.id, item.data()]))
   const trainerMap = new Map(trainers.docs.map((item) => [item.id, item.data()]))
-  const legacy = legacySchedule.exists ? legacySchedule.data() : {}
-  const draftData = scopedDraftData(draft, branchId, week)
   // Scope branch-less legacy rows by their PT, not by the learner's home
   // branch. Resolve external PTs too so a local learner with an external PT
   // cannot leak into both branches when the maps above are branch-filtered.
@@ -694,13 +703,18 @@ async function loadBranchDataFresh(db, branchId, week, options = {}) {
     .filter((contract) => ['active', 'future'].includes(String(contract.status || 'active').toLowerCase()))
     .map((contract) => contract.studentId)
     .filter((studentId) => studentSet.has(studentId)))
-  const reservationStudentIds = new Set([...activeContractStudentIds, ...referencedStudentIds, ...previousWeekSessionCounts.keys()])
+  const reservationStudentIds = fastPublishedWorkspace
+    ? new Set(referencedStudentIds)
+    : new Set([...activeContractStudentIds, ...referencedStudentIds, ...previousWeekSessionCounts.keys()])
+  const coverageStudentIds = fastPublishedWorkspace
+    ? new Set(referencedStudentIds)
+    : new Set([...studentSet, ...reservationStudentIds])
   const [activeSessions, weeklyCoverageSessions] = await Promise.all([
     activeSessionsForStudents(db, [...reservationStudentIds], week),
-    // Coverage is a reporting concern rather than a quota reservation. Read
-    // the complete bounded branch roster so a learner whose active contract
-    // currently lives at another branch is still counted correctly here.
-    weeklySessionsForStudents(db, [...new Set([...studentSet, ...reservationStudentIds])], week),
+    // Coverage is a reporting concern rather than a quota reservation. The
+    // published Admin matrix only needs live rows for learners already in the
+    // matrix; the full roster remains available to the draft/optimizer path.
+    weeklySessionsForStudents(db, [...coverageStudentIds], week),
   ])
   const sessionRowsById = new Map([...weekSessions.docs, ...activeSessions, ...weeklyCoverageSessions]
     .map((item) => ({ id: item.id, ...item.data() }))
@@ -767,7 +781,9 @@ async function loadBranchDataFresh(db, branchId, week, options = {}) {
   // Read exact weekly availability only for learners who can affect this
   // workspace. The old implementation issued one document read for every
   // historical profile in the branch, including contracts expired years ago.
-  const availability = await exactAvailabilityForStudents(db, [...fallbackStudentMap.keys()], week)
+  const availability = fastPublishedWorkspace
+    ? []
+    : await exactAvailabilityForStudents(db, [...fallbackStudentMap.keys()], week)
   const weeklyAvailability = new Map(availability.map((item) => item.data()).filter((item) => studentMap.has(item.studentId)).map((item) => [item.studentId, item]))
   // Migrated profiles without the denormalized latest submission need a
   // bounded historical lookup. Only learners who can affect this workspace
@@ -779,10 +795,6 @@ async function loadBranchDataFresh(db, branchId, week, options = {}) {
   // remains available; the exact fallback validation stays in the write
   // callables. This avoids hundreds of legacy point queries on every branch
   // switch while keeping staff/draft/optimizer reads fully reconciled.
-  const publishedWorkspace = draftData?.status === 'published'
-    || Number(draftData?.publishedVersion || 0) > 0
-    || legacy.publishStatusByBranch?.[branchId] === 'published'
-    || Number(legacy.publishedVersions?.[branchId] || 0) > 0
   // Keep fallback evidence for learners already present in the published
   // matrix or in this week's live/previous-week sessions. Unassigned legacy
   // profiles do not affect the live matrix and can be resolved on demand by
@@ -790,9 +802,11 @@ async function loadBranchDataFresh(db, branchId, week, options = {}) {
   const fallbackProfiles = options.skipLegacyAvailabilityFallback && publishedWorkspace
     ? new Map([...fallbackStudentMap].filter(([studentId]) => referencedStudentIds.has(studentId) || previousWeekSessionCounts.has(studentId)))
     : fallbackStudentMap
-  const inheritedAvailability = options.skipLegacyAvailabilityFallback && publishedWorkspace
-    ? await loadLatestSubmittedFallbacks(db, fallbackProfiles, weeklyAvailability, week)
-    : await loadLatestSubmittedFallbacks(db, fallbackStudentMap, weeklyAvailability, week)
+  const inheritedAvailability = fastPublishedWorkspace
+    ? new Map()
+    : options.skipLegacyAvailabilityFallback && publishedWorkspace
+      ? await loadLatestSubmittedFallbacks(db, fallbackProfiles, weeklyAvailability, week)
+      : await loadLatestSubmittedFallbacks(db, fallbackStudentMap, weeklyAvailability, week)
   const mappedStudents = [...students.docs, ...referencedStudentSnapshots].map((item) => {
     const data = item.data()
     const displayOnly = crossBranchStudentIds.has(item.id)
@@ -3516,6 +3530,10 @@ function createPtScheduleV2Functions({ db, onCall, actorForBranch = scheduleActo
       // callable. Do not make the initial paint wait for legacy availability
       // history that is only needed when generating or validating a draft.
       skipLegacyAvailabilityFallback: activeAdministrator(actor),
+      // A published Admin matrix only needs rows already in the matrix and
+      // the compact roster used by the picker. Defer full session/availability
+      // reconciliation to the write callable so branch switching stays fast.
+      publishedMatrixFast: activeAdministrator(actor),
     })
     const eligibleStudents = data.students.filter((student) => student.eligibleForWeek === true)
     const workloadSchedule = safeSchedule(data.schedule)

@@ -869,6 +869,7 @@ const adminEditPtScheduleHandler = async (request) => {
       fromTrainerId: normalizeId(rawPayload.fromTrainerId || trainerId, 'Mã PT nguồn'),
     } : {}),
     ...(typeof rawPayload.sessionId === 'string' && rawPayload.sessionId.trim() ? { sessionId: normalizeId(rawPayload.sessionId, 'Mã buổi tập') } : {}),
+    ...(typeof rawPayload.contractId === 'string' && rawPayload.contractId.trim() ? { contractId: normalizeId(rawPayload.contractId, 'Mã hợp đồng') } : {}),
     ...(rawPayload.expectedSessionRevision === undefined ? {} : {
       expectedSessionRevision: Number(rawPayload.expectedSessionRevision),
     }),

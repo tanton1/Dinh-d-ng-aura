@@ -1275,6 +1275,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
       slotId: inspectorSlotId,
       trainerId: selectedTrainerId,
       studentId: pendingManualCandidate.studentId,
+      ...(pendingManualCandidate.contractId ? { contractId: pendingManualCandidate.contractId } : {}),
       ...(isAdmin ? { adminOverride: true } : {}),
       ...(outsideAvailability ? { allowOutsideStudentAvailability: true } : {}),
       ...(pendingManualCandidate.studentBranchWarning ? { confirmCrossBranchStudent: true } : {}),

@@ -151,6 +151,21 @@ test('workspace exposes weekly session coverage from every branch without return
   assert.deepEqual(result.sessions, [])
 })
 
+test('published Admin workspace paints from profile projections without weekly evidence fan-out', async () => {
+  const h = harness(fixture(), { realBranchData: true })
+  const draftPath = `ptScheduleDrafts/${BRANCH}_${WEEK}`
+  h.docs.set(draftPath, { ...h.docs.get(draftPath), status: 'published', publishedVersion: 1, publishedRevision: 1 })
+  const student = h.docs.get('students/a')
+  h.docs.set('students/a', {
+    ...student,
+    latestSubmittedAvailability: { weekId: '2090-01-01', status: 'submitted', slots: ['T2-6'], revision: 1 },
+  })
+  h.docs.delete(`ptAvailability/a_${WEEK}`)
+  const result = await h.api.getPtScheduleWorkspace({ data: { weekId: WEEK, branchId: BRANCH } })
+  assert.equal(result.draftStatus, 'published')
+  assert.deepEqual(result.students.find((studentRow) => studentRow.id === 'a').availableSlots, ['T2-6'])
+})
+
 test('historical supplement accepts an expired contract that was valid on the actual session date', () => {
   const data = fixture()
   data.contracts[0].status = 'expired'
