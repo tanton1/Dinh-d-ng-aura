@@ -29,6 +29,15 @@ function normalizedSlots(value) {
     : []
 }
 
+// A learner can temporarily ask for a different weekly target. `null` is
+// deliberately preserved as the explicit "follow the contract" choice so a
+// reset cannot be confused with a missing or malformed value.
+function normalizeRequestedSessions(value) {
+  if (value === null || value === undefined || value === '') return null
+  const result = Number(value)
+  return Number.isInteger(result) && result >= 1 && result <= 7 ? result : null
+}
+
 function normalizedSubmittedAvailability(value, fallbackWeekId = '') {
   if (!value || typeof value !== 'object') return null
   const weekId = WEEK_PATTERN.test(String(value.weekId || ''))
@@ -43,6 +52,7 @@ function normalizedSubmittedAvailability(value, fallbackWeekId = '') {
     revision: Math.max(0, Number(value.revision || 0)),
     minimumSlots: Math.max(5, Number(value.minimumSlots || 5)),
     requiredSessions: Math.max(1, Number(value.requiredSessions || 1)),
+    requestedSessions: normalizeRequestedSessions(value.requestedSessions),
     submittedAt: value.submittedAt || null,
     // Keep the last server update separately from the submission timestamp so
     // Staff can explain which snapshot is being inherited without guessing.
@@ -67,6 +77,7 @@ function legacyDefaultAvailability(profile) {
       : profile?.isScheduleConfirmed === true,
     minimumSlots: Math.max(5, Number(explicitLegacy?.minimumSlots || 5)),
     requiredSessions: Math.max(1, Number(explicitLegacy?.requiredSessions || profile?.sessionsPerWeek || 1)),
+    requestedSessions: null,
   }
 }
 
@@ -130,6 +141,7 @@ function effectiveStudentAvailability({ targetWeek, exact, inherited, profile })
     targetRevision: 0,
     minimumSlots: 5,
     requiredSessions: Math.max(1, Number(profile?.sessionsPerWeek || 1)),
+    requestedSessions: null,
     submittedAt: null,
     updatedAt: null,
   }
@@ -233,5 +245,6 @@ module.exports = {
   legacyDefaultAvailability,
   loadLatestSubmittedFallbacks,
   normalizedSubmittedAvailability,
+  normalizeRequestedSessions,
   studentAvailabilityProfilePatch,
 }

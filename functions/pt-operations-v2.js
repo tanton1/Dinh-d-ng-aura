@@ -11,6 +11,7 @@ const { assertSessionChangeDeadline, ptOperationsPolicySnapshot } = require('./p
 const {
   effectiveStudentAvailability,
   loadLatestSubmittedFallbacks,
+  normalizeRequestedSessions,
   studentAvailabilityProfilePatch,
 } = require('./student-availability')
 const { summarizeContractUsage } = require('./contract-usage')
@@ -144,6 +145,41 @@ function isContractSchedulableInWeek(contract = {}, weekId, remainingSessionsOve
     if (isContractSchedulableOn(contract, date.toISOString().slice(0, 10), remainingSessionsOverride)) return true
   }
   return false
+}
+
+function boundedWeeklySessionTarget(value) {
+  const result = Number(value)
+  return Number.isInteger(result) && result >= 1 && result <= 7 ? result : null
+}
+
+// The student profile remains the compatibility source for existing records,
+// while newer contract documents may carry an explicit weekly target. If a
+// legacy record has neither, derive a sensible target from the contract term.
+function contractDefaultSessionsPerWeek(contracts = [], profile = {}, weekId = '') {
+  const list = Array.isArray(contracts) ? contracts : []
+  const schedulable = list
+    .filter((contract) => !weekId || isContractSchedulableInWeek(contract, weekId))
+    .sort((left, right) => storedDateKey(left.startDate).localeCompare(storedDateKey(right.startDate)) || String(left.id || '').localeCompare(String(right.id || '')))
+  const explicitFields = ['sessionsPerWeek', 'weeklySessions', 'weeklySessionTarget', 'trainingSessionsPerWeek']
+  for (const contract of schedulable) {
+    for (const field of explicitFields) {
+      const target = boundedWeeklySessionTarget(contract?.[field])
+      if (target !== null) return target
+    }
+  }
+  const profileTarget = boundedWeeklySessionTarget(profile?.sessionsPerWeek)
+  if (profileTarget !== null) return profileTarget
+  for (const contract of schedulable) {
+    const totalSessions = Math.max(0, Number(contract?.totalSessions || contract?.packageSessions || 0))
+    const startDate = storedDateKey(contract?.startDate)
+    const endDate = storedDateKey(contract?.endDate)
+    const elapsedDays = startDate && endDate ? dateDistance(startDate, endDate) : null
+    const durationDays = elapsedDays === null ? 0 : elapsedDays + 1
+    if (totalSessions > 0 && durationDays > 0) {
+      return Math.max(1, Math.min(7, Math.round(totalSessions / (durationDays / 7))))
+    }
+  }
+  return 3
 }
 
 function dateDistance(from, to) {
@@ -338,6 +374,7 @@ function availabilityState(weekId, value, now = new Date(), policyValue = {}) {
     slots,
     minimumSlots: Math.max(5, Number(value?.minimumSlots || 5)),
     requiredSessions: Math.max(1, Number(value?.requiredSessions || 1)),
+    requestedSessions: normalizeRequestedSessions(value?.requestedSessions),
     revision: Math.max(0, Number(value?.revision || 0)),
     sourceRevision: Math.max(0, Number(value?.sourceRevision || value?.revision || 0)),
     status,
@@ -1282,7 +1319,6 @@ function createPtOperationsV2Functions({ db, onCall }) {
         })
       })
       .sort((left, right) => String(right.submittedAtIso || right.createdAt || '').localeCompare(String(left.submittedAtIso || left.createdAt || '')))
-    const requiredSessions = integer(profile.value.sessionsPerWeek, 3, 1, 6)
     const exactAvailability = new Map(availabilitySnapshot.exists
       ? [[profile.id, availabilitySnapshot.data()]]
       : [])
@@ -1298,10 +1334,18 @@ function createPtOperationsV2Functions({ db, onCall }) {
       inherited: inheritedAvailability.get(profile.id),
       profile: profile.value,
     })
+    const defaultSessionsPerWeek = contractDefaultSessionsPerWeek(
+      contractsSnapshot.docs.map((item) => ({ id: item.id, ...item.data() })),
+      profile.value,
+      requestedAvailabilityWeekId,
+    )
+    const requestedSessions = normalizeRequestedSessions(effectiveAvailability.requestedSessions)
+    const requiredSessions = requestedSessions ?? defaultSessionsPerWeek
     const storedAvailability = {
       slots: normalizedAvailabilitySlots(effectiveAvailability.slots, config, false),
-      minimumSlots: Math.max(5, Number(effectiveAvailability.minimumSlots || requiredSessions)),
+      minimumSlots: Math.max(5, requiredSessions),
       requiredSessions,
+      requestedSessions,
       revision: effectiveAvailability.targetRevision,
       sourceRevision: effectiveAvailability.sourceRevision,
       status: effectiveAvailability.status,
@@ -1327,7 +1371,8 @@ function createPtOperationsV2Functions({ db, onCall }) {
         id: profile.id,
         name: profile.value.name || 'Học viên Aura',
         branchId: profile.value.branchId || '',
-        sessionsPerWeek: requiredSessions,
+        sessionsPerWeek: defaultSessionsPerWeek,
+        defaultSessionsPerWeek,
         availableSlots: availability.slots,
         isScheduleConfirmed: availability.confirmed === true,
         availabilityRevision: availability.revision,
@@ -1354,12 +1399,25 @@ function createPtOperationsV2Functions({ db, onCall }) {
         crmProfileIdConfigured: profileResolution.crmProfileIdConfigured,
       })
     }
-    const configSnapshot = await db.doc('settings/scheduleConfig').get()
+    const [configSnapshot, contractsSnapshot] = await Promise.all([
+      db.doc('settings/scheduleConfig').get(),
+      db.collection('contracts').where('studentId', '==', profile.id).limit(50).get(),
+    ])
     const config = scheduleConfig(configSnapshot.data())
     const weekId = availabilityWeekId(request.data?.weekId)
     const slots = normalizedAvailabilitySlots(request.data?.availableSlots, config)
     const expectedRevision = integer(request.data?.expectedRevision, 0, 0, 1000000)
-    const requiredSessions = integer(profile.value.sessionsPerWeek, 3, 1, 6)
+    const defaultSessionsPerWeek = contractDefaultSessionsPerWeek(
+      contractsSnapshot.docs.map((item) => ({ id: item.id, ...item.data() })),
+      profile.value,
+      weekId,
+    )
+    const rawRequestedSessions = request.data?.requestedSessions
+    const requestedSessions = normalizeRequestedSessions(rawRequestedSessions)
+    if (rawRequestedSessions !== null && rawRequestedSessions !== undefined && rawRequestedSessions !== '' && requestedSessions === null) {
+      throw new HttpsError('invalid-argument', 'Số buổi đăng ký mỗi tuần phải từ 1 đến 7.')
+    }
+    const requiredSessions = requestedSessions ?? defaultSessionsPerWeek
     const minimumSlots = Math.max(5, requiredSessions)
     const confirmBelowMinimum = request.data?.confirmBelowMinimum === true
     const submittedAtIso = new Date().toISOString()
@@ -1408,6 +1466,7 @@ function createPtOperationsV2Functions({ db, onCall }) {
         weekId,
         slots,
         requiredSessions,
+        requestedSessions,
         minimumSlots,
         belowMinimumConfirmed: slots.length < minimumSlots,
         status: 'submitted',
@@ -1422,6 +1481,7 @@ function createPtOperationsV2Functions({ db, onCall }) {
         weekId,
         slots,
         requiredSessions,
+        requestedSessions,
         minimumSlots,
         status: 'submitted',
         revision: currentRevision + 1,
@@ -1440,6 +1500,7 @@ function createPtOperationsV2Functions({ db, onCall }) {
         weekId,
         beforeSlotCount: Array.isArray(currentAvailability.data()?.slots) ? currentAvailability.data().slots.length : 0,
         afterSlotCount: slots.length,
+        requestedSessions,
         belowMinimumConfirmed: slots.length < minimumSlots,
         latestFallbackAdvanced: Boolean(profilePatch.latestSubmittedAvailability),
         createdAt: FieldValue.serverTimestamp(),
@@ -1449,12 +1510,14 @@ function createPtOperationsV2Functions({ db, onCall }) {
     return {
       schemaVersion: 3,
       availableSlots: slots,
+      defaultSessionsPerWeek,
       availabilityRevision: nextRevision,
       isScheduleConfirmed: true,
       availability: serialize(availabilityState(weekId, {
         slots,
         minimumSlots,
         requiredSessions,
+        requestedSessions,
         revision: nextRevision,
         status: 'submitted',
         submittedAt: submittedAtIso,
@@ -2150,6 +2213,7 @@ function createPtOperationsV2Functions({ db, onCall }) {
 module.exports = {
   availabilityCutoff,
   availabilityWeekId,
+  contractDefaultSessionsPerWeek,
   contractCoversDate,
   createPtOperationsV2Functions,
   isContractSchedulableInWeek,

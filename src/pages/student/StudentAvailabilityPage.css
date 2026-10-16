@@ -39,6 +39,23 @@
 
 .student-availability-page .student-availability-status-button.is-inherited { color: #176d78; background: #e9f8fa; }
 .student-availability-page .student-availability-status-button.is-legacy-default { color: #8b5a22; background: #fff4df; }
+.student-availability-target { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin: 0 18px 13px; padding: 12px 14px; border: 1px solid #f0dce5; border-radius: 16px; background: linear-gradient(135deg, #fff8fb, #fff7f0); }
+.student-availability-target__copy { display: grid; min-width: 0; gap: 2px; }
+.student-availability-target__copy small { color: #c5296c; font-size: 9px; font-weight: 900; letter-spacing: .12em; }
+.student-availability-target__copy strong { color: #332431; font-size: 17px; line-height: 1.1; }
+.student-availability-target__copy span { color: #806d77; font-size: 10px; }
+.student-availability-target__controls { display: inline-flex; align-items: center; gap: 5px; flex: 0 0 auto; }
+.student-availability-target__controls > button { display: inline-flex; align-items: center; justify-content: center; min-width: 34px; height: 34px; border: 1px solid #edbfd2; border-radius: 10px; color: #bd2568; background: #fff; cursor: pointer; }
+.student-availability-target__controls > button:hover { border-color: #e889b0; background: #fff3f8; }
+.student-availability-target__controls > button:disabled { cursor: not-allowed; opacity: .42; }
+.student-availability-target__controls output { display: grid; min-width: 32px; place-items: center; color: #34252d; font-size: 16px; font-weight: 900; font-variant-numeric: tabular-nums; }
+.student-availability-target__controls > button.is-reset { gap: 4px; min-width: auto; padding: 0 9px; color: #8d5c70; border-color: #e7d2dc; background: #fff9fb; font-size: 10px; font-weight: 850; }
+.student-availability-target__controls > button.is-reset span { white-space: nowrap; }
+.student-availability-page .student-availability-card > header p,
+.student-availability-page .student-availability-source p,
+.student-availability-page .student-availability-guidance p,
+.student-availability-page .student-availability-off-helper p,
+.student-availability-page .student-availability-card > footer > div > span { display: none; }
 .student-availability-source { display: flex; align-items: flex-start; gap: 11px; margin: 0 18px 13px; padding: 13px 14px; border: 1px solid; border-radius: 16px; }
 .student-availability-source > span { display: grid; flex: 0 0 auto; width: 38px; height: 38px; place-items: center; border-radius: 13px; }
 .student-availability-source div { display: grid; gap: 3px; }
@@ -100,6 +117,10 @@
   .student-availability-page__hero p { font-size: 11px; }
   .student-availability-page > .student-availability-card { border-right: 0; border-left: 0; border-radius: 22px; }
   .student-availability-page .student-availability-card > header { padding: 17px 13px 11px; }
+  .student-availability-page .student-availability-target { align-items: stretch; flex-direction: column; margin-inline: 13px; }
+  .student-availability-page .student-availability-target__controls { justify-content: space-between; }
+  .student-availability-page .student-availability-target__controls > button:not(.is-reset) { min-width: 42px; height: 38px; }
+  .student-availability-page .student-availability-target__controls output { flex: 1; }
   .student-availability-page .student-availability-week-switch { display: grid; margin: 0 13px 12px; }
   .student-availability-page .student-availability-source { margin-inline: 13px; }
   .student-availability-page .student-availability-pause,
@@ -133,6 +154,24 @@
     box-shadow: 0 -8px 24px rgba(25,22,26,.09);
     backdrop-filter: blur(14px);
   }
+}
+
+/* V4 keeps the matrix and the learner's actions visible while reducing the
+   remaining source/status cards to compact labels. */
+.student-availability-page--v4 .student-availability-source { align-items: center; min-height: 48px; padding: 9px 12px; }
+.student-availability-page--v4 .student-availability-source > span { width: 30px; height: 30px; border-radius: 10px; }
+.student-availability-page--v4 .student-availability-source strong { font-size: 11px; }
+.student-availability-page--v4 .student-availability-guidance { min-height: 50px; padding: 8px 11px; }
+.student-availability-page--v4 .student-availability-guidance > span { width: 30px; height: 30px; border-radius: 10px; }
+.student-availability-page--v4 .student-availability-target { border-color: var(--aura-neutral-150); background: linear-gradient(135deg, #fff, #fff8fb); }
+.student-availability-page--v4 .student-availability-target__copy small { color: var(--aura-brand-pink); }
+.student-availability-page--v4 .student-availability-target__copy strong { font-size: 16px; }
+
+@media (max-width: 520px) {
+  .student-availability-page--v4 .student-availability-target { align-items: stretch; flex-direction: column; margin-inline: 13px; }
+  .student-availability-page--v4 .student-availability-target__controls { justify-content: space-between; }
+  .student-availability-page--v4 .student-availability-target__controls > button:not(.is-reset) { min-width: 40px; height: 36px; }
+  .student-availability-page--v4 .student-availability-target__controls output { flex: 1; }
 }
 
 @media (max-width: 390px) {

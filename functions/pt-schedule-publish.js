@@ -7,6 +7,7 @@ const { trustedAccessContext, requireCapability } = require('./identity-access')
 const {
   effectiveStudentAvailability,
   loadLatestSubmittedFallbacks,
+  normalizeRequestedSessions,
 } = require('./student-availability')
 const {
   contractSchedulingEntitlement,
@@ -983,6 +984,25 @@ function createPtSchedulePublishFunctions({ db, onCall, onScheduleMutation = () 
       }))
       const trainers = new Map(trainersSnapshot.docs.map((item) => [item.id, trainerProfileForWeek(item.data(), weeklyTrainerAvailability.get(item.id), week)]))
       const availability = new Map(availabilitySnapshots.filter((item) => item.exists).map((item) => [item.data().studentId, item.data()]))
+      // A learner's weekly request is the default publish target when Staff
+      // has not entered a draft-specific target. An explicit Staff target
+      // remains the higher-priority operational override.
+      for (const [studentId, student] of students) {
+        if (Object.prototype.hasOwnProperty.call(weeklySessionTargets, studentId)) continue
+        const effective = effectiveStudentAvailability({
+          targetWeek: week,
+          exact: availability.get(studentId),
+          inherited: inheritedAvailability.get(studentId),
+          profile: student,
+        })
+        const requestedSessions = normalizeRequestedSessions(effective.requestedSessions)
+        if (requestedSessions === null) continue
+        students.set(studentId, {
+          ...student,
+          sessionsPerWeek: requestedSessions,
+          availabilityRequestedSessions: requestedSessions,
+        })
+      }
       // Legacy rows with branchId="all" are only owned by this branch when
       // their PT or learner belongs to the selected branch. Without this
       // scope, publishing one branch could cancel an unrelated legacy row

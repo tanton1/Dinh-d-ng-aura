@@ -20,6 +20,7 @@ const {
 const {
   effectiveStudentAvailability,
   loadLatestSubmittedFallbacks,
+  normalizeRequestedSessions,
   studentAvailabilityProfilePatch,
 } = require('./student-availability')
 const { summarizeContractUsage } = require('./contract-usage')
@@ -847,11 +848,13 @@ async function loadBranchDataFresh(db, branchId, week, options = {}) {
     const weeklySessionTargetOverride = Object.prototype.hasOwnProperty.call(weeklySessionTargets, item.id)
       ? weeklySessionTargets[item.id]
       : null
+    const availabilityRequestedSessions = normalizeRequestedSessions(effectiveAvailability.requestedSessions)
+    const resolvedSessionTarget = weeklySessionTargetOverride ?? availabilityRequestedSessions
     // Weekly demand is a learner/profile setting. Do not silently shrink it
     // just because the current week has fewer future calendar days left.
     // Scheduling capacity is exposed separately so the UI can explain why a
     // target cannot yet be fulfilled.
-    const target = weeklyTargetForStudent(data.sessionsPerWeek, weeklySessionTargetOverride, eligibility)
+    const target = weeklyTargetForStudent(data.sessionsPerWeek, resolvedSessionTarget, eligibility)
     const contractEndDates = studentContracts.map((contract) => storedDate(contract.endDate)).filter(Boolean).sort()
     const latestContractEndDate = contractEndDates[contractEndDates.length - 1] || null
     const contractStatus = eligibility.reasonCodes.includes('CONTRACT_PAUSED')
@@ -879,8 +882,10 @@ async function loadBranchDataFresh(db, branchId, week, options = {}) {
       ...(displayOnly ? { isCrossBranchDisplayOnly: true, studentBranchWarning: true, studentHomeBranchId: data.branchId } : {}),
       sessionsPerWeek: target.sessionsPerWeek,
       defaultSessionsPerWeek: target.defaultSessionsPerWeek,
-      weeklySessionTargetOverride: target.weeklySessionTargetOverride,
-      weeklySessionTargetOverridden: target.weeklySessionTargetOverridden,
+      weeklySessionTargetOverride,
+      weeklySessionTargetOverridden: weeklySessionTargetOverride !== null,
+      availabilityRequestedSessions,
+      availabilityTargetOverridden: availabilityRequestedSessions !== null,
       maxWeeklySessions: target.maxWeeklySessions,
       schedulableSessionsThisWeek: target.schedulableSessionsThisWeek,
       availableSlots: effectiveAvailability.slots.slice(0, 100),
@@ -1083,14 +1088,20 @@ async function loadManualMutationData(db, branchId, week, trainerId, studentId, 
         : 'missing'
   const eligibility = studentWeekEligibility(contracts, studentId, branchId, week, todayInHoChiMinh(), allowCrossBranchStudent)
   const studentInactive = ['inactive', 'archived', 'deleted'].includes(String(rawStudent.status || '').toLowerCase())
+  const adminSessionTarget = safeWeeklySessionTargets(draftData?.weeklySessionTargets)[studentId] ?? null
+  const availabilityRequestedSessions = normalizeRequestedSessions(effectiveAvailability.requestedSessions)
+  const target = weeklyTargetForStudent(rawStudent.sessionsPerWeek, adminSessionTarget ?? availabilityRequestedSessions, eligibility)
   const student = {
     id: studentId,
     name: rawStudent.name || 'Chưa cập nhật tên',
     phone: rawStudent.phone || '',
     status: rawStudent.status || 'active',
     branchId: rawStudent.branchId || '',
-    ...weeklyTargetForStudent(rawStudent.sessionsPerWeek,
-      safeWeeklySessionTargets(draftData?.weeklySessionTargets)[studentId] ?? null, eligibility),
+    ...target,
+    weeklySessionTargetOverride: adminSessionTarget,
+    weeklySessionTargetOverridden: adminSessionTarget !== null,
+    availabilityRequestedSessions,
+    availabilityTargetOverridden: availabilityRequestedSessions !== null,
     availableSlots: effectiveAvailability.slots.slice(0, 100),
     availabilityStatus,
     eligibleForWeek: !studentInactive && eligibility.eligible,

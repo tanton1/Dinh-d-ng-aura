@@ -11,7 +11,10 @@ import {
   History,
   Link2,
   LoaderCircle,
+  Minus,
+  Plus,
   RefreshCw,
+  RotateCcw,
   Save,
   ShieldCheck,
   X,
@@ -35,6 +38,7 @@ import { useAuraUiSurface } from '../../features/ui-rollout/AuraUiRolloutContext
 
 const DEFAULT_DAYS = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7']
 const DEFAULT_HOURS = [6, 7, 8, 9, 10, 11, 14, 15, 16, 17, 18, 19, 20]
+const MAX_REQUESTED_SESSIONS = 7
 type AvailabilityWeekOffset = 0 | 1 | 2
 
 function toIsoDate(date: Date) {
@@ -130,6 +134,7 @@ function demoAvailabilityData(today: Date, weekStart: Date, weekId: string): Stu
       name: 'An Nguyễn',
       branchId: 'demo-branch',
       sessionsPerWeek: 3,
+      defaultSessionsPerWeek: 3,
       availableSlots: slots,
       isScheduleConfirmed: true,
       availabilityRevision: 1,
@@ -138,6 +143,7 @@ function demoAvailabilityData(today: Date, weekStart: Date, weekId: string): Stu
         slots,
         minimumSlots: 5,
         requiredSessions: 3,
+        requestedSessions: null,
         revision: 1,
         status: 'submitted',
         locked: false,
@@ -178,6 +184,7 @@ export default function StudentAvailabilityPage({ onNavigate, isDemo = false }: 
   const [weekOffset, setWeekOffset] = useState<AvailabilityWeekOffset>(1)
   const [data, setData] = useState<StudentPtScheduleData | null>(null)
   const [selectedSlots, setSelectedSlots] = useState<Set<string>>(new Set())
+  const [requestedSessions, setRequestedSessions] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const requestIdRef = useRef(0)
@@ -209,6 +216,7 @@ export default function StudentAvailabilityPage({ onNavigate, isDemo = false }: 
       loadedWeekRef.current = weekId
       setData(response)
       setSelectedSlots(new Set(response.student?.availability?.slots ?? response.student?.availableSlots ?? []))
+      setRequestedSessions(response.student?.availability?.requestedSessions ?? null)
     } catch (caught) {
       if (requestId === requestIdRef.current) setIssue(asStudentPtScheduleError(caught))
     } finally {
@@ -222,10 +230,18 @@ export default function StudentAvailabilityPage({ onNavigate, isDemo = false }: 
   const workingHours = data?.scheduleConfig.workingHours?.length ? data.scheduleConfig.workingHours : DEFAULT_HOURS
   const availability = data?.student?.availability
   const originalSlots = availability?.slots ?? data?.student?.availableSlots ?? []
-  const minimumSlots = availability?.minimumSlots ?? Math.max(5, data?.student?.sessionsPerWeek ?? 1)
+  const contractDefaultSessions = Math.max(1, Math.min(MAX_REQUESTED_SESSIONS, Number(
+    data?.student?.defaultSessionsPerWeek
+      ?? data?.student?.sessionsPerWeek
+      ?? availability?.requiredSessions
+      ?? 1,
+  )))
+  const effectiveSessions = requestedSessions ?? contractDefaultSessions
+  const originalRequestedSessions = availability?.requestedSessions ?? null
+  const minimumSlots = Math.max(5, effectiveSessions)
   const missingSlots = Math.max(0, minimumSlots - selectedSlots.size)
   const locked = availability?.locked === true
-  const dirty = !sameSlots(selectedSlots, originalSlots)
+  const dirty = !sameSlots(selectedSlots, originalSlots) || requestedSessions !== originalRequestedSessions
   const dirtyRef = useRef(dirty)
   dirtyRef.current = dirty
   const inherited = availability?.source === 'inherited_weekly'
@@ -339,6 +355,17 @@ export default function StudentAvailabilityPage({ onNavigate, isDemo = false }: 
     })
   }
 
+  const changeRequestedSessions = (nextValue: number | null) => {
+    if (saving || locked) return
+    setIssue(null)
+    setMessage(null)
+    if (nextValue === null) {
+      setRequestedSessions(null)
+      return
+    }
+    setRequestedSessions(Math.max(1, Math.min(MAX_REQUESTED_SESSIONS, Math.round(nextValue))))
+  }
+
   const save = async (belowMinimumAccepted = false) => {
     if (!data?.student || (!dirty && !canConfirmLegacyDefault && !canUseInheritedSchedule) || saving || locked) return
     if (selectedSlots.size === 0) {
@@ -369,7 +396,7 @@ export default function StudentAvailabilityPage({ onNavigate, isDemo = false }: 
             availability: {
               ...(current.student.availability ?? {
                 minimumSlots,
-                requiredSessions: current.student.sessionsPerWeek,
+                requiredSessions: requestedSessions ?? current.student.defaultSessionsPerWeek ?? current.student.sessionsPerWeek,
                 revision: current.student.availabilityRevision,
                 locked: false,
                 cutoffAt: '',
@@ -380,6 +407,7 @@ export default function StudentAvailabilityPage({ onNavigate, isDemo = false }: 
               revision: (current.student.availability?.revision ?? current.student.availabilityRevision) + 1,
               status: 'submitted',
               confirmed: true,
+              requestedSessions,
               submittedAt: new Date().toISOString(),
               source: 'weekly',
               sourceWeekId: null,
@@ -393,6 +421,7 @@ export default function StudentAvailabilityPage({ onNavigate, isDemo = false }: 
           availableSlots: [...selectedSlots],
           expectedRevision: availability?.revision ?? data.student.availabilityRevision,
           confirmBelowMinimum: belowMinimumAccepted,
+          requestedSessions,
         })
         setData((current) => current?.student ? {
           ...current,
@@ -405,6 +434,7 @@ export default function StudentAvailabilityPage({ onNavigate, isDemo = false }: 
           },
         } : current)
         setSelectedSlots(new Set(result.availableSlots))
+        setRequestedSessions(result.availability?.requestedSessions ?? null)
       }
       setMessage(selectedSlots.size < minimumSlots
         ? `Đã gửi ${selectedSlots.size} khung sau khi bạn xác nhận. Vận hành sẽ chủ động rà soát phương án xếp lịch.`
@@ -434,6 +464,15 @@ export default function StudentAvailabilityPage({ onNavigate, isDemo = false }: 
     {!loading && data?.student && <section className="student-availability-card">
       <header><div><small>MA TRẬN THỜI GIAN RẢNH · TUẦN {weekId}</small><h2>Đăng ký thời gian có thể tập</h2><p>Aura khuyến nghị ít nhất {minimumSlots} khung. Lịch khóa theo chính sách đang áp dụng: {cutoffLabel}.</p></div><button type="button" className={`student-availability-status-button is-${statusKey}`} onClick={() => document.querySelector('.student-schedule-matrix-scroll')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}><strong>{statusLabel}</strong><span>{selectedSlots.size}/{minimumSlots} khung</span></button></header>
       {availabilityV4 ? <div className="student-availability-week-control"><button type="button" aria-label="Tuần trước" disabled={weekOffset === 0} onClick={() => setWeekOffset(Math.max(0, weekOffset - 1) as AvailabilityWeekOffset)}><ChevronLeft size={19} /></button><div><strong>{formatWeekRange(weekId)}</strong><span>{weekOffset === 0 ? 'Tuần này' : weekOffset === 1 ? 'Tuần sau' : 'Tuần kế tiếp'}</span></div><button type="button" aria-label="Tuần sau" disabled={weekOffset === 2} onClick={() => setWeekOffset(Math.min(2, weekOffset + 1) as AvailabilityWeekOffset)}><ChevronRight size={19} /></button></div> : <div className="student-availability-week-switch"><button type="button" className={weekOffset === 0 ? 'active' : ''} onClick={() => setWeekOffset(0)}>Tuần này</button><button type="button" className={weekOffset === 1 ? 'active' : ''} onClick={() => setWeekOffset(1)}>Tuần sau</button><button type="button" className={weekOffset === 2 ? 'active' : ''} onClick={() => setWeekOffset(2)}>Tuần kế</button></div>}
+      <section className="student-availability-target" aria-label="Số buổi muốn tập trong tuần">
+        <div className="student-availability-target__copy"><small>SỐ BUỔI MỖI TUẦN</small><strong>{effectiveSessions} buổi</strong><span>{requestedSessions === null ? `Theo hợp đồng · ${contractDefaultSessions} buổi` : 'Đăng ký riêng tuần này'}</span></div>
+        <div className="student-availability-target__controls">
+          <button type="button" aria-label="Giảm số buổi muốn tập" disabled={saving || locked || effectiveSessions <= 1} onClick={() => changeRequestedSessions(effectiveSessions - 1)}><Minus size={16} /></button>
+          <output aria-live="polite">{effectiveSessions}</output>
+          <button type="button" aria-label="Tăng số buổi muốn tập" disabled={saving || locked || effectiveSessions >= MAX_REQUESTED_SESSIONS} onClick={() => changeRequestedSessions(effectiveSessions + 1)}><Plus size={16} /></button>
+          {requestedSessions !== null && <button type="button" className="is-reset" aria-label={`Theo hợp đồng, ${contractDefaultSessions} buổi`} disabled={saving || locked} onClick={() => changeRequestedSessions(null)}><RotateCcw size={14} /><span>Theo hợp đồng</span></button>}
+        </div>
+      </section>
       {weeklyAvailability && <div className="student-availability-source is-weekly" role="status"><span><CalendarDays size={20} /></span><div><strong>Lịch riêng của tuần {formatWeekRange(availability?.weekId ?? weekId)}</strong><p>Đây là lịch bạn đã gửi cho đúng tuần đang chọn. Lịch này được ưu tiên trước lịch gần nhất và lịch mặc định cũ.</p></div></div>}
       {inherited && <div className="student-availability-source is-inherited" role="status"><span><History size={20} /></span><div><strong>Đang dùng lịch đã gửi gần nhất</strong><p>Nguồn từ {formatWeekLabel(availability?.sourceWeekId)}. Nếu bạn không điều chỉnh, Aura tự áp dụng {selectedSlots.size} khung này cho tuần đang chọn.</p></div></div>}
       {legacyDefault && <div className="student-availability-source is-legacy" role="status"><span><CalendarRange size={20} /></span><div><strong>Đây là lịch mặc định cũ trong hồ sơ</strong><p>Aura chỉ dùng lịch này khi chưa có lịch tuần hoặc lịch đã gửi gần nhất. Hãy kiểm tra và bấm “Xác nhận lịch này” để biến nó thành lịch đã gửi của tuần đang chọn.</p></div></div>}

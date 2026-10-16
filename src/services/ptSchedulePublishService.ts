@@ -94,6 +94,9 @@ export interface PtScheduleV2Student extends Student {
   studentHomeBranchId?: string
   /** Hồ sơ mặc định; không bị thay đổi khi điều phối riêng một tuần. */
   defaultSessionsPerWeek: number
+  /** Mục tiêu học viên gửi từ màn hình lịch rảnh; null nghĩa là theo hợp đồng. */
+  availabilityRequestedSessions?: number | null
+  availabilityTargetOverridden?: boolean
   /** Override chỉ thuộc draft tuần/chi nhánh hiện tại; null nghĩa là dùng mặc định. */
   weeklySessionTargetOverride: number | null
   weeklySessionTargetOverridden: boolean

@@ -4,8 +4,10 @@ const test = require('node:test')
 const assert = require('node:assert/strict')
 const {
   effectiveStudentAvailability,
+  normalizeRequestedSessions,
   studentAvailabilityProfilePatch,
 } = require('./student-availability')
+const { contractDefaultSessionsPerWeek } = require('./pt-operations-v2')
 
 const TARGET_WEEK = '2026-09-07'
 
@@ -100,4 +102,34 @@ test('an empty draft for the target week falls back to the latest submitted week
   assert.equal(result.source, 'inherited_weekly')
   assert.equal(result.sourceWeekId, '2026-08-31')
   assert.deepEqual(result.slots, ['T2-18', 'T5-19'])
+})
+
+test('weekly target override is retained and null means follow the contract', () => {
+  const result = effectiveStudentAvailability({
+    targetWeek: TARGET_WEEK,
+    exact: { weekId: TARGET_WEEK, status: 'submitted', revision: 2, slots: ['T2-6'], requestedSessions: 4 },
+    profile: { sessionsPerWeek: 3 },
+  })
+  assert.equal(result.requestedSessions, 4)
+  assert.equal(normalizeRequestedSessions('4'), 4)
+  assert.equal(normalizeRequestedSessions(0), null)
+  assert.equal(normalizeRequestedSessions(null), null)
+
+  const reset = studentAvailabilityProfilePatch({}, {
+    weekId: TARGET_WEEK,
+    status: 'submitted',
+    revision: 3,
+    slots: ['T2-6'],
+    requestedSessions: null,
+  })
+  assert.equal(reset.latestSubmittedAvailability.requestedSessions, null)
+})
+
+test('contract weekly default prefers an explicit contract target and falls back to profile demand', () => {
+  assert.equal(contractDefaultSessionsPerWeek([
+    { id: 'contract-a', status: 'active', startDate: '2026-09-01', endDate: '2026-12-01', totalSessions: 24, sessionsPerWeek: 2 },
+  ], { sessionsPerWeek: 4 }, TARGET_WEEK), 2)
+  assert.equal(contractDefaultSessionsPerWeek([
+    { id: 'contract-a', status: 'active', startDate: '2026-09-01', endDate: '2026-12-01', totalSessions: 24 },
+  ], { sessionsPerWeek: 4 }, TARGET_WEEK), 4)
 })

@@ -188,6 +188,8 @@ export interface StudentPtScheduleData {
     name: string
     branchId: string
     sessionsPerWeek: number
+    /** Contract default before a learner chooses a weekly target. */
+    defaultSessionsPerWeek?: number
     availableSlots: string[]
     isScheduleConfirmed: boolean
     availabilityRevision: number
@@ -220,6 +222,8 @@ export interface StudentPtAvailability {
   slots: string[]
   minimumSlots: number
   requiredSessions: number
+  /** null means the learner follows the contract default. */
+  requestedSessions?: number | null
   revision: number
   status: 'draft' | 'submitted' | 'locked' | 'inherited' | 'legacy_default'
   confirmed?: boolean
@@ -246,6 +250,11 @@ export function normalizeStudentPtScheduleData(data: StudentPtScheduleData): Stu
       availability: data.student.availability ? {
         ...data.student.availability,
         slots: Array.isArray(data.student.availability.slots) ? data.student.availability.slots : [],
+        requestedSessions: Number.isInteger(data.student.availability.requestedSessions)
+          && Number(data.student.availability.requestedSessions) >= 1
+          && Number(data.student.availability.requestedSessions) <= 7
+          ? Number(data.student.availability.requestedSessions)
+          : null,
         source: ['weekly', 'inherited_weekly', 'legacy_default', 'none'].includes(data.student.availability.source)
           ? data.student.availability.source
           : 'none',
@@ -332,11 +341,12 @@ export async function listMyStudentPtSchedule(from: string, to: string, availabi
   }
 }
 
-export async function saveMyStudentAvailability(input: { weekId: string; availableSlots: string[]; expectedRevision: number; confirmBelowMinimum?: boolean }) {
+export async function saveMyStudentAvailability(input: { weekId: string; availableSlots: string[]; expectedRevision: number; confirmBelowMinimum?: boolean; requestedSessions?: number | null }) {
   try {
     const callable = httpsCallable<typeof input, {
       schemaVersion: number
       availableSlots: string[]
+      defaultSessionsPerWeek?: number
       availabilityRevision: number
       isScheduleConfirmed: boolean
       availability: StudentPtAvailability
