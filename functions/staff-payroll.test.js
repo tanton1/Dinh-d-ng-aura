@@ -188,6 +188,7 @@ test('staff payroll callables are actor-scoped and browser writes never calculat
   assert.match(source, /estimatedTotal/)
   assert.match(source, /unconfiguredPolicyCount/)
   assert.match(source, /priceTeachingSlots\(teachingSlots/)
+  assert.match(source, /session\.commissionEligible === false \|\| session\.makeupSession === true \|\| session\.sessionKind === 'makeup'/)
   assert.match(source, /fillMissingStaffAttendanceDays/)
   assert.match(source, /if \(current\[index\]\.exists\) return/)
   assert.match(source, /staff_payroll_internal_error/)

@@ -370,6 +370,7 @@ async function loadTeachingEvidence(db, periodId, staffId = '') {
   const byStaff = new Map()
   snapshot.docs.slice(0, 5000).forEach((item) => {
     const session = item.data() || {}
+    if (session.commissionEligible === false || session.makeupSession === true || session.sessionKind === 'makeup') return
     if (!['completed', 'attended'].includes(session.status)) return
     const trainerId = typeof session.trainerId === 'string' ? session.trainerId : ''
     const date = optionalDateKey(session.date)
