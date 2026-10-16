@@ -3358,7 +3358,7 @@ exports.reportClientIssue = onCall({
   return { accepted: true }
 })
 
-exports.trackProductEvent = onCall({ cpu: 1, maxInstances: 2, concurrency: 40 }, async (request) => {
+exports.trackProductEvent = onCall({ cpu: 'gcf_gen1', maxInstances: 2 }, async (request) => {
   const userId = requireCaller(request)
   const name = request.data?.name
   if (!productEventNames.has(name)) throw new HttpsError('invalid-argument', 'Sự kiện không hợp lệ.')
