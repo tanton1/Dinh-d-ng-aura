@@ -15,6 +15,7 @@ const {
 } = require('./student-availability')
 const { summarizeContractUsage } = require('./contract-usage')
 const { normalizeMemberReferralCode } = require('./loyalty-core')
+const { normalizedScheduleConfig } = require('./pt-schedule-publish')
 
 const TIME_ZONE = 'Asia/Ho_Chi_Minh'
 const DEFAULT_WORKING_DAYS = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7']
@@ -392,6 +393,18 @@ function staffStudentSessionDetail(session = {}) {
     makeupSourceSessionId: session.makeupSourceSessionId || null,
     makeupMode: ['standalone_shift', 'paired_existing_shift'].includes(session.makeupMode) ? session.makeupMode : null,
     commissionEligible: session.commissionEligible !== false,
+    advanceAbsenceNotice: session.advanceAbsenceNotice && typeof session.advanceAbsenceNotice === 'object'
+      ? {
+          status: session.advanceAbsenceNotice.status === 'reported' ? 'reported' : 'none',
+          reason: typeof session.advanceAbsenceNotice.reason === 'string' ? session.advanceAbsenceNotice.reason.slice(0, 500) : '',
+          note: typeof session.advanceAbsenceNotice.note === 'string' ? session.advanceAbsenceNotice.note.slice(0, 500) : '',
+          reportedAt: session.advanceAbsenceNotice.reportedAt || null,
+          reportedBy: typeof session.advanceAbsenceNotice.reportedBy === 'string' ? session.advanceAbsenceNotice.reportedBy : '',
+          replacementLocked: session.advanceAbsenceNotice.replacementLocked === true,
+          replacementRequestId: typeof session.advanceAbsenceNotice.replacementRequestId === 'string' ? session.advanceAbsenceNotice.replacementRequestId : null,
+          replacementSessionId: typeof session.advanceAbsenceNotice.replacementSessionId === 'string' ? session.advanceAbsenceNotice.replacementSessionId : null,
+        }
+      : null,
     lateMinutes: session.lateMinutes,
     noShowReason: session.noShowReason,
     chargedAt: session.chargedAt,
@@ -479,6 +492,43 @@ function sessionHour(sessionId, value) {
   if (Number.isInteger(value) && value >= 0 && value <= 23) return value
   const parsed = Number(String(sessionId || '').split('-')[1])
   return Number.isInteger(parsed) && parsed >= 0 && parsed <= 23 ? parsed : null
+}
+
+function nextDateKey(value) {
+  const parsed = Date.parse(`${value}T00:00:00.000Z`)
+  if (!Number.isFinite(parsed)) return ''
+  return new Date(parsed + 86400000).toISOString().slice(0, 10)
+}
+
+function addDateDays(value, amount) {
+  const parsed = Date.parse(`${value}T00:00:00.000Z`)
+  if (!Number.isFinite(parsed)) return ''
+  return new Date(parsed + amount * 86400000).toISOString().slice(0, 10)
+}
+
+function dayCodeForDate(value) {
+  const parsed = new Date(`${value}T00:00:00.000Z`)
+  const weekday = parsed.getUTCDay()
+  return weekday === 0 ? 'CN' : `T${weekday + 1}`
+}
+
+function activeSessionStatus(value) {
+  return ['scheduled', 'rescheduled'].includes(String(value || '').toLowerCase())
+}
+
+function sessionStartMillis(session, sessionId = '') {
+  const date = storedDateKey(session?.date)
+  const parsedHour = sessionHour(sessionId, session?.hour)
+  if (!date || parsedHour === null) return Number.NaN
+  return Date.parse(`${date}T${String(parsedHour).padStart(2, '0')}:00:00+07:00`)
+}
+
+function pauseCoversDate(contract, targetDate) {
+  return Array.isArray(contract?.pausePeriods) && contract.pausePeriods.some((period) => {
+    const start = storedDateKey(period?.startDate)
+    const end = storedDateKey(period?.endDate) || start
+    return Boolean(start && end && targetDate >= start && targetDate <= end)
+  })
 }
 
 function normalizedAvailabilitySlots(value, config, strict = true) {
@@ -877,6 +927,9 @@ async function trainerScheduleForActor(db, actor, from, to, limit) {
       makeupSourceSessionId: value.makeupSourceSessionId || value.sessionId || null,
       makeupMode: ['standalone_shift', 'paired_existing_shift'].includes(value.makeupMode) ? value.makeupMode : null,
       commissionEligible: value.commissionEligible !== false,
+      preAbsenceSourceSessionId: value.preAbsenceSourceSessionId || null,
+      releasedSourceSessionId: value.releasedSourceSessionId || null,
+      pairsExistingSession: value.pairsExistingSession === true,
       reason: value.reason || '',
       submittedAtIso: value.submittedAtIso || null,
       decidedAtIso: value.decidedAtIso || null,
@@ -897,6 +950,17 @@ async function trainerScheduleForActor(db, actor, from, to, limit) {
         studentPhone: student?.phone || '',
         studentEmail: student?.email || '',
         studentBranchId: student?.branchId || session.branchId || '',
+        advanceAbsenceNotice: session.advanceAbsenceNotice && typeof session.advanceAbsenceNotice === 'object'
+          ? {
+              status: session.advanceAbsenceNotice.status === 'reported' ? 'reported' : 'none',
+              reason: typeof session.advanceAbsenceNotice.reason === 'string' ? session.advanceAbsenceNotice.reason.slice(0, 500) : '',
+              note: typeof session.advanceAbsenceNotice.note === 'string' ? session.advanceAbsenceNotice.note.slice(0, 500) : '',
+              reportedAt: session.advanceAbsenceNotice.reportedAt || null,
+              replacementLocked: session.advanceAbsenceNotice.replacementLocked === true,
+              replacementRequestId: session.advanceAbsenceNotice.replacementRequestId || null,
+              replacementSessionId: session.advanceAbsenceNotice.replacementSessionId || null,
+            }
+          : null,
         contractEffective,
         contract: contractEffective ? {
           id: contract.id,
@@ -1453,11 +1517,12 @@ function createPtOperationsV2Functions({ db, onCall }) {
     const to = dateKey(request.data?.to, 'Ngày kết thúc')
     if (from > to || Date.parse(`${to}T00:00:00+07:00`) - Date.parse(`${from}T00:00:00+07:00`) > 62 * 86400000) throw new HttpsError('invalid-argument', 'Khoảng lịch tối đa là 62 ngày.')
     const limit = integer(request.data?.limit, 300, 1, 500)
-    const [scope, data] = await Promise.all([
+    const [scope, data, roster] = await Promise.all([
       scopePromise,
       trainerScheduleForActor(db, actor, from, to, limit),
+      section === 'schedule' ? assignedStudentsForActor(db, actor, 500) : Promise.resolve({ students: [], branches: [], hasMore: false }),
     ])
-    return { schemaVersion: 2, scope, students: [], branches: [], sessions: data.sessions, requests: data.requests, hasMore: false }
+    return { schemaVersion: 2, scope, students: roster.students || [], branches: roster.branches || [], sessions: data.sessions, requests: data.requests, hasMore: Boolean(data.hasMore || roster.hasMore) }
   })
 
   const getMyTrainerStudentDetail = staffCall(async (request) => {
@@ -1807,6 +1872,195 @@ function createPtOperationsV2Functions({ db, onCall }) {
     })
   })
 
+  const reportMySessionAdvanceAbsence = staffCall(async (request) => {
+    const actor = await trainerActor(request, db)
+    const sessionId = documentId(request.data?.sessionId, 'Mã buổi tập')
+    const expectedRevision = integer(request.data?.expectedRevision, 0, 0, 1000000)
+    const reason = boundedString(request.data?.reason, 'Lý do nghỉ trước giờ', 500, false)
+    const note = boundedString(request.data?.note, 'Ghi chú', 500, false)
+    const sessionReference = db.doc(`sessions/${sessionId}`)
+    const now = new Date()
+    return db.runTransaction(async (transaction) => {
+      const [sessionSnapshot, requestsSnapshot] = await Promise.all([
+        transaction.get(sessionReference),
+        transaction.get(db.collection('sessionRequests').where('sessionId', '==', sessionId).limit(20)),
+      ])
+      if (!sessionSnapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy buổi tập.')
+      const session = sessionSnapshot.data()
+      if (![actor.uid, actor.legacyStaffId].includes(session.trainerId)) throw new HttpsError('permission-denied', 'Buổi tập không thuộc lịch của bạn.')
+      const revision = Number(session.revision || 0)
+      if (revision !== expectedRevision) throw new HttpsError('aborted', 'Buổi tập đã thay đổi. Hãy tải lại lịch mới nhất.')
+      if (!activeSessionStatus(session.status) || String(session.attendanceStatus || 'pending').toLowerCase() !== 'pending') {
+        throw new HttpsError('failed-precondition', 'Chỉ buổi đang lên lịch và chưa xác nhận hiện diện mới được báo nghỉ trước giờ.', { issueCode: 'ADVANCE_ABSENCE_NOT_ELIGIBLE' })
+      }
+      const startsAt = sessionStartMillis(session, sessionId)
+      if (!Number.isFinite(startsAt) || now.getTime() >= startsAt) {
+        throw new HttpsError('failed-precondition', 'Đã qua giờ bắt đầu; hãy xác nhận Không đến trong mục xác nhận lịch tập.', { issueCode: 'ADVANCE_ABSENCE_WINDOW_CLOSED' })
+      }
+      const currentNotice = session.advanceAbsenceNotice && typeof session.advanceAbsenceNotice === 'object' ? session.advanceAbsenceNotice : null
+      if (currentNotice?.replacementLocked === true) {
+        throw new HttpsError('failed-precondition', 'Buổi đã được dùng để mở ca thay thế; hãy xác nhận Không đến sau giờ tập.', { issueCode: 'ADVANCE_ABSENCE_REPLACEMENT_LOCKED' })
+      }
+      if (currentNotice?.status === 'reported') {
+        return {
+          unchanged: true,
+          revision,
+          sessionId,
+          notice: serialize({ ...currentNotice, status: 'reported' }),
+        }
+      }
+      if (requestsSnapshot.docs.some((item) => item.data()?.status === 'pending')) {
+        throw new HttpsError('already-exists', 'Buổi tập đã có yêu cầu đang chờ xử lý. Hãy xử lý yêu cầu đó trước.', { issueCode: 'SESSION_REQUEST_PENDING' })
+      }
+      const notice = {
+        status: 'reported',
+        reason,
+        note,
+        reportedBy: actor.uid,
+        reportedAt: FieldValue.serverTimestamp(),
+        replacementLocked: false,
+        replacementRequestId: null,
+        replacementSessionId: null,
+      }
+      transaction.update(sessionReference, {
+        advanceAbsenceNotice: notice,
+        revision: revision + 1,
+        updatedAt: FieldValue.serverTimestamp(),
+        updatedBy: actor.uid,
+      })
+      transaction.create(db.collection('sessionEvents').doc(), {
+        schemaVersion: 1,
+        type: 'advance_absence_reported',
+        sessionId,
+        studentId: session.studentId || '',
+        trainerId: session.trainerId || '',
+        date: session.date || null,
+        hour: sessionHour(sessionId, session.hour),
+        reason,
+        note,
+        createdAt: FieldValue.serverTimestamp(),
+        createdBy: actor.uid,
+      })
+      transaction.create(db.collection('ptOperationsAuditLogs').doc(), {
+        schemaVersion: 1,
+        action: 'trainer.advance_absence_reported',
+        sessionId,
+        studentId: session.studentId || '',
+        trainerId: session.trainerId || '',
+        reason,
+        note,
+        createdAt: FieldValue.serverTimestamp(),
+        createdBy: actor.uid,
+      })
+      return { unchanged: false, revision: revision + 1, sessionId, notice: serialize({ ...notice, reportedAt: now.toISOString() }) }
+    })
+  })
+
+  const requestStudentSessionAddition = staffCall(async (request) => {
+    const actor = await trainerActor(request, db)
+    const sourceSessionId = documentId(request.data?.sourceSessionId, 'Mã buổi được giải phóng')
+    const studentId = documentId(request.data?.studentId, 'Mã học viên thêm')
+    const contractId = documentId(request.data?.contractId, 'Mã hợp đồng')
+    const reason = boundedString(request.data?.reason, 'Lý do xếp thêm', 500)
+    const rawIdempotencyKey = typeof request.data?.idempotencyKey === 'string' ? request.data.idempotencyKey.trim() : ''
+    const requestReference = rawIdempotencyKey && /^[A-Za-z0-9_-]+$/.test(rawIdempotencyKey)
+      ? db.doc(`sessionRequests/trainer-${actor.uid}-${rawIdempotencyKey}`)
+      : db.collection('sessionRequests').doc()
+    const sourceReference = db.doc(`sessions/${sourceSessionId}`)
+    const now = new Date()
+    return db.runTransaction(async (transaction) => {
+      const [existingRequest, sourceSnapshot, studentSnapshot, contractSnapshot, sourceRequestsSnapshot] = await Promise.all([
+        transaction.get(requestReference),
+        transaction.get(sourceReference),
+        transaction.get(db.doc(`students/${studentId}`)),
+        transaction.get(db.doc(`contracts/${contractId}`)),
+        transaction.get(db.collection('sessionRequests').where('preAbsenceSourceSessionId', '==', sourceSessionId).limit(20)),
+      ])
+      if (existingRequest.exists) {
+        const existing = existingRequest.data()
+        return { unchanged: true, requestId: existingRequest.id, status: existing.status || 'pending', type: 'additional' }
+      }
+      if (!sourceSnapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy buổi được giải phóng.')
+      const source = sourceSnapshot.data()
+      if (![actor.uid, actor.legacyStaffId].includes(source.trainerId)) throw new HttpsError('permission-denied', 'Buổi được giải phóng không thuộc lịch của bạn.')
+      const sourceRevision = Number(source.revision || 0)
+      const notice = source.advanceAbsenceNotice && typeof source.advanceAbsenceNotice === 'object' ? source.advanceAbsenceNotice : null
+      if (!activeSessionStatus(source.status) || String(source.attendanceStatus || 'pending').toLowerCase() !== 'pending') throw new HttpsError('failed-precondition', 'Buổi nguồn phải đang chờ xác nhận hiện diện.')
+      if (!notice || notice.status !== 'reported') throw new HttpsError('failed-precondition', 'Hãy báo nghỉ trước giờ cho buổi nguồn trước khi xếp học viên khác.', { issueCode: 'ADVANCE_ABSENCE_NOTICE_REQUIRED' })
+      if (notice.replacementLocked === true) throw new HttpsError('already-exists', 'Buổi nguồn đã có ca thay thế được duyệt.', { issueCode: 'ADVANCE_ABSENCE_REPLACEMENT_LOCKED' })
+      const startsAt = sessionStartMillis(source, sourceSessionId)
+      if (!Number.isFinite(startsAt) || now.getTime() >= startsAt) throw new HttpsError('failed-precondition', 'Đã qua giờ bắt đầu; không thể mở ca mới từ buổi này.', { issueCode: 'ADVANCE_ABSENCE_WINDOW_CLOSED' })
+      if (studentId === source.studentId) throw new HttpsError('invalid-argument', 'Học viên thêm phải khác học viên của buổi nguồn.')
+      if (!studentSnapshot.exists || ['inactive', 'deleted', 'archived'].includes(String(studentSnapshot.data()?.status || '').toLowerCase())) throw new HttpsError('failed-precondition', 'Học viên được chọn không còn hoạt động.')
+      if (!contractSnapshot.exists) throw new HttpsError('failed-precondition', 'Không tìm thấy hợp đồng của học viên được chọn.')
+      const student = studentSnapshot.data() || {}
+      const contract = contractSnapshot.data() || {}
+      if (contract.studentId !== studentId || !['active', 'expired'].includes(String(contract.status || '').toLowerCase())) throw new HttpsError('failed-precondition', 'Hợp đồng của học viên được chọn không còn hoạt động.')
+      const targetDate = storedDateKey(source.date)
+      const targetHour = sessionHour(sourceSessionId, source.hour)
+      if (!targetDate || targetHour === null) throw new HttpsError('failed-precondition', 'Buổi nguồn thiếu ngày hoặc giờ hợp lệ.')
+      const contractStart = storedDateKey(contract.startDate)
+      const contractEnd = storedDateKey(contract.endDate)
+      if (!contractStart || !contractEnd || targetDate < contractStart || targetDate > contractEnd || pauseCoversDate(contract, targetDate)) throw new HttpsError('failed-precondition', 'Ngày ca thêm nằm ngoài thời hạn hợp đồng hoặc trong thời gian OFF/bảo lưu.')
+      if (sourceRequestsSnapshot.docs.some((item) => item.data()?.status === 'pending')) throw new HttpsError('already-exists', 'Buổi nguồn đã có yêu cầu thêm học viên đang chờ duyệt.')
+      const targetWeek = mondayDateKey(targetDate)
+      const [studentDay, targetStudentSessions, configSnapshot, availabilitySnapshot] = await Promise.all([
+        transaction.get(db.collection('sessions').where('studentId', '==', studentId).where('date', '>=', targetDate).where('date', '<', nextDateKey(targetDate)).limit(50)),
+        transaction.get(db.collection('sessions').where('studentId', '==', studentId).limit(200)),
+        transaction.get(db.doc('settings/scheduleConfig')),
+        transaction.get(db.doc(`ptAvailability/${studentId}_${targetWeek}`)),
+      ])
+      const activeDay = studentDay.docs.filter((item) => activeSessionStatus(item.data()?.status))
+      if (activeDay.length) throw new HttpsError('already-exists', 'Học viên đã có buổi khác trong ngày này.')
+      const weeklyCount = targetStudentSessions.docs.filter((item) => activeSessionStatus(item.data()?.status) && storedDateKey(item.data()?.date) >= targetWeek && storedDateKey(item.data()?.date) <= addDateDays(targetWeek, 6)).length
+      const weeklyMaximum = Math.max(1, Number(student.maxWeeklySessions || 7))
+      if (weeklyCount >= weeklyMaximum) throw new HttpsError('failed-precondition', 'Học viên đã đạt số buổi tối đa trong tuần.')
+      const config = normalizedScheduleConfig(configSnapshot.exists ? configSnapshot.data() : {})
+      const slotId = `${dayCodeForDate(targetDate)}-${targetHour}`
+      if (!config.workingDays.includes(dayCodeForDate(targetDate)) || !config.workingHours.includes(targetHour) || config.holidays.includes(targetDate)) throw new HttpsError('failed-precondition', 'Khung giờ nguồn không nằm trong lịch hoạt động.')
+      if (availabilitySnapshot.exists && Array.isArray(availabilitySnapshot.data()?.slots) && availabilitySnapshot.data().confirmed === true && !availabilitySnapshot.data().slots.includes(slotId)) throw new HttpsError('failed-precondition', 'Khung giờ này không nằm trong lịch rảnh đã xác nhận của học viên.')
+      const requestData = {
+        schemaVersion: 1,
+        policyVersion: 'pt-advance-absence-v1',
+        type: 'additional',
+        requestedBy: 'trainer',
+        sessionId: null,
+        preAbsenceSourceSessionId: sourceSessionId,
+        preAbsenceSourceSessionRevision: sourceRevision,
+        studentId,
+        contractId,
+        trainerId: source.trainerId,
+        newTrainerId: source.trainerId,
+        newBranchId: source.branchId || student.branchId || contract.branchId || '',
+        newDate: targetDate,
+        newHour: targetHour,
+        originalDate: targetDate,
+        originalHour: targetHour,
+        pairsExistingSession: false,
+        countsTowardContract: true,
+        commissionEligible: true,
+        reason,
+        status: 'pending',
+        revision: 0,
+        idempotencyKey: rawIdempotencyKey || null,
+        submittedAtIso: now.toISOString(),
+        createdBy: actor.uid,
+        createdAt: FieldValue.serverTimestamp(),
+      }
+      transaction.create(requestReference, requestData)
+      transaction.create(db.collection('sessionRequestEvents').doc(), {
+        schemaVersion: 1,
+        requestId: requestReference.id,
+        type: 'created',
+        sessionId: sourceSessionId,
+        preAbsenceSourceSessionId: sourceSessionId,
+        createdAt: FieldValue.serverTimestamp(),
+        createdBy: actor.uid,
+      })
+      return { unchanged: false, requestId: requestReference.id, status: 'pending', type: 'additional', sourceSessionId, date: targetDate, hour: targetHour }
+    })
+  })
+
   const listMyQuotes = staffCall(async (request) => {
     const actor = await salesActor(request, db)
     requireCapability(actor, 'sales.quotes.self.manage')
@@ -1885,7 +2139,7 @@ function createPtOperationsV2Functions({ db, onCall }) {
     return { approvalId: reference.id, status: 'pending' }
   })
 
-  return { getMyCoachWorkspaceScope, getMyTrainerAvailability, saveMyTrainerAvailability, getMyTrainerWorkspace, listMyStudentPtSchedule, saveMyStudentAvailability, listMyAssignedStudents, listMyTrainerSchedule, getMyTrainerStudentDetail, confirmMySession, recordMySessionAttendance, bulkConfirmMySessions, submitWorkoutNote, requestSessionChange, listMyQuotes, getMySalesCatalog, getMySalesWorkspace, createQuote, createStudentDraft, submitContractForApproval }
+  return { getMyCoachWorkspaceScope, getMyTrainerAvailability, saveMyTrainerAvailability, getMyTrainerWorkspace, listMyStudentPtSchedule, saveMyStudentAvailability, listMyAssignedStudents, listMyTrainerSchedule, getMyTrainerStudentDetail, confirmMySession, recordMySessionAttendance, bulkConfirmMySessions, submitWorkoutNote, requestSessionChange, reportMySessionAdvanceAbsence, requestStudentSessionAddition, listMyQuotes, getMySalesCatalog, getMySalesWorkspace, createQuote, createStudentDraft, submitContractForApproval }
 }
 
 module.exports = {

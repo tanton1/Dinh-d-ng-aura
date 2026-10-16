@@ -1284,6 +1284,11 @@ async function recordSessionAttendanceTransaction({
     const session = sessionSnapshot.data()
     const attendance = attendanceSnapshot.data()
     await assertSessionScope(session)
+    if (session.advanceAbsenceNotice?.replacementLocked === true && ['present', 'late'].includes(normalizedStatus)) {
+      throw new HttpsError('failed-precondition', 'Buổi đã được giải phóng cho học viên khác; sau giờ tập chỉ xác nhận Không đến cho buổi gốc.', {
+        issueCode: 'ADVANCE_ABSENCE_REPLACEMENT_LOCKED',
+      })
+    }
     const revision = Number(session.revision || 0)
     const effectiveBillingStatus = session.makeupSession === true && session.billingStatus === 'exempt'
       ? 'exempt'
@@ -1797,6 +1802,8 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
         makeupSession: item.makeupSession === true,
         makeupSourceSessionId: optionalText(item.makeupSourceSessionId || item.sessionId, 128) || null,
         makeupMode: ['standalone_shift', 'paired_existing_shift'].includes(item.makeupMode) ? item.makeupMode : null,
+        preAbsenceSourceSessionId: optionalText(item.preAbsenceSourceSessionId, 128) || null,
+        releasedSourceSessionId: optionalText(item.releasedSourceSessionId, 128) || null,
         commissionEligible: item.commissionEligible !== false,
         policyMonth: optionalText(item.policyMonth, 7) || null,
         policySequence: Number(item.policySequence || item.expectedPolicySequence || 0) || null,
@@ -2834,12 +2841,39 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
         const targetDate = date(requestData.newDate)
         const targetHour = hour(requestData.newHour)
         const trainerId = id(requestData.newTrainerId || requestData.trainerId, 'Mã HLV')
+        const preAbsenceSourceSessionId = requestData.preAbsenceSourceSessionId
+          ? id(requestData.preAbsenceSourceSessionId, 'Mã buổi nguồn báo nghỉ trước giờ')
+          : ''
         const trainerSnapshot = await transaction.get(db.doc(`trainers/${trainerId}`))
         if (!trainerSnapshot.exists || trainerSnapshot.data().status === 'inactive') throw new HttpsError('failed-precondition', 'PT của ca đăng ký không còn hoạt động.')
         const targetBranchId = id(requestData.newBranchId || trainerSnapshot.data().branchId || requestData.homeBranchId || '', 'Mã chi nhánh ca đăng ký')
         const sessionId = `additional-${requestId}`
         const sessionReference = db.doc(`sessions/${sessionId}`)
         const targetWeek = mondayForDate(targetDate)
+        let preAbsenceSourceSnapshot = null
+        if (preAbsenceSourceSessionId) {
+          preAbsenceSourceSnapshot = await transaction.get(db.doc(`sessions/${preAbsenceSourceSessionId}`))
+          if (!preAbsenceSourceSnapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy buổi nguồn báo nghỉ trước giờ.')
+          const source = preAbsenceSourceSnapshot.data()
+          const sourceHour = storedSessionHour(source.hour, preAbsenceSourceSessionId, 'Giờ buổi nguồn')
+          if (source.trainerId !== trainerId || storedDateKey(source.date, 'Ngày buổi nguồn') !== targetDate || sourceHour !== targetHour) {
+            throw new HttpsError('aborted', 'Buổi nguồn không còn trùng với ca xếp thêm. Hãy tải lại và gửi yêu cầu mới.')
+          }
+          if (source.advanceAbsenceNotice?.status !== 'reported' || (source.attendanceStatus && source.attendanceStatus !== 'pending')) {
+            throw new HttpsError('failed-precondition', 'Buổi nguồn không còn ở trạng thái báo nghỉ trước giờ.')
+          }
+          if (source.advanceAbsenceNotice?.replacementLocked === true) {
+            throw new HttpsError('already-exists', 'Buổi nguồn đã được dùng để giải phóng chỗ cho một học viên khác.')
+          }
+          const sourceStartsAt = sessionStartInstant(source, preAbsenceSourceSessionId)
+          if (sourceStartsAt.getTime() <= now().getTime()) {
+            throw new HttpsError('failed-precondition', 'Đã qua giờ bắt đầu của buổi nguồn; không thể duyệt thêm học viên vào ca này.', { issueCode: 'ADVANCE_ABSENCE_WINDOW_CLOSED' })
+          }
+          if (Number.isInteger(requestData.preAbsenceSourceSessionRevision)
+            && Number(source.revision || 0) !== requestData.preAbsenceSourceSessionRevision) {
+            throw new HttpsError('aborted', 'Buổi nguồn đã thay đổi. Hãy tải lại trước khi duyệt.')
+          }
+        }
         const [contractSnapshot, studentSnapshot, trainerDay, studentDay, availabilitySnapshot, trainerAvailabilitySnapshot, leavesSnapshot, contractSessionsSnapshot, studentSessionsSnapshot, existingSession, configSnapshot, targetBranchSnapshot, branchDay] = await Promise.all([
           transaction.get(db.doc(`contracts/${contractId}`)),
           transaction.get(db.doc(`students/${studentId}`)),
@@ -2892,10 +2926,12 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
           return leave.trainerId === trainerId && start && end && targetDate >= start && targetDate <= end
         })
         if (trainerUnavailable) throw new HttpsError('failed-precondition', 'PT đang OFF ở ngày đăng ký.')
-        if (activeHourDocuments(trainerDay, targetHour).length >= normalizedTrainerCapacity(trainer.slotCapacity)) throw new HttpsError('resource-exhausted', 'Khung giờ của PT đã đủ học viên.')
+        const excludedSourceIds = preAbsenceSourceSessionId ? [preAbsenceSourceSessionId] : []
+        const activeAtHour = activeHourDocuments(trainerDay, targetHour, excludedSourceIds)
+        if (activeAtHour.length >= normalizedTrainerCapacity(trainer.slotCapacity)) throw new HttpsError('resource-exhausted', 'Khung giờ của PT đã đủ học viên.')
         if (activeDayDocuments(studentDay).length > 0) throw new HttpsError('already-exists', 'Học viên đã có một buổi tập trong ngày này.')
         const siteCapacity = branchSlotCapacity(normalizedScheduleConfig(configSnapshot.exists ? configSnapshot.data() : {}), targetBranchId, slotId)
-        if (siteCapacity !== null && activeHourDocuments(branchDay, targetHour).length >= siteCapacity) throw new HttpsError('resource-exhausted', 'Chi nhánh đã đủ sức chứa trong khung giờ này.')
+        if (siteCapacity !== null && activeHourDocuments(branchDay, targetHour, excludedSourceIds).length >= siteCapacity) throw new HttpsError('resource-exhausted', 'Chi nhánh đã đủ sức chứa trong khung giờ này.')
         const weeklyStart = mondayForDate(targetDate)
         const weeklyScheduled = activeSessionRows(studentSessionsSnapshot).filter((item) => {
           const itemDate = storedDateKey(item.date, 'Ngày lịch học viên')
@@ -2904,10 +2940,12 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
         const weeklyMaximum = Math.max(1, Number(student.maxWeeklySessions || 7))
         if (weeklyScheduled >= weeklyMaximum) throw new HttpsError('failed-precondition', 'Học viên đã đạt số buổi tối đa trong tuần.')
         const operationsPolicy = ptOperationsPolicySnapshot(configSnapshot.exists ? configSnapshot.data() : {})
-        try {
-          assertSessionChangeDeadline(targetDate, targetHour, now(), operationsPolicy.sessionChangeDeadlineHours)
-        } catch (error) {
-          throw policyFailure(error)
+        if (requestData.requestedBy !== 'trainer') {
+          try {
+            assertSessionChangeDeadline(targetDate, targetHour, now(), operationsPolicy.sessionChangeDeadlineHours)
+          } catch (error) {
+            throw policyFailure(error)
+          }
         }
         transaction.create(sessionReference, {
           schemaVersion: 1,
@@ -2923,7 +2961,11 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
           scheduleStatus: 'scheduled',
           billingStatus: 'pending',
           attendanceStatus: 'pending',
-          source: 'student_additional_request',
+          source: requestData.requestedBy === 'trainer' ? 'trainer_additional_request' : 'student_additional_request',
+          ...(preAbsenceSourceSessionId ? { preAbsenceSourceSessionId } : {}),
+          pairsExistingSession: activeAtHour.length > 0,
+          countsTowardContract: requestData.countsTowardContract !== false,
+          commissionEligible: requestData.commissionEligible !== false,
           sessionRequestId: requestId,
           revision: 0,
           createdAt: FieldValue.serverTimestamp(),
@@ -2942,15 +2984,36 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
           to: { date: targetDate, hour: targetHour, trainerId, branchId: targetBranchId },
           crossBranchWarning: targetBranchId !== expectedBranchId,
           priorityTier: Number(requestData.priorityTier || 3),
+          preAbsenceSourceSessionId: preAbsenceSourceSessionId || null,
+          releasedSourceSession: Boolean(preAbsenceSourceSessionId),
           createdAt: FieldValue.serverTimestamp(),
           createdBy: actor.uid,
         })
+        if (preAbsenceSourceSessionId && preAbsenceSourceSnapshot) {
+          const source = preAbsenceSourceSnapshot.data()
+          const sourceNotice = source.advanceAbsenceNotice || {}
+          transaction.update(db.doc(`sessions/${preAbsenceSourceSessionId}`), {
+            advanceAbsenceNotice: {
+              ...sourceNotice,
+              status: 'reported',
+              replacementLocked: true,
+              replacementRequestId: requestId,
+              replacementSessionId: sessionId,
+            },
+            revision: Number(source.revision || 0) + 1,
+            updatedAt: FieldValue.serverTimestamp(),
+            updatedBy: actor.uid,
+          })
+        }
         transaction.update(requestReference, {
           status: 'approved',
           approvedAt: FieldValue.serverTimestamp(),
           approvedBy: actor.uid,
           processedSessionId: sessionId,
           processedSessionRevision: 0,
+          preAbsenceSourceSessionId: preAbsenceSourceSessionId || null,
+          releasedSourceSessionId: preAbsenceSourceSessionId || null,
+          pairsExistingSession: activeAtHour.length > 0,
           revision: Number(requestData.revision || 0) + 1,
         })
         const notificationTargets = new Set([requestData.accountUid, trainerId])
@@ -2970,7 +3033,7 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
             createdAt: FieldValue.serverTimestamp(),
           })
         }
-        return { unchanged: false, status: 'approved', type: 'additional', sessionId, revision: 0, date: targetDate, hour: targetHour, trainerId }
+        return { unchanged: false, status: 'approved', type: 'additional', sessionId, revision: 0, date: targetDate, hour: targetHour, trainerId, preAbsenceSourceSessionId: preAbsenceSourceSessionId || null, releasedSourceSessionId: preAbsenceSourceSessionId || null }
       }
       const requestedBy = requestData.requestedBy === 'trainer' || (requestData.requestedBy !== 'student' && requestData.trainerId)
         ? 'trainer'
@@ -3661,11 +3724,14 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
         createdAt: FieldValue.serverTimestamp(),
         createdBy: actor.uid,
       })
-      if (typeof data.accountUid === 'string' && /^[A-Za-z0-9_-]+$/.test(data.accountUid)) {
-        const notificationReference = db.doc(`users/${data.accountUid}/notifications/pt-session-request-${requestId}-rejected`)
+      const notificationUid = typeof data.accountUid === 'string' && /^[A-Za-z0-9_-]+$/.test(data.accountUid)
+        ? data.accountUid
+        : typeof data.trainerId === 'string' && /^[A-Za-z0-9_-]+$/.test(data.trainerId) ? data.trainerId : ''
+      if (notificationUid) {
+        const notificationReference = db.doc(`users/${notificationUid}/notifications/pt-session-request-${requestId}-rejected`)
         transaction.create(notificationReference, {
           id: notificationReference.id,
-          userId: data.accountUid,
+          userId: notificationUid,
           title: data.type === 'additional' ? 'Yêu cầu thêm buổi chưa được duyệt' : data.type === 'makeup' ? 'Yêu cầu bù buổi chưa được duyệt' : data.type === 'cancel' ? 'Yêu cầu hủy ca chưa được duyệt' : 'Yêu cầu đổi ca chưa được duyệt',
           message: reason,
           type: 'pt_schedule',

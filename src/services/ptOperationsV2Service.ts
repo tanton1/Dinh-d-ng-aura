@@ -147,6 +147,16 @@ export interface TrainerSessionSummary {
   makeupSourceSessionId?: string | null
   makeupMode?: 'standalone_shift' | 'paired_existing_shift' | null
   commissionEligible?: boolean
+  advanceAbsenceNotice?: {
+    status: 'none' | 'reported'
+    reason?: string
+    note?: string
+    reportedAt?: string | null
+    reportedBy?: string
+    replacementLocked?: boolean
+    replacementRequestId?: string | null
+    replacementSessionId?: string | null
+  } | null
   lateMinutes?: number | null
   noShowReason?: string
   chargedAt?: string
@@ -311,12 +321,12 @@ export interface TrainerStudentDetail {
 
 export interface TrainerSessionRequestSummary {
   id: string
-  sessionId: string
+  sessionId: string | null
   studentId: string
   contractId: string
-  type: 'cancel' | 'reschedule' | 'makeup'
+  type: 'cancel' | 'reschedule' | 'additional' | 'makeup'
   status: 'pending' | 'approved' | 'rejected'
-  originalDate: string
+  originalDate: string | null
   originalHour?: number
   newDate?: string | null
   newHour?: number | null
@@ -324,6 +334,9 @@ export interface TrainerSessionRequestSummary {
   makeupSourceSessionId?: string | null
   makeupMode?: 'standalone_shift' | 'paired_existing_shift' | null
   commissionEligible?: boolean
+  preAbsenceSourceSessionId?: string | null
+  releasedSourceSessionId?: string | null
+  pairsExistingSession?: boolean
   reason: string
   submittedAtIso?: string
   createdAt?: string
@@ -438,6 +451,29 @@ export async function requestSessionChange(input: {
   idempotencyKey: string
 }) {
   const result = await call<typeof input, { requestId: string }>('requestSessionChange', input)
+  invalidateReadCache('getMyCoachWorkspaceScope', 'getMyTrainerWorkspace', 'listMyTrainerSchedule')
+  return result
+}
+
+export async function reportMySessionAdvanceAbsence(input: {
+  sessionId: string
+  expectedRevision: number
+  reason?: string
+  note?: string
+}) {
+  const result = await call<typeof input, { unchanged: boolean; revision: number; sessionId: string; notice: NonNullable<TrainerSessionSummary['advanceAbsenceNotice']> }>('reportMySessionAdvanceAbsence', input)
+  invalidateReadCache('getMyCoachWorkspaceScope', 'getMyTrainerWorkspace', 'listMyTrainerSchedule')
+  return result
+}
+
+export async function requestStudentSessionAddition(input: {
+  sourceSessionId: string
+  studentId: string
+  contractId: string
+  reason: string
+  idempotencyKey: string
+}) {
+  const result = await call<typeof input, { unchanged: boolean; requestId: string; status: 'pending'; type: 'additional'; sourceSessionId: string; date: string; hour: number }>('requestStudentSessionAddition', input)
   invalidateReadCache('getMyCoachWorkspaceScope', 'getMyTrainerWorkspace', 'listMyTrainerSchedule')
   return result
 }

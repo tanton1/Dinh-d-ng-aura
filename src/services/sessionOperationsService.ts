@@ -49,6 +49,8 @@ export interface PtSessionOperationsRequest extends PtOperationsRequestBase {
   makeupSession?: boolean
   makeupSourceSessionId?: string | null
   makeupMode?: 'standalone_shift' | 'paired_existing_shift' | null
+  preAbsenceSourceSessionId?: string | null
+  releasedSourceSessionId?: string | null
   commissionEligible?: boolean
   policyMonth: string | null
   policySequence: number | null

@@ -510,6 +510,41 @@ test('additional-session request is idempotent and approval atomically rechecks 
   assert.equal(state.paths().filter((path) => path === `sessions/additional-${created.requestId}`).length, 1)
 })
 
+test('PT pre-absence additional approval releases the source seat while creating a regular commissioned session', async () => {
+  const state = operationsFor({
+    'settings/scheduleConfig': { sessionChangeDeadlineHours: 12 },
+    'sessionRequests/trainer-additional-1': {
+      status: 'pending', type: 'additional', requestedBy: 'trainer', revision: 0,
+      studentId: 'student-new', contractId: 'contract-new', trainerId: 'trainer-1', newTrainerId: 'trainer-1',
+      newBranchId: 'branch-1', newDate: '2026-08-21', newHour: 18,
+      preAbsenceSourceSessionId: 'source-absence', preAbsenceSourceSessionRevision: 1,
+      reason: 'Học viên mới có thể tập vào chỗ đã báo nghỉ', pairsExistingSession: false,
+    },
+    'sessions/source-absence': {
+      status: 'scheduled', scheduleStatus: 'scheduled', billingStatus: 'pending', attendanceStatus: 'pending',
+      studentId: 'student-absence', trainerId: 'trainer-1', contractId: 'contract-absence', branchId: 'branch-1',
+      date: '2026-08-21', hour: 18, revision: 1,
+      advanceAbsenceNotice: { status: 'reported', reason: 'Học viên báo bận', replacementLocked: false },
+    },
+    'students/student-new': { status: 'active', branchId: 'branch-1', maxWeeklySessions: 7, isScheduleConfirmed: true, availableSlots: ['T6-18'] },
+    'contracts/contract-new': { status: 'active', studentId: 'student-new', trainerId: 'trainer-1', branchId: 'branch-1', packageName: 'PT Aura', startDate: '2026-08-01', endDate: '2026-09-30', totalSessions: 24, usedSessions: 0 },
+    'trainers/trainer-1': { status: 'active', name: 'PT Chính', branchId: 'branch-1', employmentType: 'full_time', availableSlots: ['T6-18'], slotCapacity: 1 },
+    'ptAvailability/student-new_2026-08-17': { status: 'submitted', confirmed: true, slots: ['T6-18'], revision: 1 },
+    'trainerAvailability/trainer-1_2026-08-17': { status: 'submitted', confirmed: true, slots: ['T6-18'], revision: 1 },
+  }, async () => ({ uid: 'admin-1', accessRole: 'admin' }))
+
+  const approved = await state.approveSessionRequest({ data: { requestId: 'trainer-additional-1', expectedSessionRevision: 0 } })
+  assert.equal(approved.type, 'additional')
+  assert.equal(approved.preAbsenceSourceSessionId, 'source-absence')
+  assert.equal(state.read('sessions/additional-trainer-additional-1').source, 'trainer_additional_request')
+  assert.equal(state.read('sessions/additional-trainer-additional-1').billingStatus, 'pending')
+  assert.equal(state.read('sessions/additional-trainer-additional-1').countsTowardContract, true)
+  assert.equal(state.read('sessions/additional-trainer-additional-1').commissionEligible, true)
+  assert.equal(state.read('sessions/source-absence').advanceAbsenceNotice.replacementLocked, true)
+  assert.equal(state.read('sessions/source-absence').advanceAbsenceNotice.replacementSessionId, 'additional-trainer-additional-1')
+  assert.equal(state.read('sessionRequests/trainer-additional-1').releasedSourceSessionId, 'source-absence')
+})
+
 test('additional-session request blocks a second pending request for the learner', async () => {
   const state = operationsFor({
     'settings/scheduleConfig': { sessionChangeDeadlineHours: 12 },
@@ -665,6 +700,15 @@ test('PT can request an adjustment while attendance is still pending, regardless
   assert.match(trainerPortal, /const requestable = attendanceState\(session\) === 'pending'/)
   assert.match(trainerPortal, /\{requestable \? <button className="opv2-request-link"/)
   assert.doesNotMatch(trainerPortal, /startsAt - now >= 12 \* 60 \* 60 \* 1000/)
+})
+
+test('PT pre-absence flow is exposed through separate planning and additional-session callables', () => {
+  assert.match(trainerOperations, /const reportMySessionAdvanceAbsence = staffCall/)
+  assert.match(trainerOperations, /const requestStudentSessionAddition = staffCall/)
+  assert.match(trainerOperations, /reportMySessionAdvanceAbsence, requestStudentSessionAddition/)
+  assert.match(trainerPortal, /Báo nghỉ trước giờ/)
+  assert.match(trainerPortal, /Thêm học viên vào ca/)
+  assert.match(source, /ADVANCE_ABSENCE_REPLACEMENT_LOCKED/)
 })
 
 test('attendance uses the session contract link and a deterministic event id', async () => {

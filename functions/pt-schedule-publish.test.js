@@ -478,6 +478,43 @@ test('publish keeps the oldest legacy row and cancels a branch-scoped duplicate'
   assert.deepEqual(indexed.duplicates.map((item) => item.id), [duplicate.id])
 })
 
+test('publish keeps an immutable legacy row and marks its active branch duplicate for reconciliation', () => {
+  const fixture = baseFixture()
+  const desired = [...desiredEntries(fixture).desired.values()][0]
+  const legacy = {
+    id: 'legacy-completed',
+    data: () => ({
+      ...desired,
+      id: 'legacy-completed',
+      branchId: 'all',
+      status: 'completed',
+      billingStatus: 'charged',
+    }),
+  }
+  const duplicate = {
+    id: 'branch-scheduled',
+    data: () => ({
+      ...desired,
+      id: 'branch-scheduled',
+      branchId: BRANCH_ID,
+      status: 'scheduled',
+      billingStatus: 'charged',
+    }),
+  }
+  const indexed = indexExistingPublishSessions([duplicate, legacy], BRANCH_ID)
+  const plan = planPublishedSessions({
+    desired: new Map([[desired.scheduleEntryId, desired]]),
+    ...indexed,
+    adminPublishWarningMode: true,
+    nextVersion: 8,
+  })
+  assert.equal(plan.creates.length, 0)
+  assert.equal(plan.updates.length, 0)
+  assert.equal(plan.unchanged.length, 1)
+  assert.equal(plan.unchanged[0].id, legacy.id)
+  assert.deepEqual(indexed.duplicates.map((item) => item.id), [duplicate.id])
+})
+
 test('Admin publish reintroduces a cancelled cell with a new session id and keeps cancellation history', () => {
   const fixture = baseFixture()
   const desired = [...desiredEntries(fixture).desired.values()][0]

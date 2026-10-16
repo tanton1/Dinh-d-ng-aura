@@ -247,10 +247,19 @@ function scheduleError(code, message, details = {}) {
 }
 
 function sameSession(left, right) {
+  // A legacy publisher stored the global UI filter value `all` as the
+  // physical branch. That row can be the immutable source of truth for a
+  // later branch-scoped publish; changing only this marker must not make an
+  // already charged session look like an unsafe schedule edit.
+  const sameBranch = left.branchId === right.branchId
+    || (left.branchId === 'all'
+      && isImmutableSession(left)
+      && typeof right.branchId === 'string'
+      && right.branchId.length > 0)
   return left.studentId === right.studentId
     && left.trainerId === right.trainerId
     && left.contractId === right.contractId
-    && left.branchId === right.branchId
+    && sameBranch
     && storedDate(left.date) === right.date
     && storedHour(left.hour, left.id) === right.hour
     && Boolean(left.availabilityOverride) === Boolean(right.availabilityOverride)
@@ -918,10 +927,43 @@ function createPtSchedulePublishFunctions({ db, onCall, onScheduleMutation = () 
       const currentPublishedVersion = v2DraftSnapshot.exists
         ? Number(activeDraftData.publishedVersion || scheduleData.publishedVersions?.[branchId] || 0)
         : Number(scheduleData.publishedVersions?.[branchId] || 0)
-      if (!validateOnly && publishedRevision === draftRevision) {
+      // Keep the cheap idempotent path for a healthy published draft. Only
+      // continue into full validation when the raw weekly matrix points at a
+      // session that may need legacy/duplicate reconciliation. This avoids
+      // making an unchanged publish fail because a profile or contract became
+      // stale after the original publish.
+      const hasReconciliationCandidate = (() => {
+        if (validateOnly || publishedRevision !== draftRevision) return true
+        const sessionDocuments = new Map([
+          ...weekSessionsSnapshot.docs,
+          ...legacyWeekSessionsSnapshot.docs,
+        ].map((item) => [item.id, item]))
+        const rows = [...sessionDocuments.values()]
+        for (const [slotId, entries] of Object.entries(activeDraftData.schedule || {})) {
+          const slot = /^(T[2-7]|CN)-(\d{1,2})$/.exec(slotId)
+          if (!slot || !Array.isArray(entries)) continue
+          const date = dateForSlot(week, slot[1])
+          const hour = Number(slot[2])
+          for (const entry of entries) {
+            if (!entry || entry.type === 'off' || !entry.studentId) continue
+            const matches = rows.filter((item) => {
+              const value = item.data() || {}
+              return value.studentId === entry.studentId
+                && storedDate(value.date) === date
+                && storedHour(value.hour, item.id) === hour
+            })
+            const occupying = matches.filter((item) => {
+              const value = item.data() || {}
+              return ACTIVE_SESSION_STATUSES.has(String(value.status || '').toLowerCase()) || isImmutableSession(value)
+            })
+            if (occupying.length > 1 || matches.some((item) => item.data()?.branchId === 'all' && !isImmutableSession(item.data()))) return true
+          }
+        }
+        return false
+      })()
+      if (!validateOnly && publishedRevision === draftRevision && !hasReconciliationCandidate) {
         return { unchanged: true, draftRevision, version: currentPublishedVersion, diff: { create: 0, update: 0, cancel: 0, unchanged: 0 }, warnings: [] }
       }
-
       const trainerAvailabilitySnapshots = await Promise.all(trainersSnapshot.docs.map((item) => transaction.get(db.doc(`trainerAvailability/${item.id}_${week}`))))
       const weeklyTrainerAvailability = new Map(trainerAvailabilitySnapshots.filter((item) => item.exists).map((item) => [item.data().trainerId, item.data()]))
 
@@ -1118,10 +1160,50 @@ function createPtSchedulePublishFunctions({ db, onCall, onScheduleMutation = () 
       ].map((item) => [item.id, item])).values()]
       const immutableRemoved = existingScoped.filter((item) => isImmutableSession(item.data()) && !duplicateSessionIds.has(item.id) && !matchedExistingIds.has(item.id) && !prepared.desired.has(item.data().scheduleEntryId))
       if (immutableRemoved.length) throw scheduleError('CHARGED_SESSION_IMMUTABLE', 'Không thể loại buổi đã được tính hoặc xác nhận khỏi lịch publish.')
+      // A previous publish may have completed successfully while leaving the
+      // draft revision unchanged. Do not short-circuit that idempotent call
+      // until duplicate reconciliation has had a chance to produce work.
+      // This is the path that repairs legacy `branchId=all` rows created by
+      // the old publisher without asking an operator to make a dummy edit.
+      const duplicateAttendanceReferences = duplicates
+        .filter((item) => ACTIVE_SESSION_STATUSES.has(String(item.data()?.status || '').toLowerCase()))
+        .map((item) => {
+          const attendanceId = typeof item.data()?.attendanceEventId === 'string' && item.data().attendanceEventId.trim()
+            ? item.data().attendanceEventId.trim()
+            : item.id
+          return /^[A-Za-z0-9_-]+$/.test(attendanceId)
+            ? { sessionId: item.id, reference: db.doc(`attendanceEvents/${attendanceId}`) }
+            : null
+        })
+        .filter(Boolean)
+      const duplicateAttendanceSnapshots = duplicateAttendanceReferences.length
+        ? await Promise.all(duplicateAttendanceReferences.map((item) => transaction.get(item.reference)))
+        : []
+      const duplicateAttendanceBySession = new Map()
+      duplicateAttendanceReferences.forEach((item, index) => {
+        const snapshot = duplicateAttendanceSnapshots[index]
+        // Never rewrite an attendance record that points at another session;
+        // a malformed legacy link must remain quarantined for manual review.
+        if (snapshot.exists && snapshot.data()?.sessionId === item.sessionId) {
+          duplicateAttendanceBySession.set(item.sessionId, snapshot)
+        }
+      })
+      const attendanceCancellationCount = [...duplicateAttendanceBySession.values()].filter((snapshot) => snapshot.exists).length
+      const hasPublishWork = creates.length > 0 || updates.length > 0 || cancellations.length > 0
+      if (!validateOnly && publishedRevision === draftRevision && !hasPublishWork) {
+        return {
+          unchanged: true,
+          draftRevision,
+          version: currentPublishedVersion,
+          diff: { create: 0, update: 0, cancel: 0, unchanged: 0 },
+          warnings: [...new Set(prepared.warnings)],
+          warningDetails: prepared.warningDetails,
+        }
+      }
       const diff = { create: creates.length, update: updates.length, cancel: cancellations.length, unchanged: unchanged.length }
       if (validateOnly) return { unchanged: false, validateOnly: true, draftRevision, version: nextVersion, diff, warnings: [...new Set(prepared.warnings)], warningDetails: prepared.warningDetails }
 
-      const writeCount = creates.length + updates.length + cancellations.length + (v2DraftSnapshot.exists ? 4 : 3)
+      const writeCount = creates.length + updates.length + cancellations.length + attendanceCancellationCount + (v2DraftSnapshot.exists ? 4 : 3)
       if (writeCount > MAX_TRANSACTION_WRITES) throw new HttpsError('resource-exhausted', 'Lịch có quá nhiều thay đổi để publish trong một giao dịch.')
       for (const desired of creates) {
         transaction.create(db.doc(`sessions/${desired.id}`), {
@@ -1159,6 +1241,7 @@ function createPtSchedulePublishFunctions({ db, onCall, onScheduleMutation = () 
         })
       }
       for (const existing of cancellations) {
+        const duplicateAttendance = duplicateAttendanceBySession.get(existing.id)
         transaction.update(existing.ref, {
           status: 'cancelled',
           scheduleStatus: 'cancelled',
@@ -1167,12 +1250,33 @@ function createPtSchedulePublishFunctions({ db, onCall, onScheduleMutation = () 
           cancellationReason: duplicateSessionIds.has(existing.id)
             ? 'Duplicate legacy session reconciled by schedule publish'
             : 'Removed by schedule publish',
+          correctionReason: duplicateSessionIds.has(existing.id)
+            ? 'Duplicate legacy session reconciled by schedule publish'
+            : 'Removed by schedule publish',
           scheduleVersion: nextVersion,
           revision: Number(existing.data().revision || 0) + 1,
           cancelledAt: FieldValue.serverTimestamp(),
+          correctedAt: FieldValue.serverTimestamp(),
+          correctedBy: actor.uid,
           updatedAt: FieldValue.serverTimestamp(),
           updatedBy: actor.uid,
         })
+        if (duplicateAttendance?.exists) {
+          transaction.update(duplicateAttendance.ref, {
+            type: 'cancelled',
+            scheduleStatus: 'cancelled',
+            billingStatus: 'exempt',
+            attendanceStatus: 'cancelled',
+            countsTowardContract: false,
+            correctionReason: duplicateSessionIds.has(existing.id)
+              ? 'Duplicate legacy session reconciled by schedule publish'
+              : 'Removed by schedule publish',
+            correctedBy: actor.uid,
+            correctedAt: FieldValue.serverTimestamp(),
+            updatedAt: FieldValue.serverTimestamp(),
+            updatedBy: actor.uid,
+          })
+        }
       }
       const versionReference = db.doc(`ptScheduleVersions/${scheduleId}_${branchId}_v${nextVersion}`)
       transaction.create(versionReference, {
