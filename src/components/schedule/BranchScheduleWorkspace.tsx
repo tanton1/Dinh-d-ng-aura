@@ -1987,13 +1987,13 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
                 <label>PT đích<select aria-label="PT đích" value={pendingMove.trainerId} onChange={(e) => setPendingMove({ ...pendingMove, trainerId: e.target.value })} disabled={busy}>{visibleTrainers.map((trainer) => <option key={trainer.id} value={trainer.id}>{trainer.name}</option>)}</select></label>
                 {!workspace.students.find((item) => item.id === pendingMove.studentId)?.availableSlots.includes(pendingMove.slotId) && <p role="status">Ngoài lịch rảnh đã đăng ký. Xác nhận chuyển ca sẽ ghi nhận ngoại lệ này.</p>}
                 <p>{pendingMoveRequiresAdminEdit ? 'Admin có thể điều chỉnh nhanh; các xung đột lịch sẽ được ghi thành cảnh báo. Chỉ dữ liệu điểm danh, billing và quyền truy cập vẫn được bảo toàn.' : 'Máy chủ kiểm tra PT, hợp đồng và sức chứa. Ca cũ chỉ được chuyển khi ca mới hợp lệ.'}</p>
-                {pendingMoveRequiresAdminEdit && <p className="schedule-admin-fast-note">Lịch đã publish sẽ cập nhật ngay, không cần Publish lại. Nếu ô nguồn chưa có session thật, hệ thống tạo session ở ô đích; người thao tác và cảnh báo vẫn được lưu audit.</p>}
+                {pendingMoveRequiresAdminEdit && <p className="schedule-admin-fast-note">Lịch đã publish tự cập nhật, không cần Publish lại. Ô chưa có session sẽ tạo session mới.</p>}
                 <button type="button" onClick={() => setPendingMove(null)} disabled={busy}>Hủy chuyển</button>
                 <button type="button" onClick={() => void confirmMove()} disabled={busy || pendingMove.fromSlotId === pendingMove.slotId && pendingMove.fromTrainerId === pendingMove.trainerId}>Xác nhận chuyển ca</button>
               </section>}
               {pendingAdminRemoval && <section className="schedule-move-form is-admin-edit" aria-label="Xác nhận gỡ buổi">
                 <strong>Gỡ buổi · {studentName(pendingAdminRemoval.studentId)}</strong>
-                <p>{isAdmin ? 'Lịch đã publish sẽ cập nhật ngay, không cần Publish lại. Có session thật thì hệ thống hủy session; ô chỉ có trong draft sẽ được gỡ khỏi ma trận ngay. Buổi đã điểm danh hoặc đã tính buổi sẽ bị từ chối để bảo toàn billing.' : 'Học viên sẽ được đưa khỏi lịch nháp hiện tại.'}</p>
+                <p>{isAdmin ? 'Lịch đã publish tự cập nhật, không cần Publish lại. Session thật sẽ được hủy; ô chỉ có trong draft được gỡ ngay. Buổi đã điểm danh hoặc tính buổi vẫn được bảo vệ.' : 'Học viên sẽ được đưa khỏi lịch nháp hiện tại.'}</p>
                 {isAdmin && <p className="schedule-admin-fast-note">Gỡ buổi không cần nhập lý do; hệ thống vẫn lưu người thao tác và thời điểm.</p>}
                 <div className="schedule-move-actions"><button type="button" onClick={() => setPendingAdminRemoval(null)} disabled={busy}>Hủy</button><button type="button" onClick={() => void confirmRemove()} disabled={busy}>Xác nhận gỡ buổi</button></div>
               </section>}

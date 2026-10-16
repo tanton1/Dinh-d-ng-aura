@@ -4,6 +4,24 @@ const { FieldPath } = require('firebase-admin/firestore')
 
 const SUBMITTED_STATUSES = new Set(['submitted', 'locked'])
 const WEEK_PATTERN = /^\d{4}-\d{2}-\d{2}$/
+// Legacy profiles may not yet have the denormalized latest submission on the
+// student document. Looking up that history is the slowest part of a large
+// schedule workspace because it can fan out to one bounded query per learner.
+// Keep the fallback result process-local for a short period. A new admin
+// submission advances the profile projection and therefore bypasses a stale
+// fallback; the TTL is only a guard for records changed by older tools.
+const FALLBACK_CACHE_TTL_MS = 5 * 60 * 1000
+const FALLBACK_CACHE_LIMIT = 2000
+const fallbackCaches = new WeakMap()
+
+function fallbackCacheFor(db) {
+  let cache = fallbackCaches.get(db)
+  if (!cache) {
+    cache = { entries: new Map(), pending: new Map() }
+    fallbackCaches.set(db, cache)
+  }
+  return cache
+}
 
 function normalizedSlots(value) {
   return Array.isArray(value)
@@ -165,6 +183,27 @@ async function latestSubmittedBeforeWeek(db, studentId, targetWeek) {
   return null
 }
 
+async function cachedLatestSubmittedBeforeWeek(db, studentId, targetWeek) {
+  const cache = fallbackCacheFor(db)
+  const key = `${studentId}|${targetWeek}`
+  const now = Date.now()
+  const cached = cache.entries.get(key)
+  if (cached && now - cached.storedAt < FALLBACK_CACHE_TTL_MS) return cached.value
+  if (cached) cache.entries.delete(key)
+  const pending = cache.pending.get(key)
+  if (pending) return pending
+  const request = latestSubmittedBeforeWeek(db, studentId, targetWeek).then((value) => {
+    cache.entries.delete(key)
+    cache.entries.set(key, { value, storedAt: Date.now() })
+    while (cache.entries.size > FALLBACK_CACHE_LIMIT) cache.entries.delete(cache.entries.keys().next().value)
+    return value
+  }).finally(() => {
+    if (cache.pending.get(key) === request) cache.pending.delete(key)
+  })
+  cache.pending.set(key, request)
+  return request
+}
+
 async function loadLatestSubmittedFallbacks(db, profiles, exactAvailability, targetWeek) {
   const result = new Map()
   const unresolved = []
@@ -179,7 +218,7 @@ async function loadLatestSubmittedFallbacks(db, profiles, exactAvailability, tar
   // from turning a 500-student branch into 25 sequential network rounds.
   for (let index = 0; index < unresolved.length; index += 50) {
     const chunk = unresolved.slice(index, index + 50)
-    const values = await Promise.all(chunk.map((studentId) => latestSubmittedBeforeWeek(db, studentId, targetWeek)))
+    const values = await Promise.all(chunk.map((studentId) => cachedLatestSubmittedBeforeWeek(db, studentId, targetWeek)))
     values.forEach((value, valueIndex) => {
       if (value) result.set(chunk[valueIndex], value)
     })

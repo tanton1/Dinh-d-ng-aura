@@ -1,8 +1,12 @@
 import type { PtScheduleWorkspaceV2Result } from '../../services/ptSchedulePublishService'
 
-const TTL_MS = 3 * 60_000
+// Keep recent branch/week workspaces available while an Admin moves between
+// locations. Draft edits still replace the entry immediately and the realtime
+// draft listener keeps the visible matrix current; this TTL only avoids a full
+// cold read during quick A → B → A navigation.
+const TTL_MS = 5 * 60_000
 const LIMIT = 8
-export const WORKSPACE_CACHE_REVALIDATE_MS = 60_000
+export const WORKSPACE_CACHE_REVALIDATE_MS = 2 * 60_000
 type Entry = { value: PtScheduleWorkspaceV2Result; storedAt: number }
 
 /** In-memory only. Keys must include UID, authorization version, branch and week. */

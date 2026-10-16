@@ -79,9 +79,11 @@ const scheduleIndexCache = new WeakMap()
 // Firestore fan-out (contracts, availability, sessions and leaves). Keep a
 // short process-local read-through cache so an Admin switching A → B → A, or
 // opening the picker immediately after the workspace, does not repeat that
-// fan-out. Draft mutations call invalidateBranchDataCache below; the short
-// TTL is a final freshness bound for changes made by other operational tools.
-const BRANCH_DATA_CACHE_TTL_MS = 15_000
+// fan-out. Draft mutations call invalidateBranchDataCache below; the TTL is a
+// final freshness bound for changes made by other operational tools. A minute
+// and a half keeps branch switching warm while still bounding changes that did
+// not pass through a schedule mutation.
+const BRANCH_DATA_CACHE_TTL_MS = 90_000
 const BRANCH_DATA_CACHE_LIMIT = 8
 const branchDataCaches = new WeakMap()
 
@@ -609,7 +611,7 @@ function leaveCovers(leave, trainerId, date) {
   return Boolean(start && end && date >= start && date <= end)
 }
 
-async function loadBranchDataFresh(db, branchId, week) {
+async function loadBranchDataFresh(db, branchId, week, options = {}) {
   const priorWeek = previousWeek(week)
   const [branch, legacySchedule, draft, students, trainers, weekSessions, previousWeekSessions, config] = await Promise.all([
     db.doc(`branches/${branchId}`).get(),
@@ -771,7 +773,26 @@ async function loadBranchDataFresh(db, branchId, week) {
   // bounded historical lookup. Only learners who can affect this workspace
   // are resolved, so old expired profiles no longer add hundreds of reads to
   // every initial load or branch/week switch.
-  const inheritedAvailability = await loadLatestSubmittedFallbacks(db, fallbackStudentMap, weeklyAvailability, week)
+  // Once a schedule is published, Admins are viewing live sessions and the
+  // workspace does not need to reconstruct every learner's pre-week history
+  // just to render the matrix. The denormalized profile/default availability
+  // remains available; the exact fallback validation stays in the write
+  // callables. This avoids hundreds of legacy point queries on every branch
+  // switch while keeping staff/draft/optimizer reads fully reconciled.
+  const publishedWorkspace = draftData?.status === 'published'
+    || Number(draftData?.publishedVersion || 0) > 0
+    || legacy.publishStatusByBranch?.[branchId] === 'published'
+    || Number(legacy.publishedVersions?.[branchId] || 0) > 0
+  // Keep fallback evidence for learners already present in the published
+  // matrix or in this week's live/previous-week sessions. Unassigned legacy
+  // profiles do not affect the live matrix and can be resolved on demand by
+  // the manual write path.
+  const fallbackProfiles = options.skipLegacyAvailabilityFallback && publishedWorkspace
+    ? new Map([...fallbackStudentMap].filter(([studentId]) => referencedStudentIds.has(studentId) || previousWeekSessionCounts.has(studentId)))
+    : fallbackStudentMap
+  const inheritedAvailability = options.skipLegacyAvailabilityFallback && publishedWorkspace
+    ? await loadLatestSubmittedFallbacks(db, fallbackProfiles, weeklyAvailability, week)
+    : await loadLatestSubmittedFallbacks(db, fallbackStudentMap, weeklyAvailability, week)
   const mappedStudents = [...students.docs, ...referencedStudentSnapshots].map((item) => {
     const data = item.data()
     const displayOnly = crossBranchStudentIds.has(item.id)
@@ -906,9 +927,10 @@ async function loadBranchDataFresh(db, branchId, week) {
   }
 }
 
-async function loadBranchData(db, branchId, week) {
+async function loadBranchData(db, branchId, week, options = {}) {
   const cache = branchDataCacheFor(db)
-  const key = `${branchId}|${week}`
+  const fastPublished = options.skipLegacyAvailabilityFallback === true
+  const key = `${branchId}|${week}|${fastPublished ? 'workspace' : 'full'}`
   const now = Date.now()
   const cached = cache.entries.get(key)
   if (cached && now - cached.storedAt < BRANCH_DATA_CACHE_TTL_MS) {
@@ -921,7 +943,7 @@ async function loadBranchData(db, branchId, week) {
   const pending = cache.pending.get(key)
   if (pending) return pending
   const generation = cache.generations.get(key) || 0
-  const request = loadBranchDataFresh(db, branchId, week).then((value) => {
+  const request = loadBranchDataFresh(db, branchId, week, options).then((value) => {
     if ((cache.generations.get(key) || 0) === generation) {
       cache.entries.delete(key)
       cache.entries.set(key, { value, storedAt: Date.now() })
@@ -3482,13 +3504,25 @@ function createPtScheduleV2Functions({ db, onCall, actorForBranch = scheduleActo
     const week = weekId(request.data?.weekId)
     const branchId = documentId(request.data?.branchId, 'Mã chi nhánh')
     const actor = await actorForBranch(request, db, branchId)
-    const data = await branchData(db, branchId, week)
+    const data = await branchData(db, branchId, week, {
+      // A published Admin workspace is read-only from the optimizer's point
+      // of view: direct matrix edits use the dedicated reconciliation
+      // callable. Do not make the initial paint wait for legacy availability
+      // history that is only needed when generating or validating a draft.
+      skipLegacyAvailabilityFallback: activeAdministrator(actor),
+    })
     const eligibleStudents = data.students.filter((student) => student.eligibleForWeek === true)
     const workloadSchedule = safeSchedule(data.schedule)
     mergePublishedSessions({ ...data, weekId: week }, workloadSchedule, [])
+    const publishedWorkspace = data.draft.status === 'published' || Number(data.draft.publishedVersion || 0) > 0
     const calculatedOptimizationSummary = {
       studentCoverage: studentCoverageForSchedule({ ...data, weekId: week }, workloadSchedule),
-      studentFeasibility: studentFeasibilityForSchedule({ ...data, weekId: week }, workloadSchedule),
+      // Feasibility is an optimizer preflight. Re-running it for every
+      // published matrix read adds CPU without changing the live schedule;
+      // generation/validation still compute it on the full data path.
+      studentFeasibility: publishedWorkspace
+        ? (data.draft.optimizationSummary?.studentFeasibility || [])
+        : studentFeasibilityForSchedule({ ...data, weekId: week }, workloadSchedule),
       trainerLoads: trainerLoadsForSchedule({ ...data, weekId: week }, workloadSchedule),
       slotUtilization: slotUtilizationForSchedule({ ...data, weekId: week }, workloadSchedule),
     }
