@@ -3634,7 +3634,7 @@ function createPtScheduleV2Functions({ db, onCall, actorForBranch = scheduleActo
       const revision = Number(current.exists ? current.data()?.revision || 0 : data.draft.revision)
       if (revision !== expectedRevision) throw new HttpsError('aborted', 'Draft đã thay đổi. Hãy tải lại trước khi xếp tự động.')
       const nextRevision = revision + 1
-      transaction.set(reference, {
+      const draftWrite = {
         schemaVersion: 2,
         branchId,
         weekId: week,
@@ -3649,7 +3649,12 @@ function createPtScheduleV2Functions({ db, onCall, actorForBranch = scheduleActo
         updatedAt: FieldValue.serverTimestamp(),
         updatedBy: actor.uid,
         createdAt: current.exists ? current.data().createdAt || FieldValue.serverTimestamp() : FieldValue.serverTimestamp(),
-      }, { merge: true })
+      }
+      // Replacing the top-level schedule field is deliberate. A Firestore
+      // merge would preserve removed nested slot keys and make deleted cells
+      // reappear on the next workspace read.
+      if (current.exists) transaction.update(reference, draftWrite)
+      else transaction.set(reference, draftWrite)
       transaction.create(db.collection('ptOperationsAuditLogs').doc(), { schemaVersion: 2, action: 'pt_schedule.generated', actorUid: actor.uid, branchId, weekId: week, previousDraftRevision: revision, nextDraftRevision: nextRevision, entryCount: scheduleEntryCount(generated.schedule), studentCoverage: generated.optimizationSummary.studentCoverage, slotUtilization: generated.optimizationSummary.slotUtilization, unassignedCount: generated.unassignedEntries.length, warnings: generated.warnings.slice(0, 100), createdAt: FieldValue.serverTimestamp() })
       return { draftRevision: nextRevision, schedule: generated.schedule, warnings: generated.warnings, optimizationSummary: generated.optimizationSummary, unassignedEntries: generated.unassignedEntries, generatorVersion: OPTIMIZER_VERSION }
     })
@@ -4228,7 +4233,7 @@ function createPtScheduleV2Functions({ db, onCall, actorForBranch = scheduleActo
       const unassignedEntries = command === 'reset_draft'
         ? resetStudentIds.slice(0, MAX_STUDENTS).map((removedStudentId) => ({ studentId: removedStudentId, missingSessions: 1, reasonCodes: ['DRAFT_RESET'], suggestedSlots: [] }))
         : requeuedEntries.slice(-200)
-      transaction.set(reference, {
+      const draftWrite = {
         schemaVersion: 2,
         branchId,
         weekId: week,
@@ -4242,7 +4247,11 @@ function createPtScheduleV2Functions({ db, onCall, actorForBranch = scheduleActo
         updatedAt: FieldValue.serverTimestamp(),
         updatedBy: actor.uid,
         createdAt: current.exists ? current.data().createdAt || FieldValue.serverTimestamp() : FieldValue.serverTimestamp(),
-      }, { merge: true })
+      }
+      // A nested schedule map must be replaced as one field. `merge:true`
+      // keeps removed slot keys in Firestore and can resurrect a deleted row.
+      if (current.exists) transaction.update(reference, draftWrite)
+      else transaction.set(reference, draftWrite)
       transaction.create(receipt, { actorUid: actor.uid, branchId, weekId: week, command, idempotencyKey, result, createdAt: FieldValue.serverTimestamp() })
       transaction.create(db.collection('ptOperationsAuditLogs').doc(), { schemaVersion: 2, action: `pt_schedule.${command}`, actorUid: actor.uid, branchId, weekId: week, previousDraftRevision: revision, nextDraftRevision: nextRevision, affectedStudentCount: command === 'set_student_weekly_target' ? 1 : command === 'reset_draft' ? resetStudentIds.length : (command === 'add_student' || command === 'move_student') ? 1 : requeuedEntries.length, studentId: command.includes('student') ? studentId : null, weeklyTarget: command === 'set_student_weekly_target' ? (resetWeeklyTarget ? null : weeklyTarget) : null, availabilityOverride: Boolean(availabilityOverrideMetadata), availabilityOverrideReason: availabilityOverrideMetadata?.availabilityOverrideReason || null, adminOverride: Boolean(adminOverrideMetadataValue), adminOverrideWarnings: adminOverrideMetadataValue?.adminOverrideWarnings || [], trainerAssignmentWarning: Boolean(trainerAssignmentWarningMetadata), studentBranchWarning: Boolean(studentBranchWarningMetadata), studentHomeBranchId: studentBranchWarningMetadata?.studentHomeBranchId || null, reason: typeof request.data?.reason === 'string' ? request.data.reason.trim().slice(0, 300) : '', createdAt: FieldValue.serverTimestamp() })
       return result

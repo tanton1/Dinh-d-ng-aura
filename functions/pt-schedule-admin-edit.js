@@ -16,6 +16,16 @@ const deterministicAdminSessionId = (week, branchId, slotId, studentId) => {
   return `pt_${digest}`
 }
 
+// `set(..., { merge: true })` merges nested maps in Firestore. When a draft
+// mutation removes the last entry from a slot, leaving that slot out of the
+// JavaScript object therefore does not remove `schedule.<slotId>` from the
+// document. Replace the top-level schedule field in the same transaction so a
+// deleted matrix cell cannot be resurrected by the next workspace read.
+function writeScheduleDraft(transaction, reference, snapshot, value) {
+  if (snapshot?.exists) transaction.update(reference, value)
+  else transaction.set(reference, value)
+}
+
 // Removing a pending session does not need the full placement validation
 // fan-out below. The workspace already sends the session id and revision, so
 // read that document directly and only check the evidence that could make a
@@ -135,7 +145,7 @@ async function applyFastAdminRemoval({ db, actor, branchId, week, payload, reaso
       createdAt: FieldValue.serverTimestamp(),
       createdBy: actor.uid,
     })
-    transaction.set(draftRef, {
+    writeScheduleDraft(transaction, draftRef, draftSnapshot, {
       schemaVersion: 2,
       branchId,
       weekId: week,
@@ -149,7 +159,7 @@ async function applyFastAdminRemoval({ db, actor, branchId, week, payload, reaso
       expiresAt: draftExpiresAt(week),
       updatedAt: FieldValue.serverTimestamp(),
       updatedBy: actor.uid,
-    }, { merge: true })
+    })
     if (legacy.exists) {
       const legacySchedule = { ...(legacy.data()?.schedule || {}) }
       legacySchedule[slotId] = (legacySchedule[slotId] || []).filter((entry) => !sameEntry(entry, studentId, trainerId))
@@ -587,7 +597,7 @@ async function applyAdminScheduleEdit({ db, actor, branchId, week, command, payl
         createdBy: actor.uid,
       })
     }
-    transaction.set(draftRef, {
+    writeScheduleDraft(transaction, draftRef, draftSnapshot, {
       schemaVersion: 2,
       branchId,
       weekId: week,
@@ -601,7 +611,7 @@ async function applyAdminScheduleEdit({ db, actor, branchId, week, command, payl
       expiresAt: draftExpiresAt(week),
       updatedAt: FieldValue.serverTimestamp(),
       updatedBy: actor.uid,
-    }, { merge: true })
+    })
     if (legacy.exists) transaction.update(legacyRef, { schedule: reconcile(legacy.data().schedule || {}), draftRevision: Number(legacy.data().draftRevision || 0) + 1, updatedAt: FieldValue.serverTimestamp(), updatedBy: actor.uid })
     transaction.create(receipt, { actorUid: actor.uid, branchId, weekId: week, command, result, createdAt: FieldValue.serverTimestamp() })
     transaction.create(db.collection('ptOperationsAuditLogs').doc(), { schemaVersion: 2, action: `pt_schedule.admin_${command}`, actorUid: actor.uid, branchId, weekId: week, studentId, sessionId: source?.id || (['add_student', 'move_student'].includes(command) && !session ? targetSessionId : null), ...(reintroducedFromSessionId ? { reintroducedFromSessionId, reintroducedAtRevision } : {}), previousDraftRevision: revision, nextDraftRevision: revision + 1, from: before, to: after, reason, warnings, createdAt: FieldValue.serverTimestamp() })

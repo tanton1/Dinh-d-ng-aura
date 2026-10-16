@@ -74,7 +74,15 @@ function makeHarness({ source = 'published_existing', status = 'scheduled', bill
       const result = await callback(transaction)
       for (const write of writes) {
         if (write.kind === 'create' && docs.has(write.ref.path)) throw new Error(`duplicate ${write.ref.path}`)
-        if (write.kind === 'set' && write.options.merge) docs.set(write.ref.path, { ...(docs.get(write.ref.path) || {}), ...write.value })
+        if (write.kind === 'set' && write.options.merge) {
+          const current = docs.get(write.ref.path) || {}
+          const merged = { ...current, ...write.value }
+          // Firestore merge semantics keep nested map keys that are absent
+          // from the incoming value. This catches schedule slots that would
+          // otherwise survive a draft removal in the test harness.
+          if (current.schedule && write.value.schedule) merged.schedule = { ...current.schedule, ...write.value.schedule }
+          docs.set(write.ref.path, merged)
+        }
         else if (write.kind === 'set') docs.set(write.ref.path, write.value)
         else if (write.kind === 'update') docs.set(write.ref.path, { ...(docs.get(write.ref.path) || {}), ...write.value })
         else docs.set(write.ref.path, write.value)
@@ -140,6 +148,21 @@ test('Admin removal with a session reference uses the direct reconciliation path
   assert.equal(result.sessionRevision, 1)
   assert.equal(harness.docs.get('sessions/session-a').status, 'cancelled')
   assert.equal(harness.docs.get(harness.draftPath).status, 'published')
+})
+
+test('Admin removal replaces the draft schedule map instead of retaining deleted slots', async () => {
+  const harness = makeHarness({ source: 'auto_v4' })
+  const draft = harness.docs.get(harness.draftPath)
+  draft.schedule['T7-20'] = [{ studentId: 'stale-student', trainerId: TRAINER, branchId: BRANCH, type: 'training', source: 'auto_v4' }]
+  harness.docs.set(harness.draftPath, draft)
+  const result = await applyAdminScheduleEdit(baseInput(harness, 'remove_student', {
+    studentId: STUDENT, trainerId: TRAINER, slotId: 'T2-6', sessionId: 'session-a', expectedSessionRevision: 0,
+  }))
+  assert.equal(result.schedule['T2-6'], undefined)
+  assert.equal(harness.docs.get(harness.draftPath).schedule['T2-6'], undefined)
+  assert.deepEqual(harness.docs.get(harness.draftPath).schedule['T7-20'], [{
+    studentId: 'stale-student', trainerId: TRAINER, branchId: BRANCH, type: 'training', source: 'auto_v4',
+  }])
 })
 
 test('Admin can move a published draft-only row and create its missing live session', async () => {
