@@ -641,7 +641,7 @@ function contractEffectiveDate(value) {
 function createOperationsDashboardFunctions({ db, onCall, logger = console }) {
   const sharedCache = createSharedDashboardCache({ db, logger })
   const getTodaySessions = onCall({
-    cpu: 'gcf_gen1',
+    cpu: 1,
     maxInstances: 2,
     concurrency: 8,
   }, async (request) => {
