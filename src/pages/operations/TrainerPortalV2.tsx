@@ -196,7 +196,11 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
       ? canViewSchedule
       : canViewRequests
   const rangeFrom = useMemo(() => ['schedule', 'students'].includes(section) ? mondayOf(from) : from, [from, section])
-  const to = useMemo(() => addDateDays(rangeFrom, 13), [rangeFrom])
+  const to = useMemo(() => section === 'students'
+    ? addDateDays(rangeFrom, 61)
+    : section === 'schedule'
+      ? addDateDays(rangeFrom, 6)
+      : addDateDays(rangeFrom, 13), [rangeFrom, section])
   const studentNames = useMemo(() => new Map([
     ...students.map((student) => [student.id, student.name] as const),
     ...sessions.filter((session) => session.studentName).map((session) => [session.studentId, session.studentName as string] as const),
@@ -215,6 +219,9 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
     mapped.forEach((items) => items.sort((left, right) => `${left.date}-${left.hour ?? 0}`.localeCompare(`${right.date}-${right.hour ?? 0}`)))
     return mapped
   }, [sessions])
+  const studentsWithSessions = useMemo(() => students.filter((student) => (
+    scheduledByStudent.has(student.id) || Number(student.contract?.historySessions || 0) > 0
+  )), [scheduledByStudent, students])
   const addableStudents = useMemo(() => {
     if (!addStudentTarget) return []
     return students
@@ -227,7 +234,7 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
   }, [addStudentTarget, scheduledByStudent, students])
   const filteredStudents = useMemo(() => {
     const query = normalizedSearch(studentQuery)
-    return students.filter((student) => {
+    return studentsWithSessions.filter((student) => {
       const matchesQuery = matchesStudentSearch(student, query)
       const matchesBranch = studentBranch === 'all' || student.branchId === studentBranch
       const matchesScope = studentScope === 'all'
@@ -235,7 +242,7 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
         || (studentScope === 'schedule' && scheduledByStudent.has(student.id))
       return matchesQuery && matchesBranch && matchesScope
     }).sort((left, right) => left.name.localeCompare(right.name, 'vi'))
-  }, [scheduledByStudent, studentBranch, studentQuery, studentScope, students])
+  }, [scheduledByStudent, studentBranch, studentQuery, studentScope, studentsWithSessions])
   const load = useCallback(async () => {
     if (loadedRef.current) setRefreshing(true)
     else { setScopeLoading(true); setLoading(true) }
@@ -551,7 +558,7 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
     {error && !requestTarget && <div className="opv2-state is-error">{error}<button className="opv2-action" onClick={() => void load()}>Thử lại</button></div>}
 
     {!loading && section === 'students' && <>
-      <section className="opv2-student-metrics" aria-label="Tổng hợp học viên phụ trách"><div><strong>{students.length}</strong><span>Đang hiển thị</span></div><div><strong>{students.filter((item) => item.assignmentRole === 'branch').length}</strong><span>Trong chi nhánh</span></div><div><strong>{students.filter((item) => item.assignmentRole === 'primary').length}</strong><span>PT chính</span></div><div><strong>{students.filter((item) => item.assignmentRole === 'secondary').length}</strong><span>PT phụ</span></div><div><strong>{students.filter((item) => scheduledByStudent.has(item.id)).length}</strong><span>Có lịch dạy</span></div></section>
+       <section className="opv2-student-metrics" aria-label="Tổng hợp học viên phụ trách"><div><strong>{studentsWithSessions.length}</strong><span>Đang hiển thị</span></div><div><strong>{studentsWithSessions.filter((item) => item.assignmentRole === 'branch').length}</strong><span>Trong chi nhánh</span></div><div><strong>{studentsWithSessions.filter((item) => item.assignmentRole === 'primary').length}</strong><span>PT chính</span></div><div><strong>{studentsWithSessions.filter((item) => item.assignmentRole === 'secondary').length}</strong><span>PT phụ</span></div><div><strong>{studentsWithSessions.filter((item) => scheduledByStudent.has(item.id)).length}</strong><span>Có lịch dạy</span></div></section>
       <section className="opv2-student-filters" aria-label="Lọc học viên">
         <label className="is-search"><Search /><input aria-label="Tìm học viên" value={studentQuery} onChange={(event) => setStudentQuery(event.target.value)} placeholder="Tên hoặc số điện thoại" /></label>
         <label><MapPin /><select aria-label="Lọc theo chi nhánh" value={studentBranch} onChange={(event) => setStudentBranch(event.target.value)}><option value="all">Tất cả chi nhánh</option>{branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></label>
@@ -576,7 +583,7 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
       const confirmed = daySessions.filter((session) => attendanceState(session) !== 'pending')
       const pendingStarted = daySessions.filter((session) => attendanceState(session) === 'pending' && sessionStartsAt(session) <= now)
       const future = daySessions.filter((session) => sessionStartsAt(session) > now)
-      const weekDays = Array.from({ length: 6 }, (_, index) => ({ date: addDateDays(rangeFrom, index), label: `T${index + 2}` }))
+      const weekDays = Array.from({ length: 7 }, (_, index) => ({ date: addDateDays(rangeFrom, index), label: index === 6 ? 'CN' : `T${index + 2}` }))
       const matrixHours = [...new Set([6, 7, 8, 9, 10, 11, 14, 15, 16, 17, 18, 19, 20, ...sessions.map((session) => session.hour).filter((hour): hour is number => Number.isInteger(hour))])].sort((a, b) => a - b)
       const matrixIndex = new Map<string, TrainerSessionSummary[]>()
       sessions.forEach((session) => {
@@ -586,7 +593,7 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
       })
       return <>
         <section className="opv2-week-card">
-          <header><div><p className="opv2-kicker-dark">Ma trận tuần</p><h2>{compactDate(rangeFrom)} – {compactDate(addDateDays(rangeFrom, 5))}</h2></div><div><button type="button" aria-label="Tuần trước" onClick={() => setFrom(addDateDays(rangeFrom, -7))}><ChevronLeft /></button><button type="button" aria-label="Tuần sau" onClick={() => setFrom(addDateDays(rangeFrom, 7))}><ChevronRight /></button></div></header>
+          <header><div><p className="opv2-kicker-dark">Ma trận tuần</p><h2>{compactDate(rangeFrom)} – {compactDate(addDateDays(rangeFrom, 6))}</h2></div><div><button type="button" aria-label="Tuần trước" onClick={() => setFrom(addDateDays(rangeFrom, -7))}><ChevronLeft /></button><button type="button" aria-label="Tuần sau" onClick={() => setFrom(addDateDays(rangeFrom, 7))}><ChevronRight /></button></div></header>
           <div className="opv2-week-scroll" role="region" aria-label="Ma trận lịch dạy chi tiết cả tuần" tabIndex={0}>
             <div className="opv2-week-matrix">
               <span className="opv2-week-corner">Giờ</span>

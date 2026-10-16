@@ -32,6 +32,22 @@ function todayKey() {
   return vietnamDateKey()
 }
 
+function addDateKey(value: string, amount: number) {
+  const parsed = new Date(`${value}T12:00:00+07:00`)
+  if (Number.isNaN(parsed.getTime())) return value
+  return vietnamDateKey(new Date(parsed.getTime() + amount * 86_400_000))
+}
+
+function currentWeekStartKey() {
+  const today = todayKey()
+  const weekday = new Date(`${today}T12:00:00+07:00`).getUTCDay()
+  return addDateKey(today, -((weekday + 6) % 7))
+}
+
+function currentWeekEndKey() {
+  return addDateKey(currentWeekStartKey(), 6)
+}
+
 function daysAgoKey(days: number) {
   const date = new Date()
   date.setDate(date.getDate() - days)
@@ -233,8 +249,10 @@ function stableContractSignature(contracts: TrainerStudentContractDetail[]) {
 export default function TrainingHistoryPanel({ subject, subjectId, subjectName, contractId, isDemo = false, initialSessions = [], initialContracts = [], focusSessionId = '', focusDate = '', onCorrectionSaved }: Props) {
   const { profile } = useAuth()
   const { trainers } = useDatabase()
-  const [startDate, setStartDate] = useState(() => focusDate || daysAgoKey(89))
-  const [endDate, setEndDate] = useState(() => focusDate || todayKey())
+  const focusIsCurrentWeek = Boolean(focusDate && focusDate >= currentWeekStartKey() && focusDate <= currentWeekEndKey())
+  const [rangeTab, setRangeTab] = useState<'week' | 'history'>(() => focusDate && !focusIsCurrentWeek ? 'history' : 'week')
+  const [startDate, setStartDate] = useState(() => focusDate || currentWeekStartKey())
+  const [endDate, setEndDate] = useState(() => focusDate || currentWeekEndKey())
   const [status, setStatus] = useState<TrainingHistoryStatus>('all')
   const [page, setPage] = useState<TrainingHistoryPage | null>(null)
   const [loading, setLoading] = useState(false)
@@ -334,10 +352,46 @@ export default function TrainingHistoryPanel({ subject, subjectId, subjectName, 
     }
   }, [contractId, initialContractSignature, isDemo, subject, subjectId]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => { void loadUsage() }, [loadUsage])
+  useEffect(() => {
+    // The week view is intentionally a session-window read. Contract usage
+    // scans the complete learner ledger, so defer it until the operator opens
+    // history or explicitly opens the filter drawer.
+    if (rangeTab === 'history' || showAdvancedFilters) void loadUsage()
+  }, [loadUsage, rangeTab, showAdvancedFilters])
+
+  const weekDays = useMemo(() => {
+    if (rangeTab !== 'week') return []
+    const start = currentWeekStartKey()
+    const records = page?.records || []
+    return Array.from({ length: 7 }, (_, index) => {
+      const date = addDateKey(start, index)
+      return {
+        date,
+        label: index === 6 ? 'CN' : `T${index + 2}`,
+        count: records.filter((record) => record.date === date).length,
+      }
+    })
+  }, [page?.records, rangeTab])
 
   const setPreset = (days: number) => {
+    setRangeTab('history')
     setStartDate(daysAgoKey(days - 1))
+    setEndDate(todayKey())
+  }
+
+  const selectRangeTab = (next: 'week' | 'history') => {
+    setRangeTab(next)
+    if (next === 'week') {
+      setStartDate(currentWeekStartKey())
+      setEndDate(currentWeekEndKey())
+      return
+    }
+    if (focusDate && !focusIsCurrentWeek) {
+      setStartDate(focusDate)
+      setEndDate(focusDate)
+      return
+    }
+    setStartDate(daysAgoKey(89))
     setEndDate(todayKey())
   }
 
@@ -446,17 +500,22 @@ export default function TrainingHistoryPanel({ subject, subjectId, subjectName, 
   return <section className="training-history" aria-busy={loading}>
     <header className="training-history__header">
       <div><span><CalendarDays size={15} /> {subject === 'student' ? 'NHẬT KÝ TẬP LUYỆN' : 'NHẬT KÝ CA DẠY'}</span><h3>{subject === 'student' ? 'Lịch sử tập' : 'Lịch dạy PT'}<em> · {subjectName || 'Hồ sơ Aura'}</em></h3></div>
-      <button type="button" aria-label="Làm mới lịch sử" onClick={() => { void load(false); void loadUsage() }} disabled={loading}><RefreshCw size={16} className={loading ? 'is-spinning' : ''} /><span>Làm mới</span></button>
+      <button type="button" aria-label="Làm mới lịch sử" onClick={() => { void load(false); if (rangeTab === 'history' || showAdvancedFilters) void loadUsage() }} disabled={loading}><RefreshCw size={16} className={loading ? 'is-spinning' : ''} /><span>Làm mới</span></button>
     </header>
     <div className="training-history__filters">
+      <div className="training-history__range-tabs" role="tablist" aria-label="Phạm vi lịch sử">
+        <button type="button" role="tab" aria-selected={rangeTab === 'week'} className={rangeTab === 'week' ? 'is-active' : ''} onClick={() => selectRangeTab('week')}><CalendarDays size={15} /> Tuần này</button>
+        <button type="button" role="tab" aria-selected={rangeTab === 'history'} className={rangeTab === 'history' ? 'is-active' : ''} onClick={() => selectRangeTab('history')}><Clock3 size={15} /> Lịch sử</button>
+      </div>
       <div className="training-history__presets"><button type="button" onClick={() => setPreset(30)}>30 ngày</button><button type="button" onClick={() => setPreset(90)}>90 ngày</button><button type="button" onClick={() => setPreset(180)}>6 tháng</button></div>
       <button type="button" className={`training-history__filter-toggle${showAdvancedFilters ? ' is-active' : ''}`} onClick={() => setShowAdvancedFilters((current) => !current)}><SlidersHorizontal size={15} /> Bộ lọc</button>
       {showAdvancedFilters && <div className="training-history__advanced">
-        <label><span>Từ ngày</span><input type="date" value={startDate} max={endDate} onChange={(event) => setStartDate(event.target.value)} /></label>
-        <label><span>Đến ngày</span><input type="date" value={endDate} min={startDate} max={todayKey()} onChange={(event) => setEndDate(event.target.value)} /></label>
+        <label><span>Từ ngày</span><input type="date" value={startDate} max={endDate} onChange={(event) => { setRangeTab('history'); setStartDate(event.target.value) }} /></label>
+        <label><span>Đến ngày</span><input type="date" value={endDate} min={startDate} max={todayKey()} onChange={(event) => { setRangeTab('history'); setEndDate(event.target.value) }} /></label>
         <label><span>Trạng thái</span><select value={status} onChange={(event) => setStatus(event.target.value as TrainingHistoryStatus)}>{statusOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
       </div>}
     </div>
+    {rangeTab === 'week' ? <div className="training-history__week-strip" aria-label="7 ngày trong tuần hiện tại">{weekDays.map((day) => <div className={day.count ? 'has-sessions' : ''} key={day.date}><span>{day.label}</span><strong>{day.date.slice(8)}</strong><small>{day.count ? `${day.count} buổi` : 'Trống'}</small></div>)}</div> : null}
     {error && <div className="training-history__notice"><CircleAlert size={18} /> {error}</div>}
     {correctionNotice && <div className="training-history__notice is-success"><CheckCircle2 size={18} /> {correctionNotice}</div>}
     {usageError && subject === 'student' ? <div className="training-history__notice"><CircleAlert size={18} /> {usageError}</div> : null}

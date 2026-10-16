@@ -163,6 +163,13 @@ export default function StudentManagement({ user, profile, initialStudentId = nu
     return index;
   }, [contracts]);
   const contractsById = useMemo(() => new Map(contracts.map((contract) => [contract.id, contract])), [contracts]);
+  const studentsWithSessions = useMemo(() => {
+    const ids = new Set(sessions.map((session) => session.studentId).filter(Boolean));
+    contracts.forEach((contract) => {
+      if (getCalculatedUsedSessions(contract) > 0) ids.add(contract.studentId);
+    });
+    return ids;
+  }, [contracts, sessions]);
 
   const weekEligibilityByStudent = useMemo(() => new Map(allowedStudents.map((student) => [
     student.id,
@@ -171,6 +178,14 @@ export default function StudentManagement({ user, profile, initialStudentId = nu
 
   const filteredStudents = useMemo(() => {
     let filtered = allowedStudents.filter(s => {
+      const studentContracts = contractsByStudent.get(s.id) || [];
+      const latestContract = studentContracts[0];
+      const expiryMillis = latestContract?.endDate ? new Date(`${latestContract.endDate.slice(0, 10)}T23:59:59`).getTime() : Number.NaN;
+      const longExpired = Number.isFinite(expiryMillis) && expiryMillis <= Date.now() - 14 * 86_400_000;
+      // Keep the default CRM working set small. Historical/empty profiles are
+      // still reachable through an intentional search, but they do not make
+      // every roster calculation inspect old contracts and sessions.
+      if (!searchTerm.trim() && (!studentsWithSessions.has(s.id) || longExpired)) return false;
       if (!searchTerm) return true;
       const matchName = s.name && s.name.toLowerCase().includes(searchTerm.toLowerCase());
       const matchPhone = s.phone && s.phone.includes(searchTerm);
@@ -291,7 +306,7 @@ export default function StudentManagement({ user, profile, initialStudentId = nu
     }
 
     return filtered;
-  }, [allowedStudents, searchTerm, dateRange, selectedBranchId, contractFilter, selectedTrainerId, selectedNutritionPTId, weekEligibilityByStudent, contractsByStudent]);
+  }, [allowedStudents, contractsByStudent, dateRange, selectedBranchId, contractFilter, selectedTrainerId, selectedNutritionPTId, searchTerm, studentsWithSessions, weekEligibilityByStudent]);
 
   const studentPageSize = 30;
   const studentPageCount = Math.max(1, Math.ceil(filteredStudents.length / studentPageSize));

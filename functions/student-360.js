@@ -366,6 +366,23 @@ function uniqueProgressPhotos(documents = []) {
   return [...unique.values()]
 }
 
+function directoryHasSessionEvidence(projection = {}) {
+  return Number(projection.training?.sessionCount || 0) > 0
+    || Number(projection.contract?.historySessions || 0) > 0
+    || Number(projection.contract?.usedSessions || 0) > 0
+    || Number(projection.attendance?.total || 0) > 0
+    || Number(projection.schedule?.bookedSessions || 0) > 0
+    || Boolean(projection.schedule?.nextSession)
+}
+
+function directoryRowVisible(projection = {}, queryText = '') {
+  if (queryText) return true
+  const daysRemaining = Number(projection.contract?.daysRemaining)
+  const longExpired = projection.identity?.status === 'expired'
+    && (!Number.isFinite(daysRemaining) || daysRemaining <= -14)
+  return directoryHasSessionEvidence(projection) && !longExpired
+}
+
 // Signed URLs are expensive (and can briefly spike Storage/CPU usage) when a
 // profile has a large history. Keep the work bounded while preserving the
 // order of the input page so the response remains deterministic.
@@ -1654,6 +1671,11 @@ async function buildStudent360Projection({ db, studentId, weekId = mondayDateKey
       adherence28Days: trainingAdherence,
       completed28Days: completed28,
       target28Days: trainingTarget28,
+      // Directory pages use this bounded projection field to avoid exposing
+      // profiles that have never produced a PT session. It is deliberately
+      // derived from the already loaded session evidence, so the directory
+      // never performs a second per-student session scan.
+      sessionCount: sources.sessions.length,
       workoutLogCount: sources.workoutLogs.length,
       latestWorkoutAt: sources.workoutLogs.length ? iso(Math.max(...sources.workoutLogs.map((item) => timestampMillis(item.completedAt || item.updatedAt || item.createdAt) || dateKeyMillis(item.date)))) : null,
       program: sources.trainingProgram ? {
@@ -2597,6 +2619,11 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
         const projection = item.data()
         let permissions
         try { permissions = permissionsFor(actor, projection) } catch { continue }
+        // The normal directory is a live working set. Profiles without any
+        // session evidence and contracts expired for 14+ days stay in the
+        // searchable archive, so opening the list does not make Staff scan or
+        // analyse stale learners. A deliberate search is the opt-in path.
+        if (!directoryRowVisible(projection, queryText)) continue
         if (branchId && projection.assignments?.branchId !== branchId) continue
         if (attention && projection.health?.status !== attention) continue
         const haystack = foldSearchText(`${projection.identity?.name || ''} ${projection.identity?.phone || ''} ${projection.identity?.email || ''}`)
@@ -2613,6 +2640,7 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
           remainingSessions: projection.contract?.remainingSessions ?? null,
           daysRemaining: projection.contract?.daysRemaining ?? null,
           nextSession: projection.schedule?.nextSession || null,
+          sessionCount: Number(projection.training?.sessionCount || projection.contract?.historySessions || 0),
           alertCount: projection.alerts?.filter((value) => audienceAllowed(value.audience, permissions)).length || 0,
         })
         if (rows.length >= pageSize) {
@@ -2893,4 +2921,6 @@ module.exports = {
   normalizeProgressCheckInInput,
   decodeProgressPhotoDataUrl,
   foldSearchText,
+  directoryHasSessionEvidence,
+  directoryRowVisible,
 }

@@ -150,7 +150,7 @@ export default function AdminStudentDirectoryV2({ initialSearchQuery = '', initi
 
   return <section className="admin-student-directory-v2 aura-ui-v4-surface aura-ui-v4-operations" aria-busy={loading}>
     <header className="admin-student-directory-v2__header">
-      <div><span className="admin-student-directory-v2__eyebrow">AURA OPERATIONS · DIRECTORY V2</span><h1>Học viên PT</h1><p>Danh sách phân trang từ Student 360; chỉ tải chi tiết khi mở hồ sơ.</p></div>
+      <div><span className="admin-student-directory-v2__eyebrow">AURA OPERATIONS · DIRECTORY V2</span><h1>Học viên PT</h1><p>Chỉ hiện hồ sơ có phát sinh buổi tập; hồ sơ cũ được tìm khi nhập từ khóa.</p></div>
       <button type="button" className="admin-student-directory-v2__refresh" onClick={() => void load(false)} disabled={loading}><RefreshCw size={16} className={loading ? 'is-spinning' : ''} /> Làm mới</button>
     </header>
     {notice && <div className="admin-student-directory-v2__notice" role="status"><span>{notice}</span><button type="button" aria-label="Đóng thông báo" onClick={() => setNotice('')}><X size={16} /></button></div>}

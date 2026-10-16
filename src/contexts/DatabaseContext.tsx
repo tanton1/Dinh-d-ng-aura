@@ -103,9 +103,10 @@ const LEGACY_OPERATIONS_VIEW_SOURCES = {
   // callable API and owns its one-document revision listener. Do not register
   // this route here: doing so duplicated the same data through nine broad
   // legacy subscriptions every time an administrator opened the matrix.
-  // The history workspace resolves the selected subject locally, while all
-  // historical sessions are fetched cursor-first from a callable API.
-  'admin-training-history': ['students', 'trainers'],
+  // The history workspace resolves students through a bounded Student 360
+  // directory, while all historical sessions are fetched cursor-first from a
+  // callable API. Only the PT identity list remains in this adapter.
+  'admin-training-history': ['trainers'],
   // The report dashboard uses one bounded aggregate callable. It must not also
   // subscribe to thousands of PT legacy documents in the background.
   'admin-finance': ['branches', 'contracts', 'students'],
@@ -128,7 +129,7 @@ const LEGACY_OPERATIONS_VIEW_SOURCES = {
 // other enrichments can arrive later without blocking the page.
 const LEGACY_CORE_SOURCES: Partial<Record<keyof typeof LEGACY_OPERATIONS_VIEW_SOURCES, readonly LegacyOperationSource[]>> = {
   'admin-pt-students': ['students', 'branches'],
-  'admin-training-history': ['students', 'trainers'],
+  'admin-training-history': ['trainers'],
   'admin-finance': ['branches', 'students'],
   'admin-hr': ['branches'],
   'admin-payroll': ['trainers', 'branches'],

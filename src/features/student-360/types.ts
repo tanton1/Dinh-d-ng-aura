@@ -145,6 +145,7 @@ export interface Student360Overview {
     adherence28Days?: number | null
     completed28Days?: number
     target28Days?: number
+    sessionCount?: number
     workoutLogCount?: number
     latestWorkoutAt?: string | null
     program?: null | {
@@ -361,5 +362,6 @@ export interface Student360DirectoryItem {
   remainingSessions: number | null
   daysRemaining: number | null
   nextSession: Student360Overview['schedule']['nextSession']
+  sessionCount?: number
   alertCount: number
 }

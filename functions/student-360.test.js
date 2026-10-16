@@ -27,11 +27,21 @@ const {
   normalizeProgressCheckInInput,
   decodeProgressPhotoDataUrl,
   foldSearchText,
+  directoryHasSessionEvidence,
+  directoryRowVisible,
 } = require('./student-360')
 
 test('Student directory search folds Vietnamese accents and keeps phone digits searchable', () => {
   assert.equal(foldSearchText('  Nguyễn Thị Hồng  '), 'nguyen thi hong')
   assert.equal(foldSearchText('Đặng · 090 123'), 'dang 090 123')
+})
+
+test('Student directory keeps empty and long-expired profiles in the searchable archive', () => {
+  assert.equal(directoryHasSessionEvidence({ training: { sessionCount: 0 }, contract: { historySessions: 0 } }), false)
+  assert.equal(directoryRowVisible({ training: { sessionCount: 0 } }, ''), false)
+  assert.equal(directoryRowVisible({ training: { sessionCount: 2 } }, ''), true)
+  assert.equal(directoryRowVisible({ identity: { status: 'expired' }, contract: { daysRemaining: -14, historySessions: 3 } }, ''), false)
+  assert.equal(directoryRowVisible({ identity: { status: 'expired' }, contract: { daysRemaining: -14, historySessions: 3 } }, 'nguyen'), true)
 })
 
 test('Student 360 selects contracts by effective dates instead of stale stored status', () => {
