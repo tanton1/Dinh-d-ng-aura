@@ -445,6 +445,16 @@ const asiaEastOnCall = (optionsOrHandler, maybeHandler) => {
   return firebaseOnCall({ region: 'asia-east1', invoker: 'public', ...optionsOrHandler, enforceAppCheck }, maybeHandler)
 }
 
+// AI nutrition traffic gets a dedicated region so student scans and AI Coach
+// requests do not compete with the large asia-southeast1 callable fleet. The
+// legacy endpoints remain deployed for older clients during the rollout.
+const nutritionRegionalOnCall = (optionsOrHandler, maybeHandler) => {
+  if (typeof optionsOrHandler === 'function') {
+    return firebaseOnCall({ region: 'asia-southeast2', invoker: 'public', enforceAppCheck }, optionsOrHandler)
+  }
+  return firebaseOnCall({ invoker: 'public', ...optionsOrHandler, region: 'asia-southeast2', enforceAppCheck }, maybeHandler)
+}
+
 function boundedIncidentValue(value, maximum) {
   return typeof value === 'string' ? value.trim().slice(0, maximum) : ''
 }
@@ -476,7 +486,13 @@ setGlobalOptions({
 })
 
 if (!isStudent360Discovery && !isExerciseCatalogDiscovery) {
-  Object.assign(exports, createNutritionFunctions({ app, db }))
+  const nutritionFunctions = createNutritionFunctions({ app, db })
+  Object.assign(exports, nutritionFunctions)
+  const nutritionRegionalFunctions = createNutritionFunctions({ app, db, onCall: nutritionRegionalOnCall })
+  exports.analyzeFoodImageRegional = nutritionRegionalFunctions.analyzeFoodImage
+  exports.generateMealReviewRegional = nutritionRegionalFunctions.generateMealReview
+  exports.getAiCoachOverviewRegional = nutritionRegionalFunctions.getAiCoachOverview
+  exports.askAiCoachRegional = nutritionRegionalFunctions.askAiCoach
   const nutritionPlanFunctions = createNutritionPlanFunctions({ db, onCall, requireStudent: requireStudentAccount })
   Object.assign(exports, nutritionPlanFunctions)
   exports.getMyNutritionPlanWorkspace = nutritionPlanFunctions.getMyNutritionPlanWorkspace

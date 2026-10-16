@@ -2,7 +2,7 @@ const { getStorage } = require('firebase-admin/storage')
 const { FieldValue } = require('firebase-admin/firestore')
 const { createHash } = require('node:crypto')
 const { logger } = require('firebase-functions')
-const { HttpsError, onCall } = require('firebase-functions/v2/https')
+const { HttpsError, onCall: defaultOnCall } = require('firebase-functions/v2/https')
 const { withFunctionTelemetry } = require('./observability')
 const {
   REGULAR_DAILY_FOOD_SCAN_LIMIT,
@@ -2850,7 +2850,7 @@ function createDemoResponse(scanId) {
   }
 }
 
-function createNutritionFunctions({ app, db }) {
+function createNutritionFunctions({ app, db, onCall = defaultOnCall }) {
   const analyzeFoodImage = onCall({
     timeoutSeconds: 120,
     memory: '512MiB',

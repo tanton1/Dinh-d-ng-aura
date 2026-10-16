@@ -1,7 +1,7 @@
 import { httpsCallable } from 'firebase/functions'
 import { deleteObject, ref, uploadBytes } from 'firebase/storage'
 import { firebaseAppCheckStatus, firebaseAuth, initializeFirebaseAppCheck, isFirebaseConfigured, useFirebaseEmulators } from '../lib/firebase'
-import { firebaseFunctions } from '../lib/firebaseFunctions'
+import { firebaseFunctions, firebaseNutritionFunctions } from '../lib/firebaseFunctions'
 import { firebaseStorage } from '../lib/firebaseStorage'
 import { reportClientIssue } from './clientTelemetryService'
 import { optimizeNutritionImageForUpload } from './nutritionImageOptimizer'
@@ -202,14 +202,16 @@ const acceptedImageTypes = new Map<string, string>([
 const acceptedMealTypes = new Set<MealType>(['breakfast', 'lunch', 'dinner', 'snack', 'other'])
 
 function requireNutritionFirebase() {
-  if (!firebaseAuth || !firebaseFunctions || !firebaseStorage) {
+  const functions = firebaseNutritionFunctions ?? firebaseFunctions
+  if (!firebaseAuth || !functions || !firebaseStorage) {
     throw new Error('Firebase chưa được cấu hình cho tính năng nhận diện món ăn.')
   }
   const currentUser = firebaseAuth.currentUser
   if (!currentUser) throw new Error('Bạn cần đăng nhập để phân tích món ăn.')
   return {
     user: currentUser,
-    functions: firebaseFunctions,
+    functions,
+    regional: Boolean(firebaseNutritionFunctions),
     storage: firebaseStorage,
   }
 }
@@ -563,7 +565,7 @@ export async function analyzeUploadedFoodPhoto(
 
     const callable = httpsCallable<AnalyzeFoodImageRequest, FoodAnalysisResponse>(
       firebase.functions,
-      'analyzeFoodImage',
+      firebase.regional ? 'analyzeFoodImageRegional' : 'analyzeFoodImage',
       { timeout: 120_000 },
     )
     const result = await callable({
@@ -626,7 +628,7 @@ export async function generateMealReview(meal: any, userProfile: any): Promise<s
     const firebase = requireNutritionFirebase();
     const callable = httpsCallable<{ meal: any, userProfile: any }, { review: string }>(
       firebase.functions,
-      'generateMealReview',
+      firebase.regional ? 'generateMealReviewRegional' : 'generateMealReview',
       { timeout: 30_000 },
     );
     const result = await callable({ meal, userProfile });
@@ -826,7 +828,7 @@ export async function getAiCoachOverview(
     const firebase = requireNutritionFirebase()
     const callable = httpsCallable<{ conversationId: string }, unknown>(
       firebase.functions,
-      'getAiCoachOverview',
+      firebase.regional ? 'getAiCoachOverviewRegional' : 'getAiCoachOverview',
       { timeout: 30_000 },
     )
     const result = await callable({ conversationId })
@@ -866,7 +868,7 @@ export async function askAiCoachDetailed(
     learningContext?: AiCoachLearningContext
   }, unknown>(
     firebase.functions,
-    'askAiCoach',
+    firebase.regional ? 'askAiCoachRegional' : 'askAiCoach',
     // The backend reserves up to 45 seconds for provider fallbacks, then still
     // needs time to persist the exchange and idempotency receipt.
     { timeout: attachment ? 75_000 : 65_000 },
