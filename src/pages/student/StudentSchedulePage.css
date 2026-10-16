@@ -853,7 +853,7 @@
 .student-policy-note.is-success { border-color: #f6d8be; color: #674536; background: #fff6eb; }
 .student-policy-note.is-success svg { color: #e86d32; }
 .student-policy-current,.student-policy-duration { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 12px; padding: 11px 12px; border-radius: 14px; background: #fff; box-shadow: inset 0 0 0 1px #eee3e8; }
-.student-policy-current small,.student-policy-duration span { color: #8b7982; font-size: 10px; font-weight: 800; letter-spacing: .08em; }
+.student-policy-current small,.student-policy-duration span { color: #8b7982; font-size: 10px; font-weight: 800; letter-spacing: 0; }
 .student-policy-current strong,.student-policy-duration strong { color: #d92070; font-size: 13px; }
 .student-policy-sheet form { margin-top: 14px; }
 .student-policy-segment { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 4px; padding: 4px; border-radius: 14px; background: #f5edf1; }
@@ -873,32 +873,33 @@
 .student-policy-sheet form > footer button.secondary { border: 1px solid #eadde3; color: #66545e; background: #fff; }
 .student-policy-sheet form > footer button:disabled { opacity: .55; cursor: wait; }
 .student-change-suggestions { display:grid; gap:10px; margin-top:13px; }
-.student-change-suggestions > header { display:flex; align-items:flex-start; justify-content:space-between; gap:10px; }
-.student-change-suggestions > header div { display:grid; gap:3px; }
-.student-change-suggestions > header strong { color:#46323e; font-size:13px; }
-.student-change-suggestions > header span { color:#8a7681; font-size:10px; line-height:1.45; }
-.student-change-suggestions > header button { display:grid; width:36px; height:36px; flex:0 0 auto; place-items:center; border:1px solid #eadce2; border-radius:11px; color:#da2c71; background:#fff; }
+.student-change-suggestions > header { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+.student-change-suggestions > header div { display:grid; gap:2px; }
+.student-change-suggestions > header strong { color:#46323e; font-size:14px; }
+.student-change-suggestions > header span { min-height:14px; color:#8a7681; font-size:10px; line-height:1.35; }
+.student-change-suggestions > header button { display:grid; width:36px; height:36px; flex:0 0 auto; place-items:center; border:1px solid #eadce2; border-radius:11px; color:#da2c71; background:#fff; cursor:pointer; }
+.student-change-suggestions > header button:disabled { opacity:.55; cursor:wait; }
 .student-change-suggestions .is-spinning { animation:student-change-spin .8s linear infinite; }
 @keyframes student-change-spin { to { transform:rotate(360deg); } }
-.student-change-suggestions__empty { display:flex; min-height:82px; align-items:center; justify-content:center; gap:8px; padding:13px; border:1px dashed #efcdda; border-radius:14px; color:#806a76; background:#fff9fb; font-size:11px; line-height:1.5; text-align:center; }
-.student-change-suggestions__rail { display:grid; grid-auto-flow:column; grid-auto-columns:minmax(220px,82%); gap:8px; overflow-x:auto; padding:2px 2px 7px; scroll-snap-type:x mandatory; overscroll-behavior-x:contain; scrollbar-width:none; }
-.student-change-suggestions__rail::-webkit-scrollbar { display:none; }
-.student-change-suggestions__rail > button { position:relative; display:grid; gap:4px; min-width:0; padding:13px 12px 11px 42px; border:1px solid #ecdde3; border-radius:16px; color:#4b3742; background:#fff; box-shadow:0 8px 18px rgba(55,28,43,.05); text-align:left; scroll-snap-align:start; cursor:pointer; }
-.student-change-suggestions__rail > button.is-selected { border-color:#f64b89; background:linear-gradient(145deg,#fff8fb,#fff4ed); box-shadow:0 10px 25px rgba(241,51,123,.13); }
-.student-change-suggestion__check { position:absolute; top:12px; left:11px; display:grid; width:23px; height:23px; place-items:center; border-radius:8px; color:#d82d72; background:#fff0f5; font-size:10px; font-weight:900; }
-.student-change-suggestions__rail > button.is-selected .student-change-suggestion__check { color:#fff; background:linear-gradient(135deg,#f62f82,#ff8751); }
-.student-change-suggestions__rail strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; }
-.student-change-suggestions__rail > button > span:not(.student-change-suggestion__check) { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#6f5965; font-size:11px; }
-.student-change-suggestions__rail small { display:flex; align-items:center; gap:5px; color:#8c7782; font-size:10px; }
-.student-change-suggestions__rail em,.student-change-suggestions__rail i { width:max-content; max-width:100%; padding:4px 7px; border-radius:99px; font-size:9px; font-style:normal; font-weight:850; }
-.student-change-suggestions__rail em { color:#d12b6d; background:#fff0f5; }
-.student-change-suggestions__rail i { color:#a3591f; background:#fff2df; }
-.student-change-suggestions__groups { display:grid; gap:10px; }
-.student-change-suggestions__group { display:grid; gap:6px; padding:9px; border:1px solid #eadfe4; border-radius:14px; background:#fff; }
-.student-change-suggestions__group > header { display:flex; align-items:baseline; justify-content:space-between; gap:8px; }
-.student-change-suggestions__group > header strong { color:#4b3742; font-size:11px; }
-.student-change-suggestions__group > header span { color:#8c7782; font-size:9px; line-height:1.35; text-align:right; }
-.student-change-suggestions__group .student-change-suggestions__rail { padding-bottom:2px; }
+.student-change-suggestions__empty { display:flex; min-height:72px; align-items:center; justify-content:center; gap:8px; padding:13px; border:1px dashed #efcdda; border-radius:14px; color:#806a76; background:#fff9fb; font-size:11px; line-height:1.5; text-align:center; }
+.student-change-suggestions__list { display:grid; gap:8px; }
+.student-change-suggestions__list > button { position:relative; display:grid; grid-template-columns:30px minmax(0,1fr) auto; grid-template-areas:'check meta meta' 'check trainer role' 'check branch branch' 'check capacity capacity'; gap:5px 9px; min-width:0; padding:13px 12px 12px 11px; border:1px solid #eadde4; border-radius:17px; color:#4b3742; background:#fff; box-shadow:0 5px 15px rgba(55,28,43,.045); text-align:left; cursor:pointer; }
+.student-change-suggestions__list > button:focus-visible { outline:3px solid rgba(246,47,130,.22); outline-offset:2px; }
+.student-change-suggestions__list > button.is-selected { border-color:#f64b89; background:linear-gradient(145deg,#fff8fb,#fff4ed); box-shadow:0 8px 22px rgba(241,51,123,.13); }
+.student-change-suggestion__check { grid-area:check; display:grid; width:27px; height:27px; place-items:center; align-self:start; border:1px solid #f0d9e3; border-radius:9px; color:#fff; background:#fff7fa; font-size:10px; font-weight:900; }
+.student-change-suggestions__list > button.is-selected .student-change-suggestion__check { border-color:transparent; background:linear-gradient(135deg,#f62f82,#ff8751); }
+.student-change-suggestion__meta { grid-area:meta; display:flex; min-width:0; align-items:baseline; justify-content:space-between; gap:8px; }
+.student-change-suggestion__meta strong { overflow:hidden; color:#352831; font-size:13px; text-overflow:ellipsis; white-space:nowrap; }
+.student-change-suggestion__meta time { flex:0 0 auto; color:#d92070; font-size:15px; font-weight:900; }
+.student-change-suggestion__trainer { grid-area:trainer; overflow:hidden; color:#6f5965; font-size:12px; font-weight:700; text-overflow:ellipsis; white-space:nowrap; }
+.student-change-suggestion__branch,.student-change-suggestion__capacity { display:flex; min-width:0; align-items:center; gap:5px; color:#8c7782; font-size:10px; }
+.student-change-suggestion__branch { grid-area:branch; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.student-change-suggestion__branch svg { flex:0 0 auto; color:#d12b6d; }
+.student-change-suggestion__branch.is-cross-branch { color:#9b3e62; }
+.student-change-suggestion__branch em { flex:0 0 auto; padding:3px 6px; border-radius:999px; color:#9b3e62; background:#fff0f6; font-size:9px; font-style:normal; font-weight:800; }
+.student-change-suggestion__capacity { grid-area:capacity; }
+.student-change-suggestion__capacity svg { flex:0 0 auto; color:#8b9b94; }
+.student-change-suggestion__role { grid-area:role; width:max-content; max-width:120px; overflow:hidden; padding:4px 7px; border-radius:999px; color:#d12b6d; background:#fff0f5; font-size:9px; font-style:normal; font-weight:850; text-overflow:ellipsis; white-space:nowrap; }
 
 @media (min-width: 641px) {
   .student-policy-modal { place-items: center; padding: 24px; }

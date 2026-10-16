@@ -11,9 +11,10 @@ for (const width of [360, 390, 430]) {
     // is available regardless of the current wall-clock time.
     await page.locator('.upcoming-item').nth(1).click()
     await page.getByRole('button', { name: 'Đổi / hủy buổi' }).click()
-    const sessionDialog = page.getByRole('dialog', { name: 'Đổi hoặc hủy buổi tập' })
+    const sessionDialog = page.getByRole('dialog', { name: 'Đổi hoặc hủy buổi' })
     await expect(sessionDialog).toBeVisible()
-    await expect(sessionDialog.getByText(/1 lượt đổi\/hủy không tính buổi/i)).toBeVisible()
+    await expect(sessionDialog.getByText('Buổi hiện tại')).toBeVisible()
+    await expect(sessionDialog).not.toContainText(/mốc cân tải|dự kiến\s+\d+\s+ca/i)
 
     const sessionGeometry = await sessionDialog.locator('.student-policy-sheet').evaluate((element) => {
       const box = element.getBoundingClientRect()

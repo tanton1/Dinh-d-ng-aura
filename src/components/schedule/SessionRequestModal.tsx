@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { CalendarClock, Check, CircleAlert, MapPin, RefreshCw, UsersRound, X } from 'lucide-react'
 import { createMySessionRequest, getMySessionChangeSuggestions, type SessionChangeSuggestionPage } from '../../services/sessionOperationsService'
-import { PT_OPERATIONS_POLICY_DEFAULTS } from '../../config/ptOperationsPolicy'
 
 interface RequestableSession {
   id: string
@@ -36,18 +35,10 @@ export default function SessionRequestModal({ onClose, onCreated, session }: Pro
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState('')
   const idempotencyKey = useRef(newKey())
+  const suggestionLoadKey = useRef('')
   const sessionLabel = useMemo(() => `${formatDate(session.date)} · ${session.hour === null ? '--:--' : `${String(session.hour).padStart(2, '0')}:00`}`, [session.date, session.hour])
   const selectedSuggestion = suggestionPage?.suggestions.find((candidate) => candidate.candidateId === selectedCandidateId) ?? null
-  const policy = suggestionPage?.policy
-  const suggestionGroups = useMemo(() => {
-    const suggestions = suggestionPage?.suggestions ?? []
-    return ([1, 2, 3] as const).map((tier) => ({
-      tier,
-      label: tier === 1 ? 'Ưu tiên ghép ca 1/2' : tier === 2 ? 'PT chính dưới mốc cân tải' : 'PT Aura còn lịch',
-      hint: tier === 1 ? 'Lấp ghế trống, không mở thêm ca cho PT.' : tier === 2 ? 'Mở ca mới khi PT chính thức còn dưới mốc cân tải được cấu hình.' : 'Phương án dự phòng, vẫn ưu tiên xếp đủ buổi.',
-      items: suggestions.filter((candidate) => (candidate.priorityTier ?? (candidate.pairsExistingSession ? 1 : candidate.isPrimaryTrainer ? 2 : 3)) === tier),
-    })).filter((group) => group.items.length > 0)
-  }, [suggestionPage?.suggestions])
+  const suggestions = suggestionPage?.suggestions ?? []
 
   const loadSuggestions = async () => {
     setIsLoadingSuggestions(true)
@@ -65,7 +56,12 @@ export default function SessionRequestModal({ onClose, onCreated, session }: Pro
     }
   }
 
-  useEffect(() => { void loadSuggestions() }, [session.id, session.revision])
+  useEffect(() => {
+    const key = `${session.id}:${session.revision}`
+    if (type !== 'reschedule' || suggestionLoadKey.current === key) return
+    suggestionLoadKey.current = key
+    void loadSuggestions()
+  }, [session.id, session.revision, type])
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault()
@@ -76,7 +72,7 @@ export default function SessionRequestModal({ onClose, onCreated, session }: Pro
 
     setIsSubmitting(true)
     try {
-      const result = await createMySessionRequest({
+      await createMySessionRequest({
         sessionId: session.id,
         expectedRevision: session.revision,
         type,
@@ -87,10 +83,7 @@ export default function SessionRequestModal({ onClose, onCreated, session }: Pro
         reason: reason.trim(),
         idempotencyKey: idempotencyKey.current,
       })
-      const policyMessage = result.expectedCountsTowardContract
-        ? `Đây là lượt ${result.expectedSequence} trong tháng; khi được duyệt, buổi đã xếp sẽ được tính vào gói tập.`
-        : `Đây là lượt ${result.expectedSequence}/${result.complimentaryLimit} được miễn tính buổi trong tháng.`
-      onCreated?.(`Đã gửi yêu cầu. ${policyMessage}`)
+      onCreated?.(type === 'reschedule' ? 'Đã gửi yêu cầu đổi lịch.' : 'Đã gửi yêu cầu hủy buổi.')
       onClose()
     } catch (caught) {
       setError((caught instanceof Error ? caught.message : 'Chưa thể gửi yêu cầu.').replace(/^Firebase:\s*/i, ''))
@@ -105,37 +98,40 @@ export default function SessionRequestModal({ onClose, onCreated, session }: Pro
       <section className="student-policy-sheet">
         <header>
           <span><CalendarClock size={21} /></span>
-          <div><small>AURA · QUY ĐỊNH LỊCH</small><h2 id="session-policy-title">Đổi hoặc hủy buổi tập</h2></div>
+          <h2 id="session-policy-title">Đổi hoặc hủy buổi</h2>
           <button type="button" aria-label="Đóng" onClick={onClose}><X size={20} /></button>
         </header>
-        <div className="student-policy-note"><CircleAlert size={18} /><p><strong>Gửi trước giờ tập ít nhất {policy?.sessionChangeDeadlineHours ?? PT_OPERATIONS_POLICY_DEFAULTS.sessionChangeDeadlineHours} giờ.</strong> Aura đang áp dụng {policy?.complimentaryChangeCancelPerMonth ?? PT_OPERATIONS_POLICY_DEFAULTS.complimentaryChangeCancelPerMonth} lượt đổi/hủy không tính buổi mỗi tháng; bạn còn {policy?.complimentaryRemaining ?? '…'} lượt.</p></div>
-        <div className="student-policy-current"><small>BUỔI ĐANG CHỌN</small><strong>{sessionLabel}</strong></div>
+        <div className="student-policy-current"><small>Buổi hiện tại</small><strong>{sessionLabel}</strong></div>
         <form onSubmit={handleSubmit}>
           <div className="student-policy-segment" aria-label="Loại yêu cầu"><button type="button" className={type === 'cancel' ? 'active' : ''} onClick={() => setType('cancel')}>Hủy buổi</button><button type="button" className={type === 'reschedule' ? 'active' : ''} onClick={() => setType('reschedule')}>Đổi lịch</button></div>
           {type === 'reschedule' && <section className="student-change-suggestions" aria-busy={isLoadingSuggestions}>
-            <header><div><strong>Ca Aura đề xuất</strong><span>Ưu tiên xếp đủ buổi, ghép ca phù hợp và cân tải giữa các PT hợp lệ.</span></div><button type="button" onClick={() => void loadSuggestions()} disabled={isLoadingSuggestions} aria-label="Tải lại ca gợi ý"><RefreshCw className={isLoadingSuggestions ? 'is-spinning' : ''} size={17} /></button></header>
+            <header><div><strong>Chọn ca mới</strong><span>{suggestions.length ? `${suggestions.length} ca phù hợp` : ''}</span></div><button type="button" onClick={() => void loadSuggestions()} disabled={isLoadingSuggestions} aria-label="Tải lại ca gợi ý"><RefreshCw className={isLoadingSuggestions ? 'is-spinning' : ''} size={17} /></button></header>
             {isLoadingSuggestions && !suggestionPage && <div className="student-change-suggestions__empty"><RefreshCw className="is-spinning" /> Đang tìm ca phù hợp…</div>}
-            {!isLoadingSuggestions && suggestionPage && !suggestionPage.suggestions.length && <div className="student-change-suggestions__empty"><CircleAlert /> Chưa có ca trống khớp lịch rảnh trong 21 ngày tới. Aura sẽ hỗ trợ xếp thủ công.</div>}
-            <div className="student-change-suggestions__groups">
-              {suggestionGroups.map((group) => <section className={`student-change-suggestions__group is-tier-${group.tier}`} key={group.tier}>
-                <header><strong>{group.label}</strong><span>{group.items.length} ca · {group.hint}</span></header>
-                <div className="student-change-suggestions__rail">
-              {group.items.map((candidate) => <button type="button" key={candidate.candidateId} className={selectedCandidateId === candidate.candidateId ? 'is-selected' : ''} onClick={() => setSelectedCandidateId(candidate.candidateId)}>
-                <span className="student-change-suggestion__check">{selectedCandidateId === candidate.candidateId ? <Check size={14} /> : candidate.rank}</span>
-                <strong>{formatDate(candidate.date)} · {String(candidate.hour).padStart(2, '0')}:00</strong>
-                <span>{candidate.trainerName}</span>
-                <small className={`student-suggestion-branch${candidate.isCrossBranch ? ' is-cross-branch' : ''}`}><MapPin size={13} /> Tập tại {candidate.branchName}{candidate.isCrossBranch ? ` · khác ${candidate.homeBranchName || suggestionPage?.homeBranchName || 'cơ sở hồ sơ'}` : ''}</small>
-                <small><UsersRound size={13} /> {candidate.occupancy}/{candidate.capacity} học viên · dự kiến {candidate.dailyLoadAfter ?? (candidate.dailyLoad + Number(!candidate.pairsExistingSession))} ca · mốc cân tải {candidate.dailyTarget}</small>
-                <em>{candidate.pairsExistingSession ? 'Còn 1 ghế trong ca' : candidate.isPrimaryTrainer ? 'PT chính' : candidate.isCurrentTrainer ? 'PT hiện tại' : candidate.isAssignedTrainer ? 'PT phụ trách' : 'PT chính thức'}</em>
-                {candidate.createsThreeConsecutiveDays && <i>3 ngày liên tiếp</i>}
-                {(candidate.overTargetAfter ?? ((candidate.dailyLoadAfter ?? candidate.dailyLoad) > candidate.dailyTarget)) && <i>Tải cao hơn mốc tham chiếu</i>}
-              </button>)}
-                </div>
-              </section>)}
+            {!isLoadingSuggestions && suggestionPage && !suggestionPage.suggestions.length && <div className="student-change-suggestions__empty"><CircleAlert /> Chưa có ca phù hợp.</div>}
+            <div className="student-change-suggestions__list">
+              {suggestions.map((candidate) => {
+                const availableSeats = Math.max(0, candidate.capacity - candidate.occupancy)
+                const roleLabel = candidate.pairsExistingSession
+                  ? 'Ca đang mở'
+                  : candidate.isPrimaryTrainer
+                    ? 'PT chính'
+                    : candidate.isCurrentTrainer
+                      ? 'PT hiện tại'
+                      : candidate.isAssignedTrainer
+                        ? 'PT phụ trách'
+                        : 'PT phù hợp'
+                return <button type="button" key={candidate.candidateId} className={selectedCandidateId === candidate.candidateId ? 'is-selected' : ''} aria-pressed={selectedCandidateId === candidate.candidateId} onClick={() => setSelectedCandidateId(candidate.candidateId)}>
+                  <span className="student-change-suggestion__check">{selectedCandidateId === candidate.candidateId ? <Check size={14} /> : null}</span>
+                  <span className="student-change-suggestion__meta"><strong>{formatDate(candidate.date)}</strong><time>{String(candidate.hour).padStart(2, '0')}:00</time></span>
+                  <span className="student-change-suggestion__trainer">{candidate.trainerName}</span>
+                  <span className={`student-change-suggestion__branch${candidate.isCrossBranch ? ' is-cross-branch' : ''}`}><MapPin size={13} /> {candidate.branchName}{candidate.isCrossBranch && <em>Khác cơ sở</em>}</span>
+                  <span className="student-change-suggestion__capacity"><UsersRound size={13} /> Còn {availableSeats} chỗ</span>
+                  <span className="student-change-suggestion__role">{roleLabel}</span>
+                </button>
+              })}
             </div>
           </section>}
-          {type === 'reschedule' && selectedSuggestion?.isCrossBranch && <div className="student-cross-branch-note"><MapPin size={17} /><p><strong>Ca đổi thuộc {selectedSuggestion.branchName}.</strong> Khi gửi, quản lý sẽ duyệt việc tập khác {selectedSuggestion.homeBranchName || suggestionPage?.homeBranchName || 'cơ sở hồ sơ'} và lịch chỉ chuyển sau khi được xác nhận.</p></div>}
-          <label className="student-policy-reason"><span>Lý do</span><textarea required maxLength={500} value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Cho Aura biết lý do để vận hành hỗ trợ tốt hơn…" /></label>
+          <label className="student-policy-reason"><span>{type === 'reschedule' ? 'Lý do đổi lịch' : 'Lý do hủy buổi'}</span><textarea required maxLength={500} value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Nhập lý do" /></label>
           {error && <p className="student-policy-error" role="alert">{error}</p>}
           <footer><button type="button" className="secondary" onClick={onClose}>Để sau</button><button type="submit" disabled={isSubmitting || (type === 'reschedule' && (!selectedSuggestion || isLoadingSuggestions))}>{isSubmitting ? 'Đang gửi…' : 'Gửi yêu cầu'}</button></footer>
         </form>
