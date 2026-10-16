@@ -711,6 +711,10 @@ test('PT pre-absence flow is exposed through separate planning and additional-se
   assert.match(source, /ADVANCE_ABSENCE_REPLACEMENT_LOCKED/)
 })
 
+test('PT schedule does not expose the optional Kudos action', () => {
+  assert.doesNotMatch(trainerPortal, /giveSessionKudos|kudosBusy|kudosSent|Gửi Kudos/)
+})
+
 test('attendance uses the session contract link and a deterministic event id', async () => {
   const state = operationsFor({
     'sessions/session-attendance-1': {

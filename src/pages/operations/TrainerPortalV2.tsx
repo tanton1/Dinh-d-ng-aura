@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { CalendarDays, CheckCheck, CheckCircle2, ChevronLeft, ChevronRight, CircleAlert, Clock3, MapPin, MessageCircle, Phone, RefreshCw, Search, Sparkles, Timer, UserCheck, UserPlus, UserX, X } from 'lucide-react'
+import { CalendarDays, CheckCheck, CheckCircle2, ChevronLeft, ChevronRight, CircleAlert, Clock3, MapPin, MessageCircle, Phone, RefreshCw, Search, Timer, UserCheck, UserPlus, UserX, X } from 'lucide-react'
 import {
   bulkConfirmMySessions,
   getMyTrainerWorkspace,
@@ -13,7 +13,6 @@ import {
   type CoachWorkspaceScope,
 } from '../../services/ptOperationsV2Service'
 import type { ViewId } from '../../types'
-import { giveSessionKudos } from '../../features/loyalty/loyaltyService'
 import { createStudentCareActivity } from '../../features/student-360/student360Service'
 import './OperationsPortalV2.css'
 import './OperationsAttendance.css'
@@ -164,8 +163,6 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [zaloBusy, setZaloBusy] = useState('')
-  const [kudosBusy, setKudosBusy] = useState('')
-  const [kudosSent, setKudosSent] = useState<Set<string>>(() => new Set())
   const [requestTarget, setRequestTarget] = useState<TrainerSessionSummary | null>(null)
   const [advanceAbsenceTarget, setAdvanceAbsenceTarget] = useState<TrainerSessionSummary | null>(null)
   const [advanceAbsenceReason, setAdvanceAbsenceReason] = useState('')
@@ -398,18 +395,6 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
     setNoShowReason('')
     setAttendanceNote('')
     setError('')
-  }
-
-  const sendKudos = async (session: TrainerSessionSummary) => {
-    if (kudosBusy || kudosSent.has(session.id)) return
-    setKudosBusy(session.id); setError('')
-    try {
-      if (!isDemo) await giveSessionKudos({ sessionId: session.id, studentId: session.studentId, message: 'Buổi tập rất tốt hôm nay — tiếp tục giữ phong độ nhé! 🔥' })
-      setKudosSent((current) => new Set(current).add(session.id))
-      setNotice(`Đã gửi lời khen tới ${studentNames.get(session.studentId) || 'học viên'}. Kudos chỉ tạo huy hiệu, không cộng điểm đổi quà.`)
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Không thể gửi Kudos cho buổi tập này.')
-    } finally { setKudosBusy('') }
   }
 
   const sendWeeklyZalo = async (student: TrainerStudentSummary, studentSessions: TrainerSessionSummary[]) => {
@@ -662,7 +647,6 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
               {advanceAbsenceReported ? <small className="opv2-auto-attendance-note opv2-advance-absence-note"><Clock3 size={13} /> Đã báo nghỉ trước giờ{replacementLocked ? ' · đã giải phóng ca' : ' · chờ quản lý duyệt nếu thêm học viên'}</small> : null}
               {advanceAbsenceReported && !replacementLocked ? <button className="opv2-request-link is-add-student" type="button" onClick={() => openAddStudent(session)}><UserPlus size={15} /> Thêm học viên vào ca</button> : null}
               {state !== 'pending' ? <button className="opv2-correct-attendance" type="button" onClick={() => openAttendance(session)}>Sửa xác nhận</button> : null}
-              {['present', 'late'].includes(state) ? <button className="opv2-kudos" type="button" disabled={kudosBusy === session.id || kudosSent.has(session.id)} onClick={() => void sendKudos(session)}><Sparkles size={15} /> {kudosSent.has(session.id) ? 'Đã gửi Kudos' : kudosBusy === session.id ? 'Đang gửi…' : 'Gửi Kudos'}</button> : null}
               {requestable ? <button className="opv2-request-link" type="button" onClick={() => openRequest(session)}>Điều chỉnh lịch</button> : null}
               {makeupRequestable ? <button className="opv2-request-link is-makeup" type="button" onClick={() => openRequest(session)}>Xếp lịch bù</button> : null}
               {makeupRequestExists ? <small className="opv2-auto-attendance-note"><Clock3 size={13} /> Đã có yêu cầu bù đang chờ hoặc đã được duyệt.</small> : null}
