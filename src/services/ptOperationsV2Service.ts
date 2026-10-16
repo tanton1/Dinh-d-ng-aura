@@ -163,6 +163,8 @@ export interface TrainerSessionSummary {
   confirmedAt?: string
   contractId?: string
   contractEffective?: boolean
+  /** The linked contract still has quota and is schedulable on this session date. */
+  contractSchedulable?: boolean
   contract?: TrainerStudentSummary['contract']
   revision?: number
   timeZone: string

@@ -781,11 +781,10 @@ async function coachWorkspaceScopeForActor(db, actor) {
 async function assignedStudentsForActor(db, actor, limit) {
   const candidateLimit = Math.min(1000, Math.max(300, limit * 3))
   const assigned = await assignedContracts(db, actor, 'training', candidateLimit)
-  // A PT needs the full active roster of every branch in their access scope,
-  // even when a learner has not yet been assigned to that PT in a contract.
-  // Scheduled sessions remain a separate access path and are merged by the
-  // workspace loader below, so a cross-branch learner can still appear when
-  // this PT is the person teaching the session.
+  // A PT sees eligible learners from every branch in their access scope,
+  // including learners who are not assigned to that PT. Scheduled sessions
+  // remain a separate access path and are merged by the workspace loader, so
+  // a cross-branch learner can still appear when this PT teaches the session.
   const branchRosterEnabled = actor.accessRole === 'staff'
     && Array.isArray(actor.positions)
     && actor.positions.includes('trainer_pt')
@@ -826,23 +825,27 @@ async function assignedStudentsForActor(db, actor, limit) {
     usage: studentContractProjection(contract.id, contract, today, sessionsByContract.get(contract.id) || [], true),
   }))
   const contracts = projectedContracts.filter((contract) => contract.usage.schedulableToday)
-  const rosterStudentIds = branchStudentSnapshots
-    .filter((snapshot) => !['inactive', 'deleted', 'archived'].includes(String(snapshot.data()?.status || '').toLowerCase()))
-    .map((snapshot) => snapshot.id)
-  const allStudentIds = [...new Set([...rosterStudentIds, ...contracts.map((item) => item.studentId).filter(Boolean)])]
+  // The branch roster is contract-scoped: an active student profile alone is
+  // not enough to appear here. Only contracts that are effective today,
+  // unpaused and have remaining sessions can be used to create a new session.
+  // Assigned contracts from another branch stay in the same set so a PT keeps
+  // seeing their own learners even when the learner trains elsewhere.
+  const eligibleStudentIds = contracts.map((item) => item.studentId).filter(Boolean)
+  const allStudentIds = [...new Set(eligibleStudentIds)]
   const studentIds = allStudentIds.slice(0, limit)
   const visibleStudentIds = new Set(studentIds)
   const visibleContracts = projectedContracts.filter((contract) => visibleStudentIds.has(contract.studentId)
-    && (contract.usage.schedulableToday || branchStudentMap.has(contract.studentId)))
+    && contract.usage.schedulableToday)
   const visibleBranchIds = [...new Set([...actor.branchIds, ...contracts.map((item) => item.branchId).filter(Boolean)])]
   const [studentSnapshots, branchSnapshots] = await Promise.all([
     studentIds.length ? db.getAll(...studentIds.map((id) => db.doc(`students/${id}`))) : [],
     visibleBranchIds.length ? db.getAll(...visibleBranchIds.map((id) => db.doc(`branches/${id}`))) : [],
   ])
-  const students = studentSnapshots.filter((snapshot) => snapshot.exists).map((snapshot) => {
+  const students = studentSnapshots
+    .filter((snapshot) => snapshot.exists
+      && !['inactive', 'deleted', 'archived'].includes(String(snapshot.data()?.status || '').toLowerCase()))
+    .map((snapshot) => {
     const student = snapshot.data()
-    const isBranchRosterStudent = branchStudentMap.has(snapshot.id)
-      && !['inactive', 'deleted', 'archived'].includes(String(student.status || '').toLowerCase())
     const studentContracts = visibleContracts
       .filter((item) => item.studentId === snapshot.id)
       .sort((left, right) => {
@@ -856,7 +859,7 @@ async function assignedStudentsForActor(db, actor, limit) {
           || left.id.localeCompare(right.id)
     })
     const contract = studentContracts[0]
-    if (!contract && !isBranchRosterStudent) return null
+    if (!contract) return null
     const actorIds = [actor.uid, actor.legacyStaffId].filter(Boolean)
     const contractTrainerIds = Array.isArray(contract?.trainerIds) ? contract.trainerIds : []
     const assigned = Boolean(contract && actorIds.some((id) => contract.trainerId === id || contractTrainerIds.includes(id)))
@@ -944,6 +947,7 @@ async function trainerScheduleForActor(db, actor, from, to, limit) {
       // not against today's date. This keeps future renewals and historical
       // sessions visible to Staff even when the contract changes later.
       const contractEffective = Boolean(contract && contractCoversDate(contract, session.date || today))
+      const contractSchedulable = Boolean(contract && isContractSchedulableOn(contract, session.date || today))
       return {
         ...session,
         studentName: student?.name || 'Học viên Aura',
@@ -962,6 +966,7 @@ async function trainerScheduleForActor(db, actor, from, to, limit) {
             }
           : null,
         contractEffective,
+        contractSchedulable,
         contract: contractEffective ? {
           id: contract.id,
           status: contract.status || 'active',

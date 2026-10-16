@@ -279,9 +279,11 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
             }
             return
           }
-          // Keep the demo roster stable for the existing layout checks; production
-          // still receives students who only have a scheduled teaching session.
-          if (isDemo && !session.contract) return
+          // A schedule-only learner is shown on the student page only when the
+          // session is backed by a contract that is effective for that session.
+          // Branch-rostered learners already passed today's schedulable contract
+          // filter in the workspace response.
+          if (isDemo ? !session.contract : (!session.contract || session.contractEffective !== true || session.contractSchedulable !== true)) return
           merged.set(session.studentId, {
             id: session.studentId,
             name: session.studentName || 'Học viên Aura',
