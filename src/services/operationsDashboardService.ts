@@ -5,6 +5,18 @@ import { reportClientIssue } from './clientTelemetryService'
 import { callReadOnlyFunction } from './readOnlyCallableService'
 export type { DashboardActionMetric, OperationsDashboardData } from '../utils/operationsDashboardNormalization'
 
+export interface TodaySessionsData {
+  schemaVersion: 1
+  date: string
+  branchId: string
+  scope: { branchId: string; branchIds: string[]; unrestricted: boolean }
+  permissions: { operations: boolean }
+  today: OperationsDashboardData['today']
+  filters: { branches: Array<{ id: string; name: string }> }
+  generatedAt: string
+  cache: { hit: boolean; tier: 'memory' | 'miss'; ttlSeconds: number }
+}
+
 const dashboardPreviewEnabled = import.meta.env.MODE === 'e2e'
 const dashboardRequests = new Map<string, Promise<OperationsDashboardData>>()
 const dashboardResponses = new Map<string, { value: OperationsDashboardData; expiresAt: number }>()
@@ -115,6 +127,18 @@ export async function getOperationsDashboard(input: { startAt?: string; endAt?: 
     .finally(() => dashboardRequests.delete(requestKey))
   dashboardRequests.set(requestKey, pending)
   return pending
+}
+
+/**
+ * Lightweight source for the dedicated “ca tập hôm nay” page. It deliberately
+ * avoids the dashboard's finance, contracts, renewals and nutrition queries.
+ */
+export async function getTodaySessions(input: { branchId?: string; forceRefresh?: boolean } = {}) {
+  if (!firebaseFunctions) throw new Error('Firebase Functions chưa sẵn sàng.')
+  return callReadOnlyFunction<{ branchId?: string; forceRefresh?: boolean }, TodaySessionsData>('getTodaySessions', input, {
+    timeoutMs: 15_000,
+    maximumAttempts: 1,
+  })
 }
 
 export async function listStaffAttendance(periodId: string) {

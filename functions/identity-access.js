@@ -1,5 +1,6 @@
 const { FieldPath, FieldValue, Timestamp } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
+const { cacheScope, createProcessCache } = require('./process-cache')
 // Firebase deploy packages only the functions/ directory. Keep the deployable
 // copy here and contract-test it against shared/identity in this repository.
 const identityContract = require('./identity-contract.json')
@@ -257,6 +258,12 @@ function publicAccessContext(uid, value) {
 }
 
 const identityDirectorySummaryCache = { expiresAt: 0, value: null }
+// Staff pages often open several callable reads at the same time. Reusing a
+// just-verified access context for a few seconds removes the duplicated
+// users/{uid} and roleAssignments/{uid} reads without making authorization
+// permanently stale. A changed authzVersion still requires a fresh token and
+// the short TTL bounds the revocation window.
+const trustedAssignmentCache = createProcessCache({ ttlMs: 5_000, maxEntries: 512 })
 const identityDirectoryPageSizes = { minimum: 20, maximum: 100, fallback: 60 }
 
 function identityDirectoryPageSize(value) {
@@ -374,15 +381,22 @@ async function identityDirectorySummary(db) {
 async function trustedAccessContext(request, db) {
   const uid = request.auth?.uid
   if (!uid) throw new HttpsError('unauthenticated', 'Bạn cần đăng nhập để tiếp tục.')
-  const [profileSnapshot, assignmentSnapshot] = await Promise.all([
+  const claims = request.auth.token || {}
+  // Keep the profile read live so a disabled account is rejected immediately;
+  // cache only the role assignment, which is the duplicated read shared by
+  // the many staff callables opened together by a page.
+  const [profileSnapshot, assignmentResult] = await Promise.all([
     db.doc(`users/${uid}`).get(),
-    db.doc(`roleAssignments/${uid}`).get(),
+    trustedAssignmentCache.get(
+      `${cacheScope(db)}|${uid}|${String(claims.accessRole || '')}|${String(claims.authzVersion || '')}|${String(claims.role || '')}`,
+      () => db.doc(`roleAssignments/${uid}`).get(),
+    ),
   ])
   if (!profileSnapshot.exists || profileSnapshot.data().disabled === true) {
     throw new HttpsError('permission-denied', 'Tài khoản không còn hoạt động.')
   }
 
-  const claims = request.auth.token || {}
+  const assignmentSnapshot = assignmentResult.value
   const profile = profileSnapshot.data()
   const actorName = boundedString(profile.displayName ?? profile.name, 'Tên nhân sự', 160, false) || 'Nhân sự Aura'
   if (assignmentSnapshot.exists) {

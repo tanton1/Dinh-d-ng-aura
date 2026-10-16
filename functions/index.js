@@ -3280,6 +3280,34 @@ const productEventNames = new Set([
   'route_loaded',
   'data_ready',
 ])
+// UI telemetry is useful for diagnosis but does not belong in the hot
+// Firestore path. Business milestones remain durable; high-volume navigation
+// and readiness events are emitted to structured Cloud Logging instead.
+const durableProductEventNames = new Set([
+  'course_opened',
+  'course_enrolled',
+  'lesson_completed',
+  'nutrition_scan_started',
+  'nutrition_scan_completed',
+  'workout_completed',
+  'eat_clean_order_created',
+  'eat_clean_consumption_confirmed',
+])
+const productEventRateWindows = new Map()
+
+function allowInMemoryProductEvent(userId) {
+  const now = Date.now()
+  const previous = productEventRateWindows.get(userId)
+  const sameWindow = previous && now - previous.startedAt < 60_000
+  const count = sameWindow ? previous.count + 1 : 1
+  productEventRateWindows.set(userId, { startedAt: sameWindow ? previous.startedAt : now, count })
+  if (productEventRateWindows.size > 2_000) {
+    for (const [key, value] of productEventRateWindows) {
+      if (now - value.startedAt > 5 * 60_000) productEventRateWindows.delete(key)
+    }
+  }
+  return count <= 120
+}
 
 const clientIssueAreas = new Set(['auth', 'gemini', 'openrouter', 'apikey_fun', 'firestore', 'push', 'ui'])
 const clientIssueProviders = new Set(['google', 'phone', 'email', 'password', 'gemini', 'openrouter', 'apikey_fun'])
@@ -3330,7 +3358,7 @@ exports.reportClientIssue = onCall({
   return { accepted: true }
 })
 
-exports.trackProductEvent = onCall(async (request) => {
+exports.trackProductEvent = onCall({ cpu: 'gcf_gen1', maxInstances: 2, concurrency: 40 }, async (request) => {
   const userId = requireCaller(request)
   const name = request.data?.name
   if (!productEventNames.has(name)) throw new HttpsError('invalid-argument', 'Sự kiện không hợp lệ.')
@@ -3343,6 +3371,20 @@ exports.trackProductEvent = onCall(async (request) => {
       return []
     }))
     : {}
+  if (!allowInMemoryProductEvent(userId)) throw new HttpsError('resource-exhausted', 'Quá nhiều sự kiện trong một phút.')
+
+  if (!durableProductEventNames.has(name)) {
+    logger.info('aura_product_event', {
+      userId,
+      name,
+      properties,
+      occurredAt: new Date().toISOString(),
+      persisted: false,
+      schemaVersion: 2,
+    })
+    return { accepted: true, persisted: false }
+  }
+
   const rateReference = db.doc(`productEventRateLimits/${userId}`)
   const eventReference = db.collection('productEvents').doc()
   await db.runTransaction(async (transaction) => {

@@ -434,7 +434,7 @@ function functionsInstance() {
 }
 
 function functionsInstanceForCallable(name: string) {
-  if (regionalPublishCallableNames.has(name)) {
+  if (regionalPublishCallableNames.has(name) && !sameRegionScheduleReadCallables.has(name)) {
     if (!firebaseSchedulePublishFunctions) throw new PtSchedulePublishError('Firebase Functions chưa sẵn sàng.', 'SYNC_UNAVAILABLE', [], true)
     return firebaseSchedulePublishFunctions
   }
@@ -469,6 +469,16 @@ const regionalPublishCallableNames = new Map([
   ['createHistoricalPtSession', 'createHistoricalPtSessionRegional'],
   ['savePtStudentAvailability', 'savePtStudentAvailabilityRegional'],
   ['applyPtScheduleDraftCommand', 'applyPtScheduleDraftCommandRegional'],
+])
+
+// Read-heavy workspace calls should stay beside the canonical Firestore
+// database. Mutations and the optimizer remain on their existing overflow
+// aliases, but routing these reads through asia-east1 added a cross-region
+// hop and made slow retries look like duplicate work.
+const sameRegionScheduleReadCallables = new Set([
+  'listPtScheduleBranches',
+  'getPtScheduleWorkspace',
+  'getPtScheduleSlotCandidates',
 ])
 
 function callableErrorCode(error: unknown) {
@@ -525,7 +535,9 @@ export function asPtSchedulePublishError(error: unknown) {
 
 async function invoke<TInput extends Record<string, unknown>, TOutput>(name: string, input: TInput) {
   const timeout = name === 'validatePtScheduleDraft' ? 30_000 : retryableReadCallables.has(name) ? 20_000 : 60_000
-  const callableName = regionalPublishCallableNames.get(name) || name
+  const callableName = sameRegionScheduleReadCallables.has(name)
+    ? name
+    : regionalPublishCallableNames.get(name) || name
   const callable = httpsCallable<TInput, TOutput>(functionsInstanceForCallable(name), callableName, { timeout })
   const maximumAttempts = retryableReadCallables.has(name) ? 2 : 1
   for (let attempt = 0; attempt < maximumAttempts; attempt += 1) {

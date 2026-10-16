@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { AlertCircle, ArrowLeft, Building2, CalendarDays, CheckCircle2, Clock3, RefreshCw, Search, UserRound, UsersRound } from 'lucide-react'
 import type { ViewId } from '../../types'
-import { getOperationsDashboard, type OperationsDashboardData } from '../../services/operationsDashboardService'
+import { getTodaySessions, type TodaySessionsData } from '../../services/operationsDashboardService'
 import './AdminTodaySessionsPage.css'
 
-type TodayRow = OperationsDashboardData['today']['rows'][number]
+type TodayRow = TodaySessionsData['today']['rows'][number]
 type DetailStatus = TodayRow['attendanceStatus'] | 'upcoming'
 type AttendanceFilter = 'all' | DetailStatus
 
@@ -14,17 +14,6 @@ const statusLabels: Record<DetailStatus, string> = {
   present: 'Có tập',
   late: 'Đi trễ',
   no_show: 'Vắng',
-}
-
-function vietnamTodayKey() {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit', day: '2-digit',
-  }).format(new Date())
-}
-
-function todayRange() {
-  const key = vietnamTodayKey()
-  return { startAt: `${key}T00:00:00+07:00`, endAt: `${key}T23:59:59+07:00` }
 }
 
 function todayCaption() {
@@ -69,7 +58,7 @@ function groupRows(rows: TodayRow[]) {
 }
 
 export default function AdminTodaySessionsPage({ onNavigate }: { onNavigate: (view: ViewId) => void }) {
-  const [data, setData] = useState<OperationsDashboardData | null>(null)
+  const [data, setData] = useState<TodaySessionsData | null>(null)
   const [branchId, setBranchId] = useState('all')
   const [filter, setFilter] = useState<AttendanceFilter>('all')
   const [query, setQuery] = useState('')
@@ -81,7 +70,7 @@ export default function AdminTodaySessionsPage({ onNavigate }: { onNavigate: (vi
     forceRefresh ? setRefreshing(true) : setLoading(true)
     setError('')
     try {
-      const result = await getOperationsDashboard({ ...todayRange(), branchId, forceRefresh })
+      const result = await getTodaySessions({ branchId, forceRefresh })
       setData(result)
     } catch (loadError) {
       setError(loadErrorMessage(loadError))

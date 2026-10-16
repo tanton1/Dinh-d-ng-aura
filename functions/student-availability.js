@@ -10,8 +10,13 @@ const WEEK_PATTERN = /^\d{4}-\d{2}-\d{2}$/
 // Keep the fallback result process-local for a short period. A new admin
 // submission advances the profile projection and therefore bypasses a stale
 // fallback; the TTL is only a guard for records changed by older tools.
-const FALLBACK_CACHE_TTL_MS = 5 * 60 * 1000
-const FALLBACK_CACHE_LIMIT = 2000
+// Historical submissions are immutable for the interactive read paths once
+// the latest profile projection has advanced. A longer process-local TTL keeps
+// legacy learners from causing one history query on every schedule refresh;
+// explicit availability saves still update latestSubmittedAvailability and
+// therefore bypass this fallback for new weeks.
+const FALLBACK_CACHE_TTL_MS = 30 * 60 * 1000
+const FALLBACK_CACHE_LIMIT = 5000
 const fallbackCaches = new WeakMap()
 
 function fallbackCacheFor(db) {

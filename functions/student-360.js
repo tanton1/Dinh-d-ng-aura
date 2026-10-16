@@ -10,6 +10,7 @@ const { canViewAction } = require('./action-center')
 const { sourceChanged, coalesceProjectionRebuild, upsertChangedTimeline } = require('./student-360-projection-writes')
 const { calculateNutritionTargets, canonicalNutritionProfile } = require('./nutrition-core.mjs')
 const { canonicalSessionRows } = require('./session-schedule-normalization')
+const { cacheScope, createProcessCache } = require('./process-cache')
 
 const TIME_ZONE = 'Asia/Ho_Chi_Minh'
 // Bump the projection schema when account-link resolution changes. Existing
@@ -22,6 +23,12 @@ const HEALTH_FORMULA_VERSION = 'student-health-v1'
 // time Staff opens it, while the scheduled reconciler repairs missed triggers.
 const PROJECTION_MAX_AGE_MS = 24 * 60 * 60 * 1000
 const PROJECTION_REFRESH_QUEUE = 'systemJobs/student360ProjectionRefreshQueue'
+const projectionRefreshQueueCache = createProcessCache({ ttlMs: 10 * 60 * 1000, maxEntries: 2_000 })
+const studentProjectionReadCache = createProcessCache({ ttlMs: 5_000, maxEntries: 512 })
+
+function projectionCacheKey(db, studentId, weekId) {
+  return `${cacheScope(db)}|${studentId}|${weekId}`
+}
 const PROJECTION_READ_LIMITS = Object.freeze({
   leaveRequests: 100,
   sessionRequests: 150,
@@ -1438,22 +1445,26 @@ async function queueStudent360ProjectionRefresh(db, studentId, weekId, reason = 
   // One deterministic document per learner prevents a burst of Staff reads
   // from creating one background job per request. The Firestore trigger in
   // functions/index.js consumes the newest requestedAt watermark.
-  const reference = db.doc(`${PROJECTION_REFRESH_QUEUE}/${studentId}`)
-  const existing = await reference.get()
-  const current = existing.exists ? existing.data() || {} : {}
-  const requestedAt = timestampMillis(current.requestedAt)
-  const processedAt = timestampMillis(current.processedAt)
-  const now = Date.now()
-  if ((['queued', 'processing'].includes(current.status) && now - requestedAt < 10 * 60 * 1000)
-    || (current.status === 'completed' && now - processedAt < 15 * 60 * 1000)) return false
-  await reference.set({
-    studentId,
-    weekId,
-    reason,
-    requestedAt: FieldValue.serverTimestamp(),
-    status: 'queued',
-  }, { merge: true })
-  return true
+  const key = projectionCacheKey(db, studentId, weekId)
+  const result = await projectionRefreshQueueCache.get(key, async () => {
+    const reference = db.doc(`${PROJECTION_REFRESH_QUEUE}/${studentId}`)
+    const existing = await reference.get()
+    const current = existing.exists ? existing.data() || {} : {}
+    const requestedAt = timestampMillis(current.requestedAt)
+    const processedAt = timestampMillis(current.processedAt)
+    const now = Date.now()
+    if ((['queued', 'processing'].includes(current.status) && now - requestedAt < 10 * 60 * 1000)
+      || (current.status === 'completed' && now - processedAt < 15 * 60 * 1000)) return false
+    await reference.set({
+      studentId,
+      weekId,
+      reason,
+      requestedAt: FieldValue.serverTimestamp(),
+      status: 'queued',
+    }, { merge: true })
+    return true
+  })
+  return result.value
 }
 
 /**
@@ -1830,7 +1841,9 @@ function redactProjection(projection, permissions) {
 
 async function loadAuthorizedProjection(db, actor, studentId, weekId, forceRefresh = false) {
   const reference = db.doc(`studentOperationalViews/${studentId}`)
-  const snapshot = await reference.get()
+  const cacheKey = projectionCacheKey(db, studentId, weekId)
+  if (forceRefresh) studentProjectionReadCache.clear(`${cacheScope(db)}|${studentId}|`)
+  const snapshot = (await studentProjectionReadCache.get(cacheKey, () => reference.get())).value
   const stored = snapshot.exists ? snapshot.data() : null
   const missing = !stored
   // These scope fields were added without changing the public overview
@@ -2880,6 +2893,7 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
     const admin = ['admin', 'super_admin'].includes(actor.accessRole) || actor.capabilities.includes('pt.operations.manage')
     if (!admin) throw new HttpsError('permission-denied', 'Chỉ Admin được đối soát lại Student 360.')
     const projection = await buildStudent360Projection({ db, studentId, weekId: mondayDateKey(), persist: true })
+    studentProjectionReadCache.clear(`${cacheScope(db)}|${studentId}|`)
     return { studentId, generatedAt: projection.generatedAt, dataQuality: projection.dataQuality }
   })
 

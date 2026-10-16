@@ -5,6 +5,7 @@ const { createSharedDashboardCache, stableDashboardCacheKey } = require('./opera
 const { loadDailyAggregates } = require('./operations-dashboard-aggregates')
 const { overlayContractUsageViews } = require('./contract-usage-view')
 const { normalizeReviewSlaMinutes, reviewTimestampMillis } = require('./review-sla')
+const { cacheScope } = require('./process-cache')
 
 const MAX_RANGE_DAYS = 366
 const MAX_SCANNED_DOCUMENTS = 10000
@@ -17,6 +18,9 @@ const MAX_TRAINER_DOCUMENTS = 500
 const MAX_STAFF_DOCUMENTS = 500
 const MAX_BRANCH_DOCUMENTS = 100
 const dashboardCache = new Map()
+const todaySessionsCache = new Map()
+const TODAY_SESSIONS_CACHE_TTL_MS = 15_000
+const TODAY_SESSIONS_CACHE_MAX_ENTRIES = 24
 
 function dateInput(value, fallback) {
   const date = value ? new Date(value) : fallback
@@ -610,6 +614,24 @@ function setCachedDashboard(cacheKey, value) {
   dashboardCache.set(cacheKey, { value, expiresAt: Date.now() + DASHBOARD_CACHE_TTL_MS })
 }
 
+function getCachedTodaySessions(cacheKey, forceRefresh = false) {
+  if (forceRefresh) {
+    todaySessionsCache.delete(cacheKey)
+    return null
+  }
+  const cached = todaySessionsCache.get(cacheKey)
+  if (!cached || cached.expiresAt <= Date.now()) {
+    if (cached) todaySessionsCache.delete(cacheKey)
+    return null
+  }
+  return { ...cached.value, cache: { hit: true, tier: 'memory', ttlSeconds: Math.max(0, Math.ceil((cached.expiresAt - Date.now()) / 1000)) } }
+}
+
+function setCachedTodaySessions(cacheKey, value) {
+  if (todaySessionsCache.size >= TODAY_SESSIONS_CACHE_MAX_ENTRIES) todaySessionsCache.delete(todaySessionsCache.keys().next().value)
+  todaySessionsCache.set(cacheKey, { value, expiresAt: Date.now() + TODAY_SESSIONS_CACHE_TTL_MS })
+}
+
 function contractEffectiveDate(value) {
   // Migrated PT contracts do not carry signedAt/createdAt. startDate is the
   // preserved business date and is used only as the reporting fallback.
@@ -618,6 +640,87 @@ function contractEffectiveDate(value) {
 
 function createOperationsDashboardFunctions({ db, onCall, logger = console }) {
   const sharedCache = createSharedDashboardCache({ db, logger })
+  const getTodaySessions = onCall({
+    cpu: 'gcf_gen1',
+    maxInstances: 2,
+    concurrency: 8,
+  }, async (request) => {
+    const startedAt = Date.now()
+    const actor = await trustedAccessContext(request, db)
+    requireCapability(actor, 'dashboard.view')
+    const permissions = dashboardPermissions(actor)
+    if (!permissions.operations) throw new HttpsError('permission-denied', 'Tài khoản chưa có quyền xem ca tập.')
+    const today = dateKey(new Date())
+    const scope = dashboardBranchScope(actor, request.data?.branchId)
+    const cacheKey = `${cacheScope(db)}|${actor.uid}|${scope.branchId}|${today}`
+    const cached = getCachedTodaySessions(cacheKey, request.data?.forceRefresh === true)
+    if (cached) return cached
+
+    // The dedicated page needs only today's session rows and their labels. It
+    // must not pay for the full dashboard's contracts, finance, renewal and
+    // nutrition fan-out.
+    const sessionSnapshot = await db.collection('sessions').where('date', '==', today).limit(501).get()
+    const sessionValues = sessionSnapshot.docs
+      .map((item) => ({ id: item.id, ...item.data() }))
+      .filter((value) => operationMatches(value, actor, scope))
+    const studentIds = [...new Set(sessionValues.map((value) => value.studentId).filter(Boolean))]
+    const trainerIds = [...new Set(sessionValues.map((value) => value.trainerId).filter(Boolean))]
+    const branchReferences = scope.unrestricted
+      ? null
+      : [...new Set(scope.branchIds)].map((id) => db.doc(`branches/${id}`))
+    const [studentSnapshots, trainerSnapshots, branchSnapshot] = await Promise.all([
+      studentIds.length ? db.getAll(...studentIds.map((id) => db.doc(`students/${id}`))) : [],
+      trainerIds.length ? db.getAll(...trainerIds.map((id) => db.doc(`trainers/${id}`))) : [],
+      branchReferences ? (branchReferences.length ? db.getAll(...branchReferences) : []) : db.collection('branches').limit(MAX_BRANCH_DOCUMENTS).get().then((snapshot) => snapshot.docs),
+    ])
+    const studentValues = studentSnapshots.filter((item) => item.exists).map((item) => ({ id: item.id, ...item.data() }))
+    const trainerValues = trainerSnapshots.filter((item) => item.exists).map((item) => ({ id: item.id, ...item.data() }))
+    const rowsResult = todayAttendanceRows(sessionValues, studentValues, trainerValues, 500)
+    const attendance = rowsResult.rows.reduce((result, value) => {
+      if (value.billingStatus === 'charged') result.charged += 1
+      if (value.attendanceStatus === 'present') result.present += 1
+      else if (value.attendanceStatus === 'late') result.late += 1
+      else if (value.attendanceStatus === 'no_show') result.noShow += 1
+      else if (value.billingStatus !== 'charged') result.pendingConfirmation += 1
+      if (value.attendanceStatus !== 'pending') result.confirmed += 1
+      return result
+    }, { charged: 0, confirmed: 0, present: 0, late: 0, noShow: 0, pendingConfirmation: 0 })
+    const branchValues = branchSnapshot
+      .filter((item) => item.exists)
+      .map((item) => ({ id: item.id, name: item.data()?.name || item.id, status: item.data()?.status || 'active' }))
+      .filter((item) => item.status !== 'archived' && (scope.unrestricted || scope.branchIds.includes(item.id)))
+      .sort((left, right) => left.name.localeCompare(right.name, 'vi'))
+    const result = {
+      schemaVersion: 1,
+      date: today,
+      branchId: scope.branchId,
+      scope,
+      permissions,
+      today: {
+        scheduledSessions: rowsResult.rows.length,
+        completedSessions: rowsResult.rows.filter((value) => ['present', 'late', 'no_show'].includes(value.attendanceStatus)).length,
+        pendingRequests: 0,
+        attendance: {
+          ...attendance,
+          attendanceRate: attendance.confirmed ? Math.round((attendance.present + attendance.late) / attendance.confirmed * 1000) / 10 : 0,
+          confirmationRate: attendance.charged ? Math.round(attendance.confirmed / attendance.charged * 1000) / 10 : 0,
+        },
+        rows: rowsResult.rows,
+        truncated: sessionSnapshot.size > 500 || rowsResult.truncated,
+      },
+      filters: { branches: branchValues.map(({ id, name }) => ({ id, name })) },
+      generatedAt: new Date().toISOString(),
+      cache: { hit: false, tier: 'miss', ttlSeconds: Math.round(TODAY_SESSIONS_CACHE_TTL_MS / 1000) },
+    }
+    setCachedTodaySessions(cacheKey, result)
+    logger.info('today_sessions_request', {
+      durationMs: Date.now() - startedAt,
+      branchId: scope.branchId,
+      sessionCount: result.today.rows.length,
+      truncated: result.today.truncated,
+    })
+    return result
+  })
   const getOperationsDashboard = onCall({
     memory: '512MiB',
     cpu: 1,
@@ -923,7 +1026,7 @@ function createOperationsDashboardFunctions({ db, onCall, logger = console }) {
     }
     return { periodId, rows: [...counts.values()], eventCount: snapshot.size, truncated: snapshot.size >= 5000, source: 'attendanceEvents' }
   })
-  return { getOperationsDashboard, listStaffAttendance }
+  return { getOperationsDashboard, getTodaySessions, listStaffAttendance }
 }
 
 module.exports = {

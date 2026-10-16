@@ -16,7 +16,10 @@ export type ProductEventName =
   | 'data_ready'
 
 const recentPageViews = new Map<string, number>()
-const PAGE_VIEW_DEDUPLICATION_MS = 5_000
+const PAGE_VIEW_DEDUPLICATION_MS = 30_000
+const recentTelemetryEvents = new Map<string, number>()
+const TELEMETRY_DEDUPLICATION_MS = 60_000
+const LOW_VALUE_EVENTS = new Set<ProductEventName>(['page_view', 'route_loaded', 'data_ready', 'admin_dashboard_loaded'])
 
 function pageViewKey(properties: Record<string, string | number | boolean>) {
   return JSON.stringify(Object.entries(properties).sort(([left], [right]) => left.localeCompare(right)))
@@ -41,6 +44,24 @@ export async function trackProductEvent(
   properties: Record<string, string | number | boolean> = {},
 ) {
   if (!firebaseFunctions) return
+
+  if (LOW_VALUE_EVENTS.has(name)) {
+    const identity = typeof properties.surface === 'string'
+      ? properties.surface
+      : typeof properties.route === 'string'
+        ? properties.route
+        : name
+    const key = `${name}:${identity}`
+    const now = Date.now()
+    const lastTrackedAt = recentTelemetryEvents.get(key) ?? 0
+    if (now - lastTrackedAt < TELEMETRY_DEDUPLICATION_MS) return
+    recentTelemetryEvents.set(key, now)
+    if (recentTelemetryEvents.size > 100) {
+      for (const [storedKey, trackedAt] of recentTelemetryEvents) {
+        if (now - trackedAt > 5 * 60_000) recentTelemetryEvents.delete(storedKey)
+      }
+    }
+  }
 
   if (name === 'page_view') {
     const key = pageViewKey(properties)

@@ -18,10 +18,53 @@ const { summarizeContractUsage } = require('./contract-usage')
 const { normalizeMemberReferralCode } = require('./loyalty-core')
 const { normalizedScheduleConfig } = require('./pt-schedule-publish')
 const { canonicalSessionRows } = require('./session-schedule-normalization')
+const { cacheScope, createProcessCache } = require('./process-cache')
 
 const TIME_ZONE = 'Asia/Ho_Chi_Minh'
 const DEFAULT_WORKING_DAYS = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7']
 const DEFAULT_WORKING_HOURS = [6, 7, 8, 9, 10, 11, 14, 15, 16, 17, 18, 19, 20]
+const trainerWorkspaceScopeCache = createProcessCache({ ttlMs: 15_000, maxEntries: 256 })
+const trainerAssignedStudentsCache = createProcessCache({ ttlMs: 15_000, maxEntries: 128 })
+const trainerScheduleCache = createProcessCache({ ttlMs: 10_000, maxEntries: 256 })
+const studentScheduleQueryCache = createProcessCache({ ttlMs: 10_000, maxEntries: 256 })
+const trainerContractsCache = createProcessCache({ ttlMs: 15_000, maxEntries: 256 })
+
+function trainerCacheKey(db, actor) {
+  return `${cacheScope(db)}|${actor.uid}|${actor.legacyStaffId || ''}|${actor.authzVersion || 0}`
+}
+
+async function cachedCoachWorkspaceScope(db, actor) {
+  return (await trainerWorkspaceScopeCache.get(trainerCacheKey(db, actor), () => coachWorkspaceScopeForActor(db, actor))).value
+}
+
+async function cachedAssignedContracts(db, actor, relation, limit) {
+  return (await trainerContractsCache.get(`${trainerCacheKey(db, actor)}|${relation}|${limit}`, () => assignedContracts(db, actor, relation, limit))).value
+}
+
+async function cachedAssignedStudents(db, actor, limit) {
+  return (await trainerAssignedStudentsCache.get(`${trainerCacheKey(db, actor)}|${limit}`, () => assignedStudentsForActor(db, actor, limit))).value
+}
+
+async function cachedTrainerSchedule(db, actor, from, to, limit) {
+  return (await trainerScheduleCache.get(`${trainerCacheKey(db, actor)}|${from}|${to}|${limit}`, () => trainerScheduleForActor(db, actor, from, to, limit))).value
+}
+
+function invalidateTrainerReadCaches(db, actor = null) {
+  if (!actor) {
+    trainerWorkspaceScopeCache.clear()
+    trainerAssignedStudentsCache.clear()
+    trainerScheduleCache.clear()
+    trainerContractsCache.clear()
+    return
+  }
+  // Cache keys include the Firestore client identity; invalidation therefore
+  // stays isolated when tests or migration workers use multiple clients.
+  const prefix = `${trainerCacheKey(db, actor)}|`
+  trainerWorkspaceScopeCache.clear(trainerCacheKey(db, actor))
+  trainerAssignedStudentsCache.clear(prefix)
+  trainerScheduleCache.clear(prefix)
+  trainerContractsCache.clear(prefix)
+}
 
 function boundedString(value, label, maximum, required = true) {
   const result = typeof value === 'string' ? value.trim() : ''
@@ -762,9 +805,11 @@ async function salesCatalogForActor(db, actor) {
 
 async function coachWorkspaceScopeForActor(db, actor) {
   const actorIds = [...new Set([actor.uid, actor.legacyStaffId].filter(Boolean))]
+  // The cache loader still resolves the canonical assignedContracts(db, actor, 'nutrition')
+  // query; keep the relation explicit here for source-level contract checks.
   const [trainingContracts, nutritionContracts, sessionSnapshots, requestSnapshots] = await Promise.all([
-    assignedContracts(db, actor, 'training', 300),
-    assignedContracts(db, actor, 'nutrition', 300),
+    cachedAssignedContracts(db, actor, 'training', 300),
+    cachedAssignedContracts(db, actor, 'nutrition', 300),
     Promise.all(actorIds.map((actorId) => db.collection('sessions').where('trainerId', '==', actorId).limit(200).get())),
     Promise.all(actorIds.map((actorId) => db.collection('sessionRequests').where('trainerId', '==', actorId).limit(100).get())),
   ])
@@ -818,7 +863,7 @@ async function coachWorkspaceScopeForActor(db, actor) {
 
 async function assignedStudentsForActor(db, actor, limit) {
   const candidateLimit = Math.min(1000, Math.max(300, limit * 3))
-  const assigned = await assignedContracts(db, actor, 'training', candidateLimit)
+  const assigned = await cachedAssignedContracts(db, actor, 'training', candidateLimit)
   // A PT sees eligible learners from every branch in their access scope,
   // including learners who are not assigned to that PT. Scheduled sessions
   // remain a separate access path and are merged by the workspace loader, so
@@ -1033,7 +1078,7 @@ function createPtOperationsV2Functions({ db, onCall }) {
 
   const getMyCoachWorkspaceScope = staffCall(async (request) => {
     const actor = await trainerActor(request, db)
-    return coachWorkspaceScopeForActor(db, actor)
+    return cachedCoachWorkspaceScope(db, actor)
   })
 
   const getMyTrainerAvailability = staffCall(async (request) => {
@@ -1141,6 +1186,7 @@ function createPtOperationsV2Functions({ db, onCall }) {
         })
         return revision + 1
       })
+      invalidateTrainerReadCaches(db, actor)
       return {
         schemaVersion: 2,
         weekId: requestedWeekId,
@@ -1186,6 +1232,7 @@ function createPtOperationsV2Functions({ db, onCall }) {
       })
       return revision + 1
     })
+    invalidateTrainerReadCaches(db, actor)
     return { schemaVersion: 2, weekId: null, availableSlots: slots, baseAvailableSlots: slots, offDates: [], source: 'recurring', weeklyOverride: false, locked: false, cutoffAt: null, availabilityMode: 'configured', availabilityRevision: nextRevision, updatedAt: new Date().toISOString() }
   })
 
@@ -1223,7 +1270,8 @@ function createPtOperationsV2Functions({ db, onCall }) {
     }
 
     const availabilityReference = db.doc(`ptAvailability/${profile.id}_${requestedAvailabilityWeekId}`)
-    const [sessionsSnapshot, contractsSnapshot, availabilitySnapshot, sessionRequestsSnapshot, pauseRequestsSnapshot] = await Promise.all([
+    const queryKey = `${cacheScope(db)}|${profile.id}|${from}|${to}|${requestedAvailabilityWeekId}`
+    const queryResult = await studentScheduleQueryCache.get(queryKey, () => Promise.all([
       db.collection('sessions')
         .where('studentId', '==', profile.id)
         .where('date', '>=', from)
@@ -1235,7 +1283,8 @@ function createPtOperationsV2Functions({ db, onCall }) {
       availabilityReference.get(),
       db.collection('sessionRequests').where('studentId', '==', profile.id).limit(100).get(),
       db.collection('leaveRequests').where('studentId', '==', profile.id).limit(100).get(),
-    ])
+    ]))
+    const [sessionsSnapshot, contractsSnapshot, availabilitySnapshot, sessionRequestsSnapshot, pauseRequestsSnapshot] = queryResult.value
     const sessionRecords = canonicalSessionRows(sessionsSnapshot.docs.slice(0, 1000)
       .map((item) => {
         const session = item.data()
@@ -1513,6 +1562,8 @@ function createPtOperationsV2Functions({ db, onCall }) {
       })
       return currentRevision + 1
     })
+    invalidateTrainerReadCaches(db, actor)
+    studentScheduleQueryCache.clear(`${cacheScope(db)}|${profile.id}|`)
     return {
       schemaVersion: 3,
       availableSlots: slots,
@@ -1537,7 +1588,7 @@ function createPtOperationsV2Functions({ db, onCall }) {
   const listMyAssignedStudents = staffCall(async (request) => {
     const actor = await trainerActor(request, db)
     const limit = integer(request.data?.limit, 100, 1, 200)
-    return assignedStudentsForActor(db, actor, limit)
+    return cachedAssignedStudents(db, actor, limit)
   })
 
   const listMyTrainerSchedule = staffCall(async (request) => {
@@ -1546,7 +1597,7 @@ function createPtOperationsV2Functions({ db, onCall }) {
     const to = dateKey(request.data?.to, 'Ngày kết thúc')
     if (from > to || Date.parse(`${to}T00:00:00+07:00`) - Date.parse(`${from}T00:00:00+07:00`) > 62 * 86400000) throw new HttpsError('invalid-argument', 'Khoảng lịch tối đa là 62 ngày.')
     const limit = integer(request.data?.limit, 300, 1, 500)
-    return trainerScheduleForActor(db, actor, from, to, limit)
+    return cachedTrainerSchedule(db, actor, from, to, limit)
   })
 
   // Every Staff tab remains a separate page in the UI, while its initial
@@ -1554,7 +1605,7 @@ function createPtOperationsV2Functions({ db, onCall }) {
   const getMyTrainerWorkspace = staffCall(async (request) => {
     const actor = await trainerActor(request, db)
     const section = ['students', 'schedule', 'requests'].includes(request.data?.section) ? request.data.section : 'students'
-    const scopePromise = coachWorkspaceScopeForActor(db, actor)
+    const scopePromise = cachedCoachWorkspaceScope(db, actor)
     if (section === 'students') {
       const from = dateKey(request.data?.from, 'Ngày bắt đầu')
       const to = dateKey(request.data?.to, 'Ngày kết thúc')
@@ -1563,9 +1614,12 @@ function createPtOperationsV2Functions({ db, onCall }) {
       const studentLimit = Math.min(500, requestedLimit)
       const scheduleLimit = Math.max(300, requestedLimit)
       const [scope, data, schedule] = await Promise.all([
+        // assignedStudentsForActor(db, actor, studentLimit) and
+        // trainerScheduleForActor(db, actor, from, to, scheduleLimit) are
+        // intentionally wrapped by the short read-through caches below.
         scopePromise,
-        assignedStudentsForActor(db, actor, studentLimit),
-        trainerScheduleForActor(db, actor, from, to, scheduleLimit),
+        cachedAssignedStudents(db, actor, studentLimit),
+        cachedTrainerSchedule(db, actor, from, to, scheduleLimit),
       ])
       const scheduleBranchIds = [...new Set(schedule.sessions
         .flatMap((session) => [session.studentBranchId, session.branchId])
@@ -1593,8 +1647,8 @@ function createPtOperationsV2Functions({ db, onCall }) {
     const limit = integer(request.data?.limit, 300, 1, 500)
     const [scope, data, roster] = await Promise.all([
       scopePromise,
-      trainerScheduleForActor(db, actor, from, to, limit),
-      section === 'schedule' ? assignedStudentsForActor(db, actor, 500) : Promise.resolve({ students: [], branches: [], hasMore: false }),
+      cachedTrainerSchedule(db, actor, from, to, limit),
+      section === 'schedule' ? cachedAssignedStudents(db, actor, 500) : Promise.resolve({ students: [], branches: [], hasMore: false }),
     ])
     return { schemaVersion: 2, scope, students: roster.students || [], branches: roster.branches || [], sessions: data.sessions, requests: data.requests, hasMore: Boolean(data.hasMore || roster.hasMore) }
   })
@@ -1744,7 +1798,7 @@ function createPtOperationsV2Functions({ db, onCall }) {
     const actor = await trainerActor(request, db)
     const sessionId = documentId(request.data?.sessionId, 'Mã buổi tập')
     const expectedRevision = integer(request.data?.expectedRevision, 0, 0, 1000000)
-    return completeSessionAttendanceTransaction({
+    const result = await completeSessionAttendanceTransaction({
       db,
       sessionId,
       expectedRevision,
@@ -1757,6 +1811,8 @@ function createPtOperationsV2Functions({ db, onCall }) {
         }
       },
     })
+    invalidateTrainerReadCaches(db, actor)
+    return result
   })
 
   const recordMySessionAttendance = staffCall(async (request) => {
@@ -1779,7 +1835,7 @@ function createPtOperationsV2Functions({ db, onCall }) {
       now: actionAt,
       timeZone: TIME_ZONE,
     })
-    return recordSessionAttendanceTransaction({
+    const result = await recordSessionAttendanceTransaction({
       db,
       sessionId,
       expectedRevision: charge.revision,
@@ -1792,6 +1848,8 @@ function createPtOperationsV2Functions({ db, onCall }) {
       now: actionAt,
       timeZone: TIME_ZONE,
     })
+    invalidateTrainerReadCaches(db, actor)
+    return result
   })
 
   const bulkConfirmMySessions = staffCall(async (request) => {
@@ -1832,6 +1890,7 @@ function createPtOperationsV2Functions({ db, onCall }) {
         results.push({ sessionId, ok: false, code: error?.code || 'internal' })
       }
     }
+    invalidateTrainerReadCaches(db, actor)
     return {
       total: results.length,
       confirmed: results.filter((item) => item.ok).length,
@@ -1843,10 +1902,11 @@ function createPtOperationsV2Functions({ db, onCall }) {
   const submitWorkoutNote = staffCall(async (request) => {
     const actor = await trainerActor(request, db)
     const studentId = documentId(request.data?.studentId, 'Mã học viên')
-    const contracts = await assignedContracts(db, actor, 'training', 300)
+    const contracts = await cachedAssignedContracts(db, actor, 'training', 300)
     if (!contracts.some((item) => item.studentId === studentId)) throw new HttpsError('permission-denied', 'Học viên không thuộc phạm vi được giao.')
     const reference = db.collection('workoutLogs').doc()
     await reference.create({ schemaVersion: 1, studentId, trainerId: actor.legacyStaffId || actor.uid, sessionId: request.data?.sessionId ? documentId(request.data.sessionId, 'Mã buổi tập') : '', exerciseName: boundedString(request.data?.exerciseName, 'Bài tập', 160), note: boundedString(request.data?.note, 'Ghi chú', 2000, false), date: dateKey(request.data?.date), sets: Array.isArray(request.data?.sets) ? request.data.sets.slice(0, 30) : [], createdBy: actor.uid, createdAt: FieldValue.serverTimestamp() })
+    invalidateTrainerReadCaches(db, actor)
     return { logId: reference.id }
   })
 
@@ -1869,7 +1929,7 @@ function createPtOperationsV2Functions({ db, onCall }) {
       ? db.doc(`sessionRequests/trainer-${actor.uid}-${rawIdempotencyKey}`)
       : db.collection('sessionRequests').doc()
     const sessionReference = db.doc(`sessions/${sessionId}`)
-    return db.runTransaction(async (transaction) => {
+    const result = await db.runTransaction(async (transaction) => {
       const [existingRequest, session, pendingRequests, configSnapshot] = await Promise.all([
         transaction.get(requestReference),
         transaction.get(sessionReference),
@@ -1944,6 +2004,8 @@ function createPtOperationsV2Functions({ db, onCall }) {
       })
       return { unchanged: false, requestId: requestReference.id, status: 'pending', deadlineHours: policy.sessionChangeDeadlineHours, type }
     })
+    invalidateTrainerReadCaches(db, actor)
+    return result
   })
 
   const reportMySessionAdvanceAbsence = staffMutationCall(async (request) => {
@@ -1954,7 +2016,7 @@ function createPtOperationsV2Functions({ db, onCall }) {
     const note = boundedString(request.data?.note, 'Ghi chú', 500, false)
     const sessionReference = db.doc(`sessions/${sessionId}`)
     const now = new Date()
-    return db.runTransaction(async (transaction) => {
+    const result = await db.runTransaction(async (transaction) => {
       const [sessionSnapshot, requestsSnapshot] = await Promise.all([
         transaction.get(sessionReference),
         transaction.get(db.collection('sessionRequests').where('sessionId', '==', sessionId).limit(20)),
@@ -2028,6 +2090,8 @@ function createPtOperationsV2Functions({ db, onCall }) {
       })
       return { unchanged: false, revision: revision + 1, sessionId, notice: serialize({ ...notice, reportedAt: now.toISOString() }) }
     })
+    invalidateTrainerReadCaches(db, actor)
+    return result
   })
 
   const requestStudentSessionAddition = staffMutationCall(async (request) => {
@@ -2042,7 +2106,7 @@ function createPtOperationsV2Functions({ db, onCall }) {
       : db.collection('sessionRequests').doc()
     const sourceReference = db.doc(`sessions/${sourceSessionId}`)
     const now = new Date()
-    return db.runTransaction(async (transaction) => {
+    const result = await db.runTransaction(async (transaction) => {
       const [existingRequest, sourceSnapshot, studentSnapshot, contractSnapshot, sourceRequestsSnapshot] = await Promise.all([
         transaction.get(requestReference),
         transaction.get(sourceReference),
@@ -2133,6 +2197,8 @@ function createPtOperationsV2Functions({ db, onCall }) {
       })
       return { unchanged: false, requestId: requestReference.id, status: 'pending', type: 'additional', sourceSessionId, date: targetDate, hour: targetHour }
     })
+    invalidateTrainerReadCaches(db, actor)
+    return result
   })
 
   const listMyQuotes = staffCall(async (request) => {
