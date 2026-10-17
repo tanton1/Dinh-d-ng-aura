@@ -305,6 +305,9 @@ export interface Student360ContractRecord {
   usage?: {
     storedUsedSessions: number
     chargedSessions: number
+    attendedSessions: number
+    noShowSessions: number
+    chargedNoShowSessions: number
     exemptSessions: number
     pendingReconciliationSessions: number
     usedSessions: number

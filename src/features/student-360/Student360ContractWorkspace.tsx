@@ -162,7 +162,7 @@ function demoWorkspace(overview: Student360Overview): Workspace {
     pausePeriods: contract.pausePeriods.map((item, index) => ({ requestId: item.requestId || `pause-${index}`, type: item.type, startDate: item.startDate, endDate: item.endDate, durationDays: item.durationDays || 0 })),
      note: '', revision: 1, updatedAt: overview.generatedAt, updatedByName: 'Admin Aura',
      totalPrice: contract.payment?.total || 0, paidAmount: contract.payment?.paid || 0, discount: 0,
-     usage: { storedUsedSessions: contract.storedUsedSessions, chargedSessions: contract.chargedSessions, exemptSessions: contract.exemptSessions, pendingReconciliationSessions: contract.pendingReconciliationSessions, usedSessions: contract.usedSessions, remainingSessions: contract.remainingSessions, reconciliationStatus: contract.reconciliationStatus },
+     usage: { storedUsedSessions: contract.storedUsedSessions, chargedSessions: contract.chargedSessions, attendedSessions: contract.chargedSessions, noShowSessions: 0, chargedNoShowSessions: 0, exemptSessions: contract.exemptSessions, pendingReconciliationSessions: contract.pendingReconciliationSessions, usedSessions: contract.usedSessions, remainingSessions: contract.remainingSessions, reconciliationStatus: contract.reconciliationStatus },
    } : null
   return {
     schemaVersion: 1,
@@ -449,8 +449,8 @@ export default function Student360ContractWorkspace({ studentId, overview, sourc
           <div><UserRoundCog /><span>PT phụ trách<b>{workspace.trainers.filter((item) => selected.trainerIds.includes(item.id)).map((item) => item.name).join(' · ') || 'Chưa phân công'}</b></span></div>
           <div><ShieldCheck /><span>Cập nhật gần nhất<b>{dateLabel(selected.updatedAt)}{selected.updatedByName ? ` · ${selected.updatedByName}` : ''}</b></span></div>
         </div>
-        {selectedUsage && <div className="student360-contract-usage-chips"><span><b>{selectedUsage.chargedSessions}</b> buổi tính quota</span><span><b>{selectedUsage.exemptSessions}</b> buổi miễn trừ</span><span><b>{selectedUsage.pendingReconciliationSessions}</b> chờ đối soát</span></div>}
-        {selectedUsage && selectedUsage.reconciliationStatus !== 'matched' && <div className="student360-contract-reconciliation"><AlertTriangle /><span><strong>Cần đối soát số buổi</strong><small>{selectedUsage.chargedSessions} buổi tính từ lịch sử · {selectedUsage.exemptSessions} buổi miễn trừ · {selectedUsage.pendingReconciliationSessions} buổi chờ xác nhận.</small></span></div>}
+        {selectedUsage && <div className="student360-contract-usage-chips"><span><b>{selectedUsage.attendedSessions}</b> buổi đã tập</span><span><b>{selectedUsage.chargedNoShowSessions}</b> vắng tính buổi</span><span><b>{selectedUsage.exemptSessions}</b> buổi miễn trừ</span><span><b>{selectedUsage.chargedSessions}</b> buổi tính quota</span><span><b>{selectedUsage.pendingReconciliationSessions}</b> chờ đối soát</span></div>}
+        {selectedUsage && selectedUsage.reconciliationStatus !== 'matched' && <div className="student360-contract-reconciliation"><AlertTriangle /><span><strong>Cần đối soát số buổi</strong><small>Đã tập {selectedUsage.attendedSessions} · vắng tính buổi {selectedUsage.chargedNoShowSessions} · miễn trừ {selectedUsage.exemptSessions} · {selectedUsage.pendingReconciliationSessions} buổi chờ xác nhận.</small></span></div>}
       </section>
 
       {workspace.permissions.canViewFinancialAmounts && <section className="student360-contract-payment-board">

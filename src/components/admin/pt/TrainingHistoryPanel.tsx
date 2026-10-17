@@ -81,12 +81,13 @@ function formatDate(value: string) {
 
 function attendanceLabel(record: TrainingHistoryPage['records'][number]) {
   const status = record.attendance?.attendanceStatus
-  const makeup = record.attendance?.billingStatus === 'exempt'
+  const billingStatus = String(record.billingStatus || record.attendance?.billingStatus || '').toLowerCase()
+  const makeup = record.isExempt || billingStatus === 'exempt'
   if (status === 'present') return makeup ? 'Có tập · buổi bù' : 'Có tập'
   if (status === 'late') return `${makeup ? 'Buổi bù · ' : ''}Đi trễ${record.attendance?.lateMinutes ? ` ${record.attendance.lateMinutes}${record.attendance.lateMinutes === 15 ? '+' : ''} phút` : ''}`
-  if (status === 'no_show') return makeup ? 'Không đến · buổi bù' : 'Không đến'
+  if (status === 'no_show') return makeup ? 'Không đến · buổi bù' : (record.countsTowardContract || billingStatus === 'charged' ? 'Không đến · tính buổi' : 'Không đến · chờ đối soát')
   if (makeup) return 'Buổi bù · chưa xác nhận'
-  if (record.attendance?.billingStatus === 'charged') return 'Đã tính · chờ PT'
+  if (record.countsTowardContract || billingStatus === 'charged') return 'Đã tính · chờ PT'
   return 'Chưa tính / xác nhận'
 }
 
@@ -207,6 +208,9 @@ function demoPage(subjectId: string, sessions: TrainerSessionSummary[], startDat
       id: session.id, date: session.date, hour: session.hour ?? null, status: session.status,
       studentId: session.studentId, trainerId: session.trainerId, branchId: session.studentBranchId || '', contractId: session.contractId || '',
       counterpartId: session.trainerId, counterpartName: 'PT Aura',
+      billingStatus: session.billingStatus || 'pending',
+      countsTowardContract: session.billingStatus !== 'exempt' && (session.billingStatus === 'charged' || ['completed', 'attended', 'no_show'].includes(session.status)),
+      isExempt: session.billingStatus === 'exempt',
       attendance: {
         id: `attendance-${session.id}`, type: 'demo', billingStatus: session.billingStatus || 'pending',
         attendanceStatus: session.attendanceStatus || 'pending', lateMinutes: session.lateMinutes || null,
@@ -224,7 +228,7 @@ function demoPage(subjectId: string, sessions: TrainerSessionSummary[], startDat
         historySessions: visible.length, chargedSessions: charged.length, attendedSessions: attended.length,
         presentSessions: attended.filter((session) => session.attendanceStatus !== 'late').length,
         lateSessions: attended.filter((session) => session.attendanceStatus === 'late').length,
-        noShowSessions: noShow.length, policyChargedSessions: 0,
+        noShowSessions: noShow.length, chargedNoShowSessions: charged.filter((session) => session.attendanceStatus === 'no_show' || session.status === 'no_show').length, policyChargedSessions: 0,
         chargedPendingAttendanceSessions: charged.filter((session) => !session.attendanceStatus || session.attendanceStatus === 'pending').length,
         exemptSessions: visible.filter((session) => session.billingStatus === 'exempt').length,
         pendingSessions: visible.length - charged.length, legacyChargedSessions: 0,
@@ -335,7 +339,7 @@ export default function TrainingHistoryPanel({ subject, subjectId, subjectName, 
           attendedSessions: Number(contract.chargedSessions || contract.usedSessions),
           presentSessions: Number(contract.chargedSessions || contract.usedSessions),
           lateSessions: 0,
-          noShowSessions: 0,
+          noShowSessions: 0, chargedNoShowSessions: 0,
           policyChargedSessions: 0,
           chargedPendingAttendanceSessions: 0,
           exemptSessions: 0,
@@ -526,7 +530,8 @@ export default function TrainingHistoryPanel({ subject, subjectId, subjectName, 
         <span><b>{selectedUsage.remainingSessions}</b>Còn lại</span>
         <span><b>{periodUsage?.chargedSessions ?? 0}</b>Trong kỳ</span>
         <span><b>{periodUsage?.attendedSessions ?? 0}</b>Có tập</span>
-        <span><b>{periodUsage?.noShowSessions ?? 0}</b>Vắng</span>
+        <span><b>{periodUsage?.chargedNoShowSessions ?? 0}</b>Vắng tính buổi</span>
+        <span><b>{periodUsage?.exemptSessions ?? 0}</b>Miễn trừ</span>
         {(periodUsage?.chargedPendingAttendanceSessions ?? 0) > 0 ? <span className="is-pending"><b>{periodUsage?.chargedPendingAttendanceSessions}</b>Chờ PT</span> : null}
       </div>
       {selectedUsage.legacyProjectionAdjustment > 0 ? <small className="training-history__legacy-note">{selectedUsage.legacyProjectionAdjustment} buổi dữ liệu cũ đang được giữ riêng để đối soát.</small> : null}

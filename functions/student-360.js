@@ -258,6 +258,9 @@ function sessionCharged(session = {}) {
 function contractUsage(contract = {}, sessions = []) {
   const linked = sessions.filter((session) => session.contractId === contract.id)
   const chargedSessions = linked.filter(sessionCharged).length
+  const attendedSessions = linked.filter((session) => ['present', 'late'].includes(sessionAttendance(session))).length
+  const noShowSessions = linked.filter((session) => sessionAttendance(session) === 'no_show').length
+  const chargedNoShowSessions = linked.filter((session) => sessionCharged(session) && sessionAttendance(session) === 'no_show').length
   const exemptSessions = linked.filter((session) => bounded(session.billingStatus, 40).toLowerCase() === 'exempt').length
   const pendingReconciliationSessions = linked.filter((session) => bounded(session.billingStatus, 40).toLowerCase() === 'review_required').length
   const storedUsedSessions = Math.max(0, Math.floor(finite(contract.usedSessions)))
@@ -276,6 +279,9 @@ function contractUsage(contract = {}, sessions = []) {
     totalSessions,
     storedUsedSessions,
     chargedSessions,
+    attendedSessions,
+    noShowSessions,
+    chargedNoShowSessions,
     exemptSessions,
     pendingReconciliationSessions,
     usedSessions,

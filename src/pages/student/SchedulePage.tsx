@@ -31,6 +31,11 @@ import {
   type StudentPtScheduleData,
   type StudentPtSession,
 } from '../../services/studentPtScheduleService'
+import {
+  listStudentTrainingHistory,
+  type TrainingHistoryPage,
+  type TrainingHistoryRecord,
+} from '../../services/businessReportingService'
 import type { ViewId } from '../../types'
 import '../../styles-coaching.css'
 import './StudentSchedulePage.css'
@@ -160,6 +165,35 @@ function contractDisplayStatus(contract: StudentPtScheduleData['contracts'][numb
   return contractStatusLabel(status)
 }
 
+function historyBillingStatus(record: TrainingHistoryRecord) {
+  return String(record.billingStatus || record.attendance?.billingStatus || '').trim().toLowerCase()
+}
+
+function historyRecordLabel(record: TrainingHistoryRecord) {
+  const billingStatus = historyBillingStatus(record)
+  const attendanceStatus = String(record.attendance?.attendanceStatus || '').trim().toLowerCase()
+  const exempt = record.isExempt || billingStatus === 'exempt'
+  const noShow = attendanceStatus === 'no_show' || record.status === 'no_show'
+  const attended = ['present', 'late'].includes(attendanceStatus) || ['completed', 'attended'].includes(record.status)
+  if (exempt) {
+    if (noShow) return 'Vắng mặt · miễn trừ'
+    if (attended) return attendanceStatus === 'late' ? 'Đã tập · miễn trừ · đi trễ' : 'Đã tập · miễn trừ'
+    return `${statusLabels[record.status] ?? record.status} · miễn trừ`
+  }
+  if (noShow) return record.countsTowardContract || billingStatus === 'charged' ? 'Vắng mặt · tính buổi' : 'Vắng mặt · chờ đối soát'
+  if (attended) return attendanceStatus === 'late' ? 'Đã tập · đi trễ' : 'Đã tập'
+  if (billingStatus === 'charged') return 'Tính buổi · chờ xác nhận'
+  return statusLabels[record.status] ?? record.status
+}
+
+function historyRecordTone(record: TrainingHistoryRecord) {
+  const billingStatus = historyBillingStatus(record)
+  if (record.isExempt || billingStatus === 'exempt') return 'is-exempt'
+  if (record.attendance?.attendanceStatus === 'no_show' || record.status === 'no_show') return record.countsTowardContract || billingStatus === 'charged' ? 'is-charged' : 'is-pending'
+  if (['present', 'late'].includes(String(record.attendance?.attendanceStatus || '').toLowerCase()) || ['completed', 'attended'].includes(record.status)) return 'is-attended'
+  return 'is-pending'
+}
+
 export default function SchedulePage({ onNavigate, isDemo = false }: { onNavigate: (view: ViewId) => void; isDemo?: boolean; ownerId?: string }) {
   const scheduleV4 = useAuraUiSurface('member-schedule')
   const today = useMemo(() => new Date(), [])
@@ -180,6 +214,11 @@ export default function SchedulePage({ onNavigate, isDemo = false }: { onNavigat
   const [showPauseRequest, setShowPauseRequest] = useState(false)
   const [showAdditionalRequest, setShowAdditionalRequest] = useState(false)
   const [selectedContractId, setSelectedContractId] = useState<string | null>(null)
+  const [historyPage, setHistoryPage] = useState<TrainingHistoryPage | null>(null)
+  const [historyLoading, setHistoryLoading] = useState(false)
+  const [historyError, setHistoryError] = useState('')
+  const historyLoadedStudentRef = useRef('')
+  const historyRequestRef = useRef(0)
   const [heroSlide, setHeroSlide] = useState(0)
   const heroTrackRef = useRef<HTMLDivElement>(null)
   const weekStart = useMemo(() => addDays(startOfWeek(today), weekOffset * 7), [today, weekOffset])
@@ -234,6 +273,49 @@ export default function SchedulePage({ onNavigate, isDemo = false }: { onNavigat
   }, [availabilityWeekId, isDemo, range.from, range.to, today, weekStart])
 
   useEffect(() => { void load(); return () => { requestIdRef.current += 1 } }, [load])
+  const loadHistory = useCallback(async (append = false) => {
+    if (isDemo || !data?.student?.id) return
+    const cursor = append ? historyPage?.nextCursor : null
+    if (append && !cursor) return
+    const requestId = ++historyRequestRef.current
+    setHistoryLoading(true)
+    setHistoryError('')
+    try {
+      const response = await listStudentTrainingHistory(data.student.id, {
+        allTime: true,
+        status: 'all',
+        pageSize: 100,
+        cursor,
+      })
+      if (requestId !== historyRequestRef.current) return
+      setHistoryPage((current) => append && current
+        ? { ...response, records: [...current.records, ...response.records] }
+        : response)
+    } catch (caught) {
+      if (requestId === historyRequestRef.current) setHistoryError(caught instanceof Error ? caught.message : 'Không thể tải toàn bộ lịch sử buổi tập.')
+    } finally {
+      if (requestId === historyRequestRef.current) setHistoryLoading(false)
+    }
+  }, [data?.student?.id, historyPage?.nextCursor, isDemo])
+
+  const invalidateHistory = useCallback(() => {
+    historyRequestRef.current += 1
+    historyLoadedStudentRef.current = ''
+    setHistoryPage(null)
+  }, [])
+
+  useEffect(() => {
+    historyLoadedStudentRef.current = ''
+    setHistoryPage(null)
+    setHistoryError('')
+  }, [data?.student?.id])
+
+  useEffect(() => {
+    const studentId = data?.student?.id || ''
+    if (activeTab !== 'history' || isDemo || !studentId || historyLoadedStudentRef.current === studentId) return
+    historyLoadedStudentRef.current = studentId
+    void loadHistory(false)
+  }, [activeTab, data?.student?.id, isDemo, loadHistory])
   useEffect(() => {
     const syncTabFromRoute = () => {
       const nextTab = scheduleTabFromRoute()
@@ -279,6 +361,11 @@ export default function SchedulePage({ onNavigate, isDemo = false }: { onNavigat
   const historySessions = useMemo(() => (data?.sessions ?? [])
     .filter((session) => session.status !== 'scheduled' || session.date < toIsoDate(today))
     .sort((left, right) => `${right.date}-${right.hour ?? 99}`.localeCompare(`${left.date}-${left.hour ?? 99}`)), [data?.sessions, today])
+  const demoHistorySummary = useMemo(() => {
+    const attended = historySessions.filter((session) => ['completed'].includes(session.status)).length
+    const noShow = historySessions.filter((session) => session.status === 'no_show').length
+    return { total: historySessions.length, attended, noShow, chargedNoShow: noShow, exempt: 0 }
+  }, [historySessions])
   const scheduleRequests = data?.sessionRequests ?? []
   const pauseRequests = data?.pauseRequests ?? []
   const pendingRequestCount = scheduleRequests.filter((request) => request.status === 'pending').length + pauseRequests.filter((request) => request.status === 'pending').length
@@ -524,10 +611,23 @@ export default function SchedulePage({ onNavigate, isDemo = false }: { onNavigat
           </div>
         </section>}
 
-        {activeTab === 'history' && <section className="student-session-history"><header><div><small>AURA · NHẬT KÝ TẬP LUYỆN</small><h2>Lịch sử buổi tập</h2><p>Hiển thị tối đa 180 ngày gần nhất, gồm buổi hoàn thành, đổi, hủy và vắng.</p></div><span>{historySessions.length} buổi</span></header>{historySessions.length > 0 ? <div>{historySessions.map((session) => <article key={session.id}><span>{formatSessionDate(session.date)} · {session.hour === null ? '--:--' : `${String(session.hour).padStart(2, '0')}:00`}</span><strong>{session.trainerName}</strong><em>{statusLabels[session.status] ?? session.status}</em></article>)}</div> : <div className="student-session-empty"><History size={28} /><strong>Chưa có lịch sử tập luyện</strong><span>Các buổi đã hoàn thành hoặc được điều chỉnh sẽ xuất hiện tại đây.</span></div>}</section>}
-        {requestSession && <SessionRequestModal session={requestSession} onClose={() => setRequestSession(null)} onCreated={(value) => { setMessage(value); setActiveTab('requests'); void load() }} />}
-        {showAdditionalRequest && <AdditionalSessionModal onClose={() => setShowAdditionalRequest(false)} onCreated={(value) => { setMessage(value); setActiveTab('requests'); void load() }} />}
-        {showPauseRequest && activeContract && <LeaveRequestModal contractId={activeContract.id} policy={data.scheduleConfig} onClose={() => setShowPauseRequest(false)} onCreated={(value) => { setMessage(value); setActiveTab('requests'); void load() }} />}
+        {activeTab === 'history' && <section className="student-session-history">
+          <header>
+            <div><small>AURA · NHẬT KÝ TẬP LUYỆN</small><h2>Lịch sử buổi tập</h2><p>Toàn bộ lịch sử từ khi bắt đầu tập. Mỗi buổi ghi rõ đã tập, vắng có tính buổi hoặc miễn trừ.</p></div>
+            <span>{isDemo ? demoHistorySummary.total : historyPage?.summary.total ?? 0} buổi</span>
+          </header>
+          {isDemo ? <div className="student-history-summary"><span><b>{demoHistorySummary.attended}</b>Đã tập</span><span><b>{demoHistorySummary.chargedNoShow}</b>Vắng tính buổi</span><span><b>{demoHistorySummary.exempt}</b>Miễn trừ</span></div> : historyPage?.summary.usage ? <div className="student-history-summary"><span><b>{historyPage.summary.usage.attendedSessions ?? 0}</b>Đã tập</span><span><b>{historyPage.summary.usage.chargedNoShowSessions ?? 0}</b>Vắng tính buổi</span><span><b>{historyPage.summary.usage.exemptSessions ?? 0}</b>Miễn trừ</span></div> : null}
+          {historyError ? <div className="student-history-notice" role="alert"><AlertCircle size={17} /><span>{historyError}</span><button type="button" onClick={() => { historyLoadedStudentRef.current = ''; void loadHistory(false) }}>Thử lại</button></div> : null}
+          {historyLoading && !historyPage && !isDemo ? <div className="student-session-empty"><LoaderCircle size={28} className="is-spinning" /><strong>Đang tải toàn bộ lịch sử…</strong><span>Đang đối chiếu số buổi đã tập, vắng và miễn trừ.</span></div> : null}
+          {!historyLoading && !historyError && !isDemo && historyPage && historyPage.records.length === 0 ? <div className="student-session-empty"><History size={28} /><strong>Chưa có lịch sử tập luyện</strong><span>Các buổi đã hoàn thành hoặc được điều chỉnh sẽ xuất hiện tại đây.</span></div> : null}
+          {isDemo && historySessions.length > 0 ? <div>{historySessions.map((session) => <article key={session.id}><span>{formatSessionDate(session.date)} · {session.hour === null ? '--:--' : `${String(session.hour).padStart(2, '0')}:00`}</span><strong>{session.trainerName}</strong><em>{statusLabels[session.status] ?? session.status}</em></article>)}</div> : null}
+          {!isDemo && historyPage?.records.length ? <div>{historyPage.records.map((record) => <article className={historyRecordTone(record)} key={record.id}><span>{formatSessionDate(record.date)} · {record.hour === null ? '--:--' : `${String(record.hour).padStart(2, '0')}:00`}</span><strong>{record.counterpartName}</strong><em>{historyRecordLabel(record)}</em></article>)}</div> : null}
+          {!isDemo && historyPage?.summary.truncated ? <div className="student-history-notice"><AlertCircle size={17} /><span>Lịch sử vượt giới hạn tải một lần; tổng số liệu đang hiển thị trong phạm vi hệ thống đã đối chiếu.</span></div> : null}
+          {!isDemo && historyPage?.hasMore ? <button type="button" className="student-history-more" disabled={historyLoading} onClick={() => void loadHistory(true)}>{historyLoading ? 'Đang tải…' : `Tải thêm lịch sử (${Math.max(0, historyPage.summary.total - historyPage.records.length)} buổi)`}</button> : null}
+        </section>}
+        {requestSession && <SessionRequestModal session={requestSession} onClose={() => setRequestSession(null)} onCreated={(value) => { invalidateHistory(); setMessage(value); setActiveTab('requests'); void load() }} />}
+        {showAdditionalRequest && <AdditionalSessionModal onClose={() => setShowAdditionalRequest(false)} onCreated={(value) => { invalidateHistory(); setMessage(value); setActiveTab('requests'); void load() }} />}
+        {showPauseRequest && activeContract && <LeaveRequestModal contractId={activeContract.id} policy={data.scheduleConfig} onClose={() => setShowPauseRequest(false)} onCreated={(value) => { invalidateHistory(); setMessage(value); setActiveTab('requests'); void load() }} />}
       </>}
     </div>
   )

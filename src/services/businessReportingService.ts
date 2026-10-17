@@ -65,6 +65,9 @@ export interface TrainingHistoryRecord {
   contractId: string
   counterpartId: string
   counterpartName: string
+  billingStatus: string
+  countsTowardContract: boolean
+  isExempt: boolean
   attendance: {
     id: string
     type: string
@@ -96,7 +99,7 @@ export interface TrainingHistoryPage {
   }
   hasMore: boolean
   nextCursor: string | null
-  filters: { startDate: string; endDate: string; status: TrainingHistoryStatus }
+  filters: { startDate: string; endDate: string; status: TrainingHistoryStatus; allTime?: boolean }
 }
 
 export interface SessionUsageSummary {
@@ -106,6 +109,7 @@ export interface SessionUsageSummary {
   presentSessions: number
   lateSessions: number
   noShowSessions: number
+  chargedNoShowSessions: number
   policyChargedSessions: number
   chargedPendingAttendanceSessions: number
   exemptSessions: number
@@ -142,8 +146,9 @@ export interface StudentContractUsageResponse {
 }
 
 export interface TrainingHistoryQuery {
-  startDate: string
-  endDate: string
+  startDate?: string
+  endDate?: string
+  allTime?: boolean
   status?: TrainingHistoryStatus
   pageSize?: number
   cursor?: string | null

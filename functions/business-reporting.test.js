@@ -31,6 +31,9 @@ test('business P&L separates cash collection from recognised revenue', () => {
 test('business report and training history retain bounded filters and actor-scoped access', () => {
   assert.throws(() => normaliseBusinessRange({ startDate: '2026-01-01', endDate: '2027-01-10' }), /tối đa/)
   assert.throws(() => normaliseHistoryInput({ startDate: '2025-01-01', endDate: '2026-08-20' }), /tối đa/)
+  const allTime = normaliseHistoryInput({ allTime: true, startDate: '1900-01-01', endDate: '2026-08-20', pageSize: 100 })
+  assert.equal(allTime.allTime, true)
+  assert.equal(allTime.pageSize, 100)
   assert.match(source, /trustedAccessContext/)
   assert.match(source, /assertHistoryAccess/)
   assert.match(source, /pt\.operations\.manage/)
@@ -43,6 +46,8 @@ test('business report and training history retain bounded filters and actor-scop
   assert.match(source, /MAX_ATTENDANCE_DOCUMENTS = 10000/)
   assert.match(source, /getStudentContractUsage/)
   assert.match(source, /summarizeSessionUsage\(summaryRecords\)/)
+  assert.match(source, /billingStatus: typeof item\.billingStatus/)
+  assert.match(source, /filters: \{ startDate: input\.allTime \? ''/)
   assert.match(source, /formulaVersion: 'contract-usage-v2'/)
   assert.match(source, /unrecognisedAttendanceEvents/)
   assert.match(source, /Aura không tự suy diễn số còn thiếu/)

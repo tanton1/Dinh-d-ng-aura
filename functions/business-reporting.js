@@ -215,15 +215,16 @@ function decodeCursor(value) {
 }
 
 function normaliseHistoryInput(data = {}) {
+  const allTime = data.allTime === true
   const startDate = dateKey(data.startDate || '2020-01-01', 'Ngày bắt đầu')
   const endDate = dateKey(data.endDate || vietnamDateKey(new Date()), 'Ngày kết thúc')
-  if (startDate > endDate) throw new HttpsError('invalid-argument', 'Khoảng ngày lịch sử không hợp lệ.')
+  if (!allTime && startDate > endDate) throw new HttpsError('invalid-argument', 'Khoảng ngày lịch sử không hợp lệ.')
   const rangeDays = Math.floor((Date.parse(`${endDate}T00:00:00Z`) - Date.parse(`${startDate}T00:00:00Z`)) / 86400000) + 1
-  if (rangeDays > MAX_RANGE_DAYS) throw new HttpsError('invalid-argument', `Khoảng ngày tối đa ${MAX_RANGE_DAYS} ngày.`)
+  if (!allTime && rangeDays > MAX_RANGE_DAYS) throw new HttpsError('invalid-argument', `Khoảng ngày tối đa ${MAX_RANGE_DAYS} ngày.`)
   const status = typeof data.status === 'string' && data.status.trim() ? data.status.trim() : 'all'
   if (status !== 'all' && !validHistoryStatuses.has(status)) throw new HttpsError('invalid-argument', 'Trạng thái buổi tập không hợp lệ.')
   const pageSize = Math.min(MAX_HISTORY_PAGE, Math.max(1, Number.isInteger(data.pageSize) ? data.pageSize : DEFAULT_HISTORY_PAGE))
-  return { startDate, endDate, status, pageSize, cursor: decodeCursor(data.cursor) }
+  return { startDate, endDate, status, pageSize, cursor: decodeCursor(data.cursor), allTime }
 }
 
 function matchesAssignment(contract, actor) {
@@ -513,16 +514,20 @@ function createBusinessReportingFunctions({ db, onCall }) {
     const access = await assertHistoryAccess(request, db, subjectType, subjectId)
     const input = normaliseHistoryInput(request.data || {})
     const ownerField = subjectType === 'student' ? 'studentId' : 'trainerId'
-    let query = db.collection('sessions')
-      .where(ownerField, '==', subjectId)
-      .where('date', '>=', input.startDate)
-      .where('date', '<', followingDateKey(input.endDate))
+    let query = db.collection('sessions').where(ownerField, '==', subjectId)
+    if (!input.allTime) {
+      query = query
+        .where('date', '>=', input.startDate)
+        .where('date', '<', followingDateKey(input.endDate))
+    }
     if (input.status !== 'all') query = query.where('status', '==', input.status)
     query = query.orderBy('date', 'desc').orderBy(FieldPath.documentId(), 'desc')
     if (input.cursor) query = query.startAfter(input.cursor.date, input.cursor.id)
     const snapshot = await query.limit(input.pageSize + 1).get()
+    const historyCutoff = subjectType === 'student' && input.allTime ? vietnamDateKey(new Date()) : ''
     const scannedPageDocuments = snapshot.docs.slice(0, input.pageSize)
     const pageDocuments = scannedPageDocuments
+      .filter((item) => !historyCutoff || item.data().status !== 'scheduled' || String(item.data().date || '').slice(0, 10) < historyCutoff)
       .filter((item) => access.scope !== 'branch_manager' || access.actor.branchIds.includes(item.data().branchId))
     const sessionIds = pageDocuments.map((item) => item.id)
     const records = pageDocuments.map((item) => ({ id: item.id, ...item.data() }))
@@ -530,14 +535,18 @@ function createBusinessReportingFunctions({ db, onCall }) {
       relatedEvents(db, sessionIds),
       namesForHistory(db, records, subjectType),
     ])
-    const summaryQuery = db.collection('sessions')
-      .where(ownerField, '==', subjectId)
-      .where('date', '>=', input.startDate)
-      .where('date', '<', followingDateKey(input.endDate))
-      .limit(5001)
+    let summaryQuery = db.collection('sessions').where(ownerField, '==', subjectId)
+    if (!input.allTime) {
+      summaryQuery = summaryQuery
+        .where('date', '>=', input.startDate)
+        .where('date', '<', followingDateKey(input.endDate))
+    }
+    const summaryLimit = input.allTime ? MAX_USAGE_SESSIONS + 1 : 5001
+    summaryQuery = summaryQuery.limit(summaryLimit)
     const summarySnapshot = await summaryQuery.get()
     const summaryRecords = summarySnapshot.docs
       .map((item) => ({ id: item.id, ...item.data() }))
+      .filter((item) => !historyCutoff || item.status !== 'scheduled' || String(item.date || '').slice(0, 10) < historyCutoff)
       .filter((item) => (access.scope !== 'branch_manager' || access.actor.branchIds.includes(item.branchId)))
       .filter((item) => input.status === 'all' || item.status === input.status)
     return {
@@ -559,6 +568,16 @@ function createBusinessReportingFunctions({ db, onCall }) {
           contractId: item.contractId || '',
           counterpartId: counterpartId || '',
           counterpartName: names.get(counterpartId) || 'Đã xóa / Không xác định',
+          billingStatus: typeof item.billingStatus === 'string'
+            ? item.billingStatus
+            : (attendance?.billingStatus || ''),
+          countsTowardContract: sessionCountsTowardContract({
+            ...item,
+            billingStatus: typeof item.billingStatus === 'string'
+              ? item.billingStatus
+              : (attendance?.billingStatus || ''),
+          }),
+          isExempt: String(item.billingStatus || attendance?.billingStatus || '').trim().toLowerCase() === 'exempt',
           attendance: attendance ? {
             id: attendance.id,
             type: attendance.type || '',
@@ -577,11 +596,11 @@ function createBusinessReportingFunctions({ db, onCall }) {
         ...sessionStatusSummary(summaryRecords),
         usage: summarizeSessionUsage(summaryRecords),
         teaching: subjectType === 'trainer' ? teachingShiftSummary(summaryRecords) : null,
-        truncated: summarySnapshot.size > 5000,
+        truncated: summarySnapshot.size >= summaryLimit,
       },
       hasMore: snapshot.size > input.pageSize,
       nextCursor: snapshot.size > input.pageSize && scannedPageDocuments.length ? encodeCursor(scannedPageDocuments[scannedPageDocuments.length - 1]) : null,
-      filters: { startDate: input.startDate, endDate: input.endDate, status: input.status },
+      filters: { startDate: input.allTime ? '' : input.startDate, endDate: input.allTime ? '' : input.endDate, status: input.status, allTime: input.allTime },
     }
   }
 

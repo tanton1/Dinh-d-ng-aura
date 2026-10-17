@@ -630,6 +630,70 @@
   font-weight: 900;
 }
 
+.student-history-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0 0 12px;
+}
+.student-history-summary > span {
+  display: grid;
+  gap: 2px;
+  padding: 10px 11px;
+  border: 1px solid #f0e3e8;
+  border-radius: 14px;
+  color: #81727b;
+  background: #fff8fb;
+  font-size: 10px;
+}
+.student-history-summary > span b { color: #d4266e; font-size: 17px; line-height: 1; }
+.student-session-history article.is-attended em { color: #16805a; background: #e7f8f0; }
+.student-session-history article.is-charged em { color: #b54f2e; background: #fff0df; }
+.student-session-history article.is-exempt em { color: #7c4c99; background: #f2e9fb; }
+.student-session-history article.is-pending em { color: #9a621f; background: #fff3d8; }
+.student-history-notice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px solid #f0d9e4;
+  border-radius: 13px;
+  color: #76505f;
+  background: #fff7fa;
+  font-size: 11px;
+  line-height: 1.45;
+}
+.student-history-notice svg { flex: 0 0 auto; color: #d4266e; }
+.student-history-notice button {
+  flex: 0 0 auto;
+  margin-left: auto;
+  padding: 5px 8px;
+  border: 1px solid #efbfd2;
+  border-radius: 9px;
+  color: #d4266e;
+  background: #fff;
+  font: inherit;
+  font-size: 10px;
+  font-weight: 850;
+  cursor: pointer;
+}
+.student-history-more {
+  display: block;
+  width: 100%;
+  min-height: 42px;
+  margin-top: 13px;
+  border: 1px solid #f1bfd2;
+  border-radius: 13px;
+  color: #d4266e;
+  background: #fff3f8;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 850;
+  cursor: pointer;
+}
+.student-history-more:disabled { opacity: .6; cursor: wait; }
+
 @media (max-width: 820px) {
   .student-schedule-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .student-contract-strip { grid-template-columns: 1fr; }
@@ -646,6 +710,9 @@
   .student-schedule-summary strong { font-size: 13px; }
   .student-contract-strip { border-radius: 20px; padding: 16px; }
   .student-availability-card, .student-linked-sessions, .student-session-history { border-radius: 22px; }
+  .student-history-summary { gap: 6px; }
+  .student-history-summary > span { padding: 9px 8px; font-size: 9px; }
+  .student-history-summary > span b { font-size: 16px; }
   .student-availability-card > header, .student-linked-sessions > header { padding: 18px 16px 12px; }
   .student-availability-card header h2, .student-linked-sessions header h2 { font-size: 18px; }
   .student-availability-card header p, .student-linked-sessions header p { line-height: 1.5; }
