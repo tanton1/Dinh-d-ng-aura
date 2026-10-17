@@ -390,12 +390,24 @@ function directoryHasSessionEvidence(projection = {}) {
     || Boolean(projection.schedule?.nextSession)
 }
 
+function directoryHasSchedulableContract(projection = {}) {
+  const contract = projection.contract || {}
+  const remainingSessions = Number(contract.remainingSessions)
+  return bounded(contract.status, 40).toLowerCase() === 'active'
+    && Boolean(projection.assignments?.branchId)
+    && Number.isFinite(remainingSessions)
+    && remainingSessions > 0
+}
+
 function directoryRowVisible(projection = {}, queryText = '') {
   if (queryText) return true
   const daysRemaining = Number(projection.contract?.daysRemaining)
   const longExpired = projection.identity?.status === 'expired'
     && (!Number.isFinite(daysRemaining) || daysRemaining <= -14)
-  return directoryHasSessionEvidence(projection) && !longExpired
+  // A newly contracted learner has no session evidence yet, but must still be
+  // visible so Staff can place the first week of training. Keep empty profiles
+  // out of the default working set while retaining the searchable archive.
+  return (directoryHasSessionEvidence(projection) || directoryHasSchedulableContract(projection)) && !longExpired
 }
 
 // Signed URLs are expensive (and can briefly spike Storage/CPU usage) when a
@@ -1984,6 +1996,7 @@ async function resolveEventStudentId(db, event) {
   const before = event.data?.before?.exists ? event.data.before.data() : null
   const value = after || before || {}
   if (value.studentId) return bounded(value.studentId, 200)
+  if (value.crmProfileId) return bounded(value.crmProfileId, 200)
   if (value.userId) return studentIdFromAccountUid(db, bounded(value.userId, 200))
   if (event.params?.studentId) return bounded(event.params.studentId, 200)
   if (event.params?.accountUid) return studentIdFromAccountUid(db, event.params.accountUid)
@@ -2952,5 +2965,6 @@ module.exports = {
   decodeProgressPhotoDataUrl,
   foldSearchText,
   directoryHasSessionEvidence,
+  directoryHasSchedulableContract,
   directoryRowVisible,
 }

@@ -185,7 +185,8 @@ export default function StudentManagement({ user, profile, initialStudentId = nu
       // Keep the default CRM working set small. Historical/empty profiles are
       // still reachable through an intentional search, but they do not make
       // every roster calculation inspect old contracts and sessions.
-      if (!searchTerm.trim() && (!studentsWithSessions.has(s.id) || longExpired)) return false;
+      const eligibleForScheduling = weekEligibilityByStudent.get(s.id)?.eligible === true;
+      if (!searchTerm.trim() && ((!studentsWithSessions.has(s.id) && !eligibleForScheduling) || longExpired)) return false;
       if (!searchTerm) return true;
       const matchName = s.name && s.name.toLowerCase().includes(searchTerm.toLowerCase());
       const matchPhone = s.phone && s.phone.includes(searchTerm);

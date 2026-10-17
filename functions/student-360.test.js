@@ -28,6 +28,7 @@ const {
   decodeProgressPhotoDataUrl,
   foldSearchText,
   directoryHasSessionEvidence,
+  directoryHasSchedulableContract,
   directoryRowVisible,
   SCHEDULE_VISIBLE_SESSION_STATUSES,
 } = require('./student-360')
@@ -40,7 +41,10 @@ test('Student directory search folds Vietnamese accents and keeps phone digits s
 
 test('Student directory keeps empty and long-expired profiles in the searchable archive', () => {
   assert.equal(directoryHasSessionEvidence({ training: { sessionCount: 0 }, contract: { historySessions: 0 } }), false)
+  assert.equal(directoryHasSchedulableContract({ assignments: { branchId: 'branch-a' }, contract: { status: 'active', remainingSessions: 12 } }), true)
+  assert.equal(directoryHasSchedulableContract({ assignments: { branchId: 'branch-a' }, contract: { status: 'active', remainingSessions: 0 } }), false)
   assert.equal(directoryRowVisible({ training: { sessionCount: 0 } }, ''), false)
+  assert.equal(directoryRowVisible({ assignments: { branchId: 'branch-a' }, contract: { status: 'active', remainingSessions: 12 } }, ''), true)
   assert.equal(directoryRowVisible({ training: { sessionCount: 2 } }, ''), true)
   assert.equal(directoryRowVisible({ identity: { status: 'expired' }, contract: { daysRemaining: -14, historySessions: 3 } }, ''), false)
   assert.equal(directoryRowVisible({ identity: { status: 'expired' }, contract: { daysRemaining: -14, historySessions: 3 } }, 'nguyen'), true)
