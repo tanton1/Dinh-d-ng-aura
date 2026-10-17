@@ -1049,7 +1049,17 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
   // Firebase Admin privileges and the initial password is never persisted or
   // returned. When a learner has no personal email, a deterministic Aura
   // login alias is derived from the local phone number.
-  const provisionStudentAccount = onCall(async (request) => {
+  // Account creation is an I/O-bound admin write. Keep each instance small and
+  // serialized so a burst cannot consume the whole regional Cloud Run CPU
+  // quota before the handler reaches its rollback-safe transaction.
+  const provisionStudentAccount = onCall({
+    cpu: 'gcf_gen1',
+    memory: '256MiB',
+    concurrency: 1,
+    minInstances: 0,
+    maxInstances: 2,
+    timeoutSeconds: 60,
+  }, async (request) => {
     const action = 'student_account.provision'
     const actor = await identityProvisionStep(logger, action, 'xác minh quyền', () => trustedAccessContext(request, db))
     requireCapability(actor, 'identity.invite.manage')
