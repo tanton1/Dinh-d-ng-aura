@@ -249,6 +249,127 @@ function dayCodeForDate(value) {
   return weekday === 0 ? 'CN' : `T${weekday + 1}`
 }
 
+const SCHEDULE_SLOT_PATTERN = /^(T[2-7]|CN)-(?:[0-9]|1[0-9]|2[0-3])$/
+
+// A cancellation approved through the request workflow must also remove the
+// old matrix cell. Otherwise the next publish sees the stale draft entry,
+// treats the cancelled session as history, and creates a second live session
+// for the same learner/time slot. Keep this small sync local to the same
+// Firestore transaction as the cancellation so the session and matrix cannot
+// diverge.
+function scheduleIdentityForSession(session = {}, sessionId = '', fallbackBranchId = '') {
+  const dateValue = typeof session.date === 'string' ? session.date.trim().slice(0, 10) : ''
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateValue)) return null
+  let sessionHourValue = null
+  try {
+    sessionHourValue = storedSessionHour(session.hour, sessionId, 'Giờ buổi tập')
+  } catch {
+    return null
+  }
+  const rawSlotId = typeof session.slotId === 'string' ? session.slotId.trim() : ''
+  const slotId = SCHEDULE_SLOT_PATTERN.test(rawSlotId) ? rawSlotId : `${dayCodeForDate(dateValue)}-${sessionHourValue}`
+  if (!SCHEDULE_SLOT_PATTERN.test(slotId)) return null
+  const weekId = /^\d{4}-\d{2}-\d{2}$/.test(String(session.scheduleWeekId || ''))
+    ? String(session.scheduleWeekId).slice(0, 10)
+    : mondayForDate(dateValue)
+  const studentId = typeof session.studentId === 'string' ? session.studentId.trim() : ''
+  const trainerId = typeof session.trainerId === 'string' ? session.trainerId.trim() : ''
+  const branchCandidate = typeof session.branchId === 'string' ? session.branchId.trim() : ''
+  const fallback = typeof fallbackBranchId === 'string' ? fallbackBranchId.trim() : ''
+  const branchId = branchCandidate && branchCandidate !== 'all' ? branchCandidate : fallback && fallback !== 'all' ? fallback : ''
+  if (!studentId || !trainerId || !weekId) return null
+  return {
+    weekId,
+    branchId,
+    slotId,
+    studentId,
+    trainerId,
+    scheduleEntryId: typeof session.scheduleEntryId === 'string' ? session.scheduleEntryId.trim() : '',
+  }
+}
+
+function scheduleEntryMatchesIdentity(entry, identity) {
+  if (!entry || entry.type === 'off') return false
+  if (identity.scheduleEntryId && entry.scheduleEntryId === identity.scheduleEntryId) return true
+  return entry.studentId === identity.studentId && entry.trainerId === identity.trainerId
+}
+
+function removeScheduleEntries(schedule, identities) {
+  const source = schedule && typeof schedule === 'object' && !Array.isArray(schedule) ? schedule : {}
+  const next = { ...source }
+  let changed = false
+  let removedCount = 0
+  for (const identity of identities) {
+    const entries = Array.isArray(next[identity.slotId]) ? next[identity.slotId] : []
+    const filtered = entries.filter((entry) => !scheduleEntryMatchesIdentity(entry, identity))
+    if (filtered.length === entries.length) continue
+    changed = true
+    removedCount += entries.length - filtered.length
+    if (filtered.length) next[identity.slotId] = filtered
+    else delete next[identity.slotId]
+  }
+  return { schedule: next, changed, removedCount }
+}
+
+async function readCancellationSchedulePlan({ transaction, db, sessions = [], fallbackBranchId = '' }) {
+  const identities = sessions
+    .map((item) => scheduleIdentityForSession(typeof item?.data === 'function' ? item.data() : item, item.id || '', fallbackBranchId))
+    .filter(Boolean)
+  const draftTargets = new Map()
+  const legacyTargets = new Map()
+  for (const identity of identities) {
+    if (identity.branchId) {
+      const reference = db.doc(`ptScheduleDrafts/${identity.branchId}_${identity.weekId}`)
+      const target = draftTargets.get(reference.path) || { reference, identities: [] }
+      target.identities.push(identity)
+      draftTargets.set(reference.path, target)
+    }
+    const legacyReference = db.doc(`schedules/schedule_${identity.weekId}`)
+    const legacyTarget = legacyTargets.get(legacyReference.path) || { reference: legacyReference, identities: [] }
+    legacyTarget.identities.push(identity)
+    legacyTargets.set(legacyReference.path, legacyTarget)
+  }
+  const references = [...draftTargets.values(), ...legacyTargets.values()]
+  const snapshots = await Promise.all(references.map((item) => transaction.get(item.reference)))
+  references.forEach((item, index) => { item.snapshot = snapshots[index] })
+  return { draftTargets, legacyTargets }
+}
+
+function applyCancellationSchedulePlan({ transaction, plan, actorUid }) {
+  let removedEntryCount = 0
+  for (const target of plan?.draftTargets?.values?.() || []) {
+    if (!target.snapshot?.exists) continue
+    const current = target.snapshot.data() || {}
+    const result = removeScheduleEntries(current.schedule, target.identities)
+    if (!result.changed) continue
+    removedEntryCount += result.removedCount
+    const currentRevision = Number(current.revision ?? current.draftRevision ?? 0)
+    const nextRevision = currentRevision + 1
+    const patch = {
+      schedule: result.schedule,
+      revision: nextRevision,
+      updatedAt: FieldValue.serverTimestamp(),
+      updatedBy: actorUid,
+    }
+    if (current.status === 'published' || Number(current.publishedRevision || 0) > 0) patch.publishedRevision = nextRevision
+    transaction.update(target.reference, patch)
+  }
+  for (const target of plan?.legacyTargets?.values?.() || []) {
+    if (!target.snapshot?.exists) continue
+    const current = target.snapshot.data() || {}
+    const result = removeScheduleEntries(current.schedule, target.identities)
+    if (!result.changed) continue
+    removedEntryCount += result.removedCount
+    transaction.update(target.reference, {
+      schedule: result.schedule,
+      draftRevision: Number(current.draftRevision || 0) + 1,
+      updatedAt: FieldValue.serverTimestamp(),
+      updatedBy: actorUid,
+    })
+  }
+  return removedEntryCount
+}
+
 function normalizedTrainerCapacity(value) {
   const parsed = Number(value)
   return Number.isInteger(parsed) && parsed >= 1 && parsed <= 6 ? parsed : 2
@@ -3075,6 +3196,14 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
       const contractStart = storedContractDate(contract.startDate, 'Ngày bắt đầu')
       const contractEnd = storedContractDate(contract.endDate, 'Ngày kết thúc')
       if (originalDate < contractStart || originalDate > contractEnd) throw new HttpsError('failed-precondition', 'Buổi gốc nằm ngoài thời hạn hợp đồng.')
+      const cancellationSchedulePlan = requestType === 'cancel'
+        ? await readCancellationSchedulePlan({
+          transaction,
+          db,
+          sessions: [{ id: sessionId, ...session }],
+          fallbackBranchId: contract.branchId || '',
+        })
+        : null
       const configSnapshot = await transaction.get(db.doc('settings/scheduleConfig'))
       const operationsPolicy = ptOperationsPolicySnapshot(requestData.policySnapshot || (configSnapshot.exists ? configSnapshot.data() : {}))
 
@@ -3235,6 +3364,9 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
       }
 
       const nextRevision = revision + 1
+      const removedScheduleEntryCount = requestType === 'cancel'
+        ? applyCancellationSchedulePlan({ transaction, plan: cancellationSchedulePlan, actorUid: actor.uid })
+        : 0
       const eventReference = db.collection('sessionEvents').doc()
       if (requestType === 'cancel') {
         const reason = typeof requestData.reason === 'string' ? requestData.reason.trim().slice(0, 500) : ''
@@ -3391,6 +3523,7 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
         loyaltyEntitlementId: loyaltyEntitlementReference?.id || null,
         loyaltyEntitlementUsed: Boolean(loyaltyEntitlementReference),
         countsTowardContract: policyDecision.countsTowardContract,
+        removedScheduleEntryCount,
       }
     })
   })
@@ -3584,6 +3717,13 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
       if (activeSessions.some((item) => isSessionCharged(item.data()))) {
         throw new HttpsError('failed-precondition', 'Khoảng nghỉ có buổi đã được tính. Hãy điều chỉnh riêng buổi đó trước khi duyệt.')
       }
+      const cancellationSchedulePlan = await readCancellationSchedulePlan({
+        transaction,
+        db,
+        sessions: activeSessions,
+        fallbackBranchId: contract.branchId || '',
+      })
+      const removedScheduleEntryCount = applyCancellationSchedulePlan({ transaction, plan: cancellationSchedulePlan, actorUid: actor.uid })
       activeSessions.forEach((item) => {
         const session = item.data()
         transaction.update(item.ref, {
@@ -3626,6 +3766,7 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
         oldContractEndDate: contract.endDate,
         newContractEndDate: newEndDate,
         cancelledSessionCount: activeSessions.length,
+        removedScheduleEntryCount,
         approvedAt: FieldValue.serverTimestamp(),
         approvedBy: actor.uid,
         revision: Number(requestData.revision || 0) + 1,

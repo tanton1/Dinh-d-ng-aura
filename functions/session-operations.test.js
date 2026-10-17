@@ -1055,6 +1055,41 @@ test('first approved student cancellation is complimentary and retries idempoten
   assert.equal(state.read('sessions/session-1').revision, 3)
 })
 
+test('approved cancellation removes the published matrix cell before the next publish', async () => {
+  const entry = { studentId: 'student-1', trainerId: 'trainer-1', branchId: 'branch-1', type: 'training' }
+  const scheduleEntryId = 'schedule_2026-08-17-T5-8-student-1'
+  const state = operationsFor({
+    'sessionRequests/request-schedule-cancel': {
+      status: 'pending', type: 'cancel', sessionId: 'session-schedule-cancel', studentId: 'student-1', contractId: 'contract-1',
+      requestedBy: 'student', originalDate: '2026-08-20', originalHour: 8, originalSessionRevision: 2,
+      reason: 'Bận việc gia đình', submittedAtIso: '2026-08-19T00:00:00.000Z', policyMonth: '2026-08',
+    },
+    'sessions/session-schedule-cancel': {
+      status: 'scheduled', scheduleStatus: 'scheduled', billingStatus: 'pending', attendanceStatus: 'pending',
+      studentId: 'student-1', trainerId: 'trainer-1', contractId: 'contract-1', branchId: 'branch-1',
+      date: '2026-08-20', hour: 8, scheduleWeekId: '2026-08-17', slotId: 'T5-8', scheduleEntryId, revision: 2,
+    },
+    'contracts/contract-1': { status: 'active', studentId: 'student-1', branchId: 'branch-1', startDate: '2026-08-01', endDate: '2026-08-31', totalSessions: 12, usedSessions: 0 },
+    'ptScheduleDrafts/branch-1_2026-08-17': {
+      branchId: 'branch-1', weekId: '2026-08-17', status: 'published', revision: 4, publishedRevision: 4,
+      schedule: { 'T5-8': [entry] },
+    },
+    'schedules/schedule_2026-08-17': { draftRevision: 4, schedule: { 'T5-8': [entry] } },
+  })
+
+  const result = await state.approveSessionRequest({ data: { requestId: 'request-schedule-cancel', expectedSessionRevision: 2 } })
+  assert.equal(result.removedScheduleEntryCount, 2)
+  assert.deepEqual(state.read('ptScheduleDrafts/branch-1_2026-08-17').schedule, {})
+  assert.equal(state.read('ptScheduleDrafts/branch-1_2026-08-17').revision, 5)
+  assert.equal(state.read('ptScheduleDrafts/branch-1_2026-08-17').publishedRevision, 5)
+  assert.deepEqual(state.read('schedules/schedule_2026-08-17').schedule, {})
+  assert.equal(state.read('schedules/schedule_2026-08-17').draftRevision, 5)
+
+  const retry = await state.approveSessionRequest({ data: { requestId: 'request-schedule-cancel', expectedSessionRevision: 2 } })
+  assert.equal(retry.unchanged, true)
+  assert.deepEqual(state.read('ptScheduleDrafts/branch-1_2026-08-17').schedule, {})
+})
+
 test('second approved change in a calendar month creates one immutable policy charge', async () => {
   const state = operationsFor({
     'ptPolicyUsage/student-1_2026-08': { studentId: 'student-1', monthKey: '2026-08', approvedChangeCancelCount: 1 },
@@ -1130,12 +1165,15 @@ test('an expired Aura Club entitlement cannot replace the normal change policy c
 })
 
 test('approved OFF cancels overlapping scheduled sessions without charging and extends the contract atomically', async () => {
+  const offEntry = { studentId: 'student-1', trainerId: 'trainer-1', branchId: 'branch-1', type: 'training' }
   const state = operationsFor({
     'leaveRequests/off-request-1': { status: 'pending', type: 'off', studentId: 'student-1', contractId: 'contract-1', startDate: '2026-08-24', endDate: '2026-08-30', durationDays: 7, reason: 'Đi công tác', submittedAtIso: '2026-08-19T00:00:00.000Z', revision: 0 },
     'contracts/contract-1': { status: 'active', studentId: 'student-1', packageId: 'package-3m', startDate: '2026-08-01', endDate: '2026-10-31', totalSessions: 36, usedSessions: 3, revision: 0 },
     'packages/package-3m': { durationMonths: 3 },
-    'sessions/off-session-1': { status: 'scheduled', studentId: 'student-1', trainerId: 'trainer-1', contractId: 'contract-1', date: '2026-08-25', hour: 18, revision: 1 },
+    'sessions/off-session-1': { status: 'scheduled', studentId: 'student-1', trainerId: 'trainer-1', contractId: 'contract-1', branchId: 'branch-1', date: '2026-08-25', hour: 18, scheduleWeekId: '2026-08-24', slotId: 'T3-18', scheduleEntryId: 'schedule_2026-08-24-T3-18-student-1', revision: 1 },
     'sessions/outside-off': { status: 'scheduled', studentId: 'student-1', trainerId: 'trainer-1', contractId: 'contract-1', date: '2026-09-01', hour: 18, revision: 0 },
+    'ptScheduleDrafts/branch-1_2026-08-24': { branchId: 'branch-1', weekId: '2026-08-24', status: 'published', revision: 2, publishedRevision: 2, schedule: { 'T3-18': [offEntry] } },
+    'schedules/schedule_2026-08-24': { draftRevision: 2, schedule: { 'T3-18': [offEntry] } },
   })
   const result = await state.approveContractPauseRequest({ data: { requestId: 'off-request-1' } })
   assert.equal(result.durationDays, 7)
@@ -1145,6 +1183,8 @@ test('approved OFF cancels overlapping scheduled sessions without charging and e
   assert.equal(state.read('sessions/off-session-1').countsTowardContract, false)
   assert.equal(state.read('sessions/outside-off').status, 'scheduled')
   assert.equal(state.read('contracts/contract-1').endDate, '2026-11-07')
+  assert.deepEqual(state.read('ptScheduleDrafts/branch-1_2026-08-24').schedule, {})
+  assert.deepEqual(state.read('schedules/schedule_2026-08-24').schedule, {})
   assert.equal(state.read('contractPauseEvents/off-request-1').durationDays, 7)
 })
 
