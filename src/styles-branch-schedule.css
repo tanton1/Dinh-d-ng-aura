@@ -1015,3 +1015,104 @@
   .schedule-opportunities__groups { grid-template-columns:1fr; }
   .schedule-opportunities__group > div { max-height:300px; }
 }
+
+/* Final pass for the weekly work queues. Keep this after the theme layer so
+   the compact mobile layout remains the source of truth. */
+.branch-schedule__students-page,
+.branch-schedule__warning-page { padding: clamp(16px, 3vw, 30px); }
+.branch-schedule__students-page > header,
+.branch-schedule__warning-page > header { margin-bottom: 14px; }
+.branch-schedule__students-page h2,
+.branch-schedule__warning-page h2 { margin-bottom: 2px; letter-spacing: -.025em; }
+.branch-schedule__students-page header span,
+.branch-schedule__warning-page header span { font-size: .72rem; }
+.branch-schedule__student-tools { margin-bottom: 10px; }
+.branch-schedule__student-tools > label,
+.branch-schedule__student-tools > select { min-height: 38px; border-radius: 10px; box-shadow: none; }
+.branch-schedule__student-list { gap: 8px; }
+.branch-schedule__student-list > article { grid-template-columns: minmax(170px,1fr) minmax(100px,.38fr) auto; gap: 9px 12px; padding: 11px 12px; border: 1px solid #eee2e8; border-radius: 14px; box-shadow: none; backdrop-filter: none; }
+.branch-schedule__student-person > span { width: 32px; height: 32px; border-radius: 10px; }
+.branch-schedule__student-person strong { font-size: .76rem; }
+.branch-schedule__student-person small { max-width: 220px; color: #9d7788; font-size: .58rem; font-weight: 650; text-transform: none; }
+.branch-schedule__student-progress { gap: 2px; }
+.branch-schedule__student-progress strong { font-size: .9rem; }
+.branch-schedule__student-progress span { color: #8f7481; font-size: .59rem; }
+.branch-schedule__student-progress i { height: 4px; }
+.branch-schedule__weekly-target { justify-items: end; }
+.branch-schedule__weekly-target > small { text-transform: none; }
+.branch-schedule__weekly-target > div { gap: 3px; }
+.branch-schedule__weekly-target button { width: 25px; height: 25px; border-radius: 8px; }
+.branch-schedule__weekly-target strong { font-size: .9rem; }
+.branch-schedule__student-schedule { gap: 5px; padding-top: 8px; border-top-color: #f0e7eb; }
+.branch-schedule__student-schedule > small { color: #977888; font-size: .58rem; font-weight: 750; text-transform: none; }
+.branch-schedule__student-schedule > div { gap: 5px; }
+.branch-schedule__student-schedule span { max-width: none; padding: 5px 8px; border: 1px solid #f1dfe7; border-radius: 9px; color: #5c4550; background: #fff7fa; font-size: .62rem; font-weight: 700; }
+.branch-schedule__student-schedule span b { color: #9b7183; font-size: .54rem; font-weight: 650; }
+.branch-schedule__student-schedule em { font-size: .62rem; }
+.branch-schedule__student-availability-action { gap: 8px; justify-content: flex-start; }
+.branch-schedule__student-availability-action button { border-radius: 9px; padding: 6px 9px; font-size: .62rem; }
+.branch-schedule__student-availability-action > span { color: #a26a79; font-size: .59rem; }
+.branch-schedule__student-availability-action > span.is-warning { color: #b05d2a; }
+.schedule-warning-overview { grid-template-columns: repeat(2,minmax(0,360px)); gap: 8px; margin-bottom: 11px; }
+.schedule-warning-stat { grid-template-columns: 42px minmax(0,1fr); column-gap: 10px; min-height: 58px; padding: 9px 11px; border-radius: 13px; box-shadow: none; }
+.schedule-warning-stat__value { width: 42px; height: 42px; border-radius: 12px; font-size: 1.05rem; }
+.schedule-warning-stat__label { font-size: .72rem; }
+.schedule-warning-stat small { font-size: .58rem; }
+.schedule-warning-summary { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 6px; max-width: 900px; margin: -1px 0 10px; }
+.schedule-warning-summary button { display: grid; grid-template-columns: auto minmax(0,1fr); align-items: center; gap: 7px; min-width: 0; padding: 7px 9px; border: 1px solid #eee2e8; border-radius: 10px; color: #75636d; background: #fff; font: inherit; text-align: left; }
+.schedule-warning-summary button[aria-pressed="true"] { border-color: rgba(229,47,113,.34); box-shadow: 0 0 0 2px rgba(229,47,113,.08); }
+.schedule-warning-summary button strong { color: #c52e6b; font-size: .84rem; }
+.schedule-warning-summary button span { overflow: hidden; font-size: .59rem; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.schedule-warning-summary .is-contract strong { color: #b35325; }
+.schedule-warning-summary .is-learner strong { color: #a16a18; }
+.schedule-warning-summary .is-capacity strong { color: #386bc1; }
+.schedule-warning-summary .is-system strong { color: #6d5a91; }
+.schedule-warning-filters { max-width: 960px; gap: 6px; margin: -2px 0 12px; }
+.schedule-warning-filters button { min-height: 34px; padding: 0 10px; font-size: .63rem; }
+.schedule-warning-filters button b { min-width: 18px; height: 18px; font-size: .55rem; }
+.schedule-warning-grid { max-width: 900px; gap: 7px; }
+.schedule-warning-grid article { box-shadow: none; backdrop-filter: none; }
+.schedule-warning-grid article.schedule-warning-student { border-radius: 13px; }
+.schedule-warning-student > button { min-height: 70px; grid-template-columns: 18px minmax(0,1fr) 16px; gap: 8px; padding: 11px 12px; }
+.schedule-warning-student > button > svg:first-child { width: 16px; margin-top: 2px; }
+.schedule-warning-student__title strong { font-size: .78rem; }
+.schedule-warning-student__title b { padding: 3px 7px; font-size: .55rem; }
+.schedule-warning-student__meta { gap: 7px; }
+.schedule-warning-student__meta b { font-size: .58rem; }
+.schedule-warning-cause-label { padding: 2px 6px; font-size: .52rem; font-weight: 700; }
+.schedule-warning-primary { display: -webkit-box; overflow: hidden; color: #a45170; font-size: .63rem; line-height: 1.35; text-overflow: ellipsis; white-space: normal; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.schedule-warning-detail--compact { grid-template-columns: 1fr; gap: 6px; padding: 0 12px 11px 38px; }
+.schedule-warning-detail--compact section.is-wide { grid-column: auto; }
+.schedule-warning-detail--compact section { padding: 8px 9px; border-radius: 9px; }
+.schedule-warning-detail--compact section small { font-size: .53rem; }
+.schedule-warning-detail--compact section strong { font-size: .66rem; }
+.schedule-warning-detail--compact section em { font-size: .59rem; }
+.schedule-warning-detail--compact .is-suggestion > div { gap: 4px; }
+.schedule-warning-detail--compact .is-suggestion > div > button { min-width: 0; padding: 5px 6px; }
+.schedule-warning-conflicts { max-width: 900px; margin-bottom: 11px; padding: 11px; border-radius: 14px; box-shadow: none; }
+
+@media (max-width: 760px) {
+  .branch-schedule__students-page,
+  .branch-schedule__warning-page { padding: 16px 10px 26px; }
+  .branch-schedule__student-list > article { grid-template-columns: minmax(0,1fr) auto; gap: 8px 10px; padding: 11px; }
+  .branch-schedule__student-person { grid-column: 1; }
+  .branch-schedule__student-progress { grid-column: 2; min-width: 76px; justify-items: end; }
+  .branch-schedule__student-progress i { max-width: 92px; }
+  .branch-schedule__weekly-target { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; }
+  .branch-schedule__student-schedule,
+  .branch-schedule__student-availability-action,
+  .branch-schedule__availability-editor { grid-column: 1 / -1; }
+  .branch-schedule__student-schedule > div { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 2px; }
+  .branch-schedule__student-schedule span { min-width: 132px; flex: 0 0 auto; }
+  .schedule-warning-overview { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .schedule-warning-stat { grid-template-columns: 34px minmax(0,1fr); column-gap: 7px; padding: 8px; }
+  .schedule-warning-stat__value { width: 34px; height: 34px; border-radius: 10px; font-size: .9rem; }
+  .schedule-warning-stat__label { font-size: .62rem; }
+  .schedule-warning-stat small { font-size: .52rem; }
+  .schedule-warning-summary { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 5px; }
+  .schedule-warning-summary button { padding: 7px; }
+  .schedule-warning-summary button strong { font-size: .78rem; }
+  .schedule-warning-summary button span { font-size: .55rem; }
+  .schedule-warning-student > button { padding: 11px; }
+  .schedule-warning-detail--compact { padding-left: 11px; }
+}
