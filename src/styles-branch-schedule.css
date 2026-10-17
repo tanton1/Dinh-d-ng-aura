@@ -664,6 +664,70 @@
   .schedule-warning-detail .schedule-diagnostic-grid { grid-template-columns:repeat(5,minmax(0,1fr)); }
 }
 
+/* The warning view is deliberately a small work queue: two headline counts,
+   one reason tab rail, and compact learner rows. Schedule metadata such as
+   the author of a manual override remains in the audit trail, but it is not
+   promoted to a separate warning category. */
+.schedule-warning-overview {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.schedule-warning-stat {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  align-items: center;
+  column-gap: 12px;
+  min-width: 0;
+  padding: 14px 16px;
+  border: 1px solid rgba(126, 94, 112, .12);
+  border-radius: 18px;
+  color: var(--branch-ink);
+  background: #fff;
+  box-shadow: 0 10px 25px rgba(63, 42, 56, .045);
+  text-align: left;
+}
+.schedule-warning-stat[aria-pressed="true"] { border-color: rgba(229, 47, 113, .34); box-shadow: 0 0 0 3px rgba(229, 47, 113, .08), 0 12px 26px rgba(63, 42, 56, .055); }
+.schedule-warning-stat__value { grid-row: 1 / span 2; display: grid; width: 48px; height: 48px; place-items: center; border-radius: 15px; color: #fff; background: linear-gradient(135deg, #de3475, #f48256); font-size: 1.25rem; font-weight: 800; }
+.schedule-warning-stat.is-conflict .schedule-warning-stat__value { background: linear-gradient(135deg, #b95a3d, #dc8b4a); }
+.schedule-warning-stat__label { overflow: hidden; color: var(--branch-ink); font-size: .78rem; font-weight: 750; text-overflow: ellipsis; white-space: nowrap; }
+.schedule-warning-stat small { overflow: hidden; color: var(--branch-muted); font-size: .62rem; text-overflow: ellipsis; white-space: nowrap; }
+.schedule-warning-conflicts { display: grid; gap: 10px; max-width: 1120px; margin-bottom: 12px; padding: 14px; border: 1px solid rgba(210, 119, 71, .2); border-radius: 18px; background: linear-gradient(135deg, #fff9f5, #fff); box-shadow: 0 10px 25px rgba(63, 42, 56, .04); }
+.schedule-warning-conflicts > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.schedule-warning-conflicts > header > div { display: grid; gap: 3px; min-width: 0; }
+.schedule-warning-conflicts > header strong { color: #98482d; font-size: .84rem; }
+.schedule-warning-conflicts > header span { color: #8c6e61; font-size: .64rem; line-height: 1.4; }
+.schedule-warning-conflicts > header b { flex: 0 0 auto; padding: 5px 9px; border-radius: 999px; color: #9b4a2d; background: #fff0e6; font-size: .61rem; }
+.schedule-warning-conflicts > div { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
+.schedule-warning-conflicts button { display: grid; grid-template-columns: 19px minmax(0, 1fr) 16px; align-items: center; gap: 8px; min-width: 0; padding: 10px 11px; border: 1px solid #f0d7ca; border-radius: 12px; color: #6f3c2b; background: #fff; text-align: left; }
+.schedule-warning-conflicts button > svg:first-child { color: #cf653a; }
+.schedule-warning-conflicts button > span { display: grid; min-width: 0; gap: 3px; }
+.schedule-warning-conflicts button strong,.schedule-warning-conflicts button small,.schedule-warning-conflicts button em { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.schedule-warning-conflicts button strong { font-size: .7rem; }
+.schedule-warning-conflicts button small { color: #8c736a; font-size: .59rem; }
+.schedule-warning-conflicts button em { color: #b65b3a; font-size: .58rem; font-style: normal; font-weight: 700; }
+.schedule-warning-conflicts button > svg:last-child { color: #c48774; }
+.schedule-warning-detail--compact { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.schedule-warning-detail--compact section { min-height: 0; }
+.schedule-warning-detail--compact section > strong { line-height: 1.3; }
+.schedule-warning-detail--compact section > em { line-height: 1.35; }
+.schedule-warning-detail--compact .schedule-warning-cause { background: linear-gradient(135deg, #fff4f8, #fff9f2); }
+.schedule-warning-detail--compact .schedule-warning-action { background: #fff; }
+
+@media (max-width: 760px) {
+  .schedule-warning-overview { gap: 8px; }
+  .schedule-warning-stat { grid-template-columns: 38px minmax(0, 1fr); column-gap: 8px; padding: 10px; border-radius: 15px; }
+  .schedule-warning-stat__value { width: 38px; height: 38px; border-radius: 12px; font-size: 1rem; }
+  .schedule-warning-stat__label { font-size: .68rem; }
+  .schedule-warning-stat small { font-size: .55rem; }
+  .schedule-warning-conflicts { margin-inline: -2px; padding: 10px; border-radius: 15px; }
+  .schedule-warning-conflicts > header { align-items: flex-start; }
+  .schedule-warning-conflicts > div { grid-template-columns: 1fr; }
+  .schedule-warning-detail--compact { grid-template-columns: 1fr; }
+}
+
 /* Calm, low-noise surface for the scheduling workspace.  The matrix keeps its
    contrast, while the list views use translucent surfaces and lighter type so
    the operator can scan names, availability and coverage without visual bulk. */

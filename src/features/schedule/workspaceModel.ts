@@ -12,7 +12,7 @@ import { readWorkspaceCache, writeWorkspaceCache, WORKSPACE_CACHE_REVALIDATE_MS 
 
 type WorkspaceTab = 'matrix' | 'opportunities' | 'students' | 'warnings' | 'history' | 'requests'
 type StudentFilter = 'all' | 'missing' | 'contract' | 'availability' | 'trainer' | 'ready'
-type WarningFilter = 'priority' | 'contract' | 'learner' | 'capacity' | 'system' | 'pairing' | 'trainer'
+type WarningFilter = 'priority' | 'conflict' | 'contract' | 'learner' | 'capacity' | 'system'
 type WarningCause = 'contract' | 'learner' | 'capacity' | 'system'
 type WorkspaceSyncState = 'connecting' | 'live' | 'syncing' | 'offline'
 const CONFIRMED_AVAILABILITY_STATUSES = new Set(['submitted', 'locked', 'inherited', 'recurring'])
