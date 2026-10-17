@@ -1036,6 +1036,7 @@ test('trainer attendance delegates to the same contract-linked transaction', () 
 
 test('first approved student cancellation is complimentary and retries idempotently', async () => {
   const state = operationsFor({
+    'settings/scheduleConfig': { sessionChangeDeadlineHours: 12, complimentaryChangeCancelPerMonth: 2 },
     'sessionRequests/request-1': { status: 'pending', type: 'cancel', sessionId: 'session-1', studentId: 'student-1', contractId: 'contract-1', requestedBy: 'student', originalDate: '2026-08-20', originalHour: 8, originalSessionRevision: 2, reason: 'Bận', submittedAtIso: '2026-08-19T00:00:00.000Z', policyMonth: '2026-08' },
     'sessions/session-1': { status: 'scheduled', studentId: 'student-1', trainerId: 'trainer-1', contractId: 'contract-1', date: '2026-08-20', hour: 8, revision: 2 },
     'contracts/contract-1': { status: 'active', studentId: 'student-1', startDate: '2026-08-01', endDate: '2026-08-31', totalSessions: 12, usedSessions: 0 },
@@ -1053,6 +1054,34 @@ test('first approved student cancellation is complimentary and retries idempoten
   const retry = await state.approveSessionRequest({ data: { requestId: 'request-1', expectedSessionRevision: 2 } })
   assert.equal(retry.unchanged, true)
   assert.equal(state.read('sessions/session-1').revision, 3)
+})
+
+test('late learner cancellation is accepted and charged instead of being duplicated or silently dropped', async () => {
+  const state = operationsFor({
+    'settings/scheduleConfig': { sessionChangeDeadlineHours: 12, complimentaryChangeCancelPerMonth: 2 },
+    'sessions/session-late-cancel': {
+      status: 'scheduled', scheduleStatus: 'scheduled', billingStatus: 'pending', attendanceStatus: 'pending',
+      studentId: 'student-1', trainerId: 'trainer-1', contractId: 'contract-1', branchId: 'branch-1',
+      date: '2026-08-20', hour: 18, revision: 0,
+    },
+    'contracts/contract-1': { status: 'active', studentId: 'student-1', trainerId: 'trainer-1', branchId: 'branch-1', startDate: '2026-08-01', endDate: '2026-08-31', totalSessions: 12, usedSessions: 0, totalPrice: 1_200_000 },
+  })
+
+  const created = await state.createMySessionRequest({ data: {
+    sessionId: 'session-late-cancel', expectedRevision: 0, type: 'cancel', reason: 'Phát sinh việc gấp', idempotencyKey: 'late-cancel',
+  } })
+  assert.equal(created.lateCancellation, true)
+  assert.equal(created.expectedCountsTowardContract, true)
+
+  const approved = await state.approveSessionRequest({ data: { requestId: created.requestId, expectedSessionRevision: 0 } })
+  assert.equal(approved.countsTowardContract, true)
+  assert.equal(approved.lateCancellation, true)
+  assert.equal(state.read('sessions/session-late-cancel').status, 'student_cancelled')
+  assert.equal(state.read('sessions/session-late-cancel').billingStatus, 'charged')
+  assert.equal(state.read('sessions/session-late-cancel').policyViolation, 'late_cancellation')
+  assert.equal(state.read('contracts/contract-1').usedSessions.operand, 1)
+  assert.equal(state.read(`sessionRequests/${created.requestId}`).policyViolation, 'late_cancellation')
+  assert.equal(state.paths().filter((path) => path === 'attendanceEvents/policy_' + created.requestId).length, 1)
 })
 
 test('approved cancellation removes the published matrix cell before the next publish', async () => {
@@ -1088,6 +1117,51 @@ test('approved cancellation removes the published matrix cell before the next pu
   const retry = await state.approveSessionRequest({ data: { requestId: 'request-schedule-cancel', expectedSessionRevision: 2 } })
   assert.equal(retry.unchanged, true)
   assert.deepEqual(state.read('ptScheduleDrafts/branch-1_2026-08-17').schedule, {})
+})
+
+test('approved learner reschedule moves the matrix entry and session identity atomically', async () => {
+  const oldEntry = {
+    studentId: 'student-1', trainerId: 'trainer-1', branchId: 'branch-1', type: 'training',
+    scheduleEntryId: 'schedule_2026-08-17-T7-7-student-1',
+  }
+  const state = operationsFor({
+    'settings/scheduleConfig': { complimentaryChangeCancelPerMonth: 2, sessionChangeDeadlineHours: 12 },
+    'sessionRequests/request-schedule-move': {
+      status: 'pending', type: 'reschedule', sessionId: 'session-schedule-move', studentId: 'student-1', contractId: 'contract-1',
+      requestedBy: 'student', originalDate: '2026-08-22', originalHour: 7, originalSessionRevision: 2,
+      newDate: '2026-08-25', newHour: 10, newTrainerId: 'trainer-1', submittedAtIso: '2026-08-20T00:00:00.000Z', policyMonth: '2026-08',
+    },
+    'sessions/session-schedule-move': {
+      status: 'scheduled', scheduleStatus: 'scheduled', billingStatus: 'pending', attendanceStatus: 'pending',
+      studentId: 'student-1', trainerId: 'trainer-1', contractId: 'contract-1', branchId: 'branch-1',
+      date: '2026-08-22', hour: 7, scheduleWeekId: '2026-08-17', slotId: 'T7-7', scheduleEntryId: oldEntry.scheduleEntryId, revision: 2,
+    },
+    'contracts/contract-1': { status: 'active', studentId: 'student-1', trainerId: 'trainer-1', branchId: 'branch-1', startDate: '2026-08-01', endDate: '2026-08-31', totalSessions: 12, usedSessions: 0 },
+    'students/student-1': { status: 'active', branchId: 'branch-1', isScheduleConfirmed: true, availableSlots: ['T3-10'] },
+    'trainers/trainer-1': { status: 'active', name: 'PT Chính', branchId: 'branch-1', employmentType: 'full_time', availableSlots: ['T3-10'], slotCapacity: 2 },
+    'ptScheduleDrafts/branch-1_2026-08-17': { branchId: 'branch-1', weekId: '2026-08-17', status: 'published', revision: 4, publishedRevision: 4, schedule: { 'T7-7': [oldEntry] } },
+    'ptScheduleDrafts/branch-1_2026-08-24': { branchId: 'branch-1', weekId: '2026-08-24', status: 'published', revision: 8, publishedRevision: 8, schedule: {} },
+    'schedules/schedule_2026-08-17': { draftRevision: 4, schedule: { 'T7-7': [oldEntry] } },
+    'schedules/schedule_2026-08-24': { draftRevision: 8, schedule: {} },
+  }, async () => ({ uid: 'admin-1' }), { now: () => new Date('2026-08-20T03:00:00.000Z') })
+
+  const result = await state.approveSessionRequest({ data: { requestId: 'request-schedule-move', expectedSessionRevision: 2 } })
+  assert.equal(result.removedScheduleEntryCount, 2)
+  assert.equal(result.movedScheduleEntryCount, 2)
+  assert.deepEqual(state.read('ptScheduleDrafts/branch-1_2026-08-17').schedule, {})
+  assert.deepEqual(state.read('schedules/schedule_2026-08-17').schedule, {})
+  assert.equal(state.read('ptScheduleDrafts/branch-1_2026-08-24').schedule['T3-10'][0].studentId, 'student-1')
+  assert.equal(state.read('schedules/schedule_2026-08-24').schedule['T3-10'][0].trainerId, 'trainer-1')
+  const moved = state.read('sessions/session-schedule-move')
+  assert.equal(moved.date, '2026-08-25')
+  assert.equal(moved.hour, 10)
+  assert.equal(moved.scheduleWeekId, '2026-08-24')
+  assert.equal(moved.slotId, 'T3-10')
+  assert.equal(moved.scheduleEntryId, 'schedule_2026-08-24-T3-10-student-1')
+
+  const retry = await state.approveSessionRequest({ data: { requestId: 'request-schedule-move', expectedSessionRevision: 2 } })
+  assert.equal(retry.unchanged, true)
+  assert.equal(state.read('ptScheduleDrafts/branch-1_2026-08-24').schedule['T3-10'].length, 1)
 })
 
 test('second approved change in a calendar month creates one immutable policy charge', async () => {

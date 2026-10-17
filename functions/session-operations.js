@@ -26,6 +26,7 @@ const {
   ptOperationsPolicySnapshot,
   offRegistrationLimit,
   policyUsageDecision,
+  sessionChangeDeadline,
   storedDateShape,
   vietnamDateKey,
   vietnamMonthKey,
@@ -335,6 +336,30 @@ async function readCancellationSchedulePlan({ transaction, db, sessions = [], fa
   return { draftTargets, legacyTargets }
 }
 
+async function readScheduleMovePlan({ transaction, db, sourceSession, targetSession, fallbackBranchId = '' }) {
+  const sourceIdentity = scheduleIdentityForSession(sourceSession, sourceSession?.id || '', fallbackBranchId)
+  const targetIdentity = scheduleIdentityForSession(targetSession, targetSession?.id || sourceSession?.id || '', fallbackBranchId)
+  const draftTargets = new Map()
+  const legacyTargets = new Map()
+  const identities = [sourceIdentity, targetIdentity].filter(Boolean)
+  for (const identity of identities) {
+    if (identity.branchId) {
+      const reference = db.doc(`ptScheduleDrafts/${identity.branchId}_${identity.weekId}`)
+      const target = draftTargets.get(reference.path) || { reference, identities: [] }
+      target.identities.push(identity)
+      draftTargets.set(reference.path, target)
+    }
+    const legacyReference = db.doc(`schedules/schedule_${identity.weekId}`)
+    const legacyTarget = legacyTargets.get(legacyReference.path) || { reference: legacyReference, identities: [] }
+    legacyTarget.identities.push(identity)
+    legacyTargets.set(legacyReference.path, legacyTarget)
+  }
+  const references = [...draftTargets.values(), ...legacyTargets.values()]
+  const snapshots = await Promise.all(references.map((item) => transaction.get(item.reference)))
+  references.forEach((item, index) => { item.snapshot = snapshots[index] })
+  return { sourceIdentity, targetIdentity, draftTargets, legacyTargets }
+}
+
 function applyCancellationSchedulePlan({ transaction, plan, actorUid }) {
   let removedEntryCount = 0
   for (const target of plan?.draftTargets?.values?.() || []) {
@@ -368,6 +393,62 @@ function applyCancellationSchedulePlan({ transaction, plan, actorUid }) {
     })
   }
   return removedEntryCount
+}
+
+function applyScheduleMovePlan({ transaction, plan, actorUid }) {
+  let removedEntryCount = 0
+  let movedEntryCount = 0
+  const writeTarget = (target, legacy = false) => {
+    if (!target?.snapshot?.exists || !plan?.sourceIdentity || !plan?.targetIdentity) return
+    const current = target.snapshot.data() || {}
+    const sourceIdentity = plan.sourceIdentity
+    const targetIdentity = plan.targetIdentity
+    const sourceEntries = Array.isArray(current.schedule?.[sourceIdentity.slotId])
+      ? current.schedule[sourceIdentity.slotId].filter((entry) => scheduleEntryMatchesIdentity(entry, sourceIdentity))
+      : []
+    const removed = removeScheduleEntries(current.schedule, [sourceIdentity])
+    const nextSchedule = { ...removed.schedule }
+    const targetDocumentMatches = legacy
+      ? target.reference.path === `schedules/schedule_${targetIdentity.weekId}`
+      : target.reference.path === `ptScheduleDrafts/${targetIdentity.branchId}_${targetIdentity.weekId}`
+    let added = false
+    if (targetDocumentMatches) {
+      const targetEntries = Array.isArray(nextSchedule[targetIdentity.slotId]) ? nextSchedule[targetIdentity.slotId] : []
+      const alreadyAtTarget = targetEntries.some((entry) => scheduleEntryMatchesIdentity(entry, targetIdentity))
+      if (!alreadyAtTarget) {
+        const sourceEntry = sourceEntries[0] || {}
+        const nextEntry = {
+          ...sourceEntry,
+          studentId: targetIdentity.studentId,
+          trainerId: targetIdentity.trainerId,
+          ...(targetIdentity.branchId ? { branchId: targetIdentity.branchId } : {}),
+          type: sourceEntry.type === 'off' ? 'training' : (sourceEntry.type || 'training'),
+          scheduleEntryId: targetIdentity.scheduleEntryId || `schedule_${targetIdentity.weekId}-${targetIdentity.slotId}-${targetIdentity.studentId}`,
+        }
+        nextSchedule[targetIdentity.slotId] = [...targetEntries, nextEntry]
+        movedEntryCount += 1
+        added = true
+      }
+    }
+    if (!removed.changed && !added) return
+    removedEntryCount += removed.removedCount
+    const currentRevision = Number(current.revision ?? current.draftRevision ?? 0)
+    const nextRevision = currentRevision + 1
+    const patch = {
+      schedule: nextSchedule,
+      updatedAt: FieldValue.serverTimestamp(),
+      updatedBy: actorUid,
+    }
+    if (legacy) patch.draftRevision = nextRevision
+    else {
+      patch.revision = nextRevision
+      if (current.status === 'published' || Number(current.publishedRevision || 0) > 0) patch.publishedRevision = nextRevision
+    }
+    transaction.update(target.reference, patch)
+  }
+  for (const target of plan?.draftTargets?.values?.() || []) writeTarget(target, false)
+  for (const target of plan?.legacyTargets?.values?.() || []) writeTarget(target, true)
+  return { removedEntryCount, movedEntryCount }
 }
 
 function normalizedTrainerCapacity(value) {
@@ -2204,11 +2285,13 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
 
       const originalDate = storedDateKey(session.date, 'Ngày của buổi tập')
       const originalHour = storedSessionHour(session.hour, sessionId, 'Giờ của buổi tập')
-      let deadlineAt
+      const deadlineAt = sessionChangeDeadline(originalDate, originalHour, transactionPolicy.sessionChangeDeadlineHours)
+      let lateCancellation = false
       try {
-        deadlineAt = assertSessionChangeDeadline(originalDate, originalHour, submittedAt, transactionPolicy.sessionChangeDeadlineHours)
+        assertSessionChangeDeadline(originalDate, originalHour, submittedAt, transactionPolicy.sessionChangeDeadlineHours)
       } catch (error) {
-        throw policyFailure(error)
+        if (requestType !== 'cancel') throw policyFailure(error)
+        lateCancellation = true
       }
 
       let newDate = null
@@ -2228,6 +2311,9 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
       const contractId = linkedContractId(session)
       const approvedCount = Number(usageSnapshot.data()?.approvedChangeCancelCount || 0)
       const expectedDecision = policyUsageDecision(approvedCount, transactionPolicy.complimentaryChangeCancelPerMonth)
+      const expectedCountsTowardContract = requestType === 'cancel' && lateCancellation
+        ? true
+        : expectedDecision.countsTowardContract
       transaction.create(requestReference, {
         schemaVersion: 3,
         policyVersion: 'pt-change-cancel-v2',
@@ -2256,9 +2342,10 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
         status: 'pending',
         policyMonth: monthKey,
         deadlineAt: deadlineAt.toISOString(),
+        lateCancellation,
         submittedAtIso: submittedAt.toISOString(),
         expectedPolicySequence: expectedDecision.sequence,
-        expectedCountsTowardContract: expectedDecision.countsTowardContract,
+        expectedCountsTowardContract,
         complimentaryLimit: expectedDecision.complimentaryLimit,
         policySnapshot: transactionPolicy,
         idempotencyKey,
@@ -2272,9 +2359,10 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
         status: 'pending',
         policyMonth: monthKey,
         expectedSequence: expectedDecision.sequence,
-        expectedCountsTowardContract: expectedDecision.countsTowardContract,
+        expectedCountsTowardContract,
         complimentaryLimit: expectedDecision.complimentaryLimit,
         deadlineAt: deadlineAt.toISOString(),
+        lateCancellation,
       }
     })
   })
@@ -3196,7 +3284,7 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
       const contractStart = storedContractDate(contract.startDate, 'Ngày bắt đầu')
       const contractEnd = storedContractDate(contract.endDate, 'Ngày kết thúc')
       if (originalDate < contractStart || originalDate > contractEnd) throw new HttpsError('failed-precondition', 'Buổi gốc nằm ngoài thời hạn hợp đồng.')
-      const cancellationSchedulePlan = requestType === 'cancel'
+      let scheduleMutationPlan = requestType === 'cancel'
         ? await readCancellationSchedulePlan({
           transaction,
           db,
@@ -3211,6 +3299,7 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
       let usageReference = null
       let usageSnapshot = null
       let loyaltyEntitlementReference = null
+      let lateCancellation = false
       let policyDecision = { sequence: 0, complimentary: true, countsTowardContract: false, complimentaryLimit: operationsPolicy.complimentaryChangeCancelPerMonth }
       if (requestedBy === 'student') {
         const submittedAt = requestInstant(requestData.createdAt, requestData.submittedAtIso)
@@ -3218,7 +3307,8 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
         try {
           assertSessionChangeDeadline(originalDate, originalHour, submittedAt, operationsPolicy.sessionChangeDeadlineHours)
         } catch (error) {
-          throw policyFailure(error)
+          if (requestType !== 'cancel') throw policyFailure(error)
+          lateCancellation = true
         }
         policyMonth = /^\d{4}-\d{2}$/.test(requestData.policyMonth || '')
           ? requestData.policyMonth
@@ -3229,6 +3319,9 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
           Number(usageSnapshot.data()?.approvedChangeCancelCount || 0),
           operationsPolicy.complimentaryChangeCancelPerMonth,
         )
+        if (requestType === 'cancel' && lateCancellation) {
+          policyDecision = { ...policyDecision, complimentary: false, countsTowardContract: true, policyViolation: 'late_cancellation' }
+        }
         if (requestType === 'reschedule' && policyDecision.countsTowardContract) {
           const entitlementSnapshot = await transaction.get(
             db.collection('loyaltyEntitlements')
@@ -3262,6 +3355,8 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
       let branchDay = null
       let targetSiteCapacity = null
       let homeBranchId = ''
+      let targetScheduleWeekId = ''
+      let targetSlotId = ''
       if (requestType === 'reschedule') {
         newDate = date(requestData.newDate)
         newHour = hour(requestData.newHour)
@@ -3270,6 +3365,7 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
         if (newDate < contractStart || newDate > contractEnd) throw new HttpsError('failed-precondition', 'Lịch mới nằm ngoài thời hạn hợp đồng.')
         if (pauseCoversDate(contract, newDate)) throw new HttpsError('failed-precondition', 'Ngày đề xuất nằm trong thời gian OFF hoặc bảo lưu của hợp đồng.')
         const targetWeek = mondayForDate(newDate)
+        targetScheduleWeekId = targetWeek
         ;[trainerDay, studentDay, trainerSnapshot, studentSnapshot, availabilitySnapshot, trainerAvailabilitySnapshot, trainerLeaves] = await Promise.all([
           transaction.get(dailySessionsQuery(db, 'trainerId', trainerId, newDate)),
           transaction.get(dailySessionsQuery(db, 'studentId', session.studentId, newDate)),
@@ -3294,6 +3390,7 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
           throw new HttpsError('failed-precondition', 'Ca thay thế ngoài PT phụ trách chỉ được chọn PT chính thức toàn thời gian.')
         }
         const { slotId } = assertOperatingCalendar(configSnapshot.exists ? configSnapshot.data() : {}, newDate, newHour)
+        targetSlotId = slotId
         if (!trainerIsAvailable(trainer, slotId)) throw new HttpsError('failed-precondition', 'Ca đề xuất không còn nằm trong lịch rảnh PT tuần này.')
         targetSiteCapacity = targetBranchId ? branchSlotCapacity(normalizedScheduleConfig(configSnapshot.exists ? configSnapshot.data() : {}), targetBranchId, slotId) : null
         if (targetSiteCapacity !== null) branchDay = await transaction.get(dailySessionsQuery(db, 'branchId', targetBranchId, newDate))
@@ -3313,6 +3410,23 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
           return leave.trainerId === trainerId && start && end && newDate >= start && newDate <= end
         })
         if (trainerUnavailable) throw new HttpsError('failed-precondition', 'PT đang OFF ở ngày đề xuất.')
+
+        scheduleMutationPlan = await readScheduleMovePlan({
+          transaction,
+          db,
+          sourceSession: { id: sessionId, ...session },
+          targetSession: {
+            ...session,
+            date: newDate,
+            hour: newHour,
+            trainerId,
+            branchId: targetBranchId || session.branchId || contract.branchId || '',
+            scheduleWeekId: targetScheduleWeekId,
+            slotId: targetSlotId,
+            scheduleEntryId: `schedule_${targetScheduleWeekId}-${targetSlotId}-${session.studentId}`,
+          },
+          fallbackBranchId: contract.branchId || '',
+        })
       }
 
       let policyAttendanceReference = null
@@ -3364,9 +3478,12 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
       }
 
       const nextRevision = revision + 1
-      const removedScheduleEntryCount = requestType === 'cancel'
-        ? applyCancellationSchedulePlan({ transaction, plan: cancellationSchedulePlan, actorUid: actor.uid })
-        : 0
+      const scheduleMutationResult = requestType === 'cancel'
+        ? { removedEntryCount: applyCancellationSchedulePlan({ transaction, plan: scheduleMutationPlan, actorUid: actor.uid }), movedEntryCount: 0 }
+        : requestType === 'reschedule'
+          ? applyScheduleMovePlan({ transaction, plan: scheduleMutationPlan, actorUid: actor.uid })
+          : { removedEntryCount: 0, movedEntryCount: 0 }
+      const removedScheduleEntryCount = scheduleMutationResult.removedEntryCount
       const eventReference = db.collection('sessionEvents').doc()
       if (requestType === 'cancel') {
         const reason = typeof requestData.reason === 'string' ? requestData.reason.trim().slice(0, 500) : ''
@@ -3384,9 +3501,10 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
           updatedBy: actor.uid,
           policyMonth: policyMonth || null,
           policySequence: policyDecision.sequence || null,
+          policyViolation: lateCancellation ? 'late_cancellation' : null,
           countsTowardContract: policyDecision.countsTowardContract,
         })
-        transaction.create(eventReference, { schemaVersion: 2, sessionId, requestId, type: cancellationType, requestedBy, reason, policyMonth: policyMonth || null, policySequence: policyDecision.sequence || null, countsTowardContract: policyDecision.countsTowardContract, createdAt: FieldValue.serverTimestamp(), createdBy: actor.uid })
+        transaction.create(eventReference, { schemaVersion: 2, sessionId, requestId, type: cancellationType, requestedBy, reason, policyMonth: policyMonth || null, policySequence: policyDecision.sequence || null, policyViolation: lateCancellation ? 'late_cancellation' : null, countsTowardContract: policyDecision.countsTowardContract, createdAt: FieldValue.serverTimestamp(), createdBy: actor.uid })
       } else {
         const targetCapacity = normalizedTrainerCapacity(trainerSnapshot.data().slotCapacity)
         if (activeHourDocuments(trainerDay, newHour, [sessionId]).length >= targetCapacity) throw new HttpsError('resource-exhausted', 'Khung giờ của HLV đã đủ học viên.')
@@ -3399,6 +3517,9 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
           hour: newHour,
           trainerId,
           ...(targetBranchId ? { branchId: targetBranchId } : {}),
+          scheduleWeekId: targetScheduleWeekId,
+          slotId: targetSlotId,
+          scheduleEntryId: `schedule_${targetScheduleWeekId}-${targetSlotId}-${session.studentId}`,
           studentBranchWarning: isCrossBranch,
           studentHomeBranchId: isCrossBranch ? homeBranchId : null,
           status: 'scheduled',
@@ -3486,6 +3607,7 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
         policySequence: policyDecision.sequence || null,
         complimentary: policyDecision.complimentary,
         complimentaryLimit: policyDecision.complimentaryLimit,
+        policyViolation: lateCancellation ? 'late_cancellation' : null,
         loyaltyEntitlementId: loyaltyEntitlementReference?.id || null,
         countsTowardContract: policyDecision.countsTowardContract,
         processedSessionRevision: nextRevision,
@@ -3523,7 +3645,9 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
         loyaltyEntitlementId: loyaltyEntitlementReference?.id || null,
         loyaltyEntitlementUsed: Boolean(loyaltyEntitlementReference),
         countsTowardContract: policyDecision.countsTowardContract,
+        lateCancellation,
         removedScheduleEntryCount,
+        movedScheduleEntryCount: scheduleMutationResult.movedEntryCount,
       }
     })
   })
