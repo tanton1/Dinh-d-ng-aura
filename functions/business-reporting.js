@@ -2,6 +2,7 @@ const { FieldPath, Timestamp } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
 const { trustedAccessContext, requireCapability } = require('./identity-access')
 const { sessionCountsTowardContract, summarizeSessionUsage, summarizeContractUsage } = require('./contract-usage')
+const { canonicalSessionRows } = require('./session-schedule-normalization')
 
 const MAX_RANGE_DAYS = 366
 const MAX_LEDGER_DOCUMENTS = 10000
@@ -201,7 +202,15 @@ function summaryFromLedger(entries, input) {
 }
 
 function encodeCursor(document) {
-  return Buffer.from(JSON.stringify({ date: String(document.data().date || '').slice(0, 10), id: document.id }), 'utf8').toString('base64url')
+  const value = typeof document?.data === 'function' ? document.data() : document || {}
+  return Buffer.from(JSON.stringify({ date: String(value.date || '').slice(0, 10), id: document.id }), 'utf8').toString('base64url')
+}
+
+function canonicalHistoryRows(rows = []) {
+  return canonicalSessionRows(rows).sort((left, right) => {
+    const dateOrder = String(right.date || '').slice(0, 10).localeCompare(String(left.date || '').slice(0, 10))
+    return dateOrder || String(right.id || '').localeCompare(String(left.id || ''))
+  })
 }
 
 function decodeCursor(value) {
@@ -378,7 +387,7 @@ async function studentContractUsage(db, access, studentId, requestedContractId =
     throw new HttpsError('resource-exhausted', 'Lịch sử vượt giới hạn tổng hợp. Hãy liên hệ Aura để chạy đối soát theo lô.')
   }
   let contracts = contractSnapshot.docs.map((item) => ({ id: item.id, ...item.data() }))
-  let sessions = sessionSnapshot.docs.map((item) => ({ id: item.id, ...item.data() }))
+  let sessions = canonicalHistoryRows(sessionSnapshot.docs.map((item) => ({ id: item.id, ...item.data() })))
   if (access.scope === 'branch_manager') {
     contracts = contracts.filter((item) => access.actor.branchIds.includes(item.branchId))
     sessions = sessions.filter((item) => access.actor.branchIds.includes(item.branchId))
@@ -523,14 +532,20 @@ function createBusinessReportingFunctions({ db, onCall }) {
     if (input.status !== 'all') query = query.where('status', '==', input.status)
     query = query.orderBy('date', 'desc').orderBy(FieldPath.documentId(), 'desc')
     if (input.cursor) query = query.startAfter(input.cursor.date, input.cursor.id)
-    const snapshot = await query.limit(input.pageSize + 1).get()
+    // A cancelled/exempt mirror can sit beside the attendance row for the
+    // same published slot. Read a small safety window before canonicalising
+    // so the mirror does not consume a page item or appear as a second visit.
+    const pageReadLimit = Math.min(MAX_USAGE_SESSIONS + 1, Math.max(input.pageSize + 1, input.pageSize * 3 + 1))
+    const snapshot = await query.limit(pageReadLimit).get()
     const historyCutoff = subjectType === 'student' && input.allTime ? vietnamDateKey(new Date()) : ''
-    const scannedPageDocuments = snapshot.docs.slice(0, input.pageSize)
-    const pageDocuments = scannedPageDocuments
-      .filter((item) => !historyCutoff || item.data().status !== 'scheduled' || String(item.data().date || '').slice(0, 10) < historyCutoff)
-      .filter((item) => access.scope !== 'branch_manager' || access.actor.branchIds.includes(item.data().branchId))
+    const scannedPageDocuments = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))
+    const canonicalPageDocuments = canonicalHistoryRows(scannedPageDocuments)
+    const pageDocuments = canonicalPageDocuments
+      .filter((item) => !historyCutoff || item.status !== 'scheduled' || String(item.date || '').slice(0, 10) < historyCutoff)
+      .filter((item) => access.scope !== 'branch_manager' || access.actor.branchIds.includes(item.branchId))
+      .slice(0, input.pageSize)
     const sessionIds = pageDocuments.map((item) => item.id)
-    const records = pageDocuments.map((item) => ({ id: item.id, ...item.data() }))
+    const records = pageDocuments
     const [{ attendanceBySession, eventsBySession }, names] = await Promise.all([
       relatedEvents(db, sessionIds),
       namesForHistory(db, records, subjectType),
@@ -544,8 +559,8 @@ function createBusinessReportingFunctions({ db, onCall }) {
     const summaryLimit = input.allTime ? MAX_USAGE_SESSIONS + 1 : 5001
     summaryQuery = summaryQuery.limit(summaryLimit)
     const summarySnapshot = await summaryQuery.get()
-    const summaryRecords = summarySnapshot.docs
-      .map((item) => ({ id: item.id, ...item.data() }))
+    const summaryRecords = canonicalHistoryRows(summarySnapshot.docs
+      .map((item) => ({ id: item.id, ...item.data() })))
       .filter((item) => !historyCutoff || item.status !== 'scheduled' || String(item.date || '').slice(0, 10) < historyCutoff)
       .filter((item) => (access.scope !== 'branch_manager' || access.actor.branchIds.includes(item.branchId)))
       .filter((item) => input.status === 'all' || item.status === input.status)
@@ -598,8 +613,10 @@ function createBusinessReportingFunctions({ db, onCall }) {
         teaching: subjectType === 'trainer' ? teachingShiftSummary(summaryRecords) : null,
         truncated: summarySnapshot.size >= summaryLimit,
       },
-      hasMore: snapshot.size > input.pageSize,
-      nextCursor: snapshot.size > input.pageSize && scannedPageDocuments.length ? encodeCursor(scannedPageDocuments[scannedPageDocuments.length - 1]) : null,
+      hasMore: snapshot.size >= pageReadLimit || canonicalPageDocuments.length > input.pageSize,
+      nextCursor: (snapshot.size >= pageReadLimit || canonicalPageDocuments.length > input.pageSize) && pageDocuments.length
+        ? encodeCursor(pageDocuments[pageDocuments.length - 1])
+        : null,
       filters: { startDate: input.allTime ? '' : input.startDate, endDate: input.allTime ? '' : input.endDate, status: input.status, allTime: input.allTime },
     }
   }
@@ -622,6 +639,7 @@ module.exports = {
   createBusinessReportingFunctions,
   normaliseBusinessRange,
   normaliseHistoryInput,
+  canonicalHistoryRows,
   summaryFromLedger,
   teachingShiftSummary,
   studentContractUsage,

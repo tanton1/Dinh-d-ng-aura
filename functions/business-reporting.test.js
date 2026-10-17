@@ -7,6 +7,7 @@ const test = require('node:test')
 const {
   normaliseBusinessRange,
   normaliseHistoryInput,
+  canonicalHistoryRows,
   summaryFromLedger,
   teachingShiftSummary,
 } = require('./business-reporting')
@@ -41,6 +42,8 @@ test('business report and training history retain bounded filters and actor-scop
   assert.match(source, /trainer_scheduled_student/)
   assert.match(source, /where\('trainerId', '==', actorId\)/)
   assert.match(source, /where\(ownerField, '==', subjectId\)/)
+  assert.match(source, /canonicalHistoryRows\(scannedPageDocuments\)/)
+  assert.match(source, /canonicalHistoryRows\(summarySnapshot\.docs/)
   assert.match(source, /orderBy\('date', 'desc'\).*orderBy\(FieldPath\.documentId\(\), 'desc'\)/s)
   assert.match(source, /MAX_HISTORY_PAGE = 100/)
   assert.match(source, /MAX_ATTENDANCE_DOCUMENTS = 10000/)
@@ -51,6 +54,35 @@ test('business report and training history retain bounded filters and actor-scop
   assert.match(source, /formulaVersion: 'contract-usage-v2'/)
   assert.match(source, /unrecognisedAttendanceEvents/)
   assert.match(source, /Aura không tự suy diễn số còn thiếu/)
+})
+
+test('student history collapses an exempt cancellation mirror into its charged no-show', () => {
+  const rows = canonicalHistoryRows([
+    {
+      id: 'cancelled-mirror',
+      studentId: 'student-1',
+      trainerId: 'trainer-1',
+      contractId: 'contract-1',
+      scheduleEntryId: 'schedule-week-T6-20-student-1',
+      date: '2026-10-16',
+      hour: 20,
+      status: 'cancelled',
+      billingStatus: 'exempt',
+    },
+    {
+      id: 'attendance-no-show',
+      studentId: 'student-1',
+      trainerId: 'trainer-1',
+      contractId: 'contract-1',
+      scheduleEntryId: 'schedule-week-T6-20-student-1',
+      date: '2026-10-16',
+      hour: 20,
+      status: 'no_show',
+      billingStatus: 'charged',
+      attendanceStatus: 'no_show',
+    },
+  ])
+  assert.deepEqual(rows.map((item) => item.id), ['attendance-no-show'])
 })
 
 test('trainer teaching history counts a paired class as one teaching shift', () => {

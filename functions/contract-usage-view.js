@@ -4,12 +4,13 @@ const { createHash } = require('node:crypto')
 const { FieldValue } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
 const { sessionCountsTowardContract, summarizeContractUsage } = require('./contract-usage')
+const { canonicalSessionRows } = require('./session-schedule-normalization')
 const { trustedAccessContext } = require('./identity-access')
 const { withFunctionTelemetry } = require('./observability')
 
 const MAX_SESSION_EVIDENCE = 5000
 const MAX_CONTRACTS_PER_STUDENT = 100
-const USAGE_VIEW_SCHEMA_VERSION = 1
+const USAGE_VIEW_SCHEMA_VERSION = 2
 const USAGE_VIEW_RECONCILIATION_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000
 const SESSION_USAGE_FIELDS = Object.freeze(['contractId', 'billingStatus', 'status', 'attendanceStatus'])
 const CONTRACT_USAGE_FIELDS = Object.freeze(['studentId', 'crmProfileId', 'totalSessions', 'usedSessions'])
@@ -199,8 +200,9 @@ async function readContractEvidence(db, contractId) {
     .where('contractId', '==', contractId)
     .limit(MAX_SESSION_EVIDENCE + 1)
     .get()
+  const sessions = canonicalSessionRows(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })))
   return {
-    sessions: snapshot.docs.slice(0, MAX_SESSION_EVIDENCE).map((item) => ({ id: item.id, ...item.data() })),
+    sessions: sessions.slice(0, MAX_SESSION_EVIDENCE),
     truncated: snapshot.size > MAX_SESSION_EVIDENCE,
   }
 }
@@ -242,7 +244,9 @@ async function buildContractUsageView({ db, contractId, contract = null, logger 
 
 async function getStoredOrFreshView(db, contractId) {
   const stored = await db.doc(`contractUsageViews/${contractId}`).get()
-  if (stored.exists) return { id: stored.id, ...stored.data(), generatedAt: stored.data()?.generatedAt?.toDate?.()?.toISOString?.() || stored.data()?.generatedAt || null }
+  if (stored.exists && Number(stored.data()?.schemaVersion || 0) === USAGE_VIEW_SCHEMA_VERSION) {
+    return { id: stored.id, ...stored.data(), generatedAt: stored.data()?.generatedAt?.toDate?.()?.toISOString?.() || stored.data()?.generatedAt || null }
+  }
   return buildContractUsageView({ db, contractId })
 }
 
@@ -350,6 +354,7 @@ module.exports = {
   CONTRACT_USAGE_FIELDS,
   MAX_SESSION_EVIDENCE,
   SESSION_USAGE_FIELDS,
+  USAGE_VIEW_SCHEMA_VERSION,
   USAGE_VIEW_RECONCILIATION_MAX_AGE_MS,
   viewFromSummary,
   usageSummaryFromView,

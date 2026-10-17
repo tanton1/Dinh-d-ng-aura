@@ -139,7 +139,7 @@ test('scheduled reconciliation skips a fresh matching projection', () => {
   const now = Date.parse('2026-09-10T12:00:00.000Z')
   const contract = { studentId: 's1', totalSessions: 24, usedSessions: 7 }
   const matching = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     studentId: 's1',
     entitlementSessions: 24,
     storedUsedSessions: 7,

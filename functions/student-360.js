@@ -5,7 +5,7 @@ const { trustedAccessContext } = require('./identity-access')
 const { PT_OPERATIONS_POLICY_EFFECTIVE_FROM, PT_OPERATIONS_POLICY_VERSION } = require('./pt-policy')
 const { effectiveContractStatus } = require('./contract-status')
 const { ptOperationsPolicySnapshot } = require('./pt-policy')
-const { usageSummaryFromView } = require('./contract-usage-view')
+const { usageSummaryFromView, USAGE_VIEW_SCHEMA_VERSION } = require('./contract-usage-view')
 const { canViewAction } = require('./action-center')
 const { sourceChanged, coalesceProjectionRebuild, upsertChangedTimeline } = require('./student-360-projection-writes')
 const { calculateNutritionTargets, canonicalNutritionProfile } = require('./nutrition-core.mjs')
@@ -1508,7 +1508,7 @@ async function buildStudent360Projection({ db, studentId, weekId = mondayDateKey
   const contract = activeContract(sources.contracts, today)
   const contractEffectiveStatus = contract ? effectiveContractStatus(contract, today) : null
   const usageView = contract ? await db.doc(`contractUsageViews/${contract.id}`).get() : null
-  const usage = usageView?.exists
+  const usage = usageView?.exists && Number(usageView.data()?.schemaVersion || 0) === USAGE_VIEW_SCHEMA_VERSION
     ? usageSummaryFromView(usageView.data(), contract)
     : contractUsage(contract || {}, sources.sessions)
   const payment = paymentProjection(contract, today)
@@ -2068,7 +2068,9 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
     const usageViewSnapshots = await Promise.all(
       contractDocuments.map((item) => db.doc(`contractUsageViews/${item.id}`).get()),
     )
-    const usageViews = new Map(usageViewSnapshots.filter((item) => item.exists).map((item) => [item.id, item.data()]))
+    const usageViews = new Map(usageViewSnapshots
+      .filter((item) => item.exists && Number(item.data()?.schemaVersion || 0) === USAGE_VIEW_SCHEMA_VERSION)
+      .map((item) => [item.id, item.data()]))
     const missingUsageIds = contractDocuments.filter((item) => !usageViews.has(item.id)).map((item) => item.id)
     // Dual-read fallback is bounded and only runs for contracts whose
     // projection has not been built yet. Once the scheduled/triggered rebuild
@@ -2076,7 +2078,7 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
     const sessionSnapshot = missingUsageIds.length
       ? await db.collection('sessions').where('studentId', '==', studentId).limit(1000).get()
       : { docs: [] }
-    const sessions = sessionSnapshot.docs.map((item) => ({ id: item.id, ...item.data() }))
+    const sessions = canonicalSessionRows(sessionSnapshot.docs.map((item) => ({ id: item.id, ...item.data() })))
     const usageByContract = new Map(contractDocuments.map((item) => {
       const value = item.data() || {}
       const usageView = usageViews.get(item.id)
