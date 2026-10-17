@@ -464,6 +464,27 @@ async function identityProvisionStep(logger, action, stage, operation, timeoutMs
   }
 }
 
+function legacyStudentIdentityFields({ restoredStudentFields, uid, actorUid, existingStudent = false }) {
+  const fields = {
+    ...restoredStudentFields,
+    accountUid: uid,
+    accountStatus: 'active',
+    identityLinkStatus: 'linked',
+    identityLinkVersion: 2,
+    identityLinkedAt: FieldValue.serverTimestamp(),
+    identityLinkedBy: actorUid,
+    schemaVersion: 1,
+    revision: existingStudent ? undefined : 1,
+    updatedAt: FieldValue.serverTimestamp(),
+  }
+  if (existingStudent) {
+    fields.accountDeletedAt = FieldValue.delete()
+    fields.accountDeletedBy = FieldValue.delete()
+    delete fields.revision
+  }
+  return fields
+}
+
 async function assertUniqueDirectAccount({ auth, email, logger, action }) {
   // Avoid a second Identity Toolkit lookup by phone number.  The Admin SDK
   // enforces phone uniqueness atomically in createUser; on the affected
@@ -1115,22 +1136,18 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
           createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
         })
         if (legacyStudentRef) {
-          const identityFields = {
-            ...restoredStudentFields,
-            accountUid: uid,
-            accountStatus: 'active',
-            accountDeletedAt: FieldValue.delete(),
-            accountDeletedBy: FieldValue.delete(),
-            identityLinkStatus: 'linked',
-            identityLinkVersion: 2,
-            identityLinkedAt: FieldValue.serverTimestamp(),
-            identityLinkedBy: actor.uid,
-            schemaVersion: 1,
-            revision: existingStudentSnapshot?.exists ? Number(existingStudentSnapshot.data()?.revision || 0) + 1 : 1,
-            updatedAt: FieldValue.serverTimestamp(),
+          const identityFields = legacyStudentIdentityFields({
+            restoredStudentFields,
+            uid,
+            actorUid: actor.uid,
+            existingStudent: existingStudentSnapshot?.exists,
+          })
+          if (existingStudentSnapshot?.exists) {
+            identityFields.revision = Number(existingStudentSnapshot.data()?.revision || 0) + 1
+            transaction.set(legacyStudentRef, identityFields, { merge: true })
+          } else {
+            transaction.create(legacyStudentRef, { ...identityFields, createdAt: FieldValue.serverTimestamp() })
           }
-          if (existingStudentSnapshot?.exists) transaction.set(legacyStudentRef, identityFields, { merge: true })
-          else transaction.create(legacyStudentRef, { ...identityFields, createdAt: FieldValue.serverTimestamp() })
         }
         if (identityLinkRef) transaction.create(identityLinkRef, {
           studentId: effectiveCrmProfileId,
@@ -1950,6 +1967,7 @@ module.exports = {
   resolveStaffContactUpdate,
   initialPasswordFromPhone,
   loginEmailFromPhone,
+  legacyStudentIdentityFields,
   isReclaimableDeletedStudent,
   studentProfilePhoneMatches,
 }

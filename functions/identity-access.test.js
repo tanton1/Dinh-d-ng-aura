@@ -5,6 +5,7 @@ const {
   normalizedPhone,
   initialPasswordFromPhone,
   loginEmailFromPhone,
+  legacyStudentIdentityFields,
   resolveStaffContactUpdate,
   identityDirectoryPageSize,
   identityDirectoryNextCursor,
@@ -85,6 +86,27 @@ test('recognizes only explicitly deleted, unlinked student profiles as reusable'
   assert.equal(isReclaimableDeletedStudent({ phone: '0702728851', accountStatus: 'deleted', accountUid: 'old-uid' }, phone), false)
   assert.equal(isReclaimableDeletedStudent({ phone: '0702728851', status: 'inactive' }, phone), false)
   assert.equal(isReclaimableDeletedStudent({ phone: '0900000000', accountStatus: 'deleted' }, phone), false)
+})
+
+test('new student profiles never send delete sentinels through transaction.create', () => {
+  const fields = legacyStudentIdentityFields({
+    restoredStudentFields: { id: 'student-new', name: 'Học viên mới', phone: '+84901234567' },
+    uid: 'uid-new',
+    actorUid: 'admin-1',
+  })
+  assert.equal(Object.hasOwn(fields, 'accountDeletedAt'), false)
+  assert.equal(Object.hasOwn(fields, 'accountDeletedBy'), false)
+  assert.equal(fields.revision, 1)
+
+  const restored = legacyStudentIdentityFields({
+    restoredStudentFields: { id: 'student-old', name: 'Học viên cũ', phone: '+84901234567' },
+    uid: 'uid-new',
+    actorUid: 'admin-1',
+    existingStudent: true,
+  })
+  assert.equal(Object.hasOwn(restored, 'accountDeletedAt'), true)
+  assert.equal(Object.hasOwn(restored, 'accountDeletedBy'), true)
+  assert.equal(Object.hasOwn(restored, 'revision'), false)
 })
 
 test('saving an existing staff profile never migrates its legacy login alias', () => {
