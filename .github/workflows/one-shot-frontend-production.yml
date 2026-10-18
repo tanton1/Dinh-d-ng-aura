@@ -1,0 +1,92 @@
+name: One-shot frontend production deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      git_ref:
+        description: Git ref that has passed the frontend build checks
+        required: true
+        default: main
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aura-frontend-one-shot-release
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      name: production
+      url: https://aurafitness-jet.vercel.app
+    env:
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.git_ref }}
+
+      - name: Resolve immutable release revision
+        id: revision
+        shell: bash
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Require release credentials
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          test -n "$VERCEL_TOKEN"
+          test -n "$VERCEL_ORG_ID"
+          test -n "$VERCEL_PROJECT_ID"
+
+      - run: npm ci
+
+      - name: Enforce production configuration gate
+        shell: bash
+        env:
+          VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY || vars.VITE_FIREBASE_API_KEY }}
+          VITE_FIREBASE_AUTH_DOMAIN: ${{ secrets.VITE_FIREBASE_AUTH_DOMAIN || vars.VITE_FIREBASE_AUTH_DOMAIN }}
+          VITE_FIREBASE_PROJECT_ID: ${{ secrets.VITE_FIREBASE_PROJECT_ID || vars.VITE_FIREBASE_PROJECT_ID }}
+          VITE_FIREBASE_STORAGE_BUCKET: ${{ secrets.VITE_FIREBASE_STORAGE_BUCKET || vars.VITE_FIREBASE_STORAGE_BUCKET }}
+          VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.VITE_FIREBASE_MESSAGING_SENDER_ID || vars.VITE_FIREBASE_MESSAGING_SENDER_ID }}
+          VITE_FIREBASE_APP_ID: ${{ secrets.VITE_FIREBASE_APP_ID || vars.VITE_FIREBASE_APP_ID }}
+          VITE_FIREBASE_DATABASE_ID: ${{ secrets.VITE_FIREBASE_DATABASE_ID || vars.VITE_FIREBASE_DATABASE_ID }}
+          VITE_FIREBASE_APP_CHECK_SITE_KEY: ${{ secrets.VITE_FIREBASE_APP_CHECK_SITE_KEY || vars.VITE_FIREBASE_APP_CHECK_SITE_KEY }}
+          VITE_ENABLE_DEMO_OTP: 'false'
+          VITE_FORCE_DEMO: 'false'
+          ENFORCE_APP_CHECK: ${{ vars.ENFORCE_APP_CHECK }}
+          ENFORCE_AI_APP_CHECK: ${{ vars.ENFORCE_AI_APP_CHECK }}
+        run: npm run production:gate
+
+      - name: Build and check frontend
+        run: npm run build && npm run performance:check
+
+      - name: Build and promote production on Vercel
+        id: deploy
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          DEPLOYMENT_URL="$(npx --yes vercel@latest deploy --prod --yes --token="$VERCEL_TOKEN" --build-env VITE_APP_RELEASE=${{ steps.revision.outputs.sha }})"
+          echo "url=$DEPLOYMENT_URL" >> "$GITHUB_OUTPUT"
+
+      - name: Post-deploy smoke
+        env:
+          AURA_PROD_URL: https://aurafitness-jet.vercel.app
+          AURA_EXPECTED_RELEASE_SHA: ${{ steps.revision.outputs.sha }}
+        run: npm run production:smoke
+
+      - name: Release summary
+        run: |
+          echo "### Aura frontend production release" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Git SHA: \`${{ steps.revision.outputs.sha }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Deployment: ${{ steps.deploy.outputs.url }}" >> "$GITHUB_STEP_SUMMARY"
