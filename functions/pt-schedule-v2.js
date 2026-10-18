@@ -606,17 +606,34 @@ function weeklySessionCoverageForStudents({ weekId, branchId, sessions = [] } = 
     if ((session?.id && seenSessionIds.has(session.id)) || seenSessionKeys.has(sessionKey)) continue
     if (session?.id) seenSessionIds.add(session.id)
     seenSessionKeys.add(sessionKey)
-    const row = coverage[studentId] || { total: 0, currentBranch: 0, otherBranches: 0, byBranch: {}, dates: [] }
+    const row = coverage[studentId] || {
+      total: 0,
+      currentBranch: 0,
+      otherBranches: 0,
+      byBranch: {},
+      dates: [],
+      entries: [],
+    }
     row.total += 1
     if (sessionBranchId !== 'unknown' && sessionBranchId === branchId) row.currentBranch += 1
     else row.otherBranches += 1
     row.byBranch[sessionBranchId] = (row.byBranch[sessionBranchId] || 0) + 1
     if (!row.dates.includes(date)) row.dates.push(date)
+    row.entries.push({
+      id: String(session?.id || sessionKey),
+      branchId: sessionBranchId,
+      date,
+      hour: hour >= 0 ? hour : null,
+      trainerId: typeof session?.trainerId === 'string' ? session.trainerId : '',
+    })
     coverage[studentId] = row
   }
   return Object.fromEntries(Object.entries(coverage).map(([studentId, row]) => [studentId, {
     ...row,
     dates: row.dates.sort(),
+    entries: row.entries.sort((left, right) => String(left.date).localeCompare(String(right.date))
+      || Number(left.hour ?? 99) - Number(right.hour ?? 99)
+      || String(left.branchId).localeCompare(String(right.branchId))),
   }]))
 }
 

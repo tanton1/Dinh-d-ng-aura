@@ -129,6 +129,10 @@ test('weekly session coverage counts every branch once and ignores cancelled row
     otherBranches: 1,
     byBranch: { [BRANCH]: 1, 'branch-b': 1 },
     dates: ['2026-08-24', '2026-08-25'],
+    entries: [
+      { id: 'a-local', branchId: BRANCH, date: WEEK, hour: 6, trainerId: 'trainer-a' },
+      { id: 'a-other', branchId: 'branch-b', date: '2026-08-25', hour: 7, trainerId: 'trainer-b' },
+    ],
   })
 })
 

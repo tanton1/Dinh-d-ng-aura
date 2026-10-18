@@ -437,6 +437,14 @@
 .schedule-warning-detail section.is-suggestion > div > button span { padding:0; color:#8c4566; background:transparent; font-size:.61rem; }
 .schedule-warning-detail section.is-suggestion > div > button b { overflow:hidden; color:#b15e7a; font-size:.53rem; font-weight:750; text-overflow:ellipsis; white-space:nowrap; }
 .schedule-warning-detail section.is-suggestion > div > button svg { color:#c17491; }
+.schedule-warning-availability { border:1px solid #f0d9e1; background:linear-gradient(135deg,#fffafd,#fff7f0) !important; }
+.schedule-warning-availability__slots { display:flex !important; flex-wrap:wrap; gap:5px !important; }
+.schedule-warning-availability__slots span { border:1px solid #f2d5e0; color:#a0446c !important; background:#fff !important; }
+.schedule-warning-schedule > div { display:grid !important; grid-template-columns:repeat(2,minmax(0,1fr)); gap:5px !important; }
+.schedule-warning-schedule > div > span { display:grid; gap:2px; border:1px solid #eadce2; color:#7f5b6d !important; background:#fff !important; }
+.schedule-warning-schedule > div > span.is-cross-branch { border-color:#e8cba9; background:#fffaf1 !important; }
+.schedule-warning-schedule > div > span b { display:block; color:#8c4566; font-size:.61rem; }
+.schedule-warning-schedule > div > span small { color:#a6778c; font-size:.54rem; font-weight:750; }
 .branch-schedule__history-page > header > button { display:inline-flex; min-height:36px; align-items:center; gap:5px; margin-top:10px; border:1px solid #ead8e0; border-radius:9px; padding:0 10px; color:#bd2d67; background:#fff; font-size:.67rem; font-weight:820; }
 
 .schedule-inspector-backdrop { position: fixed; inset: 0; z-index: 110; display: flex; justify-content: flex-end; background: rgba(35,22,30,.34); backdrop-filter: blur(5px); }
@@ -666,6 +674,7 @@
   .branch-schedule__availability-editor footer { position:sticky; bottom:92px; z-index:4; padding:8px; border-radius:14px; background:#fffffff2; box-shadow:0 -7px 18px rgba(58,28,42,.08); }
   .schedule-warning-detail { grid-template-columns: 1fr; padding-left: 12px; }
   .schedule-warning-detail section.is-wide { grid-column: auto; }
+  .schedule-warning-schedule > div { grid-template-columns:1fr; }
   .schedule-inspector-backdrop { align-items: flex-end; }
   .schedule-inspector { width:100%; height:min(88dvh,780px); border-radius:24px 24px 0 0; }
   .schedule-inspector > header { border-radius: 24px 24px 0 0; padding: 15px; }

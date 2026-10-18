@@ -148,6 +148,13 @@ test('workspace exposes weekly session coverage from every branch without return
   assert.equal(result.weeklySessionCoverage.a.total, 1)
   assert.equal(result.weeklySessionCoverage.a.otherBranches, 1)
   assert.equal(result.weeklySessionCoverage.a.byBranch['branch-b'], 1)
+  assert.deepEqual(result.weeklySessionCoverage.a.entries, [{
+    id: 'cross-branch-a',
+    branchId: 'branch-b',
+    date: WEEK,
+    hour: 7,
+    trainerId: 'other-trainer',
+  }])
   assert.deepEqual(result.sessions, [])
 })
 

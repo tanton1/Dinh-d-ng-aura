@@ -145,6 +145,14 @@ export interface PtScheduleWeeklyStudentCoverage {
   otherBranches: number
   byBranch: Record<string, number>
   dates: string[]
+  /** Lịch tối giản trong tuần, đã đối soát trên tất cả cơ sở. */
+  entries: Array<{
+    id: string
+    branchId: string
+    date: string
+    hour: number | null
+    trainerId: string
+  }>
 }
 
 export interface PtScheduleTrainerDayLoad {
