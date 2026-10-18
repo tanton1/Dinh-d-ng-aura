@@ -4297,7 +4297,10 @@ function createPtScheduleV2Functions({
       // send raw attendance/billing documents to the scheduling workspace.
       sessionRefs,
       scheduleConfig: data.config,
-      warnings: [...(Array.isArray(data.draft.warnings) ? data.draft.warnings : []), ...liveConflictWarnings].slice(0, 100),
+      // Put live duplicate/conflict diagnostics first so a large historical
+      // optimizer warning list cannot hide the operational issue the Admin
+      // needs to review in the current matrix.
+      warnings: [...liveConflictWarnings, ...(Array.isArray(data.draft.warnings) ? data.draft.warnings : [])].slice(0, 100),
       // Always derive live workload from the current draft and current trainer
       // policy. Keep generator diagnostics (including the relocation trace)
       // from the audit snapshot, but never reuse its stale live metrics.
