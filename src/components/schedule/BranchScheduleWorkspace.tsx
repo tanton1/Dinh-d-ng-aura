@@ -1761,6 +1761,11 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate, ini
     () => new Set(hoveredStudent?.availableSlots || []),
     [hoveredStudent?.availableSlots],
   )
+  const trainerAvailabilitySlots = useMemo(
+    () => new Set(selectedTrainer?.availableSlots || []),
+    [selectedTrainer?.availableSlots],
+  )
+  const trainerAvailabilityIsUnrestricted = selectedTrainer?.availabilityMode === 'unrestricted'
   const highlightedScheduleSlots = useMemo(
     () => new Set((highlightedStudentId ? scheduledEntriesByStudent.get(highlightedStudentId) : [])?.map((entry) => entry.slotId) || []),
     [highlightedStudentId, scheduledEntriesByStudent],
@@ -1884,7 +1889,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate, ini
           <section className="branch-schedule__matrix-toolbar">
             <label><span>Huấn luyện viên</span><select value={selectedTrainerId} disabled={workspaceHydrating} onChange={(event) => setSelectedTrainerId(event.target.value)}>{visibleTrainers.map((trainer) => <option key={trainer.id} value={trainer.id}>{trainer.name}</option>)}</select></label>
             {selectedTrainer && <div className={`trainer-availability-chip is-${selectedTrainer.availabilityMode}`}><Clock3 size={14} />{selectedTrainer.availabilityMode === 'configured' ? `${selectedTrainer.availableSlots?.length || 0} khung giờ rảnh` : selectedTrainer.availabilityMode === 'unrestricted' ? 'Không giới hạn' : 'Chưa khai lịch rảnh'}</div>}
-            <div className="schedule-opportunity-inline-legend" aria-label="Thứ tự kho ca"><span>Thứ tự: ghép 1/2 → PT chính thức dưới mốc → PT còn slot</span></div>
+            <div className="schedule-opportunity-inline-legend" aria-label="Chú giải ma trận"><span className="is-trainer-availability"><i aria-hidden="true" />PT đăng ký rảnh</span><span>Thứ tự: ghép 1/2 → PT chính thức dưới mốc → PT còn slot</span></div>
           </section>
 
           <details className="branch-schedule__trainer-details">
@@ -1928,6 +1933,8 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate, ini
                 const entries = (workspace.schedule[slotId] || []).filter((entry) => entry.trainerId === selectedTrainerId)
                 const isOff = entries.some((entry) => entry.type === 'off')
                 const holiday = holidayDates.has(weekDates[day as keyof typeof weekDates]?.full || '')
+                const past = pastScheduleSlots.has(slotId)
+                const isTrainerAvailable = Boolean(!holiday && !isOff && (trainerAvailabilityIsUnrestricted || trainerAvailabilitySlots.has(slotId)))
                 const showsAvailability = hoveredAvailabilitySlots.has(slotId)
                 const showsStudentSchedule = highlightedScheduleSlots.has(slotId)
                 const openInspector = () => {
@@ -1941,14 +1948,14 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate, ini
                   setOffConfirmation(false)
                   setPendingManualCandidate(null)
                 }
-                const past = pastScheduleSlots.has(slotId)
                 const trainingEntries = entries.filter((entry) => entry.type !== 'off')
+                const availabilityDescription = isTrainerAvailable ? ' · PT đăng ký rảnh' : ''
                 const cellDescription = holiday
                   ? `${scheduleSlotLabel(slotId, weekDates)} · Ngày nghỉ`
                   : isOff
                     ? `${scheduleSlotLabel(slotId, weekDates)} · ${selectedTrainer?.name || 'PT'} nghỉ`
-                    : `${scheduleSlotLabel(slotId, weekDates)} · ${selectedTrainer?.name || 'PT'} · ${trainingEntries.length} học viên`
-                return <td key={slotId} className={`${selectedDays.includes(day) ? 'is-mobile-visible' : ''}${holiday ? ' is-holiday' : ''}`}><div role={trainingEntries.length ? undefined : 'button'} tabIndex={!selectedTrainerId || holiday || trainingEntries.length ? -1 : 0} aria-label={cellDescription} aria-disabled={!selectedTrainerId || holiday} className={`schedule-cell${holiday ? ' is-holiday' : ''}${past ? ' is-past' : ''}${isOff ? ' is-off' : ''}${entries.length ? ' has-entry' : ''}${showsAvailability ? ' is-availability-hover' : ''}${showsStudentSchedule ? ' is-student-highlight' : ''}`} onClick={openInspector} onKeyDown={(event) => { if (event.target !== event.currentTarget) return; if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openInspector() } }}><span className="schedule-cell__count">{holiday ? 'NGHỈ' : isOff ? 'OFF' : `${trainingEntries.length}/${selectedTrainer?.slotCapacity || 2}`}</span>{holiday ? <><CalendarOff /><small>Không xếp lịch</small></> : isOff ? <CalendarOff /> : trainingEntries.length ? trainingEntries.map((entry) => {
+                    : `${scheduleSlotLabel(slotId, weekDates)} · ${selectedTrainer?.name || 'PT'} · ${trainingEntries.length} học viên${availabilityDescription}`
+                return <td key={slotId} className={`${selectedDays.includes(day) ? 'is-mobile-visible' : ''}${holiday ? ' is-holiday' : ''}`}><div role={trainingEntries.length ? undefined : 'button'} tabIndex={!selectedTrainerId || holiday || trainingEntries.length ? -1 : 0} aria-label={cellDescription} aria-disabled={!selectedTrainerId || holiday} className={`schedule-cell${holiday ? ' is-holiday' : ''}${past ? ' is-past' : ''}${isOff ? ' is-off' : ''}${entries.length ? ' has-entry' : ''}${isTrainerAvailable ? ' is-trainer-available' : ''}${showsAvailability ? ' is-availability-hover' : ''}${showsStudentSchedule ? ' is-student-highlight' : ''}`} onClick={openInspector} onKeyDown={(event) => { if (event.target !== event.currentTarget) return; if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openInspector() } }}><span className="schedule-cell__count">{holiday ? 'NGHỈ' : isOff ? 'OFF' : `${trainingEntries.length}/${selectedTrainer?.slotCapacity || 2}`}</span>{holiday ? <><CalendarOff /><small>Không xếp lịch</small></> : isOff ? <CalendarOff /> : trainingEntries.length ? trainingEntries.map((entry) => {
                   const assignmentWarning = trainerAssignmentWarningKeys.has(`${slotId}|${entry.studentId}|${entry.trainerId}`)
                   const branchWarning = entry.studentBranchWarning === true
                   const adminWarning = entry.adminOverride === true

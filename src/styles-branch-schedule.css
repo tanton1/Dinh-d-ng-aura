@@ -143,6 +143,8 @@
 .trainer-availability-chip.is-unrestricted { color: #6c4a9a; background: #f5effc; }
 .schedule-opportunity-inline-legend { display:flex; flex-wrap:wrap; align-items:center; gap:5px; margin-left:auto; }
 .schedule-opportunity-inline-legend span { display:inline-flex; align-items:center; gap:5px; padding:5px 7px; border-radius:999px; color:#665965; background:#f7f4f6; font-size:.55rem; font-weight:760; }
+.schedule-opportunity-inline-legend span.is-trainer-availability { border:1px solid rgba(73,164,207,.24); color:#23647e; background:#eaf7fc; }
+.schedule-opportunity-inline-legend span.is-trainer-availability i { width:8px; height:8px; border-radius:3px; background:#c9edf8; box-shadow:inset 0 0 0 1px rgba(49,147,186,.32); }
 .branch-schedule__draft-meta { display: flex; gap: 6px; margin-left: auto; }
 .branch-schedule__draft-meta span { padding: 7px 9px; border: 1px solid var(--branch-line); border-radius: 8px; color: #76616f; background: #fff; font-size: .66rem; font-weight: 800; }
 .branch-schedule__mobile-days { display: none; }
@@ -198,6 +200,8 @@
 .schedule-cell,.schedule-cell__student { touch-action:manipulation; -webkit-tap-highlight-color:transparent; }
 .schedule-cell[aria-disabled="true"] { cursor:not-allowed; }
 .schedule-cell.has-entry { border-style: solid; border-color: rgba(246,47,130,.18); background: linear-gradient(145deg,#fff3f8,#fff8f3); }
+.schedule-cell.is-trainer-available { border-style: solid; border-color: rgba(55,157,200,.34); background: linear-gradient(145deg,#eaf8fd,#f5fcff); box-shadow: inset 0 0 0 1px rgba(55,157,200,.10); }
+.schedule-cell.has-entry.is-trainer-available { border-color: rgba(55,157,200,.46); background: linear-gradient(145deg,#e8f7fc 0%,#fdf7fa 82%); }
 .schedule-cell.is-availability-hover { border-style:solid; border-color:#2eb779; background:linear-gradient(145deg,rgba(222,250,237,.98),rgba(239,255,247,.96)); box-shadow:inset 0 0 0 2px rgba(46,183,121,.13),0 7px 16px rgba(30,137,91,.10); }
 .schedule-cell.is-student-highlight { border-style:solid; border-color:#e32b67; color:#fff; background:linear-gradient(135deg,#cb1859 0%,#f03f73 48%,#ff7b62 100%); box-shadow:0 9px 22px rgba(210,30,91,.24); }
 .schedule-cell.is-student-highlight .schedule-cell__count,.schedule-cell.is-student-highlight small { color:rgba(255,255,255,.88); }
@@ -221,6 +225,7 @@
 /* Lịch rảnh và lịch đã xếp là hai lớp nhận diện chính. Chúng luôn thắng dấu
    kho ca để người vận hành không hiểu nhầm màu trạng thái khi rê/chọn HV. */
 .schedule-cell.is-availability-hover { border-style:solid; border-color:#219969; background:linear-gradient(145deg,#dcf8e9,#effdf6); box-shadow:inset 0 0 0 2px rgba(33,153,105,.17),0 7px 16px rgba(30,137,91,.10); }
+.schedule-cell.is-trainer-available.is-availability-hover { border-color:#219969; background:linear-gradient(145deg,#dff8eb,#f0fdf7); box-shadow:inset 0 0 0 2px rgba(33,153,105,.17),0 7px 16px rgba(30,137,91,.10); }
 .schedule-cell.is-student-highlight { border-style:solid; border-color:#d5235f; color:#fff; background:linear-gradient(135deg,#bd174f 0%,#e9376d 50%,#f7765d 100%); box-shadow:0 9px 22px rgba(210,30,91,.24); }
 .schedule-cell small { align-self: center; justify-self: center; color: #b6a6af; font-size: .61rem; }
 
