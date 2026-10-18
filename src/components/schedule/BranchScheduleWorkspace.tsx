@@ -844,7 +844,11 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate, ini
       if (studentFilter === 'missing' && row.missing < 1) return false
       if (studentFilter === 'contract' && row.student.contractStatus !== 'expiring' && row.student.eligibleForWeek === true && !row.student.eligibilityReasons.some((reason) => reason.includes('CONTRACT') || reason === 'ACTIVE_CONTRACT_NOT_FOUND')) return false
       if (studentFilter === 'availability' && CONFIRMED_AVAILABILITY_STATUSES.has(row.student.availabilityStatus)) return false
-      if (studentFilter === 'trainer' && !['trainer_capacity', 'branch_capacity'].includes(diagnosticsByStudent.get(row.student.id)?.blockerCategory || '')) return false
+      if (studentFilter === 'trainer') {
+        const diagnostic = diagnosticsByStudent.get(row.student.id)
+        const diagnosticReasons = diagnostic?.reasonCodes || diagnostic?.reasons || []
+        if (warningCauseFor(diagnostic?.blockerCategory, row.student.contractStatus, diagnosticReasons) !== 'capacity') return false
+      }
       if (studentFilter === 'ready' && row.inputWarning) return false
       if (!needle) return true
       return [row.student.name, row.student.phone, row.contract?.packageName, row.trainerNames]
@@ -1279,7 +1283,11 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate, ini
           status: 'draft',
           weeklySessionTargets: result.weeklySessionTargets || {},
           warnings: [],
-          unassignedEntries: [],
+          // A manual edit does not rerun the optimizer. Preserve the last
+          // blocker diagnostics so unaffected learners stay in "Thiếu PT / ca"
+          // (or their original group) until a fresh optimization pass replaces
+          // them.
+          unassignedEntries: current.unassignedEntries || current.unassigned || [],
         })
         workspaceRef.current = next
         return next
@@ -1333,7 +1341,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate, ini
           ...(result.sessionChanged ? { publishedRevision: result.draftRevision } : {}),
           weeklySessionTargets: result.weeklySessionTargets || {},
           warnings: [],
-          unassignedEntries: [],
+          unassignedEntries: current.unassignedEntries || current.unassigned || [],
         })
         if (result.sessionChanged) {
           const refs = { ...(current.sessionRefs || {}) }
@@ -1568,7 +1576,10 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate, ini
     // diagnostic card and requiring a second search in the Students tab.
     setExpandedWarningStudentId(null)
     setStudentFilter('all')
-    setStudentSearch(student.name || '')
+    // Keep the full roster visible after navigation. Filling the search box
+    // with the warning learner made every dropdown filter appear ineffective;
+    // the availability editor and anchor below already provide the focus.
+    setStudentSearch('')
     setTab('students')
     setAvailabilityEditorStudentId(student.id)
     setAvailabilityDraft(new Set(student.availableSlots || []))

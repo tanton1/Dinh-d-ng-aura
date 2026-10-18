@@ -1,6 +1,6 @@
 // Bump the shell whenever production Firebase bootstrap configuration changes.
 // Activation removes every older Aura cache before the client reloads.
-const CACHE_VERSION = 'aura-shell-v21-20260912-progress-integration'
+const CACHE_VERSION = 'aura-shell-v22-20261018-schedule-warning-diagnostics'
 const APP_SHELL = [
   '/',
   '/manifest.webmanifest',

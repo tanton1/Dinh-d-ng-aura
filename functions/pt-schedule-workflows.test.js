@@ -265,6 +265,32 @@ test('Admin draft add, move and remove use one lightweight atomic path', async (
   assert.deepEqual(removed.schedule, {})
 })
 
+test('manual placement preserves blocker diagnostics for other missing learners', async () => {
+  const h = harness()
+  const draftPath = `ptScheduleDrafts/${BRANCH}_${WEEK}`
+  h.docs.set(draftPath, {
+    ...h.docs.get(draftPath),
+    unassignedEntries: [{
+      studentId: 'b',
+      studentName: 'Ngọc',
+      missingSessions: 2,
+      blockerType: 'input_or_capacity',
+      blockerCategory: 'trainer_capacity',
+      primaryReasonCode: 'ALL_MATCHING_TRAINERS_FULL',
+      reasonCodes: ['ALL_MATCHING_TRAINERS_FULL'],
+    }],
+  })
+  const result = await h.api.applyPtScheduleDraftCommand(command('add_student', {
+    studentId: 'a', trainerId: 't', slotId: 'T2-6', adminOverride: true,
+  }, { idempotencyKey: 'preserve-warning-diagnostics' }))
+  const saved = h.docs.get(draftPath)
+  assert.equal(result.schedule['T2-6'][0].studentId, 'a')
+  assert.equal(saved.unassignedEntries.length, 1)
+  assert.equal(saved.unassignedEntries[0].studentId, 'b')
+  assert.equal(saved.unassignedEntries[0].blockerCategory, 'trainer_capacity')
+  assert.deepEqual(saved.unassignedEntries[0].reasonCodes, ['ALL_MATCHING_TRAINERS_FULL'])
+})
+
 test('manual validation rehydrates published occupancy when an old draft is missing the row', async () => {
   const data = fixture()
   data.students[0].availableSlots = ['T2-6', 'T3-6']

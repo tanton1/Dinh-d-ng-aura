@@ -134,6 +134,16 @@ const LEARNER_WARNING_REASONS = new Set([
   'STUDENT_AVAILABILITY_MISSING',
   'STUDENT_AVAILABILITY_DAYS_INSUFFICIENT',
 ])
+const CAPACITY_WARNING_REASONS = new Set([
+  'BRANCH_CAPACITY_REACHED',
+  'ALL_MATCHING_TRAINERS_FULL',
+  'ALL_TRAINERS_OFF',
+  'NO_AVAILABLE_TRAINER_IN_LEARNER_SLOTS',
+  'TRAINER_AVAILABILITY_UNCONFIGURED',
+  'TRAINER_ON_LEAVE',
+  'TRAINER_CAPACITY_EXCEEDED',
+  'TRAINER_OFF_CONFLICT',
+])
 
 function availabilityDayCount(slots: string[]) {
   return new Set(slots.map((slot) => String(slot).split('-')[0]).filter(Boolean)).size
@@ -154,7 +164,9 @@ function warningCauseFor(blockerCategory: PtScheduleUnassignedEntry['blockerCate
   const firstReason = [...reasons].sort((left, right) => warningReasonPriority(left) - warningReasonPriority(right))[0]
   if (firstReason && CONTRACT_WARNING_REASONS.has(firstReason)) return 'contract'
   if (blockerCategory === 'learner_availability' || (firstReason && LEARNER_WARNING_REASONS.has(firstReason))) return 'learner'
-  if (blockerCategory === 'trainer_capacity' || blockerCategory === 'branch_capacity') return 'capacity'
+  if (blockerCategory === 'trainer_capacity'
+    || blockerCategory === 'branch_capacity'
+    || reasons.some((reason) => CAPACITY_WARNING_REASONS.has(reason))) return 'capacity'
   return 'system'
 }
 

@@ -1933,6 +1933,51 @@ function scheduleStudentCounts(schedule) {
   return counts
 }
 
+// A manual placement changes the schedule, but it does not rerun the
+// optimizer. Keep the last per-student blocker diagnostics so the workspace
+// can still distinguish "thiếu PT/ca" from a learner who simply needs the
+// optimizer to try again. The UI derives the current missing count from the
+// schedule, so a now-complete learner naturally drops out on the next read.
+function preserveManualUnassignedEntries(currentEntries, schedule, options = {}) {
+  const entries = Array.isArray(currentEntries) ? currentEntries : []
+  const counts = scheduleStudentCounts(schedule)
+  const selectedStudentId = typeof options.studentId === 'string' ? options.studentId : ''
+  const command = typeof options.command === 'string' ? options.command : ''
+  const targetSessions = Number.isInteger(options.targetSessions) ? options.targetSessions : null
+  const next = []
+  const seen = new Set()
+
+  for (const entry of entries) {
+    if (!entry || typeof entry.studentId !== 'string' || seen.has(entry.studentId)) continue
+    seen.add(entry.studentId)
+    let missingSessions = Math.max(0, Number(entry.missingSessions || 0))
+    if (entry.studentId === selectedStudentId) {
+      if (targetSessions !== null) {
+        missingSessions = Math.max(0, targetSessions - (counts.get(entry.studentId) || 0))
+      } else if (command === 'add_student') {
+        missingSessions = Math.max(0, missingSessions - 1)
+      } else if (command === 'remove_student') {
+        missingSessions += 1
+      }
+    }
+    if (missingSessions < 1) continue
+    next.push({
+      ...entry,
+      missingSessions,
+      diagnostics: entry.diagnostics
+        ? { ...entry.diagnostics, scheduledSessions: counts.get(entry.studentId) || entry.diagnostics.scheduledSessions, missingSessions }
+        : entry.diagnostics,
+    })
+  }
+
+  for (const entry of Array.isArray(options.extraEntries) ? options.extraEntries : []) {
+    if (!entry || typeof entry.studentId !== 'string' || seen.has(entry.studentId)) continue
+    seen.add(entry.studentId)
+    next.push(entry)
+  }
+  return next.slice(0, MAX_STUDENTS)
+}
+
 function trainerLoadsForSchedule(data, schedule, schedulingState = null) {
   const state = schedulingState || buildSchedulingState(schedule)
   const workingDays = Array.isArray(data.config?.workingDays) && data.config.workingDays.length
@@ -3925,6 +3970,11 @@ async function applyFastAdminDraftCommand({ db, actor, branchId, week, command, 
     const nextRevision = revision + 1
     const weeklySessionTargets = safeWeeklySessionTargets(draft.weeklySessionTargets)
     const warnings = entryMetadata.adminOverrideWarnings || []
+    const unassignedEntries = preserveManualUnassignedEntries(
+      draft.unassignedEntries,
+      nextSchedule,
+      { studentId, command },
+    )
     const result = { draftRevision: nextRevision, schedule: nextSchedule, weeklySessionTargets, warnings }
     const draftWrite = {
       schemaVersion: 2,
@@ -3933,7 +3983,7 @@ async function applyFastAdminDraftCommand({ db, actor, branchId, week, command, 
       schedule: nextSchedule,
       revision: nextRevision,
       status: 'draft',
-      unassignedEntries: [],
+      unassignedEntries,
       weeklySessionTargets,
       optimizationSummary: FieldValue.delete(),
       expiresAt: draftExpiresAt(week),
@@ -4942,11 +4992,22 @@ function createPtScheduleV2Functions({
       const nextRevision = revision + 1
       const result = { draftRevision: nextRevision, schedule, weeklySessionTargets: currentWeeklyTargets, warnings: adminOverrideMetadataValue?.adminOverrideWarnings || [] }
       // Generated missing-session diagnostics become stale after any manual
-      // mutation. Retain only entries requeued by this command.
+      // mutation. Retain the last blocker diagnostics for unaffected learners;
+      // the workspace recomputes each learner's current missing count from the
+      // updated schedule, so a learner that is now complete drops out.
       const resetStudentIds = [...new Set(resetRemovedEntries.map((entry) => entry.studentId).filter(Boolean))]
-      const unassignedEntries = command === 'reset_draft'
+      const resetEntries = command === 'reset_draft'
         ? resetStudentIds.slice(0, MAX_STUDENTS).map((removedStudentId) => ({ studentId: removedStudentId, missingSessions: 1, reasonCodes: ['DRAFT_RESET'], suggestedSlots: [] }))
         : requeuedEntries.slice(-200)
+      const selectedTargetSessions = data.students.find((student) => student.id === studentId)?.sessionsPerWeek
+      const unassignedEntries = command === 'reset_draft'
+        ? resetEntries
+        : preserveManualUnassignedEntries(current.data()?.unassignedEntries, schedule, {
+          studentId,
+          command,
+          targetSessions: Number.isInteger(selectedTargetSessions) ? selectedTargetSessions : null,
+          extraEntries: requeuedEntries,
+        })
       const draftWrite = {
         schemaVersion: 2,
         branchId,
