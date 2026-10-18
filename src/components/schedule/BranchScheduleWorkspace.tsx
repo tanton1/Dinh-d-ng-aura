@@ -180,7 +180,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate, ini
   const availabilitySyncRevisionRef = useRef('')
   const busyRef = useRef(false)
   const hoverClearTimer = useRef<number | null>(null)
-  const workspaceRequestRef = useRef<{ scope: string; promise: Promise<void> } | null>(null)
+  const workspaceRequestRef = useRef<{ scope: string; forceAvailabilityRefresh: boolean; promise: Promise<void> } | null>(null)
   const activeWorkspaceScopeRef = useRef('')
   const moreMenuRef = useRef<HTMLDetailsElement | null>(null)
   const activeDialogRef = useRef<HTMLElement | null>(null)
@@ -332,6 +332,11 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate, ini
     const inFlight = workspaceRequestRef.current
     if (inFlight?.scope === requestScope) {
       await inFlight.promise
+      // Do not lose a forced availability refresh that arrived while the
+      // ordinary workspace request was still in flight.
+      if (forceAvailabilityRefresh && !inFlight.forceAvailabilityRefresh) {
+        await loadWorkspace(true, true)
+      }
       return
     }
     const request = (async () => {
@@ -391,7 +396,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate, ini
         if (!quiet && activeWorkspaceScopeRef.current === requestScope) setLoading(false)
       }
     })()
-    workspaceRequestRef.current = { scope: requestScope, promise: request }
+    workspaceRequestRef.current = { scope: requestScope, forceAvailabilityRefresh, promise: request }
     try {
       await request
     } finally {
