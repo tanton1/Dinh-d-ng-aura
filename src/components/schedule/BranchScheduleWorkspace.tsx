@@ -716,7 +716,6 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate, ini
       entry: PtScheduleWorkspaceV2Result['schedule'][string][number]
     }>>()
     const add = (slotId: string, entry: PtScheduleWorkspaceV2Result['schedule'][string][number], code: string) => {
-      if (!code || code === 'ADMIN_MANUAL_OVERRIDE') return
       const key = `${slotId}|${entry.studentId}|${entry.trainerId}|${code}`
       if (seen.has(key)) return
       seen.add(key)
@@ -807,7 +806,6 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate, ini
 
   const matrixConflictWarningKeys = useMemo(
     () => new Set(scheduleConflictWarnings
-      .filter((row) => MATRIX_IMPORTANT_WARNING_CODES.has(row.code))
       .map((row) => `${row.slotId}|${row.studentId}|${row.trainerId}`)),
     [scheduleConflictWarnings],
   )
