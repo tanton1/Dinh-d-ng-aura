@@ -319,7 +319,11 @@ export function normalizeStudentPtScheduleData(data: StudentPtScheduleData): Stu
           : 'none',
       } : undefined,
     } : null,
-    sessions: canonicalStudentPtSessions(Array.isArray(data?.sessions) ? data.sessions : []),
+    // The callable already excludes cancelled rows. Keep the client guard so
+    // an older function instance or a stale cached response cannot render an
+    // appointment that has just been cancelled or replaced.
+    sessions: canonicalStudentPtSessions(Array.isArray(data?.sessions) ? data.sessions : [])
+      .filter((session) => !STUDENT_PT_CANCELLED_STATUSES.has(session.status)),
     contracts: Array.isArray(data?.contracts)
       ? data.contracts.filter(Boolean).map((contract) => ({
           ...contract,

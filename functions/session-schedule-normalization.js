@@ -89,11 +89,29 @@ function canonicalSessionRows(rows = []) {
   return [...ungrouped, ...grouped.values()]
 }
 
+// The student calendar is a current schedule projection. Cancelled rows are
+// retained in `sessions` for audit, contract reconciliation and reporting, but
+// they must never be rendered as a bookable appointment. A replacement created
+// after an Admin re-add carries the cancelled source id; hide that source from
+// the student projection as an extra guard when both rows are in the query.
+function studentVisibleSessionRows(rows = []) {
+  const sourceIdsWithReplacement = new Set(
+    (Array.isArray(rows) ? rows : [])
+      .map((row) => typeof row?.reintroducedFromSessionId === 'string' ? row.reintroducedFromSessionId.trim() : '')
+      .filter(Boolean),
+  )
+  return canonicalSessionRows(rows)
+    .filter((row) => ACTIVE_STATUSES.has(normalized(row?.status)))
+    .filter((row) => normalized(row?.scheduleStatus) !== 'cancelled')
+    .filter((row) => !sourceIdsWithReplacement.has(String(row?.id || '')))
+}
+
 module.exports = {
   ACTIVE_STATUSES,
   CANCELLATION_STATUSES,
   EVIDENCE_STATUSES,
   canonicalSessionRows,
+  studentVisibleSessionRows,
   sessionPriority,
   sessionScheduleIdentity,
 }

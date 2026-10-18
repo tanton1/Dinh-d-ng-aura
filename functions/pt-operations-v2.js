@@ -18,7 +18,7 @@ const {
 const { summarizeContractUsage } = require('./contract-usage')
 const { normalizeMemberReferralCode } = require('./loyalty-core')
 const { normalizedScheduleConfig } = require('./pt-schedule-publish')
-const { canonicalSessionRows } = require('./session-schedule-normalization')
+const { canonicalSessionRows, studentVisibleSessionRows } = require('./session-schedule-normalization')
 const { cacheScope, createProcessCache } = require('./process-cache')
 
 const TIME_ZONE = 'Asia/Ho_Chi_Minh'
@@ -1335,10 +1335,11 @@ function createPtOperationsV2Functions({ db, onCall }) {
         return { id: item.id, ...session, hour }
       }))
       .sort((left, right) => `${left.date}-${String(left.hour ?? 99).padStart(2, '0')}-${left.id}`.localeCompare(`${right.date}-${String(right.hour ?? 99).padStart(2, '0')}-${right.id}`))
-    const trainerIds = [...new Set(sessionRecords.map((item) => item.trainerId).filter(Boolean))]
+    const studentSessionRecords = studentVisibleSessionRows(sessionRecords)
+    const trainerIds = [...new Set(studentSessionRecords.map((item) => item.trainerId).filter(Boolean))]
     const trainerSnapshots = trainerIds.length ? await db.getAll(...trainerIds.map((id) => db.doc(`trainers/${id}`))) : []
     const trainerNames = new Map(trainerSnapshots.filter((item) => item.exists).map((item) => [item.id, item.data().name || 'PT Aura']))
-    const sessions = sessionRecords.map((session) => serialize({
+    const sessions = studentSessionRecords.map((session) => serialize({
       id: session.id,
       date: session.date,
       hour: session.hour,

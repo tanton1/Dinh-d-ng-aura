@@ -78,6 +78,17 @@ const statusLabels: Record<string, string> = {
   rescheduled: 'Đã đổi lịch',
 }
 
+const visibleScheduleStatuses = new Set<StudentPtSession['status']>([
+  'scheduled',
+  'rescheduled',
+  'completed',
+  'no_show',
+])
+
+function isVisibleScheduleSession(session: StudentPtSession) {
+  return visibleScheduleStatuses.has(session.status)
+}
+
 function issueCopy(issue: StudentPtScheduleServiceError) {
   switch (issue.issueCode) {
     case 'AUTH_REQUIRED':
@@ -382,7 +393,7 @@ export default function SchedulePage({ onNavigate, isDemo = false }: { onNavigat
     .filter((session) => session.date >= toIsoDate(today) && session.status === 'scheduled')
     .sort((left, right) => `${left.date}-${left.hour ?? 99}`.localeCompare(`${right.date}-${right.hour ?? 99}`)), [data?.sessions, today])
   const historySessions = useMemo(() => (data?.sessions ?? [])
-    .filter((session) => session.status !== 'scheduled' || session.date < toIsoDate(today))
+    .filter((session) => isVisibleScheduleSession(session) && (session.status !== 'scheduled' || session.date < toIsoDate(today)))
     .sort((left, right) => `${right.date}-${right.hour ?? 99}`.localeCompare(`${left.date}-${left.hour ?? 99}`)), [data?.sessions, today])
   const demoHistorySummary = useMemo(() => {
     const attended = historySessions.filter((session) => ['completed'].includes(session.status)).length
@@ -461,12 +472,12 @@ export default function SchedulePage({ onNavigate, isDemo = false }: { onNavigat
     ...(availabilityAlert ? [availabilityAlert] : []),
   ].sort((left, right) => severityOrder[left.severity] - severityOrder[right.severity])
   const selectedSessions = useMemo(() => (data?.sessions ?? [])
-    .filter((session) => session.date === selectedDate)
+    .filter((session) => session.date === selectedDate && isVisibleScheduleSession(session))
     .sort((left, right) => (left.hour ?? 99) - (right.hour ?? 99)), [data?.sessions, selectedDate])
   const weekSessions = useMemo(() => {
     const first = toIsoDate(weekDays[0])
     const last = toIsoDate(weekDays[6])
-    return (data?.sessions ?? []).filter((session) => session.date >= first && session.date <= last && session.status !== 'cancelled')
+    return (data?.sessions ?? []).filter((session) => session.date >= first && session.date <= last && isVisibleScheduleSession(session))
   }, [data?.sessions, weekDays])
   const completedThisWeek = weekSessions.filter((session) => session.status === 'completed').length
   const weekCompletion = weekSessions.length ? Math.round(completedThisWeek / weekSessions.length * 100) : 0
@@ -567,7 +578,7 @@ export default function SchedulePage({ onNavigate, isDemo = false }: { onNavigat
             <div className="calendar-header"><button type="button" aria-label="Tuần trước" disabled={weekOffset === 0} onClick={() => selectWeek(0)}><ChevronLeft size={19} /></button><div><strong>{weekLabel}</strong><button type="button" onClick={goToday}>Hôm nay</button></div><button type="button" aria-label="Tuần sau" disabled={weekOffset === 1} onClick={() => selectWeek(1)}><ChevronRight size={19} /></button></div>
             <div className="week-strip">{weekDays.map((date) => {
               const iso = toIsoDate(date)
-              const hasSession = (data.sessions ?? []).some((item) => item.date === iso && item.status !== 'cancelled')
+              const hasSession = (data.sessions ?? []).some((item) => item.date === iso && isVisibleScheduleSession(item))
               return <button type="button" key={iso} className={selectedDate === iso ? 'active' : ''} aria-pressed={selectedDate === iso} aria-label={`${DAY_LABELS[date.getDay()]} ngày ${date.getDate()}, ${hasSession ? 'có lịch' : 'không có lịch'}`} onClick={() => setSelectedDate(iso)}><span>{DAY_LABELS[date.getDay()]}</span><strong>{date.getDate()}</strong>{hasSession && <i />}</button>
             })}</div>
             <div className="day-label"><span>{selectedLabel.toLocaleUpperCase('vi')}</span><small>{selectedSessions.length} buổi tập</small></div>
@@ -587,7 +598,7 @@ export default function SchedulePage({ onNavigate, isDemo = false }: { onNavigat
               return <button type="button" className="upcoming-item" key={session.id} onClick={() => selectUpcoming(session)}><span className="upcoming-date"><strong>{date.getDate()}</strong><small>THG {date.getMonth() + 1}</small></span><span><small>{session.hour === null ? 'Chưa rõ giờ' : `${String(session.hour).padStart(2, '0')}:00`} · Buổi tập PT</small><strong>{session.trainerName}</strong><em>{statusLabels[session.status] ?? session.status}</em></span><ChevronRight size={17} /></button>
             }) : <div className="schedule-empty-state compact"><CalendarCheck size={26} /><h3>Chưa có lịch sắp tới</h3><p>Buổi tập mới sẽ xuất hiện sau khi được xếp lịch.</p></div>}</article>
             <article className="card consistency-card"><div className="consistency-icon"><CalendarDays size={24} /></div><div><span className="eyebrow">TIẾN ĐỘ GÓI TẬP</span><h3>{activeContract ? `${activeContract.usedSessions}/${activeContract.totalSessions} buổi` : 'Chưa có gói tập'}</h3><p>{activeContract?.packageName ?? 'Liên hệ vận hành để cập nhật hợp đồng.'}</p></div><div className="consistency-dots">{weekDays.slice(0, 5).map((date) => {
-              const dayItems = (data.sessions ?? []).filter((item) => item.date === toIsoDate(date))
+              const dayItems = (data.sessions ?? []).filter((item) => item.date === toIsoDate(date) && isVisibleScheduleSession(item))
               const done = dayItems.some((item) => item.status === 'completed')
               return <span className={done ? 'done' : selectedDate === toIsoDate(date) ? 'current' : ''} key={toIsoDate(date)}>{done ? '✓' : date.getDate()}</span>
             })}</div></article>
