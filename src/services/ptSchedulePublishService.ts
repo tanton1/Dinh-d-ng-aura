@@ -482,8 +482,6 @@ const regionalPublishCallableNames = new Map([
 // hop and made slow retries look like duplicate work.
 const sameRegionScheduleReadCallables = new Set([
   'listPtScheduleBranches',
-  'getPtScheduleWorkspace',
-  'getPtScheduleSlotCandidates',
 ])
 
 function callableErrorCode(error: unknown) {
