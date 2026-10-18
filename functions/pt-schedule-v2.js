@@ -697,6 +697,7 @@ function scheduleConflictWarningsForWorkspace({ weekId, sessions = [] } = {}) {
       && date >= weekId
       && date < nextWeek(weekId)
       && historicalSessionOccupies(session)
+      && String(session?.scheduleStatus || '').toLowerCase() !== 'cancelled'
       && publishedSessionSlotId(weekId, session)
   }).map((session) => ({
     session,

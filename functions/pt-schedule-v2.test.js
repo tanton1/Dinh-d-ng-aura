@@ -161,6 +161,7 @@ test('workspace conflict diagnostics preserve duplicate sessions hidden from cov
       { id: 'same-cell-2', studentId: 'student-a', trainerId: 'trainer-b', branchId: BRANCH, date: WEEK, hour: 6, status: 'scheduled' },
       { id: 'same-day-other-hour', studentId: 'student-a', trainerId: 'trainer-c', branchId: BRANCH, date: WEEK, hour: 7, status: 'scheduled' },
       { id: 'cancelled', studentId: 'student-a', trainerId: 'trainer-d', branchId: BRANCH, date: WEEK, hour: 8, status: 'cancelled' },
+      { id: 'cancelled-schedule-status', studentId: 'student-a', trainerId: 'trainer-e', branchId: BRANCH, date: WEEK, hour: 9, status: 'scheduled', scheduleStatus: 'cancelled' },
     ],
   })
   assert.equal(warnings.filter((warning) => warning.code === 'DUPLICATE_DEPLOYED_SESSION').length, 1)
