@@ -560,7 +560,11 @@ exports.listSalesQuotes = quoteManagementFunctions.listSalesQuotes
 exports.createSalesQuote = quoteManagementFunctions.createSalesQuote
 exports.archiveSalesQuote = quoteManagementFunctions.archiveSalesQuote
 exports.acceptSalesQuote = quoteManagementFunctions.acceptSalesQuote
-const scheduleConfigManagementFunctions = createScheduleConfigManagementFunctions({ db, onCall })
+const scheduleConfigManagementFunctions = createScheduleConfigManagementFunctions({
+  db,
+  onCall,
+  onScheduleConfigMutation: () => invalidateBranchDataCache(db),
+})
 exports.saveScheduleConfig = scheduleConfigManagementFunctions.saveScheduleConfig
 const studentManagementFunctions = createStudentManagementFunctions({ db, onCall, hardDeleteOnCall: asiaEastOnCall, auth })
 exports.updateStudentProfile = studentManagementFunctions.updateStudentProfile

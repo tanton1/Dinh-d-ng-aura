@@ -68,7 +68,7 @@ test('trainer weekly availability uses a Vietnam Monday, Sunday cutoff and exact
   assert.equal(mondayDateKey('2026-09-03'), '2026-08-31')
   assert.equal(availabilityWeekId('2026-08-31'), '2026-08-31')
   assert.throws(() => availabilityWeekId('2026-09-01'), /thứ Hai/)
-  assert.equal(availabilityCutoff('2026-08-31').toISOString(), '2026-08-30T03:00:00.000Z')
+  assert.equal(availabilityCutoff('2026-08-31').toISOString(), '2026-08-30T05:00:00.000Z')
   assert.equal(availabilityCutoff('2026-08-31', {
     availabilityRegistrationCutoffDayOfWeek: 6,
     availabilityRegistrationCutoffHour: 18,

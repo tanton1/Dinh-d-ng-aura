@@ -15,7 +15,11 @@ const PT_OPERATIONS_POLICY_DEFAULTS = Object.freeze({
   offMaxDaysPerRequest: 14,
   offRegistrationCutoffHour: 9,
   availabilityRegistrationCutoffDayOfWeek: 0,
-  availabilityRegistrationCutoffHour: 10,
+  // Availability registration is open until noon on the Sunday before the
+  // requested training week. Keep this fallback aligned with the editable
+  // schedule policy so a legacy/missing config document never closes the
+  // window two hours early.
+  availabilityRegistrationCutoffHour: 12,
   offLimitsByDuration: Object.freeze({ threeMonths: 2, sixMonths: 3, twelveMonths: 5 }),
 })
 

@@ -6,7 +6,7 @@ export const PT_OPERATIONS_POLICY_DEFAULTS = {
   offMaxDaysPerRequest: 14,
   offRegistrationCutoffHour: 9,
   availabilityRegistrationCutoffDayOfWeek: 0,
-  availabilityRegistrationCutoffHour: 10,
+  availabilityRegistrationCutoffHour: 12,
   offLimitsByDuration: {
     threeMonths: 2,
     sixMonths: 3,

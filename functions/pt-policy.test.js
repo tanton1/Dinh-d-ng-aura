@@ -36,6 +36,12 @@ test('OFF bootstrap cutoff is Sunday 09:00 Vietnam time before the requested wee
   assert.throws(() => assertWeeklyOffDeadline('2026-08-24', new Date('2026-08-23T02:00:00.000Z')), /09:00 Chủ nhật/)
 })
 
+test('availability fallback cutoff remains at noon Vietnam time', () => {
+  const { PT_OPERATIONS_POLICY_DEFAULTS } = require('./pt-policy')
+  assert.equal(PT_OPERATIONS_POLICY_DEFAULTS.availabilityRegistrationCutoffHour, 12)
+  assert.equal(normalizedPtOperationsPolicy({}).availabilityRegistrationCutoffHour, 12)
+})
+
 test('OFF allowances follow contract terms and calendar-day extension is cumulative', () => {
   assert.equal(offRegistrationLimit(3), 2)
   assert.equal(offRegistrationLimit(6), 3)

@@ -59,7 +59,10 @@ export default function TrainerAvailabilityPage({ embedded = false, isDemo = fal
         availableSlots: ['T2-6', 'T2-7', 'T3-18', 'T4-18', 'T5-7', 'T6-18', 'T7-8'],
         baseAvailableSlots: ['T2-6', 'T2-7', 'T3-18', 'T4-18', 'T5-7', 'T6-18', 'T7-8'],
         weekId: weekly ? weekId : null, weeklyOverride: weekly, offDates: [], locked: false,
-        cutoffAt: weekly ? new Date(Date.parse(`${weekId}T00:00:00+07:00`) - 14 * 60 * 60 * 1000).toISOString() : null,
+        // Keep the preview on the same noon Sunday boundary as the runtime
+        // policy. The old 14-hour offset represented the historical 10:00
+        // fallback and made demo/preview behavior disagree with production.
+        cutoffAt: weekly ? new Date(Date.parse(`${weekId}T00:00:00+07:00`) - 12 * 60 * 60 * 1000).toISOString() : null,
         source: weekly ? 'weekly' : 'recurring', updatedAt: new Date().toISOString(),
         availabilityMode: 'configured', availabilityRevision: 3,
         scheduleConfig: { workingDays: ['T2', 'T3', 'T4', 'T5', 'T6', 'T7'], workingHours: [6, 7, 8, 9, 10, 11, 14, 15, 16, 17, 18, 19, 20] },

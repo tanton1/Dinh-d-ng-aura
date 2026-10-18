@@ -2,7 +2,7 @@
 
 const test = require('node:test')
 const assert = require('node:assert/strict')
-const { MAX_DRAFT_DOCUMENT_ENTRIES, MAX_DRAFT_ENTRIES, OPTIMIZER_VERSION, availabilityCutoff, candidateForSlot, compactPairedSlots, generateSchedule, historicalSlotCandidate, manualSlotCandidate, previousWeek, repairCoverageWithRelocations, resetDraftSchedule, resolveContract, safeSchedule, safeWeeklySessionTargets, slotUtilizationForSchedule, studentWeekEligibility, trainerIsLocked, trainerProfileForWeek, weeklySessionCoverageForStudents, weeklyTargetForStudent } = require('./pt-schedule-v2')
+const { MAX_DRAFT_DOCUMENT_ENTRIES, MAX_DRAFT_ENTRIES, OPTIMIZER_VERSION, availabilityCutoff, availabilityStatusForWeek, candidateForSlot, compactPairedSlots, generateSchedule, historicalSlotCandidate, manualSlotCandidate, previousWeek, repairCoverageWithRelocations, resetDraftSchedule, resolveContract, safeSchedule, safeWeeklySessionTargets, slotUtilizationForSchedule, studentWeekEligibility, trainerIsLocked, trainerProfileForWeek, weeklySessionCoverageForStudents, weeklyTargetForStudent } = require('./pt-schedule-v2')
 
 const WEEK = '2026-08-24'
 const BRANCH = 'branch-a'
@@ -13,6 +13,16 @@ test('Admin availability saves use the editable registration cutoff policy', () 
     availabilityRegistrationCutoffHour: 18,
   })
   assert.equal(cutoff.toISOString(), '2026-08-22T11:00:00.000Z')
+})
+
+test('availability status follows the active cutoff instead of a stale persisted lock', () => {
+  const policy = {
+    availabilityRegistrationCutoffDayOfWeek: 0,
+    availabilityRegistrationCutoffHour: 12,
+  }
+  const availability = { source: 'weekly', status: 'locked' }
+  assert.equal(availabilityStatusForWeek(availability, WEEK, policy, new Date('2026-08-23T04:59:59.000Z')), 'submitted')
+  assert.equal(availabilityStatusForWeek({ ...availability, status: 'submitted' }, WEEK, policy, new Date('2026-08-23T05:00:00.000Z')), 'locked')
 })
 
 test('previous week window remains exact across month and year boundaries', () => {

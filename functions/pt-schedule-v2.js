@@ -77,6 +77,17 @@ function availabilityCutoff(weekId, policyValue = {}) {
   const daysBefore = (1 - policy.availabilityRegistrationCutoffDayOfWeek + 7) % 7 || 7
   return new Date(monday - daysBefore * 24 * 60 * 60 * 1000 + policy.availabilityRegistrationCutoffHour * 60 * 60 * 1000)
 }
+
+// A weekly availability document may have been written before the active
+// policy changed. Do not let its persisted `locked` label permanently keep a
+// week closed; derive the current status from the same cutoff used by the
+// write guard and the student/PT self-service callables.
+function availabilityStatusForWeek(availability, weekId, policyValue = {}, now = new Date()) {
+  const status = availability?.status
+  if (availability?.source !== 'weekly' || !['submitted', 'locked'].includes(status)) return status
+  const cutoff = availabilityCutoff(weekId, policyValue)
+  return now.getTime() >= cutoff.getTime() ? 'locked' : 'submitted'
+}
 // The optimizer evaluates the same roster repeatedly (one matching round per
 // weekly session). Keep immutable, derived roster indexes out of that hot
 // loop. A WeakMap avoids retaining a loaded branch after the callable ends and
@@ -620,11 +631,19 @@ function leaveCovers(leave, trainerId, date) {
   return Boolean(start && end && date >= start && date <= end)
 }
 
-function initialStudentProjection(item, branchId, displayOnly = false) {
+function initialStudentProjection(item, branchId, displayOnly = false, week = '', policyValue = {}) {
   const data = item.data() || {}
   const inactive = ['inactive', 'archived', 'deleted'].includes(String(data.status || '').toLowerCase())
   const defaultSessionsPerWeek = Math.max(0, Math.min(7, Number(data.sessionsPerWeek || 0)))
   const availableSlots = Array.isArray(data.availableSlots) ? data.availableSlots.slice(0, 100) : []
+  const storedWeekId = data.latestSubmittedAvailability?.weekId || data.availabilityWeekId || ''
+  const storedAvailability = {
+    source: data.availabilitySource === 'weekly' || storedWeekId === week ? 'weekly' : data.availabilitySource,
+    status: data.availabilityStatus,
+  }
+  const availabilityStatus = week
+    ? availabilityStatusForWeek(storedAvailability, week, policyValue)
+    : data.availabilityStatus
   return {
     id: item.id,
     name: data.name || 'Chưa cập nhật tên',
@@ -642,7 +661,7 @@ function initialStudentProjection(item, branchId, displayOnly = false) {
     maxWeeklySessions: defaultSessionsPerWeek,
     schedulableSessionsThisWeek: defaultSessionsPerWeek,
     availableSlots,
-    availabilityStatus: data.availabilityStatus || (availableSlots.length ? 'recurring' : 'missing'),
+    availabilityStatus: availabilityStatus || (availableSlots.length ? 'recurring' : 'missing'),
     availabilityRevision: Number(data.availabilityRevision || 0),
     availabilitySourceRevision: Number(data.availabilitySourceRevision || 0),
     availabilitySourceWeekId: data.availabilitySourceWeekId || null,
@@ -743,10 +762,10 @@ async function loadBranchDataInitial(db, branchId, week) {
       unassignedEntries: [],
     },
     schedule,
-    students: students.docs.map((item) => initialStudentProjection(item, branchId)),
+    students: students.docs.map((item) => initialStudentProjection(item, branchId, false, week, config.data())),
     crossBranchStudents: referencedStudentSnapshots
       .filter((item) => crossBranchStudentIds.has(item.id))
-      .map((item) => initialStudentProjection(item, branchId, true)),
+      .map((item) => initialStudentProjection(item, branchId, true, week, config.data())),
     trainers: trainers.docs.map((item) => initialTrainerProjection(item, branchId, scheduleConfig.scheduleLoadPolicy)),
     contracts: [],
     contractsByStudent: new Map(),
@@ -974,7 +993,7 @@ async function loadBranchDataFresh(db, branchId, week, options = {}) {
       profile: data,
     })
     const availabilityStatus = effectiveAvailability.source === 'weekly'
-      ? effectiveAvailability.status
+      ? availabilityStatusForWeek(effectiveAvailability, week, config.data())
       : effectiveAvailability.source === 'inherited_weekly'
         ? 'inherited'
         : effectiveAvailability.source === 'legacy_default' && effectiveAvailability.confirmed
@@ -1221,7 +1240,7 @@ async function loadManualMutationData(db, branchId, week, trainerId, studentId, 
     profile: rawStudent,
   })
   const availabilityStatus = effectiveAvailability.source === 'weekly'
-    ? effectiveAvailability.status
+    ? availabilityStatusForWeek(effectiveAvailability, week, config.data())
     : effectiveAvailability.source === 'inherited_weekly'
       ? 'inherited'
       : effectiveAvailability.source === 'legacy_default' && effectiveAvailability.confirmed
@@ -4730,4 +4749,5 @@ module.exports = {
   weeklySessionCoverageForStudents,
   weeklyTargetForStudent,
   availabilityCutoff,
+  availabilityStatusForWeek,
 }
