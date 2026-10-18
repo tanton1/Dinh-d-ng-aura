@@ -1516,6 +1516,17 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate, ini
     setAvailabilityError('')
   }
 
+  const openWarningStudentAvailability = (student: PtScheduleWorkspaceV2Result['students'][number]) => {
+    // A warning is actionable: take the manager straight to the learner's
+    // weekly availability editor instead of leaving them on an expanded
+    // diagnostic card and requiring a second search in the Students tab.
+    setExpandedWarningStudentId(null)
+    setStudentFilter('all')
+    setStudentSearch(student.name || '')
+    setTab('students')
+    openAvailabilityEditor(student)
+  }
+
   const saveStudentAvailability = async (student: PtScheduleWorkspaceV2Result['students'][number]) => {
     if (availabilityBusy) return
     const commandScope = workspaceScope
@@ -2080,7 +2091,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate, ini
                 setTab('matrix')
               }
                 return <article key={student.id} className={`schedule-warning-student is-cause-${warningCause}${student.eligibleForWeek ? '' : ' is-blocking'}${expanded ? ' is-expanded' : ''}`}>
-                  <button type="button" onClick={() => setExpandedWarningStudentId(expanded ? null : student.id)} aria-expanded={expanded}>
+                  <button type="button" onClick={() => openWarningStudentAvailability(student)} aria-expanded={expanded} aria-label={`Mở lịch rảnh của ${student.name}`}>
                   <AlertTriangle /><div><span className="schedule-warning-student__title"><strong>{student.name}</strong>{missing > 0 && <b>Thiếu {missing}</b>}</span><span className="schedule-warning-student__meta"><small className={`schedule-warning-cause-label is-${warningCause}`}>{warningCauseLabel(warningCause)}</small><b>{student.eligibleForWeek ? `${scheduledSessions}/${student.sessionsPerWeek} buổi${crossBranchScheduledSessions > 0 ? ` · +${crossBranchScheduledSessions} CS khác` : ''}` : 'Chưa đủ điều kiện'}</b></span><em className="schedule-warning-primary">{primaryReasons.length ? primaryReasons.map(diagnosticReasonLabel).join(' · ') : diagnosticReasonLabel(primaryReasonCode)}</em></div><ChevronRight />
                 </button>
                 {expanded && <div className="schedule-warning-detail schedule-warning-detail--compact">

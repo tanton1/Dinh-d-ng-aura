@@ -345,6 +345,19 @@ test('first manual save creates a week draft that did not exist', async () => {
   assert.equal(result.schedule['T2-6'][0].studentId, 'a')
 })
 
+test('weekly target change can create a missing week draft', async () => {
+  const { api, docs } = harness()
+  docs.delete(`ptScheduleDrafts/${BRANCH}_${WEEK}`)
+  const result = await api.applyPtScheduleDraftCommand(command('set_student_weekly_target', {
+    studentId: 'a',
+    targetSessions: 3,
+  }, { expectedDraftRevision: 0, idempotencyKey: 'target-create-123' }))
+  assert.equal(result.draftRevision, 1)
+  assert.equal(result.weeklySessionTargets.a, 3)
+  assert.equal(docs.get(`ptScheduleDrafts/${BRANCH}_${WEEK}`).weeklySessionTargets.a, 3)
+  assert.equal(docs.get(`ptScheduleDrafts/${BRANCH}_${WEEK}`).optimizationSummary, undefined)
+})
+
 test('continuation never loses protected or already covered learners across seeded workloads', () => {
   for (let seed = 1; seed <= 12; seed++) {
     const data = fixture(); data.students = Array.from({ length: 9 }, (_, i) => ({ ...data.students[i % 2], id: `s${i}`, name: `S${i}`, sessionsPerWeek: 1 + (i % 3), availableSlots: ['T2-6', 'T3-6', 'T4-6'].filter((_, j) => (i + j + seed) % 4 !== 0) }))

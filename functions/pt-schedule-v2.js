@@ -4842,7 +4842,6 @@ function createPtScheduleV2Functions({
         status: 'draft',
         unassignedEntries,
         weeklySessionTargets: currentWeeklyTargets,
-        optimizationSummary: FieldValue.delete(),
         expiresAt: draftExpiresAt(week),
         updatedAt: FieldValue.serverTimestamp(),
         updatedBy: actor.uid,
@@ -4850,8 +4849,14 @@ function createPtScheduleV2Functions({
       }
       // A nested schedule map must be replaced as one field. `merge:true`
       // keeps removed slot keys in Firestore and can resurrect a deleted row.
-      if (current.exists) transaction.update(reference, draftWrite)
-      else transaction.set(reference, draftWrite)
+      if (current.exists) {
+        // Clear optimizer diagnostics only when updating an existing draft.
+        // FieldValue.delete() is an update sentinel and Firestore rejects it
+        // inside a brand-new document created with transaction.set().
+        transaction.update(reference, { ...draftWrite, optimizationSummary: FieldValue.delete() })
+      } else {
+        transaction.set(reference, draftWrite)
+      }
       transaction.create(receipt, { actorUid: actor.uid, branchId, weekId: week, command, idempotencyKey, result, createdAt: FieldValue.serverTimestamp() })
       transaction.create(db.collection('ptOperationsAuditLogs').doc(), { schemaVersion: 2, action: `pt_schedule.${command}`, actorUid: actor.uid, branchId, weekId: week, previousDraftRevision: revision, nextDraftRevision: nextRevision, affectedStudentCount: command === 'set_student_weekly_target' ? 1 : command === 'reset_draft' ? resetStudentIds.length : (command === 'add_student' || command === 'move_student') ? 1 : requeuedEntries.length, studentId: command.includes('student') ? studentId : null, weeklyTarget: command === 'set_student_weekly_target' ? (resetWeeklyTarget ? null : weeklyTarget) : null, availabilityOverride: Boolean(availabilityOverrideMetadata), availabilityOverrideReason: availabilityOverrideMetadata?.availabilityOverrideReason || null, adminOverride: Boolean(adminOverrideMetadataValue), adminOverrideWarnings: adminOverrideMetadataValue?.adminOverrideWarnings || [], trainerAssignmentWarning: Boolean(trainerAssignmentWarningMetadata), studentBranchWarning: Boolean(studentBranchWarningMetadata), studentHomeBranchId: studentBranchWarningMetadata?.studentHomeBranchId || null, reason: typeof request.data?.reason === 'string' ? request.data.reason.trim().slice(0, 300) : '', createdAt: FieldValue.serverTimestamp() })
       return result
