@@ -2,7 +2,7 @@
 
 const test = require('node:test')
 const assert = require('node:assert/strict')
-const { MAX_DRAFT_DOCUMENT_ENTRIES, MAX_DRAFT_ENTRIES, OPTIMIZER_VERSION, availabilityCutoff, availabilityStatusForWeek, candidateForSlot, compactPairedSlots, generateSchedule, historicalSlotCandidate, manualSlotCandidate, previousWeek, repairCoverageWithRelocations, resetDraftSchedule, resolveContract, safeSchedule, safeWeeklySessionTargets, slotUtilizationForSchedule, studentWeekEligibility, trainerIsLocked, trainerProfileForWeek, weeklySessionCoverageForStudents, weeklyTargetForStudent } = require('./pt-schedule-v2')
+const { MAX_DRAFT_DOCUMENT_ENTRIES, MAX_DRAFT_ENTRIES, OPTIMIZER_VERSION, availabilityCutoff, availabilityStatusForWeek, candidateForSlot, compactPairedSlots, generateSchedule, historicalSlotCandidate, manualSlotCandidate, previousWeek, repairCoverageWithRelocations, resetDraftSchedule, resolveContract, safeSchedule, safeWeeklySessionTargets, scheduleConflictWarningsForWorkspace, slotUtilizationForSchedule, studentWeekEligibility, trainerIsLocked, trainerProfileForWeek, weeklySessionCoverageForStudents, weeklyTargetForStudent } = require('./pt-schedule-v2')
 
 const WEEK = '2026-08-24'
 const BRANCH = 'branch-a'
@@ -151,6 +151,21 @@ test('weekly session coverage prefers a cross-branch draft over its unpublished 
   assert.equal(coverage['student-a'].total, 2)
   assert.equal(coverage['student-a'].otherBranches, 1)
   assert.equal(coverage['student-a'].entries.find((entry) => entry.branchId === 'branch-b').id, 'a-other-draft')
+})
+
+test('workspace conflict diagnostics preserve duplicate sessions hidden from coverage counts', () => {
+  const warnings = scheduleConflictWarningsForWorkspace({
+    weekId: WEEK,
+    sessions: [
+      { id: 'same-cell-1', studentId: 'student-a', trainerId: 'trainer-a', branchId: BRANCH, date: WEEK, hour: 6, status: 'scheduled' },
+      { id: 'same-cell-2', studentId: 'student-a', trainerId: 'trainer-b', branchId: BRANCH, date: WEEK, hour: 6, status: 'scheduled' },
+      { id: 'same-day-other-hour', studentId: 'student-a', trainerId: 'trainer-c', branchId: BRANCH, date: WEEK, hour: 7, status: 'scheduled' },
+      { id: 'cancelled', studentId: 'student-a', trainerId: 'trainer-d', branchId: BRANCH, date: WEEK, hour: 8, status: 'cancelled' },
+    ],
+  })
+  assert.equal(warnings.filter((warning) => warning.code === 'DUPLICATE_DEPLOYED_SESSION').length, 1)
+  assert.equal(warnings.filter((warning) => warning.code === 'STUDENT_MULTIPLE_SESSIONS_PER_DAY').length, 3)
+  assert.ok(warnings.every((warning) => warning.studentId === 'student-a'))
 })
 
 test('load policy supplies a configurable soft target without blocking extra coverage', () => {

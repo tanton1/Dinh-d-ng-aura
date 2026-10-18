@@ -311,7 +311,19 @@ export interface PtScheduleWorkspaceV2Result extends Omit<BranchScheduleWorkspac
     missingSessions: number
     unassignedEntries: number
   }
-  warnings: Array<{ code: string; studentId?: string; trainerId?: string; slotId?: string; missingSessions?: number; entryCount?: number; maxEntries?: number }>
+  warnings: Array<{
+    code: string
+    studentId?: string
+    trainerId?: string
+    slotId?: string
+    branchId?: string
+    date?: string
+    duplicateSessionId?: string | null
+    canonicalSessionId?: string | null
+    missingSessions?: number
+    entryCount?: number
+    maxEntries?: number
+  }>
   /** Optional trong lúc rollout Functions v3; UI luôn có bộ tính fallback từ draft. */
   optimizationSummary?: PtScheduleOptimizationSummary
   unassignedEntries?: PtScheduleUnassignedEntry[]

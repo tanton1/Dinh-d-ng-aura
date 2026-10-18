@@ -711,6 +711,10 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate, ini
       code: string
     }> = []
     const seen = new Set<string>()
+    const entriesByStudentDay = new Map<string, Array<{
+      slotId: string
+      entry: PtScheduleWorkspaceV2Result['schedule'][string][number]
+    }>>()
     const add = (slotId: string, entry: PtScheduleWorkspaceV2Result['schedule'][string][number], code: string) => {
       if (!code || code === 'ADMIN_MANUAL_OVERRIDE') return
       const key = `${slotId}|${entry.studentId}|${entry.trainerId}|${code}`
@@ -733,6 +737,12 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate, ini
         const current = byStudent.get(entry.studentId) || []
         current.push(entry)
         byStudent.set(entry.studentId, current)
+        const day = String(slotId).split('-')[0]
+        const date = weekDates[day as keyof typeof weekDates]?.full || day
+        const studentDayKey = `${entry.studentId}|${date}`
+        const studentDayEntries = entriesByStudentDay.get(studentDayKey) || []
+        studentDayEntries.push({ slotId, entry })
+        entriesByStudentDay.set(studentDayKey, studentDayEntries)
         for (const code of entry.adminOverrideWarnings || []) {
           if (MATRIX_IMPORTANT_WARNING_CODES.has(code)) add(slotId, entry, code)
         }
@@ -742,10 +752,58 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate, ini
         for (const entry of studentEntries) add(slotId, entry, 'DUPLICATE_SCHEDULE_ENTRY')
       }
     }
+    // A learner may be duplicated in two different hours on the same day.
+    // The publish validator already blocks this case, but an old/manual draft
+    // can still contain it. Surface every affected local row so the warning
+    // center and the matrix point to the exact cells that need review.
+    for (const studentDayEntries of entriesByStudentDay.values()) {
+      if (new Set(studentDayEntries.map(({ slotId }) => slotId)).size < 2) continue
+      for (const { slotId, entry } of studentDayEntries) add(slotId, entry, 'STUDENT_MULTIPLE_SESSIONS_PER_DAY')
+    }
+
+    // Published-session diagnostics are generated from raw server rows because
+    // the normal workspace projection intentionally collapses duplicate rows
+    // for coverage/entitlement counting. Re-anchor each diagnostic to the
+    // visible local matrix cell when it exists.
+    for (const warning of workspace.warnings || []) {
+      if (!MATRIX_IMPORTANT_WARNING_CODES.has(warning.code) || !warning.slotId || !warning.studentId) continue
+      const slotEntries = (workspace.schedule[warning.slotId] || []).filter((entry) => entry.type !== 'off' && entry.studentId === warning.studentId)
+      const entry = slotEntries.find((candidate) => !warning.trainerId || candidate.trainerId === warning.trainerId) || slotEntries[0]
+      if (entry) add(warning.slotId, entry, warning.code)
+    }
+
+    // The selected branch owns only its local matrix. Reconcile it with the
+    // compact all-branch coverage projection so a learner scheduled locally
+    // and at another branch on the same day is still visible as a conflict.
+    // Anchor the row to the local cell so clicking the warning opens the right
+    // trainer/slot in this matrix.
+    for (const [studentId, coverage] of Object.entries(workspace.weeklySessionCoverage || {})) {
+      const localEntriesByDay = new Map<string, Array<{
+        slotId: string
+        entry: PtScheduleWorkspaceV2Result['schedule'][string][number]
+      }>>()
+      for (const [studentDayKey, entries] of entriesByStudentDay) {
+        if (!studentDayKey.startsWith(`${studentId}|`)) continue
+        const date = studentDayKey.slice(studentId.length + 1)
+        localEntriesByDay.set(date, entries)
+      }
+      const coverageByDate = new Map<string, typeof coverage.entries>()
+      for (const entry of coverage.entries || []) {
+        const current = coverageByDate.get(entry.date) || []
+        current.push(entry)
+        coverageByDate.set(entry.date, current)
+      }
+      for (const [date, coverageEntries] of coverageByDate) {
+        if (!coverageEntries.some((entry) => entry.branchId !== workspace.branch.id)) continue
+        for (const { slotId, entry } of localEntriesByDay.get(date) || []) {
+          add(slotId, entry, 'STUDENT_MULTIPLE_SESSIONS_PER_DAY')
+        }
+      }
+    }
     return rows.sort((left, right) => compareScheduleSlots(left.slotId, right.slotId)
       || left.studentName.localeCompare(right.studentName, 'vi')
       || left.code.localeCompare(right.code))
-  }, [workspace])
+  }, [weekDates, workspace])
 
   const matrixConflictWarningKeys = useMemo(
     () => new Set(scheduleConflictWarnings
@@ -2171,7 +2229,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate, ini
             <button type="button" role="tab" aria-selected={warningFilter === 'priority'} className={warningFilter === 'priority' ? 'is-active' : ''} onClick={() => setWarningFilter('priority')}>Thiếu buổi <b>{warningProfiles.length}</b></button>
             <button type="button" role="tab" aria-selected={warningFilter === 'conflict'} className={warningFilter === 'conflict' ? 'is-active' : ''} onClick={() => setWarningFilter('conflict')}>Trùng / xung đột <b>{scheduleConflictWarnings.length}</b></button>
           </nav>
-          {warningFilter === 'conflict' && <section className="schedule-warning-conflicts" aria-label="Danh sách trùng và xung đột lịch">
+          {(warningFilter === 'conflict' || (warningFilter === 'priority' && scheduleConflictWarnings.length > 0)) && <section className="schedule-warning-conflicts" aria-label="Danh sách trùng và xung đột lịch">
             <header><div><strong>Lịch cần đối soát</strong><span>Chọn một dòng để mở đúng ô trong ma trận.</span></div><b>{scheduleConflictWarnings.length}</b></header>
             <div>{scheduleConflictWarnings.slice(0, 100).map((row) => <button type="button" key={row.key} onClick={() => { setSelectedTrainerId(row.trainerId); setInspectorSlotId(row.slotId); setCandidateSearch(''); setTab('matrix') }}><AlertTriangle size={16} /><span><strong>{row.studentName}</strong><small>{scheduleSlotLabel(row.slotId, weekDates)} · {row.trainerName}</small><em>{diagnosticReasonLabel(row.code)}</em></span><ChevronRight size={16} /></button>)}</div>
           </section>}
@@ -2222,7 +2280,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate, ini
                 </div>}
               </article>
             })}
-            {warningFilter === 'priority' && !warningProfiles.length && <div className="schedule-warning-empty"><CheckCircle2 /> Không còn cảnh báo.</div>}
+            {warningFilter === 'priority' && !warningProfiles.length && !scheduleConflictWarnings.length && <div className="schedule-warning-empty"><CheckCircle2 /> Không còn cảnh báo.</div>}
             {warningFilter === 'contract' && !contractWarningProfiles.length && <div className="schedule-warning-empty"><CheckCircle2 /> Không có cảnh báo hợp đồng.</div>}
             {warningFilter === 'learner' && !learnerWarningProfiles.length && <div className="schedule-warning-empty"><CheckCircle2 /> Không có cảnh báo lịch rảnh.</div>}
             {warningFilter === 'capacity' && !capacityWarningProfiles.length && <div className="schedule-warning-empty"><CheckCircle2 /> Không có cảnh báo thiếu PT / ca.</div>}

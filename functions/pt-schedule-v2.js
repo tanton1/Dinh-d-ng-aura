@@ -684,6 +684,72 @@ function weeklySessionCoverageForStudents({ weekId, branchId, sessions = [], sch
   }]))
 }
 
+// Keep raw deployed-session conflicts available to the workspace warning
+// center. The compact weekly coverage projection deliberately collapses a
+// duplicate document at the same learner/date/hour/branch so it cannot inflate
+// entitlement counts; that projection therefore cannot be the source for a
+// duplicate-data warning. Inspect the raw session rows before that collapse.
+function scheduleConflictWarningsForWorkspace({ weekId, sessions = [] } = {}) {
+  const active = sessions.filter((session) => {
+    const date = storedDate(session?.date)
+    return Boolean(session?.studentId)
+      && Boolean(date)
+      && date >= weekId
+      && date < nextWeek(weekId)
+      && historicalSessionOccupies(session)
+      && publishedSessionSlotId(weekId, session)
+  }).map((session) => ({
+    session,
+    date: storedDate(session.date),
+    slotId: publishedSessionSlotId(weekId, session),
+    branchId: typeof session.branchId === 'string' && session.branchId ? session.branchId : 'unknown',
+  })).filter((row) => row.slotId)
+  const warnings = []
+  const byCell = new Map()
+  const byStudentDate = new Map()
+  for (const row of active) {
+    const cellKey = `${row.session.studentId}|${row.slotId}|${row.branchId}`
+    const cellRows = byCell.get(cellKey) || []
+    cellRows.push(row)
+    byCell.set(cellKey, cellRows)
+    const dayKey = `${row.session.studentId}|${row.date}`
+    const dayRows = byStudentDate.get(dayKey) || []
+    dayRows.push(row)
+    byStudentDate.set(dayKey, dayRows)
+  }
+  for (const rows of byCell.values()) {
+    if (rows.length < 2) continue
+    const canonical = rows[0]
+    for (const duplicate of rows.slice(1)) {
+      warnings.push({
+        code: 'DUPLICATE_DEPLOYED_SESSION',
+        studentId: duplicate.session.studentId,
+        trainerId: duplicate.session.trainerId || '',
+        slotId: duplicate.slotId,
+        branchId: duplicate.branchId,
+        duplicateSessionId: duplicate.session.id || null,
+        canonicalSessionId: canonical.session.id || null,
+      })
+    }
+  }
+  for (const rows of byStudentDate.values()) {
+    if (rows.length < 2) continue
+    const distinctSlots = new Set(rows.map((row) => `${row.slotId}|${row.branchId}`))
+    if (distinctSlots.size < 2) continue
+    for (const row of rows) {
+      warnings.push({
+        code: 'STUDENT_MULTIPLE_SESSIONS_PER_DAY',
+        studentId: row.session.studentId,
+        trainerId: row.session.trainerId || '',
+        slotId: row.slotId,
+        branchId: row.branchId,
+        date: row.date,
+      })
+    }
+  }
+  return warnings
+}
+
 async function approvedLeavesForTrainers(db, trainerIds) {
   const ids = [...trainerIds]
   if (!ids.length) return []
@@ -4193,6 +4259,10 @@ function createPtScheduleV2Functions({
       const key = `${session.studentId}|${session.trainerId}|${slotId}`
       if (!sessionRefs[key]) sessionRefs[key] = { sessionId: session.id, revision: Number(session.revision || 0) }
     }
+    const liveConflictWarnings = scheduleConflictWarningsForWorkspace({
+      weekId: week,
+      sessions: data.sessions,
+    })
     return {
       schemaVersion: 2,
       partial: data.partial === true,
@@ -4226,7 +4296,7 @@ function createPtScheduleV2Functions({
       // send raw attendance/billing documents to the scheduling workspace.
       sessionRefs,
       scheduleConfig: data.config,
-      warnings: data.draft.warnings,
+      warnings: [...(Array.isArray(data.draft.warnings) ? data.draft.warnings : []), ...liveConflictWarnings].slice(0, 100),
       // Always derive live workload from the current draft and current trainer
       // policy. Keep generator diagnostics (including the relocation trace)
       // from the audit snapshot, but never reuse its stale live metrics.
@@ -5151,6 +5221,7 @@ module.exports = {
   trainerIsLocked,
   trainerLoadsForSchedule,
   trainerSchedulingPolicy,
+  scheduleConflictWarningsForWorkspace,
   weeklySessionCoverageForStudents,
   weeklyTargetForStudent,
   availabilityCutoff,
