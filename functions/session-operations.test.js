@@ -1489,6 +1489,9 @@ test('admin request approval uses only the atomic callable for lifecycle changes
 test('leave approval and session requests use server transactions while remaining unsafe lifecycle actions stay disabled', () => {
   assert.match(requestCenter, /await approveContractPauseRequest\(/)
   assert.match(requestCenter, /await rejectContractPauseRequest\(/)
+  assert.match(functionsIndex, /exports\.createMyContractPauseRequestRegional/)
+  assert.match(functionsIndex, /exports\.approveContractPauseRequestRegional/)
+  assert.match(service, /firebaseScheduleOptimizerFunctions/)
   assert.doesNotMatch(requestCenter, /\b(?:updateSession|deleteSession|cancelSession|rescheduleSession)\s*\(/)
   assert.match(scheduler, /studentSessionActionUnavailable/)
   assert.doesNotMatch(scheduler, /\b(?:updateSession|deleteSession)\s*\(/)

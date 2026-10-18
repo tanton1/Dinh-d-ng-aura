@@ -1,9 +1,19 @@
 import { httpsCallable } from 'firebase/functions'
-import { firebaseFunctions } from '../lib/firebaseFunctions'
+import { firebaseFunctions, firebaseScheduleOptimizerFunctions } from '../lib/firebaseFunctions'
+
+const regionalOperationNames = new Set([
+  'listPtOperationsRequests',
+  'createMyContractPauseRequest',
+  'approveContractPauseRequest',
+  'rejectContractPauseRequest',
+])
 
 function call<Input, Output>(name: string, input: Input) {
-  if (!firebaseFunctions) throw new Error('Firebase Functions chưa sẵn sàng.')
-  return httpsCallable<Input, Output>(firebaseFunctions, name)(input).then((result) => result.data)
+  const useRegionalEndpoint = regionalOperationNames.has(name) && Boolean(firebaseScheduleOptimizerFunctions)
+  const functions = useRegionalEndpoint ? firebaseScheduleOptimizerFunctions : firebaseFunctions
+  if (!functions) throw new Error('Firebase Functions chưa sẵn sàng.')
+  const callableName = useRegionalEndpoint ? `${name}Regional` : name
+  return httpsCallable<Input, Output>(functions, callableName)(input).then((result) => result.data)
 }
 
 export function confirmSessionAttendance(sessionId: string, expectedRevision: number) {

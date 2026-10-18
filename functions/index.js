@@ -1005,6 +1005,22 @@ exports.rejectSessionRequest = sessionOperationFunctions.rejectSessionRequest
 exports.createMyContractPauseRequest = sessionOperationFunctions.createMyContractPauseRequest
 exports.approveContractPauseRequest = sessionOperationFunctions.approveContractPauseRequest
 exports.rejectContractPauseRequest = sessionOperationFunctions.rejectContractPauseRequest
+
+// Contract pause requests are interactive and must remain available when the
+// shared asia-southeast1 Cloud Run quota is saturated. Keep the original
+// endpoints for older clients, while routing the current web client through a
+// bounded Gen-1 CPU profile in the overflow region.
+const sessionOperationsRegionalOnCall = (optionsOrHandler, maybeHandler) => {
+  const resourceOptions = { region: 'asia-east1', cpu: 'gcf_gen1', maxInstances: 2, concurrency: 1, timeoutSeconds: 120 }
+  return typeof optionsOrHandler === 'function'
+    ? onCall(resourceOptions, optionsOrHandler)
+    : onCall({ ...resourceOptions, ...optionsOrHandler }, maybeHandler)
+}
+const sessionOperationRegionalFunctions = createSessionOperationFunctions({ db, onCall: sessionOperationsRegionalOnCall, logger })
+exports.listPtOperationsRequestsRegional = sessionOperationRegionalFunctions.listPtOperationsRequests
+exports.createMyContractPauseRequestRegional = sessionOperationRegionalFunctions.createMyContractPauseRequest
+exports.approveContractPauseRequestRegional = sessionOperationRegionalFunctions.approveContractPauseRequest
+exports.rejectContractPauseRequestRegional = sessionOperationRegionalFunctions.rejectContractPauseRequest
 exports.chargeDuePtSessionsScheduled = onSchedule({
   schedule: 'every 30 minutes',
   region: 'asia-southeast1',
