@@ -136,6 +136,23 @@ test('weekly session coverage counts every branch once and ignores cancelled row
   })
 })
 
+test('weekly session coverage prefers a cross-branch draft over its unpublished session duplicate', () => {
+  const coverage = weeklySessionCoverageForStudents({
+    weekId: WEEK,
+    branchId: BRANCH,
+    sessions: [
+      { id: 'a-local', studentId: 'student-a', trainerId: 'trainer-a', branchId: BRANCH, date: WEEK, hour: 6, status: 'scheduled' },
+      { id: 'a-other-old', studentId: 'student-a', trainerId: 'trainer-old', branchId: 'branch-b', date: '2026-08-25', hour: 7, status: 'scheduled' },
+    ],
+    scheduleEntries: [
+      { id: 'a-other-draft', studentId: 'student-a', trainerId: 'trainer-new', branchId: 'branch-b', date: '2026-08-25', hour: 7, status: 'scheduled' },
+    ],
+  })
+  assert.equal(coverage['student-a'].total, 2)
+  assert.equal(coverage['student-a'].otherBranches, 1)
+  assert.equal(coverage['student-a'].entries.find((entry) => entry.branchId === 'branch-b').id, 'a-other-draft')
+})
+
 test('load policy supplies a configurable soft target without blocking extra coverage', () => {
   const data = fixture()
   data.config.scheduleLoadPolicy = { schemaVersion: 1, defaultDailyTargets: { full_time: 3, part_time: 5, collaborator: 2 } }

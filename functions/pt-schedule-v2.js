@@ -589,18 +589,65 @@ async function weeklySessionsForStudents(db, studentIds, week) {
   return documents
 }
 
-function weeklySessionCoverageForStudents({ weekId, branchId, sessions = [] } = {}) {
+// A learner can be placed in another branch while both branch workspaces are
+// still drafts. Those placements are not sessions yet, so a session-only
+// coverage read incorrectly reports the learner as missing. Keep the draft
+// projection small: only the learner, branch, date, hour and PT are needed by
+// the warning center. Publish/session reads remain the source of attendance
+// and billing truth.
+async function weeklyDraftScheduleEntriesForStudents(db, studentIds, week) {
+  if (!studentIds.length) return []
+  const snapshot = await db.collection('ptScheduleDrafts')
+    .where('weekId', '==', week)
+    .limit(1001)
+    .get()
+  if (snapshot.size > 1000) throw new HttpsError('resource-exhausted', 'Số draft lịch trong tuần vượt giới hạn đối soát an toàn.')
+  const allowed = new Set(studentIds)
+  const entries = []
+  for (const document of snapshot.docs) {
+    const data = document.data() || {}
+    const branchId = typeof data.branchId === 'string' && data.branchId
+      ? data.branchId
+      : String(document.id || '').split('_')[0]
+    const schedule = safeSchedule(data.schedule)
+    for (const [slotId, slotEntries] of Object.entries(schedule)) {
+      const [day, rawHour] = slotId.split('-')
+      const hour = Number(rawHour)
+      if (!DAY_ORDER.has(day) || !Number.isInteger(hour)) continue
+      for (const entry of slotEntries) {
+        if (entry.type === 'off' || !allowed.has(entry.studentId)) continue
+        entries.push({
+          id: `draft:${document.id}:${slotId}:${entry.studentId}:${entry.trainerId}`,
+          studentId: entry.studentId,
+          branchId,
+          date: dateForSlot(week, day),
+          hour,
+          trainerId: entry.trainerId || '',
+          status: 'scheduled',
+        })
+      }
+    }
+  }
+  return entries
+}
+
+function weeklySessionCoverageForStudents({ weekId, branchId, sessions = [], scheduleEntries = [] } = {}) {
   const coverage = {}
   const seenSessionIds = new Set()
   const seenSessionKeys = new Set()
   const weekEnd = nextWeek(weekId)
-  for (const session of sessions) {
+  // Draft rows come first so a just-saved move wins over the older session
+  // row until Publish reconciles the two sources.
+  for (const session of [...scheduleEntries, ...sessions]) {
     const studentId = typeof session?.studentId === 'string' ? session.studentId : ''
     const date = storedDate(session?.date)
     if (!studentId || !date || date < weekId || date >= weekEnd || !historicalSessionOccupies(session)) continue
     const sessionBranchId = typeof session?.branchId === 'string' && session.branchId ? session.branchId : 'unknown'
     const hour = Number.isInteger(Number(session?.hour)) ? Number(session.hour) : -1
-    const sessionKey = `${studentId}|${session?.trainerId || ''}|${date}|${hour}|${sessionBranchId}`
+    // One learner cannot consume two weekly sessions at the same physical
+    // slot. Omitting trainerId also lets a draft move from one PT to another
+    // replace the old session without double-counting the learner.
+    const sessionKey = `${studentId}|${date}|${hour}|${sessionBranchId}`
     // Firestore document ids are canonical. The fallback key protects the
     // projection from duplicated legacy rows that were imported without ids.
     if ((session?.id && seenSessionIds.has(session.id)) || seenSessionKeys.has(sessionKey)) continue
@@ -939,18 +986,27 @@ async function loadBranchDataFresh(db, branchId, week, options = {}) {
   const coverageStudentIds = fastPublishedWorkspace
     ? new Set(referencedStudentIds)
     : new Set([...studentSet, ...reservationStudentIds])
-  const [activeSessions, weeklyCoverageSessions] = await Promise.all([
+  const [activeSessions, weeklyCoverageSessions, weeklyDraftScheduleEntries] = await Promise.all([
     fastWorkspace ? Promise.resolve([]) : activeSessionsForStudents(db, [...reservationStudentIds], week),
     // Coverage is a reporting concern rather than a quota reservation. The
     // published Admin matrix only needs live rows for learners already in the
     // matrix; the full roster remains available to the draft/optimizer path.
     weeklySessionsForStudents(db, [...coverageStudentIds], week),
+    // A draft can already contain a cross-branch manual placement before
+    // Publish creates its session. Include those rows in the compact coverage
+    // projection so both branch matrices report the same weekly total.
+    weeklyDraftScheduleEntriesForStudents(db, [...coverageStudentIds], week),
   ])
   const sessionRowsById = new Map([...weekSessions.docs, ...activeSessions, ...weeklyCoverageSessions]
     .map((item) => ({ id: item.id, ...item.data() }))
     .map((item) => [item.id, item]))
   const sessionRows = [...sessionRowsById.values()]
-  const weeklySessionCoverage = weeklySessionCoverageForStudents({ weekId: week, branchId, sessions: sessionRows })
+  const weeklySessionCoverage = weeklySessionCoverageForStudents({
+    weekId: week,
+    branchId,
+    sessions: sessionRows,
+    scheduleEntries: weeklyDraftScheduleEntries,
+  })
   const sessionsByContract = new Map()
   for (const session of sessionRows) {
     if (!session.contractId) continue
