@@ -15,6 +15,8 @@ const studentSchedulePageSource = readFileSync(join(__dirname, '..', 'src', 'pag
 const studentAvailabilityPageSource = readFileSync(join(__dirname, '..', 'src', 'pages', 'student', 'StudentAvailabilityPage.tsx'), 'utf8')
 const {
   availabilityCutoff,
+  availabilityReopenForWeek,
+  availabilityState,
   availabilityWeekId,
   contractCoversDate,
   isEffectiveStaffContract,
@@ -80,6 +82,24 @@ test('trainer weekly availability uses a Vietnam Monday, Sunday cutoff and exact
     trainerSlotsWithoutOffDates(['T2-6', 'T3-6', 'T3-18', 'T4-7'], offDates, '2026-08-31'),
     ['T2-6', 'T4-7'],
   )
+})
+
+test('admin reopening keeps a learner editable after the Sunday cutoff until week end', () => {
+  const week = '2026-08-31'
+  const now = new Date('2026-09-01T03:00:00.000Z')
+  const profile = { availabilityReopen: { weekId: week, reopenedUntil: '2026-09-06T17:00:00.000Z' } }
+  assert.equal(availabilityReopenForWeek(profile, week, now)?.toISOString(), '2026-09-06T17:00:00.000Z')
+  const state = availabilityState(week, {
+    weekId: week,
+    slots: ['T2-6'],
+    status: 'locked',
+    confirmed: true,
+    source: 'weekly',
+    reopenedUntil: '2026-09-06T17:00:00.000Z',
+  }, now)
+  assert.equal(state.locked, false)
+  assert.equal(state.status, 'submitted')
+  assert.equal(state.reopenedUntil, '2026-09-06T17:00:00.000Z')
 })
 
 test('PT lifecycle is exposed only through the expected atomic callables', () => {

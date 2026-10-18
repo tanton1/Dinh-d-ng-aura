@@ -9,6 +9,7 @@ const {
 } = require('./session-operations')
 const { assertSessionChangeDeadline, ptOperationsPolicySnapshot } = require('./pt-policy')
 const {
+  availabilityReopenForWeek,
   effectiveStudentAvailability,
   loadLatestSubmittedFallbacks,
   normalizeRequestedSessions,
@@ -397,7 +398,8 @@ function availabilityCutoff(weekId, policyValue = {}) {
 
 function availabilityState(weekId, value, now = new Date(), policyValue = {}) {
   const cutoff = availabilityCutoff(weekId, policyValue)
-  const locked = now.getTime() >= cutoff.getTime()
+  const reopenedUntil = availabilityReopenForWeek({ ...value, weekId }, weekId, now)
+  const locked = now.getTime() >= cutoff.getTime() && !reopenedUntil
   const slots = Array.isArray(value?.slots) ? value.slots : []
   const source = value?.source || 'weekly'
   const confirmed = slots.length > 0 && (value?.confirmed === true
@@ -425,6 +427,7 @@ function availabilityState(weekId, value, now = new Date(), policyValue = {}) {
     confirmed,
     locked,
     cutoffAt: cutoff.toISOString(),
+    reopenedUntil: reopenedUntil?.toISOString() || null,
     submittedAt: value?.submittedAt || null,
     updatedAt: value?.updatedAt || value?.submittedAt || null,
     source,
@@ -1408,6 +1411,7 @@ function createPtOperationsV2Functions({ db, onCall }) {
       submittedAt: effectiveAvailability.submittedAt,
       source: effectiveAvailability.source,
       sourceWeekId: effectiveAvailability.sourceWeekId,
+      reopenedUntil: effectiveAvailability.reopenedUntil || null,
     }
     const availability = availabilityState(requestedAvailabilityWeekId, {
       ...storedAvailability,
@@ -1477,13 +1481,6 @@ function createPtOperationsV2Functions({ db, onCall }) {
     const confirmBelowMinimum = request.data?.confirmBelowMinimum === true
     const submittedAtIso = new Date().toISOString()
     const cutoffAt = availabilityCutoff(weekId, config)
-    if (Date.now() >= cutoffAt.getTime()) {
-      throw new HttpsError('failed-precondition', 'Lịch rảnh của tuần này đã khóa theo thời hạn đăng ký đang áp dụng.', {
-        issueCode: 'AVAILABILITY_LOCKED',
-        action: 'contact_admin',
-        cutoffAt: cutoffAt.toISOString(),
-      })
-    }
     if (!slots.length) {
       throw new HttpsError('failed-precondition', 'Không thể gửi lịch rảnh với 0 khung. Nếu cần nghỉ, hãy giữ lịch gần nhất và đăng ký OFF hoặc bảo lưu.', {
         issueCode: 'AVAILABILITY_EMPTY',
@@ -1506,6 +1503,14 @@ function createPtOperationsV2Functions({ db, onCall }) {
         transaction.get(availabilityReference),
       ])
       if (!currentProfile.exists) throw new HttpsError('not-found', 'Không tìm thấy hồ sơ học viên PT.')
+      const reopenedUntil = availabilityReopenForWeek(currentProfile.data(), weekId)
+      if (Date.now() >= cutoffAt.getTime() && !reopenedUntil) {
+        throw new HttpsError('failed-precondition', 'Lịch rảnh của tuần này đã khóa theo thời hạn đăng ký đang áp dụng.', {
+          issueCode: 'AVAILABILITY_LOCKED',
+          action: 'contact_admin',
+          cutoffAt: cutoffAt.toISOString(),
+        })
+      }
       const currentRevision = Number(currentAvailability.data()?.revision || 0)
       if (currentRevision !== expectedRevision) {
         throw new HttpsError('aborted', 'Lịch rảnh đã thay đổi. Hãy tải lại trước khi lưu.', {
@@ -1560,7 +1565,10 @@ function createPtOperationsV2Functions({ db, onCall }) {
         latestFallbackAdvanced: Boolean(profilePatch.latestSubmittedAvailability),
         createdAt: FieldValue.serverTimestamp(),
       })
-      return currentRevision + 1
+      return {
+        revision: currentRevision + 1,
+        reopenedUntil: reopenedUntil?.toISOString() || null,
+      }
     })
     invalidateTrainerReadCaches(db, actor)
     studentScheduleQueryCache.clear(`${cacheScope(db)}|${profile.id}|`)
@@ -1568,19 +1576,20 @@ function createPtOperationsV2Functions({ db, onCall }) {
       schemaVersion: 3,
       availableSlots: slots,
       defaultSessionsPerWeek,
-      availabilityRevision: nextRevision,
+      availabilityRevision: nextRevision.revision,
       isScheduleConfirmed: true,
       availability: serialize(availabilityState(weekId, {
         slots,
         minimumSlots,
         requiredSessions,
         requestedSessions,
-        revision: nextRevision,
+        revision: nextRevision.revision,
         status: 'submitted',
         submittedAt: submittedAtIso,
         confirmed: true,
         source: 'weekly',
         sourceWeekId: weekId,
+        reopenedUntil: nextRevision.reopenedUntil,
       }, new Date(), config)),
     }
   })
@@ -1751,6 +1760,7 @@ function createPtOperationsV2Functions({ db, onCall }) {
       source: effectiveAvailability.source,
       sourceWeekId: effectiveAvailability.sourceWeekId,
       updatedAt: effectiveAvailability.updatedAt,
+      reopenedUntil: effectiveAvailability.reopenedUntil || null,
     }, new Date(), config)
     const student = studentValue
     const effectiveBranchId = projectedContracts.find((contract) => contract.schedulableToday)?.branchId
@@ -2283,6 +2293,8 @@ function createPtOperationsV2Functions({ db, onCall }) {
 }
 
 module.exports = {
+  availabilityReopenForWeek,
+  availabilityState,
   availabilityCutoff,
   availabilityWeekId,
   contractDefaultSessionsPerWeek,

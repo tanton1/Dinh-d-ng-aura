@@ -287,6 +287,7 @@ export interface StudentPtAvailability {
   confirmed?: boolean
   locked: boolean
   cutoffAt: string
+  reopenedUntil?: string | null
   submittedAt: string | null
   source: 'weekly' | 'inherited_weekly' | 'legacy_default' | 'none'
   sourceWeekId?: string | null

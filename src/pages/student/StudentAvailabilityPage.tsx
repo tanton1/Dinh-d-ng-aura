@@ -17,6 +17,7 @@ import {
   RotateCcw,
   Save,
   ShieldCheck,
+  Unlock,
   X,
 } from 'lucide-react'
 import LeaveRequestModal from '../../components/schedule/LeaveRequestModal'
@@ -241,6 +242,7 @@ export default function StudentAvailabilityPage({ onNavigate, isDemo = false }: 
   const minimumSlots = Math.max(5, effectiveSessions)
   const missingSlots = Math.max(0, minimumSlots - selectedSlots.size)
   const locked = availability?.locked === true
+  const reopened = !locked && Boolean(availability?.reopenedUntil)
   const dirty = !sameSlots(selectedSlots, originalSlots) || requestedSessions !== originalRequestedSessions
   const dirtyRef = useRef(dirty)
   dirtyRef.current = dirty
@@ -284,6 +286,8 @@ export default function StudentAvailabilityPage({ onNavigate, isDemo = false }: 
     ? 'locked'
     : dirty
       ? 'dirty'
+      : reopened
+        ? 'submitted'
       : inherited
         ? 'inherited'
         : legacyDefault
@@ -300,11 +304,14 @@ export default function StudentAvailabilityPage({ onNavigate, isDemo = false }: 
         : statusKey === 'legacy-default'
           ? 'Mặc định cũ'
           : statusKey === 'submitted'
-            ? 'Đã gửi'
+            ? reopened ? 'Được mở lại' : 'Đã gửi'
             : 'Chưa gửi'
   const cutoffLabel = availability?.cutoffAt
     ? new Intl.DateTimeFormat('vi-VN', { weekday: 'long', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Ho_Chi_Minh' }).format(new Date(availability.cutoffAt))
     : 'thời hạn đăng ký của tuần'
+  const reopenedUntilLabel = availability?.reopenedUntil
+    ? new Intl.DateTimeFormat('vi-VN', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Ho_Chi_Minh' }).format(new Date(availability.reopenedUntil))
+    : ''
   const guidance = missingSlots > 0
     ? {
         tone: 'warning',
@@ -462,7 +469,7 @@ export default function StudentAvailabilityPage({ onNavigate, isDemo = false }: 
     {message && <div className="student-schedule-message" role="status"><Check size={17} /> {message}</div>}
 
     {!loading && data?.student && <section className="student-availability-card">
-      <header><div><small>MA TRẬN THỜI GIAN RẢNH · TUẦN {weekId}</small><h2>Đăng ký thời gian có thể tập</h2><p>Aura khuyến nghị ít nhất {minimumSlots} khung. Lịch khóa theo chính sách đang áp dụng: {cutoffLabel}.</p></div><button type="button" className={`student-availability-status-button is-${statusKey}`} onClick={() => document.querySelector('.student-schedule-matrix-scroll')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}><strong>{statusLabel}</strong><span>{selectedSlots.size}/{minimumSlots} khung</span></button></header>
+      <header><div><small>MA TRẬN THỜI GIAN RẢNH · TUẦN {weekId}</small><h2>Đăng ký thời gian có thể tập</h2><p>{reopened ? `Admin đã mở lại lịch rảnh đến ${reopenedUntilLabel}.` : `Aura khuyến nghị ít nhất ${minimumSlots} khung. Lịch khóa theo chính sách đang áp dụng: ${cutoffLabel}.`}</p></div><button type="button" className={`student-availability-status-button is-${statusKey}`} onClick={() => document.querySelector('.student-schedule-matrix-scroll')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}><strong>{statusLabel}</strong><span>{selectedSlots.size}/{minimumSlots} khung</span></button></header>
       {availabilityV4 ? <div className="student-availability-week-control"><button type="button" aria-label="Tuần trước" disabled={weekOffset === 0} onClick={() => setWeekOffset(Math.max(0, weekOffset - 1) as AvailabilityWeekOffset)}><ChevronLeft size={19} /></button><div><strong>{formatWeekRange(weekId)}</strong><span>{weekOffset === 0 ? 'Tuần này' : weekOffset === 1 ? 'Tuần sau' : 'Tuần kế tiếp'}</span></div><button type="button" aria-label="Tuần sau" disabled={weekOffset === 2} onClick={() => setWeekOffset(Math.min(2, weekOffset + 1) as AvailabilityWeekOffset)}><ChevronRight size={19} /></button></div> : <div className="student-availability-week-switch"><button type="button" className={weekOffset === 0 ? 'active' : ''} onClick={() => setWeekOffset(0)}>Tuần này</button><button type="button" className={weekOffset === 1 ? 'active' : ''} onClick={() => setWeekOffset(1)}>Tuần sau</button><button type="button" className={weekOffset === 2 ? 'active' : ''} onClick={() => setWeekOffset(2)}>Tuần kế</button></div>}
       <section className="student-availability-target" aria-label="Số buổi muốn tập trong tuần">
         <div className="student-availability-target__copy"><small>SỐ BUỔI MỖI TUẦN</small><strong>{effectiveSessions} buổi</strong><span>{requestedSessions === null ? `Theo hợp đồng · ${contractDefaultSessions} buổi` : 'Đăng ký riêng tuần này'}</span></div>
@@ -474,6 +481,7 @@ export default function StudentAvailabilityPage({ onNavigate, isDemo = false }: 
         </div>
       </section>
       {weeklyAvailability && <div className="student-availability-source is-weekly" role="status"><span><CalendarDays size={20} /></span><div><strong>Lịch riêng của tuần {formatWeekRange(availability?.weekId ?? weekId)}</strong><p>Đây là lịch bạn đã gửi cho đúng tuần đang chọn. Lịch này được ưu tiên trước lịch gần nhất và lịch mặc định cũ.</p></div></div>}
+      {reopened && <div className="student-availability-source is-weekly" role="status"><span><Unlock size={20} /></span><div><strong>Admin đã mở lại lịch rảnh</strong><p>Bạn có thể điều chỉnh và gửi lại đến hết ngày {reopenedUntilLabel}. Sau thời điểm này, chính sách khóa tuần sẽ được áp dụng lại.</p></div></div>}
       {inherited && <div className="student-availability-source is-inherited" role="status"><span><History size={20} /></span><div><strong>Đang dùng lịch đã gửi gần nhất</strong><p>Nguồn từ {formatWeekLabel(availability?.sourceWeekId)}. Nếu bạn không điều chỉnh, Aura tự áp dụng {selectedSlots.size} khung này cho tuần đang chọn.</p></div></div>}
       {legacyDefault && <div className="student-availability-source is-legacy" role="status"><span><CalendarRange size={20} /></span><div><strong>Đây là lịch mặc định cũ trong hồ sơ</strong><p>Aura chỉ dùng lịch này khi chưa có lịch tuần hoặc lịch đã gửi gần nhất. Hãy kiểm tra và bấm “Xác nhận lịch này” để biến nó thành lịch đã gửi của tuần đang chọn.</p></div></div>}
       {missingAvailability && <div className="student-availability-source is-empty" role="status"><span><CircleAlert size={20} /></span><div><strong>Tuần này chưa có lịch rảnh hợp lệ</strong><p>Hãy chọn ít nhất một khung có thể tập. Không dùng lịch trống để báo nghỉ; trường hợp nghỉ cần đăng ký OFF hoặc bảo lưu.</p></div></div>}

@@ -125,6 +125,25 @@ test('weekly target override is retained and null means follow the contract', ()
   assert.equal(reset.latestSubmittedAvailability.requestedSessions, null)
 })
 
+test('an admin reopen keeps a new learner editable even before a weekly document exists', () => {
+  const targetWeek = '2026-10-19'
+  const result = effectiveStudentAvailability({
+    targetWeek,
+    exact: null,
+    inherited: null,
+    profile: {
+      sessionsPerWeek: 3,
+      availabilityReopen: {
+        weekId: targetWeek,
+        reopenedUntil: '2026-10-25T17:00:00.000Z',
+      },
+    },
+  })
+  assert.equal(result.source, 'none')
+  assert.equal(result.status, 'missing')
+  assert.equal(result.reopenedUntil, '2026-10-25T17:00:00.000Z')
+})
+
 test('contract weekly default prefers an explicit contract target and falls back to profile demand', () => {
   assert.equal(contractDefaultSessionsPerWeek([
     { id: 'contract-a', status: 'active', startDate: '2026-09-01', endDate: '2026-12-01', totalSessions: 24, sessionsPerWeek: 2 },

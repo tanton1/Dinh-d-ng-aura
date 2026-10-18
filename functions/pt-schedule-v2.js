@@ -18,6 +18,7 @@ const {
   weekId,
 } = require('./pt-schedule-publish')
 const {
+  availabilityReopenForWeek,
   effectiveStudentAvailability,
   loadLatestSubmittedFallbacks,
   normalizeRequestedSessions,
@@ -78,6 +79,16 @@ function availabilityCutoff(weekId, policyValue = {}) {
   return new Date(monday - daysBefore * 24 * 60 * 60 * 1000 + policy.availabilityRegistrationCutoffHour * 60 * 60 * 1000)
 }
 
+function availabilityWindowForWeek(weekId, policyValue = {}, availability = {}, now = new Date()) {
+  const cutoffAt = availabilityCutoff(weekId, policyValue)
+  const reopenedUntil = availabilityReopenForWeek({ ...availability, weekId }, weekId, now)
+  return {
+    cutoffAt,
+    reopenedUntil,
+    locked: now.getTime() >= cutoffAt.getTime() && !reopenedUntil,
+  }
+}
+
 // A weekly availability document may have been written before the active
 // policy changed. Do not let its persisted `locked` label permanently keep a
 // week closed; derive the current status from the same cutoff used by the
@@ -85,8 +96,7 @@ function availabilityCutoff(weekId, policyValue = {}) {
 function availabilityStatusForWeek(availability, weekId, policyValue = {}, now = new Date()) {
   const status = availability?.status
   if (availability?.source !== 'weekly' || !['submitted', 'locked'].includes(status)) return status
-  const cutoff = availabilityCutoff(weekId, policyValue)
-  return now.getTime() >= cutoff.getTime() ? 'locked' : 'submitted'
+  return availabilityWindowForWeek(weekId, policyValue, availability, now).locked ? 'locked' : 'submitted'
 }
 // The optimizer evaluates the same roster repeatedly (one matching round per
 // weekly session). Keep immutable, derived roster indexes out of that hot
@@ -640,7 +650,9 @@ function initialStudentProjection(item, branchId, displayOnly = false, week = ''
   const storedAvailability = {
     source: data.availabilitySource === 'weekly' || storedWeekId === week ? 'weekly' : data.availabilitySource,
     status: data.availabilityStatus,
+    reopenedUntil: availabilityReopenForWeek(data, week)?.toISOString() || null,
   }
+  const availabilityWindow = week ? availabilityWindowForWeek(week, policyValue, storedAvailability) : null
   const availabilityStatus = week
     ? availabilityStatusForWeek(storedAvailability, week, policyValue)
     : data.availabilityStatus
@@ -662,6 +674,9 @@ function initialStudentProjection(item, branchId, displayOnly = false, week = ''
     schedulableSessionsThisWeek: defaultSessionsPerWeek,
     availableSlots,
     availabilityStatus: availabilityStatus || (availableSlots.length ? 'recurring' : 'missing'),
+    availabilityLocked: availabilityWindow?.locked === true,
+    availabilityCutoffAt: availabilityWindow?.cutoffAt.toISOString() || null,
+    availabilityReopenedUntil: availabilityWindow?.reopenedUntil?.toISOString() || null,
     availabilityRevision: Number(data.availabilityRevision || 0),
     availabilitySourceRevision: Number(data.availabilitySourceRevision || 0),
     availabilitySourceWeekId: data.availabilitySourceWeekId || null,
@@ -999,6 +1014,7 @@ async function loadBranchDataFresh(db, branchId, week, options = {}) {
         : effectiveAvailability.source === 'legacy_default' && effectiveAvailability.confirmed
           ? 'recurring'
           : 'missing'
+    const availabilityWindow = availabilityWindowForWeek(week, config.data(), effectiveAvailability)
     const studentContracts = mappedContractsByStudent.get(item.id) || []
     const eligibility = studentWeekEligibility(studentContracts, item.id, displayOnly ? data.branchId : branchId, week)
     const studentInactive = ['inactive', 'archived', 'deleted'].includes(String(data.status || '').toLowerCase())
@@ -1047,6 +1063,9 @@ async function loadBranchDataFresh(db, branchId, week, options = {}) {
       schedulableSessionsThisWeek: target.schedulableSessionsThisWeek,
       availableSlots: effectiveAvailability.slots.slice(0, 100),
       availabilityStatus,
+      availabilityLocked: availabilityWindow.locked,
+      availabilityCutoffAt: availabilityWindow.cutoffAt.toISOString(),
+      availabilityReopenedUntil: availabilityWindow.reopenedUntil?.toISOString() || null,
       availabilityRevision: Number(effectiveAvailability.targetRevision || 0),
       availabilitySourceRevision: Number(effectiveAvailability.sourceRevision || 0),
       availabilitySourceWeekId: effectiveAvailability.sourceWeekId,
@@ -1246,6 +1265,7 @@ async function loadManualMutationData(db, branchId, week, trainerId, studentId, 
       : effectiveAvailability.source === 'legacy_default' && effectiveAvailability.confirmed
         ? 'recurring'
         : 'missing'
+  const availabilityWindow = availabilityWindowForWeek(week, config.data(), effectiveAvailability)
   const eligibility = studentWeekEligibility(contracts, studentId, branchId, week, todayInHoChiMinh(), allowCrossBranchStudent)
   const studentInactive = ['inactive', 'archived', 'deleted'].includes(String(rawStudent.status || '').toLowerCase())
   const adminSessionTarget = safeWeeklySessionTargets(draftData?.weeklySessionTargets)[studentId] ?? null
@@ -1264,6 +1284,9 @@ async function loadManualMutationData(db, branchId, week, trainerId, studentId, 
     availabilityTargetOverridden: availabilityRequestedSessions !== null,
     availableSlots: effectiveAvailability.slots.slice(0, 100),
     availabilityStatus,
+    availabilityLocked: availabilityWindow.locked,
+    availabilityCutoffAt: availabilityWindow.cutoffAt.toISOString(),
+    availabilityReopenedUntil: availabilityWindow.reopenedUntil?.toISOString() || null,
     eligibleForWeek: !studentInactive && eligibility.eligible,
     eligibilityReasons: studentInactive ? ['STUDENT_NOT_ACTIVE', ...eligibility.reasonCodes] : eligibility.reasonCodes,
     eligibleContractIds: eligibility.eligibleContractIds,
@@ -4424,7 +4447,6 @@ function createPtScheduleV2Functions({
     const reference = db.doc(`ptAvailability/${studentId}_${week}`)
     const studentReference = db.doc(`students/${studentId}`)
     const cutoff = availabilityCutoff(week, configSnapshot.exists ? configSnapshot.data() : {})
-    const availabilityStatus = Date.now() >= cutoff.getTime() ? 'locked' : 'submitted'
     const submittedAtIso = new Date().toISOString()
     const nextRevision = await db.runTransaction(async (transaction) => {
       const [current, currentProfile] = await Promise.all([
@@ -4432,6 +4454,8 @@ function createPtScheduleV2Functions({
         transaction.get(studentReference),
       ])
       if (!currentProfile.exists || currentProfile.data().branchId !== branchId) throw new HttpsError('not-found', 'Không tìm thấy học viên trong chi nhánh đang xếp lịch.')
+      const reopenedUntil = availabilityReopenForWeek(currentProfile.data(), week)
+      const availabilityStatus = Date.now() >= cutoff.getTime() && !reopenedUntil ? 'locked' : 'submitted'
       const revision = Number(current.data()?.revision || 0)
       if (revision !== expectedRevision) throw new HttpsError('aborted', 'Lịch rảnh đã thay đổi. Hãy tải lại trước khi lưu.', { issueCode: 'REVISION_CONFLICT', currentRevision: revision })
       const next = {
@@ -4479,10 +4503,82 @@ function createPtScheduleV2Functions({
         latestFallbackAdvanced: Boolean(profilePatch.latestSubmittedAvailability),
         createdAt: FieldValue.serverTimestamp(),
       })
-      return revision + 1
+      return { revision: revision + 1, availabilityStatus }
     })
     invalidateBranchDataCache(db, branchId, week)
-    return { schemaVersion: 1, availableSlots: slots, availabilityRevision: nextRevision, availabilityStatus }
+    return { schemaVersion: 1, availableSlots: slots, availabilityRevision: nextRevision.revision, availabilityStatus: nextRevision.availabilityStatus }
+  })
+
+  const reopenPtStudentAvailability = onCall(async (request) => {
+    const week = weekId(request.data?.weekId)
+    const branchId = documentId(request.data?.branchId, 'Mã chi nhánh')
+    const studentId = documentId(request.data?.studentId, 'Mã học viên')
+    const expectedRevision = Number(request.data?.expectedRevision)
+    if (!Number.isInteger(expectedRevision) || expectedRevision < 0) throw new HttpsError('invalid-argument', 'Phiên bản lịch rảnh không hợp lệ.')
+    const actor = await actorForBranch(request, db, branchId)
+    if (!activeAdministrator(actor)) throw new HttpsError('permission-denied', 'Chỉ Admin mới được mở lại lịch rảnh cho học viên.')
+    const studentReference = db.doc(`students/${studentId}`)
+    const availabilityReference = db.doc(`ptAvailability/${studentId}_${week}`)
+    const reopenUntilMillis = Date.parse(`${nextWeek(week)}T00:00:00+07:00`)
+    if (!Number.isFinite(reopenUntilMillis) || reopenUntilMillis <= Date.now()) {
+      throw new HttpsError('failed-precondition', 'Tuần đã kết thúc, không thể mở lại lịch rảnh.')
+    }
+    const reopenedUntil = Timestamp.fromMillis(reopenUntilMillis)
+    const result = await db.runTransaction(async (transaction) => {
+      const [studentSnapshot, availabilitySnapshot] = await Promise.all([
+        transaction.get(studentReference),
+        transaction.get(availabilityReference),
+      ])
+      if (!studentSnapshot.exists || studentSnapshot.data().branchId !== branchId) {
+        throw new HttpsError('not-found', 'Không tìm thấy học viên trong chi nhánh đang xếp lịch.')
+      }
+      const current = availabilitySnapshot.data() || {}
+      const currentRevision = Number(current.revision || 0)
+      if (currentRevision !== expectedRevision) {
+        throw new HttpsError('aborted', 'Lịch rảnh đã thay đổi. Hãy tải lại trước khi mở lại.', {
+          issueCode: 'REVISION_CONFLICT',
+          currentRevision,
+        })
+      }
+      const existing = availabilityReopenForWeek(studentSnapshot.data(), week)
+      if (existing) {
+        return {
+          changed: false,
+          availabilityRevision: currentRevision,
+          reopenedUntil: existing.toISOString(),
+          availabilityStatus: Array.isArray(current.slots) && current.slots.length ? 'submitted' : 'missing',
+        }
+      }
+      transaction.update(studentReference, {
+        availabilityReopen: {
+          weekId: week,
+          reopenedUntil,
+          reopenedBy: actor.uid,
+          reopenedAt: FieldValue.serverTimestamp(),
+        },
+        updatedAt: FieldValue.serverTimestamp(),
+      })
+      transaction.create(db.collection('ptOperationsAuditLogs').doc(), {
+        schemaVersion: 2,
+        action: 'student_availability.reopened',
+        actorUid: actor.uid,
+        branchId,
+        studentId,
+        weekId: week,
+        expectedRevision,
+        reopenedUntil,
+        reason: 'admin_open_until_week_end',
+        createdAt: FieldValue.serverTimestamp(),
+      })
+      return {
+        changed: true,
+        availabilityRevision: currentRevision,
+        reopenedUntil: new Date(reopenUntilMillis).toISOString(),
+        availabilityStatus: Array.isArray(current.slots) && current.slots.length ? 'submitted' : 'missing',
+      }
+    })
+    invalidateBranchDataCache(db, branchId, week)
+    return { schemaVersion: 1, ...result, availabilityLocked: false }
   })
 
   const applyPtScheduleDraftCommand = onCall(async (request) => {
@@ -4708,7 +4804,7 @@ function createPtScheduleV2Functions({
     return result
   })
 
-  return { listPtScheduleBranches, getPtScheduleWorkspace, generatePtScheduleDraft, getPtScheduleSlotCandidates, createHistoricalPtSession, savePtStudentAvailability, applyPtScheduleDraftCommand }
+  return { listPtScheduleBranches, getPtScheduleWorkspace, generatePtScheduleDraft, getPtScheduleSlotCandidates, createHistoricalPtSession, savePtStudentAvailability, reopenPtStudentAvailability, applyPtScheduleDraftCommand }
 }
 
 module.exports = {
@@ -4749,5 +4845,6 @@ module.exports = {
   weeklySessionCoverageForStudents,
   weeklyTargetForStudent,
   availabilityCutoff,
+  availabilityWindowForWeek,
   availabilityStatusForWeek,
 }

@@ -42,6 +42,7 @@ import {
   listPtScheduleVersions,
   ptScheduleConflictLabel,
   publishPtSchedule,
+  reopenPtStudentAvailability,
   restorePtScheduleVersionToDraft,
   savePtStudentAvailability,
   validatePtScheduleDraft,
@@ -1500,6 +1501,36 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate, ini
     } finally { setAvailabilityBusy(false) }
   }
 
+  const reopenStudentAvailability = async (student: PtScheduleWorkspaceV2Result['students'][number]) => {
+    if (availabilityBusy) return
+    const commandScope = workspaceScope
+    setAvailabilityBusy(true); setAvailabilityError('')
+    try {
+      const result = await reopenPtStudentAvailability({
+        weekId: currentWeekId,
+        branchId,
+        studentId: student.id,
+        expectedRevision: student.availabilityRevision,
+      })
+      if (activeWorkspaceScopeRef.current !== commandScope) return
+      setWorkspace((current) => current ? {
+        ...current,
+        students: current.students.map((item) => item.id === student.id ? {
+          ...item,
+          availabilityStatus: result.availabilityStatus,
+          availabilityLocked: result.availabilityLocked,
+          availabilityReopenedUntil: result.reopenedUntil,
+        } : item),
+      } : current)
+      setNoticeAction(null)
+      setNotice(`Đã mở lịch rảnh cho ${student.name} đến hết tuần.`)
+    } catch (cause) {
+      const normalized = asPtSchedulePublishError(cause)
+      setAvailabilityError(normalized.message)
+      if (normalized.issueCode === 'REVISION_CONFLICT') await loadWorkspace(true)
+    } finally { setAvailabilityBusy(false) }
+  }
+
   const autoArrange = async (mode: 'optimize' | 'supplement' | 'continue' = 'optimize') => {
     if (!workspace || busyRef.current) return
     const commandScope = workspaceScope
@@ -1903,7 +1934,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate, ini
                 <header><div><small>LỊCH RẢNH TUẦN {currentWeekId}</small><strong>{student.name}</strong></div><span>{availabilityDraft.size} khung đã chọn</span></header>
                 <AvailabilityMatrix days={workingDays} hours={workingHours} selected={availabilityDraft} onChange={setAvailabilityDraft} disabled={availabilityBusy} ariaLabel={`Lịch rảnh của ${student.name}`} />
                 {availabilityError && <p role="alert">{availabilityError}</p>}
-                <footer><button type="button" onClick={() => setAvailabilityEditorStudentId(null)}>Đóng</button><button type="button" className="is-save" disabled={availabilityBusy} onClick={() => void saveStudentAvailability(student)}><Save size={16} />{availabilityBusy ? 'Đang lưu' : 'Lưu lịch rảnh'}</button></footer>
+                <footer><button type="button" onClick={() => setAvailabilityEditorStudentId(null)}>Đóng</button>{isAdmin && (student.availabilityLocked || student.availabilityStatus === 'locked') && <button type="button" className="is-reopen" disabled={availabilityBusy} onClick={() => void reopenStudentAvailability(student)}><Unlock size={16} />{availabilityBusy ? 'Đang mở' : 'Mở cho học viên đến hết tuần'}</button>}<button type="button" className="is-save" disabled={availabilityBusy} onClick={() => void saveStudentAvailability(student)}><Save size={16} />{availabilityBusy ? 'Đang lưu' : 'Lưu lịch rảnh'}</button></footer>
               </section>}
               </article>
             })}

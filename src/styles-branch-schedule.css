@@ -312,6 +312,7 @@
 .branch-schedule__availability-editor p { margin:0; padding:9px 12px; border-radius:12px; color:#a52b54; background:#fff0f3; font-size:.74rem; font-weight:700; }
 .branch-schedule__availability-editor footer { justify-content:flex-end; }
 .branch-schedule__availability-editor footer button { border:1px solid #efdce3; border-radius:11px; padding:9px 13px; color:#765e69; background:#fff; font-weight:800; }
+.branch-schedule__availability-editor footer button.is-reopen { display:flex; align-items:center; gap:7px; border-color:#f2c58d; color:#9b5a1e; background:#fff7e9; }
 .branch-schedule__availability-editor footer button.is-save { display:flex; align-items:center; gap:7px; border:0; color:#fff; background:linear-gradient(135deg,#f72d83,#ff8650); }
 .schedule-warning-summary { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 8px; margin-bottom: 11px; }
 .schedule-warning-summary button { display: grid; gap: 2px; min-width: 0; padding: 11px 13px; border: 1px solid rgba(237,207,219,.9); border-radius: 14px; color:var(--branch-ink); background:#fff; font:inherit; text-align:left; }

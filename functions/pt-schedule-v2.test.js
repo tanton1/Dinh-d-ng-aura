@@ -23,6 +23,7 @@ test('availability status follows the active cutoff instead of a stale persisted
   const availability = { source: 'weekly', status: 'locked' }
   assert.equal(availabilityStatusForWeek(availability, WEEK, policy, new Date('2026-08-23T04:59:59.000Z')), 'submitted')
   assert.equal(availabilityStatusForWeek({ ...availability, status: 'submitted' }, WEEK, policy, new Date('2026-08-23T05:00:00.000Z')), 'locked')
+  assert.equal(availabilityStatusForWeek({ ...availability, reopenedUntil: '2026-08-30T16:59:59.000Z' }, WEEK, policy, new Date('2026-08-23T05:00:00.000Z')), 'submitted')
 })
 
 test('previous week window remains exact across month and year boundaries', () => {

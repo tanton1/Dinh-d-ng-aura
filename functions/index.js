@@ -839,6 +839,7 @@ exports.generatePtScheduleDraft = ptScheduleV2Functions.generatePtScheduleDraft
 exports.getPtScheduleSlotCandidates = ptScheduleV2Functions.getPtScheduleSlotCandidates
 exports.createHistoricalPtSession = ptScheduleV2Functions.createHistoricalPtSession
 exports.savePtStudentAvailability = ptScheduleV2Functions.savePtStudentAvailability
+exports.reopenPtStudentAvailability = ptScheduleV2Functions.reopenPtStudentAvailability
 exports.applyPtScheduleDraftCommand = ptScheduleV2Functions.applyPtScheduleDraftCommand
 
 // The selected web client also reads and edits the V2 workspace through the
@@ -855,6 +856,7 @@ exports.getPtScheduleWorkspaceRegional = ptScheduleV2RegionalFunctions.getPtSche
 exports.getPtScheduleSlotCandidatesRegional = ptScheduleV2RegionalFunctions.getPtScheduleSlotCandidates
 exports.createHistoricalPtSessionRegional = ptScheduleV2RegionalFunctions.createHistoricalPtSession
 exports.savePtStudentAvailabilityRegional = ptScheduleV2RegionalFunctions.savePtStudentAvailability
+exports.reopenPtStudentAvailabilityRegional = ptScheduleV2RegionalFunctions.reopenPtStudentAvailability
 exports.applyPtScheduleDraftCommandRegional = ptScheduleV2RegionalFunctions.applyPtScheduleDraftCommand
 
 // Admin-only schedule corrections update the real session and the operational

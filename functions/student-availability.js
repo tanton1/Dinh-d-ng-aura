@@ -43,6 +43,32 @@ function normalizeRequestedSessions(value) {
   return Number.isInteger(result) && result >= 1 && result <= 7 ? result : null
 }
 
+function timestampDate(value) {
+  if (value?.toDate) {
+    const date = value.toDate()
+    return date instanceof Date && Number.isFinite(date.getTime()) ? date : null
+  }
+  if (value instanceof Date) return Number.isFinite(value.getTime()) ? value : null
+  if (typeof value !== 'string' && typeof value !== 'number') return null
+  const date = new Date(value)
+  return Number.isFinite(date.getTime()) ? date : null
+}
+
+// Admins may reopen one learner's weekly window until the end of that week.
+// Keep the exception scoped to the exact week so it cannot silently unlock a
+// later week through the inherited availability fallback.
+function availabilityReopenForWeek(value, targetWeek, now = new Date()) {
+  const direct = value && typeof value === 'object' ? value : {}
+  const nested = direct.availabilityReopen && typeof direct.availabilityReopen === 'object'
+    ? direct.availabilityReopen
+    : null
+  const weekId = nested?.weekId || direct.reopenWeekId || direct.weekId || ''
+  if (!weekId || weekId !== targetWeek) return null
+  const reopenedUntil = timestampDate(nested?.reopenedUntil || direct.reopenedUntil)
+  if (!reopenedUntil || reopenedUntil.getTime() <= now.getTime()) return null
+  return reopenedUntil
+}
+
 function normalizedSubmittedAvailability(value, fallbackWeekId = '') {
   if (!value || typeof value !== 'object') return null
   const weekId = WEEK_PATTERN.test(String(value.weekId || ''))
@@ -87,10 +113,14 @@ function legacyDefaultAvailability(profile) {
 }
 
 function effectiveStudentAvailability({ targetWeek, exact, inherited, profile }) {
+  const reopenedUntil = availabilityReopenForWeek(profile, targetWeek)
+    || availabilityReopenForWeek(exact, targetWeek)
+  const reopenMetadata = reopenedUntil ? { reopenedUntil: reopenedUntil.toISOString() } : {}
   const weekly = normalizedSubmittedAvailability(exact, targetWeek)
   if (weekly) {
     return {
       ...weekly,
+      ...reopenMetadata,
       confirmed: true,
       source: 'weekly',
       sourceWeekId: targetWeek,
@@ -108,6 +138,7 @@ function effectiveStudentAvailability({ targetWeek, exact, inherited, profile })
   if (latest) {
     return {
       ...latest,
+      ...reopenMetadata,
       status: 'inherited',
       confirmed: true,
       source: 'inherited_weekly',
@@ -122,6 +153,7 @@ function effectiveStudentAvailability({ targetWeek, exact, inherited, profile })
     return {
       weekId: targetWeek,
       slots: legacy.slots,
+      ...reopenMetadata,
       status: legacy.confirmed ? 'recurring' : 'draft',
       confirmed: legacy.confirmed,
       source: 'legacy_default',
@@ -138,6 +170,7 @@ function effectiveStudentAvailability({ targetWeek, exact, inherited, profile })
   return {
     weekId: targetWeek,
     slots: [],
+    ...reopenMetadata,
     status: 'missing',
     confirmed: false,
     source: 'none',
@@ -244,6 +277,7 @@ async function loadLatestSubmittedFallbacks(db, profiles, exactAvailability, tar
 }
 
 module.exports = {
+  availabilityReopenForWeek,
   effectiveStudentAvailability,
   latestProfileAvailability,
   latestSubmittedBeforeWeek,

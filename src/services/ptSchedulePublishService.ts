@@ -69,6 +69,9 @@ export interface PtScheduleBranchOption {
 
 export interface PtScheduleV2Student extends Student {
   availabilityStatus: string
+  availabilityLocked?: boolean
+  availabilityCutoffAt?: string | null
+  availabilityReopenedUntil?: string | null
   availabilityRevision: number
   availabilitySourceRevision?: number
   availabilitySourceWeekId?: string | null
@@ -468,6 +471,7 @@ const regionalPublishCallableNames = new Map([
   ['getPtScheduleSlotCandidates', 'getPtScheduleSlotCandidatesRegional'],
   ['createHistoricalPtSession', 'createHistoricalPtSessionRegional'],
   ['savePtStudentAvailability', 'savePtStudentAvailabilityRegional'],
+  ['reopenPtStudentAvailability', 'reopenPtStudentAvailabilityRegional'],
   ['applyPtScheduleDraftCommand', 'applyPtScheduleDraftCommandRegional'],
 ])
 
@@ -666,6 +670,22 @@ export function savePtStudentAvailability(input: {
   expectedRevision: number
 }) {
   return invoke<typeof input, { schemaVersion: number; availableSlots: string[]; availabilityRevision: number; availabilityStatus: string }>('savePtStudentAvailability', input)
+}
+
+export function reopenPtStudentAvailability(input: {
+  weekId: string
+  branchId: string
+  studentId: string
+  expectedRevision: number
+}) {
+  return invoke<typeof input, {
+    schemaVersion: number
+    changed: boolean
+    availabilityRevision: number
+    availabilityStatus: string
+    availabilityLocked: boolean
+    reopenedUntil: string
+  }>('reopenPtStudentAvailability', input)
 }
 
 export function applyPtScheduleDraftCommand(input: {
