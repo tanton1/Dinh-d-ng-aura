@@ -971,8 +971,21 @@ async function loadBranchDataFresh(db, branchId, week, options = {}) {
   // Read exact weekly availability only for learners who can affect this
   // workspace. The old implementation issued one document read for every
   // historical profile in the branch, including contracts expired years ago.
+  // The fast projection path still checks the small exceptional set whose
+  // profile projection points to a future week: a learner can submit next
+  // week's matrix before the current week's exact document is displayed.
+  const futureProjectedStudentIds = fastWorkspace
+    ? [...fallbackStudentMap.entries()]
+      .filter(([, profile]) => {
+        const projectedWeek = typeof profile.latestSubmittedAvailability?.weekId === 'string'
+          ? profile.latestSubmittedAvailability.weekId
+          : ''
+        return /^\d{4}-\d{2}-\d{2}$/.test(projectedWeek) && projectedWeek > week
+      })
+      .map(([studentId]) => studentId)
+    : []
   const availability = fastWorkspace
-    ? []
+    ? await exactAvailabilityForStudents(db, futureProjectedStudentIds, week)
     : await exactAvailabilityForStudents(db, [...fallbackStudentMap.keys()], week)
   const weeklyAvailability = new Map(availability.map((item) => item.data()).filter((item) => studentMap.has(item.studentId)).map((item) => [item.studentId, item]))
   // Migrated profiles without the denormalized latest submission need a

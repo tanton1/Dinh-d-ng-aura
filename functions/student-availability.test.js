@@ -149,6 +149,24 @@ test('the denormalized projection supplies the submitted week on the fast worksp
   assert.deepEqual(result.slots, ['T2-14', 'T3-14', 'T4-14'])
 })
 
+test('a future profile projection does not hide an exact current-week submission', () => {
+  const result = effectiveStudentAvailability({
+    targetWeek: TARGET_WEEK,
+    exact: { weekId: TARGET_WEEK, status: 'submitted', revision: 2, slots: ['T2-14', 'T3-14'] },
+    profile: {
+      latestSubmittedAvailability: {
+        weekId: '2026-09-14',
+        status: 'submitted',
+        revision: 3,
+        slots: ['T2-18'],
+      },
+    },
+  })
+  assert.equal(result.source, 'weekly')
+  assert.equal(result.sourceWeekId, TARGET_WEEK)
+  assert.deepEqual(result.slots, ['T2-14', 'T3-14'])
+})
+
 test('an admin reopen keeps a new learner editable even before a weekly document exists', () => {
   const targetWeek = '2026-10-19'
   const result = effectiveStudentAvailability({
