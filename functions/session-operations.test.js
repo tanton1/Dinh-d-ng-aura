@@ -485,6 +485,50 @@ test('learner change suggestions use the weekly schedule pool for occupancy and 
   assert.equal(page.suggestions.some((item) => item.date === '2026-08-21' && item.hour === 11), false)
 })
 
+test('learner change suggestions expose the complete weekly pool and allow an audited outside-availability choice', async () => {
+  const trainers = Object.fromEntries(Array.from({ length: 20 }, (_, index) => {
+    const trainerId = `pool-trainer-${index}`
+    return [`trainers/${trainerId}`, {
+      status: 'active', name: `PT kho ${index}`, branchId: 'branch-1', employmentType: 'full_time',
+      availableSlots: ['T6-10', 'T6-11'], slotCapacity: 2,
+    }]
+  }))
+  const state = operationsFor({
+    'settings/scheduleConfig': { sessionChangeDeadlineHours: 12 },
+    'sessions/source-pool-complete': { status: 'scheduled', studentId: 'student-1', trainerId: 'pool-trainer-0', contractId: 'contract-1', branchId: 'branch-1', date: '2026-08-22', hour: 7, revision: 1 },
+    'contracts/contract-1': { status: 'active', studentId: 'student-1', trainerId: 'pool-trainer-0', branchId: 'branch-1', startDate: '2026-08-01', endDate: '2026-08-31', totalSessions: 12, usedSessions: 1 },
+    'students/student-1': { status: 'active', branchId: 'branch-1', isScheduleConfirmed: true, availableSlots: ['T6-10'] },
+    'ptScheduleDrafts/branch-1_2026-08-17': {
+      branchId: 'branch-1', weekId: '2026-08-17', status: 'published', revision: 3, publishedRevision: 3,
+      schedule: { 'T6-10': [{ studentId: 'student-2', trainerId: 'pool-trainer-0', branchId: 'branch-1', type: 'training' }] },
+    },
+    ...trainers,
+  })
+
+  const page = await state.getMySessionChangeSuggestions({ data: { sessionId: 'source-pool-complete', expectedRevision: 1 } })
+  assert.equal(page.suggestions.length, 40)
+  const registeredCandidate = page.suggestions.find((item) => item.date === '2026-08-21' && item.hour === 10 && item.trainerId === 'pool-trainer-0')
+  const outsideCandidate = page.suggestions.find((item) => item.date === '2026-08-21' && item.hour === 11 && item.trainerId === 'pool-trainer-0')
+  assert.equal(registeredCandidate.matchesStudentAvailability, true)
+  assert.equal(outsideCandidate.matchesStudentAvailability, false)
+  assert.equal(outsideCandidate.availabilityOverrideReason, 'OUTSIDE_STUDENT_AVAILABILITY')
+
+  const created = await state.createMySessionRequest({ data: {
+    sessionId: 'source-pool-complete', expectedRevision: 1, type: 'reschedule', reason: 'Đổi sang ca trống trong kho lịch',
+    idempotencyKey: 'outside-availability-change', candidateId: outsideCandidate.candidateId,
+  } })
+  const request = state.read(`sessionRequests/${created.requestId}`)
+  assert.equal(request.studentAvailabilityOverride, true)
+  assert.equal(request.studentAvailabilityOverrideReason, 'OUTSIDE_STUDENT_AVAILABILITY')
+
+  await state.approveSessionRequest({ data: { requestId: created.requestId, expectedSessionRevision: 1 } })
+  const moved = state.read('sessions/source-pool-complete')
+  assert.equal(moved.date, '2026-08-21')
+  assert.equal(moved.hour, 11)
+  assert.equal(moved.availabilityOverride, true)
+  assert.equal(moved.availabilityOverrideReason, 'OUTSIDE_STUDENT_AVAILABILITY')
+})
+
 test('additional-session opportunities strictly rank open 1/2 seat, primary PT under target, then another PT', async () => {
   const state = operationsFor({
     'settings/scheduleConfig': { sessionChangeDeadlineHours: 12 },

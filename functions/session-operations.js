@@ -840,7 +840,6 @@ async function buildSessionChangeSuggestions({ db, sessionId, expectedRevision, 
     const targetWeek = mondayForDate(targetDate)
     const effectiveStudentAvailability = studentAvailabilityByWeek.get(targetWeek)
     const studentSlots = effectiveStudentAvailability?.confirmed ? effectiveStudentAvailability.slots : []
-    if (!studentSlots.length) continue
 
     for (const baseTrainer of trainers) {
       const trainer = effectiveTrainerForWeek(baseTrainer, trainerAvailability, targetWeek)
@@ -860,7 +859,7 @@ async function buildSessionChangeSuggestions({ db, sessionId, expectedRevision, 
       for (let targetHour = 0; targetHour <= 23; targetHour += 1) {
         const slotId = `${dayCode}-${targetHour}`
         if (!scheduleConfig.workingHours.includes(targetHour)) continue
-        if (!studentSlots.includes(slotId) || !trainerIsAvailable(trainer, slotId)) continue
+        if (!trainerIsAvailable(trainer, slotId)) continue
         if (schedulePool.offSlots.has(`${trainer.id}|${targetDate}|${targetHour}`)) continue
         if (targetDate === storedDateKey(session.date, 'Ngày buổi gốc') && targetHour === storedSessionHour(session.hour, sessionId, 'Giờ buổi gốc') && trainer.id === session.trainerId) continue
         const slotStart = new Date(`${targetDate}T${String(targetHour).padStart(2, '0')}:00:00+07:00`)
@@ -878,6 +877,12 @@ async function buildSessionChangeSuggestions({ db, sessionId, expectedRevision, 
         const projectedTeachingSlots = uniqueTeachingSlots + (pairsExistingSession ? 0 : 1)
         const overTargetAfter = projectedTeachingSlots > policyData.dailySessionTarget
         const createsThreeConsecutiveDays = hasThreeConsecutiveTrainingDays(studentTrainingDates, targetDate)
+        const matchesStudentAvailability = Boolean(effectiveStudentAvailability?.confirmed && studentSlots.includes(slotId))
+        const availabilityOverrideReason = matchesStudentAvailability
+          ? null
+          : effectiveStudentAvailability?.confirmed
+            ? 'OUTSIDE_STUDENT_AVAILABILITY'
+            : 'AVAILABILITY_NOT_SUBMITTED'
         const daysFromStart = inclusiveDateDays(rangeStart, targetDate) - 1
         // Opportunity tiers are deliberately strict. A free seat in an
         // existing 1/2 class always wins; only then do we open a new slot
@@ -914,6 +919,8 @@ async function buildSessionChangeSuggestions({ db, sessionId, expectedRevision, 
           occupancy,
           capacity,
           pairsExistingSession,
+          matchesStudentAvailability,
+          availabilityOverrideReason,
           priorityTier,
           isPrimaryTrainer,
           isAssignedTrainer: assigned,
@@ -940,7 +947,10 @@ async function buildSessionChangeSuggestions({ db, sessionId, expectedRevision, 
     sourceWeekEnd,
     homeBranchId: branchId,
     homeBranchName: branches.get(branchId)?.name || 'Chi nhánh Aura',
-    suggestions: candidates.slice(0, SESSION_CHANGE_SUGGESTION_LIMIT).map(({ score, ...candidate }, index) => ({ ...candidate, rank: index + 1 })),
+    // The learner change modal has separate tabs for registered availability
+    // and the remaining weekly schedule pool. Do not truncate this result to
+    // the small suggestion limit used by the additional-session flow.
+    suggestions: candidates.map(({ score, ...candidate }, index) => ({ ...candidate, rank: index + 1 })),
     issueCodes: candidates.length ? [] : ['NO_MATCHING_SLOT'],
   }
 }
@@ -2182,6 +2192,10 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
         newBranchId: optionalText(item.newBranchId, 128) || null,
         newBranchName: optionalText(item.newBranchName, 160) || null,
         crossBranchWarning: item.crossBranchWarning === true,
+        studentAvailabilityOverride: item.studentAvailabilityOverride === true,
+        studentAvailabilityOverrideReason: ['AVAILABILITY_NOT_SUBMITTED', 'OUTSIDE_STUDENT_AVAILABILITY'].includes(item.studentAvailabilityOverrideReason)
+          ? item.studentAvailabilityOverrideReason
+          : null,
         suggestionRank: Number(item.suggestionRank || 0) || null,
         priorityTier: Number.isInteger(item.priorityTier) && item.priorityTier >= 1 && item.priorityTier <= 3 ? item.priorityTier : null,
         isPrimaryTrainer: item.isPrimaryTrainer === true,
@@ -2528,6 +2542,8 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
         homeBranchId: selectedSuggestion?.homeBranchId || session.branchId || null,
         homeBranchName: selectedSuggestion?.homeBranchName || null,
         crossBranchWarning: selectedSuggestion?.isCrossBranch === true,
+        studentAvailabilityOverride: selectedSuggestion?.matchesStudentAvailability === false,
+        studentAvailabilityOverrideReason: selectedSuggestion?.availabilityOverrideReason || null,
         candidateId: selectedSuggestion?.candidateId || null,
         suggestionRank: selectedSuggestion?.rank || null,
         pairsExistingSession: selectedSuggestion?.pairsExistingSession === true,
@@ -3550,6 +3566,8 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
       let homeBranchId = ''
       let targetScheduleWeekId = ''
       let targetSlotId = ''
+      let studentAvailabilityOverride = false
+      let studentAvailabilityOverrideReason = null
       if (requestType === 'reschedule') {
         newDate = date(requestData.newDate)
         newHour = hour(requestData.newHour)
@@ -3602,7 +3620,21 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
           inherited: null,
           profile: studentData,
         })
-        if (!studentAvailability.confirmed || !studentAvailability.slots.includes(slotId)) throw new HttpsError('failed-precondition', 'Ca đề xuất không còn nằm trong lịch rảnh hiệu lực của học viên.')
+        const availabilityIssue = !studentAvailability.confirmed
+          ? 'AVAILABILITY_NOT_SUBMITTED'
+          : !studentAvailability.slots.includes(slotId)
+            ? 'OUTSIDE_STUDENT_AVAILABILITY'
+            : null
+        const allowsStudentAvailabilityOverride = Boolean(
+          requestedBy === 'student'
+          && requestData.studentAvailabilityOverride === true
+          && requestData.studentAvailabilityOverrideReason === availabilityIssue
+        )
+        if (availabilityIssue && !allowsStudentAvailabilityOverride) {
+          throw new HttpsError('failed-precondition', 'Ca đề xuất không còn nằm trong lịch rảnh hiệu lực của học viên.')
+        }
+        studentAvailabilityOverride = allowsStudentAvailabilityOverride
+        studentAvailabilityOverrideReason = allowsStudentAvailabilityOverride ? availabilityIssue : null
         if (trainerLeaves.size > 1000) throw new HttpsError('resource-exhausted', 'Danh sách OFF vượt giới hạn xác minh an toàn.')
         const trainerUnavailable = trainerLeaves.docs.some((item) => {
           const leave = item.data()
@@ -3736,6 +3768,10 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
           scheduleEntryId: `schedule_${targetScheduleWeekId}-${targetSlotId}-${session.studentId}`,
           studentBranchWarning: isCrossBranch,
           studentHomeBranchId: isCrossBranch ? homeBranchId : null,
+          availabilityOverride: studentAvailabilityOverride,
+          availabilityOverrideReason: studentAvailabilityOverrideReason,
+          availabilityOverrideBy: studentAvailabilityOverride ? actor.uid : null,
+          availabilityOverrideAt: studentAvailabilityOverride ? new Date().toISOString() : null,
           status: 'scheduled',
           scheduleStatus: 'rescheduled',
           billingStatus: preservePendingCharge ? 'charged' : 'pending',
@@ -3751,7 +3787,7 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
           changeSuggestionId: requestData.candidateId || null,
           loyaltyEntitlementId: loyaltyEntitlementReference?.id || null,
         })
-        transaction.create(eventReference, { schemaVersion: 2, sessionId, requestId, type: 'rescheduled', from: { date: session.date, hour: session.hour ?? null, trainerId: session.trainerId, branchId: session.branchId || null }, to: { date: newDate, hour: newHour, trainerId, branchId: targetBranchId || null }, crossBranchWarning: isCrossBranch, policyMonth: policyMonth || null, policySequence: policyDecision.sequence || null, previousSlotCountsTowardContract: preservePendingCharge || policyDecision.countsTowardContract, loyaltyEntitlementId: loyaltyEntitlementReference?.id || null, createdAt: FieldValue.serverTimestamp(), createdBy: actor.uid })
+        transaction.create(eventReference, { schemaVersion: 2, sessionId, requestId, type: 'rescheduled', from: { date: session.date, hour: session.hour ?? null, trainerId: session.trainerId, branchId: session.branchId || null }, to: { date: newDate, hour: newHour, trainerId, branchId: targetBranchId || null }, crossBranchWarning: isCrossBranch, studentAvailabilityOverride, studentAvailabilityOverrideReason, policyMonth: policyMonth || null, policySequence: policyDecision.sequence || null, previousSlotCountsTowardContract: preservePendingCharge || policyDecision.countsTowardContract, loyaltyEntitlementId: loyaltyEntitlementReference?.id || null, createdAt: FieldValue.serverTimestamp(), createdBy: actor.uid })
       }
 
       if (requestedBy === 'student') {
@@ -3824,6 +3860,8 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
         policyViolation: lateCancellation ? 'late_cancellation' : null,
         loyaltyEntitlementId: loyaltyEntitlementReference?.id || null,
         countsTowardContract: policyDecision.countsTowardContract,
+        studentAvailabilityOverride,
+        studentAvailabilityOverrideReason,
         processedSessionRevision: nextRevision,
         revision: Number(requestData.revision || 0) + 1,
       })

@@ -54,6 +54,8 @@ export interface PtSessionOperationsRequest extends PtOperationsRequestBase {
   newBranchId?: string | null
   newBranchName?: string | null
   crossBranchWarning?: boolean
+  studentAvailabilityOverride?: boolean
+  studentAvailabilityOverrideReason?: 'AVAILABILITY_NOT_SUBMITTED' | 'OUTSIDE_STUDENT_AVAILABILITY' | null
   suggestionRank: number | null
   pairsExistingSession: boolean
   makeupSession?: boolean
@@ -181,6 +183,9 @@ export interface SessionChangeSuggestion {
   occupancy: number
   capacity: number
   pairsExistingSession: boolean
+  /** True when the replacement slot is in the learner's confirmed weekly availability. */
+  matchesStudentAvailability?: boolean
+  availabilityOverrideReason?: 'AVAILABILITY_NOT_SUBMITTED' | 'OUTSIDE_STUDENT_AVAILABILITY' | null
   /** Strict opportunity tier: 1=ghép ca 1/2, 2=PT chính dưới mốc, 3=PT khác. */
   priorityTier?: 1 | 2 | 3
   isAssignedTrainer: boolean

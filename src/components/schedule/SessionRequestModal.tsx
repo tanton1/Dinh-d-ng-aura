@@ -15,7 +15,7 @@ interface Props {
   session: RequestableSession
 }
 
-type SuggestionTab = 'same-hour' | 'other-hours'
+type SuggestionTab = 'registered' | 'pool'
 
 function newKey() {
   return typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
@@ -32,7 +32,7 @@ export default function SessionRequestModal({ onClose, onCreated, session }: Pro
   const [type, setType] = useState<'cancel' | 'reschedule'>('cancel')
   const [suggestionPage, setSuggestionPage] = useState<SessionChangeSuggestionPage | null>(null)
   const [selectedCandidateId, setSelectedCandidateId] = useState('')
-  const [suggestionTab, setSuggestionTab] = useState<SuggestionTab>('same-hour')
+  const [suggestionTab, setSuggestionTab] = useState<SuggestionTab>('registered')
   const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false)
   const [reason, setReason] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -42,15 +42,15 @@ export default function SessionRequestModal({ onClose, onCreated, session }: Pro
   const sessionLabel = useMemo(() => `${formatDate(session.date)} · ${session.hour === null ? '--:--' : `${String(session.hour).padStart(2, '0')}:00`}`, [session.date, session.hour])
   const selectedSuggestion = suggestionPage?.suggestions.find((candidate) => candidate.candidateId === selectedCandidateId) ?? null
   const suggestions = suggestionPage?.suggestions ?? []
-  const sameHourSuggestions = useMemo(
-    () => session.hour === null ? [] : suggestions.filter((candidate) => candidate.hour === session.hour),
-    [session.hour, suggestions],
+  const registeredSuggestions = useMemo(
+    () => suggestions.filter((candidate) => candidate.matchesStudentAvailability !== false),
+    [suggestions],
   )
-  const otherHourSuggestions = useMemo(
-    () => session.hour === null ? suggestions : suggestions.filter((candidate) => candidate.hour !== session.hour),
-    [session.hour, suggestions],
+  const poolSuggestions = useMemo(
+    () => suggestions.filter((candidate) => candidate.matchesStudentAvailability === false),
+    [suggestions],
   )
-  const activeSuggestions = suggestionTab === 'same-hour' ? sameHourSuggestions : otherHourSuggestions
+  const activeSuggestions = suggestionTab === 'registered' ? registeredSuggestions : poolSuggestions
   const sourceWeekLabel = suggestionPage?.sourceWeekId && suggestionPage.sourceWeekEnd
     ? `${formatDate(suggestionPage.sourceWeekId)} – ${formatDate(suggestionPage.sourceWeekEnd)}`
     : 'tuần của buổi hiện tại'
@@ -62,11 +62,9 @@ export default function SessionRequestModal({ onClose, onCreated, session }: Pro
       const page = await getMySessionChangeSuggestions(session.id, session.revision)
       setSuggestionPage(page)
       const retainedCandidate = page.suggestions.find((item) => item.candidateId === selectedCandidateId)
-      const sameHourCandidate = session.hour === null
-        ? null
-        : page.suggestions.find((item) => item.hour === session.hour)
-      const preferredCandidate = retainedCandidate ?? sameHourCandidate ?? page.suggestions[0] ?? null
-      setSuggestionTab(preferredCandidate && session.hour !== null && preferredCandidate.hour === session.hour ? 'same-hour' : 'other-hours')
+      const registeredCandidate = page.suggestions.find((item) => item.matchesStudentAvailability !== false)
+      const preferredCandidate = retainedCandidate ?? registeredCandidate ?? page.suggestions[0] ?? null
+      setSuggestionTab(preferredCandidate?.matchesStudentAvailability === false ? 'pool' : 'registered')
       setSelectedCandidateId(preferredCandidate?.candidateId || '')
     } catch (caught) {
       setSuggestionPage(null)
@@ -78,7 +76,7 @@ export default function SessionRequestModal({ onClose, onCreated, session }: Pro
   }
 
   const handleSuggestionTabChange = (nextTab: SuggestionTab) => {
-    const nextSuggestions = nextTab === 'same-hour' ? sameHourSuggestions : otherHourSuggestions
+    const nextSuggestions = nextTab === 'registered' ? registeredSuggestions : poolSuggestions
     if (!nextSuggestions.length) return
     setSuggestionTab(nextTab)
     setSelectedCandidateId((current) => nextSuggestions.some((candidate) => candidate.candidateId === current)
@@ -143,28 +141,28 @@ export default function SessionRequestModal({ onClose, onCreated, session }: Pro
                 <button
                   type="button"
                   role="tab"
-                  aria-selected={suggestionTab === 'same-hour'}
-                  className={`student-change-suggestions__tab${suggestionTab === 'same-hour' ? ' is-active' : ''}`}
-                  onClick={() => handleSuggestionTabChange('same-hour')}
-                  disabled={!sameHourSuggestions.length}
+                  aria-selected={suggestionTab === 'registered'}
+                  className={`student-change-suggestions__tab${suggestionTab === 'registered' ? ' is-active' : ''}`}
+                  onClick={() => handleSuggestionTabChange('registered')}
+                  disabled={!registeredSuggestions.length}
                 >
-                  <span>Cùng giờ buổi hiện tại</span><b>{sameHourSuggestions.length}</b>
+                  <span>Theo lịch rảnh đã đăng ký</span><b>{registeredSuggestions.length}</b>
                 </button>
                 <button
                   type="button"
                   role="tab"
-                  aria-selected={suggestionTab === 'other-hours'}
-                  className={`student-change-suggestions__tab${suggestionTab === 'other-hours' ? ' is-active' : ''}`}
-                  onClick={() => handleSuggestionTabChange('other-hours')}
-                  disabled={!otherHourSuggestions.length}
+                  aria-selected={suggestionTab === 'pool'}
+                  className={`student-change-suggestions__tab${suggestionTab === 'pool' ? ' is-active' : ''}`}
+                  onClick={() => handleSuggestionTabChange('pool')}
+                  disabled={!poolSuggestions.length}
                 >
-                  <span>Kho ca trống khác giờ</span><b>{otherHourSuggestions.length}</b>
+                  <span>Tất cả ca trống trong kho</span><b>{poolSuggestions.length}</b>
                 </button>
               </div>
               <p className="student-change-suggestions__hint">
-                {suggestionTab === 'same-hour'
-                  ? 'Ưu tiên các ca còn chỗ cùng giờ với buổi đang đổi.'
-                  : 'Có thể chọn mọi ca còn chỗ trong tuần, không bắt buộc trùng giờ đã đăng ký.'}
+                {suggestionTab === 'registered'
+                  ? 'Các ca này nằm trong lịch rảnh đã đăng ký của học viên.'
+                  : 'Hiển thị toàn bộ ca còn chỗ trong kho lịch của tuần; không bắt buộc trùng lịch rảnh đã đăng ký và sẽ được Admin duyệt.'}
               </p>
             </>}
             <div className="student-change-suggestions__list">
