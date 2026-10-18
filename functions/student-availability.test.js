@@ -125,6 +125,30 @@ test('weekly target override is retained and null means follow the contract', ()
   assert.equal(reset.latestSubmittedAvailability.requestedSessions, null)
 })
 
+test('the denormalized projection supplies the submitted week on the fast workspace path', () => {
+  const result = effectiveStudentAvailability({
+    targetWeek: TARGET_WEEK,
+    exact: null,
+    inherited: null,
+    profile: {
+      latestSubmittedAvailability: {
+        weekId: TARGET_WEEK,
+        status: 'submitted',
+        revision: 3,
+        slots: ['T2-14', 'T3-14', 'T4-14'],
+      },
+      // The legacy fallback is deliberately absent after a weekly projection
+      // is created.  The same-week projection must still be visible.
+      availableSlots: ['T2-8'],
+      isScheduleConfirmed: true,
+    },
+  })
+  assert.equal(result.source, 'weekly')
+  assert.equal(result.sourceWeekId, TARGET_WEEK)
+  assert.equal(result.targetRevision, 3)
+  assert.deepEqual(result.slots, ['T2-14', 'T3-14', 'T4-14'])
+})
+
 test('an admin reopen keeps a new learner editable even before a weekly document exists', () => {
   const targetWeek = '2026-10-19'
   const result = effectiveStudentAvailability({

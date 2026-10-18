@@ -603,7 +603,7 @@ export function listPtScheduleBranches() {
   return invoke<Record<string, never>, { schemaVersion: number; branches: PtScheduleBranchOption[] }>('listPtScheduleBranches', {})
 }
 
-export function getPtScheduleWorkspace(input: { weekId: string; branchId: string; initialPaint?: boolean }) {
+export function getPtScheduleWorkspace(input: { weekId: string; branchId: string; initialPaint?: boolean; forceAvailabilityRefresh?: boolean }) {
   return invoke<typeof input, PtScheduleWorkspaceV2Result>('getPtScheduleWorkspace', input)
 }
 

@@ -129,8 +129,28 @@ function effectiveStudentAvailability({ targetWeek, exact, inherited, profile })
     }
   }
 
+  // The schedule workspace has a deliberately fast projection path that
+  // avoids one exact `ptAvailability` read per learner.  Student submissions
+  // are copied to `latestSubmittedAvailability` in the same transaction, so
+  // a projection for the requested week is authoritative when the exact
+  // document was not loaded by that path.  Treating it as an inherited
+  // snapshot (or falling through to the legacy default) made a freshly
+  // submitted week appear to have zero available slots in Admin xếp lịch.
+  const projectedWeekly = latestProfileAvailability(profile, targetWeek)
+  if (projectedWeekly?.weekId === targetWeek) {
+    return {
+      ...projectedWeekly,
+      ...reopenMetadata,
+      confirmed: true,
+      source: 'weekly',
+      sourceWeekId: targetWeek,
+      sourceRevision: projectedWeekly.revision,
+      targetRevision: projectedWeekly.revision,
+    }
+  }
+
   const inheritedCandidates = [
-    latestProfileAvailability(profile, targetWeek),
+    projectedWeekly,
     normalizedSubmittedAvailability(inherited),
   ].filter((value) => value && value.weekId < targetWeek)
     .sort((left, right) => right.weekId.localeCompare(left.weekId))

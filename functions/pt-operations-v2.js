@@ -1553,6 +1553,17 @@ function createPtOperationsV2Functions({ db, onCall }) {
         latestAvailabilityUpdatedAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
       })
+      // This learner callable runs in a separate Cloud Functions service from
+      // the Admin workspace. A tiny branch/week signal lets that workspace
+      // invalidate its process-local matrix cache immediately after a save.
+      transaction.set(db.doc(`ptAvailabilitySync/${profile.value.branchId}_${weekId}`), {
+        schemaVersion: 1,
+        branchId: profile.value.branchId || '',
+        weekId,
+        revision: FieldValue.increment(1),
+        updatedStudentId: profile.id,
+        updatedAt: FieldValue.serverTimestamp(),
+      }, { merge: true })
       transaction.create(db.collection('ptOperationsAuditLogs').doc(), {
         action: 'student_availability.updated',
         actorUid: actor.uid,

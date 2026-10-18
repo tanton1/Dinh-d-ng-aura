@@ -1144,10 +1144,17 @@ async function loadBranchData(db, branchId, week, options = {}) {
   const initialPaint = options.initialPaint === true
   const fastPublished = options.skipLegacyAvailabilityFallback === true
   const matrixFast = options.workspaceMatrixFast === true
+  const forceRefresh = options.forceRefresh === true
   const key = `${branchId}|${week}|${initialPaint ? 'paint' : matrixFast ? 'matrix' : fastPublished ? 'workspace' : 'full'}`
+  if (forceRefresh) {
+    // A learner availability save runs in a different callable service, so
+    // its Firestore write cannot clear this process-local cache directly.
+    // The Admin UI uses this flag after the tiny sync document changes.
+    invalidateBranchDataCache(db, branchId, week)
+  }
   const now = Date.now()
   const cached = cache.entries.get(key)
-  if (cached && now - cached.storedAt < BRANCH_DATA_CACHE_TTL_MS) {
+  if (!forceRefresh && cached && now - cached.storedAt < BRANCH_DATA_CACHE_TTL_MS) {
     // Refresh LRU order without extending the freshness window.
     cache.entries.delete(key)
     cache.entries.set(key, cached)
@@ -1155,7 +1162,7 @@ async function loadBranchData(db, branchId, week, options = {}) {
   }
   if (cached) cache.entries.delete(key)
   const pending = cache.pending.get(key)
-  if (pending) return pending
+  if (!forceRefresh && pending) return pending
   const generation = cache.generations.get(key) || 0
   const request = (initialPaint
     ? loadBranchDataInitial(db, branchId, week)
@@ -3952,6 +3959,7 @@ function createPtScheduleV2Functions({
     const branchId = documentId(request.data?.branchId, 'Mã chi nhánh')
     const actor = await actorForBranch(request, db, branchId)
     const initialPaint = request.data?.initialPaint === true
+    const forceAvailabilityRefresh = request.data?.forceAvailabilityRefresh === true
     const data = await branchData(db, branchId, week, {
       initialPaint,
       // A published Admin workspace is read-only from the optimizer's point
@@ -3967,6 +3975,7 @@ function createPtScheduleV2Functions({
       // session is created until Publish, so write/publish paths remain the
       // canonical place for quota and history evidence.
       workspaceMatrixFast: activeAdministrator(actor),
+      forceRefresh: forceAvailabilityRefresh,
     })
     const eligibleStudents = data.students.filter((student) => student.eligibleForWeek === true)
     const workloadSchedule = safeSchedule(data.schedule)
@@ -4489,6 +4498,14 @@ function createPtScheduleV2Functions({
         latestAvailabilityUpdatedAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
       })
+      transaction.set(db.doc(`ptAvailabilitySync/${branchId}_${week}`), {
+        schemaVersion: 1,
+        branchId,
+        weekId: week,
+        revision: FieldValue.increment(1),
+        updatedStudentId: studentId,
+        updatedAt: FieldValue.serverTimestamp(),
+      }, { merge: true })
       transaction.create(db.collection('ptOperationsAuditLogs').doc(), {
         schemaVersion: 2,
         action: 'student_availability.admin_updated',
@@ -4558,6 +4575,14 @@ function createPtScheduleV2Functions({
         },
         updatedAt: FieldValue.serverTimestamp(),
       })
+      transaction.set(db.doc(`ptAvailabilitySync/${branchId}_${week}`), {
+        schemaVersion: 1,
+        branchId,
+        weekId: week,
+        revision: FieldValue.increment(1),
+        updatedStudentId: studentId,
+        updatedAt: FieldValue.serverTimestamp(),
+      }, { merge: true })
       transaction.create(db.collection('ptOperationsAuditLogs').doc(), {
         schemaVersion: 2,
         action: 'student_availability.reopened',

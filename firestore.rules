@@ -1076,6 +1076,15 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // A small server-owned revision signal lets the Admin schedule workspace
+    // refresh after a learner submits availability without exposing any
+    // availability payload to the browser listener.
+    match /ptAvailabilitySync/{syncId} {
+      allow read: if isAdmin()
+                  || managesBranchSchedule(resource.data.get('branchId', ''));
+      allow write: if false;
+    }
+
     // Weekly PT availability contains internal staffing capacity and cutoff
     // metadata. It is resolved by the actor-scoped Staff callables so a
     // browser can never read another trainer's schedule or forge an override.

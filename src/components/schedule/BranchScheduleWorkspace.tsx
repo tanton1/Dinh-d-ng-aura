@@ -177,6 +177,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate, ini
   const [optimizationStatus, setOptimizationStatus] = useState<string | null>(null)
   const candidateCache = useRef(new Map<string, PtScheduleSlotCandidate[]>())
   const workspaceRef = useRef<PtScheduleWorkspaceV2Result | null>(null)
+  const availabilitySyncRevisionRef = useRef('')
   const busyRef = useRef(false)
   const hoverClearTimer = useRef<number | null>(null)
   const workspaceRequestRef = useRef<{ scope: string; promise: Promise<void> } | null>(null)
@@ -325,7 +326,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate, ini
     }
   }, [inspectorSlotId, publishPreview, resetDraftOpen, restoreCandidate])
 
-  const loadWorkspace = useCallback(async (quiet = false) => {
+  const loadWorkspace = useCallback(async (quiet = false, forceAvailabilityRefresh = false) => {
     if (!branchId) return
     const requestScope = `${ownerScope}|${branchId}|${currentWeekId}`
     const inFlight = workspaceRequestRef.current
@@ -339,7 +340,11 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate, ini
       if (!quiet || !workspaceRef.current) setSyncState('connecting')
       if (!quiet) setError(null)
       try {
-        const loadFullWorkspace = () => loadWorkspaceRequest(requestScope, () => measureScheduleTask('workspace', () => getPtScheduleWorkspace({ weekId: currentWeekId, branchId })))
+        const loadFullWorkspace = () => loadWorkspaceRequest(requestScope, () => measureScheduleTask('workspace', () => getPtScheduleWorkspace({
+          weekId: currentWeekId,
+          branchId,
+          forceAvailabilityRefresh,
+        })))
         const visibleWorkspace = workspaceRef.current?.branch.id === branchId && workspaceRef.current?.weekId === currentWeekId
         let result: PtScheduleWorkspaceV2Result
         if (!quiet && !visibleWorkspace) {
@@ -434,7 +439,14 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate, ini
         : cached.value.trainers.find((trainer) => !isTrainerLocked(trainer))?.id || '')
       setLoading(false)
       setLastSyncedAt(new Date(cached.storedAt))
-      if (Date.now() - cached.storedAt > WORKSPACE_CACHE_REVALIDATE_MS) {
+      // A prior browser session may contain the old zero-slot projection from
+      // before weekly availability was synchronized. Recheck such a cached
+      // roster in the background without delaying the first paint.
+      const hasPotentiallyStaleAvailability = cached.value.students.some((student) => student.availabilityStatus === 'missing')
+      if (hasPotentiallyStaleAvailability) {
+        setSyncState('syncing')
+        void loadWorkspace(true, true)
+      } else if (Date.now() - cached.storedAt > WORKSPACE_CACHE_REVALIDATE_MS) {
         setSyncState('syncing')
         void loadWorkspace(true)
       } else {
@@ -447,6 +459,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate, ini
     }
     setNotice(null)
     setNoticeAction(null)
+    availabilitySyncRevisionRef.current = ''
     setPublishPreview(null)
     setPublishIssues([])
     setHistory(null)
@@ -461,6 +474,38 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate, ini
     candidateCache.current.clear()
     setMobilePage(0)
   }, [branchId, currentWeekId, loadWorkspace, workspaceScope])
+
+  useEffect(() => {
+    if (!firestoreDb || !branchId || !currentWeekId || !canListenToDraft) return undefined
+    // Student availability is written through a callable, so the Admin
+    // workspace cannot rely on its draft listener to notice the change. This
+    // one branch/week document is a cheap realtime invalidation signal; the
+    // actual availability payload still comes from the capability-checked
+    // workspace callable.
+    const syncReference = doc(firestoreDb, 'ptAvailabilitySync', `${branchId}_${currentWeekId}`)
+    const stop = onSnapshot(syncReference, (snapshot) => {
+      const value = snapshot.data()
+      if (!snapshot.exists() || !value) return
+      const revision = String(Number(value.revision || 0))
+      if (revision === '0' || revision === availabilitySyncRevisionRef.current) return
+      const hadPreviousRevision = Boolean(availabilitySyncRevisionRef.current)
+      availabilitySyncRevisionRef.current = revision
+      // The first snapshot also refreshes a workspace restored from the
+      // browser cache; later snapshots update an already-open page.
+      if (!hadPreviousRevision || document.visibilityState === 'visible') void loadWorkspace(true, true)
+    }, () => {
+      // Managers without direct Firestore access continue to receive the
+      // normal callable refresh path; a denied marker listener is harmless.
+    })
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === 'visible' && availabilitySyncRevisionRef.current) void loadWorkspace(true, true)
+    }
+    document.addEventListener('visibilitychange', refreshWhenVisible)
+    return () => {
+      stop()
+      document.removeEventListener('visibilitychange', refreshWhenVisible)
+    }
+  }, [branchId, canListenToDraft, currentWeekId, loadWorkspace])
 
   useEffect(() => {
     if (!notice) return undefined
