@@ -40,6 +40,25 @@ export interface HardDeleteStudentResult {
   authPendingDelete: boolean
 }
 
+/**
+ * Accept both Vietnamese keyboard variants for the destructive confirmation.
+ * Some keyboards emit XÓA while others emit XOÁ; NFC normalization handles
+ * composed and decomposed input while the comparison still requires the
+ * Vietnamese accents.
+ */
+export function normalizeHardDeleteConfirmation(value: unknown) {
+  return String(value ?? '')
+    .normalize('NFC')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLocaleUpperCase('vi-VN')
+}
+
+export function isHardDeleteConfirmation(value: unknown) {
+  const normalized = normalizeHardDeleteConfirmation(value)
+  return normalized === 'XÓA VĨNH VIỄN' || normalized === 'XOÁ VĨNH VIỄN'
+}
+
 function functionsOrThrow() {
   if (!firebaseFunctions) throw new Error('Dịch vụ hồ sơ học viên chưa sẵn sàng.')
   return firebaseFunctions

@@ -163,7 +163,10 @@ function isHardDeleteActor(actor) {
 }
 
 function hardDeleteConfirmation(value) {
-  return clean(value, 40).toLocaleUpperCase('vi')
+  return clean(value, 40)
+    .normalize('NFC')
+    .replace(/\s+/g, ' ')
+    .toLocaleUpperCase('vi-VN')
 }
 
 // These collections are learner-facing projections/requests. They are safe to
@@ -245,8 +248,9 @@ async function hardDeleteStudentCommand({ db, auth, actor, data, correlationId }
     throw new HttpsError('permission-denied', 'Chỉ Admin hoặc Super Admin được xóa cứng hồ sơ học viên.')
   }
   const studentId = documentId(data.studentId, 'Mã học viên')
-  if (hardDeleteConfirmation(data.confirmation) !== 'XÓA VĨNH VIỄN') {
-    throw new HttpsError('invalid-argument', 'Cần nhập đúng “XÓA VĨNH VIỄN” để xác nhận xóa cứng.')
+  const confirmation = hardDeleteConfirmation(data.confirmation)
+  if (!['XÓA VĨNH VIỄN', 'XOÁ VĨNH VIỄN'].includes(confirmation)) {
+    throw new HttpsError('invalid-argument', 'Cần nhập đúng “XÓA VĨNH VIỄN” hoặc “XOÁ VĨNH VIỄN” để xác nhận xóa cứng.')
   }
 
   const studentReference = db.doc(`students/${studentId}`)

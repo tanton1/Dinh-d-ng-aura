@@ -228,6 +228,20 @@ test('hard delete removes profile-side documents but preserves sessions and cont
   assert.equal([...db.documents.keys()].some((path) => path.startsWith('identityAuditLogs/')), true)
 })
 
+test('hard delete accepts the alternate Vietnamese accent placement', async () => {
+  const db = memoryDb({
+    'students/student-accent': { name: 'Học viên dấu', status: 'inactive' },
+  })
+  const result = await api(db).hardDeleteStudent({ data: { studentId: 'student-accent', confirmation: 'XOÁ VĨNH VIỄN' }, auth: { uid: adminActor.uid } })
+  assert.equal(result.deleted, true)
+  assert.equal(db.documents.has('students/student-accent'), false)
+
+  const unaccentedDb = memoryDb({
+    'students/student-unaccented': { name: 'Học viên không dấu', status: 'inactive' },
+  })
+  await assert.rejects(api(unaccentedDb).hardDeleteStudent({ data: { studentId: 'student-unaccented', confirmation: 'XOA VINH VIEN' }, auth: { uid: adminActor.uid } }), /Cần nhập đúng/)
+})
+
 test('hard delete blocks active contracts and non-admin actors', async () => {
   const activeDb = memoryDb({
     'students/student-a': { name: 'Học viên A', status: 'inactive' },

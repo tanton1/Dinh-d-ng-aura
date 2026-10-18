@@ -12,7 +12,7 @@ import { provisionStudentAccount } from '../../../services/identityAccessService
 import { recordContractPayment } from '../../../services/financeLedgerService';
 import { listCashAccounts, type CashAccount } from '../../../services/cashbookService';
 import { trackProductEvent } from '../../../services/analyticsService';
-import { hardDeleteStudent } from '../../../services/studentManagementService';
+import { hardDeleteStudent, isHardDeleteConfirmation } from '../../../services/studentManagementService';
 import StudentRosterTable from './StudentRosterTable';
 import { studentEligibilityForWeek } from '../../../domain/pt/studentEligibility';
 import { useAuraUiSurface } from '../../../features/ui-rollout/AuraUiRolloutContext';
@@ -645,7 +645,7 @@ export default function StudentManagement({ user, profile, initialStudentId = nu
 
   const confirmHardDelete = async () => {
     if (!hardDeleteTarget || !canHardDeleteStudents || hardDeleteTarget.status !== 'inactive') return;
-    if (hardDeleteConfirmation.trim().toLocaleUpperCase('vi') !== 'XÓA VĨNH VIỄN') return;
+    if (!isHardDeleteConfirmation(hardDeleteConfirmation)) return;
     setHardDeleting(true);
     setHardDeleteError('');
     try {
@@ -1272,7 +1272,7 @@ export default function StudentManagement({ user, profile, initialStudentId = nu
 
       <AnimatePresence>
         {hardDeleteTarget && (
-          <div className="fixed inset-0 z-[80] flex items-center justify-center p-4" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) closeHardDelete(); }}>
+          <div className="student-management__hard-delete-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) closeHardDelete(); }}>
             <motion.div
               role="alertdialog"
               aria-modal="true"
@@ -1280,23 +1280,23 @@ export default function StudentManagement({ user, profile, initialStudentId = nu
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="relative w-full max-w-md bg-zinc-900 rounded-3xl p-6 shadow-2xl border border-red-500/30 text-white"
+              className="student-management__hard-delete-dialog"
             >
-              <div className="flex items-start justify-between gap-4">
+              <div className="student-management__hard-delete-header">
                 <div>
-                  <p className="student-management__eyebrow text-red-300">XÓA DỮ LIỆU VĨNH VIỄN</p>
-                  <h3 id="legacy-hard-delete-title" className="mt-1 text-xl font-bold">Xóa {hardDeleteTarget.name}?</h3>
+                  <p className="student-management__eyebrow student-management__hard-delete-eyebrow">XÓA DỮ LIỆU VĨNH VIỄN</p>
+                  <h3 id="legacy-hard-delete-title">Xóa {hardDeleteTarget.name}?</h3>
                 </div>
-                <button type="button" onClick={() => closeHardDelete()} disabled={hardDeleting} className="rounded-lg p-2 text-zinc-400 hover:bg-zinc-800 hover:text-white" aria-label="Đóng"><X className="h-5 w-5" /></button>
+                <button type="button" onClick={() => closeHardDelete()} disabled={hardDeleting} className="student-management__hard-delete-close" aria-label="Đóng"><X /></button>
               </div>
-              <p className="mt-4 text-sm leading-6 text-zinc-300">Hồ sơ, quyền truy cập và dữ liệu vận hành phụ sẽ bị xóa. Các buổi tập, điểm danh và bằng chứng tính lương vẫn được giữ lại để đối soát.</p>
-              <label className="mt-5 block text-sm text-zinc-300">Nhập <strong className="text-red-300">XÓA VĨNH VIỄN</strong> để xác nhận
-                <input autoFocus value={hardDeleteConfirmation} onChange={(event) => setHardDeleteConfirmation(event.target.value)} placeholder="XÓA VĨNH VIỄN" className="mt-2 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-3 text-white outline-none focus:border-red-400" />
+              <p className="student-management__hard-delete-copy">Hồ sơ, quyền truy cập và dữ liệu vận hành phụ sẽ bị xóa. Các buổi tập, điểm danh và bằng chứng tính lương vẫn được giữ lại để đối soát.</p>
+              <label className="student-management__hard-delete-field">Nhập <strong>XÓA VĨNH VIỄN</strong> hoặc <strong>XOÁ VĨNH VIỄN</strong> để xác nhận
+                <input autoFocus autoComplete="off" aria-label="Nhập xác nhận xóa vĩnh viễn" value={hardDeleteConfirmation} onChange={(event) => setHardDeleteConfirmation(event.target.value)} placeholder="XÓA VĨNH VIỄN" />
               </label>
-              {hardDeleteError && <div className="mt-4 flex items-start gap-2 rounded-xl bg-red-500/10 p-3 text-sm text-red-300" role="alert"><AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />{hardDeleteError}</div>}
-              <div className="mt-6 flex gap-3">
-                <button type="button" onClick={() => closeHardDelete()} disabled={hardDeleting} className="flex-1 rounded-xl bg-zinc-800 px-4 py-3 text-sm font-semibold text-zinc-200 hover:bg-zinc-700">Hủy</button>
-                <button type="button" onClick={() => void confirmHardDelete()} disabled={hardDeleting || hardDeleteConfirmation.trim().toLocaleUpperCase('vi') !== 'XÓA VĨNH VIỄN'} className="flex-1 inline-flex items-center justify-center gap-2 rounded-xl bg-red-600 px-4 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50">{hardDeleting ? <><LoaderCircle className="h-4 w-4 animate-spin" /> Đang xóa…</> : <><Trash2 className="h-4 w-4" /> Xóa cứng</>}</button>
+              {hardDeleteError && <div className="student-management__hard-delete-error" role="alert"><AlertCircle />{hardDeleteError}</div>}
+              <div className="student-management__hard-delete-actions">
+                <button type="button" onClick={() => closeHardDelete()} disabled={hardDeleting}>Hủy</button>
+                <button type="button" onClick={() => void confirmHardDelete()} disabled={hardDeleting || !isHardDeleteConfirmation(hardDeleteConfirmation)}>{hardDeleting ? <><LoaderCircle className="is-spinning" /> Đang xóa…</> : <><Trash2 /> Xóa cứng</>}</button>
               </div>
             </motion.div>
           </div>
