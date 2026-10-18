@@ -668,8 +668,9 @@ export function savePtStudentAvailability(input: {
   studentId: string
   availableSlots: string[]
   expectedRevision: number
+  confirmBelowMinimum?: boolean
 }) {
-  return invoke<typeof input, { schemaVersion: number; availableSlots: string[]; availabilityRevision: number; availabilityStatus: string }>('savePtStudentAvailability', input)
+  return invoke<typeof input, { schemaVersion: number; availableSlots: string[]; availabilityRevision: number; availabilityStatus: string; belowMinimumConfirmed?: boolean }>('savePtStudentAvailability', input)
 }
 
 export function reopenPtStudentAvailability(input: {

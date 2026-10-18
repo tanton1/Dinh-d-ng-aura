@@ -4465,7 +4465,17 @@ function createPtScheduleV2Functions({
     const slots = normalizedScheduleAvailabilitySlots(request.data?.availableSlots, config)
     const requiredSessions = Math.max(1, Math.min(7, Number(studentSnapshot.data().sessionsPerWeek || 1)))
     const minimumSlots = Math.max(5, requiredSessions)
-    if (slots.length < minimumSlots) throw new HttpsError('failed-precondition', `Hãy chọn ít nhất ${minimumSlots} khung giờ rảnh.`)
+    const belowMinimumConfirmed = request.data?.confirmBelowMinimum === true && activeAdministrator(actor)
+    if (!slots.length) throw new HttpsError('failed-precondition', 'Hãy chọn ít nhất một khung giờ rảnh.')
+    if (slots.length < minimumSlots && !belowMinimumConfirmed) {
+      throw new HttpsError('failed-precondition', `Hãy chọn ít nhất ${minimumSlots} khung giờ rảnh hoặc xác nhận lưu lịch thiếu khung với quyền Admin.`, {
+        issueCode: 'MINIMUM_AVAILABILITY_REQUIRED',
+        minimumSlots,
+        selectedSlots: slots.length,
+        missingSlots: minimumSlots - slots.length,
+        action: 'confirm_below_minimum',
+      })
+    }
     const reference = db.doc(`ptAvailability/${studentId}_${week}`)
     const studentReference = db.doc(`students/${studentId}`)
     const cutoff = availabilityCutoff(week, configSnapshot.exists ? configSnapshot.data() : {})
@@ -4488,6 +4498,7 @@ function createPtScheduleV2Functions({
         slots,
         requiredSessions,
         minimumSlots,
+        belowMinimumConfirmed,
         status: availabilityStatus,
         revision: revision + 1,
         submittedAt: current.data()?.submittedAt || FieldValue.serverTimestamp(),
@@ -4533,6 +4544,7 @@ function createPtScheduleV2Functions({
         weekId: week,
         beforeSlotCount: Array.isArray(current.data()?.slots) ? current.data().slots.length : 0,
         afterSlotCount: slots.length,
+        belowMinimumConfirmed,
         previousRevision: revision,
         nextRevision: revision + 1,
         latestFallbackAdvanced: Boolean(profilePatch.latestSubmittedAvailability),
@@ -4541,7 +4553,7 @@ function createPtScheduleV2Functions({
       return { revision: revision + 1, availabilityStatus }
     })
     invalidateBranchDataCache(db, branchId, week)
-    return { schemaVersion: 1, availableSlots: slots, availabilityRevision: nextRevision.revision, availabilityStatus: nextRevision.availabilityStatus }
+    return { schemaVersion: 1, availableSlots: slots, availabilityRevision: nextRevision.revision, availabilityStatus: nextRevision.availabilityStatus, belowMinimumConfirmed }
   })
 
   const reopenPtStudentAvailability = onCall(async (request) => {

@@ -1527,6 +1527,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate, ini
         studentId: student.id,
         availableSlots: [...availabilityDraft],
         expectedRevision: student.availabilityRevision,
+        confirmBelowMinimum: isAdmin && availabilityDraft.size < Math.max(5, Number(student.sessionsPerWeek || 1)),
       })
       if (activeWorkspaceScopeRef.current !== commandScope) return
       candidateCache.current.clear()
@@ -1543,7 +1544,9 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate, ini
       } : current)
       setAvailabilityDraft(new Set(result.availableSlots))
       setNoticeAction(null)
-      setNotice(`Đã cập nhật lịch rảnh của ${student.name}.`)
+      setNotice(result.belowMinimumConfirmed
+        ? `Đã cập nhật lịch rảnh của ${student.name} với ${result.availableSlots.length} khung; hồ sơ đang thiếu khung để xếp đủ buổi.`
+        : `Đã cập nhật lịch rảnh của ${student.name}.`)
     } catch (cause) {
       const normalized = asPtSchedulePublishError(cause)
       setAvailabilityError(normalized.message)
