@@ -1,5 +1,5 @@
 import { httpsCallable } from 'firebase/functions'
-import { firebaseFunctions } from '../lib/firebaseFunctions'
+import { firebaseFunctions, firebaseScheduleOptimizerFunctions } from '../lib/firebaseFunctions'
 import { parseAccessContext, type AccessContext, type AccessRole, type StaffPosition } from '../identity/access'
 import type { AdminUserRecord } from '../types'
 import { callReadOnlyFunction } from './readOnlyCallableService'
@@ -19,6 +19,9 @@ export interface IdentityDirectoryAssignment {
 
 export interface IdentityDirectoryStaffRecord {
   availableSlots: string[]
+  availabilityMode?: 'configured' | 'unrestricted' | 'unconfigured'
+  availabilityRevision?: number
+  availabilityUpdatedAt?: string | null
   slotCapacity: number
   schedulingPriority: number
   dailySessionTarget: number
@@ -55,12 +58,17 @@ export async function listIdentityDirectory(
   input: { section: 'accounts' | 'staff'; pageSize?: number; cursor?: string },
   options: { signal?: AbortSignal } = {},
 ): Promise<IdentityDirectoryPage> {
-  return callReadOnlyFunction<typeof input, IdentityDirectoryPage>('listIdentityDirectory', input, {
-    signal: options.signal,
-    timeoutMs: 30_000,
-    maximumAttempts: 2,
-    baseDelayMs: 1_200,
-  })
+  return callReadOnlyFunction<typeof input, IdentityDirectoryPage>(
+    firebaseScheduleOptimizerFunctions ? 'listIdentityDirectoryRegional' : 'listIdentityDirectory',
+    input,
+    {
+      signal: options.signal,
+      timeoutMs: 30_000,
+      maximumAttempts: 2,
+      baseDelayMs: 1_200,
+      functionsClient: firebaseScheduleOptimizerFunctions ?? firebaseFunctions,
+    },
+  )
 }
 
 export interface AccountInviteInput {
@@ -258,7 +266,10 @@ export interface StaffOperationsProfileInput {
     email?: boolean
     phoneNumber?: boolean
   }
-  availabilitySlots: string[]
+  /** Only send when an admin intentionally changed the PT matrix. */
+  availabilitySlots?: string[]
+  availabilitySlotsTouched?: boolean
+  availabilityRevision?: number
   slotCapacity: number
   schedulingPriority: number
   dailySessionTarget: number
@@ -274,7 +285,11 @@ export interface StaffOperationsProfileResult extends StaffOperationsProfileInpu
   payrollProfile: 'probation' | 'official' | 'senior' | 'part_time' | 'collaborator'
 }
 export async function saveStaffOperationsProfile(input: StaffOperationsProfileInput) {
-  const callable = httpsCallable<StaffOperationsProfileInput, StaffOperationsProfileResult>(requireFunctions(), 'saveStaffOperationsProfile')
+  const callable = httpsCallable<StaffOperationsProfileInput, StaffOperationsProfileResult>(
+    firebaseScheduleOptimizerFunctions ?? requireFunctions(),
+    firebaseScheduleOptimizerFunctions ? 'saveStaffOperationsProfileRegional' : 'saveStaffOperationsProfile',
+    { timeout: 30_000 },
+  )
   try { return (await callable(input)).data } catch (error) { throw presentStaffProfileError(error) }
 }
 

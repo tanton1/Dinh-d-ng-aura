@@ -59,6 +59,8 @@ type RoleAssignmentSummary = {
 }
 type StaffOperationsRecord = {
   availableSlots?: string[]; baseSalary?: number; bonusMonthly?: number; commissionRate?: number; commissionPerSession?: number
+  availabilityMode?: 'configured' | 'unrestricted' | 'unconfigured'
+  availabilityRevision?: number
   slotCapacity?: number
   priority?: number
   schedulingPriority?: number
@@ -75,7 +77,9 @@ type StaffEditorState = {
   phoneNumber: string
   initialEmail: string
   initialPhoneNumber: string
+  initialSlots: string[]
   slots: string[]
+  availabilityRevision: number
   slotCapacity: number
   isTrainer: boolean
   schedulingPriority: number
@@ -160,6 +164,16 @@ function normalizeStaffSlot(value: string) {
   const [day, rawHour = ''] = value.split('-', 2)
   const hour = Number(rawHour.split(':')[0])
   return day && Number.isInteger(hour) ? `${day}-${hour}` : value
+}
+
+function normalizedStaffSlots(values: string[] | undefined) {
+  return [...new Set((values || []).map(normalizeStaffSlot).filter(Boolean))].sort((left, right) => left.localeCompare(right, 'en'))
+}
+
+function sameStaffSlots(left: string[], right: string[]) {
+  const normalizedLeft = normalizedStaffSlots(left)
+  const normalizedRight = normalizedStaffSlots(right)
+  return normalizedLeft.length === normalizedRight.length && normalizedLeft.every((slot, index) => slot === normalizedRight[index])
 }
 
 function normalizeStaffEmail(value: string) {
@@ -447,6 +461,7 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
     const dailySessionTarget = Number.isInteger(record.dailySessionTarget) ? Math.max(1, Math.min(12, Number(record.dailySessionTarget))) : 8
     const email = member.email || record.email || ''
     const phoneNumber = member.phoneNumber || record.phone || ''
+    const initialSlots = normalizedStaffSlots(record.availableSlots)
     setStaffEditor({
       uid: member.uid,
       displayName: member.displayName || record.name || '',
@@ -454,7 +469,9 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
       phoneNumber,
       initialEmail: email,
       initialPhoneNumber: phoneNumber,
-      slots: Array.isArray(record.availableSlots) ? [...new Set(record.availableSlots.map(normalizeStaffSlot))] : [],
+      initialSlots,
+      slots: initialSlots,
+      availabilityRevision: Number.isInteger(record.availabilityRevision) ? Number(record.availabilityRevision) : 0,
       slotCapacity: Number.isInteger(record.slotCapacity) ? Number(record.slotCapacity) : 2,
       isTrainer: Boolean(assignment?.positions.includes('trainer_pt') || member.role === 'trainer' || record.role === 'trainer'),
       schedulingPriority: Number.isInteger(record.schedulingPriority ?? record.priority) ? Math.max(1, Math.min(999, Number(record.schedulingPriority ?? record.priority))) : 100,
@@ -469,7 +486,35 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
   const saveStaffProfile = async () => {
     if (!staffEditor) return
     setStaffSaving(true); setError(null)
-    try { await saveStaffOperationsProfile({ uid: staffEditor.uid, displayName: staffEditor.displayName, email: staffEditor.email, phoneNumber: staffEditor.phoneNumber, contactChanges: { email: normalizeStaffEmail(staffEditor.email) !== normalizeStaffEmail(staffEditor.initialEmail), phoneNumber: normalizeStaffPhone(staffEditor.phoneNumber) !== normalizeStaffPhone(staffEditor.initialPhoneNumber) }, employmentType: staffEditor.employmentType, employmentLevel: staffEditor.employmentLevel, payrollPolicyId: staffEditor.payrollPolicyId, availabilitySlots: staffEditor.slots, slotCapacity: staffEditor.slotCapacity, schedulingPriority: staffEditor.schedulingPriority, dailySessionTarget: staffEditor.dailySessionTarget, compensation: staffEditor.compensation }); setStaffEditor(null); setSuccess('Đã lưu hồ sơ, lịch rảnh và mốc cân bằng tải của nhân viên.'); refreshDirectorySection('staff') }
+    const nextSlots = normalizedStaffSlots(staffEditor.slots)
+    const availabilityChanged = staffEditor.isTrainer && !sameStaffSlots(nextSlots, staffEditor.initialSlots)
+    try {
+      await saveStaffOperationsProfile({
+        uid: staffEditor.uid,
+        displayName: staffEditor.displayName,
+        email: staffEditor.email,
+        phoneNumber: staffEditor.phoneNumber,
+        contactChanges: {
+          email: normalizeStaffEmail(staffEditor.email) !== normalizeStaffEmail(staffEditor.initialEmail),
+          phoneNumber: normalizeStaffPhone(staffEditor.phoneNumber) !== normalizeStaffPhone(staffEditor.initialPhoneNumber),
+        },
+        ...(availabilityChanged ? {
+          availabilitySlots: nextSlots,
+          availabilitySlotsTouched: true,
+          availabilityRevision: staffEditor.availabilityRevision,
+        } : {}),
+        employmentType: staffEditor.employmentType,
+        employmentLevel: staffEditor.employmentLevel,
+        payrollPolicyId: staffEditor.payrollPolicyId,
+        slotCapacity: staffEditor.slotCapacity,
+        schedulingPriority: staffEditor.schedulingPriority,
+        dailySessionTarget: staffEditor.dailySessionTarget,
+        compensation: staffEditor.compensation,
+      })
+      setStaffEditor(null)
+      setSuccess(availabilityChanged ? 'Đã lưu hồ sơ và lịch rảnh PT.' : 'Đã lưu hồ sơ nhân viên.')
+      refreshDirectorySection('staff')
+    }
     catch (caught) { setError(caught instanceof Error ? caught.message : 'Không thể lưu hồ sơ vận hành nhân viên.') }
     finally { setStaffSaving(false) }
   }
@@ -791,11 +836,11 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
           <header><span><strong>Ưu tiên phân ca PT</strong><small>Ưu tiên xếp đủ buổi cho học viên; mốc tải chỉ dùng để phân bổ đều giữa các PT hợp lệ.</small></span><button type="button" onClick={() => setStaffEditor((current) => current ? { ...current, dailySessionTarget: 8 } : current)}>Mốc cân tải 8 ca</button></header>
           <div className="identity-form-grid identity-form-grid--scheduling"><label><span>Thứ tự ưu tiên</span><input type="number" min="1" max="999" value={staffEditor.schedulingPriority} onChange={(event) => setStaffEditor((current) => current ? { ...current, schedulingPriority: Math.max(1, Math.min(999, Number(event.target.value) || 1)) } : current)} /><small>Số nhỏ được ưu tiên khi cùng loại nhân sự và cùng tải ca.</small></label><label><span>Mốc cân bằng tải / ngày</span><input type="number" min="1" max="12" value={staffEditor.dailySessionTarget} onChange={(event) => setStaffEditor((current) => current ? { ...current, dailySessionTarget: Math.max(1, Math.min(12, Number(event.target.value) || 1)) } : current)} /><small>Ca đôi cùng giờ chỉ tính một ca. Đây là mốc tham chiếu, không phải giới hạn xếp lịch.</small></label></div>
         </section>}
-        <section className="identity-staff-availability">
+        {staffEditor.isTrainer && <section className="identity-staff-availability">
           <header><span><strong>Ma trận thời gian rảnh</strong></span><em>{staffEditor.slots.length} khung đã chọn</em></header>
           <div className="identity-staff-availability__quick"><button type="button" onClick={() => setStaffEditor((current) => current ? { ...current, slots: workingDays.flatMap((day) => workingHours.map((hour) => `${day}-${hour}`)) } : current)}>Chọn tất cả</button><button type="button" onClick={() => setStaffEditor((current) => current ? { ...current, slots: [] } : current)}>Xóa chọn</button></div>
           <div className="identity-staff-availability__scroll" role="region" aria-label="Ma trận thời gian rảnh nhân viên" tabIndex={0}><table><thead><tr><th>Giờ</th>{workingDays.map((day) => <th key={day}>{day}</th>)}</tr></thead><tbody>{workingHours.map((hour) => <tr key={hour}><th>{String(hour).padStart(2, '0')}:00</th>{workingDays.map((day) => { const slot = `${day}-${hour}`; const selected = staffEditor.slots.includes(slot); return <td key={slot}><button type="button" className={selected ? 'active' : ''} aria-pressed={selected} aria-label={`${day} ${hour} giờ, ${selected ? 'đã chọn' : 'chưa chọn'}`} onClick={() => toggleStaffSlot(slot)}>{selected && <Check size={15} />}</button></td> })}</tr>)}</tbody></table></div>
-        </section>
+        </section>}
         <div className="identity-modal__actions"><button type="button" className="outline-button" onClick={() => setStaffEditor(null)}>Hủy</button><button type="button" className="pink-orange-button" onClick={() => void saveStaffProfile()} disabled={staffSaving}>{staffSaving ? 'Đang lưu...' : 'Lưu hồ sơ'}</button></div>
       </div>
     </section>}

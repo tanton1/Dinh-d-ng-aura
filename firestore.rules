@@ -1081,7 +1081,9 @@ service cloud.firestore {
     // availability payload to the browser listener.
     match /ptAvailabilitySync/{syncId} {
       allow read: if isAdmin()
-                  || managesBranchSchedule(resource.data.get('branchId', ''));
+                  || managesBranchSchedule(resource.data.get('branchId', ''))
+                  || (signedIn()
+                      && resource.data.get('studentAccountUid', '') == request.auth.uid);
       allow write: if false;
     }
 

@@ -593,6 +593,23 @@ Object.assign(exports, createCashbookFunctions({ db, onCall }))
 const ptOperationsV2Functions = createPtOperationsV2Functions({ db, onCall, logger })
 Object.assign(exports, ptOperationsV2Functions)
 
+// PT availability and the staff directory are small, latency-sensitive writes
+// and reads. Keep their canonical aliases in the overflow region so the
+// regional CPU quota of the legacy southeast fleet cannot leave a new source
+// of truth revision unpublished. Both aliases use the same named Firestore DB.
+const ptAvailabilityRegionalOnCall = (optionsOrHandler, maybeHandler) => {
+  const resourceOptions = { region: 'asia-east1', cpu: 'gcf_gen1', maxInstances: 2, concurrency: 1, timeoutSeconds: 60 }
+  return typeof optionsOrHandler === 'function'
+    ? onCall(resourceOptions, optionsOrHandler)
+    : onCall({ ...resourceOptions, ...optionsOrHandler }, maybeHandler)
+}
+const ptOperationsAvailabilityRegionalFunctions = createPtOperationsV2Functions({ db, onCall: ptAvailabilityRegionalOnCall, logger })
+exports.getMyTrainerAvailabilityRegional = ptOperationsAvailabilityRegionalFunctions.getMyTrainerAvailability
+exports.saveMyTrainerAvailabilityRegional = ptOperationsAvailabilityRegionalFunctions.saveMyTrainerAvailability
+const identityAvailabilityRegionalFunctions = createIdentityAccessFunctions({ db, auth, onCall: ptAvailabilityRegionalOnCall, logger })
+exports.listIdentityDirectoryRegional = identityAvailabilityRegionalFunctions.listIdentityDirectory
+exports.saveStaffOperationsProfileRegional = identityAvailabilityRegionalFunctions.saveStaffOperationsProfile
+
 // Keep new callable entry points statically discoverable by the Firebase CLI.
 // The rest of the PT operations factory remains assigned above for backwards
 // compatibility with already deployed functions.

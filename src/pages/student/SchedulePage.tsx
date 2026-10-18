@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { doc, onSnapshot } from 'firebase/firestore'
 import {
   AlertCircle,
   CalendarCheck,
@@ -37,6 +38,7 @@ import {
   type TrainingHistoryRecord,
 } from '../../services/businessReportingService'
 import type { ViewId } from '../../types'
+import { firestoreDb } from '../../lib/firebaseFirestore'
 import '../../styles-coaching.css'
 import './StudentSchedulePage.css'
 import { useAuraUiSurface } from '../../features/ui-rollout/AuraUiRolloutContext'
@@ -276,6 +278,24 @@ export default function SchedulePage({ onNavigate, isDemo = false }: { onNavigat
   }, [availabilityWeekId, isDemo, range.from, range.to, today, weekStart])
 
   useEffect(() => { void load(); return () => { requestIdRef.current += 1 } }, [load])
+
+  // Refresh the currently visible week when Admin changes this learner's
+  // availability. The marker contains no slots; the callable remains the
+  // source of truth and applies the same authorization as the initial load.
+  useEffect(() => {
+    const studentId = data?.student?.id || ''
+    const branchId = data?.student?.branchId || ''
+    if (isDemo || !firestoreDb || !studentId || !branchId || !availabilityWeekId) return undefined
+    const reference = doc(firestoreDb, 'ptAvailabilitySync', `${branchId}_${availabilityWeekId}`)
+    return onSnapshot(reference, (snapshot) => {
+      const value = snapshot.data()
+      if (!snapshot.exists() || !value || value.updatedStudentId !== studentId || document.hidden) return
+      void load()
+    }, () => {
+      // The normal callable polling path remains available when the signal is
+      // not readable (for example while an older ruleset is propagating).
+    })
+  }, [availabilityWeekId, data?.student?.branchId, data?.student?.id, isDemo, load])
   const loadHistory = useCallback(async (append = false) => {
     if (isDemo || !data?.student?.id) return
     const cursor = append ? historyPage?.nextCursor : null

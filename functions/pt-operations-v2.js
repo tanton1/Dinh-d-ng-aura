@@ -30,6 +30,34 @@ const trainerScheduleCache = createProcessCache({ ttlMs: 10_000, maxEntries: 256
 const studentScheduleQueryCache = createProcessCache({ ttlMs: 10_000, maxEntries: 256 })
 const trainerContractsCache = createProcessCache({ ttlMs: 15_000, maxEntries: 256 })
 
+function timestampCacheValue(value) {
+  if (value?.toMillis) return String(value.toMillis())
+  if (value?.seconds !== undefined) return `${value.seconds}:${value.nanoseconds || 0}`
+  if (value instanceof Date) return String(value.getTime())
+  if (typeof value === 'string' || typeof value === 'number') return String(value)
+  return ''
+}
+
+// The schedule payload is read-through cached for a few seconds so opening the
+// student calendar does not fan out five queries on every render. Admin edits
+// happen in a different Functions service, therefore that service cannot clear
+// this process-local cache directly. Include the profile's availability write
+// marker in the key so the next request after an Admin save always reads the
+// exact weekly document again, while unchanged pages keep the cheap cache hit.
+function studentAvailabilityCacheVersion(profile = {}) {
+  const latest = profile.latestSubmittedAvailability || {}
+  const reopen = profile.availabilityReopen || {}
+  return [
+    profile.availabilityRevision || 0,
+    latest.weekId || '',
+    latest.revision || 0,
+    timestampCacheValue(profile.latestAvailabilityUpdatedAt),
+    reopen.weekId || '',
+    timestampCacheValue(reopen.reopenedAt),
+    timestampCacheValue(reopen.reopenedUntil),
+  ].join(':')
+}
+
 function trainerCacheKey(db, actor) {
   return `${cacheScope(db)}|${actor.uid}|${actor.legacyStaffId || ''}|${actor.authzVersion || 0}`
 }
@@ -1222,6 +1250,17 @@ function createPtOperationsV2Functions({ db, onCall }) {
         availabilityUpdatedAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
       })
+      // Keep the identity document as a projection only. The trainer profile
+      // above remains the single scheduling source of truth, while admin/payroll
+      // screens can safely read the same slots without a second write path.
+      transaction.set(db.doc(`staff/${profile.id}`), {
+        availableSlots: slots,
+        availabilityMode: 'configured',
+        availabilityRevision: revision + 1,
+        availabilityUpdatedBy: actor.uid,
+        availabilityUpdatedAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      }, { merge: true })
       transaction.create(db.collection('ptOperationsAuditLogs').doc(), {
         schemaVersion: 2,
         action: 'trainer_availability.updated',
@@ -1229,6 +1268,7 @@ function createPtOperationsV2Functions({ db, onCall }) {
         trainerId: profile.id,
         beforeSlotCount: Array.isArray(current.data()?.availableSlots) ? current.data().availableSlots.length : 0,
         afterSlotCount: slots.length,
+        staffProjectionSynced: true,
         previousRevision: revision,
         nextRevision: revision + 1,
         createdAt: FieldValue.serverTimestamp(),
@@ -1273,7 +1313,7 @@ function createPtOperationsV2Functions({ db, onCall }) {
     }
 
     const availabilityReference = db.doc(`ptAvailability/${profile.id}_${requestedAvailabilityWeekId}`)
-    const queryKey = `${cacheScope(db)}|${profile.id}|${from}|${to}|${requestedAvailabilityWeekId}`
+    const queryKey = `${cacheScope(db)}|${profile.id}|${from}|${to}|${requestedAvailabilityWeekId}|${studentAvailabilityCacheVersion(profile.value)}`
     const queryResult = await studentScheduleQueryCache.get(queryKey, () => Promise.all([
       db.collection('sessions')
         .where('studentId', '==', profile.id)
@@ -1547,7 +1587,10 @@ function createPtOperationsV2Functions({ db, onCall }) {
         revision: currentRevision + 1,
         submittedAt: submittedAtIso,
       })
-      if (Object.keys(profilePatch).length) transaction.update(profile.reference, {
+      // Keep the profile projection monotonic for older-week edits, but
+      // always advance the sync marker so another service cannot serve a
+      // stale schedule snapshot from its process-local cache.
+      transaction.update(profile.reference, {
         ...profilePatch,
         latestAvailabilityUpdatedBy: actor.uid,
         latestAvailabilityUpdatedAt: FieldValue.serverTimestamp(),
@@ -1560,6 +1603,7 @@ function createPtOperationsV2Functions({ db, onCall }) {
         schemaVersion: 1,
         branchId: profile.value.branchId || '',
         weekId,
+        studentAccountUid: profile.value.accountUid || actor.uid || '',
         revision: FieldValue.increment(1),
         updatedStudentId: profile.id,
         updatedAt: FieldValue.serverTimestamp(),

@@ -320,8 +320,66 @@ function identityDirectoryAssignment(profile = {}, assignment = null) {
   }
 }
 
+const DEFAULT_TRAINER_WORKING_DAYS = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7']
+// Keep this fallback identical to pt-operations-v2.js. Admin edits and PT
+// self-submissions must validate against the same matrix when the settings
+// document is temporarily unavailable or still on its legacy shape.
+const DEFAULT_TRAINER_WORKING_HOURS = [6, 7, 8, 9, 10, 11, 14, 15, 16, 17, 18, 19, 20]
+
+function trainerAvailabilityConfig(value = {}) {
+  const workingDays = Array.isArray(value.workingDays)
+    ? [...new Set(value.workingDays.filter((day) => DEFAULT_TRAINER_WORKING_DAYS.includes(day)))]
+    : []
+  const workingHours = Array.isArray(value.workingHours)
+    ? [...new Set(value.workingHours.filter((hour) => Number.isInteger(hour) && hour >= 0 && hour <= 23))].sort((left, right) => left - right)
+    : []
+  return {
+    workingDays: workingDays.length ? workingDays : DEFAULT_TRAINER_WORKING_DAYS,
+    workingHours: workingHours.length ? workingHours : DEFAULT_TRAINER_WORKING_HOURS,
+  }
+}
+
+function normalizedTrainerAvailabilitySlots(value, config, strict = true) {
+  if (!Array.isArray(value) || value.length > 100) {
+    if (strict) throw new HttpsError('invalid-argument', 'Ma trận thời gian rảnh không hợp lệ.')
+    return []
+  }
+  const allowed = new Set(config.workingDays.flatMap((day) => config.workingHours.map((hour) => `${day}-${hour}`)))
+  const candidates = value.map((slot) => typeof slot === 'string' ? slot.trim() : '')
+  if (strict && candidates.some((slot) => !slot || slot.length > 12 || !allowed.has(slot))) {
+    throw new HttpsError('invalid-argument', 'Khung giờ rảnh nằm ngoài lịch hoạt động.')
+  }
+  const dayOrder = new Map(config.workingDays.map((day, index) => [day, index]))
+  return [...new Set(candidates.filter((slot) => slot && slot.length <= 12 && allowed.has(slot)))].sort((left, right) => {
+    const [leftDay, leftHour] = left.split('-')
+    const [rightDay, rightHour] = right.split('-')
+    return ((dayOrder.get(leftDay) ?? 99) - (dayOrder.get(rightDay) ?? 99)) || Number(leftHour) - Number(rightHour)
+  })
+}
+
+function sameTrainerAvailabilitySlots(left = [], right = []) {
+  return left.length === right.length && left.every((slot, index) => slot === right[index])
+}
+
+function canonicalTrainerAvailabilitySlots(trainer = {}) {
+  return Array.isArray(trainer.availableSlots)
+    ? [...new Set(trainer.availableSlots.filter((slot) => typeof slot === 'string').slice(0, 168))]
+    : []
+}
+
 function identityDirectoryStaffRecord(staff = {}, trainer = {}) {
-  const source = { ...trainer, ...staff }
+  // Availability belongs to the trainer profile. Staff is a projection used by
+  // payroll/identity screens and may lag behind a PT's self-submitted matrix;
+  // never let that projection override the scheduling source of truth.
+  const canonicalAvailabilitySlots = canonicalTrainerAvailabilitySlots(trainer)
+  const source = {
+    ...trainer,
+    ...staff,
+    availableSlots: canonicalAvailabilitySlots,
+    availabilityMode: trainer.availabilityMode || (canonicalAvailabilitySlots.length ? 'configured' : 'unconfigured'),
+    availabilityRevision: Number.isInteger(trainer.availabilityRevision) ? trainer.availabilityRevision : 0,
+    availabilityUpdatedAt: trainer.availabilityUpdatedAt || null,
+  }
   const safeSchedulingFallback = {
     ...source,
     schedulingPriority: Number.isInteger(source.schedulingPriority ?? source.priority)
@@ -337,9 +395,10 @@ function identityDirectoryStaffRecord(staff = {}, trainer = {}) {
   }
   const scheduling = normalizedTrainerSchedulingPolicy({}, safeSchedulingFallback)
   return {
-    availableSlots: Array.isArray(source.availableSlots)
-      ? source.availableSlots.filter((slot) => typeof slot === 'string').slice(0, 168)
-      : [],
+    availableSlots: canonicalAvailabilitySlots,
+    availabilityMode: source.availabilityMode,
+    availabilityRevision: source.availabilityRevision,
+    availabilityUpdatedAt: identityDirectoryDate(source.availabilityUpdatedAt),
     slotCapacity: Number.isInteger(source.slotCapacity) ? Math.min(4, Math.max(1, Number(source.slotCapacity))) : 2,
     schedulingPriority: scheduling.schedulingPriority,
     dailySessionTarget: scheduling.dailySessionTarget,
@@ -1421,10 +1480,13 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
           transaction.set(staffReference, { status: 'inactive', positions: [], branchIds: [], updatedBy: actor.uid, updatedAt: FieldValue.serverTimestamp() }, { merge: true })
         }
         if (accessRole === 'staff' && positions.includes('trainer_pt')) {
+          const inheritedAvailability = !currentTrainer.exists && currentStaff.exists && Array.isArray(currentStaff.data()?.availableSlots)
+            ? currentStaff.data().availableSlots.filter((slot) => typeof slot === 'string').slice(0, 168)
+            : []
           transaction.set(trainerReference, {
             id: targetUid, name: profileName, email: profileEmail, phone: profilePhone,
             branchId: branchIds[0] || '', positions, branchIds, status: 'active', updatedBy: actor.uid,
-            ...(!currentTrainer.exists ? { employmentType: 'full_time', availableSlots: [], slotCapacity: 2, schedulingPriority: 100, priority: 100, dailySessionTarget: 8, baseSalary: 0, bonusMonthly: 0, commissionPerSession: 0, commissionRate: 0, createdBy: actor.uid, createdAt: FieldValue.serverTimestamp() } : {}),
+            ...(!currentTrainer.exists ? { employmentType: 'full_time', availableSlots: inheritedAvailability, availabilityMode: inheritedAvailability.length ? 'configured' : 'unconfigured', availabilityRevision: 0, slotCapacity: 2, schedulingPriority: 100, priority: 100, dailySessionTarget: 8, baseSalary: 0, bonusMonthly: 0, commissionPerSession: 0, createdBy: actor.uid, createdAt: FieldValue.serverTimestamp() } : {}),
             updatedAt: FieldValue.serverTimestamp(),
           }, { merge: true })
         } else if (currentTrainer.exists) {
@@ -1763,17 +1825,29 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
     const userRef = db.doc(`users/${targetUid}`)
     const staffRef = db.doc(`staff/${targetUid}`)
     const trainerRef = db.doc(`trainers/${targetUid}`)
-    const [initialProfileSnapshot, initialStaffSnapshot, initialTrainerSnapshot, authUser] = await Promise.all([
-      userRef.get(), staffRef.get(), trainerRef.get(), auth.getUser(targetUid),
+    const [initialProfileSnapshot, initialStaffSnapshot, initialTrainerSnapshot, configSnapshot, authUser] = await Promise.all([
+      userRef.get(), staffRef.get(), trainerRef.get(), db.doc('settings/scheduleConfig').get(), auth.getUser(targetUid),
     ])
     if (!initialProfileSnapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy tài khoản nhân viên.')
     const initialProfile = initialProfileSnapshot.data() || {}
     const displayName = boundedString(request.data?.displayName ?? initialProfile.displayName ?? initialProfile.name, 'Họ và tên', 160)
     const contactUpdate = resolveStaffContactUpdate(request.data || {}, initialProfile, authUser)
     const { email, phoneNumber, emailChanged, phoneChanged } = contactUpdate
-    const availabilitySlots = Array.isArray(request.data?.availabilitySlots)
-      ? [...new Set(request.data.availabilitySlots.filter((slot) => typeof slot === 'string' && slot.length <= 80))].slice(0, 168)
-      : []
+    const availabilityConfig = trainerAvailabilityConfig(configSnapshot.data())
+    const availabilitySlotsProvided = Array.isArray(request.data?.availabilitySlots)
+    const availabilitySlotsTouched = request.data?.availabilitySlotsTouched === true
+    const availabilitySlots = availabilitySlotsProvided
+      ? normalizedTrainerAvailabilitySlots(request.data.availabilitySlots, availabilityConfig, availabilitySlotsTouched)
+      : null
+    const requestedAvailabilityRevision = Number.isInteger(request.data?.availabilityRevision)
+      ? Number(request.data.availabilityRevision)
+      : null
+    if (availabilitySlotsTouched && !availabilitySlotsProvided) {
+      throw new HttpsError('invalid-argument', 'Cần gửi ma trận lịch rảnh khi đánh dấu chỉnh lịch PT.')
+    }
+    if (availabilitySlotsTouched && (requestedAvailabilityRevision === null || requestedAvailabilityRevision < 0 || requestedAvailabilityRevision > 1000000)) {
+      throw new HttpsError('invalid-argument', 'Mốc phiên bản lịch rảnh PT không hợp lệ.')
+    }
     const slotCapacity = Number(request.data?.slotCapacity ?? 2)
     if (!Number.isInteger(slotCapacity) || slotCapacity < 1 || slotCapacity > 4) {
       throw new HttpsError('invalid-argument', 'Sức chứa mỗi ca của PT phải từ 1 đến 4 học viên.')
@@ -1820,6 +1894,11 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
       emailVerified: Boolean(authUser.emailVerified),
     }
     const contactChanged = previousAuth.displayName !== displayName || emailChanged || phoneChanged
+    let savedAvailability = {
+      trainer: false,
+      slots: [],
+      revision: 0,
+    }
     try {
       if (contactChanged) {
         await auth.updateUser(targetUid, {
@@ -1839,9 +1918,51 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
       const positions = existing?.accessRole === 'staff' ? normalizedPositions(existing.positions || []) : legacy.positions
       if (!positions.length) throw new HttpsError('failed-precondition', 'Tài khoản này chưa được cấp chức danh nhân viên.')
       const branchIds = existing?.accessRole === 'staff' ? normalizedBranchIds(existing.branchIds || []) : (profile.branchId ? [documentId(profile.branchId, 'Mã chi nhánh')] : [])
-      const previousStaff = staffSnapshot.exists ? staffSnapshot.data() || {} : {}
-      const previousTrainer = trainerSnapshot.exists ? trainerSnapshot.data() || {} : {}
-      // Editing an operational profile must never silently unlock a suspended
+       const previousStaff = staffSnapshot.exists ? staffSnapshot.data() || {} : {}
+       const previousTrainer = trainerSnapshot.exists ? trainerSnapshot.data() || {} : {}
+       const trainerPosition = positions.includes('trainer_pt')
+       const previousTrainerRawSlots = canonicalTrainerAvailabilitySlots(
+         trainerSnapshot.exists ? previousTrainer : previousStaff,
+       )
+       const previousTrainerSlots = normalizedTrainerAvailabilitySlots(previousTrainerRawSlots, availabilityConfig, false)
+       const previousStaffSlots = canonicalTrainerAvailabilitySlots(previousStaff)
+       const previousAvailabilityRevision = Number.isInteger(previousTrainer.availabilityRevision)
+         ? Number(previousTrainer.availabilityRevision)
+         : 0
+       // Preserve the exact canonical source during profile-only edits. The
+       // normalized list is used only for equality/validation; a schedule
+       // config change must never erase an existing PT slot implicitly.
+       let nextTrainerSlots = previousTrainerRawSlots
+       let availabilityChanged = false
+       if (trainerPosition) {
+         if (availabilitySlotsTouched) {
+           if (requestedAvailabilityRevision !== null && requestedAvailabilityRevision !== previousAvailabilityRevision) {
+             throw new HttpsError('aborted', 'Lịch rảnh PT vừa được cập nhật ở thiết bị khác. Hãy tải lại rồi chỉnh lại.', {
+               issueCode: 'TRAINER_AVAILABILITY_CONFLICT',
+               currentRevision: previousAvailabilityRevision,
+             })
+           }
+           nextTrainerSlots = availabilitySlots || []
+           availabilityChanged = !sameTrainerAvailabilitySlots(previousTrainerSlots, nextTrainerSlots)
+         } else if (availabilitySlotsProvided && !sameTrainerAvailabilitySlots(previousTrainerSlots, availabilitySlots || [])) {
+           // Older clients always sent the staff projection back on every save.
+           // If that projection differs from the trainer source, fail closed so
+           // a payroll/contact edit cannot erase a PT's newer availability.
+           throw new HttpsError('aborted', 'Lịch rảnh PT đã thay đổi. Hãy tải lại hồ sơ trước khi lưu.', {
+             issueCode: 'TRAINER_AVAILABILITY_CONFLICT',
+             currentRevision: previousAvailabilityRevision,
+           })
+         }
+       }
+       const nextAvailabilityRevision = availabilityChanged
+         ? previousAvailabilityRevision + 1
+         : previousAvailabilityRevision
+       savedAvailability = {
+         trainer: trainerPosition,
+         slots: trainerPosition ? nextTrainerSlots : [],
+         revision: nextAvailabilityRevision,
+       }
+       // Editing an operational profile must never silently unlock a suspended
       // identity. Only restoreAccountAccess is allowed to move access back to
       // active; schedule/payroll edits keep the lock visible everywhere.
       const operationalStatus = existing?.status === 'suspended' || profile.disabled === true ? 'suspended' : 'active'
@@ -1853,23 +1974,49 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
           ? Number(previousStaff.dailySessionTarget ?? previousTrainer.dailySessionTarget)
           : 8,
       }
-      const schedulingProjection = {
+       const schedulingProjection = {
         ...schedulingPolicy,
         // Keep the legacy scheduler compatible while the canonical field is
         // rolled out to every scheduling surface.
-        priority: schedulingPolicy.schedulingPriority,
-      }
-      transaction.set(staffRef, {
-        id: targetUid, name: displayName, email, phone: phoneNumber,
-        role: positions.includes('trainer_pt') ? 'trainer' : positions[0], branchId: branchIds[0] || '', status: operationalStatus,
-        positions, branchIds, employmentType, employmentLevel, payrollProfile, payrollPolicyId, availableSlots: availabilitySlots, slotCapacity, ...schedulingProjection, ...compensation,
-        updatedBy: actor.uid, updatedAt: FieldValue.serverTimestamp(),
-      }, { merge: true })
-      if (positions.includes('trainer_pt')) transaction.set(trainerRef, {
-        id: targetUid, name: displayName, email, phone: phoneNumber,
-        branchId: branchIds[0] || '', status: operationalStatus, employmentType, employmentLevel, payrollProfile, payrollPolicyId, availableSlots: availabilitySlots, slotCapacity, ...schedulingProjection, ...compensation,
-        updatedBy: actor.uid, updatedAt: FieldValue.serverTimestamp(),
-      }, { merge: true })
+         priority: schedulingPolicy.schedulingPriority,
+       }
+       const canonicalAvailabilityMode = trainerPosition
+         ? (availabilityChanged
+           ? (nextTrainerSlots.length ? 'configured' : 'unconfigured')
+           : (previousTrainer.availabilityMode || (nextTrainerSlots.length ? 'configured' : 'unconfigured')))
+         : (previousStaff.availabilityMode || 'unconfigured')
+       const staffProjection = {
+         id: targetUid, name: displayName, email, phone: phoneNumber,
+         role: trainerPosition ? 'trainer' : positions[0], branchId: branchIds[0] || '', status: operationalStatus,
+         positions, branchIds, employmentType, employmentLevel, payrollProfile, payrollPolicyId,
+         availableSlots: trainerPosition ? nextTrainerSlots : previousStaffSlots,
+         ...(trainerPosition ? {
+           availabilityMode: canonicalAvailabilityMode,
+           availabilityRevision: nextAvailabilityRevision,
+           ...(availabilityChanged ? {
+             availabilityUpdatedBy: actor.uid,
+             availabilityUpdatedAt: FieldValue.serverTimestamp(),
+           } : {}),
+         } : {}),
+         slotCapacity, ...schedulingProjection, ...compensation,
+         updatedBy: actor.uid, updatedAt: FieldValue.serverTimestamp(),
+       }
+       transaction.set(staffRef, {
+         ...staffProjection,
+       }, { merge: true })
+       if (trainerPosition) transaction.set(trainerRef, {
+         id: targetUid, name: displayName, email, phone: phoneNumber,
+         branchId: branchIds[0] || '', status: operationalStatus, employmentType, employmentLevel, payrollProfile, payrollPolicyId,
+         availableSlots: nextTrainerSlots,
+         availabilityMode: canonicalAvailabilityMode,
+         availabilityRevision: nextAvailabilityRevision,
+         ...(availabilityChanged ? {
+           availabilityUpdatedBy: actor.uid,
+           availabilityUpdatedAt: FieldValue.serverTimestamp(),
+         } : {}),
+         slotCapacity, ...schedulingProjection, ...compensation,
+         updatedBy: actor.uid, updatedAt: FieldValue.serverTimestamp(),
+       }, { merge: true })
       transaction.set(db.collection('identityAuditLogs').doc(), {
         action: 'staff_operations_profile.saved', actorUid: actor.uid, targetUid,
         before: {
@@ -1880,8 +2027,14 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
           slotCapacity: Number.isInteger(previousStaff.slotCapacity ?? previousTrainer.slotCapacity) ? Number(previousStaff.slotCapacity ?? previousTrainer.slotCapacity) : 2,
           ...previousSchedulingPolicy,
         },
-        after: { employmentType, employmentLevel, payrollProfile, payrollPolicyId, availabilitySlots: availabilitySlots.length, slotCapacity, ...schedulingPolicy, compensation, contactChanged }, createdAt: FieldValue.serverTimestamp(),
-      })
+          after: {
+            employmentType, employmentLevel, payrollProfile, payrollPolicyId,
+            availabilitySlots: trainerPosition ? nextTrainerSlots.length : previousStaffSlots.length,
+            availabilityChanged,
+            availabilityRevision: nextAvailabilityRevision,
+            slotCapacity, ...schedulingPolicy, compensation, contactChanged,
+          }, createdAt: FieldValue.serverTimestamp(),
+       })
       transaction.set(userRef, { displayName, name: displayName, email, phoneNumber, updatedAt: FieldValue.serverTimestamp() }, { merge: true })
       })
     } catch (error) {
@@ -1890,7 +2043,12 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
       }
       throw normalizeDuplicateAuthError(error)
     }
-    return { uid: targetUid, displayName, email, phoneNumber, employmentType, employmentLevel, payrollProfile, payrollPolicyId, availabilitySlots, slotCapacity, ...schedulingPolicy, compensation }
+    return {
+      uid: targetUid, displayName, email, phoneNumber, employmentType, employmentLevel, payrollProfile, payrollPolicyId,
+      availabilitySlots: savedAvailability.trainer ? savedAvailability.slots : [],
+      availabilityRevision: savedAvailability.revision,
+      slotCapacity, ...schedulingPolicy, compensation,
+    }
   })
 
   const applyDefaultTrainerSchedulingPolicy = onCall(async (request) => {
@@ -1971,6 +2129,10 @@ module.exports = {
   identityDirectoryPageSize,
   identityDirectoryNextCursor,
   identityDirectoryAssignment,
+  identityDirectoryStaffRecord,
+  canonicalTrainerAvailabilitySlots,
+  normalizedTrainerAvailabilitySlots,
+  sameTrainerAvailabilitySlots,
   managedClientCountsFromContracts,
   staffIdsFromContract,
   refreshStaffManagedClientSummary,

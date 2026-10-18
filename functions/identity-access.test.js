@@ -10,11 +10,35 @@ const {
   identityDirectoryPageSize,
   identityDirectoryNextCursor,
   identityDirectoryAssignment,
+  identityDirectoryStaffRecord,
+  normalizedTrainerAvailabilitySlots,
   managedClientCountsFromContracts,
   staffIdsFromContract,
   isReclaimableDeletedStudent,
   studentProfilePhoneMatches,
 } = require('./identity-access')
+
+test('identity directory always exposes trainer availability as the canonical source', () => {
+  const record = identityDirectoryStaffRecord(
+    { availableSlots: ['T2-6'], availabilityRevision: 99, schedulingPriority: 20 },
+    { availableSlots: ['T3-7', 'T3-7'], availabilityMode: 'configured', availabilityRevision: 4 },
+  )
+  assert.deepEqual(record.availableSlots, ['T3-7'])
+  assert.equal(record.availabilityRevision, 4)
+  assert.equal(record.availabilityMode, 'configured')
+  assert.equal(record.schedulingPriority, 20)
+})
+
+test('trainer availability normalization rejects slots outside the configured schedule', () => {
+  assert.throws(
+    () => normalizedTrainerAvailabilitySlots(['T2-6', 'CN-9'], { workingDays: ['T2'], workingHours: [6] }),
+    /ngoài lịch hoạt động/,
+  )
+  assert.deepEqual(
+    normalizedTrainerAvailabilitySlots(['T2-7', 'T2-6', 'T2-6'], { workingDays: ['T2'], workingHours: [6, 7] }),
+    ['T2-6', 'T2-7'],
+  )
+})
 
 test('identity directory pagination stays bounded and preserves legacy assignment semantics', () => {
   assert.equal(identityDirectoryPageSize(undefined), 60)

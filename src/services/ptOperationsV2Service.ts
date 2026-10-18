@@ -1,12 +1,17 @@
-import { httpsCallable } from 'firebase/functions'
+import { httpsCallable, type Functions } from 'firebase/functions'
 import { firebaseAuth } from '../lib/firebase'
-import { firebaseFunctions } from '../lib/firebaseFunctions'
+import { firebaseFunctions, firebaseScheduleOptimizerFunctions } from '../lib/firebaseFunctions'
 import { reportClientIssue } from './clientTelemetryService'
 import { normalizeTrainerStudentDetail } from './ptOperationsV2Normalization'
 
 function functionsInstance() {
   if (!firebaseFunctions) throw new Error('Firebase Functions chưa sẵn sàng.')
   return firebaseFunctions
+}
+
+function regionalFunctionsInstance() {
+  if (!firebaseScheduleOptimizerFunctions) throw new Error('Firebase Functions vùng lịch chưa sẵn sàng.')
+  return firebaseScheduleOptimizerFunctions
 }
 
 function callableErrorCode(error: unknown) {
@@ -39,9 +44,15 @@ function retryDelay(milliseconds: number) {
   return new Promise((resolve) => window.setTimeout(resolve, milliseconds))
 }
 
-async function call<Input, Output>(name: string, input: Input, options: { readOnly?: boolean } = {}): Promise<Output> {
+async function call<Input, Output>(
+  name: string,
+  input: Input,
+  options: { readOnly?: boolean } = {},
+  client: Functions | null = firebaseFunctions,
+  phasePrefix = 'staff_callable',
+): Promise<Output> {
   const readOnly = options.readOnly === true
-  const invoke = httpsCallable<Input, Output>(functionsInstance(), name, { timeout: readOnly ? 20_000 : 30_000 })
+  const invoke = httpsCallable<Input, Output>(client || functionsInstance(), name, { timeout: readOnly ? 20_000 : 30_000 })
   const retryableCodes = new Set([
     'functions/internal',
     'functions/unavailable',
@@ -57,7 +68,7 @@ async function call<Input, Output>(name: string, input: Input, options: { readOn
       const shouldRetry = retryableCodes.has(code) && attempt < maximumAttempts - 1
       if (!shouldRetry) {
         reportClientIssue('firestore', error, {
-          phase: `staff_callable_${name}`,
+          phase: `${phasePrefix}_${name}`,
           route: window.location.hash,
           retryable: retryableCodes.has(code) || code === 'functions/resource-exhausted',
         })
@@ -76,13 +87,19 @@ function readCacheKey(name: string, input: unknown) {
   return `${firebaseAuth?.currentUser?.uid || 'anonymous'}:${name}:${JSON.stringify(input)}`
 }
 
-async function cachedCall<Input, Output>(name: string, input: Input, ttlMs: number): Promise<Output> {
+async function cachedCall<Input, Output>(
+  name: string,
+  input: Input,
+  ttlMs: number,
+  client: Functions | null = firebaseFunctions,
+  phasePrefix = 'staff_callable',
+): Promise<Output> {
   const key = readCacheKey(name, input)
   const now = Date.now()
   const cached = readCache.get(key)
   if (cached?.value !== undefined && cached.expiresAt > now) return cached.value as Output
   if (cached?.promise) return cached.promise as Promise<Output>
-  const promise = call<Input, Output>(name, input, { readOnly: true })
+  const promise = call<Input, Output>(name, input, { readOnly: true }, client, phasePrefix)
     .then((value) => {
       readCache.set(key, { value, expiresAt: Date.now() + ttlMs })
       return value
@@ -93,6 +110,14 @@ async function cachedCall<Input, Output>(name: string, input: Input, ttlMs: numb
     })
   readCache.set(key, { promise, expiresAt: now + ttlMs })
   return promise
+}
+
+async function regionalCall<Input, Output>(name: string, input: Input, options: { readOnly?: boolean } = {}) {
+  return call<Input, Output>(name, input, options, regionalFunctionsInstance(), 'staff_regional_callable')
+}
+
+async function regionalCachedCall<Input, Output>(name: string, input: Input, ttlMs: number) {
+  return cachedCall<Input, Output>(name, input, ttlMs, regionalFunctionsInstance(), 'staff_regional_callable')
 }
 
 function invalidateReadCache(...names: string[]) {
@@ -381,12 +406,12 @@ export async function getMyCoachWorkspaceScope() {
 
 export async function getMyTrainerAvailability(weekId?: string) {
   const input = weekId ? { weekId } : {}
-  return cachedCall<{ weekId?: string }, TrainerAvailabilityWorkspace>('getMyTrainerAvailability', input, 30_000)
+  return regionalCachedCall<{ weekId?: string }, TrainerAvailabilityWorkspace>('getMyTrainerAvailabilityRegional', input, 30_000)
 }
 
 export async function saveMyTrainerAvailability(input: { weekId?: string; availableSlots: string[]; offDates?: string[]; expectedRevision: number }) {
-  const result = await call<typeof input, TrainerAvailabilityWorkspace>('saveMyTrainerAvailability', input)
-  invalidateReadCache('getMyTrainerAvailability', 'getMyTrainerWorkspace', 'getMyCoachWorkspaceScope')
+  const result = await regionalCall<typeof input, TrainerAvailabilityWorkspace>('saveMyTrainerAvailabilityRegional', input)
+  invalidateReadCache('getMyTrainerAvailabilityRegional', 'getMyTrainerAvailability', 'getMyTrainerWorkspace', 'getMyCoachWorkspaceScope')
   return result
 }
 

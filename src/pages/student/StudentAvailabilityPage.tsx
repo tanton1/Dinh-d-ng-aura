@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { doc, onSnapshot } from 'firebase/firestore'
 import {
   AlertCircle,
   CalendarDays,
@@ -32,6 +33,7 @@ import {
   type StudentPtSession,
 } from '../../services/studentPtScheduleService'
 import type { ViewId } from '../../types'
+import { firestoreDb } from '../../lib/firebaseFirestore'
 import { vietnamBusinessDayCode } from '../../utils/dateUtils'
 import './StudentSchedulePage.css'
 import './StudentAvailabilityPage.css'
@@ -226,6 +228,27 @@ export default function StudentAvailabilityPage({ onNavigate, isDemo = false }: 
   }, [isDemo, range.from, range.to, today, weekId, weekStart])
 
   useEffect(() => { void load(); return () => { requestIdRef.current += 1 } }, [load])
+
+  // Admin availability edits are written by a separate callable service. The
+  // branch/week marker is intentionally only a signal; the authoritative
+  // weekly slots are fetched again through the capability-checked callable.
+  // This keeps an already-open learner page in sync without exposing the
+  // availability matrix to a direct Firestore listener.
+  useEffect(() => {
+    const studentId = data?.student?.id || ''
+    const branchId = data?.student?.branchId || ''
+    if (isDemo || !firestoreDb || !studentId || !branchId || !weekId) return undefined
+    const reference = doc(firestoreDb, 'ptAvailabilitySync', `${branchId}_${weekId}`)
+    return onSnapshot(reference, (snapshot) => {
+      const value = snapshot.data()
+      if (!snapshot.exists() || !value || value.updatedStudentId !== studentId) return
+      if (document.hidden || dirtyRef.current) return
+      void load()
+    }, () => {
+      // The callable remains the fallback for older markers and restricted
+      // accounts; a denied realtime signal must not block the page.
+    })
+  }, [data?.student?.branchId, data?.student?.id, isDemo, load, weekId])
 
   const workingDays = data?.scheduleConfig.workingDays?.length ? data.scheduleConfig.workingDays : DEFAULT_DAYS
   const workingHours = data?.scheduleConfig.workingHours?.length ? data.scheduleConfig.workingHours : DEFAULT_HOURS

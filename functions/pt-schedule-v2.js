@@ -4505,7 +4505,11 @@ function createPtScheduleV2Functions({
         revision: revision + 1,
         submittedAt: submittedAtIso,
       })
-      if (Object.keys(profilePatch).length) transaction.update(studentReference, {
+      // Always advance the profile's sync marker, even when an older-week
+      // edit is intentionally kept out of latestSubmittedAvailability. The
+      // learner portal uses this marker to invalidate its process-local read
+      // cache without rolling the profile projection backwards.
+      transaction.update(studentReference, {
         ...profilePatch,
         latestAvailabilityUpdatedBy: actor.uid,
         latestAvailabilityUpdatedAt: FieldValue.serverTimestamp(),
@@ -4515,6 +4519,7 @@ function createPtScheduleV2Functions({
         schemaVersion: 1,
         branchId,
         weekId: week,
+        studentAccountUid: currentProfile.data().accountUid || current.data()?.accountUid || '',
         revision: FieldValue.increment(1),
         updatedStudentId: studentId,
         updatedAt: FieldValue.serverTimestamp(),
@@ -4592,6 +4597,7 @@ function createPtScheduleV2Functions({
         schemaVersion: 1,
         branchId,
         weekId: week,
+        studentAccountUid: studentSnapshot.data().accountUid || current.accountUid || '',
         revision: FieldValue.increment(1),
         updatedStudentId: studentId,
         updatedAt: FieldValue.serverTimestamp(),
