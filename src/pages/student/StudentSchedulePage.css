@@ -955,6 +955,14 @@
 .student-change-suggestions .is-spinning { animation:student-change-spin .8s linear infinite; }
 @keyframes student-change-spin { to { transform:rotate(360deg); } }
 .student-change-suggestions__empty { display:flex; min-height:72px; align-items:center; justify-content:center; gap:8px; padding:13px; border:1px dashed #efcdda; border-radius:14px; color:#806a76; background:#fff9fb; font-size:11px; line-height:1.5; text-align:center; }
+.student-change-suggestions__tabs { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px; padding:4px; border:1px solid #eadde4; border-radius:14px; background:#fff7fa; }
+.student-change-suggestions__tab { display:flex; min-width:0; align-items:center; justify-content:space-between; gap:6px; padding:9px 10px; border:0; border-radius:10px; color:#806a76; background:transparent; font-size:10px; font-weight:850; line-height:1.25; text-align:left; cursor:pointer; }
+.student-change-suggestions__tab span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.student-change-suggestions__tab b { flex:0 0 auto; min-width:20px; padding:2px 5px; border-radius:999px; color:#8a7681; background:#fff; font-size:10px; font-weight:900; text-align:center; }
+.student-change-suggestions__tab.is-active { color:#fff; background:linear-gradient(120deg,#f62f82,#ff8751); }
+.student-change-suggestions__tab.is-active b { color:#d12b6d; }
+.student-change-suggestions__tab:disabled { opacity:.48; cursor:not-allowed; }
+.student-change-suggestions__hint { margin:0; color:#806a76; font-size:10px; line-height:1.45; }
 .student-change-suggestions__list { display:grid; gap:8px; }
 .student-change-suggestions__list > button { position:relative; display:grid; grid-template-columns:30px minmax(0,1fr) auto; grid-template-areas:'check meta meta' 'check trainer role' 'check branch branch' 'check capacity capacity'; gap:5px 9px; min-width:0; padding:13px 12px 12px 11px; border:1px solid #eadde4; border-radius:17px; color:#4b3742; background:#fff; box-shadow:0 5px 15px rgba(55,28,43,.045); text-align:left; cursor:pointer; }
 .student-change-suggestions__list > button:focus-visible { outline:3px solid rgba(246,47,130,.22); outline-offset:2px; }

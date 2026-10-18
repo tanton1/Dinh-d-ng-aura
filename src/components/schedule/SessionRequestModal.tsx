@@ -15,6 +15,8 @@ interface Props {
   session: RequestableSession
 }
 
+type SuggestionTab = 'same-hour' | 'other-hours'
+
 function newKey() {
   return typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
     ? crypto.randomUUID()
@@ -30,6 +32,7 @@ export default function SessionRequestModal({ onClose, onCreated, session }: Pro
   const [type, setType] = useState<'cancel' | 'reschedule'>('cancel')
   const [suggestionPage, setSuggestionPage] = useState<SessionChangeSuggestionPage | null>(null)
   const [selectedCandidateId, setSelectedCandidateId] = useState('')
+  const [suggestionTab, setSuggestionTab] = useState<SuggestionTab>('same-hour')
   const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false)
   const [reason, setReason] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -39,6 +42,15 @@ export default function SessionRequestModal({ onClose, onCreated, session }: Pro
   const sessionLabel = useMemo(() => `${formatDate(session.date)} · ${session.hour === null ? '--:--' : `${String(session.hour).padStart(2, '0')}:00`}`, [session.date, session.hour])
   const selectedSuggestion = suggestionPage?.suggestions.find((candidate) => candidate.candidateId === selectedCandidateId) ?? null
   const suggestions = suggestionPage?.suggestions ?? []
+  const sameHourSuggestions = useMemo(
+    () => session.hour === null ? [] : suggestions.filter((candidate) => candidate.hour === session.hour),
+    [session.hour, suggestions],
+  )
+  const otherHourSuggestions = useMemo(
+    () => session.hour === null ? suggestions : suggestions.filter((candidate) => candidate.hour !== session.hour),
+    [session.hour, suggestions],
+  )
+  const activeSuggestions = suggestionTab === 'same-hour' ? sameHourSuggestions : otherHourSuggestions
   const sourceWeekLabel = suggestionPage?.sourceWeekId && suggestionPage.sourceWeekEnd
     ? `${formatDate(suggestionPage.sourceWeekId)} – ${formatDate(suggestionPage.sourceWeekEnd)}`
     : 'tuần của buổi hiện tại'
@@ -49,7 +61,13 @@ export default function SessionRequestModal({ onClose, onCreated, session }: Pro
     try {
       const page = await getMySessionChangeSuggestions(session.id, session.revision)
       setSuggestionPage(page)
-      setSelectedCandidateId((current) => page.suggestions.some((item) => item.candidateId === current) ? current : page.suggestions[0]?.candidateId || '')
+      const retainedCandidate = page.suggestions.find((item) => item.candidateId === selectedCandidateId)
+      const sameHourCandidate = session.hour === null
+        ? null
+        : page.suggestions.find((item) => item.hour === session.hour)
+      const preferredCandidate = retainedCandidate ?? sameHourCandidate ?? page.suggestions[0] ?? null
+      setSuggestionTab(preferredCandidate && session.hour !== null && preferredCandidate.hour === session.hour ? 'same-hour' : 'other-hours')
+      setSelectedCandidateId(preferredCandidate?.candidateId || '')
     } catch (caught) {
       setSuggestionPage(null)
       setSelectedCandidateId('')
@@ -57,6 +75,15 @@ export default function SessionRequestModal({ onClose, onCreated, session }: Pro
     } finally {
       setIsLoadingSuggestions(false)
     }
+  }
+
+  const handleSuggestionTabChange = (nextTab: SuggestionTab) => {
+    const nextSuggestions = nextTab === 'same-hour' ? sameHourSuggestions : otherHourSuggestions
+    if (!nextSuggestions.length) return
+    setSuggestionTab(nextTab)
+    setSelectedCandidateId((current) => nextSuggestions.some((candidate) => candidate.candidateId === current)
+      ? current
+      : nextSuggestions[0].candidateId)
   }
 
   useEffect(() => {
@@ -111,8 +138,37 @@ export default function SessionRequestModal({ onClose, onCreated, session }: Pro
             <header><div><strong>Chọn ca mới từ kho lịch rảnh</strong><span>{suggestions.length ? `${suggestions.length} slot còn chỗ · chỉ trong ${sourceWeekLabel}` : `Chỉ hiển thị slot còn chỗ trong ${sourceWeekLabel}`}</span></div><button type="button" onClick={() => void loadSuggestions()} disabled={isLoadingSuggestions} aria-label="Tải lại ca gợi ý"><RefreshCw className={isLoadingSuggestions ? 'is-spinning' : ''} size={17} /></button></header>
             {isLoadingSuggestions && !suggestionPage && <div className="student-change-suggestions__empty"><RefreshCw className="is-spinning" /> Đang tìm ca phù hợp…</div>}
             {!isLoadingSuggestions && suggestionPage && !suggestionPage.suggestions.length && <div className="student-change-suggestions__empty"><CircleAlert /> Chưa có ca phù hợp.</div>}
+            {suggestionPage && suggestions.length > 0 && <>
+              <div className="student-change-suggestions__tabs" role="tablist" aria-label="Nhóm ca có thể chọn">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={suggestionTab === 'same-hour'}
+                  className={`student-change-suggestions__tab${suggestionTab === 'same-hour' ? ' is-active' : ''}`}
+                  onClick={() => handleSuggestionTabChange('same-hour')}
+                  disabled={!sameHourSuggestions.length}
+                >
+                  <span>Cùng giờ buổi hiện tại</span><b>{sameHourSuggestions.length}</b>
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={suggestionTab === 'other-hours'}
+                  className={`student-change-suggestions__tab${suggestionTab === 'other-hours' ? ' is-active' : ''}`}
+                  onClick={() => handleSuggestionTabChange('other-hours')}
+                  disabled={!otherHourSuggestions.length}
+                >
+                  <span>Kho ca trống khác giờ</span><b>{otherHourSuggestions.length}</b>
+                </button>
+              </div>
+              <p className="student-change-suggestions__hint">
+                {suggestionTab === 'same-hour'
+                  ? 'Ưu tiên các ca còn chỗ cùng giờ với buổi đang đổi.'
+                  : 'Có thể chọn mọi ca còn chỗ trong tuần, không bắt buộc trùng giờ đã đăng ký.'}
+              </p>
+            </>}
             <div className="student-change-suggestions__list">
-              {suggestions.map((candidate) => {
+              {activeSuggestions.map((candidate) => {
                 const availableSeats = Math.max(0, candidate.capacity - candidate.occupancy)
                 const roleLabel = candidate.pairsExistingSession
                   ? `Ưu tiên ghép ca · ${candidate.occupancy}/${candidate.capacity}`
