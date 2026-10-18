@@ -73,6 +73,12 @@ export interface PtPauseOperationsRequest extends PtOperationsRequestBase {
   offLimit: number | null
   newContractEndDate: string | null
   cancelledSessionCount: number
+  requiresExceptionApproval?: boolean
+  exceptionType?: string | null
+  exceptionReason?: string
+  exceptionApproved?: boolean
+  lateByMinutes?: number | null
+  cutoffAt?: string | null
 }
 
 export type PtOperationsRequest = PtSessionOperationsRequest | PtPauseOperationsRequest
@@ -266,6 +272,8 @@ export interface ContractPauseRequestInput {
   endDate: string
   reason: string
   idempotencyKey: string
+  /** Explicitly ask Admin to review an OFF submitted after the configured cutoff. */
+  exception?: boolean
 }
 
 export interface ContractPauseRequestResult {
@@ -277,14 +285,17 @@ export interface ContractPauseRequestResult {
   offLimit: number
   offUsedOrPending: number
   cutoffAt: string | null
+  requiresExceptionApproval?: boolean
+  exceptionType?: 'late_off' | null
+  lateByMinutes?: number | null
 }
 
 export function createMyContractPauseRequest(input: ContractPauseRequestInput) {
   return call<typeof input, ContractPauseRequestResult>('createMyContractPauseRequest', input)
 }
 
-export function approveContractPauseRequest(requestId: string) {
-  return call<{ requestId: string }, { unchanged: boolean; status: 'approved'; type: 'off' | 'preservation'; durationDays: number; newEndDate: string; cancelledSessionCount: number; offSequence?: number | null; offLimit?: number }>('approveContractPauseRequest', { requestId })
+export function approveContractPauseRequest(requestId: string, exceptionReason?: string) {
+  return call<{ requestId: string; exceptionReason?: string }, { unchanged: boolean; status: 'approved'; type: 'off' | 'preservation'; durationDays: number; newEndDate: string; cancelledSessionCount: number; offSequence?: number | null; offLimit?: number; exceptionApproved?: boolean }>('approveContractPauseRequest', { requestId, ...(exceptionReason ? { exceptionReason } : {}) })
 }
 
 export function rejectContractPauseRequest(requestId: string, reason: string) {

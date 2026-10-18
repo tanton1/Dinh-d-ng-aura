@@ -935,6 +935,12 @@
 .student-policy-reason { margin-top: 13px; }
 .student-policy-reason textarea { min-height: 88px; padding-block: 11px; resize: vertical; }
 .student-policy-error { margin: 10px 0 0; padding: 9px 11px; border-radius: 11px; color: #a22543; background: #ffedf0; font-size: 12px; font-weight: 700; }
+.student-policy-exception { display:flex; align-items:flex-start; gap:9px; margin-top:10px; padding:11px 12px; border:1px solid #f2c59b; border-radius:13px; color:#74472f; background:#fff7ed; font-size:12px; line-height:1.45; }
+.student-policy-exception > svg { flex:0 0 auto; margin-top:1px; color:#df6d2d; }
+.student-policy-exception strong { display:block; color:#8b3f1e; font-size:12px; }
+.student-policy-exception p { margin:3px 0 9px; }
+.student-policy-exception button { min-height:37px; padding:0 11px; border:1px solid #edb47f; border-radius:10px; color:#8b3f1e; background:#fff; font-size:11px; font-weight:850; cursor:pointer; }
+.student-policy-exception button:disabled { opacity:.55; cursor:wait; }
 .student-policy-sheet form > footer { position: sticky; bottom: -20px; display: grid; grid-template-columns: .7fr 1.3fr; gap: 9px; margin: 15px -2px 0; padding: 10px 2px calc(2px + env(safe-area-inset-bottom,0px)); background: linear-gradient(0deg,#fff8f7 72%,rgba(255,248,247,0)); }
 .student-policy-sheet form > footer button { min-height: 48px; border: 0; border-radius: 14px; color: #fff; background: linear-gradient(120deg,#f62f82,#ff8751); font-weight: 900; cursor: pointer; }
 .student-policy-sheet form > footer button.secondary { border: 1px solid #eadde3; color: #66545e; background: #fff; }

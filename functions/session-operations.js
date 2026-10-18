@@ -1975,6 +1975,12 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
           offLimit: Number(item.offLimit || 0) || null,
           newContractEndDate: optionalText(item.newContractEndDate, 10) || null,
           cancelledSessionCount: Number(item.cancelledSessionCount || 0),
+          requiresExceptionApproval: item.requiresExceptionApproval === true,
+          exceptionType: optionalText(item.exceptionType, 64) || null,
+          exceptionReason: optionalText(item.exceptionReason) || null,
+          exceptionApproved: item.exceptionApproved === true,
+          lateByMinutes: Number(item.lateByMinutes || 0) || null,
+          cutoffAt: storedInstantIso(item.cutoffAt) || optionalText(item.cutoffAt, 40) || null,
         }
       }
       return {
@@ -3661,6 +3667,7 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
     const endDate = date(request.data?.endDate)
     const reason = boundedReason(request.data?.reason)
     const idempotencyKey = id(request.data?.idempotencyKey, 'Khóa chống gửi trùng')
+    const lateExceptionRequested = request.data?.exception === true && type === 'off'
     let durationDays
     try {
       durationDays = inclusiveDateDays(startDate, endDate)
@@ -3692,6 +3699,9 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
           durationDays: existing.durationDays,
           offLimit: existing.offLimit || null,
           offUsedOrPending: existing.offUsedOrPending || null,
+          cutoffAt: storedInstantIso(existing.cutoffAt) || existing.cutoffAt || null,
+          requiresExceptionApproval: existing.requiresExceptionApproval === true,
+          exceptionType: existing.exceptionType || null,
         }
       }
       if (!contractSnapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy hợp đồng.')
@@ -3722,12 +3732,19 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
       const offLimit = offRegistrationLimit(durationMonths, operationsPolicy)
       const offUsedOrPending = activeRequests.filter(isOffPauseRequest).length
       let cutoffAt = null
+      let requiresExceptionApproval = false
+      let exceptionType = null
+      let lateByMinutes = null
       if (type === 'off') {
         if (offUsedOrPending >= offLimit) throw new HttpsError('failed-precondition', `Hợp đồng ${durationMonths} tháng đã dùng hết ${offLimit} lượt OFF. Hãy đăng ký bảo lưu nếu cần nghỉ dài hơn.`, { issueCode: 'OFF_ALLOWANCE_EXHAUSTED' })
         try {
           cutoffAt = assertWeeklyOffDeadline(startDate, submittedAt, operationsPolicy.offRegistrationCutoffHour).toISOString()
         } catch (error) {
-          throw policyFailure(error)
+          if (!lateExceptionRequested) throw policyFailure(error)
+          requiresExceptionApproval = true
+          exceptionType = 'late_off'
+          cutoffAt = error.deadlineAt || null
+          lateByMinutes = cutoffAt ? Math.max(1, Math.round((submittedAt.getTime() - Date.parse(cutoffAt)) / 60_000)) : null
         }
       }
 
@@ -3748,6 +3765,10 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
         offLimit,
         offUsedOrPending: type === 'off' ? offUsedOrPending + 1 : offUsedOrPending,
         cutoffAt,
+        requiresExceptionApproval,
+        exceptionType,
+        lateByMinutes,
+        exceptionRequestedAtIso: requiresExceptionApproval ? submittedAt.toISOString() : null,
         submittedAtIso: submittedAt.toISOString(),
         idempotencyKey,
         revision: 0,
@@ -3763,6 +3784,9 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
         offLimit,
         offUsedOrPending: type === 'off' ? offUsedOrPending + 1 : offUsedOrPending,
         cutoffAt,
+        requiresExceptionApproval,
+        exceptionType,
+        lateByMinutes,
       }
     })
   })
@@ -3770,6 +3794,7 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
   const approveContractPauseRequest = onCall(async (request) => {
     const actor = await authorizeAdmin(request, db)
     const requestId = id(request.data?.requestId, 'Mã yêu cầu')
+    const exceptionReasonInput = optionalText(request.data?.exceptionReason)
     const requestReference = db.doc(`leaveRequests/${requestId}`)
     return db.runTransaction(async (transaction) => {
       const requestSnapshot = await transaction.get(requestReference)
@@ -3791,6 +3816,12 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
       const type = requestData.type === 'off' || requestData.type === 'preservation'
         ? pauseRequestType(requestData.type)
         : durationDays <= operationsPolicy.offMaxDaysPerRequest ? 'off' : 'preservation'
+      const lateOffException = type === 'off'
+        && requestData.requiresExceptionApproval === true
+        && requestData.exceptionType === 'late_off'
+      if (lateOffException && exceptionReasonInput.length < 3) {
+        throw new HttpsError('invalid-argument', 'Duyệt OFF ngoại lệ cần nhập lý do từ 3 ký tự.')
+      }
       if (type === 'off' && durationDays > operationsPolicy.offMaxDaysPerRequest) throw new HttpsError('failed-precondition', `OFF vượt quá ${operationsPolicy.offMaxDaysPerRequest} ngày; yêu cầu phải được tạo lại dưới dạng bảo lưu.`)
       if (type === 'preservation' && durationDays <= operationsPolicy.offMaxDaysPerRequest) throw new HttpsError('failed-precondition', 'Khoảng nghỉ này phải được tạo dưới dạng OFF.')
       if (type === 'off') {
@@ -3799,7 +3830,7 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
         try {
           assertWeeklyOffDeadline(startDate, submittedAt, operationsPolicy.offRegistrationCutoffHour)
         } catch (error) {
-          throw policyFailure(error)
+          if (!lateOffException) throw policyFailure(error)
         }
       }
 
@@ -3893,6 +3924,14 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
         removedScheduleEntryCount,
         approvedAt: FieldValue.serverTimestamp(),
         approvedBy: actor.uid,
+        ...(lateOffException ? {
+          exceptionApprovalStatus: 'approved',
+          exceptionApproved: true,
+          exceptionReason: exceptionReasonInput,
+          exceptionApprovedAt: FieldValue.serverTimestamp(),
+          exceptionApprovedBy: actor.uid,
+          exceptionPolicyCode: 'LATE_OFF_AFTER_CUTOFF',
+        } : {}),
         revision: Number(requestData.revision || 0) + 1,
       })
       transaction.create(db.doc(`contractPauseEvents/${requestId}`), {
@@ -3907,6 +3946,9 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
         oldEndDate: contract.endDate,
         newEndDate,
         cancelledSessionIds: activeSessions.map((item) => item.id),
+        exceptionApproved: lateOffException,
+        exceptionType: lateOffException ? 'late_off' : null,
+        exceptionReason: lateOffException ? exceptionReasonInput : null,
         createdAt: FieldValue.serverTimestamp(),
         createdBy: actor.uid,
       })
@@ -3915,7 +3957,7 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
         transaction.create(notificationReference, {
           id: notificationReference.id,
           userId: requestData.accountUid,
-          title: type === 'off' ? 'Yêu cầu OFF đã được duyệt' : 'Yêu cầu bảo lưu đã được duyệt',
+          title: lateOffException ? 'Yêu cầu OFF ngoại lệ đã được duyệt' : type === 'off' ? 'Yêu cầu OFF đã được duyệt' : 'Yêu cầu bảo lưu đã được duyệt',
           message: `${startDate} → ${endDate} · hợp đồng được cộng ${durationDays} ngày`,
           type: 'pt_schedule',
           category: 'workout',
@@ -3925,7 +3967,7 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
           createdAt: FieldValue.serverTimestamp(),
         })
       }
-      return { unchanged: false, status: 'approved', type, durationDays, newEndDate, cancelledSessionCount: activeSessions.length, offSequence: type === 'off' ? approvedOffCount + 1 : null, offLimit }
+      return { unchanged: false, status: 'approved', type, durationDays, newEndDate, cancelledSessionCount: activeSessions.length, offSequence: type === 'off' ? approvedOffCount + 1 : null, offLimit, exceptionApproved: lateOffException }
     })
   })
 
@@ -3940,14 +3982,25 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
       const data = snapshot.data()
       if (data.status === 'rejected') return { unchanged: true, status: 'rejected' }
       if (data.status !== 'pending') throw new HttpsError('failed-precondition', 'Yêu cầu này không còn chờ duyệt.')
-      transaction.update(requestReference, { status: 'rejected', adminNote: reason, rejectedAt: FieldValue.serverTimestamp(), rejectedBy: actor.uid, revision: Number(data.revision || 0) + 1 })
-      transaction.create(db.collection('contractPauseEvents').doc(), { schemaVersion: 1, requestId, contractId: data.contractId || '', studentId: data.studentId || '', type: 'rejected', reason, createdAt: FieldValue.serverTimestamp(), createdBy: actor.uid })
+      transaction.update(requestReference, {
+        status: 'rejected',
+        adminNote: reason,
+        rejectedAt: FieldValue.serverTimestamp(),
+        rejectedBy: actor.uid,
+        ...(data.requiresExceptionApproval === true ? {
+          exceptionApprovalStatus: 'rejected',
+          exceptionRejectedAt: FieldValue.serverTimestamp(),
+          exceptionRejectedBy: actor.uid,
+        } : {}),
+        revision: Number(data.revision || 0) + 1,
+      })
+      transaction.create(db.collection('contractPauseEvents').doc(), { schemaVersion: 1, requestId, contractId: data.contractId || '', studentId: data.studentId || '', type: 'rejected', reason, exceptionType: data.requiresExceptionApproval === true ? 'late_off' : null, createdAt: FieldValue.serverTimestamp(), createdBy: actor.uid })
       if (typeof data.accountUid === 'string' && /^[A-Za-z0-9_-]+$/.test(data.accountUid)) {
         const notificationReference = db.doc(`users/${data.accountUid}/notifications/pt-pause-request-${requestId}-rejected`)
         transaction.create(notificationReference, {
           id: notificationReference.id,
           userId: data.accountUid,
-          title: data.type === 'preservation' ? 'Yêu cầu bảo lưu chưa được duyệt' : 'Yêu cầu OFF chưa được duyệt',
+          title: data.requiresExceptionApproval === true ? 'Yêu cầu OFF ngoại lệ chưa được duyệt' : data.type === 'preservation' ? 'Yêu cầu bảo lưu chưa được duyệt' : 'Yêu cầu OFF chưa được duyệt',
           message: reason,
           type: 'pt_schedule',
           category: 'workout',

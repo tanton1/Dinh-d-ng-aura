@@ -1292,6 +1292,51 @@ test('admin approval rechecks the configured Sunday 09:00 OFF submission cutoff'
   assert.equal(state.read('contracts/contract-1').endDate, '2026-10-31')
 })
 
+test('late OFF can be submitted only as an explicit exception request', async () => {
+  const state = operationsFor({
+    'contracts/contract-late-request': { status: 'active', studentId: 'student-1', packageId: 'package-3m', startDate: '2026-08-01', endDate: '2026-10-31', totalSessions: 36, usedSessions: 3 },
+    'packages/package-3m': { durationMonths: 3 },
+  }, undefined, { now: () => new Date('2026-08-23T03:30:00.000Z') })
+
+  await assert.rejects(
+    state.createMyContractPauseRequest({ data: { contractId: 'contract-late-request', type: 'off', startDate: '2026-08-24', endDate: '2026-08-25', reason: 'Báo nghỉ đột xuất', idempotencyKey: 'late-normal' } }),
+    (error) => error.code === 'failed-precondition' && error.details?.issueCode === 'OFF_REGISTRATION_DEADLINE_PASSED',
+  )
+  assert.equal(state.read('leaveRequests/student-student-account-late-normal'), undefined)
+
+  const result = await state.createMyContractPauseRequest({ data: { contractId: 'contract-late-request', type: 'off', startDate: '2026-08-24', endDate: '2026-08-25', reason: 'Báo nghỉ đột xuất', idempotencyKey: 'late-exception', exception: true } })
+  assert.equal(result.requiresExceptionApproval, true)
+  assert.equal(result.exceptionType, 'late_off')
+  assert.equal(result.lateByMinutes, 90)
+  assert.equal(state.read('leaveRequests/student-student-account-late-exception').requiresExceptionApproval, true)
+  assert.equal(state.read('leaveRequests/student-student-account-late-exception').status, 'pending')
+})
+
+test('admin approval of a late OFF exception requires an auditable reason and extends the contract', async () => {
+  const state = operationsFor({
+    'leaveRequests/late-exception-approval': {
+      status: 'pending', type: 'off', studentId: 'student-1', accountUid: 'student-account', contractId: 'contract-late-approval',
+      startDate: '2026-08-24', endDate: '2026-08-25', durationDays: 2, reason: 'Báo nghỉ đột xuất',
+      submittedAtIso: '2026-08-23T03:30:00.000Z', cutoffAt: '2026-08-23T02:00:00.000Z', requiresExceptionApproval: true,
+      exceptionType: 'late_off', lateByMinutes: 90, revision: 0,
+    },
+    'contracts/contract-late-approval': { status: 'active', studentId: 'student-1', packageId: 'package-3m', startDate: '2026-08-01', endDate: '2026-10-31', totalSessions: 36, usedSessions: 3 },
+    'packages/package-3m': { durationMonths: 3 },
+  })
+
+  await assert.rejects(
+    state.approveContractPauseRequest({ data: { requestId: 'late-exception-approval' } }),
+    (error) => error.code === 'invalid-argument',
+  )
+  const result = await state.approveContractPauseRequest({ data: { requestId: 'late-exception-approval', exceptionReason: 'Khách báo nghỉ đột xuất sau khi đã chốt lịch.' } })
+  assert.equal(result.exceptionApproved, true)
+  assert.equal(state.read('leaveRequests/late-exception-approval').exceptionApprovalStatus, 'approved')
+  assert.equal(state.read('leaveRequests/late-exception-approval').exceptionPolicyCode, 'LATE_OFF_AFTER_CUTOFF')
+  assert.equal(state.read('leaveRequests/late-exception-approval').exceptionReason, 'Khách báo nghỉ đột xuất sau khi đã chốt lịch.')
+  assert.equal(state.read('contracts/contract-late-approval').endDate, '2026-11-02')
+  assert.equal(state.read('contractPauseEvents/late-exception-approval').exceptionApproved, true)
+})
+
 test('trainer cancellation keeps its provenance and never consumes the learner monthly allowance', async () => {
   const seed = {
     'sessionRequests/request-2': { status: 'pending', type: 'cancel', sessionId: 'session-2', studentId: 'student-2', contractId: 'contract-2', trainerId: 'trainer-2', requestedBy: 'trainer', originalDate: '2026-08-21', originalHour: 9, originalSessionRevision: 0, reason: 'HLV nghỉ' },

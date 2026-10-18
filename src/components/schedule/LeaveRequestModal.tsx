@@ -27,6 +27,20 @@ function duration(startDate: string, endDate: string) {
   return Number.isFinite(start) && Number.isFinite(end) && end >= start ? Math.round((end - start) / 86_400_000) + 1 : 0
 }
 
+function callableDetails(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== 'object') return {}
+  const source = value as { details?: unknown; customData?: unknown }
+  const details = source.details && typeof source.details === 'object' ? source.details : source.customData
+  return details && typeof details === 'object' ? details as Record<string, unknown> : {}
+}
+
+function cutoffLabel(value: string) {
+  const parsed = new Date(value)
+  return Number.isNaN(parsed.getTime())
+    ? value
+    : new Intl.DateTimeFormat('vi-VN', { dateStyle: 'medium', timeStyle: 'short' }).format(parsed)
+}
+
 export default function LeaveRequestModal({ onClose, onCreated, contractId, policy }: Props) {
   const [type, setType] = useState<'off' | 'preservation'>('off')
   const [startDate, setStartDate] = useState('')
@@ -34,14 +48,15 @@ export default function LeaveRequestModal({ onClose, onCreated, contractId, poli
   const [reason, setReason] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState('')
+  const [lateExceptionPrompt, setLateExceptionPrompt] = useState(false)
+  const [lateCutoffAt, setLateCutoffAt] = useState<string | null>(null)
   const idempotencyKey = useRef(newKey())
   const durationDays = useMemo(() => duration(startDate, endDate), [startDate, endDate])
   const offMaxDays = policy?.offMaxDaysPerRequest ?? PT_OPERATIONS_POLICY_DEFAULTS.offMaxDaysPerRequest
   const cutoffHour = policy?.offRegistrationCutoffHour ?? PT_OPERATIONS_POLICY_DEFAULTS.offRegistrationCutoffHour
   const offLimits = policy?.offLimitsByDuration ?? PT_OPERATIONS_POLICY_DEFAULTS.offLimitsByDuration
 
-  const handleSubmit = async (event: React.FormEvent) => {
-    event.preventDefault()
+  const submitRequest = async (exception = false) => {
     if (isSubmitting) return
     setError('')
     if (!durationDays) return setError('Khoảng ngày chưa hợp lệ.')
@@ -50,15 +65,30 @@ export default function LeaveRequestModal({ onClose, onCreated, contractId, poli
     if (reason.trim().length < 3) return setError('Vui lòng nhập lý do từ 3 ký tự.')
     setIsSubmitting(true)
     try {
-      const result = await createMyContractPauseRequest({ contractId, type, startDate, endDate, reason: reason.trim(), idempotencyKey: idempotencyKey.current })
+      const result = await createMyContractPauseRequest({ contractId, type, startDate, endDate, reason: reason.trim(), idempotencyKey: idempotencyKey.current, ...(exception ? { exception: true } : {}) })
       const allowance = type === 'off' ? ` Lượt OFF đang dùng/chờ duyệt: ${result.offUsedOrPending}/${result.offLimit}.` : ''
-      onCreated?.(`Đã gửi yêu cầu ${type === 'off' ? 'OFF' : 'bảo lưu'} ${result.durationDays} ngày.${allowance} Khi được duyệt, ngày hết hạn hợp đồng sẽ được cộng tương ứng.`)
+      const reviewMessage = result.requiresExceptionApproval ? ' Đây là yêu cầu ngoại lệ sau giờ chốt và đang chờ Admin duyệt.' : ''
+      onCreated?.(`Đã gửi yêu cầu ${type === 'off' ? 'OFF' : 'bảo lưu'} ${result.durationDays} ngày.${allowance}${reviewMessage} Khi được duyệt, ngày hết hạn hợp đồng sẽ được cộng tương ứng.`)
       onClose()
     } catch (caught) {
-      setError((caught instanceof Error ? caught.message : 'Chưa thể gửi yêu cầu.').replace(/^Firebase:\s*/i, ''))
+      const details = callableDetails(caught)
+      const issueCode = typeof details.issueCode === 'string' ? details.issueCode : ''
+      if (!exception && type === 'off' && issueCode === 'OFF_REGISTRATION_DEADLINE_PASSED') {
+        const deadline = typeof details.deadlineAt === 'string' ? details.deadlineAt : null
+        setLateCutoffAt(deadline)
+        setLateExceptionPrompt(true)
+        setError(`Đã quá giờ chốt OFF${deadline ? ` (${cutoffLabel(deadline)})` : ''}. Bạn có thể gửi yêu cầu ngoại lệ để Admin xem xét.`)
+      } else {
+        setError((caught instanceof Error ? caught.message : 'Chưa thể gửi yêu cầu.').replace(/^Firebase:\s*/i, ''))
+      }
     } finally {
       setIsSubmitting(false)
     }
+  }
+
+  const handleSubmit = (event: React.FormEvent) => {
+    event.preventDefault()
+    void submitRequest(false)
   }
 
   return (
@@ -69,11 +99,12 @@ export default function LeaveRequestModal({ onClose, onCreated, contractId, poli
         <div className="student-policy-note"><CircleAlert size={18} /><p><strong>OFF tối đa {offMaxDays} ngày/lần</strong> và gửi trước {String(cutoffHour).padStart(2, '0')}:00 Chủ nhật của tuần nghỉ. Dài hơn phải chọn Bảo lưu.</p></div>
         <div className="student-policy-note is-success"><ShieldCheck size={18} /><p>Hợp đồng 3 tháng có {offLimits.threeMonths} lượt OFF, 6 tháng có {offLimits.sixMonths} lượt, 12 tháng có {offLimits.twelveMonths} lượt. Thời gian được duyệt sẽ cộng vào ngày hết hạn.</p></div>
         <form onSubmit={handleSubmit}>
-          <div className="student-policy-segment"><button type="button" className={type === 'off' ? 'active' : ''} onClick={() => setType('off')}>OFF ≤ {offMaxDays} ngày</button><button type="button" className={type === 'preservation' ? 'active' : ''} onClick={() => setType('preservation')}>Bảo lưu &gt; {offMaxDays} ngày</button></div>
+          <div className="student-policy-segment"><button type="button" className={type === 'off' ? 'active' : ''} onClick={() => { setType('off'); setLateExceptionPrompt(false); setError('') }}>OFF ≤ {offMaxDays} ngày</button><button type="button" className={type === 'preservation' ? 'active' : ''} onClick={() => { setType('preservation'); setLateExceptionPrompt(false); setError('') }}>Bảo lưu &gt; {offMaxDays} ngày</button></div>
           <div className="student-policy-fields two-columns"><label><span>Từ ngày</span><input type="date" required value={startDate} onChange={(event) => setStartDate(event.target.value)} /></label><label><span>Đến ngày</span><input type="date" required value={endDate} onChange={(event) => setEndDate(event.target.value)} /></label></div>
           {durationDays > 0 && <div className="student-policy-duration"><span>Thời gian đề nghị</span><strong>{durationDays} ngày</strong></div>}
           <label className="student-policy-reason"><span>Lý do</span><textarea required maxLength={500} value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Công tác, du lịch, sức khỏe…" /></label>
           {error && <p className="student-policy-error" role="alert">{error}</p>}
+          {lateExceptionPrompt && type === 'off' && <div className="student-policy-exception"><CircleAlert size={18} /><div><strong>Gửi yêu cầu ngoại lệ?</strong><p>{lateCutoffAt ? `Hệ thống sẽ giữ nguyên mốc chốt ${cutoffLabel(lateCutoffAt)} và chuyển hồ sơ cho Admin duyệt.` : 'Hồ sơ sẽ chuyển cho Admin duyệt trước khi cộng ngày hợp đồng.'}</p><button type="button" onClick={() => void submitRequest(true)} disabled={isSubmitting}>{isSubmitting ? 'Đang gửi…' : 'Gửi yêu cầu ngoại lệ để Admin duyệt'}</button></div></div>}
           <footer><button type="button" className="secondary" onClick={onClose}>Để sau</button><button type="submit" disabled={isSubmitting}>{isSubmitting ? 'Đang gửi…' : 'Gửi yêu cầu'}</button></footer>
         </form>
       </section>
