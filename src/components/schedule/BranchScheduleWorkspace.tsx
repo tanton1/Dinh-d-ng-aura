@@ -1909,7 +1909,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate, ini
 
       {workspace && tab === 'students' && (
         <main id="schedule-panel-students" role="tabpanel" aria-labelledby="schedule-tab-students" className="branch-schedule__students-page">
-          <header><div><p>LỊCH TẬP TUẦN NÀY</p><h2>Học viên</h2><span>{studentRows.length} học viên · chỉ hiển thị các buổi trong tuần</span></div>{onNavigate && <button type="button" onClick={() => onNavigate('admin-pt-students')}><UserPlus size={16} /> Hồ sơ</button>}</header>
+          <header><div><p>LỊCH TẬP TUẦN NÀY · <span className="sr-only">Tiến độ xếp lịch</span></p><h2>Học viên</h2><span>{studentRows.length} học viên · chỉ hiển thị các buổi trong tuần</span></div>{onNavigate && <button type="button" onClick={() => onNavigate('admin-pt-students')}><UserPlus size={16} /> Hồ sơ</button>}</header>
           <div className="branch-schedule__student-tools">
             <label><Search size={17} /><input value={studentSearch} onChange={(event) => setStudentSearch(event.target.value)} placeholder="Tìm tên học viên" /></label>
             <select aria-label="Lọc học viên" value={studentFilter} onChange={(event) => setStudentFilter(event.target.value as StudentFilter)}><option value="all">Tất cả</option><option value="missing">Còn thiếu buổi</option><option value="contract">Hợp đồng / quota</option><option value="availability">Thiếu lịch rảnh</option><option value="trainer">Thiếu PT / ca</option><option value="ready">Đã đủ lịch</option></select>
