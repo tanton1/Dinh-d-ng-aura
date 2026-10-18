@@ -158,6 +158,7 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
   const [sessions, setSessions] = useState<TrainerSessionSummary[]>([])
   const [requests, setRequests] = useState<TrainerSessionRequestSummary[]>([])
   const [from, setFrom] = useState(dateString(new Date()))
+  const [mobileDayPage, setMobileDayPage] = useState(0)
   const [loading, setLoading] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState('')
@@ -196,6 +197,14 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
       ? canViewSchedule
       : canViewRequests
   const rangeFrom = useMemo(() => ['schedule', 'students'].includes(section) ? mondayOf(from) : from, [from, section])
+  useEffect(() => {
+    if (section !== 'schedule') {
+      setMobileDayPage(0)
+      return
+    }
+    const dayIndex = Math.max(0, Math.min(5, Math.round((Date.parse(`${from}T12:00:00+07:00`) - Date.parse(`${rangeFrom}T12:00:00+07:00`)) / 86_400_000)))
+    setMobileDayPage(Math.floor(dayIndex / 2))
+  }, [from, rangeFrom, section])
   const to = useMemo(() => section === 'students'
     ? addDateDays(rangeFrom, 61)
     : section === 'schedule'
@@ -583,7 +592,7 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
       const confirmed = daySessions.filter((session) => attendanceState(session) !== 'pending')
       const pendingStarted = daySessions.filter((session) => attendanceState(session) === 'pending' && sessionStartsAt(session) <= now)
       const future = daySessions.filter((session) => sessionStartsAt(session) > now)
-      const weekDays = Array.from({ length: 7 }, (_, index) => ({ date: addDateDays(rangeFrom, index), label: index === 6 ? 'CN' : `T${index + 2}` }))
+      const weekDays = Array.from({ length: 6 }, (_, index) => ({ date: addDateDays(rangeFrom, index), label: `T${index + 2}` }))
       const matrixHours = [...new Set([6, 7, 8, 9, 10, 11, 14, 15, 16, 17, 18, 19, 20, ...sessions.map((session) => session.hour).filter((hour): hour is number => Number.isInteger(hour))])].sort((a, b) => a - b)
       const matrixIndex = new Map<string, TrainerSessionSummary[]>()
       sessions.forEach((session) => {
@@ -591,26 +600,41 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
         const key = `${session.date}:${session.hour}`
         matrixIndex.set(key, [...(matrixIndex.get(key) || []), session])
       })
+      const mobileDayGroups = [weekDays.slice(0, 2), weekDays.slice(2, 4), weekDays.slice(4, 6)]
+      const activeMobileDayPage = Math.min(mobileDayPage, mobileDayGroups.length - 1)
+      const mobileDays = mobileDayGroups[activeMobileDayPage]
+      const selectMatrixDay = (date: string) => {
+        setFrom(date)
+      }
+      const renderMatrix = (days: typeof weekDays, variant: 'desktop' | 'mobile') => <div className={`opv2-week-matrix opv2-week-matrix--${variant}${days.length === 1 ? ' is-single-day' : ''}`}>
+        <span className="opv2-week-corner">Giờ</span>
+        {days.map((day) => <button type="button" key={day.date} className={`opv2-week-day${from === day.date ? ' is-selected' : ''}`} onClick={() => selectMatrixDay(day.date)}><strong>{day.label}</strong><small>{compactDate(day.date)}</small></button>)}
+        {matrixHours.map((hour) => <div className="opv2-week-row" key={hour}>
+          <time>{String(hour).padStart(2, '0')}:00</time>
+          {days.map((day) => {
+            const items = matrixIndex.get(`${day.date}:${hour}`) || []
+            const pending = items.some((item) => attendanceState(item) === 'pending' && sessionStartsAt(item) <= now)
+            const done = items.length > 0 && items.every((item) => attendanceState(item) !== 'pending')
+            const released = items.some((item) => item.advanceAbsenceNotice?.replacementLocked === true)
+            return <button type="button" key={day.date} className={`opv2-week-cell${items.length ? ' has-session' : ''}${pending ? ' is-pending' : ''}${done ? ' is-done' : ''}${released ? ' is-advance-absence' : ''}`} aria-label={`${day.label} ${String(hour).padStart(2, '0')}:00, ${items.length} học viên`} onClick={() => selectMatrixDay(day.date)}>
+              {items.length ? <><b>{items.length}/2</b>{items.slice(0, 2).map((item) => <span key={item.id}>{studentNames.get(item.studentId) || item.studentName || 'Học viên'}{item.advanceAbsenceNotice?.replacementLocked ? ' · đã giải phóng' : ''}</span>)}</> : <i>—</i>}
+            </button>
+          })}
+        </div>)}
+      </div>
       return <>
         <section className="opv2-week-card">
           <header><div><p className="opv2-kicker-dark">Ma trận tuần</p><h2>{compactDate(rangeFrom)} – {compactDate(addDateDays(rangeFrom, 6))}</h2></div><div><button type="button" aria-label="Tuần trước" onClick={() => setFrom(addDateDays(rangeFrom, -7))}><ChevronLeft /></button><button type="button" aria-label="Tuần sau" onClick={() => setFrom(addDateDays(rangeFrom, 7))}><ChevronRight /></button></div></header>
-          <div className="opv2-week-scroll" role="region" aria-label="Ma trận lịch dạy chi tiết cả tuần" tabIndex={0}>
-            <div className="opv2-week-matrix">
-              <span className="opv2-week-corner">Giờ</span>
-              {weekDays.map((day) => <button type="button" key={day.date} className={`opv2-week-day${from === day.date ? ' is-selected' : ''}`} onClick={() => setFrom(day.date)}><strong>{day.label}</strong><small>{compactDate(day.date)}</small></button>)}
-              {matrixHours.map((hour) => <div className="opv2-week-row" key={hour}>
-                <time>{String(hour).padStart(2, '0')}:00</time>
-                {weekDays.map((day) => {
-                  const items = matrixIndex.get(`${day.date}:${hour}`) || []
-                  const pending = items.some((item) => attendanceState(item) === 'pending' && sessionStartsAt(item) <= now)
-                  const done = items.length > 0 && items.every((item) => attendanceState(item) !== 'pending')
-                  const released = items.some((item) => item.advanceAbsenceNotice?.replacementLocked === true)
-                  return <button type="button" key={day.date} className={`opv2-week-cell${items.length ? ' has-session' : ''}${pending ? ' is-pending' : ''}${done ? ' is-done' : ''}${released ? ' is-advance-absence' : ''}`} aria-label={`${day.label} ${String(hour).padStart(2, '0')}:00, ${items.length} học viên`} onClick={() => setFrom(day.date)}>
-                    {items.length ? <><b>{items.length}/2</b>{items.slice(0, 2).map((item) => <span key={item.id}>{studentNames.get(item.studentId) || item.studentName || 'Học viên'}{item.advanceAbsenceNotice?.replacementLocked ? ' · đã giải phóng' : ''}</span>)}</> : <i>—</i>}
-                  </button>
-                })}
-              </div>)}
+          <div className="opv2-week-day-tabs" aria-label="Chọn nhóm ngày hiển thị">
+            <button type="button" aria-label="Nhóm ngày trước" disabled={activeMobileDayPage === 0} onClick={() => setMobileDayPage((page) => Math.max(0, page - 1))}><ChevronLeft /></button>
+            <div role="tablist">
+              {mobileDayGroups.map((days, index) => <button type="button" role="tab" aria-selected={activeMobileDayPage === index} className={activeMobileDayPage === index ? 'is-active' : ''} key={days[0].date} onClick={() => setMobileDayPage(index)}>{days[0].label}{days.length > 1 ? ` – ${days[days.length - 1].label}` : ''}</button>)}
             </div>
+            <button type="button" aria-label="Nhóm ngày sau" disabled={activeMobileDayPage === mobileDayGroups.length - 1} onClick={() => setMobileDayPage((page) => Math.min(mobileDayGroups.length - 1, page + 1))}><ChevronRight /></button>
+          </div>
+          <div className="opv2-week-scroll" role="region" aria-label="Ma trận lịch dạy chi tiết cả tuần" tabIndex={0}>
+            {renderMatrix(weekDays, 'desktop')}
+            {renderMatrix(mobileDays, 'mobile')}
           </div>
           <footer><span><i className="is-done" /> Đã xác nhận</span><span><i className="is-pending" /> Chờ PT</span><span><i /> Sắp tới</span></footer>
         </section>
