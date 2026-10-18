@@ -202,6 +202,9 @@ export interface SessionChangeSuggestionPage {
   schemaVersion: number
   sessionId: string
   revision: number
+  /** The replacement pool is intentionally limited to this calendar week. */
+  sourceWeekId?: string | null
+  sourceWeekEnd?: string | null
   policyMonth: string
   homeBranchId?: string
   homeBranchName?: string

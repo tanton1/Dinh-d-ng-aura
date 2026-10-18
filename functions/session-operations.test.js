@@ -461,6 +461,30 @@ test('change suggestions honor the PT weekly override instead of the recurring p
   assert.equal(page.suggestions.some((item) => item.date === '2026-08-21' && item.hour === 10), false)
 })
 
+test('learner change suggestions use the weekly schedule pool for occupancy and OFF locks', async () => {
+  const state = operationsFor({
+    'settings/scheduleConfig': { sessionChangeDeadlineHours: 12 },
+    'sessions/source-pool': { status: 'scheduled', studentId: 'student-1', trainerId: 'trainer-1', contractId: 'contract-1', branchId: 'branch-1', date: '2026-08-22', hour: 7, revision: 1 },
+    'contracts/contract-1': { status: 'active', studentId: 'student-1', trainerId: 'trainer-1', branchId: 'branch-1', startDate: '2026-08-01', endDate: '2026-08-31', totalSessions: 12, usedSessions: 1 },
+    'students/student-1': { status: 'active', branchId: 'branch-1', isScheduleConfirmed: true, availableSlots: ['T6-10', 'T6-11'] },
+    'trainers/trainer-1': { status: 'active', name: 'PT Kho ca', branchId: 'branch-1', employmentType: 'full_time', availableSlots: ['T6-10', 'T6-11'], slotCapacity: 2 },
+    'ptScheduleDrafts/branch-1_2026-08-17': {
+      branchId: 'branch-1', weekId: '2026-08-17', status: 'published', revision: 3, publishedRevision: 3,
+      schedule: {
+        'T6-10': [{ studentId: 'student-2', trainerId: 'trainer-1', branchId: 'branch-1', type: 'training' }],
+        'T6-11': [{ studentId: 'OFF', trainerId: 'trainer-1', branchId: 'branch-1', type: 'off' }],
+      },
+    },
+  })
+
+  const page = await state.getMySessionChangeSuggestions({ data: { sessionId: 'source-pool', expectedRevision: 1 } })
+  const paired = page.suggestions.find((item) => item.date === '2026-08-21' && item.hour === 10)
+  assert.ok(paired)
+  assert.equal(paired.occupancy, 1)
+  assert.equal(paired.pairsExistingSession, true)
+  assert.equal(page.suggestions.some((item) => item.date === '2026-08-21' && item.hour === 11), false)
+})
+
 test('additional-session opportunities strictly rank open 1/2 seat, primary PT under target, then another PT', async () => {
   const state = operationsFor({
     'settings/scheduleConfig': { sessionChangeDeadlineHours: 12 },
@@ -625,25 +649,25 @@ test('change suggestions keep a valid ninth PT slot and label it as soft-target 
 test('approval allows a ninth PT teaching slot while preserving hard collision checks', async () => {
   const occupied = Object.fromEntries(Array.from({ length: 8 }, (_, index) => [`sessions/approval-load-${index}`, {
     status: 'scheduled', studentId: `other-${index}`, trainerId: 'trainer-1', contractId: `other-contract-${index}`,
-    branchId: 'branch-1', date: '2026-08-25', hour: index + 6, revision: 0,
+    branchId: 'branch-1', date: '2026-08-21', hour: index + 6, revision: 0,
   }]))
   const state = operationsFor({
     'settings/scheduleConfig': { complimentaryChangeCancelPerMonth: 2, sessionChangeDeadlineHours: 12 },
     'sessionRequests/request-nine': {
       status: 'pending', type: 'reschedule', sessionId: 'session-nine', studentId: 'student-1', contractId: 'contract-1', requestedBy: 'student',
-      originalDate: '2026-08-22', originalHour: 7, originalSessionRevision: 0, newDate: '2026-08-25', newHour: 14,
+      originalDate: '2026-08-22', originalHour: 7, originalSessionRevision: 0, newDate: '2026-08-21', newHour: 14,
       newTrainerId: 'trainer-1', submittedAtIso: '2026-08-20T00:00:00.000Z', policyMonth: '2026-08',
     },
     'sessions/session-nine': { status: 'scheduled', studentId: 'student-1', trainerId: 'trainer-1', contractId: 'contract-1', branchId: 'branch-1', date: '2026-08-22', hour: 7, revision: 0 },
     ...occupied,
     'contracts/contract-1': { status: 'active', studentId: 'student-1', trainerId: 'trainer-1', branchId: 'branch-1', startDate: '2026-08-01', endDate: '2026-08-31', totalSessions: 20, usedSessions: 1 },
-    'students/student-1': { status: 'active', branchId: 'branch-1', isScheduleConfirmed: true, availableSlots: ['T3-14'] },
-    'trainers/trainer-1': { status: 'active', branchId: 'branch-1', employmentType: 'full_time', availableSlots: ['T3-14'], slotCapacity: 2, dailySessionTarget: 8 },
+    'students/student-1': { status: 'active', branchId: 'branch-1', isScheduleConfirmed: true, availableSlots: ['T6-14'] },
+    'trainers/trainer-1': { status: 'active', branchId: 'branch-1', employmentType: 'full_time', availableSlots: ['T6-14'], slotCapacity: 2, dailySessionTarget: 8 },
   }, async () => ({ uid: 'admin-1' }), { now: () => new Date('2026-08-20T03:00:00.000Z') })
 
   const result = await state.approveSessionRequest({ data: { requestId: 'request-nine', expectedSessionRevision: 0 } })
   assert.equal(result.unchanged, false)
-  assert.equal(state.read('sessions/session-nine').date, '2026-08-25')
+  assert.equal(state.read('sessions/session-nine').date, '2026-08-21')
   assert.equal(state.read('sessions/session-nine').hour, 14)
   assert.equal(state.read('sessionRequests/request-nine').status, 'approved')
 })
@@ -653,14 +677,14 @@ test('approval rejects a stale reschedule after the PT weekly availability chang
     'settings/scheduleConfig': { sessionChangeDeadlineHours: 12 },
     'sessionRequests/request-weekly-stale': {
       status: 'pending', type: 'reschedule', sessionId: 'session-weekly-stale', studentId: 'student-1', contractId: 'contract-1', requestedBy: 'student',
-      originalDate: '2026-08-22', originalHour: 7, originalSessionRevision: 0, newDate: '2026-08-25', newHour: 14,
+      originalDate: '2026-08-22', originalHour: 7, originalSessionRevision: 0, newDate: '2026-08-21', newHour: 14,
       newTrainerId: 'trainer-1', submittedAtIso: '2026-08-20T00:00:00.000Z', policyMonth: '2026-08',
     },
     'sessions/session-weekly-stale': { status: 'scheduled', studentId: 'student-1', trainerId: 'trainer-1', contractId: 'contract-1', branchId: 'branch-1', date: '2026-08-22', hour: 7, revision: 0 },
     'contracts/contract-1': { status: 'active', studentId: 'student-1', trainerId: 'trainer-1', branchId: 'branch-1', startDate: '2026-08-01', endDate: '2026-08-31', totalSessions: 20, usedSessions: 1 },
-    'students/student-1': { status: 'active', branchId: 'branch-1', isScheduleConfirmed: true, availableSlots: ['T3-14'] },
-    'trainers/trainer-1': { status: 'active', branchId: 'branch-1', employmentType: 'full_time', availableSlots: ['T3-14'], slotCapacity: 2 },
-    'trainerAvailability/trainer-1_2026-08-24': { trainerId: 'trainer-1', weekId: '2026-08-24', status: 'submitted', slots: ['T3-15'], revision: 3 },
+    'students/student-1': { status: 'active', branchId: 'branch-1', isScheduleConfirmed: true, availableSlots: ['T6-14'] },
+    'trainers/trainer-1': { status: 'active', branchId: 'branch-1', employmentType: 'full_time', availableSlots: ['T6-14'], slotCapacity: 2 },
+    'trainerAvailability/trainer-1_2026-08-17': { trainerId: 'trainer-1', weekId: '2026-08-17', status: 'submitted', slots: ['T6-15'], revision: 3 },
   })
 
   await assert.rejects(
@@ -669,6 +693,25 @@ test('approval rejects a stale reschedule after the PT weekly availability chang
   )
   assert.equal(state.read('sessions/session-weekly-stale').date, '2026-08-22')
   assert.equal(state.read('sessionRequests/request-weekly-stale').status, 'pending')
+})
+
+test('approval rejects a learner reschedule that jumps to another calendar week', async () => {
+  const state = operationsFor({
+    'sessionRequests/request-cross-week': {
+      status: 'pending', type: 'reschedule', sessionId: 'session-cross-week', studentId: 'student-1', contractId: 'contract-1', requestedBy: 'student',
+      originalDate: '2026-08-22', originalHour: 7, originalSessionRevision: 0, newDate: '2026-08-24', newHour: 10,
+      newTrainerId: 'trainer-1', submittedAtIso: '2026-08-20T00:00:00.000Z', policyMonth: '2026-08',
+    },
+    'sessions/session-cross-week': { status: 'scheduled', studentId: 'student-1', trainerId: 'trainer-1', contractId: 'contract-1', branchId: 'branch-1', date: '2026-08-22', hour: 7, revision: 0 },
+    'contracts/contract-1': { status: 'active', studentId: 'student-1', trainerId: 'trainer-1', branchId: 'branch-1', startDate: '2026-08-01', endDate: '2026-08-31', totalSessions: 12, usedSessions: 1 },
+  })
+
+  await assert.rejects(
+    state.approveSessionRequest({ data: { requestId: 'request-cross-week', expectedSessionRevision: 0 } }),
+    (error) => error.code === 'failed-precondition' && error.details?.issueCode === 'SESSION_CHANGE_WEEK_MISMATCH',
+  )
+  assert.equal(state.read('sessions/session-cross-week').date, '2026-08-22')
+  assert.equal(state.read('sessionRequests/request-cross-week').status, 'pending')
 })
 
 test('collision checks cover trainer capacity, student double booking, legacy ISO dates, and bounded query overflow', () => {
@@ -1129,7 +1172,7 @@ test('approved learner reschedule moves the matrix entry and session identity at
     'sessionRequests/request-schedule-move': {
       status: 'pending', type: 'reschedule', sessionId: 'session-schedule-move', studentId: 'student-1', contractId: 'contract-1',
       requestedBy: 'student', originalDate: '2026-08-22', originalHour: 7, originalSessionRevision: 2,
-      newDate: '2026-08-25', newHour: 10, newTrainerId: 'trainer-1', submittedAtIso: '2026-08-20T00:00:00.000Z', policyMonth: '2026-08',
+      newDate: '2026-08-21', newHour: 10, newTrainerId: 'trainer-1', submittedAtIso: '2026-08-20T00:00:00.000Z', policyMonth: '2026-08',
     },
     'sessions/session-schedule-move': {
       status: 'scheduled', scheduleStatus: 'scheduled', billingStatus: 'pending', attendanceStatus: 'pending',
@@ -1137,31 +1180,29 @@ test('approved learner reschedule moves the matrix entry and session identity at
       date: '2026-08-22', hour: 7, scheduleWeekId: '2026-08-17', slotId: 'T7-7', scheduleEntryId: oldEntry.scheduleEntryId, revision: 2,
     },
     'contracts/contract-1': { status: 'active', studentId: 'student-1', trainerId: 'trainer-1', branchId: 'branch-1', startDate: '2026-08-01', endDate: '2026-08-31', totalSessions: 12, usedSessions: 0 },
-    'students/student-1': { status: 'active', branchId: 'branch-1', isScheduleConfirmed: true, availableSlots: ['T3-10'] },
-    'trainers/trainer-1': { status: 'active', name: 'PT Chính', branchId: 'branch-1', employmentType: 'full_time', availableSlots: ['T3-10'], slotCapacity: 2 },
+    'students/student-1': { status: 'active', branchId: 'branch-1', isScheduleConfirmed: true, availableSlots: ['T6-10'] },
+    'trainers/trainer-1': { status: 'active', name: 'PT Chính', branchId: 'branch-1', employmentType: 'full_time', availableSlots: ['T6-10'], slotCapacity: 2 },
     'ptScheduleDrafts/branch-1_2026-08-17': { branchId: 'branch-1', weekId: '2026-08-17', status: 'published', revision: 4, publishedRevision: 4, schedule: { 'T7-7': [oldEntry] } },
-    'ptScheduleDrafts/branch-1_2026-08-24': { branchId: 'branch-1', weekId: '2026-08-24', status: 'published', revision: 8, publishedRevision: 8, schedule: {} },
     'schedules/schedule_2026-08-17': { draftRevision: 4, schedule: { 'T7-7': [oldEntry] } },
-    'schedules/schedule_2026-08-24': { draftRevision: 8, schedule: {} },
   }, async () => ({ uid: 'admin-1' }), { now: () => new Date('2026-08-20T03:00:00.000Z') })
 
   const result = await state.approveSessionRequest({ data: { requestId: 'request-schedule-move', expectedSessionRevision: 2 } })
   assert.equal(result.removedScheduleEntryCount, 2)
   assert.equal(result.movedScheduleEntryCount, 2)
-  assert.deepEqual(state.read('ptScheduleDrafts/branch-1_2026-08-17').schedule, {})
-  assert.deepEqual(state.read('schedules/schedule_2026-08-17').schedule, {})
-  assert.equal(state.read('ptScheduleDrafts/branch-1_2026-08-24').schedule['T3-10'][0].studentId, 'student-1')
-  assert.equal(state.read('schedules/schedule_2026-08-24').schedule['T3-10'][0].trainerId, 'trainer-1')
+  assert.equal(state.read('ptScheduleDrafts/branch-1_2026-08-17').schedule['T7-7'], undefined)
+  assert.equal(state.read('schedules/schedule_2026-08-17').schedule['T7-7'], undefined)
+  assert.equal(state.read('ptScheduleDrafts/branch-1_2026-08-17').schedule['T6-10'][0].studentId, 'student-1')
+  assert.equal(state.read('schedules/schedule_2026-08-17').schedule['T6-10'][0].trainerId, 'trainer-1')
   const moved = state.read('sessions/session-schedule-move')
-  assert.equal(moved.date, '2026-08-25')
+  assert.equal(moved.date, '2026-08-21')
   assert.equal(moved.hour, 10)
-  assert.equal(moved.scheduleWeekId, '2026-08-24')
-  assert.equal(moved.slotId, 'T3-10')
-  assert.equal(moved.scheduleEntryId, 'schedule_2026-08-24-T3-10-student-1')
+  assert.equal(moved.scheduleWeekId, '2026-08-17')
+  assert.equal(moved.slotId, 'T6-10')
+  assert.equal(moved.scheduleEntryId, 'schedule_2026-08-17-T6-10-student-1')
 
   const retry = await state.approveSessionRequest({ data: { requestId: 'request-schedule-move', expectedSessionRevision: 2 } })
   assert.equal(retry.unchanged, true)
-  assert.equal(state.read('ptScheduleDrafts/branch-1_2026-08-24').schedule['T3-10'].length, 1)
+  assert.equal(state.read('ptScheduleDrafts/branch-1_2026-08-17').schedule['T6-10'].length, 1)
 })
 
 test('second approved change in a calendar month creates one immutable policy charge', async () => {
@@ -1189,12 +1230,12 @@ test('an available Aura Club reschedule entitlement replaces the policy charge e
     'sessionRequests/request-entitlement': {
       status: 'pending', type: 'reschedule', sessionId: 'session-entitlement', studentId: 'student-1', accountUid: 'student-account',
       contractId: 'contract-1', requestedBy: 'student', originalDate: '2026-08-22', originalHour: 7, originalSessionRevision: 0,
-      newDate: '2026-08-25', newHour: 10, newTrainerId: 'trainer-1', submittedAtIso: '2026-08-20T00:00:00.000Z', policyMonth: '2026-08',
+      newDate: '2026-08-21', newHour: 10, newTrainerId: 'trainer-1', submittedAtIso: '2026-08-20T00:00:00.000Z', policyMonth: '2026-08',
     },
     'sessions/session-entitlement': { status: 'scheduled', studentId: 'student-1', trainerId: 'trainer-1', contractId: 'contract-1', branchId: 'branch-1', date: '2026-08-22', hour: 7, revision: 0 },
     'contracts/contract-1': { status: 'active', studentId: 'student-1', trainerId: 'trainer-1', branchId: 'branch-1', startDate: '2026-08-01', endDate: '2026-08-31', totalSessions: 12, usedSessions: 1, totalPrice: 1_200_000 },
-    'students/student-1': { status: 'active', branchId: 'branch-1', isScheduleConfirmed: true, availableSlots: ['T3-10'] },
-    'trainers/trainer-1': { status: 'active', branchId: 'branch-1', employmentType: 'full_time', availableSlots: ['T3-10'], slotCapacity: 2 },
+    'students/student-1': { status: 'active', branchId: 'branch-1', isScheduleConfirmed: true, availableSlots: ['T6-10'] },
+    'trainers/trainer-1': { status: 'active', branchId: 'branch-1', employmentType: 'full_time', availableSlots: ['T6-10'], slotCapacity: 2 },
     'loyaltyEntitlements/entitlement-1': { studentId: 'student-1', type: 'extra_reschedule', status: 'available', expiresAt: '2026-09-30T16:59:59.000Z' },
   }, async () => ({ uid: 'admin-1' }), { now: () => new Date('2026-08-20T03:00:00.000Z') })
 
@@ -1221,12 +1262,12 @@ test('an expired Aura Club entitlement cannot replace the normal change policy c
     'sessionRequests/request-expired-entitlement': {
       status: 'pending', type: 'reschedule', sessionId: 'session-expired-entitlement', studentId: 'student-1',
       contractId: 'contract-1', requestedBy: 'student', originalDate: '2026-08-22', originalHour: 7, originalSessionRevision: 0,
-      newDate: '2026-08-25', newHour: 10, newTrainerId: 'trainer-1', submittedAtIso: '2026-08-20T00:00:00.000Z', policyMonth: '2026-08',
+      newDate: '2026-08-21', newHour: 10, newTrainerId: 'trainer-1', submittedAtIso: '2026-08-20T00:00:00.000Z', policyMonth: '2026-08',
     },
     'sessions/session-expired-entitlement': { status: 'scheduled', studentId: 'student-1', trainerId: 'trainer-1', contractId: 'contract-1', branchId: 'branch-1', date: '2026-08-22', hour: 7, revision: 0 },
     'contracts/contract-1': { status: 'active', studentId: 'student-1', trainerId: 'trainer-1', branchId: 'branch-1', startDate: '2026-08-01', endDate: '2026-08-31', totalSessions: 12, usedSessions: 1, totalPrice: 1_200_000 },
-    'students/student-1': { status: 'active', branchId: 'branch-1', isScheduleConfirmed: true, availableSlots: ['T3-10'] },
-    'trainers/trainer-1': { status: 'active', branchId: 'branch-1', employmentType: 'full_time', availableSlots: ['T3-10'], slotCapacity: 2 },
+    'students/student-1': { status: 'active', branchId: 'branch-1', isScheduleConfirmed: true, availableSlots: ['T6-10'] },
+    'trainers/trainer-1': { status: 'active', branchId: 'branch-1', employmentType: 'full_time', availableSlots: ['T6-10'], slotCapacity: 2 },
     'loyaltyEntitlements/entitlement-expired': { studentId: 'student-1', type: 'extra_reschedule', status: 'available', expiresAt: '2026-08-19T16:59:59.000Z' },
   }, async () => ({ uid: 'admin-1' }), { now: () => new Date('2026-08-20T03:00:00.000Z') })
 
@@ -1357,7 +1398,7 @@ test('PT can move a charged but unconfirmed session without charging the replace
       status: 'pending', type: 'reschedule', sessionId: 'session-charged-trainer', studentId: 'student-charged',
       contractId: 'contract-charged', trainerId: 'trainer-charged', requestedBy: 'trainer',
       originalDate: '2026-08-22', originalHour: 8, originalSessionRevision: 2,
-      newDate: '2026-08-25', newHour: 10, reason: 'Điều chỉnh lịch cho học viên',
+      newDate: '2026-08-21', newHour: 10, reason: 'Điều chỉnh lịch cho học viên',
     },
     'sessions/session-charged-trainer': {
       status: 'scheduled', scheduleStatus: 'scheduled', billingStatus: 'charged', attendanceStatus: 'pending',
@@ -1371,14 +1412,14 @@ test('PT can move a charged but unconfirmed session without charging the replace
       status: 'active', studentId: 'student-charged', trainerId: 'trainer-charged', branchId: 'branch-1',
       startDate: '2026-08-01', endDate: '2026-08-31', totalSessions: 12, usedSessions: 1,
     },
-    'students/student-charged': { status: 'active', branchId: 'branch-1', isScheduleConfirmed: true, availableSlots: ['T3-10'] },
-    'trainers/trainer-charged': { status: 'active', branchId: 'branch-1', employmentType: 'full_time', availableSlots: ['T3-10'], slotCapacity: 2 },
+    'students/student-charged': { status: 'active', branchId: 'branch-1', isScheduleConfirmed: true, availableSlots: ['T6-10'] },
+    'trainers/trainer-charged': { status: 'active', branchId: 'branch-1', employmentType: 'full_time', availableSlots: ['T6-10'], slotCapacity: 2 },
   }, async () => ({ uid: 'admin-1' }), { now: () => new Date('2026-08-25T03:00:00.000Z') })
 
   const result = await state.approveSessionRequest({ data: { requestId: 'request-charged-trainer', expectedSessionRevision: 2 } })
   const session = state.read('sessions/session-charged-trainer')
   assert.equal(result.type, 'reschedule')
-  assert.equal(session.date, '2026-08-25')
+  assert.equal(session.date, '2026-08-21')
   assert.equal(session.hour, 10)
   assert.equal(session.billingStatus, 'charged')
   assert.equal(session.attendanceStatus, 'pending')
@@ -1388,12 +1429,12 @@ test('PT can move a charged but unconfirmed session without charging the replace
 
 test('reschedule collision rejects atomically when the learner already has another hour on the same day', async () => {
   const state = operationsFor({
-    'sessionRequests/request-3': { status: 'pending', type: 'reschedule', sessionId: 'session-3', studentId: 'student-3', contractId: 'contract-3', originalDate: '2026-08-22', originalHour: 7, originalSessionRevision: 4, newDate: '2026-08-25', newHour: 10, submittedAtIso: '2026-08-20T00:00:00.000Z', policyMonth: '2026-08' },
+    'sessionRequests/request-3': { status: 'pending', type: 'reschedule', sessionId: 'session-3', studentId: 'student-3', contractId: 'contract-3', originalDate: '2026-08-22', originalHour: 7, originalSessionRevision: 4, newDate: '2026-08-21', newHour: 10, submittedAtIso: '2026-08-20T00:00:00.000Z', policyMonth: '2026-08' },
     'sessions/session-3': { status: 'scheduled', studentId: 'student-3', trainerId: 'trainer-3', contractId: 'contract-3', date: '2026-08-22', hour: 7, revision: 4 },
     'contracts/contract-3': { status: 'active', studentId: 'student-3', startDate: '2026-08-01', endDate: '2026-08-31', totalSessions: 12, usedSessions: 0 },
-    'trainers/trainer-3': { status: 'active', availableSlots: ['T3-10'] },
-    'students/student-3': { status: 'active', isScheduleConfirmed: true, availableSlots: ['T3-10'] },
-    'sessions/conflict': { status: 'scheduled', studentId: 'student-3', trainerId: 'trainer-4', date: '2026-08-25T00:00:00.000Z', hour: 9, revision: 0 },
+    'trainers/trainer-3': { status: 'active', availableSlots: ['T6-10'] },
+    'students/student-3': { status: 'active', isScheduleConfirmed: true, availableSlots: ['T6-10'] },
+    'sessions/conflict': { status: 'scheduled', studentId: 'student-3', trainerId: 'trainer-4', date: '2026-08-21T00:00:00.000Z', hour: 9, revision: 0 },
   })
   await assert.rejects(
     state.approveSessionRequest({ data: { requestId: 'request-3', expectedSessionRevision: 4 } }),

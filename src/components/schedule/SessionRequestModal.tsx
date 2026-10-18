@@ -39,6 +39,9 @@ export default function SessionRequestModal({ onClose, onCreated, session }: Pro
   const sessionLabel = useMemo(() => `${formatDate(session.date)} · ${session.hour === null ? '--:--' : `${String(session.hour).padStart(2, '0')}:00`}`, [session.date, session.hour])
   const selectedSuggestion = suggestionPage?.suggestions.find((candidate) => candidate.candidateId === selectedCandidateId) ?? null
   const suggestions = suggestionPage?.suggestions ?? []
+  const sourceWeekLabel = suggestionPage?.sourceWeekId && suggestionPage.sourceWeekEnd
+    ? `${formatDate(suggestionPage.sourceWeekId)} – ${formatDate(suggestionPage.sourceWeekEnd)}`
+    : 'tuần của buổi hiện tại'
 
   const loadSuggestions = async () => {
     setIsLoadingSuggestions(true)
@@ -105,21 +108,21 @@ export default function SessionRequestModal({ onClose, onCreated, session }: Pro
         <form onSubmit={handleSubmit}>
           <div className="student-policy-segment" aria-label="Loại yêu cầu"><button type="button" className={type === 'cancel' ? 'active' : ''} onClick={() => setType('cancel')}>Hủy buổi</button><button type="button" className={type === 'reschedule' ? 'active' : ''} onClick={() => setType('reschedule')}>Đổi lịch</button></div>
           {type === 'reschedule' && <section className="student-change-suggestions" aria-busy={isLoadingSuggestions}>
-            <header><div><strong>Chọn ca mới</strong><span>{suggestions.length ? `${suggestions.length} ca phù hợp` : ''}</span></div><button type="button" onClick={() => void loadSuggestions()} disabled={isLoadingSuggestions} aria-label="Tải lại ca gợi ý"><RefreshCw className={isLoadingSuggestions ? 'is-spinning' : ''} size={17} /></button></header>
+            <header><div><strong>Chọn ca mới từ kho lịch rảnh</strong><span>{suggestions.length ? `${suggestions.length} slot còn chỗ · chỉ trong ${sourceWeekLabel}` : `Chỉ hiển thị slot còn chỗ trong ${sourceWeekLabel}`}</span></div><button type="button" onClick={() => void loadSuggestions()} disabled={isLoadingSuggestions} aria-label="Tải lại ca gợi ý"><RefreshCw className={isLoadingSuggestions ? 'is-spinning' : ''} size={17} /></button></header>
             {isLoadingSuggestions && !suggestionPage && <div className="student-change-suggestions__empty"><RefreshCw className="is-spinning" /> Đang tìm ca phù hợp…</div>}
             {!isLoadingSuggestions && suggestionPage && !suggestionPage.suggestions.length && <div className="student-change-suggestions__empty"><CircleAlert /> Chưa có ca phù hợp.</div>}
             <div className="student-change-suggestions__list">
               {suggestions.map((candidate) => {
                 const availableSeats = Math.max(0, candidate.capacity - candidate.occupancy)
                 const roleLabel = candidate.pairsExistingSession
-                  ? 'Ca đang mở'
+                  ? `Ưu tiên ghép ca · ${candidate.occupancy}/${candidate.capacity}`
                   : candidate.isPrimaryTrainer
-                    ? 'PT chính'
+                    ? `Kho ca trống · ${candidate.occupancy}/${candidate.capacity} · PT chính`
                     : candidate.isCurrentTrainer
-                      ? 'PT hiện tại'
+                      ? `Kho ca trống · ${candidate.occupancy}/${candidate.capacity} · PT hiện tại`
                       : candidate.isAssignedTrainer
-                        ? 'PT phụ trách'
-                        : 'PT phù hợp'
+                        ? `Kho ca trống · ${candidate.occupancy}/${candidate.capacity} · PT phụ trách`
+                        : `Kho ca trống · ${candidate.occupancy}/${candidate.capacity}`
                 return <button type="button" key={candidate.candidateId} className={selectedCandidateId === candidate.candidateId ? 'is-selected' : ''} aria-pressed={selectedCandidateId === candidate.candidateId} onClick={() => setSelectedCandidateId(candidate.candidateId)}>
                   <span className="student-change-suggestion__check">{selectedCandidateId === candidate.candidateId ? <Check size={14} /> : null}</span>
                   <span className="student-change-suggestion__meta"><strong>{formatDate(candidate.date)}</strong><time>{String(candidate.hour).padStart(2, '0')}:00</time></span>

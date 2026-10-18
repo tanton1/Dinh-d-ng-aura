@@ -7,6 +7,7 @@ const { ptRevenueRecognitionWrite } = require('./finance-recognition')
 const { serviceRevenueJournal } = require('./accounting-core')
 const {
   branchSlotCapacity,
+  normalizedDraftSchedule,
   normalizedScheduleConfig,
   trainerIsAvailable,
   trainerProfileForWeek,
@@ -248,6 +249,19 @@ function mondayForDate(value) {
 function dayCodeForDate(value) {
   const weekday = new Date(`${storedDateKey(value, 'Ngày')}T00:00:00.000Z`).getUTCDay()
   return weekday === 0 ? 'CN' : `T${weekday + 1}`
+}
+
+function assertSameSessionWeek(originalDate, targetDate) {
+  const sourceWeekId = mondayForDate(originalDate)
+  const targetWeekId = mondayForDate(targetDate)
+  if (sourceWeekId !== targetWeekId) {
+    throw new HttpsError(
+      'failed-precondition',
+      'Chỉ được đổi lịch trong cùng tuần của buổi tập gốc. Hãy chọn một ca còn trống trong tuần này.',
+      { issueCode: 'SESSION_CHANGE_WEEK_MISMATCH', sourceWeekId, targetWeekId },
+    )
+  }
+  return sourceWeekId
 }
 
 const SCHEDULE_SLOT_PATTERN = /^(T[2-7]|CN)-(?:[0-9]|1[0-9]|2[0-3])$/
@@ -526,6 +540,158 @@ async function loadSuggestionNetwork(db, homeBranchId, rangeStart, rangeEnd) {
   return { branches, trainersSnapshot, sessionsSnapshot }
 }
 
+const SCHEDULE_POOL_SLOT_PATTERN = /^(T[2-7]|CN)-(?:[0-9]|1[0-9]|2[0-3])$/
+const SCHEDULE_POOL_DAY_OFFSETS = new Map([
+  ['T2', 0], ['T3', 1], ['T4', 2], ['T5', 3], ['T6', 4], ['T7', 5], ['CN', 6],
+])
+
+function dateForSchedulePoolSlot(weekId, slotId) {
+  const [day] = String(slotId).split('-')
+  const offset = SCHEDULE_POOL_DAY_OFFSETS.get(day)
+  return typeof offset === 'number' ? addDateDays(weekId, offset) : ''
+}
+
+function schedulePoolRowKey(row) {
+  return `${row.studentId}|${row.trainerId}|${row.date}|${row.hour}`
+}
+
+function schedulePoolRowsFromSchedule(schedule, branchId, weekId, sourceId, rows, offSlots) {
+  const rawSchedule = schedule || {}
+  const normalized = normalizedDraftSchedule(rawSchedule, branchId || '')
+  for (const [slotId, entries] of Object.entries(normalized)) {
+    if (!SCHEDULE_POOL_SLOT_PATTERN.test(slotId)) continue
+    const dateValue = dateForSchedulePoolSlot(weekId, slotId)
+    const hourValue = Number(slotId.split('-')[1])
+    const rawEntries = Array.isArray(rawSchedule[slotId]) ? rawSchedule[slotId] : []
+    for (const [entryIndex, entry] of entries.entries()) {
+      const trainerId = optionalText(entry.trainerId, 128)
+      if (!trainerId) continue
+      const rawBranchId = optionalText(rawEntries[entryIndex]?.branchId, 128)
+      const effectiveBranchId = optionalText(branchId, 128)
+        || (rawBranchId && rawBranchId !== 'all' ? rawBranchId : '')
+      const slotKey = `${trainerId}|${dateValue}|${hourValue}`
+      if (entry.type === 'off') {
+        offSlots.add(slotKey)
+        continue
+      }
+      const studentId = optionalText(entry.studentId, 128)
+      if (!studentId || studentId === 'OFF') continue
+      rows.push({
+        id: `schedule-pool:${sourceId}:${slotId}:${studentId}:${trainerId}`,
+        studentId,
+        trainerId,
+        branchId: effectiveBranchId,
+        date: dateValue,
+        hour: hourValue,
+        status: 'scheduled',
+        schedulePoolRow: true,
+      })
+    }
+  }
+}
+
+async function readSchedulePool(db, weekId) {
+  const [draftSnapshot, legacySnapshots] = await Promise.all([
+    db.collection('ptScheduleDrafts').where('weekId', '==', weekId).limit(SESSION_CHANGE_BRANCH_LIMIT + 1).get(),
+    db.getAll(db.doc(`schedules/schedule_${weekId}`)),
+  ])
+  const legacySnapshot = legacySnapshots[0]
+  if (draftSnapshot.size > SESSION_CHANGE_BRANCH_LIMIT) {
+    throw new HttpsError('resource-exhausted', 'Kho lịch trong tuần vượt giới hạn gợi ý an toàn.')
+  }
+  const rows = []
+  const offSlots = new Set()
+  draftSnapshot.docs.forEach((item) => {
+    const value = item.data() || {}
+    const branchId = optionalText(value.branchId, 128) || String(item.id || '').split('_')[0]
+    schedulePoolRowsFromSchedule(value.schedule, branchId, weekId, item.id, rows, offSlots)
+  })
+  if (legacySnapshot.exists) {
+    schedulePoolRowsFromSchedule(legacySnapshot.data()?.schedule, '', weekId, legacySnapshot.id, rows, offSlots)
+  }
+  return { rows, offSlots }
+}
+
+function mergeSchedulePoolRows(sessionRows, scheduleRows, sourceSession) {
+  const sourceDate = storedDateKey(sourceSession.date, 'Ngày buổi gốc')
+  const sourceHour = storedSessionHour(sourceSession.hour, sourceSession.id, 'Giờ buổi gốc')
+  const rows = []
+  const seen = new Set()
+  const append = (row) => {
+    if (!row?.studentId || !row?.trainerId || !row?.date || !Number.isInteger(row.hour)) return
+    if (row.studentId === sourceSession.studentId
+      && row.date === sourceDate
+      && row.hour === sourceHour
+      && (!row.trainerId || row.trainerId === sourceSession.trainerId)) return
+    const key = schedulePoolRowKey(row)
+    if (seen.has(key)) return
+    seen.add(key)
+    rows.push(row)
+  }
+  sessionRows.forEach(append)
+  scheduleRows.forEach(append)
+  return rows
+}
+
+function mergeStudentScheduleRows(sessionRows, scheduleRows, sourceSession) {
+  const sourceDate = storedDateKey(sourceSession.date, 'Ngày buổi gốc')
+  const sourceHour = storedSessionHour(sourceSession.hour, sourceSession.id, 'Giờ buổi gốc')
+  const rows = sessionRows.filter((row) => row?.studentId === sourceSession.studentId)
+  const seen = new Set(rows.map((row) => `${row.date}|${row.hour}`))
+  for (const row of scheduleRows) {
+    if (row?.studentId !== sourceSession.studentId) continue
+    // The source session is excluded from the live-session query, but it is
+    // still present in a published/draft matrix. Do not turn that source cell
+    // into a same-day collision while building replacement suggestions.
+    if (row.date === sourceDate && row.hour === sourceHour) continue
+    const key = `${row.date}|${row.hour}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    rows.push(row)
+  }
+  return rows
+}
+
+function schedulePoolTargetOccupancy(plan, targetIdentity, sourceIdentity) {
+  if (!plan?.targetIdentity || !targetIdentity) return { trainerOccupancy: 0, branchOccupancy: 0, trainerOff: false, studentDayConflict: false }
+  const targets = [
+    ...(plan.draftTargets?.values?.() || []),
+    ...(plan.legacyTargets?.values?.() || []),
+  ].filter((item) => item?.snapshot?.exists && (
+    item.reference.path === `ptScheduleDrafts/${targetIdentity.branchId}_${targetIdentity.weekId}`
+    || item.reference.path === `schedules/schedule_${targetIdentity.weekId}`
+  ))
+  if (!targets.length) return { trainerOccupancy: 0, branchOccupancy: 0, trainerOff: false, studentDayConflict: false }
+  const trainingEntries = []
+  const entryKeys = new Set()
+  let trainerOff = false
+  let studentDayConflict = false
+  const targetDate = dateForSchedulePoolSlot(targetIdentity.weekId, targetIdentity.slotId)
+  for (const target of targets) {
+    const schedule = target.snapshot.data()?.schedule
+    for (const [slotId, slotEntries] of Object.entries(schedule && typeof schedule === 'object' ? schedule : {})) {
+      if (!SCHEDULE_POOL_SLOT_PATTERN.test(slotId) || !Array.isArray(slotEntries)) continue
+      const slotDate = dateForSchedulePoolSlot(targetIdentity.weekId, slotId)
+      for (const entry of slotEntries) {
+        if (entry?.type === 'off' && entry.trainerId === targetIdentity.trainerId && slotId === targetIdentity.slotId) trainerOff = true
+        if (entry?.type === 'off' || !entry?.studentId || entry.studentId === 'OFF') continue
+        if (sourceIdentity && scheduleEntryMatchesIdentity(entry, sourceIdentity)) continue
+        if (slotDate === targetDate && entry.studentId === targetIdentity.studentId) studentDayConflict = true
+        if (slotId !== targetIdentity.slotId) continue
+        const key = `${entry.studentId}|${entry.trainerId}|${entry.branchId || ''}`
+        if (entryKeys.has(key)) continue
+        entryKeys.add(key)
+        trainingEntries.push(entry)
+      }
+    }
+  }
+  const trainerStudents = new Set(trainingEntries.filter((entry) => entry.trainerId === targetIdentity.trainerId).map((entry) => entry.studentId))
+  const branchStudents = new Set(trainingEntries
+    .filter((entry) => !targetIdentity.branchId || !entry.branchId || entry.branchId === 'all' || entry.branchId === targetIdentity.branchId)
+    .map((entry) => entry.studentId))
+  return { trainerOccupancy: trainerStudents.size, branchOccupancy: branchStudents.size, trainerOff, studentDayConflict }
+}
+
 async function readOperationsPolicy(db) {
   const [snapshot] = await db.getAll(db.doc('settings/scheduleConfig'))
   return ptOperationsPolicySnapshot(snapshot?.exists ? snapshot.data() : {})
@@ -605,6 +771,9 @@ async function buildSessionChangeSuggestions({ db, sessionId, expectedRevision, 
   if (revision !== expectedRevision) throw new HttpsError('aborted', 'Buổi tập đã thay đổi. Hãy tải lại lịch mới nhất.')
   if (session.studentId !== studentId) throw new HttpsError('permission-denied', 'Bạn không thể đổi lịch của học viên khác.')
   if (!isActiveSessionStatus(session.status) || isSessionCharged(session)) throw new HttpsError('failed-precondition', 'Buổi này không còn đủ điều kiện đổi lịch.')
+  const sourceDate = storedDateKey(session.date, 'Ngày buổi gốc')
+  const sourceWeekId = mondayForDate(sourceDate)
+  const sourceWeekEnd = addDateDays(sourceWeekId, 6)
 
   const contractId = linkedContractId(session)
   const [contractSnapshot, studentSnapshot] = await db.getAll(db.doc(`contracts/${contractId}`), db.doc(`students/${studentId}`))
@@ -615,17 +784,19 @@ async function buildSessionChangeSuggestions({ db, sessionId, expectedRevision, 
   if (contract.status !== 'active' || contract.studentId !== studentId) throw new HttpsError('failed-precondition', 'Hợp đồng không còn hoạt động.')
   const contractStart = storedContractDate(contract.startDate, 'Ngày bắt đầu')
   const contractEnd = storedContractDate(contract.endDate, 'Ngày kết thúc')
-  const earliest = addDateDays(vietnamDateKey(now), 1)
-  const rangeStart = earliest < contractStart ? contractStart : earliest
-  const rangeEndCandidate = addDateDays(rangeStart, SESSION_CHANGE_WINDOW_DAYS)
-  const rangeEnd = rangeEndCandidate < contractEnd ? rangeEndCandidate : contractEnd
-  if (rangeStart > rangeEnd) return { policy, suggestions: [], issueCodes: ['NO_CONTRACT_DATE_AVAILABLE'] }
+  // A learner change is a move inside the source session's current calendar
+  // week. The old implementation scanned a rolling 21-day window, which made
+  // a request appear to jump into later weeks even though the operation is a
+  // same-week slot replacement.
+  const rangeStart = sourceWeekId < contractStart ? contractStart : sourceWeekId
+  const rangeEnd = sourceWeekEnd > contractEnd ? contractEnd : sourceWeekEnd
+  if (rangeStart > rangeEnd) return { policy, sourceWeekId, sourceWeekEnd, suggestions: [], issueCodes: ['NO_CONTRACT_DATE_AVAILABLE'] }
 
-  const weekIds = new Set()
-  for (let targetDate = rangeStart; targetDate <= rangeEnd; targetDate = addDateDays(targetDate, 1)) weekIds.add(mondayForDate(targetDate))
+  const weekIds = new Set([sourceWeekId])
   const availabilityReferences = [...weekIds].map((weekId) => db.doc(`ptAvailability/${studentId}_${weekId}`))
-  const [network, studentSessionsSnapshot, leavesSnapshot, configSnapshot, ...availabilitySnapshots] = await Promise.all([
+  const [network, schedulePool, studentSessionsSnapshot, leavesSnapshot, configSnapshot, ...availabilitySnapshots] = await Promise.all([
     loadSuggestionNetwork(db, branchId, rangeStart, rangeEnd),
+    readSchedulePool(db, sourceWeekId),
     db.collection('sessions').where('studentId', '==', studentId).where('date', '>=', rangeStart).where('date', '<', addDateDays(rangeEnd, 1)).limit(SESSION_CHANGE_DATA_LIMIT + 1).get(),
     db.collection('leaveRequests').where('status', '==', 'approved').limit(1001).get(),
     db.getAll(db.doc('settings/scheduleConfig')).then((values) => values[0]),
@@ -633,8 +804,16 @@ async function buildSessionChangeSuggestions({ db, sessionId, expectedRevision, 
   ])
   const { branches, trainersSnapshot, sessionsSnapshot } = network
   if (studentSessionsSnapshot.size > SESSION_CHANGE_DATA_LIMIT || leavesSnapshot.size > 1000) throw new HttpsError('resource-exhausted', 'Dữ liệu PT, học viên hoặc OFF vượt giới hạn gợi ý an toàn.')
-  const sessions = activeSessionRows(sessionsSnapshot, sessionId)
-  const studentSessions = activeSessionRows(studentSessionsSnapshot, sessionId)
+  const trainerBranches = new Map(trainersSnapshot.docs.map((item) => [item.id, item.data()?.branchId || '']))
+  schedulePool.rows.forEach((row) => {
+    if (!row.branchId) row.branchId = optionalText(trainerBranches.get(row.trainerId), 128)
+  })
+  const sessions = mergeSchedulePoolRows(activeSessionRows(sessionsSnapshot, sessionId), schedulePool.rows, { ...session, id: sessionId })
+  const studentSessions = mergeStudentScheduleRows(
+    activeSessionRows(studentSessionsSnapshot, sessionId),
+    schedulePool.rows,
+    { ...session, id: sessionId },
+  )
   const assignedTrainerIds = new Set([
     session.trainerId,
     contract.trainerId,
@@ -682,6 +861,7 @@ async function buildSessionChangeSuggestions({ db, sessionId, expectedRevision, 
         const slotId = `${dayCode}-${targetHour}`
         if (!scheduleConfig.workingHours.includes(targetHour)) continue
         if (!studentSlots.includes(slotId) || !trainerIsAvailable(trainer, slotId)) continue
+        if (schedulePool.offSlots.has(`${trainer.id}|${targetDate}|${targetHour}`)) continue
         if (targetDate === storedDateKey(session.date, 'Ngày buổi gốc') && targetHour === storedSessionHour(session.hour, sessionId, 'Giờ buổi gốc') && trainer.id === session.trainerId) continue
         const slotStart = new Date(`${targetDate}T${String(targetHour).padStart(2, '0')}:00:00+07:00`)
         if (slotStart.getTime() - now.getTime() < policy.sessionChangeDeadlineHours * 60 * 60 * 1000) continue
@@ -756,6 +936,8 @@ async function buildSessionChangeSuggestions({ db, sessionId, expectedRevision, 
   candidates.sort((left, right) => right.score - left.score || left.date.localeCompare(right.date) || left.hour - right.hour || left.trainerName.localeCompare(right.trainerName, 'vi'))
   return {
     policy,
+    sourceWeekId,
+    sourceWeekEnd,
     homeBranchId: branchId,
     homeBranchName: branches.get(branchId)?.name || 'Chi nhánh Aura',
     suggestions: candidates.slice(0, SESSION_CHANGE_SUGGESTION_LIMIT).map(({ score, ...candidate }, index) => ({ ...candidate, rank: index + 1 })),
@@ -2048,6 +2230,8 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
         approvedChangeCancelCount: approvedCount,
         complimentaryRemaining: Math.max(0, result.policy.complimentaryChangeCancelPerMonth - approvedCount),
       },
+      sourceWeekId: result.sourceWeekId || null,
+      sourceWeekEnd: result.sourceWeekEnd || null,
       homeBranchId: result.homeBranchId || '',
       homeBranchName: result.homeBranchName || 'Chi nhánh Aura',
       suggestions: result.suggestions,
@@ -2307,6 +2491,7 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
         newDate = date(selectedSuggestion.date)
         newHour = hour(selectedSuggestion.hour)
         newTrainerId = id(selectedSuggestion.trainerId, 'Mã HLV mới')
+        assertSameSessionWeek(originalDate, newDate)
         try {
           assertSessionChangeDeadline(newDate, newHour, submittedAt, transactionPolicy.sessionChangeDeadlineHours)
         } catch {
@@ -2332,6 +2517,8 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
         originalDate,
         originalHour,
         originalSessionRevision: revision,
+        sourceWeekId: requestType === 'reschedule' ? mondayForDate(originalDate) : null,
+        targetWeekId: requestType === 'reschedule' ? mondayForDate(newDate) : null,
         type: requestType,
         newDate,
         newHour,
@@ -3366,6 +3553,14 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
       if (requestType === 'reschedule') {
         newDate = date(requestData.newDate)
         newHour = hour(requestData.newHour)
+        const sourceWeekId = mondayForDate(originalDate)
+        const targetWeekId = assertSameSessionWeek(originalDate, newDate)
+        if (requestData.sourceWeekId && requestData.sourceWeekId !== sourceWeekId) {
+          throw new HttpsError('aborted', 'Tuần gốc của yêu cầu đã thay đổi. Hãy tạo yêu cầu đổi lịch mới.')
+        }
+        if (requestData.targetWeekId && requestData.targetWeekId !== targetWeekId) {
+          throw new HttpsError('aborted', 'Tuần đích của yêu cầu đã thay đổi. Hãy tạo yêu cầu đổi lịch mới.')
+        }
         trainerId = id(requestData.newTrainerId || session.trainerId, 'Mã HLV')
         if (Number(contract.usedSessions || 0) >= Number(contract.totalSessions || 0)) throw new HttpsError('failed-precondition', 'Hợp đồng đã hết buổi nên không thể xếp lịch bù.')
         if (newDate < contractStart || newDate > contractEnd) throw new HttpsError('failed-precondition', 'Lịch mới nằm ngoài thời hạn hợp đồng.')
@@ -3433,6 +3628,19 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
           },
           fallbackBranchId: contract.branchId || '',
         })
+        const poolOccupancy = schedulePoolTargetOccupancy(
+          scheduleMutationPlan,
+          scheduleMutationPlan.targetIdentity,
+          scheduleMutationPlan.sourceIdentity,
+        )
+        if (poolOccupancy.trainerOff) throw new HttpsError('failed-precondition', 'Kho lịch đã khóa ca này cho PT. Hãy tải lại danh sách ca trống.')
+        if (poolOccupancy.studentDayConflict) throw new HttpsError('already-exists', 'Học viên đã có một buổi tập trong ngày này.')
+        if (poolOccupancy.trainerOccupancy >= normalizedTrainerCapacity(trainerSnapshot.data().slotCapacity)) {
+          throw new HttpsError('resource-exhausted', 'Slot trong kho lịch đã đủ học viên. Hãy tải lại danh sách ca trống.')
+        }
+        if (targetSiteCapacity !== null && poolOccupancy.branchOccupancy >= targetSiteCapacity) {
+          throw new HttpsError('resource-exhausted', 'Cơ sở đã đủ chỗ trong slot được chọn. Hãy tải lại danh sách ca trống.')
+        }
       }
 
       let policyAttendanceReference = null
