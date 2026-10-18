@@ -161,6 +161,20 @@ function draftReference(db, branchId, week) {
   return db.doc(`ptScheduleDrafts/${draftId(branchId, week)}`)
 }
 
+// Quick weekly target changes are operational inputs, not draft revisions.
+// Keep them in their own deterministic document so a PT can adjust a learner
+// before the schedule draft exists (or without creating a new draft revision).
+function weeklyTargetOverrideReference(db, branchId, week) {
+  return db.doc(`ptScheduleTargetOverrides/${draftId(branchId, week)}`)
+}
+
+function weeklySessionTargetsForWeek(draftData, overrideData, allowedStudentIds = null) {
+  return {
+    ...safeWeeklySessionTargets(draftData?.weeklySessionTargets, allowedStudentIds),
+    ...safeWeeklySessionTargets(overrideData?.targets, allowedStudentIds),
+  }
+}
+
 // Drafts are an operational workspace, not a second history store. Keep a
 // short expiry marker on every new revision so Firestore TTL/maintenance can
 // remove weeks that are no longer being worked on. Published sessions,
@@ -641,10 +655,14 @@ function leaveCovers(leave, trainerId, date) {
   return Boolean(start && end && date >= start && date <= end)
 }
 
-function initialStudentProjection(item, branchId, displayOnly = false, week = '', policyValue = {}) {
+function initialStudentProjection(item, branchId, displayOnly = false, week = '', policyValue = {}, weeklyTargets = {}) {
   const data = item.data() || {}
   const inactive = ['inactive', 'archived', 'deleted'].includes(String(data.status || '').toLowerCase())
   const defaultSessionsPerWeek = Math.max(0, Math.min(7, Number(data.sessionsPerWeek || 0)))
+  const hasWeeklyTarget = Object.prototype.hasOwnProperty.call(weeklyTargets || {}, item.id)
+  const weeklyTarget = hasWeeklyTarget
+    ? Math.max(0, Math.min(7, Number(weeklyTargets[item.id] || 0)))
+    : defaultSessionsPerWeek
   const availableSlots = Array.isArray(data.availableSlots) ? data.availableSlots.slice(0, 100) : []
   const storedWeekId = data.latestSubmittedAvailability?.weekId || data.availabilityWeekId || ''
   const storedAvailability = {
@@ -664,10 +682,10 @@ function initialStudentProjection(item, branchId, displayOnly = false, week = ''
     status: data.status || 'active',
     branchId: data.branchId || branchId,
     ...(displayOnly ? { isCrossBranchDisplayOnly: true, studentBranchWarning: true, studentHomeBranchId: data.branchId } : {}),
-    sessionsPerWeek: defaultSessionsPerWeek,
+    sessionsPerWeek: weeklyTarget,
     defaultSessionsPerWeek,
-    weeklySessionTargetOverride: null,
-    weeklySessionTargetOverridden: false,
+    weeklySessionTargetOverride: hasWeeklyTarget ? weeklyTarget : null,
+    weeklySessionTargetOverridden: hasWeeklyTarget,
     availabilityRequestedSessions: null,
     availabilityTargetOverridden: false,
     maxWeeklySessions: defaultSessionsPerWeek,
@@ -720,10 +738,11 @@ function initialTrainerProjection(item, branchId, scheduleLoadPolicy) {
 }
 
 async function loadBranchDataInitial(db, branchId, week) {
-  const [branch, legacySchedule, draft, students, trainers, weekSessions, config] = await Promise.all([
+  const [branch, legacySchedule, draft, targetOverrides, students, trainers, weekSessions, config] = await Promise.all([
     db.doc(`branches/${branchId}`).get(),
     db.doc(`schedules/schedule_${week}`).get(),
     draftReference(db, branchId, week).get(),
+    weeklyTargetOverrideReference(db, branchId, week).get(),
     db.collection('students').where('branchId', '==', branchId).limit(MAX_STUDENTS + 1).get(),
     db.collection('trainers').where('branchId', '==', branchId).limit(MAX_TRAINERS + 1).get(),
     db.collection('sessions').where('branchId', '==', branchId).where('date', '>=', week).where('date', '<', nextWeek(week)).limit(1001).get(),
@@ -736,6 +755,8 @@ async function loadBranchDataInitial(db, branchId, week) {
 
   const legacy = legacySchedule.exists ? legacySchedule.data() : {}
   const draftData = scopedDraftData(draft, branchId, week)
+  const targetOverrideData = targetOverrides.exists ? targetOverrides.data() : null
+  const weeklySessionTargets = weeklySessionTargetsForWeek(draftData, targetOverrideData)
   const studentMap = new Map(students.docs.map((item) => [item.id, item.data()]))
   const trainerMap = new Map(trainers.docs.map((item) => [item.id, item.data()]))
   if (!draftData) {
@@ -777,10 +798,10 @@ async function loadBranchDataInitial(db, branchId, week) {
       unassignedEntries: [],
     },
     schedule,
-    students: students.docs.map((item) => initialStudentProjection(item, branchId, false, week, config.data())),
+    students: students.docs.map((item) => initialStudentProjection(item, branchId, false, week, config.data(), weeklySessionTargets)),
     crossBranchStudents: referencedStudentSnapshots
       .filter((item) => crossBranchStudentIds.has(item.id))
-      .map((item) => initialStudentProjection(item, branchId, true, week, config.data())),
+      .map((item) => initialStudentProjection(item, branchId, true, week, config.data(), weeklySessionTargets)),
     trainers: trainers.docs.map((item) => initialTrainerProjection(item, branchId, scheduleConfig.scheduleLoadPolicy)),
     contracts: [],
     contractsByStudent: new Map(),
@@ -799,10 +820,11 @@ async function loadBranchDataFresh(db, branchId, week, options = {}) {
   // reads are still rechecked by generation/publish/write callables, so do not
   // make an Admin wait for them before the draft matrix becomes interactive.
   const skipWorkspaceEvidence = options.workspaceMatrixFast === true || options.publishedMatrixFast === true
-  const [branch, legacySchedule, draft, students, trainers, weekSessions, previousWeekSessions, config] = await Promise.all([
+  const [branch, legacySchedule, draft, targetOverrides, students, trainers, weekSessions, previousWeekSessions, config] = await Promise.all([
     db.doc(`branches/${branchId}`).get(),
     db.doc(`schedules/schedule_${week}`).get(),
     draftReference(db, branchId, week).get(),
+    weeklyTargetOverrideReference(db, branchId, week).get(),
     db.collection('students').where('branchId', '==', branchId).limit(MAX_STUDENTS + 1).get(),
     db.collection('trainers').where('branchId', '==', branchId).limit(MAX_TRAINERS + 1).get(),
     db.collection('sessions').where('branchId', '==', branchId).where('date', '>=', week).where('date', '<', nextWeek(week)).limit(1001).get(),
@@ -820,6 +842,7 @@ async function loadBranchDataFresh(db, branchId, week, options = {}) {
   const studentSet = new Set(studentIds)
   const legacy = legacySchedule.exists ? legacySchedule.data() : {}
   const draftData = scopedDraftData(draft, branchId, week)
+  const targetOverrideData = targetOverrides.exists ? targetOverrides.data() : null
   // A published Admin workspace is a live matrix, not an optimizer
   // preflight. Keep the roster/contracts needed by the picker, but avoid
   // fanning out into every learner's weekly evidence just to paint rows. The
@@ -858,7 +881,7 @@ async function loadBranchDataFresh(db, branchId, week, options = {}) {
     const legacyTrainers = await documentsByIds(db, 'trainers', legacyTrainerIds)
     legacyTrainers.forEach((item) => trainerMap.set(item.id, item.data()))
   }
-  const weeklySessionTargets = safeWeeklySessionTargets(draftData?.weeklySessionTargets, studentSet)
+  const weeklySessionTargets = weeklySessionTargetsForWeek(draftData, targetOverrideData, studentSet)
   const schedule = draftData
     ? safeSchedule(draftData.schedule)
     : branchScheduleSnapshot(legacy.schedule || {}, branchId, studentMap, trainerMap)
@@ -1194,10 +1217,11 @@ async function loadBranchData(db, branchId, week, options = {}) {
 }
 
 async function loadManualMutationData(db, branchId, week, trainerId, studentId, allowCrossBranchStudent = false, loadedBranchData = null) {
-  const [branch, legacySchedule, draft, studentSnapshot, trainerSnapshot, exactAvailability, exactTrainerAvailability, config, leaves, contractSnapshot, sessionSnapshot, branchSessionSnapshot] = await Promise.all([
+  const [branch, legacySchedule, draft, targetOverrides, studentSnapshot, trainerSnapshot, exactAvailability, exactTrainerAvailability, config, leaves, contractSnapshot, sessionSnapshot, branchSessionSnapshot] = await Promise.all([
     db.doc(`branches/${branchId}`).get(),
     db.doc(`schedules/schedule_${week}`).get(),
     draftReference(db, branchId, week).get(),
+    weeklyTargetOverrideReference(db, branchId, week).get(),
     db.doc(`students/${studentId}`).get(),
     db.doc(`trainers/${trainerId}`).get(),
     db.doc(`ptAvailability/${studentId}_${week}`).get(),
@@ -1217,6 +1241,7 @@ async function loadManualMutationData(db, branchId, week, trainerId, studentId, 
   if (!trainerSnapshot.exists || trainerSnapshot.data().branchId !== branchId) throw new HttpsError('not-found', 'Không tìm thấy PT trong chi nhánh.')
   if (leaves.size > 1000 || sessionSnapshot.size > 1000 || branchSessionSnapshot.size > 1000) throw new HttpsError('resource-exhausted', 'Dữ liệu hồ sơ vượt giới hạn chỉnh ca an toàn.')
   const draftData = scopedDraftData(draft, branchId, week)
+  const targetOverrideData = targetOverrides.exists ? targetOverrides.data() : null
   // A legacy-only week still needs the complete branch schedule so no other
   // learner is dropped while the first v2 draft document is created. Keep
   // that schedule, then use the exact learner/PT payload below for validation.
@@ -1288,7 +1313,10 @@ async function loadManualMutationData(db, branchId, week, trainerId, studentId, 
   const availabilityWindow = availabilityWindowForWeek(week, config.data(), effectiveAvailability)
   const eligibility = studentWeekEligibility(contracts, studentId, branchId, week, todayInHoChiMinh(), allowCrossBranchStudent)
   const studentInactive = ['inactive', 'archived', 'deleted'].includes(String(rawStudent.status || '').toLowerCase())
-  const adminSessionTarget = safeWeeklySessionTargets(draftData?.weeklySessionTargets)[studentId] ?? null
+  const weeklySessionTargets = weeklySessionTargetsForWeek(draftData, targetOverrideData)
+  const adminSessionTarget = Object.prototype.hasOwnProperty.call(weeklySessionTargets, studentId)
+    ? weeklySessionTargets[studentId]
+    : null
   const availabilityRequestedSessions = normalizeRequestedSessions(effectiveAvailability.requestedSessions)
   const target = weeklyTargetForStudent(rawStudent.sessionsPerWeek, adminSessionTarget ?? availabilityRequestedSessions, eligibility)
   const student = {
@@ -4637,6 +4665,92 @@ function createPtScheduleV2Functions({
     return { schemaVersion: 1, ...result, availabilityLocked: false }
   })
 
+  // A target edit is a weekly operational override. It must not create a
+  // schedule draft revision: the draft is reserved for matrix changes that
+  // add, move or remove a learner. The optimizer and publish path read this
+  // document together with the draft target map.
+  const setPtStudentWeeklyTarget = onCall(async (request) => {
+    const week = weekId(request.data?.weekId)
+    const branchId = documentId(request.data?.branchId, 'Mã chi nhánh')
+    const studentId = documentId(request.data?.studentId, 'Mã học viên')
+    const resetToDefault = request.data?.resetToDefault === true
+    const targetSessions = resetToDefault ? null : Number(request.data?.targetSessions)
+    if (!resetToDefault && (!Number.isInteger(targetSessions) || targetSessions < 0 || targetSessions > 7)) {
+      throw new HttpsError('invalid-argument', 'Mục tiêu tuần phải từ 0 đến 7 buổi.')
+    }
+    const idempotencyKey = typeof request.data?.idempotencyKey === 'string' ? request.data.idempotencyKey.trim() : ''
+    if (!/^[A-Za-z0-9:_-]{8,200}$/.test(idempotencyKey)) throw new HttpsError('invalid-argument', 'Khóa chống lặp không hợp lệ.')
+    const actor = await actorForBranch(request, db, branchId)
+    const data = await branchData(db, branchId, week)
+    const targetStudent = data.students.find((item) => item.id === studentId)
+    if (!targetStudent || targetStudent.isCrossBranchDisplayOnly) throw new HttpsError('not-found', 'Không tìm thấy học viên trong chi nhánh đang xếp lịch.')
+    const draftScheduledCount = Object.values(safeSchedule(data.schedule)).flat()
+      .filter((entry) => entry.type !== 'off' && entry.studentId === studentId).length
+    const coveredSessions = Number(data.weeklySessionCoverage?.[studentId]?.total || 0)
+    const scheduledCount = Math.max(draftScheduledCount, Number.isFinite(coveredSessions) ? coveredSessions : 0)
+    const nextTarget = resetToDefault
+      ? Math.min(Number(targetStudent.defaultSessionsPerWeek || 0), Number(targetStudent.maxWeeklySessions || 0))
+      : targetSessions
+    if (nextTarget < scheduledCount) {
+      throw new HttpsError('failed-precondition', `Học viên đã có ${scheduledCount} buổi trong tuần. Hãy gỡ bớt lịch trước khi đặt mục tiêu ${nextTarget} buổi.`, { issueCode: 'WEEKLY_TARGET_BELOW_SCHEDULED' })
+    }
+    if (!resetToDefault && targetSessions > Number(targetStudent.maxWeeklySessions || 0)) {
+      throw new HttpsError('failed-precondition', `Mục tiêu tuần không thể vượt ${targetStudent.maxWeeklySessions} buổi còn lại theo quota hợp đồng.`, { issueCode: 'WEEKLY_TARGET_EXCEEDS_QUOTA' })
+    }
+    const reference = weeklyTargetOverrideReference(db, branchId, week)
+    const receipt = db.doc(`ptScheduleTargetOverrideReceipts/${commandReceiptId(actor.uid, branchId, week, idempotencyKey)}`)
+    const priorReceipt = await receipt.get()
+    if (priorReceipt.exists) return priorReceipt.data().result
+    const result = await db.runTransaction(async (transaction) => {
+      const [current, existingReceipt] = await Promise.all([transaction.get(reference), transaction.get(receipt)])
+      if (existingReceipt.exists) return existingReceipt.data().result
+      const currentTargets = safeWeeklySessionTargets(current.exists ? current.data()?.targets : {})
+      const previousTarget = Object.prototype.hasOwnProperty.call(currentTargets, studentId) ? currentTargets[studentId] : null
+      if (resetToDefault) delete currentTargets[studentId]
+      else currentTargets[studentId] = targetSessions
+      const changed = previousTarget !== (resetToDefault ? null : targetSessions)
+      const nextRevision = Number(current.data()?.revision || 0) + (changed ? 1 : 0)
+      const result = {
+        schemaVersion: 1,
+        changed,
+        revision: nextRevision,
+        targetSessions: nextTarget,
+        weeklySessionTargetOverride: resetToDefault ? null : targetSessions,
+        weeklySessionTargetOverridden: !resetToDefault,
+        draftRevision: Number(data.draft?.revision || 0),
+      }
+      if (changed) {
+        const write = {
+          schemaVersion: 1,
+          branchId,
+          weekId: week,
+          targets: currentTargets,
+          revision: nextRevision,
+          updatedAt: FieldValue.serverTimestamp(),
+          updatedBy: actor.uid,
+        }
+        if (current.exists) transaction.update(reference, write)
+        else transaction.create(reference, { ...write, createdAt: FieldValue.serverTimestamp() })
+        transaction.create(db.collection('ptOperationsAuditLogs').doc(), {
+          schemaVersion: 2,
+          action: 'pt_schedule.weekly_target_quick_edit',
+          actorUid: actor.uid,
+          branchId,
+          weekId: week,
+          studentId,
+          previousTarget,
+          nextTarget: resetToDefault ? null : targetSessions,
+          draftRevision: Number(data.draft?.revision || 0),
+          createdAt: FieldValue.serverTimestamp(),
+        })
+      }
+      transaction.create(receipt, { actorUid: actor.uid, branchId, weekId: week, studentId, idempotencyKey, result, createdAt: FieldValue.serverTimestamp() })
+      return result
+    })
+    invalidateBranchDataCache(db, branchId, week)
+    return result
+  })
+
   const applyPtScheduleDraftCommand = onCall(async (request) => {
     const week = weekId(request.data?.weekId)
     const branchId = documentId(request.data?.branchId, 'Mã chi nhánh')
@@ -4865,7 +4979,7 @@ function createPtScheduleV2Functions({
     return result
   })
 
-  return { listPtScheduleBranches, getPtScheduleWorkspace, generatePtScheduleDraft, getPtScheduleSlotCandidates, createHistoricalPtSession, savePtStudentAvailability, reopenPtStudentAvailability, applyPtScheduleDraftCommand }
+  return { listPtScheduleBranches, getPtScheduleWorkspace, generatePtScheduleDraft, getPtScheduleSlotCandidates, createHistoricalPtSession, savePtStudentAvailability, reopenPtStudentAvailability, setPtStudentWeeklyTarget, applyPtScheduleDraftCommand }
 }
 
 module.exports = {

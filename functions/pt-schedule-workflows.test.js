@@ -358,6 +358,38 @@ test('weekly target change can create a missing week draft', async () => {
   assert.equal(docs.get(`ptScheduleDrafts/${BRANCH}_${WEEK}`).optimizationSummary, undefined)
 })
 
+test('quick weekly target writes an override without creating or revising the schedule draft', async () => {
+  const { api, docs } = harness()
+  const beforeDraft = structuredClone(docs.get(`ptScheduleDrafts/${BRANCH}_${WEEK}`))
+  const result = await api.setPtStudentWeeklyTarget({ data: {
+    branchId: BRANCH,
+    weekId: WEEK,
+    studentId: 'a',
+    targetSessions: 0,
+    idempotencyKey: 'quick-target-zero-123',
+  } })
+  assert.equal(result.changed, true)
+  assert.equal(result.targetSessions, 0)
+  assert.equal(result.weeklySessionTargetOverride, 0)
+  assert.equal(docs.get(`ptScheduleTargetOverrides/${BRANCH}_${WEEK}`).targets.a, 0)
+  assert.deepEqual(docs.get(`ptScheduleDrafts/${BRANCH}_${WEEK}`), beforeDraft)
+})
+
+test('quick weekly target works before a draft exists', async () => {
+  const { api, docs } = harness()
+  docs.delete(`ptScheduleDrafts/${BRANCH}_${WEEK}`)
+  const result = await api.setPtStudentWeeklyTarget({ data: {
+    branchId: BRANCH,
+    weekId: WEEK,
+    studentId: 'a',
+    targetSessions: 0,
+    idempotencyKey: 'quick-target-no-draft-123',
+  } })
+  assert.equal(result.targetSessions, 0)
+  assert.equal(docs.has(`ptScheduleDrafts/${BRANCH}_${WEEK}`), false)
+  assert.equal(docs.get(`ptScheduleTargetOverrides/${BRANCH}_${WEEK}`).targets.a, 0)
+})
+
 test('continuation never loses protected or already covered learners across seeded workloads', () => {
   for (let seed = 1; seed <= 12; seed++) {
     const data = fixture(); data.students = Array.from({ length: 9 }, (_, i) => ({ ...data.students[i % 2], id: `s${i}`, name: `S${i}`, sessionsPerWeek: 1 + (i % 3), availableSlots: ['T2-6', 'T3-6', 'T4-6'].filter((_, j) => (i + j + seed) % 4 !== 0) }))

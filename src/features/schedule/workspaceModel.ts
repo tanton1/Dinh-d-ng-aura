@@ -280,11 +280,18 @@ function workspaceFromDraftSnapshot(
     ? raw.weeklySessionTargets as Record<string, unknown>
     : {}
   const students = current.students.map((student) => {
-    const overridden = Object.prototype.hasOwnProperty.call(weeklyTargets, student.id)
+    // Weekly target quick edits live outside the draft. Preserve an existing
+    // override when a later draft snapshot omits the separate target map;
+    // otherwise an unrelated matrix edit would make the UI briefly revert to
+    // the profile target until the next full workspace read.
+    const draftOverridden = Object.prototype.hasOwnProperty.call(weeklyTargets, student.id)
+    const overridden = draftOverridden || student.weeklySessionTargetOverridden
     const defaultTarget = Math.max(0, Math.min(Number(student.defaultSessionsPerWeek || 0), Number(student.maxWeeklySessions || 0)))
-    const target = overridden
+    const target = draftOverridden
       ? Math.max(0, Math.min(Number(weeklyTargets[student.id] || 0), Number(student.maxWeeklySessions || 0)))
-      : defaultTarget
+      : overridden
+        ? student.sessionsPerWeek
+        : defaultTarget
     return student.sessionsPerWeek === target
       && student.weeklySessionTargetOverridden === overridden
       && student.weeklySessionTargetOverride === (overridden ? target : null)

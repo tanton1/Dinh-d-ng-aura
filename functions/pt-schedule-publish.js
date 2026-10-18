@@ -856,11 +856,18 @@ function createPtSchedulePublishFunctions({ db, onCall, onScheduleMutation = () 
     const scheduleId = `schedule_${week}`
     const scheduleReference = db.doc(`schedules/${scheduleId}`)
     const v2DraftReference = db.doc(`ptScheduleDrafts/${branchId}_${week}`)
+    const weeklyTargetOverrideReference = db.doc(`ptScheduleTargetOverrides/${branchId}_${week}`)
     const branchReference = db.doc(`branches/${branchId}`)
-    const [preliminarySchedule, preliminaryDraft] = await Promise.all([
+    const [preliminarySchedule, preliminaryDraft, preliminaryTargetOverrides] = await Promise.all([
       scheduleReference.get(),
       v2DraftReference.get(),
+      weeklyTargetOverrideReference.get(),
     ])
+    const hasPreliminaryTargetOverrides = preliminaryTargetOverrides.exists
+      && preliminaryTargetOverrides.data()?.targets
+      && typeof preliminaryTargetOverrides.data().targets === 'object'
+      && !Array.isArray(preliminaryTargetOverrides.data().targets)
+      && Object.keys(preliminaryTargetOverrides.data().targets).length > 0
     const preliminaryData = preliminaryDraft.exists ? preliminaryDraft.data() : preliminarySchedule.data() || {}
     const preliminaryTrainingEntries = Object.values(preliminaryData.schedule || {}).flat()
       .filter((entry) => entry?.type !== 'off' && entry?.studentId)
@@ -894,9 +901,10 @@ function createPtSchedulePublishFunctions({ db, onCall, onScheduleMutation = () 
       .limit(1001))
 
     const result = await db.runTransaction(async (transaction) => {
-      const [scheduleSnapshot, v2DraftSnapshot, branchSnapshot, contractsSnapshot, studentsSnapshot, trainersSnapshot, weekSessionsSnapshot, legacyWeekSessionsSnapshot, activeSessionsSnapshot, legacyActiveSessionsSnapshot, configSnapshot, trainerLeavesSnapshot, availabilitySnapshots, exactStudentSnapshots, exactContractSnapshots, crossBranchSessionSnapshots] = await Promise.all([
+      const [scheduleSnapshot, v2DraftSnapshot, targetOverrideSnapshot, branchSnapshot, contractsSnapshot, studentsSnapshot, trainersSnapshot, weekSessionsSnapshot, legacyWeekSessionsSnapshot, activeSessionsSnapshot, legacyActiveSessionsSnapshot, configSnapshot, trainerLeavesSnapshot, availabilitySnapshots, exactStudentSnapshots, exactContractSnapshots, crossBranchSessionSnapshots] = await Promise.all([
         transaction.get(scheduleReference),
         transaction.get(v2DraftReference),
+        transaction.get(weeklyTargetOverrideReference),
         transaction.get(branchReference),
         transaction.get(db.collection('contracts').where('branchId', '==', branchId).limit(1001)),
         transaction.get(db.collection('students').where('branchId', '==', branchId).limit(501)),
@@ -962,7 +970,7 @@ function createPtSchedulePublishFunctions({ db, onCall, onScheduleMutation = () 
         }
         return false
       })()
-      if (!validateOnly && publishedRevision === draftRevision && !hasReconciliationCandidate) {
+      if (!validateOnly && publishedRevision === draftRevision && !hasReconciliationCandidate && !hasPreliminaryTargetOverrides) {
         return { unchanged: true, draftRevision, version: currentPublishedVersion, diff: { create: 0, update: 0, cancel: 0, unchanged: 0 }, warnings: [] }
       }
       const trainerAvailabilitySnapshots = await Promise.all(trainersSnapshot.docs.map((item) => transaction.get(db.doc(`trainerAvailability/${item.id}_${week}`))))
@@ -970,9 +978,16 @@ function createPtSchedulePublishFunctions({ db, onCall, onScheduleMutation = () 
 
       const contractDocuments = new Map([...contractsSnapshot.docs, ...exactContractSnapshots.filter((item) => item.exists)].map((item) => [item.id, item]))
       const contracts = [...contractDocuments.values()].map((item) => ({ id: item.id, ...item.data() }))
-      const weeklySessionTargets = activeDraftData.weeklySessionTargets && typeof activeDraftData.weeklySessionTargets === 'object' && !Array.isArray(activeDraftData.weeklySessionTargets)
+      const draftWeeklySessionTargets = activeDraftData.weeklySessionTargets && typeof activeDraftData.weeklySessionTargets === 'object' && !Array.isArray(activeDraftData.weeklySessionTargets)
         ? activeDraftData.weeklySessionTargets
         : {}
+      const quickWeeklySessionTargets = targetOverrideSnapshot.exists
+        && targetOverrideSnapshot.data()?.targets
+        && typeof targetOverrideSnapshot.data().targets === 'object'
+        && !Array.isArray(targetOverrideSnapshot.data().targets)
+        ? targetOverrideSnapshot.data().targets
+        : {}
+      const weeklySessionTargets = { ...draftWeeklySessionTargets, ...quickWeeklySessionTargets }
       const studentDocuments = new Map([...studentsSnapshot.docs, ...exactStudentSnapshots.filter((item) => item.exists)].map((item) => [item.id, item]))
       const students = new Map([...studentDocuments.values()].map((item) => {
         const data = item.data()

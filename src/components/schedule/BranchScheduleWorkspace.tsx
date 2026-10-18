@@ -45,6 +45,7 @@ import {
   reopenPtStudentAvailability,
   restorePtScheduleVersionToDraft,
   savePtStudentAvailability,
+  setPtStudentWeeklyTarget,
   validatePtScheduleDraft,
   type PtScheduleBranchOption,
   type PtScheduleDraftCommand,
@@ -1498,9 +1499,54 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate, ini
   }
 
   const setWeeklyTarget = async (studentId: string, targetSessions: number | null) => {
-    await runCommand('set_student_weekly_target', targetSessions === null
-      ? { studentId, resetToDefault: true }
-      : { studentId, targetSessions }, targetSessions === null ? 'Khôi phục định mức hồ sơ' : 'Điều chỉnh mục tiêu riêng cho tuần')
+    if (!workspace || busyRef.current) return
+    const student = workspace.students.find((item) => item.id === studentId)
+    if (!student) return
+    const commandScope = workspaceScope
+    busyRef.current = true
+    setBusy(true)
+    setError(null)
+    try {
+      const result = await setPtStudentWeeklyTarget({
+        weekId: currentWeekId,
+        branchId,
+        studentId,
+        ...(targetSessions === null ? { resetToDefault: true } : { targetSessions }),
+        idempotencyKey: commandKey(),
+      })
+      if (activeWorkspaceScopeRef.current !== commandScope) return
+      setWorkspace((current) => {
+        if (!current) return current
+        const scheduledByStudent = new Map<string, number>()
+        Object.values(current.schedule).flat().forEach((entry) => {
+          if (entry.type !== 'off') scheduledByStudent.set(entry.studentId, (scheduledByStudent.get(entry.studentId) || 0) + 1)
+        })
+        const nextStudents = current.students.map((item) => item.id === studentId ? {
+          ...item,
+          sessionsPerWeek: result.targetSessions,
+          weeklySessionTargetOverride: result.weeklySessionTargetOverride,
+          weeklySessionTargetOverridden: result.weeklySessionTargetOverridden,
+        } : item)
+        const missingSessions = nextStudents
+          .filter((item) => item.eligibleForWeek === true)
+          .reduce((total, item) => total + Math.max(0, item.sessionsPerWeek - (scheduledByStudent.get(item.id) || 0)), 0)
+        const next = { ...current, students: nextStudents, summary: { ...current.summary, missingSessions } }
+        workspaceRef.current = next
+        return next
+      })
+      candidateCache.current.clear()
+      setNotice(targetSessions === null
+        ? `Đã đưa mục tiêu ${student.name} về định mức hồ sơ, không tạo draft.`
+        : `Đã lưu mục tiêu ${result.targetSessions} buổi cho ${student.name}, không tạo draft.`)
+      setNoticeAction(null)
+    } catch (targetError) {
+      if (activeWorkspaceScopeRef.current !== commandScope) return
+      const normalized = asPtSchedulePublishError(targetError)
+      setError([normalized.message, ...normalized.conflicts.map(ptScheduleConflictLabel)].join(' · '))
+    } finally {
+      busyRef.current = false
+      setBusy(false)
+    }
   }
 
   const resetDraft = async () => {
@@ -1524,8 +1570,34 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate, ini
     setStudentFilter('all')
     setStudentSearch(student.name || '')
     setTab('students')
-    openAvailabilityEditor(student)
+    setAvailabilityEditorStudentId(student.id)
+    setAvailabilityDraft(new Set(student.availableSlots || []))
+    setAvailabilityError('')
+    setNotice(`Đã mở lịch rảnh của ${student.name}.`)
   }
+
+  const openFirstWarningStudentAvailability = () => {
+    const profile = visibleWarningProfiles[0] || warningProfiles[0]
+    if (profile) {
+      openWarningStudentAvailability(profile.student)
+      return
+    }
+    const conflict = scheduleConflictWarnings[0]
+    const student = conflict && workspace?.students.find((item) => item.id === conflict.studentId)
+    if (student) {
+      openWarningStudentAvailability(student)
+      return
+    }
+    setTab('warnings')
+  }
+
+  useEffect(() => {
+    if (tab !== 'students' || !availabilityEditorStudentId) return undefined
+    const timer = window.setTimeout(() => {
+      document.getElementById(`schedule-student-${availabilityEditorStudentId}`)?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    }, 0)
+    return () => window.clearTimeout(timer)
+  }, [availabilityEditorStudentId, studentRows.length, tab])
 
   const saveStudentAvailability = async (student: PtScheduleWorkspaceV2Result['students'][number]) => {
     if (availabilityBusy) return
@@ -1835,14 +1907,14 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate, ini
         <button type="button" onClick={() => setTab('students')}><UsersRound /><strong>{studentCoverage.fullyScheduled}/{studentCoverage.eligible}</strong><span>học viên đủ lịch</span></button>
         <button type="button" onClick={() => setTab('students')}><CalendarRange /><strong>{studentCoverage.scheduledEntries}/{studentCoverage.totalTargetSessions}</strong><span>buổi đã xếp</span></button>
         <button type="button" onClick={() => setTab('warnings')} className={slotUtilization.singleSlots > 0 ? 'is-attention' : ''}><UsersRound /><strong>{slotUtilization.pairedSlots} đôi</strong><span>{slotUtilization.singleSlots} ca còn lẻ</span></button>
-        <button type="button" onClick={() => setTab('warnings')} className={warningCount > 0 ? 'is-attention' : ''}><AlertTriangle /><strong>{warningCount}</strong><span>cảnh báo cần xem</span></button>
+        <button type="button" onClick={openFirstWarningStudentAvailability} className={warningCount > 0 ? 'is-attention' : ''}><AlertTriangle /><strong>{warningCount}</strong><span>cảnh báo cần xem</span></button>
       </section>
 
       <section className="branch-schedule__toolbar">
         <div className="branch-schedule__tabs" role="tablist" aria-label="Nội dung xếp lịch">
           <button id="schedule-tab-matrix" type="button" role="tab" aria-selected={tab === 'matrix'} aria-controls="schedule-panel-matrix" tabIndex={tab === 'matrix' ? 0 : -1} className={tab === 'matrix' ? 'is-active' : ''} onClick={() => setTab('matrix')}>Lịch PT</button>
           <button id="schedule-tab-opportunities" type="button" role="tab" aria-selected={tab === 'opportunities'} aria-controls="schedule-panel-opportunities" tabIndex={tab === 'opportunities' ? 0 : -1} className={tab === 'opportunities' ? 'is-active' : ''} onClick={() => setTab('opportunities')}>Kho ca {tab === 'opportunities' && <b>{scheduleOpportunities.length}</b>}</button>
-          <button id="schedule-tab-warnings" type="button" role="tab" aria-selected={tab === 'warnings'} aria-controls="schedule-panel-warnings" tabIndex={tab === 'warnings' ? 0 : -1} className={tab === 'warnings' ? 'is-active' : ''} onClick={() => setTab('warnings')}>Cảnh báo <b>{warningCount}</b></button>
+          <button id="schedule-tab-warnings" type="button" role="tab" aria-selected={tab === 'warnings'} aria-controls="schedule-panel-warnings" tabIndex={tab === 'warnings' ? 0 : -1} className={tab === 'warnings' ? 'is-active' : ''} onClick={openFirstWarningStudentAvailability}>Cảnh báo <b>{warningCount}</b></button>
           <button id="schedule-tab-students" type="button" role="tab" aria-selected={tab === 'students'} aria-controls="schedule-panel-students" tabIndex={tab === 'students' ? 0 : -1} className={tab === 'students' ? 'is-active' : ''} onClick={() => setTab('students')}>Học viên</button>
           {canManageOperations && <button id="schedule-tab-requests" type="button" role="tab" aria-selected={tab === 'requests'} aria-controls="schedule-panel-requests" tabIndex={tab === 'requests' ? 0 : -1} className={tab === 'requests' ? 'is-active' : ''} onClick={() => setTab('requests')}>Yêu cầu</button>}
         </div>
@@ -1995,10 +2067,10 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate, ini
                 : missing > 0
                   ? `Thiếu ${missing} buổi`
                   : 'Đủ lịch tuần'
-              return <article key={student.id} className={`${missing > 0 ? 'is-missing' : 'is-ready'}${student.eligibleForWeek !== true ? ' is-ineligible' : ''}${availabilityEditorStudentId === student.id ? ' is-editing-availability' : ''}`}>
+              return <article id={`schedule-student-${student.id}`} key={student.id} className={`${missing > 0 ? 'is-missing' : 'is-ready'}${student.eligibleForWeek !== true ? ' is-ineligible' : ''}${availabilityEditorStudentId === student.id ? ' is-editing-availability' : ''}`}>
               <div className="branch-schedule__student-person"><span><UsersRound size={17} /></span><div><strong>{student.name || 'Chưa cập nhật tên'}</strong><small>{statusText}</small></div></div>
               <div className="branch-schedule__student-progress"><strong>{scheduled}/{student.sessionsPerWeek}</strong><span>{student.eligibleForWeek !== true ? 'Cần rà lại' : statusText}</span><i><b style={{ width: `${Math.min(100, student.sessionsPerWeek ? scheduled / student.sessionsPerWeek * 100 : 100)}%` }} /></i></div>
-              <div className="branch-schedule__weekly-target"><small>Mục tiêu</small><div><button type="button" aria-label={`Giảm mục tiêu tuần của ${student.name}`} disabled={busy || student.sessionsPerWeek <= scheduled} onClick={() => void setWeeklyTarget(student.id, student.sessionsPerWeek - 1)}><Minus /></button><strong>{student.sessionsPerWeek}</strong><button type="button" aria-label={`Tăng mục tiêu tuần của ${student.name}`} disabled={busy || student.sessionsPerWeek >= student.maxWeeklySessions} onClick={() => void setWeeklyTarget(student.id, student.sessionsPerWeek + 1)}><Plus /></button>{student.weeklySessionTargetOverridden && <button type="button" className="is-reset" title={`Về ${student.defaultSessionsPerWeek} buổi`} aria-label={`Khôi phục mục tiêu của ${student.name} về ${student.defaultSessionsPerWeek} buổi`} disabled={busy || Math.min(student.defaultSessionsPerWeek, student.maxWeeklySessions) < scheduled} onClick={() => void setWeeklyTarget(student.id, null)}><RotateCcw /></button>}</div></div>
+              <div className="branch-schedule__weekly-target"><small>Mục tiêu</small><div><button type="button" aria-label={`Giảm mục tiêu tuần của ${student.name}`} disabled={busy || student.sessionsPerWeek <= scheduled} onClick={() => void setWeeklyTarget(student.id, student.sessionsPerWeek - 1)}><Minus /></button><strong>{student.sessionsPerWeek}</strong><button type="button" aria-label={`Tăng mục tiêu tuần của ${student.name}`} disabled={busy || student.sessionsPerWeek >= student.maxWeeklySessions} onClick={() => void setWeeklyTarget(student.id, student.sessionsPerWeek + 1)}><Plus /></button>{student.sessionsPerWeek > 0 && <button type="button" className="is-zero" title={scheduled > 0 ? 'Gỡ lịch trong tuần trước khi đặt 0 buổi' : 'Đặt nhanh mục tiêu về 0 buổi'} aria-label={`Đặt nhanh mục tiêu của ${student.name} về 0 buổi`} disabled={busy || scheduled > 0} onClick={() => void setWeeklyTarget(student.id, 0)}>0</button>}{student.weeklySessionTargetOverridden && <button type="button" className="is-reset" title={`Về ${student.defaultSessionsPerWeek} buổi`} aria-label={`Khôi phục mục tiêu của ${student.name} về ${student.defaultSessionsPerWeek} buổi`} disabled={busy || Math.min(student.defaultSessionsPerWeek, student.maxWeeklySessions) < scheduled} onClick={() => void setWeeklyTarget(student.id, null)}><RotateCcw /></button>}</div></div>
               <div className="branch-schedule__student-schedule"><small>Buổi trong tuần{crossBranchScheduledSessions > 0 ? ` · +${crossBranchScheduledSessions} ở cơ sở khác` : ''}</small><div>{scheduledEntries.length ? scheduledEntries.map((entry) => <span key={`${entry.slotId}-${entry.trainerId}`} className={entry.trainerAssignmentWarning ? 'has-assignment-warning' : ''}>{entry.label}<b>{workspace.trainers.find((trainer) => trainer.id === entry.trainerId)?.name || 'PT chưa cập nhật'}{entry.trainerAssignmentWarning && <AlertTriangle size={12} aria-label="PT hỗ trợ" />}</b></span>) : crossBranchScheduledSessions > 0 ? <em>Đã có lịch ở cơ sở khác</em> : <em>Chưa có buổi trong tuần</em>}</div></div>
               <div className="branch-schedule__student-availability-action"><button type="button" className={`is-${student.availabilityStatus}`} aria-expanded={availabilityEditorStudentId === student.id} onClick={() => openAvailabilityEditor(student)}><CalendarRange size={16} />{student.availabilityStatus === 'locked' ? 'Lịch rảnh đã khóa' : CONFIRMED_AVAILABILITY_STATUSES.has(student.availabilityStatus) ? 'Lịch rảnh' : 'Thêm lịch rảnh'}</button>{!CONFIRMED_AVAILABILITY_STATUSES.has(student.availabilityStatus) && <span className="is-warning">Cần lịch rảnh</span>}</div>
               {availabilityEditorStudentId === student.id && <section className="branch-schedule__availability-editor">

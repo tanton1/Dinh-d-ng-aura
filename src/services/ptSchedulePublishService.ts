@@ -472,6 +472,7 @@ const regionalPublishCallableNames = new Map([
   ['createHistoricalPtSession', 'createHistoricalPtSessionRegional'],
   ['savePtStudentAvailability', 'savePtStudentAvailabilityRegional'],
   ['reopenPtStudentAvailability', 'reopenPtStudentAvailabilityRegional'],
+  ['setPtStudentWeeklyTarget', 'setPtStudentWeeklyTargetRegional'],
   ['applyPtScheduleDraftCommand', 'applyPtScheduleDraftCommandRegional'],
 ])
 
@@ -687,6 +688,25 @@ export function reopenPtStudentAvailability(input: {
     availabilityLocked: boolean
     reopenedUntil: string
   }>('reopenPtStudentAvailability', input)
+}
+
+export function setPtStudentWeeklyTarget(input: {
+  weekId: string
+  branchId: string
+  studentId: string
+  targetSessions?: number
+  resetToDefault?: boolean
+  idempotencyKey: string
+}) {
+  return invoke<typeof input, {
+    schemaVersion: number
+    changed: boolean
+    revision: number
+    targetSessions: number
+    weeklySessionTargetOverride: number | null
+    weeklySessionTargetOverridden: boolean
+    draftRevision: number
+  }>('setPtStudentWeeklyTarget', input)
 }
 
 export function applyPtScheduleDraftCommand(input: {
