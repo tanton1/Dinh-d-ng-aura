@@ -48,6 +48,37 @@ export const publishPtSchedule = async (input: any) => { track('publish', input)
 export const listPtScheduleVersions = async () => ({ currentDraftRevision: workspace.draftRevision, currentVersion: 1, versions: [] })
 export const restorePtScheduleVersionToDraft = async () => ({ version: 1, draftRevision: workspace.draftRevision })
 export const savePtStudentAvailability = async () => ({ availableSlots: [], availabilityRevision: 2, availabilityStatus: 'submitted' })
+export const reopenPtStudentAvailability = async (input: any) => {
+  track('reopen-availability', input)
+  await sleep(50)
+  const student = workspace.students.find((item: any) => item.id === input.studentId)
+  const availabilityRevision = Number(student?.availabilityRevision || 1) + 1
+  return {
+    schemaVersion: 2,
+    changed: true,
+    availabilityRevision,
+    availabilityStatus: 'reopened',
+    availabilityLocked: false,
+    reopenedUntil: '2099-12-31T23:59:59.000Z',
+  }
+}
+export const setPtStudentWeeklyTarget = async (input: any) => {
+  track('weekly-target', input)
+  await sleep(50)
+  const student = workspace.students.find((item: any) => item.id === input.studentId)
+  const targetSessions = input.resetToDefault
+    ? Number(student?.defaultSessionsPerWeek || student?.sessionsPerWeek || 0)
+    : Number(input.targetSessions || 0)
+  return {
+    schemaVersion: 2,
+    changed: true,
+    revision: Number(student?.availabilityRevision || 1) + 1,
+    targetSessions,
+    weeklySessionTargetOverride: input.resetToDefault ? null : targetSessions,
+    weeklySessionTargetOverridden: !input.resetToDefault,
+    draftRevision: workspace.draftRevision,
+  }
+}
 // The production component imports this callable unconditionally. Keep the
 // fixture adapter's export surface in sync even though no historical session
 // is persisted by the UI test.

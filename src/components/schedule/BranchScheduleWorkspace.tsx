@@ -2369,7 +2369,11 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate, ini
                     const adminConflictNote = isAdmin && !candidate.eligible
                       ? ` · Admin có thể xếp, sẽ ghi cảnh báo${candidate.reasons.length ? `: ${candidate.reasons.map(ptScheduleConflictLabel).join(' · ')}` : ''}`
                       : ''
-                    const immediate = canPlaceManualCandidateImmediately(candidate)
+                    // Keep Admin scheduling behind the explicit footer
+                    // confirmation. Staff can still place an ordinary,
+                    // already-validated candidate immediately; Admin actions
+                    // change the branch-wide draft and must remain deliberate.
+                    const immediate = !isAdmin && canPlaceManualCandidateImmediately(candidate)
                     return <article key={candidate.studentId} className={`${candidate.eligible ? 'is-eligible' : manualSelectable ? 'is-override' : 'is-disabled'}${candidate.trainerAssignmentWarning ? ' has-assignment-warning' : ''}${candidate.studentBranchWarning ? ' has-branch-warning' : ''}${selected ? ' is-selected' : ''}`}><div><strong>{candidate.name}{(candidate.trainerAssignmentWarning || candidate.studentBranchWarning || (isAdmin && !candidate.eligible)) && <AlertTriangle size={13} aria-label="Ca cần xác nhận" />}</strong><span>{candidateText}{adminConflictNote}</span></div><button type="button" aria-label={immediate ? `Xếp ngay ${candidate.name}` : selected ? `Bỏ chọn ${candidate.name}` : `Chọn ${candidate.name}`} aria-pressed={selected} disabled={!manualSelectable || busy || !isAdmin && inspectorEntries.filter((entry) => entry.type !== 'off').length >= selectedTrainer.slotCapacity} onClick={() => { if (immediate) { setPendingManualCandidate(null); void confirmManualCandidate(candidate) } else setPendingManualCandidate((current) => current?.studentId === candidate.studentId ? null : candidate) }}>{selected ? <CheckCircle2 /> : <UserPlus />}</button></article>
                   })}
                 </section>)}</div>
