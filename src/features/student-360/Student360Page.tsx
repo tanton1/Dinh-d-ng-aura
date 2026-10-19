@@ -663,6 +663,15 @@ export default function Student360Page({ studentId, source, isDemo = false, onBa
   }
 
   const latestProgramDays = useMemo(() => overview?.training.program?.trainingDays || [], [overview])
+  // Keep every hook before the loading/error branches. The overview is loaded
+  // asynchronously, so placing these memos after an early return changes the
+  // hook order between the first and second render and crashes Student 360.
+  const demoTrainingHistorySessions = useMemo(() => demoTrainingHistory(), [])
+  const demoTrainingHistorySummary = useMemo(() => {
+    const attended = demoTrainingHistorySessions.filter((session) => session.status === 'completed').length
+    const chargedNoShow = demoTrainingHistorySessions.filter((session) => session.status === 'no_show').length
+    return { total: demoTrainingHistorySessions.length, attended, chargedNoShow, exempt: 0 }
+  }, [demoTrainingHistorySessions])
 
   if (loading) return <main className="student360-page"><State><LoaderCircle className="is-spinning" /><h1>Đang dựng góc nhìn 360</h1><p>Aura đang đối chiếu hợp đồng, lịch tập và tiến độ.</p></State></main>
   if (error || !overview) return <main className="student360-page"><State type="error"><AlertTriangle /><h1>Chưa thể mở Học viên 360</h1><p>{error || 'Hồ sơ không có dữ liệu.'}</p><div><button type="button" onClick={onBack}>Quay lại</button><button type="button" onClick={() => void loadOverview(false)}>Thử lại</button></div></State></main>
@@ -673,12 +682,6 @@ export default function Student360Page({ studentId, source, isDemo = false, onBa
   const weeklyPercent = Math.min(100, schedule.requiredSessions ? schedule.bookedSessions / schedule.requiredSessions * 100 : 0)
   const paymentStatus = contract?.payment?.status
   const scheduleView = source.startsWith('staff') ? 'staff-schedule' : 'admin-pt-schedule'
-  const demoTrainingHistorySessions = useMemo(() => demoTrainingHistory(), [])
-  const demoTrainingHistorySummary = useMemo(() => {
-    const attended = demoTrainingHistorySessions.filter((session) => session.status === 'completed').length
-    const chargedNoShow = demoTrainingHistorySessions.filter((session) => session.status === 'no_show').length
-    return { total: demoTrainingHistorySessions.length, attended, chargedNoShow, exempt: 0 }
-  }, [demoTrainingHistorySessions])
 
   return <main className="student360-page aura-ui-v4-surface aura-ui-v4-operations student360-page--v4" data-tab={activeTab}>
     <header className="student360-header">
