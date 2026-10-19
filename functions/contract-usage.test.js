@@ -9,6 +9,7 @@ const {
   summarizeSessionUsage,
   summarizeContractUsage,
   sessionUsageTransition,
+  canonicalUsageSessions,
 } = require('./contract-usage')
 
 test('canonical usage counts explicit charges and compatible legacy history exactly once', () => {
@@ -83,6 +84,32 @@ test('linked session evidence immediately repairs a projection that is behind', 
   assert.equal(summary.usedSessions, 2)
   assert.equal(summary.remainingSessions, 10)
   assert.equal(summary.reconciliationStatus, 'projection_behind')
+})
+
+test('contract usage counts at most one chargeable session per student per calendar day', () => {
+  const rows = [
+    { id: 'morning', studentId: 'student-1', contractId: 'contract-1', date: '2026-10-14', hour: 8, billingStatus: 'charged', attendanceStatus: 'present', status: 'completed' },
+    { id: 'evening', studentId: 'student-1', contractId: 'contract-1', date: '2026-10-14', hour: 18, billingStatus: 'charged', attendanceStatus: 'pending', status: 'scheduled' },
+    { id: 'next-day', studentId: 'student-1', contractId: 'contract-1', date: '2026-10-15', hour: 8, billingStatus: 'charged', attendanceStatus: 'present', status: 'completed' },
+    { id: 'other-student', studentId: 'student-2', contractId: 'contract-1', date: '2026-10-14', hour: 8, billingStatus: 'charged', attendanceStatus: 'present', status: 'completed' },
+  ]
+  const summary = summarizeContractUsage({ totalSessions: 20, usedSessions: 0 }, rows)
+  assert.equal(summary.rawHistorySessions, 4)
+  assert.equal(summary.historySessions, 3)
+  assert.equal(summary.chargedSessions, 3)
+  assert.equal(summary.duplicateHistorySessions, 1)
+  assert.deepEqual(summary.canonicalChargedSessionIds.sort(), ['morning', 'next-day', 'other-student'])
+})
+
+test('daily dedupe keeps malformed date rows separate and collapses schedule mirrors first', () => {
+  const rows = [
+    { id: 'legacy-mirror', studentId: 'student-1', trainerId: 'trainer-1', contractId: 'contract-1', date: '2026-10-14', hour: 8, scheduleEntryId: 'entry-1', billingStatus: 'charged', status: 'scheduled' },
+    { id: 'branch-mirror', studentId: 'student-1', trainerId: 'trainer-1', contractId: 'contract-1', date: '2026-10-14', hour: 8, scheduleEntryId: 'entry-1', billingStatus: 'charged', attendanceStatus: 'present', status: 'completed' },
+    { id: 'bad-date-a', studentId: 'student-1', contractId: 'contract-1', date: 'unknown', billingStatus: 'charged' },
+    { id: 'bad-date-b', studentId: 'student-1', contractId: 'contract-1', date: 'unknown', billingStatus: 'charged' },
+  ]
+  const canonical = canonicalUsageSessions(rows)
+  assert.deepEqual(canonical.map((row) => row.id).sort(), ['bad-date-a', 'bad-date-b', 'branch-mirror'])
 })
 
 test('session usage transition only changes projection when charge membership changes', () => {

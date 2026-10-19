@@ -524,7 +524,7 @@ export default function TrainingHistoryPanel({ subject, subjectId, subjectName, 
     {correctionNotice && <div className="training-history__notice is-success"><CheckCircle2 size={18} /> {correctionNotice}</div>}
     {usageError && subject === 'student' ? <div className="training-history__notice"><CircleAlert size={18} /> {usageError}</div> : null}
     {selectedUsage ? <section className="training-history__contract-usage">
-      <header><div><small>GÓI ĐANG ĐỐI CHIẾU</small><strong>{selectedUsage.packageName}</strong></div><span><b>{selectedUsage.usedSessions}</b>/{selectedUsage.totalSessions} buổi</span></header>
+      <header><div><small>GÓI ĐANG ĐỐI CHIẾU</small><strong>{selectedUsage.packageName}</strong></div><span><b>{selectedUsage.usedSessions}</b>/{selectedUsage.totalSessions} buổi tính quota</span></header>
       <i className="training-history__usage-progress"><em style={{ width: `${Math.min(100, selectedUsage.totalSessions ? selectedUsage.usedSessions / selectedUsage.totalSessions * 100 : 0)}%` }} /></i>
       <div className="training-history__usage-facts">
         <span><b>{selectedUsage.remainingSessions}</b>Còn lại</span>

@@ -1,8 +1,24 @@
 'use strict'
 
 const { FieldValue } = require('firebase-admin/firestore')
+const { canonicalSessionRows, sessionPriority } = require('./session-schedule-normalization')
 
 const LEGACY_CHARGED_STATUSES = new Set(['completed', 'attended', 'no_show'])
+const MAX_SESSION_EVIDENCE = 5000
+const DAILY_USAGE_RECONCILIATION_VERSION = 5
+const DAILY_USAGE_RECONCILIATION_SOURCE = 'pt-contract-daily-usage-v1'
+const SESSION_USAGE_IDENTITY_FIELDS = Object.freeze([
+  'contractId',
+  'studentId',
+  'date',
+  'hour',
+  'scheduleEntryId',
+  'branchId',
+  'billingStatus',
+  'status',
+  'attendanceStatus',
+  'revision',
+])
 
 function safeCount(value) {
   const number = Number(value)
@@ -34,6 +50,83 @@ function sessionAttendanceKind(session = {}) {
   if (status === 'completed' || status === 'attended') return 'present'
   if (status === 'no_show') return 'no_show'
   return 'pending'
+}
+
+function sessionDateKey(session = {}) {
+  const value = typeof session.date === 'string' ? session.date.trim().slice(0, 10) : ''
+  return /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : ''
+}
+
+function sessionStudentKey(session = {}) {
+  return typeof session.studentId === 'string' ? session.studentId.trim() : ''
+}
+
+function usageEvidencePriority(session = {}) {
+  const attendance = sessionAttendanceKind(session)
+  const attendanceScore = {
+    present: 4,
+    late: 3,
+    no_show: 2,
+    policy_charge: 1,
+    pending: 0,
+  }[attendance] || 0
+  return sessionPriority(session) * 10 + attendanceScore
+}
+
+function preferredUsageSession(left, right) {
+  const leftPriority = usageEvidencePriority(left)
+  const rightPriority = usageEvidencePriority(right)
+  if (leftPriority !== rightPriority) return leftPriority > rightPriority ? left : right
+  const leftRevision = Number(left?.revision || 0)
+  const rightRevision = Number(right?.revision || 0)
+  if (leftRevision !== rightRevision) return leftRevision > rightRevision ? left : right
+  const timestamp = (value) => {
+    if (!value) return 0
+    if (typeof value === 'number') return Number.isFinite(value) ? value : 0
+    if (typeof value === 'string') {
+      const parsed = Date.parse(value)
+      return Number.isFinite(parsed) ? parsed : 0
+    }
+    if (typeof value.toMillis === 'function') return value.toMillis()
+    if (typeof value.toDate === 'function') return value.toDate().getTime()
+    return 0
+  }
+  const leftTimestamp = timestamp(left?.updatedAt || left?.confirmedAt || left?.createdAt)
+  const rightTimestamp = timestamp(right?.updatedAt || right?.confirmedAt || right?.createdAt)
+  if (leftTimestamp !== rightTimestamp) return leftTimestamp > rightTimestamp ? left : right
+  return String(left?.id || '').localeCompare(String(right?.id || '')) <= 0 ? left : right
+}
+
+/**
+ * Return one canonical charge/history row per learner per calendar day.
+ *
+ * Published branch mirrors are collapsed first by their schedule identity.
+ * Remaining rows are then collapsed by student + YYYY-MM-DD. Rows without a
+ * trustworthy student/date key are retained independently so a malformed
+ * record cannot hide a valid appointment.
+ */
+function canonicalUsageSessions(sessions = []) {
+  const scheduleRows = canonicalSessionRows(Array.isArray(sessions) ? sessions : [])
+  const grouped = new Map()
+  const ungrouped = []
+  for (const row of scheduleRows) {
+    const studentId = sessionStudentKey(row)
+    const date = sessionDateKey(row)
+    if (!studentId || !date) {
+      ungrouped.push(row)
+      continue
+    }
+    const key = `${studentId}|${date}`
+    const current = grouped.get(key)
+    grouped.set(key, current ? preferredUsageSession(current, row) : row)
+  }
+  return [...ungrouped, ...grouped.values()].sort((left, right) => {
+    const leftDate = sessionDateKey(left) || '9999-99-99'
+    const rightDate = sessionDateKey(right) || '9999-99-99'
+    return leftDate.localeCompare(rightDate)
+      || sessionStudentKey(left).localeCompare(sessionStudentKey(right))
+      || String(left?.id || '').localeCompare(String(right?.id || ''))
+  })
 }
 
 function summarizeSessionUsage(sessions = []) {
@@ -72,7 +165,9 @@ function summarizeSessionUsage(sessions = []) {
 }
 
 function summarizeContractUsage(contract = {}, sessions = []) {
-  const sessionUsage = summarizeSessionUsage(sessions)
+  const rawSessions = Array.isArray(sessions) ? sessions : []
+  const canonicalSessions = canonicalUsageSessions(rawSessions)
+  const sessionUsage = summarizeSessionUsage(canonicalSessions)
   const totalSessions = safeCount(contract.totalSessions)
   const storedUsedSessions = safeCount(contract.usedSessions)
   // A migrated projection can be ahead of the session documents that still
@@ -90,6 +185,15 @@ function summarizeContractUsage(contract = {}, sessions = []) {
         : 'matched'
   return {
     ...sessionUsage,
+    rawHistorySessions: rawSessions.length,
+    duplicateHistorySessions: Math.max(0, rawSessions.length - canonicalSessions.length),
+    canonicalSessionIds: canonicalSessions
+      .map((session) => typeof session?.id === 'string' ? session.id : '')
+      .filter(Boolean),
+    canonicalChargedSessionIds: canonicalSessions
+      .filter((session) => sessionCountsTowardContract(session))
+      .map((session) => typeof session?.id === 'string' ? session.id : '')
+      .filter(Boolean),
     totalSessions,
     storedUsedSessions,
     legacyProjectionAdjustment,
@@ -98,6 +202,24 @@ function summarizeContractUsage(contract = {}, sessions = []) {
     projectionDelta,
     reconciliationStatus,
   }
+}
+
+function comparableSessionSource(value) {
+  if (!value) return null
+  return SESSION_USAGE_IDENTITY_FIELDS.reduce((result, field) => {
+    const current = value[field]
+    result[field] = typeof current === 'string' ? current.trim() : current ?? null
+    return result
+  }, {})
+}
+
+function usageSourceChanged(before, after) {
+  return JSON.stringify(comparableSessionSource(before)) !== JSON.stringify(comparableSessionSource(after))
+}
+
+function isDailyUsageProjection(contract = {}) {
+  return Number(contract.usageReconciliationVersion || 0) >= DAILY_USAGE_RECONCILIATION_VERSION
+    && contract.usageReconciledFrom === DAILY_USAGE_RECONCILIATION_SOURCE
 }
 
 function sessionUsageTransition(before = null, after = null) {
@@ -115,58 +237,89 @@ async function syncContractUsageProjection({ db, event, logger = console }) {
   const before = event.data?.before?.exists ? event.data.before.data() : null
   const after = event.data?.after?.exists ? event.data.after.data() : null
   const transition = sessionUsageTransition(before, after)
-  const contractIds = [...new Set([...transition.removeContractIds, ...transition.addContractIds])]
-  if (!contractIds.length) return null
+  const contractIds = new Set([...transition.removeContractIds, ...transition.addContractIds])
+  if (usageSourceChanged(before, after) && (sessionCountsTowardContract(before) || sessionCountsTowardContract(after))) {
+    for (const value of [before, after]) {
+      const contractId = typeof value?.contractId === 'string' ? value.contractId.trim() : ''
+      if (contractId) contractIds.add(contractId)
+    }
+  }
+  const affectedContractIds = [...contractIds]
+  if (!affectedContractIds.length) return null
   return db.runTransaction(async (transaction) => {
-    const references = contractIds.map((contractId) => db.doc(`contracts/${contractId}`))
+    const references = affectedContractIds.map((contractId) => db.doc(`contracts/${contractId}`))
     const snapshots = []
     for (const reference of references) snapshots.push(await transaction.get(reference))
+    const evidenceSnapshots = []
+    for (const snapshot of snapshots) {
+      evidenceSnapshots.push(snapshot.exists
+        ? await transaction.get(db.collection('sessions')
+          .where('contractId', '==', snapshot.id)
+          .limit(MAX_SESSION_EVIDENCE + 1))
+        : null)
+    }
     const changes = []
-    snapshots.forEach((snapshot, index) => {
+    for (const [index, snapshot] of snapshots.entries()) {
       if (!snapshot.exists) {
-        logger.error('Contract usage projection skipped missing contract', { contractId: contractIds[index], sessionId })
-        return
+        logger.error('Contract usage projection skipped missing contract', { contractId: affectedContractIds[index], sessionId })
+        continue
       }
       const contract = snapshot.data() || {}
-      const chargedSessionIds = [...new Set((Array.isArray(contract.chargedSessionIds) ? contract.chargedSessionIds : []).filter((value) => typeof value === 'string' && value))]
-      const attendedClasses = [...new Set((Array.isArray(contract.attendedClasses) ? contract.attendedClasses : []).filter((value) => typeof value === 'string' && value))]
+      const evidenceSnapshot = evidenceSnapshots[index]
+      if (evidenceSnapshot.size > MAX_SESSION_EVIDENCE) {
+        logger.error('Contract usage projection skipped truncated history', { contractId: snapshot.id, sessionId, evidenceSessions: evidenceSnapshot.size })
+        continue
+      }
+      const rows = evidenceSnapshot.docs.map((item) => ({ id: item.id, ...item.data() }))
+      const summary = summarizeContractUsage(contract, rows)
+      const chargedSessionIds = [...new Set((Array.isArray(summary.canonicalChargedSessionIds) ? summary.canonicalChargedSessionIds : []).filter(Boolean))]
+      const previousAttended = [...new Set((Array.isArray(contract.attendedClasses) ? contract.attendedClasses : []).filter((value) => typeof value === 'string' && value))]
+      const canonicalIds = new Set(summary.canonicalSessionIds || [])
+      const nextAttended = previousAttended.filter((value) => canonicalIds.has(value))
       const beforeUsed = safeCount(contract.usedSessions)
-      let afterUsed = beforeUsed
-      const remove = transition.removeContractIds.includes(snapshot.id)
-      const add = transition.addContractIds.includes(snapshot.id)
-      const alreadyCounted = chargedSessionIds.includes(sessionId) || attendedClasses.includes(sessionId)
-      let nextCharged = chargedSessionIds
-      let nextAttended = attendedClasses
-      if (remove && alreadyCounted) {
-        afterUsed = Math.max(0, afterUsed - 1)
-        nextCharged = nextCharged.filter((value) => value !== sessionId)
-        nextAttended = nextAttended.filter((value) => value !== sessionId)
-      }
-      if (add && !alreadyCounted) {
-        afterUsed += 1
-        nextCharged = [...nextCharged, sessionId]
-      } else if (add && !nextCharged.includes(sessionId)) {
-        nextCharged = [...nextCharged, sessionId]
-      }
-      if (afterUsed === beforeUsed && nextCharged.length === chargedSessionIds.length && nextAttended.length === attendedClasses.length) return
       const exactHistoryProjection = Number(contract.usageReconciliationVersion || 0) >= 4
         && contract.usageReconciledFrom === 'pt-contract-history-exact-v1'
+      const afterUsed = exactHistoryProjection && !isDailyUsageProjection(contract)
+        ? summary.usedSessions
+        : summary.chargedSessions
+      const afterStatus = afterUsed > safeCount(contract.totalSessions) ? 'over_entitlement' : 'matched'
+      const previousCharged = [...new Set((Array.isArray(contract.chargedSessionIds) ? contract.chargedSessionIds : []).filter((value) => typeof value === 'string' && value))]
+      const changed = afterUsed !== beforeUsed
+        || JSON.stringify(previousCharged) !== JSON.stringify(chargedSessionIds)
+        || JSON.stringify(previousAttended) !== JSON.stringify(nextAttended)
+        || Number(contract.usageReconciliationVersion || 0) < DAILY_USAGE_RECONCILIATION_VERSION
+        || contract.usageReconciledFrom !== DAILY_USAGE_RECONCILIATION_SOURCE
+        || Number(contract.usageDedupedSessions || 0) !== summary.duplicateHistorySessions
+      if (!changed) continue
       transaction.update(snapshot.ref, {
         usedSessions: afterUsed,
-        chargedSessionIds: nextCharged,
-        ...(nextAttended.length !== attendedClasses.length ? { attendedClasses: nextAttended } : {}),
-        usageProjectionVersion: exactHistoryProjection ? 4 : 2,
+        chargedSessionIds,
+        ...(JSON.stringify(nextAttended) !== JSON.stringify(previousAttended) ? { attendedClasses: nextAttended } : {}),
+        usageProjectionVersion: DAILY_USAGE_RECONCILIATION_VERSION,
+        usageReconciliationVersion: DAILY_USAGE_RECONCILIATION_VERSION,
+        usageReconciledFrom: DAILY_USAGE_RECONCILIATION_SOURCE,
+        historyEvidenceSessions: afterUsed,
+        usageDeduplicationVersion: 1,
+        usageDedupedSessions: summary.duplicateHistorySessions,
+        usageReconciliationStatus: afterStatus,
         ...(exactHistoryProjection ? {
-          historyEvidenceSessions: afterUsed,
-          usageReconciliationStatus: afterUsed > safeCount(contract.totalSessions) ? 'over_entitlement' : 'matched',
+          historyEvidenceSource: 'contractId-linked-session-query',
         } : {}),
         usageProjectionUpdatedAt: FieldValue.serverTimestamp(),
       })
-      changes.push({ contractId: snapshot.id, beforeUsed, afterUsed, action: remove ? 'removed' : 'added' })
-    })
+      changes.push({
+        contractId: snapshot.id,
+        beforeUsed,
+        afterUsed,
+        rawHistorySessions: summary.rawHistorySessions,
+        canonicalHistorySessions: summary.historySessions,
+        duplicateHistorySessions: summary.duplicateHistorySessions,
+        action: summary.duplicateHistorySessions > 0 ? 'daily_deduped' : 'reconciled',
+      })
+    }
     if (changes.length) transaction.create(db.collection('contractUsageAuditLogs').doc(), {
-      schemaVersion: 2,
-      action: 'contract_usage.session_projection_synced',
+      schemaVersion: 3,
+      action: 'contract_usage.daily_unique_projection_synced',
       sessionId,
       changes,
       createdAt: FieldValue.serverTimestamp(),
@@ -177,9 +330,16 @@ async function syncContractUsageProjection({ db, event, logger = console }) {
 
 module.exports = {
   LEGACY_CHARGED_STATUSES,
+  MAX_SESSION_EVIDENCE,
+  DAILY_USAGE_RECONCILIATION_VERSION,
+  DAILY_USAGE_RECONCILIATION_SOURCE,
   safeCount,
   sessionCountsTowardContract,
   sessionAttendanceKind,
+  sessionDateKey,
+  canonicalUsageSessions,
+  usageSourceChanged,
+  isDailyUsageProjection,
   summarizeSessionUsage,
   summarizeContractUsage,
   sessionUsageTransition,

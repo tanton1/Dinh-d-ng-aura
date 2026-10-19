@@ -35,12 +35,12 @@ import {
 import {
   listStudentTrainingHistory,
   type TrainingHistoryPage,
-  type TrainingHistoryRecord,
 } from '../../services/businessReportingService'
 import type { ViewId } from '../../types'
 import { firestoreDb } from '../../lib/firebaseFirestore'
 import '../../styles-coaching.css'
 import './StudentSchedulePage.css'
+import StudentTrainingHistory from '../../components/training/StudentTrainingHistory'
 import { useAuraUiSurface } from '../../features/ui-rollout/AuraUiRolloutContext'
 import { vietnamBusinessDayCode } from '../../utils/dateUtils'
 import { PT_OPERATIONS_POLICY_DEFAULTS } from '../../config/ptOperationsPolicy'
@@ -145,11 +145,6 @@ function slotIdForSession(session: StudentPtSession) {
   return session.hour === null ? '' : `${vietnamBusinessDayCode(session.date)}-${session.hour}`
 }
 
-function formatSessionDate(value: string) {
-  return new Intl.DateTimeFormat('vi-VN', { weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric' })
-    .format(new Date(`${value}T00:00:00+07:00`))
-}
-
 function canRequestSessionChange(session: StudentPtSession, deadlineHours = 12) {
   if (session.hour === null || session.status !== 'scheduled') return false
   const startsAt = Date.parse(`${session.date}T${String(session.hour).padStart(2, '0')}:00:00+07:00`)
@@ -179,35 +174,6 @@ function contractDisplayStatus(contract: StudentPtScheduleData['contracts'][numb
   if (status === 'active' && contract.endDate && contract.endDate < today) return 'Đã hết hạn'
   if (status === 'active' && contract.remainingSessions <= 0) return 'Hết buổi'
   return contractStatusLabel(status)
-}
-
-function historyBillingStatus(record: TrainingHistoryRecord) {
-  return String(record.billingStatus || record.attendance?.billingStatus || '').trim().toLowerCase()
-}
-
-function historyRecordLabel(record: TrainingHistoryRecord) {
-  const billingStatus = historyBillingStatus(record)
-  const attendanceStatus = String(record.attendance?.attendanceStatus || '').trim().toLowerCase()
-  const exempt = record.isExempt || billingStatus === 'exempt'
-  const noShow = attendanceStatus === 'no_show' || record.status === 'no_show'
-  const attended = ['present', 'late'].includes(attendanceStatus) || ['completed', 'attended'].includes(record.status)
-  if (exempt) {
-    if (noShow) return 'Vắng mặt · miễn trừ'
-    if (attended) return attendanceStatus === 'late' ? 'Đã tập · miễn trừ · đi trễ' : 'Đã tập · miễn trừ'
-    return `${statusLabels[record.status] ?? record.status} · miễn trừ`
-  }
-  if (noShow) return record.countsTowardContract || billingStatus === 'charged' ? 'Vắng mặt · tính buổi' : 'Vắng mặt · chờ đối soát'
-  if (attended) return attendanceStatus === 'late' ? 'Đã tập · đi trễ' : 'Đã tập'
-  if (billingStatus === 'charged') return 'Tính buổi · chờ xác nhận'
-  return statusLabels[record.status] ?? record.status
-}
-
-function historyRecordTone(record: TrainingHistoryRecord) {
-  const billingStatus = historyBillingStatus(record)
-  if (record.isExempt || billingStatus === 'exempt') return 'is-exempt'
-  if (record.attendance?.attendanceStatus === 'no_show' || record.status === 'no_show') return record.countsTowardContract || billingStatus === 'charged' ? 'is-charged' : 'is-pending'
-  if (['present', 'late'].includes(String(record.attendance?.attendanceStatus || '').toLowerCase()) || ['completed', 'attended'].includes(record.status)) return 'is-attended'
-  return 'is-pending'
 }
 
 export default function SchedulePage({ onNavigate, isDemo = false }: { onNavigate: (view: ViewId) => void; isDemo?: boolean; ownerId?: string }) {
@@ -645,20 +611,18 @@ export default function SchedulePage({ onNavigate, isDemo = false }: { onNavigat
           </div>
         </section>}
 
-        {activeTab === 'history' && <section className="student-session-history">
-          <header>
-            <div><small>AURA · NHẬT KÝ TẬP LUYỆN</small><h2>Lịch sử buổi tập</h2><p>Toàn bộ lịch sử từ khi bắt đầu tập. Mỗi buổi ghi rõ đã tập, vắng có tính buổi hoặc miễn trừ.</p></div>
-            <span>{isDemo ? demoHistorySummary.total : historyPage?.summary.total ?? 0} buổi</span>
-          </header>
-          {isDemo ? <div className="student-history-summary"><span><b>{demoHistorySummary.attended}</b>Đã tập</span><span><b>{demoHistorySummary.chargedNoShow}</b>Vắng tính buổi</span><span><b>{demoHistorySummary.exempt}</b>Miễn trừ</span></div> : historyPage?.summary.usage ? <div className="student-history-summary"><span><b>{historyPage.summary.usage.attendedSessions ?? 0}</b>Đã tập</span><span><b>{historyPage.summary.usage.chargedNoShowSessions ?? 0}</b>Vắng tính buổi</span><span><b>{historyPage.summary.usage.exemptSessions ?? 0}</b>Miễn trừ</span></div> : null}
-          {historyError ? <div className="student-history-notice" role="alert"><AlertCircle size={17} /><span>{historyError}</span><button type="button" onClick={() => { historyLoadedStudentRef.current = data?.student?.id || ''; void loadHistory(false) }}>Thử lại</button></div> : null}
-          {historyLoading && !historyPage && !isDemo ? <div className="student-session-empty"><LoaderCircle size={28} className="is-spinning" /><strong>Đang tải toàn bộ lịch sử…</strong><span>Đang đối chiếu số buổi đã tập, vắng và miễn trừ.</span></div> : null}
-          {!historyLoading && !historyError && !isDemo && historyPage && historyPage.records.length === 0 ? <div className="student-session-empty"><History size={28} /><strong>Chưa có lịch sử tập luyện</strong><span>Các buổi đã hoàn thành hoặc được điều chỉnh sẽ xuất hiện tại đây.</span></div> : null}
-          {isDemo && historySessions.length > 0 ? <div>{historySessions.map((session) => <article key={session.id}><span>{formatSessionDate(session.date)} · {session.hour === null ? '--:--' : `${String(session.hour).padStart(2, '0')}:00`}</span><strong>{session.trainerName}</strong><em>{statusLabels[session.status] ?? session.status}</em></article>)}</div> : null}
-          {!isDemo && historyPage?.records.length ? <div>{historyPage.records.map((record) => <article className={historyRecordTone(record)} key={record.id}><span>{formatSessionDate(record.date)} · {record.hour === null ? '--:--' : `${String(record.hour).padStart(2, '0')}:00`}</span><strong>{record.counterpartName}</strong><em>{historyRecordLabel(record)}</em></article>)}</div> : null}
-          {!isDemo && historyPage?.summary.truncated ? <div className="student-history-notice"><AlertCircle size={17} /><span>Lịch sử vượt giới hạn tải một lần; tổng số liệu đang hiển thị trong phạm vi hệ thống đã đối chiếu.</span></div> : null}
-          {!isDemo && historyPage?.hasMore ? <button type="button" className="student-history-more" disabled={historyLoading} onClick={() => void loadHistory(true)}>{historyLoading ? 'Đang tải…' : `Tải thêm lịch sử (${Math.max(0, historyPage.summary.total - historyPage.records.length)} buổi)`}</button> : null}
-        </section>}
+        {activeTab === 'history' && <StudentTrainingHistory
+          page={historyPage}
+          loading={historyLoading}
+          error={historyError}
+          isDemo={isDemo}
+          quotaUsed={activeContract?.usedSessions}
+          quotaTotal={activeContract?.totalSessions}
+          demoSessions={historySessions}
+          demoSummary={demoHistorySummary}
+          onRetry={() => { historyLoadedStudentRef.current = data?.student?.id || ''; void loadHistory(false) }}
+          onLoadMore={() => void loadHistory(true)}
+        />}
         {requestSession && <SessionRequestModal session={requestSession} onClose={() => setRequestSession(null)} onCreated={(value) => { invalidateHistory(); setMessage(value); setActiveTab('requests'); void load() }} />}
         {showAdditionalRequest && <AdditionalSessionModal onClose={() => setShowAdditionalRequest(false)} onCreated={(value) => { invalidateHistory(); setMessage(value); setActiveTab('requests'); void load() }} />}
         {showPauseRequest && activeContract && <LeaveRequestModal contractId={activeContract.id} policy={data.scheduleConfig} onClose={() => setShowPauseRequest(false)} onCreated={(value) => { invalidateHistory(); setMessage(value); setActiveTab('requests'); void load() }} />}

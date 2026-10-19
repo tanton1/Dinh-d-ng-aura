@@ -444,7 +444,7 @@ export default function Student360ContractWorkspace({ studentId, overview, sourc
       <section className="student360-contract-live-summary">
         <header><div><span className={`is-${selected.status}`}>{statusLabel(selected.status)}</span><h3>{selected.packageName}</h3><p>{dateLabel(selected.startDate)} → {dateLabel(selected.endDate)}</p></div><strong>{selectedRemainingSessions}<small>buổi còn lại</small></strong></header>
         <div className="student360-contract-facts">
-          <div><FileText /><span>Quyền lợi<b>{selectedUsedSessions}/{selected.totalSessions} buổi</b></span></div>
+          <div><FileText /><span>Quyền lợi<b>{selectedUsedSessions}/{selected.totalSessions} buổi tính quota</b></span></div>
           <div><Clock3 /><span>Hiệu lực<b>{dateLabel(selected.startDate)} → {dateLabel(selected.endDate)}</b></span></div>
           <div><UserRoundCog /><span>PT phụ trách<b>{workspace.trainers.filter((item) => selected.trainerIds.includes(item.id)).map((item) => item.name).join(' · ') || 'Chưa phân công'}</b></span></div>
           <div><ShieldCheck /><span>Cập nhật gần nhất<b>{dateLabel(selected.updatedAt)}{selected.updatedByName ? ` · ${selected.updatedByName}` : ''}</b></span></div>

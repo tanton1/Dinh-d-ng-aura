@@ -9,6 +9,7 @@ const {
   contractMutationTitle,
   contractWorkspaceTrainerDirectory,
   contractUsage,
+  projectionUsageMismatch,
   mapWithConcurrency,
   permissionsFor,
   normalizeTimelineEvents,
@@ -507,6 +508,44 @@ test('health score reweights only available components and exposes confidence', 
   assert.equal(score.components.find((item) => item.id === 'nutrition').available, false)
 })
 
+test('Student 360 rejects a fresh projection whose quota differs from the canonical usage view', () => {
+  const view = {
+    schemaVersion: 3,
+    sourceVersion: 'contract-usage-v3-daily',
+    entitlementSessions: 38,
+    usedSessions: 9,
+    remainingSessions: 29,
+    evidenceTruncated: false,
+    chargedSessions: 9,
+    historySessions: 12,
+    exemptSessions: 0,
+    pendingReconciliationSessions: 3,
+    reconciliationStatus: 'matched',
+  }
+  assert.equal(projectionUsageMismatch({ contract: {
+    id: 'contract-1',
+    totalSessions: 38,
+    usedSessions: 12,
+    remainingSessions: 26,
+    chargedSessions: 12,
+    historySessions: 12,
+    exemptSessions: 0,
+    pendingReconciliationSessions: 0,
+    reconciliationStatus: 'projection_behind',
+  } }, view), true)
+  assert.equal(projectionUsageMismatch({ contract: {
+    id: 'contract-1',
+    totalSessions: 38,
+    usedSessions: 9,
+    remainingSessions: 29,
+    chargedSessions: 9,
+    historySessions: 12,
+    exemptSessions: 0,
+    pendingReconciliationSessions: 3,
+    reconciliationStatus: 'matched',
+  } }, view), false)
+})
+
 test('redacted health score only uses components visible to the current role', () => {
   const permissions = permissionsFor({
     uid: 'sales-uid', legacyStaffId: 'sales-uid', accessRole: 'staff', branchIds: [], capabilities: [],
@@ -552,7 +591,7 @@ test('contract usage keeps legacy projection explicit without double-counting', 
   ])
   assert.equal(result.chargedSessions, 2)
   assert.equal(result.exemptSessions, 0)
-  assert.equal(result.pendingReconciliationSessions, 0)
+  assert.equal(result.pendingReconciliationSessions, 1)
   assert.equal(result.legacyProjectionAdjustment, 6)
   assert.equal(result.usedSessions, 8)
   assert.equal(result.remainingSessions, 12)
@@ -701,7 +740,7 @@ test('contract workspace mutations are revisioned, audited and no longer rely on
 test('Student 360 contract workspace prefers canonical usage views with bounded legacy fallback', () => {
   const source = require('node:fs').readFileSync(require('node:path').join(__dirname, 'student-360.js'), 'utf8')
   assert.match(source, /contractUsageViews\//)
-  assert.match(source, /usageSummaryFromView\(usageView, value\)/)
+  assert.match(source, /canonicalUsageSummary\(usageView, \{ id: item\.id, \.\.\.value \}\)/)
   assert.match(source, /where\('crmProfileId', '==', studentId\)/)
   assert.match(source, /where\('studentId', '==', studentId\)\.limit\(1000\)/)
 })
@@ -717,7 +756,7 @@ test('Student 360 overview prefers durable operational actions when available', 
 test('Student 360 overview reads canonical contract usage with a bounded legacy fallback', () => {
   const source = require('node:fs').readFileSync(require('node:path').join(__dirname, 'student-360.js'), 'utf8')
   assert.match(source, /contractUsageViews\/\$\{contract\.id\}/)
-  assert.match(source, /usageView\?\.exists[\s\S]*?usageSummaryFromView\(usageView\.data\(\), contract\)[\s\S]*?: contractUsage/)
+  assert.match(source, /canonicalUsageSummary\(usageView\?\.exists \? usageView\.data\(\) : null, contract\)[\s\S]*?\|\| contractUsage/)
   assert.match(source, /where\('crmProfileId', '==', studentId\)/)
 })
 

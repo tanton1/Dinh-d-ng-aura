@@ -130,12 +130,13 @@ export interface ContractUsageSummary extends SessionUsageSummary {
   remainingSessions: number
   projectionDelta: number
   reconciliationStatus: 'matched' | 'legacy_projection' | 'projection_behind' | 'over_entitlement'
+  sourceVersion?: 'contract-usage-v3-daily' | 'contract-usage-v2' | string
 }
 
 export interface StudentContractUsageResponse {
   schemaVersion: 1
   studentId: string
-  formulaVersion: 'contract-usage-v2'
+  formulaVersion: 'contract-usage-v3-daily' | 'contract-usage-v2'
   summaries: ContractUsageSummary[]
   dataQuality: {
     scannedContracts: number

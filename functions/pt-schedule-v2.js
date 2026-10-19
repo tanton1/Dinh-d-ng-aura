@@ -25,6 +25,7 @@ const {
   studentAvailabilityProfilePatch,
 } = require('./student-availability')
 const { summarizeContractUsage } = require('./contract-usage')
+const { canonicalUsageSummary, loadContractUsageViews } = require('./contract-usage-view')
 const { contractEffectiveOnDate } = require('./contract-status')
 const {
   contractCanParticipateInWeek,
@@ -1036,6 +1037,7 @@ async function loadBranchDataFresh(db, branchId, week, options = {}) {
   if (crossBranchStudentIds.size > MAX_STUDENTS) throw new HttpsError('resource-exhausted', 'Số học viên khác cơ sở trong lịch vượt giới hạn workspace an toàn.')
   const crossBranchContracts = await contractsForStudents(db, [...crossBranchStudentIds])
   const allContracts = [...new Map([...contracts, ...crossBranchContracts].map((contract) => [contract.id, contract])).values()]
+  const usageViews = await loadContractUsageViews(db, allContracts.map((contract) => contract.id))
   const previousWeekSessionCounts = new Map()
   previousWeekSessions.docs.forEach((item) => {
     const session = item.data()
@@ -1083,7 +1085,8 @@ async function loadBranchDataFresh(db, branchId, week, options = {}) {
   const weeklyTrainerAvailability = new Map(trainerAvailability.map((item) => item.data()).filter((item) => trainerIds.has(item.trainerId)).map((item) => [item.trainerId, item]))
   const mappedContracts = allContracts.map((contract) => {
     const contractSessions = sessionsByContract.get(contract.id) || []
-    const usage = summarizeContractUsage(contract, contractSessions)
+    const usage = canonicalUsageSummary(usageViews.get(contract.id), contract)
+      || summarizeContractUsage(contract, contractSessions)
     const activeContractSessions = contractSessions.filter((session) => ['scheduled', 'rescheduled'].includes(String(session.status || '').toLowerCase())
       && session.billingStatus !== 'charged')
     const activeScheduledThisWeek = activeContractSessions.filter((session) => {
@@ -1105,6 +1108,7 @@ async function loadBranchDataFresh(db, branchId, week, options = {}) {
     pausePeriods: Array.isArray(contract.pausePeriods) ? contract.pausePeriods.slice(0, 20) : [],
     totalSessions: Number(contract.totalSessions || 0),
     usedSessions: usage.usedSessions,
+    sourceVersion: usage.sourceVersion || 'contract-usage-v3-daily',
     remainingEntitlementSessions,
     activeScheduledSessions: activeContractSessions.length,
     activeScheduledThisWeek,
@@ -1395,9 +1399,11 @@ async function loadManualMutationData(db, branchId, week, trainerId, studentId, 
     ...(baseData?.sessions || []),
     ...exactSessions,
   ].map((session) => [session.id, session])).values()]
+  const usageViews = await loadContractUsageViews(db, contractSnapshot.docs.map((item) => item.id))
   const contracts = contractSnapshot.docs.map((item) => {
     const contract = item.data()
-    const usage = summarizeContractUsage(contract, sessions.filter((session) => session.contractId === item.id))
+    const usage = canonicalUsageSummary(usageViews.get(item.id), contract)
+      || summarizeContractUsage(contract, sessions.filter((session) => session.contractId === item.id))
     const activeContractSessions = sessions.filter((session) => session.contractId === item.id
       && ['scheduled', 'rescheduled'].includes(String(session.status || '').toLowerCase())
       && session.billingStatus !== 'charged')
@@ -1420,6 +1426,7 @@ async function loadManualMutationData(db, branchId, week, trainerId, studentId, 
       pausePeriods: Array.isArray(contract.pausePeriods) ? contract.pausePeriods.slice(0, 20) : [],
       totalSessions: Number(contract.totalSessions || 0),
       usedSessions: usage.usedSessions,
+      sourceVersion: usage.sourceVersion || 'contract-usage-v3-daily',
       remainingEntitlementSessions,
       activeScheduledSessions: activeContractSessions.length,
       activeScheduledThisWeek,

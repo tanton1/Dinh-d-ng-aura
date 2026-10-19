@@ -204,7 +204,7 @@ function renewalUsageProjection(sourceContractId, source = {}, usageView = null,
   if (!usageView) reasons.push('missing_view')
   else {
     if (usageView.contractId !== sourceContractId) reasons.push('contract_mismatch')
-    if (usageView.sourceVersion !== 'contract-usage-v2') reasons.push('unsupported_version')
+    if (!['contract-usage-v2', 'contract-usage-v3-daily'].includes(usageView.sourceVersion)) reasons.push('unsupported_version')
     if (!timestampMillis(usageView.generatedAt)) reasons.push('missing_generated_at')
     if (usageView.evidenceTruncated === true || usageView.reconciliationStatus === 'evidence_truncated') reasons.push('evidence_truncated')
     for (const field of ['entitlementSessions', 'usedSessions', 'remainingSessions']) {
@@ -217,7 +217,7 @@ function renewalUsageProjection(sourceContractId, source = {}, usageView = null,
       totalSessions: Math.max(0, Number(usageView.entitlementSessions || 0)),
       usedSessions: Math.max(0, Number(usageView.usedSessions || 0)),
       remainingSessions: Math.max(0, Number(usageView.remainingSessions || 0)),
-      source: 'contract-usage-v2',
+      source: usageView.sourceVersion,
       fallbackReason: null,
       generatedAt: usageView.generatedAt,
     }

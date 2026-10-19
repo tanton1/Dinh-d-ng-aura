@@ -928,15 +928,27 @@ async function applyAdminScheduleEdit({ db, actor, branchId, week, command, payl
       })
       if (command === 'remove_student' && sessionCountsTowardContract(session)) {
         const rows = studentSessions.docs.filter((item) => item.data().contractId === contractId).map((item) => ({ id: item.id, ...item.data() }))
-        const usedSessions = Math.max(0, summarizeContractUsage(contract, rows).usedSessions - 1)
+        const beforeUsage = summarizeContractUsage(contract, rows)
+        const afterRows = rows.map((row) => row.id === source.id
+          ? { ...row, status: 'cancelled', scheduleStatus: 'cancelled', billingStatus: 'exempt', attendanceStatus: 'cancelled' }
+          : row)
+        const afterUsage = summarizeContractUsage(contract, afterRows)
+        const removedCanonicalCharge = beforeUsage.canonicalChargedSessionIds.includes(source.id)
+        const usedSessions = contract.usageReconciledFrom === 'pt-contract-daily-usage-v1'
+          ? afterUsage.chargedSessions
+          : Math.max(0, beforeUsage.usedSessions - (removedCanonicalCharge ? 1 : 0))
+        const canonicalChargedSessionIds = afterUsage.canonicalChargedSessionIds
+        const canonicalSessionIds = new Set(afterUsage.canonicalSessionIds)
+        const attendedClasses = (contract.attendedClasses || []).filter((id) => canonicalSessionIds.has(id))
         transaction.update(db.doc(`contracts/${contractId}`), {
           usedSessions,
-          chargedSessionIds: (contract.chargedSessionIds || []).filter((id) => id !== source.id),
-          attendedClasses: (contract.attendedClasses || []).filter((id) => id !== source.id),
+          chargedSessionIds: canonicalChargedSessionIds,
+          attendedClasses,
           usageProjectionUpdatedAt: FieldValue.serverTimestamp(),
-          ...(contract.usageReconciliationVersion >= 4 ? { historyEvidenceSessions: usedSessions, usageReconciliationStatus: usedSessions > Number(contract.totalSessions || 0) ? 'over_entitlement' : 'matched' } : {}),
+          ...(contract.usageReconciliationVersion >= 4 ? { historyEvidenceSessions: afterUsage.chargedSessions, usageReconciliationStatus: usedSessions > Number(contract.totalSessions || 0) ? 'over_entitlement' : 'matched' } : {}),
+          ...(contract.usageReconciledFrom === 'pt-contract-daily-usage-v1' ? { usageDeduplicationVersion: 1, usageDedupedSessions: afterUsage.duplicateHistorySessions, usageReconciliationVersion: 5, usageReconciledFrom: 'pt-contract-daily-usage-v1' } : {}),
         })
-        transaction.create(db.collection('contractUsageAuditLogs').doc(), { action: 'contract_usage.admin_schedule_removed', sessionId: source.id, contractId, beforeUsed: summarizeContractUsage(contract, rows).usedSessions, afterUsed: usedSessions, reason, actorUid: actor.uid, createdAt: FieldValue.serverTimestamp() })
+        transaction.create(db.collection('contractUsageAuditLogs').doc(), { action: 'contract_usage.admin_schedule_removed', sessionId: source.id, contractId, beforeUsed: beforeUsage.usedSessions, afterUsed: usedSessions, duplicateHistorySessions: afterUsage.duplicateHistorySessions, reason, actorUid: actor.uid, createdAt: FieldValue.serverTimestamp() })
       }
       for (const item of payroll) if (item.exists) transaction.update(db.doc(`payrollRuns/${item.id}`), { requiresRebuild: true, sourceDataStale: true, sourceDataChangedBy: actor.uid, sourceDataChangedAt: FieldValue.serverTimestamp(), sourceDataChangeReason: reason })
       transaction.create(db.collection('sessionEvents').doc(), { schemaVersion: 2, sessionId: source.id, type: command === 'move_student' ? 'teaching_shift_corrected' : 'admin_schedule_cancelled', from: before, to: after, reason, warnings, createdAt: FieldValue.serverTimestamp(), createdBy: actor.uid })

@@ -60,3 +60,13 @@ test('Student 360 opens nutrition evidence in place without leaving the activity
   await dialog.getByRole('button', { name: 'Đóng', exact: true }).first().click()
   await expect(page.getByRole('heading', { name: 'Lịch sử học viên' })).toBeVisible()
 })
+
+test('Student 360 training history uses the learner history surface', async ({ page }) => {
+  await page.goto('/#/student-360?studentId=student-demo&source=staff-students')
+  await page.getByRole('button', { name: 'Nhật ký', exact: true }).first().click()
+  await page.getByRole('button', { name: 'Tập luyện', exact: true }).click()
+
+  await expect(page.getByRole('heading', { name: 'Lịch sử buổi tập' })).toBeVisible()
+  await expect(page.locator('.student-session-history')).toHaveCount(1)
+  await expect(page.locator('.student-history-summary').getByText(/Đã tập/)).toBeVisible()
+})

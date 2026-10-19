@@ -16,6 +16,7 @@ const {
   studentAvailabilityProfilePatch,
 } = require('./student-availability')
 const { summarizeContractUsage } = require('./contract-usage')
+const { canonicalUsageSummary, loadContractUsageViews, USAGE_VIEW_SOURCE_VERSION } = require('./contract-usage-view')
 const { normalizeMemberReferralCode } = require('./loyalty-core')
 const { normalizedScheduleConfig } = require('./pt-schedule-publish')
 const { canonicalSessionRows, studentVisibleSessionRows } = require('./session-schedule-normalization')
@@ -261,16 +262,17 @@ function dateDistance(from, to) {
   return Number.isFinite(fromTime) && Number.isFinite(toTime) ? Math.round((toTime - fromTime) / 86400000) : null
 }
 
-function studentContractProjection(id, contract = {}, today = currentDateKey(), usageSessions = [], usageEvidenceComplete = true) {
+function studentContractProjection(id, contract = {}, today = currentDateKey(), usageSessions = [], usageEvidenceComplete = true, usageView = null) {
   const totalAmount = Math.max(0, safeMoney(contract.totalPrice) - safeMoney(contract.discount))
   const paidAmount = safeMoney(contract.paidAmount)
   const outstandingAmount = Math.max(0, totalAmount - paidAmount)
   // Session evidence is canonical only when the caller loaded the contract's
   // whole effective period. A calendar window must never make an older
   // contract look as if it used fewer sessions than it actually did.
-  const usage = usageEvidenceComplete && Array.isArray(usageSessions)
-    ? summarizeContractUsage(contract, usageSessions)
-    : null
+  const usage = canonicalUsageSummary(usageView, contract)
+    || (usageEvidenceComplete && Array.isArray(usageSessions)
+      ? summarizeContractUsage(contract, usageSessions)
+      : null)
   const totalSessions = usage?.totalSessions ?? Math.max(0, Number(contract.totalSessions || 0))
   const usedSessions = usage?.usedSessions ?? Math.max(0, Number(contract.usedSessions || 0))
   const installments = (Array.isArray(contract.installments) ? contract.installments : [])
@@ -322,7 +324,10 @@ function studentContractProjection(id, contract = {}, today = currentDateKey(), 
     totalSessions,
     usedSessions,
     remainingSessions: Math.max(0, totalSessions - usedSessions),
+    // Keep the public response label for backward-compatible clients. The
+    // actual quota source is exposed separately as sourceVersion.
     formulaVersion: 'contract-usage-v2',
+    sourceVersion: usage?.sourceVersion || USAGE_VIEW_SOURCE_VERSION,
     storedUsedSessions: usage?.storedUsedSessions ?? Math.max(0, Number(contract.usedSessions || 0)),
     chargedSessions: usage?.chargedSessions ?? null,
     historySessions: usage?.historySessions ?? null,
@@ -475,6 +480,7 @@ function staffStudentContractDetail(contract = {}) {
     remainingSessions: contract.remainingSessions,
     chargedSessions: contract.chargedSessions,
     historySessions: contract.historySessions,
+    sourceVersion: contract.sourceVersion || USAGE_VIEW_SOURCE_VERSION,
     reconciliationStatus: contract.reconciliationStatus,
     schedulableToday: contract.schedulableToday,
     schedulableOnWeek: contract.schedulableOnWeek,
@@ -934,9 +940,10 @@ async function assignedStudentsForActor(db, actor, limit) {
       && !projection.pausedToday
   })
   const sessionsByContract = await sessionsForContracts(db, datedContracts.map((contract) => contract.id))
+  const usageViews = await loadContractUsageViews(db, datedContracts.map((contract) => contract.id))
   const projectedContracts = datedContracts.map((contract) => ({
     ...contract,
-    usage: studentContractProjection(contract.id, contract, today, sessionsByContract.get(contract.id) || [], true),
+    usage: studentContractProjection(contract.id, contract, today, sessionsByContract.get(contract.id) || [], true, usageViews.get(contract.id)),
   }))
   const contracts = projectedContracts.filter((contract) => contract.usage.schedulableToday)
   // The branch roster is contract-scoped: an active student profile alone is
@@ -995,6 +1002,7 @@ async function assignedStudentsForActor(db, actor, limit) {
         historySessions: contract.usage.historySessions,
         storedUsedSessions: contract.usage.storedUsedSessions,
         formulaVersion: contract.usage.formulaVersion,
+        sourceVersion: contract.usage.sourceVersion,
         reconciliationStatus: contract.usage.reconciliationStatus,
       } : null,
     })
@@ -1020,7 +1028,14 @@ async function trainerScheduleForActor(db, actor, from, to, limit) {
     studentIds.length ? db.getAll(...studentIds.map((id) => db.doc(`students/${id}`))) : [],
     contractIds.length ? db.getAll(...contractIds.map((id) => db.doc(`contracts/${id}`))) : [],
   ])
-  const contracts = new Map(contractSnapshots.filter((snapshot) => snapshot.exists).map((snapshot) => [snapshot.id, { id: snapshot.id, ...snapshot.data() }]))
+  const rawContracts = contractSnapshots.filter((snapshot) => snapshot.exists).map((snapshot) => ({ id: snapshot.id, ...snapshot.data() }))
+  const usageViews = await loadContractUsageViews(db, rawContracts.map((contract) => contract.id))
+  const contracts = new Map(rawContracts.map((contract) => {
+    const usage = canonicalUsageSummary(usageViews.get(contract.id), contract)
+    return [contract.id, usage
+      ? { ...contract, totalSessions: usage.totalSessions, usedSessions: usage.usedSessions, remainingSessions: usage.remainingSessions, sourceVersion: usage.sourceVersion }
+      : contract]
+  }))
   const today = currentDateKey()
   const studentProfiles = new Map(studentSnapshots.filter((snapshot) => snapshot.exists).map((snapshot) => {
     const value = snapshot.data()
@@ -1089,6 +1104,8 @@ async function trainerScheduleForActor(db, actor, from, to, limit) {
           endDate: storedDateKey(contract.endDate),
           totalSessions: Math.max(0, Number(contract.totalSessions || 0)),
           usedSessions: Math.max(0, Number(contract.usedSessions || 0)),
+          remainingSessions: Math.max(0, Number(contract.remainingSessions ?? Number(contract.totalSessions || 0) - Number(contract.usedSessions || 0))),
+          sourceVersion: contract.sourceVersion || USAGE_VIEW_SOURCE_VERSION,
         } : null,
       }
     }).sort((a, b) => `${a.date}-${a.hour || 0}`.localeCompare(`${b.date}-${b.hour || 0}`)),
@@ -1328,6 +1345,7 @@ function createPtOperationsV2Functions({ db, onCall }) {
       db.collection('leaveRequests').where('studentId', '==', profile.id).limit(100).get(),
     ]))
     const [sessionsSnapshot, contractsSnapshot, availabilitySnapshot, sessionRequestsSnapshot, pauseRequestsSnapshot] = queryResult.value
+    const usageViews = await loadContractUsageViews(db, contractsSnapshot.docs.map((item) => item.id))
     const sessionRecords = canonicalSessionRows(sessionsSnapshot.docs.slice(0, 1000)
       .map((item) => {
         const session = item.data()
@@ -1367,6 +1385,7 @@ function createPtOperationsV2Functions({ db, onCall }) {
           today,
           sessionRecords.filter((session) => session.contractId === item.id),
           usageEvidenceComplete,
+          usageViews.get(item.id),
         )
       })
       .sort((left, right) => left.startDate.localeCompare(right.startDate) || left.id.localeCompare(right.id))
@@ -1775,6 +1794,7 @@ function createPtOperationsV2Functions({ db, onCall }) {
       availabilityReference.get(),
       db.doc('settings/scheduleConfig').get(),
     ])
+    const usageViews = await loadContractUsageViews(db, studentContracts.map((contract) => contract.id))
     const projectedContracts = studentContracts.map((contract) => {
       const projection = studentContractProjection(
         contract.id,
@@ -1782,6 +1802,7 @@ function createPtOperationsV2Functions({ db, onCall }) {
         currentDateKey(),
         sessionRows.filter((session) => session.contractId === contract.id),
         true,
+        usageViews.get(contract.id),
       )
       return {
         ...projection,

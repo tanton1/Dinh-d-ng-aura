@@ -8,6 +8,7 @@ const {
   normaliseBusinessRange,
   normaliseHistoryInput,
   canonicalHistoryRows,
+  canonicalStudentHistoryRows,
   summaryFromLedger,
   teachingShiftSummary,
 } = require('./business-reporting')
@@ -83,6 +84,17 @@ test('student history collapses an exempt cancellation mirror into its charged n
     },
   ])
   assert.deepEqual(rows.map((item) => item.id), ['attendance-no-show'])
+})
+
+test('student history uses the same one-session-per-day canonical usage rule as contract quota', () => {
+  const rows = [
+    { id: 'morning-mirror', studentId: 'student-1', trainerId: 'trainer-1', contractId: 'contract-1', scheduleEntryId: 'entry-1', date: '2026-10-16', hour: 17, status: 'completed', billingStatus: 'charged', attendanceStatus: 'present' },
+    { id: 'evening', studentId: 'student-1', trainerId: 'trainer-1', contractId: 'contract-1', scheduleEntryId: 'entry-2', date: '2026-10-16', hour: 18, status: 'completed', billingStatus: 'charged', attendanceStatus: 'present' },
+    { id: 'next-day', studentId: 'student-1', trainerId: 'trainer-1', contractId: 'contract-1', scheduleEntryId: 'entry-3', date: '2026-10-17', hour: 17, status: 'completed', billingStatus: 'charged', attendanceStatus: 'present' },
+  ]
+  const canonical = canonicalStudentHistoryRows(rows)
+  assert.equal(canonical.length, 2)
+  assert.deepEqual(canonical.map((item) => item.date).sort(), ['2026-10-16', '2026-10-17'])
 })
 
 test('trainer teaching history counts a paired class as one teaching shift', () => {

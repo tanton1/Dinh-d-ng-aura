@@ -289,6 +289,7 @@ export interface Student360ContractRecord {
   frozenAt: string | null
   totalSessions: number
   usedSessions: number
+  sourceVersion?: 'contract-usage-v3-daily' | 'contract-usage-v2' | string
   status: 'active' | 'future' | 'expired' | 'cancelled' | 'frozen' | 'invalid'
   storedStatus?: 'active' | 'future' | 'expired' | 'cancelled' | 'frozen'
   nextPaymentDate: string | null
@@ -313,6 +314,7 @@ export interface Student360ContractRecord {
     usedSessions: number
     remainingSessions: number
     reconciliationStatus: 'matched' | 'legacy_projection' | 'projection_behind' | 'over_entitlement' | 'evidence_truncated'
+    sourceVersion?: 'contract-usage-v3-daily' | 'contract-usage-v2' | string
   }
 }
 

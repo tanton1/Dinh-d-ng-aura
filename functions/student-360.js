@@ -5,7 +5,8 @@ const { trustedAccessContext } = require('./identity-access')
 const { PT_OPERATIONS_POLICY_EFFECTIVE_FROM, PT_OPERATIONS_POLICY_VERSION } = require('./pt-policy')
 const { effectiveContractStatus } = require('./contract-status')
 const { ptOperationsPolicySnapshot } = require('./pt-policy')
-const { usageSummaryFromView, USAGE_VIEW_SCHEMA_VERSION } = require('./contract-usage-view')
+const { canonicalUsageSummary, isCanonicalUsageView } = require('./contract-usage-view')
+const { summarizeContractUsage } = require('./contract-usage')
 const { canViewAction } = require('./action-center')
 const { sourceChanged, coalesceProjectionRebuild, upsertChangedTimeline } = require('./student-360-projection-writes')
 const { calculateNutritionTargets, canonicalNutritionProfile } = require('./nutrition-core.mjs')
@@ -249,47 +250,32 @@ function sessionAttendance(session = {}) {
   return attendance
 }
 
-function sessionCharged(session = {}) {
-  const billing = bounded(session.billingStatus, 40).toLowerCase()
-  if (billing) return billing === 'charged'
-  return ['attended', 'completed', 'no_show', 'policy_charge'].includes(bounded(session.status, 40).toLowerCase())
+function contractUsage(contract = {}, sessions = []) {
+  const summary = summarizeContractUsage(
+    contract,
+    sessions.filter((session) => session.contractId === contract.id),
+  )
+  return {
+    ...summary,
+    pendingReconciliationSessions: summary.pendingSessions,
+  }
 }
 
-function contractUsage(contract = {}, sessions = []) {
-  const linked = sessions.filter((session) => session.contractId === contract.id)
-  const chargedSessions = linked.filter(sessionCharged).length
-  const attendedSessions = linked.filter((session) => ['present', 'late'].includes(sessionAttendance(session))).length
-  const noShowSessions = linked.filter((session) => sessionAttendance(session) === 'no_show').length
-  const chargedNoShowSessions = linked.filter((session) => sessionCharged(session) && sessionAttendance(session) === 'no_show').length
-  const exemptSessions = linked.filter((session) => bounded(session.billingStatus, 40).toLowerCase() === 'exempt').length
-  const pendingReconciliationSessions = linked.filter((session) => bounded(session.billingStatus, 40).toLowerCase() === 'review_required').length
-  const storedUsedSessions = Math.max(0, Math.floor(finite(contract.usedSessions)))
-  const legacyProjectionAdjustment = Math.max(0, storedUsedSessions - chargedSessions)
-  const usedSessions = chargedSessions + legacyProjectionAdjustment
-  const totalSessions = Math.max(0, Math.floor(finite(contract.totalSessions)))
-  const projectionDelta = storedUsedSessions - chargedSessions
-  const reconciliationStatus = usedSessions > totalSessions
-    ? 'over_entitlement'
-    : projectionDelta > 0
-      ? 'legacy_projection'
-      : projectionDelta < 0
-        ? 'projection_behind'
-        : 'matched'
-  return {
-    totalSessions,
-    storedUsedSessions,
-    chargedSessions,
-    attendedSessions,
-    noShowSessions,
-    chargedNoShowSessions,
-    exemptSessions,
-    pendingReconciliationSessions,
-    usedSessions,
-    remainingSessions: Math.max(0, totalSessions - usedSessions),
-    legacyProjectionAdjustment,
-    projectionDelta,
-    reconciliationStatus,
-  }
+function projectionUsageMismatch(projection = {}, usageView = null) {
+  if (!projection?.contract || !isCanonicalUsageView(usageView)) return false
+  const contract = projection.contract
+  const usage = canonicalUsageSummary(usageView, contract)
+  if (!usage) return false
+  return [
+    ['totalSessions', usage.totalSessions, contract.totalSessions],
+    ['usedSessions', usage.usedSessions, contract.usedSessions],
+    ['remainingSessions', usage.remainingSessions, contract.remainingSessions],
+    ['chargedSessions', usage.chargedSessions, contract.chargedSessions],
+    ['historySessions', usage.historySessions, contract.historySessions],
+    ['exemptSessions', usage.exemptSessions, contract.exemptSessions],
+    ['pendingReconciliationSessions', usage.pendingSessions, contract.pendingReconciliationSessions],
+    ['reconciliationStatus', usage.reconciliationStatus, contract.reconciliationStatus],
+  ].some(([, canonical, stored]) => String(canonical ?? '') !== String(stored ?? ''))
 }
 
 function activeContract(contracts, today) {
@@ -949,8 +935,9 @@ function contractWorkspaceRecord(snapshot, canViewFinancialAmounts, canManageCon
     startDate: bounded(value.startDate, 30).slice(0, 10),
     endDate: bounded(value.endDate, 30).slice(0, 10),
     frozenAt: iso(value.frozenAt) || bounded(value.frozenAt, 40) || null,
-    totalSessions: Math.max(0, Math.floor(finite(value.totalSessions))),
-    usedSessions: Math.max(0, Math.floor(finite(value.usedSessions))),
+    totalSessions: usage?.totalSessions ?? Math.max(0, Math.floor(finite(value.totalSessions))),
+    usedSessions: usage?.usedSessions ?? Math.max(0, Math.floor(finite(value.usedSessions))),
+    ...(usage?.sourceVersion ? { sourceVersion: usage.sourceVersion } : {}),
     status: effectiveContractStatus(value, vietnamDateKey()),
     storedStatus: bounded(value.status, 30) || 'active',
     nextPaymentDate: bounded(value.nextPaymentDate, 30).slice(0, 10) || null,
@@ -1520,9 +1507,10 @@ async function buildStudent360Projection({ db, studentId, weekId = mondayDateKey
   const contract = activeContract(sources.contracts, today)
   const contractEffectiveStatus = contract ? effectiveContractStatus(contract, today) : null
   const usageView = contract ? await db.doc(`contractUsageViews/${contract.id}`).get() : null
-  const usage = usageView?.exists && Number(usageView.data()?.schemaVersion || 0) === USAGE_VIEW_SCHEMA_VERSION
-    ? usageSummaryFromView(usageView.data(), contract)
-    : contractUsage(contract || {}, sources.sessions)
+  const usage = contract
+    ? canonicalUsageSummary(usageView?.exists ? usageView.data() : null, contract)
+      || contractUsage(contract, sources.sessions)
+    : contractUsage({}, sources.sessions)
   const payment = paymentProjection(contract, today)
   const assignmentDirectory = await assignmentNames(db, sources, contract)
   const { trainerNameById, branchNameById, ...assignments } = assignmentDirectory
@@ -1864,6 +1852,13 @@ async function loadAuthorizedProjection(db, actor, studentId, weekId, forceRefre
   if (forceRefresh) studentProjectionReadCache.clear(`${cacheScope(db)}|${studentId}|`)
   const snapshot = (await studentProjectionReadCache.get(cacheKey, () => reference.get())).value
   const stored = snapshot.exists ? snapshot.data() : null
+  // Contract usage views are the quota source of truth. A projection can be
+  // fresh by age while still containing the previous pre-deduplication count,
+  // so detect that case before serving stale-while-revalidate data.
+  const usageViewSnapshot = stored?.contract?.id
+    ? await db.doc(`contractUsageViews/${stored.contract.id}`).get().catch(() => null)
+    : null
+  const usageStale = Boolean(stored && usageViewSnapshot?.exists && projectionUsageMismatch(stored, usageViewSnapshot.data()))
   const missing = !stored
   // These scope fields were added without changing the public overview
   // schema number. Rebuild older cached projections before authorizing a new
@@ -1875,7 +1870,7 @@ async function loadAuthorizedProjection(db, actor, studentId, weekId, forceRefre
   const schemaStale = Boolean(stored && (stored.schemaVersion !== OVERVIEW_SCHEMA_VERSION || scopeShapeStale))
   const ageStale = Boolean(stored && Date.now() - finite(stored.generatedAtMillis) > PROJECTION_MAX_AGE_MS)
   const weekStale = Boolean(stored && stored.schedule?.weekId !== weekId)
-  const stale = missing || schemaStale || ageStale || weekStale
+  const stale = missing || schemaStale || ageStale || weekStale || usageStale
 
   // A fresh-schema projection for the current week can be served stale-while-
   // revalidate. This keeps the first screen responsive while the durable queue
@@ -1888,7 +1883,7 @@ async function loadAuthorizedProjection(db, actor, studentId, weekId, forceRefre
   // therefore keeps the synchronous rebuild path until a canonical assignment
   // summary is available.
   const actorCanUseStale = ['admin', 'super_admin'].includes(actor.accessRole) || actor.capabilities.includes('pt.operations.manage')
-  const serveStale = !forceRefresh && actorCanUseStale && !missing && !schemaStale && !weekStale && ageStale
+  const serveStale = !forceRefresh && actorCanUseStale && !missing && !schemaStale && !weekStale && !usageStale && ageStale
   let refreshQueued = false
   let permissions = null
   if (serveStale) {
@@ -1907,7 +1902,7 @@ async function loadAuthorizedProjection(db, actor, studentId, weekId, forceRefre
     hit: !forceRefresh && !stale,
     stale: serveStale,
     refreshQueued,
-    staleReason: serveStale ? 'age' : null,
+    staleReason: serveStale ? 'age' : usageStale ? 'usage' : null,
     maxAgeSeconds: PROJECTION_MAX_AGE_MS / 1000,
   }
   return { projection, permissions: permissions || permissionsFor(actor, projection), cache }
@@ -2082,7 +2077,7 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
       contractDocuments.map((item) => db.doc(`contractUsageViews/${item.id}`).get()),
     )
     const usageViews = new Map(usageViewSnapshots
-      .filter((item) => item.exists && Number(item.data()?.schemaVersion || 0) === USAGE_VIEW_SCHEMA_VERSION)
+      .filter((item) => item.exists && isCanonicalUsageView(item.data()))
       .map((item) => [item.id, item.data()]))
     const missingUsageIds = contractDocuments.filter((item) => !usageViews.has(item.id)).map((item) => item.id)
     // Dual-read fallback is bounded and only runs for contracts whose
@@ -2095,9 +2090,8 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
     const usageByContract = new Map(contractDocuments.map((item) => {
       const value = item.data() || {}
       const usageView = usageViews.get(item.id)
-      return [item.id, usageView
-        ? usageSummaryFromView(usageView, value)
-        : contractUsage({ id: item.id, ...value }, sessions)]
+      return [item.id, canonicalUsageSummary(usageView, { id: item.id, ...value })
+        || contractUsage({ id: item.id, ...value }, sessions)]
     }))
     const ids = actorIds(actor)
     const contracts = contractDocuments
@@ -2635,6 +2629,7 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
     const sourcePageSize = 100
     const maximumScanned = 500
     const rows = []
+    const rowContractIds = new Map()
     let scanned = 0
     let sourceCursor = cursor
     let sourceExhausted = false
@@ -2684,6 +2679,7 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
           sessionCount: Number(projection.training?.sessionCount || projection.contract?.historySessions || 0),
           alertCount: projection.alerts?.filter((value) => audienceAllowed(value.audience, permissions)).length || 0,
         })
+        if (projection.contract?.id) rowContractIds.set(item.id, projection.contract.id)
         if (rows.length >= pageSize) {
           stoppedOnFullPage = index < snapshot.docs.length - 1 || snapshot.size >= readLimit
           break directoryScan
@@ -2694,12 +2690,27 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
         break
       }
     }
-    rows.sort((left, right) => left.name.localeCompare(right.name, 'vi') || left.studentId.localeCompare(right.studentId))
+    // The durable Student 360 projection can be fresh by age while its quota
+    // fields still reflect a pre-deduplication build. Hydrate the directory's
+    // remaining-session cell from the same canonical view used by contracts.
+    const contractIds = [...new Set(rowContractIds.values())]
+    const usageSnapshots = contractIds.length
+      ? await db.getAll(...contractIds.map((contractId) => db.doc(`contractUsageViews/${contractId}`)))
+      : []
+    const usageViews = new Map(usageSnapshots
+      .filter((item) => item.exists && isCanonicalUsageView(item.data()))
+      .map((item) => [item.id, item.data()]))
+    const canonicalRows = rows.map((row) => {
+      const usageView = usageViews.get(rowContractIds.get(row.studentId))
+      const usage = canonicalUsageSummary(usageView, { id: rowContractIds.get(row.studentId) })
+      return usage ? { ...row, remainingSessions: usage.remainingSessions } : row
+    })
+    canonicalRows.sort((left, right) => left.name.localeCompare(right.name, 'vi') || left.studentId.localeCompare(right.studentId))
     const scanBudgetReached = scanned >= maximumScanned && !sourceExhausted
     const hasMore = stoppedOnFullPage || scanBudgetReached
     return {
       schemaVersion: 1,
-      rows,
+      rows: canonicalRows,
       hasMore,
       nextCursor: hasMore ? sourceCursor || null : null,
       totalMatched: sourceExhausted && !cursor ? rows.length : null,
@@ -2936,6 +2947,7 @@ module.exports = {
   buildHealthScore,
   buildStudent360Projection,
   contractUsage,
+  projectionUsageMismatch,
   contractInstallments,
   contractAssigneeIssues,
   contractMutationTitle,

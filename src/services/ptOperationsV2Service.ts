@@ -147,7 +147,8 @@ export interface TrainerStudentSummary {
     chargedSessions?: number | null
     historySessions?: number | null
     storedUsedSessions?: number
-    formulaVersion?: 'contract-usage-v2'
+    formulaVersion?: 'contract-usage-v3-daily' | 'contract-usage-v2'
+    sourceVersion?: 'contract-usage-v3-daily' | 'contract-usage-v2' | string
     reconciliationStatus?: 'matched' | 'legacy_projection' | 'projection_behind' | 'over_entitlement'
   }
 }
@@ -256,6 +257,7 @@ export interface TrainerStudentContractDetail {
   remainingSessions: number
   chargedSessions: number | null
   historySessions: number | null
+  sourceVersion?: 'contract-usage-v3-daily' | 'contract-usage-v2' | string
   reconciliationStatus: 'matched' | 'legacy_projection' | 'projection_behind' | 'over_entitlement'
   schedulableToday: boolean
   /** Whether at least one day in the selected detail week is schedulable. */
@@ -265,7 +267,7 @@ export interface TrainerStudentContractDetail {
 
 export interface TrainerStudentDetail {
   schemaVersion: number
-  formulaVersion: 'contract-usage-v2'
+  formulaVersion: 'contract-usage-v3-daily' | 'contract-usage-v2'
   student: Record<string, unknown> & {
     id: string
     name?: string

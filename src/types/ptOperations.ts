@@ -230,6 +230,7 @@ export interface StudentContract {
   frozenAt?: string
   totalSessions: number
   usedSessions: number
+  sourceVersion?: 'contract-usage-v3-daily' | 'contract-usage-v2' | string
   /** Quyền lợi chưa bị tính buổi, chưa trừ các session đang giữ chỗ. */
   remainingEntitlementSessions?: number
   /** Session scheduled/rescheduled chưa bị tính buổi trên toàn hợp đồng. */

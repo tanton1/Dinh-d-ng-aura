@@ -35,7 +35,7 @@ test('contract usage view preserves canonical summary and legacy adjustment', ()
   assert.equal(view.legacyProjectionAdjustment, 4)
   assert.equal(view.chargedNoShowSessions, 1)
   assert.equal(view.remainingSessions, 19)
-  assert.equal(view.sourceVersion, 'contract-usage-v2')
+  assert.equal(view.sourceVersion, 'contract-usage-v3-daily')
 })
 
 test('contract usage view does not invent a student identity', () => {
@@ -139,7 +139,8 @@ test('scheduled reconciliation skips a fresh matching projection', () => {
   const now = Date.parse('2026-09-10T12:00:00.000Z')
   const contract = { studentId: 's1', totalSessions: 24, usedSessions: 7 }
   const matching = {
-    schemaVersion: 2,
+    schemaVersion: 3,
+    sourceVersion: 'contract-usage-v3-daily',
     studentId: 's1',
     entitlementSessions: 24,
     storedUsedSessions: 7,

@@ -65,6 +65,7 @@ function normalizeContract(value: unknown, index: number): TrainerStudentContrac
     historySessions: contract.historySessions === null || contract.historySessions === undefined
       ? null
       : asNonNegativeNumber(contract.historySessions),
+    sourceVersion: asText(contract.sourceVersion, 'contract-usage-v3-daily'),
     reconciliationStatus,
     schedulableToday: asBoolean(contract.schedulableToday),
     schedulableOnWeek: typeof contract.schedulableOnWeek === 'boolean' ? contract.schedulableOnWeek : undefined,

@@ -40,6 +40,10 @@ import {
   listStudent360Timeline,
   refreshStudent360Projection,
 } from './student360Service'
+import {
+  listStudentTrainingHistory,
+  type TrainingHistoryPage,
+} from '../../services/businessReportingService'
 import type {
   Student360Action,
   Student360NutritionActivityDetail,
@@ -53,6 +57,7 @@ import { useAuraUiSurface } from '../ui-rollout/AuraUiRolloutContext'
 import { getStudentLoyaltySummary } from '../loyalty/loyaltyService'
 import type { LoyaltyAccount } from '../loyalty/types'
 import { trackProductEvent } from '../../services/analyticsService'
+import StudentTrainingHistory from '../../components/training/StudentTrainingHistory'
 
 const Student360ContractWorkspace = lazy(() => import('./Student360ContractWorkspace'))
 
@@ -184,6 +189,16 @@ function demoTimeline(): Student360TimelineEvent[] {
   ]
 }
 
+function demoTrainingHistory() {
+  const today = new Date()
+  const toKey = (value: Date) => value.toISOString().slice(0, 10)
+  const previous = new Date(today.getTime() - 86_400_000)
+  return [
+    { id: 'training-history-demo-1', date: toKey(today), hour: 17, trainerName: 'PT Hải Âu', status: 'completed' },
+    { id: 'training-history-demo-2', date: toKey(previous), hour: 17, trainerName: 'PT Minh', status: 'no_show' },
+  ]
+}
+
 function mergeTimelineRows(current: Student360TimelineEvent[], incoming: Student360TimelineEvent[]) {
   const byKey = new Map<string, Student360TimelineEvent>()
   ;[...current, ...incoming].forEach((item) => {
@@ -279,12 +294,17 @@ export default function Student360Page({ studentId, source, isDemo = false, onBa
   const [timelineCursor, setTimelineCursor] = useState<number | null>(null)
   const [timelineHasMore, setTimelineHasMore] = useState(false)
   const [timelineLoading, setTimelineLoading] = useState(false)
+  const [trainingHistoryPage, setTrainingHistoryPage] = useState<TrainingHistoryPage | null>(null)
+  const [trainingHistoryLoading, setTrainingHistoryLoading] = useState(false)
+  const [trainingHistoryError, setTrainingHistoryError] = useState('')
   const [photos, setPhotos] = useState<Student360Photo[]>([])
   const [photosLoading, setPhotosLoading] = useState(false)
   const [photosLoaded, setPhotosLoaded] = useState(false)
   const [photoCursor, setPhotoCursor] = useState<string | null>(null)
   const [photoHasMore, setPhotoHasMore] = useState(false)
   const activePhotoStudentRef = useRef(studentId)
+  const trainingHistoryLoadedStudentRef = useRef('')
+  const trainingHistoryRequestRef = useRef(0)
   const nutritionRequestRef = useRef(0)
   const loyaltyAnchorRef = useRef<HTMLDivElement>(null)
   const [nutritionDetailEvent, setNutritionDetailEvent] = useState<Student360TimelineEvent | null>(null)
@@ -420,8 +440,46 @@ export default function Student360Page({ studentId, source, isDemo = false, onBa
     }
   }, [isDemo, studentId, timelineCursor, timelineFilter, timelineLoading, timelineRange])
 
+  const loadTrainingHistory = useCallback(async (append = false) => {
+    if (isDemo) return
+    const cursor = append ? trainingHistoryPage?.nextCursor : null
+    if (append && !cursor) return
+    const requestId = ++trainingHistoryRequestRef.current
+    setTrainingHistoryLoading(true)
+    setTrainingHistoryError('')
+    try {
+      const response = await listStudentTrainingHistory(studentId, {
+        allTime: true,
+        status: 'all',
+        pageSize: 100,
+        cursor,
+      })
+      if (requestId !== trainingHistoryRequestRef.current) return
+      setTrainingHistoryPage((current) => append && current
+        ? { ...response, records: [...current.records, ...response.records] }
+        : response)
+    } catch (cause) {
+      if (requestId === trainingHistoryRequestRef.current) setTrainingHistoryError(cause instanceof Error ? cause.message : 'Không thể tải toàn bộ lịch sử buổi tập.')
+    } finally {
+      if (requestId === trainingHistoryRequestRef.current) setTrainingHistoryLoading(false)
+    }
+  }, [isDemo, studentId, trainingHistoryPage?.nextCursor])
+
   useEffect(() => {
-    if (activeTab !== 'activity') return
+    trainingHistoryLoadedStudentRef.current = ''
+    trainingHistoryRequestRef.current += 1
+    setTrainingHistoryPage(null)
+    setTrainingHistoryError('')
+  }, [studentId])
+
+  useEffect(() => {
+    if (activeTab !== 'activity' || timelineFilter !== 'training' || isDemo || trainingHistoryLoadedStudentRef.current === studentId) return
+    trainingHistoryLoadedStudentRef.current = studentId
+    void loadTrainingHistory(false)
+  }, [activeTab, isDemo, loadTrainingHistory, studentId, timelineFilter])
+
+  useEffect(() => {
+    if (activeTab !== 'activity' || timelineFilter === 'training') return
     setTimeline([])
     setTimelineCursor(null)
     setTimelineHasMore(false)
@@ -615,6 +673,12 @@ export default function Student360Page({ studentId, source, isDemo = false, onBa
   const weeklyPercent = Math.min(100, schedule.requiredSessions ? schedule.bookedSessions / schedule.requiredSessions * 100 : 0)
   const paymentStatus = contract?.payment?.status
   const scheduleView = source.startsWith('staff') ? 'staff-schedule' : 'admin-pt-schedule'
+  const demoTrainingHistorySessions = useMemo(() => demoTrainingHistory(), [])
+  const demoTrainingHistorySummary = useMemo(() => {
+    const attended = demoTrainingHistorySessions.filter((session) => session.status === 'completed').length
+    const chargedNoShow = demoTrainingHistorySessions.filter((session) => session.status === 'no_show').length
+    return { total: demoTrainingHistorySessions.length, attended, chargedNoShow, exempt: 0 }
+  }, [demoTrainingHistorySessions])
 
   return <main className="student360-page aura-ui-v4-surface aura-ui-v4-operations student360-page--v4" data-tab={activeTab}>
     <header className="student360-header">
@@ -648,7 +712,7 @@ export default function Student360Page({ studentId, source, isDemo = false, onBa
       </div>
       {overview.cache.stale && <div className="student360-freshness-banner" role="status"><RefreshCw size={16} /><span><strong>Đang đối soát dữ liệu nền</strong><small>Đang hiển thị bản tổng hợp gần nhất; lịch và số liệu sẽ tự cập nhật sau khi nguồn gốc được kiểm tra.</small></span>{overview.cache.refreshQueued && <em>Đã xếp hàng</em>}</div>}
       <section className="student360-metrics" aria-label="Chỉ số nhanh">
-        <Metric label="Còn buổi" value={contract ? `${contract.remainingSessions}/${contract.totalSessions}` : '—'} note={contract ? `${contract.usedSessions} đã dùng · theo lịch sử` : 'Chưa có hợp đồng'} />
+        <Metric label="Còn buổi" value={contract ? `${contract.remainingSessions}/${contract.totalSessions}` : '—'} note={contract ? `${contract.usedSessions} buổi tính quota · ${contract.chargedSessions} buổi trong lịch sử đối soát` : 'Chưa có hợp đồng'} />
         {permissions.canViewOperations ? <Metric label="Lịch tuần" value={`${schedule.bookedSessions}/${schedule.requiredSessions}`} note={schedule.bookedSessions >= schedule.requiredSessions ? 'Đã đủ lịch mục tiêu' : `Còn thiếu ${Math.max(0, schedule.requiredSessions - schedule.bookedSessions)} buổi`} /> : <Metric label="Phạm vi" value={permissions.scope === 'sales' ? 'CSKH' : 'Coach'} note="Hiển thị theo quyền được cấp" />}
         <Metric label="Thời hạn" value={daysLabel} note={contract?.endDate ? `ngày · đến ${safeDate(contract.endDate)}` : 'Chưa có ngày hết hạn'} />
         {permissions.canViewFinancialStatus ? <Metric label="Thanh toán" value={paymentCopy(paymentStatus)} note={contract?.payment?.nextPaymentDate ? `Hạn ${safeDate(contract.payment.nextPaymentDate)}` : 'Không có khoản đến hạn'} tone={paymentStatus === 'overdue' ? 'action_required' : paymentStatus === 'due' ? 'attention' : 'stable'} /> : <Metric label="Chăm sóc" value={health.score} note={`${healthCopy(health.status)} · dữ liệu ${confidenceCopy(health.confidence).toLowerCase()}`} tone={health.status} />}
@@ -687,10 +751,23 @@ export default function Student360Page({ studentId, source, isDemo = false, onBa
       </div>}
 
       {activeTab === 'activity' && <section className="student360-section">
-        <div className="student360-section-heading"><div><small>Nhật ký</small><h2>Lịch sử học viên</h2><p>Tập luyện, dinh dưỡng, chăm sóc và hợp đồng theo thứ tự thời gian.</p></div>{isAdminView && <details className="student360-timeline-source-help"><summary><Info size={15} /> Nguồn dữ liệu</summary><div><p>Timeline đọc từ dữ liệu nghiệp vụ gốc và loại các bản ghi trùng.</p>{timelineSourceGuide.map((item) => <article key={item.label}><strong>{item.label}</strong><code>{item.source}</code><span>{item.detail}</span></article>)}</div></details>}</div>
+        <div className="student360-section-heading"><div><small>Nhật ký</small><h2>Lịch sử học viên</h2><p>{timelineFilter === 'training' ? 'Lịch sử buổi tập dùng cùng cách hiển thị với tài khoản học viên.' : 'Tập luyện, dinh dưỡng, chăm sóc và hợp đồng theo thứ tự thời gian.'}</p></div>{isAdminView && <details className="student360-timeline-source-help"><summary><Info size={15} /> Nguồn dữ liệu</summary><div><p>Timeline đọc từ dữ liệu nghiệp vụ gốc và loại các bản ghi trùng.</p>{timelineSourceGuide.map((item) => <article key={item.label}><strong>{item.label}</strong><code>{item.source}</code><span>{item.detail}</span></article>)}</div></details>}</div>
         <div className="student360-timeline-toolbar"><div className="student360-filter-chips">{timelineFilters.map((filter) => <button type="button" key={filter.id} className={timelineFilter === filter.id ? 'active' : ''} onClick={() => setTimelineFilter(filter.id)}>{filter.label}</button>)}</div><div className="student360-filter-chips is-range">{timelineRanges.map((range) => <button type="button" key={range.id} className={timelineRange === range.id ? 'active' : ''} onClick={() => setTimelineRange(range.id)}>{range.label}</button>)}</div></div>
-        <div className="student360-timeline">{timeline.map((item) => <TimelineActivityCard key={item.id} item={item} showTechnicalDetails={isAdminView} onOpenNutrition={(value) => void openNutritionDetail(value)} />)}{timelineError && <State type="error"><AlertTriangle /><h3>Không thể tải lịch sử</h3><p>{timelineError}</p><button type="button" onClick={() => void loadTimeline(false)}>Thử lại</button></State>}{!timeline.length && !timelineLoading && !timelineError && <State><History /><h3>{timelineFilter === 'training' ? 'Chưa có buổi tập chuẩn' : timelineFilter === 'nutrition' ? 'Chưa có nhật ký dinh dưỡng' : 'Chưa có hoạt động'}</h3><p>{timelineFilter === 'training' ? 'Chưa có buổi tập đã phát sinh trong lịch sử chính thức.' : timelineFilter === 'nutrition' ? (overview.identity.accountUid ? 'Chưa có bữa ăn được ghi nhận trong tài khoản Aura.' : 'Học viên chưa liên kết tài khoản Aura nên chưa thể đọc nhật ký bữa ăn.') : 'Không có sự kiện phù hợp bộ lọc hiện tại.'}</p></State>}{timelineLoading && <State><LoaderCircle className="is-spinning" /> Đang tải hoạt động…</State>}</div>
-        {timelineHasMore && <button type="button" className="student360-load-more" disabled={timelineLoading} onClick={() => void loadTimeline(true)}>Tải thêm hoạt động</button>}
+        {timelineFilter === 'training' ? <StudentTrainingHistory
+          page={trainingHistoryPage}
+          loading={trainingHistoryLoading}
+          error={trainingHistoryError}
+          isDemo={isDemo}
+          quotaUsed={contract?.usedSessions}
+          quotaTotal={contract?.totalSessions}
+          demoSessions={demoTrainingHistorySessions}
+          demoSummary={demoTrainingHistorySummary}
+          onRetry={() => { trainingHistoryLoadedStudentRef.current = studentId; void loadTrainingHistory(false) }}
+          onLoadMore={() => void loadTrainingHistory(true)}
+        /> : <>
+          <div className="student360-timeline">{timeline.map((item) => <TimelineActivityCard key={item.id} item={item} showTechnicalDetails={isAdminView} onOpenNutrition={(value) => void openNutritionDetail(value)} />)}{timelineError && <State type="error"><AlertTriangle /><h3>Không thể tải lịch sử</h3><p>{timelineError}</p><button type="button" onClick={() => void loadTimeline(false)}>Thử lại</button></State>}{!timeline.length && !timelineLoading && !timelineError && <State><History /><h3>{timelineFilter === 'nutrition' ? 'Chưa có nhật ký dinh dưỡng' : 'Chưa có hoạt động'}</h3><p>{timelineFilter === 'nutrition' ? (overview.identity.accountUid ? 'Chưa có bữa ăn được ghi nhận trong tài khoản Aura.' : 'Học viên chưa liên kết tài khoản Aura nên chưa thể đọc nhật ký bữa ăn.') : 'Không có sự kiện phù hợp bộ lọc hiện tại.'}</p></State>}{timelineLoading && <State><LoaderCircle className="is-spinning" /> Đang tải hoạt động…</State>}</div>
+          {timelineHasMore && <button type="button" className="student360-load-more" disabled={timelineLoading} onClick={() => void loadTimeline(true)}>Tải thêm hoạt động</button>}
+        </>}
       </section>}
 
       {activeTab === 'coaching' && <section className="student360-section">

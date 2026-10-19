@@ -2999,7 +2999,7 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
     }
   })
 
-  const bulkRecordSessionAttendance = onCall(async (request) => {
+  const bulkRecordSessionAttendance = onCall({ cpu: 'gcf_gen1', concurrency: 1, maxInstances: 2 }, async (request) => {
     const actor = await authorizeAdmin(request, db)
     const items = Array.isArray(request.data?.items) ? request.data.items : []
     if (!items.length || items.length > BULK_ATTENDANCE_LIMIT) {

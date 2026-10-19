@@ -1,7 +1,8 @@
 const { FieldPath, Timestamp } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
 const { trustedAccessContext, requireCapability } = require('./identity-access')
-const { sessionCountsTowardContract, summarizeSessionUsage, summarizeContractUsage } = require('./contract-usage')
+const { canonicalUsageSessions, sessionCountsTowardContract, summarizeSessionUsage, summarizeContractUsage } = require('./contract-usage')
+const { canonicalUsageSummary, loadContractUsageViews, USAGE_VIEW_SOURCE_VERSION } = require('./contract-usage-view')
 const { canonicalSessionRows } = require('./session-schedule-normalization')
 
 const MAX_RANGE_DAYS = 366
@@ -213,6 +214,15 @@ function canonicalHistoryRows(rows = []) {
   })
 }
 
+function canonicalStudentHistoryRows(rows = []) {
+  // Keep learner history on the same daily uniqueness rule as contract usage;
+  // trainer history still retains every learner in a paired teaching shift.
+  return canonicalUsageSessions(rows).sort((left, right) => {
+    const dateOrder = String(right.date || '').slice(0, 10).localeCompare(String(left.date || '').slice(0, 10))
+    return dateOrder || String(right.id || '').localeCompare(String(left.id || ''))
+  })
+}
+
 function decodeCursor(value) {
   if (!value) return null
   try {
@@ -400,6 +410,7 @@ async function studentContractUsage(db, access, studentId, requestedContractId =
     throw new HttpsError('not-found', 'Không tìm thấy hợp đồng trong phạm vi được cấp.')
   }
   const selectedContractIds = new Set(selectedContracts.map((item) => item.id))
+  const usageViews = await loadContractUsageViews(db, selectedContracts.map((item) => item.id))
   const sessionsByContract = new Map()
   sessions.forEach((session) => {
     if (!selectedContractIds.has(session.contractId)) return
@@ -408,14 +419,19 @@ async function studentContractUsage(db, access, studentId, requestedContractId =
     sessionsByContract.set(session.contractId, list)
   })
   const summaries = selectedContracts
-    .map((contract) => ({
-      contractId: contract.id,
-      packageName: contract.packageName || 'Gói tập Aura',
-      status: contract.status || 'active',
-      startDate: typeof contract.startDate === 'string' ? contract.startDate.slice(0, 10) : '',
-      endDate: typeof contract.endDate === 'string' ? contract.endDate.slice(0, 10) : '',
-      ...summarizeContractUsage(contract, sessionsByContract.get(contract.id) || []),
-    }))
+    .map((contract) => {
+      const usage = canonicalUsageSummary(usageViews.get(contract.id), contract)
+        || summarizeContractUsage(contract, sessionsByContract.get(contract.id) || [])
+      return {
+        contractId: contract.id,
+        packageName: contract.packageName || 'Gói tập Aura',
+        status: contract.status || 'active',
+        startDate: typeof contract.startDate === 'string' ? contract.startDate.slice(0, 10) : '',
+        endDate: typeof contract.endDate === 'string' ? contract.endDate.slice(0, 10) : '',
+        ...usage,
+        sourceVersion: usage.sourceVersion || USAGE_VIEW_SOURCE_VERSION,
+      }
+    })
     .sort((left, right) => right.startDate.localeCompare(left.startDate) || left.contractId.localeCompare(right.contractId))
   const unlinkedChargedSessions = sessions.filter((session) => sessionCountsTowardContract(session) && !scopedContractIds.has(session.contractId)).length
   return {
@@ -539,7 +555,9 @@ function createBusinessReportingFunctions({ db, onCall }) {
     const snapshot = await query.limit(pageReadLimit).get()
     const historyCutoff = subjectType === 'student' && input.allTime ? vietnamDateKey(new Date()) : ''
     const scannedPageDocuments = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))
-    const canonicalPageDocuments = canonicalHistoryRows(scannedPageDocuments)
+    const canonicalPageDocuments = subjectType === 'student'
+      ? canonicalStudentHistoryRows(scannedPageDocuments)
+      : canonicalHistoryRows(scannedPageDocuments)
     const pageDocuments = canonicalPageDocuments
       .filter((item) => !historyCutoff || item.status !== 'scheduled' || String(item.date || '').slice(0, 10) < historyCutoff)
       .filter((item) => access.scope !== 'branch_manager' || access.actor.branchIds.includes(item.branchId))
@@ -559,8 +577,11 @@ function createBusinessReportingFunctions({ db, onCall }) {
     const summaryLimit = input.allTime ? MAX_USAGE_SESSIONS + 1 : 5001
     summaryQuery = summaryQuery.limit(summaryLimit)
     const summarySnapshot = await summaryQuery.get()
-    const summaryRecords = canonicalHistoryRows(summarySnapshot.docs
-      .map((item) => ({ id: item.id, ...item.data() })))
+    const summaryRows = summarySnapshot.docs.map((item) => ({ id: item.id, ...item.data() }))
+    const summaryRecords = (subjectType === 'student'
+      ? canonicalStudentHistoryRows(summaryRows)
+      : canonicalHistoryRows(summarySnapshot.docs
+        .map((item) => ({ id: item.id, ...item.data() }))))
       .filter((item) => !historyCutoff || item.status !== 'scheduled' || String(item.date || '').slice(0, 10) < historyCutoff)
       .filter((item) => (access.scope !== 'branch_manager' || access.actor.branchIds.includes(item.branchId)))
       .filter((item) => input.status === 'all' || item.status === input.status)
@@ -640,6 +661,7 @@ module.exports = {
   normaliseBusinessRange,
   normaliseHistoryInput,
   canonicalHistoryRows,
+  canonicalStudentHistoryRows,
   summaryFromLedger,
   teachingShiftSummary,
   studentContractUsage,

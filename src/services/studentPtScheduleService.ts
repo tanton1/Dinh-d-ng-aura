@@ -162,6 +162,7 @@ export interface StudentPtContractSummary {
   totalSessions: number
   usedSessions: number
   remainingSessions: number
+  sourceVersion?: 'contract-usage-v3-daily' | 'contract-usage-v2' | string
   totalAmount: number
   paidAmount: number
   outstandingAmount: number

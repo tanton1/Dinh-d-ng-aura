@@ -3,17 +3,36 @@
 const { createHash } = require('node:crypto')
 const { FieldValue } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
-const { sessionCountsTowardContract, summarizeContractUsage } = require('./contract-usage')
-const { canonicalSessionRows } = require('./session-schedule-normalization')
+const { canonicalUsageSessions, sessionCountsTowardContract, summarizeContractUsage } = require('./contract-usage')
 const { trustedAccessContext } = require('./identity-access')
 const { withFunctionTelemetry } = require('./observability')
 
 const MAX_SESSION_EVIDENCE = 5000
 const MAX_CONTRACTS_PER_STUDENT = 100
-const USAGE_VIEW_SCHEMA_VERSION = 2
+const USAGE_VIEW_SCHEMA_VERSION = 3
+const USAGE_VIEW_SOURCE_VERSION = 'contract-usage-v3-daily'
 const USAGE_VIEW_RECONCILIATION_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000
-const SESSION_USAGE_FIELDS = Object.freeze(['contractId', 'billingStatus', 'status', 'attendanceStatus'])
-const CONTRACT_USAGE_FIELDS = Object.freeze(['studentId', 'crmProfileId', 'totalSessions', 'usedSessions'])
+const SESSION_USAGE_FIELDS = Object.freeze([
+  'contractId',
+  'studentId',
+  'date',
+  'hour',
+  'scheduleEntryId',
+  'branchId',
+  'billingStatus',
+  'status',
+  'attendanceStatus',
+])
+const CONTRACT_USAGE_FIELDS = Object.freeze([
+  'studentId',
+  'crmProfileId',
+  'totalSessions',
+  'usedSessions',
+  'usageReconciliationVersion',
+  'usageReconciledFrom',
+  'usageDeduplicationVersion',
+  'usageDedupedSessions',
+])
 
 function text(value, fallback = '') {
   return typeof value === 'string' && value.trim() ? value.trim() : fallback
@@ -58,6 +77,7 @@ function timestampMillis(value) {
 
 function contractUsageViewNeedsRebuild(contract = {}, storedView = null, nowMillis = Date.now(), maxAgeMillis = USAGE_VIEW_RECONCILIATION_MAX_AGE_MS) {
   if (!storedView || Number(storedView.schemaVersion || 0) !== USAGE_VIEW_SCHEMA_VERSION) return true
+  if (text(storedView.sourceVersion) !== USAGE_VIEW_SOURCE_VERSION) return true
   if (Number(storedView.entitlementSessions || 0) !== Number(contract.totalSessions || 0)) return true
   if (Number(storedView.storedUsedSessions || 0) !== Number(contract.usedSessions || 0)) return true
   if (text(storedView.studentId) !== text(contract.studentId || contract.crmProfileId)) return true
@@ -107,13 +127,15 @@ function requireContractScope(contract, actor) {
   if (!contractVisibleToActor(contract, actor)) throw new HttpsError('permission-denied', 'Hợp đồng nằm ngoài phạm vi được cấp.')
 }
 
-function viewFromSummary(contractId, contract, summary, source = 'contract-usage-v2') {
+function viewFromSummary(contractId, contract, summary, source = USAGE_VIEW_SOURCE_VERSION) {
   return {
     schemaVersion: USAGE_VIEW_SCHEMA_VERSION,
     contractId,
     studentId: text(contract.studentId || contract.crmProfileId, null),
     entitlementSessions: summary.totalSessions,
     historySessions: summary.historySessions,
+    rawHistorySessions: summary.rawHistorySessions ?? summary.historySessions,
+    duplicateHistorySessions: summary.duplicateHistorySessions || 0,
     attendedSessions: summary.attendedSessions,
     presentSessions: summary.presentSessions,
     lateSessions: summary.lateSessions,
@@ -128,6 +150,7 @@ function viewFromSummary(contractId, contract, summary, source = 'contract-usage
     remainingSessions: summary.remainingSessions,
     usedSessions: summary.usedSessions,
     chargedSessions: summary.chargedSessions,
+    usageDeduplicationVersion: 1,
     projectionDelta: summary.projectionDelta,
     reconciliationStatus: summary.reconciliationStatus,
     sourceVersion: source,
@@ -165,7 +188,10 @@ function usageSummaryFromView(view = {}, contract = {}) {
     remainingSessions: nonNegative(view.remainingSessions),
     projectionDelta: Number.isFinite(Number(view.projectionDelta)) ? Number(view.projectionDelta) : 0,
     reconciliationStatus: text(view.reconciliationStatus, 'matched'),
-    sourceVersion: text(view.sourceVersion, 'contract-usage-v2'),
+    sourceVersion: text(view.sourceVersion, USAGE_VIEW_SOURCE_VERSION),
+    rawHistorySessions: nonNegative(view.rawHistorySessions ?? view.historySessions),
+    duplicateHistorySessions: nonNegative(view.duplicateHistorySessions),
+    usageDeduplicationVersion: nonNegative(view.usageDeduplicationVersion),
     generatedAt: view.generatedAt || null,
   }
 }
@@ -200,11 +226,44 @@ async function readContractEvidence(db, contractId) {
     .where('contractId', '==', contractId)
     .limit(MAX_SESSION_EVIDENCE + 1)
     .get()
-  const sessions = canonicalSessionRows(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })))
+  const rawSessions = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))
+  const sessions = canonicalUsageSessions(rawSessions)
   return {
     sessions: sessions.slice(0, MAX_SESSION_EVIDENCE),
+    rawSessions,
     truncated: snapshot.size > MAX_SESSION_EVIDENCE,
   }
+}
+
+/**
+ * All read surfaces use the same daily unique projection. Keep the validity
+ * check next to the adapter so an old or truncated view cannot become a
+ * second quota formula by accident.
+ */
+function isCanonicalUsageView(view = {}) {
+  if (!view || typeof view !== 'object') return false
+  return Number(view.schemaVersion || 0) === USAGE_VIEW_SCHEMA_VERSION
+    && text(view.sourceVersion) === USAGE_VIEW_SOURCE_VERSION
+    && Number.isFinite(Number(view.entitlementSessions))
+    && Number.isFinite(Number(view.usedSessions))
+    && Number.isFinite(Number(view.remainingSessions))
+    && view.evidenceTruncated !== true
+}
+
+function canonicalUsageSummary(view, contract = {}) {
+  return isCanonicalUsageView(view) ? usageSummaryFromView(view, contract) : null
+}
+
+async function loadContractUsageViews(db, contractIds = []) {
+  const ids = [...new Set((Array.isArray(contractIds) ? contractIds : [])
+    .map((value) => String(value || '').trim())
+    .filter(Boolean))]
+  const views = new Map()
+  for (let offset = 0; offset < ids.length; offset += 100) {
+    const snapshots = await db.getAll(...ids.slice(offset, offset + 100).map((idValue) => db.doc(`contractUsageViews/${idValue}`)))
+    snapshots.forEach((snapshot) => { if (snapshot.exists) views.set(snapshot.id, snapshot.data()) })
+  }
+  return views
 }
 
 async function buildContractUsageView({ db, contractId, contract = null, logger = console }) {
@@ -212,10 +271,11 @@ async function buildContractUsageView({ db, contractId, contract = null, logger 
   const value = contract || (contractSnapshot?.exists ? contractSnapshot.data() : null)
   if (!value) return null
   const evidence = await readContractEvidence(db, contractId)
-  const summary = summarizeContractUsage(value, evidence.sessions)
+  const summary = summarizeContractUsage(value, evidence.rawSessions)
   const view = {
     ...viewFromSummary(contractId, value, summary),
     evidenceSessions: evidence.sessions.length,
+    rawEvidenceSessions: evidence.rawSessions.length,
     evidenceTruncated: evidence.truncated,
     ...(evidence.truncated ? { reconciliationStatus: 'evidence_truncated' } : {}),
   }
@@ -237,6 +297,7 @@ async function buildContractUsageView({ db, contractId, contract = null, logger 
     remainingSessions: view.remainingSessions,
     reconciliationStatus: view.reconciliationStatus,
     evidenceSessions: evidence.sessions.length,
+    rawEvidenceSessions: evidence.rawSessions.length,
     evidenceTruncated: evidence.truncated,
   })
   return { ...view, sourceFingerprint, projectionChanged }
@@ -355,9 +416,13 @@ module.exports = {
   MAX_SESSION_EVIDENCE,
   SESSION_USAGE_FIELDS,
   USAGE_VIEW_SCHEMA_VERSION,
+  USAGE_VIEW_SOURCE_VERSION,
   USAGE_VIEW_RECONCILIATION_MAX_AGE_MS,
   viewFromSummary,
   usageSummaryFromView,
+  isCanonicalUsageView,
+  canonicalUsageSummary,
+  loadContractUsageViews,
   usageSourceChanged,
   usageViewFingerprint,
   contractUsageViewNeedsRebuild,
