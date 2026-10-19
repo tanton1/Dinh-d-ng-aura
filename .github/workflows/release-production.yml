@@ -290,7 +290,10 @@ jobs:
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
-          DEPLOYMENT_URL="$(npx --yes vercel@latest deploy --prod --yes --token="$VERCEL_TOKEN" --build-env VITE_APP_RELEASE=${{ steps.revision.outputs.sha }})"
+          # Pin the CLI version used by the last known-good production release.
+          # Newer CLI versions can fail to read this project's settings before
+          # the deployment even starts.
+          DEPLOYMENT_URL="$(npx --yes vercel@63.1.2 deploy --prod --yes --token="$VERCEL_TOKEN" --build-env VITE_APP_RELEASE=${{ steps.revision.outputs.sha }})"
           echo "url=$DEPLOYMENT_URL" >> "$GITHUB_OUTPUT"
 
       - name: Post-deploy smoke
