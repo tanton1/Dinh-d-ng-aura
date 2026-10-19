@@ -757,6 +757,7 @@ export default function Student360Page({ studentId, source, isDemo = false, onBa
         <div className="student360-section-heading"><div><small>Nhật ký</small><h2>Lịch sử học viên</h2><p>{timelineFilter === 'training' ? 'Lịch sử buổi tập dùng cùng cách hiển thị với tài khoản học viên.' : 'Tập luyện, dinh dưỡng, chăm sóc và hợp đồng theo thứ tự thời gian.'}</p></div>{isAdminView && <details className="student360-timeline-source-help"><summary><Info size={15} /> Nguồn dữ liệu</summary><div><p>Timeline đọc từ dữ liệu nghiệp vụ gốc và loại các bản ghi trùng.</p>{timelineSourceGuide.map((item) => <article key={item.label}><strong>{item.label}</strong><code>{item.source}</code><span>{item.detail}</span></article>)}</div></details>}</div>
         <div className="student360-timeline-toolbar"><div className="student360-filter-chips">{timelineFilters.map((filter) => <button type="button" key={filter.id} className={timelineFilter === filter.id ? 'active' : ''} onClick={() => setTimelineFilter(filter.id)}>{filter.label}</button>)}</div><div className="student360-filter-chips is-range">{timelineRanges.map((range) => <button type="button" key={range.id} className={timelineRange === range.id ? 'active' : ''} onClick={() => setTimelineRange(range.id)}>{range.label}</button>)}</div></div>
         {timelineFilter === 'training' ? <StudentTrainingHistory
+          className="student360-timeline student360-training-history"
           page={trainingHistoryPage}
           loading={trainingHistoryLoading}
           error={trainingHistoryError}

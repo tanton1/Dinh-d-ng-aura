@@ -134,6 +134,21 @@ export async function getOperationsDashboard(input: { startAt?: string; endAt?: 
  * avoids the dashboard's finance, contracts, renewals and nutrition queries.
  */
 export async function getTodaySessions(input: { branchId?: string; forceRefresh?: boolean } = {}) {
+  if (dashboardPreviewEnabled) {
+    const preview = previewDashboard({ branchId: input.branchId })
+    const date = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }).format(new Date())
+    return {
+      schemaVersion: 1 as const,
+      date,
+      branchId: input.branchId || preview.branchId,
+      scope: preview.scope,
+      permissions: { operations: true },
+      today: preview.today,
+      filters: preview.filters,
+      generatedAt: preview.generatedAt,
+      cache: { hit: false, tier: 'miss' as const, ttlSeconds: 60 },
+    } satisfies TodaySessionsData
+  }
   if (!firebaseFunctions) throw new Error('Firebase Functions chưa sẵn sàng.')
   return callReadOnlyFunction<{ branchId?: string; forceRefresh?: boolean }, TodaySessionsData>('getTodaySessions', input, {
     timeoutMs: 15_000,

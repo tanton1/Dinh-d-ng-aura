@@ -243,6 +243,12 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
   }, [addStudentTarget, scheduledByStudent, students])
   const filteredStudents = useMemo(() => {
     const query = normalizedSearch(studentQuery)
+    const assignmentRank: Record<TrainerStudentSummary['assignmentRole'], number> = {
+      primary: 0,
+      secondary: 1,
+      branch: 2,
+      schedule: 3,
+    }
     return studentsWithSessions.filter((student) => {
       const matchesQuery = matchesStudentSearch(student, query)
       const matchesBranch = studentBranch === 'all' || student.branchId === studentBranch
@@ -250,7 +256,7 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
         || student.assignmentRole === studentScope
         || (studentScope === 'schedule' && scheduledByStudent.has(student.id))
       return matchesQuery && matchesBranch && matchesScope
-    }).sort((left, right) => left.name.localeCompare(right.name, 'vi'))
+    }).sort((left, right) => assignmentRank[left.assignmentRole] - assignmentRank[right.assignmentRole] || left.name.localeCompare(right.name, 'vi'))
   }, [scheduledByStudent, studentBranch, studentQuery, studentScope, studentsWithSessions])
   const load = useCallback(async () => {
     if (loadedRef.current) setRefreshing(true)
