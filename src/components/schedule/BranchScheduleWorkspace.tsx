@@ -196,7 +196,8 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate, ini
   const availabilitySyncRevisionRef = useRef('')
   const busyRef = useRef(false)
   const hoverClearTimer = useRef<number | null>(null)
-  const workspaceRequestRef = useRef<{ scope: string; forceAvailabilityRefresh: boolean; promise: Promise<void> } | null>(null)
+  const workspaceRequestRef = useRef<{ scope: string; forceAvailabilityRefresh: boolean; reconcile: boolean; promise: Promise<void> } | null>(null)
+  const workspaceRequestVersionRef = useRef(0)
   const activeWorkspaceScopeRef = useRef('')
   const moreMenuRef = useRef<HTMLDetailsElement | null>(null)
   const activeDialogRef = useRef<HTMLElement | null>(null)
@@ -239,7 +240,12 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate, ini
     () => workspace?.trainers.filter((trainer) => !isTrainerLocked(trainer)) || [],
     [workspace?.trainers],
   )
-  const workspaceHydrating = workspace?.partial === true
+  // The first paint is intentionally a display projection. It is safe for
+  // matrix browsing because writes/candidate lookups recheck the exact
+  // contract and availability evidence server-side. Keep the old hydration
+  // lock only for callers that explicitly requested a reconciled payload.
+  const workspaceHydrating = workspace?.partial === true && workspace?.readMode !== 'display'
+  const workspaceDisplayMode = workspace?.readMode === 'display'
   const holidayDates = useMemo(
     () => new Set((workspace?.scheduleConfig.holidays || []).map((value) => String(value).slice(0, 10))),
     [workspace?.scheduleConfig.holidays],
@@ -342,52 +348,53 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate, ini
     }
   }, [inspectorSlotId, publishPreview, resetDraftOpen, restoreCandidate])
 
-  const loadWorkspace = useCallback(async (quiet = false, forceAvailabilityRefresh = false) => {
+  const loadWorkspace = useCallback(async (quiet = false, forceAvailabilityRefresh = false, reconcile = false) => {
     if (!branchId) return
     const requestScope = `${ownerScope}|${branchId}|${currentWeekId}`
+    const requestKey = reconcile ? `${requestScope}|reconciled` : requestScope
     const inFlight = workspaceRequestRef.current
-    if (inFlight?.scope === requestScope) {
+    if (inFlight?.scope === requestKey) {
       await inFlight.promise
       // Do not lose a forced availability refresh that arrived while the
       // ordinary workspace request was still in flight.
       if (forceAvailabilityRefresh && !inFlight.forceAvailabilityRefresh) {
-        await loadWorkspace(true, true)
+        await loadWorkspace(true, true, reconcile)
+      } else if (reconcile && !inFlight.reconcile) {
+        await loadWorkspace(true, forceAvailabilityRefresh, true)
       }
       return
     }
+    const requestVersion = workspaceRequestVersionRef.current + 1
+    workspaceRequestVersionRef.current = requestVersion
     const request = (async () => {
       if (!quiet) workspaceReadyTimingRef.current.source = 'network'
       if (!quiet) setLoading(true)
       if (!quiet || !workspaceRef.current) setSyncState('connecting')
       if (!quiet) setError(null)
       try {
-        const loadFullWorkspace = () => loadWorkspaceRequest(requestScope, () => measureScheduleTask('workspace', () => getPtScheduleWorkspace({
+        const loadFullWorkspace = () => loadWorkspaceRequest(requestKey, () => measureScheduleTask('workspace', () => getPtScheduleWorkspace({
           weekId: currentWeekId,
           branchId,
           forceAvailabilityRefresh,
         })))
-        const visibleWorkspace = workspaceRef.current?.branch.id === branchId && workspaceRef.current?.weekId === currentWeekId
+        const loadDisplayWorkspace = () => loadWorkspaceRequest(requestScope, () => measureScheduleTask('workspace', () => getPtScheduleWorkspace({
+          weekId: currentWeekId,
+          branchId,
+          initialPaint: true,
+          forceAvailabilityRefresh,
+        })))
         let result: PtScheduleWorkspaceV2Result
-        if (!quiet && !visibleWorkspace) {
-          // The first response only contains the branch roster, PT roster and
-          // draft/current-week rows needed to paint the matrix. Contract,
-          // availability and warning evidence follows through the normal
-          // cached read below.
-          const initial = await measureScheduleTask('workspace', () => getPtScheduleWorkspace({ weekId: currentWeekId, branchId, initialPaint: true }))
-          if (activeWorkspaceScopeRef.current !== requestScope) return
-          workspaceRef.current = initial
-          setWorkspace(initial)
-          setLoading(false)
-          setLastSyncedAt(new Date())
-          setSyncState('syncing')
-          setSelectedTrainerId((current) => initial.trainers.some((trainer) => trainer.id === current && !isTrainerLocked(trainer))
-            ? current
-            : initial.trainers.find((trainer) => !isTrainerLocked(trainer))?.id || '')
-          result = await loadFullWorkspace()
+        if (!reconcile) {
+          // Never follow the bounded matrix projection with an implicit full
+          // reconciliation. Contract, quota, availability and cross-branch
+          // evidence are loaded only by an explicit run/validate action.
+          const initial = await loadDisplayWorkspace()
+          if (activeWorkspaceScopeRef.current !== requestScope || workspaceRequestVersionRef.current !== requestVersion) return
+          result = initial
         } else {
           result = await loadFullWorkspace()
         }
-        if (activeWorkspaceScopeRef.current !== requestScope) return
+        if (activeWorkspaceScopeRef.current !== requestScope || workspaceRequestVersionRef.current !== requestVersion) return
         const current = workspaceRef.current
         if (current?.branch.id === branchId && current.weekId === currentWeekId && result.draftRevision < current.draftRevision) return
         const changed = workspaceRealtimeFingerprint(workspaceRef.current) !== workspaceRealtimeFingerprint(result)
@@ -401,7 +408,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate, ini
         if (quiet) startTransition(() => setSelectedTrainerId(keepValidTrainer))
         else setSelectedTrainerId(keepValidTrainer)
       } catch (loadError) {
-        if (activeWorkspaceScopeRef.current !== requestScope) return
+        if (activeWorkspaceScopeRef.current !== requestScope || workspaceRequestVersionRef.current !== requestVersion) return
         if (!quiet || !workspaceRef.current) {
           // A failed refresh must not erase the currently displayed schedule.
           // On a scope change the layout effect has already cleared old data.
@@ -409,10 +416,10 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate, ini
         }
         setSyncState('offline')
       } finally {
-        if (!quiet && activeWorkspaceScopeRef.current === requestScope) setLoading(false)
+        if (!quiet && activeWorkspaceScopeRef.current === requestScope && workspaceRequestVersionRef.current === requestVersion) setLoading(false)
       }
     })()
-    workspaceRequestRef.current = { scope: requestScope, forceAvailabilityRefresh, promise: request }
+    workspaceRequestRef.current = { scope: requestKey, forceAvailabilityRefresh, reconcile, promise: request }
     try {
       await request
     } finally {
@@ -463,7 +470,8 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate, ini
       // A prior browser session may contain the old zero-slot projection from
       // before weekly availability was synchronized. Recheck such a cached
       // roster in the background without delaying the first paint.
-      const hasPotentiallyStaleAvailability = cached.value.students.some((student) => student.availabilityStatus === 'missing')
+      const hasPotentiallyStaleAvailability = !cached.value.partial
+        && cached.value.students.some((student) => student.availabilityStatus === 'missing')
       if (hasPotentiallyStaleAvailability) {
         setSyncState('syncing')
         void loadWorkspace(true, true)
@@ -911,7 +919,10 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate, ini
     })
   }, [scheduledEntriesByStudent, workspace])
 
-  const studentWarnings = useMemo(() => operationalStudentRows.filter((row) => row.inputWarning), [operationalStudentRows])
+  const studentWarnings = useMemo(
+    () => workspaceDisplayMode ? [] : operationalStudentRows.filter((row) => row.inputWarning),
+    [operationalStudentRows, workspaceDisplayMode],
+  )
   const ineligibleDraftRows = useMemo(() => (workspace?.students || [])
     .filter((student) => !student.isCrossBranchDisplayOnly
       && student.eligibleForWeek !== true && (scheduledEntriesByStudent.get(student.id)?.length || 0) > 0)
@@ -1093,12 +1104,12 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate, ini
   )
 
   const searchLimitWarning = useMemo(
-    () => hasActionableSearchLimit(workspace?.optimizationSummary, unassignedEntries),
-    [unassignedEntries, workspace?.optimizationSummary],
+    () => !workspaceDisplayMode && hasActionableSearchLimit(workspace?.optimizationSummary, unassignedEntries),
+    [unassignedEntries, workspace?.optimizationSummary, workspaceDisplayMode],
   )
 
   const warningProfiles = useMemo(() => {
-    if (!workspace) return []
+    if (!workspace || workspaceDisplayMode) return []
     const operationalByStudent = new Map(operationalStudentRows.map((row) => [row.student.id, row]))
     const unassignedByStudent = new Map(unassignedEntries.map((entry) => [entry.studentId, entry]))
     const affectedIds = new Set([
@@ -1221,7 +1232,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate, ini
           || right.missingSessions - left.missingSessions
           || left.student.name.localeCompare(right.student.name, 'vi')
       })
-  }, [ineligibleDraftRows, operationalStudentRows, scheduledEntriesByStudent, studentWarnings, unassignedEntries, weekDates, workspace])
+  }, [ineligibleDraftRows, operationalStudentRows, scheduledEntriesByStudent, studentWarnings, unassignedEntries, weekDates, workspace, workspaceDisplayMode])
 
   const draftResetSummary = useMemo(() => {
     const entries = Object.values(workspace?.schedule || {}).flat()
@@ -1771,6 +1782,11 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate, ini
         trainerLoads: result.trainerLoads || current.trainerLoads,
         studentCoverage: result.studentCoverage || current.studentCoverage,
       } : current)
+      // The optimizer is the explicit reconciliation boundary. Once it has
+      // run, hydrate the richer workspace projection so warning/coverage tabs
+      // reflect the same evidence used by the server-side optimizer.
+      await loadWorkspace(true, false, true)
+      if (activeWorkspaceScopeRef.current !== commandScope) return
       const unresolved = result.unassignedEntries?.length || result.unassigned?.length || 0
       const passes = Math.max(1, Number(result.optimizationSummary?.optimizationPasses || 1))
       const refilled = Math.max(0, Number(result.optimizationSummary?.refillAssignments || 0))
@@ -1979,10 +1995,10 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate, ini
       </header>
 
       <section className="branch-schedule__summary-strip" aria-label="Tóm tắt lịch tuần">
-        <button type="button" onClick={() => setTab('students')}><UsersRound /><strong>{studentCoverage.fullyScheduled}/{studentCoverage.eligible}</strong><span>học viên đủ lịch</span></button>
-        <button type="button" onClick={() => setTab('students')}><CalendarRange /><strong>{studentCoverage.scheduledEntries}/{studentCoverage.totalTargetSessions}</strong><span>buổi đã xếp</span></button>
+        <button type="button" onClick={() => setTab('students')}><UsersRound /><strong>{workspaceDisplayMode ? '—' : `${studentCoverage.fullyScheduled}/${studentCoverage.eligible}`}</strong><span>{workspaceDisplayMode ? 'đối soát khi chạy lịch' : 'học viên đủ lịch'}</span></button>
+        <button type="button" onClick={() => setTab('students')}><CalendarRange /><strong>{workspaceDisplayMode ? '—' : `${studentCoverage.scheduledEntries}/${studentCoverage.totalTargetSessions}`}</strong><span>{workspaceDisplayMode ? 'đang xem nhanh' : 'buổi đã xếp'}</span></button>
         <button type="button" onClick={() => setTab('warnings')} className={slotUtilization.singleSlots > 0 ? 'is-attention' : ''}><UsersRound /><strong>{slotUtilization.pairedSlots} đôi</strong><span>{slotUtilization.singleSlots} ca còn lẻ</span></button>
-        <button type="button" onClick={openFirstWarningStudentAvailability} className={warningCount > 0 ? 'is-attention' : ''}><AlertTriangle /><strong>{warningCount}</strong><span>cảnh báo cần xem</span></button>
+        <button type="button" onClick={openFirstWarningStudentAvailability} className={warningCount > 0 ? 'is-attention' : ''}><AlertTriangle /><strong>{warningCount}</strong><span>{workspaceDisplayMode ? 'cảnh báo nhanh' : 'cảnh báo cần xem'}</span></button>
       </section>
 
       <section className="branch-schedule__toolbar">
@@ -2034,7 +2050,8 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate, ini
       </details>}
       {!optimizationStatus && searchLimitWarning && <div className="branch-schedule__search-limit" role="status"><AlertTriangle size={16} /> Tối ưu đã dừng ở ngân sách tìm kiếm an toàn cho một số hồ sơ còn thiếu. Ca thủ công, ca khóa và ca đã publish vẫn được giữ nguyên; bấm “Tối ưu tiếp” hoặc xử lý hồ sơ trong Cảnh báo.</div>}
       {loading && !workspace && <div className="branch-schedule__loading"><RefreshCw className="is-spinning" /> Đang tải workspace theo phạm vi…</div>}
-      {workspaceHydrating && <div className="branch-schedule__loading"><RefreshCw className="is-spinning" /> Lịch đã hiện; đang đối soát hợp đồng và cảnh báo…</div>}
+      {workspaceDisplayMode && <div className="branch-schedule__loading" role="status"><CalendarRange /> Đang xem nhanh lịch; chỉ đối soát hợp đồng, quota và lịch trùng khi bấm “Xếp tối ưu” hoặc “Publish”.</div>}
+      {workspaceHydrating && <div className="branch-schedule__loading"><RefreshCw className="is-spinning" /> Đang đối soát hợp đồng và cảnh báo…</div>}
 
       {tab === 'requests' && canManageOperations && (
         <main id="schedule-panel-requests" role="tabpanel" aria-labelledby="schedule-tab-requests" className="branch-schedule__workspace">

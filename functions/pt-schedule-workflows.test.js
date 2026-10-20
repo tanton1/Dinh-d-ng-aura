@@ -170,7 +170,22 @@ test('published Admin workspace paints from profile projections without weekly e
   h.docs.delete(`ptAvailability/a_${WEEK}`)
   const result = await h.api.getPtScheduleWorkspace({ data: { weekId: WEEK, branchId: BRANCH } })
   assert.equal(result.draftStatus, 'published')
+  assert.equal(result.readMode, 'reconciled')
   assert.deepEqual(result.students.find((studentRow) => studentRow.id === 'a').availableSlots, ['T2-6'])
+})
+
+test('initial paint returns a display projection without reconciliation evidence', async () => {
+  const h = harness(fixture(), { realBranchData: true })
+  const draftPath = `ptScheduleDrafts/${BRANCH}_${WEEK}`
+  h.docs.set(draftPath, { ...h.docs.get(draftPath), status: 'published', publishedVersion: 1, publishedRevision: 1 })
+  const result = await h.api.getPtScheduleWorkspace({
+    data: { weekId: WEEK, branchId: BRANCH, initialPaint: true },
+  })
+  assert.equal(result.readMode, 'display')
+  assert.equal(result.partial, true)
+  assert.deepEqual(result.contracts, [])
+  assert.deepEqual(result.sessions, [])
+  assert.deepEqual(result.weeklySessionCoverage, {})
 })
 
 test('historical supplement accepts an expired contract that was valid on the actual session date', () => {

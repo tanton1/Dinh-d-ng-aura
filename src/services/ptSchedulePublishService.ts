@@ -298,6 +298,8 @@ export interface PtScheduleWorkspaceV2Result extends Omit<BranchScheduleWorkspac
   sessionRefs?: Record<string, { sessionId: string; revision: number }>
   /** Initial matrix projection; contracts and diagnostics hydrate in the background. */
   partial?: boolean
+  /** `display` is a bounded matrix projection; `reconciled` includes validator evidence. */
+  readMode?: 'display' | 'reconciled'
   draftStatus: 'draft' | 'published'
   updatedAt: string | null
   updatedBy: string | null

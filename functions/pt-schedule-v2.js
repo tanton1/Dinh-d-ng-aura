@@ -870,23 +870,34 @@ function initialTrainerProjection(item, branchId, scheduleLoadPolicy) {
 }
 
 async function loadBranchDataInitial(db, branchId, week) {
-  const [branch, legacySchedule, draft, targetOverrides, students, trainers, weekSessions, config] = await Promise.all([
+  // The first paint only needs the branch shell, the canonical draft, the
+  // bounded rosters and the current-week rows. Published drafts already
+  // contain the complete matrix, so reading legacy schedule/weekly targets
+  // here only adds latency and quota pressure. Keep those two reads for the
+  // legacy/no-draft path, where they are still needed to reconstruct a
+  // schedule that has not migrated to ptScheduleDrafts yet.
+  const [branch, draft, config] = await Promise.all([
     db.doc(`branches/${branchId}`).get(),
-    db.doc(`schedules/schedule_${week}`).get(),
     draftReference(db, branchId, week).get(),
-    weeklyTargetOverrideReference(db, branchId, week).get(),
-    db.collection('students').where('branchId', '==', branchId).limit(MAX_STUDENTS + 1).get(),
-    db.collection('trainers').where('branchId', '==', branchId).limit(MAX_TRAINERS + 1).get(),
-    db.collection('sessions').where('branchId', '==', branchId).where('date', '>=', week).where('date', '<', nextWeek(week)).limit(1001).get(),
     db.doc('settings/scheduleConfig').get(),
   ])
   if (!branch.exists || branch.data().status === 'archived') throw new HttpsError('failed-precondition', 'Chi nhánh không hoạt động.')
+
+  const draftData = scopedDraftData(draft, branchId, week)
+  const publishedDraft = Boolean(draftData)
+    && (draftData.status === 'published' || Number(draftData.publishedVersion || 0) > 0)
+  const [legacySchedule, targetOverrides, students, trainers, weekSessions] = await Promise.all([
+    publishedDraft ? Promise.resolve({ exists: false, data: () => ({}) }) : db.doc(`schedules/schedule_${week}`).get(),
+    publishedDraft ? Promise.resolve({ exists: false, data: () => ({}) }) : weeklyTargetOverrideReference(db, branchId, week).get(),
+    db.collection('students').where('branchId', '==', branchId).limit(MAX_STUDENTS + 1).get(),
+    db.collection('trainers').where('branchId', '==', branchId).limit(MAX_TRAINERS + 1).get(),
+    db.collection('sessions').where('branchId', '==', branchId).where('date', '>=', week).where('date', '<', nextWeek(week)).limit(1001).get(),
+  ])
   if (students.size > MAX_STUDENTS || trainers.size > MAX_TRAINERS || weekSessions.size > 1000) {
     throw new HttpsError('resource-exhausted', 'Dữ liệu chi nhánh vượt giới hạn workspace an toàn.')
   }
 
   const legacy = legacySchedule.exists ? legacySchedule.data() : {}
-  const draftData = scopedDraftData(draft, branchId, week)
   const targetOverrideData = targetOverrides.exists ? targetOverrides.data() : null
   const weeklySessionTargets = weeklySessionTargetsForWeek(draftData, targetOverrideData)
   const studentMap = new Map(students.docs.map((item) => [item.id, item.data()]))
@@ -916,6 +927,7 @@ async function loadBranchDataInitial(db, branchId, week) {
   const scheduleConfig = normalizedScheduleConfig(config.data())
   return {
     partial: true,
+    readMode: 'display',
     branch: { id: branchId, name: branch.data().name || branchId, status: branch.data().status || 'active' },
     draft: {
       exists: Boolean(draftData),
@@ -1290,6 +1302,7 @@ async function loadBranchDataFresh(db, branchId, week, options = {}) {
     }
   })
   return {
+    readMode: 'reconciled',
     branch: { id: branchId, name: branch.data().name || branchId, status: branch.data().status || 'active' },
     draft: {
       exists: Boolean(draftData),
@@ -4273,6 +4286,7 @@ function createPtScheduleV2Functions({
     })
     return {
       schemaVersion: 2,
+      readMode: data.readMode || (data.partial === true ? 'display' : 'reconciled'),
       partial: data.partial === true,
       branch: data.branch,
       weekId: week,
