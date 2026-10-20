@@ -2,7 +2,7 @@ import { httpsCallable, type Functions } from 'firebase/functions'
 import { firebaseAuth } from '../lib/firebase'
 import { firebaseFunctions } from '../lib/firebaseFunctions'
 import { createClientCorrelationId, reportClientIssue } from './clientTelemetryService'
-import { runReadOnlyWithRetry } from './readOnlyCallableCore'
+import { callableCode, isRetryableReadOnlyCallableError, runReadOnlyWithRetry } from './readOnlyCallableCore'
 
 export interface ReadOnlyCallableOptions {
   /** Reuse the same request identity across explicit regional failover. */
@@ -46,4 +46,27 @@ export async function callReadOnlyFunction<Input, Output>(
       })
     },
   })
+}
+
+/**
+ * Try a read in the preferred region, then fail over once to a compatible
+ * endpoint when the failure is transient. The caller owns the endpoint names
+ * and must only use this for idempotent reads.
+ */
+export async function runReadOnlyWithFallback<Output>(
+  primary: () => Promise<Output>,
+  fallback: () => Promise<Output>,
+  delayMs = 250,
+): Promise<Output> {
+  try {
+    return await primary()
+  } catch (error) {
+    let cause = error
+    for (let depth = 0; depth < 4 && cause instanceof Error && cause.cause; depth += 1) cause = cause.cause
+    const code = callableCode(cause)
+    if (['unauthenticated', 'permission-denied', 'not-found', 'failed-precondition', 'invalid-argument'].includes(code)
+      || !isRetryableReadOnlyCallableError(cause)) throw error
+    if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs))
+    return fallback()
+  }
 }

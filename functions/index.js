@@ -1137,11 +1137,39 @@ exports.refreshPerformanceSnapshotV2 = performanceScoreV2Functions.refreshPerfor
 exports.setPerformanceSnapshotLockV2 = performanceScoreV2Functions.setPerformanceSnapshotLock
 const businessReportingFunctions = createBusinessReportingFunctions({ db, onCall })
 Object.assign(exports, businessReportingFunctions)
-// Static exports make the three endpoints selectable in a safe rollout.
+// Static exports make the reporting endpoints selectable in a safe rollout.
 exports.listBusinessPerformance = businessReportingFunctions.listBusinessPerformance
 exports.listStudentTrainingHistory = businessReportingFunctions.listStudentTrainingHistory
 exports.listTrainerTeachingHistory = businessReportingFunctions.listTrainerTeachingHistory
 exports.getStudentContractUsage = businessReportingFunctions.getStudentContractUsage
+
+// Reporting and training-history reads do not need to run beside the
+// Singapore Firestore trigger fleet. Keep the original endpoints for older
+// clients, while exposing bounded read-only aliases from the overflow region
+// so a saturated asia-southeast1 CPU quota cannot make the history screen
+// unavailable. Both regions read the same Firestore database and use the same
+// actor-scoping logic above.
+const businessReportingOverflowOnCall = (optionsOrHandler, maybeHandler) => {
+  const resourceOptions = {
+    region: 'asia-east1',
+    cpu: 'gcf_gen1',
+    concurrency: 1,
+    maxInstances: 2,
+    timeoutSeconds: 120,
+    invoker: 'public',
+  }
+  return typeof optionsOrHandler === 'function'
+    ? onCall(resourceOptions, optionsOrHandler)
+    : onCall({ ...resourceOptions, ...optionsOrHandler }, maybeHandler)
+}
+const businessReportingOverflowFunctions = createBusinessReportingFunctions({
+  db,
+  onCall: businessReportingOverflowOnCall,
+})
+exports.listBusinessPerformanceRegional = businessReportingOverflowFunctions.listBusinessPerformance
+exports.listStudentTrainingHistoryRegional = businessReportingOverflowFunctions.listStudentTrainingHistory
+exports.listTrainerTeachingHistoryRegional = businessReportingOverflowFunctions.listTrainerTeachingHistory
+exports.getStudentContractUsageRegional = businessReportingOverflowFunctions.getStudentContractUsage
 if (!isStudent360Discovery) {
   const exerciseCatalogFunctions = createExerciseCatalogFunctions({ db, onCall })
   Object.assign(exports, exerciseCatalogFunctions)

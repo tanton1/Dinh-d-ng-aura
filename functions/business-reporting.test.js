@@ -14,6 +14,28 @@ const {
 } = require('./business-reporting')
 
 const source = readFileSync(join(__dirname, 'business-reporting.js'), 'utf8')
+const indexSource = readFileSync(join(__dirname, 'index.js'), 'utf8')
+
+test('business reporting keeps legacy handlers and exposes bounded asia-east1 overflow aliases', () => {
+  const endpointNames = [
+    'listBusinessPerformance',
+    'listStudentTrainingHistory',
+    'listTrainerTeachingHistory',
+    'getStudentContractUsage',
+  ]
+  for (const name of endpointNames) {
+    assert.match(indexSource, new RegExp(`exports\\.${name} = businessReportingFunctions\\.${name}`))
+    assert.match(indexSource, new RegExp(`exports\\.${name}Regional = businessReportingOverflowFunctions\\.${name}`))
+  }
+  const overflowBlock = indexSource.match(
+    /const businessReportingOverflowOnCall =[\s\S]*?const businessReportingOverflowFunctions =/,
+  )?.[0] || ''
+  assert.match(overflowBlock, /region: 'asia-east1'/)
+  assert.match(overflowBlock, /cpu: 'gcf_gen1'/)
+  assert.match(overflowBlock, /concurrency: 1/)
+  assert.match(overflowBlock, /maxInstances: 2/)
+  assert.match(overflowBlock, /timeoutSeconds: 120/)
+})
 
 test('business P&L separates cash collection from recognised revenue', () => {
   const input = normaliseBusinessRange({ startDate: '2026-08-01', endDate: '2026-08-31' })

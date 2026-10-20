@@ -1,4 +1,26 @@
-import { callReadOnlyFunction } from './readOnlyCallableService'
+import { firebaseBusinessReportingFunctions, firebaseFunctions } from '../lib/firebaseFunctions'
+import { createClientCorrelationId } from './clientTelemetryService'
+import { callReadOnlyFunction, runReadOnlyWithFallback } from './readOnlyCallableService'
+
+async function callBusinessReportingRead<Input, Output>(name: string, input: Input): Promise<Output> {
+  const correlationId = createClientCorrelationId()
+  const invoke = (functionsClient: typeof firebaseFunctions, callableName: string) => {
+    if (!functionsClient) throw new Error('Firebase Functions chưa sẵn sàng.')
+    return callReadOnlyFunction<Input, Output>(callableName, input, {
+      functionsClient,
+      // A regional failover should happen quickly; the second region owns the
+      // retry budget instead of waiting through three attempts in one region.
+      maximumAttempts: 1,
+      timeoutMs: 18_000,
+      correlationId,
+    })
+  }
+  if (!firebaseBusinessReportingFunctions) return invoke(firebaseFunctions, name)
+  return runReadOnlyWithFallback(
+    () => invoke(firebaseBusinessReportingFunctions, `${name}Regional`),
+    () => invoke(firebaseFunctions, name),
+  )
+}
 
 export type BusinessSource = 'all' | 'pt_gym' | 'online_coaching' | 'nutrition_coaching' | 'academy' | 'eat_clean' | 'delivery_fee' | 'payroll' | 'other' | 'legacy_unclassified'
 
@@ -48,7 +70,7 @@ export interface BusinessPerformanceReport {
 }
 
 export async function listBusinessPerformance(input: BusinessPerformanceQuery): Promise<BusinessPerformanceReport> {
-  return callReadOnlyFunction<BusinessPerformanceQuery, BusinessPerformanceReport>('listBusinessPerformance', input)
+  return callBusinessReportingRead<BusinessPerformanceQuery, BusinessPerformanceReport>('listBusinessPerformance', input)
 }
 
 export type TrainingHistorySubject = 'student' | 'trainer'
@@ -156,15 +178,15 @@ export interface TrainingHistoryQuery {
 }
 
 export async function listStudentTrainingHistory(studentId: string, query: TrainingHistoryQuery): Promise<TrainingHistoryPage> {
-  return callReadOnlyFunction<{ studentId: string } & TrainingHistoryQuery, TrainingHistoryPage>('listStudentTrainingHistory', { studentId, ...query })
+  return callBusinessReportingRead<{ studentId: string } & TrainingHistoryQuery, TrainingHistoryPage>('listStudentTrainingHistory', { studentId, ...query })
 }
 
 export async function listTrainerTeachingHistory(trainerId: string, query: TrainingHistoryQuery): Promise<TrainingHistoryPage> {
-  return callReadOnlyFunction<{ trainerId: string } & TrainingHistoryQuery, TrainingHistoryPage>('listTrainerTeachingHistory', { trainerId, ...query })
+  return callBusinessReportingRead<{ trainerId: string } & TrainingHistoryQuery, TrainingHistoryPage>('listTrainerTeachingHistory', { trainerId, ...query })
 }
 
 export async function getStudentContractUsage(studentId: string, contractId?: string): Promise<StudentContractUsageResponse> {
-  return callReadOnlyFunction<{ studentId: string; contractId?: string }, StudentContractUsageResponse>('getStudentContractUsage', {
+  return callBusinessReportingRead<{ studentId: string; contractId?: string }, StudentContractUsageResponse>('getStudentContractUsage', {
     studentId,
     ...(contractId ? { contractId } : {}),
   })

@@ -49,6 +49,17 @@ test('Academy shows the final failure if neither region is available', async () 
   assert.equal(fallbackCalls, 1)
 })
 
+test('business reporting reads prefer the overflow aliases and retain a transient fallback', () => {
+  const functionsClient = readFileSync(new URL('../src/lib/firebaseFunctions.ts', import.meta.url), 'utf8')
+  const service = readFileSync(new URL('../src/services/businessReportingService.ts', import.meta.url), 'utf8')
+  assert.match(functionsClient, /firebaseBusinessReportingFunctions = firebaseScheduleOptimizerFunctions/)
+  assert.match(service, /callBusinessReportingRead/)
+  assert.match(service, /`\$\{name\}Regional`/)
+  assert.match(service, /runReadOnlyWithFallback/)
+  assert.match(service, /maximumAttempts: 1/)
+  assert.match(service, /timeoutMs: 18_000/)
+})
+
 test('duplicate Academy readers share a pending failover and release it after completion', async () => {
   const pending = new Map<string, Promise<string>>()
   let release!: () => void
