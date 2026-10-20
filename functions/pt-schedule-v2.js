@@ -135,6 +135,17 @@ function branchDataCacheFor(db) {
 // finding a likely profile quickly and does not reserve a warm instance.
 const CROSS_BRANCH_STUDENT_SEARCH_TTL_MS = 60_000
 const CROSS_BRANCH_STUDENT_SEARCH_LIMIT = (MAX_STUDENTS * 3) + 1
+const CROSS_BRANCH_STUDENT_INDEX_LIMIT = 50
+// These fields are deliberately additive. Newer student writers can keep a
+// normalized, lower-case projection here while older documents continue to
+// work through the bounded compatibility fallback below. Querying the
+// projection first avoids charging a 1,501-document collection scan for the
+// common case (the Admin has already typed a useful search term).
+const CROSS_BRANCH_STUDENT_INDEX_FIELDS = Object.freeze({
+  name: ['scheduleSearchName'],
+  phone: ['scheduleSearchPhone'],
+  email: ['scheduleSearchEmail'],
+})
 const crossBranchStudentSearchCaches = new WeakMap()
 
 function crossBranchStudentSearchCacheFor(db) {
@@ -171,6 +182,86 @@ async function crossBranchStudentProfiles(db) {
       cache.pending = null
     })
   return cache.pending
+}
+
+function studentSearchProjection(snapshot) {
+  const profile = snapshot.data() || {}
+  return {
+    id: snapshot.id,
+    name: profile.name || '',
+    phone: profile.phone || '',
+    email: profile.email || '',
+    branchId: profile.branchId || '',
+  }
+}
+
+function searchPrefixEnd(value) {
+  return `${value}\uf8ff`
+}
+
+/**
+ * Resolve cross-branch candidates from denormalized search fields first.
+ *
+ * Firestore cannot efficiently answer a case/diacritic-insensitive contains
+ * query on the canonical student fields. The schedule search projection is
+ * therefore queried as a prefix range. The legacy bounded scan is retained
+ * only as a compatibility path for documents written before the projection
+ * existed; it is also cached for the process TTL and keeps the old result
+ * semantics for existing data/tests during migration.
+ */
+async function indexedCrossBranchStudentProfiles(db, search, rawSearch = search) {
+  if (!search || search.length < 2) return []
+  const rawPrefix = String(rawSearch || '').trim()
+  const fieldGroup = rawPrefix.includes('@')
+    ? 'email'
+    : /^\d/.test(rawPrefix)
+      ? 'phone'
+      : 'name'
+  const queries = CROSS_BRANCH_STUDENT_INDEX_FIELDS[fieldGroup]
+    .map((field) => ({ field, prefix: search }))
+    .filter(({ prefix }) => prefix.length >= 2)
+    .map(({ field, prefix }) => (
+    db.collection('students')
+      .where(field, '>=', prefix)
+      .where(field, '<', searchPrefixEnd(prefix))
+      .limit(CROSS_BRANCH_STUDENT_INDEX_LIMIT)
+      .get()
+  ))
+  const snapshots = await Promise.allSettled(queries)
+  const profiles = new Map()
+  snapshots.forEach((result) => {
+    if (result.status !== 'fulfilled') return
+    result.value.docs.forEach((snapshot) => profiles.set(snapshot.id, studentSearchProjection(snapshot)))
+  })
+  return [...profiles.values()]
+}
+
+async function crossBranchStudentProfilesForSearch(db, search, rawSearch = search) {
+  const cache = crossBranchStudentSearchCacheFor(db)
+  const now = Date.now()
+  const cacheKey = `${String(search || '')}|${String(rawSearch || '')}`
+  if (!cache.searches) cache.searches = new Map()
+  const cached = cache.searches.get(cacheKey)
+  if (cached && now - cached.storedAt < CROSS_BRANCH_STUDENT_SEARCH_TTL_MS) return cached.value
+  if (!cache.searchPending) cache.searchPending = new Map()
+  if (cache.searchPending.has(cacheKey)) return cache.searchPending.get(cacheKey)
+
+  const pending = indexedCrossBranchStudentProfiles(db, search, rawSearch)
+    .then(async (indexed) => {
+      // If no migrated projection matches, preserve compatibility for legacy
+      // profiles. This path is temporary and is naturally retired as the
+      // student projection is backfilled.
+      const value = indexed.length ? indexed : (await crossBranchStudentProfiles(db)).filter((profile) => (
+        normalizedSearchText(profile.name).includes(search)
+          || normalizedSearchText(profile.phone).includes(search)
+          || normalizedSearchText(profile.email).includes(search)
+      ))
+      cache.searches.set(cacheKey, { value, storedAt: Date.now() })
+      return value
+    })
+    .finally(() => cache.searchPending.delete(cacheKey))
+  cache.searchPending.set(cacheKey, pending)
+  return pending
 }
 
 function invalidateBranchDataCache(db, branchId = '', week = '') {
@@ -915,7 +1006,7 @@ function initialTrainerProjection(item, branchId, scheduleLoadPolicy) {
   }
 }
 
-async function loadBranchDataInitial(db, branchId, week) {
+async function loadBranchDataInitial(db, branchId, week, options = {}) {
   // The first paint only needs the branch shell, the canonical draft, the
   // bounded rosters and the current-week rows. Published drafts already
   // contain the complete matrix, so reading legacy schedule/weekly targets
@@ -937,7 +1028,14 @@ async function loadBranchDataInitial(db, branchId, week) {
     publishedDraft ? Promise.resolve({ exists: false, data: () => ({}) }) : weeklyTargetOverrideReference(db, branchId, week).get(),
     db.collection('students').where('branchId', '==', branchId).limit(MAX_STUDENTS + 1).get(),
     db.collection('trainers').where('branchId', '==', branchId).limit(MAX_TRAINERS + 1).get(),
-    db.collection('sessions').where('branchId', '==', branchId).where('date', '>=', week).where('date', '<', nextWeek(week)).limit(1001).get(),
+    // The initial paint is a display-only matrix. Raw session rows are only
+    // needed for the editable/reconciled path to build optimistic session
+    // references and historical conflict evidence. Defer that bounded query
+    // until an explicit reconcile or mutation so the common page load does
+    // not pay up to 1,001 reads before painting.
+    options.initialPaint
+      ? Promise.resolve({ docs: [], size: 0 })
+      : db.collection('sessions').where('branchId', '==', branchId).where('date', '>=', week).where('date', '<', nextWeek(week)).limit(1001).get(),
   ])
   if (students.size > MAX_STUDENTS || trainers.size > MAX_TRAINERS || weekSessions.size > 1000) {
     throw new HttpsError('resource-exhausted', 'Dữ liệu chi nhánh vượt giới hạn workspace an toàn.')
@@ -1404,7 +1502,7 @@ async function loadBranchData(db, branchId, week, options = {}) {
   if (!forceRefresh && pending) return pending
   const generation = cache.generations.get(key) || 0
   const request = (initialPaint
-    ? loadBranchDataInitial(db, branchId, week)
+    ? loadBranchDataInitial(db, branchId, week, options)
     : loadBranchDataFresh(db, branchId, week, options)).then((value) => {
     if ((cache.generations.get(key) || 0) === generation) {
       cache.entries.delete(key)
@@ -4478,7 +4576,7 @@ function createPtScheduleV2Functions({
     // Quyền admin và xác nhận ngoại lệ chỉ có hiệu lực ở bước commit.
     let crossBranchCandidates = []
     if (activeAdministrator(actor) && search.length >= 2) {
-      const globalStudents = await crossBranchStudentProfiles(db)
+      const globalStudents = await crossBranchStudentProfilesForSearch(db, search, rawSearch)
       const externalMatches = globalStudents
         .filter((profile) => profile.branchId !== branchId)
         .filter((profile) => normalizedSearchText(profile.name).includes(search)

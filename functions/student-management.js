@@ -79,6 +79,23 @@ function normalizeEmail(value) {
   return normalized
 }
 
+function scheduleSearchText(value, maximum = 320) {
+  return clean(value, maximum)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/gi, 'd')
+    .toLocaleLowerCase('vi')
+    .trim()
+}
+
+function scheduleSearchProjection(profile = {}) {
+  return {
+    scheduleSearchName: scheduleSearchText(profile.name, 160),
+    scheduleSearchPhone: scheduleSearchText(profile.phone, 40),
+    scheduleSearchEmail: scheduleSearchText(profile.email, 320),
+  }
+}
+
 function normalizeSlots(value) {
   if (!Array.isArray(value)) throw new HttpsError('invalid-argument', 'Lịch rảnh không hợp lệ.')
   const slots = [...new Set(value.map((item) => clean(item, 20)).filter(Boolean))]
@@ -490,8 +507,10 @@ async function updateStudentCommand({ db, actor, data, correlationId }) {
 
     const nextRevision = storedRevision + 1
     const now = FieldValue.serverTimestamp()
+    const nextProfile = { ...current, ...updates }
     transaction.update(studentReference, {
       ...updates,
+      ...scheduleSearchProjection(nextProfile),
       revision: nextRevision,
       schemaVersion: Math.max(1, Number(current.schemaVersion || 1)),
       updatedAt: now,

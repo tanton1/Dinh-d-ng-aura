@@ -584,7 +584,12 @@ async function invoke<TInput extends Record<string, unknown>, TOutput>(name: str
     } catch (error) {
       const code = callableErrorCode(error)
       const retryable = retryableCallableCodes.has(code)
-      const shouldRetry = autoRetryCallableCodes.has(code) && attempt < maximumAttempts - 1
+      const canUseRegionalFallback = regionalReadFallbackCallables.has(name)
+        && Boolean(firebaseSchedulePublishFunctions)
+        && retryable
+        && attempt < maximumAttempts - 1
+      const shouldRetry = (autoRetryCallableCodes.has(code) || canUseRegionalFallback)
+        && attempt < maximumAttempts - 1
       if (!shouldRetry) {
         reportClientIssue('firestore', error, {
           phase: `admin_schedule_callable_${name}`,
