@@ -37,7 +37,17 @@ function harness(data = fixture(), options = {}) {
   const actor = options.actor || { uid: 'admin', accessRole: 'admin', branchIds: [BRANCH] }
   const actorForBranch = async (request, _db, branch) => { if (actor.accessRole === 'staff' && !actor.branchIds.includes(branch)) throw Error('permission-denied'); return actor }
   const branchData = async () => ({ ...data, schedule: docs.get(`ptScheduleDrafts/${BRANCH}_${WEEK}`)?.schedule || {}, draft: { revision: docs.get(`ptScheduleDrafts/${BRANCH}_${WEEK}`)?.revision || 0 } })
-  return { docs, db, api: createPtScheduleV2Functions({ db, onCall: (...args) => args.at(-1), actorForBranch, ...(options.realBranchData ? {} : { branchData }) }) }
+  return {
+    docs,
+    db,
+    api: createPtScheduleV2Functions({
+      db,
+      onCall: (...args) => args.at(-1),
+      actorForBranch,
+      ...(options.realBranchData ? {} : { branchData }),
+      ...(options.manualData ? { manualData: options.manualData } : {}),
+    }),
+  }
 }
 const command = (name, payload, extra = {}) => ({ data: { branchId: BRANCH, weekId: WEEK, command: name, payload, expectedDraftRevision: 1, idempotencyKey: 'test-command-123', ...extra } })
 test('slot candidates complete for Admin and scoped staff, including cross-branch search', async () => {
@@ -85,6 +95,25 @@ test('Admin draft search can resolve a cross-branch learner without a full works
   } })
   assert.equal(result.candidates[0]?.studentId, 'external')
   assert.equal(result.candidates[0]?.studentBranchWarning, true)
+})
+
+test('Admin current-week cross-branch search stays projection-only until confirmation', async () => {
+  const data = fixture()
+  const h = harness(data, {
+    manualData: async () => { throw new Error('manual validation should wait for the write') },
+  })
+  h.docs.set('students/external', { ...data.students[0], id: 'external', name: 'Lan ngoài cơ sở', branchId: 'home' })
+  const result = await h.api.getPtScheduleSlotCandidates({ data: {
+    branchId: BRANCH,
+    weekId: WEEK,
+    trainerId: 't',
+    slotId: 'T2-6',
+    search: 'Lan ngoai',
+    crossBranchOnly: true,
+  } })
+  assert.equal(result.candidates[0]?.studentId, 'external')
+  assert.equal(result.candidates[0]?.contractId, null)
+  assert.deepEqual(result.candidates[0]?.reasons, ['STUDENT_BRANCH_MISMATCH'])
 })
 
 test('historical cross-branch write requires Admin confirmation and acknowledgement, without partial writes', async () => {

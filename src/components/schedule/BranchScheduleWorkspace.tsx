@@ -2002,7 +2002,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate, ini
 
       <section className="branch-schedule__summary-strip" aria-label="Tóm tắt lịch tuần">
         <button type="button" onClick={() => setTab('students')}><UsersRound /><strong>{workspaceDisplayMode ? '—' : `${studentCoverage.fullyScheduled}/${studentCoverage.eligible}`}</strong><span>{workspaceDisplayMode ? 'đối soát khi chạy lịch' : 'học viên đủ lịch'}</span></button>
-        <button type="button" onClick={() => setTab('students')}><CalendarRange /><strong>{workspaceDisplayMode ? '—' : `${studentCoverage.scheduledEntries}/${studentCoverage.totalTargetSessions}`}</strong><span>{workspaceDisplayMode ? 'đang xem nhanh' : 'buổi đã xếp'}</span></button>
+        <button type="button" onClick={() => setTab('students')}><CalendarRange /><strong>{workspaceDisplayMode ? '—' : `${studentCoverage.scheduledEntries}/${studentCoverage.totalTargetSessions}`}</strong><span>{workspaceDisplayMode ? 'chưa đối soát' : 'buổi đã xếp'}</span></button>
         <button type="button" onClick={() => setTab('warnings')} className={slotUtilization.singleSlots > 0 ? 'is-attention' : ''}><UsersRound /><strong>{slotUtilization.pairedSlots} đôi</strong><span>{slotUtilization.singleSlots} ca còn lẻ</span></button>
         <button type="button" onClick={openFirstWarningStudentAvailability} className={warningCount > 0 ? 'is-attention' : ''}><AlertTriangle /><strong>{warningCount}</strong><span>{workspaceDisplayMode ? 'cảnh báo nhanh' : 'cảnh báo cần xem'}</span></button>
       </section>
@@ -2056,7 +2056,6 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate, ini
       </details>}
       {!optimizationStatus && searchLimitWarning && <div className="branch-schedule__search-limit" role="status"><AlertTriangle size={16} /> Tối ưu đã dừng ở ngân sách tìm kiếm an toàn cho một số hồ sơ còn thiếu. Ca thủ công, ca khóa và ca đã publish vẫn được giữ nguyên; bấm “Tối ưu tiếp” hoặc xử lý hồ sơ trong Cảnh báo.</div>}
       {loading && !workspace && <div className="branch-schedule__loading"><RefreshCw className="is-spinning" /> Đang tải workspace theo phạm vi…</div>}
-      {workspaceDisplayMode && <div className="branch-schedule__loading" role="status"><CalendarRange /> Đang xem nhanh lịch; chỉ đối soát hợp đồng, quota và lịch trùng khi bấm “Xếp tối ưu” hoặc “Publish”.</div>}
       {workspaceHydrating && <div className="branch-schedule__loading"><RefreshCw className="is-spinning" /> Đang đối soát hợp đồng và cảnh báo…</div>}
 
       {tab === 'requests' && canManageOperations && (
@@ -2362,7 +2361,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate, ini
               {!inspectorEntries.some((entry) => entry.type === 'off') && <section>
                 <div className="schedule-inspector__section-title"><strong>{inspectorSlotIsPast ? 'Bổ sung học viên đã tập' : 'Thêm học viên'}</strong><span>{inspectorSlotIsPast ? 'Đối chiếu theo ngày thực tế' : 'Rảnh đúng ca được ưu tiên'}</span></div>
                 <label className="schedule-candidate-search"><Search /><input value={candidateSearch} onChange={(event) => setCandidateSearch(event.target.value)} placeholder={isAdmin ? 'Tên hoặc SĐT · tìm cả cơ sở khác' : 'Tên hoặc số điện thoại'} /></label>
-                {candidateLoading && <div className="schedule-candidate-sync"><RefreshCw className="is-spinning" /> Aura đang đối chiếu điều kiện trên máy chủ…</div>}
+                {candidateLoading && <div className="schedule-candidate-sync"><RefreshCw className="is-spinning" /> Đang tìm hồ sơ…</div>}
                 {inspectorSlotIsPast && <label className="schedule-history-reason"><span>Lý do bổ sung <b>*</b></span><textarea value={historicalReason} maxLength={300} onChange={(event) => setHistoricalReason(event.target.value)} placeholder="Ví dụ: PT xác nhận đã dạy nhưng ca chưa được ghi nhận trên hệ thống" /><small>{historicalReason.trim().length}/8 ký tự tối thiểu · lưu cùng nhật ký audit</small></label>}
                 {inspectorSlotIsPast && pendingManualCandidate && pendingManualCandidate.reasons.length > 0 && <div className="schedule-manual-override-confirm"><AlertTriangle /><div><strong>Ca có lưu ý cần xác nhận</strong><p>{pendingManualCandidate.reasons.map(ptScheduleConflictLabel).join(' · ')} Lý do phía trên sẽ được lưu cùng các ngoại lệ này.</p></div></div>}
                 {pendingManualCandidate && !candidateMatchesStudentAvailability(pendingManualCandidate) && <div className="schedule-manual-override-confirm"><AlertTriangle /><div><strong>{pendingManualCandidate.name} nằm ngoài lịch rảnh</strong><p>{ptScheduleConflictLabel(pendingManualCandidate.availabilityReason || pendingManualCandidate.reasons[0])} Chỉ ghi lịch sau khi bạn bấm xác nhận; thao tác ngoại lệ được lưu audit.</p></div></div>}

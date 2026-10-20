@@ -127,6 +127,51 @@ function branchDataCacheFor(db) {
   return cache
 }
 
+// Cross-branch Admin search used to scan the student collection and then run
+// the full manual-validation fan-out for every match on every debounced
+// keystroke. Keep only a small, projection-only index warm in the regional
+// callable. The final command still performs canonical validation; this cache
+// is only for finding a likely profile quickly.
+const CROSS_BRANCH_STUDENT_SEARCH_TTL_MS = 60_000
+const CROSS_BRANCH_STUDENT_SEARCH_LIMIT = (MAX_STUDENTS * 3) + 1
+const crossBranchStudentSearchCaches = new WeakMap()
+
+function crossBranchStudentSearchCacheFor(db) {
+  let cache = crossBranchStudentSearchCaches.get(db)
+  if (!cache) {
+    cache = { value: null, storedAt: 0, pending: null }
+    crossBranchStudentSearchCaches.set(db, cache)
+  }
+  return cache
+}
+
+async function crossBranchStudentProfiles(db) {
+  const cache = crossBranchStudentSearchCacheFor(db)
+  const now = Date.now()
+  if (cache.value && now - cache.storedAt < CROSS_BRANCH_STUDENT_SEARCH_TTL_MS) return cache.value
+  if (cache.pending) return cache.pending
+  cache.pending = db.collection('students').limit(CROSS_BRANCH_STUDENT_SEARCH_LIMIT).get()
+    .then((snapshot) => snapshot.docs.map((item) => {
+      const profile = item.data() || {}
+      return {
+        id: item.id,
+        name: profile.name || '',
+        phone: profile.phone || '',
+        email: profile.email || '',
+        branchId: profile.branchId || '',
+      }
+    }))
+    .then((value) => {
+      cache.value = value
+      cache.storedAt = Date.now()
+      return value
+    })
+    .finally(() => {
+      cache.pending = null
+    })
+  return cache.pending
+}
+
 function invalidateBranchDataCache(db, branchId = '', week = '') {
   const cache = branchDataCaches.get(db)
   if (!cache) return
@@ -4425,27 +4470,43 @@ function createPtScheduleV2Functions({
         }))
       : []
 
-    // Tìm học viên khác cơ sở chỉ khi admin chủ động nhập từ khóa. Historical
-    // lookup uses the same exact contract/session validation as the write path;
-    // the only additional permission is an explicit admin confirmation at
-    // commit time.
-    // Mỗi kết quả được nạp lại bằng hồ sơ, hợp đồng, lịch rảnh và
-    // session chính xác trước khi trả về; staff chi nhánh không nhìn thấy dữ liệu này.
+    // Tìm học viên khác cơ sở chỉ khi admin chủ động nhập từ khóa. Search
+    // thường trả về projection nhẹ để không chặn thao tác gõ; historical
+    // lookup vẫn dùng cùng exact contract/session validation như write path.
+    // Quyền admin và xác nhận ngoại lệ chỉ có hiệu lực ở bước commit.
     let crossBranchCandidates = []
-    if (activeAdministrator(actor) && search.length >= 2) {
-      const globalStudents = await db.collection('students').limit((MAX_STUDENTS * 3) + 1).get()
-      const externalMatches = globalStudents.docs
-        .filter((item) => item.data().branchId !== branchId)
-        .filter((item) => {
-          const profile = item.data()
-          return normalizedSearchText(profile.name).includes(search)
-            || normalizedSearchText(profile.phone).includes(search)
-            || normalizedSearchText(profile.email).includes(search)
-        })
+    if (activeAdministrator(actor) && search.length >= 2 && (request.data?.crossBranchOnly === true || historical)) {
+      const globalStudents = await crossBranchStudentProfiles(db)
+      const externalMatches = globalStudents
+        .filter((profile) => profile.branchId !== branchId)
+        .filter((profile) => normalizedSearchText(profile.name).includes(search)
+          || normalizedSearchText(profile.phone).includes(search)
+          || normalizedSearchText(profile.email).includes(search))
         .slice(0, 12)
-      const enriched = await Promise.all(externalMatches.map(async (item) => {
+      const enriched = adminCrossBranchSearch
+        ? externalMatches.map((profile) => ({
+          // Search results are intentionally a projection. Selecting the row
+          // and confirming the Admin edit runs the canonical contract,
+          // availability, session and quota checks on the write path.
+          studentId: profile.id,
+          name: profile.name || 'Chưa cập nhật tên',
+          phone: profile.phone || '',
+          eligible: false,
+          manualSelectable: true,
+          adminManualSelectable: true,
+          reasons: ['STUDENT_BRANCH_MISMATCH'],
+          warningReasons: ['STUDENT_BRANCH_MISMATCH'],
+          hardReasons: [],
+          contractId: null,
+          date: dateForSlot(week, slotId.split('-')[0]),
+          matchesStudentAvailability: true,
+          availabilityReason: null,
+          studentBranchWarning: true,
+          studentHomeBranchId: profile.branchId || '',
+        }))
+        : await Promise.all(externalMatches.map(async (profile) => {
         try {
-          const exactData = await manualData(db, branchId, week, trainerId, item.id, true, data || undefined)
+          const exactData = await manualData(db, branchId, week, trainerId, profile.id, true, data || undefined)
           exactData.weekId = week
           const student = exactData.students[0]
           const exactTrainer = exactData.trainers[0] || trainer
