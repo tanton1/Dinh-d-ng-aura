@@ -296,7 +296,7 @@ export interface PtScheduleOptimizationSummary {
 
 export interface PtScheduleWorkspaceV2Result extends Omit<BranchScheduleWorkspaceResult, 'students' | 'trainers'> {
   sessionRefs?: Record<string, { sessionId: string; revision: number }>
-  /** Initial matrix projection; contracts and diagnostics hydrate in the background. */
+  /** Initial matrix projection; contracts and diagnostics hydrate on demand. */
   partial?: boolean
   /** `display` is a bounded matrix projection; `reconciled` includes validator evidence. */
   readMode?: 'display' | 'reconciled'
