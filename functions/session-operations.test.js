@@ -1329,6 +1329,7 @@ test('approved OFF cancels overlapping scheduled sessions without charging and e
     'leaveRequests/off-request-1': { status: 'pending', type: 'off', studentId: 'student-1', contractId: 'contract-1', startDate: '2026-08-24', endDate: '2026-08-30', durationDays: 7, reason: 'Đi công tác', submittedAtIso: '2026-08-19T00:00:00.000Z', revision: 0 },
     'contracts/contract-1': { status: 'active', studentId: 'student-1', packageId: 'package-3m', startDate: '2026-08-01', endDate: '2026-10-31', totalSessions: 36, usedSessions: 3, revision: 0 },
     'packages/package-3m': { durationMonths: 3 },
+    'sessionRequests/pending-during-off': { status: 'pending', type: 'reschedule', sessionId: 'off-session-1', studentId: 'student-1', contractId: 'contract-1', revision: 1 },
     'sessions/off-session-1': { status: 'scheduled', studentId: 'student-1', trainerId: 'trainer-1', contractId: 'contract-1', branchId: 'branch-1', date: '2026-08-25', hour: 18, scheduleWeekId: '2026-08-24', slotId: 'T3-18', scheduleEntryId: 'schedule_2026-08-24-T3-18-student-1', revision: 1 },
     'sessions/outside-off': { status: 'scheduled', studentId: 'student-1', trainerId: 'trainer-1', contractId: 'contract-1', date: '2026-09-01', hour: 18, revision: 0 },
     'ptScheduleDrafts/branch-1_2026-08-24': { branchId: 'branch-1', weekId: '2026-08-24', status: 'published', revision: 2, publishedRevision: 2, schedule: { 'T3-18': [offEntry] } },
@@ -1338,7 +1339,12 @@ test('approved OFF cancels overlapping scheduled sessions without charging and e
   assert.equal(result.durationDays, 7)
   assert.equal(result.newEndDate, '2026-11-07')
   assert.equal(result.cancelledSessionCount, 1)
+  assert.equal(result.autoRejectedSessionRequestCount, 1)
   assert.equal(state.read('sessions/off-session-1').status, 'student_cancelled')
+  assert.equal(state.read('sessionRequests/pending-during-off').status, 'rejected')
+  assert.match(state.read('sessionRequests/pending-during-off').adminNote, /OFF đã được duyệt/)
+  assert.equal(state.read('sessionRequests/pending-during-off').rejectionSource, 'contract_pause_approval')
+  assert.equal(state.read('sessionRequestEvents/pause-off-request-1').type, 'session_requests_rejected_by_pause')
   assert.equal(state.read('sessions/off-session-1').countsTowardContract, false)
   assert.equal(state.read('sessions/outside-off').status, 'scheduled')
   assert.equal(state.read('contracts/contract-1').endDate, '2026-11-07')
@@ -1395,6 +1401,18 @@ test('late OFF can be submitted only as an explicit exception request', async ()
   assert.equal(result.lateByMinutes, 90)
   assert.equal(state.read('leaveRequests/student-student-account-late-exception').requiresExceptionApproval, true)
   assert.equal(state.read('leaveRequests/student-student-account-late-exception').status, 'pending')
+})
+
+test('OFF and preservation requests cannot extend beyond the current contract term', async () => {
+  const state = operationsFor({
+    'contracts/contract-end-boundary': { status: 'active', studentId: 'student-1', packageId: 'package-3m', startDate: '2026-08-01', endDate: '2026-08-31', totalSessions: 36, usedSessions: 3 },
+    'packages/package-3m': { durationMonths: 3 },
+  })
+  await assert.rejects(
+    state.createMyContractPauseRequest({ data: { contractId: 'contract-end-boundary', type: 'off', startDate: '2026-08-30', endDate: '2026-09-02', reason: 'Đi công tác', idempotencyKey: 'end-boundary' } }),
+    (error) => error.code === 'failed-precondition' && /nằm trong thời hạn hợp đồng/.test(error.message),
+  )
+  assert.equal(state.read('leaveRequests/student-student-account-end-boundary'), undefined)
 })
 
 test('admin approval of a late OFF exception requires an auditable reason and extends the contract', async () => {
@@ -1633,6 +1651,28 @@ test('request history resolves operational identities and current session revisi
   assert.equal(result.records[0].packageName, 'Gói 3 Tháng')
   assert.equal(result.records[0].sessionRevision, 7)
   assert.equal(result.records[0].newHour, 11)
+})
+
+test('unified request history merges session and pause queues in newest-first order', async () => {
+  const state = operationsFor({
+    'students/student-history': { name: 'Lan Aura', phone: '0900000000' },
+    'students/student-history-2': { name: 'Mai Aura', phone: '0911111111' },
+    'contracts/contract-history': { packageName: 'Gói 3 Tháng' },
+    'contracts/contract-history-2': { packageName: 'Gói 6 Tháng' },
+    'sessions/session-history': { trainerId: 'trainer-history', revision: 7, hour: 10 },
+    'sessionRequests/request-history': {
+      studentId: 'student-history', contractId: 'contract-history', sessionId: 'session-history', type: 'cancel', status: 'pending', createdAt: '2026-08-26T03:00:00.000Z',
+    },
+    'leaveRequests/pause-history': {
+      studentId: 'student-history-2', contractId: 'contract-history-2', type: 'preservation', status: 'approved', startDate: '2026-08-28', endDate: '2026-09-20', submittedAtIso: '2026-08-27T03:00:00.000Z',
+    },
+  })
+  const result = await state.listPtOperationsRequests({ data: { kind: 'all' } })
+  assert.equal(result.kind, 'all')
+  assert.equal(result.summary.total, 2)
+  assert.deepEqual(result.records.map((item) => item.kind), ['pause', 'session'])
+  assert.equal(result.records[0].type, 'preservation')
+  assert.equal(result.records[1].type, 'cancel')
 })
 
 test('new branch schedule keeps learners in a dedicated operational tab without restoring request tabs', () => {

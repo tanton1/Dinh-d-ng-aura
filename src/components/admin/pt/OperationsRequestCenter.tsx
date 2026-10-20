@@ -121,12 +121,19 @@ export default function OperationsRequestCenter({ kind = 'all', initialFilter }:
     setError('')
     try {
       const { record, action } = decision
+      let autoRejectedSessionRequestCount = 0
       if (record.kind === 'session') {
         if (action === 'approve') await approveSessionRequest({ requestId: record.id, expectedSessionRevision: record.sessionRevision })
         else await rejectSessionRequest({ requestId: record.id, reason: decisionReason.trim() })
-      } else if (action === 'approve') await approveContractPauseRequest(record.id, record.requiresExceptionApproval ? decisionReason.trim() : undefined)
-      else await rejectContractPauseRequest(record.id, decisionReason.trim())
-      setNotice(action === 'approve' ? 'Đã duyệt và lưu lịch sử vận hành.' : 'Đã từ chối và lưu lý do vào lịch sử.')
+      } else if (action === 'approve') {
+        const result = await approveContractPauseRequest(record.id, record.requiresExceptionApproval ? decisionReason.trim() : undefined)
+        autoRejectedSessionRequestCount = result.autoRejectedSessionRequestCount || 0
+      } else await rejectContractPauseRequest(record.id, decisionReason.trim())
+      setNotice(action === 'approve'
+        ? autoRejectedSessionRequestCount > 0
+          ? `Đã duyệt và lưu lịch sử vận hành; tự đóng ${autoRejectedSessionRequestCount} yêu cầu đổi lịch bị ảnh hưởng.`
+          : 'Đã duyệt và lưu lịch sử vận hành.'
+        : 'Đã từ chối và lưu lý do vào lịch sử.')
       setDecision(null)
       await load()
     } catch (cause) {

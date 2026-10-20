@@ -2128,7 +2128,7 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
     const documents = snapshots
       .flatMap((snapshot, index) => snapshot.docs
         .slice(0, OPERATIONS_REQUEST_HISTORY_LIMIT)
-        .map((item) => ({ kind: sourceKinds[index], id: item.id, ...item.data() })))
+        .map((item) => ({ ...item.data(), kind: sourceKinds[index], id: item.id })))
       .sort((left, right) => {
         const leftCreatedAt = storedInstantIso(left.createdAt || left.submittedAtIso) || ''
         const rightCreatedAt = storedInstantIso(right.createdAt || right.submittedAtIso) || ''
@@ -4112,13 +4112,15 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
       if (!['active', 'frozen'].includes(contract.status)) throw new HttpsError('failed-precondition', 'Hợp đồng không còn hoạt động.')
 
       const packageId = typeof contract.packageId === 'string' && /^[A-Za-z0-9_-]+$/.test(contract.packageId) ? contract.packageId : ''
-      const [packageSnapshot, existingRequests, sessionsSnapshot] = await Promise.all([
+      const [packageSnapshot, existingRequests, sessionsSnapshot, sessionRequestsSnapshot] = await Promise.all([
         packageId ? transaction.get(db.doc(`packages/${packageId}`)) : Promise.resolve({ exists: false, data: () => ({}) }),
         transaction.get(db.collection('leaveRequests').where('studentId', '==', studentId).limit(REQUEST_QUERY_LIMIT)),
         transaction.get(db.collection('sessions').where('studentId', '==', studentId).where('date', '>=', startDate).where('date', '<', nextDateKey(endDate)).limit(PAUSE_SESSION_QUERY_LIMIT + 1)),
+        transaction.get(db.collection('sessionRequests').where('studentId', '==', studentId).limit(REQUEST_QUERY_LIMIT)),
       ])
       if (existingRequests.size >= REQUEST_QUERY_LIMIT) throw new HttpsError('resource-exhausted', 'Có quá nhiều yêu cầu nghỉ để duyệt an toàn.')
       if (sessionsSnapshot.size > PAUSE_SESSION_QUERY_LIMIT) throw new HttpsError('resource-exhausted', 'Khoảng nghỉ có quá nhiều buổi tập để cập nhật trong một giao dịch.')
+      if (sessionRequestsSnapshot.size >= REQUEST_QUERY_LIMIT) throw new HttpsError('resource-exhausted', 'Có quá nhiều yêu cầu đổi lịch để đối soát an toàn.')
 
       const otherApproved = existingRequests.docs
         .map((item) => ({ id: item.id, ...item.data() }))
@@ -4142,6 +4144,10 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
       if (activeSessions.some((item) => isSessionCharged(item.data()))) {
         throw new HttpsError('failed-precondition', 'Khoảng nghỉ có buổi đã được tính. Hãy điều chỉnh riêng buổi đó trước khi duyệt.')
       }
+      const activeSessionIds = new Set(activeSessions.map((item) => item.id))
+      const pendingSessionRequests = sessionRequestsSnapshot.docs
+        .map((item) => ({ ...item.data(), id: item.id, ref: item.ref }))
+        .filter((item) => item.status === 'pending' && activeSessionIds.has(item.sessionId))
       const cancellationSchedulePlan = await readCancellationSchedulePlan({
         transaction,
         db,
@@ -4165,6 +4171,28 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
           updatedBy: actor.uid,
         })
       })
+      pendingSessionRequests.forEach((item) => {
+        transaction.update(item.ref, {
+          status: 'rejected',
+          adminNote: type === 'off' ? 'Tự đóng vì OFF đã được duyệt.' : 'Tự đóng vì bảo lưu hợp đồng đã được duyệt.',
+          rejectedAt: FieldValue.serverTimestamp(),
+          rejectedBy: actor.uid,
+          rejectionSource: 'contract_pause_approval',
+          rejectionSourceRequestId: requestId,
+          revision: Number(item.revision || 0) + 1,
+        })
+      })
+      if (pendingSessionRequests.length) {
+        transaction.create(db.doc(`sessionRequestEvents/pause-${requestId}`), {
+          schemaVersion: 1,
+          type: 'session_requests_rejected_by_pause',
+          pauseRequestId: requestId,
+          studentId,
+          sessionRequestIds: pendingSessionRequests.map((item) => item.id),
+          createdAt: FieldValue.serverTimestamp(),
+          createdBy: actor.uid,
+        })
+      }
       transaction.update(contractReference, {
         endDate: newEndDate,
         extensions: FieldValue.arrayUnion({
@@ -4237,7 +4265,7 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
           createdAt: FieldValue.serverTimestamp(),
         })
       }
-      return { unchanged: false, status: 'approved', type, durationDays, newEndDate, cancelledSessionCount: activeSessions.length, offSequence: type === 'off' ? approvedOffCount + 1 : null, offLimit, exceptionApproved: lateOffException }
+      return { unchanged: false, status: 'approved', type, durationDays, newEndDate, cancelledSessionCount: activeSessions.length, autoRejectedSessionRequestCount: pendingSessionRequests.length, offSequence: type === 'off' ? approvedOffCount + 1 : null, offLimit, exceptionApproved: lateOffException }
     })
   })
 

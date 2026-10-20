@@ -319,7 +319,7 @@ export function createMyContractPauseRequest(input: ContractPauseRequestInput) {
 }
 
 export function approveContractPauseRequest(requestId: string, exceptionReason?: string) {
-  return call<{ requestId: string; exceptionReason?: string }, { unchanged: boolean; status: 'approved'; type: 'off' | 'preservation'; durationDays: number; newEndDate: string; cancelledSessionCount: number; offSequence?: number | null; offLimit?: number; exceptionApproved?: boolean }>('approveContractPauseRequest', { requestId, ...(exceptionReason ? { exceptionReason } : {}) })
+  return call<{ requestId: string; exceptionReason?: string }, { unchanged: boolean; status: 'approved'; type: 'off' | 'preservation'; durationDays: number; newEndDate: string; cancelledSessionCount: number; autoRejectedSessionRequestCount?: number; offSequence?: number | null; offLimit?: number; exceptionApproved?: boolean }>('approveContractPauseRequest', { requestId, ...(exceptionReason ? { exceptionReason } : {}) })
 }
 
 export function rejectContractPauseRequest(requestId: string, reason: string) {
