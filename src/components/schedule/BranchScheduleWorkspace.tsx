@@ -351,9 +351,9 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate, ini
   const loadWorkspace = useCallback(async (quiet = false, forceAvailabilityRefresh = false, reconcile = false) => {
     if (!branchId) return
     const requestScope = `${ownerScope}|${branchId}|${currentWeekId}`
-    const requestKey = reconcile ? `${requestScope}|reconciled` : requestScope
+    const inFlightScope = reconcile ? `${requestScope}|reconciled` : requestScope
     const inFlight = workspaceRequestRef.current
-    if (inFlight?.scope === requestKey) {
+    if (inFlight?.scope === inFlightScope) {
       await inFlight.promise
       // Do not lose a forced availability refresh that arrived while the
       // ordinary workspace request was still in flight.
@@ -366,6 +366,12 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate, ini
     }
     const requestVersion = workspaceRequestVersionRef.current + 1
     workspaceRequestVersionRef.current = requestVersion
+    // Mutations invalidate the server-side branch cache. Use a unique client
+    // cache key for forced reads so a prior display projection cannot be
+    // returned after a draft/session revision has changed.
+    const requestKey = forceAvailabilityRefresh
+      ? `${inFlightScope}|refresh-${requestVersion}`
+      : inFlightScope
     const request = (async () => {
       if (!quiet) workspaceReadyTimingRef.current.source = 'network'
       if (!quiet) setLoading(true)
@@ -377,7 +383,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate, ini
           branchId,
           forceAvailabilityRefresh,
         })))
-        const loadDisplayWorkspace = () => loadWorkspaceRequest(requestScope, () => measureScheduleTask('workspace', () => getPtScheduleWorkspace({
+        const loadDisplayWorkspace = () => loadWorkspaceRequest(requestKey, () => measureScheduleTask('workspace', () => getPtScheduleWorkspace({
           weekId: currentWeekId,
           branchId,
           initialPaint: true,
@@ -419,7 +425,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate, ini
         if (!quiet && activeWorkspaceScopeRef.current === requestScope && workspaceRequestVersionRef.current === requestVersion) setLoading(false)
       }
     })()
-    workspaceRequestRef.current = { scope: requestKey, forceAvailabilityRefresh, reconcile, promise: request }
+    workspaceRequestRef.current = { scope: inFlightScope, forceAvailabilityRefresh, reconcile, promise: request }
     try {
       await request
     } finally {
@@ -1522,7 +1528,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate, ini
       candidateCache.current.clear()
       setPendingManualCandidate(null)
       setHistoricalReason('')
-      await loadWorkspace(true)
+      await loadWorkspace(true, true)
       setNoticeAction(null)
       setNotice(result.payrollAdjustmentRequired
         ? 'Đã bổ sung ca vào lịch sử. Kỳ lương đã chốt cần xử lý bằng khoản điều chỉnh.'
@@ -1785,7 +1791,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate, ini
       // The optimizer is the explicit reconciliation boundary. Once it has
       // run, hydrate the richer workspace projection so warning/coverage tabs
       // reflect the same evidence used by the server-side optimizer.
-      await loadWorkspace(true, false, true)
+      await loadWorkspace(true, true, true)
       if (activeWorkspaceScopeRef.current !== commandScope) return
       const unresolved = result.unassignedEntries?.length || result.unassigned?.length || 0
       const passes = Math.max(1, Number(result.optimizationSummary?.optimizationPasses || 1))
@@ -1865,7 +1871,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate, ini
       setPublishPreview(null)
       setNoticeAction(null)
       setNotice(result.unchanged ? `Lịch đã ở phiên bản v${result.version}.` : `Đã publish an toàn phiên bản v${result.version}.`)
-      await loadWorkspace(true)
+      await loadWorkspace(true, true)
     } catch (publishError) {
       if (activeWorkspaceScopeRef.current !== commandScope) return
       const normalized = asPtSchedulePublishError(publishError)
@@ -1914,7 +1920,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate, ini
       setTab('matrix')
       setNoticeAction(null)
       setNotice(`Đã tạo draft r${result.draftRevision} từ phiên bản v${result.version}.`)
-      await loadWorkspace(true)
+      await loadWorkspace(true, true)
     } catch (restoreError) {
       if (activeWorkspaceScopeRef.current !== commandScope) return
       setError(asPtSchedulePublishError(restoreError).message)
