@@ -3,6 +3,7 @@ import { firebaseAuth } from '../lib/firebase'
 import { firebaseFunctions, firebaseScheduleOptimizerFunctions } from '../lib/firebaseFunctions'
 import { reportClientIssue } from './clientTelemetryService'
 import { normalizeTrainerStudentDetail } from './ptOperationsV2Normalization'
+import { runReadOnlyWithFallback } from './readOnlyCallableService'
 
 function functionsInstance() {
   if (!firebaseFunctions) throw new Error('Firebase Functions chưa sẵn sàng.')
@@ -47,7 +48,7 @@ function retryDelay(milliseconds: number) {
 async function call<Input, Output>(
   name: string,
   input: Input,
-  options: { readOnly?: boolean } = {},
+  options: { readOnly?: boolean; maximumAttempts?: number } = {},
   client: Functions | null = firebaseFunctions,
   phasePrefix = 'staff_callable',
 ): Promise<Output> {
@@ -58,7 +59,7 @@ async function call<Input, Output>(
     'functions/unavailable',
     'functions/deadline-exceeded',
   ])
-  const maximumAttempts = readOnly ? 2 : 1
+  const maximumAttempts = Math.max(1, Math.min(2, options.maximumAttempts ?? (readOnly ? 2 : 1)))
   for (let attempt = 0; attempt < maximumAttempts; attempt += 1) {
     try {
       return (await invoke(input)).data
@@ -72,7 +73,7 @@ async function call<Input, Output>(
           route: window.location.hash,
           retryable: retryableCodes.has(code) || code === 'functions/resource-exhausted',
         })
-        throw new Error(staffCallableMessage(code, rawMessage))
+        throw new Error(staffCallableMessage(code, rawMessage), { cause: error })
       }
       await retryDelay(400)
     }
@@ -116,8 +117,38 @@ async function regionalCall<Input, Output>(name: string, input: Input, options: 
   return call<Input, Output>(name, input, options, regionalFunctionsInstance(), 'staff_regional_callable')
 }
 
-async function regionalCachedCall<Input, Output>(name: string, input: Input, ttlMs: number) {
-  return cachedCall<Input, Output>(name, input, ttlMs, regionalFunctionsInstance(), 'staff_regional_callable')
+async function regionalReadWithFallback<Input, Output>(regionalName: string, legacyName: string, input: Input) {
+  if (!firebaseScheduleOptimizerFunctions) {
+    return call<Input, Output>(legacyName, input, { readOnly: true, maximumAttempts: 1 }, firebaseFunctions, 'staff_callable')
+  }
+  return runReadOnlyWithFallback(
+    () => call<Input, Output>(regionalName, input, { readOnly: true, maximumAttempts: 1 }, firebaseScheduleOptimizerFunctions, 'staff_regional_callable'),
+    () => call<Input, Output>(legacyName, input, { readOnly: true, maximumAttempts: 1 }, firebaseFunctions, 'staff_callable'),
+  )
+}
+
+async function regionalCachedReadWithFallback<Input, Output>(
+  regionalName: string,
+  legacyName: string,
+  input: Input,
+  ttlMs: number,
+) {
+  const key = readCacheKey(regionalName, input)
+  const now = Date.now()
+  const cached = readCache.get(key)
+  if (cached?.value !== undefined && cached.expiresAt > now) return cached.value as Output
+  if (cached?.promise) return cached.promise as Promise<Output>
+  const promise = regionalReadWithFallback<Input, Output>(regionalName, legacyName, input)
+    .then((value) => {
+      readCache.set(key, { value, expiresAt: Date.now() + ttlMs })
+      return value
+    })
+    .catch((error) => {
+      readCache.delete(key)
+      throw error
+    })
+  readCache.set(key, { promise, expiresAt: now + ttlMs })
+  return promise
 }
 
 function invalidateReadCache(...names: string[]) {
@@ -389,11 +420,21 @@ export interface SalesCatalog {
 }
 
 export async function listMyAssignedStudents(limit = 100) {
-  return cachedCall<{ limit: number }, { students: TrainerStudentSummary[]; hasMore: boolean }>('listMyAssignedStudents', { limit }, 30_000)
+  return regionalCachedReadWithFallback<{ limit: number }, { students: TrainerStudentSummary[]; hasMore: boolean }>(
+    'listMyAssignedStudentsRegional',
+    'listMyAssignedStudents',
+    { limit },
+    30_000,
+  )
 }
 
 export async function listMyTrainerSchedule(from: string, to: string, limit = 300) {
-  return cachedCall<{ from: string; to: string; limit: number }, { sessions: TrainerSessionSummary[]; requests: TrainerSessionRequestSummary[] }>('listMyTrainerSchedule', { from, to, limit }, 15_000)
+  return regionalCachedReadWithFallback<{ from: string; to: string; limit: number }, { sessions: TrainerSessionSummary[]; requests: TrainerSessionRequestSummary[] }>(
+    'listMyTrainerScheduleRegional',
+    'listMyTrainerSchedule',
+    { from, to, limit },
+    15_000,
+  )
 }
 
 export interface SalesWorkspace {
@@ -403,17 +444,34 @@ export interface SalesWorkspace {
 }
 
 export async function getMyCoachWorkspaceScope() {
-  return cachedCall<Record<string, never>, CoachWorkspaceScope>('getMyCoachWorkspaceScope', {}, 90_000)
+  return regionalCachedReadWithFallback<Record<string, never>, CoachWorkspaceScope>(
+    'getMyCoachWorkspaceScopeRegional',
+    'getMyCoachWorkspaceScope',
+    {},
+    90_000,
+  )
 }
 
 export async function getMyTrainerAvailability(weekId?: string) {
   const input = weekId ? { weekId } : {}
-  return regionalCachedCall<{ weekId?: string }, TrainerAvailabilityWorkspace>('getMyTrainerAvailabilityRegional', input, 30_000)
+  return regionalCachedReadWithFallback<{ weekId?: string }, TrainerAvailabilityWorkspace>(
+    'getMyTrainerAvailabilityRegional',
+    'getMyTrainerAvailability',
+    input,
+    30_000,
+  )
 }
 
 export async function saveMyTrainerAvailability(input: { weekId?: string; availableSlots: string[]; offDates?: string[]; expectedRevision: number }) {
   const result = await regionalCall<typeof input, TrainerAvailabilityWorkspace>('saveMyTrainerAvailabilityRegional', input)
-  invalidateReadCache('getMyTrainerAvailabilityRegional', 'getMyTrainerAvailability', 'getMyTrainerWorkspace', 'getMyCoachWorkspaceScope')
+  invalidateReadCache(
+    'getMyTrainerAvailabilityRegional',
+    'getMyTrainerAvailability',
+    'getMyTrainerWorkspaceRegional',
+    'getMyTrainerWorkspace',
+    'getMyCoachWorkspaceScopeRegional',
+    'getMyCoachWorkspaceScope',
+  )
   return result
 }
 
@@ -424,20 +482,32 @@ export async function getMyTrainerWorkspace(
   limit = section === 'students' ? 100 : 300,
   cacheTtlMs = 4_000,
 ) {
-  return cachedCall<
+  return regionalCachedReadWithFallback<
     { section: 'students' | 'schedule' | 'requests'; from: string; to: string; limit: number },
     TrainerWorkspaceBootstrap
-  >('getMyTrainerWorkspace', { section, from, to, limit }, cacheTtlMs)
+  >('getMyTrainerWorkspaceRegional', 'getMyTrainerWorkspace', { section, from, to, limit }, cacheTtlMs)
 }
 
 export async function getMyTrainerStudentDetail(studentId: string, weekId: string) {
-  const result = await cachedCall<{ studentId: string; weekId: string }, unknown>('getMyTrainerStudentDetail', { studentId, weekId }, 30_000)
+  const result = await regionalCachedReadWithFallback<{ studentId: string; weekId: string }, unknown>(
+    'getMyTrainerStudentDetailRegional',
+    'getMyTrainerStudentDetail',
+    { studentId, weekId },
+    30_000,
+  )
   return normalizeTrainerStudentDetail(result, { studentId, weekId })
 }
 
 export async function confirmMySession(sessionId: string, expectedRevision: number) {
   const result = await call<{ sessionId: string; expectedRevision: number }, { unchanged: boolean; revision: number }>('confirmMySession', { sessionId, expectedRevision })
-  invalidateReadCache('getMyCoachWorkspaceScope', 'getMyTrainerWorkspace', 'listMyTrainerSchedule')
+  invalidateReadCache(
+    'getMyCoachWorkspaceScopeRegional',
+    'getMyCoachWorkspaceScope',
+    'getMyTrainerWorkspaceRegional',
+    'getMyTrainerWorkspace',
+    'listMyTrainerScheduleRegional',
+    'listMyTrainerSchedule',
+  )
   return result
 }
 
@@ -457,7 +527,14 @@ export async function recordMySessionAttendance(input: {
     attendanceEventId: string
     attendanceStatus: SessionAttendanceStatus
   }>('recordMySessionAttendance', input)
-  invalidateReadCache('getMyCoachWorkspaceScope', 'getMyTrainerWorkspace', 'listMyTrainerSchedule')
+  invalidateReadCache(
+    'getMyCoachWorkspaceScopeRegional',
+    'getMyCoachWorkspaceScope',
+    'getMyTrainerWorkspaceRegional',
+    'getMyTrainerWorkspace',
+    'listMyTrainerScheduleRegional',
+    'listMyTrainerSchedule',
+  )
   return result
 }
 
@@ -466,7 +543,14 @@ export async function bulkConfirmMySessions(items: Array<{ sessionId: string; ex
     { items: Array<{ sessionId: string; expectedRevision: number }> },
     { total: number; confirmed: number; failed: number; results: Array<{ sessionId: string; ok: boolean; revision?: number; code?: string }> }
   >('bulkConfirmMySessions', { items })
-  invalidateReadCache('getMyCoachWorkspaceScope', 'getMyTrainerWorkspace', 'listMyTrainerSchedule')
+  invalidateReadCache(
+    'getMyCoachWorkspaceScopeRegional',
+    'getMyCoachWorkspaceScope',
+    'getMyTrainerWorkspaceRegional',
+    'getMyTrainerWorkspace',
+    'listMyTrainerScheduleRegional',
+    'listMyTrainerSchedule',
+  )
   return result
 }
 
@@ -480,7 +564,14 @@ export async function requestSessionChange(input: {
   idempotencyKey: string
 }) {
   const result = await call<typeof input, { requestId: string }>('requestSessionChange', input)
-  invalidateReadCache('getMyCoachWorkspaceScope', 'getMyTrainerWorkspace', 'listMyTrainerSchedule')
+  invalidateReadCache(
+    'getMyCoachWorkspaceScopeRegional',
+    'getMyCoachWorkspaceScope',
+    'getMyTrainerWorkspaceRegional',
+    'getMyTrainerWorkspace',
+    'listMyTrainerScheduleRegional',
+    'listMyTrainerSchedule',
+  )
   return result
 }
 
@@ -491,7 +582,14 @@ export async function reportMySessionAdvanceAbsence(input: {
   note?: string
 }) {
   const result = await call<typeof input, { unchanged: boolean; revision: number; sessionId: string; notice: NonNullable<TrainerSessionSummary['advanceAbsenceNotice']> }>('reportMySessionAdvanceAbsence', input)
-  invalidateReadCache('getMyCoachWorkspaceScope', 'getMyTrainerWorkspace', 'listMyTrainerSchedule')
+  invalidateReadCache(
+    'getMyCoachWorkspaceScopeRegional',
+    'getMyCoachWorkspaceScope',
+    'getMyTrainerWorkspaceRegional',
+    'getMyTrainerWorkspace',
+    'listMyTrainerScheduleRegional',
+    'listMyTrainerSchedule',
+  )
   return result
 }
 
@@ -503,20 +601,40 @@ export async function requestStudentSessionAddition(input: {
   idempotencyKey: string
 }) {
   const result = await call<typeof input, { unchanged: boolean; requestId: string; status: 'pending'; type: 'additional'; sourceSessionId: string; date: string; hour: number }>('requestStudentSessionAddition', input)
-  invalidateReadCache('getMyCoachWorkspaceScope', 'getMyTrainerWorkspace', 'listMyTrainerSchedule')
+  invalidateReadCache(
+    'getMyCoachWorkspaceScopeRegional',
+    'getMyCoachWorkspaceScope',
+    'getMyTrainerWorkspaceRegional',
+    'getMyTrainerWorkspace',
+    'listMyTrainerScheduleRegional',
+    'listMyTrainerSchedule',
+  )
   return result
 }
 
 export async function listMyQuotes(limit = 100) {
-  return call<{ limit: number }, { quotes: SalesQuoteSummary[] }>('listMyQuotes', { limit }, { readOnly: true })
+  return regionalReadWithFallback<{ limit: number }, { quotes: SalesQuoteSummary[] }>(
+    'listMyQuotesRegional',
+    'listMyQuotes',
+    { limit },
+  )
 }
 
 export async function getMySalesCatalog() {
-  return call<Record<string, never>, SalesCatalog>('getMySalesCatalog', {}, { readOnly: true })
+  return regionalReadWithFallback<Record<string, never>, SalesCatalog>(
+    'getMySalesCatalogRegional',
+    'getMySalesCatalog',
+    {},
+  )
 }
 
 export async function getMySalesWorkspace(limit = 100) {
-  return cachedCall<{ limit: number }, SalesWorkspace>('getMySalesWorkspace', { limit }, 30_000)
+  return regionalCachedReadWithFallback<{ limit: number }, SalesWorkspace>(
+    'getMySalesWorkspaceRegional',
+    'getMySalesWorkspace',
+    { limit },
+    30_000,
+  )
 }
 
 export async function createQuote(input: {
@@ -528,7 +646,12 @@ export async function createQuote(input: {
   memberReferralCode?: string
 }) {
   const result = await call<typeof input, { quoteId: string; code: string; finalPrice: number }>('createQuote', input)
-  invalidateReadCache('getMySalesWorkspace', 'listMyQuotes')
+  invalidateReadCache(
+    'getMySalesWorkspaceRegional',
+    'getMySalesWorkspace',
+    'listMyQuotesRegional',
+    'listMyQuotes',
+  )
   return result
 }
 

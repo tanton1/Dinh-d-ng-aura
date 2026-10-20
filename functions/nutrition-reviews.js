@@ -674,10 +674,15 @@ async function availableNutritionCoaches(db) {
   }).sort((left, right) => left.name.localeCompare(right.name, 'vi'))
 }
 
-function createNutritionReviewFunctions({ db, onCall }) {
+function createNutritionReviewFunctions({ db, onCall, reviewCallOptions = {} }) {
   // These callables are Firestore-bound. The Gen 1 CPU profile prevents the
   // separate Cloud Run services from exhausting regional CPU allocation.
-  const reviewCall = (handler) => onCall({ cpu: 'gcf_gen1', maxInstances: 6, invoker: 'public' }, handler)
+  const reviewCall = (handler) => onCall({
+    cpu: 'gcf_gen1',
+    maxInstances: 6,
+    invoker: 'public',
+    ...reviewCallOptions,
+  }, handler)
   // Only aggregate counts are cached, never identities, permissions or photos.
   // Re-resolve caller scope on every request; local mutations invalidate it.
   const summaries = new Map()

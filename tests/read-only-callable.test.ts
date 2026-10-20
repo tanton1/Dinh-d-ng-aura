@@ -60,6 +60,44 @@ test('business reporting reads prefer the overflow aliases and retain a transien
   assert.match(service, /timeoutMs: 18_000/)
 })
 
+test('PT/Sales first-render reads prefer bounded East aliases and retain a transient fallback', () => {
+  const service = readFileSync(new URL('../src/services/ptOperationsV2Service.ts', import.meta.url), 'utf8')
+  assert.match(service, /runReadOnlyWithFallback/)
+  for (const name of [
+    'getMyCoachWorkspaceScope',
+    'getMyTrainerWorkspace',
+    'getMyTrainerStudentDetail',
+    'listMyAssignedStudents',
+    'listMyTrainerSchedule',
+    'listMyQuotes',
+    'getMySalesCatalog',
+    'getMySalesWorkspace',
+  ]) {
+    assert.match(service, new RegExp(`${name}Regional`))
+    assert.match(service, new RegExp(`'${name}Regional',[\\s\\S]*'${name}'`))
+  }
+  assert.match(service, /maximumAttempts: 1/)
+  assert.match(service, /new Error\(staffCallableMessage\(code, rawMessage\), \{ cause: error \}\)/)
+})
+
+test('student schedule and feedback reads use the same East-first fallback policy', () => {
+  const schedule = readFileSync(new URL('../src/services/studentPtScheduleService.ts', import.meta.url), 'utf8')
+  const feedback = readFileSync(new URL('../src/services/sessionFeedbackService.ts', import.meta.url), 'utf8')
+  const nutrition = readFileSync(new URL('../src/services/nutritionReviewService.ts', import.meta.url), 'utf8')
+  assert.match(schedule, /listMyStudentPtScheduleRegional/)
+  assert.match(schedule, /runReadOnlyWithFallback/)
+  assert.match(schedule, /timeout: 18_000/)
+  assert.match(feedback, /getMyPendingSessionFeedbackRegional/)
+  assert.match(feedback, /listTrainerFeedbackAdminRegional/)
+  assert.match(feedback, /runReadOnlyWithFallback/)
+  assert.match(feedback, /timeout: 18_000/)
+  assert.match(nutrition, /firebaseScheduleOptimizerFunctions/)
+  assert.match(nutrition, /listNutritionMealReviewsRegional/)
+  assert.match(nutrition, /runReadOnlyWithFallback/)
+  assert.match(nutrition, /timeout: 18_000/)
+  assert.doesNotMatch(nutrition, /reviewNutritionMealRegional/)
+})
+
 test('duplicate Academy readers share a pending failover and release it after completion', async () => {
   const pending = new Map<string, Promise<string>>()
   let release!: () => void

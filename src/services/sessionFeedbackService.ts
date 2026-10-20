@@ -1,5 +1,6 @@
 import { httpsCallable } from 'firebase/functions'
-import { firebaseFunctions } from '../lib/firebaseFunctions'
+import { firebaseFunctions, firebaseScheduleOptimizerFunctions } from '../lib/firebaseFunctions'
+import { runReadOnlyWithFallback } from './readOnlyCallableService'
 
 export type SessionFeedbackTag =
   | 'trainer_on_time'
@@ -90,13 +91,27 @@ function functionsInstance() {
   return firebaseFunctions
 }
 
+async function readWithFallback<Input, Output>(regionalName: string, legacyName: string, input: Input) {
+  const regionalFunctions = firebaseScheduleOptimizerFunctions
+  if (!regionalFunctions) {
+    return (await httpsCallable<Input, Output>(functionsInstance(), legacyName, { timeout: 18_000 })(input)).data
+  }
+  return runReadOnlyWithFallback(
+    () => httpsCallable<Input, Output>(regionalFunctions, regionalName, { timeout: 18_000 })(input).then((result) => result.data),
+    () => httpsCallable<Input, Output>(functionsInstance(), legacyName, { timeout: 18_000 })(input).then((result) => result.data),
+  )
+}
+
 export async function getMyPendingSessionFeedback(): Promise<PendingSessionFeedbackResponse> {
-  const callable = httpsCallable<Record<string, never>, PendingSessionFeedbackResponse>(functionsInstance(), 'getMyPendingSessionFeedback')
-  const response = await callable({})
+  const response = await readWithFallback<Record<string, never>, PendingSessionFeedbackResponse>(
+    'getMyPendingSessionFeedbackRegional',
+    'getMyPendingSessionFeedback',
+    {},
+  )
   return {
-    schemaVersion: Number(response.data?.schemaVersion || 1),
-    windowHours: Number(response.data?.windowHours || 72),
-    sessions: Array.isArray(response.data?.sessions) ? response.data.sessions : [],
+    schemaVersion: Number(response?.schemaVersion || 1),
+    windowHours: Number(response?.windowHours || 72),
+    sessions: Array.isArray(response?.sessions) ? response.sessions : [],
   }
 }
 
@@ -120,8 +135,11 @@ export async function listTrainerFeedbackAdmin(input: {
   status?: SessionFeedbackStatus | ''
   score?: number
 }): Promise<TrainerFeedbackAdminResponse> {
-  const callable = httpsCallable<typeof input, TrainerFeedbackAdminResponse>(functionsInstance(), 'listTrainerFeedbackAdmin')
-  const response = (await callable(input)).data
+  const response = await readWithFallback<typeof input, TrainerFeedbackAdminResponse>(
+    'listTrainerFeedbackAdminRegional',
+    'listTrainerFeedbackAdmin',
+    input,
+  )
   return {
     ...response,
     trainers: Array.isArray(response.trainers) ? response.trainers : [],

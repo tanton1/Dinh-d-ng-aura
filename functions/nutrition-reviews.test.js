@@ -613,7 +613,7 @@ test('pending reviews expose SLA state and prioritise the oldest overdue meal', 
 
 test('nutrition review callables are actor-scoped and transaction-backed', () => {
   const source = fs.readFileSync(path.join(__dirname, 'nutrition-reviews.js'), 'utf8')
-  assert.match(source, /const reviewCall = \(handler\) => onCall\(\{ cpu: 'gcf_gen1', maxInstances: 6, invoker: 'public' \}, handler\)/)
+  assert.match(source, /const reviewCall = \(handler\) => onCall\(\{[\s\S]*?cpu: 'gcf_gen1',[\s\S]*?maxInstances: 6,[\s\S]*?\.\.\.reviewCallOptions,[\s\S]*?\}, handler\)/)
   assert.match(source, /const listNutritionMealReviews = reviewCall/)
   assert.match(source, /trustedAccessContext\(request, db\)/)
   assert.match(source, /where\('nutritionPTIds', 'array-contains', coachId\)/)
@@ -629,9 +629,22 @@ test('nutrition review callables are actor-scoped and transaction-backed', () =>
   assert.match(source, /reviewPriority/)
 })
 
+test('nutrition review and session feedback overflow aliases use bounded regional profiles', () => {
+  const indexSource = fs.readFileSync(path.join(__dirname, 'index.js'), 'utf8')
+  assert.match(indexSource, /reviewCallOptions: \{ cpu: 'gcf_gen1', maxInstances: 2, concurrency: 1, timeoutSeconds: 60 \}/)
+  assert.match(indexSource, /callOptions: \{ cpu: 'gcf_gen1', maxInstances: 2, concurrency: 1, timeoutSeconds: 60 \}/)
+  for (const name of [
+    'listNutritionMealReviews',
+    'getMyPendingSessionFeedback',
+    'listTrainerFeedbackAdmin',
+  ]) {
+    assert.match(indexSource, new RegExp(`exports\\.${name}Regional = `))
+  }
+})
+
 test('coach workspace resolves tabs from primary, secondary and nutrition assignments', () => {
   const source = fs.readFileSync(path.join(__dirname, 'pt-operations-v2.js'), 'utf8')
-  assert.match(source, /const staffCall = \(handler\) => onCall\(\{ cpu: 1, concurrency: 24, maxInstances: 6, invoker: 'public' \}, handler\)/)
+  assert.match(source, /const staffCall = \(handler\) => onCall\(\{[\s\S]*?cpu: 1,[\s\S]*?concurrency: 24,[\s\S]*?maxInstances: 6,[\s\S]*?\.\.\.staffCallOptions,[\s\S]*?\}, handler\)/)
   assert.match(source, /const getMyCoachWorkspaceScope = staffCall/)
   assert.equal((source.match(/= staffCall\(/g) ?? []).length, 20)
   assert.match(source, /const getMyTrainerAvailability = staffCall/)

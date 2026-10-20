@@ -603,12 +603,65 @@ const ptAvailabilityRegionalOnCall = (optionsOrHandler, maybeHandler) => {
     ? onCall(resourceOptions, optionsOrHandler)
     : onCall({ ...resourceOptions, ...optionsOrHandler }, maybeHandler)
 }
-const ptOperationsAvailabilityRegionalFunctions = createPtOperationsV2Functions({ db, onCall: ptAvailabilityRegionalOnCall, logger })
+const ptOperationsAvailabilityRegionalFunctions = createPtOperationsV2Functions({
+  db,
+  onCall: ptAvailabilityRegionalOnCall,
+  logger,
+  staffCallOptions: { cpu: 'gcf_gen1', maxInstances: 2, concurrency: 1, timeoutSeconds: 120 },
+  staffMutationCallOptions: { cpu: 'gcf_gen1', maxInstances: 2, concurrency: 1, timeoutSeconds: 120 },
+})
 exports.getMyTrainerAvailabilityRegional = ptOperationsAvailabilityRegionalFunctions.getMyTrainerAvailability
 exports.saveMyTrainerAvailabilityRegional = ptOperationsAvailabilityRegionalFunctions.saveMyTrainerAvailability
+// Staff/Sales first-render reads use the same bounded overflow profile. The
+// legacy southeast names remain exported for older clients and rollback.
+exports.getMyCoachWorkspaceScopeRegional = ptOperationsAvailabilityRegionalFunctions.getMyCoachWorkspaceScope
+exports.getMyTrainerWorkspaceRegional = ptOperationsAvailabilityRegionalFunctions.getMyTrainerWorkspace
+exports.getMyTrainerStudentDetailRegional = ptOperationsAvailabilityRegionalFunctions.getMyTrainerStudentDetail
+exports.listMyAssignedStudentsRegional = ptOperationsAvailabilityRegionalFunctions.listMyAssignedStudents
+exports.listMyStudentPtScheduleRegional = ptOperationsAvailabilityRegionalFunctions.listMyStudentPtSchedule
+exports.listMyTrainerScheduleRegional = ptOperationsAvailabilityRegionalFunctions.listMyTrainerSchedule
+exports.listMyQuotesRegional = ptOperationsAvailabilityRegionalFunctions.listMyQuotes
+exports.getMySalesCatalogRegional = ptOperationsAvailabilityRegionalFunctions.getMySalesCatalog
+exports.getMySalesWorkspaceRegional = ptOperationsAvailabilityRegionalFunctions.getMySalesWorkspace
+// These write aliases are intentionally deployed in a later wave after the
+// client has explicit ambiguous-write handling and idempotency coverage.
+exports.saveMyStudentAvailabilityRegional = ptOperationsAvailabilityRegionalFunctions.saveMyStudentAvailability
+exports.confirmMySessionRegional = ptOperationsAvailabilityRegionalFunctions.confirmMySession
+exports.recordMySessionAttendanceRegional = ptOperationsAvailabilityRegionalFunctions.recordMySessionAttendance
+exports.bulkConfirmMySessionsRegional = ptOperationsAvailabilityRegionalFunctions.bulkConfirmMySessions
+exports.requestSessionChangeRegional = ptOperationsAvailabilityRegionalFunctions.requestSessionChange
+exports.submitWorkoutNoteRegional = ptOperationsAvailabilityRegionalFunctions.submitWorkoutNote
+exports.createQuoteRegional = ptOperationsAvailabilityRegionalFunctions.createQuote
+exports.createStudentDraftRegional = ptOperationsAvailabilityRegionalFunctions.createStudentDraft
+exports.submitContractForApprovalRegional = ptOperationsAvailabilityRegionalFunctions.submitContractForApproval
 const identityAvailabilityRegionalFunctions = createIdentityAccessFunctions({ db, auth, onCall: ptAvailabilityRegionalOnCall, logger })
 exports.listIdentityDirectoryRegional = identityAvailabilityRegionalFunctions.listIdentityDirectory
 exports.saveStaffOperationsProfileRegional = identityAvailabilityRegionalFunctions.saveStaffOperationsProfile
+
+// Nutrition review and session feedback are separate user-facing queues from
+// the AI endpoints. Keep their regional aliases on the same bounded Gen-1
+// profile, while leaving the southeast exports as a rollback path.
+const nutritionReviewRegionalFunctions = createNutritionReviewFunctions({
+  db,
+  onCall: ptAvailabilityRegionalOnCall,
+  reviewCallOptions: { cpu: 'gcf_gen1', maxInstances: 2, concurrency: 1, timeoutSeconds: 60 },
+})
+exports.listNutritionMealReviewsRegional = nutritionReviewRegionalFunctions.listNutritionMealReviews
+exports.assignNutritionCoachRegional = nutritionReviewRegionalFunctions.assignNutritionCoach
+exports.reviewNutritionMealRegional = nutritionReviewRegionalFunctions.reviewNutritionMeal
+exports.saveNutritionMealLogRegional = nutritionReviewRegionalFunctions.saveNutritionMealLog
+exports.deleteNutritionMealLogRegional = nutritionReviewRegionalFunctions.deleteNutritionMealLog
+exports.submitNutritionMealReviewRegional = nutritionReviewRegionalFunctions.submitNutritionMealReview
+
+const sessionFeedbackRegionalFunctions = createSessionFeedbackFunctions({
+  db,
+  onCall: ptAvailabilityRegionalOnCall,
+  callOptions: { cpu: 'gcf_gen1', maxInstances: 2, concurrency: 1, timeoutSeconds: 60 },
+})
+exports.getMyPendingSessionFeedbackRegional = sessionFeedbackRegionalFunctions.getMyPendingSessionFeedback
+exports.listTrainerFeedbackAdminRegional = sessionFeedbackRegionalFunctions.listTrainerFeedbackAdmin
+exports.submitSessionFeedbackRegional = sessionFeedbackRegionalFunctions.submitSessionFeedback
+exports.reviewTrainerFeedbackRegional = sessionFeedbackRegionalFunctions.reviewTrainerFeedback
 
 // Keep new callable entry points statically discoverable by the Firebase CLI.
 // The rest of the PT operations factory remains assigned above for backwards

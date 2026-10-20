@@ -1,5 +1,6 @@
 import { httpsCallable } from 'firebase/functions'
-import { firebaseFunctions } from '../lib/firebaseFunctions'
+import { firebaseFunctions, firebaseScheduleOptimizerFunctions } from '../lib/firebaseFunctions'
+import { runReadOnlyWithFallback } from './readOnlyCallableService'
 
 export type StudentPtSessionStatus =
   | 'scheduled'
@@ -398,8 +399,18 @@ export function asStudentPtScheduleError(error: unknown): StudentPtScheduleServi
 
 export async function listMyStudentPtSchedule(from: string, to: string, availabilityWeekId: string): Promise<StudentPtScheduleData> {
   try {
-    const callable = httpsCallable<{ from: string; to: string; availabilityWeekId: string }, StudentPtScheduleData>(functionsInstance(), 'listMyStudentPtSchedule')
-    return normalizeStudentPtScheduleData((await callable({ from, to, availabilityWeekId })).data)
+    const input = { from, to, availabilityWeekId }
+    const invoke = (client: typeof firebaseFunctions, name: string) => {
+      const callable = httpsCallable<typeof input, StudentPtScheduleData>(client || functionsInstance(), name, { timeout: 18_000 })
+      return callable(input).then((result) => result.data)
+    }
+    const result = firebaseScheduleOptimizerFunctions
+      ? await runReadOnlyWithFallback(
+        () => invoke(firebaseScheduleOptimizerFunctions, 'listMyStudentPtScheduleRegional'),
+        () => invoke(firebaseFunctions, 'listMyStudentPtSchedule'),
+      )
+      : await invoke(firebaseFunctions, 'listMyStudentPtSchedule')
+    return normalizeStudentPtScheduleData(result)
   } catch (error) {
     throw asStudentPtScheduleError(error)
   }

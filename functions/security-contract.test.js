@@ -376,7 +376,7 @@ test('staff keeps learner navigation while operations routes stay separate and m
   assert.match(appShellSource, /role === 'admin' \|\| role === 'super_admin'/)
   assert.doesNotMatch(appShellSource, /Trung tâm trợ giúp đang được hoàn thiện/)
   assert.doesNotMatch(appShellSource, /<HelpCircle|<Settings/)
-  assert.match(ptOperationsClientSource, /const maximumAttempts = readOnly \? 2 : 1/)
+  assert.match(ptOperationsClientSource, /const maximumAttempts = Math\.max\(1, Math\.min\(2, options\.maximumAttempts \?\? \(readOnly \? 2 : 1\)\)\)/)
   assert.match(ptOperationsClientSource, /timeout: readOnly \? 20_000 : 30_000/)
   assert.match(ptOperationsClientSource, /cachedCall[\s\S]*?\{ readOnly: true \}/)
   assert.match(ptOperationsClientSource, /functions\/deadline-exceeded/)

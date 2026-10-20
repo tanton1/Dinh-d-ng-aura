@@ -1113,16 +1113,33 @@ async function trainerScheduleForActor(db, actor, from, to, limit) {
   }
 }
 
-function createPtOperationsV2Functions({ db, onCall }) {
+function createPtOperationsV2Functions({
+  db,
+  onCall,
+  staffCallOptions = {},
+  staffMutationCallOptions = {},
+}) {
   // Staff pages issue several Firestore-bound reads during the first render.
   // A concurrency of one made harmless navigation bursts exhaust all six
   // instances and the browser surfaced a generic "service busy" message.
   // Keep the fleet bounded, but let each warm instance serve concurrent I/O.
-  const staffCall = (handler) => onCall({ cpu: 1, concurrency: 24, maxInstances: 6, invoker: 'public' }, handler)
+  const staffCall = (handler) => onCall({
+    cpu: 1,
+    concurrency: 24,
+    maxInstances: 6,
+    invoker: 'public',
+    ...staffCallOptions,
+  }, handler)
   // Small trainer commands should still start when the project is near its
   // Cloud Run CPU allocation quota. They perform one short transaction and do
   // not need the larger read-workspace footprint above.
-  const staffMutationCall = (handler) => onCall({ cpu: 0.25, concurrency: 1, maxInstances: 2, invoker: 'public' }, handler)
+  const staffMutationCall = (handler) => onCall({
+    cpu: 0.25,
+    concurrency: 1,
+    maxInstances: 2,
+    invoker: 'public',
+    ...staffMutationCallOptions,
+  }, handler)
 
   const getMyCoachWorkspaceScope = staffCall(async (request) => {
     const actor = await trainerActor(request, db)

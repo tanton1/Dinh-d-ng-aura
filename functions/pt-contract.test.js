@@ -227,6 +227,28 @@ test('learner and staff personal Gym schedule is self-scoped and availability wr
   assert.match(functionsSource, /exports\.saveMyTrainerAvailability = ptOperationsV2Functions\.saveMyTrainerAvailability/)
 })
 
+test('staff overflow aliases use a bounded Gen-1 profile and preserve southeast rollback exports', () => {
+  assert.match(functionsSource, /staffCallOptions: \{ cpu: 'gcf_gen1', maxInstances: 2, concurrency: 1, timeoutSeconds: 120 \}/)
+  assert.match(functionsSource, /staffMutationCallOptions: \{ cpu: 'gcf_gen1', maxInstances: 2, concurrency: 1, timeoutSeconds: 120 \}/)
+  for (const name of [
+    'getMyCoachWorkspaceScope',
+    'getMyTrainerWorkspace',
+    'getMyTrainerStudentDetail',
+    'listMyAssignedStudents',
+    'listMyStudentPtSchedule',
+    'listMyTrainerSchedule',
+    'listMyQuotes',
+    'getMySalesCatalog',
+    'getMySalesWorkspace',
+    'saveMyStudentAvailability',
+    'confirmMySession',
+    'recordMySessionAttendance',
+  ]) {
+    assert.match(functionsSource, new RegExp(`exports\\.${name}Regional = ptOperationsAvailabilityRegionalFunctions\\.${name}`))
+  }
+  assert.match(functionsSource, /const ptOperationsAvailabilityRegionalFunctions = createPtOperationsV2Functions/)
+})
+
 test('student contract projection exposes only a bounded payment schedule and canonical debt', () => {
   const projection = studentContractProjection('contract-1', {
     packageName: 'PT 3 tháng',

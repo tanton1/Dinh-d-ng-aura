@@ -177,8 +177,14 @@ async function documentsById(db, collectionName, values) {
   return result
 }
 
-function createSessionFeedbackFunctions({ db, onCall }) {
-  const call = (handler) => onCall({ cpu: 1, concurrency: 24, maxInstances: 6, invoker: 'public' }, handler)
+function createSessionFeedbackFunctions({ db, onCall, callOptions = {} }) {
+  const call = (handler) => onCall({
+    cpu: 1,
+    concurrency: 24,
+    maxInstances: 6,
+    invoker: 'public',
+    ...callOptions,
+  }, handler)
 
   const learner = async (request) => {
     const actor = await trustedAccessContext(request, db)

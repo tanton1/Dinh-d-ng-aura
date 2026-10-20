@@ -1,5 +1,6 @@
 import { httpsCallable } from 'firebase/functions'
-import { firebaseFunctions } from '../lib/firebaseFunctions'
+import { firebaseFunctions, firebaseScheduleOptimizerFunctions } from '../lib/firebaseFunctions'
+import { runReadOnlyWithFallback } from './readOnlyCallableService'
 
 export type NutritionReviewStatus = 'pending' | 'approved' | 'rejected'
 
@@ -104,28 +105,26 @@ export async function listNutritionMealReviews(
     forceRefresh?: boolean
   } = {},
 ) {
-  const callable = httpsCallable<
-    {
-      status: NutritionReviewStatus | 'all'
-      limit: number
-      cursor?: string | null
-      coachId?: string
-      query?: string
-      focus?: 'overdue' | 'all'
-      forceRefresh?: boolean
-    },
-    NutritionReviewListResult
-  >(functionsOrThrow(), 'listNutritionMealReviews')
+  const payload = {
+    status: input.status || 'all',
+    limit: input.limit || 24,
+    cursor: input.cursor,
+    coachId: input.coachId,
+    query: input.query,
+    focus: input.focus,
+    forceRefresh: input.forceRefresh,
+  }
+  const invoke = (client: NonNullable<typeof firebaseFunctions>, name: string) =>
+    httpsCallable<typeof payload, NutritionReviewListResult>(client, name, { timeout: 18_000 })(payload).then((result) => result.data)
   try {
-    return (await callable({
-      status: input.status || 'all',
-      limit: input.limit || 24,
-      cursor: input.cursor,
-      coachId: input.coachId,
-      query: input.query,
-      focus: input.focus,
-      forceRefresh: input.forceRefresh,
-    })).data
+    const regionalFunctions = firebaseScheduleOptimizerFunctions
+    const result = regionalFunctions
+      ? await runReadOnlyWithFallback(
+        () => invoke(regionalFunctions, 'listNutritionMealReviewsRegional'),
+        () => invoke(functionsOrThrow(), 'listNutritionMealReviews'),
+      )
+      : await invoke(functionsOrThrow(), 'listNutritionMealReviews')
+    return result
   } catch (cause) {
     throw reviewError(cause)
   }
