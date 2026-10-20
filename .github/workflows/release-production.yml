@@ -297,7 +297,7 @@ jobs:
           # Resolve the target explicitly so a missing project.json cannot
           # block a production release.
           rm -rf .vercel
-          DEPLOYMENT_URL="$(npx --yes vercel@63.1.2 deploy . --prod --yes --token="$VERCEL_TOKEN" --scope="$VERCEL_ORG_ID" --project="$VERCEL_PROJECT_ID" --build-env VITE_APP_RELEASE=${{ steps.revision.outputs.sha }})"
+          DEPLOYMENT_URL="$(npx --yes vercel@63.1.2 deploy . --prod --yes --token="$VERCEL_TOKEN" --project="$VERCEL_PROJECT_ID" --build-env VITE_APP_RELEASE=${{ steps.revision.outputs.sha }})"
           echo "url=$DEPLOYMENT_URL" >> "$GITHUB_OUTPUT"
 
       - name: Post-deploy smoke
