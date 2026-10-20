@@ -112,8 +112,9 @@ const scheduleIndexCache = new WeakMap()
 // opening the picker immediately after the workspace, does not repeat that
 // fan-out. Draft mutations call invalidateBranchDataCache below; the TTL is a
 // final freshness bound for changes made by other operational tools. A minute
-// and a half keeps branch switching warm while still bounding changes that did
-// not pass through a schedule mutation.
+// and a half keeps repeated branch reads cached while still bounding changes
+// that did not pass through a schedule mutation. This is process-local cache,
+// not a reserved Cloud Run instance, so the service can still scale to zero.
 const BRANCH_DATA_CACHE_TTL_MS = 90_000
 const BRANCH_DATA_CACHE_LIMIT = 8
 const branchDataCaches = new WeakMap()
@@ -129,9 +130,9 @@ function branchDataCacheFor(db) {
 
 // Cross-branch Admin search used to scan the student collection and then run
 // the full manual-validation fan-out for every match on every debounced
-// keystroke. Keep only a small, projection-only index warm in the regional
-// callable. The final command still performs canonical validation; this cache
-// is only for finding a likely profile quickly.
+// keystroke. Keep only a small, projection-only index cached per process. The
+// final command still performs canonical validation; this cache is only for
+// finding a likely profile quickly and does not reserve a warm instance.
 const CROSS_BRANCH_STUDENT_SEARCH_TTL_MS = 60_000
 const CROSS_BRANCH_STUDENT_SEARCH_LIMIT = (MAX_STUDENTS * 3) + 1
 const crossBranchStudentSearchCaches = new WeakMap()

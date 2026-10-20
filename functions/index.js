@@ -891,12 +891,12 @@ const ptSchedulePublishRegionalOnCall = (optionsOrHandler, maybeHandler) => {
     : onCall({ ...resourceOptions, ...optionsOrHandler }, maybeHandler)
 }
 
-// The schedule screen is opened frequently and its first read is the user’s
-// critical path. Keep one small overflow instance warm so a cold Cloud Run
-// startup cannot delay the first matrix paint. Other schedule mutations stay
-// on the burst-only profile above to avoid keeping every callable resident.
+// The schedule screen is opened frequently, but the workspace and its
+// read-heavy helpers must still scale to zero between visits. Keep the same
+// bounded regional profile without reserving a paid idle instance; browser
+// and process-local caches absorb repeated branch/week reads when available.
 const ptScheduleWorkspaceRegionalOnCall = (optionsOrHandler, maybeHandler) => {
-  const resourceOptions = { region: 'asia-east1', cpu: 'gcf_gen1', minInstances: 1, maxInstances: 2, concurrency: 1, timeoutSeconds: 120 }
+  const resourceOptions = { region: 'asia-east1', cpu: 'gcf_gen1', maxInstances: 2, concurrency: 1, timeoutSeconds: 120 }
   return typeof optionsOrHandler === 'function'
     ? onCall(resourceOptions, optionsOrHandler)
     : onCall({ ...resourceOptions, ...optionsOrHandler }, maybeHandler)
@@ -951,8 +951,8 @@ const ptScheduleV2RegionalFunctions = createPtScheduleV2Functions({
   branchCatalogOnCall: ptScheduleWorkspaceRegionalOnCall,
   workspaceOnCall: ptScheduleWorkspaceRegionalOnCall,
   // Candidate lookup is a read-heavy interaction from the open drawer.
-  // Keep it on the already-warm workspace profile so the first cross-branch
-  // search does not pay a second cold start on the mutation profile.
+  // Keep it on the same bounded regional read profile, but do not reserve a
+  // second paid idle instance just for cross-branch search.
   slotCandidatesOnCall: ptScheduleWorkspaceRegionalOnCall,
 })
 exports.listPtScheduleBranchesRegional = ptScheduleV2RegionalFunctions.listPtScheduleBranches
