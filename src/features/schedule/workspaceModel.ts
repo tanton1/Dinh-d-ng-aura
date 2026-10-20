@@ -10,7 +10,7 @@ import {
 
 import { readWorkspaceCache, writeWorkspaceCache, WORKSPACE_CACHE_REVALIDATE_MS } from './workspaceCache'
 
-type WorkspaceTab = 'matrix' | 'opportunities' | 'students' | 'warnings' | 'history' | 'requests'
+type WorkspaceTab = 'matrix' | 'opportunities' | 'students' | 'warnings' | 'history'
 type StudentFilter = 'all' | 'missing' | 'contract' | 'availability' | 'trainer' | 'ready'
 type WarningFilter = 'priority' | 'conflict' | 'contract' | 'learner' | 'capacity' | 'system'
 type WarningCause = 'contract' | 'learner' | 'capacity' | 'system'
@@ -268,6 +268,7 @@ function workspaceRealtimeFingerprint(value: PtScheduleWorkspaceV2Result | null)
     trainers: value.trainers.map((trainer) => [trainer.id, trainer.status, trainer.availabilityRevision, trainer.availableSlots, trainer.availabilityMode, trainer.slotCapacity, trainer.dailySessionTarget, trainer.employmentType]),
     contracts: value.contracts.map((contract) => [contract.id, contract.status, contract.startDate, contract.endDate, contract.usedSessions, contract.remainingSchedulableSessions, contract.trainerId, contract.trainerIds]),
     weeklySessionCoverage: value.weeklySessionCoverage,
+    quickCoverage: value.quickCoverage,
     calendar: value.scheduleConfig,
   })
 }
@@ -328,6 +329,31 @@ function workspaceFromDraftSnapshot(
   const missingSessions = students
     .filter((student) => student.eligibleForWeek === true)
     .reduce((total, student) => total + Math.max(0, student.sessionsPerWeek - (scheduledByStudent.get(student.id) || 0)), 0)
+  const quickCoverage = current.quickCoverage?.draftOnly
+    ? (() => {
+        const targetStudents = students.filter((student) => {
+          const inactive = ['inactive', 'archived', 'deleted'].includes(String(student.status || '').toLowerCase())
+          const crossBranch = student.isCrossBranchDisplayOnly === true || (
+            student.branchId && current.branch.id && student.branchId !== current.branch.id
+          )
+          return !inactive && !crossBranch && Number(student.sessionsPerWeek || 0) > 0
+        })
+        const totalTargetSessions = targetStudents.reduce((total, student) => total + Number(student.sessionsPerWeek || 0), 0)
+        const covered = targetStudents.reduce((total, student) => total + Math.min(
+          Number(student.sessionsPerWeek || 0),
+          scheduledByStudent.get(student.id) || 0,
+        ), 0)
+        return {
+          ...current.quickCoverage,
+          targetStudents: targetStudents.length,
+          totalTargetSessions,
+          scheduledEntries: covered,
+          missingSessions: Math.max(0, totalTargetSessions - covered),
+          estimatedMissingSessions: Math.max(0, totalTargetSessions - covered),
+          rawScheduledEntries: scheduledEntries,
+        }
+      })()
+    : current.quickCoverage
   const unassignedEntries: NonNullable<PtScheduleWorkspaceV2Result['unassignedEntries']> = Array.isArray(raw.unassignedEntries)
     ? raw.unassignedEntries as NonNullable<PtScheduleWorkspaceV2Result['unassignedEntries']>
     : []
@@ -348,6 +374,7 @@ function workspaceFromDraftSnapshot(
     optimizationSummary: raw.optimizationSummary && typeof raw.optimizationSummary === 'object'
       ? raw.optimizationSummary as PtScheduleWorkspaceV2Result['optimizationSummary']
       : undefined,
+    quickCoverage,
     unassignedEntries,
     trainerLoads: undefined,
     studentCoverage: undefined,

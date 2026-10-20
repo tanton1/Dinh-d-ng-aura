@@ -52,7 +52,7 @@ const { trainerDailyLoadTarget } = require('./schedule-load-policy')
 // Bump the generator version when the lexicographic quality objective changes.
 // Existing drafts remain valid, but the version lets audit logs and the UI
 // distinguish schedules generated with the coverage-first/full-target policy.
-const OPTIMIZER_VERSION = 'optimizer-v14'
+const OPTIMIZER_VERSION = 'optimizer-v15'
 const MAX_DEEP_OPTIMIZATION_PASSES = 3
 // A bounded repair search can relocate auto-generated sessions from earlier
 // rounds. This closes the remaining gap between fair one-seat rounds and the
@@ -64,6 +64,12 @@ const MAX_REPAIR_DIRECT_CANDIDATES = 80
 const MAX_REPAIR_DISPLACEMENT_CANDIDATES = 120
 const MAX_RESCUE_PLAN_CANDIDATES = 8
 const MAX_RESCUE_LOOKAHEAD_STUDENTS = 120
+// The 3-day audit is explanatory telemetry, not another solver pass. Keep it
+// bounded so a large branch cannot turn the final summary into an N×M×K scan.
+const MAX_THREE_DAY_AUDIT_STUDENTS = 120
+const MAX_THREE_DAY_AUDIT_MOVES = 2000
+const MAX_THREE_DAY_AUDIT_SLOTS_PER_STUDENT = 30
+const MAX_THREE_DAY_AUDIT_TRAINERS = 40
 // Capacity-aware cohort selection is intentionally bounded. The repair pass
 // only runs when the selected learners' optimistic slot-seat upper bound is
 // already below their reserved target demand, which keeps broad branches out
@@ -1075,6 +1081,10 @@ async function loadBranchDataInitial(db, branchId, week, options = {}) {
     return profile?.branchId && profile.branchId !== branchId
   }))
   const scheduleConfig = normalizedScheduleConfig(config.data())
+  const projectedStudents = students.docs.map((item) => initialStudentProjection(item, branchId, false, week, config.data(), weeklySessionTargets))
+  const projectedCrossBranchStudents = referencedStudentSnapshots
+    .filter((item) => crossBranchStudentIds.has(item.id))
+    .map((item) => initialStudentProjection(item, branchId, true, week, config.data(), weeklySessionTargets))
   return {
     partial: true,
     readMode: 'display',
@@ -1092,10 +1102,8 @@ async function loadBranchDataInitial(db, branchId, week, options = {}) {
       unassignedEntries: [],
     },
     schedule,
-    students: students.docs.map((item) => initialStudentProjection(item, branchId, false, week, config.data(), weeklySessionTargets)),
-    crossBranchStudents: referencedStudentSnapshots
-      .filter((item) => crossBranchStudentIds.has(item.id))
-      .map((item) => initialStudentProjection(item, branchId, true, week, config.data(), weeklySessionTargets)),
+    students: projectedStudents,
+    crossBranchStudents: projectedCrossBranchStudents,
     trainers: trainers.docs.map((item) => initialTrainerProjection(item, branchId, scheduleConfig.scheduleLoadPolicy)),
     contracts: [],
     contractsByStudent: new Map(),
@@ -1103,6 +1111,13 @@ async function loadBranchDataInitial(db, branchId, week, options = {}) {
     leaves: [],
     availability: new Map(),
     weeklySessionCoverage: {},
+    quickCoverage: quickCoverageForDisplay({
+      weekId: week,
+      branchId,
+      schedule,
+      students: projectedStudents,
+      crossBranchStudents: projectedCrossBranchStudents,
+    }),
     config: scheduleConfig,
   }
 }
@@ -2243,6 +2258,86 @@ function scheduleStudentCounts(schedule) {
   return counts
 }
 
+// The initial workspace paint deliberately skips contracts, availability and
+// cross-branch session fan-out. Still expose a small, honest coverage
+// projection so the UI can show what is already present in this branch draft
+// without presenting it as a reconciled "missing sessions" result.
+//
+// This helper only inspects the bounded roster and the already-loaded draft
+// matrix. `knownCrossBranchScheduledEntries` covers explicit cross-branch
+// rows in the selected draft; sessions or drafts from other branches are
+// intentionally left unknown until the reconciled path runs.
+function quickCoverageForDisplay({
+  weekId = '',
+  branchId = '',
+  schedule = {},
+  students = [],
+  crossBranchStudents = [],
+} = {}) {
+  const profiles = new Map()
+  for (const student of [...(Array.isArray(students) ? students : []), ...(Array.isArray(crossBranchStudents) ? crossBranchStudents : [])]) {
+    if (!student || typeof student.id !== 'string' || !student.id || profiles.has(student.id)) continue
+    profiles.set(student.id, student)
+  }
+  const counts = scheduleStudentCounts(schedule)
+  const scheduledStudentIds = new Set(counts.keys())
+  const localTargetStudents = [...profiles.values()].filter((student) => {
+    const inactive = ['inactive', 'archived', 'deleted'].includes(String(student.status || '').toLowerCase())
+    const crossBranch = student.isCrossBranchDisplayOnly === true
+      || (typeof student.branchId === 'string' && student.branchId && branchId && student.branchId !== branchId)
+    return !inactive && !crossBranch && Math.max(0, Math.min(7, Number(student.sessionsPerWeek || 0))) > 0
+  })
+  const crossBranchTargetStudents = [...profiles.values()].filter((student) => {
+    const inactive = ['inactive', 'archived', 'deleted'].includes(String(student.status || '').toLowerCase())
+    const crossBranch = student.isCrossBranchDisplayOnly === true
+      || (typeof student.branchId === 'string' && student.branchId && branchId && student.branchId !== branchId)
+    return !inactive && crossBranch && Math.max(0, Math.min(7, Number(student.sessionsPerWeek || 0))) > 0
+  })
+  const targetFor = (student) => Math.max(0, Math.min(7, Number(student.sessionsPerWeek || 0)))
+  const localScheduledEntries = localTargetStudents.reduce((total, student) => total + (counts.get(student.id) || 0), 0)
+  const scheduledEntries = localTargetStudents.reduce((total, student) => total + Math.min(targetFor(student), counts.get(student.id) || 0), 0)
+  const totalTargetSessions = localTargetStudents.reduce((total, student) => total + targetFor(student), 0)
+  const crossBranchScheduledEntries = crossBranchTargetStudents.reduce((total, student) => total + (counts.get(student.id) || 0), 0)
+  const crossBranchTargetSessions = crossBranchTargetStudents.reduce((total, student) => total + targetFor(student), 0)
+  const knownStudentIds = new Set(profiles.keys())
+  const unresolvedScheduledEntries = [...scheduledStudentIds]
+    .filter((studentId) => !knownStudentIds.has(studentId))
+    .reduce((total, studentId) => total + (counts.get(studentId) || 0), 0)
+  const studentsWithAtLeastOne = localTargetStudents.filter((student) => (counts.get(student.id) || 0) > 0).length
+  const fullyScheduledStudents = localTargetStudents.filter((student) => (counts.get(student.id) || 0) >= targetFor(student)).length
+  return {
+    // `ready` means the bounded projection is available. `verified:false`
+    // keeps the distinction from the reconciled `status:'verified'` payload.
+    status: 'ready',
+    verification: 'unverified',
+    verified: false,
+    source: 'draft_roster',
+    scope: 'selected_branch_draft',
+    branchId,
+    weekId,
+    rosterStudents: profiles.size,
+    targetStudents: localTargetStudents.length,
+    // Eligibility and quota are intentionally unknown in this projection.
+    eligibleStudents: null,
+    studentsWithAtLeastOne,
+    fullyScheduledStudents,
+    totalTargetSessions,
+    scheduledEntries,
+    missingSessions: Math.max(0, totalTargetSessions - scheduledEntries),
+    estimatedMissingSessions: Math.max(0, totalTargetSessions - scheduledEntries),
+    localScheduledEntries,
+    rawScheduledEntries: [...counts.values()].reduce((total, count) => total + count, 0),
+    knownCrossBranchScheduledEntries: crossBranchScheduledEntries,
+    crossBranchTargetStudents: crossBranchTargetStudents.length,
+    crossBranchTargetSessions,
+    crossBranchMissingSessions: null,
+    otherBranchScheduledEntries: null,
+    crossBranchCoverageVerified: false,
+    unresolvedScheduledEntries,
+    draftOnly: true,
+  }
+}
+
 // A manual placement changes the schedule, but it does not rerun the
 // optimizer. Keep the last per-student blocker diagnostics so the workspace
 // can still distinguish "thiếu PT/ca" from a learner who simply needs the
@@ -3031,6 +3126,8 @@ function rescueOutcomeScore(data, schedule, students, remainingByStudent, reloca
   }
   const utilization = slotUtilizationForSchedule(data, schedule)
   const supportAssignments = Object.values(schedule).flat().filter((entry) => entry.type !== 'off' && entry.trainerAssignmentWarning === true).length
+  const threeConsecutiveDayRuns = [...state.studentDays.values()]
+    .reduce((total, days) => total + consecutiveTrainingDayRunCount(days), 0)
   return [
     uncoveredStudentsWithAPath,
     // Once every learner with a feasible path has at least one class, prefer
@@ -3042,6 +3139,9 @@ function rescueOutcomeScore(data, schedule, students, remainingByStudent, reloca
     -utilization.singleSlots,
     -supportAssignments,
     -relocations,
+    // Spacing is a final rescue tie-break only. It can never displace a plan
+    // that covers more learners, closes more targets, or rescues more seats.
+    -threeConsecutiveDayRuns,
   ]
 }
 
@@ -3220,6 +3320,84 @@ function repairCoverageWithRelocations(data, inputSchedule, students, remainingB
 function hasThreeConsecutiveTrainingDays(days) {
   const indexes = new Set([...(days || [])].map((day) => DAY_ORDER.get(day)).filter(Number.isInteger))
   return [...indexes].some((index) => indexes.has(index + 1) && indexes.has(index + 2))
+}
+
+function consecutiveTrainingDayRunCount(days) {
+  const indexes = [...new Set([...(days || [])]
+    .map((day) => DAY_ORDER.get(day))
+    .filter(Number.isInteger))].sort((left, right) => left - right)
+  return indexes.reduce((count, index, position) => count
+    + (indexes[position + 1] === index + 1 && indexes[position + 2] === index + 2 ? 1 : 0), 0)
+}
+
+/**
+ * Explain 3-day learner runs without turning the spacing preference into a
+ * hard scheduling rule. `avoidable` is deliberately local: it means there
+ * is at least one valid move of an auto-generated entry for the learner that
+ * removes the run while preserving the learner's session count. A run that
+ * has no such move is reported as unavoidable under the current inputs.
+ */
+function threeConsecutiveDayAudit(data, schedule, students = data.students || []) {
+  const state = buildSchedulingState(schedule)
+  const rows = []
+  let candidateChecks = 0
+  let truncated = false
+  const inspectedStudents = students.slice(0, MAX_THREE_DAY_AUDIT_STUDENTS)
+  if (students.length > inspectedStudents.length) truncated = true
+  auditStudents: for (const student of inspectedStudents) {
+    const days = state.studentDays.get(student.id) || new Set()
+    const runCount = consecutiveTrainingDayRunCount(days)
+    if (!runCount) continue
+    let avoidable = false
+    const entries = Object.entries(schedule || {}).flatMap(([slotId, values]) => (Array.isArray(values) ? values
+      .filter((entry) => entry.type !== 'off' && entry.studentId === student.id && entry.source === 'auto_v4' && entry.isLocked !== true)
+      .map((entry) => ({ slotId, entry })) : []))
+    const candidateSlotList = [...new Set(Array.isArray(student.availableSlots) ? student.availableSlots : [])].sort(compareSlots)
+    if (candidateSlotList.length > MAX_THREE_DAY_AUDIT_SLOTS_PER_STUDENT
+      || (data.trainers || []).length > MAX_THREE_DAY_AUDIT_TRAINERS) truncated = true
+    for (const { slotId, entry } of entries) {
+      const temporary = scheduleWithoutEntry(schedule, slotId, entry)
+      const temporaryState = buildSchedulingState(temporary)
+      const temporaryDays = temporaryState.studentDays.get(student.id) || new Set()
+      for (const candidateSlotId of candidateSlotList.slice(0, MAX_THREE_DAY_AUDIT_SLOTS_PER_STUDENT)) {
+        const candidateDay = String(candidateSlotId).split('-')[0]
+        if (temporaryDays.has(candidateDay)) continue
+        if (hasThreeConsecutiveTrainingDays(new Set([...temporaryDays, candidateDay]))) continue
+        for (const trainer of (data.trainers || []).slice(0, MAX_THREE_DAY_AUDIT_TRAINERS)) {
+          if (candidateChecks >= MAX_THREE_DAY_AUDIT_MOVES) {
+            truncated = true
+            break auditStudents
+          }
+          candidateChecks += 1
+          const candidate = candidateForSlot(data, {
+            student,
+            trainer,
+            slotId: candidateSlotId,
+            schedule: temporary,
+            schedulingState: temporaryState,
+            contractCache: new Map(),
+          })
+          if (candidate.eligible) {
+            avoidable = true
+            break
+          }
+        }
+        if (avoidable) break
+      }
+      if (avoidable) break
+    }
+    rows.push({ studentId: student.id, runCount, avoidable })
+  }
+  return {
+    studentsWithThreeConsecutiveDays: rows.length,
+    threeConsecutiveDayRuns: rows.reduce((total, row) => total + row.runCount, 0),
+    avoidableThreeConsecutiveDays: rows.filter((row) => row.avoidable).length,
+    unavoidableThreeConsecutiveDays: rows.filter((row) => !row.avoidable).length,
+    details: rows,
+    inspectedStudents: inspectedStudents.length,
+    candidateChecks,
+    truncated,
+  }
 }
 
 function compactPairedSlots(data, inputSchedule) {
@@ -4009,6 +4187,7 @@ function generateScheduleAttempt(data) {
     0,
     Number(item.maximumFeasibleSessions || 0) - Number(item.scheduledSessions || 0),
   ), 0)
+  const consecutiveDayAudit = threeConsecutiveDayAudit(data, schedule, students)
   const objectiveOrder = completionFirst
     ? ['fully_scheduled_learners', 'weekly_target_fulfilment', 'learner_coverage', 'pairing', 'trainer_assignment', 'trainer_consecutive_blocks', 'soft_load_balance', 'learner_spacing']
     : ['learner_coverage', 'fully_scheduled_learners', 'weekly_target_fulfilment', 'pairing', 'trainer_assignment', 'trainer_consecutive_blocks', 'soft_load_balance', 'learner_spacing']
@@ -4017,6 +4196,7 @@ function generateScheduleAttempt(data) {
     loadPolicyVersion: 'soft-consecutive-blocks-v2',
     studentCoverage: studentCoverageForSchedule(data, schedule),
     studentFeasibility: finalFeasibility,
+    consecutiveDayAudit,
     trainerLoads: trainerLoadsForSchedule(data, schedule, schedulingState),
     slotUtilization: slotUtilizationForSchedule(data, schedule),
     pairingMoves,
@@ -4398,6 +4578,23 @@ function createPtScheduleV2Functions({
       trainerLoads: data.partial ? [] : trainerLoadsForSchedule({ ...data, weekId: week }, workloadSchedule),
       slotUtilization: slotUtilizationForSchedule({ ...data, weekId: week }, workloadSchedule),
     }
+    const reconciledQuickCoverage = data.partial
+      ? data.quickCoverage || null
+      : {
+          status: 'verified',
+          verification: 'exact',
+          verified: true,
+          source: 'reconciled',
+          scope: 'selected_branch_and_sessions',
+          branchId,
+          weekId: week,
+          ...calculatedOptimizationSummary.studentCoverage,
+          estimatedMissingSessions: calculatedOptimizationSummary.studentCoverage.missingSessions,
+          draftOnly: false,
+          crossBranchCoverageVerified: true,
+          otherBranchScheduledEntries: Object.values(data.weeklySessionCoverage || {})
+            .reduce((total, coverage) => total + Number(coverage?.otherBranches || 0), 0),
+        }
     const responseContractIds = new Set(Object.values(workloadSchedule).flat()
       .map((entry) => entry.contractId)
       .filter(Boolean))
@@ -4465,6 +4662,10 @@ function createPtScheduleV2Functions({
       // Keep only the compact cross-branch coverage projection needed by the
       // warning UI. Raw session/attendance rows stay server-side.
       weeklySessionCoverage: data.weeklySessionCoverage || {},
+      // Initial paint exposes a bounded draft-only estimate. Reconciled
+      // workspaces expose the exact summary above with an explicit status so
+      // the UI never mistakes a fast placeholder for zero missing sessions.
+      quickCoverage: reconciledQuickCoverage,
       // Small optimistic-concurrency references for privileged edits; never
       // send raw attendance/billing documents to the scheduling workspace.
       sessionRefs,
@@ -5389,6 +5590,8 @@ module.exports = {
   candidateForSlot,
   compactPairedSlots,
   createsThreeConsecutiveTrainingDays,
+  consecutiveTrainingDayRunCount,
+  threeConsecutiveDayAudit,
   generateSchedule,
   historicalSlotCandidate,
   slotCalendarDateIsPast,
@@ -5414,6 +5617,7 @@ module.exports = {
   trainerLoadsForSchedule,
   trainerSchedulingPolicy,
   scheduleConflictWarningsForWorkspace,
+  quickCoverageForDisplay,
   weeklySessionCoverageForStudents,
   weeklyTargetForStudent,
   availabilityCutoff,

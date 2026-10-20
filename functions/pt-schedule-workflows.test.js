@@ -185,6 +185,10 @@ test('workspace exposes weekly session coverage from every branch without return
     trainerId: 'other-trainer',
   }])
   assert.deepEqual(result.sessions, [])
+  assert.equal(result.quickCoverage.status, 'verified')
+  assert.equal(result.quickCoverage.verification, 'exact')
+  assert.equal(result.quickCoverage.verified, true)
+  assert.equal(result.quickCoverage.otherBranchScheduledEntries, 1)
 })
 
 test('published Admin workspace paints from profile projections without weekly evidence fan-out', async () => {
@@ -215,6 +219,12 @@ test('initial paint returns a display projection without reconciliation evidence
   assert.deepEqual(result.contracts, [])
   assert.deepEqual(result.sessions, [])
   assert.deepEqual(result.weeklySessionCoverage, {})
+  assert.equal(result.quickCoverage.status, 'ready')
+  assert.equal(result.quickCoverage.verification, 'unverified')
+  assert.equal(result.quickCoverage.verified, false)
+  assert.equal(result.quickCoverage.targetStudents, 2)
+  assert.equal(result.quickCoverage.totalTargetSessions, 7)
+  assert.equal(result.quickCoverage.missingSessions, 7)
 })
 
 test('historical supplement accepts an expired contract that was valid on the actual session date', () => {

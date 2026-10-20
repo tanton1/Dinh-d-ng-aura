@@ -136,6 +136,31 @@ export interface PtScheduleStudentCoverage {
   missingSessions?: number
 }
 
+/** Optional bounded coverage projection for the fast display read.
+ * Older functions omit it; when absent, the UI must keep missing/coverage
+ * counts explicitly pending until the reconciled workspace is loaded. */
+export interface PtScheduleQuickCoverage extends PtScheduleStudentCoverage {
+  status?: 'pending' | 'ready' | 'stale' | 'verified' | 'unverified'
+  verification?: 'exact' | 'unverified' | string
+  verified?: boolean
+  source?: string
+  scope?: string
+  rosterStudents?: number
+  targetStudents?: number
+  estimatedMissingSessions?: number
+  localScheduledEntries?: number
+  rawScheduledEntries?: number
+  knownCrossBranchScheduledEntries?: number
+  crossBranchTargetStudents?: number
+  crossBranchTargetSessions?: number
+  crossBranchMissingSessions?: number | null
+  otherBranchScheduledEntries?: number | null
+  crossBranchCoverageVerified?: boolean
+  unresolvedScheduledEntries?: number
+  draftOnly?: boolean
+  generatedAt?: string | null
+}
+
 /** Compact weekly attendance/scheduling evidence used by the warning center.
  * The raw session rows stay server-side; this projection is scoped to the
  * learners already visible in the selected branch workspace. */
@@ -332,6 +357,8 @@ export interface PtScheduleWorkspaceV2Result extends Omit<BranchScheduleWorkspac
   /** Alias tạm thời để tương thích response thử nghiệm trước v3. */
   trainerLoads?: PtScheduleTrainerDailyLoad[]
   studentCoverage?: PtScheduleStudentCoverage
+  /** Optional rollout field; older functions omit it. */
+  quickCoverage?: PtScheduleQuickCoverage
   weeklySessionCoverage?: Record<string, PtScheduleWeeklyStudentCoverage>
   unassigned?: PtScheduleUnassignedEntry[]
 }
