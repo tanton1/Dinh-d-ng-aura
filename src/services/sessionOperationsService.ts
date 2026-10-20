@@ -3,6 +3,12 @@ import { firebaseFunctions, firebaseScheduleOptimizerFunctions } from '../lib/fi
 
 const regionalOperationNames = new Set([
   'listPtOperationsRequests',
+  'getMySessionChangeSuggestions',
+  'getMyAdditionalSessionSuggestions',
+  'createMyAdditionalSessionRequest',
+  'createMySessionRequest',
+  'approveSessionRequest',
+  'rejectSessionRequest',
   'createMyContractPauseRequest',
   'approveContractPauseRequest',
   'rejectContractPauseRequest',
@@ -97,14 +103,14 @@ export type PtOperationsRequest = PtSessionOperationsRequest | PtPauseOperations
 
 export interface PtOperationsRequestPage {
   schemaVersion: number
-  kind: 'session' | 'pause'
+  kind: 'all' | 'session' | 'pause'
   summary: { total: number; pending: number; approved: number; rejected: number }
   records: PtOperationsRequest[]
   truncated: boolean
 }
 
-export function listPtOperationsRequests(kind: 'session' | 'pause') {
-  return call<{ kind: 'session' | 'pause' }, PtOperationsRequestPage>('listPtOperationsRequests', { kind })
+export function listPtOperationsRequests(kind: 'all' | 'session' | 'pause') {
+  return call<{ kind: 'all' | 'session' | 'pause' }, PtOperationsRequestPage>('listPtOperationsRequests', { kind })
 }
 
 export function recordSessionAttendance(input: {

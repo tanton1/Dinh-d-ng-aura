@@ -24,7 +24,8 @@ import {
 } from '../../../services/sessionOperationsService'
 import '../../../styles-operations-requests.css'
 
-type Props = { kind: 'session' | 'pause' }
+type RequestKind = 'all' | 'session' | 'pause'
+type Props = { kind?: RequestKind; initialFilter?: RequestKind }
 type StatusFilter = 'all' | PtOperationsRequestStatus
 type Decision = { record: PtOperationsRequest; action: 'approve' | 'reject' }
 
@@ -52,13 +53,14 @@ function normalize(value: string) {
   return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('vi-VN')
 }
 
-export default function OperationsRequestCenter({ kind }: Props) {
+export default function OperationsRequestCenter({ kind = 'all', initialFilter }: Props) {
   const [page, setPage] = useState<PtOperationsRequestPage | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [query, setQuery] = useState('')
   const [status, setStatus] = useState<StatusFilter>('pending')
+  const [category, setCategory] = useState<RequestKind>(initialFilter || (kind === 'all' ? 'all' : kind))
   const [decision, setDecision] = useState<Decision | null>(null)
   const [decisionReason, setDecisionReason] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -84,15 +86,21 @@ export default function OperationsRequestCenter({ kind }: Props) {
     void load()
   }, [kind, load])
 
+  useEffect(() => {
+    setCategory(initialFilter || (kind === 'all' ? 'all' : kind))
+    setDecision(null)
+  }, [initialFilter, kind])
+
   const records = useMemo(() => {
     const needle = normalize(query.trim())
     return (page?.records || []).filter((record) => {
+      if (category !== 'all' && record.kind !== category) return false
       if (status !== 'all' && record.status !== status) return false
       if (!needle) return true
       return [record.studentName, record.studentPhone, record.packageName, record.reason, record.id]
         .some((value) => normalize(String(value || '')).includes(needle))
     })
-  }, [page?.records, query, status])
+  }, [category, page?.records, query, status])
 
   const openDecision = (record: PtOperationsRequest, action: Decision['action']) => {
     setDecision({ record, action })
@@ -128,17 +136,23 @@ export default function OperationsRequestCenter({ kind }: Props) {
     }
   }
 
-  const title = kind === 'session' ? 'Đổi, hủy và thêm buổi' : 'OFF và bảo lưu'
-  const subtitle = kind === 'session'
-    ? 'Admin duyệt yêu cầu đổi, hủy, xếp thêm ca và bù buổi. Thông báo học viên vắng trước giờ được ghi nhận ngay, không cần Admin xác nhận.'
-    : 'Duyệt quyền lợi hợp đồng, thời gian nghỉ, số ngày cộng hạn và các ca được miễn.'
+  const title = kind === 'all'
+    ? 'Duyệt yêu cầu vận hành'
+    : kind === 'session'
+      ? 'Đổi, hủy và thêm buổi'
+      : 'OFF và bảo lưu'
+  const subtitle = kind === 'all'
+    ? 'Một hàng đợi duy nhất cho đổi, hủy, thêm/bù buổi, OFF và bảo lưu. Mọi quyết định vẫn chạy qua transaction và ghi audit ở backend.'
+    : kind === 'session'
+      ? 'Admin duyệt yêu cầu đổi, hủy, xếp thêm ca và bù buổi. Thông báo học viên vắng trước giờ được ghi nhận ngay, không cần Admin xác nhận.'
+      : 'Duyệt quyền lợi hợp đồng, thời gian nghỉ, số ngày cộng hạn và các ca được miễn.'
   const requiresExceptionReason = decision?.action === 'approve'
     && decision.record.kind === 'pause'
     && decision.record.requiresExceptionApproval === true
 
   return <section className="operations-requests" aria-busy={loading}>
     <header className="operations-requests__header">
-      <div><span>{kind === 'session' ? <CalendarClock size={16} /> : <CalendarRange size={16} />} AURA PT · NHẬT KÝ YÊU CẦU</span><h2>{title}</h2><p>{subtitle}</p></div>
+      <div><span>{kind === 'pause' ? <CalendarRange size={16} /> : <CalendarClock size={16} />} AURA PT · NHẬT KÝ YÊU CẦU</span><h2>{title}</h2><p>{subtitle}</p></div>
       <button type="button" onClick={() => void load()} disabled={loading} aria-label="Tải lại yêu cầu"><RefreshCw className={loading ? 'is-spinning' : ''} size={18} /></button>
     </header>
 
@@ -150,6 +164,13 @@ export default function OperationsRequestCenter({ kind }: Props) {
         ['rejected', 'Từ chối', page?.summary.rejected || 0],
       ] as Array<[StatusFilter, string, number]>).map(([value, label, count]) => <button type="button" key={value} className={status === value ? 'is-active' : ''} onClick={() => setStatus(value)}><strong>{count}</strong><span>{label}</span></button>)}
     </div>
+    {kind === 'all' && <div className="operations-requests__summary" aria-label="Loại yêu cầu">
+      {([
+        ['all', 'Tất cả yêu cầu'],
+        ['session', 'Đổi / Hủy'],
+        ['pause', 'OFF / Bảo lưu'],
+      ] as Array<[RequestKind, string]>).map(([value, label]) => <button type="button" key={value} className={category === value ? 'is-active' : ''} onClick={() => setCategory(value)}><span>{label}</span></button>)}
+    </div>}
 
     <div className="operations-requests__toolbar">
       <label><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Tên, SĐT, gói tập hoặc mã yêu cầu" /></label>

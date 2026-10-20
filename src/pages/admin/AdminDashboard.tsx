@@ -476,7 +476,7 @@ export default function AdminDashboard({
         taskDetail: `${schedule.totalCount} yêu cầu đổi, hủy hoặc off · ${schedule.warningCount} lịch nháp`,
         metric: schedule, icon: <CalendarClock size={20} />, tone: 'sunset',
         severity: schedule.overdueCount ? 'critical' : schedule.actionCount ? 'warning' : 'normal',
-        view: 'admin-pt-schedule', focus: 'requests',
+        view: 'admin-training-history', focus: 'requests',
       },
       {
         id: 'nutrition', label: 'Duyệt bữa ăn', value: `${nutrition.actionCount.toLocaleString('vi-VN')} bữa`,

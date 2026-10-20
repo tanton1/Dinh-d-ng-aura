@@ -2106,16 +2106,38 @@ async function adminActor(request, db) {
 function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminActor, authorizeStudent = studentActor, now = () => new Date(), logger = console }) {
   const listPtOperationsRequests = onCall(async (request) => {
     await authorizeAdmin(request, db)
-    const kind = request.data?.kind === 'pause' ? 'pause' : request.data?.kind === 'session' ? 'session' : ''
+    const kind = request.data?.kind === 'pause'
+      ? 'pause'
+      : request.data?.kind === 'session'
+        ? 'session'
+        : request.data?.kind === 'all'
+          ? 'all'
+          : ''
     if (!kind) throw new HttpsError('invalid-argument', 'Nhóm yêu cầu không hợp lệ.')
 
-    const collectionName = kind === 'pause' ? 'leaveRequests' : 'sessionRequests'
-    const snapshot = await db.collection(collectionName).limit(OPERATIONS_REQUEST_HISTORY_LIMIT + 1).get()
-    const truncated = snapshot.size > OPERATIONS_REQUEST_HISTORY_LIMIT
-    const documents = snapshot.docs.slice(0, OPERATIONS_REQUEST_HISTORY_LIMIT).map((item) => ({ id: item.id, ...item.data() }))
+    // The approval workspace is the single operational queue. Read a bounded
+    // window from both source collections, merge by creation time, then cap
+    // the response. Older clients can still ask for one collection explicitly.
+    const sourceKinds = kind === 'all' ? ['session', 'pause'] : [kind]
+    const snapshots = await Promise.all(sourceKinds.map((sourceKind) => (
+      db.collection(sourceKind === 'pause' ? 'leaveRequests' : 'sessionRequests')
+        .limit(OPERATIONS_REQUEST_HISTORY_LIMIT + 1)
+        .get()
+    )))
+    const truncated = snapshots.some((snapshot) => snapshot.size > OPERATIONS_REQUEST_HISTORY_LIMIT)
+    const documents = snapshots
+      .flatMap((snapshot, index) => snapshot.docs
+        .slice(0, OPERATIONS_REQUEST_HISTORY_LIMIT)
+        .map((item) => ({ kind: sourceKinds[index], id: item.id, ...item.data() })))
+      .sort((left, right) => {
+        const leftCreatedAt = storedInstantIso(left.createdAt || left.submittedAtIso) || ''
+        const rightCreatedAt = storedInstantIso(right.createdAt || right.submittedAtIso) || ''
+        return rightCreatedAt.localeCompare(leftCreatedAt) || right.id.localeCompare(left.id)
+      })
+      .slice(0, OPERATIONS_REQUEST_HISTORY_LIMIT)
     const studentIds = documents.map((item) => item.studentId)
     const contractIds = documents.map((item) => item.contractId)
-    const sessionIds = kind === 'session' ? documents.map((item) => item.sessionId) : []
+    const sessionIds = documents.filter((item) => item.kind === 'session').map((item) => item.sessionId)
     const [students, contracts, sessions] = await Promise.all([
       documentsById(db, 'students', studentIds),
       documentsById(db, 'contracts', contractIds),
@@ -2139,7 +2161,7 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
       const processedAt = storedInstantIso(item.approvedAt || item.rejectedAt || item.processedAt)
       const common = {
         id: item.id,
-        kind,
+        kind: item.kind,
         status: requestStatus(item.status),
         studentId: optionalText(item.studentId, 128),
         studentName: optionalText(student.name, 160) || 'Học viên chưa cập nhật tên',
@@ -2151,7 +2173,7 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
         createdAt,
         processedAt,
       }
-      if (kind === 'pause') {
+      if (item.kind === 'pause') {
         let durationDays = Number(item.durationDays || 0)
         if (!Number.isFinite(durationDays) || durationDays < 1) {
           try { durationDays = inclusiveDateDays(item.startDate, item.endDate) } catch { durationDays = 0 }
@@ -2214,7 +2236,7 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
         complimentaryLimit: Number(item.complimentaryLimit || 1),
         countsTowardContract: item.countsTowardContract === true || item.expectedCountsTowardContract === true,
       }
-    }).sort((left, right) => String(right.createdAt || '').localeCompare(String(left.createdAt || '')) || right.id.localeCompare(left.id))
+    })
 
     const summary = records.reduce((result, item) => {
       result.total += 1
@@ -3956,7 +3978,9 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
       if (!['active', 'frozen'].includes(contract.status)) throw new HttpsError('failed-precondition', 'Chỉ hợp đồng đang hoạt động mới được đăng ký OFF hoặc bảo lưu.')
       const contractStart = storedContractDate(contract.startDate, 'Ngày bắt đầu')
       const contractEnd = storedContractDate(contract.endDate, 'Ngày kết thúc')
-      if (startDate < contractStart || startDate > contractEnd) throw new HttpsError('failed-precondition', 'Ngày bắt đầu nghỉ phải nằm trong thời hạn hợp đồng hiện tại.')
+      if (startDate < contractStart || endDate > contractEnd) {
+        throw new HttpsError('failed-precondition', 'Toàn bộ khoảng OFF hoặc bảo lưu phải nằm trong thời hạn hợp đồng hiện tại.')
+      }
 
       const packageId = typeof contract.packageId === 'string' && /^[A-Za-z0-9_-]+$/.test(contract.packageId) ? contract.packageId : ''
       const [packageSnapshot, existingRequests] = await Promise.all([

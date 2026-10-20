@@ -1109,6 +1109,16 @@ exports.listPtOperationsRequestsRegional = sessionOperationRegionalFunctions.lis
 exports.createMyContractPauseRequestRegional = sessionOperationRegionalFunctions.createMyContractPauseRequest
 exports.approveContractPauseRequestRegional = sessionOperationRegionalFunctions.approveContractPauseRequest
 exports.rejectContractPauseRequestRegional = sessionOperationRegionalFunctions.rejectContractPauseRequest
+// Route the complete learner/admin request lifecycle through the same bounded
+// overflow profile. Keeping the southeast names above preserves rollback and
+// older clients, while the current web client no longer splits one workflow
+// across two regions.
+exports.getMySessionChangeSuggestionsRegional = sessionOperationRegionalFunctions.getMySessionChangeSuggestions
+exports.getMyAdditionalSessionSuggestionsRegional = sessionOperationRegionalFunctions.getMyAdditionalSessionSuggestions
+exports.createMyAdditionalSessionRequestRegional = sessionOperationRegionalFunctions.createMyAdditionalSessionRequest
+exports.createMySessionRequestRegional = sessionOperationRegionalFunctions.createMySessionRequest
+exports.approveSessionRequestRegional = sessionOperationRegionalFunctions.approveSessionRequest
+exports.rejectSessionRequestRegional = sessionOperationRegionalFunctions.rejectSessionRequest
 exports.chargeDuePtSessionsScheduled = onSchedule({
   schedule: 'every 30 minutes',
   region: 'asia-southeast1',

@@ -7,7 +7,7 @@ import OperationsRequestCenter from './OperationsRequestCenter'
 import TrainingHistoryPanel from './TrainingHistoryPanel'
 import '../../../styles-training-history-workspace.css'
 
-type WorkspaceView = 'student' | 'trainer' | 'changes' | 'pauses'
+type WorkspaceView = 'student' | 'trainer' | 'changes' | 'pauses' | 'requests'
 
 function normalise(value: string | undefined) {
   return (value || '').trim().toLocaleLowerCase('vi-VN')
@@ -26,10 +26,10 @@ function historyDeepLink() {
   }
 }
 
-export default function TrainingHistoryWorkspace() {
+export default function TrainingHistoryWorkspace({ initialView = 'student' }: { initialView?: WorkspaceView } = {}) {
   const { trainers, operationsSync } = useDatabase()
   const [deepLink] = useState(historyDeepLink)
-  const [view, setView] = useState<WorkspaceView>(() => deepLink.trainerId ? 'trainer' : 'student')
+  const [view, setView] = useState<WorkspaceView>(() => deepLink.trainerId ? 'trainer' : deepLink.studentId ? 'student' : initialView)
   const [query, setQuery] = useState('')
   const [selectedId, setSelectedId] = useState(() => deepLink.trainerId || deepLink.studentId)
   const [directoryRows, setDirectoryRows] = useState<Student360DirectoryItem[]>([])
@@ -119,6 +119,7 @@ export default function TrainingHistoryWorkspace() {
       <button type="button" role="tab" aria-selected={view === 'trainer'} className={view === 'trainer' ? 'is-active' : ''} onClick={() => setView('trainer')}><Dumbbell size={18} /> Lịch dạy PT</button>
       <button type="button" role="tab" aria-selected={view === 'changes'} className={view === 'changes' ? 'is-active' : ''} onClick={() => setView('changes')}><CalendarClock size={18} /> Đổi / Hủy</button>
       <button type="button" role="tab" aria-selected={view === 'pauses'} className={view === 'pauses' ? 'is-active' : ''} onClick={() => setView('pauses')}><CalendarRange size={18} /> OFF / Bảo lưu</button>
+      <button type="button" role="tab" aria-selected={view === 'requests'} className={view === 'requests' ? 'is-active' : ''} onClick={() => setView('requests')}><CalendarClock size={18} /> Tất cả yêu cầu</button>
     </div>
 
     {isHistoryView ? <div className="training-history-workspace__layout">
@@ -136,6 +137,6 @@ export default function TrainingHistoryWorkspace() {
         </div>
       </aside>
       <main className="training-history-workspace__content">{selected ? <TrainingHistoryPanel subject={subject} subjectId={selected.id} subjectName={selected.name || `Aura ${subjectCopy.singular}`} focusSessionId={(subject === 'trainer' ? selected.id === deepLink.trainerId : selected.id === deepLink.studentId) ? deepLink.sessionId : ''} focusDate={(subject === 'trainer' ? selected.id === deepLink.trainerId : selected.id === deepLink.studentId) ? deepLink.date : ''} /> : <div className="training-history-workspace__placeholder"><History size={28} /><h2>Chọn một {subjectCopy.singular}</h2><p>Danh sách bên trái giúp mở nhật ký đúng người, sau đó chọn thời gian và trạng thái cần xem.</p></div>}</main>
-    </div> : <main className="training-history-workspace__requests"><OperationsRequestCenter kind={view === 'changes' ? 'session' : 'pause'} /></main>}
+    </div> : <main className="training-history-workspace__requests"><OperationsRequestCenter kind="all" initialFilter={view === 'changes' ? 'session' : view === 'pauses' ? 'pause' : undefined} /></main>}
   </div>
 }
