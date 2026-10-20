@@ -1138,11 +1138,13 @@ function AuraApplication() {
       case 'admin-pt-schedule': return <AuraOperationsFrame className="aura-operations-page--schedule">{backendMode === 'firebase'
         ? !authzReady
           ? <div className="course-detail-state" role="status"><h1>Đang xác minh phạm vi lịch</h1><p>Aura đang tải quyền chi nhánh trước khi mở công cụ xếp lịch.</p></div>
-          : accessContext?.capabilities.includes('pt.schedule.branch.publish')
-            ? <BranchScheduleWorkspace key={`${accessContext.uid}:${accessContext.authzVersion}`} accessContext={accessContext} initialTab={route.focus === 'requests' ? 'requests' : undefined} onNavigate={(view) => navigate(view)} />
+          : route.focus === 'requests' && accessContext?.capabilities.includes('pt.operations.manage')
+            ? <TrainingHistoryWorkspace initialView="requests" />
+            : accessContext?.capabilities.includes('pt.schedule.branch.publish')
+              ? <BranchScheduleWorkspace key={`${accessContext.uid}:${accessContext.authzVersion}`} accessContext={accessContext} onNavigate={(view) => navigate(view)} />
             : <div className="course-detail-state" role="alert"><h1>Chưa được cấp quyền xếp lịch</h1><p>Trang lịch được khóa an toàn vì tài khoản chưa có phạm vi chi nhánh phù hợp.</p></div>
         : <SchedulerWrapper user={user as any} profile={profile} accessContext={accessContext} backendMode={backendMode} onNavigate={(view) => navigate(view as ViewId)} />}</AuraOperationsFrame>
-      case 'admin-training-history': return <AuraOperationsFrame><TrainingHistoryWorkspace /></AuraOperationsFrame>
+      case 'admin-training-history': return <AuraOperationsFrame><TrainingHistoryWorkspace initialView={route.focus === 'requests' ? 'requests' : undefined} /></AuraOperationsFrame>
       case 'admin-pt-workouts': return <AuraOperationsFrame><PtWorkoutWorkspacePage isDemo={backendMode === 'demo'} canPublishCatalog={accessContext?.accessRole === 'admin' || accessContext?.accessRole === 'super_admin' || role === 'admin' || role === 'super_admin'} initialStudentId={staffStudentFocus?.id} /></AuraOperationsFrame>
       case 'admin-trainer-quality': return <AuraOperationsFrame><TrainerQualityPage isDemo={backendMode === 'demo'} /></AuraOperationsFrame>
       case 'admin-performance': return <AuraOperationsFrame className="aura-operations-page--performance"><PerformanceReviewPage isDemo={backendMode === 'demo'} onNavigate={navigate} backView="admin-dashboard" scopeLabel="Trung tâm điều hành" /></AuraOperationsFrame>
