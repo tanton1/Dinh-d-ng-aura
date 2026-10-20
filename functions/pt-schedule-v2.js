@@ -236,10 +236,10 @@ async function indexedCrossBranchStudentProfiles(db, search, rawSearch = search)
   return [...profiles.values()]
 }
 
-async function crossBranchStudentProfilesForSearch(db, search, rawSearch = search) {
+async function crossBranchStudentProfilesForSearch(db, search, rawSearch = search, branchId = '') {
   const cache = crossBranchStudentSearchCacheFor(db)
   const now = Date.now()
-  const cacheKey = `${String(search || '')}|${String(rawSearch || '')}`
+  const cacheKey = `${String(branchId || '')}|${String(search || '')}|${String(rawSearch || '')}`
   if (!cache.searches) cache.searches = new Map()
   const cached = cache.searches.get(cacheKey)
   if (cached && now - cached.storedAt < CROSS_BRANCH_STUDENT_SEARCH_TTL_MS) return cached.value
@@ -248,14 +248,20 @@ async function crossBranchStudentProfilesForSearch(db, search, rawSearch = searc
 
   const pending = indexedCrossBranchStudentProfiles(db, search, rawSearch)
     .then(async (indexed) => {
-      // If no migrated projection matches, preserve compatibility for legacy
-      // profiles. This path is temporary and is naturally retired as the
-      // student projection is backfilled.
-      const value = indexed.length ? indexed : (await crossBranchStudentProfiles(db)).filter((profile) => (
+      // A local indexed hit must not hide an older external-branch document
+      // that has not received the additive projection yet. Merge the bounded
+      // compatibility scan only when the prefix result has no external
+      // branch; the scan itself remains process-cached for the search TTL.
+      const hasExternalIndexedMatch = indexed.some((profile) => profile.branchId && profile.branchId !== branchId)
+      const legacy = !indexed.length || (branchId && !hasExternalIndexedMatch)
+        ? await crossBranchStudentProfiles(db)
+        : []
+      const legacyMatches = legacy.filter((profile) => (
         normalizedSearchText(profile.name).includes(search)
           || normalizedSearchText(profile.phone).includes(search)
           || normalizedSearchText(profile.email).includes(search)
       ))
+      const value = [...new Map([...indexed, ...legacyMatches].map((profile) => [profile.id, profile])).values()]
       cache.searches.set(cacheKey, { value, storedAt: Date.now() })
       return value
     })
@@ -4576,7 +4582,7 @@ function createPtScheduleV2Functions({
     // Quyền admin và xác nhận ngoại lệ chỉ có hiệu lực ở bước commit.
     let crossBranchCandidates = []
     if (activeAdministrator(actor) && search.length >= 2) {
-      const globalStudents = await crossBranchStudentProfilesForSearch(db, search, rawSearch)
+      const globalStudents = await crossBranchStudentProfilesForSearch(db, search, rawSearch, branchId)
       const externalMatches = globalStudents
         .filter((profile) => profile.branchId !== branchId)
         .filter((profile) => normalizedSearchText(profile.name).includes(search)
