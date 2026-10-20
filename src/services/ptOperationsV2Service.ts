@@ -499,7 +499,7 @@ export async function getMyTrainerStudentDetail(studentId: string, weekId: strin
 }
 
 export async function confirmMySession(sessionId: string, expectedRevision: number) {
-  const result = await call<{ sessionId: string; expectedRevision: number }, { unchanged: boolean; revision: number }>('confirmMySession', { sessionId, expectedRevision })
+  const result = await regionalCall<{ sessionId: string; expectedRevision: number }, { unchanged: boolean; revision: number }>('confirmMySessionRegional', { sessionId, expectedRevision })
   invalidateReadCache(
     'getMyCoachWorkspaceScopeRegional',
     'getMyCoachWorkspaceScope',
@@ -521,12 +521,12 @@ export async function recordMySessionAttendance(input: {
   noShowReason?: '' | 'busy' | 'sick' | 'forgot' | 'unreachable' | 'other'
   note?: string
 }) {
-  const result = await call<typeof input, {
+  const result = await regionalCall<typeof input, {
     unchanged: boolean
     revision: number
     attendanceEventId: string
     attendanceStatus: SessionAttendanceStatus
-  }>('recordMySessionAttendance', input)
+  }>('recordMySessionAttendanceRegional', input)
   invalidateReadCache(
     'getMyCoachWorkspaceScopeRegional',
     'getMyCoachWorkspaceScope',
@@ -539,10 +539,10 @@ export async function recordMySessionAttendance(input: {
 }
 
 export async function bulkConfirmMySessions(items: Array<{ sessionId: string; expectedRevision: number }>) {
-  const result = await call<
+  const result = await regionalCall<
     { items: Array<{ sessionId: string; expectedRevision: number }> },
     { total: number; confirmed: number; failed: number; results: Array<{ sessionId: string; ok: boolean; revision?: number; code?: string }> }
-  >('bulkConfirmMySessions', { items })
+  >('bulkConfirmMySessionsRegional', { items })
   invalidateReadCache(
     'getMyCoachWorkspaceScopeRegional',
     'getMyCoachWorkspaceScope',
@@ -563,7 +563,7 @@ export async function requestSessionChange(input: {
   newHour?: number
   idempotencyKey: string
 }) {
-  const result = await call<typeof input, { requestId: string }>('requestSessionChange', input)
+  const result = await regionalCall<typeof input, { requestId: string }>('requestSessionChangeRegional', input)
   invalidateReadCache(
     'getMyCoachWorkspaceScopeRegional',
     'getMyCoachWorkspaceScope',
@@ -645,7 +645,7 @@ export async function createQuote(input: {
   discount: number
   memberReferralCode?: string
 }) {
-  const result = await call<typeof input, { quoteId: string; code: string; finalPrice: number }>('createQuote', input)
+  const result = await regionalCall<typeof input, { quoteId: string; code: string; finalPrice: number }>('createQuoteRegional', input)
   invalidateReadCache(
     'getMySalesWorkspaceRegional',
     'getMySalesWorkspace',
@@ -661,5 +661,5 @@ export async function createStudentDraft(input: {
   email?: string
   branchId: string
 }) {
-  return call<typeof input, { leadId: string }>('createStudentDraft', input)
+  return regionalCall<typeof input, { leadId: string }>('createStudentDraftRegional', input)
 }

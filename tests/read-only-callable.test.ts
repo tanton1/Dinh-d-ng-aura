@@ -80,6 +80,21 @@ test('PT/Sales first-render reads prefer bounded East aliases and retain a trans
   assert.match(service, /new Error\(staffCallableMessage\(code, rawMessage\), \{ cause: error \}\)/)
 })
 
+test('transactional PT/Sales writes use explicit East aliases without automatic failover', () => {
+  const service = readFileSync(new URL('../src/services/ptOperationsV2Service.ts', import.meta.url), 'utf8')
+  const schedule = readFileSync(new URL('../src/services/studentPtScheduleService.ts', import.meta.url), 'utf8')
+  for (const name of [
+    'confirmMySessionRegional',
+    'recordMySessionAttendanceRegional',
+    'bulkConfirmMySessionsRegional',
+    'requestSessionChangeRegional',
+    'createQuoteRegional',
+    'createStudentDraftRegional',
+  ]) assert.match(service, new RegExp(`regionalCall<[\\s\\S]*${name}`))
+  assert.match(schedule, /saveMyStudentAvailabilityRegional/)
+  assert.match(schedule, /timeout: 30_000/)
+})
+
 test('student schedule and feedback reads use the same East-first fallback policy', () => {
   const schedule = readFileSync(new URL('../src/services/studentPtScheduleService.ts', import.meta.url), 'utf8')
   const feedback = readFileSync(new URL('../src/services/sessionFeedbackService.ts', import.meta.url), 'utf8')

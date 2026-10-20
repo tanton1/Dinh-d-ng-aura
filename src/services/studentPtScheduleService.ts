@@ -418,6 +418,7 @@ export async function listMyStudentPtSchedule(from: string, to: string, availabi
 
 export async function saveMyStudentAvailability(input: { weekId: string; availableSlots: string[]; expectedRevision: number; confirmBelowMinimum?: boolean; requestedSessions?: number | null }) {
   try {
+    const regionalFunctions = firebaseScheduleOptimizerFunctions
     const callable = httpsCallable<typeof input, {
       schemaVersion: number
       availableSlots: string[]
@@ -425,7 +426,7 @@ export async function saveMyStudentAvailability(input: { weekId: string; availab
       availabilityRevision: number
       isScheduleConfirmed: boolean
       availability: StudentPtAvailability
-    }>(functionsInstance(), 'saveMyStudentAvailability')
+    }>(regionalFunctions || functionsInstance(), regionalFunctions ? 'saveMyStudentAvailabilityRegional' : 'saveMyStudentAvailability', { timeout: 30_000 })
     return (await callable(input)).data
   } catch (error) {
     throw asStudentPtScheduleError(error)
