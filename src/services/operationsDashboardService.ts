@@ -1,8 +1,8 @@
 import { httpsCallable } from 'firebase/functions'
-import { firebaseFunctions } from '../lib/firebaseFunctions'
+import { firebaseFunctions, firebaseScheduleOptimizerFunctions } from '../lib/firebaseFunctions'
 import { normalizeOperationsDashboardData, type OperationsDashboardData } from '../utils/operationsDashboardNormalization'
-import { reportClientIssue } from './clientTelemetryService'
-import { callReadOnlyFunction } from './readOnlyCallableService'
+import { createClientCorrelationId, reportClientIssue } from './clientTelemetryService'
+import { callReadOnlyFunction, runReadOnlyWithFallback } from './readOnlyCallableService'
 export type { DashboardActionMetric, OperationsDashboardData } from '../utils/operationsDashboardNormalization'
 
 export interface TodaySessionsData {
@@ -21,6 +21,29 @@ const dashboardPreviewEnabled = import.meta.env.MODE === 'e2e'
 const dashboardRequests = new Map<string, Promise<OperationsDashboardData>>()
 const dashboardResponses = new Map<string, { value: OperationsDashboardData; expiresAt: number }>()
 const DASHBOARD_CLIENT_CACHE_MS = 15_000
+
+async function callDashboardRead<Input, Output>(
+  regionalName: string,
+  legacyName: string,
+  input: Input,
+  timeoutMs: number,
+) {
+  const correlationId = createClientCorrelationId()
+  const invoke = (functionsClient: typeof firebaseFunctions, callableName: string) => {
+    if (!functionsClient) throw new Error('Firebase Functions chưa sẵn sàng.')
+    return callReadOnlyFunction<Input, Output>(callableName, input, {
+      functionsClient,
+      maximumAttempts: 1,
+      timeoutMs,
+      correlationId,
+    })
+  }
+  if (!firebaseScheduleOptimizerFunctions) return invoke(firebaseFunctions, legacyName)
+  return runReadOnlyWithFallback(
+    () => invoke(firebaseScheduleOptimizerFunctions, regionalName),
+    () => invoke(firebaseFunctions, legacyName),
+  )
+}
 
 function normalizeDashboardResponse(response: unknown) {
   try {
@@ -115,10 +138,12 @@ export async function getOperationsDashboard(input: { startAt?: string; endAt?: 
   } else {
     dashboardResponses.delete(requestKey)
   }
-  const pending = callReadOnlyFunction<typeof input, unknown>('getOperationsDashboard', input, {
-    timeoutMs: 30_000,
-    maximumAttempts: 2,
-  })
+  const pending = callDashboardRead<typeof input, unknown>(
+    'getOperationsDashboardRegional',
+    'getOperationsDashboard',
+    input,
+    30_000,
+  )
     .then(normalizeDashboardResponse)
     .then((value) => {
       dashboardResponses.set(requestKey, { value, expiresAt: Date.now() + DASHBOARD_CLIENT_CACHE_MS })
@@ -150,10 +175,12 @@ export async function getTodaySessions(input: { branchId?: string; forceRefresh?
     } satisfies TodaySessionsData
   }
   if (!firebaseFunctions) throw new Error('Firebase Functions chưa sẵn sàng.')
-  return callReadOnlyFunction<{ branchId?: string; forceRefresh?: boolean }, TodaySessionsData>('getTodaySessions', input, {
-    timeoutMs: 15_000,
-    maximumAttempts: 1,
-  })
+  return callDashboardRead<{ branchId?: string; forceRefresh?: boolean }, TodaySessionsData>(
+    'getTodaySessionsRegional',
+    'getTodaySessions',
+    input,
+    15_000,
+  )
 }
 
 export async function listStaffAttendance(periodId: string) {

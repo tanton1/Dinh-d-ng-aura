@@ -638,11 +638,19 @@ function contractEffectiveDate(value) {
   return value.signedAt || value.createdAt || value.contractDate || value.startDate || null
 }
 
-function createOperationsDashboardFunctions({ db, onCall, logger = console }) {
+function createOperationsDashboardFunctions({
+  db,
+  onCall,
+  logger = console,
+  dashboardCallOptions = {},
+  todaySessionsCallOptions = {},
+  attendanceCallOptions = {},
+}) {
   const sharedCache = createSharedDashboardCache({ db, logger })
   const getTodaySessions = onCall({
     cpu: 'gcf_gen1',
     maxInstances: 2,
+    ...todaySessionsCallOptions,
   }, async (request) => {
     const startedAt = Date.now()
     const actor = await trustedAccessContext(request, db)
@@ -728,6 +736,7 @@ function createOperationsDashboardFunctions({ db, onCall, logger = console }) {
     // bursts and avoid reserving three CPUs for an admin-only screen.
     maxInstances: 1,
     concurrency: 8,
+    ...dashboardCallOptions,
   }, async (request) => {
     const startedAt = Date.now()
     const actor = await trustedAccessContext(request, db)
@@ -1003,7 +1012,7 @@ function createOperationsDashboardFunctions({ db, onCall, logger = console }) {
     })
     return result
   })
-  const listStaffAttendance = onCall(async (request) => {
+  const listStaffAttendance = onCall(attendanceCallOptions, async (request) => {
     const actor = await trustedAccessContext(request, db)
     requireCapability(actor, 'payroll.operations.manage')
     const periodId = typeof request.data?.periodId === 'string' ? request.data.periodId.trim() : ''

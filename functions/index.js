@@ -550,6 +550,35 @@ exports.saveNutritionMealLog = nutritionReviewFunctions.saveNutritionMealLog
 exports.deleteNutritionMealLog = nutritionReviewFunctions.deleteNutritionMealLog
 exports.submitNutritionMealReview = nutritionReviewFunctions.submitNutritionMealReview
 Object.assign(exports, createOperationsDashboardFunctions({ db, onCall, logger }))
+const operationsDashboardOverflowOnCall = (optionsOrHandler, maybeHandler) => {
+  const resourceOptions = {
+    region: 'asia-east1',
+    invoker: 'public',
+  }
+  return typeof optionsOrHandler === 'function'
+    ? onCall(resourceOptions, optionsOrHandler)
+    : onCall({ ...resourceOptions, ...optionsOrHandler }, maybeHandler)
+}
+const operationsDashboardOverflowFunctions = createOperationsDashboardFunctions({
+  db,
+  onCall: operationsDashboardOverflowOnCall,
+  logger,
+  dashboardCallOptions: {
+    memory: '512MiB',
+    cpu: 1,
+    maxInstances: 1,
+    concurrency: 4,
+    timeoutSeconds: 120,
+  },
+  todaySessionsCallOptions: {
+    cpu: 'gcf_gen1',
+    maxInstances: 2,
+    concurrency: 1,
+    timeoutSeconds: 60,
+  },
+})
+exports.getOperationsDashboardRegional = operationsDashboardOverflowFunctions.getOperationsDashboard
+exports.getTodaySessionsRegional = operationsDashboardOverflowFunctions.getTodaySessions
 Object.assign(exports, createContractUsageViewFunctions({ db, onCall, logger }))
 Object.assign(exports, createActionCenterFunctions({ db, onCall, logger }))
 const packageManagementFunctions = createPackageManagementFunctions({ db, onCall })

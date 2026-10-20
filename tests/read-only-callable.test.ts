@@ -113,6 +113,21 @@ test('student schedule and feedback reads use the same East-first fallback polic
   assert.doesNotMatch(nutrition, /reviewNutritionMealRegional/)
 })
 
+test('operations dashboard reads prefer bounded East aliases and retain the legacy fallback', () => {
+  const functionsSource = readFileSync(new URL('../functions/operations-dashboard.js', import.meta.url), 'utf8')
+  const indexSource = readFileSync(new URL('../functions/index.js', import.meta.url), 'utf8')
+  const service = readFileSync(new URL('../src/services/operationsDashboardService.ts', import.meta.url), 'utf8')
+  assert.match(functionsSource, /dashboardCallOptions = \{\}/)
+  assert.match(functionsSource, /todaySessionsCallOptions = \{\}/)
+  assert.match(indexSource, /exports\.getOperationsDashboardRegional =/)
+  assert.match(indexSource, /exports\.getTodaySessionsRegional =/)
+  assert.match(service, /getOperationsDashboardRegional/)
+  assert.match(service, /getTodaySessionsRegional/)
+  assert.match(service, /runReadOnlyWithFallback/)
+  assert.match(service, /maximumAttempts: 1/)
+  assert.match(service, /timeoutMs/)
+})
+
 test('duplicate Academy readers share a pending failover and release it after completion', async () => {
   const pending = new Map<string, Promise<string>>()
   let release!: () => void
@@ -197,10 +212,10 @@ test('Operations dashboard uses the bounded read-only retry and auth recovery pa
     source.indexOf('export async function listStaffAttendance'),
   )
 
-  assert.match(source, /import \{ callReadOnlyFunction \} from '\.\/readOnlyCallableService'/)
-  assert.match(dashboardLoader, /callReadOnlyFunction<[^>]+, unknown>\('getOperationsDashboard', input, \{/)
-  assert.match(dashboardLoader, /timeoutMs: 30_000/)
-  assert.match(dashboardLoader, /maximumAttempts: 2/)
+  assert.match(source, /callReadOnlyFunction/)
+  assert.match(dashboardLoader, /callDashboardRead<[^>]+, unknown>\(/)
+  assert.match(dashboardLoader, /30_000/)
+  assert.match(source, /maximumAttempts: 1/)
   assert.doesNotMatch(dashboardLoader, /httpsCallable/)
 })
 
