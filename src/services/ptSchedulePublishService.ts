@@ -501,9 +501,16 @@ const regionalPublishCallableNames = new Map([
 // Read-heavy workspace calls should stay beside the canonical Firestore
 // database. Mutations and the optimizer remain on their existing overflow
 // aliases, but routing these reads through asia-east1 added a cross-region
-// hop and made slow retries look like duplicate work.
+// hop and made slow retries look like duplicate work. Their Regional aliases
+// remain available as a bounded fallback during the rollout.
 const sameRegionScheduleReadCallables = new Set([
   'listPtScheduleBranches',
+  'getPtScheduleWorkspace',
+  'getPtScheduleSlotCandidates',
+])
+const regionalReadFallbackCallables = new Set([
+  'getPtScheduleWorkspace',
+  'getPtScheduleSlotCandidates',
 ])
 
 function callableErrorCode(error: unknown) {
@@ -560,12 +567,18 @@ export function asPtSchedulePublishError(error: unknown) {
 
 async function invoke<TInput extends Record<string, unknown>, TOutput>(name: string, input: TInput) {
   const timeout = name === 'validatePtScheduleDraft' ? 30_000 : retryableReadCallables.has(name) ? 20_000 : 60_000
-  const callableName = sameRegionScheduleReadCallables.has(name)
-    ? name
-    : regionalPublishCallableNames.get(name) || name
-  const callable = httpsCallable<TInput, TOutput>(functionsInstanceForCallable(name), callableName, { timeout })
   const maximumAttempts = retryableReadCallables.has(name) ? 2 : 1
+  let useRegionalReadFallback = false
   for (let attempt = 0; attempt < maximumAttempts; attempt += 1) {
+    const callableName = useRegionalReadFallback
+      ? regionalPublishCallableNames.get(name) || name
+      : sameRegionScheduleReadCallables.has(name)
+        ? name
+        : regionalPublishCallableNames.get(name) || name
+    const callableFunctions = useRegionalReadFallback && firebaseSchedulePublishFunctions
+      ? firebaseSchedulePublishFunctions
+      : functionsInstanceForCallable(name)
+    const callable = httpsCallable<TInput, TOutput>(callableFunctions, callableName, { timeout })
     try {
       return (await callable(input)).data
     } catch (error) {
@@ -579,6 +592,13 @@ async function invoke<TInput extends Record<string, unknown>, TOutput>(name: str
           retryable,
         })
         throw asPtSchedulePublishError(error)
+      }
+      // The V2 workspace reads are primary in asia-southeast1. If that
+      // endpoint is unavailable during rollout, use the existing east-region
+      // alias for the second (and final) attempt instead of repeating the
+      // same failed regional request.
+      if (regionalReadFallbackCallables.has(name) && firebaseSchedulePublishFunctions) {
+        useRegionalReadFallback = true
       }
       await retryDelay(400)
     }
