@@ -950,6 +950,10 @@ const ptScheduleV2RegionalFunctions = createPtScheduleV2Functions({
   onCall: ptSchedulePublishRegionalOnCall,
   branchCatalogOnCall: ptScheduleWorkspaceRegionalOnCall,
   workspaceOnCall: ptScheduleWorkspaceRegionalOnCall,
+  // Candidate lookup is a read-heavy interaction from the open drawer.
+  // Keep it on the already-warm workspace profile so the first cross-branch
+  // search does not pay a second cold start on the mutation profile.
+  slotCandidatesOnCall: ptScheduleWorkspaceRegionalOnCall,
 })
 exports.listPtScheduleBranchesRegional = ptScheduleV2RegionalFunctions.listPtScheduleBranches
 exports.getPtScheduleWorkspaceRegional = ptScheduleV2RegionalFunctions.getPtScheduleWorkspace

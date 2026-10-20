@@ -4234,6 +4234,7 @@ function createPtScheduleV2Functions({
   onCall,
   branchCatalogOnCall = onCall,
   workspaceOnCall = onCall,
+  slotCandidatesOnCall = onCall,
   actorForBranch = scheduleActor,
   branchData = loadBranchData,
   manualData = loadManualMutationData,
@@ -4431,7 +4432,7 @@ function createPtScheduleV2Functions({
     return result
   })
 
-  const getPtScheduleSlotCandidates = onCall(async (request) => {
+  const getPtScheduleSlotCandidates = slotCandidatesOnCall(async (request) => {
     const week = weekId(request.data?.weekId)
     const branchId = documentId(request.data?.branchId, 'Mã chi nhánh')
     const trainerId = documentId(request.data?.trainerId, 'Mã PT')
