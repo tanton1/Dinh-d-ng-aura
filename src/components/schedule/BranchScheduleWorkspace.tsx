@@ -249,12 +249,10 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
   // trustworthy before the full reconcile; otherwise render an explicit
   // pending state instead of exposing the server's placeholder zeroes.
   const quickCoverage = workspace?.quickCoverage as PtScheduleQuickCoverage | undefined
-  // `status: ready` means that the bounded estimate exists, not that it has
-  // passed contract/session reconciliation. Only the reconciled payload is
-  // authoritative for learner coverage and warning counts.
-  const quickCoverageReady = Boolean(quickCoverage?.verified === true
-    && quickCoverage?.verification === 'exact')
-  const coveragePending = workspaceDisplayMode || (workspace?.partial === true && !quickCoverageReady)
+  // A partial workspace is never authoritative, even when it includes a
+  // bounded estimate. Only the reconciled payload is authoritative for
+  // learner coverage and warning counts.
+  const coveragePending = workspaceDisplayMode || workspace?.partial === true
   const quickCoverageEstimate = coveragePending && Boolean(quickCoverage)
   const quickCoverageSessionsLabel = quickCoverageEstimate
     && quickCoverage
@@ -1275,7 +1273,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
   )
   const warningMissingValue = coveragePending ? '—' : String(warningProfiles.length)
   const warningMissingNote = coveragePending
-    ? (quickCoverageEstimate ? 'Có bản xem nhanh · cần đối soát đầy đủ' : 'Chạy Xếp tối ưu để tính')
+    ? (quickCoverageEstimate ? 'Ước tính · cần đối soát' : 'Chạy Xếp tối ưu để tính')
     : `${warningMissingSessions} buổi trong tuần`
   const visibleWarningProfiles = warningFilter === 'priority'
     ? warningProfiles
@@ -2013,9 +2011,9 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
 
       <section className="branch-schedule__summary-strip" aria-label="Tóm tắt lịch tuần">
         <button type="button" onClick={() => setTab('students')}><UsersRound /><strong>{coveragePending ? '—' : `${studentCoverage.fullyScheduled}/${studentCoverage.eligible}`}</strong><span>{coveragePending ? 'Chưa đối soát' : 'học viên đủ lịch'}</span></button>
-        <button type="button" onClick={() => setTab('students')}><CalendarRange /><strong>{coveragePending ? quickCoverageSessionsLabel : `${studentCoverage.scheduledEntries}/${studentCoverage.totalTargetSessions}`}</strong><span>{coveragePending ? (quickCoverageEstimate ? 'Ước tính nhanh · chưa đối soát' : 'Buổi đã xếp · chưa đối soát mục tiêu') : 'buổi đã xếp'}</span></button>
+        <button type="button" onClick={() => setTab('students')}><CalendarRange /><strong>{coveragePending ? quickCoverageSessionsLabel : `${studentCoverage.scheduledEntries}/${studentCoverage.totalTargetSessions}`}</strong><span>{coveragePending ? (quickCoverageEstimate ? 'Ước tính · chưa đối soát' : 'Buổi đã xếp · mục tiêu chưa đối soát') : 'buổi đã xếp'}</span></button>
         <button type="button" onClick={() => setTab('warnings')} className={slotUtilization.singleSlots > 0 ? 'is-attention' : ''}><UsersRound /><strong>{slotUtilization.pairedSlots} đôi</strong><span>{slotUtilization.singleSlots} ca còn lẻ</span></button>
-        <button type="button" onClick={openFirstWarningStudentAvailability} className={warningCount > 0 ? 'is-attention' : ''}><AlertTriangle /><strong>{warningCount}</strong><span>{coveragePending ? 'Xung đột nhanh · thiếu buổi chưa tính' : 'cảnh báo cần xem'}</span></button>
+        <button type="button" onClick={openFirstWarningStudentAvailability} className={warningCount > 0 ? 'is-attention' : ''}><AlertTriangle /><strong>{warningCount}</strong><span>{coveragePending ? 'Xung đột nhanh · thiếu buổi —' : 'cảnh báo cần xem'}</span></button>
       </section>
 
       <section className="branch-schedule__toolbar">
@@ -2259,7 +2257,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
             <header><div><strong>Lịch cần đối soát</strong><span>Chọn một dòng để mở đúng ô trong ma trận.</span></div><b>{scheduleConflictWarnings.length}</b></header>
             <div>{scheduleConflictWarnings.slice(0, 100).map((row) => <button type="button" key={row.key} onClick={() => { setSelectedTrainerId(row.trainerId); setInspectorSlotId(row.slotId); setCandidateSearch(''); setTab('matrix') }}><AlertTriangle size={16} /><span><strong>{row.studentName}</strong><small>{scheduleSlotLabel(row.slotId, weekDates)} · {row.trainerName}</small><em>{diagnosticReasonLabel(row.code)}</em></span><ChevronRight size={16} /></button>)}</div>
           </section>}
-          {coveragePending && <div className="schedule-warning-empty" role="status"><RefreshCw size={16} /><span>Thiếu buổi và các nhóm nguyên nhân chưa được đối soát. Bấm “Xếp tối ưu” hoặc “Publish” để kiểm tra đầy đủ; các xung đột nhìn thấy ở trên vẫn có thể xử lý ngay.</span></div>}
+          {coveragePending && <div className="schedule-warning-empty"><RefreshCw /><span>Thiếu buổi chưa đối soát.</span></div>}
           <section className="schedule-warning-grid">
              {visibleWarningProfiles.map(({ student, missingSessions: missing, scheduledSessions, scheduledEntries, crossBranchScheduledSessions, reasonCodes, primaryReasonCode, warningCause, actionCode, candidateSlots, suggestedSlots }) => {
                const expanded = expandedWarningStudentId === student.id
