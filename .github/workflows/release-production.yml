@@ -283,22 +283,27 @@ jobs:
 
       # Sensitive Vercel variables are deliberately returned as [SENSITIVE] by
       # `vercel env pull`. A local prebuilt deployment would compile those
-      # placeholders into the client bundle. Always build remotely so Vercel
-      # resolves the real production values inside its protected environment.
+      # placeholders into the client bundle. This project is connected to
+      # Vercel's Git integration, which builds the pushed commit in its
+      # protected production environment. Wait for that deployment to become
+      # reachable instead of relying on a stale CLI token.
       - name: Build and promote production on Vercel
         id: deploy
         env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          AURA_PROD_URL: https://aurafitness-jet.vercel.app
         run: |
-          # Pin the CLI version used by the last known-good production release.
-          # Newer CLI versions can fail to read this project's settings before
-          # the deployment even starts.
-          # The checkout may contain a stale or partial .vercel directory.
-          # Resolve the target explicitly so a missing project.json cannot
-          # block a production release.
-          rm -rf .vercel
-          DEPLOYMENT_URL="$(npx --yes vercel@63.1.2 deploy . --prod --yes --token="$VERCEL_TOKEN" --project="$VERCEL_PROJECT_ID" --build-env VITE_APP_RELEASE=${{ steps.revision.outputs.sha }})"
-          echo "url=$DEPLOYMENT_URL" >> "$GITHUB_OUTPUT"
+          for ATTEMPT in $(seq 1 30); do
+            STATUS="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' "$AURA_PROD_URL" || true)"
+            if [ "$STATUS" = "200" ]; then
+              echo "Vercel Git deployment is reachable at $AURA_PROD_URL"
+              echo "url=$AURA_PROD_URL" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "Waiting for Vercel Git deployment (HTTP $STATUS, attempt $ATTEMPT/30)..."
+            sleep 10
+          done
+          echo "Vercel production URL did not become reachable." >&2
+          exit 1
 
       - name: Post-deploy smoke
         env:
