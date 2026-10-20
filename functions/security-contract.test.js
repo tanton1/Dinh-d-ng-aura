@@ -351,7 +351,7 @@ test('sensitive operations routes require Identity v2 capabilities in addition t
   assert.match(ptScheduleClientSource, /maximumAttempts = retryableReadCallables\.has\(name\) \? 2 : 1/)
   assert.match(ptScheduleClientSource, /retryableReadCallables\.has\(name\) \? 20_000/)
   assert.match(ptScheduleClientSource, /sameRegionScheduleReadCallables = new Set\(\[\s*'listPtScheduleBranches',\s*'getPtScheduleWorkspace',\s*'getPtScheduleSlotCandidates'/)
-  assert.match(ptScheduleClientSource, /regionalReadFallbackCallables = new Set\(\[\s*'getPtScheduleWorkspace',\s*'getPtScheduleSlotCandidates'/)
+  assert.match(ptScheduleClientSource, /regionalReadFallbackCallables = new Set\(\[\s*'listPtScheduleBranches',\s*'getPtScheduleWorkspace',\s*'getPtScheduleSlotCandidates'/)
   assert.match(ptScheduleClientSource, /useRegionalReadFallback = true/)
   assert.match(ptScheduleClientSource, /phase: `admin_schedule_callable_\$\{name\}`/)
   assert.match(branchScheduleWorkspaceSource, /branchCatalogState === 'error'[\s\S]*?Không thể tải phạm vi chi nhánh[\s\S]*?Kết nối lại/)

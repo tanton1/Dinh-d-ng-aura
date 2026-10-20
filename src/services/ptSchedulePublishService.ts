@@ -509,6 +509,7 @@ const sameRegionScheduleReadCallables = new Set([
   'getPtScheduleSlotCandidates',
 ])
 const regionalReadFallbackCallables = new Set([
+  'listPtScheduleBranches',
   'getPtScheduleWorkspace',
   'getPtScheduleSlotCandidates',
 ])
