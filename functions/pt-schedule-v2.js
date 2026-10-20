@@ -4475,7 +4475,7 @@ function createPtScheduleV2Functions({
     // lookup vẫn dùng cùng exact contract/session validation như write path.
     // Quyền admin và xác nhận ngoại lệ chỉ có hiệu lực ở bước commit.
     let crossBranchCandidates = []
-    if (activeAdministrator(actor) && search.length >= 2 && (request.data?.crossBranchOnly === true || historical)) {
+    if (activeAdministrator(actor) && search.length >= 2) {
       const globalStudents = await crossBranchStudentProfiles(db)
       const externalMatches = globalStudents
         .filter((profile) => profile.branchId !== branchId)
