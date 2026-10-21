@@ -177,6 +177,8 @@ export interface PtScheduleWeeklyStudentCoverage {
     date: string
     hour: number | null
     trainerId: string
+    trainerName?: string
+    branchName?: string
   }>
 }
 
@@ -363,7 +365,7 @@ export interface PtScheduleWorkspaceV2Result extends Omit<BranchScheduleWorkspac
   unassigned?: PtScheduleUnassignedEntry[]
   /** Metadata from the denormalized one-document weekly read model. */
   weeklyViewRevision?: number
-  weeklyViewSourceRevision?: number
+  weeklyViewSourceRevision?: number | string
   weeklyViewFreshness?: 'display' | 'stale' | 'verified' | string
   weeklyViewGeneratedAt?: string | null
 }
@@ -375,7 +377,7 @@ export interface PtScheduleWorkspaceV2Result extends Omit<BranchScheduleWorkspac
 export interface PtScheduleWeeklyViewResult {
   workspace?: Partial<PtScheduleWorkspaceV2Result>
   viewRevision?: number
-  sourceRevision?: number
+  sourceRevision?: number | string
   freshness?: 'display' | 'stale' | 'verified' | string
   generatedAt?: string | null
   [key: string]: unknown

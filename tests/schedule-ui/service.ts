@@ -10,6 +10,10 @@ let workspace: any = { schemaVersion: 2, branch: { id: 'b', name: 'CS1', status:
 const track = (operation: string, input: any) => { (window as any).__scheduleCalls ??= []; (window as any).__scheduleCalls.push({ operation, input }) }
 export const listPtScheduleBranches = async () => ({ branches: [{ id: 'b', name: 'CS1' }, { id: 'c', name: 'CS2' }] })
 export const getPtScheduleWorkspace = async (input: any) => { track('load', input); return structuredClone({ ...workspace, weekId: input.weekId, branch: { ...workspace.branch, id: input.branchId } }) }
+// The production workspace now paints from the one-document weekly view. The
+// fixture returns the same bounded workspace shape so UI tests exercise the
+// rollout path without requiring Firebase.
+export const getPtScheduleWeeklyView = async (input: any) => { track('weekly-view', input); return structuredClone({ ...workspace, weekId: input.weekId, branch: { ...workspace.branch, id: input.branchId }, freshness: 'verified', readMode: 'reconciled', partial: false, viewRevision: 1, sourceRevision: 1 }) }
 export const ptScheduleConflictLabel = (code: string) => code === 'STUDENT_AVAILABILITY_DAYS_INSUFFICIENT'
   ? 'Học viên đăng ký chưa đủ số ngày rảnh để hoàn thành mục tiêu tuần.'
   : code

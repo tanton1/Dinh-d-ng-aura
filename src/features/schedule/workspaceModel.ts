@@ -419,6 +419,10 @@ function workspaceFromWeeklyViewSnapshot(
   const draftStatus: PtScheduleWorkspaceV2Result['draftStatus'] = source.draftStatus === 'published' || source.status === 'published'
     ? 'published'
     : current.draftStatus
+  const mergeById = <T extends { id: string }>(key: string, fallback: T[]) => {
+    const prior = new Map(fallback.map((item) => [item.id, item]))
+    return readArray<T>(key, fallback).map((item) => ({ ...prior.get(item.id), ...item }))
+  }
   return {
     ...current,
     branch: readObject('branch', current.branch),
@@ -427,9 +431,9 @@ function workspaceFromWeeklyViewSnapshot(
     publishedVersion,
     publishedRevision: Number(source.publishedRevision ?? current.publishedRevision),
     schedule: readObject('schedule', current.schedule),
-    students: readArray('students', current.students),
-    trainers: readArray('trainers', current.trainers),
-    contracts: readArray('contracts', current.contracts),
+    students: mergeById('students', current.students) as PtScheduleWorkspaceV2Result['students'],
+    trainers: mergeById('trainers', current.trainers) as PtScheduleWorkspaceV2Result['trainers'],
+    contracts: mergeById('contracts', current.contracts) as PtScheduleWorkspaceV2Result['contracts'],
     sessions: readArray('sessions', current.sessions),
     scheduleConfig: readObject('scheduleConfig', current.scheduleConfig),
     sessionRefs: readObject('sessionRefs', current.sessionRefs || {}),
@@ -456,7 +460,9 @@ function workspaceFromWeeklyViewSnapshot(
       : current.weeklySessionCoverage,
     unassigned: readArray('unassigned', current.unassigned || []),
     weeklyViewRevision: Number(raw.viewRevision ?? source.viewRevision ?? current.weeklyViewRevision ?? 0),
-    weeklyViewSourceRevision: Number(raw.sourceRevision ?? source.sourceRevision ?? current.weeklyViewSourceRevision ?? revision),
+    weeklyViewSourceRevision: typeof (raw.sourceRevision ?? source.sourceRevision) === 'string'
+      ? String(raw.sourceRevision ?? source.sourceRevision)
+      : Number(raw.sourceRevision ?? source.sourceRevision ?? current.weeklyViewSourceRevision ?? revision),
     weeklyViewFreshness: freshness || current.weeklyViewFreshness,
     weeklyViewGeneratedAt: typeof raw.generatedAt === 'string'
       ? raw.generatedAt

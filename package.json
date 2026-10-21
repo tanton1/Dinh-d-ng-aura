@@ -27,7 +27,7 @@
     "check:repo-hygiene": "node scripts/check-repo-hygiene.mjs",
     "exercise:compare": "node scripts/compare-exercise-sources.cjs",
     "exercise:release": "node scripts/release-free-exercise-catalog.cjs",
-    "ci": "npm run check:repo-hygiene && npm run typecheck && npm run test:profile-sync && npm run test:eat-clean && npm run build && npm run performance:check && npm --prefix functions run check && npm --prefix functions run check:apikey-fun",
+    "ci": "npm run check:repo-hygiene && npm run typecheck && npm run test:profile-sync && npm run test:eat-clean && npm run build && npm run performance:check && npm --prefix functions run check && npm --prefix functions run check:weekly-view && npm --prefix functions run check:apikey-fun",
     "typecheck": "tsc -b --force",
     "start": "vite preview --host 0.0.0.0"
   },

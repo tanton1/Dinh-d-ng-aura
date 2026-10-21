@@ -7,6 +7,7 @@
   },
   "scripts": {
     "check:schedule-load-policy": "node --check schedule-load-policy.js && node --test schedule-load-policy.test.js schedule-config-management.test.js",
+    "check:weekly-view": "node --check pt-schedule-weekly-view.js && node --test pt-schedule-weekly-view.test.js",
     "precheck": "node --check performance-score.js && node --check performance-automatic.js && node --test performance-score.test.js performance-automatic.test.js observability.test.js && node --check nutrition-plans.js && node --test nutrition-plans.test.js && node --check schedule-config-management.js && node --test schedule-config-management.test.js && node --check student-management.js && node --test student-management.test.js && node --check branch-management.js && node --test branch-management.test.js",
     "pretest": "node --check performance-score.js && node --check performance-automatic.js && node --test performance-score.test.js performance-automatic.test.js observability.test.js && node --check schedule-config-management.js && node --test schedule-config-management.test.js && node --check student-management.js && node --test student-management.test.js && node --check branch-management.js && node --test branch-management.test.js",
     "check:pt-workout": "node --check pt-workout-tracking.js && node --test pt-workout-tracking.test.js",

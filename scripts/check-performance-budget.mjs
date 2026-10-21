@@ -23,10 +23,10 @@ const budgets = {
   // The schedule workspace now includes cross-branch search and the admin
   // warning center. Keep the gate tight while allowing that intentional
   // feature surface to ship without hiding a regression elsewhere.
-  // The current workspace measures about 30.4 KiB gzip after the cross-branch
-  // warning and availability flows. Keep a 31.5 KiB ceiling so the gate
-  // reflects the shipped surface without masking a larger regression.
-  schedulerWorkspaceJsGzip: 31_500,
+  // The weekly read-model adds compact cross-branch coverage and complete
+  // warning context. Keep a 34 KiB ceiling; verbose warning details remain in
+  // a lazy chunk so the first matrix paint does not pay for them.
+  schedulerWorkspaceJsGzip: 34_000,
   schedulerFallbackJsGzip: 10_000,
   progressPageJsGzip: 20_000,
 }

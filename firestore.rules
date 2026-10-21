@@ -1110,6 +1110,14 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // Server-owned branch/week read model. It contains only the compact
+    // scheduling projection and denormalized warning context; raw sessions,
+    // contracts and availability remain callable/server-only data.
+    match /ptScheduleWeeklyViews/{viewId} {
+      allow read: if isAdmin() || managesBranchSchedule(resource.data.get('branchId', ''));
+      allow write: if false;
+    }
+
     match /ptScheduleCommandReceipts/{receiptId} {
       allow read, write: if false;
     }

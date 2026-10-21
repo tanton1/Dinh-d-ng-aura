@@ -45,7 +45,7 @@ const { createPtOperationsV2Functions } = require('./pt-operations-v2')
 const { createSessionFeedbackFunctions } = require('./session-feedback')
 const { createPtSchedulePublishFunctions, documentId: scheduleDocumentId, weekId: scheduleWeekId } = require('./pt-schedule-publish')
 const { createPtScheduleV2Functions, draftExpiresAt, invalidateBranchDataCache, safeSchedule, scopedDraftData, scheduleActor } = require('./pt-schedule-v2')
-const { createPtScheduleWeeklyViewFunctions } = require('./pt-schedule-weekly-view')
+const { createPtScheduleWeeklyViewFunctions, rebuildDirtyPtScheduleWeeklyViews, syncPtScheduleWeeklyViewSource } = require('./pt-schedule-weekly-view')
 const { applyAdminScheduleEdit } = require('./pt-schedule-admin-edit')
 const { trustedAccessContext, requireCapability } = require('./identity-access')
 const { createFinanceLedgerFunctions } = require('./finance-ledger')
@@ -990,6 +990,41 @@ const ptScheduleWeeklyViewRegionalFunctions = createPtScheduleWeeklyViewFunction
 exports.getPtScheduleWeeklyViewRegional = ptScheduleWeeklyViewRegionalFunctions.getPtScheduleWeeklyView
 exports.rebuildPtScheduleWeeklyViewRegional = ptScheduleWeeklyViewRegionalFunctions.rebuildPtScheduleWeeklyView
 exports.markPtScheduleWeeklyViewDirtyRegional = ptScheduleWeeklyViewRegionalFunctions.markPtScheduleWeeklyViewDirty
+
+// Source writes only mark the branch/week projection dirty. A short scheduled
+// worker coalesces several adjacent edits (draft + availability + publish)
+// into one exact rebuild, so the browser receives one revision update instead
+// of reopening the full workspace for every write.
+const weeklyViewSourceTrigger = (document, source) => onDocumentWritten({
+  document,
+  database: databaseId,
+  region: 'asia-southeast1',
+  cpu: 0.25,
+  concurrency: 1,
+  maxInstances: 1,
+  retry: true,
+}, async (event) => syncPtScheduleWeeklyViewSource({ db, event, source, logger }))
+
+exports.syncPtScheduleWeeklyViewFromDraft = weeklyViewSourceTrigger('ptScheduleDrafts/{documentId}', 'draft')
+exports.syncPtScheduleWeeklyViewFromTarget = weeklyViewSourceTrigger('ptScheduleTargetOverrides/{documentId}', 'target')
+exports.syncPtScheduleWeeklyViewFromSession = weeklyViewSourceTrigger('sessions/{sessionId}', 'session')
+exports.syncPtScheduleWeeklyViewFromStudent = weeklyViewSourceTrigger('students/{studentId}', 'student')
+exports.syncPtScheduleWeeklyViewFromContract = weeklyViewSourceTrigger('contracts/{contractId}', 'contract')
+exports.syncPtScheduleWeeklyViewFromContractUsage = weeklyViewSourceTrigger('contractUsageViews/{contractId}', 'contractUsage')
+exports.syncPtScheduleWeeklyViewFromAvailability = weeklyViewSourceTrigger('ptAvailability/{availabilityId}', 'availability')
+exports.syncPtScheduleWeeklyViewFromTrainerAvailability = weeklyViewSourceTrigger('trainerAvailability/{availabilityId}', 'trainerAvailability')
+exports.syncPtScheduleWeeklyViewFromLeave = weeklyViewSourceTrigger('leaveRequests/{requestId}', 'leave')
+exports.syncPtScheduleWeeklyViewFromScheduleConfig = weeklyViewSourceTrigger('settings/{documentId}', 'scheduleConfig')
+
+exports.rebuildDirtyPtScheduleWeeklyViewsScheduled = onSchedule({
+  schedule: 'every 1 minutes',
+  timeZone: 'Asia/Ho_Chi_Minh',
+  region: 'asia-southeast1',
+  retryCount: 1,
+  maxInstances: 1,
+  timeoutSeconds: 540,
+  memory: '512MiB',
+}, async () => rebuildDirtyPtScheduleWeeklyViews({ db, limit: 8, logger }))
 
 // Admin-only schedule corrections update the real session and the operational
 // draft in one transaction. They intentionally live beside (rather than

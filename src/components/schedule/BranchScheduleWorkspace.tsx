@@ -1,4 +1,4 @@
-import { startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { lazy, startTransition, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   Activity,
   AlertTriangle,
@@ -74,6 +74,11 @@ interface Props {
   onNavigate?: (view: 'admin-pt-students' | 'admin-training-history') => void
 }
 
+// Warning profiles are collapsed on the initial paint. Keep their verbose
+// contact/quota/availability panel out of the workspace chunk until an admin
+// actually expands a warning.
+const ScheduleWarningDetail = lazy(() => import('./ScheduleWarningDetail'))
+
 import {
   APP_UPDATE_READY_EVENT,
   APP_UPDATE_READY_KEY,
@@ -85,13 +90,11 @@ import {
   TRAINER_LOAD_LABELS,
   WORKSPACE_CACHE_REVALIDATE_MS,
   availabilityDayCount,
-  availabilitySlotLabel,
   candidateCanBeManuallyScheduled,
   candidateMatchesStudentAvailability,
   commandKey,
   compareScheduleSlots,
   currentVietnamDateKey,
-  diagnosticActionLabel,
   diagnosticReasonLabel,
   finiteCount,
   formatPublishedAt,
@@ -212,37 +215,48 @@ function normalizeWeeklyViewResult(
           trainerId: String((entry as Record<string, unknown>).trainerId || ''),
           type: (entry as Record<string, unknown>).type === 'off' ? 'off' : 'training',
           adminOverrideWarnings: Array.isArray((entry as Record<string, unknown>).warningCodes)
-            ? (entry as Record<string, unknown>).warningCodes
+            ? ((entry as Record<string, unknown>).warningCodes as unknown[]).filter((code): code is string => typeof code === 'string')
             : undefined,
         }))
       : []])),
     students,
     trainers,
-    contracts: [],
+    contracts: Array.isArray(source.contracts) ? source.contracts as PtScheduleWorkspaceV2Result['contracts'] : [],
     sessions: [],
-    scheduleConfig: {
-      workingDays: ['T2', 'T3', 'T4', 'T5', 'T6', 'T7'],
-      workingHours: Array.from({ length: 16 }, (_, index) => index + 6),
-    },
+    scheduleConfig: source.scheduleConfig && typeof source.scheduleConfig === 'object'
+      ? source.scheduleConfig as PtScheduleWorkspaceV2Result['scheduleConfig']
+      : {
+          workingDays: ['T2', 'T3', 'T4', 'T5', 'T6', 'T7'],
+          workingHours: Array.from({ length: 16 }, (_, index) => index + 6),
+        },
     summary: {
-      eligibleStudents: Number(compactSummary.students ?? students.filter((student) => student.eligibleForWeek).length),
+      eligibleStudents: Number(compactSummary.eligibleStudents ?? students.filter((student) => student.eligibleForWeek).length),
       trainers: Number(compactSummary.trainers ?? trainers.length),
       unconfiguredTrainers: trainers.filter((trainer) => trainer.availabilityMode === 'unconfigured').length,
       scheduledEntries: Number(compactSummary.scheduledEntries ?? 0),
       missingSessions: Number(compactSummary.missingSessions ?? 0),
-      unassignedEntries: Number(compactSummary.warningCount ?? 0),
+      unassignedEntries: Number(compactSummary.unassignedEntries ?? compactSummary.warningCount ?? 0),
     },
     warnings: Array.isArray(source.warnings) ? source.warnings as PtScheduleWorkspaceV2Result['warnings'] : [],
+    unassignedEntries: Array.isArray(source.unassignedEntries) ? source.unassignedEntries as PtScheduleWorkspaceV2Result['unassignedEntries'] : [],
+    optimizationSummary: source.optimizationSummary && typeof source.optimizationSummary === 'object'
+      ? source.optimizationSummary as PtScheduleWorkspaceV2Result['optimizationSummary']
+      : undefined,
+    weeklySessionCoverage: source.weeklySessionCoverage && typeof source.weeklySessionCoverage === 'object'
+      ? source.weeklySessionCoverage as PtScheduleWorkspaceV2Result['weeklySessionCoverage']
+      : {},
     partial: typeof source.partial === 'boolean' ? source.partial : readMode !== 'reconciled',
     readMode,
     weeklyViewRevision: Number(raw.viewRevision ?? source.viewRevision ?? 0),
-    weeklyViewSourceRevision: Number(raw.sourceRevision ?? source.sourceRevision ?? draftRevision),
+    weeklyViewSourceRevision: typeof (raw.sourceRevision ?? source.sourceRevision) === 'string'
+      ? String(raw.sourceRevision ?? source.sourceRevision)
+      : Number(raw.sourceRevision ?? source.sourceRevision ?? draftRevision),
     weeklyViewFreshness: freshness,
     weeklyViewGeneratedAt: typeof raw.generatedAt === 'string'
       ? raw.generatedAt
       : typeof source.generatedAt === 'string' ? source.generatedAt : null,
   }
-  return fallback ? workspaceFromWeeklyViewSnapshot(fallback, normalizedWorkspace) : normalizedWorkspace
+  return fallback ? workspaceFromWeeklyViewSnapshot(fallback, normalizedWorkspace as unknown as PtScheduleWeeklyViewResult) : normalizedWorkspace
 }
 
 // Keep only conflicts that change the operational meaning of a matrix cell.
@@ -314,7 +328,6 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
   const [optimizationStatus, setOptimizationStatus] = useState<string | null>(null)
   const candidateCache = useRef(new Map<string, PtScheduleSlotCandidate[]>())
   const workspaceRef = useRef<PtScheduleWorkspaceV2Result | null>(null)
-  const availabilitySyncRevisionRef = useRef('')
   const busyRef = useRef(false)
   const hoverClearTimer = useRef<number | null>(null)
   const workspaceRequestRef = useRef<{ scope: string; forceAvailabilityRefresh: boolean; reconcile: boolean; promise: Promise<void> } | null>(null)
@@ -512,6 +525,16 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
         })))
         const loadDisplayWorkspace = () => loadWorkspaceRequest(requestKey, () => measureScheduleTask('workspace', async () => {
           try {
+            // Keep older regional adapters and test fixtures compatible while
+            // the weekly-view callable rolls out alongside the client.
+            if (typeof getPtScheduleWeeklyView !== 'function') {
+              return getPtScheduleWorkspace({
+                weekId: currentWeekId,
+                branchId,
+                initialPaint: true,
+                forceAvailabilityRefresh,
+              })
+            }
             const weeklyView = await getPtScheduleWeeklyView({
               weekId: currentWeekId,
               branchId,
@@ -645,7 +668,6 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
     }
     setNotice(null)
     setNoticeAction(null)
-    availabilitySyncRevisionRef.current = ''
     setPublishPreview(null)
     setPublishIssues([])
     setHistory(null)
@@ -660,38 +682,6 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
     candidateCache.current.clear()
     setMobilePage(0)
   }, [branchId, currentWeekId, loadWorkspace, workspaceScope])
-
-  useEffect(() => {
-    if (!firestoreDb || !branchId || !currentWeekId || !canListenToDraft) return undefined
-    // Student availability is written through a callable, so the Admin
-    // workspace cannot rely on its draft listener to notice the change. This
-    // one branch/week document is a cheap realtime invalidation signal; the
-    // actual availability payload still comes from the capability-checked
-    // workspace callable.
-    const syncReference = doc(firestoreDb, 'ptAvailabilitySync', `${branchId}_${currentWeekId}`)
-    const stop = onSnapshot(syncReference, (snapshot) => {
-      const value = snapshot.data()
-      if (!snapshot.exists() || !value) return
-      const revision = String(Number(value.revision || 0))
-      if (revision === '0' || revision === availabilitySyncRevisionRef.current) return
-      const hadPreviousRevision = Boolean(availabilitySyncRevisionRef.current)
-      availabilitySyncRevisionRef.current = revision
-      // The first snapshot also refreshes a workspace restored from the
-      // browser cache; later snapshots update an already-open page.
-      if (!hadPreviousRevision || document.visibilityState === 'visible') void loadWorkspace(true, true)
-    }, () => {
-      // Managers without direct Firestore access continue to receive the
-      // normal callable refresh path; a denied marker listener is harmless.
-    })
-    const refreshWhenVisible = () => {
-      if (document.visibilityState === 'visible' && availabilitySyncRevisionRef.current) void loadWorkspace(true, true)
-    }
-    document.addEventListener('visibilitychange', refreshWhenVisible)
-    return () => {
-      stop()
-      document.removeEventListener('visibilitychange', refreshWhenVisible)
-    }
-  }, [branchId, canListenToDraft, currentWeekId, loadWorkspace])
 
   useEffect(() => {
     if (!notice) return undefined
@@ -2465,6 +2455,12 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
                const topCandidates = (candidateSlots || []).filter((slot) => slot.availableTrainerIds?.length || slot.blockerCodes?.length).slice(0, 4)
                const weeklyCoverage = workspace.weeklySessionCoverage?.[student.id]
                const otherBranchEntries = (weeklyCoverage?.entries || []).filter((entry) => entry.branchId !== branchId)
+               const studentContracts = workspace.contracts.filter((contract) => contract.studentId === student.id)
+               const primaryContract = studentContracts.reduce<(typeof studentContracts)[number] | null>((current, contract) => {
+                 if (!current) return contract
+                 return String(current.endDate || '').localeCompare(String(contract.endDate || '')) < 0 ? contract : current
+               }, null)
+               const homeBranchName = branches.find((branch) => branch.id === (student.studentHomeBranchId || student.branchId))?.name || student.studentHomeBranchId || student.branchId || 'Chưa xác định'
                const allScheduledEntries = [
                  ...scheduledEntries.map((entry) => ({
                    id: `${entry.slotId}|${entry.trainerId}`,
@@ -2477,7 +2473,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
                    id: entry.id,
                    label: `${entry.date}${entry.hour === null ? '' : ` · ${String(entry.hour).padStart(2, '0')}:00`}`,
                    branchName: branches.find((branch) => branch.id === entry.branchId)?.name || `Cơ sở ${entry.branchId}`,
-                   trainerName: entry.trainerId ? 'Đã có PT' : 'PT chưa cập nhật',
+                   trainerName: entry.trainerName || (entry.trainerId ? 'PT khác cơ sở' : 'PT chưa cập nhật'),
                    crossBranch: true,
                  })),
                ]
@@ -2494,15 +2490,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
                   <button type="button" onClick={() => openWarningStudentAvailability(student)} aria-expanded={expanded} aria-label={`Mở lịch rảnh của ${student.name}`}>
                   <AlertTriangle /><div><span className="schedule-warning-student__title"><strong>{student.name}</strong>{missing > 0 && <b>Thiếu {missing}</b>}</span><span className="schedule-warning-student__meta"><small className={`schedule-warning-cause-label is-${warningCause}`}>{warningCauseLabel(warningCause)}</small><b>{student.eligibleForWeek ? `${scheduledSessions}/${student.sessionsPerWeek} buổi${crossBranchScheduledSessions > 0 ? ` · +${crossBranchScheduledSessions} CS khác` : ''}` : 'Chưa đủ điều kiện'}</b></span><em className="schedule-warning-primary">{primaryReasons.length ? primaryReasons.map(diagnosticReasonLabel).join(' · ') : diagnosticReasonLabel(primaryReasonCode)}</em></div><ChevronRight />
                  </button>
-                 {expanded && <div className="schedule-warning-detail schedule-warning-detail--compact">
-                   <section className="is-wide schedule-warning-action"><small>Hướng xử lý</small><strong>{diagnosticActionLabel(actionCode)}</strong></section>
-                   <section className="is-wide schedule-warning-availability"><small>Lịch rảnh đã đăng ký</small><strong>{student.availableSlots.length ? `${student.availableSlots.length} khung giờ` : 'Chưa có lịch rảnh'}</strong>{student.availableSlots.length ? <div className="schedule-warning-availability__slots">{student.availableSlots.map((slot) => <span key={slot}>{availabilitySlotLabel(slot)}</span>)}</div> : <em>Học viên chưa gửi khung giờ rảnh cho tuần này.</em>}</section>
-                   <section className="is-wide schedule-warning-schedule"><small>Lịch đã xếp · đủ cả hai cơ sở</small><strong>{scheduledSessions} buổi trong tuần{crossBranchScheduledSessions > 0 ? ` · ${crossBranchScheduledSessions} ở cơ sở khác` : ''}</strong><div>{allScheduledEntries.length ? allScheduledEntries.map((entry) => <span key={entry.id} className={entry.crossBranch ? 'is-cross-branch' : ''}><b>{entry.label}</b><small>{entry.branchName} · {entry.trainerName}</small></span>) : <em>Chưa có buổi nào trong tuần.</em>}</div></section>
-                   <section className="is-wide is-suggestion"><small>Ca có thể xử lý</small><div>{topCandidates.length ? topCandidates.slice(0, 2).map((slot) => {
-                    const trainerNamesForSlot = slot.availableTrainerIds?.map((trainerId) => workspace.trainers.find((trainer) => trainer.id === trainerId)?.name).filter(Boolean).join(', ')
-                    return <button type="button" key={slot.slotId} onClick={() => openDiagnosticSlot(slot)}><span>{scheduleSlotLabel(slot.slotId, weekDates)}</span><b>{trainerNamesForSlot || slot.blockerCodes?.slice(0, 1).map(diagnosticReasonLabel).join('')}</b><ChevronRight size={13} /></button>
-                  }) : suggestedSlots.length ? suggestedSlots.slice(0, 2).map((slot) => <span key={slot}>{scheduleSlotLabel(slot, weekDates)}</span>) : <em>Chưa có ca phù hợp</em>}</div></section>
-                </div>}
+                 {expanded && <Suspense fallback={<div className="schedule-warning-detail schedule-warning-detail--compact"><span>Đang tải chi tiết hồ sơ…</span></div>}><ScheduleWarningDetail student={student} workspace={workspace} branchId={branchId} weekDates={weekDates} scheduledSessions={scheduledSessions} crossBranchScheduledSessions={crossBranchScheduledSessions} actionCode={actionCode} topCandidates={topCandidates} suggestedSlots={suggestedSlots} primaryContract={primaryContract} homeBranchName={homeBranchName} allScheduledEntries={allScheduledEntries} openDiagnosticSlot={openDiagnosticSlot} /></Suspense>}
               </article>
             })}
             {warningFilter === 'priority' && !coveragePending && !warningProfiles.length && !scheduleConflictWarnings.length && <div className="schedule-warning-empty"><CheckCircle2 /> Không còn cảnh báo.</div>}
