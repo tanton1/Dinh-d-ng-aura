@@ -760,9 +760,17 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
             startDraftFallback()
             return
           }
+          // Dirty markers intentionally contain only revision metadata while
+          // the debounced rebuild is in flight. Keep the single listener and
+          // wait for its next full snapshot instead of opening a second broad
+          // draft stream.
+          if (raw.dirty === true && !raw.schedule) {
+            setSyncState('syncing')
+            return
+          }
           if (!current || current.branch.id !== branchId || current.weekId !== currentWeekId) return
-          const revision = Number(raw.draftRevision ?? raw.sourceRevision ?? 0)
-          if (revision < current.draftRevision) return
+          const revisionValue = Number(raw.draftRevision ?? (typeof raw.sourceRevision === 'number' ? raw.sourceRevision : 0))
+          if (Number.isFinite(revisionValue) && revisionValue < current.draftRevision) return
           try {
             const next = raw.branchId && !raw.branch
               ? normalizeWeeklyViewResult(raw, current)
