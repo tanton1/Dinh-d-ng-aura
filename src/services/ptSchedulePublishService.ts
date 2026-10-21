@@ -361,6 +361,24 @@ export interface PtScheduleWorkspaceV2Result extends Omit<BranchScheduleWorkspac
   quickCoverage?: PtScheduleQuickCoverage
   weeklySessionCoverage?: Record<string, PtScheduleWeeklyStudentCoverage>
   unassigned?: PtScheduleUnassignedEntry[]
+  /** Metadata from the denormalized one-document weekly read model. */
+  weeklyViewRevision?: number
+  weeklyViewSourceRevision?: number
+  weeklyViewFreshness?: 'display' | 'stale' | 'verified' | string
+  weeklyViewGeneratedAt?: string | null
+}
+
+/**
+ * The weekly read model may wrap the existing workspace payload during
+ * rollout. The UI accepts both the wrapped and top-level shapes.
+ */
+export interface PtScheduleWeeklyViewResult {
+  workspace?: Partial<PtScheduleWorkspaceV2Result>
+  viewRevision?: number
+  sourceRevision?: number
+  freshness?: 'display' | 'stale' | 'verified' | string
+  generatedAt?: string | null
+  [key: string]: unknown
 }
 
 export interface PtScheduleSlotCandidate {
@@ -503,6 +521,7 @@ const retryableReadCallables = new Set([
   'getMyBranchScheduleWorkspace',
   'getPtScheduleSlotCandidates',
   'getPtScheduleWorkspace',
+  'getPtScheduleWeeklyView',
   'listPtScheduleBranches',
   'listPtScheduleVersions',
   'validatePtScheduleDraft',
@@ -517,6 +536,7 @@ const regionalPublishCallableNames = new Map([
   ['adminEditPtSchedule', 'adminEditPtScheduleRegional'],
   ['listPtScheduleBranches', 'listPtScheduleBranchesRegional'],
   ['getPtScheduleWorkspace', 'getPtScheduleWorkspaceRegional'],
+  ['getPtScheduleWeeklyView', 'getPtScheduleWeeklyViewRegional'],
   ['getPtScheduleSlotCandidates', 'getPtScheduleSlotCandidatesRegional'],
   ['createHistoricalPtSession', 'createHistoricalPtSessionRegional'],
   ['savePtStudentAvailability', 'savePtStudentAvailabilityRegional'],
@@ -534,11 +554,13 @@ const sameRegionScheduleReadCallables = new Set([
   'listPtScheduleBranches',
   'getPtScheduleWorkspace',
   'getPtScheduleSlotCandidates',
+  'getPtScheduleWeeklyView',
 ])
 const regionalReadFallbackCallables = new Set([
   'listPtScheduleBranches',
   'getPtScheduleWorkspace',
   'getPtScheduleSlotCandidates',
+  'getPtScheduleWeeklyView',
 ])
 
 function callableErrorCode(error: unknown) {
@@ -679,6 +701,11 @@ export function listPtScheduleBranches() {
 
 export function getPtScheduleWorkspace(input: { weekId: string; branchId: string; initialPaint?: boolean; forceAvailabilityRefresh?: boolean }) {
   return invoke<typeof input, PtScheduleWorkspaceV2Result>('getPtScheduleWorkspace', input)
+}
+
+/** Read the denormalized branch/week snapshot used for the first paint. */
+export function getPtScheduleWeeklyView(input: { weekId: string; branchId: string; initialPaint?: boolean; forceRefresh?: boolean }) {
+  return invoke<typeof input, PtScheduleWeeklyViewResult>('getPtScheduleWeeklyView', input)
 }
 
 export function generatePtScheduleDraft(input: { weekId: string; branchId: string; expectedDraftRevision: number; mode?: 'optimize' | 'supplement' | 'continue' }) {

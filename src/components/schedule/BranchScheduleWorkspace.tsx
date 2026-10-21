@@ -37,6 +37,7 @@ import {
   createHistoricalPtSession,
   generatePtScheduleDraft,
   getPtScheduleSlotCandidates,
+  getPtScheduleWeeklyView,
   getPtScheduleWorkspace,
   listPtScheduleVersions,
   ptScheduleConflictLabel,
@@ -59,6 +60,7 @@ import {
   type PtScheduleVersionListResult,
   type PtScheduleVersionSummary,
   type PtScheduleWorkspaceV2Result,
+  type PtScheduleWeeklyViewResult,
 } from '../../services/ptSchedulePublishService'
 import '../../styles-branch-schedule.css'
 import { trainerDailyLoadTarget } from '../../config/scheduleLoadPolicy'
@@ -104,6 +106,7 @@ import {
   warningCauseLabel,
   warningReasonPriority,
   workspaceFromDraftSnapshot,
+  workspaceFromWeeklyViewSnapshot,
   workspaceRealtimeFingerprint,
   writeWorkspaceCache,
   isTrainerLocked,
@@ -121,6 +124,125 @@ function normalizeScheduleSearchText(value: unknown) {
     .replace(/[đĐ]/g, 'd')
     .toLocaleLowerCase('vi-VN')
     .trim()
+}
+
+function normalizeWeeklyViewResult(
+  result: PtScheduleWeeklyViewResult,
+  fallback: PtScheduleWorkspaceV2Result | null,
+): PtScheduleWorkspaceV2Result {
+  if (fallback) return workspaceFromWeeklyViewSnapshot(fallback, result)
+  const raw = result as Record<string, unknown>
+  const source = raw.workspace && typeof raw.workspace === 'object' && !Array.isArray(raw.workspace)
+    ? raw.workspace as Record<string, unknown>
+    : raw
+  const compactShape = typeof source.branchId === 'string' && !source.branch
+  if (fallback && !compactShape) return workspaceFromWeeklyViewSnapshot(fallback, result)
+  const sourceBranch = source.branch && typeof source.branch === 'object' ? source.branch as Record<string, unknown> : null
+  const branchId = typeof source.branchId === 'string' ? source.branchId : typeof sourceBranch?.id === 'string' ? sourceBranch.id : ''
+  if (!branchId || typeof source.weekId !== 'string' || !source.schedule || !Array.isArray(source.students) || !Array.isArray(source.trainers)) {
+    throw new Error('Weekly schedule view chưa có snapshot đầy đủ để hiển thị.')
+  }
+  const freshness = typeof raw.freshness === 'string'
+    ? raw.freshness
+    : typeof source.freshness === 'string' ? source.freshness : undefined
+  const readMode = source.readMode === 'reconciled' || freshness === 'verified' ? 'reconciled' : 'display'
+  const draft = source.draft && typeof source.draft === 'object' ? source.draft as Record<string, unknown> : {}
+  const branchName = typeof source.branchName === 'string' ? source.branchName : typeof sourceBranch?.name === 'string' ? sourceBranch.name : branchId
+  const students = (source.students as Array<Record<string, unknown>>).map((student) => {
+    const status = typeof student.status === 'string' ? student.status : 'active'
+    const sessionsPerWeek = Number(student.sessionsPerWeek || 0)
+    const availableSlots = Array.isArray(student.availableSlots) ? student.availableSlots.filter((slot): slot is string => typeof slot === 'string') : []
+    const crossBranch = student.crossBranch === true || (student.branchId && student.branchId !== branchId)
+    return {
+      ...student,
+      id: String(student.id || ''),
+      name: typeof student.name === 'string' && student.name ? student.name : 'Chưa cập nhật tên',
+      phone: typeof student.phone === 'string' ? student.phone : '',
+      email: typeof student.email === 'string' ? student.email : '',
+      status,
+      branchId: typeof student.branchId === 'string' ? student.branchId : branchId,
+      availableSlots,
+      sessionsPerWeek,
+      defaultSessionsPerWeek: Number(student.defaultSessionsPerWeek ?? sessionsPerWeek),
+      availabilityStatus: typeof student.availabilityStatus === 'string' ? student.availabilityStatus : 'missing',
+      availabilityRevision: Number(student.availabilityRevision || 0),
+      eligibleForWeek: typeof student.eligibleForWeek === 'boolean' ? student.eligibleForWeek : status === 'active' && !crossBranch,
+      eligibilityReasons: Array.isArray(student.eligibilityReasons) ? student.eligibilityReasons.filter((reason): reason is string => typeof reason === 'string') : [],
+      eligibleContractIds: Array.isArray(student.eligibleContractIds) ? student.eligibleContractIds.filter((id): id is string => typeof id === 'string') : [],
+      validScheduleDates: Array.isArray(student.validScheduleDates) ? student.validScheduleDates.filter((date): date is string => typeof date === 'string') : [],
+      pausedScheduleDates: [],
+      remainingSchedulableSessions: Number(student.remainingSchedulableSessions ?? student.remainingSessions ?? 0),
+      activeScheduledSessions: Number(student.activeScheduledSessions ?? student.scheduledSessions ?? 0),
+      activeScheduledThisWeek: Number(student.activeScheduledThisWeek ?? student.scheduledSessions ?? 0),
+      maxWeeklySessions: Number(student.maxWeeklySessions ?? Math.max(0, sessionsPerWeek)),
+      schedulableSessionsThisWeek: Number(student.schedulableSessionsThisWeek ?? Math.max(0, sessionsPerWeek)),
+      weeklySessionTargetOverride: typeof student.weeklySessionTargetOverride === 'number' ? student.weeklySessionTargetOverride : null,
+      weeklySessionTargetOverridden: student.weeklySessionTargetOverridden === true,
+      isCrossBranchDisplayOnly: Boolean(crossBranch),
+      studentHomeBranchId: typeof student.homeBranchId === 'string' ? student.homeBranchId : (typeof student.branchId === 'string' ? student.branchId : branchId),
+    }
+  }) as PtScheduleWorkspaceV2Result['students']
+  const trainers = (source.trainers as Array<Record<string, unknown>>).map((trainer) => ({
+    ...trainer,
+    id: String(trainer.id || ''),
+    name: typeof trainer.name === 'string' && trainer.name ? trainer.name : 'PT chưa cập nhật tên',
+    branchId: typeof trainer.branchId === 'string' ? trainer.branchId : branchId,
+    status: typeof trainer.status === 'string' ? trainer.status : 'active',
+    availableSlots: Array.isArray(trainer.availableSlots) ? trainer.availableSlots.filter((slot): slot is string => typeof slot === 'string') : [],
+    availabilityMode: trainer.availabilityMode === 'configured' || trainer.availabilityMode === 'unrestricted' ? trainer.availabilityMode : 'unconfigured',
+    availabilityRevision: Number(trainer.availabilityRevision || 0),
+    slotCapacity: Number(trainer.slotCapacity || 2),
+    commissionRate: Number(trainer.commissionRate || 0),
+  })) as PtScheduleWorkspaceV2Result['trainers']
+  const compactSummary = source.summary && typeof source.summary === 'object' ? source.summary as Record<string, unknown> : {}
+  const draftRevision = Number(draft.revision ?? source.draftRevision ?? 0)
+  const publishedVersion = Number(draft.publishedVersion ?? source.publishedVersion ?? 0)
+  const normalizedWorkspace: PtScheduleWorkspaceV2Result = {
+    ...(source as unknown as PtScheduleWorkspaceV2Result),
+    branch: { id: branchId, name: branchName, status: sourceBranch?.status === 'archived' ? 'archived' : 'active' },
+    weekId: source.weekId,
+    draftRevision,
+    publishedVersion,
+    publishedRevision: Number(draft.publishedRevision ?? source.publishedRevision ?? -1),
+    draftStatus: draft.status === 'published' || source.draftStatus === 'published' ? 'published' : 'draft',
+    schedule: Object.fromEntries(Object.entries(source.schedule as Record<string, unknown>).map(([slotId, entries]) => [slotId, Array.isArray(entries)
+      ? entries.map((entry) => ({
+          ...(entry as Record<string, unknown>),
+          studentId: String((entry as Record<string, unknown>).studentId || ''),
+          trainerId: String((entry as Record<string, unknown>).trainerId || ''),
+          type: (entry as Record<string, unknown>).type === 'off' ? 'off' : 'training',
+          adminOverrideWarnings: Array.isArray((entry as Record<string, unknown>).warningCodes)
+            ? (entry as Record<string, unknown>).warningCodes
+            : undefined,
+        }))
+      : []])),
+    students,
+    trainers,
+    contracts: [],
+    sessions: [],
+    scheduleConfig: {
+      workingDays: ['T2', 'T3', 'T4', 'T5', 'T6', 'T7'],
+      workingHours: Array.from({ length: 16 }, (_, index) => index + 6),
+    },
+    summary: {
+      eligibleStudents: Number(compactSummary.students ?? students.filter((student) => student.eligibleForWeek).length),
+      trainers: Number(compactSummary.trainers ?? trainers.length),
+      unconfiguredTrainers: trainers.filter((trainer) => trainer.availabilityMode === 'unconfigured').length,
+      scheduledEntries: Number(compactSummary.scheduledEntries ?? 0),
+      missingSessions: Number(compactSummary.missingSessions ?? 0),
+      unassignedEntries: Number(compactSummary.warningCount ?? 0),
+    },
+    warnings: Array.isArray(source.warnings) ? source.warnings as PtScheduleWorkspaceV2Result['warnings'] : [],
+    partial: typeof source.partial === 'boolean' ? source.partial : readMode !== 'reconciled',
+    readMode,
+    weeklyViewRevision: Number(raw.viewRevision ?? source.viewRevision ?? 0),
+    weeklyViewSourceRevision: Number(raw.sourceRevision ?? source.sourceRevision ?? draftRevision),
+    weeklyViewFreshness: freshness,
+    weeklyViewGeneratedAt: typeof raw.generatedAt === 'string'
+      ? raw.generatedAt
+      : typeof source.generatedAt === 'string' ? source.generatedAt : null,
+  }
+  return fallback ? workspaceFromWeeklyViewSnapshot(fallback, normalizedWorkspace) : normalizedWorkspace
 }
 
 // Keep only conflicts that change the operational meaning of a matrix cell.
@@ -388,12 +510,36 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
           branchId,
           forceAvailabilityRefresh,
         })))
-        const loadDisplayWorkspace = () => loadWorkspaceRequest(requestKey, () => measureScheduleTask('workspace', () => getPtScheduleWorkspace({
-          weekId: currentWeekId,
-          branchId,
-          initialPaint: true,
-          forceAvailabilityRefresh,
-        })))
+        const loadDisplayWorkspace = () => loadWorkspaceRequest(requestKey, () => measureScheduleTask('workspace', async () => {
+          try {
+            const weeklyView = await getPtScheduleWeeklyView({
+              weekId: currentWeekId,
+              branchId,
+              initialPaint: true,
+              forceRefresh: forceAvailabilityRefresh,
+            })
+            return normalizeWeeklyViewResult(weeklyView, workspaceRef.current)
+          } catch (weeklyError) {
+            // Keep the rollout safe for regions where the read-model callable
+            // is not deployed yet. Only capability/endpoint errors fall back;
+            // transient failures still use the existing retryable workspace
+            // path instead of silently issuing two broad reads.
+            const normalized = asPtSchedulePublishError(weeklyError)
+            const fallbackCodes = new Set([
+              'CALLABLE_NOT_FOUND',
+              'CALLABLE_UNIMPLEMENTED',
+              'CALLABLE_FAILED_PRECONDITION',
+              'CALLABLE_INVALID_ARGUMENT',
+            ])
+            if (!fallbackCodes.has(normalized.issueCode)) throw weeklyError
+            return getPtScheduleWorkspace({
+              weekId: currentWeekId,
+              branchId,
+              initialPaint: true,
+              forceAvailabilityRefresh,
+            })
+          }
+        }))
         let result: PtScheduleWorkspaceV2Result
         if (!reconcile) {
           // Never follow the bounded matrix projection with an implicit full
@@ -561,13 +707,18 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
 
   useEffect(() => {
     if (!branchId || !currentWeekId) return undefined
-    // The draft stream contains branch-owned scheduling data only. Firestore
-    // Rules limit it to Admin or the branch manager assigned to this branch.
-    // Apply that one document directly instead of using it as a signal for a
-    // second full branch scan. This keeps the matrix mounted and makes one
-    // remote draft edit cost one document read, not another workspace load.
+    // Prefer one denormalized branch/week read-model document. It already
+    // contains schedule, roster, coverage and warning rows, so a draft update
+    // costs one document read rather than another workspace fan-out. During
+    // rollout, a missing/denied read-model document falls back to the legacy
+    // draft stream without adding a second listener when the new document is
+    // available.
+    let stopWeeklyListener: (() => void) | undefined
     let stopDraftListener: (() => void) | undefined
-    if (firestoreDb && canListenToDraft) {
+    let fallbackStarted = false
+    const startDraftFallback = () => {
+      if (fallbackStarted || !firestoreDb || !canListenToDraft) return
+      fallbackStarted = true
       stopDraftListener = onSnapshot(
         doc(firestoreDb, 'ptScheduleDrafts', `${branchId}_${currentWeekId}`),
         (snapshot) => {
@@ -599,7 +750,48 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
         () => setSyncState((current) => current === 'connecting' ? 'offline' : current),
       )
     }
+    if (firestoreDb && canListenToDraft) {
+      stopWeeklyListener = onSnapshot(
+        doc(firestoreDb, 'ptScheduleWeeklyViews', `${branchId}_${currentWeekId}`),
+        (snapshot) => {
+          const raw = snapshot.data()
+          const current = workspaceRef.current
+          if (!snapshot.exists() || !raw) {
+            startDraftFallback()
+            return
+          }
+          if (!current || current.branch.id !== branchId || current.weekId !== currentWeekId) return
+          const revision = Number(raw.draftRevision ?? raw.sourceRevision ?? 0)
+          if (revision < current.draftRevision) return
+          try {
+            const next = raw.branchId && !raw.branch
+              ? normalizeWeeklyViewResult(raw, current)
+              : workspaceFromWeeklyViewSnapshot(current, raw)
+            if (next.weeklyViewRevision === current.weeklyViewRevision
+              && next.draftRevision === current.draftRevision
+              && next.publishedVersion === current.publishedVersion) {
+              setSyncState('live')
+              return
+            }
+            startTransition(() => {
+              workspaceRef.current = next
+              setWorkspace(next)
+            })
+            candidateCache.current.clear()
+            setLastSyncedAt(new Date())
+            setSyncState('live')
+          } catch {
+            startDraftFallback()
+          }
+        },
+        () => {
+          startDraftFallback()
+          setSyncState((current) => current === 'connecting' ? 'offline' : current)
+        },
+      )
+    }
     return () => {
+      stopWeeklyListener?.()
       stopDraftListener?.()
     }
   }, [branchId, canListenToDraft, currentWeekId])

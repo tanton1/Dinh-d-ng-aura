@@ -6,6 +6,7 @@ import {
   type PtScheduleTrainerDailyLoad,
   type PtScheduleUnassignedEntry,
   type PtScheduleWorkspaceV2Result,
+  type PtScheduleWeeklyViewResult,
 } from '../../services/ptSchedulePublishService'
 
 import { readWorkspaceCache, writeWorkspaceCache, WORKSPACE_CACHE_REVALIDATE_MS } from './workspaceCache'
@@ -387,6 +388,82 @@ function workspaceFromDraftSnapshot(
   }
 }
 
+/**
+ * Apply a denormalized branch/week read-model snapshot to the current
+ * workspace. The read model is intentionally tolerant of both rollout
+ * shapes: fields may live directly on the callable result or under a
+ * `workspace` property. Missing fields retain the last authoritative value so
+ * a compact revision-only update never blanks the matrix.
+ */
+function workspaceFromWeeklyViewSnapshot(
+  current: PtScheduleWorkspaceV2Result,
+  rawValue: PtScheduleWeeklyViewResult | Record<string, unknown>,
+): PtScheduleWorkspaceV2Result {
+  const raw = rawValue as Record<string, unknown>
+  const nested = raw.workspace && typeof raw.workspace === 'object' && !Array.isArray(raw.workspace)
+    ? raw.workspace as Record<string, unknown>
+    : {}
+  const source = { ...raw, ...nested }
+  const readObject = <T extends object>(key: string, fallback: T): T => {
+    const value = source[key]
+    return value && typeof value === 'object' && !Array.isArray(value) ? value as T : fallback
+  }
+  const readArray = <T>(key: string, fallback: T[]): T[] => Array.isArray(source[key]) ? source[key] as T[] : fallback
+  const freshness = typeof raw.freshness === 'string'
+    ? raw.freshness
+    : typeof source.freshness === 'string' ? source.freshness : undefined
+  const readMode = source.readMode === 'reconciled' || freshness === 'verified' ? 'reconciled' : 'display'
+  const partial = typeof source.partial === 'boolean' ? source.partial : readMode !== 'reconciled'
+  const revision = Math.max(0, Number(source.draftRevision ?? current.draftRevision))
+  const publishedVersion = Math.max(0, Number(source.publishedVersion ?? current.publishedVersion))
+  const draftStatus: PtScheduleWorkspaceV2Result['draftStatus'] = source.draftStatus === 'published' || source.status === 'published'
+    ? 'published'
+    : current.draftStatus
+  return {
+    ...current,
+    branch: readObject('branch', current.branch),
+    weekId: typeof source.weekId === 'string' ? source.weekId : current.weekId,
+    draftRevision: revision,
+    publishedVersion,
+    publishedRevision: Number(source.publishedRevision ?? current.publishedRevision),
+    schedule: readObject('schedule', current.schedule),
+    students: readArray('students', current.students),
+    trainers: readArray('trainers', current.trainers),
+    contracts: readArray('contracts', current.contracts),
+    sessions: readArray('sessions', current.sessions),
+    scheduleConfig: readObject('scheduleConfig', current.scheduleConfig),
+    sessionRefs: readObject('sessionRefs', current.sessionRefs || {}),
+    partial,
+    readMode,
+    draftStatus,
+    updatedAt: firestoreValueIso(source.updatedAt) || current.updatedAt,
+    updatedBy: typeof source.updatedBy === 'string' ? source.updatedBy : current.updatedBy,
+    summary: readObject('summary', current.summary),
+    warnings: readArray('warnings', current.warnings),
+    optimizationSummary: source.optimizationSummary && typeof source.optimizationSummary === 'object'
+      ? source.optimizationSummary as PtScheduleWorkspaceV2Result['optimizationSummary']
+      : current.optimizationSummary,
+    unassignedEntries: readArray('unassignedEntries', current.unassignedEntries || []),
+    trainerLoads: readArray('trainerLoads', current.trainerLoads || []),
+    studentCoverage: source.studentCoverage && typeof source.studentCoverage === 'object'
+      ? source.studentCoverage as PtScheduleWorkspaceV2Result['studentCoverage']
+      : current.studentCoverage,
+    quickCoverage: source.quickCoverage && typeof source.quickCoverage === 'object'
+      ? source.quickCoverage as PtScheduleWorkspaceV2Result['quickCoverage']
+      : current.quickCoverage,
+    weeklySessionCoverage: source.weeklySessionCoverage && typeof source.weeklySessionCoverage === 'object'
+      ? source.weeklySessionCoverage as PtScheduleWorkspaceV2Result['weeklySessionCoverage']
+      : current.weeklySessionCoverage,
+    unassigned: readArray('unassigned', current.unassigned || []),
+    weeklyViewRevision: Number(raw.viewRevision ?? source.viewRevision ?? current.weeklyViewRevision ?? 0),
+    weeklyViewSourceRevision: Number(raw.sourceRevision ?? source.sourceRevision ?? current.weeklyViewSourceRevision ?? revision),
+    weeklyViewFreshness: freshness || current.weeklyViewFreshness,
+    weeklyViewGeneratedAt: typeof raw.generatedAt === 'string'
+      ? raw.generatedAt
+      : typeof source.generatedAt === 'string' ? source.generatedAt : current.weeklyViewGeneratedAt,
+  }
+}
+
 function scheduleSlotIsPast(
   slotId: string | null,
   dates: Record<string, { display: string; full: string }>,
@@ -560,6 +637,7 @@ export {
   warningCauseLabel,
   warningReasonPriority,
   workspaceFromDraftSnapshot,
+  workspaceFromWeeklyViewSnapshot,
   workspaceRealtimeFingerprint,
   writeWorkspaceCache,
 }
