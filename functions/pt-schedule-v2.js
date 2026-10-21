@@ -5586,6 +5586,11 @@ module.exports = {
   MAX_DRAFT_DOCUMENT_ENTRIES,
   MAX_WEEKLY_COVERAGE_SESSIONS,
   createPtScheduleV2Functions,
+  // Reused by the weekly read-model builder. The projection consumes the
+  // canonical workspace loader so its freshness/coverage semantics remain
+  // identical to the scheduling callables.
+  loadBranchData,
+  scheduleActor,
   loadManualMutationData,
   candidateForSlot,
   compactPairedSlots,

@@ -44,7 +44,8 @@ const { staffIdsFromContract, syncStaffManagedClientSummary, reconcileStaffManag
 const { createPtOperationsV2Functions } = require('./pt-operations-v2')
 const { createSessionFeedbackFunctions } = require('./session-feedback')
 const { createPtSchedulePublishFunctions, documentId: scheduleDocumentId, weekId: scheduleWeekId } = require('./pt-schedule-publish')
-const { createPtScheduleV2Functions, draftExpiresAt, invalidateBranchDataCache, safeSchedule, scopedDraftData } = require('./pt-schedule-v2')
+const { createPtScheduleV2Functions, draftExpiresAt, invalidateBranchDataCache, safeSchedule, scopedDraftData, scheduleActor } = require('./pt-schedule-v2')
+const { createPtScheduleWeeklyViewFunctions } = require('./pt-schedule-weekly-view')
 const { applyAdminScheduleEdit } = require('./pt-schedule-admin-edit')
 const { trustedAccessContext, requireCapability } = require('./identity-access')
 const { createFinanceLedgerFunctions } = require('./finance-ledger')
@@ -963,6 +964,32 @@ exports.savePtStudentAvailabilityRegional = ptScheduleV2RegionalFunctions.savePt
 exports.reopenPtStudentAvailabilityRegional = ptScheduleV2RegionalFunctions.reopenPtStudentAvailability
 exports.setPtStudentWeeklyTargetRegional = ptScheduleV2RegionalFunctions.setPtStudentWeeklyTarget
 exports.applyPtScheduleDraftCommandRegional = ptScheduleV2RegionalFunctions.applyPtScheduleDraftCommand
+
+// Weekly schedule read-model. The projection is intentionally read-only from
+// the browser: it is rebuilt by an explicit privileged callable after a
+// schedule/availability mutation, then the page can read one compact document
+// for a branch/week instead of fanning out across roster evidence.
+const ptScheduleWeeklyViewFunctions = createPtScheduleWeeklyViewFunctions({
+  db,
+  onCall: ptScheduleOnCall,
+  workspaceOnCall: ptScheduleWorkspaceRegionalOnCall,
+  actorForBranch: scheduleActor,
+})
+exports.getPtScheduleWeeklyView = ptScheduleWeeklyViewFunctions.getPtScheduleWeeklyView
+exports.rebuildPtScheduleWeeklyView = ptScheduleWeeklyViewFunctions.rebuildPtScheduleWeeklyView
+exports.markPtScheduleWeeklyViewDirty = ptScheduleWeeklyViewFunctions.markPtScheduleWeeklyViewDirty
+
+// Keep regional aliases available while clients migrate to the one-read
+// weekly view. Both aliases write the same canonical Firestore projection.
+const ptScheduleWeeklyViewRegionalFunctions = createPtScheduleWeeklyViewFunctions({
+  db,
+  onCall: ptSchedulePublishRegionalOnCall,
+  workspaceOnCall: ptScheduleWorkspaceRegionalOnCall,
+  actorForBranch: scheduleActor,
+})
+exports.getPtScheduleWeeklyViewRegional = ptScheduleWeeklyViewRegionalFunctions.getPtScheduleWeeklyView
+exports.rebuildPtScheduleWeeklyViewRegional = ptScheduleWeeklyViewRegionalFunctions.rebuildPtScheduleWeeklyView
+exports.markPtScheduleWeeklyViewDirtyRegional = ptScheduleWeeklyViewRegionalFunctions.markPtScheduleWeeklyViewDirty
 
 // Admin-only schedule corrections update the real session and the operational
 // draft in one transaction. They intentionally live beside (rather than
