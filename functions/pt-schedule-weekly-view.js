@@ -668,6 +668,14 @@ function createPtScheduleWeeklyViewFunctions({
       // the materialized document and do not fan out across the roster.
       return rebuildPtScheduleWeeklyView({ db, branchId, weekId, branchData, forceRefresh: true, initialPaint: true })
     }
+    // A source trigger can leave a complete view marked dirty while the
+    // coalescing worker is waiting for its next sweep. An active schedule page
+    // explicitly requests a refresh, so rebuild this one branch/week now
+    // rather than returning a stale matrix and making the user wait for the
+    // background worker.
+    if (current.dirty === true && (request.data?.initialPaint === true || request.data?.forceRefresh === true)) {
+      return rebuildPtScheduleWeeklyView({ db, branchId, weekId, branchData, forceRefresh: true, initialPaint: request.data?.initialPaint === true })
+    }
     return serializableWeeklyView(current)
   })
 

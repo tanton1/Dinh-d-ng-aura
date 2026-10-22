@@ -1045,14 +1045,17 @@ exports.syncPtScheduleWeeklyViewFromLeave = weeklyViewSourceTrigger('leaveReques
 exports.syncPtScheduleWeeklyViewFromScheduleConfig = weeklyViewSourceTrigger('settings/{documentId}', 'scheduleConfig')
 
 exports.rebuildDirtyPtScheduleWeeklyViewsScheduled = onSchedule({
-  schedule: 'every 1 minutes',
+  // Active viewers refresh a dirty branch/week on demand. Keep the worker as
+  // a low-frequency safety net for edits made while no schedule page is open;
+  // polling every five minutes avoids an empty Firestore query every minute.
+  schedule: 'every 5 minutes',
   timeZone: 'Asia/Ho_Chi_Minh',
   region: 'asia-southeast1',
   retryCount: 1,
   maxInstances: 1,
   timeoutSeconds: 540,
   memory: '512MiB',
-}, async () => rebuildDirtyPtScheduleWeeklyViews({ db, limit: 8, logger }))
+}, async () => rebuildDirtyPtScheduleWeeklyViews({ db, limit: 20, logger }))
 
 // Admin-only schedule corrections update the real session and the operational
 // draft in one transaction. They intentionally live beside (rather than

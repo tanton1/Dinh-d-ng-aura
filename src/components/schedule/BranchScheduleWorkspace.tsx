@@ -706,6 +706,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
     let stopWeeklyListener: (() => void) | undefined
     let stopDraftListener: (() => void) | undefined
     let fallbackStarted = false
+    let dirtyRefreshQueued = false
     const startDraftFallback = () => {
       if (fallbackStarted || !firestoreDb || !canListenToDraft) return
       fallbackStarted = true
@@ -752,10 +753,17 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
           }
           // Dirty markers intentionally contain only revision metadata while
           // the debounced rebuild is in flight. Keep the single listener and
-          // wait for its next full snapshot instead of opening a second broad
-          // draft stream.
-          if (raw.dirty === true && !raw.schedule) {
+          // request one bounded weekly rebuild instead of opening a second
+          // broad draft stream. The server-side worker remains a fallback for
+          // edits made while no schedule page is open.
+          if (raw.dirty === true) {
             setSyncState('syncing')
+            if (!dirtyRefreshQueued) {
+              dirtyRefreshQueued = true
+              void loadWorkspace(true, true).finally(() => {
+                dirtyRefreshQueued = false
+              })
+            }
             return
           }
           if (!current || current.branch.id !== branchId || current.weekId !== currentWeekId) return
@@ -792,7 +800,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
       stopWeeklyListener?.()
       stopDraftListener?.()
     }
-  }, [branchId, canListenToDraft, currentWeekId])
+  }, [branchId, canListenToDraft, currentWeekId, loadWorkspace])
 
   useEffect(() => {
     const closeOnOutsideClick = (event: MouseEvent) => {
