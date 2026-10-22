@@ -196,6 +196,9 @@ export async function getMyAccessContext(uid: string): Promise<AccessContext> {
     accessFunctionName,
     { timeout: 10_000 },
   )
+  const legacyCallable = firebaseTelemetryFunctions
+    ? httpsCallable<Record<string, never>, { accessContext: unknown }>(requireFunctions(), 'getMyAccessContext', { timeout: 10_000 })
+    : null
   const transientCodes = new Set([
     'internal',
     'unavailable',
@@ -211,7 +214,23 @@ export async function getMyAccessContext(uid: string): Promise<AccessContext> {
       lastError = error
       const source = error && typeof error === 'object' ? error as { code?: unknown } : {}
       const code = typeof source.code === 'string' ? source.code.replace(/^functions\//, '') : ''
-      if (!transientCodes.has(code) || attempt === 1) throw error
+      if (!transientCodes.has(code)) {
+        if (code !== 'not-found') throw error
+      }
+      if (attempt === 1) {
+        // Auth bootstrap is read-only. If the bounded overflow alias is
+        // temporarily unavailable (or is being rolled out), make one safe
+        // fallback call to the legacy region instead of blocking sign-in.
+        if (legacyCallable && (transientCodes.has(code) || code === 'not-found')) {
+          try {
+            const response = await legacyCallable({})
+            return parseAccessContext(response.data.accessContext, uid)
+          } catch (fallbackError) {
+            lastError = fallbackError
+          }
+        }
+        throw lastError
+      }
       await new Promise((resolve) => window.setTimeout(resolve, 400 * (attempt + 1)))
     }
   }
