@@ -904,7 +904,17 @@ const ptScheduleOnCall = (optionsOrHandler, maybeHandler) => {
 // prevent a new revision from starting. The callable still uses the same
 // capability checks and canonical Firestore database.
 const ptSchedulePublishRegionalOnCall = (optionsOrHandler, maybeHandler) => {
-  const resourceOptions = { region: 'asia-east1', cpu: 'gcf_gen1', maxInstances: 1, concurrency: 1, timeoutSeconds: 120 }
+  // Publish/edit traffic is bursty and serialized by the schedule revision.
+  // Use the smallest supported fractional CPU profile so a revision update
+  // does not consume the remaining Cloud Run regional CPU quota.
+  const resourceOptions = {
+    region: 'asia-east1',
+    memory: '256MiB',
+    cpu: 0.1666,
+    maxInstances: 1,
+    concurrency: 1,
+    timeoutSeconds: 120,
+  }
   return typeof optionsOrHandler === 'function'
     ? onCall(resourceOptions, optionsOrHandler)
     : onCall({ ...resourceOptions, ...optionsOrHandler }, maybeHandler)
