@@ -547,16 +547,14 @@ const regionalPublishCallableNames = new Map([
   ['applyPtScheduleDraftCommand', 'applyPtScheduleDraftCommandRegional'],
 ])
 
-// Read-heavy workspace calls should stay beside the canonical Firestore
-// database. Mutations and the optimizer remain on their existing overflow
-// aliases, but routing these reads through asia-east1 added a cross-region
-// hop and made slow retries look like duplicate work. Their Regional aliases
-// remain available as a bounded fallback during the rollout.
+// Read-heavy workspace calls stay beside the canonical Firestore database.
+// The weekly projection is the exception: both its current and fallback
+// endpoints are deployed in the bounded asia-east1 schedule pool, so call it
+// directly instead of first probing a non-existent southeast endpoint.
 const sameRegionScheduleReadCallables = new Set([
   'listPtScheduleBranches',
   'getPtScheduleWorkspace',
   'getPtScheduleSlotCandidates',
-  'getPtScheduleWeeklyView',
 ])
 const regionalReadFallbackCallables = new Set([
   'listPtScheduleBranches',
