@@ -81,11 +81,12 @@ export function reportClientIssue(
   void Promise.all([
     import('firebase/functions'),
     import('../lib/firebaseFunctions'),
-  ]).then(([{ httpsCallable }, { firebaseFunctions }]) => {
-    if (!firebaseFunctions) return undefined
+  ]).then(([{ httpsCallable }, { firebaseFunctions, firebaseTelemetryFunctions }]) => {
+    const functionsClient = firebaseTelemetryFunctions ?? firebaseFunctions
+    if (!functionsClient) return undefined
     const report = httpsCallable<typeof payload, { accepted: boolean }>(
-      firebaseFunctions,
-      'reportClientIssue',
+      functionsClient,
+      firebaseTelemetryFunctions ? 'reportClientIssueOverflow' : 'reportClientIssue',
       { timeout: 5_000 },
     )
     return report(payload)

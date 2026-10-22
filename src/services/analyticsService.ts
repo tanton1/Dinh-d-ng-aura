@@ -1,5 +1,5 @@
 import { httpsCallable } from 'firebase/functions'
-import { firebaseFunctions } from '../lib/firebaseFunctions'
+import { firebaseFunctions, firebaseTelemetryFunctions } from '../lib/firebaseFunctions'
 
 export type ProductEventName =
   | 'page_view'
@@ -43,7 +43,8 @@ export async function trackProductEvent(
   name: ProductEventName,
   properties: Record<string, string | number | boolean> = {},
 ) {
-  if (!firebaseFunctions) return
+  const functionsClient = firebaseTelemetryFunctions ?? firebaseFunctions
+  if (!functionsClient) return
 
   if (LOW_VALUE_EVENTS.has(name)) {
     const identity = typeof properties.surface === 'string'
@@ -81,7 +82,10 @@ export async function trackProductEvent(
     const callable = httpsCallable<{
       name: ProductEventName
       properties: Record<string, string | number | boolean>
-    }, { accepted: boolean }>(firebaseFunctions, 'trackProductEvent')
+    }, { accepted: boolean }>(
+      functionsClient,
+      firebaseTelemetryFunctions ? 'trackProductEventOverflow' : 'trackProductEvent',
+    )
     await callable({ name, properties })
   } catch (error) {
     if (import.meta.env.DEV) console.warn('Analytics event was not accepted', error)

@@ -861,7 +861,14 @@ function invitePublicData(snapshot) {
 }
 
 function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
-  const getMyAccessContext = onCall(async (request) => ({
+  const getMyAccessContext = onCall({
+    cpu: 'gcf_gen1',
+    memory: '256MiB',
+    concurrency: 1,
+    minInstances: 0,
+    maxInstances: 3,
+    timeoutSeconds: 20,
+  }, async (request) => ({
     accessContext: await trustedAccessContext(request, db),
   }))
 

@@ -1,5 +1,5 @@
 import { httpsCallable } from 'firebase/functions'
-import { firebaseFunctions, firebaseScheduleOptimizerFunctions } from '../lib/firebaseFunctions'
+import { firebaseFunctions, firebaseScheduleOptimizerFunctions, firebaseTelemetryFunctions } from '../lib/firebaseFunctions'
 import { parseAccessContext, type AccessContext, type AccessRole, type StaffPosition } from '../identity/access'
 import type { AdminUserRecord } from '../types'
 import { callReadOnlyFunction } from './readOnlyCallableService'
@@ -189,9 +189,11 @@ export async function acceptAccountInvite(inviteId: string): Promise<AccessConte
 }
 
 export async function getMyAccessContext(uid: string): Promise<AccessContext> {
+  const accessFunctions = firebaseTelemetryFunctions ?? requireFunctions()
+  const accessFunctionName = firebaseTelemetryFunctions ? 'getMyAccessContextOverflow' : 'getMyAccessContext'
   const callable = httpsCallable<Record<string, never>, { accessContext: unknown }>(
-    requireFunctions(),
-    'getMyAccessContext',
+    accessFunctions,
+    accessFunctionName,
     { timeout: 10_000 },
   )
   const transientCodes = new Set([

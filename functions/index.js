@@ -437,8 +437,9 @@ function onCall(optionsOrHandler, maybeHandler) {
   return firebaseOnCall({ invoker: 'public', ...optionsOrHandler, enforceAppCheck }, maybeHandler)
 }
 
-// Low-volume destructive student cleanup runs in the overflow region so a
-// saturated asia-southeast1 Cloud Run CPU quota cannot block the admin tool.
+// Bounded overflow aliases run in the existing asia-east1 pool so a saturated
+// asia-southeast1 Cloud Run CPU quota cannot block low-volume admin/tooling
+// requests. Each caller supplies its own least-privilege CPU and instance cap.
 const asiaEastOnCall = (optionsOrHandler, maybeHandler) => {
   if (typeof optionsOrHandler === 'function') {
     return firebaseOnCall({ region: 'asia-east1', invoker: 'public', enforceAppCheck }, optionsOrHandler)
@@ -507,6 +508,23 @@ const identityAccessFunctions = createIdentityAccessFunctions({ db, auth, onCall
 Object.assign(exports, identityAccessFunctions)
 exports.getMyAccessContext = identityAccessFunctions.getMyAccessContext
 exports.listIdentityDirectory = identityAccessFunctions.listIdentityDirectory
+// Access context is requested during every authenticated app bootstrap. Keep
+// a bounded overflow alias in the existing asia-east1 pool so login bursts do
+// not compete with the southeast callable fleet. The project has reached its
+// Cloud Run maximum-region quota, so this deliberately reuses an existing
+// region instead of creating a fourth region.
+const identityOverflowFunctions = createIdentityAccessFunctions({
+  db,
+  auth,
+  onCall: (optionsOrHandler, maybeHandler) => asiaEastOnCall(
+    typeof optionsOrHandler === 'function'
+      ? { cpu: 'gcf_gen1', maxInstances: 3, concurrency: 1, timeoutSeconds: 20 }
+      : { cpu: 'gcf_gen1', maxInstances: 3, concurrency: 1, timeoutSeconds: 20, ...optionsOrHandler },
+    typeof optionsOrHandler === 'function' ? optionsOrHandler : maybeHandler,
+  ),
+  logger,
+})
+exports.getMyAccessContextOverflow = identityOverflowFunctions.getMyAccessContext
 exports.syncStaffOperationalSummary = onDocumentWritten({
   document: 'contracts/{contractId}',
   database: databaseId,
@@ -3539,14 +3557,9 @@ function allowInMemoryProductEvent(userId) {
 const clientIssueAreas = new Set(['auth', 'gemini', 'openrouter', 'apikey_fun', 'firestore', 'push', 'ui'])
 const clientIssueProviders = new Set(['google', 'phone', 'email', 'password', 'gemini', 'openrouter', 'apikey_fun'])
 
-exports.reportClientIssue = onCall({
+const reportClientIssueHandler = async (request) => {
   // Error reporting must stay available even when the project is close to its
   // Cloud Run regional CPU quota.
-  memory: '256MiB',
-  cpu: 0.1666,
-  maxInstances: 1,
-  concurrency: 1,
-}, async (request) => {
   if (!allowClientIncident(request)) {
     throw new HttpsError('resource-exhausted', 'Quá nhiều báo cáo trong thời gian ngắn.')
   }
@@ -3583,9 +3596,18 @@ exports.reportClientIssue = onCall({
     schemaVersion: 1,
   })
   return { accepted: true }
-})
+}
 
-exports.trackProductEvent = onCall({ cpu: 'gcf_gen1', maxInstances: 2 }, async (request) => {
+const reportClientIssueOptions = {
+  memory: '256MiB',
+  cpu: 0.1666,
+  maxInstances: 1,
+  concurrency: 1,
+}
+exports.reportClientIssue = onCall(reportClientIssueOptions, reportClientIssueHandler)
+exports.reportClientIssueOverflow = asiaEastOnCall(reportClientIssueOptions, reportClientIssueHandler)
+
+const trackProductEventHandler = async (request) => {
   const userId = requireCaller(request)
   const name = request.data?.name
   if (!productEventNames.has(name)) throw new HttpsError('invalid-argument', 'Sự kiện không hợp lệ.')
@@ -3635,7 +3657,11 @@ exports.trackProductEvent = onCall({ cpu: 'gcf_gen1', maxInstances: 2 }, async (
     })
   })
   return { accepted: true }
-})
+}
+
+const trackProductEventOptions = { cpu: 'gcf_gen1', maxInstances: 2, concurrency: 1, timeoutSeconds: 30 }
+exports.trackProductEvent = onCall(trackProductEventOptions, trackProductEventHandler)
+exports.trackProductEventOverflow = asiaEastOnCall(trackProductEventOptions, trackProductEventHandler)
 
 function hasCourseEntitlement(course, profile, isStaff) {
   if (isStaff) return true

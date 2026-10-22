@@ -935,8 +935,9 @@ test('phone OTP success is not blocked by Firestore profile synchronization', ()
 })
 
 test('client incident reporting is bounded, validated and rate limited', () => {
-  const incidentSource = functionsSource.match(/exports\.reportClientIssue = onCall[\s\S]*?return \{ accepted: true \}\s*\}\)/)?.[0] ?? ''
-  assert.match(incidentSource, /exports\.reportClientIssue = onCall/)
+  const incidentSource = functionsSource.match(/const reportClientIssueHandler = async \(request\) => \{[\s\S]*?return \{ accepted: true \}\s*\}/)?.[0] ?? ''
+  assert.match(functionsSource, /exports\.reportClientIssue = onCall\(reportClientIssueOptions, reportClientIssueHandler\)/)
+  assert.match(functionsSource, /exports\.reportClientIssueOverflow = asiaEastOnCall\(reportClientIssueOptions, reportClientIssueHandler\)/)
   assert.match(incidentSource, /allowClientIncident\(request\)/)
   assert.match(incidentSource, /clientIssueAreas\.has\(area\)/)
   assert.match(incidentSource, /boundedIncidentValue\(request\.data\?\.code, 80\)/)
