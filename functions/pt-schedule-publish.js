@@ -13,6 +13,7 @@ const {
   contractSchedulingEntitlement,
   resolveSchedulingContract,
 } = require('./contract-scheduling')
+const { contractSchedulableOn } = require('./contract-status')
 
 // Keep enough headroom for schedule/version/audit writes in the same atomic
 // publish transaction. A paired session still occupies one trainer time slot,
@@ -759,11 +760,18 @@ function desiredEntries({ scheduleId, week, branchId, schedule, trainers, studen
       // learner has no active contract in the target branch; the contract id
       // may be empty (or come from the draft entry) and the conflict is
       // surfaced as a warning instead of crashing publish validation.
+      // Admin policy override may keep a row for audit, but it must not turn a
+      // cancelled/out-of-window contract into a billable session. Use only a
+      // date-effective contract as metadata fallback; otherwise publish with
+      // an empty link and the existing warning.
+      const fallbackContract = contracts
+        .filter((item) => item.studentId === studentId && contractSchedulableOn(item, date))
+        .sort((left, right) => String(right.startDate || '').localeCompare(String(left.startDate || ''))
+          || String(right.endDate || '').localeCompare(String(left.endDate || ''))
+          || String(left.id || '').localeCompare(String(right.id || '')))[0]
       const contract = contractResolution.contract
-        || contracts
-          .filter((item) => item.studentId === studentId)
-          .sort((left, right) => String(right.endDate || '').localeCompare(String(left.endDate || '')))[0]
-        || { id: typeof raw.contractId === 'string' ? raw.contractId : '', trainerId: '', trainerIds: [], pausePeriods: [] }
+        || fallbackContract
+        || { id: '', trainerId: '', trainerIds: [], pausePeriods: [] }
       const assignedTrainerIds = [...new Set([
         contract?.trainerId,
         ...(Array.isArray(contract?.trainerIds) ? contract.trainerIds : []),

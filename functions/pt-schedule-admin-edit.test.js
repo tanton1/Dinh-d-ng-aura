@@ -219,6 +219,26 @@ test('Admin can add a learner after publish and creates the live session without
   assert.equal(harness.docs.get(harness.draftPath).publishedRevision, 2)
 })
 
+test('Admin re-add never selects a cancelled contract with a later end date', async () => {
+  const harness = makeHarness()
+  harness.docs.set('contracts/contract-cancelled-late', {
+    id: 'contract-cancelled-late',
+    studentId: STUDENT,
+    branchId: BRANCH,
+    status: 'cancelled',
+    startDate: WEEK,
+    endDate: '2091-01-01',
+    totalSessions: 20,
+    usedSessions: 0,
+  })
+  const result = await applyAdminScheduleEdit(baseInput(harness, 'add_student', {
+    studentId: STUDENT, trainerId: TRAINER, slotId: 'T3-6', adminOverride: true,
+  }))
+  const session = harness.docs.get(`sessions/${result.sessionId}`)
+  assert.equal(session.contractId, CONTRACT)
+  assert.ok(!result.warnings.includes('ACTIVE_CONTRACT_NOT_FOUND'))
+})
+
 test('Admin move with a published session uses the scoped fast path', async () => {
   const harness = makeHarness()
   const result = await applyAdminScheduleEdit(baseInput(harness, 'move_student', {

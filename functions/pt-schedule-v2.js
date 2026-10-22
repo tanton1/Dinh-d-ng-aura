@@ -26,7 +26,7 @@ const {
 } = require('./student-availability')
 const { summarizeContractUsage } = require('./contract-usage')
 const { canonicalUsageSummary, loadContractUsageViews } = require('./contract-usage-view')
-const { contractEffectiveOnDate } = require('./contract-status')
+const { contractEffectiveOnDate, contractSchedulableOn } = require('./contract-status')
 const {
   contractCanParticipateInWeek,
   contractSchedulingEntitlement,
@@ -4290,12 +4290,13 @@ function commandInput(value) {
   return command
 }
 
-function adminDraftContract(contracts, studentId, preferredId = '') {
+function adminDraftContract(contracts, studentId, preferredId = '', targetDate = '') {
   const rows = contracts.filter((contract) => contract?.studentId === studentId)
-  const preferred = rows.find((contract) => contract.id === preferredId)
+  const schedulableRows = rows.filter((contract) => !targetDate || contractSchedulableOn(contract, targetDate))
+  const preferred = schedulableRows.find((contract) => contract.id === preferredId)
   if (preferred) return preferred
-  return [...rows].sort((left, right) => String(right.endDate || '').localeCompare(String(left.endDate || ''))
-    || String(right.startDate || '').localeCompare(String(left.startDate || ''))
+  return [...schedulableRows].sort((left, right) => String(right.startDate || '').localeCompare(String(left.startDate || ''))
+    || String(right.endDate || '').localeCompare(String(left.endDate || ''))
     || String(left.id || '').localeCompare(String(right.id || '')))[0] || null
 }
 
@@ -4416,7 +4417,8 @@ async function applyFastAdminDraftCommand({ db, actor, branchId, week, command, 
       const student = studentSnapshot.data() || {}
       const trainer = { id: trainerId, ...trainerSnapshot.data() }
       const contracts = snapshots.contracts.docs.map((item) => ({ id: item.id, ...item.data() }))
-      const contract = adminDraftContract(contracts, studentId, typeof payload.contractId === 'string' ? payload.contractId : '')
+      const targetDate = dateForSlot(week, slotId.split('-')[0])
+      const contract = adminDraftContract(contracts, studentId, typeof payload.contractId === 'string' ? payload.contractId : '', targetDate)
       selectedContractId = contract?.id || ''
       const warnings = adminDraftAvailabilityWarnings({
         student,

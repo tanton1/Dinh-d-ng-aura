@@ -6,6 +6,7 @@ const { HttpsError } = require('firebase-functions/v2/https')
 const { branchScheduleSnapshot, branchSlotCapacity, dateForSlot, nextWeek, normalizedCapacity, normalizedScheduleConfig, reintroducedSessionId, storedDate, trainerProfileForWeek, trainerIsAvailable } = require('./pt-schedule-publish')
 const { effectiveStudentAvailability } = require('./student-availability')
 const { sessionCountsTowardContract, summarizeContractUsage } = require('./contract-usage')
+const { contractSchedulableOn } = require('./contract-status')
 
 const occupies = (session) => ['scheduled', 'rescheduled', 'completed', 'attended', 'no_show'].includes(session.status) || sessionCountsTowardContract(session)
 const sessionHour = (session, id) => Number.isInteger(session.hour) ? session.hour : Number(/^(?:T[2-7]|CN)-(\d{1,2})-/.exec(id)?.[1] ?? -1)
@@ -265,9 +266,16 @@ async function applyFastAdminAdd({ db, actor, branchId, week, payload, reason, e
     const contractRows = contractSnapshot?.exists
       ? [{ id: contractSnapshot.id, ...contractSnapshot.data() }]
       : (contractQuerySnapshot?.docs || []).map((item) => ({ id: item.id, ...item.data() }))
+    // A manual add/reintroduction must never inherit a terminal contract.
+    // The old rule picked the latest end date, which let a cancelled renewal
+    // win over the active contract when the cancelled row ended one day later.
+    // Resolve by the target date first, then prefer the newest overlapping
+    // contract start so renewal chains remain deterministic.
     const selectedContract = contractRows
-      .filter((contract) => contract.studentId === studentId)
-      .sort((left, right) => String(right.endDate || '').localeCompare(String(left.endDate || '')))[0]
+      .filter((contract) => contract.studentId === studentId && contractSchedulableOn(contract, targetDate))
+      .sort((left, right) => String(right.startDate || '').localeCompare(String(left.startDate || ''))
+        || String(right.endDate || '').localeCompare(String(left.endDate || ''))
+        || String(left.id || '').localeCompare(String(right.id || '')))[0]
     const warnings = []
     if (reintroducedFromSessionId) warnings.push('CANCELLED_SESSION_REINTRODUCED')
     if (student.branchId && student.branchId !== branchId) warnings.push('STUDENT_BRANCH_MISMATCH')
@@ -810,22 +818,22 @@ async function applyAdminScheduleEdit({ db, actor, branchId, week, command, payl
       const expectedContractBranch = crossBranch ? student.branchId : branchId
       const contractRows = contracts.docs.map((item) => ({ id: item.id, ...item.data() }))
         .filter((item) => item.studentId === studentId)
-        .sort((left, right) => String(right.endDate || '').localeCompare(String(left.endDate || '')))
+        .sort((left, right) => String(right.startDate || '').localeCompare(String(left.startDate || ''))
+          || String(right.endDate || '').localeCompare(String(left.endDate || ''))
+          || String(left.id || '').localeCompare(String(right.id || '')))
       const schedulableContract = contractRows.find((item) => {
-        const status = String(item.status || '').toLowerCase()
-        if (!['active', 'future'].includes(status) || (item.branchId && item.branchId !== expectedContractBranch)) return false
-        if (storedDate(item.startDate) > targetDate || storedDate(item.endDate) < targetDate) return false
-        if ((item.pausePeriods || []).some((period) => storedDate(period.startDate) <= targetDate && storedDate(period.endDate) >= targetDate)) return false
+        if (!contractSchedulableOn(item, targetDate) || (item.branchId && item.branchId !== expectedContractBranch)) return false
         const usage = summarizeContractUsage(item, studentSessions.docs.filter((row) => row.data().contractId === item.id).map((row) => ({ id: row.id, ...row.data() })))
         const held = studentSessions.docs.filter((row) => row.data().contractId === item.id
           && ['scheduled', 'rescheduled'].includes(String(row.data().status || '').toLowerCase())
           && row.data().billingStatus !== 'charged').length
         return usage.remainingSessions - held > 0
       })
-      // Keep a concrete contract link for an Admin exception when the latest
-      // matching record is expired, paused or out of quota, but surface that
-      // fact as a warning instead of presenting it as a valid entitlement.
-      const fallbackContract = contractRows.find((item) => !item.branchId || item.branchId === expectedContractBranch)
+      // An Admin may still override quota, but the fallback must remain a
+      // date-effective, non-paused contract. Terminal or out-of-window rows
+      // must stay unlinked so attendance cannot fail later on status/window.
+      const fallbackContract = contractRows.find((item) =>
+        (!item.branchId || item.branchId === expectedContractBranch) && contractSchedulableOn(item, targetDate))
       const selectedContract = schedulableContract || fallbackContract
       contract = selectedContract || null
       contractId = selectedContract?.id || ''
