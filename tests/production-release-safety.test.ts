@@ -18,6 +18,7 @@ test('production release never deploys the entire Functions fleet', () => {
   assert.match(workflow, /for FUNCTION_NAME/)
   assert.match(workflow, /cloud-run-functions-health\.cjs/)
   assert.match(workflow, /cloud-run-functions-rollback\.cjs/)
+  assert.match(workflow, /cloud-run-functions-promote-latest\.cjs[^\n]*--traffic-api=v1/)
 })
 
 test('production release resolves region and Cloud Run service from the Firebase manifest', () => {

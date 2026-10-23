@@ -4,7 +4,7 @@
 // The previous ready revision keeps traffic until the pinned latest image is Ready.
 const fs = require('node:fs')
 const path = require('node:path')
-const { createHash } = require('node:crypto')
+const { createHash, randomUUID } = require('node:crypto')
 const { mapBounded } = require('./audit-function-regions.cjs')
 const PROJECT = 'gen-lang-client-0815966909'
 const REGIONS = ['asia-southeast1', 'asia-east1', 'asia-southeast2']
@@ -35,10 +35,25 @@ function pinnedTraffic(service) {
     || short(targets[0].revision) !== short(service.latestReadyRevision)) throw new Error('Custom or ambiguous traffic split; manual review required.')
   return [{ type: 'TRAFFIC_TARGET_ALLOCATION_TYPE_REVISION', revision: short(service.latestReadyRevision), percent: 100 }]
 }
-function recoveryBody(service, revision, functionName, { disableStartupBoost = false } = {}) {
+function platformReadinessRevisionName(serviceName, nonce = randomUUID().replace(/-/g, '')) {
+  const serviceId = short(serviceName)
+  if (serviceId.length <= 43 || serviceId.length > 49 || !/^[a-z][a-z0-9-]*[a-z0-9]$/.test(serviceId)) throw new Error('Platform readiness gate is only for long service names without a staging-tag route.')
+  if (!/^[a-z0-9]{9,}$/.test(nonce)) throw new Error('A unique lowercase revision nonce is required.')
+  return `${serviceId}-prg-${nonce.slice(0, Math.min(12, 63 - serviceId.length - 5))}`
+}
+function recoveryBody(service, revision, functionName, { disableStartupBoost = false, platformReadinessGate = false, candidateRevision = '' } = {}) {
   if (service.reconciling) throw new Error('Another rollout is in progress.')
   if (service.latestCreatedRevision !== revision.name) throw new Error('Latest revision changed; re-plan required.')
-  if (service.latestReadyRevision && short(service.name).length + STAGING_TAG.length > 46) throw new Error('Service name is too long for zero-traffic staging; separate readiness-gated rollout required.')
+  const needsPlatformGate = short(service.name).length + STAGING_TAG.length > 46
+  if (platformReadinessGate) {
+    if (!needsPlatformGate || !service.latestReadyRevision) throw new Error('Platform readiness gate requires a long service name and an existing serving revision.')
+    if (!service.etag) throw new Error('Platform readiness gate requires a service etag.')
+    if (service.scaling?.scalingMode === 'MANUAL' || Number(service.scaling?.manualInstanceCount || 0)) throw new Error('Manual scaling cannot be used for this zero-warm recovery.')
+    if (short(service.name).length > 49 || !candidateRevision.startsWith(`${short(service.name)}-`)
+      || candidateRevision.length > 63 || !/^[a-z][a-z0-9-]*[a-z0-9]$/.test(candidateRevision)
+      || [short(service.latestCreatedRevision), short(service.latestReadyRevision)].includes(candidateRevision)) throw new Error('A new exact bounded candidate revision name is required.')
+    pinnedTraffic(service)
+  } else if (service.latestReadyRevision && needsPlatformGate) throw new Error('Service name is too long for zero-traffic staging; separate readiness-gated rollout required.')
   if (Number(service.scaling?.minInstanceCount || 0) || Number(service.template?.scaling?.minInstanceCount || 0)) throw new Error('Warm floor is enabled; review before recovery.')
   const containers = service.template?.containers || []
   if (containers.length !== 1 || revision.containers?.length !== 1) throw new Error('Only a single managed function container is supported.')
@@ -49,8 +64,102 @@ function recoveryBody(service, revision, functionName, { disableStartupBoost = f
   if (!image?.startsWith(prefix) || !/@sha256:[a-f0-9]{64}$/.test(image)) throw new Error('A resolved managed image digest is required.')
   return {
     name: service.name, etag: service.etag,
-    template: { revision: '', containers: [{ ...containers[0], image, ...(disableStartupBoost ? { resources: { ...containers[0].resources, startupCpuBoost: false } } : {}) }] },
-    ...(service.latestReadyRevision ? { traffic: [...pinnedTraffic(service), { type: 'TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST', percent: 0, tag: STAGING_TAG }] } : {}),
+    template: { revision: platformReadinessGate ? candidateRevision : '', ...(platformReadinessGate ? { healthCheckDisabled: false } : {}), containers: [{ ...containers[0], image, ...(disableStartupBoost ? { resources: { ...containers[0].resources, startupCpuBoost: false } } : {}) }] },
+    ...(platformReadinessGate
+      ? { traffic: [{ type: 'TRAFFIC_TARGET_ALLOCATION_TYPE_REVISION', revision: candidateRevision, percent: 100 }] }
+      : service.latestReadyRevision ? { traffic: [...pinnedTraffic(service), { type: 'TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST', percent: 0, tag: STAGING_TAG }] } : {}),
+  }
+}
+
+function exactTraffic(traffic, revisionName) {
+  return Array.isArray(traffic) && traffic.length === 1 && Number(traffic[0].percent) === 100
+    && !traffic[0].tag && short(traffic[0].revision) === short(revisionName)
+}
+function assertHealthyServingRevision(service, revision, expectedImage, expectedRevision) {
+  if (!expectedImage || !/@sha256:[a-f0-9]{64}$/.test(expectedImage)) throw new Error('An immutable serving image digest is required.')
+  if (service.reconciling || revision.name !== `${service.name}/revisions/${short(expectedRevision)}`
+    || !exactTraffic(service.trafficStatuses, expectedRevision)) throw new Error('Expected revision is not exclusively serving 100 percent.')
+  if (service.terminalCondition?.state && service.terminalCondition.state !== 'CONDITION_SUCCEEDED') throw new Error('Service is not healthy after traffic reconciliation.')
+  if (!(revision.conditions || []).some((condition) => condition.type === 'Ready' && condition.state === 'CONDITION_SUCCEEDED')
+    || !(revision.conditions || []).some((condition) => condition.type === 'ContainerHealthy' && condition.state === 'CONDITION_SUCCEEDED')
+    || (revision.conditions || []).some((condition) => condition.revisionReason === 'RETIRED')) throw new Error('Serving revision has not passed its container health check.')
+  if (revision.containers?.[0]?.image !== expectedImage) throw new Error('Serving image digest differs from the frozen proof.')
+}
+function platformRollbackBody(service, { serviceName, candidateRevision, previousRevision }) {
+  if (service.name !== serviceName || service.reconciling || !service.etag) throw new Error('Cannot roll back an unknown or reconciling service.')
+  if (short(service.latestCreatedRevision) !== candidateRevision) throw new Error('Concurrent revision detected; automatic rollback refused.')
+  if (!exactTraffic(service.traffic, candidateRevision) && !exactTraffic(service.traffic, previousRevision)) throw new Error('Concurrent traffic change detected; automatic rollback refused.')
+  if (!exactTraffic(service.trafficStatuses, candidateRevision) && !exactTraffic(service.trafficStatuses, previousRevision)) throw new Error('Ambiguous serving traffic; automatic rollback refused.')
+  return { name: service.name, etag: service.etag, traffic: [{ type: 'TRAFFIC_TARGET_ALLOCATION_TYPE_REVISION', revision: short(previousRevision), percent: 100 }] }
+}
+
+/**
+ * Explicit long-name exception to tagged zero-traffic prevalidation. The
+ * candidate is requested at 100% using Cloud Run's native deployment startup
+ * gate (healthCheckDisabled=false), not pre-approved by this script. Cloud Run
+ * keeps the prior serving state when reconciliation fails. We independently
+ * verify actual container health/image/traffic after success and restore the
+ * prior exact traffic intent after failure when ownership is still provable.
+ * https://cloud.google.com/run/docs/deploying#disable_the_deployment_health_check
+ * https://cloud.google.com/run/docs/reference/rest/v2/projects.locations.services#Service
+ */
+async function recoverWithPlatformReadiness({ api, operationDone, record = () => {}, service, revision, functionName, disableStartupBoost = false, candidateRevision = platformReadinessRevisionName(service.name) }) {
+  const body = recoveryBody(service, revision, functionName, { disableStartupBoost, platformReadinessGate: true, candidateRevision })
+  const url = `https://run.googleapis.com/v2/${service.name}`
+  const image = revision.containers[0].image
+  const previousRevision = short(service.latestReadyRevision)
+  const previous = await api(`https://run.googleapis.com/v2/${service.latestReadyRevision}`)
+  const previousImage = previous.containers?.[0]?.image
+  if (!previousImage || !/@sha256:[a-f0-9]{64}$/.test(previousImage)) throw new Error('Prior serving revision needs an immutable image proof.')
+  // A failed desired rollout can leave terminalCondition failed while this
+  // exact old revision remains healthy. Verify the old serving data plane.
+  assertHealthyServingRevision({ ...service, terminalCondition: undefined }, previous, previousImage, previousRevision)
+  if (Number(previous.scaling?.minInstanceCount || 0)) throw new Error('Prior serving revision has a warm floor enabled.')
+  const proof = { serviceName: service.name, candidateRevision, previousRevision }
+  record({ status: 'platform_started', candidateRevision, previousReady: previousRevision,
+    imageDigest: image.split('@')[1], previousImageDigest: previousImage.split('@')[1],
+    previousEtag: service.etag, platformReadinessGate: true, disableStartupBoost })
+  try {
+    const operation = await api(`${url}?updateMask=template.revision,template.containers,template.healthCheckDisabled,traffic&forceNewRevision=true`, { method: 'PATCH', body: JSON.stringify(body) })
+    record({ status: 'platform_operation', candidateRevision, operation: operation.name })
+    await operationDone(operation)
+    const live = await api(url)
+    if (short(live.latestCreatedRevision) !== candidateRevision) throw new Error('Candidate changed during platform rollout.')
+    if (!exactTraffic(live.traffic, candidateRevision) || live.traffic[0].type !== 'TRAFFIC_TARGET_ALLOCATION_TYPE_REVISION') throw new Error('Candidate traffic intent is no longer pinned to the exact revision.')
+    const actual = await api(`${url}/revisions/${candidateRevision}`)
+    assertReadyForPromotion(live, actual, image)
+    assertHealthyServingRevision(live, actual, image, candidateRevision)
+    record({ status: 'recovered', revision: candidateRevision, previousReady: previousRevision, platformReadinessGate: true })
+    return live
+  } catch (error) {
+    // Do not retry an uncertain PATCH. Inspect and only repair traffic if this
+    // unique candidate still owns the service's desired state. The fresh etag
+    // closes the read-to-rollback race with another operator/release.
+    try {
+      const current = await api(url)
+      if (current.latestCreatedRevision === service.latestCreatedRevision && current.etag === service.etag) {
+        const old = await api(`https://run.googleapis.com/v2/${service.latestReadyRevision}`)
+        assertHealthyServingRevision({ ...current, terminalCondition: undefined }, old, previousImage, previousRevision)
+        record({ status: 'platform_failed_prior_preserved', candidateRevision, previousReady: previousRevision })
+      } else {
+        const rollback = platformRollbackBody(current, proof)
+        const old = await api(`https://run.googleapis.com/v2/${service.latestReadyRevision}`)
+        if (old.containers?.[0]?.image !== previousImage) throw new Error('Rollback image changed from the captured serving proof.')
+        if (!exactTraffic(current.traffic, previousRevision)) {
+          const operation = await api(`${url}?updateMask=traffic`, { method: 'PATCH', body: JSON.stringify(rollback) })
+          record({ status: 'platform_rollback_operation', candidateRevision, operation: operation.name, previousReady: previousRevision })
+          await operationDone(operation, 120_000)
+        }
+        const restored = await api(url)
+        const restoredRevision = await api(`https://run.googleapis.com/v2/${service.latestReadyRevision}`)
+        assertHealthyServingRevision(restored, restoredRevision, previousImage, previousRevision)
+        record({ status: 'platform_rolled_back', candidateRevision, previousReady: previousRevision })
+      }
+    } catch (rollbackError) {
+      record({ status: 'platform_needs_review', candidateRevision, previousReady: previousRevision, error: rollbackError.message })
+      throw new Error(`${error.message}; rollback not verified: ${rollbackError.message}`)
+    }
+    throw error
   }
 }
 function validatePlan(plan) {
@@ -111,6 +220,8 @@ async function main() {
   const selected = new Set(arg('functions').split(',').filter(Boolean))
   const excludedNames = new Set(arg('exclude').split(',').filter(Boolean))
   const reviewedStartupTimeouts = process.argv.includes('--reviewed-startup-timeouts')
+  const platformReadinessGate = process.argv.includes('--platform-readiness-gate')
+  if (platformReadinessGate && !selected.size) throw new Error('Platform readiness gate requires explicit --functions long-name targets.')
   if (reviewedStartupTimeouts && !selected.size) throw new Error('Reviewed startup retries require explicit function names after inspecting revision logs.')
   if ([...selected].some((name) => excludedNames.has(name))) throw new Error('A function cannot be both selected and excluded.')
   if (!process.argv.includes('--apply')) {
@@ -126,6 +237,7 @@ async function main() {
       if (!service || servingLatest(service)) return
       let reason = String(service.terminalCondition?.message || '')
       try {
+        if (platformReadinessGate && short(service.name).length + STAGING_TAG.length <= 46) throw new Error('Platform readiness gate is restricted to long-name services.')
         if (service.reconciling) throw new Error('Rollout in progress')
         if (!/quota.*CPU|CPU.*quota/i.test(reason)) {
           const revision = await api(`https://run.googleapis.com/v2/${service.latestCreatedRevision}`)
@@ -142,7 +254,7 @@ async function main() {
     })
     // Canary first; then restore the in-use overflow pool before the legacy fleet.
     targets.sort((a, b) => (a.previousReady ? 1 : 0) - (b.previousReady ? 1 : 0) || a.region.localeCompare(b.region) || a.function.localeCompare(b.function))
-    const plan = { schemaVersion: 1, project: PROJECT, createdAt: new Date().toISOString(), targets, excluded }
+    const plan = { schemaVersion: 1, project: PROJECT, createdAt: new Date().toISOString(), ...(platformReadinessGate ? { platformReadinessGate: true } : {}), targets, excluded }
     validatePlan(plan)
     fs.mkdirSync(path.dirname(planFile), { recursive: true })
     fs.writeFileSync(planFile, JSON.stringify(plan, null, 2))
@@ -154,6 +266,8 @@ async function main() {
   validatePlan(plan)
   const targets = plan.targets.filter((item) => (!selected.size || selected.has(item.function)) && !excludedNames.has(item.function))
   if (selected.size && targets.length !== selected.size) throw new Error('Requested function is not present in the frozen recovery plan.')
+  if (platformReadinessGate && targets.some((item) => item.service.length + STAGING_TAG.length <= 46 || !item.previousReady)) throw new Error('Platform readiness gate only accepts long-name targets with a prior serving revision.')
+  if (plan.platformReadinessGate === true && !platformReadinessGate) throw new Error('This plan requires explicit --platform-readiness-gate opt-in on apply.')
   if ([...excludedNames].some((name) => !plan.targets.some((item) => item.function === name))) throw new Error('Excluded function is not present in the frozen recovery plan.')
   const disableStartupBoost = process.argv.includes('--disable-startup-boost')
   if (disableStartupBoost && (!selected.size || targets.some((item) => !['event-trigger', 'scheduled'].includes(item.kind)))) throw new Error('Disabling startup boost requires an explicit background-function selection.')
@@ -172,17 +286,31 @@ async function main() {
     const url = `https://run.googleapis.com/v2/${name}`
     const readyRevision = await api(`https://run.googleapis.com/v2/${ready.latestReadyRevision}`)
     assertReadyForPromotion(ready, readyRevision, expectedImage)
-    const promote = await api(`${url}?updateMask=traffic`, { method: 'PATCH', body: JSON.stringify({ name, etag: ready.etag, traffic: [{ type: 'TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST', percent: 100 }] }) })
+    const promote = await api(`${url}?updateMask=traffic`, { method: 'PATCH', body: JSON.stringify({ name, etag: ready.etag, traffic: [{ type: 'TRAFFIC_TARGET_ALLOCATION_TYPE_REVISION', revision: short(ready.latestReadyRevision), percent: 100 }] }) })
     await operationDone(promote, 120_000)
     const live = await api(url)
     if (live.latestCreatedRevision !== ready.latestReadyRevision || !servingLatest(live)) throw new Error('Latest revision is not serving 100 percent.')
+    assertReadyForPromotion(live, await api(`https://run.googleapis.com/v2/${live.latestReadyRevision}`), expectedImage)
     record({ function: item.function, region: item.region, status: 'recovered', previousReady: short(previousReady), revision: short(live.latestReadyRevision), resumed })
   }
   async function recover(item) {
     const name = `projects/${PROJECT}/locations/${item.region}/services/${item.service}`
     const url = `https://run.googleapis.com/v2/${name}`
     const before = await api(url)
-    if (servingLatest(before)) return record({ function: item.function, region: item.region, status: 'already_ready', revision: short(before.latestReadyRevision) })
+    if (servingLatest(before)) {
+      const original = await api(`https://run.googleapis.com/v2/${item.expectedCreated}`)
+      const actual = await api(`https://run.googleapis.com/v2/${before.latestReadyRevision}`)
+      assertReadyForPromotion(before, actual, original.containers?.[0]?.image)
+      assertHealthyServingRevision(before, actual, original.containers?.[0]?.image, before.latestReadyRevision)
+      return record({ function: item.function, region: item.region, status: 'already_ready', revision: short(before.latestReadyRevision) })
+    }
+    if (platformReadinessGate) {
+      if (before.latestCreatedRevision !== item.expectedCreated) throw new Error('Revision changed since plan; platform recovery requires a fresh plan after inspecting its journal.')
+      const revision = await api(`https://run.googleapis.com/v2/${before.latestCreatedRevision}`)
+      return recoverWithPlatformReadiness({ api, operationDone, service: before, revision, functionName: item.function, disableStartupBoost,
+        record: (entry) => record({ function: item.function, region: item.region, ...entry }),
+      })
+    }
     if (latestReady(before) && before.latestCreatedRevision !== item.expectedCreated) {
       // A timed-out API wait is NOT a failed rollout. Resume only a ready
       // candidate proven to be created by this exact journal/plan operation.
@@ -235,4 +363,5 @@ async function main() {
 }
 
 if (require.main === module) main().catch((error) => { console.error(error.message); process.exitCode = 1 })
-module.exports = { latestReady, servingLatest, assertReadyForPromotion, pinnedTraffic, recoveryBody, validatePlan }
+module.exports = { latestReady, servingLatest, assertReadyForPromotion, pinnedTraffic, recoveryBody, validatePlan,
+  platformReadinessRevisionName, exactTraffic, assertHealthyServingRevision, platformRollbackBody, recoverWithPlatformReadiness }

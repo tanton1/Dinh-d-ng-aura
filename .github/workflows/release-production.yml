@@ -257,7 +257,10 @@ jobs:
             fi
 
             CONFIRMATION="gen-lang-client-0815966909/$FUNCTION_REGION"
-            if ! node scripts/cloud-run-functions-promote-latest.cjs --functions="$SERVICE_NAME" --region="$FUNCTION_REGION" --confirm="$CONFIRMATION"; then
+            # Managed Functions can reject a v2 traffic-only PATCH because its
+            # template conversion conflicts with the immutable revision. Keep
+            # the original v1 template and resourceVersion for traffic changes.
+            if ! node scripts/cloud-run-functions-promote-latest.cjs --functions="$SERVICE_NAME" --region="$FUNCTION_REGION" --traffic-api=v1 --confirm="$CONFIRMATION"; then
               node scripts/cloud-run-functions-rollback.cjs --functions="$SERVICE_NAME" --region="$FUNCTION_REGION" --confirm="$CONFIRMATION" || true
               exit 1
             fi
