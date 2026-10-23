@@ -7,7 +7,7 @@ const { initializeApp, deleteApp } = require('firebase-admin/app')
 const { FieldValue, getFirestore } = require('firebase-admin/firestore')
 const {
   buildPtScheduleWeeklyView, rebuildPtScheduleWeeklyView,
-  markPtScheduleWeeklyViewDirty, syncPtScheduleWeeklyViewSource,
+  markPtScheduleWeeklyViewDirty, syncPtScheduleWeeklyViewSource, rebuildDirtyPtScheduleWeeklyViews,
 } = require('./pt-schedule-weekly-view')
 
 // Deliberately outside the ordinary unit-test glob. Integration writes must
@@ -143,6 +143,85 @@ test('real Firestore: expired builders cannot overwrite or release a replacement
   secondResume.resolve()
   assert.equal((await replacement).draft.revision, 3)
   assert.equal((await db.doc(viewPath()).get()).data().draft.revision, 3)
+  assert.equal((await db.doc(leasePath).get()).exists, false)
+})
+
+test('real Firestore: light matrix refresh retains validation and stays queued for the bounded worker', async () => {
+  const db = fixture()
+  await seed(db)
+  const exact = (await db.doc(viewPath()).get()).data()
+  assert.equal(exact.validationState, 'current')
+  assert.equal(exact.coverage.missingSessions, 1)
+  await markPtScheduleWeeklyViewDirty({ db, branchId: BRANCH, weekId: WEEK })
+  const changed = data(2)
+  changed.schedule['T4-6'] = [{ ...changed.schedule['T2-6'][0] }]
+  changed.students[0].name = 'Updated fixture name'
+  let lightLoads = 0
+  const light = await rebuildPtScheduleWeeklyView({
+    db, branchId: BRANCH, weekId: WEEK, initialPaint: true,
+    branchData: async (_db, _branch, _week, options) => {
+      lightLoads += 1
+      assert.equal(options.initialPaint, true)
+      return { ...changed, partial: true, readMode: 'display', contracts: [] }
+    },
+  })
+  assert.equal(lightLoads, 1)
+  assert.equal(light.dirty, false)
+  assert.equal(light.validationDirty, true)
+  assert.equal(light.validationState, 'stale')
+  assert.equal(light.students[0].name, 'Updated fixture name')
+  assert.ok(light.schedule['T4-6'])
+  assert.equal(light.validationSnapshot.draftRevision, exact.draft.revision)
+  assert.equal(light.validationSnapshot.validatedAt, exact.validationSnapshot.validatedAt)
+  assert.deepEqual(light.validationSnapshot.coverage, exact.coverage)
+  assert.deepEqual(light.validationSnapshot.warnings, exact.warnings)
+  assert.deepEqual(light.validationSnapshot.unassignedEntries, exact.unassignedEntries)
+  assert.equal((await db.collection('ptScheduleWeeklyViews').where('dirty', '==', true).get()).size, 0)
+  assert.equal((await db.collection('ptScheduleWeeklyViews').where('validationDirty', '==', true).get()).size, 1)
+
+  let fullLoads = 0
+  const report = await rebuildDirtyPtScheduleWeeklyViews({
+    db, limit: 1, logger: quiet,
+    branchData: async (_db, _branch, _week, options) => {
+      fullLoads += 1
+      assert.notEqual(options.initialPaint, true)
+      return changed
+    },
+  })
+  assert.equal(fullLoads, 1)
+  assert.equal(report.rebuilt, 1)
+  const refreshed = (await db.doc(viewPath()).get()).data()
+  assert.equal(refreshed.dirty, false)
+  assert.equal(refreshed.validationDirty, false)
+  assert.equal(refreshed.validationState, 'current')
+  assert.equal(refreshed.validationSnapshot.draftRevision, 2)
+  assert.equal(refreshed.coverage.missingSessions, 0)
+  assert.equal((await db.doc(leasePath).get()).exists, false)
+})
+
+test('real Firestore: validation-only rebuild cannot acknowledge a concurrent source change', async () => {
+  const db = fixture()
+  await seed(db)
+  await markPtScheduleWeeklyViewDirty({ db, branchId: BRANCH, weekId: WEEK })
+  const light = await rebuildPtScheduleWeeklyView({
+    db, branchId: BRANCH, weekId: WEEK, initialPaint: true,
+    branchData: async () => ({ ...data(2), partial: true, readMode: 'display' }),
+  })
+  assert.equal(light.validationDirty, true)
+  const report = await rebuildDirtyPtScheduleWeeklyViews({
+    db, limit: 1, logger: quiet,
+    branchData: async () => {
+      await markPtScheduleWeeklyViewDirty({ db, branchId: BRANCH, weekId: WEEK })
+      return data(3)
+    },
+  })
+  assert.equal(report.rebuilt, 0)
+  const retained = (await db.doc(viewPath()).get()).data()
+  assert.equal(retained.dirty, true)
+  assert.equal(retained.validationDirty, true)
+  assert.equal(retained.dirtyGeneration, 2)
+  assert.deepEqual(retained.validationSnapshot, light.validationSnapshot)
+  assert.equal(retained.draft.revision, 2)
   assert.equal((await db.doc(leasePath).get()).exists, false)
 })
 

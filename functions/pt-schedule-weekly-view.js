@@ -434,6 +434,84 @@ function sourceRevisionFor(payload) {
   return createHash('sha256').update(JSON.stringify(canonicalSourcePayload(payload))).digest('hex').slice(0, 24)
 }
 
+const DEFERRED_STUDENT_FIELDS = [
+  'scheduledSessions', 'activeScheduledSessions', 'activeScheduledThisWeek',
+  'remainingSessions', 'remainingEntitlementSessions', 'remainingSchedulableSessions',
+  'maxWeeklySessions', 'schedulableSessionsThisWeek', 'contractStatus',
+  'eligibleContractIds', 'eligibleForWeek', 'eligibilityReasons', 'validScheduleDates',
+  'pausedScheduleDates', 'previousWeekScheduledSessions', 'hadSchedulePreviousWeek', 'contract',
+]
+
+function retainedValidationSnapshot(value) {
+  const snapshot = value?.validationSnapshot
+  if (snapshot?.schemaVersion === 1 && snapshot.branchId === value.branchId && snapshot.weekId === value.weekId) {
+    if (snapshot.storage === 'top_level' && value.verification === 'exact' && value.coverage?.verified === true && Array.isArray(value.warnings)) {
+      return { ...snapshot, ...validationEvidence(value), storage: 'embedded' }
+    }
+    if (snapshot.storage === 'embedded' && snapshot.coverage?.verified === true && Array.isArray(snapshot.warnings)) return snapshot
+  }
+  // Legacy exact views already contain evidence. Wrap it without re-reading
+  // sources; a display-only legacy view must never be promoted to exact here.
+  if (value?.verification !== 'exact' || value.coverage?.verified !== true || !Array.isArray(value.warnings)) return null
+  return { ...createValidationSnapshot(value, value.generatedAt), ...validationEvidence(value), storage: 'embedded' }
+}
+
+function validationEvidence(value) {
+  return {
+    coverage: value.coverage,
+    summary: value.summary,
+    warnings: value.warnings,
+    unassignedEntries: value.unassignedEntries || [],
+    weeklySessionCoverage: value.weeklySessionCoverage || {},
+    contracts: value.contracts || [],
+    optimizationSummary: value.optimizationSummary || {},
+  }
+}
+
+function createValidationSnapshot(value, validatedAt) {
+  const metadata = {
+    schemaVersion: 1,
+    branchId: value.branchId,
+    weekId: value.weekId,
+    draftRevision: Number(value.draft?.revision || 0),
+    dirtyGeneration: Number(value.dirtyGeneration || 0),
+  }
+  // Exact evidence is already authoritative at the top level. Store only a
+  // pointer so large rosters do not duplicate contracts/coverage/warnings in a
+  // Firestore document. A light builder resolves this pointer before replacing
+  // those top-level fields, embedding the retained evidence exactly once.
+  return {
+    ...metadata,
+    storage: 'top_level',
+    sourceRevision: sourceRevisionFor({ ...metadata, ...validationEvidence(value) }),
+    validatedAt: isoValue(validatedAt),
+  }
+}
+
+function validationMetadata(value) {
+  const validationSnapshot = retainedValidationSnapshot(value)
+  const validationDirty = value?.validationDirty === true || value?.dirty === true || !validationSnapshot
+  const stored = value?.validationSnapshot
+  const storedMatches = stored?.schemaVersion === 1 && stored.branchId === value.branchId && stored.weekId === value.weekId
+    && (stored.storage === 'embedded' ? validationSnapshot === stored
+      : stored.storage === 'top_level' && value.verification === 'exact' && value.coverage?.verified === true && Array.isArray(value.warnings))
+  return {
+    validationSnapshot: validationSnapshot ? storedMatches ? stored : createValidationSnapshot(value, value.generatedAt) : null,
+    validationDirty,
+    validationState: !validationSnapshot ? 'unknown' : validationDirty ? 'stale' : 'current',
+  }
+}
+
+function retainStudentEvidence(student, previous) {
+  if (!previous) return student
+  const retained = Object.fromEntries(DEFERRED_STUDENT_FIELDS.filter((key) => previous[key] !== undefined).map((key) => [key, previous[key]]))
+  // Contact/availability completeness comes from the newly read profile, while
+  // contract completeness belongs to the retained validation plane.
+  const missingFields = [...student.missingFields.filter((key) => key !== 'contract')]
+  if (previous.missingFields?.includes('contract')) missingFields.push('contract')
+  return { ...student, ...retained, missingFields, profileComplete: missingFields.length === 0 }
+}
+
 function buildPtScheduleWeeklyView({ branchId, weekId, data, previousView = null, now = new Date() } = {}) {
   if (!branchId || !weekId || !data) throw new Error('weekly view requires branchId, weekId and workspace data')
   const schedule = compactSchedule(data.schedule)
@@ -443,17 +521,22 @@ function buildPtScheduleWeeklyView({ branchId, weekId, data, previousView = null
     const existing = latestContractByStudent.get(contract.studentId)
     if (!existing || String(existing.endDate || '').localeCompare(String(contract.endDate || '')) < 0) latestContractByStudent.set(contract.studentId, contract)
   }
-  const students = allStudents.slice(0, MAX_VIEW_STUDENTS).map((student) => compactStudent(student, branchId, latestContractByStudent.get(student.id)))
+  const exact = data.partial !== true && data.readMode !== 'display'
+  const previousValidation = retainedValidationSnapshot(previousView)
+  const previousStudents = new Map((previousValidation ? previousView?.students || [] : []).map((student) => [student.id, student]))
+  const students = allStudents.slice(0, MAX_VIEW_STUDENTS).map((student) => {
+    const compact = compactStudent(student, branchId, latestContractByStudent.get(student.id))
+    return exact ? compact : retainStudentEvidence(compact, previousStudents.get(compact.id))
+  })
   const trainers = (data.trainers || []).slice(0, MAX_VIEW_TRAINERS).map((trainer) => compactTrainer(trainer, branchId))
   const contractIdsForView = new Set([...latestContractByStudent.values()].map((contract) => contract.id).filter(Boolean))
   Object.values(schedule).flat().forEach((entry) => {
     if (entry?.contractId) contractIdsForView.add(entry.contractId)
   })
-  const contracts = (data.contracts || [])
+  const contracts = (exact ? data.contracts || [] : [])
     .filter((contract) => contractIdsForView.has(contract.id))
     .slice(0, MAX_VIEW_STUDENTS + MAX_VIEW_SCHEDULE_ENTRIES)
     .map(compactContract)
-  const exact = data.partial !== true && data.readMode !== 'display'
   const coverage = compactCoverage({ students, schedule, weeklySessionCoverage: data.weeklySessionCoverage, exact })
   const weeklySessionCoverage = compactWeeklySessionCoverage(data.weeklySessionCoverage)
   const warnings = enrichedWarnings({ data: { ...data, weekId }, branchId, coverage, exact })
@@ -498,12 +581,19 @@ function buildPtScheduleWeeklyView({ branchId, weekId, data, previousView = null
       : [],
     optimizationSummary: compactOptimizationSummary(data.draft?.optimizationSummary || {}),
   }
+  const validationSnapshot = exact
+    ? createValidationSnapshot({ ...view, dirtyGeneration: Number(previousView?.dirtyGeneration || 0) }, generatedAt)
+    : previousValidation
+  view.validationSnapshot = validationSnapshot
+  view.validationDirty = !exact
+  view.validationState = exact ? 'current' : validationSnapshot ? 'stale' : 'unknown'
   // Hash the actual rendered payload, not a short list of source revisions.
   // Name/phone/config/warning changes must reach clients even when the draft
   // and availability revision numbers stay the same. Ignore only bookkeeping.
   const { generatedAt: ignoredGeneratedAt, dirty: ignoredDirty, ...semantic } = view
   const { updatedAt: ignoredUpdatedAt, ...semanticDraft } = view.draft
-  const sourceRevision = sourceRevisionFor({ ...semantic, draft: semanticDraft })
+  const { validatedAt: ignoredValidatedAt, ...semanticValidation } = validationSnapshot || {}
+  const sourceRevision = sourceRevisionFor({ ...semantic, draft: semanticDraft, validationSnapshot: validationSnapshot ? semanticValidation : null })
   const previousRevision = Number(previousView?.viewRevision || 0)
   return {
     ...view,
@@ -511,13 +601,14 @@ function buildPtScheduleWeeklyView({ branchId, weekId, data, previousView = null
     viewRevision: previousView?.sourceRevision !== sourceRevision ? previousRevision + 1 : previousRevision || 1,
     sourceStudentIds: [...new Set(students.map((student) => student.id).filter(Boolean))].sort(),
     sourceTrainerIds: [...new Set(trainers.map((trainer) => trainer.id).filter(Boolean))].sort(),
-    sourceContractIds: [...new Set(contracts.map((contract) => contract.id).filter(Boolean))].sort(),
+    sourceContractIds: [...new Set([...contracts, ...(!exact ? previousValidation?.contracts || [] : [])].map((contract) => contract.id).filter(Boolean))].sort(),
   }
 }
 
 function serializableWeeklyView(value = {}) {
   return {
     ...value,
+    ...validationMetadata(value),
     generatedAt: isoValue(value.generatedAt),
     draft: value.draft ? { ...value.draft, updatedAt: isoValue(value.draft.updatedAt) } : value.draft,
   }
@@ -572,7 +663,8 @@ async function rebuildPtScheduleWeeklyView({ db, branchId, weekId, branchData = 
       if (Number(current?.dirtyGeneration || 0) !== acquired.generation || snapshotVersion(snapshot) !== acquired.version) {
         return pendingWeeklyView(current, 'superseded')
       }
-      if (current?.schemaVersion === WEEKLY_VIEW_SCHEMA_VERSION && current?.sourceRevision === view.sourceRevision && current?.dirty !== true) {
+      if (current?.schemaVersion === WEEKLY_VIEW_SCHEMA_VERSION && current?.sourceRevision === view.sourceRevision
+        && current?.dirty !== true && current?.validationDirty !== true) {
         return { ...serializableWeeklyView(current), unchanged: true }
       }
       const result = { ...view, dirtyGeneration: acquired.generation }
@@ -748,24 +840,37 @@ async function syncPtScheduleWeeklyViewSource({ db, event, source = 'source', lo
   return { source, marked }
 }
 
-async function rebuildDirtyPtScheduleWeeklyViews({ db, limit = 8, logger = console } = {}) {
-  const snapshot = await db.collection('ptScheduleWeeklyViews').where('dirty', '==', true).limit(Math.max(1, Math.min(20, Number(limit) || 8))).get()
+async function rebuildDirtyPtScheduleWeeklyViews({ db, limit = 8, branchData = loadBranchData, logger = console } = {}) {
+  const maximum = Math.max(1, Math.min(20, Number(limit) || 8))
+  // Both queries use existing single-field indexes. The legacy dirty queue
+  // covers source triggers deployed before validationDirty was introduced.
+  // Light matrix publication may clear dirty, but never validationDirty.
+  const [validation, matrix] = await Promise.all([
+    db.collection('ptScheduleWeeklyViews').where('validationDirty', '==', true).limit(maximum).get(),
+    db.collection('ptScheduleWeeklyViews').where('dirty', '==', true).limit(maximum).get(),
+  ])
+  const selected = new Map()
+  for (let index = 0; index < maximum && selected.size < maximum; index += 1) {
+    for (const item of [validation.docs[index], matrix.docs[index]]) {
+      if (item && selected.size < maximum) selected.set(item.id, item)
+    }
+  }
   let rebuilt = 0
   let failed = 0
-  for (const item of snapshot.docs) {
+  for (const item of selected.values()) {
     const value = item.data() || {}
     const branchId = String(value.branchId || '')
     const weekId = String(value.weekId || '')
     if (!branchId || !/^\d{4}-\d{2}-\d{2}$/.test(weekId)) continue
     try {
-      const result = await rebuildPtScheduleWeeklyView({ db, branchId, weekId, forceRefresh: true })
+      const result = await rebuildPtScheduleWeeklyView({ db, branchId, weekId, branchData, forceRefresh: true })
       if (result.rebuilding !== true) rebuilt += 1
     } catch (error) {
       failed += 1
       logger?.error?.('pt_schedule_weekly_view_rebuild_failed', { branchId, weekId, error: error?.message || String(error) })
     }
   }
-  return { scanned: snapshot.size, rebuilt, failed }
+  return { scanned: selected.size, rebuilt, failed }
 }
 
 async function markPtScheduleWeeklyViewDirty({ db, branchId, weekId, reason = 'source_changed', sourceRevision = '' } = {}) {
@@ -775,12 +880,30 @@ async function markPtScheduleWeeklyViewDirty({ db, branchId, weekId, reason = 's
     weekId,
     freshness: 'stale',
     dirty: true,
+    validationDirty: true,
     dirtyGeneration: FieldValue.increment(1),
     dirtyReason: stringValue(reason, 100) || 'source_changed',
     ...(sourceRevision ? { sourceRevision: stringValue(sourceRevision, 80) } : {}),
     dirtyAt: FieldValue.serverTimestamp(),
   }, { merge: true })
-  return { branchId, weekId, dirty: true, freshness: 'stale' }
+  return { branchId, weekId, dirty: true, validationDirty: true, freshness: 'stale' }
+}
+
+async function queueMissingWeeklyValidation(db, reference) {
+  return db.runTransaction(async (transaction) => {
+    const snapshot = await transaction.get(reference)
+    const current = snapshot.exists ? snapshot.data() : null
+    if (!completeWeeklyView(current)) return current
+    // Existing display-only snapshots have no exact evidence. Queue once with
+    // a metadata write, not a broad source read or a fabricated zero-warning
+    // validation result. The bounded worker provides the first exact snapshot.
+    if (!retainedValidationSnapshot(current) && current.validationDirty !== true) {
+      const metadata = { validationSnapshot: null, validationState: 'unknown', validationDirty: true }
+      transaction.set(reference, metadata, { merge: true })
+      return { ...current, ...metadata }
+    }
+    return current
+  })
 }
 
 function createPtScheduleWeeklyViewFunctions({
@@ -797,7 +920,7 @@ function createPtScheduleWeeklyViewFunctions({
     if (!/^[A-Za-z0-9_-]+$/.test(branchId) || !/^\d{4}-\d{2}-\d{2}$/.test(weekId)) throw new HttpsError('invalid-argument', 'Chi nhánh hoặc tuần lịch không hợp lệ.')
     await actorForBranch(request, db, branchId)
     const snapshot = await weeklyViewReference(db, branchId, weekId).get()
-    const current = snapshot.exists ? snapshot.data() || {} : null
+    let current = snapshot.exists ? snapshot.data() || {} : null
     // Source triggers may create a dirty marker before the first full view has
     // ever been materialized. Treat that marker like a cache miss; returning
     // the metadata-only document would leave the first paint without a matrix
@@ -807,12 +930,10 @@ function createPtScheduleWeeklyViewFunctions({
       // the materialized document and do not fan out across the roster.
       return rebuildPtScheduleWeeklyView({ db, branchId, weekId, branchData, forceRefresh: true, initialPaint: true })
     }
-    // Upgrade a clean legacy snapshot when it is actually opened. Keep an
-    // exact snapshot exact; a cheap display-only rebuild must not discard its
-    // reconciled warnings during this one-time migration. Unopened history is
-    // not eagerly rebuilt, and legacy dependency lookup remains a safety net.
+    // Schema migration is display-only. Exact evidence, if present, is retained
+    // in its own plane; opening a page must never run full reconciliation.
     if (Number(current.schemaVersion || 0) < WEEKLY_VIEW_SCHEMA_VERSION) {
-      return rebuildPtScheduleWeeklyView({ db, branchId, weekId, branchData, forceRefresh: true, initialPaint: current.verification !== 'exact' })
+      return rebuildPtScheduleWeeklyView({ db, branchId, weekId, branchData, forceRefresh: true, initialPaint: true })
     }
     // A source trigger can leave a complete view marked dirty while the
     // coalescing worker is waiting for its next sweep. An active schedule page
@@ -820,7 +941,11 @@ function createPtScheduleWeeklyViewFunctions({
     // rather than returning a stale matrix and making the user wait for the
     // background worker.
     if (current.dirty === true && (request.data?.initialPaint === true || request.data?.forceRefresh === true)) {
-      return rebuildPtScheduleWeeklyView({ db, branchId, weekId, branchData, forceRefresh: true, initialPaint: request.data?.initialPaint === true })
+      return rebuildPtScheduleWeeklyView({ db, branchId, weekId, branchData, forceRefresh: true, initialPaint: true })
+    }
+    if (!retainedValidationSnapshot(current) && current.validationDirty !== true) {
+      current = await queueMissingWeeklyValidation(db, weeklyViewReference(db, branchId, weekId))
+      if (!completeWeeklyView(current)) return pendingWeeklyView(current, 'superseded')
     }
     return serializableWeeklyView(current)
   })

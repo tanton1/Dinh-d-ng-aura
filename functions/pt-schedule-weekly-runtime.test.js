@@ -8,6 +8,7 @@ const {
   shouldUseWeeklyReadRuntime,
   loadWeeklyReadRuntime,
 } = require('./pt-schedule-weekly-runtime')
+const { buildPtScheduleWeeklyView } = require('./pt-schedule-weekly-view')
 
 const CANONICAL_DATABASE = 'ai-studio-aurafitnesselear-0f7609b4-b8d1-4fb3-9d62-99a2c03e1ce7'
 const BRANCH = 'branch-a'
@@ -32,6 +33,7 @@ const Module = require('node:module');
 const input = JSON.parse(process.env.AURA_WEEKLY_RUNTIME_PROBE);
 const reads = [];
 const queries = [];
+const writes = [];
 let transactions = 0;
 const databaseIds = [];
 const networkAttempts = [];
@@ -64,9 +66,29 @@ const db = {
     queries.push(collectionPath);
     throw new Error('Unexpected collection fan-out: ' + collectionPath);
   },
-  async runTransaction() {
+  async runTransaction(action) {
     transactions += 1;
-    throw Object.assign(new Error('Runtime probe reached canonical rebuild transaction'), { code: 'probe-rebuild-required' });
+    if (!input.allowMetadataTransactions) {
+      throw Object.assign(new Error('Runtime probe reached canonical rebuild transaction'), { code: 'probe-rebuild-required' });
+    }
+    const pendingWrites = [];
+    const result = await action({
+      get: (reference) => reference.get(),
+      set(reference, value, options) {
+        const expectedKeys = ['validationDirty', 'validationSnapshot', 'validationState'];
+        if (options?.merge !== true || !reference.path.startsWith('ptScheduleWeeklyViews/')
+          || JSON.stringify(Object.keys(value).sort()) !== JSON.stringify(expectedKeys)
+          || value.validationSnapshot !== null || value.validationState !== 'unknown' || value.validationDirty !== true) {
+          throw new Error('Runtime probe rejected non-metadata transaction write');
+        }
+        pendingWrites.push({ path: reference.path, value, options });
+      },
+    });
+    for (const write of pendingWrites) {
+      documents[write.path] = { ...documents[write.path], ...write.value };
+      writes.push(write);
+    }
+    return result;
   },
 };
 const originalLoad = Module._load;
@@ -115,7 +137,7 @@ Module._load = function (request, parent, isMain) {
     .filter((filename) => filename.startsWith(process.cwd() + path.sep) && !filename.includes(path.sep + 'node_modules' + path.sep))
     .map((filename) => path.relative(process.cwd(), filename).split(path.sep).join('/'))
     .sort();
-  console.log('${PROBE_PREFIX}' + JSON.stringify({ exportNames, handlers, results, reads, queries, transactions, databaseIds, networkAttempts, localModules }));
+  console.log('${PROBE_PREFIX}' + JSON.stringify({ exportNames, handlers, results, reads, queries, writes, transactions, databaseIds, networkAttempts, localModules }));
 })().catch((error) => { console.error(error.stack); process.exitCode = 1; });
 `
 
@@ -150,19 +172,36 @@ function probe({ environment = {}, ...input } = {}) {
   return output
 }
 
-function cleanView() {
-  return {
+function cleanView(workspaceOverrides = {}) {
+  const view = buildPtScheduleWeeklyView({
     branchId: BRANCH,
     weekId: WEEK,
-    schemaVersion: 2,
-    viewRevision: 12,
-    dirty: false,
-    freshness: 'verified',
-    verification: 'exact',
-    schedule: { 'T2-6': [{ studentId: 'student-a', trainerId: 'trainer-a', type: 'training' }] },
-    students: [{ id: 'student-a', name: 'Test student', phone: '0000000000' }],
-    trainers: [{ id: 'trainer-a', name: 'Test trainer' }],
-  }
+    now: new Date('2026-10-23T00:00:00.000Z'),
+    data: {
+      weekId: WEEK,
+      readMode: 'reconciled',
+      partial: false,
+      branch: { id: BRANCH, name: 'Test branch' },
+      draft: { revision: 4, status: 'draft', publishedVersion: 0, publishedRevision: -1 },
+      schedule: {
+        'T2-6': [{ studentId: 'student-a', trainerId: 'trainer-a', branchId: BRANCH, type: 'training', contractId: 'contract-a', source: 'manual_v2' }],
+      },
+      students: [{
+        id: 'student-a', name: 'Test student', phone: '0000000000', email: 'student@example.invalid',
+        status: 'active', branchId: BRANCH, sessionsPerWeek: 2, activeScheduledThisWeek: 1,
+        remainingSchedulableSessions: 10, availabilityStatus: 'submitted', availabilityRevision: 2,
+        availableSlots: ['T2-6'], contractStatus: 'active', eligibleContractIds: ['contract-a'], eligibleForWeek: true,
+      }],
+      crossBranchStudents: [],
+      trainers: [{ id: 'trainer-a', name: 'Test trainer', branchId: BRANCH, availabilityMode: 'configured', slotCapacity: 2 }],
+      contracts: [{ id: 'contract-a', studentId: 'student-a', branchId: BRANCH, status: 'active', startDate: '2026-01-01', endDate: '2027-01-01' }],
+      sessions: [],
+      weeklySessionCoverage: {},
+      config: { workingDays: ['T2'], workingHours: [6] },
+      ...workspaceOverrides,
+    },
+  })
+  return { ...view, viewRevision: 12 }
 }
 
 function assignment(accessRole, positions = [], branchIds = []) {
@@ -306,7 +345,7 @@ test('both runtime readers preserve canonical authorization failures before read
   }
 })
 
-test('clean reads serve one weekly document, retain live account checks and never fan out', () => {
+test('clean pointer reads serve one weekly document, retain live account checks and never fan out', () => {
   const documents = {
     [VIEW_PATH]: cleanView(),
     'users/admin': { role: 'admin', disabled: false },
@@ -330,6 +369,10 @@ test('clean reads serve one weekly document, retain live account checks and neve
       const result = lean.results[index]
       assert.equal(result.ok, true)
       assert.equal(result.value.viewRevision, 12)
+      assert.equal(result.value.validationSnapshot.storage, 'top_level')
+      assert.equal(result.value.validationState, 'current')
+      assert.equal(result.value.validationDirty, false)
+      assert.equal(result.value.coverage.verified, true)
       assert.deepEqual(result.value.students, cleanView().students)
       assert.deepEqual(result.reads.filter((entry) => entry.startsWith('ptScheduleWeeklyViews/')), [VIEW_PATH])
       assert.equal(result.reads.length, 3, 'Only account, role assignment and weekly snapshot are read')
@@ -337,7 +380,52 @@ test('clean reads serve one weekly document, retain live account checks and neve
     assert.equal(lean.results[2].code, 'permission-denied')
     assert.deepEqual(lean.results[2].reads, ['users/admin'], 'Cached assignment must not hide a newly disabled account')
     assert.deepEqual(lean.queries, [])
+    assert.deepEqual(lean.writes, [])
     assert.equal(lean.transactions, 0)
+  }
+})
+
+test('legacy draft-only reads queue validation once with metadata only in full and lean runtimes', () => {
+  const legacy = cleanView({ readMode: 'display', partial: true, contracts: [] })
+  delete legacy.validationSnapshot
+  delete legacy.validationState
+  delete legacy.validationDirty
+  assert.equal(legacy.verification, 'draft_only')
+  assert.equal(legacy.coverage.verified, false)
+  const documents = {
+    [VIEW_PATH]: legacy,
+    'users/admin': { role: 'admin', disabled: false },
+    'roleAssignments/admin': assignment('admin'),
+  }
+  const requests = Array.from({ length: 3 }, () => ({ call: authenticatedCall('admin', 'admin') }))
+  const input = { documents, requests, allowMetadataTransactions: true }
+  const full = probe(input)
+  for (const target of WEEKLY_READ_TARGETS) {
+    const lean = probe({ ...input, environment: { FUNCTION_TARGET: target }, selectedName: target })
+    assert.deepEqual(lean.results, full.results)
+    assert.deepEqual(lean.writes, full.writes)
+    for (const result of lean.results) {
+      assert.equal(result.ok, true)
+      assert.equal(result.value.viewRevision, 12)
+      assert.equal(result.value.verification, 'draft_only')
+      assert.equal(result.value.validationSnapshot, null)
+      assert.equal(result.value.validationState, 'unknown')
+      assert.equal(result.value.validationDirty, true)
+      assert.equal(result.value.coverage.verified, false)
+      assert.deepEqual(result.value.schedule, legacy.schedule)
+      assert.deepEqual(result.value.students, legacy.students)
+    }
+    assert.equal(lean.results[0].reads.length, 4, 'One queue transaction rechecks the weekly view after authorization and initial read')
+    for (const result of lean.results.slice(1)) {
+      assert.deepEqual(result.reads, ['users/admin', VIEW_PATH], 'Already queued snapshots require only live account and weekly reads')
+    }
+    assert.equal(lean.transactions, 1)
+    assert.deepEqual(lean.writes, [{
+      path: VIEW_PATH,
+      value: { validationSnapshot: null, validationState: 'unknown', validationDirty: true },
+      options: { merge: true },
+    }])
+    assert.deepEqual(lean.queries, [])
   }
 })
 

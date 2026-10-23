@@ -10,6 +10,7 @@ const {
   rebuildPtScheduleWeeklyView,
   markPtScheduleWeeklyViewDirty,
   syncPtScheduleWeeklyViewSource,
+  rebuildDirtyPtScheduleWeeklyViews,
   createPtScheduleWeeklyViewFunctions,
 } = require('./pt-schedule-weekly-view')
 
@@ -366,9 +367,12 @@ test('student branch changes paginate both branches and keep dirty counters mono
   assert.equal(db.values.get(viewPath('branch-b')).dirtyGeneration, 1)
 })
 
-test('opening a clean legacy view upgrades once and preserves its verification level', async () => {
+test('opening a clean legacy view upgrades lightly once and retains only existing exact evidence', async () => {
   for (const exact of [true, false]) {
     const legacy = { ...initialView(), schemaVersion: 1, dirty: false, verification: exact ? 'exact' : 'draft_only' }
+    delete legacy.validationSnapshot
+    delete legacy.validationState
+    delete legacy.validationDirty
     const db = fakeDb({ [viewPath()]: legacy })
     let loads = 0
     let checks = 0
@@ -377,14 +381,17 @@ test('opening a clean legacy view upgrades once and preserves its verification l
       actorForBranch: async () => { checks += 1 },
       branchData: async (_db, _branch, _week, options) => {
         loads += 1
-        assert.equal(options.initialPaint, !exact)
-        return workspace({ partial: !exact, readMode: exact ? 'reconciled' : 'display' })
+        assert.equal(options.initialPaint, true)
+        return workspace({ partial: true, readMode: 'display' })
       },
     })
     const request = { data: { branchId: BRANCH, weekId: WEEK, initialPaint: true } }
     const first = await functions.getPtScheduleWeeklyView(request)
     assert.equal(first.schemaVersion, 2)
-    assert.equal(first.verification, exact ? 'exact' : 'draft_only')
+    assert.equal(first.verification, 'draft_only')
+    assert.equal(first.validationState, exact ? 'stale' : 'unknown')
+    assert.equal(Boolean(first.validationSnapshot), exact)
+    assert.equal(first.validationDirty, true)
     assert.deepEqual(first.sourceStudentIds, ['student-a'])
     await functions.getPtScheduleWeeklyView(request)
     assert.equal(loads, 1, 'clean v2 snapshots stay on the one-document path')
@@ -416,4 +423,210 @@ test('deleted draft invalidates its week and cross-branch student coverage', asy
   assert.equal(result.marked, 2)
   assert.equal(db.values.get(viewPath()).dirty, true)
   assert.equal(db.values.get(viewPath('branch-b')).dirty, true)
+})
+
+test('exact validation has an independent bounded snapshot and light refresh retains it unchanged', () => {
+  const data = workspace({
+    contracts: [{ id: 'contract-a', studentId: 'student-a', packageName: 'PT full', totalSessions: 20, usedSessions: 10 }],
+    weeklySessionCoverage: { 'student-a': { total: 1, currentBranch: 1, otherBranches: 0 } },
+    draft: { ...workspace().draft, unassignedEntries: [{ studentId: 'student-a', missingSessions: 1 }], optimizationSummary: { missingSessions: 1 } },
+  })
+  const exact = buildPtScheduleWeeklyView({ branchId: BRANCH, weekId: WEEK, data })
+  assert.equal(exact.validationState, 'current')
+  assert.equal(exact.validationDirty, false)
+  assert.equal(exact.validationSnapshot.schemaVersion, 1)
+  assert.equal(exact.validationSnapshot.draftRevision, 4)
+  assert.equal(exact.validationSnapshot.schedule, undefined)
+  assert.equal(exact.validationSnapshot.students, undefined)
+  assert.equal(exact.validationSnapshot.storage, 'top_level')
+  assert.equal(exact.validationSnapshot.coverage, undefined, 'exact evidence is not duplicated')
+  assert.equal(exact.coverage.missingSessions, 1)
+  const lightData = workspace({ partial: true, readMode: 'display', contracts: [], schedule: {}, draft: { revision: 5 } })
+  lightData.students[0] = {
+    ...lightData.students[0], name: 'Lan updated', phone: '0909', email: 'updated@example.com', sessionsPerWeek: 3,
+    eligibleForWeek: false, eligibleContractIds: [], contractStatus: 'hydrating', remainingSchedulableSessions: 0,
+  }
+  const light = buildPtScheduleWeeklyView({ branchId: BRANCH, weekId: WEEK, data: lightData, previousView: exact })
+  assert.equal(light.validationSnapshot.storage, 'embedded')
+  assert.equal(light.validationSnapshot.sourceRevision, exact.validationSnapshot.sourceRevision)
+  assert.equal(light.validationSnapshot.validatedAt, exact.validationSnapshot.validatedAt)
+  assert.deepEqual(light.validationSnapshot.coverage, exact.coverage)
+  assert.deepEqual(light.validationSnapshot.warnings, exact.warnings)
+  assert.deepEqual(light.validationSnapshot.contracts, exact.contracts)
+  assert.equal(light.validationState, 'stale')
+  assert.equal(light.validationDirty, true)
+  assert.equal(light.coverage.verified, false, 'matrix estimates never impersonate retained validation')
+  assert.equal(light.coverage.missingSessions, 3)
+  assert.equal(light.students[0].name, 'Lan updated')
+  assert.equal(light.students[0].phone, '0909')
+  assert.equal(light.students[0].sessionsPerWeek, 3)
+  assert.equal(light.students[0].remainingSchedulableSessions, 10)
+  assert.deepEqual(light.students[0].eligibleContractIds, ['contract-a'])
+  assert.equal(light.students[0].contract.packageName, 'PT full')
+  assert.deepEqual(light.sourceContractIds, ['contract-a'], 'unscheduled retained contracts keep their invalidation dependency')
+  assert.deepEqual(light.contracts, [], 'retained contracts live only in the validation plane')
+  assert.equal(light.validationSnapshot.contracts[0].id, 'contract-a')
+})
+
+test('display-only bootstrap has unknown validation, never a fabricated exact zero', () => {
+  const view = buildPtScheduleWeeklyView({ branchId: BRANCH, weekId: WEEK, data: workspace({ partial: true, readMode: 'display', students: [], schedule: {} }) })
+  assert.equal(view.validationState, 'unknown')
+  assert.equal(view.validationDirty, true)
+  assert.equal(view.validationSnapshot, null)
+  assert.equal(view.coverage.verified, false)
+})
+
+test('clean legacy draft-only read queues validation once with metadata and no source load', async () => {
+  const legacy = buildPtScheduleWeeklyView({ branchId: BRANCH, weekId: WEEK, data: workspace({ partial: true, readMode: 'display' }) })
+  delete legacy.validationSnapshot
+  delete legacy.validationState
+  delete legacy.validationDirty
+  const db = fakeDb({ [viewPath()]: legacy })
+  const transaction = db.runTransaction
+  let transactions = 0
+  let checks = 0
+  db.runTransaction = (callback) => { transactions += 1; return transaction(callback) }
+  const functions = createPtScheduleWeeklyViewFunctions({
+    db, onCall: (handler) => handler, actorForBranch: async () => { checks += 1 },
+    branchData: async () => { throw new Error('Reading a complete display snapshot must not load sources') },
+  })
+  const first = await functions.getPtScheduleWeeklyView({ data: { branchId: BRANCH, weekId: WEEK, initialPaint: true } })
+  const second = await functions.getPtScheduleWeeklyView({ data: { branchId: BRANCH, weekId: WEEK, initialPaint: true } })
+  assert.equal(first.validationState, 'unknown')
+  assert.equal(first.validationSnapshot, null)
+  assert.equal(second.validationDirty, true)
+  assert.equal(transactions, 1)
+  assert.equal(checks, 2)
+  assert.deepEqual(db.values.get(viewPath()).schedule, legacy.schedule)
+})
+
+test('read refresh stays light; worker later validates a clean matrix through the separate queue', async () => {
+  const db = fakeDb({ [viewPath()]: initialView() })
+  await markPtScheduleWeeklyViewDirty({ db, branchId: BRANCH, weekId: WEEK })
+  let lightLoads = 0
+  const functions = createPtScheduleWeeklyViewFunctions({
+    db, onCall: (handler) => handler, actorForBranch: async () => {},
+    branchData: async (_db, _branch, _week, options) => {
+      lightLoads += 1
+      assert.equal(options.initialPaint, true, 'even forceRefresh reads do not run reconciliation')
+      return workspace({ partial: true, readMode: 'display', draft: { revision: 5 } })
+    },
+  })
+  const light = await functions.getPtScheduleWeeklyView({ data: { branchId: BRANCH, weekId: WEEK, forceRefresh: true } })
+  assert.equal(light.dirty, false)
+  assert.equal(light.validationDirty, true)
+  assert.equal(light.validationState, 'stale')
+  assert.equal(lightLoads, 1)
+  let exactLoads = 0
+  const result = await rebuildDirtyPtScheduleWeeklyViews({ db, limit: 1, logger: { error() {} }, branchData: async (_db, _branch, _week, options) => {
+    exactLoads += 1
+    assert.equal(options.initialPaint, false)
+    return workspace({ draft: { revision: 5 } })
+  } })
+  assert.deepEqual(result, { scanned: 1, rebuilt: 1, failed: 0 })
+  assert.equal(exactLoads, 1)
+  const current = db.values.get(viewPath())
+  assert.equal(current.validationState, 'current')
+  assert.equal(current.validationDirty, false)
+  assert.equal(current.dirty, false)
+  assert.equal(current.validationSnapshot.draftRevision, 5)
+  assert.equal(current.validationSnapshot.dirtyGeneration, 1)
+})
+
+test('worker merges legacy matrix and validation queues within one deduplicated bound', async () => {
+  const db = fakeDb({
+    [viewPath()]: { ...initialView(), dirty: true, validationDirty: true },
+    [viewPath('branch-b')]: { ...initialView(), branchId: 'branch-b', dirty: true, validationDirty: false },
+    [viewPath('branch-c')]: { ...initialView(), branchId: 'branch-c', dirty: false, validationDirty: true },
+  })
+  const loads = []
+  const result = await rebuildDirtyPtScheduleWeeklyViews({ db, limit: 2, logger: { error() {} }, branchData: async (_db, branchId) => {
+    loads.push(branchId)
+    return workspace()
+  } })
+  assert.equal(result.scanned, 2)
+  assert.equal(loads.length, 2)
+  assert.equal(new Set(loads).size, 2)
+  assert.equal(db.queries.length, 2)
+  assert.ok(db.queries.every((query) => query.count === 2))
+})
+
+test('dirty events during exact source reads cannot clear the pending validation plane', async () => {
+  const db = fakeDb({ [viewPath()]: { ...initialView(), dirty: false, validationDirty: true } })
+  const result = await rebuildDirtyPtScheduleWeeklyViews({ db, limit: 1, logger: { error() {} }, branchData: async () => {
+    await markPtScheduleWeeklyViewDirty({ db, branchId: BRANCH, weekId: WEEK, reason: 'concurrent-session' })
+    return workspace({ draft: { revision: 9 } })
+  } })
+  assert.equal(result.rebuilt, 0)
+  assert.equal(db.values.get(viewPath()).validationDirty, true)
+  assert.equal(db.values.get(viewPath()).dirty, true)
+  assert.equal(db.values.get(viewPath()).validationSnapshot.draftRevision, 4)
+})
+
+test('validation clock alone never advances the semantic revision', () => {
+  const first = buildPtScheduleWeeklyView({ branchId: BRANCH, weekId: WEEK, data: workspace(), now: new Date('2026-10-20') })
+  const next = buildPtScheduleWeeklyView({ branchId: BRANCH, weekId: WEEK, data: workspace(), previousView: first, now: new Date('2026-10-22') })
+  assert.notEqual(next.validationSnapshot.validatedAt, first.validationSnapshot.validatedAt)
+  assert.equal(next.validationSnapshot.sourceRevision, first.validationSnapshot.sourceRevision)
+  assert.equal(next.sourceRevision, first.sourceRevision)
+  assert.equal(next.viewRevision, first.viewRevision)
+})
+
+test('pointer and embedded planes fit a representative 350-student Firestore protobuf without duplicating exact evidence', () => {
+  // SDK internals are test-only: measure the actual wire document, not JSON
+  // length. This is a representative regression fixture, not a guarantee that
+  // every possible 350-student/700-entry payload fits Firestore's limit.
+  const path = require('node:path')
+  const sdkSource = path.dirname(require.resolve('@google-cloud/firestore'))
+  const { Serializer } = require(path.join(sdkSource, 'serializer.js'))
+  const { google } = require(path.join(sdkSource, '../protos/firestore_v1_proto_api.js'))
+  const students = Array.from({ length: 350 }, (_, index) => ({
+    id: `student-${index}`, name: `Student Name ${index}`, phone: '0901234567', email: `student${index}@example.com`,
+    branchId: BRANCH, status: 'active', sessionsPerWeek: 2, availabilityStatus: 'submitted',
+    availableSlots: Array.from({ length: 48 }, (_, slot) => `T${2 + Math.floor(slot / 8)}-${6 + slot % 8}`),
+    eligibleContractIds: [`contract-${index}`], contractStatus: 'active', eligibleForWeek: true, remainingSchedulableSessions: 10,
+  }))
+  const contracts = students.map((student, index) => ({
+    id: `contract-${index}`, studentId: student.id, packageName: 'Standard PT package', status: 'active',
+    startDate: '2026-01-01', endDate: '2026-12-31', totalSessions: 50, usedSessions: 5, branchId: BRANCH,
+  }))
+  const data = workspace({ students, contracts, trainers: [], schedule: {} })
+  const exact = buildPtScheduleWeeklyView({ branchId: BRANCH, weekId: WEEK, data })
+  const light = buildPtScheduleWeeklyView({ branchId: BRANCH, weekId: WEEK, data: { ...data, contracts: [], partial: true, readMode: 'display' }, previousView: exact })
+  const serializer = new Serializer({ _settings: {} })
+  const encodedSize = (value) => google.firestore.v1.Document.encode({
+    name: `projects/test/databases/test/documents/${viewPath()}`, fields: serializer.encodeFields(value),
+  }).finish().length
+  for (const [name, value] of Object.entries({ exact, light })) {
+    assert.ok(encodedSize(value) < 1024 * 1024, `${name}: ${encodedSize(value)} encoded bytes`)
+    assert.equal(value.students.length, 350, 'do not silently trim profile data to fit')
+  }
+  assert.equal(exact.validationSnapshot.storage, 'top_level')
+  assert.equal(exact.contracts.length, 350)
+  assert.equal(light.validationSnapshot.contracts.length, 350)
+  assert.equal(light.contracts.length, 0)
+  const duplicated = { ...exact, validationSnapshot: light.validationSnapshot }
+  assert.ok(encodedSize(duplicated) > 1024 * 1024, 'fixture catches the old duplicated-evidence layout')
+})
+
+test('failed light publication preserves queued validation and prior exact evidence', async () => {
+  const db = fakeDb({ [viewPath()]: initialView() })
+  await markPtScheduleWeeklyViewDirty({ db, branchId: BRANCH, weekId: WEEK })
+  const before = structuredClone(db.values.get(viewPath()))
+  const transaction = db.runTransaction
+  db.runTransaction = (callback) => transaction((tx) => callback({
+    ...tx,
+    set: (reference, value, options) => {
+      if (reference.path === viewPath()) throw new Error('Firestore document exceeds maximum size')
+      return tx.set(reference, value, options)
+    },
+  }))
+  await assert.rejects(rebuildPtScheduleWeeklyView({
+    db, branchId: BRANCH, weekId: WEEK, initialPaint: true,
+    branchData: async () => workspace({ partial: true, readMode: 'display', draft: { revision: 99 } }),
+  }), /maximum size/)
+  assert.deepEqual(db.values.get(viewPath()), before)
+  assert.equal(db.values.get(viewPath()).dirty, true)
+  assert.equal(db.values.get(viewPath()).validationDirty, true)
+  assert.equal(db.values.has(leasePath), false)
 })
