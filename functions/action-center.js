@@ -221,6 +221,16 @@ async function upsertOperationalAction({ db, input, logger = console }) {
       resolution: existingValue.resolution || null,
     } : {}),
   }
+  // Several source triggers can reconcile the same action. A timestamp-only
+  // rewrite would wake every Action Center listener without changing what
+  // staff can see or do. Compare only fields this merge owns so unrelated
+  // lifecycle metadata remains intact, and keep all real changes significant.
+  if (existingValue && Object.entries(payload).every(([field, value]) => (
+    field === 'updatedAt' || isDeepStrictEqual(existingValue[field], value)
+      // Firestore stores Date inputs as Timestamp values on the next read.
+      || (field === 'dueAt' && timestampMillis(value) > 0
+        && timestampMillis(existingValue[field]) === timestampMillis(value))
+  ))) return { ...existingValue, ...payload, updatedAt: existingValue.updatedAt }
   await reference.set(payload, { merge: true })
   logger.info?.('operational_action_upserted', {
     actionId: next.actionId,
@@ -656,17 +666,22 @@ async function syncOperationalActionSource({ db, event, logger = console, review
   if (collection === 'contractRenewalCases' && value && !['resolved', 'cancelled', 'closed'].includes(String(value.status || '').toLowerCase())) {
     inputs = [{ sourceType: 'renewal_case', sourceId, actionType: 'follow_up', branchId: value.branchId, studentId: value.studentId, assignedStaffIds: [value.assignedSalesId, value.salesId, value.ownerUid].filter(Boolean), severity: 'warning', title: 'Hồ sơ gia hạn cần theo dõi', redactedSummary: 'Hồ sơ gia hạn đang mở và cần cập nhật bước tiếp theo.', allowedRoles: ['admin', 'super_admin', 'staff', 'sales', 'branch_manager'], availableActions: ['open_renewal'] }]
   }
-  const studentContext = await operationalStudentContext(db, {
-    studentId: collection === 'students' ? sourceId : sourceValue.studentId,
-    accountUid: sourceValue.userId || sourceValue.accountUid,
-  })
-  if (studentContext.studentId) {
-    inputs = inputs.map((input) => ({
-      ...input,
-      studentId: input.studentId || studentContext.studentId,
-      branchId: input.branchId || studentContext.branchId,
-      assignedStaffIds: [...new Set([...(input.assignedStaffIds || []), ...studentContext.assignedStaffIds])],
-    }))
+  // Assignment enrichment is only consumed by new/current actions. Closed
+  // sources still continue into cleanup below, without querying the student
+  // and both canonical/legacy contract indexes for an empty result.
+  if (inputs.length) {
+    const studentContext = await operationalStudentContext(db, {
+      studentId: collection === 'students' ? sourceId : sourceValue.studentId,
+      accountUid: sourceValue.userId || sourceValue.accountUid,
+    })
+    if (studentContext.studentId) {
+      inputs = inputs.map((input) => ({
+        ...input,
+        studentId: input.studentId || studentContext.studentId,
+        branchId: input.branchId || studentContext.branchId,
+        assignedStaffIds: [...new Set([...(input.assignedStaffIds || []), ...studentContext.assignedStaffIds])],
+      }))
+    }
   }
   const expected = new Set(inputs.map((input) => actionId(input.sourceType, input.sourceId, input.actionType)))
   const cleanup = ['contracts', 'contractUsageViews'].includes(collection)

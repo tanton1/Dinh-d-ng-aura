@@ -4,7 +4,7 @@ const assert = require('node:assert/strict')
 const { readFileSync } = require('node:fs')
 const { join } = require('node:path')
 const test = require('node:test')
-const { actionId, canViewAction, contractActionInputs, hasThreeConsecutiveNoShows, isVisibleToActor, redactedAction, scheduleDraftActionInputs, upsertOperationalAction } = require('./action-center')
+const { actionDocument, actionId, canViewAction, contractActionInputs, hasThreeConsecutiveNoShows, isVisibleToActor, redactedAction, scheduleDraftActionInputs, syncOperationalActionSource, upsertOperationalAction } = require('./action-center')
 
 const functionsSource = readFileSync(join(__dirname, 'index.js'), 'utf8')
 const nutritionMaintenanceSource = readFileSync(join(__dirname, 'nutrition-review-maintenance.js'), 'utf8')
@@ -158,4 +158,128 @@ test('a resolved recurring action reopens only after its source closed and recur
   assert.equal(written.status, 'open')
   assert.equal(written.resolution, null)
   assert.equal(written.sourceClosedAt, null)
+})
+
+test('repeated action reconciliation skips writes and preserves the last meaningful update time', async () => {
+  const input = {
+    sourceType: 'student', sourceId: 's1', actionType: 'missing_schedule',
+    title: 'Thiếu lịch', allowedRoles: ['trainer_pt'], assignedStaffIds: ['u1'],
+  }
+  const existing = { ...actionDocument(input), createdAt: 'created', updatedAt: 'meaningful-update' }
+  let writes = 0
+  const db = { doc: () => ({
+    get: async () => ({ exists: true, data: () => existing }),
+    set: async () => { writes += 1 },
+  }) }
+  const result = await upsertOperationalAction({ db, input })
+  assert.equal(writes, 0)
+  assert.equal(result.updatedAt, 'meaningful-update')
+})
+
+test('unchanged action refresh preserves claimed, snoozed and manually resolved lifecycle without writes', async () => {
+  const input = {
+    sourceType: 'student', sourceId: 's1', actionType: 'missing_schedule',
+    title: 'Thiếu lịch', allowedRoles: ['trainer_pt'], assignedStaffIds: ['u1'],
+  }
+  const { Timestamp } = require('firebase-admin/firestore')
+  for (const lifecycle of [
+    { status: 'in_progress', assignedUid: 'staff-1', claimedAt: 'claimed' },
+    { status: 'snoozed', snoozedUntil: Timestamp.fromMillis(Date.now() + 60_000) },
+    { status: 'resolved', resolvedAt: 'resolved', resolvedBy: 'staff-1', resolution: 'Đã xử lý' },
+  ]) {
+    const existing = { ...actionDocument(input), createdAt: 'created', updatedAt: 'last-update', ...lifecycle }
+    const db = { doc: () => ({
+      get: async () => ({ exists: true, data: () => existing }),
+      set: async () => { throw new Error('Unchanged action must not write') },
+    }) }
+    const result = await upsertOperationalAction({ db, input })
+    for (const [field, value] of Object.entries(lifecycle)) assert.deepEqual(result[field], value)
+  }
+})
+
+test('action reconciliation still writes changed assignments and severity', async () => {
+  const input = {
+    sourceType: 'student', sourceId: 's1', actionType: 'missing_schedule',
+    title: 'Thiếu lịch', allowedRoles: ['trainer_pt'], assignedStaffIds: ['u1'],
+  }
+  const existing = { ...actionDocument(input), createdAt: 'created', updatedAt: 'last-update' }
+  for (const change of [{ assignedStaffIds: ['u2'] }, { severity: 'critical' }]) {
+    let written = null
+    const db = { doc: () => ({
+      get: async () => ({ exists: true, data: () => existing }),
+      set: async (payload) => { written = payload },
+    }) }
+    await upsertOperationalAction({ db, input: { ...input, ...change }, logger: {} })
+    for (const [field, value] of Object.entries(change)) assert.deepEqual(written[field], value)
+  }
+})
+
+test('Firestore timestamp normalization does not turn an unchanged contract due date into a write', async () => {
+  const { Timestamp } = require('firebase-admin/firestore')
+  const dueAt = new Date('2026-11-01T00:00:00+07:00')
+  const input = { sourceType: 'contract', sourceId: 'c1', actionType: 'renewal_due', dueAt }
+  const existing = { ...actionDocument(input), dueAt: Timestamp.fromDate(dueAt), createdAt: 'created', updatedAt: 'last-update' }
+  let writes = 0
+  const db = { doc: () => ({
+    get: async () => ({ exists: true, data: () => existing }),
+    set: async () => { writes += 1 },
+  }) }
+  await upsertOperationalAction({ db, input, logger: {} })
+  assert.equal(writes, 0)
+  await upsertOperationalAction({ db, input: { ...input, dueAt: new Date(dueAt.getTime() + 86_400_000) }, logger: {} })
+  assert.equal(writes, 1)
+})
+
+test('closed source skips assignment lookups but resolves its stale operational action', async () => {
+  let written = null
+  const db = {
+    doc: () => { throw new Error('Closed source must not read assignment documents') },
+    collection: (name) => {
+      assert.equal(name, 'operationalActions')
+      const query = {
+        where: () => query, limit: () => query,
+        get: async () => ({ docs: [{
+          id: 'session_request:r1:review',
+          data: () => ({ sourceType: 'session_request', actionType: 'review', status: 'open' }),
+          ref: { set: async (payload) => { written = payload } },
+        }] }),
+      }
+      return query
+    },
+  }
+  const value = { studentId: 's1', userId: 'u1', status: 'approved' }
+  const snapshot = { exists: true, ref: { parent: { id: 'sessionRequests' } }, data: () => value }
+  const result = await syncOperationalActionSource({ db, event: { params: { requestId: 'r1' }, data: { before: snapshot, after: snapshot } } })
+  assert.equal(result.actions, 0)
+  assert.equal(written.status, 'resolved')
+  assert.equal(written.resolution, 'source_no_longer_actionable')
+})
+
+test('active action still enriches canonical and legacy staff assignments', async () => {
+  let written = null
+  const contractQueries = []
+  const value = { studentId: 's1', status: 'pending', trainerId: 'request-trainer' }
+  const db = {
+    doc: (path) => ({
+      get: async () => path === 'students/s1'
+        ? { exists: true, data: () => ({ branchId: 'b1', trainerId: 'student-trainer' }) }
+        : { exists: false },
+      set: async (payload) => { written = payload },
+    }),
+    collection: (name) => {
+      const query = {
+        where: (field) => { if (name === 'contracts') contractQueries.push(field); return query },
+        limit: () => query,
+        get: async () => ({ docs: name === 'contracts' ? [{ id: 'c1', data: () => ({ status: 'active', assignedSalesId: 'sales-1' }) }] : [] }),
+      }
+      return query
+    },
+  }
+  const snapshot = { exists: true, ref: { parent: { id: 'sessionRequests' } }, data: () => value }
+  await syncOperationalActionSource({ db, event: { params: { requestId: 'r1' }, data: { after: snapshot } }, logger: {} })
+  assert.deepEqual(contractQueries, ['studentId', 'crmProfileId'])
+  assert.equal(written.branchId, 'b1')
+  assert.ok(written.assignedStaffIds.includes('request-trainer'))
+  assert.ok(written.assignedStaffIds.includes('student-trainer'))
+  assert.ok(written.assignedStaffIds.includes('sales-1'))
 })
