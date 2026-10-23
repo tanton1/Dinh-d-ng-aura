@@ -1,6 +1,6 @@
 import { httpsCallable } from 'firebase/functions'
 import { firebaseFunctions } from '../lib/firebaseFunctions'
-import { callReadOnlyFunction } from './readOnlyCallableService'
+import { callRegionalRead } from './regionalReadService'
 
 export type PtExerciseTrackingMode = 'weight_reps' | 'bodyweight_reps' | 'time' | 'distance' | 'assisted_weight'
 
@@ -139,11 +139,11 @@ function callable<Input, Output>(name: string) {
 }
 
 export async function getPtWorkoutWorkspace(from: string, to = from): Promise<PtWorkoutWorkspace> {
-  return callReadOnlyFunction<{ from: string; to: string }, PtWorkoutWorkspace>('getPtWorkoutWorkspace', { from, to })
+  return callRegionalRead<{ from: string; to: string }, PtWorkoutWorkspace>('getPtWorkoutWorkspace', { from, to })
 }
 
 export async function getPtStudentTrainingPlan(studentId?: string): Promise<PtTrainingProgram | null> {
-  const response = await callReadOnlyFunction<{ studentId?: string; personal?: boolean }, { program: PtTrainingProgram | null }>('getPtStudentTrainingPlan', studentId ? { studentId } : { personal: true })
+  const response = await callRegionalRead<{ studentId?: string; personal?: boolean }, { program: PtTrainingProgram | null }>('getPtStudentTrainingPlan', studentId ? { studentId } : { personal: true })
   return response.program
 }
 
@@ -178,5 +178,5 @@ export async function savePtSessionWorkoutLog(input: {
 }
 
 export async function listPtWorkoutHistory(studentId?: string, limit = 60): Promise<PtWorkoutHistory> {
-  return callReadOnlyFunction<{ studentId?: string; personal?: boolean; limit: number }, PtWorkoutHistory>('listPtWorkoutHistory', studentId ? { studentId, limit } : { personal: true, limit })
+  return callRegionalRead<{ studentId?: string; personal?: boolean; limit: number }, PtWorkoutHistory>('listPtWorkoutHistory', studentId ? { studentId, limit } : { personal: true, limit })
 }

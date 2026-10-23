@@ -62,6 +62,7 @@ const { createPtWorkoutTrackingFunctions } = require('./pt-workout-tracking')
 const { createNutritionReviewFunctions } = require('./nutrition-reviews')
 const { createContractRenewalFunctions } = require('./contract-renewals')
 const { createLoyaltyFunctions, reconcileAttendance: reconcileLoyaltyAttendance, reconcileAttendanceMissions, reconcileContractSpend: reconcileLoyaltyContractSpend, reconcileMemberReferral, reconcileNutritionReview, reconcilePendingMemberReferrals, vestPendingSources } = require('./loyalty')
+const { createRegionalReadAliases } = require('./regional-read-aliases')
 const { syncContractUsageProjection } = require('./contract-usage')
 const { buildContractUsageView, contractUsageViewNeedsRebuild, createContractUsageViewFunctions, syncContractUsageView } = require('./contract-usage-view')
 const { createActionCenterFunctions, syncOperationalActionSource } = require('./action-center')
@@ -889,6 +890,17 @@ exports.reconcileLoyaltyAccount = loyaltyFunctions.reconcileLoyaltyAccount
 exports.runLoyaltyBackfill = loyaltyFunctions.runLoyaltyBackfill
 exports.getStudentLoyaltySummary = loyaltyFunctions.getStudentLoyaltySummary
 exports.giveSessionKudos = loyaltyFunctions.giveSessionKudos
+
+// Read-only cutover: retain original endpoints for old clients and rollback.
+const regionalReadAliases = createRegionalReadAliases({ db, onCall, logger })
+exports.getMyLoyaltyDashboardRegional = regionalReadAliases.getMyLoyaltyDashboardRegional
+exports.listMyAvailableRewardsRegional = regionalReadAliases.listMyAvailableRewardsRegional
+exports.listMyLoyaltyHistoryRegional = regionalReadAliases.listMyLoyaltyHistoryRegional
+exports.getMyReferralWorkspaceRegional = regionalReadAliases.getMyReferralWorkspaceRegional
+exports.getStudentLoyaltySummaryRegional = regionalReadAliases.getStudentLoyaltySummaryRegional
+exports.getPtWorkoutWorkspaceRegional = regionalReadAliases.getPtWorkoutWorkspaceRegional
+exports.getPtStudentTrainingPlanRegional = regionalReadAliases.getPtStudentTrainingPlanRegional
+exports.listPtWorkoutHistoryRegional = regionalReadAliases.listPtWorkoutHistoryRegional
 // Schedule workspaces are management-only and burst infrequently. A bounded
 // Gen-1 CPU profile avoids exhausting the regional Cloud Run CPU quota while
 // still allowing the optimizer a longer deterministic execution window.

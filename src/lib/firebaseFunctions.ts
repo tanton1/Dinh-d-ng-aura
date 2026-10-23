@@ -18,10 +18,13 @@ export let firebaseAcademyFunctions: Functions | null = null
 export let firebaseBusinessReportingFunctions: Functions | null = null
 /** Bounded asia-east1 overflow aliases for authentication bootstrap and telemetry. */
 export let firebaseTelemetryFunctions: Functions | null = null
+/** Bounded Aura Club / workout read aliases in the existing Jakarta pool. */
+export let firebaseRegionalReadFunctions: Functions | null = null
 
 if (isFirebaseConfigured && firebaseApp) {
   firebaseFunctions = getFunctions(firebaseApp, 'asia-southeast1')
   firebaseNutritionFunctions = getFunctions(firebaseApp, 'asia-southeast2')
+  firebaseRegionalReadFunctions = firebaseNutritionFunctions
   firebaseScheduleOptimizerFunctions = getFunctions(firebaseApp, 'asia-east1')
   firebaseSchedulePublishFunctions = firebaseScheduleOptimizerFunctions
   firebaseStudentManagementFunctions = firebaseScheduleOptimizerFunctions

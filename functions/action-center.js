@@ -1,6 +1,7 @@
 'use strict'
 
 const { createHash } = require('node:crypto')
+const { isDeepStrictEqual } = require('node:util')
 const { FieldPath, FieldValue, Timestamp } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
 const { trustedAccessContext } = require('./identity-access')
@@ -527,6 +528,15 @@ async function operationalStudentContext(db, { studentId: suppliedStudentId = ''
   }
 }
 
+function studentProjectionActionSourceChanged(previous, current) {
+  // A projection rebuild always changes these two timestamps. They have no
+  // bearing on alerts or assignment scope. Compare EVERY remaining field so
+  // health changes, contract changes, new alerts and removals still reconcile.
+  if (!previous || !current) return true
+  const meaningful = ({ generatedAt, generatedAtMillis, ...value }) => value
+  return !isDeepStrictEqual(meaningful(previous), meaningful(current))
+}
+
 async function syncOperationalActionSource({ db, event, logger = console, reviewSlaMinutes }) {
   const eventCollection = event.data?.after?.ref?.parent?.id || event.data?.before?.ref?.parent?.id || ''
   const collection = ['contracts', 'contractUsageViews', 'sessionRequests', 'mealReviews', 'sessions', 'students', 'studentOperationalViews', 'ptScheduleDrafts', 'contractRenewalCases'].includes(eventCollection)
@@ -537,6 +547,9 @@ async function syncOperationalActionSource({ db, event, logger = console, review
   const previousValue = event.data?.before?.exists ? event.data.before.data() : null
   const sourceValue = value || previousValue || {}
   if (!collection || !sourceId) return { collection: null, sourceId: null, actions: 0 }
+  if (collection === 'studentOperationalViews' && !studentProjectionActionSourceChanged(previousValue, value)) {
+    return { collection, sourceId, actions: 0, skipped: 'projection_timestamps_only' }
+  }
   let inputs = []
   if (collection === 'contracts' && value) {
     const usage = await db.doc(`contractUsageViews/${sourceId}`).get()
@@ -698,4 +711,5 @@ module.exports = {
   upsertOperationalAction,
   createActionCenterFunctions,
   syncOperationalActionSource,
+  studentProjectionActionSourceChanged,
 }

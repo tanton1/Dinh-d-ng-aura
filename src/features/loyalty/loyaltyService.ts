@@ -3,6 +3,8 @@ import { httpsCallable } from 'firebase/functions'
 import { firestoreDb } from '../../lib/firebaseFirestore'
 import { firebaseFunctions } from '../../lib/firebaseFunctions'
 import { callReadOnlyFunction } from '../../services/readOnlyCallableService'
+import { isRegionalReadName } from '../../services/regionalReadPolicy'
+import { callRegionalRead } from '../../services/regionalReadService'
 import type {
   LoyaltyAccount,
   LoyaltyAdminAccount,
@@ -33,6 +35,7 @@ async function call<Input, Output>(name: string, input: Input): Promise<Output> 
 // transient Functions outages, while keeping mutations on `call` so a retry
 // can never duplicate a redemption or adjustment.
 function read<Input, Output>(name: string, input: Input) {
+  if (isRegionalReadName(name)) return callRegionalRead<Input, Output>(name, input)
   return callReadOnlyFunction<Input, Output>(name, input, { timeoutMs: 20_000, maximumAttempts: 3, baseDelayMs: 900 })
 }
 
