@@ -23,7 +23,8 @@ function servingLatest(service) {
 }
 function assertReadyForPromotion(service, revision, expectedImage) {
   if (service.reconciling || !latestReady(service) || revision.name !== service.latestReadyRevision) throw new Error('Latest revision is not ready for promotion.')
-  if (!(revision.conditions || []).some((condition) => condition.type === 'ContainerHealthy' && condition.state === 'CONDITION_SUCCEEDED')
+  if (!(revision.conditions || []).some((condition) => condition.type === 'Ready' && condition.state === 'CONDITION_SUCCEEDED')
+    || !(revision.conditions || []).some((condition) => condition.type === 'ContainerHealthy' && condition.state === 'CONDITION_SUCCEEDED')
     || (revision.conditions || []).some((condition) => condition.revisionReason === 'RETIRED')) throw new Error('New revision has not passed its container health check.')
   if (revision.containers?.[0]?.image !== expectedImage) throw new Error('Ready image digest differs from the approved latest image.')
 }

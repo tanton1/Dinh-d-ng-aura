@@ -68,11 +68,12 @@ test('explicit background startup-boost optimization preserves CPU, memory and a
 test('promotion requires the exact healthy image; retired, unready and concurrent revisions fail closed', () => {
   const service = fixture()
   service.latestReadyRevision = service.latestCreatedRevision
-  const revision = { name: service.latestCreatedRevision, containers: [{ image }], conditions: [{ type: 'ContainerHealthy', state: 'CONDITION_SUCCEEDED' }] }
+  const revision = { name: service.latestCreatedRevision, containers: [{ image }], conditions: [{ type: 'Ready', state: 'CONDITION_SUCCEEDED' }, { type: 'ContainerHealthy', state: 'CONDITION_SUCCEEDED' }] }
   assert.doesNotThrow(() => assertReadyForPromotion(service, revision, image))
   assert.equal(servingLatest(service), false, 'ready zero-traffic candidates are not yet live')
   assert.throws(() => assertReadyForPromotion(service, revision, 'another-image'), /digest/)
   assert.throws(() => assertReadyForPromotion(service, { ...revision, conditions: [] }, image), /health/)
+  assert.throws(() => assertReadyForPromotion(service, { ...revision, conditions: [{ type: 'Ready', state: 'CONDITION_FAILED' }, revision.conditions[1]] }, image), /health/)
   assert.throws(() => assertReadyForPromotion(service, { ...revision, conditions: [...revision.conditions, { revisionReason: 'RETIRED' }] }, image), /health/)
   assert.throws(() => assertReadyForPromotion({ ...service, reconciling: true }, revision, image), /ready/)
   assert.throws(() => assertReadyForPromotion(fixture(), revision, image), /ready/)
