@@ -26,6 +26,15 @@ export const onSnapshot = (reference: { collection: string; id: string }, option
     }
   }
   // Queue delivery, as Firestore does, after React has registered the scope.
+  if (reference.collection === 'ptScheduleWeeklyViewStates' && !(window as any).__holdWeeklyControl) {
+    queueMicrotask(() => {
+      if (!callbacks.has(next)) return
+      const mode = (window as any).__initialWeeklyControl
+      if (mode === 'denied') { error?.({ code: 'permission-denied' }); return }
+      const raw = mode && typeof mode === 'object' ? mode : null
+      next({ exists: () => raw !== null, data: () => raw, metadata: { fromCache: mode === 'cache' } })
+    })
+  }
   if (reference.collection === 'ptScheduleWeeklyViews' && (window as any).__initialWeeklySnapshot) {
     queueMicrotask(async () => {
       if (!callbacks.has(next)) return

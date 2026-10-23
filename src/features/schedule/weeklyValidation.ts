@@ -3,6 +3,26 @@ import type { PtScheduleValidationSnapshot, PtScheduleWorkspaceV2Result } from '
 type Raw = Record<string, unknown>
 const object = (value: unknown): value is Raw => Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 
+/** Join independently delivered payload/control snapshots without a false fresh
+ * state between the two callbacks of an atomic server publication. */
+export function mergeWeeklyControl(payload: Raw, state: Raw | null, ready: boolean): Raw {
+  const generation = Number(state?.dirtyGeneration || 0)
+  const baseline = Number(payload.controlGeneration || 0)
+  const revisionMismatch = Boolean(state?.sourceRevision && state.sourceRevision !== payload.sourceRevision)
+  const pending = !ready || payload.controlSchemaVersion === 1 && !state || generation < baseline || revisionMismatch
+  // A new payload can arrive before its clean control acknowledgement. That
+  // temporary mismatch must wait for the join, not launch another rebuild.
+  const dirty = payload.dirty === true || !pending && (generation > baseline || state?.dirty === true)
+  return {
+    ...payload,
+    dirtyGeneration: Number(payload.dirtyGeneration || 0) + Math.max(0, generation - baseline),
+    dirty,
+    controlPending: pending,
+    validationDirty: payload.validationDirty === true || state?.validationDirty === true || dirty || pending,
+    ...(dirty || pending ? { freshness: 'stale', rebuilding: pending } : {}),
+  }
+}
+
 export function readValidationSnapshot(value: unknown, branchId: string, weekId: string, source?: Raw): PtScheduleValidationSnapshot | null {
   if (object(value) && value.storage === 'top_level') {
     const draft = object(source?.draft) ? source.draft : {}

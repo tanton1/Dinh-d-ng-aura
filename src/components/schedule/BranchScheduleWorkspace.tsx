@@ -24,7 +24,7 @@ import {
   UsersRound,
   X,
 } from 'lucide-react'
-import { doc, onSnapshot } from 'firebase/firestore'
+import { doc, onSnapshot, type DocumentData, type DocumentSnapshot } from 'firebase/firestore'
 import AvailabilityMatrix from './AvailabilityMatrix'
 import type { AccessContext } from '../../identity/access'
 import { firestoreDb } from '../../lib/firebaseFirestore'
@@ -68,7 +68,7 @@ import { useScheduleOpportunities } from '../../features/schedule/useScheduleOpp
 import { measureScheduleTask } from '../../features/schedule/performance'
 import { hasActionableSearchLimit } from '../../features/schedule/searchLimit'
 import { loadWorkspaceRequest } from '../../features/schedule/workspaceCache'
-import { applyWeeklyValidation, readValidationSnapshot } from '../../features/schedule/weeklyValidation'
+import { applyWeeklyValidation, mergeWeeklyControl } from '../../features/schedule/weeklyValidation'
 
 interface Props {
   accessContext: AccessContext
@@ -132,6 +132,14 @@ function normalizeScheduleSearchText(value: unknown) {
     .trim()
 }
 
+const stringList = (value: unknown): string[] => Array.isArray(value)
+  ? value.filter((item): item is string => typeof item === 'string')
+  : []
+const monotonicNow = () => typeof performance !== 'undefined' ? performance.now() : Date.now()
+const availableTrainerId = (trainers: PtScheduleWorkspaceV2Result['trainers'], current: string) => trainers.some((trainer) => trainer.id === current && !isTrainerLocked(trainer))
+  ? current
+  : trainers.find((trainer) => !isTrainerLocked(trainer))?.id || ''
+
 function normalizeWeeklyViewResult(
   result: PtScheduleWeeklyViewResult,
   fallback: PtScheduleWorkspaceV2Result | null,
@@ -156,7 +164,7 @@ function normalizeWeeklyViewResult(
   const students = (source.students as Array<Record<string, unknown>>).map((student) => {
     const status = typeof student.status === 'string' ? student.status : 'active'
     const sessionsPerWeek = Number(student.sessionsPerWeek || 0)
-    const availableSlots = Array.isArray(student.availableSlots) ? student.availableSlots.filter((slot): slot is string => typeof slot === 'string') : []
+    const availableSlots = stringList(student.availableSlots)
     const crossBranch = student.crossBranch === true || (student.branchId && student.branchId !== branchId)
     return {
       ...student,
@@ -172,9 +180,9 @@ function normalizeWeeklyViewResult(
       availabilityStatus: typeof student.availabilityStatus === 'string' ? student.availabilityStatus : 'missing',
       availabilityRevision: Number(student.availabilityRevision || 0),
       eligibleForWeek: typeof student.eligibleForWeek === 'boolean' ? student.eligibleForWeek : status === 'active' && !crossBranch,
-      eligibilityReasons: Array.isArray(student.eligibilityReasons) ? student.eligibilityReasons.filter((reason): reason is string => typeof reason === 'string') : [],
-      eligibleContractIds: Array.isArray(student.eligibleContractIds) ? student.eligibleContractIds.filter((id): id is string => typeof id === 'string') : [],
-      validScheduleDates: Array.isArray(student.validScheduleDates) ? student.validScheduleDates.filter((date): date is string => typeof date === 'string') : [],
+      eligibilityReasons: stringList(student.eligibilityReasons),
+      eligibleContractIds: stringList(student.eligibleContractIds),
+      validScheduleDates: stringList(student.validScheduleDates),
       pausedScheduleDates: [],
       remainingSchedulableSessions: Number(student.remainingSchedulableSessions ?? student.remainingSessions ?? 0),
       activeScheduledSessions: Number(student.activeScheduledSessions ?? student.scheduledSessions ?? 0),
@@ -193,7 +201,7 @@ function normalizeWeeklyViewResult(
     name: typeof trainer.name === 'string' && trainer.name ? trainer.name : 'PT chưa cập nhật tên',
     branchId: typeof trainer.branchId === 'string' ? trainer.branchId : branchId,
     status: typeof trainer.status === 'string' ? trainer.status : 'active',
-    availableSlots: Array.isArray(trainer.availableSlots) ? trainer.availableSlots.filter((slot): slot is string => typeof slot === 'string') : [],
+    availableSlots: stringList(trainer.availableSlots),
     availabilityMode: trainer.availabilityMode === 'configured' || trainer.availabilityMode === 'unrestricted' ? trainer.availabilityMode : 'unconfigured',
     availabilityRevision: Number(trainer.availabilityRevision || 0),
     slotCapacity: Number(trainer.slotCapacity || 2),
@@ -217,7 +225,7 @@ function normalizeWeeklyViewResult(
           trainerId: String((entry as Record<string, unknown>).trainerId || ''),
           type: (entry as Record<string, unknown>).type === 'off' ? 'off' : 'training',
           adminOverrideWarnings: Array.isArray((entry as Record<string, unknown>).warningCodes)
-            ? ((entry as Record<string, unknown>).warningCodes as unknown[]).filter((code): code is string => typeof code === 'string')
+            ? stringList((entry as Record<string, unknown>).warningCodes)
             : undefined,
         }))
       : []])),
@@ -313,7 +321,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
   const [offConfirmation, setOffConfirmation] = useState(false)
   const [studentSearch, setStudentSearch] = useState('')
   const [studentFilter, setStudentFilter] = useState<StudentFilter>('all')
-  const [syncState, setSyncState] = useState<WorkspaceSyncState>('connecting')
+  const [syncState, setRawSyncState] = useState<WorkspaceSyncState>('connecting')
   const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null)
   const [releaseUpdateReady, setReleaseUpdateReady] = useState(() => {
     try {
@@ -337,12 +345,23 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
   const workspaceRequestRef = useRef<{ scope: string; forceAvailabilityRefresh: boolean; reconcile: boolean; promise: Promise<void> } | null>(null)
   const workspaceRequestVersionRef = useRef(0)
   const weeklyRefreshPendingRef = useRef<{ scope: string; pending: boolean }>({ scope: '', pending: false })
+  const weeklyControlStatusRef = useRef<{ scope: string; status: 'disabled' | 'pending' | 'ready' | 'error' }>({ scope: '', status: 'disabled' })
   const activeWorkspaceScopeRef = useRef('')
+  const setSyncState = useCallback((next: WorkspaceSyncState | ((current: WorkspaceSyncState) => WorkspaceSyncState)) => {
+    setRawSyncState((current) => {
+      const control = weeklyControlStatusRef.current
+      // A successful point read, draft fallback or late payload callback does
+      // not repair a terminal control subscription error. Only a new scope or
+      // a server-confirmed control callback can lift this transport state.
+      if (control.scope === activeWorkspaceScopeRef.current && control.status === 'error') return 'offline'
+      return typeof next === 'function' ? next(current) : next
+    })
+  }, [])
   const moreMenuRef = useRef<HTMLDetailsElement | null>(null)
   const activeDialogRef = useRef<HTMLElement | null>(null)
   const workspaceReadyTimingRef = useRef({
     scope: '',
-    startedAt: typeof performance !== 'undefined' ? performance.now() : Date.now(),
+    startedAt: monotonicNow(),
     reported: false,
     source: 'network' as 'cache' | 'network',
   })
@@ -360,7 +379,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
   if (workspaceReadyTimingRef.current.scope !== workspaceScope) {
     workspaceReadyTimingRef.current = {
       scope: workspaceScope,
-      startedAt: typeof performance !== 'undefined' ? performance.now() : Date.now(),
+      startedAt: monotonicNow(),
       reported: false,
       source: 'network',
     }
@@ -451,10 +470,9 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
     if (!workspace || workspace.partial || loading || timing.reported || timing.scope !== workspaceScope) return
     if (workspace.branch.id !== branchId || workspace.weekId !== currentWeekId) return
     timing.reported = true
-    const now = typeof performance !== 'undefined' ? performance.now() : Date.now()
     void trackProductEvent('data_ready', {
       surface: 'schedule_workspace',
-      durationMs: Math.max(0, Math.round(now - timing.startedAt)),
+      durationMs: Math.max(0, Math.round(monotonicNow() - timing.startedAt)),
       cacheHit: timing.source === 'cache',
       trainerCount: visibleTrainers.length,
       studentCount: workspace.students.length,
@@ -525,10 +543,12 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
       ? `${inFlightScope}|refresh-${requestVersion}`
       : inFlightScope
     const request = (async () => {
-      if (!quiet) workspaceReadyTimingRef.current.source = 'network'
-      if (!quiet) setLoading(true)
+      if (!quiet) {
+        workspaceReadyTimingRef.current.source = 'network'
+        setLoading(true)
+        setError(null)
+      }
       if (!quiet || !workspaceRef.current) setSyncState('connecting')
-      if (!quiet) setError(null)
       try {
         const loadFullWorkspace = () => loadWorkspaceRequest(requestKey, () => measureScheduleTask('workspace', () => getPtScheduleWorkspace({
           weekId: currentWeekId,
@@ -536,17 +556,16 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
           forceAvailabilityRefresh,
         })))
         const loadDisplayWorkspace = () => loadWorkspaceRequest(requestKey, () => measureScheduleTask('workspace', async () => {
+          const loadLegacyDisplay = () => getPtScheduleWorkspace({
+            weekId: currentWeekId,
+            branchId,
+            initialPaint: true,
+            forceAvailabilityRefresh,
+          })
           try {
             // Keep older regional adapters and test fixtures compatible while
             // the weekly-view callable rolls out alongside the client.
-            if (typeof getPtScheduleWeeklyView !== 'function') {
-              return getPtScheduleWorkspace({
-                weekId: currentWeekId,
-                branchId,
-                initialPaint: true,
-                forceAvailabilityRefresh,
-              })
-            }
+            if (typeof getPtScheduleWeeklyView !== 'function') return loadLegacyDisplay()
             const weeklyView = await getPtScheduleWeeklyView({
               weekId: currentWeekId,
               branchId,
@@ -574,12 +593,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
               'CALLABLE_INVALID_ARGUMENT',
             ])
             if (!fallbackCodes.has(normalized.issueCode)) throw weeklyError
-            return getPtScheduleWorkspace({
-              weekId: currentWeekId,
-              branchId,
-              initialPaint: true,
-              forceAvailabilityRefresh,
-            })
+            return loadLegacyDisplay()
           }
         }))
         let result: PtScheduleWorkspaceV2Result
@@ -595,6 +609,13 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
           if (activeWorkspaceScopeRef.current === requestScope) weeklyRefreshPendingRef.current = { scope: requestScope, pending: false }
         }
         if (activeWorkspaceScopeRef.current !== requestScope || workspaceRequestVersionRef.current !== requestVersion) return
+        const controlStatus = weeklyControlStatusRef.current.scope === requestScope ? weeklyControlStatusRef.current.status : 'disabled'
+        if (!reconcile && (controlStatus === 'pending' || controlStatus === 'error')) {
+          // A successful point read cannot assert that an unacknowledged or
+          // failed change stream will keep this snapshot current thereafter.
+          result = applyWeeklyValidation(result, { rebuilding: true, freshness: 'stale' }, result)
+          result.weeklyViewFreshness = 'stale'
+        }
         const current = workspaceRef.current
         if (current?.branch.id === branchId && current.weekId === currentWeekId && result.draftRevision < current.draftRevision) return
         const changed = workspaceRealtimeFingerprint(workspaceRef.current) !== workspaceRealtimeFingerprint(result)
@@ -602,9 +623,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
         else if (changed) startTransition(() => setWorkspace(result))
         setLastSyncedAt(new Date())
         setSyncState(result.weeklyViewFreshness === 'stale' ? 'syncing' : 'live')
-        const keepValidTrainer = (current: string) => result.trainers.some((trainer) => trainer.id === current && !isTrainerLocked(trainer))
-          ? current
-          : result.trainers.find((trainer) => !isTrainerLocked(trainer))?.id || ''
+        const keepValidTrainer = (current: string) => availableTrainerId(result.trainers, current)
         if (quiet) startTransition(() => setSelectedTrainerId(keepValidTrainer))
         else setSelectedTrainerId(keepValidTrainer)
       } catch (loadError) {
@@ -670,9 +689,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
       provisional.weeklyViewFreshness = 'stale'
       workspaceRef.current = provisional
       setWorkspace(provisional)
-      setSelectedTrainerId((current) => cached.value.trainers.some((trainer) => trainer.id === current && !isTrainerLocked(trainer))
-        ? current
-        : cached.value.trainers.find((trainer) => !isTrainerLocked(trainer))?.id || '')
+      setSelectedTrainerId((current) => availableTrainerId(cached.value.trainers, current))
       setLoading(false)
       setLastSyncedAt(new Date(cached.storedAt))
       setSyncState('syncing')
@@ -713,14 +730,17 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
 
   useEffect(() => {
     if (!branchId || !currentWeekId) return undefined
-    // Prefer one denormalized branch/week read-model document. It already
-    // contains schedule, roster, coverage and warning rows, so a draft update
-    // costs one document read rather than another workspace fan-out. During
-    // rollout, a missing/denied read-model document falls back to the legacy
-    // draft stream without adding a second listener when the new document is
-    // available.
+    // The large read model changes only on publication. Source invalidations
+    // arrive on a small control document, avoiding large payload rewrites and
+    // delivery for dirty flags. Join both streams by revision/generation.
     let stopWeeklyListener: (() => void) | undefined
+    let stopControlListener: (() => void) | undefined
     let stopDraftListener: (() => void) | undefined
+    let latestWeeklySnapshot: DocumentSnapshot<DocumentData> | undefined
+    let controlValue: Record<string, unknown> | null = null
+    let controlReady = false
+    let controlFailed = false
+    let controlJoinTimer: number | undefined
     let fallbackStarted = false
     let dirtyRefreshQueued = false
     let latestDirtyGeneration = ''
@@ -731,22 +751,24 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
     let bootstrapRequested = false
     let disposed = false
     const listenerScope = activeWorkspaceScopeRef.current
+    const listenerInactive = () => disposed || activeWorkspaceScopeRef.current !== listenerScope
+    weeklyControlStatusRef.current = { scope: listenerScope, status: firestoreDb && canListenToDraft ? 'pending' : 'disabled' }
     const cancelBootstrap = () => {
-      if (bootstrapTimer !== undefined) window.clearTimeout(bootstrapTimer)
+      window.clearTimeout(bootstrapTimer)
       bootstrapTimer = undefined
     }
     const requestBootstrap = () => {
       cancelBootstrap()
-      if (disposed || bootstrapRequested || activeWorkspaceScopeRef.current !== listenerScope) return
+      if (listenerInactive() || bootstrapRequested) return
       bootstrapRequested = true
       void loadWorkspace(Boolean(workspaceRef.current))
     }
     const clearDirtyRetry = () => {
-      if (dirtyRetryTimer !== undefined) window.clearTimeout(dirtyRetryTimer)
+      window.clearTimeout(dirtyRetryTimer)
       dirtyRetryTimer = undefined
     }
     const refreshDirtyView = (retry = false) => {
-      if (disposed || dirtyRefreshQueued || !latestDirtyGeneration || (!retry && latestDirtyGeneration === requestedDirtyGeneration)) return
+      if (listenerInactive() || controlFailed || dirtyRefreshQueued || !latestDirtyGeneration || (!retry && latestDirtyGeneration === requestedDirtyGeneration)) return
       cancelBootstrap()
       bootstrapRequested = true
       if (latestDirtyGeneration !== requestedDirtyGeneration) dirtyRetryCount = 0
@@ -759,7 +781,8 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
         dirtyRefreshQueued = false
         // An invalidation received during the request must not disappear, but
         // lease/status metadata writes for the same generation need no request.
-        if (disposed || !latestDirtyGeneration) return
+        // The central sync setter retains terminal errors; do not retry them.
+        if (listenerInactive() || controlFailed || !latestDirtyGeneration) return
         if (latestDirtyGeneration !== requestedDirtyGeneration) {
           refreshDirtyView()
           return
@@ -781,7 +804,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
       stopDraftListener = onSnapshot(
         doc(firestoreDb, 'ptScheduleDrafts', `${branchId}_${currentWeekId}`),
         (snapshot) => {
-          if (disposed || activeWorkspaceScopeRef.current !== listenerScope) return
+          if (listenerInactive()) return
           const raw = snapshot.data()
           const current = workspaceRef.current
           if (!snapshot.exists() || !raw || !current || current.branch.id !== branchId || current.weekId !== currentWeekId) return
@@ -807,7 +830,9 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
           setLastSyncedAt(new Date())
           setSyncState('live')
         },
-        () => setSyncState((current) => current === 'connecting' ? 'offline' : current),
+        () => {
+          if (!listenerInactive()) setSyncState((current) => current === 'connecting' ? 'offline' : current)
+        },
       )
     }
     if (firestoreDb && canListenToDraft) {
@@ -815,37 +840,48 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
       // the complete week. A miss, denial or invalidation bypasses this wait;
       // a slow/offline stream cannot leave bootstrap hanging indefinitely.
       bootstrapTimer = window.setTimeout(requestBootstrap, 500)
-      stopWeeklyListener = onSnapshot(
-        doc(firestoreDb, 'ptScheduleWeeklyViews', `${branchId}_${currentWeekId}`),
-        { includeMetadataChanges: true },
-        (snapshot) => {
-          if (disposed || activeWorkspaceScopeRef.current !== listenerScope) return
-          const raw = snapshot.data()
+      const receiveWeekly = (snapshot: DocumentSnapshot<DocumentData>) => {
+          if (listenerInactive()) return
+          const payload = snapshot.data()
+          const serverSnapshot = snapshot.metadata?.fromCache === false
+          const raw = payload ? mergeWeeklyControl(payload, controlValue, controlReady) as DocumentData : undefined
           const current = workspaceRef.current
           if (!snapshot.exists() || !raw) {
-            if (snapshot.metadata?.fromCache === false) startDraftFallback()
+            if (serverSnapshot) startDraftFallback()
             return
           }
           if ((raw.branchId && raw.branchId !== branchId) || (raw.weekId && raw.weekId !== currentWeekId)) return
+          window.clearTimeout(controlJoinTimer)
+          controlJoinTimer = undefined
+          if (raw.controlPending === true && !controlFailed) {
+            // Independent listener callbacks can arrive in either order. Wait
+            // briefly for the partner before one bounded lightweight repair.
+            controlJoinTimer = window.setTimeout(() => {
+              controlJoinTimer = undefined
+              latestDirtyGeneration = `control:${String(raw.sourceRevision || '')}:${String(controlValue?.sourceRevision || '')}:${String(controlValue?.dirtyGeneration || 0)}`
+              refreshDirtyView()
+            }, 500)
+          }
           // A cached duplicate arriving after a server response cannot turn a
           // synchronized display-only matrix back into a perpetual spinner.
-          if (snapshot.metadata?.fromCache !== false && current && current.weeklyViewFreshness !== 'stale'
+          if (!serverSnapshot && current && current.weeklyViewFreshness !== 'stale'
             && raw.sourceRevision === current.weeklyViewSourceRevision
             && Number(raw.viewRevision || 0) <= Number(current.weeklyViewRevision || 0)
             && Number(raw.dirtyGeneration || 0) <= Number(current.weeklyViewDirtyGeneration || 0)) return
-          const serverCurrent = snapshot.metadata?.fromCache === false && raw.schemaVersion >= 2 && raw.dirty === false && raw.freshness !== 'stale' && raw.rebuilding !== true
+          const serverCurrent = controlReady && serverSnapshot && raw.schemaVersion >= 2 && raw.dirty === false && raw.freshness !== 'stale' && raw.rebuilding !== true
             && Array.isArray(raw.contracts) && Array.isArray(raw.warnings) && Array.isArray(raw.unassignedEntries) && Boolean(raw.scheduleConfig && raw.weeklySessionCoverage)
-          const validationAcknowledged = typeof raw.validationDirty === 'boolean'
-            && (raw.validationState === 'unknown' || ['current', 'stale'].includes(raw.validationState)
-              && Boolean(readValidationSnapshot(raw.validationSnapshot, branchId, currentWeekId, raw)))
-          let accepted = serverCurrent && validationAcknowledged
+          let accepted = false
           const evidence = serverCurrent ? raw : { ...raw, rebuilding: true, freshness: 'stale' }
           try {
             // Validate a complete payload even when a cached workspace exists:
             // metadata-only markers must never suppress the bootstrap API.
             const initial = normalizeWeeklyViewResult(evidence, null)
             if (initial.branch.id !== branchId || initial.weekId !== currentWeekId) return
-            accepted ||= serverCurrent && raw.verification === 'exact' && raw.partial !== true && initial.validationState === 'current'
+            // Normalization already validates the artifact with no retained
+            // fallback here; reuse that proof instead of validating it twice.
+            accepted = serverCurrent && (typeof raw.validationDirty === 'boolean'
+              && (raw.validationState === 'unknown' || ['current', 'stale'].includes(raw.validationState) && Boolean(initial.validationSnapshot))
+              || raw.verification === 'exact' && raw.partial !== true && initial.validationState === 'current')
             const freshEnough = !current || (initial.draftRevision >= current.draftRevision
               && Number(initial.weeklyViewRevision || 0) >= Number(current.weeklyViewRevision || 0)
               && Number(initial.weeklyViewDirtyGeneration ?? 0) >= Number(current.weeklyViewDirtyGeneration ?? 0))
@@ -865,13 +901,13 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
               setLastSyncedAt(new Date())
               setSyncState(serverCurrent ? 'live' : 'syncing')
               if (raw.dirty !== true) {
-                if (!accepted && snapshot.metadata?.fromCache === false) requestBootstrap()
+                if (!accepted && raw.controlPending !== true && serverSnapshot) requestBootstrap()
                 return
               }
             }
           } catch {
             if (raw.dirty !== true) {
-              if (snapshot.metadata?.fromCache === false) startDraftFallback()
+              if (raw.controlPending !== true && serverSnapshot) startDraftFallback()
               return
             }
           }
@@ -899,7 +935,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
           if (accepted) {
             latestDirtyGeneration = ''
             clearDirtyRetry()
-          } else if (snapshot.metadata?.fromCache === false) requestBootstrap()
+          } else if (raw.controlPending !== true && serverSnapshot) requestBootstrap()
           if (!current || current.branch.id !== branchId || current.weekId !== currentWeekId) return
           const revisionValue = Number(raw.draft?.revision ?? raw.draftRevision ?? current.draftRevision)
           if (Number.isFinite(revisionValue) && revisionValue < current.draftRevision) return
@@ -907,24 +943,51 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
             const next = raw.branchId && !raw.branch
               ? normalizeWeeklyViewResult(evidence, current)
               : workspaceFromWeeklyViewSnapshot(current, evidence)
-            if (workspaceRealtimeFingerprint(next) === workspaceRealtimeFingerprint(current)) {
-              setSyncState(next.weeklyViewFreshness === 'stale' ? 'syncing' : 'live')
-              return
-            }
+            setSyncState(next.weeklyViewFreshness === 'stale' ? 'syncing' : 'live')
+            if (workspaceRealtimeFingerprint(next) === workspaceRealtimeFingerprint(current)) return
             startTransition(() => {
               workspaceRef.current = next
               setWorkspace(next)
             })
             candidateCache.current.clear()
             setLastSyncedAt(new Date())
-            setSyncState(next.weeklyViewFreshness === 'stale' ? 'syncing' : 'live')
           } catch {
             startDraftFallback()
           }
+        }
+      stopWeeklyListener = onSnapshot(
+        doc(firestoreDb, 'ptScheduleWeeklyViews', `${branchId}_${currentWeekId}`),
+        { includeMetadataChanges: true },
+        (snapshot) => { latestWeeklySnapshot = snapshot; receiveWeekly(snapshot) },
+        () => {
+          if (listenerInactive()) return
+          startDraftFallback()
+        },
+      )
+      stopControlListener = onSnapshot(
+        doc(firestoreDb, 'ptScheduleWeeklyViewStates', `${branchId}_${currentWeekId}`),
+        { includeMetadataChanges: true },
+        (snapshot) => {
+          if (listenerInactive()) return
+          const value = snapshot.data()
+          if (value && (value.branchId !== branchId || value.weekId !== currentWeekId)) return
+          // Cache alone cannot acknowledge a newer dirty event on the server.
+          if (snapshot.metadata.fromCache && (controlReady || controlFailed)) return
+          if (controlFailed && snapshot.metadata.fromCache === false) requestedDirtyGeneration = ''
+          controlValue = value || null
+          controlReady = snapshot.metadata.fromCache === false
+          controlFailed = false
+          weeklyControlStatusRef.current = { scope: listenerScope, status: controlReady ? 'ready' : 'pending' }
+          if (latestWeeklySnapshot) receiveWeekly(latestWeeklySnapshot)
         },
         () => {
-          if (disposed || activeWorkspaceScopeRef.current !== listenerScope) return
-          startDraftFallback()
+          if (listenerInactive()) return
+          controlReady = false
+          controlFailed = true
+          weeklyControlStatusRef.current = { scope: listenerScope, status: 'error' }
+          if (latestWeeklySnapshot) receiveWeekly(latestWeeklySnapshot)
+          requestBootstrap()
+          setSyncState('offline')
         },
       )
     } else requestBootstrap()
@@ -932,7 +995,9 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
       disposed = true
       cancelBootstrap()
       clearDirtyRetry()
+      window.clearTimeout(controlJoinTimer)
       stopWeeklyListener?.()
+      stopControlListener?.()
       stopDraftListener?.()
     }
   }, [branchId, canListenToDraft, currentWeekId, loadWorkspace])
