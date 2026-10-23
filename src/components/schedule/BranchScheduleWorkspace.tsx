@@ -81,6 +81,8 @@ const ScheduleWarningDetail = lazy(() => import('./ScheduleWarningDetail'))
 // History/restore is an explicit secondary tool, not needed to paint or edit
 // the current week. Load its list/dialog only when that tool is opened.
 const ScheduleHistoryPanel = lazy(() => import('./ScheduleHistoryPanel'))
+const ScheduleResetDialog = lazy(() => import('./ScheduleResetDialog'))
+const SchedulePublishDialog = lazy(() => import('./SchedulePublishDialog'))
 
 import {
   APP_UPDATE_READY_EVENT,
@@ -91,7 +93,6 @@ import {
   LEARNER_WARNING_REASONS,
   MIN_WEEK_OFFSET,
   TRAINER_LOAD_LABELS,
-  WORKSPACE_CACHE_REVALIDATE_MS,
   availabilityDayCount,
   candidateCanBeManuallyScheduled,
   candidateMatchesStudentAvailability,
@@ -552,8 +553,10 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
               initialPaint: true,
               forceRefresh: forceAvailabilityRefresh,
             })
-            const normalized = normalizeWeeklyViewResult(weeklyView, workspaceRef.current)
-            weeklyRefreshPendingRef.current = {
+            const current = workspaceRef.current
+            const normalized = normalizeWeeklyViewResult(weeklyView,
+              current?.branch.id === branchId && current.weekId === currentWeekId ? current : null)
+            if (activeWorkspaceScopeRef.current === requestScope) weeklyRefreshPendingRef.current = {
               scope: requestScope,
               pending: normalized.weeklyViewFreshness === 'stale',
             }
@@ -589,7 +592,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
           result = initial
         } else {
           result = await loadFullWorkspace()
-          weeklyRefreshPendingRef.current = { scope: requestScope, pending: false }
+          if (activeWorkspaceScopeRef.current === requestScope) weeklyRefreshPendingRef.current = { scope: requestScope, pending: false }
         }
         if (activeWorkspaceScopeRef.current !== requestScope || workspaceRequestVersionRef.current !== requestVersion) return
         const current = workspaceRef.current
@@ -661,31 +664,22 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
     setError(null)
     if (cached) {
       workspaceReadyTimingRef.current.source = 'cache'
-      workspaceRef.current = cached.value
-      setWorkspace(cached.value)
+      // A browser cache is first-paint evidence, never proof that the server
+      // has not invalidated this week since we last visited it.
+      const provisional = { ...cached.value, partial: true, readMode: 'display' as const, reconciliationState: 'stale' as const, weeklyViewFreshness: 'stale' }
+      workspaceRef.current = provisional
+      setWorkspace(provisional)
       setSelectedTrainerId((current) => cached.value.trainers.some((trainer) => trainer.id === current && !isTrainerLocked(trainer))
         ? current
         : cached.value.trainers.find((trainer) => !isTrainerLocked(trainer))?.id || '')
       setLoading(false)
       setLastSyncedAt(new Date(cached.storedAt))
-      // A prior browser session may contain the old zero-slot projection from
-      // before weekly availability was synchronized. Recheck such a cached
-      // roster in the background without delaying the first paint.
-      const hasPotentiallyStaleAvailability = !cached.value.partial
-        && cached.value.students.some((student) => student.availabilityStatus === 'missing')
-      if (hasPotentiallyStaleAvailability) {
-        setSyncState('syncing')
-        void loadWorkspace(true, true)
-      } else if (Date.now() - cached.storedAt > WORKSPACE_CACHE_REVALIDATE_MS) {
-        setSyncState('syncing')
-        void loadWorkspace(true)
-      } else {
-        setSyncState('live')
-      }
+      setSyncState('syncing')
     } else {
       workspaceRef.current = null
       setWorkspace(null)
-      void loadWorkspace()
+      setLoading(Boolean(branchId))
+      setSyncState('connecting')
     }
     setNotice(null)
     setNoticeAction(null)
@@ -732,21 +726,35 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
     let requestedDirtyGeneration = ''
     let dirtyRetryCount = 0
     let dirtyRetryTimer: number | undefined
+    let bootstrapTimer: number | undefined
+    let bootstrapRequested = false
     let disposed = false
     const listenerScope = activeWorkspaceScopeRef.current
+    const cancelBootstrap = () => {
+      if (bootstrapTimer !== undefined) window.clearTimeout(bootstrapTimer)
+      bootstrapTimer = undefined
+    }
+    const requestBootstrap = () => {
+      cancelBootstrap()
+      if (disposed || bootstrapRequested || activeWorkspaceScopeRef.current !== listenerScope) return
+      bootstrapRequested = true
+      void loadWorkspace(Boolean(workspaceRef.current))
+    }
     const clearDirtyRetry = () => {
       if (dirtyRetryTimer !== undefined) window.clearTimeout(dirtyRetryTimer)
       dirtyRetryTimer = undefined
     }
     const refreshDirtyView = (retry = false) => {
       if (disposed || dirtyRefreshQueued || !latestDirtyGeneration || (!retry && latestDirtyGeneration === requestedDirtyGeneration)) return
+      cancelBootstrap()
+      bootstrapRequested = true
       if (latestDirtyGeneration !== requestedDirtyGeneration) dirtyRetryCount = 0
       clearDirtyRetry()
       requestedDirtyGeneration = latestDirtyGeneration
       dirtyRefreshQueued = true
       // The backend lease owns rebuild work. Do not force a second rebuild if
       // another viewer has already refreshed this generation before our read.
-      void loadWorkspace(true).finally(() => {
+      void loadWorkspace(Boolean(workspaceRef.current)).finally(() => {
         dirtyRefreshQueued = false
         // An invalidation received during the request must not disappear, but
         // lease/status metadata writes for the same generation need no request.
@@ -766,6 +774,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
       })
     }
     const startDraftFallback = () => {
+      requestBootstrap()
       if (fallbackStarted || !firestoreDb || !canListenToDraft) return
       fallbackStarted = true
       stopDraftListener = onSnapshot(
@@ -801,35 +810,57 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
       )
     }
     if (firestoreDb && canListenToDraft) {
+      // Give the authenticated server stream one short opportunity to supply
+      // the complete week. A miss, denial or invalidation bypasses this wait;
+      // a slow/offline stream cannot leave bootstrap hanging indefinitely.
+      bootstrapTimer = window.setTimeout(requestBootstrap, 500)
       stopWeeklyListener = onSnapshot(
         doc(firestoreDb, 'ptScheduleWeeklyViews', `${branchId}_${currentWeekId}`),
+        { includeMetadataChanges: true },
         (snapshot) => {
           if (disposed || activeWorkspaceScopeRef.current !== listenerScope) return
           const raw = snapshot.data()
           const current = workspaceRef.current
           if (!snapshot.exists() || !raw) {
-            startDraftFallback()
+            if (snapshot.metadata?.fromCache === false) startDraftFallback()
             return
           }
-          if (!current) {
-            // A complete persisted view can paint immediately while the
-            // callable rebuilds/upgrades it. Cached/dirty snapshots remain
-            // provisional; only a clean verified server view is authoritative.
-            // No extra source read starts just to paint the matrix.
-            try {
-              const verified = snapshot.metadata?.fromCache === false && raw.schemaVersion >= 2 && raw.dirty === false && raw.freshness === 'verified'
-              const initial = normalizeWeeklyViewResult(verified ? raw : { ...raw, rebuilding: true, freshness: 'stale' }, null)
-              if (initial.branch.id !== branchId || initial.weekId !== currentWeekId) return
+          if ((raw.branchId && raw.branchId !== branchId) || (raw.weekId && raw.weekId !== currentWeekId)) return
+          const verified = snapshot.metadata?.fromCache === false && raw.schemaVersion >= 2 && raw.dirty === false && raw.freshness === 'verified' && raw.verification === 'exact' && raw.partial !== true && raw.rebuilding !== true
+            && Array.isArray(raw.contracts) && Array.isArray(raw.warnings) && Array.isArray(raw.unassignedEntries) && Boolean(raw.scheduleConfig && raw.weeklySessionCoverage)
+          const evidence = verified ? raw : { ...raw, rebuilding: true, freshness: 'stale' }
+          try {
+            // Validate a complete payload even when a cached workspace exists:
+            // metadata-only markers must never suppress the bootstrap API.
+            const initial = normalizeWeeklyViewResult(evidence, null)
+            if (initial.branch.id !== branchId || initial.weekId !== currentWeekId) return
+            const freshEnough = !current || (initial.draftRevision >= current.draftRevision
+              && Number(initial.weeklyViewRevision || 0) >= Number(current.weeklyViewRevision || 0)
+              && Number(initial.weeklyViewDirtyGeneration ?? 0) >= Number(current.weeklyViewDirtyGeneration ?? 0))
+            if (verified && !freshEnough) {
+              requestBootstrap()
+              return
+            }
+            if (verified && freshEnough) {
+              cancelBootstrap()
+              weeklyRefreshPendingRef.current = { scope: listenerScope, pending: false }
+            }
+            if (!current) {
               workspaceRef.current = initial
               setWorkspace(initial)
               setSelectedTrainerId(initial.trainers.find((trainer) => !isTrainerLocked(trainer))?.id || '')
               setLoading(false)
               setLastSyncedAt(new Date())
               setSyncState(verified ? 'live' : 'syncing')
-              if (raw.dirty !== true) return
-            } catch {
-              // Metadata-only dirty markers are not a matrix. Let the pending
-              // callable (and bounded dirty refresh below) finish bootstrapping.
+              if (raw.dirty !== true) {
+                if (!verified && snapshot.metadata?.fromCache === false) requestBootstrap()
+                return
+              }
+            }
+          } catch {
+            if (raw.dirty !== true) {
+              if (snapshot.metadata?.fromCache === false) startDraftFallback()
+              return
             }
           }
           // Dirty markers intentionally contain only revision metadata while
@@ -845,17 +876,19 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
             refreshDirtyView()
             return
           }
-          latestDirtyGeneration = ''
-          clearDirtyRetry()
+          if (verified) {
+            latestDirtyGeneration = ''
+            clearDirtyRetry()
+          } else if (snapshot.metadata?.fromCache === false) requestBootstrap()
           if (!current || current.branch.id !== branchId || current.weekId !== currentWeekId) return
           const revisionValue = Number(raw.draft?.revision ?? raw.draftRevision ?? current.draftRevision)
           if (Number.isFinite(revisionValue) && revisionValue < current.draftRevision) return
           try {
             const next = raw.branchId && !raw.branch
-              ? normalizeWeeklyViewResult(raw, current)
-              : workspaceFromWeeklyViewSnapshot(current, raw)
+              ? normalizeWeeklyViewResult(evidence, current)
+              : workspaceFromWeeklyViewSnapshot(current, evidence)
             if (workspaceRealtimeFingerprint(next) === workspaceRealtimeFingerprint(current)) {
-              setSyncState('live')
+              setSyncState(next.weeklyViewFreshness === 'stale' ? 'syncing' : 'live')
               return
             }
             startTransition(() => {
@@ -864,19 +897,20 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
             })
             candidateCache.current.clear()
             setLastSyncedAt(new Date())
-            setSyncState('live')
+            setSyncState(next.weeklyViewFreshness === 'stale' ? 'syncing' : 'live')
           } catch {
             startDraftFallback()
           }
         },
         () => {
+          if (disposed || activeWorkspaceScopeRef.current !== listenerScope) return
           startDraftFallback()
-          setSyncState((current) => current === 'connecting' ? 'offline' : current)
         },
       )
-    }
+    } else requestBootstrap()
     return () => {
       disposed = true
+      cancelBootstrap()
       clearDirtyRetry()
       stopWeeklyListener?.()
       stopDraftListener?.()
@@ -2297,7 +2331,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
               <header><strong>Công cụ khác</strong><span>Draft r{workspace?.draftRevision || 0} · lịch v{workspace?.publishedVersion || 0}</span></header>
               <button type="button" onClick={() => { moreMenuRef.current?.removeAttribute('open'); void openHistory() }}><History size={16} /><span><strong>Lịch sử & khôi phục</strong><small>Dùng khi cần quay lại lịch đã publish</small></span></button>
               <button type="button" onClick={() => { moreMenuRef.current?.removeAttribute('open'); setResetDraftOpen(true) }} disabled={!workspace || workspaceHydrating || busy || draftResetSummary.resettableEntries < 1}><RotateCcw size={16} /><span><strong>Đặt lại draft</strong><small>Giữ nguyên ca khóa, OFF và đã publish</small></span></button>
-              <button type="button" onClick={() => { moreMenuRef.current?.removeAttribute('open'); void loadWorkspace() }} disabled={loading || workspaceHydrating || busy}><RefreshCw size={16} className={loading ? 'is-spinning' : ''} /><span><strong>Tải lại dữ liệu</strong><small>Đồng bộ lại ngay bây giờ</small></span></button>
+              <button type="button" onClick={() => { moreMenuRef.current?.removeAttribute('open'); void loadWorkspace(false, true) }} disabled={loading || workspaceHydrating || busy}><RefreshCw size={16} className={loading ? 'is-spinning' : ''} /><span><strong>Tải lại dữ liệu</strong><small>Đồng bộ lại ngay bây giờ</small></span></button>
             </div>
           </details>
         </div>
@@ -2670,9 +2704,9 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
         </div>
       )}
 
-      {publishPreview && <div className="schedule-publish-backdrop"><section ref={activeDialogRef} className="schedule-publish-dialog" role="dialog" aria-modal="true" aria-labelledby="branch-publish-title"><div className="schedule-publish-dialog__accent" /><p className="schedule-publish-dialog__eyebrow">AURA PT · XÁC NHẬN</p><h2 id="branch-publish-title">Publish v{publishPreview.version}?</h2><p>Session đã tính buổi hoặc xác nhận được khóa bất biến. Toàn bộ diff còn lại chạy trong một transaction.</p><div className="schedule-publish-diff"><div><strong>{publishPreview.diff.create}</strong><span>Tạo mới</span></div><div><strong>{publishPreview.diff.update}</strong><span>Điều chỉnh</span></div><div><strong>{publishPreview.diff.cancel}</strong><span>Hủy</span></div><div><strong>{publishPreview.diff.unchanged}</strong><span>Giữ nguyên</span></div></div>{publishPreview.warnings.length > 0 && <div className="schedule-publish-warnings"><AlertTriangle size={17} /><div><strong>{publishPreview.warnings.length} lưu ý không chặn publish</strong><span>{publishPreview.warnings.map(ptScheduleConflictLabel).join(' · ')}</span></div></div>}{publishPreview.warnings.includes('STUDENT_BRANCH_MISMATCH') && <label className="schedule-publish-branch-ack"><input type="checkbox" checked={publishCrossBranchConfirmed} onChange={(event) => setPublishCrossBranchConfirmed(event.target.checked)} /><span><strong>Xác nhận lịch khác cơ sở</strong><small>{publishPreview.warningDetails?.filter((item) => item.code === 'STUDENT_BRANCH_MISMATCH').map((item) => `${item.studentName || 'Học viên'}: ${branches.find((branch) => branch.id === item.studentHomeBranchId)?.name || 'cơ sở hồ sơ'} → ${branches.find((branch) => branch.id === item.targetBranchId)?.name || workspace?.branch.name || 'cơ sở tập'}`).join(' · ') || 'Các học viên được đánh dấu sẽ tập tại cơ sở đang publish.'}</small></span></label>}<div className="schedule-publish-dialog__actions"><button type="button" onClick={() => { setPublishPreview(null); setPublishCrossBranchConfirmed(false) }}>Quay lại</button><button type="button" onClick={() => void confirmPublish()} disabled={busy || (publishPreview.warnings.includes('STUDENT_BRANCH_MISMATCH') && !publishCrossBranchConfirmed)}>{busy ? 'Đang publish…' : `Publish v${publishPreview.version}`}</button></div></section></div>}
+      {publishPreview && <Suspense fallback={<div role="status">Đang tải xác nhận…</div>}><SchedulePublishDialog preview={publishPreview} branches={branches} branchName={workspace?.branch.name || ''} busy={busy} confirmed={publishCrossBranchConfirmed} dialogRef={activeDialogRef} onConfirmBranch={setPublishCrossBranchConfirmed} onClose={() => { setPublishPreview(null); setPublishCrossBranchConfirmed(false) }} onPublish={() => void confirmPublish()} /></Suspense>}
 
-      {resetDraftOpen && <div className="schedule-publish-backdrop"><section ref={activeDialogRef} className="schedule-publish-dialog" role="alertdialog" aria-modal="true" aria-labelledby="branch-reset-title"><div className="schedule-publish-dialog__accent" /><p className="schedule-publish-dialog__eyebrow">AURA PT · ĐẶT LẠI DRAFT</p><h2 id="branch-reset-title">Xếp lại từ đầu tuần này?</h2><p>Gỡ {draftResetSummary.resettableEntries} buổi nháp của {draftResetSummary.affectedStudents} học viên. {draftResetSummary.protectedEntries} ca OFF, ca khóa hoặc session đã publish vẫn được giữ nguyên.</p><div className="schedule-publish-dialog__actions"><button type="button" onClick={() => setResetDraftOpen(false)}>Quay lại</button><button type="button" onClick={() => void resetDraft()} disabled={busy}>{busy ? 'Đang đặt lại…' : 'Đặt lại draft'}</button></div></section></div>}
+      {resetDraftOpen && <Suspense fallback={<div role="status">Đang tải xác nhận…</div>}><ScheduleResetDialog summary={draftResetSummary} busy={busy} dialogRef={activeDialogRef} onClose={() => setResetDraftOpen(false)} onReset={() => void resetDraft()} /></Suspense>}
 
     </div>
   )

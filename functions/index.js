@@ -1,3 +1,11 @@
+// Runtime-only fast path for the two weekly snapshot readers. Discovery must
+// still expose the entire manifest; every other target keeps the legacy boot.
+const weeklyReadRuntime = require('./pt-schedule-weekly-runtime')
+if (weeklyReadRuntime.shouldUseWeeklyReadRuntime(process.env)) {
+  module.exports = weeklyReadRuntime.loadWeeklyReadRuntime(process.env)
+  return
+}
+
 const { initializeApp } = require('firebase-admin/app')
 const { getAuth } = require('firebase-admin/auth')
 const { getDatabase } = require('firebase-admin/database')
@@ -291,7 +299,11 @@ const operationsAggregateTriggerOptions = (document) => ({
   document,
   database: databaseId,
   region: 'asia-southeast1',
-  maxInstances: 5,
+  // 2026-10-23 audit: each writer peaked at one instance, with current
+  // subscriptions fully drained. Keep a second instance for bursts/retries;
+  // preserve CPU/concurrency and retry semantics rather than changing all
+  // scaling dimensions together. Five writers now cap at ten, not 25, CPUs.
+  maxInstances: 2,
   retry: true,
 })
 exports.syncOperationsLedgerDailyAggregate = onDocumentWritten(

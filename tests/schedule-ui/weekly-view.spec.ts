@@ -1,5 +1,194 @@
 import { expect, test } from '@playwright/test'
 
+test('clean server week boots with zero callable reads; explicit reload still forces refresh and optimizer reconciles', async ({ page }) => {
+  await page.addInitScript(() => {
+    ;(window as any).__enableScheduleListener = true
+    ;(window as any).__weeklyViewCompact = true
+    ;(window as any).__initialWeeklySnapshot = 'server'
+  })
+  await page.goto('/tests/schedule-ui/index.html')
+  await expect(page.locator('.schedule-cell').filter({ hasText: 'Lan' })).toHaveCount(1)
+  await expect(page.locator('.branch-schedule__sync')).toHaveText('Trực tiếp')
+  await page.clock.install()
+  await page.clock.runFor(1_000)
+  expect(await page.evaluate(() => (window as any).__scheduleCalls || [])).toEqual([])
+  await page.getByLabel('Mở thêm công cụ').click()
+  await page.getByRole('button', { name: /Tải lại dữ liệu/ }).click()
+  await expect.poll(() => page.evaluate(() => (window as any).__scheduleCalls.filter((item: any) => item.operation === 'weekly-view').map((item: any) => item.input.forceRefresh))).toEqual([true])
+  await page.getByRole('button', { name: 'Tối ưu tiếp', exact: true }).click()
+  await page.clock.runFor(501)
+  await expect.poll(() => page.evaluate(() => (window as any).__scheduleCalls.filter((item: any) => item.operation === 'load').length)).toBe(1)
+})
+
+for (const initial of ['missing', 'denied', 'dirty', 'incomplete', 'legacy', 'unverified', 'missing-verification', 'partial']) {
+  test(`server ${initial} view falls back immediately without waiting for the bootstrap timeout`, async ({ page }) => {
+    await page.clock.install()
+    await page.clock.pauseAt(new Date())
+    await page.addInitScript((mode) => {
+      ;(window as any).__enableScheduleListener = true
+      ;(window as any).__weeklyViewCompact = true
+      ;(window as any).__initialWeeklySnapshot = mode
+      if (mode === 'dirty') (window as any).__weeklyViewOverride = { dirty: true, freshness: 'stale' }
+      if (mode === 'incomplete') (window as any).__weeklyViewOverride = { students: undefined }
+      if (mode === 'legacy') (window as any).__weeklyViewOverride = { schemaVersion: 1 }
+      if (mode === 'unverified') (window as any).__weeklyViewOverride = { verification: 'draft_only' }
+      if (mode === 'missing-verification') (window as any).__weeklyViewOverride = { verification: undefined }
+      if (mode === 'partial') (window as any).__weeklyViewOverride = { partial: true }
+    }, initial)
+    await page.goto('/tests/schedule-ui/index.html')
+    await expect.poll(() => page.evaluate(() => (window as any).__scheduleCalls?.filter((item: any) => item.operation === 'weekly-view').length || 0)).toBe(1)
+    expect(await page.evaluate(() => (window as any).__scheduleCalls.filter((item: any) => item.operation === 'weekly-view').map((item: any) => item.input.forceRefresh))).toEqual([false])
+  })
+}
+
+test('cached complete week paints provisionally and cannot suppress the bounded callable fallback', async ({ page }) => {
+  await page.clock.install()
+  await page.clock.pauseAt(new Date())
+  await page.addInitScript(() => {
+    ;(window as any).__enableScheduleListener = true
+    ;(window as any).__weeklyViewCompact = true
+    ;(window as any).__initialWeeklySnapshot = 'cache'
+    ;(window as any).__holdWeeklyView = true
+  })
+  await page.goto('/tests/schedule-ui/index.html')
+  await expect(page.locator('.schedule-cell').filter({ hasText: 'Lan' })).toHaveCount(1)
+  await expect(page.locator('.branch-schedule__sync')).toHaveText('Đang đồng bộ')
+  expect(await page.evaluate(() => (window as any).__scheduleCalls || [])).toEqual([])
+  await page.clock.runFor(501)
+  await expect.poll(() => page.evaluate(() => (window as any).__scheduleCalls.filter((item: any) => item.operation === 'weekly-view').length)).toBe(1)
+  await expect(page.locator('.branch-schedule__sync')).toHaveText('Đang đồng bộ')
+})
+
+test('cached-to-server metadata change cancels fallback; branch changes cancel timers and ignore the old scope', async ({ page }) => {
+  await page.clock.install()
+  await page.clock.pauseAt(new Date())
+  await page.addInitScript(() => {
+    ;(window as any).__enableScheduleListener = true
+    ;(window as any).__weeklyViewCompact = true
+    ;(window as any).__initialWeeklySnapshot = 'cache'
+  })
+  await page.goto('/tests/schedule-ui/index.html')
+  await expect(page.locator('.schedule-cell').filter({ hasText: 'Lan' })).toHaveCount(1)
+  await page.evaluate(async () => {
+    const { weeklyViewFixture } = await import('/tests/schedule-ui/service.ts')
+    const key = [...(window as any).__scheduleListeners.keys()].find((path: any) => path.startsWith('ptScheduleWeeklyViews/')) as string
+    const [branchId, weekId] = key.split('/')[1].split('_')
+    ;(window as any).__firstSnapshot = weeklyViewFixture({ branchId, weekId })
+    ;(window as any).__emitScheduleSnapshot('ptScheduleWeeklyViews', (window as any).__firstSnapshot)
+    ;(window as any).__initialWeeklySnapshot = undefined
+  })
+  await expect(page.locator('.branch-schedule__sync')).toHaveText('Trực tiếp')
+  await page.clock.runFor(501)
+  expect(await page.evaluate(() => (window as any).__scheduleCalls || [])).toEqual([])
+  await page.getByRole('combobox', { name: 'Chọn chi nhánh' }).selectOption('c')
+  await expect(page.locator('.schedule-cell')).toHaveCount(0)
+  await page.evaluate(() => { (window as any).__emitScheduleSnapshot('ptScheduleWeeklyViews', (window as any).__firstSnapshot) })
+  await expect(page.locator('.schedule-cell')).toHaveCount(0)
+  await page.clock.runFor(501)
+  await expect.poll(() => page.evaluate(() => (window as any).__scheduleCalls.filter((item: any) => item.operation === 'weekly-view').map((item: any) => item.input.branchId))).toEqual(['c'])
+  await expect(page.locator('.schedule-cell').filter({ hasText: 'Lan' })).toHaveCount(1)
+  await page.getByRole('combobox', { name: 'Chọn chi nhánh' }).selectOption('b')
+  await page.evaluate(() => { (window as any).__emitScheduleSnapshot('ptScheduleWeeklyViews', (window as any).__firstSnapshot) })
+  await expect(page.locator('.branch-schedule__sync')).toHaveText('Trực tiếp')
+  await page.clock.runFor(501)
+  expect(await page.evaluate(() => (window as any).__scheduleCalls.filter((item: any) => item.operation === 'weekly-view').map((item: any) => item.input.branchId))).toEqual(['c'])
+})
+
+test('late API result from the old branch cannot poison the cache while another branch is visible', async ({ page }) => {
+  await page.addInitScript(() => {
+    ;(window as any).__enableScheduleListener = true
+    ;(window as any).__weeklyViewCompact = true
+    ;(window as any).__holdWeeklyView = true
+  })
+  await page.goto('/tests/schedule-ui/index.html')
+  await expect.poll(() => page.evaluate(() => Boolean((window as any).__releaseWeeklyView))).toBe(true)
+  await page.evaluate(() => {
+    ;(window as any).__holdWeeklyView = false
+    ;(window as any).__initialWeeklySnapshot = 'server'
+  })
+  await page.getByRole('combobox', { name: 'Chọn chi nhánh' }).selectOption('c')
+  await expect(page.locator('.branch-schedule__sync')).toHaveText('Trực tiếp')
+  await page.evaluate(() => { (window as any).__releaseWeeklyView() })
+  await expect.poll(() => page.evaluate(() => (window as any).__weeklyViewResponses)).toBe(1)
+  await page.getByRole('combobox', { name: 'Chọn chi nhánh' }).selectOption('b')
+  await expect(page.locator('.branch-schedule__sync')).toHaveText('Trực tiếp')
+  await expect(page.locator('.schedule-cell').filter({ hasText: 'Lan' })).toHaveCount(1)
+  const branches = await page.evaluate(async () => {
+    const { readWorkspaceCache } = await import('/src/features/schedule/workspaceCache.ts')
+    const input = (window as any).__scheduleCalls[0].input
+    return ['b', 'c'].map(branchId => readWorkspaceCache(`test-admin|1|admin|b|${branchId}|${input.weekId}`)?.value.branch.id)
+  })
+  expect(branches).toEqual(['b', 'c'])
+})
+
+test('authorization changes clear the old user cache and cancel callbacks from the old listener', async ({ page }) => {
+  await page.clock.install()
+  await page.clock.pauseAt(new Date())
+  await page.addInitScript(() => {
+    ;(window as any).__enableScheduleListener = true
+    ;(window as any).__weeklyViewCompact = true
+    ;(window as any).__initialWeeklySnapshot = 'server'
+  })
+  await page.goto('/tests/schedule-ui/index.html')
+  await expect(page.locator('.branch-schedule__sync')).toHaveText('Trực tiếp')
+  await page.evaluate(async () => {
+    const { weeklyViewFixture } = await import('/tests/schedule-ui/service.ts')
+    const [key, handlers] = [...(window as any).__scheduleListeners.entries()].find(([path]: any) => path.startsWith('ptScheduleWeeklyViews/')) as any
+    const [branchId, weekId] = key.split('/')[1].split('_')
+    ;(window as any).__oldListener = [...handlers][0]
+    ;(window as any).__authSnapshot = weeklyViewFixture({ branchId, weekId })
+    ;(window as any).__initialWeeklySnapshot = undefined
+    ;(window as any).__setScheduleAccess({ uid: 'second-admin', authzVersion: 2 })
+  })
+  await expect(page.locator('.schedule-cell')).toHaveCount(0)
+  await page.evaluate(() => {
+    const raw = (window as any).__authSnapshot
+    ;(window as any).__oldListener({ exists: () => true, data: () => raw, metadata: { fromCache: false } })
+  })
+  await expect(page.locator('.schedule-cell')).toHaveCount(0)
+  await page.evaluate(() => { (window as any).__emitScheduleSnapshot('ptScheduleWeeklyViews', (window as any).__authSnapshot) })
+  await expect(page.locator('.branch-schedule__sync')).toHaveText('Trực tiếp')
+  await page.clock.runFor(501)
+  expect(await page.evaluate(() => (window as any).__scheduleCalls || [])).toEqual([])
+})
+
+test('lazy Publish confirmation retains server validation and cross-branch acknowledgement', async ({ page }) => {
+  const requests: string[] = []
+  page.on('request', request => { if (request.url().includes('/SchedulePublishDialog.tsx')) requests.push(request.url()) })
+  await page.addInitScript(() => { (window as any).__validationWarnings = ['STUDENT_BRANCH_MISMATCH'] })
+  await page.goto('/tests/schedule-ui/index.html')
+  await expect(page.locator('.schedule-cell').filter({ hasText: 'Lan' })).toHaveCount(1)
+  expect(requests).toHaveLength(0)
+  await page.getByRole('button', { name: 'Publish', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Publish v1?' })
+  await expect(dialog).toBeVisible()
+  expect(requests).toHaveLength(1)
+  expect(await page.evaluate(() => (window as any).__scheduleCalls.filter((item: any) => ['validate', 'publish'].includes(item.operation)).map((item: any) => item.operation))).toEqual(['validate'])
+  await expect(dialog.getByRole('button', { name: 'Publish v1', exact: true })).toBeDisabled()
+  await dialog.getByRole('checkbox').check()
+  await dialog.getByRole('button', { name: 'Publish v1', exact: true }).click()
+  await expect(dialog).toBeHidden()
+  expect(await page.evaluate(() => (window as any).__scheduleCalls.filter((item: any) => ['validate', 'publish'].includes(item.operation)).map((item: any) => item.operation))).toEqual(['validate', 'publish'])
+})
+
+test('reset confirmation code loads only on demand and cannot reset before explicit confirmation', async ({ page }) => {
+  const requests: string[] = []
+  page.on('request', request => { if (request.url().includes('/ScheduleResetDialog.tsx')) requests.push(request.url()) })
+  await page.goto('/tests/schedule-ui/index.html')
+  await expect(page.locator('.schedule-cell').filter({ hasText: 'Lan' })).toHaveCount(1)
+  expect(requests).toHaveLength(0)
+  await page.getByLabel('Mở thêm công cụ').click()
+  await page.getByRole('button', { name: /Đặt lại draft/ }).click()
+  const dialog = page.getByRole('alertdialog', { name: 'Xếp lại từ đầu tuần này?' })
+  await expect(dialog).toBeVisible()
+  await expect(dialog.getByRole('button', { name: 'Quay lại', exact: true })).toBeFocused()
+  expect(requests).toHaveLength(1)
+  expect(await page.evaluate(() => (window as any).__scheduleCalls.filter((item: any) => item.operation === 'command').length)).toBe(0)
+  await page.keyboard.press('Escape')
+  await expect(dialog).toBeHidden()
+  expect(await page.evaluate(() => (window as any).__scheduleCalls.filter((item: any) => item.operation === 'command').length)).toBe(0)
+})
+
 test('compact weekly views derive pair and single counts from the displayed matrix, not absent or outdated optimizer metrics', async ({ page }) => {
   await page.addInitScript(() => {
     ;(window as any).__enableScheduleListener = true
@@ -181,10 +370,11 @@ test('real compact schema2 listener reads nested draft revision and leaves stale
     const current = await getPtScheduleWeeklyView(call.input)
     ;(window as any).__compactWeeklyFixture = {
       schemaVersion: 2, branchId: current.branch.id, weekId: current.weekId,
-      sourceRevision: 'semantic-hash-v2', viewRevision: 2, dirty: false, freshness: 'verified',
+      sourceRevision: 'semantic-hash-v2', viewRevision: 2, dirty: false, freshness: 'verified', verification: 'exact',
       draft: { revision: current.draftRevision + 1, status: 'draft', publishedVersion: current.publishedVersion, publishedRevision: -1 },
       schedule: current.schedule, students: current.students.map((student: any) => student.id === 'a' ? { ...student, name: 'Lan compact mới', phone: '0900000010' } : student),
       trainers: current.trainers, contracts: current.contracts, warnings: [], scheduleConfig: current.scheduleConfig,
+      unassignedEntries: [], weeklySessionCoverage: {},
     }
     ;(window as any).__weeklyViewOverride = { rebuilding: true, rebuildStatus: 'busy', dirty: true, freshness: 'stale' }
     ;(window as any).__emitScheduleSnapshot('ptScheduleWeeklyViews', { dirty: true, dirtyGeneration: 1 })

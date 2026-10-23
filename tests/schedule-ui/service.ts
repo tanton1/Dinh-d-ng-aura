@@ -18,7 +18,7 @@ export const getPtScheduleWorkspace = async (input: any) => {
 // fixture returns the same bounded workspace shape so UI tests exercise the
 // rollout path without requiring Firebase.
 export const weeklyViewFixture = (input: any) => {
-  const full = { ...workspace, weekId: input.weekId, branch: { ...workspace.branch, id: input.branchId }, freshness: 'verified', readMode: 'reconciled', partial: false, viewRevision: 1, sourceRevision: 1 }
+  const full = { ...workspace, weekId: input.weekId, branch: { ...workspace.branch, id: input.branchId }, dirty: false, freshness: 'verified', verification: 'exact', weeklySessionCoverage: {}, readMode: 'reconciled', partial: false, viewRevision: 1, sourceRevision: 1 }
   const compact = {
     schemaVersion: 2, branchId: input.branchId, weekId: input.weekId,
     sourceRevision: 'semantic-hash-v2', viewRevision: 1, dirtyGeneration: 1, dirty: false, freshness: 'verified', verification: 'exact',
@@ -70,7 +70,7 @@ export const applyAdminPtScheduleEdit = async (input: any) => {
   return structuredClone({ draftRevision: workspace.draftRevision, schedule: workspace.schedule, sessionChanged: true })
 }
 export const generatePtScheduleDraft = async (input: any) => { track('generate', input); await sleep(500); workspace.draftRevision++; return structuredClone({ schedule: workspace.schedule, draftRevision: workspace.draftRevision, warnings: [], unassignedEntries: [], optimizationSummary: { optimizationPasses: 2 } }) }
-export const validatePtScheduleDraft = async (input: any) => { track('validate', input); if ((window as any).__failScheduleValidation) throw Object.assign(Error('Lịch còn xung đột'), { errorDetails: [{ code: 'OUTSIDE_STUDENT_AVAILABILITY', slotId: 'T2-6', studentId: 'a', studentName: 'Lan', trainerId: 't', trainerName: 'Mai' }] }); return { draftRevision: workspace.draftRevision, version: 1, diff: { create: 2, update: 0, cancel: 0, unchanged: 0 }, warnings: [] } }
+export const validatePtScheduleDraft = async (input: any) => { track('validate', input); if ((window as any).__failScheduleValidation) throw Object.assign(Error('Lịch còn xung đột'), { errorDetails: [{ code: 'OUTSIDE_STUDENT_AVAILABILITY', slotId: 'T2-6', studentId: 'a', studentName: 'Lan', trainerId: 't', trainerName: 'Mai' }] }); return { draftRevision: workspace.draftRevision, version: 1, diff: { create: 2, update: 0, cancel: 0, unchanged: 0 }, warnings: (window as any).__validationWarnings || [] } }
 export const publishPtSchedule = async (input: any) => { track('publish', input); workspace.publishedVersion++; workspace.draftStatus = 'published'; return { version: workspace.publishedVersion, unchanged: false } }
 export const listPtScheduleVersions = async () => ({ currentDraftRevision: workspace.draftRevision, currentVersion: 1, versions: (window as any).__scheduleVersions || [] })
 export const restorePtScheduleVersionToDraft = async (input: any) => { track('restore', input); return { version: input.version, draftRevision: workspace.draftRevision } }
