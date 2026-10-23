@@ -1,6 +1,8 @@
 'use strict'
 
 const path = require('node:path')
+const { mapBounded } = require('./audit-function-regions.cjs')
+const { revisionResource, assertHealthyRevision } = require('./cloud-run-revision-policy.cjs')
 
 const DEFAULT_PROJECT = 'gen-lang-client-0815966909'
 const DEFAULT_REGION = 'asia-southeast1'
@@ -59,20 +61,19 @@ async function listServices(project, region, token) {
   return services
 }
 
-async function revisionFailure(revisionResource, token) {
-  if (!revisionResource) return ''
-  const response = await fetch(`https://run.googleapis.com/v2/${revisionResource}`, {
-    headers: { authorization: `Bearer ${token}` },
-  })
-  if (!response.ok) return `Không đọc được revision mới nhất (${response.status}).`
-  const revision = await response.json()
-  const terminal = condition(revision, 'Ready')
-  const direct = [terminal?.reason, terminal?.message].filter(Boolean).join(': ')
-  if (direct) return direct
-  return (revision.conditions || [])
-    .filter((item) => item.state === 'CONDITION_FAILED' || item.status === 'False')
-    .map((item) => [item.type, item.reason, item.message].filter(Boolean).join(': '))
-    .join(' | ')
+async function serviceHealth(service, readRevision, expected = {}) {
+  const name = serviceName(service)
+  const readyRevision = String(service.latestReadyRevision || '').split('/').at(-1) || ''
+  const createdRevision = String(service.latestCreatedRevision || '').split('/').at(-1) || ''
+  try {
+    // Always inspect the actual revision, even when service-level names agree.
+    // A Ready service can still point at a retired/failed container revision.
+    const revision = await readRevision(revisionResource(service))
+    const result = assertHealthyRevision(service, revision, { ...expected, requireServing: true })
+    return { name, ready: true, readyRevision, createdRevision, image: result.image, reason: '', uri: service.uri || '' }
+  } catch (error) {
+    return { name, ready: false, readyRevision, createdRevision, reason: error.message || failureReason(service), uri: service.uri || '' }
+  }
 }
 
 async function main() {
@@ -84,38 +85,17 @@ async function main() {
   const token = await accessToken()
   const allServices = await listServices(project, region, token)
   const services = names.size ? allServices.filter((service) => names.has(serviceName(service))) : allServices
-  const rows = await Promise.all(services.map(async (service) => {
-    const name = serviceName(service)
-    const readyRevision = String(service.latestReadyRevision || '').split('/').at(-1) || ''
-    const createdRevision = String(service.latestCreatedRevision || '').split('/').at(-1) || ''
-    const traffic = service.trafficStatuses || service.traffic || []
-    const trafficServesReadyRevision = Boolean(readyRevision) && traffic.length > 0 && traffic.every((target) => {
-      if (target.type === 'TRAFFIC_TARGET_ALLOCATION_TYPE_REVISION') return target.revision === readyRevision
-      if (target.type === 'TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST') return createdRevision === readyRevision
-      return false
+  const expected = { expectedRevision: argument('expected-revision', ''), expectedImage: argument('expected-image', '') }
+  if ((expected.expectedRevision || expected.expectedImage) && names.size !== 1) throw new Error('Expected revision/image require exactly one service.')
+  const readRevision = async (resource) => {
+    const response = await fetch(`https://run.googleapis.com/v2/${resource}`, {
+      headers: { authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(30_000),
     })
-    // Cloud Functions CLI can report a successful update even when Cloud Run
-    // retires the newly created revision and leaves traffic on an older ready
-    // revision (for example after a regional CPU quota rejection). Such a
-    // service is available, but the requested release is not live.
-    const latestCreatedIsReady = Boolean(createdRevision) && createdRevision === readyRevision
-    const ready = trafficServesReadyRevision && latestCreatedIsReady
-    const latestFailure = !latestCreatedIsReady && names.size
-      ? await revisionFailure(service.latestCreatedRevision, token)
-      : ''
-    return {
-      name,
-      ready,
-      readyRevision,
-      createdRevision,
-      reason: ready
-        ? ''
-        : !latestCreatedIsReady
-          ? `${latestFailure ? `${latestFailure} ` : ''}Production vẫn đang phục vụ revision cũ.`
-          : failureReason(service),
-      uri: service.uri || '',
-    }
-  })).then((items) => items.sort((left, right) => left.name.localeCompare(right.name)))
+    if (!response.ok) throw new Error(`Không đọc được revision (${response.status}).`)
+    return response.json()
+  }
+  const rows = (await mapBounded(services, (service) => serviceHealth(service, readRevision, expected), 8))
+    .sort((left, right) => left.name.localeCompare(right.name))
   const failed = rows.filter((item) => !item.ready)
 
   if (json) process.stdout.write(`${JSON.stringify({ project, region, total: rows.length, healthy: rows.length - failed.length, failed: failed.length, services: rows }, null, 2)}\n`)
@@ -134,7 +114,9 @@ async function main() {
   } else if (failOnUnhealthy && failed.length) process.exitCode = 1
 }
 
-main().catch((error) => {
+if (require.main === module) main().catch((error) => {
   console.error(error instanceof Error ? error.message : error)
   process.exitCode = 1
 })
+
+module.exports = { serviceHealth }

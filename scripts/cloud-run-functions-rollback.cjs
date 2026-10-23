@@ -2,6 +2,7 @@
 
 const path = require('node:path')
 const { GoogleAuth } = require('google-auth-library')
+const { shortName } = require('./cloud-run-revision-policy.cjs')
 
 const DEFAULT_PROJECT = 'gen-lang-client-0815966909'
 const DEFAULT_REGION = 'asia-southeast1'
@@ -52,8 +53,23 @@ async function rollbackService(project, region, name, headers) {
   const response = await fetch(url, { headers })
   if (!response.ok) throw new Error(`${name} GET ${response.status}: ${(await response.text()).slice(0, 800)}`)
   const service = await response.json()
-  const readyRevision = service.status?.latestReadyRevisionName
-  if (!readyRevision) throw new Error(`${name} chưa có revision khỏe mạnh để rollback.`)
+  // A failed rollout can leave latestReadyRevisionName misleading. Without an
+  // explicit earlier release snapshot, only preserve the revision already
+  // receiving all traffic; never guess another revision from latest metadata.
+  const targets = (service.status?.traffic || []).filter((target) => Number(target.percent) > 0)
+  if (targets.length !== 1 || Number(targets[0].percent) !== 100 || !targets[0].revisionName) {
+    throw new Error(`${name}: ambiguous effective traffic; explicit rollback review required.`)
+  }
+  const readyRevision = targets[0].revisionName
+  const revisionUrl = `https://run.googleapis.com/v2/projects/${project}/locations/${region}/services/${name}/revisions/${readyRevision}`
+  const revisionResponse = await fetch(revisionUrl, { headers })
+  if (!revisionResponse.ok) throw new Error(`${name}: cannot verify the currently serving revision.`)
+  const revision = await revisionResponse.json()
+  if (shortName(revision.name) !== readyRevision
+    || !['Ready', 'ContainerHealthy'].every((type) => revision.conditions?.some((item) => item.type === type && item.state === 'CONDITION_SUCCEEDED'))
+    || revision.conditions?.some((item) => item.revisionReason === 'RETIRED')) {
+    throw new Error(`${name}: serving revision has not passed actual container health checks.`)
+  }
   delete service.status
   service.spec.traffic = [{ revisionName: readyRevision, percent: 100 }]
   await updateWithRetry(url, headers, service)

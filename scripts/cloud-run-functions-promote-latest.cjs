@@ -2,6 +2,7 @@
 
 const path = require('node:path')
 const { GoogleAuth } = require('google-auth-library')
+const { shortName, revisionResource, assertHealthyRevision, servesRevision } = require('./cloud-run-revision-policy.cjs')
 
 const DEFAULT_PROJECT = 'gen-lang-client-0815966909'
 const DEFAULT_REGION = 'asia-southeast1'
@@ -43,7 +44,7 @@ async function requestJson(url, headers, options = {}) {
     })
     if (response.ok) return response.json()
     const message = await response.text()
-    if (response.status !== 429 || attempt === 5) {
+    if (options.method || response.status !== 429 || attempt === 5) {
       throw new Error(`Cloud Run ${response.status}: ${message.slice(0, 800)}`)
     }
     await sleep(1_500 * (2 ** (attempt - 1)))
@@ -51,44 +52,39 @@ async function requestJson(url, headers, options = {}) {
   throw new Error('Cloud Run không nhận yêu cầu chuyển traffic.')
 }
 
-function shortName(resourceName) {
-  return String(resourceName || '').split('/').at(-1) || ''
-}
-
-async function promoteLatest(project, region, name, headers) {
+async function promoteLatest(project, region, name, headers, { request = requestJson, pause = sleep, expectedRevision, expectedImage } = {}) {
   const v2Url = `https://run.googleapis.com/v2/projects/${project}/locations/${region}/services/${name}`
-  const current = await requestJson(v2Url, headers)
+  const current = await request(v2Url, headers)
   const createdRevision = shortName(current.latestCreatedRevision)
   if (!createdRevision) throw new Error(`${name} chưa có revision mới để chuyển traffic.`)
-
-  const traffic = current.trafficStatuses || current.traffic || []
-  const alreadyLatest = traffic.length > 0 && traffic.every((target) => (
-    target.type === 'TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST'
-    && Number(target.percent || 0) === 100
-  ))
-  if (!alreadyLatest) {
-    const v1Url = `https://${region}-run.googleapis.com/apis/serving.knative.dev/v1/namespaces/${project}/services/${name}`
-    const service = await requestJson(v1Url, headers)
-    delete service.status
-    service.spec = service.spec || {}
-    // Keep traffic attached to "latest" instead of pinning a revision name.
-    // This lets the next healthy Firebase deployment receive traffic without
-    // leaving production silently stuck on an older revision.
-    service.spec.traffic = [{ latestRevision: true, percent: 100 }]
-    await requestJson(v1Url, headers, { method: 'PUT', body: JSON.stringify(service) })
+  const revision = await request(`https://run.googleapis.com/v2/${revisionResource(current)}`, headers)
+  const approved = assertHealthyRevision(current, revision, { expectedRevision, expectedImage })
+  if (!servesRevision(current, createdRevision)) {
+    if (!current.etag) throw new Error('Missing service etag; refusing an unguarded traffic change.')
+    // Only this exact, health-checked revision receives traffic. A later deploy
+    // must pass this gate again; never attach production to floating "latest".
+    let operation = await request(`${v2Url}?updateMask=traffic`, headers, {
+      method: 'PATCH', body: JSON.stringify({ name: current.name, etag: current.etag,
+        traffic: [{ type: 'TRAFFIC_TARGET_ALLOCATION_TYPE_REVISION', revision: createdRevision, percent: 100 }] }),
+    })
+    for (let attempt = 0; !operation.done && attempt < 48; attempt += 1) {
+      if (!operation.name?.startsWith(`projects/${project}/locations/${region}/operations/`)) throw new Error('Unexpected promotion operation identity.')
+      await pause(2500)
+      operation = await request(`https://run.googleapis.com/v2/${operation.name}`, headers)
+    }
+    if (!operation.done) throw new Error('Promotion operation still pending; inspect it before retrying.')
+    if (operation.error) throw new Error(`Promotion failed: ${operation.error.message || operation.error.code}`)
   }
 
   for (let attempt = 1; attempt <= 24; attempt += 1) {
-    const service = await requestJson(v2Url, headers)
-    const latestCreated = shortName(service.latestCreatedRevision)
-    const latestReady = shortName(service.latestReadyRevision)
-    const trafficStatuses = service.trafficStatuses || service.traffic || []
-    const servingLatest = latestCreated && latestCreated === latestReady && trafficStatuses.some((target) => (
-      Number(target.percent || 0) === 100
-      && (target.type === 'TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST' || target.revision === latestCreated)
-    ))
-    if (servingLatest) return latestCreated
-    await sleep(2_500)
+    const service = await request(v2Url, headers)
+    if (shortName(service.latestCreatedRevision) !== approved.revision) throw new Error('Concurrent release changed the candidate during promotion.')
+    if (!service.reconciling && servesRevision(service, approved.revision)) {
+      const live = await request(`https://run.googleapis.com/v2/${revisionResource(service)}`, headers)
+      assertHealthyRevision(service, live, { expectedRevision: approved.revision, expectedImage: approved.image, requireServing: true })
+      return approved.revision
+    }
+    await pause(2_500)
   }
   throw new Error(`${name} chưa chuyển 100% traffic sang revision mới trong thời gian chờ.`)
 }
@@ -103,15 +99,20 @@ async function main() {
     throw new Error('Cần danh sách service hợp lệ qua --functions=name1,name2')
   }
 
+  const expectedRevision = argument('expected-revision', '')
+  const expectedImage = argument('expected-image', '')
+  if ((expectedRevision || expectedImage) && names.length !== 1) throw new Error('Expected revision/image require exactly one service.')
   const token = await accessToken()
   const headers = { authorization: `Bearer ${token}` }
   for (const name of names) {
-    const revision = await promoteLatest(project, region, name, headers)
+    const revision = await promoteLatest(project, region, name, headers, { expectedRevision, expectedImage })
     console.log(`+ ${name} -> ${revision}`)
   }
 }
 
-main().catch((error) => {
+if (require.main === module) main().catch((error) => {
   console.error(error instanceof Error ? error.message : error)
   process.exitCode = 1
 })
+
+module.exports = { promoteLatest }

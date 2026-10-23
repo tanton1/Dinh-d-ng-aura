@@ -41,19 +41,21 @@ test('production release resolves region and Cloud Run service from the Firebase
   ] }, 'duplicateFunction'), /nhiều region/)
 })
 
-test('failed rollout rollback is explicit and pins the last ready revision', () => {
+test('failed rollout preserves the verified serving revision rather than guessing latest ready', () => {
   assert.match(rollback, /--confirm=/)
-  assert.match(rollback, /latestReadyRevisionName/)
+  assert.match(rollback, /service.status\?\.traffic/)
+  assert.match(rollback, /ContainerHealthy/)
   assert.match(rollback, /revisionName: readyRevision/)
 })
 
 test('production health audit checks the effective traffic revision', () => {
-  assert.match(healthAudit, /trafficStatuses/)
-  assert.match(healthAudit, /TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST/)
+  const policy = readFileSync('scripts/cloud-run-revision-policy.cjs', 'utf8')
+  assert.match(policy, /trafficStatuses/)
+  assert.match(policy, /assertReadyForPromotion/)
+  assert.match(healthAudit, /await readRevision\(revisionResource\(service\)\)/)
+  assert.match(healthAudit, /requireServing: true/)
   assert.match(healthAudit, /latestReadyRevision/)
   assert.match(healthAudit, /latestCreatedRevision/)
-  assert.match(healthAudit, /latestCreatedIsReady/)
-  assert.match(healthAudit, /createdRevision === readyRevision/)
 })
 
 test('Student 360 rollout does not require access to unrelated AI secrets', () => {
