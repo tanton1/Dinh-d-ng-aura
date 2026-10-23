@@ -1,5 +1,30 @@
 import { expect, test } from '@playwright/test'
 
+test('held first load and branch switch show unknown summary values, never zero counts', async ({ page }) => {
+  await page.addInitScript(() => {
+    ;(window as any).__weeklyViewCompact = true
+    ;(window as any).__holdWeeklyView = true
+  })
+  await page.goto('/tests/schedule-ui/index.html')
+  const summary = page.getByRole('region', { name: 'Tóm tắt lịch tuần' })
+  const expectPending = async () => {
+    await expect.poll(() => page.evaluate(() => Boolean((window as any).__releaseWeeklyView))).toBe(true)
+    await expect(summary.locator('strong')).toHaveText(['—', '—', '—', '—'])
+    await expect(summary).not.toContainText('0/0')
+    await expect(page.locator('#schedule-tab-warnings b')).toHaveText('—')
+    await expect(page.locator('.schedule-cell')).toHaveCount(0)
+  }
+  await expectPending()
+  await page.evaluate(() => { (window as any).__holdWeeklyView = false; (window as any).__releaseWeeklyView() })
+  await expect(page.locator('.schedule-cell').filter({ hasText: 'Lan' })).toHaveCount(1)
+  await page.evaluate(() => { (window as any).__holdWeeklyView = true; delete (window as any).__releaseWeeklyView })
+  await page.getByRole('combobox', { name: 'Chọn chi nhánh' }).selectOption('c')
+  await expectPending()
+  await page.evaluate(() => { (window as any).__holdWeeklyView = false; (window as any).__releaseWeeklyView() })
+  await expect(page.locator('.schedule-cell').filter({ hasText: 'Lan' })).toHaveCount(1)
+  await expect(summary.locator('strong').first()).not.toHaveText('—')
+})
+
 for (const mode of ['unknown', 'stale', 'exact']) {
   test(`clean ${mode} validation snapshot synchronizes the matrix with no callable fan-out`, async ({ page }) => {
     const panelRequests: string[] = []

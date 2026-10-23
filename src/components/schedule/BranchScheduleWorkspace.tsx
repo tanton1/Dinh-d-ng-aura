@@ -392,7 +392,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
   // A partial workspace is never authoritative, even when it includes a
   // bounded estimate. Only the reconciled payload is authoritative for
   // learner coverage and warning counts.
-  const coveragePending = workspaceDisplayMode || workspace?.partial === true
+  const coveragePending = !workspace || workspaceDisplayMode || workspace.partial === true
   const quickCoverageEstimate = coveragePending && Boolean(quickCoverage)
   const quickCoverageSessionsLabel = quickCoverageEstimate
     && quickCoverage
@@ -2330,10 +2330,10 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
       </header>
 
       <section className="branch-schedule__summary-strip" aria-label="Tóm tắt lịch tuần">
-        <button type="button" onClick={() => setTab('students')}><UsersRound /><strong>{coveragePending ? '—' : `${studentCoverage.fullyScheduled}/${studentCoverage.eligible}`}</strong><span>{coveragePending ? 'Chưa đối soát' : 'học viên đủ lịch'}</span></button>
-        <button type="button" onClick={() => setTab('students')}><CalendarRange /><strong>{coveragePending ? quickCoverageSessionsLabel : `${studentCoverage.scheduledEntries}/${studentCoverage.totalTargetSessions}`}</strong><span>{coveragePending ? (quickCoverageEstimate ? 'Ước tính · chưa đối soát' : 'Buổi đã xếp · mục tiêu chưa đối soát') : 'buổi đã xếp'}</span></button>
-        <button type="button" onClick={() => setTab('warnings')} className={slotUtilization.singleSlots > 0 ? 'is-attention' : ''}><UsersRound /><strong>{slotUtilization.pairedSlots} đôi</strong><span>{slotUtilization.singleSlots} ca còn lẻ</span></button>
-        <button type="button" onClick={openFirstWarningStudentAvailability} className={warningCount > 0 ? 'is-attention' : ''}><AlertTriangle /><strong>{warningCount}</strong><span>{coveragePending ? 'Xung đột nhanh · thiếu buổi —' : 'cảnh báo cần xem'}</span></button>
+        <button type="button" onClick={() => setTab('students')}><UsersRound /><strong>{coveragePending ? '—' : `${studentCoverage.fullyScheduled}/${studentCoverage.eligible}`}</strong><span>{!workspace ? 'Đang tải học viên' : coveragePending ? 'Chưa đối soát' : 'học viên đủ lịch'}</span></button>
+        <button type="button" onClick={() => setTab('students')}><CalendarRange /><strong>{coveragePending ? quickCoverageSessionsLabel : `${studentCoverage.scheduledEntries}/${studentCoverage.totalTargetSessions}`}</strong><span>{!workspace ? 'Đang tải buổi tập' : coveragePending ? (quickCoverageEstimate ? 'Ước tính · chưa đối soát' : 'Buổi đã xếp · mục tiêu chưa đối soát') : 'buổi đã xếp'}</span></button>
+        <button type="button" onClick={() => setTab('warnings')} className={slotUtilization.singleSlots > 0 ? 'is-attention' : ''}><UsersRound /><strong>{workspace ? `${slotUtilization.pairedSlots} đôi` : '—'}</strong><span>{workspace ? `${slotUtilization.singleSlots} ca còn lẻ` : 'Đang tải ghép ca'}</span></button>
+        <button type="button" onClick={openFirstWarningStudentAvailability} className={warningCount > 0 ? 'is-attention' : ''}><AlertTriangle /><strong>{workspace ? warningCount : '—'}</strong><span>{!workspace ? 'Đang tải cảnh báo' : coveragePending ? 'Xung đột nhanh · thiếu buổi —' : 'cảnh báo cần xem'}</span></button>
       </section>
 
       <section className="branch-schedule__toolbar">
