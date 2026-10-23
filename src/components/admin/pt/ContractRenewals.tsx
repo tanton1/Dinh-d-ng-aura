@@ -7,6 +7,7 @@ import {
 } from 'lucide-react'
 import {
   assignContractRenewalCase,
+  prepareContractRenewal,
   decideRenewalApproval,
   getContractRenewalCaseDetail,
   getRenewalAnalytics,
@@ -155,6 +156,12 @@ export default function ContractRenewals({ onNavigate }: Props) {
     finally { setDetailLoading(false) }
   }, [])
 
+  const openRenewal = async (row: RenewalPipelineRow) => {
+    setError('')
+    try { setRenewing((await prepareContractRenewal(row.sourceContractId)).row) }
+    catch (cause) { setError(cause instanceof Error ? cause.message : 'Không thể mở hợp đồng nối tiếp.') }
+  }
+
   const reloadDetailAndList = useCallback(async () => {
     await load(false)
     if (selectedCaseId) await openDetail(selectedCaseId)
@@ -254,7 +261,7 @@ export default function ContractRenewals({ onNavigate }: Props) {
 
     {tab === 'queue' && <>
       <RenewalFilters data={data} permissions={permissions} search={search} setSearch={setSearch} risk={risk} setRisk={setRisk} stage={stage} setStage={setStage} sla={sla} setSla={setSla} approval={approval} setApproval={setApproval} branchId={branchId} setBranchId={setBranchId} assigneeId={assigneeId} setAssigneeId={setAssigneeId} sort={sort} setSort={setSort} segment={segment} setSegment={setSegment} open={filtersOpen} setOpen={setFiltersOpen} />
-      <QueueView rows={rows} loading={loading} permissions={permissions} selectedCaseIds={selectedCaseIds} onToggleSelection={toggleCaseSelection} onSelectAll={(checked) => setSelectedCaseIds(checked ? new Set(rows.slice(0, 20).map((row) => row.caseId)) : new Set())} onTransfer={() => setTransferOpen(true)} onOpen={openDetail} onRenew={setRenewing} />
+      <QueueView rows={rows} loading={loading} permissions={permissions} selectedCaseIds={selectedCaseIds} onToggleSelection={toggleCaseSelection} onSelectAll={(checked) => setSelectedCaseIds(checked ? new Set(rows.slice(0, 20).map((row) => row.caseId)) : new Set())} onTransfer={() => setTransferOpen(true)} onOpen={openDetail} onRenew={(row) => void openRenewal(row)} />
       {data?.hasMore && <button type="button" className="renewal-load-more" disabled={loadingMore} onClick={() => void load(true)}>{loadingMore ? <LoaderCircle className="is-spinning" /> : <ChevronDown />} Tải thêm hồ sơ</button>}
     </>}
     {tab === 'pipeline' && <PipelineView rows={rows} loading={loading} showFinancials={permissions.canViewFinancials} stageCounts={data?.stats.stageCounts || null} onViewStage={selectPipelineStage} onOpen={openDetail} />}
@@ -263,7 +270,7 @@ export default function ContractRenewals({ onNavigate }: Props) {
 
     {data?.scope !== 'self' && <button type="button" className="renewal-student-shortcut" onClick={() => onNavigate?.('admin-pt-students')}><UsersRound size={17} /> Mở danh sách học viên</button>}
 
-    {selectedCaseId && <CaseInspector detail={detail} loading={detailLoading} options={data?.options || null} permissions={permissions} messageTemplates={messageTemplates} templateError={templateError} onClose={() => { setSelectedCaseId(null); setDetail(null) }} onReload={reloadDetailAndList} onRenew={(row) => setRenewing(row)} />}
+    {selectedCaseId && <CaseInspector detail={detail} loading={detailLoading} options={data?.options || null} permissions={permissions} messageTemplates={messageTemplates} templateError={templateError} onClose={() => { setSelectedCaseId(null); setDetail(null) }} onReload={reloadDetailAndList} onRenew={(row) => void openRenewal(row)} />}
     {transferOpen && data && <LeadTransferDialog rows={selectedRows} assignees={data.options.assignees} onClose={() => setTransferOpen(false)} onSuccess={async (count) => { setTransferOpen(false); setSelectedCaseIds(new Set()); setNotice(`Đã bàn giao ${count} hồ sơ và ghi lịch sử vận hành.`); await load(false) }} />}
     {renewing && data && permissions.canRenewContract && <RenewContractModal row={renewing} options={data.options} scope={data.scope} onClose={() => setRenewing(null)} onSuccess={async () => { setRenewing(null); setSelectedCaseId(null); setDetail(null); setNotice('Tái ký thành công. Hợp đồng, khoản thu và pipeline đã được cập nhật.'); await load(false) }} />}
   </div>

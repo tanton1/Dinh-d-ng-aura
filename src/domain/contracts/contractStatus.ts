@@ -9,11 +9,12 @@ export function normalizedContractDate(value: unknown) {
 }
 
 export function effectiveContractStatus(
-  contract: Pick<StudentContract, 'status' | 'startDate' | 'endDate'> & { renewalSupersededBy?: string; renewedByContractId?: string },
+  contract: Pick<StudentContract, 'status' | 'startDate' | 'endDate'> & { renewalSupersededBy?: string; renewedByContractId?: string; sourceContractId?: string; handoverStatus?: string },
   referenceDate: string,
 ): EffectiveContractStatus {
   const stored = String(contract.status || 'active').toLowerCase() as EffectiveContractStatus
   if (['cancelled', 'inactive', 'archived', 'draft', 'frozen'].includes(stored)) return stored
+  if (contract.sourceContractId && contract.handoverStatus === 'pending') return 'future'
   if (stored === 'expired' && (contract.renewalSupersededBy || contract.renewedByContractId)) return 'expired'
   const date = normalizedContractDate(referenceDate)
   const start = normalizedContractDate(contract.startDate)
@@ -35,4 +36,18 @@ export function contractPausedOn(contract: StudentContract, date: string) {
 
 export function contractSchedulableOn(contract: StudentContract, date: string) {
   return effectiveContractStatus(contract, date) === 'active' && !contractPausedOn(contract, date)
+}
+
+/** Pending renewals can accept reservations; this does not activate the contract. */
+export function contractSchedulableInChainOn(contract: StudentContract, contracts: StudentContract[], date: string) {
+  if (contract.status !== 'future' || !contract.sourceContractId) return contractSchedulableOn(contract, date)
+  const source = contracts.find((item) => item.id === contract.sourceContractId && item.studentId === contract.studentId && item.branchId === contract.branchId)
+  if (!source || ['cancelled', 'frozen'].includes(source.status) || source.renewalSupersededBy
+    || contractPausedOn(source, date) || contractPausedOn(contract, date)
+    || date < source.startDate || date > contract.endDate || (contract.signedDate && date < contract.signedDate)) return false
+  const automatic = contract.activationMode !== 'fixed_date' && contract.earlyHandoverRequested !== false
+  const remaining = Math.max(0, source.totalSessions - source.usedSessions - (source.carryOverTransferredSessions || 0))
+  return automatic
+    ? (date > source.endDate || remaining === 0)
+    : date >= contract.startDate
 }

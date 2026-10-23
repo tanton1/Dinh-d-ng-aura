@@ -1,6 +1,7 @@
 const { FieldPath, FieldValue, Timestamp } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
-const { effectiveContractStatus } = require('./contract-status')
+const { effectiveContractStatus, contractPausedOn } = require('./contract-status')
+const { prepareRenewalSessionCharge, renewalHandoverPlan, applyRenewalHandover, renewalReservationProjection, renewalDateSyncPatch, assertRenewalLink } = require('./contract-renewal-handover')
 const { createHash } = require('node:crypto')
 const { trustedAccessContext, requireCapability } = require('./identity-access')
 const { ptRevenueRecognitionWrite } = require('./finance-recognition')
@@ -778,7 +779,10 @@ async function buildSessionChangeSuggestions({ db, sessionId, expectedRevision, 
   const contractId = linkedContractId(session)
   const [contractSnapshot, studentSnapshot] = await db.getAll(db.doc(`contracts/${contractId}`), db.doc(`students/${studentId}`))
   if (!contractSnapshot.exists || !studentSnapshot.exists) throw new HttpsError('failed-precondition', 'Thiếu hợp đồng hoặc hồ sơ học viên để gợi ý ca.')
-  const contract = contractSnapshot.data()
+  const storedContract = contractSnapshot.data()
+  const renewalSource = storedContract.status === 'future' && storedContract.sourceContractId
+    ? await db.doc(`contracts/${storedContract.sourceContractId}`).get() : null
+  const contract = renewalReservationProjection(contractId, storedContract, renewalSource?.exists ? renewalSource.data() : null, sourceDate)
   const student = studentSnapshot.data()
   const branchId = id(session.branchId || contract.branchId || student.branchId, 'Mã chi nhánh')
   if (contract.status !== 'active' || contract.studentId !== studentId) throw new HttpsError('failed-precondition', 'Hợp đồng không còn hoạt động.')
@@ -1455,18 +1459,24 @@ async function chargeSessionTransaction({
       throw new HttpsError('aborted', 'Buổi tập đã thay đổi. Hãy tải lại.')
     }
     assertSessionCanBeCharged(session)
-    const contractId = linkedContractId(session)
-    const contractReference = db.doc(`contracts/${contractId}`)
+    let contractId = linkedContractId(session)
+    let contractReference = db.doc(`contracts/${contractId}`)
     const [contractSnapshot, attendanceSnapshot, billingIssueSnapshot] = await Promise.all([
       transaction.get(contractReference),
       transaction.get(attendanceReference),
       transaction.get(billingIssueReference),
     ])
     if (!contractSnapshot.exists) throw new HttpsError('failed-precondition', 'Hợp đồng liên kết không tồn tại.', { issueCode: 'SESSION_CONTRACT_NOT_FOUND' })
-    const contract = contractSnapshot.data()
+    let contract = contractSnapshot.data()
+    const sessionDate = storedDateKey(session.date, 'Ngày của buổi tập')
+    const prepared = await prepareRenewalSessionCharge({ transaction, db, contractId, contract, date: sessionDate, actorUid })
+    const previousContractId = contractId
+    contractId = prepared.contractId
+    contract = prepared.contract
+    contractReference = db.doc(`contracts/${contractId}`)
     if (contract.studentId !== session.studentId) throw new HttpsError('failed-precondition', 'Hợp đồng không thuộc học viên của buổi tập.', { issueCode: 'SESSION_CONTRACT_STUDENT_MISMATCH' })
     if (!['active', 'expired'].includes(contract.status)) throw new HttpsError('failed-precondition', 'Hợp đồng liên kết không ở trạng thái có thể đối soát.', { issueCode: 'SESSION_CONTRACT_STATUS_INVALID' })
-    const sessionDate = storedDateKey(session.date, 'Ngày của buổi tập')
+    if (contractPausedOn(contract, sessionDate)) throw new HttpsError('failed-precondition', 'Hợp đồng đang bảo lưu trong ngày tập.', { issueCode: 'CONTRACT_PAUSED' })
     const contractStart = storedContractDate(contract.startDate, 'Ngày bắt đầu')
     const contractEnd = storedContractDate(contract.endDate, 'Ngày kết thúc')
     if (sessionDate < contractStart || sessionDate > contractEnd) {
@@ -1486,7 +1496,7 @@ async function chargeSessionTransaction({
       throw new HttpsError('already-exists', 'Buổi tập đã được tính trong hợp đồng nhưng thiếu sổ sự kiện. Cần đối soát trước khi thử lại.', { issueCode: 'SESSION_BILLING_LEDGER_MISMATCH' })
     }
     const startsAtTimestamp = Timestamp.fromDate(startsAt)
-    if (Number(contract.usedSessions || 0) >= Number(contract.totalSessions || 0)) {
+    if (Number(contract.usedSessions || 0) + Number(contract.carryOverTransferredSessions || 0) >= Number(contract.totalSessions || 0)) {
       if (attendanceSnapshot.exists && session.billingStatus === BILLING_REVIEW_STATUS && attendanceSnapshot.data()?.billingStatus === BILLING_REVIEW_STATUS) {
         return {
           unchanged: true,
@@ -1567,6 +1577,16 @@ async function chargeSessionTransaction({
     }
 
     const serviceOrdinal = Math.max(1, Math.floor(Number(contract.usedSessions || 0)) + 1)
+    const afterChargeHandover = prepared.pendingNext ? renewalHandoverPlan({
+      sourceId: contractId, source: { ...contract, usedSessions: serviceOrdinal },
+      ...prepared.pendingNext, date: sessionDate, actorUid,
+    }) : null
+    applyRenewalHandover(transaction, db, prepared.handover, actorUid)
+    applyRenewalHandover(transaction, db, afterChargeHandover, actorUid)
+    if (previousContractId !== contractId) transaction.create(db.collection('sessionEvents').doc(), {
+      type: 'renewal_contract_reallocated', sessionId, studentId: session.studentId,
+      previousContractId, contractId, actorUid, createdAt: FieldValue.serverTimestamp(),
+    })
     transaction.create(billingReference, {
       schemaVersion: 2,
       type: 'session_charge',
@@ -1607,6 +1627,7 @@ async function chargeSessionTransaction({
       timeZone,
     })
     transaction.update(sessionReference, {
+      contractId, renewalHandoverPending: false,
       scheduleStatus: session.scheduleStatus || session.status,
       billingStatus: 'charged',
       attendanceStatus: 'pending',
@@ -1619,7 +1640,8 @@ async function chargeSessionTransaction({
       updatedBy: actorUid,
     })
     transaction.update(contractReference, {
-      usedSessions: FieldValue.increment(1),
+      usedSessions: serviceOrdinal,
+      revision: FieldValue.increment(1),
       // Keep the legacy projection until all old reports have migrated.
       attendedClasses: FieldValue.arrayUnion(sessionId),
       chargedSessionIds: FieldValue.arrayUnion(sessionId),
@@ -3504,12 +3526,16 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
       if (currentDate !== originalDate || currentHour !== originalHour) throw new HttpsError('aborted', 'Buổi tập không còn ở lịch gốc của yêu cầu. Hãy tạo yêu cầu mới.')
       if (requestData.trainerId && requestData.trainerId !== session.trainerId) throw new HttpsError('aborted', 'HLV của buổi tập đã thay đổi. Hãy tạo yêu cầu mới.')
 
-      const contractId = linkedContractId(session)
+      let contractId = linkedContractId(session)
       if (requestData.contractId && requestData.contractId !== contractId) throw new HttpsError('aborted', 'Hợp đồng của yêu cầu không còn khớp với buổi tập.')
-      const contractReference = db.doc(`contracts/${contractId}`)
+      let contractReference = db.doc(`contracts/${contractId}`)
       const contractSnapshot = await transaction.get(contractReference)
       if (!contractSnapshot.exists) throw new HttpsError('failed-precondition', 'Hợp đồng liên kết không tồn tại.')
-      const contract = contractSnapshot.data()
+      const storedRequestContract = contractSnapshot.data()
+      const renewalSourceSnapshot = storedRequestContract.status === 'future' && storedRequestContract.sourceContractId
+        ? await transaction.get(db.doc(`contracts/${storedRequestContract.sourceContractId}`)) : null
+      let contract = renewalReservationProjection(contractId, storedRequestContract, renewalSourceSnapshot?.exists ? renewalSourceSnapshot.data() : null, originalDate)
+      let preparedPolicyCharge = null
       if (contract.studentId !== session.studentId) throw new HttpsError('failed-precondition', 'Hợp đồng không thuộc học viên của buổi tập.')
       if (contract.status !== 'active') throw new HttpsError('failed-precondition', 'Hợp đồng liên kết không ở trạng thái hoạt động.')
       const contractStart = storedContractDate(contract.startDate, 'Ngày bắt đầu')
@@ -3703,12 +3729,17 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
       let policyRecognition = null
       let policyRecognitionJournal = null
       if (policyDecision.countsTowardContract) {
+        preparedPolicyCharge = await prepareRenewalSessionCharge({ transaction, db, contractId, contract: storedRequestContract, date: vietnamDateKey(now()), actorUid: actor.uid })
+        contractId = preparedPolicyCharge.contractId
+        contract = preparedPolicyCharge.contract
+        contractReference = db.doc(`contracts/${contractId}`)
+        if (!['active', 'expired'].includes(contract.status)) throw new HttpsError('failed-precondition', 'Hợp đồng chưa thể tính buổi theo ngày đã thỏa thuận.')
         const policyPeriodId = originalDate.slice(0, 7)
         const policyPeriod = await transaction.get(db.doc(`financePeriods/${policyPeriodId}`))
         if (policyPeriod.exists && policyPeriod.data().status === 'locked') {
           throw new HttpsError('failed-precondition', `Kỳ tài chính ${policyPeriodId} đã khóa; không thể ghi nhận lượt tính buổi vào kỳ này.`)
         }
-        if (Number(contract.usedSessions || 0) >= Number(contract.totalSessions || 0)) throw new HttpsError('failed-precondition', 'Hợp đồng đã hết buổi nên không thể ghi nhận thêm lượt đổi/hủy có tính buổi.')
+        if (Number(contract.usedSessions || 0) + Number(contract.carryOverTransferredSessions || 0) >= Number(contract.totalSessions || 0)) throw new HttpsError('failed-precondition', 'Hợp đồng đã hết buổi nên không thể ghi nhận thêm lượt đổi/hủy có tính buổi.')
         const chargeId = `policy_${requestId}`
         policyAttendanceReference = db.doc(`attendanceEvents/${chargeId}`)
         policyRecognitionReference = db.doc(`ledgerEntries/pt_policy_${requestId}`)
@@ -3745,6 +3776,15 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
         }
       }
 
+      if (preparedPolicyCharge) {
+        const afterPolicyCharge = preparedPolicyCharge.pendingNext ? renewalHandoverPlan({
+          sourceId: contractId, source: { ...contract, usedSessions: Number(contract.usedSessions || 0) + 1 },
+          ...preparedPolicyCharge.pendingNext, date: vietnamDateKey(now()), actorUid: actor.uid,
+        }) : null
+        applyRenewalHandover(transaction, db, preparedPolicyCharge.handover, actor.uid)
+        applyRenewalHandover(transaction, db, afterPolicyCharge, actor.uid)
+      }
+
       const nextRevision = revision + 1
       const scheduleMutationResult = requestType === 'cancel'
         ? { removedEntryCount: applyCancellationSchedulePlan({ transaction, plan: scheduleMutationPlan, actorUid: actor.uid }), movedEntryCount: 0 }
@@ -3757,6 +3797,7 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
         const reason = typeof requestData.reason === 'string' ? requestData.reason.trim().slice(0, 500) : ''
         const cancellationType = requestedBy === 'trainer' ? 'trainer_cancelled' : 'student_cancelled'
         transaction.update(sessionReference, {
+          ...(preparedPolicyCharge ? { contractId, renewalHandoverPending: false } : {}),
           status: cancellationType,
           scheduleStatus: 'cancelled',
           billingStatus: preservePendingCharge ? 'charged' : policyDecision.countsTowardContract ? 'charged' : 'exempt',
@@ -3780,6 +3821,7 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
         if (branchDay && activeHourDocuments(branchDay, newHour, [sessionId]).length >= targetSiteCapacity) throw new HttpsError('resource-exhausted', 'Chi nhánh đã đủ sức chứa trong khung giờ này.')
         const isCrossBranch = Boolean(targetBranchId && homeBranchId && targetBranchId !== homeBranchId)
         transaction.update(sessionReference, {
+          ...(preparedPolicyCharge ? { contractId, renewalHandoverPending: false } : {}),
           previousSchedule: FieldValue.arrayUnion({ date: session.date, hour: session.hour ?? null, trainerId: session.trainerId, branchId: session.branchId || null, changedAt: new Date().toISOString() }),
           date: newDate,
           hour: newHour,
@@ -3855,7 +3897,8 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
           timeZone: 'Asia/Ho_Chi_Minh',
         })
         transaction.update(contractReference, {
-          usedSessions: FieldValue.increment(1),
+          usedSessions: Math.max(0, Math.floor(Number(contract.usedSessions || 0))) + 1,
+          revision: FieldValue.increment(1),
           attendedClasses: FieldValue.arrayUnion(chargeId),
           // A cancelled session itself becomes the charged evidence. A
           // rescheduled session remains pending and must still be chargeable
@@ -4140,6 +4183,17 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
       const oldEndDate = storedContractDate(contract.endDate, 'Ngày kết thúc')
       const nextEndDateKey = addDateDays(oldEndDate, durationDays)
       const newEndDate = storedDateShape(contract.endDate, nextEndDateKey)
+      let linkedRenewal = null
+      if (contract.renewedByContractId && !contract.renewalSupersededBy) {
+        const linkedReference = db.doc(`contracts/${id(contract.renewedByContractId, 'Hợp đồng nối tiếp')}`)
+        const linkedSnapshot = await transaction.get(linkedReference)
+        if (linkedSnapshot.exists && linkedSnapshot.data().status === 'future') {
+          const linked = linkedSnapshot.data()
+          assertRenewalLink(contractId, contract, linkedSnapshot.id, linked)
+          const patch = renewalDateSyncPatch({ ...contract, endDate: nextEndDateKey }, linked)
+          if (Object.keys(patch).length) linkedRenewal = { reference: linkedReference, patch: { ...patch, revision: Number(linked.revision || 0) + 1, updatedAt: FieldValue.serverTimestamp(), updatedBy: actor.uid } }
+        }
+      }
       const activeSessions = sessionsSnapshot.docs.filter((item) => isActiveSessionStatus(item.data().status))
       if (activeSessions.some((item) => isSessionCharged(item.data()))) {
         throw new HttpsError('failed-precondition', 'Khoảng nghỉ có buổi đã được tính. Hãy điều chỉnh riêng buổi đó trước khi duyệt.')
@@ -4210,6 +4264,7 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
         updatedAt: FieldValue.serverTimestamp(),
         updatedBy: actor.uid,
       })
+      if (linkedRenewal) transaction.update(linkedRenewal.reference, linkedRenewal.patch)
       transaction.update(requestReference, {
         status: 'approved',
         policyVersion: 'pt-contract-pause-v2',

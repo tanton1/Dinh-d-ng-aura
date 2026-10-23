@@ -25,6 +25,7 @@ import {
 } from 'lucide-react'
 import type { Student, StudentContract } from '../../types'
 import type { ViewId } from '../../types'
+import { prepareContractRenewal, type PreparedContractRenewal } from '../../services/contractRenewalService'
 import { listCashAccounts, type CashAccount } from '../../services/cashbookService'
 import { recordContractPayment, recordRefund } from '../../services/financeLedgerService'
 import { getStudent360ContractWorkspace, mutateStudent360Contract, refreshStudent360Projection } from './student360Service'
@@ -37,6 +38,7 @@ import type {
 } from './types'
 import './Student360ContractWorkspace.css'
 
+const RenewContractModal = lazy(() => import('../../components/admin/pt/RenewContractModal'))
 const ContractInvoice = lazy(() => import('../../components/admin/pt/ContractInvoice'))
 const money = new Intl.NumberFormat('vi-VN')
 const date = new Intl.DateTimeFormat('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' })
@@ -94,7 +96,11 @@ function addMonths(value: string, months: number) {
   return `${targetYear}-${String(normalizedMonth + 1).padStart(2, '0')}-${String(Math.min(day, lastDay)).padStart(2, '0')}`
 }
 
-function statusLabel(value: Student360ContractRecord['status']) {
+function statusLabel(contract: Student360ContractRecord) {
+  const value = contract.status
+  if (contract.handoverStatus === 'pending') return 'Chờ nối tiếp'
+  if (contract.completionReason === 'quota_exhausted') return 'Hoàn tất · Hết buổi'
+  if (contract.renewalSupersededBy) return 'Đã chuyển sang gói mới'
   if (value === 'active') return 'Đang hiệu lực'
   if (value === 'future') return 'Sắp hiệu lực'
   if (value === 'frozen') return 'Đang bảo lưu'
@@ -191,7 +197,7 @@ function formFor(workspace: Workspace, contract?: Student360ContractRecord): Con
     branchId: contract?.branchId || workspace.branches[0]?.id || '',
     startDate,
     endDate: contract?.endDate || addMonths(startDate, selectedPackage?.durationMonths || 1),
-    totalSessions: contract?.totalSessions ?? selectedPackage?.totalSessions ?? 0,
+    totalSessions: contract?.handoverStatus === 'pending' && contract.packageSessions ? contract.packageSessions + (contract.carriedOverSessions || 0) : contract?.totalSessions ?? selectedPackage?.totalSessions ?? 0,
     trainerIds: contract?.trainerIds || [],
     nutritionPTIds: contract?.nutritionPTIds || [],
     totalPrice: contract?.totalPrice ?? selectedPackage?.price ?? 0,
@@ -207,6 +213,9 @@ export default function Student360ContractWorkspace({ studentId, overview, sourc
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [createChoiceOpen, setCreateChoiceOpen] = useState(false)
+  const [preparingRenewal, setPreparingRenewal] = useState(false)
+  const [preparedRenewal, setPreparedRenewal] = useState<PreparedContractRenewal | null>(null)
   const [formMode, setFormMode] = useState<FormMode | null>(null)
   const [form, setForm] = useState<ContractForm | null>(null)
   const [extendOpen, setExtendOpen] = useState(false)
@@ -258,9 +267,15 @@ export default function Student360ContractWorkspace({ studentId, overview, sourc
     form.nutritionPTIds.forEach((id) => inspect(id, 'nutrition'))
     return rows
   }, [form, trainerById])
+  const waitingContract = workspace?.contracts.find((item) => item.handoverStatus === 'pending' || (item.status === 'future' && item.sourceContractId))
+  const renewalSource = workspace?.contracts.find((item) => ['active', 'frozen'].includes(item.status) && !item.renewedByContractId)
+    || workspace?.contracts.find((item) => item.status === 'expired' && !item.renewedByContractId && !item.renewalSupersededBy)
   const selectedUsage = selected?.usage
   const selectedUsedSessions = selectedUsage?.usedSessions ?? selected?.usedSessions ?? 0
-  const selectedRemainingSessions = selectedUsage?.remainingSessions ?? Math.max(0, (selected?.totalSessions || 0) - selectedUsedSessions)
+  const selectedEntitlement = selected?.handoverStatus === 'pending' && selected.packageSessions
+    ? selected.packageSessions + (selected.carriedOverSessions || 0) : selected?.totalSessions || 0
+  const selectedRemainingSessions = Math.min(selectedUsage?.remainingSessions ?? Number.MAX_SAFE_INTEGER,
+    Math.max(0, selectedEntitlement - selectedUsedSessions - (selected?.carryOverTransferredSessions || 0)))
   const outstanding = selected && selected.totalPrice !== undefined
     ? Math.max(0, selected.totalPrice - (selected.discount || 0) - (selected.paidAmount || 0))
     : null
@@ -284,10 +299,24 @@ export default function Student360ContractWorkspace({ studentId, overview, sourc
     }
   }
 
-  const openForm = (mode: FormMode) => {
+  const openForm = (mode: FormMode, independent = false) => {
     if (!workspace) return
+    if (mode === 'create' && !independent && (renewalSource || waitingContract)) { setCreateChoiceOpen(true); return }
+    setCreateChoiceOpen(false)
     setFormMode(mode)
     setForm(formFor(workspace, mode === 'edit' ? selected || undefined : undefined))
+  }
+
+  const openRenewal = async () => {
+    if (!renewalSource) return
+    if (isDemo) { onNotice('Cần đăng nhập để tạo hợp đồng nối tiếp và báo giá.'); return }
+    setPreparingRenewal(true)
+    try {
+      const prepared = await prepareContractRenewal(renewalSource.id)
+      setPreparedRenewal(prepared)
+      setCreateChoiceOpen(false)
+    } catch (cause) { onNotice(cause instanceof Error ? cause.message : 'Không thể mở hồ sơ nối tiếp.') }
+    finally { setPreparingRenewal(false) }
   }
 
   const updatePackage = (packageId: string) => {
@@ -437,18 +466,25 @@ export default function Student360ContractWorkspace({ studentId, overview, sourc
     </section>
 
     {workspace.contracts.length > 1 && <section className="student360-contract-history-strip" aria-label="Lịch sử hợp đồng">
-      {workspace.contracts.map((item) => <button type="button" key={item.id} className={selectedId === item.id ? 'active' : ''} aria-current={selectedId === item.id ? 'true' : undefined} title={`${item.packageName} · ${dateLabel(item.startDate)} → ${dateLabel(item.endDate)}`} onClick={() => setSelectedId(item.id)}><span className={`is-${item.status}`}>{statusLabel(item.status)}</span><strong>{item.packageName}</strong><small>{dateLabel(item.startDate)} → {dateLabel(item.endDate)}</small></button>)}
+      {workspace.contracts.map((item) => <button type="button" key={item.id} className={selectedId === item.id ? 'active' : ''} aria-current={selectedId === item.id ? 'true' : undefined} title={`${item.packageName} · ${dateLabel(item.startDate)} → ${dateLabel(item.endDate)}`} onClick={() => setSelectedId(item.id)}><span className={`is-${item.status}`}>{statusLabel(item)}</span><strong>{item.packageName}</strong><small>{dateLabel(item.startDate)} → {dateLabel(item.endDate)}</small></button>)}
     </section>}
 
     {!selected ? <div className="student360-contract-workspace-state"><FileText /><strong>Chưa có hợp đồng</strong><span>Tạo hợp đồng đầu tiên ngay tại đây, không cần quay lại hồ sơ cũ.</span>{workspace.permissions.canCreateContract && <button type="button" onClick={() => openForm('create')}>Tạo hợp đồng mới</button>}</div> : <>
       <section className="student360-contract-live-summary">
-        <header><div><span className={`is-${selected.status}`}>{statusLabel(selected.status)}</span><h3>{selected.packageName}</h3><p>{dateLabel(selected.startDate)} → {dateLabel(selected.endDate)}</p></div><strong>{selectedRemainingSessions}<small>buổi còn lại</small></strong></header>
+        <header><div><span className={`is-${selected.status}`}>{statusLabel(selected)}</span><h3>{selected.packageName}</h3><p>{dateLabel(selected.startDate)} → {dateLabel(selected.endDate)}</p></div><strong>{selectedRemainingSessions}<small>buổi còn lại</small></strong></header>
         <div className="student360-contract-facts">
-          <div><FileText /><span>Quyền lợi<b>{selectedUsedSessions}/{selected.totalSessions} buổi tính quota</b></span></div>
+          <div><FileText /><span>Quyền lợi<b>{selectedUsedSessions}/{selectedEntitlement} buổi tính quota</b></span></div>
           <div><Clock3 /><span>Hiệu lực<b>{dateLabel(selected.startDate)} → {dateLabel(selected.endDate)}</b></span></div>
           <div><UserRoundCog /><span>PT phụ trách<b>{workspace.trainers.filter((item) => selected.trainerIds.includes(item.id)).map((item) => item.name).join(' · ') || 'Chưa phân công'}</b></span></div>
           <div><ShieldCheck /><span>Cập nhật gần nhất<b>{dateLabel(selected.updatedAt)}{selected.updatedByName ? ` · ${selected.updatedByName}` : ''}</b></span></div>
         </div>
+        {selected.sourceContractId && <div className="student360-renewal-dates" aria-label="Mốc hợp đồng nối tiếp">
+          <div><small>Ngày ký / mua</small><strong>{dateLabel(selected.signedDate || '')}</strong></div>
+          <div><small>Bắt đầu dự kiến</small><strong>{dateLabel(selected.plannedActivationDate || selected.originalStartDate || selected.startDate)}</strong></div>
+          <div><small>Kích hoạt thực tế</small><strong>{selected.activationDate ? dateLabel(selected.activationDate) : 'Chờ nối tiếp'}</strong></div>
+          <p>{selected.activationMode === 'fixed_date' ? 'Bắt đầu ngày cố định.' : 'Tự mở khi gói cũ hết buổi hoặc hết hạn; giữ hạn kết thúc khi mở sớm.'} {selected.carryOverPending ? `Dự kiến chuyển tối đa ${selected.plannedCarryOverSessions || 0} buổi; chốt số thực tế lúc bàn giao.` : selected.carriedOverSessions ? `Đã nhận ${selected.carriedOverSessions} buổi từ gói trước.` : ''}</p>
+        </div>}
+        {Boolean(selected.carryOverTransferredSessions) && <p className="student360-contract-addon-note">Đã chuyển {selected.carryOverTransferredSessions} buổi sang hợp đồng nối tiếp.</p>}
         {selectedUsage && <div className="student360-contract-usage-chips"><span><b>{selectedUsage.attendedSessions}</b> buổi đã tập</span><span><b>{selectedUsage.chargedNoShowSessions}</b> vắng tính buổi</span><span><b>{selectedUsage.exemptSessions}</b> buổi miễn trừ</span><span><b>{selectedUsage.chargedSessions}</b> buổi tính quota</span><span><b>{selectedUsage.pendingReconciliationSessions}</b> chờ đối soát</span></div>}
         {selectedUsage && selectedUsage.reconciliationStatus !== 'matched' && <div className="student360-contract-reconciliation"><AlertTriangle /><span><strong>Cần đối soát số buổi</strong><small>Đã tập {selectedUsage.attendedSessions} · vắng tính buổi {selectedUsage.chargedNoShowSessions} · miễn trừ {selectedUsage.exemptSessions} · {selectedUsage.pendingReconciliationSessions} buổi chờ xác nhận.</small></span></div>}
       </section>
@@ -469,7 +505,7 @@ export default function Student360ContractWorkspace({ studentId, overview, sourc
     {formMode && form && <div className="student360-dialog-layer"><button type="button" className="student360-dialog-backdrop" aria-label="Đóng" onClick={() => setFormMode(null)} /><form className="student360-dialog student360-contract-form" onSubmit={(event) => { event.preventDefault(); void saveForm() }}><header><div><small>HỢP ĐỒNG 360</small><h2>{formMode === 'create' ? 'Tạo hợp đồng mới' : 'Chỉnh sửa hợp đồng'}</h2></div><button type="button" onClick={() => setFormMode(null)}><X /></button></header><div className="student360-contract-form-grid">
       <label>Gói tập<select required value={form.packageId} onChange={(event) => updatePackage(event.target.value)}><option value="">Chọn gói</option>{workspace.packages.filter((item) => !item.branchId || item.branchId === form.branchId).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
       <label>Chi nhánh<select required value={form.branchId} onChange={(event) => setForm({ ...form, branchId: event.target.value })}>{workspace.branches.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-      <label>Ngày bắt đầu<input required type="date" value={form.startDate} onChange={(event) => setForm({ ...form, startDate: event.target.value })} /></label>
+      <label>Ngày bắt đầu<input required type="date" readOnly={formMode === 'edit' && selected?.handoverStatus === 'pending' && selected.activationMode === 'automatic'} value={form.startDate} onChange={(event) => setForm({ ...form, startDate: event.target.value })} /></label>
       <label>Ngày kết thúc<input required type="date" min={form.startDate} value={form.endDate} onChange={(event) => setForm({ ...form, endDate: event.target.value })} /></label>
       <label>Tổng số buổi<input required type="number" min={formMode === 'edit' ? selected?.usedSessions || 0 : 0} value={form.totalSessions} onChange={(event) => setForm({ ...form, totalSessions: Number(event.target.value) })} /></label>
       {workspace.permissions.canEditFinancialTerms && <><label>Giá trị hợp đồng<input required type="number" min="0" value={form.totalPrice} onChange={(event) => setForm({ ...form, totalPrice: Number(event.target.value) })} /></label><label>Giảm giá<input required type="number" min="0" max={form.totalPrice} value={form.discount} onChange={(event) => setForm({ ...form, discount: Number(event.target.value) })} /></label></>}
@@ -490,6 +526,15 @@ export default function Student360ContractWorkspace({ studentId, overview, sourc
 
     {confirmation && <div className="student360-dialog-layer"><button type="button" className="student360-dialog-backdrop" aria-label="Đóng" onClick={() => setConfirmation(null)} /><section className="student360-dialog student360-confirm-dialog" role="alertdialog" aria-modal="true"><header><div><small>XÁC NHẬN NGHIỆP VỤ</small><h2>{confirmation.title}</h2></div><button type="button" onClick={() => setConfirmation(null)}><X /></button></header><p>{confirmation.message}</p>{(confirmation.action === 'cancel' || confirmation.action === 'refund') && <label>{confirmation.action === 'cancel' ? 'Lý do hủy' : 'Lý do hoàn tiền'}<textarea required minLength={2} rows={3} value={reason} onChange={(event) => setReason(event.target.value)} /></label>}<footer><button type="button" onClick={() => setConfirmation(null)}>Quay lại</button><button type="button" className={confirmation.action === 'cancel' ? 'is-danger' : ''} disabled={saving || ((confirmation.action === 'cancel' || confirmation.action === 'refund') && reason.trim().length < 2)} onClick={() => void executeConfirmation()}>{saving ? 'Đang xử lý…' : 'Xác nhận'}</button></footer></section></div>}
 
+    {createChoiceOpen && <div className="student360-dialog-layer"><button type="button" className="student360-dialog-backdrop" aria-label="Đóng lựa chọn hợp đồng" onClick={() => !preparingRenewal && setCreateChoiceOpen(false)} /><section className="student360-dialog" role="dialog" aria-modal="true" aria-labelledby="renewal-choice-title">
+      <header><div><small>HỢP ĐỒNG TIẾP THEO</small><h2 id="renewal-choice-title">{waitingContract ? 'Đã có hợp đồng chờ nối tiếp' : 'Tạo hợp đồng nối tiếp'}</h2></div><button type="button" disabled={preparingRenewal} onClick={() => setCreateChoiceOpen(false)} aria-label="Đóng"><X /></button></header>
+      {waitingContract ? <><p>{waitingContract.packageName} đang chờ nối tiếp. Bạn có thể kiểm tra ngày bắt đầu và quyền lợi trước khi mua thêm.</p><footer><button type="button" onClick={() => { setSelectedId(waitingContract.id); setCreateChoiceOpen(false) }}>Xem hợp đồng đang chờ</button></footer></> : <>
+        <p>Hợp đồng nguồn: <strong>{renewalSource?.packageName}</strong> · hết hạn {dateLabel(renewalSource?.endDate || '')}.</p>
+        <p>Nối tiếp tự động giữ quyền tập ở gói cũ đến khi hết buổi hoặc hết hạn. Gói mới có thể thanh toán trước và mở sớm khi cần.</p>
+        <footer><button type="button" disabled={preparingRenewal} onClick={() => openForm('create', true)}>Tạo hợp đồng độc lập</button>{overview.permissions.canViewRenewal && <button type="button" disabled={preparingRenewal} onClick={() => void openRenewal()}>{preparingRenewal ? 'Đang mở…' : 'Tiếp tục nối tiếp'}</button>}</footer>
+      </>}
+    </section></div>}
+    {preparedRenewal && <Suspense fallback={<div role="status">Đang mở hợp đồng nối tiếp…</div>}><RenewContractModal row={preparedRenewal.row} options={preparedRenewal.options} scope={preparedRenewal.scope} onClose={() => setPreparedRenewal(null)} onSuccess={async () => { setPreparedRenewal(null); await load(); await onChanged(); onNotice('Đã tạo hợp đồng nối tiếp và ghi nhận thanh toán.'); }} /></Suspense>}
     {invoiceOpen && selected && <Suspense fallback={<div className="student360-dialog-layer"><div className="student360-contract-workspace-state"><LoaderCircle className="is-spinning" /> Đang mở hợp đồng…</div></div>}><ContractInvoice student={toInvoiceStudent(workspace)} contract={toInvoiceContract(selected)} onClose={() => setInvoiceOpen(false)} /></Suspense>}
   </div>
 }

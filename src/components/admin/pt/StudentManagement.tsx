@@ -4,7 +4,6 @@ import { User } from 'firebase/auth';
 import { Search, Plus, Edit2, Trash2, Phone, Mail, Calendar, CheckCircle, XCircle, AlertCircle, User as UserIcon, Package, RefreshCw, SlidersHorizontal, ChevronRight, LoaderCircle, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import DateRangeFilter from './DateRangeFilter';
-import RenewContractModal from './RenewContractModal';
 import { LOGO_URL } from '../../../constants';
 import { useDatabase } from '../../../contexts/DatabaseContext';
 import { useAuth } from '../../../contexts/AuthContext';
@@ -20,6 +19,7 @@ import { lazyWithRetry } from '../../ChunkErrorBoundary';
 import './StudentManagement.css';
 
 const AdminStudentDirectoryV2 = lazyWithRetry(() => import('./AdminStudentDirectoryV2'));
+const RenewContractModal = lazyWithRetry(() => import('./RenewContractModal'));
 
 interface Props {
   user: User | null;
@@ -1216,12 +1216,12 @@ export default function StudentManagement({ user, profile, initialStudentId = nu
       </AnimatePresence>
 
       {renewingStudent && (
-        <RenewContractModal
+        <React.Suspense fallback={null}><RenewContractModal
           isOpen={true}
           onClose={() => setRenewingStudent(null)}
           student={renewingStudent.student}
           latestContract={renewingStudent.contract}
-        />
+        /></React.Suspense>
       )}
 
       {/* Confirm Delete Modal */}

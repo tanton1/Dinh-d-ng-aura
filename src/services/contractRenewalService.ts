@@ -33,6 +33,7 @@ export interface RenewalPipelineRow {
     packageName: string
     startDate: string
     endDate: string
+    pausePeriods?: Array<{ startDate: string; endDate: string }>
     status: 'active' | 'future' | 'frozen' | 'expired'
     totalSessions: number
     usedSessions: number
@@ -276,6 +277,16 @@ export async function decideRenewalApproval(input: { approvalId: string; decisio
   return (await callable<typeof input, { approvalId: string; status: 'approved' | 'rejected' }>('decideRenewalApproval')(input)).data
 }
 
+export interface PreparedContractRenewal {
+  row: RenewalPipelineRow
+  options: RenewalPipelineResponse['options']
+  scope: RenewalScope
+}
+
+export async function prepareContractRenewal(sourceContractId: string) {
+  return (await callable<{ sourceContractId: string }, PreparedContractRenewal>('prepareContractRenewal')({ sourceContractId })).data
+}
+
 export async function renewPtContract(input: {
   caseId: string
   sourceContractId: string
@@ -283,6 +294,7 @@ export async function renewPtContract(input: {
   quoteId?: string
   approvalId?: string
   startDate: string
+  activationMode: 'automatic' | 'fixed_date'
   expectedSourceRevision: number
   expectedCaseRevision: number
   idempotencyKey: string

@@ -217,6 +217,19 @@ export interface LeaveRequest {
 }
 
 export interface StudentContract {
+  activationMode?: 'automatic' | 'fixed_date'
+  earlyHandoverRequested?: boolean
+  signedDate?: string
+  plannedActivationDate?: string
+  activationDate?: string | null
+  originalStartDate?: string
+  originalEndDate?: string
+  handoverStatus?: 'pending' | 'active'
+  completionReason?: 'quota_exhausted' | 'term_ended' | 'renewal_handover'
+  completedDate?: string
+  carryOverTransferredSessions?: number
+  renewalSupersededBy?: string
+
   id: string
   studentId: string
   trainerId?: string | null

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import {
   AlertTriangle, ArrowLeft, ArrowRight, BadgeCheck, Check, CheckCircle2,
   CircleDollarSign, FileCheck2, RefreshCw, ShieldCheck, Sparkles, X,
@@ -13,6 +13,7 @@ import {
   type RenewalScope,
 } from '../../../services/contractRenewalService'
 import type { Student, StudentContract } from '../../../types'
+import './ContractRenewals.css'
 
 interface ModernProps {
   row: RenewalPipelineRow
@@ -67,10 +68,13 @@ function LegacyRenewalRedirect({ studentName, onClose }: { studentName: string; 
 
 function RenewContractWizard({ row, options, scope, onClose, onSuccess }: ModernProps) {
   const today = vietnamToday()
-  const sourceEnded = row.contract.endDate < today || row.risk.sessionsLeft <= 0
+  const sourcePaused = row.contract.status === 'frozen' || Boolean(row.contract.pausePeriods?.some((period) => period.startDate <= today && period.endDate >= today))
+  const sourceEnded = !sourcePaused && (row.contract.endDate < today || row.risk.sessionsLeft <= 0)
+  const automaticStartDate = sourceEnded ? today : [today, nextDay(row.contract.endDate)].sort().at(-1)!
+  const [activationMode, setActivationMode] = useState<'automatic' | 'fixed_date'>('automatic')
   const [step, setStep] = useState(1)
   const [packageId, setPackageId] = useState(row.contract.packageId)
-  const [startDate, setStartDate] = useState(sourceEnded ? today : nextDay(row.contract.endDate))
+  const [startDate, setStartDate] = useState(automaticStartDate)
   const [carryOver, setCarryOver] = useState(row.risk.sessionsLeft > 0)
   const [discount, setDiscount] = useState(0)
   const [initialPayment, setInitialPayment] = useState(0)
@@ -85,6 +89,8 @@ function RenewContractWizard({ row, options, scope, onClose, onSuccess }: Modern
   const [approvalStatus, setApprovalStatus] = useState<string>('')
   const [caseRevision, setCaseRevision] = useState(row.revision)
   const [submitting, setSubmitting] = useState(false)
+  const submissionInFlight = useRef(false)
+  const [completed, setCompleted] = useState(false)
   const [error, setError] = useState('')
   const [idempotencyKey] = useState(() => crypto.randomUUID())
   const scopeLabel = scope === 'system' ? 'toàn hệ thống' : scope === 'branch' ? 'theo chi nhánh' : 'hồ sơ được giao'
@@ -96,7 +102,6 @@ function RenewContractWizard({ row, options, scope, onClose, onSuccess }: Modern
   const finalPrice = Math.max(0, Number(selectedPackage?.price || 0) - discount)
   const debt = Math.max(0, finalPrice - initialPayment)
   const endDate = addMonths(startDate, Number(selectedPackage?.durationMonths || 0))
-  const totalSessions = Number(selectedPackage?.totalSessions || 0) + carriedSessions
   const requiresApproval = Boolean(selectedPackage && ((selectedPackage.price > 0 && discount / selectedPackage.price > .1) || carriedSessions > 3))
   const quoteReady = Boolean(quoteId)
   const approvalReady = !requiresApproval || approvalStatus === 'approved'
@@ -173,23 +178,26 @@ function RenewContractWizard({ row, options, scope, onClose, onSuccess }: Modern
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
+    if (step !== 4 || submissionInFlight.current || completed) return
     if (!validateStep(4) || !selectedPackage) return
     if (!quoteReady) { setError('Hãy tạo báo giá trước khi xác nhận tái ký.'); setStep(2); return }
     if (!approvalReady) { setError('Ưu đãi đang chờ quản lý phê duyệt.'); setStep(2); return }
+    submissionInFlight.current = true
     setSubmitting(true); setError('')
     try {
       await renewPtContract({
         caseId: row.caseId, sourceContractId: row.sourceContractId, packageId: selectedPackage.id,
-        quoteId: quoteId || undefined, approvalId: approvalId || undefined, startDate,
+        quoteId: quoteId || undefined, approvalId: approvalId || undefined, startDate, activationMode,
         expectedSourceRevision: row.contract.revision, expectedCaseRevision: caseRevision, idempotencyKey,
         carryOver, discount, initialPayment, paymentMethod: initialPayment ? paymentMethod : undefined,
         cashAccountId: initialPayment ? cashAccountId : undefined, installments,
         trainerIds: row.contract.trainerIds.length ? row.contract.trainerIds : row.contract.trainerId ? [row.contract.trainerId] : [],
         nutritionPTIds: row.contract.nutritionPTIds, note,
       })
+      setCompleted(true)
       await onSuccess()
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Không thể hoàn tất tái ký.') }
-    finally { setSubmitting(false) }
+    finally { submissionInFlight.current = false; setSubmitting(false) }
   }
 
   const nextStep = () => { if (validateStep(step + 1)) setStep((current) => Math.min(4, current + 1)) }
@@ -206,10 +214,14 @@ function RenewContractWizard({ row, options, scope, onClose, onSuccess }: Modern
 
         {step === 1 && <section className="renewal-form-section renewal-step-panel"><div className="renewal-section-title"><span>01</span><div><h3>Lộ trình tiếp theo</h3><p>Chọn gói, thời điểm hiệu lực và số buổi chuyển tiếp.</p></div></div><div className="renewal-form-grid">
           <label className="is-wide">Gói tập<select required value={packageId} onChange={(event) => { setPackageId(event.target.value); resetCommercialApproval() }}><option value="">Chọn gói tập</option>{packages.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.totalSessions} buổi · {money(item.price)}</option>)}</select></label>
-          <label>Ngày bắt đầu<input type="date" required min={today} value={startDate} onChange={(event) => setStartDate(event.target.value)} /></label>
+          <fieldset className="renewal-activation-options is-wide"><legend>Cách bắt đầu hợp đồng</legend>
+            <label><input type="radio" name="activationMode" value="automatic" checked={activationMode === 'automatic'} onChange={() => { setActivationMode('automatic'); setStartDate(automaticStartDate) }} /><span><strong>Nối tiếp tự động · Khuyên dùng</strong><small>Mở khi gói cũ hết buổi hoặc hết hạn, điều kiện nào đến trước.</small></span></label>
+            <label><input type="radio" name="activationMode" value="fixed_date" checked={activationMode === 'fixed_date'} onChange={() => setActivationMode('fixed_date')} /><span><strong>Bắt đầu ngày cố định</strong><small>Không tự mở sớm khi gói cũ hết buổi.</small></span></label>
+          </fieldset>
+          <label>Ngày bắt đầu dự kiến<input type="date" required min={today} readOnly={activationMode === 'automatic'} value={startDate} onChange={(event) => setStartDate(event.target.value)} /></label>
           <label>Ngày kết thúc<input value={endDate ? formatDate(endDate) : '—'} readOnly /></label>
-          {row.risk.sessionsLeft > 0 && <label className="renewal-switch is-wide"><input type="checkbox" checked={carryOver} onChange={(event) => { setCarryOver(event.target.checked); resetCommercialApproval() }} /><span><CheckCircle2 /> Chuyển {row.risk.sessionsLeft} buổi chưa dùng sang hợp đồng mới</span></label>}
-        </div><div className="renewal-preview"><span>Tổng quyền lợi</span><strong>{totalSessions} buổi</strong><small>{selectedPackage?.durationMonths || 0} tháng · PT phụ trách được giữ nguyên</small></div></section>}
+          {row.risk.sessionsLeft > 0 && <label className="renewal-switch is-wide"><input type="checkbox" checked={carryOver} onChange={(event) => { setCarryOver(event.target.checked); resetCommercialApproval() }} /><span><CheckCircle2 /> Dự kiến chuyển tối đa {row.risk.sessionsLeft} buổi chưa dùng</span></label>}
+        </div><div className="renewal-preview"><span>Số buổi gói mới</span><strong>{selectedPackage?.totalSessions || 0} buổi</strong><small>{carriedSessions > 0 ? `Dự kiến chuyển thêm tối đa ${carriedSessions} buổi` : 'Không chuyển buổi từ gói cũ'}</small><small>{selectedPackage?.durationMonths || 0} tháng · PT phụ trách được giữ nguyên</small></div><p className="renewal-activation-note">{sourcePaused ? 'Gói cũ đang bảo lưu: gói mới chờ đến khi mở bảo lưu. Ngày nối tiếp tự động sẽ được cập nhật theo hạn mới.' : activationMode === 'automatic' ? 'Hợp đồng được tạo và có thể thu tiền ngay. Khi mở sớm, ngày kết thúc đã chốt được giữ nguyên.' : 'Đến ngày đã chọn, quyền tập chuyển sang gói mới. Nếu hết buổi trước đó, học viên cần chờ ngày bắt đầu.'} Số buổi chuyển tiếp được chốt theo số còn thực tế lúc bàn giao.</p></section>}
 
         {step === 2 && <section className="renewal-form-section renewal-step-panel"><div className="renewal-section-title"><span>02</span><div><h3>Báo giá & phê duyệt</h3><p>Ưu đãi trên 10% hoặc chuyển hơn 3 buổi phải được quản lý duyệt.</p></div></div><div className="renewal-form-grid"><label>Giá niêm yết<input value={money(selectedPackage?.price || 0)} readOnly /></label><label>Giảm giá<input type="number" min="0" max={selectedPackage?.price || 0} value={discount} onChange={(event) => { setDiscount(Math.max(0, Number(event.target.value) || 0)); resetCommercialApproval() }} /></label></div>
           <div className="renewal-money-summary"><div><span>Thành tiền</span><strong>{money(finalPrice)}</strong></div><div><span>Mức giảm</span><strong>{selectedPackage?.price ? `${Math.round(discount / selectedPackage.price * 100)}%` : '0%'}</strong></div></div>
@@ -226,14 +238,14 @@ function RenewContractWizard({ row, options, scope, onClose, onSuccess }: Modern
         </section>}
 
         {step === 4 && <section className="renewal-form-section renewal-step-panel"><div className="renewal-section-title"><span>04</span><div><h3>Kiểm tra & xác nhận</h3><p>Một lần xác nhận tạo hợp đồng, thu tiền và đóng hồ sơ pipeline.</p></div></div><div className="renewal-review-grid">
-          <article><Sparkles /><span>Lộ trình</span><strong>{selectedPackage?.name || '—'}</strong><small>{totalSessions} buổi · {formatDate(startDate)} – {formatDate(endDate)}</small></article>
+          <article><Sparkles /><span>Lộ trình</span><strong>{selectedPackage?.name || '—'}</strong><small>{selectedPackage?.totalSessions || 0} buổi mới{carriedSessions > 0 ? ` · dự kiến chuyển tối đa ${carriedSessions} buổi` : ''}</small><small>{activationMode === 'automatic' ? 'Nối tiếp tự động' : 'Ngày cố định'} · dự kiến {formatDate(startDate)} – {formatDate(endDate)}</small></article>
           <article><CircleDollarSign /><span>Giá trị</span><strong>{money(finalPrice)}</strong><small>Thu ngay {money(initialPayment)} · còn {money(debt)}</small></article>
           <article><BadgeCheck /><span>Kiểm soát</span><strong>{requiresApproval ? approvalStatus === 'approved' ? 'Đủ điều kiện' : 'Chờ phê duyệt' : quoteId ? 'Trong chính sách' : 'Chưa có báo giá'}</strong><small>{quoteId ? `Báo giá ${quoteId.slice(0, 8)}` : 'Chưa có báo giá'}</small></article>
         </div><label>Ghi chú giao dịch<textarea value={note} onChange={(event) => setNote(event.target.value)} maxLength={500} placeholder="Thỏa thuận, ưu đãi hoặc lưu ý khi tái ký…" /></label><div className="renewal-atomic-note"><ShieldCheck /><p><strong>Giao dịch nguyên tử</strong><span>Nếu hợp đồng, báo giá, phê duyệt, ledger hoặc sổ quỹ có một bước lỗi, toàn bộ thao tác sẽ không được lưu.</span></p></div></section>}
 
         {error && <div className="renewal-modal-error" role="alert"><AlertTriangle />{error}</div>}
       </form>
-      <footer><button type="button" onClick={() => step === 1 ? onClose() : setStep((current) => current - 1)} disabled={submitting}>{step === 1 ? 'Hủy' : <><ArrowLeft size={16} /> Quay lại</>}</button>{step < 4 ? <button type="button" className="is-primary" onClick={nextStep} disabled={submitting}>Tiếp tục <ArrowRight size={17} /></button> : <button type="submit" form="renewal-contract-form" className="is-primary" disabled={submitting || !selectedPackage || !quoteReady || !approvalReady}>{submitting ? 'Đang tái ký…' : 'Xác nhận tái ký'}<RefreshCw size={17} className={submitting ? 'is-spinning' : ''} /></button>}</footer>
+      <footer><button type="button" onClick={() => step === 1 ? onClose() : setStep((current) => current - 1)} disabled={submitting}>{step === 1 ? 'Hủy' : <><ArrowLeft size={16} /> Quay lại</>}</button>{step < 4 ? <button key="next-step" type="button" className="is-primary" onClick={(event) => { event.preventDefault(); nextStep() }} disabled={submitting}>Tiếp tục <ArrowRight size={17} /></button> : <button key="confirm-renewal" type="submit" form="renewal-contract-form" className="is-primary" disabled={completed || submitting || !selectedPackage || !quoteReady || !approvalReady}>{submitting ? 'Đang tái ký…' : 'Xác nhận tái ký'}<RefreshCw size={17} className={submitting ? 'is-spinning' : ''} /></button>}</footer>
     </section>
   </div>
 }

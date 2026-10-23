@@ -276,6 +276,25 @@ export interface Student360ContractInstallment {
 }
 
 export interface Student360ContractRecord {
+  activationMode?: 'automatic' | 'fixed_date'
+  earlyHandoverRequested?: boolean
+  signedDate?: string
+  plannedActivationDate?: string
+  activationDate?: string | null
+  originalStartDate?: string
+  originalEndDate?: string
+  handoverStatus?: 'pending' | 'active'
+  completionReason?: 'quota_exhausted' | 'term_ended' | 'renewal_handover'
+  completedDate?: string
+  carryOverTransferredSessions?: number
+  renewalSupersededBy?: string
+  sourceContractId?: string
+  renewedByContractId?: string
+  packageSessions?: number
+  plannedCarryOverSessions?: number
+  carriedOverSessions?: number
+  carryOverPending?: boolean
+
   id: string
   studentId: string
   branchId: string | null

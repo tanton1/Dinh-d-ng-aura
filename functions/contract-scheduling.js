@@ -6,6 +6,8 @@ const {
   normalizedContractStatus,
 } = require('./contract-status')
 
+const { renewalDateSyncPatch } = require('./contract-renewal-handover')
+
 const BLOCKED_SCHEDULING_STATUSES = new Set(['cancelled', 'inactive', 'archived', 'draft', 'frozen'])
 
 function safeSessionCount(value) {
@@ -32,6 +34,7 @@ function contractSchedulingRemaining(contract = {}, reservationsByContract = new
   return Math.max(0,
     contractSchedulingEntitlement(contract)
       - safeSessionCount(contract.usedSessions)
+      - safeSessionCount(contract.carryOverTransferredSessions)
       - safeSessionCount(reservationsByContract.get(contract.id)))
 }
 
@@ -41,7 +44,7 @@ function earlyHandoverEnabled(contract = {}) {
     // Renewals created before this field was introduced remain compatible.
     // An explicit false is the policy switch that keeps the contractual date
     // hard for a particular renewal.
-    && contract.earlyHandoverRequested !== false
+    && contract.earlyHandoverRequested !== false && contract.activationMode !== 'fixed_date'
 }
 
 function operationalContract(contract = {}) {
@@ -63,20 +66,28 @@ function sourcePrecedesContract(source, contract, date) {
 function earlyRenewalCanServe(contract, contracts, date, reservationsByContract) {
   if (!earlyHandoverEnabled(contract) || !operationalContract(contract) || contractPausedOn(contract, date)) return false
   const source = linkedSource(contract, contracts)
-  if (!source || !operationalContract(source) || !sourcePrecedesContract(source, contract, date)) return false
+  if (!source || !operationalContract(source) || contractPausedOn(source, date) || !sourcePrecedesContract(source, contract, date) || (contract.signedDate && date < contract.signedDate)) return false
   return contractSchedulingRemaining(source, reservationsByContract) === 0
     && contractSchedulingRemaining(contract, reservationsByContract) > 0
 }
 
+function pendingRenewalDueOn(contract, contracts, date) {
+  if (contract.status !== 'future' || !contract.sourceContractId || date < contract.startDate || date > contract.endDate) return false
+  const source = linkedSource(contract, contracts)
+  return Boolean(source && operationalContract(source) && !contractPausedOn(source, date)
+    && !source.renewalSupersededBy && (!contract.signedDate || date >= contract.signedDate))
+}
+
 function directlyAvailableContracts(contracts, date, reservationsByContract) {
-  return contracts.filter((contract) => contractEffectiveOnDate(contract, date)
+  return contracts.filter((contract) => ((contract.status === 'future' && contract.sourceContractId) ? pendingRenewalDueOn(contract, contracts, date) : contractEffectiveOnDate(contract, date))
     && !contractPausedOn(contract, date)
     && contractSchedulingRemaining(contract, reservationsByContract) > 0)
 }
 
-function preferSourceBeforeRenewal(candidates) {
+function preferSourceBeforeRenewal(candidates, date) {
   const ids = new Set(candidates.map((contract) => contract.id))
-  return candidates.filter((contract) => !contract.sourceContractId || !ids.has(contract.sourceContractId))
+  const replacedIds = new Set(candidates.filter((contract) => contract.activationMode === 'fixed_date' && contract.startDate <= date).map((contract) => contract.sourceContractId))
+  return candidates.filter((contract) => !replacedIds.has(contract.id) && (!contract.sourceContractId || replacedIds.has(contract.sourceContractId) || !ids.has(contract.sourceContractId)))
 }
 
 /**
@@ -93,15 +104,16 @@ function resolveSchedulingContract({
   reservationsByContract = new Map(),
   allowCrossBranch = false,
 }) {
+  contracts = contracts.map((contract) => ({ ...contract, ...renewalDateSyncPatch(linkedSource(contract, contracts), contract) }))
   const learnerContracts = contracts.filter((contract) => contract.studentId === studentId && operationalContract(contract))
   const potentiallyRelevant = learnerContracts.filter((contract) => contractEffectiveOnDate(contract, date)
-    || earlyHandoverEnabled(contract))
+    || earlyHandoverEnabled(contract) || pendingRenewalDueOn(contract, learnerContracts, date))
   if (potentiallyRelevant.some((contract) => !contract.branchId)) {
     return { contract: null, reasons: ['CONTRACT_BRANCH_REQUIRED'], earlyHandover: false }
   }
   const scopedContracts = learnerContracts.filter((contract) => allowCrossBranch || contract.branchId === branchId)
   const direct = scopedContracts.filter((contract) => contractEffectiveOnDate(contract, date))
-  const directAvailable = preferSourceBeforeRenewal(directlyAvailableContracts(scopedContracts, date, reservationsByContract))
+  const directAvailable = preferSourceBeforeRenewal(directlyAvailableContracts(scopedContracts, date, reservationsByContract), date)
   if (directAvailable.length > 1) {
     return { contract: null, reasons: ['AMBIGUOUS_ACTIVE_CONTRACT'], earlyHandover: false }
   }
@@ -114,7 +126,7 @@ function resolveSchedulingContract({
     scopedContracts,
     date,
     reservationsByContract,
-  )))
+  )), date)
   if (early.length > 1) {
     return { contract: null, reasons: ['AMBIGUOUS_ACTIVE_CONTRACT'], earlyHandover: false }
   }
@@ -142,10 +154,11 @@ function contractCanParticipateInWeek(contract, contracts, dates, reservationsBy
   // Include a date-effective but paused contract in the operational set so
   // the caller can surface CONTRACT_PAUSED instead of the misleading
   // ACTIVE_CONTRACT_NOT_FOUND diagnostic.
-  if (dates.some((date) => contractEffectiveOnDate(contract, date))) return true
+  contract = { ...contract, ...renewalDateSyncPatch(linkedSource(contract, contracts), contract) }
+  if (dates.some((date) => (contract.status === 'future' && contract.sourceContractId) ? pendingRenewalDueOn(contract, contracts, date) : contractEffectiveOnDate(contract, date))) return true
   if (!earlyHandoverEnabled(contract)) return false
   const source = linkedSource(contract, contracts)
-  return Boolean(source && operationalContract(source) && dates.some((date) => sourcePrecedesContract(source, contract, date)))
+  return Boolean(source && operationalContract(source) && dates.some((date) => sourcePrecedesContract(source, contract, date) && !contractPausedOn(source, date) && (!contract.signedDate || date >= contract.signedDate)))
     && contractSchedulingRemaining(contract, reservationsByContract) > 0
 }
 

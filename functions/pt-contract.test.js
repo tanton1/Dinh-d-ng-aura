@@ -365,7 +365,6 @@ test('Trainer pages keep separate sections while sharing one actor-scoped bootst
   assert.match(operationsV2Source, /scheduledContractIds/)
   assert.match(operationsV2Source, /actorIds\.has\(session\.trainerId\)/)
   assert.match(operationsV2Source, /studentContracts = \[\.\.\.new Map\(\[\.\.\.studentContracts, \.\.\.scheduledContracts\]/)
-  assert.match(operationsV2Source, /contractCoversDate\(studentContracts\.find\(\(contract\) => contract\.id === session\.contractId\), session\.date/)
   assert.match(operationsV2Source, /schedulableOnWeek: isContractSchedulableInWeek\(contract, weekId, projection\.remainingSessions\)/)
   assert.match(operationsV2Source, /db\.collection\('ptWorkoutLogs'\)\.where\('studentId', '==', studentId\)/)
   assert.match(operationsV2Source, /db\.doc\(`ptTrainingPrograms\/\$\{studentId\}`\)\.get\(\)/)

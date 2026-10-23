@@ -1,6 +1,7 @@
 const { FieldValue, Timestamp } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
 const { contractEffectiveOnDate, effectiveContractStatus } = require('./contract-status')
+const { renewalReservationProjection } = require('./contract-renewal-handover')
 const { trustedAccessContext, requireCapability } = require('./identity-access')
 const {
   chargeSessionTransaction,
@@ -178,7 +179,8 @@ function isEffectiveStaffContract(contract = {}, referenceDate = currentDateKey(
   }))
 }
 
-function contractCoversDate(contract = {}, referenceDate = currentDateKey()) {
+function contractCoversDate(contract = {}, referenceDate = currentDateKey(), sourceContract) {
+  try { contract = renewalReservationProjection(contract.id, contract, sourceContract, referenceDate) } catch { return false }
   if (!contractEffectiveOnDate(contract, referenceDate)) return false
   return !(Array.isArray(contract.pausePeriods) && contract.pausePeriods.some((period) => {
     if (String(period?.type || '').toLowerCase() !== 'preservation') return false
@@ -192,7 +194,8 @@ function contractCoversDate(contract = {}, referenceDate = currentDateKey()) {
 // historical sessions after a contract has expired today, so callers that are
 // evaluating a concrete session must pass that session's date rather than the
 // current date.
-function isContractSchedulableOn(contract = {}, referenceDate = currentDateKey(), remainingSessionsOverride) {
+function isContractSchedulableOn(contract = {}, referenceDate = currentDateKey(), remainingSessionsOverride, sourceContract) {
+  try { contract = renewalReservationProjection(contract.id, contract, sourceContract, referenceDate) } catch { return false }
   const remainingSessions = remainingSessionsOverride === undefined
     ? Math.max(0, Number(contract.remainingSessions ?? Number(contract.totalSessions || 0) - Number(contract.usedSessions || 0)))
     : Math.max(0, Number(remainingSessionsOverride))
@@ -1013,6 +1016,17 @@ async function assignedStudentsForActor(db, actor, limit) {
   return { schemaVersion: 3, students, branches, hasMore: allStudentIds.length > limit }
 }
 
+async function withRenewalSources(db, contracts) {
+  const known = new Set(contracts.map((contract) => contract.id))
+  const sourceIds = [...new Set(contracts.filter((contract) => contract.status === 'future')
+    .map((contract) => contract.sourceContractId).filter((id) => id && !known.has(id)))]
+  if (!sourceIds.length) return contracts
+  const sources = (await db.getAll(...sourceIds.map((id) => db.doc(`contracts/${id}`))))
+    .filter((snapshot) => snapshot.exists).map((snapshot) => ({ id: snapshot.id, ...snapshot.data() }))
+    .filter((source) => contracts.some((next) => next.sourceContractId === source.id && next.studentId === source.studentId))
+  return [...contracts, ...sources]
+}
+
 async function trainerScheduleForActor(db, actor, from, to, limit) {
   const actorIds = [...new Set([actor.uid, actor.legacyStaffId].filter(Boolean))]
   const [snapshots, requestSnapshots] = await Promise.all([
@@ -1028,7 +1042,7 @@ async function trainerScheduleForActor(db, actor, from, to, limit) {
     studentIds.length ? db.getAll(...studentIds.map((id) => db.doc(`students/${id}`))) : [],
     contractIds.length ? db.getAll(...contractIds.map((id) => db.doc(`contracts/${id}`))) : [],
   ])
-  const rawContracts = contractSnapshots.filter((snapshot) => snapshot.exists).map((snapshot) => ({ id: snapshot.id, ...snapshot.data() }))
+  const rawContracts = await withRenewalSources(db, contractSnapshots.filter((snapshot) => snapshot.exists).map((snapshot) => ({ id: snapshot.id, ...snapshot.data() })))
   const usageViews = await loadContractUsageViews(db, rawContracts.map((contract) => contract.id))
   const contracts = new Map(rawContracts.map((contract) => {
     const usage = canonicalUsageSummary(usageViews.get(contract.id), contract)
@@ -1076,8 +1090,9 @@ async function trainerScheduleForActor(db, actor, from, to, limit) {
       // A session is valid against the contract on the date it is scheduled,
       // not against today's date. This keeps future renewals and historical
       // sessions visible to Staff even when the contract changes later.
-      const contractEffective = Boolean(contract && contractCoversDate(contract, session.date || today))
-      const contractSchedulable = Boolean(contract && isContractSchedulableOn(contract, session.date || today))
+      const sourceContract = contract?.sourceContractId ? contracts.get(contract.sourceContractId) : undefined
+      const contractEffective = Boolean(contract && contractCoversDate(contract, session.date || today, sourceContract))
+      const contractSchedulable = Boolean(contract && isContractSchedulableOn(contract, session.date || today, undefined, sourceContract))
       return {
         ...session,
         studentName: student?.name || 'Học viên Aura',
@@ -1803,6 +1818,7 @@ function createPtOperationsV2Functions({
     }
     const scheduledForActor = sessionRows.some((session) => actorIds.has(session.trainerId))
     if (!studentContracts.length && !branchRosterStudent && !scheduledForActor) throw new HttpsError('permission-denied', 'Học viên không thuộc phạm vi được giao.')
+    studentContracts = await withRenewalSources(db, studentContracts)
     const availabilityReference = db.doc(`ptAvailability/${studentId}_${weekId}`)
     const [legacyLogsSnapshot, workoutLogsSnapshot, trainingProgramSnapshot, availabilitySnapshot, configSnapshot] = await Promise.all([
       db.collection('workoutLogs').where('studentId', '==', studentId).limit(100).get(),
@@ -1884,11 +1900,14 @@ function createPtOperationsV2Functions({
         status: student.status || 'active',
       }),
       contracts: serialize(projectedContracts.map(staffStudentContractDetail)),
-      sessions: sessionRows.map((session) => serialize({
-        ...staffStudentSessionDetail(session),
-        contractEffective: Boolean(studentContracts.find((contract) => contract.id === session.contractId)
-          && contractCoversDate(studentContracts.find((contract) => contract.id === session.contractId), session.date || currentDateKey())),
-      }))
+      sessions: sessionRows.map((session) => {
+        const contract = studentContracts.find((item) => item.id === session.contractId)
+        const source = contract?.sourceContractId ? studentContracts.find((item) => item.id === contract.sourceContractId) : undefined
+        return serialize({
+          ...staffStudentSessionDetail(session),
+          contractEffective: Boolean(contract && contractCoversDate(contract, session.date || currentDateKey(), source)),
+        })
+      })
         .sort((left, right) => `${right.date || ''}-${String(right.hour ?? 0).padStart(2, '0')}`.localeCompare(`${left.date || ''}-${String(left.hour ?? 0).padStart(2, '0')}`)),
       availability: serialize(availability),
       trainingProgram: serialize(staffStudentTrainingProgramDetail(trainingProgramSnapshot)),

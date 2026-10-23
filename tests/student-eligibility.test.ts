@@ -37,6 +37,20 @@ test('a future renewal is eligible on the concrete days it becomes effective', (
   assert.deepEqual(result.validDates, ['2026-08-29', '2026-08-30'])
 })
 
+test('automatic continuation keeps an exhausted learner eligible before the planned start, but fixed dates and preservation still block', () => {
+  const exhausted = { ...contract, usedSessions: 36, renewedByContractId: 'renewal' }
+  const renewal: StudentContract = {
+    ...contract, id: 'renewal', status: 'future', sourceContractId: contract.id,
+    handoverStatus: 'pending', activationMode: 'automatic', startDate: '2026-11-25', endDate: '2027-02-25',
+    signedDate: '2026-08-24', packageSessions: 12, totalSessions: 17, plannedCarryOverSessions: 5, usedSessions: 0,
+  }
+  const automatic = studentEligibilityForWeek(student, [exhausted, renewal], '2026-08-24', '2026-08-24')
+  assert.equal(automatic.eligible, true)
+  assert.equal(automatic.remainingSessions, 12, 'projected carry-over is not spendable')
+  assert.equal(studentEligibilityForWeek(student, [exhausted, { ...renewal, activationMode: 'fixed_date' }], '2026-08-24', '2026-08-24').eligible, false)
+  assert.equal(studentEligibilityForWeek(student, [{ ...exhausted, status: 'frozen' }, renewal], '2026-08-24', '2026-08-24').eligible, false)
+})
+
 test('scheduler checks the concrete slot date and never activates a renewal early', () => {
   const renewal = { ...contract, status: 'future', startDate: '2026-08-27', endDate: '2026-11-27' }
   assert.equal(isContractSchedulableOn(renewal, '2026-08-26'), false)

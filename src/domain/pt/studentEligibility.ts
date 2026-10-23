@@ -1,5 +1,5 @@
 import type { Student, StudentContract } from '../../types'
-import { contractPausedOn, contractSchedulableOn } from '../contracts/contractStatus'
+import { contractPausedOn, contractSchedulableInChainOn } from '../contracts/contractStatus'
 
 const DAY_MS = 86_400_000
 
@@ -71,11 +71,12 @@ export function studentEligibilityForWeek(
     if (contract.studentId !== student.id || contract.branchId !== student.branchId) continue
     const start = normalizedDateId(contract.startDate)
     const end = normalizedDateId(contract.endDate)
-    const remaining = Math.max(0, Number(contract.totalSessions || 0) - Number(contract.usedSessions || 0))
+    const entitlement = contract.status === 'future' && contract.sourceContractId && contract.packageSessions ? contract.packageSessions + (contract.carriedOverSessions || 0) : contract.totalSessions
+    const remaining = Math.max(0, Number(entitlement || 0) - Number(contract.usedSessions || 0) - Number(contract.carryOverTransferredSessions || 0))
     if (!start || !end || remaining < 1) continue
     let usable = false
     for (const date of dates) {
-      if (date < start || date > end || !contractSchedulableOn(contract, date)) continue
+      if (!contractSchedulableInChainOn(contract, contracts, date)) continue
       if (pausedOn(contract, date)) {
         pausedDates.add(date)
         continue

@@ -77,6 +77,7 @@ test('Student 360 contract date fields stay fixed inside the phone viewport', as
   await page.locator('summary[aria-label="Mở menu nghiệp vụ"]').click()
   await page.getByRole('button', { name: /Đổi PT · bảo lưu · sửa hợp đồng/ }).click()
   await page.getByRole('button', { name: 'Tạo hợp đồng' }).click()
+  await page.getByRole('dialog', { name: 'Tạo hợp đồng nối tiếp' }).getByRole('button', { name: 'Tạo hợp đồng độc lập' }).click()
 
   const dialog = page.locator('.student360-contract-form')
   await expect(dialog).toBeVisible()

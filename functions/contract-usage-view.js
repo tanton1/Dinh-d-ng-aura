@@ -26,6 +26,7 @@ const SESSION_USAGE_FIELDS = Object.freeze([
 const CONTRACT_USAGE_FIELDS = Object.freeze([
   'studentId',
   'crmProfileId',
+  'carryOverTransferredSessions',
   'totalSessions',
   'usedSessions',
   'usageReconciliationVersion',
@@ -79,6 +80,7 @@ function contractUsageViewNeedsRebuild(contract = {}, storedView = null, nowMill
   if (!storedView || Number(storedView.schemaVersion || 0) !== USAGE_VIEW_SCHEMA_VERSION) return true
   if (text(storedView.sourceVersion) !== USAGE_VIEW_SOURCE_VERSION) return true
   if (Number(storedView.entitlementSessions || 0) !== Number(contract.totalSessions || 0)) return true
+  if (Number(storedView.transferredSessions || 0) !== Number(contract.carryOverTransferredSessions || 0)) return true
   if (Number(storedView.storedUsedSessions || 0) !== Number(contract.usedSessions || 0)) return true
   if (text(storedView.studentId) !== text(contract.studentId || contract.crmProfileId)) return true
   const generatedAtMillis = timestampMillis(storedView.generatedAt)
@@ -133,6 +135,7 @@ function viewFromSummary(contractId, contract, summary, source = USAGE_VIEW_SOUR
     contractId,
     studentId: text(contract.studentId || contract.crmProfileId, null),
     entitlementSessions: summary.totalSessions,
+    transferredSessions: Number(contract.carryOverTransferredSessions || 0),
     historySessions: summary.historySessions,
     rawHistorySessions: summary.rawHistorySessions ?? summary.historySessions,
     duplicateHistorySessions: summary.duplicateHistorySessions || 0,
@@ -185,7 +188,7 @@ function usageSummaryFromView(view = {}, contract = {}) {
     legacyChargedSessions: 0,
     legacyProjectionAdjustment: nonNegative(view.legacyProjectionAdjustment),
     usedSessions: nonNegative(view.usedSessions),
-    remainingSessions: nonNegative(view.remainingSessions),
+    remainingSessions: Math.min(nonNegative(view.remainingSessions), Math.max(0, nonNegative(contract.totalSessions ?? view.entitlementSessions) - nonNegative(view.usedSessions) - nonNegative(contract.carryOverTransferredSessions))),
     projectionDelta: Number.isFinite(Number(view.projectionDelta)) ? Number(view.projectionDelta) : 0,
     reconciliationStatus: text(view.reconciliationStatus, 'matched'),
     sourceVersion: text(view.sourceVersion, USAGE_VIEW_SOURCE_VERSION),

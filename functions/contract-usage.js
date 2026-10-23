@@ -198,7 +198,7 @@ function summarizeContractUsage(contract = {}, sessions = []) {
     storedUsedSessions,
     legacyProjectionAdjustment,
     usedSessions,
-    remainingSessions: Math.max(0, totalSessions - usedSessions),
+    remainingSessions: Math.max(0, totalSessions - usedSessions - safeCount(contract.carryOverTransferredSessions)),
     projectionDelta,
     reconciliationStatus,
   }

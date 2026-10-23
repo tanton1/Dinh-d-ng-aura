@@ -1,3 +1,4 @@
+const { renewalDateSyncPatch, assertRenewalLink } = require('./contract-renewal-handover')
 const { createHash } = require('node:crypto')
 const { FieldPath, FieldValue } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
@@ -934,6 +935,17 @@ function contractWorkspaceRecord(snapshot, canViewFinancialAmounts, canManageCon
     nutritionPTIds: normalizedArray(value.nutritionPTIds),
     startDate: bounded(value.startDate, 30).slice(0, 10),
     endDate: bounded(value.endDate, 30).slice(0, 10),
+    activationMode: value.activationMode || (value.sourceContractId ? (value.earlyHandoverRequested === false ? 'fixed_date' : 'automatic') : undefined),
+    sourceContractId: value.sourceContractId || '', renewedByContractId: value.renewedByContractId || '',
+    handoverStatus: value.handoverStatus || undefined, completionReason: value.completionReason || undefined,
+    signedDate: value.signedDate || iso(value.createdAt)?.slice(0, 10) || '',
+    plannedActivationDate: value.plannedActivationDate || value.originalStartDate || value.startDate || '',
+    activationDate: value.activationDate || (value.status === 'active' ? value.startDate : null),
+    originalStartDate: value.originalStartDate || value.startDate || '', originalEndDate: value.originalEndDate || value.endDate || '',
+    packageSessions: finite(value.packageSessions), plannedCarryOverSessions: finite(value.plannedCarryOverSessions),
+    carriedOverSessions: finite(value.carriedOverSessions), carryOverPending: value.carryOverPending === true,
+    carryOverTransferredSessions: finite(value.carryOverTransferredSessions),
+    renewalSupersededBy: value.renewalSupersededBy || '', completedDate: value.completedDate || '',
     frozenAt: iso(value.frozenAt) || bounded(value.frozenAt, 40) || null,
     totalSessions: usage?.totalSessions ?? Math.max(0, Math.floor(finite(value.totalSessions))),
     usedSessions: usage?.usedSessions ?? Math.max(0, Math.floor(finite(value.usedSessions))),
@@ -2388,6 +2400,7 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
           })
           if (overlap) throw new HttpsError('failed-precondition', 'Khoảng hiệu lực bị trùng một hợp đồng đang hoạt động, sắp hiệu lực hoặc bảo lưu. Hãy dùng quy trình tái ký hoặc chọn ngày bắt đầu sau hợp đồng hiện tại.')
         }
+        if (current?.sourceContractId && current.handoverStatus === 'pending' && current.activationMode === 'automatic' && startDate !== current.startDate) throw new HttpsError('failed-precondition', 'Ngày bắt đầu tự động được tính theo hợp đồng nguồn; hãy điều chỉnh thời hạn hợp đồng nguồn.')
         const usedSessions = Math.max(0, Math.floor(finite(current?.usedSessions)))
         const totalSessions = input.totalSessions === undefined
           ? Math.max(0, Math.floor(finite(packageValue.totalSessions)))
@@ -2432,6 +2445,10 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
           status: action === 'create' ? (startDate > vietnamDateKey() ? 'future' : 'active') : current.status,
           note: bounded(input.note, 1_000) || bounded(current?.note, 1_000),
         }
+        if (current?.sourceContractId && current.handoverStatus === 'pending') {
+          next.packageSessions = Math.max(0, totalSessions - Number(current.carriedOverSessions || 0))
+          if (current.activationMode === 'fixed_date') next.plannedActivationDate = startDate
+        }
         if (action === 'create') {
           const policyConfigSnapshot = await transaction.get(db.doc('settings/scheduleConfig'))
           const operationsPolicy = ptOperationsPolicySnapshot(policyConfigSnapshot.exists ? policyConfigSnapshot.data() : {})
@@ -2461,6 +2478,7 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
         }
         const nextPending = installments.filter((item) => item.status === 'pending' && item.date).sort((left, right) => bounded(left.date, 10).localeCompare(bounded(right.date, 10)))[0]
         next.totalSessions = Math.max(0, Math.floor(finite(current.totalSessions))) + extraSessions
+        if (current.sourceContractId && current.handoverStatus === 'pending') next.packageSessions = Number(current.packageSessions || current.totalSessions || 0) + extraSessions
         next.totalPrice = Math.max(0, Math.floor(finite(current.totalPrice))) + extraPrice
         next.endDate = newEndDate
         next.installments = installments
@@ -2535,6 +2553,18 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
         if (['active', 'future', 'expired'].includes(status)) next.status = status
       }
 
+      let linkedRenewal = null
+      if (current?.renewedByContractId && !current.renewalSupersededBy && current.endDate !== next.endDate) {
+        const linkedReference = db.doc(`contracts/${documentId(current.renewedByContractId, 'Hợp đồng nối tiếp')}`)
+        const linkedSnapshot = await transaction.get(linkedReference)
+        if (linkedSnapshot.exists && linkedSnapshot.data().status === 'future') {
+          const linked = linkedSnapshot.data()
+          assertRenewalLink(contractId, next, linkedSnapshot.id, linked)
+          const patch = renewalDateSyncPatch(next, linked)
+          if (Object.keys(patch).length) linkedRenewal = { reference: linkedReference, patch: { ...patch, revision: Number(linked.revision || 0) + 1, updatedAt: FieldValue.serverTimestamp(), updatedBy: actor.uid } }
+        }
+      }
+
       const changedFields = current
         ? [...new Set([...Object.keys(current), ...Object.keys(next)])].filter((key) => JSON.stringify(current[key]) !== JSON.stringify(next[key])).slice(0, 80)
         : Object.keys(next).slice(0, 80)
@@ -2549,12 +2579,15 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
         student360LastAction: action,
       }
       if (action === 'create') {
+        persisted.signedDate = vietnamDateKey(new Date(now))
+        persisted.activationDate = persisted.status === 'active' ? persisted.startDate : null
         persisted.createdAt = FieldValue.serverTimestamp()
         persisted.createdBy = actor.uid
         transaction.create(reference, persisted)
       } else {
         transaction.set(reference, persisted, { merge: false })
       }
+      if (linkedRenewal) transaction.update(linkedRenewal.reference, linkedRenewal.patch)
       transaction.create(auditReference, {
         schemaVersion: 1,
         action: `student360.contract.${action}`,

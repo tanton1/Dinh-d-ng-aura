@@ -25,6 +25,7 @@ function effectiveContractStatus(contract = {}, referenceDate) {
   // plain stale `expired` flag is derived again from its dates, so an approved
   // extension/reopen can correctly make it active.
   if (TERMINAL_CONTRACT_STATUSES.has(storedStatus) || storedStatus === 'frozen') return storedStatus
+  if (contract.sourceContractId && contract.handoverStatus === 'pending') return 'future'
   if (storedStatus === 'expired' && (contract.renewalSupersededBy || contract.renewedByContractId)) return 'expired'
 
   const date = contractDateKey(referenceDate)

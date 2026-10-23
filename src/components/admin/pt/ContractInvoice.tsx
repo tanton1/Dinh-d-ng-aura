@@ -42,7 +42,7 @@ export default function ContractInvoice({ student, contract, onClose }: Props) {
             <p className="text-sm text-gray-600 mt-1">Sức khỏe của bạn, Đam mê của chúng tôi</p>
             <h2 className="text-2xl font-bold mt-6 uppercase">Hợp đồng Huấn luyện cá nhân</h2>
             <p className="text-sm font-mono mt-1">Mã HĐ: HD-{contract.id.slice(-6)}</p>
-            <p className="text-sm">Ngày ký: {new Date(contract.startDate).toLocaleDateString('vi-VN')}</p>
+            <p className="text-sm">Ngày ký: {new Date(contract.signedDate || contract.startDate).toLocaleDateString('vi-VN')}</p>
           </div>
 
           <div className="mb-6">
@@ -107,6 +107,7 @@ export default function ContractInvoice({ student, contract, onClose }: Props) {
 
             <div className="text-sm text-gray-700 space-y-2 leading-relaxed">
               <p>1. Thời hạn hợp đồng: Từ ngày <span className="font-bold">{new Date(contract.startDate).toLocaleDateString('vi-VN')}</span> đến ngày <span className="font-bold">{new Date(contract.endDate).toLocaleDateString('vi-VN')}</span>.</p>
+              {contract.sourceContractId && <p>Hình thức nối tiếp: {contract.activationMode === 'fixed_date' ? 'Bắt đầu ngày cố định' : 'Tự động khi gói cũ hết buổi hoặc hết hạn'}. Ngày bắt đầu dự kiến: {new Date(contract.plannedActivationDate || contract.originalStartDate || contract.startDate).toLocaleDateString('vi-VN')}. {contract.activationDate ? `Kích hoạt thực tế: ${new Date(contract.activationDate).toLocaleDateString('vi-VN')}.` : 'Đang chờ kích hoạt.'} {contract.carryOverPending ? `Dự kiến chuyển tối đa ${contract.plannedCarryOverSessions || 0} buổi; chốt theo số còn thực tế khi bàn giao.` : contract.carriedOverSessions ? `Đã chuyển ${contract.carriedOverSessions} buổi từ gói trước.` : ''}</p>}
               <p>2. Bên B cam kết thanh toán đầy đủ số tiền còn nợ (nếu có) theo đúng thỏa thuận với Bên A.</p>
               <p>3. Hợp đồng không có giá trị quy đổi thành tiền mặt hoặc chuyển nhượng cho người khác nếu không có sự đồng ý của Bên A.</p>
               <p>4. Bên A cam kết cung cấp dịch vụ huấn luyện theo đúng tiêu chuẩn và lộ trình đã tư vấn cho Bên B.</p>
