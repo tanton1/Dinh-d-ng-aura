@@ -1,7 +1,7 @@
 'use strict'
 
-const { createHash } = require('node:crypto')
-const { FieldValue } = require('firebase-admin/firestore')
+const { createHash, randomUUID } = require('node:crypto')
+const { FieldPath, FieldValue } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
 const { projectionSourceChanged } = require('./projection-event-policy')
 const {
@@ -13,11 +13,13 @@ const {
 // A weekly view is deliberately a projection, not a second source of truth.
 // It contains enough information to paint the schedule and warning center but
 // never contains raw attendance, billing, or contract history rows.
-const WEEKLY_VIEW_SCHEMA_VERSION = 1
+const WEEKLY_VIEW_SCHEMA_VERSION = 2
 const MAX_VIEW_SCHEDULE_ENTRIES = 700
 const MAX_VIEW_STUDENTS = 600
 const MAX_VIEW_TRAINERS = 120
 const MAX_VIEW_WARNINGS = 160
+const VIEW_PAGE_SIZE = 100
+const REBUILD_LEASE_MS = 180_000
 
 function weeklyViewId(branchId, weekId) {
   return `${String(branchId || '').trim()}_${String(weekId || '').trim()}`
@@ -420,27 +422,16 @@ function enrichedWarnings({ data, branchId, coverage, exact = false }) {
   return result
 }
 
-function canonicalSourcePayload({ branchId, weekId, data, schedule, coverage } = {}) {
-  const stableSchedule = Object.fromEntries(Object.entries(schedule || {})
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([slotId, entries]) => [slotId, [...(entries || [])].sort((left, right) => `${left.studentId}|${left.trainerId}`.localeCompare(`${right.studentId}|${right.trainerId}`))]))
-  const stableCoverage = Object.fromEntries(Object.entries(coverage?.byStudent || {}).sort(([left], [right]) => left.localeCompare(right)))
-  return {
-    branchId,
-    weekId,
-    draftRevision: Number(data.draft?.revision || 0),
-    draftStatus: stringValue(data.draft?.status, 40),
-    publishedVersion: Number(data.draft?.publishedVersion || 0),
-    publishedRevision: Number(data.draft?.publishedRevision || -1),
-    schedule: stableSchedule,
-    coverage: { ...coverage, byStudent: stableCoverage },
-    studentRevisions: (data.students || []).map((student) => [student.id, Number(student.availabilityRevision || 0), student.contractStatus || '']).sort(),
-    trainerRevisions: (data.trainers || []).map((trainer) => [trainer.id, Number(trainer.availabilityRevision || 0)]).sort(),
-  }
+function canonicalSourcePayload(value) {
+  if (value === null || typeof value !== 'object') return value
+  if (Array.isArray(value)) return value.map(canonicalSourcePayload)
+  if (typeof value.toDate === 'function') return value.toDate().toISOString()
+  if (value instanceof Date) return value.toISOString()
+  return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonicalSourcePayload(value[key])]))
 }
 
 function sourceRevisionFor(payload) {
-  return createHash('sha256').update(JSON.stringify(payload)).digest('hex').slice(0, 24)
+  return createHash('sha256').update(JSON.stringify(canonicalSourcePayload(payload))).digest('hex').slice(0, 24)
 }
 
 function buildPtScheduleWeeklyView({ branchId, weekId, data, previousView = null, now = new Date() } = {}) {
@@ -465,18 +456,12 @@ function buildPtScheduleWeeklyView({ branchId, weekId, data, previousView = null
   const exact = data.partial !== true && data.readMode !== 'display'
   const coverage = compactCoverage({ students, schedule, weeklySessionCoverage: data.weeklySessionCoverage, exact })
   const weeklySessionCoverage = compactWeeklySessionCoverage(data.weeklySessionCoverage)
-  const sourceRevision = sourceRevisionFor(canonicalSourcePayload({ branchId, weekId, data, schedule, coverage }))
-  const previousRevision = Number(previousView?.viewRevision || 0)
-  const changed = previousView?.sourceRevision !== sourceRevision
-  const viewRevision = changed ? previousRevision + 1 : previousRevision || 1
   const warnings = enrichedWarnings({ data: { ...data, weekId }, branchId, coverage, exact })
   const generatedAt = now instanceof Date ? now.toISOString() : new Date().toISOString()
-  return {
+  const view = {
     schemaVersion: WEEKLY_VIEW_SCHEMA_VERSION,
     branchId,
     weekId,
-    viewRevision,
-    sourceRevision,
     freshness: exact ? 'verified' : 'display',
     verification: exact ? 'exact' : 'draft_only',
     dirty: false,
@@ -513,6 +498,21 @@ function buildPtScheduleWeeklyView({ branchId, weekId, data, previousView = null
       : [],
     optimizationSummary: compactOptimizationSummary(data.draft?.optimizationSummary || {}),
   }
+  // Hash the actual rendered payload, not a short list of source revisions.
+  // Name/phone/config/warning changes must reach clients even when the draft
+  // and availability revision numbers stay the same. Ignore only bookkeeping.
+  const { generatedAt: ignoredGeneratedAt, dirty: ignoredDirty, ...semantic } = view
+  const { updatedAt: ignoredUpdatedAt, ...semanticDraft } = view.draft
+  const sourceRevision = sourceRevisionFor({ ...semantic, draft: semanticDraft })
+  const previousRevision = Number(previousView?.viewRevision || 0)
+  return {
+    ...view,
+    sourceRevision,
+    viewRevision: previousView?.sourceRevision !== sourceRevision ? previousRevision + 1 : previousRevision || 1,
+    sourceStudentIds: [...new Set(students.map((student) => student.id).filter(Boolean))].sort(),
+    sourceTrainerIds: [...new Set(trainers.map((trainer) => trainer.id).filter(Boolean))].sort(),
+    sourceContractIds: [...new Set(contracts.map((contract) => contract.id).filter(Boolean))].sort(),
+  }
 }
 
 function serializableWeeklyView(value = {}) {
@@ -523,80 +523,214 @@ function serializableWeeklyView(value = {}) {
   }
 }
 
-async function rebuildPtScheduleWeeklyView({ db, branchId, weekId, branchData = loadBranchData, forceRefresh = true, initialPaint = false, now = new Date() } = {}) {
-  const data = await branchData(db, branchId, weekId, { forceRefresh, initialPaint })
-  data.weekId = weekId
+function completeWeeklyView(value) {
+  return Boolean(value?.schedule && Array.isArray(value.students) && Array.isArray(value.trainers))
+}
+
+function pendingWeeklyView(value, status) {
+  if (!completeWeeklyView(value)) {
+    throw new HttpsError('unavailable', 'Lịch tuần đang được cập nhật. Vui lòng thử lại sau ít giây.', { retryAfterMs: 2000, rebuildStatus: status })
+  }
+  return { ...serializableWeeklyView(value), rebuilding: true, rebuildStatus: status }
+}
+
+function snapshotVersion(snapshot) {
+  // updateTime also catches old deployed triggers that only set dirtyAt and do
+  // not yet increment dirtyGeneration during a gradual rollout.
+  const stamp = snapshot?.updateTime
+  if (stamp && Number.isFinite(stamp.seconds)) return `${stamp.seconds}:${stamp.nanoseconds || 0}`
+  return null
+}
+
+async function rebuildPtScheduleWeeklyView({ db, branchId, weekId, branchData = loadBranchData, forceRefresh = true, initialPaint = false, now = new Date(), clock = Date.now } = {}) {
   const reference = weeklyViewReference(db, branchId, weekId)
-  const current = await reference.get()
-  const previousView = current.exists ? current.data() : null
-  const view = buildPtScheduleWeeklyView({ branchId, weekId, data, previousView, now })
-  if (current.exists && current.data()?.sourceRevision === view.sourceRevision && current.data()?.dirty !== true) {
-    return { ...serializableWeeklyView(current.data()), unchanged: true }
+  const leaseReference = db.doc(`systemJobs/ptScheduleWeeklyViewRebuild/views/${weeklyViewId(branchId, weekId)}`)
+  const token = randomUUID()
+  const acquired = await db.runTransaction(async (transaction) => {
+    const [snapshot, lease] = await transaction.getAll(reference, leaseReference)
+    const previousView = snapshot.exists ? snapshot.data() : null
+    if (Number(lease.data()?.leaseUntilMillis || 0) > clock()) return { busy: true, previousView }
+    transaction.set(leaseReference, { token, leaseUntilMillis: clock() + REBUILD_LEASE_MS })
+    return { previousView, generation: Number(previousView?.dirtyGeneration || 0), version: snapshotVersion(snapshot) }
+  })
+  if (acquired.busy) return pendingWeeklyView(acquired.previousView, 'busy')
+  try {
+    // Acquire before loading sources: only one reader fans out for this week.
+    const data = await branchData(db, branchId, weekId, { forceRefresh, initialPaint })
+    data.weekId = weekId
+    const view = buildPtScheduleWeeklyView({ branchId, weekId, data, previousView: acquired.previousView, now })
+    return await db.runTransaction(async (transaction) => {
+      const [snapshot, lease] = await transaction.getAll(reference, leaseReference)
+      const current = snapshot.exists ? snapshot.data() : null
+      // An expired builder must never overwrite the replacement's snapshot or
+      // release its lease. A dirty write during source reads also invalidates
+      // the build, even if the source hash happens to match an older snapshot.
+      if (lease.data()?.token !== token || Number(lease.data()?.leaseUntilMillis || 0) <= clock()) {
+        return pendingWeeklyView(current, 'superseded')
+      }
+      transaction.delete(leaseReference)
+      if (Number(current?.dirtyGeneration || 0) !== acquired.generation || snapshotVersion(snapshot) !== acquired.version) {
+        return pendingWeeklyView(current, 'superseded')
+      }
+      if (current?.schemaVersion === WEEKLY_VIEW_SCHEMA_VERSION && current?.sourceRevision === view.sourceRevision && current?.dirty !== true) {
+        return { ...serializableWeeklyView(current), unchanged: true }
+      }
+      const result = { ...view, dirtyGeneration: acquired.generation }
+      transaction.set(reference, {
+        ...result,
+        generatedAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      })
+      return { ...result, unchanged: false }
+    })
+  } catch (error) {
+    // Preserve dirty state on failures; the viewer/worker can retry. Release
+    // only our token, never a newer worker's lease after expiry.
+    await db.runTransaction(async (transaction) => {
+      const lease = await transaction.get(leaseReference)
+      if (lease.data()?.token === token) transaction.delete(leaseReference)
+    }).catch(() => {})
+    throw error
   }
-  const write = {
-    ...view,
-    generatedAt: FieldValue.serverTimestamp(),
-    dirty: false,
-    updatedAt: FieldValue.serverTimestamp(),
-  }
-  if (current.exists) await reference.set(write, { merge: false })
-  else await reference.create(write)
-  return { ...view, unchanged: false }
 }
 
-async function existingBranchWeeks(db, branchId) {
-  if (!branchId) return []
-  const snapshot = await db.collection('ptScheduleWeeklyViews').where('branchId', '==', branchId).limit(16).get()
-  return snapshot.docs.map((item) => ({ branchId, weekId: String(item.data()?.weekId || '').slice(0, 10) })).filter((item) => /^\d{4}-\d{2}-\d{2}$/.test(item.weekId))
+async function paginatedViews(query) {
+  const rows = []
+  let last = null
+  do {
+    const page = await (last ? query.startAfter(last) : query).limit(VIEW_PAGE_SIZE).get()
+    rows.push(...page.docs.map((document) => ({ ...document.data(), _documentId: document.id })))
+    if (page.docs.length < VIEW_PAGE_SIZE) break
+    last = page.docs[page.docs.length - 1]
+  } while (last)
+  return rows
 }
 
-async function existingWeeklyViews(db) {
-  const snapshot = await db.collection('ptScheduleWeeklyViews').limit(200).get()
-  return snapshot.docs.map((item) => {
-    const value = item.data() || {}
-    return { branchId: String(value.branchId || ''), weekId: String(value.weekId || '') }
-  }).filter((item) => /^[A-Za-z0-9_-]+$/.test(item.branchId) && /^\d{4}-\d{2}-\d{2}$/.test(item.weekId))
+function viewQuery(db) {
+  return db.collection('ptScheduleWeeklyViews').orderBy(FieldPath.documentId())
+}
+
+function targetFromView(value) {
+  const target = { branchId: String(value.branchId || ''), weekId: String(value.weekId || '') }
+  return /^[A-Za-z0-9_-]+$/.test(target.branchId) && /^\d{4}-\d{2}-\d{2}$/.test(target.weekId) ? target : null
 }
 
 async function sourceEventTargets({ db, event, source } = {}) {
-  const documentId = event?.params?.documentId || event?.params?.draftId || event?.params?.targetId || event?.params?.availabilityId || event?.params?.sessionId || event?.params?.studentId || event?.params?.contractId || ''
-  const data = event?.data?.after?.exists ? event.data.after.data() : event?.data?.before?.exists ? event.data.before.data() : {}
+  const documentId = event?.params?.documentId || event?.params?.draftId || event?.params?.targetId || event?.params?.availabilityId || event?.params?.sessionId || event?.params?.studentId || event?.params?.trainerId || event?.params?.contractId || event?.params?.requestId || ''
+  const states = [event?.data?.before, event?.data?.after].filter((snapshot) => snapshot?.exists).map((snapshot) => snapshot.data() || {})
+  if (source === 'scheduleConfig') {
+    return documentId === 'scheduleConfig'
+      ? (await paginatedViews(viewQuery(db).select('branchId', 'weekId'))).map(targetFromView).filter(Boolean)
+      : []
+  }
   const direct = ['draft', 'target'].includes(source) ? branchWeekFromDocumentId(documentId) : null
-  if (direct) return [direct]
-  if (source === 'scheduleConfig') return documentId === 'scheduleConfig' ? existingWeeklyViews(db) : []
-
+  const targets = new Map()
+  const add = (target) => {
+    const valid = target && targetFromView(target)
+    if (valid) targets.set(weeklyViewId(valid.branchId, valid.weekId), valid)
+  }
+  if (direct) add(direct)
+  if (source === 'target') return [...targets.values()]
+  const branchCache = new Map()
   const branchFor = async (id, collection) => {
     if (!id) return ''
-    const snapshot = await db.doc(`${collection}/${id}`).get()
-    return String(snapshot.data()?.branchId || '').trim()
+    const path = `${collection}/${id}`
+    if (!branchCache.has(path)) branchCache.set(path, db.doc(path).get().then((snapshot) => String(snapshot.data()?.branchId || '').trim()))
+    return branchCache.get(path)
   }
-
-  let branchId = String(data?.branchId || '').trim()
-  let weekId = weekIdFromDate(data?.date || data?.startDate || data?.weekId)
-  if (source === 'availability' || source === 'trainerAvailability') {
-    const match = String(documentId).match(/^(.+)_(\d{4}-\d{2}-\d{2})$/)
-    if (match) {
-      weekId = match[2]
-      branchId = branchId || await branchFor(match[1], source === 'availability' ? 'students' : 'trainers')
+  const branchViews = new Map()
+  const viewsForBranch = async (branchId) => {
+    if (!branchViews.has(branchId)) branchViews.set(branchId, paginatedViews(viewQuery(db).where('branchId', '==', branchId).select('branchId', 'weekId')))
+    return branchViews.get(branchId)
+  }
+  const subjects = { sourceStudentIds: new Set(), sourceTrainerIds: new Set(), sourceContractIds: new Set() }
+  const scopes = []
+  const exactWeeks = new Set()
+  for (const data of states) {
+    let branchId = String(data.branchId || '').trim()
+    let weekId = weekIdFromDate(data.date || data.weekId || data.startDate)
+    let studentId = String(data.studentId || (source === 'student' ? documentId : ''))
+    let trainerId = String(data.trainerId || (source === 'trainer' ? documentId : ''))
+    if (source === 'availability' || source === 'trainerAvailability') {
+      const match = String(documentId).match(/^(.+)_(\d{4}-\d{2}-\d{2})$/)
+      if (match) {
+        weekId = match[2]
+        if (source === 'availability') studentId = studentId || match[1]
+        else trainerId = trainerId || match[1]
+      }
+    }
+    if (!branchId || branchId === 'all') {
+      if (['contract', 'contractUsage'].includes(source)) branchId = await branchFor(documentId, 'contracts')
+      if (!branchId || branchId === 'all') branchId = await branchFor(studentId || trainerId, studentId ? 'students' : 'trainers')
+    }
+    if (studentId) subjects.sourceStudentIds.add(studentId)
+    if (trainerId) subjects.sourceTrainerIds.add(trainerId)
+    if (['contract', 'contractUsage'].includes(source)) subjects.sourceContractIds.add(documentId)
+    if (source === 'draft') {
+      branchId = direct?.branchId || branchId
+      weekId = direct?.weekId || weekId
+      for (const entries of Object.values(safeSchedule(data.schedule || {}))) {
+        for (const entry of Array.isArray(entries) ? entries : []) {
+          if (entry?.studentId) subjects.sourceStudentIds.add(entry.studentId)
+        }
+      }
+    }
+    // Contract entitlement/history changes can affect every cached week, not
+    // just startDate. Profile changes likewise affect all rendered weeks.
+    const allWeeks = ['student', 'trainer', 'contract', 'contractUsage'].includes(source) || !weekId
+    const endWeek = source === 'leave' ? weekIdFromDate(data.endDate || data.startDate) : weekId
+    const inherited = ['availability', 'trainerAvailability'].includes(source)
+    const acceptsWeek = (value) => allWeeks || (value >= weekId && (inherited || value <= (endWeek || weekId)))
+    scopes.push(acceptsWeek)
+    if (!allWeeks && ['session', 'draft'].includes(source)) exactWeeks.add(weekId)
+    if (branchId && branchId !== 'all') {
+      if (weekId && !allWeeks) add({ branchId, weekId })
+      if (allWeeks || inherited || source === 'leave') {
+        for (const view of await viewsForBranch(branchId)) if (acceptsWeek(view.weekId)) add(view)
+      }
     }
   }
-  if (source === 'session') {
-    weekId = weekId || weekIdFromDate(data?.date)
-    if (branchId === 'all' || !branchId) branchId = await branchFor(data?.studentId || data?.trainerId, data?.studentId ? 'students' : 'trainers')
+  // Cross-branch display and coverage depend on the student/trainer, not only
+  // their home branch. Version 2 stores small indexed dependency arrays.
+  // Existing v1 views are checked during migration so no stale cross-branch
+  // cards are silently left behind before their first v2 rebuild.
+  const acceptsAnyWeek = (weekId) => scopes.some((accepts) => accepts(weekId))
+  const referencesSubject = (view) => (
+    (view.sourceStudentIds || []).some((id) => subjects.sourceStudentIds.has(id))
+    || (view.sourceTrainerIds || []).some((id) => subjects.sourceTrainerIds.has(id))
+    || (view.sourceContractIds || []).some((id) => subjects.sourceContractIds.has(id))
+    || (view.students || []).some((row) => subjects.sourceStudentIds.has(row.id))
+    || (view.trainers || []).some((row) => subjects.sourceTrainerIds.has(row.id))
+    || (view.contracts || []).some((row) => subjects.sourceContractIds.has(row.id))
+  )
+  if (exactWeeks.size && ['session', 'draft'].includes(source)) {
+    // Hot-path session/draft writes only inspect the affected week(s), not a
+    // student's entire view history or every legacy view. Single-field indexes
+    // support this without a new composite-index deployment prerequisite.
+    for (const weekId of exactWeeks) {
+      const views = await paginatedViews(viewQuery(db).where('weekId', '==', weekId)
+        .select('branchId', 'weekId', 'sourceStudentIds', 'sourceTrainerIds', 'sourceContractIds', 'students', 'trainers', 'contracts'))
+      for (const view of views) if (referencesSubject(view)) add(view)
+    }
+    return [...targets.values()]
   }
-  if (source === 'leave') {
-    branchId = branchId || await branchFor(data?.trainerId, 'trainers')
+  let hasSubjects = false
+  for (const [field, ids] of Object.entries(subjects)) {
+    const values = [...ids]
+    for (let offset = 0; offset < values.length; offset += 30) {
+      hasSubjects = true
+      const views = await paginatedViews(viewQuery(db).where(field, 'array-contains-any', values.slice(offset, offset + 30)).select('branchId', 'weekId'))
+      for (const view of views) if (acceptsAnyWeek(view.weekId)) add(view)
+    }
   }
-  if (!branchId && ['student', 'contract', 'contractUsage'].includes(source)) {
-    // Contract and usage documents are keyed by contractId, even though the
-    // payload also carries studentId. Resolving the branch from studentId here
-    // would miss the contract document and silently skip invalidation.
-    branchId = await branchFor(documentId, source === 'student' ? 'students' : 'contracts')
-    if (!branchId && source !== 'student') branchId = await branchFor(data?.studentId, 'students')
+  if (hasSubjects) {
+    const legacy = await paginatedViews(viewQuery(db).where('schemaVersion', '==', 1).select('branchId', 'weekId', 'students', 'trainers', 'contracts'))
+    for (const view of legacy) {
+      if (!acceptsAnyWeek(view.weekId)) continue
+      if (referencesSubject(view)) add(view)
+    }
   }
-  if (!branchId) return []
-  if (weekId) return [{ branchId, weekId }]
-  return existingBranchWeeks(db, branchId)
+  return [...targets.values()]
 }
 
 async function syncPtScheduleWeeklyViewSource({ db, event, source = 'source', logger = console } = {}) {
@@ -605,9 +739,10 @@ async function syncPtScheduleWeeklyViewSource({ db, event, source = 'source', lo
   }
   const targets = await sourceEventTargets({ db, event, source })
   let marked = 0
-  for (const target of targets.slice(0, 16)) {
-    await markPtScheduleWeeklyViewDirty({ db, ...target, reason: source })
-    marked += 1
+  for (let offset = 0; offset < targets.length; offset += 20) {
+    const chunk = targets.slice(offset, offset + 20)
+    await Promise.all(chunk.map((target) => markPtScheduleWeeklyViewDirty({ db, ...target, reason: source })))
+    marked += chunk.length
   }
   logger?.info?.('pt_schedule_weekly_view_marked_dirty', { source, marked })
   return { source, marked }
@@ -623,8 +758,8 @@ async function rebuildDirtyPtScheduleWeeklyViews({ db, limit = 8, logger = conso
     const weekId = String(value.weekId || '')
     if (!branchId || !/^\d{4}-\d{2}-\d{2}$/.test(weekId)) continue
     try {
-      await rebuildPtScheduleWeeklyView({ db, branchId, weekId, forceRefresh: true })
-      rebuilt += 1
+      const result = await rebuildPtScheduleWeeklyView({ db, branchId, weekId, forceRefresh: true })
+      if (result.rebuilding !== true) rebuilt += 1
     } catch (error) {
       failed += 1
       logger?.error?.('pt_schedule_weekly_view_rebuild_failed', { branchId, weekId, error: error?.message || String(error) })
@@ -636,11 +771,11 @@ async function rebuildDirtyPtScheduleWeeklyViews({ db, limit = 8, logger = conso
 async function markPtScheduleWeeklyViewDirty({ db, branchId, weekId, reason = 'source_changed', sourceRevision = '' } = {}) {
   const reference = weeklyViewReference(db, branchId, weekId)
   await reference.set({
-    schemaVersion: WEEKLY_VIEW_SCHEMA_VERSION,
     branchId,
     weekId,
     freshness: 'stale',
     dirty: true,
+    dirtyGeneration: FieldValue.increment(1),
     dirtyReason: stringValue(reason, 100) || 'source_changed',
     ...(sourceRevision ? { sourceRevision: stringValue(sourceRevision, 80) } : {}),
     dirtyAt: FieldValue.serverTimestamp(),
@@ -671,6 +806,13 @@ function createPtScheduleWeeklyViewFunctions({
       // Bootstrap only the requested branch/week. Subsequent page loads read
       // the materialized document and do not fan out across the roster.
       return rebuildPtScheduleWeeklyView({ db, branchId, weekId, branchData, forceRefresh: true, initialPaint: true })
+    }
+    // Upgrade a clean legacy snapshot when it is actually opened. Keep an
+    // exact snapshot exact; a cheap display-only rebuild must not discard its
+    // reconciled warnings during this one-time migration. Unopened history is
+    // not eagerly rebuilt, and legacy dependency lookup remains a safety net.
+    if (Number(current.schemaVersion || 0) < WEEKLY_VIEW_SCHEMA_VERSION) {
+      return rebuildPtScheduleWeeklyView({ db, branchId, weekId, branchData, forceRefresh: true, initialPaint: current.verification !== 'exact' })
     }
     // A source trigger can leave a complete view marked dirty while the
     // coalescing worker is waiting for its next sweep. An active schedule page

@@ -1,13 +1,21 @@
 'use strict'
 
-const { createHash } = require('node:crypto')
+const { createHash, randomUUID } = require('node:crypto')
 const { FieldValue, Timestamp } = require('firebase-admin/firestore')
 
-const AGGREGATE_COLLECTION = 'operationsDailyAggregates'
+// Isolate v2 from old in-flight trigger/scheduler revisions. A rolling deploy
+// (or rollback) must never let a v1 delta writer corrupt the v2 baseline.
+const AGGREGATE_COLLECTION = 'operationsDailyAggregatesV2'
 const COVERAGE_COLLECTION = 'operationsAggregateCoverage'
-const COVERAGE_DOCUMENT = 'dashboard-v1'
-const AGGREGATE_SCHEMA_VERSION = 1
+const COVERAGE_DOCUMENT = 'dashboard-v2'
+const CONTRIBUTION_COLLECTION = 'operationsAggregateContributions'
+const AGGREGATE_SCHEMA_VERSION = 2
 const MAX_REBUILD_DOCUMENTS = 20_000
+const REBUILD_LOCK_MILLIS = 20 * 60 * 1000
+const REBUILD_BATCH_SIZE = 300
+const SOURCE_COLLECTIONS = {
+  ledger: 'ledgerEntries', session: 'sessions', attendance: 'attendanceEvents', contract: 'contracts', student: 'students',
+}
 
 const formatter = new Intl.DateTimeFormat('en-CA', {
   timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit', day: '2-digit',
@@ -125,30 +133,69 @@ function contributionDeltas(before, after) {
 async function syncDailyAggregateWrite({ db, source, event, logger = console }) {
   const before = event.data?.before?.exists ? contribution(source, event.data.before.data()) : null
   const after = event.data?.after?.exists ? contribution(source, event.data.after.data()) : null
-  const deltas = contributionDeltas(before, after)
-  if (!deltas.length) return { updated: 0 }
-  await db.runTransaction(async (transaction) => {
-    // Reading the rebuild marker in the same transaction closes the race where
-    // an incremental trigger could otherwise commit while the scheduled job
-    // is replacing absolute bucket values. Retried triggers resume after the
-    // coverage document returns to ready.
+  // A metadata-only write cannot affect any bucket. Keep this zero-read path.
+  if (!contributionDeltas(before, after).length) return { updated: 0 }
+  const sourcePath = event.data?.after?.ref?.path || event.data?.before?.ref?.path || ''
+  const [collection, id, extra] = sourcePath.split('/')
+  if (!SOURCE_COLLECTIONS[source] || collection !== SOURCE_COLLECTIONS[source] || !id || extra) {
+    throw new Error('OPERATIONS_AGGREGATE_INVALID_SOURCE_REFERENCE')
+  }
+  const result = await db.runTransaction(async (transaction) => {
     const coverageReference = db.collection(COVERAGE_COLLECTION).doc(COVERAGE_DOCUMENT)
     const coverage = await transaction.get(coverageReference)
-    if (coverage.data()?.status === 'building') throw new Error('OPERATIONS_AGGREGATE_REBUILD_IN_PROGRESS')
+    const version = coverage.data() || {}
+    if (version.status === 'building') throw new Error('OPERATIONS_AGGREGATE_REBUILD_IN_PROGRESS')
+    // Existing v1 totals have no per-document baseline. Never mix them with v2
+    // updates or initialize from a single event. The reader uses source queries
+    // until the scheduled/explicit rebuild establishes complete coverage.
+    if (!usableCoverage(version)) return { updated: 0, reason: 'awaiting_rebuild' }
+    const reference = db.collection(CONTRIBUTION_COLLECTION).doc(contributionDocumentId(sourcePath))
+    const [stored, current] = await Promise.all([
+      transaction.get(reference), transaction.get(db.collection(collection).doc(id)),
+    ])
+    const prior = stored.data()?.generation === version.generation ? stored.data().contribution : null
+    const next = current.exists ? rangedContribution(source, current.data(), version) : null
+    // Reconcile the live document, NOT event.before/event.after. Duplicate and
+    // out-of-order delivery therefore converge to the same state, including
+    // deletions and delete/recreate. The generation baseline also absorbs
+    // delayed events whose changes were already included in a full rebuild.
+    const deltas = contributionDeltas(prior, next)
+    if (!deltas.length) return { updated: 0 }
     deltas.forEach((item) => {
       const metrics = Object.fromEntries(Object.entries(item.metrics).map(([name, amount]) => [name, FieldValue.increment(amount)]))
       const reference = db.collection(AGGREGATE_COLLECTION).doc(aggregateDocumentId(item.date, item.branchId))
       transaction.set(reference, {
         schemaVersion: AGGREGATE_SCHEMA_VERSION,
+        generation: version.generation,
         date: item.date,
         branchId: item.branchId,
         metrics,
         updatedAt: FieldValue.serverTimestamp(),
       }, { merge: true })
     })
+    transaction.set(reference, {
+      schemaVersion: AGGREGATE_SCHEMA_VERSION, generation: version.generation,
+      sourcePath, contribution: next, updatedAt: FieldValue.serverTimestamp(),
+    })
+    return { updated: deltas.length }
   })
-  logger.info('operations_daily_aggregate_synced', { source, updated: deltas.length })
-  return { updated: deltas.length }
+  logger.info('operations_daily_aggregate_synced', { source, ...result })
+  return result
+}
+
+function usableCoverage(value) {
+  return value.schemaVersion === AGGREGATE_SCHEMA_VERSION && value.status === 'ready'
+    && value.complete === true && typeof value.generation === 'string' && value.generation.length > 0
+    && typeof value.startDate === 'string' && typeof value.endDate === 'string'
+}
+
+function contributionDocumentId(sourcePath) {
+  return createHash('sha256').update(sourcePath).digest('hex')
+}
+
+function rangedContribution(source, value, range) {
+  const next = contribution(source, value)
+  return next && next.date >= range.startDate && next.date <= range.endDate ? next : null
 }
 
 function scopeIncludes(branchId, scope) {
@@ -160,7 +207,7 @@ function scopeIncludes(branchId, scope) {
 async function loadDailyAggregates({ db, startDate, endDate, scope }) {
   const coverageSnapshot = await db.collection(COVERAGE_COLLECTION).doc(COVERAGE_DOCUMENT).get()
   const coverage = coverageSnapshot.data() || {}
-  if (!coverageSnapshot.exists || coverage.status !== 'ready' || coverage.complete !== true
+  if (!coverageSnapshot.exists || !usableCoverage(coverage)
     || coverage.startDate > startDate || coverage.endDate < endDate) return null
   const snapshot = await db.collection(AGGREGATE_COLLECTION)
     .where('date', '>=', startDate)
@@ -168,10 +215,15 @@ async function loadDailyAggregates({ db, startDate, endDate, scope }) {
     .limit(20_000)
     .get()
   if (snapshot.size >= 20_000) return null
+  // A rebuild may have replaced buckets after our first coverage read. Do not
+  // expose a partial/mixed generation, even if it finished during the query.
+  const confirmedCoverage = (await db.collection(COVERAGE_COLLECTION).doc(COVERAGE_DOCUMENT).get()).data() || {}
+  if (!usableCoverage(confirmedCoverage) || confirmedCoverage.generation !== coverage.generation) return null
   const days = new Map()
   const totals = {}
   for (const item of snapshot.docs) {
     const value = item.data() || {}
+    if (value.schemaVersion !== AGGREGATE_SCHEMA_VERSION || value.generation !== coverage.generation) return null
     if (!scopeIncludes(value.branchId, scope)) continue
     const day = days.get(value.date) || { date: value.date, metrics: {} }
     Object.entries(value.metrics || {}).forEach(([name, amount]) => {
@@ -200,60 +252,109 @@ function dateKey(date) {
   return formatter.format(date)
 }
 
-async function rebuildOperationsDailyAggregates({ db, logger = console, days = 366 }) {
-  const now = new Date()
-  const start = new Date(now)
-  start.setDate(start.getDate() - Math.max(1, Math.min(366, days)) + 1)
-  start.setHours(0, 0, 0, 0)
-  const end = new Date(now)
-  end.setHours(23, 59, 59, 999)
+async function rebuildOperationsDailyAggregates({ db, logger = console, days = 366, now = new Date() }) {
+  const endDate = dateKey(now)
+  // Runtime timezone is normally UTC, whereas contribution dates use Vietnam.
+  // Make the source-query boundaries match the bucket dates exactly.
+  const endExclusive = new Date(`${endDate}T00:00:00+07:00`)
+  endExclusive.setUTCDate(endExclusive.getUTCDate() + 1)
+  const start = new Date(`${endDate}T00:00:00+07:00`)
+  start.setUTCDate(start.getUTCDate() - Math.max(1, Math.min(366, days)) + 1)
   const startDate = dateKey(start)
-  const endDate = dateKey(end)
   const coverageReference = db.collection(COVERAGE_COLLECTION).doc(COVERAGE_DOCUMENT)
-  await coverageReference.set({
-    schemaVersion: AGGREGATE_SCHEMA_VERSION,
-    status: 'building', startDate, endDate, startedAt: FieldValue.serverTimestamp(),
-  }, { merge: true })
-  const limit = MAX_REBUILD_DOCUMENTS + 1
-  const [ledger, sessions, attendance, contracts, students] = await Promise.all([
-    db.collection('ledgerEntries').where('effectiveAt', '>=', Timestamp.fromDate(start)).where('effectiveAt', '<=', Timestamp.fromDate(end)).limit(limit).get(),
-    db.collection('sessions').where('date', '>=', startDate).where('date', '<=', endDate).limit(limit).get(),
-    db.collection('attendanceEvents').where('occurredAt', '>=', Timestamp.fromDate(start)).where('occurredAt', '<=', Timestamp.fromDate(end)).limit(limit).get(),
-    db.collection('contracts').limit(limit).get(),
-    db.collection('students').limit(limit).get(),
-  ])
-  const snapshots = [
-    ['ledger', ledger], ['session', sessions], ['attendance', attendance], ['contract', contracts], ['student', students],
-  ]
-  const groups = new Map()
-  snapshots.forEach(([source, snapshot]) => snapshot.docs.slice(0, MAX_REBUILD_DOCUMENTS).forEach((item) => {
-    const next = contribution(source, item.data())
-    if (!next || next.date < startDate || next.date > endDate) return
-    const key = `${next.date}|${next.branchId}`
-    const group = groups.get(key) || { date: next.date, branchId: next.branchId, metrics: {} }
-    Object.entries(next.metrics).forEach(([name, amount]) => mergeMetric(group.metrics, name, amount))
-    groups.set(key, group)
-  }))
-  const complete = snapshots.every(([, snapshot]) => snapshot.size <= MAX_REBUILD_DOCUMENTS)
-  const previous = await db.collection(AGGREGATE_COLLECTION).where('date', '>=', startDate).where('date', '<=', endDate).limit(20_000).get()
-  const writer = db.bulkWriter()
-  previous.docs.forEach((item) => writer.delete(item.ref))
-  groups.forEach((item) => writer.set(db.collection(AGGREGATE_COLLECTION).doc(aggregateDocumentId(item.date, item.branchId)), {
-    schemaVersion: AGGREGATE_SCHEMA_VERSION,
-    date: item.date,
-    branchId: item.branchId,
-    metrics: item.metrics,
-    updatedAt: FieldValue.serverTimestamp(),
-  }))
-  await writer.close()
-  const sourceCounts = Object.fromEntries(snapshots.map(([source, snapshot]) => [source, Math.min(snapshot.size, MAX_REBUILD_DOCUMENTS)]))
-  await coverageReference.set({
-    schemaVersion: AGGREGATE_SCHEMA_VERSION,
-    status: 'ready', complete, startDate, endDate, sourceCounts,
-    generatedAt: FieldValue.serverTimestamp(),
+  const generation = randomUUID()
+  await db.runTransaction(async (transaction) => {
+    const existing = (await transaction.get(coverageReference)).data() || {}
+    if (existing.status === 'building' && millis(existing.lockExpiresAt) > Date.now()) {
+      throw new Error('OPERATIONS_AGGREGATE_REBUILD_IN_PROGRESS')
+    }
+    transaction.set(coverageReference, {
+      schemaVersion: AGGREGATE_SCHEMA_VERSION, generation,
+      status: 'building', complete: false, startDate, endDate,
+      startedAt: FieldValue.serverTimestamp(), lockExpiresAt: Timestamp.fromMillis(Date.now() + REBUILD_LOCK_MILLIS),
+    })
   })
-  logger.info('operations_daily_aggregates_rebuilt', { startDate, endDate, complete, buckets: groups.size, sourceCounts })
-  return { startDate, endDate, complete, buckets: groups.size, sourceCounts }
+  const assertOwner = async (transaction) => {
+    const value = (await transaction.get(coverageReference)).data() || {}
+    if (value.status !== 'building' || value.generation !== generation) {
+      throw new Error('OPERATIONS_AGGREGATE_REBUILD_OWNERSHIP_LOST')
+    }
+  }
+  // Fence every batch, not only the final publish. An expired builder can
+  // never overwrite the replacement builder's contribution baseline/buckets.
+  const writeChunks = async (operations) => {
+    for (let index = 0; index < operations.length; index += REBUILD_BATCH_SIZE) {
+      const chunk = operations.slice(index, index + REBUILD_BATCH_SIZE)
+      await db.runTransaction(async (transaction) => {
+        await assertOwner(transaction)
+        chunk.forEach((item) => item.remove
+          ? transaction.delete(item.reference)
+          : transaction.set(item.reference, item.value))
+      })
+    }
+  }
+  try {
+    const limit = MAX_REBUILD_DOCUMENTS + 1
+    const [ledger, sessions, attendance, contracts, students] = await Promise.all([
+      db.collection('ledgerEntries').where('effectiveAt', '>=', Timestamp.fromDate(start)).where('effectiveAt', '<', Timestamp.fromDate(endExclusive)).limit(limit).get(),
+      db.collection('sessions').where('date', '>=', startDate).where('date', '<=', endDate).limit(limit).get(),
+      db.collection('attendanceEvents').where('occurredAt', '>=', Timestamp.fromDate(start)).where('occurredAt', '<', Timestamp.fromDate(endExclusive)).limit(limit).get(),
+      db.collection('contracts').limit(limit).get(),
+      db.collection('students').limit(limit).get(),
+    ])
+    const snapshots = [
+      ['ledger', ledger], ['session', sessions], ['attendance', attendance], ['contract', contracts], ['student', students],
+    ]
+    const sourceCounts = Object.fromEntries(snapshots.map(([source, snapshot]) => [source, snapshot.size]))
+    // Never publish a capped query as complete, nor replace a usable baseline
+    // with a partial one. Source-query fallback stays active until repaired.
+    if (snapshots.some(([, snapshot]) => snapshot.size > MAX_REBUILD_DOCUMENTS)) {
+      throw new Error('OPERATIONS_AGGREGATE_REBUILD_SOURCE_LIMIT')
+    }
+    const previous = await db.collection(AGGREGATE_COLLECTION).where('date', '>=', startDate).where('date', '<=', endDate).limit(limit).get()
+    if (previous.size > MAX_REBUILD_DOCUMENTS) throw new Error('OPERATIONS_AGGREGATE_REBUILD_BUCKET_LIMIT')
+    const groups = new Map()
+    const states = []
+    snapshots.forEach(([source, snapshot]) => snapshot.docs.forEach((item) => {
+      const next = rangedContribution(source, item.data(), { startDate, endDate })
+      if (!next) return
+      const key = `${next.date}|${next.branchId}`
+      const group = groups.get(key) || { date: next.date, branchId: next.branchId, metrics: {} }
+      Object.entries(next.metrics).forEach(([name, amount]) => mergeMetric(group.metrics, name, amount))
+      groups.set(key, group)
+      const sourcePath = item.ref.path
+      states.push({ reference: db.collection(CONTRIBUTION_COLLECTION).doc(contributionDocumentId(sourcePath)), value: {
+        schemaVersion: AGGREGATE_SCHEMA_VERSION, generation, sourcePath, contribution: next,
+        updatedAt: FieldValue.serverTimestamp(),
+      } })
+    }))
+    await writeChunks(states)
+    await writeChunks(previous.docs.map((item) => ({ reference: item.ref, remove: true })))
+    await writeChunks([...groups.values()].map((item) => ({
+      reference: db.collection(AGGREGATE_COLLECTION).doc(aggregateDocumentId(item.date, item.branchId)),
+      value: {
+        schemaVersion: AGGREGATE_SCHEMA_VERSION, generation, date: item.date, branchId: item.branchId,
+        metrics: item.metrics, updatedAt: FieldValue.serverTimestamp(),
+      },
+    })))
+    await db.runTransaction(async (transaction) => {
+      await assertOwner(transaction)
+      transaction.set(coverageReference, {
+        schemaVersion: AGGREGATE_SCHEMA_VERSION, generation,
+        status: 'ready', complete: true, startDate, endDate, sourceCounts,
+        generatedAt: FieldValue.serverTimestamp(),
+      })
+    })
+    logger.info('operations_daily_aggregates_rebuilt', { startDate, endDate, complete: true, buckets: groups.size, sourceCounts })
+    return { startDate, endDate, complete: true, buckets: groups.size, sourceCounts }
+  } catch (error) {
+    await db.runTransaction(async (transaction) => {
+      const value = (await transaction.get(coverageReference)).data() || {}
+      if (value.generation !== generation || value.status !== 'building') return
+      transaction.set(coverageReference, { status: 'failed', complete: false, failedAt: FieldValue.serverTimestamp() }, { merge: true })
+    })
+    throw error
+  }
 }
 
 module.exports = {

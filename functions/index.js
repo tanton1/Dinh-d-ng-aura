@@ -1050,6 +1050,7 @@ exports.syncPtScheduleWeeklyViewFromDraft = weeklyViewSourceTrigger('ptScheduleD
 exports.syncPtScheduleWeeklyViewFromTarget = weeklyViewSourceTrigger('ptScheduleTargetOverrides/{documentId}', 'target')
 exports.syncPtScheduleWeeklyViewFromSession = weeklyViewSourceTrigger('sessions/{sessionId}', 'session')
 exports.syncPtScheduleWeeklyViewFromStudent = weeklyViewSourceTrigger('students/{studentId}', 'student')
+exports.syncPtScheduleWeeklyViewFromTrainer = weeklyViewSourceTrigger('trainers/{trainerId}', 'trainer')
 exports.syncPtScheduleWeeklyViewFromContract = weeklyViewSourceTrigger('contracts/{contractId}', 'contract')
 exports.syncPtScheduleWeeklyViewFromContractUsage = weeklyViewSourceTrigger('contractUsageViews/{contractId}', 'contractUsage')
 exports.syncPtScheduleWeeklyViewFromAvailability = weeklyViewSourceTrigger('ptAvailability/{availabilityId}', 'availability')

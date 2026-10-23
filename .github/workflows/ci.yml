@@ -151,6 +151,9 @@ jobs:
       - name: Verify atomic renewal and cross-region idempotency
         if: matrix.suite == 'firestore'
         run: npm run test:renewal-transaction
+      - name: Verify projection concurrency and rebuild isolation
+        if: matrix.suite == 'firestore'
+        run: npm run test:projection-transaction
 
   dependency-review:
     name: Dependency review
