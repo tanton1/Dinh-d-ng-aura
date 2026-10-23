@@ -2,6 +2,22 @@ const test = require('node:test')
 const assert = require('node:assert/strict')
 const { addMonthsDateKey, normalizeInstallments, renewalRisk, renewalEligibility, renewalHandoverProjection, renewalActivationProjection, renewalUsageProjection, latestContractsByStudent, requiresRenewalApproval, renewalQueueFingerprint, matchesRenewalSegment, renewalStats, renewalMessageTemplates, caseAssignedToTrainer, canViewCase } = require('./contract-renewals')
 
+test('regional confirmation reuses authorization and transaction without exporting a second scheduler', async () => {
+  const { createContractRenewalFunctions } = require('./contract-renewals')
+  const { createContractRenewalRegionalFunctions } = require('./contract-renewal-regional')
+  const db = new Proxy({}, { get() { throw new Error('Unauthenticated request must not reach Firestore') } })
+  const onCall = (options, handler) => ({ options, handler })
+  const regional = createContractRenewalRegionalFunctions({ db, onCall })
+  const original = createContractRenewalFunctions({ db, onCall })
+  assert.deepEqual(Object.keys(regional), ['renewPtContractRegional'])
+  assert.deepEqual(regional.renewPtContractRegional.options, {
+    region: 'asia-east1', memory: '256MiB', cpu: 0.1666, minInstances: 0,
+    maxInstances: 2, concurrency: 1, timeoutSeconds: 120, invoker: 'public',
+  })
+  assert.equal(regional.renewPtContractRegional.handler.toString(), original.renewPtContract.handler.toString())
+  await assert.rejects(() => regional.renewPtContractRegional.handler({ data: {} }), error => error.code === 'unauthenticated')
+})
+
 test('renewal calendar uses real months and clamps month-end dates', () => {
   assert.equal(addMonthsDateKey('2026-01-31', 1), '2026-02-28')
   assert.equal(addMonthsDateKey('2024-01-31', 1), '2024-02-29')

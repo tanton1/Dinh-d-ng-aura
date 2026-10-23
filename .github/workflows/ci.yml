@@ -145,6 +145,12 @@ jobs:
       - run: npm ci
       - name: Test Rules
         run: npm run ${{ matrix.script }}
+      - name: Install renewal transaction test dependencies
+        if: matrix.suite == 'firestore'
+        run: npm --prefix functions ci
+      - name: Verify atomic renewal and cross-region idempotency
+        if: matrix.suite == 'firestore'
+        run: npm run test:renewal-transaction
 
   dependency-review:
     name: Dependency review

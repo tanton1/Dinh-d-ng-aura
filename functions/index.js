@@ -61,6 +61,7 @@ const { createBusinessReportingFunctions } = require('./business-reporting')
 const { createPtWorkoutTrackingFunctions } = require('./pt-workout-tracking')
 const { createNutritionReviewFunctions } = require('./nutrition-reviews')
 const { createContractRenewalFunctions } = require('./contract-renewals')
+const { createContractRenewalRegionalFunctions } = require('./contract-renewal-regional')
 const { createLoyaltyFunctions, reconcileAttendance: reconcileLoyaltyAttendance, reconcileAttendanceMissions, reconcileContractSpend: reconcileLoyaltyContractSpend, reconcileMemberReferral, reconcileNutritionReview, reconcilePendingMemberReferrals, vestPendingSources } = require('./loyalty')
 const { createRegionalReadAliases } = require('./regional-read-aliases')
 const { syncContractUsageProjection } = require('./contract-usage')
@@ -1182,6 +1183,10 @@ exports.getRenewalAnalytics = contractRenewalFunctions.getRenewalAnalytics
 exports.refreshContractRenewalQueue = contractRenewalFunctions.refreshContractRenewalQueue
 exports.reconcileContractStatuses = contractRenewalFunctions.reconcileContractStatuses
 exports.refreshContractRenewalQueueScheduled = contractRenewalFunctions.refreshContractRenewalQueueScheduled
+// Singapore can reject cold starts before the financial transaction runs.
+// New clients use one bounded Taiwan endpoint; the legacy endpoint remains
+// compatible and shares the same transaction/idempotency checks.
+exports.renewPtContractRegional = createContractRenewalRegionalFunctions({ db, onCall, logger }).renewPtContractRegional
 const sessionOperationFunctions = createSessionOperationFunctions({ db, onCall, logger })
 Object.assign(exports, sessionOperationFunctions)
 exports.listPtOperationsRequests = sessionOperationFunctions.listPtOperationsRequests

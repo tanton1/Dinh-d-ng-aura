@@ -1,5 +1,5 @@
 import { httpsCallable } from 'firebase/functions'
-import { firebaseFunctions } from '../lib/firebaseFunctions'
+import { firebaseFunctions, firebaseStudent360Functions } from '../lib/firebaseFunctions'
 import { callReadOnlyFunction } from './readOnlyCallableService'
 
 export type RenewalRiskCategory = 'expired' | 'exhausted' | 'critical' | 'upcoming' | 'early'
@@ -189,8 +189,13 @@ export interface RenewalListInput {
 }
 
 function callable<Input, Output>(name: string) {
-  if (!firebaseFunctions) throw new Error('Firebase Functions chưa sẵn sàng.')
-  const invoke = httpsCallable<Input, Output>(firebaseFunctions, name)
+  const isConfirmation = name === 'renewPtContract'
+  const client = isConfirmation ? firebaseStudent360Functions : firebaseFunctions
+  if (!client) throw new Error('Firebase Functions chưa sẵn sàng.')
+  // Financial writes target one region only. A timeout must never trigger an
+  // automatic second write to the legacy region; explicit retries retain the
+  // wizard's idempotency key and return the existing contract if it committed.
+  const invoke = httpsCallable<Input, Output>(client, isConfirmation ? 'renewPtContractRegional' : name, isConfirmation ? { timeout: 120_000 } : undefined)
   return async (input: Input) => {
     try {
       return await invoke(input)
@@ -199,7 +204,9 @@ function callable<Input, Output>(name: string) {
       const code = typeof error.code === 'string' ? error.code.replace(/^functions\//, '') : ''
       const message = typeof error.message === 'string' ? error.message.trim() : ''
       if (['internal', 'resource-exhausted', 'unavailable', 'deadline-exceeded'].includes(code)) {
-        throw new Error('Dịch vụ tái ký đang bận. Aura chưa thay đổi dữ liệu; vui lòng thử lại sau ít phút.')
+        throw new Error(isConfirmation
+          ? 'Chưa xác nhận được kết quả tái ký. Vui lòng giữ cửa sổ này và bấm Xác nhận tái ký để thử lại với cùng mã giao dịch.'
+          : 'Dịch vụ tái ký đang bận. Vui lòng thử lại sau ít phút.')
       }
       if (code === 'unauthenticated') throw new Error('Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.')
       throw new Error(message || 'Không thể xử lý nghiệp vụ tái ký.')

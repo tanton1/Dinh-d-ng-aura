@@ -7,6 +7,7 @@ declare global {
     renewalApprovalRequests: Array<Record<string, unknown>>
     renewalApprovalStatus: string
     renewalSubmissions: Array<Record<string, unknown>>
+    renewalTransportCalls: Array<{ region: string; name: string; input: { idempotencyKey?: string }; timeout?: number }>
     releaseRenewalQuote?: () => void
   }
 }
@@ -201,4 +202,67 @@ test('Student 360 suggests a linked continuation before opening an independent c
   await expect(choice.getByRole('button', { name: 'Tiếp tục nối tiếp' })).toBeVisible()
   await choice.getByRole('button', { name: 'Tạo hợp đồng độc lập' }).click()
   await expect(page.getByRole('heading', { name: 'Tạo hợp đồng mới' })).toBeVisible()
+})
+
+test('real renewal service routes confirmation only to Taiwan and preserves the retry identity after a lost response', async ({ page }) => {
+  await page.addInitScript((fixture) => {
+    Object.assign(window, { renewalFixture: fixture, renewalTransportCalls: [] })
+  }, { row, options, scope: 'system' })
+  // Keep the real service and wizard, mocking only Firebase transport. No
+  // production identity, endpoint or financial data is used by this test.
+  await page.route('**/src/lib/firebaseFunctions.ts*', route => route.fulfill({ contentType: 'application/javascript', body: `
+    export const firebaseFunctions = { region: 'asia-southeast1' };
+    export const firebaseStudent360Functions = { region: 'asia-east1' };
+    export const firebaseNutritionFunctions = firebaseFunctions;
+    export const firebaseScheduleOptimizerFunctions = firebaseStudent360Functions;
+    export const firebaseSchedulePublishFunctions = firebaseStudent360Functions;
+    export const firebaseStudentManagementFunctions = firebaseStudent360Functions;
+    export const firebaseAcademyFunctions = firebaseStudent360Functions;
+    export const firebaseBusinessReportingFunctions = firebaseStudent360Functions;
+    export const firebaseTelemetryFunctions = firebaseStudent360Functions;
+    export const firebaseRegionalReadFunctions = firebaseFunctions;
+  ` }))
+  await page.route('**/src/services/readOnlyCallableService.ts*', route => route.fulfill({ contentType: 'application/javascript', body: `
+    export const callReadOnlyFunction = async () => { throw new Error('Unexpected read'); };
+    export const runReadOnlyWithFallback = async primary => primary();
+  ` }))
+  await page.route('**/node_modules/.vite/deps/firebase_functions.js*', route => route.fulfill({ contentType: 'application/javascript', body: `
+    let failConfirmation = true;
+    export const getFunctions = (_app, region) => ({ region });
+    export const connectFunctionsEmulator = () => {};
+    export const httpsCallable = (client, name, options) => async input => {
+      window.renewalTransportCalls.push({ region: client.region, name, input, timeout: options?.timeout });
+      if (name === 'createRenewalQuote') return { data: { quoteId: 'transport-quote', revision: 2 } };
+      if (name === 'renewPtContractRegional') {
+        if (failConfirmation) {
+          failConfirmation = false;
+          throw Object.assign(new Error('Response unavailable'), { code: 'functions/unavailable' });
+        }
+        return { data: { contractId: 'next', paymentEntryId: null, unchanged: true } };
+      }
+      throw new Error('Unexpected callable: ' + name);
+    };
+  ` }))
+  await page.goto('/tests/e2e/fixtures/contract-renewal.html')
+  const dialog = page.getByRole('dialog', { name: 'Tạo hợp đồng tiếp theo' })
+  const next = dialog.getByRole('button', { name: 'Tiếp tục', exact: true })
+  await next.click()
+  await next.click()
+  await next.click()
+  const confirm = dialog.getByRole('button', { name: 'Xác nhận tái ký', exact: true })
+  await confirm.click()
+  await expect(dialog.getByRole('alert')).toContainText('Chưa xác nhận được kết quả tái ký')
+  const firstCalls = await page.evaluate(() => window.renewalTransportCalls)
+  expect(firstCalls.map(call => [call.region, call.name])).toEqual([
+    ['asia-southeast1', 'createRenewalQuote'], ['asia-east1', 'renewPtContractRegional'],
+  ])
+  expect(firstCalls[1].timeout).toBe(120000)
+  await confirm.click()
+  await expect(confirm).toBeDisabled()
+  const calls = await page.evaluate(() => window.renewalTransportCalls)
+  expect(calls).toHaveLength(3)
+  expect(calls[2].region).toBe('asia-east1')
+  expect(calls[2].name).toBe('renewPtContractRegional')
+  expect(calls[2].input.idempotencyKey).toBeTruthy()
+  expect(calls[2].input).toEqual(calls[1].input)
 })
