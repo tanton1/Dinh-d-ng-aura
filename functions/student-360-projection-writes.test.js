@@ -101,6 +101,7 @@ test('usage projection timestamps are ignored but every business/schema field re
   const before = { studentId: 's1', branchId: 'b1', usedSessions: 2, remainingSessions: 8, schemaVersion: 1, generatedAt: Timestamp.fromMillis(1) }
   const after = { ...before, generatedAt: Timestamp.fromMillis(2) }
   assert.equal(sourceChanged(usageEvent(before, after)), false)
+  assert.equal(sourceChanged(usageEvent(before, { ...after, reconciledAt: Timestamp.fromMillis(3), contractSourceFingerprint: 'receipt-v2', lastSessionSourceFingerprint: 'session-v2', reconciliationProjectionFingerprint: 'business-v2' })), false)
   for (const patch of [{ studentId: 's2' }, { branchId: 'b2' }, { usedSessions: 3 }, { remainingSessions: 7 }, { schemaVersion: 2 }, { status: 'expired' }, { sourceFingerprint: 'changed' }, { newFutureField: { value: true } }]) {
     assert.equal(sourceChanged(usageEvent(before, { ...after, ...patch })), true, JSON.stringify(patch))
   }
@@ -117,10 +118,18 @@ test('timestamp-only usage refresh invokes all three projection consumers with z
   const { syncPtScheduleWeeklyViewSource } = require('./pt-schedule-weekly-view')
   const db = new Proxy({}, { get: () => { throw new Error('Unexpected database access') } })
   const before = { studentId: 's1', branchId: 'b1', usedSessions: 2, generatedAt: Timestamp.fromMillis(1) }
-  const event = usageEvent(before, { ...before, generatedAt: Timestamp.fromMillis(2) })
+  const event = usageEvent(before, { ...before, generatedAt: Timestamp.fromMillis(2), reconciledAt: Timestamp.fromMillis(3), contractSourceFingerprint: 'receipt-v2', lastSessionSourceFingerprint: 'session-v2', reconciliationProjectionFingerprint: 'business-v2' })
   assert.deepEqual(await syncStudent360ProjectionFromEvent({ db, event }), { skipped: true, reason: 'source_unchanged' })
   assert.equal((await syncOperationalActionSource({ db, event })).skipped, 'projection_timestamps_only')
   assert.deepEqual(await syncPtScheduleWeeklyViewSource({ db, event, source: 'contractUsage' }), { source: 'contractUsage', marked: 0, skipped: 'projection_timestamps_only' })
+})
+
+test('verification receipt fields remain meaningful outside usage projections', () => {
+  for (const collection of ['contracts', 'students', 'sessions', 'unknown']) {
+    for (const field of ['reconciledAt', 'contractSourceFingerprint', 'lastSessionSourceFingerprint', 'reconciliationProjectionFingerprint']) {
+      assert.equal(sourceChanged(usageEvent({ [field]: 'before' }, { [field]: 'after' }, collection)), true, `${collection}.${field}`)
+    }
+  }
 })
 
 test('usage business changes and deletes still reach database reconciliation in all three consumers', async () => {

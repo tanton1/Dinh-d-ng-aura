@@ -7,6 +7,7 @@ const {
   SESSION_USAGE_FIELDS,
   affectedContractIds,
   contractUsageViewNeedsRebuild,
+  contractUsageSourceFingerprint,
   contractVisibleToActor,
   contractWithUsageView,
   usageSourceChanged,
@@ -109,7 +110,7 @@ test('usage view fingerprint ignores freshness metadata but detects business cha
   const baseline = { schemaVersion: 1, contractId: 'c1', remainingSessions: 7, generatedAt: '2026-09-10T00:00:00.000Z' }
   assert.equal(
     usageViewFingerprint(baseline),
-    usageViewFingerprint({ ...baseline, generatedAt: '2026-09-11T00:00:00.000Z', projectionChanged: false }),
+    usageViewFingerprint({ ...baseline, generatedAt: '2026-09-11T00:00:00.000Z', reconciledAt: '2026-10-23', contractSourceFingerprint: 'receipt', lastSessionSourceFingerprint: 'event', reconciliationProjectionFingerprint: 'output', projectionChanged: false }),
   )
   assert.notEqual(usageViewFingerprint(baseline), usageViewFingerprint({ ...baseline, remainingSessions: 6 }))
 })
@@ -149,4 +150,8 @@ test('scheduled reconciliation skips a fresh matching projection', () => {
   assert.equal(contractUsageViewNeedsRebuild(contract, matching, now), false)
   assert.equal(contractUsageViewNeedsRebuild(contract, { ...matching, storedUsedSessions: 6 }, now), true)
   assert.equal(contractUsageViewNeedsRebuild(contract, { ...matching, generatedAt: '2026-09-01T00:00:00.000Z' }, now), true)
+  assert.equal(contractUsageViewNeedsRebuild(contract, { ...matching, evidenceTruncated: true }, now), true)
+  assert.equal(contractUsageViewNeedsRebuild(contract, { ...matching, generatedAt: '2026-09-01T00:00:00.000Z', reconciledAt: '2026-09-10T11:00:00.000Z' }, now), false)
+  assert.equal(contractUsageViewNeedsRebuild(contract, { ...matching, contractSourceFingerprint: contractUsageSourceFingerprint(contract) }, now), false)
+  assert.equal(contractUsageViewNeedsRebuild(contract, { ...matching, contractSourceFingerprint: contractUsageSourceFingerprint({ ...contract, usageDedupedSessions: 1 }) }, now), true)
 })

@@ -1,6 +1,7 @@
 'use strict'
 
 const { FieldValue } = require('firebase-admin/firestore')
+const { createHash } = require('node:crypto')
 const { canonicalSessionRows, sessionPriority } = require('./session-schedule-normalization')
 
 const LEGACY_CHARGED_STATUSES = new Set(['completed', 'attended', 'no_show'])
@@ -30,14 +31,14 @@ function normalized(value) {
 }
 
 function sessionCountsTowardContract(session = {}) {
-  const billingStatus = normalized(session.billingStatus)
+  const billingStatus = normalized(session?.billingStatus)
   if (billingStatus === 'exempt') return false
   if (billingStatus === 'charged') return true
   // Legacy status fallback is valid only when no explicit billing lifecycle
   // exists. A completed attendance awaiting quota review must not consume a
   // paid entitlement or push the contract beyond its total sessions.
   if (billingStatus) return false
-  return LEGACY_CHARGED_STATUSES.has(normalized(session.status))
+  return LEGACY_CHARGED_STATUSES.has(normalized(session?.status))
 }
 
 function sessionAttendanceKind(session = {}) {
@@ -231,6 +232,34 @@ function sessionUsageTransition(before = null, after = null) {
   }
 }
 
+function sessionUsageSourceFingerprint(event) {
+  const version = (snapshot) => {
+    if (!snapshot?.exists) return null
+    const timestamp = snapshot.updateTime
+    if (!timestamp) return null
+    if (Number.isFinite(timestamp.seconds) && Number.isFinite(timestamp.nanoseconds)) {
+      return `${timestamp.seconds}:${timestamp.nanoseconds}`
+    }
+    if (typeof timestamp.toDate === 'function') return timestamp.toDate().toISOString()
+    return typeof timestamp === 'string' ? timestamp : null
+  }
+  const before = event.data?.before
+  const after = event.data?.after
+  const beforeVersion = version(before)
+  const afterVersion = version(after)
+  // Without source versions, identical business transitions at different
+  // times cannot safely be treated as duplicates. Fall back to a full read.
+  if ((before?.exists && !beforeVersion) || (after?.exists && !afterVersion)) return null
+  if (!before?.exists && !after?.exists) return null
+  return createHash('sha256').update(JSON.stringify({
+    sessionId: event.params?.sessionId,
+    beforeVersion,
+    afterVersion,
+    before: comparableSessionSource(before?.exists ? before.data() : null),
+    after: comparableSessionSource(after?.exists ? after.data() : null),
+  })).digest('hex')
+}
+
 async function syncContractUsageProjection({ db, event, logger = console }) {
   const sessionId = event.params?.sessionId
   if (!sessionId) return null
@@ -246,13 +275,25 @@ async function syncContractUsageProjection({ db, event, logger = console }) {
   }
   const affectedContractIds = [...contractIds]
   if (!affectedContractIds.length) return null
+  // Lazy import keeps the existing pure summary helpers available to the
+  // view module without a module-initialization cycle.
+  const { contractUsageViewFromEvidence, contractUsageSourceFingerprint, usageViewFingerprint, usageViewMatchesContractSource } = require('./contract-usage-view')
+  const sourceEventFingerprint = sessionUsageSourceFingerprint(event)
   return db.runTransaction(async (transaction) => {
     const references = affectedContractIds.map((contractId) => db.doc(`contracts/${contractId}`))
     const snapshots = []
     for (const reference of references) snapshots.push(await transaction.get(reference))
+    const viewSnapshots = []
+    for (const contractId of affectedContractIds) viewSnapshots.push(await transaction.get(db.doc(`contractUsageViews/${contractId}`)))
     const evidenceSnapshots = []
-    for (const snapshot of snapshots) {
-      evidenceSnapshots.push(snapshot.exists
+    const alreadyProjected = []
+    for (const [index, snapshot] of snapshots.entries()) {
+      const view = viewSnapshots[index].exists ? viewSnapshots[index].data() : null
+      const duplicate = Boolean(snapshot.exists && sourceEventFingerprint
+        && view?.lastSessionSourceFingerprint === sourceEventFingerprint
+        && usageViewMatchesContractSource(snapshot.data(), view))
+      alreadyProjected.push(duplicate)
+      evidenceSnapshots.push(snapshot.exists && !duplicate
         ? await transaction.get(db.collection('sessions')
           .where('contractId', '==', snapshot.id)
           .limit(MAX_SESSION_EVIDENCE + 1))
@@ -265,6 +306,7 @@ async function syncContractUsageProjection({ db, event, logger = console }) {
         continue
       }
       const contract = snapshot.data() || {}
+      if (alreadyProjected[index]) continue
       const evidenceSnapshot = evidenceSnapshots[index]
       if (evidenceSnapshot.size > MAX_SESSION_EVIDENCE) {
         logger.error('Contract usage projection skipped truncated history', { contractId: snapshot.id, sessionId, evidenceSessions: evidenceSnapshot.size })
@@ -290,8 +332,7 @@ async function syncContractUsageProjection({ db, event, logger = console }) {
         || Number(contract.usageReconciliationVersion || 0) < DAILY_USAGE_RECONCILIATION_VERSION
         || contract.usageReconciledFrom !== DAILY_USAGE_RECONCILIATION_SOURCE
         || Number(contract.usageDedupedSessions || 0) !== summary.duplicateHistorySessions
-      if (!changed) continue
-      transaction.update(snapshot.ref, {
+      const contractPatch = {
         usedSessions: afterUsed,
         chargedSessionIds,
         ...(JSON.stringify(nextAttended) !== JSON.stringify(previousAttended) ? { attendedClasses: nextAttended } : {}),
@@ -306,8 +347,21 @@ async function syncContractUsageProjection({ db, event, logger = console }) {
           historyEvidenceSource: 'contractId-linked-session-query',
         } : {}),
         usageProjectionUpdatedAt: FieldValue.serverTimestamp(),
-      })
-      changes.push({
+      }
+      if (changed) transaction.update(snapshot.ref, contractPatch)
+      const nextContract = changed ? { ...contract, ...contractPatch } : contract
+      const view = contractUsageViewFromEvidence(snapshot.id, nextContract, rows)
+      const sourceFingerprint = usageViewFingerprint(view)
+      const storedView = viewSnapshots[index].exists ? viewSnapshots[index].data() : null
+      const projectionChanged = storedView?.sourceFingerprint !== sourceFingerprint
+      transaction.set(viewSnapshots[index].ref, {
+        ...(projectionChanged ? { ...view, sourceFingerprint, generatedAt: FieldValue.serverTimestamp() } : {}),
+        contractSourceFingerprint: contractUsageSourceFingerprint(nextContract),
+        reconciliationProjectionFingerprint: sourceFingerprint,
+        ...(sourceEventFingerprint ? { lastSessionSourceFingerprint: sourceEventFingerprint } : {}),
+        reconciledAt: FieldValue.serverTimestamp(),
+      }, { merge: true })
+      if (changed) changes.push({
         contractId: snapshot.id,
         beforeUsed,
         afterUsed,
@@ -324,7 +378,12 @@ async function syncContractUsageProjection({ db, event, logger = console }) {
       changes,
       createdAt: FieldValue.serverTimestamp(),
     })
-    return { sessionId, changes }
+    return {
+      sessionId,
+      changes,
+      evidenceQueries: evidenceSnapshots.filter(Boolean).length,
+      skippedAlreadyProjected: alreadyProjected.filter(Boolean).length,
+    }
   })
 }
 
@@ -343,5 +402,6 @@ module.exports = {
   summarizeSessionUsage,
   summarizeContractUsage,
   sessionUsageTransition,
+  sessionUsageSourceFingerprint,
   syncContractUsageProjection,
 }

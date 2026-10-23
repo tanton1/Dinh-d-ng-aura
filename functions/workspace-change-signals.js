@@ -3,6 +3,7 @@
 const { createHash } = require('node:crypto')
 const { isDeepStrictEqual } = require('node:util')
 const { FieldPath, FieldValue } = require('firebase-admin/firestore')
+const { projectionSourcePayload } = require('./projection-event-policy')
 
 const STUDENT_LANE = 'studentScheduleVersion'
 const TRAINER_LANE = 'trainerWorkspaceVersion'
@@ -33,7 +34,7 @@ function meaningfulSource(value, source) {
   // Student schedule projects only the trainer's name. Trainer workspace
   // does not read trainer profiles, availability, payroll, or status.
   if (source === 'trainers') return { name: value.name || 'PT Aura' }
-  const { updatedAt, generatedAt, generatedAtMillis, ...body } = value
+  const { updatedAt, generatedAt, generatedAtMillis, ...body } = projectionSourcePayload(value, source)
   return body
 }
 function workspaceSourceChanged(before, after, source) {

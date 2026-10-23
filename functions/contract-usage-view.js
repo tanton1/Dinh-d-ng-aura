@@ -60,13 +60,17 @@ function usageSourceChanged(before, after, fields) {
 
 function usageViewFingerprint(view = {}) {
   const canonical = Object.keys(view)
-    .filter((key) => !['generatedAt', 'sourceFingerprint', 'projectionChanged'].includes(key))
+    .filter((key) => !['generatedAt', 'reconciledAt', 'contractSourceFingerprint', 'lastSessionSourceFingerprint', 'reconciliationProjectionFingerprint', 'sourceFingerprint', 'projectionChanged'].includes(key))
     .sort()
     .reduce((result, key) => {
       result[key] = view[key] ?? null
       return result
     }, {})
   return createHash('sha256').update(JSON.stringify(canonical)).digest('hex')
+}
+
+function contractUsageSourceFingerprint(contract = {}) {
+  return createHash('sha256').update(JSON.stringify(comparableSource(contract, CONTRACT_USAGE_FIELDS))).digest('hex')
 }
 
 function timestampMillis(value) {
@@ -79,12 +83,24 @@ function timestampMillis(value) {
 function contractUsageViewNeedsRebuild(contract = {}, storedView = null, nowMillis = Date.now(), maxAgeMillis = USAGE_VIEW_RECONCILIATION_MAX_AGE_MS) {
   if (!storedView || Number(storedView.schemaVersion || 0) !== USAGE_VIEW_SCHEMA_VERSION) return true
   if (text(storedView.sourceVersion) !== USAGE_VIEW_SOURCE_VERSION) return true
+  if (storedView.evidenceTruncated === true) return true
   if (Number(storedView.entitlementSessions || 0) !== Number(contract.totalSessions || 0)) return true
   if (Number(storedView.transferredSessions || 0) !== Number(contract.carryOverTransferredSessions || 0)) return true
   if (Number(storedView.storedUsedSessions || 0) !== Number(contract.usedSessions || 0)) return true
   if (text(storedView.studentId) !== text(contract.studentId || contract.crmProfileId)) return true
-  const generatedAtMillis = timestampMillis(storedView.generatedAt)
+  if (storedView.contractSourceFingerprint && storedView.contractSourceFingerprint !== contractUsageSourceFingerprint(contract)) return true
+  const generatedAtMillis = timestampMillis(storedView.reconciledAt || storedView.generatedAt)
   return !generatedAtMillis || nowMillis - generatedAtMillis >= Math.max(60_000, maxAgeMillis)
+}
+
+function usageViewMatchesContractSource(contract, storedView) {
+  return isCanonicalUsageView(storedView)
+    && storedView.contractSourceFingerprint === contractUsageSourceFingerprint(contract)
+    // An older callable/worker may still merge a rebuilt business view without
+    // knowing these receipt fields. Do not accept the preserved receipt unless
+    // the exact output it acknowledged is still intact.
+    && storedView.reconciliationProjectionFingerprint === storedView.sourceFingerprint
+    && storedView.sourceFingerprint === usageViewFingerprint(storedView)
 }
 
 function affectedContractIds(before, after) {
@@ -224,11 +240,11 @@ async function overlayContractUsageViews(db, contracts = [], maximum = 5000) {
   return bounded.map((contract) => contractWithUsageView(contract, views.get(contract.id)))
 }
 
-async function readContractEvidence(db, contractId) {
-  const snapshot = await db.collection('sessions')
+async function readContractEvidence(db, contractId, transaction = null) {
+  const query = db.collection('sessions')
     .where('contractId', '==', contractId)
     .limit(MAX_SESSION_EVIDENCE + 1)
-    .get()
+  const snapshot = transaction ? await transaction.get(query) : await query.get()
   const rawSessions = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))
   const sessions = canonicalUsageSessions(rawSessions)
   return {
@@ -269,41 +285,60 @@ async function loadContractUsageViews(db, contractIds = []) {
   return views
 }
 
-async function buildContractUsageView({ db, contractId, contract = null, logger = console }) {
-  const contractSnapshot = contract ? null : await db.doc(`contracts/${contractId}`).get()
-  const value = contract || (contractSnapshot?.exists ? contractSnapshot.data() : null)
-  if (!value) return null
-  const evidence = await readContractEvidence(db, contractId)
-  const summary = summarizeContractUsage(value, evidence.rawSessions)
-  const view = {
-    ...viewFromSummary(contractId, value, summary),
-    evidenceSessions: evidence.sessions.length,
-    rawEvidenceSessions: evidence.rawSessions.length,
-    evidenceTruncated: evidence.truncated,
-    ...(evidence.truncated ? { reconciliationStatus: 'evidence_truncated' } : {}),
+function contractUsageViewFromEvidence(contractId, contract, rawSessions) {
+  const summary = summarizeContractUsage(contract, rawSessions)
+  const truncated = rawSessions.length > MAX_SESSION_EVIDENCE
+  return {
+    ...viewFromSummary(contractId, contract, summary),
+    evidenceSessions: Math.min(summary.historySessions, MAX_SESSION_EVIDENCE),
+    rawEvidenceSessions: rawSessions.length,
+    evidenceTruncated: truncated,
+    ...(truncated ? { reconciliationStatus: 'evidence_truncated' } : {}),
   }
+}
+
+async function buildContractUsageView({ db, contractId, logger = console, skipMatchingContractSource = false }) {
   const reference = db.doc(`contractUsageViews/${contractId}`)
-  const sourceFingerprint = usageViewFingerprint(view)
-  const projectionChanged = await db.runTransaction(async (transaction) => {
+  // Read the current contract, evidence and existing view together. An event
+  // may be delivered late; its payload (or a caller's cached contract) must
+  // never replace a newer projection.
+  const result = await db.runTransaction(async (transaction) => {
+    const contractSnapshot = await transaction.get(db.doc(`contracts/${contractId}`))
     const stored = await transaction.get(reference)
-    if (stored.exists && stored.data()?.sourceFingerprint === sourceFingerprint) return false
+    if (!contractSnapshot.exists) {
+      if (stored.exists) transaction.delete(reference)
+      return null
+    }
+    const value = contractSnapshot.data() || {}
+    const storedView = stored.exists ? stored.data() : null
+    if (skipMatchingContractSource && usageViewMatchesContractSource(value, storedView)) {
+      return { ...storedView, projectionChanged: false, skippedMatchingSource: true }
+    }
+    const evidence = await readContractEvidence(db, contractId, transaction)
+    const view = contractUsageViewFromEvidence(contractId, value, evidence.rawSessions)
+    const sourceFingerprint = usageViewFingerprint(view)
+    const projectionChanged = storedView?.sourceFingerprint !== sourceFingerprint
     transaction.set(reference, {
-      ...view,
-      sourceFingerprint,
-      generatedAt: FieldValue.serverTimestamp(),
+      ...(projectionChanged ? { ...view, sourceFingerprint, generatedAt: FieldValue.serverTimestamp() } : {}),
+      contractSourceFingerprint: contractUsageSourceFingerprint(value),
+      reconciliationProjectionFingerprint: sourceFingerprint,
+      // A successful unchanged reconciliation is still fresh. Do not bump
+      // generatedAt/sourceFingerprint or wake business projections for it.
+      reconciledAt: FieldValue.serverTimestamp(),
     }, { merge: true })
-    return true
+    return { ...view, sourceFingerprint, projectionChanged, ...(projectionChanged ? {} : { generatedAt: storedView.generatedAt }) }
   })
-  logger.info?.(projectionChanged ? 'contract_usage_view_rebuilt' : 'contract_usage_view_unchanged', {
+  if (!result) return null
+  logger.info?.(result.projectionChanged ? 'contract_usage_view_rebuilt' : 'contract_usage_view_unchanged', {
     contractId,
-    studentId: view.studentId,
-    remainingSessions: view.remainingSessions,
-    reconciliationStatus: view.reconciliationStatus,
-    evidenceSessions: evidence.sessions.length,
-    rawEvidenceSessions: evidence.rawSessions.length,
-    evidenceTruncated: evidence.truncated,
+    remainingSessions: result.remainingSessions,
+    reconciliationStatus: result.reconciliationStatus,
+    evidenceSessions: result.evidenceSessions,
+    rawEvidenceSessions: result.rawEvidenceSessions,
+    evidenceTruncated: result.evidenceTruncated,
+    skippedMatchingSource: result.skippedMatchingSource === true,
   })
-  return { ...view, sourceFingerprint, projectionChanged }
+  return result
 }
 
 async function getStoredOrFreshView(db, contractId) {
@@ -394,10 +429,11 @@ function createContractUsageViewFunctions({ db, onCall, logger = console }) {
 async function syncContractUsageView({ db, event, logger = console }) {
   const after = event.data?.after?.exists ? event.data.after.data() : null
   const before = event.data?.before?.exists ? event.data.before.data() : null
-  if (event.params?.contractId && !after) {
-    await db.doc(`contractUsageViews/${event.params.contractId}`).delete()
-    logger.info?.('contract_usage_view_removed', { contractId: event.params.contractId })
-    return { contractIds: [event.params.contractId], rebuilt: 0, removed: 1 }
+  if (event.params?.sessionId) {
+    // Both legacy session triggers share this atomic writer. Its compact
+    // source receipt makes the second delivery a pair of document reads,
+    // not another full session-history query.
+    return require('./contract-usage').syncContractUsageProjection({ db, event, logger })
   }
   const sourceFields = event.params?.sessionId ? SESSION_USAGE_FIELDS : CONTRACT_USAGE_FIELDS
   if (!usageSourceChanged(before, after, sourceFields)) {
@@ -407,7 +443,7 @@ async function syncContractUsageView({ db, event, logger = console }) {
   if (event.params?.contractId) contractIds.add(event.params.contractId)
   const results = []
   for (const contractId of contractIds) {
-    const view = await buildContractUsageView({ db, contractId, logger })
+    const view = await buildContractUsageView({ db, contractId, logger, skipMatchingContractSource: true })
     if (view) results.push(view)
   }
   return { contractIds: [...contractIds], rebuilt: results.length }
@@ -428,6 +464,9 @@ module.exports = {
   loadContractUsageViews,
   usageSourceChanged,
   usageViewFingerprint,
+  contractUsageSourceFingerprint,
+  usageViewMatchesContractSource,
+  contractUsageViewFromEvidence,
   contractUsageViewNeedsRebuild,
   contractWithUsageView,
   overlayContractUsageViews,

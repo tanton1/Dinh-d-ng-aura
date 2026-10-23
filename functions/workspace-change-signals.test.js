@@ -103,6 +103,7 @@ test('unsupported, settings unrelated, source no-op, and profile preference chan
   for (const item of [
     event('students', 's1', { name: 'An', updatedAt: 'old' }, { name: 'An', updatedAt: 'new' }),
     event('contractUsageViews', 'c1', { usedSessions: 4, generatedAt: 'old' }, { usedSessions: 4, generatedAt: 'new' }),
+    event('contractUsageViews', 'c1', { usedSessions: 4, sourceFingerprint: 'business-v1' }, { usedSessions: 4, sourceFingerprint: 'business-v1', reconciledAt: 'new', contractSourceFingerprint: 'source-v2', lastSessionSourceFingerprint: 'delivery-v2', reconciliationProjectionFingerprint: 'business-v2' }),
     event('users', 'u1', { role: 'staff', mealReminderTime: '08:00', notificationSettings: { enabled: true } }, { role: 'staff', mealReminderTime: '09:00', notificationSettings: { enabled: false } }),
     event('settings', 'unrelated', {}, { enabled: true }),
     event('trainers', 't1', { name: 'An', status: 'active', availabilitySlots: [], payroll: 1 }, { name: 'An', status: 'inactive', availabilitySlots: ['08:00'], payroll: 2 }),

@@ -2,22 +2,26 @@
 
 const { isDeepStrictEqual } = require('node:util')
 
+// Verification and source-delivery receipts do not change displayed usage.
+// In particular, sourceFingerprint remains meaningful: it identifies the
+// business projection, unlike the private transaction/deduplication markers.
+function projectionSourcePayload(value, collection) {
+  if (collection !== 'contractUsageViews' || !value) return value
+  const { generatedAt, reconciledAt, contractSourceFingerprint, lastSessionSourceFingerprint, reconciliationProjectionFingerprint, ...body } = value
+  return body
+}
+
 /** Compare source data before any Firestore lookups or projection leases.
- * Only contractUsageViews.generatedAt is metadata for these consumers. Keep
- * every other field (including schema/fingerprints and unknown future fields)
- * significant, and always process creates/deletes.
+ * Only explicitly known usage verification metadata is ignored. All other
+ * fields (including schema, business fingerprints and future fields) remain
+ * significant, and creates/deletes always propagate.
  */
 function projectionSourceChanged(event, fallbackCollection = '') {
   const before = event?.data?.before
   const after = event?.data?.after
   if (!before?.exists || !after?.exists) return true
   const collection = after.ref?.parent?.id || before.ref?.parent?.id || fallbackCollection
-  const meaningful = (value) => {
-    if (collection !== 'contractUsageViews' || !value) return value
-    const { generatedAt, ...body } = value
-    return body
-  }
-  return !isDeepStrictEqual(meaningful(before.data()), meaningful(after.data()))
+  return !isDeepStrictEqual(projectionSourcePayload(before.data(), collection), projectionSourcePayload(after.data(), collection))
 }
 
-module.exports = { projectionSourceChanged }
+module.exports = { projectionSourceChanged, projectionSourcePayload }

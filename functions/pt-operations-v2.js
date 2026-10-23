@@ -18,7 +18,7 @@ const {
   studentAvailabilityProfilePatch,
 } = require('./student-availability')
 const { summarizeContractUsage } = require('./contract-usage')
-const { canonicalUsageSummary, loadContractUsageViews, USAGE_VIEW_SOURCE_VERSION } = require('./contract-usage-view')
+const { canonicalUsageSummary, contractUsageViewNeedsRebuild, loadContractUsageViews, MAX_SESSION_EVIDENCE, USAGE_VIEW_SOURCE_VERSION } = require('./contract-usage-view')
 const { normalizeMemberReferralCode } = require('./loyalty-core')
 const { normalizedScheduleConfig } = require('./pt-schedule-publish')
 const { canonicalSessionRows, studentVisibleSessionRows } = require('./session-schedule-normalization')
@@ -304,7 +304,8 @@ function studentContractProjection(id, contract = {}, today = currentDateKey(), 
   const nextPaymentDate = nextPending?.date || configuredNextPaymentDate || null
   const startDate = storedDateKey(contract.startDate)
   const endDate = storedDateKey(contract.endDate)
-  const remainingSessions = Math.max(0, totalSessions - usedSessions)
+  const remainingSessions = usage?.remainingSessions
+    ?? Math.max(0, totalSessions - usedSessions - Math.max(0, Number(contract.carryOverTransferredSessions || 0)))
   const daysUntilEnd = endDate ? dateDistance(today, endDate) : null
   const pausePeriods = Array.isArray(contract.pausePeriods)
     ? contract.pausePeriods.slice(0, 20).map((period) => ({
@@ -337,7 +338,7 @@ function studentContractProjection(id, contract = {}, today = currentDateKey(), 
     endDate,
     totalSessions,
     usedSessions,
-    remainingSessions: Math.max(0, totalSessions - usedSessions),
+    remainingSessions,
     // Keep the public response label for backward-compatible clients. The
     // actual quota source is exposed separately as sourceVersion.
     formulaVersion: 'contract-usage-v2',
@@ -809,18 +810,55 @@ function trainerSlotsWithoutOffDates(slots, offDates, weekId) {
 
 async function sessionsForContracts(db, contractIds = []) {
   const ids = [...new Set(contractIds.filter(Boolean))]
-  const snapshots = []
-  for (let index = 0; index < ids.length; index += 30) {
-    snapshots.push(db.collection('sessions').where('contractId', 'in', ids.slice(index, index + 30)).get())
-  }
-  const results = await Promise.all(snapshots)
   const byContract = new Map(ids.map((id) => [id, []]))
-  results.forEach((snapshot) => snapshot.docs.forEach((document) => {
-    const value = { id: document.id, ...document.data() }
-    if (!byContract.has(value.contractId)) return
-    byContract.get(value.contractId).push(value)
-  }))
+  // Only legacy/missing/inconsistent projections reach this fallback. Bound
+  // each contract independently: a shared query limit could silently truncate
+  // one learner's evidence and invent remaining entitlement. Limit parallelism
+  // as well so a cold roster with many legacy contracts cannot burst hundreds
+  // of evidence scans at once.
+  for (let offset = 0; offset < ids.length; offset += 8) {
+    await Promise.all(ids.slice(offset, offset + 8).map(async (contractId) => {
+      const snapshot = await db.collection('sessions')
+        .where('contractId', '==', contractId)
+        .limit(MAX_SESSION_EVIDENCE + 1)
+        .get()
+      if (snapshot.size > MAX_SESSION_EVIDENCE) {
+        throw new HttpsError('resource-exhausted', 'Lịch sử hợp đồng vượt giới hạn xem nhanh. Cần đối soát quyền lợi trước khi tải lại danh sách học viên.')
+      }
+      byContract.set(contractId, snapshot.docs.map((document) => ({ id: document.id, ...document.data() })))
+    }))
+  }
   return byContract
+}
+
+async function loadTrainerRosterUsage(db, contracts = [], today = currentDateKey()) {
+  const usageViews = await loadContractUsageViews(db, contracts.map((contract) => contract.id))
+  const trustedViews = new Map()
+  const fallbackContracts = []
+  for (const contract of contracts) {
+    const view = usageViews.get(contract.id)
+    // A current canonical summary already contains daily de-duplication,
+    // charged attendance and the audited legacy adjustment. Loading all of
+    // its raw history again cannot improve the projection. Do not trust an
+    // older schema, truncated evidence, another contract, or a summary which
+    // no longer matches the current contract's entitlement/counter/owner.
+    if (view?.contractId === contract.id
+      && canonicalUsageSummary(view, contract)
+      && !contractUsageViewNeedsRebuild(contract, view)) {
+      trustedViews.set(contract.id, view)
+    } else {
+      fallbackContracts.push(contract)
+    }
+  }
+  const sessionsByContract = await sessionsForContracts(db, fallbackContracts.map((contract) => contract.id))
+  return new Map(contracts.map((contract) => [contract.id, studentContractProjection(
+    contract.id,
+    contract,
+    today,
+    sessionsByContract.get(contract.id) || [],
+    !trustedViews.has(contract.id),
+    trustedViews.get(contract.id),
+  )]))
 }
 
 async function salesQuotesForActor(db, actor, limit) {
@@ -953,11 +991,10 @@ async function assignedStudentsForActor(db, actor, limit, readVersion = '') {
       && projection.startDate && projection.endDate
       && !projection.pausedToday
   })
-  const sessionsByContract = await sessionsForContracts(db, datedContracts.map((contract) => contract.id))
-  const usageViews = await loadContractUsageViews(db, datedContracts.map((contract) => contract.id))
+  const rosterUsage = await loadTrainerRosterUsage(db, datedContracts, today)
   const projectedContracts = datedContracts.map((contract) => ({
     ...contract,
-    usage: studentContractProjection(contract.id, contract, today, sessionsByContract.get(contract.id) || [], true, usageViews.get(contract.id)),
+    usage: rosterUsage.get(contract.id),
   }))
   const contracts = projectedContracts.filter((contract) => contract.usage.schedulableToday)
   // The branch roster is contract-scoped: an active student profile alone is
@@ -972,10 +1009,13 @@ async function assignedStudentsForActor(db, actor, limit, readVersion = '') {
   const visibleContracts = projectedContracts.filter((contract) => visibleStudentIds.has(contract.studentId)
     && contract.usage.schedulableToday)
   const visibleBranchIds = [...new Set([...actor.branchIds, ...contracts.map((item) => item.branchId).filter(Boolean)])]
-  const [studentSnapshots, branchSnapshots] = await Promise.all([
-    studentIds.length ? db.getAll(...studentIds.map((id) => db.doc(`students/${id}`))) : [],
+  const missingStudentIds = studentIds.filter((id) => !branchStudentMap.has(id))
+  const [missingStudentSnapshots, branchSnapshots] = await Promise.all([
+    missingStudentIds.length ? db.getAll(...missingStudentIds.map((id) => db.doc(`students/${id}`))) : [],
     visibleBranchIds.length ? db.getAll(...visibleBranchIds.map((id) => db.doc(`branches/${id}`))) : [],
   ])
+  const studentMap = new Map([...branchStudentMap, ...missingStudentSnapshots.map((snapshot) => [snapshot.id, snapshot])])
+  const studentSnapshots = studentIds.map((id) => studentMap.get(id)).filter(Boolean)
   const students = studentSnapshots
     .filter((snapshot) => snapshot.exists
       && !['inactive', 'deleted', 'archived'].includes(String(snapshot.data()?.status || '').toLowerCase()))
@@ -2435,6 +2475,7 @@ module.exports = {
   createPtOperationsV2Functions,
   isContractSchedulableInWeek,
   isContractSchedulableOn,
+  loadTrainerRosterUsage,
   mondayDateKey,
   normalizedTrainerOffDates,
   isEffectiveStaffContract,

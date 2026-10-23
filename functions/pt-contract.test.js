@@ -371,7 +371,8 @@ test('Trainer pages keep separate sections while sharing one actor-scoped bootst
   assert.match(operationsV2Source, /trainingProgram: serialize\(staffStudentTrainingProgramDetail\(trainingProgramSnapshot\)\)/)
   assert.match(operationsV2Source, /workoutLogs: serialize\(workoutLogs\.slice\(0, 100\)\)/)
   assert.match(operationsV2Source, /effectiveAvailability\.sourceWeekId/)
-  assert.match(operationsV2Source, /sessionsForContracts\(db, datedContracts\.map/)
+  assert.match(operationsV2Source, /loadTrainerRosterUsage\(db, datedContracts, today\)/)
+  assert.match(operationsV2Source, /sessionsForContracts\(db, fallbackContracts\.map/)
   assert.match(functionsSource, /exports\.getMyTrainerWorkspace = ptOperationsV2Functions\.getMyTrainerWorkspace/)
 })
 

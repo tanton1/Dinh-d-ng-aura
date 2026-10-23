@@ -4,6 +4,8 @@ const test = require('node:test')
 const assert = require('node:assert/strict')
 const { createPtOperationsV2Functions, workspaceCacheVersion } = require('./pt-operations-v2')
 const { trustedAccessContext } = require('./identity-access')
+const { summarizeContractUsage } = require('./contract-usage')
+const { viewFromSummary } = require('./contract-usage-view')
 
 const VERSION = (value) => `${String(value).padStart(12, '0')}.000000000`
 const USER_SIGNAL = (uid) => `users/${uid}/workspaceChanges/operations`
@@ -141,12 +143,40 @@ test('a later usage-projection revision updates trainer quota instead of reusing
   assert.equal(first.sessions[0].contract.usedSessions, 0)
   update(db, USER_SIGNAL('trainer'), { trainerWorkspaceVersion: VERSION(2) })
   await trainer({ section: 'schedule' })
-  db.values.set('contractUsageViews/contract', { schemaVersion: 3, sourceVersion: 'contract-usage-v3-daily', studentId: 'student', entitlementSessions: 36, usedSessions: 7, remainingSessions: 29 })
+  db.values.set('contractUsageViews/contract', { schemaVersion: 3, sourceVersion: 'contract-usage-v3-daily', contractId: 'contract', studentId: 'student', entitlementSessions: 36, storedUsedSessions: 0, usedSessions: 7, remainingSessions: 29, generatedAt: new Date().toISOString() })
   update(db, USER_SIGNAL('trainer'), { trainerWorkspaceVersion: VERSION(3) })
   const projected = await trainer({ section: 'schedule' })
   assert.equal(projected.sessions[0].contract.usedSessions, 7)
   assert.equal(projected.students[0].contract.remainingSessions, 29)
   assert.equal(projected.syncState.userVersion, VERSION(3))
+})
+
+test('healthy trainer roster avoids contract-history scans and duplicate profile reads while retaining cross-branch reserved sessions', async () => {
+  const { db, trainer } = fixture()
+  const contract = db.values.get('contracts/contract')
+  const current = db.values.get('sessions/session')
+  db.values.set('contractUsageViews/contract', viewFromSummary('contract', contract, summarizeContractUsage(contract, [current])))
+  db.values.set('students/cross-branch', { name: 'Cross branch learner', phone: 'test-phone', email: 'test@example.invalid', branchId: 'other-branch', status: 'active' })
+  db.values.set('branches/other-branch', { name: 'Other branch' })
+  db.values.set('contracts/cross-contract', { studentId: 'cross-branch', trainerId: 'other-trainer', branchId: 'other-branch', status: 'active', startDate: '2026-01-01', endDate: '2027-12-31', totalSessions: 36, usedSessions: 36 })
+  db.values.set('sessions/cross-reserved', { studentId: 'cross-branch', trainerId: 'trainer', branchId: 'branch', contractId: 'cross-contract', date: '2026-10-27', hour: 9, status: 'scheduled', billingStatus: 'unbilled' })
+  const result = await trainer()
+  assert.equal(result.students.length, 1)
+  assert.equal(result.students[0].contract.remainingSessions, 36)
+  assert.equal(result.sessions.length, 2)
+  const reserved = result.sessions.find((session) => session.id === 'cross-reserved')
+  assert.equal(reserved.studentName, 'Cross branch learner')
+  assert.equal(reserved.studentPhone, 'test-phone')
+  assert.equal(reserved.studentEmail, 'test@example.invalid')
+  assert.equal(reserved.studentBranchId, 'other-branch')
+  assert.equal(reserved.contractEffective, true)
+  assert.equal(reserved.contractSchedulable, false)
+  assert.equal(reserved.contract.remainingSessions, 0)
+  assert.equal(result.branches.some((branch) => branch.id === 'other-branch'), true)
+  assert.equal(db.reads.filter((read) => read.type === 'query' && read.collection === 'sessions' && read.conditions.some(([field]) => field === 'contractId')).length, 0)
+  // One read remains for the separately authorized schedule payload. The
+  // roster reuses its branch query snapshot rather than getting it again.
+  assert.equal(db.reads.filter((read) => read.path === 'students/student').length, 1)
 })
 
 test('finishing an older in-flight student read cannot populate the newer signal cache or acknowledge its revision', async () => {
