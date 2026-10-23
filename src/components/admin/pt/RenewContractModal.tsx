@@ -90,6 +90,8 @@ function RenewContractWizard({ row, options, scope, onClose, onSuccess }: Modern
   const [caseRevision, setCaseRevision] = useState(row.revision)
   const [submitting, setSubmitting] = useState(false)
   const submissionInFlight = useRef(false)
+  const quoteCreationInFlight = useRef(false)
+  const stepTransitionInFlight = useRef(false)
   const [completed, setCompleted] = useState(false)
   const [error, setError] = useState('')
   const [idempotencyKey] = useState(() => crypto.randomUUID())
@@ -157,13 +159,17 @@ function RenewContractWizard({ row, options, scope, onClose, onSuccess }: Modern
   }
 
   const createQuote = async () => {
-    if (!validateStep(2) || !selectedPackage) return
+    if (quoteCreationInFlight.current || !validateStep(2) || !selectedPackage) return false
+    quoteCreationInFlight.current = true
     setSubmitting(true); setError('')
     try {
       const result = await createRenewalQuote({ caseId: row.caseId, packageId: selectedPackage.id, expectedRevision: caseRevision, discount, carryOverSessions: carriedSessions })
       setQuoteId(result.quoteId); setCaseRevision(result.revision); setApprovalId(null); setApprovalStatus('')
-    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Không thể tạo báo giá.') }
-    finally { setSubmitting(false) }
+      return true
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Không thể tạo báo giá.')
+      return false
+    } finally { quoteCreationInFlight.current = false; setSubmitting(false) }
   }
 
   const requestApproval = async () => {
@@ -200,14 +206,49 @@ function RenewContractWizard({ row, options, scope, onClose, onSuccess }: Modern
     finally { submissionInFlight.current = false; setSubmitting(false) }
   }
 
-  const nextStep = () => { if (validateStep(step + 1)) setStep((current) => Math.min(4, current + 1)) }
+  const nextStep = async () => {
+    if (submitting || quoteCreationInFlight.current || stepTransitionInFlight.current || !validateStep(step + 1)) return
+    stepTransitionInFlight.current = true
+    try {
+      if (step === 2) {
+        if (!quoteReady && !await createQuote()) return
+        if (requiresApproval && !approvalReady) {
+          if (!approvalId || !quoteReady) {
+            setError('Ưu đãi này cần quản lý phê duyệt. Vui lòng gửi yêu cầu duyệt trước khi tiếp tục.')
+            return
+          }
+          setSubmitting(true)
+          // A manager may approve while this dialog remains open. Refresh both
+          // the approval and case revision before allowing the payment step.
+          const detail = await getContractRenewalCaseDetail(row.caseId)
+          setCaseRevision(detail.case.revision)
+          if (detail.quote?.id !== quoteId || detail.approval?.id !== approvalId) {
+            resetCommercialApproval()
+            setError('Báo giá đã thay đổi. Vui lòng tạo lại báo giá trước khi tiếp tục.')
+            return
+          }
+          const status = String(detail.approval?.status || '')
+          setApprovalStatus(status)
+          if (status !== 'approved') {
+            setError(status === 'pending'
+              ? 'Ưu đãi đang chờ quản lý phê duyệt. Sau khi được duyệt, bấm Tiếp tục để kiểm tra lại.'
+              : 'Ưu đãi chưa được phê duyệt. Vui lòng kiểm tra lại yêu cầu với quản lý.')
+            return
+          }
+        }
+      }
+      setStep((current) => Math.min(4, current + 1))
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Không thể kiểm tra phê duyệt. Vui lòng thử lại.')
+    } finally { stepTransitionInFlight.current = false; setSubmitting(false) }
+  }
 
   return <div className="renewal-modal-layer" onMouseDown={(event) => event.target === event.currentTarget && !submitting && onClose()}>
     <section className="renewal-modal renewal-modal--wizard" role="dialog" aria-modal="true" aria-labelledby="renewal-modal-title">
       <div className="renewal-modal__handle" />
       <header><div><span><Sparkles size={15} /> AURA RENEWAL · {scopeLabel.toLocaleUpperCase('vi')}</span><h2 id="renewal-modal-title">Tạo hợp đồng tiếp theo</h2><p>{row.student.name} · {row.contract.packageName}</p></div><button type="button" onClick={onClose} disabled={submitting} aria-label="Đóng"><X /></button></header>
       <nav className="renewal-wizard-steps" aria-label="Các bước tái ký">
-        {['Lộ trình', 'Báo giá', 'Thanh toán', 'Xác nhận'].map((label, index) => <button key={label} type="button" className={step === index + 1 ? 'is-active' : step > index + 1 ? 'is-complete' : ''} onClick={() => index + 1 < step && setStep(index + 1)}><i>{step > index + 1 ? <Check size={14} /> : index + 1}</i><span>{label}</span></button>)}
+        {['Lộ trình', 'Báo giá', 'Thanh toán', 'Xác nhận'].map((label, index) => <button key={label} type="button" aria-label={label} aria-current={step === index + 1 ? 'step' : undefined} disabled={submitting} className={step === index + 1 ? 'is-active' : step > index + 1 ? 'is-complete' : ''} onClick={() => index + 1 < step && setStep(index + 1)}><i>{step > index + 1 ? <Check size={14} /> : index + 1}</i><span>{label}</span></button>)}
       </nav>
       <form id="renewal-contract-form" onSubmit={submit}>
         <div className="renewal-source-card"><div><span>Hợp đồng hiện tại</span><strong>{row.contract.packageName}</strong><small>Hết hạn {formatDate(row.contract.endDate)}</small></div><div><span>Trạng thái sử dụng</span><strong>{row.risk.sessionsLeft} buổi còn lại</strong><small>{row.risk.daysLeft < 0 ? `Quá ${Math.abs(row.risk.daysLeft)} ngày` : `Còn ${row.risk.daysLeft} ngày`}</small></div></div>
@@ -223,10 +264,10 @@ function RenewContractWizard({ row, options, scope, onClose, onSuccess }: Modern
           {row.risk.sessionsLeft > 0 && <label className="renewal-switch is-wide"><input type="checkbox" checked={carryOver} onChange={(event) => { setCarryOver(event.target.checked); resetCommercialApproval() }} /><span><CheckCircle2 /> Dự kiến chuyển tối đa {row.risk.sessionsLeft} buổi chưa dùng</span></label>}
         </div><div className="renewal-preview"><span>Số buổi gói mới</span><strong>{selectedPackage?.totalSessions || 0} buổi</strong><small>{carriedSessions > 0 ? `Dự kiến chuyển thêm tối đa ${carriedSessions} buổi` : 'Không chuyển buổi từ gói cũ'}</small><small>{selectedPackage?.durationMonths || 0} tháng · PT phụ trách được giữ nguyên</small></div><p className="renewal-activation-note">{sourcePaused ? 'Gói cũ đang bảo lưu: gói mới chờ đến khi mở bảo lưu. Ngày nối tiếp tự động sẽ được cập nhật theo hạn mới.' : activationMode === 'automatic' ? 'Hợp đồng được tạo và có thể thu tiền ngay. Khi mở sớm, ngày kết thúc đã chốt được giữ nguyên.' : 'Đến ngày đã chọn, quyền tập chuyển sang gói mới. Nếu hết buổi trước đó, học viên cần chờ ngày bắt đầu.'} Số buổi chuyển tiếp được chốt theo số còn thực tế lúc bàn giao.</p></section>}
 
-        {step === 2 && <section className="renewal-form-section renewal-step-panel"><div className="renewal-section-title"><span>02</span><div><h3>Báo giá & phê duyệt</h3><p>Ưu đãi trên 10% hoặc chuyển hơn 3 buổi phải được quản lý duyệt.</p></div></div><div className="renewal-form-grid"><label>Giá niêm yết<input value={money(selectedPackage?.price || 0)} readOnly /></label><label>Giảm giá<input type="number" min="0" max={selectedPackage?.price || 0} value={discount} onChange={(event) => { setDiscount(Math.max(0, Number(event.target.value) || 0)); resetCommercialApproval() }} /></label></div>
+        {step === 2 && <section className="renewal-form-section renewal-step-panel"><div className="renewal-section-title"><span>02</span><div><h3>Báo giá & phê duyệt</h3><p>Ưu đãi trên 10% hoặc chuyển hơn 3 buổi phải được quản lý duyệt.</p></div></div><div className="renewal-form-grid"><label>Giá niêm yết<input value={money(selectedPackage?.price || 0)} readOnly /></label><label>Giảm giá<input type="number" min="0" max={selectedPackage?.price || 0} value={discount} disabled={submitting} onChange={(event) => { setDiscount(Math.max(0, Number(event.target.value) || 0)); resetCommercialApproval() }} /></label></div>
           <div className="renewal-money-summary"><div><span>Thành tiền</span><strong>{money(finalPrice)}</strong></div><div><span>Mức giảm</span><strong>{selectedPackage?.price ? `${Math.round(discount / selectedPackage.price * 100)}%` : '0%'}</strong></div></div>
-          <div className={`renewal-approval-state ${quoteId ? 'is-approved' : ''}`}><FileCheck2 /><div><strong>{quoteId ? 'Báo giá đã tạo' : 'Chưa tạo báo giá'}</strong><span>{requiresApproval ? 'Trường hợp này cần thêm một người quản lý phê duyệt.' : 'Báo giá nằm trong chính sách thông thường.'}</span></div><button type="button" disabled={submitting || Boolean(quoteId)} onClick={() => void createQuote()}>{quoteId ? 'Đã tạo' : 'Tạo báo giá'}</button></div>
-          {requiresApproval && quoteId && <div className="renewal-approval-box"><label>Lý do xin duyệt<textarea value={approvalReason} onChange={(event) => setApprovalReason(event.target.value)} maxLength={500} /></label><button type="button" disabled={submitting || Boolean(approvalId)} onClick={() => void requestApproval()}>{approvalStatus === 'approved' ? 'Đã duyệt' : approvalStatus === 'pending' ? 'Đang chờ duyệt' : 'Gửi quản lý duyệt'}</button>{approvalStatus === 'pending' && <small>Người tạo báo giá không thể tự duyệt; cần một Quản lý chi nhánh hoặc Admin khác.</small>}</div>}
+          <div className={`renewal-approval-state ${quoteId ? 'is-approved' : ''}`}><FileCheck2 /><div><strong>{quoteId ? 'Báo giá đã tạo' : 'Chưa tạo báo giá'}</strong><span>{requiresApproval ? 'Trường hợp này cần thêm một người quản lý phê duyệt.' : 'Báo giá nằm trong chính sách thông thường.'}</span>{!quoteId && <span>Bấm Tiếp tục để tự tạo báo giá và kiểm tra điều kiện.</span>}</div><button type="button" disabled={submitting || Boolean(quoteId)} onClick={() => void createQuote()}>{quoteId ? 'Đã tạo' : 'Tạo báo giá'}</button></div>
+          {requiresApproval && quoteId && <div className="renewal-approval-box"><label>Lý do xin duyệt<textarea value={approvalReason} disabled={submitting} onChange={(event) => setApprovalReason(event.target.value)} maxLength={500} /></label><button type="button" disabled={submitting || Boolean(approvalId)} onClick={() => void requestApproval()}>{approvalStatus === 'approved' ? 'Đã duyệt' : approvalStatus === 'pending' ? 'Đang chờ duyệt' : 'Gửi quản lý duyệt'}</button>{approvalStatus === 'pending' && <small>Cần một Quản lý chi nhánh hoặc Admin khác phê duyệt. Sau khi được duyệt, bấm Tiếp tục để kiểm tra lại.</small>}</div>}
         </section>}
 
         {step === 3 && <section className="renewal-form-section renewal-step-panel"><div className="renewal-section-title"><span>03</span><div><h3>Thu tiền & công nợ</h3><p>Khoản thu đầu kỳ được ghi đồng thời vào ledger và sổ quỹ.</p></div></div><div className="renewal-form-grid">
@@ -245,7 +286,7 @@ function RenewContractWizard({ row, options, scope, onClose, onSuccess }: Modern
 
         {error && <div className="renewal-modal-error" role="alert"><AlertTriangle />{error}</div>}
       </form>
-      <footer><button type="button" onClick={() => step === 1 ? onClose() : setStep((current) => current - 1)} disabled={submitting}>{step === 1 ? 'Hủy' : <><ArrowLeft size={16} /> Quay lại</>}</button>{step < 4 ? <button key="next-step" type="button" className="is-primary" onClick={(event) => { event.preventDefault(); nextStep() }} disabled={submitting}>Tiếp tục <ArrowRight size={17} /></button> : <button key="confirm-renewal" type="submit" form="renewal-contract-form" className="is-primary" disabled={completed || submitting || !selectedPackage || !quoteReady || !approvalReady}>{submitting ? 'Đang tái ký…' : 'Xác nhận tái ký'}<RefreshCw size={17} className={submitting ? 'is-spinning' : ''} /></button>}</footer>
+      <footer><button type="button" onClick={() => step === 1 ? onClose() : setStep((current) => current - 1)} disabled={submitting}>{step === 1 ? 'Hủy' : <><ArrowLeft size={16} /> Quay lại</>}</button>{step < 4 ? <button key="next-step" type="button" className="is-primary" onClick={(event) => { event.preventDefault(); void nextStep() }} disabled={submitting}>{submitting ? 'Đang xử lý…' : 'Tiếp tục'} <ArrowRight size={17} /></button> : <button key="confirm-renewal" type="submit" form="renewal-contract-form" className="is-primary" disabled={completed || submitting || !selectedPackage || !quoteReady || !approvalReady}>{submitting ? 'Đang tái ký…' : 'Xác nhận tái ký'}<RefreshCw size={17} className={submitting ? 'is-spinning' : ''} /></button>}</footer>
     </section>
   </div>
 }

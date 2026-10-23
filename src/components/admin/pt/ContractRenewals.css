@@ -19,8 +19,10 @@
 .renewal-page input,
 .renewal-page select,
 .renewal-page textarea { font: inherit; }
-.renewal-page button { cursor: pointer; }
-.renewal-page button:disabled { cursor: not-allowed; opacity: .52; }
+.renewal-page button,
+.renewal-modal-layer button { cursor: pointer; }
+.renewal-page button:disabled,
+.renewal-modal-layer button:disabled { cursor: not-allowed; opacity: .52; }
 .renewal-hero {
   position: relative;
   display: grid;
@@ -493,7 +495,8 @@
 .renewal-pending-approval > button,
 .renewal-approval-state > button,
 .renewal-approval-box > button { display: flex; align-items: center; justify-content: center; gap: 5px; min-height: 39px; padding: 0 10px; border: 1px solid #eadbe2; border-radius: 11px; color: #68505e; background: #fff; font-size: .62rem; font-weight: 850; }
-.renewal-page .is-primary { border-color: transparent !important; color: #fff !important; background: linear-gradient(110deg, var(--rn-pink), var(--rn-orange)) !important; box-shadow: 0 8px 20px rgba(246, 47, 130, .18); }
+.renewal-page .is-primary,
+.renewal-modal-layer .is-primary { border-color: transparent !important; color: #fff !important; background: linear-gradient(110deg, var(--rn-pink), var(--rn-orange)) !important; box-shadow: 0 8px 20px rgba(246, 47, 130, .18); }
 .renewal-assignment { display: grid; gap: 5px; padding: 10px; border: 1px solid #f0e1e7; border-radius: 14px; color: #6e5964; background: #fff; font-size: .62rem; font-weight: 800; }
 .renewal-assignment select { padding: 0 9px; }
 .renewal-pending-approval { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto auto; align-items: center; gap: 8px; padding: 10px; border: 1px solid #ffd0b5; border-radius: 14px; background: #fff5ec; }

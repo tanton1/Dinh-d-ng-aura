@@ -101,6 +101,12 @@ jobs:
       - name: Test production branch scheduling workspace
         if: matrix.project == 'chromium'
         run: npm run test:schedule-ui
+      - name: Test contract renewal quote and confirmation flow
+        if: matrix.project == 'chromium'
+        run: npm run test:renewal-ui -- --project=renewal-chromium
+      - name: Test contract renewal on mobile Safari
+        if: matrix.project == 'mobile-webkit'
+        run: npm run test:renewal-ui -- --project=renewal-mobile-webkit
       - name: Upload browser failure evidence
         if: failure()
         uses: actions/upload-artifact@v4
