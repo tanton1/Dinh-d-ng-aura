@@ -4,6 +4,7 @@ const assert = require('node:assert/strict')
 const { assertHealthyRevision, servesRevision } = require('./cloud-run-revision-policy.cjs')
 const { promoteLatest } = require('./cloud-run-functions-promote-latest.cjs')
 const { serviceHealth } = require('./cloud-run-functions-health.cjs')
+const { recentWindow, recentMetricUrl, recentRequestErrors } = require('./cloud-run-health-observation.cjs')
 const name = 'projects/gen-lang-client-0815966909/locations/asia-southeast1/services/example'
 const image = `asia-southeast1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/example@sha256:${'a'.repeat(64)}`
 function fixture() {
@@ -29,6 +30,95 @@ test('health reads actual container even when created and ready match', async ()
   assert.equal(failed.ready, false)
   const good = await serviceHealth(service, async () => revision)
   assert.equal(good.ready, true)
+})
+
+test('serving mode verifies old traffic independently while the default release gate still rejects the failed latest', async () => {
+  const { service, revision } = fixture()
+  const oldName = `${name}/revisions/example-1`
+  const old = { ...revision, name: oldName }
+  const failedLatest = { ...revision, conditions: [{ type: 'Ready', state: 'CONDITION_FAILED', message: 'CPU quota exceeded' }] }
+  const live = { ...service, latestReadyRevision: oldName, terminalCondition: { state: 'CONDITION_FAILED' }, trafficStatuses: [{ revision: 'example-1', percent: 100 }] }
+  const reads = []
+  const read = async resource => { reads.push(resource); return resource === oldName ? old : failedLatest }
+  const observed = await serviceHealth(live, read, {}, { mode: 'serving' })
+  assert.equal(observed.ready, true)
+  assert.equal(observed.status, 'healthy')
+  assert.equal(observed.releaseFreshness.status, 'backlog')
+  assert.deepEqual(reads, [oldName], 'serving observation does not load a failed candidate')
+  const release = await serviceHealth(live, read)
+  assert.equal(release.mode, 'release')
+  assert.equal(release.ready, false, 'default deployment gate must not be weakened')
+  assert.equal(reads.at(-1), service.latestCreatedRevision)
+})
+
+test('serving health rejects Ready-but-RETIRED and preserves unknown conditions or read failures', async () => {
+  const { service, revision } = fixture()
+  const retired = await serviceHealth(service, async () => ({ ...revision, conditions: [...revision.conditions, { type: 'Active', state: 'CONDITION_FAILED', revisionReason: 'RETIRED' }] }), {}, { mode: 'serving' })
+  assert.equal(retired.ready, false)
+  assert.equal(retired.status, 'unhealthy')
+  assert.match(retired.reason, /RETIRED/)
+  for (const read of [async () => ({ ...revision, conditions: [revision.conditions[0]] }), async () => { throw new Error('Read API 403') }, async () => ({ ...revision, name: `${name}/revisions/wrong` })]) {
+    const observed = await serviceHealth(service, read, {}, { mode: 'serving' })
+    assert.equal(observed.ready, null)
+    assert.equal(observed.status, 'unknown')
+    assert.ok(observed.reason)
+  }
+  const strictReadFailure = await serviceHealth(service, async () => { throw new Error('Read API 503') })
+  assert.equal(strictReadFailure.ready, false, 'unknown reads cannot pass a release gate')
+  assert.equal(strictReadFailure.status, 'unknown')
+})
+
+test('serving split traffic checks every positive target, ignores zero-traffic tags, and still has a release backlog', async () => {
+  const { service, revision } = fixture()
+  const split = { ...service, trafficStatuses: [{ revision: 'example-1', percent: 90 }, { revision: 'example-2', percent: 10 }, { revision: 'example-3', tag: 'rvc' }] }
+  const reads = []
+  const read = async resource => { reads.push(resource); return { ...revision, name: resource } }
+  const observed = await serviceHealth(split, read, {}, { mode: 'serving' })
+  assert.equal(observed.ready, true)
+  assert.equal(observed.releaseFreshness.status, 'backlog')
+  assert.deepEqual(reads.sort(), [`${name}/revisions/example-1`, `${name}/revisions/example-2`])
+  assert.equal((await serviceHealth(split, read)).ready, false)
+  const broken = await serviceHealth(split, async resource => ({ ...revision, name: resource, conditions: resource.endsWith('-1') ? [{ type: 'ContainerHealthy', state: 'CONDITION_FAILED' }] : revision.conditions }), {}, { mode: 'serving' })
+  assert.equal(broken.ready, false)
+})
+
+test('traffic intent or incomplete allocation cannot substitute for observed healthy serving traffic', async () => {
+  const { service } = fixture()
+  let reads = 0
+  const read = async () => { reads++; throw new Error('unexpected read') }
+  const missing = await serviceHealth({ ...service, trafficStatuses: [] }, read, {}, { mode: 'serving' })
+  assert.equal(missing.status, 'unknown')
+  for (const percent of [50, 101]) {
+    const partial = await serviceHealth({ ...service, trafficStatuses: [{ revision: 'example-2', percent }] }, read, {}, { mode: 'serving' })
+    assert.equal(partial.status, 'unhealthy')
+  }
+  assert.equal(reads, 0)
+  await assert.rejects(serviceHealth(service, read, { expectedRevision: 'example-2' }, { mode: 'serving' }), /strict release/)
+  await assert.rejects(serviceHealth(service, read, {}, { mode: 'anything' }), /mode/)
+  assert.equal(reads, 0)
+})
+
+test('recent request errors use an explicit window and never turn unavailable metrics into zero', () => {
+  const window = recentWindow('60', new Date('2026-10-23T16:00:00Z'))
+  assert.deepEqual(window, { minutes: 60, startTime: '2026-10-23T15:00:00.000Z', endTime: '2026-10-23T16:00:00.000Z' })
+  const row = (serviceName, location, code, count) => ({ resource: { labels: { service_name: serviceName, location } }, metric: { labels: { response_code: code } }, points: [{ value: { int64Value: String(count) } }] })
+  const series = [row('example', 'r1', '200', 5), row('example', 'r1', '500', 2), row('example', 'r1', '429', 3), row('other', 'r1', '500', 100), row('example', 'r2', '500', 100)]
+  const result = recentRequestErrors(series, 'r1', 'example', window)
+  assert.equal(result.status, 'available')
+  assert.equal(result.requests, 10)
+  assert.equal(result.http5xx, 2)
+  assert.equal(result.http429, 3)
+  assert.equal(result.scope, 'all_service_revisions')
+  assert.equal(recentRequestErrors(null, 'r1', 'example', window).requests, null)
+  assert.equal(recentRequestErrors(null, 'r1', 'example', window).status, 'unavailable')
+  assert.equal(recentRequestErrors([], 'r1', 'example', window).requests, 0)
+  assert.equal(recentRequestErrors(null, 'r1', 'example', null).status, 'not_requested')
+  assert.throws(() => recentWindow('0'), /1 to 1440/)
+  assert.throws(() => recentWindow('1.5'), /integer/)
+  const url = recentMetricUrl('p1', window, 'r1')
+  assert.equal(url.searchParams.get('interval.startTime'), window.startTime)
+  assert.equal(url.searchParams.get('aggregation.alignmentPeriod'), '60s')
+  assert.match(url.searchParams.get('filter'), /location="r1"/)
 })
 test('promotion refuses unhealthy candidate before any mutation', async () => {
   const { service, revision } = fixture()

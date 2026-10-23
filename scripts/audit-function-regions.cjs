@@ -5,6 +5,7 @@
 const fs = require('node:fs')
 const path = require('node:path')
 const { execFileSync } = require('node:child_process')
+const { latestReleaseFreshness, servingHealth, recentWindow, recentMetricUrl, recentRequestErrors } = require('./cloud-run-health-observation.cjs')
 
 const PROJECT = 'gen-lang-client-0815966909'
 function argument(name, fallback = '') {
@@ -12,9 +13,7 @@ function argument(name, fallback = '') {
 }
 function shortName(value) { return String(value || '').split('/').at(-1) || '' }
 function latestRevisionServing(service) {
-  return Boolean(service?.latestCreatedRevision
-    && service.latestCreatedRevision === service.latestReadyRevision
-    && service.trafficStatuses?.some((target) => Number(target.percent) === 100 && shortName(target.revision) === shortName(service.latestCreatedRevision)))
+  return latestReleaseFreshness(service).status === 'current'
 }
 function runtimeProfile(revision) {
   const resource = revision.containers?.[0]?.resources || {}
@@ -30,6 +29,22 @@ async function mapBounded(items, operation, concurrency = 8) {
     }
   }))
   return results
+}
+async function inspectServiceRuntime(service, readRevision, { verifyServing = false, warn = () => {} } = {}) {
+  const cache = new Map()
+  const read = resource => {
+    if (!cache.has(resource)) cache.set(resource, Promise.resolve().then(() => readRevision(resource)))
+    return cache.get(resource)
+  }
+  const targets = [...new Set((service.trafficStatuses || []).map(target => shortName(target.revision)).filter(Boolean))]
+  if (!targets.length && service.latestReadyRevision) targets.push(shortName(service.latestReadyRevision))
+  const profiles = await Promise.all(targets.map(async revision => {
+    if (revision === shortName(service.latestCreatedRevision) && !verifyServing) return runtimeProfile({ ...service.template, name: revision })
+    try { return runtimeProfile(await read(`${service.name}/revisions/${revision}`)) }
+    catch (error) { warn(error.message); return { revision, unknown: true, minInstances: null } }
+  }))
+  const health = verifyServing ? await servingHealth(service, read) : { status: 'not_verified', ready: null, reason: 'Use --verify-serving to inspect actual serving revision conditions.' }
+  return { profiles, health }
 }
 function sumPoints(series) {
   return (series.points || []).reduce((sum, point) => sum + Number(point.value?.int64Value ?? point.value?.doubleValue ?? 0), 0)
@@ -52,12 +67,13 @@ function renderInventory(report) {
     '- Request Cloud Run không đồng nghĩa số lượt người dùng; không gồm yêu cầu bị chặn trước container.',
     '- Min instances bằng 0 nghĩa là không đặt warm bắt buộc, không có nghĩa không tồn tại instance vừa xử lý request.',
     '- Latest khác serving: revision mới chưa sẵn sàng hoặc chưa nhận traffic; không có nghĩa revision cũ đã ngừng phục vụ.',
+    '- Serving health chỉ được xác minh khi bật --verify-serving; backlog release và lỗi request trong cửa sổ gần đây là các chỉ số riêng.',
     '- Ready và nhận 100% traffic không bảo đảm mọi cold start thành công khi quota vùng đã đầy; cần kiểm tra thêm API/log lỗi.',
     '- CPU x max instances là trần cấu hình, KHÔNG phải CPU đang sử dụng hay chi phí hóa đơn.',
     '- Tên alias chỉ là gợi ý; phải đối chiếu hợp đồng API trước khi chuyển client. Không tự xóa endpoint cũ.',
     '- Di chuyển vùng không giảm số read Firestore; có thể thêm độ trễ và phí truyền dữ liệu liên vùng.',
     '', 'TỔNG QUAN',
-    ...report.summary.map((row) => `${row.region}: ${row.functions} functions; ${row.byKind.callable} callable; ${row.byKind['event-trigger']} trigger; ${row.byKind.scheduled} scheduled; min bắt buộc=${row.configuredMinimums ?? 'không rõ'}; requests 24h=${row.requests24h ?? 'không rõ'}, 7d=${row.requests7d ?? 'không rõ'}; latest chưa ready=${row.latestRevisionNotReady.length}; latest chưa nhận 100% traffic=${row.latestRevisionNotServing?.length ?? '?'}`),
+    ...report.summary.map((row) => `${row.region}: ${row.functions} functions; ${row.byKind.callable} callable; ${row.byKind['event-trigger']} trigger; ${row.byKind.scheduled} scheduled; min bắt buộc=${row.configuredMinimums ?? 'không rõ'}; requests 24h=${row.requests24h ?? 'không rõ'}, 7d=${row.requests7d ?? 'không rõ'}; release backlog=${row.latestRevisionNotServing?.length ?? '?'}; serving khỏe=${row.servingHealth?.healthy ?? 'chưa xác minh'}, không khỏe=${row.servingHealth?.verified ? row.servingHealth.unhealthy.length : '?'}, chưa rõ=${row.servingHealth?.verified ? row.servingHealth.unknown.length : '?'}`),
     '', 'QUOTA (GIỚI HẠN ĐƯỢC CẤP, KHÔNG PHẢI MỨC SỬ DỤNG HIỆN TẠI)',
     ...report.quotas.map((quota) => `${quota.service} | ${quota.metric} | ${quota.region} | ${quota.effectiveLimit} | ${quota.unit}`),
     '', 'HƯỚNG XỬ LÝ',
@@ -73,6 +89,7 @@ function renderInventory(report) {
       `   Requests: 24h=${row.requests24h ?? '?'}; 7d=${row.requests7d ?? '?'}; HTTP 5xx=${row.http5xx24h ?? '?'}; 429=${row.http42924h ?? '?'}`,
       `   Cấu hình mới nhất: CPU=${row.cpu}; RAM=${row.memory}; min=${row.revisionMinInstances}; max=${row.maxInstances}; concurrency=${row.concurrency}; timeout=${row.timeoutSeconds}s`,
       `   Min bắt buộc đang phục vụ=${row.configuredMinimum ?? '?'}; latest ready=${row.latestRevisionReady}; latest nhận 100% traffic=${row.latestRevisionServing ?? '?'}; state=${row.state}`,
+      `   Serving health=${row.servingHealth?.status || 'not_verified'}; release freshness=${row.releaseFreshness?.status || 'unknown'}; recent errors=${row.recentErrors?.status || 'not_requested'}${row.recentErrors?.window ? ` (${row.recentErrors.window.startTime}–${row.recentErrors.window.endTime}; requests=${row.recentErrors.requests ?? '?'}, 5xx=${row.recentErrors.http5xx ?? '?'}, 429=${row.recentErrors.http429 ?? '?'})` : ''}`,
       ...row.servingRevisions.map((revision) => `   Serving: ${revision.revision}; CPU=${revision.cpu ?? '?'}; RAM=${revision.memory ?? '?'}; min=${revision.minInstances ?? '?'}; max=${revision.maxInstances ?? '?'}`),
       `   Alias ứng viên: ${row.aliases.map((alias) => `${alias.name}@${alias.region}`).join(', ') || 'chưa phát hiện'}`,
       `   Client: ${row.clientFiles.join(', ') || 'không tìm thấy chuỗi tên trực tiếp'}`,
@@ -105,6 +122,9 @@ function decision(row) {
 async function main() {
   const project = argument('project', PROJECT)
   if (project !== PROJECT) throw new Error('This audit is scoped to the Aura production project.')
+  const verifyServing = process.argv.includes('--verify-serving')
+  const recentMinutes = argument('recent-minutes', '')
+  recentWindow(recentMinutes) // Reject invalid windows before issuing API reads.
   const token = process.env.AURA_AUDIT_ACCESS_TOKEN
   if (!token) throw new Error('Provide a short-lived AURA_AUDIT_ACCESS_TOKEN without printing it.')
   const headers = { authorization: `Bearer ${token}` }
@@ -128,17 +148,11 @@ async function main() {
   const functions = await list(`https://cloudfunctions.googleapis.com/v2/projects/${project}/locations/-/functions?pageSize=1000`, 'functions')
   const regions = [...new Set(functions.map((fn) => fn.name.split('/')[3]))].sort()
   const services = (await Promise.all(regions.map((region) => list(`https://run.googleapis.com/v2/projects/${project}/locations/${region}/services?pageSize=100`, 'services')))).flat()
-  const servingProfiles = new Map(await mapBounded(services, async (service) => {
-    const targets = [...new Set((service.trafficStatuses || []).map((target) => target.revision).filter(Boolean))]
-    if (!targets.length && service.latestReadyRevision) targets.push(shortName(service.latestReadyRevision))
-    const profiles = await Promise.all(targets.map(async (revision) => {
-      if (revision === shortName(service.latestCreatedRevision)) return runtimeProfile({ ...service.template, name: revision })
-      try { return runtimeProfile(await get(`https://run.googleapis.com/v2/${service.name}/revisions/${revision}`)) }
-      catch (error) { warnings.push(error.message); return { revision, unknown: true, minInstances: null } }
-    }))
-    return [service.name, profiles]
-  }))
+  const servingEvidence = new Map(await mapBounded(services, async service => [service.name,
+    await inspectServiceRuntime(service, resource => get(`https://run.googleapis.com/v2/${resource}`), { verifyServing, warn: message => warnings.push(message) }),
+  ]))
   const end = new Date()
+  const recentErrorsWindow = recentWindow(recentMinutes, end)
   async function metric(type, days, aligner = 'ALIGN_SUM') {
     const url = new URL(`https://monitoring.googleapis.com/v3/projects/${project}/timeSeries`)
     url.searchParams.set('filter', `metric.type="${type}" AND resource.type="cloud_run_revision"`)
@@ -149,11 +163,12 @@ async function main() {
     url.searchParams.set('pageSize', '1000')
     try { return await list(url, 'timeSeries') } catch (error) { warnings.push(error.message); return null }
   }
-  const [request7d, request24h, cpu24h, projectData] = await Promise.all([
+  const [request7d, request24h, cpu24h, projectData, recentSeries] = await Promise.all([
     metric('run.googleapis.com/request_count', 7),
     metric('run.googleapis.com/request_count', 1),
     metric('run.googleapis.com/container/cpu/allocation_time', 1),
     get(`https://cloudresourcemanager.googleapis.com/v1/projects/${project}`),
+    recentErrorsWindow ? list(recentMetricUrl(project, recentErrorsWindow), 'timeSeries').catch(error => { warnings.push(error.message); return null }) : Promise.resolve(null),
   ])
   const quotas = []
   for (const service of ['run.googleapis.com', 'cloudfunctions.googleapis.com']) {
@@ -190,12 +205,15 @@ async function main() {
       maxInstances: fn.serviceConfig?.maxInstanceCount ?? null,
       revisionMinInstances: run?.template?.scaling?.minInstanceCount ?? fn.serviceConfig?.minInstanceCount ?? 0,
       serviceMinInstances: run?.scaling?.minInstanceCount ?? 0,
-      servingRevisions: servingProfiles.get(fn.serviceConfig?.service) || [],
+      servingRevisions: servingEvidence.get(fn.serviceConfig?.service)?.profiles || [],
+      servingHealth: servingEvidence.get(fn.serviceConfig?.service)?.health || { status: verifyServing ? 'unknown' : 'not_verified', ready: null, reason: 'Cloud Run service metadata unavailable.' },
       concurrency: fn.serviceConfig?.maxInstanceRequestConcurrency ?? null,
       timeoutSeconds: fn.serviceConfig?.timeoutSeconds ?? null,
       latestReadyRevision: ready, latestCreatedRevision: created,
       latestRevisionReady: Boolean(ready && ready === created),
       latestRevisionServing: latestRevisionServing(run),
+      releaseFreshness: latestReleaseFreshness(run),
+      recentErrors: recentRequestErrors(recentSeries, region, service, recentErrorsWindow),
       traffic: run?.trafficStatuses || [],
       eventType: fn.eventTrigger?.eventType || null,
       eventFilters: fn.eventTrigger?.eventFilters || [],
@@ -223,14 +241,17 @@ async function main() {
       theoreticalCpuCeiling: Number(selected.reduce((sum, row) => sum + row.cpu * (row.maxInstances || 0), 0).toFixed(3)),
       latestRevisionNotReady: selected.filter((row) => !row.latestRevisionReady).map((row) => row.name),
       latestRevisionNotServing: selected.filter((row) => !row.latestRevisionServing).map((row) => row.name),
+      servingHealth: { verified: verifyServing, healthy: verifyServing ? selected.filter(row => row.servingHealth.status === 'healthy').length : null,
+        unhealthy: selected.filter(row => row.servingHealth.status === 'unhealthy').map(row => row.name), unknown: selected.filter(row => row.servingHealth.status === 'unknown').map(row => row.name) },
+      recentErrors: { window: recentErrorsWindow, requests: sumKnown(selected.map(row => row.recentErrors), 'requests'), http5xx: sumKnown(selected.map(row => row.recentErrors), 'http5xx'), http429: sumKnown(selected.map(row => row.recentErrors), 'http429') },
     }
   })
   const output = path.resolve(argument('output', `tmp/function-region-audit-${end.toISOString().replaceAll(':', '-')}.json`))
   fs.mkdirSync(path.dirname(output), { recursive: true })
-  const report = { project, observedAt: end.toISOString(), gitCommit: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), notes: ['Read-only APIs; no customer document contents or credentials.', 'CPU ceiling is configured theoretical capacity, NOT active CPU or billable usage.', 'CPU allocation metric includes startup and all revisions; it is NOT a billing estimate or instantaneous regional quota usage.', 'HTTP request metrics exclude requests rejected before reaching a container, and do not cover all callable application errors.', 'Missing metrics are null, not zero. Request counts exclude services not backed by a listed Function.', 'Alias-name matches and read-name prefixes are screening hints, not proof of equivalent or side-effect-free handlers.'], warnings, summary, quotas, functions: rows }
+  const report = { project, observedAt: end.toISOString(), verifyServing, recentErrorsWindow, gitCommit: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), notes: ['Read-only APIs; no customer document contents or credentials.', 'Serving health, release freshness and recent request errors are separate observations; a release backlog is not an outage.', 'Serving conditions are verified only with --verify-serving. Recent errors include all revisions of each service in the explicit --recent-minutes window.', 'CPU ceiling is configured theoretical capacity, NOT active CPU or billable usage.', 'CPU allocation metric includes startup and all revisions; it is NOT a billing estimate or instantaneous regional quota usage.', 'HTTP request metrics exclude requests rejected before reaching a container, and do not cover all callable application errors.', 'Missing metrics are null, not zero. Request counts exclude services not backed by a listed Function.', 'Alias-name matches and read-name prefixes are screening hints, not proof of equivalent or side-effect-free handlers.'], warnings, summary, quotas, functions: rows }
   fs.writeFileSync(output, JSON.stringify(report, null, 2))
   fs.writeFileSync(output.replace(/\.json$/i, '') + '.txt', renderInventory(report))
   console.log(JSON.stringify({ output, warnings, summary: summary.map(({ latestRevisionNotReady, latestRevisionNotServing, ...row }) => ({ ...row, latestRevisionNotReadyCount: latestRevisionNotReady.length, latestRevisionNotServingCount: latestRevisionNotServing.length })), quotas, southeastTop: rows.filter((row) => row.region === 'asia-southeast1').slice(0, 15).map(({ name, kind, requests24h, requests7d, cpu, maxInstances, aliases }) => ({ name, kind, requests24h, requests7d, cpu, maxInstances, aliases })) }, null, 2))
 }
 if (require.main === module) main().catch((error) => { console.error(error.message); process.exitCode = 1 })
-module.exports = { classify, decision, sumPoints, runtimeProfile, mapBounded, configuredMinimumFloor, sumKnown, renderInventory, latestRevisionServing }
+module.exports = { classify, decision, sumPoints, runtimeProfile, mapBounded, configuredMinimumFloor, sumKnown, renderInventory, latestRevisionServing, inspectServiceRuntime }

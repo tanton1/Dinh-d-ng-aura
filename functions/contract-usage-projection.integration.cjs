@@ -126,6 +126,33 @@ test('real Firestore: simultaneous duplicate trigger deliveries converge with on
   assert.equal(observed.stats.evidenceQueries, beforeReplay)
 })
 
+test('real Firestore: the surviving retry-enabled view handler alone maintains counter and view across replay and cancellation', { timeout: 60000 }, async () => {
+  const db = fixture()
+  await db.doc('contracts/contract-one').set(contractRow())
+  const created = await sourceWrite(db, 'sessions/session-one', sessionRow())
+  await syncContractUsageView({ db, event: created, logger: quiet })
+  await syncContractUsageView({ db, event: created, logger: quiet })
+  let state = await contractAndView(db)
+  assert.equal(state.contract.usedSessions, 1)
+  assert.equal(state.view.usedSessions, 1)
+  assert.equal(state.view.remainingSessions, 11)
+  assert.equal((await db.collection('contractUsageAuditLogs').get()).size, 1)
+
+  const cancelled = await sourceWrite(db, 'sessions/session-one', sessionRow({ status: 'student_cancelled', billingStatus: 'exempt' }))
+  await syncContractUsageView({ db, event: cancelled, logger: quiet })
+  await syncContractUsageView({ db, event: created, logger: quiet })
+  state = await contractAndView(db)
+  assert.equal(state.contract.usedSessions, 0)
+  assert.equal(state.view.usedSessions, 0)
+  assert.equal(state.view.remainingSessions, 12)
+
+  const removed = await sourceWrite(db, 'sessions/session-one', null)
+  await syncContractUsageView({ db, event: removed, logger: quiet })
+  state = await contractAndView(db)
+  assert.equal(state.contract.usedSessions, 0)
+  assert.equal(state.view.remainingSessions, 12)
+})
+
 test('real Firestore: moving a charged session updates both contract projections atomically', { timeout: 60000 }, async () => {
   const db = fixture()
   await Promise.all([

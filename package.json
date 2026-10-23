@@ -19,7 +19,7 @@
     "test:renewal-ui": "playwright test --config playwright.renewal.config.ts",
     "test:renewal-transaction": "npx --yes firebase-tools@15.9.1 emulators:exec --only firestore --project demo-aura-fitness \"node --test functions/contract-renewal-transaction.integration.cjs\"",
     "test:projection-transaction": "npx --yes firebase-tools@15.9.1 emulators:exec --only firestore --project demo-aura-fitness \"node --test functions/projection-safety.integration.cjs functions/weekly-projection-safety.integration.cjs functions/contract-usage-projection.integration.cjs\"",
-    "test:regional-reads": "tsx --test tests/regional-read-routing.test.ts && node --test scripts/audit-function-regions.test.cjs scripts/recover-function-revisions.test.cjs scripts/cloud-run-revision-policy.test.cjs functions/regional-read-aliases.test.js functions/action-center-noop.test.js",
+    "test:regional-reads": "tsx --test tests/regional-read-routing.test.ts tests/weekly-schedule-routing.test.ts && node --test scripts/audit-function-regions.test.cjs scripts/recover-function-revisions.test.cjs scripts/cloud-run-revision-policy.test.cjs functions/regional-read-aliases.test.js functions/action-center-noop.test.js",
     "test:e2e": "playwright test",
     "test:eat-clean": "tsx --test tests/eat-clean-reference-catalog.test.ts",
     "test": "npm run test:profile-sync && npm run test:regional-reads && npm run test:eat-clean && npm run test:functions",
@@ -31,12 +31,13 @@
     "check:repo-hygiene": "node scripts/check-repo-hygiene.mjs",
     "exercise:compare": "node scripts/compare-exercise-sources.cjs",
     "exercise:release": "node scripts/release-free-exercise-catalog.cjs",
-    "ci": "npm run check:repo-hygiene && npm run typecheck && npm run test:profile-sync && npm run test:regional-reads && npm run test:callable-audit && npm run test:eat-clean && npm run build && npm run performance:check && npm --prefix functions run check && npm --prefix functions run check:weekly-view && npm --prefix functions run check:apikey-fun",
+    "ci": "npm run check:repo-hygiene && npm run typecheck && npm run test:profile-sync && npm run test:regional-reads && npm run test:callable-audit && npm run test:function-lifecycle && npm run test:eat-clean && npm run build && npm run performance:check && npm --prefix functions run check && npm --prefix functions run check:weekly-view && npm --prefix functions run check:apikey-fun",
     "typecheck": "tsc -b --force",
     "start": "vite preview --host 0.0.0.0",
     "test:catalog-ui": "playwright test --config tests/workout-catalog-ui/playwright.config.ts",
     "audit:callables": "node scripts/audit-callable-usage.cjs",
     "test:callable-audit": "node --test scripts/audit-callable-usage.test.cjs",
+    "test:function-lifecycle": "node --test scripts/dashboard-cache-ttl.test.cjs scripts/evaluate-function-lifecycle.test.cjs",
     "test:workspace-sync-ui": "playwright test --config tests/workspace-sync-ui/playwright.config.ts"
   },
   "dependencies": {

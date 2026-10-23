@@ -1,0 +1,139 @@
+AURA — QUẢN LÝ VÒNG ĐỜI ENDPOINT
+
+Danh mục: ops/function-lifecycle.json
+Công cụ: scripts/evaluate-function-lifecycle.cjs
+Kiểm tra: node --test scripts/evaluate-function-lifecycle.test.cjs
+
+Phạm vi hiện tại gồm 24 ứng viên của audit 33f309a, bốn weekly maintenance
+wrapper cần giữ và base getPtScheduleWeeklyView. Tổng: 29 endpoint. Source nền
+khi bắt đầu triển khai là 369452c; mỗi lần chạy công cụ đều đọc source hiện tại,
+gắn commit và SHA256 nội dung, không sử dụng audit cũ để cấp điều kiện mới.
+
+Danh mục không đổi routing, quyền, handler, dữ liệu hoặc deployment. Tên
+canonical xác định nhóm nghiệp vụ; chỉ replacement khác null mới chỉ định
+endpoint thay thế cần kiểm chứng. 145 binding export phục vụ discovery không
+nằm trong thay đổi này. Không ghi thêm payload nghiệp vụ hoặc thông tin học viên.
+
+THỜI GIAN QUAN SÁT
+Mốc bắt đầu: 2026-10-23T15:56:19Z, tức 22:56:19 ngày 23/10/2026 Việt Nam.
+- Pipeline compatibility và weekly reader base: ít nhất 14 ngày, đến 06/11.
+- Sáu MealPlan endpoint: 30 ngày, đến 22/11.
+- Nhóm hiếm dùng/tài chính, gồm cả các guard tương thích: 60 ngày, đến 22/12,
+  đồng thời cần bằng chứng đã quan sát trọn ít nhất một chu kỳ nghiệp vụ 30 ngày.
+- Bốn weekly maintenance wrapper có status retained-maintenance, không được
+  chuyển thành đủ điều kiện chỉ vì hết ngày hoặc có metrics bằng 0.
+Giờ notBefore là 22:56:19 Việt Nam tại các ngày trên. Không lấy traffic trước
+mốc bắt đầu để tính lùi thời gian quan sát. Các mốc là thời gian tối thiểu,
+không phải lịch xóa tự động.
+
+CÁCH CHẠY
+Từ thư mục gốc repository:
+
+node scripts/evaluate-function-lifecycle.cjs --help
+
+node scripts/evaluate-function-lifecycle.cjs --metrics=tmp/function-revision-audit/activity-30d.json --inventory=tmp/function-revision-audit/live-current.json --output=tmp/function-lifecycle-audit/current.json
+
+Tạo mẫu rà soát dependency chưa xác nhận, thêm:
+--dependency-template=tmp/function-lifecycle-audit/dependency-review-pending.json
+
+Công cụ từ chối ghi đè mẫu review đã có. Để tạo mẫu cho source mới, dùng tên
+artifact mới; không chỉ thay digest trong bằng chứng cũ. Source cần được giữ
+ổn định giữa lúc tạo mẫu, rà soát và đánh giá. Các sửa đổi source, test, script,
+package, rules hoặc registry làm thay đổi fingerprint và yêu cầu rà soát lại.
+
+Sau khi đã rà soát mẫu, cung cấp bằng:
+--dependencies=tmp/function-lifecycle-audit/dependency-review-reviewed.json
+
+Không có --dependencies hoặc metrics/inventory hợp lệ vẫn xuất báo cáo nhưng
+không endpoint nào đạt eligible. Công cụ không gọi mạng, không tự thu metrics,
+không gọi callable, không chạy module nghiệp vụ. Chỉ ghi JSON/TXT báo cáo tại
+đường dẫn artifact dưới tmp/; không ghi vào source hoặc cấu hình sản phẩm.
+
+Ý NGHĨA KẾT QUẢ
+eligible: đủ bằng chứng để mở một thay đổi ngừng endpoint có review riêng.
+review: thiếu thời gian hoặc bằng chứng; xem mã lỗi từng endpoint.
+retain: có caller/traffic/binding nền, core thiếu hoặc đang được giữ bảo trì.
+deletionAllowed luôn false trong manifest và mọi kết quả. Không có lệnh delete,
+disable, deploy hoặc tự đổi lifecycle status. Exit code 0 nghĩa đánh giá chạy
+thành công, không có nghĩa được phép xóa. Lỗi schema/đường dẫn có exit code 1.
+
+ĐẦU VÀO METRICS VÀ INVENTORY
+Inventory dùng schema của audit-function-regions.cjs: project, observedAt,
+warnings và functions[]. Mỗi function cần name, region, service, kind, state;
+replacement cần servingRevisions và traffic có phần trăm đang phục vụ.
+Không buộc latest-created phải đang nhận traffic: revision cũ vẫn có thể tốt.
+
+Metrics dùng schema activity-30d.json, hoặc bản export mới cùng cấu trúc:
+{
+  "project": "gen-lang-client-0815966909",
+  "observedAt": "<thời gian truy vấn UTC>",
+  "warnings": [],
+  "windows": {
+    "observation": {
+      "status": "complete",
+      "start": "2026-10-23T15:56:19.000Z",
+      "end": "<thời gian kết thúc truy vấn UTC>",
+      "groups": [
+        { "key": "asia-east1/ten-service-viet-thuong", "requests": 123 }
+      ]
+    }
+  }
+}
+
+Đây là cấu trúc, không phải dữ liệu mẫu được xác nhận. Chỉ đánh dấu complete
+sau khi truy vấn toàn bộ project/vùng/service thành công và đủ mọi trang.
+Không tự điền 0 cho truy vấn lỗi, thiếu quyền, timeout hoặc số liệu null.
+Không có series chỉ được hiểu là không có request ghi nhận khi cửa sổ query
+complete và danh tính deployment đã khớp. Nó không chứng minh không có client.
+
+Metrics, inventory và dependency review phải mới trong 24 giờ; cùng project;
+không có warnings. Cần một cửa sổ metrics phủ toàn bộ khoảng quan sát kể từ
+observationStart, qua notBefore và tới thời điểm kết thúc còn mới. Rolling 30d
+không đủ cho endpoint yêu cầu 60 ngày. Mọi request được ghi nhận, kể cả OPTIONS
+hoặc lỗi, trong cửa sổ giao với kỳ quan sát đều chặn. Cửa sổ kéo dài về trước
+mốc bắt đầu có thể chặn bảo thủ; nên xuất đúng khoảng quan sát để tránh nhập
+nhằng. Không cộng các cửa sổ chồng nhau để khẳng định tổng số request.
+
+BẰNG CHỨNG DEPENDENCY
+Mẫu do công cụ sinh có reviewer/owner rỗng và mọi verified/reviewed đều false.
+Rà soát lần lượt frontend, fallback, scripts, external/old clients, internal
+RPC và binding trigger/scheduler. Ghi caller còn tồn tại vào đúng mảng; không
+bỏ caller vì nó ít được gọi. Test source, IAM allowlist và lời gọi core nội bộ
+không tự động được tính là RPC production; vẫn phải ghi bằng chứng phân biệt.
+Nêu runbook/test hoặc tài liệu có thể kiểm tra lại trong evidence; không điền
+payload, tên học viên, khóa API hay bí mật.
+
+Một tham chiếu logical name có thể được loại khỏi caller trực tiếp chỉ bằng
+logicalReferenceOverrides khớp chính xác file/line/transport, kind là
+logical-name-only, noWireCall=true, replacement đúng registry và evidence.
+Chỉ áp dụng cho non-directTransport. Không áp dụng cho httpsCallable hoặc
+fallback thực. Ví dụ weekly base cần bằng chứng policy/test xác nhận wire name
+getPtScheduleWeeklyViewRegional tại asia-east1; source thay đổi phải rà lại.
+
+Nếu có replacement, phải kiểm tra export, vùng, deployment đang phục vụ và
+đặt replacementVerified theo bằng chứng. Nếu không có replacement, phải làm
+rõ flow có thể ngừng bằng retirementWithoutReplacementReviewed. rollbackReady
+cần gắn bằng chứng phương án khôi phục. Các flag không thay cho việc kiểm tra.
+
+CORE VÀ GIAO DỊCH TÀI CHÍNH
+coreToRetain được kiểm tra còn declaration trong source, đồng thời yêu cầu
+preserveCore.verified và testEvidence về caller nội bộ/retry. Chỉ bỏ public
+wrapper không có nghĩa bỏ core, scheduler hoặc trigger. Bốn maintenance wrapper
+luôn retain cho đến một quyết định bảo trì riêng và thay đổi registry có review.
+
+Nhóm hiếm/tài chính cần businessCycle.start/end nằm trong khoảng đã quan sát,
+đủ minimumBusinessCycleDays và có evidence đối soát vòng nghiệp vụ hoàn chỉnh.
+Financial write cần testEvidence và đủ các điều kiện financialRetry:
+- sharedIdempotencyKey: cùng khóa qua các lần thử và tuyến vùng;
+- payloadConflictRejected: cùng khóa với payload khác bị từ chối;
+- resultLookupAfterTimeout: tra kết quả giao dịch cũ trước khi xử lý lại;
+- noBlindCrossRegionRetry: không phát lại mutation sang vùng khác tùy tiện;
+- sameAtomicCore: giữ giao dịch nguyên tử/core dùng chung.
+Công cụ chỉ đánh giá bằng chứng, không thêm retry hoặc instrumentation nghiệp vụ.
+
+GIỚI HẠN
+Static audit chưa chứng minh hết client cũ/tích hợp ngoài repo. Bằng chứng người
+rà soát có trách nhiệm bổ sung phần này. Mẫu review không có chữ ký mật mã; cần
+quản lý và review artifact như thay đổi vận hành khác. Source hiện tại có thể
+khác revision đang phục vụ, nên không kết luận endpoint cũ đã disabled chỉ từ
+guard trong code. Báo cáo không tự chứng minh tiết kiệm chi phí hay an toàn xóa.

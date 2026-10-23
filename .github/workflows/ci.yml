@@ -35,6 +35,10 @@ jobs:
         run: npm run test:profile-sync
       - name: Test callable inventory coverage
         run: npm run test:callable-audit
+      - name: Test regional routing and function lifecycle safeguards
+        run: |
+          npm run test:regional-reads
+          npm run test:function-lifecycle
       - name: Build
         run: npm run build
       - name: Check performance budget

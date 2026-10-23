@@ -1,0 +1,560 @@
+{
+  "schemaVersion": 1,
+  "project": "gen-lang-client-0815966909",
+  "createdAt": "2026-10-23T15:56:19.000Z",
+  "sourceBaseline": {
+    "auditCommit": "33f309adbab1b7aca2176fd6f0f7934b213f17ee",
+    "implementationCommit": "369452cd0c6e119353d8f152581c332ef225cecb"
+  },
+  "policy": {
+    "evidenceMaxAgeHours": 24,
+    "clockSkewMinutes": 5,
+    "minimumNormalObservationDays": 14,
+    "minimumRareOrFinancialObservationDays": 30,
+    "deletionAllowed": false
+  },
+  "notes": [
+    "Registry canonical names group source handlers; only a non-null replacement is an intended route, and it still requires fresh verification.",
+    "Observation starts when this registry is created, not retroactively from the earlier traffic audit. Eligibility is review readiness only; no command deletes or disables endpoints.",
+    "145 repeated export assignments support Firebase discovery and are outside this lifecycle change.",
+    "No request or business payload is instrumented or collected by this registry."
+  ],
+  "entries": [
+    {
+      "name": "assignMealPlan",
+      "canonical": "assignMealPlan",
+      "replacement": null,
+      "region": "asia-southeast1",
+      "reason": "legacy-meal-plan-flow",
+      "status": "deprecated-observing",
+      "observationStart": "2026-10-23T15:56:19.000Z",
+      "notBefore": "2026-11-22T15:56:19.000Z",
+      "minimumObservationDays": 30,
+      "risk": "normal",
+      "minimumBusinessCycleDays": 0,
+      "operation": "write",
+      "coreToRetain": [],
+      "deletionAllowed": false
+    },
+    {
+      "name": "assignNutritionCoach",
+      "canonical": "assignNutritionCoach",
+      "replacement": null,
+      "region": "asia-southeast1",
+      "reason": "disabled-compatibility-in-current-source",
+      "status": "deprecated-observing",
+      "observationStart": "2026-10-23T15:56:19.000Z",
+      "notBefore": "2026-12-22T15:56:19.000Z",
+      "minimumObservationDays": 60,
+      "risk": "rare",
+      "minimumBusinessCycleDays": 30,
+      "operation": "disabled-write",
+      "coreToRetain": [],
+      "deletionAllowed": false
+    },
+    {
+      "name": "assignNutritionCoachRegional",
+      "canonical": "assignNutritionCoach",
+      "replacement": null,
+      "region": "asia-east1",
+      "reason": "disabled-compatibility-in-current-source",
+      "status": "deprecated-observing",
+      "observationStart": "2026-10-23T15:56:19.000Z",
+      "notBefore": "2026-12-22T15:56:19.000Z",
+      "minimumObservationDays": 60,
+      "risk": "rare",
+      "minimumBusinessCycleDays": 30,
+      "operation": "disabled-write",
+      "coreToRetain": [],
+      "deletionAllowed": false
+    },
+    {
+      "name": "cancelSession",
+      "canonical": "cancelSession",
+      "replacement": null,
+      "region": "asia-southeast1",
+      "reason": "disabled-compatibility-in-current-source",
+      "status": "deprecated-observing",
+      "observationStart": "2026-10-23T15:56:19.000Z",
+      "notBefore": "2026-12-22T15:56:19.000Z",
+      "minimumObservationDays": 60,
+      "risk": "rare",
+      "minimumBusinessCycleDays": 30,
+      "operation": "disabled-write",
+      "coreToRetain": [],
+      "deletionAllowed": false
+    },
+    {
+      "name": "captureMemberContractReferral",
+      "canonical": "captureMemberContractReferral",
+      "replacement": null,
+      "region": "asia-southeast1",
+      "reason": "no-current-client-workflow-found",
+      "status": "deprecated-observing",
+      "observationStart": "2026-10-23T15:56:19.000Z",
+      "notBefore": "2026-12-22T15:56:19.000Z",
+      "minimumObservationDays": 60,
+      "risk": "financial",
+      "minimumBusinessCycleDays": 30,
+      "operation": "write",
+      "coreToRetain": [],
+      "deletionAllowed": false
+    },
+    {
+      "name": "deleteMealPlanRecipe",
+      "canonical": "deleteMealPlanRecipe",
+      "replacement": null,
+      "region": "asia-southeast1",
+      "reason": "legacy-meal-plan-flow",
+      "status": "deprecated-observing",
+      "observationStart": "2026-10-23T15:56:19.000Z",
+      "notBefore": "2026-11-22T15:56:19.000Z",
+      "minimumObservationDays": 30,
+      "risk": "normal",
+      "minimumBusinessCycleDays": 0,
+      "operation": "write",
+      "coreToRetain": [],
+      "deletionAllowed": false
+    },
+    {
+      "name": "fulfillLoyaltyRedemption",
+      "canonical": "fulfillLoyaltyRedemption",
+      "replacement": null,
+      "region": "asia-southeast1",
+      "reason": "no-current-client-workflow-found",
+      "status": "deprecated-observing",
+      "observationStart": "2026-10-23T15:56:19.000Z",
+      "notBefore": "2026-12-22T15:56:19.000Z",
+      "minimumObservationDays": 60,
+      "risk": "financial",
+      "minimumBusinessCycleDays": 30,
+      "operation": "write",
+      "coreToRetain": [],
+      "deletionAllowed": false
+    },
+    {
+      "name": "getContractUsage",
+      "canonical": "getContractUsage",
+      "replacement": null,
+      "region": "asia-southeast1",
+      "reason": "maintenance-or-manual-command",
+      "status": "deprecated-observing",
+      "observationStart": "2026-10-23T15:56:19.000Z",
+      "notBefore": "2026-12-22T15:56:19.000Z",
+      "minimumObservationDays": 60,
+      "risk": "rare",
+      "minimumBusinessCycleDays": 30,
+      "operation": "read",
+      "coreToRetain": [
+        {
+          "file": "functions/contract-usage-view.js",
+          "symbol": "buildContractUsageView"
+        },
+        {
+          "file": "functions/contract-usage-view.js",
+          "symbol": "syncContractUsageView"
+        }
+      ],
+      "deletionAllowed": false
+    },
+    {
+      "name": "getMyMealPlan",
+      "canonical": "getMyMealPlan",
+      "replacement": null,
+      "region": "asia-southeast1",
+      "reason": "legacy-meal-plan-flow",
+      "status": "deprecated-observing",
+      "observationStart": "2026-10-23T15:56:19.000Z",
+      "notBefore": "2026-11-22T15:56:19.000Z",
+      "minimumObservationDays": 30,
+      "risk": "normal",
+      "minimumBusinessCycleDays": 0,
+      "operation": "read",
+      "coreToRetain": [],
+      "deletionAllowed": false
+    },
+    {
+      "name": "getPtScheduleWeeklyView",
+      "canonical": "getPtScheduleWeeklyViewRegional",
+      "replacement": {
+        "name": "getPtScheduleWeeklyViewRegional",
+        "region": "asia-east1"
+      },
+      "region": "asia-east1",
+      "reason": "same-region-reader-wrapper; current logical name maps to Regional endpoint",
+      "status": "deprecated-observing",
+      "observationStart": "2026-10-23T15:56:19.000Z",
+      "notBefore": "2026-11-06T15:56:19.000Z",
+      "minimumObservationDays": 14,
+      "risk": "normal",
+      "minimumBusinessCycleDays": 0,
+      "operation": "read",
+      "coreToRetain": [
+        {
+          "file": "functions/pt-schedule-weekly-view.js",
+          "symbol": "rebuildPtScheduleWeeklyView"
+        }
+      ],
+      "deletionAllowed": false
+    },
+    {
+      "name": "getStudentUsageSummary",
+      "canonical": "getStudentUsageSummary",
+      "replacement": null,
+      "region": "asia-southeast1",
+      "reason": "maintenance-or-manual-command",
+      "status": "deprecated-observing",
+      "observationStart": "2026-10-23T15:56:19.000Z",
+      "notBefore": "2026-12-22T15:56:19.000Z",
+      "minimumObservationDays": 60,
+      "risk": "rare",
+      "minimumBusinessCycleDays": 30,
+      "operation": "read",
+      "coreToRetain": [
+        {
+          "file": "functions/contract-usage-view.js",
+          "symbol": "buildContractUsageView"
+        },
+        {
+          "file": "functions/contract-usage-view.js",
+          "symbol": "syncContractUsageView"
+        }
+      ],
+      "deletionAllowed": false
+    },
+    {
+      "name": "listContractRenewalPipeline",
+      "canonical": "listContractRenewalPipeline",
+      "replacement": {
+        "name": "listContractRenewalCases",
+        "region": "asia-southeast1"
+      },
+      "region": "asia-southeast1",
+      "reason": "same-handler-compatibility-name",
+      "status": "deprecated-observing",
+      "observationStart": "2026-10-23T15:56:19.000Z",
+      "notBefore": "2026-11-06T15:56:19.000Z",
+      "minimumObservationDays": 14,
+      "risk": "normal",
+      "minimumBusinessCycleDays": 0,
+      "operation": "read",
+      "coreToRetain": [],
+      "deletionAllowed": false
+    },
+    {
+      "name": "listMealPlanAdminData",
+      "canonical": "listMealPlanAdminData",
+      "replacement": null,
+      "region": "asia-southeast1",
+      "reason": "legacy-meal-plan-flow",
+      "status": "deprecated-observing",
+      "observationStart": "2026-10-23T15:56:19.000Z",
+      "notBefore": "2026-11-22T15:56:19.000Z",
+      "minimumObservationDays": 30,
+      "risk": "normal",
+      "minimumBusinessCycleDays": 0,
+      "operation": "read",
+      "coreToRetain": [],
+      "deletionAllowed": false
+    },
+    {
+      "name": "markPtScheduleWeeklyViewDirty",
+      "canonical": "markPtScheduleWeeklyViewDirty",
+      "replacement": null,
+      "region": "asia-east1",
+      "reason": "maintenance-wrapper-with-live-internal-core",
+      "status": "retained-maintenance",
+      "observationStart": "2026-10-23T15:56:19.000Z",
+      "notBefore": null,
+      "minimumObservationDays": 60,
+      "risk": "rare",
+      "minimumBusinessCycleDays": 30,
+      "operation": "write",
+      "coreToRetain": [
+        {
+          "file": "functions/pt-schedule-weekly-view.js",
+          "symbol": "markPtScheduleWeeklyViewDirty"
+        }
+      ],
+      "deletionAllowed": false
+    },
+    {
+      "name": "markPtScheduleWeeklyViewDirtyRegional",
+      "canonical": "markPtScheduleWeeklyViewDirty",
+      "replacement": null,
+      "region": "asia-east1",
+      "reason": "maintenance-wrapper-with-live-internal-core",
+      "status": "retained-maintenance",
+      "observationStart": "2026-10-23T15:56:19.000Z",
+      "notBefore": null,
+      "minimumObservationDays": 60,
+      "risk": "rare",
+      "minimumBusinessCycleDays": 30,
+      "operation": "write",
+      "coreToRetain": [
+        {
+          "file": "functions/pt-schedule-weekly-view.js",
+          "symbol": "markPtScheduleWeeklyViewDirty"
+        }
+      ],
+      "deletionAllowed": false
+    },
+    {
+      "name": "rebuildPtScheduleWeeklyView",
+      "canonical": "rebuildPtScheduleWeeklyView",
+      "replacement": null,
+      "region": "asia-east1",
+      "reason": "maintenance-wrapper-with-live-internal-core",
+      "status": "retained-maintenance",
+      "observationStart": "2026-10-23T15:56:19.000Z",
+      "notBefore": null,
+      "minimumObservationDays": 60,
+      "risk": "rare",
+      "minimumBusinessCycleDays": 30,
+      "operation": "write",
+      "coreToRetain": [
+        {
+          "file": "functions/pt-schedule-weekly-view.js",
+          "symbol": "rebuildPtScheduleWeeklyView"
+        }
+      ],
+      "deletionAllowed": false
+    },
+    {
+      "name": "rebuildPtScheduleWeeklyViewRegional",
+      "canonical": "rebuildPtScheduleWeeklyView",
+      "replacement": null,
+      "region": "asia-east1",
+      "reason": "maintenance-wrapper-with-live-internal-core",
+      "status": "retained-maintenance",
+      "observationStart": "2026-10-23T15:56:19.000Z",
+      "notBefore": null,
+      "minimumObservationDays": 60,
+      "risk": "rare",
+      "minimumBusinessCycleDays": 30,
+      "operation": "write",
+      "coreToRetain": [
+        {
+          "file": "functions/pt-schedule-weekly-view.js",
+          "symbol": "rebuildPtScheduleWeeklyView"
+        }
+      ],
+      "deletionAllowed": false
+    },
+    {
+      "name": "reconcileContractStatuses",
+      "canonical": "reconcileContractStatuses",
+      "replacement": null,
+      "region": "asia-southeast1",
+      "reason": "maintenance-or-manual-command",
+      "status": "deprecated-observing",
+      "observationStart": "2026-10-23T15:56:19.000Z",
+      "notBefore": "2026-12-22T15:56:19.000Z",
+      "minimumObservationDays": 60,
+      "risk": "rare",
+      "minimumBusinessCycleDays": 30,
+      "operation": "write",
+      "coreToRetain": [
+        {
+          "file": "functions/contract-renewals.js",
+          "symbol": "reconcileContractStatusesCore"
+        }
+      ],
+      "deletionAllowed": false
+    },
+    {
+      "name": "reconcileContractUsage",
+      "canonical": "reconcileContractUsage",
+      "replacement": null,
+      "region": "asia-southeast1",
+      "reason": "maintenance-or-manual-command",
+      "status": "deprecated-observing",
+      "observationStart": "2026-10-23T15:56:19.000Z",
+      "notBefore": "2026-12-22T15:56:19.000Z",
+      "minimumObservationDays": 60,
+      "risk": "rare",
+      "minimumBusinessCycleDays": 30,
+      "operation": "write",
+      "coreToRetain": [
+        {
+          "file": "functions/contract-usage-view.js",
+          "symbol": "buildContractUsageView"
+        },
+        {
+          "file": "functions/contract-usage-view.js",
+          "symbol": "syncContractUsageView"
+        }
+      ],
+      "deletionAllowed": false
+    },
+    {
+      "name": "recordCourseRevision",
+      "canonical": "recordCourseRevision",
+      "replacement": null,
+      "region": "asia-southeast1",
+      "reason": "disabled-compatibility-in-current-source",
+      "status": "deprecated-observing",
+      "observationStart": "2026-10-23T15:56:19.000Z",
+      "notBefore": "2026-12-22T15:56:19.000Z",
+      "minimumObservationDays": 60,
+      "risk": "rare",
+      "minimumBusinessCycleDays": 30,
+      "operation": "disabled-write",
+      "coreToRetain": [],
+      "deletionAllowed": false
+    },
+    {
+      "name": "refreshContractUsageView",
+      "canonical": "refreshContractUsageView",
+      "replacement": null,
+      "region": "asia-southeast1",
+      "reason": "maintenance-or-manual-command",
+      "status": "deprecated-observing",
+      "observationStart": "2026-10-23T15:56:19.000Z",
+      "notBefore": "2026-12-22T15:56:19.000Z",
+      "minimumObservationDays": 60,
+      "risk": "rare",
+      "minimumBusinessCycleDays": 30,
+      "operation": "write",
+      "coreToRetain": [
+        {
+          "file": "functions/contract-usage-view.js",
+          "symbol": "buildContractUsageView"
+        },
+        {
+          "file": "functions/contract-usage-view.js",
+          "symbol": "syncContractUsageView"
+        }
+      ],
+      "deletionAllowed": false
+    },
+    {
+      "name": "rescheduleSession",
+      "canonical": "rescheduleSession",
+      "replacement": null,
+      "region": "asia-southeast1",
+      "reason": "disabled-compatibility-in-current-source",
+      "status": "deprecated-observing",
+      "observationStart": "2026-10-23T15:56:19.000Z",
+      "notBefore": "2026-12-22T15:56:19.000Z",
+      "minimumObservationDays": 60,
+      "risk": "rare",
+      "minimumBusinessCycleDays": 30,
+      "operation": "disabled-write",
+      "coreToRetain": [],
+      "deletionAllowed": false
+    },
+    {
+      "name": "saveMealPlan",
+      "canonical": "saveMealPlan",
+      "replacement": null,
+      "region": "asia-southeast1",
+      "reason": "legacy-meal-plan-flow",
+      "status": "deprecated-observing",
+      "observationStart": "2026-10-23T15:56:19.000Z",
+      "notBefore": "2026-11-22T15:56:19.000Z",
+      "minimumObservationDays": 30,
+      "risk": "normal",
+      "minimumBusinessCycleDays": 0,
+      "operation": "write",
+      "coreToRetain": [],
+      "deletionAllowed": false
+    },
+    {
+      "name": "saveMealPlanRecipe",
+      "canonical": "saveMealPlanRecipe",
+      "replacement": null,
+      "region": "asia-southeast1",
+      "reason": "legacy-meal-plan-flow",
+      "status": "deprecated-observing",
+      "observationStart": "2026-10-23T15:56:19.000Z",
+      "notBefore": "2026-11-22T15:56:19.000Z",
+      "minimumObservationDays": 30,
+      "risk": "normal",
+      "minimumBusinessCycleDays": 0,
+      "operation": "write",
+      "coreToRetain": [],
+      "deletionAllowed": false
+    },
+    {
+      "name": "submitContractForApproval",
+      "canonical": "submitContractForApproval",
+      "replacement": null,
+      "region": "asia-southeast1",
+      "reason": "no-current-client-workflow-found",
+      "status": "deprecated-observing",
+      "observationStart": "2026-10-23T15:56:19.000Z",
+      "notBefore": "2026-12-22T15:56:19.000Z",
+      "minimumObservationDays": 60,
+      "risk": "financial",
+      "minimumBusinessCycleDays": 30,
+      "operation": "write",
+      "coreToRetain": [],
+      "deletionAllowed": false
+    },
+    {
+      "name": "submitContractForApprovalRegional",
+      "canonical": "submitContractForApproval",
+      "replacement": null,
+      "region": "asia-east1",
+      "reason": "no-current-client-workflow-found",
+      "status": "deprecated-observing",
+      "observationStart": "2026-10-23T15:56:19.000Z",
+      "notBefore": "2026-12-22T15:56:19.000Z",
+      "minimumObservationDays": 60,
+      "risk": "financial",
+      "minimumBusinessCycleDays": 30,
+      "operation": "write",
+      "coreToRetain": [],
+      "deletionAllowed": false
+    },
+    {
+      "name": "submitWorkoutNote",
+      "canonical": "submitWorkoutNote",
+      "replacement": null,
+      "region": "asia-southeast1",
+      "reason": "no-current-client-workflow-found",
+      "status": "deprecated-observing",
+      "observationStart": "2026-10-23T15:56:19.000Z",
+      "notBefore": "2026-12-22T15:56:19.000Z",
+      "minimumObservationDays": 60,
+      "risk": "rare",
+      "minimumBusinessCycleDays": 30,
+      "operation": "write",
+      "coreToRetain": [],
+      "deletionAllowed": false
+    },
+    {
+      "name": "submitWorkoutNoteRegional",
+      "canonical": "submitWorkoutNote",
+      "replacement": null,
+      "region": "asia-east1",
+      "reason": "no-current-client-workflow-found",
+      "status": "deprecated-observing",
+      "observationStart": "2026-10-23T15:56:19.000Z",
+      "notBefore": "2026-12-22T15:56:19.000Z",
+      "minimumObservationDays": 60,
+      "risk": "rare",
+      "minimumBusinessCycleDays": 30,
+      "operation": "write",
+      "coreToRetain": [],
+      "deletionAllowed": false
+    },
+    {
+      "name": "swapSessions",
+      "canonical": "swapSessions",
+      "replacement": null,
+      "region": "asia-southeast1",
+      "reason": "disabled-compatibility-in-current-source",
+      "status": "deprecated-observing",
+      "observationStart": "2026-10-23T15:56:19.000Z",
+      "notBefore": "2026-12-22T15:56:19.000Z",
+      "minimumObservationDays": 60,
+      "risk": "rare",
+      "minimumBusinessCycleDays": 30,
+      "operation": "disabled-write",
+      "coreToRetain": [],
+      "deletionAllowed": false
+    }
+  ]
+}

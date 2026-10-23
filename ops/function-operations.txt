@@ -1,0 +1,84 @@
+AURA — VẬN HÀNH FUNCTION SAU RÀ SOÁT TRÙNG LẶP
+
+Thay đổi production xác minh ngày 23/10/2026, 16:13 UTC.
+
+1. DỌN CACHE BẰNG TTL
+Firestore database: ai-studio-aurafitnesselear-0f7609b4-b8d1-4fb3-9d62-99a2c03e1ce7
+Collection: systemOperationsDashboardCache; field: expiresAt; TTL ACTIVE.
+Chỉ cập nhật ttlConfig qua API; không đổi index trong thao tác rollout.
+Reader vẫn từ chối cache quá hạn trong lúc Firestore chờ xóa vật lý.
+
+Hai document đã hết hạn được lấy mẫu (chỉ trường expiresAt), sau đó đều
+không còn tồn tại. Scheduler cũ chưa chạy lại giữa hai lần quan sát.
+cleanupOperationsDashboardCache đã gỡ tại asia-southeast1; xác nhận
+Cloud Functions, Cloud Run service và Cloud Scheduler job đều trả 404.
+
+Kiểm tra chỉ đọc:
+node scripts/dashboard-cache-ttl.cjs status
+
+Nếu cần xử lý TTL bị tắt, dùng enable theo exact target mà tool yêu cầu;
+giữ rollout journal riêng dưới tmp/. Không chạy lại cleanup scheduler chỉ
+vì document hết hạn chưa bị xóa ngay: TTL là bất đồng bộ, reader quyết định
+cache còn dùng được hay không. Helper pruneExpiredDashboardCache vẫn còn
+trong source để phục vụ xử lý vận hành có chủ đích.
+
+2. MỘT TRIGGER CHO SỰ KIỆN BUỔI TẬP
+Đã gỡ syncPtContractUsageProjection tại asia-southeast1, gồm Cloud Run và
+Eventarc trigger. Giữ syncSessionContractUsageView, RETRY_POLICY_RETRY,
+theo dõi sessions/{sessionId} trong đúng named database trên.
+
+Atomic writer từ commit 82e16647d714c417ebd7c63f6bf3e57040dd2643 cập nhật
+contracts và contractUsageViews trong cùng giao dịch, có receipt để chống
+lặp và sự kiện đến sai thứ tự. Không gỡ core syncContractUsageProjection.
+Sáu test Firestore emulator đã kiểm tra replay, cancellation, reassignment,
+out-of-order delivery, transaction failure và trigger cascade.
+
+Revision survivor đã xác minh: syncsessioncontractusageview-00018-vac.
+Image digest: sha256:7e7a041d494996144621737938a78bf85aedffaa321d23ab9c1ebee073f584d6
+Source hash: 9ed670137c5484cf091d1329047be634d038b78f
+Ready, ContainerHealthy, 100% traffic, subscription ACTIVE khi kiểm tra.
+Đây là bằng chứng tại thời điểm rollout, không khóa các bản phát hành sau.
+
+Ưu tiên khắc phục survivor nếu có lỗi. Chỉ khôi phục export/trigger cũ khi
+đã xác minh cần thiết, deploy đúng target và writer vẫn idempotent. Không
+deploy toàn bộ index từ một checkout cũ vì có thể tái tạo tác vụ đã gỡ.
+
+3. SỨC KHỎE PHỤC VỤ VÀ TRẠNG THÁI BẢN PHÁT HÀNH
+Kiểm tra service đang phục vụ và lỗi HTTP trong 60 phút:
+node scripts/cloud-run-functions-health.cjs --mode=serving --region=asia-southeast1 --recent-minutes=60 --json --fail-on-unhealthy
+
+Inventory toàn project, có kiểm tra revision thực sự nhận traffic:
+node scripts/audit-function-regions.cjs --verify-serving --recent-minutes=60 --output=tmp/function-audit/live.json
+Công cụ inventory yêu cầu token ngắn hạn qua AURA_AUDIT_ACCESS_TOKEN.
+Không lưu token vào source/artifact hoặc in token vào log.
+
+Ba tín hiệu cần đọc riêng:
+- servingHealth: Ready và ContainerHealthy của mọi revision nhận traffic;
+  thiếu bằng chứng trả unknown, không coi là healthy.
+- releaseFreshness: latest-created có đang phục vụ hay còn backlog.
+- recentErrors: requests, HTTP 5xx và 429 trong cửa sổ chỉ định, gồm mọi
+  revision của service. Metrics không truy vấn được không được coi là 0 lỗi.
+
+Sau deploy, vẫn dùng mode release (mặc định) cùng --expected-revision và
+--expected-image cho đúng một service. Gate này phải kiểm tra revision/image
+mong muốn nhận traffic; mode serving không thay thế gate phát hành.
+Không tự promote 252 revision cũ chỉ vì latest-created chưa nhận traffic.
+
+4. ROUTING VÀ ENDPOINT CŨ
+Lịch tuần dùng getPtScheduleWeeklyViewRegional tại asia-east1, retry đọc
+tối đa hai lần trên cùng endpoint. Thiếu client đúng vùng sẽ báo lỗi rõ,
+không fallback sang Singapore. Maintenance command giữ tối đa một lần gọi.
+Policy: src/services/weeklyScheduleEndpointPolicy.ts.
+
+Các endpoint ít dùng/không thấy caller được theo dõi theo
+ops/function-lifecycle.json và hướng dẫn ops/function-lifecycle.txt.
+Không xóa chỉ dựa vào traffic bằng 0. Bốn weekly maintenance wrapper và
+core dùng bởi scheduler/trigger vẫn được giữ. Các binding export phục vụ
+Firebase discovery cũng được giữ; binding không phải invocation trùng.
+
+Bằng chứng local của rollout: tmp/function-retirement/
+- approved-preflight.json
+- cache-ttl-rollout.json
+- production-retirement-verification.json
+- delete-cache-cleanup.log; delete-duplicate-usage.log
+Các artifact tmp không chứa cached business value và không được commit.

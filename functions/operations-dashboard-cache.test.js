@@ -2,7 +2,7 @@
 
 const assert = require('node:assert/strict')
 const test = require('node:test')
-const { stableDashboardCacheKey } = require('./operations-dashboard-cache')
+const { stableDashboardCacheKey, createSharedDashboardCache } = require('./operations-dashboard-cache')
 
 function cacheInput(actor) {
   return {
@@ -13,6 +13,21 @@ function cacheInput(actor) {
     endDate: '2026-08-29',
   }
 }
+
+test('expired cache is never returned while asynchronous Firestore TTL deletion is pending', async () => {
+  const db = { collection: () => ({ doc: () => ({ get: async () => ({ exists: true, data: () => ({ schemaVersion: 1, expiresAt: { toMillis: () => Date.now() - 60_000 }, value: { total: 999 } }) }) }) }) }
+  const cache = createSharedDashboardCache({ db })
+  assert.equal(await cache.get('expired'), null)
+})
+
+test('unexpired cache remains usable and forced refresh bypasses the retained document', async () => {
+  let reads = 0
+  const db = { collection: () => ({ doc: () => ({ get: async () => { reads += 1; return { exists: true, data: () => ({ schemaVersion: 1, expiresAt: { toMillis: () => Date.now() + 60_000 }, value: { total: 3 } }) } } }) }) }
+  const cache = createSharedDashboardCache({ db })
+  assert.equal((await cache.get('current')).total, 3)
+  assert.equal(await cache.get('current', true), null)
+  assert.equal(reads, 1)
+})
 
 test('admins with the same data scope share one dashboard cache key', () => {
   const first = stableDashboardCacheKey(cacheInput({ uid: 'admin-a', accessRole: 'admin', authzVersion: 1 }))

@@ -2,6 +2,7 @@ import { httpsCallable } from 'firebase/functions'
 import { firebaseFunctions, firebaseScheduleOptimizerFunctions, firebaseSchedulePublishFunctions } from '../lib/firebaseFunctions'
 import type { Schedule, ScheduleConfig, Session, Student, StudentContract, Trainer } from '../types'
 import { reportClientIssue } from './clientTelemetryService'
+import { weeklyScheduleEndpoint } from './weeklyScheduleEndpointPolicy'
 
 export interface PtSchedulePublishDiff {
   create: number
@@ -549,6 +550,13 @@ function functionsInstance() {
 }
 
 function functionsInstanceForCallable(name: string) {
+  const weeklyEndpoint = weeklyScheduleEndpoint(name)
+  if (weeklyEndpoint) {
+    if (!firebaseSchedulePublishFunctions || firebaseSchedulePublishFunctions.region !== weeklyEndpoint.region) {
+      throw new PtSchedulePublishError('Dịch vụ lịch tuần chưa sẵn sàng.', 'SYNC_UNAVAILABLE', [], true)
+    }
+    return firebaseSchedulePublishFunctions
+  }
   if (regionalPublishCallableNames.has(name) && !sameRegionScheduleReadCallables.has(name)) {
     if (!firebaseSchedulePublishFunctions) throw new PtSchedulePublishError('Firebase Functions chưa sẵn sàng.', 'SYNC_UNAVAILABLE', [], true)
     return firebaseSchedulePublishFunctions
@@ -566,7 +574,6 @@ const retryableReadCallables = new Set([
   'getMyBranchScheduleWorkspace',
   'getPtScheduleSlotCandidates',
   'getPtScheduleWorkspace',
-  'getPtScheduleWeeklyView',
   'listPtScheduleBranches',
   'listPtScheduleVersions',
   'validatePtScheduleDraft',
@@ -581,7 +588,6 @@ const regionalPublishCallableNames = new Map([
   ['adminEditPtSchedule', 'adminEditPtScheduleRegional'],
   ['listPtScheduleBranches', 'listPtScheduleBranchesRegional'],
   ['getPtScheduleWorkspace', 'getPtScheduleWorkspaceRegional'],
-  ['getPtScheduleWeeklyView', 'getPtScheduleWeeklyViewRegional'],
   ['getPtScheduleSlotCandidates', 'getPtScheduleSlotCandidatesRegional'],
   ['createHistoricalPtSession', 'createHistoricalPtSessionRegional'],
   ['savePtStudentAvailability', 'savePtStudentAvailabilityRegional'],
@@ -591,9 +597,7 @@ const regionalPublishCallableNames = new Map([
 ])
 
 // Read-heavy workspace calls stay beside the canonical Firestore database.
-// The weekly projection is the exception: both its current and fallback
-// endpoints are deployed in the bounded asia-east1 schedule pool, so call it
-// directly instead of first probing a non-existent southeast endpoint.
+// The separate weekly endpoint policy pins snapshots to the East pool.
 const sameRegionScheduleReadCallables = new Set([
   'listPtScheduleBranches',
   'getPtScheduleWorkspace',
@@ -603,7 +607,6 @@ const regionalReadFallbackCallables = new Set([
   'listPtScheduleBranches',
   'getPtScheduleWorkspace',
   'getPtScheduleSlotCandidates',
-  'getPtScheduleWeeklyView',
 ])
 
 function callableErrorCode(error: unknown) {
@@ -659,15 +662,16 @@ export function asPtSchedulePublishError(error: unknown) {
 }
 
 async function invoke<TInput extends Record<string, unknown>, TOutput>(name: string, input: TInput) {
-  const timeout = name === 'validatePtScheduleDraft' ? 30_000 : retryableReadCallables.has(name) ? 20_000 : 60_000
-  const maximumAttempts = retryableReadCallables.has(name) ? 2 : 1
+  const weeklyEndpoint = weeklyScheduleEndpoint(name)
+  const timeout = weeklyEndpoint?.timeoutMs ?? (name === 'validatePtScheduleDraft' ? 30_000 : retryableReadCallables.has(name) ? 20_000 : 60_000)
+  const maximumAttempts = weeklyEndpoint?.maximumAttempts ?? (retryableReadCallables.has(name) ? 2 : 1)
   let useRegionalReadFallback = false
   for (let attempt = 0; attempt < maximumAttempts; attempt += 1) {
-    const callableName = useRegionalReadFallback
+    const callableName = weeklyEndpoint?.callableName ?? (useRegionalReadFallback
       ? regionalPublishCallableNames.get(name) || name
       : sameRegionScheduleReadCallables.has(name)
         ? name
-        : regionalPublishCallableNames.get(name) || name
+        : regionalPublishCallableNames.get(name) || name)
     const callableFunctions = useRegionalReadFallback && firebaseSchedulePublishFunctions
       ? firebaseSchedulePublishFunctions
       : functionsInstanceForCallable(name)
@@ -681,7 +685,7 @@ async function invoke<TInput extends Record<string, unknown>, TOutput>(name: str
         && Boolean(firebaseSchedulePublishFunctions)
         && retryable
         && attempt < maximumAttempts - 1
-      const shouldRetry = (autoRetryCallableCodes.has(code) || canUseRegionalFallback)
+      const shouldRetry = (weeklyEndpoint ? weeklyEndpoint.operation === 'read' && retryable : autoRetryCallableCodes.has(code) || canUseRegionalFallback)
         && attempt < maximumAttempts - 1
       if (!shouldRetry) {
         reportClientIssue('firestore', error, {

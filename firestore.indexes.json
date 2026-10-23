@@ -641,6 +641,12 @@
   ],
   "fieldOverrides": [
     {
+      "collectionGroup": "systemOperationsDashboardCache",
+      "fieldPath": "expiresAt",
+      "ttl": true,
+      "indexes": []
+    },
+    {
       "collectionGroup": "aiCoachCache",
       "fieldPath": "expiresAt",
       "ttl": true,

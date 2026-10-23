@@ -62,7 +62,6 @@ const { createPayrollFunctions, priceTeachingSlots, payrollPolicyProfiles, payro
 const { createStaffPayrollFunctions } = require('./staff-payroll')
 const { createPerformanceScoreFunctions } = require('./performance-score')
 const { createOperationsDashboardFunctions } = require('./operations-dashboard')
-const { pruneExpiredDashboardCache } = require('./operations-dashboard-cache')
 const { rebuildOperationsDailyAggregates, syncDailyAggregateWrite } = require('./operations-dashboard-aggregates')
 const { createCashbookFunctions } = require('./cashbook')
 const { createBusinessReportingFunctions } = require('./business-reporting')
@@ -72,7 +71,6 @@ const { createContractRenewalFunctions } = require('./contract-renewals')
 const { createContractRenewalRegionalFunctions } = require('./contract-renewal-regional')
 const { createLoyaltyFunctions, reconcileAttendance: reconcileLoyaltyAttendance, reconcileAttendanceMissions, reconcileContractSpend: reconcileLoyaltyContractSpend, reconcileMemberReferral, reconcileNutritionReview, reconcilePendingMemberReferrals, vestPendingSources } = require('./loyalty')
 const { createRegionalReadAliases } = require('./regional-read-aliases')
-const { syncContractUsageProjection } = require('./contract-usage')
 const { buildContractUsageView, contractUsageViewNeedsRebuild, createContractUsageViewFunctions, syncContractUsageView } = require('./contract-usage-view')
 const { createActionCenterFunctions, syncOperationalActionSource } = require('./action-center')
 const { createPackageManagementFunctions } = require('./package-management')
@@ -133,13 +131,6 @@ async function cleanupStaleNutritionScanImages(now = Date.now()) {
   return { scannedImages: files.length, deletedImages }
 }
 
-exports.syncPtContractUsageProjection = onDocumentWritten({
-  document: 'sessions/{sessionId}',
-  database: databaseId,
-  region: 'asia-southeast1',
-  maxInstances: 3,
-}, async (event) => syncContractUsageProjection({ db, event, logger }))
-
 exports.syncContractUsageView = onDocumentWritten({
   document: 'contracts/{contractId}',
   database: databaseId,
@@ -149,6 +140,8 @@ exports.syncContractUsageView = onDocumentWritten({
   retry: true,
 }, async (event) => syncContractUsageView({ db, event, logger }))
 
+// The atomic session writer updates both contracts and contractUsageViews.
+// Keep one retry-enabled subscription; a second subscription only repeats reads.
 exports.syncSessionContractUsageView = onDocumentWritten({
   document: 'sessions/{sessionId}',
   database: databaseId,
@@ -636,13 +629,8 @@ exports.hardDeleteStudentRegional = studentManagementFunctions.hardDeleteStudent
 const branchManagementFunctions = createBranchManagementFunctions({ db, onCall })
 exports.upsertBranch = branchManagementFunctions.upsertBranch
 exports.archiveBranch = branchManagementFunctions.archiveBranch
-exports.cleanupOperationsDashboardCache = onSchedule({
-  schedule: 'every 6 hours',
-  region: 'asia-southeast1',
-  timeZone: 'Asia/Ho_Chi_Minh',
-  retryCount: 1,
-  maxInstances: 1,
-}, async () => pruneExpiredDashboardCache({ db, logger }))
+// systemOperationsDashboardCache expires through Firestore TTL on expiresAt.
+// Cache readers independently reject expired entries while TTL deletion runs.
 exports.rebuildOperationsDashboardAggregatesScheduled = onSchedule({
   schedule: '15 1 * * *',
   region: 'asia-southeast1',

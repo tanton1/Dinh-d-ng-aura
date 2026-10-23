@@ -3,6 +3,7 @@
 const path = require('node:path')
 const { mapBounded } = require('./audit-function-regions.cjs')
 const { revisionResource, assertHealthyRevision } = require('./cloud-run-revision-policy.cjs')
+const { latestReleaseFreshness, servingHealth, recentWindow, recentMetricUrl, recentRequestErrors } = require('./cloud-run-health-observation.cjs')
 
 const DEFAULT_PROJECT = 'gen-lang-client-0815966909'
 const DEFAULT_REGION = 'asia-southeast1'
@@ -61,18 +62,28 @@ async function listServices(project, region, token) {
   return services
 }
 
-async function serviceHealth(service, readRevision, expected = {}) {
+async function serviceHealth(service, readRevision, expected = {}, { mode = 'release' } = {}) {
+  if (!['release', 'serving'].includes(mode)) throw new Error('mode must be release or serving.')
+  if (mode === 'serving' && (expected.expectedRevision || expected.expectedImage)) throw new Error('Expected revision/image require the strict release mode.')
   const name = serviceName(service)
   const readyRevision = String(service.latestReadyRevision || '').split('/').at(-1) || ''
   const createdRevision = String(service.latestCreatedRevision || '').split('/').at(-1) || ''
+  const base = { name, mode, readyRevision, createdRevision, releaseFreshness: latestReleaseFreshness(service), uri: service.uri || '' }
+  if (mode === 'serving') {
+    const observed = await servingHealth(service, readRevision)
+    return { ...base, ready: observed.ready, status: observed.status, reason: observed.reason, servingHealth: observed,
+      ...(observed.revisions.length === 1 ? { image: observed.revisions[0].image } : {}) }
+  }
+  let readCompleted = false
   try {
     // Always inspect the actual revision, even when service-level names agree.
     // A Ready service can still point at a retired/failed container revision.
     const revision = await readRevision(revisionResource(service))
+    readCompleted = true
     const result = assertHealthyRevision(service, revision, { ...expected, requireServing: true })
-    return { name, ready: true, readyRevision, createdRevision, image: result.image, reason: '', uri: service.uri || '' }
+    return { ...base, ready: true, status: 'healthy', image: result.image, reason: '' }
   } catch (error) {
-    return { name, ready: false, readyRevision, createdRevision, reason: error.message || failureReason(service), uri: service.uri || '' }
+    return { ...base, ready: false, status: readCompleted ? 'unhealthy' : 'unknown', reason: error.message || failureReason(service) }
   }
 }
 
@@ -81,12 +92,16 @@ async function main() {
   const region = argument('region', DEFAULT_REGION)
   const json = process.argv.includes('--json')
   const failOnUnhealthy = process.argv.includes('--fail-on-unhealthy')
+  const mode = argument('mode', 'release')
+  if (!['release', 'serving'].includes(mode)) throw new Error('mode must be release or serving.')
+  const window = recentWindow(argument('recent-minutes', ''))
   const names = new Set(argument('functions', '').split(',').map((item) => item.trim().toLowerCase()).filter(Boolean))
+  const expected = { expectedRevision: argument('expected-revision', ''), expectedImage: argument('expected-image', '') }
+  if (mode === 'serving' && (expected.expectedRevision || expected.expectedImage)) throw new Error('Expected revision/image require the strict release mode.')
+  if ((expected.expectedRevision || expected.expectedImage) && names.size !== 1) throw new Error('Expected revision/image require exactly one service.')
   const token = await accessToken()
   const allServices = await listServices(project, region, token)
   const services = names.size ? allServices.filter((service) => names.has(serviceName(service))) : allServices
-  const expected = { expectedRevision: argument('expected-revision', ''), expectedImage: argument('expected-image', '') }
-  if ((expected.expectedRevision || expected.expectedImage) && names.size !== 1) throw new Error('Expected revision/image require exactly one service.')
   const readRevision = async (resource) => {
     const response = await fetch(`https://run.googleapis.com/v2/${resource}`, {
       headers: { authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(30_000),
@@ -94,16 +109,39 @@ async function main() {
     if (!response.ok) throw new Error(`Không đọc được revision (${response.status}).`)
     return response.json()
   }
-  const rows = (await mapBounded(services, (service) => serviceHealth(service, readRevision, expected), 8))
+  let recentSeries = null
+  if (window) {
+    try {
+      recentSeries = []
+      const url = recentMetricUrl(project, window, region)
+      do {
+        const response = await fetch(url, { headers: { authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(30_000) })
+        if (!response.ok) throw new Error(`Recent request metrics unavailable (${response.status}).`)
+        const payload = await response.json()
+        recentSeries.push(...(payload.timeSeries || []))
+        if (!payload.nextPageToken) break
+        url.searchParams.set('pageToken', payload.nextPageToken)
+      } while (true)
+    } catch (error) { recentSeries = null; console.error(error.message) }
+  }
+  const rows = (await mapBounded(services, (service) => serviceHealth(service, readRevision, expected, { mode }), 8))
     .sort((left, right) => left.name.localeCompare(right.name))
+  rows.forEach(row => { row.recentErrors = recentRequestErrors(recentSeries, region, row.name, window) })
   const failed = rows.filter((item) => !item.ready)
+  const unknown = rows.filter(item => item.status === 'unknown').length
+  const releaseBacklog = rows.filter(item => item.releaseFreshness.status === 'backlog').length
 
-  if (json) process.stdout.write(`${JSON.stringify({ project, region, total: rows.length, healthy: rows.length - failed.length, failed: failed.length, services: rows }, null, 2)}\n`)
+  if (json) process.stdout.write(`${JSON.stringify({ project, region, mode, total: rows.length, healthy: rows.length - failed.length, failed: failed.length, unknown, releaseBacklog, recentErrorsWindow: window, services: rows }, null, 2)}\n`)
   else {
-    console.log(`Cloud Run ${project}/${region}: ${rows.length - failed.length}/${rows.length} dịch vụ khỏe mạnh.`)
+    console.log(`Cloud Run ${project}/${region}: ${rows.length - failed.length}/${rows.length} ${mode === 'serving' ? 'service có revision phục vụ khỏe' : 'release mới nhất đạt strict deployment gate'}; release backlog=${releaseBacklog}; chưa xác minh=${unknown}.`)
     if (failed.length) {
-      console.log(`Không khỏe mạnh (${failed.length}):`)
+      console.log(`${mode === 'serving' ? 'Serving chưa đạt kiểm tra' : 'Release chưa đạt gate'} (${failed.length}):`)
       for (const item of failed) console.log(`- ${item.name}: ready=${item.readyRevision || '-'} created=${item.createdRevision || '-'} · ${item.reason || 'revision chưa sẵn sàng'}`)
+    }
+    if (window) {
+      console.log(`Recent errors: cửa sổ ${window.startTime}–${window.endTime}, gồm mọi revision của service; metadata khỏe không bảo đảm mọi request thành công.`)
+      if (!recentSeries) console.log('Chưa đọc được recent request metrics; không suy ra 0 lỗi.')
+      else for (const row of rows) console.log(`- ${row.name}: requests=${row.recentErrors.requests}, 5xx=${row.recentErrors.http5xx}, 429=${row.recentErrors.http429}`)
     }
   }
   if (names.size && rows.length !== names.size) {

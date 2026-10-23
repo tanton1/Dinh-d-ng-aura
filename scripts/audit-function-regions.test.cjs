@@ -2,7 +2,7 @@
 
 const test = require('node:test')
 const assert = require('node:assert/strict')
-const { classify, decision, sumPoints, runtimeProfile, mapBounded, sumKnown, configuredMinimumFloor, latestRevisionServing } = require('./audit-function-regions.cjs')
+const { classify, decision, sumPoints, runtimeProfile, mapBounded, sumKnown, configuredMinimumFloor, latestRevisionServing, inspectServiceRuntime, renderInventory } = require('./audit-function-regions.cjs')
 
 test('classification and candidates never encourage duplicate triggers or schedulers', () => {
   assert.equal(classify({ eventTrigger: {}, labels: { 'deployment-callable': 'true' } }), 'event-trigger')
@@ -51,4 +51,46 @@ test('Ready candidates behind a zero-traffic staging tag are not reported as ser
   assert.equal(latestRevisionServing({ ...service, trafficStatuses: [{ revision: 'example-2', percent: 50 }, { revision: 'example-1', percent: 50 }] }), false)
   assert.equal(latestRevisionServing({ ...service, trafficStatuses: [{ revision: 'example-2', percent: 100 }] }), true)
   assert.equal(latestRevisionServing(undefined), false)
+})
+
+test('audit serving verification is opt-in and reuses an old revision read without fetching latest backlog', async () => {
+  const name = 'projects/p/locations/r/services/example'
+  const service = { name, latestCreatedRevision: `${name}/revisions/example-2`, latestReadyRevision: `${name}/revisions/example-1`, trafficStatuses: [{ revision: 'example-1', percent: 100 }], template: { containers: [{ resources: { limits: { cpu: '1' } } }] } }
+  let reads = []
+  const read = async resource => {
+    reads.push(resource)
+    assert.equal(resource, `${name}/revisions/example-1`)
+    return { name: resource, containers: [{ resources: { limits: { cpu: '0.25' } } }], conditions: [{ type: 'Ready', state: 'CONDITION_SUCCEEDED' }, { type: 'ContainerHealthy', state: 'CONDITION_SUCCEEDED' }] }
+  }
+  const normal = await inspectServiceRuntime(service, read)
+  assert.equal(normal.health.status, 'not_verified')
+  assert.equal(normal.health.ready, null)
+  assert.equal(reads.length, 1)
+  reads = []
+  const verified = await inspectServiceRuntime(service, read, { verifyServing: true })
+  assert.equal(verified.health.ready, true)
+  assert.equal(verified.profiles[0].cpu, 0.25)
+  assert.equal(reads.length, 1, 'profile and health must share one metadata GET')
+})
+
+test('audit latest-serving profile avoids GET by default but checks actual conditions when opted in', async () => {
+  const name = 'projects/p/locations/r/services/example'
+  const service = { name, latestCreatedRevision: `${name}/revisions/example-2`, latestReadyRevision: `${name}/revisions/example-2`, trafficStatuses: [{ revision: 'example-2', percent: 100 }], template: { containers: [] } }
+  let reads = 0
+  const normal = await inspectServiceRuntime(service, async () => { reads++; throw new Error('unexpected') })
+  assert.equal(reads, 0)
+  assert.equal(normal.health.ready, null)
+  const warnings = []
+  const unavailable = await inspectServiceRuntime(service, async () => { reads++; throw new Error('403 revision read') }, { verifyServing: true, warn: warning => warnings.push(warning) })
+  assert.equal(reads, 1)
+  assert.equal(unavailable.health.status, 'unknown')
+  assert.equal(unavailable.health.ready, null)
+  assert.equal(unavailable.profiles[0].minInstances, null)
+  assert.deepEqual(warnings, ['403 revision read'])
+})
+
+test('inventory text separates a healthy fleet from release backlog rather than counting candidates as outages', () => {
+  const output = renderInventory({ project: 'p', observedAt: 'now', quotas: [], warnings: [], functions: [], summary: [{ region: 'r', functions: 520, byKind: { callable: 448, 'event-trigger': 56, scheduled: 16 }, configuredMinimums: 0, requests24h: 0, requests7d: 0, latestRevisionNotReady: Array(252).fill('candidate'), latestRevisionNotServing: Array(252).fill('candidate'), servingHealth: { verified: true, healthy: 520, unhealthy: [], unknown: [] } }] })
+  assert.match(output, /release backlog=252; serving khỏe=520, không khỏe=0, chưa rõ=0/)
+  assert.match(output, /--verify-serving/)
 })
