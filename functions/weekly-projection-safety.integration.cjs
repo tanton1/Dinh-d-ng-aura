@@ -8,6 +8,7 @@ const { FieldValue, getFirestore } = require('firebase-admin/firestore')
 const {
   buildPtScheduleWeeklyView, rebuildPtScheduleWeeklyView,
   markPtScheduleWeeklyViewDirty, syncPtScheduleWeeklyViewSource, rebuildDirtyPtScheduleWeeklyViews,
+  mergeWeeklyViewState,
 } = require('./pt-schedule-weekly-view')
 
 // Deliberately outside the ordinary unit-test glob. Integration writes must
@@ -20,6 +21,11 @@ const clients = []
 const BRANCH = 'branch-a'
 const WEEK = '2026-10-19'
 const viewPath = (branch = BRANCH, week = WEEK) => `ptScheduleWeeklyViews/${branch}_${week}`
+const statePath = (branch = BRANCH, week = WEEK) => `ptScheduleWeeklyViewStates/${branch}_${week}`
+async function effectiveView(db) {
+  const [payload, state] = await db.getAll(db.doc(viewPath()), db.doc(statePath()))
+  return mergeWeeklyViewState(payload.data(), state.data())
+}
 const leasePath = `systemJobs/ptScheduleWeeklyViewRebuild/views/${BRANCH}_${WEEK}`
 const quiet = { info() {} }
 
@@ -90,7 +96,7 @@ test('real Firestore: dirty events during a build are not acknowledged or overwr
       return data(2)
     },
   })
-  const pending = (await db.doc(viewPath()).get()).data()
+  const pending = await effectiveView(db)
   assert.equal(result.rebuildStatus, 'superseded')
   assert.equal(pending.dirtyGeneration, 3)
   assert.equal(pending.dirty, true)
@@ -216,7 +222,7 @@ test('real Firestore: validation-only rebuild cannot acknowledge a concurrent so
     },
   })
   assert.equal(report.rebuilt, 0)
-  const retained = (await db.doc(viewPath()).get()).data()
+  const retained = await effectiveView(db)
   assert.equal(retained.dirty, true)
   assert.equal(retained.validationDirty, true)
   assert.equal(retained.dirtyGeneration, 2)
@@ -244,11 +250,89 @@ test('real Firestore: source queries cover both sides of a move and paginate bey
   assert.equal(move.marked, 207)
   const config = await syncPtScheduleWeeklyViewSource({ db, source: 'scheduleConfig', logger: quiet, event: sourceEvent({}, { target: 8 }, { documentId: 'scheduleConfig' }) })
   assert.equal(config.marked, 207)
-  const views = await db.collection('ptScheduleWeeklyViews').get()
+  const views = await db.collection('ptScheduleWeeklyViewStates').get()
   assert.equal(views.size, 207)
   assert.ok(views.docs.every(snapshot => snapshot.data().dirty === true && snapshot.data().dirtyGeneration === 2))
   const contract = await syncPtScheduleWeeklyViewSource({ db, source: 'contract', logger: quiet, event: sourceEvent(
     undefined, { branchId: BRANCH, studentId: 'student-a', startDate: '2026-01-01', endDate: '2026-12-31' }, { contractId: 'contract-a' },
   ) })
   assert.equal(contract.marked, 207)
+})
+
+test('real Firestore: small invalidations leave the large payload updateTime unchanged', async () => {
+  const db = fixture()
+  await seed(db)
+  await db.doc(viewPath()).set({ ballast: 'x'.repeat(600000) }, { merge: true })
+  const before = await db.doc(viewPath()).get()
+  await Promise.all(Array.from({ length: 5 }, () => markPtScheduleWeeklyViewDirty({ db, branchId: BRANCH, weekId: WEEK })))
+  const after = await db.doc(viewPath()).get()
+  assert.ok(before.updateTime.isEqual(after.updateTime))
+  assert.deepEqual(after.data(), before.data())
+  const state = (await db.doc(statePath()).get()).data()
+  assert.equal(state.dirtyGeneration, 5)
+  assert.ok(JSON.stringify(state).length < 1024)
+  assert.equal((await effectiveView(db)).dirtyGeneration, 5)
+})
+
+test('real Firestore: documentId queue cursors advance past failing rows, serve legacy queues and wrap', async () => {
+  const db = fixture()
+  const base = await seed(db)
+  await db.doc(viewPath('branch-b')).set({ ...base, branchId: 'branch-b', dirty: true })
+  await db.doc(viewPath('branch-c')).set({ ...base, branchId: 'branch-c' })
+  for (const branchId of [BRANCH, 'branch-c']) await markPtScheduleWeeklyViewDirty({ db, branchId, weekId: WEEK })
+  const attempts = []
+  for (let index = 0; index < 8; index += 1) {
+    const result = await rebuildDirtyPtScheduleWeeklyViews({ db, limit: 1, logger: { error() {} }, branchData: async (_db, branchId) => {
+      attempts.push(branchId)
+      if (branchId === BRANCH) throw new Error('test source unavailable')
+      return data(2)
+    } })
+    assert.ok(result.scanned <= 1)
+  }
+  assert.ok(attempts.includes('branch-b'))
+  assert.ok(attempts.includes('branch-c'))
+  assert.ok(attempts.filter(branchId => branchId === BRANCH).length > 1)
+  assert.equal((await effectiveView(db)).dirty, true)
+})
+
+test('real Firestore: state-only dirty before the first payload publishes once and preserves validation generation', async () => {
+  for (const initialPaint of [true, false]) {
+    const db = fixture()
+    await Promise.all(Array.from({ length: 3 }, () => markPtScheduleWeeklyViewDirty({ db, branchId: BRANCH, weekId: WEEK })))
+    assert.equal((await db.doc(viewPath()).get()).exists, false)
+    const first = await rebuildPtScheduleWeeklyView({ db, branchId: BRANCH, weekId: WEEK, initialPaint,
+      branchData: async () => ({ ...data(), partial: initialPaint, readMode: initialPaint ? 'display' : 'reconciled' }) })
+    assert.equal(first.dirtyGeneration, 3)
+    assert.equal(first.controlGeneration, 3)
+    assert.equal(first.dirty, false)
+    assert.equal(first.validationState, initialPaint ? 'unknown' : 'current')
+    assert.equal((await db.doc(leasePath).get()).exists, false)
+    if (initialPaint) {
+      assert.equal(first.validationSnapshot, null)
+      const report = await rebuildDirtyPtScheduleWeeklyViews({ db, limit: 1, branchData: async () => data(), logger: quiet })
+      assert.deepEqual(report, { scanned: 1, rebuilt: 1, failed: 0 })
+    }
+    const exact = await effectiveView(db)
+    assert.equal(exact.validationState, 'current')
+    assert.equal(exact.validationDirty, false)
+    assert.equal(exact.validationSnapshot.dirtyGeneration, 3)
+  }
+})
+
+test('real Firestore: a concurrent state-only bootstrap invalidation survives and the retry publishes', async () => {
+  const db = fixture()
+  await markPtScheduleWeeklyViewDirty({ db, branchId: BRANCH, weekId: WEEK })
+  await assert.rejects(rebuildPtScheduleWeeklyView({ db, branchId: BRANCH, weekId: WEEK, branchData: async () => {
+    await markPtScheduleWeeklyViewDirty({ db, branchId: BRANCH, weekId: WEEK })
+    return data()
+  } }), (error) => error.code === 'unavailable' && error.details.rebuildStatus === 'superseded')
+  assert.equal((await db.doc(viewPath()).get()).exists, false)
+  const queued = (await db.doc(statePath()).get()).data()
+  assert.equal(queued.dirtyGeneration, 2)
+  assert.equal(queued.dirty, true)
+  assert.equal((await db.doc(leasePath).get()).exists, false)
+  const result = await rebuildPtScheduleWeeklyView({ db, branchId: BRANCH, weekId: WEEK, branchData: async () => data() })
+  assert.equal(result.dirtyGeneration, 2)
+  assert.equal(result.validationSnapshot.dirtyGeneration, 2)
+  assert.equal(result.dirty, false)
 })

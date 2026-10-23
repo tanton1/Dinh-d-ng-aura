@@ -1147,6 +1147,18 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // Small, server-owned invalidation metadata. A legacy week can have a
+    // payload but no control document yet; authorize that missing-document
+    // subscription from the existing payload without allowing collection scans.
+    match /ptScheduleWeeklyViewStates/{viewId} {
+      allow get: if isAdmin()
+        || (resource != null && managesBranchSchedule(resource.data.get('branchId', '')))
+        || (resource == null
+          && exists(/databases/$(database)/documents/ptScheduleWeeklyViews/$(viewId))
+          && managesBranchSchedule(get(/databases/$(database)/documents/ptScheduleWeeklyViews/$(viewId)).data.get('branchId', '')));
+      allow list, write: if false;
+    }
+
     match /ptScheduleCommandReceipts/{receiptId} {
       allow read, write: if false;
     }

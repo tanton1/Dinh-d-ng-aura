@@ -12,6 +12,7 @@ const {
   syncPtScheduleWeeklyViewSource,
   rebuildDirtyPtScheduleWeeklyViews,
   createPtScheduleWeeklyViewFunctions,
+  mergeWeeklyViewState,
 } = require('./pt-schedule-weekly-view')
 
 const WEEK = '2026-10-19'
@@ -148,13 +149,17 @@ function fakeDb(seed = {}) {
   const values = new Map(Object.entries(seed).map(([key, value]) => [key, structuredClone(value)]))
   const versions = new Map(Object.keys(seed).map((key) => [key, 1]))
   const queries = []
+  const reads = []
+  const writes = []
   let queue = Promise.resolve()
   const snapshot = (path, fields) => {
+    reads.push(path)
     const value = values.get(path)
     const selected = fields && value ? Object.fromEntries(fields.filter((key) => value[key] !== undefined).map((key) => [key, value[key]])) : value
     return { id: path.split('/').pop(), ref: { path }, exists: value !== undefined, updateTime: value === undefined ? undefined : { seconds: versions.get(path) || 1, nanoseconds: 0 }, data: () => selected === undefined ? undefined : structuredClone(selected) }
   }
   const write = (path, value, options) => {
+    writes.push({ path, value, options })
     const result = options?.merge ? { ...(values.get(path) || {}) } : {}
     for (const [key, item] of Object.entries(value)) {
       if (item?.constructor?.name === 'NumericIncrementTransform') result[key] = Number(values.get(path)?.[key] || 0) + item.operand
@@ -168,10 +173,10 @@ function fakeDb(seed = {}) {
     where: (...filter) => makeQuery(collection, [...filters, filter], count, cursor, fields),
     orderBy: () => makeQuery(collection, filters, count, cursor, fields),
     limit: (nextCount) => makeQuery(collection, filters, nextCount, cursor, fields),
-    startAfter: (document) => makeQuery(collection, filters, count, document.id, fields),
+    startAfter: (document) => makeQuery(collection, filters, count, typeof document === 'string' ? document : document.id, fields),
     select: (...nextFields) => makeQuery(collection, filters, count, cursor, nextFields),
     get: async () => {
-      queries.push({ collection, filters, count, cursor })
+      queries.push({ collection, filters, count, cursor, fields })
       const docs = [...values.keys()].filter((path) => path.split('/').length === 2 && path.startsWith(`${collection}/`) && path.split('/').pop() > cursor)
         .filter((path) => filters.every(([key, op, expected]) => op === '==' ? values.get(path)[key] === expected : op === 'array-contains-any' && (values.get(path)[key] || []).some((item) => expected.includes(item))))
         .sort().slice(0, count).map((path) => snapshot(path, fields))
@@ -179,7 +184,7 @@ function fakeDb(seed = {}) {
     },
   })
   return {
-    values, queries,
+    values, queries, reads, writes,
     doc: (path) => ({ path, get: async () => snapshot(path), set: async (value, options) => write(path, value, options) }),
     collection: (name) => makeQuery(name),
     runTransaction: (callback) => {
@@ -201,6 +206,8 @@ function fakeDb(seed = {}) {
 }
 
 const viewPath = (branchId = BRANCH, weekId = WEEK) => `ptScheduleWeeklyViews/${weeklyViewId(branchId, weekId)}`
+const statePath = (branchId = BRANCH, weekId = WEEK) => `ptScheduleWeeklyViewStates/${weeklyViewId(branchId, weekId)}`
+const effectiveView = (db, branchId = BRANCH, weekId = WEEK) => mergeWeeklyViewState(db.values.get(viewPath(branchId, weekId)), db.values.get(statePath(branchId, weekId)))
 const leasePath = `systemJobs/ptScheduleWeeklyViewRebuild/views/${weeklyViewId(BRANCH, WEEK)}`
 const initialView = () => buildPtScheduleWeeklyView({ branchId: BRANCH, weekId: WEEK, data: workspace() })
 function deferred() {
@@ -240,7 +247,7 @@ test('dirty write during source loading cannot be cleared or overwritten by stal
   })
   assert.equal(result.rebuildStatus, 'superseded')
   assert.equal(result.dirty, true)
-  assert.equal(db.values.get(viewPath()).dirtyGeneration, 2)
+  assert.equal(effectiveView(db).dirtyGeneration, 2)
   assert.equal(db.values.get(viewPath()).sourceRevision, before.sourceRevision)
   assert.equal(db.values.has(leasePath), false)
   const retry = await rebuildPtScheduleWeeklyView({ db, branchId: BRANCH, weekId: WEEK, branchData: async () => workspace({ draft: { revision: 6 } }) })
@@ -311,7 +318,7 @@ test('session moves invalidate both old/new weeks and cross-branch coverage', as
   ) })
   assert.equal(result.marked, 4)
   assert.equal(db.queries.length, 2, 'only the two changed weeks are queried, never all weekly history')
-  for (const path of [viewPath(), viewPath('branch-b', '2026-10-26'), viewPath('branch-c', WEEK), viewPath('branch-c', '2026-10-26')]) assert.equal(db.values.get(path).dirty, true, path)
+  for (const path of [statePath(), statePath('branch-b', '2026-10-26'), statePath('branch-c', WEEK), statePath('branch-c', '2026-10-26')]) assert.equal(db.values.get(path).dirty, true, path)
 })
 
 test('contracts invalidate every cached week, not only the contract start week', async () => {
@@ -322,8 +329,8 @@ test('contracts invalidate every cached week, not only the contract start week',
   })
   const result = await syncPtScheduleWeeklyViewSource({ db, source: 'contract', logger: silentLogger, event: sourceEvent(null, { branchId: BRANCH, studentId: 'student-a', startDate: '2026-01-01', endDate: '2026-12-31' }, { contractId: 'contract-a' }) })
   assert.equal(result.marked, 3)
-  assert.equal(db.values.get(viewPath(BRANCH, '2026-11-02')).dirty, true)
-  assert.equal(db.values.get(viewPath('branch-b', WEEK)).dirty, true, 'legacy cross-branch view is covered during schema migration')
+  assert.equal(db.values.get(statePath(BRANCH, '2026-11-02')).dirty, true)
+  assert.equal(db.values.get(statePath('branch-b', WEEK)).dirty, true, 'legacy cross-branch view is covered during schema migration')
 })
 
 test('leave ranges invalidate intersecting weeks for before and after intervals', async () => {
@@ -363,8 +370,8 @@ test('student branch changes paginate both branches and keep dirty counters mono
   const db = fakeDb(seed)
   const result = await syncPtScheduleWeeklyViewSource({ db, source: 'student', logger: silentLogger, event: sourceEvent({ branchId: BRANCH }, { branchId: 'branch-b' }, { studentId: 'student-a' }) })
   assert.equal(result.marked, 106)
-  assert.equal(db.values.get(viewPath(BRANCH, '2026-01-05')).dirtyGeneration, 2)
-  assert.equal(db.values.get(viewPath('branch-b')).dirtyGeneration, 1)
+  assert.equal(effectiveView(db, BRANCH, '2026-01-05').dirtyGeneration, 2)
+  assert.equal(db.values.get(statePath('branch-b')).dirtyGeneration, 1)
 })
 
 test('opening a clean legacy view upgrades lightly once and retains only existing exact evidence', async () => {
@@ -411,8 +418,8 @@ test('availability edits invalidate subsequent inherited weeks and the old/new h
   ) })
   assert.equal(result.marked, 4)
   assert.notEqual(db.values.get(viewPath(BRANCH, '2026-10-12')).dirty, true)
-  assert.equal(db.values.get(viewPath(BRANCH, '2026-10-26')).dirty, true)
-  assert.equal(db.values.get(viewPath('branch-b', '2026-10-26')).dirty, true)
+  assert.equal(db.values.get(statePath(BRANCH, '2026-10-26')).dirty, true)
+  assert.equal(db.values.get(statePath('branch-b', '2026-10-26')).dirty, true)
 })
 
 test('deleted draft invalidates its week and cross-branch student coverage', async () => {
@@ -421,8 +428,8 @@ test('deleted draft invalidates its week and cross-branch student coverage', asy
     { schedule: workspace().schedule }, null, { documentId: weeklyViewId(BRANCH, WEEK) },
   ) })
   assert.equal(result.marked, 2)
-  assert.equal(db.values.get(viewPath()).dirty, true)
-  assert.equal(db.values.get(viewPath('branch-b')).dirty, true)
+  assert.equal(db.values.get(statePath()).dirty, true)
+  assert.equal(db.values.get(statePath('branch-b')).dirty, true)
 })
 
 test('exact validation has an independent bounded snapshot and light refresh retains it unchanged', () => {
@@ -547,7 +554,7 @@ test('worker merges legacy matrix and validation queues within one deduplicated 
   assert.equal(result.scanned, 2)
   assert.equal(loads.length, 2)
   assert.equal(new Set(loads).size, 2)
-  assert.equal(db.queries.length, 2)
+  assert.equal(db.queries.length, 4)
   assert.ok(db.queries.every((query) => query.count === 2))
 })
 
@@ -558,8 +565,8 @@ test('dirty events during exact source reads cannot clear the pending validation
     return workspace({ draft: { revision: 9 } })
   } })
   assert.equal(result.rebuilt, 0)
-  assert.equal(db.values.get(viewPath()).validationDirty, true)
-  assert.equal(db.values.get(viewPath()).dirty, true)
+  assert.equal(effectiveView(db).validationDirty, true)
+  assert.equal(effectiveView(db).dirty, true)
   assert.equal(db.values.get(viewPath()).validationSnapshot.draftRevision, 4)
 })
 
@@ -626,7 +633,124 @@ test('failed light publication preserves queued validation and prior exact evide
     branchData: async () => workspace({ partial: true, readMode: 'display', draft: { revision: 99 } }),
   }), /maximum size/)
   assert.deepEqual(db.values.get(viewPath()), before)
-  assert.equal(db.values.get(viewPath()).dirty, true)
-  assert.equal(db.values.get(viewPath()).validationDirty, true)
+  assert.equal(db.values.get(statePath()).dirty, true)
+  assert.equal(db.values.get(statePath()).validationDirty, true)
   assert.equal(db.values.has(leasePath), false)
+})
+
+test('invalidation writes only a tiny state, with no payload read/write even for an existing large view', async () => {
+  const original = { ...initialView(), ballast: 'x'.repeat(600_000), dirtyGeneration: 8 }
+  const db = fakeDb({ [viewPath()]: original })
+  for (let index = 0; index < 3; index += 1) await markPtScheduleWeeklyViewDirty({ db, branchId: BRANCH, weekId: WEEK })
+  assert.deepEqual(db.reads, [])
+  assert.equal(db.writes.length, 3)
+  assert.ok(db.writes.every(write => write.path === statePath()))
+  assert.deepEqual(db.values.get(viewPath()), original)
+  assert.ok(JSON.stringify(db.values.get(statePath())).length < 1024)
+  assert.equal(effectiveView(db).dirtyGeneration, 11)
+})
+
+test('consumed control deltas are not counted again across publish, legacy edits and new invalidations', async () => {
+  const db = fakeDb({ [viewPath()]: { ...initialView(), dirtyGeneration: 8 } })
+  await markPtScheduleWeeklyViewDirty({ db, branchId: BRANCH, weekId: WEEK })
+  const first = await rebuildPtScheduleWeeklyView({ db, branchId: BRANCH, weekId: WEEK, branchData: async () => workspace() })
+  assert.equal(first.dirtyGeneration, 9)
+  assert.equal(first.controlGeneration, 1)
+  assert.equal(effectiveView(db).dirtyGeneration, 9)
+  await db.doc(viewPath()).set({ dirty: true, dirtyGeneration: 10 }, { merge: true })
+  await markPtScheduleWeeklyViewDirty({ db, branchId: BRANCH, weekId: WEEK })
+  assert.equal(effectiveView(db).dirtyGeneration, 11)
+  const second = await rebuildPtScheduleWeeklyView({ db, branchId: BRANCH, weekId: WEEK, branchData: async () => workspace() })
+  assert.equal(second.dirtyGeneration, 11)
+  assert.equal(second.controlGeneration, 2)
+  assert.equal(effectiveView(db).dirty, false)
+  assert.equal(effectiveView(db).dirtyGeneration, 11)
+})
+
+test('metadata-only control race is fenced even without a generation increment', async () => {
+  const db = fakeDb({ [viewPath()]: initialView() })
+  const result = await rebuildPtScheduleWeeklyView({ db, branchId: BRANCH, weekId: WEEK, branchData: async () => {
+    await db.doc(statePath()).set({ branchId: BRANCH, weekId: WEEK, validationDirty: true })
+    return workspace({ draft: { revision: 50 } })
+  } })
+  assert.equal(result.rebuildStatus, 'superseded')
+  assert.equal(db.values.get(viewPath()).draft.revision, 4)
+  assert.equal(db.values.get(statePath()).validationDirty, true)
+})
+
+test('bounded queue checkpoints make progress past failures, across legacy/new queues, and wrap for retries', async () => {
+  const db = fakeDb({
+    [viewPath()]: initialView(),
+    [viewPath('branch-b')]: { ...initialView(), branchId: 'branch-b', dirty: true },
+    [viewPath('branch-c')]: { ...initialView(), branchId: 'branch-c' },
+  })
+  for (const branchId of [BRANCH, 'branch-c']) await markPtScheduleWeeklyViewDirty({ db, branchId, weekId: WEEK })
+  const attempts = []
+  for (let index = 0; index < 8; index += 1) {
+    const report = await rebuildDirtyPtScheduleWeeklyViews({ db, limit: 1, logger: { error() {} }, branchData: async (_db, branchId) => {
+      attempts.push(branchId)
+      if (branchId === BRANCH) throw new Error('permanent source failure')
+      return workspace()
+    } })
+    assert.ok(report.scanned <= 1)
+  }
+  assert.ok(attempts.includes('branch-b'), 'legacy queue is not starved by a failing state row')
+  assert.ok(attempts.includes('branch-c'), 'later state rows are not starved')
+  assert.ok(attempts.filter(branch => branch === BRANCH).length > 1, 'failed rows retry after cursor wrap')
+  assert.equal(effectiveView(db).dirty, true)
+  assert.ok(db.queries.filter(query => query.collection === 'ptScheduleWeeklyViews').every(query => (
+    query.filters.some(([field, op, value]) => ['dirty', 'validationDirty'].includes(field) && op === '==' && value === true)
+      && JSON.stringify(query.fields) === JSON.stringify(['branchId', 'weekId'])
+  )), 'legacy discovery never fetches clean or full payload documents')
+})
+
+test('an empty queue does not create checkpoint writes or read clean payloads', async () => {
+  const db = fakeDb({ [viewPath()]: initialView() })
+  const result = await rebuildDirtyPtScheduleWeeklyViews({ db, branchData: async () => { throw new Error('unexpected source fanout') } })
+  assert.deepEqual(result, { scanned: 0, rebuilt: 0, failed: 0 })
+  assert.deepEqual(db.writes, [])
+  assert.deepEqual(db.reads, ['systemJobs/ptScheduleWeeklyViewQueue'])
+})
+
+test('state-only dirty before the first payload bootstraps lightly and publishes exact evidence at the same generation', async () => {
+  for (const initialPaint of [true, false]) {
+    const db = fakeDb()
+    await markPtScheduleWeeklyViewDirty({ db, branchId: BRANCH, weekId: WEEK })
+    await markPtScheduleWeeklyViewDirty({ db, branchId: BRANCH, weekId: WEEK })
+    assert.equal(db.values.has(viewPath()), false)
+    const result = await rebuildPtScheduleWeeklyView({ db, branchId: BRANCH, weekId: WEEK, initialPaint,
+      branchData: async () => workspace({ partial: initialPaint, readMode: initialPaint ? 'display' : 'reconciled' }) })
+    assert.equal(result.dirtyGeneration, 2)
+    assert.equal(result.controlGeneration, 2)
+    assert.equal(result.dirty, false)
+    assert.equal(result.validationState, initialPaint ? 'unknown' : 'current')
+    assert.equal(result.validationDirty, initialPaint)
+    assert.equal(db.values.has(leasePath), false)
+    if (initialPaint) {
+      assert.equal(result.validationSnapshot, null)
+      const report = await rebuildDirtyPtScheduleWeeklyViews({ db, limit: 1, branchData: async () => workspace() })
+      assert.deepEqual(report, { scanned: 1, rebuilt: 1, failed: 0 })
+    }
+    const exact = effectiveView(db)
+    assert.equal(exact.validationState, 'current')
+    assert.equal(exact.validationDirty, false)
+    assert.equal(exact.validationSnapshot.dirtyGeneration, 2)
+  }
+})
+
+test('a new invalidation during state-only bootstrap remains queued and a retry can create the first payload', async () => {
+  const db = fakeDb()
+  await markPtScheduleWeeklyViewDirty({ db, branchId: BRANCH, weekId: WEEK })
+  await assert.rejects(rebuildPtScheduleWeeklyView({ db, branchId: BRANCH, weekId: WEEK, branchData: async () => {
+    await markPtScheduleWeeklyViewDirty({ db, branchId: BRANCH, weekId: WEEK })
+    return workspace()
+  } }), (error) => error.code === 'unavailable' && error.details.rebuildStatus === 'superseded')
+  assert.equal(db.values.has(viewPath()), false)
+  assert.equal(db.values.get(statePath()).dirtyGeneration, 2)
+  assert.equal(db.values.get(statePath()).dirty, true)
+  assert.equal(db.values.has(leasePath), false)
+  const result = await rebuildPtScheduleWeeklyView({ db, branchId: BRANCH, weekId: WEEK, branchData: async () => workspace() })
+  assert.equal(result.dirtyGeneration, 2)
+  assert.equal(result.validationSnapshot.dirtyGeneration, 2)
+  assert.equal(result.dirty, false)
 })

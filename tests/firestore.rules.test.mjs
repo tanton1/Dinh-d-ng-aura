@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises'
+import assert from 'node:assert/strict'
 import { after, before, beforeEach, describe, test } from 'node:test'
 import {
   assertFails,
@@ -203,6 +204,10 @@ async function seedPtSecurityFixtures() {
       }),
       setDoc(doc(db, 'ptScheduleWeeklyViews', 'branch-a_2026-08-24'), {
         branchId: 'branch-a', weekId: '2026-08-24', schemaVersion: 2, dirty: false,
+      }),
+      setDoc(doc(db, 'ptScheduleWeeklyViewStates', 'branch-a_2026-08-24'), {
+        branchId: 'branch-a', weekId: '2026-08-24', schemaVersion: 1,
+        dirty: false, validationDirty: false, dirtyGeneration: 2,
       }),
     ])
   })
@@ -581,6 +586,41 @@ describe('Aura PT Firestore rules', () => {
     const viewPath = ['ptScheduleWeeklyViews', 'branch-a_2026-08-24']
     await assertFails(getDoc(doc(authenticatedDb('admin-1', 'admin'), ...viewPath)))
     await assertFails(getDoc(doc(authenticatedDb('manager-1', 'manager'), ...viewPath)))
+  })
+
+  test('PT weekly state permits scoped gets only and every browser write/list is denied', async () => {
+    const statePath = ['ptScheduleWeeklyViewStates', 'branch-a_2026-08-24']
+    for (const db of [authenticatedDb('admin-1', 'admin'), authenticatedDb('super-1', 'super_admin'), authenticatedDb('manager-1', 'manager')]) {
+      await assertSucceeds(getDoc(doc(db, ...statePath)))
+      await assertFails(getDocs(collection(db, 'ptScheduleWeeklyViewStates')))
+      await assertFails(setDoc(doc(db, ...statePath), { branchId: 'branch-a', dirty: false }))
+      await assertFails(deleteDoc(doc(db, ...statePath)))
+    }
+    for (const db of [authenticatedDb('manager-other', 'manager'), authenticatedDb('client-1', 'student'), authenticatedDb('coach-1', 'coach'), authenticatedDb('admin-1', 'super_admin'), testEnvironment.unauthenticatedContext().firestore()]) {
+      await assertFails(getDoc(doc(db, ...statePath)))
+    }
+  })
+
+  test('a missing weekly state is readable only through an authorized legacy payload', async () => {
+    const statePath = ['ptScheduleWeeklyViewStates', 'branch-a_2026-08-24']
+    await testEnvironment.withSecurityRulesDisabled(async (context) => {
+      await deleteDoc(doc(context.firestore(), ...statePath))
+    })
+    const own = await assertSucceeds(getDoc(doc(authenticatedDb('manager-1', 'manager'), ...statePath)))
+    assert.equal(own.exists(), false)
+    await assertFails(getDoc(doc(authenticatedDb('manager-other', 'manager'), ...statePath)))
+    await assertFails(getDoc(doc(authenticatedDb('client-1', 'student'), ...statePath)))
+    await assertFails(getDoc(doc(authenticatedDb('manager-1', 'manager'), 'ptScheduleWeeklyViewStates', 'unknown_2026-08-24')))
+  })
+
+  test('weekly state never bypasses disabled account or suspended branch assignment', async () => {
+    await testEnvironment.withSecurityRulesDisabled(async (context) => {
+      await updateDoc(doc(context.firestore(), 'users', 'admin-1'), { disabled: true })
+      await updateDoc(doc(context.firestore(), 'roleAssignments', 'manager-1'), { status: 'suspended' })
+    })
+    const statePath = ['ptScheduleWeeklyViewStates', 'branch-a_2026-08-24']
+    await assertFails(getDoc(doc(authenticatedDb('admin-1', 'admin'), ...statePath)))
+    await assertFails(getDoc(doc(authenticatedDb('manager-1', 'manager'), ...statePath)))
   })
 
   test('automatic session billing and attendance corrections are admin-readable but callable-only', async () => {

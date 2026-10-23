@@ -14,6 +14,7 @@ const CANONICAL_DATABASE = 'ai-studio-aurafitnesselear-0f7609b4-b8d1-4fb3-9d62-9
 const BRANCH = 'branch-a'
 const WEEK = '2026-10-19'
 const VIEW_PATH = `ptScheduleWeeklyViews/${BRANCH}_${WEEK}`
+const STATE_PATH = `ptScheduleWeeklyViewStates/${BRANCH}_${WEEK}`
 const PROBE_PREFIX = 'WEEKLY_RUNTIME_PROBE:'
 const AGGREGATE_TARGETS = Object.freeze({
   syncOperationsLedgerDailyAggregate: 'ledgerEntries/{entryId}',
@@ -74,11 +75,12 @@ const db = {
     const pendingWrites = [];
     const result = await action({
       get: (reference) => reference.get(),
+      getAll: (...references) => Promise.all(references.map(reference => reference.get())),
       set(reference, value, options) {
-        const expectedKeys = ['validationDirty', 'validationSnapshot', 'validationState'];
-        if (options?.merge !== true || !reference.path.startsWith('ptScheduleWeeklyViews/')
+        const expectedKeys = ['branchId', 'schemaVersion', 'updatedAt', 'validationDirty', 'weekId'];
+        if (options?.merge !== true || !reference.path.startsWith('ptScheduleWeeklyViewStates/')
           || JSON.stringify(Object.keys(value).sort()) !== JSON.stringify(expectedKeys)
-          || value.validationSnapshot !== null || value.validationState !== 'unknown' || value.validationDirty !== true) {
+          || value.schemaVersion !== 1 || value.validationDirty !== true) {
           throw new Error('Runtime probe rejected non-metadata transaction write');
         }
         pendingWrites.push({ path: reference.path, value, options });
@@ -345,7 +347,7 @@ test('both runtime readers preserve canonical authorization failures before read
   }
 })
 
-test('clean pointer reads serve one weekly document, retain live account checks and never fan out', () => {
+test('clean pointer reads serve one weekly payload and small control, retain live account checks and never fan out', () => {
   const documents = {
     [VIEW_PATH]: cleanView(),
     'users/admin': { role: 'admin', disabled: false },
@@ -375,7 +377,7 @@ test('clean pointer reads serve one weekly document, retain live account checks 
       assert.equal(result.value.coverage.verified, true)
       assert.deepEqual(result.value.students, cleanView().students)
       assert.deepEqual(result.reads.filter((entry) => entry.startsWith('ptScheduleWeeklyViews/')), [VIEW_PATH])
-      assert.equal(result.reads.length, 3, 'Only account, role assignment and weekly snapshot are read')
+      assert.equal(result.reads.length, 4, 'Only account, role assignment, weekly snapshot and small control are read')
     }
     assert.equal(lean.results[2].code, 'permission-denied')
     assert.deepEqual(lean.results[2].reads, ['users/admin'], 'Cached assignment must not hide a newly disabled account')
@@ -415,14 +417,14 @@ test('legacy draft-only reads queue validation once with metadata only in full a
       assert.deepEqual(result.value.schedule, legacy.schedule)
       assert.deepEqual(result.value.students, legacy.students)
     }
-    assert.equal(lean.results[0].reads.length, 4, 'One queue transaction rechecks the weekly view after authorization and initial read')
+    assert.equal(lean.results[0].reads.length, 6, 'One queue transaction rechecks payload/control after authorization and initial read')
     for (const result of lean.results.slice(1)) {
-      assert.deepEqual(result.reads, ['users/admin', VIEW_PATH], 'Already queued snapshots require only live account and weekly reads')
+      assert.deepEqual(result.reads, ['users/admin', VIEW_PATH, STATE_PATH], 'Already queued snapshots require only live account, payload and control reads')
     }
     assert.equal(lean.transactions, 1)
-    assert.deepEqual(lean.writes, [{
-      path: VIEW_PATH,
-      value: { validationSnapshot: null, validationState: 'unknown', validationDirty: true },
+    assert.deepEqual(lean.writes.map(write => ({ ...write, value: { ...write.value, updatedAt: undefined } })), [{
+      path: STATE_PATH,
+      value: { schemaVersion: 1, branchId: BRANCH, weekId: WEEK, validationDirty: true, updatedAt: undefined },
       options: { merge: true },
     }])
     assert.deepEqual(lean.queries, [])

@@ -29,6 +29,31 @@ function weeklyViewReference(db, branchId, weekId) {
   return db.doc(`ptScheduleWeeklyViews/${weeklyViewId(branchId, weekId)}`)
 }
 
+function weeklyViewStateReference(db, branchId, weekId) {
+  return db.doc(`ptScheduleWeeklyViewStates/${weeklyViewId(branchId, weekId)}`)
+}
+
+// The payload's generation includes all events consumed when it was published.
+// A separate counter can start at zero without reading/backfilling a legacy
+// payload. Only its unconsumed delta is added, so generations remain monotonic
+// while old deployed writers still increment the payload directly.
+function mergeWeeklyViewState(payload, state) {
+  if (!payload) return null
+  const generation = Number(state?.dirtyGeneration || 0)
+  const baseline = Number(payload.controlGeneration || 0)
+  const missingState = payload.controlSchemaVersion === 1 && !state
+  const revisionMismatch = Boolean(state?.sourceRevision && state.sourceRevision !== payload.sourceRevision)
+  const pending = missingState || generation < baseline || revisionMismatch
+  const dirty = payload.dirty === true || state?.dirty === true || generation > baseline || pending
+  return {
+    ...payload,
+    dirtyGeneration: Number(payload.dirtyGeneration || 0) + Math.max(0, generation - baseline),
+    dirty,
+    validationDirty: payload.validationDirty === true || state?.validationDirty === true || dirty,
+    ...(dirty ? { freshness: 'stale' } : {}),
+  }
+}
+
 function weekIdFromDate(value) {
   const raw = String(value || '').slice(0, 10)
   if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return ''
@@ -635,24 +660,27 @@ function snapshotVersion(snapshot) {
 
 async function rebuildPtScheduleWeeklyView({ db, branchId, weekId, branchData = loadBranchData, forceRefresh = true, initialPaint = false, now = new Date(), clock = Date.now } = {}) {
   const reference = weeklyViewReference(db, branchId, weekId)
+  const stateReference = weeklyViewStateReference(db, branchId, weekId)
   const leaseReference = db.doc(`systemJobs/ptScheduleWeeklyViewRebuild/views/${weeklyViewId(branchId, weekId)}`)
   const token = randomUUID()
   const acquired = await db.runTransaction(async (transaction) => {
-    const [snapshot, lease] = await transaction.getAll(reference, leaseReference)
-    const previousView = snapshot.exists ? snapshot.data() : null
+    const [snapshot, state, lease] = await transaction.getAll(reference, stateReference, leaseReference)
+    const previousView = mergeWeeklyViewState(snapshot.exists ? snapshot.data() : null, state.exists ? state.data() : null)
     if (Number(lease.data()?.leaseUntilMillis || 0) > clock()) return { busy: true, previousView }
     transaction.set(leaseReference, { token, leaseUntilMillis: clock() + REBUILD_LEASE_MS })
-    return { previousView, generation: Number(previousView?.dirtyGeneration || 0), version: snapshotVersion(snapshot) }
+    return { previousView, generation: Number(previousView?.dirtyGeneration ?? state.data()?.dirtyGeneration ?? 0), version: snapshotVersion(snapshot),
+      stateVersion: snapshotVersion(state), controlGeneration: Number(state.data()?.dirtyGeneration || 0) }
   })
   if (acquired.busy) return pendingWeeklyView(acquired.previousView, 'busy')
   try {
     // Acquire before loading sources: only one reader fans out for this week.
     const data = await branchData(db, branchId, weekId, { forceRefresh, initialPaint })
     data.weekId = weekId
-    const view = buildPtScheduleWeeklyView({ branchId, weekId, data, previousView: acquired.previousView, now })
+    const view = buildPtScheduleWeeklyView({ branchId, weekId, data,
+      previousView: acquired.previousView || { dirtyGeneration: acquired.generation }, now })
     return await db.runTransaction(async (transaction) => {
-      const [snapshot, lease] = await transaction.getAll(reference, leaseReference)
-      const current = snapshot.exists ? snapshot.data() : null
+      const [snapshot, state, lease] = await transaction.getAll(reference, stateReference, leaseReference)
+      const current = mergeWeeklyViewState(snapshot.exists ? snapshot.data() : null, state.exists ? state.data() : null)
       // An expired builder must never overwrite the replacement's snapshot or
       // release its lease. A dirty write during source reads also invalidates
       // the build, even if the source hash happens to match an older snapshot.
@@ -660,19 +688,27 @@ async function rebuildPtScheduleWeeklyView({ db, branchId, weekId, branchData = 
         return pendingWeeklyView(current, 'superseded')
       }
       transaction.delete(leaseReference)
-      if (Number(current?.dirtyGeneration || 0) !== acquired.generation || snapshotVersion(snapshot) !== acquired.version) {
+      // A source event may queue a week before any payload exists. Use the
+      // same state-only generation as acquisition, not an artificial zero.
+      if (Number(current?.dirtyGeneration ?? state.data()?.dirtyGeneration ?? 0) !== acquired.generation || snapshotVersion(snapshot) !== acquired.version
+        || snapshotVersion(state) !== acquired.stateVersion) {
         return pendingWeeklyView(current, 'superseded')
       }
       if (current?.schemaVersion === WEEKLY_VIEW_SCHEMA_VERSION && current?.sourceRevision === view.sourceRevision
         && current?.dirty !== true && current?.validationDirty !== true) {
         return { ...serializableWeeklyView(current), unchanged: true }
       }
-      const result = { ...view, dirtyGeneration: acquired.generation }
+      const result = { ...view, dirtyGeneration: acquired.generation, controlSchemaVersion: 1, controlGeneration: acquired.controlGeneration }
       transaction.set(reference, {
         ...result,
         generatedAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
       })
+      transaction.set(stateReference, {
+        schemaVersion: 1, branchId, weekId, dirty: false, validationDirty: view.validationDirty,
+        dirtyGeneration: acquired.controlGeneration, sourceRevision: view.sourceRevision,
+        updatedAt: FieldValue.serverTimestamp(),
+      }, { merge: true })
       return { ...result, unchanged: false }
     })
   } catch (error) {
@@ -842,19 +878,46 @@ async function syncPtScheduleWeeklyViewSource({ db, event, source = 'source', lo
 
 async function rebuildDirtyPtScheduleWeeklyViews({ db, limit = 8, branchData = loadBranchData, logger = console } = {}) {
   const maximum = Math.max(1, Math.min(20, Number(limit) || 8))
-  // Both queries use existing single-field indexes. The legacy dirty queue
-  // covers source triggers deployed before validationDirty was introduced.
-  // Light matrix publication may clear dirty, but never validationDirty.
-  const [validation, matrix] = await Promise.all([
-    db.collection('ptScheduleWeeklyViews').where('validationDirty', '==', true).limit(maximum).get(),
-    db.collection('ptScheduleWeeklyViews').where('dirty', '==', true).limit(maximum).get(),
-  ])
+  const checkpoint = db.doc('systemJobs/ptScheduleWeeklyViewQueue')
+  const progress = (await checkpoint.get()).data() || {}
+  const definitions = [
+    ['stateValidation', 'ptScheduleWeeklyViewStates', 'validationDirty'],
+    ['legacyMatrix', 'ptScheduleWeeklyViews', 'dirty'],
+    ['stateMatrix', 'ptScheduleWeeklyViewStates', 'dirty'],
+    ['legacyValidation', 'ptScheduleWeeklyViews', 'validationDirty'],
+  ]
+  // The hot queues now contain small control documents. Keep bounded, projected
+  // legacy dirty queries until all older writers have been replaced; never scan
+  // clean payloads or download the schedule/profile/evidence for queue discovery.
+  const cursors = { ...(progress.cursors || {}) }
+  const queues = await Promise.all(definitions.map(async ([key, collection, flag]) => {
+    const base = db.collection(collection).where(flag, '==', true).orderBy(FieldPath.documentId())
+      .select('branchId', 'weekId').limit(maximum)
+    const cursor = stringValue(cursors[key], 400)
+    let page = await (cursor ? base.startAfter(cursor) : base).get()
+    if (!page.docs.length && cursor) {
+      cursors[key] = ''
+      page = await base.get()
+    }
+    return page
+  }))
   const selected = new Map()
+  const firstQueue = Math.floor(Math.abs(Number(progress.nextQueue) || 0)) % definitions.length
   for (let index = 0; index < maximum && selected.size < maximum; index += 1) {
-    for (const item of [validation.docs[index], matrix.docs[index]]) {
-      if (item && selected.size < maximum) selected.set(item.id, item)
+    for (let offset = 0; offset < definitions.length && selected.size < maximum; offset += 1) {
+      const queueIndex = (firstQueue + offset) % definitions.length
+      const item = queues[queueIndex].docs[index]
+      if (item) {
+        selected.set(item.id, item)
+        cursors[definitions[queueIndex][0]] = item.id
+      }
     }
   }
+  // Advance over selected failures as well as successes. They remain dirty and
+  // are retried after wrap, rather than starving every later week forever.
+  // Concurrent sweep checkpoints affect fairness only: per-view leases/CAS
+  // still own correctness, and no cursor can remove a queued invalidation.
+  if (selected.size) await checkpoint.set({ cursors, nextQueue: (firstQueue + 1) % definitions.length }, { merge: true })
   let rebuilt = 0
   let failed = 0
   for (const item of selected.values()) {
@@ -874,33 +937,35 @@ async function rebuildDirtyPtScheduleWeeklyViews({ db, limit = 8, branchData = l
 }
 
 async function markPtScheduleWeeklyViewDirty({ db, branchId, weekId, reason = 'source_changed', sourceRevision = '' } = {}) {
-  const reference = weeklyViewReference(db, branchId, weekId)
+  const reference = weeklyViewStateReference(db, branchId, weekId)
   await reference.set({
+    schemaVersion: 1,
     branchId,
     weekId,
-    freshness: 'stale',
     dirty: true,
     validationDirty: true,
     dirtyGeneration: FieldValue.increment(1),
     dirtyReason: stringValue(reason, 100) || 'source_changed',
-    ...(sourceRevision ? { sourceRevision: stringValue(sourceRevision, 80) } : {}),
+    ...(sourceRevision ? { dirtySourceRevision: stringValue(sourceRevision, 80) } : {}),
     dirtyAt: FieldValue.serverTimestamp(),
   }, { merge: true })
   return { branchId, weekId, dirty: true, validationDirty: true, freshness: 'stale' }
 }
 
-async function queueMissingWeeklyValidation(db, reference) {
+async function queueMissingWeeklyValidation(db, reference, stateReference) {
   return db.runTransaction(async (transaction) => {
-    const snapshot = await transaction.get(reference)
-    const current = snapshot.exists ? snapshot.data() : null
+    const [snapshot, state] = await transaction.getAll(reference, stateReference)
+    const current = mergeWeeklyViewState(snapshot.exists ? snapshot.data() : null, state.exists ? state.data() : null)
     if (!completeWeeklyView(current)) return current
     // Existing display-only snapshots have no exact evidence. Queue once with
     // a metadata write, not a broad source read or a fabricated zero-warning
     // validation result. The bounded worker provides the first exact snapshot.
     if (!retainedValidationSnapshot(current) && current.validationDirty !== true) {
-      const metadata = { validationSnapshot: null, validationState: 'unknown', validationDirty: true }
-      transaction.set(reference, metadata, { merge: true })
-      return { ...current, ...metadata }
+      transaction.set(stateReference, {
+        schemaVersion: 1, branchId: current.branchId, weekId: current.weekId,
+        validationDirty: true, updatedAt: FieldValue.serverTimestamp(),
+      }, { merge: true })
+      return { ...current, validationSnapshot: null, validationState: 'unknown', validationDirty: true }
     }
     return current
   })
@@ -919,8 +984,10 @@ function createPtScheduleWeeklyViewFunctions({
     const weekId = String(request.data?.weekId || '').trim()
     if (!/^[A-Za-z0-9_-]+$/.test(branchId) || !/^\d{4}-\d{2}-\d{2}$/.test(weekId)) throw new HttpsError('invalid-argument', 'Chi nhánh hoặc tuần lịch không hợp lệ.')
     await actorForBranch(request, db, branchId)
-    const snapshot = await weeklyViewReference(db, branchId, weekId).get()
-    let current = snapshot.exists ? snapshot.data() || {} : null
+    const reference = weeklyViewReference(db, branchId, weekId)
+    const stateReference = weeklyViewStateReference(db, branchId, weekId)
+    const [snapshot, state] = await Promise.all([reference.get(), stateReference.get()])
+    let current = mergeWeeklyViewState(snapshot.exists ? snapshot.data() || {} : null, state.exists ? state.data() : null)
     // Source triggers may create a dirty marker before the first full view has
     // ever been materialized. Treat that marker like a cache miss; returning
     // the metadata-only document would leave the first paint without a matrix
@@ -944,7 +1011,7 @@ function createPtScheduleWeeklyViewFunctions({
       return rebuildPtScheduleWeeklyView({ db, branchId, weekId, branchData, forceRefresh: true, initialPaint: true })
     }
     if (!retainedValidationSnapshot(current) && current.validationDirty !== true) {
-      current = await queueMissingWeeklyValidation(db, weeklyViewReference(db, branchId, weekId))
+      current = await queueMissingWeeklyValidation(db, reference, stateReference)
       if (!completeWeeklyView(current)) return pendingWeeklyView(current, 'superseded')
     }
     return serializableWeeklyView(current)
@@ -972,6 +1039,8 @@ module.exports = {
   WEEKLY_VIEW_SCHEMA_VERSION,
   weeklyViewId,
   weeklyViewReference,
+  weeklyViewStateReference,
+  mergeWeeklyViewState,
   compactSchedule,
   compactCoverage,
   buildPtScheduleWeeklyView,
