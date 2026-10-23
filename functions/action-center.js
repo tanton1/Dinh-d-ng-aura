@@ -8,6 +8,7 @@ const { trustedAccessContext } = require('./identity-access')
 const { withFunctionTelemetry } = require('./observability')
 const { normalizeReviewSlaMinutes, reviewSlaState } = require('./review-sla')
 const { ASSIGNMENT_SNAPSHOT_VERSION } = require('./nutrition-review-assignment')
+const { projectionSourceChanged } = require('./projection-event-policy')
 
 const MAX_PAGE_SIZE = 100
 const MAX_SCAN = 500
@@ -548,6 +549,9 @@ async function syncOperationalActionSource({ db, event, logger = console, review
   const sourceValue = value || previousValue || {}
   if (!collection || !sourceId) return { collection: null, sourceId: null, actions: 0 }
   if (collection === 'studentOperationalViews' && !studentProjectionActionSourceChanged(previousValue, value)) {
+    return { collection, sourceId, actions: 0, skipped: 'projection_timestamps_only' }
+  }
+  if (collection === 'contractUsageViews' && !projectionSourceChanged(event, collection)) {
     return { collection, sourceId, actions: 0, skipped: 'projection_timestamps_only' }
   }
   let inputs = []

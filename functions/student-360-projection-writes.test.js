@@ -91,3 +91,48 @@ test('500 check-ins with eight same-commit mirrors require 500 rather than 4000 
   assert.equal(builds, 500)
   assert.equal(db.data.size, 500, 'bounded one watermark document per learner')
 })
+
+function usageEvent(before, after, collection = 'contractUsageViews') {
+  const snapshot = (data) => ({ exists: data !== null, data: () => data, ref: { parent: { id: collection } } })
+  return { params: { contractId: 'contract-a' }, data: { before: snapshot(before), after: snapshot(after) } }
+}
+
+test('usage projection timestamps are ignored but every business/schema field remains significant', () => {
+  const before = { studentId: 's1', branchId: 'b1', usedSessions: 2, remainingSessions: 8, schemaVersion: 1, generatedAt: Timestamp.fromMillis(1) }
+  const after = { ...before, generatedAt: Timestamp.fromMillis(2) }
+  assert.equal(sourceChanged(usageEvent(before, after)), false)
+  for (const patch of [{ studentId: 's2' }, { branchId: 'b2' }, { usedSessions: 3 }, { remainingSessions: 7 }, { schemaVersion: 2 }, { status: 'expired' }, { sourceFingerprint: 'changed' }, { newFutureField: { value: true } }]) {
+    assert.equal(sourceChanged(usageEvent(before, { ...after, ...patch })), true, JSON.stringify(patch))
+  }
+  assert.equal(sourceChanged(usageEvent(null, after)), true)
+  assert.equal(sourceChanged(usageEvent(before, null)), true)
+  for (const collection of ['contracts', 'students', 'sessions', 'unknown']) {
+    assert.equal(sourceChanged(usageEvent(before, after, collection)), true, 'do not drop timestamps from other source types')
+  }
+})
+
+test('timestamp-only usage refresh invokes all three projection consumers with zero database access', async () => {
+  const { syncStudent360ProjectionFromEvent } = require('./student-360')
+  const { syncOperationalActionSource } = require('./action-center')
+  const { syncPtScheduleWeeklyViewSource } = require('./pt-schedule-weekly-view')
+  const db = new Proxy({}, { get: () => { throw new Error('Unexpected database access') } })
+  const before = { studentId: 's1', branchId: 'b1', usedSessions: 2, generatedAt: Timestamp.fromMillis(1) }
+  const event = usageEvent(before, { ...before, generatedAt: Timestamp.fromMillis(2) })
+  assert.deepEqual(await syncStudent360ProjectionFromEvent({ db, event }), { skipped: true, reason: 'source_unchanged' })
+  assert.equal((await syncOperationalActionSource({ db, event })).skipped, 'projection_timestamps_only')
+  assert.deepEqual(await syncPtScheduleWeeklyViewSource({ db, event, source: 'contractUsage' }), { source: 'contractUsage', marked: 0, skipped: 'projection_timestamps_only' })
+})
+
+test('usage business changes and deletes still reach database reconciliation in all three consumers', async () => {
+  const { syncStudent360ProjectionFromEvent } = require('./student-360')
+  const { syncOperationalActionSource } = require('./action-center')
+  const { syncPtScheduleWeeklyViewSource } = require('./pt-schedule-weekly-view')
+  const db = new Proxy({}, { get: () => { throw new Error('Reconciliation reached database') } })
+  const logger = { info() {}, error() {} }
+  const before = { studentId: 's1', branchId: 'b1', usedSessions: 2, generatedAt: Timestamp.fromMillis(1) }
+  for (const event of [usageEvent(before, { ...before, usedSessions: 3 }), usageEvent(before, null), usageEvent(null, before)]) {
+    await assert.rejects(syncStudent360ProjectionFromEvent({ db, event, logger }), /Reconciliation reached database/)
+    await assert.rejects(syncOperationalActionSource({ db, event, logger }), /Reconciliation reached database/)
+    await assert.rejects(syncPtScheduleWeeklyViewSource({ db, event, source: 'contractUsage', logger }), /Reconciliation reached database/)
+  }
+})

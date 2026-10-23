@@ -3,6 +3,7 @@
 const { createHash } = require('node:crypto')
 const { FieldValue } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
+const { projectionSourceChanged } = require('./projection-event-policy')
 const {
   loadBranchData,
   safeSchedule,
@@ -599,6 +600,9 @@ async function sourceEventTargets({ db, event, source } = {}) {
 }
 
 async function syncPtScheduleWeeklyViewSource({ db, event, source = 'source', logger = console } = {}) {
+  if (source === 'contractUsage' && !projectionSourceChanged(event, 'contractUsageViews')) {
+    return { source, marked: 0, skipped: 'projection_timestamps_only' }
+  }
   const targets = await sourceEventTargets({ db, event, source })
   let marked = 0
   for (const target of targets.slice(0, 16)) {

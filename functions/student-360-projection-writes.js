@@ -2,11 +2,10 @@ const { randomUUID } = require('node:crypto')
 const { isDeepStrictEqual } = require('node:util')
 const { Timestamp } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
+const { projectionSourceChanged } = require('./projection-event-policy')
 
 function sourceChanged(event) {
-  const before = event.data?.before
-  const after = event.data?.after
-  return !before?.exists || !after?.exists || !isDeepStrictEqual(before.data(), after.data())
+  return projectionSourceChanged(event)
 }
 
 function atOrBefore(left, right) {
