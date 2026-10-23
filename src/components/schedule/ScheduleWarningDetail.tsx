@@ -4,11 +4,29 @@ import type {
   PtScheduleWorkspaceV2Result,
 } from '../../services/ptSchedulePublishService'
 import {
-  availabilitySlotLabel,
-  diagnosticActionLabel,
+  DAY_LABELS,
   diagnosticReasonLabel,
   scheduleSlotLabel,
 } from '../../features/schedule/workspaceModel'
+
+// These labels are used only by expanded warning details. Keep them in this
+// lazy panel so the initial schedule matrix does not download/parse them.
+function availabilitySlotLabel(slotId: string) {
+  const [day, rawHour] = slotId.split('-')
+  return `${DAY_LABELS[day] || day} ${String(Number(rawHour)).padStart(2, '0')}:00`
+}
+
+function diagnosticActionLabel(code: string | undefined) {
+  switch (code) {
+    case 'EDIT_STUDENT_AVAILABILITY': return 'Bổ sung / điều chỉnh lịch rảnh'
+    case 'REVIEW_CONTRACT_QUOTA': return 'Kiểm tra quota hoặc nối tiếp hợp đồng'
+    case 'REVIEW_CONTRACT_DATES': return 'Kiểm tra ngày hiệu lực hợp đồng'
+    case 'ADD_TRAINER_AVAILABILITY': return 'Bổ sung lịch rảnh PT hoặc mở PT hỗ trợ'
+    case 'OPEN_OTHER_SLOT': return 'Mở ca khác còn công suất'
+    case 'RERUN_OPTIMIZER': return 'Chạy tối ưu lần 2 hoặc xếp tay'
+    default: return 'Mở ca đề xuất và xử lý thủ công'
+  }
+}
 
 interface WarningSlot {
   slotId: string

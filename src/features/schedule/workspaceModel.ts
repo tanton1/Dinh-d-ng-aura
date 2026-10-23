@@ -52,14 +52,6 @@ const DAY_LABELS: Record<string, string> = {
   CN: 'Chủ nhật',
 }
 
-function formatPublishedAt(value: string | null) {
-  if (!value) return 'Chưa có thời gian'
-  const parsed = new Date(value)
-  return Number.isNaN(parsed.getTime())
-    ? 'Chưa có thời gian'
-    : new Intl.DateTimeFormat('vi-VN', { dateStyle: 'medium', timeStyle: 'short' }).format(parsed)
-}
-
 function availabilityOriginLabel(student: { availabilityStatus: string; availabilitySourceWeekId?: string | null }) {
   if (student.availabilityStatus === 'inherited') return `kế thừa tuần ${student.availabilitySourceWeekId || 'gần nhất'}`
   if (student.availabilityStatus === 'recurring') return 'lịch mặc định cũ'
@@ -77,11 +69,6 @@ function scheduleSlotLabel(slotId: string, dates: Record<string, { display: stri
   const [day, rawHour] = slotId.split('-')
   const hour = Number(rawHour)
   return `${DAY_LABELS[day] || day} ${dates[day]?.display || ''} · ${String(hour).padStart(2, '0')}:00`
-}
-
-function availabilitySlotLabel(slotId: string) {
-  const [day, rawHour] = slotId.split('-')
-  return `${DAY_LABELS[day] || day} ${String(Number(rawHour)).padStart(2, '0')}:00`
 }
 
 function compareScheduleSlots(left: string, right: string) {
@@ -223,18 +210,6 @@ function diagnosticReasonLabel(code: string | undefined) {
   return ptScheduleConflictLabel(code)
 }
 
-function diagnosticActionLabel(code: string | undefined) {
-  switch (code) {
-    case 'EDIT_STUDENT_AVAILABILITY': return 'Bổ sung / điều chỉnh lịch rảnh'
-    case 'REVIEW_CONTRACT_QUOTA': return 'Kiểm tra quota hoặc nối tiếp hợp đồng'
-    case 'REVIEW_CONTRACT_DATES': return 'Kiểm tra ngày hiệu lực hợp đồng'
-    case 'ADD_TRAINER_AVAILABILITY': return 'Bổ sung lịch rảnh PT hoặc mở PT hỗ trợ'
-    case 'OPEN_OTHER_SLOT': return 'Mở ca khác còn công suất'
-    case 'RERUN_OPTIMIZER': return 'Chạy tối ưu lần 2 hoặc xếp tay'
-    default: return 'Mở ca đề xuất và xử lý thủ công'
-  }
-}
-
 function contractStatusLabel(status: string | undefined) {
   switch (status) {
     case 'expired': return 'Đã hết hạn'
@@ -264,9 +239,15 @@ function workspaceRealtimeFingerprint(value: PtScheduleWorkspaceV2Result | null)
     weekId: value.weekId,
     draftRevision: value.draftRevision,
     publishedVersion: value.publishedVersion,
+    weeklyViewRevision: value.weeklyViewRevision,
+    weeklyViewSourceRevision: value.weeklyViewSourceRevision,
+    weeklyViewFreshness: value.weeklyViewFreshness,
+    readMode: value.readMode,
+    partial: value.partial,
+    reconciliationState: value.reconciliationState,
     schedule: value.schedule,
-    students: value.students.map((student) => [student.id, student.status, student.sessionsPerWeek, student.availabilityRevision, student.availableSlots, student.availabilityLocked, student.availabilityReopenedUntil, student.remainingEntitlementSessions, student.activeScheduledSessions, student.eligibleForWeek, student.contractStatus]),
-    trainers: value.trainers.map((trainer) => [trainer.id, trainer.status, trainer.availabilityRevision, trainer.availableSlots, trainer.availabilityMode, trainer.slotCapacity, trainer.dailySessionTarget, trainer.employmentType]),
+    students: value.students.map((student) => [student.id, student.name, student.phone, student.email, student.status, student.sessionsPerWeek, student.availabilityRevision, student.availableSlots, student.availabilityLocked, student.availabilityReopenedUntil, student.remainingEntitlementSessions, student.activeScheduledSessions, student.eligibleForWeek, student.contractStatus]),
+    trainers: value.trainers.map((trainer) => [trainer.id, trainer.name, trainer.status, trainer.availabilityRevision, trainer.availableSlots, trainer.availabilityMode, trainer.slotCapacity, trainer.dailySessionTarget, trainer.employmentType]),
     contracts: value.contracts.map((contract) => [contract.id, contract.status, contract.startDate, contract.endDate, contract.usedSessions, contract.remainingSchedulableSessions, contract.trainerId, contract.trainerIds]),
     weeklySessionCoverage: value.weeklySessionCoverage,
     quickCoverage: value.quickCoverage,
@@ -404,6 +385,14 @@ function workspaceFromWeeklyViewSnapshot(
     ? raw.workspace as Record<string, unknown>
     : {}
   const source = { ...raw, ...nested }
+  const sourceBranchId = typeof source.branchId === 'string' ? source.branchId
+    : source.branch && typeof source.branch === 'object' ? (source.branch as { id?: string }).id : undefined
+  // A late response for a previous week/branch cannot contribute retained
+  // evidence to the newly selected workspace.
+  if ((sourceBranchId && sourceBranchId !== current.branch.id)
+    || (typeof source.weekId === 'string' && source.weekId !== current.weekId)) return current
+  const draft = source.draft && typeof source.draft === 'object' && !Array.isArray(source.draft)
+    ? source.draft as Record<string, unknown> : {}
   const readObject = <T extends object>(key: string, fallback: T): T => {
     const value = source[key]
     return value && typeof value === 'object' && !Array.isArray(value) ? value as T : fallback
@@ -412,37 +401,78 @@ function workspaceFromWeeklyViewSnapshot(
   const freshness = typeof raw.freshness === 'string'
     ? raw.freshness
     : typeof source.freshness === 'string' ? source.freshness : undefined
-  const readMode = source.readMode === 'reconciled' || freshness === 'verified' ? 'reconciled' : 'display'
-  const partial = typeof source.partial === 'boolean' ? source.partial : readMode !== 'reconciled'
-  const revision = Math.max(0, Number(source.draftRevision ?? current.draftRevision))
-  const publishedVersion = Math.max(0, Number(source.publishedVersion ?? current.publishedVersion))
-  const draftStatus: PtScheduleWorkspaceV2Result['draftStatus'] = source.draftStatus === 'published' || source.status === 'published'
-    ? 'published'
-    : current.draftStatus
+  const pending = raw.rebuilding === true || source.dirty === true || freshness === 'stale'
+  const exact = !pending && source.partial !== true && (source.readMode === 'reconciled' || freshness === 'verified')
+  const revision = Math.max(0, Number(draft.revision ?? source.draftRevision ?? current.draftRevision))
+  if (revision < current.draftRevision) return current
+  const publishedVersion = Math.max(0, Number(draft.publishedVersion ?? source.publishedVersion ?? current.publishedVersion))
+  const sourceRevision = raw.sourceRevision ?? source.sourceRevision
+  const sameEvidence = !pending && current.readMode === 'reconciled' && current.partial !== true
+    && sourceRevision !== undefined && sourceRevision === current.weeklyViewSourceRevision
+    && revision === current.draftRevision && publishedVersion === current.publishedVersion
+    // Only revision-only metadata can safely retain exact evidence. Legacy
+    // display snapshots used a narrower source hash than verified snapshots.
+    && !Array.isArray(source.students) && !Array.isArray(source.contracts)
+  const readMode = exact || sameEvidence ? 'reconciled' : 'display'
+  const partial = readMode !== 'reconciled'
+  const hadReconciliation = current.readMode === 'reconciled'
+    || current.reconciliationState === 'stale' || current.contracts.length > 0
+  const nextStatus = draft.status ?? source.draftStatus ?? source.status
+  const draftStatus: PtScheduleWorkspaceV2Result['draftStatus'] = nextStatus === 'published' || nextStatus === 'draft'
+    ? nextStatus : current.draftStatus
   const mergeById = <T extends { id: string }>(key: string, fallback: T[]) => {
     const prior = new Map(fallback.map((item) => [item.id, item]))
     return readArray<T>(key, fallback).map((item) => ({ ...prior.get(item.id), ...item }))
   }
+  const students = mergeById('students', current.students) as PtScheduleWorkspaceV2Result['students']
+  if (!exact && hadReconciliation && Array.isArray(source.contracts) && source.contracts.length === 0) {
+    const priorStudents = new Map(current.students.map((student) => [student.id, student]))
+    const evidenceFields = [
+      'eligibleForWeek', 'eligibilityReasons', 'eligibleContractIds', 'validScheduleDates', 'pausedScheduleDates',
+      'remainingEntitlementSessions', 'remainingSchedulableSessions', 'activeScheduledSessions', 'activeScheduledThisWeek',
+      'maxWeeklySessions', 'schedulableSessionsThisWeek', 'contractStatus', 'contractEndDate',
+      'previousWeekScheduledSessions', 'hadSchedulePreviousWeek',
+    ] as const
+    for (const student of students) {
+      const previous = priorStudents.get(student.id)
+      if (!previous) continue
+      // Retain last-known quota detail, not placeholder zeroes. These values
+      // remain informational because the workspace is explicitly stale/display.
+      for (const field of evidenceFields) {
+        if (Object.prototype.hasOwnProperty.call(previous, field)) Object.assign(student, { [field]: previous[field] })
+      }
+    }
+  }
+  // Display projections intentionally omit contract evidence. Keep previously
+  // loaded rows for profile detail, but readMode/reconciliationState below make
+  // clear they must not be reused as current validation or missing-session totals.
+  const contracts = !exact && Array.isArray(source.contracts) && source.contracts.length === 0
+    ? current.contracts : mergeById('contracts', current.contracts) as PtScheduleWorkspaceV2Result['contracts']
+  const schedule = readObject('schedule', current.schedule)
   return {
     ...current,
     branch: readObject('branch', current.branch),
     weekId: typeof source.weekId === 'string' ? source.weekId : current.weekId,
     draftRevision: revision,
     publishedVersion,
-    publishedRevision: Number(source.publishedRevision ?? current.publishedRevision),
-    schedule: readObject('schedule', current.schedule),
-    students: mergeById('students', current.students) as PtScheduleWorkspaceV2Result['students'],
+    publishedRevision: Number(draft.publishedRevision ?? source.publishedRevision ?? current.publishedRevision),
+    schedule: Object.fromEntries(Object.entries(schedule).map(([slotId, entries]) => [slotId, entries.map((entry) => {
+      const compact = entry as typeof entry & { warningCodes?: string[] }
+      return compact.warningCodes ? { ...entry, adminOverrideWarnings: compact.warningCodes } : entry
+    })])),
+    students,
     trainers: mergeById('trainers', current.trainers) as PtScheduleWorkspaceV2Result['trainers'],
-    contracts: mergeById('contracts', current.contracts) as PtScheduleWorkspaceV2Result['contracts'],
+    contracts,
     sessions: readArray('sessions', current.sessions),
     scheduleConfig: readObject('scheduleConfig', current.scheduleConfig),
     sessionRefs: readObject('sessionRefs', current.sessionRefs || {}),
     partial,
     readMode,
+    reconciliationState: readMode === 'reconciled' ? 'current' : hadReconciliation ? 'stale' : 'not_loaded',
     draftStatus,
-    updatedAt: firestoreValueIso(source.updatedAt) || current.updatedAt,
-    updatedBy: typeof source.updatedBy === 'string' ? source.updatedBy : current.updatedBy,
-    summary: readObject('summary', current.summary),
+    updatedAt: firestoreValueIso(draft.updatedAt ?? source.updatedAt) || current.updatedAt,
+    updatedBy: typeof (draft.updatedBy ?? source.updatedBy) === 'string' ? String(draft.updatedBy ?? source.updatedBy) : current.updatedBy,
+    summary: { ...current.summary, ...readObject('summary', current.summary) },
     warnings: readArray('warnings', current.warnings),
     optimizationSummary: source.optimizationSummary && typeof source.optimizationSummary === 'object'
       ? source.optimizationSummary as PtScheduleWorkspaceV2Result['optimizationSummary']
@@ -463,7 +493,7 @@ function workspaceFromWeeklyViewSnapshot(
     weeklyViewSourceRevision: typeof (raw.sourceRevision ?? source.sourceRevision) === 'string'
       ? String(raw.sourceRevision ?? source.sourceRevision)
       : Number(raw.sourceRevision ?? source.sourceRevision ?? current.weeklyViewSourceRevision ?? revision),
-    weeklyViewFreshness: freshness || current.weeklyViewFreshness,
+    weeklyViewFreshness: pending ? 'stale' : freshness || current.weeklyViewFreshness,
     weeklyViewGeneratedAt: typeof raw.generatedAt === 'string'
       ? raw.generatedAt
       : typeof source.generatedAt === 'string' ? source.generatedAt : current.weeklyViewGeneratedAt,
@@ -620,18 +650,15 @@ export {
   WORKSPACE_CACHE_REVALIDATE_MS,
   availabilityDayCount,
   availabilityOriginLabel,
-  availabilitySlotLabel,
   candidateCanBeManuallyScheduled,
   candidateMatchesStudentAvailability,
   commandKey,
   compareScheduleSlots,
   contractStatusLabel,
   currentVietnamDateKey,
-  diagnosticActionLabel,
   diagnosticReasonLabel,
   finiteCount,
   formatDiagnosticDate,
-  formatPublishedAt,
   getCachedBranchCatalog,
   localSlotCandidates,
   normalizedTrainerLoadStatus,

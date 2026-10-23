@@ -368,6 +368,8 @@ export interface PtScheduleWorkspaceV2Result extends Omit<BranchScheduleWorkspac
   weeklyViewSourceRevision?: number | string
   weeklyViewFreshness?: 'display' | 'stale' | 'verified' | string
   weeklyViewGeneratedAt?: string | null
+  /** Retained detailed evidence is informational only after a display refresh. */
+  reconciliationState?: 'current' | 'stale' | 'not_loaded'
 }
 
 /**
@@ -380,6 +382,10 @@ export interface PtScheduleWeeklyViewResult {
   sourceRevision?: number | string
   freshness?: 'display' | 'stale' | 'verified' | string
   generatedAt?: string | null
+  rebuilding?: boolean
+  rebuildStatus?: 'busy' | 'superseded'
+  dirty?: boolean
+  dirtyGeneration?: number
   [key: string]: unknown
 }
 

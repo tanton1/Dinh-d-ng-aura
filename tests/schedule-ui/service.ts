@@ -9,11 +9,19 @@ const recentlyExpiredStudent = { ...oldExpiredStudent, id: 'recent-contract', na
 let workspace: any = { schemaVersion: 2, branch: { id: 'b', name: 'CS1', status: 'active' }, weekId: '', draftRevision: 1, draftStatus: 'draft', publishedVersion: 0, schedule: { 'T2-6': [{ studentId: 'a', trainerId: 't', contractId: 'c-a', type: 'training', branchId: 'b', source: 'manual_v2' }], 'T2-7': [{ studentId: 'c', trainerId: 't', contractId: 'c-c', type: 'training', branchId: 'b', source: 'manual_v2', isLocked: true }] }, students: [{ ...baseStudent, id: 'a', name: 'Lan' }, { ...baseStudent, id: 'b', name: 'Ngọc', availableSlots: ['T2-6', 'T2-7'] }, { ...baseStudent, id: 'c', name: 'Bình' }, oldExpiredStudent, recentlyExpiredStudent], trainers: [trainer, secondaryTrainer, remainingTrainer], contracts: [...['a', 'b', 'c'].map((id) => ({ id: 'c-' + id, studentId: id, status: 'active', trainerId: 't', trainerIds: id === 'a' ? ['t-secondary'] : [], branchId: 'b', packageName: 'Gói 24', startDate: '2020-01-01', endDate: '2099-12-31', totalSessions: 24, usedSessions: 0 })), { id: 'c-old', studentId: oldExpiredStudent.id, status: 'expired', trainerId: 't', trainerIds: [], branchId: 'b', packageName: 'Gói cũ', startDate: '2019-01-01', endDate: '2020-01-01', totalSessions: 24, usedSessions: 24 }, { id: 'c-recent', studentId: recentlyExpiredStudent.id, status: 'expired', trainerId: 't', trainerIds: [], branchId: 'b', packageName: 'Gói vừa hết', startDate: '2098-01-01', endDate: '2099-01-01', totalSessions: 24, usedSessions: 24 }], sessions: [], warnings: [], unassignedEntries: [{ studentId: oldExpiredStudent.id, studentName: oldExpiredStudent.name, missingSessions: 2, primaryReasonCode: 'CONTRACT_SESSION_QUOTA_EXCEEDED', blockerCategory: 'contract', reasonCodes: ['CONTRACT_SESSION_QUOTA_EXCEEDED'], diagnostics: { contractStatus: 'quota_exhausted', latestContractEndDate: '2020-01-01' } }], scheduleConfig: { workingDays: ['T2', 'T3', 'T4', 'T5', 'T6', 'T7'], workingHours: [6, 7], holidays: [] }, summary: { eligibleStudents: 3, trainers: 3, unconfiguredTrainers: 0 } }
 const track = (operation: string, input: any) => { (window as any).__scheduleCalls ??= []; (window as any).__scheduleCalls.push({ operation, input }) }
 export const listPtScheduleBranches = async () => ({ branches: [{ id: 'b', name: 'CS1' }, { id: 'c', name: 'CS2' }] })
-export const getPtScheduleWorkspace = async (input: any) => { track('load', input); return structuredClone({ ...workspace, weekId: input.weekId, branch: { ...workspace.branch, id: input.branchId } }) }
+export const getPtScheduleWorkspace = async (input: any) => {
+  track('load', input)
+  if ((window as any).__workspaceDelayMs) await sleep((window as any).__workspaceDelayMs)
+  return structuredClone({ ...workspace, weekId: input.weekId, branch: { ...workspace.branch, id: input.branchId }, readMode: 'reconciled', partial: false })
+}
 // The production workspace now paints from the one-document weekly view. The
 // fixture returns the same bounded workspace shape so UI tests exercise the
 // rollout path without requiring Firebase.
-export const getPtScheduleWeeklyView = async (input: any) => { track('weekly-view', input); return structuredClone({ ...workspace, weekId: input.weekId, branch: { ...workspace.branch, id: input.branchId }, freshness: 'verified', readMode: 'reconciled', partial: false, viewRevision: 1, sourceRevision: 1 }) }
+export const getPtScheduleWeeklyView = async (input: any) => {
+  track('weekly-view', input)
+  if ((window as any).__weeklyViewDelayMs) await sleep((window as any).__weeklyViewDelayMs)
+  return structuredClone({ ...workspace, weekId: input.weekId, branch: { ...workspace.branch, id: input.branchId }, freshness: 'verified', readMode: 'reconciled', partial: false, viewRevision: 1, sourceRevision: 1, ...(window as any).__weeklyViewOverride })
+}
 export const ptScheduleConflictLabel = (code: string) => code === 'STUDENT_AVAILABILITY_DAYS_INSUFFICIENT'
   ? 'Học viên đăng ký chưa đủ số ngày rảnh để hoàn thành mục tiêu tuần.'
   : code
@@ -49,8 +57,8 @@ export const applyAdminPtScheduleEdit = async (input: any) => {
 export const generatePtScheduleDraft = async (input: any) => { track('generate', input); await sleep(500); workspace.draftRevision++; return structuredClone({ schedule: workspace.schedule, draftRevision: workspace.draftRevision, warnings: [], unassignedEntries: [], optimizationSummary: { optimizationPasses: 2 } }) }
 export const validatePtScheduleDraft = async (input: any) => { track('validate', input); if ((window as any).__failScheduleValidation) throw Object.assign(Error('Lịch còn xung đột'), { errorDetails: [{ code: 'OUTSIDE_STUDENT_AVAILABILITY', slotId: 'T2-6', studentId: 'a', studentName: 'Lan', trainerId: 't', trainerName: 'Mai' }] }); return { draftRevision: workspace.draftRevision, version: 1, diff: { create: 2, update: 0, cancel: 0, unchanged: 0 }, warnings: [] } }
 export const publishPtSchedule = async (input: any) => { track('publish', input); workspace.publishedVersion++; workspace.draftStatus = 'published'; return { version: workspace.publishedVersion, unchanged: false } }
-export const listPtScheduleVersions = async () => ({ currentDraftRevision: workspace.draftRevision, currentVersion: 1, versions: [] })
-export const restorePtScheduleVersionToDraft = async () => ({ version: 1, draftRevision: workspace.draftRevision })
+export const listPtScheduleVersions = async () => ({ currentDraftRevision: workspace.draftRevision, currentVersion: 1, versions: (window as any).__scheduleVersions || [] })
+export const restorePtScheduleVersionToDraft = async (input: any) => { track('restore', input); return { version: input.version, draftRevision: workspace.draftRevision } }
 export const savePtStudentAvailability = async () => ({ availableSlots: [], availabilityRevision: 2, availabilityStatus: 'submitted' })
 export const reopenPtStudentAvailability = async (input: any) => {
   track('reopen-availability', input)
