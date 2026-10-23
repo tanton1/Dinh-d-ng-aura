@@ -93,9 +93,15 @@ export const validatePtScheduleDraft = async (input: any) => { track('validate',
 export const publishPtSchedule = async (input: any) => { track('publish', input); workspace.publishedVersion++; workspace.draftStatus = 'published'; return { version: workspace.publishedVersion, unchanged: false } }
 export const listPtScheduleVersions = async () => ({ currentDraftRevision: workspace.draftRevision, currentVersion: 1, versions: (window as any).__scheduleVersions || [] })
 export const restorePtScheduleVersionToDraft = async (input: any) => { track('restore', input); return { version: input.version, draftRevision: workspace.draftRevision } }
-export const savePtStudentAvailability = async () => ({ availableSlots: [], availabilityRevision: 2, availabilityStatus: 'submitted' })
+export const savePtStudentAvailability = async (input: any) => {
+  track('save-availability', input)
+  if ((window as any).__holdAvailabilitySave) await new Promise<void>((resolve) => { (window as any).__releaseAvailabilitySave = resolve })
+  if ((window as any).__failAvailabilitySave) throw Error('Không lưu được lịch rảnh; hãy thử lại')
+  return { availableSlots: [], availabilityRevision: 2, availabilityStatus: 'submitted' }
+}
 export const reopenPtStudentAvailability = async (input: any) => {
   track('reopen-availability', input)
+  if ((window as any).__holdAvailabilityReopen) await new Promise<void>((resolve) => { (window as any).__releaseAvailabilityReopen = resolve })
   await sleep(50)
   const student = workspace.students.find((item: any) => item.id === input.studentId)
   const availabilityRevision = Number(student?.availabilityRevision || 1) + 1
