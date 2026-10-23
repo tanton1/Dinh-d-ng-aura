@@ -11,6 +11,11 @@ function argument(name, fallback = '') {
   return process.argv.find((value) => value.startsWith(`--${name}=`))?.slice(name.length + 3) || fallback
 }
 function shortName(value) { return String(value || '').split('/').at(-1) || '' }
+function latestRevisionServing(service) {
+  return Boolean(service?.latestCreatedRevision
+    && service.latestCreatedRevision === service.latestReadyRevision
+    && service.trafficStatuses?.some((target) => Number(target.percent) === 100 && shortName(target.revision) === shortName(service.latestCreatedRevision)))
+}
 function runtimeProfile(revision) {
   const resource = revision.containers?.[0]?.resources || {}
   return { revision: shortName(revision.name), cpu: Number(resource.limits?.cpu) || null, memory: resource.limits?.memory || null, minInstances: revision.scaling?.minInstanceCount ?? 0, maxInstances: revision.scaling?.maxInstanceCount ?? null, concurrency: revision.maxInstanceRequestConcurrency ?? null, startupCpuBoost: resource.startupCpuBoost ?? false }
@@ -46,12 +51,13 @@ function renderInventory(report) {
     '- Phân loại di chuyển là sàng lọc kỹ thuật, không thay thế rà soát từng handler, quyền và tính chống chạy trùng.',
     '- Request Cloud Run không đồng nghĩa số lượt người dùng; không gồm yêu cầu bị chặn trước container.',
     '- Min instances bằng 0 nghĩa là không đặt warm bắt buộc, không có nghĩa không tồn tại instance vừa xử lý request.',
-    '- Latest khác serving: revision mới chưa sẵn sàng, không có nghĩa revision cũ đã ngừng phục vụ.',
+    '- Latest khác serving: revision mới chưa sẵn sàng hoặc chưa nhận traffic; không có nghĩa revision cũ đã ngừng phục vụ.',
+    '- Ready và nhận 100% traffic không bảo đảm mọi cold start thành công khi quota vùng đã đầy; cần kiểm tra thêm API/log lỗi.',
     '- CPU x max instances là trần cấu hình, KHÔNG phải CPU đang sử dụng hay chi phí hóa đơn.',
     '- Tên alias chỉ là gợi ý; phải đối chiếu hợp đồng API trước khi chuyển client. Không tự xóa endpoint cũ.',
     '- Di chuyển vùng không giảm số read Firestore; có thể thêm độ trễ và phí truyền dữ liệu liên vùng.',
     '', 'TỔNG QUAN',
-    ...report.summary.map((row) => `${row.region}: ${row.functions} functions; ${row.byKind.callable} callable; ${row.byKind['event-trigger']} trigger; ${row.byKind.scheduled} scheduled; min bắt buộc=${row.configuredMinimums ?? 'không rõ'}; requests 24h=${row.requests24h ?? 'không rõ'}, 7d=${row.requests7d ?? 'không rõ'}; latest chưa ready=${row.latestRevisionNotReady.length}`),
+    ...report.summary.map((row) => `${row.region}: ${row.functions} functions; ${row.byKind.callable} callable; ${row.byKind['event-trigger']} trigger; ${row.byKind.scheduled} scheduled; min bắt buộc=${row.configuredMinimums ?? 'không rõ'}; requests 24h=${row.requests24h ?? 'không rõ'}, 7d=${row.requests7d ?? 'không rõ'}; latest chưa ready=${row.latestRevisionNotReady.length}; latest chưa nhận 100% traffic=${row.latestRevisionNotServing?.length ?? '?'}`),
     '', 'QUOTA (GIỚI HẠN ĐƯỢC CẤP, KHÔNG PHẢI MỨC SỬ DỤNG HIỆN TẠI)',
     ...report.quotas.map((quota) => `${quota.service} | ${quota.metric} | ${quota.region} | ${quota.effectiveLimit} | ${quota.unit}`),
     '', 'HƯỚNG XỬ LÝ',
@@ -66,7 +72,7 @@ function renderInventory(report) {
     lines.push('', `${index + 1}. ${row.name} @ ${row.region} [${row.kind}]`,
       `   Requests: 24h=${row.requests24h ?? '?'}; 7d=${row.requests7d ?? '?'}; HTTP 5xx=${row.http5xx24h ?? '?'}; 429=${row.http42924h ?? '?'}`,
       `   Cấu hình mới nhất: CPU=${row.cpu}; RAM=${row.memory}; min=${row.revisionMinInstances}; max=${row.maxInstances}; concurrency=${row.concurrency}; timeout=${row.timeoutSeconds}s`,
-      `   Min bắt buộc đang phục vụ=${row.configuredMinimum ?? '?'}; latest ready=${row.latestRevisionReady}; state=${row.state}`,
+      `   Min bắt buộc đang phục vụ=${row.configuredMinimum ?? '?'}; latest ready=${row.latestRevisionReady}; latest nhận 100% traffic=${row.latestRevisionServing ?? '?'}; state=${row.state}`,
       ...row.servingRevisions.map((revision) => `   Serving: ${revision.revision}; CPU=${revision.cpu ?? '?'}; RAM=${revision.memory ?? '?'}; min=${revision.minInstances ?? '?'}; max=${revision.maxInstances ?? '?'}`),
       `   Alias ứng viên: ${row.aliases.map((alias) => `${alias.name}@${alias.region}`).join(', ') || 'chưa phát hiện'}`,
       `   Client: ${row.clientFiles.join(', ') || 'không tìm thấy chuỗi tên trực tiếp'}`,
@@ -189,6 +195,7 @@ async function main() {
       timeoutSeconds: fn.serviceConfig?.timeoutSeconds ?? null,
       latestReadyRevision: ready, latestCreatedRevision: created,
       latestRevisionReady: Boolean(ready && ready === created),
+      latestRevisionServing: latestRevisionServing(run),
       traffic: run?.trafficStatuses || [],
       eventType: fn.eventTrigger?.eventType || null,
       eventFilters: fn.eventTrigger?.eventFilters || [],
@@ -215,6 +222,7 @@ async function main() {
       allocatedCpuSeconds24h: sumKnown(selected, 'allocatedCpuSeconds24h'),
       theoreticalCpuCeiling: Number(selected.reduce((sum, row) => sum + row.cpu * (row.maxInstances || 0), 0).toFixed(3)),
       latestRevisionNotReady: selected.filter((row) => !row.latestRevisionReady).map((row) => row.name),
+      latestRevisionNotServing: selected.filter((row) => !row.latestRevisionServing).map((row) => row.name),
     }
   })
   const output = path.resolve(argument('output', `tmp/function-region-audit-${end.toISOString().replaceAll(':', '-')}.json`))
@@ -222,7 +230,7 @@ async function main() {
   const report = { project, observedAt: end.toISOString(), gitCommit: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), notes: ['Read-only APIs; no customer document contents or credentials.', 'CPU ceiling is configured theoretical capacity, NOT active CPU or billable usage.', 'CPU allocation metric includes startup and all revisions; it is NOT a billing estimate or instantaneous regional quota usage.', 'HTTP request metrics exclude requests rejected before reaching a container, and do not cover all callable application errors.', 'Missing metrics are null, not zero. Request counts exclude services not backed by a listed Function.', 'Alias-name matches and read-name prefixes are screening hints, not proof of equivalent or side-effect-free handlers.'], warnings, summary, quotas, functions: rows }
   fs.writeFileSync(output, JSON.stringify(report, null, 2))
   fs.writeFileSync(output.replace(/\.json$/i, '') + '.txt', renderInventory(report))
-  console.log(JSON.stringify({ output, warnings, summary: summary.map(({ latestRevisionNotReady, ...row }) => ({ ...row, latestRevisionNotReadyCount: latestRevisionNotReady.length })), quotas, southeastTop: rows.filter((row) => row.region === 'asia-southeast1').slice(0, 15).map(({ name, kind, requests24h, requests7d, cpu, maxInstances, aliases }) => ({ name, kind, requests24h, requests7d, cpu, maxInstances, aliases })) }, null, 2))
+  console.log(JSON.stringify({ output, warnings, summary: summary.map(({ latestRevisionNotReady, latestRevisionNotServing, ...row }) => ({ ...row, latestRevisionNotReadyCount: latestRevisionNotReady.length, latestRevisionNotServingCount: latestRevisionNotServing.length })), quotas, southeastTop: rows.filter((row) => row.region === 'asia-southeast1').slice(0, 15).map(({ name, kind, requests24h, requests7d, cpu, maxInstances, aliases }) => ({ name, kind, requests24h, requests7d, cpu, maxInstances, aliases })) }, null, 2))
 }
 if (require.main === module) main().catch((error) => { console.error(error.message); process.exitCode = 1 })
-module.exports = { classify, decision, sumPoints, runtimeProfile, mapBounded, configuredMinimumFloor, sumKnown, renderInventory }
+module.exports = { classify, decision, sumPoints, runtimeProfile, mapBounded, configuredMinimumFloor, sumKnown, renderInventory, latestRevisionServing }
