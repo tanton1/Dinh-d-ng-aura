@@ -1,3 +1,5 @@
+import { startVisiblePolling } from '../../utils/visiblePolling'
+import { runCoalescedRefresh, type CoalescedRefreshState } from '../../utils/coalescedRefresh'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { doc, onSnapshot } from 'firebase/firestore'
 import {
@@ -189,6 +191,7 @@ export default function SchedulePage({ onNavigate, isDemo = false }: { onNavigat
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const requestIdRef = useRef(0)
+  const loadRefreshRef = useRef<CoalescedRefreshState | null>(null)
   const loadedWeekRef = useRef('')
   const [loadIssue, setLoadIssue] = useState<StudentPtScheduleServiceError | null>(null)
   const [message, setMessage] = useState<string | null>(null)
@@ -207,7 +210,7 @@ export default function SchedulePage({ onNavigate, isDemo = false }: { onNavigat
   const weekDays = useMemo(() => Array.from({ length: 7 }, (_, index) => addDays(weekStart, index)), [weekStart])
   const availabilityWeekId = useMemo(() => toIsoDate(weekStart), [weekStart])
 
-  const load = useCallback(async () => {
+  const load = useCallback(() => runCoalescedRefresh(loadRefreshRef, `${isDemo}:${range.from}:${range.to}:${availabilityWeekId}`, async () => {
     const requestId = ++requestIdRef.current
     const background = loadedWeekRef.current === availabilityWeekId
     setLoading(!background)
@@ -252,9 +255,9 @@ export default function SchedulePage({ onNavigate, isDemo = false }: { onNavigat
     } finally {
       if (requestId === requestIdRef.current) { setLoading(false); setRefreshing(false) }
     }
-  }, [availabilityWeekId, isDemo, range.from, range.to, today, weekStart])
+  }), [availabilityWeekId, isDemo, range.from, range.to, today, weekStart])
 
-  useEffect(() => { void load(); return () => { requestIdRef.current += 1 } }, [load])
+  useEffect(() => { void load(); return () => { requestIdRef.current += 1; loadRefreshRef.current = null } }, [load])
 
   // Refresh the currently visible week when Admin changes this learner's
   // availability. The marker contains no slots; the callable remains the
@@ -336,20 +339,13 @@ export default function SchedulePage({ onNavigate, isDemo = false }: { onNavigat
 
   // Keep schedule, attendance and payment alerts fresh without a full page
   // reload. Admin corrections write live sessions directly after publish, so
-  // a short visible-tab poll surfaces them without another Publish action.
+  // a visible-tab refresh surfaces them without another Publish action.
   useEffect(() => {
     if (isDemo) return
-    const refresh = () => {
-      if (document.hidden || loading || refreshing) return
-      void load()
-    }
-    const onVisibilityChange = () => { if (!document.hidden) refresh() }
-    document.addEventListener('visibilitychange', onVisibilityChange)
-    const timer = window.setInterval(refresh, 5_000)
-    return () => {
-      document.removeEventListener('visibilitychange', onVisibilityChange)
-      window.clearInterval(timer)
-    }
+    return startVisiblePolling(() => {
+      if (loading || refreshing) return
+      return load()
+    })
   }, [isDemo, load, loading, refreshing])
 
   const changeDeadlineHours = data?.scheduleConfig.sessionChangeDeadlineHours ?? PT_OPERATIONS_POLICY_DEFAULTS.sessionChangeDeadlineHours

@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { startVisiblePolling } from '../../utils/visiblePolling'
+import { runCoalescedRefresh, type CoalescedRefreshState } from '../../utils/coalescedRefresh'
 import { CalendarDays, CheckCheck, CheckCircle2, ChevronLeft, ChevronRight, CircleAlert, Clock3, MapPin, MessageCircle, Phone, RefreshCw, Search, Timer, UserCheck, UserPlus, UserX, X } from 'lucide-react'
 import {
   bulkConfirmMySessions,
@@ -187,6 +189,8 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
   const [studentBranch, setStudentBranch] = useState(() => staffStudentListMemory().branch || 'all')
   const [studentScope, setStudentScope] = useState<'all' | 'primary' | 'secondary' | 'branch' | 'schedule'>(() => staffStudentListMemory().scope || 'all')
   const loadedRef = useRef(false)
+  const loadRequestRef = useRef(0)
+  const loadRefreshRef = useRef<CoalescedRefreshState | null>(null)
   const restoredStudentListRef = useRef(false)
   const canViewStudents = workspace?.tabs.students === true
   const canViewSchedule = workspace?.tabs.schedule === true
@@ -258,7 +262,8 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
       return matchesQuery && matchesBranch && matchesScope
     }).sort((left, right) => assignmentRank[left.assignmentRole] - assignmentRank[right.assignmentRole] || left.name.localeCompare(right.name, 'vi'))
   }, [scheduledByStudent, studentBranch, studentQuery, studentScope, studentsWithSessions])
-  const load = useCallback(async () => {
+  const load = useCallback(() => runCoalescedRefresh(loadRefreshRef, `${isDemo}:${section}:${rangeFrom}:${to}`, async () => {
+    const requestId = ++loadRequestRef.current
     if (loadedRef.current) setRefreshing(true)
     else { setScopeLoading(true); setLoading(true) }
     setScopeError(''); setError('')
@@ -284,6 +289,7 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
     try {
       if (section === 'students') {
         const result = await getMyTrainerWorkspace('students', rangeFrom, addDateDays(rangeFrom, 61), 500)
+        if (requestId !== loadRequestRef.current) return
         const responseBranchIds = new Set(result.scope.branchIds || [])
         const merged = new Map(result.students.map((student) => [student.id, student]))
         result.sessions.forEach((session) => {
@@ -323,31 +329,27 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
         return
       }
       const result = await getMyTrainerWorkspace(section, rangeFrom, to)
+      if (requestId !== loadRequestRef.current) return
       setWorkspace(result.scope)
       setStudents(result.students)
       setBranches(result.branches || [])
       setSessions(result.sessions)
       setRequests(result.requests ?? [])
     } catch (cause) {
-      setScopeError(cause instanceof Error ? cause.message : 'Không thể tải dữ liệu được phân công.')
+      if (requestId === loadRequestRef.current) setScopeError(cause instanceof Error ? cause.message : 'Không thể tải dữ liệu được phân công.')
     } finally {
-      loadedRef.current = true; setScopeLoading(false); setLoading(false); setRefreshing(false)
+      if (requestId === loadRequestRef.current) {
+        loadedRef.current = true; setScopeLoading(false); setLoading(false); setRefreshing(false)
+      }
     }
-  }, [isDemo, rangeFrom, section, to])
-  useEffect(() => { void load() }, [load])
+  }), [isDemo, rangeFrom, section, to])
+  useEffect(() => { void load(); return () => { loadRequestRef.current += 1; loadRefreshRef.current = null } }, [load])
   useEffect(() => {
     if (isDemo || !['students', 'schedule'].includes(section)) return undefined
-    const refresh = () => {
-      if (document.hidden || loading || refreshing) return
-      void load()
-    }
-    const onVisibilityChange = () => { if (!document.hidden) refresh() }
-    document.addEventListener('visibilitychange', onVisibilityChange)
-    const timer = window.setInterval(refresh, 5_000)
-    return () => {
-      document.removeEventListener('visibilitychange', onVisibilityChange)
-      window.clearInterval(timer)
-    }
+    return startVisiblePolling(() => {
+      if (loading || refreshing) return
+      return load()
+    })
   }, [isDemo, load, loading, refreshing, section])
   useEffect(() => {
     if (section !== 'students') return

@@ -33,6 +33,8 @@ jobs:
         run: npm run typecheck
       - name: Run web unit and contract tests
         run: npm run test:profile-sync
+      - name: Test callable inventory coverage
+        run: npm run test:callable-audit
       - name: Build
         run: npm run build
       - name: Check performance budget
@@ -107,6 +109,12 @@ jobs:
       - name: Test contract renewal on mobile Safari
         if: matrix.project == 'mobile-webkit'
         run: npm run test:renewal-ui -- --project=renewal-mobile-webkit
+      - name: Test catalog loading and bounded autosave
+        if: matrix.project == 'chromium'
+        run: npm run test:catalog-ui -- --project=catalog-chromium
+      - name: Test catalog on mobile Safari
+        if: matrix.project == 'mobile-webkit'
+        run: npm run test:catalog-ui -- --project=catalog-mobile-webkit
       - name: Upload browser failure evidence
         if: failure()
         uses: actions/upload-artifact@v4

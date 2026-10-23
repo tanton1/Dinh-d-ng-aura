@@ -14,6 +14,7 @@ import {
   type StudentPtScheduleIssueCode,
   type StudentPtSession,
 } from '../../services/studentPtScheduleService'
+import { startVisiblePolling } from '../../utils/visiblePolling'
 import { buildStudentHomeSchedule } from '../../features/home/studentHomeSchedule'
 import {
   readRecentAverageWeight,
@@ -150,8 +151,6 @@ export default function HomePage({
     let active = true
     const currentDate = new Date()
     const today = toLocalDateKey(currentDate)
-    const through = new Date(currentDate)
-    through.setDate(through.getDate() + 30)
     const currentDay = currentDate.getDay()
     const monday = new Date(currentDate)
     monday.setDate(currentDate.getDate() + (currentDay === 0 ? -6 : 1 - currentDay))
@@ -191,64 +190,38 @@ export default function HomePage({
       return () => { active = false }
     }
 
-    // This is the same identity-aware callable used by the student's Schedule page.
-    listMyStudentPtSchedule(weekFromDate, toLocalDateKey(through), weekFromDate)
-      .then((data) => {
+    // Initial and background reads share one lifecycle so a slow first load
+    // cannot overlap a timer or a visibility refresh.
+    let firstLoad = true
+    const stopPolling = startVisiblePolling(async () => {
+      const requestedAt = new Date()
+      const weekStart = new Date(requestedAt)
+      const weekday = requestedAt.getDay()
+      weekStart.setDate(requestedAt.getDate() + (weekday === 0 ? -6 : 1 - weekday))
+      const rangeEnd = new Date(requestedAt)
+      rangeEnd.setDate(rangeEnd.getDate() + 30)
+      const from = toLocalDateKey(weekStart)
+      try {
+        const data = await listMyStudentPtSchedule(from, toLocalDateKey(rangeEnd), from)
         if (!active) return
-        applySessions(data.sessions)
+        const weekEnd = new Date(weekStart)
+        weekEnd.setDate(weekStart.getDate() + 6)
+        const summary = buildStudentHomeSchedule(data.sessions, toLocalDateKey(requestedAt), from, toLocalDateKey(weekEnd))
+        setUpcomingSchedule(summary.upcomingSessions)
+        setTodaySessionCount(summary.todaySessionCount)
+        setWeeklyScheduleMinutesByDate(summary.weeklyCompletedMinutesByDate)
         setScheduleState(data.linked ? 'linked' : 'unlinked')
         setScheduleIssueCode(data.linked ? null : 'PROFILE_NOT_LINKED')
-      })
-      .catch((error) => {
-        if (!active) return
+      } catch (error) {
+        if (!active || !firstLoad) return
         const issue = asStudentPtScheduleError(error)
         setScheduleState(issue.issueCode === 'PROFILE_NOT_LINKED' ? 'unlinked' : 'unavailable')
         setScheduleIssueCode(issue.issueCode)
-      })
-
-    return () => { active = false }
-  }, [isDemo, ownerId])
-
-  useEffect(() => {
-    if (isDemo || !ownerId || ownerId === 'anonymous') return undefined
-    let active = true
-    let refreshInFlight = false
-    const refresh = () => {
-      if (document.hidden || refreshInFlight) return
-      refreshInFlight = true
-      const currentDate = new Date()
-      const weekStart = new Date(currentDate)
-      const weekday = currentDate.getDay()
-      weekStart.setDate(currentDate.getDate() + (weekday === 0 ? -6 : 1 - weekday))
-      const through = new Date(currentDate)
-      through.setDate(through.getDate() + 30)
-      const weekFromDate = toLocalDateKey(weekStart)
-      listMyStudentPtSchedule(weekFromDate, toLocalDateKey(through), weekFromDate)
-        .then((data) => {
-          if (!active) return
-          const summary = buildStudentHomeSchedule(data.sessions, toLocalDateKey(currentDate), weekFromDate, toLocalDateKey(new Date(weekStart.getTime() + 6 * 86_400_000)))
-          setUpcomingSchedule(summary.upcomingSessions)
-          setTodaySessionCount(summary.todaySessionCount)
-          setWeeklyScheduleMinutesByDate(summary.weeklyCompletedMinutesByDate)
-          setScheduleState(data.linked ? 'linked' : 'unlinked')
-          setScheduleIssueCode(data.linked ? null : 'PROFILE_NOT_LINKED')
-        })
-        .catch(() => {
-          // Keep the last usable home snapshot while the background refresh
-          // is unavailable; the dedicated Schedule page exposes retry UI.
-        })
-        .finally(() => {
-          refreshInFlight = false
-        })
-    }
-    const onVisibilityChange = () => { if (!document.hidden) refresh() }
-    document.addEventListener('visibilitychange', onVisibilityChange)
-    const timer = window.setInterval(refresh, 5_000)
-    return () => {
-      active = false
-      document.removeEventListener('visibilitychange', onVisibilityChange)
-      window.clearInterval(timer)
-    }
+      } finally {
+        firstLoad = false
+      }
+    }, { immediate: true })
+    return () => { active = false; stopPolling() }
   }, [isDemo, ownerId])
 
   const effectiveNutritionWeight = useNutritionWeight(ownerId, nutritionProfile?.weightKg ?? 0, !isDemo)

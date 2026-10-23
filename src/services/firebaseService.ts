@@ -26,7 +26,6 @@ import { firestoreDb } from '../lib/firebaseFirestore'
 import { firebaseStorage } from '../lib/firebaseStorage'
 import { safeLocalStorageSet } from '../lib/safeStorage'
 import { reportClientIssue } from './clientTelemetryService'
-import { callReadOnlyFunction } from './readOnlyCallableService'
 import { callAcademyReadFunction } from './academyReadService'
 export {
   cleanMealForStorage,
@@ -1017,23 +1016,6 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
   console.error('Firestore operation failed', { operationType, path, code })
   reportClientIssue('firestore', error, { phase: operationType, retryable: true })
   throw new Error('Không thể đồng bộ dữ liệu. Vui lòng thử lại.')
-}
-
-export async function updateMealReview(reviewId: string, updates: any) {
-  if (!firebaseFunctions) throw new Error('Firebase Functions chưa được cấu hình.')
-  const snapshot = await getDoc(doc(requireDb(), 'mealReviews', reviewId))
-  if (!snapshot.exists()) throw new Error('Không tìm thấy bữa ăn cần duyệt.')
-  const action = updates?.status === 'approved' ? 'approve' : updates?.status === 'rejected' ? 'reject' : 'feedback'
-  const callable = httpsCallable<
-    { reviewId: string; action: 'approve' | 'reject' | 'feedback'; feedback: string; expectedRevision: number },
-    { reviewId: string; status: 'pending' | 'approved' | 'rejected'; revision: number }
-  >(firebaseFunctions, 'reviewNutritionMeal')
-  await callable({
-    reviewId,
-    action,
-    feedback: String(updates?.coachFeedback || '').trim(),
-    expectedRevision: Number(snapshot.data()?.revision || 0),
-  })
 }
 
 function safeGetCache(key: string, defaultValue: any) {

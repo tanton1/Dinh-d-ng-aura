@@ -126,6 +126,8 @@ export default function PtWorkoutWorkspacePage({ isDemo = false, canPublishCatal
   const [sets, setSets] = useState<PtWorkoutSet[]>([])
   const [catalog, setCatalog] = useState<ExerciseCatalogItem[]>([])
   const [catalogLoading, setCatalogLoading] = useState(false)
+  const [catalogRequested, setCatalogRequested] = useState(false)
+  const [catalogError, setCatalogError] = useState('')
   const [catalogHasMore, setCatalogHasMore] = useState(false)
   const [catalogCursor, setCatalogCursor] = useState<string | null>(null)
   const [catalogQuery, setCatalogQuery] = useState('')
@@ -222,6 +224,8 @@ export default function PtWorkoutWorkspacePage({ isDemo = false, canPublishCatal
   }, [selectedSessionId, tab, visibleSessions])
   const loadCatalog = useCallback(async (append = false) => {
     const requestId = ++catalogRequestIdRef.current
+    setCatalogRequested(true)
+    setCatalogError('')
     setCatalogLoading(true)
     if (!append) { setCatalog([]); setCatalogCursor(null); setCatalogHasMore(false) }
     try {
@@ -234,13 +238,15 @@ export default function PtWorkoutWorkspacePage({ isDemo = false, canPublishCatal
         setCatalog((current) => append ? [...new Map([...current, ...page.items].map((item) => [item.id, item])).values()] : page.items)
         setCatalogHasMore(page.hasMore); setCatalogCursor(page.nextCursor)
       }
-    } catch (cause) { if (requestId === catalogRequestIdRef.current) setError(cause instanceof Error ? cause.message : 'Không thể tải thư viện bài tập.') }
+    } catch (cause) { if (requestId === catalogRequestIdRef.current) setCatalogError(cause instanceof Error ? cause.message : 'Không thể tải thư viện bài tập.') }
     finally { if (requestId === catalogRequestIdRef.current) setCatalogLoading(false) }
   }, [catalogCursor, catalogQuery, date, isDemo])
 
-  useEffect(() => { if (tab === 'program' && !catalog.length && !catalogLoading) void loadCatalog(false) }, [catalog.length, catalogLoading, loadCatalog, tab])
+  // Empty results and failures are completed requests, not a reason to start
+  // another callable on every loading-state change.
+  useEffect(() => { if (tab === 'program' && !catalogRequested) void loadCatalog(false) }, [catalogRequested, loadCatalog, tab])
   useEffect(() => {
-    if (tab !== 'program' || !catalog.length) return
+    if (tab !== 'program' || !catalogRequested) return
     const timer = window.setTimeout(() => { void loadCatalog(false) }, 300)
     return () => window.clearTimeout(timer)
   }, [catalogQuery])
@@ -564,6 +570,9 @@ export default function PtWorkoutWorkspacePage({ isDemo = false, canPublishCatal
           <aside className="pt-workout-workspace__catalog">
             <div className="pt-workout-workspace__section-title"><div><span>THƯ VIỆN AURA</span><h2>Chọn theo nhóm cơ</h2></div><Sparkles /></div>
             <label className="pt-workout-workspace__search"><Search /><input value={catalogQuery} onChange={(event) => setCatalogQuery(event.target.value)} placeholder="Tìm bài tập…" /></label>
+            {catalogError && <div role="alert"><span>{catalogError}</span><button type="button" onClick={() => void loadCatalog(false)} disabled={catalogLoading}>Thử tải lại thư viện</button></div>}
+            {catalogLoading && !catalog.length && <p role="status">Đang tải thư viện…</p>}
+            {catalogRequested && !catalogLoading && !catalogError && !catalog.length && <p>Không tìm thấy bài tập phù hợp.</p>}
             <div className="pt-workout-workspace__muscles" role="group" aria-label="Lọc bài tập theo nhóm cơ">{muscleGroups.map((group) => <button className={group.id === muscleFilter ? 'is-active' : ''} onClick={() => setMuscleFilter(group.id)} key={group.id}>{group.label}<small>{group.count}</small></button>)}</div>
             <div className="pt-workout-workspace__catalog-list">{visibleCatalog.map((item) => <button key={item.id} onClick={() => addExercise(item)} disabled={selectedDay?.exercises.some((exercise) => exercise.catalogExerciseId === item.id)}>{item.media.posterUrl || item.media.startImageUrl ? <img src={item.media.posterUrl || item.media.startImageUrl} alt="" /> : <Dumbbell />}<span><b>{item.nameVi}</b><small>{item.targetMuscles.join(' · ') || item.bodyParts.join(' · ')}</small></span><Plus /></button>)}</div>
             {(visibleCatalog.length < filteredCatalog.length || catalogHasMore) && <button className="pt-workout-workspace__catalog-more" onClick={() => {

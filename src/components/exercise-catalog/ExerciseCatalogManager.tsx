@@ -246,6 +246,9 @@ export default function ExerciseCatalogManager({ canPublish, isDemo = false }: {
   const editorRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const changeVersionRef = useRef(0)
+  const editorGenerationRef = useRef(0)
+  const writeInFlightRef = useRef(false)
+  const lastAutoSaveAttemptRef = useRef<number | null>(null)
   const catalogCursorRef = useRef<string | null>(null)
   const catalogRequestIdRef = useRef(0)
 
@@ -267,7 +270,16 @@ export default function ExerciseCatalogManager({ canPublish, isDemo = false }: {
     finally { if (requestId === catalogRequestIdRef.current) setLoading(false) }
   }, [isDemo, query, statusFilter])
 
-  useEffect(() => { void loadItems() }, [loadItems])
+  useEffect(() => {
+    setLoading(true)
+    const timer = window.setTimeout(() => { void loadItems() }, 300)
+    return () => {
+      window.clearTimeout(timer)
+      // A response for the previous query must not replace the next search
+      // while its debounce timer is still pending.
+      catalogRequestIdRef.current += 1
+    }
+  }, [loadItems])
   useEffect(() => {
     const warn = (event: BeforeUnloadEvent) => { if (dirty) event.preventDefault() }
     window.addEventListener('beforeunload', warn)
@@ -275,25 +287,34 @@ export default function ExerciseCatalogManager({ canPublish, isDemo = false }: {
   }, [dirty])
 
   const selectItem = async (item: ExerciseCatalogItem) => {
+    const generation = ++editorGenerationRef.current
+    lastAutoSaveAttemptRef.current = null
     setError(''); setNotice(''); setStepError(''); setDetailLoading(true)
     // Clear the previous record immediately. This avoids showing an old
     // Bước 1 form while a slower callable request is resolving.
     setSelectedId(item.id); setPublishedItem(null); setDraft(emptyDraft()); setEditRevision(0); setDirty(false); setActiveStep(0)
     try {
       const detail = isDemo ? { item, editItem: item } : await getExerciseCatalogItem(item.id)
+      if (generation !== editorGenerationRef.current) return
       setSelectedId(item.id); setPublishedItem(detail.item); setDraft(draftFromItem(detail.editItem)); setEditRevision(detail.editItem.revision)
       setDirty(false); setActiveStep(0); setLastSavedAt(null); setExternalPreview(null); setExternalItems([]); setExternalConfigured(null)
       setExternalProvider(detail.editItem.externalMedia?.provider || 'exercisedb'); changeVersionRef.current = 0
       requestAnimationFrame(() => { if (window.matchMedia('(max-width: 760px)').matches) editorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }) })
-    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Không thể mở bài tập.') }
-    finally { setDetailLoading(false) }
+    } catch (cause) { if (generation === editorGenerationRef.current) setError(cause instanceof Error ? cause.message : 'Không thể mở bài tập.') }
+    finally { if (generation === editorGenerationRef.current) setDetailLoading(false) }
   }
 
   const closeMobileDetail = () => {
+    editorGenerationRef.current += 1
+    setDetailLoading(false)
+    lastAutoSaveAttemptRef.current = null
     setSelectedId(''); setPublishedItem(null); setDraft(emptyDraft()); setEditRevision(0); setDirty(false); setError(''); setNotice(''); setActiveStep(0); setExternalPreview(null); setExternalItems([]); setExternalProvider('exercisedb')
   }
 
   const createNew = () => {
+    editorGenerationRef.current += 1
+    setDetailLoading(false)
+    lastAutoSaveAttemptRef.current = null
     const id = newExerciseId(); const next = emptyDraft(); next.source.sourceExerciseId = id
     setSelectedId(id); setPublishedItem(null); setDraft(next); setEditRevision(0); setDirty(true); setError(''); setNotice(''); setStepError(''); setActiveStep(0); setLastSavedAt(null); setExternalPreview(null); setExternalItems([]); setExternalProvider('exercisedb'); changeVersionRef.current = 1
   }
@@ -309,6 +330,7 @@ export default function ExerciseCatalogManager({ canPublish, isDemo = false }: {
   const persist = useCallback(async (nextStatus: 'draft' | 'review' = draft.status, refreshList = true) => {
     if (!selectedId || !draft.nameVi.trim() || !draft.nameEn?.trim()) throw new Error('Cần nhập tên tiếng Việt và tiếng Anh.')
     const savedVersion = changeVersionRef.current
+    const savedGeneration = editorGenerationRef.current
     const payload = { ...draft, status: nextStatus, instructionsVi: draft.instructionsVi.map((value) => value.trim()).filter(Boolean), cuesVi: draft.cuesVi.map((value) => value.trim()).filter(Boolean), commonMistakesVi: draft.commonMistakesVi.map((value) => value.trim()).filter(Boolean) }
     if (isDemo) {
       const revision = editRevision + 1
@@ -318,7 +340,9 @@ export default function ExerciseCatalogManager({ canPublish, isDemo = false }: {
       setLastSavedAt(new Date()); return revision
     }
     const result = await saveExerciseCatalogDraft({ exerciseId: selectedId, expectedRevision: editRevision, draft: payload })
-    setDraft(payload); setEditRevision(result.revision)
+    if (savedGeneration !== editorGenerationRef.current) return result.revision
+    if (changeVersionRef.current === savedVersion) setDraft(payload)
+    setEditRevision(result.revision)
     if (changeVersionRef.current === savedVersion) setDirty(false)
     setLastSavedAt(new Date())
     if (refreshList) await loadItems()
@@ -327,33 +351,51 @@ export default function ExerciseCatalogManager({ canPublish, isDemo = false }: {
 
   useEffect(() => {
     if (!dirty || saving || autoSaving || uploading || !selectedId || !draft.nameVi.trim() || !draft.nameEn?.trim()) return
+    if (lastAutoSaveAttemptRef.current === changeVersionRef.current) return
     const timer = window.setTimeout(() => {
+      if (writeInFlightRef.current) return
+      writeInFlightRef.current = true
+      const generation = editorGenerationRef.current
+      // Retry only after another edit or an explicit Save action. A failed
+      // write must not schedule itself again when autoSaving becomes false.
+      lastAutoSaveAttemptRef.current = changeVersionRef.current
       setAutoSaving(true)
-      void persist(draft.status, false).catch(() => {}).finally(() => setAutoSaving(false))
+      void persist(draft.status, false)
+        .catch((cause) => { if (generation === editorGenerationRef.current) setError(cause instanceof Error ? cause.message : 'Chưa thể tự động lưu. Vui lòng bấm Lưu nháp để thử lại.') })
+        .finally(() => { writeInFlightRef.current = false; setAutoSaving(false) })
     }, 1_800)
     return () => window.clearTimeout(timer)
   }, [autoSaving, dirty, draft.nameEn, draft.nameVi, draft.status, persist, saving, selectedId, uploading])
 
   const save = async (nextStatus: 'draft' | 'review' = draft.status) => {
+    if (writeInFlightRef.current) return
+    writeInFlightRef.current = true
+    const generation = editorGenerationRef.current
+    lastAutoSaveAttemptRef.current = changeVersionRef.current
     setSaving(true); setError(''); setNotice('')
-    try { await persist(nextStatus); setNotice(nextStatus === 'review' ? 'Đã gửi bài tập sang hàng chờ duyệt.' : 'Đã lưu bản nháp bài tập.') }
-    catch (cause) { setError(cause instanceof Error ? cause.message : 'Không thể lưu bài tập.') }
-    finally { setSaving(false) }
+    try { await persist(nextStatus); if (generation === editorGenerationRef.current) setNotice(nextStatus === 'review' ? 'Đã gửi bài tập sang hàng chờ duyệt.' : 'Đã lưu bản nháp bài tập.') }
+    catch (cause) { if (generation === editorGenerationRef.current) setError(cause instanceof Error ? cause.message : 'Không thể lưu bài tập.') }
+    finally { writeInFlightRef.current = false; setSaving(false) }
   }
 
   const publish = async () => {
-    if (!canPublish || !selectedId) return
+    if (!canPublish || !selectedId || writeInFlightRef.current) return
+    writeInFlightRef.current = true
+    const generation = editorGenerationRef.current
+    lastAutoSaveAttemptRef.current = changeVersionRef.current
     setSaving(true); setError(''); setNotice('')
     try {
       const revision = dirty ? await persist(draft.status, false) : editRevision
       if (isDemo) setItems((current) => current.map((item) => item.id === selectedId ? { ...item, ...draft, status: 'published', revision: revision + 1 } : item))
       else {
         await publishExerciseCatalogItem(selectedId, revision); await loadItems()
-        const detail = await getExerciseCatalogItem(selectedId); setPublishedItem(detail.item); setDraft(draftFromItem(detail.editItem)); setEditRevision(detail.editItem.revision)
+        const detail = await getExerciseCatalogItem(selectedId)
+        if (generation !== editorGenerationRef.current) return
+        setPublishedItem(detail.item); setDraft(draftFromItem(detail.editItem)); setEditRevision(detail.editItem.revision)
       }
-      setDirty(false); setNotice('Đã xuất bản bài tập. Staff có thể sử dụng ngay trong giáo án.')
-    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Không thể xuất bản bài tập.') }
-    finally { setSaving(false) }
+      if (generation === editorGenerationRef.current) { setDirty(false); setNotice('Đã xuất bản bài tập. Staff có thể sử dụng ngay trong giáo án.') }
+    } catch (cause) { if (generation === editorGenerationRef.current) setError(cause instanceof Error ? cause.message : 'Không thể xuất bản bài tập.') }
+    finally { writeInFlightRef.current = false; setSaving(false) }
   }
 
   const handleFiles = async (files: FileList | File[]) => {
@@ -460,11 +502,13 @@ export default function ExerciseCatalogManager({ canPublish, isDemo = false }: {
     setStepError(''); setActiveStep((current) => Math.min(4, current + 1)); editorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
 
+  const feedback = (error || notice) && <div className={`exercise-catalog-manager__message ${error ? 'is-error' : 'is-success'}`} role={error ? 'alert' : 'status'}>{error || notice}</div>
+
   return <section className={`exercise-catalog-manager ${selectedId ? 'has-mobile-detail' : ''}`} aria-label="Quản lý thư viện bài tập">
     <header className="exercise-catalog-manager__heading"><div><span>THƯ VIỆN DÙNG CHUNG</span><h2>Kho bài tập Aura</h2><p>Tạo hồ sơ bài tập theo từng bước, đồng bộ cho mọi giáo án.</p></div><button className="exercise-catalog-manager__new" onClick={createNew}><Plus />Thêm bài tập</button></header>
     <div className="exercise-catalog-manager__metrics"><article><Library /><span><small>Tổng bài</small><strong>{items.length}</strong></span></article><article><Check /><span><small>Đã xuất bản</small><strong>{counts.published}</strong></span></article><article><Send /><span><small>Chờ duyệt</small><strong>{counts.review}</strong></span></article><article><Sparkles /><span><small>Đang chỉnh sửa</small><strong>{counts.working}</strong></span></article></div>
     <div className="exercise-catalog-manager__source-note" role="status"><span><b>Nguồn chính: Free Exercise DB</b><small>{sourceCounts.freePublished} bài đang xuất bản · {sourceCounts.freeReview} bài nền đang chờ rà soát</small></span><em>{sourceCounts.exerciseDbGif} bài đã có GIF ExerciseDB</em></div>
-    {(error || notice) && <div className={`exercise-catalog-manager__message ${error ? 'is-error' : 'is-success'}`} role={error ? 'alert' : 'status'}>{error || notice}</div>}
+    {!selectedId && feedback}
     <div className="exercise-catalog-manager__layout">
       <aside className="exercise-catalog-manager__browser"><div className="exercise-catalog-manager__tools"><label><Search /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Tên bài, nhóm cơ, dụng cụ…" aria-label="Tìm trong thư viện bài tập" /></label><button onClick={() => void loadItems()} disabled={loading} aria-label="Tải lại thư viện"><RefreshCw /></button></div><div className="exercise-catalog-manager__filters">{(['all', 'popular', 'published', 'review', 'draft', 'working'] as CatalogStatusFilter[]).map((status) => <button className={`${statusFilter === status ? 'is-active' : ''} ${status === 'popular' ? 'is-popular' : ''}`} onClick={() => setStatusFilter(status)} key={status}>{status === 'popular' && <Flame />}{statusLabels[status]}</button>)}</div><div className="exercise-catalog-manager__muscle-filters" role="group" aria-label="Lọc thư viện theo nhóm cơ">{muscleGroups.map((group) => <button className={muscleFilter === group.id ? 'is-active' : ''} onClick={() => setMuscleFilter(group.id)} key={group.id}>{group.label}<small>{group.count}</small></button>)}</div><div className="exercise-catalog-manager__list">
         {filteredItems.map((item) => <button className={`${selectedId === item.id ? 'is-active' : ''} ${isPopularForWomen(item) ? 'is-popular' : ''}`} onClick={() => void selectItem(item)} key={item.id}><span className="exercise-catalog-manager__thumb">{item.media.posterUrl || item.media.startImageUrl ? <img src={item.media.posterUrl || item.media.startImageUrl} alt="" loading="lazy" /> : <Dumbbell />}</span><span><b>{item.nameVi}</b><small>{item.targetMuscles.join(' · ') || item.bodyParts.join(' · ') || 'Chưa phân nhóm'}</small><span className="exercise-catalog-manager__badges">{isPopularForWomen(item) && <em className="is-popular"><Flame />Nữ hay chọn</em>}<em className={`is-${item.hasWorkingDraft ? 'working' : item.status}`}>{item.hasWorkingDraft ? 'Đang sửa' : statusLabels[item.status]}</em></span></span>{(!item.instructionsVi.length || !item.media.startImageUrl) ? <AlertTriangle aria-label="Thiếu dữ liệu xuất bản" /> : <ChevronRight aria-label="Xem chi tiết" />}</button>)}
@@ -474,6 +518,7 @@ export default function ExerciseCatalogManager({ canPublish, isDemo = false }: {
       <div className="exercise-catalog-manager__editor" ref={editorRef}>
         {detailLoading ? <div className="exercise-catalog-manager__empty is-large is-loading" role="status"><RefreshCw className="is-spinning" /><strong>Đang tải chi tiết bài tập…</strong><span>Đang đồng bộ thông tin và media mới nhất.</span></div> : !selectedId ? <div className="exercise-catalog-manager__empty is-large"><Dumbbell /><strong>Chọn hoặc thêm bài tập</strong><span>Biên tập khoa học theo 5 bước, không cần điền một form dài.</span></div> : <>
           <button className="exercise-catalog-manager__mobile-back" onClick={closeMobileDetail}><ArrowLeft />Danh sách bài tập</button>
+          {feedback}
           <header><div><span>{publishedItem?.status === 'published' ? 'CHI TIẾT BÀI TẬP' : 'HỒ SƠ BÀI TẬP'}</span><h3>{draft.nameVi || 'Bài tập mới'}</h3><p>{autoSaving ? 'Đang tự động lưu…' : dirty ? 'Có thay đổi chưa lưu' : lastSavedAt ? `Đã lưu lúc ${lastSavedAt.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}` : `Revision ${editRevision}`}</p></div>{isPopularForWomen(selectedId) ? <em className="is-popular"><Flame />Nữ hay chọn</em> : <em>{draft.status === 'review' ? 'Chờ duyệt' : 'Nháp'}</em>}</header>
           <nav className="exercise-catalog-manager__stepper" aria-label="Các bước tạo bài tập">{wizardSteps.map((step, index) => <button type="button" aria-label={`${step.label}: ${step.note}`} className={`${activeStep === index ? 'is-active' : ''} ${stepComplete(index) ? 'is-complete' : ''}`} onClick={() => { setActiveStep(index); setStepError('') }} key={step.label}><i>{stepComplete(index) ? <Check /> : index + 1}</i><span><b>{step.label}</b><small>{step.note}</small></span></button>)}</nav>
           <div className="exercise-catalog-manager__step-content">
@@ -501,7 +546,7 @@ export default function ExerciseCatalogManager({ canPublish, isDemo = false }: {
             {activeStep === 4 && <section className="exercise-catalog-manager__panel"><header><span>BƯỚC 5</span><h4>Xem lại và xuất bản</h4><p>Đây là thông tin Staff và học viên sẽ nhìn thấy.</p></header><div className="exercise-catalog-manager__review"><ExerciseMediaPlayer exerciseId={publishedItem?.id} name={draft.nameVi || 'Bài tập Aura'} media={draft.media} externalMedia={draft.externalMedia} resolvedMedia={externalResolvedMedia} /><article><span className="exercise-catalog-manager__review-badge">{draft.difficulty === 'beginner' ? 'Cơ bản' : draft.difficulty === 'intermediate' ? 'Trung bình' : 'Nâng cao'}</span><h4>{draft.nameVi || 'Chưa đặt tên'}</h4><small>{draft.nameEn}</small><div className="exercise-catalog-manager__review-tags">{[...draft.targetMuscles, ...draft.equipment].map((tag) => <em key={tag}>{tag}</em>)}</div><strong>{draft.defaultPrescription.sets} hiệp × {draft.defaultPrescription.reps} reps · nghỉ {draft.defaultPrescription.restSeconds}s</strong><ol>{draft.instructionsVi.filter(Boolean).map((instruction) => <li key={instruction}>{instruction}</li>)}</ol></article></div><div className="exercise-catalog-manager__checklist">{[{ label: 'Tên và nhóm cơ', ok: stepComplete(0) }, { label: 'Hướng dẫn kỹ thuật', ok: stepComplete(1) }, { label: 'Giáo án đề xuất', ok: stepComplete(2) }, { label: 'Ảnh minh họa', ok: stepComplete(3) }].map((item) => <span className={item.ok ? 'is-ok' : ''} key={item.label}>{item.ok ? <CircleCheck /> : <AlertTriangle />}{item.label}</span>)}</div></section>}
           </div>
           {(stepError || (activeStep === 4 && missingPublishData)) && <div className="exercise-catalog-manager__warning"><AlertTriangle /><span><b>{stepError || 'Chưa thể xuất bản'}</b>{!stepError && <small>Hoàn thành các mục còn thiếu trong checklist.</small>}</span></div>}
-          <footer className="exercise-catalog-manager__wizard-footer"><button type="button" onClick={() => setActiveStep((current) => Math.max(0, current - 1))} disabled={activeStep === 0}><ArrowLeft />Quay lại</button><span /><button type="button" onClick={() => void save('draft')} disabled={saving || uploading}><Save />Lưu nháp</button>{activeStep < 4 ? <button type="button" className="is-primary" onClick={nextStep}>Tiếp tục<ArrowRight /></button> : <><button type="button" onClick={() => void save('review')} disabled={saving || missingPublishData}><Send />Gửi duyệt</button>{canPublish && <button type="button" className="is-primary" onClick={() => void publish()} disabled={saving || missingPublishData}><Check />Xuất bản</button>}</>}</footer>
+          <footer className="exercise-catalog-manager__wizard-footer"><button type="button" onClick={() => setActiveStep((current) => Math.max(0, current - 1))} disabled={activeStep === 0}><ArrowLeft />Quay lại</button><span /><button type="button" onClick={() => void save('draft')} disabled={saving || autoSaving || uploading}><Save />Lưu nháp</button>{activeStep < 4 ? <button type="button" className="is-primary" onClick={nextStep}>Tiếp tục<ArrowRight /></button> : <><button type="button" onClick={() => void save('review')} disabled={saving || autoSaving || missingPublishData}><Send />Gửi duyệt</button>{canPublish && <button type="button" className="is-primary" onClick={() => void publish()} disabled={saving || autoSaving || missingPublishData}><Check />Xuất bản</button>}</>}</footer>
         </>}
       </div>
     </div>
