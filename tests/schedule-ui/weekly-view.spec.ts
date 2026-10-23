@@ -1,5 +1,125 @@
 import { expect, test } from '@playwright/test'
 
+test('compact weekly views derive pair and single counts from the displayed matrix, not absent or outdated optimizer metrics', async ({ page }) => {
+  await page.addInitScript(() => {
+    ;(window as any).__enableScheduleListener = true
+    ;(window as any).__weeklyViewCompact = true
+    ;(window as any).__weeklyViewOverride = { schedule: {
+      'T2-6': [{ studentId: 'a', trainerId: 't', type: 'training' }, { studentId: 'b', trainerId: 't', type: 'training' }],
+      'T2-7': [{ studentId: 'c', trainerId: 't', type: 'training' }],
+      'T3-6': [{ studentId: '', trainerId: 't', type: 'off' }],
+    } }
+  })
+  await page.goto('/tests/schedule-ui/index.html')
+  await expect(page.getByRole('button', { name: '1 đôi 1 ca còn lẻ', exact: true })).toBeVisible()
+  await page.evaluate(async () => {
+    const { weeklyViewFixture } = await import('/tests/schedule-ui/service.ts')
+    const call = (window as any).__scheduleCalls.find((item: any) => item.operation === 'weekly-view')
+    const compact = weeklyViewFixture(call.input)
+    ;(window as any).__emitScheduleSnapshot('ptScheduleWeeklyViews', { ...compact, viewRevision: 2, schedule: {}, optimizationSummary: { slotUtilization: { pairedSlots: 99, singleSlots: 99 } } })
+  })
+  await expect(page.getByRole('button', { name: '0 đôi 0 ca còn lẻ', exact: true })).toBeVisible()
+  await page.getByRole('tab', { name: /Cảnh báo/ }).click()
+  await expect(page.getByRole('button', { name: /Do hợp đồng/ })).toBeEnabled()
+})
+
+for (const sameRevision of [false, true]) {
+  test(`bootstrap paints compact listener data before the API and rejects late stale ${sameRevision ? 'same-revision generation' : 'older viewRevision'}`, async ({ page }) => {
+    await page.addInitScript(() => {
+      ;(window as any).__enableScheduleListener = true
+      ;(window as any).__weeklyViewCompact = true
+      ;(window as any).__holdWeeklyView = true
+    })
+    await page.goto('/tests/schedule-ui/index.html')
+    await expect.poll(() => page.evaluate(() => Boolean((window as any).__releaseWeeklyView && (window as any).__emitScheduleSnapshot))).toBe(true)
+    await page.evaluate(async () => {
+      const { weeklyViewFixture } = await import('/tests/schedule-ui/service.ts')
+      const call = (window as any).__scheduleCalls.find((item: any) => item.operation === 'weekly-view')
+      const compact = weeklyViewFixture(call.input)
+      ;(window as any).__compactWeeklyFixture = compact
+      // Wrong scope and metadata-only invalidation cannot paint a matrix.
+      ;(window as any).__emitScheduleSnapshot('ptScheduleWeeklyViews', { ...compact, branchId: 'other' })
+      ;(window as any).__emitScheduleSnapshot('ptScheduleWeeklyViews', { dirty: true, dirtyGeneration: 1 })
+    })
+    await expect(page.locator('.schedule-cell')).toHaveCount(0)
+    await page.evaluate(() => { (window as any).__emitScheduleSnapshot('ptScheduleWeeklyViews', { ...(window as any).__compactWeeklyFixture, dirty: true, freshness: 'stale' }) })
+    await expect(page.locator('.schedule-cell').filter({ hasText: 'Lan' })).toHaveCount(1)
+    await expect(page.locator('.branch-schedule__loading')).toHaveCount(0)
+    await expect(page.locator('.branch-schedule__sync')).toHaveText('Đang đồng bộ')
+    await page.getByRole('tab', { name: /Cảnh báo/ }).click()
+    await expect(page.getByRole('button', { name: /Do hợp đồng/ })).toBeDisabled()
+    expect(await page.evaluate(() => (window as any).__scheduleCalls.map((item: any) => item.operation))).toEqual(['weekly-view'])
+    await page.evaluate((same) => {
+      const compact = (window as any).__compactWeeklyFixture
+      ;(window as any).__emitScheduleSnapshot('ptScheduleWeeklyViews', { ...compact, dirtyGeneration: 2, viewRevision: same ? 1 : 2, sourceRevision: same ? compact.sourceRevision : 'semantic-new', students: compact.students.map((student: any) => student.id === 'a' ? { ...student, name: 'Lan mới đồng bộ' } : student) })
+    }, sameRevision)
+    await expect(page.locator('.branch-schedule__sync')).toHaveText('Trực tiếp')
+    await expect(page.getByRole('button', { name: /Do hợp đồng/ })).toBeEnabled()
+    await page.evaluate(() => {
+      ;(window as any).__weeklyViewOverride = { rebuilding: true, rebuildStatus: 'busy', dirty: true, freshness: 'stale' }
+      ;(window as any).__holdWeeklyView = false
+      ;(window as any).__releaseWeeklyView()
+    })
+    await expect.poll(() => page.evaluate(() => (window as any).__weeklyViewResponses)).toBe(1)
+    // The late response has completed, yet neither exact warnings nor the new
+    // name may regress to the older pending response's display evidence.
+    await expect(page.getByRole('combobox', { name: 'Chọn chi nhánh' })).toBeEnabled()
+    await expect(page.locator('.branch-schedule__sync')).toHaveText('Trực tiếp')
+    await expect(page.getByRole('button', { name: /Do hợp đồng/ })).toBeEnabled()
+    await page.getByRole('tab', { name: 'Lịch PT', exact: true }).click()
+    await expect(page.locator('.schedule-cell').filter({ hasText: 'Lan mới đồng bộ' })).toHaveCount(1)
+    expect(await page.evaluate(() => (window as any).__scheduleCalls.map((item: any) => item.operation))).toEqual(['weekly-view'])
+  })
+}
+
+for (const fromCache of [false, true, undefined]) {
+  test(`first clean snapshot is authoritative only with server metadata (fromCache=${fromCache})`, async ({ page }) => {
+    await page.addInitScript(() => {
+      ;(window as any).__enableScheduleListener = true
+      ;(window as any).__weeklyViewCompact = true
+      ;(window as any).__holdWeeklyView = true
+    })
+    await page.goto('/tests/schedule-ui/index.html')
+    await expect.poll(() => page.evaluate(() => Boolean((window as any).__releaseWeeklyView && (window as any).__emitScheduleSnapshot))).toBe(true)
+    await page.evaluate(async (cache) => {
+      const { weeklyViewFixture } = await import('/tests/schedule-ui/service.ts')
+      const call = (window as any).__scheduleCalls.find((item: any) => item.operation === 'weekly-view')
+      const compact = weeklyViewFixture(call.input)
+      ;(window as any).__emitScheduleSnapshot('ptScheduleWeeklyViews', { ...compact, viewRevision: 2, dirtyGeneration: 2 }, cache === undefined ? undefined : { fromCache: cache })
+    }, fromCache)
+    await expect(page.locator('.schedule-cell').filter({ hasText: 'Lan' })).toHaveCount(1)
+    await expect(page.locator('.branch-schedule__loading')).toHaveCount(0)
+    const expectedState = fromCache === false ? 'Trực tiếp' : 'Đang đồng bộ'
+    await expect(page.locator('.branch-schedule__sync')).toHaveText(expectedState)
+    await page.evaluate(() => {
+      ;(window as any).__weeklyViewOverride = { rebuilding: true, rebuildStatus: 'busy', dirty: true, freshness: 'stale' }
+      ;(window as any).__holdWeeklyView = false
+      ;(window as any).__releaseWeeklyView()
+    })
+    await expect.poll(() => page.evaluate(() => (window as any).__weeklyViewResponses)).toBe(1)
+    await expect(page.locator('.branch-schedule__sync')).toHaveText(expectedState)
+    await page.getByRole('tab', { name: /Cảnh báo/ }).click()
+    if (fromCache === false) await expect(page.getByRole('button', { name: /Do hợp đồng/ })).toBeEnabled()
+    else await expect(page.getByRole('button', { name: /Do hợp đồng/ })).toBeDisabled()
+    expect(await page.evaluate(() => (window as any).__scheduleCalls.map((item: any) => item.operation))).toEqual(['weekly-view'])
+  })
+}
+
+test('a genuinely newer dirty generation still marks same-semantic verified evidence stale', async ({ page }) => {
+  await page.goto('/tests/schedule-ui/index.html')
+  const result = await page.evaluate(async () => {
+    const { workspaceFromWeeklyViewSnapshot } = await import('/src/features/schedule/workspaceModel.ts')
+    const { weeklyViewFixture } = await import('/tests/schedule-ui/service.ts')
+    const current = weeklyViewFixture({ branchId: 'b', weekId: '2026-10-19' })
+    Object.assign(current, { weeklyViewRevision: 2, weeklyViewSourceRevision: 'same', weeklyViewFreshness: 'verified', weeklyViewDirtyGeneration: 2 })
+    const pending = { draft: { revision: current.draftRevision }, viewRevision: 2, sourceRevision: 'same', rebuilding: true, dirty: true, freshness: 'stale' }
+    const old = workspaceFromWeeklyViewSnapshot(current, { ...pending, dirtyGeneration: 1 })
+    const next = workspaceFromWeeklyViewSnapshot(current, { ...pending, dirtyGeneration: 3 })
+    return { oldRetained: old === current, next: { freshness: next.weeklyViewFreshness, readMode: next.readMode, generation: next.weeklyViewDirtyGeneration } }
+  })
+  expect(result).toEqual({ oldRetained: true, next: { freshness: 'stale', readMode: 'display', generation: 3 } })
+})
+
 test('display snapshots retain last-known profile evidence but never claim it is reconciled', async ({ page }) => {
   await page.goto('/tests/schedule-ui/index.html')
   const result = await page.evaluate(async () => {

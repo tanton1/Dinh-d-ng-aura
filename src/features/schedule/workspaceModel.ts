@@ -242,6 +242,7 @@ function workspaceRealtimeFingerprint(value: PtScheduleWorkspaceV2Result | null)
     weeklyViewRevision: value.weeklyViewRevision,
     weeklyViewSourceRevision: value.weeklyViewSourceRevision,
     weeklyViewFreshness: value.weeklyViewFreshness,
+    weeklyViewDirtyGeneration: value.weeklyViewDirtyGeneration,
     readMode: value.readMode,
     partial: value.partial,
     reconciliationState: value.reconciliationState,
@@ -405,8 +406,15 @@ function workspaceFromWeeklyViewSnapshot(
   const exact = !pending && source.partial !== true && (source.readMode === 'reconciled' || freshness === 'verified')
   const revision = Math.max(0, Number(draft.revision ?? source.draftRevision ?? current.draftRevision))
   if (revision < current.draftRevision) return current
-  const publishedVersion = Math.max(0, Number(draft.publishedVersion ?? source.publishedVersion ?? current.publishedVersion))
+  const viewRevision = Number(raw.viewRevision ?? source.viewRevision ?? current.weeklyViewRevision ?? 0)
+  if (revision === current.draftRevision && viewRevision < Number(current.weeklyViewRevision || 0)) return current
+  const dirtyGeneration = source.dirtyGeneration
   const sourceRevision = raw.sourceRevision ?? source.sourceRevision
+  if (pending && current.weeklyViewFreshness === 'verified'
+    && revision === current.draftRevision && viewRevision === current.weeklyViewRevision
+    && sourceRevision === current.weeklyViewSourceRevision
+    && typeof dirtyGeneration === 'number' && dirtyGeneration <= Number(current.weeklyViewDirtyGeneration ?? -1)) return current
+  const publishedVersion = Math.max(0, Number(draft.publishedVersion ?? source.publishedVersion ?? current.publishedVersion))
   const sameEvidence = !pending && current.readMode === 'reconciled' && current.partial !== true
     && sourceRevision !== undefined && sourceRevision === current.weeklyViewSourceRevision
     && revision === current.draftRevision && publishedVersion === current.publishedVersion
@@ -489,10 +497,11 @@ function workspaceFromWeeklyViewSnapshot(
       ? source.weeklySessionCoverage as PtScheduleWorkspaceV2Result['weeklySessionCoverage']
       : current.weeklySessionCoverage,
     unassigned: readArray('unassigned', current.unassigned || []),
-    weeklyViewRevision: Number(raw.viewRevision ?? source.viewRevision ?? current.weeklyViewRevision ?? 0),
-    weeklyViewSourceRevision: typeof (raw.sourceRevision ?? source.sourceRevision) === 'string'
-      ? String(raw.sourceRevision ?? source.sourceRevision)
-      : Number(raw.sourceRevision ?? source.sourceRevision ?? current.weeklyViewSourceRevision ?? revision),
+    weeklyViewRevision: viewRevision,
+    weeklyViewDirtyGeneration: typeof dirtyGeneration === 'number' ? dirtyGeneration : current.weeklyViewDirtyGeneration,
+    weeklyViewSourceRevision: typeof sourceRevision === 'string'
+      ? sourceRevision
+      : Number(sourceRevision ?? current.weeklyViewSourceRevision ?? revision),
     weeklyViewFreshness: pending ? 'stale' : freshness || current.weeklyViewFreshness,
     weeklyViewGeneratedAt: typeof raw.generatedAt === 'string'
       ? raw.generatedAt

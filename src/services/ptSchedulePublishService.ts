@@ -368,6 +368,7 @@ export interface PtScheduleWorkspaceV2Result extends Omit<BranchScheduleWorkspac
   weeklyViewSourceRevision?: number | string
   weeklyViewFreshness?: 'display' | 'stale' | 'verified' | string
   weeklyViewGeneratedAt?: string | null
+  weeklyViewDirtyGeneration?: number
   /** Retained detailed evidence is informational only after a display refresh. */
   reconciliationState?: 'current' | 'stale' | 'not_loaded'
 }

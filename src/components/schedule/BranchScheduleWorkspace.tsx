@@ -140,8 +140,6 @@ function normalizeWeeklyViewResult(
   const source = raw.workspace && typeof raw.workspace === 'object' && !Array.isArray(raw.workspace)
     ? raw.workspace as Record<string, unknown>
     : raw
-  const compactShape = typeof source.branchId === 'string' && !source.branch
-  if (fallback && !compactShape) return workspaceFromWeeklyViewSnapshot(fallback, result)
   const sourceBranch = source.branch && typeof source.branch === 'object' ? source.branch as Record<string, unknown> : null
   const branchId = typeof source.branchId === 'string' ? source.branchId : typeof sourceBranch?.id === 'string' ? sourceBranch.id : ''
   if (!branchId || typeof source.weekId !== 'string' || !source.schedule || !Array.isArray(source.students) || !Array.isArray(source.trainers)) {
@@ -252,6 +250,7 @@ function normalizeWeeklyViewResult(
     readMode,
     reconciliationState: readMode === 'reconciled' ? 'current' : 'not_loaded',
     weeklyViewRevision: Number(raw.viewRevision ?? source.viewRevision ?? 0),
+    weeklyViewDirtyGeneration: typeof source.dirtyGeneration === 'number' ? source.dirtyGeneration : undefined,
     weeklyViewSourceRevision: typeof (raw.sourceRevision ?? source.sourceRevision) === 'string'
       ? String(raw.sourceRevision ?? source.sourceRevision)
       : Number(raw.sourceRevision ?? source.sourceRevision ?? draftRevision),
@@ -260,7 +259,7 @@ function normalizeWeeklyViewResult(
       ? raw.generatedAt
       : typeof source.generatedAt === 'string' ? source.generatedAt : null,
   }
-  return fallback ? workspaceFromWeeklyViewSnapshot(fallback, normalizedWorkspace as unknown as PtScheduleWeeklyViewResult) : normalizedWorkspace
+  return normalizedWorkspace
 }
 
 // Keep only conflicts that change the operational meaning of a matrix cell.
@@ -553,11 +552,12 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
               initialPaint: true,
               forceRefresh: forceAvailabilityRefresh,
             })
+            const normalized = normalizeWeeklyViewResult(weeklyView, workspaceRef.current)
             weeklyRefreshPendingRef.current = {
               scope: requestScope,
-              pending: weeklyView.rebuilding === true || weeklyView.dirty === true || weeklyView.freshness === 'stale',
+              pending: normalized.weeklyViewFreshness === 'stale',
             }
-            return normalizeWeeklyViewResult(weeklyView, workspaceRef.current)
+            return normalized
           } catch (weeklyError) {
             // Keep the rollout safe for regions where the read-model callable
             // is not deployed yet. Only capability/endpoint errors fall back;
@@ -733,6 +733,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
     let dirtyRetryCount = 0
     let dirtyRetryTimer: number | undefined
     let disposed = false
+    const listenerScope = activeWorkspaceScopeRef.current
     const clearDirtyRetry = () => {
       if (dirtyRetryTimer !== undefined) window.clearTimeout(dirtyRetryTimer)
       dirtyRetryTimer = undefined
@@ -770,6 +771,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
       stopDraftListener = onSnapshot(
         doc(firestoreDb, 'ptScheduleDrafts', `${branchId}_${currentWeekId}`),
         (snapshot) => {
+          if (disposed || activeWorkspaceScopeRef.current !== listenerScope) return
           const raw = snapshot.data()
           const current = workspaceRef.current
           if (!snapshot.exists() || !raw || !current || current.branch.id !== branchId || current.weekId !== currentWeekId) return
@@ -802,11 +804,33 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
       stopWeeklyListener = onSnapshot(
         doc(firestoreDb, 'ptScheduleWeeklyViews', `${branchId}_${currentWeekId}`),
         (snapshot) => {
+          if (disposed || activeWorkspaceScopeRef.current !== listenerScope) return
           const raw = snapshot.data()
           const current = workspaceRef.current
           if (!snapshot.exists() || !raw) {
             startDraftFallback()
             return
+          }
+          if (!current) {
+            // A complete persisted view can paint immediately while the
+            // callable rebuilds/upgrades it. Cached/dirty snapshots remain
+            // provisional; only a clean verified server view is authoritative.
+            // No extra source read starts just to paint the matrix.
+            try {
+              const verified = snapshot.metadata?.fromCache === false && raw.schemaVersion >= 2 && raw.dirty === false && raw.freshness === 'verified'
+              const initial = normalizeWeeklyViewResult(verified ? raw : { ...raw, rebuilding: true, freshness: 'stale' }, null)
+              if (initial.branch.id !== branchId || initial.weekId !== currentWeekId) return
+              workspaceRef.current = initial
+              setWorkspace(initial)
+              setSelectedTrainerId(initial.trainers.find((trainer) => !isTrainerLocked(trainer))?.id || '')
+              setLoading(false)
+              setLastSyncedAt(new Date())
+              setSyncState(verified ? 'live' : 'syncing')
+              if (raw.dirty !== true) return
+            } catch {
+              // Metadata-only dirty markers are not a matrix. Let the pending
+              // callable (and bounded dirty refresh below) finish bootstrapping.
+            }
           }
           // Dirty markers intentionally contain only revision metadata while
           // the debounced rebuild is in flight. Keep the single listener and
@@ -830,11 +854,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
             const next = raw.branchId && !raw.branch
               ? normalizeWeeklyViewResult(raw, current)
               : workspaceFromWeeklyViewSnapshot(current, raw)
-            if (next.weeklyViewRevision === current.weeklyViewRevision
-              && next.weeklyViewSourceRevision === current.weeklyViewSourceRevision
-              && next.draftRevision === current.draftRevision
-              && next.publishedVersion === current.publishedVersion
-              && workspaceRealtimeFingerprint(next) === workspaceRealtimeFingerprint(current)) {
+            if (workspaceRealtimeFingerprint(next) === workspaceRealtimeFingerprint(current)) {
               setSyncState('live')
               return
             }
@@ -1240,8 +1260,9 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
   }, [missingSessions, operationalStudentRows, workspace])
 
   const slotUtilization = useMemo(() => {
-    const source = workspace?.optimizationSummary?.slotUtilization
-    if (source) return source
+    // Pair/single counts are exact properties of the visible matrix, even
+    // when contracts are deferred. Compact views use {} for absent optimizer
+    // metrics, and saved optimizer counts can be stale after manual edits.
     const groups = new Map<string, number>()
     for (const [slotId, entries] of Object.entries(workspace?.schedule || {})) {
       for (const entry of entries) {
@@ -1250,30 +1271,13 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
         groups.set(key, (groups.get(key) || 0) + 1)
       }
     }
-    let desiredSeats = 0
-    let occupiedDesiredSeats = 0
     let pairedSlots = 0
     let singleSlots = 0
-    let fullSlots = 0
-    for (const [key, count] of groups) {
-      const trainerId = key.split('|')[0]
-      const capacity = Math.max(1, workspace?.trainers.find((trainer) => trainer.id === trainerId)?.slotCapacity || 1)
-      const desiredCapacity = Math.min(2, capacity)
-      desiredSeats += desiredCapacity
-      occupiedDesiredSeats += Math.min(count, desiredCapacity)
+    for (const count of groups.values()) {
       if (count >= 2) pairedSlots += 1
       if (count === 1) singleSlots += 1
-      if (count >= desiredCapacity) fullSlots += 1
     }
-    return {
-      teachingSlots: groups.size,
-      studentSessions: [...groups.values()].reduce((total, count) => total + count, 0),
-      pairedSlots,
-      singleSlots,
-      fullSlots,
-      pairRatePercent: groups.size ? Math.round(pairedSlots / groups.size * 1000) / 10 : 0,
-      seatUtilizationPercent: desiredSeats ? Math.round(occupiedDesiredSeats / desiredSeats * 1000) / 10 : 0,
-    }
+    return { pairedSlots, singleSlots }
   }, [workspace])
 
   const { items: scheduleOpportunities, bySlot: scheduleOpportunitiesBySlot } = useScheduleOpportunities(

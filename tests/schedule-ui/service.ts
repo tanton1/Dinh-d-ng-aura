@@ -17,10 +17,25 @@ export const getPtScheduleWorkspace = async (input: any) => {
 // The production workspace now paints from the one-document weekly view. The
 // fixture returns the same bounded workspace shape so UI tests exercise the
 // rollout path without requiring Firebase.
+export const weeklyViewFixture = (input: any) => {
+  const full = { ...workspace, weekId: input.weekId, branch: { ...workspace.branch, id: input.branchId }, freshness: 'verified', readMode: 'reconciled', partial: false, viewRevision: 1, sourceRevision: 1 }
+  const compact = {
+    schemaVersion: 2, branchId: input.branchId, weekId: input.weekId,
+    sourceRevision: 'semantic-hash-v2', viewRevision: 1, dirtyGeneration: 1, dirty: false, freshness: 'verified', verification: 'exact',
+    draft: { revision: workspace.draftRevision, status: workspace.draftStatus, publishedVersion: workspace.publishedVersion, publishedRevision: -1 },
+    schedule: workspace.schedule, students: workspace.students, trainers: workspace.trainers, contracts: workspace.contracts,
+    scheduleConfig: workspace.scheduleConfig, warnings: workspace.warnings, unassignedEntries: workspace.unassignedEntries,
+    summary: { eligibleStudents: 3, trainers: 3, scheduledEntries: 2, missingSessions: 2, warningCount: 1 },
+    weeklySessionCoverage: {}, optimizationSummary: { slotUtilization: {}, studentCoverage: {}, optimizationPasses: 0 },
+  }
+  return structuredClone({ ...((window as any).__weeklyViewCompact ? compact : full), ...(window as any).__weeklyViewOverride })
+}
 export const getPtScheduleWeeklyView = async (input: any) => {
   track('weekly-view', input)
   if ((window as any).__weeklyViewDelayMs) await sleep((window as any).__weeklyViewDelayMs)
-  return structuredClone({ ...workspace, weekId: input.weekId, branch: { ...workspace.branch, id: input.branchId }, freshness: 'verified', readMode: 'reconciled', partial: false, viewRevision: 1, sourceRevision: 1, ...(window as any).__weeklyViewOverride })
+  if ((window as any).__holdWeeklyView) await new Promise<void>((resolve) => { (window as any).__releaseWeeklyView = resolve })
+  ;(window as any).__weeklyViewResponses = Number((window as any).__weeklyViewResponses || 0) + 1
+  return weeklyViewFixture(input)
 }
 export const ptScheduleConflictLabel = (code: string) => code === 'STUDENT_AVAILABILITY_DAYS_INSUFFICIENT'
   ? 'Học viên đăng ký chưa đủ số ngày rảnh để hoàn thành mục tiêu tuần.'
