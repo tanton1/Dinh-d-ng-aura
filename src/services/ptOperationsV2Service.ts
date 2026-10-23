@@ -1,4 +1,5 @@
 import { httpsCallable, type Functions } from 'firebase/functions'
+import type { WorkspaceSyncState } from '../utils/workspaceSync'
 import { firebaseAuth } from '../lib/firebase'
 import { firebaseFunctions, firebaseScheduleOptimizerFunctions } from '../lib/firebaseFunctions'
 import { reportClientIssue } from './clientTelemetryService'
@@ -102,11 +103,11 @@ async function cachedCall<Input, Output>(
   if (cached?.promise) return cached.promise as Promise<Output>
   const promise = call<Input, Output>(name, input, { readOnly: true }, client, phasePrefix)
     .then((value) => {
-      readCache.set(key, { value, expiresAt: Date.now() + ttlMs })
+      if (readCache.get(key)?.promise === promise) readCache.set(key, { value, expiresAt: Date.now() + ttlMs })
       return value
     })
     .catch((error) => {
-      readCache.delete(key)
+      if (readCache.get(key)?.promise === promise) readCache.delete(key)
       throw error
     })
   readCache.set(key, { promise, expiresAt: now + ttlMs })
@@ -136,15 +137,18 @@ async function regionalCachedReadWithFallback<Input, Output>(
   const key = readCacheKey(regionalName, input)
   const now = Date.now()
   const cached = readCache.get(key)
-  if (cached?.value !== undefined && cached.expiresAt > now) return cached.value as Output
+  if (ttlMs > 0 && cached?.value !== undefined && cached.expiresAt > now) return cached.value as Output
   if (cached?.promise) return cached.promise as Promise<Output>
   const promise = regionalReadWithFallback<Input, Output>(regionalName, legacyName, input)
     .then((value) => {
-      readCache.set(key, { value, expiresAt: Date.now() + ttlMs })
+      if (readCache.get(key)?.promise === promise) {
+        if (ttlMs > 0) readCache.set(key, { value, expiresAt: Date.now() + ttlMs })
+        else readCache.delete(key)
+      }
       return value
     })
     .catch((error) => {
-      readCache.delete(key)
+      if (readCache.get(key)?.promise === promise) readCache.delete(key)
       throw error
     })
   readCache.set(key, { promise, expiresAt: now + ttlMs })
@@ -268,6 +272,7 @@ export interface TrainerAvailabilityWorkspace {
 }
 
 export interface TrainerWorkspaceBootstrap {
+  syncState?: WorkspaceSyncState
   schemaVersion: number
   scope: CoachWorkspaceScope
   students: TrainerStudentSummary[]
@@ -480,12 +485,14 @@ export async function getMyTrainerWorkspace(
   from: string,
   to: string,
   limit = section === 'students' ? 100 : 300,
-  cacheTtlMs = 4_000,
 ) {
-  return regionalCachedReadWithFallback<
+  const accountUid = firebaseAuth?.currentUser?.uid
+  const result = await regionalCachedReadWithFallback<
     { section: 'students' | 'schedule' | 'requests'; from: string; to: string; limit: number },
     TrainerWorkspaceBootstrap
-  >('getMyTrainerWorkspaceRegional', 'getMyTrainerWorkspace', { section, from, to, limit }, cacheTtlMs)
+  >('getMyTrainerWorkspaceRegional', 'getMyTrainerWorkspace', { section, from, to, limit }, 0)
+  if (accountUid !== firebaseAuth?.currentUser?.uid) throw new Error('Phiên đăng nhập đã thay đổi.')
+  return result
 }
 
 export async function getMyTrainerStudentDetail(studentId: string, weekId: string) {

@@ -1,5 +1,5 @@
 import { useNutritionWeight } from '../../hooks/useNutritionWeight'
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { safeLocalStorageSet } from '../../lib/safeStorage'
 import {
   ArrowRight,
@@ -14,7 +14,7 @@ import {
   type StudentPtScheduleIssueCode,
   type StudentPtSession,
 } from '../../services/studentPtScheduleService'
-import { startVisiblePolling } from '../../utils/visiblePolling'
+import { useVietnamDay, useWorkspaceAccountId, useWorkspaceSync } from '../../hooks/useWorkspaceSync'
 import { buildStudentHomeSchedule } from '../../features/home/studentHomeSchedule'
 import {
   readRecentAverageWeight,
@@ -99,9 +99,11 @@ export default function HomePage({
   nutritionProfile,
 }: HomePageProps) {
   const homeV4 = useAuraUiSurface('member-home')
+  const day = useVietnamDay()
+  const accountId = useWorkspaceAccountId()
   const now = new Date()
   const firstName = displayName.trim().split(/\s+/).slice(-1)[0] || 'bạn'
-  const todayDateId = toLocalDateKey(now)
+  const todayDateId = day
 
   const [dailyPulseMeals, setDailyPulseMeals] = useState<DailyPulseMeal[]>(() =>
     readStoredArray<DailyPulseMeal>(`aura:nutrition:meals:v2:${ownerId}`)
@@ -147,9 +149,11 @@ export default function HomePage({
     }
   }, [isDemo, ownerId, todayDateId])
 
-  useEffect(() => {
-    let active = true
-    const currentDate = new Date()
+  const homeRequestRef = useRef(0)
+  const homeLoadedRef = useRef(false)
+  const loadSchedule = useCallback(async () => {
+    const requestId = ++homeRequestRef.current
+    const currentDate = new Date(`${day}T12:00:00`)
     const today = toLocalDateKey(currentDate)
     const currentDay = currentDate.getDay()
     const monday = new Date(currentDate)
@@ -166,9 +170,11 @@ export default function HomePage({
       setWeeklyScheduleMinutesByDate(summary.weeklyCompletedMinutesByDate)
     }
 
-    setScheduleState('loading')
-    setScheduleIssueCode(null)
-    applySessions([])
+    if (!homeLoadedRef.current) {
+      setScheduleState('loading')
+      setScheduleIssueCode(null)
+      applySessions([])
+    }
 
     if (isDemo) {
       const tomorrow = new Date(currentDate)
@@ -181,48 +187,44 @@ export default function HomePage({
       ])
       setScheduleState('linked')
       setScheduleIssueCode(null)
-      return () => { active = false }
+      return
     }
 
     if (!ownerId || ownerId === 'anonymous') {
       setScheduleState('unlinked')
       setScheduleIssueCode(null)
-      return () => { active = false }
+      return
     }
 
-    // Initial and background reads share one lifecycle so a slow first load
-    // cannot overlap a timer or a visibility refresh.
-    let firstLoad = true
-    const stopPolling = startVisiblePolling(async () => {
-      const requestedAt = new Date()
-      const weekStart = new Date(requestedAt)
-      const weekday = requestedAt.getDay()
-      weekStart.setDate(requestedAt.getDate() + (weekday === 0 ? -6 : 1 - weekday))
-      const rangeEnd = new Date(requestedAt)
-      rangeEnd.setDate(rangeEnd.getDate() + 30)
-      const from = toLocalDateKey(weekStart)
-      try {
-        const data = await listMyStudentPtSchedule(from, toLocalDateKey(rangeEnd), from)
-        if (!active) return
-        const weekEnd = new Date(weekStart)
-        weekEnd.setDate(weekStart.getDate() + 6)
-        const summary = buildStudentHomeSchedule(data.sessions, toLocalDateKey(requestedAt), from, toLocalDateKey(weekEnd))
-        setUpcomingSchedule(summary.upcomingSessions)
-        setTodaySessionCount(summary.todaySessionCount)
-        setWeeklyScheduleMinutesByDate(summary.weeklyCompletedMinutesByDate)
-        setScheduleState(data.linked ? 'linked' : 'unlinked')
-        setScheduleIssueCode(data.linked ? null : 'PROFILE_NOT_LINKED')
-      } catch (error) {
-        if (!active || !firstLoad) return
-        const issue = asStudentPtScheduleError(error)
-        setScheduleState(issue.issueCode === 'PROFILE_NOT_LINKED' ? 'unlinked' : 'unavailable')
-        setScheduleIssueCode(issue.issueCode)
-      } finally {
-        firstLoad = false
-      }
-    }, { immediate: true })
-    return () => { active = false; stopPolling() }
-  }, [isDemo, ownerId])
+    const rangeEnd = new Date(currentDate)
+    rangeEnd.setDate(rangeEnd.getDate() + 30)
+    try {
+      const data = await listMyStudentPtSchedule(weekFromDate, toLocalDateKey(rangeEnd), weekFromDate)
+      if (requestId !== homeRequestRef.current) return
+      applySessions(data.sessions)
+      setScheduleState(data.linked ? 'linked' : 'unlinked')
+      setScheduleIssueCode(data.linked ? null : 'PROFILE_NOT_LINKED')
+      homeLoadedRef.current = true
+      scheduleSync.accept(data.syncState)
+    } catch (error) {
+      if (requestId !== homeRequestRef.current) return
+      scheduleSync.failed()
+      if (homeLoadedRef.current) return
+      const issue = asStudentPtScheduleError(error)
+      setScheduleState(issue.issueCode === 'PROFILE_NOT_LINKED' ? 'unlinked' : 'unavailable')
+      setScheduleIssueCode(issue.issueCode)
+    }
+  }, [accountId, day, isDemo, ownerId])
+  const scheduleSync = useWorkspaceSync({ accountId, domain: 'studentSchedule', scopeKey: `${ownerId}:${day}`, enabled: !isDemo, refresh: loadSchedule })
+  useEffect(() => {
+    if (isDemo) void loadSchedule()
+    return () => { homeRequestRef.current += 1 }
+  }, [isDemo, loadSchedule])
+  useEffect(() => {
+    if (isDemo) return
+    homeLoadedRef.current = false; setUpcomingSchedule([]); setTodaySessionCount(0); setWeeklyScheduleMinutesByDate({})
+    setScheduleState(accountId ? 'loading' : 'unlinked'); setScheduleIssueCode(null)
+  }, [accountId, isDemo, ownerId])
 
   const effectiveNutritionWeight = useNutritionWeight(ownerId, nutritionProfile?.weightKg ?? 0, !isDemo)
   const dailyPulseTargets = useMemo(
@@ -364,7 +366,7 @@ export default function HomePage({
     return () => unsubscribe()
   }, [isDemo, ownerId])
 
-  const todayStr = useMemo(() => toLocalDateKey(new Date()), [])
+  const todayStr = day
   const isCheckedInToday = checkedInDates.includes(todayStr)
   const currentLevel = Math.floor(xp / 500) + 1
 
@@ -571,6 +573,7 @@ export default function HomePage({
 
   return (
     <div className={`page home-page${homeV4 ? ' aura-ui-v4-surface aura-ui-v4-member home-page--v4' : ''}`}>
+      {scheduleSync.error && <div role="status">Chưa cập nhật được lịch mới nhất. <button type="button" onClick={scheduleSync.retry}>Thử lại</button></div>}
       <AuraTodayFlow
         firstName={firstName}
         streak={streak}

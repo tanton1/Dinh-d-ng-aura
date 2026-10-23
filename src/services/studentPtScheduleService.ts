@@ -1,4 +1,6 @@
 import { httpsCallable } from 'firebase/functions'
+import type { WorkspaceSyncState } from '../utils/workspaceSync'
+import { firebaseAuth } from '../lib/firebase'
 import { firebaseFunctions, firebaseScheduleOptimizerFunctions } from '../lib/firebaseFunctions'
 import { runReadOnlyWithFallback } from './readOnlyCallableService'
 
@@ -240,6 +242,7 @@ export interface StudentPtContractAlert {
 }
 
 export interface StudentPtScheduleData {
+  syncState?: WorkspaceSyncState
   schemaVersion: number
   linked: boolean
   identityLink?: StudentPtIdentityLink
@@ -398,6 +401,7 @@ export function asStudentPtScheduleError(error: unknown): StudentPtScheduleServi
 }
 
 export async function listMyStudentPtSchedule(from: string, to: string, availabilityWeekId: string): Promise<StudentPtScheduleData> {
+  const accountUid = firebaseAuth?.currentUser?.uid
   try {
     const input = { from, to, availabilityWeekId }
     const invoke = (client: typeof firebaseFunctions, name: string) => {
@@ -410,6 +414,7 @@ export async function listMyStudentPtSchedule(from: string, to: string, availabi
         () => invoke(firebaseFunctions, 'listMyStudentPtSchedule'),
       )
       : await invoke(firebaseFunctions, 'listMyStudentPtSchedule')
+    if (accountUid !== firebaseAuth?.currentUser?.uid) throw Object.assign(new Error('Phiên đăng nhập đã thay đổi.'), { code: 'functions/unauthenticated' })
     return normalizeStudentPtScheduleData(result)
   } catch (error) {
     throw asStudentPtScheduleError(error)

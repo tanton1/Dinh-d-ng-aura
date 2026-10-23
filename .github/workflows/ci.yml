@@ -115,6 +115,12 @@ jobs:
       - name: Test catalog on mobile Safari
         if: matrix.project == 'mobile-webkit'
         run: npm run test:catalog-ui -- --project=catalog-mobile-webkit
+      - name: Test event-driven workspace refresh
+        if: matrix.project == 'chromium'
+        run: npm run test:workspace-sync-ui -- --project=sync-chromium
+      - name: Test workspace refresh on mobile Safari
+        if: matrix.project == 'mobile-webkit'
+        run: npm run test:workspace-sync-ui -- --project=sync-mobile-webkit
       - name: Upload browser failure evidence
         if: failure()
         uses: actions/upload-artifact@v4

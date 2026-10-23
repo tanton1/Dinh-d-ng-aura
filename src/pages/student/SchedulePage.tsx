@@ -1,7 +1,6 @@
-import { startVisiblePolling } from '../../utils/visiblePolling'
+import { useLocalTimeBoundaries, useVietnamDay, useWorkspaceAccountId, useWorkspaceSync } from '../../hooks/useWorkspaceSync'
 import { runCoalescedRefresh, type CoalescedRefreshState } from '../../utils/coalescedRefresh'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { doc, onSnapshot } from 'firebase/firestore'
 import {
   AlertCircle,
   CalendarCheck,
@@ -39,7 +38,6 @@ import {
   type TrainingHistoryPage,
 } from '../../services/businessReportingService'
 import type { ViewId } from '../../types'
-import { firestoreDb } from '../../lib/firebaseFirestore'
 import '../../styles-coaching.css'
 import './StudentSchedulePage.css'
 import StudentTrainingHistory from '../../components/training/StudentTrainingHistory'
@@ -147,13 +145,13 @@ function slotIdForSession(session: StudentPtSession) {
   return session.hour === null ? '' : `${vietnamBusinessDayCode(session.date)}-${session.hour}`
 }
 
-function canRequestSessionChange(session: StudentPtSession, deadlineHours = 12) {
+function canRequestSessionChange(session: StudentPtSession, now: number) {
   if (session.hour === null || session.status !== 'scheduled') return false
   const startsAt = Date.parse(`${session.date}T${String(session.hour).padStart(2, '0')}:00:00+07:00`)
   // A late cancellation is still recorded and charged by the server. Keep
   // the action available until the class starts; only rescheduling remains
   // subject to the configured advance notice when the request is submitted.
-  return Number.isFinite(startsAt) && startsAt > Date.now()
+  return Number.isFinite(startsAt) && startsAt > now
 }
 
 function formatMoney(value: number) {
@@ -180,19 +178,31 @@ function contractDisplayStatus(contract: StudentPtScheduleData['contracts'][numb
 
 export default function SchedulePage({ onNavigate, isDemo = false }: { onNavigate: (view: ViewId) => void; isDemo?: boolean; ownerId?: string }) {
   const scheduleV4 = useAuraUiSurface('member-schedule')
-  const today = useMemo(() => new Date(), [])
+  const day = useVietnamDay()
+  const accountId = useWorkspaceAccountId()
+  const today = useMemo(() => new Date(`${day}T12:00:00`), [day])
   const range = useMemo(() => ({ from: toIsoDate(addDays(today, -180)), to: toIsoDate(addDays(today, 180)) }), [today])
   const [data, setData] = useState<StudentPtScheduleData | null>(null)
+  const boundaryNow = useLocalTimeBoundaries((data?.sessions || [])
+    .filter((session) => session.status === 'scheduled' && session.hour !== null)
+    .map((session) => Date.parse(`${session.date}T${String(session.hour).padStart(2, '0')}:00:00+07:00`)))
   const [activeTab, setActiveTab] = useState<StudentScheduleTab>(() => scheduleTabFromRoute() ?? 'this-week')
   const [weekOffset, setWeekOffset] = useState<0 | 1>(() => scheduleTabFromRoute() === 'next-week' ? 1 : 0)
   const [selectedDate, setSelectedDate] = useState(() => scheduleTabFromRoute() === 'next-week'
     ? toIsoDate(addDays(startOfWeek(today), 7))
     : toIsoDate(today))
+  const previousDayRef = useRef(day)
+  useEffect(() => {
+    const previous = previousDayRef.current
+    if (previous !== day) setSelectedDate((selected) => selected === previous ? day : selected)
+    previousDayRef.current = day
+  }, [day])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const requestIdRef = useRef(0)
   const loadRefreshRef = useRef<CoalescedRefreshState | null>(null)
   const loadedWeekRef = useRef('')
+  const loadedAccountRef = useRef('')
   const [loadIssue, setLoadIssue] = useState<StudentPtScheduleServiceError | null>(null)
   const [message, setMessage] = useState<string | null>(null)
   const [requestSession, setRequestSession] = useState<StudentPtSession | null>(null)
@@ -209,8 +219,13 @@ export default function SchedulePage({ onNavigate, isDemo = false }: { onNavigat
   const weekStart = useMemo(() => addDays(startOfWeek(today), weekOffset * 7), [today, weekOffset])
   const weekDays = useMemo(() => Array.from({ length: 7 }, (_, index) => addDays(weekStart, index)), [weekStart])
   const availabilityWeekId = useMemo(() => toIsoDate(weekStart), [weekStart])
+  const loadScope = `${accountId}:${isDemo}:${day}:${availabilityWeekId}`
+  const currentLoadScopeRef = useRef(loadScope)
+  currentLoadScopeRef.current = loadScope
 
-  const load = useCallback(() => runCoalescedRefresh(loadRefreshRef, `${isDemo}:${range.from}:${range.to}:${availabilityWeekId}`, async () => {
+  const load = useCallback(() => {
+    if (currentLoadScopeRef.current !== loadScope) return Promise.resolve()
+    return runCoalescedRefresh(loadRefreshRef, loadScope, async () => {
     const requestId = ++requestIdRef.current
     const background = loadedWeekRef.current === availabilityWeekId
     setLoading(!background)
@@ -247,37 +262,27 @@ export default function SchedulePage({ onNavigate, isDemo = false }: { onNavigat
         return
       }
       const response = await listMyStudentPtSchedule(range.from, range.to, availabilityWeekId)
-      if (requestId !== requestIdRef.current) return
+      if (requestId !== requestIdRef.current || currentLoadScopeRef.current !== loadScope) return
       loadedWeekRef.current = availabilityWeekId
+      loadedAccountRef.current = accountId
       setData(response)
+      scheduleSync.accept(response.syncState)
     } catch (caught) {
-      if (requestId === requestIdRef.current) setLoadIssue(asStudentPtScheduleError(caught))
+      if (requestId === requestIdRef.current && currentLoadScopeRef.current === loadScope) { setLoadIssue(asStudentPtScheduleError(caught)); scheduleSync.failed() }
     } finally {
-      if (requestId === requestIdRef.current) { setLoading(false); setRefreshing(false) }
+      if (requestId === requestIdRef.current && currentLoadScopeRef.current === loadScope) { setLoading(false); setRefreshing(false) }
     }
-  }), [availabilityWeekId, isDemo, range.from, range.to, today, weekStart])
-
-  useEffect(() => { void load(); return () => { requestIdRef.current += 1; loadRefreshRef.current = null } }, [load])
-
-  // Refresh the currently visible week when Admin changes this learner's
-  // availability. The marker contains no slots; the callable remains the
-  // source of truth and applies the same authorization as the initial load.
-  useEffect(() => {
-    const studentId = data?.student?.id || ''
-    const branchId = data?.student?.branchId || ''
-    if (isDemo || !firestoreDb || !studentId || !branchId || !availabilityWeekId) return undefined
-    const reference = doc(firestoreDb, 'ptAvailabilitySync', `${branchId}_${availabilityWeekId}`)
-    return onSnapshot(reference, (snapshot) => {
-      const value = snapshot.data()
-      if (!snapshot.exists() || !value || value.updatedStudentId !== studentId || document.hidden) return
-      void load()
-    }, () => {
-      // The normal callable polling path remains available when the signal is
-      // not readable (for example while an older ruleset is propagating).
     })
-  }, [availabilityWeekId, data?.student?.branchId, data?.student?.id, isDemo, load])
+  }, [accountId, availabilityWeekId, isDemo, loadScope, range.from, range.to, today, weekStart])
+
+  const scheduleSync = useWorkspaceSync({ accountId, domain: 'studentSchedule', scopeKey: `${day}:${availabilityWeekId}`, enabled: !isDemo, refresh: load })
+  useEffect(() => { if (isDemo) void load(); return () => { requestIdRef.current += 1; loadRefreshRef.current = null } }, [isDemo, load])
+  useEffect(() => { setData(null); loadedWeekRef.current = ''; loadedAccountRef.current = '' }, [accountId])
+  const historyScope = `${accountId}:${data?.student?.id || ''}:${day}:${data?.syncState?.version || ''}`
+  const currentHistoryScopeRef = useRef(historyScope)
+  currentHistoryScopeRef.current = historyScope
   const loadHistory = useCallback(async (append = false) => {
-    if (isDemo || !data?.student?.id) return
+    if (isDemo || !data?.student?.id || loadedAccountRef.current !== accountId || currentHistoryScopeRef.current !== historyScope) return
     const cursor = append ? historyPage?.nextCursor : null
     if (append && !cursor) return
     const requestId = ++historyRequestRef.current
@@ -290,16 +295,16 @@ export default function SchedulePage({ onNavigate, isDemo = false }: { onNavigat
         pageSize: 100,
         cursor,
       })
-      if (requestId !== historyRequestRef.current) return
+      if (requestId !== historyRequestRef.current || currentHistoryScopeRef.current !== historyScope) return
       setHistoryPage((current) => append && current
         ? { ...response, records: [...current.records, ...response.records] }
         : response)
     } catch (caught) {
-      if (requestId === historyRequestRef.current) setHistoryError(caught instanceof Error ? caught.message : 'Không thể tải toàn bộ lịch sử buổi tập.')
+      if (requestId === historyRequestRef.current && currentHistoryScopeRef.current === historyScope) setHistoryError(caught instanceof Error ? caught.message : 'Không thể tải toàn bộ lịch sử buổi tập.')
     } finally {
-      if (requestId === historyRequestRef.current) setHistoryLoading(false)
+      if (requestId === historyRequestRef.current && currentHistoryScopeRef.current === historyScope) setHistoryLoading(false)
     }
-  }, [data?.student?.id, historyPage?.nextCursor, isDemo])
+  }, [accountId, data?.student?.id, historyPage?.nextCursor, historyScope, isDemo])
 
   const invalidateHistory = useCallback(() => {
     historyRequestRef.current += 1
@@ -308,17 +313,19 @@ export default function SchedulePage({ onNavigate, isDemo = false }: { onNavigat
   }, [])
 
   useEffect(() => {
+    historyRequestRef.current += 1
     historyLoadedStudentRef.current = ''
     setHistoryPage(null)
     setHistoryError('')
-  }, [data?.student?.id])
+    setHistoryLoading(false)
+  }, [historyScope])
 
   useEffect(() => {
     const studentId = data?.student?.id || ''
     if (activeTab !== 'history' || isDemo || !studentId || historyLoadedStudentRef.current === studentId) return
     historyLoadedStudentRef.current = studentId
     void loadHistory(false)
-  }, [activeTab, data?.student?.id, isDemo, loadHistory])
+  }, [activeTab, data?.student?.id, historyScope, isDemo, loadHistory])
   useEffect(() => {
     const syncTabFromRoute = () => {
       const nextTab = scheduleTabFromRoute()
@@ -336,17 +343,6 @@ export default function SchedulePage({ onNavigate, isDemo = false }: { onNavigat
     window.addEventListener('hashchange', syncTabFromRoute)
     return () => window.removeEventListener('hashchange', syncTabFromRoute)
   }, [today])
-
-  // Keep schedule, attendance and payment alerts fresh without a full page
-  // reload. Admin corrections write live sessions directly after publish, so
-  // a visible-tab refresh surfaces them without another Publish action.
-  useEffect(() => {
-    if (isDemo) return
-    return startVisiblePolling(() => {
-      if (loading || refreshing) return
-      return load()
-    })
-  }, [isDemo, load, loading, refreshing])
 
   const changeDeadlineHours = data?.scheduleConfig.sessionChangeDeadlineHours ?? PT_OPERATIONS_POLICY_DEFAULTS.sessionChangeDeadlineHours
   const complimentaryChangeCancelPerMonth = data?.scheduleConfig.complimentaryChangeCancelPerMonth ?? PT_OPERATIONS_POLICY_DEFAULTS.complimentaryChangeCancelPerMonth
@@ -472,8 +468,9 @@ export default function SchedulePage({ onNavigate, isDemo = false }: { onNavigat
   return (
     <div className={`page schedule-page pt-schedule-page student-schedule-page student-schedule-page--classic${scheduleV4 ? ' aura-ui-v4-surface aura-ui-v4-member student-schedule-page--v4' : ''}`} aria-busy={loading}>
       {refreshing && <span role="status">Đang cập nhật lịch…</span>}
+      {scheduleSync.error && !loadIssue && <div role="status">Chưa cập nhật được lịch mới nhất. <button type="button" onClick={scheduleSync.retry}>Thử lại</button></div>}
       {loading && <div className="student-schedule-state" role="status"><LoaderCircle className="spin" size={30} /><strong>Đang liên kết lịch học viên</strong><span>Aura đang tải lịch tuần và khung giờ rảnh của bạn.</span></div>}
-      {!loading && loadIssue && loadIssueContent && <div className="student-schedule-state is-error" role="alert"><AlertCircle size={28} /><strong>{loadIssueContent.title}</strong><span>{loadIssueContent.description}</span><button type="button" onClick={() => void load()}><RefreshCw size={16} /> {loadIssue.retryable ? 'Thử lại' : 'Kiểm tra lại'}</button>{scheduleV4 && <details className="student-schedule-technical"><summary>Chi tiết kỹ thuật</summary><code>{loadIssue.issueCode}</code></details>}</div>}
+      {!loading && loadIssue && loadIssueContent && <div className="student-schedule-state is-error" role="alert"><AlertCircle size={28} /><strong>{loadIssueContent.title}</strong><span>{loadIssueContent.description}</span><button type="button" onClick={scheduleSync.retry}><RefreshCw size={16} /> {loadIssue.retryable ? 'Thử lại' : 'Kiểm tra lại'}</button>{scheduleV4 && <details className="student-schedule-technical"><summary>Chi tiết kỹ thuật</summary><code>{loadIssue.issueCode}</code></details>}</div>}
       {!loading && !loadIssue && data && !data.linked && <div className="student-schedule-state is-warning"><Link2 size={28} /><strong>Chưa liên kết hồ sơ học viên</strong><span>{missingProfileDescription}</span></div>}
 
       {!loading && data?.student && <>
@@ -549,7 +546,7 @@ export default function SchedulePage({ onNavigate, isDemo = false }: { onNavigat
               const matched = (data.student?.availableSlots ?? []).includes(slotIdForSession(session))
               return <article className={`timeline-event featured ${session.status}`} key={session.id}>
                 <div className="event-time"><strong>{session.hour === null ? '--:--' : `${String(session.hour).padStart(2, '0')}:00`}</strong><span>Buổi PT</span></div><div className="event-line"><i /></div>
-                <div className="event-detail"><div className="event-icon purple"><Dumbbell size={22} /></div><div><span>HUẤN LUYỆN CÁ NHÂN</span><h3>Buổi tập PT</h3><p><UserRound size={13} /> {session.trainerName}</p><em className={`pt-activity-status ${session.status}`}>{statusLabels[session.status] ?? session.status}</em>{(!scheduleV4 || !matched) && <small className={matched ? 'student-classic-match is-linked' : 'student-classic-match needs-review'}>{matched ? <><Link2 size={12} /> Khớp lịch rảnh</> : <><AlertCircle size={12} /> Cần rà soát lịch rảnh</>}</small>}{session.status === 'scheduled' && <button type="button" disabled={!canRequestSessionChange(session, changeDeadlineHours)} title={!canRequestSessionChange(session, changeDeadlineHours) ? 'Buổi đã bắt đầu' : undefined} className="student-session-policy-action" onClick={() => setRequestSession(session)}>{canRequestSessionChange(session, changeDeadlineHours) ? 'Đổi / hủy buổi' : 'Buổi đã bắt đầu'}</button>}</div></div>
+                <div className="event-detail"><div className="event-icon purple"><Dumbbell size={22} /></div><div><span>HUẤN LUYỆN CÁ NHÂN</span><h3>Buổi tập PT</h3><p><UserRound size={13} /> {session.trainerName}</p><em className={`pt-activity-status ${session.status}`}>{statusLabels[session.status] ?? session.status}</em>{(!scheduleV4 || !matched) && <small className={matched ? 'student-classic-match is-linked' : 'student-classic-match needs-review'}>{matched ? <><Link2 size={12} /> Khớp lịch rảnh</> : <><AlertCircle size={12} /> Cần rà soát lịch rảnh</>}</small>}{session.status === 'scheduled' && <button type="button" disabled={!canRequestSessionChange(session, boundaryNow)} title={!canRequestSessionChange(session, boundaryNow) ? 'Buổi đã bắt đầu' : undefined} className="student-session-policy-action" onClick={() => setRequestSession(session)}>{canRequestSessionChange(session, boundaryNow) ? 'Đổi / hủy buổi' : 'Buổi đã bắt đầu'}</button>}</div></div>
               </article>
             }) : <div className="schedule-empty-inline"><CalendarDays size={28} /><h3>Chưa có lịch trong ngày này</h3><p>Khi vận hành xếp lịch, buổi tập sẽ xuất hiện tại đây.</p></div>}
           </div>

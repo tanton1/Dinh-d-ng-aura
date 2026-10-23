@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { startVisiblePolling } from '../../utils/visiblePolling'
+import { useVietnamDay, useWorkspaceAccountId, useWorkspaceSync } from '../../hooks/useWorkspaceSync'
 import { runCoalescedRefresh, type CoalescedRefreshState } from '../../utils/coalescedRefresh'
 import { CalendarDays, CheckCheck, CheckCircle2, ChevronLeft, ChevronRight, CircleAlert, Clock3, MapPin, MessageCircle, Phone, RefreshCw, Search, Timer, UserCheck, UserPlus, UserX, X } from 'lucide-react'
 import {
@@ -152,6 +152,8 @@ interface TrainerPortalV2Props {
 }
 
 export default function TrainerPortalV2({ section = 'students', embedded = false, isDemo = false, initialSearchQuery = '', onNavigate }: TrainerPortalV2Props) {
+  const day = useVietnamDay()
+  const accountId = useWorkspaceAccountId()
   const [workspace, setWorkspace] = useState<CoachWorkspaceScope | null>(null)
   const [scopeLoading, setScopeLoading] = useState(true)
   const [scopeError, setScopeError] = useState('')
@@ -159,7 +161,9 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
   const [branches, setBranches] = useState<Array<{ id: string; name: string }>>([])
   const [sessions, setSessions] = useState<TrainerSessionSummary[]>([])
   const [requests, setRequests] = useState<TrainerSessionRequestSummary[]>([])
-  const [from, setFrom] = useState(dateString(new Date()))
+  const [selectedFrom, setSelectedFrom] = useState<string | null>(null)
+  const from = selectedFrom ?? day
+  const setFrom = (value: string) => setSelectedFrom(value === day ? null : value)
   const [mobileDayPage, setMobileDayPage] = useState(0)
   const [loading, setLoading] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
@@ -262,7 +266,12 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
       return matchesQuery && matchesBranch && matchesScope
     }).sort((left, right) => assignmentRank[left.assignmentRole] - assignmentRank[right.assignmentRole] || left.name.localeCompare(right.name, 'vi'))
   }, [scheduledByStudent, studentBranch, studentQuery, studentScope, studentsWithSessions])
-  const load = useCallback(() => runCoalescedRefresh(loadRefreshRef, `${isDemo}:${section}:${rangeFrom}:${to}`, async () => {
+  const loadScope = `${accountId}:${isDemo}:${day}:${section}:${rangeFrom}:${to}`
+  const currentLoadScopeRef = useRef(loadScope)
+  currentLoadScopeRef.current = loadScope
+  const load = useCallback(() => {
+    if (currentLoadScopeRef.current !== loadScope) return Promise.resolve()
+    return runCoalescedRefresh(loadRefreshRef, loadScope, async () => {
     const requestId = ++loadRequestRef.current
     if (loadedRef.current) setRefreshing(true)
     else { setScopeLoading(true); setLoading(true) }
@@ -289,7 +298,7 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
     try {
       if (section === 'students') {
         const result = await getMyTrainerWorkspace('students', rangeFrom, addDateDays(rangeFrom, 61), 500)
-        if (requestId !== loadRequestRef.current) return
+        if (requestId !== loadRequestRef.current || currentLoadScopeRef.current !== loadScope) return
         const responseBranchIds = new Set(result.scope.branchIds || [])
         const merged = new Map(result.students.map((student) => [student.id, student]))
         result.sessions.forEach((session) => {
@@ -326,31 +335,29 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
         setBranches(result.branches || [])
         setSessions(result.sessions)
         setRequests([])
+        workspaceSync.accept(result.syncState)
         return
       }
       const result = await getMyTrainerWorkspace(section, rangeFrom, to)
-      if (requestId !== loadRequestRef.current) return
+      if (requestId !== loadRequestRef.current || currentLoadScopeRef.current !== loadScope) return
       setWorkspace(result.scope)
       setStudents(result.students)
       setBranches(result.branches || [])
       setSessions(result.sessions)
       setRequests(result.requests ?? [])
+      workspaceSync.accept(result.syncState)
     } catch (cause) {
-      if (requestId === loadRequestRef.current) setScopeError(cause instanceof Error ? cause.message : 'Không thể tải dữ liệu được phân công.')
+      if (requestId === loadRequestRef.current && currentLoadScopeRef.current === loadScope) { setScopeError(cause instanceof Error ? cause.message : 'Không thể tải dữ liệu được phân công.'); workspaceSync.failed() }
     } finally {
-      if (requestId === loadRequestRef.current) {
+      if (requestId === loadRequestRef.current && currentLoadScopeRef.current === loadScope) {
         loadedRef.current = true; setScopeLoading(false); setLoading(false); setRefreshing(false)
       }
     }
-  }), [isDemo, rangeFrom, section, to])
-  useEffect(() => { void load(); return () => { loadRequestRef.current += 1; loadRefreshRef.current = null } }, [load])
-  useEffect(() => {
-    if (isDemo || !['students', 'schedule'].includes(section)) return undefined
-    return startVisiblePolling(() => {
-      if (loading || refreshing) return
-      return load()
     })
-  }, [isDemo, load, loading, refreshing, section])
+  }, [isDemo, loadScope, rangeFrom, section, to])
+  const workspaceSync = useWorkspaceSync({ accountId, domain: 'trainerWorkspace', scopeKey: `${day}:${section}:${rangeFrom}:${to}`, enabled: !isDemo, refresh: load })
+  useEffect(() => { if (isDemo) void load(); return () => { loadRequestRef.current += 1; loadRefreshRef.current = null } }, [isDemo, load])
+  useEffect(() => { loadedRef.current = false; setWorkspace(null); setStudents([]); setSessions([]); setRequests([]) }, [accountId])
   useEffect(() => {
     if (section !== 'students') return
     const previous = staffStudentListMemory()
@@ -566,7 +573,8 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
     {!embedded && section === 'students' && <header className="opv2-student-heading"><div><p className="opv2-kicker-dark">AURA STAFF · HỌC VIÊN</p><h1>Học viên phụ trách</h1><p>Hiển thị học viên đang hoạt động trong chi nhánh của bạn và học viên có lịch dạy tại chi nhánh khác.</p></div><button type="button" aria-label="Tải lại học viên" disabled={loading || refreshing} onClick={() => void load()}><RefreshCw className={loading || refreshing ? 'is-spinning' : ''} /></button></header>}
     {!embedded && section !== 'students' && <section className="opv2-hero"><p className="opv2-kicker">Aura Staff · Công việc</p><h1>{sectionCopy[section].title}</h1><p>{sectionCopy[section].description}</p></section>}
     {scopeLoading && <div className="opv2-state"><RefreshCw className="is-spinning" /> Đang đối chiếu phân công trong Học viên PT Gym…</div>}
-    {!scopeLoading && scopeError && <div className="opv2-state is-error" data-testid="staff-workspace-error"><strong>Không thể tải không gian Staff</strong><span>{scopeError}</span><small>Đây không phải trạng thái “chưa có chi nhánh”. Aura cần đối chiếu kết nối hoặc hồ sơ phân quyền của tài khoản.</small><button className="opv2-action" onClick={() => void load()}>Kết nối lại</button></div>}
+    {!scopeLoading && scopeError && <div className="opv2-state is-error" data-testid="staff-workspace-error"><strong>Không thể tải không gian Staff</strong><span>{scopeError}</span><small>Đây không phải trạng thái “chưa có chi nhánh”. Aura cần đối chiếu kết nối hoặc hồ sơ phân quyền của tài khoản.</small><button className="opv2-action" onClick={workspaceSync.retry}>Kết nối lại</button></div>}
+    {workspaceSync.error && !scopeError && <div className="opv2-state" role="status">Chưa cập nhật được dữ liệu mới nhất. <button type="button" onClick={workspaceSync.retry}>Thử lại</button></div>}
     {!scopeLoading && workspace && !canOpenSection && <section className="opv2-guidance"><CircleAlert size={20} /><div><strong>Chưa có ca hoặc học viên được phân công</strong><p>Chi nhánh vẫn hoạt động bình thường. Trang này chỉ hiện hợp đồng còn hiệu lực và lịch dạy gắn trực tiếp với tài khoản Staff; quản trị viên có thể cập nhật PT chính, PT phụ hoặc lịch dạy tại hồ sơ học viên.</p></div></section>}
     {!scopeLoading && workspace && canOpenSection && <>
     {!embedded && section !== 'students' && <section className="opv2-summary"><div className="opv2-stat"><strong>{workspace.counts.primaryStudents}</strong><span>học viên PT chính</span></div><div className="opv2-stat"><strong>{workspace.counts.secondaryStudents}</strong><span>học viên PT phụ</span></div><div className="opv2-stat"><strong>{workspace.counts.teachingSessions}</strong><span>buổi được phân công</span></div></section>}
