@@ -20,7 +20,7 @@ test('clean server week boots with zero callable reads; explicit reload still fo
   await expect.poll(() => page.evaluate(() => (window as any).__scheduleCalls.filter((item: any) => item.operation === 'load').length)).toBe(1)
 })
 
-for (const initial of ['missing', 'denied', 'dirty', 'incomplete', 'legacy', 'unverified', 'missing-verification', 'partial']) {
+for (const initial of ['missing', 'denied', 'dirty', 'incomplete', 'legacy', 'unverified', 'missing-verification', 'partial', 'malformed-exact']) {
   test(`server ${initial} view falls back immediately without waiting for the bootstrap timeout`, async ({ page }) => {
     await page.clock.install()
     await page.clock.pauseAt(new Date())
@@ -34,6 +34,7 @@ for (const initial of ['missing', 'denied', 'dirty', 'incomplete', 'legacy', 'un
       if (mode === 'unverified') (window as any).__weeklyViewOverride = { verification: 'draft_only' }
       if (mode === 'missing-verification') (window as any).__weeklyViewOverride = { verification: undefined }
       if (mode === 'partial') (window as any).__weeklyViewOverride = { partial: true }
+      if (mode === 'malformed-exact') (window as any).__weeklyViewOverride = { coverage: { verified: true, verification: 'exact' } }
     }, initial)
     await page.goto('/tests/schedule-ui/index.html')
     await expect.poll(() => page.evaluate(() => (window as any).__scheduleCalls?.filter((item: any) => item.operation === 'weekly-view').length || 0)).toBe(1)
@@ -370,11 +371,11 @@ test('real compact schema2 listener reads nested draft revision and leaves stale
     const current = await getPtScheduleWeeklyView(call.input)
     ;(window as any).__compactWeeklyFixture = {
       schemaVersion: 2, branchId: current.branch.id, weekId: current.weekId,
-      sourceRevision: 'semantic-hash-v2', viewRevision: 2, dirty: false, freshness: 'verified', verification: 'exact',
+      sourceRevision: 'semantic-hash-v2', viewRevision: 2, dirtyGeneration: 1, dirty: false, freshness: 'verified', verification: 'exact',
       draft: { revision: current.draftRevision + 1, status: 'draft', publishedVersion: current.publishedVersion, publishedRevision: -1 },
       schedule: current.schedule, students: current.students.map((student: any) => student.id === 'a' ? { ...student, name: 'Lan compact mới', phone: '0900000010' } : student),
       trainers: current.trainers, contracts: current.contracts, warnings: [], scheduleConfig: current.scheduleConfig,
-      unassignedEntries: [], weeklySessionCoverage: {},
+      coverage: current.coverage, summary: current.summary, unassignedEntries: [], weeklySessionCoverage: {},
     }
     ;(window as any).__weeklyViewOverride = { rebuilding: true, rebuildStatus: 'busy', dirty: true, freshness: 'stale' }
     ;(window as any).__emitScheduleSnapshot('ptScheduleWeeklyViews', { dirty: true, dirtyGeneration: 1 })
@@ -408,7 +409,7 @@ test('dirty generations coalesce non-forced refreshes and a busy rebuild keeps t
   expect(await page.evaluate(() => (window as any).__scheduleCalls.filter((item: any) => item.operation === 'load').length)).toBe(0)
   await page.evaluate(async () => {
     ;(window as any).__weeklyViewDelayMs = 0
-    ;(window as any).__weeklyViewOverride = { rebuilding: false, dirty: false, freshness: 'verified', sourceRevision: 'updated-source', viewRevision: 2 }
+    ;(window as any).__weeklyViewOverride = { rebuilding: false, dirty: false, dirtyGeneration: 2, freshness: 'verified', sourceRevision: 'updated-source', viewRevision: 2 }
     const { getPtScheduleWeeklyView } = await import('/tests/schedule-ui/service.ts')
     const call = (window as any).__scheduleCalls.find((item: any) => item.operation === 'weekly-view')
     const payload = await getPtScheduleWeeklyView(call.input)
@@ -449,7 +450,7 @@ test('pending weekly refreshes retry with bounded backoff and stop after a clean
   await page.evaluate(() => { (window as any).__emitScheduleSnapshot('ptScheduleWeeklyViews', { dirty: true, dirtyGeneration: 2 }) })
   await expect.poll(calls).toBe(5)
   await page.evaluate(async () => {
-    ;(window as any).__weeklyViewOverride = { rebuilding: false, dirty: false, freshness: 'verified', viewRevision: 2, sourceRevision: 'clean' }
+    ;(window as any).__weeklyViewOverride = { rebuilding: false, dirty: false, dirtyGeneration: 2, freshness: 'verified', viewRevision: 2, sourceRevision: 'clean' }
     const { getPtScheduleWeeklyView } = await import('/tests/schedule-ui/service.ts')
     const call = (window as any).__scheduleCalls.find((item: any) => item.operation === 'weekly-view')
     ;(window as any).__emitScheduleSnapshot('ptScheduleWeeklyViews', await getPtScheduleWeeklyView(call.input))

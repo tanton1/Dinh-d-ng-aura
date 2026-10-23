@@ -10,6 +10,7 @@ import {
 } from '../../services/ptSchedulePublishService'
 
 import { readWorkspaceCache, writeWorkspaceCache, WORKSPACE_CACHE_REVALIDATE_MS } from './workspaceCache'
+import { applyWeeklyValidation } from './weeklyValidation'
 
 type WorkspaceTab = 'matrix' | 'opportunities' | 'students' | 'warnings' | 'history'
 type StudentFilter = 'all' | 'missing' | 'contract' | 'availability' | 'trainer' | 'ready'
@@ -243,6 +244,9 @@ function workspaceRealtimeFingerprint(value: PtScheduleWorkspaceV2Result | null)
     weeklyViewSourceRevision: value.weeklyViewSourceRevision,
     weeklyViewFreshness: value.weeklyViewFreshness,
     weeklyViewDirtyGeneration: value.weeklyViewDirtyGeneration,
+    validationState: value.validationState,
+    validationDirty: value.validationDirty,
+    validationSnapshot: value.validationSnapshot ? [value.validationSnapshot.sourceRevision, value.validationSnapshot.draftRevision, value.validationSnapshot.dirtyGeneration, value.validationSnapshot.validatedAt] : null,
     readMode: value.readMode,
     partial: value.partial,
     reconciliationState: value.reconciliationState,
@@ -343,7 +347,7 @@ function workspaceFromDraftSnapshot(
   const publishedVersion = Math.max(0, Number(raw.publishedVersion ?? current.publishedVersion))
   const publishedRevision = Number(raw.publishedRevision ?? current.publishedRevision)
   const draftStatus: PtScheduleWorkspaceV2Result['draftStatus'] = raw.status === 'published' ? 'published' : 'draft'
-  return {
+  return applyWeeklyValidation({
     ...current,
     draftRevision: revision,
     draftStatus,
@@ -367,7 +371,7 @@ function workspaceFromDraftSnapshot(
       missingSessions,
       unassignedEntries: unassignedEntries.length,
     },
-  }
+  }, { validationDirty: true }, current)
 }
 
 /**
@@ -409,6 +413,9 @@ function workspaceFromWeeklyViewSnapshot(
   const viewRevision = Number(raw.viewRevision ?? source.viewRevision ?? current.weeklyViewRevision ?? 0)
   if (revision === current.draftRevision && viewRevision < Number(current.weeklyViewRevision || 0)) return current
   const dirtyGeneration = source.dirtyGeneration
+  // A response read before an observed invalidation must not re-promote the
+  // previous exact evidence, even when draft/view revisions have not moved.
+  if (Number(dirtyGeneration ?? 0) < Number(current.weeklyViewDirtyGeneration ?? -1)) return current
   const sourceRevision = raw.sourceRevision ?? source.sourceRevision
   if (pending && current.weeklyViewFreshness === 'verified'
     && revision === current.draftRevision && viewRevision === current.weeklyViewRevision
@@ -457,7 +464,7 @@ function workspaceFromWeeklyViewSnapshot(
   const contracts = !exact && Array.isArray(source.contracts) && source.contracts.length === 0
     ? current.contracts : mergeById('contracts', current.contracts) as PtScheduleWorkspaceV2Result['contracts']
   const schedule = readObject('schedule', current.schedule)
-  return {
+  return applyWeeklyValidation({
     ...current,
     branch: readObject('branch', current.branch),
     weekId: typeof source.weekId === 'string' ? source.weekId : current.weekId,
@@ -506,7 +513,7 @@ function workspaceFromWeeklyViewSnapshot(
     weeklyViewGeneratedAt: typeof raw.generatedAt === 'string'
       ? raw.generatedAt
       : typeof source.generatedAt === 'string' ? source.generatedAt : current.weeklyViewGeneratedAt,
-  }
+  }, source, current)
 }
 
 function scheduleSlotIsPast(

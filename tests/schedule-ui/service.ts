@@ -18,7 +18,9 @@ export const getPtScheduleWorkspace = async (input: any) => {
 // fixture returns the same bounded workspace shape so UI tests exercise the
 // rollout path without requiring Firebase.
 export const weeklyViewFixture = (input: any) => {
-  const full = { ...workspace, weekId: input.weekId, branch: { ...workspace.branch, id: input.branchId }, dirty: false, freshness: 'verified', verification: 'exact', weeklySessionCoverage: {}, readMode: 'reconciled', partial: false, viewRevision: 1, sourceRevision: 1 }
+  const coverage = { verified: true, verification: 'exact', totalTargetSessions: 6, scheduledEntries: 2, missingSessions: 4, studentsWithAtLeastOne: 2, fullyScheduledStudents: 0,
+    byStudent: { a: { studentId: 'a', targetSessions: 2, scheduledSessions: 1, draftSessions: 1, otherBranchSessions: 0, missingSessions: 1 }, b: { studentId: 'b', targetSessions: 2, scheduledSessions: 0, draftSessions: 0, otherBranchSessions: 0, missingSessions: 2 }, c: { studentId: 'c', targetSessions: 2, scheduledSessions: 1, draftSessions: 1, otherBranchSessions: 0, missingSessions: 1 } } }
+  const full = { ...workspace, weekId: input.weekId, branch: { ...workspace.branch, id: input.branchId }, dirty: false, dirtyGeneration: 1, freshness: 'verified', verification: 'exact', coverage, weeklySessionCoverage: {}, readMode: 'reconciled', partial: false, viewRevision: 1, sourceRevision: 1 }
   const compact = {
     schemaVersion: 2, branchId: input.branchId, weekId: input.weekId,
     sourceRevision: 'semantic-hash-v2', viewRevision: 1, dirtyGeneration: 1, dirty: false, freshness: 'verified', verification: 'exact',
@@ -26,16 +28,33 @@ export const weeklyViewFixture = (input: any) => {
     schedule: workspace.schedule, students: workspace.students, trainers: workspace.trainers, contracts: workspace.contracts,
     scheduleConfig: workspace.scheduleConfig, warnings: workspace.warnings, unassignedEntries: workspace.unassignedEntries,
     summary: { eligibleStudents: 3, trainers: 3, scheduledEntries: 2, missingSessions: 2, warningCount: 1 },
-    weeklySessionCoverage: {}, optimizationSummary: { slotUtilization: {}, studentCoverage: {}, optimizationPasses: 0 },
+    coverage, weeklySessionCoverage: {}, optimizationSummary: { slotUtilization: {}, studentCoverage: {}, optimizationPasses: 0 },
   }
-  return structuredClone({ ...((window as any).__weeklyViewCompact ? compact : full), ...(window as any).__weeklyViewOverride })
+  const view: any = { ...((window as any).__weeklyViewCompact ? compact : full), ...(window as any).__weeklyViewOverride }
+  const mode = (window as any).__validationMode
+  if (mode) {
+    const metadata = { schemaVersion: 1, branchId: input.branchId, weekId: input.weekId, sourceRevision: 'independent-validation-hash', draftRevision: workspace.draftRevision, dirtyGeneration: 1, validatedAt: '2026-10-19T01:00:00Z' }
+    const warnings = [{ code: 'STUDENT_MISSING_SESSIONS', studentId: 'b', studentName: 'Ngọc', studentPhone: '0900000002', missingSessions: 2, packageName: 'Gói 24', contractStatus: 'active', contractEndDate: '2099-12-31' }]
+    const proof = { ...metadata, storage: 'embedded', coverage, summary: compact.summary, warnings, unassignedEntries: [], weeklySessionCoverage: {}, contracts: workspace.contracts }
+    Object.assign(view, { validationState: mode === 'exact' ? 'current' : mode === 'stale' ? 'stale' : 'unknown', validationDirty: mode !== 'exact', validationSnapshot: mode === 'exact' ? { ...metadata, storage: 'top_level' } : mode === 'stale' ? proof : null,
+      dirtyGeneration: 1, dirty: false, freshness: mode === 'exact' ? 'verified' : 'display', verification: mode === 'exact' ? 'exact' : 'draft_only' })
+    if (mode === 'exact') Object.assign(view, { branchId: input.branchId, coverage, warnings, unassignedEntries: [] })
+    if ((window as any).__legacyValidation) {
+      delete view.validationState
+      delete view.validationDirty
+      delete view.validationSnapshot
+    }
+  }
+  return structuredClone(view)
 }
 export const getPtScheduleWeeklyView = async (input: any) => {
   track('weekly-view', input)
   if ((window as any).__weeklyViewDelayMs) await sleep((window as any).__weeklyViewDelayMs)
   if ((window as any).__holdWeeklyView) await new Promise<void>((resolve) => { (window as any).__releaseWeeklyView = resolve })
   ;(window as any).__weeklyViewResponses = Number((window as any).__weeklyViewResponses || 0) + 1
-  return weeklyViewFixture(input)
+  const view = weeklyViewFixture(input)
+  if ((window as any).__omitWeeklyResponseGeneration) delete view.dirtyGeneration
+  return view
 }
 export const ptScheduleConflictLabel = (code: string) => code === 'STUDENT_AVAILABILITY_DAYS_INSUFFICIENT'
   ? 'Học viên đăng ký chưa đủ số ngày rảnh để hoàn thành mục tiêu tuần.'

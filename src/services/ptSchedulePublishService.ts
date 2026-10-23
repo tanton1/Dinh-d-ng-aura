@@ -321,6 +321,36 @@ export interface PtScheduleOptimizationSummary {
   generatorVersion?: string
 }
 
+export interface PtScheduleValidationSnapshot {
+  schemaVersion: 1
+  storage?: 'embedded'
+  branchId: string
+  weekId: string
+  sourceRevision: number | string
+  draftRevision: number
+  dirtyGeneration: number
+  validatedAt: string | null
+  coverage: {
+    verified: true
+    verification: 'exact'
+    totalTargetSessions: number
+    scheduledEntries: number
+    missingSessions: number
+    studentsWithAtLeastOne: number
+    fullyScheduledStudents: number
+    byStudent: Record<string, { studentId: string; targetSessions: number; scheduledSessions: number; draftSessions: number; otherBranchSessions: number; missingSessions: number }>
+  }
+  summary: Record<string, number>
+  warnings: Array<PtScheduleWorkspaceV2Result['warnings'][number] & {
+    studentName?: string; studentPhone?: string; primaryReason?: string
+    packageName?: string; contractStatus?: string; contractEndDate?: string
+    remainingQuota?: number; missingFields?: string[]
+  }>
+  unassignedEntries: PtScheduleUnassignedEntry[]
+  weeklySessionCoverage?: Record<string, PtScheduleWeeklyStudentCoverage>
+  contracts?: StudentContract[]
+}
+
 export interface PtScheduleWorkspaceV2Result extends Omit<BranchScheduleWorkspaceResult, 'students' | 'trainers'> {
   sessionRefs?: Record<string, { sessionId: string; revision: number }>
   /** Initial matrix projection; contracts and diagnostics hydrate on demand. */
@@ -371,6 +401,9 @@ export interface PtScheduleWorkspaceV2Result extends Omit<BranchScheduleWorkspac
   weeklyViewDirtyGeneration?: number
   /** Retained detailed evidence is informational only after a display refresh. */
   reconciliationState?: 'current' | 'stale' | 'not_loaded'
+  validationState?: 'current' | 'stale' | 'unknown'
+  validationDirty?: boolean
+  validationSnapshot?: PtScheduleValidationSnapshot | null
 }
 
 /**
@@ -387,6 +420,9 @@ export interface PtScheduleWeeklyViewResult {
   rebuildStatus?: 'busy' | 'superseded'
   dirty?: boolean
   dirtyGeneration?: number
+  validationState?: 'current' | 'stale' | 'unknown'
+  validationDirty?: boolean
+  validationSnapshot?: PtScheduleValidationSnapshot | (Pick<PtScheduleValidationSnapshot, 'schemaVersion' | 'branchId' | 'weekId' | 'sourceRevision' | 'draftRevision' | 'dirtyGeneration' | 'validatedAt'> & { storage: 'top_level' }) | null
   [key: string]: unknown
 }
 
