@@ -82,6 +82,7 @@ const { createStudentManagementFunctions } = require('./student-management')
 const { createBranchManagementFunctions } = require('./branch-management')
 const { buildStudent360Projection, createStudent360Functions, mondayDateKey, reconcileStudent360ProjectionBatch, syncStudent360ProjectionFromEvent } = require('./student-360')
 const { coalesceProjectionRebuild } = require('./student-360-projection-writes')
+const { syncWorkspaceChangesFromEvent } = require('./workspace-change-signals')
 const { loggedMealSlots } = require('./meal-reminder-policy')
 const { refreshMealReviewActions } = require('./nutrition-review-maintenance')
 
@@ -784,7 +785,16 @@ const student360Trigger = (document) => onDocumentWritten({
   cpu: 'gcf_gen1',
   maxInstances: 3,
   retry: true,
-}, async (event) => syncStudent360ProjectionFromEvent({ db, event, logger }))
+}, async (event) => {
+  // Reuse the source trigger: retries advance monotonic metadata only once.
+  // Projection writes have their own source event when they settle later.
+  const [projection, changes] = await Promise.all([
+    syncStudent360ProjectionFromEvent({ db, event, logger }),
+    syncWorkspaceChangesFromEvent({ db, event, source: document.includes('/{accountUid}/') ? document.split('/')[2] : document.split('/')[0] }),
+  ])
+  if (changes.overflowCount) logger.warn('workspace_change_audience_overflow', { source: changes.source, count: changes.overflowCount })
+  return projection
+})
 
 // Stale-while-revalidate queue for Student 360. A deterministic queue document
 // absorbs bursts of reads; only a change to requestedAt starts a rebuild, so
@@ -1056,7 +1066,17 @@ const weeklyViewSourceTrigger = (document, source) => onDocumentWritten({
   concurrency: 1,
   maxInstances: 1,
   retry: true,
-}, async (event) => syncPtScheduleWeeklyViewSource({ db, event, source, logger }))
+}, async (event) => {
+  // Other sources already publish through student360Trigger above.
+  const policyChange = source === 'trainer' || source === 'scheduleConfig'
+    ? syncWorkspaceChangesFromEvent({ db, event, source: document.split('/')[0] })
+    : Promise.resolve()
+  const [result] = await Promise.all([
+    syncPtScheduleWeeklyViewSource({ db, event, source, logger }),
+    policyChange,
+  ])
+  return result
+})
 
 exports.syncPtScheduleWeeklyViewFromDraft = weeklyViewSourceTrigger('ptScheduleDrafts/{documentId}', 'draft')
 exports.syncPtScheduleWeeklyViewFromTarget = weeklyViewSourceTrigger('ptScheduleTargetOverrides/{documentId}', 'target')

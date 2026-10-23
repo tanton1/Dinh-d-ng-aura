@@ -4,6 +4,8 @@ const test = require('node:test')
 const assert = require('node:assert/strict')
 const {
   effectiveStudentAvailability,
+  invalidateStudentAvailabilityFallbacks,
+  loadLatestSubmittedFallbacks,
   normalizeRequestedSessions,
   studentAvailabilityProfilePatch,
 } = require('./student-availability')
@@ -193,4 +195,98 @@ test('contract weekly default prefers an explicit contract target and falls back
   assert.equal(contractDefaultSessionsPerWeek([
     { id: 'contract-a', status: 'active', startDate: '2026-09-01', endDate: '2026-12-01', totalSessions: 24 },
   ], { sessionsPerWeek: 4 }, TARGET_WEEK), 4)
+})
+
+function inheritedAvailabilityDb() {
+  const values = new Map(['student-a', 'student-b'].map((studentId) => [studentId, {
+    studentId, weekId: '2026-08-31', status: 'submitted', revision: 1, slots: ['T2-8'],
+  }]))
+  const reads = []
+  const db = {
+    values, reads, beforeResult: null,
+    collection(name) {
+      assert.equal(name, 'ptAvailability')
+      let studentId
+      const query = {
+        where(_field, operator, value) {
+          if (operator === '>=') studentId = value.replace(/_0000-00-00$/, '')
+          return query
+        },
+        orderBy: () => query,
+        limit: () => query,
+        async get() {
+          reads.push(studentId)
+          const captured = structuredClone(values.get(studentId))
+          if (db.beforeResult) await db.beforeResult(studentId)
+          return { docs: captured ? [{ data: () => captured }] : [] }
+        },
+      }
+      return query
+    },
+  }
+  return db
+}
+
+function inheritedAvailability(db, studentId = 'student-a', version) {
+  return loadLatestSubmittedFallbacks(db, new Map([[studentId, {}]]), new Map(), TARGET_WEEK, version)
+}
+
+test('inherited availability keeps legacy caching and coalesces separately for each authoritative revision', async () => {
+  const db = inheritedAvailabilityDb()
+  const [legacy, sameLegacy] = await Promise.all([inheritedAvailability(db), inheritedAvailability(db)])
+  assert.deepEqual(legacy, sameLegacy)
+  assert.equal(db.reads.length, 1)
+  db.values.get('student-a').slots = ['T3-9']
+  const stillCached = await inheritedAvailability(db)
+  assert.deepEqual(stillCached.get('student-a').slots, ['T2-8'])
+
+  const [revised, sameRevision] = await Promise.all([
+    inheritedAvailability(db, 'student-a', 'server-revision-2'),
+    inheritedAvailability(db, 'student-a', 'server-revision-2'),
+  ])
+  assert.deepEqual(revised, sameRevision)
+  assert.deepEqual(revised.get('student-a').slots, ['T3-9'])
+  assert.equal(db.reads.length, 2)
+})
+
+test('manual availability invalidation clears every revision only for the changed learner', async () => {
+  const db = inheritedAvailabilityDb()
+  await Promise.all([
+    inheritedAvailability(db),
+    inheritedAvailability(db, 'student-a', 'revision-2'),
+    inheritedAvailability(db, 'student-b', 'revision-2'),
+  ])
+  db.values.get('student-a').slots = ['T4-10']
+  db.values.get('student-b').slots = ['T5-11']
+  invalidateStudentAvailabilityFallbacks(db, 'student-a')
+  const [legacy, revised, unaffected] = await Promise.all([
+    inheritedAvailability(db),
+    inheritedAvailability(db, 'student-a', 'revision-2'),
+    inheritedAvailability(db, 'student-b', 'revision-2'),
+  ])
+  assert.deepEqual(legacy.get('student-a').slots, ['T4-10'])
+  assert.deepEqual(revised.get('student-a').slots, ['T4-10'])
+  assert.deepEqual(unaffected.get('student-b').slots, ['T2-8'])
+  assert.equal(db.reads.length, 5)
+})
+
+test('an invalidated pending inherited lookup cannot replace the post-save result', async () => {
+  const db = inheritedAvailabilityDb()
+  let release, reached
+  const pending = new Promise((resolve) => { reached = resolve })
+  db.beforeResult = () => {
+    db.beforeResult = null
+    reached()
+    return new Promise((resolve) => { release = resolve })
+  }
+  const oldRequest = inheritedAvailability(db)
+  await pending
+  db.values.get('student-a').slots = ['T6-12']
+  invalidateStudentAvailabilityFallbacks(db, 'student-a')
+  const afterSave = await inheritedAvailability(db)
+  release()
+  assert.deepEqual((await oldRequest).get('student-a').slots, ['T2-8'])
+  assert.deepEqual(afterSave.get('student-a').slots, ['T6-12'])
+  assert.deepEqual((await inheritedAvailability(db)).get('student-a').slots, ['T6-12'])
+  assert.equal(db.reads.length, 2)
 })

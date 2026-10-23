@@ -12,6 +12,7 @@ const { assertSessionChangeDeadline, ptOperationsPolicySnapshot } = require('./p
 const {
   availabilityReopenForWeek,
   effectiveStudentAvailability,
+  invalidateStudentAvailabilityFallbacks,
   loadLatestSubmittedFallbacks,
   normalizeRequestedSessions,
   studentAvailabilityProfilePatch,
@@ -22,6 +23,7 @@ const { normalizeMemberReferralCode } = require('./loyalty-core')
 const { normalizedScheduleConfig } = require('./pt-schedule-publish')
 const { canonicalSessionRows, studentVisibleSessionRows } = require('./session-schedule-normalization')
 const { cacheScope, createProcessCache } = require('./process-cache')
+const { readWorkspaceChangeState } = require('./workspace-change-signals')
 
 const TIME_ZONE = 'Asia/Ho_Chi_Minh'
 const DEFAULT_WORKING_DAYS = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7']
@@ -60,24 +62,25 @@ function studentAvailabilityCacheVersion(profile = {}) {
   ].join(':')
 }
 
-function trainerCacheKey(db, actor) {
-  return `${cacheScope(db)}|${actor.uid}|${actor.legacyStaffId || ''}|${actor.authzVersion || 0}`
+function trainerCacheKey(db, actor, readVersion = '') {
+  const owner = `${cacheScope(db)}|${actor.uid}|${actor.legacyStaffId || ''}|${actor.authzVersion || 0}`
+  return readVersion ? `${owner}|${readVersion}` : owner
 }
 
-async function cachedCoachWorkspaceScope(db, actor) {
-  return (await trainerWorkspaceScopeCache.get(trainerCacheKey(db, actor), () => coachWorkspaceScopeForActor(db, actor))).value
+async function cachedCoachWorkspaceScope(db, actor, readVersion = '') {
+  return (await trainerWorkspaceScopeCache.get(trainerCacheKey(db, actor, readVersion), () => coachWorkspaceScopeForActor(db, actor, readVersion))).value
 }
 
-async function cachedAssignedContracts(db, actor, relation, limit) {
-  return (await trainerContractsCache.get(`${trainerCacheKey(db, actor)}|${relation}|${limit}`, () => assignedContracts(db, actor, relation, limit))).value
+async function cachedAssignedContracts(db, actor, relation, limit, readVersion = '') {
+  return (await trainerContractsCache.get(`${trainerCacheKey(db, actor, readVersion)}|${relation}|${limit}`, () => assignedContracts(db, actor, relation, limit))).value
 }
 
-async function cachedAssignedStudents(db, actor, limit) {
-  return (await trainerAssignedStudentsCache.get(`${trainerCacheKey(db, actor)}|${limit}`, () => assignedStudentsForActor(db, actor, limit))).value
+async function cachedAssignedStudents(db, actor, limit, readVersion = '') {
+  return (await trainerAssignedStudentsCache.get(`${trainerCacheKey(db, actor, readVersion)}|${limit}`, () => assignedStudentsForActor(db, actor, limit, readVersion))).value
 }
 
-async function cachedTrainerSchedule(db, actor, from, to, limit) {
-  return (await trainerScheduleCache.get(`${trainerCacheKey(db, actor)}|${from}|${to}|${limit}`, () => trainerScheduleForActor(db, actor, from, to, limit))).value
+async function cachedTrainerSchedule(db, actor, from, to, limit, readVersion = '') {
+  return (await trainerScheduleCache.get(`${trainerCacheKey(db, actor, readVersion)}|${from}|${to}|${limit}`, () => trainerScheduleForActor(db, actor, from, to, limit))).value
 }
 
 function invalidateTrainerReadCaches(db, actor = null) {
@@ -150,6 +153,14 @@ function currentDateKey(now = new Date()) {
   }).formatToParts(now)
   const part = (type) => parts.find((item) => item.type === type)?.value || ''
   return `${part('year')}-${part('month')}-${part('day')}`
+}
+
+// Signals are read from the canonical database, never supplied by the caller.
+// Version every nested cache so a change event cannot hit an older 10–15s
+// entry and leave an event-driven screen stale until another mutation.
+// Eligibility and "today" also change at midnight without a document write.
+function workspaceCacheVersion(syncState, now = new Date()) {
+  return JSON.stringify([syncState.version, currentDateKey(now)])
 }
 
 function normalizedContact(value) {
@@ -671,10 +682,10 @@ function normalizedAvailabilitySlots(value, config, strict = true) {
   })
 }
 
-async function studentActor(request, db) {
+async function studentActor(request, db, accessOptions) {
   let actor
   try {
-    actor = await trustedAccessContext(request, db)
+    actor = await trustedAccessContext(request, db, accessOptions)
   } catch (error) {
     if (error?.code === 'permission-denied') {
       const accessSyncRequired = String(error?.message || '').includes('chưa đồng bộ')
@@ -729,8 +740,8 @@ async function assertPortalRollout(db, actor, portal) {
   if (!enabled && !canary) throw new HttpsError('failed-precondition', 'Portal đang được mở theo nhóm canary. Tài khoản của bạn chưa được kích hoạt.')
 }
 
-async function trainerActor(request, db) {
-  const actor = await trustedAccessContext(request, db)
+async function trainerActor(request, db, accessOptions) {
+  const actor = await trustedAccessContext(request, db, accessOptions)
   if (!['staff', 'admin', 'super_admin'].includes(actor.accessRole)) {
     throw new HttpsError('permission-denied', 'Trang làm việc HLV chỉ dành cho tài khoản nhân viên đang hoạt động.')
   }
@@ -843,13 +854,13 @@ async function salesCatalogForActor(db, actor) {
   return { branches, packages }
 }
 
-async function coachWorkspaceScopeForActor(db, actor) {
+async function coachWorkspaceScopeForActor(db, actor, readVersion = '') {
   const actorIds = [...new Set([actor.uid, actor.legacyStaffId].filter(Boolean))]
   // The cache loader still resolves the canonical assignedContracts(db, actor, 'nutrition')
   // query; keep the relation explicit here for source-level contract checks.
   const [trainingContracts, nutritionContracts, sessionSnapshots, requestSnapshots] = await Promise.all([
-    cachedAssignedContracts(db, actor, 'training', 300),
-    cachedAssignedContracts(db, actor, 'nutrition', 300),
+    cachedAssignedContracts(db, actor, 'training', 300, readVersion),
+    cachedAssignedContracts(db, actor, 'nutrition', 300, readVersion),
     Promise.all(actorIds.map((actorId) => db.collection('sessions').where('trainerId', '==', actorId).limit(200).get())),
     Promise.all(actorIds.map((actorId) => db.collection('sessionRequests').where('trainerId', '==', actorId).limit(100).get())),
   ])
@@ -901,9 +912,9 @@ async function coachWorkspaceScopeForActor(db, actor) {
   }
 }
 
-async function assignedStudentsForActor(db, actor, limit) {
+async function assignedStudentsForActor(db, actor, limit, readVersion = '') {
   const candidateLimit = Math.min(1000, Math.max(300, limit * 3))
-  const assigned = await cachedAssignedContracts(db, actor, 'training', candidateLimit)
+  const assigned = await cachedAssignedContracts(db, actor, 'training', candidateLimit, readVersion)
   // A PT sees eligible learners from every branch in their access scope,
   // including learners who are not assigned to that PT. Scheduled sessions
   // remain a separate access path and are merged by the workspace loader, so
@@ -1329,13 +1340,15 @@ function createPtOperationsV2Functions({
   })
 
   const listMyStudentPtSchedule = staffCall(async (request) => {
-    const actor = await studentActor(request, db)
+    const actor = await studentActor(request, db, { freshAssignment: true })
     const from = dateKey(request.data?.from, 'Ngày bắt đầu')
     const to = dateKey(request.data?.to, 'Ngày kết thúc')
     const requestedAvailabilityWeekId = availabilityWeekId(request.data?.availabilityWeekId)
     if (from > to || Date.parse(`${to}T00:00:00+07:00`) - Date.parse(`${from}T00:00:00+07:00`) > 366 * 86400000) {
       throw new HttpsError('invalid-argument', 'Khoảng lịch học viên tối đa là 366 ngày.')
     }
+    const syncState = await readWorkspaceChangeState({ db, uid: actor.uid, kind: 'student' })
+    const readVersion = workspaceCacheVersion(syncState)
     const profileResolution = await studentProfileForActor(db, actor)
     const profile = profileResolution.profile
     const configSnapshot = await db.doc('settings/scheduleConfig').get()
@@ -1343,6 +1356,7 @@ function createPtOperationsV2Functions({
     if (!profile) {
       return {
         schemaVersion: 4,
+        syncState,
         linked: false,
         identityLink: {
           status: 'profile_not_linked',
@@ -1362,7 +1376,7 @@ function createPtOperationsV2Functions({
     }
 
     const availabilityReference = db.doc(`ptAvailability/${profile.id}_${requestedAvailabilityWeekId}`)
-    const queryKey = `${cacheScope(db)}|${profile.id}|${from}|${to}|${requestedAvailabilityWeekId}|${studentAvailabilityCacheVersion(profile.value)}`
+    const queryKey = `${cacheScope(db)}|${profile.id}|${from}|${to}|${requestedAvailabilityWeekId}|${studentAvailabilityCacheVersion(profile.value)}|${readVersion}`
     const queryResult = await studentScheduleQueryCache.get(queryKey, () => Promise.all([
       db.collection('sessions')
         .where('studentId', '==', profile.id)
@@ -1477,6 +1491,7 @@ function createPtOperationsV2Functions({
       new Map([[profile.id, profile.value]]),
       exactAvailability,
       requestedAvailabilityWeekId,
+      readVersion,
     )
     const effectiveAvailability = effectiveStudentAvailability({
       targetWeek: requestedAvailabilityWeekId,
@@ -1511,6 +1526,7 @@ function createPtOperationsV2Functions({
     }, new Date(), config)
     return {
       schemaVersion: 4,
+      syncState,
       linked: true,
       identityLink: {
         status: 'linked',
@@ -1679,6 +1695,7 @@ function createPtOperationsV2Functions({
     })
     invalidateTrainerReadCaches(db, actor)
     studentScheduleQueryCache.clear(`${cacheScope(db)}|${profile.id}|`)
+    invalidateStudentAvailabilityFallbacks(db, profile.id)
     return {
       schemaVersion: 3,
       availableSlots: slots,
@@ -1719,9 +1736,11 @@ function createPtOperationsV2Functions({
   // Every Staff tab remains a separate page in the UI, while its initial
   // scope and page payload share one verified backend invocation/cold start.
   const getMyTrainerWorkspace = staffCall(async (request) => {
-    const actor = await trainerActor(request, db)
+    const actor = await trainerActor(request, db, { freshAssignment: true })
     const section = ['students', 'schedule', 'requests'].includes(request.data?.section) ? request.data.section : 'students'
-    const scopePromise = cachedCoachWorkspaceScope(db, actor)
+    const syncState = await readWorkspaceChangeState({ db, uid: actor.uid, branchIds: actor.branchIds, kind: 'trainer' })
+    const readVersion = workspaceCacheVersion(syncState)
+    const scopePromise = cachedCoachWorkspaceScope(db, actor, readVersion)
     if (section === 'students') {
       const from = dateKey(request.data?.from, 'Ngày bắt đầu')
       const to = dateKey(request.data?.to, 'Ngày kết thúc')
@@ -1734,8 +1753,8 @@ function createPtOperationsV2Functions({
         // trainerScheduleForActor(db, actor, from, to, scheduleLimit) are
         // intentionally wrapped by the short read-through caches below.
         scopePromise,
-        cachedAssignedStudents(db, actor, studentLimit),
-        cachedTrainerSchedule(db, actor, from, to, scheduleLimit),
+        cachedAssignedStudents(db, actor, studentLimit, readVersion),
+        cachedTrainerSchedule(db, actor, from, to, scheduleLimit, readVersion),
       ])
       const scheduleBranchIds = [...new Set(schedule.sessions
         .flatMap((session) => [session.studentBranchId, session.branchId])
@@ -1749,6 +1768,7 @@ function createPtOperationsV2Functions({
       const branches = [...new Map([...data.branches, ...scheduleBranches].map((branch) => [branch.id, branch])).values()]
       return {
         schemaVersion: 3,
+        syncState,
         scope,
         students: data.students,
         branches,
@@ -1763,10 +1783,10 @@ function createPtOperationsV2Functions({
     const limit = integer(request.data?.limit, 300, 1, 500)
     const [scope, data, roster] = await Promise.all([
       scopePromise,
-      cachedTrainerSchedule(db, actor, from, to, limit),
-      section === 'schedule' ? cachedAssignedStudents(db, actor, 500) : Promise.resolve({ students: [], branches: [], hasMore: false }),
+      cachedTrainerSchedule(db, actor, from, to, limit, readVersion),
+      section === 'schedule' ? cachedAssignedStudents(db, actor, 500, readVersion) : Promise.resolve({ students: [], branches: [], hasMore: false }),
     ])
-    return { schemaVersion: 2, scope, students: roster.students || [], branches: roster.branches || [], sessions: data.sessions, requests: data.requests, hasMore: Boolean(data.hasMore || roster.hasMore) }
+    return { schemaVersion: 2, syncState, scope, students: roster.students || [], branches: roster.branches || [], sessions: data.sessions, requests: data.requests, hasMore: Boolean(data.hasMore || roster.hasMore) }
   })
 
   const getMyTrainerStudentDetail = staffCall(async (request) => {
@@ -2424,4 +2444,5 @@ module.exports = {
   studentContractProjection,
   studentContractAlerts,
   trainerSlotsWithoutOffDates,
+  workspaceCacheVersion,
 }

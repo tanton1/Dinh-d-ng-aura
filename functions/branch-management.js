@@ -5,6 +5,7 @@ const { FieldValue } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
 const { trustedAccessContext, requireCapability } = require('./identity-access')
 const { withFunctionTelemetry } = require('./observability')
+const { writeWorkspacePolicyChange } = require('./workspace-change-signals')
 
 const BRANCH_CAPABILITY = 'identity.staff_position.manage'
 
@@ -87,6 +88,9 @@ async function branchCommand({ db, actor, data, correlationId, operation }) {
     if (currentRevision !== expectedRevision) throw new HttpsError('aborted', 'Chi nhánh vừa được người khác cập nhật. Hãy tải lại rồi thử lại.')
     if (current.status === 'archived') throw new HttpsError('failed-precondition', 'Chi nhánh đã lưu trữ và không thể chỉnh sửa hoặc lưu trữ lần nữa.')
 
+    // Branch names can appear on assigned sessions outside a PT's home branch.
+    // Commit the metadata revision atomically; replayed receipts return above.
+    await writeWorkspacePolicyChange({ db, transaction, student: false, trainer: true })
     const nextRevision = currentRevision + 1
     const now = FieldValue.serverTimestamp()
     if (creating) {

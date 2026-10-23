@@ -219,3 +219,37 @@ test('an operational-only staff save never changes Auth contacts', () => {
   assert.equal(result.email, 'canonical@aura.vn')
   assert.equal(result.phoneNumber, '+84987654321')
 })
+
+
+test('event-driven reads see revoked assignments immediately inside the normal assignment cache window', async () => {
+  const { trustedAccessContext } = require('./identity-access')
+  let assignment = { accessRole: 'staff', positions: ['trainer_pt'], branchIds: ['branch-a'], status: 'active', authzVersion: 1 }
+  let assignmentReads = 0
+  const db = { doc(path) { return { async get() {
+    const value = path.startsWith('users/') ? { role: 'trainer', displayName: 'PT', disabled: false } : structuredClone(assignment)
+    if (path.startsWith('roleAssignments/')) assignmentReads += 1
+    return { exists: true, data: () => value }
+  } } } }
+  const request = { auth: { uid: 'fresh-assignment-pt', token: { role: 'trainer', accessRole: 'staff', authzVersion: 1 } } }
+  assert.deepEqual((await trustedAccessContext(request, db)).branchIds, ['branch-a'])
+  await trustedAccessContext(request, db)
+  assert.equal(assignmentReads, 1)
+  assignment = { ...assignment, status: 'suspended' }
+  await assert.rejects(trustedAccessContext(request, db, { freshAssignment: true }), { code: 'permission-denied' })
+  assert.equal(assignmentReads, 2)
+})
+
+test('event-driven reads use the current branch assignment and still reject stale authorization claims', async () => {
+  const { trustedAccessContext } = require('./identity-access')
+  let assignment = { accessRole: 'staff', positions: ['trainer_pt'], branchIds: ['branch-a'], status: 'active', authzVersion: 1 }
+  const db = { doc(path) { return { async get() {
+    const value = path.startsWith('users/') ? { role: 'trainer', disabled: false } : structuredClone(assignment)
+    return { exists: true, data: () => value }
+  } } } }
+  const request = { auth: { uid: 'fresh-branch-pt', token: { role: 'trainer', accessRole: 'staff', authzVersion: 1 } } }
+  await trustedAccessContext(request, db)
+  assignment = { ...assignment, branchIds: ['branch-b'], authzVersion: 2 }
+  await assert.rejects(trustedAccessContext(request, db, { freshAssignment: true }), { code: 'permission-denied' })
+  const updatedRequest = { auth: { ...request.auth, token: { ...request.auth.token, authzVersion: 2 } } }
+  assert.deepEqual((await trustedAccessContext(updatedRequest, db, { freshAssignment: true })).branchIds, ['branch-b'])
+})

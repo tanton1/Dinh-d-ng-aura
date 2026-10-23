@@ -40,6 +40,8 @@ function createProcessCache({ ttlMs = 5_000, maxEntries = 256 } = {}) {
     if (current) return { value: await current, hit: false, coalesced: true }
 
     const request = Promise.resolve().then(loader).then((value) => {
+      // A mutation can retire this in-flight read before it completes.
+      if (pending.get(key) !== request) return value
       entries.set(key, { value, expiresAt: Date.now() + Math.max(0, customTtlMs) })
       trim()
       return value

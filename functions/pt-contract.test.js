@@ -349,14 +349,14 @@ test('Sales workspace bootstraps quotes and catalog through one actor-scoped cal
 
 test('Trainer pages keep separate sections while sharing one actor-scoped bootstrap callable', () => {
   assert.match(operationsV2Source, /const getMyTrainerWorkspace = staffCall/)
-  assert.match(operationsV2Source, /const actor = await trainerActor\(request, db\)/)
-  assert.match(operationsV2Source, /coachWorkspaceScopeForActor\(db, actor\)/)
+  assert.match(operationsV2Source, /const actor = await trainerActor\(request, db, \{ freshAssignment: true \}\)/)
+  assert.match(operationsV2Source, /coachWorkspaceScopeForActor\(db, actor, readVersion\)/)
   assert.match(operationsV2Source, /students: trainingStudentIds\.size > 0/)
   assert.match(operationsV2Source, /isEffectiveStaffContract\(contract, today\)/)
-  assert.match(operationsV2Source, /assignedStudentsForActor\(db, actor, limit\)/)
+  assert.match(operationsV2Source, /assignedStudentsForActor\(db, actor, limit, readVersion\)/)
   assert.match(operationsV2Source, /return \{ schemaVersion: 3, students, branches, hasMore:/)
   assert.match(operationsV2Source, /trainerScheduleForActor\(db, actor, from, to, limit\)/)
-  assert.match(operationsV2Source, /section === 'students'[\s\S]*?Promise\.all\(\[[\s\S]*?assignedStudentsForActor\(db, actor, studentLimit\)[\s\S]*?trainerScheduleForActor\(db, actor, from, to, scheduleLimit\)/)
+  assert.match(operationsV2Source, /section === 'students'[\s\S]*?Promise\.all\(\[[\s\S]*?cachedAssignedStudents\(db, actor, studentLimit, readVersion\)[\s\S]*?cachedTrainerSchedule\(db, actor, from, to, scheduleLimit, readVersion\)/)
   assert.match(operationsV2Source, /studentPhone: student\?\.phone \|\| ''/)
   assert.match(operationsV2Source, /studentBranchId: student\?\.branchId \|\| session\.branchId \|\| ''/)
   assert.match(operationsV2Source, /contractEffective,/)

@@ -253,9 +253,9 @@ async function latestSubmittedBeforeWeek(db, studentId, targetWeek) {
   return null
 }
 
-async function cachedLatestSubmittedBeforeWeek(db, studentId, targetWeek) {
+async function cachedLatestSubmittedBeforeWeek(db, studentId, targetWeek, readVersion = '') {
   const cache = fallbackCacheFor(db)
-  const key = `${studentId}|${targetWeek}`
+  const key = `${studentId}|${targetWeek}|${readVersion}`
   const now = Date.now()
   const cached = cache.entries.get(key)
   if (cached && now - cached.storedAt < FALLBACK_CACHE_TTL_MS) return cached.value
@@ -263,6 +263,9 @@ async function cachedLatestSubmittedBeforeWeek(db, studentId, targetWeek) {
   const pending = cache.pending.get(key)
   if (pending) return pending
   const request = latestSubmittedBeforeWeek(db, studentId, targetWeek).then((value) => {
+    // A manual availability save can retire this request before it finishes.
+    // Do not let the old result repopulate a cleared entry after that save.
+    if (cache.pending.get(key) !== request) return value
     cache.entries.delete(key)
     cache.entries.set(key, { value, storedAt: Date.now() })
     while (cache.entries.size > FALLBACK_CACHE_LIMIT) cache.entries.delete(cache.entries.keys().next().value)
@@ -274,7 +277,15 @@ async function cachedLatestSubmittedBeforeWeek(db, studentId, targetWeek) {
   return request
 }
 
-async function loadLatestSubmittedFallbacks(db, profiles, exactAvailability, targetWeek) {
+function invalidateStudentAvailabilityFallbacks(db, studentId) {
+  const cache = fallbackCaches.get(db)
+  if (!cache) return
+  const prefix = `${studentId}|`
+  for (const key of cache.entries.keys()) if (key.startsWith(prefix)) cache.entries.delete(key)
+  for (const key of cache.pending.keys()) if (key.startsWith(prefix)) cache.pending.delete(key)
+}
+
+async function loadLatestSubmittedFallbacks(db, profiles, exactAvailability, targetWeek, readVersion = '') {
   const result = new Map()
   const unresolved = []
   for (const [studentId, profile] of profiles) {
@@ -288,7 +299,7 @@ async function loadLatestSubmittedFallbacks(db, profiles, exactAvailability, tar
   // from turning a 500-student branch into 25 sequential network rounds.
   for (let index = 0; index < unresolved.length; index += 50) {
     const chunk = unresolved.slice(index, index + 50)
-    const values = await Promise.all(chunk.map((studentId) => cachedLatestSubmittedBeforeWeek(db, studentId, targetWeek)))
+    const values = await Promise.all(chunk.map((studentId) => cachedLatestSubmittedBeforeWeek(db, studentId, targetWeek, readVersion)))
     values.forEach((value, valueIndex) => {
       if (value) result.set(chunk[valueIndex], value)
     })
@@ -299,6 +310,7 @@ async function loadLatestSubmittedFallbacks(db, profiles, exactAvailability, tar
 module.exports = {
   availabilityReopenForWeek,
   effectiveStudentAvailability,
+  invalidateStudentAvailabilityFallbacks,
   latestProfileAvailability,
   latestSubmittedBeforeWeek,
   legacyDefaultAvailability,

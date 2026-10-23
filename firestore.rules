@@ -82,6 +82,19 @@ service cloud.firestore {
              && currentUser().get('disabled', false) != true;
     }
 
+    // Metadata only; branch access follows the live assignment, never caller scope.
+    function followsWorkspaceBranch(branchId) {
+      return signedIn()
+             && currentUser().get('disabled', false) != true
+             && ((exists(/databases/$(database)/documents/roleAssignments/$(request.auth.uid))
+                  && get(/databases/$(database)/documents/roleAssignments/$(request.auth.uid)).data.get('accessRole', '') == 'staff'
+                  && get(/databases/$(database)/documents/roleAssignments/$(request.auth.uid)).data.get('status', '') == 'active'
+                  && get(/databases/$(database)/documents/roleAssignments/$(request.auth.uid)).data.get('branchIds', []).hasAny([branchId]))
+                 || (!exists(/databases/$(database)/documents/roleAssignments/$(request.auth.uid))
+                     && hasRole(['coach', 'trainer', 'manager', 'branch_manager', 'nutritionist'])
+                     && currentUser().get('branchId', '') == branchId));
+    }
+
     function canManageCourseAfter(courseId) {
       return isAdmin()
              || (hasRole(['editor'])
@@ -371,6 +384,22 @@ service cloud.firestore {
              && data.sessionsByDay is map
              && (!data.keys().hasAny(['weeksByWeek']) || data.weeksByWeek is map)
              && data.createdAt == request.time;
+    }
+
+    match /users/{userId}/workspaceChanges/{signalId} {
+      // Path-based access works before the first revision document exists.
+      allow get: if isOwner(userId) && signalId == 'operations';
+      allow list, write: if false;
+    }
+
+    match /workspaceBranchChanges/{branchId} {
+      allow get: if isAdmin() || followsWorkspaceBranch(branchId);
+      allow list, write: if false;
+    }
+
+    match /workspaceChanges/{signalId} {
+      allow get: if signedIn() && signalId == 'policy';
+      allow list, write: if false;
     }
 
     match /users/{userId} {

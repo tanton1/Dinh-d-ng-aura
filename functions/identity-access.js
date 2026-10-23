@@ -437,7 +437,7 @@ async function identityDirectorySummary(db) {
   return value
 }
 
-async function trustedAccessContext(request, db) {
+async function trustedAccessContext(request, db, { freshAssignment = false } = {}) {
   const uid = request.auth?.uid
   if (!uid) throw new HttpsError('unauthenticated', 'Bạn cần đăng nhập để tiếp tục.')
   const claims = request.auth.token || {}
@@ -446,7 +446,7 @@ async function trustedAccessContext(request, db) {
   // the many staff callables opened together by a page.
   const [profileSnapshot, assignmentResult] = await Promise.all([
     db.doc(`users/${uid}`).get(),
-    trustedAssignmentCache.get(
+    freshAssignment ? db.doc(`roleAssignments/${uid}`).get().then((value) => ({ value })) : trustedAssignmentCache.get(
       `${cacheScope(db)}|${uid}|${String(claims.accessRole || '')}|${String(claims.authzVersion || '')}|${String(claims.role || '')}`,
       () => db.doc(`roleAssignments/${uid}`).get(),
     ),

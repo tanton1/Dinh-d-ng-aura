@@ -5,7 +5,7 @@ import {
   assertSucceeds,
   initializeTestEnvironment,
 } from '@firebase/rules-unit-testing'
-import { deleteDoc, doc, getDoc, serverTimestamp, setDoc, updateDoc } from 'firebase/firestore'
+import { collection, deleteDoc, doc, getDoc, getDocs, serverTimestamp, setDoc, updateDoc } from 'firebase/firestore'
 
 const projectId = 'demo-aura-fitness'
 const rulesPath = new URL('../firestore.rules', import.meta.url)
@@ -229,6 +229,74 @@ describe('Aura PT Firestore rules', () => {
 
   after(async () => {
     await testEnvironment?.cleanup()
+  })
+
+  test('workspace revisions allow only owner gets, including missing documents, and never browser writes or lists', async () => {
+    const owner = authenticatedDb('client-1', 'student')
+    const other = authenticatedDb('other-client', 'student')
+    const admin = authenticatedDb('admin-1', 'admin')
+    const path = ['users', 'client-1', 'workspaceChanges', 'operations']
+    await assertSucceeds(getDoc(doc(owner, ...path)))
+    await testEnvironment.withSecurityRulesDisabled(async (context) => {
+      await setDoc(doc(context.firestore(), ...path), { studentScheduleVersion: '123', trainerWorkspaceVersion: '0' })
+    })
+    await assertSucceeds(getDoc(doc(owner, ...path)))
+    for (const db of [other, admin, testEnvironment.unauthenticatedContext().firestore()]) {
+      await assertFails(getDoc(doc(db, ...path)))
+    }
+    await assertFails(getDocs(collection(owner, 'users', 'client-1', 'workspaceChanges')))
+    await assertFails(getDoc(doc(owner, 'users', 'client-1', 'workspaceChanges', 'other')))
+    for (const db of [owner, other, admin]) {
+      await assertFails(setDoc(doc(db, ...path), { studentScheduleVersion: 'forged' }))
+      await assertFails(deleteDoc(doc(db, ...path)))
+    }
+  })
+
+  test('branch revisions follow active PT branch membership and never grant access to business records', async () => {
+    await testEnvironment.withSecurityRulesDisabled(async (context) => {
+      await setDoc(doc(context.firestore(), 'roleAssignments', 'coach-1'), {
+        accessRole: 'staff', positions: ['trainer'], status: 'active', branchIds: ['branch-a'],
+      })
+    })
+    const trainer = authenticatedDb('coach-1', 'coach')
+    const path = ['workspaceBranchChanges', 'branch-a']
+    // A listener must be attachable even before the first relevant mutation.
+    await assertSucceeds(getDoc(doc(trainer, ...path)))
+    await assertSucceeds(getDoc(doc(authenticatedDb('manager-1', 'manager'), ...path)))
+    await assertSucceeds(getDoc(doc(authenticatedDb('admin-1', 'admin'), ...path)))
+    await assertFails(getDoc(doc(trainer, 'workspaceBranchChanges', 'branch-b')))
+    await assertFails(getDoc(doc(authenticatedDb('manager-other', 'manager'), ...path)))
+    await assertFails(getDoc(doc(authenticatedDb('client-1', 'student'), ...path)))
+    await assertFails(getDoc(doc(testEnvironment.unauthenticatedContext().firestore(), ...path)))
+    await assertFails(getDocs(collection(trainer, 'workspaceBranchChanges')))
+    await assertFails(getDoc(doc(trainer, 'sessions', 'legacy-session-1')))
+    await assertFails(getDoc(doc(trainer, 'contractUsageViews', 'legacy-contract-1')))
+    for (const db of [trainer, authenticatedDb('admin-1', 'admin')]) {
+      await assertFails(setDoc(doc(db, ...path), { trainerWorkspaceVersion: 'forged' }))
+    }
+    await testEnvironment.withSecurityRulesDisabled(async (context) => {
+      await updateDoc(doc(context.firestore(), 'roleAssignments', 'coach-1'), { status: 'suspended' })
+      await updateDoc(doc(context.firestore(), 'users', 'manager-1'), { disabled: true })
+    })
+    await assertFails(getDoc(doc(trainer, ...path)))
+    await assertFails(getDoc(doc(authenticatedDb('manager-1', 'manager'), ...path)))
+  })
+
+  test('legacy PT branch revisions and policy metadata remain get-only', async () => {
+    await testEnvironment.withSecurityRulesDisabled(async (context) => {
+      await updateDoc(doc(context.firestore(), 'users', 'coach-1'), { branchId: 'branch-a' })
+    })
+    const trainer = authenticatedDb('coach-1', 'coach')
+    const student = authenticatedDb('client-1', 'student')
+    await assertSucceeds(getDoc(doc(trainer, 'workspaceBranchChanges', 'branch-a')))
+    await assertFails(getDoc(doc(authenticatedDb('coach-1', 'student'), 'workspaceBranchChanges', 'branch-a')))
+    for (const db of [trainer, student, authenticatedDb('admin-1', 'admin')]) {
+      await assertSucceeds(getDoc(doc(db, 'workspaceChanges', 'policy')))
+      await assertFails(getDoc(doc(db, 'workspaceChanges', 'other')))
+      await assertFails(getDocs(collection(db, 'workspaceChanges')))
+      await assertFails(setDoc(doc(db, 'workspaceChanges', 'policy'), { trainerWorkspaceVersion: 'forged' }))
+    }
+    await assertFails(getDoc(doc(testEnvironment.unauthenticatedContext().firestore(), 'workspaceChanges', 'policy')))
   })
 
   test('UI rollout config is readable by signed-in users and never browser-writable', async () => {
