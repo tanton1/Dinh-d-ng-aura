@@ -159,7 +159,7 @@ function renewalRisk(contract, today = vietnamDateKey()) {
   const daysLeft = dateOrdinal(contract.endDate) - dateOrdinal(today)
   if (sessionsLeft <= 0 && daysLeft >= 0) return { category: 'exhausted', daysLeft, sessionsLeft }
   if (daysLeft < 0 || contract.status === 'expired') return { category: 'expired', daysLeft, sessionsLeft }
-  if (daysLeft <= 7 || sessionsLeft <= 1) return { category: 'critical', daysLeft, sessionsLeft }
+  if (daysLeft < 7 || sessionsLeft < 3) return { category: 'critical', daysLeft, sessionsLeft }
   if (daysLeft <= 30 || sessionsLeft <= 3) return { category: 'upcoming', daysLeft, sessionsLeft }
   if (daysLeft <= 60 || sessionsLeft <= 5) return { category: 'early', daysLeft, sessionsLeft }
   return { category: 'healthy', daysLeft, sessionsLeft }
@@ -453,7 +453,22 @@ function decodeCursor(value) {
   }
 }
 
-function publicCase(value, actor = { renewalCanSell: true }) {
+// Risk fields are a cached projection. Apply today's date and current alert
+// thresholds before filtering/counting, without rewriting the case revision.
+function renewalCaseProjection(value, today = vietnamDateKey()) {
+  const contract = value.contractSnapshot
+  if (!contract?.endDate || contract.totalSessions == null || contract.usedSessions == null
+    || value.active === false || closedStages.has(value.stage)) return value
+  const risk = renewalRisk(contract, today)
+  return {
+    ...value, riskCategory: risk.category === 'healthy' ? 'early' : risk.category,
+    daysLeft: risk.daysLeft, sessionsLeft: risk.sessionsLeft,
+    priorityScore: priorityScore(risk, value.slaDueAt, today),
+  }
+}
+
+function publicCase(storedValue, actor = { renewalCanSell: true }) {
+  const value = renewalCaseProjection(storedValue)
   const stage = renewalStages.has(value.stage) ? value.stage : 'uncontacted'
   const student = value.studentSnapshot || { id: value.studentId || '', name: 'Chưa cập nhật tên', phone: '', email: '' }
   const sourceContract = value.contractSnapshot || {}
@@ -479,6 +494,7 @@ function publicCase(value, actor = { renewalCanSell: true }) {
 }
 
 async function scopedCaseDocuments(db, actor, includeClosed = false) {
+  const today = vietnamDateKey()
   const snapshots = []
   if (actor.renewalScope === 'system') snapshots.push(await db.collection('contractRenewalCases').limit(maximumCases + 1).get())
   else if (actor.renewalScope === 'self') {
@@ -496,7 +512,7 @@ async function scopedCaseDocuments(db, actor, includeClosed = false) {
   const documents = new Map()
   snapshots.forEach((snapshot) => snapshot.docs.forEach((item) => {
     const value = { id: item.id, ...item.data() }
-    if (canViewCase(actor, value) && (includeClosed || value.active !== false)) documents.set(item.id, value)
+    if (canViewCase(actor, value) && (includeClosed || value.active !== false)) documents.set(item.id, renewalCaseProjection(value, today))
   }))
   return { documents: [...documents.values()], truncated: snapshots.some((item) => item.size > maximumCases) }
 }
@@ -817,6 +833,8 @@ function createContractRenewalFunctions({ db, onCall, onSchedule, logger, resolv
     let values = documents.filter((item) => matchesListInput(item, input))
     if (input.sort === 'value') values.sort((a, b) => Number(b.expectedValue || 0) - Number(a.expectedValue || 0) || caseSort(a, b))
     else if (input.sort === 'follow_up') values.sort((a, b) => String(a.nextActionAt || '9999').localeCompare(String(b.nextActionAt || '9999')) || caseSort(a, b))
+    // Recent expiry defaults to the nearest past end date, across all pages.
+    else if (input.segment === 'expired_last_30d') values.sort((a, b) => Number(b.daysLeft) - Number(a.daysLeft) || caseSort(a, b))
     else values.sort(caseSort)
     if (input.cursor) {
       const cursorIndex = values.findIndex((item) => item.id === input.cursor.id)

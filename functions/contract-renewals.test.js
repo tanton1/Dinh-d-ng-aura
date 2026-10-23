@@ -1,6 +1,7 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
-const { addMonthsDateKey, normalizeInstallments, renewalRisk, renewalEligibility, renewalHandoverProjection, renewalActivationProjection, renewalUsageProjection, latestContractsByStudent, requiresRenewalApproval, renewalQueueFingerprint, matchesRenewalSegment, renewalStats, renewalMessageTemplates, caseAssignedToTrainer, canViewCase } = require('./contract-renewals')
+const { addMonthsDateKey, normalizeInstallments, renewalRisk, renewalEligibility, renewalHandoverProjection, renewalActivationProjection, renewalUsageProjection, latestContractsByStudent, requiresRenewalApproval, renewalQueueFingerprint, matchesRenewalSegment, renewalStats, renewalMessageTemplates, caseAssignedToTrainer, canViewCase, createContractRenewalFunctions } = require('./contract-renewals')
+const { vietnamDateKey, addDateDays } = require('./pt-policy')
 
 test('regional confirmation reuses authorization and transaction without exporting a second scheduler', async () => {
   const { createContractRenewalFunctions } = require('./contract-renewals')
@@ -117,6 +118,103 @@ test('renewal risk prioritises exhausted, expired and near-expiry contracts', ()
   assert.equal(renewalRisk({ endDate: '2026-08-20', totalSessions: 10, usedSessions: 5 }, '2026-08-24').category, 'expired')
   assert.equal(renewalRisk({ endDate: '2026-08-30', totalSessions: 10, usedSessions: 5 }, '2026-08-24').category, 'critical')
   assert.equal(renewalRisk({ endDate: '2026-09-15', totalSessions: 10, usedSessions: 5 }, '2026-08-24').category, 'upcoming')
+})
+
+test('next-week renewal warning uses strict OR thresholds: fewer than 3 sessions or 7 days', () => {
+  const today = '2026-10-23'
+  for (const [daysLeft, sessionsLeft, category] of [
+    [30, 2, 'critical'], [30, 1, 'critical'], [6, 10, 'critical'], [6, 2, 'critical'],
+    [7, 3, 'upcoming'], [30, 3, 'upcoming'], [7, 10, 'upcoming'], [0, 10, 'critical'],
+    [30, 0, 'exhausted'], [-1, 2, 'expired'], [-30, 0, 'expired'],
+  ]) {
+    const risk = renewalRisk({ endDate: addDateDays(today, daysLeft), totalSessions: 12, usedSessions: 12 - sessionsLeft }, today)
+    assert.deepEqual(risk, { category, daysLeft, sessionsLeft }, `${daysLeft} days / ${sessionsLeft} sessions`)
+  }
+})
+
+function renewalQueueCase(id, daysLeft, sessionsLeft, overrides = {}) {
+  const today = vietnamDateKey()
+  return {
+    id, sourceContractId: id, studentId: `student-${id}`, active: true, stage: 'uncontacted',
+    studentSnapshot: { id: `student-${id}`, name: id }, branchId: 'branch-1',
+    riskCategory: 'early', daysLeft: 60, sessionsLeft: 9, priorityScore: 0,
+    slaDueAt: addDateDays(today, 3), revision: 4,
+    contractSnapshot: { id, status: 'active', endDate: addDateDays(today, daysLeft), totalSessions: 12, usedSessions: 12 - sessionsLeft },
+    ...overrides,
+  }
+}
+
+// Read-only callable fixture: no writes or nightly queue refresh are available.
+function renewalQueueApi(cases) {
+  const snapshot = (value) => ({ id: value?.id, exists: Boolean(value), data: () => value })
+  function query(values) {
+    return {
+      limit: (maximum) => query(values.slice(0, maximum)),
+      where: (field, _operator, expected) => query(values.filter((value) => value[field] === expected)),
+      orderBy: () => query(values),
+      get: async () => ({ docs: values.map(snapshot), size: values.length }),
+    }
+  }
+  const db = {
+    collection: (name) => query(name === 'contractRenewalCases' ? cases : []),
+    doc: (path) => ({ get: async () => snapshot(cases.find((value) => path === `contractRenewalCases/${value.id}`)) }),
+  }
+  return createContractRenewalFunctions({ db, onCall: (_options, handler) => handler,
+    resolveActor: async () => ({ uid: 'admin', renewalScope: 'system', renewalCanSell: true, branchIds: [] }),
+  })
+}
+
+test('queue filters, counts and detail apply current warnings to cached cases without a refresh or revision change', async () => {
+  const cases = [
+    renewalQueueCase('two-sessions', 30, 2), renewalQueueCase('six-days', 6, 10),
+    renewalQueueCase('at-boundary', 7, 3, { riskCategory: 'critical' }), renewalQueueCase('just-expired', -1, 4),
+  ]
+  const before = structuredClone(cases)
+  const api = renewalQueueApi(cases)
+  const result = await api.listContractRenewalCases({ data: { risk: 'critical' } })
+  assert.deepEqual(result.rows.map((row) => row.id).sort(), ['six-days', 'two-sessions'])
+  assert.equal(result.stats.riskCounts.critical, 2)
+  assert.equal(result.stats.riskCounts.upcoming, 1)
+  assert.equal(result.stats.riskCounts.expired, 1)
+  assert.equal(result.stats.segmentCounts.expired_last_30d, 1)
+  assert.deepEqual(result.rows.find((row) => row.id === 'two-sessions').risk, { category: 'critical', daysLeft: 30, sessionsLeft: 2 })
+  const detail = await api.getContractRenewalCaseDetail({ data: { caseId: 'two-sessions' } })
+  assert.deepEqual(detail.case.risk, result.rows.find((row) => row.id === 'two-sessions').risk)
+  assert.equal(detail.case.revision, 4)
+  assert.deepEqual(cases, before)
+})
+
+test('recent expiry sorts nearest expired first before pagination, including day 30 and excluding day 31', async () => {
+  const today = vietnamDateKey()
+  const api = renewalQueueApi([
+    renewalQueueCase('oldest', -30, 4, { slaDueAt: addDateDays(today, -30) }),
+    renewalQueueCase('outside', -31, 4), renewalQueueCase('middle', -5, 4),
+    renewalQueueCase('newest-b', -1, 4), renewalQueueCase('newest-a', -1, 4),
+    renewalQueueCase('expires-today', 0, 4),
+  ])
+  const input = { segment: 'expired_last_30d', pageSize: 2 }
+  const first = await api.listContractRenewalCases({ data: input })
+  assert.deepEqual(first.rows.map((row) => row.id), ['newest-a', 'newest-b'])
+  assert.equal(first.stats.segmentCounts.expired_last_30d, 4)
+  assert.equal(first.hasMore, true)
+  const second = await api.listContractRenewalCases({ data: { ...input, cursor: first.nextCursor } })
+  assert.deepEqual(second.rows.map((row) => row.id), ['middle', 'oldest'])
+  assert.equal(second.hasMore, false)
+  assert.equal(second.nextCursor, null)
+})
+
+test('other queues retain priority sorting and recent expiry respects an explicitly chosen value or follow-up sort', async () => {
+  const today = vietnamDateKey()
+  const api = renewalQueueApi([
+    renewalQueueCase('older', -20, 4, { expectedValue: 900, nextActionAt: addDateDays(today, 1) }),
+    renewalQueueCase('recent', -1, 4, { expectedValue: 100, nextActionAt: addDateDays(today, 3) }),
+  ])
+  const all = await api.listContractRenewalCases({ data: {} })
+  assert.deepEqual(all.rows.map((row) => row.id), ['older', 'recent'])
+  for (const sort of ['value', 'follow_up']) {
+    const result = await api.listContractRenewalCases({ data: { segment: 'expired_last_30d', sort } })
+    assert.deepEqual(result.rows.map((row) => row.id), ['older', 'recent'])
+  }
 })
 
 test('renewal cohort requires both a configured end threshold and consumed program ratio', () => {
