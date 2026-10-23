@@ -201,6 +201,9 @@ async function seedPtSecurityFixtures() {
       setDoc(doc(db, 'ptScheduleDrafts', 'branch-a_2026-08-24'), {
         branchId: 'branch-a', weekId: '2026-08-24', revision: 2, schedule: {},
       }),
+      setDoc(doc(db, 'ptScheduleWeeklyViews', 'branch-a_2026-08-24'), {
+        branchId: 'branch-a', weekId: '2026-08-24', schemaVersion: 2, dirty: false,
+      }),
     ])
   })
 }
@@ -485,6 +488,31 @@ describe('Aura PT Firestore rules', () => {
     await assertFails(setDoc(doc(branchManagerDb, ...draftPath), { branchId: 'branch-a', revision: 999 }))
     await assertFails(getDoc(doc(adminDb, ...receiptPath)))
     await assertFails(setDoc(doc(adminDb, ...receiptPath), { forged: true }))
+  })
+
+  test('PT weekly views allow scoped realtime reads but reject other branches, learners, mismatched claims and every browser write', async () => {
+    const viewPath = ['ptScheduleWeeklyViews', 'branch-a_2026-08-24']
+    const allowed = [authenticatedDb('admin-1', 'admin'), authenticatedDb('super-1', 'super_admin'), authenticatedDb('manager-1', 'manager')]
+    for (const db of allowed) {
+      await assertSucceeds(getDoc(doc(db, ...viewPath)))
+      await assertFails(setDoc(doc(db, ...viewPath), { branchId: 'branch-a', forged: true }))
+    }
+    const denied = [
+      authenticatedDb('manager-other', 'manager'), authenticatedDb('client-1', 'student'),
+      authenticatedDb('coach-1', 'coach'), authenticatedDb('admin-1', 'super_admin'),
+      testEnvironment.unauthenticatedContext().firestore(),
+    ]
+    for (const db of denied) await assertFails(getDoc(doc(db, ...viewPath)))
+  })
+
+  test('PT weekly views reject disabled administrators and suspended branch managers', async () => {
+    await testEnvironment.withSecurityRulesDisabled(async (context) => {
+      await updateDoc(doc(context.firestore(), 'users', 'admin-1'), { disabled: true })
+      await updateDoc(doc(context.firestore(), 'roleAssignments', 'manager-1'), { status: 'suspended' })
+    })
+    const viewPath = ['ptScheduleWeeklyViews', 'branch-a_2026-08-24']
+    await assertFails(getDoc(doc(authenticatedDb('admin-1', 'admin'), ...viewPath)))
+    await assertFails(getDoc(doc(authenticatedDb('manager-1', 'manager'), ...viewPath)))
   })
 
   test('automatic session billing and attendance corrections are admin-readable but callable-only', async () => {
