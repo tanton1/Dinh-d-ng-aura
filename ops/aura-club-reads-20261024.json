@@ -1,0 +1,74 @@
+{
+  "change": "Aura Club dashboard read projection and Jakarta routing",
+  "date": "2026-10-24",
+  "project": "gen-lang-client-0815966909",
+  "database": "ai-studio-aurafitnesselear-0f7609b4-b8d1-4fb3-9d62-99a2c03e1ce7",
+  "region": "asia-southeast2",
+  "regionEvidence": {
+    "observedAt": "2026-10-24T14:55:00Z",
+    "cpuQuotaMilliVcpu": 20000,
+    "lastObservedCpuAllocation": 1166,
+    "peakCpuAllocationPreviousHour": 2332,
+    "headroomAtObservedPeakPercent": 88.34,
+    "existingFunctionsInRegion": 23,
+    "projectRegionQuota": 3,
+    "note": "Observed usage is time-specific. Configured CPU times maxInstances is not measured usage or cost. Reuse Jakarta; do not allocate a fourth region."
+  },
+  "newRegionalFunctions": [
+    "getLoyaltyAdminDashboardRegional",
+    "syncLoyaltyDashboardStudent",
+    "syncLoyaltyDashboardAccount",
+    "syncLoyaltyDashboardRedemption",
+    "syncLoyaltyDashboardReferral",
+    "syncLoyaltyDashboardAmbassador"
+  ],
+  "otherUpdatedFunctions": [
+    "getLoyaltyAdminDashboard",
+    "listLoyaltyRedemptions",
+    "listLoyaltyRedemptionsRegional",
+    "syncLoyaltyAttendance"
+  ],
+  "projection": {
+    "schemaVersion": 1,
+    "shardsPerScope": 4,
+    "collections": ["loyaltyDashboardContributions", "loyaltyDashboardSummaries", "loyaltyDashboardState"],
+    "globalBusinessReads": 7,
+    "readBreakdown": { "readiness": 1, "summaryShards": 4, "settings": 1, "policy": 1 },
+    "excludes": ["authentication", "separately loaded redemption queue and member details"],
+    "scopedReads": "Four stored shards per occupied branch scope; at most twenty authorized branches. Cross-branch redemptions require both branches and count once.",
+    "writeCost": "Relevant source writes use a transaction reading the current source, previous contribution and current student where applicable (2–3 documents), then write contribution and changed summary shards. Metadata-only changes are skipped.",
+    "consistency": "Eventual report updates through retryable Eventarc handlers; financial balances remain authoritative. Current-source transaction fences duplicate and out-of-order events.",
+    "initializationCompletedAt": "2026-10-24T15:19:00.393Z",
+    "initializedSources": 729,
+    "students": 366,
+    "wallets": 363,
+    "summaryDocuments": 12,
+    "availablePoints": 33422,
+    "pendingPoints": 150,
+    "sourceComparisonDifferences": 0,
+    "financialWritesDuringInitialization": 0
+  },
+  "client": [
+    "Overview uses the Jakarta alias with one attempt per region and legacy read-only fallback.",
+    "Redemption queue requests pending/approved only and loads independently from overview.",
+    "Member and reward operations load when their panel is opened; exact student deep links open it automatically.",
+    "Account balances, earning policy and redemption writes are not result-cached."
+  ],
+  "validation": {
+    "functionsTests": 1206,
+    "emulatorIntegrationTests": 18,
+    "independentLoyaltyUiTests": 22,
+    "responsiveLoyaltyTests": 24,
+    "productionReadBudget": 7,
+    "productionDependencyIndexes": "READY and queries executed against the named database",
+    "productionBusinessVerification": "Read-only operator verification of projections and source totals; no impersonated user callable or test award."
+  },
+  "rollout": [
+    "Deploy three scoped dependency indexes.",
+    "Deploy and verify the five Jakarta projection workers, including source hashes and serving revisions.",
+    "Initialize projection records idempotently; compare every scope with the current source data before marking ready.",
+    "Deploy optimized canonical/alias readers and attendance no-op guard.",
+    "Verify actual serving revisions, unauthenticated rejection, Eventarc filters and error logs.",
+    "Release frontend only after the regional reader is healthy; verify exact deployed commit on both public domains."
+  ]
+}

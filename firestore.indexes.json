@@ -1,5 +1,9 @@
 {
   "indexes": [
+    {"collectionGroup":"loyaltyRedemptions","queryScope":"COLLECTION","fields":[{"fieldPath":"studentId","order":"ASCENDING"},{"fieldPath":"__name__","order":"ASCENDING"}]},
+    {"collectionGroup":"memberReferrals","queryScope":"COLLECTION","fields":[{"fieldPath":"referrerStudentId","order":"ASCENDING"},{"fieldPath":"__name__","order":"ASCENDING"}]},
+    {"collectionGroup":"ambassadorProfiles","queryScope":"COLLECTION","fields":[{"fieldPath":"studentId","order":"ASCENDING"},{"fieldPath":"__name__","order":"ASCENDING"}]},
+
     {
       "collectionGroup": "sessionKudos",
       "queryScope": "COLLECTION",

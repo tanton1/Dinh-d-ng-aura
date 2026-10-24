@@ -9,14 +9,14 @@ const { createPtWorkoutTrackingFunctions } = require('./pt-workout-tracking')
 const noDatabase = new Proxy({}, { get() { throw new Error('Unexpected database access') } })
 const onCall = (options, handler) => ({ options, handler })
 
-test('only eight reviewed reads are exported, with a bounded Jakarta profile and no warm floor', () => {
+test('only nine reviewed reads are exported, with a bounded Jakarta profile and no warm floor', () => {
   const aliases = createRegionalReadAliases({ db: noDatabase, onCall })
-  assert.equal(Object.keys(aliases).length, 8)
+  assert.equal(Object.keys(aliases).length, 9)
   for (const [name, endpoint] of Object.entries(aliases)) {
     assert.match(name, /^(get|list).+Regional$/)
     for (const [option, value] of Object.entries(REGIONAL_READ_OPTIONS)) assert.equal(endpoint.options[option], value, `${name}.${option}`)
   }
-  assert.equal(REGIONAL_READ_OPTIONS.cpu * REGIONAL_READ_OPTIONS.maxInstances * 8, 2.6656)
+  assert.ok(REGIONAL_READ_OPTIONS.cpu * REGIONAL_READ_OPTIONS.maxInstances * 9 < 3)
   assert.equal(aliases.redeemMyRewardRegional, undefined)
   assert.equal(aliases.savePtSessionWorkoutLogRegional, undefined)
 })

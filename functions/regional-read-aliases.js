@@ -25,6 +25,7 @@ function createRegionalReadAliases({ db, onCall, logger }) {
   const loyalty = createLoyaltyFunctions({ db, onCall: boundedReadCall, logger })
   const workout = createPtWorkoutTrackingFunctions({ db, onCall: boundedReadCall })
   return {
+    getLoyaltyAdminDashboardRegional: loyalty.getLoyaltyAdminDashboard,
     getMyLoyaltyDashboardRegional: loyalty.getMyLoyaltyDashboard,
     listMyAvailableRewardsRegional: loyalty.listMyAvailableRewards,
     listMyLoyaltyHistoryRegional: loyalty.listMyLoyaltyHistory,

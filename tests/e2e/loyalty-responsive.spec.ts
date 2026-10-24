@@ -42,6 +42,8 @@ for (const width of [360, 390, 430]) {
     await expect(metrics.locator('.aura-metric-carousel__slide')).toHaveCount(4)
     await expect(metrics.getByRole('button', { name: /Xem thẻ 2:/ })).toBeVisible()
     await expect(page.getByRole('heading', { name: /Yêu cầu cần xử lý/ })).toBeVisible()
+    await expect(page.getByRole('navigation', { name: 'Nghiệp vụ Aura Club' })).not.toBeVisible()
+    await page.getByText('Quản lý thành viên và quyền lợi', { exact: true }).click()
     await expect(page.getByRole('navigation', { name: 'Nghiệp vụ Aura Club' })).toBeVisible()
 
     await page.getByRole('button', { name: 'Sửa' }).first().click()

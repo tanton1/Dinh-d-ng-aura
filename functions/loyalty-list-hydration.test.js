@@ -175,6 +175,9 @@ test('capped input, every status, timestamps, monetary fields and tie ordering r
   for (const name of Object.keys(endpoints)) {
     for (const role of ['admin', 'super_admin', ...(name === 'listLoyaltyAdjustments' ? [] : ['staff'])]) {
       for (const status of [undefined, '', ' pending ', 'pending_approval', 'fulfilled', 'open', 'no_match']) {
+        // The new open-queue mode intentionally pushes pending/approved into
+        // Firestore; its beyond-300 behavior is covered by emulator tests.
+        if (name === 'listLoyaltyRedemptions' && status === 'open') continue
         const config = { name, rows, students, role, branches: ['a'] }
         const f = fixture(config)
         assert.deepEqual(await f.run({ status }), legacyResult(config, { status }), `${name}/${role}/${status}`)

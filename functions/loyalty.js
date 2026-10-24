@@ -3,6 +3,7 @@ const { HttpsError } = require('firebase-functions/v2/https')
 const { trustedAccessContext, requireCapability } = require('./identity-access')
 const { readMemberDashboard, readMemberHistory } = require('./loyalty-member-reads')
 const { allocateBehaviorBudget } = require('./loyalty-behavior-budget')
+const { readLoyaltyDashboardSummary } = require('./loyalty-dashboard-projection')
 const {
   DEFAULT_POLICY,
   DEFAULT_REWARDS,
@@ -2019,58 +2020,28 @@ function createLoyaltyFunctions({ db, onCall, logger = console }) {
 
   const getLoyaltyAdminDashboard = loyaltyAdminCall(async (request) => {
     const actor = await capabilityActor(request, db, 'loyalty.dashboard.read')
-    const scopedStudentIds = new Set()
-    let scopedStudentCountPromise
-    if (actor.accessRole === 'staff') {
-      const branchStudentSnapshots = await Promise.all(actor.branchIds.slice(0, 10).map((branchId) => db.collection('students').where('branchId', '==', branchId).limit(1000).get()))
-      branchStudentSnapshots.forEach((snapshot) => snapshot.docs.forEach((item) => scopedStudentIds.add(item.id)))
-      scopedStudentCountPromise = Promise.all(actor.branchIds.slice(0, 10).map((branchId) => db.collection('students').where('branchId', '==', branchId).count().get()))
-    } else {
-      scopedStudentCountPromise = db.collection('students').count().get()
-    }
-    const [accountsSnapshot, redemptionsSnapshot, referralsSnapshot, ambassadorsSnapshot, policy, settingsSnapshot, scopedStudentCount] = await Promise.all([
-      db.collection('loyaltyAccounts').limit(1000).get(),
-      db.collection('loyaltyRedemptions').limit(1000).get(),
-      db.collection('memberReferrals').limit(1000).get(),
-      db.collection('ambassadorProfiles').limit(500).get(),
-      currentPolicy(db),
+    const [summary, settingsSnapshot] = await Promise.all([
+      readLoyaltyDashboardSummary({ db, actor }),
       db.doc('loyaltySettings/current').get(),
-      scopedStudentCountPromise,
     ])
-    const inScope = (studentId) => actor.accessRole !== 'staff' || scopedStudentIds.has(studentId)
-    const accounts = accountsSnapshot.docs.filter((item) => inScope(item.id)).map((item) => normalizeAccount(item.data()))
-    const redemptions = redemptionsSnapshot.docs.map((item) => item.data()).filter((item) => inScope(item.studentId) && (!item.branchId || canAccessBranch(actor, item.branchId)))
-    const referrals = referralsSnapshot.docs.map((item) => item.data()).filter((item) => inScope(item.referrerStudentId))
-    const ambassadors = ambassadorsSnapshot.docs.map((item) => item.data()).filter((item) => inScope(item.studentId))
-    const memberCount = actor.accessRole === 'staff'
-      ? (Array.isArray(scopedStudentCount) ? scopedStudentCount.reduce((total, item) => total + Number(item.data().count || 0), 0) : 0)
-      : Number(scopedStudentCount?.data().count || 0)
+    const policy = await currentPolicy(db, settingsSnapshot)
+    const { metrics: totals, updatedAt } = summary
+    const { tier_member, tier_silver, tier_gold, tier_diamond, ...metrics } = totals
+    const tierCounts = { member: tier_member, silver: tier_silver, gold: tier_gold, diamond: tier_diamond }
     return {
       schemaVersion: LOYALTY_SCHEMA_VERSION,
       policyRevision: Number(settingsSnapshot.exists ? settingsSnapshot.data().revision || 0 : 0),
       launchDate: settingsSnapshot.exists ? storedDateKey(settingsSnapshot.data().launchDate) : '',
       generatedAt: new Date().toISOString(),
+      summaryUpdatedAt: updatedAt,
       scope: actor.accessRole === 'admin' || actor.accessRole === 'super_admin' ? 'all' : actor.branchIds,
       metrics: {
-        // Member count is sourced from student profiles. Wallet projections can
-        // be created lazily, so using loyaltyAccounts here used to under-report
-        // the real member base (for example showing only 15 people).
-        memberCount,
-        walletCount: accounts.length,
-        availablePoints: accounts.reduce((total, item) => total + item.availablePoints, 0),
-        pendingPoints: accounts.reduce((total, item) => total + item.pendingPoints, 0),
-        reservedPoints: accounts.reduce((total, item) => total + item.reservedPoints, 0),
-        debtPoints: accounts.reduce((total, item) => total + item.debtPoints, 0),
-        lifetimeRedeemedPoints: accounts.reduce((total, item) => total + item.lifetimeRedeemedPoints, 0),
-        pendingRedemptions: redemptions.filter((item) => item.status === 'pending').length,
-        fulfilledRedemptions: redemptions.filter((item) => item.status === 'fulfilled').length,
-        qualifiedReferrals: referrals.filter((item) => item.status === 'qualified' || item.status === 'vested').length,
-        approvedAmbassadors: ambassadors.filter((item) => item.status === 'approved').length,
-        outstandingNominalValueVnd: accounts.reduce((total, item) => total + item.availablePoints + item.pendingPoints + item.reservedPoints, 0) * Number(policy.pointValueVnd || 100),
+        ...metrics,
+        outstandingNominalValueVnd: (metrics.availablePoints + metrics.pendingPoints + metrics.reservedPoints) * Number(policy.pointValueVnd ?? 100),
       },
-      // Students without a persisted wallet are still Aura Club members. They
-      // start in the base tier until their first ledger event creates a wallet.
-      tiers: ['member', 'silver', 'gold', 'diamond'].map((tier) => ({ tier, count: accounts.filter((item) => item.tier === tier).length + (tier === 'member' ? Math.max(0, memberCount - accounts.length) : 0) })),
+      tiers: ['member', 'silver', 'gold', 'diamond'].map(tier => ({ tier,
+        count: tierCounts[tier] + (tier === 'member' ? Math.max(0, metrics.memberCount - metrics.walletCount) : 0),
+      })),
       features: { earn: policy.earnEnabled, redeem: policy.redeemEnabled, referral: policy.referralEnabled, ambassador: policy.ambassadorEnabled, nutrition: policy.nutritionEnabled },
       policy: publicPolicyConfig(policy),
     }
@@ -2252,10 +2223,14 @@ function createLoyaltyFunctions({ db, onCall, logger = console }) {
 
   const listLoyaltyRedemptions = loyaltyAdminCall(async (request) => {
     const actor = await capabilityActor(request, db, 'loyalty.redemption.review')
-    const snapshot = await db.collection('loyaltyRedemptions').limit(300).get()
+    const base = db.collection('loyaltyRedemptions')
+    // Open queues must not scan hundreds of already-fulfilled requests.
+    const openQueue = typeof request.data?.status === 'string' && request.data.status.trim() === 'open'
+    const query = openQueue ? base.where('status', 'in', ['pending', 'approved']) : base
+    const snapshot = await query.limit(300).get()
     const status = boundedString(request.data?.status, 'Trạng thái', 40, false)
     const values = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))
-      .filter((item) => !status || item.status === status)
+      .filter((item) => !status || (status === 'open' ? ['pending', 'approved'].includes(item.status) : item.status === status))
       // Do not read profiles for explicitly denied branches. Missing branch
       // values must still use the existing profile-based authorization below.
       .filter((item) => !item.branchId || canAccessBranch(actor, item.branchId))

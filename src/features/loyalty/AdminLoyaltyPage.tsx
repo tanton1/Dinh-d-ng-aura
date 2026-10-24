@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle,
   CheckCircle2,
@@ -124,38 +124,58 @@ export default function AdminLoyaltyPage({
   const [features, setFeatures] = useState<LoyaltyDashboard['features']>(isDemo ? demoDashboard().features : defaultFeatures)
   const [policyConfig, setPolicyConfig] = useState<LoyaltyPolicyConfig>(isDemo ? demoDashboard().policy : defaultPolicy)
   const [loading, setLoading] = useState(!isDemo)
+  const [queueLoading, setQueueLoading] = useState(false)
+  const [queueError, setQueueError] = useState('')
+  const [operationsOpen, setOperationsOpen] = useState(Boolean(initialStudentId))
+  const overviewRequest = useRef(0)
+  const queueRequest = useRef(0)
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [launchDate, setLaunchDate] = useState(launchDateToday)
   const [backfill, setBackfill] = useState<{ mode: 'dry_run' | 'apply'; summary: LoyaltyBackfillSummary } | null>(null)
 
+  const loadQueue = async () => {
+    const request = ++queueRequest.current
+    if (isDemo || !canReviewRedemptions) return
+    setQueueLoading(true)
+    setQueueError('')
+    try {
+      const queue = await listLoyaltyRedemptions('open')
+      if (request === queueRequest.current) setRedemptions(queue.redemptions)
+    } catch (loadError) {
+      if (request === queueRequest.current) setQueueError(loadError instanceof Error ? loadError.message : 'Không thể tải yêu cầu đổi thưởng.')
+    } finally {
+      if (request === queueRequest.current) setQueueLoading(false)
+    }
+  }
+
   const load = async () => {
     if (isDemo) return
+    const request = ++overviewRequest.current
     setLoading(true)
     setError('')
+    void loadQueue()
     try {
-      // Keep the two quota-sensitive admin callables sequential. Launching
-      // both cold functions at once used to exhaust the regional CPU quota and
-      // surface an opaque `internal` error on mobile. The queue is secondary;
-      // the overview should get the first available instance.
       const overview = await getLoyaltyAdminDashboard()
-      const queue = canReviewRedemptions
-        ? await listLoyaltyRedemptions('')
-        : { redemptions: [] }
+      if (request !== overviewRequest.current) return
       setDashboard(overview)
       setFeatures(overview.features)
       setPolicyConfig(overview.policy || defaultPolicy)
       if (overview.launchDate) setLaunchDate(overview.launchDate)
-      setRedemptions(queue.redemptions)
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : 'Không thể tải trung tâm Aura Club.')
+      if (request === overviewRequest.current) setError(loadError instanceof Error ? loadError.message : 'Không thể tải trung tâm Aura Club.')
     } finally {
-      setLoading(false)
+      if (request === overviewRequest.current) setLoading(false)
     }
   }
 
-  useEffect(() => { void load() }, [isDemo])
+  useEffect(() => {
+    if (!isDemo) { setDashboard(null); setRedemptions([]) }
+    void load()
+    return () => { overviewRequest.current++; queueRequest.current++ }
+  }, [isDemo, canReviewRedemptions])
+  useEffect(() => { if (initialStudentId) setOperationsOpen(true) }, [initialStudentId])
 
   const maxTier = useMemo(() => Math.max(1, ...(dashboard?.tiers.map((item) => item.count) || [1])), [dashboard])
   const pendingQueue = redemptions.filter((item) => ['pending', 'approved'].includes(item.status))
@@ -226,7 +246,7 @@ export default function AdminLoyaltyPage({
     }
   }
 
-  if (loading) return <div className="loyalty-state" role="status"><LoaderCircle className="loyalty-spin" /><strong>Đang tải Aura Club</strong><span>Đang tổng hợp ví điểm, đổi thưởng và referral.</span></div>
+  if (loading && !dashboard) return <div className="loyalty-state" role="status"><LoaderCircle className="loyalty-spin" /><strong>Đang tải Aura Club</strong><span>Đang tổng hợp ví điểm, đổi thưởng và referral.</span></div>
   if (!dashboard) return <div className="loyalty-state loyalty-state--error" role="alert"><AlertTriangle /><strong>Chưa thể tải Aura Club</strong><span>{error}</span><button type="button" onClick={() => void load()}>Thử lại</button></div>
 
   const metrics = dashboard.metrics
@@ -290,16 +310,21 @@ export default function AdminLoyaltyPage({
 
       {canReviewRedemptions ? <section className="loyalty-admin-card loyalty-admin-queue" id="loyalty-redemption-queue">
         <header><div><span>Đổi thưởng</span><h2>Yêu cầu cần xử lý <b>{pendingQueue.length}</b></h2></div><Clock3 /></header>
+        {queueError ? <div role="alert">{queueError} <button type="button" onClick={() => void loadQueue()}>Thử lại yêu cầu đổi thưởng</button></div> : null}
+        {queueLoading ? <p role="status">Đang tải yêu cầu đổi thưởng…</p> : null}
         {pendingQueue.length ? <div className="loyalty-admin-table">
           <div className="loyalty-admin-table__head"><span>Học viên</span><span>Quyền lợi</span><span>Điểm</span><span>Trạng thái</span><span>Thao tác</span></div>
           {pendingQueue.map((item) => {
             const reward = item.rewardSnapshot as { name?: string } | undefined
             return <article key={item.id}><span className="loyalty-admin-table__student"><strong>{String(item.studentName || item.studentId || 'Học viên Aura')}</strong><small>{item.id.slice(0, 10)}</small></span><span data-label="Quyền lợi">{reward?.name || 'Quyền lợi Aura'}</span><span data-label="Điểm"><strong>{formatNumber(Number(item.pointsCost || 0))}</strong></span><span data-label="Trạng thái"><b className={`loyalty-status-pill loyalty-status-pill--${item.status}`}>{item.status === 'pending' ? 'Chờ duyệt' : 'Đã duyệt'}</b></span><span className="loyalty-admin-actions">{item.status === 'pending' ? <><button type="button" disabled={busy === item.id} onClick={() => void transition(item.id, 'approved')}>Duyệt</button><button type="button" className="is-secondary" disabled={busy === item.id} onClick={() => void transition(item.id, 'rejected')}>Từ chối</button></> : <><button type="button" disabled={busy === item.id} onClick={() => void transition(item.id, 'fulfilled')}>Hoàn tất</button><button type="button" className="is-secondary" disabled={busy === item.id} onClick={() => void transition(item.id, 'cancelled')}>Hủy & hoàn điểm</button></>}</span></article>
           })}
-        </div> : <div className="loyalty-empty loyalty-empty--compact"><CheckCircle2 /><h3>Đã xử lý hết yêu cầu</h3><p>Yêu cầu mới sẽ xuất hiện tại đây theo phạm vi chi nhánh.</p></div>}
+        </div> : !queueLoading && !queueError ? <div className="loyalty-empty loyalty-empty--compact"><CheckCircle2 /><h3>Đã xử lý hết yêu cầu</h3><p>Yêu cầu mới sẽ xuất hiện tại đây theo phạm vi chi nhánh.</p></div> : null}
       </section> : null}
 
-      <AdminLoyaltyOperations initialStudentId={initialStudentId} isDemo={isDemo} canManageRewards={canManageRewards} canManageAmbassadors={canManageAmbassadors} canAudit={canAudit} canAdjust={canAdjust} canApproveAdjustments={canApproveAdjustments} largeAdjustmentThreshold={policyConfig.largeAdjustmentThreshold} />
+      <details className="loyalty-admin-card" open={operationsOpen} onToggle={event => setOperationsOpen(event.currentTarget.open)}>
+        <summary>Quản lý thành viên và quyền lợi</summary>
+        {operationsOpen ? <AdminLoyaltyOperations initialStudentId={initialStudentId} isDemo={isDemo} canManageRewards={canManageRewards} canManageAmbassadors={canManageAmbassadors} canAudit={canAudit} canAdjust={canAdjust} canApproveAdjustments={canApproveAdjustments} largeAdjustmentThreshold={policyConfig.largeAdjustmentThreshold} /> : null}
+      </details>
 
       <div className="loyalty-admin__grid">
         <section className="loyalty-admin-card">

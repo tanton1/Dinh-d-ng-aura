@@ -284,6 +284,13 @@ exports.syncOpsSessionDailyAggregateRegional = regionalOperationsAggregateFuncti
 exports.syncOpsContractDailyAggregateRegional = regionalOperationsAggregateFunctions.syncOpsContractDailyAggregateRegional
 exports.syncOpsStudentDailyAggregateRegional = regionalOperationsAggregateFunctions.syncOpsStudentDailyAggregateRegional
 
+const loyaltyDashboardProjections = require('./loyalty-dashboard-projection').createLoyaltyDashboardProjectionFunctions({ db, databaseId, onDocumentWritten })
+exports.syncLoyaltyDashboardStudent = loyaltyDashboardProjections.syncLoyaltyDashboardStudent
+exports.syncLoyaltyDashboardAccount = loyaltyDashboardProjections.syncLoyaltyDashboardAccount
+exports.syncLoyaltyDashboardRedemption = loyaltyDashboardProjections.syncLoyaltyDashboardRedemption
+exports.syncLoyaltyDashboardReferral = loyaltyDashboardProjections.syncLoyaltyDashboardReferral
+exports.syncLoyaltyDashboardAmbassador = loyaltyDashboardProjections.syncLoyaltyDashboardAmbassador
+
 exports.syncLoyaltyContractSpend = onDocumentWritten({
   document: 'ledgerEntries/{entryId}',
   database: databaseId,
@@ -297,6 +304,7 @@ exports.syncLoyaltyAttendance = onDocumentWritten({
   region: 'asia-southeast1',
   maxInstances: 3,
 }, async (event) => {
+  if (!require('./loyalty-attendance-read-policy').attendanceRewardChanged(event)) return null
   const afterValue = event.data?.after?.data?.()
   const beforeValue = event.data?.before?.data?.() || {}
   const value = afterValue || { ...beforeValue, attendanceStatus: 'deleted', billingStatus: '' }
@@ -867,6 +875,7 @@ exports.giveSessionKudos = loyaltyFunctions.giveSessionKudos
 
 // Read-only cutover: retain original endpoints for old clients and rollback.
 const regionalReadAliases = createRegionalReadAliases({ db, onCall, logger })
+exports.getLoyaltyAdminDashboardRegional = regionalReadAliases.getLoyaltyAdminDashboardRegional
 exports.getMyLoyaltyDashboardRegional = regionalReadAliases.getMyLoyaltyDashboardRegional
 exports.listMyAvailableRewardsRegional = regionalReadAliases.listMyAvailableRewardsRegional
 exports.listMyLoyaltyHistoryRegional = regionalReadAliases.listMyLoyaltyHistoryRegional
