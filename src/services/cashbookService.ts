@@ -119,14 +119,26 @@ export interface ExpenseVoucherInput {
   submit: boolean
 }
 
-export async function listAccountingCatalog() { return (await callable<Record<string, never>, { accounts: AccountingAccount[]; expensePurposes: ExpensePurpose[]; receiptPurposes: ReceiptPurpose[]; approvalSeparationThreshold: number }>('listAccountingCatalog')({})).data }
-export async function listCashAccounts() { return (await callable<Record<string, never>, { accounts: CashAccount[] }>('listCashAccounts')({})).data }
+export async function listAccountingCatalog() {
+  const { callSecondaryRead } = await import('./secondaryReadService')
+  return callSecondaryRead<Record<string, never>, { accounts: AccountingAccount[]; expensePurposes: ExpensePurpose[]; receiptPurposes: ReceiptPurpose[]; approvalSeparationThreshold: number }>('listAccountingCatalog', {})
+}
+export async function listCashAccounts() {
+  const { callSecondaryRead } = await import('./secondaryReadService')
+  return callSecondaryRead<Record<string, never>, { accounts: CashAccount[] }>('listCashAccounts', {})
+}
 export async function initializeCashAccount(input: { name: string; type: CashAccountType; branchId: string; openingBalance: number; openingBalanceAt: string; idempotencyKey: string }) { return (await callable<typeof input, { accountId: string }>('initializeCashAccount')(input)).data }
-export async function listCashTransactions(input: { accountId?: string; pageSize?: number } = {}) { return (await callable<typeof input, { transactions: CashTransaction[]; hasMore: boolean }>('listCashTransactions')(input)).data }
+export async function listCashTransactions(input: { accountId?: string; pageSize?: number } = {}) {
+  const { callSecondaryRead } = await import('./secondaryReadService')
+  return callSecondaryRead<typeof input, { transactions: CashTransaction[]; hasMore: boolean }>('listCashTransactions', input)
+}
 export async function getS2eCashDetailBook(input: { periodStart: string; periodEnd: string; accountId?: string }) { return (await callable<typeof input, S2eCashDetailBook>('getS2eCashDetailBook')(input)).data }
 export async function saveS2eCashDetailSettings(input: S2eCashDetailSettings) { return (await callable<S2eCashDetailSettings, { settings: S2eCashDetailSettings }>('saveS2eCashDetailSettings')(input)).data }
 export async function recordCashExpense(input: { accountId: string; amount: number; category: string; effectiveAt: string; note?: string; idempotencyKey: string }) { return (await callable<typeof input, { transactionId: string }>('recordCashExpense')(input)).data }
-export async function listExpenseVouchers(input: { pageSize?: number } = {}) { return (await callable<typeof input, { vouchers: ExpenseVoucher[]; hasMore: boolean }>('listExpenseVouchers')(input)).data }
+export async function listExpenseVouchers(input: { pageSize?: number } = {}) {
+  const { callSecondaryRead } = await import('./secondaryReadService')
+  return callSecondaryRead<typeof input, { vouchers: ExpenseVoucher[]; hasMore: boolean }>('listExpenseVouchers', input)
+}
 export async function listReceiptVouchers(input: { accountId?: string; pageSize?: number } = {}) { return (await callable<typeof input, { vouchers: ReceiptVoucher[]; hasMore: boolean }>('listReceiptVouchers')(input)).data }
 export async function createManualReceiptVoucher(input: { accountId: string; purposeCode: string; payerName: string; payerAddress?: string; description: string; amount: number; effectiveAt: string; paymentMethod: string; idempotencyKey: string }) { return (await callable<typeof input, { voucherId: string; voucherNumber: string; ledgerEntryId: string; unchanged: boolean }>('createManualReceiptVoucher')(input)).data }
 export async function reverseManualReceiptVoucher(input: { voucherId: string; reason: string }) { return (await callable<typeof input, { voucherId: string; voucherNumber: string; unchanged: boolean }>('reverseManualReceiptVoucher')(input)).data }

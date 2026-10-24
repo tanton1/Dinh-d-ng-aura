@@ -263,10 +263,9 @@ export async function listExerciseCatalog(filters: CatalogFilters = {}): Promise
 }
 
 export async function getExerciseCatalogItem(exerciseId: string): Promise<ExerciseCatalogDetail> {
-  if (!firebaseFunctions) throw new Error('Firebase Functions chưa được cấu hình.')
-  const callable = httpsCallable<{ exerciseId: string }, unknown>(firebaseFunctions, 'getExerciseCatalogItem')
-  const response = await callable({ exerciseId })
-  const payload = record(response.data)
+  const { callSecondaryRead } = await import('./secondaryReadService')
+  const response = await callSecondaryRead<{ exerciseId: string }, unknown>('getExerciseCatalogItem', { exerciseId })
+  const payload = record(response)
   const item = parseCatalogItem(payload?.item)
   if (!item) throw new Error('Dữ liệu bài tập không hợp lệ.')
   // During a staged Functions rollout, older endpoints can temporarily return

@@ -40,9 +40,6 @@ export async function listInternalNutritionCatalog(input: InternalNutritionCatal
 }
 
 export async function getInternalNutritionCatalogItem(id: string) {
-  const callable = httpsCallable<{ id: string }, { item: unknown; restricted: true }>(
-    requireFunctions(),
-    'getInternalNutritionCatalogItem',
-  )
-  return (await callable({ id })).data.item
+  const { callSecondaryRead } = await import('./secondaryReadService')
+  return (await callSecondaryRead<{ id: string }, { item: unknown; restricted: true }>('getInternalNutritionCatalogItem', { id })).item
 }

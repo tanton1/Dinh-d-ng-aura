@@ -17,13 +17,13 @@
   },
   "mode": "review-and-staged-cutover-not-a-bulk-deployment-or-deletion-manifest",
   "progress": {
-    "verifiedAt": "2026-10-24T02:55:45.189Z",
+    "verifiedAt": "2026-10-24T04:15:23.037Z",
     "completedSourceRetirements": 5,
     "pendingCandidateSourceRetirements": 183,
     "currentFunctionCounts": {
+      "asia-east1": 138,
       "asia-southeast1": 370,
-      "asia-east1": 132,
-      "asia-southeast2": 16
+      "asia-southeast2": 18
     },
     "newReadPrimaryCutovers": {
       "region": "asia-east1",
@@ -49,7 +49,55 @@
       "The 48 selected candidate read paths have no persistent business writes found in the source review, but secrets, runtime parity, heavy queries and live handler provenance still need per-wave verification.",
       "Loyalty and staff summary writers require source freshness fences before cross-region overlap; maxInstances 1 alone is not a cross-region lock.",
       "Scheduled jobs require single-active cutover and shared leases."
-    ]
+    ],
+    "secondaryReadCutover": {
+      "backendSourceCommit": "a4e2dff9ff2ed86ba8461c64c9a0d019a26d58bb",
+      "routingStatus": "regional-primary-routing-in-this-release-source-endpoints-retained",
+      "names": [
+        {
+          "name": "listAccountingCatalog",
+          "replacement": "listAccountingCatalogRegional",
+          "region": "asia-east1"
+        },
+        {
+          "name": "listCashAccounts",
+          "replacement": "listCashAccountsRegional",
+          "region": "asia-east1"
+        },
+        {
+          "name": "listCashTransactions",
+          "replacement": "listCashTransactionsRegional",
+          "region": "asia-east1"
+        },
+        {
+          "name": "listExpenseVouchers",
+          "replacement": "listExpenseVouchersRegional",
+          "region": "asia-east1"
+        },
+        {
+          "name": "listFinanceLedger",
+          "replacement": "listFinanceLedgerRegional",
+          "region": "asia-east1"
+        },
+        {
+          "name": "listRenewalMessageTemplates",
+          "replacement": "listRenewalMessageTemplatesRegional",
+          "region": "asia-east1"
+        },
+        {
+          "name": "getExerciseCatalogItem",
+          "replacement": "getExerciseCatalogItemRegional",
+          "region": "asia-southeast2"
+        },
+        {
+          "name": "getInternalNutritionCatalogItem",
+          "replacement": "getInternalNutritionCatalogItemRegional",
+          "region": "asia-southeast2"
+        }
+      ],
+      "evidence": "ops/read-offload-20261024.json",
+      "noNewSourceRetirements": true
+    }
   },
   "constraints": [
     "SMS and notification dispatch configuration remain unchanged.",
@@ -1204,9 +1252,9 @@
       "kind": "callable",
       "domain": "finance",
       "destination": "asia-east1",
-      "replacement": null,
+      "replacement": "listAccountingCatalogRegional",
       "wave": "new-read-candidates",
-      "status": "handler-secret-query-and-capacity-review-required",
+      "status": "regional-backend-verified-primary-routing-in-release-source-retained",
       "retirementAllowed": false
     },
     {
@@ -1214,9 +1262,9 @@
       "kind": "callable",
       "domain": "finance",
       "destination": "asia-east1",
-      "replacement": null,
+      "replacement": "listCashAccountsRegional",
       "wave": "new-read-candidates",
-      "status": "handler-secret-query-and-capacity-review-required",
+      "status": "regional-backend-verified-primary-routing-in-release-source-retained",
       "retirementAllowed": false
     },
     {
@@ -1224,9 +1272,9 @@
       "kind": "callable",
       "domain": "finance",
       "destination": "asia-east1",
-      "replacement": null,
+      "replacement": "listCashTransactionsRegional",
       "wave": "new-read-candidates",
-      "status": "handler-secret-query-and-capacity-review-required",
+      "status": "regional-backend-verified-primary-routing-in-release-source-retained",
       "retirementAllowed": false
     },
     {
@@ -1234,9 +1282,9 @@
       "kind": "callable",
       "domain": "finance",
       "destination": "asia-east1",
-      "replacement": null,
+      "replacement": "listExpenseVouchersRegional",
       "wave": "new-read-candidates",
-      "status": "handler-secret-query-and-capacity-review-required",
+      "status": "regional-backend-verified-primary-routing-in-release-source-retained",
       "retirementAllowed": false
     },
     {
@@ -1244,9 +1292,9 @@
       "kind": "callable",
       "domain": "finance",
       "destination": "asia-east1",
-      "replacement": null,
+      "replacement": "listFinanceLedgerRegional",
       "wave": "new-read-candidates",
-      "status": "handler-secret-query-and-capacity-review-required",
+      "status": "regional-backend-verified-primary-routing-in-release-source-retained",
       "retirementAllowed": false
     },
     {
@@ -1304,9 +1352,9 @@
       "kind": "callable",
       "domain": "renewal",
       "destination": "asia-east1",
-      "replacement": null,
+      "replacement": "listRenewalMessageTemplatesRegional",
       "wave": "new-read-candidates",
-      "status": "handler-secret-query-and-capacity-review-required",
+      "status": "regional-backend-verified-primary-routing-in-release-source-retained",
       "retirementAllowed": false
     },
     {
@@ -1474,9 +1522,9 @@
       "kind": "callable",
       "domain": "catalog",
       "destination": "asia-southeast2",
-      "replacement": null,
+      "replacement": "getExerciseCatalogItemRegional",
       "wave": "new-read-candidates",
-      "status": "handler-secret-query-and-capacity-review-required",
+      "status": "regional-backend-verified-primary-routing-in-release-source-retained",
       "retirementAllowed": false
     },
     {
@@ -1524,9 +1572,9 @@
       "kind": "callable",
       "domain": "catalog",
       "destination": "asia-southeast2",
-      "replacement": null,
+      "replacement": "getInternalNutritionCatalogItemRegional",
       "wave": "new-read-candidates",
-      "status": "handler-secret-query-and-capacity-review-required",
+      "status": "regional-backend-verified-primary-routing-in-release-source-retained",
       "retirementAllowed": false
     },
     {

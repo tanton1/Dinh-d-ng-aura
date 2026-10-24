@@ -88,12 +88,13 @@ export const emptyFinanceLedgerSummary: FinanceLedgerSummary = {
 }
 
 export async function listFinanceLedger(query: FinanceLedgerQuery = {}): Promise<FinanceLedgerPage> {
-  const result = await callable<FinanceLedgerQuery, unknown>('listFinanceLedger')({
+  const { callSecondaryRead } = await import('./secondaryReadService')
+  const result = await callSecondaryRead<FinanceLedgerQuery, unknown>('listFinanceLedger', {
     pageSize: 50,
     status: 'all',
     ...query,
   })
-  return normalizeFinanceLedgerPage(result.data)
+  return normalizeFinanceLedgerPage(result)
 }
 
 export async function recordContractPayment(input: {

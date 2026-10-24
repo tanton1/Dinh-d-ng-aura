@@ -1,0 +1,258 @@
+{
+  "schemaVersion": 1,
+  "project": "gen-lang-client-0815966909",
+  "backendSourceCommit": "a4e2dff9ff2ed86ba8461c64c9a0d019a26d58bb",
+  "verifiedAt": "2026-10-24T04:15:37.712Z",
+  "frontendRouting": "Eight regional-primary reads are included in this release; public deployment is verified separately after push.",
+  "backendVerification": {
+    "actualImageSourceFiles": 11,
+    "installedBodyParser": "2.4.0",
+    "soleServingTrafficPercent": 100,
+    "proofs": [
+      {
+        "name": "listAccountingCatalogRegional",
+        "region": "asia-east1",
+        "revision": "listaccountingcatalogregional-00001-huc",
+        "image": "asia-east1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--east1__list_accounting_catalog_regional@sha256:035c366b0dacf008892df9e089d96fafa4f63e1332540147a35759d9b7378a69",
+        "verifiedAt": "2026-10-24T04:15:02.204Z",
+        "minInstances": 0,
+        "effectiveMaxInstances": 2,
+        "proofSha256": "ca0f3f5e7ae6656c17458f2cd891acff27b1829c7f1d2acff68117e47e426578"
+      },
+      {
+        "name": "listCashAccountsRegional",
+        "region": "asia-east1",
+        "revision": "listcashaccountsregional-00001-hop",
+        "image": "asia-east1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--east1__list_cash_accounts_regional@sha256:c952dd1544bf0751ba6ccc8e07fb85bf946152d125a43e441d5ff22958fedde8",
+        "verifiedAt": "2026-10-24T04:11:42.750Z",
+        "minInstances": 0,
+        "effectiveMaxInstances": 1,
+        "proofSha256": "0eb829c0498c750296fd48fccb8507a6fb82e50c930e578e671ccd9d2001f1ed"
+      },
+      {
+        "name": "listCashTransactionsRegional",
+        "region": "asia-east1",
+        "revision": "listcashtransactionsregional-00001-jow",
+        "image": "asia-east1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--east1__list_accounting_catalog_regional@sha256:035c366b0dacf008892df9e089d96fafa4f63e1332540147a35759d9b7378a69",
+        "verifiedAt": "2026-10-24T04:15:14.181Z",
+        "minInstances": 0,
+        "effectiveMaxInstances": 2,
+        "proofSha256": "6d0076cb79ec559863619860dc07e77e786edc27f4ed0ab6e5fc01cc444fff92"
+      },
+      {
+        "name": "listExpenseVouchersRegional",
+        "region": "asia-east1",
+        "revision": "listexpensevouchersregional-00001-wom",
+        "image": "asia-east1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--east1__list_accounting_catalog_regional@sha256:035c366b0dacf008892df9e089d96fafa4f63e1332540147a35759d9b7378a69",
+        "verifiedAt": "2026-10-24T04:15:25.998Z",
+        "minInstances": 0,
+        "effectiveMaxInstances": 2,
+        "proofSha256": "94ab35ec649e14895beb79d5228c72359f6535ccbf601b2213af313463c3328f"
+      },
+      {
+        "name": "listFinanceLedgerRegional",
+        "region": "asia-east1",
+        "revision": "listfinanceledgerregional-00001-huc",
+        "image": "asia-east1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--east1__list_cash_accounts_regional@sha256:c952dd1544bf0751ba6ccc8e07fb85bf946152d125a43e441d5ff22958fedde8",
+        "verifiedAt": "2026-10-24T04:11:31.195Z",
+        "minInstances": 0,
+        "effectiveMaxInstances": 2,
+        "proofSha256": "f98126d32ae351484a777beb0c56e4de875294e96ec5f94c592a353c9fc839b4"
+      },
+      {
+        "name": "listRenewalMessageTemplatesRegional",
+        "region": "asia-east1",
+        "revision": "listrenewalmessagetemplatesregional-00001-kes",
+        "image": "asia-east1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--east1__list_accounting_catalog_regional@sha256:035c366b0dacf008892df9e089d96fafa4f63e1332540147a35759d9b7378a69",
+        "verifiedAt": "2026-10-24T04:15:37.712Z",
+        "minInstances": 0,
+        "effectiveMaxInstances": 2,
+        "proofSha256": "4db6ca814726999cc737ed618a123236cb945a60006aaabf12cdf7f79a217620"
+      },
+      {
+        "name": "getExerciseCatalogItemRegional",
+        "region": "asia-southeast2",
+        "revision": "getexercisecatalogitemregional-00001-ceh",
+        "image": "asia-southeast2-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast2__get_internal_nutrition_catalog_item_regional@sha256:d54e7635aa33f4c2edaeec23197415d7aa2ffc74905e4f5bbb54a12864a18713",
+        "verifiedAt": "2026-10-24T04:14:44.570Z",
+        "minInstances": 0,
+        "effectiveMaxInstances": 2,
+        "proofSha256": "3c62f5df44d40806564933c3af49a6696edd9f054258f9a67db33d2573c3613c"
+      },
+      {
+        "name": "getInternalNutritionCatalogItemRegional",
+        "region": "asia-southeast2",
+        "revision": "getinternalnutritioncatalogitemregional-00001-gax",
+        "image": "asia-southeast2-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast2__get_internal_nutrition_catalog_item_regional@sha256:d54e7635aa33f4c2edaeec23197415d7aa2ffc74905e4f5bbb54a12864a18713",
+        "verifiedAt": "2026-10-24T04:14:32.737Z",
+        "minInstances": 0,
+        "effectiveMaxInstances": 2,
+        "proofSha256": "c813162fe81045d144532925254b8a92d2166dc29b557be5a7dee3560ee7ce27"
+      },
+      {
+        "name": "syncLoyaltyContractSpend",
+        "region": "asia-southeast1",
+        "revision": "syncloyaltycontractspend-00012-taj",
+        "image": "asia-southeast1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast1__sync_loyalty_contract_spend@sha256:e1dc2639ffbc6942af6bc61fcd477ebb29996fada1febb74a3b1c68598713414",
+        "verifiedAt": "2026-10-24T04:13:18.166Z",
+        "minInstances": 0,
+        "effectiveMaxInstances": 3,
+        "proofSha256": "efef5a55a34014f8bef79f680833ebda98c78e72c81246fbf47f365646be33c5"
+      }
+    ]
+  },
+  "inventory": {
+    "total": 526,
+    "counts": {
+      "asia-east1": 138,
+      "asia-southeast1": 370,
+      "asia-southeast2": 18
+    },
+    "completedSourceRetirements": 5,
+    "pendingSourceRetirements": 183,
+    "legacyEndpointsRetained": 8,
+    "configuredFunctionMinimums": 0
+  },
+  "indexes": [
+    {
+      "name": "projects/gen-lang-client-0815966909/databases/ai-studio-aurafitnesselear-0f7609b4-b8d1-4fb3-9d62-99a2c03e1ce7/collectionGroups/ledgerEntries/indexes/CICAgLjywZkK",
+      "fields": [
+        {
+          "fieldPath": "branchId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "effectiveAt",
+          "order": "DESCENDING"
+        },
+        {
+          "fieldPath": "__name__",
+          "order": "DESCENDING"
+        }
+      ],
+      "state": "READY"
+    },
+    {
+      "name": "projects/gen-lang-client-0815966909/databases/ai-studio-aurafitnesselear-0f7609b4-b8d1-4fb3-9d62-99a2c03e1ce7/collectionGroups/ledgerEntries/indexes/CICAgNjajpkK",
+      "fields": [
+        {
+          "fieldPath": "type",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "effectiveAt",
+          "order": "DESCENDING"
+        },
+        {
+          "fieldPath": "__name__",
+          "order": "DESCENDING"
+        }
+      ],
+      "state": "READY"
+    },
+    {
+      "name": "projects/gen-lang-client-0815966909/databases/ai-studio-aurafitnesselear-0f7609b4-b8d1-4fb3-9d62-99a2c03e1ce7/collectionGroups/ledgerEntries/indexes/CICAgJjU8o8K",
+      "fields": [
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "effectiveAt",
+          "order": "DESCENDING"
+        },
+        {
+          "fieldPath": "__name__",
+          "order": "DESCENDING"
+        }
+      ],
+      "state": "READY"
+    }
+  ],
+  "readOptimization": {
+    "ledger": "One safe branch/type/status predicate is pushed into Firestore; complete exhausted first-page snapshots can supply totals without a second read. No settled-result cache, truncation or monetary coercion changes.",
+    "loyalty": "The existing Singapore trigger skips changes limited to updatedAt/updatedBy before reconciler reads. Financial-core reversal/freshness gaps are not claimed fixed.",
+    "fixtures": [
+      {
+        "allDocuments": 200,
+        "matchingDocuments": 20,
+        "documentsReturnedBefore": 400,
+        "documentsReturnedAfter": 20
+      },
+      {
+        "allDocuments": 10000,
+        "matchingDocuments": 1000,
+        "documentsReturnedBefore": 10150,
+        "documentsReturnedAfter": 1150
+      }
+    ],
+    "limits": [
+      "Fixture counts are documents returned, not Enterprise billable units or projected invoice savings.",
+      "Large or cursor-page financial summaries still require complete matching data.",
+      "RunQuery planner-only Explain was rejected by Enterprise; indexes are READY, selected optimizer plans remain unverified.",
+      "Regional routing moves compute; it neither moves the database nor inherently reduces read units."
+    ]
+  },
+  "observedUsage": {
+    "databaseEdition": "ENTERPRISE",
+    "windows": {
+      "last24h": {
+        "start": "2026-10-23T03:56:00.000Z",
+        "end": "2026-10-24T03:56:00.000Z"
+      },
+      "previous24h": {
+        "start": "2026-10-22T03:56:00.000Z",
+        "end": "2026-10-23T03:56:00.000Z"
+      },
+      "last1h": {
+        "start": "2026-10-24T02:56:00.000Z",
+        "end": "2026-10-24T03:56:00.000Z"
+      }
+    },
+    "documentReads": {
+      "last24h": 2379080,
+      "last1h": 95585,
+      "previous24h": 2720376
+    },
+    "documentWrites": {
+      "last1h": 489,
+      "last24h": 81550,
+      "previous24h": 9328
+    },
+    "runQueryReadUnits": {
+      "last24h": 21635214,
+      "previous24h": 10466228,
+      "warning": "Query and RunQuery series have equal totals; do not add aliases or treat the raw metric sum as a reconciled invoice."
+    },
+    "notes": [
+      "GET-only Cloud Monitoring metadata/time-series calls. No business document query, collection scan, callable invocation or cloud mutation.",
+      "Equal-length adjacent 24-hour windows end five minutes before collection to allow metric ingestion. Counts sum 60-second aligned DELTA samples with exclusive start/inclusive end.",
+      "Monitoring is operational telemetry, not a reconciled bill. Billing exports/invoices, edition, index-entry charges, free quota, credits and reporting delay affect charges.",
+      "Modern and legacy document metrics may describe overlapping operations. Never add read_ops_count to read_count or write_ops_count to write_count.",
+      "Enterprise billable units are not document counts. API method aliases, especially Query/RunQuery, can overlap; rawSeriesSum is not a verified billing total.",
+      "Missing series are null, not zero. Database metrics cannot attribute reads to a particular function, collection or application page.",
+      "Before/after changes reflect traffic and deployment activity as well as code. No causal savings claim follows from these windows alone."
+    ]
+  },
+  "verification": {
+    "localFullCi": "passed",
+    "financeEmulatorTests": 3,
+    "newFrontendTransportTests": 14,
+    "relatedFrontendRegressionTests": 49,
+    "localCatalogBrowserTests": 14,
+    "localRenewalBrowserTests": 18,
+    "negativeAuthSmokes": 8,
+    "authenticatedProductionBusinessFlow": "not performed",
+    "smsConfiguration": "unchanged"
+  },
+  "nextPriorities": [
+    "Scope and paginate loyalty dashboard/account reads; avoid hydrating up to 3500 dashboard documents plus branch students per request.",
+    "Push renewal list filters into bounded queries and load edit options only when needed; existing system case scan can read up to 5001 cases.",
+    "Reduce repeated large-document writes and broad snapshot rebuilds; source-version fences are required before shared financial evidence or new regional writers."
+  ],
+  "references": [
+    "https://cloud.google.com/firestore/enterprise/pricing",
+    "https://docs.cloud.google.com/firestore/native/docs/enterprise-optimize-query-performance",
+    "https://firebase.google.com/docs/functions/locations"
+  ]
+}

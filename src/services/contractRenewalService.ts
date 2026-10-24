@@ -263,7 +263,8 @@ export async function transferRenewalCases(input: {
 }
 
 export async function listRenewalMessageTemplates() {
-  return callReadOnlyFunction<Record<string, never>, { schemaVersion: 1; templates: RenewalMessageTemplate[] }>('listRenewalMessageTemplates', {})
+  const { callSecondaryRead } = await import('./secondaryReadService')
+  return callSecondaryRead<Record<string, never>, { schemaVersion: 1; templates: RenewalMessageTemplate[] }>('listRenewalMessageTemplates', {})
 }
 
 export async function createRenewalQuote(input: {
