@@ -54,8 +54,20 @@ export const listStudentTrainingHistory = async (studentId: string) => {
   return { records: [], hasMore: false }
 }
 const noWrite = async () => { throw new Error('Writes disabled in test fixture.') }
-export const bulkConfirmMySessions = noWrite
-export const recordMySessionAttendance = noWrite
+async function attendanceMutation(items: any[], status: string, bulk: boolean) {
+  if (!state.allowMutationFixture) return noWrite()
+  const uid = firebaseAuth.currentUser?.uid
+  state.attendanceWrites ??= []
+  state.attendanceResolvers ??= []
+  const index = state.attendanceWrites.push({ uid, items, status, bulk }) - 1
+  await new Promise<void>((resolve, reject) => { state.attendanceResolvers[index] = (error?: string) => error ? reject(new Error(error)) : resolve() })
+  const successful = items.filter(item => item.sessionId !== state.attendanceFailSession)
+  if (uid === firebaseAuth.currentUser?.uid) state.workspaceSessions = (state.workspaceSessions || []).map((session: any) => successful.some(item => item.sessionId === session.id)
+    ? { ...session, revision: 2, attendanceStatus: status, status: status === 'no_show' ? 'no_show' : 'attended' } : session)
+  return bulk ? { total: items.length, confirmed: successful.length, failed: items.length - successful.length, results: items.map(item => ({ sessionId: item.sessionId, ok: item.sessionId !== state.attendanceFailSession, revision: 2 })) } : { revision: 2 }
+}
+export const bulkConfirmMySessions = (items: any[]) => attendanceMutation(items, 'present', true)
+export const recordMySessionAttendance = (input: any) => attendanceMutation([input], input.attendanceStatus, false)
 export const reportMySessionAdvanceAbsence = async () => {
   if (!state.allowMutationFixture) return noWrite()
   await new Promise<void>((resolve) => { state.finishWorkspaceMutation = resolve })

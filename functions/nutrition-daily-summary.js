@@ -6,7 +6,7 @@ const { FieldPath, FieldValue, Timestamp } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
 const { withFunctionTelemetry } = require('./observability')
 
-const SCHEMA_VERSION = 1
+const SCHEMA_VERSION = 2
 const PAGE_SIZE = 250
 const MAX_DAY_DOCUMENTS = 10_000
 const MAX_REQUEST_DOCUMENTS = 20_000
@@ -14,7 +14,7 @@ const REQUEST_WORK_MS = 40_000
 const LEASE_MS = 90_000
 const SOURCE_COLLECTIONS = ['mealLogs', 'waterLogs', 'activityLogs']
 const SOURCE_FIELDS = {
-  mealLogs: ['date', 'status', 'deleted', 'calories', 'protein', 'carbs', 'fat', 'confidence', 'source', 'reviewStatus'],
+  mealLogs: ['date', 'status', 'deleted', 'type', 'time', 'calories', 'protein', 'carbs', 'fat', 'confidence', 'source', 'reviewStatus'],
   waterLogs: ['date', 'deleted', 'status', 'amountMl'],
   activityLogs: ['date', 'deleted', 'status', 'durationMinutes'],
 }
@@ -34,14 +34,24 @@ function rangeDates(from, to) {
 }
 
 function summarizeDay(date, records) {
-  const result = { date, mealCount: 0, calories: 0, protein: 0, carbs: 0, fat: 0, waterMl: 0, activityCount: 0, activityMinutes: 0, reviewCount: 0 }
+  const mealOccasions = { breakfast: false, lunch: false, dinner: false, snackCount: 0 }
+  const snackTimes = new Set()
+  const result = { date, mealCount: 0, calories: 0, protein: 0, carbs: 0, fat: 0, waterMl: 0, activityCount: 0, activityMinutes: 0, reviewCount: 0, mealOccasions }
   for (const meal of records.mealLogs || []) {
+    // Progress counts meal occasions, not dishes: three lunch entries do not
+    // replace breakfast and dinner. Legacy entries without status still count
+    // as occasions, matching progress; diary nutrient semantics stay unchanged.
+    if (meal.date === date && (!meal.status || meal.status === 'logged') && meal.deleted !== true) {
+      if (['breakfast', 'lunch', 'dinner'].includes(meal.type)) mealOccasions[meal.type] = true
+      if (meal.type === 'snack') snackTimes.add(meal.time)
+    }
     if (meal.date !== date || meal.status !== 'logged' || meal.deleted === true) continue
     result.mealCount++
     for (const field of ['calories', 'protein', 'carbs', 'fat']) result[field] += numeric(meal[field])
     const confidence = meal.confidence ?? (meal.source === 'ai-scan' ? 'estimated' : 'verified')
     if (['pending', 'rejected'].includes(meal.reviewStatus) || confidence !== 'verified') result.reviewCount++
   }
+  mealOccasions.snackCount = snackTimes.size
   for (const entry of records.waterLogs || []) {
     if (entry.date === date && entry.deleted !== true && entry.status !== 'deleted') result.waterMl += numeric(entry.amountMl)
   }
@@ -61,7 +71,7 @@ function atOrBefore(left, right) {
 
 function publicSummary(value) {
   if (!value || value.schemaVersion !== SCHEMA_VERSION || value.status !== 'ready') return null
-  const fields = ['date', 'mealCount', 'calories', 'protein', 'carbs', 'fat', 'waterMl', 'activityCount', 'activityMinutes', 'reviewCount', 'revision']
+  const fields = ['date', 'mealCount', 'calories', 'protein', 'carbs', 'fat', 'waterMl', 'activityCount', 'activityMinutes', 'reviewCount', 'mealOccasions', 'revision']
   return { ...Object.fromEntries(fields.map(field => [field, value[field]])), updatedAt: value.updatedAt?.toDate?.().toISOString() || null }
 }
 
@@ -140,7 +150,7 @@ async function rebuildNutritionDay({ db, uid, date, sourceVersion = null, force 
 function sourceTotals(value, collection) {
   if (!value) return null
   const fields = SOURCE_FIELDS[collection] || SOURCE_FIELDS.activityLogs
-  return Object.fromEntries(fields.map(key => [key, value[key] ?? null]))
+  return Object.fromEntries(fields.map(key => [key, key === 'time' ? [typeof value[key], value[key] ?? null] : value[key] ?? null]))
 }
 
 async function syncNutritionDailySummary({ db, event, collection, logger = console }) {

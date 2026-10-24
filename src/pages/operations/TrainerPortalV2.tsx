@@ -201,6 +201,7 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
   const loadedRef = useRef(false)
   const loadRequestRef = useRef(0)
   const loadRefreshRef = useRef<CoalescedRefreshState | null>(null)
+  const attendanceMutationRef = useRef<{ scope: string } | null>(null)
   const restoredStudentListRef = useRef(false)
   const canViewStudents = workspace?.tabs.students === true
   const canViewSchedule = workspace?.tabs.schedule === true
@@ -392,7 +393,12 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
     }
     })
   }, [isDemo, loadScope, rangeFrom, section, to])
-  const workspaceSync = useWorkspaceSync({ accountId, domain: 'trainerWorkspace', scopeKey: `${day}:${section}:${rangeFrom}:${to}`, enabled: !isDemo, refresh: load })
+  const workspaceSync = useWorkspaceSync({ accountId, domain: 'trainerWorkspace', scopeKey: `${day}:${section}:${rangeFrom}:${to}`, enabled: !isDemo, paused: Boolean(attendanceBusy && attendanceMutationRef.current?.scope === loadScope), refresh: load })
+  useEffect(() => {
+    attendanceMutationRef.current = null
+    setAttendanceBusy(''); setAttendanceTarget(null); setBulkTargets([])
+    return () => { attendanceMutationRef.current = null }
+  }, [loadScope])
   useEffect(() => { if (isDemo) void load(); return () => { loadRequestRef.current += 1; loadRefreshRef.current = null } }, [isDemo, load])
   useEffect(() => { loadedRef.current = false; setWorkspace(null); setStudents([]); setSessions([]); setRequests([]) }, [accountId])
   useEffect(() => {
@@ -431,6 +437,9 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
     details: { noShowReason?: '' | 'busy' | 'sick' | 'forgot' | 'unreachable' | 'other'; note?: string } = {},
   ) => {
     if (attendanceBusy) return
+    const operation = { scope: loadScope }
+    attendanceMutationRef.current = operation
+    const current = () => attendanceMutationRef.current === operation && currentLoadScopeRef.current === operation.scope
     setAttendanceBusy(session.id); setError('')
     try {
       const result = await recordMySessionAttendance({
@@ -441,6 +450,7 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
         noShowReason: details.noShowReason,
         note: details.note,
       })
+      if (!current()) return
       setAttendanceTarget(null)
       setNoShowReason('')
       setAttendanceNote('')
@@ -453,9 +463,11 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
         lateMinutes: status === 'late' ? lateMinutes : null,
       } : item))
       setNotice(status === 'no_show' ? 'Đã ghi nhận học viên không đến. Buổi đã tính vẫn được giữ nguyên.' : session.sessionKind === 'makeup' ? 'Đã ghi nhận buổi bù. Không trừ thêm buổi và không tính hoa hồng ca bù.' : 'Đã ghi nhận hiện diện. Số buổi không bị tính thêm lần nữa.')
-      void load()
-    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Không thể xác nhận hiện diện.') }
-    finally { setAttendanceBusy('') }
+      // Route explicit reconciliation through the same engine as source
+      // signals. While saving, it retains changes without starting reads.
+      workspaceSync.retry()
+    } catch (cause) { if (current()) setError(cause instanceof Error ? cause.message : 'Không thể xác nhận hiện diện.') }
+    finally { if (attendanceMutationRef.current === operation) { attendanceMutationRef.current = null; setAttendanceBusy('') } }
   }
 
   const openAttendance = (session: TrainerSessionSummary) => {
@@ -494,16 +506,20 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
   }
   const bulkConfirmToday = async (items: TrainerSessionSummary[]) => {
     if (attendanceBusy || !items.length) return
+    const operation = { scope: loadScope }
+    attendanceMutationRef.current = operation
+    const current = () => attendanceMutationRef.current === operation && currentLoadScopeRef.current === operation.scope
     setAttendanceBusy('bulk'); setError('')
     try {
       const result = await bulkConfirmMySessions(items.slice(0, 30).map((session) => ({ sessionId: session.id, expectedRevision: Number(session.revision || 0) })))
+      if (!current()) return
       setBulkTargets([])
       const confirmed = new Map(result.results.filter((item) => item.ok).map((item) => [item.sessionId, item.revision]))
       setSessions((current) => current.map((session) => confirmed.has(session.id) ? { ...session, revision: confirmed.get(session.id), attendanceStatus: 'present', status: 'attended', billingStatus: session.sessionKind === 'makeup' ? 'exempt' : 'charged' } : session))
       setNotice(result.failed ? `Đã xác nhận ${result.confirmed}/${result.total} buổi; ${result.failed} buổi cần tải lại để đối soát.` : `Đã xác nhận ${result.confirmed} học viên đều có tập.`)
-      void load()
-    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Không thể xác nhận hàng loạt.') }
-    finally { setAttendanceBusy('') }
+      workspaceSync.retry()
+    } catch (cause) { if (current()) setError(cause instanceof Error ? cause.message : 'Không thể xác nhận hàng loạt.') }
+    finally { if (attendanceMutationRef.current === operation) { attendanceMutationRef.current = null; setAttendanceBusy('') } }
   }
 
   const openRequest = (session: TrainerSessionSummary) => {

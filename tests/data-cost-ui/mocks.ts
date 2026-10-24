@@ -1,6 +1,8 @@
 import { DEFAULT_DELIVERY_OPERATIONS_CONFIG } from '../../src/features/delivery/types'
+import { runKeyedSingleFlight } from '../../src/utils/singleFlight'
 const state = { reads: { driver: 0, dispatch: 0, tracking: 0 }, subscriptions: [] as string[], active: [] as string[], delayed: false, pending: [] as Array<() => void>, terminal: false }
 Object.assign(state, { gpsCalls: [], gpsDelayed: false, gpsPending: [], gpsError: '' })
+Object.assign(state, { summaryCalls: [], summaryPending: [], summaryHold: false, summaryCoverage: 'ready', ...(window as any).costInitial })
 Object.assign(window, { costState: state })
 const job = { id: 'order-a', orderCode: 'ORDER-A', status: 'assigned', pickup: { name: 'Kitchen', addressLine: 'Kitchen address' }, dropoff: { name: 'Customer', addressLine: 'Destination' }, distanceMeters: 2000, routeDurationSeconds: 600, itemCount: 2, cashToCollect: 0 }
 const driver = { id: 'driver', name: 'Test driver', available: true, activeJobCount: 1 }
@@ -57,3 +59,19 @@ export const subscribeToUserProgressPhotos = (owner: string, callback: any) => s
 export const subscribeToRecentUserActivityLogs = (owner: string, _date: string, callback: any) => subscribe('activity', owner, callback)
 export const subscribeToRecentUserMealLogs = (owner: string, _date: string, callback: any) => subscribe('meals', owner, callback)
 export const subscribeToRecentUserWaterLogs = (owner: string, _date: string, callback: any) => subscribe('water', owner, callback)
+const summaries = new Map<string, Promise<any>>()
+export const getMyNutritionJournalSummary = (owner: string, fromDate: string, toDate: string, authority: string, forceRefresh: boolean, refreshAfter?: string) => runKeyedSingleFlight(summaries, JSON.stringify([owner, fromDate, toDate, authority, forceRefresh, refreshAfter]), async () => {
+  const config = state as any
+  const index = config.summaryCalls.push({ owner, fromDate, toDate, forceRefresh, refreshAfter }) - 1
+  const dates = []
+  for (let day = Date.parse(`${fromDate}T00:00:00Z`); day <= Date.parse(`${toDate}T00:00:00Z`); day += 86_400_000) dates.push(new Date(day).toISOString().slice(0, 10))
+  const response = { fromDate, toDate, coverage: config.summaryCoverageByFrom?.[fromDate] ?? config.summaryCoverage,
+    ...(forceRefresh || refreshAfter ? { refreshAfter: refreshAfter || new Date().toISOString() } : {}),
+    items: dates.map(date => ({ date, mealCount: 5, calories: 1800, protein: 100, carbs: 200, fat: 60, waterMl: 3000, activityCount: 1, activityMinutes: 30, reviewCount: 0, revision: 1, updatedAt: new Date().toISOString(),
+      ...(config.summaryOldSchema ? {} : { mealOccasions: { breakfast: true, lunch: true, dinner: true, snackCount: 2 } }) })) }
+  if (config.summaryMissingDay) response.items.pop()
+  config.summaryCalls[index].responseRefreshAfter = response.refreshAfter
+  if (config.summaryHold) return new Promise((resolve, reject) => { config.summaryPending[index] = (error?: string) => error ? reject(new Error(error)) : resolve(response) })
+  if (config.summaryError) throw new Error(config.summaryError)
+  return response
+})

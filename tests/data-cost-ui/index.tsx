@@ -1,4 +1,7 @@
 import { StrictMode, useState } from 'react'
+import '../../src/styles-bootstrap.css'
+import { DEFAULT_PROFILE } from '../../src/features/nutrition/profileDefaults'
+import { firebaseAuth } from './mocks'
 import { createRoot } from 'react-dom/client'
 import DeliveryPage from '../../src/features/delivery/DeliveryPage'
 import { EatCleanDispatchTab } from '../../src/features/eat-clean/admin/components/EatCleanDispatchTab'
@@ -31,7 +34,7 @@ function Tracking() {
 }
 function Progress() {
   const [owner, setOwner] = useState('student-a')
-  return <><button onClick={() => setOwner('student-b')}>Change account</button><ProgressPage ownerId={owner} /></>
+  return <><button onClick={() => { firebaseAuth.currentUser.uid = 'student-b'; setOwner('student-b') }}>Change account</button><ProgressPage ownerId={owner} nutritionProfile={{ ...DEFAULT_PROFILE, age: 30, heightCm: 165, weightKg: 60, biologicalSex: 'female', goal: 'maintain', activityLevel: 'moderate', trainingSessions: 3, mealsPerDay: 5 }} /></>
 }
 createRoot(document.getElementById('root')!).render(<StrictMode>{
   view === 'gps' ? <Location /> : view === 'dispatch' ? <EatCleanDispatchTab /> : view === 'tracking' ? <Tracking /> : view === 'progress' ? <Progress /> : <DeliveryPage driverId="driver" displayName="Test driver" onSignOut={() => {}} />
