@@ -17,13 +17,32 @@
   },
   "mode": "review-and-staged-cutover-not-a-bulk-deployment-or-deletion-manifest",
   "progress": {
-    "verifiedAt": "2026-10-24T05:43:01.957Z",
+    "verifiedAt": "2026-10-24T06:38:51.132Z",
     "completedSourceRetirements": 5,
     "pendingCandidateSourceRetirements": 183,
     "currentFunctionCounts": {
-      "asia-east1": 139,
+      "asia-east1": 142,
       "asia-southeast1": 370,
-      "asia-southeast2": 19
+      "asia-southeast2": 23
+    },
+    "wave3ReadCutover": {
+      "report": "ops/read-wave3-offload-20261024.json",
+      "frontendSourceCommit": "97784c421e73fcd90dcf955eb67f36bc3c2e9faf",
+      "backendSourceCommits": ["ea43382d1664b497107e776a7e56d727350e096b", "c2027de4c98e97c37aaf87e7db278e3360936225"],
+      "newRegionalAliases": 7,
+      "changedTargetsVerified": 14,
+      "minimumInstancesForEachChangedTarget": 0,
+      "legacySourceEndpointsRetained": true,
+      "newSourceRetirements": 0,
+      "newRegionalPrimaryRoutes": [
+        {"name": "getContractRenewalCaseDetail", "replacement": "getContractRenewalCaseDetailRegional", "region": "asia-east1"},
+        {"name": "listRenewalCalendar", "replacement": "listRenewalCalendarRegional", "region": "asia-east1"},
+        {"name": "getRenewalAnalytics", "replacement": "getRenewalAnalyticsRegional", "region": "asia-east1"},
+        {"name": "listLoyaltyRedemptions", "replacement": "listLoyaltyRedemptionsRegional", "region": "asia-southeast2"},
+        {"name": "listLoyaltyAdjustments", "replacement": "listLoyaltyAdjustmentsRegional", "region": "asia-southeast2"},
+        {"name": "listLoyaltyReconciliationIssues", "replacement": "listLoyaltyReconciliationIssuesRegional", "region": "asia-southeast2"},
+        {"name": "listExerciseCatalog", "replacement": "listExerciseCatalogRegional", "region": "asia-southeast2"}
+      ]
     },
     "paginationReadCutover": {
       "backendSourceCommit": "1e4951ef52b7795d25ff11309d07c5f58a7f7e41",
@@ -1344,9 +1363,9 @@
       "kind": "callable",
       "domain": "renewal",
       "destination": "asia-east1",
-      "replacement": null,
+      "replacement": "getContractRenewalCaseDetailRegional",
       "wave": "new-read-candidates",
-      "status": "handler-secret-query-and-capacity-review-required",
+      "status": "regional-image-verified-source-retained-routing-in-release",
       "retirementAllowed": false
     },
     {
@@ -1354,9 +1373,9 @@
       "kind": "callable",
       "domain": "renewal",
       "destination": "asia-east1",
-      "replacement": null,
+      "replacement": "listRenewalCalendarRegional",
       "wave": "new-read-candidates",
-      "status": "handler-secret-query-and-capacity-review-required",
+      "status": "regional-image-verified-source-retained-routing-in-release",
       "retirementAllowed": false
     },
     {
@@ -1374,9 +1393,9 @@
       "kind": "callable",
       "domain": "renewal",
       "destination": "asia-east1",
-      "replacement": null,
+      "replacement": "getRenewalAnalyticsRegional",
       "wave": "new-read-candidates",
-      "status": "handler-secret-query-and-capacity-review-required",
+      "status": "regional-image-verified-source-retained-routing-in-release",
       "retirementAllowed": false
     },
     {
@@ -1404,9 +1423,9 @@
       "kind": "callable",
       "domain": "loyalty",
       "destination": "asia-southeast2",
-      "replacement": null,
+      "replacement": "listLoyaltyAdjustmentsRegional",
       "wave": "new-read-candidates",
-      "status": "handler-secret-query-and-capacity-review-required",
+      "status": "regional-image-verified-source-retained-routing-in-release",
       "retirementAllowed": false
     },
     {
@@ -1424,9 +1443,9 @@
       "kind": "callable",
       "domain": "loyalty",
       "destination": "asia-southeast2",
-      "replacement": null,
+      "replacement": "listLoyaltyReconciliationIssuesRegional",
       "wave": "new-read-candidates",
-      "status": "handler-secret-query-and-capacity-review-required",
+      "status": "regional-image-verified-source-retained-routing-in-release",
       "retirementAllowed": false
     },
     {
@@ -1434,9 +1453,9 @@
       "kind": "callable",
       "domain": "loyalty",
       "destination": "asia-southeast2",
-      "replacement": null,
+      "replacement": "listLoyaltyRedemptionsRegional",
       "wave": "new-read-candidates",
-      "status": "handler-secret-query-and-capacity-review-required",
+      "status": "regional-image-verified-source-retained-routing-in-release",
       "retirementAllowed": false
     },
     {
@@ -1524,9 +1543,9 @@
       "kind": "callable",
       "domain": "catalog",
       "destination": "asia-southeast2",
-      "replacement": null,
+      "replacement": "listExerciseCatalogRegional",
       "wave": "new-read-candidates",
-      "status": "handler-secret-query-and-capacity-review-required",
+      "status": "regional-image-verified-source-retained-routing-in-release",
       "retirementAllowed": false
     },
     {

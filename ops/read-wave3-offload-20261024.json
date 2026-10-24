@@ -1,0 +1,406 @@
+{
+  "schemaVersion": 1,
+  "project": "gen-lang-client-0815966909",
+  "verifiedAt": "2026-10-24T06:38:51.132Z",
+  "frontendSourceCommit": "97784c421e73fcd90dcf955eb67f36bc3c2e9faf",
+  "frontendPublication": "Regional-primary callers are committed; exact public Vercel and custom-domain release SHA is checked separately after publication.",
+  "backendSourcePolicy": "Exact per-target mixed source: authority fix c2027de for Cases/Pipeline/EastCases; eleven other targets retain independently verified ea43382.",
+  "routes": [
+    {
+      "name": "getContractRenewalCaseDetail",
+      "replacement": "getContractRenewalCaseDetailRegional",
+      "region": "asia-east1"
+    },
+    {
+      "name": "listRenewalCalendar",
+      "replacement": "listRenewalCalendarRegional",
+      "region": "asia-east1"
+    },
+    {
+      "name": "getRenewalAnalytics",
+      "replacement": "getRenewalAnalyticsRegional",
+      "region": "asia-east1"
+    },
+    {
+      "name": "listLoyaltyRedemptions",
+      "replacement": "listLoyaltyRedemptionsRegional",
+      "region": "asia-southeast2"
+    },
+    {
+      "name": "listLoyaltyAdjustments",
+      "replacement": "listLoyaltyAdjustmentsRegional",
+      "region": "asia-southeast2"
+    },
+    {
+      "name": "listLoyaltyReconciliationIssues",
+      "replacement": "listLoyaltyReconciliationIssuesRegional",
+      "region": "asia-southeast2"
+    },
+    {
+      "name": "listExerciseCatalog",
+      "replacement": "listExerciseCatalogRegional",
+      "region": "asia-southeast2"
+    }
+  ],
+  "runtimeVerification": {
+    "verifiedTargets": 14,
+    "immutableImageSourceFilesPerTarget": 11,
+    "installedBodyParser": "2.4.0",
+    "latestCreatedEqualsLatestReady": true,
+    "readyAndContainerHealthy": true,
+    "soleServingTrafficPercent": 100,
+    "proofs": [
+      {
+        "function": "listContractRenewalCases",
+        "region": "asia-southeast1",
+        "sourceCommit": "c2027de4c98e97c37aaf87e7db278e3360936225",
+        "revision": "listcontractrenewalcases-00022-tc9",
+        "image": "asia-southeast1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast1__list_contract_renewal_cases@sha256:ac99e36e10283430a14630aa91e18eaeeb8f2fdd46801748b480e389c6546807",
+        "functionBuild": "projects/607039870489/locations/asia-southeast1/builds/cd86dc64-9b29-4769-b4f5-10e0f339ef9b",
+        "functionUpdateTime": "2026-10-24T06:30:19.930896165Z",
+        "cpu": 0.1666,
+        "memory": "256Mi",
+        "concurrency": 1,
+        "timeoutSeconds": 60,
+        "functionMinimum": 0,
+        "serviceMinimum": 0,
+        "revisionMinimum": 0,
+        "effectiveMaximum": 2
+      },
+      {
+        "function": "listContractRenewalPipeline",
+        "region": "asia-southeast1",
+        "sourceCommit": "c2027de4c98e97c37aaf87e7db278e3360936225",
+        "revision": "listcontractrenewalpipeline-00024-4gj",
+        "image": "asia-southeast1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast1__list_contract_renewal_pipeline@sha256:3db482177c8ec324aaf8a198bc61e4fcbc9d28e381dc939914d1a9eef67b35b1",
+        "functionBuild": "projects/607039870489/locations/asia-southeast1/builds/5e62996f-4377-430c-9070-c272598a0dd1",
+        "functionUpdateTime": "2026-10-24T06:32:07.408831250Z",
+        "cpu": 0.1666,
+        "memory": "256Mi",
+        "concurrency": 1,
+        "timeoutSeconds": 60,
+        "functionMinimum": 0,
+        "serviceMinimum": 0,
+        "revisionMinimum": 0,
+        "effectiveMaximum": 2
+      },
+      {
+        "function": "listContractRenewalCasesRegional",
+        "region": "asia-east1",
+        "sourceCommit": "c2027de4c98e97c37aaf87e7db278e3360936225",
+        "revision": "listcontractrenewalcasesregional-00003-vil",
+        "image": "asia-east1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--east1__list_contract_renewal_cases_regional@sha256:e13263e29f42e3cdfc981259df7da988ebe1cbd29f490538d582adc2790fbd6e",
+        "functionBuild": "projects/607039870489/locations/asia-east1/builds/045601f4-ba00-4747-8031-4a1a2e642ed3",
+        "functionUpdateTime": "2026-10-24T06:30:41.737333524Z",
+        "cpu": 0.1666,
+        "memory": "256Mi",
+        "concurrency": 1,
+        "timeoutSeconds": 60,
+        "functionMinimum": 0,
+        "serviceMinimum": 0,
+        "revisionMinimum": 0,
+        "effectiveMaximum": 2
+      },
+      {
+        "function": "listLoyaltyRedemptions",
+        "region": "asia-southeast1",
+        "sourceCommit": "ea43382d1664b497107e776a7e56d727350e096b",
+        "revision": "listloyaltyredemptions-00008-fuv",
+        "image": "asia-southeast1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast1__list_loyalty_redemptions@sha256:6198622ef5e59432ee3a156f52627f0d3c5418f09d967e97ccc81ad59f4cbc56",
+        "functionBuild": "projects/607039870489/locations/asia-southeast1/builds/418a989d-d454-4d25-915f-592816187719",
+        "functionUpdateTime": "2026-10-24T06:25:00.487611057Z",
+        "cpu": 0.1666,
+        "memory": "256Mi",
+        "concurrency": 1,
+        "timeoutSeconds": 90,
+        "functionMinimum": 0,
+        "serviceMinimum": 0,
+        "revisionMinimum": 0,
+        "effectiveMaximum": 2
+      },
+      {
+        "function": "listLoyaltyAdjustments",
+        "region": "asia-southeast1",
+        "sourceCommit": "ea43382d1664b497107e776a7e56d727350e096b",
+        "revision": "listloyaltyadjustments-00007-wig",
+        "image": "asia-southeast1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast1__list_loyalty_adjustments@sha256:c39ccce9d84e3b900acd36ee34881e1314874947ced482271c9eaa5cd05c4f95",
+        "functionBuild": "projects/607039870489/locations/asia-southeast1/builds/49a887e9-6295-4136-bc42-92534b35a1c8",
+        "functionUpdateTime": "2026-10-24T06:26:44.973291860Z",
+        "cpu": 0.1666,
+        "memory": "256Mi",
+        "concurrency": 1,
+        "timeoutSeconds": 90,
+        "functionMinimum": 0,
+        "serviceMinimum": 0,
+        "revisionMinimum": 0,
+        "effectiveMaximum": 2
+      },
+      {
+        "function": "listLoyaltyReconciliationIssues",
+        "region": "asia-southeast1",
+        "sourceCommit": "ea43382d1664b497107e776a7e56d727350e096b",
+        "revision": "listloyaltyreconciliationissues-00007-vov",
+        "image": "asia-southeast1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast1__list_loyalty_reconciliation_issues@sha256:9d1c9cca2e60428293fc9c319cf304b20cc46141d12fdf6ad12fd9954727c9f5",
+        "functionBuild": "projects/607039870489/locations/asia-southeast1/builds/8c2fba90-d21c-4091-b26f-0d761ef27bc9",
+        "functionUpdateTime": "2026-10-24T06:28:03.962549466Z",
+        "cpu": 0.1666,
+        "memory": "256Mi",
+        "concurrency": 1,
+        "timeoutSeconds": 90,
+        "functionMinimum": 0,
+        "serviceMinimum": 0,
+        "revisionMinimum": 0,
+        "effectiveMaximum": 2
+      },
+      {
+        "function": "getContractRenewalCaseDetailRegional",
+        "region": "asia-east1",
+        "sourceCommit": "ea43382d1664b497107e776a7e56d727350e096b",
+        "revision": "getcontractrenewalcasedetailregional-00001-but",
+        "image": "asia-east1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--east1__get_contract_renewal_case_detail_regional@sha256:a35ac9934e04b7e4b34f44df6712202d0133c4b495ce051867256ac15f8e41a6",
+        "functionBuild": "projects/607039870489/locations/asia-east1/builds/e3184009-5e8c-4218-9f3c-c420576d657a",
+        "functionUpdateTime": "2026-10-24T06:22:20.807067897Z",
+        "cpu": 0.1666,
+        "memory": "256Mi",
+        "concurrency": 1,
+        "timeoutSeconds": 60,
+        "functionMinimum": 0,
+        "serviceMinimum": 0,
+        "revisionMinimum": 0,
+        "effectiveMaximum": 2
+      },
+      {
+        "function": "listRenewalCalendarRegional",
+        "region": "asia-east1",
+        "sourceCommit": "ea43382d1664b497107e776a7e56d727350e096b",
+        "revision": "listrenewalcalendarregional-00001-xeg",
+        "image": "asia-east1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--east1__get_contract_renewal_case_detail_regional@sha256:a35ac9934e04b7e4b34f44df6712202d0133c4b495ce051867256ac15f8e41a6",
+        "functionBuild": "projects/607039870489/locations/asia-east1/builds/e3184009-5e8c-4218-9f3c-c420576d657a",
+        "functionUpdateTime": "2026-10-24T06:22:29.142939399Z",
+        "cpu": 0.1666,
+        "memory": "256Mi",
+        "concurrency": 1,
+        "timeoutSeconds": 60,
+        "functionMinimum": 0,
+        "serviceMinimum": 0,
+        "revisionMinimum": 0,
+        "effectiveMaximum": 2
+      },
+      {
+        "function": "getRenewalAnalyticsRegional",
+        "region": "asia-east1",
+        "sourceCommit": "ea43382d1664b497107e776a7e56d727350e096b",
+        "revision": "getrenewalanalyticsregional-00001-sul",
+        "image": "asia-east1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--east1__get_contract_renewal_case_detail_regional@sha256:a35ac9934e04b7e4b34f44df6712202d0133c4b495ce051867256ac15f8e41a6",
+        "functionBuild": "projects/607039870489/locations/asia-east1/builds/e3184009-5e8c-4218-9f3c-c420576d657a",
+        "functionUpdateTime": "2026-10-24T06:22:28.809288039Z",
+        "cpu": 0.1666,
+        "memory": "256Mi",
+        "concurrency": 1,
+        "timeoutSeconds": 60,
+        "functionMinimum": 0,
+        "serviceMinimum": 0,
+        "revisionMinimum": 0,
+        "effectiveMaximum": 2
+      },
+      {
+        "function": "listLoyaltyRedemptionsRegional",
+        "region": "asia-southeast2",
+        "sourceCommit": "ea43382d1664b497107e776a7e56d727350e096b",
+        "revision": "listloyaltyredemptionsregional-00001-seg",
+        "image": "asia-southeast2-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast2__list_loyalty_redemptions_regional@sha256:627b01d7a32948420483b765328f3646d9da0f18afbe8f2e7899069f9c7a3af7",
+        "functionBuild": "projects/607039870489/locations/asia-southeast2/builds/b65ff1d0-def8-48d0-a776-350855339497",
+        "functionUpdateTime": "2026-10-24T06:22:05.151565793Z",
+        "cpu": 0.1666,
+        "memory": "256Mi",
+        "concurrency": 1,
+        "timeoutSeconds": 60,
+        "functionMinimum": 0,
+        "serviceMinimum": 0,
+        "revisionMinimum": 0,
+        "effectiveMaximum": 2
+      },
+      {
+        "function": "listLoyaltyAdjustmentsRegional",
+        "region": "asia-southeast2",
+        "sourceCommit": "ea43382d1664b497107e776a7e56d727350e096b",
+        "revision": "listloyaltyadjustmentsregional-00001-qil",
+        "image": "asia-southeast2-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast2__list_loyalty_redemptions_regional@sha256:627b01d7a32948420483b765328f3646d9da0f18afbe8f2e7899069f9c7a3af7",
+        "functionBuild": "projects/607039870489/locations/asia-southeast2/builds/b65ff1d0-def8-48d0-a776-350855339497",
+        "functionUpdateTime": "2026-10-24T06:22:08.888459942Z",
+        "cpu": 0.1666,
+        "memory": "256Mi",
+        "concurrency": 1,
+        "timeoutSeconds": 60,
+        "functionMinimum": 0,
+        "serviceMinimum": 0,
+        "revisionMinimum": 0,
+        "effectiveMaximum": 2
+      },
+      {
+        "function": "listLoyaltyReconciliationIssuesRegional",
+        "region": "asia-southeast2",
+        "sourceCommit": "ea43382d1664b497107e776a7e56d727350e096b",
+        "revision": "listloyaltyreconciliationissuesregional-00001-mov",
+        "image": "asia-southeast2-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast2__list_loyalty_redemptions_regional@sha256:627b01d7a32948420483b765328f3646d9da0f18afbe8f2e7899069f9c7a3af7",
+        "functionBuild": "projects/607039870489/locations/asia-southeast2/builds/b65ff1d0-def8-48d0-a776-350855339497",
+        "functionUpdateTime": "2026-10-24T06:22:09.803960675Z",
+        "cpu": 0.1666,
+        "memory": "256Mi",
+        "concurrency": 1,
+        "timeoutSeconds": 60,
+        "functionMinimum": 0,
+        "serviceMinimum": 0,
+        "revisionMinimum": 0,
+        "effectiveMaximum": 2
+      },
+      {
+        "function": "listExerciseCatalogRegional",
+        "region": "asia-southeast2",
+        "sourceCommit": "ea43382d1664b497107e776a7e56d727350e096b",
+        "revision": "listexercisecatalogregional-00001-nuj",
+        "image": "asia-southeast2-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast2__list_loyalty_redemptions_regional@sha256:627b01d7a32948420483b765328f3646d9da0f18afbe8f2e7899069f9c7a3af7",
+        "functionBuild": "projects/607039870489/locations/asia-southeast2/builds/b65ff1d0-def8-48d0-a776-350855339497",
+        "functionUpdateTime": "2026-10-24T06:22:08.770522204Z",
+        "cpu": 0.1666,
+        "memory": "256Mi",
+        "concurrency": 1,
+        "timeoutSeconds": 60,
+        "functionMinimum": 0,
+        "serviceMinimum": 0,
+        "revisionMinimum": 0,
+        "effectiveMaximum": 2
+      },
+      {
+        "function": "listExerciseCatalog",
+        "region": "asia-southeast1",
+        "sourceCommit": "ea43382d1664b497107e776a7e56d727350e096b",
+        "revision": "listexercisecatalog-00024-xiw",
+        "image": "asia-southeast1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast1__list_exercise_catalog@sha256:17a9e8d4293c07ef8fade8863bcf13faf43033b32e0444a09097debeea5d53f0",
+        "functionBuild": "projects/607039870489/locations/asia-southeast1/builds/c3bd76bd-56e8-4d64-b949-de7cc0fd8341",
+        "functionUpdateTime": "2026-10-24T06:29:24.266985719Z",
+        "cpu": 1,
+        "memory": "256Mi",
+        "concurrency": 80,
+        "timeoutSeconds": 60,
+        "functionMinimum": 0,
+        "serviceMinimum": 0,
+        "revisionMinimum": 0,
+        "effectiveMaximum": 3
+      }
+    ]
+  },
+  "inventory": {
+    "total": 535,
+    "counts": {
+      "asia-east1": 142,
+      "asia-southeast1": 370,
+      "asia-southeast2": 23
+    },
+    "states": {
+      "ACTIVE": 535
+    },
+    "configuredFunctionMinimums": 0,
+    "newRegionalAliases": 7,
+    "removedFunctions": 0,
+    "newSourceRetirements": 0,
+    "completedSourceRetirementsAcrossWaves": 5,
+    "candidateSourceRetirementsAcrossWaves": 188
+  },
+  "negativeAuthenticationSmoke": {
+    "checkedAt": "2026-10-24T06:39:23.073Z",
+    "verified": true,
+    "passed": 14,
+    "scope": "One empty unauthenticated request per selected endpoint; 401/UNAUTHENTICATED and exact club CORS. No authenticated business-flow or latency claim."
+  },
+  "optimizations": [
+    {
+      "area": "exercise-catalog",
+      "change": "Unfiltered dense browse fetches remaining page slots plus one lookahead, not an unconditional 72 documents. Sparse visibility switches back to larger batches. Explicit filters/search retain bounded scan behavior.",
+      "fixture": {
+        "pageSize": 36,
+        "firstPageDocumentsBefore": 72,
+        "firstPageDocumentsAfter": 37,
+        "full95ItemBrowseDocumentsBefore": 154,
+        "full95ItemBrowseDocumentsAfter": 97
+      },
+      "preserved": "Role/status visibility, filters, full coaching/media fields, cursor and hasMore behavior."
+    },
+    {
+      "area": "loyalty-list-profile-hydration",
+      "change": "Exclude explicitly out-of-branch rows before loading their student profiles; missing-branch rows retain profile fallback.",
+      "fixture": {
+        "sourceRows": 300,
+        "authorizedBranchProfileReadsBefore": 300,
+        "authorizedBranchProfileReadsAfter": 150,
+        "totalDocumentsBefore": 600,
+        "totalDocumentsAfter": 450,
+        "excludesAuthorizationReads": true
+      },
+      "limitations": "Administrator profile savings are zero. Adjustments are currently admin-only. Global 300-row cap/order/status behavior is unchanged."
+    },
+    {
+      "area": "renewal-filter-dictionary-reuse",
+      "change": "Only cursor load-more can reuse filter dictionaries with a matching fresh authority-bound scope key. Cases, stats, money and risk are recomputed; refresh/filter/mutation reads dictionaries afresh; wizard options remain separately fresh.",
+      "fixture": {
+        "loadMoreDictionaryDocumentsAvoided": 8
+      },
+      "security": "All list modes read fresh assignment authority. Changed scope resets pagination and clears old-scope dialogs/selections; revoked authority clears rows. No reuse of price/payment dictionaries.",
+      "limitations": "Fresh authority may add one read relative to the previous short-lived assignment cache. Existing scoped case scan up to 5001 remains."
+    }
+  ],
+  "frontendSafety": {
+    "secondaryReadAllowlistSize": 17,
+    "regionalTimeoutMsForNewRoutes": 70000,
+    "maxInfrastructureFallbackAttempts": 1,
+    "noAuthOrBusinessErrorFallback": true,
+    "uidGuardBeforeAndAfterRequests": true,
+    "noMutationRegionalRetryAdded": true,
+    "noMoneyResultCacheAdded": true
+  },
+  "verification": {
+    "fullLocalCi": { "sourceCommit": "97784c421e73fcd90dcf955eb67f36bc3c2e9faf", "isolatedCleanWorktree": true, "exitCode": 0, "log": "tmp/region-half-migration-20261024/wave3-ci-frozen-97784c4.log" },
+    "renewalBrowserTests": 46,
+    "catalogBrowserTests": 14,
+    "bundledRoutingAndRenewalContracts": 18,
+    "renewalBackendContractAndHandoverTests": 61,
+    "proofHelperTests": 31,
+    "retiredArtifactHelperTests": 7
+  },
+  "capacityObservation": {
+    "observedAt": "2026-10-24T06:10:24.212Z",
+    "oneHourMeanAllocatedCpuEquivalent": {
+      "asia-southeast1": 0.855,
+      "asia-east1": 0.125,
+      "asia-southeast2": 0.043
+    },
+    "oneHourPeakAllocatedCpuEquivalent": {
+      "asia-southeast1": 3.44,
+      "asia-east1": 2.514,
+      "asia-southeast2": 0.614
+    },
+    "interpretation": "Allocation-time-derived observations, not instantaneous quota headroom, busy CPU, billing, or guaranteed spare capacity. Stay within existing three regions; no fourth region introduced."
+  },
+  "evidence": {
+    "directory": "tmp/region-half-migration-20261024",
+    "sha256": {
+      "wave3-final-mixed-postflight-c2027de.json": "ec02a6deb73aad4c47452153bb1b60e6bb442a007cba0ccee7f1d7be049e20f9",
+      "wave3-final-negative-auth-c2027de.json": "495902aa5f69dbaa9fce8591bffffbcfffebd2c7d945bae241dcbc83c07b02e1"
+    }
+  },
+  "constraints": [
+    "SMS, scheduled jobs, background writers and business data were not changed by this wave.",
+    "Configured minimum zero does not mean zero currently running instances; inventory minimum sum covers CF metadata, not every unrelated Cloud Run service/revision.",
+    "Singapore originals remain for old clients and infrastructure fallback. This wave does not reduce Singapore function count; routing reduces its primary traffic only after frontend release/adoption.",
+    "Fixture document counts are not production billed read units. Firestore Enterprise bills processed document/index data in read units; no measured monetary reduction claimed.",
+    "Cross-region execution does not relocate Firestore or eliminate database read charges; network latency/cost and authenticated workloads still require production observation.",
+    "No indexes/backfills/collection scans or financial mutations were introduced for verification.",
+    "Unrelated concurrent PT/history changes are excluded from this release."
+  ],
+  "remainingWork": [
+    "Measure natural request/latency/error and billed read-unit deltas after adoption; do not create business traffic for synthetic load.",
+    "Replace repeated large renewal case/stat scans with authority-scoped projections only after legacy field/risk/financial parity tests.",
+    "Review global loyalty dashboard scans independently; this wave optimizes selected lists, not every dashboard.",
+    "Retire exact old Singapore sources only after old-client/fallback/transport evidence passes the existing lifecycle gate."
+  ]
+}
