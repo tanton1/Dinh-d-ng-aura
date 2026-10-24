@@ -55,6 +55,19 @@ test('load more avoids duplicate rows, and selecting PT loads only the PT endpoi
   await expect(page.getByRole('button', { name: 'Đối chiếu gói tập', exact: true })).toHaveCount(0)
 })
 
+test('an empty filtered window keeps its continuation and does not claim the entire history is empty', async ({ page }) => {
+  await open(page, true)
+  await resolve(page, 0, [], true)
+  await expect(page.getByText('Chưa tìm thấy buổi phù hợp trong phần đã tải. Tải thêm để xem các ngày trước.')).toBeVisible()
+  await expect(page.getByText('Không có buổi tập nào trong bộ lọc này.')).toHaveCount(0)
+  await page.getByRole('button', { name: 'Tải thêm lịch sử', exact: true }).click()
+  await expect.poll(() => counts(page)).toEqual({ history: 2, usage: 0 })
+  expect(await page.evaluate(() => (window as any).historyCalls[1].query)).toMatchObject({ cursor: 'next-page', includeSummary: false })
+  await resolve(page, 1, ['earlier-visit'])
+  await expect(page.locator('.training-history__record')).toContainText('earlier-visit')
+  await expect(page.getByRole('button', { name: 'Tải thêm lịch sử', exact: true })).toHaveCount(0)
+})
+
 test('saving a correction refreshes visible history and contract reconciliation', async ({ page }) => {
   await open(page)
   await expect.poll(() => page.evaluate(() => (window as any).activeTrainerDirectoryReads)).toBe(0)
