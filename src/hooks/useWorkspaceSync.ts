@@ -44,16 +44,20 @@ export function useLocalTimeBoundaries(boundaries: number[]) {
   return Math.max(now, Date.now())
 }
 
-export function useWorkspaceSync({ accountId, domain, scopeKey, enabled, refresh }: {
-  accountId: string; domain: WorkspaceSyncDomain; scopeKey: string; enabled: boolean; refresh: () => Promise<unknown>
+export function useWorkspaceSync({ accountId, domain, scopeKey, enabled, paused = false, refresh }: {
+  accountId: string; domain: WorkspaceSyncDomain; scopeKey: string; enabled: boolean; paused?: boolean; refresh: () => Promise<unknown>
 }) {
   const refreshRef = useRef(refresh)
   refreshRef.current = refresh
+  const pausedRef = useRef(paused)
+  pausedRef.current = paused
   const engineRef = useRef<ReturnType<typeof createWorkspaceSync> | null>(null)
   const retryRef = useRef<() => void>(() => {})
   const [error, setError] = useState(false)
+  const [pending, setPending] = useState(false)
   useEffect(() => {
     setError(false)
+    setPending(false)
     if (!enabled || !accountId) return
     let alive = true
     let readFailed = false
@@ -74,11 +78,12 @@ export function useWorkspaceSync({ accountId, domain, scopeKey, enabled, refresh
     const engine = createWorkspaceSync({
       refresh: () => refreshRef.current(),
       environment: {
-        available: () => !document.hidden && navigator.onLine !== false,
+        available: () => !pausedRef.current && !document.hidden && navigator.onLine !== false,
         schedule: (callback, delay) => window.setTimeout(callback, delay),
         cancel: (timer) => window.clearTimeout(timer as number),
       },
       onError: (failed) => { readFailed = failed; if (alive) setError(failed || failedKeys.size > 0) },
+      onPending: (value) => { if (alive) setPending(value) },
       onAccept: (state) => {
         const branchKeys = new Set(Object.keys(state.branchVersions || {}).map((id) => `branch:${id}`))
         for (const [key, stop] of subscriptions) if (key.startsWith('branch:') && !branchKeys.has(key)) {
@@ -110,8 +115,10 @@ export function useWorkspaceSync({ accountId, domain, scopeKey, enabled, refresh
       if (engineRef.current === engine) { engineRef.current = null; retryRef.current = () => {} }
     }
   }, [accountId, domain, enabled, scopeKey])
+  useEffect(() => { if (!paused) engineRef.current?.resume() }, [paused])
   return {
     error,
+    pending,
     accept: useCallback((state: WorkspaceSyncState | undefined) => engineRef.current?.accept(state), []),
     failed: useCallback(() => engineRef.current?.fail(), []),
     retry: useCallback(() => retryRef.current(), []),

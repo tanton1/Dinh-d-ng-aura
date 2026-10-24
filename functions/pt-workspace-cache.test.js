@@ -90,6 +90,29 @@ function fixture() {
 const queryCount = (db, collection) => db.reads.filter((read) => read.type === 'query' && read.collection === collection).length
 const update = (db, path, patch) => db.values.set(path, { ...db.values.get(path), ...patch })
 
+test('availability surface retains booked slots, eligibility and pauses without loading request history or trainer names', async () => {
+  const { db, student } = fixture()
+  db.values.set('sessionRequests/old-request', { studentId: 'student', status: 'approved', type: 'cancel' })
+  db.values.set('leaveRequests/pause', { studentId: 'student', status: 'approved', startDate: '2026-10-27', endDate: '2026-10-29' })
+  const availability = await student({ surface: 'availability' })
+  assert.equal(availability.student.id, 'student')
+  assert.equal(availability.sessions[0].id, 'session')
+  assert.equal(availability.contracts[0].id, 'contract')
+  assert.equal(availability.pauseRequests[0].id, 'pause')
+  assert.equal(availability.syncState.userVersion, VERSION(1))
+  assert.deepEqual(availability.sessionRequests, [])
+  assert.equal(queryCount(db, 'sessionRequests'), 0)
+  assert.equal(db.reads.some(read => read.path?.startsWith('trainers/')), false)
+  const schedule = await student()
+  assert.equal(schedule.sessionRequests[0].id, 'old-request', 'a narrow cached payload must not poison the schedule view')
+  assert.equal(schedule.sessions[0].trainerName, 'Trainer')
+  assert.equal(queryCount(db, 'sessionRequests'), 1)
+  await student({ surface: 'availability' })
+  assert.equal(queryCount(db, 'sessionRequests'), 1)
+  update(db, 'roleAssignments/student', { status: 'suspended', authzVersion: 2 })
+  await assert.rejects(student({ surface: 'availability' }), error => error.code === 'permission-denied')
+})
+
 const DASHBOARD_RANGE = { section: 'schedule', from: '2026-10-26', to: '2026-10-26', limit: 500, dashboardSummary: true }
 
 test('PT dashboard preserves displayed counters and attendance without calendar, nutrition or request-history hydration', async () => {

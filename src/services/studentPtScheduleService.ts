@@ -400,10 +400,10 @@ export function asStudentPtScheduleError(error: unknown): StudentPtScheduleServi
   return new StudentPtScheduleServiceError(message, 'UNKNOWN', true, details)
 }
 
-export async function listMyStudentPtSchedule(from: string, to: string, availabilityWeekId: string): Promise<StudentPtScheduleData> {
+export async function listMyStudentPtSchedule(from: string, to: string, availabilityWeekId: string, options: { surface?: 'availability' } = {}): Promise<StudentPtScheduleData> {
   const accountUid = firebaseAuth?.currentUser?.uid
   try {
-    const input = { from, to, availabilityWeekId }
+    const input = { from, to, availabilityWeekId, ...options }
     const invoke = (client: typeof firebaseFunctions, name: string) => {
       const callable = httpsCallable<typeof input, StudentPtScheduleData>(client || functionsInstance(), name, { timeout: 18_000 })
       return callable(input).then((result) => result.data)

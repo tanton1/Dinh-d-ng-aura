@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { doc, onSnapshot } from 'firebase/firestore'
 import {
   AlertCircle,
   CalendarDays,
@@ -33,7 +32,8 @@ import {
   type StudentPtSession,
 } from '../../services/studentPtScheduleService'
 import type { ViewId } from '../../types'
-import { firestoreDb } from '../../lib/firebaseFirestore'
+import { useVietnamDay, useWorkspaceAccountId, useWorkspaceSync } from '../../hooks/useWorkspaceSync'
+import { runCoalescedRefresh, type CoalescedRefreshState } from '../../utils/coalescedRefresh'
 import { vietnamBusinessDayCode } from '../../utils/dateUtils'
 import './StudentSchedulePage.css'
 import './StudentAvailabilityPage.css'
@@ -42,6 +42,7 @@ import { useAuraUiSurface } from '../../features/ui-rollout/AuraUiRolloutContext
 const DEFAULT_DAYS = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7']
 const DEFAULT_HOURS = [6, 7, 8, 9, 10, 11, 14, 15, 16, 17, 18, 19, 20]
 const MAX_REQUESTED_SESSIONS = 7
+const ACCESS_ISSUES = new Set(['AUTH_REQUIRED', 'ACCESS_SYNC_REQUIRED', 'ACCESS_DENIED', 'STUDENT_ROLE_REQUIRED', 'PROFILE_NOT_LINKED'])
 type AvailabilityWeekOffset = 0 | 1 | 2
 
 function toIsoDate(date: Date) {
@@ -183,7 +184,10 @@ function demoAvailabilityData(today: Date, weekStart: Date, weekId: string): Stu
 
 export default function StudentAvailabilityPage({ onNavigate, isDemo = false }: { onNavigate: (view: ViewId) => void; isDemo?: boolean }) {
   const availabilityV4 = useAuraUiSurface('member-availability')
-  const today = useMemo(() => new Date(), [])
+  const accountId = useWorkspaceAccountId()
+  const day = useVietnamDay()
+  const [viewDay, setViewDay] = useState(day)
+  const today = useMemo(() => new Date(`${viewDay}T00:00:00`), [viewDay])
   const [weekOffset, setWeekOffset] = useState<AvailabilityWeekOffset>(1)
   const [data, setData] = useState<StudentPtScheduleData | null>(null)
   const [selectedSlots, setSelectedSlots] = useState<Set<string>>(new Set())
@@ -191,6 +195,9 @@ export default function StudentAvailabilityPage({ onNavigate, isDemo = false }: 
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const requestIdRef = useRef(0)
+  const mutationIdRef = useRef(0)
+  const refreshRef = useRef<CoalescedRefreshState | null>(null)
+  const discardDraftRef = useRef(false)
   const loadedWeekRef = useRef('')
   const [saving, setSaving] = useState(false)
   const [issue, setIssue] = useState<StudentPtScheduleServiceError | null>(null)
@@ -201,54 +208,54 @@ export default function StudentAvailabilityPage({ onNavigate, isDemo = false }: 
   const weekStart = useMemo(() => addDays(startOfWeek(today), weekOffset * 7), [today, weekOffset])
   const weekId = useMemo(() => toIsoDate(weekStart), [weekStart])
   const range = useMemo(() => ({ from: toIsoDate(weekStart), to: toIsoDate(addDays(weekStart, 6)) }), [weekStart])
+  // A day change revalidates locks without changing or discarding this week's
+  // unsaved selection. Account/week navigation has a separate draft scope.
+  const draftScope = `${accountId}:${isDemo}:${weekId}`
+  const loadScope = `${draftScope}:${day}`
+  const currentScopeRef = useRef(loadScope)
+  currentScopeRef.current = loadScope
+  const currentDraftScopeRef = useRef(draftScope)
+  currentDraftScopeRef.current = draftScope
 
-  const load = useCallback(async (discardDraft = false) => {
-    const requestId = ++requestIdRef.current
-    const background = loadedWeekRef.current === weekId
-    setLoading(!background)
-    setRefreshing(background)
-    setIssue(null)
-    setMessage(null)
-    try {
-      const response = isDemo
-        ? demoAvailabilityData(today, weekStart, weekId)
-        : await listMyStudentPtSchedule(range.from, range.to, weekId)
-      if (requestId !== requestIdRef.current) return
-      // A user may begin editing while the background read is in flight.
-      if (background && dirtyRef.current && !discardDraft) return
-      loadedWeekRef.current = weekId
-      setData(response)
-      setSelectedSlots(new Set(response.student?.availability?.slots ?? response.student?.availableSlots ?? []))
-      setRequestedSessions(response.student?.availability?.requestedSessions ?? null)
-    } catch (caught) {
-      if (requestId === requestIdRef.current) setIssue(asStudentPtScheduleError(caught))
-    } finally {
-      if (requestId === requestIdRef.current) { setLoading(false); setRefreshing(false) }
-    }
-  }, [isDemo, range.from, range.to, today, weekId, weekStart])
-
-  useEffect(() => { void load(); return () => { requestIdRef.current += 1 } }, [load])
-
-  // Admin availability edits are written by a separate callable service. The
-  // branch/week marker is intentionally only a signal; the authoritative
-  // weekly slots are fetched again through the capability-checked callable.
-  // This keeps an already-open learner page in sync without exposing the
-  // availability matrix to a direct Firestore listener.
-  useEffect(() => {
-    const studentId = data?.student?.id || ''
-    const branchId = data?.student?.branchId || ''
-    if (isDemo || !firestoreDb || !studentId || !branchId || !weekId) return undefined
-    const reference = doc(firestoreDb, 'ptAvailabilitySync', `${branchId}_${weekId}`)
-    return onSnapshot(reference, (snapshot) => {
-      const value = snapshot.data()
-      if (!snapshot.exists() || !value || value.updatedStudentId !== studentId) return
-      if (document.hidden || dirtyRef.current) return
-      void load()
-    }, () => {
-      // The callable remains the fallback for older markers and restricted
-      // accounts; a denied realtime signal must not block the page.
+  const load = useCallback((discardDraft = false): Promise<void> => {
+    if (currentScopeRef.current !== loadScope) return Promise.resolve()
+    if (discardDraft) discardDraftRef.current = true
+    return runCoalescedRefresh(refreshRef, loadScope, async () => {
+      const requestId = ++requestIdRef.current
+      const discard = discardDraftRef.current
+      discardDraftRef.current = false
+      const background = loadedWeekRef.current === draftScope
+      setLoading(!background)
+      setRefreshing(background)
+      setIssue(null)
+      if (!background || discard) setMessage(null)
+      try {
+        const response = isDemo
+          ? demoAvailabilityData(today, weekStart, weekId)
+          : await listMyStudentPtSchedule(range.from, range.to, weekId, { surface: 'availability' })
+        if (requestId !== requestIdRef.current || currentScopeRef.current !== loadScope) return
+        // A user may begin editing while the background read is in flight.
+        if (background && dirtyRef.current && !discard) return
+        loadedWeekRef.current = draftScope
+        setData(response)
+        setSelectedSlots(new Set(response.student?.availability?.slots ?? response.student?.availableSlots ?? []))
+        setRequestedSessions(response.student?.availability?.requestedSessions ?? null)
+        if (!isDemo) availabilitySync.accept(response.syncState)
+      } catch (caught) {
+        if (requestId === requestIdRef.current && currentScopeRef.current === loadScope) {
+          const nextIssue = asStudentPtScheduleError(caught)
+          if (ACCESS_ISSUES.has(nextIssue.issueCode)) {
+            setData(null); setSelectedSlots(new Set()); setRequestedSessions(null); loadedWeekRef.current = ''
+          }
+          setIssue(nextIssue); availabilitySync.failed()
+        }
+      } finally {
+        if (requestId === requestIdRef.current && currentScopeRef.current === loadScope) { setLoading(false); setRefreshing(false) }
+      }
     })
-  }, [data?.student?.branchId, data?.student?.id, isDemo, load, weekId])
+  }, [draftScope, isDemo, loadScope, range.from, range.to, today, weekId, weekStart])
+  const latestLoadRef = useRef(load)
+  latestLoadRef.current = load
 
   const workingDays = data?.scheduleConfig.workingDays?.length ? data.scheduleConfig.workingDays : DEFAULT_DAYS
   const workingHours = data?.scheduleConfig.workingHours?.length ? data.scheduleConfig.workingHours : DEFAULT_HOURS
@@ -269,6 +276,23 @@ export default function StudentAvailabilityPage({ onNavigate, isDemo = false }: 
   const dirty = !sameSlots(selectedSlots, originalSlots) || requestedSessions !== originalRequestedSessions
   const dirtyRef = useRef(dirty)
   dirtyRef.current = dirty
+  useEffect(() => { if (!dirty && !saving) setViewDay(day) }, [day, dirty, saving])
+  const availabilitySync = useWorkspaceSync({
+    accountId, domain: 'studentSchedule', scopeKey: weekId, enabled: !isDemo,
+    paused: (loadedWeekRef.current === draftScope && dirty) || saving, refresh: load,
+  })
+  // Keep the revision baseline (and pending draft invalidations) across
+  // midnight, while still checking date-dependent locks exactly once a day.
+  useEffect(() => { if (!isDemo) availabilitySync.retry() }, [day, isDemo, availabilitySync.retry])
+  useEffect(() => { if (isDemo) void load(); return () => { requestIdRef.current += 1; refreshRef.current = null } }, [isDemo, load])
+  useEffect(() => {
+    loadedWeekRef.current = ''
+    discardDraftRef.current = false
+    mutationIdRef.current += 1
+    setData(null); setSelectedSlots(new Set()); setRequestedSessions(null)
+    setLoading(true); setSaving(false); setIssue(null); setMessage(null)
+    setConfirmBelowMinimum(false); setConfirmEmpty(false); setShowPauseRequest(false)
+  }, [draftScope])
   const inherited = availability?.source === 'inherited_weekly'
   const legacyDefault = availability?.source === 'legacy_default'
   const weeklyAvailability = availability?.source === 'weekly'
@@ -355,24 +379,6 @@ export default function StudentAvailabilityPage({ onNavigate, isDemo = false }: 
   }, [data?.sessions])
   const issueContent = issue ? issueCopy(issue) : null
 
-  // Refresh the server snapshot while the page is visible, but never replace
-  // an in-progress local selection. This keeps the page realtime without
-  // wiping a student's unsaved availability changes.
-  useEffect(() => {
-    if (isDemo) return
-    const refresh = () => {
-      if (document.hidden || dirtyRef.current || loading || refreshing || saving) return
-      void load()
-    }
-    const onVisibilityChange = () => { if (!document.hidden) refresh() }
-    document.addEventListener('visibilitychange', onVisibilityChange)
-    const timer = window.setInterval(refresh, 90_000 + Math.floor(Math.random() * 15_000))
-    return () => {
-      document.removeEventListener('visibilitychange', onVisibilityChange)
-      window.clearInterval(timer)
-    }
-  }, [isDemo, load, loading, refreshing, saving])
-
   const toggleSlot = (slotId: string) => {
     if (saving || locked) return
     setIssue(null)
@@ -408,6 +414,9 @@ export default function StudentAvailabilityPage({ onNavigate, isDemo = false }: 
       return
     }
     requestIdRef.current += 1
+    const mutationId = ++mutationIdRef.current
+    const mutationScope = draftScope
+    const isCurrentMutation = () => mutationIdRef.current === mutationId && currentDraftScopeRef.current === mutationScope
     setRefreshing(false)
     setSaving(true)
     setIssue(null)
@@ -453,6 +462,7 @@ export default function StudentAvailabilityPage({ onNavigate, isDemo = false }: 
           confirmBelowMinimum: belowMinimumAccepted,
           requestedSessions,
         })
+        if (!isCurrentMutation()) return
         setData((current) => current?.student ? {
           ...current,
           student: {
@@ -470,12 +480,16 @@ export default function StudentAvailabilityPage({ onNavigate, isDemo = false }: 
         ? `Đã gửi ${selectedSlots.size} khung sau khi bạn xác nhận. Vận hành sẽ chủ động rà soát phương án xếp lịch.`
         : 'Đã gửi lịch rảnh. Bộ phận vận hành sẽ rà soát các ca cần xếp lại.')
     } catch (caught) {
+      if (!isCurrentMutation()) return
       const nextIssue = asStudentPtScheduleError(caught)
+      if (ACCESS_ISSUES.has(nextIssue.issueCode)) {
+        setData(null); setSelectedSlots(new Set()); setRequestedSessions(null); loadedWeekRef.current = ''
+      }
       // The explicit argument discards the stale draft before retrying.
-      if (nextIssue.issueCode === 'REVISION_CONFLICT') await load(true)
+      if (nextIssue.issueCode === 'REVISION_CONFLICT') await latestLoadRef.current(true)
       setIssue(nextIssue)
     } finally {
-      setSaving(false)
+      if (isCurrentMutation()) setSaving(false)
     }
   }
 
@@ -487,7 +501,9 @@ export default function StudentAvailabilityPage({ onNavigate, isDemo = false }: 
     </section>}
 
     {loading && <div className="student-schedule-state" role="status"><LoaderCircle className="spin" size={28} /><strong>Đang tải lịch rảnh</strong><span>Aura đang kiểm tra tuần và các ca đã xếp.</span></div>}
-    {!loading && issue && issueContent && <div className="student-schedule-state is-error" role="alert"><AlertCircle size={25} /><strong>{issueContent.title}</strong><span>{issueContent.description}</span>{issue.retryable && <button type="button" onClick={() => void load()}><RefreshCw size={16} /> Thử lại</button>}{availabilityV4 && <details className="student-schedule-technical"><summary>Chi tiết kỹ thuật</summary><code>{issue.issueCode}</code></details>}</div>}
+    {!loading && issue && issueContent && <div className="student-schedule-state is-error" role="alert"><AlertCircle size={25} /><strong>{issueContent.title}</strong><span>{issueContent.description}</span>{issue.retryable && <button type="button" onClick={availabilitySync.retry}><RefreshCw size={16} /> Thử lại</button>}{availabilityV4 && <details className="student-schedule-technical"><summary>Chi tiết kỹ thuật</summary><code>{issue.issueCode}</code></details>}</div>}
+    {availabilitySync.error && !issue && <div className="student-schedule-state is-warning" role="status">Chưa cập nhật được lịch rảnh mới nhất. <button type="button" onClick={availabilitySync.retry}>Thử lại</button></div>}
+    {availabilitySync.pending && dirty && <div className="student-schedule-state is-warning" role="status">Lịch có thay đổi mới. Lựa chọn chưa lưu của bạn được giữ lại. <button type="button" disabled={saving || refreshing} onClick={() => void load(true)}>Bỏ thay đổi và tải lại</button></div>}
     {!loading && !issue && data && !data.linked && <div className="student-schedule-state is-warning"><Link2 size={26} /><strong>Chưa liên kết hồ sơ học viên</strong><span>Vui lòng liên hệ Aura để ghép tài khoản với hồ sơ PT.</span></div>}
     {message && <div className="student-schedule-message" role="status"><Check size={17} /> {message}</div>}
 

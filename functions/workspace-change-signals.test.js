@@ -185,6 +185,21 @@ test('availability and leave updates change only student schedule lanes', async 
   }
 })
 
+test('availability edits to A then B and a later inherited week preserve both account watermarks', async () => {
+  const db = fakeDb({
+    'students/a': { accountUid: 'auth-a' },
+    'students/b': { accountUid: 'auth-b' },
+  })
+  await syncWorkspaceChangesFromEvent({ db, event: event('ptAvailability', 'a_2026-10-19', null, { studentId: 'a', weekId: '2026-10-19', revision: 1 }, 1_700_000_010) })
+  await syncWorkspaceChangesFromEvent({ db, event: event('ptAvailability', 'b_2026-10-26', null, { studentId: 'b', weekId: '2026-10-26', revision: 1 }, 1_700_000_011) })
+  assertLane(db, userPath('auth-a'), S, version(1_700_000_010, 1))
+  assertLane(db, userPath('auth-b'), S, version(1_700_000_011, 1))
+  await syncWorkspaceChangesFromEvent({ db, event: event('ptAvailability', 'a_2026-11-02', null, { studentId: 'a', weekId: '2026-11-02', revision: 1 }, 1_700_000_012) })
+  assertLane(db, userPath('auth-a'), S, version(1_700_000_012, 1))
+  assertLane(db, userPath('auth-b'), S, version(1_700_000_011, 1))
+  assert.equal(db.writes.some(write => write.path.startsWith('workspaceBranchChanges/')), false)
+})
+
 test('retries, concurrent delivery and out-of-order events never rewrite or decrease a watermark', async () => {
   const db = fakeDb()
   const newest = event('users', 'u1', { authzVersion: 1 }, { authzVersion: 2 }, 1_700_000_100, 5)
