@@ -738,6 +738,19 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // Revisions reveal no customer, address, payment or OTP data. Read access
+    // depends on the CURRENT profile as well as the claim, including missing docs.
+    match /eatCleanDriverChanges/{shipperId} {
+      allow get: if isOwner(shipperId) && hasRole(['shipper', 'admin', 'super_admin']);
+      allow list, write: if false;
+    }
+
+    match /eatCleanWorkspaceChanges/{signalId} {
+      allow get: if (signalId == 'config' && hasRole(['shipper', 'admin', 'super_admin']))
+                 || (signalId == 'dispatch' && isAdmin());
+      allow list, write: if false;
+    }
+
     match /eatCleanDeliveries/{orderId} {
       // Includes private OTP-verification state. All actors receive a
       // role-filtered/sanitized view through callable functions only.

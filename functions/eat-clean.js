@@ -4,6 +4,7 @@ const { HttpsError } = require('firebase-functions/v2/https')
 const { defineSecret } = require('firebase-functions/params')
 const { eatCleanRevenueRecognitionWrites } = require('./finance-recognition')
 const { writeLiveLocation } = require('./delivery-location-policy')
+const { readDeliveryWorkspaceState } = require('./delivery-workspace-signals')
 
 const CITY_CODE = 'da-nang'
 const CITY_NAME = 'Đà Nẵng'
@@ -3665,6 +3666,7 @@ function createEatCleanFunctions(dependencies) {
 
   const listMyShipperJobs = onCall(deliveryOperationsCallableOptions, async (request) => {
     const { actorId, role } = await trustedShipper(request)
+    const workspaceSync = await readDeliveryWorkspaceState({ db, actorId, role })
     const limit = finiteInteger(request.data?.limit ?? 50, 'Số nhiệm vụ', 1, 100)
     const cursor = normalizeDeliveryCursor(request.data?.cursor)
     const deliveryCollection = db.collection('eatCleanDeliveries')
@@ -3715,6 +3717,7 @@ function createEatCleanFunctions(dependencies) {
         hasMore: snapshot.size === limit,
       },
       readiness: deliveryRuntimeReadiness(config, realtimeDb),
+      workspaceSync,
     }
   })
 

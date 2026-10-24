@@ -4,6 +4,27 @@ const state = { reads: { driver: 0, dispatch: 0, tracking: 0 }, subscriptions: [
 Object.assign(state, { gpsCalls: [], gpsDelayed: false, gpsPending: [], gpsError: '' })
 Object.assign(state, { summaryCalls: [], summaryPending: [], summaryHold: false, summaryCoverage: 'ready', ...(window as any).costInitial })
 Object.assign(window, { costState: state })
+const deliveryState = state as any
+Object.assign(deliveryState, { driverAccount: 'driver', driverScope: 'shipper', deliveryVersions: {}, deliveryObservers: [], gpsStops: 0 })
+const deliveryVersion = (n: number) => n ? `${String(n).padStart(12, '0')}.000000000` : '0'
+export const subscribeDeliveryRevision = (path: string, next: (value: string) => void, error: (error: unknown) => void) => {
+  const observer = { path, next, error, active: true }
+  deliveryState.deliveryObservers.push(observer)
+  queueMicrotask(() => { if (observer.active) next(deliveryVersion(deliveryState.deliveryVersions[path] || 0)) })
+  return () => { observer.active = false }
+}
+export const subscribeDeliveryAccess = (account: string, next: (value: any) => void, error: (error: unknown) => void) => {
+  const observer = { path: `users/${account}`, next, error, active: true }
+  deliveryState.deliveryObservers.push(observer)
+  queueMicrotask(() => { if (observer.active) next({ role: deliveryState.driverScope === 'dispatch' ? 'admin' : 'shipper', disabled: false }) })
+  return () => { observer.active = false }
+}
+Object.assign(window, { emitDeliveryRevision(path: string, n: number) {
+  deliveryState.deliveryVersions[path] = n
+  deliveryState.deliveryObservers.filter((item: any) => item.active && item.path === path).forEach((item: any) => item.next(deliveryVersion(n)))
+}, failDeliveryRevision(code: string) {
+  deliveryState.deliveryObservers.filter((item: any) => item.active).forEach((item: any) => item.error({ code }))
+} })
 const job = { id: 'order-a', orderCode: 'ORDER-A', status: 'assigned', pickup: { name: 'Kitchen', addressLine: 'Kitchen address' }, dropoff: { name: 'Customer', addressLine: 'Destination' }, distanceMeters: 2000, routeDurationSeconds: 600, itemCount: 2, cashToCollect: 0 }
 const driver = { id: 'driver', name: 'Test driver', available: true, activeJobCount: 1 }
 const readiness = { dispatchReady: true, realtimeDatabaseReady: true, otpKeyAvailable: true }
@@ -11,13 +32,26 @@ const read = async (kind: keyof typeof state.reads) => {
   state.reads[kind]++
   if (state.delayed) await new Promise<void>(resolve => state.pending.push(resolve))
 }
-export const listMyEatCleanDeliveryJobs = async () => { await read('driver'); return { jobs: [{ ...job }], driver: { ...driver }, readiness } }
-export const acceptEatCleanDelivery = async () => ({ ...job, status: 'accepted' })
-export const updateEatCleanDeliveryMilestone = async (_id: string, status: string) => ({ ...job, status })
-export const completeEatCleanDelivery = async () => ({ ...job, status: 'completed' })
+export const listMyEatCleanDeliveryJobs = async () => {
+  const accountId = deliveryState.driverAccount, scope = deliveryState.driverScope
+  const path = scope === 'dispatch' ? 'eatCleanWorkspaceChanges/dispatch' : `eatCleanDriverChanges/${accountId}`
+  const result = { jobs: [{ ...job, orderCode: deliveryState.jobCode || job.orderCode, status: deliveryState.jobStatus || job.status }], driver: { ...driver, id: accountId }, readiness,
+    workspaceSync: deliveryState.omitSync ? undefined : { schemaVersion: 1, accountId, scope, version: 'fixture', userVersion: deliveryVersion(deliveryState.deliveryVersions[path] || 0), policyVersion: deliveryVersion(deliveryState.deliveryVersions['eatCleanWorkspaceChanges/config'] || 0) } }
+  await read('driver')
+  if (deliveryState.driverError) throw Object.assign(new Error(deliveryState.driverError), { code: deliveryState.driverError })
+  return result
+}
+const deliveryMutation = async (status: string) => {
+  deliveryState.jobStatus = status
+  if (deliveryState.holdMutation) await new Promise<void>(resolve => deliveryState.mutationPending = resolve)
+  return { ...job, status }
+}
+export const acceptEatCleanDelivery = async () => deliveryMutation('accepted')
+export const updateEatCleanDeliveryMilestone = async (_id: string, status: string) => deliveryMutation(status)
+export const completeEatCleanDelivery = async () => deliveryMutation('completed')
 export const setEatCleanDriverAvailability = async (available: boolean) => ({ ...driver, available })
 export const getDeliveryServiceError = () => 'Fixture error'
-export const useDriverLocationPublisher = () => ({ state: 'idle', message: '', stop() {}, start() {} })
+export const useDriverLocationPublisher = () => ({ state: 'idle', message: '', stop() { deliveryState.gpsStops++ }, start() {} })
 export const publishEatCleanDriverLocation = async (deliveryId: string, driverId: string, position: GeolocationPosition) => {
   const gps = state as any
   gps.gpsCalls.push({ deliveryId, driverId, position, at: Date.now() })
