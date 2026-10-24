@@ -4,6 +4,25 @@ const test = require('node:test')
 const { parseArguments, selectIndexes, signature, CONFIRMATION } = require('./firebase-firestore-index-deploy.cjs')
 const indexes = require('../firestore.indexes.json').indexes
 
+test('progress scope selects only the six owner collection date indexes, with exact tie-break direction', () => {
+  const selected = selectIndexes(indexes, 'student-progress-reads')
+  assert.deepEqual(selected.map(index => index.collectionGroup), ['bodyMetrics', 'bodyMeasurements', 'weightLogs', 'progressCheckIns', 'progress_photos', 'progressPhotos'])
+  for (const index of selected) {
+    assert.equal(index.queryScope, 'COLLECTION')
+    assert.deepEqual(index.fields, [{ fieldPath: 'date', order: 'DESCENDING' }, { fieldPath: '__name__', order: 'DESCENDING' }])
+    assert.throws(() => selectIndexes(indexes.filter(value => value !== index), 'student-progress-reads'), /exactly once/)
+    assert.throws(() => selectIndexes([...indexes, index], 'student-progress-reads'), /exactly once/)
+    for (const invalid of [
+      { ...index, queryScope: 'COLLECTION_GROUP' },
+      { ...index, fields: [{ fieldPath: 'date', order: 'ASCENDING' }, index.fields[1]] },
+      { ...index, fields: [index.fields[0], { fieldPath: '__name__', order: 'ASCENDING' }] },
+    ]) assert.throws(() => selectIndexes(indexes.map(value => value === index ? invalid : value), 'student-progress-reads'), /exactly once/)
+  }
+  assert.deepEqual(parseArguments(['dry-run', '--scope=student-progress-reads']), { mode: 'dry-run', scope: 'student-progress-reads' })
+  assert.deepEqual(parseArguments(['apply', '--scope=student-progress-reads', `--confirm=${CONFIRMATION}`]), { mode: 'apply', scope: 'student-progress-reads' })
+  assert.throws(() => parseArguments(['apply', '--scope=student-progress-reads']), /confirmation/)
+})
+
 test('ledger date scope creates only the ordered range index and requires the exact production target', () => {
   const selected = selectIndexes(indexes, 'ledger-date-range')
   assert.deepEqual(selected, [{ collectionGroup: 'ledgerEntries', queryScope: 'COLLECTION', fields: [

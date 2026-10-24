@@ -1,5 +1,11 @@
 {
   "indexes": [
+    {"collectionGroup":"bodyMetrics","queryScope":"COLLECTION","fields":[{"fieldPath":"date","order":"DESCENDING"},{"fieldPath":"__name__","order":"DESCENDING"}]},
+    {"collectionGroup":"bodyMeasurements","queryScope":"COLLECTION","fields":[{"fieldPath":"date","order":"DESCENDING"},{"fieldPath":"__name__","order":"DESCENDING"}]},
+    {"collectionGroup":"weightLogs","queryScope":"COLLECTION","fields":[{"fieldPath":"date","order":"DESCENDING"},{"fieldPath":"__name__","order":"DESCENDING"}]},
+    {"collectionGroup":"progressCheckIns","queryScope":"COLLECTION","fields":[{"fieldPath":"date","order":"DESCENDING"},{"fieldPath":"__name__","order":"DESCENDING"}]},
+    {"collectionGroup":"progress_photos","queryScope":"COLLECTION","fields":[{"fieldPath":"date","order":"DESCENDING"},{"fieldPath":"__name__","order":"DESCENDING"}]},
+    {"collectionGroup":"progressPhotos","queryScope":"COLLECTION","fields":[{"fieldPath":"date","order":"DESCENDING"},{"fieldPath":"__name__","order":"DESCENDING"}]},
     {"collectionGroup":"students","queryScope":"COLLECTION","fields":[{"fieldPath":"loyaltyMembership.managed","order":"ASCENDING"},{"fieldPath":"__name__","order":"ASCENDING"}]},
     {"collectionGroup":"students","queryScope":"COLLECTION","fields":[{"fieldPath":"loyaltyMembership.managed","order":"ASCENDING"},{"fieldPath":"branchId","order":"ASCENDING"},{"fieldPath":"__name__","order":"ASCENDING"}]},
     {"collectionGroup":"students","queryScope":"COLLECTION","fields":[{"fieldPath":"loyaltyMembership.nextCheckOn","order":"ASCENDING"},{"fieldPath":"__name__","order":"ASCENDING"}]},
