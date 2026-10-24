@@ -69,8 +69,10 @@ const { createPtWorkoutTrackingFunctions } = require('./pt-workout-tracking')
 const { createNutritionReviewFunctions } = require('./nutrition-reviews')
 const { createContractRenewalFunctions } = require('./contract-renewals')
 const { createContractRenewalRegionalFunctions } = require('./contract-renewal-regional')
-const { createLoyaltyFunctions, reconcileAttendance: reconcileLoyaltyAttendance, reconcileAttendanceMissions, reconcileContractSpend: reconcileLoyaltyContractSpend, reconcileMemberReferral, reconcileNutritionReview, reconcilePendingMemberReferrals, vestPendingSources } = require('./loyalty')
+const { createLoyaltyFunctions, reconcileAttendance: reconcileLoyaltyAttendance, reconcileAttendanceMissions, reconcileNutritionReview, reconcilePendingMemberReferrals, vestPendingSources } = require('./loyalty')
+const { reconcileLoyaltyLedgerWrite } = require('./loyalty-ledger-trigger')
 const { createRegionalReadAliases } = require('./regional-read-aliases')
+const { createRegionalSecondaryReadAliases } = require('./regional-secondary-reads')
 const { buildContractUsageView, contractUsageViewNeedsRebuild, createContractUsageViewFunctions, syncContractUsageView } = require('./contract-usage-view')
 const { createActionCenterFunctions, syncOperationalActionSource } = require('./action-center')
 const { createPackageManagementFunctions } = require('./package-management')
@@ -304,15 +306,7 @@ exports.syncLoyaltyContractSpend = onDocumentWritten({
   database: databaseId,
   region: 'asia-southeast1',
   maxInstances: 3,
-}, async (event) => {
-  const before = event.data?.before?.data?.() || {}
-  const after = event.data?.after?.data?.() || {}
-  const contractId = after.contractId || before.contractId || ''
-  if (!contractId || !['payment', 'refund', 'reversal'].includes(after.type || before.type)) return null
-  const spend = await reconcileLoyaltyContractSpend({ db, contractId, logger })
-  const referral = await reconcileMemberReferral({ db, contractId, logger })
-  return { spend, referral }
-})
+}, (event) => reconcileLoyaltyLedgerWrite({ db, event, logger }))
 
 exports.syncLoyaltyAttendance = onDocumentWritten({
   document: 'attendanceEvents/{attendanceId}',
@@ -890,6 +884,17 @@ exports.getStudentLoyaltySummaryRegional = regionalReadAliases.getStudentLoyalty
 exports.getPtWorkoutWorkspaceRegional = regionalReadAliases.getPtWorkoutWorkspaceRegional
 exports.getPtStudentTrainingPlanRegional = regionalReadAliases.getPtStudentTrainingPlanRegional
 exports.listPtWorkoutHistoryRegional = regionalReadAliases.listPtWorkoutHistoryRegional
+// Secondary read overflow reuses canonical handlers and the App Check wrapper.
+// Original endpoints remain available for old clients and transient fallback.
+const regionalSecondaryReads = createRegionalSecondaryReadAliases({ db, auth, onCall, logger, includeExerciseCatalog: !isStudent360Discovery })
+exports.listAccountingCatalogRegional = regionalSecondaryReads.listAccountingCatalogRegional
+exports.listCashAccountsRegional = regionalSecondaryReads.listCashAccountsRegional
+exports.listCashTransactionsRegional = regionalSecondaryReads.listCashTransactionsRegional
+exports.listExpenseVouchersRegional = regionalSecondaryReads.listExpenseVouchersRegional
+exports.listFinanceLedgerRegional = regionalSecondaryReads.listFinanceLedgerRegional
+exports.listRenewalMessageTemplatesRegional = regionalSecondaryReads.listRenewalMessageTemplatesRegional
+exports.getInternalNutritionCatalogItemRegional = regionalSecondaryReads.getInternalNutritionCatalogItemRegional
+if (!isStudent360Discovery) exports.getExerciseCatalogItemRegional = regionalSecondaryReads.getExerciseCatalogItemRegional
 // Schedule workspaces are management-only and burst infrequently. A bounded
 // Gen-1 CPU profile avoids exhausting the regional Cloud Run CPU quota while
 // still allowing the optimizer a longer deterministic execution window.

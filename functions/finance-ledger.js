@@ -444,18 +444,57 @@ function ledgerBaseQuery(db, input) {
   return query
 }
 
-async function listLedgerPage(db, input) {
+function ledgerReadFilter(input, summary = false) {
+  // Use one selective filter so every combination needs only the three
+  // branch/type/status + effectiveAt indexes. Keep ledgerMatches as the exact
+  // predicate: `none` also includes missing/null/false/0 legacy branch values.
+  if (input.branchId !== 'all' && input.branchId !== 'none') return ['branchId', '==', input.branchId]
+  if (input.types.size) {
+    const types = [...input.types]
+    return ['type', types.length === 1 ? '==' : 'in', types.length === 1 ? types[0] : types]
+  }
+  if (input.status !== 'all') return ['status', '==', input.status]
+  return summary ? ['status', 'in', ['posted', 'reversed']] : null
+}
+
+async function readLedgerDocuments(db, input, { cursor = null, limit = null, summary = false } = {}) {
+  const buildQuery = (filter) => {
+    let query = ledgerBaseQuery(db, input)
+    // The server SDK requires all where clauses before cursor bounds.
+    if (filter) query = query.where(...filter)
+    if (cursor) query = query.startAfter(Timestamp.fromMillis(cursor.effectiveAtMillis), cursor.id)
+    if (limit !== null) query = query.limit(limit)
+    if (summary) query = query.select('amount', 'cashImpact', 'revenueImpact', 'expenseImpact', 'type', 'status', 'branchId', 'effectiveAt')
+    return query
+  }
+  const filter = ledgerReadFilter(input, summary)
+  if (!filter) return buildQuery(null).get()
+  try {
+    return await buildQuery(filter).get()
+  } catch (error) {
+    // An index rollout must not make financial totals unavailable. Retry only
+    // this specific deployment prerequisite, never auth/quota/network errors.
+    if (![9, 'failed-precondition', 'FAILED_PRECONDITION'].includes(error?.code)
+        || !/requires an index/i.test(String(error?.message || ''))) throw error
+    return buildQuery(null).get()
+  }
+}
+
+function ledgerPageChunkSize(input) {
+  return Math.min(500, Math.max(100, input.pageSize * 3))
+}
+
+async function listLedgerPage(db, input, firstSnapshot) {
   const matches = []
   let queryCursor = input.cursor
   let lastScanned = null
   let exhausted = false
   let scanned = 0
-  const chunkSize = Math.min(500, Math.max(100, input.pageSize * 3))
+  const chunkSize = ledgerPageChunkSize(input)
 
   while (matches.length <= input.pageSize && !exhausted && scanned < maximumLedgerScan) {
-    let query = ledgerBaseQuery(db, input)
-    if (queryCursor) query = query.startAfter(Timestamp.fromMillis(queryCursor.effectiveAtMillis), queryCursor.id)
-    const snapshot = await query.limit(chunkSize).get()
+    const snapshot = firstSnapshot || await readLedgerDocuments(db, input, { cursor: queryCursor, limit: chunkSize })
+    firstSnapshot = null
     if (snapshot.empty) {
       exhausted = true
       break
@@ -520,13 +559,22 @@ function createFinanceLedgerFunctions({ db, onCall }) {
   const listFinanceLedger = onCall(async (request) => {
     await financeActor(request, db)
     const input = normalizeLedgerListInput(request.data || {})
-    const [page, summarySnapshot] = await Promise.all([
-      listLedgerPage(db, input),
-      ledgerBaseQuery(db, input).select('amount', 'cashImpact', 'revenueImpact', 'expenseImpact', 'type', 'status', 'branchId', 'effectiveAt').get(),
+    const chunkSize = ledgerPageChunkSize(input)
+    const firstSnapshot = await readLedgerDocuments(db, input, { cursor: input.cursor, limit: chunkSize })
+    // A full first batch is not proof of completeness, and a cursor page can
+    // never supply all-period totals. Otherwise its exact snapshot can serve
+    // both the table and summary. Larger summaries run alongside further page
+    // scanning, with no TTL cache or truncated financial totals.
+    const summaryDocuments = input.status === 'pending' ? Promise.resolve([])
+      : !input.cursor && firstSnapshot.size < chunkSize ? Promise.resolve(firstSnapshot.docs)
+        : readLedgerDocuments(db, input, { summary: true }).then((snapshot) => snapshot.docs)
+    const [page, documents] = await Promise.all([
+      listLedgerPage(db, input, firstSnapshot),
+      summaryDocuments,
     ])
     return {
       ...page,
-      summary: summarizeLedgerDocuments(summarySnapshot.docs, input),
+      summary: summarizeLedgerDocuments(documents, input),
       canonicalOnly: true,
       source: 'ledgerEntries',
     }

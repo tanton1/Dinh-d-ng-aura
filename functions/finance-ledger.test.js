@@ -5,12 +5,14 @@ const { readFileSync } = require('node:fs')
 const { join } = require('node:path')
 const test = require('node:test')
 const {
+  createFinanceLedgerFunctions,
   contractAdvanceAccountCode,
   normalizeLedgerListInput,
   receiptVoucherNumber,
   summarizeLedgerDocuments,
   updatedInstallments,
 } = require('./finance-ledger')
+const { Timestamp } = require('firebase-admin/firestore')
 
 const repositoryRoot = join(__dirname, '..')
 const reportSource = readFileSync(join(repositoryRoot, 'src', 'pages', 'admin', 'AdminDashboard.tsx'), 'utf8')
@@ -171,4 +173,166 @@ test('contract refund creates a next-period Renew commission reversal from origi
   assert.match(ledgerSource, /nextFinancePeriodId/)
   assert.match(ledgerSource, /status: 'approved'/)
   assert.doesNotMatch(ledgerSource, /transaction\.update\([^)]*payrollRuns[^)]*commission/)
+})
+
+// Immutable query fake with real filtering/order/cursor/field-mask behavior.
+// Read budgets below count returned ledger documents, not index-entry billing.
+function ledgerReadFixture(values, { queryError, role = 'admin', disabled = false } = {}) {
+  const calls = []
+  const documents = values.map((value, index) => ({
+    id: `row-${String(index).padStart(5, '0')}`,
+    data: () => value,
+  }))
+  const comparable = (value) => typeof value?.toMillis === 'function' ? value.toMillis() : value
+  const query = (state = { filters: [], orders: [], limit: Infinity, cursor: null, fields: null }) => ({
+    orderBy(field, direction) { return query({ ...state, orders: [...state.orders, [String(field), direction]] }) },
+    where(field, operator, value) {
+      assert.equal(state.cursor, null, 'Firestore requires filters before cursor bounds')
+      return query({ ...state, filters: [...state.filters, [field, operator, value]] })
+    },
+    startAfter(...cursor) { return query({ ...state, cursor }) },
+    limit(limit) { return query({ ...state, limit }) },
+    select(...fields) { return query({ ...state, fields }) },
+    async get() {
+      const call = { ...state, returned: 0 }
+      calls.push(call)
+      const error = queryError?.(state)
+      if (error) throw error
+      const field = (doc, key) => key === '__name__' ? doc.id : comparable(doc.data()[key])
+      let selected = documents.filter((doc) => state.orders.every(([key]) => field(doc, key) !== undefined)
+        && state.filters.every(([key, operator, expected]) => {
+          const actual = field(doc, key)
+          if (actual === undefined) return false
+          if (operator === 'in') return expected.includes(actual)
+          if (operator === '==') return actual === comparable(expected)
+          if (operator === '>=') return actual >= comparable(expected)
+          if (operator === '<=') return actual <= comparable(expected)
+          throw new Error(`Unsupported test filter ${operator}`)
+        }))
+      const compare = (left, right) => {
+        for (const [key, direction] of state.orders) {
+          const delta = left(key) < right(key) ? -1 : left(key) > right(key) ? 1 : 0
+          if (delta) return direction === 'desc' ? -delta : delta
+        }
+        return 0
+      }
+      selected.sort((left, right) => compare(key => field(left, key), key => field(right, key)))
+      if (state.cursor) selected = selected.filter(doc => compare(key => field(doc, key), key => comparable(state.cursor[state.orders.findIndex(([name]) => name === key)])) > 0)
+      selected = selected.slice(0, state.limit)
+      call.returned = selected.length
+      const docs = selected.map(doc => ({ ...doc, data: () => state.fields ? Object.fromEntries(state.fields.filter(key => Object.hasOwn(doc.data(), key)).map(key => [key, doc.data()[key]])) : doc.data() }))
+      return { docs, empty: docs.length === 0, size: docs.length }
+    },
+  })
+  const db = {
+    collection(name) { assert.equal(name, 'ledgerEntries'); return query() },
+    doc(path) {
+      assert.ok(['users/actor', 'roleAssignments/actor'].includes(path))
+      return { get: async () => ({ exists: path === 'users/actor', data: () => ({ role, disabled }) }) }
+    },
+  }
+  const { listFinanceLedger } = createFinanceLedgerFunctions({ db, onCall: handler => handler })
+  return { calls, run: data => listFinanceLedger({ auth: { uid: 'actor', token: { role } }, data }), listFinanceLedger }
+}
+
+const ledgerValue = (index, patch = {}) => ({
+  type: 'payment', status: 'posted', branchId: 'a', amount: 100,
+  effectiveAt: Timestamp.fromMillis(Date.parse('2026-10-22T10:00:00Z') - index * 1000),
+  ...patch,
+})
+
+test('small branch result shares one complete first snapshot and eliminates unrelated reads', async () => {
+  const values = Array.from({ length: 200 }, (_, i) => ledgerValue(i, { branchId: i < 20 ? 'a' : 'b' }))
+  const f = ledgerReadFixture(values)
+  const result = await f.run({ branchId: 'a' })
+  assert.equal(result.entries.length, 20)
+  assert.equal(result.hasMore, false)
+  assert.deepEqual(result.summary, summarizeLedgerDocuments(values, summaryInput({ branchId: 'a' })))
+  assert.equal(f.calls.length, 1)
+  assert.equal(f.calls.reduce((sum, call) => sum + call.returned, 0), 20, 'previous branch scan 200 + full summary 200 = 400 documents; now 20')
+})
+
+test('large branch summary is complete and uses one indexed predicate instead of the full ledger', async () => {
+  const values = Array.from({ length: 10000 }, (_, i) => ledgerValue(i, { branchId: i < 1000 ? 'a' : 'b' }))
+  const f = ledgerReadFixture(values)
+  const result = await f.run({ branchId: 'a', pageSize: 50 })
+  assert.equal(result.entries.length, 50)
+  assert.equal(result.summary.transactionCount, 1000)
+  assert.equal(result.summary.collectedAmount, 100000)
+  assert.equal(result.hasMore, true)
+  assert.equal(f.calls.reduce((sum, call) => sum + call.returned, 0), 1150, 'previous first page 150 + summary 10000 = 10150 documents; now 1150')
+  assert.ok(f.calls.every(call => call.filters.some(([key, operator, value]) => key === 'branchId' && operator === '==' && value === 'a')))
+  assert.equal(f.calls.find(call => call.fields).limit, Infinity, 'summary is never truncated to a scan/page cap')
+})
+
+test('exact-boundary first batch and later cursor pages never replace all-period summary', async () => {
+  for (const count of [100, 170]) {
+    const f = ledgerReadFixture(Array.from({ length: count }, (_, i) => ledgerValue(i)))
+    const first = await f.run({ pageSize: 10 })
+    assert.equal(f.calls.length, 2, 'a full 100-document batch is not proof of exhaustion')
+    const second = await f.run({ pageSize: 10, cursor: first.nextCursor })
+    assert.equal(second.summary.transactionCount, count)
+    assert.deepEqual(second.summary, first.summary)
+    assert.equal(new Set([...first.entries, ...second.entries].map(item => item.id)).size, 20)
+    assert.equal(f.calls.at(-1).limit, Infinity)
+  }
+})
+
+test('single-filter pushdown preserves every combination, legacy numeric coercion and Vietnam dates', async () => {
+  const values = Array.from({ length: 210 }, (_, i) => ledgerValue(i, {
+    branchId: ['a', 'b', '', null, false, 0, undefined][i % 7],
+    type: ['payment', 'refund', 'reversal', 'adjustment', 'revenue_recognition', 'expense', 'payroll'][i % 7],
+    status: ['posted', 'reversed', 'pending'][i % 3],
+    amount: ['100', -60, 20.25, null, '', 'bad', 0][i % 7],
+    cashImpact: [undefined, null, '12.5', -7, 0][i % 5],
+    revenueImpact: i % 2 ? '10.5' : undefined,
+    expenseImpact: i % 3 ? -2 : undefined,
+    currency: i % 2 ? 'VND' : 'USD',
+    effectiveAt: Timestamp.fromMillis(Date.parse('2026-10-22T17:00:00Z') - i * 1000),
+  }))
+  for (const branchId of ['all', 'a', 'none']) for (const status of ['all', 'posted', 'reversed', 'pending']) for (const types of [[], ['payment'], ['refund', 'refund', 'expense']]) {
+    const f = ledgerReadFixture(values)
+    const data = { branchId, status, types, pageSize: 100 }
+    const result = await f.run(data)
+    assert.deepEqual(result.summary, summarizeLedgerDocuments(values, normalizeLedgerListInput(data)), JSON.stringify(data))
+    assert.ok(f.calls.every(call => call.filters.length <= 1), 'no accidental index explosion')
+    assert.equal(result.canonicalOnly, true)
+    assert.equal(result.source, 'ledgerEntries')
+  }
+})
+
+test('pending-only summary uses zero extra ledger reads even when page is full', async () => {
+  const f = ledgerReadFixture(Array.from({ length: 500 }, (_, i) => ledgerValue(i, { status: 'pending' })))
+  const result = await f.run({ status: 'pending', pageSize: 10 })
+  assert.equal(result.entries.length, 10)
+  assert.deepEqual(result.summary, summarizeLedgerDocuments([], summaryInput()))
+  assert.equal(f.calls.length, 1)
+})
+
+test('missing-index fallback retains exact totals and does not conceal other backend failures', async () => {
+  const values = Array.from({ length: 200 }, (_, i) => ledgerValue(i, { branchId: i % 2 ? 'a' : 'b' }))
+  const missingIndex = Object.assign(new Error('The query requires an index. You can create it here.'), { code: 9 })
+  const f = ledgerReadFixture(values, { queryError: state => state.filters.some(([key]) => key === 'branchId') ? missingIndex : null })
+  const result = await f.run({ branchId: 'a', pageSize: 10 })
+  assert.equal(result.summary.transactionCount, 100)
+  assert.ok(result.entries.every(item => item.branchId === 'a'))
+  assert.ok(f.calls.some(call => call.filters.length === 0))
+  for (const error of [Object.assign(new Error('Permission denied'), { code: 7 }), Object.assign(new Error('Quota exceeded'), { code: 8 }), Object.assign(new Error('Some other precondition'), { code: 9 }), Object.assign(new Error('The query requires an index'), { code: 14 })]) {
+    const rejected = ledgerReadFixture(values, { queryError: () => error })
+    await assert.rejects(rejected.run({ branchId: 'a' }), candidate => candidate === error)
+    assert.equal(rejected.calls.length, 1)
+  }
+})
+
+test('authorization and invalid input fail before any ledger read', async () => {
+  const unauthorized = ledgerReadFixture([])
+  await assert.rejects(unauthorized.listFinanceLedger({ data: {} }), error => error.code === 'unauthenticated')
+  assert.equal(unauthorized.calls.length, 0)
+  for (const options of [{ role: 'student' }, { disabled: true }]) {
+    const denied = ledgerReadFixture([], options)
+    await assert.rejects(denied.run({}), error => error.code === 'permission-denied')
+    assert.equal(denied.calls.length, 0)
+  }
+  await assert.rejects(unauthorized.run({ types: ['invalid'] }), error => error.code === 'invalid-argument')
+  assert.equal(unauthorized.calls.length, 0)
 })

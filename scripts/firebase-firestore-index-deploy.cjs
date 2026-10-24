@@ -16,6 +16,7 @@ function usage() {
   return [
     'Usage:',
     '  node scripts/firebase-firestore-index-deploy.cjs dry-run',
+    '  node scripts/firebase-firestore-index-deploy.cjs dry-run --scope=finance-ledger-reads',
     `  node scripts/firebase-firestore-index-deploy.cjs apply --confirm=${CONFIRMATION}`,
     '',
     'The apply mode is target-locked and create-only. It never deletes an index.',
@@ -30,8 +31,11 @@ function parseArguments(argv) {
     if (!item.startsWith('--') || separator < 3) throw new Error(usage())
     return [item.slice(2, separator), item.slice(separator + 1)]
   }))
+  if (Object.keys(flags).some((key) => !['confirm', 'scope'].includes(key))) throw new Error(usage())
+  const scope = flags.scope || 'all'
+  if (!['all', 'finance-ledger-reads'].includes(scope)) throw new Error('Unknown index deployment scope.')
   if (mode === 'apply' && flags.confirm !== CONFIRMATION) throw new Error('Production confirmation is missing or incorrect.')
-  return { mode }
+  return { mode, scope }
 }
 
 function firebaseCliAuth() {
@@ -109,13 +113,33 @@ function desiredIndexes() {
 }
 
 function comparableFields(fields = []) {
-  return fields
-    .filter((field) => field.fieldPath !== '__name__')
-    .map((field) => ({
+  const result = fields.map((field) => ({
       fieldPath: field.fieldPath,
       ...(field.order ? { order: field.order } : {}),
       ...(field.arrayConfig ? { arrayConfig: field.arrayConfig } : {}),
     }))
+  // Firestore appends __name__ with the last ordered field's direction. Do not
+  // mistake an explicitly opposite cursor direction for a matching index.
+  if (!result.some((field) => field.fieldPath === '__name__')) {
+    const direction = [...result].reverse().find((field) => field.order)?.order || 'ASCENDING'
+    result.push({ fieldPath: '__name__', order: direction })
+  }
+  return result
+}
+
+function selectIndexes(indexes, scope) {
+  if (scope === 'all') return indexes
+  if (scope !== 'finance-ledger-reads') throw new Error('Unknown index deployment scope.')
+  const wanted = ['branchId', 'type', 'status'].map((fieldPath) => ({
+    collectionGroup: 'ledgerEntries', queryScope: 'COLLECTION', fields: [
+      { fieldPath, order: 'ASCENDING' },
+      { fieldPath: 'effectiveAt', order: 'DESCENDING' },
+      { fieldPath: '__name__', order: 'DESCENDING' },
+    ],
+  }))
+  const selected = wanted.map((index) => indexes.filter((candidate) => signature(candidate) === signature(index)))
+  if (selected.some((matches) => matches.length !== 1)) throw new Error('Scoped finance indexes must each appear exactly once in the repository.')
+  return selected.map(([index]) => index)
 }
 
 function signature(index) {
@@ -165,23 +189,25 @@ async function waitUntilReady(token, desired) {
 }
 
 async function main() {
-  const { mode } = parseArguments(process.argv.slice(2))
+  const { mode, scope } = parseArguments(process.argv.slice(2))
   const token = await accessToken()
   await assertTarget(token)
-  const desired = desiredIndexes()
+  const desired = selectIndexes(desiredIndexes(), scope)
   const existing = await listIndexes(token)
   const existingSignatures = new Set(existing.map(signature))
   const missing = desired.filter((index) => !existingSignatures.has(signature(index)))
   if (mode === 'dry-run') {
-    console.log(JSON.stringify({ mode, target: TARGET, desired: desired.length, existing: existing.length, missing: missing.length, writesPerformed: false }, null, 2))
+    console.log(JSON.stringify({ mode, scope, target: TARGET, desired: desired.length, selected: desired, existing: existing.length, missing: missing.length, writesPerformed: false }, null, 2))
     return
   }
   for (const index of missing) await createIndex(token, index)
   const verification = await waitUntilReady(token, desired)
-  console.log(JSON.stringify({ mode, target: TARGET, created: missing.length, ...verification, deleted: 0 }, null, 2))
+  console.log(JSON.stringify({ mode, scope, target: TARGET, created: missing.length, ...verification, deleted: 0 }, null, 2))
 }
 
-main().catch((error) => {
+module.exports = { parseArguments, selectIndexes, signature, CONFIRMATION }
+
+if (require.main === module) main().catch((error) => {
   console.error(error instanceof Error ? error.message : 'Firestore index deployment failed.')
   process.exitCode = 1
 })
