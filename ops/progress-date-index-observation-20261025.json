@@ -1,0 +1,215 @@
+{
+  "schemaVersion": 1,
+  "project": "gen-lang-client-0815966909",
+  "database": "ai-studio-aurafitnesselear-0f7609b4-b8d1-4fb3-9d62-99a2c03e1ce7",
+  "observedBefore": "2026-10-24T22:34:54.383Z",
+  "observedAfter": "2026-10-24T22:36:32.436Z",
+  "method": "Firestore Enterprise ExecutePipeline explain only; synthetic owner path, no analyze, runtime query or business data mutation.",
+  "adapterCaveat": "SDK 9.1 createFrom projects away document identity before its implicit order filter; selected photo fields are applied after sort/limit in this diagnostic. Application queries still use native Core select/orderBy.",
+  "documentation": "https://firebase.google.com/docs/firestore/pipelines/enterprise-query-explain",
+  "deployment": {
+    "scope": "student-progress-reads",
+    "sourceCommit": "ffbec0240628084e65a925ea36515a4fcc1df63d",
+    "created": 6,
+    "ready": 6,
+    "deleted": 0,
+    "previousIndexCount": 93,
+    "verifiedIndexCount": 99
+  },
+  "queries": [
+    {
+      "name": "student_progress_bodyMetrics",
+      "source": "functions/student-360.js:studentProgressSources/latestDocuments",
+      "query": {
+        "from": [
+          {
+            "collectionId": "bodyMetrics"
+          }
+        ],
+        "path": "users/query-plan-only-synthetic-owner/bodyMetrics",
+        "orderBy": [
+          {
+            "field": {
+              "fieldPath": "date"
+            },
+            "direction": "DESCENDING"
+          },
+          {
+            "field": {
+              "fieldPath": "__name__"
+            },
+            "direction": "DESCENDING"
+          }
+        ],
+        "limit": 60
+      },
+      "before": "Tree:\n• Compute\n|  $out_1: map_set($record_1, \"__name__\", $__name___1, \"__key__\", unset)\n|  is query result: true\n|\n└── • Compute\n    |  $__name___1: $__key___2\n    |\n    └── • MajorSort\n        |  fields: [$v_3 DESC, $v_4 DESC]\n        |  output: [$__key___2, $record_1]\n        |  limit: 60\n        |\n        └── • Compute\n            |  $v_3: $date_1\n            |  $v_4: $__key___2\n            |\n            └── • TableScan\n                   source: /users/query-plan-only-synthetic-owner/bodyMetrics\n                   order: UNDEFINED\n                   filter: (exists(row().date) AND exists(row().__key__))\n                   output bindings: {$__key___2=row().__key__, $date_1=row().date, $record_1=row()}\n                   output: [$__key___2, $date_1, $record_1]\n",
+      "after": "Tree:\n• Compute\n|  $out_1: map_set($record_1, \"__name__\", $__name___1, \"__key__\", unset)\n|  is query result: true\n|\n└── • Compute\n    |  $__name___1: $__key___6\n    |\n    └── • Fetch\n        |  order: PRESERVE_INPUT_ORDER\n        |  source: /users/query-plan-only-synthetic-owner/bodyMetrics\n        |  input record id: $rid_2\n        |  output bindings: {$__key___6=row().__key__, $record_1=row()}\n        |  output: [$__key___6, $record_1]\n        |\n        └── • Limit\n            |  limit: 60\n            |\n            └── • Filter\n                |  expression: (exists($date_3) AND exists($__key___4))\n                |\n                └── • SequentialScan\n                       properties: Selection {  }\n                       fields: [$date_3, $__key___4, $rid_2]\n                       index: /users/query-plan-only-synthetic-owner/bodyMetrics (date DESC, __key__ DESC)@[id = CICAgLjywdkI]\n                       partition: /users/query-plan-only-synthetic-owner\n                       key ordering length: 3\n                       ranges: /\n"
+    },
+    {
+      "name": "student_progress_bodyMeasurements",
+      "source": "functions/student-360.js:studentProgressSources/latestDocuments",
+      "query": {
+        "from": [
+          {
+            "collectionId": "bodyMeasurements"
+          }
+        ],
+        "path": "users/query-plan-only-synthetic-owner/bodyMeasurements",
+        "orderBy": [
+          {
+            "field": {
+              "fieldPath": "date"
+            },
+            "direction": "DESCENDING"
+          },
+          {
+            "field": {
+              "fieldPath": "__name__"
+            },
+            "direction": "DESCENDING"
+          }
+        ],
+        "limit": 60
+      },
+      "before": "Tree:\n• Compute\n|  $out_1: map_set($record_1, \"__name__\", $__name___1, \"__key__\", unset)\n|  is query result: true\n|\n└── • Compute\n    |  $__name___1: $__key___2\n    |\n    └── • MajorSort\n        |  fields: [$v_3 DESC, $v_4 DESC]\n        |  output: [$__key___2, $record_1]\n        |  limit: 60\n        |\n        └── • Compute\n            |  $v_3: $date_1\n            |  $v_4: $__key___2\n            |\n            └── • TableScan\n                   source: /users/query-plan-only-synthetic-owner/bodyMeasurements\n                   order: UNDEFINED\n                   filter: (exists(row().date) AND exists(row().__key__))\n                   output bindings: {$__key___2=row().__key__, $date_1=row().date, $record_1=row()}\n                   output: [$__key___2, $date_1, $record_1]\n",
+      "after": "Tree:\n• Compute\n|  $out_1: map_set($record_1, \"__name__\", $__name___1, \"__key__\", unset)\n|  is query result: true\n|\n└── • Compute\n    |  $__name___1: $__key___6\n    |\n    └── • Fetch\n        |  order: PRESERVE_INPUT_ORDER\n        |  source: /users/query-plan-only-synthetic-owner/bodyMeasurements\n        |  input record id: $rid_2\n        |  output bindings: {$__key___6=row().__key__, $record_1=row()}\n        |  output: [$__key___6, $record_1]\n        |\n        └── • Limit\n            |  limit: 60\n            |\n            └── • Filter\n                |  expression: (exists($date_3) AND exists($__key___4))\n                |\n                └── • SequentialScan\n                       properties: Selection {  }\n                       fields: [$date_3, $__key___4, $rid_2]\n                       index: /users/query-plan-only-synthetic-owner/bodyMeasurements (date DESC, __key__ DESC)@[id = CICAgNiryskL]\n                       partition: /users/query-plan-only-synthetic-owner\n                       key ordering length: 3\n                       ranges: /\n"
+    },
+    {
+      "name": "student_progress_weightLogs",
+      "source": "functions/student-360.js:studentProgressSources/latestDocuments",
+      "query": {
+        "from": [
+          {
+            "collectionId": "weightLogs"
+          }
+        ],
+        "path": "users/query-plan-only-synthetic-owner/weightLogs",
+        "orderBy": [
+          {
+            "field": {
+              "fieldPath": "date"
+            },
+            "direction": "DESCENDING"
+          },
+          {
+            "field": {
+              "fieldPath": "__name__"
+            },
+            "direction": "DESCENDING"
+          }
+        ],
+        "limit": 60
+      },
+      "before": "Tree:\n• Compute\n|  $out_1: map_set($record_1, \"__name__\", $__name___1, \"__key__\", unset)\n|  is query result: true\n|\n└── • Compute\n    |  $__name___1: $__key___2\n    |\n    └── • MajorSort\n        |  fields: [$v_3 DESC, $v_4 DESC]\n        |  output: [$__key___2, $record_1]\n        |  limit: 60\n        |\n        └── • Compute\n            |  $v_3: $date_1\n            |  $v_4: $__key___2\n            |\n            └── • TableScan\n                   source: /users/query-plan-only-synthetic-owner/weightLogs\n                   order: UNDEFINED\n                   filter: (exists(row().date) AND exists(row().__key__))\n                   output bindings: {$__key___2=row().__key__, $date_1=row().date, $record_1=row()}\n                   output: [$__key___2, $date_1, $record_1]\n",
+      "after": "Tree:\n• Compute\n|  $out_1: map_set($record_1, \"__name__\", $__name___1, \"__key__\", unset)\n|  is query result: true\n|\n└── • Compute\n    |  $__name___1: $__key___6\n    |\n    └── • Fetch\n        |  order: PRESERVE_INPUT_ORDER\n        |  source: /users/query-plan-only-synthetic-owner/weightLogs\n        |  input record id: $rid_2\n        |  output bindings: {$__key___6=row().__key__, $record_1=row()}\n        |  output: [$__key___6, $record_1]\n        |\n        └── • Limit\n            |  limit: 60\n            |\n            └── • Filter\n                |  expression: (exists($date_3) AND exists($__key___4))\n                |\n                └── • SequentialScan\n                       properties: Selection {  }\n                       fields: [$date_3, $__key___4, $rid_2]\n                       index: /users/query-plan-only-synthetic-owner/weightLogs (date DESC, __key__ DESC)@[id = CICAgNiryqkI]\n                       partition: /users/query-plan-only-synthetic-owner\n                       key ordering length: 3\n                       ranges: /\n"
+    },
+    {
+      "name": "student_progress_progressCheckIns",
+      "source": "functions/student-360.js:studentProgressSources/latestDocuments",
+      "query": {
+        "from": [
+          {
+            "collectionId": "progressCheckIns"
+          }
+        ],
+        "path": "users/query-plan-only-synthetic-owner/progressCheckIns",
+        "orderBy": [
+          {
+            "field": {
+              "fieldPath": "date"
+            },
+            "direction": "DESCENDING"
+          },
+          {
+            "field": {
+              "fieldPath": "__name__"
+            },
+            "direction": "DESCENDING"
+          }
+        ],
+        "limit": 60
+      },
+      "before": "Tree:\n• Compute\n|  $out_1: map_set($record_1, \"__name__\", $__name___1, \"__key__\", unset)\n|  is query result: true\n|\n└── • Compute\n    |  $__name___1: $__key___2\n    |\n    └── • MajorSort\n        |  fields: [$v_3 DESC, $v_4 DESC]\n        |  output: [$__key___2, $record_1]\n        |  limit: 60\n        |\n        └── • Compute\n            |  $v_3: $date_1\n            |  $v_4: $__key___2\n            |\n            └── • TableScan\n                   source: /users/query-plan-only-synthetic-owner/progressCheckIns\n                   order: UNDEFINED\n                   filter: (exists(row().date) AND exists(row().__key__))\n                   output bindings: {$__key___2=row().__key__, $date_1=row().date, $record_1=row()}\n                   output: [$__key___2, $date_1, $record_1]\n",
+      "after": "Tree:\n• Compute\n|  $out_1: map_set($record_1, \"__name__\", $__name___1, \"__key__\", unset)\n|  is query result: true\n|\n└── • Compute\n    |  $__name___1: $__key___6\n    |\n    └── • Fetch\n        |  order: PRESERVE_INPUT_ORDER\n        |  source: /users/query-plan-only-synthetic-owner/progressCheckIns\n        |  input record id: $rid_2\n        |  output bindings: {$__key___6=row().__key__, $record_1=row()}\n        |  output: [$__key___6, $record_1]\n        |\n        └── • Limit\n            |  limit: 60\n            |\n            └── • Filter\n                |  expression: (exists($date_3) AND exists($__key___4))\n                |\n                └── • SequentialScan\n                       properties: Selection {  }\n                       fields: [$date_3, $__key___4, $rid_2]\n                       index: /users/query-plan-only-synthetic-owner/progressCheckIns (date DESC, __key__ DESC)@[id = CICAgNjajpkJ]\n                       partition: /users/query-plan-only-synthetic-owner\n                       key ordering length: 3\n                       ranges: /\n"
+    },
+    {
+      "name": "student_progress_progress_photos",
+      "source": "functions/student-360.js:studentProgressSources/latestDocuments",
+      "query": {
+        "from": [
+          {
+            "collectionId": "progress_photos"
+          }
+        ],
+        "path": "users/query-plan-only-synthetic-owner/progress_photos",
+        "orderBy": [
+          {
+            "field": {
+              "fieldPath": "date"
+            },
+            "direction": "DESCENDING"
+          },
+          {
+            "field": {
+              "fieldPath": "__name__"
+            },
+            "direction": "DESCENDING"
+          }
+        ],
+        "limit": 30,
+        "select": [
+          "date",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "before": "Tree:\n• Compute\n|  $out_1: map(\"__name__\", $__name___2, \"date\", $date_1, \"createdAt\", $createdAt_1, \"updatedAt\", $updatedAt_1)\n|  is query result: true\n|\n└── • Compute\n    |  $__name___2: $__name___1\n    |  $date_1: $date_2\n    |  $createdAt_1: $createdAt_2\n    |  $updatedAt_1: $updatedAt_2\n    |\n    └── • Compute\n        |  $__name___1: $__key___2\n        |\n        └── • MajorSort\n            |  fields: [$v_3 DESC, $v_4 DESC]\n            |  output: [$__key___2, $createdAt_2, $date_2, $updatedAt_2]\n            |  limit: 30\n            |\n            └── • Compute\n                |  $v_3: $date_2\n                |  $v_4: $__key___2\n                |\n                └── • TableScan\n                       source: /users/query-plan-only-synthetic-owner/progress_photos\n                       order: UNDEFINED\n                       filter: (exists(row().date) AND exists(row().__key__))\n                       output bindings: {$__key___2=row().__key__, $createdAt_2=row().createdAt, $date_2=row().date, $updatedAt_2=row().updatedAt}\n                       output: [$__key___2, $createdAt_2, $date_2, $updatedAt_2]\n",
+      "after": "Tree:\n• Compute\n|  $out_1: map(\"__name__\", $__name___2, \"date\", $date_1, \"createdAt\", $createdAt_1, \"updatedAt\", $updatedAt_1)\n|  is query result: true\n|\n└── • Compute\n    |  $__name___2: $__name___1\n    |  $date_1: $date_6\n    |  $createdAt_1: $createdAt_2\n    |  $updatedAt_1: $updatedAt_2\n    |\n    └── • Compute\n        |  $__name___1: $__key___6\n        |\n        └── • Fetch\n            |  order: PRESERVE_INPUT_ORDER\n            |  source: /users/query-plan-only-synthetic-owner/progress_photos\n            |  input record id: $rid_2\n            |  output bindings: {$__key___6=row().__key__, $createdAt_2=row().createdAt, $date_6=row().date, $updatedAt_2=row().updatedAt}\n            |  output: [$__key___6, $createdAt_2, $date_6, $updatedAt_2]\n            |\n            └── • Limit\n                |  limit: 30\n                |\n                └── • Filter\n                    |  expression: (exists($date_4) AND exists($__key___4))\n                    |\n                    └── • SequentialScan\n                           properties: Selection {  }\n                           fields: [$date_4, $__key___4, $rid_2]\n                           index: /users/query-plan-only-synthetic-owner/progress_photos (date DESC, __key__ DESC)@[id = CICAgNjajpkL]\n                           partition: /users/query-plan-only-synthetic-owner\n                           key ordering length: 3\n                           ranges: /\n"
+    },
+    {
+      "name": "student_progress_progressPhotos",
+      "source": "functions/student-360.js:studentProgressSources/latestDocuments",
+      "query": {
+        "from": [
+          {
+            "collectionId": "progressPhotos"
+          }
+        ],
+        "path": "users/query-plan-only-synthetic-owner/progressPhotos",
+        "orderBy": [
+          {
+            "field": {
+              "fieldPath": "date"
+            },
+            "direction": "DESCENDING"
+          },
+          {
+            "field": {
+              "fieldPath": "__name__"
+            },
+            "direction": "DESCENDING"
+          }
+        ],
+        "limit": 30,
+        "select": [
+          "date",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "before": "Tree:\n• Compute\n|  $out_1: map(\"__name__\", $__name___2, \"date\", $date_1, \"createdAt\", $createdAt_1, \"updatedAt\", $updatedAt_1)\n|  is query result: true\n|\n└── • Compute\n    |  $__name___2: $__name___1\n    |  $date_1: $date_2\n    |  $createdAt_1: $createdAt_2\n    |  $updatedAt_1: $updatedAt_2\n    |\n    └── • Compute\n        |  $__name___1: $__key___2\n        |\n        └── • MajorSort\n            |  fields: [$v_3 DESC, $v_4 DESC]\n            |  output: [$__key___2, $createdAt_2, $date_2, $updatedAt_2]\n            |  limit: 30\n            |\n            └── • Compute\n                |  $v_3: $date_2\n                |  $v_4: $__key___2\n                |\n                └── • TableScan\n                       source: /users/query-plan-only-synthetic-owner/progressPhotos\n                       order: UNDEFINED\n                       filter: (exists(row().date) AND exists(row().__key__))\n                       output bindings: {$__key___2=row().__key__, $createdAt_2=row().createdAt, $date_2=row().date, $updatedAt_2=row().updatedAt}\n                       output: [$__key___2, $createdAt_2, $date_2, $updatedAt_2]\n",
+      "after": "Tree:\n• Compute\n|  $out_1: map(\"__name__\", $__name___2, \"date\", $date_1, \"createdAt\", $createdAt_1, \"updatedAt\", $updatedAt_1)\n|  is query result: true\n|\n└── • Compute\n    |  $__name___2: $__name___1\n    |  $date_1: $date_6\n    |  $createdAt_1: $createdAt_2\n    |  $updatedAt_1: $updatedAt_2\n    |\n    └── • Compute\n        |  $__name___1: $__key___6\n        |\n        └── • Fetch\n            |  order: PRESERVE_INPUT_ORDER\n            |  source: /users/query-plan-only-synthetic-owner/progressPhotos\n            |  input record id: $rid_2\n            |  output bindings: {$__key___6=row().__key__, $createdAt_2=row().createdAt, $date_6=row().date, $updatedAt_2=row().updatedAt}\n            |  output: [$__key___6, $createdAt_2, $date_6, $updatedAt_2]\n            |\n            └── • Limit\n                |  limit: 30\n                |\n                └── • Filter\n                    |  expression: (exists($date_4) AND exists($__key___4))\n                    |\n                    └── • SequentialScan\n                           properties: Selection {  }\n                           fields: [$date_4, $__key___4, $rid_2]\n                           index: /users/query-plan-only-synthetic-owner/progressPhotos (date DESC, __key__ DESC)@[id = CICAgLjywdkK]\n                           partition: /users/query-plan-only-synthetic-owner\n                           key ordering length: 3\n                           ranges: /\n"
+    }
+  ],
+  "findings": [
+    "All six inspected progress shapes changed from TableScan plus MajorSort to an ordered date DESC/document-ID DESC SequentialScan. Limits remain 60 per measurement/check-in source and 30 per photo source.",
+    "Both legacy and current photo collections remain supported. Field selection is preserved; no image URL or health data was queried.",
+    "These collection-scoped indexes support existing Core queries as well as the forthcoming progress-domain refresh. No Function redeploy or UI behavior change is required for index availability."
+  ],
+  "limitations": [
+    "Planner-only evidence does not measure production read units, latency or currency savings. The adapted pipeline is a diagnostic representation of the Core shape.",
+    "Each index adds storage and write maintenance; verify the read benefit against representative write volume.",
+    "The SDK projection conversion issue is isolated to this diagnostic. Application source continues to use native Core queries tested in the Firestore emulator."
+  ]
+}
