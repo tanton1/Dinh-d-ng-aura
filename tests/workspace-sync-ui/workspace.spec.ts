@@ -174,3 +174,121 @@ test('completed mutation cannot reload a previous trainer week after navigation'
   expect(await count(page)).toBe(2)
   await expect(page.getByLabel('Ngày lịch dạy')).toHaveValue('2026-10-26')
 })
+
+async function attendanceFixture(page: Page, size = 1) {
+  await page.addInitScript((count) => {
+    Object.assign(window, { allowMutationFixture: true, workspaceSessions: Array.from({ length: count }, (_, index) => ({
+      id: `session-${index}`, studentId: `student-${index}`, studentName: `Học viên ${index}`, date: '2026-10-23', hour: 10,
+      status: 'scheduled', attendanceStatus: 'pending', trainerId: 'trainer', branchId: 'branch', contractId: 'contract', revision: 1, timeZone: 'Asia/Ho_Chi_Minh',
+    })) })
+  }, size)
+  await open(page, 'trainer')
+}
+async function startSingleAttendance(page: Page) {
+  await page.getByRole('button', { name: 'Có tập', exact: true }).click()
+  await page.getByRole('dialog').getByRole('button', { name: 'Có tập Đến đúng giờ' }).click()
+}
+const finishAttendance = (page: Page, index = 0, error?: string) => page.evaluate(({ index, error }) => (window as any).attendanceResolvers[index](error), { index, error })
+const expectAttendanceReads = (page: Page, expected: number) => expect.poll(async () => {
+  // WebKit may commit React's resumed state after the mutation microtask.
+  // Advance its local debounce clock until that commit settles; the exact
+  // count still rejects duplicate refreshes instead of allowing "at least".
+  await page.clock.runFor(100)
+  return count(page)
+}).toBe(expected)
+
+test('thirty attendance signals during one bulk confirmation wait and reconcile exactly once after its response', async ({ page }) => {
+  await attendanceFixture(page, 30)
+  await page.getByRole('button', { name: 'Xác nhận 30 học viên đều đã tập', exact: true }).click()
+  await page.getByRole('button', { name: 'Xác nhận tất cả', exact: true }).click()
+  await expect.poll(() => page.evaluate(() => (window as any).attendanceWrites?.length)).toBe(1)
+  for (let version = 1; version <= 30; version++) {
+    await emit(page, 'trainerWorkspaceVersion', String(version).padStart(4, '0'))
+    await page.clock.runFor(400)
+  }
+  expect(await count(page)).toBe(1)
+  await finishAttendance(page)
+  await expectAttendanceReads(page, 2)
+  await expect(page.getByText('Đã xác nhận 30 học viên đều có tập.', { exact: true })).toBeVisible()
+  await page.clock.runFor(60_000)
+  expect(await count(page)).toBe(2)
+})
+
+test('a later source revision still refreshes after a single attendance response, without repeating the accepted signal', async ({ page }) => {
+  await attendanceFixture(page)
+  await startSingleAttendance(page)
+  await finishAttendance(page)
+  await expectAttendanceReads(page, 2)
+  await emit(page, 'trainerWorkspaceVersion', '0001')
+  await page.clock.runFor(600)
+  expect(await count(page)).toBe(3)
+  await emit(page, 'trainerWorkspaceVersion', '0001')
+  await page.clock.runFor(600)
+  expect(await count(page)).toBe(3)
+})
+
+test('partial bulk success retains failed rows and consumes accumulated signals in one reconciliation', async ({ page }) => {
+  await attendanceFixture(page, 2)
+  await page.evaluate(() => { (window as any).attendanceFailSession = 'session-1' })
+  await page.getByRole('button', { name: 'Xác nhận 2 học viên đều đã tập', exact: true }).click()
+  await page.getByRole('button', { name: 'Xác nhận tất cả', exact: true }).click()
+  await emit(page, 'trainerWorkspaceVersion', '0001')
+  await page.clock.runFor(500)
+  expect(await count(page)).toBe(1)
+  await finishAttendance(page)
+  await expectAttendanceReads(page, 2)
+  await expect(page.getByText('Đã xác nhận 1/2 buổi; 1 buổi cần tải lại để đối soát.', { exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Có tập', exact: true })).toHaveCount(1)
+  expect(await page.evaluate(() => (window as any).attendanceWrites.length)).toBe(1)
+})
+
+test('a completed attendance waits while hidden and reconciles once on resume', async ({ page }) => {
+  await attendanceFixture(page)
+  await startSingleAttendance(page)
+  await page.evaluate(() => { (window as any).workspaceHidden = true; document.dispatchEvent(new Event('visibilitychange')) })
+  await emit(page, 'trainerWorkspaceVersion', '0002')
+  await finishAttendance(page)
+  await page.clock.runFor(60_000)
+  expect(await count(page)).toBe(1)
+  await page.evaluate(() => { (window as any).workspaceHidden = false; document.dispatchEvent(new Event('visibilitychange')) })
+  await expectAttendanceReads(page, 2)
+})
+
+test('a failed attendance without a new signal preserves the error and does not retry reads or writes', async ({ page }) => {
+  await attendanceFixture(page)
+  await startSingleAttendance(page)
+  await finishAttendance(page, 0, 'Không thể xác nhận trong lần thử này.')
+  await page.clock.runFor(60_000)
+  expect(await count(page)).toBe(1)
+  expect(await page.evaluate(() => (window as any).attendanceWrites.length)).toBe(1)
+  await expect(page.getByRole('dialog').getByText('Không thể xác nhận trong lần thử này.', { exact: true })).toBeVisible()
+  await expect(page.getByRole('dialog').getByRole('button', { name: 'Có tập Đến đúng giờ' })).toBeEnabled()
+})
+
+test('an old attendance response cannot refresh a new week or overwrite its notices', async ({ page }) => {
+  await attendanceFixture(page)
+  await startSingleAttendance(page)
+  await page.getByRole('dialog').getByRole('button', { name: 'Đóng', exact: true }).click()
+  await page.getByRole('button', { name: 'Tuần sau', exact: true }).click()
+  await expectAttendanceReads(page, 2)
+  await finishAttendance(page)
+  await page.clock.runFor(600)
+  expect(await count(page)).toBe(2)
+  await expect(page.getByText('Đã ghi nhận hiện diện.', { exact: false })).toHaveCount(0)
+})
+
+test('an old account failure cannot clear a newer account attendance operation or show its error', async ({ page }) => {
+  await attendanceFixture(page)
+  await startSingleAttendance(page)
+  await page.evaluate(() => (window as any).workspaceAccount('account-b'))
+  await expectAttendanceReads(page, 2)
+  await startSingleAttendance(page)
+  await finishAttendance(page, 0, 'old-account-private-error')
+  await page.clock.runFor(500)
+  await expect(page.getByText('old-account-private-error')).toHaveCount(0)
+  await expect(page.getByRole('dialog').getByRole('button', { name: 'Có tập Đến đúng giờ' })).toBeDisabled()
+  expect(await count(page)).toBe(2)
+  await finishAttendance(page, 1)
+  await expectAttendanceReads(page, 3)
+  expect(await page.evaluate(() => (window as any).attendanceWrites.map((item: any) => item.uid))).toEqual(['account-a', 'account-b'])
+})
