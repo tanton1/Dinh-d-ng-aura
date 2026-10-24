@@ -141,6 +141,21 @@ function isOpenRouterFallbackError(status, providerMessage) {
     .test(providerMessage || '')
 }
 
+function isOpenRouterRequestRejected(response, payload, providerMessage) {
+  // These narrow errors reject the requested model/format. A timeout, gateway
+  // error, generation identifier, usage or any choices can mean inference has
+  // already started; a second POST must not be inferred to be free or safe.
+  if (![400, 404].includes(response.status) || !payload?.error) return false
+  if (payload.error.code != null && Number(payload.error.code) !== response.status) return false
+  if (payload.id || payload.request_id || payload.generation_id
+    || payload.error.metadata?.generation_id || payload.error.metadata?.request_id
+    || payload.usage != null || payload.choices != null
+    || response.headers.get('x-generation-id')
+    || /^gen-/i.test(response.headers.get('x-request-id') || '')) return false
+  return /model.*(?:not found|not available|does not exist|unsupported|not supported)|no (?:available )?endpoints|(?:response[_ -]?format|json[_ -]?schema|structured output|reasoning).*(?:unsupported|not supported)|(?:unsupported|not supported).*(?:model|response[_ -]?format|json[_ -]?schema|structured output|reasoning)/i
+    .test(providerMessage || '')
+}
+
 async function requestOpenRouterStructured({
   apiKey,
   prompt,
@@ -151,7 +166,10 @@ async function requestOpenRouterStructured({
   modelCandidates,
   timeoutMs = 55000,
   fetchImpl = fetch,
+  fallbackPolicy = 'legacy',
 }) {
+  if (!['legacy', 'rejected-only'].includes(fallbackPolicy)) throw new Error('Invalid OpenRouter fallback policy')
+  const allowAmbiguousFallback = fallbackPolicy === 'legacy'
   for (const [index, model] of modelCandidates.entries()) {
     let response
     try {
@@ -173,7 +191,7 @@ async function requestOpenRouterStructured({
         model,
         reason: sanitizeProviderMessage(error instanceof Error ? error.message : 'unknown'),
       })
-      if (index === 0 && modelCandidates.length > 1) continue
+      if (allowAmbiguousFallback && index === 0 && modelCandidates.length > 1) continue
       throw new HttpsError('unavailable', 'Dịch vụ AI đang gián đoạn. Hãy thử lại sau.')
     }
 
@@ -195,6 +213,7 @@ async function requestOpenRouterStructured({
         index === 0
         && modelCandidates.length > 1
         && isOpenRouterFallbackError(response.status, providerMessage)
+        && (allowAmbiguousFallback || isOpenRouterRequestRejected(response, payload, providerMessage))
       ) continue
       if (response.status === 429) {
         throw new HttpsError('resource-exhausted', 'Dịch vụ AI đang bận. Hãy thử lại sau ít phút.')
@@ -218,13 +237,13 @@ async function requestOpenRouterStructured({
         finishReason: finishReason || null,
         providerMessage,
       })
-      if (index === 0 && modelCandidates.length > 1) continue
+      if (allowAmbiguousFallback && index === 0 && modelCandidates.length > 1) continue
       throw new HttpsError('unavailable', 'AI chưa hoàn tất kết quả. Hãy thử lại sau.')
     }
 
     const text = extractOpenRouterText(payload)
     if (!text) {
-      if (index === 0 && modelCandidates.length > 1) continue
+      if (allowAmbiguousFallback && index === 0 && modelCandidates.length > 1) continue
       throw new HttpsError('internal', 'AI trả về kết quả trống.')
     }
     try {
@@ -245,7 +264,7 @@ async function requestOpenRouterStructured({
         requestId,
         reason: sanitizeProviderMessage(error instanceof Error ? error.message : 'unknown'),
       })
-      if (index === 0 && modelCandidates.length > 1) continue
+      if (allowAmbiguousFallback && index === 0 && modelCandidates.length > 1) continue
       throw new HttpsError('internal', 'Kết quả AI không đúng định dạng an toàn.')
     }
   }

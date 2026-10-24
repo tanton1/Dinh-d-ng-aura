@@ -20,15 +20,17 @@ function atOrBefore(left, right) {
  * Deletions have no after.updateTime and deliberately always rebuild.
  */
 async function coalesceProjectionRebuild({ db, studentId, event, rebuild, now = Date.now, scope = 'full' }) {
+  const watermarks = { full: 'coveredThrough', nutrition: 'nutritionCoveredThrough', progress: 'progressCoveredThrough' }
+  if (!Object.hasOwn(watermarks, scope)) throw new HttpsError('invalid-argument', 'Unknown Student 360 projection scope.')
   const reference = db.doc(`systemJobs/student360Rebuild/subjects/${studentId}`)
   const token = randomUUID()
   const version = event?.data?.after?.exists ? event.data.after.updateTime : null
-  const watermark = scope === 'nutrition' ? 'nutritionCoveredThrough' : 'coveredThrough'
+  const watermark = watermarks[scope]
   const acquired = await db.runTransaction(async (transaction) => {
     const snapshot = await transaction.get(reference)
     const state = snapshot.data() || {}
     if (atOrBefore(version, state.coveredThrough)
-        || (scope === 'nutrition' && atOrBefore(version, state.nutritionCoveredThrough))) return null
+        || (scope !== 'full' && atOrBefore(version, state[watermark]))) return null
     if (state.leaseUntil?.toMillis() > now()) {
       throw new HttpsError('unavailable', 'Student 360 projection rebuild is already running.')
     }
@@ -61,7 +63,7 @@ async function coalesceProjectionRebuild({ db, studentId, event, rebuild, now = 
       transaction.set(reference, {
         token: null, leaseUntil: null,
         // Partial refreshes cannot acknowledge contract/session/finance
-        // commits which they never read. Both scopes still share one lease.
+        // commits which they never read. All scopes still share one lease.
         ...(acquired.coveredThrough ? { [watermark]: acquired.coveredThrough } : {}),
       }, { merge: true })
     })

@@ -230,3 +230,14 @@ test('OpenRouter diagnostics redact API keys', () => {
   assert.doesNotMatch(message, /sk-or-v1|AIza/)
   assert.match(message, /redacted/)
 })
+
+test('unknown fallback policies fail before sending a provider request', async () => {
+  for (const fallbackPolicy of [null, '', 'rejected', true, {}]) {
+    let calls = 0
+    await assert.rejects(requestOpenRouterStructured({
+      apiKey: 'synthetic-key', modelCandidates: ['first', 'second'], fallbackPolicy,
+      fetchImpl: async () => { calls++ },
+    }), /Invalid OpenRouter fallback policy/)
+    assert.equal(calls, 0)
+  }
+})
