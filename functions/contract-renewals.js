@@ -852,9 +852,10 @@ function createContractRenewalFunctions({ db, onCall, onSchedule, logger, resolv
     ? onCall({ cpu: 'gcf_gen1', concurrency: 1, maxInstances: 2, invoker: 'public' }, optionsOrHandler)
     : onCall({ cpu: 'gcf_gen1', concurrency: 1, maxInstances: 2, invoker: 'public', ...optionsOrHandler }, maybeHandler)
   const listHandler = async (request) => {
-    // A reused dictionary must not survive a permission change hidden by the
-    // short-lived identity cache. Cases/stats are still read anew every time.
-    const actor = await resolveActor(request, db, { freshAssignment: request.data?.optionsMode === 'reuse' })
+    // Every mode must bypass the short-lived assignment cache: after a reuse
+    // scope reset the UI immediately reloads filters, which must not revive
+    // the old cached authority. Cases/stats are also read anew every time.
+    const actor = await resolveActor(request, db, { freshAssignment: true })
     const input = listInput(request.data || {})
     const optionsScopeKey = renewalOptionsScopeKey(actor)
     const sameOptionsScope = input.optionsScopeKey === optionsScopeKey

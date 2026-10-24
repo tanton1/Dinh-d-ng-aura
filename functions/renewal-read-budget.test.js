@@ -3,6 +3,7 @@
 const assert = require('node:assert/strict')
 const { test } = require('node:test')
 const { createContractRenewalFunctions } = require('./contract-renewals')
+const { trustedAccessContext } = require('./identity-access')
 const { vietnamDateKey, addDateDays } = require('./pt-policy')
 
 const systemActor = { uid: 'actor', renewalScope: 'system', renewalAudience: 'operations', renewalCanSell: true,
@@ -41,7 +42,12 @@ function fixture({ actor = systemActor, actualAuth = false, role = 'admin', toke
   // Budget counts returned query documents plus explicit document lookups;
   // excludes minimum charges for empty queries and index-entry billing.
   const reads = [], writes = []
-  const snapshot = (value, id = value?.id) => ({ id, exists: Boolean(value), data: () => value })
+  const snapshot = (value, id = value?.id) => {
+    // A real Firestore snapshot cannot change when a later write replaces or
+    // mutates the fixture source. Otherwise role-cache races are invisible.
+    const fixed = structuredClone(value)
+    return { id, exists: Boolean(fixed), data: () => structuredClone(fixed) }
+  }
   const field = (value, dotted) => dotted.split('.').reduce((result, key) => result?.[key], value)
   const query = (collection, filters = [], maximum = Infinity) => ({
     where: (key, operator, expected) => query(collection, [...filters, [key, operator, expected]], maximum),
@@ -85,7 +91,7 @@ function fixture({ actor = systemActor, actualAuth = false, role = 'admin', toke
     ...(actualAuth ? {} : { resolveActor: async () => actor }),
   })
   const run = (data = {}, endpoint = 'listContractRenewalCases') => api[endpoint]({ auth: { uid: 'actor', token: token || { role } }, data })
-  return { api, values, reads, writes, run, readCount: () => reads.reduce((sum, item) => sum + item.returned, 0) }
+  return { api, db, values, reads, writes, run, readCount: () => reads.reduce((sum, item) => sum + item.returned, 0) }
 }
 const comparablePage = ({ generatedAt, options, optionsMode, packages, ...page }) => page
 const forbiddenQueries = reads => reads.filter(read => ['packages', 'cashAccounts'].includes(read.collection))
@@ -340,6 +346,45 @@ test('real authority rereads assignment on reuse, preventing a cached branch sco
   const beforeDeny = f.reads.length
   await assert.rejects(f.run({ optionsMode: 'reuse', cursor: trainer.nextCursor, optionsScopeKey: trainer.optionsScopeKey }), { code: 'permission-denied' })
   assert(f.reads.slice(beforeDeny).every(read => read.kind === 'document' && ['users', 'roleAssignments'].includes(read.collection)))
+})
+
+test('fresh first-page reload after a scope reset never revives a separately cached old assignment', async () => {
+  for (const endpoint of ['listContractRenewalCases', 'listContractRenewalPipeline']) {
+    const token = { accessRole: 'staff', authzVersion: 1 }
+    const f = fixture({ actualAuth: true, role: 'manager', token })
+    f.values.roleAssignments.push({ id: 'actor', accessRole: 'staff', positions: ['branch_manager'], branchIds: ['a'], status: 'active', authzVersion: 1 })
+    // Another endpoint may have warmed the shared five-second assignment
+    // cache. Fresh renewal reads must remain safe without changing that cache.
+    await trustedAccessContext({ auth: { uid: 'actor', token } }, f.db)
+    const first = await f.run({ pageSize: 2, optionsMode: 'filters', branchId: 'a' }, endpoint)
+    assert(first.rows.length && first.rows.every(row => row.branchId === 'a'))
+    const index = f.values.roleAssignments.findIndex(item => item.id === 'actor')
+    f.values.roleAssignments[index] = { ...f.values.roleAssignments[index], branchIds: ['b'] }
+    f.values.branches.find(item => item.id === 'b').name = 'Branch B renamed'
+    const reset = await f.run({ pageSize: 2, optionsMode: 'reuse', branchId: 'a', cursor: first.nextCursor, optionsScopeKey: first.optionsScopeKey }, endpoint)
+    assert.equal(reset.pageReset, true)
+    assert.equal(reset.optionsReused, false)
+    assert.notEqual(reset.optionsScopeKey, first.optionsScopeKey)
+    assert.deepEqual(reset.rows, [], 'old selected branch no longer matches the authorized scope')
+    assert.equal(reset.stats.total, 6, 'totals still cover the new authorized scope')
+    for (const optionsMode of [undefined, 'full', 'filters']) {
+      const offset = f.reads.length
+      // The UI clears branch/assignee filters after pageReset and immediately
+      // reloads page one. No TTL sleep: this must see B, never cached A.
+      const refreshed = await f.run({ pageSize: 2, branchId: 'all', ...(optionsMode ? { optionsMode } : {}) }, endpoint)
+      assert.equal(refreshed.optionsScopeKey, reset.optionsScopeKey)
+      assert(refreshed.rows.length && refreshed.rows.every(row => row.branchId === 'b'))
+      assert.deepEqual(refreshed.options.branches, [{ id: 'b', name: 'Branch B renamed' }])
+      assert.deepEqual(refreshed.stats, reset.stats)
+      assert.equal(f.reads.slice(offset).filter(read => read.kind === 'document' && read.collection === 'roleAssignments').length, 1, 'every list checks exactly one fresh role document')
+    }
+    f.values.roleAssignments[index] = { ...f.values.roleAssignments[index], status: 'suspended' }
+    for (const optionsMode of [undefined, 'full', 'filters', 'reuse']) {
+      const offset = f.reads.length
+      await assert.rejects(f.run({ ...(optionsMode ? { optionsMode } : {}), cursor: reset.nextCursor, optionsScopeKey: reset.optionsScopeKey }, endpoint), { code: 'permission-denied' })
+      assert(f.reads.slice(offset).every(read => read.kind === 'document' && ['users', 'roleAssignments'].includes(read.collection)), 'revocation denies before business queries')
+    }
+  }
 })
 
 test('forged comparison keys cannot bypass authentication or obtain another actor scope', async () => {
