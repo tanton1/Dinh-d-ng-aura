@@ -81,22 +81,25 @@ test('production handler preserves the zero-read metadata no-op on all five alia
   }
 })
 
-test('old SG trigger declarations and the one scheduler remain present and unchanged', () => {
+test('only regional aggregate triggers are registered while the one SG scheduler remains unchanged', () => {
   const source = readFileSync(join(__dirname, 'index.js'), 'utf8')
-  const originalOptions = source.match(/const operationsAggregateTriggerOptions = \(document\) => \(\{([\s\S]*?)\n\}\)/)?.[1]
-  assert.ok(originalOptions)
-  assert.match(originalOptions, /database: databaseId/)
-  assert.match(originalOptions, /region: 'asia-southeast1'/)
-  assert.match(originalOptions, /maxInstances: 2/)
-  assert.match(originalOptions, /retry: true/)
-  for (const [name, kind, document] of expected) {
+  assert.doesNotMatch(source, /operationsAggregateTriggerOptions/)
+  for (const [name, kind] of expected) {
     const original = `syncOperations${kind[0].toUpperCase()}${kind.slice(1)}DailyAggregate`
-    const declaration = source.slice(source.indexOf(`exports.${original} =`)).split('\n)').at(0)
-    assert.ok(declaration.includes(`operationsAggregateTriggerOptions('${document}')`), original)
-    assert.ok(declaration.includes(`source: '${kind}'`), original)
-    assert.match(source, new RegExp(`exports\\.${name} = regionalOperationsAggregateFunctions\\.${name}`))
+    assert.doesNotMatch(source, new RegExp(`exports\\.${original}\\b`))
+    assert.equal((source.match(new RegExp(`exports\\.${name} = regionalOperationsAggregateFunctions\\.${name}\\b`, 'g')) || []).length, 1)
   }
   assert.equal((source.match(/exports\.rebuildOperationsDashboardAggregatesScheduled = onSchedule\(/g) || []).length, 1)
+  const scheduler = source.match(/exports\.rebuildOperationsDashboardAggregatesScheduled = onSchedule\(\{[\s\S]*?days: 366 \}\)\)/)?.[0]
+  assert.equal(scheduler?.replace(/\r\n/g, '\n'), `exports.rebuildOperationsDashboardAggregatesScheduled = onSchedule({
+  schedule: '15 1 * * *',
+  region: 'asia-southeast1',
+  timeZone: 'Asia/Ho_Chi_Minh',
+  retryCount: 1,
+  maxInstances: 1,
+  timeoutSeconds: 540,
+  memory: '1GiB',
+}, async () => rebuildOperationsDailyAggregates({ db, logger, days: 366 }))`)
 })
 
 test('missing database configuration is rejected before registering a trigger', () => {

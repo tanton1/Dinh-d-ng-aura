@@ -16,6 +16,41 @@
     ]
   },
   "mode": "review-and-staged-cutover-not-a-bulk-deployment-or-deletion-manifest",
+  "progress": {
+    "verifiedAt": "2026-10-24T02:55:45.189Z",
+    "completedSourceRetirements": 5,
+    "pendingCandidateSourceRetirements": 183,
+    "currentFunctionCounts": {
+      "asia-southeast1": 370,
+      "asia-east1": 132,
+      "asia-southeast2": 16
+    },
+    "newReadPrimaryCutovers": {
+      "region": "asia-east1",
+      "legacySourceEndpointsRetained": true,
+      "names": [
+        "getStudent360Overview",
+        "listStudent360Directory",
+        "listStudent360Timeline",
+        "getStudent360NutritionActivityDetail",
+        "getStudent360ProgressPhotos",
+        "getStudent360ContractWorkspace",
+        "listPtScheduleBranches",
+        "getPtScheduleWorkspace",
+        "getPtScheduleSlotCandidates"
+      ]
+    },
+    "regionalSourceAndRollbackCommit": "418d66eb4961cf544190e10d5f19685598fe0772",
+    "retirementProofSha256": "0bc81ed8157fcd1e21effae4797f22490d000ee5d393df27e3169889a7daaa39",
+    "retirementVerification": "Exact five old CF, Run, Eventarc and Pub/Sub resources returned 404; five replacement images/transport/health remained unchanged; paginated inventory delta was exactly five removed and five added. All 518 function metadata states ACTIVE, which is not a claim that every latest Run revision is serving.",
+    "naturalBusinessEventVerification": "No natural requests observed on the five new revisions at cutover; not represented as a production business-flow test.",
+    "remainingRisks": [
+      "Existing callable aliases still require old-client and fallback retirement checks; current app traffic routing does not prove old endpoints unused.",
+      "The 48 selected candidate read paths have no persistent business writes found in the source review, but secrets, runtime parity, heavy queries and live handler provenance still need per-wave verification.",
+      "Loyalty and staff summary writers require source freshness fences before cross-region overlap; maxInstances 1 alone is not a cross-region lock.",
+      "Scheduled jobs require single-active cutover and shared leases."
+    ]
+  },
   "constraints": [
     "SMS and notification dispatch configuration remain unchanged.",
     "188 is the candidate target, not the completed migration count. Existing replacements are not new offloads.",
@@ -1650,7 +1685,7 @@
       "destination": "asia-east1",
       "kind": "event-trigger",
       "wave": "aggregate-canary",
-      "status": "implementation-and-overlap-verification-in-progress",
+      "status": "migrated-source-retired",
       "retirementAllowed": false
     },
     {
@@ -1659,7 +1694,7 @@
       "destination": "asia-southeast2",
       "kind": "event-trigger",
       "wave": "aggregate-canary",
-      "status": "implementation-and-overlap-verification-in-progress",
+      "status": "migrated-source-retired",
       "retirementAllowed": false
     },
     {
@@ -1668,7 +1703,7 @@
       "destination": "asia-southeast2",
       "kind": "event-trigger",
       "wave": "aggregate-canary",
-      "status": "implementation-and-overlap-verification-in-progress",
+      "status": "migrated-source-retired",
       "retirementAllowed": false
     },
     {
@@ -1677,7 +1712,7 @@
       "destination": "asia-southeast2",
       "kind": "event-trigger",
       "wave": "aggregate-canary",
-      "status": "implementation-and-overlap-verification-in-progress",
+      "status": "migrated-source-retired",
       "retirementAllowed": false
     },
     {
@@ -1686,7 +1721,7 @@
       "destination": "asia-southeast2",
       "kind": "event-trigger",
       "wave": "aggregate-canary",
-      "status": "implementation-and-overlap-verification-in-progress",
+      "status": "migrated-source-retired",
       "retirementAllowed": false
     },
     {

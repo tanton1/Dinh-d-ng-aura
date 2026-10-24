@@ -62,7 +62,7 @@ const { createPayrollFunctions, priceTeachingSlots, payrollPolicyProfiles, payro
 const { createStaffPayrollFunctions } = require('./staff-payroll')
 const { createPerformanceScoreFunctions } = require('./performance-score')
 const { createOperationsDashboardFunctions } = require('./operations-dashboard')
-const { rebuildOperationsDailyAggregates, syncDailyAggregateWrite } = require('./operations-dashboard-aggregates')
+const { rebuildOperationsDailyAggregates } = require('./operations-dashboard-aggregates')
 const { createCashbookFunctions } = require('./cashbook')
 const { createBusinessReportingFunctions } = require('./business-reporting')
 const { createPtWorkoutTrackingFunctions } = require('./pt-workout-tracking')
@@ -289,41 +289,9 @@ exports.reopenSnoozedOperationalActionsScheduled = onSchedule({
   return { reopened: due.length, refreshedMealReviews }
 })
 
-const operationsAggregateTriggerOptions = (document) => ({
-  document,
-  database: databaseId,
-  region: 'asia-southeast1',
-  // 2026-10-23 audit: each writer peaked at one instance, with current
-  // subscriptions fully drained. Keep a second instance for bursts/retries;
-  // preserve CPU/concurrency and retry semantics rather than changing all
-  // scaling dimensions together. Five writers now cap at ten, not 25, CPUs.
-  maxInstances: 2,
-  retry: true,
-})
-exports.syncOperationsLedgerDailyAggregate = onDocumentWritten(
-  operationsAggregateTriggerOptions('ledgerEntries/{entryId}'),
-  async (event) => syncDailyAggregateWrite({ db, source: 'ledger', event, logger }),
-)
-exports.syncOperationsSessionDailyAggregate = onDocumentWritten(
-  operationsAggregateTriggerOptions('sessions/{sessionId}'),
-  async (event) => syncDailyAggregateWrite({ db, source: 'session', event, logger }),
-)
-exports.syncOperationsAttendanceDailyAggregate = onDocumentWritten(
-  operationsAggregateTriggerOptions('attendanceEvents/{eventId}'),
-  async (event) => syncDailyAggregateWrite({ db, source: 'attendance', event, logger }),
-)
-exports.syncOperationsContractDailyAggregate = onDocumentWritten(
-  operationsAggregateTriggerOptions('contracts/{contractId}'),
-  async (event) => syncDailyAggregateWrite({ db, source: 'contract', event, logger }),
-)
-exports.syncOperationsStudentDailyAggregate = onDocumentWritten(
-  operationsAggregateTriggerOptions('students/{studentId}'),
-  async (event) => syncDailyAggregateWrite({ db, source: 'student', event, logger }),
-)
-
-// Regional consumers reuse the same transactional contribution baseline. The
-// SG writers remain intact until a separately verified Eventarc cutover.
-// Do not instantiate a second scheduled aggregate rebuild in another region.
+// Only regional consumers remain after the verified SG Eventarc retirement.
+// Keep the shared transactional contribution baseline and one rebuild schedule;
+// do not re-register the old SG consumers or duplicate the scheduled rebuild.
 const regionalOperationsAggregateFunctions = require('./operations-aggregate-regional').createRegionalOperationsAggregateFunctions({ db, databaseId, onDocumentWritten, logger })
 exports.syncOpsLedgerDailyAggregateRegional = regionalOperationsAggregateFunctions.syncOpsLedgerDailyAggregateRegional
 exports.syncOpsAttendanceDailyAggregateRegional = regionalOperationsAggregateFunctions.syncOpsAttendanceDailyAggregateRegional

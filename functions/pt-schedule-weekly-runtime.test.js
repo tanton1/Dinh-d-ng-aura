@@ -17,11 +17,11 @@ const VIEW_PATH = `ptScheduleWeeklyViews/${BRANCH}_${WEEK}`
 const STATE_PATH = `ptScheduleWeeklyViewStates/${BRANCH}_${WEEK}`
 const PROBE_PREFIX = 'WEEKLY_RUNTIME_PROBE:'
 const AGGREGATE_TARGETS = Object.freeze({
-  syncOperationsLedgerDailyAggregate: 'ledgerEntries/{entryId}',
-  syncOperationsSessionDailyAggregate: 'sessions/{sessionId}',
-  syncOperationsAttendanceDailyAggregate: 'attendanceEvents/{eventId}',
-  syncOperationsContractDailyAggregate: 'contracts/{contractId}',
-  syncOperationsStudentDailyAggregate: 'students/{studentId}',
+  syncOpsLedgerDailyAggregateRegional: { document: 'ledgerEntries/{entryId}', region: 'asia-east1' },
+  syncOpsAttendanceDailyAggregateRegional: { document: 'attendanceEvents/{eventId}', region: 'asia-southeast2' },
+  syncOpsSessionDailyAggregateRegional: { document: 'sessions/{sessionId}', region: 'asia-southeast2' },
+  syncOpsContractDailyAggregateRegional: { document: 'contracts/{contractId}', region: 'asia-southeast2' },
+  syncOpsStudentDailyAggregateRegional: { document: 'students/{studentId}', region: 'asia-southeast2' },
 })
 
 // Exercise the real CommonJS entry point and Firebase onCall wrapper in fresh
@@ -244,10 +244,12 @@ test('weekly runtime selection is exact, runtime-only and has no request-control
 
 test('normal, unknown-target and control-API discovery expose the unchanged complete manifest', () => {
   const baseline = probe()
-  assert.equal(baseline.exportNames.length, 523)
+  assert.equal(baseline.exportNames.length, 518)
   for (const source of ['Ledger', 'Attendance', 'Session', 'Contract', 'Student']) {
     assert.ok(baseline.exportNames.includes(`syncOps${source}DailyAggregateRegional`))
+    assert.equal(baseline.exportNames.includes(`syncOperations${source}DailyAggregate`), false)
   }
+  assert.deepEqual(baseline.exportNames.filter(name => name.startsWith('rebuildOperationsDashboardAggregates')), ['rebuildOperationsDashboardAggregatesScheduled'])
   assert.equal(baseline.exportNames.includes('cleanupOperationsDashboardCache'), false)
   assert.equal(baseline.exportNames.includes('syncPtContractUsageProjection'), false)
   assert.equal(baseline.exportNames.includes('syncSessionContractUsageView'), true)
@@ -276,13 +278,23 @@ test('existing scoped discovery stays scoped even if the parent has an allowlist
 
 test('aggregate writer manifests cap instances at two while preserving retry and exact event sources', () => {
   const full = probe()
-  for (const [name, document] of Object.entries(AGGREGATE_TARGETS)) {
+  for (const [name, { document, region }] of Object.entries(AGGREGATE_TARGETS)) {
     const endpoint = full.handlers[name].endpoint
+    assert.equal(endpoint.minInstances, 0)
     assert.equal(endpoint.maxInstances, 2)
+    assert.equal(endpoint.cpu, 1)
+    assert.equal(endpoint.availableMemoryMb, 256)
+    assert.equal(endpoint.concurrency, 80)
     assert.equal(endpoint.eventTrigger.retry, true)
-    assert.deepEqual(endpoint.region, ['asia-southeast1'])
+    assert.deepEqual(endpoint.region, [region])
+    assert.equal(endpoint.eventTrigger.eventType, 'google.cloud.firestore.document.v1.written')
     assert.equal(endpoint.eventTrigger.eventFilters.database, CANONICAL_DATABASE)
+    assert.equal(endpoint.eventTrigger.eventFilters.namespace, '(default)')
     assert.equal(endpoint.eventTrigger.eventFilterPathPatterns.document, document)
+    assert.equal(endpoint.eventTrigger.region, undefined)
+    assert.equal(endpoint.callableTrigger, undefined)
+    assert.equal(endpoint.httpsTrigger, undefined)
+    assert.equal(endpoint.scheduleTrigger, undefined)
   }
 })
 
