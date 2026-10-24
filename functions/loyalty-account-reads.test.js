@@ -11,7 +11,7 @@ const emptyPage = { accounts: [], hasMore: false, nextCursor: null, totalCount: 
 function fixture({ students = {}, wallets = {}, branches = ['a', 'b'], role = 'staff' } = {}) {
   const records = new Map([
     ['users/actor', { role: role === 'staff' ? 'manager' : role }],
-    ...Object.entries(students).map(([id, value]) => [`students/${id}`, value]),
+    ...Object.entries(students).map(([id, value]) => [`students/${id}`, { loyaltyMembership: { managed: true, active: true, state: 'active', activeUntil: '2099-12-31', manageUntil: '2100-01-31', enrolledOn: '2026-10-24' }, ...value }]),
     ...Object.entries(wallets).map(([id, value]) => [`loyaltyAccounts/${id}`, value]),
   ])
   if (role === 'staff') records.set('roleAssignments/actor', {
@@ -25,13 +25,13 @@ function fixture({ students = {}, wallets = {}, branches = ['a', 'b'], role = 's
   const query = (state = { filters: [], limit: null, cursor: null, ordered: false }) => {
     const matches = () => [...records.entries()]
       .filter(([path, value]) => path.startsWith('students/') && state.filters.every(([field, op, expected]) => (
-        op === 'in' ? expected.includes(value[field]) : value[field] === expected
+        op === 'in' ? expected.includes(field.split('.').reduce((v, k) => v?.[k], value)) : field.split('.').reduce((v, k) => v?.[k], value) === expected
       )))
       .map(([path]) => snapshot(path)).sort((left, right) => compareId(left.id, right.id))
     return {
       where: (field, op, value) => {
         assert.equal(state.cursor, null, 'Firestore filters must precede cursor')
-        assert.equal(field, 'branchId')
+        assert.ok(['branchId', 'loyaltyMembership.managed'].includes(field))
         assert.ok(['in', '=='].includes(op))
         if (op === 'in') assert.ok(value.length > 0 && value.length <= 10)
         return query({ ...state, filters: [...state.filters, [field, op, value]] })
@@ -94,7 +94,7 @@ test('two-branch staff reads one bounded page and hydrates only its wallets, not
   assert.equal(result.hasMore, true)
   assert.equal(result.nextCursor, 'student-0099')
   assert.deepEqual(f.reads.queries.map(item => item.size), [101])
-  assert.deepEqual(f.reads.queries[0].filters, [['branchId', 'in', ['a', 'b']]])
+  assert.deepEqual(f.reads.queries[0].filters, [['loyaltyMembership.managed', '==', true], ['branchId', 'in', ['a', 'b']]])
   assert.equal(f.reads.wallets.length, 100)
   assert.equal(f.reads.counts.length, 1)
   assert.equal(f.reads.queries[0].size + f.reads.wallets.length, 201,
@@ -142,7 +142,7 @@ test('twenty branches use at most two disjoint bounded queries and UTF-8 documen
     cursor = result.nextCursor
   } while (cursor)
   assert.equal(new Set(seen).size, expected.length)
-  assert.ok(f.reads.queries.every(read => read.size <= 11 && read.filters[0][2].length <= 10))
+  assert.ok(f.reads.queries.every(read => read.size <= 11 && read.filters[1][2].length <= 10))
   assert.equal(f.reads.queries.length, Math.ceil(expected.length / 10) * 2)
   assert.equal(f.reads.counts.length, f.reads.queries.length)
 })
@@ -160,7 +160,7 @@ test('admin page is bounded, includes missing branch profiles and counts even af
   assert.equal(end.accounts[0].branchId, '')
   assert.equal(end.hasMore, false)
   assert.equal(end.nextCursor, null)
-  assert.ok(f.reads.queries.every(read => read.filters.length === 0))
+  assert.ok(f.reads.queries.every(read => read.filters.length === 1 && read.filters[0][0] === 'loyaltyMembership.managed'))
   const pastEnd = await f.run({ cursor: 'zzzz' })
   assert.deepEqual(pastEnd, { ...emptyPage, totalCount: 22 })
 })
@@ -182,7 +182,7 @@ test('wallet fields, missing-wallet defaults, names, policy tiers and revisions 
   })
   const result = await f.run()
   const a = result.accounts.find(row => row.studentId === 'a')
-  assert.deepEqual(Object.keys(a).sort(), ['studentId', 'status', 'availablePoints', 'pendingPoints', 'reservedPoints', 'debtPoints', 'lifetimeEarnedPoints', 'lifetimeRedeemedPoints', 'tierQualifyingValue', 'tier', 'tierProgress', 'revision', 'updatedAt', 'studentName', 'branchId', 'walletInitialized'].sort())
+  assert.deepEqual(Object.keys(a).sort(), ['studentId', 'status', 'availablePoints', 'pendingPoints', 'reservedPoints', 'debtPoints', 'lifetimeEarnedPoints', 'lifetimeRedeemedPoints', 'tierQualifyingValue', 'tier', 'tierProgress', 'revision', 'updatedAt', 'studentName', 'branchId', 'walletInitialized', 'membershipState', 'manageUntil'].sort())
   assert.deepEqual([a.status, a.availablePoints, a.pendingPoints, a.reservedPoints, a.debtPoints, a.lifetimeEarnedPoints, a.lifetimeRedeemedPoints, a.tierQualifyingValue, a.tier, a.revision, a.updatedAt, a.walletInitialized],
     ['suspended', 300, 20, 30, 40, 500, 110, 40_000_000, 'gold', 7, '1970-01-01T00:00:01.000Z', true])
   const b = result.accounts.find(row => row.studentId === 'b')
@@ -199,8 +199,8 @@ test('counts, branch membership and balances are fresh after edits; no cached fi
   const f = fixture({ students: students(12), wallets: { 'student-0000': { availablePoints: 5 } } })
   assert.equal((await f.run()).totalCount, 12)
   f.records.set('students/student-0001', { name: 'Moved out', branchId: 'outside' })
-  f.records.set('students/new', { name: 'New member', branchId: 'a' })
-  f.records.set('students/another', { name: 'Another', branchId: 'b' })
+  f.records.set('students/new', { name: 'New member', branchId: 'a', loyaltyMembership: { managed: true } })
+  f.records.set('students/another', { name: 'Another', branchId: 'b', loyaltyMembership: { managed: true } })
   f.records.set('loyaltyAccounts/student-0000', { availablePoints: 123, revision: 2 })
   const updated = await f.run()
   assert.equal(updated.totalCount, 13)

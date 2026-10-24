@@ -37,15 +37,16 @@ for (const width of [360, 390, 430]) {
     await page.setViewportSize({ width, height: 844 })
     await page.goto('/#/admin-loyalty')
 
-    await expect(page.getByRole('heading', { name: 'Trung tâm Aura Club' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Aura Club', exact: true })).toBeVisible()
     const metrics = page.getByRole('region', { name: 'Chỉ số Aura Club' })
-    await expect(metrics.locator('.aura-metric-carousel__slide')).toHaveCount(4)
-    await expect(metrics.getByRole('button', { name: /Xem thẻ 2:/ })).toBeVisible()
+    await expect(metrics.locator(':scope > div')).toHaveCount(4)
+    await expect(metrics.getByText('Thành viên active')).toBeVisible()
     await expect(page.getByRole('heading', { name: /Yêu cầu cần xử lý/ })).toBeVisible()
     await expect(page.getByRole('navigation', { name: 'Nghiệp vụ Aura Club' })).not.toBeVisible()
     await page.getByText('Quản lý thành viên và quyền lợi', { exact: true }).click()
     await expect(page.getByRole('navigation', { name: 'Nghiệp vụ Aura Club' })).toBeVisible()
 
+    await page.getByRole('button', { name: 'Danh mục quà', exact: true }).click()
     await page.getByRole('button', { name: 'Sửa' }).first().click()
     const editor = page.getByRole('dialog', { name: 'Chỉnh quyền lợi' })
     await expect(editor).toBeVisible()
@@ -58,13 +59,10 @@ for (const width of [360, 390, 430]) {
   })
 }
 
-test('Aura Club admin puts daily operations before advanced reconciliation', async ({ page }) => {
+test('Aura Club admin shows program banners and removes reconciliation', async ({ page }) => {
   await page.goto('/#/admin-loyalty')
-  const queueComesFirst = await page.locator('.loyalty-admin').evaluate((element) => {
-    const queue = element.querySelector('.loyalty-admin-queue')
-    const reconciliation = element.querySelector('.loyalty-admin-reconcile')
-    return Boolean(queue && reconciliation && (queue.compareDocumentPosition(reconciliation) & Node.DOCUMENT_POSITION_FOLLOWING))
-  })
-  expect(queueComesFirst).toBe(true)
-  await expect(page.locator('details.loyalty-admin-reconcile')).not.toHaveAttribute('open', '')
+  await expect(page.locator('.club-program')).toHaveCount(3)
+  await expect(page.getByText(/đối soát/i)).toHaveCount(0)
+  await page.getByRole('button', { name: 'Cài đặt chương trình dinh dưỡng' }).click()
+  await expect(page.locator('#club-policy')).toHaveAttribute('open', '')
 })

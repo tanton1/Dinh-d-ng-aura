@@ -21,7 +21,7 @@ async function fixture({ students = {}, wallets = {}, branches = ['a', 'b'], rol
   clients.push(db)
   const entries = [
     ['users/actor', { role: role === 'staff' ? 'manager' : role }],
-    ...Object.entries(students).map(([id, value]) => [`students/${id}`, value]),
+    ...Object.entries(students).map(([id, value]) => [`students/${id}`, { loyaltyMembership: { managed: true, active: true, state: 'active', activeUntil: '2099-12-31', manageUntil: '2100-01-31', enrolledOn: '2026-10-24' }, ...value }]),
     ...Object.entries(wallets).map(([id, value]) => [`loyaltyAccounts/${id}`, value]),
   ]
   if (role === 'staff') entries.push(['roleAssignments/actor', {
@@ -82,7 +82,7 @@ test('real Firestore: branch-in + document-ID cursor pages are scoped, complete 
   assert.equal(first.accounts.length, 20)
   assert.equal(first.nextCursor, 'student-0019')
   assert.deepEqual(f.reads.queries.map(read => read.size), [21])
-  assert.deepEqual(f.reads.queries[0].filters, [['branchId', 'in', ['a', 'b']]])
+  assert.deepEqual(f.reads.queries[0].filters, [['loyaltyMembership.managed', '==', true], ['branchId', 'in', ['a', 'b']]])
   assert.equal(f.reads.wallets.length, 20)
   assert.equal(f.reads.queries[0].size + f.reads.wallets.length, 41,
     'old fixture path fetched240 profiles+240 wallets; aggregate scan/bytes not represented by this hydration count')
@@ -128,8 +128,8 @@ test('real Firestore: balances and count refresh after changes, exact lookup is 
   const f = await fixture({ students: students(120), wallets: { 'student-0119': { availablePoints: 17, revision: 1 } } })
   assert.equal((await f.run()).totalCount, 120)
   await f.db.doc('students/student-0001').update({ branchId: 'outside' })
-  await f.db.doc('students/new-member').set({ name: 'New', branchId: 'a' })
-  await f.db.doc('students/new-member-2').set({ name: 'New2', branchId: 'b' })
+  await f.db.doc('students/new-member').set({ name: 'New', branchId: 'a', loyaltyMembership: { managed: true, active: true, state: 'active', activeUntil: '2099-12-31', manageUntil: '2100-01-31', enrolledOn: '2026-10-24' } })
+  await f.db.doc('students/new-member-2').set({ name: 'New2', branchId: 'b', loyaltyMembership: { managed: true } })
   await f.db.doc('loyaltyAccounts/student-0119').update({ availablePoints: 25, revision: 2 })
   assert.equal((await f.run()).totalCount, 121)
   const before = { queries: f.reads.queries.length, counts: f.reads.counts.length, wallets: f.reads.wallets.length }

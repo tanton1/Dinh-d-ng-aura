@@ -3,17 +3,18 @@ const test = require('node:test')
 const assert = require('node:assert/strict')
 const { contributionFor, allowedScopes, branchScope, syncLoyaltyDashboardEvent, createLoyaltyDashboardProjectionFunctions } = require('./loyalty-dashboard-projection')
 const { attendanceRewardChanged, REWARD_FIELDS } = require('./loyalty-attendance-read-policy')
+const membership = { managed: true, active: true, state: 'active', activeUntil: '2099-12-31', manageUntil: '2100-01-31', enrolledOn: '2026-10-24' }
 const snapshot = value => ({ exists: value !== null, data: () => value })
 const event = (before, after) => ({ params: { documentId: 's' }, data: { before: snapshot(before), after: snapshot(after) } })
 const noReads = new Proxy({}, { get() { throw new Error('Unexpected database read') } })
 
 test('summary scopes preserve current-student AND stored redemption branch authorization', () => {
-  const row = contributionFor('loyaltyRedemptions', 'r', { studentId: 's', branchId: 'b', status: 'pending' }, { branchId: 'a' })
+  const row = contributionFor('loyaltyRedemptions', 'r', { studentId: 's', branchId: 'b', status: 'pending' }, { branchId: 'a', loyaltyMembership: membership })
   assert.equal(row.metrics.pendingRedemptions, 1)
   assert.equal(allowedScopes({ accessRole: 'staff', branchIds: ['a'] }).includes(row.scopes[1]), false)
   assert.equal(allowedScopes({ accessRole: 'staff', branchIds: ['a', 'b'] }).includes(row.scopes[1]), true)
   assert.equal(row.scopes[1], branchScope(['b', 'a']))
-  assert.deepEqual(contributionFor('loyaltyAccounts', 's', { availablePoints: 5 }, null).scopes, ['all'])
+  assert.deepEqual(contributionFor('loyaltyAccounts', 's', { availablePoints: 5 }, null).scopes, [])
   assert.throws(() => allowedScopes({ accessRole: 'pt', branchIds: ['a'] }), { code: 'permission-denied' })
 })
 
@@ -26,7 +27,7 @@ test('all twenty authorized branches are included; duplicate branches do not dup
 })
 
 test('tier normalization uses qualifying cash rather than an obsolete persisted tier', () => {
-  const row = contributionFor('loyaltyAccounts', 's', { availablePoints: -1, tier: 'member', tierQualifyingValue: 25_000_000 }, { branchId: 'a' })
+  const row = contributionFor('loyaltyAccounts', 's', { availablePoints: -1, tier: 'member', tierQualifyingValue: 25_000_000 }, { branchId: 'a', loyaltyMembership: membership })
   assert.equal(row.metrics.tier_gold, 1)
   assert.equal(row.metrics.availablePoints, 0)
 })

@@ -4,6 +4,7 @@ const { isDeepStrictEqual } = require('node:util')
 const { FieldPath, FieldValue } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
 const { normalizeAccount, sourceDocumentId } = require('./loyalty-core')
+const { syncMembership } = require('./loyalty-membership')
 
 const VERSION = 1
 const SHARDS = 4
@@ -12,7 +13,7 @@ const METRICS = ['memberCount', 'walletCount', 'availablePoints', 'pendingPoints
   'lifetimeRedeemedPoints', 'pendingRedemptions', 'fulfilledRedemptions', 'qualifiedReferrals', 'approvedAmbassadors',
   'tier_member', 'tier_silver', 'tier_gold', 'tier_diamond']
 const FIELDS = {
-  students: ['branchId'],
+  students: ['branchId', 'status', 'accountDeletedAt', 'loyaltyMembership'],
   loyaltyAccounts: ['availablePoints', 'pendingPoints', 'reservedPoints', 'debtPoints', 'lifetimeRedeemedPoints', 'tierQualifyingValue'],
   loyaltyRedemptions: ['studentId', 'branchId', 'status'],
   memberReferrals: ['referrerStudentId', 'status'],
@@ -30,12 +31,18 @@ function relevantValue(collection, value) {
 function contributionFor(collection, id, value, student) {
   const metrics = emptyMetrics()
   if (!value) return { scopes: [], metrics }
-  if (collection === 'students') metrics.memberCount = 1
+  const profile = collection === 'students' ? value : student
+  const membership = profile?.loyaltyMembership
+  // Materialized lifecycle flags, never wall-clock filtering here: the old
+  // contribution must be subtracted exactly once by the due-transition worker.
+  // Missing flags are excluded; historic wallets do not enroll a member.
+  if (['students', 'loyaltyAccounts'].includes(collection) && !membership?.managed) return { scopes: [], metrics }
+  if (collection === 'students') metrics.memberCount = Number(membership.active === true)
   if (collection === 'loyaltyAccounts') {
     const account = normalizeAccount(value)
     metrics.walletCount = 1
     for (const key of ['availablePoints', 'pendingPoints', 'reservedPoints', 'debtPoints', 'lifetimeRedeemedPoints']) metrics[key] = account[key]
-    metrics[`tier_${account.tier}`] = 1
+    if (membership?.active) metrics[`tier_${account.tier}`] = 1
   }
   if (collection === 'loyaltyRedemptions') {
     metrics.pendingRedemptions = Number(value.status === 'pending')
@@ -43,7 +50,6 @@ function contributionFor(collection, id, value, student) {
   }
   if (collection === 'memberReferrals') metrics.qualifiedReferrals = Number(['qualified', 'vested'].includes(value.status))
   if (collection === 'ambassadorProfiles') metrics.approvedAmbassadors = Number(value.status === 'approved')
-  const profile = collection === 'students' ? value : student
   const scopes = ['all']
   if (typeof profile?.branchId === 'string' && profile.branchId) {
     // A cross-branch redemption requires BOTH the current student's branch
@@ -114,6 +120,9 @@ async function syncLoyaltyDashboardEvent({ db, collection, event }) {
   if (typeof before?.exists !== 'boolean' || typeof after?.exists !== 'boolean') throw new Error('Missing loyalty dashboard event snapshots.')
   if (isDeepStrictEqual(relevantValue(collection, before.exists ? before.data() : null), relevantValue(collection, after.exists ? after.data() : null))) return { changed: false }
   const id = event.params.documentId
+  if (collection === 'students' && (!before.exists || !after.exists || ['status', 'accountDeletedAt'].some(key => !isDeepStrictEqual(before.data()?.[key], after.data()?.[key])))) {
+    await syncMembership({ db, studentId: id })
+  }
   const result = await syncLoyaltyDashboardRecord({ db, collection, id })
   if (collection === 'students') await syncStudentDependents(db, id)
   return result

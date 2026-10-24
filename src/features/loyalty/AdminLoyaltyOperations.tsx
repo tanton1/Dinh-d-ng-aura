@@ -4,7 +4,6 @@ import {
   Award,
   BadgeDollarSign,
   CheckCircle2,
-  FileWarning,
   LoaderCircle,
   Pencil,
   Plus,
@@ -21,10 +20,8 @@ import {
   listLoyaltyAccounts,
   listLoyaltyAdjustments,
   listLoyaltyAmbassadors,
-  listLoyaltyReconciliationIssues,
   listLoyaltyRewardsAdmin,
   manageAmbassadorProfile,
-  reconcileLoyaltyAccount,
   reviewLoyaltyAdjustment,
   saveLoyaltyReward,
 } from './loyaltyService'
@@ -33,10 +30,9 @@ import type {
   LoyaltyAdjustment,
   LoyaltyAdminAmbassador,
   LoyaltyAdminReward,
-  LoyaltyReconciliationIssue,
 } from './types'
 
-type OperationsTab = 'rewards' | 'ambassadors' | 'accounts' | 'adjustments' | 'issues'
+type OperationsTab = 'rewards' | 'ambassadors' | 'accounts' | 'adjustments'
 
 interface AdminLoyaltyOperationsProps {
   isDemo?: boolean
@@ -80,38 +76,22 @@ function dateTime(value: string) {
   return Number.isNaN(date.getTime()) ? 'Chưa ghi nhận' : new Intl.DateTimeFormat('vi-VN', { dateStyle: 'short', timeStyle: 'short' }).format(date)
 }
 
-function issueLabel(value: string) {
-  const labels: Record<string, string> = {
-    backfill_missing_student_id: 'Hợp đồng thiếu mã học viên',
-    backfill_missing_student_profile: 'Không tìm thấy hồ sơ học viên',
-    backfill_missing_account_uid: 'Học viên chưa liên kết tài khoản',
-    backfill_missing_branch: 'Hợp đồng thiếu chi nhánh',
-    backfill_contract_failed: 'Không thể đối soát hợp đồng',
-    nutrition_missing_student_link: 'Dinh dưỡng chưa liên kết học viên',
-    account_projection_mismatch: 'Số dư ví đã được sửa khớp ledger',
-    unallocated_refund: 'Hoàn tiền chưa phân bổ hết',
-  }
-  return labels[value] || value.replaceAll('_', ' ')
-}
-
 export default function AdminLoyaltyOperations({
   isDemo = false,
   initialStudentId,
   canManageRewards = false,
   canManageAmbassadors = false,
-  canAudit = false,
   canAdjust = false,
   canApproveAdjustments = false,
   largeAdjustmentThreshold = 500,
 }: AdminLoyaltyOperationsProps) {
   const availableTabs = useMemo(() => ([
+    { id: 'accounts' as const, label: 'Thành viên', icon: Users },
     canManageRewards && { id: 'rewards' as const, label: 'Danh mục quà', icon: Award },
     canManageAmbassadors && { id: 'ambassadors' as const, label: 'Ambassador', icon: UserCheck },
-    { id: 'accounts' as const, label: 'Ví học viên', icon: Users },
     canApproveAdjustments && { id: 'adjustments' as const, label: 'Duyệt điểm', icon: ShieldCheck },
-    canAudit && { id: 'issues' as const, label: 'Cần đối soát', icon: FileWarning },
-  ].filter(Boolean) as Array<{ id: OperationsTab; label: string; icon: typeof Award }>), [canApproveAdjustments, canAudit, canManageAmbassadors, canManageRewards])
-  const [activeTab, setActiveTab] = useState<OperationsTab>(initialStudentId ? 'accounts' : canManageRewards ? 'rewards' : 'accounts')
+  ].filter(Boolean) as Array<{ id: OperationsTab; label: string; icon: typeof Award }>), [canApproveAdjustments, canManageAmbassadors, canManageRewards])
+  const [activeTab, setActiveTab] = useState<OperationsTab>('accounts')
   const [rewards, setRewards] = useState<LoyaltyAdminReward[]>([])
   const [ambassadors, setAmbassadors] = useState<LoyaltyAdminAmbassador[]>([])
   const [accounts, setAccounts] = useState<LoyaltyAdminAccount[]>([])
@@ -119,7 +99,6 @@ export default function AdminLoyaltyOperations({
   const [accountsHasMore, setAccountsHasMore] = useState(false)
   const [accountCursor, setAccountCursor] = useState<string | null>(null)
   const [accountsLoadingMore, setAccountsLoadingMore] = useState(false)
-  const [issues, setIssues] = useState<LoyaltyReconciliationIssue[]>([])
   const [adjustments, setAdjustments] = useState<LoyaltyAdjustment[]>([])
   const [editingReward, setEditingReward] = useState<LoyaltyAdminReward | null>(null)
   const [adjustingAccount, setAdjustingAccount] = useState<LoyaltyAdminAccount | null>(null)
@@ -185,7 +164,6 @@ export default function AdminLoyaltyOperations({
           setAccountsHasMore(false)
           setAccountCursor(null)
         }
-        if (tab === 'issues') setIssues([])
         if (tab === 'adjustments') setAdjustments([{ id: 'demo-adjustment', studentId: 'HV-001', studentName: 'Hải Anh', branchId: 'CS1', points: 700, reason: 'Bù điểm chiến dịch khai trương', status: 'pending_approval', requestedBy: 'admin-other', createdAt: new Date().toISOString(), reviewedAt: '' }])
         return
       }
@@ -204,10 +182,6 @@ export default function AdminLoyaltyOperations({
         setAccountsTotal(page.totalCount)
         setAccountsHasMore(page.hasMore === true)
         setAccountCursor(page.nextCursor)
-      }
-      if (tab === 'issues') {
-        const result = await listLoyaltyReconciliationIssues('open')
-        if (isCurrent()) setIssues(result.issues)
       }
       if (tab === 'adjustments') {
         const result = await listLoyaltyAdjustments('pending_approval')
@@ -230,7 +204,7 @@ export default function AdminLoyaltyOperations({
     try {
       if (!isDemo) await reviewLoyaltyAdjustment(adjustmentId, decision)
       setAdjustments((current) => current.filter((item) => item.id !== adjustmentId))
-      setNotice(decision === 'approve' ? 'Đã duyệt, ghi ledger và thông báo cho học viên.' : 'Đã từ chối điều chỉnh. Số dư không thay đổi.')
+      setNotice(decision === 'approve' ? 'Đã duyệt, cập nhật điểm và thông báo cho học viên.' : 'Đã từ chối điều chỉnh. Số dư không thay đổi.')
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Không thể xử lý yêu cầu điều chỉnh.')
     } finally {
@@ -266,7 +240,7 @@ export default function AdminLoyaltyOperations({
           : [...current, next])
       }
       setEditingReward(null)
-      setNotice('Đã lưu quyền lợi. Các giao dịch đổi trước đây vẫn giữ nguyên snapshot cũ.')
+      setNotice('Đã lưu quyền lợi. Các giao dịch đổi trước đây vẫn giữ nguyên điều kiện đã đăng ký.')
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Không thể lưu quyền lợi.')
     } finally {
@@ -304,24 +278,6 @@ export default function AdminLoyaltyOperations({
     }
   }
 
-  const reconcileAccount = async (studentId: string) => {
-    setBusy(`reconcile-${studentId}`)
-    setError('')
-    try {
-      const result = isDemo ? { mismatch: false, account: accounts.find((item) => item.studentId === studentId)! } : await reconcileLoyaltyAccount(studentId)
-      if (!mounted.current) return
-      // An older page response must not overwrite the freshly reconciled balance.
-      loadGeneration.current += 1
-      setLoading(false); setAccountsLoadingMore(false)
-      setAccounts((current) => current.map((item) => item.studentId === studentId ? { ...item, ...result.account } : item))
-      setNotice(result.mismatch ? 'Đã sửa số dư ví khớp với ledger bất biến.' : 'Ví đang khớp hoàn toàn với ledger.')
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Không thể đối soát ví.')
-    } finally {
-      setBusy('')
-    }
-  }
-
   const submitAdjustment = async () => {
     if (!adjustingAccount) return
     const points = Number(adjustmentPoints)
@@ -335,7 +291,7 @@ export default function AdminLoyaltyOperations({
       const result = isDemo ? { status: 'applied' as const } : await adjustLoyaltyBalance({ studentId: adjustingAccount.studentId, points, reason: adjustmentReason.trim(), idempotencyKey: `admin-adjust:${crypto.randomUUID()}` })
       if (!mounted.current) return
       loadGeneration.current += 1
-      setNotice(result.status === 'pending_approval' ? 'Điều chỉnh lớn đã chuyển sang chờ một Admin khác phê duyệt.' : 'Đã áp dụng điều chỉnh và ghi audit log.')
+      setNotice(result.status === 'pending_approval' ? 'Điều chỉnh lớn đã chuyển sang chờ một Admin khác phê duyệt.' : 'Đã áp dụng điều chỉnh và lưu lịch sử.')
       setAdjustingAccount(null)
       setAdjustmentPoints('')
       setAdjustmentReason('')
@@ -351,7 +307,7 @@ export default function AdminLoyaltyOperations({
   const visibleAccounts = accounts.filter((item) => !normalizedQuery || `${item.studentName} ${item.studentId} ${item.branchId}`.toLocaleLowerCase('vi').includes(normalizedQuery))
 
   return <section className="loyalty-admin-card loyalty-admin-operations">
-    <header><div><span>Vận hành</span><h2>Công cụ quản trị</h2></div><ShieldCheck /></header>
+    <header><div><span>Vận hành</span><h2>Thành viên & quyền lợi</h2></div><ShieldCheck /></header>
     <nav className="loyalty-admin-operations__tabs" aria-label="Nghiệp vụ Aura Club">
       {availableTabs.map((item) => <button type="button" className={activeTab === item.id ? 'is-active' : ''} disabled={Boolean(busy)} key={item.id} onClick={() => { setNotice(''); setError(''); setActiveTab(item.id) }}><item.icon /> {item.label}</button>)}
       <button type="button" className="is-refresh" aria-label="Tải lại tab đang mở" disabled={Boolean(busy)} onClick={() => void loadTab(activeTab)}><RefreshCw /></button>
@@ -381,13 +337,13 @@ export default function AdminLoyaltyOperations({
     {!loading && activeTab === 'accounts' ? <div className="loyalty-admin-accounts" id="loyalty-accounts">
       <label className="loyalty-admin-search"><Search /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Lọc tên, mã hoặc chi nhánh trong danh sách đã tải" /></label>
       <div className="loyalty-admin-sectionbar"><div><span>{exactStudentId ? `Tra cứu chính xác mã: ${exactStudentId}` : `Đã tải ${formatNumber(accounts.length)} / ${formatNumber(accountsTotal)} học viên. Bộ lọc tên và chi nhánh chỉ áp dụng phần đã tải.`}</span></div><button type="button" disabled={!query.trim() || Boolean(busy) || accountsLoadingMore} onClick={() => { if (exactStudentId === query.trim()) void loadTab('accounts'); else setExactStudentId(query.trim()) }}>Tìm chính xác mã</button>{exactStudentId ? <button type="button" disabled={Boolean(busy)} onClick={() => { setQuery(''); setExactStudentId('') }}>Về danh sách</button> : null}</div>
-      <div className="loyalty-admin-sectionbar loyalty-admin-accounts__summary"><div><strong>{formatNumber(visibleAccounts.length)} / {formatNumber(accountsTotal)} ví đang hiển thị</strong><span>{accounts.filter((item) => item.walletInitialized).length} ví đã khởi tạo · Học viên chưa có ví vẫn được hiển thị với số dư 0.</span></div>{accountsHasMore && accountCursor ? <button type="button" onClick={() => void loadTab('accounts', true)} disabled={accountsLoadingMore || Boolean(busy)}>{accountsLoadingMore ? <LoaderCircle className="loyalty-spin" /> : <Plus />} {accountsLoadingMore ? 'Đang tải…' : 'Tải thêm'}</button> : null}</div>
+      <div className="loyalty-admin-sectionbar loyalty-admin-accounts__summary"><div><strong>{formatNumber(visibleAccounts.length)} / {formatNumber(accountsTotal)} thành viên đang quản lý</strong><span>Gồm học viên đang active và học viên đã tham gia còn trong một tháng sau hết hạn.</span></div>{accountsHasMore && accountCursor ? <button type="button" onClick={() => void loadTab('accounts', true)} disabled={accountsLoadingMore || Boolean(busy)}>{accountsLoadingMore ? <LoaderCircle className="loyalty-spin" /> : <Plus />} {accountsLoadingMore ? 'Đang tải…' : 'Tải thêm'}</button> : null}</div>
       <div className="loyalty-admin-list">{visibleAccounts.length ? visibleAccounts.map((item) => <article key={item.studentId} ref={item.studentId === initialStudentId ? selectedAccountRef : undefined} tabIndex={item.studentId === initialStudentId ? -1 : undefined} className={item.studentId === initialStudentId ? 'is-focused-account' : undefined}>
-        <div className="loyalty-admin-list__identity"><strong>{item.studentName}</strong><span>{item.studentId} · {item.branchId || 'Chưa có chi nhánh'}</span><small>{item.tier.toUpperCase()} · Tier Credit {formatMoney(item.tierQualifyingValue)} · {item.walletInitialized ? 'Ví đã đồng bộ' : 'Ví chưa khởi tạo'}</small></div>
+        <div className="loyalty-admin-list__identity"><strong>{item.studentName}</strong><span>{item.studentId} · {item.branchId || 'Chưa có chi nhánh'}</span><small>{item.tier.toUpperCase()} · Tích lũy {formatMoney(item.tierQualifyingValue)} · {item.walletInitialized ? 'Ví đã đồng bộ' : 'Ví chưa khởi tạo'}</small></div>
         <div><span>Khả dụng</span><strong>{formatNumber(item.availablePoints)}</strong><small>{formatNumber(item.pendingPoints)} đang chờ</small></div>
         <div><span>Đã đổi</span><strong>{formatNumber(item.lifetimeRedeemedPoints)}</strong><small>{item.debtPoints ? `Nợ ${formatNumber(item.debtPoints)}` : 'Không có điểm âm'}</small></div>
-        <div><span>Phiên bản ví</span><strong>#{item.revision}</strong></div>
-        <div className="loyalty-admin-actions">{canAudit ? <button type="button" className="is-secondary" disabled={Boolean(busy) || accountsLoadingMore} onClick={() => void reconcileAccount(item.studentId)}><ShieldCheck /> Đối soát</button> : null}{canAdjust ? <button type="button" disabled={Boolean(busy) || accountsLoadingMore} onClick={() => setAdjustingAccount(item)}>Điều chỉnh</button> : null}</div>
+        <div><span>Thành viên</span><strong>{item.membershipState === 'grace' ? 'Chờ tái ký' : item.membershipState === 'paused' ? 'Bảo lưu' : 'Đang active'}</strong>{item.membershipState === 'grace' && item.manageUntil ? <small>Quản lý đến {new Intl.DateTimeFormat('vi-VN').format(new Date(item.manageUntil + 'T00:00:00+07:00'))}</small> : null}</div>
+        <div className="loyalty-admin-actions">{canAdjust ? <button type="button" disabled={Boolean(busy) || accountsLoadingMore} onClick={() => setAdjustingAccount(item)}>Điều chỉnh</button> : null}</div>
       </article>) : <div className="loyalty-empty loyalty-empty--compact"><Users /><h3>{exactStudentId ? 'Không có học viên phù hợp trong phạm vi truy cập' : 'Không có kết quả trong danh sách đã tải'}</h3><p>{exactStudentId ? 'Kiểm tra lại mã học viên hoặc quay về danh sách.' : 'Đổi từ khóa, tải thêm hoặc tra cứu chính xác mã học viên.'}</p></div>}</div>
     </div> : null}
 
@@ -401,9 +357,6 @@ export default function AdminLoyaltyOperations({
       </article>) : <div className="loyalty-empty loyalty-empty--compact"><CheckCircle2 /><h3>Không có điều chỉnh chờ duyệt</h3><p>Mọi thay đổi lớn đều đã được kiểm soát hai người.</p></div>}
     </div> : null}
 
-    {!loading && activeTab === 'issues' ? <div className="loyalty-admin-list loyalty-admin-issues">
-      {issues.length ? issues.map((item) => <article key={item.id}><FileWarning /><div className="loyalty-admin-list__identity"><strong>{issueLabel(item.type)}</strong><span>{item.studentName || item.studentId || item.contractId || 'Dữ liệu hệ thống'}</span><small>{item.errorCode || 'Cần kiểm tra liên kết dữ liệu nguồn.'}</small></div><div><span>Chi nhánh</span><strong>{item.branchId || '—'}</strong></div><div><span>Cập nhật</span><strong>{dateTime(item.updatedAt)}</strong></div><b className={`loyalty-status-pill loyalty-status-pill--${item.status}`}>{item.status === 'open' ? 'Cần xử lý' : item.status}</b></article>) : <div className="loyalty-empty loyalty-empty--compact"><CheckCircle2 /><h3>Không có lỗi đối soát mở</h3><p>Dữ liệu Aura Club trong phạm vi của bạn đang sạch.</p></div>}
-    </div> : null}
 
     {editingReward ? <div className="loyalty-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) setEditingReward(null) }}><section className="loyalty-modal loyalty-admin-editor" role="dialog" aria-modal="true" aria-labelledby="loyalty-reward-editor-title"><span>DANH MỤC QUYỀN LỢI</span><h2 id="loyalty-reward-editor-title">{editingReward.id ? 'Chỉnh quyền lợi' : 'Thêm quyền lợi'}</h2><div className="loyalty-admin-editor__grid"><label>Tên quyền lợi<input value={editingReward.name} onChange={(event) => setEditingReward((current) => current ? { ...current, name: event.target.value } : current)} /></label><label>Điểm đổi<input type="number" min="1" value={editingReward.pointsCost} onChange={(event) => setEditingReward((current) => current ? { ...current, pointsCost: Number(event.target.value) } : current)} /></label><label>Danh mục<input value={editingReward.category} onChange={(event) => setEditingReward((current) => current ? { ...current, category: event.target.value } : current)} /></label><label>Thời hạn (ngày)<input type="number" min="1" value={editingReward.validityDays} onChange={(event) => setEditingReward((current) => current ? { ...current, validityDays: Number(event.target.value) } : current)} /></label><label>Cách giao<select value={editingReward.fulfillmentType} onChange={(event) => setEditingReward((current) => current ? { ...current, fulfillmentType: event.target.value as 'automatic' | 'staff', entitlementType: event.target.value === 'automatic' ? 'extra_reschedule' : null } : current)}><option value="staff">Staff xác nhận</option><option value="automatic">Cấp tự động</option></select></label><label>Tồn kho<input type="number" min="0" placeholder="Để trống = không giới hạn" value={editingReward.stock ?? ''} onChange={(event) => setEditingReward((current) => current ? { ...current, stock: event.target.value === '' ? null : Number(event.target.value) } : current)} /></label>{editingReward.fulfillmentType === 'automatic' ? <label>Quyền được cấp<select value={editingReward.entitlementType || ''} onChange={(event) => setEditingReward((current) => current ? { ...current, entitlementType: event.target.value || null } : current)}><option value="extra_reschedule">Thêm một lần đổi lịch</option></select></label> : null}<label className="is-wide">Chi nhánh áp dụng<input value={editingReward.branchIds.join(', ')} onChange={(event) => setEditingReward((current) => current ? { ...current, branchIds: event.target.value.split(',').map((item) => item.trim()).filter(Boolean).slice(0, 30) } : current)} placeholder="Để trống = toàn hệ thống; hoặc CS1, CS2" /></label><label className="is-wide">Mô tả<textarea rows={3} value={editingReward.description} onChange={(event) => setEditingReward((current) => current ? { ...current, description: event.target.value } : current)} /></label><label className="is-check"><input type="checkbox" checked={editingReward.active} onChange={(event) => setEditingReward((current) => current ? { ...current, active: event.target.checked } : current)} /> Đang hoạt động</label><label className="is-check"><input type="checkbox" checked={editingReward.featured} onChange={(event) => setEditingReward((current) => current ? { ...current, featured: event.target.checked } : current)} /> Hiển thị nổi bật</label></div><footer><button type="button" onClick={() => setEditingReward(null)}>Đóng</button><button type="button" disabled={busy === 'reward'} onClick={() => void saveReward()}>{busy === 'reward' ? <LoaderCircle className="loyalty-spin" /> : <Save />} Lưu quyền lợi</button></footer></section></div> : null}
 

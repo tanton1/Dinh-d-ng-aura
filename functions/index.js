@@ -290,6 +290,10 @@ exports.syncLoyaltyDashboardAccount = loyaltyDashboardProjections.syncLoyaltyDas
 exports.syncLoyaltyDashboardRedemption = loyaltyDashboardProjections.syncLoyaltyDashboardRedemption
 exports.syncLoyaltyDashboardReferral = loyaltyDashboardProjections.syncLoyaltyDashboardReferral
 exports.syncLoyaltyDashboardAmbassador = loyaltyDashboardProjections.syncLoyaltyDashboardAmbassador
+const loyaltyMembershipFunctions = require('./loyalty-membership').createLoyaltyMembershipFunctions({ db, databaseId, onDocumentWritten, onSchedule })
+exports.syncLoyaltyContractMembership = loyaltyMembershipFunctions.syncLoyaltyContractMembership
+exports.syncLoyaltyMembershipActivation = loyaltyMembershipFunctions.syncLoyaltyMembershipActivation
+exports.advanceLoyaltyMembershipsScheduled = loyaltyMembershipFunctions.advanceLoyaltyMembershipsScheduled
 
 exports.syncLoyaltyContractSpend = onDocumentWritten({
   document: 'ledgerEntries/{entryId}',

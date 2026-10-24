@@ -64,6 +64,7 @@ export interface LoyaltyAmbassadorSummary {
 
 export interface LoyaltyDashboard {
   schemaVersion: number
+  membership?: { state: string; managed: boolean } | null
   account: LoyaltyAccount
   missions: LoyaltyMissionProgress[]
   recognition: LoyaltyRecognition
@@ -199,6 +200,8 @@ export interface LoyaltyBackfillBatchResult {
 }
 
 export interface LoyaltyAdminAccount extends LoyaltyAccount {
+  membershipState?: 'active' | 'grace' | 'paused'
+  manageUntil?: string | null
   studentName: string
   branchId: string
   /** True when a persisted loyaltyAccounts projection exists for this student. */

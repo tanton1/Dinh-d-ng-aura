@@ -372,7 +372,7 @@ function AuraClubWorkspace({ isDemo = false, ownerId, initialTab = 'rewards', on
           <div>
             <span className="loyalty-tier"><Crown size={18} /> Aura {tierLabels[account.tier]}</span>
             <h1>{formatNumber(account.availablePoints)} <small>Điểm Aura</small></h1>
-            <p>Điểm dùng tại toàn hệ thống Aura và không hết hạn.</p>
+            <p>{dashboard.membership?.managed === false ? 'Điểm cũ được giữ lại. Tham gia lại khi hợp đồng có hiệu lực.' : 'Điểm dùng tại toàn hệ thống Aura và không hết hạn.'}</p>
           </div>
           <div className="loyalty-hero__wallet" aria-label="Số dư Điểm Aura">
             <span><Clock3 size={16} /> Đang chờ <strong>{formatNumber(account.pendingPoints)}</strong></span>
@@ -389,6 +389,7 @@ function AuraClubWorkspace({ isDemo = false, ownerId, initialTab = 'rewards', on
 
       {error ? <div className="loyalty-inline-alert" role="alert">{error}</div> : null}
       {notice ? <div className="loyalty-inline-notice" role="status"><CheckCircle2 size={17} /> {notice}</div> : null}
+      {dashboard.membership?.managed === false ? <div className="loyalty-inline-notice" role="status"><Clock3 size={17} /> Aura Club hiện chưa quản lý hồ sơ này. Hợp đồng đang hiệu lực sẽ tự mở lại quyền tích điểm và sử dụng quyền lợi.</div> : null}
 
       <nav className="loyalty-tabs loyalty-tabs--desktop" aria-label="Aura Club">
         {tabs.map((item) => {

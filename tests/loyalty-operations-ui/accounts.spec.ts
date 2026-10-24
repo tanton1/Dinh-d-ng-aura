@@ -105,13 +105,13 @@ test('explicit ID search never claims a global name search and reports scoped no
 })
 
 test('a late previous page cannot append after tab change or overwrite the new list', async ({ page }) => {
-  await openFixture(page, '', ['page-two'])
+  await openFixture(page, '?rewards=1', ['page-two'])
   await expect(cards(page)).toHaveCount(2)
   await page.getByRole('button', { name: 'Tải thêm', exact: true }).click()
   await expect.poll(() => page.evaluate(() => Object.keys(window.loyaltyFixture.pending).length)).toBe(1)
-  await page.getByRole('button', { name: 'Cần đối soát', exact: true }).click()
-  await expect(page.getByText('Không có lỗi đối soát mở')).toBeVisible()
-  await page.getByRole('button', { name: 'Ví học viên', exact: true }).click()
+  await page.getByRole('button', { name: 'Danh mục quà', exact: true }).click()
+  await expect(page.getByText('0 quyền lợi')).toBeVisible()
+  await page.getByRole('button', { name: 'Thành viên', exact: true }).click()
   await expect(cards(page)).toHaveCount(2)
   await page.evaluate(() => window.loyaltyFixture.pending[1].resolve())
   await page.waitForTimeout(100)
@@ -129,19 +129,11 @@ test('an unmounted account lookup cannot reappear or issue another request', asy
   expect(await page.evaluate(() => window.loyaltyFixture.calls.length)).toBe(1)
 })
 
-test('reconcile blocks tab/refresh/page races and keeps its fresh balance', async ({ page }) => {
+test('reconciliation is absent even for an audit-capable administrator', async ({ page }) => {
   await openFixture(page)
   await expect(cards(page)).toHaveCount(2)
-  await cards(page).first().getByRole('button', { name: 'Đối soát', exact: true }).click()
-  await expect.poll(() => page.evaluate(() => window.loyaltyFixture.mutations.length)).toBe(1)
-  await expect(page.getByRole('button', { name: 'Cần đối soát', exact: true })).toBeDisabled()
-  await expect(page.getByRole('button', { name: 'Ví học viên', exact: true })).toBeDisabled()
-  await expect(page.getByRole('button', { name: 'Tải lại tab đang mở', exact: true })).toBeDisabled()
-  await expect(page.getByRole('button', { name: 'Tải thêm', exact: true })).toBeDisabled()
-  await page.evaluate(() => window.loyaltyFixture.releaseReconcile())
-  await expect(cards(page).first()).toContainText('999')
-  await expect(page.getByRole('button', { name: 'Ví học viên', exact: true })).toBeEnabled()
-  expect(await page.evaluate(() => window.loyaltyFixture.calls.length)).toBe(1)
+  await expect(page.getByRole('button', { name: /đối soát/i })).toHaveCount(0)
+  expect(await page.evaluate(() => window.loyaltyFixture.mutations)).toEqual([])
 })
 
 test('an applied adjustment completing after unmount cannot trigger a new account read', async ({ page }) => {

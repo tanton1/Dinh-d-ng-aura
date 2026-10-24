@@ -233,3 +233,77 @@
 @media (prefers-reduced-motion: reduce) {
   .loyalty-admin * { scroll-behavior: auto !important; }
 }
+
+/* Aura Club: restrained operations workspace, with three illustrated programs. */
+.loyalty-admin--renewed { --club-pink: #c52366; --club-ink: #30252d; --club-muted: #746570; --club-line: #eadfe5; --club-soft: #fcfbfd; padding-top: 32px; }
+.loyalty-admin--renewed .loyalty-admin__header { margin-bottom: 28px; }
+.loyalty-admin--renewed .loyalty-admin__header h1 { font-size: clamp(30px, 3.5vw, 44px); letter-spacing: -.045em; }
+.loyalty-admin--renewed .loyalty-admin-card { box-shadow: none; border-radius: 16px; }
+.club-overview { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); padding: 22px 0; margin-bottom: 28px; border-block: 1px solid var(--club-line); }
+.club-overview > div { position: relative; min-width: 0; padding: 0 24px; border-right: 1px solid var(--club-line); }
+.club-overview > div:first-child { padding-left: 0; }
+.club-overview > div:last-child { border-right: 0; }
+.club-overview svg { position: absolute; right: 22px; top: 0; width: 18px; height: 18px; color: var(--club-pink); }
+.club-overview span { display: block; padding-right: 24px; color: var(--club-muted); font-size: 12px; font-weight: 600; }
+.club-overview strong { display: block; margin: 8px 0 5px; font-size: clamp(24px, 2.6vw, 36px); line-height: 1.2; letter-spacing: -.05em; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.club-overview small { display: block; color: var(--club-muted); font-size: 11px; line-height: 1.5; }
+.club-programs { display: grid; grid-template-columns: 1.18fr 1fr 1fr; gap: 16px; }
+.club-program { position: relative; min-width: 0; overflow: hidden; isolation: isolate; border-radius: 18px; background: #f7edf2; color: #44253b; }
+.club-program--movement { background: #44253b; color: #fff8fc; }
+.club-program--nutrition { background: #eaf3ed; color: #205d4c; }
+.club-program__content { position: relative; z-index: 1; padding: 26px 24px 18px; }
+.club-program__category { font-size: 12px; font-weight: 600; }
+.club-program h2 { margin: 22px 0 12px; font-size: clamp(22px, 2vw, 28px); line-height: 1.25; letter-spacing: -.045em; font-weight: 750; }
+.club-program p { max-width: 230px; min-height: 42px; margin: 0; font-size: 12px; line-height: 1.65; }
+.club-program footer { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 22px; }
+.club-program__status { display: inline-flex; gap: 6px; align-items: center; font-size: 10px; font-weight: 650; }
+.club-program__status::before { content: ''; width: 6px; height: 6px; border: 1px solid currentColor; border-radius: 50%; }
+.club-program__status.is-on::before { background: currentColor; }
+.club-program footer button { display: grid; place-items: center; width: 40px; height: 40px; flex-shrink: 0; border: 1px solid currentColor; border-radius: 50%; background: transparent; color: inherit; cursor: pointer; }
+.club-program footer button svg { width: 18px; height: 18px; }
+.club-program__art { position: absolute; right: -25px; top: -28px; width: 150px; height: 150px; transform: rotate(-22deg); pointer-events: none; color: #e4adc8; }
+.club-program__art i { position: absolute; width: 98px; height: 98px; inset: 30px; border: 12px solid currentColor; border-radius: 50%; opacity: .18; }
+.club-program__art i:nth-child(2) { inset: 6px; width: 146px; height: 146px; border-width: 1px; opacity: .4; }
+.club-program__art > svg { position: absolute; inset: 60px; width: 52px; height: 52px; stroke-width: 1.2; }
+.club-program__art--nutrition { color: #4a8166; transform: rotate(18deg); }
+.club-program__art--nutrition i:first-child { border-radius: 70% 0 70% 0; transform: rotate(-30deg); }
+.club-program__art--friends { color: #b34577; transform: rotate(0); }
+.club-program__art--friends i:first-child { transform: translateX(-20px); }
+.club-program__art--friends i:nth-child(2) { transform: translateX(18px); }
+.club-membership-note { display: flex; align-items: flex-start; gap: 9px; max-width: 85ch; margin: 18px 0 24px; color: var(--club-muted); font-size: 12px; line-height: 1.7; }
+.club-membership-note > svg { width: 17px; height: 17px; flex-shrink: 0; margin-top: 2px; color: #20705d; }
+.club-disclosure { margin-top: 18px; }
+.club-disclosure > summary { cursor: pointer; font-size: 14px; font-weight: 650; min-height: 26px; }
+.club-disclosure[open] > summary { margin-bottom: 18px; }
+.club-disclosure > .loyalty-admin-operations { margin: 0; padding: 0; border: 0; border-radius: 0; }
+.loyalty-admin--renewed .loyalty-admin__grid { align-items: start; }
+.loyalty-admin--renewed .loyalty-admin-policy { margin-top: 0; }
+.loyalty-admin--renewed .loyalty-tier-chart > div > span { text-transform: capitalize; }
+.loyalty-admin--renewed :is(button, summary, input, select, textarea):focus-visible { outline: 3px solid #c52366; outline-offset: 4px; }
+.club-program--movement button:focus-visible { outline-color: #fff; }
+@media (max-width: 1000px) {
+  .club-overview > div { padding-inline: 16px; }
+  .club-overview svg { display: none; }
+  .club-programs { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+  .club-program__content { padding: 22px 18px 16px; }
+  .club-program h2 { font-size: 22px; }
+  .club-program__art { right: -52px; }
+}
+@media (max-width: 700px) {
+  .club-overview { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 22px; margin-inline: 14px; padding-block: 20px; }
+  .club-overview > div:nth-child(odd) { padding-left: 0; }
+  .club-overview > div:nth-child(even) { padding-right: 0; border-right: 0; }
+  .club-overview strong { font-size: 28px; }
+  .club-overview span { padding-right: 0; }
+  .club-programs { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: 88%; margin-inline: 14px; padding-bottom: 8px; gap: 12px; overflow-x: auto; scroll-snap-type: x mandatory; scrollbar-width: thin; scrollbar-color: #c52366 #eadfe5; }
+  .club-program { scroll-snap-align: start; }
+  .club-program__content { padding: 22px; }
+  .club-program h2 { margin-top: 12px; font-size: 27px; }
+  .club-program p { min-height: 0; max-width: 80%; }
+  .club-program footer { margin-top: 12px; }
+  .club-program__art { right: -15px; top: -26px; }
+  .club-program__art > svg { inset: auto; top: 42px; left: 65px; width: 34px; height: 34px; }
+  .club-membership-note { margin-inline: 16px; }
+  .loyalty-admin--renewed .loyalty-admin-card { border-radius: 0; }
+  .loyalty-admin--renewed .club-disclosure { margin-top: 12px; }
+}

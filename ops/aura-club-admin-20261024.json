@@ -1,0 +1,41 @@
+{
+  "release": "aura-club-admin-20261024",
+  "baseCommit": "c87ac60c95dc13966a0c0538c8cf54adcc7f0238",
+  "scope": "Aura Club admin design and active membership lifecycle",
+  "membership": {
+    "cutoverDate": "2026-10-24",
+    "timeZone": "Asia/Ho_Chi_Minh",
+    "active": "Existing, enabled student with a canonical active contract; cancelled, pending handover, future and frozen contracts cannot enroll a new member.",
+    "grace": "Previously enrolled members remain managed until one calendar month after the latest valid expiry, clamped at month end. They do not contribute to active member or tier counts.",
+    "archive": "Preserves wallet and immutable ledger; excludes from managed lists and summaries, blocks new credits/manual adjustments/redemptions, permits existing-source reversal and settlement.",
+    "reactivation": "Reuses previous wallet and enrollment date; durable, idempotent activation replays contract payment sources, never the launch bonus.",
+    "initialObservedProfiles": 366,
+    "initialObservedActive": 161,
+    "initialObservedWalletsOutsideCohort": 202,
+    "migrationFinancialWrites": false
+  },
+  "reads": {
+    "overviewBusinessDocuments": 7,
+    "memberList": "Eligibility and branch filters before pagination; hydrate only returned wallets, no wallet initialization on read.",
+    "lifecycle": "Indexed due dates every 30 minutes, contract/student triggers, zero reads on irrelevant contract metadata changes.",
+    "newFunctionRegion": "asia-southeast2",
+    "newFunctionCpu": 0.1666,
+    "newFunctionMaxInstances": 1
+  },
+  "design": {
+    "palette": { "auraPink": "#c52366", "plum": "#44253b", "ink": "#30252d", "paper": "#fcfbfd", "line": "#eadfe5", "green": "#20705d" },
+    "typeface": "Be Vietnam Pro; tabular numerals for metrics",
+    "layout": "Header > four persistent metrics > three vector program banners > requests > lazy member tools > tiers and collapsed settings",
+    "mobile": "2x2 metrics and horizontally scrollable banners, stacked request rows, 44px controls",
+    "removed": ["Reconciliation tab", "Manual wallet reconciliation buttons", "Launch backfill controls"],
+    "programStatus": "Published policy controls badges; unsaved settings never claim a program is live."
+  },
+  "validation": {
+    "functionsTests": 1211,
+    "firestoreIntegrationTests": 29,
+    "uiTests": 24,
+    "responsiveTests": 24,
+    "visualReview": "Desktop and mobile screenshots reviewed; corrected mobile banner height and heading overlap.",
+    "checks": ["TypeScript", "production build", "performance budgets", "repository hygiene", "secret scan"]
+  }
+}

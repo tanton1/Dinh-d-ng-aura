@@ -30,3 +30,17 @@ test('overview renders while its queue is pending; queue retry and account tab l
   await page.getByText('Quản lý thành viên và quyền lợi', { exact: true }).click()
   await expect.poll(() => page.evaluate(() => (window as any).clubAdmin.accounts)).toBe(1)
 })
+
+test('program banners show published status, open settings and fit the viewport without reconciliation', async ({ page }, testInfo) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await page.goto('/tests/loyalty-operations-ui/admin.html?demo')
+  await expect(page.getByRole('heading', { name: 'Aura Club', exact: true })).toBeVisible()
+  await expect(page.locator('.club-program')).toHaveCount(3)
+  await expect(page.getByText(/đối soát/i)).toHaveCount(0)
+  await expect(page.getByText('Thành viên active', { exact: true })).toBeVisible()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0)
+  await page.screenshot({ path: testInfo.outputPath('admin-overview.png'), fullPage: true })
+  await page.getByRole('button', { name: 'Cài đặt chương trình dinh dưỡng' }).click()
+  await expect(page.locator('#club-policy')).toHaveAttribute('open', '')
+  await expect(page.locator('#club-policy > summary')).toBeFocused()
+})

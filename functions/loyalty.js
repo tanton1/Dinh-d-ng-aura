@@ -4,6 +4,7 @@ const { trustedAccessContext, requireCapability } = require('./identity-access')
 const { readMemberDashboard, readMemberHistory } = require('./loyalty-member-reads')
 const { allocateBehaviorBudget } = require('./loyalty-behavior-budget')
 const { readLoyaltyDashboardSummary } = require('./loyalty-dashboard-projection')
+const { readCreditMembership, requireManagedMember, membershipIsManaged } = require('./loyalty-membership')
 const {
   DEFAULT_POLICY,
   DEFAULT_REWARDS,
@@ -260,7 +261,7 @@ async function currentPolicy(db, settingsSnapshot = null) {
     ? settings.data().activePolicyVersion
     : LOYALTY_POLICY_VERSION
   const policy = await db.doc(`loyaltyPolicyVersions/${version}`).get()
-  return normalizedPolicy(policy.exists ? { ...policy.data(), version: policy.id } : DEFAULT_POLICY)
+  return { ...normalizedPolicy(policy.exists ? { ...policy.data(), version: policy.id } : DEFAULT_POLICY), membershipStartDate: settings.data()?.membershipStartDate || null }
 }
 
 async function findStudentForUid(db, uid) {
@@ -364,6 +365,9 @@ async function applySourceTarget({
       transaction.get(accountReference),
     ])
     const previousSource = sourceSnapshot.exists ? sourceSnapshot.data() : {}
+    const newCredit = !accountSnapshot.exists || requestedTarget > Number(previousSource.targetPoints || 0) || safeTierTarget > Number(previousSource.targetTierCreditVnd || 0)
+    const membership = newCredit ? await readCreditMembership({ db, transaction, studentId: safeStudentId }) : null
+    if (membership && !membership.allowed) return { changed: false, skipped: 'membership_inactive', sourceId: sourceReference.id }
     const budget = await allocateBehaviorBudget({ db, transaction, studentId: safeStudentId, sourceType, previousSource, requestedPoints: requestedTarget, caps: behaviorCaps })
     const safeTarget = budget ? budget.points : requestedTarget
     const previousAccount = normalizeAccount(accountSnapshot.exists ? accountSnapshot.data() : defaultAccount({ studentId: safeStudentId, accountUid }), { studentId: safeStudentId, accountUid })
@@ -428,10 +432,11 @@ async function applySourceTarget({
     account.tierQualifyingValue = Math.max(0, Number(account.tierQualifyingValue || 0) + tierCreditDelta)
     account.tier = tierForCredit(account.tierQualifyingValue)
     const changed = pendingDelta !== 0 || availableDelta !== 0 || debtDelta !== 0 || tierCreditDelta !== 0 || previousState !== targetState || budget?.changed === true
-    if (!changed) return { changed: false, account: publicAccount(account), sourceId: sourceReference.id }
+    if (!changed) { membership?.write(); return { changed: false, account: publicAccount(account), sourceId: sourceReference.id } }
 
     const revision = Number(previousSource.revision || 0) + 1
     account.revision = Number(previousAccount.revision || 0) + 1
+    membership?.write()
     setAccountProjection(transaction, db, accountReference, account)
     budget?.write()
     transaction.set(sourceReference, {
@@ -1686,6 +1691,7 @@ function createLoyaltyFunctions({ db, onCall, logger = console }) {
       readMemberDashboard({ db, studentId: student.id, weekId: currentWeekId, monthId: currentMonthId, compact: request.data?.compact === true }),
     ])
     const { missionSnapshot, ambassadorSnapshot, kudosSnapshot, kudosTotals, redemptionSnapshot } = dashboardReads
+    const memberEnabled = !policy.membershipStartDate || membershipIsManaged(student)
     const account = accountSnapshot.exists ? accountSnapshot.data() : defaultAccount({ studentId: student.id, accountUid: student.accountUid || request.auth.uid })
     const missions = missionSnapshot.docs
       .map((item) => ({ id: item.id, ...item.data(), updatedAt: timestampIso(item.data().updatedAt) }))
@@ -1711,6 +1717,7 @@ function createLoyaltyFunctions({ db, onCall, logger = console }) {
     }
     return {
       schemaVersion: LOYALTY_SCHEMA_VERSION,
+      membership: policy.membershipStartDate ? { state: student.loyaltyMembership?.state || 'unmanaged', managed: memberEnabled } : null,
       account: publicAccount(account, policy),
       missions,
       recognition,
@@ -1727,11 +1734,11 @@ function createLoyaltyFunctions({ db, onCall, logger = console }) {
         paidCommissionVnd: Number(ambassadorSnapshot.data().paidCommissionVnd || 0),
       } : null,
       features: {
-        earn: policy.earnEnabled === true,
-        redeem: policy.redeemEnabled === true,
-        referral: policy.referralEnabled === true,
-        ambassador: policy.ambassadorEnabled === true,
-        nutrition: policy.nutritionEnabled === true,
+        earn: memberEnabled && policy.earnEnabled === true,
+        redeem: memberEnabled && policy.redeemEnabled === true,
+        referral: memberEnabled && policy.referralEnabled === true,
+        ambassador: memberEnabled && policy.ambassadorEnabled === true,
+        nutrition: memberEnabled && policy.nutritionEnabled === true,
       },
     }
   })
@@ -1782,6 +1789,7 @@ function createLoyaltyFunctions({ db, onCall, logger = console }) {
         return receiptSnapshot.data().result
       }
       const liveReward = rewardSnapshot.exists ? rewardView(rewardSnapshot.data(), rewardSnapshot.id) : reward
+      const membership = await requireManagedMember(db, transaction, student.id)
       if (!liveReward.active || (liveReward.stock !== null && liveReward.stock <= 0)) throw new HttpsError('failed-precondition', 'Quyền lợi đã hết hoặc tạm ngừng.')
       let account
       try {
@@ -1792,6 +1800,7 @@ function createLoyaltyFunctions({ db, onCall, logger = console }) {
         throw new HttpsError('failed-precondition', 'Bạn chưa đủ Điểm Aura để đổi quyền lợi này.')
       }
       if (automatic) account = redeemReservedPoints(account, liveReward.pointsCost)
+      membership.write()
       setAccountProjection(transaction, db, accountReference, account)
       if (rewardSnapshot.exists && liveReward.stock !== null) transaction.update(rewardSnapshot.ref, { stock: liveReward.stock - 1, updatedAt: FieldValue.serverTimestamp() })
       const status = automatic ? 'fulfilled' : 'pending'
@@ -2040,7 +2049,7 @@ function createLoyaltyFunctions({ db, onCall, logger = console }) {
         outstandingNominalValueVnd: (metrics.availablePoints + metrics.pendingPoints + metrics.reservedPoints) * Number(policy.pointValueVnd ?? 100),
       },
       tiers: ['member', 'silver', 'gold', 'diamond'].map(tier => ({ tier,
-        count: tierCounts[tier] + (tier === 'member' ? Math.max(0, metrics.memberCount - metrics.walletCount) : 0),
+        count: tierCounts[tier] + (tier === 'member' ? Math.max(0, metrics.memberCount - Object.values(tierCounts).reduce((a, b) => a + b, 0)) : 0),
       })),
       features: { earn: policy.earnEnabled, redeem: policy.redeemEnabled, referral: policy.referralEnabled, ambassador: policy.ambassadorEnabled, nutrition: policy.nutritionEnabled },
       policy: publicPolicyConfig(policy),
@@ -2067,7 +2076,7 @@ function createLoyaltyFunctions({ db, onCall, logger = console }) {
       const snapshot = await db.doc(`students/${studentId}`).get()
       // A deep link must work beyond the first page. Missing and unauthorized
       // IDs produce the same empty response and never read an out-of-scope wallet.
-      if (snapshot.exists && canAccessBranch(actor, snapshot.data()?.branchId || '')) studentSnapshots = [snapshot]
+      if (snapshot.exists && membershipIsManaged(snapshot.data()) && canAccessBranch(actor, snapshot.data()?.branchId || '')) studentSnapshots = [snapshot]
       totalCount = studentSnapshots.length
     } else {
       const scopes = []
@@ -2079,10 +2088,10 @@ function createLoyaltyFunctions({ db, onCall, logger = console }) {
         const branchIds = [...new Set(actor.branchIds)]
         for (let index = 0; index < branchIds.length; index += 10) {
           const group = branchIds.slice(index, index + 10)
-          scopes.push(db.collection('students').where('branchId', group.length === 1 ? '==' : 'in', group.length === 1 ? group[0] : group))
+          scopes.push(db.collection('students').where('loyaltyMembership.managed', '==', true).where('branchId', group.length === 1 ? '==' : 'in', group.length === 1 ? group[0] : group))
         }
       } else {
-        scopes.push(db.collection('students'))
+        scopes.push(db.collection('students').where('loyaltyMembership.managed', '==', true))
       }
       const pages = await Promise.all(scopes.map(async (scope) => {
         let query = scope.orderBy(FieldPath.documentId()).limit(limit + 1)
@@ -2112,7 +2121,7 @@ function createLoyaltyFunctions({ db, onCall, logger = console }) {
       if (!canAccessBranch(actor, student.branchId || '')) return []
       const accountSnapshot = accounts.get(item.id)
       const account = normalizeAccount(accountSnapshot?.exists ? accountSnapshot.data() : defaultAccount({ studentId: item.id, accountUid: student.accountUid || '' }), { studentId: item.id, accountUid: student.accountUid || '' })
-      return [{ ...publicAccount(account, policy), studentId: item.id, studentName: student.name || student.displayName || 'Học viên Aura', branchId: student.branchId || '', walletInitialized: accountSnapshot?.exists === true }]
+      return [{ ...publicAccount(account, policy), studentId: item.id, studentName: student.name || student.displayName || 'Học viên Aura', branchId: student.branchId || '', membershipState: student.loyaltyMembership?.state || 'active', manageUntil: student.loyaltyMembership?.manageUntil || null, walletInitialized: accountSnapshot?.exists === true }]
     }).sort((left, right) => left.studentName.localeCompare(right.studentName, 'vi'))
     return { accounts: rows, hasMore, nextCursor, totalCount }
   })
@@ -2438,6 +2447,7 @@ function createLoyaltyFunctions({ db, onCall, logger = console }) {
         if (adjustmentSnapshot.data().status !== 'pending_approval') throw new HttpsError('failed-precondition', 'Yêu cầu đã được xử lý.')
         if (adjustmentSnapshot.data().requestedBy === approvalActorUid) throw new HttpsError('permission-denied', 'Người tạo yêu cầu không được tự phê duyệt.')
       }
+      const membership = await requireManagedMember(db, transaction, student.id)
       let account = normalizeAccount(accountSnapshot.exists ? accountSnapshot.data() : defaultAccount({ studentId: student.id, accountUid: student.accountUid || '' }), { studentId: student.id, accountUid: student.accountUid || '' })
       let availableDelta = 0
       let debtDelta = 0
@@ -2452,6 +2462,7 @@ function createLoyaltyFunctions({ db, onCall, logger = console }) {
         availableDelta = result.availableDelta
         debtDelta = result.debtDelta
       }
+      membership.write()
       setAccountProjection(transaction, db, accountReference, account)
       transaction.create(db.doc(`loyaltyLedgerEntries/${adjustmentId}`), {
         schemaVersion: LOYALTY_SCHEMA_VERSION,
@@ -2567,6 +2578,10 @@ function createLoyaltyFunctions({ db, onCall, logger = console }) {
   const reconcileLoyaltyAccount = loyaltyAdminCall(async (request) => {
     const actor = await capabilityActor(request, db, 'loyalty.audit.read')
     const student = await scopedStudent(db, actor, request.data?.studentId)
+    await db.runTransaction(async transaction => {
+      const membership = await requireManagedMember(db, transaction, student.id)
+      membership.write()
+    })
     const snapshot = await db.collection('loyaltyLedgerEntries').where('studentId', '==', student.id).limit(5000).get()
     const totals = snapshot.docs.reduce((result, item) => {
       const value = item.data()

@@ -10,12 +10,13 @@ assert.match(process.env.FIRESTORE_EMULATOR_HOST || '', /^(127\.0\.0\.1|localhos
 const app = initializeApp({ projectId: 'demo-aura-fitness' }, `club-reads-${randomUUID()}`)
 const clients = []
 after(async () => { await Promise.all(clients.map(db => db.terminate())); await deleteApp(app) })
+const membership = { managed: true, active: true, state: 'active', activeUntil: '2099-12-31', manageUntil: '2100-01-31', enrolledOn: '2026-10-24' }
 const admin = { accessRole: 'admin' }
 const staff = (...branchIds) => ({ accessRole: 'staff', branchIds })
 async function fixture(seed = {}) {
   const db = getFirestore(app, `club-read-${randomUUID()}`); clients.push(db)
   await db.doc('loyaltyDashboardState/current').set({ schemaVersion: VERSION, shards: SHARDS, status: 'ready' })
-  for (const [key, value] of Object.entries(seed)) await db.doc(key).set(value)
+  for (const [key, value] of Object.entries(seed)) await db.doc(key).set(key.startsWith('students/') ? { loyaltyMembership: membership, ...value } : value)
   return db
 }
 async function backfill(db) {
@@ -30,7 +31,7 @@ const change = (id, before, after) => ({ params: { documentId: id }, data: {
 
 test('transactions converge across duplicate/backfill/old events without changing the wallet', async () => {
   const wallet = { availablePoints: 200, pendingPoints: 150, tierQualifyingValue: 25_000_000, revision: 7 }
-  const db = await fixture({ 'students/s': { branchId: 'a' }, 'loyaltyAccounts/s': wallet })
+  const db = await fixture({ 'students/s': { branchId: 'a', loyaltyMembership: membership }, 'loyaltyAccounts/s': wallet })
   await Promise.all([backfill(db), sync({ db, collection: 'loyaltyAccounts', id: 's' }), sync({ db, collection: 'loyaltyAccounts', id: 's' })])
   assert.equal((await read({ db, actor: admin })).metrics.availablePoints, 200)
   await db.doc('loyaltyAccounts/s').update({ availablePoints: 225 })
@@ -47,7 +48,7 @@ test('moving and deleting a student transfers dependent scopes, preserving cross
     'loyaltyRedemptions/r': { studentId: 's', branchId: 'a', status: 'pending' },
     'memberReferrals/r': { referrerStudentId: 's', status: 'vested' }, 'ambassadorProfiles/s': { studentId: 's', status: 'approved' } })
   await backfill(db)
-  await db.doc('students/s').update({ branchId: 'b' })
+  await db.doc('students/s').update({ branchId: 'b', loyaltyMembership: membership })
   await syncLoyaltyDashboardEvent({ db, collection: 'students', event: change('s', { branchId: 'a' }, { branchId: 'b' }) })
   const old = (await read({ db, actor: staff('a') })).metrics
   const moved = (await read({ db, actor: staff('b') })).metrics
@@ -59,7 +60,7 @@ test('moving and deleting a student transfers dependent scopes, preserving cross
   await syncLoyaltyDashboardEvent({ db, collection: 'students', event: change('s', { branchId: 'b' }, null) })
   assert.equal((await read({ db, actor: staff('a', 'b') })).metrics.availablePoints, 0)
   const all = (await read({ db, actor: admin })).metrics
-  assert.equal(all.availablePoints, 10); assert.equal(all.memberCount, 0); assert.equal(all.pendingRedemptions, 1)
+  assert.equal(all.availablePoints, 0); assert.equal(all.memberCount, 0); assert.equal(all.pendingRedemptions, 1)
 })
 
 test('deletes and reassignment read current state and reverse the previous contribution once', async () => {
@@ -79,7 +80,7 @@ test('more than 1,000 members remain exact and reading a global overview costs f
   const db = await fixture()
   for (let offset = 0; offset < 1010; offset += 400) {
     const batch = db.batch()
-    for (let i = offset; i < Math.min(1010, offset + 400); i++) batch.set(db.doc(`students/s${i}`), { branchId: 'a' })
+    for (let i = offset; i < Math.min(1010, offset + 400); i++) batch.set(db.doc(`students/s${i}`), { branchId: 'a', loyaltyMembership: membership })
     await batch.commit()
   }
   await backfill(db)
