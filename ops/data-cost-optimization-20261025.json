@@ -136,8 +136,17 @@
       "remaining": "No event invocation savings are claimed. Replayed business events still increment generations; per-target durable receipts and narrower dependency fingerprints require separate work. Existing historical scope is preserved."
     },
     "D5": {
-      "status": "pending",
+      "status": "in_progress",
       "constraint": "Endpoint retirement still requires lifecycle evidence and observation windows; no automatic deletion at the earliest dates."
+    },
+    "D5.1": {
+      "status": "content_fallback_guard_implemented_pending_release",
+      "change": "generateAuraContent permits one model fallback only for a narrow explicit HTTP 400/404 model or format rejection without generation identifiers, usage or choices. Network/body failures, timeouts, rate limits, gateway errors and incomplete, malformed or empty generations return their error without a second application POST. Auth, App Check, rate limits, primary/fallback configuration, success schema and usage metadata are preserved.",
+      "validation": "Full local npm run ci passed. 22 content/router tests passed, including actual content request wiring, synthetic provider failures, generation evidence, two-attempt ceiling, successful usage metadata and the existing shared-router behavior. No paid provider requests were used. Hosted CI and production rollout are pending.",
+      "releaseOrder": "After the Student 360 progress release, deploy only generateAuraContent from the reviewed source. The new internal router policy is enabled only by this function; nutrition plans retain their existing policy. Verify the serving image and callable transport before merging.",
+      "tradeoff": "An ambiguous provider failure is surfaced instead of automatically trying another model. This bounds application-level automatic attempts; it does not constrain provider-internal routing, prove whether an attempt was charged, or deduplicate separate user requests.",
+      "remaining": "Durable owner/request receipts, payload/version hashes, pending/succeeded/unknown recovery and explicit new-draft semantics across reloads and instances. The original Academy editing work remains excluded.",
+      "providerReference": "https://openrouter.ai/docs/api_reference/errors-and-debugging"
     },
     "D5.5": {
       "status": "ledger_date_index_live_retention_pending",

@@ -303,7 +303,10 @@ async function requestStructuredContent(apiKey, task, action) {
     maxOutputTokens: task.maxOutputTokens,
     operation: action,
     modelCandidates: getModelCandidates(),
-    // Leave enough of the 60-second callable budget for the single safe fallback.
+    // A transport failure or malformed generation may already have consumed
+    // inference. Only a clear model/format rejection permits another POST.
+    fallbackPolicy: 'rejected-only',
+    // Leave enough of the 60-second callable budget for one rejection fallback.
     timeoutMs: 26000,
   })
 }
@@ -379,4 +382,5 @@ module.exports = {
   buildTask,
   createGenerativeAiFunctions,
   getModelCandidates,
+  requestStructuredContent,
 }
