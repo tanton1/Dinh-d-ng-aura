@@ -65,6 +65,13 @@ test('failed rollout preserves the verified serving revision rather than guessin
   assert.match(rollback, /revisionName: readyRevision/)
 })
 
+test('release explicitly stages retired images and still requires the strict health gate', () => {
+  assert.match(workflow, /cloud-run-functions-promote-latest\.cjs[^\n]*--stage-retired/)
+  assert.match(workflow, /cloud-run-functions-health\.cjs[^\n]*--fail-on-unhealthy/)
+  const pkg = JSON.parse(readFileSync('package.json', 'utf8'))
+  assert.match(pkg.scripts['test:regional-reads'], /cloud-run-retired-stage\.test\.cjs/)
+})
+
 test('production health audit checks the effective traffic revision', () => {
   const policy = readFileSync('scripts/cloud-run-revision-policy.cjs', 'utf8')
   assert.match(policy, /trafficStatuses/)
