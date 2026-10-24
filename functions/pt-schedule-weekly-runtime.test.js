@@ -244,7 +244,10 @@ test('weekly runtime selection is exact, runtime-only and has no request-control
 
 test('normal, unknown-target and control-API discovery expose the unchanged complete manifest', () => {
   const baseline = probe()
-  assert.equal(baseline.exportNames.length, 518)
+  assert.equal(baseline.exportNames.length, 523)
+  for (const source of ['Ledger', 'Attendance', 'Session', 'Contract', 'Student']) {
+    assert.ok(baseline.exportNames.includes(`syncOps${source}DailyAggregateRegional`))
+  }
   assert.equal(baseline.exportNames.includes('cleanupOperationsDashboardCache'), false)
   assert.equal(baseline.exportNames.includes('syncPtContractUsageProjection'), false)
   assert.equal(baseline.exportNames.includes('syncSessionContractUsageView'), true)

@@ -9,6 +9,11 @@ import { weeklyScheduleEndpoint, weeklyScheduleEndpoints } from '../src/services
 const bundled = build({
   entryPoints: [resolve('src/services/ptSchedulePublishService.ts')], bundle: true, write: false, platform: 'node', format: 'cjs',
   plugins: [{ name: 'routing-transport-fixture', setup(builder) {
+    // Exercise maintenance policy through the real private transport without
+    // adding a production export or exposing these commands in the UI.
+    builder.onLoad({ filter: /ptSchedulePublishService\.ts$/ }, (args) => ({ loader: 'ts',
+      contents: `${readFileSync(args.path, 'utf8')}\nexport const __invokeForRoutingTest = invoke\n`,
+    }))
     builder.onResolve({ filter: /^(firebase\/functions|\.\.\/lib\/firebaseFunctions|\.\/clientTelemetryService)$/ }, (args) => ({ path: args.path, namespace: 'routing-fixture' }))
     builder.onLoad({ filter: /.*/, namespace: 'routing-fixture' }, (args) => ({ loader: 'js', contents: args.path === 'firebase/functions'
       ? 'export const httpsCallable = (client, name, options) => async (input) => globalThis.routing.invoke(client, name, options, input)'
@@ -106,11 +111,80 @@ test('schedule commands make one attempt and preserve the caller idempotency key
   }
 })
 
-test('ordinary branch workspace reads retain their Singapore-to-East fallback', async () => {
-  const { service, requests } = await fixture(['resource-exhausted'])
-  await service.getPtScheduleWorkspace({ branchId: 'branch', weekId: '2026-10-19' })
-  assert.deepEqual(requests.map(({ region, name }) => ({ region, name })), [
-    { region: 'asia-southeast1', name: 'getPtScheduleWorkspace' },
-    { region: 'asia-east1', name: 'getPtScheduleWorkspaceRegional' },
-  ])
+test('weekly maintenance commands execute one East request without any automatic retry or fallback', async () => {
+  for (const name of ['rebuildPtScheduleWeeklyView', 'markPtScheduleWeeklyViewDirty']) {
+    for (const code of ['', 'internal', 'unavailable', 'deadline-exceeded', 'resource-exhausted']) {
+      const { service, requests } = await fixture(code ? [code] : [])
+      const input = { branchId: 'branch', weekId: '2026-10-19', idempotencyKey: 'same-maintenance-command' }
+      if (code) await assert.rejects(service.__invokeForRoutingTest(name, input))
+      else await service.__invokeForRoutingTest(name, input)
+      assert.deepEqual(requests, [{ region: 'asia-east1', name, timeout: 60_000, input }])
+      assert.equal(requests[0].input, input)
+    }
+  }
+})
+
+const workspaceReads = [
+  { name: 'listPtScheduleBranches', input: undefined },
+  { name: 'getPtScheduleWorkspace', input: { branchId: 'branch', weekId: '2026-10-19', initialPaint: true } },
+  { name: 'getPtScheduleSlotCandidates', input: { branchId: 'branch', weekId: '2026-10-19', trainerId: 'trainer', date: '2026-10-20', hour: 9, query: 'student' } },
+]
+
+test('all three workspace reads prefer East and do not probe Singapore after success', async () => {
+  for (const { name, input } of workspaceReads) {
+    const { service, requests } = await fixture()
+    await service[name](input)
+    assert.equal(requests.length, 1)
+    assert.equal(requests[0].region, 'asia-east1')
+    assert.equal(requests[0].name, `${name}Regional`)
+    assert.equal(requests[0].timeout, 20_000)
+    if (input) assert.equal(requests[0].input, input)
+  }
+})
+
+test('workspace infrastructure failures fall back to Singapore exactly once, never a second East request', async () => {
+  for (const { name, input } of workspaceReads) {
+    for (const code of ['internal', 'unavailable', 'deadline-exceeded', 'resource-exhausted']) {
+      const { service, requests } = await fixture([code])
+      await service[name](input)
+      assert.deepEqual(requests.map(({ region, name }) => ({ region, name })), [
+        { region: 'asia-east1', name: `${name}Regional` },
+        { region: 'asia-southeast1', name },
+      ])
+      assert.equal(requests[0].input, requests[1].input)
+    }
+  }
+})
+
+test('workspace authorization, validation and missing-data errors never cross regions', async () => {
+  for (const { name, input } of workspaceReads) {
+    for (const code of ['unauthenticated', 'permission-denied', 'invalid-argument', 'failed-precondition', 'not-found', 'unknown', 'cancelled', 'aborted']) {
+      const { service, requests } = await fixture([code])
+      await assert.rejects(service[name](input))
+      assert.equal(requests.length, 1)
+      assert.equal(requests[0].region, 'asia-east1')
+    }
+  }
+})
+
+test('workspace reads stop after East and Singapore fail and report only the final failure', async () => {
+  for (const { name, input } of workspaceReads) {
+    const { service, requests, issues } = await fixture(['unavailable', 'resource-exhausted'])
+    await assert.rejects(service[name](input))
+    assert.deepEqual(requests.map((request) => request.region), ['asia-east1', 'asia-southeast1'])
+    assert.equal(issues.length, 1)
+  }
+})
+
+test('missing East client allows one legacy workspace read without retrying Singapore', async () => {
+  for (const { name, input } of workspaceReads) {
+    for (const errors of [[], ['unavailable']]) {
+      const { service, requests } = await fixture(errors, null)
+      if (errors.length) await assert.rejects(service[name](input))
+      else await service[name](input)
+      assert.equal(requests.length, 1)
+      assert.equal(requests[0].region, 'asia-southeast1')
+      assert.equal(requests[0].name, name)
+    }
+  }
 })

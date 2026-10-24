@@ -321,6 +321,16 @@ exports.syncOperationsStudentDailyAggregate = onDocumentWritten(
   async (event) => syncDailyAggregateWrite({ db, source: 'student', event, logger }),
 )
 
+// Regional consumers reuse the same transactional contribution baseline. The
+// SG writers remain intact until a separately verified Eventarc cutover.
+// Do not instantiate a second scheduled aggregate rebuild in another region.
+const regionalOperationsAggregateFunctions = require('./operations-aggregate-regional').createRegionalOperationsAggregateFunctions({ db, databaseId, onDocumentWritten, logger })
+exports.syncOpsLedgerDailyAggregateRegional = regionalOperationsAggregateFunctions.syncOpsLedgerDailyAggregateRegional
+exports.syncOpsAttendanceDailyAggregateRegional = regionalOperationsAggregateFunctions.syncOpsAttendanceDailyAggregateRegional
+exports.syncOpsSessionDailyAggregateRegional = regionalOperationsAggregateFunctions.syncOpsSessionDailyAggregateRegional
+exports.syncOpsContractDailyAggregateRegional = regionalOperationsAggregateFunctions.syncOpsContractDailyAggregateRegional
+exports.syncOpsStudentDailyAggregateRegional = regionalOperationsAggregateFunctions.syncOpsStudentDailyAggregateRegional
+
 exports.syncLoyaltyContractSpend = onDocumentWritten({
   document: 'ledgerEntries/{entryId}',
   database: databaseId,

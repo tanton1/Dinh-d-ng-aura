@@ -1,0 +1,1783 @@
+{
+  "schemaVersion": 1,
+  "project": "gen-lang-client-0815966909",
+  "baseline": {
+    "sourceCommit": "8c097bccb6da031c1ce2d26486991e40978686ba",
+    "observedAt": "2026-10-24T02:07:57.144Z",
+    "region": "asia-southeast1",
+    "functions": 375
+  },
+  "target": {
+    "candidateSourceFunctions": 188,
+    "remainingSourceFunctionsIfAllRetirementsPass": 187,
+    "destinationRegions": [
+      "asia-east1",
+      "asia-southeast2"
+    ]
+  },
+  "mode": "review-and-staged-cutover-not-a-bulk-deployment-or-deletion-manifest",
+  "constraints": [
+    "SMS and notification dispatch configuration remain unchanged.",
+    "188 is the candidate target, not the completed migration count. Existing replacements are not new offloads.",
+    "Move traffic or event processing before counting source quota relief. Adding copies alone can increase reads and CPU.",
+    "Retirement requires a separate exact-target live proof; this file never grants deletion.",
+    "Keep existing ops/function-lifecycle.json observation windows; do not force-reload schedule tabs with unsaved changes.",
+    "Old clients and transient read fallbacks remain live dependencies until explicitly retired.",
+    "Mutations never gain automatic cross-region retry.",
+    "Eventarc source location remains the named Firestore database location; destination compute may differ.",
+    "Background overlap requires both deployed cores to be idempotent, healthy replacement transport, and a drained old subscription.",
+    "Schedulers require one active job and a shared lease; never deploy a second active schedule blindly.",
+    "All destination minInstances stay zero. Check regional CPU headroom and preserve reviewed resource limits.",
+    "Run CPU allocation time includes startup and is not billing or an instantaneous quota usage gauge."
+  ],
+  "waveCounts": {
+    "existingReplacements": 125,
+    "newReadCandidates": 48,
+    "aggregateCanary": 5,
+    "schedulerReview": 7,
+    "highAllocationBackgroundReview": 2,
+    "mutationReview": 1
+  },
+  "entries": [
+    {
+      "name": "adminEditPtSchedule",
+      "replacement": "adminEditPtScheduleRegional",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "analyzeFoodImage",
+      "replacement": "analyzeFoodImageRegional",
+      "destination": "asia-southeast2",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "applyPtScheduleDraftCommand",
+      "replacement": "applyPtScheduleDraftCommandRegional",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "approveContractPauseRequest",
+      "replacement": "approveContractPauseRequestRegional",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "approvePayrollTarget",
+      "replacement": "approvePayrollTargetV2",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "approveRenewAttribution",
+      "replacement": "approveRenewAttributionV2",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "approveSessionRequest",
+      "replacement": "approveSessionRequestRegional",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "askAiCoach",
+      "replacement": "askAiCoachRegional",
+      "destination": "asia-southeast2",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "assignNutritionCoach",
+      "replacement": "assignNutritionCoachRegional",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "bulkConfirmMySessions",
+      "replacement": "bulkConfirmMySessionsRegional",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "confirmMySession",
+      "replacement": "confirmMySessionRegional",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "createHistoricalPtSession",
+      "replacement": "createHistoricalPtSessionRegional",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "createMyAdditionalSessionRequest",
+      "replacement": "createMyAdditionalSessionRequestRegional",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "createMyContractPauseRequest",
+      "replacement": "createMyContractPauseRequestRegional",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "createMySessionRequest",
+      "replacement": "createMySessionRequestRegional",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "createPayrollRun",
+      "replacement": "createPayrollRunV2",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "createQuote",
+      "replacement": "createQuoteRegional",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "createStudentCareActivity",
+      "replacement": "createStudentCareActivityRegional",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "createStudentDraft",
+      "replacement": "createStudentDraftRegional",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "deleteDraftPayrollRun",
+      "replacement": "deleteDraftPayrollRunV2",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "deleteNutritionMealLog",
+      "replacement": "deleteNutritionMealLogRegional",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "fillMissingStaffAttendanceDays",
+      "replacement": "fillMissingStaffAttendanceDaysV2",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "generateMealReview",
+      "replacement": "generateMealReviewRegional",
+      "destination": "asia-southeast2",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "generatePtScheduleDraft",
+      "replacement": "generatePtScheduleDraftV4",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "getAiCoachOverview",
+      "replacement": "getAiCoachOverviewRegional",
+      "destination": "asia-southeast2",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "getCourseMediaUrl",
+      "replacement": "getCourseMediaUrlRegional",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "getMyAccessContext",
+      "replacement": "getMyAccessContextOverflow",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "getMyAdditionalSessionSuggestions",
+      "replacement": "getMyAdditionalSessionSuggestionsRegional",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "getMyBranchScheduleWorkspace",
+      "replacement": "getMyBranchScheduleWorkspaceRegional",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "getMyCoachWorkspaceScope",
+      "replacement": "getMyCoachWorkspaceScopeRegional",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "getMyLoyaltyDashboard",
+      "replacement": "getMyLoyaltyDashboardRegional",
+      "destination": "asia-southeast2",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "getMyPendingSessionFeedback",
+      "replacement": "getMyPendingSessionFeedbackRegional",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "getMyReferralWorkspace",
+      "replacement": "getMyReferralWorkspaceRegional",
+      "destination": "asia-southeast2",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "getMySalesCatalog",
+      "replacement": "getMySalesCatalogRegional",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "getMySalesWorkspace",
+      "replacement": "getMySalesWorkspaceRegional",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "getMySessionChangeSuggestions",
+      "replacement": "getMySessionChangeSuggestionsRegional",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "getMyStaffPayroll",
+      "replacement": "getMyStaffPayrollV2",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "getMyTrainerAvailability",
+      "replacement": "getMyTrainerAvailabilityRegional",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "getMyTrainerStudentDetail",
+      "replacement": "getMyTrainerStudentDetailRegional",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "getMyTrainerWorkspace",
+      "replacement": "getMyTrainerWorkspaceRegional",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "getOperationsDashboard",
+      "replacement": "getOperationsDashboardRegional",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "getPayrollRun",
+      "replacement": "getPayrollRunV2",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "getPayrollTarget",
+      "replacement": "getPayrollTargetV2",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "getPtScheduleSlotCandidates",
+      "replacement": "getPtScheduleSlotCandidatesRegional",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "routing-cutover-in-progress",
+      "retirementAllowed": false
+    },
+    {
+      "name": "getPtScheduleWorkspace",
+      "replacement": "getPtScheduleWorkspaceRegional",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "routing-cutover-in-progress",
+      "retirementAllowed": false
+    },
+    {
+      "name": "getPtStudentTrainingPlan",
+      "replacement": "getPtStudentTrainingPlanRegional",
+      "destination": "asia-southeast2",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "getPtWorkoutWorkspace",
+      "replacement": "getPtWorkoutWorkspaceRegional",
+      "destination": "asia-southeast2",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "getStaffPayrollAttendanceDetail",
+      "replacement": "getStaffPayrollAttendanceDetailV2",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "getStaffPayrollStatement",
+      "replacement": "getStaffPayrollStatementV2",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "getStudent360ContractWorkspace",
+      "replacement": "getStudent360ContractWorkspaceRegional",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "routing-cutover-in-progress",
+      "retirementAllowed": false
+    },
+    {
+      "name": "getStudent360NutritionActivityDetail",
+      "replacement": "getStudent360NutritionActivityDetailRegional",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "routing-cutover-in-progress",
+      "retirementAllowed": false
+    },
+    {
+      "name": "getStudent360Overview",
+      "replacement": "getStudent360OverviewRegional",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "routing-cutover-in-progress",
+      "retirementAllowed": false
+    },
+    {
+      "name": "getStudent360ProgressPhotos",
+      "replacement": "getStudent360ProgressPhotosRegional",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "routing-cutover-in-progress",
+      "retirementAllowed": false
+    },
+    {
+      "name": "getStudentContractUsage",
+      "replacement": "getStudentContractUsageRegional",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "getStudentLoyaltySummary",
+      "replacement": "getStudentLoyaltySummaryRegional",
+      "destination": "asia-southeast2",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "getTodaySessions",
+      "replacement": "getTodaySessionsRegional",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "hardDeleteStudent",
+      "replacement": "hardDeleteStudentRegional",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "listAcademyCourses",
+      "replacement": "listAcademyCoursesRegional",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "listBusinessPerformance",
+      "replacement": "listBusinessPerformanceRegional",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "listIdentityDirectory",
+      "replacement": "listIdentityDirectoryRegional",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "listMyAssignedStudents",
+      "replacement": "listMyAssignedStudentsRegional",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "listMyAvailableRewards",
+      "replacement": "listMyAvailableRewardsRegional",
+      "destination": "asia-southeast2",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "listMyLoyaltyHistory",
+      "replacement": "listMyLoyaltyHistoryRegional",
+      "destination": "asia-southeast2",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "listMyQuotes",
+      "replacement": "listMyQuotesRegional",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "listMyStudentPtSchedule",
+      "replacement": "listMyStudentPtScheduleRegional",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "listMyTrainerSchedule",
+      "replacement": "listMyTrainerScheduleRegional",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "listNutritionMealReviews",
+      "replacement": "listNutritionMealReviewsRegional",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "listPayrollAdjustments",
+      "replacement": "listPayrollAdjustmentsV2",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "listPayrollEarningEvents",
+      "replacement": "listPayrollEarningEventsV2",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "listPayrollIntelligencePolicies",
+      "replacement": "listPayrollIntelligencePoliciesV2",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "listPayrollPolicies",
+      "replacement": "listPayrollPoliciesV2",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "listPayrollRuns",
+      "replacement": "listPayrollRunsV2",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "listPtOperationsRequests",
+      "replacement": "listPtOperationsRequestsRegional",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "listPtScheduleBranches",
+      "replacement": "listPtScheduleBranchesRegional",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "routing-cutover-in-progress",
+      "retirementAllowed": false
+    },
+    {
+      "name": "listPtScheduleVersions",
+      "replacement": "listPtScheduleVersionsRegional",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "listPtWorkoutHistory",
+      "replacement": "listPtWorkoutHistoryRegional",
+      "destination": "asia-southeast2",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "listStaffPayrollAttendance",
+      "replacement": "listStaffPayrollAttendanceV2",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "listStudent360Directory",
+      "replacement": "listStudent360DirectoryRegional",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "routing-cutover-in-progress",
+      "retirementAllowed": false
+    },
+    {
+      "name": "listStudent360Timeline",
+      "replacement": "listStudent360TimelineRegional",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "routing-cutover-in-progress",
+      "retirementAllowed": false
+    },
+    {
+      "name": "listStudentTrainingHistory",
+      "replacement": "listStudentTrainingHistoryRegional",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "listTrainerFeedbackAdmin",
+      "replacement": "listTrainerFeedbackAdminRegional",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "listTrainerTeachingHistory",
+      "replacement": "listTrainerTeachingHistoryRegional",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "lockPayrollRun",
+      "replacement": "lockPayrollRunV2",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "managePayrollIntelligencePolicy",
+      "replacement": "managePayrollIntelligencePolicyV2",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "managePayrollPolicy",
+      "replacement": "managePayrollPolicyV2",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "markPayrollRunPaid",
+      "replacement": "markPayrollRunPaidV2",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "mutateStudent360Contract",
+      "replacement": "mutateStudent360ContractRegional",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "publishPtSchedule",
+      "replacement": "publishPtScheduleRegional",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "recordMySessionAttendance",
+      "replacement": "recordMySessionAttendanceRegional",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "refreshStudent360Projection",
+      "replacement": "refreshStudent360ProjectionRegional",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "rejectContractPauseRequest",
+      "replacement": "rejectContractPauseRequestRegional",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "rejectSessionRequest",
+      "replacement": "rejectSessionRequestRegional",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "renewPtContract",
+      "replacement": "renewPtContractRegional",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "reopenPtStudentAvailability",
+      "replacement": "reopenPtStudentAvailabilityRegional",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "reportClientIssue",
+      "replacement": "reportClientIssueOverflow",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "requestSessionChange",
+      "replacement": "requestSessionChangeRegional",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "restorePtScheduleVersionToDraft",
+      "replacement": "restorePtScheduleVersionToDraftRegional",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "reviewNutritionMeal",
+      "replacement": "reviewNutritionMealRegional",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "reviewPayrollEarningEvent",
+      "replacement": "reviewPayrollEarningEventV2",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "reviewPayrollRun",
+      "replacement": "reviewPayrollRunV2",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "reviewPayrollSessionEvidence",
+      "replacement": "reviewPayrollSessionEvidenceV2",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "reviewTrainerFeedback",
+      "replacement": "reviewTrainerFeedbackRegional",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "saveMyBranchScheduleDraft",
+      "replacement": "saveMyBranchScheduleDraftRegional",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "saveMyStudentAvailability",
+      "replacement": "saveMyStudentAvailabilityRegional",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "saveMyTrainerAvailability",
+      "replacement": "saveMyTrainerAvailabilityRegional",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "saveNutritionMealLog",
+      "replacement": "saveNutritionMealLogRegional",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "savePayrollAdjustment",
+      "replacement": "savePayrollAdjustmentV2",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "savePayrollEarningEvent",
+      "replacement": "savePayrollEarningEventV2",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "savePayrollIntelligencePolicy",
+      "replacement": "savePayrollIntelligencePolicyV2",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "savePayrollPolicy",
+      "replacement": "savePayrollPolicyV2",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "savePayrollTarget",
+      "replacement": "savePayrollTargetV2",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "savePtStudentAvailability",
+      "replacement": "savePtStudentAvailabilityRegional",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "saveStaffAttendanceDay",
+      "replacement": "saveStaffAttendanceDayV2",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "saveStaffOperationsProfile",
+      "replacement": "saveStaffOperationsProfileRegional",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "saveStudent360ProgressCheckIn",
+      "replacement": "saveStudent360ProgressCheckInRegional",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "saveWorkCalendar",
+      "replacement": "saveWorkCalendarV2",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "setPtStudentWeeklyTarget",
+      "replacement": "setPtStudentWeeklyTargetRegional",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "submitContractForApproval",
+      "replacement": "submitContractForApprovalRegional",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "submitMyPayrollInquiry",
+      "replacement": "submitMyPayrollInquiryV2",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "submitNutritionMealReview",
+      "replacement": "submitNutritionMealReviewRegional",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "submitSessionFeedback",
+      "replacement": "submitSessionFeedbackRegional",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "submitWorkoutNote",
+      "replacement": "submitWorkoutNoteRegional",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "trackProductEvent",
+      "replacement": "trackProductEventOverflow",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "validatePtScheduleDraft",
+      "replacement": "validatePtScheduleDraftRegional",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "voidPayrollAdjustment",
+      "replacement": "voidPayrollAdjustmentV2",
+      "destination": "asia-east1",
+      "kind": "callable",
+      "wave": "existing-replacement",
+      "status": "compatibility-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "listAccountingCatalog",
+      "kind": "callable",
+      "domain": "finance",
+      "destination": "asia-east1",
+      "replacement": null,
+      "wave": "new-read-candidates",
+      "status": "handler-secret-query-and-capacity-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "listCashAccounts",
+      "kind": "callable",
+      "domain": "finance",
+      "destination": "asia-east1",
+      "replacement": null,
+      "wave": "new-read-candidates",
+      "status": "handler-secret-query-and-capacity-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "listCashTransactions",
+      "kind": "callable",
+      "domain": "finance",
+      "destination": "asia-east1",
+      "replacement": null,
+      "wave": "new-read-candidates",
+      "status": "handler-secret-query-and-capacity-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "listExpenseVouchers",
+      "kind": "callable",
+      "domain": "finance",
+      "destination": "asia-east1",
+      "replacement": null,
+      "wave": "new-read-candidates",
+      "status": "handler-secret-query-and-capacity-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "listFinanceLedger",
+      "kind": "callable",
+      "domain": "finance",
+      "destination": "asia-east1",
+      "replacement": null,
+      "wave": "new-read-candidates",
+      "status": "handler-secret-query-and-capacity-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "listReceiptVouchers",
+      "kind": "callable",
+      "domain": "finance",
+      "destination": "asia-east1",
+      "replacement": null,
+      "wave": "new-read-candidates",
+      "status": "handler-secret-query-and-capacity-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "getS2eCashDetailBook",
+      "kind": "callable",
+      "domain": "finance",
+      "destination": "asia-east1",
+      "replacement": null,
+      "wave": "new-read-candidates",
+      "status": "handler-secret-query-and-capacity-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "listContractRenewalCases",
+      "kind": "callable",
+      "domain": "renewal",
+      "destination": "asia-east1",
+      "replacement": null,
+      "wave": "new-read-candidates",
+      "status": "handler-secret-query-and-capacity-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "getContractRenewalCaseDetail",
+      "kind": "callable",
+      "domain": "renewal",
+      "destination": "asia-east1",
+      "replacement": null,
+      "wave": "new-read-candidates",
+      "status": "handler-secret-query-and-capacity-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "listRenewalCalendar",
+      "kind": "callable",
+      "domain": "renewal",
+      "destination": "asia-east1",
+      "replacement": null,
+      "wave": "new-read-candidates",
+      "status": "handler-secret-query-and-capacity-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "listRenewalMessageTemplates",
+      "kind": "callable",
+      "domain": "renewal",
+      "destination": "asia-east1",
+      "replacement": null,
+      "wave": "new-read-candidates",
+      "status": "handler-secret-query-and-capacity-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "getRenewalAnalytics",
+      "kind": "callable",
+      "domain": "renewal",
+      "destination": "asia-east1",
+      "replacement": null,
+      "wave": "new-read-candidates",
+      "status": "handler-secret-query-and-capacity-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "getLoyaltyAdminDashboard",
+      "kind": "callable",
+      "domain": "loyalty",
+      "destination": "asia-southeast2",
+      "replacement": null,
+      "wave": "new-read-candidates",
+      "status": "handler-secret-query-and-capacity-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "listLoyaltyAccounts",
+      "kind": "callable",
+      "domain": "loyalty",
+      "destination": "asia-southeast2",
+      "replacement": null,
+      "wave": "new-read-candidates",
+      "status": "handler-secret-query-and-capacity-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "listLoyaltyAdjustments",
+      "kind": "callable",
+      "domain": "loyalty",
+      "destination": "asia-southeast2",
+      "replacement": null,
+      "wave": "new-read-candidates",
+      "status": "handler-secret-query-and-capacity-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "listLoyaltyAmbassadors",
+      "kind": "callable",
+      "domain": "loyalty",
+      "destination": "asia-southeast2",
+      "replacement": null,
+      "wave": "new-read-candidates",
+      "status": "handler-secret-query-and-capacity-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "listLoyaltyReconciliationIssues",
+      "kind": "callable",
+      "domain": "loyalty",
+      "destination": "asia-southeast2",
+      "replacement": null,
+      "wave": "new-read-candidates",
+      "status": "handler-secret-query-and-capacity-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "listLoyaltyRedemptions",
+      "kind": "callable",
+      "domain": "loyalty",
+      "destination": "asia-southeast2",
+      "replacement": null,
+      "wave": "new-read-candidates",
+      "status": "handler-secret-query-and-capacity-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "listLoyaltyRewardsAdmin",
+      "kind": "callable",
+      "domain": "loyalty",
+      "destination": "asia-southeast2",
+      "replacement": null,
+      "wave": "new-read-candidates",
+      "status": "handler-secret-query-and-capacity-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "getEatCleanOrderTracking",
+      "kind": "callable",
+      "domain": "eat-clean",
+      "destination": "asia-southeast2",
+      "replacement": null,
+      "wave": "new-read-candidates",
+      "status": "handler-secret-query-and-capacity-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "getEatCleanStorefront",
+      "kind": "callable",
+      "domain": "eat-clean",
+      "destination": "asia-southeast2",
+      "replacement": null,
+      "wave": "new-read-candidates",
+      "status": "handler-secret-query-and-capacity-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "listEatCleanAddresses",
+      "kind": "callable",
+      "domain": "eat-clean",
+      "destination": "asia-southeast2",
+      "replacement": null,
+      "wave": "new-read-candidates",
+      "status": "handler-secret-query-and-capacity-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "listEatCleanAdminData",
+      "kind": "callable",
+      "domain": "eat-clean",
+      "destination": "asia-southeast2",
+      "replacement": null,
+      "wave": "new-read-candidates",
+      "status": "handler-secret-query-and-capacity-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "listEatCleanDispatchData",
+      "kind": "callable",
+      "domain": "eat-clean",
+      "destination": "asia-southeast2",
+      "replacement": null,
+      "wave": "new-read-candidates",
+      "status": "handler-secret-query-and-capacity-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "listMyEatCleanOrders",
+      "kind": "callable",
+      "domain": "eat-clean",
+      "destination": "asia-southeast2",
+      "replacement": null,
+      "wave": "new-read-candidates",
+      "status": "handler-secret-query-and-capacity-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "listMyShipperJobs",
+      "kind": "callable",
+      "domain": "eat-clean",
+      "destination": "asia-southeast2",
+      "replacement": null,
+      "wave": "new-read-candidates",
+      "status": "handler-secret-query-and-capacity-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "listExerciseCatalog",
+      "kind": "callable",
+      "domain": "catalog",
+      "destination": "asia-southeast2",
+      "replacement": null,
+      "wave": "new-read-candidates",
+      "status": "handler-secret-query-and-capacity-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "getExerciseCatalogItem",
+      "kind": "callable",
+      "domain": "catalog",
+      "destination": "asia-southeast2",
+      "replacement": null,
+      "wave": "new-read-candidates",
+      "status": "handler-secret-query-and-capacity-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "getExerciseCatalogMedia",
+      "kind": "callable",
+      "domain": "catalog",
+      "destination": "asia-southeast2",
+      "replacement": null,
+      "wave": "new-read-candidates",
+      "status": "handler-secret-query-and-capacity-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "getExternalExercisePreview",
+      "kind": "callable",
+      "domain": "catalog",
+      "destination": "asia-southeast2",
+      "replacement": null,
+      "wave": "new-read-candidates",
+      "status": "handler-secret-query-and-capacity-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "searchExternalExerciseCatalog",
+      "kind": "callable",
+      "domain": "catalog",
+      "destination": "asia-southeast2",
+      "replacement": null,
+      "wave": "new-read-candidates",
+      "status": "handler-secret-query-and-capacity-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "listInternalNutritionCatalog",
+      "kind": "callable",
+      "domain": "catalog",
+      "destination": "asia-southeast2",
+      "replacement": null,
+      "wave": "new-read-candidates",
+      "status": "handler-secret-query-and-capacity-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "getInternalNutritionCatalogItem",
+      "kind": "callable",
+      "domain": "catalog",
+      "destination": "asia-southeast2",
+      "replacement": null,
+      "wave": "new-read-candidates",
+      "status": "handler-secret-query-and-capacity-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "getCourseRevisionDiff",
+      "kind": "callable",
+      "domain": "academy-pt-staff",
+      "destination": "asia-southeast2",
+      "replacement": null,
+      "wave": "new-read-candidates",
+      "status": "handler-secret-query-and-capacity-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "getCourseRevisionHistory",
+      "kind": "callable",
+      "domain": "academy-pt-staff",
+      "destination": "asia-southeast2",
+      "replacement": null,
+      "wave": "new-read-candidates",
+      "status": "handler-secret-query-and-capacity-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "getCourseWorkoutSession",
+      "kind": "callable",
+      "domain": "academy-pt-staff",
+      "destination": "asia-southeast2",
+      "replacement": null,
+      "wave": "new-read-candidates",
+      "status": "handler-secret-query-and-capacity-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "getPtAssignedWorkout",
+      "kind": "callable",
+      "domain": "academy-pt-staff",
+      "destination": "asia-southeast2",
+      "replacement": null,
+      "wave": "new-read-candidates",
+      "status": "handler-secret-query-and-capacity-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "getPtWorkoutSession",
+      "kind": "callable",
+      "domain": "academy-pt-staff",
+      "destination": "asia-southeast2",
+      "replacement": null,
+      "wave": "new-read-candidates",
+      "status": "handler-secret-query-and-capacity-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "listManagedPtPrograms",
+      "kind": "callable",
+      "domain": "academy-pt-staff",
+      "destination": "asia-southeast2",
+      "replacement": null,
+      "wave": "new-read-candidates",
+      "status": "handler-secret-query-and-capacity-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "listPtClients",
+      "kind": "callable",
+      "domain": "academy-pt-staff",
+      "destination": "asia-southeast2",
+      "replacement": null,
+      "wave": "new-read-candidates",
+      "status": "handler-secret-query-and-capacity-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "listPtScheduleEvents",
+      "kind": "callable",
+      "domain": "academy-pt-staff",
+      "destination": "asia-southeast2",
+      "replacement": null,
+      "wave": "new-read-candidates",
+      "status": "handler-secret-query-and-capacity-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "listPublishedPtPrograms",
+      "kind": "callable",
+      "domain": "academy-pt-staff",
+      "destination": "asia-southeast2",
+      "replacement": null,
+      "wave": "new-read-candidates",
+      "status": "handler-secret-query-and-capacity-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "listStaffAttendance",
+      "kind": "callable",
+      "domain": "academy-pt-staff",
+      "destination": "asia-southeast2",
+      "replacement": null,
+      "wave": "new-read-candidates",
+      "status": "handler-secret-query-and-capacity-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "getMyNutritionPlanWorkspace",
+      "kind": "callable",
+      "domain": "other-reads",
+      "destination": "asia-southeast2",
+      "replacement": null,
+      "wave": "new-read-candidates",
+      "status": "handler-secret-query-and-capacity-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "getOperationalActionSummary",
+      "kind": "callable",
+      "domain": "other-reads",
+      "destination": "asia-southeast2",
+      "replacement": null,
+      "wave": "new-read-candidates",
+      "status": "handler-secret-query-and-capacity-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "listOperationalActions",
+      "kind": "callable",
+      "domain": "other-reads",
+      "destination": "asia-southeast2",
+      "replacement": null,
+      "wave": "new-read-candidates",
+      "status": "handler-secret-query-and-capacity-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "getPushAdminOverview",
+      "kind": "callable",
+      "domain": "other-reads",
+      "destination": "asia-southeast2",
+      "replacement": null,
+      "wave": "new-read-candidates",
+      "status": "handler-secret-query-and-capacity-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "listSalesQuotes",
+      "kind": "callable",
+      "domain": "other-reads",
+      "destination": "asia-southeast2",
+      "replacement": null,
+      "wave": "new-read-candidates",
+      "status": "handler-secret-query-and-capacity-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "syncOperationsLedgerDailyAggregate",
+      "replacement": "syncOpsLedgerDailyAggregateRegional",
+      "destination": "asia-east1",
+      "kind": "event-trigger",
+      "wave": "aggregate-canary",
+      "status": "implementation-and-overlap-verification-in-progress",
+      "retirementAllowed": false
+    },
+    {
+      "name": "syncOperationsAttendanceDailyAggregate",
+      "replacement": "syncOpsAttendanceDailyAggregateRegional",
+      "destination": "asia-southeast2",
+      "kind": "event-trigger",
+      "wave": "aggregate-canary",
+      "status": "implementation-and-overlap-verification-in-progress",
+      "retirementAllowed": false
+    },
+    {
+      "name": "syncOperationsSessionDailyAggregate",
+      "replacement": "syncOpsSessionDailyAggregateRegional",
+      "destination": "asia-southeast2",
+      "kind": "event-trigger",
+      "wave": "aggregate-canary",
+      "status": "implementation-and-overlap-verification-in-progress",
+      "retirementAllowed": false
+    },
+    {
+      "name": "syncOperationsContractDailyAggregate",
+      "replacement": "syncOpsContractDailyAggregateRegional",
+      "destination": "asia-southeast2",
+      "kind": "event-trigger",
+      "wave": "aggregate-canary",
+      "status": "implementation-and-overlap-verification-in-progress",
+      "retirementAllowed": false
+    },
+    {
+      "name": "syncOperationsStudentDailyAggregate",
+      "replacement": "syncOpsStudentDailyAggregateRegional",
+      "destination": "asia-southeast2",
+      "kind": "event-trigger",
+      "wave": "aggregate-canary",
+      "status": "implementation-and-overlap-verification-in-progress",
+      "retirementAllowed": false
+    },
+    {
+      "name": "rebuildContractUsageViewsScheduled",
+      "kind": "scheduled",
+      "destination": "asia-southeast2",
+      "replacement": null,
+      "wave": "single-active-scheduler-review",
+      "status": "shared-lease-and-cutover-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "cleanupExpiredPtScheduleDrafts",
+      "kind": "scheduled",
+      "destination": "asia-southeast2",
+      "replacement": null,
+      "wave": "single-active-scheduler-review",
+      "status": "shared-lease-and-cutover-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "cleanupEatCleanLiveLocations",
+      "kind": "scheduled",
+      "destination": "asia-southeast2",
+      "replacement": null,
+      "wave": "single-active-scheduler-review",
+      "status": "shared-lease-and-cutover-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "reconcileStaffManagedClientSummariesScheduled",
+      "kind": "scheduled",
+      "destination": "asia-southeast2",
+      "replacement": null,
+      "wave": "single-active-scheduler-review",
+      "status": "shared-lease-and-cutover-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "rebuildOperationsDashboardAggregatesScheduled",
+      "kind": "scheduled",
+      "destination": "asia-southeast2",
+      "replacement": null,
+      "wave": "single-active-scheduler-review",
+      "status": "shared-lease-and-cutover-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "reconcileStudent360ProjectionsScheduled",
+      "kind": "scheduled",
+      "destination": "asia-southeast2",
+      "replacement": null,
+      "wave": "single-active-scheduler-review",
+      "status": "shared-lease-and-cutover-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "rebuildDirtyPtScheduleWeeklyViewsScheduled",
+      "kind": "scheduled",
+      "destination": "asia-southeast2",
+      "replacement": null,
+      "wave": "single-active-scheduler-review",
+      "status": "shared-lease-and-cutover-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "upsertTrainingPackage",
+      "kind": "callable",
+      "destination": "asia-east1",
+      "replacement": null,
+      "wave": "transactional-mutation-review",
+      "status": "receipt-concurrency-and-client-cutover-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "syncLoyaltyContractSpend",
+      "kind": "event-trigger",
+      "destination": "asia-southeast2",
+      "replacement": null,
+      "wave": "high-allocation-background-review",
+      "status": "live-source-provenance-shared-fence-and-overlap-review-required",
+      "retirementAllowed": false
+    },
+    {
+      "name": "syncStaffOperationalSummary",
+      "kind": "event-trigger",
+      "destination": "asia-east1",
+      "replacement": null,
+      "wave": "high-allocation-background-review",
+      "status": "live-source-provenance-shared-fence-and-overlap-review-required",
+      "retirementAllowed": false
+    }
+  ]
+}

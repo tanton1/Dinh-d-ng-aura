@@ -64,13 +64,15 @@ test('Student 360 contract commands stay inside the 360 workspace instead of reo
   assert.match(workspace, /Mua thêm buổi/)
 })
 
-test('Student 360 reads from the canonical region and only fails over transient infrastructure errors', () => {
+test('Student 360 reads prefer East and retain a single transient Singapore fallback', () => {
   const root = process.cwd()
   const functionsClient = readFileSync(join(root, 'src', 'lib', 'firebaseFunctions.ts'), 'utf8')
   const service = readFileSync(join(root, 'src', 'features', 'student-360', 'student360Service.ts'), 'utf8')
   assert.match(functionsClient, /firebaseStudent360Functions = firebaseScheduleOptimizerFunctions/)
   assert.match(service, /callStudent360Read/)
   assert.match(service, /callReadOnlyFunction<Input, Output>\(name, input, options\)/)
+  assert.match(service, /if \(!firebaseStudent360Functions\) return legacy\(\)/)
+  assert.match(service, /return readStudent360WithFailover\(\s*\(\) => callReadOnlyFunction<Input, Output>\(`\$\{name\}Regional`[\s\S]*?\n\s*legacy,/)
   assert.match(service, /readStudent360WithFailover/)
   assert.match(service, /maximumAttempts: 1/)
   assert.match(service, /mutateStudent360ContractRegional/)

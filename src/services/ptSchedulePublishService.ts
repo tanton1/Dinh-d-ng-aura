@@ -557,7 +557,7 @@ function functionsInstanceForCallable(name: string) {
     }
     return firebaseSchedulePublishFunctions
   }
-  if (regionalPublishCallableNames.has(name) && !sameRegionScheduleReadCallables.has(name)) {
+  if (regionalPublishCallableNames.has(name)) {
     if (!firebaseSchedulePublishFunctions) throw new PtSchedulePublishError('Firebase Functions chưa sẵn sàng.', 'SYNC_UNAVAILABLE', [], true)
     return firebaseSchedulePublishFunctions
   }
@@ -596,14 +596,9 @@ const regionalPublishCallableNames = new Map([
   ['applyPtScheduleDraftCommand', 'applyPtScheduleDraftCommandRegional'],
 ])
 
-// Read-heavy workspace calls stay beside the canonical Firestore database.
-// The separate weekly endpoint policy pins snapshots to the East pool.
-const sameRegionScheduleReadCallables = new Set([
-  'listPtScheduleBranches',
-  'getPtScheduleWorkspace',
-  'getPtScheduleSlotCandidates',
-])
-const regionalReadFallbackCallables = new Set([
+// These reads use East first and retain one Singapore attempt for transient
+// infrastructure failures. Weekly snapshots keep their separate East-only policy.
+const singaporeFallbackReadCallables = new Set([
   'listPtScheduleBranches',
   'getPtScheduleWorkspace',
   'getPtScheduleSlotCandidates',
@@ -664,16 +659,14 @@ export function asPtSchedulePublishError(error: unknown) {
 async function invoke<TInput extends Record<string, unknown>, TOutput>(name: string, input: TInput) {
   const weeklyEndpoint = weeklyScheduleEndpoint(name)
   const timeout = weeklyEndpoint?.timeoutMs ?? (name === 'validatePtScheduleDraft' ? 30_000 : retryableReadCallables.has(name) ? 20_000 : 60_000)
-  const maximumAttempts = weeklyEndpoint?.maximumAttempts ?? (retryableReadCallables.has(name) ? 2 : 1)
-  let useRegionalReadFallback = false
+  const crossRegionRead = singaporeFallbackReadCallables.has(name)
+  const maximumAttempts = weeklyEndpoint?.maximumAttempts
+    ?? (crossRegionRead && !firebaseSchedulePublishFunctions ? 1 : retryableReadCallables.has(name) ? 2 : 1)
   for (let attempt = 0; attempt < maximumAttempts; attempt += 1) {
-    const callableName = weeklyEndpoint?.callableName ?? (useRegionalReadFallback
-      ? regionalPublishCallableNames.get(name) || name
-      : sameRegionScheduleReadCallables.has(name)
-        ? name
-        : regionalPublishCallableNames.get(name) || name)
-    const callableFunctions = useRegionalReadFallback && firebaseSchedulePublishFunctions
-      ? firebaseSchedulePublishFunctions
+    const useSingaporeRead = crossRegionRead && (!firebaseSchedulePublishFunctions || attempt > 0)
+    const callableName = weeklyEndpoint?.callableName ?? (useSingaporeRead ? name : regionalPublishCallableNames.get(name) || name)
+    const callableFunctions = useSingaporeRead
+      ? functionsInstance()
       : functionsInstanceForCallable(name)
     const callable = httpsCallable<TInput, TOutput>(callableFunctions, callableName, { timeout })
     try {
@@ -681,11 +674,12 @@ async function invoke<TInput extends Record<string, unknown>, TOutput>(name: str
     } catch (error) {
       const code = callableErrorCode(error)
       const retryable = retryableCallableCodes.has(code)
-      const canUseRegionalFallback = regionalReadFallbackCallables.has(name)
+      const canUseSingaporeFallback = crossRegionRead && !useSingaporeRead
         && Boolean(firebaseSchedulePublishFunctions)
         && retryable
         && attempt < maximumAttempts - 1
-      const shouldRetry = (weeklyEndpoint ? weeklyEndpoint.operation === 'read' && retryable : autoRetryCallableCodes.has(code) || canUseRegionalFallback)
+      const shouldRetry = (weeklyEndpoint ? weeklyEndpoint.operation === 'read' && retryable
+        : crossRegionRead ? canUseSingaporeFallback : autoRetryCallableCodes.has(code))
         && attempt < maximumAttempts - 1
       if (!shouldRetry) {
         reportClientIssue('firestore', error, {
@@ -695,13 +689,8 @@ async function invoke<TInput extends Record<string, unknown>, TOutput>(name: str
         })
         throw asPtSchedulePublishError(error)
       }
-      // The V2 workspace reads are primary in asia-southeast1. If that
-      // endpoint is unavailable during rollout, use the existing east-region
-      // alias for the second (and final) attempt instead of repeating the
-      // same failed regional request.
-      if (regionalReadFallbackCallables.has(name) && firebaseSchedulePublishFunctions) {
-        useRegionalReadFallback = true
-      }
+      // Cross-region reads switch to Singapore once; commands never enter
+      // this path, and weekly reads continue retrying their East endpoint.
       await retryDelay(400)
     }
   }

@@ -26,11 +26,11 @@ async function callStudent360Read<Input, Output>(
 ): Promise<Output> {
   const correlationId = createClientCorrelationId()
   const options = { timeoutMs, maximumAttempts: 1, correlationId }
+  const legacy = () => callReadOnlyFunction<Input, Output>(name, input, options)
+  if (!firebaseStudent360Functions) return legacy()
   return readStudent360WithFailover(
-    () => callReadOnlyFunction<Input, Output>(name, input, options),
-    firebaseStudent360Functions
-      ? () => callReadOnlyFunction<Input, Output>(`${name}Regional`, input, { ...options, functionsClient: firebaseStudent360Functions })
-      : undefined,
+    () => callReadOnlyFunction<Input, Output>(`${name}Regional`, input, { ...options, functionsClient: firebaseStudent360Functions }),
+    legacy,
   )
 }
 
