@@ -2092,6 +2092,11 @@ function createLoyaltyFunctions({ db, onCall, logger = console }) {
     const snapshot = await db.collection('loyaltyReconciliationIssues').limit(300).get()
     const values = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))
       .filter((item) => !requestedStatus || item.status === requestedStatus)
+      // A stored branch takes precedence over the student's current branch.
+      // Skip only definite denials before profile hydration; legacy rows with
+      // no branch still need the profile below. Keep this endpoint's String
+      // normalization and the original global cap/status filtering unchanged.
+      .filter((item) => !item.branchId || canAccessBranch(actor, String(item.branchId)))
     const studentIds = [...new Set(values.map((item) => String(item.studentId || '')).filter(Boolean))]
     const studentSnapshots = studentIds.length ? await db.getAll(...studentIds.map((studentId) => db.doc(`students/${studentId}`))) : []
     const students = new Map(studentSnapshots.filter((item) => item.exists).map((item) => [item.id, item.data()]))
@@ -2122,6 +2127,7 @@ function createLoyaltyFunctions({ db, onCall, logger = console }) {
     const values = snapshot.docs
       .map((item) => ({ id: item.id, ...item.data() }))
       .filter((item) => !requestedStatus || item.status === requestedStatus)
+      .filter((item) => !item.branchId || canAccessBranch(actor, item.branchId))
     const studentIds = [...new Set(values.map((item) => String(item.studentId || '')).filter(Boolean))]
     const studentSnapshots = studentIds.length ? await db.getAll(...studentIds.map((studentId) => db.doc(`students/${studentId}`))) : []
     const students = new Map(studentSnapshots.filter((item) => item.exists).map((item) => [item.id, item.data()]))
@@ -2149,6 +2155,9 @@ function createLoyaltyFunctions({ db, onCall, logger = console }) {
     const status = boundedString(request.data?.status, 'Trạng thái', 40, false)
     const values = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))
       .filter((item) => !status || item.status === status)
+      // Do not read profiles for explicitly denied branches. Missing branch
+      // values must still use the existing profile-based authorization below.
+      .filter((item) => !item.branchId || canAccessBranch(actor, item.branchId))
     const studentIds = [...new Set(values.map((item) => String(item.studentId || '')).filter(Boolean))]
     const studentSnapshots = studentIds.length ? await db.getAll(...studentIds.map((studentId) => db.doc(`students/${studentId}`))) : []
     const students = new Map(studentSnapshots.filter((item) => item.exists).map((item) => [item.id, item.data()]))

@@ -1,4 +1,5 @@
 const { FieldValue, Timestamp } = require('firebase-admin/firestore')
+const { createHash } = require('node:crypto')
 const { ptOperationsPolicySnapshot } = require('./pt-policy')
 const { HttpsError } = require('firebase-functions/v2/https')
 const { trustedAccessContext, requireCapability } = require('./identity-access')
@@ -364,8 +365,8 @@ function hasCapability(actor, capability) {
   return Array.isArray(actor.capabilities) && actor.capabilities.includes(capability)
 }
 
-async function renewalActor(request, db) {
-  const actor = await trustedAccessContext(request, db)
+async function renewalActor(request, db, accessOptions) {
+  const actor = await trustedAccessContext(request, db, accessOptions)
   requireCapability(actor, 'renewals.workspace.view')
   if (hasCapability(actor, 'renewals.system.manage')) return {
     ...actor, renewalScope: 'system', renewalAudience: 'operations', renewalCanSell: true,
@@ -424,6 +425,24 @@ function renewalPermissions(actor) {
     canAssign,
     canApprove: hasCapability(actor, 'renewals.approval.manage'),
   }
+}
+
+function renewalOptionsScopeKey(actor) {
+  // A public comparison key, never an authorization token or a financial-data
+  // cache. It only identifies which filter dictionaries a load-more may reuse.
+  const authority = {
+    uid: actor.uid,
+    legacyStaffId: actor.legacyStaffId || '',
+    accessRole: actor.accessRole || '',
+    authzVersion: actor.authzVersion || 0,
+    scope: actor.renewalScope,
+    audience: actor.renewalAudience,
+    branchIds: [...new Set(actor.branchIds || [])].sort(),
+    canViewSalesCases: actor.renewalCanViewSalesCases === true,
+    canViewTrainerCases: actor.renewalCanViewTrainerCases === true,
+    permissions: renewalPermissions(actor),
+  }
+  return `renewal-options-v1:${createHash('sha256').update(JSON.stringify(authority)).digest('hex')}`
 }
 
 function requireRenewalSalesAction(actor) {
@@ -519,7 +538,7 @@ async function scopedCaseDocuments(db, actor, includeClosed = false) {
 
 function listInput(value = {}) {
   const optionsMode = value.optionsMode === undefined ? 'full' : value.optionsMode
-  if (!['full', 'filters'].includes(optionsMode)) throw new HttpsError('invalid-argument', 'Chế độ danh mục tái ký không hợp lệ.')
+  if (!['full', 'filters', 'reuse'].includes(optionsMode)) throw new HttpsError('invalid-argument', 'Chế độ danh mục tái ký không hợp lệ.')
   const allowedRisks = new Set(['expired', 'exhausted', 'critical', 'upcoming', 'early'])
   const allowedSla = new Set(['overdue', 'due_today', 'upcoming', 'done'])
   const allowedApproval = new Set(['pending', 'approved', 'rejected', 'consumed', 'none'])
@@ -538,7 +557,9 @@ function listInput(value = {}) {
     search: boundedString(value.search, 'Từ khóa', 120, false).toLocaleLowerCase('vi'),
     branchId: value.branchId && value.branchId !== 'all' ? documentId(value.branchId, 'Chi nhánh') : '',
     assignedSalesId: value.assignedSalesId && value.assignedSalesId !== 'all' ? documentId(value.assignedSalesId, 'Nhân viên phụ trách') : '',
-    stage, risk, sla, approval, segment, optionsMode, sort: ['priority', 'value', 'follow_up'].includes(value.sort) ? value.sort : 'priority',
+    stage, risk, sla, approval, segment, optionsMode,
+    optionsScopeKey: optionsMode === 'reuse' ? boundedString(value.optionsScopeKey, 'Phạm vi danh mục tái ký', 120, false) : '',
+    sort: ['priority', 'value', 'follow_up'].includes(value.sort) ? value.sort : 'priority',
   }
 }
 
@@ -831,16 +852,26 @@ function createContractRenewalFunctions({ db, onCall, onSchedule, logger, resolv
     ? onCall({ cpu: 'gcf_gen1', concurrency: 1, maxInstances: 2, invoker: 'public' }, optionsOrHandler)
     : onCall({ cpu: 'gcf_gen1', concurrency: 1, maxInstances: 2, invoker: 'public', ...optionsOrHandler }, maybeHandler)
   const listHandler = async (request) => {
-    const actor = await resolveActor(request, db)
+    // A reused dictionary must not survive a permission change hidden by the
+    // short-lived identity cache. Cases/stats are still read anew every time.
+    const actor = await resolveActor(request, db, { freshAssignment: request.data?.optionsMode === 'reuse' })
     const input = listInput(request.data || {})
-    const [{ documents, truncated }, options] = await Promise.all([scopedCaseDocuments(db, actor), renewalOptions(db, actor, input.optionsMode)])
+    const optionsScopeKey = renewalOptionsScopeKey(actor)
+    const sameOptionsScope = input.optionsScopeKey === optionsScopeKey
+    const optionsReused = input.optionsMode === 'reuse' && Boolean(input.cursor) && sameOptionsScope
+    const pageReset = input.optionsMode === 'reuse' && Boolean(input.cursor) && !sameOptionsScope
+    const optionsMode = input.optionsMode === 'reuse' ? optionsReused ? 'reuse' : 'filters' : input.optionsMode
+    const [{ documents, truncated }, options] = await Promise.all([
+      scopedCaseDocuments(db, actor),
+      optionsReused ? { packages: [], cashAccounts: [], branches: [], assignees: [] } : renewalOptions(db, actor, optionsMode),
+    ])
     let values = documents.filter((item) => matchesListInput(item, input))
     if (input.sort === 'value') values.sort((a, b) => Number(b.expectedValue || 0) - Number(a.expectedValue || 0) || caseSort(a, b))
     else if (input.sort === 'follow_up') values.sort((a, b) => String(a.nextActionAt || '9999').localeCompare(String(b.nextActionAt || '9999')) || caseSort(a, b))
     // Recent expiry defaults to the nearest past end date, across all pages.
     else if (input.segment === 'expired_last_30d') values.sort((a, b) => Number(b.daysLeft) - Number(a.daysLeft) || caseSort(a, b))
     else values.sort(caseSort)
-    if (input.cursor) {
+    if (input.cursor && !pageReset) {
       const cursorIndex = values.findIndex((item) => item.id === input.cursor.id)
       if (cursorIndex < 0) throw new HttpsError('aborted', 'Hàng đợi đã thay đổi. Hãy tải lại từ đầu.')
       values = values.slice(cursorIndex + 1)
@@ -851,7 +882,8 @@ function createContractRenewalFunctions({ db, onCall, onSchedule, logger, resolv
       schemaVersion: 2, generatedAt: new Date().toISOString(), today: vietnamDateKey(),
       rows: selected.map((item) => publicCase(item, actor)), hasMore: values.length > input.pageSize,
       nextCursor: values.length > input.pageSize && selected.length ? encodeCursor(selected[selected.length - 1]) : null,
-      stats, options, optionsMode: input.optionsMode, packages: options.packages, scope: actor.renewalScope, audience: actor.renewalAudience,
+      stats, options, optionsMode, optionsScopeKey, optionsReused, pageReset,
+      packages: options.packages, scope: actor.renewalScope, audience: actor.renewalAudience,
       permissions: renewalPermissions(actor), actorUid: actor.uid, truncated,
     }
   }

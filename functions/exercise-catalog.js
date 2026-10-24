@@ -461,17 +461,22 @@ function createExerciseCatalogFunctions({ db, onCall }) {
     // matching item, which keeps sparse filtered pages stable and duplicate-free.
     const maximumScanned = Math.max(pageSize, Math.min(240, Math.round(Number(request.data?.scanLimit) || pageSize * 4)))
     const scanBatchSize = Math.min(80, Math.max(24, pageSize * 2))
+    // Dense browsing needs only the remaining slots plus one lookahead. Do not
+    // fetch a second page that this response will discard and the next reread.
+    // Explicit filters retain larger scan batches for sparse search results.
+    let compactBrowseBatch = !query && !bodyPart && !equipment && !difficulty && !environment && status === 'all'
     const items = []
     let sourceCursor = requestedCursor
     let scanned = 0
     let exhausted = false
     let hasMore = false
     while (items.length < pageSize && scanned < maximumScanned && !exhausted) {
-      const batchSize = Math.min(scanBatchSize, maximumScanned - scanned)
+      const batchSize = Math.min(scanBatchSize, compactBrowseBatch ? pageSize - items.length + 1 : scanBatchSize, maximumScanned - scanned)
       let sourceQuery = db.collection('exercises').orderBy(FieldPath.documentId(), 'asc').limit(batchSize)
       if (sourceCursor) sourceQuery = sourceQuery.startAfter(sourceCursor)
       const snapshot = await sourceQuery.get()
       if (!snapshot.size) { exhausted = true; break }
+      const previousItemCount = items.length
       let consumed = 0
       for (const document of snapshot.docs) {
         consumed += 1
@@ -498,6 +503,10 @@ function createExerciseCatalogFunctions({ db, onCall }) {
         hasMore = consumed < snapshot.size || snapshot.size === batchSize
         break
       }
+      // Archived/draft records can also make an unfiltered browse sparse. Once
+      // a batch yields fewer than half visible rows, use the original bounded
+      // scan size for the rest of this request instead of many tiny queries.
+      if (items.length - previousItemCount < consumed / 2) compactBrowseBatch = false
       exhausted = snapshot.size < batchSize
     }
     if (!exhausted && scanned >= maximumScanned) hasMore = true
