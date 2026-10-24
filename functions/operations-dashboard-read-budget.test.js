@@ -4,7 +4,7 @@ const test = require('node:test')
 const assert = require('node:assert/strict')
 const { createOperationsDashboardFunctions } = require('./operations-dashboard')
 const { branchReadScope, readDashboardQuery } = require('./operations-dashboard-read-policy')
-const { stableDashboardCacheKey } = require('./operations-dashboard-cache')
+const { stableDashboardCacheKey, CACHE_SCHEMA_VERSION } = require('./operations-dashboard-cache')
 const { dashboardPermissions } = require('./operations-dashboard')
 const { Timestamp } = require('firebase-admin/firestore')
 
@@ -13,6 +13,7 @@ const { Timestamp } = require('firebase-admin/firestore')
 function memoryDb(seed) {
   const records = new Map(Object.entries(seed))
   const reads = []
+  let transactionTail = Promise.resolve()
   const valueAt = (value, field) => field.split('.').reduce((item, key) => item?.[key], value)
   const compare = (value) => value?.toMillis?.() ?? value
   const matches = (actual, operator, expected) => {
@@ -65,12 +66,22 @@ function memoryDb(seed) {
     doc(path) { return {
       path,
       get: async () => { reads.push({ type: 'document', path, documents: 1 }); return snapshot(path) },
-      set: async (value) => { records.set(path, value) },
+      set: async (value, options) => { records.set(path, options?.merge ? { ...records.get(path), ...value } : value) },
     } },
     collection: (name) => query(name),
     getAll: async (...input) => {
       const options = input.at(-1)?.fieldMask ? input.pop() : null
       return input.map((ref) => { reads.push({ type: 'document', path: ref.path, documents: 1 }); return snapshot(ref.path, options?.fieldMask) })
+    },
+    runTransaction(work) {
+      const next = transactionTail.then(async () => {
+        const writes = []
+        const result = await work({ get: reference => reference.get(), set: (...args) => writes.push(args) })
+        for (const [reference, value, options] of writes) await reference.set(value, options)
+        return result
+      })
+      transactionTail = next.catch(() => {})
+      return next
     },
   }
   return db
@@ -301,7 +312,7 @@ test('a shared cache near expiry cannot gain another minute when promoted into m
   const key = stableDashboardCacheKey({ actor, permissions: dashboardPermissions(actor), scope: { branchId: 'home', branchIds: ['home'], unrestricted: false },
     startDate: today, endDate: today, startAt: new Date(period.startAt).toISOString(), endAt: new Date(period.endAt).toISOString(), today })
   const now = Date.now()
-  db.records.set(`systemOperationsDashboardCache/${key}`, { schemaVersion: 2, expiresAt: Timestamp.fromMillis(now + 5_000), value: { clients: { total: 999 } } })
+  db.records.set(`systemOperationsDashboardCache/${key}`, { schemaVersion: CACHE_SCHEMA_VERSION, valueExpiresAt: Timestamp.fromMillis(now + 5_000), expiresAt: Timestamp.fromMillis(now + 5_000), value: { clients: { total: 999 } } })
   const originalNow = Date.now
   try {
     Date.now = () => now
