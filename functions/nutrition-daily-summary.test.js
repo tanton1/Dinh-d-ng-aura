@@ -2,7 +2,7 @@
 const assert = require('node:assert/strict')
 const { test } = require('node:test')
 const { Timestamp } = require('firebase-admin/firestore')
-const { rangeDates, summarizeDay, sourceTotals, dateKey, refreshBoundary, createNutritionSummaryFunctions, rebuildNutritionDay } = require('./nutrition-daily-summary')
+const { SCHEMA_VERSION, rangeDates, summarizeDay, sourceTotals, dateKey, refreshBoundary, createNutritionSummaryFunctions, rebuildNutritionDay } = require('./nutrition-daily-summary')
 
 test('calendar windows preserve leap days and reject invalid or unbounded ranges', () => {
   assert.deepEqual(rangeDates('2024-02-28', '2024-03-01'), ['2024-02-28', '2024-02-29', '2024-03-01'])
@@ -24,7 +24,29 @@ test('summary matches diary semantics, excludes other days/deletions and does no
     waterLogs: [{ date: '2026-10-24', amountMl: 250 }, { date: '2026-10-24', amountMl: -1 }, { date: '2026-10-24', amountMl: '250' }, { date: '2026-10-24', amountMl: Infinity }],
     activityLogs: [{ date: '2026-10-24', durationMinutes: 30 }, { date: '2026-10-23', durationMinutes: 90 }],
   })
-  assert.deepEqual(result, { date: '2026-10-24', mealCount: 2, calories: 551.5, protein: 30, carbs: 20, fat: 8, waterMl: 250, activityCount: 1, activityMinutes: 30, reviewCount: 2 })
+  assert.deepEqual(result, { date: '2026-10-24', mealCount: 2, calories: 551.5, protein: 30, carbs: 20, fat: 8, waterMl: 250, activityCount: 1, activityMinutes: 30, reviewCount: 2, mealOccasions: { breakfast: false, lunch: false, dinner: false, snackCount: 0 } })
+})
+
+test('progress keeps distinct main meals and snack times; duplicate dishes cannot manufacture complete days', () => {
+  const date = '2026-10-24'
+  const logged = (type, time, extra = {}) => ({ date, type, time, status: 'logged', ...extra })
+  const result = summarizeDay(date, { mealLogs: [
+    logged('lunch', '12:00'), logged('lunch', '12:00'), logged('dinner', '18:00'),
+    logged('breakfast', '07:00', { status: 'planned' }), logged('breakfast', '07:00', { deleted: true }),
+    logged('snack', '10:00'), logged('snack', '10:00'), logged('snack', '15:00'),
+    logged('snack', '21:00', { status: 'deleted' }), logged('breakfast', '07:00', { date: '2026-10-23' }),
+  ] })
+  assert.deepEqual(result.mealOccasions, { breakfast: false, lunch: true, dinner: true, snackCount: 2 })
+  const legacy = summarizeDay(date, { mealLogs: [logged('breakfast', '07:00', { status: undefined })] })
+  assert.equal(legacy.mealOccasions.breakfast, true)
+  assert.equal(legacy.mealCount, 0, 'legacy occasion support must not change diary nutrient totals')
+})
+
+test('meal type and time edits now invalidate daily progress while feedback-only edits still do not', () => {
+  const meal = { date: '2026-10-24', status: 'logged', type: 'breakfast', time: '07:00' }
+  assert.notDeepEqual(sourceTotals(meal, 'mealLogs'), sourceTotals({ ...meal, type: 'lunch' }, 'mealLogs'))
+  assert.notDeepEqual(sourceTotals(meal, 'mealLogs'), sourceTotals({ ...meal, time: '08:00' }, 'mealLogs'))
+  assert.notDeepEqual(sourceTotals({ ...meal, time: undefined }, 'mealLogs'), sourceTotals({ ...meal, time: null }, 'mealLogs'))
 })
 
 test('feedback-only edits do not require recomputing numeric day totals', () => {
@@ -126,7 +148,7 @@ test('first-ever overflow persists a versioned partial summary instead of rescan
   f.add(date, 10001)
   const first = await f.call({ fromDate: date, toDate: date })
   assert.equal(first.coverage, 'partial')
-  assert.equal(f.documents.get(`users/one/nutritionDailySummaries/${date}`).schemaVersion, 1)
+  assert.equal(f.documents.get(`users/one/nutritionDailySummaries/${date}`).schemaVersion, SCHEMA_VERSION)
   const warm = await f.call({ fromDate: date, toDate: date })
   assert.equal(warm.coverage, 'partial')
   assert.equal(warm.sourceDocuments, 0)

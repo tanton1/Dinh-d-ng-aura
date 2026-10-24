@@ -34,10 +34,11 @@ test('day diary keeps scoped live details while calendar summaries do not merge 
   assert.match(source, /getMyNutritionJournalSummary\(resolvedOwnerId, fromDate, toDate, authorityKey, forceRefresh/)
 })
 
-test('progress reads the selected period without Academy data', () => {
+test('progress reads daily summaries without raw period logs or Academy data', () => {
   const page = readFileSync('src/pages/student/ProgressPage.tsx', 'utf8')
   const app = readFileSync('src/AuraApplication.tsx', 'utf8')
-  assert.match(page, /daysAgoKey\(period === '7-days' \? 7 : period === '90-days' \? 90 : 30\)/)
+  assert.match(page, /useProgressNutritionSummary/)
+  assert.doesNotMatch(page, /subscribeToRecentUser(?:Meal|Water|Activity)Logs/)
   assert.match(app, /learnerAcademyViews = new Set<ViewId>\(\['courses', 'course-detail'\]\)/)
   assert.doesNotMatch(page, /return <main/)
 })

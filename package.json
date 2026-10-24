@@ -50,6 +50,7 @@
     "test:workspace-sync-ui": "playwright test --config tests/workspace-sync-ui/playwright.config.ts",
     "test:training-history-ui": "playwright test --config tests/training-history-workspace-ui/playwright.config.ts && playwright test --config tests/training-history-panel-ui/playwright.config.ts && playwright test --config playwright.operations-requests.config.ts && playwright test --config tests/history-route-isolation-ui/playwright.config.ts",
     "test:nutrition-ui": "playwright test --config tests/nutrition-read-ui/playwright.config.ts",
+    "test:progress-summary-ui": "playwright test --config tests/data-cost-ui/playwright.progress.config.ts",
     "test:nutrition-review-ui": "playwright test --config tests/nutrition-review-ui/playwright.config.ts",
     "test:nutrition-transaction": "npx --yes firebase-tools@15.9.1 emulators:exec --only firestore --project demo-aura-fitness \"node --test functions/nutrition-daily-summary.integration.cjs functions/nutrition-write-transaction.integration.cjs functions/student-360-nutrition.integration.cjs\""
   },

@@ -21,6 +21,66 @@ async function mealEvent(db, value) {
   return makeEvent(before, await ref.get())
 }
 
+test('real Firestore: a ninety-day report includes 1800 meal logs and warm windows read only ninety summary documents', { timeout: 120000 }, async () => {
+  const db = fixture()
+  const dates = Array.from({ length: 90 }, (_, index) => new Date(Date.parse('2026-07-27T00:00:00Z') + index * 86400000).toISOString().slice(0, 10))
+  for (let offset = 0; offset < 1800; offset += 400) {
+    const batch = db.batch()
+    for (let index = offset; index < Math.min(offset + 400, 1800); index++) batch.set(db.doc(`users/one/mealLogs/m${String(index).padStart(5, '0')}`), {
+      date: dates[Math.floor(index / 20)], type: ['breakfast', 'lunch', 'dinner', 'snack'][index % 4], time: index % 8 < 4 ? '10:00' : '15:00', status: 'logged', calories: 100,
+    })
+    await batch.commit()
+  }
+  await db.doc(`users/one/nutritionDailySummaries/${dates[0]}`).set({ schemaVersion: 1, date: dates[0], status: 'ready', mealCount: 0, calories: 0 })
+  const call = createNutritionSummaryFunctions({ db, onCall: (_options, handler) => handler, requireOwner: async () => 'one' }).getMyNutritionJournalSummary
+  const items = []
+  let sourceDocuments = 0
+  for (let index = 0; index < 90; index += 31) {
+    const result = await call({ data: { fromDate: dates[index], toDate: dates[Math.min(index + 30, 89)] } })
+    assert.equal(result.coverage, 'ready')
+    items.push(...result.items)
+    sourceDocuments += result.sourceDocuments
+  }
+  assert.equal(sourceDocuments, 1800)
+  assert.equal(items.length, 90)
+  assert.ok(items.every(item => item.mealCount === 20 && item.mealOccasions.breakfast && item.mealOccasions.lunch && item.mealOccasions.dinner && item.mealOccasions.snackCount === 2))
+  let summaryReads = 0
+  const warmDb = { doc: path => db.doc(path), getAll: async (...refs) => {
+    assert.ok(refs.every(ref => ref.path.startsWith('users/one/nutritionDailySummaries/')))
+    summaryReads += refs.length
+    return db.getAll(...refs)
+  }, collection() { assert.fail('Warm progress must not scan raw logs') }, runTransaction() { assert.fail('Warm progress must not write or rebuild') } }
+  const warmCall = createNutritionSummaryFunctions({ db: warmDb, onCall: (_options, handler) => handler, requireOwner: async () => 'one' }).getMyNutritionJournalSummary
+  for (let index = 0; index < 90; index += 31) {
+    const result = await warmCall({ data: { fromDate: dates[index], toDate: dates[Math.min(index + 30, 89)] } })
+    assert.equal(result.coverage, 'ready')
+    assert.equal(result.sourceDocuments, 0)
+  }
+  assert.equal(summaryReads, 90)
+})
+
+test('real Firestore: type, snack-time, move and delete corrections update progress occasions', { timeout: 60000 }, async () => {
+  const db = fixture()
+  const entries = [['breakfast', '07:00'], ['lunch', '12:00'], ['dinner', '18:00'], ['snack', '10:00'], ['snack', '15:00']]
+  for (const [index, [type, time]] of entries.entries()) await db.doc(`users/one/mealLogs/occasion-${index}`).set({ date, type, time, status: 'logged', calories: 100 })
+  await rebuildNutritionDay({ db, uid: 'one', date })
+  const correction = async (index, patch) => {
+    const ref = db.doc(`users/one/mealLogs/occasion-${index}`)
+    const before = await ref.get()
+    if (patch) await ref.update(patch); else await ref.delete()
+    await syncNutritionDailySummary({ db, event: makeEvent(before, await ref.get()), collection: 'mealLogs', logger })
+  }
+  await correction(4, { time: '10:00' })
+  assert.equal((await db.doc(`users/one/nutritionDailySummaries/${date}`).get()).data().mealOccasions.snackCount, 1)
+  await correction(0, { type: 'lunch' })
+  assert.equal((await db.doc(`users/one/nutritionDailySummaries/${date}`).get()).data().mealOccasions.breakfast, false)
+  await correction(2, { date: '2026-10-23' })
+  assert.equal((await db.doc(`users/one/nutritionDailySummaries/${date}`).get()).data().mealOccasions.dinner, false)
+  assert.equal((await db.doc('users/one/nutritionDailySummaries/2026-10-23').get()).data().mealOccasions.dinner, true)
+  await correction(2, null)
+  assert.equal((await db.doc('users/one/nutritionDailySummaries/2026-10-23').get()).data().mealOccasions.dinner, false)
+})
+
 test('real Firestore: paginated backfill includes 1,001 records and warm reads do not touch source logs', { timeout: 60000 }, async () => {
   const db = fixture()
   for (let offset = 0; offset < 1001; offset += 400) {

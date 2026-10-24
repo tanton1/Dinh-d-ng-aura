@@ -28,6 +28,9 @@ import type {
 import type { NutritionProfileDraft } from '../../features/nutrition/types'
 import type { LoyaltyDashboard } from '../../features/loyalty/types'
 import { completeMealDates } from '../../features/nutrition/progressNutrition'
+import { progressAdherence } from '../../features/nutrition/progressDailySummary'
+import { useNutritionDate } from '../../features/nutrition/useNutritionDate'
+import { useProgressNutritionSummary } from '../../hooks/useProgressNutritionSummary'
 import { resolveDailyNutritionTargets, recentAverageWeight } from '../../features/nutrition/dailyNutritionTargets'
 import { toLocalDateKey } from '../../features/nutrition/routing'
 import { demoLoyaltyDashboard, getMyLoyaltyDashboard } from '../../features/loyalty/loyaltyService'
@@ -35,9 +38,6 @@ import { AiCoachBottomSheet } from '../../components/progress/AiCoachBottomSheet
 import { prewarmAiCoachAppCheck } from '../../services/nutritionService'
 import { firebaseAuth } from '../../lib/firebase'
 import {
-  subscribeToRecentUserActivityLogs,
-  subscribeToRecentUserMealLogs,
-  subscribeToRecentUserWaterLogs,
   subscribeToUserBodyMeasurements,
   subscribeToUserProgressCheckIns,
   subscribeToUserProgressPhotos,
@@ -118,12 +118,6 @@ function formatDate(value?: string) {
 function normalizeAngle(value: unknown): ProgressCheckInPhoto['angle'] {
   if (value === 'back' || value === 'left' || value === 'right') return value
   return 'front'
-}
-
-function daysAgoKey(days: number) {
-  const date = new Date()
-  date.setDate(date.getDate() - days + 1)
-  return toLocalDateKey(date)
 }
 
 function changeCopy(value: number | null, unit: string) {
@@ -283,11 +277,19 @@ export default function ProgressPage({
   const [coachOpen, setCoachOpen] = useState(false)
   const resolvedOwnerId = ownerId?.trim() || firebaseAuth?.currentUser?.uid || 'demo'
   const isDemo = resolvedOwnerId === 'demo'
-  const recentNutritionFromDate = useMemo(() => daysAgoKey(period === '7-days' ? 7 : period === '90-days' ? 90 : 30), [period])
+  const localPreview = isDemo || resolvedOwnerId === 'anonymous'
+  const today = useNutritionDate()
+  const days = period === '7-days' ? 7 : period === '30-days' ? 30 : 90
+  const periodStart = useMemo(() => {
+    const date = new Date(`${today}T12:00:00`)
+    date.setDate(date.getDate() - days + 1)
+    return toLocalDateKey(date)
+  }, [days, today])
+  const nutritionSummary = useProgressNutritionSummary(resolvedOwnerId, periodStart, today, !localPreview && category === 'overview')
 
-  const [allMeals, setAllMeals] = useState<any[]>(() => readLocal(`aura:nutrition:meals:v2:${resolvedOwnerId}`, []))
-  const [allActivities, setAllActivities] = useState<any[]>(() => readLocal(`aura:nutrition:activities:v1:${resolvedOwnerId}`, []))
-  const [allWater, setAllWater] = useState<any[]>(() => readLocal(`aura:nutrition:water-entries:v1:${resolvedOwnerId}`, []))
+  const [allMeals, setAllMeals] = useState<any[]>(() => localPreview ? readLocal(`aura:nutrition:meals:v2:${resolvedOwnerId}`, []) : [])
+  const [allActivities, setAllActivities] = useState<any[]>(() => localPreview ? readLocal(`aura:nutrition:activities:v1:${resolvedOwnerId}`, []) : [])
+  const [allWater, setAllWater] = useState<any[]>(() => localPreview ? readLocal(`aura:nutrition:water-entries:v1:${resolvedOwnerId}`, []) : [])
   const [weightRecords, setWeightRecords] = useState<WeightRecord[]>(() => readLocal(`aura:progress:weight-records:${resolvedOwnerId}`, []))
   const emptyMetrics: BodyMeasurements = { bmi: 0, bmiCategory: 'Chưa cập nhật', bodyFatPercentage: 0, bodyFatStatus: 'Chưa cập nhật', muscleMassKg: 0, muscleStatus: 'Chưa cập nhật', waistCm: 0, waistStatus: 'Chưa cập nhật', updatedAt: '' }
   const [bodyMetrics, setBodyMetrics] = useState<BodyMeasurements>(() => readLocal(`aura:progress:body-measurements:${resolvedOwnerId}`, emptyMetrics))
@@ -296,6 +298,7 @@ export default function ProgressPage({
   const [loyalty, setLoyalty] = useState<LoyaltyDashboard | null>(isDemo ? demoLoyaltyDashboard() : null)
 
   useEffect(() => {
+    if (!localPreview) { setAllMeals([]); setAllActivities([]); setAllWater([]); return }
     const refreshLocal = () => {
       setAllMeals(readLocal(`aura:nutrition:meals:v2:${resolvedOwnerId}`, []))
       setAllActivities(readLocal(`aura:nutrition:activities:v1:${resolvedOwnerId}`, []))
@@ -304,21 +307,11 @@ export default function ProgressPage({
     refreshLocal()
     window.addEventListener('storage', refreshLocal)
     window.addEventListener('aura:nutrition:updated', refreshLocal)
-    if (isDemo || resolvedOwnerId === 'anonymous') return () => {
-      window.removeEventListener('storage', refreshLocal)
-      window.removeEventListener('aura:nutrition:updated', refreshLocal)
-    }
-    const unsubscribers = [
-      subscribeToRecentUserMealLogs(resolvedOwnerId, recentNutritionFromDate, setAllMeals),
-      subscribeToRecentUserWaterLogs(resolvedOwnerId, recentNutritionFromDate, setAllWater),
-      subscribeToRecentUserActivityLogs(resolvedOwnerId, recentNutritionFromDate, setAllActivities),
-    ]
     return () => {
       window.removeEventListener('storage', refreshLocal)
       window.removeEventListener('aura:nutrition:updated', refreshLocal)
-      unsubscribers.forEach((unsubscribe) => unsubscribe())
     }
-  }, [isDemo, recentNutritionFromDate, resolvedOwnerId])
+  }, [localPreview, resolvedOwnerId])
 
   useEffect(() => {
     setWeightRecords(readLocal(`aura:progress:weight-records:${resolvedOwnerId}`, []))
@@ -364,9 +357,10 @@ export default function ProgressPage({
       setLoyalty(demoLoyaltyDashboard())
       return () => { active = false }
     }
+    setLoyalty(null)
     getMyLoyaltyDashboard().then((value) => { if (active) setLoyalty(value) }).catch(() => { if (active) setLoyalty(null) })
     return () => { active = false }
-  }, [isDemo])
+  }, [isDemo, resolvedOwnerId])
 
   useEffect(() => {
     if (!window.matchMedia('(hover: none), (pointer: coarse)').matches) return undefined
@@ -419,8 +413,6 @@ export default function ProgressPage({
     return [...records.values()].filter((record) => /^\d{4}-\d{2}-\d{2}$/.test(record.date)).sort((a, b) => b.date.localeCompare(a.date))
   }, [bodyMetrics, canonicalCheckIns, legacyPhotos, weightRecords])
 
-  const days = period === '7-days' ? 7 : period === '30-days' ? 30 : 90
-  const periodStart = daysAgoKey(days)
   const periodCheckIns = checkIns.filter((record) => record.date >= periodStart)
   const latest = periodCheckIns[0]
   const baseline = periodCheckIns.length > 1 ? periodCheckIns.at(-1) : undefined
@@ -434,6 +426,7 @@ export default function ProgressPage({
   const nutritionTargets = resolveDailyNutritionTargets(nutritionProfile, actual30DayWeight > 0 ? actual30DayWeight : undefined)
 
   const periodSummary = useMemo(() => {
+    if (!localPreview) return progressAdherence(nutritionSummary.items, days, nutritionProfile?.mealsPerDay || 3, nutritionProfile?.trainingSessions || 3, nutritionTargets.waterGoal)
     const meals = allMeals.filter((meal: any) => (!meal.status || meal.status === 'logged') && meal.date >= periodStart)
     const mealDays = completeMealDates(meals, nutritionProfile?.mealsPerDay || 3).size
     const waterByDate = new Map<string, number>()
@@ -443,7 +436,7 @@ export default function ProgressPage({
     const expectedActivities = Math.max(1, Math.round(days * ((nutritionProfile?.trainingSessions || 3) / 7)))
     const adherence = Math.round(Math.min(100, mealDays / days * 100) * .5 + Math.min(100, activityDays / expectedActivities * 100) * .3 + Math.min(100, waterDays / days * 100) * .2)
     return { mealDays, waterDays, activityDays, expectedActivities, adherence }
-  }, [allActivities, allMeals, allWater, days, nutritionProfile?.mealsPerDay, nutritionProfile?.trainingSessions, nutritionTargets.waterGoal, periodStart])
+  }, [localPreview, nutritionSummary.items, allActivities, allMeals, allWater, days, nutritionProfile?.mealsPerDay, nutritionProfile?.trainingSessions, nutritionTargets.waterGoal, periodStart])
 
   const latestDateAge = latest ? Math.max(0, Math.floor((Date.now() - new Date(`${latest.date}T12:00:00`).getTime()) / 86_400_000)) : null
   const nextMission = loyalty?.missions.find((mission) => mission.status !== 'completed' && mission.status !== 'claimed') || loyalty?.missions[0]
@@ -490,12 +483,18 @@ export default function ProgressPage({
         <div><span><small>Bắt đầu</small><strong>{startWeight ? `${startWeight.toFixed(1)} kg` : '—'}</strong></span><i /><span><small>Hiện tại</small><strong>{currentWeight ? `${currentWeight.toFixed(1)} kg` : '—'}</strong></span><i /><span><small>Mục tiêu</small><strong>{goalWeight > 0 ? `${goalWeight.toFixed(1)} kg` : '—'}</strong></span></div>
       </section>
       <section className="progress-v2-section progress-v2-adherence" aria-labelledby="progress-adherence-title">
-        <header><div><h2 id="progress-adherence-title">Bám kế hoạch</h2><p>Dựa trên những ngày đã ghi nhận trong {days} ngày gần nhất.</p></div><strong>{periodSummary.adherence}%</strong></header>
-        <div className="progress-v2-adherence__rows">
+        <header><div><h2 id="progress-adherence-title">Bám kế hoạch</h2><p>Dựa trên những ngày đã ghi nhận trong {days} ngày gần nhất.</p></div><strong>{localPreview || nutritionSummary.status === 'ready' ? `${periodSummary.adherence}%` : '—'}</strong></header>
+        {(localPreview || nutritionSummary.status === 'ready') && <div className="progress-v2-adherence__rows">
           <div><Utensils /><span><strong>Dinh dưỡng</strong><small>{periodSummary.mealDays}/{days} ngày đủ khung bữa</small></span></div>
           <div><Dumbbell /><span><strong>Vận động</strong><small>{periodSummary.activityDays}/{periodSummary.expectedActivities} ngày mục tiêu</small></span></div>
           <div><Waves /><span><strong>Nước uống</strong><small>{periodSummary.waterDays}/{days} ngày đạt ít nhất 80%</small></span></div>
-        </div>
+        </div>}
+        {!localPreview && <div className="progress-v2-adherence__sync">
+          <p role={nutritionSummary.status === 'error' || nutritionSummary.status === 'partial' ? 'alert' : 'status'}>{nutritionSummary.status === 'loading'
+            ? 'Đang tải tổng hợp nhật ký…'
+            : nutritionSummary.message || 'Nhật ký được tổng hợp theo ngày. Làm mới để đối soát lại.'}</p>
+          <button type="button" disabled={nutritionSummary.status === 'loading'} onClick={nutritionSummary.refresh}>{nutritionSummary.status === 'pending' ? 'Tiếp tục tổng hợp' : 'Làm mới báo cáo'}</button>
+        </div>}
       </section>
       <section className="progress-v2-insight" aria-labelledby="progress-insight-title"><Sparkles /><div><h2 id="progress-insight-title">Điều đáng chú ý</h2><p>{insight}</p></div><button type="button" onPointerEnter={prewarmAiCoachAppCheck} onFocus={prewarmAiCoachAppCheck} onClick={() => setCoachOpen(true)}>Trao đổi với Aura <ChevronRight /></button></section>
       <section className="progress-v2-section progress-v2-club" aria-labelledby="progress-club-title">

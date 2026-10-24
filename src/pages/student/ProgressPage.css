@@ -411,6 +411,10 @@
 .progress-v2-history__metrics span { display: flex; justify-content: space-between; gap: 8px; color: var(--pv2-muted); font-size: .67rem; }
 .progress-v2-history__metrics b { color: var(--pv2-ink); font-size: .7rem; white-space: nowrap; }
 
+.progress-v2-adherence__sync { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+.progress-v2-adherence__sync p { flex: 1 1 180px; margin: 0; color: var(--pv2-muted); font-size: .75rem; line-height: 1.5; }
+.progress-v2-adherence__sync button { min-height: 40px; padding: 8px 12px; border: 1px solid var(--pv2-line); border-radius: 10px; color: var(--pv2-pink); background: transparent; font: inherit; font-size: .75rem; cursor: pointer; }
+.progress-v2-adherence__sync button:disabled { opacity: .55; cursor: wait; }
 .progress-v2-page button:focus-visible { outline: 3px solid rgba(217, 0, 104, .24); outline-offset: 2px; }
 
 @media (max-width: 720px) {
