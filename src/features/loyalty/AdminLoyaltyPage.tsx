@@ -1,12 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle,
+  Award as AwardIcon,
   CheckCircle2,
   Clock3,
   Coins,
   Crown,
   Gift,
   LoaderCircle,
+  LayoutDashboard,
+  Settings2,
+  UserCheck,
   RefreshCw,
   Save,
   ShieldCheck,
@@ -21,10 +25,14 @@ import {
   transitionLoyaltyRedemption,
 } from './loyaltyService'
 import type { LoyaltyAdminDashboard, LoyaltyDashboard, LoyaltyPolicyConfig } from './types'
-import AdminLoyaltyOperations from './AdminLoyaltyOperations'
-import LoyaltyProgramBanners from './LoyaltyProgramBanners'
+import AdminLoyaltyOperations, { type OperationsTab } from './AdminLoyaltyOperations'
+import ClubNavigation, { type ClubDestination } from './ClubNavigation'
+import RewardBanners from './RewardBanners'
 import './loyalty.css'
 import './loyalty-admin.css'
+import './club-workspace.css'
+
+type ClubSection = 'overview' | 'redemptions' | 'settings' | OperationsTab
 
 type Redemption = Record<string, unknown> & { id: string; status: string }
 
@@ -84,6 +92,7 @@ function demoDashboard(): LoyaltyAdminDashboard {
 }
 
 interface AdminLoyaltyPageProps {
+  useMobileDock?: boolean
   isDemo?: boolean
   initialStudentId?: string
   canRunBackfill?: boolean
@@ -102,6 +111,7 @@ function launchDateToday() {
 }
 
 export default function AdminLoyaltyPage({
+  useMobileDock = false,
   isDemo = false,
   initialStudentId,
   canManagePolicy = false,
@@ -121,7 +131,29 @@ export default function AdminLoyaltyPage({
   const [loading, setLoading] = useState(!isDemo)
   const [queueLoading, setQueueLoading] = useState(false)
   const [queueError, setQueueError] = useState('')
-  const [operationsOpen, setOperationsOpen] = useState(Boolean(initialStudentId))
+  const [section, setSection] = useState<ClubSection>(initialStudentId ? 'accounts' : 'overview')
+  const [operationsVisited, setOperationsVisited] = useState(Boolean(initialStudentId))
+  const [operationsBusy, setOperationsBusy] = useState(false)
+  const [operationsRevision, setOperationsRevision] = useState(0)
+  const [queueLoaded, setQueueLoaded] = useState(isDemo)
+  const queueLoadedAt = useRef(0)
+  const isOperations = ['accounts', 'rewards', 'ambassadors', 'adjustments'].includes(section)
+  const primary: ClubDestination<ClubSection>[] = [
+    { id: 'overview', label: 'Tổng quan', icon: LayoutDashboard },
+    ...(canReviewRedemptions ? [{ id: 'redemptions' as const, label: 'Đổi quà', icon: Gift }] : []),
+    { id: 'accounts', label: 'Thành viên', icon: Users },
+    ...(canManageRewards ? [{ id: 'rewards' as const, label: 'Quà tặng', icon: AwardIcon }] : []),
+  ]
+  const secondary: ClubDestination<ClubSection>[] = [
+    ...(canManageAmbassadors ? [{ id: 'ambassadors' as const, label: 'Ambassador', icon: UserCheck }] : []),
+    ...(canApproveAdjustments ? [{ id: 'adjustments' as const, label: 'Duyệt điểm', icon: ShieldCheck }] : []),
+    { id: 'settings', label: 'Cài đặt', icon: Settings2 },
+  ]
+  const selectSection = (next: ClubSection) => {
+    if (busy || operationsBusy) return
+    if (['accounts', 'rewards', 'ambassadors', 'adjustments'].includes(next)) setOperationsVisited(true)
+    setSection(next)
+  }
   const overviewRequest = useRef(0)
   const queueRequest = useRef(0)
   const [busy, setBusy] = useState('')
@@ -135,7 +167,7 @@ export default function AdminLoyaltyPage({
     setQueueError('')
     try {
       const queue = await listLoyaltyRedemptions('open')
-      if (request === queueRequest.current) setRedemptions(queue.redemptions)
+      if (request === queueRequest.current) { setRedemptions(queue.redemptions); setQueueLoaded(true); queueLoadedAt.current = Date.now() }
     } catch (loadError) {
       if (request === queueRequest.current) setQueueError(loadError instanceof Error ? loadError.message : 'Không thể tải yêu cầu đổi thưởng.')
     } finally {
@@ -148,7 +180,6 @@ export default function AdminLoyaltyPage({
     const request = ++overviewRequest.current
     setLoading(true)
     setError('')
-    void loadQueue()
     try {
       const overview = await getLoyaltyAdminDashboard()
       if (request !== overviewRequest.current) return
@@ -163,11 +194,17 @@ export default function AdminLoyaltyPage({
   }
 
   useEffect(() => {
-    if (!isDemo) { setDashboard(null); setRedemptions([]) }
+    if (!isDemo) { setDashboard(null); setRedemptions([]); setQueueLoaded(false) }
     void load()
     return () => { overviewRequest.current++; queueRequest.current++ }
   }, [isDemo, canReviewRedemptions])
-  useEffect(() => { if (initialStudentId) setOperationsOpen(true) }, [initialStudentId])
+  useEffect(() => { if (initialStudentId) { setSection('accounts'); setOperationsVisited(true) } }, [initialStudentId])
+  useEffect(() => {
+    if (!isDemo && section === 'redemptions' && (!queueLoaded || Date.now() - queueLoadedAt.current >= 60_000) && !queueLoading && !queueError) void loadQueue()
+  }, [section, queueLoaded, queueLoading, queueError, canReviewRedemptions])
+  useEffect(() => {
+    if (![...primary, ...secondary].some(item => item.id === section)) setSection('overview')
+  }, [section, canReviewRedemptions, canManageRewards, canManageAmbassadors, canApproveAdjustments])
 
   const maxTier = useMemo(() => Math.max(1, ...(dashboard?.tiers.map((item) => item.count) || [1])), [dashboard])
   const pendingQueue = redemptions.filter((item) => ['pending', 'approved'].includes(item.status))
@@ -198,7 +235,9 @@ export default function AdminLoyaltyPage({
     setError('')
     try {
       if (!isDemo) await transitionLoyaltyRedemption(id, status)
+      setOperationsRevision(value => value + 1)
       setRedemptions((current) => current.map((item) => item.id === id ? { ...item, status } : item))
+      if (status === 'fulfilled' || status === 'rejected' || status === 'cancelled') setDashboard(current => current ? { ...current, metrics: { ...current.metrics, pendingRedemptions: Math.max(0, current.metrics.pendingRedemptions - 1) } } : current)
       setNotice(status === 'fulfilled' ? 'Đã hoàn tất giao quyền lợi.' : status === 'approved' ? 'Đã duyệt yêu cầu.' : status === 'cancelled' ? 'Đã hủy quyền lợi và hoàn lại điểm giữ chỗ.' : 'Đã từ chối và hoàn lại điểm giữ chỗ.')
     } catch (transitionError) {
       setError(transitionError instanceof Error ? transitionError.message : 'Không thể đổi trạng thái yêu cầu.')
@@ -212,46 +251,27 @@ export default function AdminLoyaltyPage({
 
   const metrics = dashboard.metrics
   return (
-    <div className="loyalty-admin loyalty-admin--renewed">
+    <div className="loyalty-admin loyalty-admin--renewed club-workspace">
       <header className="loyalty-admin__header">
-        <div><span><Sparkles /> Aura Club</span><h1>Aura Club</h1><p>Chăm sóc thành viên. Ghi nhận từng tiến bộ.</p></div>
-        <button type="button" onClick={() => void load()} aria-label="Tải lại dữ liệu Aura Club"><RefreshCw /> <span>Tải lại</span></button>
+        <div><h1>Aura Club</h1><p>Quản lý thành viên, quà tặng và yêu cầu đổi quà.</p></div>
+        {!isOperations ? <button type="button" disabled={(section === 'redemptions' ? queueLoading : loading) || Boolean(busy)} onClick={() => { if (section === 'redemptions') void loadQueue(); else void load() }} aria-label="Tải lại dữ liệu Aura Club"><RefreshCw className={loading || queueLoading ? 'loyalty-spin' : ''} /><span>Tải lại</span></button> : null}
       </header>
-
+      <ClubNavigation label="Vận hành Aura Club" active={section} primary={primary} secondary={secondary} onSelect={selectSection} disabled={Boolean(busy) || operationsBusy} mobileDock={useMobileDock} />
       {error ? <div className="loyalty-inline-alert" role="alert"><AlertTriangle size={17} /> {error}</div> : null}
       {notice ? <div className="loyalty-inline-notice" role="status"><CheckCircle2 size={17} /> {notice}</div> : null}
-
+      {section === 'overview' ? <div className="club-overview-panel">
       <section className="club-overview" aria-label="Chỉ số Aura Club">
         <div><Users /><span>Thành viên active</span><strong>{formatNumber(metrics.memberCount)}</strong><small>Hợp đồng đang hiệu lực</small></div>
         <div><Coins /><span>Điểm khả dụng</span><strong>{formatNumber(metrics.availablePoints)}</strong><small>{formatNumber(metrics.pendingPoints)} điểm đang chờ</small></div>
         <div><Gift /><span>Đang chờ xử lý</span><strong>{formatNumber(metrics.pendingRedemptions)}</strong><small>Yêu cầu đổi quyền lợi</small></div>
         <div><WalletCards /><span>Giá trị điểm hiện tại</span><strong>{formatMoney(metrics.outstandingNominalValueVnd)}</strong><small>Của các ví đang quản lý</small></div>
       </section>
-
-      <LoyaltyProgramBanners features={dashboard.features} policy={dashboard.policy || defaultPolicy} />
-      <p className="club-membership-note"><CheckCircle2 /> Chỉ bắt đầu quản lý học viên đang active. Sau một tháng hết hạn, ví tự rời danh sách; lịch sử điểm vẫn được giữ khi học viên quay lại.</p>
-
-      {metrics.debtPoints > 0 ? <aside className="loyalty-admin-risk"><AlertTriangle /><div><strong>{formatNumber(metrics.debtPoints)} điểm nghĩa vụ đang âm</strong><span>Tài khoản liên quan tạm khóa đổi thưởng đến khi số điểm âm được bù đủ.</span></div></aside> : null}
-
-      {canReviewRedemptions ? <section className="loyalty-admin-card loyalty-admin-queue" id="loyalty-redemption-queue">
-        <header><div><span>Đổi thưởng</span><h2>Yêu cầu cần xử lý <b>{pendingQueue.length}</b></h2></div><Clock3 /></header>
-        {queueError ? <div role="alert">{queueError} <button type="button" onClick={() => void loadQueue()}>Thử lại yêu cầu đổi thưởng</button></div> : null}
-        {queueLoading ? <p role="status">Đang tải yêu cầu đổi thưởng…</p> : null}
-        {pendingQueue.length ? <div className="loyalty-admin-table">
-          <div className="loyalty-admin-table__head"><span>Học viên</span><span>Quyền lợi</span><span>Điểm</span><span>Trạng thái</span><span>Thao tác</span></div>
-          {pendingQueue.map((item) => {
-            const reward = item.rewardSnapshot as { name?: string } | undefined
-            return <article key={item.id}><span className="loyalty-admin-table__student"><strong>{String(item.studentName || item.studentId || 'Học viên Aura')}</strong><small>{item.id.slice(0, 10)}</small></span><span data-label="Quyền lợi">{reward?.name || 'Quyền lợi Aura'}</span><span data-label="Điểm"><strong>{formatNumber(Number(item.pointsCost || 0))}</strong></span><span data-label="Trạng thái"><b className={`loyalty-status-pill loyalty-status-pill--${item.status}`}>{item.status === 'pending' ? 'Chờ duyệt' : 'Đã duyệt'}</b></span><span className="loyalty-admin-actions">{item.status === 'pending' ? <><button type="button" disabled={busy === item.id} onClick={() => void transition(item.id, 'approved')}>Duyệt</button><button type="button" className="is-secondary" disabled={busy === item.id} onClick={() => void transition(item.id, 'rejected')}>Từ chối</button></> : <><button type="button" disabled={busy === item.id} onClick={() => void transition(item.id, 'fulfilled')}>Hoàn tất</button><button type="button" className="is-secondary" disabled={busy === item.id} onClick={() => void transition(item.id, 'cancelled')}>Hủy & hoàn điểm</button></>}</span></article>
-          })}
-        </div> : !queueLoading && !queueError ? <div className="loyalty-empty loyalty-empty--compact"><CheckCircle2 /><h3>Đã xử lý hết yêu cầu</h3><p>Yêu cầu mới sẽ xuất hiện tại đây theo phạm vi chi nhánh.</p></div> : null}
-      </section> : null}
-
-      <details id="club-members" className="loyalty-admin-card club-disclosure" open={operationsOpen} onToggle={event => setOperationsOpen(event.currentTarget.open)}>
-        <summary>Quản lý thành viên và quyền lợi</summary>
-        {operationsOpen ? <AdminLoyaltyOperations initialStudentId={initialStudentId} isDemo={isDemo} canManageRewards={canManageRewards} canManageAmbassadors={canManageAmbassadors} canAdjust={canAdjust} canApproveAdjustments={canApproveAdjustments} largeAdjustmentThreshold={policyConfig.largeAdjustmentThreshold} /> : null}
-      </details>
-
-      <div className="loyalty-admin__grid">
+        <RewardBanners items={[
+          ...(canManageRewards ? [{ kind: 'gifts' as const, title: 'Quà tặng Aura', description: 'Danh mục quà, điểm đổi và số lượng còn lại.', action: 'Xem quà', onClick: () => selectSection('rewards') }] : []),
+          ...(canReviewRedemptions ? [{ kind: 'vouchers' as const, title: 'Đổi quà', description: dashboard.features.redeem ? 'Duyệt yêu cầu và xác nhận đã trao quà.' : 'Đổi điểm đang tạm dừng. Các yêu cầu cũ vẫn được xử lý.', action: 'Xem yêu cầu', onClick: () => selectSection('redemptions') }] : []),
+        ]} />
+        <p className="club-membership-note"><CheckCircle2 /> Quản lý học viên active và tiếp tục trong một tháng sau hết hạn. Lịch sử điểm được giữ khi học viên quay lại.</p>
+        {metrics.debtPoints > 0 ? <aside className="loyalty-admin-risk"><AlertTriangle /><div><strong>{formatNumber(metrics.debtPoints)} điểm cần bù</strong><span>Tài khoản liên quan tạm khóa đổi quà đến khi bù đủ điểm.</span></div></aside> : null}
         <section className="loyalty-admin-card">
           <header><div><span>Cơ cấu hạng</span><h2>Thành viên theo hạng</h2></div><Crown /></header>
           <div className="loyalty-tier-chart">
@@ -259,9 +279,24 @@ export default function AdminLoyaltyPage({
           </div>
           <footer><span><Users /> {formatNumber(metrics.qualifiedReferrals)} lượt giới thiệu đủ điều kiện</span><span><Sparkles /> {formatNumber(metrics.approvedAmbassadors)} Ambassador</span></footer>
         </section>
-
-        <details id="club-policy" className="loyalty-admin-card loyalty-admin-policy club-disclosure">
-          <summary>Cài đặt chương trình</summary>
+      </div> : null}
+      {section === 'redemptions' && canReviewRedemptions ? <section className="loyalty-admin-card loyalty-admin-queue" id="loyalty-redemption-queue">
+        <header><div><span>Đổi thưởng</span><h2>Yêu cầu cần xử lý <b>{pendingQueue.length}</b></h2></div><Clock3 /></header>
+        {queueError ? <div role="alert">{queueError} <button type="button" onClick={() => void loadQueue()} aria-label="Thử lại yêu cầu đổi thưởng">Thử lại</button></div> : null}
+        {queueLoading ? <p role="status">Đang tải yêu cầu đổi thưởng…</p> : null}
+        {pendingQueue.length ? <div className="loyalty-admin-table">
+          <div className="loyalty-admin-table__head"><span>Học viên</span><span>Quyền lợi</span><span>Điểm</span><span>Trạng thái</span><span>Thao tác</span></div>
+          {pendingQueue.map((item) => {
+            const reward = item.rewardSnapshot as { name?: string } | undefined
+            return <article key={item.id}><span className="loyalty-admin-table__student"><strong>{String(item.studentName || item.studentId || 'Học viên Aura')}</strong><small>{item.id.slice(0, 10)}</small></span><span data-label="Quyền lợi">{reward?.name || 'Quyền lợi Aura'}</span><span data-label="Điểm"><strong>{formatNumber(Number(item.pointsCost || 0))}</strong></span><span data-label="Trạng thái"><b className={`loyalty-status-pill loyalty-status-pill--${item.status}`}>{item.status === 'pending' ? 'Chờ duyệt' : 'Đã duyệt'}</b></span><span className="loyalty-admin-actions">{item.status === 'pending' ? <><button type="button" disabled={busy === item.id} onClick={() => void transition(item.id, 'approved')}>Duyệt</button><button type="button" className="is-secondary" disabled={busy === item.id} onClick={() => void transition(item.id, 'rejected')}>Từ chối</button></> : <><button type="button" disabled={busy === item.id} onClick={() => void transition(item.id, 'fulfilled')}>Hoàn tất</button><button type="button" className="is-secondary" disabled={busy === item.id} onClick={() => void transition(item.id, 'cancelled')}>Hủy</button></>}</span></article>
+          })}
+        </div> : !queueLoading && !queueError ? <div className="loyalty-empty loyalty-empty--compact"><CheckCircle2 /><h3>Đã xử lý hết yêu cầu</h3><p>Yêu cầu mới sẽ xuất hiện tại đây theo phạm vi chi nhánh.</p></div> : null}
+      </section> : null}
+      {operationsVisited ? <div hidden={!isOperations}>
+        <AdminLoyaltyOperations requestedTab={isOperations ? section as OperationsTab : undefined} enabled={isOperations} cacheEpoch={operationsRevision} hideNavigation onBusyChange={setOperationsBusy} initialStudentId={initialStudentId} isDemo={isDemo} canManageRewards={canManageRewards} canManageAmbassadors={canManageAmbassadors} canAdjust={canAdjust} canApproveAdjustments={canApproveAdjustments} largeAdjustmentThreshold={policyConfig.largeAdjustmentThreshold} />
+      </div> : null}
+      {section === 'settings' ? <>
+        <section id="club-policy" className="loyalty-admin-card loyalty-admin-policy">
           <header><div><span>Chính sách</span><h2>Trạng thái chương trình</h2></div><ShieldCheck /></header>
           <p>{canManagePolicy ? 'Bật hoặc tạm dừng từng chương trình. Thay đổi có hiệu lực sau khi lưu.' : 'Bạn đang xem trạng thái chương trình trong phạm vi được cấp. Chỉ Admin hệ thống được thay đổi cài đặt.'}</p>
           <div className="loyalty-policy-toggles">
@@ -292,9 +327,8 @@ export default function AdminLoyaltyPage({
             </div>
           </details> : null}
           {canManagePolicy ? <button type="button" className="loyalty-admin-policy__save" onClick={() => void saveFeatures()} disabled={busy === 'policy'}>{busy === 'policy' ? <LoaderCircle className="loyalty-spin" /> : <Save />} Lưu cài đặt</button> : null}
-        </details>
-      </div>
-
+        </section>
+      </> : null}
     </div>
   )
 }

@@ -117,7 +117,7 @@ test('a late previous page cannot append after tab change or overwrite the new l
   await page.waitForTimeout(100)
   await expect(cards(page)).toHaveCount(2)
   await expect(page.getByRole('button', { name: 'Tải thêm', exact: true })).toBeVisible()
-  expect(await page.evaluate(() => window.loyaltyFixture.calls.length)).toBe(3)
+  expect(await page.evaluate(() => window.loyaltyFixture.calls.length)).toBe(2)
 })
 
 test('an unmounted account lookup cannot reappear or issue another request', async ({ page }) => {

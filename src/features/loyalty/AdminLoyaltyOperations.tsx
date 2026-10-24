@@ -32,9 +32,14 @@ import type {
   LoyaltyAdminReward,
 } from './types'
 
-type OperationsTab = 'rewards' | 'ambassadors' | 'accounts' | 'adjustments'
+export type OperationsTab = 'rewards' | 'ambassadors' | 'accounts' | 'adjustments'
 
 interface AdminLoyaltyOperationsProps {
+  requestedTab?: OperationsTab
+  enabled?: boolean
+  hideNavigation?: boolean
+  onBusyChange?: (busy: boolean) => void
+  cacheEpoch?: number
   isDemo?: boolean
   initialStudentId?: string
   canManageRewards?: boolean
@@ -77,6 +82,11 @@ function dateTime(value: string) {
 }
 
 export default function AdminLoyaltyOperations({
+  requestedTab,
+  enabled = true,
+  hideNavigation = false,
+  onBusyChange,
+  cacheEpoch = 0,
   isDemo = false,
   initialStudentId,
   canManageRewards = false,
@@ -91,7 +101,9 @@ export default function AdminLoyaltyOperations({
     canManageAmbassadors && { id: 'ambassadors' as const, label: 'Ambassador', icon: UserCheck },
     canApproveAdjustments && { id: 'adjustments' as const, label: 'Duyệt điểm', icon: ShieldCheck },
   ].filter(Boolean) as Array<{ id: OperationsTab; label: string; icon: typeof Award }>), [canApproveAdjustments, canManageAmbassadors, canManageRewards])
-  const [activeTab, setActiveTab] = useState<OperationsTab>('accounts')
+  const [localTab, setActiveTab] = useState<OperationsTab>('accounts')
+  const activeTab = requestedTab ?? localTab
+  const loadedTabs = useRef(new Map<OperationsTab, { key: string; at: number }>())
   const [rewards, setRewards] = useState<LoyaltyAdminReward[]>([])
   const [ambassadors, setAmbassadors] = useState<LoyaltyAdminAmbassador[]>([])
   const [accounts, setAccounts] = useState<LoyaltyAdminAccount[]>([])
@@ -116,6 +128,15 @@ export default function AdminLoyaltyOperations({
   const mounted = useRef(false)
   const activeTabRef = useRef(activeTab)
   activeTabRef.current = activeTab
+
+  useEffect(() => {
+    loadedTabs.current.clear()
+  }, [cacheEpoch, isDemo, canManageRewards, canManageAmbassadors, canApproveAdjustments])
+
+  useEffect(() => {
+    onBusyChange?.(Boolean(busy || editingReward || adjustingAccount))
+    return () => onBusyChange?.(false)
+  }, [busy, editingReward, adjustingAccount, onBusyChange])
 
   useEffect(() => {
     mounted.current = true
@@ -144,7 +165,7 @@ export default function AdminLoyaltyOperations({
   }, [accounts, activeTab, initialStudentId, loading])
 
   const loadTab = async (tab: OperationsTab, appendAccounts = false) => {
-    if (!mounted.current || tab !== activeTabRef.current || (appendAccounts && (accountsLoadingMore || !accountCursor))) return
+    if (!enabled || !availableTabs.some(item => item.id === tab) || !mounted.current || tab !== activeTabRef.current || (appendAccounts && (accountsLoadingMore || !accountCursor))) return
     const generation = ++loadGeneration.current
     const isCurrent = () => mounted.current && generation === loadGeneration.current && tab === activeTabRef.current
     if (appendAccounts && tab === 'accounts') setAccountsLoadingMore(true)
@@ -165,6 +186,7 @@ export default function AdminLoyaltyOperations({
           setAccountCursor(null)
         }
         if (tab === 'adjustments') setAdjustments([{ id: 'demo-adjustment', studentId: 'HV-001', studentName: 'Hải Anh', branchId: 'CS1', points: 700, reason: 'Bù điểm chiến dịch khai trương', status: 'pending_approval', requestedBy: 'admin-other', createdAt: new Date().toISOString(), reviewedAt: '' }])
+        loadedTabs.current.set(tab, { key: exactStudentId, at: Date.now() })
         return
       }
       if (tab === 'rewards') {
@@ -187,6 +209,7 @@ export default function AdminLoyaltyOperations({
         const result = await listLoyaltyAdjustments('pending_approval')
         if (isCurrent()) setAdjustments(result.adjustments)
       }
+      if (isCurrent()) loadedTabs.current.set(tab, { key: exactStudentId, at: Date.now() })
     } catch (cause) {
       if (isCurrent()) setError(cause instanceof Error ? cause.message : 'Không thể tải dữ liệu Aura Club.')
     } finally {
@@ -203,6 +226,7 @@ export default function AdminLoyaltyOperations({
     setError('')
     try {
       if (!isDemo) await reviewLoyaltyAdjustment(adjustmentId, decision)
+      loadedTabs.current.delete('accounts')
       setAdjustments((current) => current.filter((item) => item.id !== adjustmentId))
       setNotice(decision === 'approve' ? 'Đã duyệt, cập nhật điểm và thông báo cho học viên.' : 'Đã từ chối điều chỉnh. Số dư không thay đổi.')
     } catch (cause) {
@@ -213,9 +237,16 @@ export default function AdminLoyaltyOperations({
   }
 
   useEffect(() => {
-    void loadTab(activeTab)
+    if (enabled) {
+      const cached = loadedTabs.current.get(activeTab)
+      if (cached && (activeTab !== 'accounts' || cached.key === exactStudentId) && Date.now() - cached.at < 60_000) {
+        setLoading(false)
+        setAccountsLoadingMore(false)
+        setError('')
+      } else void loadTab(activeTab)
+    }
     return () => { loadGeneration.current += 1 }
-  }, [activeTab, isDemo, exactStudentId])
+  }, [activeTab, isDemo, exactStudentId, enabled, cacheEpoch, canManageRewards, canManageAmbassadors, canApproveAdjustments])
 
   const saveReward = async () => {
     if (!editingReward || !editingReward.name.trim() || editingReward.pointsCost <= 0) {
@@ -291,6 +322,7 @@ export default function AdminLoyaltyOperations({
       const result = isDemo ? { status: 'applied' as const } : await adjustLoyaltyBalance({ studentId: adjustingAccount.studentId, points, reason: adjustmentReason.trim(), idempotencyKey: `admin-adjust:${crypto.randomUUID()}` })
       if (!mounted.current) return
       loadGeneration.current += 1
+      loadedTabs.current.delete('adjustments')
       setNotice(result.status === 'pending_approval' ? 'Điều chỉnh lớn đã chuyển sang chờ một Admin khác phê duyệt.' : 'Đã áp dụng điều chỉnh và lưu lịch sử.')
       setAdjustingAccount(null)
       setAdjustmentPoints('')
@@ -307,20 +339,20 @@ export default function AdminLoyaltyOperations({
   const visibleAccounts = accounts.filter((item) => !normalizedQuery || `${item.studentName} ${item.studentId} ${item.branchId}`.toLocaleLowerCase('vi').includes(normalizedQuery))
 
   return <section className="loyalty-admin-card loyalty-admin-operations">
-    <header><div><span>Vận hành</span><h2>Thành viên & quyền lợi</h2></div><ShieldCheck /></header>
-    <nav className="loyalty-admin-operations__tabs" aria-label="Nghiệp vụ Aura Club">
+    <header><div><span>Vận hành</span><h2>{availableTabs.find(item => item.id === activeTab)?.label || 'Thành viên & quyền lợi'}</h2></div>{hideNavigation ? <button type="button" className="club-icon-button" aria-label="Tải lại tab đang mở" disabled={Boolean(busy)} onClick={() => void loadTab(activeTab)}><RefreshCw /></button> : <ShieldCheck />}</header>
+    {!hideNavigation ? <nav className="loyalty-admin-operations__tabs" aria-label="Nghiệp vụ Aura Club">
       {availableTabs.map((item) => <button type="button" className={activeTab === item.id ? 'is-active' : ''} disabled={Boolean(busy)} key={item.id} onClick={() => { setNotice(''); setError(''); setActiveTab(item.id) }}><item.icon /> {item.label}</button>)}
       <button type="button" className="is-refresh" aria-label="Tải lại tab đang mở" disabled={Boolean(busy)} onClick={() => void loadTab(activeTab)}><RefreshCw /></button>
-    </nav>
+    </nav> : null}
 
     {error ? <div className="loyalty-inline-alert" role="alert"><AlertTriangle size={17} /> {error}</div> : null}
     {notice ? <div className="loyalty-inline-notice" role="status"><CheckCircle2 size={17} /> {notice}</div> : null}
     {loading ? <div className="loyalty-admin-operations__loading" role="status"><LoaderCircle className="loyalty-spin" /> Đang tải dữ liệu…</div> : null}
 
     {!loading && activeTab === 'rewards' ? <div className="loyalty-admin-rewards">
-      <div className="loyalty-admin-sectionbar"><div><strong>{rewards.length} quyền lợi</strong><span>Thay đổi chỉ áp dụng cho yêu cầu đổi mới.</span></div><button type="button" onClick={() => setEditingReward({ ...emptyReward })}><Plus /> Thêm quyền lợi</button></div>
+      <div className="loyalty-admin-sectionbar"><div><strong>{rewards.length} quyền lợi</strong><span>Thay đổi chỉ áp dụng cho yêu cầu đổi mới.</span></div><button type="button" onClick={() => setEditingReward({ ...emptyReward })}><Plus /> Thêm quà</button></div>
       <div className="loyalty-admin-rewards__grid">{rewards.map((reward) => <article key={reward.id} className={!reward.active ? 'is-inactive' : ''}>
-        <div><span>{reward.category}</span>{reward.featured ? <b>NỔI BẬT</b> : null}</div><h3>{reward.name}</h3><p>{reward.description || 'Chưa có mô tả.'}</p><footer><strong>{formatNumber(reward.pointsCost)} điểm</strong><small>{reward.stock === null ? 'Không giới hạn' : `Còn ${formatNumber(reward.stock)}`}</small><button type="button" onClick={() => setEditingReward({ ...reward })}><Pencil /> Sửa</button></footer>
+        <div><span>{reward.category}</span>{reward.featured ? <b>Nổi bật</b> : null}</div><h3>{reward.name}</h3><p>{reward.description || 'Chưa có mô tả.'}</p><footer><strong>{formatNumber(reward.pointsCost)} điểm</strong><small>{reward.stock === null ? 'Không giới hạn' : `Còn ${formatNumber(reward.stock)}`}</small><button type="button" onClick={() => setEditingReward({ ...reward })}><Pencil /> Sửa</button></footer>
       </article>)}</div>
     </div> : null}
 
@@ -358,8 +390,8 @@ export default function AdminLoyaltyOperations({
     </div> : null}
 
 
-    {editingReward ? <div className="loyalty-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) setEditingReward(null) }}><section className="loyalty-modal loyalty-admin-editor" role="dialog" aria-modal="true" aria-labelledby="loyalty-reward-editor-title"><span>DANH MỤC QUYỀN LỢI</span><h2 id="loyalty-reward-editor-title">{editingReward.id ? 'Chỉnh quyền lợi' : 'Thêm quyền lợi'}</h2><div className="loyalty-admin-editor__grid"><label>Tên quyền lợi<input value={editingReward.name} onChange={(event) => setEditingReward((current) => current ? { ...current, name: event.target.value } : current)} /></label><label>Điểm đổi<input type="number" min="1" value={editingReward.pointsCost} onChange={(event) => setEditingReward((current) => current ? { ...current, pointsCost: Number(event.target.value) } : current)} /></label><label>Danh mục<input value={editingReward.category} onChange={(event) => setEditingReward((current) => current ? { ...current, category: event.target.value } : current)} /></label><label>Thời hạn (ngày)<input type="number" min="1" value={editingReward.validityDays} onChange={(event) => setEditingReward((current) => current ? { ...current, validityDays: Number(event.target.value) } : current)} /></label><label>Cách giao<select value={editingReward.fulfillmentType} onChange={(event) => setEditingReward((current) => current ? { ...current, fulfillmentType: event.target.value as 'automatic' | 'staff', entitlementType: event.target.value === 'automatic' ? 'extra_reschedule' : null } : current)}><option value="staff">Staff xác nhận</option><option value="automatic">Cấp tự động</option></select></label><label>Tồn kho<input type="number" min="0" placeholder="Để trống = không giới hạn" value={editingReward.stock ?? ''} onChange={(event) => setEditingReward((current) => current ? { ...current, stock: event.target.value === '' ? null : Number(event.target.value) } : current)} /></label>{editingReward.fulfillmentType === 'automatic' ? <label>Quyền được cấp<select value={editingReward.entitlementType || ''} onChange={(event) => setEditingReward((current) => current ? { ...current, entitlementType: event.target.value || null } : current)}><option value="extra_reschedule">Thêm một lần đổi lịch</option></select></label> : null}<label className="is-wide">Chi nhánh áp dụng<input value={editingReward.branchIds.join(', ')} onChange={(event) => setEditingReward((current) => current ? { ...current, branchIds: event.target.value.split(',').map((item) => item.trim()).filter(Boolean).slice(0, 30) } : current)} placeholder="Để trống = toàn hệ thống; hoặc CS1, CS2" /></label><label className="is-wide">Mô tả<textarea rows={3} value={editingReward.description} onChange={(event) => setEditingReward((current) => current ? { ...current, description: event.target.value } : current)} /></label><label className="is-check"><input type="checkbox" checked={editingReward.active} onChange={(event) => setEditingReward((current) => current ? { ...current, active: event.target.checked } : current)} /> Đang hoạt động</label><label className="is-check"><input type="checkbox" checked={editingReward.featured} onChange={(event) => setEditingReward((current) => current ? { ...current, featured: event.target.checked } : current)} /> Hiển thị nổi bật</label></div><footer><button type="button" onClick={() => setEditingReward(null)}>Đóng</button><button type="button" disabled={busy === 'reward'} onClick={() => void saveReward()}>{busy === 'reward' ? <LoaderCircle className="loyalty-spin" /> : <Save />} Lưu quyền lợi</button></footer></section></div> : null}
+    {editingReward ? <div className="loyalty-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) setEditingReward(null) }}><section className="loyalty-modal loyalty-admin-editor" role="dialog" aria-modal="true" aria-labelledby="loyalty-reward-editor-title"><span>Danh mục quà</span><h2 id="loyalty-reward-editor-title">{editingReward.id ? 'Chỉnh quyền lợi' : 'Thêm quyền lợi'}</h2><div className="loyalty-admin-editor__grid"><label>Tên quyền lợi<input value={editingReward.name} onChange={(event) => setEditingReward((current) => current ? { ...current, name: event.target.value } : current)} /></label><label>Điểm đổi<input type="number" min="1" value={editingReward.pointsCost} onChange={(event) => setEditingReward((current) => current ? { ...current, pointsCost: Number(event.target.value) } : current)} /></label><label>Danh mục<input value={editingReward.category} onChange={(event) => setEditingReward((current) => current ? { ...current, category: event.target.value } : current)} /></label><label>Thời hạn (ngày)<input type="number" min="1" value={editingReward.validityDays} onChange={(event) => setEditingReward((current) => current ? { ...current, validityDays: Number(event.target.value) } : current)} /></label><label>Cách giao<select value={editingReward.fulfillmentType} onChange={(event) => setEditingReward((current) => current ? { ...current, fulfillmentType: event.target.value as 'automatic' | 'staff', entitlementType: event.target.value === 'automatic' ? 'extra_reschedule' : null } : current)}><option value="staff">Staff xác nhận</option><option value="automatic">Cấp tự động</option></select></label><label>Tồn kho<input type="number" min="0" placeholder="Để trống = không giới hạn" value={editingReward.stock ?? ''} onChange={(event) => setEditingReward((current) => current ? { ...current, stock: event.target.value === '' ? null : Number(event.target.value) } : current)} /></label>{editingReward.fulfillmentType === 'automatic' ? <label>Quyền được cấp<select value={editingReward.entitlementType || ''} onChange={(event) => setEditingReward((current) => current ? { ...current, entitlementType: event.target.value || null } : current)}><option value="extra_reschedule">Thêm một lần đổi lịch</option></select></label> : null}<label className="is-wide">Chi nhánh áp dụng<input value={editingReward.branchIds.join(', ')} onChange={(event) => setEditingReward((current) => current ? { ...current, branchIds: event.target.value.split(',').map((item) => item.trim()).filter(Boolean).slice(0, 30) } : current)} placeholder="Để trống = toàn hệ thống; hoặc CS1, CS2" /></label><label className="is-wide">Mô tả<textarea rows={3} value={editingReward.description} onChange={(event) => setEditingReward((current) => current ? { ...current, description: event.target.value } : current)} /></label><label className="is-check"><input type="checkbox" checked={editingReward.active} onChange={(event) => setEditingReward((current) => current ? { ...current, active: event.target.checked } : current)} /> Đang hoạt động</label><label className="is-check"><input type="checkbox" checked={editingReward.featured} onChange={(event) => setEditingReward((current) => current ? { ...current, featured: event.target.checked } : current)} /> Hiển thị nổi bật</label></div><footer><button type="button" onClick={() => setEditingReward(null)}>Đóng</button><button type="button" disabled={busy === 'reward'} onClick={() => void saveReward()}>{busy === 'reward' ? <LoaderCircle className="loyalty-spin" /> : <Save />} Lưu quyền lợi</button></footer></section></div> : null}
 
-    {adjustingAccount ? <div className="loyalty-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) setAdjustingAccount(null) }}><section className="loyalty-modal loyalty-admin-editor" role="dialog" aria-modal="true" aria-labelledby="loyalty-adjust-title"><span>ĐIỀU CHỈNH CÓ KIỂM SOÁT</span><h2 id="loyalty-adjust-title">{adjustingAccount.studentName}</h2><p>Số dương để cộng, số âm để trừ. Điều chỉnh từ {formatNumber(largeAdjustmentThreshold)} điểm sẽ cần một Admin khác phê duyệt.</p><div className="loyalty-admin-editor__grid"><label>Số điểm<input type="number" step="1" value={adjustmentPoints} onChange={(event) => setAdjustmentPoints(event.target.value)} placeholder="Ví dụ: 100 hoặc -100" /></label><label className="is-wide">Lý do<textarea rows={3} value={adjustmentReason} onChange={(event) => setAdjustmentReason(event.target.value)} placeholder="Nêu rõ bằng chứng và lý do điều chỉnh" /></label></div><footer><button type="button" onClick={() => setAdjustingAccount(null)}>Đóng</button><button type="button" disabled={busy.startsWith('adjust-')} onClick={() => void submitAdjustment()}>{busy.startsWith('adjust-') ? <LoaderCircle className="loyalty-spin" /> : <Save />} Gửi điều chỉnh</button></footer></section></div> : null}
+    {adjustingAccount ? <div className="loyalty-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) setAdjustingAccount(null) }}><section className="loyalty-modal loyalty-admin-editor" role="dialog" aria-modal="true" aria-labelledby="loyalty-adjust-title"><span>Điều chỉnh điểm</span><h2 id="loyalty-adjust-title">{adjustingAccount.studentName}</h2><p>Số dương để cộng, số âm để trừ. Điều chỉnh từ {formatNumber(largeAdjustmentThreshold)} điểm sẽ cần một Admin khác phê duyệt.</p><div className="loyalty-admin-editor__grid"><label>Số điểm<input type="number" step="1" value={adjustmentPoints} onChange={(event) => setAdjustmentPoints(event.target.value)} placeholder="Ví dụ: 100 hoặc -100" /></label><label className="is-wide">Lý do<textarea rows={3} value={adjustmentReason} onChange={(event) => setAdjustmentReason(event.target.value)} placeholder="Nêu rõ bằng chứng và lý do điều chỉnh" /></label></div><footer><button type="button" onClick={() => setAdjustingAccount(null)}>Đóng</button><button type="button" disabled={busy.startsWith('adjust-')} onClick={() => void submitAdjustment()}>{busy.startsWith('adjust-') ? <LoaderCircle className="loyalty-spin" /> : <Save />} Gửi điều chỉnh</button></footer></section></div> : null}
   </section>
 }

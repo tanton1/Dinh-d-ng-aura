@@ -39,6 +39,7 @@ import NotificationCenter from './NotificationCenter'
 import { Sheet } from './ui'
 import { useAuraUiSurface } from '../features/ui-rollout/AuraUiRolloutContext'
 import { isNavigationViewVisible } from '../config/navigationAvailability'
+import { usesClubOperationsDock } from '../features/loyalty/clubNavigationPolicy'
 import './AppShell.css'
 
 // Keep the conversation out of the initial shell bundle. The coach is
@@ -402,6 +403,7 @@ function StaffWorkspaceSwitcher({ personal, onChange, canOpenWork }: { personal:
 }
 
 export default function AppShell({ children, mode, view, onNavigate, onModeChange, mobileMenu, setMobileMenu, userName, userId, userRole, role, setPreviewRole, userPhoto, backendMode, isStaffWorkspace = false, isStaffAccount = false, onStaffWorkspaceChange, staffPositions = [], onSignOut, onSearch, canNavigate = () => true, authorizationError, aiCoachConversationScope = 'progress-demo', aiCoachLearningContext = null }: AppShellProps) {
+  const hasClubNavigation = usesClubOperationsDock(view, role, mode, isStaffWorkspace)
   const shellV4 = useAuraUiSurface('shell')
   const isPersonalWorkspace = isStaffAccount && !isStaffWorkspace
   // Staff can always return from personal mode via “Thêm”, even before the
@@ -795,7 +797,7 @@ export default function AppShell({ children, mode, view, onNavigate, onModeChang
         )}
         <main id="main-content" className="page-content" tabIndex={-1}>{children}</main>
 
-        {mode === 'student' || isStaffWorkspace ? (
+        {hasClubNavigation ? null : mode === 'student' || isStaffWorkspace ? (
           <nav className={`mobile-bottom-nav student-mobile-nav${isStaffWorkspace ? ' staff-mobile-nav' : ''}${mobileDockHidden ? ' is-scroll-hidden' : ''}`} aria-label={isStaffWorkspace ? 'Điều hướng Staff' : 'Điều hướng học viên'}>
             {(isStaffWorkspace ? mobileStaffItems : (useCompactStudentDock ? studentV4MobileNav : studentMobileNav).filter((item) => canNavigate(item.id))).map((item) => {
               const Icon = item.icon

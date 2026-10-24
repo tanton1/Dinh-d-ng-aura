@@ -1,5 +1,6 @@
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import AppShell from './components/AppShell'
+import { usesClubOperationsDock } from './features/loyalty/clubNavigationPolicy'
 import { normalizeOnboardingProfile } from './onboarding/defaults'
 import { hasPermission, type Permission } from './config/permissions'
 import { calculateNutritionTargets, canonicalNutritionProfile } from './services/nutritionSyncService'
@@ -1042,6 +1043,7 @@ function AuraApplication() {
       case 'admin-loyalty': return backendMode === 'firebase' && (!authzReady || !hasCapability('loyalty.dashboard.read'))
         ? <div className="course-detail-state" role="status"><h1>{authzReady ? 'Không có quyền mở Aura Club' : 'Đang xác minh quyền Aura Club'}</h1><p>{authzReady ? 'Tài khoản chưa được cấp quyền điều hành loyalty.' : 'Aura đang đối chiếu phạm vi quản trị.'}</p></div>
         : <AuraOperationsFrame><AdminLoyaltyPage
+          useMobileDock={usesClubOperationsDock(view, role, mode, isStaffWorkspace)}
           isDemo={backendMode === 'demo'}
           initialStudentId={staffStudentFocus?.id}
           canRunBackfill={accessContext?.accessRole === 'admin' || accessContext?.accessRole === 'super_admin'}

@@ -4,6 +4,20 @@ import { join } from 'node:path'
 import test from 'node:test'
 import { hasRouteCapability } from '../src/identity/access'
 import { hiddenNavigationViews, isNavigationViewVisible } from '../src/config/navigationAvailability'
+import { usesClubOperationsDock } from '../src/features/loyalty/clubNavigationPolicy'
+import type { UserRole } from '../src/types'
+
+test('Aura Club replaces the dock only for admin operations; learners and PT keep theirs', () => {
+  for (const role of ['admin', 'super_admin'] as const) {
+    assert.equal(usesClubOperationsDock('admin-loyalty', role, 'admin', false), true)
+    assert.equal(usesClubOperationsDock('aura-club', role, 'student', false), false)
+    assert.equal(usesClubOperationsDock('admin-dashboard', role, 'admin', false), false)
+    assert.equal(usesClubOperationsDock('admin-loyalty', role, 'admin', true), false)
+  }
+  for (const role of ['student', 'user', 'trainer', 'coach', 'manager', 'sales'] as UserRole[]) {
+    assert.equal(usesClubOperationsDock('admin-loyalty', role, 'admin', false), false)
+  }
+})
 
 test('Performance navigation and route admission share the same any-of capability rule', () => {
   assert.equal(hasRouteCapability('staff-performance', (capability) => capability === 'performance.self.view'), true)
