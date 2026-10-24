@@ -142,6 +142,14 @@ jobs:
       - name: Test admin dashboard reads on mobile Safari
         if: matrix.project == 'mobile-webkit'
         run: npm run test:admin-dashboard-ui -- --project=dashboard-mobile
+      - name: Test independent nutrition tabs, reads and review workspace
+        if: matrix.project == 'chromium'
+        run: |
+          npm run test:nutrition-ui -- --project=nutrition-desktop
+          npm run test:nutrition-review-ui
+      - name: Test nutrition reads on mobile Safari
+        if: matrix.project == 'mobile-webkit'
+        run: npm run test:nutrition-ui -- --project=nutrition-mobile
       - name: Upload browser failure evidence
         if: failure()
         uses: actions/upload-artifact@v4
@@ -189,6 +197,9 @@ jobs:
       - name: Verify projection concurrency and rebuild isolation
         if: matrix.suite == 'firestore'
         run: npm run test:projection-transaction
+      - name: Verify nutrition revisions, summaries and partial projections
+        if: matrix.suite == 'firestore'
+        run: npm run test:nutrition-transaction
 
   dependency-review:
     name: Dependency review

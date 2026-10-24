@@ -4,6 +4,7 @@ const { createHash } = require('node:crypto')
 const { logger } = require('firebase-functions')
 const { HttpsError, onCall: defaultOnCall } = require('firebase-functions/v2/https')
 const { withFunctionTelemetry } = require('./observability')
+const { ENFORCE_AI_APP_CHECK, requireAiAppCheck, requireAiRequestOwner, nutritionAiRequestId, requestFingerprint, createNutritionAiRequests, createAiProviderBudget } = require('./nutrition-ai-requests')
 const {
   REGULAR_DAILY_FOOD_SCAN_LIMIT,
   dailyFoodScanLimitForRoles,
@@ -63,9 +64,6 @@ const MEAL_REVIEW_RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000
 const MEAL_REVIEW_RATE_LIMIT_WINDOW_REQUESTS = 20
 const MEAL_REVIEW_DAILY_REQUESTS = 100
 const ALLOWED_HEALTH_COACH_IMAGE_KINDS = new Set(['body', 'meal'])
-const ENFORCE_AI_APP_CHECK = (
-  process.env.ENFORCE_AI_APP_CHECK ?? process.env.ENFORCE_APP_CHECK ?? 'true'
-) === 'true'
 const NUTRITION_FIELDS = ['calories', 'proteinG', 'carbsG', 'fatG', 'fiberG', 'sugarG', 'sodiumMg']
 const TRUSTED_CATALOG_MATCH_SCORE = 0.8
 const ADVISORY_FIELD_NAMES = Object.freeze([
@@ -206,6 +204,7 @@ const foodAnalysisSchema = {
 function requireCaller(request) {
   const uid = request.auth?.uid
   if (!uid) throw new HttpsError('unauthenticated', 'Bạn cần đăng nhập để phân tích món ăn.')
+  requireAiRequestOwner(request, uid)
   return uid
 }
 
@@ -428,8 +427,9 @@ function mealReviewCacheReference(db, uid, cacheKey) {
   return db.doc(`users/${uid}/aiMealReviewCache/${cacheKey}`)
 }
 
-async function readMealReviewCache(db, uid, cacheKey) {
-  const snapshot = await mealReviewCacheReference(db, uid, cacheKey).get()
+async function readMealReviewCache(db, uid, cacheKey, transaction = null) {
+  const reference = mealReviewCacheReference(db, uid, cacheKey)
+  const snapshot = await (transaction ? transaction.get(reference) : reference.get())
   if (!snapshot.exists) return null
   const cached = snapshot.data() ?? {}
   const expiresAt = timestampToMillis(cached.expiresAt)
@@ -521,8 +521,9 @@ function foodVisionCacheReference(db, uid, cacheKey) {
   return db.doc(`users/${uid}/aiFoodVisionCache/${cacheKey}`)
 }
 
-async function readFoodVisionCache(db, uid, cacheKey) {
-  const snapshot = await foodVisionCacheReference(db, uid, cacheKey).get()
+async function readFoodVisionCache(db, uid, cacheKey, transaction = null) {
+  const reference = foodVisionCacheReference(db, uid, cacheKey)
+  const snapshot = await (transaction ? transaction.get(reference) : reference.get())
   if (!snapshot.exists) return null
   const cached = snapshot.data() ?? {}
   const expiresAt = timestampToMillis(cached.expiresAt)
@@ -1450,7 +1451,9 @@ async function requestVisionModel({
   buildRequest,
   extractProviderMessage,
   providerName,
+  providerBudget,
 }) {
+  const timeoutMs = providerBudget ? providerBudget.nextTimeout() : 50000
   let response
   try {
     response = await fetch(
@@ -1466,7 +1469,7 @@ async function requestVisionModel({
           instructions,
           qualityTier,
         })),
-        signal: AbortSignal.timeout(50000),
+        signal: AbortSignal.timeout(timeoutMs),
       },
     )
   } catch (error) {
@@ -1605,6 +1608,7 @@ async function analyzeWithVisionProvider({
   providerName,
   requestVisionModel,
   extractNutritionText,
+  providerBudget,
 }) {
   const context = JSON.stringify({
     mealType,
@@ -1621,7 +1625,8 @@ async function analyzeWithVisionProvider({
     const prompt = qualityTier === 'escalated'
       ? `${basePrompt}\nRe-check ambiguous ingredients, portion scale, hidden oil or sauce, and return the most defensible estimate.`
       : basePrompt
-    const result = await requestVisionModel({
+    let result
+    try { result = await requestVisionModel({
       apiKey,
       buffer,
       contentType,
@@ -1630,7 +1635,11 @@ async function analyzeWithVisionProvider({
       model,
       scanId,
       qualityTier,
-    })
+      providerBudget,
+    }) } catch (error) {
+      if (bestCandidate && error instanceof HttpsError && error.code === 'deadline-exceeded') return bestCandidate.result
+      throw error
+    }
     if (!result.ok) {
       if (bestCandidate) {
         logger.warn('Food vision fallback failed; returning the best validated result.', {
@@ -1802,6 +1811,7 @@ async function generateProviderText({
   deadlineAt,
   perAttemptTimeoutMs = 25000,
   maxModelAttempts,
+  providerBudget,
 }) {
   const selectedModels = Number.isInteger(maxModelAttempts) && maxModelAttempts > 0
     ? models.slice(0, maxModelAttempts)
@@ -1826,7 +1836,7 @@ async function generateProviderText({
             max_tokens: maxOutputTokens,
             ...requestExtras,
           }),
-          signal: AbortSignal.timeout(Math.max(1000, Math.min(perAttemptTimeoutMs, remainingMs - 500))),
+          signal: AbortSignal.timeout(providerBudget ? providerBudget.nextTimeout() : Math.max(1000, Math.min(perAttemptTimeoutMs, remainingMs - 500))),
         },
       )
     } catch (error) {
@@ -1941,7 +1951,9 @@ async function generateNutritionTextWithFallback({
   maxModelAttempts,
   onPrimarySuccess,
   onPrimaryFailure,
+  providerBudget,
 }) {
+  providerBudget ||= createAiProviderBudget({ totalMs: Number.isFinite(deadlineAt) ? Math.max(1, deadlineAt - Date.now()) : 22_000, maxAttempts: maxModelAttempts ? maxModelAttempts * 2 : 3, perAttemptMs: perAttemptTimeoutMs || 10_000 })
   if (!apiKeyFunApiKey && !openRouterApiKey) {
     throw new HttpsError('unavailable', 'Dịch vụ AI đang tạm gián đoạn. Hãy thử lại sau ít phút.')
   }
@@ -1956,6 +1968,7 @@ async function generateNutritionTextWithFallback({
         deadlineAt,
         perAttemptTimeoutMs,
         maxModelAttempts,
+        providerBudget,
       }).then((result) => {
         onPrimarySuccess?.()
         return result
@@ -1981,6 +1994,7 @@ async function generateNutritionTextWithFallback({
     deadlineAt,
     perAttemptTimeoutMs,
     maxModelAttempts,
+    providerBudget,
   })
 }
 
@@ -2851,6 +2865,7 @@ function createDemoResponse(scanId) {
 }
 
 function createNutritionFunctions({ app, db, onCall = defaultOnCall }) {
+  const aiRequests = createNutritionAiRequests({ db })
   const analyzeFoodImage = onCall({
     timeoutSeconds: 120,
     memory: '512MiB',
@@ -2860,10 +2875,16 @@ function createNutritionFunctions({ app, db, onCall = defaultOnCall }) {
     secrets: [APIKEY_FUN_API_KEY, OPENROUTER_API_KEY],
   }, withFunctionTelemetry('analyzeFoodImage', async (request) => {
     const uid = requireCaller(request)
+    requireAiAppCheck(request, ENFORCE_AI_APP_CHECK)
     const input = parseAnalyzeRequest(request.data, uid)
+    const requestId = nutritionAiRequestId(request.data?.requestId, input.scanId)
+    const requestIdentity = { uid, operation: 'foodScan', requestId, fingerprint: requestFingerprint(input) }
+    const replay = await aiRequests.replay(requestIdentity)
+    if (replay) return replay
+    const providerBudget = createAiProviderBudget({ totalMs: 85_000, maxAttempts: 3, perAttemptMs: 30_000 })
     const file = getStorage(app).bucket().file(input.storagePath)
-    let imageRetained = true
     let response
+    let acquired
 
     try {
       const { buffer, contentType } = await readValidatedImage(
@@ -2882,7 +2903,7 @@ function createNutritionFunctions({ app, db, onCall = defaultOnCall }) {
         studentGoal: input.studentGoal,
         studentCondition: input.studentCondition,
       })
-      const cachedResult = await readFoodVisionCache(db, uid, cacheKey).catch((error) => {
+      let cachedResult = await readFoodVisionCache(db, uid, cacheKey).catch((error) => {
         logger.warn('Food vision cache lookup failed; continuing with live analysis.', {
           scanId: input.scanId,
           reason: error instanceof Error ? error.message : 'unknown',
@@ -2891,6 +2912,16 @@ function createNutritionFunctions({ app, db, onCall = defaultOnCall }) {
       })
       const apiKeyFunApiKey = getApiKeyFunApiKey()
       const openRouterApiKey = getOpenRouterApiKey()
+
+      const dailyLimit = !cachedResult && (apiKeyFunApiKey || openRouterApiKey)
+        ? await readFoodScanDailyLimit(db, request, uid) : null
+      acquired = await aiRequests.claim({
+        ...requestIdentity, scopeKey: cacheKey,
+        quota: dailyLimit ? { key: 'foodVision', windowLimit: RATE_LIMIT_WINDOW_REQUESTS, dayLimit: dailyLimit } : null,
+        readCache: cachedResult ? null : transaction => readFoodVisionCache(db, uid, cacheKey, transaction),
+      })
+      if (acquired.response) return acquired.response
+      cachedResult ||= acquired.cache
 
       if (cachedResult) {
         const analysis = await enrichWithNutritionDatabase(db, cachedResult.analysis)
@@ -2915,14 +2946,8 @@ function createNutritionFunctions({ app, db, onCall = defaultOnCall }) {
       } else if (!apiKeyFunApiKey && !openRouterApiKey) {
         response = createDemoResponse(input.scanId)
       } else {
-        const dailyLimit = await readFoodScanDailyLimit(db, request, uid)
-        const rateLimit = await consumeRateLimit(db, uid, dailyLimit)
-        logger.info('Food vision quota consumed.', {
-          scanId: input.scanId,
-          dailyLimit: rateLimit.dailyLimit,
-          dayCount: rateLimit.dayCount,
-          windowCount: rateLimit.windowCount,
-        })
+        await aiRequests.startProvider(acquired)
+        logger.info('Food vision quota claimed.', { scanId: input.scanId, dailyLimit })
         const inferenceOptions = {
           buffer,
           contentType,
@@ -2931,6 +2956,7 @@ function createNutritionFunctions({ app, db, onCall = defaultOnCall }) {
           scanId: input.scanId,
           studentGoal: input.studentGoal,
           studentCondition: input.studentCondition,
+          providerBudget,
         }
         let providerResult
         if (apiKeyFunApiKey) {
@@ -2983,11 +3009,15 @@ function createNutritionFunctions({ app, db, onCall = defaultOnCall }) {
           ],
         }
       }
-    } finally {
+      // Persist the replayable result before deleting its input. A crash during
+      // cleanup cannot turn a completed paid call into an unrecoverable scan.
+      const completed = { ...response, imageRetained: true, analyzedAt: new Date().toISOString() }
+      await aiRequests.complete(acquired, completed)
       if (!input.retainImage) {
         try {
           await file.delete({ ignoreNotFound: true })
-          imageRetained = false
+          completed.imageRetained = false
+          await aiRequests.markImageDeleted(acquired)
         } catch (error) {
           logger.warn('Could not delete a temporary nutrition scan.', {
             scanId: input.scanId,
@@ -2995,12 +3025,10 @@ function createNutritionFunctions({ app, db, onCall = defaultOnCall }) {
           })
         }
       }
-    }
-
-    return {
-      ...response,
-      imageRetained,
-      analyzedAt: new Date().toISOString(),
+      return completed
+    } catch (error) {
+      if (acquired?.acquired) await aiRequests.fail(acquired, error)
+      throw error
     }
   }))
 
@@ -3013,14 +3041,19 @@ function createNutritionFunctions({ app, db, onCall = defaultOnCall }) {
     secrets: [APIKEY_FUN_API_KEY, OPENROUTER_API_KEY],
   }, withFunctionTelemetry('generateMealReview', async (request) => {
     const uid = requireCaller(request)
+    requireAiAppCheck(request, ENFORCE_AI_APP_CHECK)
     const input = normalizeMealReviewRequest(request.data?.meal, request.data?.userProfile)
     const cacheKey = buildMealReviewCacheKey(input)
-    const inFlightKey = `${uid}:${cacheKey}`
+    const requestId = nutritionAiRequestId(request.data?.requestId, cacheKey)
+    const requestIdentity = { uid, operation: 'mealReview', requestId, fingerprint: requestFingerprint(input) }
+    const inFlightKey = `${uid}:${requestId}:${cacheKey}`
     const existing = mealReviewInFlight.get(inFlightKey)
     if (existing) return existing
 
     const pending = (async () => {
-      const cached = await readMealReviewCache(db, uid, cacheKey).catch((error) => {
+      const replay = await aiRequests.replay(requestIdentity)
+      if (replay) return replay
+      let cached = await readMealReviewCache(db, uid, cacheKey).catch((error) => {
         logger.warn('Meal review cache lookup failed; continuing with live generation.', {
           uid,
           cacheKeyPrefix: cacheKey.slice(0, 12),
@@ -3028,15 +3061,9 @@ function createNutritionFunctions({ app, db, onCall = defaultOnCall }) {
         })
         return null
       })
-      if (cached) {
-        logger.info('Meal review cache hit.', { uid, cacheKeyPrefix: cacheKey.slice(0, 12), cacheHit: true })
-        return { ...cached, cacheHit: true }
-      }
-      logger.info('Meal review cache miss.', { uid, cacheKeyPrefix: cacheKey.slice(0, 12), cacheHit: false })
-
       const apiKeyFunApiKey = getApiKeyFunApiKey()
       const openRouterApiKey = getOpenRouterApiKey()
-      if (!apiKeyFunApiKey && !openRouterApiKey) {
+      if (!cached && !apiKeyFunApiKey && !openRouterApiKey) {
         return {
           review: 'Cần cấu hình API key AI trên máy chủ để hệ thống có thể phân tích.',
           provider: 'none',
@@ -3046,27 +3073,41 @@ function createNutritionFunctions({ app, db, onCall = defaultOnCall }) {
         }
       }
 
-      await consumeMealReviewRateLimit(db, uid)
-      const result = await generateNutritionTextWithFallback({
-        apiKeyFunApiKey,
-        openRouterApiKey,
-        prompt: buildMealReviewPrompt(input),
-        maxOutputTokens: 500,
-        operation: 'generateMealReview',
+      const acquired = await aiRequests.claim({
+        ...requestIdentity, scopeKey: cacheKey,
+        quota: cached ? null : { key: 'mealReview', windowLimit: MEAL_REVIEW_RATE_LIMIT_WINDOW_REQUESTS, dayLimit: MEAL_REVIEW_DAILY_REQUESTS },
+        readCache: cached ? null : transaction => readMealReviewCache(db, uid, cacheKey, transaction),
       })
-      await writeMealReviewCache(db, uid, cacheKey, result).catch((error) => {
-        logger.warn('Meal review cache write failed; returning the live result.', {
-          uid,
-          cacheKeyPrefix: cacheKey.slice(0, 12),
-          reason: error instanceof Error ? error.message : 'unknown',
+      if (acquired.response) return acquired.response
+      cached ||= acquired.cache
+      try {
+        if (cached) return await aiRequests.complete(acquired, { ...cached, cacheHit: true })
+        logger.info('Meal review cache miss.', { uid, cacheKeyPrefix: cacheKey.slice(0, 12), cacheHit: false })
+        await aiRequests.startProvider(acquired)
+        const result = await generateNutritionTextWithFallback({
+          apiKeyFunApiKey,
+          openRouterApiKey,
+          prompt: buildMealReviewPrompt(input),
+          maxOutputTokens: 500,
+          operation: 'generateMealReview',
         })
-      })
-      return {
-        review: result.text,
-        provider: result.provider,
-        model: result.model,
-        providerRequestId: result.requestId,
-        cacheHit: false,
+        await writeMealReviewCache(db, uid, cacheKey, result).catch((error) => {
+          logger.warn('Meal review cache write failed; returning the live result.', {
+            uid,
+            cacheKeyPrefix: cacheKey.slice(0, 12),
+            reason: error instanceof Error ? error.message : 'unknown',
+          })
+        })
+        return await aiRequests.complete(acquired, {
+          review: result.text,
+          provider: result.provider,
+          model: result.model,
+          providerRequestId: result.requestId,
+          cacheHit: false,
+        })
+      } catch (error) {
+        await aiRequests.fail(acquired, error)
+        throw error
       }
     })()
     mealReviewInFlight.set(inFlightKey, pending)
@@ -3122,6 +3163,7 @@ function createNutritionFunctions({ app, db, onCall = defaultOnCall }) {
     secrets: [APIKEY_FUN_API_KEY, OPENROUTER_API_KEY],
   }, withFunctionTelemetry('askAiCoach', async (request) => {
     const uid = requireCaller(request)
+    requireAiAppCheck(request, ENFORCE_AI_APP_CHECK)
     const attachment = parseHealthCoachImageAttachment(request.data?.attachment, uid)
     const rawMessage = typeof request.data?.message === 'string' ? request.data.message.trim() : ''
     const message = rawMessage || (attachment?.kind === 'body'
@@ -3142,7 +3184,8 @@ function createNutritionFunctions({ app, db, onCall = defaultOnCall }) {
     try {
       turnClaim = await claimHealthCoachTurn(db, uid, clientTurnId, fingerprint)
     } catch (error) {
-      if (imageFile) await imageFile.delete({ ignoreNotFound: true }).catch(() => undefined)
+      // A failed claim may be a duplicate of a turn still using this image.
+      // Cleanup belongs only to the worker that successfully claimed the turn.
       const urgentResponse = safety.level === 'urgent'
         && error instanceof HttpsError
         && error.code === 'resource-exhausted'

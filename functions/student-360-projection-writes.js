@@ -19,14 +19,16 @@ function atOrBefore(left, right) {
  * while another worker might fail. A later commit must get another rebuild.
  * Deletions have no after.updateTime and deliberately always rebuild.
  */
-async function coalesceProjectionRebuild({ db, studentId, event, rebuild, now = Date.now }) {
+async function coalesceProjectionRebuild({ db, studentId, event, rebuild, now = Date.now, scope = 'full' }) {
   const reference = db.doc(`systemJobs/student360Rebuild/subjects/${studentId}`)
   const token = randomUUID()
-  const version = event.data?.after?.exists ? event.data.after.updateTime : null
+  const version = event?.data?.after?.exists ? event.data.after.updateTime : null
+  const watermark = scope === 'nutrition' ? 'nutritionCoveredThrough' : 'coveredThrough'
   const acquired = await db.runTransaction(async (transaction) => {
     const snapshot = await transaction.get(reference)
     const state = snapshot.data() || {}
-    if (atOrBefore(version, state.coveredThrough)) return null
+    if (atOrBefore(version, state.coveredThrough)
+        || (scope === 'nutrition' && atOrBefore(version, state.nutritionCoveredThrough))) return null
     if (state.leaseUntil?.toMillis() > now()) {
       throw new HttpsError('unavailable', 'Student 360 projection rebuild is already running.')
     }
@@ -39,14 +41,28 @@ async function coalesceProjectionRebuild({ db, studentId, event, rebuild, now = 
     return { coveredThrough: snapshot.readTime || null }
   })
   if (!acquired) return { rebuilt: false, reason: 'covered_by_rebuild' }
+  const lease = {
+    // The token read and every projection/timeline write share a transaction.
+    // A takeover conflicts with this read, so a delayed worker cannot persist
+    // old source data after its successor has acquired the lease.
+    runTransaction: (work) => db.runTransaction(async (transaction) => {
+      const snapshot = await transaction.get(reference)
+      if (snapshot.data()?.token !== token || !(snapshot.data()?.leaseUntil?.toMillis() > now())) {
+        throw new HttpsError('unavailable', 'Projection rebuild lease expired or changed; retry required.')
+      }
+      return work(transaction)
+    }),
+  }
   try {
-    await rebuild()
+    await rebuild(lease)
     await db.runTransaction(async (transaction) => {
       const snapshot = await transaction.get(reference)
       if (snapshot.data()?.token !== token) throw new HttpsError('unavailable', 'Projection rebuild lease changed; retry required.')
       transaction.set(reference, {
         token: null, leaseUntil: null,
-        ...(acquired.coveredThrough ? { coveredThrough: acquired.coveredThrough } : {}),
+        // Partial refreshes cannot acknowledge contract/session/finance
+        // commits which they never read. Both scopes still share one lease.
+        ...(acquired.coveredThrough ? { [watermark]: acquired.coveredThrough } : {}),
       }, { merge: true })
     })
     return { rebuilt: true }
@@ -60,11 +76,11 @@ async function coalesceProjectionRebuild({ db, studentId, event, rebuild, now = 
 }
 
 /** Stable IDs avoid duplicate rows; equality checks also avoid duplicate writes. */
-async function upsertChangedTimeline(db, events) {
+async function upsertChangedTimeline(db, events, lease = null) {
   let changed = 0
   for (let offset = 0; offset < events.length; offset += 100) {
     const chunk = events.slice(offset, offset + 100)
-    changed += await db.runTransaction(async (transaction) => {
+    changed += await (lease ? lease.runTransaction : db.runTransaction.bind(db))(async (transaction) => {
       const references = chunk.map((event) => db.doc(`studentTimelineEvents/${event.id}`))
       const snapshots = await transaction.getAll(...references)
       let writes = 0

@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Activity, CalendarDays, ChevronLeft, ChevronRight, CircleAlert, Database, Droplets, Dumbbell, MoreHorizontal, Plus, Salad, Sparkles, Target, Trash2, Utensils, X } from 'lucide-react'
 import MealImage from '../../components/nutrition/MealImage'
 import type { NutritionDiaryPageProps, NutritionMealEntry, NutritionActivityEntry, NutritionWaterEntry } from './NutritionWorkspace'
@@ -88,6 +88,10 @@ export function NutritionDiaryPage({
   todayKey,
   historyFromDate,
   daySummaries,
+  onPeriodChange,
+  calendarStatus = 'ready',
+  calendarMessage,
+  onReloadCalendar,
   targets,
   meals,
   activities,
@@ -127,6 +131,10 @@ export function NutritionDiaryPage({
   const needsReviewCount = useMemo(() => meals.filter((meal) => meal.reviewStatus === 'pending' || meal.reviewStatus === 'rejected' || meal.confidence !== 'verified').length, [meals])
   const summaryByDate = useMemo(() => new Map(daySummaries.map((item) => [item.date, item])), [daySummaries])
   const visibleDateKeys = diaryPeriodKeys(dateKey, activeView)
+  const fromDate = visibleDateKeys[0] < historyFromDate ? historyFromDate : visibleDateKeys[0]
+  const toDate = visibleDateKeys.at(-1)! > todayKey ? todayKey : visibleDateKeys.at(-1)!
+  useEffect(() => { onPeriodChange?.({ fromDate, toDate, view: activeView }) }, [fromDate, toDate, activeView, onPeriodChange])
+  const periodReady = activeView === 'day' || calendarStatus === 'ready'
   const periodSummary = visibleDateKeys.reduce((result, item) => {
     const summary = summaryByDate.get(item)
     if (!summary) return result
@@ -205,9 +213,11 @@ export function NutritionDiaryPage({
           <button type="button" onClick={() => shiftPeriod(1)} disabled={!canShiftForward} aria-label={activeView === 'day' ? 'Ngày sau' : activeView === 'week' ? 'Tuần sau' : 'Tháng sau'}><ChevronRight size={19} /></button>
         </div>
         <button type="button" className="nutrition-diary-today" onClick={onGoToday} disabled={dateKey === todayKey && activeView === 'day'}><CalendarDays size={17} /> Về hôm nay</button>
+        {activeView !== 'day' && calendarStatus === 'ready' && onReloadCalendar && <button type="button" className="nutrition-diary-today" onClick={onReloadCalendar}>Làm mới nhật ký</button>}
       </section>
 
-      <section className="nutrition-diary-overview" aria-label={`Tóm tắt ${periodLabel}`}>
+      {!periodReady && <div role={calendarStatus === 'error' ? 'alert' : 'status'} className="nutrition-plan-loading"><span>{calendarStatus === 'error' ? calendarMessage || 'Chưa tải đủ nhật ký trong kỳ.' : 'Đang tổng hợp nhật ký trong kỳ…'}</span>{calendarStatus === 'error' && onReloadCalendar && <button type="button" onClick={onReloadCalendar}>Làm mới nhật ký</button>}</div>}
+      {periodReady && <section className="nutrition-diary-overview" aria-label={`Tóm tắt ${periodLabel}`}>
         <div className="nutrition-diary-overview__main">
           <span>{activeView === 'day' ? 'NĂNG LƯỢNG ĐÃ GHI' : 'TỔNG NĂNG LƯỢNG TRONG KỲ'}</span>
           <div><strong>{formatNumber(summaryCalories)}</strong><em>kcal</em></div>
@@ -221,9 +231,9 @@ export function NutritionDiaryPage({
           <div className={summaryReviewCount > 0 ? 'needs-attention' : ''}><span><CircleAlert size={17} /></span><div><small>{activeView === 'day' ? 'Cần kiểm tra' : 'Cần xem lại'}</small><strong>{summaryReviewCount}</strong></div></div>
         </div>
         <div className="nutrition-diary-overview__bar" aria-hidden="true"><span style={{ width: `${overviewProgress}%` }} /></div>
-      </section>
+      </section>}
 
-      {activeView === 'week' && (
+      {activeView === 'week' && periodReady && (
         <section className="nutrition-diary-period-list" aria-label="Nhật ký theo tuần">
           {visibleDateKeys.map((item) => {
             const summary = summaryByDate.get(item)
@@ -233,7 +243,7 @@ export function NutritionDiaryPage({
         </section>
       )}
 
-      {activeView === 'month' && (
+      {activeView === 'month' && periodReady && (
         <section className="nutrition-diary-month" aria-label="Nhật ký theo tháng">
           <div className="nutrition-diary-month__weekdays" aria-hidden="true">{['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'].map((item) => <span key={item}>{item}</span>)}</div>
           <div className="nutrition-diary-month__grid" style={{ '--diary-month-offset': parseDiaryDate(visibleDateKeys[0]).getDay() === 0 ? 7 : parseDiaryDate(visibleDateKeys[0]).getDay() } as React.CSSProperties}>

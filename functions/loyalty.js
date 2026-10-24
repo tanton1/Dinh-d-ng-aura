@@ -251,8 +251,8 @@ function normalizedPolicy(value = {}) {
   }
 }
 
-async function currentPolicy(db) {
-  const settings = await db.doc('loyaltySettings/current').get()
+async function currentPolicy(db, settingsSnapshot = null) {
+  const settings = settingsSnapshot || await db.doc('loyaltySettings/current').get()
   const version = settings.exists && typeof settings.data().activePolicyVersion === 'string'
     ? settings.data().activePolicyVersion
     : LOYALTY_POLICY_VERSION
@@ -801,7 +801,7 @@ async function reconcileAttendanceMissions({ db, attendanceId, value, logger = c
       updatedAt: FieldValue.serverTimestamp(),
     }, { merge: true }),
   ])
-  if (accountUid) await reconcileNutritionReview({ db, reviewId: `attendance-cap-${attendanceId}`, afterValue: { userId: accountUid, createdAt: occurrenceDate }, logger })
+  if (accountUid) await reconcileNutritionReview({ db, reviewId: `attendance-cap-${attendanceId}`, afterValue: { userId: accountUid, createdAt: occurrenceDate }, logger, force: true })
   logger.info?.('Aura Club attendance missions reconciled', { studentId, weekId, weeklyCompleted, weeklyTarget, monthId, monthlyCompleted, streakWeeks })
   return { changed: weeklyResult.changed || monthlyResult.changed || streakResult.changed, weeklyCompleted, weeklyTarget, monthlyCompleted, streakWeeks }
 }
@@ -850,8 +850,43 @@ function nutritionDailySummaries(reviews = []) {
   }))
 }
 
-async function reconcileNutritionReview({ db, reviewId, beforeValue = {}, afterValue = {}, logger = console }) {
-  const value = Object.keys(afterValue || {}).length ? afterValue : beforeValue
+function nutritionLoyaltyChanged(beforeValue = {}, afterValue = {}) {
+  const contribution = value => value?.status === 'approved'
+    ? { accountUid: String(value.userId || '').trim(), day: nutritionDailySummaries([value])[0] || null }
+    : null
+  return JSON.stringify(contribution(beforeValue)) !== JSON.stringify(contribution(afterValue))
+}
+
+async function readAllNutritionRewardDocuments(query, fields, pageSize = 250) {
+  const docs = []
+  let cursor = null
+  while (true) {
+    let page = query.orderBy(FieldPath.documentId()).select(...fields).limit(pageSize)
+    if (cursor) page = page.startAfter(cursor)
+    const snapshot = await page.get()
+    docs.push(...snapshot.docs)
+    if (snapshot.size < pageSize) return { docs, size: docs.length }
+    cursor = snapshot.docs.at(-1)
+  }
+}
+
+async function reconcileNutritionReview({ db, reviewId, beforeValue = {}, afterValue = {}, logger = console, force = false }) {
+  // Feedback/AI copy changes and pending-to-pending edits cannot change rewards.
+  // This guard must run before student lookup, policy reads or ledger scans.
+  if (!force && !nutritionLoyaltyChanged(beforeValue, afterValue)) return { changed: false, skipped: 'unchanged_nutrition_reward' }
+  const affected = new Map()
+  for (const value of [beforeValue, afterValue]) {
+    if (!value?.userId || (!force && value.status !== 'approved')) continue
+    const date = nutritionReviewOccurrence(value)
+    if (date) affected.set(`${value.userId}:${date.slice(0, 7)}`, value)
+  }
+  if (!affected.size) return { changed: false, skipped: 'missing_review_date' }
+  const results = []
+  for (const value of affected.values()) results.push(await reconcileNutritionReviewMonth({ db, reviewId, value, logger }))
+  return { ...results.at(-1), changed: results.some(result => result.changed), reconciledMonths: results.map(result => result.monthId).filter(Boolean) }
+}
+
+async function reconcileNutritionReviewMonth({ db, reviewId, value, logger = console }) {
   const accountUid = String(value.userId || '').trim()
   if (!accountUid) return { changed: false, skipped: 'missing_account_uid' }
   let student
@@ -871,11 +906,20 @@ async function reconcileNutritionReview({ db, reviewId, beforeValue = {}, afterV
   const reviewDate = nutritionReviewOccurrence(value)
   if (!reviewDate) return { changed: false, skipped: 'missing_review_date' }
   const monthId = reviewDate.slice(0, 7)
-  const [reviewsSnapshot, behaviorSourcesSnapshot, policy, settingsSnapshot] = await Promise.all([
-    db.collection('mealReviews').where('userId', '==', accountUid).limit(1000).get(),
-    db.collection('loyaltySourceBalances').where('studentId', '==', student.id).limit(1000).get(),
-    currentPolicy(db),
-    db.doc('loyaltySettings/current').get(),
+  const settingsSnapshot = await db.doc('loyaltySettings/current').get()
+  const [reviewsSnapshot, behaviorSourcesSnapshot, policy] = await Promise.all([
+    // Full approved history is intentional: a rolling four-week window would
+    // award week 5/8 again, instead of only the exact fourth week of a chain.
+    // Legacy rows derive their date from several fields, so date pushdown needs
+    // a verified canonical-date backfill before it is safe.
+    readAllNutritionRewardDocuments(db.collection('mealReviews').where('userId', '==', accountUid).where('status', '==', 'approved'),
+      ['userId', 'status', 'meal.mealDate', 'meal.date', 'meal.calories', 'meal.totalKcal', 'meal.protein', 'meal.totalProtein',
+        'meal.totals.calories', 'meal.totals.protein', 'meal.targetKcal', 'meal.targetProtein', 'meal.targetSnapshot.calories', 'meal.targetSnapshot.protein',
+        'totalKcal', 'totalProtein', 'targetKcal', 'targetProtein', 'createdAt', 'reviewedAt']),
+    readAllNutritionRewardDocuments(db.collection('loyaltySourceBalances').where('studentId', '==', student.id)
+      .where('sourceType', 'in', ['nutrition', 'attendance', 'attendance_mission', 'attendance_streak']),
+      ['sourceKey', 'sourceType', 'sourceId', 'monthId', 'occurrenceDate', 'state', 'targetPoints']),
+    currentPolicy(db, settingsSnapshot),
   ])
   const launchDate = settingsSnapshot.exists ? storedDateKey(settingsSnapshot.data().launchDate) : ''
   const approvedAll = reviewsSnapshot.docs
@@ -2612,6 +2656,8 @@ module.exports = {
   findStudentForUid,
   occursOnOrAfterLaunch,
   nutritionDailySummaries,
+  nutritionLoyaltyChanged,
+  readAllNutritionRewardDocuments,
   publicAccount,
   reconcileAttendance,
   reconcileAttendanceMissions,

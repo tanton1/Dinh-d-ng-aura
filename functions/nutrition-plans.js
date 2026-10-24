@@ -8,6 +8,7 @@ const {
 } = require('./openrouter')
 const { nutritionQuality, NUTRITION_FORMULA_VERSION } = require('./nutrition-core.mjs')
 const { planItemIssues, validatePlanDays, serverPlanProfile } = require('./nutrition-plan-policy')
+const { ENFORCE_AI_APP_CHECK, requireAiAppCheck, requireAiRequestOwner, nutritionAiRequestId, requestFingerprint, createNutritionAiRequests, createAiProviderBudget } = require('./nutrition-ai-requests')
 
 const PLAN_STATUS = new Set(['draft', 'active'])
 const MEAL_TYPES = new Set(['breakfast', 'lunch', 'snack', 'dinner'])
@@ -407,6 +408,7 @@ function applyGeminiPlanChoices(days, items, choices, input) {
 async function optimizePlanWithGemini(days, items, input) {
   const apiKey = getOpenRouterApiKey()
   if (!apiKey) return { days, assisted: false }
+  const budget = createAiProviderBudget({ totalMs: 30_000, maxAttempts: 2, perAttemptMs: 12_000 })
   const result = await requestOpenRouterStructured({
     apiKey,
     prompt: buildGeminiPlanPrompt(items, days, input),
@@ -419,6 +421,7 @@ async function optimizePlanWithGemini(days, items, input) {
       fallbackModelEnv: process.env.OPENROUTER_TEXT_FALLBACK_MODEL || 'google/gemini-3.6-flash',
     }),
     timeoutMs: 22000,
+    fetchImpl: (url, options) => fetch(url, { ...options, signal: AbortSignal.any([options.signal, AbortSignal.timeout(budget.nextTimeout())]) }),
   })
   return applyGeminiPlanChoices(days, items, result.data?.choices, input)
 }
@@ -543,6 +546,7 @@ function normalizeMutationInput(value) {
 }
 
 function createNutritionPlanFunctions({ db, onCall, requireStudent }) {
+  const aiRequests = createNutritionAiRequests({ db })
   const getMyNutritionPlanWorkspace = onCall({ cpu: 'gcf_gen1', maxInstances: 3 }, async (request) => {
     const userId = await requireStudent(request)
     const weekStart = validateWeekStart(request.data?.weekStart)
@@ -578,64 +582,91 @@ function createNutritionPlanFunctions({ db, onCall, requireStudent }) {
     }
   })
 
-  const generateMyNutritionPlanDraft = onCall({ cpu: 'gcf_gen1', maxInstances: 2, timeoutSeconds: 120, memory: '512MiB', secrets: [OPENROUTER_API_KEY] }, async (request) => {
+  const generateMyNutritionPlanDraft = onCall({ cpu: 'gcf_gen1', maxInstances: 2, timeoutSeconds: 120, memory: '512MiB', enforceAppCheck: ENFORCE_AI_APP_CHECK, secrets: [OPENROUTER_API_KEY] }, async (request) => {
     const userId = await requireStudent(request)
+    requireAiRequestOwner(request, userId)
+    requireAiAppCheck(request)
     const weekStart = validateWeekStart(request.data?.weekStart)
     const expectedRevision = Math.max(0, Math.trunc(Number(request.data?.expectedRevision) || 0))
-    const { profile, targets } = await serverPlanProfile(db, userId)
-    const calorieGoal = targets.targetCaloriesKcal
-    const proteinGoal = targets.proteinG
-    const mealsPerDay = Math.min(5, Math.max(3, Math.trunc(Number(profile.mealsPerDay) || 3)))
-    const catalog = await loadPlanCatalog(db)
-    if (!catalog.items.length) throw new HttpsError('failed-precondition', 'Chưa có món đủ kcal, macro và khẩu phần chuẩn để tự tạo kế hoạch. Thư viện tham khảo và thực đơn đã xác nhận vẫn được giữ. Cần admin đối soát khẩu phần nguồn.')
-    const generationInput = { userId, weekStart, calorieGoal, proteinGoal, carbGoal: targets.carbsG, fatGoal: targets.fatG, mealsPerDay, profile }
-    if (!catalog.items.some((item) => !planItemIssues(item, profile).length)) throw new HttpsError('failed-precondition', 'Chưa có món đã xác minh phù hợp dị ứng/chế độ ăn của bạn. Cần chuyên gia chuẩn bị thực đơn.')
-    let days = generatePlanDays(catalog.items, generationInput)
-    let planner = 'catalog'
-    if (request.data?.aiAssist !== false) {
-      try {
-        const optimized = await optimizePlanWithGemini(days, catalog.items, generationInput)
-        if (optimized.assisted) {
-          days = optimized.days
-          planner = 'gemini'
-        }
-      } catch (error) {
-        // The catalog planner remains the safe source of truth if Gemini is
-        // unavailable, rate-limited or returns an unusable choice set.
-        console.warn('Gemini nutrition plan assist unavailable:', error?.message || error)
-      }
-    }
-    const validationIssues = validatePlanDays(days, generationInput)
+    const aiAssist = request.data?.aiAssist !== false
+    const fingerprint = requestFingerprint({ weekStart, expectedRevision, aiAssist })
+    const requestId = nutritionAiRequestId(request.data?.requestId, fingerprint)
     const reference = db.doc(`users/${userId}/nutritionPlanDrafts/${weekStart}`)
-    let saved = null
-    await db.runTransaction(async (transaction) => {
-      const existing = await transaction.get(reference)
-      const currentRevision = existing.exists ? Number(existing.data()?.revision) || 0 : 0
-      if (currentRevision !== expectedRevision) {
-        throw new HttpsError('aborted', 'Kế hoạch đã thay đổi ở nơi khác. Hãy tải lại rồi tạo lại.')
-      }
-      const revision = currentRevision + 1
-      saved = {
-        schemaVersion: 1,
-        weekStart,
-        status: 'draft',
-        revision,
-        source: 'aura-catalog',
-        sourceTitle: planner === 'gemini'
-          ? `Gemini hỗ trợ · ${catalog.items.length} món đủ dữ liệu`
-          : `Gợi ý từ ${catalog.items.length} món đủ dữ liệu`,
-        planner,
-        targets: { calories: calorieGoal, protein: proteinGoal, carbs: targets.carbsG, fat: targets.fatG, mealsPerDay, formulaVersion: NUTRITION_FORMULA_VERSION },
-        validationIssues,
-        profileSnapshot: profile,
-        catalogVersion: catalog.version,
-        days,
-        createdAt: existing.exists ? existing.data()?.createdAt : FieldValue.serverTimestamp(),
-        updatedAt: FieldValue.serverTimestamp(),
-      }
-      transaction.set(reference, saved)
+    const shouldCallProvider = aiAssist && Boolean(getOpenRouterApiKey())
+    const acquired = await aiRequests.claim({
+      uid: userId, operation: 'nutritionPlan', requestId, fingerprint, scopeKey: weekStart,
+      quota: shouldCallProvider ? { key: 'nutritionPlan', windowLimit: 3, dayLimit: 6 } : null,
+      guard: async transaction => {
+        const existing = await transaction.get(reference)
+        const revision = existing.exists ? Number(existing.data()?.revision) || 0 : 0
+        if (revision !== expectedRevision) throw new HttpsError('aborted', 'Kế hoạch đã thay đổi ở nơi khác. Hãy tải lại rồi tạo lại.')
+      },
     })
-    return { plan: publicPlan(saved) }
+    if (acquired.response) return acquired.response
+    try {
+      const { profile, targets } = await serverPlanProfile(db, userId)
+      const profileFingerprint = requestFingerprint({ profile, targets })
+      const calorieGoal = targets.targetCaloriesKcal
+      const proteinGoal = targets.proteinG
+      const mealsPerDay = Math.min(5, Math.max(3, Math.trunc(Number(profile.mealsPerDay) || 3)))
+      const catalog = await loadPlanCatalog(db)
+      if (!catalog.items.length) throw new HttpsError('failed-precondition', 'Chưa có món đủ kcal, macro và khẩu phần chuẩn để tự tạo kế hoạch. Thư viện tham khảo và thực đơn đã xác nhận vẫn được giữ. Cần admin đối soát khẩu phần nguồn.')
+      const generationInput = { userId, weekStart, calorieGoal, proteinGoal, carbGoal: targets.carbsG, fatGoal: targets.fatG, mealsPerDay, profile }
+      if (!catalog.items.some((item) => !planItemIssues(item, profile).length)) throw new HttpsError('failed-precondition', 'Chưa có món đã xác minh phù hợp dị ứng/chế độ ăn của bạn. Cần chuyên gia chuẩn bị thực đơn.')
+      let days = generatePlanDays(catalog.items, generationInput)
+      let planner = 'catalog'
+      if (shouldCallProvider) {
+        await aiRequests.startProvider(acquired)
+        try {
+          const optimized = await optimizePlanWithGemini(days, catalog.items, generationInput)
+          if (optimized.assisted) {
+            days = optimized.days
+            planner = 'gemini'
+          }
+        } catch (error) {
+          // The catalog planner remains the safe source of truth if Gemini is
+          // unavailable, rate-limited or returns an unusable choice set.
+          console.warn('Gemini nutrition plan assist unavailable:', error?.message || error)
+        }
+      }
+      const validationIssues = validatePlanDays(days, generationInput)
+      let saved = null
+      await db.runTransaction(async (transaction) => {
+        await aiRequests.assertOwner(transaction, acquired)
+        const existing = await transaction.get(reference)
+        const currentRevision = existing.exists ? Number(existing.data()?.revision) || 0 : 0
+        if (currentRevision !== expectedRevision) {
+          throw new HttpsError('aborted', 'Kế hoạch đã thay đổi ở nơi khác. Hãy tải lại rồi tạo lại.')
+        }
+        const latestProfile = await serverPlanProfile(db, userId, transaction)
+        if (requestFingerprint(latestProfile) !== profileFingerprint) throw new HttpsError('aborted', 'Hồ sơ dinh dưỡng đã thay đổi. Hãy tạo lại thực đơn theo hồ sơ mới.')
+        const revision = currentRevision + 1
+        saved = {
+          schemaVersion: 1,
+          weekStart,
+          status: 'draft',
+          revision,
+          source: 'aura-catalog',
+          sourceTitle: planner === 'gemini'
+            ? `Gemini hỗ trợ · ${catalog.items.length} món đủ dữ liệu`
+            : `Gợi ý từ ${catalog.items.length} món đủ dữ liệu`,
+          planner,
+          targets: { calories: calorieGoal, protein: proteinGoal, carbs: targets.carbsG, fat: targets.fatG, mealsPerDay, formulaVersion: NUTRITION_FORMULA_VERSION },
+          validationIssues,
+          profileSnapshot: profile,
+          catalogVersion: catalog.version,
+          days,
+          createdAt: existing.data()?.createdAt || FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
+        }
+        transaction.set(reference, saved)
+        aiRequests.writeCompletion(transaction, acquired, { plan: publicPlan(saved) })
+      })
+      return { plan: publicPlan(saved) }
+    } catch (error) {
+      await aiRequests.fail(acquired, error)
+      throw error
+    }
   })
 
   const mutateMyNutritionPlanMeal = onCall({ cpu: 'gcf_gen1', maxInstances: 3 }, async (request) => {

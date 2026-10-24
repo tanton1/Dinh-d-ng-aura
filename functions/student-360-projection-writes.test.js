@@ -92,6 +92,31 @@ test('500 check-ins with eight same-commit mirrors require 500 rather than 4000 
   assert.equal(db.data.size, 500, 'bounded one watermark document per learner')
 })
 
+test('nutrition refresh shares the lease but cannot cover an unrelated full-source event', async () => {
+  const db = memoryDb()
+  await coalesceProjectionRebuild({ db, studentId: 'a', event: eventAt(999), rebuild: async () => {} })
+  db.time = 3000
+  const partial = () => coalesceProjectionRebuild({ db, studentId: 'a', event: eventAt(2000), scope: 'nutrition', rebuild: async () => {} })
+  assert.equal((await partial()).rebuilt, true)
+  const state = db.data.get('systemJobs/student360Rebuild/subjects/a')
+  assert.equal(state.coveredThrough.toMillis(), 1000)
+  assert.equal(state.nutritionCoveredThrough.toMillis(), 3000)
+  assert.equal((await partial()).rebuilt, false)
+  assert.equal((await coalesceProjectionRebuild({ db, studentId: 'a', event: eventAt(2500), rebuild: async () => {} })).rebuilt, true)
+})
+
+test('an in-flight nutrition refresh blocks full rebuilds through the same lease', async () => {
+  const db = memoryDb()
+  let release
+  const gate = new Promise((resolve) => { release = resolve })
+  const partial = coalesceProjectionRebuild({ db, studentId: 'a', event: eventAt(999), scope: 'nutrition', rebuild: () => gate })
+  await new Promise((resolve) => setImmediate(resolve))
+  await assert.rejects(coalesceProjectionRebuild({ db, studentId: 'a', event: eventAt(999), rebuild: async () => {} }), { code: 'unavailable' })
+  release()
+  await partial
+  assert.equal(db.data.get('systemJobs/student360Rebuild/subjects/a').coveredThrough, undefined)
+})
+
 function usageEvent(before, after, collection = 'contractUsageViews') {
   const snapshot = (data) => ({ exists: data !== null, data: () => data, ref: { parent: { id: collection } } })
   return { params: { contractId: 'contract-a' }, data: { before: snapshot(before), after: snapshot(after) } }

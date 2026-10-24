@@ -8,6 +8,7 @@ export interface DailyNutritionCacheEntry {
 
 const cache = new Map<string, DailyNutritionCacheEntry>()
 const CACHE_TTL_MS = 5 * 60 * 1000
+const MAX_CACHE_DAYS = 90
 
 function key(ownerId: string, date: string) {
   return `${ownerId}:${date}`
@@ -28,6 +29,8 @@ export function writeDailyNutritionCache(
   date: string,
   update: Partial<Pick<DailyNutritionCacheEntry, 'meals' | 'water'>>,
 ) {
+  for (const [storedKey, entry] of cache) if (Date.now() - entry.updatedAt > CACHE_TTL_MS) cache.delete(storedKey)
+  if (!cache.has(key(ownerId, date)) && cache.size >= MAX_CACHE_DAYS) cache.delete(cache.keys().next().value!)
   const previous = cache.get(key(ownerId, date))
   cache.set(key(ownerId, date), {
     meals: update.meals ?? previous?.meals ?? [],

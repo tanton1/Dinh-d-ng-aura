@@ -77,19 +77,32 @@ export function useNutritionAssistantController({
   const [assistantMessages, setAssistantMessages] = useState<AuraAssistantMessage[]>([])
   const [assistantLoading, setAssistantLoading] = useState(false)
   const assistantImageUrlsRef = useRef(new Set<string>())
+  const requestScope = useRef({ key: resetKey, generation: 0 })
+  const pendingGeneration = useRef<number | null>(null)
+  if (requestScope.current.key !== resetKey) {
+    requestScope.current = { key: resetKey, generation: requestScope.current.generation + 1 }
+    pendingGeneration.current = null
+  }
 
   useEffect(() => () => {
+    requestScope.current.generation++
     assistantImageUrlsRef.current.forEach((url) => URL.revokeObjectURL(url))
     assistantImageUrlsRef.current.clear()
   }, [])
 
   useEffect(() => {
+    assistantImageUrlsRef.current.forEach((url) => URL.revokeObjectURL(url))
+    assistantImageUrlsRef.current.clear()
     setAssistantMessages([])
     setAssistantLoading(false)
   }, [resetKey])
 
   const nutritionTargets = { configured: nutritionTargetsConfigured }
 const submitAssistantQuestion = async (question: string, attachment?: AuraAssistantImageAttachment) => {
+    const generation = requestScope.current.generation
+    if (pendingGeneration.current === generation || (!question.trim() && !attachment)) return
+    pendingGeneration.current = generation
+    const current = () => requestScope.current.generation === generation
     const imagePreviewUrl = attachment ? URL.createObjectURL(attachment.file) : undefined
     if (imagePreviewUrl) assistantImageUrlsRef.current.add(imagePreviewUrl)
     const userMessage: AuraAssistantMessage = {
@@ -105,7 +118,9 @@ const submitAssistantQuestion = async (question: string, attachment?: AuraAssist
       if (attachment) {
         const { askAiCoachDetailed, uploadAiCoachPhoto } = await import('../../services/nutritionService')
         const uploaded = await uploadAiCoachPhoto(attachment.file, attachment.kind)
+        if (!current()) return
         const response = await askAiCoachDetailed(question, 'nutrition-assistant', uploaded)
+        if (!current()) return
         setAssistantMessages((current) => [...current, {
           id: `aura-assistant-${Date.now()}`,
           role: 'assistant',
@@ -222,6 +237,7 @@ const submitAssistantQuestion = async (question: string, attachment?: AuraAssist
           if (!availableCatalog.length) {
             try {
               availableCatalog = await loadNutritionCatalog()
+              if (!current()) return
               setCatalogSnapshot(availableCatalog)
             } catch {
               availableCatalog = []
@@ -279,6 +295,7 @@ const submitAssistantQuestion = async (question: string, attachment?: AuraAssist
         evidence = ['Aura AI dùng apikey.fun; OpenRouter chỉ chạy dự phòng khi nhà cung cấp chính lỗi']
         confidenceLabel = 'AI Generated'
       }
+      if (!current()) return
       setAssistantMessages((current) => [...current, {
         id: `aura-assistant-${Date.now()}`,
         role: 'assistant',
@@ -287,6 +304,7 @@ const submitAssistantQuestion = async (question: string, attachment?: AuraAssist
         confidenceLabel,
       }])
     } catch {
+      if (!current()) return
       setAssistantMessages((current) => [...current, {
         id: `aura-assistant-error-${Date.now()}`,
         role: 'assistant',
@@ -295,7 +313,10 @@ const submitAssistantQuestion = async (question: string, attachment?: AuraAssist
         confidenceLabel: 'Chưa thể phân tích',
       }])
     } finally {
-      setAssistantLoading(false)
+      if (current()) {
+        pendingGeneration.current = null
+        setAssistantLoading(false)
+      }
     }
   }
 

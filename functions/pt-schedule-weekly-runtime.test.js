@@ -244,7 +244,10 @@ test('weekly runtime selection is exact, runtime-only and has no request-control
 
 test('normal, unknown-target and control-API discovery expose the unchanged complete manifest', () => {
   const baseline = probe()
-  assert.equal(baseline.exportNames.length, 535)
+  assert.equal(baseline.exportNames.length, 540)
+  for (const name of ['getMyNutritionJournalSummary', 'syncNutritionMealDailySummary', 'syncNutritionWaterDailySummary', 'syncNutritionActivityDailySummary', 'syncNutritionReminderSchedule']) {
+    assert.ok(baseline.exportNames.includes(name))
+  }
   for (const source of ['Ledger', 'Attendance', 'Session', 'Contract', 'Student']) {
     assert.ok(baseline.exportNames.includes(`syncOps${source}DailyAggregateRegional`))
     assert.equal(baseline.exportNames.includes(`syncOperations${source}DailyAggregate`), false)

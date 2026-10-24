@@ -73,3 +73,70 @@ test('uncertain mutation requires a successful refresh before another write', as
   await expect(page.getByRole('button', { name: 'Duyệt bữa ăn' })).toBeEnabled()
   expect(await page.evaluate(() => (window as any).reviewTest.writes.length)).toBe(1)
 })
+
+test('page filters do not reload summary and coach directory loads only on demand', async ({ page }) => {
+  await page.goto('/tests/nutrition-review-ui/index.html')
+  await expect(page.locator('.nrw-review-card')).toHaveCount(2)
+  expect(await page.evaluate(() => (window as any).reviewTest.reads[0].section)).toBe('page')
+  expect(await page.evaluate(() => (window as any).reviewTest.summaryReads.length)).toBe(1)
+  expect(await page.evaluate(() => (window as any).reviewTest.directoryReads.length)).toBe(0)
+  await page.getByRole('button', { name: /^Đã duyệt/ }).click()
+  await expect(page.locator('.nrw-review-card')).toHaveCount(0)
+  expect(await page.evaluate(() => (window as any).reviewTest.summaryReads.length)).toBe(1)
+  await page.getByRole('combobox', { name: 'Lọc HLV chăm dinh dưỡng' }).focus()
+  await expect.poll(() => page.evaluate(() => (window as any).reviewTest.directoryReads.length)).toBe(1)
+  await page.getByRole('textbox', { name: 'Tìm học viên hoặc món ăn' }).focus()
+  await page.getByRole('combobox', { name: 'Lọc HLV chăm dinh dưỡng' }).focus()
+  expect(await page.evaluate(() => (window as any).reviewTest.directoryReads.length)).toBe(1)
+})
+
+test('summary failure leaves the page usable and retries only summary', async ({ page }) => {
+  await page.goto('/tests/nutrition-review-ui/index.html')
+  await expect(page.locator('.nrw-review-card')).toHaveCount(2)
+  await page.evaluate(() => {
+    (window as any).reviewTest.failSummary = true
+    ;(window as any).reviewAuth.change('coach-1', 2)
+  })
+  await expect(page.getByRole('button', { name: 'Tải lại tổng quan' })).toBeVisible()
+  await expect(page.locator('.nrw-review-card')).toHaveCount(2)
+  const reads = await page.evaluate(() => (window as any).reviewTest.reads.length)
+  await page.getByRole('button', { name: 'Tải lại tổng quan' }).click()
+  await expect(page.getByRole('button', { name: 'Tải lại tổng quan' })).toHaveCount(0)
+  expect(await page.evaluate(() => (window as any).reviewTest.reads.length)).toBe(reads)
+})
+
+test('same-account authority change discards the previous pending response', async ({ page }) => {
+  await page.goto('/tests/nutrition-review-ui/index.html')
+  await expect(page.locator('.nrw-review-card')).toHaveCount(2)
+  await page.evaluate(() => { (window as any).reviewTest.holdRead = true; (window as any).reviewTest.readName = 'Dữ liệu quyền cũ' })
+  await page.getByRole('button', { name: 'Làm mới' }).click()
+  await page.evaluate(() => {
+    const control = (window as any).reviewTest
+    ;(window as any).releaseOldReview = control.releaseRead
+    control.holdRead = false
+    control.readName = 'Dữ liệu quyền mới'
+    ;(window as any).reviewAuth.change('coach-1', 3)
+  })
+  await expect(page.locator('.nrw-review-card').first()).toContainText('Dữ liệu quyền mới')
+  await page.evaluate(() => (window as any).releaseOldReview())
+  await expect(page.locator('.nrw-review-card').first()).toContainText('Dữ liệu quyền mới')
+  await expect(page.getByText('Dữ liệu quyền cũ')).toHaveCount(0)
+})
+
+test('mutation summary refresh supersedes a manual refresh that started before the write', async ({ page }) => {
+  await page.goto('/tests/nutrition-review-ui/index.html')
+  await expect(page.locator('.nrw-review-card')).toHaveCount(2)
+  await page.evaluate(() => { (window as any).reviewTest.holdSummary = true })
+  await page.getByRole('button', { name: 'Làm mới' }).click()
+  await expect(page.getByRole('button', { name: 'Làm mới' })).toBeEnabled()
+  await page.evaluate(() => {
+    (window as any).releaseOldSummary = (window as any).reviewTest.releaseSummary
+    ;(window as any).reviewTest.holdSummary = false
+  })
+  await page.getByRole('button', { name: 'Viết nhận xét' }).click()
+  await page.getByRole('textbox', { name: 'Nhận xét dành riêng cho học viên', exact: true }).fill('Khẩu phần đã kiểm tra kỹ.')
+  await page.getByRole('button', { name: 'Duyệt bữa ăn' }).click()
+  await expect(page.locator('.nrw-kpis article').first().locator('strong')).toHaveText('1')
+  await page.evaluate(() => (window as any).releaseOldSummary())
+  await expect(page.locator('.nrw-kpis article').first().locator('strong')).toHaveText('1')
+})

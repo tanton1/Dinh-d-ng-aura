@@ -25,11 +25,13 @@ test('metadata reads never resolve all image URLs before returning totals', () =
   assert.match(image, /useMealImage\(image, storagePath, visible\)/)
 })
 
-test('opening diary does not disable day subscriptions', () => {
+test('day diary keeps scoped live details while calendar summaries do not merge stale raw history', () => {
   const source = readFileSync('src/pages/student/NutritionPageController.tsx', 'utf8')
   assert.doesNotMatch(source, /coveredByRecentSubscription/)
-  assert.match(source, /mergeJournalHistory<MealLog>/)
-  assert.match(source, /\[isDemo, resolvedOwnerId, selectedDate\]/)
+  assert.doesNotMatch(source, /historySyncStarted/)
+  assert.match(source, /subscribeToUserMealLogsForDate\(resolvedOwnerId, selectedDate/)
+  assert.match(source, /\[isDemo, resolvedOwnerId, selectedDate, dayReadEnabled, authorityKey, dayReloadToken\]/)
+  assert.match(source, /getMyNutritionJournalSummary\(resolvedOwnerId, fromDate, toDate, authorityKey, forceRefresh/)
 })
 
 test('progress reads the selected period without Academy data', () => {

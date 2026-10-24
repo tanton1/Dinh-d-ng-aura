@@ -6,6 +6,8 @@ import {
   type InternalNutritionCatalogQuery,
 } from '../../services/internalNutritionCatalogService'
 import { findNutritionDetailRecord } from './catalogDetailParser'
+import { firebaseAuth } from '../../lib/firebase'
+import { runKeyedSingleFlight } from '../../utils/singleFlight'
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null
@@ -65,7 +67,9 @@ export interface NutritionCatalogPage {
 }
 
 const CATALOG_PAGE_CACHE_MS = 2 * 60 * 1000
+const MAX_CATALOG_PAGES = 40
 const catalogRequests = new Map<string, { expiresAt: number; request: Promise<NutritionCatalogPage> }>()
+const detailRequests = new Map<string, Promise<NutritionFoodDetailRecord>>()
 
 function isRetryableCatalogError(error: unknown) {
   if (!error || typeof error !== 'object') return false
@@ -82,7 +86,8 @@ function waitForCatalogRetry() {
   })
 }
 
-async function requestCatalogPage(input: InternalNutritionCatalogQuery) {
+async function requestCatalogPage(input: InternalNutritionCatalogQuery, ownerId: string) {
+  if ((firebaseAuth?.currentUser?.uid ?? '') !== ownerId) throw new Error('Phiên đăng nhập đã thay đổi.')
   try {
     return await listInternalNutritionCatalog(input)
   } catch (error) {
@@ -91,12 +96,16 @@ async function requestCatalogPage(input: InternalNutritionCatalogQuery) {
     // multiplying requests during a persistent outage.
     if (!isRetryableCatalogError(error)) throw error
     await waitForCatalogRetry()
+    if ((firebaseAuth?.currentUser?.uid ?? '') !== ownerId) throw error
     return listInternalNutritionCatalog(input)
   }
 }
 
 export function loadNutritionCatalogPage(input: InternalNutritionCatalogQuery = {}) {
+  const ownerId = firebaseAuth?.currentUser?.uid ?? ''
+  for (const [storedKey, entry] of catalogRequests) if (entry.expiresAt <= Date.now()) catalogRequests.delete(storedKey)
   const key = JSON.stringify({
+    ownerId,
     query: input.query?.trim() ?? '',
     kind: input.kind ?? 'all',
     category: input.category?.trim() ?? '',
@@ -109,7 +118,8 @@ export function loadNutritionCatalogPage(input: InternalNutritionCatalogQuery = 
   if (cached && cached.expiresAt > Date.now()) return cached.request
   if (cached) catalogRequests.delete(key)
   if (!catalogRequests.has(key)) {
-    const request = requestCatalogPage(input).then((payload) => {
+    if (catalogRequests.size >= MAX_CATALOG_PAGES) catalogRequests.delete(catalogRequests.keys().next().value!)
+    const request = requestCatalogPage(input, ownerId).then((payload) => {
       if (!Array.isArray(payload.items)) throw new Error('catalog_response_invalid')
       const legacyTotal = Number.isInteger(payload.totalCount) && payload.totalCount >= 0 ? payload.totalCount : 0
       const catalogTotal = typeof payload.catalogTotal === 'number' && Number.isInteger(payload.catalogTotal) && payload.catalogTotal >= 0
@@ -131,7 +141,7 @@ export function loadNutritionCatalogPage(input: InternalNutritionCatalogQuery = 
           : [],
       }
     }).catch((error: unknown) => {
-      catalogRequests.delete(key)
+      if (catalogRequests.get(key)?.request === request) catalogRequests.delete(key)
       throw error
     })
     catalogRequests.set(key, { expiresAt: Date.now() + CATALOG_PAGE_CACHE_MS, request })
@@ -145,13 +155,20 @@ export function loadNutritionCatalog(input: InternalNutritionCatalogQuery = {}) 
 
 export function resetNutritionCatalog() {
   catalogRequests.clear()
+  detailRequests.clear()
 }
 
-export async function loadNutritionCatalogDetail(id: string): Promise<NutritionFoodDetailRecord> {
-  const payload = await getInternalNutritionCatalogItem(id)
-  const record = findNutritionDetailRecord(payload, id)
-  if (!record) throw new Error('catalog_detail_invalid')
-  return record as NutritionFoodDetailRecord
+export function loadNutritionCatalogDetail(id: string): Promise<NutritionFoodDetailRecord> {
+  const ownerId = firebaseAuth?.currentUser?.uid ?? ''
+  const key = JSON.stringify([ownerId, id])
+  if (!detailRequests.has(key) && detailRequests.size >= 64) detailRequests.delete(detailRequests.keys().next().value!)
+  return runKeyedSingleFlight(detailRequests, key, async () => {
+    if ((firebaseAuth?.currentUser?.uid ?? '') !== ownerId) throw new Error('Phiên đăng nhập đã thay đổi.')
+    const payload = await getInternalNutritionCatalogItem(id)
+    const record = findNutritionDetailRecord(payload, id)
+    if (!record) throw new Error('catalog_detail_invalid')
+    return record as NutritionFoodDetailRecord
+  })
 }
 
 export function toFoodDetailSummary(food: NutritionFoodCatalogItem): NutritionFoodDetailSummary {

@@ -83,8 +83,11 @@ const { createBranchManagementFunctions } = require('./branch-management')
 const { buildStudent360Projection, createStudent360Functions, mondayDateKey, reconcileStudent360ProjectionBatch, syncStudent360ProjectionFromEvent } = require('./student-360')
 const { coalesceProjectionRebuild } = require('./student-360-projection-writes')
 const { syncWorkspaceChangesFromEvent } = require('./workspace-change-signals')
-const { loggedMealSlots } = require('./meal-reminder-policy')
 const { refreshMealReviewActions } = require('./nutrition-review-maintenance')
+const { createNutritionSummaryFunctions, syncNutritionDailySummary } = require('./nutrition-daily-summary')
+const { callableAppCheckPolicy } = require('./callable-app-check-policy')
+const { cleanupNutritionImages } = require('./nutrition-retention')
+const { syncReminderSchedule, seedReminderSchedules, loadDueReminderUsers, advanceReminderSchedules, scheduleFingerprint, loggedSlotsForDate, scheduledNotificationCount, slotsAtReminderTime } = require('./nutrition-reminder-schedule')
 
 const app = initializeApp()
 // Keep callable writes on the same named database used by the production web app.
@@ -110,27 +113,7 @@ function configuredRealtimeDatabase() {
 const realtimeDb = configuredRealtimeDatabase()
 
 async function cleanupStaleNutritionScanImages(now = Date.now()) {
-  const [files] = await storage.bucket().getFiles({
-    prefix: 'nutrition-scans/',
-    maxResults: 500,
-    autoPaginate: false,
-  })
-  const cutoff = now - 24 * 60 * 60 * 1000
-  const staleFiles = files.filter((file) => {
-    const purpose = file.metadata?.metadata?.purpose
-    const createdAt = Date.parse(file.metadata?.timeCreated || file.metadata?.updated || '')
-    return ['food-analysis', 'ai-coach-body', 'ai-coach-meal'].includes(purpose)
-      && Number.isFinite(createdAt)
-      && createdAt <= cutoff
-  })
-  let deletedImages = 0
-  for (let offset = 0; offset < staleFiles.length; offset += 20) {
-    const results = await Promise.allSettled(
-      staleFiles.slice(offset, offset + 20).map((file) => file.delete({ ignoreNotFound: true })),
-    )
-    deletedImages += results.filter((result) => result.status === 'fulfilled').length
-  }
-  return { scannedImages: files.length, deletedImages }
+  return cleanupNutritionImages({ db, bucket: storage.bucket(), now })
 }
 
 exports.syncContractUsageView = onDocumentWritten({
@@ -414,7 +397,7 @@ function onCall(optionsOrHandler, maybeHandler) {
     // validate those credentials.
     return firebaseOnCall({ enforceAppCheck, invoker: 'public' }, optionsOrHandler)
   }
-  return firebaseOnCall({ invoker: 'public', ...optionsOrHandler, enforceAppCheck }, maybeHandler)
+  return firebaseOnCall({ invoker: 'public', ...optionsOrHandler, enforceAppCheck: callableAppCheckPolicy(enforceAppCheck, optionsOrHandler) }, maybeHandler)
 }
 
 // Bounded overflow aliases run in the existing asia-east1 pool so a saturated
@@ -424,7 +407,7 @@ const asiaEastOnCall = (optionsOrHandler, maybeHandler) => {
   if (typeof optionsOrHandler === 'function') {
     return firebaseOnCall({ region: 'asia-east1', invoker: 'public', enforceAppCheck }, optionsOrHandler)
   }
-  return firebaseOnCall({ region: 'asia-east1', invoker: 'public', ...optionsOrHandler, enforceAppCheck }, maybeHandler)
+  return firebaseOnCall({ region: 'asia-east1', invoker: 'public', ...optionsOrHandler, enforceAppCheck: callableAppCheckPolicy(enforceAppCheck, optionsOrHandler) }, maybeHandler)
 }
 
 // AI nutrition traffic gets a dedicated region so student scans and AI Coach
@@ -434,7 +417,7 @@ const nutritionRegionalOnCall = (optionsOrHandler, maybeHandler) => {
   if (typeof optionsOrHandler === 'function') {
     return firebaseOnCall({ region: 'asia-southeast2', invoker: 'public', enforceAppCheck }, optionsOrHandler)
   }
-  return firebaseOnCall({ invoker: 'public', ...optionsOrHandler, region: 'asia-southeast2', enforceAppCheck }, maybeHandler)
+  return firebaseOnCall({ invoker: 'public', ...optionsOrHandler, region: 'asia-southeast2', enforceAppCheck: callableAppCheckPolicy(enforceAppCheck, optionsOrHandler) }, maybeHandler)
 }
 
 function boundedIncidentValue(value, maximum) {
@@ -541,6 +524,14 @@ exports.deleteMemberAccount = identityAccessFunctions.deleteMemberAccount
 exports.saveStaffOperationsProfile = identityAccessFunctions.saveStaffOperationsProfile
 exports.applyDefaultTrainerSchedulingPolicy = identityAccessFunctions.applyDefaultTrainerSchedulingPolicy
 const nutritionReviewFunctions = createNutritionReviewFunctions({ db, onCall })
+Object.assign(exports, createNutritionSummaryFunctions({ db, onCall, requireOwner: requireStudentAccount }))
+for (const [name, collection] of [['syncNutritionMealDailySummary', 'mealLogs'], ['syncNutritionWaterDailySummary', 'waterLogs'], ['syncNutritionActivityDailySummary', 'activityLogs']]) {
+  exports[name] = onDocumentWritten({
+    document: `users/{accountUid}/${collection}/{documentId}`,
+    database: databaseId, region: 'asia-southeast1', cpu: 'gcf_gen1',
+    maxInstances: 3, timeoutSeconds: 120, retry: true,
+  }, event => syncNutritionDailySummary({ db, event, collection, logger }))
+}
 Object.assign(exports, nutritionReviewFunctions)
 exports.listNutritionMealReviews = nutritionReviewFunctions.listNutritionMealReviews
 exports.assignNutritionCoach = nutritionReviewFunctions.assignNutritionCoach
@@ -783,7 +774,7 @@ exports.refreshStudent360ProjectionFromQueue = onDocumentWritten({
       db,
       studentId,
       event,
-      rebuild: () => buildStudent360Projection({ db, studentId, weekId, persist: true }),
+      rebuild: (lease) => buildStudent360Projection({ db, studentId, weekId, persist: true, lease }),
     })
     await reference.set({
       status: result.rebuilt ? 'completed' : 'coalesced',
@@ -1780,14 +1771,10 @@ function selectScheduledTemplate(templates, profile, category, slot) {
 
 async function mealSlotsLoggedForDate(userId, dateString) {
   try {
-    const snapshot = await db.collection(`users/${userId}/mealLogs`)
-      .where('date', '==', dateString)
-      .limit(100)
-      .get()
-    return loggedMealSlots(snapshot.docs)
+    return await loggedSlotsForDate(db, userId, dateString)
   } catch (error) {
     logger.warn('Unable to check meal log before scheduled reminder', { userId, code: error?.code || 'unknown' })
-    return new Set()
+    throw error
   }
 }
 
@@ -1803,42 +1790,20 @@ async function requireStudentAccount(request) {
   return userId
 }
 
-async function listScheduledReminderUsers(pageSize = 500, maximum = 10_000) {
-  const documents = []
-  let cursor = null
-  while (documents.length < maximum) {
-    const remaining = maximum - documents.length
-    const requested = Math.min(pageSize, remaining)
-    let query = db.collection('users').orderBy(FieldPath.documentId()).limit(requested)
-    if (cursor) query = query.startAfter(cursor)
-    const snapshot = await query.get()
-    documents.push(...snapshot.docs)
-    if (snapshot.size < requested) break
-    cursor = snapshot.docs[snapshot.docs.length - 1]
-  }
-  if (documents.length >= maximum) logger.warn('Scheduled reminder user scan reached its bounded safety cap', { maximum })
-  return documents
-}
-
 async function countScheduledNotificationsForDate(userId, dateString) {
   try {
-    const snapshot = await db.collection(`users/${userId}/notifications`)
-      .where('dateString', '==', dateString)
-      .limit(20)
-      .get()
-    return snapshot.docs.filter((document) => document.data()?.dedupeKey?.startsWith('meal_')).length
+    return await scheduledNotificationCount(db, userId, dateString)
   } catch (error) {
     logger.warn('Unable to count scheduled reminders before delivery', { userId, code: error?.code || 'unknown' })
-    return 0
+    throw error
   }
 }
 
 async function createScheduledNotification(userId, payload) {
   const notificationReference = db.doc(`users/${userId}/notifications/${payload.dedupeKey}`)
-  let created = false
-  await db.runTransaction(async (transaction) => {
+  const created = await db.runTransaction(async (transaction) => {
     const snapshot = await transaction.get(notificationReference)
-    if (snapshot.exists) return
+    if (snapshot.exists) return false
     transaction.create(notificationReference, {
       id: notificationReference.id,
       userId,
@@ -1852,7 +1817,7 @@ async function createScheduledNotification(userId, payload) {
       read: false,
       createdAt: FieldValue.serverTimestamp(),
     })
-    created = true
+    return true
   })
   return created ? { ...payload, notificationId: notificationReference.id } : null
 }
@@ -1919,13 +1884,13 @@ async function deliverScheduledPushes(deliveries) {
 }
 
 /**
- * Runs every fifteen minutes. The deterministic notification id makes this
+ * Polls due schedules each minute. The deterministic notification id makes this
  * trigger safe to retry and prevents duplicate reminders when two scheduler
  * invocations overlap. In-app records are created even when a user has no
  * registered device; FCM delivery is best-effort on top of that inbox.
  */
 exports.dispatchScheduledReminders = onSchedule({
-  schedule: 'every 15 minutes',
+  schedule: 'every 1 minutes',
   timeZone: 'Asia/Ho_Chi_Minh',
   retryCount: 1,
   timeoutSeconds: 120,
@@ -1941,10 +1906,14 @@ exports.dispatchScheduledReminders = onSchedule({
     return { skipped: true, reason: 'disabled' }
   }
 
-  // The user scan is still required because legacy profiles without an
-  // explicit preference are opted in by default. Avoid the separate template
-  // collection read when this run cannot create meal reminders at all.
-  const userDocuments = await listScheduledReminderUsers()
+  // Existing opt-in defaults are preserved by a resumable bootstrap. Each
+  // minute processes only due schedules; new/edited profiles have a trigger.
+  const reminderNow = Date.now()
+  const settingsVersion = settingsSnapshot.updateTime || null
+  const seed = await seedReminderSchedules({ db, settings, settingsVersion, now: reminderNow })
+  const due = await loadDueReminderUsers({ db, settings, settingsVersion, now: reminderNow })
+  const userDocuments = due.users
+  if (!userDocuments.length && !seed.scanned) return { evaluatedUsers: 0, createdNotifications: 0 }
   const enabledUserDocuments = userDocuments.filter((snapshot) => snapshot.data()?.disabled !== true)
   let templates = []
   if (settings.autoMealReminders && enabledUserDocuments.length) {
@@ -1957,9 +1926,11 @@ exports.dispatchScheduledReminders = onSchedule({
     ['dinner', 'Bữa tối', 'dinner'],
   ]
   const deliveries = []
+  const createdDeliveries = []
 
   for (let offset = 0; offset < enabledUserDocuments.length; offset += 20) {
-    const batch = await Promise.all(enabledUserDocuments.slice(offset, offset + 20).map(async (snapshot) => {
+    const profiles = enabledUserDocuments.slice(offset, offset + 20)
+    const batch = await Promise.all(profiles.map(async (snapshot) => {
       const userId = snapshot.id
       const profile = snapshot.data() || {}
       const preferences = profile.notificationSettings && typeof profile.notificationSettings === 'object'
@@ -1968,7 +1939,7 @@ exports.dispatchScheduledReminders = onSchedule({
       if (preferences.enabled === false || preferences.mealReminders === false) return []
 
       const timezone = preferences.timezone || settings.timezone
-      const clock = zonedClock(new Date(), timezone)
+      const clock = zonedClock(new Date(due.dueTimes.get(userId) || reminderNow), timezone)
       if (preferences.quietHoursEnabled !== false && isInsideQuietHours(clock.currentMinutes, preferences.quietHoursStart || settings.quietHoursStart, preferences.quietHoursEnd || settings.quietHoursEnd)) return []
 
       const reminderTimes = {
@@ -1979,7 +1950,8 @@ exports.dispatchScheduledReminders = onSchedule({
       const maxDaily = Math.min(8, Math.max(1, Number.isFinite(preferences.maxDaily) ? Math.round(preferences.maxDaily) : settings.maxDailyPerUser))
       const candidates = []
       if (settings.autoMealReminders) {
-        let dueDefinitions = definitions.filter(([slot]) => isReminderWindow(clock.currentMinutes, reminderTimes[slot]))
+        const dueSlots = new Set(slotsAtReminderTime(clock.currentMinutes, reminderTimes))
+        let dueDefinitions = definitions.filter(([slot]) => dueSlots.has(slot))
         if (dueDefinitions.length) {
           const loggedSlots = await mealSlotsLoggedForDate(userId, clock.dateString)
           dueDefinitions = dueDefinitions.filter(([slot]) => !loggedSlots.has(slot))
@@ -2012,19 +1984,22 @@ exports.dispatchScheduledReminders = onSchedule({
       }
       return candidates.slice(0, maxDaily)
     }))
-    batch.flat().forEach((candidate) => deliveries.push(candidate))
+    const candidates = batch.flat()
+    deliveries.push(...candidates)
+    const created = await Promise.all(candidates.map(delivery => createScheduledNotification(delivery.userId, delivery)))
+    createdDeliveries.push(...created.filter(Boolean))
+    // Checkpoint every batch, so a timeout cannot repeatedly starve the rest of
+    // the due queue. Inbox delivery is durable; device push remains best-effort.
+    await advanceReminderSchedules({ db, users: profiles, settings, settingsVersion, dueTimes: due.dueTimes, now: reminderNow + 1 })
   }
 
-  const createdDeliveries = []
-  for (const delivery of deliveries) {
-    const created = await createScheduledNotification(delivery.userId, delivery)
-    if (created) createdDeliveries.push(created)
-  }
   const deliveryResult = await deliverScheduledPushes(createdDeliveries)
   const runId = `scheduled_${Date.now()}`
   await db.doc(`system/push_automation_logs/logs/${runId}`).set({
     id: runId,
     evaluatedUsers: userDocuments.length,
+    scheduleSeedUsers: seed.scanned,
+    scheduleSeedComplete: seed.completed,
     candidates: deliveries.length,
     createdNotifications: createdDeliveries.length,
     webPushSentCount: deliveryResult.sent,
@@ -2034,6 +2009,19 @@ exports.dispatchScheduledReminders = onSchedule({
   })
   logger.info('Scheduled reminders completed', { runId, ...deliveryResult, createdNotifications: createdDeliveries.length })
   return { runId, createdNotifications: createdDeliveries.length, ...deliveryResult }
+})
+
+exports.syncNutritionReminderSchedule = onDocumentWritten({
+  document: 'users/{accountUid}', database: databaseId, region: 'asia-southeast1',
+  cpu: 'gcf_gen1', maxInstances: 2, timeoutSeconds: 60, retry: true,
+}, async event => {
+  const before = event.data?.before, after = event.data?.after
+  if (before?.exists && after?.exists && scheduleFingerprint(before.data(), {}) === scheduleFingerprint(after.data(), {})) return { skipped: true }
+  const [profile, settings] = await Promise.all([
+    db.doc(`users/${event.params.accountUid}`).get(), db.doc('system/push_settings').get(),
+  ])
+  await syncReminderSchedule({ db, snapshot: profile, settings: normalizedReminderSettings(settings.data() || {}), settingsVersion: settings.updateTime || null })
+  return { synced: true }
 })
 
 exports.registerFcmToken = onCall(async (request) => {

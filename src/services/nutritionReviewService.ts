@@ -1,4 +1,5 @@
 import { httpsCallable } from 'firebase/functions'
+import { firebaseAuth } from '../lib/firebase'
 import { firebaseFunctions, firebaseScheduleOptimizerFunctions } from '../lib/firebaseFunctions'
 import { runReadOnlyWithFallback } from './readOnlyCallableService'
 
@@ -76,7 +77,15 @@ export interface NutritionReviewListResult {
   summaryCountsTruncated?: boolean
   filteredCountExact?: boolean
   slaMinutes: number
+  summaryIncluded?: boolean
+  directoryIncluded?: boolean
+  scopeTruncated?: boolean
+  coachesHasMore?: boolean
+  coachesNextCursor?: string | null
 }
+
+export type NutritionReviewDirectoryResult = Pick<NutritionReviewListResult, 'coaches' | 'scope' | 'coachesHasMore' | 'coachesNextCursor'>
+const pendingReads = new Map<string, Promise<NutritionReviewListResult>>()
 
 function functionsOrThrow() {
   if (!firebaseFunctions) throw new Error('Firebase Functions chưa được cấu hình.')
@@ -103,8 +112,13 @@ export async function listNutritionMealReviews(
     query?: string
     focus?: 'overdue' | 'all'
     forceRefresh?: boolean
+    section?: 'page' | 'summary' | 'directory'
+    directoryCursor?: string | null
   } = {},
+  authorityKey = '',
 ) {
+  const ownerId = firebaseAuth?.currentUser?.uid || ''
+  if (!ownerId) throw new Error('Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.')
   const payload = {
     status: input.status || 'all',
     limit: input.limit || 24,
@@ -113,21 +127,46 @@ export async function listNutritionMealReviews(
     query: input.query,
     focus: input.focus,
     forceRefresh: input.forceRefresh,
+    section: input.section,
+    directoryCursor: input.directoryCursor,
   }
-  const invoke = (client: NonNullable<typeof firebaseFunctions>, name: string) =>
-    httpsCallable<typeof payload, NutritionReviewListResult>(client, name, { timeout: 18_000 })(payload).then((result) => result.data)
-  try {
-    const regionalFunctions = firebaseScheduleOptimizerFunctions
-    const result = regionalFunctions
-      ? await runReadOnlyWithFallback(
-        () => invoke(regionalFunctions, 'listNutritionMealReviewsRegional'),
-        () => invoke(functionsOrThrow(), 'listNutritionMealReviews'),
-      )
-      : await invoke(functionsOrThrow(), 'listNutritionMealReviews')
-    return result
-  } catch (cause) {
-    throw reviewError(cause)
+  const key = JSON.stringify([ownerId, authorityKey, payload])
+  const existing = pendingReads.get(key)
+  if (existing) return existing
+  const assertOwner = () => {
+    if (firebaseAuth?.currentUser?.uid !== ownerId) throw new Error('Tài khoản đã thay đổi. Hãy mở lại trang duyệt bữa ăn.')
   }
+  const invoke = (client: NonNullable<typeof firebaseFunctions>, name: string) => {
+    // Regional failover may run after a delayed failure/backoff. Never send
+    // the previous account's filters or cursor with a new account's token.
+    assertOwner()
+    return httpsCallable<typeof payload, NutritionReviewListResult>(client, name, { timeout: 18_000 })(payload).then((result) => result.data)
+  }
+  const pending = (async () => {
+    try {
+      const regionalFunctions = firebaseScheduleOptimizerFunctions
+      const result = regionalFunctions
+        ? await runReadOnlyWithFallback(
+          () => invoke(regionalFunctions, 'listNutritionMealReviewsRegional'),
+          () => invoke(functionsOrThrow(), 'listNutritionMealReviews'),
+        )
+        : await invoke(functionsOrThrow(), 'listNutritionMealReviews')
+      assertOwner()
+      return result
+    } catch (cause) {
+      throw reviewError(cause)
+    }
+  })()
+  pendingReads.set(key, pending)
+  try { return await pending } finally { if (pendingReads.get(key) === pending) pendingReads.delete(key) }
+}
+
+export function getNutritionReviewSummary(authorityKey = '', forceRefresh = false, freshnessKey = '') {
+  return listNutritionMealReviews({ section: 'summary', forceRefresh }, JSON.stringify([authorityKey, freshnessKey]))
+}
+
+export function getNutritionReviewCoaches(authorityKey = '', directoryCursor: string | null = null): Promise<NutritionReviewDirectoryResult> {
+  return listNutritionMealReviews({ section: 'directory', directoryCursor }, authorityKey)
 }
 
 export async function reviewNutritionMeal(input: {

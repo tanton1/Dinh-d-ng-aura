@@ -1,5 +1,7 @@
 import { useNutritionWeight } from '../../hooks/useNutritionWeight'
-import { mergeJournalHistory } from '../../features/nutrition/journalMerge'
+import { useNutritionDate } from '../../features/nutrition/useNutritionDate'
+import { nutritionDateAfter, nutritionReadPolicy } from '../../features/nutrition/readLifecycle'
+import { getMyNutritionJournalSummary } from '../../services/nutritionJournalSummaryService'
 import { scaleCatalogServing } from '../../features/nutrition/servings'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from '../../contexts/AuthContext'
@@ -31,11 +33,9 @@ import {
   submitMealReview,
   saveUserWaterLog,
   deleteUserWaterLog,
-  loadRecentUserWaterLogs,
   subscribeToUserWaterLogsForDate,
   saveUserActivityLog,
   deleteUserActivityLog,
-  loadRecentUserActivityLogs,
   subscribeToUserActivityLogsForDate,
 } from '../../services/firebaseService'
 import {
@@ -528,7 +528,9 @@ function ExerciseLogSheet({ dateLabel, weightKg, onClose, onSave }: { dateLabel:
 
 export default function NutritionPageController({ displayName = 'Thành viên Aura', isDemo = false, storageOwnerId, hasProfile = true, profile, onProfileComplete, onStartOnboarding, onMealSaved, onAnalyzeImage, foodCatalog, onOpenEatClean, syncState }: NutritionPageProps) {
   const nutritionV4 = useAuraUiSurface('member-nutrition')
+  const { accessContext } = useAuth()
   const resolvedOwnerId = storageOwnerId ?? firebaseAuth?.currentUser?.uid ?? 'anonymous'
+  const authorityKey = JSON.stringify([resolvedOwnerId, accessContext?.uid, accessContext?.authzVersion, accessContext?.status, accessContext?.accessRole, [...(accessContext?.branchIds ?? [])].sort(), [...(accessContext?.capabilities ?? [])].sort()])
   const mealStorageKey = `${MEAL_STORAGE_PREFIX}:${resolvedOwnerId}`
   const waterStorageKey = `${WATER_STORAGE_PREFIX}:${resolvedOwnerId}`
   const waterEntryStorageKey = `${WATER_ENTRY_STORAGE_PREFIX}:${resolvedOwnerId}`
@@ -537,7 +539,7 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
   const profileIsComplete = isDemo || (hasProfile && hasCompleteNutritionProfileV2(profile))
   const [profileReady, setProfileReady] = useState(profileIsComplete)
   const [profileDraft, setProfileDraft] = useState<NutritionProfileDraft>(() => normalizeNutritionProfileDraftV2(profile))
-  const [todayKey, setTodayKey] = useState(() => toLocalDateKey(new Date()))
+  const todayKey = useNutritionDate()
   const recentNutritionFromDate = useMemo(() => {
     const firstDay = new Date()
     firstDay.setHours(0, 0, 0, 0)
@@ -588,7 +590,27 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
   const [waterEntries, setWaterEntries] = useState<NutritionWaterLog[]>(() => isDemo ? loadPersistedWaterEntriesV2(waterEntryStorageKey) : [])
   const [nutritionLogSyncState, setNutritionLogSyncState] = useState<DataSyncState>({ status: 'synced', revision: 0, cachedAt: null })
   const [nutritionMutation, setNutritionMutation] = useState<{ scope: 'meals' | 'water' | 'activities'; id: string } | null>(null)
-  const [historySyncStarted, setHistorySyncStarted] = useState(false)
+  const [diaryPeriod, setDiaryPeriod] = useState<{ fromDate: string; toDate: string; view: 'day' | 'week' | 'month' } | null>(null)
+  const [calendarState, setCalendarState] = useState<{ key: string; status: 'loading' | 'ready' | 'error'; items: NutritionDiaryDaySummary[]; message?: string }>({ key: '', status: 'loading', items: [] })
+  const [journalReloadToken, setJournalReloadToken] = useState(0)
+  const consumedCalendarReloadToken = useRef(0)
+  const unfinishedCalendarBuild = useRef<{ key: string; refreshAfter?: string } | null>(null)
+  const calendarMutationGeneration = useRef(0)
+  const [dayReloadToken, setDayReloadToken] = useState(0)
+  const onDiaryPeriodChange = useCallback((period: { fromDate: string; toDate: string; view: 'day' | 'week' | 'month' }) => setDiaryPeriod((current) => current?.fromDate === period.fromDate && current?.toDate === period.toDate && current?.view === period.view ? current : period), [])
+  const [planLoggedMeals, setPlanLoggedMeals] = useState<MealLog[]>([])
+  const dayEditorOpen = Boolean(editingMealId || selectedLoggedMealId || pendingFood || waterSheetOpen || exerciseSheetOpen)
+  const readPolicy = nutritionReadPolicy(activeSection, dayEditorOpen)
+  const dayReadEnabled = readPolicy.day && (dayEditorOpen || !(activeSection === 'diary' && diaryPeriod && diaryPeriod.view !== 'day'))
+  const planReadEnabled = readPolicy.plan
+  const calendarReadEnabled = readPolicy.calendar && Boolean(diaryPeriod && diaryPeriod.view !== 'day')
+  const calendarKey = JSON.stringify([resolvedOwnerId, authorityKey, diaryPeriod?.fromDate, diaryPeriod?.toDate])
+  const planRequestGeneration = useRef(0)
+  const planMutationEpoch = useRef(0)
+  const planScopeKey = JSON.stringify([resolvedOwnerId, authorityKey, planWeekStart])
+  const planScope = useRef(planScopeKey)
+  if (planScope.current !== planScopeKey) { planScope.current = planScopeKey; planRequestGeneration.current++; planMutationEpoch.current++ }
+  useEffect(() => () => { planRequestGeneration.current++; planMutationEpoch.current++ }, [])
   const liveJournalDays = useRef({ ownerId: resolvedOwnerId, meals: new Map<string, MealLog[]>(), water: new Map<string, NutritionWaterLog[]>(), activities: new Map<string, NutritionActivityLog[]>() })
   if (liveJournalDays.current.ownerId !== resolvedOwnerId) {
     liveJournalDays.current = { ownerId: resolvedOwnerId, meals: new Map(), water: new Map(), activities: new Map() }
@@ -606,6 +628,7 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
   const [nutritionPlanGenerating, setNutritionPlanGenerating] = useState(false)
   const [nutritionPlanError, setNutritionPlanError] = useState('')
   const [nutritionPlanReloadToken, setNutritionPlanReloadToken] = useState(0)
+  useEffect(() => { setNutritionPlanSaving(false); setNutritionPlanGenerating(false) }, [planScopeKey])
   const [assistantReturnSection, setAssistantReturnSection] = useState<NutritionPrimarySection>('today')
   const [taskReturnSection, setTaskReturnSection] = useState<NutritionPrimarySection>('today')
   const assistantImageUrlsRef = useRef(new Set<string>())
@@ -682,7 +705,7 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
   const firstName = displayName.trim().split(/\s+/).slice(-1)[0] || 'bạn'
 
   // Get actual weight in the last 30 days based on weight history of this user
-  const actual30DayWeight = useNutritionWeight(resolvedOwnerId, profileDraft.weightKg, !isDemo)
+  const actual30DayWeight = useNutritionWeight(resolvedOwnerId, profileDraft.weightKg, !isDemo && (dayReadEnabled || planReadEnabled))
 
   const nutritionTargets = resolveDailyNutritionTargets(profileDraft, actual30DayWeight)
   const { calorieGoal, proteinGoal, carbGoal, fatGoal, waterGoal } = nutritionTargets
@@ -734,7 +757,7 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
     : ['Tôi nên bắt đầu ghi bữa như thế nào?', 'Mục tiêu năng lượng ngày này là gì?', 'Tôi cần uống thêm bao nhiêu nước?']
   const selectedDateLabel = new Intl.DateTimeFormat('vi-VN', { weekday: 'long', day: 'numeric', month: 'long' }).format(dateFromLocalKey(selectedDate))
   const { assistantMessages, assistantLoading, submitAssistantQuestion } = useNutritionAssistantController({
-    resetKey: selectedDate,
+    resetKey: `${authorityKey}:${selectedDate}`,
     profileDraft,
     selectedDateLabel,
     loggedMeals,
@@ -784,7 +807,7 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
     portionNote: meal.portionNote,
     coachFeedback: meal.coachFeedback,
   }))
-  const diaryDaySummaries = useMemo<NutritionDiaryDaySummary[]>(() => {
+  const localDiaryDaySummaries = useMemo<NutritionDiaryDaySummary[]>(() => {
     const summaries = new Map<string, NutritionDiaryDaySummary>()
     const read = (date: string) => {
       const existing = summaries.get(date)
@@ -805,6 +828,14 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
     Object.entries(waterByDate).forEach(([date, amount]) => { read(date).waterMl = Math.max(0, Number(amount) || 0) })
     return [...summaries.values()].sort((left, right) => right.date.localeCompare(left.date))
   }, [activities, meals, waterByDate])
+  const diaryDaySummaries = useMemo(() => {
+    if (isDemo || !calendarReadEnabled) return localDiaryDaySummaries
+    if (calendarState.key !== calendarKey || calendarState.status !== 'ready') return []
+    const result = new Map(calendarState.items.map((item) => [item.date, item]))
+    const currentDay = localDiaryDaySummaries.find((item) => item.date === selectedDate)
+    if (dayReadEnabled && currentDay && liveJournalDays.current.meals.has(selectedDate) && liveJournalDays.current.water.has(selectedDate) && liveJournalDays.current.activities.has(selectedDate)) result.set(selectedDate, currentDay)
+    return [...result.values()]
+  }, [isDemo, calendarReadEnabled, localDiaryDaySummaries, calendarState, calendarKey, selectedDate, dayReadEnabled])
   const workspacePlanDays: NutritionPlanDay[] = planDays.map((day) => ({
     id: day.id,
     weekday: day.day,
@@ -863,10 +894,10 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
   }))) : []
   const workspacePlannedMeals = nutritionPlan ? cloudPlannedMeals : isDemo ? demoPlannedMeals : []
   const workspaceMenuMeals = activeNutritionPlan ? activePlannedMeals : isDemo ? demoPlannedMeals : []
-  const loggedPlanMealKeys = useMemo(() => new Set(meals.filter((meal) => meal.status === 'logged').flatMap((meal) => [
+  const loggedPlanMealKeys = useMemo(() => new Set([...planLoggedMeals, ...meals].filter((meal) => meal.status === 'logged').flatMap((meal) => [
     meal.plannedMealId ? `${meal.date}|${meal.plannedMealId}` : '',
     `${meal.date}|${meal.catalogId || meal.title.trim().toLocaleLowerCase('vi-VN')}`,
-  ].filter(Boolean))), [meals])
+  ].filter(Boolean))), [meals, planLoggedMeals])
   const selectedFoodSummary = useMemo(() => selectedFood ? toFoodDetailSummary(selectedFood) : null, [selectedFood])
   const relatedFoodSummaries = useMemo(() => {
     if (!selectedFood) return []
@@ -892,38 +923,45 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
     }
   }, [resolvedOwnerId])
 
+  const previousToday = useRef(todayKey)
   useEffect(() => {
-    const timer = window.setInterval(() => setTodayKey(toLocalDateKey(new Date())), 60_000)
-    return () => window.clearInterval(timer)
-  }, [])
+    const previous = previousToday.current
+    previousToday.current = todayKey
+    if (previous === todayKey) return
+    setSelectedDate((current) => current === previous ? todayKey : current)
+    setHomeWeekStart((current) => current === getCalendarStart(dateFromLocalKey(previous)) ? getCalendarStart(dateFromLocalKey(todayKey)) : current)
+  }, [todayKey])
 
   useEffect(() => {
-    if (isDemo || resolvedOwnerId === 'anonymous' || historySyncStarted) return
-    const needsHistory = activeSection === 'diary' || activeSection === 'classic-diary' || activeSection === 'plan' || activeSection === 'menu' || activeSection === 'insights' || activeSection === 'assistant'
-    if (needsHistory) {
-      setHistorySyncStarted(true)
-    }
-  }, [activeSection, historySyncStarted, isDemo, resolvedOwnerId])
-
-  useEffect(() => {
-    if ((activeSection !== 'plan' && activeSection !== 'menu') || isDemo || resolvedOwnerId === 'anonymous') return
+    if (!planReadEnabled || isDemo || resolvedOwnerId === 'anonymous') return
     let active = true
+    const generation = ++planRequestGeneration.current
     setNutritionPlanLoading(true)
     setNutritionPlanError('')
-    void getMyNutritionPlanWorkspace(planWeekStart).then((workspace) => {
-      if (!active) return
+    void getMyNutritionPlanWorkspace(planWeekStart, { ownerId: resolvedOwnerId, authorityKey, forceRefresh: nutritionPlanReloadToken > 0 }).then((workspace) => {
+      if (!active || generation !== planRequestGeneration.current) return
       setNutritionPlan(workspace.plan)
       setActiveNutritionPlan(workspace.activePlan ?? (workspace.plan?.status === 'active' ? workspace.plan : null))
     }).catch((error) => {
-      if (!active) return
+      if (!active || generation !== planRequestGeneration.current) return
       setNutritionPlan(null)
       setActiveNutritionPlan(null)
       setNutritionPlanError(nutritionPlanErrorMessage(error))
     }).finally(() => {
-      if (active) setNutritionPlanLoading(false)
+      if (active && generation === planRequestGeneration.current) setNutritionPlanLoading(false)
     })
     return () => { active = false }
-  }, [activeSection, isDemo, nutritionPlanReloadToken, planWeekStart, resolvedOwnerId])
+  }, [planReadEnabled, isDemo, nutritionPlanReloadToken, planWeekStart, resolvedOwnerId, authorityKey])
+
+  useEffect(() => {
+    if (isDemo || activeSection !== 'plan' || resolvedOwnerId === 'anonymous') return
+    let active = true
+    setPlanLoggedMeals([])
+    void loadRecentUserMealLogs(resolvedOwnerId, planWeekStart, undefined, nutritionDateAfter(planWeekStart, 6)).then((items) => {
+      if (active) setPlanLoggedMeals(items)
+    }).catch((error) => { if (active) setNutritionPlanError(error instanceof Error ? error.message : 'Chưa kiểm tra được các món đã ghi trong tuần.') })
+    return () => { active = false }
+  }, [activeSection === 'plan', isDemo, resolvedOwnerId, authorityKey, planWeekStart, journalReloadToken])
 
   useEffect(() => {
     if ((activeSection !== 'diary' && activeSection !== 'classic-diary') || selectedDate <= todayKey) return
@@ -938,47 +976,63 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
   }, [planDays, planSelectedDay, planWeekStart])
 
   useEffect(() => {
-    if (!firestoreDb || resolvedOwnerId === 'anonymous' || !historySyncStarted) return
+    if (isDemo || !calendarReadEnabled || !diaryPeriod || resolvedOwnerId === 'anonymous') return
     let active = true
-    // Only snapshots received during this request can override its result.
-    // Previously visited days may have changed on another device since then.
-    liveJournalDays.current.meals.clear()
-    liveJournalDays.current.water.clear()
-    liveJournalDays.current.activities.clear()
-    void Promise.all([
-      loadRecentUserMealLogs(resolvedOwnerId, recentNutritionFromDate, (state) => updateNutritionSync('meals', state)),
-      loadRecentUserWaterLogs(resolvedOwnerId, recentNutritionFromDate, (state) => updateNutritionSync('water', state)),
-      loadRecentUserActivityLogs(resolvedOwnerId, recentNutritionFromDate, (state) => updateNutritionSync('activities', state)),
-    ]).then(([remoteMeals, remoteWater, remoteActivities]) => {
-      if (!active) return
-      const recentWater = mergeJournalHistory<NutritionWaterLog>(remoteWater, liveJournalDays.current.water)
-      setMeals((current) => mergeJournalHistory<MealLog>([...remoteMeals, ...current.filter((item) => item.date < recentNutritionFromDate)], liveJournalDays.current.meals))
-      setWaterEntries((current) => mergeJournalHistory([...remoteWater, ...current.filter((item) => item.date < recentNutritionFromDate)], liveJournalDays.current.water))
-      const recentTotals = recentWater.reduce<Record<string, number>>((result, entry) => {
-        result[entry.date] = (result[entry.date] ?? 0) + Math.max(0, Number(entry.amountMl) || 0)
-        return result
-      }, {})
-      setWaterByDate((current) => ({
-        ...Object.fromEntries(Object.entries(current).filter(([date]) => date < recentNutritionFromDate)),
-        ...recentTotals,
-      }))
-      setActivities((current) => mergeJournalHistory([...remoteActivities, ...current.filter((item) => item.date < recentNutritionFromDate)], liveJournalDays.current.activities))
-    }).catch((error) => {
-      if (active) console.error('Error loading nutrition history:', error)
-    })
-    return () => { active = false }
-  }, [historySyncStarted, recentNutritionFromDate, resolvedOwnerId, updateNutritionSync])
+    let retryTimer: ReturnType<typeof setTimeout> | undefined
+    const unfinished = unfinishedCalendarBuild.current?.key === calendarKey ? unfinishedCalendarBuild.current : null
+    unfinishedCalendarBuild.current = unfinished
+    let refreshAfter = unfinished?.refreshAfter
+    const mutationGeneration = calendarMutationGeneration.current
+    const { fromDate, toDate } = diaryPeriod
+    const forceRefresh = journalReloadToken > consumedCalendarReloadToken.current && !unfinished
+    consumedCalendarReloadToken.current = journalReloadToken
+    setCalendarState({ key: calendarKey, status: 'loading', items: [] })
+    const load = async (attempt = 0) => {
+      try {
+        const response = await getMyNutritionJournalSummary(resolvedOwnerId, fromDate, toDate, authorityKey, forceRefresh && attempt === 0, refreshAfter)
+        if (!active || mutationGeneration !== calendarMutationGeneration.current) return
+        refreshAfter = response.refreshAfter || refreshAfter
+        if (response.coverage === 'ready') {
+          unfinishedCalendarBuild.current = null
+          setCalendarState({ key: calendarKey, status: 'ready', items: response.items })
+          return
+        }
+        unfinishedCalendarBuild.current = { key: calendarKey, refreshAfter }
+        if (response.coverage === 'pending' && attempt < 2) {
+          retryTimer = setTimeout(() => { if (active) void load(attempt + 1) }, Math.min(5000, Math.max(500, response.retryAfterMs ?? 1000)))
+          return
+        }
+        // Never bypass the server's aggregation limits by downloading raw
+        // collections for the whole period. Day detail remains available.
+        setCalendarState({
+          key: calendarKey,
+          status: 'error',
+          items: [],
+          message: response.coverage === 'pending'
+            ? 'Nhật ký trong kỳ vẫn đang được tổng hợp. Bạn có thể xem từng ngày hoặc bấm Làm mới nhật ký sau ít phút.'
+            : 'Chưa tổng hợp đủ nhật ký trong kỳ nên chưa thể hiển thị tổng số. Bạn có thể xem từng ngày hoặc bấm Làm mới nhật ký để thử lại.',
+        })
+      } catch (error) {
+        if (!active || mutationGeneration !== calendarMutationGeneration.current) return
+        // A failed or denied summary must not be disguised as an empty period.
+        setCalendarState({ key: calendarKey, status: 'error', items: [], message: error instanceof Error ? error.message : 'Chưa tải đủ nhật ký trong kỳ.' })
+      }
+    }
+    void load()
+    return () => { active = false; if (retryTimer) clearTimeout(retryTimer) }
+  }, [calendarReadEnabled, calendarKey, diaryPeriod?.fromDate, diaryPeriod?.toDate, isDemo, resolvedOwnerId, authorityKey, journalReloadToken])
 
   useEffect(() => {
-    if (!firestoreDb || isDemo || resolvedOwnerId === 'anonymous') return
+    if (!firestoreDb || isDemo || resolvedOwnerId === 'anonymous' || !dayReadEnabled) return
     let active = true
 
-    const syncError = (scope: 'meals' | 'water' | 'activities') => (error: Error) => updateNutritionSync(scope, {
+    const sync = (scope: 'meals' | 'water' | 'activities') => (state: DataSyncState) => { if (active) updateNutritionSync(scope, state) }
+    const syncError = (scope: 'meals' | 'water' | 'activities') => (error: Error) => { if (active) updateNutritionSync(scope, {
       status: 'sync-failed',
       revision: Date.now(),
       cachedAt: new Date().toISOString(),
       message: error.message || 'Không thể đồng bộ nhật ký ngày này.',
-    })
+    }) }
 
     const unsubscribeMeals = subscribeToUserMealLogsForDate(resolvedOwnerId, selectedDate, (remoteMeals) => {
       if (!active) return
@@ -987,7 +1041,7 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
       liveJournalDays.current.meals.set(selectedDate, dayItems)
       setMeals((current) => [...current.filter((item) => item.date !== selectedDate), ...dayItems])
       markDailySourceReadyRef.current('meals')
-    }, syncError('meals'), (state) => updateNutritionSync('meals', state))
+    }, syncError('meals'), sync('meals'))
     const unsubscribeWater = subscribeToUserWaterLogsForDate(resolvedOwnerId, selectedDate, (remoteWater) => {
       if (!active) return
       const dayItems = Array.isArray(remoteWater) ? remoteWater.filter((item): item is NutritionWaterLog => Boolean(item && typeof item === 'object' && item.id)) : []
@@ -999,14 +1053,14 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
         [selectedDate]: dayItems.reduce((sum, item) => sum + Math.max(0, Number(item.amountMl) || 0), 0),
       }))
       markDailySourceReadyRef.current('water')
-    }, syncError('water'), (state) => updateNutritionSync('water', state))
+    }, syncError('water'), sync('water'))
     const unsubscribeActivities = subscribeToUserActivityLogsForDate(resolvedOwnerId, selectedDate, (remoteActivities) => {
       if (!active) return
       const dayItems = Array.isArray(remoteActivities) ? remoteActivities.filter((item): item is NutritionActivityLog => Boolean(item && typeof item === 'object' && item.id)) : []
       liveJournalDays.current.activities.set(selectedDate, dayItems)
       setActivities((current) => [...current.filter((item) => item.date !== selectedDate), ...dayItems])
       markDailySourceReadyRef.current('activities')
-    }, syncError('activities'), (state) => updateNutritionSync('activities', state))
+    }, syncError('activities'), sync('activities'))
 
     return () => {
       active = false
@@ -1014,7 +1068,7 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
       unsubscribeWater()
       unsubscribeActivities()
     }
-  }, [isDemo, resolvedOwnerId, selectedDate])
+  }, [isDemo, resolvedOwnerId, selectedDate, dayReadEnabled, authorityKey, dayReloadToken])
 
   useEffect(() => {
     if (!isDemo) return
@@ -1188,6 +1242,9 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
       return
     }
     setNutritionPlanGenerating(true)
+    planRequestGeneration.current++
+    setNutritionPlanLoading(false)
+    const epoch = ++planMutationEpoch.current
     setNutritionPlanError('')
     try {
       const plan = await generateMyNutritionPlanDraft({
@@ -1211,34 +1268,41 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
           prepTime: profileDraft.prepTime,
         },
       })
+      if (epoch !== planMutationEpoch.current) return
       setNutritionPlan(plan)
       setPlanSelectedDay(plan.days.find((day) => day.id === todayKey)?.id ?? plan.days[0]?.id ?? planWeekStart)
       showMessage(plan.planner === 'gemini' ? 'Gemini đã hỗ trợ tạo kế hoạch theo hồ sơ của bạn' : 'Đã tạo bản nháp từ thư viện món Aura')
     } catch (error) {
+      if (epoch !== planMutationEpoch.current) return
       const message = nutritionPlanErrorMessage(error)
       setNutritionPlanError(message)
       if (String((error as { code?: unknown })?.code ?? '').endsWith('aborted')) reloadNutritionPlan()
     } finally {
-      setNutritionPlanGenerating(false)
+      if (epoch === planMutationEpoch.current) setNutritionPlanGenerating(false)
     }
   }
 
   const confirmNutritionPlan = async () => {
     if (!nutritionPlan || nutritionPlan.source !== 'aura-catalog') return
     setNutritionPlanSaving(true)
+    planRequestGeneration.current++
+    setNutritionPlanLoading(false)
+    const epoch = ++planMutationEpoch.current
     setNutritionPlanError('')
     try {
       const result = await confirmMyNutritionPlan(planWeekStart, nutritionPlan.revision)
+      if (epoch !== planMutationEpoch.current) return
       setNutritionPlan(result.plan)
       setActiveNutritionPlan(result.activePlan)
       showMessage('Đã xác nhận thực đơn tuần')
     } catch (error) {
+      if (epoch !== planMutationEpoch.current) return
       const message = nutritionPlanErrorMessage(error)
       setNutritionPlanError(message)
       showMessage(message)
       if (String((error as { code?: unknown })?.code ?? '').endsWith('aborted')) reloadNutritionPlan()
     } finally {
-      setNutritionPlanSaving(false)
+      if (epoch === planMutationEpoch.current) setNutritionPlanSaving(false)
     }
   }
 
@@ -1263,6 +1327,9 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
     const meal = nutritionPlan.days.flatMap((day) => day.meals).find((candidate) => candidate.id === mealId)
     if (!meal || !window.confirm(`Xóa ${meal.title} khỏi thực đơn ${meal.dayId}?`)) return
     setNutritionPlanSaving(true)
+    planRequestGeneration.current++
+    setNutritionPlanLoading(false)
+    const epoch = ++planMutationEpoch.current
     setNutritionPlanError('')
     try {
       const plan = await mutateMyNutritionPlanMeal({
@@ -1274,15 +1341,17 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
         time: meal.time,
         expectedRevision: nutritionPlan.revision,
       })
+      if (epoch !== planMutationEpoch.current) return
       setNutritionPlan(plan)
       showMessage(`Đã xóa ${meal.title}`)
     } catch (error) {
+      if (epoch !== planMutationEpoch.current) return
       const message = nutritionPlanErrorMessage(error)
       setNutritionPlanError(message)
       showMessage(message)
       if (String((error as { code?: unknown })?.code ?? '').endsWith('aborted')) reloadNutritionPlan()
     } finally {
-      setNutritionPlanSaving(false)
+      if (epoch === planMutationEpoch.current) setNutritionPlanSaving(false)
     }
   }
 
@@ -1492,10 +1561,10 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
     setMeals((current) => current.filter((meal) => meal.id !== mealId))
     beginNutritionMutation('meals', mealId)
     try {
-      if (isCloudLogEnabled) await deleteUserMealLog(resolvedOwnerId, mealId)
+      if (isCloudLogEnabled) await deleteUserMealLog(resolvedOwnerId, mealId, deletedMeal.mealRevision ?? 1)
       completeNutritionMutation('meals')
     } catch (error) {
-      setMeals((current) => [deletedMeal, ...current])
+      setMeals((current) => current.some((meal) => meal.id === mealId) ? current : [deletedMeal, ...current])
       failNutritionMutation('meals', error)
       showMessage('Không thể xóa bữa ăn. Dữ liệu đã được giữ lại.')
       return
@@ -1506,10 +1575,10 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
         setMeals((current) => current.some((meal) => meal.id === deletedMeal.id) ? current : [restoredMeal, ...current])
         beginNutritionMutation('meals', deletedMeal.id)
         try {
-          if (isCloudLogEnabled) await saveUserMealLog(resolvedOwnerId, restoredMeal as any)
+          if (isCloudLogEnabled) await persistMeal(restoredMeal, { expectedMealRevision: 0 })
           completeNutritionMutation('meals')
         } catch (error) {
-          setMeals((current) => current.filter((meal) => meal.id !== deletedMeal.id))
+          setMeals((current) => current.filter((meal) => meal.id !== deletedMeal.id || (meal.mealRevision ?? 0) > (deletedMeal.mealRevision ?? 1)))
           failNutritionMutation('meals', error)
           showMessage('Không thể khôi phục bữa ăn vì máy chủ chưa xác nhận.')
           return
@@ -1560,10 +1629,10 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
     setMeals((current) => current.map((meal) => meal.id === mealId ? updated : meal))
     beginNutritionMutation('meals', mealId)
     try {
-      if (isCloudLogEnabled) await saveUserMealLog(resolvedOwnerId, updated as any)
+      if (isCloudLogEnabled) updated.mealRevision = (await persistMeal(updated)).mealRevision
       completeNutritionMutation('meals')
     } catch (error) {
-      setMeals((current) => current.map((meal) => meal.id === mealId ? original : meal))
+      setMeals((current) => current.map((meal) => meal.id === mealId && (meal.mealRevision ?? 0) <= (original.mealRevision ?? 1) ? original : meal))
       failNutritionMutation('meals', error)
       showMessage('Không thể cập nhật bữa ăn. Dữ liệu cũ đã được giữ lại.')
       return
@@ -1586,10 +1655,10 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
         setMeals((current) => current.map((meal) => meal.id === mealId ? restored : meal))
         beginNutritionMutation('meals', mealId)
         try {
-          if (isCloudLogEnabled) await saveUserMealLog(resolvedOwnerId, restored as any)
+          if (isCloudLogEnabled) await persistMeal(restored, { expectedMealRevision: updated.mealRevision ?? 1 })
           completeNutritionMutation('meals')
         } catch (error) {
-          setMeals((current) => current.map((meal) => meal.id === mealId ? updated : meal))
+          setMeals((current) => current.map((meal) => meal.id === mealId && (meal.mealRevision ?? 0) <= (updated.mealRevision ?? 1) ? updated : meal))
           failNutritionMutation('meals', error)
           showMessage('Không thể hoàn tác chỉnh sửa vì máy chủ chưa xác nhận.')
           return
@@ -1613,11 +1682,11 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
     beginNutritionMutation('meals', updated.id)
     try {
       if (isCloudLogEnabled) {
-        await saveUserMealLog(resolvedOwnerId, updated as any, { idempotencyKey: `detail-${updated.id}-${crypto.randomUUID()}` })
+        await persistMeal(updated as any, { idempotencyKey: `detail-${updated.id}-${crypto.randomUUID()}` })
       }
       completeNutritionMutation('meals')
     } catch (error) {
-      setMeals((current) => current.map((meal) => meal.id === original.id ? original : meal))
+      setMeals((current) => current.map((meal) => meal.id === original.id && (meal.mealRevision ?? 0) <= (original.mealRevision ?? 1) ? original : meal))
       failNutritionMutation('meals', error)
       throw error
     }
@@ -1713,7 +1782,7 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
     let reviewSubmissionFailed = false
     try {
       if (isCloudLogEnabled) {
-        await saveUserMealLog(resolvedOwnerId, newMealLog as any, { idempotencyKey: meal.idempotencyKey })
+        await persistMeal(newMealLog as any, { idempotencyKey: meal.idempotencyKey })
         if (meal.submitForReview) {
           try {
             await submitMealReview(resolvedOwnerId, firstName || 'Học viên', newMealLog as any)
@@ -1726,7 +1795,7 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
       }
       completeNutritionMutation('meals')
     } catch (error) {
-      setMeals((current) => current.filter((item) => item.id !== newMealLog.id))
+      setMeals((current) => current.filter((item) => item.id !== newMealLog.id || (item.mealRevision ?? 0) > 0))
       failNutritionMutation('meals', error)
       showMessage('Không thể lưu bữa ăn. Dữ liệu chưa được ghi nhận trên máy chủ.')
       throw error
@@ -1751,6 +1820,7 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
         let detail = catalogDetailCache.current.get(food.id) ?? null
         if (!detail) {
           detail = await loadNutritionCatalogDetail(food.id)
+          if (catalogDetailCache.current.size >= 60) catalogDetailCache.current.delete(catalogDetailCache.current.keys().next().value!)
           catalogDetailCache.current.set(food.id, detail)
         }
         pending = {
@@ -1777,6 +1847,9 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
         return
       }
       setNutritionPlanSaving(true)
+      planRequestGeneration.current++
+      setNutritionPlanLoading(false)
+      const epoch = ++planMutationEpoch.current
       setNutritionPlanError('')
       try {
         const plan = await mutateMyNutritionPlanMeal({
@@ -1790,6 +1863,7 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
           servingMultiplier: planCatalogAction.servingMultiplier,
           expectedRevision: nutritionPlan.revision,
         })
+        if (epoch !== planMutationEpoch.current) return
         setNutritionPlan(plan)
         setPendingFood(null)
         setPlanCatalogAction(null)
@@ -1797,12 +1871,13 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
         navigateNutrition('plan')
         showMessage(planCatalogAction.action === 'replace' ? `Đã đổi sang ${food.name}` : `Đã thêm ${food.name} vào thực đơn`)
       } catch (error) {
+        if (epoch !== planMutationEpoch.current) return
         const message = nutritionPlanErrorMessage(error)
         setNutritionPlanError(message)
         showMessage(message)
         if (String((error as { code?: unknown })?.code ?? '').endsWith('aborted')) reloadNutritionPlan()
       } finally {
-        setNutritionPlanSaving(false)
+        if (epoch === planMutationEpoch.current) setNutritionPlanSaving(false)
       }
       return
     }
@@ -1835,10 +1910,10 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
     setMeals((current) => [newMealLog, ...current])
     beginNutritionMutation('meals', newMealLog.id)
     try {
-      if (isCloudLogEnabled) await saveUserMealLog(resolvedOwnerId, newMealLog as any, { idempotencyKey: context.idempotencyKey })
+      if (isCloudLogEnabled) await persistMeal(newMealLog as any, { idempotencyKey: context.idempotencyKey })
       completeNutritionMutation('meals')
     } catch (error) {
-      setMeals((current) => current.filter((meal) => meal.id !== newMealLog.id))
+      setMeals((current) => current.filter((meal) => meal.id !== newMealLog.id || (meal.mealRevision ?? 0) > 0))
       failNutritionMutation('meals', error)
       showMessage('Không thể thêm món ăn. Dữ liệu nguồn chưa được ghi nhận.')
       return
@@ -1950,6 +2025,11 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
   }
 
   const isCloudLogEnabled = Boolean(firestoreDb && resolvedOwnerId !== 'anonymous')
+  const persistMeal = async (meal: MealLog, options: { idempotencyKey?: string; expectedMealRevision?: number } = {}) => {
+    const result = await saveUserMealLog(resolvedOwnerId, meal as any, options)
+    setMeals((current) => current.map((item) => item.id === result.mealId && (item.mealRevision ?? 0) <= result.mealRevision ? { ...item, mealRevision: result.mealRevision } : item))
+    return result
+  }
   const beginNutritionMutation = (scope: 'meals' | 'water' | 'activities', id: string) => {
     setNutritionMutation({ scope, id })
     updateNutritionSync(scope, {
@@ -1961,12 +2041,17 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
   }
   const completeNutritionMutation = (scope: 'meals' | 'water' | 'activities') => {
     setNutritionMutation(null)
+    calendarMutationGeneration.current++
+    unfinishedCalendarBuild.current = null
+    setJournalReloadToken((value) => value + 1)
     updateNutritionSync(scope, { status: 'synced', revision: Date.now(), cachedAt: new Date().toISOString() })
   }
   const failNutritionMutation = (scope: 'meals' | 'water' | 'activities', error: unknown) => {
     setNutritionMutation(null)
+    const conflict = String((error as { code?: unknown })?.code ?? '').endsWith('aborted')
+    if (conflict) setDayReloadToken((value) => value + 1)
     updateNutritionSync(scope, {
-      status: 'sync-failed',
+      status: conflict ? 'conflict' : 'sync-failed',
       revision: Date.now(),
       cachedAt: new Date().toISOString(),
       message: error instanceof Error && error.message ? error.message : 'Aura chưa ghi nhận thay đổi. Hãy thử lại.',
@@ -2246,6 +2331,10 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
           todayKey,
           historyFromDate: recentNutritionFromDate,
           daySummaries: diaryDaySummaries,
+          onPeriodChange: onDiaryPeriodChange,
+          calendarStatus: isDemo ? 'ready' : calendarState.key === calendarKey ? calendarState.status : 'loading',
+          calendarMessage: calendarState.key === calendarKey ? calendarState.message : undefined,
+          onReloadCalendar: () => setJournalReloadToken((value) => value + 1),
           targets: { calories: calorieGoal, protein: proteinGoal, carbs: carbGoal, fat: fatGoal, waterMl: waterGoal },
           meals: workspaceDiaryMeals,
           activities: selectedDayActivities.map((activity) => ({ id: activity.id, time: activity.startTime, title: activity.title, durationMinutes: activity.durationMinutes, intensity: activity.intensity, estimatedCalories: activity.estimatedCalories })),

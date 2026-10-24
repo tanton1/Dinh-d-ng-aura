@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Bookmark,
   CalendarDays,
@@ -142,9 +142,16 @@ export default function ConnectedMealPlanPage(props: ConnectedMealPlanPageProps)
   const [loadingMore, setLoadingMore] = useState(false)
   const [retryToken, setRetryToken] = useState(0)
   const [selectedSummary, setSelectedSummary] = useState<NutritionFoodCatalogItem | null>(null)
+  const requestScope = JSON.stringify([category, debouncedQuery, props.allowDemo, retryToken])
+  const requestGeneration = useRef({ key: requestScope, generation: 0 })
+  if (requestGeneration.current.key !== requestScope) requestGeneration.current = { key: requestScope, generation: requestGeneration.current.generation + 1 }
+  const loadingMoreGeneration = useRef<number | null>(null)
 
   useEffect(() => {
     let active = true
+    const generation = requestGeneration.current.generation
+    loadingMoreGeneration.current = null
+    setLoadingMore(false)
     setCatalogState('loading')
     setNextCursor(null)
     setHasMore(false)
@@ -161,7 +168,7 @@ export default function ConnectedMealPlanPage(props: ConnectedMealPlanPageProps)
       category: category === 'all' ? '' : category,
       limit: 30,
     }).then((page) => {
-      if (!active) return
+      if (!active || generation !== requestGeneration.current.generation) return
       setItems(page.items)
       setCategories(page.categories)
       setTotalCount(page.filteredCount)
@@ -170,14 +177,14 @@ export default function ConnectedMealPlanPage(props: ConnectedMealPlanPageProps)
       setHasMore(page.hasMore)
       setCatalogState('live')
     }).catch(() => {
-      if (!active) return
+      if (!active || generation !== requestGeneration.current.generation) return
       const fallback = props.initialCatalog?.length ? props.initialCatalog : props.allowDemo ? DEMO_DISHES : []
       setItems(fallback.filter((item) => item.kind !== 'food'))
       setCategories([...new Set(fallback.map((item) => item.category?.nameVi).filter((value): value is string => Boolean(value)))])
       setTotalCount(fallback.length)
       setCatalogState(fallback.length ? 'demo' : 'error')
     })
-    return () => { active = false }
+    return () => { active = false; requestGeneration.current.generation++ }
   }, [category, debouncedQuery, props.allowDemo, props.initialCatalog, retryToken])
 
   const visibleItems = useMemo(() => items.filter((item) => {
@@ -207,7 +214,9 @@ export default function ConnectedMealPlanPage(props: ConnectedMealPlanPageProps)
   }
 
   const loadMore = async () => {
-    if (!hasMore || !nextCursor || loadingMore) return
+    const generation = requestGeneration.current.generation
+    if (!hasMore || !nextCursor || loadingMoreGeneration.current === generation) return
+    loadingMoreGeneration.current = generation
     setLoadingMore(true)
     try {
       const page = await loadNutritionCatalogPage({
@@ -218,7 +227,9 @@ export default function ConnectedMealPlanPage(props: ConnectedMealPlanPageProps)
         cursor: nextCursor,
         catalogVersion: catalogVersion || undefined,
       })
+      if (generation !== requestGeneration.current.generation) return
       setItems((current) => {
+        if (generation !== requestGeneration.current.generation) return current
         const merged = new Map(current.map((item) => [item.id, item]))
         page.items.forEach((item) => merged.set(item.id, item))
         return [...merged.values()]
@@ -227,9 +238,12 @@ export default function ConnectedMealPlanPage(props: ConnectedMealPlanPageProps)
       setHasMore(page.hasMore)
       setTotalCount(page.filteredCount)
     } catch {
-      setCatalogState('error')
+      if (generation === requestGeneration.current.generation) setCatalogState('error')
     } finally {
-      setLoadingMore(false)
+      if (generation === requestGeneration.current.generation) {
+        loadingMoreGeneration.current = null
+        setLoadingMore(false)
+      }
     }
   }
 
@@ -332,7 +346,7 @@ export default function ConnectedMealPlanPage(props: ConnectedMealPlanPageProps)
 
             <section className="meal-plan-live-section" aria-labelledby="meal-plan-catalog-title">
               <div className="meal-plan-live-heading">
-              <div><span><Sparkles size={18} /></span><div><h2 id="meal-plan-catalog-title">Gợi ý phù hợp cho bạn</h2><p>{catalogState === 'demo' ? 'Dữ liệu minh họa' : `${formatNumber(totalCount)} món trong thư viện Aura`}</p></div></div>
+              <div><span><Sparkles size={18} /></span><div><h2 id="meal-plan-catalog-title">Gợi ý phù hợp cho bạn</h2><p>{catalogState === 'demo' ? 'Dữ liệu minh họa' : `${formatNumber(visibleItems.length)} món phù hợp trong ${formatNumber(items.length)} món đã tải · ${formatNumber(totalCount)} món theo từ khóa và nhóm`}</p></div></div>
               <div className="meal-plan-display-toggle" role="group" aria-label="Mật độ hiển thị trên điện thoại">
                 <button type="button" className={mobileColumns === 1 ? 'is-active' : ''} onClick={() => setMobileColumns(1)} aria-pressed={mobileColumns === 1}>1 cột</button>
                 <button type="button" className={mobileColumns === 2 ? 'is-active' : ''} onClick={() => setMobileColumns(2)} aria-pressed={mobileColumns === 2}>2 cột</button>
@@ -363,7 +377,7 @@ export default function ConnectedMealPlanPage(props: ConnectedMealPlanPageProps)
                   })}
                 </div>
               ) : (
-                <div className="meal-plan-live-empty"><Utensils size={25} /><h3>Chưa tìm thấy món phù hợp</h3><p>Thử bỏ bớt bộ lọc hoặc tìm bằng tên món khác.</p><button type="button" onClick={() => { setQuery(''); setCategory('all'); setCalorieFilter('all'); setProteinFilter('all'); setGoalFilter('all'); setMealTypeFilter('all'); setSavedOnly(false) }}>Xóa bộ lọc</button></div>
+                <div className="meal-plan-live-empty"><Utensils size={25} /><h3>{hasMore ? 'Chưa có món phù hợp trong phần đã tải' : 'Chưa tìm thấy món phù hợp'}</h3><p>{hasMore ? 'Bấm Xem thêm món để tiếp tục tìm với các bộ lọc đang chọn.' : 'Thử bỏ bớt bộ lọc hoặc tìm bằng tên món khác.'}</p><button type="button" onClick={() => { setQuery(''); setCategory('all'); setCalorieFilter('all'); setProteinFilter('all'); setGoalFilter('all'); setMealTypeFilter('all'); setSavedOnly(false) }}>Xóa bộ lọc</button></div>
               )}
               {hasMore && catalogState === 'live' && <button type="button" className="meal-plan-load-more" onClick={loadMore} disabled={loadingMore}>{loadingMore ? <LoaderCircle className="is-spinning" size={17} /> : <Plus size={17} />} Xem thêm món</button>}
             </section>

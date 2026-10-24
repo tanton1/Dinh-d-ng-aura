@@ -9,10 +9,12 @@ import {
   query,
   serverTimestamp,
   setDoc,
+  startAfter,
   where,
   type CollectionReference,
   type DocumentData,
   type Query,
+  type QueryDocumentSnapshot,
   type Unsubscribe,
 } from 'firebase/firestore'
 import { httpsCallable } from 'firebase/functions'
@@ -23,6 +25,7 @@ import { firebaseFunctions } from '../lib/firebaseFunctions'
 import { firebaseStorage } from '../lib/firebaseStorage'
 import { readVersionedCache, writeVersionedCache } from '../dataSync/versionedCache'
 import type { DataSyncState } from '../dataSync/profileSync'
+import { createSharedNutritionSubscriptions, localNutritionDate } from '../features/nutrition/readLifecycle'
 
 function requireDb() {
   if (!firestoreDb) throw new Error('Firebase chưa được cấu hình. Hãy kiểm tra file .env.local.')
@@ -132,7 +135,10 @@ export async function mealPhotoUrl(storagePath: string) {
 }
 
 function normalizeMealLogs(items: Record<string, unknown>[]) {
-  return items.map((item) => item.reviewStatus === 'reviewed' ? { ...item, reviewStatus: 'approved' } : item)
+  return items.map((item) => ({ ...item,
+    mealRevision: Number.isInteger(item.mealRevision) && Number(item.mealRevision) >= 1 ? item.mealRevision : 1,
+    ...(item.reviewStatus === 'reviewed' ? { reviewStatus: 'approved' } : {}),
+  }))
 }
 
 async function saveUserLog(collectionName: 'mealLogs' | 'waterLogs' | 'activityLogs', userId: string, value: Record<string, unknown> & { id: string }) {
@@ -145,7 +151,11 @@ type UserNutritionLogCollection = 'mealLogs' | 'waterLogs' | 'activityLogs'
 interface UserLogSubscriptionScope {
   buildQuery?: (reference: CollectionReference<DocumentData>) => Query<DocumentData>
   filterCachedItems?: (item: Record<string, unknown>) => boolean
+  pageSize?: number
 }
+
+type NutritionLogEvent = { items: any[]; state: DataSyncState; error?: Error; changed: boolean }
+const sharedNutritionLogs = createSharedNutritionSubscriptions<NutritionLogEvent>()
 
 function subscribeToUserLog(
   collectionName: UserNutritionLogCollection,
@@ -164,34 +174,46 @@ function subscribeToUserLog(
     ? items.filter(scope.filterCachedItems)
     : items
 
-  return onSnapshot(source, { includeMetadataChanges: true }, (snapshot) => {
-    const items = filterItems(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })))
-    if (collectionName === 'mealLogs') onData(normalizeMealLogs(items))
-    else onData(items)
+  let delivered = false
+  return sharedNutritionLogs(key, (emit) => {
+    let latestItems: Record<string, unknown>[] | undefined
+    let latestNormalized: any[] = []
+    let confirmedItems: Record<string, unknown>[] | undefined
+    return onSnapshot(source, { includeMetadataChanges: true }, (snapshot) => {
+    const changed = !latestItems || snapshot.docChanges().length > 0
+    const items = changed ? filterItems(snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))) : latestItems!
+    if (changed) latestNormalized = collectionName === 'mealLogs' ? normalizeMealLogs(items) : items
+    latestItems = items
     const previous = confirmedCache()
+    let state: DataSyncState
     if (snapshot.metadata.hasPendingWrites) {
-      onSync?.({ status: 'pending-local-change', revision: previous?.revision ?? 0, cachedAt: previous?.cachedAt ?? null })
+      state = { status: 'pending-local-change', revision: previous?.revision ?? 0, cachedAt: previous?.cachedAt ?? null }
     } else if (snapshot.metadata.fromCache) {
-      onSync?.({
-        status: typeof navigator !== 'undefined' && !navigator.onLine ? 'offline-readonly' : 'stale-cache',
+      state = {
+        status: typeof navigator !== 'undefined' && navigator.onLine === false ? 'offline-readonly' : 'stale-cache',
         revision: previous?.revision ?? 0,
         cachedAt: previous?.cachedAt ?? null,
-      })
+      }
     } else {
-      const written = writeVersionedCache(key, userId, cacheName, items)
-      onSync?.({ status: 'synced', revision: written?.revision ?? Date.now(), cachedAt: written?.cachedAt ?? null })
+      const written = confirmedItems === items ? confirmedCache() : writeVersionedCache(key, userId, cacheName, items)
+      confirmedItems = items
+      state = { status: 'synced', revision: written?.revision ?? Date.now(), cachedAt: written?.cachedAt ?? null }
     }
+    emit({ items: latestNormalized, state, changed })
   }, (error) => {
     const fallback = confirmedCache()
     const fallbackItems = filterItems(fallback?.value ?? [])
-    if (collectionName === 'mealLogs') onData(normalizeMealLogs(fallbackItems))
-    else onData(fallbackItems)
-    onSync?.({
-      status: typeof navigator !== 'undefined' && !navigator.onLine && fallback ? 'offline-readonly' : 'sync-failed',
+    emit({ items: collectionName === 'mealLogs' ? normalizeMealLogs(fallbackItems) : fallbackItems, error, changed: true, state: {
+      status: typeof navigator !== 'undefined' && navigator.onLine === false && fallback ? 'offline-readonly' : 'sync-failed',
       revision: fallback?.revision ?? 0,
       cachedAt: fallback?.cachedAt ?? null,
-    })
-    onError?.(error)
+    } })
+  })
+  }, ({ items, state, error, changed }) => {
+    if (!delivered || changed) onData(items)
+    delivered = true
+    onSync?.(state)
+    if (error) onError?.(error)
   })
 }
 
@@ -209,15 +231,29 @@ async function loadUserLog(
   try {
     const reference = collection(requireDb(), 'users', userId, collectionName)
     const source = scope?.buildQuery ? scope.buildQuery(reference) : reference
-    const snapshot = await getDocs(source)
-    const items = filterItems(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })))
-    const written = writeVersionedCache(key, userId, cacheName, items)
-    onSync?.({ status: 'synced', revision: written?.revision ?? Date.now(), cachedAt: written?.cachedAt ?? null })
+    const records: Record<string, unknown>[] = []
+    let cursor: QueryDocumentSnapshot<DocumentData> | undefined
+    let fromCache = false
+    let pendingWrites = false
+    do {
+      const page = await getDocs(scope?.pageSize ? query(source, ...(cursor ? [startAfter(cursor)] : []), limit(scope.pageSize)) : source)
+      fromCache ||= page.metadata.fromCache
+      pendingWrites ||= page.metadata.hasPendingWrites
+      records.push(...page.docs.map((item) => ({ id: item.id, ...item.data() })))
+      const next = page.docs.at(-1)
+      if (!scope?.pageSize || page.docs.length < scope.pageSize) break
+      if (!next || next.id === cursor?.id) throw new Error('Không thể tải tiếp nhật ký. Hãy tải lại để kiểm tra đủ dữ liệu.')
+      cursor = next
+    } while (cursor)
+    const items = filterItems(records)
+    const confirmed = !fromCache && !pendingWrites
+    const written = confirmed ? writeVersionedCache(key, userId, cacheName, items) : readVersionedCache(key, userId, cacheName, isLogArray)
+    onSync?.({ status: pendingWrites ? 'pending-local-change' : fromCache ? (typeof navigator !== 'undefined' && navigator.onLine === false ? 'offline-readonly' : 'stale-cache') : 'synced', revision: written?.revision ?? 0, cachedAt: written?.cachedAt ?? null })
     return collectionName === 'mealLogs' ? normalizeMealLogs(items) : items
   } catch (error) {
     const fallback = readVersionedCache(key, userId, cacheName, isLogArray)
     onSync?.({
-      status: typeof navigator !== 'undefined' && !navigator.onLine && fallback ? 'offline-readonly' : 'sync-failed',
+      status: typeof navigator !== 'undefined' && navigator.onLine === false && fallback ? 'offline-readonly' : 'sync-failed',
       revision: fallback?.revision ?? 0,
       cachedAt: fallback?.cachedAt ?? null,
     })
@@ -232,7 +268,7 @@ async function loadUserLog(
 export async function saveUserMealLog(
   userId: string,
   meal: Record<string, unknown> & { id: string },
-  options: { idempotencyKey?: string } = {},
+  options: { idempotencyKey?: string; expectedMealRevision?: number } = {},
 ) {
   const functions = requireNutritionCloud(userId)
   const cleaned = await cleanMealForStorage(meal)
@@ -264,23 +300,26 @@ export async function saveUserMealLog(
   }
   if (typeof payload.imageStoragePath === 'string' && payload.imageStoragePath) delete payload.image
   const callable = httpsCallable<
-    { meal: Record<string, unknown>; idempotencyKey?: string },
+    { meal: Record<string, unknown>; idempotencyKey?: string; expectedMealRevision: number; expectedOwnerUid: string },
     { mealId: string; mealRevision: number; reviewInvalidated: boolean; unchanged?: boolean }
   >(functions, 'saveNutritionMealLog')
+  requireNutritionCloud(userId)
   return (await callable({
     meal: withoutUndefined(payload),
+    expectedOwnerUid: userId,
+    expectedMealRevision: options.expectedMealRevision ?? (Number.isInteger(meal.mealRevision) ? Number(meal.mealRevision) : 0),
     ...(options.idempotencyKey ? { idempotencyKey: options.idempotencyKey } : {}),
   })).data
 }
-export async function deleteUserMealLog(userId: string, mealId: string) {
+export async function deleteUserMealLog(userId: string, mealId: string, expectedMealRevision: number) {
   const functions = requireNutritionCloud(userId)
-  const callable = httpsCallable<{ mealId: string }, { mealId: string; deleted: boolean }>(functions, 'deleteNutritionMealLog')
-  await callable({ mealId })
+  const callable = httpsCallable<{ mealId: string; expectedMealRevision: number; expectedOwnerUid: string }, { mealId: string; deleted: boolean; mealRevision: number }>(functions, 'deleteNutritionMealLog')
+  return (await callable({ mealId, expectedMealRevision, expectedOwnerUid: userId })).data
 }
 export function subscribeToUserMealLogs(userId: string, onData: (items: any[]) => void, onError?: (error: Error) => void, onSync?: (state: DataSyncState) => void) { return subscribeToUserLog('mealLogs', 'user_meal_logs', userId, onData, onError, onSync) }
 export function subscribeToUserMealLogsForDate(userId: string, date: string, onData: (items: any[]) => void, onError?: (error: Error) => void, onSync?: (state: DataSyncState) => void) {
   return subscribeToUserLog('mealLogs', `user_meal_logs_day:${date}`, userId, onData, onError, onSync, {
-    buildQuery: (reference) => query(reference, where('date', '==', date), limit(100)),
+    buildQuery: (reference) => query(reference, where('date', '==', date)),
     filterCachedItems: (item) => item.date === date,
   })
 }
@@ -290,10 +329,11 @@ export function subscribeToRecentUserMealLogs(userId: string, fromDate: string, 
     filterCachedItems: (item) => typeof item.date === 'string' && item.date >= fromDate,
   })
 }
-export function loadRecentUserMealLogs(userId: string, fromDate: string, onSync?: (state: DataSyncState) => void) {
-  return loadUserLog('mealLogs', 'user_meal_logs_recent_90d', userId, onSync, {
-    buildQuery: (reference) => query(reference, where('date', '>=', fromDate), orderBy('date', 'desc'), limit(1_000)),
-    filterCachedItems: (item) => typeof item.date === 'string' && item.date >= fromDate,
+export function loadRecentUserMealLogs(userId: string, fromDate: string, onSync?: (state: DataSyncState) => void, toDate = localNutritionDate()) {
+  return loadUserLog('mealLogs', `user_meal_logs_range:${fromDate}:${toDate}`, userId, onSync, {
+    buildQuery: (reference) => query(reference, where('date', '>=', fromDate), where('date', '<=', toDate), orderBy('date', 'desc')),
+    filterCachedItems: (item) => typeof item.date === 'string' && item.date >= fromDate && item.date <= toDate,
+    pageSize: 500,
   })
 }
 
@@ -302,7 +342,7 @@ export async function deleteUserWaterLog(userId: string, entryId: string) { awai
 export function subscribeToUserWaterLogs(userId: string, onData: (items: any[]) => void, onError?: (error: Error) => void, onSync?: (state: DataSyncState) => void) { return subscribeToUserLog('waterLogs', 'user_water_logs', userId, onData, onError, onSync) }
 export function subscribeToUserWaterLogsForDate(userId: string, date: string, onData: (items: any[]) => void, onError?: (error: Error) => void, onSync?: (state: DataSyncState) => void) {
   return subscribeToUserLog('waterLogs', `user_water_logs_day:${date}`, userId, onData, onError, onSync, {
-    buildQuery: (reference) => query(reference, where('date', '==', date), limit(100)),
+    buildQuery: (reference) => query(reference, where('date', '==', date)),
     filterCachedItems: (item) => item.date === date,
   })
 }
@@ -312,10 +352,11 @@ export function subscribeToRecentUserWaterLogs(userId: string, fromDate: string,
     filterCachedItems: (item) => typeof item.date === 'string' && item.date >= fromDate,
   })
 }
-export function loadRecentUserWaterLogs(userId: string, fromDate: string, onSync?: (state: DataSyncState) => void) {
-  return loadUserLog('waterLogs', 'user_water_logs_recent_90d', userId, onSync, {
-    buildQuery: (reference) => query(reference, where('date', '>=', fromDate), orderBy('date', 'desc'), limit(1_000)),
-    filterCachedItems: (item) => typeof item.date === 'string' && item.date >= fromDate,
+export function loadRecentUserWaterLogs(userId: string, fromDate: string, onSync?: (state: DataSyncState) => void, toDate = localNutritionDate()) {
+  return loadUserLog('waterLogs', `user_water_logs_range:${fromDate}:${toDate}`, userId, onSync, {
+    buildQuery: (reference) => query(reference, where('date', '>=', fromDate), where('date', '<=', toDate), orderBy('date', 'desc')),
+    filterCachedItems: (item) => typeof item.date === 'string' && item.date >= fromDate && item.date <= toDate,
+    pageSize: 500,
   })
 }
 
@@ -324,7 +365,7 @@ export async function deleteUserActivityLog(userId: string, activityId: string) 
 export function subscribeToUserActivityLogs(userId: string, onData: (items: any[]) => void, onError?: (error: Error) => void, onSync?: (state: DataSyncState) => void) { return subscribeToUserLog('activityLogs', 'user_activity_logs', userId, onData, onError, onSync) }
 export function subscribeToUserActivityLogsForDate(userId: string, date: string, onData: (items: any[]) => void, onError?: (error: Error) => void, onSync?: (state: DataSyncState) => void) {
   return subscribeToUserLog('activityLogs', `user_activity_logs_day:${date}`, userId, onData, onError, onSync, {
-    buildQuery: (reference) => query(reference, where('date', '==', date), limit(100)),
+    buildQuery: (reference) => query(reference, where('date', '==', date)),
     filterCachedItems: (item) => item.date === date,
   })
 }
@@ -334,9 +375,10 @@ export function subscribeToRecentUserActivityLogs(userId: string, fromDate: stri
     filterCachedItems: (item) => typeof item.date === 'string' && item.date >= fromDate,
   })
 }
-export function loadRecentUserActivityLogs(userId: string, fromDate: string, onSync?: (state: DataSyncState) => void) {
-  return loadUserLog('activityLogs', 'user_activity_logs_recent_90d', userId, onSync, {
-    buildQuery: (reference) => query(reference, where('date', '>=', fromDate), orderBy('date', 'desc'), limit(1_000)),
-    filterCachedItems: (item) => typeof item.date === 'string' && item.date >= fromDate,
+export function loadRecentUserActivityLogs(userId: string, fromDate: string, onSync?: (state: DataSyncState) => void, toDate = localNutritionDate()) {
+  return loadUserLog('activityLogs', `user_activity_logs_range:${fromDate}:${toDate}`, userId, onSync, {
+    buildQuery: (reference) => query(reference, where('date', '>=', fromDate), where('date', '<=', toDate), orderBy('date', 'desc')),
+    filterCachedItems: (item) => typeof item.date === 'string' && item.date >= fromDate && item.date <= toDate,
+    pageSize: 500,
   })
 }

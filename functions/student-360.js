@@ -18,7 +18,7 @@ const TIME_ZONE = 'Asia/Ho_Chi_Minh'
 // Bump the projection schema when account-link resolution changes. Existing
 // cached views are rebuilt lazily on the next read, so old data is never
 // overwritten by a client-side migration.
-const OVERVIEW_SCHEMA_VERSION = 3
+const OVERVIEW_SCHEMA_VERSION = 4
 const HEALTH_FORMULA_VERSION = 'student-health-v1'
 // Canonical write triggers keep active students fresh. A long fallback TTL
 // prevents an unchanged profile from re-reading every history collection each
@@ -1454,8 +1454,8 @@ function sourceTimelineEvents(studentId, sources) {
   return normalizeTimelineEvents(values.filter((item) => item.occurredAtMillis > 0)).slice(0, 400)
 }
 
-async function upsertTimeline(db, events) {
-  return upsertChangedTimeline(db, events)
+async function upsertTimeline(db, events, lease = null) {
+  return upsertChangedTimeline(db, events, lease)
 }
 
 async function queueStudent360ProjectionRefresh(db, studentId, weekId, reason = 'stale') {
@@ -1513,7 +1513,16 @@ async function nutritionTimelineEvidence(db, studentId, projection) {
   }
 }
 
-async function buildStudent360Projection({ db, studentId, weekId = mondayDateKey(), persist = true }) {
+async function buildStudent360Projection({ db, studentId, weekId = mondayDateKey(), persist = true, lease = null }) {
+  // Callable repairs, scheduled reconciliation and source triggers must all
+  // serialize with nutrition refreshes, not only Eventarc-triggered rebuilds.
+  if (persist && !lease) {
+    let projection
+    await coalesceProjectionRebuild({ db, studentId, rebuild: async (lease) => {
+      projection = await buildStudent360Projection({ db, studentId, weekId, persist: true, lease })
+    } })
+    return projection
+  }
   const today = vietnamDateKey()
   const sources = await projectionSources(db, studentId, weekId)
   const contract = activeContract(sources.contracts, today)
@@ -1562,12 +1571,13 @@ async function buildStudent360Projection({ db, studentId, weekId = mondayDateKey
   const slots = normalizedArray(availability?.slots || sources.student.availableSlots)
   const confirmedAvailability = Boolean(availability?.confirmed || ['submitted', 'locked', 'inherited'].includes(availability?.status) || sources.student.isScheduleConfirmed)
   const latestAttendanceMillis = Math.max(0, ...attendanceRows.map((item) => timestampMillis(item.updatedAt || item.createdAt) || dateKeyMillis(sessionDate(item))))
-  const latestActivityMillis = Math.max(0, ...[
+  const latestNonNutritionActivityMillis = Math.max(0, ...[
     latestAttendanceMillis,
-    ...sources.mealLogs.map((item) => timestampMillis(item.createdAt || item.timestamp) || dateKeyMillis(item.date)),
     ...sources.workoutLogs.map((item) => timestampMillis(item.completedAt || item.updatedAt || item.createdAt) || dateKeyMillis(item.date)),
     ...sources.dailyCheckins.map((item) => timestampMillis(item.createdAt || item.updatedAt) || dateKeyMillis(item.date)),
   ])
+  const latestActivityMillis = Math.max(latestNonNutritionActivityMillis,
+    ...sources.mealLogs.map((item) => timestampMillis(item.createdAt || item.timestamp) || dateKeyMillis(item.date)))
   const lastAttendanceAt = latestAttendanceMillis ? new Date(latestAttendanceMillis).toISOString() : null
   const activityAgeDays = latestActivityMillis ? Math.floor((Date.now() - latestActivityMillis) / 86_400_000) : null
   const attendanceAgeDays = latestAttendanceMillis ? Math.floor((Date.now() - latestAttendanceMillis) / 86_400_000) : null
@@ -1729,6 +1739,7 @@ async function buildStudent360Projection({ db, studentId, weekId = mondayDateKey
       })),
     },
     nutrition,
+    nutritionRefreshBasis: { day: today, latestNonNutritionActivityMillis },
     progress,
     renewal: renewal ? {
       caseId: renewal.id,
@@ -1751,11 +1762,121 @@ async function buildStudent360Projection({ db, studentId, weekId = mondayDateKey
   }
   if (persist) {
     await Promise.all([
-      db.doc(`studentOperationalViews/${studentId}`).set(projection, { merge: false }),
-      upsertTimeline(db, timeline),
+      lease.runTransaction(async (transaction) => transaction.set(db.doc(`studentOperationalViews/${studentId}`), projection, { merge: false })),
+      upsertTimeline(db, timeline, lease),
     ])
+    studentProjectionReadCache.clear(`${cacheScope(db)}|${studentId}|`)
   }
   return projection
+}
+
+function nutritionEventSource(event) {
+  const reference = event?.data?.after?.ref || event?.data?.before?.ref
+  const collection = reference?.parent?.id || reference?.path?.split('/').at(-2)
+  return ['mealLogs', 'mealReviews'].includes(collection) ? collection : null
+}
+
+function nutritionOnlyTimeline(studentId, mealLogs, mealReviews) {
+  return sourceTimelineEvents(studentId, {
+    contracts: [], sessions: [], attendance: [], workoutLogs: [], leaveRequests: [], sessionRequests: [],
+    payments: [], renewals: [], dailyCheckins: [], bodyMetrics: [], progressPhotos: [], profile: null,
+    mealLogs, mealReviews,
+  })
+}
+
+async function nutritionEventRows(db, event, accountUid) {
+  const source = nutritionEventSource(event)
+  const value = event.data?.after?.exists ? event.data.after.data() : event.data?.before?.data() || {}
+  const reference = event.data?.after?.ref || event.data?.before?.ref
+  const sourceId = reference?.id || event.params?.documentId || ''
+  const eventOwner = source === 'mealReviews' ? value.userId : reference?.path?.split('/')[1] || event.params?.accountUid
+  if (!source || eventOwner !== accountUid) return { meals: [], reviews: [], deletedIds: [] }
+  const mealId = source === 'mealReviews' ? mealReviewId({ id: sourceId, ...value }) : sourceId
+  const reviewId = source === 'mealReviews' ? sourceId : bounded(value.reviewId, 200) || mealId
+  if (!safeAccountUid(mealId) || !safeAccountUid(reviewId)) return { meals: [], reviews: [], deletedIds: [] }
+  // Fetch the current pair, not the event payload: deliveries may be reordered
+  // and a deleted ID may already have been restored on another device.
+  const [meal, review] = await db.getAll(db.doc(`users/${accountUid}/mealLogs/${mealId}`), db.doc(`mealReviews/${reviewId}`))
+  const reviews = review.exists && review.data()?.userId === accountUid ? [{ id: review.id, ...review.data() }] : []
+  return {
+    meals: meal.exists ? [{ id: meal.id, ...meal.data() }] : [],
+    reviews,
+    deletedIds: !meal.exists && !reviews.length ? [mealId, `meal-review:${reviewId}`] : [],
+  }
+}
+
+async function refreshStudent360NutritionProjection({ db, studentId, event, lease }) {
+  const weekId = mondayDateKey()
+  const today = vietnamDateKey()
+  const reference = db.doc(`studentOperationalViews/${studentId}`)
+  const existing = await reference.get()
+  const previous = existing.exists ? existing.data() : null
+  const expectedComponents = ['attendance', 'training', 'nutrition', 'progress', 'engagement', 'payment', 'renewal']
+  const validBasis = previous?.schemaVersion === OVERVIEW_SCHEMA_VERSION
+    && previous?.formulaVersion === HEALTH_FORMULA_VERSION && previous?.schedule?.weekId === weekId
+    && previous?.nutritionRefreshBasis?.day === today
+    && Number.isFinite(previous?.nutritionRefreshBasis?.latestNonNutritionActivityMillis)
+    && expectedComponents.every((id) => previous?.health?.components?.some((item) => item.id === id))
+  const fullRefresh = async () => {
+    const projection = await buildStudent360Projection({ db, studentId, weekId, persist: true, lease })
+    if (projection.accountUid) {
+      const current = await nutritionEventRows(db, event, projection.accountUid)
+      await upsertTimeline(db, nutritionOnlyTimeline(studentId, current.meals, current.reviews), lease)
+      if (current.deletedIds.length) await lease.runTransaction(async (transaction) => {
+        current.deletedIds.forEach((id) => transaction.delete(db.doc(`studentTimelineEvents/${eventId(studentId, 'nutrition', id)}`)))
+      })
+    }
+    return { mode: 'full' }
+  }
+  if (!validBasis) return fullRefresh()
+  const studentSnapshot = await db.doc(`students/${studentId}`).get()
+  if (!studentSnapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy học viên.')
+  const account = await studentAccountProfile(db, { id: studentId, ...studentSnapshot.data() })
+  if (!account.accountUid || account.accountUid !== previous.accountUid) return fullRefresh()
+  const [mealLogs, mealReviews, current] = await Promise.all([
+    latestDocuments(db.collection(`users/${account.accountUid}/mealLogs`), 'date', PROJECTION_READ_LIMITS.mealLogs),
+    latestDocuments(db.collection('mealReviews').where('userId', '==', account.accountUid), 'createdAt', PROJECTION_READ_LIMITS.mealReviews),
+    nutritionEventRows(db, event, account.accountUid),
+  ])
+  const nutrition = mealProjection(mealLogs, account.profile, today)
+  const latestActivityMillis = Math.max(previous.nutritionRefreshBasis.latestNonNutritionActivityMillis,
+    ...mealLogs.map((item) => timestampMillis(item.createdAt || item.timestamp) || dateKeyMillis(item.date)))
+  const activityAgeDays = latestActivityMillis ? Math.floor((Date.now() - latestActivityMillis) / 86_400_000) : null
+  const confirmedAvailability = Boolean(previous.schedule?.availability?.confirmed)
+  const healthInput = Object.fromEntries(previous.health.components.flatMap((item) => [
+    [`${item.id}Score`, item.available ? item.score : null], [`${item.id}Reason`, item.reason],
+  ]))
+  healthInput.nutritionScore = nutrition
+    ? Math.round(Math.min(100, nutrition.loggedDays / 7 * 100) * .55 + (nutrition.targetProtein && nutrition.averageProtein ? Math.min(100, nutrition.averageProtein / nutrition.targetProtein * 100) : 75) * .45)
+    : null
+  healthInput.nutritionReason = nutrition ? `${nutrition.loggedDays}/7 ngày có nhật ký ăn.` : 'Chưa áp dụng theo dõi dinh dưỡng.'
+  healthInput.engagementScore = Math.round((confirmedAvailability ? 55 : 15) + (activityAgeDays === null ? 0 : activityAgeDays <= 3 ? 45 : activityAgeDays <= 7 ? 30 : activityAgeDays <= 14 ? 15 : 0))
+  healthInput.engagementReason = `${confirmedAvailability ? 'Đã' : 'Chưa'} xác nhận lịch rảnh${activityAgeDays === null ? ', chưa có hoạt động gần đây' : `, hoạt động ${activityAgeDays} ngày trước`}.`
+  const alerts = (previous.alerts || []).filter((item) => item.id !== 'nutrition-stale')
+  if (nutrition && nutrition.loggedDays === 0 && previous.assignments?.nutritionCoachIds?.length) {
+    alerts.push(alert('nutrition-stale', 'amber', 'Bảy ngày chưa ghi bữa ăn', 'Coach cần hỏi thăm và hỗ trợ cách ghi nhận bữa ăn.', 'nutrition', 'coaching'))
+  }
+  const sortedAlerts = sortAlerts(alerts)
+  const patch = {
+    nutrition, health: buildHealthScore(healthInput), alerts: sortedAlerts,
+    nextActions: sortedAlerts.slice(0, 3).map((item, index) => ({ id: `action-${item.id}`, priority: index + 1, title: item.title,
+      description: item.message, action: item.action, severity: item.severity, audience: item.audience })),
+    nutritionUpdatedAt: new Date().toISOString(),
+  }
+  const timeline = nutritionOnlyTimeline(studentId,
+    [...new Map([...mealLogs, ...current.meals].map((item) => [item.id, item])).values()],
+    [...new Map([...mealReviews, ...current.reviews].map((item) => [item.id, item])).values()])
+  // Keep the full generatedAt watermark unchanged: this partial write does
+  // not make old finance, schedule or attendance data fresh.
+  await Promise.all([
+    lease.runTransaction(async (transaction) => {
+      transaction.update(reference, patch)
+      current.deletedIds.forEach((id) => transaction.delete(db.doc(`studentTimelineEvents/${eventId(studentId, 'nutrition', id)}`)))
+    }),
+    upsertTimeline(db, timeline, lease),
+  ])
+  studentProjectionReadCache.clear(`${cacheScope(db)}|${studentId}|`)
+  return { mode: 'nutrition', sourceDocuments: mealLogs.length + mealReviews.length }
 }
 
 function actorIds(actor) {
@@ -1832,6 +1953,7 @@ function actionAllowed(action, permissions) {
 
 function redactProjection(projection, permissions) {
   const result = structuredClone(projection)
+  delete result.nutritionRefreshBasis
   result.permissions = permissions
   if (!permissions.canViewTraining) result.training = { restricted: true }
   if (!permissions.canViewNutrition) result.nutrition = null
@@ -2017,12 +2139,17 @@ async function syncStudent360ProjectionFromEvent({ db, event, logger = console }
   const studentId = await resolveEventStudentId(db, event)
   if (!studentId) return { skipped: true, reason: 'student_not_resolved' }
   try {
+    const nutritionOnly = Boolean(nutritionEventSource(event))
+    let refresh = { mode: 'full' }
     const result = await coalesceProjectionRebuild({
-      db, studentId, event,
-      rebuild: () => buildStudent360Projection({ db, studentId, weekId: mondayDateKey(), persist: true }),
+      db, studentId, event, scope: nutritionOnly ? 'nutrition' : 'full',
+      rebuild: async (lease) => {
+        if (nutritionOnly) refresh = await refreshStudent360NutritionProjection({ db, studentId, event, lease })
+        else await buildStudent360Projection({ db, studentId, weekId: mondayDateKey(), persist: true, lease })
+      },
     })
-    logger.info('student_360_trigger_rebuild', { studentId, ...result })
-    return { skipped: !result.rebuilt, studentId }
+    logger.info('student_360_trigger_rebuild', { studentId, ...result, ...refresh })
+    return { skipped: !result.rebuilt, studentId, mode: refresh.mode }
   } catch (error) {
     if (error?.code === 'functions/not-found' || error?.code === 'not-found') return { skipped: true, reason: 'student_deleted', studentId }
     logger.error('student_360_projection_sync_failed', { studentId, code: error?.code || 'unknown' })
@@ -2987,6 +3114,7 @@ module.exports = {
   contractWorkspaceTrainerDirectory,
   createStudent360Functions,
   mapWithConcurrency,
+  mondayDateKey,
   permissionsFor,
   redactHealthForPermissions,
   redactProjection,

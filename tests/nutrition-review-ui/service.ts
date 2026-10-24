@@ -16,15 +16,24 @@ const record = (id: string, overdue: boolean): NutritionMealReview => ({
 const rows = [record('old', true), record('recent', false)]
 export const control = {
   reads: [] as Record<string, unknown>[], writes: [] as Record<string, unknown>[],
+  summaryReads: [] as unknown[], directoryReads: [] as unknown[],
+  failSummary: false, holdSummary: false, releaseSummary: () => {},
   failNext: false, failMutation: false, holdMutation: false, holdRead: false,
+  readName: '',
   releaseMutation: () => {}, releaseRead: () => {},
 }
 Object.assign(window, { reviewTest: control })
 
 export async function listNutritionMealReviews(input: Record<string, unknown>): Promise<NutritionReviewListResult> {
   control.reads.push(input)
+  const readName = control.readName
   if (control.holdRead) await new Promise<void>((resolve) => { control.releaseRead = resolve })
   if (control.failNext) { control.failNext = false; throw new Error('Dịch vụ đang bận. Hãy tải lại.') }
+  const result = resultFor(input)
+  return readName ? { ...result, reviews: result.reviews.map((row) => ({ ...row, studentName: readName })) } : result
+}
+
+function resultFor(input: Record<string, unknown>): NutritionReviewListResult {
   const reviews = rows.filter((row) => (!input.status || input.status === 'all' || row.status === input.status)
     && (input.focus !== 'overdue' || (row.status === 'pending' && row.isOverdue))
     && (!input.query || row.studentName.includes(String(input.query))))
@@ -34,6 +43,19 @@ export async function listNutritionMealReviews(input: Record<string, unknown>): 
     summary: { total: 2, pending: rows.filter((row) => row.status === 'pending').length, approved: rows.filter((row) => row.status === 'approved').length, rejected: 0, overdue: rows.filter((row) => row.isOverdue && row.status === 'pending').length, highPriority: 0, students: 2 },
     summaryTruncated: false, slaMinutes: 120,
   }
+}
+
+export async function getNutritionReviewSummary(authorityKey: string, forceRefresh: boolean) {
+  control.summaryReads.push({ authorityKey, forceRefresh })
+  const result = resultFor({})
+  if (control.holdSummary) await new Promise<void>((resolve) => { control.releaseSummary = resolve })
+  if (control.failSummary) { control.failSummary = false; throw new Error('Tổng quan đang bận.') }
+  return result
+}
+
+export async function getNutritionReviewCoaches(authorityKey: string, directoryCursor: string | null) {
+  control.directoryReads.push({ authorityKey, directoryCursor })
+  return { coaches: resultFor({}).coaches, scope: 'all', coachesHasMore: false, coachesNextCursor: null }
 }
 
 export async function reviewNutritionMeal(input: Record<string, unknown>) {

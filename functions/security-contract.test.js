@@ -401,14 +401,13 @@ test('staff keeps learner navigation while operations routes stay separate and m
   assert.doesNotMatch(trainerPortalSource, /const \[result, scheduleResult\] = await Promise\.all/)
 })
 
-test('authenticated bootstrap confirms server data and defers nutrition history until a history view is opened', () => {
+test('authenticated bootstrap confirms server data without blocking the profile subscription', () => {
   assert.doesNotMatch(authSource, /await getIdTokenResult\(firebaseUser\)/)
   assert.match(authSource, /void getIdTokenResult\(firebaseUser\)[\s\S]*?unsubscribeProfile = onSnapshot/)
   assert.match(dataSyncBannerSource, /Đang đồng bộ dữ liệu mới nhất/)
   assert.doesNotMatch(dataSyncBannerSource, /Đang hiển thị bản lưu gần nhất/)
-  assert.match(nutritionPageSource, /const \[historySyncStarted, setHistorySyncStarted\] = useState\(false\)/)
-  assert.match(nutritionPageSource, /const needsHistory = activeSection === 'diary' \|\| activeSection === 'classic-diary' \|\| activeSection === 'plan' \|\| activeSection === 'menu' \|\| activeSection === 'insights' \|\| activeSection === 'assistant'/)
-  assert.match(nutritionPageSource, /if \(needsHistory\) \{[\s\S]*?setHistorySyncStarted\(true\)/)
+  // Nutrition tab isolation is exercised by nutrition-read-ui and the real
+  // service harness, including calendar summaries and week-only meal keys.
   assert.doesNotMatch(nutritionPageSource, /requestIdleCallback/)
 })
 

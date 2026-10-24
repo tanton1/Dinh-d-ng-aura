@@ -70,7 +70,22 @@ function shortText(value, maximum = 1600) {
 function requireOwner(request) {
   const uid = request.auth?.uid
   if (!uid) throw new HttpsError('unauthenticated', 'Bạn cần đăng nhập để cập nhật nhật ký dinh dưỡng.')
+  if (request.data?.expectedOwnerUid !== undefined && request.data.expectedOwnerUid !== uid) {
+    throw new HttpsError('failed-precondition', 'Tài khoản đã thay đổi. Hãy mở lại nhật ký trước khi lưu.')
+  }
   return uid
+}
+
+function assertMealRevision(snapshot, expectedRevision) {
+  const currentRevision = snapshot.exists ? Math.max(1, Math.trunc(finite(snapshot.data()?.mealRevision, 1))) : 0
+  if (!snapshot.exists && expectedRevision === undefined) return currentRevision
+  if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0 || (snapshot.exists && expectedRevision < 1)) {
+    throw new HttpsError('failed-precondition', 'Hãy tải lại nhật ký để cập nhật đúng phiên bản bữa ăn.')
+  }
+  if (expectedRevision !== currentRevision) {
+    throw new HttpsError('aborted', 'Bữa ăn đã thay đổi trên thiết bị khác. Hãy tải lại trước khi thao tác.')
+  }
+  return currentRevision
 }
 
 function plainJson(value, maximumBytes = 700_000) {
@@ -332,13 +347,14 @@ async function assignedClientIds(db, context) {
   const today = currentContractDateKey()
   const coachIds = [...new Set([context.uid, context.legacyStaffId].filter(Boolean))]
   const contractSnapshots = await Promise.all(coachIds.map((coachId) => (
-      db.collection('contracts').where('nutritionPTIds', 'array-contains', coachId).limit(200).get()
+      db.collection('contracts').where('nutritionPTIds', 'array-contains', coachId).limit(201).get()
   )))
   const contractClients = contractSnapshots.flatMap((snapshot) => snapshot.docs
     .filter((item) => effectiveContractStatus(item.data(), today) === 'active')
     .map((item) => item.data()?.studentId)
     .filter((value) => typeof value === 'string'))
-  const crmIds = [...new Set(contractClients)].slice(0, 200)
+  const allCrmIds = [...new Set(contractClients)]
+  const crmIds = allCrmIds.slice(0, 200)
   const linkedAccounts = []
   for (let index = 0; index < crmIds.length; index += 30) {
     const chunk = crmIds.slice(index, index + 30)
@@ -353,7 +369,12 @@ async function assignedClientIds(db, context) {
       if (typeof accountUid === 'string' && accountUid) linkedAccounts.push(accountUid)
     })
   }
-  return [...new Set([...crmIds, ...linkedAccounts])].slice(0, MAX_ASSIGNED_CLIENTS)
+  const allClientIds = [...new Set([...crmIds, ...linkedAccounts])]
+  return {
+    clientIds: allClientIds.slice(0, MAX_ASSIGNED_CLIENTS),
+    truncated: contractSnapshots.some((snapshot) => snapshot.docs.length > 200)
+      || allCrmIds.length > 200 || allClientIds.length > MAX_ASSIGNED_CLIENTS,
+  }
 }
 
 async function signReviewImages(records, storage) {
@@ -376,17 +397,22 @@ async function signReviewImages(records, storage) {
 
 async function hydrateReviews(db, documents, context, options = {}) {
   const clientIds = [...new Set(documents.map((item) => item.data()?.userId).filter((value) => typeof value === 'string'))]
+  // Modern submissions already carry the authoritative assignment snapshot.
+  // Only legacy rows need identity/contract enrichment; do not reread a
+  // learner's contract history for every page of modern review tasks.
+  const legacyClientIds = [...new Set(documents.filter((item) => item.data()?.assignmentSnapshotVersion !== ASSIGNMENT_SNAPSHOT_VERSION)
+    .map((item) => item.data()?.userId).filter((value) => typeof value === 'string'))]
   const [profiles, identityAssignments] = await Promise.all([
     clientIds.length ? db.getAll(...clientIds.map((id) => db.doc(`users/${id}`))) : [],
-    clientIds.length ? db.getAll(...clientIds.map((id) => db.doc(`roleAssignments/${id}`))) : [],
+    legacyClientIds.length ? db.getAll(...legacyClientIds.map((id) => db.doc(`roleAssignments/${id}`))) : [],
   ])
   const profileMap = new Map(profiles.map((item) => [item.id, item.exists ? item.data() || {} : {}]))
   const crmIdByClientId = new Map(identityAssignments.map((item) => {
     const value = item.exists ? item.data() || {} : {}
     return [item.id, typeof value.crmProfileId === 'string' && value.crmProfileId ? value.crmProfileId : item.id]
   }))
-  for (let index = 0; index < clientIds.length; index += 30) {
-    const chunk = clientIds.slice(index, index + 30)
+  for (let index = 0; index < legacyClientIds.length; index += 30) {
+    const chunk = legacyClientIds.slice(index, index + 30)
     if (!chunk.length) continue
     const snapshot = await db.collection('students').where('accountUid', 'in', chunk).get()
     snapshot.docs.forEach((item) => {
@@ -394,7 +420,7 @@ async function hydrateReviews(db, documents, context, options = {}) {
       if (typeof accountUid === 'string' && accountUid) crmIdByClientId.set(accountUid, item.id)
     })
   }
-  clientIds.forEach((id) => { if (!crmIdByClientId.has(id)) crmIdByClientId.set(id, id) })
+  legacyClientIds.forEach((id) => { if (!crmIdByClientId.has(id)) crmIdByClientId.set(id, id) })
   const crmIds = [...new Set(crmIdByClientId.values())]
   const contracts = []
   const today = currentContractDateKey()
@@ -660,10 +686,13 @@ async function scopedReviewSummary(db, clientIds, slaMinutes, assignmentCount, n
   }
 }
 
-async function availableNutritionCoaches(db) {
-  const trainerSnapshot = await db.collection('trainers').limit(100).get()
-  const candidates = trainerSnapshot.docs.filter((item) => item.data()?.status !== 'inactive')
-  return candidates.map((item) => {
+async function availableNutritionCoaches(db, cursor = null) {
+  let source = db.collection('trainers').orderBy(FieldPath.documentId())
+  if (cursor) source = source.startAfter(cursor)
+  const trainerSnapshot = await source.limit(101).get()
+  const page = trainerSnapshot.docs.slice(0, 100)
+  const candidates = page.filter((item) => item.data()?.status !== 'inactive')
+  const coaches = candidates.map((item) => {
     const profile = item.data() || {}
     return {
       id: item.id,
@@ -672,6 +701,7 @@ async function availableNutritionCoaches(db) {
       branchIds: profile.branchId ? [profile.branchId] : [],
     }
   }).sort((left, right) => left.name.localeCompare(right.name, 'vi'))
+  return { coaches, coachesHasMore: trainerSnapshot.docs.length > 100, coachesNextCursor: trainerSnapshot.docs.length > 100 ? page.at(-1)?.id || null : null }
 }
 
 function createNutritionReviewFunctions({ db, onCall, reviewCallOptions = {} }) {
@@ -729,7 +759,11 @@ function createNutritionReviewFunctions({ db, onCall, reviewCallOptions = {} }) 
       }
       const previous = mealLogSnapshot.exists ? mealLogSnapshot.data() || {} : {}
       assertReviewOwner(reviewSnapshot, uid)
-      const mealRevision = Math.max(0, Math.trunc(finite(previous.mealRevision))) + 1
+      const currentRevision = assertMealRevision(mealLogSnapshot, request.data?.expectedMealRevision)
+      // Undo may recreate the same ID. Keep revisions monotonic across delete
+      // and recreate so an edit from before deletion never matches by accident.
+      const deletedRevision = mealLogSnapshot.exists ? null : await transaction.get(db.doc(`users/${uid}/mealLogRevisions/${meal.id}`))
+      const mealRevision = Math.max(currentRevision, Math.max(0, Math.trunc(finite(deletedRevision?.data()?.mealRevision)))) + 1
       const storedMeal = {
         ...meal,
         image: meal.image || (meal.imageStoragePath ? undefined : previous.image) || undefined,
@@ -807,6 +841,7 @@ function createNutritionReviewFunctions({ db, onCall, reviewCallOptions = {} }) 
     const mealRef = db.doc(`users/${uid}/mealLogs/${mealId}`)
     const reviewRef = db.doc(`mealReviews/${mealId}`)
     let imageStoragePath = ''
+    let mealRevision = 0
     await db.runTransaction(async (transaction) => {
       const [mealLogSnapshot, reviewSnapshot] = await Promise.all([
         transaction.get(mealRef),
@@ -814,8 +849,10 @@ function createNutritionReviewFunctions({ db, onCall, reviewCallOptions = {} }) 
       ])
       if (!mealLogSnapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy bữa ăn cần xóa.')
       assertReviewOwner(reviewSnapshot, uid)
+      mealRevision = assertMealRevision(mealLogSnapshot, request.data?.expectedMealRevision)
       const meal = mealLogSnapshot.data() || {}
       imageStoragePath = safeMealPhotoPath(meal.imageStoragePath, uid, mealId)
+      transaction.set(db.doc(`users/${uid}/mealLogRevisions/${mealId}`), { mealRevision, deletedAt: FieldValue.serverTimestamp() })
       transaction.delete(mealRef)
       if (reviewSnapshot.exists) transaction.delete(reviewRef)
       transaction.create(db.collection('nutritionReviewAuditLogs').doc(), {
@@ -833,7 +870,7 @@ function createNutritionReviewFunctions({ db, onCall, reviewCallOptions = {} }) 
       await getStorage().bucket().file(imageStoragePath).delete({ ignoreNotFound: true }).catch(() => undefined)
     }
     summaries.clear()
-    return { mealId, deleted: true }
+    return { mealId, deleted: true, mealRevision }
   })
 
   const submitNutritionMealReview = reviewCall(async (request) => {
@@ -931,10 +968,19 @@ function createNutritionReviewFunctions({ db, onCall, reviewCallOptions = {} }) 
   })
 
   const listNutritionMealReviews = reviewCall(async (request) => {
-    const context = await trustedAccessContext(request, db)
+    const context = await trustedAccessContext(request, db, { freshAssignment: true })
     const allScope = canReviewAll(context)
     if (!allScope && !canReviewAssigned(context)) {
       throw new HttpsError('permission-denied', 'Bạn chưa được phân quyền chăm sóc dinh dưỡng.')
+    }
+    const section = ['page', 'summary', 'directory'].includes(request.data?.section) ? request.data.section : 'full'
+    const includeSummary = section === 'full' || section === 'summary'
+    const includeDirectory = section === 'full' || section === 'directory'
+    const includePage = section === 'full' || section === 'page'
+    if (section === 'directory') {
+      if (!allScope) throw new HttpsError('permission-denied', 'Bạn không có quyền xem danh sách HLV dinh dưỡng.')
+      const directoryCursor = request.data?.directoryCursor ? documentId(request.data.directoryCursor) : null
+      return { ...(await availableNutritionCoaches(db, directoryCursor)), scope: 'all', directoryIncluded: true }
     }
     const requestedLimit = Number(request.data?.limit)
     const limit = Number.isInteger(requestedLimit) ? Math.min(30, Math.max(6, requestedLimit)) : 24
@@ -949,19 +995,23 @@ function createNutritionReviewFunctions({ db, onCall, reviewCallOptions = {} }) 
     let assignmentCount = 0
     const [settingsSnapshot] = await Promise.all([db.doc('system/nutrition_review_settings').get()])
     const slaMinutes = normalizeReviewSlaMinutes(settingsSnapshot.exists ? settingsSnapshot.data()?.slaMinutes : undefined)
-    const clientIds = allScope ? null : await assignedClientIds(db, context)
+    const assignedScope = allScope ? { clientIds: null, truncated: false } : await assignedClientIds(db, context)
+    const clientIds = assignedScope.clientIds
     const actorIds = allScope ? [] : reviewActorIds(context)
     assignmentCount = Array.isArray(clientIds) ? clientIds.length : 0
     const now = Date.now()
     const hasDetailFilters = coachId !== 'all' || Boolean(query)
-    const [page, coaches, summaryResult] = await Promise.all([
-      fetchReviewDocuments(db, clientIds, status, cursor, {
-        scanLimit: hasDetailFilters ? REVIEW_PAGE_SCAN_LIMIT : limit,
+    const [page, directory, summaryResult] = await Promise.all([
+      includePage ? fetchReviewDocuments(db, clientIds, status, cursor, {
+        // Filtering can legitimately return an empty page with a continuation.
+        // Keep that truthful cursor instead of hydrating 300 rows per keystroke.
+        scanLimit: hasDetailFilters ? Math.min(60, limit * 2) : limit,
         overdueCutoff: focus === 'overdue' ? Timestamp.fromMillis(now - slaMinutes * 60_000) : null,
         actorIds,
-      }),
-      allScope ? availableNutritionCoaches(db) : Promise.resolve([]),
-      cachedSummary(clientIds, slaMinutes, assignmentCount, now, request.data?.forceRefresh === true, actorIds),
+      }) : Promise.resolve({ documents: [], hasMore: false, resumeKey: null }),
+      allScope && includeDirectory ? availableNutritionCoaches(db) : Promise.resolve({ coaches: [], coachesHasMore: false, coachesNextCursor: null }),
+      includeSummary ? cachedSummary(clientIds, slaMinutes, assignmentCount, now, request.data?.forceRefresh === true, actorIds)
+        : Promise.resolve({ summary: { total: 0, pending: 0, approved: 0, rejected: 0, overdue: 0, highPriority: 0, students: assignmentCount }, truncated: false, countsTruncated: false }),
     ])
     const { summary } = summaryResult
     const hydrated = await hydrateReviews(db, page.documents, context, { now, slaMinutes, signImages: false })
@@ -982,17 +1032,20 @@ function createNutritionReviewFunctions({ db, onCall, reviewCallOptions = {} }) 
     const resumeKey = hasUnconsumed ? reviewDocumentKey(page.documents[consumedIndex]) : page.resumeKey
     return {
       reviews,
-      coaches,
+      ...directory,
+      summaryIncluded: includeSummary,
+      directoryIncluded: includeDirectory,
+      scopeTruncated: assignedScope.truncated,
       scope: allScope ? 'all' : 'assigned',
       assignmentCount,
       hasMore,
       nextCursor: hasMore && resumeKey ? nextPageCursor(status, resumeKey) : null,
-      filteredCount: focus === 'overdue' ? summary.overdue : status === 'all' ? summary.total : summary[status],
-      filteredCountExact: !hasDetailFilters && !(focus === 'overdue' && summaryResult.truncated)
+      filteredCount: includeSummary ? (focus === 'overdue' ? summary.overdue : status === 'all' ? summary.total : summary[status]) : reviews.length,
+      filteredCountExact: includeSummary && !assignedScope.truncated && !hasDetailFilters && !(focus === 'overdue' && summaryResult.truncated)
         && !(['pending', 'all'].includes(status) && summaryResult.countsTruncated),
       summary,
-      summaryTruncated: summaryResult.truncated,
-      summaryCountsTruncated: summaryResult.countsTruncated,
+      summaryTruncated: assignedScope.truncated || summaryResult.truncated,
+      summaryCountsTruncated: assignedScope.truncated || summaryResult.countsTruncated,
       slaMinutes,
     }
   })
@@ -1004,7 +1057,7 @@ function createNutritionReviewFunctions({ db, onCall, reviewCallOptions = {} }) 
   })
 
   const reviewNutritionMeal = reviewCall(async (request) => {
-    const context = await trustedAccessContext(request, db)
+    const context = await trustedAccessContext(request, db, { freshAssignment: true })
     const allScope = canReviewAll(context)
     if (!allScope && !canReviewAssigned(context)) {
       throw new HttpsError('permission-denied', 'Bạn chưa được phân quyền chăm sóc dinh dưỡng.')

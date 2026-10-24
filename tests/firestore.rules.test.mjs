@@ -843,7 +843,7 @@ describe('Aura PT Firestore rules', () => {
   test('meal reviews are private and browser moderation is callable-only', async () => {
     const reviewPath = ['mealReviews', 'review-1']
     await assertSucceeds(getDoc(doc(authenticatedDb('client-1', 'student'), ...reviewPath)))
-    await assertSucceeds(getDoc(doc(authenticatedDb('coach-1', 'coach'), ...reviewPath)))
+    await assertFails(getDoc(doc(authenticatedDb('coach-1', 'coach'), ...reviewPath)))
     await assertSucceeds(getDoc(doc(authenticatedDb('admin-1', 'admin'), ...reviewPath)))
     await assertFails(getDoc(doc(authenticatedDb('other-client', 'student'), ...reviewPath)))
     await assertFails(getDoc(doc(authenticatedDb('other-coach', 'coach'), ...reviewPath)))
@@ -873,6 +873,47 @@ describe('Aura PT Firestore rules', () => {
     await assertFails(setDoc(doc(authenticatedDb('client-1', 'student'), 'users', 'client-1', 'mealLogs', 'meal-browser'), {
       id: 'meal-browser', date: '2026-09-08', type: 'lunch', status: 'logged',
     }))
+  })
+
+  test('legacy coach links never grant direct nutrition history, including captured pending tasks', async () => {
+    await testEnvironment.withSecurityRulesDisabled(async (context) => {
+      const db = context.firestore()
+      await setDoc(doc(db, 'users/client-1/mealLogs/meal-private'), { id: 'meal-private', date: '2026-09-08' })
+      await setDoc(doc(db, 'mealReviews/review-captured'), {
+        userId: 'client-1', status: 'pending', assignmentSnapshotVersion: 1,
+        assignedCoachIds: ['coach-1'],
+      })
+      await setDoc(doc(db, 'contracts/expired-nutrition'), {
+        studentId: 'client-1', status: 'cancelled', nutritionPTIds: ['coach-1'],
+      })
+    })
+    const coachDb = authenticatedDb('coach-1', 'coach')
+    await assertFails(getDoc(doc(coachDb, 'users/client-1/mealLogs/meal-private')))
+    await assertFails(getDoc(doc(coachDb, 'mealReviews/review-captured')))
+    await assertSucceeds(getDoc(doc(authenticatedDb('client-1', 'student'), 'users/client-1/mealLogs/meal-private')))
+  })
+
+  test('water and activity writes enforce canonical fields and bounded numeric values', async () => {
+    const db = authenticatedDb('client-1', 'student')
+    const waterRef = doc(db, 'users/client-1/waterLogs/water-1')
+    const water = { id: 'water-1', date: '2026-09-08', time: '12:30', amountMl: 250, createdAt: Date.now(), updatedAt: serverTimestamp() }
+    await assertSucceeds(setDoc(waterRef, water))
+    await assertSucceeds(updateDoc(waterRef, { amountMl: 500, updatedAt: serverTimestamp() }))
+    for (const patch of [{ amountMl: -1 }, { amountMl: '250' }, { amountMl: 10001 }, { amountMl: Number.NaN }, { amountMl: Infinity }, { date: 'yesterday' }, { time: '25:30' }, { id: 'other' }, { forged: true }]) {
+      await assertFails(setDoc(waterRef, { ...water, ...patch }))
+    }
+    await assertFails(setDoc(doc(authenticatedDb('other-client', 'student'), 'users/client-1/waterLogs/water-1'), water))
+    const activityRef = doc(db, 'users/client-1/activityLogs/activity-1')
+    const activity = { id: 'activity-1', date: '2026-09-08', startTime: '18:00', kind: 'strength', title: 'Tập tạ', durationMinutes: 45, intensity: 'moderate', estimatedCalories: 220, met: 5, weightKgAtEstimate: 60, source: 'manual', createdAt: Date.now(), updatedAt: serverTimestamp() }
+    await assertSucceeds(setDoc(activityRef, activity))
+    for (const patch of [{ durationMinutes: 0 }, { durationMinutes: 1441 }, { estimatedCalories: -1 }, { estimatedCalories: Number.NaN }, { met: 31 }, { weightKgAtEstimate: 501 }, { source: 'admin' }, { kind: 'unknown' }, { title: 'x'.repeat(201) }, { forged: true }]) {
+      await assertFails(setDoc(activityRef, { ...activity, ...patch }))
+    }
+    // Undo keeps the original numeric creation time, but the update time is server-owned.
+    await assertSucceeds(deleteDoc(waterRef))
+    await assertSucceeds(setDoc(waterRef, { ...water, updatedAt: serverTimestamp() }))
+    await assertSucceeds(deleteDoc(activityRef))
+    await assertSucceeds(setDoc(activityRef, { ...activity, updatedAt: serverTimestamp() }))
   })
 
   test('user notifications are isolated and only support safe acknowledgement updates', async () => {

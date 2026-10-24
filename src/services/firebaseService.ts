@@ -993,11 +993,11 @@ export async function submitMealReview(userId: string, userName: string, meal: a
   if (firebaseAuth.currentUser.uid !== userId) throw new Error('Tài khoản hiện tại không thể gửi bữa ăn này.')
   if (!meal?.id) throw new Error('Bữa ăn chưa được lưu nên chưa thể gửi duyệt.')
   void userName
-  const callable = httpsCallable<{ mealId: string }, { reviewId: string; status: 'pending'; revision: number }>(
+  const callable = httpsCallable<{ mealId: string; expectedOwnerUid: string }, { reviewId: string; status: 'pending'; revision: number }>(
     firebaseFunctions,
     'submitNutritionMealReview',
   )
-  return (await callable({ mealId: meal.id })).data
+  return (await callable({ mealId: meal.id, expectedOwnerUid: userId })).data
 }
 
 export enum OperationType {

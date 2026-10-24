@@ -216,6 +216,10 @@ export interface NutritionDiaryPageProps {
   todayKey: string
   historyFromDate: string
   daySummaries: NutritionDiaryDaySummary[]
+  onPeriodChange?: (period: { fromDate: string; toDate: string; view: 'day' | 'week' | 'month' }) => void
+  calendarStatus?: 'loading' | 'ready' | 'error'
+  calendarMessage?: string
+  onReloadCalendar?: () => void
   targets: NutritionDailyTargets
   meals: NutritionMealEntry[]
   activities: NutritionActivityEntry[]

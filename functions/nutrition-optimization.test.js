@@ -282,14 +282,15 @@ test('food scan cache identity changes across owner, image, context, and analysi
 })
 
 test('cache lookup happens before paid quota and live inference, while cache writes remain best-effort', () => {
-  const cacheLookup = nutritionSource.indexOf('const cachedResult = await readFoodVisionCache')
-  const quotaLookup = nutritionSource.indexOf('const dailyLimit = await readFoodScanDailyLimit')
+  const cacheLookup = nutritionSource.indexOf('let cachedResult = await readFoodVisionCache')
+  const quotaLookup = nutritionSource.indexOf('acquired = await aiRequests.claim({')
   const liveInference = nutritionSource.indexOf('providerResult = await analyzeWithApiKeyFun')
   const cacheWrite = nutritionSource.indexOf('await writeFoodVisionCache')
 
   assert.ok(cacheLookup > 0)
   assert.ok(cacheLookup < quotaLookup)
   assert.ok(quotaLookup < liveInference)
+  assert.match(nutritionSource, /const dailyLimit = !cachedResult[\s\S]*quota: dailyLimit \?/)
   assert.ok(liveInference < cacheWrite)
   assert.match(nutritionSource, /Food vision cache lookup failed; continuing with live analysis/)
   assert.match(nutritionSource, /Food vision cache write failed; returning the live result/)

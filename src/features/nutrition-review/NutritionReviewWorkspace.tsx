@@ -15,10 +15,13 @@ import {
 } from 'lucide-react'
 import {
   listNutritionMealReviews,
+  getNutritionReviewSummary,
+  getNutritionReviewCoaches,
   reviewNutritionMeal,
   type NutritionMealReview,
   type NutritionReviewStatus,
 } from '../../services/nutritionReviewService'
+import { useAuth } from '../../contexts/AuthContext'
 import { detailSlideIndex, durationLabel, mealImageShape, type MealImageShape } from './nutritionReviewDisplay'
 import './NutritionReviewWorkspace.css'
 
@@ -73,17 +76,25 @@ function ReviewPhoto({ source, alt, kind }: { source: string; alt: string; kind:
   </div>
 }
 
-export function NutritionReviewWorkspace({
+type WorkspaceProps = { compact?: boolean; title?: string; initialQuery?: string; initialFocus?: string | null }
+
+export function NutritionReviewWorkspace(props: WorkspaceProps) {
+  const { user, accessContext, authzReady } = useAuth()
+  const authorityKey = JSON.stringify([user?.uid || '', authzReady, accessContext?.uid, accessContext?.authzVersion,
+    accessContext?.status, [...(accessContext?.capabilities || [])].sort(), [...(accessContext?.branchIds || [])].sort()])
+  if (!user || !authzReady || accessContext?.uid !== user.uid || accessContext?.status !== 'active') {
+    return <div className="nrw-empty" role="status">Đang xác minh quyền duyệt bữa ăn…</div>
+  }
+  return <NutritionReviewContent key={authorityKey} {...props} authorityKey={authorityKey} />
+}
+
+function NutritionReviewContent({
   compact = false,
   title = 'Duyệt bữa ăn học viên',
   initialQuery = '',
   initialFocus = null,
-}: {
-  compact?: boolean
-  title?: string
-  initialQuery?: string
-  initialFocus?: string | null
-}) {
+  authorityKey,
+}: WorkspaceProps & { authorityKey: string }) {
   const [reviews, setReviews] = useState<NutritionMealReview[]>([])
   const [scope, setScope] = useState<'all' | 'assigned'>('assigned')
   const [availableCoaches, setAvailableCoaches] = useState<Array<{ id: string; name: string; positions: string[]; branchIds: string[] }>>([])
@@ -94,6 +105,12 @@ export function NutritionReviewWorkspace({
   const [summary, setSummary] = useState(emptySummary)
   const [summaryTruncated, setSummaryTruncated] = useState(false)
   const [summaryCountsTruncated, setSummaryCountsTruncated] = useState(false)
+  const [summaryReady, setSummaryReady] = useState(false)
+  const [summaryError, setSummaryError] = useState('')
+  const [scopeTruncated, setScopeTruncated] = useState(false)
+  const [directoryError, setDirectoryError] = useState('')
+  const [directoryLoading, setDirectoryLoading] = useState(false)
+  const [directoryCursor, setDirectoryCursor] = useState<string | null>(null)
   const [slaMinutes, setSlaMinutes] = useState(120)
   const [status, setStatus] = useState<StatusFilter>('pending')
   const [focus, setFocus] = useState<'overdue' | 'all'>(initialFocus === 'overdue' ? 'overdue' : 'all')
@@ -117,6 +134,12 @@ export function NutritionReviewWorkspace({
   const inFlightReadRef = useRef('')
   const submittingRef = useRef(false)
   const dataKeyRef = useRef('')
+  const aliveRef = useRef(true)
+  const summaryPendingRef = useRef<Promise<void> | null>(null)
+  const summaryRequestRef = useRef(0)
+  const summaryForceRef = useRef(false)
+  const directoryPendingRef = useRef(false)
+  const directoryLoadedRef = useRef(false)
 
   useEffect(() => {
     setFocus(initialFocus === 'overdue' ? 'overdue' : 'all')
@@ -128,7 +151,49 @@ export function NutritionReviewWorkspace({
     setDebouncedQuery(initialQuery.trim())
   }, [initialQuery])
 
-  useEffect(() => () => { requestIdRef.current += 1; inFlightReadRef.current = '' }, [])
+  useEffect(() => {
+    aliveRef.current = true
+    return () => { aliveRef.current = false; requestIdRef.current += 1; inFlightReadRef.current = '' }
+  }, [])
+
+  const loadSummary = useCallback((forceRefresh = false, afterMutation = false) => {
+    if (!afterMutation && summaryPendingRef.current && (!forceRefresh || summaryForceRef.current)) return summaryPendingRef.current
+    const requestId = ++summaryRequestRef.current
+    summaryForceRef.current = forceRefresh
+    const pending = getNutritionReviewSummary(authorityKey, forceRefresh, afterMutation ? `mutation-${requestId}` : '').then((result) => {
+      if (!aliveRef.current || requestId !== summaryRequestRef.current) return
+      setSummary(result.summary || emptySummary)
+      setSummaryTruncated(Boolean(result.summaryTruncated))
+      setSummaryCountsTruncated(Boolean(result.summaryCountsTruncated))
+      setSummaryReady(true)
+      setSummaryError('')
+      setSlaMinutes(result.slaMinutes || 120)
+      setScopeTruncated(Boolean(result.scopeTruncated))
+    }).catch((cause) => {
+      if (aliveRef.current && requestId === summaryRequestRef.current) setSummaryError(cause instanceof Error ? cause.message : 'Chưa tải được tổng quan duyệt món.')
+    }).finally(() => { if (summaryPendingRef.current === pending) summaryPendingRef.current = null })
+    summaryPendingRef.current = pending
+    return pending
+  }, [authorityKey])
+
+  const loadDirectory = useCallback(async (cursor: string | null = null) => {
+    if (directoryPendingRef.current || (!cursor && directoryLoadedRef.current)) return
+    directoryPendingRef.current = true
+    setDirectoryLoading(true)
+    try {
+      const result = await getNutritionReviewCoaches(authorityKey, cursor)
+      if (!aliveRef.current) return
+      setAvailableCoaches((current) => [...new Map([...(cursor ? current : []), ...result.coaches].map((item) => [item.id, item])).values()])
+      setDirectoryCursor(result.coachesHasMore ? result.coachesNextCursor || null : null)
+      directoryLoadedRef.current = true
+      setDirectoryError('')
+    } catch (cause) {
+      if (aliveRef.current) setDirectoryError(cause instanceof Error ? cause.message : 'Chưa tải được danh sách HLV.')
+    } finally {
+      directoryPendingRef.current = false
+      if (aliveRef.current) setDirectoryLoading(false)
+    }
+  }, [authorityKey])
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => setDebouncedQuery(query.trim()), 320)
@@ -164,21 +229,19 @@ export function NutritionReviewWorkspace({
         query: debouncedQuery,
         focus,
         forceRefresh,
-      })
+        section: 'page',
+      }, authorityKey)
       if (requestId !== requestIdRef.current) return
       dataKeyRef.current = dataKey
       setReviews((current) => append
         ? [...new Map([...current, ...result.reviews].map((item) => [item.id, item])).values()]
         : result.reviews)
       setScope(result.scope)
-      setAvailableCoaches(result.coaches || [])
+      setScopeTruncated(Boolean(result.scopeTruncated))
       setHasMore(result.hasMore)
       setNextCursor(result.nextCursor)
       setFilteredCount(result.filteredCount)
       setFilteredCountExact(result.filteredCountExact ?? (!debouncedQuery && coachId === 'all' && focus === 'all'))
-      setSummary(result.summary || emptySummary)
-      setSummaryTruncated(Boolean(result.summaryTruncated))
-      setSummaryCountsTruncated(Boolean(result.summaryCountsTruncated))
       setSlaMinutes(result.slaMinutes || 120)
       setSelectedId((current) => append || result.reviews.some((item) => item.id === current) ? current : result.reviews[0]?.id || '')
     } catch (cause) {
@@ -192,14 +255,15 @@ export function NutritionReviewWorkspace({
         else setLoading(false)
       }
     }
-  }, [coachId, debouncedQuery, focus, status])
+  }, [authorityKey, coachId, debouncedQuery, focus, status])
 
   const load = useCallback(() => requestPage(null, false), [requestPage])
-  const refresh = useCallback(() => requestPage(null, false, true), [requestPage])
+  const refresh = useCallback((afterMutation = false) => Promise.all([requestPage(null, false, true), loadSummary(true, afterMutation)]), [requestPage, loadSummary])
   const loadRef = useRef(refresh)
   loadRef.current = refresh
 
   useEffect(() => { void load() }, [load])
+  useEffect(() => { void loadSummary() }, [loadSummary])
 
   const filtered = focus === 'overdue' ? reviews.filter((item) => item.isOverdue) : reviews
 
@@ -313,8 +377,9 @@ export function NutritionReviewWorkspace({
         feedback: feedback.trim(),
         expectedRevision: selected.revision,
       })
+      if (!aliveRef.current) return
       setNotice(action === 'approve' ? 'Đã duyệt và đồng bộ nhận xét vào nhật ký của học viên.' : action === 'reject' ? 'Đã chuyển bữa ăn sang trạng thái cần chỉnh.' : 'Đã gửi nhận xét cho học viên.')
-      await loadRef.current()
+      await loadRef.current(true)
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Không thể cập nhật bản duyệt.')
       // A timeout/conflict can mean the server already changed the revision.
@@ -342,9 +407,9 @@ export function NutritionReviewWorkspace({
       </div>
       <div className="nrw-hero-orb"><CheckCircle2 size={34} /></div>
       <div className="nrw-kpis" aria-label="Tổng quan duyệt món">
-        <article><strong>{summaryCountsTruncated ? '≥ ' : ''}{summary.pending}</strong><span>chờ duyệt</span></article>
-        <article className={summary.overdue ? 'is-alert' : ''}><strong>{summaryTruncated ? '≥ ' : ''}{summary.overdue}</strong><span>quá SLA {durationLabel(slaMinutes)}</span></article>
-        <article><strong>{summary.approved}</strong><span>đã duyệt</span></article>
+        <article><strong>{summaryReady ? `${summaryCountsTruncated ? '≥ ' : ''}${summary.pending}` : '…'}</strong><span>chờ duyệt</span></article>
+        <article className={summary.overdue ? 'is-alert' : ''}><strong>{summaryReady ? `${summaryTruncated ? '≥ ' : ''}${summary.overdue}` : '…'}</strong><span>quá SLA {durationLabel(slaMinutes)}</span></article>
+        <article><strong>{summaryReady ? `${scopeTruncated ? '≥ ' : ''}${summary.approved}` : '…'}</strong><span>đã duyệt</span></article>
       </div>
     </header>
 
@@ -357,19 +422,25 @@ export function NutritionReviewWorkspace({
           aria-pressed={status === item}
           disabled={submitting}
           onClick={() => { setStatus(item); setFocus('all') }}
-        >{item === 'all' ? 'Tất cả' : statusLabel(item)} <b>{summaryCountsTruncated && (item === 'pending' || item === 'all') ? '≥ ' : ''}{statusCount[item]}</b></button>)}
+        >{item === 'all' ? 'Tất cả' : statusLabel(item)} <b>{summaryReady ? `${scopeTruncated || (summaryCountsTruncated && (item === 'pending' || item === 'all')) ? '≥ ' : ''}${statusCount[item]}` : '…'}</b></button>)}
       </div>
       <button type="button" className={`nrw-focus-toggle ${focus === 'overdue' ? 'is-active' : ''}`} aria-pressed={focus === 'overdue'} disabled={submitting} onClick={() => { setStatus('pending'); setFocus((current) => current === 'overdue' ? 'all' : 'overdue') }}>
         Chỉ bữa quá hạn
       </button>
       <label className="nrw-search"><Search size={17} /><input value={query} disabled={submitting} onChange={(event) => setQuery(event.target.value)} aria-label="Tìm học viên hoặc món ăn" placeholder="Tìm học viên hoặc món ăn" /></label>
-      {scope === 'all' && <select value={coachId} disabled={submitting} onChange={(event) => setCoachId(event.target.value)} aria-label="Lọc HLV chăm dinh dưỡng">
+      {scope === 'all' && <select value={coachId} disabled={submitting} onFocus={() => void loadDirectory()} onChange={(event) => setCoachId(event.target.value)} aria-label="Lọc HLV chăm dinh dưỡng">
         <option value="all">Tất cả HLV dinh dưỡng</option>
         {availableCoaches.map((coach) => <option key={coach.id} value={coach.id}>{coach.name}</option>)}
         <option value="unassigned">Chưa phân HLV</option>
       </select>}
+      {directoryLoading && <span role="status">Đang tải HLV…</span>}
+      {directoryCursor && <button type="button" disabled={directoryLoading} onClick={() => void loadDirectory(directoryCursor)}>Tải thêm HLV</button>}
       <button type="button" className="nrw-refresh" onClick={() => void refresh()} disabled={loading || loadingMore || submitting} aria-label="Làm mới"><RefreshCw size={18} /></button>
     </div>
+
+    {summaryError && <div className="nrw-message" role="status"><span>{summaryReady ? 'Tổng quan chưa cập nhật. ' : ''}{summaryError}</span><button onClick={() => void loadSummary(true)}>Tải lại tổng quan</button></div>}
+    {directoryError && <div className="nrw-message" role="status"><span>{directoryError}</span><button onClick={() => void loadDirectory(directoryCursor)}>Tải lại HLV</button></div>}
+    {scopeTruncated && <div className="nrw-message" role="status"><AlertCircle size={18} />Phạm vi chăm sóc vượt giới hạn xem nhanh. Danh sách và tổng quan đang là một phần dữ liệu; cần quản trị viên kiểm tra phân công.</div>}
 
     {notice && <div className="nrw-message is-success" role="status"><CheckCircle2 size={18} />{notice}<button onClick={() => setNotice('')} aria-label="Đóng">×</button></div>}
     {error && <div className="nrw-message is-error" role="alert"><AlertCircle size={18} /><span>{error}</span><button className="nrw-retry" onClick={() => void refresh()} disabled={loading || submitting}>Tải lại</button><button onClick={() => setError('')} aria-label="Đóng">×</button></div>}

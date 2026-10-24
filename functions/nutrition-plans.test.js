@@ -228,7 +228,7 @@ test('confirmation rechecks catalog changes and stale revisions', async () => {
 
 test('generation ignores client calorie/profile overrides and stores server targets', async () => {
   const api = nutritionPlanFunctionsFor({})
-  const result = await api.generateMyNutritionPlanDraft({ data: {
+  const result = await api.generateMyNutritionPlanDraft({ app: { appId: 'test-app' }, data: {
     weekStart: '2026-09-07', expectedRevision: 0, aiAssist: false,
     calorieGoal: 800, proteinGoal: 25, mealsPerDay: 5, goal: 'lose-fat',
     profile: { age: 13, eatingStyle: 'untrusted' },

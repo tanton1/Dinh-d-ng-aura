@@ -7,6 +7,7 @@ import {
 } from '../features/nutrition/dailyNutritionTargets'
 import { subscribeToUserMealLogsForDate } from '../services/firebaseNutritionLogService'
 import { readDailyNutritionCache, writeDailyNutritionCache } from '../features/nutrition/dailyNutritionSummaryCache'
+import { useNutritionDate } from '../features/nutrition/useNutritionDate'
 
 interface DailyMealSummary {
   date?: string
@@ -15,41 +16,37 @@ interface DailyMealSummary {
   protein?: number
 }
 
-function localDateKey(date = new Date()) {
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
-}
-
 export function useDailyNutritionSummary(
   ownerId: string,
   profile?: NutritionProfileDraft | null,
   enabled = true,
 ) {
   const effectiveWeight = useNutritionWeight(ownerId, profile?.weightKg ?? 0, enabled)
-  const [meals, setMeals] = useState<DailyMealSummary[]>([])
+  const today = useNutritionDate()
+  const [state, setState] = useState<{ ownerId: string; date: string; meals: DailyMealSummary[] }>({ ownerId, date: today, meals: [] })
 
   useEffect(() => {
     if (!enabled || !ownerId || ownerId === 'demo') {
-      setMeals([])
+      setState({ ownerId, date: today, meals: [] })
       return
     }
-    const today = localDateKey()
     const cached = readDailyNutritionCache(ownerId, today)
-    if (cached) setMeals(cached.meals as DailyMealSummary[])
-    return subscribeToUserMealLogsForDate(ownerId, today, (items) => {
+    setState({ ownerId, date: today, meals: cached?.meals as DailyMealSummary[] ?? [] })
+    let active = true
+    const stop = subscribeToUserMealLogsForDate(ownerId, today, (items) => {
+      if (!active) return
       const next = items as DailyMealSummary[]
-      setMeals(next)
+      setState({ ownerId, date: today, meals: next })
       writeDailyNutritionCache(ownerId, today, { meals: next as any })
-    }, () => setMeals([]))
-  }, [enabled, ownerId])
+    }, () => { if (active) setState({ ownerId, date: today, meals: [] }) })
+    return () => { active = false; stop() }
+  }, [enabled, ownerId, today])
 
   return useMemo(() => {
     const targets = resolveDailyNutritionTargets(profile, effectiveWeight)
     const calorieTarget = Math.max(0, Math.round(targets.calorieGoal))
     const proteinTarget = Math.max(0, Math.round(targets.proteinGoal))
-    const today = localDateKey()
+    const meals = state.ownerId === ownerId && state.date === today && enabled ? state.meals : []
     const logged = meals.filter((meal) => meal.date === today && meal.status === 'logged')
     const caloriesConsumed = Math.round(logged.reduce((sum, meal) => sum + (Number(meal.calories) || 0), 0))
     const proteinConsumed = Math.round(logged.reduce((sum, meal) => sum + (Number(meal.protein) || 0), 0))
@@ -63,5 +60,5 @@ export function useDailyNutritionSummary(
       remainingCalories: Math.max(0, calorieTarget - caloriesConsumed),
       remainingProtein: Math.max(0, proteinTarget - proteinConsumed),
     }
-  }, [meals, ownerId, profile, effectiveWeight])
+  }, [state, ownerId, profile, effectiveWeight, today, enabled])
 }

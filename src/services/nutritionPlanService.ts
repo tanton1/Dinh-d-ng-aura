@@ -1,5 +1,8 @@
 import { httpsCallable } from 'firebase/functions'
 import { firebaseFunctions } from '../lib/firebaseFunctions'
+import { firebaseAuth } from '../lib/firebase'
+import { runKeyedSingleFlight } from '../utils/singleFlight'
+import { runNutritionAiRequest } from './nutritionAiRequest'
 
 export type NutritionPlanStatus = 'draft' | 'active'
 export type NutritionPlanSource = 'aura-catalog' | 'assigned'
@@ -59,9 +62,25 @@ function callable<Input, Output>(name: string, timeout = 30_000) {
   return httpsCallable<Input, Output>(functionsClient(), name, { timeout })
 }
 
-export async function getMyNutritionPlanWorkspace(weekStart: string) {
-  const invoke = callable<{ weekStart: string }, NutritionPlanWorkspaceResponse>('getMyNutritionPlanWorkspace')
-  return (await invoke({ weekStart })).data
+const workspaceRequests = new Map<string, Promise<NutritionPlanWorkspaceResponse>>()
+
+export function invalidateNutritionPlanWorkspace(weekStart: string, ownerId = firebaseAuth?.currentUser?.uid) {
+  for (const key of workspaceRequests.keys()) {
+    const [owner, week] = JSON.parse(key) as string[]
+    if (owner === ownerId && week === weekStart) workspaceRequests.delete(key)
+  }
+}
+
+export function getMyNutritionPlanWorkspace(weekStart: string, options: { authorityKey?: string; ownerId?: string; forceRefresh?: boolean } = {}) {
+  const ownerId = firebaseAuth?.currentUser?.uid
+  if (!ownerId || (options.ownerId && options.ownerId !== ownerId)) return Promise.reject(new Error('Phiên đăng nhập đã thay đổi. Hãy mở lại kế hoạch.'))
+  const key = JSON.stringify([ownerId, weekStart, options.authorityKey ?? '', options.forceRefresh === true])
+  if (!workspaceRequests.has(key) && workspaceRequests.size >= 64) workspaceRequests.delete(workspaceRequests.keys().next().value!)
+  return runKeyedSingleFlight(workspaceRequests, key, async () => {
+    if (firebaseAuth?.currentUser?.uid !== ownerId) throw new Error('Phiên đăng nhập đã thay đổi.')
+    const invoke = callable<{ weekStart: string }, NutritionPlanWorkspaceResponse>('getMyNutritionPlanWorkspace')
+    return (await invoke({ weekStart })).data
+  })
 }
 
 export async function generateMyNutritionPlanDraft(input: {
@@ -85,8 +104,13 @@ export async function generateMyNutritionPlanDraft(input: {
     prepTime?: string
   }
 }) {
-  const invoke = callable<typeof input, { plan: NutritionPlanRecord }>('generateMyNutritionPlanDraft', 120_000)
-  return (await invoke(input)).data.plan
+  const ownerId = firebaseAuth?.currentUser?.uid
+  if (!ownerId) throw new Error('Bạn cần đăng nhập để tạo kế hoạch dinh dưỡng.')
+  const payload = { ...input, requestId: `nutrition-plan-${crypto.randomUUID()}`, expectedOwnerUid: ownerId }
+  const invoke = callable<typeof payload, { plan: NutritionPlanRecord }>('generateMyNutritionPlanDraft', 120_000)
+  invalidateNutritionPlanWorkspace(input.weekStart, ownerId)
+  try { return (await runNutritionAiRequest(() => invoke(payload), { expectedOwnerUid: ownerId, currentOwnerUid: () => firebaseAuth?.currentUser?.uid })).data.plan }
+  finally { invalidateNutritionPlanWorkspace(input.weekStart, ownerId) }
 }
 
 export async function mutateMyNutritionPlanMeal(input: {
@@ -101,12 +125,18 @@ export async function mutateMyNutritionPlanMeal(input: {
   expectedRevision: number
 }) {
   const invoke = callable<typeof input, { plan: NutritionPlanRecord }>('mutateMyNutritionPlanMeal')
-  return (await invoke(input)).data.plan
+  const ownerId = firebaseAuth?.currentUser?.uid
+  invalidateNutritionPlanWorkspace(input.weekStart, ownerId)
+  try { return (await invoke(input)).data.plan }
+  finally { invalidateNutritionPlanWorkspace(input.weekStart, ownerId) }
 }
 
 export async function confirmMyNutritionPlan(weekStart: string, expectedRevision: number) {
   const invoke = callable<{ weekStart: string; expectedRevision: number }, { plan: NutritionPlanRecord; activePlan: NutritionPlanRecord }>('confirmMyNutritionPlan')
-  return (await invoke({ weekStart, expectedRevision })).data
+  const ownerId = firebaseAuth?.currentUser?.uid
+  invalidateNutritionPlanWorkspace(weekStart, ownerId)
+  try { return (await invoke({ weekStart, expectedRevision })).data }
+  finally { invalidateNutritionPlanWorkspace(weekStart, ownerId) }
 }
 
 export function nutritionPlanErrorMessage(error: unknown) {

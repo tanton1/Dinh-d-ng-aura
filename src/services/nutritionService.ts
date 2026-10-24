@@ -5,6 +5,7 @@ import { firebaseFunctions, firebaseNutritionFunctions } from '../lib/firebaseFu
 import { firebaseStorage } from '../lib/firebaseStorage'
 import { reportClientIssue } from './clientTelemetryService'
 import { optimizeNutritionImageForUpload } from './nutritionImageOptimizer'
+import { runNutritionAiRequest } from './nutritionAiRequest'
 export { getFoodAnalysisErrorMessage, getUsableFoodAnalysisText } from '../features/nutrition/analysis'
 
 export const MAX_NUTRITION_IMAGE_BYTES = 8 * 1024 * 1024
@@ -186,6 +187,8 @@ export interface AiCoachImageAttachment extends UploadedFoodImage {
 }
 
 interface AnalyzeFoodImageRequest {
+  requestId: string
+  expectedOwnerUid: string
   storagePath: string
   mealType: MealType
   notes: string
@@ -568,14 +571,18 @@ export async function analyzeUploadedFoodPhoto(
       firebase.regional ? 'analyzeFoodImageRegional' : 'analyzeFoodImage',
       { timeout: 120_000 },
     )
-    const result = await callable({
+    const expectedOwnerUid = firebaseAuth?.currentUser?.uid || ''
+    const payload: AnalyzeFoodImageRequest = {
+      requestId: upload.scanId,
+      expectedOwnerUid,
       storagePath: upload.storagePath,
       mealType: options.mealType ?? 'other',
       notes,
       retainImage: options.retainImage === true,
       studentGoal: options.userGoal,
       studentCondition: options.userCondition,
-    })
+    }
+    const result = await runNutritionAiRequest(() => callable(payload), { expectedOwnerUid, currentOwnerUid: () => firebaseAuth?.currentUser?.uid })
     const response = validateAnalysisResponse(result.data, upload.scanId)
     if (options.retainImage !== true && response.imageRetained) {
       try {
@@ -588,9 +595,8 @@ export async function analyzeUploadedFoodPhoto(
     return response
   } catch (error) {
     reportClientIssue('apikey_fun', error, { phase: 'analyze_food_callable', provider: 'apikey_fun', retryable: true })
-    if (options.retainImage !== true && storage) {
-      await deleteObject(ref(storage, upload.storagePath)).catch(() => undefined)
-    }
+    // A timed-out or duplicate client does not own the server worker. Keep
+    // its private temporary image available; the owner/retention job cleans it.
     throw error
   }
 }
@@ -626,12 +632,14 @@ export async function generateMealReview(meal: any, userProfile: any): Promise<s
   try {
     await initializeFirebaseAppCheck()
     const firebase = requireNutritionFirebase();
-    const callable = httpsCallable<{ meal: any, userProfile: any }, { review: string }>(
+    const callable = httpsCallable<{ meal: any, userProfile: any, requestId: string, expectedOwnerUid: string }, { review: string }>(
       firebase.functions,
       firebase.regional ? 'generateMealReviewRegional' : 'generateMealReview',
       { timeout: 30_000 },
     );
-    const result = await callable({ meal, userProfile });
+    const expectedOwnerUid = firebaseAuth?.currentUser?.uid || ''
+    const payload = { meal, userProfile, requestId: crypto.randomUUID(), expectedOwnerUid }
+    const result = await runNutritionAiRequest(() => callable(payload), { expectedOwnerUid, currentOwnerUid: () => firebaseAuth?.currentUser?.uid });
     return result.data.review || 'Lỗi khi phân tích bữa ăn.';
   } catch (err) {
     console.error('Error calling generateMealReview function:', err);

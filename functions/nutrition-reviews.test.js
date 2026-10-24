@@ -40,12 +40,14 @@ function reviewDb(rows, extras = {}) {
   const records = new Map(rows.map(({ id, ...value }) => [`mealReviews/${id}`, value]))
   Object.entries(extras).forEach(([path, value]) => records.set(path, value))
   const reads = []
+  const documentReads = []
+  const aggregationReads = []
   let autoId = 0
   const compare = (a, b) => {
     if (a instanceof Timestamp && b instanceof Timestamp) return a.seconds - b.seconds || a.nanoseconds - b.nanoseconds
     return a < b ? -1 : a > b ? 1 : 0
   }
-  const doc = (path) => ({ path, id: path.split('/').at(-1), get: async () => snapshot(path), set: async (value) => records.set(path, value) })
+  const doc = (path) => ({ path, id: path.split('/').at(-1), get: async () => { documentReads.push(path); return snapshot(path) }, set: async (value) => records.set(path, value) })
   const snapshot = (path) => ({ id: path.split('/').at(-1), exists: records.has(path), ref: doc(path), data: () => records.get(path) })
   function query(collection, filters = [], order = [], cursor = null, maximum = Infinity, fields = []) {
     const getRows = () => {
@@ -83,6 +85,7 @@ function reviewDb(rows, extras = {}) {
       limit: (value) => query(collection, filters, order, cursor, value, fields),
       select: (...value) => query(collection, filters, order, cursor, maximum, value),
       count: () => ({ get: async () => {
+        aggregationReads.push({ collection, filters })
         const disjunctions = filters.reduce((size, [, operator, value]) => size * (['in', 'array-contains-any'].includes(operator) ? value.length : 1), 1)
         assert.ok(disjunctions <= 30, `Firestore disjunction limit: ${disjunctions}`)
         return { data: () => ({ count: getRows().length }) }
@@ -94,7 +97,7 @@ function reviewDb(rows, extras = {}) {
       },
     }
   }
-  const db = { records, reads, doc, collection: query, getAll: async (...refs) => refs.map((ref) => snapshot(ref.path)) }
+  const db = { records, reads, documentReads, aggregationReads, doc, collection: query, getAll: async (...refs) => refs.map((ref) => { documentReads.push(ref.path); return snapshot(ref.path) }) }
   db.runTransaction = async (handler) => {
     const writes = []
     const valueWithTransforms = (data, base = {}) => {
@@ -257,6 +260,67 @@ test('an expired captured assignment does not grant access to other meal history
   assert.equal(result.summary.total, 0)
 })
 
+test('page-only review reads skip counts, directory and modern assignment enrichment', async () => {
+  const db = reviewDb(Array.from({ length: 80 }, (_, index) => queueRow(`r-${index}`, Date.now() + index, false,
+    { assignmentSnapshotVersion: 1, assignedCoachIds: ['coach'] })), { 'users/admin': { role: 'admin' } })
+  const api = createNutritionReviewFunctions({ db, onCall: (...args) => args.at(-1) })
+  const result = await api.listNutritionMealReviews({ auth: { uid: 'admin', token: { role: 'admin' } }, data: { section: 'page', status: 'pending', limit: 30 } })
+  assert.equal(result.reviews.length, 30)
+  assert.equal(result.summaryIncluded, false)
+  assert.equal(result.directoryIncluded, false)
+  assert.equal(result.filteredCountExact, false)
+  assert.equal(db.aggregationReads.length, 0)
+  assert.ok(db.reads.every((read) => read.collection === 'mealReviews' && read.maximum === 31 && !read.fields.length))
+  assert.ok(!db.documentReads.includes('roleAssignments/learner'))
+})
+
+test('summary-only reads transfer metadata without hydrating meal pages or coach directory', async () => {
+  const db = reviewDb([queueRow('meal', Date.now() - 180 * 60_000)], { 'users/admin': { role: 'admin' } })
+  const api = createNutritionReviewFunctions({ db, onCall: (...args) => args.at(-1) })
+  const result = await api.listNutritionMealReviews({ auth: { uid: 'admin', token: { role: 'admin' } }, data: { section: 'summary' } })
+  assert.equal(result.summary.pending, 1)
+  assert.equal(result.summary.overdue, 1)
+  assert.equal(result.reviews.length, 0)
+  assert.equal(db.aggregationReads.length, 5)
+  assert.ok(db.reads.every((read) => read.collection === 'mealReviews' && read.fields.length > 0))
+  assert.ok(!db.documentReads.includes('users/learner'))
+})
+
+test('bounded filtered pages expose a continuation and eventually find later matches without skipping', async () => {
+  const db = reviewDb(Array.from({ length: 135 }, (_, index) => queueRow(`r-${String(index).padStart(3, '0')}`, Date.now() + index, false,
+    { assignmentSnapshotVersion: 1, assignedCoachIds: [], meal: { title: index >= 125 ? 'needle' : 'ordinary' } })), { 'users/admin': { role: 'admin' } })
+  const api = createNutritionReviewFunctions({ db, onCall: (...args) => args.at(-1) })
+  const auth = { uid: 'admin', token: { role: 'admin' } }
+  const ids = []
+  let cursor = null
+  for (let page = 0; page < 5; page++) {
+    const result = await api.listNutritionMealReviews({ auth, data: { section: 'page', status: 'pending', limit: 30, query: 'needle', cursor } })
+    if (page === 0) { assert.equal(result.reviews.length, 0); assert.ok(result.hasMore && result.nextCursor) }
+    ids.push(...result.reviews.map((row) => row.id))
+    if (!result.hasMore) break
+    cursor = result.nextCursor
+  }
+  assert.equal(ids.length, 10)
+  assert.equal(new Set(ids).size, 10)
+  assert.ok(db.reads.every((read) => read.maximum <= 61))
+  assert.equal(db.aggregationReads.length, 0)
+})
+
+test('coach directory pages disclose continuation and never read meal reviews', async () => {
+  const trainers = Object.fromEntries(Array.from({ length: 105 }, (_, index) => [`trainers/t-${String(index).padStart(3, '0')}`, { name: `Coach ${index}`, status: 'active' }]))
+  const db = reviewDb([], { 'users/admin': { role: 'admin' }, ...trainers })
+  const api = createNutritionReviewFunctions({ db, onCall: (...args) => args.at(-1) })
+  const auth = { uid: 'admin', token: { role: 'admin' } }
+  const first = await api.listNutritionMealReviews({ auth, data: { section: 'directory' } })
+  const second = await api.listNutritionMealReviews({ auth, data: { section: 'directory', directoryCursor: first.coachesNextCursor } })
+  assert.equal(first.coaches.length, 100)
+  assert.equal(first.coachesHasMore, true)
+  assert.equal(second.coaches.length, 5)
+  assert.equal(second.coachesHasMore, false)
+  assert.equal(new Set([...first.coaches, ...second.coaches].map((row) => row.id)).size, 105)
+  assert.ok(db.reads.every((read) => read.collection === 'trainers' && read.maximum === 101))
+})
+
 const staffRequest = (uid, data = {}) => ({ auth: { uid, token: { accessRole: 'staff', authzVersion: 1 } }, data })
 const staffRecords = (uid, legacyId = uid) => ({
   [`users/${uid}`]: { role: 'staff' },
@@ -289,7 +353,7 @@ test('submission captures trusted assignment atomically, retries keep it, and re
   assert.equal(retry.alreadyPending, true)
   assert.equal(first.revision, retry.revision)
   assert.deepEqual(db.records.get('mealReviews/meal').assignedCoachIds, ['coach'])
-  await api.saveNutritionMealLog({ auth: request.auth, data: { meal: { ...loggedMeal('meal'), title: 'Updated meal' } } })
+  await api.saveNutritionMealLog({ auth: request.auth, data: { meal: { ...loggedMeal('meal'), title: 'Updated meal' }, expectedMealRevision: 1 } })
   await api.submitNutritionMealReview(request)
   assert.deepEqual(db.records.get('mealReviews/meal').assignedCoachIds, ['new-coach'])
   assert.equal(db.records.get('mealReviews/meal').mealRevision, 2)
@@ -627,6 +691,47 @@ test('nutrition review callables are actor-scoped and transaction-backed', () =>
   assert.match(source, /assignedCoachIds\.includes\(coachId\)/)
   assert.match(source, /nutrition_review_settings/)
   assert.match(source, /reviewPriority/)
+})
+
+test('meal edits and deletes reject stale or missing revisions and delete/undo never reuses a revision', async () => {
+  const db = reviewDb([], { 'users/learner/mealLogs/meal': loggedMeal('meal') })
+  const api = createNutritionReviewFunctions({ db, onCall: (...args) => args.at(-1) })
+  const auth = { uid: 'learner' }
+  const meal = { ...loggedMeal('meal'), title: 'Updated' }
+  await assert.rejects(api.saveNutritionMealLog({ auth, data: { meal } }), { code: 'failed-precondition' })
+  await assert.rejects(api.saveNutritionMealLog({ auth, data: { meal, expectedMealRevision: 0 } }), { code: 'failed-precondition' })
+  const saved = await api.saveNutritionMealLog({ auth, data: { meal, expectedMealRevision: 1, idempotencyKey: 'edit-attempt-1' } })
+  assert.equal(saved.mealRevision, 2)
+  await assert.rejects(api.saveNutritionMealLog({ auth, data: { meal: { ...meal, title: 'Stale' }, expectedMealRevision: 1 } }), { code: 'aborted' })
+  await assert.rejects(api.deleteNutritionMealLog({ auth, data: { mealId: 'meal' } }), { code: 'failed-precondition' })
+  await assert.rejects(api.deleteNutritionMealLog({ auth, data: { mealId: 'meal', expectedMealRevision: 1 } }), { code: 'aborted' })
+  const retry = await api.saveNutritionMealLog({ auth, data: { meal, expectedMealRevision: 1, idempotencyKey: 'edit-attempt-1' } })
+  assert.equal(retry.unchanged, true)
+  assert.equal(retry.mealRevision, 2)
+  await api.deleteNutritionMealLog({ auth, data: { mealId: 'meal', expectedMealRevision: 2 } })
+  const restored = await api.saveNutritionMealLog({ auth, data: { meal, expectedMealRevision: 0 } })
+  assert.equal(restored.mealRevision, 3)
+  await assert.rejects(api.saveNutritionMealLog({ auth, data: { meal, expectedMealRevision: 2 } }), { code: 'aborted' })
+  assert.equal(db.records.get('users/learner/mealLogRevisions/meal').mealRevision, 2)
+})
+
+test('legacy meals start at revision one and owner mismatch is rejected before any write', async () => {
+  const legacy = { ...loggedMeal('legacy') }; delete legacy.mealRevision
+  const db = reviewDb([], { 'users/learner/mealLogs/legacy': legacy })
+  const api = createNutritionReviewFunctions({ db, onCall: (...args) => args.at(-1) })
+  const auth = { uid: 'learner' }
+  const saved = await api.saveNutritionMealLog({ auth, data: { meal: legacy, expectedMealRevision: 1 } })
+  assert.equal(saved.mealRevision, 2)
+  await assert.rejects(api.saveNutritionMealLog({ auth, data: { meal: loggedMeal('new'), expectedMealRevision: 0, expectedOwnerUid: 'previous-account' } }), { code: 'failed-precondition' })
+  assert.ok(!db.records.has('users/learner/mealLogs/new'))
+})
+
+test('review reads recheck same-user authority after a warm request', async () => {
+  const db = reviewDb([], staffRecords('coach'))
+  const api = createNutritionReviewFunctions({ db, onCall: (...args) => args.at(-1) })
+  await api.listNutritionMealReviews(staffRequest('coach', { section: 'page' }))
+  db.records.set('roleAssignments/coach', { ...db.records.get('roleAssignments/coach'), status: 'suspended', authzVersion: 2 })
+  await assert.rejects(api.listNutritionMealReviews(staffRequest('coach', { section: 'page' })), { code: 'permission-denied' })
 })
 
 test('nutrition review and session feedback overflow aliases use bounded regional profiles', () => {

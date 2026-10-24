@@ -29,6 +29,7 @@ const {
 
 const nutritionSource = readFileSync(join(__dirname, 'nutrition.js'), 'utf8')
 const functionsIndexSource = readFileSync(join(__dirname, 'index.js'), 'utf8')
+const retentionSource = readFileSync(join(__dirname, 'nutrition-retention.js'), 'utf8')
 const storageRulesSource = readFileSync(join(__dirname, '..', 'storage.rules'), 'utf8')
 
 test('AI Health Coach context uses bounded server records and real nutrition totals', () => {
@@ -354,10 +355,11 @@ test('Storage permits only the three private nutrition image purposes', () => {
 })
 
 test('hourly cleanup removes abandoned AI Coach images without deleting retained food scans', () => {
-  assert.match(functionsIndexSource, /prefix: 'nutrition-scans\/'/)
-  assert.match(functionsIndexSource, /\['food-analysis', 'ai-coach-body', 'ai-coach-meal'\]\.includes\(purpose\)/)
-  assert.match(functionsIndexSource, /now - 24 \* 60 \* 60 \* 1000/)
-  assert.match(functionsIndexSource, /file\.delete\(\{ ignoreNotFound: true \}\)/)
+  assert.match(functionsIndexSource, /cleanupNutritionImages\(\{ db, bucket: storage\.bucket\(\), now \}\)/)
+  assert.match(retentionSource, /prefix: 'nutrition-scans\/'/)
+  assert.match(retentionSource, /\['food-analysis', 'ai-coach-body', 'ai-coach-meal'\]\.includes\(purpose\)/)
+  assert.match(retentionSource, /now - 86_400_000/)
+  assert.match(retentionSource, /file\.delete\(\{ ignoreNotFound: true \}\)/)
   assert.match(functionsIndexSource, /cpu: 'gcf_gen1'[\s\S]*memory: '256MiB'[\s\S]*maxInstances: 1/)
 })
 
@@ -410,7 +412,7 @@ test('provider output is normalized into the frontend structured contract', () =
 })
 
 test('callables include overview and ask; ask ignores client profile and reads actor-owned context', () => {
-  assert.match(nutritionSource, /ENFORCE_AI_APP_CHECK[\s\S]*ENFORCE_APP_CHECK \?\? 'true'/)
+  assert.match(readFileSync(join(__dirname, 'nutrition-ai-requests.js'), 'utf8'), /ENFORCE_AI_APP_CHECK[\s\S]*ENFORCE_APP_CHECK \?\? 'true'/)
   const functions = createNutritionFunctions({ app: {}, db: {} })
   assert.equal(typeof functions.getAiCoachOverview, 'function')
   assert.equal(typeof functions.askAiCoach, 'function')
