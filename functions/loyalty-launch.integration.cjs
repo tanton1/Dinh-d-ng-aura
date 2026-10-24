@@ -8,6 +8,7 @@ const { getFirestore, Timestamp } = require('firebase-admin/firestore')
 const { DEFAULT_POLICY, sourceDocumentId } = require('./loyalty-core')
 const { applySourceTarget, reconcileContractSpend, reconcileAttendanceMissions, runLoyaltyBackfillBatch, vestPendingSources } = require('./loyalty')
 const { readMemberDashboard, readMemberHistory } = require('./loyalty-member-reads')
+const { writeMissionProgress } = require('./loyalty-mission-progress')
 
 assert.match(process.env.FIRESTORE_EMULATOR_HOST || '', /^(127\.0\.0\.1|localhost):\d+$/)
 const app = initializeApp({ projectId: 'demo-aura-fitness' }, `club-launch-${randomUUID()}`)
@@ -33,6 +34,21 @@ async function fixture(seed = {}, policy = {}) {
 }
 const source = (db, key, points, extra = {}) => applySourceTarget({ db, studentId: 'student-1', accountUid: 'student-1',
   sourceKey: key, sourceType: 'attendance', sourceId: key, description: 'Test', targetPoints: points, ...extra })
+
+test('concurrent identical mission updates write once; progress-only changes advance revision', async () => {
+  const db = await fixture()
+  const reference = db.doc('loyaltyMissionProgress/student-1_attendance_week_2026-10-19')
+  const value = { studentId: 'student-1', type: 'attendance_week', weekId: '2026-10-19', progress: 1, target: 3, rewardPoints: 5, status: 'active' }
+  const results = await Promise.all(Array.from({ length: 5 }, () => writeMissionProgress(db, reference, value)))
+  assert.equal(results.filter(Boolean).length, 1)
+  const before = await reference.get()
+  assert.equal(before.data().revision, 1)
+  assert.equal(await writeMissionProgress(db, reference, { ...value, updatedAt: Timestamp.now() }), false)
+  assert.equal((await reference.get()).updateTime.isEqual(before.updateTime), true)
+  assert.equal(await writeMissionProgress(db, reference, { ...value, progress: 2 }), true)
+  assert.equal((await reference.get()).data().revision, 2)
+  assert.equal((await reference.get()).data().rewardPoints, 5)
+})
 
 test('concurrent PT and Coach rewards share a hard monthly cap, retry safely and release reversed allocations', async () => {
   const db = await fixture()

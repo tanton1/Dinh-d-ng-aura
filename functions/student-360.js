@@ -13,6 +13,7 @@ const { sourceChanged, coalesceProjectionRebuild, upsertChangedTimeline } = requ
 const { calculateNutritionTargets, canonicalNutritionProfile } = require('./nutrition-core.mjs')
 const { canonicalSessionRows } = require('./session-schedule-normalization')
 const { cacheScope, createProcessCache } = require('./process-cache')
+const { enqueueStudent360Refresh } = require('./student-360-refresh-queue')
 
 const TIME_ZONE = 'Asia/Ho_Chi_Minh'
 // Bump the projection schema when account-link resolution changes. Existing
@@ -24,7 +25,6 @@ const HEALTH_FORMULA_VERSION = 'student-health-v1'
 // prevents an unchanged profile from re-reading every history collection each
 // time Staff opens it, while the scheduled reconciler repairs missed triggers.
 const PROJECTION_MAX_AGE_MS = 24 * 60 * 60 * 1000
-const PROJECTION_REFRESH_QUEUE = 'systemJobs/student360ProjectionRefreshQueue'
 const projectionRefreshQueueCache = createProcessCache({ ttlMs: 10 * 60 * 1000, maxEntries: 2_000 })
 const studentProjectionReadCache = createProcessCache({ ttlMs: 5_000, maxEntries: 512 })
 
@@ -1463,24 +1463,7 @@ async function queueStudent360ProjectionRefresh(db, studentId, weekId, reason = 
   // from creating one background job per request. The Firestore trigger in
   // functions/index.js consumes the newest requestedAt watermark.
   const key = projectionCacheKey(db, studentId, weekId)
-  const result = await projectionRefreshQueueCache.get(key, async () => {
-    const reference = db.doc(`${PROJECTION_REFRESH_QUEUE}/${studentId}`)
-    const existing = await reference.get()
-    const current = existing.exists ? existing.data() || {} : {}
-    const requestedAt = timestampMillis(current.requestedAt)
-    const processedAt = timestampMillis(current.processedAt)
-    const now = Date.now()
-    if ((['queued', 'processing'].includes(current.status) && now - requestedAt < 10 * 60 * 1000)
-      || (current.status === 'completed' && now - processedAt < 15 * 60 * 1000)) return false
-    await reference.set({
-      studentId,
-      weekId,
-      reason,
-      requestedAt: FieldValue.serverTimestamp(),
-      status: 'queued',
-    }, { merge: true })
-    return true
-  })
+  const result = await projectionRefreshQueueCache.get(key, () => enqueueStudent360Refresh({ db, studentId, weekId, reason }))
   return result.value
 }
 
@@ -2024,9 +2007,10 @@ async function loadAuthorizedProjection(db, actor, studentId, weekId, forceRefre
     permissions = permissionsFor(actor, stored)
     try {
       refreshQueued = await queueStudent360ProjectionRefresh(db, studentId, weekId, 'age')
-    } catch {
+    } catch (error) {
       // A queue write is an optimization, never a reason to hide a usable
       // projection. The scheduled reconciler remains the safety net.
+      console.warn('student_360_projection_queue_enqueue_failed', { code: typeof error?.code === 'string' ? error.code : 'unknown' })
     }
   }
   const projection = forceRefresh || (!serveStale && stale)

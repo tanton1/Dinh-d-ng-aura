@@ -548,7 +548,15 @@ function studentProjectionActionSourceChanged(previous, current) {
   return !isDeepStrictEqual(meaningful(previous), meaningful(current))
 }
 
-async function syncOperationalActionSource({ db, event, logger = console, reviewSlaMinutes }) {
+function sessionActionSourceChanged(previous, current) {
+  if (!previous || !current) return true
+  // These fields determine membership, ordering, attendance and assignment
+  // of the no-show alert below. Notes and write metadata do not affect it.
+  const fields = ['studentId', 'branchId', 'trainerId', 'date', 'startAt', 'scheduledAt', 'hour', 'status', 'attendanceStatus', 'userId', 'accountUid']
+  return fields.some(field => !isDeepStrictEqual(previous[field] ?? null, current[field] ?? null))
+}
+
+async function syncOperationalActionSource({ db, event, logger = console, reviewSlaMinutes, sessionSubject }) {
   const eventCollection = event.data?.after?.ref?.parent?.id || event.data?.before?.ref?.parent?.id || ''
   const collection = ['contracts', 'contractUsageViews', 'sessionRequests', 'mealReviews', 'sessions', 'students', 'studentOperationalViews', 'ptScheduleDrafts', 'contractRenewalCases'].includes(eventCollection)
     ? eventCollection
@@ -556,13 +564,27 @@ async function syncOperationalActionSource({ db, event, logger = console, review
   const sourceId = Object.values(event.params || {})[0]
   const value = event.data?.after?.exists ? event.data.after.data() : null
   const previousValue = event.data?.before?.exists ? event.data.before.data() : null
-  const sourceValue = value || previousValue || {}
+  const sourceValue = sessionSubject && previousValue?.studentId === sessionSubject
+    ? previousValue : value || previousValue || {}
   if (!collection || !sourceId) return { collection: null, sourceId: null, actions: 0 }
   if (collection === 'studentOperationalViews' && !studentProjectionActionSourceChanged(previousValue, value)) {
     return { collection, sourceId, actions: 0, skipped: 'projection_timestamps_only' }
   }
   if (collection === 'contractUsageViews' && !projectionSourceChanged(event, collection)) {
     return { collection, sourceId, actions: 0, skipped: 'projection_timestamps_only' }
+  }
+  if (collection === 'sessions') {
+    if (!sessionActionSourceChanged(previousValue, value)) {
+      return { collection, sourceId, actions: 0, skipped: 'session_fields_unchanged' }
+    }
+    const subjects = [...new Set([previousValue?.studentId, value?.studentId].filter(Boolean))]
+    if (!sessionSubject && subjects.length > 1) {
+      // A moved session affects both streaks. Resolve or rebuild the old
+      // student's alert as well as the new student's, from current sessions.
+      const results = []
+      for (const studentId of subjects) results.push(await syncOperationalActionSource({ db, event, logger, reviewSlaMinutes, sessionSubject: studentId }))
+      return { collection, sourceId, actions: results.reduce((sum, result) => sum + result.actions, 0) }
+    }
   }
   let inputs = []
   if (collection === 'contracts' && value) {
@@ -731,4 +753,5 @@ module.exports = {
   createActionCenterFunctions,
   syncOperationalActionSource,
   studentProjectionActionSourceChanged,
+  sessionActionSourceChanged,
 }

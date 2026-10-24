@@ -4,6 +4,7 @@ import { getEatCleanOrderTracking } from './eatCleanService'
 import { googleMapsConfigured, loadGoogleMaps } from './googleMapsLoader'
 import { EAT_CLEAN_STATUS_LABELS, formatEatCleanDate } from './EatCleanUi'
 import type { EatCleanCoordinate, EatCleanOrder, EatCleanOrderTracking } from './types'
+import { useForegroundRefresh } from '../../hooks/useForegroundRefresh'
 
 function etaLabel(value?: string) {
   if (!value) return 'Đang tính ETA'
@@ -64,9 +65,7 @@ export function EatCleanTrackingPanel({ order }: { order: EatCleanOrder }) {
   const [tracking, setTracking] = useState<EatCleanOrderTracking | null>(order.tracking ?? null)
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState('')
-  const refreshInFlightRef = useRef(false)
-  const mountedRef = useRef(true)
-  const live: EatCleanOrderTracking = tracking ?? {
+  const live: EatCleanOrderTracking = (tracking?.orderId === order.id ? tracking : order.tracking) ?? {
     orderId: order.id,
     status: order.status,
     shipper: order.shipper,
@@ -76,40 +75,24 @@ export function EatCleanTrackingPanel({ order }: { order: EatCleanOrder }) {
     estimatedArrivalAt: order.estimatedArrivalAt,
     promisedAt: order.promisedAt,
   }
-  const terminal = live.status === 'delivered' || live.status === 'cancelled'
+  const terminal = ['delivered', 'cancelled'].includes(live.status) || ['delivered', 'cancelled'].includes(order.status)
 
-  const refresh = async (quiet = false) => {
-    if (refreshInFlightRef.current) return
-    refreshInFlightRef.current = true
+  const read = async (quiet: boolean, isCurrent: () => boolean) => {
     if (!quiet) setLoading(true)
     try {
       const next = await getEatCleanOrderTracking(order.id)
-      if (mountedRef.current && next) {
+      if (isCurrent() && next) {
         setTracking(next)
         setMessage('')
       }
     } catch {
-      if (mountedRef.current && !quiet) setMessage('Chưa thể cập nhật vị trí. Timeline đơn hàng vẫn được giữ nguyên.')
+      if (isCurrent() && !quiet) setMessage('Chưa thể cập nhật vị trí. Timeline đơn hàng vẫn được giữ nguyên.')
     } finally {
-      refreshInFlightRef.current = false
-      if (mountedRef.current && !quiet) setLoading(false)
+      if (isCurrent()) setLoading(false)
     }
   }
 
-  useEffect(() => {
-    mountedRef.current = true
-    return () => { mountedRef.current = false }
-  }, [])
-
-  useEffect(() => {
-    if (order.id.startsWith('demo-order-')) return
-    void refresh(true)
-    if (terminal) return
-    const interval = window.setInterval(() => void refresh(true), 15_000)
-    return () => window.clearInterval(interval)
-    // Poll theo orderId; tránh tạo lại timer khi ETA thay đổi.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [order.id, terminal])
+  const { refresh } = useForegroundRefresh({ scopeKey: `tracking:${order.id}`, read, intervalMs: terminal ? null : 15_000, enabled: !order.id.startsWith('demo-order-') })
 
   const eta = live.estimatedArrivalAt || order.estimatedArrivalAt
   const shipper = live.shipper || order.shipper
@@ -120,7 +103,7 @@ export function EatCleanTrackingPanel({ order }: { order: EatCleanOrder }) {
     <section className="eat-clean-card eat-clean-live-tracking">
       <header>
         <div><small>THEO DÕI GIAO HÀNG</small><h2>Hành trình: {EAT_CLEAN_STATUS_LABELS[live.status]}</h2><p><Clock3 size={15} /> {terminal ? EAT_CLEAN_STATUS_LABELS[live.status] : etaLabel(eta)}</p></div>
-        <button type="button" onClick={() => void refresh()} disabled={loading} aria-label="Làm mới vị trí">{loading ? <LoaderCircle className="eat-clean-spin" size={19} /> : <RefreshCw size={19} />}</button>
+        <button type="button" onClick={() => void refresh(false)} disabled={loading} aria-label="Làm mới vị trí">{loading ? <LoaderCircle className="eat-clean-spin" size={19} /> : <RefreshCw size={19} />}</button>
       </header>
       <TrackingMap tracking={live} />
       <div className="eat-clean-tracking-meta">

@@ -130,7 +130,8 @@ function ledgerErrorMessage(cause: unknown) {
 }
 
 export default function FinanceManagement({ profile }: Props) {
-  const { branches, contracts, students } = useDatabase()
+  const { branches, contracts, students, acquireFinanceDirectory } = useDatabase()
+  useEffect(() => acquireFinanceDirectory(), [acquireFinanceDirectory])
   const [selectedBranchId, setSelectedBranchId] = useState('all')
   const [dateRange, setDateRange] = useState<{ start: Date; end: Date }>(currentMonthRange)
   const [debtFilter, setDebtFilter] = useState<DebtFilter>(initialDebtFilter)

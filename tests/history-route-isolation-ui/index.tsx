@@ -12,6 +12,28 @@ function Consumer() {
   return <output>{trainers.map((trainer) => trainer.name).join(',')}</output>
 }
 
+function FinanceConsumer() {
+  const { acquireFinanceDirectory, students, contracts } = useDatabase()
+  useEffect(() => {
+    const release = acquireFinanceDirectory()
+    return () => { release(); release() }
+  }, [acquireFinanceDirectory])
+  return <output>Directory {students.length}/{contracts.length}</output>
+}
+
+function FinanceApp() {
+  const [details, setDetails] = useState(false)
+  const [second, setSecond] = useState(false)
+  return <>
+    <button onClick={() => setDetails(false)}>Overview</button>
+    <button onClick={() => setDetails(false)}>Cashbook</button>
+    <button onClick={() => setDetails(true)}>Ledger</button>
+    <button onClick={() => setSecond(value => !value)}>Second consumer</button>
+    {details && <FinanceConsumer />}
+    {second && <FinanceConsumer />}
+  </>
+}
+
 function App() {
   const [view, setView] = useState('requests')
   const [second, setSecond] = useState(false)
@@ -27,5 +49,6 @@ function App() {
   </>
 }
 
-window.location.hash = '#/admin-training-history'
-createRoot(document.getElementById('root')!).render(<StrictMode><DatabaseProvider><App /></DatabaseProvider></StrictMode>)
+const finance = new URLSearchParams(window.location.search).has('finance')
+window.location.hash = finance ? '#/admin-finance' : '#/admin-training-history'
+createRoot(document.getElementById('root')!).render(<StrictMode><DatabaseProvider>{finance ? <FinanceApp /> : <App />}</DatabaseProvider></StrictMode>)
