@@ -69,6 +69,7 @@ jobs:
       - run: npm run test:data-cost
       - run: npm run test:data-cost-ui
       - run: npm run test:data-cost-transaction
+      - run: npm run test:delivery-location-transaction
       - run: npm run test:rules
       - run: npm run test:storage
       - run: npm run test:rtdb

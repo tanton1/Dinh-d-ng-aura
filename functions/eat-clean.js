@@ -3,6 +3,7 @@ const { FieldPath, FieldValue, Timestamp } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
 const { defineSecret } = require('firebase-functions/params')
 const { eatCleanRevenueRecognitionWrites } = require('./finance-recognition')
+const { writeLiveLocation } = require('./delivery-location-policy')
 
 const CITY_CODE = 'da-nang'
 const CITY_NAME = 'Đà Nẵng'
@@ -3515,36 +3516,17 @@ function createEatCleanFunctions(dependencies) {
     if (!['accepted', 'at_store', 'picked_up', 'arrived'].includes(delivery.status)) {
       throw new HttpsError('failed-precondition', 'Đơn chưa ở trạng thái cho phép cập nhật vị trí.')
     }
-    let currentReference
-    let currentSnapshot
-    try {
-      currentReference = realtimeDb.ref(`eatCleanLiveLocations/${orderId}`)
-      currentSnapshot = await currentReference.get()
-    } catch (error) {
-      logger.warn('Unable to read Eat Clean live location before update', {
-        operation: 'location_read_before_update',
-        orderId,
-        actorId,
-        code: typeof error?.code === 'string' ? error.code : 'unknown',
-      })
-      throw new HttpsError('unavailable', 'Theo dõi vị trí tạm thời gián đoạn. Vui lòng thử lại.')
-    }
-    const currentLocation = currentSnapshot.exists() ? currentSnapshot.val() : null
     const nowMillis = Date.now()
-    if (currentLocation?.latitude != null && currentLocation?.longitude != null) {
-      const elapsedMs = nowMillis - Number(currentLocation.updatedAt || 0)
-      const movedMeters = distanceBetweenCoordinates(currentLocation, position)
-      if (elapsedMs < 10000 && movedMeters < 30) {
-        return { location: currentLocation, throttled: true }
-      }
-    }
     const payload = {
       orderId,
       customerId: delivery.userId,
       shipperId: delivery.shipperId,
       latitude: position.latitude,
       longitude: position.longitude,
-      accuracyMeters: optionalNumber(request.data?.accuracyMeters, 'Độ chính xác GPS', 0, 10000, 0),
+      accuracyMeters: typeof request.data?.accuracyMeters === 'number' ? request.data.accuracyMeters : Number.NaN,
+      // Older clients omitted capture time. Their writes remain compatible;
+      // all current clients send the actual timestamp of the device fix.
+      capturedAt: request.data?.capturedAt == null ? nowMillis : Number(request.data.capturedAt),
       heading: optionalNumber(request.data?.heading, 'Hướng di chuyển', 0, 360, 0),
       speedMetersPerSecond: optionalNumber(request.data?.speedMetersPerSecond, 'Tốc độ', 0, 100, 0),
       active: true,
@@ -3552,8 +3534,16 @@ function createEatCleanFunctions(dependencies) {
       expiresAt: nowMillis + LIVE_LOCATION_RETENTION_MS,
     }
     try {
-      await currentReference.set(payload)
+      const result = await writeLiveLocation({
+        reference: realtimeDb.ref(`eatCleanLiveLocations/${orderId}`), payload,
+        acceptedAt: timestampMillis(delivery.acceptedAt), distance: distanceBetweenCoordinates,
+      })
+      if (['inactive', 'assignment_changed'].includes(result.reason)) {
+        throw new HttpsError('failed-precondition', 'Nhiệm vụ giao hàng đã thay đổi hoặc kết thúc. Hãy tải lại dữ liệu.')
+      }
+      return result
     } catch (error) {
+      if (error instanceof HttpsError) throw error
       logger.warn('Unable to update Eat Clean live location', {
         operation: 'location_update',
         orderId,
@@ -3562,7 +3552,6 @@ function createEatCleanFunctions(dependencies) {
       })
       throw new HttpsError('unavailable', 'Theo dõi vị trí tạm thời gián đoạn. Vui lòng thử lại.')
     }
-    return { location: payload }
   })
 
   const completeEatCleanDelivery = onCall(otpWriteOptions, async (request) => {

@@ -357,7 +357,7 @@ export async function publishEatCleanDriverLocation(
   deliveryId: string,
   driverId: string,
   position: GeolocationPosition,
-): Promise<void> {
+): Promise<{ accepted: boolean; reason?: string }> {
   const { latitude, longitude, accuracy, heading, speed } = position.coords
   const payload = {
     orderId: deliveryId,
@@ -369,7 +369,8 @@ export async function publishEatCleanDriverLocation(
     capturedAt: position.timestamp,
   }
   const callable = httpsCallable<typeof payload, unknown>(functionsClient(), 'updateEatCleanShipperLocation')
-  await callable(payload)
+  const result = recordOf((await callable(payload)).data)
+  return { accepted: result.throttled !== true, ...(typeof result.reason === 'string' ? { reason: result.reason } : {}) }
 }
 
 export function getDeliveryServiceError(error: unknown): string {

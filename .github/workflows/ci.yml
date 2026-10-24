@@ -192,9 +192,12 @@ jobs:
       - run: npm ci
       - name: Test Rules
         run: npm run ${{ matrix.script }}
-      - name: Install renewal transaction test dependencies
-        if: matrix.suite == 'firestore'
+      - name: Install transaction test dependencies
+        if: matrix.suite == 'firestore' || matrix.suite == 'rtdb'
         run: npm --prefix functions ci
+      - name: Verify bounded GPS publishing and concurrent location writes
+        if: matrix.suite == 'rtdb'
+        run: npm run test:delivery-location-transaction
       - name: Verify atomic renewal and cross-region idempotency
         if: matrix.suite == 'firestore'
         run: npm run test:renewal-transaction
