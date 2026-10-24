@@ -21,6 +21,22 @@ test('production release never deploys the entire Functions fleet', () => {
   assert.match(workflow, /cloud-run-functions-promote-latest\.cjs[^\n]*--traffic-api=v1/)
 })
 
+test('backend preparation keeps verification and serving gates while deferring only the frontend smoke', () => {
+  assert.match(workflow, /backend_only:\s*description:[^\n]+\s*required: false\s*default: false\s*type: boolean/)
+  assert.match(workflow, /if \[ "\$BACKEND_ONLY" = "true" \] && \[ -z "\$TARGETS" \]; then[\s\S]*?exit 1/)
+  const steps = workflow.split(/\n      - /)
+  for (const name of ['Build and promote production on Vercel', 'Post-deploy smoke']) {
+    const step = steps.find((value) => value.startsWith(`name: ${name}\n`) || value.startsWith(`name: ${name}\r\n`))
+    assert.ok(step, name)
+    assert.match(step, /if: \$\{\{ !inputs\.backend_only \}\}/)
+  }
+  const backend = steps.find((value) => value.startsWith('name: Deploy backend Functions sequentially'))!
+  assert.doesNotMatch(backend, /backend_only/)
+  assert.match(backend, /--fail-on-unhealthy/)
+  assert.match(workflow, /needs: verify/)
+  assert.match(workflow, /ref: \$\{\{ needs\.verify\.outputs\.sha \}\}/)
+})
+
 test('production release resolves region and Cloud Run service from the Firebase manifest', () => {
   assert.doesNotMatch(workflow, /confirm=gen-lang-client-0815966909\/asia-southeast1/)
   assert.match(workflow, /firebase-function-region\.cjs/)
@@ -47,6 +63,13 @@ test('failed rollout preserves the verified serving revision rather than guessin
   assert.match(rollback, /service.status\?\.traffic/)
   assert.match(rollback, /ContainerHealthy/)
   assert.match(rollback, /revisionName: readyRevision/)
+})
+
+test('release explicitly stages retired images and still requires the strict health gate', () => {
+  assert.match(workflow, /cloud-run-functions-promote-latest\.cjs[^\n]*--stage-retired/)
+  assert.match(workflow, /cloud-run-functions-health\.cjs[^\n]*--fail-on-unhealthy/)
+  const pkg = JSON.parse(readFileSync('package.json', 'utf8'))
+  assert.match(pkg.scripts['test:regional-reads'], /cloud-run-retired-stage\.test\.cjs/)
 })
 
 test('production health audit checks the effective traffic revision', () => {

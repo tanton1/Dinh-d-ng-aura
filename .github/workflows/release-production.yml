@@ -18,6 +18,11 @@ on:
         required: false
         default: ''
         type: string
+      backend_only:
+        description: Deploy verified backend dependencies from a reviewed commit before merging its frontend
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -68,7 +73,10 @@ jobs:
       - run: npm run test:schedule-ui
       - run: npm run test:data-cost
       - run: npm run test:data-cost-ui
+      - run: npm run test:workspace-sync-ui
+      - run: npx playwright test --config tests/training-history-panel-ui/playwright.config.ts
       - run: npm run test:data-cost-transaction
+      - run: npm run test:delivery-location-transaction
       - run: npm run test:rules
       - run: npm run test:storage
       - run: npm run test:rtdb
@@ -162,8 +170,13 @@ jobs:
         shell: bash
         env:
           BACKEND_FUNCTIONS: ${{ inputs.backend_functions }}
+          BACKEND_ONLY: ${{ inputs.backend_only }}
         run: |
           TARGETS="$(printf '%s' "$BACKEND_FUNCTIONS" | tr -d '[:space:]')"
+          if [ "$BACKEND_ONLY" = "true" ] && [ -z "$TARGETS" ]; then
+            echo "backend_only requires explicit backend_functions." >&2
+            exit 1
+          fi
           if [ -z "$TARGETS" ]; then
             echo "enabled=false" >> "$GITHUB_OUTPUT"
             echo "Frontend-only release: Functions deployment skipped."
@@ -263,7 +276,9 @@ jobs:
             # Managed Functions can reject a v2 traffic-only PATCH because its
             # template conversion conflicts with the immutable revision. Keep
             # the original v1 template and resourceVersion for traffic changes.
-            if ! node scripts/cloud-run-functions-promote-latest.cjs --functions="$SERVICE_NAME" --region="$FUNCTION_REGION" --traffic-api=v1 --confirm="$CONFIRMATION"; then
+            # A pinned previous revision can leave the candidate unstarted.
+            # Stage its exact image at zero traffic before the same health gate.
+            if ! node scripts/cloud-run-functions-promote-latest.cjs --functions="$SERVICE_NAME" --region="$FUNCTION_REGION" --traffic-api=v1 --stage-retired --confirm="$CONFIRMATION"; then
               node scripts/cloud-run-functions-rollback.cjs --functions="$SERVICE_NAME" --region="$FUNCTION_REGION" --confirm="$CONFIRMATION" || true
               exit 1
             fi
@@ -295,6 +310,7 @@ jobs:
       # protected production environment. Wait for that deployment to become
       # reachable instead of relying on a stale CLI token.
       - name: Build and promote production on Vercel
+        if: ${{ !inputs.backend_only }}
         id: deploy
         env:
           AURA_PROD_URL: https://aurafitness-jet.vercel.app
@@ -313,6 +329,7 @@ jobs:
           exit 1
 
       - name: Post-deploy smoke
+        if: ${{ !inputs.backend_only }}
         env:
           # Vercel can protect the immutable deployment hostname even after
           # the production alias has been promoted. Smoke the public alias;
@@ -328,4 +345,5 @@ jobs:
           echo "- Git SHA: \`${{ steps.revision.outputs.sha }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Deployment: ${{ steps.deploy.outputs.url }}" >> "$GITHUB_STEP_SUMMARY"
           echo "- Backend Functions: \`${{ steps.backend.outputs.targets || 'skipped' }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Backend-only preparation: \`${{ inputs.backend_only }}\` (frontend alias smoke is performed after the frontend merge)" >> "$GITHUB_STEP_SUMMARY"
           echo "- App Check compatibility rollout: \`${{ inputs.allow_pending_app_check }}\`" >> "$GITHUB_STEP_SUMMARY"
