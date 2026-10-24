@@ -31,12 +31,12 @@ jobs:
         run: npm audit --omit=dev --audit-level=high
       - name: Typecheck
         run: npm run typecheck
+      - name: Install Functions dependencies for cross-layer tests
+        run: npm --prefix functions ci
       - name: Run web unit and contract tests
         run: npm run test:profile-sync
       - name: Test callable inventory coverage
         run: npm run test:callable-audit
-      - name: Install Functions dependencies for cross-layer routing tests
-        run: npm --prefix functions ci
       - name: Test regional routing and function lifecycle safeguards
         run: |
           npm run test:regional-reads
