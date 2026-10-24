@@ -518,6 +518,8 @@ async function scopedCaseDocuments(db, actor, includeClosed = false) {
 }
 
 function listInput(value = {}) {
+  const optionsMode = value.optionsMode === undefined ? 'full' : value.optionsMode
+  if (!['full', 'filters'].includes(optionsMode)) throw new HttpsError('invalid-argument', 'Chế độ danh mục tái ký không hợp lệ.')
   const allowedRisks = new Set(['expired', 'exhausted', 'critical', 'upcoming', 'early'])
   const allowedSla = new Set(['overdue', 'due_today', 'upcoming', 'done'])
   const allowedApproval = new Set(['pending', 'approved', 'rejected', 'consumed', 'none'])
@@ -536,7 +538,7 @@ function listInput(value = {}) {
     search: boundedString(value.search, 'Từ khóa', 120, false).toLocaleLowerCase('vi'),
     branchId: value.branchId && value.branchId !== 'all' ? documentId(value.branchId, 'Chi nhánh') : '',
     assignedSalesId: value.assignedSalesId && value.assignedSalesId !== 'all' ? documentId(value.assignedSalesId, 'Nhân viên phụ trách') : '',
-    stage, risk, sla, approval, segment, sort: ['priority', 'value', 'follow_up'].includes(value.sort) ? value.sort : 'priority',
+    stage, risk, sla, approval, segment, optionsMode, sort: ['priority', 'value', 'follow_up'].includes(value.sort) ? value.sort : 'priority',
   }
 }
 
@@ -616,7 +618,7 @@ function renewalQueueFingerprint(value) {
   )))
 }
 
-async function renewalOptions(db, actor) {
+async function renewalOptions(db, actor, optionsMode = 'full') {
   if (actor.renewalCanSell !== true) {
     const branchesSnapshot = await db.collection('branches').limit(100).get()
     return {
@@ -626,9 +628,11 @@ async function renewalOptions(db, actor) {
         .filter((item) => !actor.branchIds.length || actor.branchIds.includes(item.id)),
     }
   }
+  // Lists can opt into only their filter dictionaries. The prepare endpoint
+  // keeps the default full mode and reads sale/payment options fresh per open.
   const [packagesSnapshot, branchesSnapshot, accountsSnapshot, assignmentsSnapshot] = await Promise.all([
-    db.collection('packages').limit(500).get(), db.collection('branches').limit(100).get(),
-    db.collection('cashAccounts').where('status', '==', 'active').limit(200).get(), db.collection('roleAssignments').limit(500).get(),
+    optionsMode === 'filters' ? { docs: [] } : db.collection('packages').limit(500).get(), db.collection('branches').limit(100).get(),
+    optionsMode === 'filters' ? { docs: [] } : db.collection('cashAccounts').where('status', '==', 'active').limit(200).get(), db.collection('roleAssignments').limit(500).get(),
   ])
   const allowedBranch = (branchId) => actor.renewalScope === 'system' || actor.branchIds.includes(branchId)
   const salesAssignments = assignmentsSnapshot.docs.filter((item) => item.data().status === 'active'
@@ -829,7 +833,7 @@ function createContractRenewalFunctions({ db, onCall, onSchedule, logger, resolv
   const listHandler = async (request) => {
     const actor = await resolveActor(request, db)
     const input = listInput(request.data || {})
-    const [{ documents, truncated }, options] = await Promise.all([scopedCaseDocuments(db, actor), renewalOptions(db, actor)])
+    const [{ documents, truncated }, options] = await Promise.all([scopedCaseDocuments(db, actor), renewalOptions(db, actor, input.optionsMode)])
     let values = documents.filter((item) => matchesListInput(item, input))
     if (input.sort === 'value') values.sort((a, b) => Number(b.expectedValue || 0) - Number(a.expectedValue || 0) || caseSort(a, b))
     else if (input.sort === 'follow_up') values.sort((a, b) => String(a.nextActionAt || '9999').localeCompare(String(b.nextActionAt || '9999')) || caseSort(a, b))
@@ -847,7 +851,7 @@ function createContractRenewalFunctions({ db, onCall, onSchedule, logger, resolv
       schemaVersion: 2, generatedAt: new Date().toISOString(), today: vietnamDateKey(),
       rows: selected.map((item) => publicCase(item, actor)), hasMore: values.length > input.pageSize,
       nextCursor: values.length > input.pageSize && selected.length ? encodeCursor(selected[selected.length - 1]) : null,
-      stats, options, packages: options.packages, scope: actor.renewalScope, audience: actor.renewalAudience,
+      stats, options, optionsMode: input.optionsMode, packages: options.packages, scope: actor.renewalScope, audience: actor.renewalAudience,
       permissions: renewalPermissions(actor), actorUid: actor.uid, truncated,
     }
   }

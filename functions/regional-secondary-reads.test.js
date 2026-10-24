@@ -12,6 +12,7 @@ const { createFinanceLedgerFunctions } = require('./finance-ledger')
 const { createContractRenewalFunctions } = require('./contract-renewals')
 const { createIdentityAccessFunctions } = require('./identity-access')
 const { createExerciseCatalogFunctions } = require('./exercise-catalog')
+const { createLoyaltyFunctions } = require('./loyalty')
 
 const capture = (optionsOrHandler, maybeHandler) => typeof optionsOrHandler === 'function'
   ? { options: {}, handler: optionsOrHandler }
@@ -25,6 +26,8 @@ const expected = [
   ['listExpenseVouchersRegional', 'cashbook', 'asia-east1'],
   ['listFinanceLedgerRegional', 'finance', 'asia-east1'],
   ['listRenewalMessageTemplatesRegional', 'renewal', 'asia-east1'],
+  ['listContractRenewalCasesRegional', 'renewal', 'asia-east1'],
+  ['listLoyaltyAccountsRegional', 'loyalty', 'asia-southeast2'],
   ['getExerciseCatalogItemRegional', 'exercise', 'asia-southeast2'],
   ['getInternalNutritionCatalogItemRegional', 'identity', 'asia-southeast2'],
 ]
@@ -35,12 +38,15 @@ function canonical(db) {
     renewal: createContractRenewalFunctions({ db, onCall: capture }),
     exercise: createExerciseCatalogFunctions({ db, onCall: capture }),
     identity: createIdentityAccessFunctions({ db, auth: noAuth, onCall: capture }),
+    loyalty: createLoyaltyFunctions({ db, onCall: capture }),
   }
 }
 const inputs = {
   listCashTransactionsRegional: { accountId: 'account-one', pageSize: 1000 },
   listExpenseVouchersRegional: { pageSize: 1000 },
   listFinanceLedgerRegional: { pageSize: 20 },
+  listContractRenewalCasesRegional: { optionsMode: 'filters', pageSize: 20 },
+  listLoyaltyAccountsRegional: { pageSize: 20 },
   getExerciseCatalogItemRegional: { exerciseId: 'exercise-one' },
   getInternalNutritionCatalogItemRegional: { id: 'food-one' },
 }
@@ -89,18 +95,19 @@ function readOnlyDb({ role = 'admin', disabled = false, assignment, profileExist
       const docs = rows.map(([key]) => snapshot(document(key)))
       return { docs, size: docs.length, empty: !docs.length }
     }
+    reference.count = () => ({ get: async () => { const result = await reference.get(); return { data: () => ({ count: result.size }) } } })
     return guard(reference)
   }
-  return { db: guard({ doc: document, collection }), reads, writes, records }
+  return { db: guard({ doc: document, collection, getAll: (...refs) => Promise.all(refs.map(ref => ref.get())) }), reads, writes, records }
 }
 const request = (data = {}, role = 'admin') => ({ auth: { uid: 'reader', token: { role } }, data })
 
-test('only eight reviewed reads register real callable endpoints; regional resources stay fractional and min0', () => {
+test('only ten reviewed reads register real callable endpoints; regional resources stay fractional and min0', () => {
   const registrations = []
   const aliases = createRegionalSecondaryReadAliases({ db: noDatabase, auth: noAuth, onCall: (...args) => { registrations.push(args); return capture(...args) } })
   assert.deepEqual(SECONDARY_READ_TARGETS.map(({name,factory,region}) => [name,factory,region]), expected)
   assert.deepEqual(Object.keys(aliases), expected.map(([name]) => name))
-  assert.equal(registrations.length, 8)
+  assert.equal(registrations.length, 10)
   for (const [name, , region] of expected) {
     const options = aliases[name].options
     assert.equal(options.region, region)
@@ -150,7 +157,7 @@ test('real SDK metadata retains caller App Check/invoker policy and exports no b
       assert.equal(aliases[name].capturedOptions.invoker, 'public')
       assert.equal(aliases[name].capturedOptions.secrets, undefined)
     }
-    assert.equal(optionsByHandler.size, 8)
+    assert.equal(optionsByHandler.size, 10)
   }
 })
 
@@ -161,7 +168,11 @@ test('authenticated success paths preserve canonical responses without any persi
     const originals = canonical(state.db)
     const input = request(inputs[name])
     const result = await aliases[name].handler(input)
-    assert.deepEqual(result, await originals[factory][originalName].handler(input), name)
+    const original = await originals[factory][originalName].handler(input)
+    if (name === 'listContractRenewalCasesRegional') {
+      assert.ok(result.generatedAt)
+      assert.deepEqual({ ...result, generatedAt: '' }, { ...original, generatedAt: '' }, name)
+    } else assert.deepEqual(result, original, name)
     assert.deepEqual(state.writes, [], name)
     assert.ok(state.reads.some(read => read.path === 'users/reader'), name)
   }
@@ -215,7 +226,7 @@ test('canonical finance query bounds and account filters are preserved by the al
 })
 
 test('Student360 discovery omits exercise alias without loading its provider secret module', () => {
-  const script = `const assert=require('node:assert/strict');const {createRegionalSecondaryReadAliases}=require('./regional-secondary-reads');const result=createRegionalSecondaryReadAliases({db:{},auth:{},onCall:(options,handler)=>({options,handler}),includeExerciseCatalog:false});assert.equal(Object.keys(result).length,7);assert.equal(result.getExerciseCatalogItemRegional,undefined);assert.equal(Object.keys(require.cache).some(file=>file.endsWith('/exercise-catalog.js')||file.endsWith('\\\\exercise-catalog.js')),false);`
+  const script = `const assert=require('node:assert/strict');const {createRegionalSecondaryReadAliases}=require('./regional-secondary-reads');const result=createRegionalSecondaryReadAliases({db:{},auth:{},onCall:(options,handler)=>({options,handler}),includeExerciseCatalog:false});assert.equal(Object.keys(result).length,9);assert.equal(result.getExerciseCatalogItemRegional,undefined);assert.equal(Object.keys(require.cache).some(file=>file.endsWith('/exercise-catalog.js')||file.endsWith('\\\\exercise-catalog.js')),false);`
   execFileSync(process.execPath,['-e',script],{cwd:__dirname,stdio:'pipe'})
   const source = readFileSync(join(__dirname,'index.js'),'utf8')
   assert.match(source,/includeExerciseCatalog: !isStudent360Discovery/)

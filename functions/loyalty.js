@@ -49,6 +49,18 @@ function documentId(value, label) {
   return result
 }
 
+function loyaltyListDocumentId(value, label, optional = false) {
+  if (optional && (value == null || value === '')) return ''
+  // Returned cursors must round-trip imported Firestore IDs exactly, including
+  // Unicode and spaces. Mutation IDs keep their existing stricter validator.
+  if (typeof value !== 'string' || !value || !value.isWellFormed()
+      || Buffer.byteLength(value, 'utf8') > 1500 || value.includes('/')
+      || value === '.' || value === '..' || /^__.*__$/s.test(value)) {
+    throw new HttpsError('invalid-argument', `${label} không hợp lệ.`)
+  }
+  return value
+}
+
 function idempotencyKey(value) {
   const result = boundedString(value, 'Mã chống gửi trùng', 160)
   if (!/^[A-Za-z0-9:_-]+$/.test(result)) throw new HttpsError('invalid-argument', 'Mã chống gửi trùng không hợp lệ.')
@@ -1964,35 +1976,63 @@ function createLoyaltyFunctions({ db, onCall, logger = console }) {
   })
 
   const listLoyaltyAccounts = loyaltyAdminCall(async (request) => {
-    const actor = await capabilityActor(request, db, 'loyalty.dashboard.read')
-    const limit = Math.min(MAX_PAGE_SIZE, Math.max(10, Number(request.data?.pageSize || 50)))
-    const cursor = boundedString(request.data?.cursor, 'Con trỏ phân trang', 200, false)
-    const policy = await currentPolicy(db)
+    const actor = await trustedAccessContext(request, db, { freshAssignment: request.data?.studentId !== undefined })
+    requireCapability(actor, 'loyalty.dashboard.read')
+    const requestedSize = request.data?.pageSize ?? 50
+    if (!['number', 'string'].includes(typeof requestedSize) || !String(requestedSize).trim()) {
+      throw new HttpsError('invalid-argument', 'Số học viên mỗi trang không hợp lệ.')
+    }
+    const limit = Math.min(MAX_PAGE_SIZE, Math.max(10, integer(requestedSize, 'Số học viên mỗi trang', 1)))
+    const cursor = loyaltyListDocumentId(request.data?.cursor, 'Con trỏ phân trang', true)
+    const studentId = request.data?.studentId === undefined ? '' : loyaltyListDocumentId(request.data.studentId, 'Mã học viên')
+    if (studentId && cursor) throw new HttpsError('invalid-argument', 'Không dùng con trỏ khi tìm một học viên.')
     let studentSnapshots = []
     let totalCount = 0
     let hasMore = false
     let nextCursor = null
-    if (actor.accessRole === 'staff') {
-      // Staff normally has one or two branches. Read the scoped student
-      // profiles directly (rather than only existing wallet projections) and
-      // keep the generous safety cap for a complete branch view.
-      // Avoid requiring a composite branchId + __name__ index; sorting the
-      // bounded result in memory is deterministic and index-free.
-      const branchStudents = await Promise.all(actor.branchIds.slice(0, 10).map((branchId) => db.collection('students').where('branchId', '==', branchId).limit(1000).get()))
-      studentSnapshots = branchStudents.flatMap((snapshot) => snapshot.docs).sort((left, right) => left.id.localeCompare(right.id)).slice(0, 1000)
-      const branchCounts = await Promise.all(actor.branchIds.slice(0, 10).map((branchId) => db.collection('students').where('branchId', '==', branchId).count().get()))
-      totalCount = branchCounts.reduce((total, item) => total + Number(item.data().count || 0), 0)
-      hasMore = totalCount > studentSnapshots.length
+    if (actor.accessRole === 'staff' && !actor.branchIds.length) return { accounts: [], hasMore, nextCursor, totalCount }
+    if (studentId) {
+      const snapshot = await db.doc(`students/${studentId}`).get()
+      // A deep link must work beyond the first page. Missing and unauthorized
+      // IDs produce the same empty response and never read an out-of-scope wallet.
+      if (snapshot.exists && canAccessBranch(actor, snapshot.data()?.branchId || '')) studentSnapshots = [snapshot]
+      totalCount = studentSnapshots.length
     } else {
-      let query = db.collection('students').orderBy(FieldPath.documentId()).limit(limit + 1)
-      if (cursor) query = query.startAfter(cursor)
-      const [snapshot, countSnapshot] = await Promise.all([query.get(), db.collection('students').count().get()])
-      hasMore = snapshot.size > limit
-      studentSnapshots = snapshot.docs.slice(0, limit)
+      const scopes = []
+      if (actor.accessRole === 'staff') {
+        // Identity permits up to twenty authorized branches. Each disjoint group
+        // needs only one bounded page, not a thousand profiles per branch.
+        // Enterprise deployments must provision branchId ASC + __name__ ASC;
+        // passing emulator tests does not establish production index usage.
+        const branchIds = [...new Set(actor.branchIds)]
+        for (let index = 0; index < branchIds.length; index += 10) {
+          const group = branchIds.slice(index, index + 10)
+          scopes.push(db.collection('students').where('branchId', group.length === 1 ? '==' : 'in', group.length === 1 ? group[0] : group))
+        }
+      } else {
+        scopes.push(db.collection('students'))
+      }
+      const pages = await Promise.all(scopes.map(async (scope) => {
+        let query = scope.orderBy(FieldPath.documentId()).limit(limit + 1)
+        if (cursor) query = query.startAfter(cursor)
+        // Count the full authorized scope, never just the remaining page. Do not
+        // cache financial-list membership or substitute a capped scan for count.
+        const [snapshot, countSnapshot] = await Promise.all([query.get(), scope.count().get()])
+        return { docs: snapshot.docs, count: Number(countSnapshot.data().count || 0) }
+      }))
+      // Firestore document-ID ordering is UTF-8, not locale-aware name ordering.
+      // Groups cannot overlap because a student has one scalar branchId.
+      const candidates = pages.flatMap((page) => page.docs).sort((left, right) => Buffer.compare(Buffer.from(left.id), Buffer.from(right.id)))
+      hasMore = candidates.length > limit
+      studentSnapshots = candidates.slice(0, limit)
       nextCursor = hasMore && studentSnapshots.length ? studentSnapshots[studentSnapshots.length - 1].id : null
-      totalCount = Number(countSnapshot.data().count || 0)
+      totalCount = pages.reduce((total, page) => total + page.count, 0)
     }
-    const accountSnapshots = studentSnapshots.length ? await db.getAll(...studentSnapshots.map((item) => db.doc(`loyaltyAccounts/${item.id}`))) : []
+    if (!studentSnapshots.length) return { accounts: [], hasMore, nextCursor, totalCount }
+    const [policy, accountSnapshots] = await Promise.all([
+      currentPolicy(db),
+      db.getAll(...studentSnapshots.map((item) => db.doc(`loyaltyAccounts/${item.id}`))),
+    ])
     const accounts = new Map(accountSnapshots.map((item) => [item.id, item]))
     const rows = studentSnapshots.flatMap((item) => {
       if (!item.exists) return []
@@ -2000,7 +2040,7 @@ function createLoyaltyFunctions({ db, onCall, logger = console }) {
       if (!canAccessBranch(actor, student.branchId || '')) return []
       const accountSnapshot = accounts.get(item.id)
       const account = normalizeAccount(accountSnapshot?.exists ? accountSnapshot.data() : defaultAccount({ studentId: item.id, accountUid: student.accountUid || '' }), { studentId: item.id, accountUid: student.accountUid || '' })
-      return [{ ...publicAccount(account, policy), studentName: student.name || student.displayName || 'Học viên Aura', branchId: student.branchId || '', walletInitialized: accountSnapshot?.exists === true }]
+      return [{ ...publicAccount(account, policy), studentId: item.id, studentName: student.name || student.displayName || 'Học viên Aura', branchId: student.branchId || '', walletInitialized: accountSnapshot?.exists === true }]
     }).sort((left, right) => left.studentName.localeCompare(right.studentName, 'vi'))
     return { accounts: rows, hasMore, nextCursor, totalCount }
   })

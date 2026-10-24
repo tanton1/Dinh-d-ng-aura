@@ -4,6 +4,17 @@ const test = require('node:test')
 const { parseArguments, selectIndexes, signature, CONFIRMATION } = require('./firebase-firestore-index-deploy.cjs')
 const indexes = require('../firestore.indexes.json').indexes
 
+test('loyalty scope selects exactly the approved branch and document-ID index', () => {
+  const selected = selectIndexes(indexes, 'loyalty-account-reads')
+  assert.deepEqual(selected, [{ collectionGroup: 'students', queryScope: 'COLLECTION', fields: [
+    { fieldPath: 'branchId', order: 'ASCENDING' }, { fieldPath: '__name__', order: 'ASCENDING' },
+  ] }])
+  assert.throws(() => selectIndexes([], 'loyalty-account-reads'), /exactly once/)
+  assert.throws(() => selectIndexes([...selected, ...selected], 'loyalty-account-reads'), /exactly once/)
+  assert.deepEqual(parseArguments(['apply', `--confirm=${CONFIRMATION}`, '--scope=loyalty-account-reads']), { mode: 'apply', scope: 'loyalty-account-reads' })
+  assert.throws(() => parseArguments(['apply', '--scope=loyalty-account-reads']), /confirmation/)
+})
+
 test('finance scope selects exactly three approved indexes, not unrelated missing indexes', () => {
   const selected = selectIndexes(indexes, 'finance-ledger-reads')
   assert.equal(selected.length, 3)

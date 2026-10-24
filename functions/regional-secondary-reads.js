@@ -4,6 +4,7 @@ const { createCashbookFunctions } = require('./cashbook')
 const { createFinanceLedgerFunctions } = require('./finance-ledger')
 const { createContractRenewalFunctions } = require('./contract-renewals')
 const { createIdentityAccessFunctions } = require('./identity-access')
+const { createLoyaltyFunctions } = require('./loyalty')
 
 const SECONDARY_READ_OPTIONS = Object.freeze({
   memory: '256MiB',
@@ -20,6 +21,8 @@ const SECONDARY_READ_TARGETS = Object.freeze([
   Object.freeze({ name: 'listExpenseVouchersRegional', canonical: 'listExpenseVouchers', factory: 'cashbook', region: 'asia-east1' }),
   Object.freeze({ name: 'listFinanceLedgerRegional', canonical: 'listFinanceLedger', factory: 'finance', region: 'asia-east1' }),
   Object.freeze({ name: 'listRenewalMessageTemplatesRegional', canonical: 'listRenewalMessageTemplates', factory: 'renewal', region: 'asia-east1' }),
+  Object.freeze({ name: 'listContractRenewalCasesRegional', canonical: 'listContractRenewalCases', factory: 'renewal', region: 'asia-east1' }),
+  Object.freeze({ name: 'listLoyaltyAccountsRegional', canonical: 'listLoyaltyAccounts', factory: 'loyalty', region: 'asia-southeast2' }),
   Object.freeze({ name: 'getExerciseCatalogItemRegional', canonical: 'getExerciseCatalogItem', factory: 'exercise', region: 'asia-southeast2' }),
   Object.freeze({ name: 'getInternalNutritionCatalogItemRegional', canonical: 'getInternalNutritionCatalogItem', factory: 'identity', region: 'asia-southeast2' }),
 ])
@@ -41,6 +44,7 @@ function createRegionalSecondaryReadAliases({ db, auth, onCall, logger, includeE
     // Intentionally omit onSchedule: renewal reconciliation stays single-active.
     renewal: createContractRenewalFunctions({ db, onCall: callableDefinition, logger }),
     identity: createIdentityAccessFunctions({ db, auth, onCall: callableDefinition, logger }),
+    loyalty: createLoyaltyFunctions({ db, onCall: callableDefinition, logger }),
   }
   if (includeExerciseCatalog) {
     // Preserve the existing Student360 discovery boundary: loading the exercise
