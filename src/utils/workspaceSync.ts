@@ -5,7 +5,7 @@ export interface WorkspaceSyncState {
   policyVersion: string
 }
 
-export type WorkspaceSyncDomain = 'studentSchedule' | 'trainerWorkspace'
+export type WorkspaceSyncDomain = 'studentSchedule' | 'trainerWorkspace' | 'studentTrainingPlan' | 'studentWorkoutHistory'
 
 export interface WorkspaceSyncEnvironment {
   available: () => boolean

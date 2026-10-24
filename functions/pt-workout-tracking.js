@@ -1,8 +1,9 @@
 const { createHash } = require('node:crypto')
-const { FieldValue } = require('firebase-admin/firestore')
+const { FieldPath, FieldValue } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
 const { trustedAccessContext, requireCapability } = require('./identity-access')
 const { contractEffectiveOnDate } = require('./contract-status')
+const { readWorkspaceChangeState } = require('./workspace-change-signals')
 
 const ACTIVE_SESSION_STATUSES = new Set(['scheduled', 'rescheduled', 'completed', 'attended', 'no_show'])
 const ACTIVE_ASSIGNMENT_CONTRACT_STATUSES = new Set(['active'])
@@ -349,6 +350,37 @@ function historyAnalytics(logs) {
   }
 }
 
+async function readPersonalWorkoutPage({ db, uid, studentId, pageSize, cursor }) {
+  // Read the watermark before the payload so a change arriving during the
+  // query remains pending on the client, rather than being falsely accepted.
+  const syncState = await readWorkspaceChangeState({ db, uid, kind: 'workoutHistory' })
+  const size = integer(pageSize, 25, 1, 30)
+  let after = null
+  if (cursor) {
+    try {
+      if (typeof cursor !== 'string' || cursor.length > 2048 || !/^[A-Za-z0-9_-]+$/.test(cursor)) throw new Error('cursor')
+      after = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'))
+      if (after.v !== 1 || after.uid !== uid || after.studentId !== studentId
+          || !/^\d{4}-\d{2}-\d{2}$/.test(after.date) || !Number.isInteger(after.hour) || after.hour < 0 || after.hour > 23
+          || typeof after.id !== 'string' || !after.id || after.id.length > 200 || after.id.includes('/')) throw new Error('scope')
+    } catch {
+      throw new HttpsError('invalid-argument', 'Trang lịch sử không hợp lệ. Hãy tải lại lịch sử.')
+    }
+    if (after.version !== syncState.version) throw new HttpsError('failed-precondition', 'Lịch sử vừa thay đổi. Hãy tải lại từ trang đầu.', { issueCode: 'WORKOUT_HISTORY_CHANGED' })
+  }
+  let query = db.collection('ptWorkoutLogs').where('studentId', '==', studentId)
+    .orderBy('date', 'desc').orderBy('hour', 'desc').orderBy(FieldPath.documentId(), 'desc')
+  if (after) query = query.startAfter(after.date, after.hour, after.id)
+  const snapshot = await query.limit(size + 1).get()
+  const logs = snapshot.docs.slice(0, size).map((document) => ({ ...document.data(), id: document.id }))
+  const hasMore = snapshot.docs.length > size
+  const last = logs.at(-1)
+  const nextCursor = hasMore && last ? Buffer.from(JSON.stringify({
+    v: 1, uid, studentId, version: syncState.version, date: last.date, hour: last.hour, id: last.id,
+  })).toString('base64url') : null
+  return { schemaVersion: 2, studentId, logs, hasMore, nextCursor, syncState }
+}
+
 function createPtWorkoutTrackingFunctions({ db, onCall }) {
   // These endpoints are IO-bound. Fractional CPU avoids burning six full
   // regional vCPUs during a cold rollout while preserving transaction safety.
@@ -444,8 +476,10 @@ function createPtWorkoutTrackingFunctions({ db, onCall }) {
       requireCapability(actor, 'pt.workout.manage')
       await assertStudentScope(db, actor, requestedStudentId)
     }
+    const personal = request.data?.personal === true && !request.data?.studentId
+    const syncState = personal ? await readWorkspaceChangeState({ db, uid: actor.uid, kind: 'trainingPlan' }) : undefined
     const snapshot = await db.doc(`ptTrainingPrograms/${requestedStudentId}`).get()
-    return serialize({ schemaVersion: 1, studentId: requestedStudentId, program: snapshot.exists ? { id: snapshot.id, ...snapshot.data() } : null })
+    return serialize({ schemaVersion: 1, studentId: requestedStudentId, program: snapshot.exists ? { id: snapshot.id, ...snapshot.data() } : null, ...(syncState ? { syncState } : {}) })
   })
 
   const savePtStudentTrainingPlan = staffCall(async (request) => {
@@ -552,6 +586,10 @@ function createPtWorkoutTrackingFunctions({ db, onCall }) {
       requireCapability(actor, 'pt.workout.manage')
       await assertStudentScope(db, actor, studentId)
     }
+    if (request.data?.pageSize !== undefined || request.data?.cursor) {
+      if (request.data?.personal !== true || request.data?.studentId) throw new HttpsError('invalid-argument', 'Phân trang này chỉ dùng cho lịch sử cá nhân.')
+      return serialize(await readPersonalWorkoutPage({ db, uid: actor.uid, studentId, pageSize: request.data.pageSize, cursor: request.data.cursor }))
+    }
     const limit = integer(request.data?.limit, 60, 1, 100)
     const snapshot = await db.collection('ptWorkoutLogs')
       .where('studentId', '==', studentId)
@@ -570,6 +608,7 @@ module.exports = {
   createPtWorkoutTrackingFunctions,
   deletedTrainingDays,
   historyAnalytics,
+  readPersonalWorkoutPage,
   isEffectiveWorkoutContract,
   logDocumentId,
   normalizeProgramDraft,

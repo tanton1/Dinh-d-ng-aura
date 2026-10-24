@@ -245,8 +245,9 @@ test('weekly runtime selection is exact, runtime-only and has no request-control
 test('normal, unknown-target and control-API discovery expose the unchanged complete manifest', () => {
   const baseline = probe()
   // Includes the five Aura Club dashboard projections, three membership
-  // workers and the regional admin dashboard added after the 540 baseline.
-  assert.equal(baseline.exportNames.length, 549)
+  // workers, regional admin dashboard and plan-only invalidation trigger.
+  assert.equal(baseline.exportNames.length, 550)
+  assert.ok(baseline.exportNames.includes('syncStudentTrainingProgram'))
   for (const name of ['syncLoyaltyDashboardStudent', 'syncLoyaltyDashboardAccount', 'syncLoyaltyDashboardRedemption', 'syncLoyaltyDashboardReferral', 'syncLoyaltyDashboardAmbassador', 'syncLoyaltyContractMembership', 'syncLoyaltyMembershipActivation', 'advanceLoyaltyMembershipsScheduled', 'getLoyaltyAdminDashboardRegional']) {
     assert.ok(baseline.exportNames.includes(name))
   }
