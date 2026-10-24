@@ -115,6 +115,12 @@ async function promoteLatest(project, region, name, headers, { request = request
     expectedRevision = staged.expectedRevision
     expectedImage = staged.expectedImage
     createdRevision = shortName(current.latestCreatedRevision)
+    // This template was just created through v2. Replacing its converted v1
+    // representation can conflict with the immutable staged revision even
+    // when the GET/PUT body is preserved. Keep the traffic-only update on v2,
+    // guarded by the staging etag. This is chosen before any promotion write;
+    // it is not a fallback/retry after an uncertain request.
+    trafficApi = 'v2'
   }
   const approved = assertHealthyRevision(current, revision, { expectedRevision, expectedImage })
   if (!hasPinnedTraffic(current, createdRevision) || !servesRevision(current, createdRevision)) {

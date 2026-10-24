@@ -23,11 +23,19 @@ function fixture() {
   ] }
   return { service, revision, previous }
 }
-function harness({ changeLive = () => {}, changeReady = () => {}, changeOperation = () => {} } = {}) {
+function harness({ changeLive = () => {}, changeReady = () => {}, changeOperation = () => {}, promotionError, changePromoted = () => {} } = {}) {
   const state = fixture(), calls = []
   let body, live, ready, promoted = false
   const request = async (url, headers, options = {}) => {
     calls.push({ url, method: options.method || 'GET' })
+    if (options.method === 'PATCH' && new URL(url).searchParams.get('updateMask') === 'traffic') {
+      const promotion = JSON.parse(options.body)
+      assert.deepEqual(promotion, { name, etag: live.etag, traffic: [{ type: 'TRAFFIC_TARGET_ALLOCATION_TYPE_REVISION', revision: body.template.revision, percent: 100 }] })
+      assert.equal(new URL(url).searchParams.has('forceNewRevision'), false)
+      if (promotionError) throw Error(promotionError)
+      promoted = true
+      return { name: name.split('/services/')[0] + '/operations/promote-1', done: true }
+    }
     if (options.method === 'PATCH') {
       assert.equal(body, undefined, 'never repeat an uncertain staging mutation')
       body = JSON.parse(options.body)
@@ -52,10 +60,14 @@ function harness({ changeLive = () => {}, changeReady = () => {}, changeOperatio
     if (url === 'https://run.googleapis.com/v2/' + state.previous.name) return state.previous
     if (url === 'https://run.googleapis.com/v2/' + state.revision.name) return state.revision
     if (ready && url === 'https://run.googleapis.com/v2/' + ready.name) return ready
-    if (url === 'https://run.googleapis.com/v2/' + name) return !live ? state.service : promoted ? {
-      ...live, traffic: [{ type: 'TRAFFIC_TARGET_ALLOCATION_TYPE_REVISION', revision: body.template.revision, percent: 100 }],
-      trafficStatuses: [{ revision: body.template.revision, percent: 100 }],
-    } : live
+    if (url === 'https://run.googleapis.com/v2/' + name) {
+      if (!live) return state.service
+      if (!promoted) return live
+      const current = { ...live, traffic: [{ type: 'TRAFFIC_TARGET_ALLOCATION_TYPE_REVISION', revision: body.template.revision, percent: 100 }],
+        trafficStatuses: [{ revision: body.template.revision, percent: 100 }] }
+      changePromoted(current)
+      return current
+    }
     throw Error('Unexpected request')
   }
   return { state, request, calls, body: () => body, options: { request, pause: async () => {}, nonce, expectedRevision: 'example-2', expectedImage: image } }
@@ -153,11 +165,33 @@ test('an uncertain staging response is never retried or followed by promotion', 
   assert.equal(writes, 1)
 })
 
-test('normal promotion explicitly opts into staging and retains the v1 health and traffic gates', async () => {
+test('v2 staging promotes through v2 without a conflicting v1 template conversion', async () => {
   const h = harness()
   await assert.rejects(promoteLatest('gen-lang-client-0815966909', 'asia-southeast1', 'example', {}, { request: h.request, pause: async () => {} }), /not ready/)
   assert.equal(h.calls.some(call => call.method !== 'GET'), false)
   const result = await promoteLatest('gen-lang-client-0815966909', 'asia-southeast1', 'example', {}, { request: h.request, pause: async () => {}, stageRetired: true, trafficApi: 'v1', expectedRevision: 'example-2', expectedImage: image })
   assert.equal(result, h.body().template.revision)
-  assert.deepEqual(h.calls.filter(call => call.method !== 'GET').map(call => call.method), ['PATCH', 'PUT'])
+  assert.deepEqual(h.calls.filter(call => call.method !== 'GET').map(call => call.method), ['PATCH', 'PATCH'])
+  assert.ok(h.calls.every(call => !call.url.includes('/apis/serving.knative.dev/')), 'staged templates never cross the v1 conversion boundary')
+})
+
+test('staged promotion never retries an uncertain v2 mutation or falls back to v1', async t => {
+  for (const reason of ['network outcome unknown', 'Cloud Run 409: etag conflict', 'Cloud Run 429: throttled']) await t.test(reason, async () => {
+    const h = harness({ promotionError: reason })
+    await assert.rejects(promoteLatest('gen-lang-client-0815966909', 'asia-southeast1', 'example', {}, { request: h.request, pause: async () => {}, stageRetired: true, trafficApi: 'v1' }), error => error.message === reason)
+    assert.deepEqual(h.calls.filter(call => call.method !== 'GET').map(call => call.method), ['PATCH', 'PATCH'])
+    assert.ok(h.calls.every(call => !call.url.includes('/apis/serving.knative.dev/')))
+  })
+})
+
+test('v2 staging retains exact effective traffic and concurrent-release checks', async t => {
+  for (const [label, mutate, message] of [
+    ['traffic is not effective', value => { value.trafficStatuses = [{ revision: 'example-1', percent: 100 }] }, /100%/],
+    ['candidate changed', value => { value.latestCreatedRevision = name + '/revisions/example-other' }, /Concurrent/],
+    ['floating intent', value => { value.traffic = [{ type: 'TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST', percent: 100 }] }, /pinned traffic/],
+  ]) await t.test(label, async () => {
+    const h = harness({ changePromoted: mutate })
+    await assert.rejects(promoteLatest('gen-lang-client-0815966909', 'asia-southeast1', 'example', {}, { request: h.request, pause: async () => {}, stageRetired: true, trafficApi: 'v1' }), message)
+    assert.deepEqual(h.calls.filter(call => call.method !== 'GET').map(call => call.method), ['PATCH', 'PATCH'])
+  })
 })
