@@ -133,8 +133,9 @@ async function regionalCachedReadWithFallback<Input, Output>(
   legacyName: string,
   input: Input,
   ttlMs: number,
+  authorityKey = '',
 ) {
-  const key = readCacheKey(regionalName, input)
+  const key = readCacheKey(regionalName, authorityKey ? { input, authorityKey } : input)
   const now = Date.now()
   const cached = readCache.get(key)
   if (ttlMs > 0 && cached?.value !== undefined && cached.expiresAt > now) return cached.value as Output
@@ -281,6 +282,18 @@ export interface TrainerWorkspaceBootstrap {
   branches: Array<{ id: string; name: string }>
   sessions: TrainerSessionSummary[]
   requests: TrainerSessionRequestSummary[]
+  hasMore: boolean
+}
+
+/** Today-only dashboard data; calendar entitlements are loaded on that route. */
+export interface TrainerDashboardWorkspace {
+  schemaVersion: number
+  syncState?: WorkspaceSyncState
+  scope: {
+    staffId: string
+    counts: Pick<CoachWorkspaceScope['counts'], 'primaryStudents' | 'secondaryStudents' | 'pendingRequests'>
+  }
+  sessions: TrainerSessionSummary[]
   hasMore: boolean
 }
 
@@ -497,6 +510,18 @@ export async function getMyTrainerWorkspace(
     { section: 'students' | 'schedule' | 'requests'; from: string; to: string; limit: number; independentTabs: true },
     TrainerWorkspaceBootstrap
   >('getMyTrainerWorkspaceRegional', 'getMyTrainerWorkspace', { section, from, to, limit, independentTabs: true }, 0)
+  if (accountUid !== firebaseAuth?.currentUser?.uid) throw new Error('Phiên đăng nhập đã thay đổi.')
+  return result
+}
+
+export async function getMyTrainerDashboard(day: string, limit = 500, authorityKey = ''): Promise<TrainerDashboardWorkspace> {
+  const accountUid = firebaseAuth?.currentUser?.uid
+  // An additive opt-in keeps either deployment order compatible: an older
+  // server returns the full schedule, whose dashboard fields still match.
+  const input = { section: 'schedule' as const, from: day, to: day, limit, independentTabs: true as const, dashboardSummary: true as const }
+  const result = await regionalCachedReadWithFallback<typeof input, TrainerDashboardWorkspace>(
+    'getMyTrainerWorkspaceRegional', 'getMyTrainerWorkspace', input, 0, authorityKey,
+  )
   if (accountUid !== firebaseAuth?.currentUser?.uid) throw new Error('Phiên đăng nhập đã thay đổi.')
   return result
 }

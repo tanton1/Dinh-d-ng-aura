@@ -18,7 +18,9 @@ function usage() {
     '  node scripts/firebase-firestore-index-deploy.cjs dry-run',
     '  node scripts/firebase-firestore-index-deploy.cjs dry-run --scope=finance-ledger-reads',
     '  node scripts/firebase-firestore-index-deploy.cjs dry-run --scope=loyalty-account-reads',
+    '  node scripts/firebase-firestore-index-deploy.cjs dry-run --scope=dashboard-reads',
     `  node scripts/firebase-firestore-index-deploy.cjs apply --confirm=${CONFIRMATION}`,
+    `  node scripts/firebase-firestore-index-deploy.cjs apply --scope=dashboard-reads --confirm=${CONFIRMATION}`,
     '',
     'The apply mode is target-locked and create-only. It never deletes an index.',
   ].join('\n')
@@ -34,7 +36,7 @@ function parseArguments(argv) {
   }))
   if (Object.keys(flags).some((key) => !['confirm', 'scope'].includes(key))) throw new Error(usage())
   const scope = flags.scope || 'all'
-  if (!['all', 'finance-ledger-reads', 'loyalty-account-reads'].includes(scope)) throw new Error('Unknown index deployment scope.')
+  if (!['all', 'finance-ledger-reads', 'loyalty-account-reads', 'dashboard-reads'].includes(scope)) throw new Error('Unknown index deployment scope.')
   if (mode === 'apply' && flags.confirm !== CONFIRMATION) throw new Error('Production confirmation is missing or incorrect.')
   return { mode, scope }
 }
@@ -130,6 +132,22 @@ function comparableFields(fields = []) {
 
 function selectIndexes(indexes, scope) {
   if (scope === 'all') return indexes
+  if (scope === 'dashboard-reads') {
+    const wanted = [
+      { collectionGroup: 'attendanceEvents', queryScope: 'COLLECTION', fields: [
+        { fieldPath: 'branchId', order: 'ASCENDING' },
+        { fieldPath: 'occurredAt', order: 'ASCENDING' },
+      ] },
+      { collectionGroup: 'sessionRequests', queryScope: 'COLLECTION', fields: [
+        { fieldPath: 'trainerId', order: 'ASCENDING' },
+        { fieldPath: 'status', order: 'ASCENDING' },
+        { fieldPath: 'requestedBy', order: 'ASCENDING' },
+      ] },
+    ]
+    const selected = wanted.map((index) => indexes.filter((candidate) => signature(candidate) === signature(index)))
+    if (selected.some((matches) => matches.length !== 1)) throw new Error('Scoped dashboard indexes must each appear exactly once in the repository.')
+    return selected.map(([index]) => index)
+  }
   if (scope === 'loyalty-account-reads') {
     const wanted = { collectionGroup: 'students', queryScope: 'COLLECTION', fields: [
       { fieldPath: 'branchId', order: 'ASCENDING' },

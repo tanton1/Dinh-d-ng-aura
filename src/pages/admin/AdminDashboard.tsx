@@ -1,5 +1,5 @@
 import './AdminDashboard.css'
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
   AlertCircle,
   ArrowRight,
@@ -36,9 +36,10 @@ import {
   type StaffDashboardPayrollSnapshot,
 } from '../../utils/staffDashboardPayroll'
 import { useDebounce } from '../../hooks/useDebounce'
+import { useAuth } from '../../contexts/AuthContext'
 import { trackProductEvent } from '../../services/analyticsService'
 import { useAuraUiSurface } from '../../features/ui-rollout/AuraUiRolloutContext'
-import OperationalActionCenter from '../../components/operations/OperationalActionCenter'
+const OperationalActionCenter = lazy(() => import('../../components/operations/OperationalActionCenter'))
 
 function money(value: number) {
   const amount = Number(value)
@@ -271,51 +272,64 @@ interface Props {
   canManageCoaching?: boolean
 }
 
-export default function AdminDashboard({
+export default function AdminDashboard(props: Props) {
+  const { user, accessContext, authzReady } = useAuth()
+  // Account/permission changes discard all financial and payroll state before
+  // a new actor can see the previous actor's response, including pending reads.
+  const authorityKey = JSON.stringify([
+    props.isDemo === true, user?.uid || '', authzReady, accessContext?.uid,
+    accessContext?.authzVersion, accessContext?.status, accessContext?.accessRole,
+    [...(accessContext?.branchIds || [])].sort(), [...(accessContext?.capabilities || [])].sort(),
+    [...(accessContext?.positions || [])].sort(), props.canViewPayroll === true, props.canManageCoaching === true,
+  ])
+  const readsEnabled = props.isDemo === true || Boolean(user && authzReady && accessContext?.uid === user.uid && accessContext?.status === 'active')
+  if (!readsEnabled) return <div className="page admin-dashboard" role="status">Đang kiểm tra quyền xem tổng quan…</div>
+  return <AdminDashboardContent key={authorityKey} {...props} authorityKey={authorityKey} authorizationVersion={accessContext?.authzVersion || 0} />
+}
+
+function AdminDashboardContent({
   onNavigate,
   adminName = 'Admin Aura',
   isDemo = false,
   canViewPayroll = false,
   canManageCoaching = false,
-}: Props) {
+  authorizationVersion,
+  authorityKey,
+}: Props & { authorizationVersion: number; authorityKey: string }) {
   const dashboardV4 = useAuraUiSurface('admin-dashboard')
   const actionCenterEnabled = useAuraUiSurface('action-center')
-  const [data, setData] = useState<OperationsDashboardData | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [response, setResponse] = useState<{ queryKey: string; branchId: string; value: OperationsDashboardData } | null>(null)
+  const [requestLoading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
-  const [error, setError] = useState('')
+  const [requestError, setError] = useState<{ queryKey: string; message: string } | null>(null)
   const [range, setRange] = useState(() => ({ startAt: startOfMonth(), endAt: currentMinute() }))
   const [branchId, setBranchId] = useState('all')
   const dashboardQuery = useMemo(() => ({ branchId, startAt: range.startAt, endAt: range.endAt }), [branchId, range.endAt, range.startAt])
   const debouncedDashboardQuery = useDebounce(dashboardQuery, 250)
+  const queryKey = JSON.stringify(dashboardQuery)
+  const currentQueryKey = useRef(queryKey)
+  currentQueryKey.current = queryKey
+  const data = response?.queryKey === queryKey ? response.value : null
+  const error = requestError?.queryKey === queryKey ? requestError.message : ''
+  const loading = requestLoading || queryKey !== JSON.stringify(debouncedDashboardQuery)
   const loadGeneration = useRef(0)
-  const currentPayrollPeriodId = useMemo(() => payrollPeriodId(), [])
-  const [payrollRoster, setPayrollRoster] = useState<AdminPayrollStaffTab[]>([])
-  const [selectedPayrollStaffId, setSelectedPayrollStaffId] = useState('')
-  const [payrollStatement, setPayrollStatement] = useState<StaffDashboardPayrollSnapshot | null>(null)
-  const [payrollRosterLoading, setPayrollRosterLoading] = useState(true)
-  const [payrollStatementLoading, setPayrollStatementLoading] = useState(true)
-  const [payrollRosterError, setPayrollRosterError] = useState('')
-  const [payrollStatementError, setPayrollStatementError] = useState('')
-  const payrollRosterGeneration = useRef(0)
-  const payrollStatementGeneration = useRef(0)
-  const payrollSectionRef = useRef<HTMLElement>(null)
-  const [payrollVisible, setPayrollVisible] = useState(false)
-
   const load = useCallback(async (forceRefresh = false) => {
+    const requestedQueryKey = JSON.stringify(debouncedDashboardQuery)
+    if (requestedQueryKey !== currentQueryKey.current) return
     const generation = ++loadGeneration.current
+    const isCurrent = () => generation === loadGeneration.current && requestedQueryKey === currentQueryKey.current
     const requestStartedAt = typeof performance !== 'undefined' ? performance.now() : Date.now()
     forceRefresh ? setRefreshing(true) : setLoading(true)
-    setError('')
+    setError(null)
     try {
       const result = await getOperationsDashboard({
         startAt: debouncedDashboardQuery.startAt,
         endAt: debouncedDashboardQuery.endAt,
         branchId: debouncedDashboardQuery.branchId,
         forceRefresh,
-      })
-      if (generation === loadGeneration.current) {
-        setData(result)
+      }, { authorizationVersion, authorityKey })
+      if (isCurrent()) {
+        setResponse({ queryKey: requestedQueryKey, branchId: debouncedDashboardQuery.branchId, value: result })
         void trackProductEvent('admin_dashboard_loaded', {
           durationMs: Math.max(0, Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - requestStartedAt)),
           cacheTier: result.cache.tier,
@@ -324,107 +338,23 @@ export default function AdminDashboard({
         })
       }
     } catch (loadError) {
-      if (generation === loadGeneration.current) setError(dashboardErrorMessage(loadError))
+      if (isCurrent()) setError({ queryKey: requestedQueryKey, message: dashboardErrorMessage(loadError) })
     } finally {
-      if (generation === loadGeneration.current) {
+      if (isCurrent()) {
         setLoading(false)
         setRefreshing(false)
       }
     }
-  }, [debouncedDashboardQuery])
-
-  useEffect(() => { void load() }, [load])
-
-  const payrollEnabled = canViewPayroll && data?.permissions.payroll === true
+  }, [authorizationVersion, authorityKey, debouncedDashboardQuery.branchId, debouncedDashboardQuery.endAt, debouncedDashboardQuery.startAt])
 
   useEffect(() => {
-    if (!payrollEnabled || payrollVisible) return
-    const element = payrollSectionRef.current
-    if (!element || typeof IntersectionObserver === 'undefined') {
-      setPayrollVisible(true)
-      return
-    }
-    const observer = new IntersectionObserver((entries) => {
-      if (!entries.some((entry) => entry.isIntersecting)) return
-      setPayrollVisible(true)
-      observer.disconnect()
-    }, { rootMargin: '240px 0px' })
-    observer.observe(element)
-    return () => observer.disconnect()
-  }, [payrollEnabled, payrollVisible])
+    void load()
+    return () => { loadGeneration.current += 1 }
+  }, [load])
 
-  const loadPayrollRoster = useCallback(async () => {
-    const generation = ++payrollRosterGeneration.current
-    if (!payrollEnabled) {
-      setPayrollRoster([])
-      setSelectedPayrollStaffId('')
-      setPayrollRosterLoading(false)
-      setPayrollRosterError('')
-      return
-    }
-    setPayrollRosterLoading(true)
-    setPayrollRosterError('')
-    try {
-      const rows = isDemo
-        ? demoPayrollRoster()
-        : (await listStaffPayrollAttendance(currentPayrollPeriodId, branchId === 'all' ? '' : branchId)).rows
-          .map((row) => ({
-            staffId: row.staffId,
-            name: row.name,
-            employmentType: row.employmentType,
-            teachingSlotCount: row.teachingSlotCount,
-            baseSalaryEarned: row.baseSalaryEarned,
-            teachingPayAmount: row.teachingPayAmount,
-            finalAmount: row.finalAmount,
-            reviewRequired: row.reviewRequired,
-          }))
-          .sort((left, right) => left.name.localeCompare(right.name, 'vi'))
-      if (generation !== payrollRosterGeneration.current) return
-      setPayrollRoster(rows)
-      setSelectedPayrollStaffId((current) => rows.some((row) => row.staffId === current) ? current : rows[0]?.staffId || '')
-    } catch (payrollError) {
-      if (generation !== payrollRosterGeneration.current) return
-      setPayrollRoster([])
-      setSelectedPayrollStaffId('')
-      setPayrollRosterError(payrollErrorMessage(payrollError))
-    } finally {
-      if (generation === payrollRosterGeneration.current) setPayrollRosterLoading(false)
-    }
-  }, [branchId, currentPayrollPeriodId, isDemo, payrollEnabled])
-
-  useEffect(() => {
-    if (payrollVisible) void loadPayrollRoster()
-  }, [loadPayrollRoster, payrollVisible])
-
-  const loadPayrollStatement = useCallback(async (staffId: string) => {
-    const generation = ++payrollStatementGeneration.current
-    if (!payrollEnabled || !staffId) {
-      setPayrollStatement(null)
-      setPayrollStatementLoading(false)
-      setPayrollStatementError('')
-      return
-    }
-    setPayrollStatementLoading(true)
-    setPayrollStatementError('')
-    try {
-      const result = isDemo
-        ? demoPayrollStatement(currentPayrollPeriodId, staffId)
-        : await getStaffPayrollStatement(currentPayrollPeriodId, staffId)
-      if (generation !== payrollStatementGeneration.current) return
-      setPayrollStatement(result)
-      if (!result) setPayrollStatementError('Không tìm thấy sao kê của nhân sự đã chọn.')
-    } catch (payrollError) {
-      if (generation !== payrollStatementGeneration.current) return
-      setPayrollStatement(null)
-      setPayrollStatementError(payrollErrorMessage(payrollError))
-    } finally {
-      if (generation === payrollStatementGeneration.current) setPayrollStatementLoading(false)
-    }
-  }, [currentPayrollPeriodId, isDemo, payrollEnabled])
-
-  useEffect(() => {
-    if (payrollVisible) void loadPayrollStatement(selectedPayrollStaffId)
-  }, [loadPayrollStatement, payrollVisible, selectedPayrollStaffId])
+  // Reporting date changes do not reload the independently selected payroll
+  // month. Branch changes unmount the card and require opening the new scope.
+  const payrollEnabled = canViewPayroll && response?.branchId === branchId && response.value.permissions.payroll === true
 
   const updateRange = useCallback((start: Date, end: Date) => {
     const now = new Date()
@@ -571,24 +501,14 @@ export default function AdminDashboard({
     ].filter(Boolean) as Array<{ id: string; label: string; view: ViewId; icon: ReactNode }>
   }, [canManageCoaching, data, payrollEnabled])
 
-  const selectedPayrollStaff = useMemo(
-    () => payrollRoster.find((staff) => staff.staffId === selectedPayrollStaffId) || null,
-    [payrollRoster, selectedPayrollStaffId],
-  )
-  const payrollChart = useMemo(
-    () => payrollStatement ? buildStaffDashboardPayrollChart(payrollStatement) : null,
-    [payrollStatement],
-  )
-  const payrollTeachingSlotCount = payrollChart?.buckets.reduce((sum, bucket) => sum + bucket.teachingSlotCount, 0) || 0
-
   return <div className={`page admin-dashboard admin-dashboard--v2${dashboardV4 ? ' aura-ui-v4-surface aura-ui-v4-operations admin-dashboard--v4' : ''}`}>
     <section className="admin-dashboard__syncbar" aria-label="Trạng thái tổng quan">
       <div><small>AURA · TỔNG QUAN</small><strong>Chào {adminName}</strong><span className={`admin-dashboard__data-state ${error ? 'is-error' : loading || refreshing ? 'is-loading' : 'is-synced'}`}><i />{data?.generatedAt ? `Đồng bộ ${new Date(data.generatedAt).toLocaleString('vi-VN')}${data.cache.hit ? ' · dữ liệu đệm' : ''}` : error ? 'Chưa đồng bộ dữ liệu' : 'Đang kết nối dữ liệu vận hành'}</span></div>
       <div className="admin-dashboard__sync-actions">
-        {data && data.filters.branches.length > 1 && <label className="admin-dashboard__branch-filter" aria-label="Lọc theo chi nhánh"><Building2 size={15} /><select value={branchId} onChange={(event) => setBranchId(event.target.value)}><option value="all">Tất cả cơ sở</option>{data.filters.branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></label>}
+        {response && response.value.filters.branches.length > 1 && <label className="admin-dashboard__branch-filter" aria-label="Lọc theo chi nhánh"><Building2 size={15} /><select value={branchId} onChange={(event) => setBranchId(event.target.value)}><option value="all">Tất cả cơ sở</option>{response.value.filters.branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></label>}
         <DateRangeFilter compact excludeFuture allowAll={false} initialRange="Tháng này" onFilter={updateRange} />
         <details className="admin-dashboard__help"><summary aria-label="Giải thích số liệu"><CircleHelp size={18} /></summary><div><b>Nguồn số liệu</b><span>Tiền thu lấy từ ledger canonical; doanh thu thực hiện lấy từ các buổi đã ghi nhận; hiện diện lấy từ sessions và attendanceEvents.</span>{data?.quality.truncated && <span><b>Cảnh báo:</b> kỳ đang chọn vượt giới hạn quét. Hãy thu hẹp bộ lọc để xem đủ dữ liệu.</span>}</div></details>
-        <button type="button" onClick={() => void load(true)} disabled={refreshing} aria-label="Làm mới tổng quan"><RefreshCw className={refreshing ? 'spin' : ''} size={18} /><span>{refreshing ? 'Đang tải' : 'Làm mới'}</span></button>
+        <button type="button" onClick={() => void load(true)} disabled={loading || refreshing} aria-label="Làm mới tổng quan"><RefreshCw className={refreshing ? 'spin' : ''} size={18} /><span>{refreshing ? 'Đang tải' : 'Làm mới'}</span></button>
       </div>
     </section>
 
@@ -623,72 +543,16 @@ export default function AdminDashboard({
       </section>
     </div>
 
-    {actionCenterEnabled && <OperationalActionCenter
+    {actionCenterEnabled && <Suspense fallback={null}><OperationalActionCenter
       isDemo={isDemo}
       onOpenStudent={(studentId) => {
         window.location.hash = `#/student-360?studentId=${encodeURIComponent(studentId)}&source=admin-pt-students`
       }}
-    />}
+    /></Suspense>}
 
     <AuraMetricCarousel slides={reportSlides} label="Báo cáo nhanh theo kỳ" loading={loading && !data} />
 
-    {payrollEnabled && <section ref={payrollSectionRef} className="admin-dashboard__payroll" aria-labelledby="dashboard-payroll-title" aria-busy={!payrollVisible || payrollRosterLoading || payrollStatementLoading}>
-      <header>
-        <div><small>QUỸ LƯƠNG · {periodLabel(currentPayrollPeriodId).toUpperCase()}</small><h2 id="dashboard-payroll-title">Lương & tiền ca dạy</h2><p>Chọn từng nhân sự để xem thu nhập đã ghi nhận theo tuần.</p></div>
-        <button type="button" onClick={() => goTo('admin-payroll')}>Xem bảng lương<ArrowRight size={15} /></button>
-      </header>
-      {!payrollVisible || payrollRosterLoading
-        ? <div className="admin-dashboard__payroll-loading" aria-label="Đang tải bảng lương nhân sự"><div className="admin-dashboard__payroll-tab-skeleton"><i /><i /><i /></div><div className="admin-dashboard__payroll-chart-skeleton"><span /><span /><span /><span /><span /></div></div>
-        : payrollRosterError
-          ? <div className="admin-dashboard__payroll-state"><BarChart3 size={27} /><strong>Chưa tải được danh sách nhân sự</strong><p>{payrollRosterError}</p><button type="button" onClick={() => void loadPayrollRoster()}>Thử lại</button></div>
-          : !payrollRoster.length
-            ? <div className="admin-dashboard__payroll-state"><Users size={27} /><strong>Chưa có nhân sự trong kỳ</strong><p>Biểu đồ sẽ xuất hiện khi bảng lương tháng có ít nhất một nhân sự.</p></div>
-            : <>
-              <div className="admin-dashboard__payroll-tabs" role="tablist" aria-label="Chọn nhân sự xem biểu đồ lương">
-                {payrollRoster.map((staff) => <button
-                  id={`dashboard-payroll-tab-${staff.staffId}`}
-                  key={staff.staffId}
-                  type="button"
-                  role="tab"
-                  aria-selected={staff.staffId === selectedPayrollStaffId}
-                  aria-controls="dashboard-payroll-panel"
-                  tabIndex={staff.staffId === selectedPayrollStaffId ? 0 : -1}
-                  className={staff.staffId === selectedPayrollStaffId ? 'is-active' : ''}
-                  onClick={() => setSelectedPayrollStaffId(staff.staffId)}
-                >
-                  <span className="admin-dashboard__payroll-avatar" aria-hidden="true">{initials(staff.name)}</span>
-                  <span><strong>{staff.name}</strong><small>{staff.teachingSlotCount} ca · {compactMoney(staff.finalAmount)}</small></span>
-                  {staff.reviewRequired && <i aria-label="Cần đối soát" />}
-                </button>)}
-              </div>
-              <div id="dashboard-payroll-panel" className="admin-dashboard__payroll-panel" role="tabpanel" aria-labelledby={`dashboard-payroll-tab-${selectedPayrollStaffId}`}>
-                {payrollStatementLoading
-                  ? <div className="admin-dashboard__payroll-chart-skeleton" aria-label="Đang tải biểu đồ thu nhập"><span /><span /><span /><span /><span /></div>
-                  : payrollStatementError
-                    ? <div className="admin-dashboard__payroll-state"><BarChart3 size={27} /><strong>Chưa tải được sao kê của {selectedPayrollStaff?.name || 'nhân sự'}</strong><p>{payrollStatementError}</p><button type="button" onClick={() => void loadPayrollStatement(selectedPayrollStaffId)}>Thử lại</button></div>
-                    : payrollChart && selectedPayrollStaff ? <>
-                      <div className="admin-dashboard__payroll-person">
-                        <span><strong>{selectedPayrollStaff.name}</strong><small>{selectedPayrollStaff.employmentType === 'full_time' ? 'Toàn thời gian' : selectedPayrollStaff.employmentType === 'part_time' ? 'Bán thời gian' : 'Cộng tác viên'} · {payrollTeachingSlotCount} ca đã ghi nhận</small></span>
-                        <em className={selectedPayrollStaff.reviewRequired ? 'is-review' : payrollChart.official ? 'is-official' : ''}>{selectedPayrollStaff.reviewRequired ? 'Cần đối soát' : payrollChart.official ? 'Đã khóa' : 'Tạm tính'}</em>
-                      </div>
-                      <div className="admin-dashboard__payroll-summary">
-                        <article><span><WalletCards size={17} />Lương theo công</span><strong>{money(payrollChart.baseSalaryAmount)}</strong><small>{payrollChart.official ? 'Đã khóa số liệu' : 'Tạm tính trong kỳ'}</small></article>
-                        <article><span><CircleDollarSign size={17} />Tiền ca dạy</span><strong>{money(payrollChart.teachingPayAmount)}</strong><small>{payrollTeachingSlotCount} ca đủ điều kiện</small></article>
-                      </div>
-                      <div className="admin-dashboard__payroll-chart" role="img" aria-label={`Biểu đồ thu nhập ${selectedPayrollStaff.name} trong ${periodLabel(currentPayrollPeriodId)}: lương ${money(payrollChart.baseSalaryAmount)}, tiền ca dạy ${money(payrollChart.teachingPayAmount)}`}>
-                        {payrollChart.buckets.map((bucket) => <article key={bucket.id}>
-                          <div className="admin-dashboard__payroll-bars">
-                            <span className="is-salary" style={{ height: chartHeight(bucket.baseSalaryAmount, payrollChart.maxBucketAmount) }} title={`Lương ${bucket.label}: ${money(bucket.baseSalaryAmount)}`} />
-                            <span className="is-teaching" style={{ height: chartHeight(bucket.teachingPayAmount, payrollChart.maxBucketAmount) }} title={`Tiền ca dạy ${bucket.label}: ${money(bucket.teachingPayAmount)}`} />
-                          </div>
-                          <strong>{bucket.label}</strong><small>{bucket.teachingSlotCount} ca</small>
-                        </article>)}
-                      </div>
-                      <footer><span><i className="is-salary" />Lương theo công</span><span><i className="is-teaching" />Tiền ca dạy</span><small>Tiền ca chỉ ghi nhận sau điểm danh hợp lệ.</small></footer>
-                    </> : <div className="admin-dashboard__payroll-state"><BarChart3 size={27} /><strong>Chưa có dữ liệu thu nhập</strong><p>Nhân sự này chưa có sao kê trong tháng đang xem.</p></div>}
-              </div>
-            </>}
-    </section>}
+    {payrollEnabled && <AdminDashboardPayroll key={branchId} branchId={branchId} isDemo={isDemo} onOpenPayroll={() => goTo('admin-payroll')} />}
 
     {data?.permissions.finance && <section className="admin-dashboard__receivables" aria-labelledby="dashboard-receivables-title">
       <header><div><small>CÔNG NỢ KHÁCH HÀNG</small><h2 id="dashboard-receivables-title">Lịch cần thu</h2></div><button type="button" onClick={() => goTo('admin-finance', 'overdue')}>Xem thêm<ArrowRight size={15} /></button></header>
@@ -734,4 +598,168 @@ export default function AdminDashboard({
 
     {shortcuts.length > 0 && (dashboardV4 ? <details className="admin-dashboard__shortcuts admin-dashboard__shortcuts--collapsed"><summary><span><small>CÔNG CỤ KHÁC</small><strong>Mở nhanh công việc</strong></span><ArrowRight size={17} /></summary><div>{shortcuts.map((item) => <button key={item.id} type="button" onClick={() => onNavigate(item.view)}>{item.icon}<span>{item.label}</span></button>)}</div></details> : <section className="admin-dashboard__shortcuts" aria-label="Lối tắt công việc"><header><small>LỐI TẮT</small><strong>Mở nhanh công việc</strong></header><div>{shortcuts.map((item) => <button key={item.id} type="button" onClick={() => onNavigate(item.view)}>{item.icon}<span>{item.label}</span></button>)}</div></section>)}
   </div>
+}
+
+function AdminDashboardPayroll({ branchId, isDemo, onOpenPayroll }: { branchId: string; isDemo: boolean; onOpenPayroll: () => void }) {
+  const currentPayrollPeriodId = useMemo(() => payrollPeriodId(), [])
+  const [payrollRoster, setPayrollRoster] = useState<AdminPayrollStaffTab[]>([])
+  const [selectedPayrollStaffId, setSelectedPayrollStaffId] = useState('')
+  const [payrollStatement, setPayrollStatement] = useState<StaffDashboardPayrollSnapshot | null>(null)
+  const [payrollRosterLoading, setPayrollRosterLoading] = useState(false)
+  const [payrollStatementLoading, setPayrollStatementLoading] = useState(false)
+  const [payrollRosterError, setPayrollRosterError] = useState('')
+  const [payrollStatementError, setPayrollStatementError] = useState('')
+  const payrollRosterGeneration = useRef(0)
+  const payrollStatementGeneration = useRef(0)
+  const [payrollVisible, setPayrollVisible] = useState(false)
+
+
+  useEffect(() => () => {
+    payrollRosterGeneration.current += 1
+    payrollStatementGeneration.current += 1
+  }, [])
+
+  const loadPayrollRoster = useCallback(async () => {
+    const generation = ++payrollRosterGeneration.current
+    setPayrollRosterLoading(true)
+    setPayrollRosterError('')
+    try {
+      const rows = isDemo
+        ? demoPayrollRoster()
+        : (await listStaffPayrollAttendance(currentPayrollPeriodId, branchId === 'all' ? '' : branchId, { forceRefresh: true })).rows
+          .map((row) => ({
+            staffId: row.staffId,
+            name: row.name,
+            employmentType: row.employmentType,
+            teachingSlotCount: row.teachingSlotCount,
+            baseSalaryEarned: row.baseSalaryEarned,
+            teachingPayAmount: row.teachingPayAmount,
+            finalAmount: row.finalAmount,
+            reviewRequired: row.reviewRequired,
+          }))
+          .sort((left, right) => left.name.localeCompare(right.name, 'vi'))
+      if (generation !== payrollRosterGeneration.current) return
+      setPayrollRoster(rows)
+      setSelectedPayrollStaffId((current) => rows.some((row) => row.staffId === current) ? current : '')
+    } catch (payrollError) {
+      if (generation !== payrollRosterGeneration.current) return
+      setPayrollRoster([])
+      setSelectedPayrollStaffId('')
+      setPayrollRosterError(payrollErrorMessage(payrollError))
+    } finally {
+      if (generation === payrollRosterGeneration.current) setPayrollRosterLoading(false)
+    }
+  }, [branchId, currentPayrollPeriodId, isDemo])
+
+  useEffect(() => {
+    if (payrollVisible) void loadPayrollRoster()
+  }, [loadPayrollRoster, payrollVisible])
+
+  const loadPayrollStatement = useCallback(async (staffId: string) => {
+    const generation = ++payrollStatementGeneration.current
+    if (!staffId) {
+      setPayrollStatement(null)
+      setPayrollStatementLoading(false)
+      setPayrollStatementError('')
+      return
+    }
+    setPayrollStatement(null)
+    setPayrollStatementLoading(true)
+    setPayrollStatementError('')
+    try {
+      const result = isDemo
+        ? demoPayrollStatement(currentPayrollPeriodId, staffId)
+        : await getStaffPayrollStatement(currentPayrollPeriodId, staffId)
+      if (generation !== payrollStatementGeneration.current) return
+      setPayrollStatement(result)
+      if (!result) setPayrollStatementError('Không tìm thấy sao kê của nhân sự đã chọn.')
+    } catch (payrollError) {
+      if (generation !== payrollStatementGeneration.current) return
+      setPayrollStatement(null)
+      setPayrollStatementError(payrollErrorMessage(payrollError))
+    } finally {
+      if (generation === payrollStatementGeneration.current) setPayrollStatementLoading(false)
+    }
+  }, [currentPayrollPeriodId, isDemo])
+
+  useEffect(() => {
+    if (payrollVisible) void loadPayrollStatement(selectedPayrollStaffId)
+  }, [loadPayrollStatement, payrollVisible, selectedPayrollStaffId])
+
+  const selectedPayrollStaff = useMemo(
+    () => payrollRoster.find((staff) => staff.staffId === selectedPayrollStaffId) || null,
+    [payrollRoster, selectedPayrollStaffId],
+  )
+  const payrollChart = useMemo(
+    () => payrollStatement ? buildStaffDashboardPayrollChart(payrollStatement) : null,
+    [payrollStatement],
+  )
+  const payrollTeachingSlotCount = payrollChart?.buckets.reduce((sum, bucket) => sum + bucket.teachingSlotCount, 0) || 0
+
+  return <section className="admin-dashboard__payroll" aria-labelledby="dashboard-payroll-title" aria-busy={payrollRosterLoading || payrollStatementLoading}>
+      <header>
+        <div><small>QUỸ LƯƠNG · {periodLabel(currentPayrollPeriodId).toUpperCase()}</small><h2 id="dashboard-payroll-title">Lương & tiền ca dạy</h2><p>Chọn từng nhân sự để xem thu nhập đã ghi nhận theo tuần.</p></div>
+        <button type="button" onClick={onOpenPayroll}>Xem bảng lương<ArrowRight size={15} /></button>
+      </header>
+      {!payrollVisible ? <div className="admin-dashboard__payroll-state"><BarChart3 size={27} /><strong>Thu nhập theo từng nhân sự</strong><p>Mở danh sách và chọn nhân sự cần xem trong tháng.</p><button type="button" onClick={() => setPayrollVisible(true)}>Xem thu nhập nhân sự</button></div>
+        : payrollRosterLoading
+        ? <div className="admin-dashboard__payroll-loading" aria-label="Đang tải bảng lương nhân sự"><div className="admin-dashboard__payroll-tab-skeleton"><i /><i /><i /></div><div className="admin-dashboard__payroll-chart-skeleton"><span /><span /><span /><span /><span /></div></div>
+        : payrollRosterError
+          ? <div className="admin-dashboard__payroll-state"><BarChart3 size={27} /><strong>Chưa tải được danh sách nhân sự</strong><p>{payrollRosterError}</p><button type="button" onClick={() => void loadPayrollRoster()}>Thử lại</button></div>
+          : !payrollRoster.length
+            ? <div className="admin-dashboard__payroll-state"><Users size={27} /><strong>Chưa có nhân sự trong kỳ</strong><p>Biểu đồ sẽ xuất hiện khi bảng lương tháng có ít nhất một nhân sự.</p></div>
+            : <>
+              <div className="admin-dashboard__payroll-tabs" role="tablist" aria-label="Chọn nhân sự xem biểu đồ lương">
+                {payrollRoster.map((staff) => <button
+                  id={`dashboard-payroll-tab-${staff.staffId}`}
+                  key={staff.staffId}
+                  type="button"
+                  role="tab"
+                  aria-selected={staff.staffId === selectedPayrollStaffId}
+                  aria-controls="dashboard-payroll-panel"
+                  tabIndex={0}
+                  className={staff.staffId === selectedPayrollStaffId ? 'is-active' : ''}
+                  onClick={() => {
+                    if (staff.staffId === selectedPayrollStaffId) return
+                    payrollStatementGeneration.current += 1
+                    setPayrollStatement(null)
+                    setPayrollStatementError('')
+                    setPayrollStatementLoading(true)
+                    setSelectedPayrollStaffId(staff.staffId)
+                  }}
+                >
+                  <span className="admin-dashboard__payroll-avatar" aria-hidden="true">{initials(staff.name)}</span>
+                  <span><strong>{staff.name}</strong><small>{staff.teachingSlotCount} ca · {compactMoney(staff.finalAmount)}</small></span>
+                  {staff.reviewRequired && <i aria-label="Cần đối soát" />}
+                </button>)}
+              </div>
+              <div id="dashboard-payroll-panel" className="admin-dashboard__payroll-panel" role="tabpanel" aria-labelledby={selectedPayrollStaffId ? `dashboard-payroll-tab-${selectedPayrollStaffId}` : undefined}>
+                {!selectedPayrollStaffId ? <div className="admin-dashboard__payroll-state"><Users size={27} /><strong>Chọn nhân sự để xem thu nhập</strong><p>Biểu đồ chi tiết được tải sau khi bạn chọn.</p></div>
+                  : payrollStatementLoading
+                  ? <div className="admin-dashboard__payroll-chart-skeleton" aria-label="Đang tải biểu đồ thu nhập"><span /><span /><span /><span /><span /></div>
+                  : payrollStatementError
+                    ? <div className="admin-dashboard__payroll-state"><BarChart3 size={27} /><strong>Chưa tải được sao kê của {selectedPayrollStaff?.name || 'nhân sự'}</strong><p>{payrollStatementError}</p><button type="button" onClick={() => void loadPayrollStatement(selectedPayrollStaffId)}>Thử lại</button></div>
+                    : payrollChart && selectedPayrollStaff ? <>
+                      <div className="admin-dashboard__payroll-person">
+                        <span><strong>{selectedPayrollStaff.name}</strong><small>{selectedPayrollStaff.employmentType === 'full_time' ? 'Toàn thời gian' : selectedPayrollStaff.employmentType === 'part_time' ? 'Bán thời gian' : 'Cộng tác viên'} · {payrollTeachingSlotCount} ca đã ghi nhận</small></span>
+                        <em className={selectedPayrollStaff.reviewRequired ? 'is-review' : payrollChart.official ? 'is-official' : ''}>{selectedPayrollStaff.reviewRequired ? 'Cần đối soát' : payrollChart.official ? 'Đã khóa' : 'Tạm tính'}</em>
+                      </div>
+                      <div className="admin-dashboard__payroll-summary">
+                        <article><span><WalletCards size={17} />Lương theo công</span><strong>{money(payrollChart.baseSalaryAmount)}</strong><small>{payrollChart.official ? 'Đã khóa số liệu' : 'Tạm tính trong kỳ'}</small></article>
+                        <article><span><CircleDollarSign size={17} />Tiền ca dạy</span><strong>{money(payrollChart.teachingPayAmount)}</strong><small>{payrollTeachingSlotCount} ca đủ điều kiện</small></article>
+                      </div>
+                      <div className="admin-dashboard__payroll-chart" role="img" aria-label={`Biểu đồ thu nhập ${selectedPayrollStaff.name} trong ${periodLabel(currentPayrollPeriodId)}: lương ${money(payrollChart.baseSalaryAmount)}, tiền ca dạy ${money(payrollChart.teachingPayAmount)}`}>
+                        {payrollChart.buckets.map((bucket) => <article key={bucket.id}>
+                          <div className="admin-dashboard__payroll-bars">
+                            <span className="is-salary" style={{ height: chartHeight(bucket.baseSalaryAmount, payrollChart.maxBucketAmount) }} title={`Lương ${bucket.label}: ${money(bucket.baseSalaryAmount)}`} />
+                            <span className="is-teaching" style={{ height: chartHeight(bucket.teachingPayAmount, payrollChart.maxBucketAmount) }} title={`Tiền ca dạy ${bucket.label}: ${money(bucket.teachingPayAmount)}`} />
+                          </div>
+                          <strong>{bucket.label}</strong><small>{bucket.teachingSlotCount} ca</small>
+                        </article>)}
+                      </div>
+                      <footer><span><i className="is-salary" />Lương theo công</span><span><i className="is-teaching" />Tiền ca dạy</span><small>Tiền ca chỉ ghi nhận sau điểm danh hợp lệ.</small></footer>
+                    </> : <div className="admin-dashboard__payroll-state"><BarChart3 size={27} /><strong>Chưa có dữ liệu thu nhập</strong><p>Nhân sự này chưa có sao kê trong tháng đang xem.</p></div>}
+              </div>
+            </>}
+    </section>
 }

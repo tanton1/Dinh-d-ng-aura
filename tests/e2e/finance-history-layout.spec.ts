@@ -118,8 +118,8 @@ test.describe('Aura Finance Intelligence responsive workspace', () => {
     await expectNoHorizontalOverflow(page)
   })
 
-  test('starts the operations dashboard with Aura metrics on mobile and desktop', async ({ page }) => {
-    for (const width of [360, 390, 430, 1440]) {
+  for (const width of [360, 390, 430, 1440]) {
+    test(`starts the operations dashboard with Aura metrics at ${width}px`, async ({ page }) => {
       await page.setViewportSize({ width, height: width < 680 ? 844 : 900 })
       await page.goto('/#/admin-dashboard')
 
@@ -149,10 +149,9 @@ test.describe('Aura Finance Intelligence responsive workspace', () => {
       await expect(dashboard.getByRole('heading', { name: 'Ca tập trong ngày' })).toBeVisible()
       const payrollChart = dashboard.locator('.admin-dashboard__payroll')
       await expect(payrollChart.getByRole('heading', { name: 'Lương & tiền ca dạy' })).toBeVisible()
-      // Payroll data is intentionally deferred until this heavier dashboard
-      // section approaches the viewport. Exercise the real lazy-load path
-      // instead of assuming it was fetched during the initial dashboard boot.
+      // Payroll reads start only after opening the panel and choosing staff.
       await payrollChart.scrollIntoViewIfNeeded()
+      await payrollChart.getByRole('button', { name: 'Xem thu nhập nhân sự' }).click()
       await expect(payrollChart.getByRole('tab')).toHaveCount(4)
       await payrollChart.getByRole('tab', { name: /PT Mai/ }).click()
       await expect(payrollChart.getByRole('tab', { name: /PT Mai/ })).toHaveAttribute('aria-selected', 'true')
@@ -189,8 +188,8 @@ test.describe('Aura Finance Intelligence responsive workspace', () => {
       })
       expect(dashboardLayout.contentWidth - dashboardLayout.width).toBeLessThanOrEqual(width < 680 ? 1 : 2)
       await expectNoHorizontalOverflow(page)
-    }
-  })
+    })
+  }
 
   test('opens a dedicated today-session status page from the dashboard', async ({ page }) => {
     for (const width of [390, 1440]) {

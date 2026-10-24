@@ -4,6 +4,7 @@ const { readFileSync } = require('node:fs')
 const { join } = require('node:path')
 const test = require('node:test')
 const { dashboardAnalytics, dashboardBranchScope, dashboardPermissions, isEffectiveContract, isExhaustedContract, isExpiringContract, isPreservedContract, ledgerReceiptImpact, ledgerRevenueImpact, receivableSchedule, renewalCaseMatches, summarizeAttendance, summarizeReceivables, todayAttendanceRows } = require('./operations-dashboard')
+const { contractWithUsageView } = require('./contract-usage-view')
 const source = readFileSync(join(__dirname, 'operations-dashboard.js'), 'utf8')
 const dashboard = readFileSync(join(__dirname, '..', 'src', 'pages', 'admin', 'AdminDashboard.tsx'), 'utf8')
 const application = readFileSync(join(__dirname, '..', 'src', 'AuraApplication.tsx'), 'utf8')
@@ -45,7 +46,8 @@ test('staff self-payroll access never enables the admin payroll dashboard', () =
   })
   assert.equal(staff.payroll, false)
   assert.equal(admin.payroll, true)
-  assert.match(dashboard, /const payrollEnabled = canViewPayroll && data\?\.permissions\.payroll === true/)
+  assert.match(dashboard, /const payrollEnabled = canViewPayroll && response\?\.branchId === branchId && response\.value\.permissions\.payroll === true/)
+  assert.match(dashboard, /\{payrollEnabled && <AdminDashboardPayroll key=\{branchId\}/)
   assert.match(application, /canViewPayroll=\{backendMode === 'demo' \|\| hasCapability\('payroll\.operations\.manage'\)\}/)
 })
 
@@ -63,6 +65,32 @@ test('effective contracts require an active date window and remaining sessions',
   assert.equal(isExhaustedContract({ status: 'active', startDate: '2026-01-01', endDate: '2026-12-01', totalSessions: 36, usedSessions: 36 }, '2026-08-27'), true)
   assert.equal(isExpiringContract({ status: 'active', startDate: '2026-01-01', endDate: '2026-09-10', totalSessions: 36, usedSessions: 10 }, '2026-08-27'), true)
   assert.equal(isExpiringContract({ status: 'active', startDate: '2026-01-01', endDate: '2026-11-10', totalSessions: 36, usedSessions: 10 }, '2026-08-27'), false)
+})
+
+test('transferred sessions cannot keep an exhausted source contract active, preserved or expiring', () => {
+  const contract = { status: 'active', startDate: '2026-10-01', endDate: '2026-10-31', totalSessions: 10, usedSessions: 8, carryOverTransferredSessions: 2 }
+  const canonical = contractWithUsageView(contract, { entitlementSessions: 10, usedSessions: 8, remainingSessions: 0 })
+  for (const value of [contract, canonical]) {
+    assert.equal(isEffectiveContract(value, '2026-10-24'), false)
+    assert.equal(isExhaustedContract(value, '2026-10-24'), true)
+    assert.equal(isExpiringContract(value, '2026-10-24'), false)
+    assert.equal(isPreservedContract({ ...value, status: 'frozen' }, '2026-10-24'), false)
+    assert.equal(isExhaustedContract({ ...value, status: 'cancelled' }, '2026-10-24'), false)
+    assert.equal(isExhaustedContract(value, '2026-11-01'), false)
+  }
+  const partialTransfer = { ...contract, carryOverTransferredSessions: 1 }
+  assert.equal(isEffectiveContract(partialTransfer, '2026-10-24'), true)
+  assert.equal(isExhaustedContract(partialTransfer, '2026-10-24'), false)
+  assert.equal(isExpiringContract(partialTransfer, '2026-10-24'), true)
+})
+
+test('canonical remaining entitlement is respected while a stale imported remaining field is ignored', () => {
+  const contract = { status: 'active', startDate: '2026-10-01', endDate: '2026-10-31', totalSessions: 10, usedSessions: 3, remainingSessions: 0 }
+  assert.equal(isEffectiveContract(contract, '2026-10-24'), true, 'legacy remainingSessions is not an authoritative usage projection')
+  const canonical = contractWithUsageView(contract, { entitlementSessions: 10, usedSessions: 3, remainingSessions: 0 })
+  assert.equal(isEffectiveContract(canonical, '2026-10-24'), false)
+  assert.equal(isExhaustedContract(canonical, '2026-10-24'), true)
+  assert.equal(isExhaustedContract({ ...canonical, totalSessions: 0 }, '2026-10-24'), false, 'zero-entitlement records are not consumed packages')
 })
 
 test('net receipts exclude recognised revenue and operating expenses', () => {

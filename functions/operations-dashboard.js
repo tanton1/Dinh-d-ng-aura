@@ -6,6 +6,7 @@ const { loadDailyAggregates } = require('./operations-dashboard-aggregates')
 const { overlayContractUsageViews } = require('./contract-usage-view')
 const { normalizeReviewSlaMinutes, reviewTimestampMillis } = require('./review-sla')
 const { cacheScope } = require('./process-cache')
+const { branchReadScope, readDashboardQuery, DASHBOARD_FIELDS } = require('./operations-dashboard-read-policy')
 
 const MAX_RANGE_DAYS = 366
 const MAX_SCANNED_DOCUMENTS = 10000
@@ -18,7 +19,9 @@ const MAX_TRAINER_DOCUMENTS = 500
 const MAX_STAFF_DOCUMENTS = 500
 const MAX_BRANCH_DOCUMENTS = 100
 const dashboardCache = new Map()
+const dashboardInflight = new Map()
 const todaySessionsCache = new Map()
+const todaySessionsInflight = new Map()
 const TODAY_SESSIONS_CACHE_TTL_MS = 15_000
 const TODAY_SESSIONS_CACHE_MAX_ENTRIES = 24
 
@@ -154,9 +157,21 @@ function hasCurrentContractWindow(value, referenceDate) {
 
 function hasUsableContractWindow(value, referenceDate) {
   if (!hasCurrentContractWindow(value, referenceDate)) return false
+  return remainingContractSessions(value) > 0
+}
+
+function remainingContractSessions(value) {
   const totalSessions = Math.max(0, Number(value.totalSessions || 0))
   const usedSessions = Math.max(0, Number(value.usedSessions || 0))
-  return totalSessions > usedSessions
+  const transferredSessions = Math.max(0, Number(value.carryOverTransferredSessions || 0))
+  const remaining = Math.max(0, totalSessions - usedSessions - transferredSessions)
+  // The usage-view adapter marks canonical remainingSessions explicitly.
+  // Imported contracts may retain a stale remainingSessions field, so the
+  // legacy fallback must derive availability from entitlement/usage/transfer.
+  const canonicalRemaining = Number(value.remainingSessions)
+  return value.contractUsageSourceVersion && value.remainingSessions != null && Number.isFinite(canonicalRemaining)
+    ? Math.min(remaining, Math.max(0, canonicalRemaining))
+    : remaining
 }
 
 function isPreservedContract(value, referenceDate) {
@@ -173,8 +188,7 @@ function isEffectiveContract(value, referenceDate) {
 function isExhaustedContract(value, referenceDate) {
   if (!hasCurrentContractWindow(value, referenceDate)) return false
   const totalSessions = Math.max(0, Number(value.totalSessions || 0))
-  const usedSessions = Math.max(0, Number(value.usedSessions || 0))
-  return totalSessions > 0 && usedSessions >= totalSessions
+  return totalSessions > 0 && remainingContractSessions(value) === 0
 }
 
 function isExpiringContract(value, referenceDate, withinDays = 30) {
@@ -494,7 +508,9 @@ function renewalCaseMatches(value, actor, scope) {
 
 async function loadRenewalAction(db, actor, scope, today, available) {
   if (!available) return emptyAction(false)
-  const snapshot = await db.collection('contractRenewalCases').where('active', '==', true).limit(MAX_ACTION_DOCUMENTS + 1).get()
+  const readScope = isOperationsAdmin(actor) || hasCapability(actor, 'renewals.system.manage') || hasCapability(actor, 'renewals.branch.manage') ? branchReadScope(scope) : null
+  const snapshot = await readDashboardQuery(db.collection('contractRenewalCases').where('active', '==', true), readScope, MAX_ACTION_DOCUMENTS + 1,
+    ['active', 'branchId', 'assignedSalesId', 'contractSnapshot.trainerId', 'contractSnapshot.trainerIds', 'contractSnapshot.nutritionPTIds', 'nextActionAt', 'slaDueAt', 'expectedValue'])
   const values = snapshot.docs.slice(0, MAX_ACTION_DOCUMENTS).map((item) => item.data()).filter((value) => renewalCaseMatches(value, actor, scope))
   const summary = emptyAction(true)
   summary.totalCount = values.length
@@ -530,13 +546,14 @@ function scheduleRequestMatches(value, actor, scope) {
 
 async function loadScheduleAction(db, actor, scope, today, available) {
   if (!available) return emptyAction(false)
+  const readScope = isOperationsAdmin(actor) || hasCapability(actor, 'pt.operations.manage') || hasCapability(actor, 'pt.schedule.branch.publish')
+    ? branchReadScope(scope) : { field: 'trainerId', ids: [...actorTrainerIds(actor)] }
   const [sessionRequests, leaveRequests, schedule] = await Promise.all([
-    db.collection('sessionRequests').where('status', '==', 'pending').limit(MAX_ACTION_DOCUMENTS + 1).get(),
-    db.collection('leaveRequests').where('status', '==', 'pending').limit(MAX_ACTION_DOCUMENTS + 1).get(),
+    readDashboardQuery(db.collection('sessionRequests').where('status', '==', 'pending'), readScope, MAX_ACTION_DOCUMENTS + 1, ['branchId', 'trainerId', 'deadlineAt', 'cutoffAt']),
+    readDashboardQuery(db.collection('leaveRequests').where('status', '==', 'pending'), readScope, MAX_ACTION_DOCUMENTS + 1, ['branchId', 'trainerId', 'deadlineAt', 'cutoffAt']),
     db.doc(`schedules/schedule_${weekMonday(today)}`).get(),
   ])
-  const requests = [...sessionRequests.docs, ...leaveRequests.docs]
-    .slice(0, MAX_ACTION_DOCUMENTS)
+  const requests = [...sessionRequests.docs.slice(0, MAX_ACTION_DOCUMENTS), ...leaveRequests.docs.slice(0, MAX_ACTION_DOCUMENTS)]
     .map((item) => item.data())
     .filter((value) => scheduleRequestMatches(value, actor, scope))
   const summary = emptyAction(true)
@@ -558,7 +575,7 @@ async function loadScheduleAction(db, actor, scope, today, available) {
 
 async function nutritionClientIds(db, actor) {
   const ids = [...actorTrainerIds(actor)]
-  const snapshots = await Promise.all(ids.map((id) => db.collection('contracts').where('nutritionPTIds', 'array-contains', id).limit(200).get()))
+  const snapshots = await Promise.all(ids.map((id) => db.collection('contracts').where('nutritionPTIds', 'array-contains', id).select('studentId').limit(200).get()))
   return [...new Set(snapshots.flatMap((snapshot) => snapshot.docs.map((item) => item.data()?.studentId).filter(Boolean)))]
 }
 
@@ -600,7 +617,7 @@ async function loadNutritionAction(db, actor, today, available) {
 }
 
 function getCachedDashboard(cacheKey, forceRefresh) {
-  if (forceRefresh) return null
+  if (forceRefresh) { dashboardCache.delete(cacheKey); return null }
   const cached = dashboardCache.get(cacheKey)
   if (!cached || cached.expiresAt <= Date.now()) {
     if (cached) dashboardCache.delete(cacheKey)
@@ -611,7 +628,21 @@ function getCachedDashboard(cacheKey, forceRefresh) {
 
 function setCachedDashboard(cacheKey, value) {
   if (dashboardCache.size >= DASHBOARD_CACHE_MAX_ENTRIES) dashboardCache.delete(dashboardCache.keys().next().value)
-  dashboardCache.set(cacheKey, { value, expiresAt: Date.now() + DASHBOARD_CACHE_TTL_MS })
+  const expiresAt = Math.min(Date.now() + DASHBOARD_CACHE_TTL_MS, Number(value.cache?.expiresAtMillis) || Infinity)
+  dashboardCache.set(cacheKey, { value, expiresAt })
+}
+
+function operationReadScope(actor, scope) {
+  if (isOperationsAdmin(actor) || hasCapability(actor, 'pt.operations.manage') || hasCapability(actor, 'branch.operations.view')) return branchReadScope(scope)
+  return { field: 'trainerId', ids: [...actorTrainerIds(actor)] }
+}
+
+async function dashboardContractUsage(db, contracts, referenceDate) {
+  // Usage affects current package/exhaustion metrics only. Historical sales
+  // and receivables use the contract's financial fields, never its usage view.
+  const current = contracts.filter((value) => hasCurrentContractWindow(value, referenceDate))
+  const views = new Map((await overlayContractUsageViews(db, current, MAX_CONTRACT_DOCUMENTS)).map((value) => [value.id, value]))
+  return contracts.map((value) => views.get(value.id) || value)
 }
 
 function getCachedTodaySessions(cacheKey, forceRefresh = false) {
@@ -653,20 +684,23 @@ function createOperationsDashboardFunctions({
     ...todaySessionsCallOptions,
   }, async (request) => {
     const startedAt = Date.now()
-    const actor = await trustedAccessContext(request, db)
+    const actor = await trustedAccessContext(request, db, { freshAssignment: true })
     requireCapability(actor, 'dashboard.view')
     const permissions = dashboardPermissions(actor)
     if (!permissions.operations) throw new HttpsError('permission-denied', 'Tài khoản chưa có quyền xem ca tập.')
     const today = dateKey(new Date())
     const scope = dashboardBranchScope(actor, request.data?.branchId)
-    const cacheKey = `${cacheScope(db)}|${actor.uid}|${scope.branchId}|${today}`
+    const cacheKey = `${cacheScope(db)}|${stableDashboardCacheKey({ actor, permissions, scope, startDate: today, endDate: today, today })}`
     const cached = getCachedTodaySessions(cacheKey, request.data?.forceRefresh === true)
     if (cached) return cached
+    const active = todaySessionsInflight.get(cacheKey)
+    if (active && !request.data?.forceRefresh) return active
+    const load = async () => {
 
     // The dedicated page needs only today's session rows and their labels. It
     // must not pay for the full dashboard's contracts, finance, renewal and
     // nutrition fan-out.
-    const sessionSnapshot = await db.collection('sessions').where('date', '==', today).limit(501).get()
+    const sessionSnapshot = await readDashboardQuery(db.collection('sessions').where('date', '==', today), operationReadScope(actor, scope), 501, DASHBOARD_FIELDS.sessions)
     const sessionValues = sessionSnapshot.docs
       .map((item) => ({ id: item.id, ...item.data() }))
       .filter((value) => operationMatches(value, actor, scope))
@@ -676,9 +710,9 @@ function createOperationsDashboardFunctions({
       ? null
       : [...new Set(scope.branchIds)].map((id) => db.doc(`branches/${id}`))
     const [studentSnapshots, trainerSnapshots, branchSnapshot] = await Promise.all([
-      studentIds.length ? db.getAll(...studentIds.map((id) => db.doc(`students/${id}`))) : [],
-      trainerIds.length ? db.getAll(...trainerIds.map((id) => db.doc(`trainers/${id}`))) : [],
-      branchReferences ? (branchReferences.length ? db.getAll(...branchReferences) : []) : db.collection('branches').limit(MAX_BRANCH_DOCUMENTS).get().then((snapshot) => snapshot.docs),
+      studentIds.length ? db.getAll(...studentIds.map((id) => db.doc(`students/${id}`)), { fieldMask: ['name', 'fullName'] }) : [],
+      trainerIds.length ? db.getAll(...trainerIds.map((id) => db.doc(`trainers/${id}`)), { fieldMask: ['name', 'fullName'] }) : [],
+      branchReferences ? (branchReferences.length ? db.getAll(...branchReferences, { fieldMask: DASHBOARD_FIELDS.branches }) : []) : db.collection('branches').select(...DASHBOARD_FIELDS.branches).limit(MAX_BRANCH_DOCUMENTS).get().then((snapshot) => snapshot.docs),
     ])
     const studentValues = studentSnapshots.filter((item) => item.exists).map((item) => ({ id: item.id, ...item.data() }))
     const trainerValues = trainerSnapshots.filter((item) => item.exists).map((item) => ({ id: item.id, ...item.data() }))
@@ -719,7 +753,7 @@ function createOperationsDashboardFunctions({
       generatedAt: new Date().toISOString(),
       cache: { hit: false, tier: 'miss', ttlSeconds: Math.round(TODAY_SESSIONS_CACHE_TTL_MS / 1000) },
     }
-    setCachedTodaySessions(cacheKey, result)
+    if (todaySessionsInflight.get(cacheKey) === pending) setCachedTodaySessions(cacheKey, result)
     logger.info('today_sessions_request', {
       durationMs: Date.now() - startedAt,
       branchId: scope.branchId,
@@ -727,6 +761,12 @@ function createOperationsDashboardFunctions({
       truncated: result.today.truncated,
     })
     return result
+    }
+    const pending = load()
+    todaySessionsInflight.set(cacheKey, pending)
+    try { return await pending } finally {
+      if (todaySessionsInflight.get(cacheKey) === pending) todaySessionsInflight.delete(cacheKey)
+    }
   })
   const getOperationsDashboard = onCall({
     memory: '512MiB',
@@ -739,10 +779,10 @@ function createOperationsDashboardFunctions({
     ...dashboardCallOptions,
   }, async (request) => {
     const startedAt = Date.now()
-    const actor = await trustedAccessContext(request, db)
+    const actor = await trustedAccessContext(request, db, { freshAssignment: true })
     requireCapability(actor, 'dashboard.view')
     const now = new Date()
-    const startFallback = new Date(now.getFullYear(), now.getMonth(), 1)
+    const startFallback = new Date(`${dateKey(now).slice(0, 7)}-01T00:00:00+07:00`)
     const start = dateInput(request.data?.startAt, startFallback)
     const end = dateInput(request.data?.endAt, now)
     if (start > end || end.getTime() - start.getTime() > MAX_RANGE_DAYS * 86400000) {
@@ -756,8 +796,11 @@ function createOperationsDashboardFunctions({
     const startDate = dateKey(start)
     const endDate = dateKey(end)
     const today = dateKey(now)
-    const cacheKey = stableDashboardCacheKey({ actor, permissions, scope, startDate, endDate })
-    const cached = getCachedDashboard(cacheKey, request.data?.forceRefresh === true)
+    const cacheKey = stableDashboardCacheKey({ actor, permissions, scope, startDate, endDate,
+      startAt: request.data?.startAt ? start.toISOString() : startDate,
+      endAt: request.data?.endAt ? end.toISOString() : endDate, today })
+    const memoryCacheKey = `${cacheScope(db)}|${cacheKey}`
+    const cached = getCachedDashboard(memoryCacheKey, request.data?.forceRefresh === true)
     if (cached) {
       logger.info('operations_dashboard_request', {
         durationMs: Date.now() - startedAt,
@@ -767,9 +810,12 @@ function createOperationsDashboardFunctions({
       })
       return { ...cached, cache: { ...cached.cache, tier: 'memory' } }
     }
+    const active = dashboardInflight.get(memoryCacheKey)
+    if (active && !request.data?.forceRefresh) return active
+    const load = async () => {
     const sharedCached = await sharedCache.get(cacheKey, request.data?.forceRefresh === true)
     if (sharedCached) {
-      setCachedDashboard(cacheKey, sharedCached)
+      if (dashboardInflight.get(memoryCacheKey) === pending) setCachedDashboard(memoryCacheKey, sharedCached)
       logger.info('operations_dashboard_request', {
         durationMs: Date.now() - startedAt,
         cacheTier: 'shared',
@@ -786,35 +832,39 @@ function createOperationsDashboardFunctions({
       ? await loadDailyAggregates({ db, startDate, endDate, scope })
       : null
     const contractNeeded = permissions.finance || permissions.clients
+    const branchScope = branchReadScope(scope)
+    const operationScope = operationReadScope(actor, scope)
+    const referenceDate = dateKey(new Date(Math.min(end.getTime(), now.getTime())))
     const sessionRangeQuery = db.collection('sessions').where('date', '>=', startDate).where('date', '<=', endDate)
     const confirmedSessionRangeQuery = db.collection('sessions').where('status', 'in', ['completed', 'attended', 'no_show']).where('date', '>=', startDate).where('date', '<=', endDate)
     const noShowSessionRangeQuery = db.collection('sessions').where('status', '==', 'no_show').where('date', '>=', startDate).where('date', '<=', endDate)
     const attendanceRangeQuery = db.collection('attendanceEvents').where('occurredAt', '>=', startTimestamp).where('occurredAt', '<=', endTimestamp)
     const canAggregateOperations = permissions.operations && scope.unrestricted
     const [ledger, sessionRange, confirmedSessionRange, noShowSessionRange, attendanceRange, todaySessions, contracts, students, trainers, staff, branches, offRequests, renewalAction, scheduleAction, nutritionAction] = await Promise.all([
-      permissions.finance && !dailyAggregate ? db.collection('ledgerEntries').where('effectiveAt', '>=', startTimestamp).where('effectiveAt', '<=', endTimestamp).limit(MAX_SCANNED_DOCUMENTS).get() : null,
-      permissions.operations && !dailyAggregate ? (canAggregateOperations ? sessionRangeQuery.count().get() : sessionRangeQuery.limit(MAX_SCANNED_DOCUMENTS).get()) : null,
-      permissions.operations && !dailyAggregate ? (canAggregateOperations ? confirmedSessionRangeQuery.count().get() : confirmedSessionRangeQuery.limit(MAX_SCANNED_DOCUMENTS).get()) : null,
-      permissions.operations && !dailyAggregate ? (canAggregateOperations ? noShowSessionRangeQuery.count().get() : noShowSessionRangeQuery.limit(MAX_SCANNED_DOCUMENTS).get()) : null,
-      permissions.operations && !dailyAggregate ? (canAggregateOperations ? attendanceRangeQuery.count().get() : attendanceRangeQuery.limit(MAX_SCANNED_DOCUMENTS).get()) : null,
-      permissions.operations ? db.collection('sessions').where('date', '==', today).limit(500).get() : null,
-      contractNeeded ? db.collection('contracts').limit(MAX_CONTRACT_DOCUMENTS + 1).get() : null,
-      permissions.clients ? db.collection('students').limit(MAX_STUDENT_DOCUMENTS + 1).get() : null,
-      permissions.operations ? db.collection('trainers').limit(MAX_TRAINER_DOCUMENTS + 1).get() : null,
-      permissions.operations ? db.collection('staff').limit(MAX_STAFF_DOCUMENTS + 1).get() : null,
-      permissions.operations ? db.collection('branches').limit(MAX_BRANCH_DOCUMENTS + 1).get() : null,
-      (permissions.operations || permissions.clients) ? db.collection('leaveRequests').where('startDate', '>=', startDate).where('startDate', '<=', endDate).limit(MAX_ACTION_DOCUMENTS + 1).get() : null,
+      permissions.finance && !dailyAggregate ? readDashboardQuery(db.collection('ledgerEntries').where('effectiveAt', '>=', startTimestamp).where('effectiveAt', '<=', endTimestamp).orderBy('effectiveAt', 'desc'), branchScope, MAX_SCANNED_DOCUMENTS,
+        ['branchId', 'status', 'type', 'amount', 'cashImpact', 'revenueImpact', 'effectiveAt']) : null,
+      permissions.operations && !dailyAggregate ? (canAggregateOperations ? sessionRangeQuery.count().get() : readDashboardQuery(sessionRangeQuery, operationScope, MAX_SCANNED_DOCUMENTS, ['branchId', 'trainerId', 'status'])) : null,
+      permissions.operations && !dailyAggregate && canAggregateOperations ? confirmedSessionRangeQuery.count().get() : null,
+      permissions.operations && !dailyAggregate && canAggregateOperations ? noShowSessionRangeQuery.count().get() : null,
+      permissions.operations && !dailyAggregate ? (canAggregateOperations ? attendanceRangeQuery.count().get() : readDashboardQuery(attendanceRangeQuery, operationScope, MAX_SCANNED_DOCUMENTS, ['branchId', 'trainerId'])) : null,
+      permissions.operations ? readDashboardQuery(db.collection('sessions').where('date', '==', today), operationScope, 501, DASHBOARD_FIELDS.sessions) : null,
+      contractNeeded ? readDashboardQuery(db.collection('contracts'), branchScope, MAX_CONTRACT_DOCUMENTS + 1, DASHBOARD_FIELDS.contracts) : null,
+      permissions.clients ? readDashboardQuery(db.collection('students'), branchScope, MAX_STUDENT_DOCUMENTS + 1, DASHBOARD_FIELDS.students) : null,
+      permissions.operations ? readDashboardQuery(db.collection('trainers'), branchScope, MAX_TRAINER_DOCUMENTS + 1, DASHBOARD_FIELDS.trainers) : null,
+      permissions.operations ? readDashboardQuery(db.collection('staff'), branchScope, MAX_STAFF_DOCUMENTS + 1, DASHBOARD_FIELDS.staff) : null,
+      permissions.operations ? db.collection('branches').select(...DASHBOARD_FIELDS.branches).limit(MAX_BRANCH_DOCUMENTS + 1).get() : null,
+      contractNeeded ? db.collection('leaveRequests').where('startDate', '>=', startDate).where('startDate', '<=', endDate).select('contractId', 'type', 'status', 'durationDays').limit(MAX_ACTION_DOCUMENTS + 1).get() : null,
       loadRenewalAction(db, actor, scope, today, permissions.renewals),
       loadScheduleAction(db, actor, scope, today, permissions.schedule),
       loadNutritionAction(db, actor, today, permissions.nutritionReviews),
     ])
 
     const ledgerValues = ledger ? ledger.docs.map((item) => item.data()).filter((value) => scopeMatches(value, scope) && ['posted', 'reversed'].includes(value.status)) : []
-    const contractValues = contracts ? (await overlayContractUsageViews(
+    const contractValues = contracts ? await dashboardContractUsage(
       db,
-      contracts.docs.slice(0, MAX_CONTRACT_DOCUMENTS).map((item) => ({ id: item.id, ...item.data() })),
-      MAX_CONTRACT_DOCUMENTS,
-    )).filter((value) => scopeMatches(value, scope)) : []
+      contracts.docs.slice(0, MAX_CONTRACT_DOCUMENTS).map((item) => ({ id: item.id, ...item.data() })).filter((value) => scopeMatches(value, scope)),
+      referenceDate,
+    ) : []
     const studentValues = students ? students.docs.slice(0, MAX_STUDENT_DOCUMENTS).map((item) => ({ id: item.id, ...item.data() })).filter((value) => scopeMatches(value, scope)) : []
     const trainerValues = trainers ? trainers.docs.slice(0, MAX_TRAINER_DOCUMENTS).map((item) => ({ id: item.id, ...item.data() })).filter((value) => scopeMatches(value, scope)) : []
     const staffValues = staff ? staff.docs.slice(0, MAX_STAFF_DOCUMENTS).map((item) => item.data()).filter((value) => scopeMatches(value, scope)) : []
@@ -822,14 +872,14 @@ function createOperationsDashboardFunctions({
     const branchValues = availableBranchValues.filter((value) => scope.unrestricted || scope.branchIds.includes(value.id))
     const sessionValues = sessionRange?.docs ? sessionRange.docs.map((item) => item.data()).filter((value) => operationMatches(value, actor, scope)) : []
     const attendanceValues = attendanceRange?.docs ? attendanceRange.docs.map((item) => item.data()).filter((value) => operationMatches(value, actor, scope)) : []
-    const confirmedSessionValues = confirmedSessionRange?.docs ? confirmedSessionRange.docs.map((item) => item.data()).filter((value) => operationMatches(value, actor, scope)) : []
-    const noShowSessionValues = noShowSessionRange?.docs ? noShowSessionRange.docs.map((item) => item.data()).filter((value) => operationMatches(value, actor, scope)) : []
+    const confirmedSessionValues = sessionValues.filter((value) => ['completed', 'attended', 'no_show'].includes(value.status))
+    const noShowSessionValues = sessionValues.filter((value) => value.status === 'no_show')
     const aggregateTotals = dailyAggregate?.totals || {}
     const sessionCount = dailyAggregate ? Number(aggregateTotals.sessions || 0) : canAggregateOperations ? Number(sessionRange?.data().count || 0) : sessionValues.length
     const confirmedSessionCount = dailyAggregate ? Number(aggregateTotals.confirmedSessions || 0) : canAggregateOperations ? Number(confirmedSessionRange?.data().count || 0) : confirmedSessionValues.length
     const noShowSessionCount = dailyAggregate ? Number(aggregateTotals.noShowSessions || 0) : canAggregateOperations ? Number(noShowSessionRange?.data().count || 0) : noShowSessionValues.length
     const attendanceCount = dailyAggregate ? Number(aggregateTotals.attendanceEvents || 0) : canAggregateOperations ? Number(attendanceRange?.data().count || 0) : attendanceValues.length
-    const todayValues = todaySessions ? todaySessions.docs.map((item) => ({ id: item.id, ...item.data() })).filter((value) => operationMatches(value, actor, scope)) : []
+    const todayValues = todaySessions ? todaySessions.docs.slice(0, 500).map((item) => ({ id: item.id, ...item.data() })).filter((value) => operationMatches(value, actor, scope)) : []
     const contractIds = new Set(contractValues.map((value) => value.id))
     const offValues = offRequests ? offRequests.docs.slice(0, MAX_ACTION_DOCUMENTS).map((item) => ({ id: item.id, ...item.data() })).filter((value) => contractIds.has(value.contractId)) : []
 
@@ -905,9 +955,9 @@ function createOperationsDashboardFunctions({
       || (trainers && trainers.size > MAX_TRAINER_DOCUMENTS)
       || (staff && staff.size > MAX_STAFF_DOCUMENTS)
       || (branches && branches.size > MAX_BRANCH_DOCUMENTS)
+      || (todaySessions && todaySessions.size > 500)
       || renewalAction.truncated || scheduleAction.truncated || nutritionAction.truncated,
     )
-    const referenceDate = dateKey(new Date(Math.min(end.getTime(), now.getTime())))
     const analytics = {
       ...dashboardAnalytics({ ledgerValues, contractValues, offValues, start, end, referenceDate }),
       attendance: summarizeAttendance(confirmedSessionCount, noShowSessionCount),
@@ -937,7 +987,7 @@ function createOperationsDashboardFunctions({
           confirmationRate: attendanceToday.charged ? Math.round(confirmedToday / attendanceToday.charged * 1000) / 10 : 0,
         },
         rows: attendanceDetails.rows,
-        truncated: attendanceDetails.truncated,
+        truncated: attendanceDetails.truncated || Boolean(todaySessions && todaySessions.size > 500),
       },
       finance: { ...finance, contractSales, receivables, frozenReceivables, ledgerEntries: dailyAggregate ? Number(aggregateTotals.ledgerEntries || 0) : ledgerValues.length },
       receivables: receivableDetails,
@@ -999,8 +1049,10 @@ function createOperationsDashboardFunctions({
       todayRows: result.today.rows.length,
       receivableRows: result.receivables.rows.length,
     })
-    setCachedDashboard(cacheKey, result)
-    await sharedCache.set(cacheKey, result)
+    if (dashboardInflight.get(memoryCacheKey) === pending) {
+      setCachedDashboard(memoryCacheKey, result)
+      await sharedCache.set(cacheKey, result)
+    }
     logger.info('operations_dashboard_request', {
       durationMs: Date.now() - startedAt,
       cacheTier: 'miss',
@@ -1011,6 +1063,12 @@ function createOperationsDashboardFunctions({
       aggregateUsed: Boolean(dailyAggregate),
     })
     return result
+    }
+    const pending = load()
+    dashboardInflight.set(memoryCacheKey, pending)
+    try { return await pending } finally {
+      if (dashboardInflight.get(memoryCacheKey) === pending) dashboardInflight.delete(memoryCacheKey)
+    }
   })
   const listStaffAttendance = onCall(attendanceCallOptions, async (request) => {
     const actor = await trustedAccessContext(request, db)

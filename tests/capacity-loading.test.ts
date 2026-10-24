@@ -53,10 +53,5 @@ test('schedule background refresh preserves data and guards stale requests', () 
   assert.match(availability, /'REVISION_CONFLICT'\) await load\(true\)/)
 })
 
-test('Staff primary data settles independently from payroll and performance', () => {
-  const source = readFileSync('src/pages/operations/StaffDashboardPage.tsx', 'utf8')
-  assert.match(source, /primaryTask = Promise.allSettled\(\[workspaceTask, salesTask\]\)/)
-  assert.match(source, /payrollTask[\s\S]*?setPayrollLoading\(false\)/)
-  assert.match(source, /performanceTask[\s\S]*?setPerformanceLoading\(false\)/)
-  assert.doesNotMatch(source, /const \[workspaceResult, salesResult, payrollResult, performanceResult\]/)
-})
+// Staff dashboard request isolation is exercised against rendered panels and
+// deferred network responses in tests/staff-dashboard-ui/dashboard.spec.ts.

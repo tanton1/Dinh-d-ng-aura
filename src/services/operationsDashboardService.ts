@@ -1,5 +1,7 @@
 import { httpsCallable } from 'firebase/functions'
 import { firebaseFunctions, firebaseScheduleOptimizerFunctions } from '../lib/firebaseFunctions'
+import { firebaseAuth } from '../lib/firebase'
+import { runKeyedSingleFlight } from '../utils/singleFlight'
 import { normalizeOperationsDashboardData, type OperationsDashboardData } from '../utils/operationsDashboardNormalization'
 import { createClientCorrelationId, reportClientIssue } from './clientTelemetryService'
 import { callReadOnlyFunction, runReadOnlyWithFallback } from './readOnlyCallableService'
@@ -19,8 +21,6 @@ export interface TodaySessionsData {
 
 const dashboardPreviewEnabled = import.meta.env.MODE === 'e2e'
 const dashboardRequests = new Map<string, Promise<OperationsDashboardData>>()
-const dashboardResponses = new Map<string, { value: OperationsDashboardData; expiresAt: number }>()
-const DASHBOARD_CLIENT_CACHE_MS = 15_000
 
 async function callDashboardRead<Input, Output>(
   regionalName: string,
@@ -126,32 +126,26 @@ function previewDashboard(input: { startAt?: string; endAt?: string; branchId?: 
   })
 }
 
-export async function getOperationsDashboard(input: { startAt?: string; endAt?: string; branchId?: string; forceRefresh?: boolean } = {}) {
+export async function getOperationsDashboard(
+  input: { startAt?: string; endAt?: string; branchId?: string; forceRefresh?: boolean } = {},
+  options: { authorizationVersion?: number; authorityKey?: string } = {},
+) {
   if (dashboardPreviewEnabled) return previewDashboard(input)
   if (!firebaseFunctions) throw new Error('Firebase Functions chưa sẵn sàng.')
-  const requestKey = JSON.stringify({ startAt: input.startAt || '', endAt: input.endAt || '', branchId: input.branchId || 'all' })
-  if (!input.forceRefresh) {
-    const cached = dashboardResponses.get(requestKey)
-    if (cached && cached.expiresAt > Date.now()) return cached.value
-    const pending = dashboardRequests.get(requestKey)
-    if (pending) return pending
-  } else {
-    dashboardResponses.delete(requestKey)
-  }
-  const pending = callDashboardRead<typeof input, unknown>(
+  const uid = firebaseAuth?.currentUser?.uid
+  const requestKey = JSON.stringify([uid, options.authorizationVersion || 0, options.authorityKey || '', input.startAt || '', input.endAt || '', input.branchId || 'all', input.forceRefresh === true])
+  const invoke = () => callDashboardRead<typeof input, unknown>(
     'getOperationsDashboardRegional',
     'getOperationsDashboard',
     input,
     30_000,
   )
     .then(normalizeDashboardResponse)
-    .then((value) => {
-      dashboardResponses.set(requestKey, { value, expiresAt: Date.now() + DASHBOARD_CLIENT_CACHE_MS })
-      return value
-    })
-    .finally(() => dashboardRequests.delete(requestKey))
-  dashboardRequests.set(requestKey, pending)
-  return pending
+  // Only coalesce simultaneous reads for one signed-in account and query.
+  // Server authorization/versioned caches own freshness; a completed browser
+  // response must never survive an account switch or hide an explicit refresh.
+  // Forced reads have a separate flight so they cannot join an older cache hit.
+  return uid ? runKeyedSingleFlight(dashboardRequests, requestKey, invoke) : invoke()
 }
 
 /**

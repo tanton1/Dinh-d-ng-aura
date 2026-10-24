@@ -354,6 +354,14 @@
       ]
     },
     {
+      "collectionGroup": "attendanceEvents",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "branchId", "order": "ASCENDING" },
+        { "fieldPath": "occurredAt", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "studentCareActivities",
       "queryScope": "COLLECTION",
       "fields": [
@@ -436,6 +444,15 @@
         { "fieldPath": "studentId", "order": "ASCENDING" },
         { "fieldPath": "startDate", "order": "DESCENDING" },
         { "fieldPath": "__name__", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "sessionRequests",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "trainerId", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "requestedBy", "order": "ASCENDING" }
       ]
     },
     {

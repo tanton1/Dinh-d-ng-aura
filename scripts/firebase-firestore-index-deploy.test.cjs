@@ -4,6 +4,32 @@ const test = require('node:test')
 const { parseArguments, selectIndexes, signature, CONFIRMATION } = require('./firebase-firestore-index-deploy.cjs')
 const indexes = require('../firestore.indexes.json').indexes
 
+test('dashboard scope selects exactly its two approved indexes and rejects absent or duplicated definitions', () => {
+  const wanted = [
+    { collectionGroup: 'attendanceEvents', queryScope: 'COLLECTION', fields: [
+      { fieldPath: 'branchId', order: 'ASCENDING' }, { fieldPath: 'occurredAt', order: 'ASCENDING' },
+    ] },
+    { collectionGroup: 'sessionRequests', queryScope: 'COLLECTION', fields: [
+      { fieldPath: 'trainerId', order: 'ASCENDING' }, { fieldPath: 'status', order: 'ASCENDING' }, { fieldPath: 'requestedBy', order: 'ASCENDING' },
+    ] },
+  ]
+  const selected = selectIndexes(indexes, 'dashboard-reads')
+  assert.deepEqual(selected.map(signature), wanted.map(signature))
+  assert.equal(selected.length, 2, 'unrelated indexes cannot enter the create-only dashboard deployment')
+  for (let index = 0; index < wanted.length; index += 1) {
+    assert.throws(() => selectIndexes(selected.filter((_, position) => position !== index), 'dashboard-reads'), /exactly once/)
+    assert.throws(() => selectIndexes([...selected, selected[index]], 'dashboard-reads'), /exactly once/)
+    const wrongDirection = wanted.map((candidate, position) => position === index
+      ? { ...candidate, fields: candidate.fields.map((field, fieldIndex) => fieldIndex === candidate.fields.length - 1 ? { ...field, order: 'DESCENDING' } : field) }
+      : candidate)
+    assert.throws(() => selectIndexes(wrongDirection, 'dashboard-reads'), /exactly once/)
+  }
+  assert.deepEqual(parseArguments(['dry-run', '--scope=dashboard-reads']), { mode: 'dry-run', scope: 'dashboard-reads' })
+  assert.deepEqual(parseArguments(['apply', '--scope=dashboard-reads', `--confirm=${CONFIRMATION}`]), { mode: 'apply', scope: 'dashboard-reads' })
+  assert.throws(() => parseArguments(['apply', '--scope=dashboard-reads']), /confirmation/)
+  assert.throws(() => parseArguments(['help']), /--scope=dashboard-reads/)
+})
+
 test('loyalty scope selects exactly the approved branch and document-ID index', () => {
   const selected = selectIndexes(indexes, 'loyalty-account-reads')
   assert.deepEqual(selected, [{ collectionGroup: 'students', queryScope: 'COLLECTION', fields: [

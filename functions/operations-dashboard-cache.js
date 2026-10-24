@@ -5,9 +5,9 @@ const { Timestamp } = require('firebase-admin/firestore')
 
 const CACHE_COLLECTION = 'systemOperationsDashboardCache'
 const SHARED_CACHE_TTL_MS = 3 * 60_000
-const CACHE_SCHEMA_VERSION = 1
+const CACHE_SCHEMA_VERSION = 2
 
-function stableDashboardCacheKey({ actor, permissions, scope, startDate, endDate }) {
+function stableDashboardCacheKey({ actor, permissions, scope, startDate, endDate, startAt = startDate, endAt = endDate, today = '' }) {
   const administrator = actor.accessRole === 'admin' || actor.accessRole === 'super_admin'
   const audience = administrator
     ? 'operations-admin'
@@ -26,6 +26,10 @@ function stableDashboardCacheKey({ actor, permissions, scope, startDate, endDate
     unrestricted: scope.unrestricted,
     startDate,
     endDate,
+    startAt,
+    endAt,
+    today,
+    actorScope: administrator ? null : { legacyStaffId: actor.legacyStaffId || actor.uid, capabilities: [...(actor.capabilities || [])].sort() },
   })
   return createHash('sha256').update(material).digest('hex')
 }
@@ -49,6 +53,7 @@ function createSharedDashboardCache({ db, logger = console, ttlMs = SHARED_CACHE
           hit: true,
           tier: 'shared',
           ttlSeconds: cacheTtlSeconds(expiresAtMillis),
+          expiresAtMillis,
         },
       }
     } catch (error) {

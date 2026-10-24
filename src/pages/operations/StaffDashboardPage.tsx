@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Award,
   AlertCircle,
@@ -20,8 +20,10 @@ import {
 } from 'lucide-react'
 import AuraMetricCarousel, { type AuraMetricSlide } from '../../components/admin/pt/AuraMetricCarousel'
 import type { StaffPosition } from '../../identity/access'
+import { useAuth } from '../../contexts/AuthContext'
+import { useStaffDashboardPanel, useStaffDashboardPanelVisibility } from '../../hooks/useStaffDashboardPanel'
 import { getMyPerformanceScore, type MyPerformanceScore } from '../../services/performanceScoreService'
-import { getMySalesWorkspace, getMyTrainerWorkspace, type CoachWorkspaceScope, type SalesWorkspace, type TrainerSessionSummary } from '../../services/ptOperationsV2Service'
+import { getMySalesWorkspace, getMyTrainerDashboard, type TrainerDashboardWorkspace, type SalesWorkspace, type TrainerSessionSummary } from '../../services/ptOperationsV2Service'
 import { getMyStaffPayroll } from '../../services/staffPayrollService'
 import type { ViewId } from '../../types'
 import {
@@ -30,7 +32,7 @@ import {
 } from '../../utils/staffDashboardPayroll'
 import { buildStaffDaySchedule, matchesStaffScheduleFilter, staffSessionLabels, type StaffScheduleFilter } from '../../utils/staffDashboardSchedule'
 import './StaffDashboardPage.css'
-import OperationalActionCenter from '../../components/operations/OperationalActionCenter'
+const OperationalActionCenter = lazy(() => import('../../components/operations/OperationalActionCenter'))
 import { useAuraUiSurface } from '../../features/ui-rollout/AuraUiRolloutContext'
 
 const vietnamDateFormatter = new Intl.DateTimeFormat('en-CA', {
@@ -136,7 +138,20 @@ const positionLabels: Record<StaffPosition, string> = {
   shipper: 'Shipper Eat Clean',
 }
 
-export default function StaffDashboardPage({ onNavigate, capabilities, positions, branchCount, isDemo = false }: Props) {
+export default function StaffDashboardPage(props: Props) {
+  const { user, accessContext, authzReady } = useAuth()
+  // Changing account or authority clears every private panel immediately; no
+  // previous actor's payroll, score, or student names remain during the next read.
+  const authorityKey = JSON.stringify([
+    props.isDemo ? 'demo' : user?.uid || '', authzReady, accessContext?.uid, accessContext?.authzVersion,
+    accessContext?.status, [...(accessContext?.branchIds || [])].sort(),
+    [...props.capabilities].sort(), [...props.positions].sort(),
+  ])
+  const readsEnabled = props.isDemo === true || Boolean(user && authzReady && accessContext?.uid === user.uid && accessContext?.status === 'active')
+  return <StaffDashboardContent key={authorityKey} {...props} readsEnabled={readsEnabled} authorityKey={authorityKey} />
+}
+
+function StaffDashboardContent({ onNavigate, capabilities, positions, branchCount, isDemo = false, readsEnabled, authorityKey }: Props & { readsEnabled: boolean; authorityKey: string }) {
   const actionCenterEnabled = useAuraUiSurface('action-center')
   const [now, setNow] = useState(Date.now)
   const [scheduleFilter, setScheduleFilter] = useState<StaffScheduleFilter>('all')
@@ -149,20 +164,6 @@ export default function StaffDashboardPage({ onNavigate, capabilities, positions
   const managerDashboard = effectivePositions.includes('branch_manager')
   const academyDashboard = effectivePositions.includes('academy_editor')
   const roleLabel = effectivePositions.map((position) => positionLabels[position]).join(' · ') || 'Nhân sự Aura'
-  const [scope, setScope] = useState<CoachWorkspaceScope | null>(null)
-  const [sessions, setSessions] = useState<TrainerSessionSummary[]>([])
-  const [sales, setSales] = useState<SalesWorkspace | null>(null)
-  const [payroll, setPayroll] = useState<StaffDashboardPayrollSnapshot | null>(null)
-  const [performance, setPerformance] = useState<MyPerformanceScore | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [refreshing, setRefreshing] = useState(false)
-  const [payrollLoading, setPayrollLoading] = useState(true)
-  const [performanceLoading, setPerformanceLoading] = useState(true)
-  const [error, setError] = useState('')
-  const [payrollError, setPayrollError] = useState('')
-  const [performanceError, setPerformanceError] = useState('')
-  const loadedRef = useRef(false)
-  const requestIdRef = useRef(0)
   const canViewPayroll = capabilities.includes('payroll.self.view') || isDemo
   const canViewOwnPerformance = isTrainer && (capabilities.includes('performance.self.view') || isDemo)
   const canReviewPerformance = managerDashboard && (capabilities.includes('performance.evidence.review') || isDemo)
@@ -177,16 +178,11 @@ export default function StaffDashboardPage({ onNavigate, capabilities, positions
 
   useEffect(() => { setScheduleFilter('all') }, [today])
 
-  const load = useCallback(async () => {
-    const requestId = ++requestIdRef.current
-    const current = () => requestId === requestIdRef.current
-    if (loadedRef.current) setRefreshing(true)
-    else setLoading(true)
-    setError(''); setPayrollError(''); setPerformanceError('')
-    setPayrollLoading(canViewPayroll)
-    setPerformanceLoading(canViewOwnPerformance)
-    if (isDemo) {
-      const demoSessions: TrainerSessionSummary[] = [
+  const payrollVisibility = useStaffDashboardPanelVisibility()
+  const performanceVisibility = useStaffDashboardPanelVisibility()
+  const readWorkspace = useCallback(async () => {
+    if (!isDemo) return getMyTrainerDashboard(today, 500, authorityKey)
+    const demoSessions: TrainerSessionSummary[] = [
         { id: 'demo-5', studentId: 'demo-e', trainerId: 'demo-staff', studentName: 'Đỗ Khánh Linh', date: today, hour: 6, status: 'attended', attendanceStatus: 'present', billingStatus: 'charged', timeZone: 'Asia/Ho_Chi_Minh' },
         { id: 'demo-6', studentId: 'demo-f', trainerId: 'demo-staff', studentName: 'Võ Bảo Ngọc', date: today, hour: 7, status: 'attended', attendanceStatus: 'present', billingStatus: 'charged', timeZone: 'Asia/Ho_Chi_Minh' },
         { id: 'demo-1', studentId: 'demo-a', trainerId: 'demo-staff', studentName: 'Nguyễn Minh Anh', date: today, hour: 8, status: 'attended', attendanceStatus: 'present', billingStatus: 'charged', timeZone: 'Asia/Ho_Chi_Minh' },
@@ -197,31 +193,50 @@ export default function StaffDashboardPage({ onNavigate, capabilities, positions
         { id: 'demo-3', studentId: 'demo-c', trainerId: 'demo-staff', studentName: 'Lê Ngọc Mai', date: today, hour: 18, status: 'scheduled', attendanceStatus: 'pending', billingStatus: 'pending', timeZone: 'Asia/Ho_Chi_Minh' },
         { id: 'demo-4', studentId: 'demo-d', trainerId: 'demo-staff', studentName: 'Phạm Thảo Vy', date: addDays(today, 1), hour: 7, status: 'scheduled', attendanceStatus: 'pending', billingStatus: 'pending', timeZone: 'Asia/Ho_Chi_Minh' },
       ]
-      setScope({ schemaVersion: 1, source: 'pt_contract_assignments', staffId: 'demo-staff', tabs: { students: true, schedule: true, requests: true, nutrition: true }, counts: { primaryStudents: 8, secondaryStudents: 3, nutritionStudents: 5, teachingSessions: 24, pendingRequests: 2 } })
-      setSessions(demoSessions); setPayroll(demoPayrollSnapshot(periodId)); setPerformance(demoPerformanceScore(periodId)); setLoading(false); setRefreshing(false); setPayrollLoading(false); setPerformanceLoading(false); loadedRef.current = true; return
+    return {
+      scope: { staffId: 'demo-staff', counts: { primaryStudents: 8, secondaryStudents: 3, pendingRequests: 2 } },
+      sessions: demoSessions,
+      hasMore: false,
     }
-    // Each panel settles independently. Payroll/score must not hold today's schedule.
-    const workspaceTask = (coachDashboard ? getMyTrainerWorkspace('schedule', today, today, 500) : Promise.resolve(null))
-      .then((value) => { if (current() && value) { setScope(value.scope); setSessions(value.sessions) } })
-      .catch((cause) => { if (current()) setError(cause instanceof Error ? cause.message : 'Chưa thể tải công việc Staff.') })
-    const salesTask = (salesDashboard ? getMySalesWorkspace(100) : Promise.resolve(null))
-      .then((value) => { if (current()) setSales(value) })
-      .catch((cause) => { if (current()) setError((value) => value || (cause instanceof Error ? cause.message : 'Chưa thể tải công việc Sales.')) })
-    const primaryTask = Promise.allSettled([workspaceTask, salesTask]).then(() => {
-      if (current()) { loadedRef.current = true; setLoading(false); setRefreshing(false) }
-    })
-    const payrollTask = (canViewPayroll ? getMyStaffPayroll(periodId) : Promise.resolve(null))
-      .then((value) => { if (current()) setPayroll(value) })
-      .catch((cause) => { if (current()) { setPayroll(null); setPayrollError(cause instanceof Error ? cause.message : 'Chưa thể tải thu nhập tháng này.') } })
-      .finally(() => { if (current()) setPayrollLoading(false) })
-    const performanceTask = (canViewOwnPerformance ? getMyPerformanceScore(periodId) : Promise.resolve(null))
-      .then((value) => { if (current()) setPerformance(value) })
-      .catch((cause) => { if (current()) { setPerformance(null); setPerformanceError(cause instanceof Error ? cause.message : 'Chưa thể tải Performance Score.') } })
-      .finally(() => { if (current()) setPerformanceLoading(false) })
-    await Promise.allSettled([primaryTask, payrollTask, performanceTask])
-  }, [canViewOwnPerformance, canViewPayroll, coachDashboard, isDemo, periodId, salesDashboard, today])
-
-  useEffect(() => { void load(); return () => { requestIdRef.current += 1 } }, [load])
+  }, [authorityKey, isDemo, today])
+  const workspacePanel = useStaffDashboardPanel({
+    scopeKey: today, enabled: readsEnabled && coachDashboard,
+    read: readWorkspace, errorMessage: 'Chưa thể tải công việc Staff.',
+  })
+  // Coach metrics take precedence for a combined PT/Sales account. The hidden
+  // Sales catalog and quote list must not be fetched behind those metrics.
+  const salesPanel = useStaffDashboardPanel({
+    scopeKey: 'sales', enabled: readsEnabled && salesDashboard && !coachDashboard && !isDemo,
+    read: () => getMySalesWorkspace(100), errorMessage: 'Chưa thể tải công việc Sales.',
+  })
+  const payrollPanel = useStaffDashboardPanel<StaffDashboardPayrollSnapshot>({
+    scopeKey: periodId, enabled: readsEnabled && canViewPayroll, autoLoad: isDemo || payrollVisibility.visible,
+    read: () => isDemo ? Promise.resolve(demoPayrollSnapshot(periodId)) : getMyStaffPayroll(periodId),
+    errorMessage: 'Chưa thể tải thu nhập tháng này.',
+  })
+  const performancePanel = useStaffDashboardPanel<MyPerformanceScore>({
+    scopeKey: periodId, enabled: readsEnabled && canViewOwnPerformance, autoLoad: isDemo || performanceVisibility.visible,
+    read: () => isDemo ? Promise.resolve(demoPerformanceScore(periodId)) : getMyPerformanceScore(periodId),
+    errorMessage: 'Chưa thể tải Performance Score.',
+  })
+  const scope: TrainerDashboardWorkspace['scope'] | null = workspacePanel.value?.scope || null
+  const sessions = workspacePanel.value?.sessions || []
+  const sales: SalesWorkspace | null = salesPanel.value
+  const payroll = payrollPanel.value
+  const performance = performancePanel.value
+  const loading = (workspacePanel.loading && !workspacePanel.value) || (salesPanel.loading && !salesPanel.value)
+  const refreshing = (workspacePanel.loading && Boolean(workspacePanel.value)) || (salesPanel.loading && Boolean(salesPanel.value))
+  const payrollLoading = payrollPanel.loading
+  const performanceLoading = performancePanel.loading
+  const error = workspacePanel.error || salesPanel.error
+  const payrollError = payrollPanel.error
+  const performanceError = performancePanel.error
+  const refreshPrimary = () => Promise.all([workspacePanel.refresh(), salesPanel.refresh()])
+  const load = () => Promise.all([
+    workspacePanel.refresh(), salesPanel.refresh(),
+    ...(payrollPanel.started || payrollVisibility.visible || isDemo ? [payrollPanel.refresh()] : []),
+    ...(performancePanel.started || performanceVisibility.visible || isDemo ? [performancePanel.refresh()] : []),
+  ])
 
   const { sessions: todaySessions, groups: groupedToday, pendingAttendance } = useMemo(
     () => buildStaffDaySchedule(sessions, today, now), [sessions, today, now],
@@ -292,15 +307,16 @@ export default function StaffDashboardPage({ onNavigate, capabilities, positions
         <span className={`staff-dashboard__sync ${loading || refreshing || payrollLoading || performanceLoading ? 'is-syncing' : ''}`} role="status" aria-live="polite">
           <i aria-hidden="true" />{loading || refreshing || payrollLoading || performanceLoading ? 'Đang đồng bộ' : 'Đã cập nhật'}
         </span>
-        <button type="button" aria-label="Tải lại tổng quan Staff" title="Tải lại dữ liệu" disabled={loading || refreshing || payrollLoading || performanceLoading} onClick={() => void load()}>
+        <button type="button" aria-label="Tải lại tổng quan Staff" title="Tải lại dữ liệu" disabled={loading || refreshing} onClick={() => void load()}>
           <RefreshCw className={loading || refreshing ? 'is-spinning' : ''} size={18} /><span>Làm mới</span>
         </button>
       </div>
     </header>
 
     <AuraMetricCarousel slides={slides} label="Tổng quan công việc Staff" loading={loading} />
-    {actionCenterEnabled && <OperationalActionCenter onOpenStudent={(studentId) => { window.location.hash = `#/student-360?studentId=${encodeURIComponent(studentId)}&source=staff-students` }} />}
-    {error && <section className="staff-dashboard__state"><Clock3 size={20} /><div><strong>Chưa tải đủ dữ liệu công việc</strong><p>{error}</p></div><button type="button" onClick={() => void load()}>Thử lại</button></section>}
+    {actionCenterEnabled && readsEnabled && <Suspense fallback={null}><OperationalActionCenter isDemo={isDemo} onOpenStudent={(studentId) => { window.location.hash = `#/student-360?studentId=${encodeURIComponent(studentId)}&source=staff-students` }} /></Suspense>}
+    {error && <section className="staff-dashboard__state"><Clock3 size={20} /><div><strong>Chưa tải đủ dữ liệu công việc</strong><p>{error}</p></div><button type="button" onClick={() => void refreshPrimary()}>Thử lại</button></section>}
+    {workspacePanel.value?.hasMore && <section className="staff-dashboard__state"><AlertCircle size={20} /><div><strong>Dữ liệu vượt giới hạn xem nhanh</strong><p>Mở lịch hoặc danh sách học viên để xem đầy đủ.</p></div><button type="button" onClick={() => onNavigate('staff-schedule')}>Mở lịch</button></section>}
 
     {coachDashboard && <section className="staff-dashboard__today">
       <header>
@@ -329,15 +345,16 @@ export default function StaffDashboardPage({ onNavigate, capabilities, positions
       })}</div> : groupedToday.length ? <div className="staff-dashboard__empty staff-dashboard__empty--filtered"><AlertCircle size={25} /><strong>Không có ca trong bộ lọc này</strong><p>Chọn “Tất cả” để xem lại toàn bộ lịch hôm nay.</p></div> : <div className="staff-dashboard__empty"><UserRoundCheck size={28} /><strong>Không có ca dạy hôm nay</strong><p>Mở lịch tuần để xem các ca tiếp theo.</p></div>}
     </section>}
 
-    {canOpenPerformance && <section className="staff-dashboard__performance" aria-label="Tóm tắt Aura PT Performance Score" aria-busy={canViewOwnPerformance && performanceLoading}>
+    {canOpenPerformance && <section ref={performanceVisibility.ref} className="staff-dashboard__performance" aria-label="Tóm tắt Aura PT Performance Score" aria-busy={canViewOwnPerformance && performanceLoading}>
       <header>
         <div><small>AURA PT PERFORMANCE SCORE · {periodLabel(periodId).toUpperCase()}</small><h2>{canReviewPerformance && !canViewOwnPerformance ? 'Duyệt hiệu suất đội ngũ' : 'Hiệu suất tháng của tôi'}</h2></div>
         <button type="button" onClick={() => onNavigate('staff-performance')}>{canReviewPerformance && !canViewOwnPerformance ? 'Mở trung tâm duyệt' : 'Xem chi tiết'} <Award size={17} /></button>
       </header>
       {canReviewPerformance && !canViewOwnPerformance
         ? <div className="staff-dashboard__performance-state"><Award /><div><strong>Performance đã có trong Staff</strong><p>Chấm phiếu 100 điểm, kết luận Gate và duyệt bằng chứng trong phạm vi chi nhánh được giao.</p></div><button type="button" onClick={() => onNavigate('staff-performance')}>Mở duyệt</button></div>
+        : !performancePanel.started && !performanceLoading ? <div className="staff-dashboard__performance-state"><Award /><div><strong>Hiệu suất tháng của tôi</strong><p>Điểm và bằng chứng trong tháng hiện tại.</p></div><button type="button" onClick={performanceVisibility.reveal}>Xem hiệu suất</button></div>
         : performanceLoading ? <div className="staff-dashboard__performance-loading"><span /><span /><span /></div>
-        : performanceError ? <div className="staff-dashboard__performance-state"><Award /><div><strong>Chưa tải được Performance Score</strong><p>{performanceError}</p></div><button type="button" onClick={() => void load()}>Thử lại</button></div>
+        : performanceError ? <div className="staff-dashboard__performance-state"><Award /><div><strong>Chưa tải được Performance Score</strong><p>{performanceError}</p></div><button type="button" onClick={() => void performancePanel.refresh()}>Thử lại</button></div>
           : performance ? <div className="staff-dashboard__performance-body">
             <article className="staff-dashboard__performance-score">
               <span>{performance.score.value === null ? 'ĐIỂM TẠM TÍNH' : 'ĐIỂM ĐÃ XÁC MINH'}</span>
@@ -359,13 +376,14 @@ export default function StaffDashboardPage({ onNavigate, capabilities, positions
       <div>{roleActions.map(({ id, label, detail, view: target, icon: Icon }) => <button type="button" key={id} onClick={() => onNavigate(target)}><span><Icon size={19} /></span><strong>{label}</strong><small>{detail}</small></button>)}</div>
     </section>}
 
-    <section className="staff-dashboard__payroll" aria-label="Biểu đồ lương và tiền ca dạy trong tháng" aria-busy={payrollLoading}>
+    <section ref={payrollVisibility.ref} className="staff-dashboard__payroll" aria-label="Biểu đồ lương và tiền ca dạy trong tháng" aria-busy={payrollLoading}>
       <header>
         <div><small>THU NHẬP · {periodLabel(periodId).toUpperCase()}</small><h2>Lương & tiền ca dạy</h2></div>
         {canViewPayroll && <button type="button" onClick={() => onNavigate('staff-payroll')}>Chi tiết <WalletCards size={17} /></button>}
       </header>
-      {payrollLoading ? <div className="staff-dashboard__payroll-loading" aria-label="Đang tải biểu đồ thu nhập"><span /><span /><span /><span /><span /></div>
-        : payrollError ? <div className="staff-dashboard__payroll-state"><BarChart3 size={28} /><strong>Chưa tải được dữ liệu thu nhập</strong><p>{payrollError}</p><button type="button" onClick={() => void load()}>Thử lại</button></div>
+      {canViewPayroll && !payrollPanel.started && !payrollLoading ? <div className="staff-dashboard__payroll-state"><BarChart3 size={28} /><strong>Thu nhập tháng của tôi</strong><p>Biểu đồ lương và tiền ca dạy trong tháng hiện tại.</p><button type="button" onClick={payrollVisibility.reveal}>Xem thu nhập</button></div>
+        : payrollLoading ? <div className="staff-dashboard__payroll-loading" aria-label="Đang tải biểu đồ thu nhập"><span /><span /><span /><span /><span /></div>
+        : payrollError ? <div className="staff-dashboard__payroll-state"><BarChart3 size={28} /><strong>Chưa tải được dữ liệu thu nhập</strong><p>{payrollError}</p><button type="button" onClick={() => void payrollPanel.refresh()}>Thử lại</button></div>
           : payrollChart ? <>
             <div className="staff-dashboard__payroll-summary">
               <article><span><WalletCards size={17} />Lương theo công</span><strong>{money(payrollChart.baseSalaryAmount)}</strong><small>{payrollChart.official ? 'Đã khóa số liệu' : 'Tạm tính trong kỳ'}</small></article>

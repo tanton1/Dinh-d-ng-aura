@@ -133,6 +133,15 @@ jobs:
       - name: Test workspace refresh on mobile Safari
         if: matrix.project == 'mobile-webkit'
         run: npm run test:workspace-sync-ui -- --project=sync-mobile-webkit
+      - name: Test independent dashboard reads and action center
+        if: matrix.project == 'chromium'
+        run: |
+          npm run test:admin-dashboard-ui -- --project=dashboard-desktop
+          npm run test:staff-dashboard-ui
+          npm run test:action-center-ui
+      - name: Test admin dashboard reads on mobile Safari
+        if: matrix.project == 'mobile-webkit'
+        run: npm run test:admin-dashboard-ui -- --project=dashboard-mobile
       - name: Upload browser failure evidence
         if: failure()
         uses: actions/upload-artifact@v4

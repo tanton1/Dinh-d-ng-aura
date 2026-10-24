@@ -36,6 +36,12 @@ function memoryDb(initial) {
       where: (field, operator, value) => query(collection, [...conditions, [String(field), operator, value]], ordering, maximum),
       orderBy: (field, direction = 'asc') => query(collection, conditions, [String(field), direction], maximum),
       limit: (count) => query(collection, conditions, ordering, count),
+      count: () => ({ async get() {
+        const count = [...values].filter(([path, value]) => path.slice(0, path.lastIndexOf('/')) === collection
+          && conditions.every(([field, operator, expected]) => matches(fieldValue(path, value, field), operator, expected))).length
+        reads.push({ type: 'aggregate', collection, conditions, indexEntries: count })
+        return { data: () => ({ count }) }
+      } }),
       async get() {
         const read = { type: 'query', collection, conditions, maximum }
         reads.push(read)
@@ -46,6 +52,7 @@ function memoryDb(initial) {
           return (left === right ? 0 : left < right ? -1 : 1) * (ordering[1] === 'desc' ? -1 : 1)
         })
         const docs = rows.slice(0, maximum).map(([path]) => snapshot(path))
+        read.returnedDocuments = docs.length
         if (db.beforeQueryResult) await db.beforeQueryResult(read)
         return { docs, size: docs.length, empty: docs.length === 0 }
       },
@@ -82,6 +89,153 @@ function fixture() {
 }
 const queryCount = (db, collection) => db.reads.filter((read) => read.type === 'query' && read.collection === collection).length
 const update = (db, path, patch) => db.values.set(path, { ...db.values.get(path), ...patch })
+
+const DASHBOARD_RANGE = { section: 'schedule', from: '2026-10-26', to: '2026-10-26', limit: 500, dashboardSummary: true }
+
+test('PT dashboard preserves displayed counters and attendance without calendar, nutrition or request-history hydration', async () => {
+  const { db, trainer } = fixture()
+  for (let index = 0; index < 250; index += 1) {
+    db.values.set(`sessions/history-${index}`, { studentId: 'student', trainerId: 'trainer', date: '2026-09-01', hour: 7, status: 'attended' })
+    db.values.set(`contracts/nutrition-${index}`, { studentId: `nutrition-${index}`, nutritionPTIds: ['trainer'], status: 'active', startDate: '2026-01-01', endDate: '2027-12-31', totalSessions: 36 })
+    db.values.set(`sessionRequests/done-${index}`, { trainerId: 'trainer', requestedBy: 'trainer', status: 'approved', studentId: 'student' })
+  }
+  db.values.set('sessionRequests/open', { trainerId: 'trainer', requestedBy: 'trainer', status: 'pending', studentId: 'student' })
+  const previous = await trainer({ section: 'schedule', from: DASHBOARD_RANGE.from, to: DASHBOARD_RANGE.to, limit: 500 })
+  const oldReads = structuredClone(db.reads)
+  db.reads.length = 0
+  // Force a cold scope namespace so the comparison does not borrow the old
+  // payload's contract cache. Production change signals do the same thing.
+  update(db, USER_SIGNAL('trainer'), { trainerWorkspaceVersion: VERSION(2) })
+  const result = await trainer(DASHBOARD_RANGE)
+  assert.equal(result.schemaVersion, 4)
+  assert.equal(result.scope.counts.primaryStudents, previous.scope.counts.primaryStudents)
+  assert.equal(result.scope.counts.secondaryStudents, previous.scope.counts.secondaryStudents)
+  assert.equal(result.scope.counts.pendingRequests, 1)
+  assert.equal(result.sessions[0].id, 'session')
+  assert.equal(result.sessions[0].studentName, 'Before')
+  assert.equal(result.sessions.length, previous.sessions.length)
+  assert.equal('studentPhone' in result.sessions[0], false)
+  assert.equal('contract' in result.sessions[0], false)
+  assert.equal('requests' in result, false)
+  assert.equal('students' in result, false)
+  assert.equal(result.hasMore, false)
+  assert.equal(queryCount(db, 'sessions'), 1)
+  assert.equal(queryCount(db, 'sessionRequests'), 0)
+  assert.equal(db.reads.filter((read) => read.type === 'aggregate').length, 1)
+  assert.equal(db.reads.some((read) => read.conditions?.some(([field]) => field === 'nutritionPTIds')), false)
+  assert.equal(db.reads.some((read) => read.path?.startsWith('contracts/') || read.path?.startsWith('contractUsageViews/')), false)
+  const documents = (reads) => reads.filter((read) => read.type === 'query').reduce((sum, read) => sum + read.returnedDocuments, 0)
+  assert.equal(documents(oldReads), 652)
+  assert.equal(documents(db.reads), 2)
+})
+
+test('PT dashboard pending counter includes rows beyond the former request window and excludes other actors/requesters', async () => {
+  const { db, trainer } = fixture()
+  for (let index = 0; index < 130; index += 1) db.values.set(`sessionRequests/open-${index}`, { trainerId: 'trainer', requestedBy: 'trainer', status: 'pending' })
+  db.values.set('sessionRequests/learner', { trainerId: 'trainer', requestedBy: 'student', status: 'pending' })
+  db.values.set('sessionRequests/other-actor', { trainerId: 'other', requestedBy: 'trainer', status: 'pending' })
+  assert.equal((await trainer({ ...DASHBOARD_RANGE, uid: 'other', trainerId: 'other' })).scope.counts.pendingRequests, 130)
+  assert.equal(queryCount(db, 'sessionRequests'), 0)
+})
+
+test('PT dashboard sums distinct UID and legacy request counts once and de-duplicates assigned learners', async () => {
+  const { db, trainer } = fixture()
+  update(db, 'roleAssignments/trainer', { crmProfileId: 'legacy' })
+  db.values.set('sessionRequests/uid-open', { trainerId: 'trainer', requestedBy: 'trainer', status: 'pending' })
+  db.values.set('sessionRequests/legacy-open', { trainerId: 'legacy', requestedBy: 'trainer', status: 'pending' })
+  db.values.set('sessionRequests/legacy-learner', { trainerId: 'legacy', requestedBy: 'student', status: 'pending' })
+  db.values.set('sessionRequests/other-open', { trainerId: 'other', requestedBy: 'trainer', status: 'pending' })
+  db.values.set('sessionRequests/legacy-done', { trainerId: 'legacy', requestedBy: 'trainer', status: 'approved' })
+  db.values.set('students/legacy-student', { name: 'Legacy learner' })
+  db.values.set('sessions/legacy-session', { studentId: 'legacy-student', trainerId: 'legacy', date: DASHBOARD_RANGE.from, hour: 9, status: 'scheduled' })
+  db.values.set('contracts/legacy-primary', { ...db.values.get('contracts/contract'), studentId: 'legacy-student', trainerId: 'legacy', trainerIds: ['legacy', 'trainer'] })
+  db.values.set('contracts/both-links', { ...db.values.get('contracts/contract'), trainerIds: ['trainer', 'legacy'] })
+  const result = await trainer(DASHBOARD_RANGE)
+  assert.deepEqual(result.scope.counts, { primaryStudents: 2, secondaryStudents: 0, pendingRequests: 2 })
+  assert.deepEqual(result.sessions.map((session) => session.trainerId).sort(), ['legacy', 'trainer'])
+  const aggregates = db.reads.filter((read) => read.type === 'aggregate')
+  assert.equal(aggregates.length, 2)
+  assert.deepEqual(aggregates.map((read) => read.conditions.find(([field]) => field === 'trainerId')[2]).sort(), ['legacy', 'trainer'])
+  assert.equal(queryCount(db, 'sessionRequests'), 0)
+  await trainer(DASHBOARD_RANGE)
+  assert.equal(db.reads.filter((read) => read.type === 'aggregate').length, 2, 'an unchanged warm scope reuses the dashboard result')
+})
+
+test('PT dashboard warm caches follow fresh legacy links, positions and branches without trusting caller scope', async () => {
+  const { db, trainer } = fixture()
+  update(db, 'roleAssignments/trainer', { crmProfileId: 'legacy' })
+  db.values.set('students/legacy-student', { name: 'Legacy learner' })
+  db.values.set('sessions/legacy-session', { studentId: 'legacy-student', trainerId: 'legacy', date: DASHBOARD_RANGE.from, hour: 9, status: 'scheduled' })
+  db.values.set('sessionRequests/legacy-open', { trainerId: 'legacy', requestedBy: 'trainer', status: 'pending' })
+  db.values.set('contracts/legacy-primary', { ...db.values.get('contracts/contract'), studentId: 'legacy-student', trainerId: 'legacy' })
+  const before = await trainer(DASHBOARD_RANGE)
+  assert.equal(before.sessions.length, 2)
+  assert.equal(before.scope.counts.primaryStudents, 2)
+  assert.equal(before.scope.counts.pendingRequests, 1)
+
+  // No version signal changes: the live assignment and authority fingerprints
+  // must still prevent a new scope from borrowing the previous cached result.
+  update(db, 'roleAssignments/trainer', { crmProfileId: 'next-legacy' })
+  const relinked = await trainer({ ...DASHBOARD_RANGE, legacyStaffId: 'legacy', trainerId: 'legacy' })
+  assert.equal(relinked.sessions.length, 1)
+  assert.equal(relinked.sessions[0].trainerId, 'trainer')
+  assert.deepEqual(relinked.scope.counts, { primaryStudents: 1, secondaryStudents: 0, pendingRequests: 0 })
+  assert.deepEqual(relinked.syncState, before.syncState)
+
+  update(db, 'students/student', { name: 'After positions' })
+  update(db, 'roleAssignments/trainer', { positions: ['coach_online'] })
+  const repositioned = await trainer(DASHBOARD_RANGE)
+  assert.equal(repositioned.sessions[0].studentName, 'After positions')
+  assert.deepEqual(repositioned.syncState, relinked.syncState)
+
+  update(db, 'students/student', { name: 'After branch change' })
+  update(db, 'roleAssignments/trainer', { branchIds: ['other-branch'] })
+  const rebranched = await trainer({ ...DASHBOARD_RANGE, uid: 'other', branchIds: ['branch', 'forbidden'] })
+  assert.equal(rebranched.sessions[0].studentName, 'After branch change')
+  assert.deepEqual(rebranched.syncState.branchVersions, { 'other-branch': '0' })
+  assert.equal(db.reads.some((read) => read.path === 'workspaceBranchChanges/forbidden'), false)
+})
+
+test('PT dashboard canonicalizes mirrors before narrowing and preserves legacy attendance and missing hours', async () => {
+  const { db, trainer } = fixture()
+  update(db, 'sessions/session', { status: 'attended', scheduleEntryId: 'T2-8-student', revision: 1 })
+  db.values.set('sessions/mirror', { ...db.values.get('sessions/session'), status: 'cancelled', scheduleStatus: 'cancelled', billingStatus: 'exempt', revision: 5 })
+  db.values.set('sessions/no-hour', { studentId: 'student', trainerId: 'trainer', date: DASHBOARD_RANGE.from, status: 'scheduled', hour: null })
+  const result = await trainer(DASHBOARD_RANGE)
+  assert.equal(result.sessions.length, 2)
+  assert.equal(result.sessions[0].id, 'session')
+  assert.equal(result.sessions[0].status, 'attended')
+  assert.equal(result.sessions[0].attendanceStatus, null, 'missing attendance must retain the client fallback to attended status')
+  assert.equal(result.sessions[1].hour, null)
+})
+
+test('PT dashboard coalesces cold loads, honors server change signals and rejects revoked access while warm', async () => {
+  const { db, trainer } = fixture()
+  await Promise.all([trainer(DASHBOARD_RANGE), trainer(DASHBOARD_RANGE)])
+  assert.equal(queryCount(db, 'sessions'), 1)
+  assert.equal(db.reads.filter((read) => read.type === 'aggregate').length, 1)
+  update(db, 'sessions/session', { attendanceStatus: 'late' })
+  update(db, 'contracts/contract', { status: 'cancelled' })
+  update(db, USER_SIGNAL('trainer'), { trainerWorkspaceVersion: VERSION(2) })
+  const changed = await trainer(DASHBOARD_RANGE)
+  assert.equal(changed.sessions[0].attendanceStatus, 'late')
+  assert.equal(changed.scope.counts.primaryStudents, 0)
+  assert.equal(queryCount(db, 'sessions'), 2)
+  update(db, 'roleAssignments/trainer', { status: 'suspended', authzVersion: 2 })
+  await assert.rejects(trainer(DASHBOARD_RANGE), (error) => error.code === 'permission-denied')
+  assert.equal(queryCount(db, 'sessions'), 2)
+})
+
+test('PT dashboard validates one-day scope and marks bounded session summaries as partial', async () => {
+  const { db, trainer } = fixture()
+  await assert.rejects(trainer({ ...DASHBOARD_RANGE, to: '2026-10-27' }), (error) => error.code === 'invalid-argument')
+  assert.equal(queryCount(db, 'sessions'), 0)
+  db.values.set('sessions/extra', { ...db.values.get('sessions/session'), hour: 10 })
+  const result = await trainer({ ...DASHBOARD_RANGE, limit: 1 })
+  assert.equal(result.sessions.length, 1)
+  assert.equal(result.hasMore, true)
+  assert.equal(db.reads.find((read) => read.collection === 'sessions').maximum, 2)
+})
 
 test('request tab reads its own requests and student names without hydrating other workspaces', async () => {
   const { db, trainer } = fixture()

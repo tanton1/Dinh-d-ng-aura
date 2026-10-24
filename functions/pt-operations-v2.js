@@ -32,6 +32,7 @@ const trainerWorkspaceScopeCache = createProcessCache({ ttlMs: 15_000, maxEntrie
 const trainerAssignedStudentsCache = createProcessCache({ ttlMs: 15_000, maxEntries: 128 })
 const trainerScheduleCache = createProcessCache({ ttlMs: 10_000, maxEntries: 256 })
 const trainerRequestsCache = createProcessCache({ ttlMs: 10_000, maxEntries: 256 })
+const trainerDashboardCache = createProcessCache({ ttlMs: 10_000, maxEntries: 256 })
 const studentScheduleQueryCache = createProcessCache({ ttlMs: 10_000, maxEntries: 256 })
 const trainerContractsCache = createProcessCache({ ttlMs: 15_000, maxEntries: 256 })
 
@@ -90,6 +91,7 @@ function invalidateTrainerReadCaches(db, actor = null) {
     trainerAssignedStudentsCache.clear()
     trainerScheduleCache.clear()
     trainerRequestsCache.clear()
+    trainerDashboardCache.clear()
     trainerContractsCache.clear()
     return
   }
@@ -100,6 +102,7 @@ function invalidateTrainerReadCaches(db, actor = null) {
   trainerAssignedStudentsCache.clear(prefix)
   trainerScheduleCache.clear(prefix)
   trainerRequestsCache.clear(prefix)
+  trainerDashboardCache.clear(prefix)
   trainerContractsCache.clear(prefix)
 }
 
@@ -1145,6 +1148,52 @@ async function trainerRequestsWorkspaceForActor(db, actor, readVersion) {
   })).value
 }
 
+// The dashboard needs today's attendance and three assignment counters, not
+// the calendar's contract entitlements, nutrition roster or request history.
+// Reuse the canonical session de-duplication before narrowing the payload.
+async function trainerDashboardForActor(db, actor, day, limit, readVersion) {
+  const authority = JSON.stringify([actor.accessRole, [...(actor.positions || [])].sort(), [...(actor.branchIds || [])].sort()])
+  const key = `${trainerCacheKey(db, actor, readVersion)}|dashboard|${authority}|${day}|${limit}`
+  return (await trainerDashboardCache.get(key, async () => {
+    const actorIds = [...new Set([actor.uid, actor.legacyStaffId].filter(Boolean))]
+    const [contracts, snapshots, pendingCounts] = await Promise.all([
+      cachedAssignedContracts(db, actor, 'training', 300, readVersion),
+      Promise.all(actorIds.map((actorId) => db.collection('sessions')
+        .where('trainerId', '==', actorId).where('date', '>=', day).where('date', '<=', day).limit(limit + 1).get())),
+      // trainerId is scalar: UID and legacy-ID queries are disjoint. Aggregate
+      // counts include pending rows beyond the old first-100 request window.
+      Promise.all(actorIds.map((actorId) => db.collection('sessionRequests')
+        .where('trainerId', '==', actorId).where('status', '==', 'pending').where('requestedBy', '==', 'trainer').count().get())),
+    ])
+    const assigned = contracts.filter((contract) => isEffectiveStaffContract(contract, currentDateKey()))
+    const primary = new Set(assigned.filter((contract) => actorIds.some((id) => contract.trainerId === id || contract.trainerIds?.[0] === id))
+      .map((contract) => contract.studentId).filter(Boolean))
+    const secondary = new Set(assigned.filter((contract) => Array.isArray(contract.trainerIds) && contract.trainerIds.slice(1).some((id) => actorIds.includes(id)))
+      .map((contract) => contract.studentId).filter((id) => id && !primary.has(id)))
+    const rows = new Map()
+    snapshots.forEach((snapshot) => snapshot.docs.forEach((document) => rows.set(document.id, serialize({ id: document.id, ...document.data() }))))
+    const canonical = canonicalSessionRows([...rows.values()])
+      .sort((left, right) => Number(left.hour ?? 24) - Number(right.hour ?? 24) || left.id.localeCompare(right.id))
+    const sessions = canonical.slice(0, limit)
+    const studentIds = [...new Set(sessions.map((session) => session.studentId).filter(Boolean))]
+    const students = studentIds.length ? await db.getAll(...studentIds.map((id) => db.doc(`students/${id}`))) : []
+    const names = new Map(students.filter((document) => document.exists).map((document) => [document.id, document.data().name || 'Học viên Aura']))
+    return {
+      scope: {
+        staffId: actor.legacyStaffId || actor.uid,
+        counts: { primaryStudents: primary.size, secondaryStudents: secondary.size, pendingRequests: pendingCounts.reduce((sum, snapshot) => sum + snapshot.data().count, 0) },
+      },
+      sessions: sessions.map((session) => ({
+        id: session.id, studentId: session.studentId || '', trainerId: session.trainerId || '',
+        studentName: names.get(session.studentId) || 'Học viên Aura', date: session.date,
+        hour: session.hour ?? null, status: session.status || 'scheduled',
+        scheduleStatus: session.scheduleStatus || 'scheduled', attendanceStatus: session.attendanceStatus || null, timeZone: TIME_ZONE,
+      })),
+      hasMore: contracts.length >= 300 || canonical.length > limit || snapshots.some((snapshot) => snapshot.size > limit),
+    }
+  })).value
+}
+
 async function trainerScheduleForActor(db, actor, from, to, limit) {
   const actorIds = [...new Set([actor.uid, actor.legacyStaffId].filter(Boolean))]
   const [snapshots, requestSnapshots] = await Promise.all([
@@ -1829,6 +1878,13 @@ function createPtOperationsV2Functions({
     const independentTabs = request.data?.independentTabs === true
     const syncState = await readWorkspaceChangeState({ db, uid: actor.uid, branchIds: actor.branchIds, kind: 'trainer' })
     const readVersion = workspaceCacheVersion(syncState)
+    if (section === 'schedule' && request.data?.dashboardSummary === true) {
+      const from = dateKey(request.data?.from, 'Ngày bắt đầu')
+      const to = dateKey(request.data?.to, 'Ngày kết thúc')
+      if (from !== to) throw new HttpsError('invalid-argument', 'Tổng quan PT chỉ đọc lịch trong một ngày.')
+      const data = await trainerDashboardForActor(db, actor, from, integer(request.data?.limit, 500, 1, 500), readVersion)
+      return { schemaVersion: 4, syncState, ...data }
+    }
     if (section === 'requests' && independentTabs) {
       const from = dateKey(request.data?.from, 'Ngày bắt đầu')
       const to = dateKey(request.data?.to, 'Ngày kết thúc')
