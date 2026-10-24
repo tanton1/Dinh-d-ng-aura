@@ -60,11 +60,13 @@ export interface FinanceLedgerQuery {
   branchId?: string
   types?: FinanceLedgerType[]
   status?: FinanceLedgerStatus | 'all'
+  /** Skip the all-period scan when only the entry table is consumed. */
+  includeSummary?: boolean
 }
 
 export interface FinanceLedgerPage {
   entries: FinanceLedgerEntry[]
-  summary: FinanceLedgerSummary
+  summary: FinanceLedgerSummary | null
   hasMore: boolean
   nextCursor: string | null
   canonicalOnly: true

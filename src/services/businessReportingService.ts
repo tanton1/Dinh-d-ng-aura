@@ -131,7 +131,7 @@ export interface TrainingHistoryPage {
     usage?: SessionUsageSummary
     teaching: { totalShifts: number; pairedShifts: number; learnerBookings: number; maxLearnersPerShift: number } | null
     truncated: boolean
-  }
+  } | null
   hasMore: boolean
   nextCursor: string | null
   filters: { startDate: string; endDate: string; status: TrainingHistoryStatus; allTime?: boolean }
@@ -188,6 +188,8 @@ export interface TrainingHistoryQuery {
   status?: TrainingHistoryStatus
   pageSize?: number
   cursor?: string | null
+  /** Cursor pages may retain totals from the first page of the same scope. */
+  includeSummary?: boolean
 }
 
 export async function listStudentTrainingHistory(studentId: string, query: TrainingHistoryQuery): Promise<TrainingHistoryPage> {

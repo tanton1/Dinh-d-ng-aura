@@ -68,6 +68,7 @@ jobs:
       - run: npm run test:schedule-ui
       - run: npm run test:data-cost
       - run: npm run test:data-cost-ui
+      - run: npx playwright test --config tests/training-history-panel-ui/playwright.config.ts
       - run: npm run test:data-cost-transaction
       - run: npm run test:delivery-location-transaction
       - run: npm run test:rules

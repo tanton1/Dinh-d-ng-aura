@@ -98,8 +98,8 @@ export default function StudentTrainingHistory({
   onLoadMore,
   className = '',
 }: Props) {
-  const total = isDemo ? demoSummary.total : page?.summary.total ?? 0
-  const usage = page?.summary.usage
+  const total = isDemo ? demoSummary.total : page?.summary?.total ?? 0
+  const usage = page?.summary?.usage
   const historyCharged = usage ? Number(usage.chargedSessions ?? 0) : null
   const quotaDiffers = !isDemo && Boolean(page)
     && historyCharged !== null
@@ -119,7 +119,7 @@ export default function StudentTrainingHistory({
     {!loading && !error && !isDemo && page && page.records.length === 0 ? <div className="student-session-empty"><History size={28} /><strong>Chưa có lịch sử tập luyện</strong><span>Các buổi đã hoàn thành hoặc được điều chỉnh sẽ xuất hiện tại đây.</span></div> : null}
     {isDemo && demoSessions.length > 0 ? <div>{demoSessions.map((session) => <article className={demoTone(session.status)} key={session.id}><span>{formatSessionDate(session.date)} · {session.hour === null ? '--:--' : `${String(session.hour).padStart(2, '0')}:00`}</span><strong>{session.trainerName}</strong><em>{statusLabels[session.status] ?? session.status}</em></article>)}</div> : null}
     {!isDemo && page?.records.length ? <div>{page.records.map((record) => <article className={historyRecordTone(record)} key={record.id}><span>{formatSessionDate(record.date)} · {record.hour === null ? '--:--' : `${String(record.hour).padStart(2, '0')}:00`}</span><strong>{record.counterpartName}</strong><em>{historyRecordLabel(record)}</em></article>)}</div> : null}
-    {!isDemo && page?.summary.truncated ? <div className="student-history-notice"><AlertCircle size={17} /><span>Lịch sử vượt giới hạn tải một lần; tổng số liệu đang hiển thị trong phạm vi hệ thống đã đối chiếu.</span></div> : null}
-    {!isDemo && page?.hasMore && onLoadMore ? <button type="button" className="student-history-more" disabled={loading} onClick={onLoadMore}>{loading ? 'Đang tải…' : `Tải thêm lịch sử (${Math.max(0, page.summary.total - page.records.length)} buổi)`}</button> : null}
+    {!isDemo && page?.summary?.truncated ? <div className="student-history-notice"><AlertCircle size={17} /><span>Lịch sử vượt giới hạn tải một lần; tổng số liệu đang hiển thị trong phạm vi hệ thống đã đối chiếu.</span></div> : null}
+    {!isDemo && page?.hasMore && onLoadMore ? <button type="button" className="student-history-more" disabled={loading} onClick={onLoadMore}>{loading ? 'Đang tải…' : page.summary ? `Tải thêm lịch sử (${Math.max(0, page.summary.total - page.records.length)} buổi)` : 'Tải thêm lịch sử'}</button> : null}
   </section>
 }
