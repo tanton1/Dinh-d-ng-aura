@@ -276,6 +276,7 @@ const secondQueueRow: RenewalPipelineRow = {
 const queueResponse: RenewalPipelineResponse = {
   schemaVersion: 2, generatedAt: new Date().toISOString(), today, rows: [row, secondQueueRow],
   hasMore: true, nextCursor: 'page-two', optionsMode: 'filters',
+  optionsScopeKey: 'renewal-options-v1:scope-one', optionsReused: false, pageReset: false,
   stats: { total: 3, pipelineValue: 9000000, weightedPipelineValue: 900000, pendingApprovals: 0,
     stageCounts: { uncontacted: 3, contacted: 0, interested: 0, quote_sent: 0, follow_up: 0, won: 0, lost: 0 },
     riskCounts: { expired: 0, exhausted: 0, critical: 3, upcoming: 0, early: 0 },
@@ -287,13 +288,13 @@ const queueResponse: RenewalPipelineResponse = {
   permissions: { canRecordActivity: true, canCreateQuote: true, canRenewContract: true, canViewFinancials: true, canViewAnalytics: true, canAssign: true, canApprove: false },
 }
 
-async function mockRenewalQueue(page: Page, behavior: { holdLists?: string[]; holdPrepare?: string[]; prepareError?: string; canRenew?: boolean } = {}) {
+async function mockRenewalQueue(page: Page, behavior: { holdLists?: string[]; holdPrepare?: string[]; prepareError?: string; canRenew?: boolean; holdCalendar?: boolean } = {}) {
   // Never allow the local fixture to contact a real backend or third-party app.
   await page.route('**/*', route => new URL(route.request().url()).hostname === '127.0.0.1' ? route.continue() : route.abort())
   await page.addInitScript(({ response, behavior }) => {
     window.renewalQueueFixture = {
       base: response, behavior, listCalls: [], prepareCalls: [], listPending: {}, preparePending: {},
-      listResponses: {}, prepareVersion: 1, mutations: [],
+      listResponses: {}, prepareVersion: 1, mutations: [], calendarCalls: [], calendarPending: {},
     }
     if (behavior.canRenew === false) window.renewalQueueFixture.base.permissions.canRenewContract = false
   }, { response: queueResponse, behavior })
@@ -304,6 +305,10 @@ async function mockRenewalQueue(page: Page, behavior: { holdLists?: string[]; ho
       const key = input.search || input.cursor || 'initial';
       const response = structuredClone(state.listResponses[key] || state.base);
       if (input.cursor && !state.listResponses[key]) { response.rows = []; response.hasMore = false; response.nextCursor = null; }
+      if (input.optionsMode === 'reuse' && !state.listResponses[key]) {
+        response.optionsMode = 'reuse'; response.optionsReused = true;
+        response.options = { packages: [], cashAccounts: [], branches: [], assignees: [] };
+      }
       if (state.behavior.holdLists?.includes(key)) return new Promise((resolve, reject) => { state.listPending[index] = { resolve: value => resolve(value || response), reject }; });
       return response;
     };
@@ -323,12 +328,16 @@ async function mockRenewalQueue(page: Page, behavior: { holdLists?: string[]; ho
     export const createRenewalQuote = async input => { state.mutations.push(input); return { quoteId: 'queue-quote', revision: 2 }; };
     export const renewPtContract = async input => { state.mutations.push(input); return { contractId: 'next', unchanged: false }; };
     export const submitRenewalApproval = async () => ({ approvalId: 'approval', status: 'pending' });
-    export const listRenewalCalendar = async () => ({ items: [] });
+    export const listRenewalCalendar = async input => {
+      const index = state.calendarCalls.push(input) - 1;
+      if (state.behavior.holdCalendar) return new Promise(resolve => { state.calendarPending[index] = { resolve }; });
+      return { items: [] };
+    };
     export const getRenewalAnalytics = async () => ({ assignees: [], lostReasons: {}, stageCounts: {} });
     export const refreshContractRenewalQueue = async () => ({ contractsScanned: 0, plannedWrites: 0 });
     export const assignContractRenewalCase = async () => ({});
     export const decideRenewalApproval = async () => ({});
-    export const recordContractRenewalActivity = async () => ({});
+    export const recordContractRenewalActivity = async input => { state.mutations.push(input); return {}; };
     export const transferRenewalCases = async () => ({ transferred: 1 });
   ` }))
   await page.goto('/tests/e2e/fixtures/contract-renewal-queue.html')
@@ -341,7 +350,7 @@ async function mockRenewalQueue(page: Page, behavior: { holdLists?: string[]; ho
 const queueSearch = (page: Page) => page.getByPlaceholder('Tìm tên, SĐT, email, gói tập…')
 const renewQueueRow = (page: Page, index = 0) => page.locator('.renewal-table tbody tr').nth(index).getByRole('button', { name: 'Tái ký', exact: true })
 
-test('queue requests filters-only for every list/search/page and opens fresh full-price/full-account options', async ({ page }) => {
+test('queue reuses dictionaries only on load-more and opens fresh full-price/full-account options', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
   await mockRenewalQueue(page)
   await queueSearch(page).fill('student')
@@ -349,8 +358,10 @@ test('queue requests filters-only for every list/search/page and opens fresh ful
   await page.getByRole('button', { name: 'Tải thêm hồ sơ' }).click()
   await expect.poll(() => page.evaluate(() => window.renewalQueueFixture.listCalls.length)).toBe(3)
   const calls = await page.evaluate(() => window.renewalQueueFixture.listCalls)
-  expect(calls.every((input: any) => input.optionsMode === 'filters' && input.pageSize === 30)).toBe(true)
+  expect(calls.every((input: any) => input.pageSize === 30)).toBe(true)
+  expect(calls.map((input: any) => input.optionsMode)).toEqual(['filters', 'filters', 'reuse'])
   expect(calls[2].cursor).toBe('page-two')
+  expect(calls[2].optionsScopeKey).toBe(queueResponse.optionsScopeKey)
   await renewQueueRow(page).click()
   const dialog = page.getByRole('dialog', { name: 'Tạo hợp đồng tiếp theo' })
   await expect(dialog).toBeVisible()
@@ -381,6 +392,7 @@ test('a late list page cannot replace the open wizard options or prepared scope'
   await page.evaluate(() => {
     const state = window.renewalQueueFixture
     state.listPending[1].resolve({ ...state.base, rows: [], hasMore: false, nextCursor: null,
+      optionsMode: 'reuse', optionsReused: true,
       options: { ...state.base.options, packages: [{ id: 'package-1', name: 'Stale zero package', totalSessions: 0, price: 0, durationMonths: 0, branchId: 'branch-1' }], cashAccounts: [] } })
   })
   await expect(page.getByRole('button', { name: 'Tải thêm hồ sơ' })).toHaveCount(0)
@@ -474,8 +486,186 @@ test('fresh prepare denial stays visible and refreshed permission loss closes an
   await expect(page.getByRole('dialog', { name: 'Tạo hợp đồng tiếp theo' })).toBeVisible()
   await page.evaluate(() => {
     const state = window.renewalQueueFixture
-    state.listPending[1].resolve({ ...state.base, rows: [], hasMore: false, nextCursor: null, permissions: { ...state.base.permissions, canRenewContract: false } })
+    state.listPending[1].resolve({ ...state.base, rows: [], hasMore: false, nextCursor: null,
+      optionsScopeKey: 'renewal-options-v1:renewal-revoked', pageReset: true,
+      permissions: { ...state.base.permissions, canRenewContract: false } })
   })
   await expect(page.getByRole('dialog', { name: 'Tạo hợp đồng tiếp theo' })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Tái ký', exact: true })).toHaveCount(0)
+})
+
+test('accepted empty dictionaries preserve filters while totals stay fresh, and refresh/filter/mutation reload dictionaries', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await mockRenewalQueue(page)
+  await page.evaluate(() => {
+    const state = window.renewalQueueFixture
+    state.listResponses['page-two'] = { ...state.base, optionsMode: 'reuse', optionsReused: true,
+      rows: [{ ...state.base.rows[1], id: 'source-three', caseId: 'source-three', sourceContractId: 'source-three',
+        student: { ...state.base.rows[1].student, id: 'student-three', name: 'Học viên thứ ba' } }],
+      hasMore: false, nextCursor: null,
+      options: { branches: [], assignees: [], packages: [], cashAccounts: [] },
+      stats: { ...state.base.stats, total: 7, segmentCounts: { ...state.base.stats.segmentCounts, expiring_30d: 7 } },
+    }
+  })
+  await page.getByRole('button', { name: 'Tải thêm hồ sơ' }).click()
+  await expect(page.locator('.renewal-table tbody tr')).toHaveCount(3)
+  await expect(page.getByRole('button', { name: 'Hàng đợi 7', exact: true })).toBeVisible()
+  await expect(page.locator('.renewal-focus-card--expiring .renewal-focus-card__copy strong')).toHaveText('7')
+  await page.getByRole('button', { name: 'Bộ lọc', exact: true }).click()
+  await expect(page.getByRole('combobox', { name: 'Chi nhánh', exact: true }).locator('option[value="branch-1"]')).toHaveText('Aura')
+  await expect(page.getByRole('combobox', { name: 'Phụ trách', exact: true }).locator('option[value="sales-one"]')).toHaveText('Sales hiện tại')
+  await page.getByRole('button', { name: 'Làm mới', exact: true }).click()
+  await expect(page.locator('.renewal-table tbody tr')).toHaveCount(2)
+  await page.getByRole('combobox', { name: 'Chi nhánh', exact: true }).selectOption('branch-1')
+  await expect.poll(() => page.evaluate(() => window.renewalQueueFixture.listCalls.length)).toBe(4)
+  await page.locator('.renewal-table tbody tr').first().click()
+  const inspector = page.getByRole('dialog', { name: row.student.name })
+  await expect(inspector).toBeVisible()
+  await inspector.getByLabel('Ghi chú', { exact: true }).fill('Synthetic local activity')
+  await inspector.getByRole('button', { name: 'Lưu tương tác' }).click()
+  await expect.poll(() => page.evaluate(() => window.renewalQueueFixture.listCalls.length)).toBe(5)
+  const calls = await page.evaluate(() => window.renewalQueueFixture.listCalls)
+  expect(calls.map((input: any) => input.optionsMode)).toEqual(['filters', 'reuse', 'filters', 'filters', 'filters'])
+  expect(calls[1].optionsScopeKey).toBe(queueResponse.optionsScopeKey)
+  expect(calls.filter((input: any) => input.optionsMode === 'filters').every((input: any) => input.optionsScopeKey === undefined && input.cursor === null)).toBe(true)
+  expect(await page.evaluate(() => window.renewalQueueFixture.mutations.length)).toBe(1)
+})
+
+test('authority reset replaces rows and dictionaries, clears selection, and closes detail plus payment wizard', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await mockRenewalQueue(page, { holdLists: ['page-two'] })
+  await page.locator('.renewal-table').getByRole('checkbox', { name: `Chọn ${row.student.name}`, exact: true }).check()
+  await page.getByRole('button', { name: 'Tải thêm hồ sơ' }).click()
+  await expect.poll(() => page.evaluate(() => Object.keys(window.renewalQueueFixture.listPending).length)).toBe(1)
+  await page.locator('.renewal-table tbody tr').first().click()
+  const inspector = page.getByRole('dialog', { name: row.student.name })
+  await inspector.getByRole('button', { name: 'Tạo tái ký' }).click()
+  await expect(page.getByRole('dialog', { name: 'Tạo hợp đồng tiếp theo' })).toBeVisible()
+  await page.evaluate(() => {
+    const state = window.renewalQueueFixture
+    const freshRow = { ...state.base.rows[1], branchId: 'branch-2', branchName: 'Aura chi nhánh mới',
+      student: { ...state.base.rows[1].student, name: 'Học viên phạm vi mới' } }
+    state.base = { ...state.base, rows: [freshRow], hasMore: false, nextCursor: null,
+      optionsScopeKey: 'renewal-options-v1:scope-two', pageReset: true,
+      options: { packages: [], cashAccounts: [], branches: [{ id: 'branch-2', name: 'Aura chi nhánh mới' }],
+        assignees: [{ id: 'sales-two', name: 'Sales mới', branchIds: ['branch-2'] }] },
+      stats: { ...state.base.stats, total: 1 },
+    }
+    state.listPending[1].resolve(state.base)
+  })
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect(page.getByRole('status')).toContainText('Phạm vi truy cập đã thay đổi')
+  await expect(page.locator('.renewal-table tbody tr')).toHaveCount(1)
+  await expect(page.locator('.renewal-table tbody')).toContainText('Học viên phạm vi mới')
+  await expect(page.locator('.renewal-table tbody')).not.toContainText(row.student.name)
+  await expect(page.getByRole('button', { name: /Bàn giao .* lead/ })).toHaveCount(0)
+  await page.getByRole('button', { name: 'Bộ lọc', exact: true }).click()
+  await expect(page.getByRole('combobox', { name: 'Chi nhánh', exact: true }).locator('option')).toHaveText(['Tất cả', 'Aura chi nhánh mới'])
+  await expect(page.getByRole('combobox', { name: 'Phụ trách', exact: true }).locator('option')).toHaveText(['Tất cả', 'Sales mới'])
+})
+
+test('authority reset rejects old calendar and prepare responses without leaving loading stuck', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await mockRenewalQueue(page, { holdLists: ['page-two'], holdPrepare: ['source'], holdCalendar: true })
+  await page.getByRole('button', { name: 'Tải thêm hồ sơ' }).click()
+  await expect.poll(() => page.evaluate(() => Object.keys(window.renewalQueueFixture.listPending).length)).toBe(1)
+  await renewQueueRow(page).click()
+  await expect.poll(() => page.evaluate(() => Object.keys(window.renewalQueueFixture.preparePending).length)).toBe(1)
+  await page.getByRole('button', { name: 'Lịch chăm sóc', exact: true }).click()
+  await expect.poll(() => page.evaluate(() => window.renewalQueueFixture.calendarCalls.length)).toBe(1)
+  await page.evaluate(() => {
+    const state = window.renewalQueueFixture
+    state.listPending[1].resolve({ ...state.base, optionsScopeKey: 'renewal-options-v1:scope-two',
+      pageReset: true, rows: [], hasMore: false, nextCursor: null,
+      options: { packages: [], cashAccounts: [], branches: [], assignees: [] } })
+  })
+  await expect.poll(() => page.evaluate(() => window.renewalQueueFixture.calendarCalls.length)).toBe(2)
+  await page.evaluate(() => {
+    const state = window.renewalQueueFixture
+    state.calendarPending[1].resolve({ items: [] })
+    state.calendarPending[0].resolve({ items: state.base.rows })
+    state.preparePending[0].resolve()
+  })
+  await expect(page.locator('.renewal-calendar')).toBeVisible()
+  await expect(page.locator('.renewal-calendar')).not.toContainText(row.student.name)
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect(page.getByText('Đang tải lịch chăm sóc…', { exact: true })).toHaveCount(0)
+})
+
+test('unconfirmed reuse cannot append rows, while a transient failure retains the last visible page', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await mockRenewalQueue(page, { holdLists: ['page-two'] })
+  await page.getByRole('button', { name: 'Tải thêm hồ sơ' }).click()
+  await expect.poll(() => page.evaluate(() => Object.keys(window.renewalQueueFixture.listPending).length)).toBe(1)
+  await page.evaluate(() => window.renewalQueueFixture.listPending[1].resolve(window.renewalQueueFixture.base))
+  await expect(page.getByRole('alert')).toContainText('Chưa xác nhận được phạm vi dữ liệu')
+  await expect(page.locator('.renewal-table tbody tr')).toHaveCount(2)
+  await page.getByRole('button', { name: 'Tải thêm hồ sơ' }).click()
+  await expect.poll(() => page.evaluate(() => Object.keys(window.renewalQueueFixture.listPending).length)).toBe(2)
+  await page.evaluate(() => window.renewalQueueFixture.listPending[2].reject(Object.assign(new Error('Lỗi mạng tạm thời'), { code: 'functions/unavailable' })))
+  await expect(page.getByRole('alert')).toContainText('Lỗi mạng tạm thời')
+  await expect(page.locator('.renewal-table tbody tr')).toHaveCount(2)
+  await page.getByRole('button', { name: 'Tải thêm hồ sơ' }).click()
+  await expect.poll(() => page.evaluate(() => Object.keys(window.renewalQueueFixture.listPending).length)).toBe(3)
+  await page.evaluate(() => {
+    const state = window.renewalQueueFixture
+    state.listPending[3].resolve({ ...state.base, optionsReused: true, optionsMode: 'reuse', optionsScopeKey: 'wrong-scope' })
+  })
+  await expect(page.getByRole('alert')).toContainText('Phạm vi dữ liệu đã thay đổi')
+  await expect(page.locator('.renewal-table tbody tr')).toHaveCount(2)
+})
+
+test('a normal filters refresh with a new scope key closes a previously prepared wizard even without pageReset', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await mockRenewalQueue(page, { holdPrepare: ['source'] })
+  await page.evaluate(() => { window.renewalQueueFixture.behavior.holdLists = ['initial'] })
+  await renewQueueRow(page).click()
+  await expect.poll(() => page.evaluate(() => Object.keys(window.renewalQueueFixture.preparePending).length)).toBe(1)
+  await page.getByRole('button', { name: 'Làm mới', exact: true }).click()
+  await expect.poll(() => page.evaluate(() => Object.keys(window.renewalQueueFixture.listPending).length)).toBe(1)
+  await page.evaluate(() => window.renewalQueueFixture.preparePending[0].resolve())
+  await expect(page.getByRole('dialog', { name: 'Tạo hợp đồng tiếp theo' })).toBeVisible()
+  await page.evaluate(() => {
+    const state = window.renewalQueueFixture
+    state.listPending[1].resolve({ ...state.base, optionsScopeKey: 'renewal-options-v1:scope-two',
+      pageReset: false, rows: [], hasMore: false, nextCursor: null,
+      options: { packages: [], cashAccounts: [], branches: [], assignees: [] } })
+  })
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect(page.getByRole('status')).toContainText('Phạm vi truy cập đã thay đổi')
+  await expect(page.locator('.renewal-table tbody tr')).toHaveCount(0)
+  const calls = await page.evaluate(() => window.renewalQueueFixture.listCalls)
+  expect(calls.map((input: any) => input.optionsMode)).toEqual(['filters', 'filters'])
+})
+
+test('legacy list responses without scope keys retain filters-mode pagination compatibility', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await mockRenewalQueue(page)
+  await page.evaluate(() => { delete window.renewalQueueFixture.base.optionsScopeKey })
+  await page.getByRole('button', { name: 'Làm mới', exact: true }).click()
+  await expect.poll(() => page.evaluate(() => window.renewalQueueFixture.listCalls.length)).toBe(2)
+  await page.getByRole('button', { name: 'Tải thêm hồ sơ' }).click()
+  await expect(page.getByRole('button', { name: 'Tải thêm hồ sơ' })).toHaveCount(0)
+  await expect(page.locator('.renewal-table tbody tr')).toHaveCount(2)
+  await expect(page.getByRole('alert')).toHaveCount(0)
+  const calls = await page.evaluate(() => window.renewalQueueFixture.listCalls)
+  expect(calls.map((input: any) => input.optionsMode)).toEqual(['filters', 'filters', 'filters'])
+  expect(calls[2].cursor).toBe('page-two')
+  expect(calls[2].optionsScopeKey).toBeUndefined()
+})
+
+for (const code of ['functions/permission-denied', 'functions/unauthenticated']) test(`fresh ${code} clears old rows, filters and open dialogs`, async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await mockRenewalQueue(page, { holdLists: ['page-two'] })
+  await page.getByRole('button', { name: 'Tải thêm hồ sơ' }).click()
+  await expect.poll(() => page.evaluate(() => Object.keys(window.renewalQueueFixture.listPending).length)).toBe(1)
+  await page.locator('.renewal-table tbody tr').first().click()
+  await page.getByRole('dialog', { name: row.student.name }).getByRole('button', { name: 'Tạo tái ký' }).click()
+  await expect(page.getByRole('dialog', { name: 'Tạo hợp đồng tiếp theo' })).toBeVisible()
+  await page.evaluate(code => window.renewalQueueFixture.listPending[1].reject(Object.assign(new Error('Quyền truy cập đã thay đổi'), { code })), code)
+  await expect(page.getByRole('alert')).toContainText('Quyền truy cập đã thay đổi')
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect(page.locator('.renewal-table tbody tr')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Tải thêm hồ sơ' })).toHaveCount(0)
+  await expect(page.getByRole('combobox', { name: 'Chi nhánh', exact: true }).locator('option')).toHaveText(['Tất cả'])
 })

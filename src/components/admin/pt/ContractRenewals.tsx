@@ -126,6 +126,7 @@ export default function ContractRenewals({ onNavigate }: Props) {
   const detailGeneration = useRef(0)
   const renewalGeneration = useRef(0)
   const reportGeneration = useRef(0)
+  const calendarGeneration = useRef(0)
 
   useEffect(() => {
     mounted.current = true
@@ -135,12 +136,22 @@ export default function ContractRenewals({ onNavigate }: Props) {
       detailGeneration.current += 1
       renewalGeneration.current += 1
       reportGeneration.current += 1
+      calendarGeneration.current += 1
     }
   }, [])
 
   const listInput = useMemo<RenewalListInput>(() => ({
     optionsMode: 'filters', pageSize: 30, search: search.trim(), risk, stage, sla, approval, branchId, assignedSalesId: assigneeId, sort, segment,
   }), [approval, assigneeId, branchId, risk, search, segment, sla, sort, stage])
+
+  const clearScopedViews = useCallback(() => {
+    detailGeneration.current += 1; renewalGeneration.current += 1
+    reportGeneration.current += 1; calendarGeneration.current += 1
+    setSelectedCaseIds(new Set()); setSelectedCaseId(null); setDetail(null); setDetailLoading(false)
+    setRenewing(null); setTransferOpen(false); setCalendarItems([]); setAnalytics(null)
+    setCalendarLoading(false); setReportLoading(false)
+    setBranchId('all'); setAssigneeId('all')
+  }, [])
 
   const load = useCallback(async (append = false) => {
     if (!mounted.current) return
@@ -149,13 +160,43 @@ export default function ContractRenewals({ onNavigate }: Props) {
     append ? setLoadingMore(true) : setLoading(true)
     setError('')
     try {
-      const response = await listContractRenewalCases({ ...listInput, cursor: append ? data?.nextCursor : null })
+      // Only load-more reuses already visible filter dictionaries. Every
+      // initial load, filter change, refresh and mutation reads them afresh.
+      const reuseOptions = append && data?.nextCursor && data.optionsScopeKey
+        && (data.optionsMode === 'filters' || data.optionsMode === 'reuse')
+      const response = await listContractRenewalCases({ ...listInput,
+        cursor: append ? data?.nextCursor : null,
+        ...(reuseOptions ? { optionsMode: 'reuse', optionsScopeKey: data.optionsScopeKey } : {}),
+      })
       if (!isCurrent()) return
-      setData(response)
-      setRows((current) => append ? [...current, ...response.rows] : response.rows)
-    } catch (cause) { if (isCurrent()) setError(cause instanceof Error ? cause.message : 'Không thể tải hàng đợi tái ký.') }
+      if (response.optionsReused && (!reuseOptions || response.pageReset
+          || response.optionsScopeKey !== data?.optionsScopeKey || response.actorUid !== data.actorUid)) {
+        throw new Error('Phạm vi dữ liệu đã thay đổi. Vui lòng tải lại danh sách.')
+      }
+      if (reuseOptions && !response.optionsReused && !response.pageReset) {
+        throw new Error('Chưa xác nhận được phạm vi dữ liệu. Vui lòng tải lại danh sách.')
+      }
+      const resetScope = response.pageReset || Boolean(data?.optionsScopeKey && response.optionsScopeKey
+        && data.optionsScopeKey !== response.optionsScopeKey)
+      setData(response.optionsReused && data ? { ...response, options: data.options } : response)
+      setRows((current) => append && !resetScope ? [...current, ...response.rows] : response.rows)
+      if (resetScope) {
+        // A fresh authority check rejected the old scope key. Do not append
+        // new-scope rows or keep old dialogs, including on a normal refresh.
+        clearScopedViews()
+        setNotice('Phạm vi truy cập đã thay đổi; danh sách đã được tải lại.')
+      }
+    } catch (cause) {
+      if (!isCurrent()) return
+      const code = cause && typeof cause === 'object' && 'code' in cause ? cause.code : null
+      if (code === 'functions/permission-denied' || code === 'functions/unauthenticated'
+          || code === 'permission-denied' || code === 'unauthenticated') {
+        clearScopedViews(); setData(null); setRows([]); setTab('queue')
+      }
+      setError(cause instanceof Error ? cause.message : 'Không thể tải hàng đợi tái ký.')
+    }
     finally { if (isCurrent()) { setLoading(false); setLoadingMore(false) } }
-  }, [data?.nextCursor, listInput])
+  }, [clearScopedViews, data, listInput])
 
   useEffect(() => {
     // Invalidate the old filter/page immediately, including the debounce gap.
@@ -226,12 +267,13 @@ export default function ContractRenewals({ onNavigate }: Props) {
 
   useEffect(() => {
     if (tab !== 'calendar') return
-    let active = true
+    const generation = ++calendarGeneration.current
+    const isCurrent = () => mounted.current && generation === calendarGeneration.current
     const today = vietnamToday()
     setCalendarLoading(true)
-    void listRenewalCalendar({ from: today, to: addDays(today, 45) }).then((result) => { if (active) setCalendarItems(result.items) }).catch((cause) => { if (active) setError(cause instanceof Error ? cause.message : 'Không thể tải lịch chăm sóc.') }).finally(() => { if (active) setCalendarLoading(false) })
-    return () => { active = false }
-  }, [tab])
+    void listRenewalCalendar({ from: today, to: addDays(today, 45) }).then((result) => { if (isCurrent()) setCalendarItems(result.items) }).catch((cause) => { if (isCurrent()) setError(cause instanceof Error ? cause.message : 'Không thể tải lịch chăm sóc.') }).finally(() => { if (isCurrent()) setCalendarLoading(false) })
+    return () => { calendarGeneration.current += 1 }
+  }, [data?.optionsScopeKey, tab])
 
   const loadReport = useCallback(async () => {
     if (!mounted.current) return

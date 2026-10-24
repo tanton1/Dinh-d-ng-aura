@@ -1,6 +1,5 @@
 import { httpsCallable } from 'firebase/functions'
 import { firebaseFunctions, firebaseStudent360Functions } from '../lib/firebaseFunctions'
-import { callReadOnlyFunction } from './readOnlyCallableService'
 
 export type RenewalRiskCategory = 'expired' | 'exhausted' | 'critical' | 'upcoming' | 'early'
 export type RenewalStage = 'uncontacted' | 'contacted' | 'interested' | 'quote_sent' | 'follow_up' | 'won' | 'lost'
@@ -110,7 +109,11 @@ export interface RenewalPipelineResponse {
     assignees: RenewalAssigneeOption[]
   }
   /** Missing on older backends; filters mode intentionally omits wizard-only options. */
-  optionsMode?: 'full' | 'filters'
+  optionsMode?: 'full' | 'filters' | 'reuse'
+  /** Authority-bound filter dictionaries only; never prices/payment options. */
+  optionsScopeKey?: string
+  optionsReused?: boolean
+  pageReset?: boolean
   packages: RenewalPackageOption[]
   scope: RenewalScope
   audience: RenewalAudience
@@ -178,7 +181,8 @@ export interface RenewalAnalytics {
 
 export interface RenewalListInput {
   /** Opt in only for list/filter consumers; the legacy default remains full. */
-  optionsMode?: 'full' | 'filters'
+  optionsMode?: 'full' | 'filters' | 'reuse'
+  optionsScopeKey?: string
   pageSize?: number
   cursor?: string | null
   search?: string
@@ -228,7 +232,8 @@ export async function listContractRenewalPipeline() {
 }
 
 export async function getContractRenewalCaseDetail(caseId: string) {
-  return callReadOnlyFunction<{ caseId: string }, RenewalCaseDetail>('getContractRenewalCaseDetail', { caseId })
+  const { callSecondaryRead } = await import('./secondaryReadService')
+  return callSecondaryRead<{ caseId: string }, RenewalCaseDetail>('getContractRenewalCaseDetail', { caseId })
 }
 
 export async function recordContractRenewalActivity(input: {
@@ -325,11 +330,13 @@ export async function renewPtContract(input: {
 }
 
 export async function listRenewalCalendar(input: { from: string; to: string }) {
-  return callReadOnlyFunction<typeof input, { from: string; to: string; items: RenewalPipelineRow[]; truncated: boolean }>('listRenewalCalendar', input)
+  const { callSecondaryRead } = await import('./secondaryReadService')
+  return callSecondaryRead<typeof input, { from: string; to: string; items: RenewalPipelineRow[]; truncated: boolean }>('listRenewalCalendar', input)
 }
 
 export async function getRenewalAnalytics(input: { from: string; to: string }) {
-  return callReadOnlyFunction<typeof input, RenewalAnalytics>('getRenewalAnalytics', input)
+  const { callSecondaryRead } = await import('./secondaryReadService')
+  return callSecondaryRead<typeof input, RenewalAnalytics>('getRenewalAnalytics', input)
 }
 
 export async function refreshContractRenewalQueue(apply: boolean) {

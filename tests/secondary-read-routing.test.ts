@@ -108,14 +108,21 @@ const operations = [
   { group: 'finance', name: 'listFinanceLedger', region: 'asia-east1', args: [{ branchId: 'branch-one', pageSize: 23, status: 'posted', cursor: 'opaque-cursor', types: ['payment'] }], input: { pageSize: 23, status: 'posted', branchId: 'branch-one', cursor: 'opaque-cursor', types: ['payment'] } },
   { group: 'renewal', name: 'listRenewalMessageTemplates', region: 'asia-east1', args: [], input: {} },
   { group: 'renewal', name: 'listContractRenewalCases', region: 'asia-east1', args: [{ pageSize: 50, optionsMode: 'filters', cursor: 'case-one' }], input: { pageSize: 50, optionsMode: 'filters', cursor: 'case-one' } },
+  { group: 'renewal', name: 'getContractRenewalCaseDetail', region: 'asia-east1', args: ['case-one'], input: { caseId: 'case-one' } },
+  { group: 'renewal', name: 'listRenewalCalendar', region: 'asia-east1', args: [{ from: '2026-10-01', to: '2026-10-31' }], input: { from: '2026-10-01', to: '2026-10-31' } },
+  { group: 'renewal', name: 'getRenewalAnalytics', region: 'asia-east1', args: [{ from: '2026-10-01', to: '2026-10-31' }], input: { from: '2026-10-01', to: '2026-10-31' } },
   { group: 'loyalty', name: 'listLoyaltyAccounts', region: 'asia-southeast2', args: [{ pageSize: 100, studentId: 'student-one' }], input: { pageSize: 100, studentId: 'student-one' } },
+  { group: 'loyalty', name: 'listLoyaltyRedemptions', region: 'asia-southeast2', args: ['pending'], input: { status: 'pending' } },
+  { group: 'loyalty', name: 'listLoyaltyAdjustments', region: 'asia-southeast2', args: [], input: { status: 'pending_approval' } },
+  { group: 'loyalty', name: 'listLoyaltyReconciliationIssues', region: 'asia-southeast2', args: [], input: { status: 'open' } },
+  { group: 'exercise', name: 'listExerciseCatalog', region: 'asia-southeast2', args: [{ query: 'squat', pageSize: 12, cursor: 'exercise-one' }], input: { query: 'squat', pageSize: 12, cursor: 'exercise-one' } },
   { group: 'exercise', name: 'getExerciseCatalogItem', region: 'asia-southeast2', args: ['exercise-one'], input: { exerciseId: 'exercise-one' } },
   { group: 'nutrition', name: 'getInternalNutritionCatalogItem', region: 'asia-southeast2', args: ['food-one'], input: { id: 'food-one' } },
 ].map((operation) => ({ ...operation, timeout: operation.name === 'listRenewalMessageTemplates' ? 18_000 : operation.name === 'getInternalNutritionCatalogItem' ? 30_000 : 70_000 }))
 const plain = (value: unknown) => JSON.parse(JSON.stringify(value))
 const invoke = (service: any, operation: typeof operations[number]) => service[operation.group][operation.name](...operation.args)
 
-test('all ten real service callers use the correct regional export with one bounded request', async () => {
+test('all seventeen real service callers use the correct regional export with one bounded request', async () => {
   const backend = readFileSync('functions/index.js', 'utf8')
   for (const operation of operations) {
     const { service, requests, issues } = await fixture()
@@ -278,6 +285,30 @@ test('all callers retain response parsing, defaults and staged exercise-detail c
   }
 })
 
+test('regional exercise listing preserves populated pages, cursor metadata and full coaching fields', async () => {
+  const response = { schemaVersion: 2, items: [
+    { id: 'exercise-one', nameVi: ' Bài tập chân ', status: 'published', instructionsVi: ['Giữ lưng thẳng'],
+      cuesVi: ['Thở đều'], breathingVi: 'Thở ra khi đứng lên', bodyParts: ['legs'],
+      media: { images: [{ id: 'image-one', url: 'https://example.com/one.webp', role: 'start', order: 0 }], videos: [] } },
+    { id: 'invalid-no-name' },
+  ], hasMore: true, nextCursor: 'last-inspected', total: null, scanned: 37, pageSize: 36 }
+  const { service, requests } = await fixture({ response })
+  const page = await service.exercise.listExerciseCatalogPage({ pageSize: 36 })
+  assert.equal(page.items.length, 1)
+  assert.equal(page.items[0].nameVi, 'Bài tập chân')
+  assert.deepEqual(plain(page.items[0].instructionsVi), ['Giữ lưng thẳng'])
+  assert.deepEqual(plain(page.items[0].cuesVi), ['Thở đều'])
+  assert.equal(page.items[0].media.images[0].url, 'https://example.com/one.webp')
+  assert.equal(page.hasMore, true)
+  assert.equal(page.nextCursor, 'last-inspected')
+  assert.equal(page.total, null)
+  assert.equal(page.scanned, 37)
+  assert.equal(page.pageSize, 36)
+  assert.equal(requests[0].name, 'listExerciseCatalogRegional')
+  assert.equal(requests[0].region, 'asia-southeast2')
+  assert.equal(requests.length, 1)
+})
+
 test('concurrent and repeated money reads are not cached or coalesced, including across mutation', async () => {
   const { service, requests } = await fixture()
   await Promise.all([service.cashbook.listCashAccounts(), service.cashbook.listCashAccounts()])
@@ -332,11 +363,11 @@ test('actual mutation callers remain single-attempt with their existing region a
 test('out-of-wave reads retain their original wire endpoints', async () => {
   const { service, requests } = await fixture()
   await service.cashbook.listReceiptVouchers({ pageSize: 7 })
-  await service.exercise.listExerciseCatalogPage({ pageSize: 12 })
+  await service.loyalty.getStudentLoyaltySummary('student-one')
   await service.nutrition.listInternalNutritionCatalog({ limit: 11 })
   assert.deepEqual(requests.map(({ region, name }) => ({ region, name })), [
     { region: 'asia-southeast1', name: 'listReceiptVouchers' },
-    { region: 'asia-southeast1', name: 'listExerciseCatalog' },
+    { region: 'asia-southeast2', name: 'getStudentLoyaltySummaryRegional' },
     { region: 'asia-southeast1', name: 'listInternalNutritionCatalog' },
   ])
 })

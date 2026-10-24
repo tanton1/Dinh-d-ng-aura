@@ -83,8 +83,9 @@ export function giveSessionKudos(input: { sessionId: string; studentId: string; 
   return call<typeof input, { sessionId: string; studentId: string; xp: number; badge: string }>('giveSessionKudos', input)
 }
 
-export function listLoyaltyRedemptions(status = '') {
-  return read<{ status: string }, { redemptions: Array<Record<string, unknown> & { id: string; status: string }> }>('listLoyaltyRedemptions', { status })
+export async function listLoyaltyRedemptions(status = '') {
+  const { callSecondaryRead } = await import('../../services/secondaryReadService')
+  return callSecondaryRead<{ status: string }, { redemptions: Array<Record<string, unknown> & { id: string; status: string }> }>('listLoyaltyRedemptions', { status })
 }
 
 export async function listLoyaltyAccounts(input: { pageSize?: number; cursor?: string; studentId?: string } = {}) {
@@ -140,12 +141,14 @@ export function approveAmbassadorPayout(studentId: string) {
   return call<{ studentId: string }, { payoutId: string; amountVnd: number; status: string }>('approveAmbassadorPayout', { studentId })
 }
 
-export function listLoyaltyReconciliationIssues(status = 'open') {
-  return read<{ status: string }, { issues: LoyaltyReconciliationIssue[] }>('listLoyaltyReconciliationIssues', { status })
+export async function listLoyaltyReconciliationIssues(status = 'open') {
+  const { callSecondaryRead } = await import('../../services/secondaryReadService')
+  return callSecondaryRead<{ status: string }, { issues: LoyaltyReconciliationIssue[] }>('listLoyaltyReconciliationIssues', { status })
 }
 
-export function listLoyaltyAdjustments(status = 'pending_approval') {
-  return read<{ status: string }, { adjustments: LoyaltyAdjustment[] }>('listLoyaltyAdjustments', { status })
+export async function listLoyaltyAdjustments(status = 'pending_approval') {
+  const { callSecondaryRead } = await import('../../services/secondaryReadService')
+  return callSecondaryRead<{ status: string }, { adjustments: LoyaltyAdjustment[] }>('listLoyaltyAdjustments', { status })
 }
 
 export function reviewLoyaltyAdjustment(adjustmentId: string, decision: 'approve' | 'reject') {

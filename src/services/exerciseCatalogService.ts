@@ -240,9 +240,9 @@ function parseExternalExercise(value: unknown): ExternalExerciseCandidate | null
 
 export async function listExerciseCatalogPage(filters: CatalogFilters = {}): Promise<ExerciseCatalogPage> {
   if (!firebaseFunctions) return { items: [], hasMore: false, nextCursor: null, total: 0, scanned: 0, pageSize: Math.max(12, filters.pageSize || 36) }
-  const callable = httpsCallable<CatalogFilters, unknown>(firebaseFunctions, 'listExerciseCatalog')
-  const response = await callable(filters)
-  const payload = record(response.data)
+  const { callSecondaryRead } = await import('./secondaryReadService')
+  const response = await callSecondaryRead<CatalogFilters, unknown>('listExerciseCatalog', filters)
+  const payload = record(response)
   const items = Array.isArray(payload?.items) ? payload.items.flatMap((item) => {
     const parsed = parseCatalogItem(item)
     return parsed ? [parsed] : []
