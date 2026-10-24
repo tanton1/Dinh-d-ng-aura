@@ -40,6 +40,42 @@ test('a commit during bootstrap is recovered from the first server marker snapsh
   await expect(page.getByRole('button', { name: /NEW-AFTER-BOOTSTRAP/ })).toBeVisible()
 })
 
+test('SLA boundaries update locally and reschedule after a changed deadline without periodic reads', async ({ page }) => {
+  await start(page, { slaMillis: 60_000 })
+  await expect(page.getByRole('button', { name: /ORDER-A/ })).toBeVisible()
+  await expect(page.getByText('Sắp trễ SLA')).toBeHidden()
+  await page.clock.runFor(61_000)
+  await expect(page.getByText('Sắp trễ SLA')).toBeVisible()
+  expect(await reads(page)).toBe(1)
+  await page.evaluate(() => { (window as any).costState.slaMillis = 120_000 })
+  await emit(page, 1); await settle(page)
+  await expect(page.getByText('Sắp trễ SLA')).toBeHidden()
+  expect(await reads(page)).toBe(2)
+  await page.clock.runFor(121_000)
+  await expect(page.getByText('Sắp trễ SLA')).toBeVisible()
+  expect(await reads(page)).toBe(2)
+})
+
+test('resuming after a suspended deadline updates the SLA locally without a data revision', async ({ page }) => {
+  await start(page, { slaMillis: 60_000 })
+  await expect(page.getByRole('button', { name: /ORDER-A/ })).toBeVisible()
+  await page.evaluate(() => {
+    Object.defineProperty(document, 'hidden', { configurable: true, value: true })
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' })
+    document.dispatchEvent(new Event('visibilitychange'))
+  })
+  const later = await page.evaluate(() => Date.now() + 120_000)
+  await page.clock.setSystemTime(later)
+  await page.evaluate(() => {
+    Object.defineProperty(document, 'hidden', { configurable: true, value: false })
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' })
+    document.dispatchEvent(new Event('visibilitychange'))
+  })
+  await expect(page.getByText('Sắp trễ SLA')).toBeVisible()
+  await page.clock.runFor(600_000)
+  expect(await reads(page)).toBe(1)
+})
+
 test('a later revision during a request queues one follow-up and never overlaps reads', async ({ page }) => {
   await start(page)
   await expect(page.getByRole('heading', { name: 'Chào Test driver' })).toBeVisible()

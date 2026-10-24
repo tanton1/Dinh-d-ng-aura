@@ -35,7 +35,8 @@ const read = async (kind: keyof typeof state.reads) => {
 export const listMyEatCleanDeliveryJobs = async () => {
   const accountId = deliveryState.driverAccount, scope = deliveryState.driverScope
   const path = scope === 'dispatch' ? 'eatCleanWorkspaceChanges/dispatch' : `eatCleanDriverChanges/${accountId}`
-  const result = { jobs: [{ ...job, orderCode: deliveryState.jobCode || job.orderCode, status: deliveryState.jobStatus || job.status }], driver: { ...driver, id: accountId }, readiness,
+  const result = { jobs: [{ ...job, orderCode: deliveryState.jobCode || job.orderCode, status: deliveryState.jobStatus || job.status,
+    promisedAt: deliveryState.slaMillis ? new Date(Date.now() + deliveryState.slaMillis).toISOString() : undefined }], driver: { ...driver, id: accountId }, readiness,
     workspaceSync: deliveryState.omitSync ? undefined : { schemaVersion: 1, accountId, scope, version: 'fixture', userVersion: deliveryVersion(deliveryState.deliveryVersions[path] || 0), policyVersion: deliveryVersion(deliveryState.deliveryVersions['eatCleanWorkspaceChanges/config'] || 0) } }
   await read('driver')
   if (deliveryState.driverError) throw Object.assign(new Error(deliveryState.driverError), { code: deliveryState.driverError })

@@ -28,6 +28,7 @@ import {
 import type { EatCleanDeliveryJob, EatCleanDeliveryJobStatus, EatCleanDriverWorkspace } from './types'
 import { useDriverLocationPublisher } from './useDriverLocationPublisher'
 import { useDeliveryWorkspace } from './useDeliveryWorkspace'
+import { useLocalTimeBoundaries } from '../../hooks/useLocalTimeBoundaries'
 import './DeliveryPage.css'
 
 interface DeliveryPageProps {
@@ -83,6 +84,9 @@ export default function DeliveryPage({ driverId, displayName, onSignOut }: Deliv
   const [error, setError] = useState('')
   const [action, setAction] = useState('')
   const [otp, setOtp] = useState('')
+  const boundaryNow = useLocalTimeBoundaries((workspace?.jobs || [])
+    .filter(job => !['completed', 'cancelled'].includes(job.status))
+    .map(job => Date.parse(job.promisedAt || '') + 1))
 
   const selectedJob = useMemo(
     () => workspace?.jobs.find((job) => job.id === selectedJobId) ?? null,
@@ -212,6 +216,7 @@ export default function DeliveryPage({ driverId, displayName, onSignOut }: Deliv
   }
 
   const activeJobs = workspace.jobs.filter((job) => !['completed', 'cancelled'].includes(job.status))
+    .map(job => ({ ...job, isLate: job.isLate || Date.parse(job.promisedAt || '') < boundaryNow }))
   const completedJobs = workspace.jobs.filter((job) => job.status === 'completed')
   return (
     <main className="driver-page">
