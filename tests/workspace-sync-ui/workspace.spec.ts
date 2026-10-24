@@ -14,7 +14,7 @@ async function open(page: Page, screen: string, time = '2026-10-23T05:00:00Z') {
   await page.clock.runFor(250)
 }
 
-for (const screen of ['home', 'schedule', 'trainer']) {
+for (const screen of ['home', 'schedule', 'trainer', 'availability']) {
   test(`${screen}: one hour idle has no requests; relevant changes coalesce once`, async ({ page }) => {
     await open(page, screen)
     await page.clock.fastForward(3_600_000)
@@ -76,12 +76,12 @@ test('listener failures show retry and never create a polling loop', async ({ pa
   await expect(page.getByText('Chưa cập nhật được lịch mới nhất.')).toHaveCount(0)
 })
 
-for (const screen of ['home', 'schedule', 'trainer']) test(`${screen}: Vietnam midnight refreshes exactly once`, async ({ page }) => {
+for (const screen of ['home', 'schedule', 'trainer', 'availability']) test(`${screen}: Vietnam midnight refreshes exactly once`, async ({ page }) => {
   await open(page, screen, '2026-10-23T16:59:58Z')
   await page.clock.runFor(3000)
   await expect.poll(() => count(page)).toBe(2)
   const inputs = await page.evaluate(() => (window as any).workspaceCalls.map((call: any) => call.input))
-  if (screen !== 'trainer') expect(inputs[0]).not.toEqual(inputs[1])
+  if (!['trainer', 'availability'].includes(screen)) expect(inputs[0]).not.toEqual(inputs[1])
   await page.clock.runFor(3_600_000)
   expect(await count(page)).toBe(2)
 })

@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { normalizeFinanceLedgerSummary } from '../src/utils/financeLedgerNormalization'
+import { normalizeFinanceLedgerPage, normalizeFinanceLedgerSummary } from '../src/utils/financeLedgerNormalization'
 
 test('finance summary never exposes NaN when a rolling callable revision omits new fields', () => {
   const summary = normalizeFinanceLedgerSummary({
@@ -39,4 +39,9 @@ test('finance summary normalises numeric strings and rejects invalid numeric val
   assert.equal(summary.recognisedRevenue, 80_000)
   assert.equal(summary.operatingResult, 60_000)
   assert.equal(summary.transactionCount, 4)
+})
+
+test('an intentionally omitted ledger summary remains absent instead of showing zero money', () => {
+  assert.equal(normalizeFinanceLedgerPage({ entries: [], summary: null }).summary, null)
+  assert.equal(normalizeFinanceLedgerPage({ entries: [], summary: { cashNet: '125000' } }).summary?.cashNet, 125000)
 })

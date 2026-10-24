@@ -1,0 +1,777 @@
+{
+  "schemaVersion": 1,
+  "observedAt": "2026-10-24T19:11:41.435Z",
+  "project": "gen-lang-client-0815966909",
+  "database": "ai-studio-aurafitnesselear-0f7609b4-b8d1-4fb3-9d62-99a2c03e1ce7",
+  "range": {
+    "start": "2026-10-17T17:00:00.000Z",
+    "end": "2026-10-24T17:00:00.000Z",
+    "timeZone": "Asia/Ho_Chi_Minh",
+    "dates": [
+      "2026-10-18",
+      "2026-10-19",
+      "2026-10-20",
+      "2026-10-21",
+      "2026-10-22",
+      "2026-10-23",
+      "2026-10-24"
+    ]
+  },
+  "firestore": [
+    {
+      "type": "firestore.googleapis.com/document/read_ops_count",
+      "status": "observed",
+      "groups": [
+        {
+          "labels": {
+            "type": "PIPELINE"
+          },
+          "daily": {
+            "2026-10-18": 2519597,
+            "2026-10-19": 1704424,
+            "2026-10-20": 1509238,
+            "2026-10-21": 1810895,
+            "2026-10-22": 2327749,
+            "2026-10-23": 2044225,
+            "2026-10-24": 1841722
+          },
+          "points": 168,
+          "total": 13757850
+        },
+        {
+          "labels": {
+            "type": "LOOKUP"
+          },
+          "daily": {
+            "2026-10-18": 231798,
+            "2026-10-19": 152297,
+            "2026-10-20": 174717,
+            "2026-10-21": 217139,
+            "2026-10-22": 378421,
+            "2026-10-23": 360685,
+            "2026-10-24": 505279
+          },
+          "points": 168,
+          "total": 2020336
+        },
+        {
+          "labels": {
+            "type": "NOT_FOUND"
+          },
+          "daily": {
+            "2026-10-18": 43403,
+            "2026-10-19": 18871,
+            "2026-10-20": 17676,
+            "2026-10-21": 22075,
+            "2026-10-22": 87647,
+            "2026-10-23": 90673,
+            "2026-10-24": 158864
+          },
+          "points": 168,
+          "total": 439209
+        }
+      ]
+    },
+    {
+      "type": "firestore.googleapis.com/document/write_ops_count",
+      "status": "observed",
+      "groups": [
+        {
+          "labels": {
+            "op": "UPDATE"
+          },
+          "daily": {
+            "2026-10-18": 12033,
+            "2026-10-19": 6630,
+            "2026-10-20": 5803,
+            "2026-10-21": 5261,
+            "2026-10-22": 7633,
+            "2026-10-23": 8619,
+            "2026-10-24": 63510
+          },
+          "points": 168,
+          "total": 109489
+        },
+        {
+          "labels": {
+            "op": "CREATE"
+          },
+          "daily": {
+            "2026-10-18": 5666,
+            "2026-10-19": 2344,
+            "2026-10-20": 2132,
+            "2026-10-21": 2364,
+            "2026-10-22": 2002,
+            "2026-10-23": 36748,
+            "2026-10-24": 7234
+          },
+          "points": 168,
+          "total": 58490
+        }
+      ]
+    },
+    {
+      "type": "firestore.googleapis.com/api/billable_read_units",
+      "status": "observed",
+      "groups": [
+        {
+          "labels": {
+            "service": "firestore.googleapis.com",
+            "api_method": "Query"
+          },
+          "daily": {
+            "2026-10-18": 6764129,
+            "2026-10-19": 5154106,
+            "2026-10-20": 5141921,
+            "2026-10-21": 5970249,
+            "2026-10-22": 10698730,
+            "2026-10-23": 13868572,
+            "2026-10-24": 49486530
+          },
+          "points": 168,
+          "total": 97084237
+        },
+        {
+          "labels": {
+            "api_method": "RunQuery",
+            "service": "firestore.googleapis.com"
+          },
+          "daily": {
+            "2026-10-18": 6764129,
+            "2026-10-19": 5154106,
+            "2026-10-20": 5141921,
+            "2026-10-21": 5970249,
+            "2026-10-22": 10698730,
+            "2026-10-23": 13868572,
+            "2026-10-24": 49486530
+          },
+          "points": 168,
+          "total": 97084237
+        },
+        {
+          "labels": {
+            "api_method": "BatchGetDocuments",
+            "service": "firestore.googleapis.com"
+          },
+          "daily": {
+            "2026-10-18": 340716,
+            "2026-10-19": 180797,
+            "2026-10-20": 206456,
+            "2026-10-21": 249896,
+            "2026-10-22": 595492,
+            "2026-10-23": 634250,
+            "2026-10-24": 1134336
+          },
+          "points": 168,
+          "total": 3341943
+        },
+        {
+          "labels": {
+            "api_method": "Listen",
+            "service": "FirestoreStreaming"
+          },
+          "daily": {
+            "2026-10-18": 108686,
+            "2026-10-19": 56759,
+            "2026-10-20": 94219,
+            "2026-10-21": 58829,
+            "2026-10-22": 78297,
+            "2026-10-23": 100085,
+            "2026-10-24": 56543
+          },
+          "points": 156,
+          "total": 553418
+        },
+        {
+          "labels": {
+            "service": "firestore.googleapis.com",
+            "api_method": "ListDocuments"
+          },
+          "daily": {
+            "2026-10-18": 5871,
+            "2026-10-19": 10499,
+            "2026-10-20": 313,
+            "2026-10-21": 313,
+            "2026-10-22": 313,
+            "2026-10-23": 313,
+            "2026-10-24": 313
+          },
+          "points": 23,
+          "total": 17935
+        },
+        {
+          "labels": {
+            "api_method": "RunAggregationQuery",
+            "service": "firestore.googleapis.com"
+          },
+          "daily": {
+            "2026-10-18": 1551,
+            "2026-10-19": 1632,
+            "2026-10-20": 1098,
+            "2026-10-21": null,
+            "2026-10-22": 694,
+            "2026-10-23": 615,
+            "2026-10-24": 963
+          },
+          "points": 38,
+          "total": 6553
+        },
+        {
+          "labels": {
+            "service": "firestore.googleapis.com",
+            "api_method": "GetDocument"
+          },
+          "daily": {
+            "2026-10-18": 1341,
+            "2026-10-19": 71,
+            "2026-10-20": null,
+            "2026-10-21": null,
+            "2026-10-22": 175,
+            "2026-10-23": 15,
+            "2026-10-24": 2
+          },
+          "points": 22,
+          "total": 1604
+        },
+        {
+          "labels": {
+            "api_method": "ListCollectionIds",
+            "service": "firestore.googleapis.com"
+          },
+          "daily": {
+            "2026-10-18": 7,
+            "2026-10-19": 0,
+            "2026-10-20": 14,
+            "2026-10-21": 7,
+            "2026-10-22": 7,
+            "2026-10-23": 14,
+            "2026-10-24": 7
+          },
+          "points": 9,
+          "total": 56
+        }
+      ]
+    },
+    {
+      "type": "firestore.googleapis.com/api/billable_write_units",
+      "status": "observed",
+      "groups": [
+        {
+          "labels": {
+            "service": "firestore.googleapis.com",
+            "api_method": "Commit"
+          },
+          "daily": {
+            "2026-10-18": 98516,
+            "2026-10-19": 25020,
+            "2026-10-20": 21342,
+            "2026-10-21": 46877,
+            "2026-10-22": 1667150,
+            "2026-10-23": 2526591,
+            "2026-10-24": 959886
+          },
+          "points": 168,
+          "total": 5345382
+        },
+        {
+          "labels": {
+            "service": "firestore.googleapis.com",
+            "api_method": "BatchWrite"
+          },
+          "daily": {
+            "2026-10-18": 1266,
+            "2026-10-19": 1275,
+            "2026-10-20": 1280,
+            "2026-10-21": 1288,
+            "2026-10-22": 1293,
+            "2026-10-23": 1273,
+            "2026-10-24": null
+          },
+          "points": 6,
+          "total": 7675
+        },
+        {
+          "labels": {
+            "api_method": "Write",
+            "service": "FirestoreStreaming"
+          },
+          "daily": {
+            "2026-10-18": 47,
+            "2026-10-19": 21,
+            "2026-10-20": 8,
+            "2026-10-21": 51,
+            "2026-10-22": 28,
+            "2026-10-23": 19,
+            "2026-10-24": 155
+          },
+          "points": 42,
+          "total": 329
+        },
+        {
+          "labels": {
+            "service": "firestore.googleapis.com",
+            "api_method": "CreateDocument"
+          },
+          "daily": {
+            "2026-10-18": null,
+            "2026-10-19": null,
+            "2026-10-20": null,
+            "2026-10-21": null,
+            "2026-10-22": 1,
+            "2026-10-23": null,
+            "2026-10-24": null
+          },
+          "points": 2,
+          "total": 1
+        }
+      ]
+    },
+    {
+      "type": "firestore.googleapis.com/api/billable_realtime_read_units",
+      "status": "observed",
+      "groups": [
+        {
+          "labels": {
+            "api_method": "Listen",
+            "service": "firestore.googleapis.com"
+          },
+          "daily": {
+            "2026-10-18": 16870,
+            "2026-10-19": 976,
+            "2026-10-20": 1532,
+            "2026-10-21": 2021,
+            "2026-10-22": 856,
+            "2026-10-23": 6762,
+            "2026-10-24": 382
+          },
+          "points": 126,
+          "total": 29399
+        }
+      ]
+    }
+  ],
+  "cloudRun": {
+    "serviceRegionPairs": 244,
+    "top20ByAttempts": [
+      {
+        "service": "syncstudent360operationalactions",
+        "region": "asia-southeast1",
+        "totalAttempts": 7508,
+        "statusCodes": {
+          "200": 5568,
+          "429": 1831,
+          "500": 61,
+          "503": 48
+        },
+        "daily": {
+          "2026-10-18": 902,
+          "2026-10-19": 2095,
+          "2026-10-20": 742,
+          "2026-10-21": 1007,
+          "2026-10-22": 1031,
+          "2026-10-23": 673,
+          "2026-10-24": 1058
+        }
+      },
+      {
+        "service": "trackproductevent",
+        "region": "asia-southeast1",
+        "totalAttempts": 5928,
+        "statusCodes": {
+          "200": 4375,
+          "204": 1524,
+          "401": 16,
+          "500": 7,
+          "503": 6
+        },
+        "daily": {
+          "2026-10-18": 2816,
+          "2026-10-19": 1005,
+          "2026-10-20": 850,
+          "2026-10-21": 739,
+          "2026-10-22": 433,
+          "2026-10-23": 85,
+          "2026-10-24": 0
+        }
+      },
+      {
+        "service": "listmystudentptschedule",
+        "region": "asia-southeast1",
+        "totalAttempts": 5789,
+        "statusCodes": {
+          "200": 4458,
+          "204": 1094,
+          "401": 1,
+          "403": 196,
+          "500": 22,
+          "503": 18
+        },
+        "daily": {
+          "2026-10-18": 4073,
+          "2026-10-19": 1467,
+          "2026-10-20": 240,
+          "2026-10-21": 0,
+          "2026-10-22": 3,
+          "2026-10-23": 2,
+          "2026-10-24": 4
+        }
+      },
+      {
+        "service": "syncstudent360renewal",
+        "region": "asia-southeast1",
+        "totalAttempts": 3779,
+        "statusCodes": {
+          "200": 1857,
+          "429": 1003,
+          "500": 919
+        },
+        "daily": {
+          "2026-10-18": 555,
+          "2026-10-19": 576,
+          "2026-10-20": 546,
+          "2026-10-21": 560,
+          "2026-10-22": 546,
+          "2026-10-23": 542,
+          "2026-10-24": 454
+        }
+      },
+      {
+        "service": "getmytrainerworkspace",
+        "region": "asia-southeast1",
+        "totalAttempts": 3250,
+        "statusCodes": {
+          "200": 2318,
+          "204": 767,
+          "401": 4,
+          "500": 111,
+          "503": 50
+        },
+        "daily": {
+          "2026-10-18": 1750,
+          "2026-10-19": 906,
+          "2026-10-20": 275,
+          "2026-10-21": 108,
+          "2026-10-22": 125,
+          "2026-10-23": 79,
+          "2026-10-24": 7
+        }
+      },
+      {
+        "service": "listmystudentptscheduleregional",
+        "region": "asia-east1",
+        "totalAttempts": 3010,
+        "statusCodes": {
+          "200": 2173,
+          "204": 535,
+          "403": 297,
+          "429": 5
+        },
+        "daily": {
+          "2026-10-18": 0,
+          "2026-10-19": 0,
+          "2026-10-20": 361,
+          "2026-10-21": 754,
+          "2026-10-22": 593,
+          "2026-10-23": 600,
+          "2026-10-24": 702
+        }
+      },
+      {
+        "service": "synccontractusageoperationalactions",
+        "region": "asia-southeast1",
+        "totalAttempts": 2926,
+        "statusCodes": {
+          "200": 1290,
+          "429": 1516,
+          "500": 45,
+          "503": 75
+        },
+        "daily": {
+          "2026-10-18": 162,
+          "2026-10-19": 1250,
+          "2026-10-20": 323,
+          "2026-10-21": 336,
+          "2026-10-22": 382,
+          "2026-10-23": 339,
+          "2026-10-24": 134
+        }
+      },
+      {
+        "service": "syncstudent360contractusage",
+        "region": "asia-southeast1",
+        "totalAttempts": 2878,
+        "statusCodes": {
+          "200": 1290,
+          "429": 872,
+          "500": 471,
+          "503": 245
+        },
+        "daily": {
+          "2026-10-18": 155,
+          "2026-10-19": 1056,
+          "2026-10-20": 345,
+          "2026-10-21": 389,
+          "2026-10-22": 403,
+          "2026-10-23": 364,
+          "2026-10-24": 166
+        }
+      },
+      {
+        "service": "syncrenewaloperationalactions",
+        "region": "asia-southeast1",
+        "totalAttempts": 2826,
+        "statusCodes": {
+          "200": 1857,
+          "429": 638,
+          "500": 331
+        },
+        "daily": {
+          "2026-10-18": 382,
+          "2026-10-19": 390,
+          "2026-10-20": 492,
+          "2026-10-21": 428,
+          "2026-10-22": 354,
+          "2026-10-23": 429,
+          "2026-10-24": 351
+        }
+      },
+      {
+        "service": "syncstudent360session",
+        "region": "asia-southeast1",
+        "totalAttempts": 2489,
+        "statusCodes": {
+          "200": 1406,
+          "429": 668,
+          "500": 353,
+          "503": 62
+        },
+        "daily": {
+          "2026-10-18": 982,
+          "2026-10-19": 375,
+          "2026-10-20": 128,
+          "2026-10-21": 250,
+          "2026-10-22": 348,
+          "2026-10-23": 268,
+          "2026-10-24": 138
+        }
+      },
+      {
+        "service": "trackproducteventoverflow",
+        "region": "asia-east1",
+        "totalAttempts": 2439,
+        "statusCodes": {
+          "200": 1209,
+          "204": 819,
+          "401": 403,
+          "429": 3,
+          "500": 5
+        },
+        "daily": {
+          "2026-10-18": 0,
+          "2026-10-19": 0,
+          "2026-10-20": 0,
+          "2026-10-21": 0,
+          "2026-10-22": 194,
+          "2026-10-23": 1406,
+          "2026-10-24": 839
+        }
+      },
+      {
+        "service": "getmyaccesscontext",
+        "region": "asia-southeast1",
+        "totalAttempts": 2381,
+        "statusCodes": {
+          "200": 1701,
+          "204": 653,
+          "403": 7,
+          "500": 6,
+          "503": 14
+        },
+        "daily": {
+          "2026-10-18": 1142,
+          "2026-10-19": 379,
+          "2026-10-20": 330,
+          "2026-10-21": 305,
+          "2026-10-22": 177,
+          "2026-10-23": 48,
+          "2026-10-24": 0
+        }
+      },
+      {
+        "service": "syncsessionoperationalactions",
+        "region": "asia-southeast1",
+        "totalAttempts": 2279,
+        "statusCodes": {
+          "200": 1404,
+          "429": 833,
+          "500": 20,
+          "503": 22
+        },
+        "daily": {
+          "2026-10-18": 850,
+          "2026-10-19": 477,
+          "2026-10-20": 169,
+          "2026-10-21": 192,
+          "2026-10-22": 172,
+          "2026-10-23": 315,
+          "2026-10-24": 104
+        }
+      },
+      {
+        "service": "rebuilddirtyptscheduleweeklyviewsscheduled",
+        "region": "asia-southeast1",
+        "totalAttempts": 2125,
+        "statusCodes": {
+          "200": 2125
+        },
+        "daily": {
+          "2026-10-18": 0,
+          "2026-10-19": 0,
+          "2026-10-20": 0,
+          "2026-10-21": 205,
+          "2026-10-22": 1346,
+          "2026-10-23": 286,
+          "2026-10-24": 288
+        }
+      },
+      {
+        "service": "syncsessioncontractusageview",
+        "region": "asia-southeast1",
+        "totalAttempts": 2114,
+        "statusCodes": {
+          "200": 1406,
+          "429": 560,
+          "500": 133,
+          "503": 15
+        },
+        "daily": {
+          "2026-10-18": 506,
+          "2026-10-19": 313,
+          "2026-10-20": 231,
+          "2026-10-21": 266,
+          "2026-10-22": 532,
+          "2026-10-23": 162,
+          "2026-10-24": 104
+        }
+      },
+      {
+        "service": "getmytrainerworkspaceregional",
+        "region": "asia-east1",
+        "totalAttempts": 1982,
+        "statusCodes": {
+          "200": 1642,
+          "204": 326,
+          "401": 4,
+          "429": 10
+        },
+        "daily": {
+          "2026-10-18": 0,
+          "2026-10-19": 0,
+          "2026-10-20": 305,
+          "2026-10-21": 721,
+          "2026-10-22": 492,
+          "2026-10-23": 354,
+          "2026-10-24": 110
+        }
+      },
+      {
+        "service": "syncptscheduleweeklyviewfromstudent",
+        "region": "asia-southeast1",
+        "totalAttempts": 1811,
+        "statusCodes": {
+          "200": 468,
+          "429": 1335,
+          "500": 1,
+          "503": 7
+        },
+        "daily": {
+          "2026-10-18": 0,
+          "2026-10-19": 0,
+          "2026-10-20": 0,
+          "2026-10-21": 1,
+          "2026-10-22": 44,
+          "2026-10-23": 8,
+          "2026-10-24": 1758
+        }
+      },
+      {
+        "service": "syncstudent360contract",
+        "region": "asia-southeast1",
+        "totalAttempts": 1711,
+        "statusCodes": {
+          "200": 784,
+          "429": 530,
+          "500": 289,
+          "503": 108
+        },
+        "daily": {
+          "2026-10-18": 19,
+          "2026-10-19": 722,
+          "2026-10-20": 136,
+          "2026-10-21": 270,
+          "2026-10-22": 309,
+          "2026-10-23": 131,
+          "2026-10-24": 124
+        }
+      },
+      {
+        "service": "syncoperationssessiondailyaggregate",
+        "region": "asia-southeast1",
+        "totalAttempts": 1510,
+        "statusCodes": {
+          "200": 1329,
+          "500": 151,
+          "503": 30
+        },
+        "daily": {
+          "2026-10-18": 660,
+          "2026-10-19": 188,
+          "2026-10-20": 101,
+          "2026-10-21": 192,
+          "2026-10-22": 176,
+          "2026-10-23": 166,
+          "2026-10-24": 27
+        }
+      },
+      {
+        "service": "reportclientissue",
+        "region": "asia-southeast1",
+        "totalAttempts": 1453,
+        "statusCodes": {
+          "200": 944,
+          "204": 450,
+          "429": 34,
+          "500": 9,
+          "503": 16
+        },
+        "daily": {
+          "2026-10-18": 719,
+          "2026-10-19": 184,
+          "2026-10-20": 200,
+          "2026-10-21": 239,
+          "2026-10-22": 105,
+          "2026-10-23": 5,
+          "2026-10-24": 1
+        }
+      }
+    ]
+  },
+  "billing": {
+    "status": "observed",
+    "enabled": true,
+    "accountLinked": true
+  },
+  "billingExportDiscovery": {
+    "status": "metadata_only",
+    "projectDatasetCount": 0,
+    "possibleExportDatasets": []
+  },
+  "limitations": [
+    "Seven complete Vietnam calendar days; hourly aligned DELTA metrics. Missing data is null, not zero.",
+    "Read-only Monitoring and Billing/BigQuery metadata. No business documents or billing tables were queried.",
+    "Billable-unit API method aliases may overlap; preserve separate series and do not sum them into a bill.",
+    "HTTP request attempts include retries and deployment/repair traffic, not only successful business actions.",
+    "Historical deployment and repair activity prevents treating these seven days as a clean steady-state workload baseline.",
+    "An export may exist in another billing project; a missing candidate here does not establish that no export exists. No currency or savings percentage inferred."
+  ]
+}

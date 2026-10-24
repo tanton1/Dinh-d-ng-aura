@@ -243,7 +243,10 @@ function normaliseHistoryInput(data = {}) {
   const status = typeof data.status === 'string' && data.status.trim() ? data.status.trim() : 'all'
   if (status !== 'all' && !validHistoryStatuses.has(status)) throw new HttpsError('invalid-argument', 'Trạng thái buổi tập không hợp lệ.')
   const pageSize = Math.min(MAX_HISTORY_PAGE, Math.max(1, Number.isInteger(data.pageSize) ? data.pageSize : DEFAULT_HISTORY_PAGE))
-  return { startDate, endDate, status, pageSize, cursor: decodeCursor(data.cursor), allTime }
+  const cursor = decodeCursor(data.cursor)
+  // The first page always establishes fresh totals. New clients can retain
+  // those totals while appending records; legacy clients keep the old result.
+  return { startDate, endDate, status, pageSize, cursor, allTime, includeSummary: !cursor || data.includeSummary !== false }
 }
 
 function matchesAssignment(contract, actor) {
@@ -568,30 +571,34 @@ function createBusinessReportingFunctions({ db, onCall }) {
       relatedEvents(db, sessionIds),
       namesForHistory(db, records, subjectType),
     ])
-    let summaryQuery = db.collection('sessions').where(ownerField, '==', subjectId)
-    if (!input.allTime) {
-      summaryQuery = summaryQuery
-        .where('date', '>=', input.startDate)
-        .where('date', '<', followingDateKey(input.endDate))
+    let summary = null
+    if (input.includeSummary) {
+      let summaryQuery = db.collection('sessions').where(ownerField, '==', subjectId)
+      if (!input.allTime) {
+        summaryQuery = summaryQuery
+          .where('date', '>=', input.startDate)
+          .where('date', '<', followingDateKey(input.endDate))
+      }
+      const summaryLimit = input.allTime ? MAX_USAGE_SESSIONS + 1 : 5001
+      summaryQuery = summaryQuery.limit(summaryLimit)
+      // Only a complete date-bounded first page proves that the page and
+      // summary queries are equivalent. All-time legacy rows can lack dates.
+      const completeRangeInPage = !input.allTime && !input.cursor && input.status === 'all' && snapshot.size < pageReadLimit
+      const summarySnapshot = completeRangeInPage ? snapshot : await summaryQuery.get()
+      const summaryRows = summarySnapshot.docs.map((item) => ({ id: item.id, ...item.data() }))
+      const summaryRecords = (subjectType === 'student'
+        ? canonicalStudentHistoryRows(summaryRows)
+        : canonicalHistoryRows(summaryRows))
+        .filter((item) => !historyCutoff || item.status !== 'scheduled' || String(item.date || '').slice(0, 10) < historyCutoff)
+        .filter((item) => (access.scope !== 'branch_manager' || access.actor.branchIds.includes(item.branchId)))
+        .filter((item) => input.status === 'all' || item.status === input.status)
+      summary = {
+        ...sessionStatusSummary(summaryRecords),
+        usage: summarizeSessionUsage(summaryRecords),
+        teaching: subjectType === 'trainer' ? teachingShiftSummary(summaryRecords) : null,
+        truncated: summarySnapshot.size >= summaryLimit,
+      }
     }
-    const summaryLimit = input.allTime ? MAX_USAGE_SESSIONS + 1 : 5001
-    summaryQuery = summaryQuery.limit(summaryLimit)
-    // A complete, unfiltered first page already contains the entire range.
-    // Reusing it preserves canonical counting and avoids reading every small
-    // learner/week history twice. Filtered, partial and subsequent pages still
-    // need the independent range summary to keep totals correct.
-    // All-time legacy rows may lack `date` and be absent from the ordered
-    // page query; only a date-bounded range proves the two queries equivalent.
-    const completeRangeInPage = !input.allTime && !input.cursor && input.status === 'all' && snapshot.size < pageReadLimit
-    const summarySnapshot = completeRangeInPage ? snapshot : await summaryQuery.get()
-    const summaryRows = summarySnapshot.docs.map((item) => ({ id: item.id, ...item.data() }))
-    const summaryRecords = (subjectType === 'student'
-      ? canonicalStudentHistoryRows(summaryRows)
-      : canonicalHistoryRows(summarySnapshot.docs
-        .map((item) => ({ id: item.id, ...item.data() }))))
-      .filter((item) => !historyCutoff || item.status !== 'scheduled' || String(item.date || '').slice(0, 10) < historyCutoff)
-      .filter((item) => (access.scope !== 'branch_manager' || access.actor.branchIds.includes(item.branchId)))
-      .filter((item) => input.status === 'all' || item.status === input.status)
     return {
       schemaVersion: 3,
       subjectType,
@@ -635,12 +642,7 @@ function createBusinessReportingFunctions({ db, onCall }) {
           revision: Number(item.revision || 0),
         }
       }),
-      summary: {
-        ...sessionStatusSummary(summaryRecords),
-        usage: summarizeSessionUsage(summaryRecords),
-        teaching: subjectType === 'trainer' ? teachingShiftSummary(summaryRecords) : null,
-        truncated: summarySnapshot.size >= summaryLimit,
-      },
+      summary,
       hasMore: snapshot.size >= pageReadLimit || canonicalPageDocuments.length > input.pageSize,
       nextCursor: (snapshot.size >= pageReadLimit || canonicalPageDocuments.length > input.pageSize) && pageDocuments.length
         ? encodeCursor(pageDocuments[pageDocuments.length - 1])

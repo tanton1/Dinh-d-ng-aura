@@ -7,6 +7,8 @@ const { projectionSourcePayload } = require('./projection-event-policy')
 
 const STUDENT_LANE = 'studentScheduleVersion'
 const TRAINER_LANE = 'trainerWorkspaceVersion'
+const PLAN_LANE = 'studentTrainingPlanVersion'
+const HISTORY_LANE = 'studentWorkoutHistoryVersion'
 const POLICY_PATH = 'workspaceChanges/policy'
 const RECIPIENT_QUERY_LIMIT = 200
 const SOURCE_ALIASES = {
@@ -18,7 +20,7 @@ const SOURCE_ALIASES = {
 const SOURCES = new Set([
   'students', 'contracts', 'contractUsageViews', 'sessions', 'attendanceEvents',
   'ptAvailability', 'leaveRequests', 'sessionRequests', 'users', 'trainers',
-  'settings', 'branches', 'roleAssignments',
+  'settings', 'branches', 'roleAssignments', 'ptTrainingPrograms', 'ptWorkoutLogs',
 ])
 const USER_IDENTITY_FIELDS = ['disabled', 'authzVersion', 'accessRole', 'role', 'crmProfileId', 'branchId']
 
@@ -114,14 +116,14 @@ async function mapBounded(values, callback, concurrency = 8) {
  */
 async function readWorkspaceChangeState({ db, uid, branchIds = [], kind }) {
   const accountUid = safeId(uid)
-  if (!accountUid || !['student', 'trainer'].includes(kind)) throw new Error('Invalid workspace change read scope.')
+  const lane = { student: STUDENT_LANE, trainer: TRAINER_LANE, trainingPlan: PLAN_LANE, workoutHistory: HISTORY_LANE }[kind]
+  if (!accountUid || !lane) throw new Error('Invalid workspace change read scope.')
   const branches = kind === 'trainer' ? ids(branchIds).sort() : []
   const paths = [`users/${accountUid}/workspaceChanges/operations`, POLICY_PATH, ...branches.map((branchId) => `workspaceBranchChanges/${branchId}`)]
   const snapshots = []
   for (let offset = 0; offset < paths.length; offset += 200) {
     snapshots.push(...await db.getAll(...paths.slice(offset, offset + 200).map((path) => db.doc(path))))
   }
-  const lane = kind === 'student' ? STUDENT_LANE : TRAINER_LANE
   const userVersion = laneVersion(snapshotValue(snapshots[0]), lane)
   const policyVersion = laneVersion(snapshotValue(snapshots[1]), lane)
   const branchVersions = Object.fromEntries(branches.map((branchId, index) => [branchId, laneVersion(snapshotValue(snapshots[index + 2]), TRAINER_LANE)]))
@@ -129,8 +131,8 @@ async function readWorkspaceChangeState({ db, uid, branchIds = [], kind }) {
   return { version, userVersion, branchVersions, policyVersion }
 }
 
-/** Publish metadata only, using existing source trigger deliveries. No new
- * trigger, schedule, business payload, or client-authored recipient is needed.
+/** Publish metadata only, reusing source deliveries and a plan-only trigger.
+ * No business payload or client-authored recipient is written to markers.
  */
 async function syncWorkspaceChangesFromEvent({ db, event, source: suppliedSource }) {
   const inferredSource = event.data?.after?.ref?.parent?.id || event.data?.before?.ref?.parent?.id || ''
@@ -151,6 +153,11 @@ async function syncWorkspaceChangesFromEvent({ db, event, source: suppliedSource
   const queryCache = new Map()
   const overflows = new Set()
   const values = [before, after].filter(Boolean)
+  const trainingSource = ['ptTrainingPrograms', 'ptWorkoutLogs'].includes(source)
+  const studentLanes = trainingSource ? [source === 'ptTrainingPrograms' ? PLAN_LANE : HISTORY_LANE] : [STUDENT_LANE]
+  if (source === 'students' && (!before || !after || ['accountUid', 'status', 'accountStatus'].some((field) => before[field] !== after[field]))) {
+    studentLanes.push(PLAN_LANE, HISTORY_LANE)
+  }
 
   const add = (path, lane) => {
     const lanes = changes.get(path) || new Set()
@@ -224,15 +231,18 @@ async function syncWorkspaceChangesFromEvent({ db, event, source: suppliedSource
   } else if (['users', 'roleAssignments'].includes(source)) {
     addUser(sourceId, STUDENT_LANE)
     addUser(sourceId, TRAINER_LANE)
+    addUser(sourceId, PLAN_LANE)
+    addUser(sourceId, HISTORY_LANE)
     values.forEach(addBranches)
   } else {
-    values.forEach((value) => { addStudents(value); addTrainers(value); addBranches(value) })
+    values.forEach((value) => { addStudents(value); if (!trainingSource) { addTrainers(value); addBranches(value) } })
     if (source === 'students') studentIds.add(sourceId)
+    if (source === 'ptTrainingPrograms') studentIds.add(sourceId)
     if (source === 'ptAvailability' && !studentIds.size) studentIds.add(sourceId.replace(/_\d{4}-\d{2}-\d{2}$/, ''))
 
     // Immutable attendance rows and legacy requests may carry only sessionId.
-    const sessionIds = ids(values.map((value) => value.sessionId))
-    const contractIds = new Set(ids(values.map((value) => value.contractId)))
+    const sessionIds = trainingSource ? [] : ids(values.map((value) => value.sessionId))
+    const contractIds = new Set(trainingSource ? [] : ids(values.map((value) => value.contractId)))
     await mapBounded(sessionIds, async (id) => {
       const snapshot = await read(`sessions/${id}`)
       if (!snapshot.exists) return
@@ -248,12 +258,12 @@ async function syncWorkspaceChangesFromEvent({ db, event, source: suppliedSource
       addStudents(value); addTrainers(value); addBranches(value)
     })
 
-    const studentOnly = source === 'ptAvailability' || source === 'leaveRequests'
+    const studentOnly = trainingSource || source === 'ptAvailability' || source === 'leaveRequests'
     await mapBounded([...studentIds], async (studentId) => {
       const snapshot = await read(`students/${studentId}`)
       const studentValues = [snapshotValue(snapshot), ...(source === 'students' && studentId === sourceId ? values : [])].filter(Boolean)
       studentValues.forEach((value) => {
-        addUser(safeId(value.accountUid), STUDENT_LANE)
+        studentLanes.forEach((lane) => addUser(safeId(value.accountUid), lane))
         if (!studentOnly) { addBranches(value); addTrainers(value) }
       })
       // Student schedule supports both CRM links and students/{authUid}; do
@@ -263,8 +273,8 @@ async function syncWorkspaceChangesFromEvent({ db, event, source: suppliedSource
         identitiesForCrm(studentId),
         read(`users/${studentId}`),
       ])
-      assignments.forEach((item) => addUser(item.id, STUDENT_LANE))
-      if (legacyAccount.exists) addUser(studentId, STUDENT_LANE)
+      assignments.forEach((item) => studentLanes.forEach((lane) => addUser(item.id, lane)))
+      if (legacyAccount.exists) studentLanes.forEach((lane) => addUser(studentId, lane))
 
       // Profile/contract/usage changes affect PTs teaching this learner even
       // when those PTs are absent from the current contract or branch roster.

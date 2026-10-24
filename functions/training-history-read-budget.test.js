@@ -98,3 +98,35 @@ test('a full read window and subsequent page keep independent totals for the who
   assert.equal(second.summary.total, 7)
   assert.equal(reads.filter((item) => item.collection === 'sessions').length, 4)
 })
+
+test('cursor-only reads omit the range scan for both students and trainers; refreshing recalculates totals', async () => {
+  for (const subject of ['student', 'trainer']) {
+    const rows = Array.from({ length: 20 }, (_, i) => row(`session-${i}`, `2026-10-${String(1 + i).padStart(2, '0')}`))
+    const { read, reads } = fixture(rows)
+    const first = await read({ allTime: true, pageSize: 2 }, subject)
+    assert.equal(first.summary.total, 20)
+    const before = reads.length
+    const next = await read({ allTime: true, pageSize: 2, cursor: first.nextCursor, includeSummary: false }, subject)
+    assert.equal(next.summary, null, 'skipped totals must never look like zero totals')
+    assert.equal(next.records.length, 2)
+    assert.equal(new Set([...first.records, ...next.records].map(item => item.id)).size, 4)
+    const sessionReads = reads.slice(before).filter(item => item.collection === 'sessions')
+    assert.equal(sessionReads.length, 1)
+    assert.equal(sessionReads[0].maximum, 7, 'only the bounded cursor window is read')
+    rows.push(row('new-session', '2026-10-21'))
+    const refreshed = await read({ allTime: true, pageSize: 2, includeSummary: false }, subject)
+    assert.equal(refreshed.summary.total, 21, 'a fresh first page cannot reuse stale totals')
+  }
+})
+
+test('status-filtered cursor pages omit only the summary while retaining access, filtering and event enrichment', async () => {
+  const { read, reads } = fixture(Array.from({ length: 20 }, (_, i) => row(`session-${i}`, `2026-10-${String(1 + i).padStart(2, '0')}`, i % 2 ? 'no_show' : 'completed')))
+  const first = await read({ status: 'no_show', pageSize: 2 })
+  const before = reads.length
+  const next = await read({ status: 'no_show', pageSize: 2, cursor: first.nextCursor, includeSummary: false })
+  assert.equal(first.summary.total, 10)
+  assert.equal(next.summary, null)
+  assert.ok(next.records.every(item => item.status === 'no_show' && item.counterpartName === 'trainers/trainer-1'))
+  assert.equal(reads.slice(before).filter(item => item.collection === 'sessions').length, 1)
+  assert.ok(reads.slice(before).some(item => item.collection === 'attendanceEvents'))
+})

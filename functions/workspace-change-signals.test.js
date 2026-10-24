@@ -129,7 +129,7 @@ test('student account/branch moves notify old/new accounts, legacy links and cro
   assert.equal(db.documents.has(userPath('crm-student')), false, 'a CRM id must not be guessed to be an Auth uid')
   assert.equal(result.overflowCount, 0)
   assert.equal(db.documents.has('workspaceChanges/policy'), false)
-  for (const write of db.writes) assert.deepEqual(Object.keys(write.value).sort(), [Object.keys(write.value).find((key) => key.endsWith('Version')), 'schemaVersion', 'updatedAt'].sort())
+  for (const write of db.writes) assert.ok(Object.keys(write.value).every((key) => [S, T, 'studentTrainingPlanVersion', 'studentWorkoutHistoryVersion', 'schemaVersion', 'updatedAt'].includes(key)), 'markers contain only revisions, never learner payloads')
 })
 
 test('contracts notify removed and added assignees/accounts and a PT teaching under another branch', async () => {
@@ -183,6 +183,21 @@ test('availability and leave updates change only student schedule lanes', async 
     assert.equal(db.documents.has(userPath('t1')), false)
     assert.equal(db.documents.has(branchPath('b1')), false)
   }
+})
+
+test('availability edits to A then B and a later inherited week preserve both account watermarks', async () => {
+  const db = fakeDb({
+    'students/a': { accountUid: 'auth-a' },
+    'students/b': { accountUid: 'auth-b' },
+  })
+  await syncWorkspaceChangesFromEvent({ db, event: event('ptAvailability', 'a_2026-10-19', null, { studentId: 'a', weekId: '2026-10-19', revision: 1 }, 1_700_000_010) })
+  await syncWorkspaceChangesFromEvent({ db, event: event('ptAvailability', 'b_2026-10-26', null, { studentId: 'b', weekId: '2026-10-26', revision: 1 }, 1_700_000_011) })
+  assertLane(db, userPath('auth-a'), S, version(1_700_000_010, 1))
+  assertLane(db, userPath('auth-b'), S, version(1_700_000_011, 1))
+  await syncWorkspaceChangesFromEvent({ db, event: event('ptAvailability', 'a_2026-11-02', null, { studentId: 'a', weekId: '2026-11-02', revision: 1 }, 1_700_000_012) })
+  assertLane(db, userPath('auth-a'), S, version(1_700_000_012, 1))
+  assertLane(db, userPath('auth-b'), S, version(1_700_000_011, 1))
+  assert.equal(db.writes.some(write => write.path.startsWith('workspaceBranchChanges/')), false)
 })
 
 test('retries, concurrent delivery and out-of-order events never rewrite or decrease a watermark', async () => {
@@ -307,4 +322,61 @@ test('source timestamps keep nanoseconds and malformed timestamps fail before pu
   delete malformed.data.after.updateTime
   await assert.rejects(syncWorkspaceChangesFromEvent({ db, event: malformed }), /source commit\/event timestamp/)
   assert.equal(db.writes.length, 0)
+})
+
+test('program and workout edits notify only the matching learner lane, including legacy staff learner links', async () => {
+  for (const [source, lane] of [['ptTrainingPrograms', 'studentTrainingPlanVersion'], ['ptWorkoutLogs', 'studentWorkoutHistoryVersion']]) {
+    const db = fakeDb({
+      'students/learner': { accountUid: 'account', trainerId: 'coach', branchId: 'branch' },
+      'users/learner': {}, 'users/coach': {},
+      'roleAssignments/staff-learner': { crmProfileId: 'learner', accessRole: 'staff' },
+    })
+    const item = event(source, source === 'ptTrainingPrograms' ? 'learner' : 'log', null, { studentId: 'learner', trainerId: 'coach', sessionId: 'session', contractId: 'contract', branchId: 'branch', revision: 1 })
+    const first = await syncWorkspaceChangesFromEvent({ db, event: item })
+    const duplicate = await syncWorkspaceChangesFromEvent({ db, event: item })
+    assert.equal(first.changedDocuments, 3)
+    assert.equal(duplicate.changedDocuments, 0)
+    assert.equal(first.branchCount, 0)
+    for (const uid of ['account', 'learner', 'staff-learner']) {
+      assertLane(db, userPath(uid), lane)
+      assert.equal(db.documents.get(userPath(uid))[S], undefined)
+      assert.equal(db.documents.get(userPath(uid))[T], undefined)
+    }
+    assert.ok(db.queries.every((query) => query.collection === 'roleAssignments'))
+    assert.ok(db.reads.every((path) => !/^(sessions|contracts)\//.test(path)))
+    assert.equal(db.documents.has(userPath('coach')), false)
+  }
+})
+
+test('training owner moves and deletions invalidate both owners while duplicate/older delivery cannot regress markers', async () => {
+  const db = fakeDb({ 'students/old': { accountUid: 'a' }, 'students/new': { accountUid: 'b' } })
+  const item = event('ptWorkoutLogs', 'log', { studentId: 'old' }, { studentId: 'new' }, 1_700_000_020)
+  await syncWorkspaceChangesFromEvent({ db, event: item })
+  for (const uid of ['a', 'b']) assertLane(db, userPath(uid), 'studentWorkoutHistoryVersion', version(1_700_000_020, 1))
+  const deleted = event('ptWorkoutLogs', 'log', { studentId: 'new' }, null, 1_700_000_030)
+  await syncWorkspaceChangesFromEvent({ db, event: deleted })
+  await syncWorkspaceChangesFromEvent({ db, event: item })
+  assertLane(db, userPath('b'), 'studentWorkoutHistoryVersion', version(1_700_000_030))
+})
+
+test('account changes and learner link existence invalidate training without schedule-only edits doing so', async () => {
+  const db = fakeDb({ 'students/learner': { accountUid: 'a' } })
+  await syncWorkspaceChangesFromEvent({ db, event: event('users', 'a', { authzVersion: 1 }, { authzVersion: 2 }) })
+  for (const lane of ['studentTrainingPlanVersion', 'studentWorkoutHistoryVersion']) assertLane(db, userPath('a'), lane)
+  const before = { accountUid: 'a', name: 'Old' }
+  await syncWorkspaceChangesFromEvent({ db, event: event('students', 'learner', before, { ...before, name: 'New' }, 1_700_000_020) })
+  assertLane(db, userPath('a'), 'studentTrainingPlanVersion')
+  await syncWorkspaceChangesFromEvent({ db, event: event('students', 'learner', before, { accountUid: 'b' }, 1_700_000_030) })
+  for (const uid of ['a', 'b']) for (const lane of ['studentTrainingPlanVersion', 'studentWorkoutHistoryVersion']) assertLane(db, userPath(uid), lane, version(1_700_000_030, 1))
+})
+
+test('plan and history reads have independent metadata versions and never read branch markers', async () => {
+  const db = fakeDb({ [userPath('a')]: { studentTrainingPlanVersion: version(1_700_000_001), studentWorkoutHistoryVersion: version(1_700_000_002) } })
+  const plan = await readWorkspaceChangeState({ db, uid: 'a', kind: 'trainingPlan', branchIds: ['branch'] })
+  const history = await readWorkspaceChangeState({ db, uid: 'a', kind: 'workoutHistory', branchIds: ['branch'] })
+  assert.equal(plan.userVersion, version(1_700_000_001))
+  assert.equal(history.userVersion, version(1_700_000_002))
+  assert.notEqual(plan.version, history.version)
+  assert.deepEqual(plan.branchVersions, {})
+  assert.equal(db.reads.some((path) => path.startsWith('workspaceBranchChanges/')), false)
 })

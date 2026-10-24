@@ -273,9 +273,9 @@ jobs:
             fi
 
             CONFIRMATION="gen-lang-client-0815966909/$FUNCTION_REGION"
-            # Managed Functions can reject a v2 traffic-only PATCH because its
-            # template conversion conflicts with the immutable revision. Keep
-            # the original v1 template and resourceVersion for traffic changes.
+            # Preserve v1 templates for Firebase-created revisions. When the
+            # helper stages a new v2 template, it keeps that promotion on v2
+            # with its etag, avoiding a conflicting cross-API conversion.
             # A pinned previous revision can leave the candidate unstarted.
             # Stage its exact image at zero traffic before the same health gate.
             if ! node scripts/cloud-run-functions-promote-latest.cjs --functions="$SERVICE_NAME" --region="$FUNCTION_REGION" --traffic-api=v1 --stage-retired --confirm="$CONFIRMATION"; then

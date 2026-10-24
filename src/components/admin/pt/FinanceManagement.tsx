@@ -171,6 +171,7 @@ export default function FinanceManagement({ profile }: Props) {
     try {
       const query = {
         pageSize: 50,
+        includeSummary: false,
         cursor: append ? ledgerCursor : null,
         branchId: effectiveBranchId,
         // The installment workspace reads cash history from the canonical ledger.

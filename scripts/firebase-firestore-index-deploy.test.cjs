@@ -4,6 +4,17 @@ const test = require('node:test')
 const { parseArguments, selectIndexes, signature, CONFIRMATION } = require('./firebase-firestore-index-deploy.cjs')
 const indexes = require('../firestore.indexes.json').indexes
 
+test('ledger date scope creates only the ordered range index and requires the exact production target', () => {
+  const selected = selectIndexes(indexes, 'ledger-date-range')
+  assert.deepEqual(selected, [{ collectionGroup: 'ledgerEntries', queryScope: 'COLLECTION', fields: [
+    { fieldPath: 'effectiveAt', order: 'DESCENDING' }, { fieldPath: '__name__', order: 'DESCENDING' },
+  ] }])
+  assert.throws(() => selectIndexes([], 'ledger-date-range'), /exactly once/)
+  assert.throws(() => selectIndexes([...selected, ...selected], 'ledger-date-range'), /exactly once/)
+  assert.deepEqual(parseArguments(['apply', `--confirm=${CONFIRMATION}`, '--scope=ledger-date-range']), { mode: 'apply', scope: 'ledger-date-range' })
+  assert.throws(() => parseArguments(['apply', '--scope=ledger-date-range']), /confirmation/)
+})
+
 test('dashboard scope selects exactly its two approved indexes and rejects absent or duplicated definitions', () => {
   const wanted = [
     { collectionGroup: 'attendanceEvents', queryScope: 'COLLECTION', fields: [

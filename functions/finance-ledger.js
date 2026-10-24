@@ -288,6 +288,7 @@ function normalizeLedgerListInput(data = {}) {
     types: new Set(types),
     status,
     cursor: decodeCursor(data.cursor),
+    includeSummary: data.includeSummary !== false,
   }
 }
 
@@ -565,7 +566,8 @@ function createFinanceLedgerFunctions({ db, onCall }) {
     // never supply all-period totals. Otherwise its exact snapshot can serve
     // both the table and summary. Larger summaries run alongside further page
     // scanning, with no TTL cache or truncated financial totals.
-    const summaryDocuments = input.status === 'pending' ? Promise.resolve([])
+    const summaryDocuments = !input.includeSummary ? Promise.resolve(null)
+      : input.status === 'pending' ? Promise.resolve([])
       : !input.cursor && firstSnapshot.size < chunkSize ? Promise.resolve(firstSnapshot.docs)
         : readLedgerDocuments(db, input, { summary: true }).then((snapshot) => snapshot.docs)
     const [page, documents] = await Promise.all([
@@ -574,7 +576,7 @@ function createFinanceLedgerFunctions({ db, onCall }) {
     ])
     return {
       ...page,
-      summary: summarizeLedgerDocuments(documents, input),
+      summary: documents === null ? null : summarizeLedgerDocuments(documents, input),
       canonicalOnly: true,
       source: 'ledgerEntries',
     }

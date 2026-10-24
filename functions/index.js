@@ -785,6 +785,12 @@ exports.syncStudent360Attendance = student360Trigger('attendanceEvents/{document
 exports.syncStudent360Availability = student360Trigger('ptAvailability/{availabilityId}')
 exports.syncStudent360Workout = student360Trigger('workoutLogs/{documentId}')
 exports.syncStudent360PtWorkout = student360Trigger('ptWorkoutLogs/{documentId}')
+// Program edits only invalidate the learner's plan. Do not rebuild Student 360
+// or the scheduling workspace for every exercise edit.
+exports.syncStudentTrainingProgram = onDocumentWritten({
+  document: 'ptTrainingPrograms/{documentId}', database: databaseId,
+  region: 'asia-southeast1', cpu: 'gcf_gen1', maxInstances: 3, retry: true,
+}, event => syncWorkspaceChangesFromEvent({ db, event, source: 'ptTrainingPrograms' }))
 exports.syncStudent360MealReview = student360Trigger('mealReviews/{documentId}')
 exports.syncStudent360LeaveRequest = student360Trigger('leaveRequests/{documentId}')
 exports.syncStudent360SessionRequest = student360Trigger('sessionRequests/{documentId}')

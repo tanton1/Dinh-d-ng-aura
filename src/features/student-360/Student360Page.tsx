@@ -1,4 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { mergeTrainingHistoryPage } from '../../utils/trainingHistoryPagination'
 import {
   Activity,
   AlertTriangle,
@@ -453,11 +454,10 @@ export default function Student360Page({ studentId, source, isDemo = false, onBa
         status: 'all',
         pageSize: 100,
         cursor,
+        includeSummary: !append,
       })
       if (requestId !== trainingHistoryRequestRef.current) return
-      setTrainingHistoryPage((current) => append && current
-        ? { ...response, records: [...current.records, ...response.records] }
-        : response)
+      setTrainingHistoryPage((current) => mergeTrainingHistoryPage(current, response, append))
     } catch (cause) {
       if (requestId === trainingHistoryRequestRef.current) setTrainingHistoryError(cause instanceof Error ? cause.message : 'Không thể tải toàn bộ lịch sử buổi tập.')
     } finally {

@@ -17,7 +17,8 @@ import {
   Target,
   Weight,
 } from 'lucide-react'
-import { getPtStudentTrainingPlan, listPtWorkoutHistory, type PtTrainingProgram, type PtWorkoutHistory } from '../../services/ptWorkoutTrackingService'
+import type { PtWorkoutHistory } from '../../services/ptWorkoutTrackingService'
+import { usePersonalWorkoutData } from '../../hooks/usePersonalWorkoutData'
 import { listExerciseCatalogPage } from '../../services/exerciseCatalogService'
 import type { ExerciseCatalogItem, ExerciseCatalogMediaImage } from '../../types'
 import { exerciseMatchesMuscleGroup, exerciseMuscleGroupOptions, type ExerciseMuscleGroupId } from '../../utils/exerciseMuscleGroups'
@@ -134,11 +135,15 @@ function ExerciseDetail({ item, isInCurrentPlan, onBack, onOpenPlan, saved, onTo
 }
 
 export default function StudentPtWorkoutPage({ isDemo = false, ownerId = 'demo' }: { isDemo?: boolean; ownerId?: string }) {
+  return <StudentWorkoutContent key={`${isDemo}:${ownerId}`} isDemo={isDemo} ownerId={ownerId} />
+}
+
+function StudentWorkoutContent({ isDemo, ownerId }: { isDemo: boolean; ownerId: string }) {
   const favoritesStorageKey = `aura-student-exercise-favorites:${ownerId}`
-  const [program, setProgram] = useState<PtTrainingProgram | null>(null)
-  const [history, setHistory] = useState<PtWorkoutHistory | null>(null)
   const [dayIndex, setDayIndex] = useState(0)
   const [activeTab, setActiveTab] = useState<StudentWorkoutTab>('plan')
+  const { program, history, planLoading: loading, historyLoading, hasMore, loadMore, refreshPlan, refreshHistory, planError, historyError } = usePersonalWorkoutData(ownerId, isDemo, activeTab)
+  const error = activeTab === 'plan' ? planError : activeTab === 'history' ? historyError : ''
   const [catalog, setCatalog] = useState<ExerciseCatalogItem[]>([])
   const [catalogLoading, setCatalogLoading] = useState(false)
   const [catalogRequested, setCatalogRequested] = useState(false)
@@ -153,50 +158,11 @@ export default function StudentPtWorkoutPage({ isDemo = false, ownerId = 'demo' 
   const [savedIds, setSavedIds] = useState<Set<string>>(() => {
     try { return new Set(JSON.parse(window.localStorage.getItem(favoritesStorageKey) || '[]')) } catch { return new Set() }
   })
-  const [loading, setLoading] = useState(true)
-  const requestIdRef = useRef(0)
   const catalogRequestIdRef = useRef(0)
-  const inFlightRef = useRef(false)
-  const programIdRef = useRef<string | undefined>(undefined)
-  const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  useEffect(() => { setDayIndex((index) => Math.min(index, Math.max(0, (program?.trainingDays.length || 1) - 1))) }, [program])
+  useEffect(() => () => { catalogRequestIdRef.current += 1 }, [])
 
-  const load = async () => {
-    if (inFlightRef.current) return
-    inFlightRef.current = true
-    const requestId = ++requestIdRef.current
-    setLoading(true); setError('')
-    if (isDemo) {
-      setProgram(null)
-      setHistory({ studentId: 'student-demo', logs: [], analytics: { completedWorkouts: 0, totalVolumeKg: 0, painAlerts: 0, personalRecords: [] } })
-      setDayIndex(0)
-      setLoading(false)
-      inFlightRef.current = false
-      return
-    }
-    const results = await Promise.allSettled([getPtStudentTrainingPlan(), listPtWorkoutHistory()])
-    if (requestId !== requestIdRef.current) return
-    const messages: string[] = []
-    if (results[0].status === 'fulfilled') {
-      const next = results[0].value
-      setProgram(next)
-      const sameProgram = next?.id === programIdRef.current
-      setDayIndex((index) => !sameProgram ? 0 : Math.min(index, Math.max(0, (next?.trainingDays.length || 1) - 1)))
-      programIdRef.current = next?.id
-    }
-    else {
-      setProgram(null)
-      messages.push(results[0].reason instanceof Error ? results[0].reason.message : 'Không thể tải giáo án.')
-    }
-    if (results[1].status === 'fulfilled') setHistory(results[1].value)
-    else {
-      setHistory(null)
-      messages.push(results[1].reason instanceof Error ? results[1].reason.message : 'Không thể tải lịch sử tập luyện.')
-    }
-    setError(messages.join(' '))
-    inFlightRef.current = false
-    setLoading(false)
-  }
   const loadCatalog = async (append = false) => {
     const requestId = ++catalogRequestIdRef.current
     setCatalogRequested(true)
@@ -235,18 +201,6 @@ export default function StudentPtWorkoutPage({ isDemo = false, ownerId = 'demo' 
     catch (cause) { if (requestId === catalogRequestIdRef.current) setCatalogError(cause instanceof Error ? cause.message : 'Không thể tải thư viện bài tập.') }
     finally { if (requestId === catalogRequestIdRef.current) setCatalogLoading(false) }
   }
-  useEffect(() => { void load(); return () => { requestIdRef.current += 1; inFlightRef.current = false } }, [isDemo])
-  useEffect(() => {
-    if (isDemo) return
-    const refresh = () => { if (!document.hidden) void load() }
-    const onVisibilityChange = () => { if (!document.hidden) refresh() }
-    document.addEventListener('visibilitychange', onVisibilityChange)
-    const timer = window.setInterval(refresh, 90_000 + Math.floor(Math.random() * 15_000))
-    return () => {
-      document.removeEventListener('visibilitychange', onVisibilityChange)
-      window.clearInterval(timer)
-    }
-  }, [isDemo])
   useEffect(() => { if (activeTab === 'library' && !catalogRequested) void loadCatalog() }, [activeTab, catalogRequested])
   useEffect(() => {
     if (activeTab !== 'library' || !catalogRequested) return
@@ -277,8 +231,8 @@ export default function StudentPtWorkoutPage({ isDemo = false, ownerId = 'demo' 
   return <main className="pt-workout-workspace pt-workout-learner">
     <section className="pt-workout-workspace__slides" aria-label="Tổng quan tập luyện">
       <article className="pt-workout-workspace__hero"><span>AURA PT · CỦA BẠN</span><h1>Tập luyện</h1><p>Giáo án, kỹ thuật và thư viện bài tập được thiết kế cho bạn.</p><Dumbbell /></article>
-      <article className="pt-workout-workspace__metric"><small>Nhật ký mức tạ</small><strong>{history?.analytics.completedWorkouts || 0}</strong><span>Buổi đã hoàn thành ghi nhận bài tập</span><History /></article>
-      <article className="pt-workout-workspace__metric"><small>Tổng volume</small><strong>{Math.round(history?.analytics.totalVolumeKg || 0).toLocaleString('vi-VN')}</strong><span>kg qua các buổi đã hoàn thành</span><Weight /></article>
+      <article className="pt-workout-workspace__metric"><small>Giáo án hiện tại</small><strong>{program ? program.trainingDays.length : loading ? "—" : 0}</strong><span>Buổi trong giáo án</span><History /></article>
+      <article className="pt-workout-workspace__metric"><small>Bài tập được giao</small><strong>{program ? planExerciseIds.size : loading ? "—" : 0}</strong><span>Bài trong giáo án hiện tại</span><Weight /></article>
     </section>
     {(error || notice) && <div className={`pt-workout-workspace__message ${error ? 'is-error' : 'is-success'}`} role={error ? 'alert' : 'status'}>{error || notice}</div>}
     {!selectedExercise && <nav className="student-library__tabs" aria-label="Khu vực tập luyện">
@@ -287,20 +241,22 @@ export default function StudentPtWorkoutPage({ isDemo = false, ownerId = 'demo' 
       <button type="button" className={activeTab === 'library' ? 'is-active' : ''} onClick={() => { setActiveTab('library'); setSelectedExercise(null) }}><Images />Khám phá bài tập<span>{catalog.length || '…'}</span></button>
     </nav>}
     {activeTab === 'plan' && <>
-      <div className="pt-workout-workspace__toolbar"><div className="pt-workout-learner__title"><span>GIÁO ÁN HIỆN TẠI</span><strong>{program?.title || 'Chưa được phân giáo án'}</strong></div><button className="pt-workout-workspace__refresh" onClick={() => void load()} disabled={loading}><RefreshCw />Làm mới</button></div>
+      <div className="pt-workout-workspace__toolbar"><div className="pt-workout-learner__title"><span>GIÁO ÁN HIỆN TẠI</span><strong>{program?.title || 'Chưa được phân giáo án'}</strong></div><button className="pt-workout-workspace__refresh" onClick={refreshPlan} disabled={loading}><RefreshCw />Làm mới</button></div>
       {!loading && !program ? <section className="pt-workout-workspace__logger"><div className="pt-workout-workspace__empty"><Sparkles /><strong>PT đang chuẩn bị giáo án</strong><span>Khi giáo án được lưu, các buổi tập và mức tạ sẽ xuất hiện tại đây.</span></div></section> : program && <>
         <nav className="pt-workout-workspace__day-tabs pt-workout-learner__days">{program.trainingDays.map((item, index) => <button type="button" className={index === dayIndex ? 'is-active' : ''} onClick={() => setDayIndex(index)} key={item.id}>{item.title}</button>)}</nav>
         <section className="pt-workout-workspace__today pt-workout-learner__content">
           <div className="pt-workout-workspace__logger"><header><div><span>NHÓM CƠ</span><h2>{day?.title}</h2><p>{day?.focusMuscles.join(' · ') || program.goal}</p></div><Target /></header><div className="pt-workout-workspace__set-list">{day?.exercises.map((exercise) => <article className="pt-workout-workspace__log-exercise" key={exercise.id}><div className="pt-workout-workspace__exercise-heading"><div>{exercise.media.posterUrl ? <img src={exercise.media.posterUrl} alt="" /> : <Dumbbell />}</div><span><b>{exercise.nameVi}</b><small>{exercise.targetMuscles.join(' · ')}</small></span></div><div className="pt-workout-learner__prescription"><span><b>{exercise.sets}</b><small>hiệp</small></span><span><b>{exercise.repMinimum}–{exercise.repMaximum}</b><small>reps</small></span><span><b>RPE {exercise.targetRpe}</b><small>mục tiêu</small></span><span><b>{exercise.restSeconds}s</b><small>nghỉ</small></span></div>{exercise.cuesVi.length > 0 && <p>{exercise.cuesVi[0]}</p>}</article>)}</div></div>
-          <aside className="pt-workout-workspace__session-rail"><div className="pt-workout-workspace__section-title"><div><span>TIẾN BỘ</span><h2>Kỷ lục mức tạ</h2></div><BarChart3 /></div>{history?.analytics.personalRecords.slice(0, 8).map((record) => <article className="pt-workout-learner__record" key={record.catalogExerciseId}><span><b>{record.exerciseName}</b><small>Hiệp tốt nhất {record.maximumSetVolumeKg.toLocaleString('vi-VN')} kg</small></span><strong>{record.maximumWeightKg} kg</strong></article>)}{history?.analytics.painAlerts ? <div className="pt-workout-learner__alert"><AlertTriangle />Có {history.analytics.painAlerts} buổi cần PT lưu ý đau/hạn chế vận động.</div> : null}</aside>
+<aside className="pt-workout-workspace__session-rail"><div className="pt-workout-workspace__section-title"><div><span>HƯỚNG DẪN</span><h2>Mục tiêu của bạn</h2></div><Target /></div><p>{program.goal || "Trao đổi với PT để điều chỉnh mục tiêu tập luyện."}</p>{program.coachNotes && <p>{program.coachNotes}</p>}<button type="button" className="student-library__load-more" onClick={() => setActiveTab("history")}><BarChart3 />Xem lịch sử và tiến bộ</button></aside>
         </section>
       </>}
     </>}
     {activeTab === 'history' && <section className="pt-workout-learner__history" aria-label="Lịch sử và tiến bộ">
+      <div className="pt-workout-workspace__toolbar"><p>{history ? `Thống kê từ ${history.logs.length} nhật ký đã tải${hasMore ? "; còn nhật ký cũ hơn" : ""}.` : "Chưa tải thống kê nhật ký."}</p><button type="button" className="pt-workout-workspace__refresh" onClick={refreshHistory} disabled={historyLoading}><RefreshCw />Làm mới lịch sử</button></div>
+      {historyLoading && <p role="status">Đang tải nhật ký tập luyện…</p>}
       <div className="pt-workout-learner__history-metrics">
-        <article><History /><span><small>Nhật ký mức tạ</small><strong>{history?.analytics.completedWorkouts || 0}</strong></span></article>
-        <article><Weight /><span><small>Tổng volume</small><strong>{Math.round(history?.analytics.totalVolumeKg || 0).toLocaleString('vi-VN')} kg</strong></span></article>
-        <article className={history?.analytics.painAlerts ? 'has-alert' : ''}><AlertTriangle /><span><small>Lưu ý đau</small><strong>{history?.analytics.painAlerts || 0}</strong></span></article>
+        <article><History /><span><small>Nhật ký mức tạ</small><strong>{history ? history.analytics.completedWorkouts : "—"}</strong></span></article>
+        <article><Weight /><span><small>Tổng volume</small><strong>{history ? Math.round(history.analytics.totalVolumeKg).toLocaleString('vi-VN') + ' kg' : '—'}</strong></span></article>
+        <article className={history?.analytics.painAlerts ? 'has-alert' : ''}><AlertTriangle /><span><small>Lưu ý đau</small><strong>{history ? history.analytics.painAlerts : "—"}</strong></span></article>
       </div>
       {history && <VolumeTrend history={history} />}
       <div className="pt-workout-learner__history-layout">
@@ -311,9 +267,10 @@ export default function StudentPtWorkoutPage({ isDemo = false, ownerId = 'demo' 
             <div><strong>{log.trainingDayTitle || 'Buổi tập Aura'}</strong><span>{log.metrics.completedSets} hiệp · {Math.round(log.metrics.totalVolumeKg).toLocaleString('vi-VN')} kg{log.coachNotes ? ` · ${log.coachNotes}` : ''}</span></div>
             <em>{log.status === 'completed' ? 'Hoàn thành' : 'Nháp'}</em>
           </article>)}
-          {!loading && !history?.logs.length && <div className="pt-workout-workspace__empty is-compact"><Dumbbell /><strong>Chưa có nhật ký mức tạ</strong><span>Buổi tập sẽ xuất hiện khi PT bắt đầu ghi giáo án thực tế.</span></div>}
+          {!historyLoading && !historyError && !history?.logs.length && <div className="pt-workout-workspace__empty is-compact"><Dumbbell /><strong>Chưa có nhật ký mức tạ</strong><span>Buổi tập sẽ xuất hiện khi PT bắt đầu ghi giáo án thực tế.</span></div>}
+          {hasMore && <button type="button" className="student-library__load-more" onClick={loadMore} disabled={historyLoading}>{historyLoading ? "Đang tải…" : "Tải thêm nhật ký"}</button>}
         </div>
-        <aside className="pt-workout-learner__records"><header><div><span>KỶ LỤC</span><h2>Mức tạ tốt nhất</h2></div><Sparkles /></header>{history?.analytics.personalRecords.map((record) => <article key={record.catalogExerciseId}><span><strong>{record.exerciseName}</strong><small>Volume hiệp {record.maximumSetVolumeKg.toLocaleString('vi-VN')} kg</small></span><b>{record.maximumWeightKg} kg</b></article>)}{!history?.analytics.personalRecords.length && <p>Kỷ lục sẽ được tổng hợp từ các hiệp làm việc đã hoàn thành.</p>}</aside>
+        <aside className="pt-workout-learner__records"><header><div><span>KỶ LỤC</span><h2>Mức tạ tốt nhất</h2></div><Sparkles /></header>{history?.analytics.personalRecords.map((record) => <article key={record.catalogExerciseId}><span><strong>{record.exerciseName}</strong><small>Volume hiệp {record.maximumSetVolumeKg.toLocaleString('vi-VN')} kg</small></span><b>{record.maximumWeightKg} kg</b></article>)}{history && !history.analytics.personalRecords.length && <p>Kỷ lục sẽ được tổng hợp từ các hiệp làm việc đã hoàn thành.</p>}</aside>
       </div>
     </section>}
     {activeTab === 'library' && <section className="student-library" aria-label="Thư viện bài tập">

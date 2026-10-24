@@ -17,6 +17,7 @@ function usage() {
     'Usage:',
     '  node scripts/firebase-firestore-index-deploy.cjs dry-run',
     '  node scripts/firebase-firestore-index-deploy.cjs dry-run --scope=finance-ledger-reads',
+    '  node scripts/firebase-firestore-index-deploy.cjs dry-run --scope=ledger-date-range',
     '  node scripts/firebase-firestore-index-deploy.cjs dry-run --scope=loyalty-account-reads',
     '  node scripts/firebase-firestore-index-deploy.cjs dry-run --scope=dashboard-reads',
     `  node scripts/firebase-firestore-index-deploy.cjs apply --confirm=${CONFIRMATION}`,
@@ -36,7 +37,7 @@ function parseArguments(argv) {
   }))
   if (Object.keys(flags).some((key) => !['confirm', 'scope'].includes(key))) throw new Error(usage())
   const scope = flags.scope || 'all'
-  if (!['all', 'finance-ledger-reads', 'loyalty-account-reads', 'dashboard-reads'].includes(scope)) throw new Error('Unknown index deployment scope.')
+  if (!['all', 'finance-ledger-reads', 'ledger-date-range', 'loyalty-account-reads', 'dashboard-reads'].includes(scope)) throw new Error('Unknown index deployment scope.')
   if (mode === 'apply' && flags.confirm !== CONFIRMATION) throw new Error('Production confirmation is missing or incorrect.')
   return { mode, scope }
 }
@@ -132,6 +133,15 @@ function comparableFields(fields = []) {
 
 function selectIndexes(indexes, scope) {
   if (scope === 'all') return indexes
+  if (scope === 'ledger-date-range') {
+    const wanted = { collectionGroup: 'ledgerEntries', queryScope: 'COLLECTION', fields: [
+      { fieldPath: 'effectiveAt', order: 'DESCENDING' },
+      { fieldPath: '__name__', order: 'DESCENDING' },
+    ] }
+    const selected = indexes.filter((candidate) => signature(candidate) === signature(wanted))
+    if (selected.length !== 1) throw new Error('Scoped ledger date index must appear exactly once in the repository.')
+    return selected
+  }
   if (scope === 'dashboard-reads') {
     const wanted = [
       { collectionGroup: 'attendanceEvents', queryScope: 'COLLECTION', fields: [

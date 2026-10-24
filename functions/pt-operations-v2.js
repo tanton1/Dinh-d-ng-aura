@@ -1477,6 +1477,7 @@ function createPtOperationsV2Functions({
 
   const listMyStudentPtSchedule = staffCall(async (request) => {
     const actor = await studentActor(request, db, { freshAssignment: true })
+    const availabilityOnly = request.data?.surface === 'availability'
     const from = dateKey(request.data?.from, 'Ngày bắt đầu')
     const to = dateKey(request.data?.to, 'Ngày kết thúc')
     const requestedAvailabilityWeekId = availabilityWeekId(request.data?.availabilityWeekId)
@@ -1512,7 +1513,7 @@ function createPtOperationsV2Functions({
     }
 
     const availabilityReference = db.doc(`ptAvailability/${profile.id}_${requestedAvailabilityWeekId}`)
-    const queryKey = `${cacheScope(db)}|${profile.id}|${from}|${to}|${requestedAvailabilityWeekId}|${studentAvailabilityCacheVersion(profile.value)}|${readVersion}`
+    const queryKey = `${cacheScope(db)}|${profile.id}|${from}|${to}|${requestedAvailabilityWeekId}|${studentAvailabilityCacheVersion(profile.value)}|${readVersion}|${availabilityOnly ? 'availability' : 'schedule'}`
     const queryResult = await studentScheduleQueryCache.get(queryKey, () => Promise.all([
       db.collection('sessions')
         .where('studentId', '==', profile.id)
@@ -1523,7 +1524,9 @@ function createPtOperationsV2Functions({
         .get(),
       db.collection('contracts').where('studentId', '==', profile.id).limit(50).get(),
       availabilityReference.get(),
-      db.collection('sessionRequests').where('studentId', '==', profile.id).limit(100).get(),
+      // Availability displays booked slots, contract eligibility and leave
+      // periods, but never session-change request history or trainer names.
+      availabilityOnly ? Promise.resolve({ docs: [] }) : db.collection('sessionRequests').where('studentId', '==', profile.id).limit(100).get(),
       db.collection('leaveRequests').where('studentId', '==', profile.id).limit(100).get(),
     ]))
     const [sessionsSnapshot, contractsSnapshot, availabilitySnapshot, sessionRequestsSnapshot, pauseRequestsSnapshot] = queryResult.value
@@ -1536,7 +1539,7 @@ function createPtOperationsV2Functions({
       }))
       .sort((left, right) => `${left.date}-${String(left.hour ?? 99).padStart(2, '0')}-${left.id}`.localeCompare(`${right.date}-${String(right.hour ?? 99).padStart(2, '0')}-${right.id}`))
     const studentSessionRecords = studentVisibleSessionRows(sessionRecords)
-    const trainerIds = [...new Set(studentSessionRecords.map((item) => item.trainerId).filter(Boolean))]
+    const trainerIds = availabilityOnly ? [] : [...new Set(studentSessionRecords.map((item) => item.trainerId).filter(Boolean))]
     const trainerSnapshots = trainerIds.length ? await db.getAll(...trainerIds.map((id) => db.doc(`trainers/${id}`))) : []
     const trainerNames = new Map(trainerSnapshots.filter((item) => item.exists).map((item) => [item.id, item.data().name || 'PT Aura']))
     const sessions = studentSessionRecords.map((session) => serialize({

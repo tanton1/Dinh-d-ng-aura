@@ -1,0 +1,9 @@
+{
+  "minimumIntervalMs": 15000,
+  "stationaryRefreshMs": 60000,
+  "maximumSampleAgeMs": 30000,
+  "futureToleranceMs": 5000,
+  "maximumAccuracyMeters": 100,
+  "minimumMovementMeters": 30,
+  "maximumSpeedMetersPerSecond": 55
+}

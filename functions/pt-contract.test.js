@@ -400,8 +400,8 @@ test('student schedule client maps callable failures to actionable structured st
   assert.match(studentSchedulePageSource, /selectedContract\.installments \?\? \[\]/)
   // Match executable code, not a historical code example in a comment.
   const availabilityCode = studentAvailabilityPageSource.replace(/^\s*\/\/.*$/gm, '')
-  assert.match(availabilityCode, /if \(nextIssue\.issueCode === 'REVISION_CONFLICT'\) await load\(true\)/)
-  assert.match(availabilityCode, /background && dirtyRef\.current && !discardDraft/)
+  assert.match(availabilityCode, /if \(nextIssue\.issueCode === 'REVISION_CONFLICT'\) await latestLoadRef\.current\(true\)/)
+  assert.match(availabilityCode, /background && dirtyRef\.current && !discard/)
   assert.match(studentAvailabilityPageSource, /confirmBelowMinimum: belowMinimumAccepted/)
 })
 

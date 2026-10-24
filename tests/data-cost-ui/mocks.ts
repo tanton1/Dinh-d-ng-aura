@@ -1,5 +1,6 @@
 import { DEFAULT_DELIVERY_OPERATIONS_CONFIG } from '../../src/features/delivery/types'
 const state = { reads: { driver: 0, dispatch: 0, tracking: 0 }, subscriptions: [] as string[], active: [] as string[], delayed: false, pending: [] as Array<() => void>, terminal: false }
+Object.assign(state, { gpsCalls: [], gpsDelayed: false, gpsPending: [], gpsError: '' })
 Object.assign(window, { costState: state })
 const job = { id: 'order-a', orderCode: 'ORDER-A', status: 'assigned', pickup: { name: 'Kitchen', addressLine: 'Kitchen address' }, dropoff: { name: 'Customer', addressLine: 'Destination' }, distanceMeters: 2000, routeDurationSeconds: 600, itemCount: 2, cashToCollect: 0 }
 const driver = { id: 'driver', name: 'Test driver', available: true, activeJobCount: 1 }
@@ -15,6 +16,13 @@ export const completeEatCleanDelivery = async () => ({ ...job, status: 'complete
 export const setEatCleanDriverAvailability = async (available: boolean) => ({ ...driver, available })
 export const getDeliveryServiceError = () => 'Fixture error'
 export const useDriverLocationPublisher = () => ({ state: 'idle', message: '', stop() {}, start() {} })
+export const publishEatCleanDriverLocation = async (deliveryId: string, driverId: string, position: GeolocationPosition) => {
+  const gps = state as any
+  gps.gpsCalls.push({ deliveryId, driverId, position, at: Date.now() })
+  if (gps.gpsDelayed) await new Promise<void>(resolve => gps.gpsPending.push(resolve))
+  if (gps.gpsError) throw Object.assign(new Error('GPS test error'), { code: gps.gpsError })
+  return { accepted: true }
+}
 export const listEatCleanDispatchSnapshot = async () => {
   await read('dispatch')
   return { jobs: [], drivers: [], config: { ...DEFAULT_DELIVERY_OPERATIONS_CONFIG }, readiness, signals: { mapsErrorsToday: 0, otpRejected: 0, otpLocked: 0, gpsStale: 0, lateOrders: 0 } }

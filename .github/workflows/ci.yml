@@ -134,6 +134,12 @@ jobs:
       - name: Test listener and background read budgets
         if: matrix.project == 'chromium'
         run: npm run test:data-cost-ui
+      - name: Test history pagination and fresh correction totals
+        if: matrix.project == 'chromium'
+        run: npx playwright test --config tests/training-history-panel-ui/playwright.config.ts --project=history-chromium
+      - name: Test history totals on mobile Safari
+        if: matrix.project == 'mobile-webkit'
+        run: npx playwright test --config tests/training-history-panel-ui/playwright.config.ts --project=history-mobile-webkit
       - name: Test workspace refresh on mobile Safari
         if: matrix.project == 'mobile-webkit'
         run: npm run test:workspace-sync-ui -- --project=sync-mobile-webkit
@@ -192,9 +198,12 @@ jobs:
       - run: npm ci
       - name: Test Rules
         run: npm run ${{ matrix.script }}
-      - name: Install renewal transaction test dependencies
-        if: matrix.suite == 'firestore'
+      - name: Install transaction test dependencies
+        if: matrix.suite == 'firestore' || matrix.suite == 'rtdb'
         run: npm --prefix functions ci
+      - name: Verify bounded GPS publishing and concurrent location writes
+        if: matrix.suite == 'rtdb'
+        run: npm run test:delivery-location-transaction
       - name: Verify atomic renewal and cross-region idempotency
         if: matrix.suite == 'firestore'
         run: npm run test:renewal-transaction

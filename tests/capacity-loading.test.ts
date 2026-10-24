@@ -51,8 +51,10 @@ test('schedule background refresh preserves data and guards stale requests', () 
   assert.doesNotMatch(page, /!loading && !loadIssue && data\?\.student/)
   const availability = readFileSync('src/pages/student/StudentAvailabilityPage.tsx', 'utf8')
   assert.match(availability, /background && dirtyRef.current/)
-  assert.match(availability, /background && dirtyRef.current && !discardDraft/)
-  assert.match(availability, /'REVISION_CONFLICT'\) await load\(true\)/)
+  assert.match(availability, /background && dirtyRef.current && !discard/)
+  assert.match(availability, /'REVISION_CONFLICT'\) await latestLoadRef\.current\(true\)/)
+  assert.match(availability, /useWorkspaceSync/)
+  assert.doesNotMatch(availability, /setInterval|ptAvailabilitySync/)
 })
 
 // Staff dashboard request isolation is exercised against rendered panels and

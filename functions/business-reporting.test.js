@@ -66,7 +66,7 @@ test('business report and training history retain bounded filters and actor-scop
   assert.match(source, /where\('trainerId', '==', actorId\)/)
   assert.match(source, /where\(ownerField, '==', subjectId\)/)
   assert.match(source, /canonicalHistoryRows\(scannedPageDocuments\)/)
-  assert.match(source, /canonicalHistoryRows\(summarySnapshot\.docs/)
+  assert.match(source, /canonicalHistoryRows\(summaryRows\)/)
   assert.match(source, /orderBy\('date', 'desc'\).*orderBy\(FieldPath\.documentId\(\), 'desc'\)/s)
   assert.match(source, /MAX_HISTORY_PAGE = 100/)
   assert.match(source, /MAX_ATTENDANCE_DOCUMENTS = 10000/)

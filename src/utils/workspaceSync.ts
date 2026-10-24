@@ -5,7 +5,7 @@ export interface WorkspaceSyncState {
   policyVersion: string
 }
 
-export type WorkspaceSyncDomain = 'studentSchedule' | 'trainerWorkspace'
+export type WorkspaceSyncDomain = 'studentSchedule' | 'trainerWorkspace' | 'studentTrainingPlan' | 'studentWorkoutHistory'
 
 export interface WorkspaceSyncEnvironment {
   available: () => boolean
@@ -29,6 +29,7 @@ export function createWorkspaceSync(options: {
   environment: WorkspaceSyncEnvironment
   onAccept?: (state: WorkspaceSyncState) => void
   onError?: (failed: boolean) => void
+  onPending?: (pending: boolean) => void
 }) {
   const observed = new Map<string, string>()
   let baseline: Map<string, string> | null = null
@@ -57,7 +58,9 @@ export function createWorkspaceSync(options: {
     finally {
       pending = false
       if (stopped) return
-      if (dirty() && sequence === attempted) fail()
+      // A draft may become dirty while the response is in flight. Its
+      // revision stays pending until resume; that is not a transport error.
+      if (options.environment.available() && dirty() && sequence === attempted) fail()
       schedule()
     }
   }
@@ -69,17 +72,25 @@ export function createWorkspaceSync(options: {
       failed = false
       options.onError?.(false)
       options.onAccept?.(state)
+      options.onPending?.(dirty())
       schedule()
     },
     observe(key: string, version: string) {
       if (stopped || (observed.has(key) && observed.get(key)! >= version)) return
       observed.set(key, version)
       sequence += 1
+      options.onPending?.(dirty())
       schedule()
     },
     fail,
     retry() { force = true; schedule(0) },
-    resume() { if (failed) { force = true; options.onError?.(false) }; schedule(0) },
+    resume() {
+      if (failed) { force = true; options.onError?.(false) }
+      // Reattempt a response deliberately held while editing/hidden, even
+      // when no second source notification arrives.
+      if (dirty()) attempted = -1
+      schedule(0)
+    },
     stop() { stopped = true; options.environment.cancel(timer) },
   }
 }
