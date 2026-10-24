@@ -159,9 +159,9 @@ test('training history exposes request archives as separate mobile-safe tabs', a
   await expect(tabs).toBeVisible()
   await expect(tabs.getByRole('tab')).toHaveCount(5)
   await tabs.getByRole('tab', { name: 'Đổi / Hủy' }).click()
-  await expect(page.getByRole('heading', { name: 'Duyệt yêu cầu vận hành' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Đổi, hủy và thêm buổi' })).toBeVisible()
   await tabs.getByRole('tab', { name: 'OFF / Bảo lưu' }).click()
-  await expect(page.getByRole('heading', { name: 'Duyệt yêu cầu vận hành' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'OFF và bảo lưu' })).toBeVisible()
   const dimensions = await page.evaluate(() => ({
     viewport: document.documentElement.clientWidth,
     document: document.documentElement.scrollWidth,
