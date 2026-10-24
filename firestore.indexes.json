@@ -448,6 +448,14 @@
       "collectionGroup": "ledgerEntries",
       "queryScope": "COLLECTION",
       "fields": [
+        { "fieldPath": "effectiveAt", "order": "DESCENDING" },
+        { "fieldPath": "__name__", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "ledgerEntries",
+      "queryScope": "COLLECTION",
+      "fields": [
         { "fieldPath": "branchId", "order": "ASCENDING" },
         { "fieldPath": "effectiveAt", "order": "DESCENDING" },
         { "fieldPath": "__name__", "order": "DESCENDING" }
