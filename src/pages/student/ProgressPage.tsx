@@ -324,14 +324,7 @@ export default function ProgressPage({
     setWeightRecords(readLocal(`aura:progress:weight-records:${resolvedOwnerId}`, []))
     setBodyMetrics(readLocal(`aura:progress:body-measurements:${resolvedOwnerId}`, emptyMetrics))
     setCanonicalCheckIns(readLocal(`aura:cache:user_progress_checkins:${resolvedOwnerId}`, []))
-    setLegacyPhotos(readCachedPhotos(resolvedOwnerId))
-    const refreshProgressPhotos = () => setLegacyPhotos(readCachedPhotos(resolvedOwnerId))
-    window.addEventListener('aura:progress-photos-updated', refreshProgressPhotos)
-    // Legacy photo metadata is only needed by the body/history tabs.  The
-    // overview uses the canonical check-in summary and should not open an
-    // unbounded progressPhotos listener just to render its first viewport.
-    const needsLegacyPhotos = category === 'body' || category === 'history'
-    if (isDemo || resolvedOwnerId === 'anonymous') return () => window.removeEventListener('aura:progress-photos-updated', refreshProgressPhotos)
+    if (isDemo || resolvedOwnerId === 'anonymous') return
     const unsubscribers: Array<() => void> = [
       subscribeToUserWeightLogs(resolvedOwnerId, (rows) => {
         const sorted = [...rows].sort((a, b) => String(a.date).localeCompare(String(b.date)))
@@ -345,12 +338,25 @@ export default function ProgressPage({
       }),
       subscribeToUserProgressCheckIns(resolvedOwnerId, setCanonicalCheckIns),
     ]
-    if (needsLegacyPhotos) unsubscribers.push(subscribeToUserProgressPhotos(resolvedOwnerId, setLegacyPhotos))
+    return () => unsubscribers.forEach(unsubscribe => unsubscribe())
+  }, [isDemo, resolvedOwnerId])
+
+  // Switching visible sections must not resubscribe weight, measurements or
+  // check-ins. Body and history also share the same photo subscription.
+  const needsLegacyPhotos = category === 'body' || category === 'history'
+  useEffect(() => {
+    setLegacyPhotos(readCachedPhotos(resolvedOwnerId))
+    if (!needsLegacyPhotos) return
+    const refreshProgressPhotos = () => setLegacyPhotos(readCachedPhotos(resolvedOwnerId))
+    window.addEventListener('aura:progress-photos-updated', refreshProgressPhotos)
+    const unsubscribe = !isDemo && resolvedOwnerId !== 'anonymous'
+      ? subscribeToUserProgressPhotos(resolvedOwnerId, setLegacyPhotos)
+      : undefined
     return () => {
       window.removeEventListener('aura:progress-photos-updated', refreshProgressPhotos)
-      unsubscribers.forEach((unsubscribe) => unsubscribe())
+      unsubscribe?.()
     }
-  }, [category, isDemo, resolvedOwnerId])
+  }, [needsLegacyPhotos, isDemo, resolvedOwnerId])
 
   useEffect(() => {
     let active = true

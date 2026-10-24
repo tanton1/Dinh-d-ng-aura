@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import {
   ArrowLeft,
   Bike,
@@ -28,6 +28,7 @@ import {
 } from './deliveryService'
 import type { EatCleanDeliveryJob, EatCleanDeliveryJobStatus, EatCleanDriverWorkspace } from './types'
 import { useDriverLocationPublisher } from './useDriverLocationPublisher'
+import { useForegroundRefresh } from '../../hooks/useForegroundRefresh'
 import './DeliveryPage.css'
 
 interface DeliveryPageProps {
@@ -93,26 +94,21 @@ export default function DeliveryPage({ driverId, displayName, onSignOut }: Deliv
     trackingReady,
   )
 
-  const load = useCallback(async (background = false) => {
+  const read = async (background: boolean, isCurrent: () => boolean) => {
     background ? setRefreshing(true) : setLoading(true)
     setError('')
     try {
       const next = await listMyEatCleanDeliveryJobs()
+      if (!isCurrent()) return
       setWorkspace(next)
-      if (selectedJobId && !next.jobs.some((job) => job.id === selectedJobId)) setSelectedJobId(null)
+      setSelectedJobId(current => current && !next.jobs.some(job => job.id === current) ? null : current)
     } catch (loadError) {
-      setError(getDeliveryServiceError(loadError))
+      if (isCurrent()) setError(getDeliveryServiceError(loadError))
     } finally {
-      setLoading(false)
-      setRefreshing(false)
+      if (isCurrent()) { setLoading(false); setRefreshing(false) }
     }
-  }, [selectedJobId])
-
-  useEffect(() => {
-    void load()
-    const timer = window.setInterval(() => void load(true), 30_000)
-    return () => window.clearInterval(timer)
-  }, [load])
+  }
+  const { refresh: load, invalidate } = useForegroundRefresh({ scopeKey: `driver:${driverId}`, read, intervalMs: 30_000 })
 
   const openJob = (jobId: string) => {
     setSelectedJobId(jobId)
@@ -133,7 +129,9 @@ export default function DeliveryPage({ driverId, displayName, onSignOut }: Deliv
     setError('')
     try {
       const nextJob = await operation()
-      await load(true)
+      invalidate()
+      setRefreshing(false)
+      setWorkspace(current => current ? { ...current, jobs: current.jobs.map(job => job.id === nextJob.id ? nextJob : job) } : current)
       if (nextJob.status === 'completed') location.stop()
     } catch (actionError) {
       setError(getDeliveryServiceError(actionError))
@@ -216,7 +214,11 @@ export default function DeliveryPage({ driverId, displayName, onSignOut }: Deliv
         <button type="button" disabled={Boolean(action)} onClick={() => {
           setAction('availability')
           void setEatCleanDriverAvailability(!workspace.driver.available)
-            .then((driver) => setWorkspace({ ...workspace, driver }))
+            .then((driver) => {
+              invalidate()
+              setRefreshing(false)
+              setWorkspace(current => current ? { ...current, driver } : current)
+            })
             .catch((availabilityError) => setError(getDeliveryServiceError(availabilityError)))
             .finally(() => setAction(''))
         }}>{workspace.driver.available ? 'Tạm nghỉ' : 'Bắt đầu nhận đơn'}</button>

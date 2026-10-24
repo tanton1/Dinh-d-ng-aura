@@ -4,6 +4,7 @@ const { trustedAccessContext, requireCapability } = require('./identity-access')
 const { readMemberDashboard, readMemberHistory } = require('./loyalty-member-reads')
 const { allocateBehaviorBudget } = require('./loyalty-behavior-budget')
 const { readLoyaltyDashboardSummary } = require('./loyalty-dashboard-projection')
+const { writeMissionProgress } = require('./loyalty-mission-progress')
 const { readCreditMembership, requireManagedMember, membershipIsManaged } = require('./loyalty-membership')
 const {
   DEFAULT_POLICY,
@@ -812,7 +813,7 @@ async function reconcileAttendanceMissions({ db, attendanceId, value, logger = c
     }),
   ])
   await Promise.all([
-    db.doc(`loyaltyMissionProgress/${studentId}_attendance_week_${weekId}`).set({
+    writeMissionProgress(db, db.doc(`loyaltyMissionProgress/${studentId}_attendance_week_${weekId}`), {
       schemaVersion: LOYALTY_SCHEMA_VERSION,
       studentId,
       accountUid: accountUid || null,
@@ -825,8 +826,8 @@ async function reconcileAttendanceMissions({ db, attendanceId, value, logger = c
       rewardPoints: Number(policy.attendance.weeklyTargetPoints ?? 5),
       status: weeklyCompleted >= weeklyTarget ? 'completed' : 'active',
       updatedAt: FieldValue.serverTimestamp(),
-    }, { merge: true }),
-    db.doc(`loyaltyMissionProgress/${studentId}_attendance_month_${monthId}`).set({
+    }),
+    writeMissionProgress(db, db.doc(`loyaltyMissionProgress/${studentId}_attendance_month_${monthId}`), {
       schemaVersion: LOYALTY_SCHEMA_VERSION,
       studentId,
       accountUid: accountUid || null,
@@ -839,8 +840,8 @@ async function reconcileAttendanceMissions({ db, attendanceId, value, logger = c
       rewardPoints: Number(policy.attendance.twelveSessionsMonthlyPoints ?? 30),
       status: monthlyCompleted >= 12 ? 'completed' : 'active',
       updatedAt: FieldValue.serverTimestamp(),
-    }, { merge: true }),
-    db.doc(`loyaltyMissionProgress/${studentId}_attendance_streak_${weekId}`).set({
+    }),
+    writeMissionProgress(db, db.doc(`loyaltyMissionProgress/${studentId}_attendance_streak_${weekId}`), {
       schemaVersion: LOYALTY_SCHEMA_VERSION,
       studentId,
       accountUid: accountUid || null,
@@ -857,7 +858,7 @@ async function reconcileAttendanceMissions({ db, attendanceId, value, logger = c
           : Number(policy.attendance.twelveWeekStreakPoints ?? 200),
       status: streakWeeks >= 12 ? 'completed' : 'active',
       updatedAt: FieldValue.serverTimestamp(),
-    }, { merge: true }),
+    }),
   ])
   if (accountUid && policy.nutritionEnabled) await reconcileNutritionReview({ db, reviewId: `attendance-cap-${attendanceId}`, afterValue: { userId: accountUid, createdAt: occurrenceDate }, logger, force: true })
   logger.info?.('Aura Club attendance missions reconciled', { studentId, weekId, weeklyCompleted, weeklyTarget, monthId, monthlyCompleted, streakWeeks })
@@ -1097,7 +1098,7 @@ async function reconcileNutritionReviewMonth({ db, reviewId, value, logger = con
   const earnedThisMonth = [...desired.values()].reduce((total, item) => total + Number(item.targetPoints || 0), 0)
   const compliantDays = dailyThisMonth.filter((item) => item.planMet).length
   await Promise.all([
-    db.doc(`loyaltyMissionProgress/${student.id}_nutrition_month_${monthId}`).set({
+    writeMissionProgress(db, db.doc(`loyaltyMissionProgress/${student.id}_nutrition_month_${monthId}`), {
       schemaVersion: LOYALTY_SCHEMA_VERSION,
       studentId: student.id,
       accountUid,
@@ -1110,8 +1111,8 @@ async function reconcileNutritionReviewMonth({ db, reviewId, value, logger = con
       rewardPoints: earnedThisMonth,
       status: compliantDays >= 20 ? 'completed' : 'active',
       updatedAt: FieldValue.serverTimestamp(),
-    }, { merge: true }),
-    db.doc(`loyaltyMissionProgress/${student.id}_nutrition_streak_${currentWeekId}`).set({
+    }),
+    writeMissionProgress(db, db.doc(`loyaltyMissionProgress/${student.id}_nutrition_streak_${currentWeekId}`), {
       schemaVersion: LOYALTY_SCHEMA_VERSION,
       studentId: student.id,
       accountUid,
@@ -1125,7 +1126,7 @@ async function reconcileNutritionReviewMonth({ db, reviewId, value, logger = con
       rewardPoints: Number(policy.nutrition.fourWeekStreakPoints ?? 50),
       status: currentNutritionStreak >= 4 ? 'completed' : 'active',
       updatedAt: FieldValue.serverTimestamp(),
-    }, { merge: true }),
+    }),
   ])
   logger.info?.('Aura Club nutrition reconciled', { studentId: student.id, monthId, approved: approved.length, compliantDays, earnedThisMonth, changed })
   return { changed, approved: approved.length, compliantDays, earnedThisMonth, monthId }

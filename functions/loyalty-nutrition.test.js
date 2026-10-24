@@ -168,3 +168,20 @@ test('attendance cap reconciliation explicitly bypasses the feedback guard', asy
   assert.equal(result.approved, 1)
   assert.equal(result.earnedThisMonth, 1)
 })
+
+test('nutrition replay writes no mission or points, while progress-only changes still persist', async () => {
+  const f = fixture({ 'mealReviews/review-1': approved() })
+  await f.reconcile({ afterValue: approved() })
+  const writesBefore = f.writes.length
+  const accountBefore = f.documents.get('loyaltyAccounts/student-1')
+  const mission = 'loyaltyMissionProgress/student-1_nutrition_month_2026-10'
+  const missionBefore = f.documents.get(mission)
+  await f.reconcile({ afterValue: approved() })
+  assert.deepEqual(f.writes.slice(writesBefore).filter(path => path.startsWith('loyaltyMissionProgress/') || path.startsWith('loyaltyLedger/')), [])
+  assert.deepEqual(f.documents.get('loyaltyAccounts/student-1'), accountBefore)
+  assert.equal(f.documents.get(mission).revision, missionBefore.revision)
+  f.documents.set('mealReviews/review-2', approved('2026-10-25'))
+  await f.reconcile({ reviewId: 'review-2', afterValue: approved('2026-10-25') })
+  assert.match(f.documents.get(mission).description, /^2 bữa/)
+  assert.equal(f.documents.get(mission).revision, missionBefore.revision + 1)
+})

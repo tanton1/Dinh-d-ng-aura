@@ -1,4 +1,4 @@
-const { FieldValue, Timestamp } = require('firebase-admin/firestore')
+const { FieldValue, FieldPath, Timestamp } = require('firebase-admin/firestore')
 const { createHash } = require('node:crypto')
 const { ptOperationsPolicySnapshot } = require('./pt-policy')
 const { HttpsError } = require('firebase-functions/v2/https')
@@ -7,7 +7,7 @@ const { cashAccountForMovement, createCashMovement, createReceiptVoucher, assert
 const { contractPaymentJournal } = require('./accounting-core')
 const { contractStatusProjection, contractPausedOn } = require('./contract-status')
 const { renewalActivationProjection, renewalDateSyncPatch, readRenewalUsage, renewalHandoverPlan, applyRenewalHandover } = require('./contract-renewal-handover')
-const { buildContractUsageView, overlayContractUsageViews } = require('./contract-usage-view')
+const { buildContractUsageView, overlayContractUsageViews, contractWithUsageView } = require('./contract-usage-view')
 
 const renewalStages = new Set(['uncontacted', 'contacted', 'interested', 'quote_sent', 'follow_up', 'won', 'lost'])
 const closedStages = new Set(['won', 'lost'])
@@ -17,7 +17,6 @@ const activeContractStatuses = new Set(['active', 'future', 'frozen', 'expired']
 const activityTypes = new Set(['call', 'zalo', 'meeting', 'note', 'stage_change'])
 const activityOutcomes = new Set(['connected', 'no_answer', 'interested', 'not_interested', 'callback', 'quote_requested', 'other'])
 const probabilityByStage = { uncontacted: 0.1, contacted: 0.25, interested: 0.5, quote_sent: 0.7, follow_up: 0.8, won: 1, lost: 0 }
-const maximumContracts = 5000
 const maximumCases = 5000
 const approvalDiscountRate = 0.1
 const approvalCarryOverSessions = 3
@@ -622,7 +621,7 @@ const renewalQueueFingerprintFields = [
   'assignedSalesId', 'assignedSalesName', 'stage', 'probability', 'active',
   'riskCategory', 'daysLeft', 'sessionsLeft', 'slaDueAt', 'priorityScore',
   'expectedValue', 'studentSnapshot', 'contractSnapshot', 'nextActionAt',
-  'lastContactAt', 'note', 'quoteId', 'approvalId', 'approvalStatus', 'lostReason',
+  'lastContactAt', 'note', 'quoteId', 'approvalId', 'approvalStatus', 'lostReason', 'renewEligibility',
 ]
 
 function canonicalComparable(value) {
@@ -669,66 +668,146 @@ async function renewalOptions(db, actor, optionsMode = 'full') {
   }
 }
 
+async function readRenewalInventory(query) {
+  const docs = []
+  let cursor
+  // Complete every page before planning removals. A failed page aborts the
+  // scan, so an incomplete inventory can never deactivate unrelated cases.
+  while (true) {
+    const ordered = query.orderBy(FieldPath.documentId())
+    const page = await (cursor ? ordered.startAfter(cursor) : ordered).limit(500).get()
+    docs.push(...page.docs)
+    if (page.size < 500) return { docs, size: docs.length }
+    cursor = page.docs.at(-1)
+  }
+}
+
+const defaultRenewalEligibility = {
+  maxDaysRemaining: 30, maxSessionsRemaining: 6, minConsumedPercent: 70, requireMostlyUsedProgram: true,
+}
+
+function renewalPolicyFromSnapshot(snapshot) {
+  return snapshot.docs.map(item => item.data() || {}).find(item => item.status !== 'inactive' && item.audience !== 'collaborator')?.renewEligibility || defaultRenewalEligibility
+}
+
+function renewalQueueValue({ contract, student, trainingPackage = {}, current = {}, branches, activeSales, renewPolicy, today }) {
+  if (!contract?.endDate || !activeContractStatuses.has(contract.status || 'active')
+    || contract.renewedByContractId || contract.renewalSupersededBy || closedStages.has(current.stage)) return null
+  if (!student || ['inactive', 'archived', 'deleted'].includes(student.status)) return null
+  const risk = renewalRisk(contract, today)
+  if (risk.category === 'healthy' && !current.manuallyOpened) return null
+  const eligibility = renewalEligibility(contract, renewPolicy, today)
+  const managerOverride = current.renewEligibilityOverride?.status === 'approved'
+  if (!eligibility.eligible && !managerOverride && !current.manuallyOpened) return null
+  const branchId = contract.branchId || student.branchId || trainingPackage.branchId || ''
+  const candidate = current.assignedSalesId || contract.assignedSalesId || student.assignedSalesId || ''
+  const assignedSalesId = activeSales.has(candidate) ? candidate : ''
+  const stage = renewalStages.has(current.stage) ? current.stage : 'uncontacted'
+  const proposedSla = addDaysDateKey(today, riskSlaDays(risk.category))
+  const slaDueAt = current.slaDueAt && current.slaDueAt < proposedSla ? current.slaDueAt : proposedSla
+  return {
+    schemaVersion: 2, sourceContractId: contract.id, studentId: contract.studentId, branchId,
+    branchName: branches.get(branchId) || 'Chưa phân chi nhánh', assignedSalesId, assignedSalesName: current.assignedSalesName || '',
+    stage, probability: probabilityByStage[stage], active: true, riskCategory: risk.category === 'healthy' ? 'early' : risk.category,
+    daysLeft: risk.daysLeft, sessionsLeft: risk.sessionsLeft, slaDueAt,
+    renewEligibility: { ...eligibility, managerOverride, policySnapshot: renewPolicy },
+    priorityScore: priorityScore(risk, slaDueAt, today), expectedValue: Math.max(0, Number(trainingPackage.price || contract.totalPrice || 0)),
+    studentSnapshot: { id: student.id, name: student.name || student.displayName || 'Chưa cập nhật tên', phone: student.phone || student.phoneNumber || '', email: student.email || '' },
+    contractSnapshot: {
+      id: contract.id, packageId: contract.packageId || '', packageName: contract.packageName || trainingPackage.name || 'Gói tập Aura',
+      pausePeriods: contract.pausePeriods || [],
+      startDate: contract.startDate || '', endDate: contract.endDate, status: contract.status || 'active', totalSessions: Number(contract.totalSessions || 0),
+      usedSessions: Number(contract.usedSessions || 0), totalPrice: Number(contract.totalPrice || trainingPackage.price || 0), paidAmount: Number(contract.paidAmount || 0),
+      discount: Number(contract.discount || 0), branchId, trainerId: contract.trainerId || '', trainerIds: Array.isArray(contract.trainerIds) ? contract.trainerIds : [],
+      nutritionPTIds: Array.isArray(contract.nutritionPTIds) ? contract.nutritionPTIds : [], revision: Number(contract.revision || 0),
+    },
+    nextActionAt: current.nextActionAt || null, lastContactAt: current.lastContactAt || null, note: current.note || '',
+    quoteId: current.quoteId || null, approvalId: current.approvalId || null, approvalStatus: current.approvalStatus || null,
+    lostReason: current.lostReason || null,
+  }
+}
+
+async function reconcileRenewalQueueCase({ db, id, today, actorUid }) {
+  return db.runTransaction(async transaction => {
+    const reference = db.doc(`contractRenewalCases/${id}`)
+    const [caseSnapshot, sourceSnapshot] = await Promise.all([
+      transaction.get(reference), transaction.get(db.doc(`contracts/${id}`)),
+    ])
+    const current = caseSnapshot.exists ? caseSnapshot.data() : {}
+    if (closedStages.has(current.stage)) return false
+    const source = sourceSnapshot.exists ? { ...sourceSnapshot.data(), id } : null
+    let value = null
+    if (source?.studentId) {
+      const [studentSnapshot, contractsSnapshot, usageSnapshot, policySnapshot] = await Promise.all([
+        transaction.get(db.doc(`students/${source.studentId}`)),
+        // Read the student's complete set inside the transaction. A new
+        // follow-on contract or reassignment invalidates the old scan result.
+        transaction.get(db.collection('contracts').where('studentId', '==', source.studentId)),
+        transaction.get(db.doc(`contractUsageViews/${id}`)),
+        transaction.get(db.collection('payrollPolicies').orderBy('effectiveFrom', 'desc').limit(20)),
+      ])
+      const latest = latestContractsByStudent(contractsSnapshot.docs.map(item => ({ ...item.data(), id: item.id }))).get(source.studentId)
+      if (latest?.id === id && studentSnapshot.exists) {
+        const student = { ...studentSnapshot.data(), id: studentSnapshot.id }
+        const packageSnapshot = source.packageId ? await transaction.get(db.doc(`packages/${source.packageId}`)) : null
+        const trainingPackage = packageSnapshot?.exists ? packageSnapshot.data() : {}
+        const branchId = source.branchId || student.branchId || trainingPackage.branchId || ''
+        const candidate = current.assignedSalesId || source.assignedSalesId || student.assignedSalesId || ''
+        const [branchSnapshot, assignmentSnapshot] = await Promise.all([
+          branchId ? transaction.get(db.doc(`branches/${branchId}`)) : null,
+          candidate ? transaction.get(db.doc(`roleAssignments/${candidate}`)) : null,
+        ])
+        const assignment = assignmentSnapshot?.exists ? assignmentSnapshot.data() : {}
+        value = renewalQueueValue({
+          contract: contractWithUsageView(source, usageSnapshot.exists ? usageSnapshot.data() : null),
+          student, trainingPackage, current, today, renewPolicy: renewalPolicyFromSnapshot(policySnapshot),
+          branches: new Map(branchSnapshot?.exists ? [[branchId, branchSnapshot.data().name || branchId]] : []),
+          activeSales: new Set(assignment.status === 'active' && (assignment.positions || []).includes('sales') ? [candidate] : []),
+        })
+      }
+    }
+    if (!value) {
+      if (!caseSnapshot.exists || current.active === false) return false
+      value = { active: false }
+    } else if (caseSnapshot.exists && renewalQueueFingerprint(current) === renewalQueueFingerprint(value)) return false
+    transaction.set(reference, {
+      ...value, revision: Number(current.revision || 0) + 1, updatedAt: FieldValue.serverTimestamp(), updatedBy: actorUid,
+      ...(!caseSnapshot.exists ? { createdAt: FieldValue.serverTimestamp(), createdBy: actorUid } : {}),
+    }, { merge: true })
+    return true
+  })
+}
+
 async function refreshRenewalQueueCore({ db, dryRun = true, actorUid = 'scheduler' }) {
   const today = vietnamDateKey()
-  const [contractsSnapshot, studentsSnapshot, packagesSnapshot, branchesSnapshot, casesSnapshot, assignmentsSnapshot, policySnapshot] = await Promise.all([
-    db.collection('contracts').limit(maximumContracts + 1).get(), db.collection('students').limit(5000).get(),
-    db.collection('packages').limit(500).get(), db.collection('branches').limit(100).get(),
-    db.collection('contractRenewalCases').limit(maximumCases + 1).get(), db.collection('roleAssignments').limit(500).get(),
+  const inventory = await Promise.allSettled([
+    readRenewalInventory(db.collection('contracts')), readRenewalInventory(db.collection('students')),
+    readRenewalInventory(db.collection('packages')), readRenewalInventory(db.collection('branches')),
+    readRenewalInventory(db.collection('contractRenewalCases')), readRenewalInventory(db.collection('roleAssignments')),
     db.collection('payrollPolicies').orderBy('effectiveFrom', 'desc').limit(20).get(),
   ])
+  const failure = inventory.find(result => result.status === 'rejected')
+  if (failure) throw failure.reason
+  const [contractsSnapshot, studentsSnapshot, packagesSnapshot, branchesSnapshot, casesSnapshot, assignmentsSnapshot, policySnapshot] = inventory.map(result => result.value)
   const contracts = await overlayContractUsageViews(
     db,
-    contractsSnapshot.docs.slice(0, maximumContracts).map((item) => ({ id: item.id, ...item.data() })),
-    maximumContracts,
+    contractsSnapshot.docs.map((item) => ({ ...item.data(), id: item.id })),
+    contractsSnapshot.size,
   )
   const students = new Map(studentsSnapshot.docs.map((item) => [item.id, { id: item.id, ...item.data() }]))
   const packages = new Map(packagesSnapshot.docs.map((item) => [item.id, { id: item.id, ...item.data() }]))
   const branches = new Map(branchesSnapshot.docs.map((item) => [item.id, item.data().name || item.id]))
   const existing = new Map(casesSnapshot.docs.map((item) => [item.id, { id: item.id, ...item.data() }]))
   const activeSales = new Set(assignmentsSnapshot.docs.filter((item) => item.data().status === 'active' && (item.data().positions || []).includes('sales')).map((item) => item.id))
-  const renewPolicy = policySnapshot.docs.map((item) => item.data() || {}).find((item) => item.status !== 'inactive' && item.audience !== 'collaborator')?.renewEligibility || {
-    maxDaysRemaining: 30, maxSessionsRemaining: 6, minConsumedPercent: 70, requireMostlyUsedProgram: true,
-  }
+  const renewPolicy = renewalPolicyFromSnapshot(policySnapshot)
   const desired = new Map()
   for (const contract of latestContractsByStudent(contracts).values()) {
-    if (!contract.endDate || !activeContractStatuses.has(contract.status || 'active')) continue
-    const risk = renewalRisk(contract, today)
     const current = existing.get(contract.id) || {}
-    if (risk.category === 'healthy' && !current.manuallyOpened) continue
-    const eligibility = renewalEligibility(contract, renewPolicy, today)
-    const managerOverride = current.renewEligibilityOverride?.status === 'approved'
-    if (!eligibility.eligible && !managerOverride && !current.manuallyOpened) continue
-    const student = students.get(contract.studentId)
-    if (!student || ['inactive', 'archived'].includes(student.status)) continue
-    if (closedStages.has(current.stage)) continue
-    const trainingPackage = packages.get(contract.packageId) || {}
-    const branchId = contract.branchId || student.branchId || trainingPackage.branchId || ''
-    const candidate = current.assignedSalesId || contract.assignedSalesId || student.assignedSalesId || ''
-    const assignedSalesId = activeSales.has(candidate) ? candidate : ''
-    const stage = renewalStages.has(current.stage) ? current.stage : 'uncontacted'
-    const proposedSla = addDaysDateKey(today, riskSlaDays(risk.category))
-    const slaDueAt = current.slaDueAt && current.slaDueAt < proposedSla ? current.slaDueAt : proposedSla
-    desired.set(contract.id, {
-      schemaVersion: 2, sourceContractId: contract.id, studentId: contract.studentId, branchId,
-      branchName: branches.get(branchId) || 'Chưa phân chi nhánh', assignedSalesId, assignedSalesName: current.assignedSalesName || '',
-      stage, probability: probabilityByStage[stage], active: true, riskCategory: risk.category === 'healthy' ? 'early' : risk.category,
-      daysLeft: risk.daysLeft, sessionsLeft: risk.sessionsLeft, slaDueAt,
-      renewEligibility: { ...eligibility, managerOverride, policySnapshot: renewPolicy },
-      priorityScore: priorityScore(risk, slaDueAt, today), expectedValue: Math.max(0, Number(trainingPackage.price || contract.totalPrice || 0)),
-      studentSnapshot: { id: student.id, name: student.name || student.displayName || 'Chưa cập nhật tên', phone: student.phone || student.phoneNumber || '', email: student.email || '' },
-      contractSnapshot: {
-        id: contract.id, packageId: contract.packageId || '', packageName: contract.packageName || trainingPackage.name || 'Gói tập Aura',
-        pausePeriods: contract.pausePeriods || [],
-        startDate: contract.startDate || '', endDate: contract.endDate, status: contract.status || 'active', totalSessions: Number(contract.totalSessions || 0),
-        usedSessions: Number(contract.usedSessions || 0), totalPrice: Number(contract.totalPrice || trainingPackage.price || 0), paidAmount: Number(contract.paidAmount || 0),
-        discount: Number(contract.discount || 0), branchId, trainerId: contract.trainerId || '', trainerIds: Array.isArray(contract.trainerIds) ? contract.trainerIds : [],
-        nutritionPTIds: Array.isArray(contract.nutritionPTIds) ? contract.nutritionPTIds : [], revision: Number(contract.revision || 0),
-      },
-      nextActionAt: current.nextActionAt || null, lastContactAt: current.lastContactAt || null, note: current.note || '',
-      quoteId: current.quoteId || null, approvalId: current.approvalId || null, approvalStatus: current.approvalStatus || null,
-      lostReason: null, revision: Number(current.revision || 0),
+    const value = renewalQueueValue({
+      contract, current, student: students.get(contract.studentId), trainingPackage: packages.get(contract.packageId),
+      branches, activeSales, renewPolicy, today,
     })
+    if (value) desired.set(contract.id, value)
   }
   const writes = []
   for (const [id, value] of desired) {
@@ -742,17 +821,16 @@ async function refreshRenewalQueueCore({ db, dryRun = true, actorUid = 'schedule
     }
   }
   for (const [id, current] of existing) if (current.active !== false && !closedStages.has(current.stage) && !desired.has(id)) writes.push({ id, value: { active: false, revision: Number(current.revision || 0) + 1 }, create: false })
-  if (!dryRun) {
-    for (let offset = 0; offset < writes.length; offset += 400) {
-      const batch = db.batch()
-      writes.slice(offset, offset + 400).forEach((item) => batch.set(db.doc(`contractRenewalCases/${item.id}`), {
-        ...item.value, updatedAt: FieldValue.serverTimestamp(), updatedBy: actorUid,
-        ...(item.create ? { createdAt: FieldValue.serverTimestamp(), createdBy: actorUid } : {}),
-      }, { merge: true }))
-      await batch.commit()
-    }
+  let appliedWrites = 0
+  if (!dryRun) for (let offset = 0; offset < writes.length; offset += 4) {
+    // The scan proposes IDs only. Re-read source and user-managed fields in
+    // the same transaction that writes; never merge a stale case snapshot.
+    // Bound parallelism so a maintenance run does not flood business writes.
+    const results = await Promise.all(writes.slice(offset, offset + 4)
+      .map(({ id }) => reconcileRenewalQueueCase({ db, id, today, actorUid })))
+    appliedWrites += results.filter(Boolean).length
   }
-  return { dryRun, eligibleCases: desired.size, plannedWrites: writes.length, creates: writes.filter((item) => item.create).length, updates: writes.filter((item) => !item.create).length, contractsScanned: contracts.length, truncated: contractsSnapshot.size > maximumContracts || casesSnapshot.size > maximumCases }
+  return { dryRun, eligibleCases: desired.size, plannedWrites: writes.length, appliedWrites, creates: writes.filter((item) => item.create).length, updates: writes.filter((item) => !item.create).length, contractsScanned: contracts.length, casesScanned: casesSnapshot.size, truncated: false }
 }
 
 // Opening a renewal from Student 360 must not depend on the nightly sales queue.
@@ -789,14 +867,15 @@ async function prepareRenewalCaseCore({ db, actor, sourceContractId }) {
     const today = vietnamDateKey()
     const risk = renewalRisk(contract, today)
     const stage = current.stage && !closedStages.has(current.stage) ? current.stage : 'uncontacted'
+    const slaDueAt = current.slaDueAt || addDaysDateKey(today, 3)
     const value = {
       ...current, schemaVersion: 2, sourceContractId, studentId: source.studentId, branchId,
       assignedSalesId, branchName: current.branchName || '', assignedSalesName: current.assignedSalesName || '',
       stage, probability: probabilityByStage[stage], active: true, manuallyOpened: true,
       riskCategory: risk.category === 'healthy' ? 'early' : risk.category,
       daysLeft: risk.daysLeft, sessionsLeft: risk.sessionsLeft,
-      expectedValue: Number(source.totalPrice || 0), slaDueAt: current.slaDueAt || addDaysDateKey(today, 3),
-      priorityScore: priorityScore(risk, current.slaDueAt || today, today),
+      expectedValue: Number(source.totalPrice || 0), slaDueAt,
+      priorityScore: priorityScore(risk, slaDueAt, today),
       studentSnapshot: { id: source.studentId, name: student.name || student.displayName || 'Học viên Aura', phone: student.phone || student.phoneNumber || '', email: student.email || '' },
       contractSnapshot: {
         id: sourceContractId, packageId: source.packageId || '', packageName: source.packageName || 'Gói tập Aura',
@@ -807,6 +886,10 @@ async function prepareRenewalCaseCore({ db, actor, sourceContractId }) {
         revision: Number(source.revision || 0),
       },
       revision: Number(current.revision || 0) + 1,
+    }
+    if (caseSnapshot.exists && current.manuallyOpened === true
+      && renewalQueueFingerprint(current) === renewalQueueFingerprint(value)) {
+      return { id: sourceContractId, ...current }
     }
     transaction.set(reference, { ...value, updatedAt: FieldValue.serverTimestamp(), updatedBy: actor.uid,
       ...(!caseSnapshot.exists ? { createdAt: FieldValue.serverTimestamp(), createdBy: actor.uid } : {}),
@@ -1359,7 +1442,7 @@ function createContractRenewalFunctions({ db, onCall, onSchedule, logger, resolv
     return { from, to, conversionRate: won.length + lost.length ? won.length / (won.length + lost.length) : 0, wonCases: won.length, lostCases: lost.length, wonValue: won.reduce((sum, item) => sum + Number(item.wonValue || 0), 0), collectedValue: won.reduce((sum, item) => sum + Number(item.collectedValue || 0), 0), weightedPipelineValue: stats.weightedPipelineValue, overdueCases: stats.slaCounts.overdue, stageCounts: stats.stageCounts, lostReasons, assignees: [...assignee.values()].sort((a, b) => b.value - a.value), truncated }
   })
 
-  const refreshContractRenewalQueue = renewalCall(async (request) => {
+  const refreshContractRenewalQueue = renewalCall({ timeoutSeconds: 540 }, async (request) => {
     const actor = await resolveActor(request, db)
     if (actor.renewalScope !== 'system') throw new HttpsError('permission-denied', 'Chỉ quản trị hệ thống được đồng bộ hàng đợi.')
     return refreshRenewalQueueCore({ db, dryRun: request.data?.apply !== true, actorUid: actor.uid })
@@ -1371,7 +1454,7 @@ function createContractRenewalFunctions({ db, onCall, onSchedule, logger, resolv
     return reconcileContractStatusesCore({ db, dryRun: request.data?.apply !== true, actorUid: actor.uid })
   })
 
-  const scheduled = onSchedule ? onSchedule({ schedule: '5 0 * * *', region: 'asia-southeast1', timeZone: 'Asia/Ho_Chi_Minh', retryCount: 1, cpu: 'gcf_gen1', maxInstances: 1 }, async () => {
+  const scheduled = onSchedule ? onSchedule({ schedule: '5 0 * * *', region: 'asia-southeast1', timeZone: 'Asia/Ho_Chi_Minh', retryCount: 1, cpu: 'gcf_gen1', maxInstances: 1, timeoutSeconds: 540 }, async () => {
     const activations = await activateDueRenewalContractsCore({ db })
     const statuses = await reconcileContractStatusesCore({ db })
     const result = await refreshRenewalQueueCore({ db, dryRun: false, actorUid: 'scheduler:contract-renewals' })

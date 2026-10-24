@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 1,
+  "objective": "triển khai các đề xuất để tối ưu",
+  "plan": "docs/product/DATA_FLOW_COST_OPTIMIZATION_PLAN_2026-10-25.md",
+  "baselineCommit": "30c10f4",
+  "branch": "codex/data-cost-optimization-20261025",
+  "releaseStatus": "local_validation_complete_pending_release",
+  "observedAt": "2026-10-24T18:11:36.588Z",
+  "items": {
+    "D0.0": {
+      "status": "triaged",
+      "finding": "Bounded renewal logs classified 52 HTTP 500 and 13 HTTP 429 at 17:05 UTC as no available platform instance. This does not classify earlier errors of other services.",
+      "currentHealth": "Three inspected services have healthy current serving revisions at 100 percent traffic. Retry subscriptions are ACTIVE; backlog and oldest unacked age were observed as zero through 18:06 UTC. No runtime scale change in this release."
+    },
+    "D0.1": { "status": "implemented_and_tested", "change": "Valid queue path, transactional enqueue dedupe, generation guarded completion/failure, real stale reader to worker integration." },
+    "D0.2": { "status": "implemented_and_tested", "change": "Complete paginated inventory before planning; re-read changed cases and dependencies transactionally; closed Sales cases and fresh user fields preserved; bounded writer concurrency.", "remaining": "Full inventory scans remain until D4.4 due queue replaces them." },
+    "D0.3": { "status": "partial", "change": "Fresh aggregate Monitoring observation and bounded sanitized failure classifications collected.", "remaining": "Representative seven-day baseline, Billing/provider attribution and scoped Enterprise query access plans." },
+    "D1.1": { "status": "implemented_and_tested", "change": "Finance directories attach only while detail consumers are mounted; StrictMode and repeated cleanup tested.", "remaining": "Directory cursors belong to D3.2." },
+    "D1.2": { "status": "implemented_and_tested", "change": "Foreground/online guards, single-flight reads, stale response fencing, stop terminal order polling, selection-independent load and driver mutation patches. Dispatch config drafts survive background reads.", "remaining": "Replace transitional 15/30-second foreground polling with authorized realtime projections in D2.3." },
+    "D1.3": { "status": "implemented_and_tested", "change": "Stable weight, body and check-in subscriptions; photos only in body/history with shared lifecycle.", "remaining": "Photo cursor and daily chart summaries are later data model work." },
+    "D1.4": { "status": "implemented_and_tested", "change": "Session notes/metadata skip Action Center reads; reassignment reconciles both students and leaves unrelated alerts intact." },
+    "D1.5": { "status": "implemented_and_tested", "change": "Unchanged wizard prepare preserves revision/updateTime while rereading current authority and sales/payment options." },
+    "D1.6": { "status": "implemented_and_tested", "change": "Transaction compares mission business payload before writing. Duplicate concurrent mission writes collapse; progress-only changes persist.", "remaining": "One comparison read per mission is added; assess billed-unit tradeoff. Historical contribution/source-watermark redesign remains D4.5." },
+    "D2": { "status": "pending" },
+    "D3": { "status": "pending" },
+    "D4": { "status": "pending" },
+    "D5": { "status": "pending", "constraint": "Endpoint retirement still requires lifecycle evidence and observation windows; no automatic deletion at the earliest dates." },
+    "virtualGym": { "status": "architecture_only", "constraint": "Presence and activity remain separate from attendance, contract usage and financial writes." }
+  },
+  "validation": {
+    "typecheck": "passed",
+    "buildAndPerformanceBudgets": "passed",
+    "financeAndHistoryBrowser": "6 passed",
+    "deliveryAndProgressBrowser": "4 passed",
+    "foregroundReadController": "6 passed",
+    "renewalQueueEmulator": "5 passed, including 5001 contracts/cases/students and inventory failure",
+    "student360QueueEmulator": "5 passed, including actual authorized stale reader and full projection worker",
+    "renewalAndLoyaltyRegressionEmulator": "16 passed including mission concurrency, cross-region confirmation and monthly reward cap",
+    "backendChecks": "passed after updating two source-contract assertions for the intended listener lifecycle"
+  },
+  "artifacts": [
+    "tmp/data-cost-implementation-20261025/usage-observation.json",
+    "tmp/data-cost-implementation-20261025/student360-error-observation.json",
+    "tmp/data-cost-implementation-20261025/projection-serving-health.json",
+    "tmp/data-cost-implementation-20261025/projection-transport.json",
+    "tmp/data-cost-implementation-20261025/backend-check-final.log"
+  ],
+  "limitations": [
+    "Production observations precede this release and do not demonstrate savings from it.",
+    "Query/RunQuery series may overlap; do not sum them into a cost estimate.",
+    "No total cost saving percentage or currency claim without Billing and representative successful-operation measurements.",
+    "Original Academy working tree is excluded from this isolated change."
+  ]
+}

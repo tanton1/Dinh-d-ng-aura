@@ -41,6 +41,7 @@ jobs:
         run: |
           npm run test:regional-reads
           npm run test:function-lifecycle
+          npm run test:data-cost
       - name: Build
         run: npm run build
       - name: Check performance budget
@@ -130,6 +131,9 @@ jobs:
       - name: Test event-driven workspace refresh
         if: matrix.project == 'chromium'
         run: npm run test:workspace-sync-ui -- --project=sync-chromium
+      - name: Test listener and background read budgets
+        if: matrix.project == 'chromium'
+        run: npm run test:data-cost-ui
       - name: Test workspace refresh on mobile Safari
         if: matrix.project == 'mobile-webkit'
         run: npm run test:workspace-sync-ui -- --project=sync-mobile-webkit
@@ -200,6 +204,9 @@ jobs:
       - name: Verify nutrition revisions, summaries and partial projections
         if: matrix.suite == 'firestore'
         run: npm run test:nutrition-transaction
+      - name: Verify refresh queue and renewal concurrency
+        if: matrix.suite == 'firestore'
+        run: npm run test:data-cost-transaction
 
   dependency-review:
     name: Dependency review

@@ -66,6 +66,9 @@ jobs:
       - run: npx playwright install --with-deps chromium webkit
       - run: npm run test:e2e
       - run: npm run test:schedule-ui
+      - run: npm run test:data-cost
+      - run: npm run test:data-cost-ui
+      - run: npm run test:data-cost-transaction
       - run: npm run test:rules
       - run: npm run test:storage
       - run: npm run test:rtdb
