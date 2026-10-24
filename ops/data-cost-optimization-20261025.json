@@ -16,7 +16,7 @@
     "initialWorkflowRun": "https://github.com/tanton1/Dinh-d-ng-aura/actions/runs/40120991612",
     "verification": "18 original targets match phase-one source; the remaining five match the consolidated b9 source. See per-function evidence in the verification record."
   },
-  "observedAt": "2026-10-24T22:02:00.189Z",
+  "observedAt": "2026-10-24T22:36:32.436Z",
   "items": {
     "D0.0": {
       "status": "triaged",
@@ -127,7 +127,8 @@
       "readBudget": "A warm progress refresh makes six bounded source queries, at most 300 source documents total, plus owner/projection/profile/lease reads and timeline comparison transactions. It does not query sessions, attendance, contracts, finance, meals or workout history. Existing full-rebuild source limits are unchanged.",
       "releaseOrder": "After the current 11-function follow-up, deploy only syncStudent360BodyMetric, syncStudent360BodyMeasurement, syncStudent360WeightLog, syncStudent360LegacyProgressPhoto, syncStudent360ProgressPhoto and syncStudent360ProgressCheckIn. Verify serving source and event transports before merging.",
       "tradeoff": "Missing, stale, incomplete or legacy/changed-account bases use the full repair path. Full freshness is not advanced by a progress-only update. Existing timeline retention is preserved. Normal student/staff check-in writers batch subcollection mirrors without rewriting the root user profile; independent profile edits still require full recomputation.",
-      "remaining": "Production rollout and representative billed-unit/latency observation. Schedule, contract, finance and training domains, durable dirty masks, ownership move reconciliation and historical timeline lifecycle are still separate D4.1 work."
+      "remaining": "Production rollout and representative billed-unit/latency observation. Schedule, contract, finance and training domains, durable dirty masks, ownership move reconciliation and historical timeline lifecycle are still separate D4.1 work.",
+      "indexEvidence": "ops/progress-date-index-observation-20261025.json"
     },
     "D4.2": {
       "status": "weekly_source_metadata_guard_partial_pending_release",
@@ -149,9 +150,10 @@
       "providerReference": "https://openrouter.ai/docs/api_reference/errors-and-debugging"
     },
     "D5.5": {
-      "status": "ledger_date_index_live_retention_pending",
-      "change": "One ordered ledger date index was created and verified READY. Unfiltered descending ledger pages now use a date-range SequentialScan without MajorSort. Existing 92 indexes were preserved; branch/history indexes were reused. Evidence: ops/ledger-date-index-observation-20261025.json.",
-      "remaining": "Measure runtime and read benefit against added index write/storage overhead; other retention/index work remains pending. Ascending report plans still sort."
+      "status": "ledger_and_progress_date_indexes_live_retention_pending",
+      "change": "One ordered ledger date index was created and verified READY. Unfiltered descending ledger pages now use a date-range SequentialScan without MajorSort. Existing 92 indexes were preserved; branch/history indexes were reused. Evidence: ops/ledger-date-index-observation-20261025.json. Six collection-scoped date/document-ID descending indexes are now READY for progress sources. All six synthetic explain plans use ordered SequentialScan without TableScan or MajorSort. Existing 93 indexes were preserved; total 99. Evidence: ops/progress-date-index-observation-20261025.json.",
+      "remaining": "Measure runtime and read benefit against added index write/storage overhead; other retention/index work remains pending. Ascending report plans still sort.",
+      "validation": "Seven index-scope/target/direction tests passed; create-only apply verified six created, six READY and zero deleted; independent dry-run verified 99 indexes and no missing progress target. Regional routing/lifecycle regression checks are recorded with this change."
     },
     "virtualGym": {
       "status": "architecture_only",
@@ -175,7 +177,8 @@
     "tmp/data-cost-implementation-20261025/projection-serving-health.json",
     "tmp/data-cost-implementation-20261025/projection-transport.json",
     "tmp/data-cost-implementation-20261025/backend-check-final.log",
-    "ops/data-cost-serving-verification-20261025.json"
+    "ops/data-cost-serving-verification-20261025.json",
+    "ops/progress-date-index-observation-20261025.json"
   ],
   "limitations": [
     "Production observations precede this release and do not demonstrate savings from it.",
