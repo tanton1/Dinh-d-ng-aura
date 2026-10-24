@@ -37,7 +37,9 @@ function cutoffLabel(value: string | null) {
 export default function TrainerAvailabilityPage({ embedded = false, isDemo = false }: { embedded?: boolean; isDemo?: boolean }) {
   const [mode, setMode] = useState<'weekly' | 'recurring'>('weekly')
   const [weekId, setWeekId] = useState(nextEditableWeek)
-  const [data, setData] = useState<TrainerAvailabilityWorkspace | null>(null)
+  const loadScope = `${isDemo}:${mode}:${weekId}`
+  const [loadedData, setLoadedData] = useState<{ scope: string; value: TrainerAvailabilityWorkspace } | null>(null)
+  const data = loadedData?.scope === loadScope ? loadedData.value : null
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [offDates, setOffDates] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
@@ -45,12 +47,17 @@ export default function TrainerAvailabilityPage({ embedded = false, isDemo = fal
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
-  const loadedRef = useRef(false)
+  const loadedRef = useRef('')
+  const requestRef = useRef(0)
+  const currentLoadScopeRef = useRef(loadScope)
+  currentLoadScopeRef.current = loadScope
 
   const load = useCallback(async () => {
-    if (loadedRef.current) setRefreshing(true)
+    const requestId = ++requestRef.current
+    const isCurrent = () => requestId === requestRef.current && currentLoadScopeRef.current === loadScope
+    if (loadedRef.current === loadScope) setRefreshing(true)
     else setLoading(true)
-    setError('')
+    setError(''); setNotice('')
     if (isDemo) {
       const weekly = mode === 'weekly'
       const result: TrainerAvailabilityWorkspace = {
@@ -67,19 +74,21 @@ export default function TrainerAvailabilityPage({ embedded = false, isDemo = fal
         availabilityMode: 'configured', availabilityRevision: 3,
         scheduleConfig: { workingDays: ['T2', 'T3', 'T4', 'T5', 'T6', 'T7'], workingHours: [6, 7, 8, 9, 10, 11, 14, 15, 16, 17, 18, 19, 20] },
       }
-      setData(result); setSelected(new Set(result.availableSlots)); setOffDates(new Set()); setLoading(false); setRefreshing(false); loadedRef.current = true; return
+      setLoadedData({ scope: loadScope, value: result }); setSelected(new Set(result.availableSlots)); setOffDates(new Set()); setLoading(false); setRefreshing(false); loadedRef.current = loadScope; return
     }
     try {
       const result = await getMyTrainerAvailability(mode === 'weekly' ? weekId : undefined)
-      setData(result); setSelected(new Set(result.availableSlots)); setOffDates(new Set(result.offDates || []))
+      if (!isCurrent()) return
+      setLoadedData({ scope: loadScope, value: result }); setSelected(new Set(result.availableSlots)); setOffDates(new Set(result.offDates || []))
     } catch (cause) {
+      if (!isCurrent()) return
       setError(cause instanceof Error ? cause.message : 'Không thể tải lịch rảnh của PT.')
     } finally {
-      loadedRef.current = true; setLoading(false); setRefreshing(false)
+      if (isCurrent()) { loadedRef.current = loadScope; setLoading(false); setRefreshing(false) }
     }
-  }, [isDemo, mode, weekId])
+  }, [isDemo, loadScope, mode, weekId])
 
-  useEffect(() => { void load() }, [load])
+  useEffect(() => { void load(); return () => { requestRef.current += 1 } }, [load])
 
   const original = useMemo(() => `${[...(data?.availableSlots || [])].sort().join('|')}::${[...(data?.offDates || [])].sort().join('|')}`, [data])
   const current = useMemo(() => `${[...selected].sort().join('|')}::${[...offDates].sort().join('|')}`, [offDates, selected])
@@ -104,25 +113,29 @@ export default function TrainerAvailabilityPage({ embedded = false, isDemo = fal
 
   const save = async () => {
     if (!data || !dirty || saving || data.locked) return
+    const requestId = requestRef.current
+    const isCurrent = () => requestId === requestRef.current && currentLoadScopeRef.current === loadScope
     setSaving(true); setError(''); setNotice('')
     if (isDemo) {
       const availableSlots = [...selected]
-      setData({ ...data, availableSlots, baseAvailableSlots: mode === 'recurring' ? availableSlots : data.baseAvailableSlots, offDates: [...offDates], weeklyOverride: mode === 'weekly', source: mode, availabilityMode: availableSlots.length ? 'configured' : 'unconfigured', availabilityRevision: data.availabilityRevision + 1, updatedAt: new Date().toISOString() })
+      setLoadedData({ scope: loadScope, value: { ...data, availableSlots, baseAvailableSlots: mode === 'recurring' ? availableSlots : data.baseAvailableSlots, offDates: [...offDates], weeklyOverride: mode === 'weekly', source: mode, availabilityMode: availableSlots.length ? 'configured' : 'unconfigured', availabilityRevision: data.availabilityRevision + 1, updatedAt: new Date().toISOString() } })
       setNotice('Đã cập nhật lịch rảnh trong bản xem trước.')
       setSaving(false); return
     }
     try {
       const result = await saveMyTrainerAvailability({ weekId: mode === 'weekly' ? weekId : undefined, availableSlots: [...selected], offDates: mode === 'weekly' ? [...offDates] : [], expectedRevision: data.availabilityRevision })
-      setData({ ...data, ...result }); setSelected(new Set(result.availableSlots)); setOffDates(new Set(result.offDates || []))
+      if (!isCurrent()) return
+      setLoadedData({ scope: loadScope, value: { ...data, ...result } }); setSelected(new Set(result.availableSlots)); setOffDates(new Set(result.offDates || []))
       setNotice(mode === 'weekly' ? 'Đã lưu riêng tuần này. Bộ xếp tự động và publish sẽ dùng đúng lịch vừa gửi.' : 'Đã cập nhật lịch lặp lại cho các tuần chưa có điều chỉnh riêng.')
     } catch (cause) {
+      if (!isCurrent()) return
       setError(cause instanceof Error ? cause.message : 'Chưa thể lưu lịch rảnh.')
-    } finally { setSaving(false) }
+    } finally { if (isCurrent()) setSaving(false) }
   }
 
   return <main className={`trainer-availability-page${embedded ? ' is-embedded' : ''}`}>
     {!embedded && <section className="trainer-availability-hero"><div><small>AURA STAFF · THỜI GIAN LÀM VIỆC</small><h1>Lịch rảnh của tôi</h1><p>Lịch lặp lại là nền mặc định; điều chỉnh tuần và OFF chỉ áp dụng cho đúng tuần được chọn.</p></div><span><CalendarClock /></span><button type="button" className={`is-${data?.availabilityMode || 'unconfigured'}`} onClick={() => document.querySelector('.availability-matrix')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>{data?.availabilityMode === 'configured' ? 'Đã thiết lập' : 'Chưa thiết lập'}</button></section>}
-    <section className="trainer-availability-controls" aria-label="Phạm vi lịch rảnh"><div><button type="button" className={mode === 'weekly' ? 'active' : ''} onClick={() => setMode('weekly')}>Điều chỉnh tuần</button><button type="button" className={mode === 'recurring' ? 'active' : ''} onClick={() => setMode('recurring')}>Lịch lặp lại</button></div>{mode === 'weekly' && <nav><button type="button" aria-label="Tuần trước" onClick={() => setWeekId(addDays(weekId, -7))}><ChevronLeft /></button><strong>{weekLabel(weekId)}</strong><button type="button" aria-label="Tuần sau" onClick={() => setWeekId(addDays(weekId, 7))}><ChevronRight /></button></nav>}</section>
+    <section className="trainer-availability-controls" aria-label="Phạm vi lịch rảnh"><div><button type="button" disabled={saving} className={mode === 'weekly' ? 'active' : ''} onClick={() => setMode('weekly')}>Điều chỉnh tuần</button><button type="button" disabled={saving} className={mode === 'recurring' ? 'active' : ''} onClick={() => setMode('recurring')}>Lịch lặp lại</button></div>{mode === 'weekly' && <nav><button type="button" disabled={saving} aria-label="Tuần trước" onClick={() => setWeekId(addDays(weekId, -7))}><ChevronLeft /></button><strong>{weekLabel(weekId)}</strong><button type="button" disabled={saving} aria-label="Tuần sau" onClick={() => setWeekId(addDays(weekId, 7))}><ChevronRight /></button></nav>}</section>
     {loading && <div className="trainer-availability-state"><LoaderCircle className="spin" /><strong>Đang tải lịch rảnh</strong></div>}
     {!loading && error && !data && <div className="trainer-availability-state is-error"><strong>{error}</strong><button type="button" onClick={() => void load()}><RefreshCw /> Thử lại</button></div>}
     {!loading && data && <section className="trainer-availability-card">

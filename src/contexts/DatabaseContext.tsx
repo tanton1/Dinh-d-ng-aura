@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useRef, ReactNode } from 'react'
+import React, { createContext, useContext, useState, useEffect, useRef, useCallback, ReactNode } from 'react'
 import { collection, doc, setDoc, deleteDoc, runTransaction, updateDoc, onSnapshot, query, where, orderBy, limit } from 'firebase/firestore'
 import { db } from '../lib/firebaseFirestore'
 import { useAuth } from './AuthContext'
@@ -105,7 +105,8 @@ const LEGACY_OPERATIONS_VIEW_SOURCES = {
   // legacy subscriptions every time an administrator opened the matrix.
   // The history workspace resolves students through a bounded Student 360
   // directory, while all historical sessions are fetched cursor-first from a
-  // callable API. Only the PT identity list remains in this adapter.
+  // callable API. The PT identity list remains in this adapter, activated only
+  // while the trainer-history directory has a mounted consumer.
   'admin-training-history': ['trainers'],
   // The report dashboard uses one bounded aggregate callable. It must not also
   // subscribe to thousands of PT legacy documents in the background.
@@ -165,6 +166,7 @@ interface DatabaseContextType {
   ptAvailability: PtAvailabilityDocument[]
   scheduleConfig: ScheduleConfig
   operationsSync: OperationsSyncState
+  acquireTrainingHistoryTrainerDirectory: () => () => void
   
   addStudent: (student: Student) => Promise<void>
   updateStudent: (id: string, updates: Partial<Student>) => Promise<void>
@@ -263,6 +265,18 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
   const [isMigrated, setIsMigrated] = useState(false)
   const [canUseLegacyOperations, setCanUseLegacyOperations] = useState(false)
   const [operationsView, setOperationsView] = useState<LegacyOperationsView | null>(currentLegacyOperationsView)
+  // Mounting the requests/OFF tabs must not implicitly read the PT directory.
+  // A reference count also keeps concurrent drawers and StrictMode cleanup safe.
+  const [trainingHistoryTrainerConsumers, setTrainingHistoryTrainerConsumers] = useState(0)
+  const acquireTrainingHistoryTrainerDirectory = useCallback(() => {
+    setTrainingHistoryTrainerConsumers((count) => count + 1)
+    let released = false
+    return () => {
+      if (released) return
+      released = true
+      setTrainingHistoryTrainerConsumers((count) => Math.max(0, count - 1))
+    }
+  }, [])
   const [operationsSyncAttempt, setOperationsSyncAttempt] = useState(0)
   const operationsSyncRetryRef = useRef<{ view: LegacyOperationsView | null; attempts: number }>({ view: null, attempts: 0 })
   const [operationsSync, setOperationsSync] = useState<OperationsSyncState>({
@@ -276,6 +290,7 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
   // loading. Once the V2 directory is enabled, this also keeps the legacy
   // operations context empty; the cursor API owns the roster instead.
   const effectiveOperationsView = auraUiRolloutLoading || (operationsView === 'admin-pt-students' && studentDirectoryV2Enabled)
+    || (operationsView === 'admin-training-history' && trainingHistoryTrainerConsumers === 0)
     ? null
     : operationsView
 
@@ -934,6 +949,7 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
       updateScheduleData, updateScheduleSlot, updateScheduleSlots, updateSessionOverrides, updateBulkSessionOverrides, updateScheduleConfig,
       updateUserProfile,
       refreshData,
+      acquireTrainingHistoryTrainerDirectory,
       migrateData, isMigrating, isMigrated
     }}>
       {children}

@@ -31,6 +31,7 @@ const DEFAULT_WORKING_HOURS = [6, 7, 8, 9, 10, 11, 14, 15, 16, 17, 18, 19, 20]
 const trainerWorkspaceScopeCache = createProcessCache({ ttlMs: 15_000, maxEntries: 256 })
 const trainerAssignedStudentsCache = createProcessCache({ ttlMs: 15_000, maxEntries: 128 })
 const trainerScheduleCache = createProcessCache({ ttlMs: 10_000, maxEntries: 256 })
+const trainerRequestsCache = createProcessCache({ ttlMs: 10_000, maxEntries: 256 })
 const studentScheduleQueryCache = createProcessCache({ ttlMs: 10_000, maxEntries: 256 })
 const trainerContractsCache = createProcessCache({ ttlMs: 15_000, maxEntries: 256 })
 
@@ -88,6 +89,7 @@ function invalidateTrainerReadCaches(db, actor = null) {
     trainerWorkspaceScopeCache.clear()
     trainerAssignedStudentsCache.clear()
     trainerScheduleCache.clear()
+    trainerRequestsCache.clear()
     trainerContractsCache.clear()
     return
   }
@@ -97,6 +99,7 @@ function invalidateTrainerReadCaches(db, actor = null) {
   trainerWorkspaceScopeCache.clear(trainerCacheKey(db, actor))
   trainerAssignedStudentsCache.clear(prefix)
   trainerScheduleCache.clear(prefix)
+  trainerRequestsCache.clear(prefix)
   trainerContractsCache.clear(prefix)
 }
 
@@ -1078,6 +1081,70 @@ async function withRenewalSources(db, contracts) {
   return [...contracts, ...sources]
 }
 
+function serializeTrainerRequest(document) {
+  const value = document.data()
+  return serialize({
+    id: document.id,
+    sessionId: value.sessionId,
+    studentId: value.studentId,
+    type: value.type,
+    status: value.status,
+    originalDate: value.originalDate,
+    originalHour: value.originalHour,
+    newDate: value.newDate || null,
+    newHour: value.newHour ?? null,
+    makeupSession: value.makeupSession === true,
+    makeupSourceSessionId: value.makeupSourceSessionId || value.sessionId || null,
+    makeupMode: ['standalone_shift', 'paired_existing_shift'].includes(value.makeupMode) ? value.makeupMode : null,
+    commissionEligible: value.commissionEligible !== false,
+    preAbsenceSourceSessionId: value.preAbsenceSourceSessionId || null,
+    releasedSourceSessionId: value.releasedSourceSessionId || null,
+    pairsExistingSession: value.pairsExistingSession === true,
+    reason: value.reason || '',
+    submittedAtIso: value.submittedAtIso || null,
+    decidedAtIso: value.decidedAtIso || null,
+  })
+}
+
+async function trainerRequestsWorkspaceForActor(db, actor, readVersion) {
+  return (await trainerRequestsCache.get(trainerCacheKey(db, actor, readVersion), async () => {
+    const actorIds = [...new Set([actor.uid, actor.legacyStaffId].filter(Boolean))]
+    const [requestSnapshots, teachingEvidence] = await Promise.all([
+      Promise.all(actorIds.map((actorId) => db.collection('sessionRequests').where('trainerId', '==', actorId).limit(100).get())),
+      // Preserve the existing "has teaching work" visibility rule without
+      // downloading the schedule, usage projections or nutrition assignments.
+      Promise.all(actorIds.map((actorId) => db.collection('sessions').where('trainerId', '==', actorId).limit(1).get())),
+    ])
+    let hasTeachingWork = teachingEvidence.some((snapshot) => !snapshot.empty)
+    if (!hasTeachingWork) {
+      const contracts = await cachedAssignedContracts(db, actor, 'training', 300, readVersion)
+      hasTeachingWork = contracts.some((contract) => isEffectiveStaffContract(contract, currentDateKey()))
+    }
+    const requestsById = new Map()
+    requestSnapshots.forEach((snapshot) => snapshot.docs.forEach((document) => {
+      if (document.data()?.requestedBy === 'trainer') requestsById.set(document.id, serializeTrainerRequest(document))
+    }))
+    const requests = [...requestsById.values()]
+    const studentIds = [...new Set(requests.map((request) => request.studentId).filter(Boolean))]
+    const studentSnapshots = studentIds.length ? await db.getAll(...studentIds.map((id) => db.doc(`students/${id}`))) : []
+    const studentNames = new Map(studentSnapshots.filter((snapshot) => snapshot.exists).map((snapshot) => [snapshot.id, snapshot.data().name || 'Học viên Aura']))
+    return {
+      scope: {
+        schemaVersion: 1, source: 'pt_contract_assignments', section: 'requests',
+        staffId: actor.legacyStaffId || actor.uid,
+        // This response is deliberately scoped to the open tab. Other tab
+        // capabilities and dashboard counts are resolved by their own reads.
+        tabs: { students: false, schedule: false, requests: hasTeachingWork, nutrition: false },
+        counts: { primaryStudents: 0, secondaryStudents: 0, nutritionStudents: 0, teachingSessions: 0, pendingRequests: requests.filter((request) => request.status === 'pending').length },
+        branchIds: Array.isArray(actor.branchIds) ? actor.branchIds.slice(0, 20) : [],
+      },
+      requests: requests.map((request) => ({ ...request, studentName: studentNames.get(request.studentId) || 'Học viên Aura' }))
+        .sort((left, right) => String(right.submittedAtIso || right.createdAt || '').localeCompare(String(left.submittedAtIso || left.createdAt || ''))),
+      hasMore: requestSnapshots.some((snapshot) => snapshot.size >= 100),
+    }
+  })).value
+}
+
 async function trainerScheduleForActor(db, actor, from, to, limit) {
   const actorIds = [...new Set([actor.uid, actor.legacyStaffId].filter(Boolean))]
   const [snapshots, requestSnapshots] = await Promise.all([
@@ -1111,27 +1178,7 @@ async function trainerScheduleForActor(db, actor, from, to, limit) {
   const requests = new Map()
   requestSnapshots.forEach((snapshot) => snapshot.docs.forEach((document) => {
     const value = document.data()
-    if (value.requestedBy === 'trainer') requests.set(document.id, serialize({
-      id: document.id,
-      sessionId: value.sessionId,
-      studentId: value.studentId,
-      type: value.type,
-      status: value.status,
-      originalDate: value.originalDate,
-      originalHour: value.originalHour,
-      newDate: value.newDate || null,
-      newHour: value.newHour ?? null,
-      makeupSession: value.makeupSession === true,
-      makeupSourceSessionId: value.makeupSourceSessionId || value.sessionId || null,
-      makeupMode: ['standalone_shift', 'paired_existing_shift'].includes(value.makeupMode) ? value.makeupMode : null,
-      commissionEligible: value.commissionEligible !== false,
-      preAbsenceSourceSessionId: value.preAbsenceSourceSessionId || null,
-      releasedSourceSessionId: value.releasedSourceSessionId || null,
-      pairsExistingSession: value.pairsExistingSession === true,
-      reason: value.reason || '',
-      submittedAtIso: value.submittedAtIso || null,
-      decidedAtIso: value.decidedAtIso || null,
-    }))
+    if (value.requestedBy === 'trainer') requests.set(document.id, serializeTrainerRequest(document))
   }))
   return {
     schemaVersion: 2,
@@ -1759,9 +1806,10 @@ function createPtOperationsV2Functions({
   })
 
   const listMyAssignedStudents = staffCall(async (request) => {
-    const actor = await trainerActor(request, db)
-    const limit = integer(request.data?.limit, 100, 1, 200)
-    return cachedAssignedStudents(db, actor, limit)
+    const actor = await trainerActor(request, db, { freshAssignment: true })
+    const limit = integer(request.data?.limit, 100, 1, 500)
+    const syncState = await readWorkspaceChangeState({ db, uid: actor.uid, branchIds: actor.branchIds, kind: 'trainer' })
+    return cachedAssignedStudents(db, actor, limit, workspaceCacheVersion(syncState))
   })
 
   const listMyTrainerSchedule = staffCall(async (request) => {
@@ -1778,8 +1826,16 @@ function createPtOperationsV2Functions({
   const getMyTrainerWorkspace = staffCall(async (request) => {
     const actor = await trainerActor(request, db, { freshAssignment: true })
     const section = ['students', 'schedule', 'requests'].includes(request.data?.section) ? request.data.section : 'students'
+    const independentTabs = request.data?.independentTabs === true
     const syncState = await readWorkspaceChangeState({ db, uid: actor.uid, branchIds: actor.branchIds, kind: 'trainer' })
     const readVersion = workspaceCacheVersion(syncState)
+    if (section === 'requests' && independentTabs) {
+      const from = dateKey(request.data?.from, 'Ngày bắt đầu')
+      const to = dateKey(request.data?.to, 'Ngày kết thúc')
+      if (from > to || Date.parse(`${to}T00:00:00+07:00`) - Date.parse(`${from}T00:00:00+07:00`) > 62 * 86400000) throw new HttpsError('invalid-argument', 'Khoảng lịch tối đa là 62 ngày.')
+      const data = await trainerRequestsWorkspaceForActor(db, actor, readVersion)
+      return { schemaVersion: 3, syncState, ...data, students: [], branches: [], sessions: [] }
+    }
     const scopePromise = cachedCoachWorkspaceScope(db, actor, readVersion)
     if (section === 'students') {
       const from = dateKey(request.data?.from, 'Ngày bắt đầu')
@@ -1824,9 +1880,16 @@ function createPtOperationsV2Functions({
     const [scope, data, roster] = await Promise.all([
       scopePromise,
       cachedTrainerSchedule(db, actor, from, to, limit, readVersion),
-      section === 'schedule' ? cachedAssignedStudents(db, actor, 500, readVersion) : Promise.resolve({ students: [], branches: [], hasMore: false }),
+      // Older cached clients still expect these options in the initial
+      // calendar response. Only callers with interaction-based roster loading
+      // opt into removing them, allowing either deployment order.
+      section === 'schedule' && !independentTabs
+        ? cachedAssignedStudents(db, actor, 500, readVersion)
+        : Promise.resolve({ students: [], branches: [], hasMore: false }),
     ])
-    return { schemaVersion: 2, syncState, scope, students: roster.students || [], branches: roster.branches || [], sessions: data.sessions, requests: data.requests, hasMore: Boolean(data.hasMore || roster.hasMore) }
+    // Adding a learner is a separate interaction. Merely checking this week's
+    // teaching schedule must not hydrate the full assigned/branch roster.
+    return { schemaVersion: independentTabs ? 3 : 2, syncState, scope, students: roster.students || [], branches: roster.branches || [], sessions: data.sessions, requests: data.requests, hasMore: Boolean(data.hasMore || roster.hasMore) }
   })
 
   const getMyTrainerStudentDetail = staffCall(async (request) => {

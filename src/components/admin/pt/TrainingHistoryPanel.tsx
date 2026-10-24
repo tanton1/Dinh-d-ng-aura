@@ -250,9 +250,15 @@ function stableContractSignature(contracts: TrainerStudentContractDetail[]) {
   return contracts.map((contract) => `${contract.id}:${contract.usedSessions}:${contract.remainingSessions}:${contract.reconciliationStatus}`).join('|')
 }
 
-export default function TrainingHistoryPanel({ subject, subjectId, subjectName, contractId, isDemo = false, initialSessions = [], initialContracts = [], focusSessionId = '', focusDate = '', onCorrectionSaved }: Props) {
+export default function TrainingHistoryPanel(props: Props) {
+  // Changing the person must also reset their filters, cursor, correction
+  // draft and contract detail. No state from the previous person is reusable.
+  return <TrainingHistoryContent key={`${props.subject}:${props.subjectId}:${props.contractId || ''}`} {...props} />
+}
+
+function TrainingHistoryContent({ subject, subjectId, subjectName, contractId, isDemo = false, initialSessions = [], initialContracts = [], focusSessionId = '', focusDate = '', onCorrectionSaved }: Props) {
   const { profile } = useAuth()
-  const { trainers } = useDatabase()
+  const { trainers, acquireTrainingHistoryTrainerDirectory } = useDatabase()
   const focusIsCurrentWeek = Boolean(focusDate && focusDate >= currentWeekStartKey() && focusDate <= currentWeekEndKey())
   const [rangeTab, setRangeTab] = useState<'week' | 'history'>(() => focusDate && !focusIsCurrentWeek ? 'history' : 'week')
   const [startDate, setStartDate] = useState(() => focusDate || currentWeekStartKey())
@@ -263,12 +269,27 @@ export default function TrainingHistoryPanel({ subject, subjectId, subjectName, 
   const [error, setError] = useState('')
   const [contractUsage, setContractUsage] = useState<ContractUsageSummary[]>([])
   const [usageError, setUsageError] = useState('')
+  const [showContractUsage, setShowContractUsage] = useState(false)
+  const [usageLoading, setUsageLoading] = useState(false)
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false)
   const [correction, setCorrection] = useState<TeachingShiftCorrectionDraft | null>(null)
   const [correctionSaving, setCorrectionSaving] = useState(false)
   const [correctionError, setCorrectionError] = useState('')
   const [correctionNotice, setCorrectionNotice] = useState('')
+  const correctionIsOpen = Boolean(correction)
   const consumedFocusSession = useRef('')
+  const mountedRef = useRef(true)
+  const refreshAfterCorrectionRef = useRef<() => Promise<void>>(async () => {})
+  const historyRequestRef = useRef(0)
+  const historyLoadingRef = useRef(false)
+  const nextCursorRef = useRef<string | null>(null)
+  const usageRequestRef = useRef(0)
+  const usageLoadingRef = useRef(false)
+  const usageLoadedRef = useRef(false)
+  useEffect(() => {
+    mountedRef.current = true
+    return () => { mountedRef.current = false }
+  }, [])
   const initialSessionSignature = stableSessionSignature(initialSessions)
   const initialContractSignature = stableContractSignature(initialContracts)
   const trainerShifts = useMemo(() => subject === 'trainer' ? groupTrainerTeachingShifts(page?.records ?? []) : [], [page?.records, subject])
@@ -290,10 +311,27 @@ export default function TrainingHistoryPanel({ subject, subjectId, subjectName, 
     return trainers
       .filter((trainer) => trainer.status !== 'inactive')
       .sort((left, right) => (left.name || '').localeCompare(right.name || '', 'vi'))
-  }, [correction?.records, trainers])
+  }, [trainers])
+
+  useEffect(() => {
+    if (correctionIsOpen) return acquireTrainingHistoryTrainerDirectory()
+  }, [acquireTrainingHistoryTrainerDirectory, correctionIsOpen])
+
+  useEffect(() => {
+    // The student history does not load the PT directory until a correction
+    // is opened. Select the original PT once that directory has arrived.
+    if (!correction || correction.trainerId) return
+    const sourceTrainerId = correction.records[0]?.trainerId
+    if (sourceTrainerId && trainers.some((trainer) => trainer.id === sourceTrainerId && trainer.status !== 'inactive')) {
+      setCorrection((current) => current && !current.trainerId ? { ...current, trainerId: sourceTrainerId } : current)
+    }
+  }, [correction, trainers])
 
   const load = useCallback(async (append = false) => {
-    if (!subjectId) return
+    if (!subjectId || !startDate || !endDate || startDate > endDate) return
+    if (append && (historyLoadingRef.current || !nextCursorRef.current)) return
+    const requestId = ++historyRequestRef.current
+    historyLoadingRef.current = true
     setLoading(true)
     setError('')
     try {
@@ -301,23 +339,47 @@ export default function TrainingHistoryPanel({ subject, subjectId, subjectName, 
         setPage(demoPage(subjectId, initialSessions, startDate, endDate, status))
         return
       }
-      const query = { startDate, endDate, status, pageSize: 50, cursor: append ? page?.nextCursor : null }
+      const query = { startDate, endDate, status, pageSize: 50, cursor: append ? nextCursorRef.current : null }
       const response = subject === 'student'
         ? await listStudentTrainingHistory(subjectId, query)
         : await listTrainerTeachingHistory(subjectId, query)
-      setPage((current) => append && current ? { ...response, records: [...current.records, ...response.records] } : response)
+      if (requestId !== historyRequestRef.current) return
+      nextCursorRef.current = response.nextCursor
+      setPage((current) => {
+        if (!append || !current) return response
+        const previousIds = new Set(current.records.map((record) => record.id))
+        return { ...response, records: [...current.records, ...response.records.filter((record) => !previousIds.has(record.id))] }
+      })
     } catch (cause) {
+      if (requestId !== historyRequestRef.current) return
       setError(cause instanceof Error ? cause.message : 'Không thể tải lịch sử buổi tập.')
       if (!append) setPage(null)
     } finally {
-      setLoading(false)
+      if (requestId === historyRequestRef.current) {
+        historyLoadingRef.current = false
+        setLoading(false)
+      }
     }
-  }, [endDate, initialSessionSignature, isDemo, page?.nextCursor, startDate, status, subject, subjectId]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [endDate, initialSessionSignature, isDemo, startDate, status, subject, subjectId]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => { void load(false) }, [subjectId, startDate, endDate, status]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    setPage(null)
+    setLoading(false)
+    setError(!startDate || !endDate || startDate > endDate ? 'Vui lòng chọn khoảng ngày hợp lệ.' : '')
+    nextCursorRef.current = null
+    void load(false)
+    return () => {
+      historyRequestRef.current += 1
+      historyLoadingRef.current = false
+    }
+  }, [load])
 
-  const loadUsage = useCallback(async () => {
+  const loadUsage = useCallback(async (force = false) => {
     if (subject !== 'student' || !subjectId) return
+    if (!force && (usageLoadingRef.current || usageLoadedRef.current)) return
+    const requestId = ++usageRequestRef.current
+    usageLoadingRef.current = true
+    setUsageLoading(true)
     setUsageError('')
     try {
       if (isDemo) {
@@ -346,22 +408,44 @@ export default function TrainingHistoryPanel({ subject, subjectId, subjectName, 
           pendingSessions: 0,
           legacyChargedSessions: 0,
         })))
+        usageLoadedRef.current = true
         return
       }
       const response = await getStudentContractUsage(subjectId, contractId)
+      if (requestId !== usageRequestRef.current) return
       setContractUsage(response.summaries)
+      usageLoadedRef.current = true
     } catch (cause) {
+      if (requestId !== usageRequestRef.current) return
       setContractUsage([])
       setUsageError(cause instanceof Error ? cause.message : 'Không thể đối chiếu số buổi gói tập.')
+    } finally {
+      if (requestId === usageRequestRef.current) {
+        usageLoadingRef.current = false
+        setUsageLoading(false)
+      }
     }
   }, [contractId, initialContractSignature, isDemo, subject, subjectId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    // The week view is intentionally a session-window read. Contract usage
-    // scans the complete learner ledger, so defer it until the operator opens
-    // history or explicitly opens the filter drawer.
-    if (rangeTab === 'history' || showAdvancedFilters) void loadUsage()
-  }, [loadUsage, rangeTab, showAdvancedFilters])
+    usageLoadedRef.current = false
+    return () => {
+      usageRequestRef.current += 1
+      usageLoadingRef.current = false
+    }
+  }, [loadUsage])
+
+  useEffect(() => {
+    // The detailed contract reconciliation reads the full learner ledger;
+    // opening a date/status filter or another range must not trigger it.
+    if (showContractUsage) void loadUsage()
+  }, [loadUsage, showContractUsage])
+
+  refreshAfterCorrectionRef.current = async () => {
+    if (!mountedRef.current) return
+    usageLoadedRef.current = false
+    await Promise.all([load(false), ...(showContractUsage ? [loadUsage(true)] : [])])
+  }
 
   const weekDays = useMemo(() => {
     if (rangeTab !== 'week') return []
@@ -485,18 +569,21 @@ export default function TrainingHistoryPanel({ subject, subjectId, subjectName, 
         trainerId: correction.trainerId,
         reason: correction.reason.trim(),
       })
+      if (!mountedRef.current) return
       setCorrection(null)
       setCorrectionNotice(result.unchanged
         ? 'Ca không có thay đổi mới.'
         : result.invalidatedPayrollPeriods.length
           ? `Đã điều chỉnh ca. Kỳ lương ${result.invalidatedPayrollPeriods.join(', ')} cần xóa nháp và lập lại.`
           : 'Đã điều chỉnh ca và lưu đầy đủ lịch sử đối soát.')
-      await load(false)
-      onCorrectionSaved?.()
+      // Use the currently displayed range, and never start background reads
+      // for a panel the operator has already left while the save was pending.
+      await refreshAfterCorrectionRef.current()
+      if (mountedRef.current) onCorrectionSaved?.()
     } catch (cause) {
-      setCorrectionError(correctionFailureMessage(cause))
+      if (mountedRef.current) setCorrectionError(correctionFailureMessage(cause))
     } finally {
-      setCorrectionSaving(false)
+      if (mountedRef.current) setCorrectionSaving(false)
     }
   }
 
@@ -504,7 +591,7 @@ export default function TrainingHistoryPanel({ subject, subjectId, subjectName, 
   return <section className="training-history" aria-busy={loading}>
     <header className="training-history__header">
       <div><span><CalendarDays size={15} /> {subject === 'student' ? 'NHẬT KÝ TẬP LUYỆN' : 'NHẬT KÝ CA DẠY'}</span><h3>{subject === 'student' ? 'Lịch sử tập' : 'Lịch dạy PT'}<em> · {subjectName || 'Hồ sơ Aura'}</em></h3></div>
-      <button type="button" aria-label="Làm mới lịch sử" onClick={() => { void load(false); if (rangeTab === 'history' || showAdvancedFilters) void loadUsage() }} disabled={loading}><RefreshCw size={16} className={loading ? 'is-spinning' : ''} /><span>Làm mới</span></button>
+      <button type="button" aria-label="Làm mới lịch sử" onClick={() => { void load(false); usageLoadedRef.current = false; if (showContractUsage) void loadUsage(true) }} disabled={loading}><RefreshCw size={16} className={loading ? 'is-spinning' : ''} /><span>Làm mới</span></button>
     </header>
     <div className="training-history__filters">
       <div className="training-history__range-tabs" role="tablist" aria-label="Phạm vi lịch sử">
@@ -522,8 +609,11 @@ export default function TrainingHistoryPanel({ subject, subjectId, subjectName, 
     {rangeTab === 'week' ? <div className="training-history__week-strip" aria-label="7 ngày trong tuần hiện tại">{weekDays.map((day) => <div className={day.count ? 'has-sessions' : ''} key={day.date}><span>{day.label}</span><strong>{day.date.slice(8)}</strong><small>{day.count ? `${day.count} buổi` : 'Trống'}</small></div>)}</div> : null}
     {error && <div className="training-history__notice"><CircleAlert size={18} /> {error}</div>}
     {correctionNotice && <div className="training-history__notice is-success"><CheckCircle2 size={18} /> {correctionNotice}</div>}
-    {usageError && subject === 'student' ? <div className="training-history__notice"><CircleAlert size={18} /> {usageError}</div> : null}
-    {selectedUsage ? <section className="training-history__contract-usage">
+    {page && subject === 'student' && periodUsage ? <div className="training-history__summary" aria-label="Tổng hợp buổi tập trong phạm vi đang xem"><div><strong>{periodUsage.chargedSessions}</strong><span>Tính buổi</span></div><div><strong>{periodUsage.attendedSessions}</strong><span>Có tập</span></div><div><strong>{periodUsage.chargedNoShowSessions}</strong><span>Vắng tính buổi</span></div><div><strong>{periodUsage.exemptSessions}</strong><span>Miễn trừ</span></div></div> : null}
+    {subject === 'student' ? <div className="training-history__usage-toggle"><button type="button" className="training-history__filter-toggle" aria-expanded={showContractUsage} onClick={() => setShowContractUsage((current) => !current)}><ChevronDown size={15} />{showContractUsage ? 'Ẩn đối chiếu gói tập' : 'Đối chiếu gói tập'}</button>{showContractUsage && usageLoading ? <span role="status">Đang đối chiếu gói tập…</span> : null}</div> : null}
+    {showContractUsage && usageError && subject === 'student' ? <div className="training-history__notice"><CircleAlert size={18} /> {usageError}<button type="button" onClick={() => void loadUsage(true)}>Thử lại</button></div> : null}
+    {showContractUsage && usageLoadedRef.current && !usageLoading && !usageError && !selectedUsage ? <p className="training-history__scope-note">Chưa có hợp đồng để đối chiếu.</p> : null}
+    {showContractUsage && selectedUsage ? <section className="training-history__contract-usage">
       <header><div><small>GÓI ĐANG ĐỐI CHIẾU</small><strong>{selectedUsage.packageName}</strong></div><span><b>{selectedUsage.usedSessions}</b>/{selectedUsage.totalSessions} buổi tính quota</span></header>
       <i className="training-history__usage-progress"><em style={{ width: `${Math.min(100, selectedUsage.totalSessions ? selectedUsage.usedSessions / selectedUsage.totalSessions * 100 : 0)}%` }} /></i>
       <div className="training-history__usage-facts">

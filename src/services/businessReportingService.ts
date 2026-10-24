@@ -1,8 +1,21 @@
 import { firebaseBusinessReportingFunctions, firebaseFunctions } from '../lib/firebaseFunctions'
+import { firebaseAuth } from '../lib/firebase'
+import { runKeyedSingleFlight } from '../utils/singleFlight'
 import { createClientCorrelationId } from './clientTelemetryService'
 import { callReadOnlyFunction, runReadOnlyWithFallback } from './readOnlyCallableService'
 
-async function callBusinessReportingRead<Input, Output>(name: string, input: Input): Promise<Output> {
+const pendingReads = new Map<string, Promise<unknown>>()
+
+function callBusinessReportingRead<Input, Output>(name: string, input: Input): Promise<Output> {
+  const uid = firebaseAuth?.currentUser?.uid
+  const execute = () => invokeBusinessReportingRead<Input, Output>(name, input)
+  // Coalesce only simultaneous reads from the same signed-in account. A
+  // completed result is never cached, so refreshes observe corrections.
+  if (!uid) return execute()
+  return runKeyedSingleFlight(pendingReads, JSON.stringify([uid, name, input]), execute) as Promise<Output>
+}
+
+async function invokeBusinessReportingRead<Input, Output>(name: string, input: Input): Promise<Output> {
   const correlationId = createClientCorrelationId()
   const invoke = (functionsClient: typeof firebaseFunctions, callableName: string) => {
     if (!functionsClient) throw new Error('Firebase Functions chưa sẵn sàng.')

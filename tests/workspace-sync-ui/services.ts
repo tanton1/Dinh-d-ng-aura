@@ -27,6 +27,10 @@ export async function getMyTrainerWorkspace(section: string, from: string, to: s
   const syncState = await begin('trainerWorkspace', { section, from, to })
   return { schemaVersion: 1, scope: { schemaVersion: 1, staffId: firebaseAuth.currentUser?.uid, branchIds: ['branch'], tabs: { students: true, schedule: true, requests: true }, counts: { primaryStudents: 0, secondaryStudents: 0, teachingSessions: 0 } }, students: [], branches: [{ id: 'branch', name: 'Chi nhánh' }], sessions: state.workspaceSessions || [], requests: [], syncState }
 }
+export async function listMyAssignedStudents() {
+  await begin('trainerWorkspace', { section: 'addition-roster' })
+  return { students: [], hasMore: false }
+}
 export const listStudentTrainingHistory = async (studentId: string) => {
   state.historyCalls ??= []
   state.historyCalls.push(studentId)

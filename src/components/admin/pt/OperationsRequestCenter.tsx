@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   CalendarClock,
   CalendarRange,
@@ -55,52 +55,66 @@ function normalize(value: string) {
 
 export default function OperationsRequestCenter({ kind = 'all', initialFilter }: Props) {
   const [page, setPage] = useState<PtOperationsRequestPage | null>(null)
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [query, setQuery] = useState('')
   const [status, setStatus] = useState<StatusFilter>('pending')
-  const [category, setCategory] = useState<RequestKind>(initialFilter || (kind === 'all' ? 'all' : kind))
+  const [category, setCategory] = useState<RequestKind>(kind === 'all' ? initialFilter || 'all' : kind)
   const [decision, setDecision] = useState<Decision | null>(null)
   const [decisionReason, setDecisionReason] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const requestRef = useRef(0)
+  const scopeRef = useRef(0)
+  const currentPage = page?.kind === kind ? page : null
 
   const load = useCallback(async () => {
+    const requestId = ++requestRef.current
     setLoading(true)
     setError('')
     try {
-      setPage(await listPtOperationsRequests(kind))
+      const result = await listPtOperationsRequests(kind)
+      if (requestId === requestRef.current) setPage(result)
     } catch (cause) {
+      if (requestId !== requestRef.current) return
       setPage(null)
       setError(cause instanceof Error ? cause.message : 'Không thể tải lịch sử yêu cầu.')
     } finally {
-      setLoading(false)
+      if (requestId === requestRef.current) setLoading(false)
     }
   }, [kind])
 
   useEffect(() => {
+    ++scopeRef.current
+    setPage(null)
     setQuery('')
     setStatus('pending')
     setDecision(null)
     setNotice('')
+    setSubmitting(false)
+    setDecisionReason('')
     void load()
+    return () => {
+      ++requestRef.current
+      ++scopeRef.current
+    }
   }, [kind, load])
 
   useEffect(() => {
-    setCategory(initialFilter || (kind === 'all' ? 'all' : kind))
+    setCategory(kind === 'all' ? initialFilter || 'all' : kind)
     setDecision(null)
   }, [initialFilter, kind])
 
   const records = useMemo(() => {
     const needle = normalize(query.trim())
-    return (page?.records || []).filter((record) => {
+    return (currentPage?.records || []).filter((record) => {
       if (category !== 'all' && record.kind !== category) return false
       if (status !== 'all' && record.status !== status) return false
       if (!needle) return true
       return [record.studentName, record.studentPhone, record.packageName, record.reason, record.id]
         .some((value) => normalize(String(value || '')).includes(needle))
     })
-  }, [category, page?.records, query, status])
+  }, [category, currentPage?.records, query, status])
 
   const openDecision = (record: PtOperationsRequest, action: Decision['action']) => {
     setDecision({ record, action })
@@ -119,6 +133,7 @@ export default function OperationsRequestCenter({ kind = 'all', initialFilter }:
     }
     setSubmitting(true)
     setError('')
+    const scope = scopeRef.current
     try {
       const { record, action } = decision
       let autoRejectedSessionRequestCount = 0
@@ -129,6 +144,7 @@ export default function OperationsRequestCenter({ kind = 'all', initialFilter }:
         const result = await approveContractPauseRequest(record.id, record.requiresExceptionApproval ? decisionReason.trim() : undefined)
         autoRejectedSessionRequestCount = result.autoRejectedSessionRequestCount || 0
       } else await rejectContractPauseRequest(record.id, decisionReason.trim())
+      if (scope !== scopeRef.current) return
       setNotice(action === 'approve'
         ? autoRejectedSessionRequestCount > 0
           ? `Đã duyệt và lưu lịch sử vận hành; tự đóng ${autoRejectedSessionRequestCount} yêu cầu đổi lịch bị ảnh hưởng.`
@@ -137,9 +153,10 @@ export default function OperationsRequestCenter({ kind = 'all', initialFilter }:
       setDecision(null)
       await load()
     } catch (cause) {
+      if (scope !== scopeRef.current) return
       setError(cause instanceof Error ? cause.message : 'Không thể xử lý yêu cầu.')
     } finally {
-      setSubmitting(false)
+      if (scope === scopeRef.current) setSubmitting(false)
     }
   }
 
@@ -149,7 +166,7 @@ export default function OperationsRequestCenter({ kind = 'all', initialFilter }:
       ? 'Đổi, hủy và thêm buổi'
       : 'OFF và bảo lưu'
   const subtitle = kind === 'all'
-    ? 'Một hàng đợi duy nhất cho đổi, hủy, thêm/bù buổi, OFF và bảo lưu. Mọi quyết định vẫn chạy qua transaction và ghi audit ở backend.'
+    ? 'Theo dõi yêu cầu đổi, hủy, thêm/bù buổi, OFF và bảo lưu cùng lịch sử xử lý.'
     : kind === 'session'
       ? 'Admin duyệt yêu cầu đổi, hủy, xếp thêm ca và bù buổi. Thông báo học viên vắng trước giờ được ghi nhận ngay, không cần Admin xác nhận.'
       : 'Duyệt quyền lợi hợp đồng, thời gian nghỉ, số ngày cộng hạn và các ca được miễn.'
@@ -165,10 +182,10 @@ export default function OperationsRequestCenter({ kind = 'all', initialFilter }:
 
     <div className="operations-requests__summary" aria-label="Tổng hợp trạng thái">
       {([
-        ['all', 'Tất cả', page?.summary.total || 0],
-        ['pending', 'Chờ duyệt', page?.summary.pending || 0],
-        ['approved', 'Đã duyệt', page?.summary.approved || 0],
-        ['rejected', 'Từ chối', page?.summary.rejected || 0],
+        ['all', 'Tất cả', currentPage?.summary.total || 0],
+        ['pending', 'Chờ duyệt', currentPage?.summary.pending || 0],
+        ['approved', 'Đã duyệt', currentPage?.summary.approved || 0],
+        ['rejected', 'Từ chối', currentPage?.summary.rejected || 0],
       ] as Array<[StatusFilter, string, number]>).map(([value, label, count]) => <button type="button" key={value} className={status === value ? 'is-active' : ''} onClick={() => setStatus(value)}><strong>{count}</strong><span>{label}</span></button>)}
     </div>
     {kind === 'all' && <div className="operations-requests__summary" aria-label="Loại yêu cầu">
@@ -186,10 +203,10 @@ export default function OperationsRequestCenter({ kind = 'all', initialFilter }:
 
     {notice && <div className="operations-requests__notice"><ShieldCheck size={17} /> {notice}</div>}
     {error && !decision && <div className="operations-requests__error"><CircleAlert size={17} /> {error}</div>}
-    {page?.truncated && <div className="operations-requests__error"><CircleAlert size={17} /> Danh sách đã đạt giới hạn 500 hồ sơ. Hãy dùng tìm kiếm hoặc bộ lọc trạng thái.</div>}
+    {currentPage?.truncated && <div className="operations-requests__error"><CircleAlert size={17} /> Chỉ hiển thị tối đa 500 hồ sơ. Tìm kiếm và bộ lọc áp dụng trong danh sách đã tải.</div>}
 
     <div className="operations-requests__list">
-      {loading && !page ? <div className="operations-requests__empty"><RefreshCw className="is-spinning" /> Đang tải lịch sử an toàn…</div> : null}
+      {loading && !currentPage ? <div className="operations-requests__empty"><RefreshCw className="is-spinning" /> Đang tải yêu cầu…</div> : null}
       {!loading && !error && !records.length ? <div className="operations-requests__empty"><FileClock /> Không có yêu cầu phù hợp bộ lọc.</div> : null}
       {records.map((record) => <article key={record.id} className={`operations-request-card is-${record.status}`}>
         <header><span className={`operations-request-card__kind is-${record.type}`}>{record.kind === 'session' ? record.type === 'additional' ? 'Đăng ký thêm ca' : record.type === 'makeup' ? 'Bù buổi' : record.type === 'cancel' ? 'Hủy buổi' : 'Đổi lịch' : record.type === 'off' ? 'OFF' : 'Bảo lưu'}</span><span className={`operations-request-card__status is-${record.status}`}>{statusCopy[record.status]}</span></header>

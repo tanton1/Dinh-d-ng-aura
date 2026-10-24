@@ -576,7 +576,14 @@ function createBusinessReportingFunctions({ db, onCall }) {
     }
     const summaryLimit = input.allTime ? MAX_USAGE_SESSIONS + 1 : 5001
     summaryQuery = summaryQuery.limit(summaryLimit)
-    const summarySnapshot = await summaryQuery.get()
+    // A complete, unfiltered first page already contains the entire range.
+    // Reusing it preserves canonical counting and avoids reading every small
+    // learner/week history twice. Filtered, partial and subsequent pages still
+    // need the independent range summary to keep totals correct.
+    // All-time legacy rows may lack `date` and be absent from the ordered
+    // page query; only a date-bounded range proves the two queries equivalent.
+    const completeRangeInPage = !input.allTime && !input.cursor && input.status === 'all' && snapshot.size < pageReadLimit
+    const summarySnapshot = completeRangeInPage ? snapshot : await summaryQuery.get()
     const summaryRows = summarySnapshot.docs.map((item) => ({ id: item.id, ...item.data() }))
     const summaryRecords = (subjectType === 'student'
       ? canonicalStudentHistoryRows(summaryRows)

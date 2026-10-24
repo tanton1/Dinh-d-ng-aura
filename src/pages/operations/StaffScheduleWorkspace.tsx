@@ -1,8 +1,10 @@
+import { lazy, Suspense } from 'react'
 import { CalendarClock, CalendarDays, History, ShieldCheck } from 'lucide-react'
 import type { ViewId } from '../../types'
-import TrainerAvailabilityPage from './TrainerAvailabilityPage'
-import TrainerPortalV2 from './TrainerPortalV2'
 import './StaffScheduleWorkspace.css'
+
+const TrainerAvailabilityPage = lazy(() => import('./TrainerAvailabilityPage'))
+const TrainerPortalV2 = lazy(() => import('./TrainerPortalV2'))
 
 export type StaffScheduleTab = 'teaching' | 'availability' | 'requests'
 
@@ -29,9 +31,11 @@ export default function StaffScheduleWorkspace({ initialTab = 'teaching', canMan
       {tabs.map(({ id, view, label, detail, icon: Icon }) => <button type="button" key={id} className={initialTab === id ? 'is-active' : ''} aria-current={initialTab === id ? 'page' : undefined} onClick={() => onNavigate(view)}><Icon size={19} /><span><strong>{label}</strong><small>{detail}</small></span></button>)}
     </nav>
     <section className="staff-schedule-workspace__content">
-      {initialTab === 'teaching' && <TrainerPortalV2 section="schedule" embedded isDemo={isDemo} onNavigate={onNavigate} />}
+      <Suspense fallback={<p role="status">Đang tải phần lịch được chọn…</p>}>
+      {initialTab === 'teaching' && <TrainerPortalV2 key="schedule" section="schedule" embedded isDemo={isDemo} onNavigate={onNavigate} />}
       {initialTab === 'availability' && canManageAvailability && <TrainerAvailabilityPage embedded isDemo={isDemo} />}
-      {initialTab === 'requests' && <TrainerPortalV2 section="requests" embedded isDemo={isDemo} onNavigate={onNavigate} />}
+      {initialTab === 'requests' && <TrainerPortalV2 key="requests" section="requests" embedded isDemo={isDemo} onNavigate={onNavigate} />}
+      </Suspense>
     </section>
   </main>
 }

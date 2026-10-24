@@ -10,7 +10,7 @@ const { viewFromSummary } = require('./contract-usage-view')
 const VERSION = (value) => `${String(value).padStart(12, '0')}.000000000`
 const USER_SIGNAL = (uid) => `users/${uid}/workspaceChanges/operations`
 const STUDENT_RANGE = { from: '2026-10-01', to: '2026-11-01', availabilityWeekId: '2026-10-26' }
-const TRAINER_RANGE = { section: 'students', from: '2026-10-01', to: '2026-11-01', limit: 100 }
+const TRAINER_RANGE = { section: 'students', from: '2026-10-01', to: '2026-11-01', limit: 100, independentTabs: true }
 
 // Exercise the real handlers, auth resolver and every nested process cache.
 // This fake only implements the Firestore read boundary used by these reads.
@@ -37,7 +37,7 @@ function memoryDb(initial) {
       orderBy: (field, direction = 'asc') => query(collection, conditions, [String(field), direction], maximum),
       limit: (count) => query(collection, conditions, ordering, count),
       async get() {
-        const read = { type: 'query', collection, conditions }
+        const read = { type: 'query', collection, conditions, maximum }
         reads.push(read)
         let rows = [...values].filter(([path, value]) => path.slice(0, path.lastIndexOf('/')) === collection
           && conditions.every(([field, operator, expected]) => matches(fieldValue(path, value, field), operator, expected)))
@@ -82,6 +82,56 @@ function fixture() {
 }
 const queryCount = (db, collection) => db.reads.filter((read) => read.type === 'query' && read.collection === collection).length
 const update = (db, path, patch) => db.values.set(path, { ...db.values.get(path), ...patch })
+
+test('request tab reads its own requests and student names without hydrating other workspaces', async () => {
+  const { db, trainer } = fixture()
+  db.values.set('students/old-student', { name: 'Old student' })
+  db.values.set('sessionRequests/own', { trainerId: 'trainer', requestedBy: 'trainer', studentId: 'old-student', sessionId: 'old-session', type: 'reschedule', status: 'pending', originalDate: '2026-01-01', originalHour: 7, newDate: '2026-01-02', newHour: 8, submittedAtIso: '2026-01-01T01:00:00Z' })
+  db.values.set('sessionRequests/student-request', { trainerId: 'trainer', requestedBy: 'student', studentId: 'student', type: 'cancel', status: 'pending' })
+  db.values.set('sessionRequests/other-trainer', { trainerId: 'different-trainer', requestedBy: 'trainer', studentId: 'student', type: 'cancel', status: 'pending' })
+  const result = await trainer({ section: 'requests' })
+  assert.deepEqual(result.sessions, [])
+  assert.deepEqual(result.students, [])
+  assert.deepEqual(result.branches, [])
+  assert.equal(result.scope.tabs.requests, true)
+  assert.equal(result.scope.counts.pendingRequests, 1)
+  assert.equal(result.requests.length, 1)
+  assert.equal(result.requests[0].id, 'own')
+  assert.equal(result.requests[0].studentName, 'Old student')
+  assert.equal(result.requests[0].originalHour, 7)
+  assert.equal(result.requests[0].newDate, '2026-01-02')
+  assert.equal(queryCount(db, 'contracts'), 0)
+  assert.equal(queryCount(db, 'students'), 0)
+  assert.equal(queryCount(db, 'sessionRequests'), 1)
+  assert.deepEqual(db.reads.filter((read) => read.collection === 'sessions').map((read) => read.maximum), [1])
+  assert.equal(db.reads.some((read) => read.path?.startsWith('contractUsageViews/')), false)
+  assert.deepEqual(db.reads.filter((read) => read.path?.startsWith('students/')).map((read) => read.path), ['students/old-student'])
+})
+
+test('request tab keeps contract-based visibility for a trainer without sessions', async () => {
+  const { db, trainer } = fixture()
+  db.values.delete('sessions/session')
+  assert.equal((await trainer({ section: 'requests' })).scope.tabs.requests, true)
+  assert.equal(db.reads.some((read) => read.collection === 'contracts' && read.conditions.some(([field]) => field === 'nutritionPTIds')), false)
+  update(db, 'contracts/contract', { status: 'cancelled' })
+  update(db, USER_SIGNAL('trainer'), { trainerWorkspaceVersion: VERSION(2) })
+  assert.equal((await trainer({ section: 'requests' })).scope.tabs.requests, false)
+})
+
+test('request payload coalesces repeated reads and refreshes after its workspace signal changes', async () => {
+  const { db, trainer } = fixture()
+  db.values.set('sessionRequests/own', { trainerId: 'trainer', requestedBy: 'trainer', studentId: 'student', type: 'cancel', status: 'pending' })
+  const [first, same] = await Promise.all([trainer({ section: 'requests' }), trainer({ section: 'requests' })])
+  assert.deepEqual(first.requests, same.requests)
+  assert.equal(queryCount(db, 'sessionRequests'), 1)
+  update(db, 'sessionRequests/own', { status: 'approved' })
+  update(db, 'students/student', { name: 'Updated name' })
+  update(db, USER_SIGNAL('trainer'), { trainerWorkspaceVersion: VERSION(2) })
+  const fresh = await trainer({ section: 'requests' })
+  assert.equal(fresh.requests[0].status, 'approved')
+  assert.equal(fresh.requests[0].studentName, 'Updated name')
+  assert.equal(queryCount(db, 'sessionRequests'), 2)
+})
 
 test('student change versions refresh source and inherited availability inside TTL; unchanged concurrent reads coalesce', async () => {
   const { db, student } = fixture()
@@ -138,7 +188,7 @@ test('trainer branch revisions invalidate scope, assigned-contract and roster/sc
 })
 
 test('a later usage-projection revision updates trainer quota instead of reusing the earlier source refresh', async () => {
-  const { db, trainer } = fixture()
+  const { db, trainer, handlers, request } = fixture()
   const first = await trainer({ section: 'schedule' })
   assert.equal(first.sessions[0].contract.usedSessions, 0)
   update(db, USER_SIGNAL('trainer'), { trainerWorkspaceVersion: VERSION(2) })
@@ -147,8 +197,53 @@ test('a later usage-projection revision updates trainer quota instead of reusing
   update(db, USER_SIGNAL('trainer'), { trainerWorkspaceVersion: VERSION(3) })
   const projected = await trainer({ section: 'schedule' })
   assert.equal(projected.sessions[0].contract.usedSessions, 7)
-  assert.equal(projected.students[0].contract.remainingSessions, 29)
+  assert.deepEqual(projected.students, [])
+  const roster = await handlers.listMyAssignedStudents(request('trainer', { limit: 500 }))
+  assert.equal(roster.students[0].contract.remainingSessions, 29)
   assert.equal(projected.syncState.userVersion, VERSION(3))
+})
+
+test('opening the teaching calendar defers branch roster hydration until explicitly requested', async () => {
+  const { db, trainer, handlers, request } = fixture()
+  db.values.set('students/branch-student', { name: 'Branch learner', branchId: 'branch', status: 'active' })
+  db.values.set('contracts/branch-contract', { studentId: 'branch-student', trainerId: 'other-trainer', branchId: 'branch', status: 'active', startDate: '2026-01-01', endDate: '2027-12-31', totalSessions: 36, usedSessions: 0 })
+  const calendar = await trainer({ section: 'schedule' })
+  assert.deepEqual(calendar.students, [])
+  assert.deepEqual(calendar.branches, [])
+  assert.equal(calendar.sessions[0].studentName, 'Before')
+  assert.equal(queryCount(db, 'students'), 0)
+  assert.equal(db.reads.some((read) => read.path === 'students/branch-student'), false)
+  assert.equal(db.reads.some((read) => read.path === 'contractUsageViews/branch-contract'), false)
+  const roster = await handlers.listMyAssignedStudents(request('trainer', { limit: 500 }))
+  assert.equal(roster.students.find((student) => student.id === 'branch-student')?.assignmentRole, 'branch')
+  assert.ok(queryCount(db, 'students') > 0)
+})
+
+test('legacy calendar callers retain their initial roster until they opt into independent tabs', async () => {
+  const { db, trainer } = fixture()
+  const legacy = await trainer({ section: 'schedule', independentTabs: undefined })
+  assert.equal(legacy.schemaVersion, 2)
+  assert.equal(legacy.students[0].id, 'student')
+  assert.equal(legacy.branches[0].id, 'branch')
+  assert.equal(legacy.sessions[0].studentName, 'Before')
+  assert.ok(queryCount(db, 'students') > 0)
+  const independent = await trainer({ section: 'schedule' })
+  assert.deepEqual(independent.students, [])
+  assert.deepEqual(independent.branches, [])
+})
+
+test('legacy request callers retain session names and complete scope while new callers receive isolated request names', async () => {
+  const { db, trainer } = fixture()
+  db.values.set('sessionRequests/own', { trainerId: 'trainer', requestedBy: 'trainer', studentId: 'student', sessionId: 'session', type: 'cancel', status: 'pending', originalDate: '2026-10-26', originalHour: 8 })
+  const legacy = await trainer({ section: 'requests', independentTabs: undefined })
+  assert.equal(legacy.schemaVersion, 2)
+  assert.equal(legacy.scope.tabs.schedule, true)
+  assert.equal(legacy.sessions[0].studentName, 'Before')
+  assert.equal(legacy.requests[0].studentId, legacy.sessions[0].studentId)
+  const independent = await trainer({ section: 'requests' })
+  assert.deepEqual(independent.sessions, [])
+  assert.equal(independent.requests[0].studentName, 'Before')
+  assert.equal(independent.scope.section, 'requests')
 })
 
 test('healthy trainer roster avoids contract-history scans and duplicate profile reads while retaining cross-branch reserved sessions', async () => {

@@ -5,6 +5,7 @@ import { CalendarDays, CheckCheck, CheckCircle2, ChevronLeft, ChevronRight, Circ
 import {
   bulkConfirmMySessions,
   getMyTrainerWorkspace,
+  listMyAssignedStudents,
   recordMySessionAttendance,
   reportMySessionAdvanceAbsence,
   requestStudentSessionAddition,
@@ -177,6 +178,11 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
   const [addStudentTarget, setAddStudentTarget] = useState<TrainerSessionSummary | null>(null)
   const [addStudentId, setAddStudentId] = useState('')
   const [addStudentReason, setAddStudentReason] = useState('')
+  const [addStudents, setAddStudents] = useState<TrainerStudentSummary[]>([])
+  const [addStudentsLoading, setAddStudentsLoading] = useState(false)
+  const [addStudentsError, setAddStudentsError] = useState('')
+  const [addStudentsHasMore, setAddStudentsHasMore] = useState(false)
+  const [addStudentsAttempt, setAddStudentsAttempt] = useState(0)
   const [scheduleActionBusy, setScheduleActionBusy] = useState('')
   const [requestType, setRequestType] = useState<'cancel' | 'reschedule' | 'makeup'>('cancel')
   const [requestReason, setRequestReason] = useState('')
@@ -221,7 +227,8 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
   const studentNames = useMemo(() => new Map([
     ...students.map((student) => [student.id, student.name] as const),
     ...sessions.filter((session) => session.studentName).map((session) => [session.studentId, session.studentName as string] as const),
-  ]), [sessions, students])
+    ...requests.filter((request) => request.studentName).map((request) => [request.studentId, request.studentName as string] as const),
+  ]), [requests, sessions, students])
   const branchNames = useMemo(() => new Map(branches.map((branch) => [branch.id, branch.name])), [branches])
 
   useEffect(() => {
@@ -241,14 +248,44 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
   )), [scheduledByStudent, students])
   const addableStudents = useMemo(() => {
     if (!addStudentTarget) return []
-    return students
+    // During a staggered deployment the older callable caps the on-demand
+    // roster at 200 but still sends 500 in its initial calendar response.
+    // Preserve those already-authorized options only when that read truncates.
+    const roster = isDemo ? students : addStudentsHasMore ? [...students, ...addStudents] : addStudents
+    const candidates = new Map(roster.map((student) => [student.id, student]))
+    // The current calendar already contains authorized cross-branch learners.
+    // Keep those candidates without downloading another calendar or widening
+    // the branch roster query when this dialog is opened.
+    sessions.forEach((session) => {
+      const contract = session.contract
+      if (candidates.has(session.studentId) || !contract || session.contractEffective !== true || session.contractSchedulable !== true) return
+      if ((contract.startDate && contract.startDate > addStudentTarget.date) || (contract.endDate && contract.endDate < addStudentTarget.date)) return
+      candidates.set(session.studentId, {
+        id: session.studentId, name: session.studentName || 'Học viên Aura', phone: session.studentPhone || '', email: session.studentEmail || '',
+        branchId: session.studentBranchId || '', status: 'active', sessionsPerWeek: 0, assignmentRole: 'schedule', contract,
+      })
+    })
+    return [...candidates.values()]
       .filter((student) => student.id !== addStudentTarget.studentId && Boolean(student.contract?.id))
       .filter((student) => !(scheduledByStudent.get(student.id) || []).some((session) => (
         session.date === addStudentTarget.date
         && ['scheduled', 'rescheduled', 'completed', 'attended', 'no_show'].includes(session.status)
       )))
       .sort((left, right) => left.name.localeCompare(right.name, 'vi'))
-  }, [addStudentTarget, scheduledByStudent, students])
+  }, [addStudentTarget, addStudents, addStudentsHasMore, isDemo, scheduledByStudent, sessions, students])
+  useEffect(() => {
+    setAddStudents([]); setAddStudentsError(''); setAddStudentsHasMore(false)
+    if (!addStudentTarget || isDemo) { setAddStudentsLoading(false); return }
+    let current = true
+    setAddStudentsLoading(true)
+    void listMyAssignedStudents(500).then((result) => {
+      if (!current) return
+      setAddStudents(result.students); setAddStudentsHasMore(result.hasMore)
+    }).catch((cause) => {
+      if (current) setAddStudentsError(cause instanceof Error ? cause.message : 'Không thể tải học viên để thêm vào ca.')
+    }).finally(() => { if (current) setAddStudentsLoading(false) })
+    return () => { current = false }
+  }, [accountId, addStudentTarget?.id, addStudentsAttempt, isDemo])
   const filteredStudents = useMemo(() => {
     const query = normalizedSearch(studentQuery)
     const assignmentRank: Record<TrainerStudentSummary['assignmentRole'], number> = {
@@ -519,7 +556,7 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
 
   const submitAddStudent = async (event: React.FormEvent) => {
     event.preventDefault()
-    if (!addStudentTarget || scheduleActionBusy) return
+    if (!addStudentTarget || scheduleActionBusy || addStudentsLoading || addStudentsError) return
     const student = addableStudents.find((item) => item.id === addStudentId)
     if (!student?.contract?.id) return setError('Vui lòng chọn học viên còn hợp đồng để xếp vào ca.')
     if (addStudentReason.trim().length < 3) return setError('Vui lòng nhập lý do từ 3 ký tự.')
@@ -577,7 +614,7 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
     {workspaceSync.error && !scopeError && <div className="opv2-state" role="status">Chưa cập nhật được dữ liệu mới nhất. <button type="button" onClick={workspaceSync.retry}>Thử lại</button></div>}
     {!scopeLoading && workspace && !canOpenSection && <section className="opv2-guidance"><CircleAlert size={20} /><div><strong>Chưa có ca hoặc học viên được phân công</strong><p>Chi nhánh vẫn hoạt động bình thường. Trang này chỉ hiện hợp đồng còn hiệu lực và lịch dạy gắn trực tiếp với tài khoản Staff; quản trị viên có thể cập nhật PT chính, PT phụ hoặc lịch dạy tại hồ sơ học viên.</p></div></section>}
     {!scopeLoading && workspace && canOpenSection && <>
-    {!embedded && section !== 'students' && <section className="opv2-summary"><div className="opv2-stat"><strong>{workspace.counts.primaryStudents}</strong><span>học viên PT chính</span></div><div className="opv2-stat"><strong>{workspace.counts.secondaryStudents}</strong><span>học viên PT phụ</span></div><div className="opv2-stat"><strong>{workspace.counts.teachingSessions}</strong><span>buổi được phân công</span></div></section>}
+    {!embedded && section === 'schedule' && <section className="opv2-summary"><div className="opv2-stat"><strong>{workspace.counts.primaryStudents}</strong><span>học viên PT chính</span></div><div className="opv2-stat"><strong>{workspace.counts.secondaryStudents}</strong><span>học viên PT phụ</span></div><div className="opv2-stat"><strong>{workspace.counts.teachingSessions}</strong><span>buổi được phân công</span></div></section>}
     {notice && <div className="opv2-notice"><CheckCircle2 size={18} /> {notice}</div>}
     {loading && <div className="opv2-state"><RefreshCw className="is-spinning" /> Đang đồng bộ phạm vi làm việc…</div>}
     {error && !requestTarget && <div className="opv2-state is-error">{error}<button className="opv2-action" onClick={() => void load()}>Thử lại</button></div>}
@@ -717,7 +754,24 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
 
     {advanceAbsenceTarget && <div className="opv2-sheet-layer" role="presentation"><button type="button" className="opv2-sheet-backdrop" aria-label="Đóng" onClick={() => setAdvanceAbsenceTarget(null)} /><section className="opv2-sheet" role="dialog" aria-modal="true" aria-labelledby="trainer-advance-absence-title"><header><div><small>AURA PT · XÁC NHẬN NGHỈ TRƯỚC GIỜ</small><h2 id="trainer-advance-absence-title">Báo học viên nghỉ trước giờ?</h2></div><button type="button" aria-label="Đóng" onClick={() => setAdvanceAbsenceTarget(null)}><X size={19} /></button></header><p className="opv2-sheet-current"><b>{studentNames.get(advanceAbsenceTarget.studentId) || 'Học viên Aura'}</b><br />{advanceAbsenceTarget.date} · {String(advanceAbsenceTarget.hour ?? '--').padStart(2, '0')}:00</p><div className="opv2-billing-confirm"><CheckCircle2 size={18} /><span>Chỉ ghi nhận thông báo nghỉ trước giờ. Buổi gốc vẫn ở trạng thái chờ xác nhận; sau giờ tập PT vẫn xác nhận Không đến như bình thường. Nếu muốn mở chỗ cho học viên khác, hãy gửi đề xuất thêm ca để Admin duyệt.</span></div><form onSubmit={submitAdvanceAbsence}><label>Lý do (không bắt buộc)<textarea maxLength={500} value={advanceAbsenceReason} onChange={(event) => setAdvanceAbsenceReason(event.target.value)} placeholder="Ví dụ: học viên báo bận đột xuất…" /></label><label>Ghi chú (không bắt buộc)<textarea maxLength={500} value={advanceAbsenceNote} onChange={(event) => setAdvanceAbsenceNote(event.target.value)} placeholder="Thông tin để Admin đối chiếu…" /></label>{error && <p className="opv2-form-error">{error}</p>}<footer><button type="button" onClick={() => setAdvanceAbsenceTarget(null)}>Để sau</button><button type="submit" disabled={scheduleActionBusy === `absence:${advanceAbsenceTarget.id}`}>{scheduleActionBusy === `absence:${advanceAbsenceTarget.id}` ? 'Đang lưu…' : 'Xác nhận báo nghỉ'}</button></footer></form></section></div>}
 
-    {addStudentTarget && <div className="opv2-sheet-layer" role="presentation"><button type="button" className="opv2-sheet-backdrop" aria-label="Đóng" onClick={() => setAddStudentTarget(null)} /><section className="opv2-sheet" role="dialog" aria-modal="true" aria-labelledby="trainer-add-student-title"><header><div><small>AURA PT · GIẢI PHÓNG KHUNG GIỜ</small><h2 id="trainer-add-student-title">Thêm học viên vào ca</h2></div><button type="button" aria-label="Đóng" onClick={() => setAddStudentTarget(null)}><X size={19} /></button></header><p className="opv2-sheet-current">Ca {addStudentTarget.date} · {String(addStudentTarget.hour ?? '--').padStart(2, '0')}:00 đã được báo nghỉ trước giờ.</p><div className="opv2-billing-confirm"><UserPlus size={18} /><span>Đây là ca tập mới của học viên được chọn. Nếu Admin duyệt, buổi mới sẽ tính 1 buổi theo hợp đồng và đủ điều kiện hoa hồng theo ca thông thường. Buổi nguồn vẫn phải xác nhận Không đến sau giờ tập.</span></div><form onSubmit={submitAddStudent}><label>Học viên<select value={addStudentId} onChange={(event) => setAddStudentId(event.target.value)}><option value="">Chọn học viên</option>{addableStudents.map((student) => <option key={student.id} value={student.id}>{student.name}{student.phone ? ` · ${student.phone}` : ''}</option>)}</select></label>{addableStudents.length === 0 && <small className="opv2-auto-attendance-note">Không có học viên còn hợp đồng và trống lịch trong ngày này.</small>}<label>Lý do<textarea maxLength={500} value={addStudentReason} onChange={(event) => setAddStudentReason(event.target.value)} placeholder="Ví dụ: bổ sung học viên vào chỗ trống của ca…" /></label>{error && <p className="opv2-form-error">{error}</p>}<footer><button type="button" onClick={() => setAddStudentTarget(null)}>Để sau</button><button type="submit" disabled={scheduleActionBusy === `add:${addStudentTarget.id}` || addableStudents.length === 0}>{scheduleActionBusy === `add:${addStudentTarget.id}` ? 'Đang gửi…' : 'Gửi Admin duyệt'}</button></footer></form></section></div>}
+    {addStudentTarget && <div className="opv2-sheet-layer" role="presentation">
+      <button type="button" className="opv2-sheet-backdrop" aria-label="Đóng" onClick={() => setAddStudentTarget(null)} />
+      <section className="opv2-sheet" role="dialog" aria-modal="true" aria-labelledby="trainer-add-student-title">
+        <header><div><small>AURA PT · GIẢI PHÓNG KHUNG GIỜ</small><h2 id="trainer-add-student-title">Thêm học viên vào ca</h2></div><button type="button" aria-label="Đóng" onClick={() => setAddStudentTarget(null)}><X size={19} /></button></header>
+        <p className="opv2-sheet-current">Ca {addStudentTarget.date} · {String(addStudentTarget.hour ?? '--').padStart(2, '0')}:00 đã được báo nghỉ trước giờ.</p>
+        <div className="opv2-billing-confirm"><UserPlus size={18} /><span>Đây là ca tập mới của học viên được chọn. Nếu Admin duyệt, buổi mới sẽ tính 1 buổi theo hợp đồng và đủ điều kiện hoa hồng theo ca thông thường. Buổi nguồn vẫn phải xác nhận Không đến sau giờ tập.</span></div>
+        <form onSubmit={submitAddStudent}>
+          {addStudentsLoading && <p role="status">Đang tải học viên có thể thêm vào ca…</p>}
+          {addStudentsError && <p className="opv2-form-error" role="alert">{addStudentsError} <button type="button" onClick={() => setAddStudentsAttempt((attempt) => attempt + 1)}>Tải lại học viên</button></p>}
+          <label>Học viên<select disabled={addStudentsLoading || Boolean(addStudentsError)} value={addStudentId} onChange={(event) => setAddStudentId(event.target.value)}><option value="">Chọn học viên</option>{addableStudents.map((student) => <option key={student.id} value={student.id}>{student.name}{student.phone ? ` · ${student.phone}` : ''}</option>)}</select></label>
+          {!addStudentsLoading && !addStudentsError && addableStudents.length === 0 && <small className="opv2-auto-attendance-note">Không có học viên còn hợp đồng và trống lịch trong ngày này.</small>}
+          {addStudentsHasMore && <small className="opv2-auto-attendance-note">Danh sách học viên đạt giới hạn tải. Nếu chưa thấy học viên, hãy nhờ quản lý kiểm tra và xếp thêm ca.</small>}
+          <label>Lý do<textarea maxLength={500} value={addStudentReason} onChange={(event) => setAddStudentReason(event.target.value)} placeholder="Ví dụ: bổ sung học viên vào chỗ trống của ca…" /></label>
+          {error && <p className="opv2-form-error">{error}</p>}
+          <footer><button type="button" onClick={() => setAddStudentTarget(null)}>Để sau</button><button type="submit" disabled={scheduleActionBusy === `add:${addStudentTarget.id}` || addStudentsLoading || Boolean(addStudentsError) || addableStudents.length === 0}>{scheduleActionBusy === `add:${addStudentTarget.id}` ? 'Đang gửi…' : 'Gửi Admin duyệt'}</button></footer>
+        </form>
+      </section>
+    </div>}
 
     {/* Popup hồ sơ Staff cũ đã được thay bằng trang Học viên 360 toàn màn hình.
     {detailTarget && <div className="opv2-sheet-layer" role="presentation"><button type="button" className="opv2-sheet-backdrop" aria-label="Đóng hồ sơ học viên" onClick={closeStudentDetail} /><section className="opv2-sheet opv2-student-detail" role="dialog" aria-modal="true" aria-labelledby="trainer-student-detail-title"><header><div><small>HỒ SƠ HỌC VIÊN</small><h2 id="trainer-student-detail-title">{detailTarget.name}</h2><p>{detailTarget.phone || detailTarget.email || 'Chưa có thông tin liên hệ'}</p></div><button type="button" aria-label="Đóng" onClick={closeStudentDetail}><X size={19} /></button></header>

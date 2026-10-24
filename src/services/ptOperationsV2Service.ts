@@ -234,6 +234,8 @@ export interface TrainerSessionSummary {
 export interface CoachWorkspaceScope {
   schemaVersion: number
   source: 'pt_contract_assignments'
+  /** Present when only this section's capability and counters were loaded. */
+  section?: 'requests'
   staffId: string
   /** Branches the signed-in PT is allowed to work in. */
   branchIds?: string[]
@@ -388,6 +390,7 @@ export interface TrainerSessionRequestSummary {
   id: string
   sessionId: string | null
   studentId: string
+  studentName?: string
   contractId: string
   type: 'cancel' | 'reschedule' | 'additional' | 'makeup'
   status: 'pending' | 'approved' | 'rejected'
@@ -425,12 +428,15 @@ export interface SalesCatalog {
 }
 
 export async function listMyAssignedStudents(limit = 100) {
-  return regionalCachedReadWithFallback<{ limit: number }, { students: TrainerStudentSummary[]; hasMore: boolean }>(
+  const accountUid = firebaseAuth?.currentUser?.uid
+  const result = await regionalCachedReadWithFallback<{ limit: number }, { students: TrainerStudentSummary[]; hasMore: boolean }>(
     'listMyAssignedStudentsRegional',
     'listMyAssignedStudents',
     { limit },
-    30_000,
+    0,
   )
+  if (accountUid !== firebaseAuth?.currentUser?.uid) throw new Error('Phiên đăng nhập đã thay đổi.')
+  return result
 }
 
 export async function listMyTrainerSchedule(from: string, to: string, limit = 300) {
@@ -488,9 +494,9 @@ export async function getMyTrainerWorkspace(
 ) {
   const accountUid = firebaseAuth?.currentUser?.uid
   const result = await regionalCachedReadWithFallback<
-    { section: 'students' | 'schedule' | 'requests'; from: string; to: string; limit: number },
+    { section: 'students' | 'schedule' | 'requests'; from: string; to: string; limit: number; independentTabs: true },
     TrainerWorkspaceBootstrap
-  >('getMyTrainerWorkspaceRegional', 'getMyTrainerWorkspace', { section, from, to, limit }, 0)
+  >('getMyTrainerWorkspaceRegional', 'getMyTrainerWorkspace', { section, from, to, limit, independentTabs: true }, 0)
   if (accountUid !== firebaseAuth?.currentUser?.uid) throw new Error('Phiên đăng nhập đã thay đổi.')
   return result
 }
