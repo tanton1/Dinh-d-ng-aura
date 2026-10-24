@@ -1,6 +1,8 @@
 const { FieldPath, FieldValue, Timestamp } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
 const { trustedAccessContext, requireCapability } = require('./identity-access')
+const { readMemberDashboard, readMemberHistory } = require('./loyalty-member-reads')
+const { allocateBehaviorBudget } = require('./loyalty-behavior-budget')
 const {
   DEFAULT_POLICY,
   DEFAULT_REWARDS,
@@ -348,9 +350,10 @@ async function applySourceTarget({
   policyVersion = LOYALTY_POLICY_VERSION,
   metadata = {},
   createdBy = 'system:loyalty',
+  behaviorCaps = null,
 }) {
   const safeStudentId = documentId(studentId, 'Mã học viên')
-  const safeTarget = Math.max(0, integer(targetPoints, 'Điểm mục tiêu', 0, 100_000_000))
+  const requestedTarget = Math.max(0, integer(targetPoints, 'Điểm mục tiêu', 0, 100_000_000))
   const safeTierTarget = Math.max(0, integer(targetTierCreditVnd, 'Tier Credit mục tiêu', 0, 100_000_000_000))
   const sourceReference = db.doc(`loyaltySourceBalances/${sourceDocumentId(sourceKey)}`)
   const accountReference = db.doc(`loyaltyAccounts/${safeStudentId}`)
@@ -360,6 +363,8 @@ async function applySourceTarget({
       transaction.get(accountReference),
     ])
     const previousSource = sourceSnapshot.exists ? sourceSnapshot.data() : {}
+    const budget = await allocateBehaviorBudget({ db, transaction, studentId: safeStudentId, sourceType, previousSource, requestedPoints: requestedTarget, caps: behaviorCaps })
+    const safeTarget = budget ? budget.points : requestedTarget
     const previousAccount = normalizeAccount(accountSnapshot.exists ? accountSnapshot.data() : defaultAccount({ studentId: safeStudentId, accountUid }), { studentId: safeStudentId, accountUid })
     let account = { ...previousAccount, accountUid: previousAccount.accountUid || accountUid }
     const previousPoints = Math.max(0, Number(previousSource.targetPoints || 0))
@@ -414,17 +419,20 @@ async function applySourceTarget({
       }
     }
 
-    const previousTierCredit = previousState === 'available' ? Math.max(0, Number(previousSource.targetTierCreditVnd || 0)) : 0
-    const nextTierCredit = targetState === 'available' ? safeTierTarget : 0
+    const previousTierCredit = Number(previousSource.appliedTierCreditVnd ?? (previousState === 'available' ? Math.max(0, Number(previousSource.targetTierCreditVnd || 0)) : 0))
+    // Real collected cash affects tier immediately, independently of the hold
+    // on spendable points. Vesting must never apply that cash a second time.
+    const nextTierCredit = safeTierTarget
     const tierCreditDelta = nextTierCredit - previousTierCredit
     account.tierQualifyingValue = Math.max(0, Number(account.tierQualifyingValue || 0) + tierCreditDelta)
     account.tier = tierForCredit(account.tierQualifyingValue)
-    const changed = pendingDelta !== 0 || availableDelta !== 0 || debtDelta !== 0 || tierCreditDelta !== 0 || previousState !== targetState
+    const changed = pendingDelta !== 0 || availableDelta !== 0 || debtDelta !== 0 || tierCreditDelta !== 0 || previousState !== targetState || budget?.changed === true
     if (!changed) return { changed: false, account: publicAccount(account), sourceId: sourceReference.id }
 
     const revision = Number(previousSource.revision || 0) + 1
     account.revision = Number(previousAccount.revision || 0) + 1
     setAccountProjection(transaction, db, accountReference, account)
+    budget?.write()
     transaction.set(sourceReference, {
       schemaVersion: LOYALTY_SCHEMA_VERSION,
       studentId: safeStudentId,
@@ -435,11 +443,13 @@ async function applySourceTarget({
       sourceBranchId: sourceBranchId || null,
       targetPoints: safeTarget,
       targetTierCreditVnd: safeTierTarget,
+      appliedTierCreditVnd: nextTierCredit,
       state: targetState,
       availableAt: availableAt || null,
       policyVersion,
       revision,
       ...metadata,
+      ...(budget?.metadata || {}),
       createdAt: previousSource.createdAt || FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
     }, { merge: true })
@@ -499,6 +509,7 @@ async function reconcileContractSpend({ db, contractId, logger = console, now = 
     db.collection('ledgerEntries').where('contractId', '==', contractId).limit(MAX_RECONCILE_DOCUMENTS).get(),
   ])
   if (!contractSnapshot.exists) return { changed: 0, skipped: 'missing_contract' }
+  if (ledgerSnapshot.size >= MAX_RECONCILE_DOCUMENTS) throw new HttpsError('failed-precondition', 'Hợp đồng vượt giới hạn đối soát điểm tự động; cần kiểm tra đầy đủ sổ thu.')
   const contract = contractSnapshot.data()
   const studentId = contract.studentId || ''
   if (!studentId) return { changed: 0, skipped: 'missing_student' }
@@ -543,6 +554,25 @@ async function reconcileContractSpend({ db, contractId, logger = console, now = 
     }, { merge: true })
   }
   const pointsEnabled = awardPoints === null ? policy.earnEnabled === true : awardPoints === true
+  const previousSources = await db.collection('loyaltySourceBalances').where('contractId', '==', contractId).limit(MAX_RECONCILE_DOCUMENTS).get()
+  if (previousSources.size >= MAX_RECONCILE_DOCUMENTS) throw new HttpsError('failed-precondition', 'Hợp đồng vượt giới hạn nguồn điểm; cần đối soát đầy đủ.')
+  const paymentIds = new Set(payments.map(item => item.id))
+  let removedSources = 0
+  let removedTierCredit = 0
+  for (const snapshot of previousSources.docs) {
+    const old = snapshot.data()
+    if (old.sourceType !== 'contract_payment') continue
+    if (paymentIds.has(old.sourceId)) {
+      if (old.studentId !== studentId) throw new HttpsError('failed-precondition', 'Nguồn điểm thanh toán đang thuộc học viên khác; cần đối soát trước khi chuyển.')
+      continue
+    }
+    const result = await applySourceTarget({ db, studentId: old.studentId, accountUid: old.accountUid || '',
+      sourceKey: old.sourceKey, sourceType: old.sourceType, sourceId: old.sourceId, sourceBranchId: old.sourceBranchId || '',
+      targetPoints: 0, targetTierCreditVnd: 0, description: 'Điều chỉnh khoản thanh toán đã hủy', policyVersion: old.policyVersion || policy.version,
+      metadata: { contractId } })
+    if (result.changed) removedSources += 1
+    if (old.studentId === studentId) removedTierCredit += Number(old.appliedTierCreditVnd ?? (old.state === 'available' ? old.targetTierCreditVnd || 0 : 0))
+  }
   const paymentSources = await Promise.all(payments.map(async (payment) => {
     const sourceKey = `contract_payment:${payment.id}`
     const reference = db.doc(`loyaltySourceBalances/${sourceDocumentId(sourceKey)}`)
@@ -552,9 +582,9 @@ async function reconcileContractSpend({ db, contractId, logger = console, now = 
   // Remove this contract's already-projected credit before replaying its
   // payments. Otherwise every retry would temporarily count the same contract
   // twice and could snapshot an inflated tier for a newly added installment.
-  const existingContractTierCredit = paymentSources.reduce((total, item) => total + Math.max(0, Number(item.value.targetTierCreditVnd || 0)), 0)
-  let changed = 0
-  let projectedTierCredit = Math.max(0, Number(account.tierQualifyingValue || 0) - existingContractTierCredit)
+  const existingContractTierCredit = paymentSources.reduce((total, item) => total + Number(item.value.appliedTierCreditVnd ?? (item.value.state === 'available' ? Math.max(0, Number(item.value.targetTierCreditVnd || 0)) : 0)), 0)
+  let changed = removedSources
+  let projectedTierCredit = Math.max(0, Number(account.tierQualifyingValue || 0) - existingContractTierCredit - removedTierCredit)
   let tierAtSource = tierForCredit(projectedTierCredit, policy.tierThresholds)
   let sourceContract = null
   const sourceContractId = contract.sourceContractId || contract.previousContractId || ''
@@ -565,7 +595,11 @@ async function reconcileContractSpend({ db, contractId, logger = console, now = 
   for (let paymentIndex = 0; paymentIndex < payments.length; paymentIndex += 1) {
     const payment = payments[paymentIndex]
     const { sourceKey, value: sourceValue } = paymentSources[paymentIndex]
-    const snapshotTier = sourceValue.tierAtSource || tierAtSource
+    const previouslyActivated = Boolean(sourceValue.earningPolicyVersion)
+    // Backfill's zero-point sources may have been staged before older
+    // contracts finished contributing their tier credit. Freeze the tier only
+    // when this payment first earns points, after launch reconciliation.
+    const snapshotTier = previouslyActivated ? sourceValue.tierAtSource || tierAtSource : tierAtSource
     const paidAt = occurrenceDateKey(payment.effectiveAt || payment.createdAt)
     const renewalBonus = Number.isFinite(Number(sourceValue.renewalBonus))
       ? Number(sourceValue.renewalBonus)
@@ -574,10 +608,19 @@ async function reconcileContractSpend({ db, contractId, logger = console, now = 
         sourceContractEndDate: sourceContract?.endDate,
         isRenewal: Boolean(sourceContractId || contract.renewalCaseId || contract.renewalType),
       })
-    const targetPoints = calculateSpendPoints({ eligibleCashVnd: payment.remainingCashVnd, tier: snapshotTier, renewalBonus, policy })
+    const eligible = (pointsEnabled || previouslyActivated) && occursOnOrAfterLaunch(paidAt, launchDate)
+    const spendTerms = sourceValue.spendTerms || {
+      vndPerPoint: policy.vndPerPoint,
+      tierMultiplier: policy.tierMultipliers[snapshotTier],
+      paymentHoldDays: policy.paymentHoldDays,
+      renewalBonus,
+    }
+    const earningPolicyVersion = sourceValue.earningPolicyVersion || (eligible ? policy.version : null)
+    const targetPoints = calculateSpendPoints({ eligibleCashVnd: payment.remainingCashVnd, tier: snapshotTier,
+      renewalBonus: spendTerms.renewalBonus, policy: { ...policy, vndPerPoint: spendTerms.vndPerPoint, tierMultipliers: { [snapshotTier]: spendTerms.tierMultiplier } } })
     const effectiveMillis = timestampMillis(payment.effectiveAt || payment.createdAt) || now.getTime()
-    const availableMillis = effectiveMillis + Number(policy.paymentHoldDays || 14) * 86_400_000
-    const desiredState = pointsEnabled && availableMillis <= now.getTime() ? 'available' : 'pending'
+    const availableMillis = effectiveMillis + Number(spendTerms.paymentHoldDays ?? 14) * 86_400_000
+    const desiredState = availableMillis <= now.getTime() ? 'available' : 'pending'
     const result = await applySourceTarget({
       db,
       studentId,
@@ -587,17 +630,18 @@ async function reconcileContractSpend({ db, contractId, logger = console, now = 
       sourceId: payment.id,
       sourceBranchId: payment.branchId || contract.branchId || '',
       description: sourceContractId ? 'Điểm thanh toán gia hạn' : 'Điểm thanh toán hợp đồng',
-      targetPoints: pointsEnabled && occursOnOrAfterLaunch(paidAt, launchDate) ? targetPoints : 0,
+      targetPoints: eligible ? targetPoints : 0,
       targetTierCreditVnd: payment.remainingCashVnd,
       desiredState,
       availableAt: Timestamp.fromMillis(availableMillis),
-      policyVersion: policy.version,
+      policyVersion: earningPolicyVersion || policy.version,
       metadata: {
         contractId,
         originalCashVnd: payment.originalCashVnd,
         eligibleCashVnd: payment.remainingCashVnd,
         tierAtSource: snapshotTier,
         renewalBonus,
+        ...(earningPolicyVersion ? { earningPolicyVersion, spendTerms } : {}),
         launchDate: launchDate || null,
       },
     })
@@ -642,9 +686,10 @@ async function reconcileAttendance({ db, attendanceId, value, logger = console }
     sourceId: attendanceId,
     sourceBranchId: value?.branchId || session.branchId || '',
     description: eligible ? 'Hoàn thành buổi tập' : 'Điều chỉnh điểm buổi tập',
-    targetPoints: eligible ? Number(policy.attendance.completedPoints || 2) : 0,
+    targetPoints: eligible ? Number(policy.attendance.completedPoints ?? 2) : 0,
     desiredState: 'available',
     policyVersion: policy.version,
+    behaviorCaps: { monthId: attendanceDate.slice(0, 7), total: policy.recurringBehaviorMonthlyCap, nutrition: policy.nutritionMonthlyCap },
     metadata: { sessionId, attendanceStatus: value?.attendanceStatus || 'pending', occurrenceDate: attendanceDate || null, monthId: attendanceDate.slice(0, 7) || null, launchDate: launchDate || null },
   })
   logger.info?.('Aura Club attendance reconciled', { attendanceId, studentId, eligible, changed: result.changed })
@@ -663,18 +708,21 @@ async function reconcileAttendanceMissions({ db, attendanceId, value, logger = c
   const weekId = mondayDateKey(occurrenceDate)
   const weekEnd = addDateDays(weekId, 6)
   const monthId = occurrenceDate.slice(0, 7)
-  const streakWeekIds = Array.from({ length: 12 }, (_, index) => addDateDays(weekId, index * -7))
-  const [studentSnapshot, attendanceSnapshot, availabilitySnapshots, policy, settingsSnapshot] = await Promise.all([
-    db.doc(`students/${studentId}`).get(),
-    db.collection('attendanceEvents').where('studentId', '==', studentId).limit(1000).get(),
-    db.getAll(...streakWeekIds.map((streakWeekId) => db.doc(`ptAvailability/${studentId}_${streakWeekId}`))),
-    currentPolicy(db),
-    db.doc('loyaltySettings/current').get(),
-  ])
+  // The thirteenth week is a sentinel: without it every week after week 12
+  // looked like another exact 12-week milestone and received 200 more points.
+  const streakWeekIds = Array.from({ length: 13 }, (_, index) => addDateDays(weekId, index * -7))
+  const settingsSnapshot = await db.doc('loyaltySettings/current').get()
   const launchDate = settingsSnapshot.exists ? storedDateKey(settingsSnapshot.data().launchDate) : ''
   if (!occursOnOrAfterLaunch(occurrenceDate, launchDate)) {
     return { changed: false, skipped: launchDate ? 'before_launch' : 'missing_launch_date' }
   }
+  const [studentSnapshot, attendanceSnapshot, availabilitySnapshots, policy] = await Promise.all([
+    db.doc(`students/${studentId}`).get(),
+    readAllNutritionRewardDocuments(db.collection('attendanceEvents').where('studentId', '==', studentId),
+      ['attendanceStatus', 'billingStatus', 'recognitionReviewRequired', 'confirmationSource', 'scheduledAt', 'occurredAt', 'confirmedAt', 'createdAt']),
+    db.getAll(...streakWeekIds.map((streakWeekId) => db.doc(`ptAvailability/${studentId}_${streakWeekId}`))),
+    currentPolicy(db, settingsSnapshot),
+  ])
   const student = studentSnapshot.exists ? studentSnapshot.data() : {}
   const rowDate = (item) => {
     const raw = item.scheduledAt || item.occurredAt || item.confirmedAt || item.createdAt
@@ -699,27 +747,29 @@ async function reconcileAttendanceMissions({ db, attendanceId, value, logger = c
     target: targetForWeek(streakWeekId),
   })))
   const streakRewardPoints = streakWeeks === 12
-    ? Number(policy.attendance.twelveWeekStreakPoints || 200)
+    ? Number(policy.attendance.twelveWeekStreakPoints ?? 200)
     : streakWeeks === 8
-      ? Number(policy.attendance.eightWeekStreakPoints || 100)
+      ? Number(policy.attendance.eightWeekStreakPoints ?? 100)
       : streakWeeks === 4
-        ? Number(policy.attendance.fourWeekStreakPoints || 30)
+        ? Number(policy.attendance.fourWeekStreakPoints ?? 30)
         : 0
   const nextStreakTarget = streakWeeks < 4 ? 4 : streakWeeks < 8 ? 8 : 12
   const accountUid = student.accountUid || ''
   const branchId = session.branchId || student.branchId || ''
   const earnEnabled = policy.earnEnabled === true
+  const behaviorCaps = { monthId, total: policy.recurringBehaviorMonthlyCap, nutrition: policy.nutritionMonthlyCap }
   const [weeklyResult, monthlyResult, streakResult] = await Promise.all([
     applySourceTarget({
       db,
       studentId,
       accountUid,
       sourceKey: `attendance_week:${studentId}:${weekId}`,
+      behaviorCaps,
       sourceType: 'attendance_mission',
       sourceId: weekId,
       sourceBranchId: branchId,
       description: weeklyCompleted >= weeklyTarget ? 'Hoàn thành mục tiêu tập tuần' : 'Đối soát mục tiêu tập tuần',
-      targetPoints: earnEnabled && weeklyCompleted >= weeklyTarget ? Number(policy.attendance.weeklyTargetPoints || 5) : 0,
+      targetPoints: earnEnabled && weeklyCompleted >= weeklyTarget ? Number(policy.attendance.weeklyTargetPoints ?? 5) : 0,
       desiredState: 'available',
       policyVersion: policy.version,
       metadata: { weekId, monthId, progress: weeklyCompleted, target: weeklyTarget, launchDate },
@@ -729,11 +779,12 @@ async function reconcileAttendanceMissions({ db, attendanceId, value, logger = c
       studentId,
       accountUid,
       sourceKey: `attendance_month:${studentId}:${monthId}`,
+      behaviorCaps,
       sourceType: 'attendance_mission',
       sourceId: monthId,
       sourceBranchId: branchId,
       description: monthlyCompleted >= 12 ? 'Hoàn thành 12 buổi trong tháng' : 'Đối soát mục tiêu tập tháng',
-      targetPoints: earnEnabled && monthlyCompleted >= 12 ? Number(policy.attendance.twelveSessionsMonthlyPoints || 30) : 0,
+      targetPoints: earnEnabled && monthlyCompleted >= 12 ? Number(policy.attendance.twelveSessionsMonthlyPoints ?? 30) : 0,
       desiredState: 'available',
       policyVersion: policy.version,
       metadata: { monthId, progress: monthlyCompleted, target: 12, launchDate },
@@ -743,6 +794,7 @@ async function reconcileAttendanceMissions({ db, attendanceId, value, logger = c
       studentId,
       accountUid,
       sourceKey: `attendance_streak:${studentId}:${weekId}`,
+      behaviorCaps,
       sourceType: 'attendance_streak',
       sourceId: weekId,
       sourceBranchId: branchId,
@@ -764,7 +816,7 @@ async function reconcileAttendanceMissions({ db, attendanceId, value, logger = c
       weekId,
       progress: weeklyCompleted,
       target: weeklyTarget,
-      rewardPoints: Number(policy.attendance.weeklyTargetPoints || 5),
+      rewardPoints: Number(policy.attendance.weeklyTargetPoints ?? 5),
       status: weeklyCompleted >= weeklyTarget ? 'completed' : 'active',
       updatedAt: FieldValue.serverTimestamp(),
     }, { merge: true }),
@@ -778,7 +830,7 @@ async function reconcileAttendanceMissions({ db, attendanceId, value, logger = c
       monthId,
       progress: monthlyCompleted,
       target: 12,
-      rewardPoints: Number(policy.attendance.twelveSessionsMonthlyPoints || 30),
+      rewardPoints: Number(policy.attendance.twelveSessionsMonthlyPoints ?? 30),
       status: monthlyCompleted >= 12 ? 'completed' : 'active',
       updatedAt: FieldValue.serverTimestamp(),
     }, { merge: true }),
@@ -793,15 +845,15 @@ async function reconcileAttendanceMissions({ db, attendanceId, value, logger = c
       progress: streakWeeks,
       target: nextStreakTarget,
       rewardPoints: streakWeeks < 4
-        ? Number(policy.attendance.fourWeekStreakPoints || 30)
+        ? Number(policy.attendance.fourWeekStreakPoints ?? 30)
         : streakWeeks < 8
-          ? Number(policy.attendance.eightWeekStreakPoints || 100)
-          : Number(policy.attendance.twelveWeekStreakPoints || 200),
+          ? Number(policy.attendance.eightWeekStreakPoints ?? 100)
+          : Number(policy.attendance.twelveWeekStreakPoints ?? 200),
       status: streakWeeks >= 12 ? 'completed' : 'active',
       updatedAt: FieldValue.serverTimestamp(),
     }, { merge: true }),
   ])
-  if (accountUid) await reconcileNutritionReview({ db, reviewId: `attendance-cap-${attendanceId}`, afterValue: { userId: accountUid, createdAt: occurrenceDate }, logger, force: true })
+  if (accountUid && policy.nutritionEnabled) await reconcileNutritionReview({ db, reviewId: `attendance-cap-${attendanceId}`, afterValue: { userId: accountUid, createdAt: occurrenceDate }, logger, force: true })
   logger.info?.('Aura Club attendance missions reconciled', { studentId, weekId, weeklyCompleted, weeklyTarget, monthId, monthlyCompleted, streakWeeks })
   return { changed: weeklyResult.changed || monthlyResult.changed || streakResult.changed, weeklyCompleted, weeklyTarget, monthlyCompleted, streakWeeks }
 }
@@ -936,7 +988,7 @@ async function reconcileNutritionReviewMonth({ db, reviewId, value, logger = con
     candidates.push({ sourceKey, sourceId, description, points, occurrenceDate, monthId: candidateMonth, metadata })
   }
 
-  const perMeal = Math.max(0, Number(policy.nutrition.verifiedMealPoints || 1))
+  const perMeal = Math.max(0, Number(policy.nutrition.verifiedMealPoints ?? 1))
   approved.forEach((review) => addCandidate({
     sourceKey: `nutrition_review:${review.id}`,
     sourceId: review.id,
@@ -946,9 +998,9 @@ async function reconcileNutritionReviewMonth({ db, reviewId, value, logger = con
     metadata: { rewardKind: 'verified_meal' },
   }))
   dailyThisMonth.forEach((day) => {
-    if (day.completeDay) addCandidate({ sourceKey: `nutrition_complete_day:${student.id}:${day.date}`, sourceId: day.date, description: 'Hoàn thành đủ ba bữa được xác nhận', points: Number(policy.nutrition.completeDayPoints || 2), occurrenceDate: day.date, metadata: { rewardKind: 'complete_day' } })
-    if (day.proteinMet) addCandidate({ sourceKey: `nutrition_protein:${student.id}:${day.date}`, sourceId: day.date, description: 'Đạt mục tiêu protein trong ngày', points: Number(policy.nutrition.proteinTargetPoints || 3), occurrenceDate: day.date, metadata: { rewardKind: 'protein_target' } })
-    if (day.calorieMet) addCandidate({ sourceKey: `nutrition_calorie:${student.id}:${day.date}`, sourceId: day.date, description: 'Năng lượng trong vùng mục tiêu ±10%', points: Number(policy.nutrition.calorieTargetPoints || 3), occurrenceDate: day.date, metadata: { rewardKind: 'calorie_target' } })
+    if (day.completeDay) addCandidate({ sourceKey: `nutrition_complete_day:${student.id}:${day.date}`, sourceId: day.date, description: 'Hoàn thành đủ ba bữa được xác nhận', points: Number(policy.nutrition.completeDayPoints ?? 2), occurrenceDate: day.date, metadata: { rewardKind: 'complete_day' } })
+    if (day.proteinMet) addCandidate({ sourceKey: `nutrition_protein:${student.id}:${day.date}`, sourceId: day.date, description: 'Đạt mục tiêu protein trong ngày', points: Number(policy.nutrition.proteinTargetPoints ?? 3), occurrenceDate: day.date, metadata: { rewardKind: 'protein_target' } })
+    if (day.calorieMet) addCandidate({ sourceKey: `nutrition_calorie:${student.id}:${day.date}`, sourceId: day.date, description: 'Năng lượng trong vùng mục tiêu ±10%', points: Number(policy.nutrition.calorieTargetPoints ?? 3), occurrenceDate: day.date, metadata: { rewardKind: 'calorie_target' } })
   })
 
   const complianceByWeek = new Map()
@@ -966,7 +1018,7 @@ async function reconcileNutritionReviewMonth({ db, reviewId, value, logger = con
     sourceKey: `nutrition_compliance_week:${student.id}:${item.weekId}`,
     sourceId: item.weekId,
     description: 'Theo đúng kế hoạch dinh dưỡng ít nhất năm ngày',
-    points: Number(policy.nutrition.fiveDayCompliancePoints || 15),
+    points: Number(policy.nutrition.fiveDayCompliancePoints ?? 15),
     occurrenceDate: item.awardDate,
     metadata: { rewardKind: 'five_day_compliance', weekId: item.weekId },
   }))
@@ -978,7 +1030,7 @@ async function reconcileNutritionReviewMonth({ db, reviewId, value, logger = con
       sourceKey: `nutrition_streak:${student.id}:${item.weekId}`,
       sourceId: item.weekId,
       description: 'Duy trì dinh dưỡng đúng kế hoạch bốn tuần',
-      points: Number(policy.nutrition.fourWeekStreakPoints || 50),
+      points: Number(policy.nutrition.fourWeekStreakPoints ?? 50),
       occurrenceDate: item.awardDate,
       metadata: { rewardKind: 'four_week_streak', weekId: item.weekId },
     })
@@ -999,8 +1051,8 @@ async function reconcileNutritionReviewMonth({ db, reviewId, value, logger = con
   const nonNutritionBehaviorPoints = sourceValues
     .filter((item) => ['attendance', 'attendance_mission', 'attendance_streak'].includes(item.sourceType) && item.state === 'available' && (item.monthId === monthId || String(item.occurrenceDate || item.sourceId || '').slice(0, 7) === monthId))
     .reduce((total, item) => total + Math.max(0, Number(item.targetPoints || 0)), 0)
-  const behaviorAllowance = Math.max(0, Number(policy.recurringBehaviorMonthlyCap || 250) - nonNutritionBehaviorPoints)
-  let remainingCap = Math.min(Math.max(0, Number(policy.nutritionMonthlyCap || 150)), behaviorAllowance)
+  const behaviorAllowance = Math.max(0, Number(policy.recurringBehaviorMonthlyCap ?? 250) - nonNutritionBehaviorPoints)
+  let remainingCap = Math.min(Math.max(0, Number(policy.nutritionMonthlyCap ?? 150)), behaviorAllowance)
   const enabled = policy.earnEnabled === true && policy.nutritionEnabled === true && Boolean(launchDate)
   const desired = new Map()
   candidates.sort((left, right) => left.occurrenceDate.localeCompare(right.occurrenceDate) || left.sourceKey.localeCompare(right.sourceKey)).forEach((candidate) => {
@@ -1020,6 +1072,7 @@ async function reconcileNutritionReviewMonth({ db, reviewId, value, logger = con
       accountUid,
       sourceKey,
       sourceType: 'nutrition',
+      behaviorCaps: { monthId, total: policy.recurringBehaviorMonthlyCap, nutrition: policy.nutritionMonthlyCap },
       sourceId: target?.sourceId || previous.sourceId || reviewId,
       sourceBranchId: student.branchId || '',
       description: target?.description || 'Đối soát điểm dinh dưỡng',
@@ -1063,7 +1116,7 @@ async function reconcileNutritionReviewMonth({ db, reviewId, value, logger = con
       monthId,
       progress: currentNutritionStreak,
       target: 4,
-      rewardPoints: Number(policy.nutrition.fourWeekStreakPoints || 50),
+      rewardPoints: Number(policy.nutrition.fourWeekStreakPoints ?? 50),
       status: currentNutritionStreak >= 4 ? 'completed' : 'active',
       updatedAt: FieldValue.serverTimestamp(),
     }, { merge: true }),
@@ -1075,7 +1128,12 @@ async function reconcileNutritionReviewMonth({ db, reviewId, value, logger = con
 async function vestPendingSources({ db, logger = console, now = new Date(), limit = 200 }) {
   const policy = await currentPolicy(db)
   if (policy.earnEnabled !== true) return { scanned: 0, due: 0, vested: 0, failed: 0, paused: true }
-  const snapshot = await db.collection('loyaltySourceBalances').where('state', '==', 'pending').limit(Math.min(500, Math.max(1, limit))).get()
+  const enabledTypes = ['launch_bonus', 'contract_payment']
+  if (policy.referralEnabled) enabledTypes.push('member_referral', 'member_referral_welcome')
+  if (policy.nutritionEnabled) enabledTypes.push('nutrition')
+  const snapshot = await db.collection('loyaltySourceBalances').where('state', '==', 'pending')
+    .where('sourceType', 'in', enabledTypes).where('availableAt', '<=', Timestamp.fromDate(now))
+    .orderBy('availableAt', 'asc').limit(Math.min(500, Math.max(1, limit))).get()
   const sourceEnabled = (source) => {
     if (source.sourceType === 'member_referral' || source.sourceType === 'member_referral_welcome') return policy.referralEnabled === true
     if (source.sourceType === 'nutrition') return policy.nutritionEnabled === true
@@ -1310,7 +1368,7 @@ async function reconcileMemberReferral({ db, contractId, logger = console, now =
   const fraudStatus = referredStudentId === referrerStudentId || samePhone || sameEmail ? 'blocked_self_referral' : 'clear'
   const collection = referralCollectionSummary(referralLedgerRows(ledgerSnapshot), contractValueVnd(contract), policy)
   const holdUntilMillis = collection.thresholdReachedAtMillis
-    ? collection.thresholdReachedAtMillis + Number(policy.referralHoldDays || 14) * 86_400_000
+    ? collection.thresholdReachedAtMillis + Number(policy.referralHoldDays ?? 14) * 86_400_000
     : 0
   const holdElapsed = Boolean(holdUntilMillis && holdUntilMillis <= now.getTime())
   const qualifies = collection.thresholdReached && isNewCustomer && fraudStatus === 'clear'
@@ -1376,8 +1434,8 @@ async function reconcileMemberReferral({ db, contractId, logger = console, now =
 
   const availableAt = holdUntilMillis ? Timestamp.fromMillis(holdUntilMillis) : null
   const desiredState = holdElapsed ? 'available' : 'pending'
-  const targetReferrerPoints = targetEligible ? Number(policy.referralRewardPoints || 1_000) : 0
-  const targetWelcomePoints = targetEligible ? Number(policy.referredWelcomePoints || 200) : 0
+  const targetReferrerPoints = targetEligible ? Number(policy.referralRewardPoints ?? 1_000) : 0
+  const targetWelcomePoints = targetEligible ? Number(policy.referredWelcomePoints ?? 200) : 0
   const [referrerResult, referredResult] = await Promise.all([
     applySourceTarget({
       db,
@@ -1434,11 +1492,15 @@ async function reconcilePendingMemberReferrals({ db, logger = console, now = new
 
 async function runLoyaltyBackfillBatch({ db, actorUid, mode = 'dry_run', cursor = '', batchSize = 25, launchDate = dateKey(), logger = console }) {
   const apply = mode === 'apply'
+  const settingsSnapshot = await db.doc('loyaltySettings/current').get()
+  const policy = await currentPolicy(db, settingsSnapshot)
+  const lockedDate = settingsSnapshot.exists ? storedDateKey(settingsSnapshot.data().launchDate) : ''
+  if (apply && policy.earnEnabled) throw new HttpsError('failed-precondition', 'Không chạy lại khởi tạo khi Aura Club đang tích điểm.')
+  if (apply && lockedDate && lockedDate !== launchDate) throw new HttpsError('failed-precondition', `Ngày ra mắt đã khóa là ${lockedDate}.`)
   const safeBatchSize = Math.min(50, Math.max(1, Number(batchSize) || 25))
   let query = db.collection('contracts').orderBy(FieldPath.documentId()).limit(safeBatchSize)
   if (cursor) query = query.startAfter(cursor)
   const snapshot = await query.get()
-  const policy = await currentPolicy(db)
   const studentIds = [...new Set(snapshot.docs.map((item) => String(item.data().studentId || '')).filter(Boolean))]
   const studentSnapshots = studentIds.length ? await db.getAll(...studentIds.map((id) => db.doc(`students/${id}`))) : []
   const students = new Map(studentSnapshots.filter((item) => item.exists).map((item) => [item.id, item.data()]))
@@ -1512,7 +1574,7 @@ async function runLoyaltyBackfillBatch({ db, actorUid, mode = 'dry_run', cursor 
         sourceId: launchDate,
         sourceBranchId: student.branchId || '',
         description: 'Điểm chào mừng Aura Club',
-        targetPoints: Number(DEFAULT_POLICY.launchWelcomePoints || 200),
+        targetPoints: Number(policy.launchWelcomePoints ?? 200),
         desiredState: 'pending',
         availableAt: Timestamp.fromDate(new Date(`${launchDate}T00:00:00+07:00`)),
         metadata: { launchDate },
@@ -1615,17 +1677,15 @@ function createLoyaltyFunctions({ db, onCall, logger = console }) {
 
   const getMyLoyaltyDashboard = loyaltyCall(async (request) => {
     const { student } = await studentActor(request, db)
-    const [accountSnapshot, policy, missionSnapshot, ambassadorSnapshot, kudosSnapshot, redemptionSnapshot] = await Promise.all([
-      db.doc(`loyaltyAccounts/${student.id}`).get(),
-      currentPolicy(db),
-      db.collection('loyaltyMissionProgress').where('studentId', '==', student.id).limit(30).get(),
-      db.doc(`ambassadorProfiles/${student.id}`).get(),
-      db.collection('sessionKudos').where('studentId', '==', student.id).limit(100).get(),
-      db.collection('loyaltyRedemptions').where('studentId', '==', student.id).limit(30).get(),
-    ])
-    const account = accountSnapshot.exists ? accountSnapshot.data() : defaultAccount({ studentId: student.id, accountUid: student.accountUid || request.auth.uid })
     const currentWeekId = mondayDateKey()
     const currentMonthId = dateKey().slice(0, 7)
+    const [accountSnapshot, policy, dashboardReads] = await Promise.all([
+      db.doc(`loyaltyAccounts/${student.id}`).get(),
+      currentPolicy(db),
+      readMemberDashboard({ db, studentId: student.id, weekId: currentWeekId, monthId: currentMonthId, compact: request.data?.compact === true }),
+    ])
+    const { missionSnapshot, ambassadorSnapshot, kudosSnapshot, kudosTotals, redemptionSnapshot } = dashboardReads
+    const account = accountSnapshot.exists ? accountSnapshot.data() : defaultAccount({ studentId: student.id, accountUid: student.accountUid || request.auth.uid })
     const missions = missionSnapshot.docs
       .map((item) => ({ id: item.id, ...item.data(), updatedAt: timestampIso(item.data().updatedAt) }))
       .filter((item) => item.type === 'attendance_week' ? item.weekId === currentWeekId
@@ -1635,8 +1695,8 @@ function createLoyaltyFunctions({ db, onCall, logger = console }) {
       .map((item) => ({ id: item.id, ...item.data(), createdAt: timestampIso(item.data().createdAt) }))
       .sort((left, right) => String(right.createdAt || '').localeCompare(String(left.createdAt || '')))
     const recognition = {
-      totalKudos: recognitionItems.length,
-      totalXp: recognitionItems.reduce((total, item) => total + Math.max(0, Number(item.xp || 0)), 0),
+      totalKudos: Number(kudosTotals.count || 0),
+      totalXp: Number(kudosTotals.xp || 0),
       badges: [...new Set(recognitionItems.map((item) => String(item.badge || '').trim()).filter(Boolean))],
       recent: recognitionItems.slice(0, 8).map((item) => ({
         id: item.id,
@@ -1677,11 +1737,8 @@ function createLoyaltyFunctions({ db, onCall, logger = console }) {
 
   const listMyLoyaltyHistory = loyaltyCall(async (request) => {
     const { student } = await studentActor(request, db)
-    const pageSize = Math.min(MAX_PAGE_SIZE, Math.max(10, Number(request.data?.pageSize || 30)))
-    const snapshot = await db.collection('loyaltyLedgerEntries').where('studentId', '==', student.id).limit(300).get()
-    const entries = snapshot.docs.map(publicLedgerEntry).sort((left, right) => right.createdAt.localeCompare(left.createdAt))
-    const offset = Math.max(0, Number(request.data?.offset || 0))
-    return { entries: entries.slice(offset, offset + pageSize), nextOffset: offset + pageSize < entries.length ? offset + pageSize : null }
+    const result = await readMemberHistory({ db, studentId: student.id, pageSize: request.data?.pageSize, cursor: request.data?.cursor, offset: request.data?.offset })
+    return { entries: result.docs.map(publicLedgerEntry), nextCursor: result.nextCursor, hasMore: result.hasMore, nextOffset: result.nextOffset }
   })
 
   const listMyAvailableRewards = loyaltyCall(async (request) => {

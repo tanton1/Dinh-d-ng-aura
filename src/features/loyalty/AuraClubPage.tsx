@@ -123,7 +123,11 @@ interface AuraClubPageProps {
   onNavigate: (view: ViewId) => void
 }
 
-export default function AuraClubPage({ isDemo = false, ownerId, initialTab = 'rewards', onNavigate }: AuraClubPageProps) {
+export default function AuraClubPage(props: AuraClubPageProps) {
+  return <AuraClubWorkspace key={`${props.ownerId}:${props.isDemo === true}`} {...props} />
+}
+
+function AuraClubWorkspace({ isDemo = false, ownerId, initialTab = 'rewards', onNavigate }: AuraClubPageProps) {
   const [activeTab, setActiveTab] = useState<AuraClubTab>(initialTab)
   const [dashboard, setDashboard] = useState<LoyaltyDashboard | null>(isDemo ? demoLoyaltyDashboard() : null)
   const [rewards, setRewards] = useState<LoyaltyReward[]>(isDemo ? demoRewards : [])
@@ -132,12 +136,13 @@ export default function AuraClubPage({ isDemo = false, ownerId, initialTab = 're
   const [loading, setLoading] = useState(!isDemo)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState('')
-  const [rewardsLoading, setRewardsLoading] = useState(!isDemo)
+  const [rewardsLoading, setRewardsLoading] = useState(false)
+  const [rewardsLoaded, setRewardsLoaded] = useState(isDemo)
   const [rewardsError, setRewardsError] = useState('')
   const [historyLoading, setHistoryLoading] = useState(false)
   const [historyError, setHistoryError] = useState('')
   const [historyLoaded, setHistoryLoaded] = useState(false)
-  const [historyNextOffset, setHistoryNextOffset] = useState<number | null>(null)
+  const [historyNextCursor, setHistoryNextCursor] = useState<string | null>(null)
   const [referralLoading, setReferralLoading] = useState(false)
   const [referralError, setReferralError] = useState('')
   const [referralLoaded, setReferralLoaded] = useState(false)
@@ -154,20 +159,19 @@ export default function AuraClubPage({ isDemo = false, ownerId, initialTab = 're
     if (isDemo) return
     quiet ? setRefreshing(true) : setLoading(true)
     setError('')
+    try { setDashboard(await getMyLoyaltyDashboard()) }
+    catch (loadError) { setError(friendlyError(loadError)) }
+    finally { setLoading(false); setRefreshing(false) }
+  }, [isDemo])
+
+  const loadRewards = useCallback(async () => {
+    if (isDemo || rewardsLoading) return
     setRewardsLoading(true)
     setRewardsError('')
-    const [dashboardResult, rewardResult] = await Promise.allSettled([
-      getMyLoyaltyDashboard(),
-      listMyAvailableRewards(),
-    ])
-    if (dashboardResult.status === 'fulfilled') setDashboard(dashboardResult.value)
-    else setError(friendlyError(dashboardResult.reason))
-    if (rewardResult.status === 'fulfilled') setRewards(rewardResult.value.rewards)
-    else setRewardsError(friendlyError(rewardResult.reason))
-    setLoading(false)
-    setRewardsLoading(false)
-    setRefreshing(false)
-  }, [isDemo])
+    try { setRewards((await listMyAvailableRewards()).rewards) }
+    catch (loadError) { setRewardsError(friendlyError(loadError)) }
+    finally { setRewardsLoaded(true); setRewardsLoading(false) }
+  }, [isDemo, rewardsLoading])
 
   const loadHistory = useCallback(async (append = false) => {
     if (historyLoading) return
@@ -176,11 +180,11 @@ export default function AuraClubPage({ isDemo = false, ownerId, initialTab = 're
     try {
       if (isDemo) {
         setHistory([])
-        setHistoryNextOffset(null)
+        setHistoryNextCursor(null)
       } else {
-        const result = await listMyLoyaltyHistory(append ? historyNextOffset || 0 : 0, 30)
+        const result = await listMyLoyaltyHistory(append ? historyNextCursor || '' : '', 30)
         setHistory((current) => append ? [...current, ...result.entries.filter((entry) => !current.some((item) => item.id === entry.id))] : result.entries)
-        setHistoryNextOffset(result.nextOffset)
+        setHistoryNextCursor(result.nextCursor)
       }
       setHistoryLoaded(true)
     } catch (loadError) {
@@ -189,7 +193,7 @@ export default function AuraClubPage({ isDemo = false, ownerId, initialTab = 're
       setHistoryLoaded(true)
       setHistoryLoading(false)
     }
-  }, [historyLoading, historyNextOffset, isDemo])
+  }, [historyLoading, historyNextCursor, isDemo])
 
   const loadReferral = useCallback(async () => {
     if (referralLoading) return
@@ -209,9 +213,10 @@ export default function AuraClubPage({ isDemo = false, ownerId, initialTab = 're
   useEffect(() => { void load() }, [load])
 
   useEffect(() => {
+    if (activeTab === 'rewards' && !rewardsLoaded && !rewardsLoading) void loadRewards()
     if (activeTab === 'history' && !historyLoaded && !historyLoading) void loadHistory(false)
     if (activeTab === 'referral' && !referralLoaded && !referralLoading) void loadReferral()
-  }, [activeTab, historyLoaded, historyLoading, loadHistory, loadReferral, referralLoaded, referralLoading])
+  }, [activeTab, rewardsLoaded, rewardsLoading, loadRewards, historyLoaded, historyLoading, loadHistory, loadReferral, referralLoaded, referralLoading])
 
   useEffect(() => {
     if (isDemo || !ownerId) return
@@ -379,7 +384,7 @@ export default function AuraClubPage({ isDemo = false, ownerId, initialTab = 're
           <span><i style={{ width: `${account.tierProgress.percent}%` }} /></span>
           <small>{account.tierProgress.nextTier ? `Còn ${formatMoney(account.tierProgress.remainingValue)} thực thu ròng để lên ${tierLabels[account.tierProgress.nextTier]}` : 'Bạn đang ở hạng cao nhất của Aura Club'}</small>
         </div>
-        <button type="button" className="loyalty-refresh" onClick={() => void load(true)} disabled={refreshing} aria-label="Tải lại Aura Club"><RefreshCw className={refreshing ? 'loyalty-spin' : ''} /></button>
+        <button type="button" className="loyalty-refresh" onClick={() => { void load(true); if (activeTab === 'rewards') void loadRewards(); if (activeTab === 'history') void loadHistory(false); if (activeTab === 'referral') void loadReferral() }} disabled={refreshing} aria-label="Tải lại Aura Club"><RefreshCw className={refreshing ? 'loyalty-spin' : ''} /></button>
       </header>
 
       {error ? <div className="loyalty-inline-alert" role="alert">{error}</div> : null}
@@ -424,7 +429,7 @@ export default function AuraClubPage({ isDemo = false, ownerId, initialTab = 're
                 ['staff', 'Staff xác nhận'],
               ] as const).map(([id, label]) => <button type="button" key={id} className={rewardFilter === id ? 'is-active' : ''} onClick={() => setRewardFilter(id)}>{label}</button>)}
             </div>
-            {rewardsError ? <div className="loyalty-tab-state is-error" role="alert"><AlertTriangle /><span>{rewardsError}</span><button type="button" onClick={() => void load(true)}>Thử lại</button></div> : null}
+            {rewardsError ? <div className="loyalty-tab-state is-error" role="alert"><AlertTriangle /><span>{rewardsError}</span><button type="button" onClick={() => void loadRewards()}>Thử lại</button></div> : null}
             {rewardsLoading ? <div className="loyalty-tab-state" role="status"><LoaderCircle className="loyalty-spin" /> Đang tải quyền lợi…</div> : null}
             {!rewardsLoading && !rewardsError ? <div className="loyalty-reward-grid">
               {availableRewards.map((reward) => {
@@ -505,7 +510,7 @@ export default function AuraClubPage({ isDemo = false, ownerId, initialTab = 're
                 return <article key={item.id}><span className={`loyalty-history__icon loyalty-history__icon--${item.kind}`}>{item.kind === 'redeem' || points < 0 ? <ArrowLeft /> : <ArrowRight />}</span><div><strong>{item.description}</strong><small>{item.createdAt ? new Intl.DateTimeFormat('vi-VN', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(item.createdAt)) : 'Đang đồng bộ'} · {historySourceLabel(item.sourceType)}</small></div><b className={points >= 0 ? 'is-positive' : 'is-negative'}>{points >= 0 ? '+' : ''}{formatNumber(points)}</b></article>
               }) : <div className="loyalty-empty"><History /><h3>Chưa có giao dịch điểm</h3><p>200 điểm chào mừng sẽ xuất hiện khi Aura hoàn tất đối soát hợp đồng hiệu lực.</p></div>}
             </div> : null}
-            {historyNextOffset !== null ? <button type="button" className="loyalty-load-more" disabled={historyLoading} onClick={() => void loadHistory(true)}>{historyLoading ? <LoaderCircle className="loyalty-spin" /> : <History />} Tải thêm</button> : null}
+            {historyNextCursor ? <button type="button" className="loyalty-load-more" disabled={historyLoading} onClick={() => void loadHistory(true)}>{historyLoading ? <LoaderCircle className="loyalty-spin" /> : <History />} Tải thêm</button> : null}
           </section>
         ) : null}
       </main>

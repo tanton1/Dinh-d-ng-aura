@@ -20,7 +20,9 @@ export default function LoyaltyHomeCard({ isDemo, ownerId, onNavigate }: Loyalty
   useEffect(() => {
     if (isDemo) return
     let active = true
-    void getMyLoyaltyDashboard().then((value) => {
+    setDashboard(null)
+    setUnavailable(false)
+    void getMyLoyaltyDashboard({ compact: true }).then((value) => {
       if (active) setDashboard(value)
     }).catch(() => {
       if (active) setUnavailable(true)

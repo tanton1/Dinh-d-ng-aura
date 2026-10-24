@@ -120,10 +120,13 @@ function calculateSpendPoints({
   policy = DEFAULT_POLICY,
 }) {
   const cash = nonNegativeInteger(eligibleCashVnd)
-  const basePoints = Math.floor(cash / nonNegativeInteger(policy.vndPerPoint, VND_PER_POINT))
+  const basePoints = Math.floor(cash / Math.max(1, nonNegativeInteger(policy.vndPerPoint, VND_PER_POINT)))
   const multiplier = Number(policy.tierMultipliers?.[tier] || 1)
   const safeRenewalBonus = Math.max(0, Math.min(1, Number(renewalBonus) || 0))
-  return Math.max(0, Math.floor(basePoints * (multiplier + safeRenewalBonus)))
+  // Basis points avoid losing an integer point to binary floating point
+  // (for example 1200 * (1.2 + 0.15) previously produced 1619).
+  const rateBasisPoints = Math.round(multiplier * 10_000) + Math.round(safeRenewalBonus * 10_000)
+  return Math.max(0, Math.floor(basePoints * rateBasisPoints / 10_000))
 }
 
 function ambassadorRateForQualifiedCount(value) {

@@ -1,0 +1,53 @@
+{
+  "project": "gen-lang-client-0815966909",
+  "database": "ai-studio-aurafitnesselear-0f7609b4-b8d1-4fb3-9d62-99a2c03e1ce7",
+  "launchDate": "2026-10-24",
+  "requestedActivation": { "earn": true, "nutrition": true, "redeem": false, "referral": false, "ambassador": false },
+  "preflight": { "contracts": 405, "eligibleWelcomeStudents": 167, "welcomePointsEach": 200, "contractsMissingStudentProfile": 2 },
+  "earning": {
+    "payment": "floor(floor(net collected VND / 10000) * (tier multiplier + renewal bonus)); integer basis-point arithmetic",
+    "paymentHoldDays": 14,
+    "tierThresholdsVnd": { "member": 0, "silver": 10000000, "gold": 25000000, "diamond": 50000000 },
+    "tierMultipliers": { "member": 1, "silver": 1.1, "gold": 1.2, "diamond": 1.5 },
+    "renewalBonus": { "onOrBeforePreviousExpiry": 0.15, "withinSevenDaysAfterExpiry": 0.05 },
+    "attendance": { "manuallyConfirmedChargedSession": 2, "weeklyTarget": 5, "twelveSessionsMonthly": 30, "consecutiveWeeks4": 30, "consecutiveWeeks8": 100, "consecutiveWeeks12": 200 },
+    "nutrition": { "coachApprovedMeal": 1, "threeApprovedMealsDay": 2, "proteinTargetDay": 3, "calorieTargetWithinTenPercentDay": 3, "fiveCompliantDaysWeek": 15, "fourConsecutiveCompliantWeeks": 50 },
+    "monthlyCaps": { "nutrition": 150, "allBehaviorRewardsCombined": 250 },
+    "historicalCash": "Qualifies lifetime tier only. No spendable payment points before the locked launch date.",
+    "recognition": "PT Kudos grants XP and badges, not spendable Aura points."
+  },
+  "correctnessChanges": [
+    "No floating-point loss of one payment point.",
+    "Earning tier is frozen after launch reconciliation; payment rate and hold remain frozen for later refunds or policy changes.",
+    "Cash affects tier during the points hold; vesting does not count it again.",
+    "Voided or removed payments reverse points and tier credit.",
+    "A shared transactional monthly budget prevents concurrent attendance and nutrition rewards from exceeding the cap.",
+    "The thirteenth-week sentinel prevents repeated twelve-week rewards.",
+    "Zero-valued policy settings are respected.",
+    "Vesting selects due enabled source types, so future or disabled rewards do not block welcome bonuses.",
+    "Launch backfill cannot run while earning is enabled."
+  ],
+  "readChanges": {
+    "homeCard": "Compact dashboard: five exact current mission documents, account and policy; skips Kudos, redemptions and Ambassador reads.",
+    "memberDashboard": "Five exact current mission documents, eight newest Kudos plus server aggregate totals, twelve newest redemptions.",
+    "history": "Timestamp/document-ID cursor; at most 31 ledger documents for a 30-row page; no 300-entry ceiling.",
+    "tabs": "Reward catalog, history and referral workspace load on their own tab; retry affects only the failed tab.",
+    "accountIsolation": "Changing account remounts the member workspace so stale responses cannot populate the next account."
+  },
+  "remainingScaleWork": [
+    "Admin overview still scans capped account/redemption/referral/Ambassador collections (up to 3500 documents plus branch student lookup); use aggregate summaries with verified branch scope before claiming full large-scale optimization.",
+    "Attendance mission reconciliation paginates student history and nutrition reconciliation paginates approved history for correctness; canonical date projections would reduce event-time reads further.",
+    "Legacy web clients retain bounded offset compatibility; the new web client uses cursor pagination."
+  ],
+  "validation": [
+    "Existing loyalty unit/read/ledger/nutrition tests",
+    "Firestore emulator: concurrency, monthly caps, refund/void, tier hold, zero policy, staged earning tier, week 12-14, cursor history beyond 300, compact reads and launch/vesting guards",
+    "20 Chrome and mobile Safari admin/member UI cases",
+    "Typecheck, production build, performance budgets, repository hygiene, secret scan and full Functions checks"
+  ],
+  "deployment": {
+    "functions": ["getMyLoyaltyDashboard", "getMyLoyaltyDashboardRegional", "listMyLoyaltyHistory", "listMyLoyaltyHistoryRegional", "runLoyaltyBackfill", "syncLoyaltyContractSpend", "syncLoyaltyAttendance", "syncLoyaltyNutritionReview", "vestPendingLoyaltySourcesScheduled"],
+    "newIndexes": 5,
+    "activationGate": "Require verified deployed source and healthy 100-percent traffic, complete staged reconciliation, matching wallet/ledger totals and exact welcome recipient count before publishing the immutable activation policy."
+  }
+}

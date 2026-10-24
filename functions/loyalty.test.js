@@ -28,7 +28,9 @@ const { attendanceEarnsPoints, consecutiveCompletedWeeks, nutritionDailySummarie
 test('Aura Club spend points use real collected cash, current tier and additive renewal bonus', () => {
   assert.equal(calculateSpendPoints({ eligibleCashVnd: 6_000_000, tier: 'member' }), 600)
   assert.equal(calculateSpendPoints({ eligibleCashVnd: 6_000_000, tier: 'silver' }), 660)
-  assert.equal(calculateSpendPoints({ eligibleCashVnd: 12_000_000, tier: 'gold', renewalBonus: 0.15 }), 1_619)
+  assert.equal(calculateSpendPoints({ eligibleCashVnd: 12_000_000, tier: 'gold', renewalBonus: 0.15 }), 1_620)
+  assert.equal(calculateSpendPoints({ eligibleCashVnd: 1_000_000, tier: 'silver', renewalBonus: 0.15 }), 125)
+  assert.equal(calculateSpendPoints({ eligibleCashVnd: 999_999, tier: 'silver', renewalBonus: 0.15 }), 123)
   assert.equal(calculateSpendPoints({ eligibleCashVnd: -2_000_000, tier: 'diamond' }), 0)
 })
 

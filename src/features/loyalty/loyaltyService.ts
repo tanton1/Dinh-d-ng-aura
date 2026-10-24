@@ -39,16 +39,16 @@ function read<Input, Output>(name: string, input: Input) {
   return callReadOnlyFunction<Input, Output>(name, input, { timeoutMs: 20_000, maximumAttempts: 3, baseDelayMs: 900 })
 }
 
-export function getMyLoyaltyDashboard() {
-  return read<Record<string, never>, LoyaltyDashboard>('getMyLoyaltyDashboard', {})
+export function getMyLoyaltyDashboard(options: { compact?: boolean } = {}) {
+  return read<typeof options, LoyaltyDashboard>('getMyLoyaltyDashboard', options)
 }
 
 export function listMyAvailableRewards() {
   return read<Record<string, never>, { rewards: LoyaltyReward[]; redeemEnabled: boolean }>('listMyAvailableRewards', {})
 }
 
-export function listMyLoyaltyHistory(offset = 0, pageSize = 30) {
-  return read<{ offset: number; pageSize: number }, { entries: LoyaltyHistoryEntry[]; nextOffset: number | null }>('listMyLoyaltyHistory', { offset, pageSize })
+export function listMyLoyaltyHistory(cursor = '', pageSize = 30) {
+  return read<{ cursor: string; pageSize: number }, { entries: LoyaltyHistoryEntry[]; nextCursor: string | null }>('listMyLoyaltyHistory', { cursor, pageSize })
 }
 
 export function redeemMyReward(input: { rewardId: string; branchId?: string; idempotencyKey: string }) {
