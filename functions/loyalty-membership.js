@@ -4,7 +4,7 @@ const { isDeepStrictEqual } = require('node:util')
 const { randomUUID } = require('node:crypto')
 const { FieldPath } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
-const { effectiveContractStatus } = require('./contract-status')
+const { effectiveContractStatus, contractDateKey } = require('./contract-status')
 
 const todayKey = (now = new Date()) => new Intl.DateTimeFormat('en-CA', {
   timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit', day: '2-digit',
@@ -22,7 +22,8 @@ function monthAfter(date) {
 // scheduling. Historical wallets never constitute evidence of enrollment.
 function deriveMembership({ student, contracts, previous = {}, startDate, today = todayKey() }) {
   const enabled = student && student.status !== 'inactive' && !student.accountDeletedAt
-  const usable = contracts.filter(c => validDate(c.startDate) && validDate(c.endDate) && c.startDate <= c.endDate
+  const usable = contracts.map(c => ({ ...c, startDate: contractDateKey(c.startDate), endDate: contractDateKey(c.endDate) }))
+    .filter(c => validDate(c.startDate) && validDate(c.endDate) && c.startDate <= c.endDate
     && !['cancelled', 'canceled', 'draft', 'inactive', 'archived'].includes(String(c.status || '').toLowerCase()))
   const active = enabled && usable.some(c => effectiveContractStatus(c, today) === 'active')
   const enrolledOn = previous.enrolledOn || (active && today >= startDate ? today : null)

@@ -115,3 +115,13 @@ test('legacy admin commands cannot initialize an archived or never-enrolled wall
   assert.equal((await db.doc('loyaltyAccounts/old').get()).exists, false)
   assert.equal((await db.collection('loyaltyLedgerEntries').get()).size, 0)
 })
+
+test('legacy ISO expiry remains active and can initialize its first wallet', async () => {
+  const db = await fixture({ 'contracts/live': { studentId: 'live', status: 'active', startDate: '2026-01-01', endDate: '2099-12-31T00:00:00.000Z' } })
+  await syncMembership({ db, studentId: 'live', enqueueActivation: false })
+  const member = (await db.doc('students/live').get()).data().loyaltyMembership
+  assert.equal(member.state, 'active'); assert.equal(member.activeUntil, '2099-12-31')
+  assert.equal(member.nextCheckOn, '2100-01-01')
+  await credit(db, 'live', 200)
+  assert.equal((await db.doc('loyaltyAccounts/live').get()).data().availablePoints, 200)
+})

@@ -32,7 +32,7 @@
   },
   "validation": {
     "functionsTests": 1211,
-    "firestoreIntegrationTests": 29,
+    "firestoreIntegrationTests": 30,
     "uiTests": 24,
     "responsiveTests": 24,
     "visualReview": "Desktop and mobile screenshots reviewed; corrected mobile banner height and heading overlap.",

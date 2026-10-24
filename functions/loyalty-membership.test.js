@@ -14,6 +14,8 @@ test('initial enrollment accepts only a live active contract, not old wallets, f
   assert.equal(run({ contracts: [{ ...active, sourceContractId: 'old', handoverStatus: 'pending' }] }).active, false)
   assert.equal(run({ contracts: [{ ...active, status: 'expired', renewedByContractId: 'new' }] }).active, false)
   assert.equal(run({ contracts: [{ ...active, endDate: '2026-02-31' }] }).managed, false)
+  assert.equal(run({ contracts: [{ ...active, endDate: '2026-10-31T00:00:00.000Z' }] }).activeUntil, '2026-10-31')
+  assert.equal(run({ contracts: [{ ...active, startDate: ' 2026-10-01T00:00:00.000Z ' }] }).active, true)
 })
 
 test('one calendar month clamps month ends, accounts for leap year and excludes the cutoff day', () => {
