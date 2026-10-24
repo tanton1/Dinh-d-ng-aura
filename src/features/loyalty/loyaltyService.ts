@@ -87,8 +87,9 @@ export function listLoyaltyRedemptions(status = '') {
   return read<{ status: string }, { redemptions: Array<Record<string, unknown> & { id: string; status: string }> }>('listLoyaltyRedemptions', { status })
 }
 
-export function listLoyaltyAccounts(input: { pageSize?: number; cursor?: string } = {}) {
-  return read<typeof input, LoyaltyAdminAccountPage>('listLoyaltyAccounts', input)
+export async function listLoyaltyAccounts(input: { pageSize?: number; cursor?: string; studentId?: string } = {}) {
+  const { callSecondaryRead } = await import('../../services/secondaryReadService')
+  return callSecondaryRead<typeof input, LoyaltyAdminAccountPage>('listLoyaltyAccounts', input)
 }
 
 export function listLoyaltyRewardsAdmin() {

@@ -109,6 +109,8 @@ export interface RenewalPipelineResponse {
     cashAccounts: RenewalCashAccountOption[]
     assignees: RenewalAssigneeOption[]
   }
+  /** Missing on older backends; filters mode intentionally omits wizard-only options. */
+  optionsMode?: 'full' | 'filters'
   packages: RenewalPackageOption[]
   scope: RenewalScope
   audience: RenewalAudience
@@ -175,6 +177,8 @@ export interface RenewalAnalytics {
 }
 
 export interface RenewalListInput {
+  /** Opt in only for list/filter consumers; the legacy default remains full. */
+  optionsMode?: 'full' | 'filters'
   pageSize?: number
   cursor?: string | null
   search?: string
@@ -215,7 +219,8 @@ function callable<Input, Output>(name: string) {
 }
 
 export async function listContractRenewalCases(input: RenewalListInput = {}) {
-  return callReadOnlyFunction<RenewalListInput, RenewalPipelineResponse>('listContractRenewalCases', input)
+  const { callSecondaryRead } = await import('./secondaryReadService')
+  return callSecondaryRead<RenewalListInput, RenewalPipelineResponse>('listContractRenewalCases', input)
 }
 
 export async function listContractRenewalPipeline() {

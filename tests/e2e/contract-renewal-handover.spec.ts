@@ -9,6 +9,8 @@ declare global {
     renewalSubmissions: Array<Record<string, unknown>>
     renewalTransportCalls: Array<{ region: string; name: string; input: { idempotencyKey?: string }; timeout?: number }>
     releaseRenewalQuote?: () => void
+    renewalQueueFixture: any
+    unmountRenewalQueue: () => void
   }
 }
 
@@ -265,4 +267,215 @@ test('real renewal service routes confirmation only to Taiwan and preserves the 
   expect(calls[2].name).toBe('renewPtContractRegional')
   expect(calls[2].input.idempotencyKey).toBeTruthy()
   expect(calls[2].input).toEqual(calls[1].input)
+})
+
+const secondQueueRow: RenewalPipelineRow = {
+  ...row, id: 'source-two', caseId: 'source-two', sourceContractId: 'source-two',
+  student: { ...row.student, id: 'student-two', name: 'Học viên thứ hai' },
+}
+const queueResponse: RenewalPipelineResponse = {
+  schemaVersion: 2, generatedAt: new Date().toISOString(), today, rows: [row, secondQueueRow],
+  hasMore: true, nextCursor: 'page-two', optionsMode: 'filters',
+  stats: { total: 3, pipelineValue: 9000000, weightedPipelineValue: 900000, pendingApprovals: 0,
+    stageCounts: { uncontacted: 3, contacted: 0, interested: 0, quote_sent: 0, follow_up: 0, won: 0, lost: 0 },
+    riskCounts: { expired: 0, exhausted: 0, critical: 3, upcoming: 0, early: 0 },
+    slaCounts: { overdue: 0, due_today: 3, upcoming: 0, done: 0 },
+    segmentCounts: { expiring_30d: 3, exhausted_active: 0, expired_last_30d: 0, in_care: 0 },
+  },
+  options: { packages: [], cashAccounts: [], branches: [{ id: 'branch-1', name: 'Aura' }], assignees: [{ id: 'sales-one', name: 'Sales hiện tại', branchIds: ['branch-1'] }] },
+  packages: [], scope: 'branch', audience: 'sales', actorUid: 'staff-one', truncated: false,
+  permissions: { canRecordActivity: true, canCreateQuote: true, canRenewContract: true, canViewFinancials: true, canViewAnalytics: true, canAssign: true, canApprove: false },
+}
+
+async function mockRenewalQueue(page: Page, behavior: { holdLists?: string[]; holdPrepare?: string[]; prepareError?: string; canRenew?: boolean } = {}) {
+  // Never allow the local fixture to contact a real backend or third-party app.
+  await page.route('**/*', route => new URL(route.request().url()).hostname === '127.0.0.1' ? route.continue() : route.abort())
+  await page.addInitScript(({ response, behavior }) => {
+    window.renewalQueueFixture = {
+      base: response, behavior, listCalls: [], prepareCalls: [], listPending: {}, preparePending: {},
+      listResponses: {}, prepareVersion: 1, mutations: [],
+    }
+    if (behavior.canRenew === false) window.renewalQueueFixture.base.permissions.canRenewContract = false
+  }, { response: queueResponse, behavior })
+  await page.route('**/src/services/contractRenewalService.ts*', route => route.fulfill({ contentType: 'application/javascript', body: `
+    const state = window.renewalQueueFixture;
+    export const listContractRenewalCases = async input => {
+      const index = state.listCalls.push(input) - 1;
+      const key = input.search || input.cursor || 'initial';
+      const response = structuredClone(state.listResponses[key] || state.base);
+      if (input.cursor && !state.listResponses[key]) { response.rows = []; response.hasMore = false; response.nextCursor = null; }
+      if (state.behavior.holdLists?.includes(key)) return new Promise((resolve, reject) => { state.listPending[index] = { resolve: value => resolve(value || response), reject }; });
+      return response;
+    };
+    export const listRenewalMessageTemplates = async () => ({ templates: [] });
+    export const prepareContractRenewal = async sourceContractId => {
+      const index = state.prepareCalls.push(sourceContractId) - 1;
+      if (state.behavior.prepareError) throw new Error(state.behavior.prepareError);
+      const version = state.prepareVersion;
+      const response = { row: structuredClone(state.base.rows.find(row => row.sourceContractId === sourceContractId)), scope: 'system', options: {
+        packages: [{ id: 'package-1', name: 'Gói mới v' + version, totalSessions: 24 + version, price: 4200000 + version * 100000, durationMonths: 3, branchId: 'branch-1' }],
+        cashAccounts: [{ id: 'cash-v' + version, name: 'Quỹ mới v' + version, type: 'bank', branchId: 'branch-1' }], branches: [], assignees: [],
+      }};
+      if (state.behavior.holdPrepare?.includes(sourceContractId)) return new Promise((resolve, reject) => { state.preparePending[index] = { resolve: () => resolve(response), reject }; });
+      return response;
+    };
+    export const getContractRenewalCaseDetail = async caseId => ({ case: state.base.rows.find(row => row.caseId === caseId), activities: [], contractHistory: [], upcomingSessions: [], quote: null, approval: null });
+    export const createRenewalQuote = async input => { state.mutations.push(input); return { quoteId: 'queue-quote', revision: 2 }; };
+    export const renewPtContract = async input => { state.mutations.push(input); return { contractId: 'next', unchanged: false }; };
+    export const submitRenewalApproval = async () => ({ approvalId: 'approval', status: 'pending' });
+    export const listRenewalCalendar = async () => ({ items: [] });
+    export const getRenewalAnalytics = async () => ({ assignees: [], lostReasons: {}, stageCounts: {} });
+    export const refreshContractRenewalQueue = async () => ({ contractsScanned: 0, plannedWrites: 0 });
+    export const assignContractRenewalCase = async () => ({});
+    export const decideRenewalApproval = async () => ({});
+    export const recordContractRenewalActivity = async () => ({});
+    export const transferRenewalCases = async () => ({ transferred: 1 });
+  ` }))
+  await page.goto('/tests/e2e/fixtures/contract-renewal-queue.html')
+  await expect(page.getByRole('button', { name: 'Tái ký', exact: true }).first()).toBeVisible({ timeout: 15000 }).catch(async error => {
+    if (behavior.canRenew !== false) throw error
+    await expect(page.getByRole('button', { name: 'Chăm sóc', exact: true }).first()).toBeVisible()
+  })
+}
+
+const queueSearch = (page: Page) => page.getByPlaceholder('Tìm tên, SĐT, email, gói tập…')
+const renewQueueRow = (page: Page, index = 0) => page.locator('.renewal-table tbody tr').nth(index).getByRole('button', { name: 'Tái ký', exact: true })
+
+test('queue requests filters-only for every list/search/page and opens fresh full-price/full-account options', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await mockRenewalQueue(page)
+  await queueSearch(page).fill('student')
+  await expect.poll(() => page.evaluate(() => window.renewalQueueFixture.listCalls.length)).toBe(2)
+  await page.getByRole('button', { name: 'Tải thêm hồ sơ' }).click()
+  await expect.poll(() => page.evaluate(() => window.renewalQueueFixture.listCalls.length)).toBe(3)
+  const calls = await page.evaluate(() => window.renewalQueueFixture.listCalls)
+  expect(calls.every((input: any) => input.optionsMode === 'filters' && input.pageSize === 30)).toBe(true)
+  expect(calls[2].cursor).toBe('page-two')
+  await renewQueueRow(page).click()
+  const dialog = page.getByRole('dialog', { name: 'Tạo hợp đồng tiếp theo' })
+  await expect(dialog).toBeVisible()
+  await expect(dialog.getByRole('combobox', { name: 'Gói tập', exact: true })).toHaveValue('package-1')
+  await expect(dialog.getByRole('combobox', { name: 'Gói tập', exact: true }).locator('option:checked')).toContainText('Gói mới v1 · 25 buổi · 4.300.000đ')
+  await expect(dialog).toContainText(/toàn hệ thống/i)
+  await dialog.getByRole('button', { name: 'Tiếp tục', exact: true }).click()
+  await expect(dialog.getByLabel('Giá niêm yết')).toHaveValue('4.300.000đ')
+  await dialog.getByRole('button', { name: 'Tiếp tục', exact: true }).click()
+  await dialog.getByLabel('Thu ngay', { exact: true }).fill('100000')
+  await expect(dialog.getByRole('combobox', { name: 'Tài khoản quỹ', exact: true })).toHaveValue('cash-v1')
+  await expect(dialog.getByRole('combobox', { name: 'Tài khoản quỹ', exact: true }).locator('option:checked')).toHaveText('Quỹ mới v1')
+  await dialog.getByRole('button', { name: 'Đóng', exact: true }).click()
+  await page.evaluate(() => { window.renewalQueueFixture.prepareVersion = 2 })
+  await renewQueueRow(page).click()
+  await expect(dialog.getByRole('combobox', { name: 'Gói tập', exact: true }).locator('option:checked')).toContainText('Gói mới v2 · 26 buổi · 4.400.000đ')
+  expect(await page.evaluate(() => window.renewalQueueFixture.prepareCalls)).toEqual(['source', 'source'])
+})
+
+test('a late list page cannot replace the open wizard options or prepared scope', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await mockRenewalQueue(page, { holdLists: ['page-two'] })
+  await page.getByRole('button', { name: 'Tải thêm hồ sơ' }).click()
+  await expect.poll(() => page.evaluate(() => Object.keys(window.renewalQueueFixture.listPending).length)).toBe(1)
+  await renewQueueRow(page).click()
+  const dialog = page.getByRole('dialog', { name: 'Tạo hợp đồng tiếp theo' })
+  await expect(dialog.getByRole('combobox', { name: 'Gói tập', exact: true }).locator('option:checked')).toContainText('Gói mới v1')
+  await page.evaluate(() => {
+    const state = window.renewalQueueFixture
+    state.listPending[1].resolve({ ...state.base, rows: [], hasMore: false, nextCursor: null,
+      options: { ...state.base.options, packages: [{ id: 'package-1', name: 'Stale zero package', totalSessions: 0, price: 0, durationMonths: 0, branchId: 'branch-1' }], cashAccounts: [] } })
+  })
+  await expect(page.getByRole('button', { name: 'Tải thêm hồ sơ' })).toHaveCount(0)
+  await expect(dialog.getByRole('combobox', { name: 'Gói tập', exact: true }).locator('option:checked')).toContainText('Gói mới v1 · 25 buổi · 4.300.000đ')
+  await expect(dialog).toContainText(/toàn hệ thống/i)
+  await dialog.getByRole('button', { name: 'Tiếp tục', exact: true }).click()
+  await dialog.getByRole('button', { name: 'Tiếp tục', exact: true }).click()
+  await dialog.getByLabel('Thu ngay', { exact: true }).fill('100000')
+  await expect(dialog.getByRole('combobox', { name: 'Tài khoản quỹ', exact: true })).toHaveValue('cash-v1')
+})
+
+test('out-of-order prepares never replace the newer wizard or reopen one after close', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await mockRenewalQueue(page, { holdPrepare: ['source'] })
+  await renewQueueRow(page, 0).click()
+  await expect.poll(() => page.evaluate(() => Object.keys(window.renewalQueueFixture.preparePending).length)).toBe(1)
+  await renewQueueRow(page, 1).click()
+  const dialog = page.getByRole('dialog', { name: 'Tạo hợp đồng tiếp theo' })
+  await expect(dialog).toContainText('Học viên thứ hai')
+  await page.evaluate(() => window.renewalQueueFixture.preparePending[0].resolve())
+  await page.waitForTimeout(100)
+  await expect(dialog).toContainText('Học viên thứ hai')
+  await dialog.getByRole('button', { name: 'Đóng', exact: true }).click()
+  await renewQueueRow(page, 0).click()
+  await expect.poll(() => page.evaluate(() => Object.keys(window.renewalQueueFixture.preparePending).length)).toBe(2)
+  await renewQueueRow(page, 1).click()
+  await expect(dialog).toContainText('Học viên thứ hai')
+  await dialog.getByRole('button', { name: 'Đóng', exact: true }).click()
+  await page.evaluate(() => window.renewalQueueFixture.preparePending[2].resolve())
+  await page.waitForTimeout(100)
+  await expect(dialog).toHaveCount(0)
+})
+
+test('stale list searches and pages cannot overwrite a newer filter result', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await mockRenewalQueue(page, { holdLists: ['old', 'page-two'] })
+  await page.getByRole('button', { name: 'Tải thêm hồ sơ' }).click()
+  await expect.poll(() => page.evaluate(() => Object.keys(window.renewalQueueFixture.listPending).length)).toBe(1)
+  await queueSearch(page).fill('old')
+  await expect.poll(() => page.evaluate(() => window.renewalQueueFixture.listCalls.length)).toBe(3)
+  await page.evaluate(() => {
+    const state = window.renewalQueueFixture
+    state.listResponses.new = { ...state.base, hasMore: false, nextCursor: null,
+      rows: [{ ...state.base.rows[1], student: { ...state.base.rows[1].student, name: 'Kết quả mới nhất' } }] }
+  })
+  await queueSearch(page).fill('new')
+  await expect(page.locator('.renewal-table tbody')).toContainText('Kết quả mới nhất')
+  await page.evaluate(() => {
+    window.renewalQueueFixture.listPending[1].resolve()
+    window.renewalQueueFixture.listPending[2].resolve()
+  })
+  await page.waitForTimeout(100)
+  await expect(page.locator('.renewal-table tbody tr')).toHaveCount(1)
+  await expect(page.locator('.renewal-table tbody')).toContainText('Kết quả mới nhất')
+  await expect(page.getByRole('button', { name: 'Tải thêm hồ sơ' })).toHaveCount(0)
+})
+
+test('closing the inspector or unmounting invalidates an outstanding prepare without showing stale errors', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await mockRenewalQueue(page, { holdPrepare: ['source'] })
+  await page.locator('.renewal-table tbody tr').first().click()
+  const inspector = page.getByRole('dialog', { name: row.student.name })
+  await expect(inspector).toBeVisible()
+  await inspector.getByRole('button', { name: 'Tạo tái ký' }).click()
+  await expect.poll(() => page.evaluate(() => Object.keys(window.renewalQueueFixture.preparePending).length)).toBe(1)
+  await inspector.locator('header button').click()
+  await page.evaluate(() => window.renewalQueueFixture.preparePending[0].reject(new Error('Stale prepare failure')))
+  await page.waitForTimeout(100)
+  await expect(page.getByRole('alert')).toHaveCount(0)
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await renewQueueRow(page).click()
+  await expect.poll(() => page.evaluate(() => Object.keys(window.renewalQueueFixture.preparePending).length)).toBe(2)
+  await page.evaluate(() => {
+    window.unmountRenewalQueue()
+    window.renewalQueueFixture.preparePending[1].resolve()
+  })
+  await page.waitForTimeout(100)
+  await expect(page.locator('#root')).toBeEmpty()
+})
+
+test('fresh prepare denial stays visible and refreshed permission loss closes an open wizard', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await mockRenewalQueue(page, { prepareError: 'Không còn quyền tái ký.', holdLists: ['page-two'] })
+  await renewQueueRow(page).click()
+  await expect(page.getByRole('alert')).toContainText('Không còn quyền tái ký.')
+  await expect(page.getByRole('dialog', { name: 'Tạo hợp đồng tiếp theo' })).toHaveCount(0)
+  await page.evaluate(() => { window.renewalQueueFixture.behavior.prepareError = '' })
+  await page.getByRole('button', { name: 'Tải thêm hồ sơ' }).click()
+  await expect.poll(() => page.evaluate(() => Object.keys(window.renewalQueueFixture.listPending).length)).toBe(1)
+  await renewQueueRow(page).click()
+  await expect(page.getByRole('dialog', { name: 'Tạo hợp đồng tiếp theo' })).toBeVisible()
+  await page.evaluate(() => {
+    const state = window.renewalQueueFixture
+    state.listPending[1].resolve({ ...state.base, rows: [], hasMore: false, nextCursor: null, permissions: { ...state.base.permissions, canRenewContract: false } })
+  })
+  await expect(page.getByRole('dialog', { name: 'Tạo hợp đồng tiếp theo' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Tái ký', exact: true })).toHaveCount(0)
 })

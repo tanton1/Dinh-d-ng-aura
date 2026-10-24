@@ -14,15 +14,20 @@ const bundled = build({
     export * as renewal from './src/services/contractRenewalService';
     export * as exercise from './src/services/exerciseCatalogService';
     export * as nutrition from './src/services/internalNutritionCatalogService';
+    export * as loyalty from './src/features/loyalty/loyaltyService';
     export { callSecondaryRead } from './src/services/secondaryReadService';
   `, resolveDir: resolve('.'), loader: 'ts' },
   bundle: true, write: false, platform: 'node', format: 'cjs',
   plugins: [{ name: 'secondary-read-fixture', setup(builder) {
-    builder.onResolve({ filter: /^(firebase\/functions|\.\.\/lib\/firebase(?:Functions)?|\.\/clientTelemetryService)$/ },
+    builder.onResolve({ filter: /^(firebase\/(?:functions|firestore)|(?:\.\.\/)+lib\/firebase(?:Functions|Firestore)?|\.\/clientTelemetryService)$/ },
       (args) => ({ path: args.path, namespace: 'secondary-read-fixture' }))
     builder.onLoad({ filter: /.*/, namespace: 'secondary-read-fixture' }, (args) => ({ loader: 'js', contents:
       args.path === 'firebase/functions'
         ? 'export const httpsCallable = (client, name, options) => async (input) => globalThis.routing.invoke(client, name, options, input)'
+        : args.path === 'firebase/firestore'
+          ? 'export const doc = () => { throw new Error("Unexpected Firestore read") }; export const onSnapshot = doc'
+        : args.path.endsWith('firebaseFirestore')
+          ? 'export const firestoreDb = null'
         : args.path.endsWith('firebaseFunctions')
           ? 'export const firebaseFunctions = globalThis.routing.sg; export const firebaseStudent360Functions = globalThis.routing.east; export const firebaseRegionalReadFunctions = globalThis.routing.jakarta'
           : args.path.endsWith('/firebase')
@@ -57,6 +62,8 @@ function responseFor(name: string) {
     case 'listExpenseVouchers': return { vouchers: [{ id: 'voucher-one' }], hasMore: true }
     case 'listFinanceLedger': return { entries: [], summary: { collectedAmount: '12', refundedAmount: 2 }, hasMore: false, nextCursor: null }
     case 'listRenewalMessageTemplates': return { schemaVersion: 1, templates: [{ id: 'template-one' }] }
+    case 'listContractRenewalCases': return { rows: [], optionsMode: 'filters', options: { branches: [], assignees: [], packages: [], cashAccounts: [] }, stats: { totalCases: 0 } }
+    case 'listLoyaltyAccounts': return { accounts: [{ studentId: 'student-one', availablePoints: 17 }], hasMore: true, nextCursor: 'student-one', totalCount: 101 }
     case 'getExerciseCatalogItem': return { item: { id: 'exercise-one', nameVi: ' Bài tập ', status: 'published' } }
     case 'getInternalNutritionCatalogItem': return { item: { id: 'food-one' }, restricted: true }
     default: return { ok: true }
@@ -100,13 +107,15 @@ const operations = [
   { group: 'cashbook', name: 'listExpenseVouchers', region: 'asia-east1', args: [{ pageSize: 19 }], input: { pageSize: 19 } },
   { group: 'finance', name: 'listFinanceLedger', region: 'asia-east1', args: [{ branchId: 'branch-one', pageSize: 23, status: 'posted', cursor: 'opaque-cursor', types: ['payment'] }], input: { pageSize: 23, status: 'posted', branchId: 'branch-one', cursor: 'opaque-cursor', types: ['payment'] } },
   { group: 'renewal', name: 'listRenewalMessageTemplates', region: 'asia-east1', args: [], input: {} },
+  { group: 'renewal', name: 'listContractRenewalCases', region: 'asia-east1', args: [{ pageSize: 50, optionsMode: 'filters', cursor: 'case-one' }], input: { pageSize: 50, optionsMode: 'filters', cursor: 'case-one' } },
+  { group: 'loyalty', name: 'listLoyaltyAccounts', region: 'asia-southeast2', args: [{ pageSize: 100, studentId: 'student-one' }], input: { pageSize: 100, studentId: 'student-one' } },
   { group: 'exercise', name: 'getExerciseCatalogItem', region: 'asia-southeast2', args: ['exercise-one'], input: { exerciseId: 'exercise-one' } },
   { group: 'nutrition', name: 'getInternalNutritionCatalogItem', region: 'asia-southeast2', args: ['food-one'], input: { id: 'food-one' } },
 ].map((operation) => ({ ...operation, timeout: operation.name === 'listRenewalMessageTemplates' ? 18_000 : operation.name === 'getInternalNutritionCatalogItem' ? 30_000 : 70_000 }))
 const plain = (value: unknown) => JSON.parse(JSON.stringify(value))
 const invoke = (service: any, operation: typeof operations[number]) => service[operation.group][operation.name](...operation.args)
 
-test('all eight real service callers use the correct regional export with one bounded request', async () => {
+test('all ten real service callers use the correct regional export with one bounded request', async () => {
   const backend = readFileSync('functions/index.js', 'utf8')
   for (const operation of operations) {
     const { service, requests, issues } = await fixture()
@@ -303,6 +312,7 @@ test('actual mutation callers remain single-attempt with their existing region a
     { group: 'finance', name: 'recordRefund', args: [{ idempotencyKey: 'operation-one' }], region: 'asia-southeast1' },
     { group: 'finance', name: 'reverseContractPayment', args: ['entry-one', 'reason'], region: 'asia-southeast1' },
     { group: 'renewal', name: 'renewPtContract', args: [{ idempotencyKey: 'operation-one' }], region: 'asia-east1', wireName: 'renewPtContractRegional' },
+    { group: 'loyalty', name: 'adjustLoyaltyBalance', args: [{ studentId: 'student-one', points: 10, reason: 'fixture', idempotencyKey: 'operation-one' }], region: 'asia-southeast1' },
     { group: 'exercise', name: 'saveExerciseCatalogDraft', args: [{ exerciseId: 'exercise-one', expectedRevision: 2, draft: {} }], region: 'asia-southeast1' },
     { group: 'exercise', name: 'publishExerciseCatalogItem', args: ['exercise-one', 2], region: 'asia-southeast1' },
   ]

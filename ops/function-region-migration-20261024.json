@@ -17,13 +17,25 @@
   },
   "mode": "review-and-staged-cutover-not-a-bulk-deployment-or-deletion-manifest",
   "progress": {
-    "verifiedAt": "2026-10-24T04:15:23.037Z",
+    "verifiedAt": "2026-10-24T05:43:01.957Z",
     "completedSourceRetirements": 5,
     "pendingCandidateSourceRetirements": 183,
     "currentFunctionCounts": {
-      "asia-east1": 138,
+      "asia-east1": 139,
       "asia-southeast1": 370,
-      "asia-southeast2": 18
+      "asia-southeast2": 19
+    },
+    "paginationReadCutover": {
+      "backendSourceCommit": "1e4951ef52b7795d25ff11309d07c5f58a7f7e41",
+      "report": "ops/read-pagination-offload-20261024.json",
+      "routes": [
+        { "name": "listContractRenewalCases", "replacement": "listContractRenewalCasesRegional", "region": "asia-east1" },
+        { "name": "listLoyaltyAccounts", "replacement": "listLoyaltyAccountsRegional", "region": "asia-southeast2" }
+      ],
+      "legacySourceEndpointsRetained": true,
+      "newSourceRetirements": 0,
+      "changedTargetsVerified": 5,
+      "minimumInstancesForEachChangedTarget": 0
     },
     "newReadPrimaryCutovers": {
       "region": "asia-east1",

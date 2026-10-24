@@ -12,6 +12,8 @@ const secondaryReads = {
   listExpenseVouchers: { region: 'asia-east1', timeout: 70_000 },
   listFinanceLedger: { region: 'asia-east1', timeout: 70_000 },
   listRenewalMessageTemplates: { region: 'asia-east1', timeout: 18_000 },
+  listContractRenewalCases: { region: 'asia-east1', timeout: 70_000 },
+  listLoyaltyAccounts: { region: 'asia-southeast2', timeout: 70_000 },
   getExerciseCatalogItem: { region: 'asia-southeast2', timeout: 70_000 },
   getInternalNutritionCatalogItem: { region: 'asia-southeast2', timeout: 30_000 },
 } as const
@@ -34,7 +36,7 @@ function requireRegion(client: Functions | null, region: string) {
   return client
 }
 
-/** Only these eight read-only operations may cross regions. Never cache money reads. */
+/** Only the explicit read allowlist may cross regions. Never cache money reads. */
 export async function callSecondaryRead<Input extends object, Output>(name: SecondaryReadName, input: Input): Promise<Output> {
   // Runtime allowlist also protects JavaScript callers and prototype property names.
   if (!Object.prototype.hasOwnProperty.call(secondaryReads, name)) {

@@ -115,6 +115,12 @@ jobs:
       - name: Test contract renewal on mobile Safari
         if: matrix.project == 'mobile-webkit'
         run: npm run test:renewal-ui -- --project=renewal-mobile-webkit
+      - name: Test bounded loyalty pages and fresh balances
+        if: matrix.project == 'chromium'
+        run: npm run test:loyalty-operations-ui -- --project=loyalty-chromium
+      - name: Test loyalty pagination on mobile Safari
+        if: matrix.project == 'mobile-webkit'
+        run: npm run test:loyalty-operations-ui -- --project=loyalty-mobile-webkit
       - name: Test catalog loading and bounded autosave
         if: matrix.project == 'chromium'
         run: npm run test:catalog-ui -- --project=catalog-chromium

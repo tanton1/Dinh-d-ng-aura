@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle, ArrowRight, BadgeCheck, BarChart3, CalendarDays, CheckCircle2,
   BookOpenText, ChevronDown, ChevronRight, CircleDollarSign, ClipboardCheck, Clock3, Copy, Filter,
@@ -17,6 +17,7 @@ import {
   recordContractRenewalActivity,
   refreshContractRenewalQueue,
   transferRenewalCases,
+  type PreparedContractRenewal,
   type RenewalActivityOutcome,
   type RenewalActivityType,
   type RenewalAnalytics,
@@ -109,34 +110,60 @@ export default function ContractRenewals({ onNavigate }: Props) {
   const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null)
   const [detail, setDetail] = useState<RenewalCaseDetail | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
-  const [renewing, setRenewing] = useState<RenewalPipelineRow | null>(null)
+  const [renewing, setRenewing] = useState<PreparedContractRenewal | null>(null)
   const [calendarItems, setCalendarItems] = useState<RenewalPipelineRow[]>([])
+  const [calendarLoading, setCalendarLoading] = useState(false)
   const [analytics, setAnalytics] = useState<RenewalAnalytics | null>(null)
+  const [reportLoading, setReportLoading] = useState(false)
   const [messageTemplates, setMessageTemplates] = useState<RenewalMessageTemplate[]>([])
   const [templateError, setTemplateError] = useState('')
   const [selectedCaseIds, setSelectedCaseIds] = useState<Set<string>>(new Set())
   const [transferOpen, setTransferOpen] = useState(false)
   const [reportFrom, setReportFrom] = useState(addDays(vietnamToday(), -30))
   const [reportTo, setReportTo] = useState(vietnamToday())
+  const mounted = useRef(false)
+  const listGeneration = useRef(0)
+  const detailGeneration = useRef(0)
+  const renewalGeneration = useRef(0)
+  const reportGeneration = useRef(0)
+
+  useEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
+      listGeneration.current += 1
+      detailGeneration.current += 1
+      renewalGeneration.current += 1
+      reportGeneration.current += 1
+    }
+  }, [])
 
   const listInput = useMemo<RenewalListInput>(() => ({
-    pageSize: 30, search: search.trim(), risk, stage, sla, approval, branchId, assignedSalesId: assigneeId, sort, segment,
+    optionsMode: 'filters', pageSize: 30, search: search.trim(), risk, stage, sla, approval, branchId, assignedSalesId: assigneeId, sort, segment,
   }), [approval, assigneeId, branchId, risk, search, segment, sla, sort, stage])
 
   const load = useCallback(async (append = false) => {
+    if (!mounted.current) return
+    const generation = ++listGeneration.current
+    const isCurrent = () => mounted.current && generation === listGeneration.current
     append ? setLoadingMore(true) : setLoading(true)
     setError('')
     try {
       const response = await listContractRenewalCases({ ...listInput, cursor: append ? data?.nextCursor : null })
+      if (!isCurrent()) return
       setData(response)
       setRows((current) => append ? [...current, ...response.rows] : response.rows)
-    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Không thể tải hàng đợi tái ký.') }
-    finally { setLoading(false); setLoadingMore(false) }
+    } catch (cause) { if (isCurrent()) setError(cause instanceof Error ? cause.message : 'Không thể tải hàng đợi tái ký.') }
+    finally { if (isCurrent()) { setLoading(false); setLoadingMore(false) } }
   }, [data?.nextCursor, listInput])
 
   useEffect(() => {
+    // Invalidate the old filter/page immediately, including the debounce gap.
+    listGeneration.current += 1
+    setLoading(true)
+    setLoadingMore(false)
     const timeout = window.setTimeout(() => { void load(false) }, 280)
-    return () => window.clearTimeout(timeout)
+    return () => { window.clearTimeout(timeout); listGeneration.current += 1 }
   // load intentionally changes when the server-side filter changes.
   }, [listInput])
 
@@ -150,48 +177,90 @@ export default function ContractRenewals({ onNavigate }: Props) {
   useEffect(() => { setSelectedCaseIds(new Set()) }, [listInput])
 
   const openDetail = useCallback(async (caseId: string) => {
-    setSelectedCaseId(caseId); setDetailLoading(true); setError('')
-    try { setDetail(await getContractRenewalCaseDetail(caseId)) }
-    catch (cause) { setError(cause instanceof Error ? cause.message : 'Không thể tải chi tiết hồ sơ.') }
-    finally { setDetailLoading(false) }
+    if (!mounted.current) return
+    const generation = ++detailGeneration.current
+    const isCurrent = () => mounted.current && generation === detailGeneration.current
+    setSelectedCaseId(caseId); setDetail(null); setDetailLoading(true); setError('')
+    try {
+      const response = await getContractRenewalCaseDetail(caseId)
+      if (isCurrent()) setDetail(response)
+    }
+    catch (cause) { if (isCurrent()) setError(cause instanceof Error ? cause.message : 'Không thể tải chi tiết hồ sơ.') }
+    finally { if (isCurrent()) setDetailLoading(false) }
+  }, [])
+
+  const closeDetail = useCallback(() => {
+    detailGeneration.current += 1
+    renewalGeneration.current += 1
+    setSelectedCaseId(null); setDetail(null); setDetailLoading(false)
+  }, [])
+
+  const closeRenewal = useCallback(() => {
+    renewalGeneration.current += 1
+    setRenewing(null)
   }, [])
 
   const openRenewal = async (row: RenewalPipelineRow) => {
-    setError('')
-    try { setRenewing((await prepareContractRenewal(row.sourceContractId)).row) }
-    catch (cause) { setError(cause instanceof Error ? cause.message : 'Không thể mở hợp đồng nối tiếp.') }
+    if (!mounted.current || !data?.permissions.canRenewContract) return
+    const generation = ++renewalGeneration.current
+    const isCurrent = () => mounted.current && generation === renewalGeneration.current
+    setError(''); setRenewing(null)
+    try {
+      // Fetch the full authorized options on every open. List refreshes must
+      // never replace prices/accounts/scope in an already prepared wizard.
+      const prepared = await prepareContractRenewal(row.sourceContractId)
+      if (isCurrent()) setRenewing(prepared)
+    }
+    catch (cause) { if (isCurrent()) setError(cause instanceof Error ? cause.message : 'Không thể mở hợp đồng nối tiếp.') }
   }
 
+  useEffect(() => {
+    if (data && !data.permissions.canRenewContract) closeRenewal()
+  }, [closeRenewal, data])
+
   const reloadDetailAndList = useCallback(async () => {
+    const generation = detailGeneration.current
     await load(false)
-    if (selectedCaseId) await openDetail(selectedCaseId)
+    if (mounted.current && generation === detailGeneration.current && selectedCaseId) await openDetail(selectedCaseId)
   }, [load, openDetail, selectedCaseId])
 
   useEffect(() => {
     if (tab !== 'calendar') return
+    let active = true
     const today = vietnamToday()
-    setLoading(true)
-    void listRenewalCalendar({ from: today, to: addDays(today, 45) }).then((result) => setCalendarItems(result.items)).catch((cause) => setError(cause instanceof Error ? cause.message : 'Không thể tải lịch chăm sóc.')).finally(() => setLoading(false))
+    setCalendarLoading(true)
+    void listRenewalCalendar({ from: today, to: addDays(today, 45) }).then((result) => { if (active) setCalendarItems(result.items) }).catch((cause) => { if (active) setError(cause instanceof Error ? cause.message : 'Không thể tải lịch chăm sóc.') }).finally(() => { if (active) setCalendarLoading(false) })
+    return () => { active = false }
   }, [tab])
 
   const loadReport = useCallback(async () => {
-    setLoading(true); setError('')
-    try { setAnalytics(await getRenewalAnalytics({ from: reportFrom, to: reportTo })) }
-    catch (cause) { setError(cause instanceof Error ? cause.message : 'Không thể tải báo cáo tái ký.') }
-    finally { setLoading(false) }
+    if (!mounted.current) return
+    const generation = ++reportGeneration.current
+    const isCurrent = () => mounted.current && generation === reportGeneration.current
+    setReportLoading(true); setError('')
+    try {
+      const response = await getRenewalAnalytics({ from: reportFrom, to: reportTo })
+      if (isCurrent()) setAnalytics(response)
+    }
+    catch (cause) { if (isCurrent()) setError(cause instanceof Error ? cause.message : 'Không thể tải báo cáo tái ký.') }
+    finally { if (isCurrent()) setReportLoading(false) }
   }, [reportFrom, reportTo])
 
-  useEffect(() => { if (tab === 'report') void loadReport() }, [loadReport, tab])
+  useEffect(() => {
+    if (tab === 'report') void loadReport()
+    return () => { reportGeneration.current += 1 }
+  }, [loadReport, tab])
 
   const syncQueue = async () => {
     if (data?.scope !== 'system') { await load(false); return }
     setSyncing(true); setError(''); setNotice('')
     try {
       const result = await refreshContractRenewalQueue(true)
+      if (!mounted.current) return
       setNotice(`Đã đối chiếu ${result.contractsScanned} hợp đồng · ${result.plannedWrites} hồ sơ được cập nhật.`)
       await load(false)
-    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Không thể đồng bộ hàng đợi.') }
-    finally { setSyncing(false) }
+    } catch (cause) { if (mounted.current) setError(cause instanceof Error ? cause.message : 'Không thể đồng bộ hàng đợi.') }
+    finally { if (mounted.current) setSyncing(false) }
   }
 
   const selectSegment = (nextSegment: RenewalSegment) => {
@@ -262,17 +331,17 @@ export default function ContractRenewals({ onNavigate }: Props) {
     {tab === 'queue' && <>
       <RenewalFilters data={data} permissions={permissions} search={search} setSearch={setSearch} risk={risk} setRisk={setRisk} stage={stage} setStage={setStage} sla={sla} setSla={setSla} approval={approval} setApproval={setApproval} branchId={branchId} setBranchId={setBranchId} assigneeId={assigneeId} setAssigneeId={setAssigneeId} sort={sort} setSort={setSort} segment={segment} setSegment={setSegment} open={filtersOpen} setOpen={setFiltersOpen} />
       <QueueView rows={rows} loading={loading} permissions={permissions} selectedCaseIds={selectedCaseIds} onToggleSelection={toggleCaseSelection} onSelectAll={(checked) => setSelectedCaseIds(checked ? new Set(rows.slice(0, 20).map((row) => row.caseId)) : new Set())} onTransfer={() => setTransferOpen(true)} onOpen={openDetail} onRenew={(row) => void openRenewal(row)} />
-      {data?.hasMore && <button type="button" className="renewal-load-more" disabled={loadingMore} onClick={() => void load(true)}>{loadingMore ? <LoaderCircle className="is-spinning" /> : <ChevronDown />} Tải thêm hồ sơ</button>}
+      {data?.hasMore && <button type="button" className="renewal-load-more" disabled={loading || loadingMore} onClick={() => void load(true)}>{loadingMore ? <LoaderCircle className="is-spinning" /> : <ChevronDown />} Tải thêm hồ sơ</button>}
     </>}
     {tab === 'pipeline' && <PipelineView rows={rows} loading={loading} showFinancials={permissions.canViewFinancials} stageCounts={data?.stats.stageCounts || null} onViewStage={selectPipelineStage} onOpen={openDetail} />}
-    {tab === 'calendar' && <CalendarView items={calendarItems} loading={loading} showFinancials={permissions.canViewFinancials} onOpen={openDetail} />}
-    {tab === 'report' && permissions.canViewAnalytics && <ReportView analytics={analytics} loading={loading} from={reportFrom} to={reportTo} setFrom={setReportFrom} setTo={setReportTo} onReload={loadReport} />}
+    {tab === 'calendar' && <CalendarView items={calendarItems} loading={calendarLoading} showFinancials={permissions.canViewFinancials} onOpen={openDetail} />}
+    {tab === 'report' && permissions.canViewAnalytics && <ReportView analytics={analytics} loading={reportLoading} from={reportFrom} to={reportTo} setFrom={setReportFrom} setTo={setReportTo} onReload={loadReport} />}
 
     {data?.scope !== 'self' && <button type="button" className="renewal-student-shortcut" onClick={() => onNavigate?.('admin-pt-students')}><UsersRound size={17} /> Mở danh sách học viên</button>}
 
-    {selectedCaseId && <CaseInspector detail={detail} loading={detailLoading} options={data?.options || null} permissions={permissions} messageTemplates={messageTemplates} templateError={templateError} onClose={() => { setSelectedCaseId(null); setDetail(null) }} onReload={reloadDetailAndList} onRenew={(row) => void openRenewal(row)} />}
+    {selectedCaseId && <CaseInspector detail={detail} loading={detailLoading} options={data?.options || null} permissions={permissions} messageTemplates={messageTemplates} templateError={templateError} onClose={closeDetail} onReload={reloadDetailAndList} onRenew={(row) => void openRenewal(row)} />}
     {transferOpen && data && <LeadTransferDialog rows={selectedRows} assignees={data.options.assignees} onClose={() => setTransferOpen(false)} onSuccess={async (count) => { setTransferOpen(false); setSelectedCaseIds(new Set()); setNotice(`Đã bàn giao ${count} hồ sơ và ghi lịch sử vận hành.`); await load(false) }} />}
-    {renewing && data && permissions.canRenewContract && <RenewContractModal row={renewing} options={data.options} scope={data.scope} onClose={() => setRenewing(null)} onSuccess={async () => { setRenewing(null); setSelectedCaseId(null); setDetail(null); setNotice('Tái ký thành công. Hợp đồng, khoản thu và pipeline đã được cập nhật.'); await load(false) }} />}
+    {renewing && permissions.canRenewContract && <RenewContractModal key={renewing.row.sourceContractId} row={renewing.row} options={renewing.options} scope={renewing.scope} onClose={closeRenewal} onSuccess={async () => { if (!mounted.current) return; closeRenewal(); closeDetail(); setNotice('Tái ký thành công. Hợp đồng, khoản thu và pipeline đã được cập nhật.'); await load(false) }} />}
   </div>
 }
 

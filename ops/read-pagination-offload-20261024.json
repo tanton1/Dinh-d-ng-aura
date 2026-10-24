@@ -1,0 +1,180 @@
+{
+  "schemaVersion": 1,
+  "project": "gen-lang-client-0815966909",
+  "backendSourceCommit": "1e4951ef52b7795d25ff11309d07c5f58a7f7e41",
+  "verifiedAt": "2026-10-24T05:43:01.957Z",
+  "frontendRouting": "Regional-primary callers included in this release; exact public Vercel/custom-domain SHA is verified separately after publication.",
+  "backendVerification": {
+    "actualImageSourceFiles": 11,
+    "installedBodyParser": "2.4.0",
+    "soleServingTrafficPercent": 100,
+    "proofs": [
+      {
+        "function": "listContractRenewalCases",
+        "region": "asia-southeast1",
+        "revision": "listcontractrenewalcases-00019-z7s",
+        "image": "asia-southeast1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast1__list_contract_renewal_cases@sha256:7eebfe1ca456b13d32a83e53eda0491222427f84ecc9e9254ff6809b1410f131",
+        "verifiedAt": "2026-10-24T05:40:17.308Z",
+        "minInstances": 0,
+        "effectiveMaxInstances": 2,
+        "proofSha256": "d9700f35b38ad9f675fbbd259964b00fadaefa2b23711c5600b465694e7d1ff3"
+      },
+      {
+        "function": "listContractRenewalCasesRegional",
+        "region": "asia-east1",
+        "revision": "listcontractrenewalcasesregional-00001-rax",
+        "image": "asia-east1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--east1__list_contract_renewal_cases_regional@sha256:b3cc7999f55e2cfe92524cf508c5ac32d03304625ceaa161542986fbc315b406",
+        "verifiedAt": "2026-10-24T05:35:58.915Z",
+        "minInstances": 0,
+        "effectiveMaxInstances": 2,
+        "proofSha256": "59071632cdb0b9d1c4385a6affab2d61e07e1757ec750701c826cc834799f75e"
+      },
+      {
+        "function": "listContractRenewalPipeline",
+        "region": "asia-southeast1",
+        "revision": "listcontractrenewalpipeline-00021-7x6",
+        "image": "asia-southeast1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast1__list_contract_renewal_pipeline@sha256:b46b44d123a514677bab6427a065d2a2bd48682d89dd4ec04d25bc530c1e6f73",
+        "verifiedAt": "2026-10-24T05:42:11.805Z",
+        "minInstances": 0,
+        "effectiveMaxInstances": 2,
+        "proofSha256": "8380745ed4968469a6934468b0f9ca35585b2301bcb4ebb5453bf95a13627f27"
+      },
+      {
+        "function": "listLoyaltyAccounts",
+        "region": "asia-southeast1",
+        "revision": "listloyaltyaccounts-00008-puv",
+        "image": "asia-southeast1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast1__list_loyalty_accounts@sha256:0e27dfe7f2e195e55df790608aed42c8b324b1a3e7d7662bad90c596439776dc",
+        "verifiedAt": "2026-10-24T05:40:30.715Z",
+        "minInstances": 0,
+        "effectiveMaxInstances": 2,
+        "proofSha256": "4a974f9462e23a5505846aa40a0586cd170fb6489630ef5abd57a7505f14b640"
+      },
+      {
+        "function": "listLoyaltyAccountsRegional",
+        "region": "asia-southeast2",
+        "revision": "listloyaltyaccountsregional-00001-lom",
+        "image": "asia-southeast2-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast2__list_loyalty_accounts_regional@sha256:c45a59c9edefe9a806d759bb329eac21debdd2a87fc43a479bcd0938ffba0f0e",
+        "verifiedAt": "2026-10-24T05:36:12.978Z",
+        "minInstances": 0,
+        "effectiveMaxInstances": 2,
+        "proofSha256": "e833347ca2b05b0f7c1d054f380deaf63f0c8c2a3cee41c3689055d0de70fe9c"
+      }
+    ]
+  },
+  "inventory": {
+    "checkedAt": "2026-10-24T05:43:01.957Z",
+    "total": 528,
+    "counts": {
+      "asia-east1": 139,
+      "asia-southeast1": 370,
+      "asia-southeast2": 19
+    },
+    "states": {
+      "ACTIVE": 528
+    },
+    "configuredFunctionMinimums": 0,
+    "indexProof": {
+      "name": "projects/gen-lang-client-0815966909/databases/ai-studio-aurafitnesselear-0f7609b4-b8d1-4fb3-9d62-99a2c03e1ce7/collectionGroups/students/indexes/CICAgNiryokK",
+      "collectionGroup": "students",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "branchId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "__name__",
+          "order": "ASCENDING"
+        }
+      ],
+      "density": "DENSE",
+      "state": "READY"
+    }
+  },
+  "changes": [
+    {
+      "area": "renewal-list",
+      "behavior": "UI requests optionsMode=filters; package and active cash-account queries are not constructed. Default/full remains backward compatible. Branch and assignee filter dictionaries retain authorization.",
+      "fixture": {
+        "baselineReturnedDocuments": 58,
+        "optimizedReturnedDocuments": 20,
+        "avoidedPackageDocuments": 30,
+        "avoidedCashAccountDocuments": 8
+      },
+      "preserved": "Full scoped stats, case filters/sort/cursors/caps and financial mutation handlers remain unchanged. prepareContractRenewal still reads full fresh options on every form open; frontend now uses that response rather than stale list options."
+    },
+    {
+      "area": "loyalty-account-list",
+      "behavior": "Staff cursor pagination covers all authorized branches in disjoint groups of at most ten; merge ordered document IDs before Vietnamese display-name sorting. Wallets hydrate only the selected page. Exact studentId lookup is scoped, fresh-authorized and scan-free.",
+      "fixture": {
+        "pageSize": 100,
+        "baselineStudentDocuments": 2000,
+        "baselineWalletDocuments": 1000,
+        "optimizedStudentDocuments": 101,
+        "optimizedWalletDocuments": 100
+      },
+      "preserved": "Exact fresh total count, full wallet fields, missing-wallet defaults, Unicode/whitespace IDs and cursor ordering. Count aggregates/auth/policy reads are outside this document-hydration fixture. No settled financial-result cache or business writes.",
+      "search": "Name/branch filter explicitly covers loaded records only; load-more is explicit. Exact-ID/deep-link lookup covers the authorized scope. No global arbitrary-substring search or schedule search behavior change claimed."
+    },
+    {
+      "area": "regional-reads",
+      "routes": [
+        {
+          "name": "listContractRenewalCases",
+          "region": "asia-east1"
+        },
+        {
+          "name": "listLoyaltyAccounts",
+          "region": "asia-southeast2"
+        }
+      ],
+      "behavior": "One regional attempt, at most one Singapore fallback only for explicit infrastructure failures. Auth/user-switch/business errors do not fall back. Mutations remain single-attempt on existing endpoints."
+    },
+    {
+      "area": "runtime-recovery",
+      "behavior": "CLI success left two canonical renewal latest revisions retired while old healthy revisions served. Both exact frozen images were independently proven, started behind zero-user-traffic tags, health-verified and promoted; final strict proofs rechecked 100% serving and no residual tags. Canonical Loyalty now also serves the new healthy revision."
+    }
+  ],
+  "tests": {
+    "localFullCi": "passed; final ID edge cases separately rechecked",
+    "finalFocusedBackendAndIndex": 52,
+    "loyaltyEmulator": 5,
+    "renewalBrowser": 30,
+    "loyaltyBrowser": 14,
+    "frontendRoutingAndContract": 17,
+    "finalTypecheckBuildPerformance": "passed",
+    "scheduleGzipKiB": 33.1,
+    "scheduleGzipBudgetKiB": 33.2,
+    "backendRemoteCi": "https://github.com/tanton1/Dinh-d-ng-aura/actions/runs/40066736930",
+    "backendCodeQL": "https://github.com/tanton1/Dinh-d-ng-aura/actions/runs/40066736958",
+    "negativeAuthAndCors": {
+      "passed": 5,
+      "status": 401,
+      "callableError": "UNAUTHENTICATED",
+      "origin": "https://www.aurafitness.club"
+    }
+  },
+  "limits": [
+    "Fixture document-return reductions are not measured production billing savings. Enterprise charges processed read units; exact count queries still have costs.",
+    "Students branch/document-ID index is READY and DENSE; actual optimizer index selection and scanned bytes were not measured. No production Explain/Analyze or synthetic authenticated business write performed.",
+    "Configured Cloud Functions minimum sum zero is not the live instance count or a claim that every unrelated Cloud Run service/revision floor was audited. All five changed targets individually have zero function/service/revision floors.",
+    "Singapore endpoints are retained for old clients and fallback. Regional-primary routing reduces intended Singapore traffic, not its function count. Source retirements remain 5/188; half-fleet migration is not complete.",
+    "SMS settings, background writer topology, financial mutations and schedule reconciliation policy were not changed."
+  ],
+  "nextSteps": [
+    "Separate permission-scoped renewal stats from indexed paginated case rows before removing the remaining up-to-5001-case scan; preserve exact totals, trainer-role unions, cursor and daily risk semantics.",
+    "Replace Loyalty dashboard broad scans with audited complete aggregate projections before moving its financial computations.",
+    "Build a permission-scoped compact student search index with proven legacy coverage if global arbitrary-name/branch substring search is required for Loyalty.",
+    "Use production query/read-unit measurements to validate scan and cost improvement, then retire old endpoints only after old-client/fallback traffic and rollback checks."
+  ],
+  "references": [
+    "https://firebase.google.com/docs/firestore/enterprise/index-overview-native?hl=en",
+    "https://cloud.google.com/firestore/enterprise/pricing"
+  ],
+  "receipts": [
+    "tmp/region-half-migration-20261024/nextwave-postflight-1e4951e.json",
+    "tmp/region-half-migration-20261024/nextwave-auth-smoke-1e4951e.json",
+    "tmp/region-half-migration-20261024/loyalty-index-apply.json",
+    "tmp/region-half-migration-20261024/nextwave-web-final.log"
+  ]
+}
