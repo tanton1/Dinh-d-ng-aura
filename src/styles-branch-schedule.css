@@ -267,7 +267,7 @@
 .branch-schedule__students-page > header > div { max-width: 760px; }
 .branch-schedule__students-page > header > button { display: inline-flex; min-height: 38px; flex: 0 0 auto; align-items: center; gap: 6px; border: 0; border-radius: 10px; padding: 0 12px; color: #fff; background: linear-gradient(110deg,var(--branch-pink),var(--branch-orange)); font-size: .7rem; font-weight: 850; }
 .branch-schedule__student-tools { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
-.branch-schedule__student-tools > label { display: flex; width: min(430px,100%); min-height: 41px; align-items: center; gap: 8px; padding: 0 11px; border: 1px solid #ecd9e1; border-radius: 11px; color: #ad8194; background: #fff; }
+.branch-schedule__student-tools > label { box-sizing:border-box; min-width:0; display: flex; width: min(430px,100%); min-height: 41px; align-items: center; gap: 8px; padding: 0 11px; border: 1px solid #ecd9e1; border-radius: 11px; color: #ad8194; background: #fff; }
 .branch-schedule__student-tools input { min-width: 0; flex: 1; border: 0; outline: 0; color: #3b2a34; background: transparent; font-size: .75rem; }
 .branch-schedule__student-tools > div { display: flex; gap: 5px; }
 .branch-schedule__student-tools > select { min-width:170px; }

@@ -1,6 +1,6 @@
 import type { PtScheduleUnassignedEntry, PtScheduleV2Student, PtScheduleWorkspaceV2Result } from '../../services/ptSchedulePublishService'
 import { CONFIRMED_AVAILABILITY_STATUSES, CONTRACT_WARNING_REASONS, LEARNER_WARNING_REASONS, scheduleSlotLabel, warningCauseFor, type WarningCause } from './workspaceModel'
-import { approvedOffForWeek } from './weeklyOff'
+import { approvedOffForWeek, validScheduledCount, validOtherBranchCount } from './weeklyOff'
 
 export interface WarningProfile {
   student: PtScheduleV2Student
@@ -68,6 +68,7 @@ export function presentScheduleWarnings(workspace: PtScheduleWorkspaceV2Result, 
     .filter(student => student.eligibleForWeek || scheduled.has(student.id)).map(student => student.id)])
   const currentDiagnostics = new Map((workspace.unassignedEntries || []).map(row => [row.studentId, row]))
   const priorDiagnostics = new Map(snapshot.unassignedEntries.map(row => [row.studentId, row]))
+  const branchCoverage = { ...snapshot.weeklySessionCoverage, ...workspace.weeklySessionCoverage }
   const rows: WarningRow[] = []
   for (const id of ids) {
     const student = students.get(id), prior = snapshot.coverage.byStudent[id]
@@ -76,9 +77,8 @@ export function presentScheduleWarnings(workspace: PtScheduleWorkspaceV2Result, 
     if (prior?.targetSessions === 0 && !student?.eligibleForWeek && !scheduled.has(id)) continue
     const targetSessions = Math.max(0, Number(student?.sessionsPerWeek ?? prior?.targetSessions ?? 0))
     const scheduledEntries = scheduled.get(id) || []
-    const crossBranchScheduledSessions = Math.max(0, Number(workspace.weeklySessionCoverage?.[id]?.otherBranches
-      ?? snapshot.weeklySessionCoverage?.[id]?.otherBranches ?? prior?.otherBranchSessions ?? 0))
-    const scheduledSessions = scheduledEntries.length + crossBranchScheduledSessions
+    const crossBranchScheduledSessions = validOtherBranchCount(student, branchCoverage, workspace.branch.id, prior?.otherBranchSessions || 0)
+    const scheduledSessions = validScheduledCount(student, scheduledEntries, workspace.weekId) + crossBranchScheduledSessions
     const missingSessions = Math.max(0, targetSessions - scheduledSessions)
     if (!missingSessions) continue
     // Slot-level alternative failures are not student-level reasons. In

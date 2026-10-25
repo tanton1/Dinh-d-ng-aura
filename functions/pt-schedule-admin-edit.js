@@ -7,6 +7,7 @@ const { branchScheduleSnapshot, branchSlotCapacity, dateForSlot, nextWeek, norma
 const { effectiveStudentAvailability } = require('./student-availability')
 const { sessionCountsTowardContract, summarizeContractUsage } = require('./contract-usage')
 const { contractSchedulableOn } = require('./contract-status')
+const { requireScheduleContract, requireCrossBranchConfirmation } = require('./schedule-entitlement-policy')
 
 const occupies = (session) => ['scheduled', 'rescheduled', 'completed', 'attended', 'no_show'].includes(session.status) || sessionCountsTowardContract(session)
 const sessionHour = (session, id) => Number.isInteger(session.hour) ? session.hour : Number(/^(?:T[2-7]|CN)-(\d{1,2})-/.exec(id)?.[1] ?? -1)
@@ -263,23 +264,26 @@ async function applyFastAdminAdd({ db, actor, branchId, week, payload, reason, e
       if (targetSessionId === baseTargetSessionId) throw new HttpsError('resource-exhausted', 'Không tạo được mã buổi mới cho ô lịch đã hủy.')
     }
 
-    const contractRows = contractSnapshot?.exists
+    let contractRows = contractSnapshot?.exists
       ? [{ id: contractSnapshot.id, ...contractSnapshot.data() }]
       : (contractQuerySnapshot?.docs || []).map((item) => ({ id: item.id, ...item.data() }))
+    if (contractRows.length > 100) throw new HttpsError('resource-exhausted', 'Quá nhiều hợp đồng để kiểm tra an toàn.')
+    // A stale picker may still carry the previous contract after a renewal.
+    if (contractReference && !contractRows.some(contract => contract.studentId === studentId && contractSchedulableOn(contract, targetDate))) {
+      const currentContracts = await transaction.get(db.collection('contracts').where('studentId', '==', studentId).limit(101))
+      if (currentContracts.size > 100) throw new HttpsError('resource-exhausted', 'Quá nhiều hợp đồng để kiểm tra an toàn.')
+      contractRows = currentContracts.docs.map(item => ({ id: item.id, ...item.data() }))
+    }
     // A manual add/reintroduction must never inherit a terminal contract.
     // The old rule picked the latest end date, which let a cancelled renewal
     // win over the active contract when the cancelled row ended one day later.
     // Resolve by the target date first, then prefer the newest overlapping
     // contract start so renewal chains remain deterministic.
-    const selectedContract = contractRows
-      .filter((contract) => contract.studentId === studentId && contractSchedulableOn(contract, targetDate))
-      .sort((left, right) => String(right.startDate || '').localeCompare(String(left.startDate || ''))
-        || String(right.endDate || '').localeCompare(String(left.endDate || ''))
-        || String(left.id || '').localeCompare(String(right.id || '')))[0]
+    requireCrossBranchConfirmation(student, branchId, payload)
+    const selectedContract = requireScheduleContract(contractRows, studentId, targetDate, payload.contractId)
     const warnings = []
     if (reintroducedFromSessionId) warnings.push('CANCELLED_SESSION_REINTRODUCED')
     if (student.branchId && student.branchId !== branchId) warnings.push('STUDENT_BRANCH_MISMATCH')
-    if (!selectedContract) warnings.push('ACTIVE_CONTRACT_NOT_FOUND')
     const nextEntry = {
       studentId,
       trainerId,
@@ -414,7 +418,7 @@ async function applyFastAdminMove({ db, actor, branchId, week, payload, reason, 
   const instant = new Date()
 
   return db.runTransaction(async (transaction) => {
-    const [prior, draftSnapshot, legacy, branchSnapshot, studentSnapshot, trainerSnapshot, sourceSnapshot, targetSnapshot] = await Promise.all([
+    const [prior, draftSnapshot, legacy, branchSnapshot, studentSnapshot, trainerSnapshot, sourceSnapshot, targetSnapshot, contracts] = await Promise.all([
       transaction.get(receipt),
       transaction.get(draftRef),
       transaction.get(legacyRef),
@@ -423,6 +427,7 @@ async function applyFastAdminMove({ db, actor, branchId, week, payload, reason, 
       transaction.get(db.doc(`trainers/${trainerId}`)),
       transaction.get(sourceRef),
       transaction.get(targetRef),
+      transaction.get(db.collection('contracts').where('studentId', '==', studentId).limit(101)),
     ])
     if (prior.exists) return prior.data().result
     if (!branchSnapshot.exists || branchSnapshot.data()?.status === 'archived') throw new HttpsError('failed-precondition', 'Chi nhánh không hoạt động.')
@@ -432,6 +437,10 @@ async function applyFastAdminMove({ db, actor, branchId, week, payload, reason, 
     if (!trainerSnapshot.exists || trainer.branchId !== branchId || ['inactive', 'archived', 'deleted'].includes(String(trainer.status || '').toLowerCase())) fail('TRAINER_NOT_ACTIVE', 'PT đích không còn hoạt động tại cơ sở này.')
     if (!sourceSnapshot.exists) fail('SOURCE_SESSION_NOT_FOUND', 'Buổi nguồn không còn tồn tại. Hãy tải lại lịch.')
     const session = sourceSnapshot.data() || {}
+    if (contracts.size > 100) throw new HttpsError('resource-exhausted', 'Quá nhiều hợp đồng để kiểm tra an toàn.')
+    requireCrossBranchConfirmation(student, branchId, payload)
+    const selectedContract = requireScheduleContract(contracts.docs.map(item => ({ id: item.id, ...item.data() })), studentId, targetDate, session.contractId)
+    if (sessionCountsTowardContract(session) && selectedContract.id !== session.contractId) fail('CHARGED_CONTRACT_IMMUTABLE', 'Buổi đã tính không thể chuyển sang hợp đồng khác.')
     if (session.studentId !== studentId || session.trainerId !== fromTrainerId
       || storedDate(session.date) !== sourceDate || sessionHour(session, sessionId) !== sourceHour) {
       fail('SOURCE_SESSION_NOT_FOUND', 'Buổi nguồn đã thay đổi. Hãy tải lại lịch.')
@@ -470,7 +479,7 @@ async function applyFastAdminMove({ db, actor, branchId, week, payload, reason, 
       studentId,
       trainerId,
       branchId,
-      contractId: session.contractId || '',
+      contractId: selectedContract.id,
       type: 'training',
       source: 'manual_v2',
       adminOverride: true,
@@ -723,6 +732,12 @@ async function applyAdminScheduleEdit({ db, actor, branchId, week, command, payl
     const warnings = []
     if (reintroducedFromSessionId) warnings.push('CANCELLED_SESSION_REINTRODUCED')
     let nextEntry = null
+    if (command === 'add_student' || command === 'move_student') {
+      requireCrossBranchConfirmation(student, branchId, payload)
+      contract = requireScheduleContract(contracts.docs.map(item => ({ id: item.id, ...item.data() })), studentId, targetDate, contractId)
+      if (session && sessionCountsTowardContract(session) && contract.id !== session.contractId) fail('CHARGED_CONTRACT_IMMUTABLE', 'Buổi đã tính không thể chuyển sang hợp đồng khác.')
+      contractId = contract.id
+    }
     if (command === 'move_student') {
       const trainer = trainerProfileForWeek(trainerMap.get(trainerId) || {}, trainerWeek.exists ? trainerWeek.data() : null, week)
       if (!trainerMap.has(trainerId) || ['inactive', 'archived', 'deleted'].includes(trainer.status)) fail('TRAINER_NOT_ACTIVE', 'PT đích không còn hoạt động tại cơ sở này.')
@@ -792,7 +807,7 @@ async function applyAdminScheduleEdit({ db, actor, branchId, week, command, payl
       if (!studentSnapshot.exists || ['inactive', 'archived', 'deleted'].includes(String(student.status || '').toLowerCase())) fail('STUDENT_NOT_ACTIVE', 'Hồ sơ học viên không còn hợp lệ.')
       const crossBranch = Boolean(student.branchId) && student.branchId !== branchId
       if (crossBranch) {
-        if (!payload.confirmCrossBranchStudent && !payload.adminOverride) fail('STUDENT_BRANCH_CONFIRMATION_REQUIRED', 'Học viên thuộc cơ sở khác; Admin cần xác nhận ngoại lệ trước khi xếp tay.')
+        requireCrossBranchConfirmation(student, branchId, payload)
         warnings.push('STUDENT_BRANCH_MISMATCH')
       }
       const targetCalendar = normalizedScheduleConfig(configSnapshot.data())
@@ -835,9 +850,9 @@ async function applyAdminScheduleEdit({ db, actor, branchId, week, command, payl
       const fallbackContract = contractRows.find((item) =>
         (!item.branchId || item.branchId === expectedContractBranch) && contractSchedulableOn(item, targetDate))
       const selectedContract = schedulableContract || fallbackContract
+      if (!selectedContract) throw new HttpsError('failed-precondition', 'Không có hợp đồng hợp lệ tại cơ sở của học viên trong ngày tập.', { errors: ['ACTIVE_CONTRACT_NOT_FOUND'] })
       contract = selectedContract || null
       contractId = selectedContract?.id || ''
-      if (!schedulableContract) warnings.push('ACTIVE_CONTRACT_NOT_FOUND')
       if (selectedContract) {
         const usage = summarizeContractUsage(selectedContract, studentSessions.docs.filter((row) => row.data().contractId === selectedContract.id).map((row) => ({ id: row.id, ...row.data() })))
         const held = studentSessions.docs.filter((row) => row.data().contractId === selectedContract.id
