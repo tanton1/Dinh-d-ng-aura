@@ -1,0 +1,51 @@
+.academy-submission, .academy-coach-review {
+  color: #20202a;
+  font-family: Inter, system-ui, sans-serif;
+  max-width: 72ch;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.academy-submission { margin-top: 20px; padding-top: 18px; border-top: 1px solid #e8e7ee; }
+.academy-submission button, .academy-coach-review > button {
+  background: #fff; border: 1px solid #c9a6b2; border-radius: 8px; padding: 10px 14px;
+  color: #662b42; font: inherit; font-size: 14px; cursor: pointer; text-align: left;
+}
+.academy-submission button:disabled, .academy-coach-review button:disabled { opacity: .6; cursor: default; }
+.academy-submission button:focus-visible, .academy-submission select:focus-visible,
+.academy-submission textarea:focus-visible, .academy-submission summary:focus-visible,
+.academy-coach-review button:focus-visible { outline: 2px solid #ac3c63; outline-offset: 3px; }
+.academy-submission p, .academy-coach-review p { max-width: 72ch; font-size: 14px; line-height: 1.65; margin: 10px 0; }
+.academy-submission h4 { font-size: 18px; line-height: 1.45; margin: 16px 0 8px; }
+.academy-submission h5 { font-size: 15px; margin: 12px 0; }
+.academy-submission .academy-submission__refresh { font-size: 12px; margin: 12px 0; border-color: #e8e7ee; color: #565563; }
+.academy-submission__notice { background: #fdebf1; border-left: 3px solid #ed6f94; padding: 10px 14px; }
+.academy-submission__evidence { margin: 16px 0; }
+.academy-submission__evidence summary { padding: 10px 0; cursor: pointer; font-weight: 600; color: #662b42; }
+.academy-submission__evidence dl { margin: 8px 0; }
+.academy-submission__evidence dl > div { padding: 12px 0; border-bottom: 1px solid #e8e7ee; }
+.academy-submission__evidence dt { font-size: 14px; font-weight: 600; }
+.academy-submission__evidence dd { margin: 6px 0 0; font-size: 14px; line-height: 1.65; white-space: pre-wrap; }
+.academy-submission__text { white-space: pre-wrap; }
+.academy-submission__score-summary > div { display: flex; align-items: baseline; gap: 12px; justify-content: space-between; padding: 5px 0; font-size: 14px; }
+.academy-submission__score-summary dd { margin: 0; flex: 0 0 auto; }
+.academy-submission .academy-submission__meta, .academy-submission .academy-submission__scope { color: #5d5c68; font-size: 12px; }
+.academy-submission__review-form { margin-top: 22px; }
+.academy-submission__review-form fieldset { min-width: 0; margin: 0; border: 0; padding: 0; }
+.academy-submission__review-form legend { font-weight: 600; font-size: 17px; }
+.academy-submission__review-form label { display: grid; gap: 7px; margin: 16px 0; }
+.academy-submission__review-form label > span { font-size: 14px; font-weight: 600; }
+.academy-submission__review-form small { font-size: 12px; line-height: 1.5; color: #5d5c68; }
+.academy-submission__review-form select, .academy-submission__review-form textarea {
+  box-sizing: border-box; width: 100%; max-width: 100%; min-width: 0; font: inherit; font-size: 14px;
+  padding: 10px 12px; border: 1px solid #c7c5ce; border-radius: 6px; background: #fff; color: #20202a;
+}
+.academy-submission__review-form textarea { resize: vertical; line-height: 1.65; }
+.academy-submission__review-form button[type='submit'] { background: #fdebf1; }
+.academy-coach-review { padding: 16px; }
+.academy-coach-review h3 { margin: 0; font-size: 21px; line-height: 1.4; }
+.academy-coach-review__list { list-style: none; padding: 0; margin: 18px 0; }
+.academy-coach-review__list li { border-bottom: 1px solid #e8e7ee; }
+.academy-coach-review__list button { display: grid; gap: 6px; width: 100%; border: 0; background: #fff; text-align: left; padding: 14px 8px; font: inherit; cursor: pointer; }
+.academy-coach-review__list button[aria-pressed='true'] { background: #fdebf1; }
+.academy-coach-review__list strong { font-size: 14px; }
+.academy-coach-review__list span { font-size: 12px; color: #5d5c68; line-height: 1.5; }

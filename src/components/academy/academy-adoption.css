@@ -1,0 +1,29 @@
+.academy-adoption { max-width: 72ch; color: #20202a; line-height: 1.65; font-size: 16px; overflow-wrap: anywhere; margin-block: 24px; }
+.academy-adoption h3 { font-size: 22px; line-height: 1.35; margin: 0 0 12px; }
+.academy-adoption h4 { font-size: 18px; line-height: 1.45; margin: 20px 0 10px; }
+.academy-adoption h5 { font-size: 16px; }
+.academy-adoption p { margin-block: 12px; }
+.academy-adoption :is(h3, h4, section, details, input, select, textarea, button) { scroll-margin-block: 180px 110px; }
+.academy-adoption__actions { display: flex; flex-wrap: wrap; gap: 10px; margin-block: 18px; }
+.academy-adoption > section { padding-block: 22px; border-top: 1px solid #e8e7ee; }
+.academy-adoption > details { border-block-start: 1px solid #e8e7ee; padding-block: 10px; }
+.academy-adoption summary { min-height: 44px; padding-block: 8px; font-weight: 600; cursor: pointer; color: #842044; }
+.academy-adoption__notice, .academy-adoption > [role=alert] { padding: 12px 16px; background: #fff6e7; border-inline-start: 3px solid #976125; }
+.academy-adoption__review { border: 0; margin: 0; padding: 0; min-width: 0; }
+.academy-adoption label:not(.academy-adoption__check) { display: block; font-weight: 600; margin-block: 16px; }
+.academy-adoption :is(textarea, select, input:not([type=checkbox])) { display: block; width: 100%; max-width: 100%; box-sizing: border-box; padding: 10px 12px; margin-top: 6px; border: 1px solid #b6b2be; border-radius: 6px; background: #fff; color: #20202a; font: inherit; }
+.academy-adoption textarea { resize: vertical; }
+.academy-adoption__check { display: flex; gap: 12px; align-items: flex-start; min-height: 44px; padding-block: 10px; cursor: pointer; }
+.academy-adoption__check input { margin: 4px 0 0; width: 18px; height: 18px; flex: 0 0 auto; accent-color: #a52e59; }
+.academy-adoption button:disabled { opacity: .55; cursor: not-allowed; }
+.academy-adoption :is(textarea, select, input, summary, button, a):focus-visible { outline: 2px solid #842044; outline-offset: 3px; }
+.academy-adoption__compiled { padding-block: 18px; border-bottom: 1px solid #e8e7ee; }
+.academy-adoption__compiled h1 { font-size: 24px; line-height: 1.4; }
+.academy-adoption__compiled h2 { font-size: 21px; line-height: 1.45; }
+.academy-adoption__compiled :is(ul, ol), .academy-adoption__question ol { padding-inline-start: 24px; }
+.academy-adoption__compiled a { color: #842044; text-decoration: underline; }
+.academy-adoption__question { padding-block: 18px; border-bottom: 1px solid #e8e7ee; }
+.academy-adoption__question li { padding-block: 6px; }
+.academy-adoption__identifier { overflow-wrap: anywhere; user-select: all; }
+.academy-adoption .academy-unit-reader { margin-inline: 0; }
+@media (max-width: 600px) { .academy-adoption__actions { flex-direction: column; align-items: stretch; } .academy-adoption button { max-width: 100%; white-space: normal; } }

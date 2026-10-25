@@ -136,8 +136,8 @@
   .academy-memory-editor > header, .academy-editor-section, .academy-study-section { padding: 14px; }
   .academy-study-hero { flex-direction: column; padding: 16px; }
   .academy-review-stat { width: 100%; justify-content: flex-start; }
-  .academy-review-queue > header { align-items: flex-start; }
-  .academy-review-queue > header > button { min-width: 104px; }
+  .academy-review-queue > header { align-items: stretch; flex-direction: column; }
+  .academy-review-queue > header > button { width: 100%; }
   .academy-review-queue__progress { align-items: flex-start; flex-direction: column; gap: 4px; }
   .academy-inline-field { grid-template-columns: 24px minmax(0, 1fr) 28px; }
   .academy-flashcard { min-height: 185px; padding: 18px; }

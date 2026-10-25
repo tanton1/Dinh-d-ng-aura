@@ -253,8 +253,9 @@ test('normal, unknown-target and control-API discovery expose the unchanged comp
   const baseline = probe()
   // Includes the five Aura Club dashboard projections, three membership
   // workers, regional admin dashboard, plan-only invalidation trigger and
-  // four delivery metadata sources (no new callable or GPS event subscriber).
-  assert.equal(baseline.exportNames.length, 554)
+  // four delivery metadata sources and one regional Academy submission callable.
+  assert.equal(baseline.exportNames.length, 555)
+  assert.ok(baseline.exportNames.includes('academySubmissionAction'))
   assert.ok(baseline.exportNames.includes('syncStudentTrainingProgram'))
   for (const name of ['syncLoyaltyDashboardStudent', 'syncLoyaltyDashboardAccount', 'syncLoyaltyDashboardRedemption', 'syncLoyaltyDashboardReferral', 'syncLoyaltyDashboardAmbassador', 'syncLoyaltyContractMembership', 'syncLoyaltyMembershipActivation', 'advanceLoyaltyMembershipsScheduled', 'getLoyaltyAdminDashboardRegional']) {
     assert.ok(baseline.exportNames.includes(name))

@@ -74,6 +74,7 @@ import type {
   CourseDraftInput,
   CourseQuizAnswerKeys,
   CourseProgress,
+  AcademyPracticeCompletionEvidence,
   AdminStudentProgress,
   CourseAnalytics,
   CourseSettings,
@@ -180,6 +181,12 @@ function mapCourseData(id: string, data: DocumentData): Course {
     coverUrl: data.coverUrl,
     schemaVersion: data.schemaVersion === 2 ? 2 : undefined,
     revision: Number.isInteger(data.revision) && data.revision >= 0 ? data.revision : 0,
+    contentStorage: data.contentStorage === 'chapters-v1' ? 'chapters-v1' : undefined,
+    contentDelivery: data.contentDelivery === 'catalog' || (data.contentStorage === 'chapters-v1' && data.contentDelivery !== 'full') ? 'catalog' : 'full',
+    contentAccess: ['full', 'preview', 'locked', 'staff-preview'].includes(data.contentAccess) ? data.contentAccess : undefined,
+    publishedRevision: data.publishedSnapshot
+      ? data.publishedSnapshot.active === true ? data.publishedSnapshot.course?.revision ?? null : null
+      : data.publishedRevision ?? (data.status === 'published' ? data.revision ?? 0 : null),
     updatedAt: data.updatedAt,
   }
 }
@@ -237,6 +244,18 @@ function mapCourseProgress(snapshot: QueryDocumentSnapshot<DocumentData>): Cours
       : [],
     percent: typeof data.percent === 'number' ? data.percent : 0,
     lastLessonId: typeof data.lastLessonId === 'string' ? data.lastLessonId : '',
+    practiceSubmissionRevisions: data.practiceSubmissionRevisions && typeof data.practiceSubmissionRevisions === 'object'
+      ? Object.fromEntries(Object.entries(data.practiceSubmissionRevisions).filter((entry): entry is [string, number] => Number.isInteger(entry[1]) && Number(entry[1]) > 0))
+      : {},
+    practiceSubmissionDefinitionVersions: data.practiceSubmissionDefinitionVersions && typeof data.practiceSubmissionDefinitionVersions === 'object'
+      ? Object.fromEntries(Object.entries(data.practiceSubmissionDefinitionVersions).filter((entry): entry is [string, number] => Number.isSafeInteger(entry[1]) && Number(entry[1]) > 0))
+      : {},
+    practiceSubmissionDefinitionHashes: data.practiceSubmissionDefinitionHashes && typeof data.practiceSubmissionDefinitionHashes === 'object'
+      ? Object.fromEntries(Object.entries(data.practiceSubmissionDefinitionHashes).filter((entry): entry is [string, string] => typeof entry[1] === 'string' && /^[a-f0-9]{64}$/.test(entry[1])))
+      : {},
+    quizCompletionChapterVersions: data.quizCompletionChapterVersions && typeof data.quizCompletionChapterVersions === 'object'
+      ? Object.fromEntries(Object.entries(data.quizCompletionChapterVersions).filter((entry): entry is [string, string] => typeof entry[1] === 'string' && /^r\d+_[a-f0-9]+$/.test(entry[1])))
+      : {},
     completedAt: data.completedAt,
     updatedAt: data.updatedAt,
   }
@@ -301,11 +320,10 @@ export function subscribeToCourses(
     )
   }
 
-  // Learners receive entitlement-filtered content through a callable. The
-  // underlying course document is staff-only because it contains full modules.
+  // Metadata only. The reader requests one authorized chapter on explicit selection.
   let active = true
   // Unsubscribing one view must not cancel a read shared with another view.
-  void callAcademyReadFunction<Record<string, never>, unknown>('listAcademyCourses', {}, accessRevision).then((data) => {
+  void callAcademyReadFunction<{ catalogOnly: true }, unknown>('listAcademyCourses', { catalogOnly: true }, accessRevision).then((data) => {
       if (!active) return
       const payload = data && typeof data === 'object' ? data as Record<string, unknown> : {}
       if (!Array.isArray(payload.courses)) throw new Error('Phản hồi khóa học chưa đầy đủ. Vui lòng thử tải lại.')
@@ -460,10 +478,11 @@ export async function saveCourseDraft(input: CourseDraftInput) {
   const payload = {
     course: withoutUndefined({ ...input, id: normalizedCourseId }),
     expectedRevision,
+    academyAuthoringProtocol: 'chapters-v1',
   }
   const callable = httpsCallable<
     typeof payload,
-    { courseId: string; revision: number; status: string }
+    { courseId: string; revision: number; status: CourseDraftInput['publicationStatus']; publishedRevision?: number | null; contentStorage?: 'chapters-v1' }
   >(requireFunctions(), 'saveCourseDraftAtomic')
   try {
     const response = await callable(payload)
@@ -540,13 +559,19 @@ export async function transitionCoursePublicationStatus(
     courseId: requireDocumentId(courseId, 'Mã khóa học'),
     expectedRevision,
     nextStatus,
+    academyAuthoringProtocol: 'chapters-v1',
   }
-  const callable = httpsCallable<typeof input, { courseId: string; revision: number; status: string }>(
+  const callable = httpsCallable<typeof input, { courseId: string; revision: number; status: CourseDraftInput['publicationStatus']; publishedRevision?: number | null }>(
     requireFunctions(),
     'transitionCoursePublicationStatus',
   )
   try {
-    return (await callable(input)).data
+    const result = (await callable(input)).data
+    if (result.courseId !== input.courseId || !Number.isInteger(result.revision) || result.revision <= expectedRevision
+        || !['draft', 'review', 'approved', 'scheduled', 'published', 'archived'].includes(result.status)) {
+      throw new Error('Phản hồi chuyển trạng thái khóa học không hợp lệ.')
+    }
+    return result
   } catch (error) {
     const code = typeof error === 'object' && error && 'code' in error ? String(error.code) : ''
     if (code === 'functions/aborted' || code === 'aborted') {
@@ -557,8 +582,8 @@ export async function transitionCoursePublicationStatus(
 }
 
 export async function restoreCourseRevisionToDraft(courseId: string, revision: number, expectedRevision: number) {
-  const input = { courseId: requireDocumentId(courseId, 'Mã khóa học'), revision, expectedRevision }
-  const callable = httpsCallable<typeof input, { courseId: string; revision: number; status: 'draft'; restoredFromRevision: number }>(requireFunctions(), 'restoreCourseRevisionToDraft')
+  const input = { courseId: requireDocumentId(courseId, 'Mã khóa học'), revision, expectedRevision, academyAuthoringProtocol: 'chapters-v1' }
+  const callable = httpsCallable<typeof input, { courseId: string; revision: number; status: 'draft'; restoredFromRevision: number; publishedRevision?: number | null }>(requireFunctions(), 'restoreCourseRevisionToDraft')
   try {
     return (await callable(input)).data
   } catch (error) {
@@ -568,6 +593,18 @@ export async function restoreCourseRevisionToDraft(courseId: string, revision: n
     }
     throw error
   }
+}
+
+export async function loadCourseForEditing(courseId: string, expectedRevision: number): Promise<CourseDraftInput> {
+  const input = { authoringCourseId: requireDocumentId(courseId, 'Mã khóa học'), expectedRevision }
+  const result = await callAcademyReadFunction<typeof input, { course: CourseDraftInput }>('listAcademyCourses', input)
+  const course = result?.course
+  if (!course || course.id !== input.authoringCourseId || course.revision !== expectedRevision || !Array.isArray(course.modules)
+      || course.modules.some((module) => module.contentVersion !== undefined || !Array.isArray(module.lessons)
+        || module.lessons.some((lesson) => lesson.contentVersion !== undefined))) {
+    throw new Error('Chưa tải được bản đầy đủ để biên tập. Không thể lưu dữ liệu danh mục thay cho nội dung chương.')
+  }
+  return course
 }
 
 export async function loadCourseQuizAnswerKeys(courseId: string): Promise<CourseQuizAnswerKeys> {
@@ -804,25 +841,29 @@ export function uploadCourseMedia(
 
 /**
  * Canonical API: markLessonComplete(userId, courseId, lessonId).
- * The optional fourth argument is ignored and only keeps older callers compiling.
+ * Workout and practice evidence are checked by the server before recording completion.
  */
 export async function markLessonComplete(
   userId: string,
   courseId: string,
   lessonId: string,
   workoutLogId?: string,
+  practiceEvidence?: AcademyPracticeCompletionEvidence,
+  chapterVersion?: string,
 ): Promise<CourseProgress> {
   const normalizedUserId = requireDocumentId(userId, 'UID')
   const normalizedCourseId = requireDocumentId(courseId, 'Mã khóa học')
   const normalizedLessonId = requireDocumentId(lessonId, 'Mã bài học')
   const callable = httpsCallable<
-    { courseId: string; lessonId: string; workoutLogId?: string },
-    Pick<CourseProgress, 'courseId' | 'completedLessonIds' | 'percent' | 'lastLessonId'> & { userId: string }
+    { courseId: string; lessonId: string; workoutLogId?: string; practiceEvidence?: AcademyPracticeCompletionEvidence; chapterVersion?: string },
+    Pick<CourseProgress, 'courseId' | 'completedLessonIds' | 'percent' | 'lastLessonId' | 'practiceSubmissionRevisions' | 'practiceSubmissionDefinitionVersions' | 'practiceSubmissionDefinitionHashes' | 'quizCompletionChapterVersions'> & { userId: string }
   >(requireFunctions(), 'completeCourseLesson')
   const result = await callable({
     courseId: normalizedCourseId,
     lessonId: normalizedLessonId,
     ...(workoutLogId ? { workoutLogId: requireDocumentId(workoutLogId, 'Mã nhật ký') } : {}),
+    ...(practiceEvidence ? { practiceEvidence } : {}),
+    ...(chapterVersion ? { chapterVersion } : {}),
   })
   if (result.data.userId !== normalizedUserId || result.data.courseId !== normalizedCourseId) {
     throw new Error('Phản hồi tiến độ không hợp lệ.')
@@ -834,7 +875,7 @@ export async function markLessonComplete(
 export async function saveWorkoutLog(
   userId: string,
   input: WorkoutLogInput,
-  courseContext?: { courseId: string; lessonId: string },
+  courseContext?: { courseId: string; lessonId: string; chapterVersion?: string; courseRevision?: number },
 ) {
   const db = requireDb()
   const normalizedUserId = requireDocumentId(userId, 'UID')
@@ -843,14 +884,18 @@ export async function saveWorkoutLog(
     const payload = {
       courseId: requireDocumentId(courseContext.courseId, 'Mã khóa học'),
       lessonId: requireDocumentId(courseContext.lessonId, 'Mã bài học'),
+      ...(courseContext.chapterVersion ? { chapterVersion: courseContext.chapterVersion } : {}),
+      ...(courseContext.courseRevision !== undefined ? { courseRevision: courseContext.courseRevision } : {}),
       log: { ...input, clientLogId: normalizedLogId },
     }
-    const callable = httpsCallable<typeof payload, { userId: string; logId: string }>(
+    const callable = httpsCallable<typeof payload, { userId: string; logId: string; courseId?: string; lessonId?: string; chapterVersion?: string }>(
       requireFunctions(),
       'saveCourseWorkoutLog',
     )
     const result = await callable(payload)
-    if (result.data.userId !== normalizedUserId || result.data.logId !== normalizedLogId) {
+    if (result.data.userId !== normalizedUserId || result.data.logId !== normalizedLogId
+        || (courseContext.chapterVersion && (result.data.chapterVersion !== courseContext.chapterVersion
+          || result.data.courseId !== courseContext.courseId || result.data.lessonId !== courseContext.lessonId))) {
       throw new Error('Phản hồi lưu buổi tập không hợp lệ.')
     }
     return result.data
@@ -957,11 +1002,17 @@ export async function updateUserRole(userId: string, role: UserRole) {
   await updateRole({ uid: userId, role })
 }
 
+export async function loadAuraFoundationCourseTemplate(): Promise<CourseDraftInput> {
+  const result = await callAcademyReadFunction<{ template: string }, { template: CourseDraftInput }>('listAcademyCourses', { template: 'nutrition-foundation' })
+  if (result.template?.id !== 'nutrition-foundation' || result.template.modules?.length !== 20) throw new Error('Mẫu giáo trình không hợp lệ.')
+  return result.template
+}
+
 export async function seedAuraFoundationCourse(publish = false) {
   if (publish) {
     throw new Error('Dữ liệu mẫu phải đi qua quy trình gửi duyệt và xuất bản phía server.')
   }
-  const { auraFoundationCourse } = await import('../course-template')
+  const auraFoundationCourse = await loadAuraFoundationCourseTemplate()
   return saveCourseDraft({
     ...auraFoundationCourse,
     publicationStatus: 'draft',

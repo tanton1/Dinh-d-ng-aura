@@ -44,7 +44,7 @@ test('PDF reading state is bounded, versioned, and account/resource scoped', () 
 test('mastery distinguishes reviewed cards from remembered cards and counts partial practice', () => {
   const core = auraFoundationCourse.modules[0].lessons[0]
   const design = core.learningDesign!
-  const workbook = { microCheckAnswers: {}, answers: {}, reviewAt: '', safetyAcknowledged: false } as AcademyWorkbookState
+  const workbook = { definitionVersion: design.practice.version, microCheckAnswers: {}, answers: {}, reviewAt: '', safetyAcknowledged: false } as AcademyWorkbookState
   const reviews: AcademyReviewState = { version: 1, cards: Object.fromEntries(design.cards.map((card) => [`${core.id}:${card.id}`, { lessonId: core.id, cardId: card.id, rating: 'again' as const, repetitions: 0, intervalDays: 0, reviewedAt: 1, dueAt: 2 }])) }
   const initial = academyMastery(design, workbook, reviews, core.id, 3)
   assert.equal(initial.reviewed, 12)
@@ -60,6 +60,13 @@ test('mastery distinguishes reviewed cards from remembered cards and counts part
   assert.equal(academyMastery(design, workbook, reviews, core.id).practiceComplete, false)
   workbook.safetyAcknowledged = true
   assert.equal(academyMastery(design, workbook, reviews, core.id).practiceComplete, true)
+  workbook.definitionVersion += 1
+  assert.equal(academyMastery(design, workbook, reviews, core.id).practiceComplete, false)
+  workbook.definitionVersion = design.practice.version
+  const bespoke = { ...design, practice: { ...design.practice, identityHash: 'a'.repeat(64) } }
+  assert.equal(academyMastery(bespoke, workbook, reviews, core.id).practicePercent, 0)
+  workbook.definitionHash = bespoke.practice.identityHash
+  assert.equal(academyMastery(bespoke, workbook, reviews, core.id).practiceComplete, true)
 })
 
 test('AURA nutrition curriculum contains four phases, 20 chapters and 60 lessons', () => {
@@ -73,7 +80,7 @@ test('AURA nutrition curriculum contains four phases, 20 chapters and 60 lessons
   assert.equal(auraFoundationCourse.settings.dripSchedule, 'none')
 })
 
-test('curriculum lesson identifiers are unique and every chapter is publication-ready', () => {
+test('curriculum lesson identifiers are unique and baseline chapter structure is valid', () => {
   const lessons = auraFoundationCourse.modules.flatMap((module) => module.lessons)
   const ids = lessons.map((lesson) => lesson.id)
   assert.equal(new Set(ids).size, ids.length)
@@ -332,5 +339,7 @@ test('Academy portfolio creates four capstones without treating incomplete chapt
   assert.match(portfolioSource, /Portfolio chặng/)
   assert.match(portfolioSource, /Chia sẻ portfolio với coach phụ trách/)
   assert.match(portfolioSource, /loadAcademyWorkbookFromCloud/)
-  assert.match(portfolioSource, /AcademyWorkbookConflictError/)
+  assert.match(portfolioSource, /useAcademyWorkbook/)
+  const workbookHook = readFileSync(new URL('../src/features/academy/useAcademyWorkbook.ts', import.meta.url), 'utf8')
+  assert.match(workbookHook, /AcademyWorkbookConflictError/)
 })

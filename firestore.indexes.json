@@ -25,42 +25,78 @@
       "collectionGroup": "sessionKudos",
       "queryScope": "COLLECTION",
       "fields": [
-        {"fieldPath": "studentId", "order": "ASCENDING"},
-        {"fieldPath": "createdAt", "order": "DESCENDING"}
+        {
+          "fieldPath": "studentId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdAt",
+          "order": "DESCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "sessionKudos",
       "queryScope": "COLLECTION",
       "fields": [
-        {"fieldPath": "studentId", "order": "ASCENDING"},
-        {"fieldPath": "xp", "order": "ASCENDING"}
+        {
+          "fieldPath": "studentId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "xp",
+          "order": "ASCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "loyaltyRedemptions",
       "queryScope": "COLLECTION",
       "fields": [
-        {"fieldPath": "studentId", "order": "ASCENDING"},
-        {"fieldPath": "updatedAt", "order": "DESCENDING"}
+        {
+          "fieldPath": "studentId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "updatedAt",
+          "order": "DESCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "loyaltyLedgerEntries",
       "queryScope": "COLLECTION",
       "fields": [
-        {"fieldPath": "studentId", "order": "ASCENDING"},
-        {"fieldPath": "createdAt", "order": "DESCENDING"},
-        {"fieldPath": "__name__", "order": "DESCENDING"}
+        {
+          "fieldPath": "studentId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdAt",
+          "order": "DESCENDING"
+        },
+        {
+          "fieldPath": "__name__",
+          "order": "DESCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "loyaltySourceBalances",
       "queryScope": "COLLECTION",
       "fields": [
-        {"fieldPath": "state", "order": "ASCENDING"},
-        {"fieldPath": "sourceType", "order": "ASCENDING"},
-        {"fieldPath": "availableAt", "order": "ASCENDING"}
+        {
+          "fieldPath": "state",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "sourceType",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "availableAt",
+          "order": "ASCENDING"
+        }
       ]
     },
     {
@@ -781,6 +817,38 @@
     }
   ],
   "fieldOverrides": [
+    { "collectionGroup": "academyScientificReviewers", "fieldPath": "*", "indexes": [] },
+    { "collectionGroup": "academyAdoptionCandidates", "fieldPath": "*", "indexes": [] },
+    { "collectionGroup": "academyAdoptionHeads", "fieldPath": "*", "indexes": [] },
+    { "collectionGroup": "academyAdoptionReviews", "fieldPath": "*", "indexes": [] },
+    { "collectionGroup": "academyReviewHistory", "fieldPath": "*", "indexes": [] },
+    { "collectionGroup": "courses", "fieldPath": "academyReviewRequiredModuleIds", "indexes": [] },
+    { "collectionGroup": "academyWorkbookArchives", "fieldPath": "*", "indexes": [] },
+    {
+      "collectionGroup": "academyChapterVersions",
+      "fieldPath": "*",
+      "indexes": []
+    },
+    { "collectionGroup": "courses", "fieldPath": "modules", "indexes": [] },
+    { "collectionGroup": "courses", "fieldPath": "chapterRefs", "indexes": [] },
+    { "collectionGroup": "courses", "fieldPath": "publishedSnapshot.course", "indexes": [] },
+    { "collectionGroup": "courseRevisions", "fieldPath": "course", "indexes": [] },
+    { "collectionGroup": "courseRevisions", "fieldPath": "quizKeys", "indexes": [] },
+    {
+      "collectionGroup": "academySubmissions",
+      "fieldPath": "*",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "academySubmissionReviews",
+      "fieldPath": "*",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "academyReviewRevisions",
+      "fieldPath": "*",
+      "indexes": []
+    },
     {
       "collectionGroup": "eatCleanLiveLocationViews",
       "fieldPath": "expiresAt",

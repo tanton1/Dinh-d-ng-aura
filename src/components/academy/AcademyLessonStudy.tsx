@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Brain,
   CalendarClock,
@@ -34,6 +34,8 @@ interface AcademyLessonStudyProps {
   courseOutcomes?: string[]
   canReview: boolean
   onReviewStateChange?: (state: AcademyReviewState) => void
+  loadReviewLessons?: (lessonIds: string[]) => Promise<CourseLessonDraft[]>
+  reviewScopeKey?: string
 }
 
 const ratingCopy: Array<{ value: AcademyReviewRating; label: string; helper: string }> = [
@@ -43,7 +45,7 @@ const ratingCopy: Array<{ value: AcademyReviewRating; label: string; helper: str
   { value: 'easy', label: 'Rất dễ', helper: 'Giãn lịch ôn' },
 ]
 
-export default function AcademyLessonStudy({ ownerId, courseId, lesson, reviewLessons = [], courseOutcomes = [], canReview, onReviewStateChange }: AcademyLessonStudyProps) {
+export default function AcademyLessonStudy({ ownerId, courseId, lesson, reviewLessons = [], courseOutcomes = [], canReview, onReviewStateChange, loadReviewLessons, reviewScopeKey = '' }: AcademyLessonStudyProps) {
   const material = useMemo(() => academyMaterialForLesson(lesson, courseOutcomes), [courseOutcomes, lesson])
   const cards = useMemo(() => material.flashcards.filter((card) => card.front && card.back), [material.flashcards])
   const [revealedRecall, setRevealedRecall] = useState<Record<string, boolean>>({})
@@ -54,12 +56,21 @@ export default function AcademyLessonStudy({ ownerId, courseId, lesson, reviewLe
   const [queueCardFlipped, setQueueCardFlipped] = useState(false)
   const [reviewMessage, setReviewMessage] = useState('')
   const [reviewState, setReviewState] = useState(() => loadAcademyReviewState(ownerId, courseId))
+  const [historyState, setHistoryState] = useState<'loading' | 'ready' | 'error'>('loading')
+  const [queueLoad, setQueueLoad] = useState<{ key: string; loading: boolean; complete: boolean; error: string; lessons: CourseLessonDraft[] }>({ key: '', loading: false, complete: false, error: '', lessons: [] })
+  const queueScope = JSON.stringify([ownerId, courseId, lesson.contentVersion, reviewScopeKey])
+  const currentScope = useRef<string | null>(queueScope)
+  currentScope.current = queueScope
+  useEffect(() => { currentScope.current = queueScope; return () => { currentScope.current = null } }, [queueScope])
+  const queueReady = queueLoad.key === queueScope && queueLoad.complete
   const now = Date.now()
   const currentChapterCardsToReview = cards.filter((card) => {
     const progress = reviewState.cards[`${lesson.id}:${card.id}`]
     return !progress || progress.dueAt <= now
   })
-  const courseReviewLessons = reviewLessons.length ? reviewLessons : [lesson]
+  const courseReviewLessons = useMemo(() => [...new Map([
+    ...(reviewLessons.length ? reviewLessons : [lesson]), ...(queueLoad.key === queueScope ? queueLoad.lessons : []),
+  ].map((item) => [item.id, item])).values()], [reviewLessons, lesson, queueLoad.key, queueLoad.lessons, queueScope])
   const courseReviewSources = useMemo(() => courseReviewLessons.map((reviewLesson) => ({
     lessonId: reviewLesson.id,
     lessonTitle: reviewLesson.title,
@@ -89,16 +100,38 @@ export default function AcademyLessonStudy({ ownerId, courseId, lesson, reviewLe
 
   useEffect(() => {
     setReviewState(loadAcademyReviewState(ownerId, courseId))
+    if (!canReview) { setHistoryState('ready'); return }
     let active = true
+    setHistoryState('loading')
     void loadAcademyReviewStateFromCloud(ownerId, courseId)
       .then((state) => {
         if (!active) return
         setReviewState(state)
+        setHistoryState('ready')
         onReviewStateChange?.(state)
       })
-      .catch(() => undefined)
+      .catch(() => { if (active) setHistoryState('error') })
     return () => { active = false }
-  }, [courseId, ownerId])
+  }, [courseId, ownerId, canReview])
+
+  const openReviewQueue = async () => {
+    if (queueLoad.loading || !canReview) return
+    if (reviewQueueOpen && queueReady) { setReviewQueueOpen(false); return }
+    setReviewQueueOpen(true); setQueueCardFlipped(false)
+    setQueueLoad({ key: queueScope, loading: true, complete: false, error: '', lessons: [] })
+    try {
+      const state = await loadAcademyReviewStateFromCloud(ownerId, courseId)
+      if (currentScope.current !== queueScope) return
+      setReviewState(state); setHistoryState('ready'); onReviewStateChange?.(state)
+      const ids = [...new Set(Object.values(state.cards).filter((card) => card.reviewedAt > 0 && card.dueAt <= Date.now()).map((card) => card.lessonId))]
+      const loaded = loadReviewLessons ? await loadReviewLessons(ids) : []
+      if (currentScope.current !== queueScope) return
+      setQueueLoad({ key: queueScope, loading: false, complete: true, error: '', lessons: loaded })
+    } catch (error) {
+      if (currentScope.current === queueScope) setQueueLoad({ key: queueScope, loading: false, complete: false,
+        error: error instanceof Error ? error.message : 'Chưa tải đủ các chương cần ôn. Hãy thử lại.', lessons: [] })
+    }
+  }
 
   const reviewCard = (rating: AcademyReviewRating) => {
     if (!activeCard || !canReview) return
@@ -155,14 +188,21 @@ export default function AcademyLessonStudy({ ownerId, courseId, lesson, reviewLe
       <section className={`academy-review-queue${courseDueCards.length ? ' has-due' : ' is-clear'}`} aria-labelledby="academy-review-queue-title">
         <header>
           <div><CalendarClock size={19} /><span><small>ÔN CÁCH QUÃNG</small><h3 id="academy-review-queue-title">Hôm nay cần ôn</h3></span></div>
-          {courseDueCards.length
+          {loadReviewLessons
+            ? <button type="button" aria-expanded={reviewQueueOpen} disabled={!canReview || queueLoad.loading} onClick={() => void openReviewQueue()}>{queueLoad.loading ? 'Đang tải phần cần ôn…' : reviewQueueOpen && queueReady ? 'Thu gọn' : queueLoad.error ? 'Thử tải lại phần ôn' : 'Mở hàng đợi ôn'}</button>
+            : courseDueCards.length
             ? <button type="button" aria-expanded={reviewQueueOpen} onClick={() => { setReviewQueueOpen((value) => !value); setQueueCardFlipped(false) }}>{reviewQueueOpen ? 'Thu gọn' : `Ôn ${courseDueCards.length} thẻ`}</button>
-            : <span className="academy-review-queue__clear"><CheckCircle2 size={15} /> Không có thẻ đến hạn</span>}
+            : historyState === 'ready' ? <span className="academy-review-queue__clear"><CheckCircle2 size={15} /> Không có thẻ đến hạn</span> : null}
         </header>
-        <p>{courseDueCards.length
+        <p role="status">{queueLoad.loading ? 'Chỉ tải nội dung những chương có thẻ đã học đến hạn.'
+          : historyState === 'loading' ? 'Đang tải lịch ôn của bạn…'
+          : historyState === 'error' ? 'Chưa đồng bộ được lịch ôn. Các thẻ bên dưới chỉ dựa trên dữ liệu đã lưu trên thiết bị.'
+          : loadReviewLessons && !queueReady ? 'Mở hàng đợi để tải các chương có thẻ đến hạn. Chưa tải không có nghĩa là không có thẻ cần ôn.'
+          : courseDueCards.length
           ? `${courseDueCards.length} thẻ đã học đang đến hạn. Aura chỉ đưa kiến thức bạn từng xem vào hàng đợi này.`
           : 'Chưa có thẻ đã học nào đến hạn. Bạn có thể tiếp tục bộ thẻ của chương hiện tại.'}</p>
-        {reviewQueueOpen && activeQueueCard ? (
+        {queueLoad.key === queueScope && queueLoad.error ? <p role="alert">{queueLoad.error}</p> : null}
+        {reviewQueueOpen && activeQueueCard && (!loadReviewLessons || queueReady) ? (
           <div className="academy-review-queue__session">
             <div className="academy-review-queue__progress"><span>{activeQueueCard.chapterLabel} · {activeQueueCard.lessonTitle}</span><strong>{courseDueCards.length} thẻ còn lại</strong></div>
             <button className={`academy-flashcard academy-review-queue__card${queueCardFlipped ? ' is-flipped' : ''}`} type="button" onClick={() => setQueueCardFlipped((value) => !value)} aria-label={queueCardFlipped ? 'Ẩn đáp án thẻ đang ôn' : 'Mở đáp án thẻ đang ôn'}>

@@ -1,6 +1,8 @@
 import type { AcademyLessonMemory, CourseLessonDraft, CourseModuleDraft } from '../types'
-import { buildAuraNutritionLearningDesign, buildAuraNutritionQuestionBank } from './auraNutritionLearningDesign'
+import { buildAuraNutritionLearningDesign } from './auraNutritionLearningDesign'
+import { buildAuraNutritionQuestionBank } from './auraNutritionAssessmentAuthoring'
 import { auraNutritionStudyGuides } from './auraNutritionStudyGuides'
+import { auraPracticeMode } from './auraNutritionPracticePolicy'
 
 type QuizQuestion = {
   question: string
@@ -873,6 +875,7 @@ function chapterBody(chapter: CurriculumChapter) {
 
 function practiceBody(chapter: CurriculumChapter) {
   const guide = auraNutritionStudyGuides[chapter.number]
+  const coordination = auraPracticeMode(chapter.number) === 'coordination'
   return [
     `# ${chapter.practiceTitle}`,
     '',
@@ -883,7 +886,7 @@ function practiceBody(chapter: CurriculumChapter) {
     '',
     '## Làm lần lượt',
     ...chapter.practiceSteps.flatMap((step, index) => [
-      `### ${index === 0 ? 'Quan sát hiện trạng' : index === 1 ? 'Thử một thay đổi' : 'Đánh giá lại dữ liệu'}`,
+      `### ${index === 0 ? 'Quan sát hiện trạng' : index === 1 ? coordination ? 'Chuẩn bị phối hợp' : 'Thử một thay đổi phù hợp' : 'Đánh giá lại dữ liệu'}`,
       step,
       '',
     ]),
@@ -892,8 +895,8 @@ function practiceBody(chapter: CurriculumChapter) {
     '',
     '## Mẫu đầu ra để tự điền',
     '- **Dữ kiện tôi quan sát:** …',
-    '- **Giả thuyết tạm thời:** …',
-    '- **Một thay đổi nhỏ tôi sẽ thử:** …',
+    coordination ? '- **Điều chưa rõ cần hỏi chuyên môn:** …' : '- **Giả thuyết tạm thời:** …',
+    coordination ? '- **Câu hỏi và người phụ trách quyết định:** …' : '- **Một thay đổi nhỏ tôi sẽ thử:** …',
     '- **Dữ liệu tối thiểu cần ghi:** …',
     '- **Điều kiện phải dừng hoặc hỏi chuyên môn:** …',
     '- **Ngày tôi sẽ rà lại:** …',
@@ -903,7 +906,7 @@ function practiceBody(chapter: CurriculumChapter) {
     '',
     '## Tiêu chí hoàn thành',
     '- Đầu ra mô tả hành vi cụ thể, không chỉ ghi một mục tiêu chung chung.',
-    '- Chỉ thay đổi một biến chính để còn đọc được kết quả.',
+    coordination ? '- Không tự thay đổi điều trị; ghi đúng phạm vi và người chịu trách nhiệm.' : '- Chỉ thay đổi một biến phù hợp phạm vi tự chăm sóc để còn đọc được kết quả.',
     '- Có dữ liệu, thời hạn và điều kiện giữ, chỉnh, dừng hoặc chuyển tuyến.',
     '',
     `> **Cổng an toàn:** ${chapter.safety}`,
@@ -986,5 +989,5 @@ export const auraNutritionCurriculumStats = {
   chapters: chapters.length,
   lessons: chapters.length * 3,
   phases: auraNutritionPhases.length,
-  estimatedMinutes: chapters.reduce((total, chapter) => total + chapter.minutes + 18, 0),
+  estimatedMinutes: chapters.reduce((total, chapter) => total + chapter.minutes + 22, 0),
 }
