@@ -20,6 +20,7 @@ function usage() {
     '  node scripts/firebase-firestore-index-deploy.cjs dry-run --scope=ledger-date-range',
     '  node scripts/firebase-firestore-index-deploy.cjs dry-run --scope=student-progress-reads',
     '  node scripts/firebase-firestore-index-deploy.cjs dry-run --scope=users-role-reads',
+    '  node scripts/firebase-firestore-index-deploy.cjs dry-run --scope=business-report-branch-reads',
     '  node scripts/firebase-firestore-index-deploy.cjs dry-run --scope=loyalty-account-reads',
     '  node scripts/firebase-firestore-index-deploy.cjs dry-run --scope=dashboard-reads',
     `  node scripts/firebase-firestore-index-deploy.cjs apply --confirm=${CONFIRMATION}`,
@@ -39,7 +40,7 @@ function parseArguments(argv) {
   }))
   if (Object.keys(flags).some((key) => !['confirm', 'scope'].includes(key))) throw new Error(usage())
   const scope = flags.scope || 'all'
-  if (!['all', 'finance-ledger-reads', 'ledger-date-range', 'student-progress-reads', 'users-role-reads', 'loyalty-account-reads', 'dashboard-reads'].includes(scope)) throw new Error('Unknown index deployment scope.')
+  if (!['all', 'finance-ledger-reads', 'ledger-date-range', 'student-progress-reads', 'users-role-reads', 'business-report-branch-reads', 'loyalty-account-reads', 'dashboard-reads'].includes(scope)) throw new Error('Unknown index deployment scope.')
   if (mode === 'apply' && flags.confirm !== CONFIRMATION) throw new Error('Production confirmation is missing or incorrect.')
   return { mode, scope }
 }
@@ -135,6 +136,16 @@ function comparableFields(fields = []) {
 
 function selectIndexes(indexes, scope) {
   if (scope === 'all') return indexes
+  if (scope === 'business-report-branch-reads') {
+    return [['ledgerEntries', 'effectiveAt', 'DESCENDING'], ['cashTransactions', 'effectiveAt', 'DESCENDING'], ['attendanceEvents', 'occurredAt', 'ASCENDING']].map(([collectionGroup, fieldPath, order]) => {
+      const wanted = { collectionGroup, queryScope: 'COLLECTION', fields: [
+        { fieldPath: 'branchId', order: 'ASCENDING' }, { fieldPath, order },
+      ] }
+      const selected = indexes.filter(candidate => signature(candidate) === signature(wanted))
+      if (selected.length !== 1) throw new Error(`Scoped business report index for ${collectionGroup} must appear exactly once in the repository.`)
+      return selected[0]
+    })
+  }
   if (scope === 'users-role-reads') {
     const wanted = { collectionGroup: 'users', queryScope: 'COLLECTION', fields: [
       { fieldPath: 'role', order: 'ASCENDING' }, { fieldPath: '__name__', order: 'ASCENDING' },

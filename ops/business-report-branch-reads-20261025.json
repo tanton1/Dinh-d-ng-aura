@@ -1,0 +1,52 @@
+{
+  "planItem": "D3.3",
+  "status": "implementation_validated_release_pending",
+  "scope": "Bound branch-specific business-report reads before applying source caps; align attendance reconciliation with the selected branch.",
+  "previousSource": "6b6930441c689c19b1f158cbfa1b5b786bb30d25",
+  "functionTargets": ["listBusinessPerformance", "listBusinessPerformanceRegional"],
+  "newFunctionExports": 0,
+  "businessWrites": 0,
+  "changes": [
+    "Ledger, cash transactions and attendance events use branch equality and the existing Vietnam-day interval before limit.",
+    "Branch ledger/cash ranges read newest-first to use descending indexes. Complete aggregates are order-independent; capped aggregates remain explicitly partial.",
+    "Attendance reconciliation counts only the selected branch. Previously unrelated and unallocated attendance could appear in a branch warning.",
+    "System-wide reads retain their legacy query shape and include unallocated rows. Selected branch ledger/cash already excluded unallocated rows in the old reducer.",
+    "No source predicate is pushed: legacy source inference, reversals, cash and recognised revenue remain compatible.",
+    "Unallocated payroll inclusion and global cash-account readiness retain their existing policy; these queries remain bounded and shared across scopes.",
+    "Cash truncation and possible payroll truncation are exposed. Any reached source cap adds an incomplete-data warning rather than claiming full reconciliation."
+  ],
+  "indexPlan": {
+    "scope": "business-report-branch-reads",
+    "reuse": ["ledgerEntries:branchId/effectiveAt-desc/documentId-desc", "attendanceEvents:branchId/occurredAt-asc"],
+    "create": ["cashTransactions:branchId/effectiveAt-desc/documentId-desc"],
+    "delete": [],
+    "dryRunExisting": 100,
+    "dryRunMissing": 1,
+    "readyRequiredBeforeFunctions": true,
+    "plannerObservation": "Before the new cash index, scoped cash uses TableScan/MajorSort. Scoped ledger already uses the existing ordered branch/date index. Attendance uses its branch/date index with a within-key MinorSort. Verify cash again after index READY.",
+    "measurement": "Enterprise ExecutePipeline explain-only diagnostics using a synthetic branch and equivalent Core query shapes; no production query execution or record contents."
+  },
+  "validation": {
+    "reportUnitCases": 13,
+    "indexScopeCases": 9,
+    "firestoreIntegrationCases": 2,
+    "largeFixture": "10002 foreign rows in each of ledgerEntries, cashTransactions and attendanceEvents, plus one selected row per source. A branch-manager report returns 3 business documents in total, excluding auth and empty-query minimums. System reports remain capped and explicitly partial.",
+    "authorization": "Actual trustedAccessContext tested for admin, branch manager, wrong branch, system scope denied to branch manager, disabled, student and missing authentication.",
+    "compatibility": "Vietnam range endpoints, legacy sources and missing branch IDs, pending/reversed entries, source filters, global payroll fallback and cash-account readiness.",
+    "functionsChecks": "passed",
+    "hygiene": "passed",
+    "productionDataFixtures": false
+  },
+  "releaseOrder": [
+    "Complete and verify dispatcher PR26/27.",
+    "Coordinate with the separate Academy release; do not overlap Rules or main changes.",
+    "Require exact source CI, index scope tests, READY indexes and a post-index planner observation.",
+    "Deploy both existing report callable regions together; verify serving images/runtime and transport, then merge and public smoke."
+  ],
+  "remaining": [
+    "Large system/branch reports still have source caps; this is not the daily-summary redesign.",
+    "Payroll with missing branch retains legacy inclusion and needs a separately reviewed allocation/migration policy.",
+    "Historical attendance missing branch is visible in the system report only; this change does not infer or backfill a branch.",
+    "No measured production billed-unit, latency or currency saving claim."
+  ]
+}
