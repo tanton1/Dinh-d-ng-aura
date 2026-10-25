@@ -484,6 +484,8 @@ export class PtSchedulePublishError extends Error {
 }
 
 const conflictLabels: Record<string, string> = {
+  STUDENT_MISSING_SESSIONS: 'Học viên chưa được xếp đủ số buổi trong tuần.',
+  PROFILE_DATA_INCOMPLETE: 'Hồ sơ còn thiếu thông tin phục vụ xếp lịch.',
   INVALID_SLOT: 'Có khung giờ không đúng định dạng.',
   OUTSIDE_WORKING_CALENDAR: 'Có ca nằm ngoài ngày hoặc giờ hoạt động.',
   TRAINER_REQUIRED: 'Có ca chưa chọn PT.',

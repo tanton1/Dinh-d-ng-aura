@@ -1,7 +1,7 @@
-import { lazy, Suspense } from 'react'
+import { lazy, Suspense, useLayoutEffect, useMemo } from 'react'
 import { AlertTriangle, CheckCircle2, ChevronRight, RefreshCw } from 'lucide-react'
 import type { PtScheduleBranchOption, PtScheduleUnassignedEntry, PtScheduleV2Student, PtScheduleWorkspaceV2Result } from '../../services/ptSchedulePublishService'
-import { diagnosticReasonLabel, scheduleSlotLabel, warningCauseLabel, type WarningCause, type WarningFilter } from '../../features/schedule/workspaceModel'
+import { contractStatusLabel, diagnosticReasonLabel, scheduleSlotLabel, warningCauseLabel, type WarningCause, type WarningFilter } from '../../features/schedule/workspaceModel'
 const ScheduleWarningDetail = lazy(() => import('./ScheduleWarningDetail'))
 
 interface WarningProfile {
@@ -27,14 +27,7 @@ interface Props {
   warningCount: number
   warningFilter: WarningFilter
   setWarningFilter: (value: WarningFilter) => void
-  warningMissingValue: string
-  warningMissingNote: string
   warningProfiles: WarningProfile[]
-  visibleWarningProfiles: WarningProfile[]
-  contractWarningProfiles: WarningProfile[]
-  learnerWarningProfiles: WarningProfile[]
-  capacityWarningProfiles: WarningProfile[]
-  systemWarningProfiles: WarningProfile[]
   scheduleConflictWarnings: Conflict[]
   expandedWarningStudentId: string | null
   openWarningStudentAvailability: (student: PtScheduleV2Student) => void
@@ -44,11 +37,13 @@ interface Props {
 function RetainedValidation({ workspace }: { workspace: PtScheduleWorkspaceV2Result }) {
   const snapshot = workspace.validationSnapshot!
   const students = new Map(workspace.students.map(student => [student.id, student]))
-  const ids = [...new Set([...Object.values(snapshot.coverage.byStudent).filter(row => row.missingSessions > 0).map(row => row.studentId), ...snapshot.warnings.map(row => row.studentId).filter((id): id is string => Boolean(id)), ...snapshot.unassignedEntries.map(row => row.studentId)])]
-  return <section aria-label="Kết quả đối soát trước" className="schedule-warning-conflicts">
-    <header><div><strong>Kết quả đối soát trước · chưa cập nhật</strong><span>Đang chờ đối soát nền; số liệu dưới đây thuộc lần đối soát trước.{snapshot.validatedAt ? ` Lần trước: ${new Date(snapshot.validatedAt).toLocaleString('vi-VN')}.` : ''}</span></div></header>
+  // The missing-session list and its badge must use the same evidence. Old
+  // optimizer reasons and inactive profiles are not missing-session rows.
+  const ids = Object.values(snapshot.coverage.byStudent).filter(row => row.missingSessions > 0).map(row => row.studentId)
+  return <section aria-label="Kết quả đối soát trước" className="schedule-warning-retained">
+    <header><strong>Kết quả đối soát trước · chưa cập nhật</strong><span>Số liệu tham khảo của draft r{snapshot.draftRevision}, chưa xác nhận cho lịch hiện tại.{snapshot.validatedAt ? ` Lần trước: ${new Date(snapshot.validatedAt).toLocaleString('vi-VN')}.` : ''}</span></header>
     <p>{snapshot.coverage.scheduledEntries}/{snapshot.coverage.totalTargetSessions} buổi · còn thiếu {snapshot.coverage.missingSessions} buổi ở lần đối soát trước.</p>
-    <div>{ids.map(id => {
+    <div className="schedule-warning-retained__grid">{ids.map(id => {
       const student = students.get(id)
       const warnings = snapshot.warnings.filter(row => row.studentId === id)
       const unassigned = snapshot.unassignedEntries.find(row => row.studentId === id)
@@ -61,23 +56,49 @@ function RetainedValidation({ workspace }: { workspace: PtScheduleWorkspaceV2Res
       const contractStatus = warning?.contractStatus || unassigned?.diagnostics?.contractStatus || contract?.status || student?.contractStatus
       const endDate = warning?.contractEndDate || contract?.endDate || student?.contractEndDate
       const reasons = [...new Set([...warnings.map(row => row.code), ...(unassigned?.reasonCodes || [])])]
-      return <article key={id} className="schedule-warning-student">
-        <strong>{student?.name || warning?.studentName || unassigned?.studentName || 'Hồ sơ chưa có tên'}</strong>
-        <p>{student?.phone || warning?.studentPhone || 'Thiếu số điện thoại'} · {student?.email || 'Thiếu email'}</p>
-        <p>{coverage ? `${coverage.scheduledSessions}/${coverage.targetSessions} buổi · thiếu ${coverage.missingSessions}` : 'Chưa có số buổi trong kết quả trước'} · số liệu cũ</p>
-        <p>{packageName || 'Gói chưa có thông tin'} · {contractStatus || 'Trạng thái chưa xác định'}{endDate ? ` · hạn ${endDate}` : ''}</p>
-        <p>{reasons.map(diagnosticReasonLabel).join(' · ') || 'Cần đối soát lại'}</p>
+      const missingFields = [...new Set(warnings.flatMap(row => row.missingFields || []))]
+      const fieldLabels: Record<string, string> = { name: 'tên', phone: 'số điện thoại', email: 'email', branchId: 'chi nhánh', sessionsPerWeek: 'mục tiêu tuần', contract: 'hợp đồng đủ điều kiện', availability: 'lịch rảnh đã xác nhận' }
+      return <article key={id} className="schedule-warning-retained__student">
+        <header><strong>{student?.name || warning?.studentName || unassigned?.studentName || 'Hồ sơ chưa có tên'}</strong><b>Thiếu {coverage.missingSessions}</b></header>
+        <p>{coverage.scheduledSessions}/{coverage.targetSessions} buổi · số liệu cũ</p>
+        <p className="schedule-warning-retained__reason">{reasons.map(diagnosticReasonLabel).join(' · ') || 'Cần đối soát lại'}</p>
+        <details><summary>Thông tin học viên và hợp đồng</summary>
+          <p>{student?.phone || warning?.studentPhone || 'Thiếu số điện thoại'} · {student?.email || 'Thiếu email'}</p>
+          <p>{packageName || 'Gói chưa có thông tin'} · {contractStatus ? contractStatusLabel(contractStatus) : 'Trạng thái chưa xác định'}{endDate ? ` · hạn ${endDate}` : ''}</p>
+          {missingFields.length > 0 && <p>Thông tin cần bổ sung: {missingFields.map(field => fieldLabels[field] || 'thông tin hồ sơ').join(', ')}.</p>}
+          {coverage.otherBranchSessions > 0 && <p>Đã tính {coverage.otherBranchSessions} buổi ở chi nhánh khác.</p>}
+        </details>
       </article>
     })}</div>
   </section>
 }
 
-export default function WeeklyScheduleWarningsPanel({ workspace, branchId, branches, weekDates, coveragePending, warningCount, warningFilter, setWarningFilter, warningMissingValue, warningMissingNote, warningProfiles, visibleWarningProfiles, contractWarningProfiles, learnerWarningProfiles, capacityWarningProfiles, systemWarningProfiles, scheduleConflictWarnings, expandedWarningStudentId, openWarningStudentAvailability, onOpenSlot }: Props) {
+export default function WeeklyScheduleWarningsPanel({ workspace, branchId, branches, weekDates, coveragePending, warningCount, warningFilter, setWarningFilter, warningProfiles, scheduleConflictWarnings, expandedWarningStudentId, openWarningStudentAvailability, onOpenSlot }: Props) {
+  const groups = useMemo(() => ({
+    contract: warningProfiles.filter(profile => profile.warningCause === 'contract'),
+    learner: warningProfiles.filter(profile => profile.warningCause === 'learner'),
+    capacity: warningProfiles.filter(profile => profile.warningCause === 'capacity'),
+    system: warningProfiles.filter(profile => profile.warningCause === 'system'),
+  }), [warningProfiles])
+  const { contract: contractWarningProfiles, learner: learnerWarningProfiles, capacity: capacityWarningProfiles, system: systemWarningProfiles } = groups
+  const visibleWarningProfiles = warningFilter === 'priority' ? warningProfiles : warningFilter === 'conflict' ? [] : groups[warningFilter]
+  const retained = coveragePending ? workspace.validationSnapshot : null
+  const warningMissingValue = coveragePending
+    ? retained ? String(Object.values(retained.coverage.byStudent).filter(row => row.missingSessions > 0).length) : '—'
+    : String(warningProfiles.length)
+  const warningMissingNote = coveragePending
+    ? retained ? `${retained.coverage.missingSessions} buổi · kết quả trước, cần đối soát lại` : workspace.validationDirty ? 'Đang chờ đối soát nền' : (workspace.quickCoverage ? 'Ước tính · cần đối soát' : 'Chưa có kết quả đối soát')
+    : `${warningProfiles.reduce((total, profile) => total + profile.missingSessions, 0)} buổi trong tuần`
+  useLayoutEffect(() => {
+    const panel = document.getElementById('schedule-panel-warnings')
+    const toolbar = panel?.parentElement?.querySelector('.branch-schedule__toolbar')
+    if (panel && toolbar && panel.getBoundingClientRect().top < toolbar.getBoundingClientRect().bottom) panel.scrollIntoView({ block: 'start' })
+  }, [])
   return <main id="schedule-panel-warnings" role="tabpanel" aria-labelledby="schedule-tab-warnings" className="branch-schedule__warning-page">
           <header><p>RÀ SOÁT TUẦN NÀY</p><h2>Cảnh báo</h2><span>{coveragePending ? `${scheduleConflictWarnings.length} xung đột nhanh · thiếu buổi chưa đối soát` : warningCount ? `${warningCount} mục cần xử lý` : 'Không có cảnh báo'}</span></header>
           <section className="schedule-warning-overview" aria-label="Tổng hợp cảnh báo lịch tập">
             <button type="button" className={`schedule-warning-stat is-missing${coveragePending ? ' is-pending' : ''}`} aria-pressed={warningFilter === 'priority'} onClick={() => setWarningFilter('priority')}><span className="schedule-warning-stat__value">{warningMissingValue}</span><span className="schedule-warning-stat__label">Thiếu buổi</span><small>{warningMissingNote}</small></button>
-            <button type="button" className="schedule-warning-stat is-conflict" aria-pressed={warningFilter === 'conflict'} onClick={() => setWarningFilter('conflict')}><span className="schedule-warning-stat__value">{scheduleConflictWarnings.length}</span><span className="schedule-warning-stat__label">Trùng / xung đột</span><small>Chọn dòng để mở ma trận</small></button>
+            <button type="button" className="schedule-warning-stat is-conflict" aria-pressed={warningFilter === 'conflict'} onClick={() => setWarningFilter('conflict')}><span className="schedule-warning-stat__value">{scheduleConflictWarnings.length}</span><span className="schedule-warning-stat__label">Trùng / xung đột</span><small>{coveragePending ? 'Phát hiện nhanh · chưa đối soát đầy đủ' : 'Chọn dòng để mở ma trận'}</small></button>
           </section>
           <section className="schedule-warning-summary" aria-label="Lọc theo lý do">
             <button type="button" className="is-contract" aria-pressed={warningFilter === 'contract'} onClick={() => setWarningFilter('contract')} disabled={coveragePending}><strong>{coveragePending ? '—' : contractWarningProfiles.length}</strong><span>Do hợp đồng</span></button>
@@ -86,14 +107,14 @@ export default function WeeklyScheduleWarningsPanel({ workspace, branchId, branc
             <button type="button" className="is-system" aria-pressed={warningFilter === 'system'} onClick={() => setWarningFilter('system')} disabled={coveragePending}><strong>{coveragePending ? '—' : systemWarningProfiles.length}</strong><span>Cần tối ưu</span></button>
           </section>
           <nav className="schedule-warning-filters" role="tablist" aria-label="Nhóm cảnh báo">
-            <button type="button" role="tab" aria-selected={warningFilter === 'priority'} className={warningFilter === 'priority' ? 'is-active' : ''} onClick={() => setWarningFilter('priority')}>Thiếu buổi <b>{coveragePending ? '—' : warningProfiles.length}</b></button>
+            <button type="button" role="tab" aria-selected={warningFilter === 'priority'} className={warningFilter === 'priority' ? 'is-active' : ''} onClick={() => setWarningFilter('priority')}>Thiếu buổi <b>{warningMissingValue}</b>{coveragePending && workspace.validationSnapshot && <span> cũ</span>}</button>
             <button type="button" role="tab" aria-selected={warningFilter === 'conflict'} className={warningFilter === 'conflict' ? 'is-active' : ''} onClick={() => setWarningFilter('conflict')}>Trùng / xung đột <b>{scheduleConflictWarnings.length}</b></button>
           </nav>
-          {(warningFilter === 'conflict' || (warningFilter === 'priority' && scheduleConflictWarnings.length > 0)) && <section className="schedule-warning-conflicts" aria-label="Danh sách trùng và xung đột lịch">
+          {scheduleConflictWarnings.length > 0 && (warningFilter === 'conflict' || warningFilter === 'priority') && <section className="schedule-warning-conflicts" aria-label="Danh sách trùng và xung đột lịch">
             <header><div><strong>Lịch cần đối soát</strong><span>Chọn một dòng để mở đúng ô trong ma trận.</span></div><b>{scheduleConflictWarnings.length}</b></header>
             <div>{scheduleConflictWarnings.slice(0, 100).map((row) => <button type="button" key={row.key} onClick={() => { onOpenSlot(row.slotId, row.trainerId) }}><AlertTriangle size={16} /><span><strong>{row.studentName}</strong><small>{scheduleSlotLabel(row.slotId, weekDates)} · {row.trainerName}</small><em>{diagnosticReasonLabel(row.code)}</em></span><ChevronRight size={16} /></button>)}</div>
           </section>}
-          {coveragePending && (workspace.validationSnapshot ? <RetainedValidation workspace={workspace} /> : <div className="schedule-warning-empty"><RefreshCw /><span>Thiếu buổi chưa đối soát. Chưa có kết quả đầy đủ; không thể kết luận là 0.{workspace.validationDirty ? ' Đang chờ đối soát nền.' : ''}</span></div>)}
+          {coveragePending && warningFilter !== 'conflict' && (workspace.validationSnapshot ? <RetainedValidation workspace={workspace} /> : <div className="schedule-warning-empty"><RefreshCw /><span>Thiếu buổi chưa đối soát. Chưa có kết quả đầy đủ; không thể kết luận là 0.{workspace.validationDirty ? ' Đang chờ đối soát nền.' : ''}</span></div>)}
           <section className="schedule-warning-grid">
              {visibleWarningProfiles.map(({ student, missingSessions: missing, scheduledSessions, scheduledEntries, crossBranchScheduledSessions, reasonCodes, primaryReasonCode, warningCause, actionCode, candidateSlots, suggestedSlots }) => {
                const expanded = expandedWarningStudentId === student.id
@@ -140,7 +161,7 @@ export default function WeeklyScheduleWarningsPanel({ workspace, branchId, branc
             {warningFilter === 'learner' && !coveragePending && !learnerWarningProfiles.length && <div className="schedule-warning-empty"><CheckCircle2 /> Không có cảnh báo lịch rảnh.</div>}
             {warningFilter === 'capacity' && !coveragePending && !capacityWarningProfiles.length && <div className="schedule-warning-empty"><CheckCircle2 /> Không có cảnh báo thiếu PT / ca.</div>}
             {warningFilter === 'system' && !coveragePending && !systemWarningProfiles.length && <div className="schedule-warning-empty"><CheckCircle2 /> Không còn mục cần tối ưu.</div>}
-            {warningFilter === 'conflict' && !scheduleConflictWarnings.length && <div className="schedule-warning-empty"><CheckCircle2 /> Không có lịch trùng hoặc xung đột.</div>}
+            {warningFilter === 'conflict' && !scheduleConflictWarnings.length && <div className="schedule-warning-empty">{coveragePending ? <><RefreshCw /> Chưa phát hiện xung đột trong dữ liệu đã tải. Chưa có kết quả đối soát đầy đủ.</> : <><CheckCircle2 /> Không có lịch trùng hoặc xung đột.</>}</div>}
           </section>
         </main>
 }
