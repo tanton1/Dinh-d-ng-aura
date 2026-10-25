@@ -77,6 +77,56 @@ test('enumerates factory spreads, optional require assignments and schedules wit
   assert.equal(report.coverage.backendExportsWithoutResolvedFrontendReference, 4)
 })
 
+test('includes computed exports from finite tuple and string loops without executing entry points', (t) => {
+  const root = fixture(t, {
+    'functions/index.js': `throw new Error('Inventory must stay static');
+      const sources = Object.freeze([['syncMeal', 'mealLogs'], ['syncWater', 'waterLogs'], ['syncActivity', 'activityLogs']]);
+      for (const [name, collection] of sources) {
+        exports[name] = onDocumentWritten({ document: collection }, () => {});
+      }
+      for (const name of ['getOne', 'getTwo']) exports[name] = onCall(() => ({}));
+      exports['getOne'] = onCall(() => ({}));
+      module.exports['scheduledJob'] = onSchedule({}, () => {});
+      for (const name of []) exports[name] = onCall(() => ({}));`,
+  })
+  const report = auditProject(root)
+  assert.deepEqual(report.backendExports.map((row) => row.name), ['getOne', 'getTwo', 'scheduledJob', 'syncActivity', 'syncMeal', 'syncWater'])
+  assert.deepEqual(report.backendExports.find((row) => row.name === 'syncMeal').kinds, ['event-trigger'])
+  assert.deepEqual(report.backendExports.find((row) => row.name === 'scheduledJob').kinds, ['scheduled'])
+  assert.deepEqual(report.duplicateBindings.map((row) => row.name), ['getOne'])
+  assert.equal(report.coverage.unresolvedComputedExports, 0)
+})
+
+test('retains known computed candidates but reports unknown loop rows, tuple positions and runtime names', (t) => {
+  const root = fixture(t, {
+    'functions/index.js': `throw new Error('Inventory must not evaluate runtime names');
+      for (const name of ['getKnown', ...runtimeNames]) exports[name] = onCall(() => ({}));
+      for (const [name] of runtimeTuples) exports[name] = onCall(() => ({}));
+      for (const [name] of [[...runtimeTuple, 'notTheFirstColumn']]) exports[name] = onCall(() => ({}));
+      exports[flag ? 'getConditional' : runtimeName] = onCall(() => ({}));
+      module.exports[computedName()] = onCall(() => ({}));`,
+  })
+  const report = auditProject(root)
+  assert.deepEqual(report.backendExports.map((row) => row.name), ['getConditional', 'getKnown'])
+  assert.equal(report.coverage.unresolvedComputedExports, 5)
+  assert.equal(report.coverage.unresolvedExportSpreads, 0)
+  assert.ok(report.unresolvedComputedExports.some((row) => row.resolvedCandidates.includes('getKnown')))
+  assert.match(renderReport(report), /UNRESOLVED COMPUTED BACKEND EXPORTS/)
+  assert.match(renderReport(report), /module\.exports\[computedName\(\)\]/)
+})
+
+test('keeps loop bindings separate when nested scopes reuse the same name', (t) => {
+  const root = fixture(t, {
+    'functions/index.js': `for (const [name] of [['syncOuter']]) {
+      exports[name] = onDocumentWritten({}, () => {});
+      for (const name of ['getInner']) exports[name] = onCall(() => ({}));
+    }`,
+  })
+  const report = auditProject(root)
+  assert.deepEqual(report.backendExports.map((row) => [row.name, row.kinds]), [['getInner', ['callable']], ['syncOuter', ['event-trigger']]])
+  assert.equal(report.coverage.unresolvedComputedExports, 0)
+})
+
 test('resolves finite alias maps while retaining dynamic names and unmatched conditional candidates for review', (t) => {
   const root = fixture(t, {
     'src/service.ts': `import { httpsCallable } from 'firebase/functions';

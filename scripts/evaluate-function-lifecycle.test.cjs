@@ -25,7 +25,7 @@ function fixture(overrides = {}) {
   for (const scope of Object.keys(review.reviewedScopes)) review.reviewedScopes[scope] = true
   review.retirementWithoutReplacementReviewed = true
   review.rollbackReady = true
-  const staticAudit = { generatedAt: now, source, snapshotStable: true, coverage: { unresolvedExportSpreads: 0, unresolvedDynamicImports: 0 }, frontendCallables: [], backendExports: [{ name: 'oldReader', kinds: ['callable'] }] }
+  const staticAudit = { generatedAt: now, source, snapshotStable: true, coverage: { unresolvedExportSpreads: 0, unresolvedComputedExports: 0, unresolvedDynamicImports: 0 }, frontendCallables: [], backendExports: [{ name: 'oldReader', kinds: ['callable'] }] }
   const metrics = { project: registry.project, observedAt: now, warnings: [], windows: { observation: { status: 'complete', start: '2027-01-01T00:00:00.000Z', end: now, groups: [] } } }
   const inventory = { project: registry.project, observedAt: now, warnings: [], functions: [{ name: 'oldReader', region: 'asia-east1', service: 'oldreader', kind: 'callable', state: 'ACTIVE', servingRevisions: [{ revision: 'oldreader-1' }], traffic: [{ revision: 'oldreader-1', percent: 100 }], latestRevisionServing: false }] }
   return { registry, source, staticAudit, metrics, dependencies, inventory, coreSymbols: {}, now }
@@ -53,6 +53,15 @@ test('missing, failed, malformed and stale metric evidence never becomes zero', 
   ]) {
     const input = fixture(); mutate(input)
     assert.equal(first(input).gatePassed, false)
+  }
+})
+
+test('unknown computed exports and reports predating their coverage block retirement review readiness', () => {
+  for (const value of [1, undefined]) {
+    const input = fixture()
+    input.staticAudit.coverage.unresolvedComputedExports = value
+    assert.equal(first(input).gatePassed, false)
+    assert.equal(has(first(input), 'STATIC_UNRESOLVED'), true)
   }
 })
 

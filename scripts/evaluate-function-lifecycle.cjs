@@ -115,7 +115,7 @@ function evaluateLifecycle({ registry, staticAudit, metrics = null, dependencies
   if (!source?.commit || !source?.digest) addCommon('SOURCE_UNKNOWN', 'Current commit and content digest are required.')
   if (!sameSource(staticAudit?.source, source) || staticAudit?.snapshotStable !== true || !fresh(staticAudit?.generatedAt)) addCommon('STATIC_SOURCE_STALE', 'Static analysis must be fresh and bound to the unchanged current source.')
   if (!Array.isArray(staticAudit?.frontendCallables) || !Array.isArray(staticAudit?.backendExports)) addCommon('STATIC_UNKNOWN', 'Static frontend/backend coverage is unavailable.')
-  if (staticAudit?.coverage?.unresolvedExportSpreads !== 0 || staticAudit?.coverage?.unresolvedDynamicImports !== 0) addCommon('STATIC_UNRESOLVED', 'Unresolved import/export coverage needs review.')
+  if (staticAudit?.coverage?.unresolvedExportSpreads !== 0 || staticAudit?.coverage?.unresolvedComputedExports !== 0 || staticAudit?.coverage?.unresolvedDynamicImports !== 0) addCommon('STATIC_UNRESOLVED', 'Unresolved or unreported import/export coverage needs review.')
   if (dependencies?.schemaVersion !== 1 || dependencies?.project !== registry.project || !Array.isArray(dependencies?.entries)) addCommon('DEPENDENCIES_UNKNOWN', 'A reviewed dependency artifact for this project is required.')
   if (!sameSource(dependencies?.source, source) || !fresh(dependencies?.observedAt)) addCommon('DEPENDENCY_SOURCE_STALE', 'Dependency evidence must match the current commit and source digest.')
   if (!nonempty(dependencies?.reviewer)) addCommon('DEPENDENCY_REVIEW_PENDING', 'The dependency review is not attributed.')
