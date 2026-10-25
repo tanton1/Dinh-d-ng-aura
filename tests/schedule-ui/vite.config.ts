@@ -5,4 +5,5 @@ export default defineConfig({ optimizeDeps: { entries: ['tests/schedule-ui/index
   if (id === 'firebase/firestore') return resolve('tests/schedule-ui/firestoreSdk.ts')
   if (id.endsWith('/services/ptSchedulePublishService')) return resolve('tests/schedule-ui/service.ts')
   if (id.endsWith('/lib/firebaseFirestore')) return resolve('tests/schedule-ui/firestore.ts')
+  if (['/services/ptOperationsV2Service', '/services/identityAccessService', '/services/payrollService', '/contexts/DatabaseContext'].some((suffix) => id.endsWith(suffix))) return resolve('tests/schedule-ui/trainer-service.ts')
 } }, react()] })

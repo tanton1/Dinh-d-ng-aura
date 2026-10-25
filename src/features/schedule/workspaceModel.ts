@@ -217,9 +217,15 @@ function contractStatusLabel(status: string | undefined) {
     case 'expiring': return 'Sắp hết hạn trong tuần'
     case 'quota_exhausted': return 'Đã hết buổi'
     case 'paused': return 'Đang OFF / bảo lưu'
+    case 'frozen': return 'Đang OFF / bảo lưu'
+    case 'cancelled':
+    case 'canceled': return 'Đã hủy'
+    case 'future': return 'Chưa đến ngày hiệu lực'
+    case 'completed': return 'Đã hoàn thành'
     case 'missing': return 'Chưa có hợp đồng'
     case 'not_started_or_ended': return 'Chưa có ngày hiệu lực phù hợp'
-    default: return 'Còn hiệu lực'
+    case 'active': return 'Còn hiệu lực'
+    default: return 'Trạng thái chưa xác định'
   }
 }
 
