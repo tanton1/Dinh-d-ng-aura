@@ -867,7 +867,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
             && raw.sourceRevision === current.weeklyViewSourceRevision
             && Number(raw.viewRevision || 0) <= Number(current.weeklyViewRevision || 0)
             && Number(raw.dirtyGeneration || 0) <= Number(current.weeklyViewDirtyGeneration || 0)) return
-          const serverCurrent = controlReady && serverSnapshot && raw.schemaVersion >= 2 && raw.dirty === false && raw.freshness !== 'stale' && raw.rebuilding !== true
+          const serverCurrent = controlReady && serverSnapshot && raw.schemaVersion >= 3 && raw.dirty === false && raw.freshness !== 'stale' && raw.rebuilding !== true
             && Array.isArray(raw.contracts) && Array.isArray(raw.warnings) && Array.isArray(raw.unassignedEntries) && Boolean(raw.scheduleConfig && raw.weeklySessionCoverage)
           let accepted = false
           const evidence = serverCurrent ? raw : { ...raw, rebuilding: true, freshness: 'stale' }
@@ -2454,7 +2454,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
         <main id="schedule-panel-matrix" role="tabpanel" aria-labelledby="schedule-tab-matrix" className="branch-schedule__workspace">
           <section className="branch-schedule__matrix-toolbar">
             <label><span>Huấn luyện viên</span><select value={selectedTrainerId} disabled={workspaceHydrating} onChange={(event) => setSelectedTrainerId(event.target.value)}>{visibleTrainers.map((trainer) => <option key={trainer.id} value={trainer.id}>{trainer.name}</option>)}</select></label>
-            {selectedTrainer && <div className={`trainer-availability-chip is-${selectedTrainer.availabilityMode}`}><Clock3 size={14} />{selectedTrainer.availabilityMode === 'configured' ? `${selectedTrainer.availableSlots?.length || 0} khung giờ rảnh` : selectedTrainer.availabilityMode === 'unrestricted' ? 'Không giới hạn' : 'Chưa khai lịch rảnh'}</div>}
+            {selectedTrainer && <div className={`trainer-availability-chip is-${selectedTrainer.availabilityMode}`}><Clock3 size={14} />{selectedTrainer.availabilityMode === 'configured' ? `${selectedTrainer.availableSlots?.length || 0} khung giờ rảnh · ${selectedTrainer.availabilitySource === 'weekly' ? 'Lịch tuần' : 'Lịch lặp lại'}` : selectedTrainer.availabilityMode === 'unrestricted' ? 'Không giới hạn' : 'Chưa khai lịch rảnh'}</div>}
             <div className="schedule-opportunity-inline-legend" aria-label="Chú giải ma trận"><span className="is-trainer-availability"><i aria-hidden="true" />PT đăng ký rảnh</span><span>Thứ tự: ghép 1/2 → PT chính thức dưới mốc → PT còn slot</span></div>
           </section>
 
@@ -2497,10 +2497,11 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
               <tbody>{workingHours.map((hour) => <tr key={hour}><th>{String(hour).padStart(2, '0')}:00</th>{workingDays.map((day) => {
                 const slotId = `${day}-${hour}`
                 const entries = (workspace.schedule[slotId] || []).filter((entry) => entry.trainerId === selectedTrainerId)
-                const isOff = entries.some((entry) => entry.type === 'off')
+                const isAvailabilityOff = Boolean(selectedTrainer?.offDates?.includes(weekDates[day as keyof typeof weekDates]?.full || ''))
+                const isOff = entries.some((entry) => entry.type === 'off') || (isAvailabilityOff && entries.length === 0)
                 const holiday = holidayDates.has(weekDates[day as keyof typeof weekDates]?.full || '')
                 const past = pastScheduleSlots.has(slotId)
-                const isTrainerAvailable = Boolean(!holiday && !isOff && (trainerAvailabilityIsUnrestricted || trainerAvailabilitySlots.has(slotId)))
+                const isTrainerAvailable = Boolean(!holiday && !isOff && !isAvailabilityOff && (trainerAvailabilityIsUnrestricted || trainerAvailabilitySlots.has(slotId)))
                 const showsAvailability = hoveredAvailabilitySlots.has(slotId)
                 const showsStudentSchedule = highlightedScheduleSlots.has(slotId)
                 const openInspector = () => {

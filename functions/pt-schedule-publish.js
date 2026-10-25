@@ -3,6 +3,7 @@
 const { createHash } = require('node:crypto')
 const { FieldValue, Timestamp } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
+const { trainerProfileForWeek } = require('./trainer-availability')
 const { trustedAccessContext, requireCapability } = require('./identity-access')
 const {
   effectiveStudentAvailability,
@@ -213,12 +214,6 @@ async function exactTrainerAvailabilitySnapshots(db, trainerIds, week) {
   const batches = []
   for (let index = 0; index < references.length; index += 100) batches.push(db.getAll(...references.slice(index, index + 100)))
   return (await Promise.all(batches)).flat()
-}
-
-function trainerProfileForWeek(profile = {}, weekly = null, week = '') {
-  if (!weekly || weekly.weekId !== week || !['submitted', 'locked'].includes(String(weekly.status || ''))) return profile
-  const slots = Array.isArray(weekly.slots) ? weekly.slots.slice(0, 100) : []
-  return { ...profile, availableSlots: slots, availabilityMode: slots.length ? 'configured' : 'unconfigured', availabilityRevision: Number(weekly.revision || 0), availabilitySource: 'weekly', availabilityWeekId: week }
 }
 
 function trainerAvailabilityMode(value = {}) {

@@ -113,6 +113,9 @@ export interface PtScheduleV2Student extends Student {
 export interface PtScheduleV2Trainer extends Trainer {
   availabilityMode: 'configured' | 'unrestricted' | 'unconfigured'
   availabilityRevision: number
+  availabilitySource?: 'recurring' | 'weekly'
+  availabilityWeekId?: string
+  offDates?: string[]
   slotCapacity: number
   /** Thứ tự ưu tiên dùng khi học viên chưa có PT chính/phụ. Số nhỏ ưu tiên cao. */
   schedulingPriority?: number
