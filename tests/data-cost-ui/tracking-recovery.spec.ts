@@ -108,3 +108,40 @@ test('tracking manual retries never overlap while a denied request is pending', 
   await expect(page.getByLabel('Mã giao hàng 1234')).toBeVisible()
   expect(await reads(page)).toBe(2)
 })
+
+test('tracking cached GPS becomes stale on a local deadline while error recovery is paused', async ({ page }) => {
+  await open(page)
+  await expect(page.getByLabel('Mã giao hàng 1234')).toBeVisible()
+  await expect(page.locator('.eat-clean-gps-state')).not.toHaveClass(/is-stale/)
+  await change(page, { trackingError: 'functions/unavailable' })
+  await page.clock.runFor(15_001)
+  await expect(page.getByRole('status')).toContainText('Dữ liệu lần trước được giữ lại')
+  await page.clock.runFor(106_000)
+  await expect(page.locator('.eat-clean-gps-state')).toHaveClass(/is-stale/)
+  await expect(page.getByText('Tín hiệu GPS đang chậm')).toBeVisible()
+  expect(await reads(page)).toBe(2)
+  await change(page, { trackingError: '' })
+  await page.getByRole('button', { name: 'Làm mới vị trí' }).click()
+  await expect(page.getByRole('status')).toHaveCount(0)
+  await expect(page.locator('.eat-clean-gps-state')).not.toHaveClass(/is-stale/)
+  expect(await reads(page)).toBe(3)
+})
+
+test('tracking GPS with an unknown sample time is never shown as fresh', async ({ page }) => {
+  await open(page, { trackingLocationAt: '' })
+  await expect(page.getByLabel('Mã giao hàng 1234')).toBeVisible()
+  await expect(page.locator('.eat-clean-gps-state')).toHaveClass(/is-stale/)
+  expect(await reads(page)).toBe(1)
+})
+
+test('tracking local GPS freshness changes while offline without a server read', async ({ page }) => {
+  await open(page)
+  await expect(page.getByLabel('Mã giao hàng 1234')).toBeVisible()
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, 'onLine', { configurable: true, value: false })
+    window.dispatchEvent(new Event('offline'))
+  })
+  await page.clock.runFor(121_000)
+  await expect(page.locator('.eat-clean-gps-state')).toHaveClass(/is-stale/)
+  expect(await reads(page)).toBe(1)
+})

@@ -7,11 +7,12 @@
     "Hide the entire tracking detail/map and discard the local response on permission-denied, unauthenticated or not-found, even for a background request.",
     "Keep denied data hidden if a manual retry fails transiently; only a successful authorized response restores it.",
     "Preserve last data with an explicit stale-data message for transient failures. A successful manual refresh restores normal active-order updates.",
-    "Keep the existing order-scoped response fence, no-overlap controller, hidden/offline suppression and terminal-delivery stop."
+    "Keep the existing order-scoped response fence, no-overlap controller, hidden/offline suppression and terminal-delivery stop.",
+    "Use a local alarm for the existing two-minute GPS freshness window. Cached coordinates become stale during an outage or offline period without a callable; a sample with no valid timestamp is not shown as fresh."
   ],
   "validation": {
-    "newScenarios": 9,
-    "browserCasesPassed": 18,
+    "newScenarios": 12,
+    "browserCasesPassed": 24,
     "browsers": ["Chromium", "mobile Safari WebKit"],
     "existingTrackingRegressionCasesPassed": 1,
     "typecheck": "passed",

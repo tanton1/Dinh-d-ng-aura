@@ -71,7 +71,7 @@ export const getEatCleanOrderTracking = async (id: string) => {
   await read('tracking')
   if (error) throw Object.assign(new Error('Tracking fixture failure'), { code: error })
   return { orderId: id, status: state.terminal ? 'delivered' : 'delivering', shipper: { displayName: id },
-    ...(deliveryState.trackingSensitive ? { deliveryOtp: '1234', shipperLocation: { latitude: 16, longitude: 108 } } : {}) }
+    ...(deliveryState.trackingSensitive ? { deliveryOtp: '1234', shipperLocation: { latitude: 16, longitude: 108 }, lastLocationAt: deliveryState.trackingLocationAt ?? new Date().toISOString() } : {}) }
 }
 export const googleMapsConfigured = () => false
 export const loadGoogleMaps = async () => null

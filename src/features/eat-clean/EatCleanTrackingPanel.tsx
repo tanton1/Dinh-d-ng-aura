@@ -5,6 +5,10 @@ import { EatCleanTrackingMap as TrackingMap } from './EatCleanTrackingMap'
 import { EAT_CLEAN_STATUS_LABELS, formatEatCleanDate } from './EatCleanUi'
 import type { EatCleanOrder, EatCleanOrderTracking } from './types'
 import { useForegroundRefresh } from '../../hooks/useForegroundRefresh'
+import { useLocalTimeBoundaries } from '../../hooks/useLocalTimeBoundaries'
+
+// Match the existing tracking response's two-minute GPS freshness window.
+const GPS_STALE_AFTER_MS = 2 * 60_000
 
 function etaLabel(value?: string) {
   if (!value) return 'Đang tính ETA'
@@ -32,8 +36,16 @@ export function EatCleanTrackingPanel({ order }: { order: EatCleanOrder }) {
     promisedAt: order.promisedAt,
   }
   const terminal = ['delivered', 'cancelled'].includes(live.status) || ['delivered', 'cancelled'].includes(order.status)
+  const locationMillis = Date.parse(live.lastLocationAt || '')
+  const boundaryNow = useLocalTimeBoundaries(!accessDenied && !terminal && live.shipperLocation
+    ? [locationMillis + GPS_STALE_AFTER_MS + 1] : [])
+  const gpsStale = Boolean(live.stale || (!terminal && live.shipperLocation
+    && (!Number.isFinite(locationMillis) || boundaryNow - locationMillis > GPS_STALE_AFTER_MS)))
 
   const read = async (quiet: boolean, isCurrent: () => boolean) => {
+    // A queued interval/focus callback can run before passive-effect cleanup.
+    // Guard the read itself so a render that paused recovery cannot call again.
+    if (quiet && (currentFailure || terminal)) return
     if (!quiet) setLoading(true)
     try {
       const next = await getEatCleanOrderTracking(order.id)
@@ -79,9 +91,9 @@ export function EatCleanTrackingPanel({ order }: { order: EatCleanOrder }) {
         ) : (
           <div className="eat-clean-tracking-wait"><Bike size={20} /><span><strong>Đang chờ shipper nhận đơn</strong><small>Aura sẽ báo ngay khi có người giao.</small></span></div>
         )}
-        <div className={`eat-clean-gps-state ${live.stale ? 'is-stale' : ''}`}>
-          {live.stale ? <TriangleAlert size={16} /> : <ShieldCheck size={16} />}
-          <span>{live.stale ? 'Tín hiệu GPS đang chậm' : 'Vị trí được bảo vệ'}<small>Cập nhật: {locationFreshness}</small></span>
+        <div className={`eat-clean-gps-state ${gpsStale ? 'is-stale' : ''}`}>
+          {gpsStale ? <TriangleAlert size={16} /> : <ShieldCheck size={16} />}
+          <span>{gpsStale ? 'Tín hiệu GPS đang chậm' : 'Vị trí được bảo vệ'}<small>Cập nhật: {locationFreshness}</small></span>
         </div>
         {showDeliveryOtp && <div className="eat-clean-delivery-otp"><ShieldCheck size={20} /><span><small>MÃ XÁC NHẬN GIAO HÀNG</small><strong aria-label={`Mã giao hàng ${live.deliveryOtp}`}>{live.deliveryOtp?.split('').map((digit, index) => <i key={`${digit}-${index}`}>{digit}</i>)}</strong><em>Chỉ đọc mã này khi bạn đã nhận đủ món.</em></span></div>}
         {live.promisedAt && <p className="eat-clean-sla"><MapPin size={15} /> Cam kết hoàn thành trước {formatEatCleanDate(live.promisedAt)}</p>}
