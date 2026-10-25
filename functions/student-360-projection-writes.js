@@ -13,6 +13,8 @@ const retryFailures = Object.freeze({
   lease_expired_during_write: ['projection_write', 'Projection rebuild lease expired or changed; retry required.'],
   lease_replaced_before_completion: ['lease_complete', 'Projection rebuild lease changed; retry required.'],
   progress_authority_changed: ['progress_write', 'Student progress authority changed during refresh; retry required.'],
+  operations_authority_changed: ['operations_write', 'Student operations authority changed during refresh; retry required.'],
+  operations_day_changed: ['operations_write', 'Student operations day changed during refresh; retry required.'],
 })
 
 function student360RetryError(reason) {
@@ -43,7 +45,7 @@ function atOrBefore(left, right) {
  * Deletions have no after.updateTime and deliberately always rebuild.
  */
 async function coalesceProjectionRebuild({ db, studentId, event, rebuild, now = Date.now, scope = 'full' }) {
-  const watermarks = { full: 'coveredThrough', nutrition: 'nutritionCoveredThrough', progress: 'progressCoveredThrough' }
+  const watermarks = { full: 'coveredThrough', nutrition: 'nutritionCoveredThrough', progress: 'progressCoveredThrough', operations: 'operationsCoveredThrough' }
   if (!Object.hasOwn(watermarks, scope)) throw new HttpsError('invalid-argument', 'Unknown Student 360 projection scope.')
   const reference = db.doc(`systemJobs/student360Rebuild/subjects/${studentId}`)
   const token = randomUUID()
@@ -63,10 +65,25 @@ async function coalesceProjectionRebuild({ db, studentId, event, rebuild, now = 
     }, { merge: true })
     // Never substitute completion time here: a write during rebuilding may
     // not yet be present in one of the source queries.
-    return { coveredThrough: snapshot.readTime || null }
+    return { coveredThrough: snapshot.readTime || null, state,
+      timelineBasis: state.token && state.timelineBasis?.completedToken === state.token ? state.timelineBasis : null,
+    }
   })
   if (!acquired) return { rebuilt: false, reason: 'covered_by_rebuild' }
+  const versionKey = value => value && Number.isFinite(value.seconds) && Number.isFinite(value.nanoseconds)
+    ? `${value.seconds}:${value.nanoseconds}` : null
+  const timelineCoverage = Object.fromEntries(['full', 'nutrition', 'progress'].map(domain => [domain, versionKey(acquired.state[watermarks[domain]])]))
+  const nextTimelineCoverage = { ...timelineCoverage,
+    ...(['full', 'nutrition', 'progress'].includes(scope) ? { [scope]: versionKey(acquired.coveredThrough) } : {}),
+  }
+  let nextTimelineBasis
   const lease = {
+    // Rankings live on the already-read lease document, not on the client
+    // overview. Older workers advance coverage without updating these ranks;
+    // the next operations worker detects that mismatch and repairs fully.
+    timelineBasis: acquired.timelineBasis,
+    timelineCoverage,
+    setTimelineRanks: ranks => { nextTimelineBasis = { version: 1, ranks, coverage: nextTimelineCoverage } },
     // The token read and every projection/timeline write share a transaction.
     // A takeover conflicts with this read, so a delayed worker cannot persist
     // old source data after its successor has acquired the lease.
@@ -82,11 +99,16 @@ async function coalesceProjectionRebuild({ db, studentId, event, rebuild, now = 
     await db.runTransaction(async (transaction) => {
       const snapshot = await transaction.get(reference)
       if (snapshot.data()?.token !== token) throw student360RetryError('lease_replaced_before_completion')
+      const completedBasis = nextTimelineBasis || (scope === 'operations' ? acquired.timelineBasis : null)
       transaction.set(reference, {
-        token: null, leaseUntil: null,
+        // A completed token is not a held lease: leaseUntil alone controls
+        // acquisition. Older workers reset token on success/failure, so they
+        // invalidate these ranks even when a failure advanced no watermark.
+        token: completedBasis ? token : null, leaseUntil: null,
         // Partial refreshes cannot acknowledge contract/session/finance
         // commits which they never read. All scopes still share one lease.
         ...(acquired.coveredThrough ? { [watermark]: acquired.coveredThrough } : {}),
+        ...(completedBasis ? { timelineBasis: { ...completedBasis, completedToken: token } } : {}),
       }, { merge: true })
     })
     return { rebuilt: true }

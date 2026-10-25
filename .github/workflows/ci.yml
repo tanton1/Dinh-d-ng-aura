@@ -89,7 +89,9 @@ jobs:
   browser:
     name: Browser (${{ matrix.project }})
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # A fresh WebKit runner can spend ~15 minutes installing OS dependencies.
+    # Leave time for the Safari suites after setup; retain Chromium's bound.
+    timeout-minutes: ${{ matrix.project == 'mobile-webkit' && 45 || 20 }}
     strategy:
       fail-fast: false
       matrix:

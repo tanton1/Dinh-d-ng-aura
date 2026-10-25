@@ -87,19 +87,21 @@ test('meal deletion removes its timeline and a delayed delete cannot erase a res
   assert.equal(timeline.docs[0].data().metadata.calories, 700)
 })
 
-test('nutrition coverage does not suppress a preceding unprocessed attendance event', async () => {
-  const { db } = await fixture()
-  const attendance = await writeEvent(db, 'attendanceEvents/attendance', { studentId: 'student', sessionId: 'session', date: today, attendanceStatus: 'present', updatedAt: FieldValue.serverTimestamp() })
-  const nutrition = await writeEvent(db, 'users/learner/mealLogs/meal', meal())
-  const before = (await db.doc('systemJobs/student360Rebuild/subjects/student').get()).data().coveredThrough
-  await syncStudent360ProjectionFromEvent({ db, event: nutrition, logger })
-  const state = (await db.doc('systemJobs/student360Rebuild/subjects/student').get()).data()
-  assert.ok(state.coveredThrough.isEqual(before))
-  assert.ok(state.nutritionCoveredThrough.toMillis() >= attendance.data.after.updateTime.toMillis())
-  const refreshed = await syncStudent360ProjectionFromEvent({ db, event: attendance, logger })
-  assert.equal(refreshed.skipped, false)
-  assert.equal(refreshed.mode, 'full')
-  assert.equal((await db.doc('studentOperationalViews/student').get()).data().attendance.attended, 1)
+test('nutrition coverage does not suppress preceding operations or full attendance reconciliation', async () => {
+  for (const operationsEnabled of [false, true]) {
+    const { db } = await fixture()
+    const attendance = await writeEvent(db, 'attendanceEvents/attendance', { studentId: 'student', sessionId: 'session', date: today, attendanceStatus: 'present', updatedAt: FieldValue.serverTimestamp() })
+    const nutrition = await writeEvent(db, 'users/learner/mealLogs/meal', meal())
+    const before = (await db.doc('systemJobs/student360Rebuild/subjects/student').get()).data().coveredThrough
+    await syncStudent360ProjectionFromEvent({ db, event: nutrition, logger })
+    const state = (await db.doc('systemJobs/student360Rebuild/subjects/student').get()).data()
+    assert.ok(state.coveredThrough.isEqual(before))
+    assert.ok(state.nutritionCoveredThrough.toMillis() >= attendance.data.after.updateTime.toMillis())
+    const refreshed = await syncStudent360ProjectionFromEvent({ db, event: attendance, logger, operationsEnabled })
+    assert.equal(refreshed.skipped, false)
+    assert.equal(refreshed.mode, operationsEnabled ? 'operations' : 'full')
+    assert.equal((await db.doc('studentOperationalViews/student').get()).data().attendance.attended, 1)
+  }
 })
 
 test('callable full rebuild and nutrition refresh share an exclusive lease; retry covers a newer meal', async () => {

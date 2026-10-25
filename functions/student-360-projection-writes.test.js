@@ -25,6 +25,12 @@ function memoryDb() {
 }
 const eventAt = (ms) => ({ data: { after: { exists: true, updateTime: Timestamp.fromMillis(ms) } } })
 
+test('Student 360 does not require a deployment parameter for its optional runtime override', () => {
+  require('./student-360')
+  const { declaredParams } = require('firebase-functions/params')
+  assert.equal(declaredParams.some(param => param.name === 'STUDENT360_OPERATIONS_PARTIAL_ENABLED'), false)
+})
+
 test('timeline rebuild only writes missing or materially changed events', async () => {
   const db = memoryDb()
   const events = Array.from({ length: 205 }, (_, id) => ({ id: String(id), metadata: { amount: id }, title: 'Buổi tập' }))
@@ -35,6 +41,28 @@ test('timeline rebuild only writes missing or materially changed events', async 
   events[70] = { ...events[70], metadata: { amount: 25 } }
   assert.equal((await upsertChangedTimeline(db, events)).changed, 1)
   assert.equal(db.data.size, 205)
+})
+
+test('timeline ranks are published with coverage only after the owning rebuild succeeds', async () => {
+  const db = memoryDb(), key = 'systemJobs/student360Rebuild/subjects/a'
+  await coalesceProjectionRebuild({ db, studentId: 'a', event: eventAt(999), rebuild: async lease => {
+    assert.equal(lease.timelineBasis, null)
+    lease.setTimelineRanks('initial')
+  } })
+  const initial = db.data.get(key).timelineBasis
+  assert.deepEqual({ ...initial, completedToken: undefined }, { version: 1, ranks: 'initial', coverage: { full: '1:0', nutrition: null, progress: null }, completedToken: undefined })
+  assert.equal(initial.completedToken, db.data.get(key).token)
+  assert.equal(db.data.get(key).leaseUntil, null)
+  db.time = 2000
+  await assert.rejects(coalesceProjectionRebuild({ db, studentId: 'a', event: eventAt(1999), scope: 'progress', rebuild: async lease => {
+    assert.deepEqual(lease.timelineCoverage, initial.coverage)
+    lease.setTimelineRanks('failed')
+    throw new Error('dependency failed')
+  } }), /dependency failed/)
+  assert.deepEqual(db.data.get(key).timelineBasis, initial)
+  assert.equal(db.data.get(key).progressCoveredThrough, undefined)
+  await coalesceProjectionRebuild({ db, studentId: 'a', event: eventAt(1999), scope: 'progress', rebuild: async lease => lease.setTimelineRanks('updated') })
+  assert.deepEqual({ ...db.data.get(key).timelineBasis, completedToken: undefined }, { version: 1, ranks: 'updated', coverage: { full: '1:0', nutrition: null, progress: '2:0' }, completedToken: undefined })
 })
 
 test('same commit mirrors/retries coalesce but a later commit rebuilds', async () => {
@@ -118,7 +146,7 @@ test('an in-flight nutrition refresh blocks full rebuilds through the same lease
   assert.equal(db.data.get('systemJobs/student360Rebuild/subjects/a').coveredThrough, undefined)
 })
 
-test('progress, nutrition and full rebuilds retain independent coverage under one lease', async () => {
+test('progress, nutrition, operations and full rebuilds retain independent coverage under one lease', async () => {
   const db = memoryDb()
   const run = (scope, ms) => coalesceProjectionRebuild({ db, studentId: 'a', event: eventAt(ms), scope, rebuild: async () => {} })
   await run('full', 999)
@@ -130,10 +158,14 @@ test('progress, nutrition and full rebuilds retain independent coverage under on
   assert.equal(state.progressCoveredThrough.toMillis(), 3000)
   assert.equal(state.nutritionCoveredThrough, undefined)
   assert.equal((await run('nutrition', 2500)).rebuilt, true)
+  assert.equal((await run('operations', 2500)).rebuilt, true)
+  assert.equal((await run('operations', 2500)).rebuilt, false)
+  assert.equal(db.data.get('systemJobs/student360Rebuild/subjects/a').operationsCoveredThrough.toMillis(), 3000)
   db.time = 4000
   assert.equal((await run('full', 2500)).rebuilt, true)
   assert.equal((await run('progress', 3500)).rebuilt, false, 'full coverage includes progress')
   assert.equal((await run('nutrition', 3500)).rebuilt, false, 'full coverage includes nutrition')
+  assert.equal((await run('operations', 3500)).rebuilt, false, 'full coverage includes operations')
   state = db.data.get('systemJobs/student360Rebuild/subjects/a')
   assert.equal(state.coveredThrough.toMillis(), 4000)
   await assert.rejects(run('unrecognized-domain', 4500), { code: 'invalid-argument' })
@@ -195,7 +227,7 @@ test('usage business changes and deletes still reach database reconciliation in 
 })
 
 test('failure classifications remain server-local and preserve callable error envelopes', () => {
-  for (const reason of ['lease_busy', 'lease_replaced_during_write', 'lease_expired_during_write', 'lease_replaced_before_completion', 'progress_authority_changed']) {
+  for (const reason of ['lease_busy', 'lease_replaced_during_write', 'lease_expired_during_write', 'lease_replaced_before_completion', 'progress_authority_changed', 'operations_authority_changed', 'operations_day_changed']) {
     const error = student360RetryError(reason)
     assert.equal(error.code, 'unavailable')
     assert.deepEqual(error.toJSON(), new HttpsError('unavailable', error.message).toJSON())
@@ -222,7 +254,7 @@ test('event logging identifies contention with one lease read, no writes and a r
   db.runTransaction = work => { transactionCalls++; return transaction(work) }
   db.data.set('systemJobs/student360Rebuild/subjects/s1', { token: 'another-owner', leaseUntil: Timestamp.fromMillis(Date.now() + 180_000) })
   const event = usageEvent({ studentId: 's1', usedSessions: 1 }, { studentId: 's1', usedSessions: 2 })
-  await assert.rejects(syncStudent360ProjectionFromEvent({ db, event, logger: { info() { throw Error('failed event must not log success') }, error: (...args) => logs.push(args) } }), error => {
+  await assert.rejects(syncStudent360ProjectionFromEvent({ db, event, operationsEnabled: false, logger: { info() { throw Error('failed event must not log success') }, error: (...args) => logs.push(args) } }), error => {
     assert.equal(error.code, 'unavailable')
     assert.equal(student360FailureFields(error).failureReason, 'lease_busy')
     return true
@@ -237,7 +269,7 @@ test('event logging preserves unknown dependency errors and never labels them as
   const error = Object.assign(new Error('private transport diagnostics'), { code: 14 }), logs = []
   const db = { doc: path => ({ path }), runTransaction: async () => { throw error } }
   const event = usageEvent({ studentId: 's1', usedSessions: 1 }, { studentId: 's1', usedSessions: 2 })
-  await assert.rejects(syncStudent360ProjectionFromEvent({ db, event, logger: { info() {}, error: (...args) => logs.push(args) } }), received => received === error)
+  await assert.rejects(syncStudent360ProjectionFromEvent({ db, event, operationsEnabled: false, logger: { info() {}, error: (...args) => logs.push(args) } }), received => received === error)
   assert.equal(logs.length, 1)
   assert.deepEqual(logs[0][1], { studentId: 's1', code: 14, projectionScope: 'full', failureReason: 'unclassified', failurePhase: 'unknown' })
   assert.equal(JSON.stringify(logs).includes('private transport diagnostics'), false)
