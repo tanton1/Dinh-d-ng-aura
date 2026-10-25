@@ -3,7 +3,6 @@ const { createHash } = require('node:crypto')
 const { isDeepStrictEqual } = require('node:util')
 const { FieldPath, FieldValue } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
-const { defineBoolean } = require('firebase-functions/params')
 const { trustedAccessContext } = require('./identity-access')
 const { PT_OPERATIONS_POLICY_EFFECTIVE_FROM, PT_OPERATIONS_POLICY_VERSION } = require('./pt-policy')
 const { effectiveContractStatus } = require('./contract-status')
@@ -27,7 +26,13 @@ const HEALTH_FORMULA_VERSION = 'student-health-v1'
 // prevents an unchanged profile from re-reading every history collection each
 // time Staff opens it, while the scheduled reconciler repairs missed triggers.
 const PROJECTION_MAX_AGE_MS = 24 * 60 * 60 * 1000
-const operationsPartialEnabled = defineBoolean('STUDENT360_OPERATIONS_PARTIAL_ENABLED', { default: true })
+// Optional runtime override, consistent with existing deployment configuration.
+// A new required Firebase parameter would force dotenv adoption, which also
+// replaces existing per-service environment values during deployment.
+function operationsPartialEnabled() {
+  const value = process.env.STUDENT360_OPERATIONS_PARTIAL_ENABLED
+  return value === undefined || value.trim().toLowerCase() === 'true'
+}
 const projectionRefreshQueueCache = createProcessCache({ ttlMs: 10 * 60 * 1000, maxEntries: 2_000 })
 const studentProjectionReadCache = createProcessCache({ ttlMs: 5_000, maxEntries: 512 })
 
@@ -2367,7 +2372,7 @@ async function resolveEventStudentId(db, event) {
   return null
 }
 
-async function syncStudent360ProjectionFromEvent({ db, event, logger = console, operationsEnabled = operationsPartialEnabled.value() }) {
+async function syncStudent360ProjectionFromEvent({ db, event, logger = console, operationsEnabled = operationsPartialEnabled() }) {
   if (!sourceChanged(event)) return { skipped: true, reason: 'source_unchanged' }
   if (rootProfileMetadataOnly(event)) return { skipped: true, reason: 'source_metadata_only' }
   const resolvedStudentId = await resolveEventStudentId(db, event)
