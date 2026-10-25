@@ -1785,14 +1785,15 @@ function studentWeekEligibility(contracts, studentId, branchId, week, referenceD
     }
     return true
   })
-  // Contract dates span seven calendar days, but a closed Sunday must not
-  // keep a learner eligible when approved OFF covers every operating day.
-  // All production callers provide the same calendar used by the matrix.
+  // Use the operating calendar only to recognize approved full-week OFF.
+  // Globally filtering entitlement dates by workingDays erases ordinary
+  // learners' coverage on a closed Sunday, despite their existing bookings.
+  // Keep the existing date/expiry policy for everyone else.
   const calendar = scheduleConfig ? normalizedScheduleConfig(scheduleConfig) : null
   const operatingDates = calendar
     ? new Set(calendar.workingDays.map((day) => dateForSlot(week, day)).filter((date) => !calendar.holidays.includes(date)))
     : new Set(weekDates)
-  const dates = weekDates.filter((date) => date >= referenceDate && operatingDates.has(date))
+  const dates = weekDates.filter((date) => date >= referenceDate)
   const validDates = []
   const pausedDates = []
   const eligibleContractIds = new Set()
@@ -1824,6 +1825,13 @@ function studentWeekEligibility(contracts, studentId, branchId, week, referenceD
     activeScheduledThisWeek += contractActiveThisWeek
     remainingSchedulableSessions += contractSchedulable
     if (contractWeeklyCapacity > 0) hasRemainingSessions = true
+    const operatingContractDates = calendar && contract.pausePeriods?.length
+      ? [...operatingDates].filter((date) => (date >= startDate && date <= endDate && contractEffectiveOnDate(contract, date))
+        || contractCanParticipateInWeek(contract, branchContracts, [date], emptyReservations))
+      : []
+    const approvedFullWeekOff = operatingContractDates.length > 0
+      && operatingContractDates.every((date) => contractPaused(contract, date))
+    if (approvedFullWeekOff && contractWeeklyCapacity > 0) pausedDates.push(...operatingContractDates)
     let contractUsableInWeek = false
     for (const date of dates) {
       const directDate = date >= startDate && date <= endDate && contractEffectiveOnDate(contract, date)
@@ -1835,6 +1843,9 @@ function studentWeekEligibility(contracts, studentId, branchId, week, referenceD
         pausedDates.push(date)
         continue
       }
+      // A closed calendar day cannot revive entitlement for a contract whose
+      // every usable operating day is covered by an approved pause.
+      if (approvedFullWeekOff && !operatingDates.has(date)) continue
       validDates.push(date)
       eligibleContractIds.add(contract.id)
       contractUsableInWeek = true

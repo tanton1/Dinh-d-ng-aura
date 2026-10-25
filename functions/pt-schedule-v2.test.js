@@ -342,6 +342,32 @@ test('current week excludes contract days that already ended before today', () =
   assert.equal(result.eligible, false)
 })
 
+test('a closed Sunday does not erase ordinary weekly targets or existing bookings', () => {
+  const data = fixture()
+  const contract = { ...data.contracts[0], activeScheduledSessions: 3, activeScheduledThisWeek: 3 }
+  const result = studentWeekEligibility([contract], 'student-a', BRANCH, '2026-10-19', '2026-10-25', false, data.config)
+  const legacy = studentWeekEligibility([contract], 'student-a', BRANCH, '2026-10-19', '2026-10-25')
+  assert.deepEqual(result, legacy)
+  assert.equal(result.eligible, true)
+  assert.equal(result.activeScheduledThisWeek, 3)
+  assert.equal(weeklyTargetForStudent(3, null, result).sessionsPerWeek, 3)
+})
+
+test('approved full-week OFF remains excluded on the closed Sunday without suppressing another usable contract', () => {
+  const data = fixture()
+  const fullOff = { ...data.contracts[0], pausePeriods: [{ type: 'off', startDate: '2026-10-19', endDate: '2026-10-24' }] }
+  const result = studentWeekEligibility([fullOff], 'student-a', BRANCH, '2026-10-19', '2026-10-25', false, data.config)
+  assert.equal(result.eligible, false)
+  assert.deepEqual(result.validDates, [])
+  assert.equal(result.pausedDates.length, 6)
+  assert.deepEqual(result.reasonCodes, ['CONTRACT_PAUSED'])
+  assert.equal(weeklyTargetForStudent(3, null, result).sessionsPerWeek, 0)
+  const another = studentWeekEligibility([fullOff, { ...data.contracts[0], id: 'other' }], 'student-a', BRANCH,
+    '2026-10-19', '2026-10-25', false, data.config)
+  assert.equal(another.eligible, true)
+  assert.equal(weeklyTargetForStudent(3, null, another).sessionsPerWeek, 3)
+})
+
 test('weekly target remains the profile demand while remaining dates are reported separately', () => {
   const result = weeklyTargetForStudent(6, null, {
     remainingSessions: 55,
