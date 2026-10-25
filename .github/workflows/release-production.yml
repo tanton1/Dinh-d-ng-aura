@@ -75,6 +75,7 @@ jobs:
       - run: npm run test:data-cost-ui
       - run: npm run test:progress-summary-ui
       - run: npm run test:delivery-workspace-ui -- --project=delivery-mobile-webkit
+      - run: npm run test:delivery-map-ui
       - run: npm run test:workspace-sync-ui
       - run: npx playwright test --config tests/training-history-panel-ui/playwright.config.ts
       - run: npm run test:data-cost-transaction

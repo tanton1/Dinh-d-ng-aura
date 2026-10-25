@@ -47,6 +47,7 @@
     "test:data-cost-transaction": "npx --yes firebase-tools@15.9.1 emulators:exec --only firestore --project demo-aura-fitness \"node --test functions/student-360-refresh-queue.integration.cjs functions/renewal-queue-safety.integration.cjs functions/pt-workout-reads.integration.cjs functions/operations-dashboard-cache.integration.cjs functions/training-history-pagination.integration.cjs functions/delivery-workspace-signals.integration.cjs\"",
     "test:delivery-location-transaction": "npx --yes firebase-tools@15.9.1 emulators:exec --only database --project demo-aura-fitness-rtdb \"node --test functions/delivery-location.integration.cjs\"",
     "test:delivery-workspace-ui": "playwright test --config tests/data-cost-ui/playwright.delivery.config.ts",
+    "test:delivery-map-ui": "playwright test --config tests/delivery-map-ui/playwright.config.ts",
     "test:function-lifecycle": "node --test scripts/dashboard-cache-ttl.test.cjs scripts/evaluate-function-lifecycle.test.cjs",
     "test:workspace-sync-ui": "playwright test --config tests/workspace-sync-ui/playwright.config.ts",
     "test:training-history-ui": "playwright test --config tests/training-history-workspace-ui/playwright.config.ts && playwright test --config tests/training-history-panel-ui/playwright.config.ts && playwright test --config playwright.operations-requests.config.ts && playwright test --config tests/history-route-isolation-ui/playwright.config.ts",

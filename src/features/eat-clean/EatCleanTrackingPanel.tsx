@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { Bike, Clock3, LoaderCircle, MapPin, Navigation, Phone, RefreshCw, ShieldCheck, TriangleAlert } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { Bike, Clock3, LoaderCircle, MapPin, Phone, RefreshCw, ShieldCheck, TriangleAlert } from 'lucide-react'
 import { getEatCleanOrderTracking } from './eatCleanService'
-import { googleMapsConfigured, loadGoogleMaps } from './googleMapsLoader'
+import { EatCleanTrackingMap as TrackingMap } from './EatCleanTrackingMap'
 import { EAT_CLEAN_STATUS_LABELS, formatEatCleanDate } from './EatCleanUi'
-import type { EatCleanCoordinate, EatCleanOrder, EatCleanOrderTracking } from './types'
+import type { EatCleanOrder, EatCleanOrderTracking } from './types'
 import { useForegroundRefresh } from '../../hooks/useForegroundRefresh'
 
 function etaLabel(value?: string) {
@@ -13,52 +13,6 @@ function etaLabel(value?: string) {
   const minutes = Math.max(0, Math.round((date.getTime() - Date.now()) / 60_000))
   const time = new Intl.DateTimeFormat('vi-VN', { hour: '2-digit', minute: '2-digit' }).format(date)
   return minutes > 0 ? `${minutes} phút · khoảng ${time}` : `Dự kiến lúc ${time}`
-}
-
-function toMapPosition(coordinate?: EatCleanCoordinate) {
-  return coordinate ? { lat: coordinate.latitude, lng: coordinate.longitude } : undefined
-}
-
-function TrackingMap({ tracking }: { tracking: EatCleanOrderTracking }) {
-  const elementRef = useRef<HTMLDivElement>(null)
-  const [available, setAvailable] = useState<boolean | null>(null)
-  const center = tracking.shipperLocation || tracking.destination || tracking.kitchenLocation
-
-  useEffect(() => {
-    let active = true
-    const markers: Array<{ setMap: (map: unknown) => void }> = []
-    void loadGoogleMaps().then((maps) => {
-      if (!active) return
-      setAvailable(Boolean(maps))
-      if (!maps || !elementRef.current || !center) return
-      const map = new maps.Map(elementRef.current, {
-        center: toMapPosition(center),
-        zoom: 14,
-        mapTypeControl: false,
-        streetViewControl: false,
-        fullscreenControl: false,
-      })
-      const points = [
-        { coordinate: tracking.kitchenLocation, title: 'Bếp Aura' },
-        { coordinate: tracking.destination, title: 'Điểm nhận hàng' },
-        { coordinate: tracking.shipperLocation, title: 'Shipper' },
-      ]
-      points.forEach(({ coordinate, title }) => {
-        if (!coordinate) return
-        markers.push(new maps.Marker({ map, position: toMapPosition(coordinate), title }))
-      })
-    })
-    return () => { active = false; markers.forEach((marker) => marker.setMap(null)) }
-  }, [center?.latitude, center?.longitude, tracking.destination?.latitude, tracking.destination?.longitude, tracking.kitchenLocation?.latitude, tracking.kitchenLocation?.longitude, tracking.shipperLocation?.latitude, tracking.shipperLocation?.longitude])
-
-  if (!googleMapsConfigured() || available === false || !center) {
-    return (
-      <div className="eat-clean-tracking-map is-fallback">
-        <div><Navigation size={29} /><strong>{center ? 'Theo dõi vị trí đang hoạt động' : 'Chưa có vị trí shipper'}</strong><span>{center ? 'Bản đồ trực quan sẽ hiện khi Google Maps được cấu hình.' : 'Bản đồ sẽ tự cập nhật sau khi shipper nhận đơn.'}</span></div>
-      </div>
-    )
-  }
-  return <div ref={elementRef} className="eat-clean-tracking-map">{available === null && <LoaderCircle className="eat-clean-spin" size={25} />}</div>
 }
 
 export function EatCleanTrackingPanel({ order }: { order: EatCleanOrder }) {
