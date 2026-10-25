@@ -86,6 +86,8 @@ jobs:
       - run: npm run security:secrets
       - run: npm run security:audit
       - run: npm run ci
+      - name: Test bounded deployment metadata recovery
+        run: node --test scripts/read-firebase-function-inventory.test.cjs
       - run: npx playwright install --with-deps chromium webkit
       - run: npm run test:e2e
       - run: npm run test:schedule-ui
@@ -269,7 +271,7 @@ jobs:
         run: |
           BEFORE_MANIFEST="$RUNNER_TEMP/firebase-functions-before.json"
           CURRENT_MANIFEST="$RUNNER_TEMP/firebase-functions-current.json"
-          npx --yes firebase-tools@15.9.1 functions:list --project gen-lang-client-0815966909 --json > "$BEFORE_MANIFEST"
+          node scripts/read-firebase-function-inventory.cjs --project=gen-lang-client-0815966909 --file="$BEFORE_MANIFEST"
 
           rollback_previous() {
             if [ "$ACADEMY_RELEASE" = "true" ]; then
@@ -305,7 +307,12 @@ jobs:
             FUNCTION_REGION=""
             SERVICE_NAME=""
             for ATTEMPT in $(seq 1 12); do
-              npx --yes firebase-tools@15.9.1 functions:list --project gen-lang-client-0815966909 --json > "$CURRENT_MANIFEST"
+              # Only metadata reads are retried. A transient listing failure
+              # must not cause a second deployment of this function.
+              if ! node scripts/read-firebase-function-inventory.cjs --project=gen-lang-client-0815966909 --file="$CURRENT_MANIFEST"; then
+                rollback_previous "$FUNCTION_NAME"
+                exit 1
+              fi
               FUNCTION_REGION="$(node scripts/firebase-function-region.cjs --file="$CURRENT_MANIFEST" --function="$FUNCTION_NAME" --field=region --allow-missing)"
               SERVICE_NAME="$(node scripts/firebase-function-region.cjs --file="$CURRENT_MANIFEST" --function="$FUNCTION_NAME" --field=service --allow-missing)"
               if [ -n "$FUNCTION_REGION" ] && [ -n "$SERVICE_NAME" ]; then break; fi
