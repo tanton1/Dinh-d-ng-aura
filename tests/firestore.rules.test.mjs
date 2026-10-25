@@ -6,7 +6,7 @@ import {
   assertSucceeds,
   initializeTestEnvironment,
 } from '@firebase/rules-unit-testing'
-import { collection, deleteDoc, doc, getDoc, getDocs, serverTimestamp, setDoc, updateDoc } from 'firebase/firestore'
+import { collection, deleteDoc, doc, getDoc, getDocs, serverTimestamp, setDoc, updateDoc, writeBatch } from 'firebase/firestore'
 
 const projectId = 'demo-aura-fitness'
 const rulesPath = new URL('../firestore.rules', import.meta.url)
@@ -325,6 +325,33 @@ describe('Aura PT Firestore rules', () => {
     await assertFails(setDoc(doc(admin, 'uiRolloutAssignments', 'other-client'), { surfaces: ['shell'], expiresAt: null }))
   })
 
+  test('private Academy chapter versions and grading receipts deny browser reads and writes, including staff', async () => {
+    const paths = [
+      ['courses', 'course-learning-v2', 'academyChapterVersions', 'version-1'],
+      ['courses', 'course-learning-v2', 'academyAdoptionCandidates', 'private-candidate'],
+      ['courses', 'course-learning-v2', 'academyAdoptionHeads', 'nutrition-chapter-03'],
+      ['courses', 'course-learning-v2', 'academyAdoptionReviews', 'private-candidate'],
+      ['courses', 'course-learning-v2', 'academyReviewHistory', 'private-candidate_000001'],
+      ['academyScientificReviewers', 'admin-1'],
+      ['users', 'client-1', 'quizAttempts', 'old-attempt-containing-grading-hash'],
+    ]
+    await testEnvironment.withSecurityRulesDisabled(async (context) => {
+      for (const path of paths) await setDoc(doc(context.firestore(), ...path), { storageVersion: 1, contentHash: 'internal-private-hash' })
+    })
+    for (const client of [
+      testEnvironment.unauthenticatedContext().firestore(),
+      authenticatedDb('client-1', 'student'), authenticatedDb('coach-1', 'coach'),
+      authenticatedDb('admin-1', 'admin'), authenticatedDb('super-1', 'super_admin'),
+    ]) {
+      for (const path of paths) {
+        await assertFails(getDoc(doc(client, ...path)))
+        await assertFails(getDocs(collection(client, ...path.slice(0, -1))))
+        await assertFails(setDoc(doc(client, ...path), { module: { lessons: [] } }))
+        await assertFails(deleteDoc(doc(client, ...path)))
+      }
+    }
+  })
+
   test('Academy workbook is owner-only and uses monotonic cloud revisions', async () => {
     const client = authenticatedDb('client-1', 'student')
     const otherClient = authenticatedDb('other-client', 'student')
@@ -358,6 +385,38 @@ describe('Aura PT Firestore rules', () => {
     }))
     await assertFails(getDoc(doc(otherClient, 'users', 'client-1', 'academyWorkbooks', 'course-learning-v2__lesson-1')))
     await assertFails(setDoc(doc(otherClient, 'users', 'other-client', 'academyWorkbooks', 'course-learning-v2__lesson-1'), { ...base, revision: 1 }))
+  })
+
+  test('a workbook definition change atomically retains an exact owner-only immutable prior draft', async () => {
+    const client = authenticatedDb('client-1', 'student')
+    const original = doc(client, 'users', 'client-1', 'academyWorkbooks', 'course-learning-v2__lesson-1')
+    const archive = doc(client, 'users', 'client-1', 'academyWorkbookArchives', 'course-learning-v2__lesson-1__r1')
+    await assertSucceeds(setDoc(original, { courseId: 'course-learning-v2', lessonId: 'lesson-1', revision: 1,
+      sharedWithCoach: true, body: JSON.stringify({ definitionVersion: 1, answers: { context: 'Old draft' } }),
+      createdAt: serverTimestamp(), updatedAt: serverTimestamp() }))
+    const source = (await getDoc(original)).data()
+    const changed = { ...source, revision: 2, sharedWithCoach: false,
+      body: JSON.stringify({ definitionVersion: 2, answers: {} }), updatedAt: serverTimestamp() }
+    const invalid = writeBatch(client)
+    invalid.set(archive, { sourceWorkbookId: original.id, source: { ...source, body: 'forged' }, archivedAt: serverTimestamp() })
+    invalid.set(original, changed)
+    await assertFails(invalid.commit())
+    assert.deepEqual((await getDoc(original)).data(), source)
+    assert.equal((await getDoc(archive)).exists(), false)
+    const valid = writeBatch(client)
+    valid.set(archive, { sourceWorkbookId: original.id, source, archivedAt: serverTimestamp() })
+    valid.set(original, changed)
+    await assertSucceeds(valid.commit())
+    assert.deepEqual((await getDoc(archive)).data().source, source)
+    assert.equal((await getDoc(original)).data().revision, 2)
+    for (const [id, role] of [['other-client', 'student'], ['coach-1', 'coach'], ['admin-1', 'admin']]) {
+      await assertFails(getDoc(doc(authenticatedDb(id, role), archive.path)))
+    }
+    await assertFails(updateDoc(archive, { archivedAt: serverTimestamp() }))
+    await assertFails(deleteDoc(archive))
+    await assertFails(setDoc(doc(client, 'users', 'client-1', 'academyWorkbookArchives', 'foreign'), {
+      sourceWorkbookId: '../other-client', source, archivedAt: serverTimestamp(),
+    }))
   })
 
   test('assignment cycles are readable only by the client, assigned coach, and admin', async () => {

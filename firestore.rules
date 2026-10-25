@@ -446,10 +446,10 @@ service cloud.firestore {
       }
 
       match /quizAttempts/{attemptId} {
-        // Attempts are immutable from clients. gradeCourseQuiz is the only
-        // writer and never stores or returns an answer key.
-        allow read: if isOwner(userId) || isAdmin();
-        allow create, update, delete: if false;
+        // Internal idempotency/grading hashes depend on private answer keys.
+        // Learners receive only the safe result from gradeCourseQuiz; no UI
+        // queries this collection directly, including historical attempts.
+        allow read, write: if false;
       }
 
       match /quizAttemptCounters/{counterId} {
@@ -460,6 +460,18 @@ service cloud.firestore {
       match /courseLessonProofs/{proofId} {
         // Server-only completion proof. Neither PT logs nor client writes can
         // manufacture Academy lesson completion.
+        allow read, write: if false;
+      }
+
+      // Immutable submissions, live sharing consent and assigned-coach checks
+      // are enforced by academySubmissionAction, including review revisions.
+      match /academySubmissions/{document=**} {
+        allow read, write: if false;
+      }
+      match /academySubmissionHeads/{document=**} {
+        allow read, write: if false;
+      }
+      match /academySubmissionReviews/{document=**} {
         allow read, write: if false;
       }
 
@@ -495,6 +507,27 @@ service cloud.firestore {
                               && request.resource.data.revision == resource.data.revision + 1))
                       && hasAcademyEnrollment(userId, resource.data.courseId);
         allow delete: if isOwner(userId);
+      }
+
+      // Exact, immutable pre-change drafts. Only an owner can request a copy;
+      // the submitted source must equal the live document BEFORE the batch.
+      match /academyWorkbookArchives/{archiveId} {
+        function validArchive() {
+          let data = request.resource.data;
+          let sourcePath = /databases/$(database)/documents/users/$(userId)/academyWorkbooks/$(data.sourceWorkbookId);
+          return data.keys().hasOnly(['sourceWorkbookId', 'source', 'archivedAt'])
+                 && data.sourceWorkbookId is string
+                 && data.sourceWorkbookId.matches('^[A-Za-z0-9_%.-]{1,1000}$')
+                 && exists(sourcePath)
+                 && data.source == get(sourcePath).data
+                 && data.source.body is string
+                 && data.source.body.size() <= 20000
+                 && data.archivedAt == request.time
+                 && hasAcademyEnrollment(userId, data.source.courseId);
+        }
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId) && validArchive();
+        allow update, delete: if false;
       }
 
       match /academyReviewItems/{reviewId} {
@@ -773,9 +806,15 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    match /academyScientificReviewers/{reviewerId} {
+      // Qualification grants are provisioned out of band, never by a browser
+      // admin or by a self-attestation in the chapter review form.
+      allow read, write: if false;
+    }
+
     match /courses/{courseId} {
-      // Full modules live in this staff-only document. Learners receive a
-      // catalog plus entitlement-filtered content from listAcademyCourses.
+      // Legacy full courses or new authoring/live manifests are staff-only.
+      // Learners receive authorized projections through listAcademyCourses.
       allow read: if isAcademyStaff();
       // Course, quiz key, revision and audit writes must stay in the same
       // saveCourseDraftAtomic server transaction.
@@ -786,6 +825,26 @@ service cloud.firestore {
         // results through gradeCourseQuiz.
         allow read: if hasRole(['editor', 'admin', 'super_admin']);
         allow create, update, delete: if false;
+      }
+
+      match /academyChapterVersions/{versionId} {
+        // Immutable full chapters include private assessment keys. Even staff
+        // authoring reads go through an authorized server projection.
+        allow read, write: if false;
+      }
+
+      match /academyAdoptionCandidates/{candidateId} {
+        // Includes the exact private assessment being reviewed.
+        allow read, write: if false;
+      }
+      match /academyAdoptionHeads/{moduleId} {
+        allow read, write: if false;
+      }
+      match /academyAdoptionReviews/{candidateId} {
+        allow read, write: if false;
+      }
+      match /academyReviewHistory/{reviewId} {
+        allow read, write: if false;
       }
 
       match /media/{mediaId} {

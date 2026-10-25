@@ -1,0 +1,914 @@
+{
+  "schemaVersion": 1,
+  "baseCommit": "30c10f4015071a31c703e1b0cf2aa0fb47bc7b99",
+  "purpose": "Isolated Academy release preparation; not authorization to auto-publish scientific content.",
+  "target": {
+    "projectId": "gen-lang-client-0815966909",
+    "databaseId": "ai-studio-aurafitnesselear-0f7609b4-b8d1-4fb3-9d62-99a2c03e1ce7",
+    "frontend": "https://aurafitness-jet.vercel.app"
+  },
+  "functions": [
+    {
+      "id": "academySubmissionAction",
+      "region": "asia-east1",
+      "phase": "runtime-before-authoring",
+      "newFunction": true
+    },
+    {
+      "id": "completeCourseLesson",
+      "region": "asia-southeast1",
+      "phase": "runtime-before-authoring",
+      "newFunction": false
+    },
+    {
+      "id": "enrollInCourse",
+      "region": "asia-southeast1",
+      "phase": "runtime-before-authoring",
+      "newFunction": false
+    },
+    {
+      "id": "getCourseMediaUrl",
+      "region": "asia-southeast1",
+      "phase": "runtime-before-authoring",
+      "newFunction": false
+    },
+    {
+      "id": "getCourseMediaUrlRegional",
+      "region": "asia-east1",
+      "phase": "runtime-before-authoring",
+      "newFunction": false
+    },
+    {
+      "id": "getCourseRevisionDiff",
+      "region": "asia-southeast1",
+      "phase": "runtime-before-authoring",
+      "newFunction": false
+    },
+    {
+      "id": "getCourseRevisionHistory",
+      "region": "asia-southeast1",
+      "phase": "runtime-before-authoring",
+      "newFunction": false
+    },
+    {
+      "id": "getCourseWorkoutSession",
+      "region": "asia-southeast1",
+      "phase": "runtime-before-authoring",
+      "newFunction": false
+    },
+    {
+      "id": "gradeCourseQuiz",
+      "region": "asia-southeast1",
+      "phase": "runtime-before-authoring",
+      "newFunction": false
+    },
+    {
+      "id": "listAcademyCourses",
+      "region": "asia-southeast1",
+      "phase": "runtime-before-authoring",
+      "newFunction": false
+    },
+    {
+      "id": "listAcademyCoursesRegional",
+      "region": "asia-east1",
+      "phase": "runtime-before-authoring",
+      "newFunction": false
+    },
+    {
+      "id": "manageAcademyEnrollment",
+      "region": "asia-southeast1",
+      "phase": "runtime-before-authoring",
+      "newFunction": false
+    },
+    {
+      "id": "restoreCourseRevisionToDraft",
+      "region": "asia-southeast1",
+      "phase": "authoring-last",
+      "newFunction": false
+    },
+    {
+      "id": "saveCourseDraftAtomic",
+      "region": "asia-southeast1",
+      "phase": "authoring-last",
+      "newFunction": false
+    },
+    {
+      "id": "saveCourseWorkoutLog",
+      "region": "asia-southeast1",
+      "phase": "runtime-before-authoring",
+      "newFunction": false
+    },
+    {
+      "id": "transitionCoursePublicationStatus",
+      "region": "asia-southeast1",
+      "phase": "authoring-last",
+      "newFunction": false
+    }
+  ],
+  "invariants": [
+    "No full Functions fleet deployment, no region migration, no warm-instance increase, no SMS enablement.",
+    "No automatic content migration, publication or scientific reviewer grant.",
+    "Preserve published snapshots, progress, workbook archives, immutable submissions and existing private keys.",
+    "Keep unrelated dirty work out of the archive; never stage, commit or push the shared workspace.",
+    "Function scope must match direct and transitive dependency audit, including regional aliases. No PT endpoint is part of this release."
+  ],
+  "sequence": [
+    {
+      "id": "source-verification",
+      "requires": [
+        "Frozen source checksums and private-marker scan",
+        "Academy logic, browser, Rules and real emulator transaction suites from isolated source",
+        "Production configuration validation using protected deployment environment; never compile [SENSITIVE] placeholders"
+      ],
+      "pending": [
+        "Isolated-source verification",
+        "Production configuration and authenticated smoke account"
+      ]
+    },
+    {
+      "id": "guardrails-first",
+      "requires": [
+        "Capture current serving revisions and previous deployed Rules/index policies",
+        "Coordinate authoring pause until all runtime endpoints and frontend are verified",
+        "Apply named-database Firestore Rules and immutable Storage Rules before new private grading/submission data is written",
+        "Apply only the 16 reviewed single-field exemptions; do not delete or replace unrelated indexes"
+      ],
+      "pending": [
+        "Reviewed targeted field-exemption deployment path; existing index helper handles composites only",
+        "Deployed permission verification"
+      ]
+    },
+    {
+      "id": "runtime-before-authoring",
+      "requires": [
+        "Deploy explicit runtime functions sequentially in recorded regions",
+        "Verify health, exact serving revision, unchanged/zero warm reservations, no missing IAM invoker permission and old-client legacy-course access",
+        "Do not invoke mutation smoke tests against real learner evidence"
+      ]
+    },
+    {
+      "id": "authoring-last",
+      "requires": [
+        "Every selected-delivery, lifecycle, grading, media and workout endpoint supports chapters-v1",
+        "Deploy the three authoring mutators last while content editing is paused",
+        "Do not run legacy direct-publish scripts"
+      ]
+    },
+    {
+      "id": "frontend",
+      "requires": [
+        "Backend and Rules verification completed",
+        "Build from the isolated reviewed revision with protected Vercel environment; pin exact release identifier",
+        "Verify authenticated learner/coach/staff boundaries and active public alias before ending authoring pause"
+      ],
+      "pending": [
+        "Release orchestration that prevents Vercel Git auto-promotion before backend completion; current general workflow is not a sufficient ordering barrier"
+      ]
+    },
+    {
+      "id": "content-after-human-review",
+      "requires": [
+        "A named qualified reviewer and scoped verified grant, provisioned separately by an authorized administrator",
+        "Explicit review of each immutable chapter candidate; approval is not inferred from passing tests",
+        "One-chapter pilot adoption into draft, preview and explicit publication, then staged expansion",
+        "Measure real read requests/document reads, load latency, error rate and learner evidence before expanding"
+      ],
+      "pending": [
+        "Qualified scientific reviewer and approval",
+        "Real approved adoption/publication and production measurements"
+      ]
+    }
+  ],
+  "rollback": [
+    "Before any chapters-v1 write, revert only the affected runtime to its captured verified serving revision if its source/config and permission compatibility are known; a local HEAD tar is not proof of production rollback safety.",
+    "After any chapters-v1 migration or immutable-submission write, do not return to legacy-only readers/writers or restore raw root documents. Keep the storage-aware backend and privacy Rules; prefer forward repair.",
+    "Frontend rollback must target a verified storage-aware compatible build. Retain published content snapshots and all learner evidence.",
+    "Content rollback uses the audited restore-to-draft/review/publication workflow for an eligible reviewed revision. For the first reviewed publication with no approved prior version, archive the course if needed and repair forward; never bypass scientific review.",
+    "No automatic deletion of the newly introduced callable or any private chapter/submission data."
+  ],
+  "prohibitedCommands": [
+    "firebase deploy --only functions",
+    "scripts/release-aura-nutrition-learning-v2.cjs --mode=apply",
+    "scripts/release-aura-nutrition-study-guides.cjs --mode=apply",
+    "Raw Firestore updates that bypass reviewed adoption/publication"
+  ],
+  "workflowAudit": {
+    "currentGeneralWorkflow": ".github/workflows/release-production.yml",
+    "limitations": [
+      "Current workflow applies Rules after backend deployment.",
+      "It waits for a Vercel Git deployment instead of controlling when the public frontend alias is promoted.",
+      "Its index helper creates missing composite indexes but does not deploy these single-field exemptions."
+    ],
+    "useForThisRelease": "Do not dispatch unchanged; resolve the ordering and index gaps first."
+  },
+  "reviewedFiles": [
+    {
+      "path": "content/academy/chapter-01.ts",
+      "sha256": "892a5d3f74409a6dd1084c77b0d0e50612927e44bd102462ab375de545dd1b3d"
+    },
+    {
+      "path": "content/academy/chapter-02.ts",
+      "sha256": "ef3b8fe309e1824f2e2010bf42938b2dceb93730cafcb25333606e098ef7e07a"
+    },
+    {
+      "path": "content/academy/chapter-03.ts",
+      "sha256": "7cffd94a7f751798dadff77ed1d409f518f8550d8cfc10e605fd2a852cb14dba"
+    },
+    {
+      "path": "content/academy/chapter-04.ts",
+      "sha256": "ddd83470d4565a5c52273ace335dd80ff3150b8e14a3ab0328b7d10293bedb4f"
+    },
+    {
+      "path": "content/academy/chapter-05.ts",
+      "sha256": "bbcf418a94437afaa2033247a562e4877201b7894526b5d8ab9f31ca633c033e"
+    },
+    {
+      "path": "content/academy/chapter-06.ts",
+      "sha256": "168120467c6e93f02972d53b97981149c0df5b682adde130e6056101cc28a2fc"
+    },
+    {
+      "path": "content/academy/chapter-07.ts",
+      "sha256": "0e22b2579ea7fa8376c74bca8d232046b46aa9824ed86561af59b06e308d0b35"
+    },
+    {
+      "path": "content/academy/chapter-08.ts",
+      "sha256": "9f24ce732b6281e5cc21171df1e1da0c8806a026c886a19a7c7056ab3b876af3"
+    },
+    {
+      "path": "content/academy/chapter-09.ts",
+      "sha256": "e0371536a140715b3a4484dc7ede6dec5731d7b615adde28254f019809a0e8f2"
+    },
+    {
+      "path": "content/academy/chapter-10.ts",
+      "sha256": "396329434b4a955edd42fdf05f0395b8a7aa36e67301c898185e2483475f7324"
+    },
+    {
+      "path": "content/academy/chapter-11.ts",
+      "sha256": "06d128d2357a91b527c7a019d2bb8b6f062597a5d109b7185a18ee30b37a955d"
+    },
+    {
+      "path": "content/academy/chapter-12.ts",
+      "sha256": "1a5eb0c04a5db3c00934c0d64da89419653a3a702e14f48d101bcc7d4b2227a4"
+    },
+    {
+      "path": "content/academy/chapter-13.ts",
+      "sha256": "d11b0ca4fe7f36a4d11405c87223c7f396710cbc515594faccb106087fef1aa5"
+    },
+    {
+      "path": "content/academy/chapter-14.ts",
+      "sha256": "f8e2a97a4faeb263e9c78a8f2f1d97856508d722fd123233937a80bdfea000fa"
+    },
+    {
+      "path": "content/academy/chapter-15.ts",
+      "sha256": "098c7c93957a38f308384196e8eae9d64650e6468efb37a944b2efe158ec7649"
+    },
+    {
+      "path": "content/academy/chapter-16.ts",
+      "sha256": "1799a75446154dffd0cf4e51631786bb120f8db4bde14f4caacc33511d14ebd7"
+    },
+    {
+      "path": "content/academy/chapter-17.ts",
+      "sha256": "0430b99bac4eb6949f3ad9d37c39c1b9eac17457fd8adb2caa527bb6bb237a12"
+    },
+    {
+      "path": "content/academy/chapter-18.ts",
+      "sha256": "b8419871d2be3d4959deb82b4adf066eafdcaab1a867696b34ba3b1bcc842a5b"
+    },
+    {
+      "path": "content/academy/chapter-19.ts",
+      "sha256": "2e316e60da9e396d10c4c28975482dfe44d2ff62e2fabf6ad0cb294bc0a79783"
+    },
+    {
+      "path": "content/academy/chapter-20.ts",
+      "sha256": "243c3860545715bea32265a3aabaaa5409063d423edae5f529ad624383e48de3"
+    },
+    {
+      "path": "content/academy/foundation-checkpoints.ts",
+      "sha256": "c1f6970fdb7e6c62d3b330ad9e611cea90964f13b49f64169f7c72fec418c5ec"
+    },
+    {
+      "path": "content/academy/foundation-formative-checks.ts",
+      "sha256": "501f1d4d150d20dc95b49588249e8a421a1f5b9e1fbd70e33d8f941dc4dcb282"
+    },
+    {
+      "path": "content/academy/learning-checkpoints.ts",
+      "sha256": "5231035c545738e63faee033ca91110f4a7152657f7e27be7d729c5bf442b97b"
+    },
+    {
+      "path": "content/academy/learning-drafts.ts",
+      "sha256": "5d23bbe828ed8ca7aa7d1e5524c3ce6e5801db6bcbddf0d82fda7920374e4a08"
+    },
+    {
+      "path": "content/academy/learning-unit.ts",
+      "sha256": "f43b8d04246b734367fa37f51dc227f7f83f8428d15503b5439a689a39624a22"
+    },
+    {
+      "path": "content/academy/mastery-checkpoints.ts",
+      "sha256": "1e8ca4b04273c8ce2cb07662c48e9ad6622b57bf882c03402efc9ec81ee03fcf"
+    },
+    {
+      "path": "content/academy/mastery-formative-checks.ts",
+      "sha256": "78a8d267ed02770e6b38ad6595f77026b69bb376b63777da203e441ec5cb59da"
+    },
+    {
+      "path": "content/academy/performance-checkpoints.ts",
+      "sha256": "c8ce40ea5272f140bd6d6a0c754e919dfbffa9a2d74cbeb291c295156794c493"
+    },
+    {
+      "path": "content/academy/performance-formative-checks.ts",
+      "sha256": "c64340a42b74db452d4b6c0b8e9982a7aa5f64551642f50e39910e3f7274a263"
+    },
+    {
+      "path": "content/academy/personalization-checkpoints.ts",
+      "sha256": "1715d7f2748dc06fb8ecd526dfcf491a38aafa34e22f97675bbd8e8245ebd382"
+    },
+    {
+      "path": "content/academy/personalization-formative-checks.ts",
+      "sha256": "f43a96c24129fadf37f5617e3e2ab08529611ffa10b3cd0ce9fe24fd41f23629"
+    },
+    {
+      "path": "content/academy/pilot-checkpoints.ts",
+      "sha256": "69bcf94a10f5b2295a4b1d998851833132dd310d670a8629d5fda46438bc4d75"
+    },
+    {
+      "path": "content/academy/pilot-drafts.ts",
+      "sha256": "43a28fabaf0ce60dff86bc7881a2b63b9d2c7957d6fa1d2dc0842054eba6e6ca"
+    },
+    {
+      "path": "content/academy/pilot-formative-checks.ts",
+      "sha256": "81b688ea8854b1786d9ba9acf0ae677402c516066f49e967f4c9fcdeaabedc58"
+    },
+    {
+      "path": "content/academy/references.ts",
+      "sha256": "c3401f41e47c52469fa5659d16d6be26ced197ee088865bf9c27564ea42f8acb"
+    },
+    {
+      "path": "firestore.indexes.json",
+      "sha256": "6567fef82c8133cd80a733772068da076dc85ca0c17cec27871fbb1b05f2e1bd"
+    },
+    {
+      "path": "firestore.rules",
+      "sha256": "c4e825b2d0a9a119d28701c41caf7bc6c6a03026c2f4594207a7e4b71eb06439"
+    },
+    {
+      "path": "functions/academy-authoring.js",
+      "sha256": "dcceb61320e12f02f3b2e58eacc7ca7f11c58cdb534d429d2f042af89df9d6b2"
+    },
+    {
+      "path": "functions/academy-authoring.test.js",
+      "sha256": "c83fcfb4aaecd94ea6d925c0cfb10ec54866bcba739a26bef1ec648e5c67b371"
+    },
+    {
+      "path": "functions/academy-contract.test.js",
+      "sha256": "4421a84dfaee81b26279b137474cede6641e644998542df3b93c89696859b0af"
+    },
+    {
+      "path": "functions/academy-course-access.test.js",
+      "sha256": "2b839b478b91d13a1be2d4f6010ecf7db9385b62a8a9af9aa0ca2db08189f53a"
+    },
+    {
+      "path": "functions/academy-course-storage.integration.cjs",
+      "sha256": "0db956ec9d213431c7964467bdc6988c1c0a8822254f636b1cdd387697130893"
+    },
+    {
+      "path": "functions/academy-course-storage.js",
+      "sha256": "ea954ed038b8d2e95d8ad18a826c85b665aebeb5b5b3597f1abe9cb422b8bed3"
+    },
+    {
+      "path": "functions/academy-course-storage.test.js",
+      "sha256": "cdabe74eeb1f575644ff08f5dae0cadfe449428f6e1a23fefd63bf9a5ef18961"
+    },
+    {
+      "path": "functions/academy-draft-adoption.js",
+      "sha256": "ec0b56758a450dedf48e985e99d7142b14056c7e705cfc6bc0c426d1eab38bc9"
+    },
+    {
+      "path": "functions/academy-draft-adoption.test.js",
+      "sha256": "261f8e84c0ecbc7611197cd27bef10f713dc6928188fe418ea3981cf8254e005"
+    },
+    {
+      "path": "functions/academy-draft-compiler.js",
+      "sha256": "6e0e91dcdb016cb8d934d376415700ba633556cd44f776d0d72ba94ccf56dc13"
+    },
+    {
+      "path": "functions/academy-draft-compiler.test.js",
+      "sha256": "2a0f0e7b2caa3708064d584f5472c0ec1c7a638c7b7edbe3854cd4c1ab1d8863"
+    },
+    {
+      "path": "functions/academy-learner-lifecycle.test.js",
+      "sha256": "f3f36831d69eaca7616265296290ec4974427370f32bda7293187ff6b0c590bb"
+    },
+    {
+      "path": "functions/academy-learning-drafts.js",
+      "sha256": "e3ea2b577a7bc9c18cc105168cbd98583672c9b3c9cc41cc0339c3b89c2724bb"
+    },
+    {
+      "path": "functions/academy-learning-drafts.test.js",
+      "sha256": "264ab9e422f986d15717fc27a83f43446737546bad915689b34a96908bcc007c"
+    },
+    {
+      "path": "functions/academy-media-workout.test.js",
+      "sha256": "fd815d92c7846e02fbbe79a536e292e2ccc69f5abf113ad0cc6b81ffd4a1939d"
+    },
+    {
+      "path": "functions/academy-practice.js",
+      "sha256": "5a972a82322554dbbabde4e3efba01a16a5887cba967714546dfdd606df609c4"
+    },
+    {
+      "path": "functions/academy-practice.test.js",
+      "sha256": "97d61e911d1b6e6c47a24c34dfb2a45491609055d4bc2dd962e81eedacdb083e"
+    },
+    {
+      "path": "functions/academy-quiz-grading.test.js",
+      "sha256": "20804053af86378fbd4ff33741aa08b4f14a55ed85fdc29c89eeb89dd7650513"
+    },
+    {
+      "path": "functions/academy-submissions.js",
+      "sha256": "1fc024f270fe87a6a8ca9de1f931c1b177f180b24981c82ef4fa969f785b2faf"
+    },
+    {
+      "path": "functions/academy-submissions.test.js",
+      "sha256": "edba314cc36c02048c293e1b1b9ec6b1911cab504dd4ff99dc2c1456745d65d1"
+    },
+    {
+      "path": "functions/generated/academy-course-template.cjs",
+      "sha256": "4b46d0a8c6aaf78d29fb71197df5d06d1a78cf47e6a0e8c06978368c4a9a9f1b"
+    },
+    {
+      "path": "functions/generated/academy-draft-catalog.cjs",
+      "sha256": "a55733d27e97fe877629110dc97192636db8bb221403f8a5cf2347bfabfbcfd8"
+    },
+    {
+      "path": "functions/generated/academy-learning-checkpoints.cjs",
+      "sha256": "ea80020db66ee01b5cf7714bc7d1c3eda3f1eda77a3a6e810519bfee77785671"
+    },
+    {
+      "path": "functions/generated/academy-learning-drafts.cjs",
+      "sha256": "d983353592d2f68548c647c0373294933564ccb854ede45134ee81285c3bead2"
+    },
+    {
+      "path": "functions/generated/academy-pilot-checkpoints.cjs",
+      "sha256": "3dd6df3718dbdbd1a6dd531d290c5e3061e7ce49074c9f15f930e68f803c5376"
+    },
+    {
+      "path": "functions/generated/academy-submission-policy.cjs",
+      "sha256": "929dd9245d6e08d67c0c1266ddbb2c8f2b8bd5858f940707121a0398aa65bffc"
+    },
+    {
+      "path": "functions/index.js",
+      "sha256": "feb4c4ce141de9f014b6ea2cb7a1484fb6c5d770926dcd42c3e0628d39a84891"
+    },
+    {
+      "path": "functions/package.json",
+      "sha256": "9ebb33061a74c58e52343f420cd63e8c9f1830d97c98d595303919c8a467209e"
+    },
+    {
+      "path": "functions/test-support/academy-adoption-fixture.js",
+      "sha256": "a9cee5ecde6a12ba204a4bf8a651a97a10334d47c25aeb8c647d06e21584e2c3"
+    },
+    {
+      "path": "functions/test-support/academy-authoring-fixture.js",
+      "sha256": "f2fbc9c1799299fd083b1d4751db68919377667b7c2b7817dff69f2864e1cfab"
+    },
+    {
+      "path": "functions/test-support/academy-runtime-fixture.js",
+      "sha256": "0f44d64eaab0813e239dd08a0a6c50debe1ab0e97e41f6b0f31cfc9c1c3ce916"
+    },
+    {
+      "path": "functions/test-support/academy-template-fixture.js",
+      "sha256": "c17eefe4411030782c7da06137ae55893106ccaa28152d45e0f23dc76f8c32b4"
+    },
+    {
+      "path": "package.json",
+      "sha256": "d96c8ec16f123fe195357962d172156e319bf9393d1abda90cbffae45f0cca40"
+    },
+    {
+      "path": "playwright.academy.config.ts",
+      "sha256": "d5f5a9c3e8f6c128ef2003666e0965d2910fc3b2c5cf8c4c2d2a0f9f7077de49"
+    },
+    {
+      "path": "scripts/academy-release-audit.cjs",
+      "sha256": "b2f1d8e2196f7b3265b5feebdaa50c122820fd8aee6899cc03597d185fa3a318"
+    },
+    {
+      "path": "scripts/build-academy-runtime-assets.cjs",
+      "sha256": "5edc3880fa5c737e8bbfe12a11db1e07ef7743ee6cdd0838522ea853bdd8e43d"
+    },
+    {
+      "path": "scripts/prepare-academy-release.cjs",
+      "sha256": "3c4e3d49985cd509d3922e62ddc69c10b3c1b424b70b1824a00b5bedd2c06394"
+    },
+    {
+      "path": "scripts/prepare-academy-release.test.cjs",
+      "sha256": "5de96764c5af44db635895d397d89b3bf448287abda5fbee9678c55a3019eec4"
+    },
+    {
+      "path": "src/AuraApplication.tsx",
+      "sha256": "582be5c0e41a61cc55cce45efe6328fc79b146c59fb70c5468e708c208f5204e"
+    },
+    {
+      "path": "src/components/academy/academy-adoption.css",
+      "sha256": "2ca79a0dd9724822bed77a9d1eb12df369cf5efb4e3f89ce81de047c50d30fc9"
+    },
+    {
+      "path": "src/components/academy/academy-chapter-article.css",
+      "sha256": "ff5e1149903e107db3773688a5a40423a804f2ba67bb4ea03c887c766f9571db"
+    },
+    {
+      "path": "src/components/academy/academy-learning-unit.css",
+      "sha256": "633d794c5617ca63c396e15cba26993761c76be7cb744a113aeb2b08727e7b2e"
+    },
+    {
+      "path": "src/components/academy/academy-module-upgrades.css",
+      "sha256": "bf32509936fb62065476a94b600e1c755109aa5551ab1f6331da33a31a910f74"
+    },
+    {
+      "path": "src/components/academy/academy-submission.css",
+      "sha256": "643dea6a16f5be01ad2611c32be3cbff6b132863992064da9a8e219c28ce5563"
+    },
+    {
+      "path": "src/components/academy/AcademyChapterArticle.tsx",
+      "sha256": "22237178c46eb1e5df67b367d7788c2a74cff1cf52a10a538a5111c8f8a033f8"
+    },
+    {
+      "path": "src/components/academy/AcademyChapterLearningStudio.tsx",
+      "sha256": "5bb4f89032a5340ef972ad97e1fbcc4521f8cf9d3bc64a46a144c1c0caeadebd"
+    },
+    {
+      "path": "src/components/academy/AcademyCoachReviewPanel.tsx",
+      "sha256": "469ddd9b58504bba2458da64a53a9d8d5d2db539a5363ae11c4862bdae9d882f"
+    },
+    {
+      "path": "src/components/academy/AcademyDraftAdoptionPanel.tsx",
+      "sha256": "a23f576a2229f1d61b6fdc1f8935aec13705d1f783b4e845cbab1bb0ff7a1c58"
+    },
+    {
+      "path": "src/components/academy/AcademyDraftReviewPanel.tsx",
+      "sha256": "81e837eed1a8167f1c707779a8313e5090538af5158afb25758927265c9381cd"
+    },
+    {
+      "path": "src/components/academy/AcademyLearningUnitReader.tsx",
+      "sha256": "abf58f8408996b6dc4232bf076aaa0c86ece2f5bab5719773cae37dc2b61e314"
+    },
+    {
+      "path": "src/components/academy/AcademyLessonStudy.tsx",
+      "sha256": "40944f6984b6d8d2585416d124cc304543296fed55eda314b4351d42dacace41"
+    },
+    {
+      "path": "src/components/academy/AcademyPortfolioStudio.tsx",
+      "sha256": "7581bc570823ab6a4eaf0db59297252832e82b775f6fdef0237b464781d10dda"
+    },
+    {
+      "path": "src/components/academy/AcademySubmissionPanel.tsx",
+      "sha256": "ee369c7f7d02f0b3432880f3fdf1b0bced4fdb85d510f8a9ade2a3f18bcd71bc"
+    },
+    {
+      "path": "src/components/academy/AcademyWorkbookHistory.tsx",
+      "sha256": "585d60b3f5535a022281c722d05e3c16c3e4b8300766942482e1d304e3c09ee1"
+    },
+    {
+      "path": "src/components/CourseLessonRuntime.tsx",
+      "sha256": "ffbe8e8908a160aedc8eb4211d0209e3e09a0eeaf18867a31051f50b234f267c"
+    },
+    {
+      "path": "src/data/auraNutritionAssessmentAuthoring.ts",
+      "sha256": "b09022457538267867b053bd023214f2bf90174e151c592485f399d5f883fdb3"
+    },
+    {
+      "path": "src/data/auraNutritionCurriculum.ts",
+      "sha256": "bdb6967b53050d749b014ba8dc71a44135b2e844dc4dc5c0d883a584955a4c16"
+    },
+    {
+      "path": "src/data/auraNutritionLearnerChapters.ts",
+      "sha256": "1327c4519e8f17c15a169ef1350cead8a19b049e5cc496cf469efb5b5ec001af"
+    },
+    {
+      "path": "src/data/auraNutritionLearningDesign.ts",
+      "sha256": "575fd941ee1751d8c664e816b4a713fa2274edf99fc3353fa4b3ac30caf969e3"
+    },
+    {
+      "path": "src/data/auraNutritionPracticePolicy.ts",
+      "sha256": "ea03a7c03da5a6429a9356d09fd5d24bc929231b185da35979e859f2cabdb8dc"
+    },
+    {
+      "path": "src/data/auraNutritionStudyGuides.ts",
+      "sha256": "fd5b9f8dc61ac677e894909a8b68df25c5fb951e33a527b27b47b767d7ae43c8"
+    },
+    {
+      "path": "src/data/generated/auraNutritionLearnerChapters.json",
+      "sha256": "36575a526b1a98c660ec387ab80854cdeb5ebe7b1888099f5a5e55fcd4ce9bc5"
+    },
+    {
+      "path": "src/features/academy/adoption.ts",
+      "sha256": "5b8fb04f38ea4914c3b0f69e5347f5007b7614e26f1bece9c0f52460d5703b0e"
+    },
+    {
+      "path": "src/features/academy/chapterClient.ts",
+      "sha256": "399ca13e23c1882096354612ca9e2b714503ac4b3cef0f9ce2a1f257db92e82c"
+    },
+    {
+      "path": "src/features/academy/chapterDelivery.ts",
+      "sha256": "cda0991cd522ced0fc75ae82fa124ab4135f53f1bfbdee4e5c4155a265c49f86"
+    },
+    {
+      "path": "src/features/academy/draftCatalog.ts",
+      "sha256": "9c702a44dea6c8ea3fe6cbeb94720e60d5b66d4be73ece5e076d1440c3d09186"
+    },
+    {
+      "path": "src/features/academy/mastery.ts",
+      "sha256": "e0be59c0a3200c5ee70a7809bb72b196475b505f1449135b2c61474f278d72d9"
+    },
+    {
+      "path": "src/features/academy/mediaClient.ts",
+      "sha256": "8ca67e117c1ac02e40fb3def9efefba3eedb78815e33ea9985350db5c5f90cc4"
+    },
+    {
+      "path": "src/features/academy/portfolio.ts",
+      "sha256": "b77b569ee73e5320a9d087c9f3530b11e7a13de9bc220e021e3dab42bbfe5141"
+    },
+    {
+      "path": "src/features/academy/portfolioEvidence.ts",
+      "sha256": "1bd322093f7ff51115132d01974671b19515fab727f2c4474d6716a0a70b29a1"
+    },
+    {
+      "path": "src/features/academy/quizPolicy.ts",
+      "sha256": "7fb0fe7f6da5af50d4fa971bb406823e435d8ca4623443e738e5a4b2c40c7448"
+    },
+    {
+      "path": "src/features/academy/reviewClient.ts",
+      "sha256": "b43eea683eade13ccef64aa5d0d3d85e2d12ffaa5609904bd2005e03ce4f96df"
+    },
+    {
+      "path": "src/features/academy/reviewPersistence.ts",
+      "sha256": "cf983f8284369f36ae2f8f7b6f96b80fc3d97baf0d1f82f1bed2988b8c62c483"
+    },
+    {
+      "path": "src/features/academy/sessionCache.ts",
+      "sha256": "a5a0f4684d951003a4d97c7c29c1ef35a3a49c096c7b27e2f7fe7ceebfdadeb2"
+    },
+    {
+      "path": "src/features/academy/submissionPolicy.ts",
+      "sha256": "282207a88a73a21ec1912ab04caf15b6859d0266118769f7ab00c03a0de8597f"
+    },
+    {
+      "path": "src/features/academy/submissionTypes.ts",
+      "sha256": "4b08ab46e9b527d24fe17e25eed039ff4e62e392884cf4753e4280cb2eb6f166"
+    },
+    {
+      "path": "src/features/academy/useAcademyChapterDelivery.ts",
+      "sha256": "ec03a84d1b576f30ad2df9e83f93178ac5f10341c241572a47490eb61aaed477"
+    },
+    {
+      "path": "src/features/academy/useAcademySessionEpoch.ts",
+      "sha256": "83894263bfc56369348f6c489ae4107ef277e64b147a4f09c75f69d2c218ee33"
+    },
+    {
+      "path": "src/features/academy/useAcademyWorkbook.ts",
+      "sha256": "5bd123620541f19f0e6f5626b646336d9c61d8c81360e87ca67aa631d4d8682c"
+    },
+    {
+      "path": "src/features/academy/workbookPersistence.ts",
+      "sha256": "35d5edbda5e0f256a11e5cbcddb48cf7fd387060d27c922465d3edc2894407fd"
+    },
+    {
+      "path": "src/hooks/useCourses.ts",
+      "sha256": "9c7a6a9401e1fd8bca5c74fd7f635b0d779ae9abccc7520c623a4b7273504947"
+    },
+    {
+      "path": "src/hooks/useLearningProgress.ts",
+      "sha256": "12345d91456fa221a0dd399ab4915270ed770f2ecc02e590505519b2b0d6b83d"
+    },
+    {
+      "path": "src/lib/firebaseFunctions.ts",
+      "sha256": "5c9a7c2ca164893f3bcb92213845f6c02477a3bbba3f88da38465b6ec7be0eb6"
+    },
+    {
+      "path": "src/pages/admin/AdminStudentsPage.tsx",
+      "sha256": "a449b8ffa3230ecda613b7db143d1a06245a9dbffd2ff195bde54efa4513ccb5"
+    },
+    {
+      "path": "src/pages/admin/CourseEditorPage.tsx",
+      "sha256": "c57b6800f80cf7423acfbe4f621799d8bcf066a5f8d75898e35489302b9bda9a"
+    },
+    {
+      "path": "src/pages/student/CourseDetailPage.tsx",
+      "sha256": "20bb52e241b8891476b928d688c7aefc3abf1dbfdac2c0ecf7ed1f20b19424e9"
+    },
+    {
+      "path": "src/pages/student/WorkoutPage.tsx",
+      "sha256": "8ec81a619b96a7a16bdbbbe3eece6a179704634ae667ac7ae006c37077a8dfba"
+    },
+    {
+      "path": "src/services/academyAdoptionService.ts",
+      "sha256": "16895a3747042b6aa5d9b161bf9e9926c0554ae584921f805f505035c1ce0403"
+    },
+    {
+      "path": "src/services/academyChapterService.ts",
+      "sha256": "3058bc8e0cec27532c753577c8c563051cec73e3afea1ff62638015372591472"
+    },
+    {
+      "path": "src/services/academyDraftReviewService.ts",
+      "sha256": "79285ad4d36719aa5a68fc7ccab008dd3fda4c021fdb477e85934b5ab5ffaf34"
+    },
+    {
+      "path": "src/services/academyLearningService.ts",
+      "sha256": "12b8f5156f6792b08d240a5f386125c094ae74660f89de906c6de136d64423e1"
+    },
+    {
+      "path": "src/services/academyReadService.ts",
+      "sha256": "1b31727eb3c9bd583959769207e7663f81a9ee9cd61fa328646288fddefc9174"
+    },
+    {
+      "path": "src/services/academySubmissionService.ts",
+      "sha256": "08c15a0fce63d40c05df07b23ed07f1f172e3ec901443ece90828742015f7965"
+    },
+    {
+      "path": "src/services/courseRuntimeService.ts",
+      "sha256": "de34827a19685335e7bbbd5345ee337edc1a5fe746a003a5bedd225f9ef29673"
+    },
+    {
+      "path": "src/services/firebaseService.ts",
+      "sha256": "944c32c0fd922863319ba5972f3d367f1e108408756b283ba554165bfe8af644"
+    },
+    {
+      "path": "src/services/workoutProgramService.ts",
+      "sha256": "aced624218e9853657ddb6b2d6feec0df8e419ad966bb6b4e10f02548298d75b"
+    },
+    {
+      "path": "src/styles-academy.css",
+      "sha256": "7d383787a63f70851b5c131cc585fd5931a0585c0eff3f316885fed4191e3125"
+    },
+    {
+      "path": "src/types.ts",
+      "sha256": "38b86ca0f2459b8c3064f50d49e60d34592375181d4805dbff472fa146e17d37"
+    },
+    {
+      "path": "src/utils/courseDraft.ts",
+      "sha256": "059477d1d712bc2ee5e982be0fb25c9fe2cedf564847fac5e0a395a22885098b"
+    },
+    {
+      "path": "storage.rules",
+      "sha256": "ac149a189e9ae279ce31815e3d2253e876b4986d9aa1501ac6ade64b29a94fe3"
+    },
+    {
+      "path": "tests/academy-adoption-client.test.ts",
+      "sha256": "1c78ef66cb9abba988fcfb3d52ac2f5d7d3b2b0eb50a8e184be70e46e8ba8eee"
+    },
+    {
+      "path": "tests/academy-authoring-boundary.test.ts",
+      "sha256": "a646bec14ee2cc4d8dae3e0348d830b0e2ed879505d3faaf69873e995e966700"
+    },
+    {
+      "path": "tests/academy-chapter-delivery.test.ts",
+      "sha256": "2653059dd18ac0a216b6fa7bbd871b507639545ae52d55acf65b34ddc0b3553c"
+    },
+    {
+      "path": "tests/academy-foundation-content.test.ts",
+      "sha256": "ad7f6272ab234c3af6cfcc5bf2e27585a05d344a8aa6d652dec1f8594ad9e3d2"
+    },
+    {
+      "path": "tests/academy-mastery-content.test.ts",
+      "sha256": "510cfe83d69603422fcdf6aea723bdbb9a05c838108e20e863a65bda74b67263"
+    },
+    {
+      "path": "tests/academy-media-client.test.ts",
+      "sha256": "659d45eab5bf13a7dc93e7acc974cfb4649e6f6f39dcd08da7764244e2107979"
+    },
+    {
+      "path": "tests/academy-performance-content.test.ts",
+      "sha256": "46dae140633576448bc67ebd102daca65aaa2502e066945c3fb9e0ba0406905a"
+    },
+    {
+      "path": "tests/academy-personalization-content.test.ts",
+      "sha256": "843cd2c73d868a90bdaf14b0d7a19938a2229126a749c59683ab3e307310510a"
+    },
+    {
+      "path": "tests/academy-pilot-content.test.ts",
+      "sha256": "bbfdb8c6c1b8eba7abdb4aa683faca239cf73f0a36f6b7c49e66b1d0731ee3e0"
+    },
+    {
+      "path": "tests/academy-portfolio-evidence.test.ts",
+      "sha256": "3c793d8cbc2687777f2f11863aaadb721b0de32cc6c652563ce645ddd7fc5ad4"
+    },
+    {
+      "path": "tests/academy-quiz-policy.test.ts",
+      "sha256": "e4eeea48bd065bb74d73a047f31988bf636ffb5b68c8e2acd59eea302d3874fc"
+    },
+    {
+      "path": "tests/academy-review-client.test.ts",
+      "sha256": "1f73185a8357fd945ef5bcacc1a77f2825a9c66fee96250100a13736d5f03fb4"
+    },
+    {
+      "path": "tests/academy-session-cache.test.ts",
+      "sha256": "6e58650e813ac84b24b358d406e3d3241927e52d8d490fbba0a467812f49e9c7"
+    },
+    {
+      "path": "tests/academy-workbook-persistence.test.ts",
+      "sha256": "9dd3434b9c49a6f75aef6f6d9a1682d9815221957db67df0ba67731c235d7cb8"
+    },
+    {
+      "path": "tests/academy-workbook-versions.test.ts",
+      "sha256": "34b25f197cb049ed9d85799b695ca9ab9c93289883551045459acb909f8cb3ed"
+    },
+    {
+      "path": "tests/aura-nutrition-curriculum.test.ts",
+      "sha256": "c6b12cd7c8c5dbe6f7f565b1044b98b80bbcd9a8663b2c31be251aee3baeadd6"
+    },
+    {
+      "path": "tests/e2e/academy-adoption.spec.ts",
+      "sha256": "b3a23136ff5674421c17462363b41fab6417972e717adf894f27848efab0a208"
+    },
+    {
+      "path": "tests/e2e/academy-authoring.spec.ts",
+      "sha256": "9e7aee355fa2b6d3181978b03a304a043f5f48b7d53994441b47693f91de5428"
+    },
+    {
+      "path": "tests/e2e/academy-delivery.spec.ts",
+      "sha256": "05d81f8260aceb5dfecd340022d07c2236a91e368dca6adc960830838c2d6c22"
+    },
+    {
+      "path": "tests/e2e/academy-learner-content.spec.ts",
+      "sha256": "48566d18706fcf1bc16930fcc3cd410a0012def10a62090cd0e89ffc11ca4c6d"
+    },
+    {
+      "path": "tests/e2e/academy-media.spec.ts",
+      "sha256": "ae5c33ec729e58d5af982b197519cbda482b2f46b20bdd340366ee15265d690d"
+    },
+    {
+      "path": "tests/e2e/academy-modules.spec.ts",
+      "sha256": "af0592843f203a8c438c90ab0bbd8a05af38c138efbed9d4f90388f53940a20b"
+    },
+    {
+      "path": "tests/e2e/academy-review.spec.ts",
+      "sha256": "dd50dcace66f63fe2e23a0fa92665e2c9b29c8d8e4529bdf1b3068b3eb113458"
+    },
+    {
+      "path": "tests/e2e/academy-submissions.spec.ts",
+      "sha256": "a1ff4db8d0753b7986d65e97f9b233393c3c0c629b5c3fade3631fa2a960c008"
+    },
+    {
+      "path": "tests/e2e/fixtures/academy-authoring.html",
+      "sha256": "cb2218ba907838a376be826fea0b1ceec54c88ac51427ea08d468ad0f6516ed5"
+    },
+    {
+      "path": "tests/e2e/fixtures/academy-authoring.tsx",
+      "sha256": "1a598a74a3e675cd01e2558a4000abce8b5842c0c2d63886d5b7e3a1632363eb"
+    },
+    {
+      "path": "tests/e2e/fixtures/academy-delivery.html",
+      "sha256": "347434d3340968e620183bbe9f476e7e76d99fa930a9b4393d1cab61261ba8bd"
+    },
+    {
+      "path": "tests/e2e/fixtures/academy-delivery.tsx",
+      "sha256": "74a1934ed2ba4677f8845a6d2db9e98d88a930bd34cff85a683ae25cfb612757"
+    },
+    {
+      "path": "tests/e2e/fixtures/academy-learner-content.html",
+      "sha256": "33b3f3cc601b8c4a0a792e547008f98ca9b79180d868c057be7af642a3cd8a0e"
+    },
+    {
+      "path": "tests/e2e/fixtures/academy-learner-content.tsx",
+      "sha256": "87f213dff5806bb0378b686a1095fbabc47073d67d963cda1b46c0ac3308b875"
+    },
+    {
+      "path": "tests/e2e/fixtures/academy-media.html",
+      "sha256": "424190f1cc821ddde297f17bdda69727fc4eaa4a61ca451b09737b538e61c160"
+    },
+    {
+      "path": "tests/e2e/fixtures/academy-media.tsx",
+      "sha256": "7dff6d642557c8fb54cb5331ecdf963070cee4949a6c6eba917df8bb08180f85"
+    },
+    {
+      "path": "tests/e2e/fixtures/academy-modules.tsx",
+      "sha256": "3f4828484d237ef0a29c46a00676d43f21f134a833b914035415d3357a08cff8"
+    },
+    {
+      "path": "tests/e2e/fixtures/academy-progress.html",
+      "sha256": "8417a6865eaa890e38f74912a8dad5bc4a0c48bfc70ab46c9edc5cbbb3cd5a85"
+    },
+    {
+      "path": "tests/e2e/fixtures/academy-progress.tsx",
+      "sha256": "ae385102197987391bf2d5cf82445fda52f445987d05754dec004492b807c242"
+    },
+    {
+      "path": "tests/e2e/fixtures/academy-review.html",
+      "sha256": "833726aefd01066b3b2325a5a98fb4254df90866333393d1deefd2d0461156a4"
+    },
+    {
+      "path": "tests/e2e/fixtures/academy-review.tsx",
+      "sha256": "29c847106733ad76e474d08a4cc8fd19393d8db54f0cc7038d7b30621c61788a"
+    },
+    {
+      "path": "tests/e2e/vite.academy.config.ts",
+      "sha256": "2f0da74a9c00e751fbec7aec7ca0d8b5267b025d5ae78e77b82ea2e4a65e2f35"
+    },
+    {
+      "path": "tests/firestore.rules.test.mjs",
+      "sha256": "7657e1413deb54be92df1c535913803cc8c16c933981753d96b1fb96fc6d36d3"
+    },
+    {
+      "path": "tests/storage.rules.test.mjs",
+      "sha256": "58469929333feab6f0d9c872f9b639e63fc675a6007b3076dbec1b2e3b1eeccc"
+    }
+  ]
+}

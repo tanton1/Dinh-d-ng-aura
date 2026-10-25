@@ -35,6 +35,7 @@ import type {
   CourseDraftInput,
   AdminStudentProgress,
   CourseProgress,
+  AcademyPracticeCompletionEvidence,
   Enrollment,
   ViewId,
   UserRole,
@@ -216,7 +217,11 @@ function AuraApplication() {
     user?.uid,
     backendMode === 'firebase' && learnerAcademyEnabled,
   )
-  const academyAccessRevision = `${profile?.membership ?? 'free'}:${[...learningData.enrollmentByCourseId.entries()].map(([courseId, enrollment]) => `${courseId}:${enrollment.status}`).sort().join('|')}:${[...localEnrollmentIds].sort().join('|')}`
+  const academyAccessRevision = JSON.stringify([user?.uid, profile?.role, profile?.authzVersion, profile?.disabled,
+    profile?.membership ?? 'free', learningData.error,
+    [...learningData.enrollmentByCourseId.entries()].map(([courseId, enrollment]) => [courseId, enrollment.userId,
+      enrollment.status === 'completed' ? 'active' : enrollment.status, enrollment.enrolledAt]).sort(([a], [b]) => String(a).localeCompare(String(b))),
+    [...localEnrollmentIds].sort()])
   const studentCourseData = useCourses(learnerAcademyEnabled, false, academyAccessRevision)
   const adminCourseData = useCourses(adminAcademyEnabled, true)
   const mode: AppMode = view === 'student-360'
@@ -789,12 +794,12 @@ function AuraApplication() {
     navigate(next === 'admin' ? 'admin-dashboard' : 'home')
   }
 
-  const completeLesson = async (courseId: string, lessonId: string, workoutLogId?: string) => {
+  const completeLesson = async (courseId: string, lessonId: string, workoutLogId?: string, practiceEvidence?: AcademyPracticeCompletionEvidence, chapterVersion?: string) => {
     const course = studentCourses.find((item) => String(item.id) === courseId)
     if (!course) throw new Error('Không tìm thấy khóa học.')
     if (backendMode === 'firebase') {
       if (!user) throw new Error('Bạn cần đăng nhập để lưu tiến độ.')
-      await markLessonComplete(user.uid, courseId, lessonId, workoutLogId)
+      await markLessonComplete(user.uid, courseId, lessonId, workoutLogId, practiceEvidence, chapterVersion)
       return
     }
 
@@ -872,7 +877,7 @@ function AuraApplication() {
         return <AuraClubPage isDemo={backendMode === 'demo'} ownerId={user?.uid ?? 'demo'} initialTab={route.loyaltyTab} onNavigate={navigate} />
       }
       case 'courses': return <CoursesPage onOpenCourse={openCourse} courseItems={studentCourses} loading={studentCourseData.loading || learningData.loading} error={studentCourseData.error} onRetry={studentCourseData.retry} warning={learningData.error} initialQuery={globalSearchQuery} />
-      case 'course-detail': return <CourseDetailPage course={selectedCourse} progress={selectedProgress} activeLessonId={selectedLessonId} enrolled={selectedEnrollment} enrolledAt={selectedEnrollmentRecord?.enrolledAt} noteOwnerId={user?.uid ?? 'demo'} onNoteDirtyChange={setCourseNoteDirty} accessLocked={selectedCourseLocked} learningWarning={learningData.error} loadError={isAdminCoursePreview ? adminCourseData.error : studentCourseData.error} onRetry={isAdminCoursePreview ? adminCourseData.retry : studentCourseData.retry} loading={(isAdminCoursePreview ? adminCourseData.loading : studentCourseData.loading) || learningData.loading} allowDemoContent={backendMode === 'demo'} previewMode={isAdminCoursePreview} onBack={() => {
+      case 'course-detail': return <CourseDetailPage course={selectedCourse} progress={selectedProgress} activeLessonId={selectedLessonId} enrolled={selectedEnrollment} enrolledAt={selectedEnrollmentRecord?.enrolledAt} noteOwnerId={user?.uid ?? 'demo'} onNoteDirtyChange={setCourseNoteDirty} accessRevision={academyAccessRevision} accessLocked={selectedCourseLocked} learningWarning={learningData.error} loadError={isAdminCoursePreview ? adminCourseData.error : studentCourseData.error} onRetry={() => { (isAdminCoursePreview ? adminCourseData.retry : studentCourseData.retry)(); learningData.retry() }} loading={(isAdminCoursePreview ? adminCourseData.loading : studentCourseData.loading) || learningData.loading} allowDemoContent={backendMode === 'demo'} previewMode={isAdminCoursePreview} onBack={() => {
         if (isAdminCoursePreview) {
           setAdminPreviewCourseId(null)
           navigate('admin-courses')
