@@ -4,7 +4,8 @@ const { HttpsError } = require('firebase-functions/v2/https')
 const { defineSecret } = require('firebase-functions/params')
 const { eatCleanRevenueRecognitionWrites } = require('./finance-recognition')
 const { COLLECTION: LOCATION_COLLECTION, writeFirestoreLocation, readFirestoreLocations, locationStream } = require('./delivery-location-store')
-const { readDeliveryWorkspaceState, readOrderTrackingState } = require('./delivery-workspace-signals')
+const { readDeliveryWorkspaceState, readOrderTrackingState, dispatchSections, readDispatchWorkspaceState } = require('./delivery-workspace-signals')
+const { ACTIVE_DELIVERY_STATUSES, GPS_DELIVERY_STATUSES } = require('./delivery-status-policy')
 
 const CITY_CODE = 'da-nang'
 const CITY_NAME = 'Đà Nẵng'
@@ -49,15 +50,6 @@ const DELIVERY_TRANSITIONS = Object.freeze({
   delivered: new Set(),
   cancelled: new Set(),
 })
-const ACTIVE_DELIVERY_STATUSES = Object.freeze([
-  'awaiting_kitchen',
-  'awaiting_assignment',
-  'assigned',
-  'accepted',
-  'at_store',
-  'picked_up',
-  'arrived',
-])
 
 const ALLERGEN_IDS = Object.freeze({
   FISH: 'fish',
@@ -3144,20 +3136,26 @@ function createEatCleanFunctions(dependencies) {
   })
 
   const listEatCleanDispatchData = onCall(deliveryOperationsCallableOptions, async (request) => {
-    await trustedAdminId(request)
+    const actorId = await trustedAdminId(request)
+    const sections = dispatchSections(request.data?.sections)
+    const partial = request.data?.sections !== undefined
+    const includes = section => sections.includes(section)
     const limit = finiteInteger(request.data?.limit ?? 100, 'Giới hạn dữ liệu', 1, 200)
     const cursor = normalizeDeliveryCursor(request.data?.cursor)
+    // Capture only requested watermarks before hydration. A concurrent change
+    // stays pending even if its marker arrives before this response.
+    const workspaceSync = partial ? await readDispatchWorkspaceState({ db, actorId, sections }) : null
+    const signalDay = operationalSignalDocumentId()
     const deliveryCollection = db.collection('eatCleanDeliveries')
-    const deliveriesQuery = buildActiveDeliveriesQuery(deliveryCollection, { cursor, limit })
     const [deliveriesSnapshot, shipperProfilesSnapshot, configSnapshot, operationalSignalSnapshot, totalActive] = await Promise.all([
-      deliveriesQuery.get(),
-      db.collection('users').where('role', '==', 'shipper').limit(100)
-        .select('displayName', 'phoneNumber', 'photoURL', 'disabled').get(),
-      db.doc('system/eat_clean_config').get(),
-      db.doc(`eatCleanOperationalSignals/${operationalSignalDocumentId()}`).get(),
-      countActiveDeliveryJobs(deliveryCollection),
+      includes('jobs') ? buildActiveDeliveriesQuery(deliveryCollection, { cursor, limit }).get() : null,
+      includes('roster') ? db.collection('users').where('role', '==', 'shipper').limit(100)
+        .select('displayName', 'phoneNumber', 'photoURL', 'disabled').get() : null,
+      includes('config') ? db.doc('system/eat_clean_config').get() : null,
+      includes('signals') ? db.doc(`eatCleanOperationalSignals/${signalDay}`).get() : null,
+      includes('jobs') ? countActiveDeliveryJobs(deliveryCollection) : null,
     ])
-    const activeShipperProfiles = shipperProfilesSnapshot.docs.filter((item) => item.data().disabled !== true)
+    const activeShipperProfiles = (shipperProfilesSnapshot?.docs || []).filter((item) => item.data().disabled !== true)
     // Independent limit(100) queries can return different sets of shippers.
     // Hydrate only the displayed, enabled roster; never scan unrelated presence
     // records. Each ID query returns at most 30 rows, including legacy records
@@ -3169,13 +3167,15 @@ function createEatCleanFunctions(dependencies) {
         .select('available', 'lastSeenAt').get())
     }
     const [orderSnapshots, availabilityPages] = await Promise.all([
-      deliveriesSnapshot.empty ? [] : db.getAll(...deliveriesSnapshot.docs.map((item) => db.doc(`eatCleanOrders/${item.id}`))),
+      !deliveriesSnapshot || deliveriesSnapshot.empty ? [] : db.getAll(...deliveriesSnapshot.docs.map((item) => db.doc(`eatCleanOrders/${item.id}`))),
       Promise.all(availabilityQueries),
     ])
     const orderMap = new Map(orderSnapshots.filter((item) => item.exists).map((item) => [item.id, item.data()]))
     let liveLocations = new Map()
     let gpsReadWarning = null
-    if (!deliveriesSnapshot.empty) {
+    // The section protocol streams exact displayed GPS documents separately.
+    // Older clients still receive their existing hydrated location response.
+    if (!partial && deliveriesSnapshot && !deliveriesSnapshot.empty) {
       try {
         liveLocations = await readFirestoreLocations({ db, realtimeDb,
           deliveries: deliveriesSnapshot.docs.map(item => ({ ...item.data(), id: item.id })),
@@ -3189,8 +3189,8 @@ function createEatCleanFunctions(dependencies) {
       }
     }
     const nowMillis = Date.now()
-    const gpsExpectedStatuses = new Set(['accepted', 'at_store', 'picked_up', 'arrived'])
-    const deliveries = deliveriesSnapshot.docs
+    const gpsExpectedStatuses = new Set(GPS_DELIVERY_STATUSES)
+    const deliveries = (deliveriesSnapshot?.docs || [])
       .map((item) => {
         const order = orderMap.get(item.id) || {}
         const itemCount = (order.items || []).reduce((sum, line) => sum + (Number(line.quantity) || 0), 0)
@@ -3219,6 +3219,10 @@ function createEatCleanFunctions(dependencies) {
           } : null,
           otpFailureCount: Math.max(0, Number(rawDelivery.otpFailedAttempts) || 0),
           otpLocked: Number.isFinite(otpLockedUntil) && otpLockedUntil > nowMillis,
+          ...(partial ? {
+            locationStream: locationStream(rawDelivery),
+            otpLockedUntil: otpLockedUntil > 0 ? new Date(otpLockedUntil).toISOString() : null,
+          } : {}),
           order: {
             id: item.id,
             code: order.code || item.data().orderCode || item.id,
@@ -3264,38 +3268,35 @@ function createEatCleanFunctions(dependencies) {
       if (item.otpLocked) result.otpLocked += 1
       return result
     }, { byStatus: {}, late: 0, gpsStale: 0, otpRejected: 0, otpLocked: 0, totalActive })
-    const operationalCounts = operationalSignalSnapshot.data()?.counts || {}
-    summary.mapsErrorsToday = Math.max(0,
+    const operationalCounts = operationalSignalSnapshot?.data()?.counts || {}
+    const mapsErrorsToday = Math.max(0,
       (Number(operationalCounts.address_error) || 0)
       + (Number(operationalCounts.route_error) || 0)
       + (Number(operationalCounts.maps_error) || 0),
     )
-    const config = {
+    if (includes('signals')) summary.mapsErrorsToday = mapsErrorsToday
+    const config = configSnapshot ? {
       ...normalizeStoredConfig(configSnapshot.exists ? configSnapshot.data() : {}),
       revision: Number(configSnapshot.data()?.revision) || 0,
       updatedAt: serializeValue(configSnapshot.data()?.updatedAt),
-    }
+    } : null
     return {
       schemaVersion: SCHEMA_VERSION,
       serverTime: new Date().toISOString(),
-      deliveries,
-      shippers,
-      config,
-      summary,
-      signals: {
-        mapsErrorsToday: summary.mapsErrorsToday,
-        otpRejected: summary.otpRejected,
-        otpLocked: summary.otpLocked,
-        gpsStale: summary.gpsStale,
-        lateOrders: summary.late,
-        gpsReadWarning,
-      },
-      page: {
-        limit,
-        nextCursor: nextDeliveryCursor(deliveriesSnapshot, limit),
-        hasMore: deliveriesSnapshot.size === limit,
-      },
-      readiness: deliveryRuntimeReadiness(config, realtimeDb),
+      ...(partial ? { sections, workspaceSync } : {}),
+      ...(includes('jobs') ? {
+        deliveries, summary,
+        page: { limit, nextCursor: nextDeliveryCursor(deliveriesSnapshot, limit), hasMore: deliveriesSnapshot.size === limit },
+      } : {}),
+      ...(includes('roster') ? { shippers, ...(partial ? { rosterPage: { limit: 100, limitReached: shipperProfilesSnapshot.size === 100 } } : {}) } : {}),
+      ...(includes('config') ? { config, readiness: deliveryRuntimeReadiness(config, realtimeDb) } : {}),
+      ...(includes('signals') || includes('jobs') ? { signals: {
+        ...(includes('signals') ? { mapsErrorsToday, ...(partial ? { day: signalDay } : {}) } : {}),
+        ...(includes('jobs') ? {
+          otpRejected: summary.otpRejected, otpLocked: summary.otpLocked,
+          gpsStale: summary.gpsStale, lateOrders: summary.late, gpsReadWarning,
+        } : {}),
+      } } : {}),
     }
   })
 

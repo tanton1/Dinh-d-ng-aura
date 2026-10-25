@@ -4,17 +4,27 @@ const { createHash } = require('node:crypto')
 const { isDeepStrictEqual } = require('node:util')
 const { FieldValue } = require('firebase-admin/firestore')
 const { timestampVersion } = require('./workspace-change-signals')
+const { HttpsError } = require('firebase-functions/v2/https')
+const { ACTIVE_DELIVERY_STATUSES } = require('./delivery-status-policy')
 
 const SHARED_PATH = 'eatCleanWorkspaceChanges/config'
 const DISPATCH_PATH = 'eatCleanWorkspaceChanges/dispatch'
-const SOURCES = new Set(['eatCleanOrders', 'eatCleanDeliveries', 'eatCleanShippers', 'system'])
+const SOURCES = new Set(['eatCleanOrders', 'eatCleanDeliveries', 'eatCleanShippers', 'system', 'users'])
+const SECTION_PATHS = Object.freeze({ jobs: 'eatCleanWorkspaceChanges/jobs', roster: 'eatCleanWorkspaceChanges/roster', config: SHARED_PATH })
+const SECTIONS = Object.freeze(['jobs', 'roster', 'config', 'signals'])
+const activeStatuses = new Set(ACTIVE_DELIVERY_STATUSES)
 const idOf = value => typeof value === 'string' && value.length <= 160 && value.trim() === value && value && !value.includes('/') && value !== '.' && value !== '..' ? value : ''
 const valueOf = snapshot => snapshot?.exists ? snapshot.data() || {} : null
 const versionOf = value => /^\d{12}\.\d{9}$/.test(value?.version || '') ? value.version : '0'
 // Delivery updatedAt is a query ordering key: even a timestamp-only change
 // can move a job into the displayed page. Other sources do not sort by it.
+const pick = (value, fields) => value && Object.fromEntries(fields.map(key => [key, value[key] ?? null]))
 const payload = (value, source) => source === 'eatCleanDeliveries' ? value
-  : value && Object.fromEntries(Object.entries(value).filter(([key]) => key !== 'updatedAt'))
+  : source === 'users' ? value?.role === 'shipper' ? pick(value, value.disabled === true
+    ? ['role', 'disabled'] : ['role', 'disabled', 'displayName', 'phoneNumber', 'photoURL']) : null
+    : source === 'eatCleanShippers' ? pick(value, ['available', 'lastSeenAt'])
+      : value && Object.fromEntries(Object.entries(value).filter(([key]) => key !== 'updatedAt'))
+const countedShipper = value => activeStatuses.has(value?.status) ? idOf(value.shipperId) : ''
 
 /** Metadata only. Commit-time watermarks suppress replay writes. Old and new
  * assignees are addressed independently, including out-of-order moves. */
@@ -27,8 +37,12 @@ async function syncDeliveryWorkspaceChange({ db, event, source }) {
   // before.updateTime is not the deletion commit time.
   const version = timestampVersion(event.data?.after?.exists ? event.data.after.updateTime : event.time) || timestampVersion(event.time)
   if (!version) throw Error('DELIVERY_SIGNAL_MISSING_COMMIT_TIME')
-  const paths = new Set(source === 'system' ? [SHARED_PATH] : [DISPATCH_PATH])
-  if (['eatCleanOrders', 'eatCleanDeliveries'].includes(source)) paths.add(`eatCleanOrderChanges/${id}`)
+  const paths = new Set(source === 'system' ? [SHARED_PATH] : source === 'users' ? [SECTION_PATHS.roster] : [DISPATCH_PATH])
+  if (['eatCleanOrders', 'eatCleanDeliveries'].includes(source)) {
+    paths.add(`eatCleanOrderChanges/${id}`)
+    paths.add(SECTION_PATHS.jobs)
+  }
+  if (source === 'eatCleanShippers' || (source === 'eatCleanDeliveries' && countedShipper(before) !== countedShipper(after))) paths.add(SECTION_PATHS.roster)
   const addDriver = value => { const uid = idOf(value); if (uid) paths.add(`eatCleanDriverChanges/${uid}`) }
   if (source === 'eatCleanShippers') addDriver(id)
   if (source === 'eatCleanDeliveries') [before, after].forEach(value => addDriver(value?.shipperId))
@@ -85,4 +99,22 @@ async function readOrderTrackingState({ db, actorId, orderId }) {
   return { schemaVersion: 1, accountId: actorId, orderId, version: versionOf(snapshot.data()) }
 }
 
-module.exports = { syncDeliveryWorkspaceChange, readDeliveryWorkspaceState, readOrderTrackingState, createDeliveryWorkspaceTriggers }
+function dispatchSections(value) {
+  if (value === undefined) return [...SECTIONS]
+  if (!Array.isArray(value) || !value.length || value.length > SECTIONS.length
+      || new Set(value).size !== value.length || value.some(section => !SECTIONS.includes(section))) {
+    throw new HttpsError('invalid-argument', 'Nhóm dữ liệu điều phối không hợp lệ.')
+  }
+  return SECTIONS.filter(section => value.includes(section))
+}
+
+async function readDispatchWorkspaceState({ db, actorId, sections }) {
+  if (!idOf(actorId)) throw Error('DELIVERY_SIGNAL_INVALID_ACTOR')
+  const names = dispatchSections(sections).filter(section => SECTION_PATHS[section])
+  const snapshots = names.length ? await db.getAll(...names.map(section => db.doc(SECTION_PATHS[section]))) : []
+  // A response never acknowledges a section it did not hydrate.
+  return { schemaVersion: 1, accountId: actorId,
+    versions: Object.fromEntries(names.map((section, index) => [section, versionOf(snapshots[index].data())])) }
+}
+
+module.exports = { syncDeliveryWorkspaceChange, readDeliveryWorkspaceState, readOrderTrackingState, readDispatchWorkspaceState, dispatchSections, createDeliveryWorkspaceTriggers }
