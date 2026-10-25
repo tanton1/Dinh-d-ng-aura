@@ -116,6 +116,7 @@ function fakeDatabase(seed = {}) {
           if (operator === '>=') return actual >= comparable(expected)
           if (operator === '<=') return actual <= comparable(expected)
           if (operator === '<') return actual < comparable(expected)
+          if (operator === 'in') return expected.includes(actual)
           return actual === comparable(expected)
         })).slice(0, cap).map(snapshot)
       const result = { docs, size: docs.length }
@@ -368,6 +369,58 @@ test('reader rejects mixed-generation buckets even when coverage says ready', as
   const path = [...db.records.keys()].find((key) => key.startsWith('operationsDailyAggregatesV2/'))
   db.write(path, { ...db.records.get(path), generation: 'older' })
   assert.equal(await load(db), null)
+})
+
+test('selected aggregate branch reads stay complete beyond the global bucket limit', async () => {
+  const db = fakeDatabase({ 'sessions/s1': defaultSession })
+  await rebuild(db)
+  const generation = db.records.get(coveragePath).generation
+  for (let index = 0; index < 20_000; index++) db.records.set(`operationsDailyAggregatesV2/other-${index}`, {
+    schemaVersion: 2, generation, date: '2026-10-23', branchId: `outside-${index}`, metrics: { sessions: 100 },
+  })
+  assert.equal(await load(db), null, 'all-branch request still rejects the capped result')
+  const queries = []
+  db.afterQuery = async (query, result) => queries.push({ ...query, returned: result.size })
+  const writesBefore = db.stats.writes
+  const result = await load(db, { branchId: 'branch-1', branchIds: ['branch-1'] })
+  assert.equal(result.totals.sessions, 1)
+  assert.equal(queries.length, 1)
+  assert.equal(queries[0].returned, 1)
+  assert.ok(queries[0].filters.some(([field, operator, value]) => field === 'branchId' && operator === '==' && value === 'branch-1'))
+  assert.equal(db.stats.writes, writesBefore)
+})
+
+test('aggregate branch scope handles unassigned, empty and chunked scopes without duplicate totals', async () => {
+  const db = fakeDatabase({ 'sessions/unassigned': { ...defaultSession, branchId: undefined } })
+  for (let index = 0; index < 65; index++) db.records.set(`sessions/s-${index}`, { ...defaultSession, branchId: `branch-${index}` })
+  await rebuild(db)
+  const queries = []
+  db.afterQuery = async (query, result) => queries.push({ ...query, returned: result.size })
+  assert.equal((await load(db, { branchId: 'none', branchIds: [] })).totals.sessions, 1)
+  assert.ok(queries[0].filters.some(([field, operator, value]) => field === 'branchId' && operator === '==' && value === '__none__'))
+  queries.length = 0
+  assert.deepEqual((await load(db, { branchId: 'all', branchIds: [] })).totals, {})
+  assert.equal(queries.length, 0, 'empty authorized scope never queries all branches')
+  const branchIds = Array.from({ length: 65 }, (_, index) => `branch-${index}`)
+  assert.equal((await load(db, { branchIds: [...branchIds, ...branchIds] })).totals.sessions, 65)
+  assert.deepEqual(queries.map(query => query.returned), [30, 30, 5])
+  assert.deepEqual(queries.map(query => query.cap), [20_000, 19_970, 19_940])
+})
+
+test('scoped aggregate reads still reject changed coverage and selected mixed-generation buckets', async () => {
+  const scope = { branchId: 'branch-1', branchIds: ['branch-1'] }
+  for (const failure of ['building', 'replaced', 'mixed']) {
+    const db = fakeDatabase({ 'sessions/s1': defaultSession })
+    await rebuild(db)
+    if (failure === 'mixed') {
+      const key = [...db.records.keys()].find(key => key.startsWith('operationsDailyAggregatesV2/'))
+      db.write(key, { ...db.records.get(key), generation: 'old' })
+    } else db.afterQuery = async ({ name }) => {
+      if (name !== 'operationsDailyAggregatesV2') return
+      db.write(coveragePath, { ...db.records.get(coveragePath), ...(failure === 'building' ? { status: 'building' } : { generation: 'replacement' }) })
+    }
+    assert.equal(await load(db, scope), null, failure)
+  }
 })
 
 test('repeated rebuilds reuse source state and bucket keys rather than accumulating generations', async () => {

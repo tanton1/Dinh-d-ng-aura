@@ -107,3 +107,70 @@ for (const target of REGIONAL_AGGREGATE_TARGETS) {
     assert.equal(await total(f.db, sample.metric), sample.total)
   })
 }
+
+function observedAggregateDb(db, queries, onQuery) {
+  const wrap = (query, name, filters = []) => ({
+    where: (...args) => wrap(query.where(...args), name, [...filters, args]),
+    limit: maximum => wrap(query.limit(maximum), name, filters),
+    doc: id => query.doc(id),
+    async get() {
+      const snapshot = await query.get()
+      queries.push({ name, filters, returned: snapshot.size })
+      if (onQuery) await onQuery(name)
+      return snapshot
+    },
+  })
+  return { collection: name => wrap(db.collection(name), name) }
+}
+
+test('real Firestore: aggregate readers hydrate only selected branches, including unassigned and empty scopes', async t => {
+  const { db } = fixture(REGIONAL_AGGREGATE_TARGETS[2])
+  const values = [
+    ...Array.from({ length: 1000 }, (_, index) => ({ branchId: `outside-${index}` })),
+    ...Array.from({ length: 35 }, (_, index) => ({ branchId: `selected-${index}` })),
+    { branchId: 'home' }, {},
+  ]
+  for (let offset = 0; offset < values.length; offset += 400) {
+    const batch = db.batch()
+    values.slice(offset, offset + 400).forEach((value, index) => batch.set(db.doc(`sessions/source-${offset + index}`), {
+      ...value, date: '2026-10-23', status: 'completed',
+    }))
+    await batch.commit()
+  }
+  await rebuildOperationsDailyAggregates({ db, logger: quiet, days: 3, now })
+  const queries = [], observed = observedAggregateDb(db, queries)
+  const read = scope => loadDailyAggregates({ db: observed, startDate: '2026-10-21', endDate: '2026-10-23', scope })
+  assert.equal((await read({ branchId: 'home', branchIds: ['home'] })).totals.sessions, 1)
+  assert.deepEqual(queries.map(query => query.returned), [1])
+  queries.length = 0
+  assert.equal((await read({ branchId: 'none', branchIds: [] })).totals.sessions, 1)
+  assert.deepEqual(queries.map(query => query.returned), [1])
+  queries.length = 0
+  assert.deepEqual((await read({ branchId: 'all', branchIds: [] })).totals, {})
+  assert.equal(queries.length, 0)
+  const branchIds = Array.from({ length: 35 }, (_, index) => `selected-${index}`)
+  assert.equal((await read({ branchIds: [...branchIds, 'selected-0'] })).totals.sessions, 35)
+  assert.deepEqual(queries.map(query => query.returned), [30, 5])
+  queries.length = 0
+  assert.equal((await read({ unrestricted: true })).totals.sessions, values.length)
+  assert.deepEqual(queries.map(query => query.returned), [1037])
+  t.diagnostic(JSON.stringify({ fixtureBuckets: 1037, selectedBranchBuckets: 1, queryCount: 1, coverageDocumentReads: 2, readerWrites: 0, units: 'logical documents, not billed units' }))
+})
+
+test('real Firestore: a generation change between scoped query chunks rejects the entire result', async () => {
+  const { db } = fixture(REGIONAL_AGGREGATE_TARGETS[2])
+  const branchIds = Array.from({ length: 35 }, (_, index) => `branch-${index}`)
+  const batch = db.batch()
+  branchIds.forEach(branchId => batch.set(db.doc(`sessions/${branchId}`), { branchId, date: '2026-10-23', status: 'scheduled' }))
+  await batch.commit()
+  await rebuildOperationsDailyAggregates({ db, logger: quiet, days: 3, now })
+  let replaced = false
+  const queries = [], observed = observedAggregateDb(db, queries, async name => {
+    if (name !== 'operationsDailyAggregatesV2' || replaced) return
+    replaced = true
+    await rebuildOperationsDailyAggregates({ db, logger: quiet, days: 3, now })
+  })
+  assert.equal(await loadDailyAggregates({ db: observed, startDate: '2026-10-21', endDate: '2026-10-23', scope: { branchIds } }), null)
+  assert.deepEqual(queries.map(query => query.returned), [30, 5])
+  assert.equal(await total(db, 'sessions'), 35, 'the complete replacement stays usable')
+})
