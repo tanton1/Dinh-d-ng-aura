@@ -1,0 +1,41 @@
+{
+  "status": "live_rules_recovered_workflow_guard_pending_merge",
+  "observedAt": "2026-10-25T00:32:50.501Z",
+  "database": "ai-studio-aurafitnesselear-0f7609b4-b8d1-4fb3-9d62-99a2c03e1ce7",
+  "affectedRelease": 40145235551,
+  "reviewedRulesSource": "fa995caba69dec7216e47087f83b8e9d542062a8",
+  "finding": "Firebase CLI 15.9.1 returned success for --only firestore:rules,storage while the Firestore array configuration selected no database. Storage was deployed, but the named Firestore release was unchanged.",
+  "verificationBeforeRecovery": {
+    "releaseUpdatedAt": "2026-10-24T11:55:51.688977Z",
+    "ruleset": "projects/gen-lang-client-0815966909/rulesets/21e4d66e-6998-4232-8995-49d3d612cddd",
+    "sourceHash": "e8e1694f411c9eb15c0f54686751ae35631311d1d16511640b149d0c6a491f4e",
+    "missingScope": "Only eatCleanDriverChanges and eatCleanWorkspaceChanges authorized get matches differed from the tested source; other rules were identical."
+  },
+  "recovery": {
+    "selector": "firestore:rules,firestore:ai-studio-aurafitnesselear-0f7609b4-b8d1-4fb3-9d62-99a2c03e1ce7",
+    "releaseUpdatedAt": "2026-10-25T00:30:52.961644Z",
+    "ruleset": "projects/gen-lang-client-0815966909/rulesets/39eb0289-e883-4864-adf1-925d7edb3972",
+    "sourceHash": "1a28267cbd038429c03173678f91669588701f7a31a007c05a69a60a9beab857",
+    "exactSourceVerified": true,
+    "functionsOrIndexesRedeployed": false,
+    "businessDocumentsWritten": false,
+    "beforeFrontendMerge": "ca7aa576feca8dbbd3bc16005190a35b31576ad3"
+  },
+  "prevention": [
+    "Select both the named database and the rules-only modifier in the pinned Firebase CLI, preserving the separate create-only index workflow.",
+    "Read the exact named rules release and its ruleset, compare normalized source hashes, and reread release metadata to reject a concurrent deployment.",
+    "Fail deployment on wrong project/database, wrong source, extra source files, permission failure or source mismatch. Never infer rule deployment from CLI exit status alone.",
+    "Use the workflow deploy identity or the existing local Firebase identity; log only release metadata and hashes."
+  ],
+  "validation": {
+    "releaseAndRulesUnitCases": 17,
+    "typecheck": "passed",
+    "liveReadOnlySourceVerification": "passed",
+    "existingRulesTests": "The exact unchanged firestore.rules source passed 45 rule tests and hosted source CI for PR17 before the targeted recovery."
+  },
+  "references": [
+    "https://firebase.google.com/docs/rules/manage-deploy",
+    "https://github.com/firebase/firebase-tools/issues/10447"
+  ],
+  "limits": "No business request or synthetic production account was needed. Source matching proves the deployed ruleset, not observed customer traffic or a measured cost saving."
+}

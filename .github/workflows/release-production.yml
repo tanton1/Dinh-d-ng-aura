@@ -296,7 +296,12 @@ jobs:
         # Keep Realtime Database separate: some production projects do not
         # expose the Firebase Database Management API to the deploy identity,
         # and a missing/optional RTDB must not block unrelated releases.
-        run: npx --yes firebase-tools@15.9.1 deploy --only firestore:rules,storage --project gen-lang-client-0815966909 --non-interactive
+        # The rules selector alone matches no database in an array config in
+        # the pinned CLI. Select the database AND rules to avoid index changes.
+        # Verify the actual named release: a zero CLI exit is insufficient.
+        run: |
+          npx --yes firebase-tools@15.9.1 deploy --only firestore:rules,firestore:ai-studio-aurafitnesselear-0f7609b4-b8d1-4fb3-9d62-99a2c03e1ce7,storage --project gen-lang-client-0815966909 --non-interactive
+          node scripts/firebase-firestore-rules-verify.cjs
 
       - name: Deploy Realtime Database Rules
         # Enable only after the production deploy identity has access to the
