@@ -4515,9 +4515,10 @@ async function applyFastAdminDraftCommand({ db, actor, branchId, week, command, 
 
 function resetDraftSchedule(data, currentSchedule) {
   const schedule = {}
-  const crossBranchStudentIds = new Set((data.crossBranchStudents || []).map((student) => student.id))
   for (const [slotId, entries] of Object.entries(safeSchedule(currentSchedule))) {
-    const retained = entries.filter((entry) => entry.type === 'off' || entry.isLocked === true || entry.source === 'published_existing' || crossBranchStudentIds.has(entry.studentId))
+    // Explicit reset clears every unpublished booking, including manual,
+    // locked and cross-branch drafts. Locks still protect optimizer runs.
+    const retained = entries.filter((entry) => entry.type === 'off' || entry.source === 'published_existing')
     if (retained.length) schedule[slotId] = retained
   }
   // Rehydrate every real published session even when the draft predates V2.
@@ -5478,10 +5479,16 @@ function createPtScheduleV2Functions({
       // Rehydrate published occupancy after the transaction re-read as well;
       // the draft may have been created before the first merge above.
       mergePublishedSessions({ ...data, weekId: week }, schedule, [])
-      const resetRemovedEntries = command === 'reset_draft'
-        ? Object.values(schedule).flat().filter((entry) => entry.type !== 'off' && entry.isLocked !== true && entry.source !== 'published_existing')
-        : []
-      if (command === 'reset_draft') schedule = resetDraftSchedule({ ...data, weekId: week }, schedule)
+      let resetRemovedEntries = []
+      if (command === 'reset_draft') {
+        const previousSchedule = schedule
+        schedule = resetDraftSchedule({ ...data, weekId: week }, schedule)
+        // Published sessions can still carry a manual source in old drafts.
+        // Requeue only bookings actually removed after published rehydration.
+        resetRemovedEntries = Object.entries(previousSchedule).flatMap(([key, entries]) => entries.filter((entry) =>
+          entry.type !== 'off' && !(schedule[key] || []).some((retained) => retained.type !== 'off'
+            && retained.studentId === entry.studentId && retained.trainerId === entry.trainerId)))
+      }
       const destructiveSlot = command === 'move_student' ? fromSlotId : slotId
       const destructiveTrainer = command === 'move_student' ? fromTrainerId : trainerId
       if (['move_student', 'remove_student', 'set_trainer_off', 'unlock_entry'].includes(command)) {

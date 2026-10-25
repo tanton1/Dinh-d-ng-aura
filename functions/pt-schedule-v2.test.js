@@ -1263,16 +1263,18 @@ test('three consecutive days remain allowed when they are the only way to fulfil
   assert.equal(generated.unassignedEntries.length, 0)
 })
 
-test('reset draft removes only mutable draft sessions and preserves OFF, locks and published sessions', () => {
+test('reset draft clears automatic, manual, locked and cross-branch drafts while preserving OFF and published sessions', () => {
   const data = fixture()
+  data.crossBranchStudents = [{ id: 'external', branchId: 'other' }]
   const reset = resetDraftSchedule({ ...data, weekId: WEEK }, {
     'T2-6': [{ studentId: 'student-a', trainerId: 'trainer-a', contractId: 'contract-a', branchId: BRANCH, type: 'training', source: 'auto_v3' }],
     'T3-6': [{ studentId: 'locked', trainerId: 'trainer-a', contractId: 'contract-a', branchId: BRANCH, type: 'training', source: 'manual_v2', isLocked: true }],
     'T4-6': [{ studentId: 'OFF', trainerId: 'trainer-a', branchId: BRANCH, type: 'off', source: 'manual_v2', isLocked: true }],
     'T5-6': [{ studentId: 'published', trainerId: 'trainer-a', contractId: 'contract-a', branchId: BRANCH, type: 'training', source: 'published_existing' }],
+    'T6-6': [{ studentId: 'manual', trainerId: 'trainer-a', contractId: 'contract-a', branchId: BRANCH, type: 'training', source: 'manual_v2', availabilityOverride: true }],
+    'T7-6': [{ studentId: 'external', trainerId: 'trainer-a', contractId: 'contract-external', branchId: BRANCH, type: 'training', source: 'manual_v2', isLocked: true, studentBranchWarning: true }],
   })
-  assert.equal(reset['T2-6'], undefined)
-  assert.equal(reset['T3-6'][0].studentId, 'locked')
+  assert.deepEqual(Object.keys(reset).sort(), ['T4-6', 'T5-6'])
   assert.equal(reset['T4-6'][0].type, 'off')
   assert.equal(reset['T5-6'][0].source, 'published_existing')
 })

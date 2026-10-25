@@ -1653,7 +1653,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
 
   const draftResetSummary = useMemo(() => {
     const entries = Object.values(workspace?.schedule || {}).flat()
-    const resettable = entries.filter((entry) => entry.type !== 'off' && entry.isLocked !== true && entry.source !== 'published_existing')
+    const resettable = entries.filter((entry) => entry.type !== 'off' && entry.source !== 'published_existing')
     return {
       resettableEntries: resettable.length,
       affectedStudents: new Set(resettable.map((entry) => entry.studentId)).size,
@@ -2404,7 +2404,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
               <button type="button" onClick={() => { moreMenuRef.current?.removeAttribute('open'); void autoArrange('supplement') }} disabled={!workspace || workspaceHydrating || busy}><Plus size={16} /><span><strong>Bổ sung lịch thiếu</strong><small>Giữ nguyên mọi ca hiện có, chỉ thêm buổi</small></span></button>
               <header><strong>Công cụ khác</strong><span>Draft r{workspace?.draftRevision || 0} · lịch v{workspace?.publishedVersion || 0}</span></header>
               <button type="button" onClick={() => { moreMenuRef.current?.removeAttribute('open'); void openHistory() }}><History size={16} /><span><strong>Lịch sử & khôi phục</strong><small>Dùng khi cần quay lại lịch đã publish</small></span></button>
-              <button type="button" onClick={() => { moreMenuRef.current?.removeAttribute('open'); setResetDraftOpen(true) }} disabled={!workspace || workspaceHydrating || busy || draftResetSummary.resettableEntries < 1}><RotateCcw size={16} /><span><strong>Đặt lại draft</strong><small>Giữ nguyên ca khóa, OFF và đã publish</small></span></button>
+              <button type="button" onClick={() => { moreMenuRef.current?.removeAttribute('open'); setResetDraftOpen(true) }} disabled={!workspace || workspaceHydrating || busy || draftResetSummary.resettableEntries < 1}><RotateCcw size={16} /><span><strong>Đặt lại draft</strong><small>Xóa toàn bộ buổi nháp, kể cả xếp tay</small></span></button>
               <button type="button" onClick={() => { moreMenuRef.current?.removeAttribute('open'); void loadWorkspace(false, true) }} disabled={loading || workspaceHydrating || busy}><RefreshCw size={16} className={loading ? 'is-spinning' : ''} /><span><strong>Tải lại dữ liệu</strong><small>Đồng bộ lại ngay bây giờ</small></span></button>
             </div>
           </details>

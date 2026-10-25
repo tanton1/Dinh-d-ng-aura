@@ -50,6 +50,55 @@ function harness(data = fixture(), options = {}) {
   }
 }
 const command = (name, payload, extra = {}) => ({ data: { branchId: BRANCH, weekId: WEEK, command: name, payload, expectedDraftRevision: 1, idempotencyKey: 'test-command-123', ...extra } })
+test('confirmed reset clears all unpublished bookings only in its branch/week and is idempotent', async () => {
+  const data = fixture()
+  data.crossBranchStudents = [{ id: 'external', branchId: 'home' }]
+  const off = { studentId: 'OFF', trainerId: 't', branchId: BRANCH, type: 'off', source: 'manual_v2', isLocked: true }
+  data.schedule = {
+    'T2-6': [{ ...entry('a'), source: 'manual_v2', isLocked: true }],
+    'T3-6': [{ ...entry('b'), source: 'manual_v2' }],
+    'T4-6': [entry('b'), { ...entry('external'), source: 'manual_v2', isLocked: true, studentBranchWarning: true }],
+    'T5-6': [off],
+  }
+  // Old drafts may retain their manual source after a session was published.
+  data.sessions = [{ id: 'published-a', studentId: 'a', trainerId: 't', contractId: 'c-a', branchId: BRANCH, date: WEEK, hour: 6, status: 'completed', billingStatus: 'charged' }]
+  const h = harness(data)
+  const unchangedPaths = ['sessions/published-a', 'contracts/c-a', `ptScheduleDrafts/other_${WEEK}`, 'ptScheduleDrafts/b_2090-01-09']
+  h.docs.set(unchangedPaths[0], data.sessions[0])
+  for (const path of unchangedPaths.slice(2)) h.docs.set(path, { revision: 9, schedule: structuredClone(data.schedule) })
+  const before = unchangedPaths.map((path) => structuredClone(h.docs.get(path)))
+  const request = command('reset_draft', {})
+  const result = await h.api.applyPtScheduleDraftCommand(request)
+  assert.equal(result.draftRevision, 2)
+  assert.deepEqual(Object.keys(result.schedule).sort(), ['T2-6', 'T5-6'])
+  assert.equal(result.schedule['T2-6'][0].studentId, 'a')
+  assert.equal(result.schedule['T2-6'][0].source, 'published_existing')
+  assert.equal(result.schedule['T2-6'][0].isLocked, true)
+  assert.deepEqual(result.schedule['T5-6'], [off])
+  const draft = h.docs.get(`ptScheduleDrafts/${BRANCH}_${WEEK}`)
+  assert.deepEqual(draft.schedule, result.schedule)
+  assert.deepEqual(draft.weeklySessionTargets, { a: 3, b: 4 })
+  assert.deepEqual(draft.unassignedEntries.map((row) => row.studentId).sort(), ['b', 'external'])
+  assert.ok(draft.unassignedEntries.every((row) => row.reasonCodes.includes('DRAFT_RESET')))
+  assert.deepEqual(unchangedPaths.map((path) => h.docs.get(path)), before)
+  assert.deepEqual(await h.api.applyPtScheduleDraftCommand(request), result)
+  assert.equal(h.docs.get(`ptScheduleDrafts/${BRANCH}_${WEEK}`).revision, 2)
+  const audits = [...h.docs].filter(([path]) => path.startsWith('ptOperationsAuditLogs/'))
+  assert.equal(audits.length, 1)
+  assert.equal(audits[0][1].affectedStudentCount, 2)
+})
+
+test('reset rejects a stale revision without removing newly edited manual bookings', async () => {
+  const data = fixture()
+  data.schedule = { 'T2-6': [{ ...entry('a'), source: 'manual_v2', isLocked: true }] }
+  const h = harness(data)
+  const path = `ptScheduleDrafts/${BRANCH}_${WEEK}`
+  h.docs.set(path, { ...h.docs.get(path), revision: 2 })
+  const before = JSON.stringify([...h.docs])
+  await assert.rejects(h.api.applyPtScheduleDraftCommand(command('reset_draft', {})), { code: 'aborted' })
+  assert.equal(JSON.stringify([...h.docs]), before)
+})
+
 test('slot candidates complete for Admin and scoped staff, including cross-branch search', async () => {
   for (const actor of [{ uid: 'admin', accessRole: 'admin', branchIds: [BRANCH] }, { uid: 'staff', accessRole: 'staff', branchIds: [BRANCH] }]) {
     const { api } = harness(fixture(), { actor })
