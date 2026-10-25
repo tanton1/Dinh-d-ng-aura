@@ -3,7 +3,7 @@ import { firebaseAuth } from '../lib/firebase'
 import { onAuthStateChanged } from 'firebase/auth'
 import { firestoreDb } from '../lib/firebaseFirestore'
 import type { AcademyLessonMemory, CourseLessonDraft } from '../types'
-import { acknowledgeAcademyWorkbook, AcademyWorkbookConflictError, prepareAcademyWorkbookDraft, reconcileAcademyWorkbook, serializeAcademyWorkbookForCloud } from '../features/academy/workbookPersistence'
+import { acknowledgeAcademyWorkbook, academyWorkbookSignature, AcademyWorkbookConflictError, prepareAcademyWorkbookDraft, reconcileAcademyWorkbook, serializeAcademyWorkbookForCloud } from '../features/academy/workbookPersistence'
 import { createAcademyReviewClient } from '../features/academy/reviewClient'
 export { AcademyWorkbookConflictError, AcademyWorkbookSizeError } from '../features/academy/workbookPersistence'
 
@@ -474,6 +474,14 @@ async function saveAcademyWorkbookToCloud(ownerId: string, courseId: string, les
       let previous: AcademyWorkbookState
       try { previous = normalizeWorkbookState(JSON.parse(existing.data().body)) } catch {
         throw new Error('Bản Cloud hiện tại không đọc được. Không ghi đè khi chưa giữ được bản cũ.')
+      }
+      // The revision check above still rejects stale-device saves. Reuse the
+      // transaction's existing read to acknowledge unchanged learning content
+      // without rewriting its body, timestamps or revision.
+      if (remoteRevision > 0 && existing.data().courseId === courseId && existing.data().lessonId === lessonId
+        && existing.data().sharedWithCoach === state.sharedWithCoach && previous.cloudRevision === remoteRevision
+        && academyWorkbookSignature(previous) === academyWorkbookSignature(state)) {
+        return { ...state, updatedAt: previous.updatedAt, cloudRevision: remoteRevision, pendingSync: false }
       }
       if (previous.definitionVersion !== state.definitionVersion || previous.definitionHash !== state.definitionHash) {
         // Archive the actual transaction snapshot, not the client's copy. Both
