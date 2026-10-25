@@ -62,6 +62,7 @@ export const getPtScheduleWeeklyView = async (input: any) => {
 export const ptScheduleConflictLabel = (code: string) => code === 'STUDENT_AVAILABILITY_DAYS_INSUFFICIENT'
   ? 'Học viên đăng ký chưa đủ số ngày rảnh để hoàn thành mục tiêu tuần.'
   : code === 'STUDENT_MISSING_SESSIONS' ? 'Học viên chưa được xếp đủ số buổi trong tuần.'
+  : code === 'STUDENT_UNSCHEDULED' ? 'Chưa tìm được đủ ca hợp lệ cho học viên.'
   : code === 'PROFILE_DATA_INCOMPLETE' ? 'Hồ sơ còn thiếu thông tin phục vụ xếp lịch.'
   : code
 export const asPtSchedulePublishError = (error: any) => ({ ...error, message: error.message || 'Lỗi thử nghiệm', conflicts: [], errorDetails: error.errorDetails || [] })
