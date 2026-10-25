@@ -64,10 +64,10 @@ test('switching OFF weeks ignores a slower response from the previous week', asy
   await page.getByRole('button', { name: 'staff', exact: true }).click()
   await expect(page.getByText('OFF theo ngày', { exact: true })).toBeVisible()
   await page.evaluate(() => { (window as any).deferAvailability = true })
-  await page.getByRole('button', { name: 'Tuần sau', exact: true }).click()
+  await page.getByRole('button', { name: 'Tuần kế tiếp', exact: true }).click()
   await expect(page.getByText('OFF theo ngày', { exact: true })).toBeHidden()
   await expect.poll(() => page.evaluate(() => Object.keys((window as any).pendingAvailability || {}).length)).toBe(1)
-  await page.getByRole('button', { name: 'Tuần sau', exact: true }).click()
+  await page.getByRole('button', { name: 'Tuần kế tiếp', exact: true }).click()
   await expect.poll(() => page.evaluate(() => Object.keys((window as any).pendingAvailability || {}).length)).toBe(2)
   await page.evaluate(() => {
     const pending = (window as any).pendingAvailability

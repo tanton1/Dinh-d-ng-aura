@@ -69,10 +69,12 @@ export function applyWeeklyValidation(next: PtScheduleWorkspaceV2Result, source:
   const retained = sameScope ? readValidationSnapshot(current?.validationSnapshot, next.branch.id, next.weekId) : null
   const snapshot = provided && (!retained || provided.dirtyGeneration >= retained.dirtyGeneration && provided.draftRevision >= retained.draftRevision) ? provided : retained
   const pending = source.dirty === true || source.rebuilding === true || source.freshness === 'stale' || source.validationDirty === true
-  const exact = !pending && source.partial !== true && (source.verification === 'exact'
+  const exact = !pending && source.partial !== true && source.readMode !== 'display' && (source.verification === 'exact'
     || source.verification === undefined && (source.readMode === 'reconciled' || source.freshness === 'verified'))
   const requiresProof = declaresValidation || source.verification === 'exact'
-  const state = exact && (!requiresProof || Boolean(provided)) && (source.validationState === undefined || source.validationState === 'current')
+  const proofMatches = provided?.draftRevision === next.draftRevision
+    && provided.dirtyGeneration === Math.max(Number(source.dirtyGeneration || 0), Number(next.weeklyViewDirtyGeneration || 0))
+  const state = exact && (!requiresProof || proofMatches) && (source.validationState === undefined || source.validationState === 'current')
     ? 'current' : snapshot ? 'stale' : 'unknown'
   return {
     ...next,
