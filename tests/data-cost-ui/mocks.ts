@@ -26,7 +26,7 @@ export const subscribeDeliveryLocation = (orderId: string, next: (value: any) =>
   deliveryState.deliveryObservers.push(observer)
   queueMicrotask(() => {
     if (!observer.active) return
-    if (new URLSearchParams(location.search).get('view') === 'dispatch') { next(deliveryState.dispatchPoints?.[orderId] || null); return }
+    if (new URLSearchParams(location.search).get('view')?.startsWith('dispatch')) { next(deliveryState.dispatchPoints?.[orderId] || null); return }
     const updatedAt = Date.parse(deliveryState.trackingLocationAt ?? new Date().toISOString())
     next(deliveryState.trackingStreamPoint !== undefined ? deliveryState.trackingStreamPoint
       : deliveryState.trackingSensitive && Number.isFinite(updatedAt)

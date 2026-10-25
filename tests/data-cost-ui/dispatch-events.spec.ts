@@ -237,7 +237,9 @@ test('assignment refreshes only jobs/roster; a late mutation cannot affect the n
   await revisions(page, ['jobs'], 1)
   await page.getByRole('button', { name: 'Gán shipper', exact: true }).click()
   await page.getByRole('button', { name: 'Xác nhận gán', exact: true }).click()
-  await page.getByRole('button', { name: 'Change dispatch account' }).click()
+  // This fixture control simulates an external auth change while the real
+  // modal is open; it is not a product interaction through the backdrop.
+  await page.getByRole('button', { name: 'Change dispatch account' }).evaluate((button: HTMLButtonElement) => button.click())
   await page.clock.runFor(200); await ready(page)
   const before = (await calls(page)).length
   await page.evaluate(() => (window as any).costState.mutationPending())
