@@ -3,6 +3,7 @@
 const { createHash } = require('node:crypto')
 const { FieldValue, Timestamp } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
+const { trainerProfileForWeek } = require('./trainer-availability')
 const { trustedAccessContext, requireCapability } = require('./identity-access')
 const {
   branchScheduleSnapshot,
@@ -915,20 +916,6 @@ async function approvedLeavesForTrainers(db, trainerIds) {
   return snapshots.flatMap((snapshot) => snapshot.docs).filter((item) => item.data()?.status === 'approved')
 }
 
-function trainerProfileForWeek(profile = {}, weekly = null, week = '') {
-  if (!weekly || weekly.weekId !== week || !['submitted', 'locked'].includes(String(weekly.status || ''))) return profile
-  const slots = Array.isArray(weekly.slots) ? weekly.slots.slice(0, 100) : []
-  return {
-    ...profile,
-    availableSlots: slots,
-    availabilityMode: slots.length ? 'configured' : 'unconfigured',
-    availabilityRevision: Number(weekly.revision || 0),
-    availabilitySource: 'weekly',
-    availabilityWeekId: week,
-    offDates: Array.isArray(weekly.offDates) ? weekly.offDates.slice(0, 6) : [],
-  }
-}
-
 function leaveCovers(leave, trainerId, date) {
   if (leave?.status !== 'approved' || leave?.trainerId !== trainerId) return false
   const start = storedDate(leave.startDate)
@@ -996,8 +983,8 @@ function initialStudentProjection(item, branchId, displayOnly = false, week = ''
   }
 }
 
-function initialTrainerProjection(item, branchId, scheduleLoadPolicy) {
-  const data = item.data() || {}
+function initialTrainerProjection(item, branchId, scheduleLoadPolicy, weekly = null, week = '') {
+  const data = trainerProfileForWeek(item.data() || {}, weekly, week)
   const availableSlots = Array.isArray(data.availableSlots) ? data.availableSlots.slice(0, 100) : []
   const schedulingPriority = Math.max(1, Math.min(999, Math.trunc(Number(data.schedulingPriority ?? data.priority ?? 100) || 100)))
   return {
@@ -1012,6 +999,9 @@ function initialTrainerProjection(item, branchId, scheduleLoadPolicy) {
     availableSlots,
     availabilityMode: trainerAvailabilityMode(data),
     availabilityRevision: Number(data.availabilityRevision || 0),
+    availabilitySource: data.availabilitySource || 'recurring',
+    availabilityWeekId: week,
+    offDates: data.offDates || [],
     slotCapacity: normalizedCapacity(data.slotCapacity),
     schedulingPriority,
     dailySessionTarget: trainerDailyLoadTarget(data, scheduleLoadPolicy),
@@ -1074,7 +1064,11 @@ async function loadBranchDataInitial(db, branchId, week, options = {}) {
   ].filter(Boolean))
   const missingReferencedStudents = [...referencedStudentIds].filter((studentId) => !studentMap.has(studentId))
   if (missingReferencedStudents.length > MAX_STUDENTS) throw new HttpsError('resource-exhausted', 'Số hồ sơ bổ sung vượt giới hạn workspace an toàn.')
-  const referencedStudentSnapshots = await documentsByIds(db, 'students', missingReferencedStudents)
+  const [referencedStudentSnapshots, trainerAvailability] = await Promise.all([
+    documentsByIds(db, 'students', missingReferencedStudents),
+    exactAvailabilityForTrainers(db, trainers.docs.map((item) => item.id), week),
+  ])
+  const weeklyTrainerAvailability = new Map(trainerAvailability.map((item) => [item.data().trainerId, item.data()]))
   referencedStudentSnapshots.forEach((item) => studentMap.set(item.id, item.data()))
   const crossBranchStudentIds = new Set([...referencedStudentIds].filter((studentId) => {
     const profile = studentMap.get(studentId)
@@ -1104,7 +1098,7 @@ async function loadBranchDataInitial(db, branchId, week, options = {}) {
     schedule,
     students: projectedStudents,
     crossBranchStudents: projectedCrossBranchStudents,
-    trainers: trainers.docs.map((item) => initialTrainerProjection(item, branchId, scheduleConfig.scheduleLoadPolicy)),
+    trainers: trainers.docs.map((item) => initialTrainerProjection(item, branchId, scheduleConfig.scheduleLoadPolicy, weeklyTrainerAvailability.get(item.id), week)),
     contracts: [],
     contractsByStudent: new Map(),
     sessions: weekSessions.docs.map((item) => ({ id: item.id, ...item.data() })),
@@ -1173,7 +1167,7 @@ async function loadBranchDataFresh(db, branchId, week, options = {}) {
   const [leaves, contracts, trainerAvailability] = await Promise.all([
     approvedLeavesForTrainers(db, trainers.docs.map((item) => item.id)),
     contractsForStudents(db, studentIds),
-    fastPublishedWorkspace ? Promise.resolve([]) : exactAvailabilityForTrainers(db, trainerIds, week),
+    exactAvailabilityForTrainers(db, trainerIds, week),
   ])
   if (leaves.length > 1000) {
     throw new HttpsError('resource-exhausted', 'Dữ liệu chi nhánh vượt giới hạn workspace an toàn.')
@@ -1467,6 +1461,9 @@ async function loadBranchDataFresh(db, branchId, week, options = {}) {
       availableSlots: Array.isArray(data.availableSlots) ? data.availableSlots.slice(0, 100) : [],
       availabilityMode: trainerAvailabilityMode(data),
       availabilityRevision: Number(data.availabilityRevision || 0),
+      availabilitySource: data.availabilitySource || 'recurring',
+      availabilityWeekId: week,
+      offDates: data.offDates || [],
       slotCapacity: normalizedCapacity(data.slotCapacity),
       schedulingPriority,
       dailySessionTarget,

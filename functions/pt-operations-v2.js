@@ -24,6 +24,7 @@ const { normalizedScheduleConfig } = require('./pt-schedule-publish')
 const { canonicalSessionRows, studentVisibleSessionRows } = require('./session-schedule-normalization')
 const { cacheScope, createProcessCache } = require('./process-cache')
 const { readWorkspaceChangeState } = require('./workspace-change-signals')
+const { trainerProfileForWeek, trainerWeekIsEditable } = require('./trainer-availability')
 
 const TIME_ZONE = 'Asia/Ho_Chi_Minh'
 const DEFAULT_WORKING_DAYS = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7']
@@ -1280,6 +1281,7 @@ function createPtOperationsV2Functions({
   onCall,
   staffCallOptions = {},
   staffMutationCallOptions = {},
+  availabilityAccessResolver = trustedAccessContext,
 }) {
   // Staff pages issue several Firestore-bound reads during the first render.
   // A concurrency of one made harmless navigation bursts exhaust all six
@@ -1308,10 +1310,25 @@ function createPtOperationsV2Functions({
     return cachedCoachWorkspaceScope(db, actor)
   })
 
-  const getMyTrainerAvailability = staffCall(async (request) => {
-    const actor = await trainerActor(request, db)
-    requireCapability(actor, 'pt.availability.self.manage')
-    const profile = await trainerProfileForActor(db, actor)
+  const availabilityContext = async (request, managed) => {
+    const actor = await availabilityAccessResolver(request, db, { freshAssignment: true })
+    if (managed) requireCapability(actor, 'identity.staff_position.manage')
+    else requireCapability(actor, 'pt.availability.self.manage')
+    if (!managed) return { actor, profile: await trainerProfileForActor(db, actor), targetUid: actor.uid }
+    const targetUid = request.data?.trainerUid
+    if (typeof targetUid !== 'string' || !targetUid.trim() || targetUid.includes('/') || targetUid.length > 128) {
+      throw new HttpsError('invalid-argument', 'Tài khoản PT không hợp lệ.')
+    }
+    const assignment = await db.doc(`roleAssignments/${targetUid}`).get()
+    const profile = await trainerProfileForActor(db, { uid: targetUid, legacyStaffId: assignment.data()?.crmProfileId })
+    if (!['admin', 'super_admin'].includes(actor.accessRole) && !actor.branchIds?.includes(profile.value.branchId)) {
+      throw new HttpsError('permission-denied', 'Bạn không quản lý chi nhánh của PT này.')
+    }
+    return { actor, profile, targetUid }
+  }
+
+  const readTrainerAvailability = async (request, managed = false) => {
+    const { profile } = await availabilityContext(request, managed)
     const requestedWeekId = request.data?.weekId ? availabilityWeekId(request.data.weekId) : null
     const weeklyReference = requestedWeekId ? db.doc(`trainerAvailability/${profile.id}_${requestedWeekId}`) : null
     const [configSnapshot, weeklySnapshot] = await Promise.all([
@@ -1321,28 +1338,29 @@ function createPtOperationsV2Functions({
     const config = scheduleConfig(configSnapshot.data())
     const baseSlots = normalizedAvailabilitySlots(profile.value.availableSlots || [], config, false)
     const weeklyValue = weeklySnapshot?.exists ? weeklySnapshot.data() : null
-    const offDates = requestedWeekId ? normalizedTrainerOffDates(weeklyValue?.offDates, requestedWeekId) : []
-    const weeklySlots = requestedWeekId && weeklyValue
-      ? trainerSlotsWithoutOffDates(normalizedAvailabilitySlots(weeklyValue.slots || [], config, false), offDates, requestedWeekId)
-      : null
-    const slots = weeklySlots || baseSlots
+    const effective = trainerProfileForWeek(profile.value, weeklyValue, requestedWeekId || '')
+    const weeklyOverride = effective.availabilitySource === 'weekly'
+    const offDates = weeklyOverride ? normalizedTrainerOffDates(effective.offDates, requestedWeekId) : []
+    const slots = normalizedAvailabilitySlots(effective.availableSlots || [], config, false)
     const cutoff = requestedWeekId ? availabilityCutoff(requestedWeekId, config) : null
     const reopenedUntil = weeklyValue?.reopenedUntil?.toDate?.() || (weeklyValue?.reopenedUntil ? new Date(weeklyValue.reopenedUntil) : null)
-    const locked = Boolean(cutoff && Date.now() >= cutoff.getTime() && (!reopenedUntil || reopenedUntil.getTime() <= Date.now()))
+    const locked = Boolean(cutoff && !trainerWeekIsEditable(requestedWeekId) && Date.now() >= cutoff.getTime() && (!reopenedUntil || reopenedUntil.getTime() <= Date.now()))
     return serialize({
       schemaVersion: 2,
       trainerId: profile.id,
       trainerName: profile.value.name || 'HLV Aura',
-      branchId: profile.value.branchId || actor.branchIds[0] || '',
+      branchId: profile.value.branchId || '',
       availableSlots: slots,
       baseAvailableSlots: baseSlots,
       weekId: requestedWeekId,
-      weeklyOverride: Boolean(weeklyValue),
+      weeklyOverride,
       offDates,
       locked,
+      canManage: managed,
+      reopenedUntil: reopenedUntil?.toISOString() || null,
       cutoffAt: cutoff?.toISOString() || null,
-      source: weeklyValue ? 'weekly' : 'recurring',
-      availabilityMode: profile.value.availabilityMode === 'unrestricted'
+      source: weeklyOverride ? 'weekly' : 'recurring',
+      availabilityMode: effective.availabilityMode === 'unrestricted'
         ? 'unrestricted'
         : slots.length ? 'configured' : 'unconfigured',
       // A new weekly document starts at revision zero even when the recurring
@@ -1354,19 +1372,19 @@ function createPtOperationsV2Functions({
       updatedAt: weeklyValue?.updatedAt || profile.value.availabilityUpdatedAt || null,
       scheduleConfig: config,
     })
-  })
+  }
+  const getMyTrainerAvailability = staffCall((request) => readTrainerAvailability(request))
+  const getPtTrainerAvailability = staffCall((request) => readTrainerAvailability(request, true))
 
-  const saveMyTrainerAvailability = staffCall(async (request) => {
-    const actor = await trainerActor(request, db)
-    requireCapability(actor, 'pt.availability.self.manage')
-    const profile = await trainerProfileForActor(db, actor)
+  const writeTrainerAvailability = async (request, managed = false) => {
+    const { actor, profile, targetUid } = await availabilityContext(request, managed)
     const configSnapshot = await db.doc('settings/scheduleConfig').get()
     const config = scheduleConfig(configSnapshot.data())
     const requestedWeekId = request.data?.weekId ? availabilityWeekId(request.data.weekId) : null
     const offDates = requestedWeekId ? normalizedTrainerOffDates(request.data?.offDates, requestedWeekId) : []
-    const normalizedSlots = normalizedAvailabilitySlots(request.data?.availableSlots, config, requestedWeekId ? false : true)
+    const normalizedSlots = normalizedAvailabilitySlots(request.data?.availableSlots, config, true)
     const slots = requestedWeekId ? trainerSlotsWithoutOffDates(normalizedSlots, offDates, requestedWeekId) : normalizedSlots
-    if (!slots.length && !offDates.length) throw new HttpsError('failed-precondition', 'Hãy chọn ít nhất một khung giờ rảnh hoặc đánh dấu ngày OFF.')
+    if (!slots.length && !offDates.length && !(managed && !requestedWeekId)) throw new HttpsError('failed-precondition', 'Hãy chọn ít nhất một khung giờ rảnh hoặc đánh dấu ngày OFF.')
     const expectedRevision = integer(request.data?.expectedRevision, 0, 0, 1000000)
     if (requestedWeekId) {
       const reference = db.doc(`trainerAvailability/${profile.id}_${requestedWeekId}`)
@@ -1375,17 +1393,20 @@ function createPtOperationsV2Functions({
       const result = await db.runTransaction(async (transaction) => {
         const [current, currentProfile] = await Promise.all([transaction.get(reference), transaction.get(profile.reference)])
         if (!currentProfile.exists) throw new HttpsError('not-found', 'Không tìm thấy hồ sơ PT.')
+        if (managed && !['admin', 'super_admin'].includes(actor.accessRole) && !actor.branchIds?.includes(currentProfile.data().branchId)) {
+          throw new HttpsError('permission-denied', 'Bạn không quản lý chi nhánh của PT này.')
+        }
         const currentValue = current.data() || {}
         const reopenedUntil = currentValue.reopenedUntil?.toDate?.() || (currentValue.reopenedUntil ? new Date(currentValue.reopenedUntil) : null)
-        if (Date.now() >= cutoffAt.getTime() && (!reopenedUntil || reopenedUntil.getTime() <= Date.now())) {
-          throw new HttpsError('failed-precondition', 'Lịch rảnh của tuần này đã khóa. Hãy gửi quản lý mở lại nếu cần điều chỉnh.', { issueCode: 'TRAINER_AVAILABILITY_LOCKED', cutoffAt: cutoffAt.toISOString() })
+        if (!managed && !trainerWeekIsEditable(requestedWeekId) && Date.now() >= cutoffAt.getTime() && (!reopenedUntil || reopenedUntil.getTime() <= Date.now())) {
+          throw new HttpsError('failed-precondition', 'Tuần này đã qua. Hãy liên hệ quản lý nếu cần điều chỉnh lịch rảnh.', { issueCode: 'TRAINER_AVAILABILITY_LOCKED', cutoffAt: cutoffAt.toISOString() })
         }
         const revision = Number(currentValue.revision || 0)
         if (revision !== expectedRevision) throw new HttpsError('aborted', 'Lịch rảnh tuần đã thay đổi ở thiết bị khác. Hãy tải lại.', { issueCode: 'REVISION_CONFLICT', currentRevision: revision })
         const next = {
           schemaVersion: 1,
           trainerId: profile.id,
-          accountUid: actor.uid,
+          accountUid: targetUid,
           branchId: currentProfile.data().branchId || actor.branchIds[0] || '',
           weekId: requestedWeekId,
           slots,
@@ -1402,6 +1423,7 @@ function createPtOperationsV2Functions({
           schemaVersion: 2,
           action: 'trainer_weekly_availability.updated',
           actorUid: actor.uid,
+          managed,
           trainerId: profile.id,
           weekId: requestedWeekId,
           beforeSlotCount: Array.isArray(currentValue.slots) ? currentValue.slots.length : 0,
@@ -1414,6 +1436,7 @@ function createPtOperationsV2Functions({
         return revision + 1
       })
       invalidateTrainerReadCaches(db, actor)
+      if (managed) return readTrainerAvailability(request, true)
       return {
         schemaVersion: 2,
         weekId: requestedWeekId,
@@ -1423,6 +1446,7 @@ function createPtOperationsV2Functions({
         source: 'weekly',
         weeklyOverride: true,
         locked: false,
+        canManage: managed,
         cutoffAt: cutoffAt.toISOString(),
         availabilityMode: slots.length ? 'configured' : 'unconfigured',
         availabilityRevision: result,
@@ -1432,6 +1456,9 @@ function createPtOperationsV2Functions({
     const nextRevision = await db.runTransaction(async (transaction) => {
       const current = await transaction.get(profile.reference)
       if (!current.exists) throw new HttpsError('not-found', 'Không tìm thấy hồ sơ PT.')
+      if (managed && !['admin', 'super_admin'].includes(actor.accessRole) && !actor.branchIds?.includes(current.data().branchId)) {
+        throw new HttpsError('permission-denied', 'Bạn không quản lý chi nhánh của PT này.')
+      }
       const revision = Number(current.data()?.availabilityRevision || 0)
       if (revision !== expectedRevision) {
         throw new HttpsError('aborted', 'Lịch rảnh đã được cập nhật ở thiết bị khác. Hãy tải lại.', {
@@ -1440,7 +1467,7 @@ function createPtOperationsV2Functions({
       }
       transaction.update(profile.reference, {
         availableSlots: slots,
-        availabilityMode: 'configured',
+        availabilityMode: slots.length ? 'configured' : 'unconfigured',
         availabilityRevision: revision + 1,
         availabilityUpdatedBy: actor.uid,
         availabilityUpdatedAt: FieldValue.serverTimestamp(),
@@ -1451,7 +1478,7 @@ function createPtOperationsV2Functions({
       // screens can safely read the same slots without a second write path.
       transaction.set(db.doc(`staff/${profile.id}`), {
         availableSlots: slots,
-        availabilityMode: 'configured',
+        availabilityMode: slots.length ? 'configured' : 'unconfigured',
         availabilityRevision: revision + 1,
         availabilityUpdatedBy: actor.uid,
         availabilityUpdatedAt: FieldValue.serverTimestamp(),
@@ -1472,8 +1499,10 @@ function createPtOperationsV2Functions({
       return revision + 1
     })
     invalidateTrainerReadCaches(db, actor)
-    return { schemaVersion: 2, weekId: null, availableSlots: slots, baseAvailableSlots: slots, offDates: [], source: 'recurring', weeklyOverride: false, locked: false, cutoffAt: null, availabilityMode: 'configured', availabilityRevision: nextRevision, updatedAt: new Date().toISOString() }
-  })
+    return { schemaVersion: 2, weekId: null, availableSlots: slots, baseAvailableSlots: slots, offDates: [], source: 'recurring', weeklyOverride: false, locked: false, canManage: managed, cutoffAt: null, availabilityMode: slots.length ? 'configured' : 'unconfigured', availabilityRevision: nextRevision, updatedAt: new Date().toISOString() }
+  }
+  const saveMyTrainerAvailability = staffCall((request) => writeTrainerAvailability(request))
+  const savePtTrainerAvailability = staffCall((request) => writeTrainerAvailability(request, true))
 
   const listMyStudentPtSchedule = staffCall(async (request) => {
     const actor = await studentActor(request, db, { freshAssignment: true })
@@ -2584,7 +2613,7 @@ function createPtOperationsV2Functions({
     return { approvalId: reference.id, status: 'pending' }
   })
 
-  return { getMyCoachWorkspaceScope, getMyTrainerAvailability, saveMyTrainerAvailability, getMyTrainerWorkspace, listMyStudentPtSchedule, saveMyStudentAvailability, listMyAssignedStudents, listMyTrainerSchedule, getMyTrainerStudentDetail, confirmMySession, recordMySessionAttendance, bulkConfirmMySessions, submitWorkoutNote, requestSessionChange, reportMySessionAdvanceAbsence, requestStudentSessionAddition, listMyQuotes, getMySalesCatalog, getMySalesWorkspace, createQuote, createStudentDraft, submitContractForApproval }
+  return { getMyCoachWorkspaceScope, getMyTrainerAvailability, saveMyTrainerAvailability, getPtTrainerAvailability, savePtTrainerAvailability, getMyTrainerWorkspace, listMyStudentPtSchedule, saveMyStudentAvailability, listMyAssignedStudents, listMyTrainerSchedule, getMyTrainerStudentDetail, confirmMySession, recordMySessionAttendance, bulkConfirmMySessions, submitWorkoutNote, requestSessionChange, reportMySessionAdvanceAbsence, requestStudentSessionAddition, listMyQuotes, getMySalesCatalog, getMySalesWorkspace, createQuote, createStudentDraft, submitContractForApproval }
 }
 
 module.exports = {
