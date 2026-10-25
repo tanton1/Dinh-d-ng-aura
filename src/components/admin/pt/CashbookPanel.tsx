@@ -75,7 +75,7 @@ function useCashbookRead<T>(key: string | null, read: () => Promise<T>) {
   reader.current = read
   const [result, setResult] = useState<{ identity: typeof identity; data: T | null; error: unknown } | null>(null)
   useEffect(() => {
-    if (identity.key === null) return
+    if (identity.key === null) { setResult(null); return }
     let active = true
     const run = reader.current
     // StrictMode cleanup and immediately closed surfaces do not start a read.
@@ -94,11 +94,14 @@ type Props = { branches: Array<{ id: string; name: string }> }
 export default function CashbookPanel(props: Props) {
   const { user, profile, authzReady, hasCapability } = useAuth()
   const authority = JSON.stringify([user?.uid, profile?.uid, profile?.role, profile?.accessRole, profile?.authzVersion, profile?.branchId, profile?.disabled, [...(profile?.positions || [])].sort(), authzReady])
+  const [blockedAuthority, setBlockedAuthority] = useState<string | null>(null)
+  const onAccessDenied = useCallback(() => setBlockedAuthority(authority), [authority])
   if (!authzReady || !user || profile?.uid !== user.uid || profile.disabled || !hasCapability('finance.operations.manage')) return <p role="alert">Cần đăng nhập bằng tài khoản có quyền tài chính để mở sổ quỹ.</p>
-  return <CashbookSession key={authority} {...props} />
+  if (blockedAuthority === authority) return <section className="cashbook-panel"><p role="alert">Quyền xem sổ quỹ đã thay đổi. Vui lòng tải lại để kiểm tra quyền hiện tại.</p><button onClick={() => setBlockedAuthority(null)}>Kiểm tra lại quyền</button></section>
+  return <CashbookSession key={authority} {...props} onAccessDenied={onAccessDenied} />
 }
 
-function CashbookSession({ branches }: Props) {
+function CashbookSession({ branches, onAccessDenied }: Props & { onAccessDenied: () => void }) {
   const [selectedAccount, setSelectedAccount] = useState('')
   const [activeTab, setActiveTab] = useState<LedgerTab>('s2e')
   const [periodStart, setPeriodStart] = useState(monthStart())
@@ -114,7 +117,6 @@ function CashbookSession({ branches }: Props) {
   const [basicForm, setBasicForm] = useState({ name: '', type: 'cash' as CashAccountType, branchId: '', amount: '', toAccountId: '' })
   const [refreshVersion, setRefreshVersion] = useState(0)
   const [catalogVersion, setCatalogVersion] = useState(0)
-  const [accessRevoked, setAccessRevoked] = useState(false)
   const mounted = useRef(false)
   useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
   const accountRead = useCashbookRead(String(refreshVersion), listCashAccounts)
@@ -140,7 +142,8 @@ function CashbookSession({ branches }: Props) {
   const loading = pageRead.loading
   const readErrors = [accountRead.error, pageRead.error, catalogRead.error].filter(Boolean)
   const authorityError = readErrors.some(value => /(?:permission-denied|unauthenticated)$/.test(String((value as { code?: string })?.code || '')))
-  useEffect(() => { if (authorityError) setAccessRevoked(true) }, [authorityError])
+  // Unmount the entire private session, including drafts and sibling reads.
+  useEffect(() => { if (authorityError) onAccessDenied() }, [authorityError, onAccessDenied])
   const load = useCallback(async () => {
     if (!mounted.current) return
     setError('')
@@ -371,7 +374,7 @@ function CashbookSession({ branches }: Props) {
     }
   }
 
-  if (accessRevoked || authorityError) return <section className="cashbook-panel"><p role="alert">Quyền xem sổ quỹ đã thay đổi. Vui lòng tải lại để kiểm tra quyền hiện tại.</p><button onClick={() => { setAccessRevoked(false); closeForm(); void load() }}>Kiểm tra lại quyền</button></section>
+  if (authorityError) return null
 
   return <section className="cashbook-panel">
     <div className="cashbook-summary">

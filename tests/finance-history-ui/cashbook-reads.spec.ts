@@ -102,12 +102,17 @@ test('account and authority changes clear private data and fence pending respons
 
 test('current permission denial clears all cached financial content until rights are checked again', async ({ page }) => {
   await boot(page)
+  await page.getByRole('button', { name: 'Lập phiếu thu', exact: true }).click()
+  await page.getByLabel('Người nộp tiền', { exact: true }).fill('Private old draft')
   await page.evaluate(() => { (window as any).financeState.bookFailures.receipts = 'permission-denied' })
   await page.getByRole('button', { name: 'Phiếu thu', exact: true }).click()
   await expect(page.getByRole('alert')).toContainText('Quyền xem sổ quỹ đã thay đổi')
   await expect(page.locator('.cashbook-summary')).toHaveCount(0)
   await page.getByRole('button', { name: 'Kiểm tra lại quyền', exact: true }).click()
-  await expect(page.locator('.receipt-voucher-list')).toContainText('admin-a:all:receipt')
+  await expect(page.getByRole('article', { name: 'Mẫu S2e-HKD - Sổ chi tiết tiền' })).toBeVisible()
+  await expect(page.getByLabel('Người nộp tiền', { exact: true })).toHaveCount(0)
+  await page.getByRole('button', { name: 'Lập phiếu thu', exact: true }).click()
+  await expect(page.getByLabel('Người nộp tiền', { exact: true })).toHaveValue('')
   expect(await accountCalls(page)).toBe(2)
 })
 
