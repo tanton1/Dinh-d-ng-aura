@@ -22,16 +22,17 @@ test('full dispatch route has one bootstrap and no admin inventory read, includi
   await expect.poll(() => counts(page)).toEqual({ admin: 0, dispatch: 2 })
 })
 
-test('other tabs load the shared admin snapshot on demand and reuse it across tab changes', async ({ page }) => {
+test('other tabs load missing sections on demand and reuse shared sections across tab changes', async ({ page }) => {
   await open(page); await ready(page)
   await tab(page, 'Đơn hàng'); await expect(page.locator('.eat-clean-stats')).toBeVisible()
   expect((await counts(page)).admin).toBe(1)
   await tab(page, 'Tồn kho'); await tab(page, 'Thực đơn'); await tab(page, 'Vận hành')
-  expect((await counts(page)).admin).toBe(1)
+  expect((await counts(page)).admin).toBe(2)
+  expect(await page.evaluate(() => (window as any).costState.adminSectionCalls)).toEqual([['orders', 'config'], ['meals', 'inventory']])
   await tab(page, 'Điều phối'); await ready(page)
   await expect(page.locator('.eat-clean-stats')).toHaveCount(0)
   await tab(page, 'Đơn hàng'); await expect(page.locator('.eat-clean-stats')).toBeVisible()
-  expect((await counts(page)).admin).toBe(1)
+  expect((await counts(page)).admin).toBe(2)
 })
 
 test('catalog failure is isolated from dispatch and retries only on explicit request', async ({ page }) => {
@@ -119,6 +120,65 @@ test('a denied catalog refresh clears previously displayed private totals and ca
   await expect(page.getByText('Fixture admin catalog unavailable')).toBeVisible()
   await expect(page.locator('.eat-clean-stats')).toHaveCount(0)
   await expect(page.locator('.eat-clean-live-state')).toHaveCount(0)
+  await page.clock.runFor(600000)
+  expect((await counts(page)).admin).toBe(2)
+})
+
+test('menu-only navigation never reads orders or inventory and never shows unloaded business totals', async ({ page }) => {
+  await open(page, { adminInitialTab: 'menu' })
+  await expect(page.getByRole('tabpanel')).toBeVisible()
+  expect(await page.evaluate(() => (window as any).costState.adminSectionCalls)).toEqual([['meals', 'config']])
+  await expect(page.locator('.eat-clean-stats')).toHaveCount(0)
+  await page.clock.runFor(3600000)
+  expect((await counts(page)).admin).toBe(1)
+  await tab(page, 'Tồn kho'); await expect(page.getByRole('tabpanel')).toBeVisible()
+  expect(await page.evaluate(() => (window as any).costState.adminSectionCalls)).toEqual([['meals', 'config'], ['inventory']])
+  await expect(page.locator('.eat-clean-stats article')).toHaveCount(1)
+  await tab(page, 'Vận hành'); await expect(page.getByRole('tabpanel')).toBeVisible()
+  expect((await counts(page)).admin).toBe(2)
+})
+
+test('an orders failure does not invalidate cached menu/config and requires explicit retry on returning', async ({ page }) => {
+  await open(page, { adminInitialTab: 'menu' }); await expect(page.getByRole('tabpanel')).toBeVisible()
+  await page.evaluate(() => { (window as any).costState.adminError = 'unavailable' })
+  await tab(page, 'Đơn hàng'); await expect(page.getByText('Fixture admin catalog unavailable')).toBeVisible()
+  await tab(page, 'Thực đơn'); await expect(page.getByRole('tabpanel')).toBeVisible()
+  await expect(page.getByText('Fixture admin catalog unavailable')).toHaveCount(0)
+  await tab(page, 'Đơn hàng'); await expect(page.getByText('Fixture admin catalog unavailable')).toBeVisible()
+  expect((await counts(page)).admin).toBe(2)
+  await page.evaluate(() => { (window as any).costState.adminError = '' })
+  await page.getByRole('button', { name: 'Thử tải lại' }).click()
+  await expect(page.getByRole('tabpanel')).toBeVisible()
+  expect((await counts(page)).admin).toBe(3)
+})
+
+test('source-limit coverage is shown only for tabs consuming the capped section', async ({ page }) => {
+  await open(page, { adminInitialTab: 'orders', adminLimitReached: 'orders' })
+  await expect(page.getByText('Dữ liệu đang xem đã chạm giới hạn tải.', { exact: false })).toBeVisible()
+  await tab(page, 'Thực đơn'); await expect(page.getByRole('tabpanel')).toBeVisible()
+  await expect(page.getByText('Dữ liệu đang xem đã chạm giới hạn tải.', { exact: false })).toHaveCount(0)
+  await tab(page, 'Đơn hàng')
+  await expect(page.getByText('Dữ liệu đang xem đã chạm giới hạn tải.', { exact: false })).toBeVisible()
+})
+
+test('demo section transitions and manual refresh perform no business callable', async ({ page }) => {
+  await open(page, { adminInitialTab: 'menu', adminDemo: true })
+  await expect(page.getByRole('tabpanel')).toBeVisible()
+  await page.getByRole('button', { name: 'Làm mới', exact: true }).click()
+  await tab(page, 'Tồn kho'); await expect(page.getByRole('tabpanel')).toBeVisible()
+  await tab(page, 'Đơn hàng'); await expect(page.getByRole('tabpanel')).toBeVisible()
+  expect((await counts(page)).admin).toBe(0)
+})
+
+test('a transient refresh failure keeps the operations form mounted and preserves its unsaved input', async ({ page }) => {
+  await open(page, { adminInitialTab: 'operations' })
+  const amount = page.getByLabel('Đơn tối thiểu (đ)', { exact: true })
+  await expect(amount).toBeVisible()
+  await amount.fill('123000')
+  await page.evaluate(() => { (window as any).costState.adminError = 'unavailable' })
+  await page.getByRole('button', { name: 'Làm mới', exact: true }).click()
+  await expect(page.getByText('Dữ liệu trước đó vẫn đang hiển thị.', { exact: false })).toBeVisible()
+  await expect(amount).toHaveValue('123000')
   await page.clock.runFor(600000)
   expect((await counts(page)).admin).toBe(2)
 })

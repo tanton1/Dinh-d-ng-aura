@@ -3,6 +3,9 @@ import { firebaseFunctions } from '../../../lib/firebaseFunctions'
 import {
   DEFAULT_EAT_CLEAN_CONFIG,
   EMPTY_EAT_CLEAN_SUMMARY,
+  EAT_CLEAN_ADMIN_SECTIONS,
+  type EatCleanAdminSection,
+  type EatCleanAdminSnapshot,
   type SaveEatCleanInventoryInput,
   type EatCleanAdminData,
   type EatCleanConfig,
@@ -278,6 +281,34 @@ function normalizeAdminData(value: unknown): EatCleanAdminData {
 export async function listEatCleanAdminData(): Promise<EatCleanAdminData> {
   const callable = httpsCallable<Record<string, never>, unknown>(functionsClient(), 'listEatCleanAdminData')
   return normalizeAdminData((await callable({})).data)
+}
+
+export async function listEatCleanAdminSections(sections: readonly EatCleanAdminSection[]): Promise<EatCleanAdminSnapshot> {
+  if (!sections.length || new Set(sections).size !== sections.length || sections.some(section => !EAT_CLEAN_ADMIN_SECTIONS.includes(section))) {
+    throw new Error('Phần dữ liệu quản trị không hợp lệ.')
+  }
+  const callable = httpsCallable<{ sections: readonly EatCleanAdminSection[] }, unknown>(functionsClient(), 'listEatCleanAdminData')
+  const source = asRecord((await callable({ sections })).data)
+  const returned = source.sections
+  const record = (value: unknown) => Boolean(value && typeof value === 'object' && !Array.isArray(value))
+  const coverage = asRecord(source.coverage)
+  if (!Array.isArray(returned) || returned.length !== sections.length || new Set(returned).size !== returned.length
+    || returned.some(section => !sections.includes(section)) || typeof source.seeded !== 'boolean'
+    || sections.some(section => section === 'config' ? !record(source.config)
+      : !Array.isArray(source[section]) || typeof asRecord(coverage[section]).limitReached !== 'boolean')
+    || (sections.includes('orders') && !record(source.summary))) {
+    throw new Error('Dữ liệu quản trị chưa đầy đủ. Vui lòng thử tải lại.')
+  }
+  const normalized = normalizeAdminData(source)
+  return {
+    schemaVersion: normalized.schemaVersion, sections: [...sections], seeded: source.seeded, coverage: Object.fromEntries(
+      sections.filter(section => section !== 'config').map(section => [section, { limitReached: asRecord(coverage[section]).limitReached === true }]),
+    ),
+    ...(sections.includes('orders') ? { orders: normalized.orders, summary: normalized.summary } : {}),
+    ...(sections.includes('meals') ? { meals: normalized.meals } : {}),
+    ...(sections.includes('inventory') ? { inventory: normalized.inventory } : {}),
+    ...(sections.includes('config') ? { config: normalized.config } : {}),
+  }
 }
 
 export async function initializeEatCleanCatalog(): Promise<void> {
