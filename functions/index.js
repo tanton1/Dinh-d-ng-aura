@@ -478,6 +478,7 @@ if (!isStudent360Discovery && !isExerciseCatalogDiscovery) {
   Object.assign(exports, createGenerativeAiFunctions({ db }))
   Object.assign(exports, createEatCleanFunctions({ db, realtimeDb, onCall, requireTrustedAdmin, logger }))
 }
+Object.assign(exports, require('./delivery-workspace-signals').createDeliveryWorkspaceTriggers({ db, databaseId, onDocumentWritten }))
 const identityAccessFunctions = createIdentityAccessFunctions({ db, auth, onCall, logger })
 Object.assign(exports, identityAccessFunctions)
 exports.getMyAccessContext = identityAccessFunctions.getMyAccessContext

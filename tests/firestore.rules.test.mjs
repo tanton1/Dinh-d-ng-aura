@@ -6,7 +6,7 @@ import {
   assertSucceeds,
   initializeTestEnvironment,
 } from '@firebase/rules-unit-testing'
-import { collection, deleteDoc, doc, getDoc, getDocs, serverTimestamp, setDoc, updateDoc } from 'firebase/firestore'
+import { collection, deleteDoc, doc, getDoc, getDocs, onSnapshot, serverTimestamp, setDoc, updateDoc } from 'firebase/firestore'
 
 const projectId = 'demo-aura-fitness'
 const rulesPath = new URL('../firestore.rules', import.meta.url)
@@ -234,6 +234,76 @@ describe('Aura PT Firestore rules', () => {
 
   after(async () => {
     await testEnvironment?.cleanup()
+  })
+
+  test('delivery revisions enforce current role/owner on missing and populated markers; no lists or browser writes', async () => {
+    await testEnvironment.withSecurityRulesDisabled(async context => {
+      await setDoc(doc(context.firestore(), 'users', 'shipper-a'), { role: 'shipper', disabled: false })
+      await setDoc(doc(context.firestore(), 'users', 'shipper-b'), { role: 'shipper', disabled: false })
+    })
+    const a = authenticatedDb('shipper-a', 'shipper'), b = authenticatedDb('shipper-b', 'shipper')
+    const admin = authenticatedDb('admin-1', 'admin'), student = authenticatedDb('client-1', 'student')
+    const anonymous = testEnvironment.unauthenticatedContext().firestore()
+    const own = ['eatCleanDriverChanges', 'shipper-a'], config = ['eatCleanWorkspaceChanges', 'config'], dispatch = ['eatCleanWorkspaceChanges', 'dispatch']
+    for (const present of [false, true]) {
+      if (present) await testEnvironment.withSecurityRulesDisabled(async context => {
+        for (const path of [own, config, dispatch]) await setDoc(doc(context.firestore(), ...path), { schemaVersion: 1, version: '001792890000.000000001' })
+      })
+      await assertSucceeds(getDoc(doc(a, ...own)))
+      for (const db of [a, b, admin]) await assertSucceeds(getDoc(doc(db, ...config)))
+      await assertSucceeds(getDoc(doc(admin, ...dispatch)))
+      for (const db of [b, student, anonymous, admin]) await assertFails(getDoc(doc(db, ...own)))
+      for (const db of [a, b, student, anonymous]) await assertFails(getDoc(doc(db, ...dispatch)))
+      for (const db of [student, anonymous]) await assertFails(getDoc(doc(db, ...config)))
+    }
+    for (const db of [a, b, admin, student]) {
+      await assertFails(getDocs(collection(db, 'eatCleanDriverChanges')))
+      await assertFails(getDocs(collection(db, 'eatCleanWorkspaceChanges')))
+      for (const path of [own, config, dispatch]) {
+        await assertFails(setDoc(doc(db, ...path), { version: 'forged' }))
+        await assertFails(deleteDoc(doc(db, ...path)))
+      }
+      await assertFails(getDoc(doc(db, 'eatCleanDeliveries', 'private-otp')))
+    }
+  })
+
+  test('delivery marker access is revoked by disabled/current-role changes despite stale claims', async () => {
+    const a = authenticatedDb('shipper-a', 'shipper')
+    for (const profile of [{ role: 'student' }, { role: 'shipper', disabled: true }, null]) {
+      await testEnvironment.withSecurityRulesDisabled(async context => {
+        const ref = doc(context.firestore(), 'users', 'shipper-a')
+        if (profile) await setDoc(ref, profile); else await deleteDoc(ref)
+      })
+      await assertFails(getDoc(doc(a, 'eatCleanDriverChanges', 'shipper-a')))
+      await assertFails(getDoc(doc(a, 'eatCleanWorkspaceChanges', 'config')))
+    }
+  })
+
+  test('an already attached delivery listener denies further result updates after the account is disabled', async () => {
+    await testEnvironment.withSecurityRulesDisabled(async context => {
+      await setDoc(doc(context.firestore(), 'users', 'shipper-a'), { role: 'shipper' })
+      await setDoc(doc(context.firestore(), 'eatCleanDriverChanges', 'shipper-a'), { version: '001792890000.000000001' })
+    })
+    let ready, denied
+    const first = new Promise(resolve => { ready = resolve }), revoked = new Promise(resolve => { denied = resolve })
+    const stop = onSnapshot(doc(authenticatedDb('shipper-a', 'shipper'), 'eatCleanDriverChanges', 'shipper-a'), snapshot => { if (!snapshot.metadata.fromCache) ready() }, error => denied(error.code))
+    let accessChanged
+    const accountRevoked = new Promise(resolve => { accessChanged = resolve })
+    const stopAccount = onSnapshot(doc(authenticatedDb('shipper-a', 'shipper'), 'users', 'shipper-a'), snapshot => {
+      if (!snapshot.metadata.fromCache && snapshot.data()?.disabled) accessChanged()
+    })
+    let timeout
+    try {
+      await Promise.race([first, new Promise((_, reject) => { timeout = setTimeout(() => reject(Error('listener bootstrap timeout')), 10000) })])
+      clearTimeout(timeout)
+      await testEnvironment.withSecurityRulesDisabled(context => updateDoc(doc(context.firestore(), 'users', 'shipper-a'), { disabled: true }))
+      await Promise.race([accountRevoked, new Promise((_, reject) => { timeout = setTimeout(() => reject(Error('account revocation signal timeout')), 10000) })])
+      clearTimeout(timeout)
+      // The emulator re-evaluates this dependency when a result changes. The
+      // browser also observes its own account to clear cached jobs immediately.
+      await testEnvironment.withSecurityRulesDisabled(context => updateDoc(doc(context.firestore(), 'eatCleanDriverChanges', 'shipper-a'), { version: '001792890000.000000002' }))
+      assert.equal(await Promise.race([revoked, new Promise((_, reject) => { timeout = setTimeout(() => reject(Error('listener revocation timeout')), 10000) })]), 'permission-denied')
+    } finally { clearTimeout(timeout); stop(); stopAccount() }
   })
 
   test('workspace revisions allow only owner gets, including missing documents, and never browser writes or lists', async () => {

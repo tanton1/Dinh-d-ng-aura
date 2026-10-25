@@ -166,6 +166,9 @@ jobs:
       - name: Test daily progress summaries on mobile Safari
         if: matrix.project == 'mobile-webkit'
         run: npm run test:progress-summary-ui -- --project=progress-mobile-webkit
+      - name: Test event-driven delivery work on mobile Safari
+        if: matrix.project == 'mobile-webkit'
+        run: npm run test:delivery-workspace-ui -- --project=delivery-mobile-webkit
       - name: Upload browser failure evidence
         if: failure()
         uses: actions/upload-artifact@v4

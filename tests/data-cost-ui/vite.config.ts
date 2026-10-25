@@ -5,6 +5,6 @@ export default defineConfig({
   optimizeDeps: { entries: ['tests/data-cost-ui/index.html'] },
   plugins: [{ name: 'data-cost-fixture', enforce: 'pre', resolveId(source, importer) {
     if (!importer?.replaceAll('\\', '/').includes('/src/')) return
-    if (/(deliveryService|useDriverLocationPublisher|eatCleanService|googleMapsLoader|firebaseService|loyaltyService|nutritionService|nutritionJournalSummaryService|AiCoachBottomSheet)$/.test(source) || source.endsWith('/lib/firebase')) return resolve('tests/data-cost-ui/mocks.ts')
+    if (/(deliveryService|deliveryWorkspaceService|useDriverLocationPublisher|eatCleanService|googleMapsLoader|firebaseService|loyaltyService|nutritionService|nutritionJournalSummaryService|AiCoachBottomSheet)$/.test(source) || source.endsWith('/lib/firebase')) return resolve('tests/data-cost-ui/mocks.ts')
   } }, react()],
 })

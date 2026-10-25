@@ -1,16 +1,16 @@
 {
   "schemaVersion": 1,
-  "recordedAt": "2026-10-24T22:02:00.189Z",
+  "recordedAt": "2026-10-24T23:39:11.630Z",
   "scope": "Only Functions changed and verified in this optimization rollout; not a whole-project health or usage inventory.",
   "frontend": {
     "url": "https://aurafitness-jet.vercel.app",
-    "commit": "5dd7d0c7f0f0a5432bd15adc56b8e0089768cd0f",
-    "pullRequest": 9,
-    "checkedAt": "2026-10-24T21:59:25.087Z",
+    "commit": "0d9c1f5df326e3c44378963eff904eb90ea3c5df",
+    "pullRequest": 16,
+    "checkedAt": "2026-10-24T23:17:31.907Z",
     "smokePassed": true
   },
   "backend": {
-    "distinctVerifiedFunctions": 42,
+    "distinctVerifiedFunctions": 56,
     "sourceVerification": "Runtime JavaScript/JSON files in each serving image match the pinned commit; source-file checks exclude tests. Healthy latest serving revisions receive 100 percent traffic.",
     "waves": [
       {
@@ -24,6 +24,18 @@
         "targets": 24,
         "verifiedAt": "2026-10-24T21:57:07.826Z",
         "proofArtifact": "backend-preparation-serving-proof.json"
+      },
+      {
+        "sourceCommit": "9d9eac69d2a30a1d8827b5804c705a5ad8262fde",
+        "targets": 11,
+        "verifiedAt": "2026-10-24T22:40:44.378Z",
+        "proofArtifact": "followup-serving-proof.json"
+      },
+      {
+        "sourceCommit": "d55eb2a2898aa73447ea71dcebe84db584ca8c24",
+        "targets": 7,
+        "verifiedAt": "2026-10-24T23:14:03.833Z",
+        "proofArtifact": "progress-ai-serving-proof.json"
       }
     ]
   },
@@ -37,6 +49,18 @@
       "url": "https://github.com/tanton1/Dinh-d-ng-aura/actions/runs/40132452902",
       "result": "success",
       "scope": "23 resumed targets, with all 24 targets subsequently verified"
+    },
+    {
+      "id": 40137049165,
+      "url": "https://github.com/tanton1/Dinh-d-ng-aura/actions/runs/40137049165",
+      "result": "success",
+      "scope": "11 follow-up targets; four supersede previously verified history readers"
+    },
+    {
+      "id": 40139824732,
+      "url": "https://github.com/tanton1/Dinh-d-ng-aura/actions/runs/40139824732",
+      "result": "success",
+      "scope": "Six existing Student 360 progress triggers and one content generation callable"
     }
   ],
   "functions": [
@@ -65,6 +89,36 @@
       "sourceCommit": "f0c94be1df10baf22552a5cc853f281281e7616b",
       "sourceVerifiedFiles": 88,
       "verifiedAt": "2026-10-24T21:49:58.956Z",
+      "transport": {
+        "kind": "callable",
+        "verified": true
+      }
+    },
+    {
+      "function": "generateAuraContent",
+      "region": "asia-southeast1",
+      "functionState": "ACTIVE",
+      "revision": "generateauracontent-stg-b67fcad24a2d",
+      "image": "asia-southeast1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast1__generate_aura_content@sha256:20b464067dcb8ff14c92ec226945499fac3bc44209f3c519ca36b7bb7d36bad9",
+      "healthyServingPercent": 100,
+      "sourceCommit": "d55eb2a2898aa73447ea71dcebe84db584ca8c24",
+      "sourceVerifiedFiles": 91,
+      "verifiedAt": "2026-10-24T23:14:03.833Z",
+      "transport": {
+        "kind": "callable",
+        "verified": true
+      }
+    },
+    {
+      "function": "getMyNutritionJournalSummary",
+      "region": "asia-southeast1",
+      "functionState": "ACTIVE",
+      "revision": "getmynutritionjournalsummary-00002-yoz",
+      "image": "asia-southeast1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast1__get_my_nutrition_journal_summary@sha256:3f40df05fbf42e13bcd120b87a171b6c77008edb2d97b98ceda7d80c6ca456cb",
+      "healthyServingPercent": 100,
+      "sourceCommit": "9d9eac69d2a30a1d8827b5804c705a5ad8262fde",
+      "sourceVerifiedFiles": 91,
+      "verifiedAt": "2026-10-24T22:40:44.378Z",
       "transport": {
         "kind": "callable",
         "verified": true
@@ -374,12 +428,12 @@
       "function": "listStudentTrainingHistory",
       "region": "asia-southeast1",
       "functionState": "ACTIVE",
-      "revision": "liststudenttraininghistory-00022-rih",
-      "image": "asia-southeast1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast1__list_student_training_history@sha256:243d44a5126c6c85a463e30084f22a91a1d88deaf1f21b250fdbcdd154488985",
+      "revision": "liststudenttraininghistory-stg-cfa27c48a3c7",
+      "image": "asia-southeast1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast1__list_student_training_history@sha256:a94a59da9fa72bbf972930e531c24304e9f162f5fa4a836b4ca8e46f3a844dc1",
       "healthyServingPercent": 100,
-      "sourceCommit": "b9c9526105990735683ce8acde1c6b0f25c6f496",
-      "sourceVerifiedFiles": 90,
-      "verifiedAt": "2026-10-24T21:57:07.826Z",
+      "sourceCommit": "9d9eac69d2a30a1d8827b5804c705a5ad8262fde",
+      "sourceVerifiedFiles": 91,
+      "verifiedAt": "2026-10-24T22:40:44.378Z",
       "transport": {
         "kind": "callable",
         "verified": true
@@ -389,12 +443,12 @@
       "function": "listStudentTrainingHistoryRegional",
       "region": "asia-east1",
       "functionState": "ACTIVE",
-      "revision": "liststudenttraininghistoryregional-00006-cen",
-      "image": "asia-east1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--east1__list_student_training_history_regional@sha256:25cf277d067bd5578a672189efb994a344fd468b27e083f938239f780bf5ad03",
+      "revision": "liststudenttraininghistoryregional-stg-fbb30adea137",
+      "image": "asia-east1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--east1__list_student_training_history_regional@sha256:e248077a073ec646b37ba087352bf6ac7bf684043714b727fb3f5f7b204a1129",
       "healthyServingPercent": 100,
-      "sourceCommit": "b9c9526105990735683ce8acde1c6b0f25c6f496",
-      "sourceVerifiedFiles": 90,
-      "verifiedAt": "2026-10-24T21:57:07.826Z",
+      "sourceCommit": "9d9eac69d2a30a1d8827b5804c705a5ad8262fde",
+      "sourceVerifiedFiles": 91,
+      "verifiedAt": "2026-10-24T22:40:44.378Z",
       "transport": {
         "kind": "callable",
         "verified": true
@@ -404,12 +458,12 @@
       "function": "listTrainerTeachingHistory",
       "region": "asia-southeast1",
       "functionState": "ACTIVE",
-      "revision": "listtrainerteachinghistory-00018-cug",
-      "image": "asia-southeast1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast1__list_trainer_teaching_history@sha256:285953b44ddd1e7305c7ddaf5d0387db658c51b1249140c15d2c4fa3f8eb2cd4",
+      "revision": "listtrainerteachinghistory-stg-220e67b6003b",
+      "image": "asia-southeast1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast1__list_trainer_teaching_history@sha256:90604427016c053fb1e34fd7afcbb94dd1640801f1fae7e433935b9676ae9621",
       "healthyServingPercent": 100,
-      "sourceCommit": "b9c9526105990735683ce8acde1c6b0f25c6f496",
-      "sourceVerifiedFiles": 90,
-      "verifiedAt": "2026-10-24T21:57:07.826Z",
+      "sourceCommit": "9d9eac69d2a30a1d8827b5804c705a5ad8262fde",
+      "sourceVerifiedFiles": 91,
+      "verifiedAt": "2026-10-24T22:40:44.378Z",
       "transport": {
         "kind": "callable",
         "verified": true
@@ -419,12 +473,12 @@
       "function": "listTrainerTeachingHistoryRegional",
       "region": "asia-east1",
       "functionState": "ACTIVE",
-      "revision": "listtrainerteachinghistoryregional-00006-cey",
-      "image": "asia-east1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--east1__list_trainer_teaching_history_regional@sha256:c20d3eb064d2474b03485303c3922edf7cbe0b0fba0f229bd41f288ff9c3f449",
+      "revision": "listtrainerteachinghistoryregional-stg-d393cc57a84e",
+      "image": "asia-east1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--east1__list_trainer_teaching_history_regional@sha256:d0a8cc7cc7c5a64bb840d097d6c1632bf1f70933fef57808f18ae78cb849ad54",
       "healthyServingPercent": 100,
-      "sourceCommit": "b9c9526105990735683ce8acde1c6b0f25c6f496",
-      "sourceVerifiedFiles": 90,
-      "verifiedAt": "2026-10-24T21:57:07.826Z",
+      "sourceCommit": "9d9eac69d2a30a1d8827b5804c705a5ad8262fde",
+      "sourceVerifiedFiles": 91,
+      "verifiedAt": "2026-10-24T22:40:44.378Z",
       "transport": {
         "kind": "callable",
         "verified": true
@@ -612,6 +666,144 @@
       }
     },
     {
+      "function": "syncNutritionActivityDailySummary",
+      "region": "asia-southeast1",
+      "functionState": "ACTIVE",
+      "revision": "syncnutritionactivitydailysummary-00002-nuw",
+      "image": "asia-southeast1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast1__sync_nutrition_activity_daily_summary@sha256:2d9c7a88616c1aff8f1e9e74b84626e206ff0e159c074d185a1a7d22203da552",
+      "healthyServingPercent": 100,
+      "sourceCommit": "9d9eac69d2a30a1d8827b5804c705a5ad8262fde",
+      "sourceVerifiedFiles": 91,
+      "verifiedAt": "2026-10-24T22:40:44.378Z",
+      "transport": {
+        "kind": "event",
+        "trigger": "projects/gen-lang-client-0815966909/locations/asia-southeast1/triggers/syncnutritionactivitydailysummary-930579",
+        "conditions": {},
+        "subscription": "projects/gen-lang-client-0815966909/subscriptions/eventarc-asia-southeast1-syncnutritionactivitydailysummary-930579-sub-297",
+        "subscriptionState": "ACTIVE",
+        "retryPolicy": "RETRY_POLICY_RETRY",
+        "destination": {
+          "cloudFunction": "projects/gen-lang-client-0815966909/locations/asia-southeast1/functions/syncNutritionActivityDailySummary"
+        },
+        "verified": true
+      }
+    },
+    {
+      "function": "syncNutritionMealDailySummary",
+      "region": "asia-southeast1",
+      "functionState": "ACTIVE",
+      "revision": "syncnutritionmealdailysummary-00002-qur",
+      "image": "asia-southeast1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast1__sync_nutrition_meal_daily_summary@sha256:65be4b2d714ad23839d337bd9f5dce9795112f1d607fa52325572842efa1d830",
+      "healthyServingPercent": 100,
+      "sourceCommit": "9d9eac69d2a30a1d8827b5804c705a5ad8262fde",
+      "sourceVerifiedFiles": 91,
+      "verifiedAt": "2026-10-24T22:40:44.378Z",
+      "transport": {
+        "kind": "event",
+        "trigger": "projects/gen-lang-client-0815966909/locations/asia-southeast1/triggers/syncnutritionmealdailysummary-354477",
+        "conditions": {},
+        "subscription": "projects/gen-lang-client-0815966909/subscriptions/eventarc-asia-southeast1-syncnutritionmealdailysummary-354477-sub-045",
+        "subscriptionState": "ACTIVE",
+        "retryPolicy": "RETRY_POLICY_RETRY",
+        "destination": {
+          "cloudFunction": "projects/gen-lang-client-0815966909/locations/asia-southeast1/functions/syncNutritionMealDailySummary"
+        },
+        "verified": true
+      }
+    },
+    {
+      "function": "syncNutritionWaterDailySummary",
+      "region": "asia-southeast1",
+      "functionState": "ACTIVE",
+      "revision": "syncnutritionwaterdailysummary-00002-fon",
+      "image": "asia-southeast1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast1__sync_nutrition_water_daily_summary@sha256:bc7fd609bb98e0b40c8c5c76126a2634b8ee46cd73109cf08bdda4f59d595e98",
+      "healthyServingPercent": 100,
+      "sourceCommit": "9d9eac69d2a30a1d8827b5804c705a5ad8262fde",
+      "sourceVerifiedFiles": 91,
+      "verifiedAt": "2026-10-24T22:40:44.378Z",
+      "transport": {
+        "kind": "event",
+        "trigger": "projects/gen-lang-client-0815966909/locations/asia-southeast1/triggers/syncnutritionwaterdailysummary-799195",
+        "conditions": {},
+        "subscription": "projects/gen-lang-client-0815966909/subscriptions/eventarc-asia-southeast1-syncnutritionwaterdailysummary-799195-sub-583",
+        "subscriptionState": "ACTIVE",
+        "retryPolicy": "RETRY_POLICY_RETRY",
+        "destination": {
+          "cloudFunction": "projects/gen-lang-client-0815966909/locations/asia-southeast1/functions/syncNutritionWaterDailySummary"
+        },
+        "verified": true
+      }
+    },
+    {
+      "function": "syncPtScheduleWeeklyViewFromContract",
+      "region": "asia-southeast1",
+      "functionState": "ACTIVE",
+      "revision": "syncptscheduleweeklyviewfromcontract-stg-795fc9b4eb1e",
+      "image": "asia-southeast1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast1__sync_pt_schedule_weekly_view_from_contract@sha256:874cdbd6f951ab6e0c79c089f8a921593bfb5be169ec26be3bb7c100cb507db8",
+      "healthyServingPercent": 100,
+      "sourceCommit": "9d9eac69d2a30a1d8827b5804c705a5ad8262fde",
+      "sourceVerifiedFiles": 91,
+      "verifiedAt": "2026-10-24T22:40:44.378Z",
+      "transport": {
+        "kind": "event",
+        "trigger": "projects/gen-lang-client-0815966909/locations/asia-southeast1/triggers/syncptscheduleweeklyviewfromcontract-110094",
+        "conditions": {},
+        "subscription": "projects/gen-lang-client-0815966909/subscriptions/eventarc-asia-southeast1-syncptscheduleweeklyviewfromcontract-110094-sub-860",
+        "subscriptionState": "ACTIVE",
+        "retryPolicy": "RETRY_POLICY_RETRY",
+        "destination": {
+          "cloudFunction": "projects/gen-lang-client-0815966909/locations/asia-southeast1/functions/syncPtScheduleWeeklyViewFromContract"
+        },
+        "verified": true
+      }
+    },
+    {
+      "function": "syncPtScheduleWeeklyViewFromStudent",
+      "region": "asia-southeast1",
+      "functionState": "ACTIVE",
+      "revision": "syncptscheduleweeklyviewfromstudent-stg-4c53296cf0f4",
+      "image": "asia-southeast1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast1__sync_pt_schedule_weekly_view_from_student@sha256:1eff2ee3b3a8e569da8f25f3204d0875634a5eacfbf7f352ba7b24d6732e31a1",
+      "healthyServingPercent": 100,
+      "sourceCommit": "9d9eac69d2a30a1d8827b5804c705a5ad8262fde",
+      "sourceVerifiedFiles": 91,
+      "verifiedAt": "2026-10-24T22:40:44.378Z",
+      "transport": {
+        "kind": "event",
+        "trigger": "projects/gen-lang-client-0815966909/locations/asia-southeast1/triggers/syncptscheduleweeklyviewfromstudent-270419",
+        "conditions": {},
+        "subscription": "projects/gen-lang-client-0815966909/subscriptions/eventarc-asia-southeast1-syncptscheduleweeklyviewfromstudent-270419-sub-753",
+        "subscriptionState": "ACTIVE",
+        "retryPolicy": "RETRY_POLICY_RETRY",
+        "destination": {
+          "cloudFunction": "projects/gen-lang-client-0815966909/locations/asia-southeast1/functions/syncPtScheduleWeeklyViewFromStudent"
+        },
+        "verified": true
+      }
+    },
+    {
+      "function": "syncPtScheduleWeeklyViewFromTrainer",
+      "region": "asia-southeast1",
+      "functionState": "ACTIVE",
+      "revision": "syncptscheduleweeklyviewfromtrainer-stg-000a037545e3",
+      "image": "asia-southeast1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast1__sync_pt_schedule_weekly_view_from_trainer@sha256:b2b66ac2eef1ee827667ab420c0228a9ec75da60424b70c9a91ec918c51a45c8",
+      "healthyServingPercent": 100,
+      "sourceCommit": "9d9eac69d2a30a1d8827b5804c705a5ad8262fde",
+      "sourceVerifiedFiles": 91,
+      "verifiedAt": "2026-10-24T22:40:44.378Z",
+      "transport": {
+        "kind": "event",
+        "trigger": "projects/gen-lang-client-0815966909/locations/asia-southeast1/triggers/syncptscheduleweeklyviewfromtrainer-920087",
+        "conditions": {},
+        "subscription": "projects/gen-lang-client-0815966909/subscriptions/eventarc-asia-southeast1-syncptscheduleweeklyviewfromtrainer-920087-sub-562",
+        "subscriptionState": "ACTIVE",
+        "retryPolicy": "RETRY_POLICY_RETRY",
+        "destination": {
+          "cloudFunction": "projects/gen-lang-client-0815966909/locations/asia-southeast1/functions/syncPtScheduleWeeklyViewFromTrainer"
+        },
+        "verified": true
+      }
+    },
+    {
       "function": "syncSessionOperationalActions",
       "region": "asia-southeast1",
       "functionState": "ACTIVE",
@@ -635,6 +827,75 @@
       }
     },
     {
+      "function": "syncStudent360BodyMeasurement",
+      "region": "asia-southeast1",
+      "functionState": "ACTIVE",
+      "revision": "syncstudent360bodymeasurement-00016-zuk",
+      "image": "asia-southeast1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast1__sync_student360_body_measurement@sha256:f75e0ec79a8c6787127914ea11d52c80ddd0c41d5cad2b7d3edf086347d097b9",
+      "healthyServingPercent": 100,
+      "sourceCommit": "d55eb2a2898aa73447ea71dcebe84db584ca8c24",
+      "sourceVerifiedFiles": 91,
+      "verifiedAt": "2026-10-24T23:14:03.833Z",
+      "transport": {
+        "kind": "event",
+        "trigger": "projects/gen-lang-client-0815966909/locations/asia-southeast1/triggers/syncstudent360bodymeasurement-577476",
+        "conditions": {},
+        "subscription": "projects/gen-lang-client-0815966909/subscriptions/eventarc-asia-southeast1-syncstudent360bodymeasurement-577476-sub-037",
+        "subscriptionState": "ACTIVE",
+        "retryPolicy": "RETRY_POLICY_RETRY",
+        "destination": {
+          "cloudFunction": "projects/gen-lang-client-0815966909/locations/asia-southeast1/functions/syncStudent360BodyMeasurement"
+        },
+        "verified": true
+      }
+    },
+    {
+      "function": "syncStudent360BodyMetric",
+      "region": "asia-southeast1",
+      "functionState": "ACTIVE",
+      "revision": "syncstudent360bodymetric-00016-rem",
+      "image": "asia-southeast1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast1__sync_student360_body_metric@sha256:4756193adb4360893e9c962a635b172ff09faf13753351105f3ae82059726a09",
+      "healthyServingPercent": 100,
+      "sourceCommit": "d55eb2a2898aa73447ea71dcebe84db584ca8c24",
+      "sourceVerifiedFiles": 91,
+      "verifiedAt": "2026-10-24T23:14:03.833Z",
+      "transport": {
+        "kind": "event",
+        "trigger": "projects/gen-lang-client-0815966909/locations/asia-southeast1/triggers/syncstudent360bodymetric-534587",
+        "conditions": {},
+        "subscription": "projects/gen-lang-client-0815966909/subscriptions/eventarc-asia-southeast1-syncstudent360bodymetric-534587-sub-278",
+        "subscriptionState": "ACTIVE",
+        "retryPolicy": "RETRY_POLICY_RETRY",
+        "destination": {
+          "cloudFunction": "projects/gen-lang-client-0815966909/locations/asia-southeast1/functions/syncStudent360BodyMetric"
+        },
+        "verified": true
+      }
+    },
+    {
+      "function": "syncStudent360LegacyProgressPhoto",
+      "region": "asia-southeast1",
+      "functionState": "ACTIVE",
+      "revision": "syncstudent360legacyprogressphoto-00016-jeq",
+      "image": "asia-southeast1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast1__sync_student360_legacy_progress_photo@sha256:91597c3607165e135285d94c3900d656b2b8b50553e01fe53819a80d75a51395",
+      "healthyServingPercent": 100,
+      "sourceCommit": "d55eb2a2898aa73447ea71dcebe84db584ca8c24",
+      "sourceVerifiedFiles": 91,
+      "verifiedAt": "2026-10-24T23:14:03.833Z",
+      "transport": {
+        "kind": "event",
+        "trigger": "projects/gen-lang-client-0815966909/locations/asia-southeast1/triggers/syncstudent360legacyprogressphoto-123915",
+        "conditions": {},
+        "subscription": "projects/gen-lang-client-0815966909/subscriptions/eventarc-asia-southeast1-syncstudent360legacyprogressphoto-123915-sub-003",
+        "subscriptionState": "ACTIVE",
+        "retryPolicy": "RETRY_POLICY_RETRY",
+        "destination": {
+          "cloudFunction": "projects/gen-lang-client-0815966909/locations/asia-southeast1/functions/syncStudent360LegacyProgressPhoto"
+        },
+        "verified": true
+      }
+    },
+    {
       "function": "syncStudent360Profile",
       "region": "asia-southeast1",
       "functionState": "ACTIVE",
@@ -653,6 +914,52 @@
         "retryPolicy": "RETRY_POLICY_RETRY",
         "destination": {
           "cloudFunction": "projects/gen-lang-client-0815966909/locations/asia-southeast1/functions/syncStudent360Profile"
+        },
+        "verified": true
+      }
+    },
+    {
+      "function": "syncStudent360ProgressCheckIn",
+      "region": "asia-southeast1",
+      "functionState": "ACTIVE",
+      "revision": "syncstudent360progresscheckin-00011-cal",
+      "image": "asia-southeast1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast1__sync_student360_progress_check_in@sha256:9d2dda2c201c600c2e715aa2919a99a419b86a858fa6fb87bfab15a52ab5d948",
+      "healthyServingPercent": 100,
+      "sourceCommit": "d55eb2a2898aa73447ea71dcebe84db584ca8c24",
+      "sourceVerifiedFiles": 91,
+      "verifiedAt": "2026-10-24T23:14:03.833Z",
+      "transport": {
+        "kind": "event",
+        "trigger": "projects/gen-lang-client-0815966909/locations/asia-southeast1/triggers/syncstudent360progresscheckin-474894",
+        "conditions": {},
+        "subscription": "projects/gen-lang-client-0815966909/subscriptions/eventarc-asia-southeast1-syncstudent360progresscheckin-474894-sub-600",
+        "subscriptionState": "ACTIVE",
+        "retryPolicy": "RETRY_POLICY_RETRY",
+        "destination": {
+          "cloudFunction": "projects/gen-lang-client-0815966909/locations/asia-southeast1/functions/syncStudent360ProgressCheckIn"
+        },
+        "verified": true
+      }
+    },
+    {
+      "function": "syncStudent360ProgressPhoto",
+      "region": "asia-southeast1",
+      "functionState": "ACTIVE",
+      "revision": "syncstudent360progressphoto-00018-yep",
+      "image": "asia-southeast1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast1__sync_student360_progress_photo@sha256:8199dc7549f001cd1bea304f3f1002018fbe5615f50620c310a1fe5c0cf9a615",
+      "healthyServingPercent": 100,
+      "sourceCommit": "d55eb2a2898aa73447ea71dcebe84db584ca8c24",
+      "sourceVerifiedFiles": 91,
+      "verifiedAt": "2026-10-24T23:14:03.833Z",
+      "transport": {
+        "kind": "event",
+        "trigger": "projects/gen-lang-client-0815966909/locations/asia-southeast1/triggers/syncstudent360progressphoto-774327",
+        "conditions": {},
+        "subscription": "projects/gen-lang-client-0815966909/subscriptions/eventarc-asia-southeast1-syncstudent360progressphoto-774327-sub-115",
+        "subscriptionState": "ACTIVE",
+        "retryPolicy": "RETRY_POLICY_RETRY",
+        "destination": {
+          "cloudFunction": "projects/gen-lang-client-0815966909/locations/asia-southeast1/functions/syncStudent360ProgressPhoto"
         },
         "verified": true
       }
@@ -704,6 +1011,29 @@
       }
     },
     {
+      "function": "syncStudent360WeightLog",
+      "region": "asia-southeast1",
+      "functionState": "ACTIVE",
+      "revision": "syncstudent360weightlog-00015-wod",
+      "image": "asia-southeast1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast1__sync_student360_weight_log@sha256:7c1904dc9cf8cba74ce75387cee3322b546ac8fdfd6d738f61012338cb9defff",
+      "healthyServingPercent": 100,
+      "sourceCommit": "d55eb2a2898aa73447ea71dcebe84db584ca8c24",
+      "sourceVerifiedFiles": 91,
+      "verifiedAt": "2026-10-24T23:14:03.833Z",
+      "transport": {
+        "kind": "event",
+        "trigger": "projects/gen-lang-client-0815966909/locations/asia-southeast1/triggers/syncstudent360weightlog-721088",
+        "conditions": {},
+        "subscription": "projects/gen-lang-client-0815966909/subscriptions/eventarc-asia-southeast1-syncstudent360weightlog-721088-sub-372",
+        "subscriptionState": "ACTIVE",
+        "retryPolicy": "RETRY_POLICY_RETRY",
+        "destination": {
+          "cloudFunction": "projects/gen-lang-client-0815966909/locations/asia-southeast1/functions/syncStudent360WeightLog"
+        },
+        "verified": true
+      }
+    },
+    {
       "function": "syncStudentTrainingProgram",
       "region": "asia-southeast1",
       "functionState": "ACTIVE",
@@ -746,5 +1076,110 @@
     "No production billing savings percentage or currency amount is inferred from deployment or synthetic read-budget tests.",
     "Lifecycle deletion, broader projections, delivery realtime replacement and other D2–D5 plan items remain open.",
     "Per-function verification times describe point-in-time metadata, source and transport checks. They are not a continuous SLO or business-mutation test."
-  ]
+  ],
+  "progressIndexes": {
+    "verifiedAt": "2026-10-24T23:12:28.767Z",
+    "ready": 6,
+    "existingIndexes": 99,
+    "sourceCommit": "6ec27009f58806e713c248cbb4d260eb24b2bcf9",
+    "observation": "ops/progress-date-index-observation-20261025.json",
+    "targets": [
+      {
+        "collectionGroup": "bodyMetrics",
+        "queryScope": "COLLECTION",
+        "fields": [
+          {
+            "fieldPath": "date",
+            "order": "DESCENDING"
+          },
+          {
+            "fieldPath": "__name__",
+            "order": "DESCENDING"
+          }
+        ],
+        "name": "projects/gen-lang-client-0815966909/databases/ai-studio-aurafitnesselear-0f7609b4-b8d1-4fb3-9d62-99a2c03e1ce7/collectionGroups/bodyMetrics/indexes/CICAgLjywdkI",
+        "state": "READY"
+      },
+      {
+        "collectionGroup": "bodyMeasurements",
+        "queryScope": "COLLECTION",
+        "fields": [
+          {
+            "fieldPath": "date",
+            "order": "DESCENDING"
+          },
+          {
+            "fieldPath": "__name__",
+            "order": "DESCENDING"
+          }
+        ],
+        "name": "projects/gen-lang-client-0815966909/databases/ai-studio-aurafitnesselear-0f7609b4-b8d1-4fb3-9d62-99a2c03e1ce7/collectionGroups/bodyMeasurements/indexes/CICAgNiryskL",
+        "state": "READY"
+      },
+      {
+        "collectionGroup": "weightLogs",
+        "queryScope": "COLLECTION",
+        "fields": [
+          {
+            "fieldPath": "date",
+            "order": "DESCENDING"
+          },
+          {
+            "fieldPath": "__name__",
+            "order": "DESCENDING"
+          }
+        ],
+        "name": "projects/gen-lang-client-0815966909/databases/ai-studio-aurafitnesselear-0f7609b4-b8d1-4fb3-9d62-99a2c03e1ce7/collectionGroups/weightLogs/indexes/CICAgNiryqkI",
+        "state": "READY"
+      },
+      {
+        "collectionGroup": "progressCheckIns",
+        "queryScope": "COLLECTION",
+        "fields": [
+          {
+            "fieldPath": "date",
+            "order": "DESCENDING"
+          },
+          {
+            "fieldPath": "__name__",
+            "order": "DESCENDING"
+          }
+        ],
+        "name": "projects/gen-lang-client-0815966909/databases/ai-studio-aurafitnesselear-0f7609b4-b8d1-4fb3-9d62-99a2c03e1ce7/collectionGroups/progressCheckIns/indexes/CICAgNjajpkJ",
+        "state": "READY"
+      },
+      {
+        "collectionGroup": "progress_photos",
+        "queryScope": "COLLECTION",
+        "fields": [
+          {
+            "fieldPath": "date",
+            "order": "DESCENDING"
+          },
+          {
+            "fieldPath": "__name__",
+            "order": "DESCENDING"
+          }
+        ],
+        "name": "projects/gen-lang-client-0815966909/databases/ai-studio-aurafitnesselear-0f7609b4-b8d1-4fb3-9d62-99a2c03e1ce7/collectionGroups/progress_photos/indexes/CICAgNjajpkL",
+        "state": "READY"
+      },
+      {
+        "collectionGroup": "progressPhotos",
+        "queryScope": "COLLECTION",
+        "fields": [
+          {
+            "fieldPath": "date",
+            "order": "DESCENDING"
+          },
+          {
+            "fieldPath": "__name__",
+            "order": "DESCENDING"
+          }
+        ],
+        "name": "projects/gen-lang-client-0815966909/databases/ai-studio-aurafitnesselear-0f7609b4-b8d1-4fb3-9d62-99a2c03e1ce7/collectionGroups/progressPhotos/indexes/CICAgLjywdkK",
+        "state": "READY"
+      }
+    ]
+  }
 }

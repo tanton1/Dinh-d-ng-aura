@@ -69,6 +69,16 @@ export interface EatCleanDriverWorkspace {
   jobs: EatCleanDeliveryJob[]
   readiness?: EatCleanDeliveryRuntimeReadiness
   serverTime?: string
+  workspaceSync?: DeliveryWorkspaceState
+}
+
+export interface DeliveryWorkspaceState {
+  schemaVersion: 1
+  accountId: string
+  scope: 'shipper' | 'dispatch'
+  version: string
+  userVersion: string
+  policyVersion: string
 }
 
 export interface EatCleanDeliveryRuntimeReadiness {

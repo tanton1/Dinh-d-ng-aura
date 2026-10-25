@@ -32,10 +32,14 @@ function Tracking() {
   const [id, setId] = useState('order-a')
   return <><button onClick={() => setId('order-b')}>Change order</button><EatCleanTrackingPanel order={{ id, status: 'delivering', deliveryAddress: {} } as any} /></>
 }
+function Driver() {
+  const [account, setAccount] = useState('driver')
+  return <><button onClick={() => { (window as any).costState.driverAccount = 'driver-b'; (window as any).costState.jobCode = 'ORDER-B'; setAccount('driver-b') }}>Change driver account</button><DeliveryPage driverId={account} displayName="Test driver" onSignOut={() => {}} /></>
+}
 function Progress() {
   const [owner, setOwner] = useState('student-a')
   return <><button onClick={() => { firebaseAuth.currentUser.uid = 'student-b'; setOwner('student-b') }}>Change account</button><ProgressPage ownerId={owner} nutritionProfile={{ ...DEFAULT_PROFILE, age: 30, heightCm: 165, weightKg: 60, biologicalSex: 'female', goal: 'maintain', activityLevel: 'moderate', trainingSessions: 3, mealsPerDay: 5 }} /></>
 }
 createRoot(document.getElementById('root')!).render(<StrictMode>{
-  view === 'gps' ? <Location /> : view === 'dispatch' ? <EatCleanDispatchTab /> : view === 'tracking' ? <Tracking /> : view === 'progress' ? <Progress /> : <DeliveryPage driverId="driver" displayName="Test driver" onSignOut={() => {}} />
+  view === 'gps' ? <Location /> : view === 'dispatch' ? <EatCleanDispatchTab /> : view === 'tracking' ? <Tracking /> : view === 'progress' ? <Progress /> : <Driver />
 }</StrictMode>)

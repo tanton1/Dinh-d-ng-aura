@@ -4,7 +4,7 @@
   "plan": "docs/product/DATA_FLOW_COST_OPTIMIZATION_PLAN_2026-10-25.md",
   "baselineCommit": "30c10f4",
   "branch": "codex/data-cost-optimization-20261025",
-  "releaseStatus": "first_batches_verified_followup_pending",
+  "releaseStatus": "first_batches_verified_remaining_d2_d5_open",
   "phaseOneRelease": {
     "commit": "571f7d712dd4cfbf72ae2811f616f12a332968a7",
     "pullRequest": "https://github.com/tanton1/Dinh-d-ng-aura/pull/2",
@@ -16,7 +16,7 @@
     "initialWorkflowRun": "https://github.com/tanton1/Dinh-d-ng-aura/actions/runs/40120991612",
     "verification": "18 original targets match phase-one source; the remaining five match the consolidated b9 source. See per-function evidence in the verification record."
   },
-  "observedAt": "2026-10-24T22:36:32.436Z",
+  "observedAt": "2026-10-24T23:39:11.630Z",
   "items": {
     "D0.0": {
       "status": "triaged",
@@ -80,6 +80,14 @@
       "validation": "32 backend signal/workout tests; 33 Chromium and 33 mobile Safari workspace browser checks including 7 new personal workout cases per browser; 4 real Firestore read-budget, cursor and authorization checks; full npm run ci passed.",
       "remaining": "Real usage and billing observation, including source-trigger deliveries and metadata maintenance."
     },
+    "D2.3": {
+      "status": "driver_event_updates_implemented_pending_release",
+      "change": "The driver workspace replaces its 30-second full-list timer with current-role-protected, metadata-only revisions. Four source triggers cover orders, deliveries, shipper availability and shared configuration. Commit-time watermarks skip duplicate/older writes and address old/new assignees independently. The authorized reader acknowledges two marker documents before hydration; initial snapshots catch bootstrap races. Hidden/offline changes remain pending, bursts coalesce, local mutations fence older responses, and an explicit own-account listener clears cached jobs after access changes. SLA deadlines reuse the existing local alarm hook, updating labels and resuming after suspension without network reads.",
+      "validation": "Eight backend integration/registration checks and all 45 Firestore rule checks passed. Twenty-four delivery browser cases passed across Chromium and mobile Safari, including 30 idle foreground minutes without another list request, 30-event bursts, bootstrap/in-flight races, old-account reads/mutations, hidden/offline resume, access revocation, scope changes, bounded error recovery and local SLA deadlines. Two existing student-schedule deadline cases also passed after extracting the shared clock hook unchanged. The earlier regression browser run passed 24 checks (nine delivery cases plus 15 existing listener/GPS/history-isolation cases). Full local npm run ci passed before the clock follow-up; typecheck, build/performance and focused browser checks validate that follow-up. Hosted checks and production verification remain pending.",
+      "readBudget": "Each driver list request adds two metadata document reads before existing authorized business reads. Each source event touches at most four small marker documents; order events add one current-delivery lookup for legacy/current ownership. Replays can read markers but do not rewrite them. Metadata-only order/config edits skip database work. Delivery updatedAt remains significant because it changes query ordering. GPS stays in RTDB and does not publish these signals.",
+      "releaseOrder": "Deploy and verify the four syncEatCleanWorkspaceFrom* event functions, listMyShipperJobs and Firestore rules before merging the frontend. Bootstrap supports existing orders without a history backfill. The new frontend reports missing version capability as unavailable rather than silently retaining stale data. Existing clients still accept the additive reader response.",
+      "remaining": "Dispatcher and per-order location surfaces still have their existing guarded 30/15-second polling. Their independent state/count/config/GPS streams, authorized location transport and complete page UX remain follow-ups. This completes only the driver-screen portion after production verification. Measure added event/marker/profile-listener costs against avoided full-list reads; no billing reduction percentage is claimed."
+    },
     "D2.4": {
       "status": "deployed_verified",
       "change": "Shared GPS policy: hard 15-second attempt/write interval, 60-second stationary refresh using fresh fixes only, 30-second sample age, 100m maximum uncertainty and implausible-jump rejection. Retain only the newest point, stop on account/job/readiness changes or terminal authorization errors. RTDB transaction arbitrates concurrent devices and preserves newer inactive/reassigned mirrors without writing Firestore.",
@@ -87,21 +95,31 @@
       "remaining": "Real-route freshness and accuracy observation. No direct browser RTDB permissions were added."
     },
     "D2.5": {
-      "status": "attendance_reconciliation_partial_pending_release",
+      "status": "attendance_reconciliation_partial_deployed",
       "change": "The trainer's own attendance mutations pause source-driven refreshes while saving and route post-response reconciliation through the same signal engine. Thirty in-flight bulk source signals coalesce once after success. Late source versions still reconcile, hidden/offline state retains pending work, and operation identity fences old week/account responses and cleanup.",
-      "validation": "Chromium/mobile Safari coverage for 30-signal bulk writes, late markers, partial success, hidden resume, failed requests, week changes and overlapping account operations; TypeScript. Hosted CI and production rollout are pending.",
-      "remaining": "This reduces reads on the submitting trainer screen only. Other viewers still observe per-source events. Shared mutation receipts/accepted source versions and backend batching need a separate change; reading the marker after a mutation cannot safely prove which unrelated changes its patch covers."
+      "validation": "Chromium/mobile Safari coverage for 30-signal bulk writes, late markers, partial success, hidden resume, failed requests, week changes and overlapping account operations; TypeScript. Hosted CI and scoped production serving verification passed; see productionVerification.",
+      "remaining": "This reduces reads on the submitting trainer screen only. Other viewers still observe per-source events. Shared mutation receipts/accepted source versions and backend batching need a separate change; reading the marker after a mutation cannot safely prove which unrelated changes its patch covers.",
+      "productionVerification": {
+        "source": "9d9eac69d2a30a1d8827b5804c705a5ad8262fde",
+        "frontend": "b216079d4bf7da8e74dc2ab7574fc1e1e98623d2",
+        "record": "ops/data-cost-serving-verification-20261025.json"
+      }
     },
     "D3": {
       "status": "in_progress"
     },
     "D3.2": {
-      "status": "summary_skip_deployed_complete_history_followup_pending",
+      "status": "summary_and_history_cursors_deployed_followups_open",
       "change": "Finance entry-only workspace explicitly skips the unused all-period summary. History cursor pages retain first-page totals within the same person/filter scope. Complete-day canonical paging now keeps ISO-date and mirror rows together, advances through empty filtered windows, and binds new cursors to the current authorized subject/filter scope. Status filtering follows canonicalization so records and totals agree. An exhausted first range reuses its source rows for totals; legacy cursors remain accepted.",
-      "validation": "24 history behavior/access/read-budget checks; five real Firestore scenarios; 14 Chromium/mobile Safari history panel checks; full local npm run ci. Earlier finance and summary validations remain applicable. Hosted CI and rollout are pending.",
+      "validation": "24 history behavior/access/read-budget checks; five real Firestore scenarios; 14 Chromium/mobile Safari history panel checks; full local npm run ci. Earlier finance and summary validations remain applicable. Hosted CI and scoped production serving verification passed; see productionVerification.",
       "readBudget": "At most four page queries: first pageSize*3+1, at most 301 rows for each later query. A single incomplete day beyond this budget raises a non-retryable data precondition, preventing automatic cross-region rescans. Summary and authorization reads have separate existing budgets. Within-day trainer cursors reread that day to select complete canonical slots.",
       "tradeoff": "Removing the premature status predicate fixes cancelled-mirror inconsistencies but can scan more source rows for sparse status filters. No read-unit or currency saving is claimed for that correction; use a canonical projection if measured demand justifies its maintenance cost.",
-      "remaining": "Production rollout, finance directory cursors and per-operation billed-unit observation."
+      "remaining": "Finance directory cursors and per-operation billed-unit observation.",
+      "productionVerification": {
+        "source": "9d9eac69d2a30a1d8827b5804c705a5ad8262fde",
+        "frontend": "b216079d4bf7da8e74dc2ab7574fc1e1e98623d2",
+        "record": "ops/data-cost-serving-verification-20261025.json"
+      }
     },
     "D3.6": {
       "status": "shared_build_lease_deployed_followups_open",
@@ -110,44 +128,64 @@
       "remaining": "Detail cursors, source-domain revisions and narrower contracts/students aggregates remain separate follow-ups. Measure lease read/write overhead against duplicate cold builds under representative traffic; a crashed builder can delay the next build for up to 60 seconds."
     },
     "D3.5": {
-      "status": "progress_daily_adherence_implemented_pending_release",
+      "status": "progress_daily_adherence_deployed_followups_open",
       "change": "The Progress overview reads existing nutrition daily summaries in 31-day windows, replacing three recent raw-history listeners. Schema v2 records main meal occasions and distinct snack times so multiple dishes do not inflate adherence. Type/time edits, moved dates and deletes rebuild affected days. Hidden/offline screens defer work, finished chunks survive a pause, and body/history tabs reuse the completed report. Pending, incomplete or old-schema data never produces a percentage; bounded cold builds resume only on explicit request. Owner/range changes fence previous responses.",
-      "validation": "Full local npm run ci; 10 daily-summary unit tests; six nutrition progress tests; seven real Firestore scenarios, including 1800 meal logs over 90 days, schema upgrade, move/delete and meal-type/time edits. Warm 90-day reads use 90 daily documents with no raw source query or summary write, excluding authorization. Browser tests cover idle reads, mobile viewport, partial/error states, explicit continuation, visibility/offline and owner/range races. Hosted CI and production rollout remain pending.",
+      "validation": "Full local npm run ci; 10 daily-summary unit tests; six nutrition progress tests; seven real Firestore scenarios, including 1800 meal logs over 90 days, schema upgrade, move/delete and meal-type/time edits. Warm 90-day reads use 90 daily documents with no raw source query or summary write, excluding authorization. Browser tests cover idle reads, mobile viewport, partial/error states, explicit continuation, visibility/offline and owner/range races. Hosted CI and scoped production serving verification passed; see productionVerification.",
       "releaseOrder": "Deploy and verify syncNutritionMealDailySummary, syncNutritionWaterDailySummary, syncNutritionActivityDailySummary and getMyNutritionJournalSummary before the new frontend. Existing calendar readers accept the additive response. No new listener, collection or callable is introduced.",
       "tradeoff": "Existing v1 summaries rebuild lazily once per requested day. Source-trigger maintenance and an explicit forced reconciliation still read raw source rows within existing request/day/time budgets. Report data stays fixed while the same day/range remains open until manual refresh or a new scope; this is not a live diary. No production cost saving percentage is claimed.",
-      "remaining": "Production serving/source verification, photo/check-in cursors and other historical chart consumers remain open."
+      "remaining": "Photo/check-in cursors, other historical chart consumers and representative production read-unit observation.",
+      "productionVerification": {
+        "source": "9d9eac69d2a30a1d8827b5804c705a5ad8262fde",
+        "frontend": "b216079d4bf7da8e74dc2ab7574fc1e1e98623d2",
+        "record": "ops/data-cost-serving-verification-20261025.json"
+      }
     },
     "D4": {
       "status": "in_progress"
     },
     "D4.1": {
-      "status": "progress_domain_implemented_pending_release",
+      "status": "progress_domain_deployed_other_domains_open",
       "change": "Warm Student 360 progress events read only the six existing progress sources, with the same newest-first limits and canonical mirror handling as a full rebuild. Progress, nutrition and full refreshes share one fenced lease but keep independent coverage watermarks. Profile/account versions are rechecked transactionally before publishing. Photo-only changes can update the timeline without rewriting the overview; unchanged progress payloads avoid metadata-only overview writes.",
-      "validation": "Full local npm run ci passed. Nine real Firestore progress scenarios cover a fixture with over 1000 sessions and attendance rows, same-commit mirrors, edits/backdating/deletes/restoration, stale bases, full/nutrition races, later source writes, profile/account changes, legacy account resolution, photo-only writes and the 300-document source ceiling. Twelve existing nutrition/refresh-queue integration scenarios also passed, alongside 13 projection-write tests. Hosted CI and production release are pending.",
+      "validation": "Full local npm run ci passed. Nine real Firestore progress scenarios cover a fixture with over 1000 sessions and attendance rows, same-commit mirrors, edits/backdating/deletes/restoration, stale bases, full/nutrition races, later source writes, profile/account changes, legacy account resolution, photo-only writes and the 300-document source ceiling. Twelve existing nutrition/refresh-queue integration scenarios also passed, alongside 13 projection-write tests. Hosted CI and scoped production serving verification passed; see productionVerification.",
       "readBudget": "A warm progress refresh makes six bounded source queries, at most 300 source documents total, plus owner/projection/profile/lease reads and timeline comparison transactions. It does not query sessions, attendance, contracts, finance, meals or workout history. Existing full-rebuild source limits are unchanged.",
-      "releaseOrder": "After the current 11-function follow-up, deploy only syncStudent360BodyMetric, syncStudent360BodyMeasurement, syncStudent360WeightLog, syncStudent360LegacyProgressPhoto, syncStudent360ProgressPhoto and syncStudent360ProgressCheckIn. Verify serving source and event transports before merging.",
+      "releaseOrder": "The six progress triggers and generateAuraContent were released together in run 40139824732; exact serving images and event transports passed before PR15 merge and public smoke.",
       "tradeoff": "Missing, stale, incomplete or legacy/changed-account bases use the full repair path. Full freshness is not advanced by a progress-only update. Existing timeline retention is preserved. Normal student/staff check-in writers batch subcollection mirrors without rewriting the root user profile; independent profile edits still require full recomputation.",
-      "remaining": "Production rollout and representative billed-unit/latency observation. Schedule, contract, finance and training domains, durable dirty masks, ownership move reconciliation and historical timeline lifecycle are still separate D4.1 work.",
-      "indexEvidence": "ops/progress-date-index-observation-20261025.json"
+      "remaining": "Representative billed-unit/latency observation; schedule, contract, finance and training domains; durable dirty masks, ownership move reconciliation and historical timeline lifecycle.",
+      "indexEvidence": "ops/progress-date-index-observation-20261025.json",
+      "productionVerification": {
+        "source": "d55eb2a2898aa73447ea71dcebe84db584ca8c24",
+        "frontend": "8ce9dcc46a9454ec82321e8de778ddab874d9486",
+        "record": "ops/data-cost-serving-verification-20261025.json"
+      }
     },
     "D4.2": {
-      "status": "weekly_source_metadata_guard_partial_pending_release",
+      "status": "weekly_source_metadata_guard_partial_deployed",
       "change": "Student, trainer and contract deliveries that only touch root updatedAt stop before weekly-view target discovery, avoiding historical-view reads, dirty-generation writes and rebuilds. Every other source field remains significant; creates/deletes, nested timestamps, ownership moves and backdated edits still propagate. The existing contract-usage verification guard is retained.",
-      "validation": "52 weekly/source unit tests and 14 real Firestore scenarios passed, including zero database work for metadata-only events and continued invalidation of historical, moved and cross-branch scopes. Functions syntax checks, repository hygiene and secret scan passed. CI and production rollout remain pending.",
-      "remaining": "No event invocation savings are claimed. Replayed business events still increment generations; per-target durable receipts and narrower dependency fingerprints require separate work. Existing historical scope is preserved."
+      "validation": "52 weekly/source unit tests and 14 real Firestore scenarios passed, including zero database work for metadata-only events and continued invalidation of historical, moved and cross-branch scopes. Functions syntax checks, repository hygiene and secret scan passed. Hosted CI and scoped production serving verification passed; see productionVerification.",
+      "remaining": "No event invocation savings are claimed. Replayed business events still increment generations; per-target durable receipts and narrower dependency fingerprints require separate work. Existing historical scope is preserved.",
+      "productionVerification": {
+        "source": "9d9eac69d2a30a1d8827b5804c705a5ad8262fde",
+        "frontend": "b216079d4bf7da8e74dc2ab7574fc1e1e98623d2",
+        "record": "ops/data-cost-serving-verification-20261025.json"
+      }
     },
     "D5": {
       "status": "in_progress",
       "constraint": "Endpoint retirement still requires lifecycle evidence and observation windows; no automatic deletion at the earliest dates."
     },
     "D5.1": {
-      "status": "content_fallback_guard_implemented_pending_release",
+      "status": "content_fallback_guard_deployed_receipts_open",
       "change": "generateAuraContent permits one model fallback only for a narrow explicit HTTP 400/404 model or format rejection without generation identifiers, usage or choices. Network/body failures, timeouts, rate limits, gateway errors and incomplete, malformed or empty generations return their error without a second application POST. Auth, App Check, rate limits, primary/fallback configuration, success schema and usage metadata are preserved.",
-      "validation": "Full local npm run ci passed. 22 content/router tests passed, including actual content request wiring, synthetic provider failures, generation evidence, two-attempt ceiling, successful usage metadata and the existing shared-router behavior. No paid provider requests were used. Hosted CI and production rollout are pending.",
-      "releaseOrder": "After the Student 360 progress release, deploy only generateAuraContent from the reviewed source. The new internal router policy is enabled only by this function; nutrition plans retain their existing policy. Verify the serving image and callable transport before merging.",
+      "validation": "Full local npm run ci passed. 22 content/router tests passed, including actual content request wiring, synthetic provider failures, generation evidence, two-attempt ceiling, successful usage metadata and the existing shared-router behavior. No paid provider requests were used. Hosted CI and scoped production serving verification passed; see productionVerification.",
+      "releaseOrder": "generateAuraContent was included in the same seven-function release as the progress triggers. Source/serving health was verified; no paid provider request was made.",
       "tradeoff": "An ambiguous provider failure is surfaced instead of automatically trying another model. This bounds application-level automatic attempts; it does not constrain provider-internal routing, prove whether an attempt was charged, or deduplicate separate user requests.",
       "remaining": "Durable owner/request receipts, payload/version hashes, pending/succeeded/unknown recovery and explicit new-draft semantics across reloads and instances. The original Academy editing work remains excluded.",
-      "providerReference": "https://openrouter.ai/docs/api_reference/errors-and-debugging"
+      "providerReference": "https://openrouter.ai/docs/api_reference/errors-and-debugging",
+      "productionVerification": {
+        "source": "d55eb2a2898aa73447ea71dcebe84db584ca8c24",
+        "frontend": "8ce9dcc46a9454ec82321e8de778ddab874d9486",
+        "record": "ops/data-cost-serving-verification-20261025.json"
+      }
     },
     "D5.5": {
       "status": "ledger_and_progress_date_indexes_live_retention_pending",
@@ -187,9 +225,9 @@
     "Original Academy working tree is excluded from this isolated change."
   ],
   "currentProduction": {
-    "frontendCommit": "5dd7d0c7f0f0a5432bd15adc56b8e0089768cd0f",
-    "frontendCheckedAt": "2026-10-24T21:59:25.087Z",
-    "verifiedFunctionCount": 42,
+    "frontendCommit": "0d9c1f5df326e3c44378963eff904eb90ea3c5df",
+    "frontendCheckedAt": "2026-10-24T23:17:31.907Z",
+    "verifiedFunctionCount": 56,
     "verificationRecord": "ops/data-cost-serving-verification-20261025.json",
     "overallPlanComplete": false
   }
