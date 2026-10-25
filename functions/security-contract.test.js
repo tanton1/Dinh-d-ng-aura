@@ -767,7 +767,7 @@ test('PT schedule V2 is actor-scoped, date-exact, branch-owned and command revis
   assert.match(ptScheduleV2Source, /storedDate\(contract\.endDate\) >= date/)
   assert.match(ptScheduleV2Source, /AMBIGUOUS_ACTIVE_CONTRACT/)
   assert.match(ptScheduleV2Source, /TRAINER_AVAILABILITY_UNCONFIGURED/)
-  assert.match(ptScheduleV2Source, /const fallbackStudentMap = new Map[\s\S]*?studentWeekEligibility\(mappedContractsByStudent\.get\(studentId\) \|\| \[\], studentId, branchId, week\)\.eligible/)
+  assert.match(ptScheduleV2Source, /const fallbackStudentMap = new Map[\s\S]*?studentWeekEligibility\(mappedContractsByStudent\.get\(studentId\) \|\| \[\], studentId, branchId, week, undefined, false, config\.data\(\) \|\| \{\}\)\.eligible/)
   assert.match(ptScheduleV2Source, /loadLatestSubmittedFallbacks\(db, fallbackStudentMap, weeklyAvailability, week\)/)
   assert.match(studentAvailabilitySource, /const weekly = normalizedSubmittedAvailability[\s\S]*?if \(weekly\)[\s\S]*?const inheritedCandidates[\s\S]*?const legacy = legacyDefaultAvailability/)
   assert.match(studentAvailabilitySource, /source: 'inherited_weekly'/)

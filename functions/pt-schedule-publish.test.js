@@ -381,7 +381,21 @@ test('accepts an explicitly audited manual placement outside learner availabilit
   assert.ok(afterAvailabilityChanged.warnings.includes('MANUAL_STUDENT_AVAILABILITY_OVERRIDE'))
 })
 
-test('Admin override publish retains hard conflicts as warnings instead of blocking', () => {
+test('publish cannot override invalid date entitlement, including approved OFF', () => {
+  for (const problem of ['off', 'expired', 'future', 'missing']) {
+    const fixture = baseFixture()
+    if (problem === 'off') fixture.contracts[0].pausePeriods = [{ startDate: '2026-08-24', endDate: '2026-08-30' }]
+    if (problem === 'expired') fixture.contracts[0].endDate = '2026-08-23'
+    if (problem === 'future') fixture.contracts[0].startDate = '2026-09-01'
+    if (problem === 'missing') fixture.contracts = []
+    fixture.schedule['T2-6'][0].adminOverride = true
+    const result = desiredEntries({ ...fixture, allowAdminOverrides: true, allowPublishWarnings: true })
+    assert.ok(result.errors.length > 0, problem)
+    assert.equal(result.desired.size, 0, problem)
+  }
+})
+
+test('Admin override publish retains availability conflicts as warnings with valid entitlement', () => {
   const fixture = baseFixture()
   fixture.availability.set('student-a', { studentId: 'student-a', status: 'submitted', slots: ['T3-7'] })
   fixture.trainers.set('trainer-a', {
@@ -389,7 +403,6 @@ test('Admin override publish retains hard conflicts as warnings instead of block
     availableSlots: ['T3-7'],
     slotCapacity: 1,
   })
-  fixture.contracts[0].endDate = '2026-08-23'
   fixture.students.get('student-a').sessionsPerWeek = 0
   fixture.schedule['T2-6'][0] = {
     studentId: 'student-a',
@@ -407,7 +420,6 @@ test('Admin override publish retains hard conflicts as warnings instead of block
   assert.ok(result.warnings.includes('ADMIN_MANUAL_OVERRIDE'))
   assert.ok(result.warnings.includes('OUTSIDE_STUDENT_AVAILABILITY'))
   assert.ok(result.warnings.includes('OUTSIDE_TRAINER_AVAILABILITY'))
-  assert.ok(result.warnings.includes('ACTIVE_CONTRACT_NOT_FOUND'))
   assert.ok(result.warnings.includes('STUDENT_WEEKLY_TARGET_REACHED'))
   const session = [...result.desired.values()][0]
   assert.equal(session.adminOverride, true)
@@ -421,14 +433,12 @@ test('confirmed Admin publish mode carries policy conflicts as warnings without 
     availableSlots: ['T3-7'],
     slotCapacity: 1,
   })
-  fixture.contracts[0].endDate = '2026-08-23'
   fixture.students.get('student-a').sessionsPerWeek = 0
 
   const result = desiredEntries({ ...fixture, allowPublishWarnings: true })
   assert.deepEqual(result.errors, [])
   assert.ok(result.warnings.includes('OUTSIDE_STUDENT_AVAILABILITY'))
   assert.ok(result.warnings.includes('OUTSIDE_TRAINER_AVAILABILITY'))
-  assert.ok(result.warnings.includes('ACTIVE_CONTRACT_NOT_FOUND'))
   assert.ok(result.warnings.includes('STUDENT_WEEKLY_TARGET_REACHED'))
   const session = [...result.desired.values()][0]
   assert.equal(session.adminOverride, undefined)

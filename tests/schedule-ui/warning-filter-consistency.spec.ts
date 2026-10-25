@@ -54,7 +54,8 @@ for (const width of [390, 1440]) {
     await expect(retained).toBeVisible()
     await expect(retained).not.toContainText('STUDENT_MISSING_SESSIONS')
     await retained.getByRole('button', { name: 'Mở lịch rảnh của Lan', exact: true }).click()
-    await expect(page.locator('.schedule-warning-profile')).toBeVisible()
+    await expect(page.locator('.schedule-warning-availability')).toBeVisible()
+    await expect(page.locator('.schedule-warning-profile, .schedule-warning-contract')).toHaveCount(0)
     const geometry = await page.evaluate(() => ({
       width: document.documentElement.scrollWidth, viewport: window.innerWidth,
       heading: document.querySelector('#schedule-panel-warnings > header')!.getBoundingClientRect().top,

@@ -110,6 +110,34 @@ function baseInput(harness, command, payload, actor = { uid: 'admin-a', accessRo
   }
 }
 
+for (const action of ['add_student', 'move_student']) for (const fast of [false, true]) for (const problem of ['off', 'expired']) {
+  test(`published ${action}, fast=${fast}: ${problem} is not admin-overridable and is atomic`, async () => {
+    const h = makeHarness()
+    const contract = { ...h.docs.get(`contracts/${CONTRACT}`) }
+    if (problem === 'off') contract.pausePeriods = [{ startDate: '2090-01-03', endDate: '2090-01-04' }]
+    else contract.endDate = WEEK
+    h.docs.set(`contracts/${CONTRACT}`, contract)
+    const before = JSON.stringify([...h.docs])
+    await assert.rejects(applyAdminScheduleEdit(baseInput(h, action, {
+      studentId: STUDENT, trainerId: TRAINER, slotId: 'T3-6', fromTrainerId: TRAINER, fromSlotId: 'T2-6',
+      ...(fast ? { adminOverride: true, ...(action === 'move_student' ? { sessionId: 'session-a' } : {}) } : {}),
+    })), error => error.code === 'failed-precondition' && error.details.errors.includes(problem === 'off' ? 'CONTRACT_PAUSED' : 'ACTIVE_CONTRACT_NOT_FOUND'))
+    assert.equal(JSON.stringify([...h.docs]), before)
+  })
+}
+
+test('published fast add and move require cross-branch confirmation even for Admin', async () => {
+  for (const action of ['add_student', 'move_student']) {
+    const h = makeHarness({ studentBranchId: 'home' })
+    const before = JSON.stringify([...h.docs])
+    await assert.rejects(applyAdminScheduleEdit(baseInput(h, action, {
+      studentId: STUDENT, trainerId: TRAINER, slotId: 'T3-6', fromTrainerId: TRAINER, fromSlotId: 'T2-6',
+      adminOverride: true, ...(action === 'move_student' ? { sessionId: 'session-a' } : {}),
+    })), error => error.details.issueCode === 'STUDENT_BRANCH_CONFIRMATION_REQUIRED')
+    assert.equal(JSON.stringify([...h.docs]), before)
+  }
+})
+
 test('Admin can move a published session and reconciles the real session in one edit', async () => {
   const harness = makeHarness()
   const result = await applyAdminScheduleEdit(baseInput(harness, 'move_student', {

@@ -1,24 +1,15 @@
 import { test, expect } from '@playwright/test'
 for (const width of [360, 390, 430]) {
-  test(`production workspace manual confirm and continuation at ${width}px`, async ({ page }) => {
+  test(`production workspace one-click placement and continuation at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 844 })
     await page.clock.setFixedTime(new Date('2026-09-07T00:00:00+07:00'))
     await page.goto('/tests/schedule-ui/index.html')
     await expect(page.getByRole('heading', { name: 'Xếp lịch PT' })).toBeVisible()
     await page.locator('.schedule-cell').filter({ hasText: 'Lan' }).focus()
     await page.keyboard.press('Enter')
-    await page.getByRole('button', { name: 'Chọn Ngọc', exact: true }).click()
-    const manualFooterLayout = await page.evaluate(() => {
-      const inspector = document.querySelector('.schedule-inspector')?.getBoundingClientRect()
-      const footer = document.querySelector('.schedule-manual-confirm')?.getBoundingClientRect()
-      return inspector && footer ? { inspectorBottom: inspector.bottom, footerTop: footer.top, footerBottom: footer.bottom, viewportHeight: window.innerHeight } : null
-    })
-    expect(manualFooterLayout).not.toBeNull()
-    expect(Math.abs(manualFooterLayout!.inspectorBottom - manualFooterLayout!.footerBottom)).toBeLessThanOrEqual(1)
-    expect(manualFooterLayout!.footerTop).toBeGreaterThan(manualFooterLayout!.viewportHeight * .7)
-    expect(await page.evaluate(() => (window as any).__scheduleCalls.filter((x: any) => x.operation === 'command').length)).toBe(0)
+    await expect(page.locator('.schedule-manual-confirm')).toHaveCount(0)
+    await page.getByRole('button', { name: 'Xếp ngay Ngọc', exact: true }).click()
     expect(await page.evaluate(() => (window as any).__scheduleCalls.filter((x: any) => x.operation === 'candidates').length)).toBe(0)
-    await page.getByRole('button', { name: 'Xác nhận xếp ca', exact: true }).click()
     await expect(page.locator('.schedule-assigned-row').filter({ hasText: 'Ngọc' })).toBeVisible()
     await page.keyboard.press('Escape')
     await page.getByRole('button', { name: 'Tối ưu tiếp', exact: true }).click()
@@ -130,7 +121,9 @@ test('warning center separates learner input from real PT capacity', async ({ pa
     .getByRole('button', { name: /Do lịch khách/ })
     .click()
   const learnerWarning = page.locator('.schedule-warning-student').filter({ hasText: 'Ngọc' })
-  await expect(learnerWarning).toContainText('Do lịch khách')
-  await expect(learnerWarning).toContainText('Học viên đăng ký chưa đủ số ngày rảnh')
+  await expect(page.getByRole('heading', { name: /Do lịch khách/ })).toBeVisible()
+  await expect(learnerWarning).toHaveClass(/is-cause-learner/)
+  await expect(learnerWarning).toContainText('0/2 buổi')
+  await expect(learnerWarning).not.toContainText('Học viên đăng ký chưa đủ số ngày rảnh')
   expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1)
 })
