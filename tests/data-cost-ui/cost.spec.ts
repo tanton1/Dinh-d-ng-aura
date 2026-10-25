@@ -53,7 +53,8 @@ test('dispatcher pauses in settings and background reads preserve an unsaved con
   await page.clock.runFor(600_000)
   expect(await reads(page, 'dispatch')).toBe(2)
   await available(page, true, true)
-  await expect.poll(() => reads(page, 'dispatch')).toBe(3)
+  await page.clock.runFor(1000)
+  expect(await reads(page, 'dispatch')).toBe(2)
 })
 
 test('tracking pauses while hidden, ignores old-order responses and stops automatic reads after delivery', async ({ page }) => {

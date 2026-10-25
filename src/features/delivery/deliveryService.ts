@@ -2,6 +2,9 @@ import { httpsCallable } from 'firebase/functions'
 import { firebaseFunctions } from '../../lib/firebaseFunctions'
 import {
   DEFAULT_DELIVERY_OPERATIONS_CONFIG,
+  DISPATCH_DATA_SECTIONS,
+  type DispatchDataPatch,
+  type DispatchDataSection,
   type DeliveryCoordinate,
   type EatCleanDeliveryContact,
   type EatCleanDeliveryJob,
@@ -104,6 +107,9 @@ function normalizeJob(value: unknown, index: number): EatCleanDeliveryJob {
     gpsStale: source.gpsStale === true,
     otpFailureCount: Math.max(0, Math.round(finiteNumber(source.otpFailureCount))),
     otpLocked: source.otpLocked === true,
+    otpLockedUntil: text(source.otpLockedUntil) || undefined,
+    locationStream: typeof recordOf(source.locationStream).enabled === 'boolean' && /^[a-f0-9]{64}$/.test(text(recordOf(source.locationStream).binding))
+      ? { enabled: recordOf(source.locationStream).enabled === true, binding: text(recordOf(source.locationStream).binding) } : undefined,
     customerDeliveryOtpRequired: source.customerDeliveryOtpRequired !== false,
     isLate: source.isLate === true || Boolean(promisedAt && Number.isFinite(Date.parse(promisedAt)) && Date.parse(promisedAt) < Date.now() && !['completed', 'cancelled'].includes(status)),
   }
@@ -256,60 +262,40 @@ export async function completeEatCleanDelivery(deliveryId: string, otpCode: stri
   return normalizeJob(source.delivery ?? source, 0)
 }
 
-export async function listEatCleanDispatchSnapshot(): Promise<EatCleanDispatchSnapshot> {
-  try {
-    const dispatchCallable = httpsCallable<Record<string, never>, unknown>(functionsClient(), 'listEatCleanDispatchData')
-    const dispatchResult = await dispatchCallable({})
-    const source = recordOf(dispatchResult.data)
-    const rawDeliveries = Array.isArray(source.jobs)
-      ? source.jobs
-      : Array.isArray(source.deliveries) ? source.deliveries : []
-
-    // Older deployments did not include the order/config snapshot in the dispatch
-    // callable. Only use the heavier admin endpoint as a compatibility fallback.
-    let adminSource: Record<string, unknown> = {}
-    if (!source.config || typeof source.config !== 'object') {
-      const adminCallable = httpsCallable<Record<string, never>, unknown>(functionsClient(), 'listEatCleanAdminData')
-      adminSource = recordOf((await adminCallable({})).data)
-    }
-    const orders = Array.isArray(adminSource.orders) ? adminSource.orders.map(recordOf) : []
-    const orderById = new Map(orders.map((order) => [text(order.id), order]))
-    const deliveries = rawDeliveries
-      .map((value) => {
-        const delivery = recordOf(value)
-        const order = orderById.get(text(delivery.orderId, text(delivery.id)))
-        if (!order) return delivery
-        const items = Array.isArray(order.items) ? order.items.map(recordOf) : []
-        return {
-          ...delivery,
-          order,
-          orderStatus: order.status,
-          itemCount: items.reduce((total, item) => total + Math.max(0, finiteNumber(item.quantity)), 0),
-          cashToCollect: order.paymentStatus === 'paid' ? 0 : finiteNumber(order.total),
-        }
-      })
-    return {
-      jobs: deliveries.map(normalizeJob),
-      drivers: (Array.isArray(source.drivers) ? source.drivers : Array.isArray(source.shippers) ? source.shippers : []).map(normalizeDriver),
-      config: normalizeConfig(source.config ?? adminSource.config),
-      readiness: normalizeReadiness(source.readiness),
-      signals: normalizeSignals(source.signals ?? source.summary),
-      serverTime: text(source.serverTime) || undefined,
-    }
-  } catch (error) {
-    const code = text(recordOf(error).code)
-    if (!code.includes('not-found') && !code.includes('unimplemented')) throw error
-    const callable = httpsCallable<Record<string, never>, unknown>(functionsClient(), 'listMyShipperJobs')
-    const source = recordOf((await callable({})).data)
-    const jobs = Array.isArray(source.deliveries) ? source.deliveries : []
-    return {
-      jobs: jobs.map(normalizeJob),
-      drivers: [],
-      config: DEFAULT_DELIVERY_OPERATIONS_CONFIG,
-      readiness: normalizeReadiness(source.readiness),
-      signals: normalizeSignals(source.signals ?? source.summary),
-    }
+export async function listEatCleanDispatchSnapshot(sections: DispatchDataSection[]): Promise<DispatchDataPatch> {
+  const requested = DISPATCH_DATA_SECTIONS.filter(section => sections.includes(section))
+  if (!requested.length || requested.length !== sections.length) throw Error('DISPATCH_SECTIONS_INVALID')
+  const callable = httpsCallable<{ sections: DispatchDataSection[] }, unknown>(functionsClient(), 'listEatCleanDispatchData')
+  const source = recordOf((await callable({ sections: requested })).data)
+  const sync = recordOf(source.workspaceSync), versions = recordOf(sync.versions)
+  if (sync.schemaVersion !== 1 || !text(sync.accountId) || JSON.stringify(source.sections) !== JSON.stringify(requested)
+      || Object.keys(versions).some(key => !requested.includes(key as DispatchDataSection) || key === 'signals')
+      || requested.some(key => key !== 'signals' && !/^(0|\d{12}\.\d{9})$/.test(text(versions[key])))) throw Error('DISPATCH_SYNC_UNAVAILABLE')
+  const result: DispatchDataPatch = { sections: requested, workspaceSync: { schemaVersion: 1, accountId: text(sync.accountId), versions }, serverTime: text(source.serverTime) || undefined }
+  if (requested.includes('jobs')) {
+    if (!Array.isArray(source.deliveries) || !source.page || !source.summary) throw Error('DISPATCH_JOBS_UNAVAILABLE')
+    result.jobs = source.deliveries.map(normalizeJob)
+    if (result.jobs.some(job => !job.locationStream)) throw Error('DISPATCH_LOCATION_STREAM_UNAVAILABLE')
+    result.totalActive = Math.max(0, finiteNumber(recordOf(source.summary).totalActive))
+    result.page = { limit: finiteNumber(recordOf(source.page).limit, 100), hasMore: recordOf(source.page).hasMore === true }
   }
+  if (requested.includes('roster')) {
+    if (!Array.isArray(source.shippers)) throw Error('DISPATCH_ROSTER_UNAVAILABLE')
+    result.drivers = source.shippers.map(normalizeDriver)
+    result.rosterLimitReached = recordOf(source.rosterPage).limitReached === true
+  }
+  if (requested.includes('config')) {
+    if (!source.config || !source.readiness) throw Error('DISPATCH_CONFIG_UNAVAILABLE')
+    result.config = normalizeConfig(source.config); result.readiness = normalizeReadiness(source.readiness)
+  }
+  if (requested.includes('signals')) {
+    const signals = recordOf(source.signals)
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(text(signals.day))) throw Error('DISPATCH_SIGNALS_UNAVAILABLE')
+    result.signals = { mapsErrorsToday: normalizeSignals(signals).mapsErrorsToday }; result.signalsDay = text(signals.day)
+  }
+  // An intentionally omitted section must never trigger the old full-admin or
+  // driver fallback. Missing capabilities fail visibly until the backend is ready.
+  return result
 }
 
 export async function assignEatCleanShipper(deliveryId: string, shipperId: string): Promise<EatCleanDeliveryJob> {

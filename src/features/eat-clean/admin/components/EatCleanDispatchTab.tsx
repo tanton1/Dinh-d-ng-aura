@@ -1,5 +1,7 @@
-import { useEffect, useMemo, useState } from 'react'
-import { useForegroundRefresh } from '../../../../hooks/useForegroundRefresh'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useLocalTimeBoundaries } from '../../../../hooks/useLocalTimeBoundaries'
+import { vietnamDateKey } from '../../../../utils/workspaceSync'
+import { useDispatchWorkspace } from '../../../delivery/useDispatchWorkspace'
 import {
   AlertTriangle,
   Bike,
@@ -17,7 +19,6 @@ import {
 import {
   assignEatCleanShipper,
   getDeliveryServiceError,
-  listEatCleanDispatchSnapshot,
   saveEatCleanDeliveryOperationsConfig,
 } from '../../../delivery/deliveryService'
 import {
@@ -89,7 +90,7 @@ function validateConfig(config: EatCleanDeliveryOperationsConfig) {
   return ''
 }
 
-export function EatCleanDispatchTab({ isDemo = false }: { isDemo?: boolean }) {
+export function EatCleanDispatchTab({ accountId, isDemo = false }: { accountId: string; isDemo?: boolean }) {
   const [section, setSection] = useState<DispatchSection>('live')
   const [snapshot, setSnapshot] = useState<EatCleanDispatchSnapshot | null>(null)
   const [configDraft, setConfigDraft] = useState<EatCleanDeliveryOperationsConfig>(DEFAULT_DELIVERY_OPERATIONS_CONFIG)
@@ -104,37 +105,23 @@ export function EatCleanDispatchTab({ isDemo = false }: { isDemo?: boolean }) {
     ? { status: 'deferred', message: 'Kiểm tra khi mở Phí giao & SLA' }
     : { status: 'missing', message: 'Thiếu VITE_GOOGLE_MAPS_API_KEY trong bản build frontend' })
 
-  const read = async (background: boolean, isCurrent: () => boolean) => {
-    background ? setRefreshing(true) : setLoading(true)
-    setError('')
-    try {
-      const next: EatCleanDispatchSnapshot = isDemo
-        ? {
-            jobs: [],
-            drivers: [],
-            config: { ...DEFAULT_DELIVERY_OPERATIONS_CONFIG },
-            readiness: {
-              secretBindingEnabled: false,
-              mapsKeyAvailable: false,
-              storeCoordinateReady: false,
-              distancePricingReady: false,
-              realtimeDatabaseReady: false,
-              otpKeyAvailable: false,
-              dispatchReady: false,
-            },
-            signals: { mapsErrorsToday: 0, otpRejected: 0, otpLocked: 0, gpsStale: 0, lateOrders: 0 },
-          }
-        : await listEatCleanDispatchSnapshot()
-      if (!isCurrent()) return
-      setSnapshot(next)
-      if (!background) setConfigDraft(next.config)
-    } catch (loadError) {
-      if (isCurrent()) setError(getDeliveryServiceError(loadError))
-    } finally {
-      if (isCurrent()) { setLoading(false); setRefreshing(false) }
-    }
+  const snapshotRef = useRef<EatCleanDispatchSnapshot | null>(null)
+  const apply = (next: EatCleanDispatchSnapshot) => {
+    const previous = snapshotRef.current
+    setConfigDraft(draft => !previous || JSON.stringify(draft) === JSON.stringify(previous.config) ? next.config : draft)
+    snapshotRef.current = next; setSnapshot(next); setLoading(false)
   }
-  const { refresh: load } = useForegroundRefresh({ scopeKey: `dispatch:${isDemo}`, read, intervalMs: isDemo || section === 'settings' ? null : 30_000 })
+  const { refresh: load, invalidate, mutationGuard } = useDispatchWorkspace({
+    accountId, enabled: !isDemo, live: section === 'live', apply,
+    clear: () => { snapshotRef.current = null; setSnapshot(null); setConfigDraft(DEFAULT_DELIVERY_OPERATIONS_CONFIG); setAssigningJob(null); setShipperId(''); setSuccess(''); setSaving(false); setLoading(false) },
+    pending: setRefreshing,
+    failure: error => { setError(error ? getDeliveryServiceError(error) : ''); if (error) setLoading(false) },
+  })
+  useEffect(() => {
+    if (isDemo) apply({ jobs: [], drivers: [], config: DEFAULT_DELIVERY_OPERATIONS_CONFIG,
+      readiness: { secretBindingEnabled: false, mapsKeyAvailable: false, storeCoordinateReady: false, distancePricingReady: false, realtimeDatabaseReady: false, otpKeyAvailable: false, dispatchReady: false },
+      signals: { mapsErrorsToday: 0, otpRejected: 0, otpLocked: 0, gpsStale: 0, lateOrders: 0 } })
+  }, [isDemo])
 
   useEffect(() => {
     // Loading Google Maps/Places only to render a health badge added hundreds of
@@ -153,29 +140,42 @@ export function EatCleanDispatchTab({ isDemo = false }: { isDemo?: boolean }) {
     return () => { active = false }
   }, [section])
 
-  const activeJobs = useMemo(() => snapshot?.jobs.filter((job) => !['completed', 'cancelled'].includes(job.status)) ?? [], [snapshot?.jobs])
-  const unassignedJobs = activeJobs.filter((job) => job.canAssign)
-  const lateJobs = activeJobs.filter((job) => job.isLate)
-  const availableDrivers = snapshot?.drivers.filter((driver) => driver.available) ?? []
+  const now = useLocalTimeBoundaries([Date.parse(`${vietnamDateKey()}T00:00:00+07:00`) + 86400000,
+    ...(snapshot?.jobs.flatMap(job => [Date.parse(job.promisedAt || '') + 1, Date.parse(job.otpLockedUntil || ''), (job.liveLocation?.updatedAt || 0) + 120_001, job.liveLocation?.expiresAt || 0]) || [])])
+  const activeJobs = useMemo(() => snapshot?.jobs.filter(job => !['completed', 'cancelled'].includes(job.status)).map(job => ({ ...job,
+    isLate: Number.isFinite(Date.parse(job.promisedAt || '')) && Date.parse(job.promisedAt!) < now,
+    otpLocked: Boolean(job.otpLockedUntil && Date.parse(job.otpLockedUntil) > now),
+    gpsStale: Boolean(job.locationStream?.enabled && (!job.liveLocation || now - job.liveLocation.updatedAt > 120_000 || job.liveLocation.expiresAt <= now)),
+  })) ?? [], [snapshot?.jobs, now])
+  const drivers = snapshot?.drivers.map(driver => {
+    const point = activeJobs.filter(job => job.shipperId === driver.id && !job.gpsStale && job.liveLocation).map(job => job.liveLocation!).sort((a, b) => b.updatedAt - a.updatedAt)[0]
+    return { ...driver, coordinate: point ? { latitude: point.latitude, longitude: point.longitude } : undefined }
+  }) ?? []
+  const unassignedJobs = activeJobs.filter(job => job.canAssign)
+  const lateJobs = activeJobs.filter(job => job.isLate)
+  const availableDrivers = drivers.filter(driver => driver.available)
   const mapsReady = snapshot?.readiness.mapsKeyAvailable === true
   const distancePricingReady = snapshot?.readiness.distancePricingReady === true
   const otpReady = snapshot?.readiness.otpKeyAvailable === true
   const realtimeReady = snapshot?.readiness.realtimeDatabaseReady === true
-  const operationalSignals = snapshot?.signals ?? {
-    mapsErrorsToday: 0,
-    otpRejected: 0,
-    otpLocked: 0,
-    gpsStale: 0,
-    lateOrders: 0,
+  const operationalSignals = {
+    mapsErrorsToday: snapshot?.signalsDay === vietnamDateKey(now) ? snapshot.signals.mapsErrorsToday : 0,
+    otpRejected: activeJobs.filter(job => (job.otpFailureCount || 0) > 0).length,
+    otpLocked: activeJobs.filter(job => job.otpLocked).length,
+    gpsStale: activeJobs.filter(job => job.gpsStale).length,
+    lateOrders: lateJobs.length,
+    gpsReadWarning: snapshot?.signals.gpsReadWarning,
   }
   const allCoordinates = [
     ...(snapshot?.config.kitchenCoordinate ? [snapshot.config.kitchenCoordinate] : []),
-    ...(snapshot?.drivers.flatMap((driver) => driver.coordinate ? [driver.coordinate] : []) ?? []),
+    ...drivers.flatMap((driver) => driver.coordinate ? [driver.coordinate] : []),
     ...activeJobs.flatMap((job) => job.dropoff.coordinate ? [job.dropoff.coordinate] : []),
   ]
 
   const assign = async () => {
     if (!assigningJob || !shipperId) return
+    const isCurrent = mutationGuard()
+    if (!isCurrent()) return
     if (!otpReady) {
       setError('Chưa thể gán shipper: khóa OTP giao hàng phía máy chủ chưa sẵn sàng.')
       return
@@ -184,19 +184,21 @@ export function EatCleanDispatchTab({ isDemo = false }: { isDemo?: boolean }) {
     setError('')
     try {
       const saved = await assignEatCleanShipper(assigningJob.id, shipperId)
-      setSnapshot(current => current ? { ...current, jobs: current.jobs.map(job => job.id === saved.id ? saved : job) } : current)
-      await load(true, true)
+      if (!isCurrent()) return
+      invalidate(['jobs', 'roster'])
       setAssigningJob(null)
       setShipperId('')
       setSuccess(`Đã gán ${saved.orderCode} cho shipper.`)
     } catch (assignError) {
-      setError(getDeliveryServiceError(assignError))
+      if (isCurrent()) setError(getDeliveryServiceError(assignError))
     } finally {
-      setSaving(false)
+      if (isCurrent()) setSaving(false)
     }
   }
 
   const saveConfig = async () => {
+    const isCurrent = mutationGuard()
+    if (!isCurrent()) return
     if (configDraft.distancePricingEnabled && !mapsReady) {
       setError('Chưa thể bật phí theo km: GOOGLE_MAPS_API_KEY phía máy chủ chưa sẵn sàng.')
       return
@@ -211,14 +213,14 @@ export function EatCleanDispatchTab({ isDemo = false }: { isDemo?: boolean }) {
     setSuccess('')
     try {
       const saved = await saveEatCleanDeliveryOperationsConfig(configDraft)
+      if (!isCurrent()) return
       setConfigDraft(saved)
-      setSnapshot((current) => current ? { ...current, config: saved } : current)
-      await load(true, true)
+      invalidate(['config'])
       setSuccess('Đã lưu bảng phí giao và SLA mới.')
     } catch (saveError) {
-      setError(getDeliveryServiceError(saveError))
+      if (isCurrent()) setError(getDeliveryServiceError(saveError))
     } finally {
-      setSaving(false)
+      if (isCurrent()) setSaving(false)
     }
   }
 
@@ -226,7 +228,7 @@ export function EatCleanDispatchTab({ isDemo = false }: { isDemo?: boolean }) {
     <section className="eat-clean-panel eat-clean-dispatch" aria-labelledby="eat-clean-dispatch-title">
       <div className="eat-clean-panel__heading eat-clean-panel__heading--action">
         <div><span className="eat-clean-kicker">DISPATCH CENTER</span><h2 id="eat-clean-dispatch-title">Điều phối giao hàng theo SLA</h2><p>Theo dõi đơn, shipper và cấu hình phí quãng đường trong cùng một luồng.</p></div>
-        <button type="button" className="eat-clean-secondary-button" onClick={() => void load(true)} disabled={refreshing}><RefreshCw size={17} className={refreshing ? 'is-spinning' : ''} /> Làm mới</button>
+        <button type="button" className="eat-clean-secondary-button" onClick={load} disabled={refreshing}><RefreshCw size={17} className={refreshing ? 'is-spinning' : ''} /> Làm mới</button>
       </div>
 
       <div className="eat-clean-dispatch-switch" role="tablist" aria-label="Dispatch Center">
@@ -240,7 +242,7 @@ export function EatCleanDispatchTab({ isDemo = false }: { isDemo?: boolean }) {
             <article className={clientMapsProbe.status === 'ready' ? 'is-ready' : clientMapsProbe.status === 'checking' || clientMapsProbe.status === 'deferred' ? 'is-warning' : 'needs-setup'}><span>{clientMapsProbe.status === 'ready' ? <CheckCircle2 size={18} /> : clientMapsProbe.status === 'checking' ? <RefreshCw size={18} className="is-spinning" /> : clientMapsProbe.status === 'deferred' ? <MapPin size={18} /> : <AlertTriangle size={18} />}</span><div><strong>Maps & Search</strong><small>{clientMapsProbe.message}</small></div></article>
             <article className={distancePricingReady ? 'is-ready' : mapsReady ? 'is-warning' : 'needs-setup'}><span>{distancePricingReady ? <CheckCircle2 size={18} /> : <AlertTriangle size={18} />}</span><div><strong>Routes backend</strong><small>{distancePricingReady ? 'Key server và tọa độ bếp sẵn sàng' : mapsReady ? 'Key server có sẵn · chưa có tọa độ bếp' : 'Thiếu GOOGLE_MAPS_API_KEY phía máy chủ'}</small></div></article>
             <article className={otpReady ? 'is-ready' : 'needs-setup'}><span>{otpReady ? <CheckCircle2 size={18} /> : <AlertTriangle size={18} />}</span><div><strong>OTP giao hàng</strong><small>{otpReady ? 'Có thể gán và hoàn tất đơn' : 'Thiếu DELIVERY_OTP_SECRET · khóa gán shipper'}</small></div></article>
-            <article className={realtimeReady && !operationalSignals.gpsReadWarning ? 'is-ready' : 'is-warning'}><span>{realtimeReady && !operationalSignals.gpsReadWarning ? <CheckCircle2 size={18} /> : <AlertTriangle size={18} />}</span><div><strong>GPS realtime</strong><small>{operationalSignals.gpsReadWarning ? 'Đang gián đoạn đọc GPS · kiểm tra RTDB' : realtimeReady ? 'Theo dõi vị trí đã sẵn sàng' : 'Chưa có Realtime Database · vẫn gán đơn được'}</small></div></article>
+            <article className={realtimeReady && !operationalSignals.gpsReadWarning ? 'is-ready' : 'is-warning'}><span>{realtimeReady && !operationalSignals.gpsReadWarning ? <CheckCircle2 size={18} /> : <AlertTriangle size={18} />}</span><div><strong>GPS realtime</strong><small>{operationalSignals.gpsReadWarning ? 'Đang gián đoạn cập nhật vị trí' : realtimeReady ? 'Theo dõi vị trí đã sẵn sàng' : 'Chưa có Realtime Database · vẫn gán đơn được'}</small></div></article>
           </div>
           <div className="eat-clean-operations-signals" aria-label="Cảnh báo vận hành hôm nay">
             <article className={operationalSignals.mapsErrorsToday > 0 ? 'has-alert' : ''}><span>MAPS</span><strong>{operationalSignals.mapsErrorsToday}</strong><small>Lỗi địa chỉ/tuyến hôm nay</small></article>
@@ -254,10 +256,12 @@ export function EatCleanDispatchTab({ isDemo = false }: { isDemo?: boolean }) {
       {error && <div className="eat-clean-inline-error" role="alert">{error}</div>}
       {success && <div className="eat-clean-inline-success" role="status">{success}</div>}
 
+      {snapshot && (snapshot.page?.hasMore || snapshot.rosterLimitReached) && <p role="note">Đang hiển thị {activeJobs.length}/{snapshot.totalActive ?? activeJobs.length} chuyến. Cảnh báo và bản đồ áp dụng cho các chuyến đang hiển thị.{snapshot.rosterLimitReached ? ' Danh sách shipper hiện giới hạn 100 hồ sơ.' : ''}</p>}
+
       {loading ? <div className="eat-clean-loading"><span className="eat-clean-loader" /><strong>Đang tải Dispatch Center…</strong></div> : section === 'live' ? (
         <div className="eat-clean-dispatch-live">
           <div className="eat-clean-dispatch-metrics">
-            <article><span><Route size={19} /></span><div><strong>{activeJobs.length}</strong><small>Chuyến đang mở</small></div></article>
+            <article><span><Route size={19} /></span><div><strong>{snapshot?.totalActive ?? activeJobs.length}</strong><small>Chuyến đang mở</small></div></article>
             <article><span><UserCheck size={19} /></span><div><strong>{availableDrivers.length}</strong><small>Shipper sẵn sàng</small></div></article>
             <article className={unassignedJobs.length ? 'needs-attention' : ''}><span><Bike size={19} /></span><div><strong>{unassignedJobs.length}</strong><small>Chờ gán shipper</small></div></article>
             <article className={lateJobs.length ? 'is-danger' : ''}><span><AlertTriangle size={19} /></span><div><strong>{lateJobs.length}</strong><small>Nguy cơ trễ SLA</small></div></article>
@@ -265,11 +269,11 @@ export function EatCleanDispatchTab({ isDemo = false }: { isDemo?: boolean }) {
 
           <div className="eat-clean-dispatch-grid">
             <section className="eat-clean-dispatch-map" aria-label="Bản đồ giao hàng trực tiếp">
-              <header><div><span>LIVE MAP</span><h3>Đà Nẵng · {activeJobs.length} chuyến</h3></div><small>Tự làm mới mỗi 30 giây</small></header>
+              <header><div><span>LIVE MAP</span><h3>Đà Nẵng · {activeJobs.length} chuyến</h3></div><small>Cập nhật khi có thay đổi</small></header>
               <div className="eat-clean-dispatch-map__canvas">
                 <i className="eat-clean-dispatch-map__roads" />
                 {snapshot?.config.kitchenCoordinate && <span className="eat-clean-dispatch-pin kitchen" style={mapPosition(snapshot.config.kitchenCoordinate, allCoordinates)} title={snapshot.config.kitchenName}><Store size={16} /></span>}
-                {snapshot?.drivers.filter((driver) => driver.coordinate).map((driver) => <span key={driver.id} className={`eat-clean-dispatch-pin driver ${driver.available ? 'online' : ''}`} style={mapPosition(driver.coordinate, allCoordinates)} title={driver.name}><Bike size={16} /></span>)}
+                {drivers.filter((driver) => driver.coordinate).map((driver) => <span key={driver.id} className={`eat-clean-dispatch-pin driver ${driver.available ? 'online' : ''}`} style={mapPosition(driver.coordinate, allCoordinates)} title={driver.name}><Bike size={16} /></span>)}
                 {activeJobs.filter((job) => job.dropoff.coordinate).map((job) => <span key={job.id} className={`eat-clean-dispatch-pin order ${job.isLate ? 'late' : ''}`} style={mapPosition(job.dropoff.coordinate, allCoordinates)} title={job.orderCode}><MapPin size={15} /></span>)}
                 {allCoordinates.length < 2 && <div className="eat-clean-map-empty"><MapPin size={27} /><strong>Đang chờ dữ liệu GPS</strong><small>Vị trí sẽ xuất hiện khi bếp và shipper đã được định vị.</small></div>}
               </div>
@@ -278,11 +282,11 @@ export function EatCleanDispatchTab({ isDemo = false }: { isDemo?: boolean }) {
 
             <section className="eat-clean-dispatch-queue">
               <header><div><span>HÀNG ĐỢI</span><h3>Cần điều phối</h3></div><b>{unassignedJobs.length}</b></header>
-              <div>{unassignedJobs.map((job) => <article key={job.id} className={job.isLate ? 'is-late' : ''}><div><strong>{job.orderCode}</strong><span>{job.dropoff.name}</span><small><MapPin size={13} /> {job.dropoff.addressLine || 'Chưa có địa chỉ'} </small><small><Clock3 size={13} /> SLA {time(job.promisedAt)} · {km(job.distanceMeters)}</small></div><button type="button" disabled={!otpReady} title={otpReady ? 'Gán shipper' : 'Cần cấu hình OTP trước khi gán shipper'} onClick={() => { setAssigningJob(job); setShipperId(availableDrivers[0]?.id ?? '') }}><UserCheck size={15} /> Gán shipper</button></article>)}{unassignedJobs.length === 0 && <div className="eat-clean-dispatch-empty"><CheckCircle2 size={28} /><strong>Không có đơn chờ gán</strong><small>Luồng điều phối đang thông suốt.</small></div>}</div>
+              <div>{unassignedJobs.map((job) => <article key={job.id} className={job.isLate ? 'is-late' : ''}><div><strong>{job.orderCode}</strong><span>{job.dropoff.name}</span><small><MapPin size={13} /> {job.dropoff.addressLine || 'Chưa có địa chỉ'} </small><small><Clock3 size={13} /> SLA {time(job.promisedAt)} · {km(job.distanceMeters)}</small></div><button type="button" disabled={!otpReady} title={otpReady ? 'Gán shipper' : 'Cần cấu hình OTP trước khi gán shipper'} onClick={() => { setAssigningJob(job); setShipperId(availableDrivers[0]?.id ?? '') }}><UserCheck size={15} /> Gán shipper</button></article>)}{unassignedJobs.length === 0 && <div className="eat-clean-dispatch-empty"><CheckCircle2 size={28} /><strong>{snapshot?.page?.hasMore ? 'Không có đơn chờ gán trên trang này' : 'Không có đơn chờ gán'}</strong><small>{snapshot?.page?.hasMore ? 'Danh sách đang hiển thị một phần các chuyến đang mở.' : 'Luồng điều phối đang thông suốt.'}</small></div>}</div>
             </section>
           </div>
 
-          <section className="eat-clean-driver-strip"><header><div><span>ĐỘI SHIPPER</span><h3>Trạng thái hiện tại</h3></div></header><div>{snapshot?.drivers.map((driver) => <article key={driver.id}><span className={driver.available ? 'online' : ''}>{driver.avatarUrl ? <img src={driver.avatarUrl} alt="" /> : <Bike size={18} />}</span><div><strong>{driver.name}</strong><small>{driver.vehicleLabel ?? 'Shipper Aura'}{driver.licensePlate ? ` · ${driver.licensePlate}` : ''}</small></div><b>{driver.activeJobCount} chuyến</b><em className={driver.available ? 'online' : ''}>{driver.available ? 'Sẵn sàng' : 'Ngoại tuyến'}</em></article>)}{!snapshot?.drivers.length && <div className="eat-clean-dispatch-empty"><Bike size={27} /><strong>Chưa có shipper</strong><small>Gán role shipper trong trang Vai trò & quyền.</small></div>}</div></section>
+          <section className="eat-clean-driver-strip"><header><div><span>ĐỘI SHIPPER</span><h3>Trạng thái hiện tại</h3></div></header><div>{drivers.map((driver) => <article key={driver.id}><span className={driver.available ? 'online' : ''}>{driver.avatarUrl ? <img src={driver.avatarUrl} alt="" /> : <Bike size={18} />}</span><div><strong>{driver.name}</strong><small>{driver.vehicleLabel ?? 'Shipper Aura'}{driver.licensePlate ? ` · ${driver.licensePlate}` : ''}</small></div><b>{driver.activeJobCount} chuyến</b><em className={driver.available ? 'online' : ''}>{driver.available ? 'Sẵn sàng' : 'Ngoại tuyến'}</em></article>)}{!drivers.length && <div className="eat-clean-dispatch-empty"><Bike size={27} /><strong>{snapshot?.rosterLimitReached ? 'Chưa có shipper trong danh sách này' : 'Chưa có shipper'}</strong><small>Gán role shipper trong trang Vai trò & quyền.</small></div>}</div></section>
         </div>
       ) : (
         <div className="eat-clean-delivery-settings">

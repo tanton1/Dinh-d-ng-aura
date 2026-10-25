@@ -53,6 +53,7 @@ const EatCleanOperationsTab = lazyWithRetry(() => import('./components/EatCleanO
 export type EatCleanAdminTab = 'dispatch' | 'orders' | 'menu' | 'inventory' | 'operations'
 
 export interface AdminEatCleanPageProps {
+  accountId: string
   currentRole: UserRole
   initialTab?: EatCleanAdminTab
   className?: string
@@ -91,7 +92,7 @@ function EatCleanTabLoading() {
   )
 }
 
-export default function AdminEatCleanPage({ currentRole, initialTab = 'dispatch', className = '', isDemo = false }: AdminEatCleanPageProps) {
+export default function AdminEatCleanPage({ accountId, currentRole, initialTab = 'dispatch', className = '', isDemo = false }: AdminEatCleanPageProps) {
   const [activeTab, setActiveTab] = useState<EatCleanAdminTab>(initialTab)
   const [data, setData] = useState<EatCleanAdminData | null>(null)
   const [loading, setLoading] = useState(true)
@@ -363,7 +364,7 @@ export default function AdminEatCleanPage({ currentRole, initialTab = 'dispatch'
                 onReverseRefundOutcome={handleReverseRefundOutcome}
               />
             )}
-            {activeTab === 'dispatch' && <EatCleanDispatchTab isDemo={isDemo} />}
+            {activeTab === 'dispatch' && <EatCleanDispatchTab key={`${accountId}:${isDemo}`} accountId={accountId} isDemo={isDemo} />}
             {activeTab === 'menu' && <EatCleanMenuTab meals={data.meals} deliverySlots={data.config.deliverySlots} onSaveMeal={handleSaveMeal} />}
             {activeTab === 'inventory' && <EatCleanInventoryTab inventory={data.inventory} meals={data.meals} onSaveInventory={handleSaveInventory} />}
             {activeTab === 'operations' && <EatCleanOperationsTab config={data.config} meals={data.meals} inventory={data.inventory} onSaveConfig={handleSaveConfig} />}
