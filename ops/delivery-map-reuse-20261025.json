@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "status": "implemented_locally_validated_pending_hosted_checks_and_release",
+  "baseSource": "fa995caba69dec7216e47087f83b8e9d542062a8",
+  "problem": "The tracking map effect instantiated a new Google Map and markers whenever a tracked coordinate changed. Unchanged authenticated tracking responses could also trigger unnecessary presentation work.",
+  "change": "Keep one map runtime per mounted tracking view. Reconcile marker positions and removals, preserve zoom for GPS updates, recenter/reset zoom on an order change, and fence delayed SDK completion after unmount. Missing coordinates hide the map and remove markers without discarding the runtime. Failed SDK initialization requires an explicit retry and is cleaned before recovery.",
+  "layout": "The SDK owns an empty full-size canvas. Fallback text styles no longer constrain or pad Google Maps' generated children, and React loading/fallback UI is outside the SDK canvas.",
+  "validation": {
+    "browserCasesPassed": 16,
+    "browsers": ["Chromium", "mobile Safari/WebKit"],
+    "costBoundary": "Twenty distinct GPS renders create one map and three markers; only the moving marker changes, and the selected zoom remains unchanged.",
+    "coverage": ["new orders and removed locations", "late SDK initialization", "unmount before SDK resolution", "invalid coordinates and absent configuration", "bounded explicit failure recovery", "partially initialized SDK cleanup", "full-width desktop/mobile map canvas"],
+    "existingTrackingRegression": "Hidden/offline pausing, old-order response fencing and terminal-order polling stop passed.",
+    "typecheckAndBuild": "Passed, including performance budgets.",
+    "paidMapsRequests": "None; the browser fixture replaces only the SDK boundary."
+  },
+  "billingBasis": {
+    "source": "https://developers.google.com/maps/billing-and-pricing/sku-details#dynamic-maps-ess-sku",
+    "verifiedAtDate": "2026-10-25",
+    "fact": "Google identifies successful map loads as the Dynamic Maps billable event.",
+    "inference": "Avoiding repeated map initialization removes a potential source of repeated map-load charges. Constructor counts from synthetic tests are not a production savings estimate."
+  },
+  "scope": "Frontend-only map lifecycle change. Dispatcher and order-tracking data polling remain independent follow-ups. No backend deployment, GPS write policy change, new browser RTDB permission or map tile caching is introduced."
+}
