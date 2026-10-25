@@ -227,6 +227,20 @@ test('initial paint returns a display projection without reconciliation evidence
   assert.equal(result.quickCoverage.missingSessions, 7)
 })
 
+test('initial paint and published fast workspace both use exact PT weekly availability', async () => {
+  for (const initialPaint of [true, false]) {
+    const h = harness(fixture(), { realBranchData: true })
+    const draftPath = `ptScheduleDrafts/${BRANCH}_${WEEK}`
+    h.docs.set(draftPath, { ...h.docs.get(draftPath), status: 'published', publishedVersion: 1, publishedRevision: 1 })
+    h.docs.set(`trainerAvailability/t_${WEEK}`, { trainerId: 't', weekId: WEEK, status: 'submitted', slots: ['T5-6'], offDates: [WEEK], revision: 3 })
+    const result = await h.api.getPtScheduleWorkspace({ data: { weekId: WEEK, branchId: BRANCH, initialPaint } })
+    assert.deepEqual(result.trainers[0].availableSlots, ['T5-6'])
+    assert.equal(result.trainers[0].availabilityRevision, 3)
+    assert.equal(result.trainers[0].availabilitySource, 'weekly')
+    assert.deepEqual(result.trainers[0].offDates, [WEEK])
+  }
+})
+
 test('historical supplement accepts an expired contract that was valid on the actual session date', () => {
   const data = fixture()
   data.contracts[0].status = 'expired'

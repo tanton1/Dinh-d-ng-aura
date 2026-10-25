@@ -31,6 +31,8 @@ export function createWorkspaceCache(now = Date.now) {
     // Rendering a cached branch is not a fresh server read. Also prevent a
     // delayed read from rolling back a newer local command/realtime revision.
     if (cached && (cached.value === value || cached.value.draftRevision > value.draftRevision)) return cached.value
+    if (cached?.value.draftRevision === value.draftRevision && (['weeklyViewRevision', 'weeklyViewDirtyGeneration'] as const)
+      .some(key => typeof cached.value[key] === 'number' && typeof value[key] === 'number' && value[key]! < cached.value[key]!)) return cached.value
     entries.delete(scope)
     entries.set(scope, { value, storedAt: now() })
     while (entries.size > LIMIT) entries.delete(entries.keys().next().value!)

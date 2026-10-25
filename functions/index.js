@@ -644,6 +644,8 @@ const ptOperationsAvailabilityRegionalFunctions = createPtOperationsV2Functions(
 })
 exports.getMyTrainerAvailabilityRegional = ptOperationsAvailabilityRegionalFunctions.getMyTrainerAvailability
 exports.saveMyTrainerAvailabilityRegional = ptOperationsAvailabilityRegionalFunctions.saveMyTrainerAvailability
+exports.getPtTrainerAvailabilityRegional = ptOperationsAvailabilityRegionalFunctions.getPtTrainerAvailability
+exports.savePtTrainerAvailabilityRegional = ptOperationsAvailabilityRegionalFunctions.savePtTrainerAvailability
 // Staff/Sales first-render reads use the same bounded overflow profile. The
 // legacy southeast names remain exported for older clients and rollback.
 exports.getMyCoachWorkspaceScopeRegional = ptOperationsAvailabilityRegionalFunctions.getMyCoachWorkspaceScope

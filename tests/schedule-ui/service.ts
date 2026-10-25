@@ -6,11 +6,13 @@ const secondaryTrainer = { ...trainer, id: 't-secondary', name: 'Vy' }
 const remainingTrainer = { ...trainer, id: 't-part-time', name: 'An', employmentType: 'part_time', availableSlots: ['T5-6'] }
 const oldExpiredStudent = { ...baseStudent, id: 'old-contract', name: 'Hợp đồng cũ', eligibleForWeek: false, eligibilityReasons: ['CONTRACT_EXPIRED_BEFORE_WEEK'], availableSlots: [], availabilityStatus: 'missing', contractStatus: 'expired', contractEndDate: '2020-01-01', previousWeekScheduledSessions: 0, hadSchedulePreviousWeek: false }
 const recentlyExpiredStudent = { ...oldExpiredStudent, id: 'recent-contract', name: 'Hợp đồng vừa hết', contractEndDate: '2099-01-01', previousWeekScheduledSessions: 1, hadSchedulePreviousWeek: true }
-let workspace: any = { schemaVersion: 2, branch: { id: 'b', name: 'CS1', status: 'active' }, weekId: '', draftRevision: 1, draftStatus: 'draft', publishedVersion: 0, schedule: { 'T2-6': [{ studentId: 'a', trainerId: 't', contractId: 'c-a', type: 'training', branchId: 'b', source: 'manual_v2' }], 'T2-7': [{ studentId: 'c', trainerId: 't', contractId: 'c-c', type: 'training', branchId: 'b', source: 'manual_v2', isLocked: true }] }, students: [{ ...baseStudent, id: 'a', name: 'Lan' }, { ...baseStudent, id: 'b', name: 'Ngọc', availableSlots: ['T2-6', 'T2-7'] }, { ...baseStudent, id: 'c', name: 'Bình' }, oldExpiredStudent, recentlyExpiredStudent], trainers: [trainer, secondaryTrainer, remainingTrainer], contracts: [...['a', 'b', 'c'].map((id) => ({ id: 'c-' + id, studentId: id, status: 'active', trainerId: 't', trainerIds: id === 'a' ? ['t-secondary'] : [], branchId: 'b', packageName: 'Gói 24', startDate: '2020-01-01', endDate: '2099-12-31', totalSessions: 24, usedSessions: 0 })), { id: 'c-old', studentId: oldExpiredStudent.id, status: 'expired', trainerId: 't', trainerIds: [], branchId: 'b', packageName: 'Gói cũ', startDate: '2019-01-01', endDate: '2020-01-01', totalSessions: 24, usedSessions: 24 }, { id: 'c-recent', studentId: recentlyExpiredStudent.id, status: 'expired', trainerId: 't', trainerIds: [], branchId: 'b', packageName: 'Gói vừa hết', startDate: '2098-01-01', endDate: '2099-01-01', totalSessions: 24, usedSessions: 24 }], sessions: [], warnings: [], unassignedEntries: [{ studentId: oldExpiredStudent.id, studentName: oldExpiredStudent.name, missingSessions: 2, primaryReasonCode: 'CONTRACT_SESSION_QUOTA_EXCEEDED', blockerCategory: 'contract', reasonCodes: ['CONTRACT_SESSION_QUOTA_EXCEEDED'], diagnostics: { contractStatus: 'quota_exhausted', latestContractEndDate: '2020-01-01' } }], scheduleConfig: { workingDays: ['T2', 'T3', 'T4', 'T5', 'T6', 'T7'], workingHours: [6, 7], holidays: [] }, summary: { eligibleStudents: 3, trainers: 3, unconfiguredTrainers: 0 } }
+let workspace: any = { schemaVersion: 3, branch: { id: 'b', name: 'CS1', status: 'active' }, weekId: '', draftRevision: 1, draftStatus: 'draft', publishedVersion: 0, schedule: { 'T2-6': [{ studentId: 'a', trainerId: 't', contractId: 'c-a', type: 'training', branchId: 'b', source: 'manual_v2' }], 'T2-7': [{ studentId: 'c', trainerId: 't', contractId: 'c-c', type: 'training', branchId: 'b', source: 'manual_v2', isLocked: true }] }, students: [{ ...baseStudent, id: 'a', name: 'Lan' }, { ...baseStudent, id: 'b', name: 'Ngọc', availableSlots: ['T2-6', 'T2-7'] }, { ...baseStudent, id: 'c', name: 'Bình' }, oldExpiredStudent, recentlyExpiredStudent], trainers: [trainer, secondaryTrainer, remainingTrainer], contracts: [...['a', 'b', 'c'].map((id) => ({ id: 'c-' + id, studentId: id, status: 'active', trainerId: 't', trainerIds: id === 'a' ? ['t-secondary'] : [], branchId: 'b', packageName: 'Gói 24', startDate: '2020-01-01', endDate: '2099-12-31', totalSessions: 24, usedSessions: 0 })), { id: 'c-old', studentId: oldExpiredStudent.id, status: 'expired', trainerId: 't', trainerIds: [], branchId: 'b', packageName: 'Gói cũ', startDate: '2019-01-01', endDate: '2020-01-01', totalSessions: 24, usedSessions: 24 }, { id: 'c-recent', studentId: recentlyExpiredStudent.id, status: 'expired', trainerId: 't', trainerIds: [], branchId: 'b', packageName: 'Gói vừa hết', startDate: '2098-01-01', endDate: '2099-01-01', totalSessions: 24, usedSessions: 24 }], sessions: [], warnings: [], unassignedEntries: [{ studentId: oldExpiredStudent.id, studentName: oldExpiredStudent.name, missingSessions: 2, primaryReasonCode: 'CONTRACT_SESSION_QUOTA_EXCEEDED', blockerCategory: 'contract', reasonCodes: ['CONTRACT_SESSION_QUOTA_EXCEEDED'], diagnostics: { contractStatus: 'quota_exhausted', latestContractEndDate: '2020-01-01' } }], scheduleConfig: { workingDays: ['T2', 'T3', 'T4', 'T5', 'T6', 'T7'], workingHours: [6, 7], holidays: [] }, summary: { eligibleStudents: 3, trainers: 3, unconfiguredTrainers: 0 } }
 const track = (operation: string, input: any) => { (window as any).__scheduleCalls ??= []; (window as any).__scheduleCalls.push({ operation, input }) }
 export const listPtScheduleBranches = async () => ({ branches: [{ id: 'b', name: 'CS1' }, { id: 'c', name: 'CS2' }] })
 export const getPtScheduleWorkspace = async (input: any) => {
   track('load', input)
+  if ((window as any).__failFullWorkspace) throw Error('Đối soát tạm gián đoạn')
+  if ((window as any).__holdFullWorkspace) await new Promise<void>(resolve => { (window as any).__releaseFullWorkspace = resolve })
   if ((window as any).__workspaceDelayMs) await sleep((window as any).__workspaceDelayMs)
   return structuredClone({ ...workspace, weekId: input.weekId, branch: { ...workspace.branch, id: input.branchId }, readMode: 'reconciled', partial: false })
 }
@@ -22,7 +24,7 @@ export const weeklyViewFixture = (input: any) => {
     byStudent: { a: { studentId: 'a', targetSessions: 2, scheduledSessions: 1, draftSessions: 1, otherBranchSessions: 0, missingSessions: 1 }, b: { studentId: 'b', targetSessions: 2, scheduledSessions: 0, draftSessions: 0, otherBranchSessions: 0, missingSessions: 2 }, c: { studentId: 'c', targetSessions: 2, scheduledSessions: 1, draftSessions: 1, otherBranchSessions: 0, missingSessions: 1 } } }
   const full = { ...workspace, weekId: input.weekId, branch: { ...workspace.branch, id: input.branchId }, dirty: false, dirtyGeneration: 1, freshness: 'verified', verification: 'exact', coverage, weeklySessionCoverage: {}, readMode: 'reconciled', partial: false, viewRevision: 1, sourceRevision: 1 }
   const compact = {
-    schemaVersion: 2, branchId: input.branchId, weekId: input.weekId,
+    schemaVersion: 3, branchId: input.branchId, weekId: input.weekId,
     sourceRevision: 'semantic-hash-v2', viewRevision: 1, dirtyGeneration: 1, dirty: false, freshness: 'verified', verification: 'exact',
     draft: { revision: workspace.draftRevision, status: workspace.draftStatus, publishedVersion: workspace.publishedVersion, publishedRevision: -1 },
     schedule: workspace.schedule, students: workspace.students, trainers: workspace.trainers, contracts: workspace.contracts,
@@ -31,6 +33,7 @@ export const weeklyViewFixture = (input: any) => {
     coverage, weeklySessionCoverage: {}, optimizationSummary: { slotUtilization: {}, studentCoverage: {}, optimizationPasses: 0 },
   }
   const view: any = { ...((window as any).__weeklyViewCompact ? compact : full), ...(window as any).__weeklyViewOverride }
+  Object.assign(view, (window as any).__weeklyViewByBranch?.[input.branchId] || {})
   const mode = (window as any).__validationMode
   if (mode) {
     const metadata = { schemaVersion: 1, branchId: input.branchId, weekId: input.weekId, sourceRevision: 'independent-validation-hash', draftRevision: workspace.draftRevision, dirtyGeneration: 1, validatedAt: '2026-10-19T01:00:00Z' }
@@ -58,6 +61,8 @@ export const getPtScheduleWeeklyView = async (input: any) => {
 }
 export const ptScheduleConflictLabel = (code: string) => code === 'STUDENT_AVAILABILITY_DAYS_INSUFFICIENT'
   ? 'Học viên đăng ký chưa đủ số ngày rảnh để hoàn thành mục tiêu tuần.'
+  : code === 'STUDENT_MISSING_SESSIONS' ? 'Học viên chưa được xếp đủ số buổi trong tuần.'
+  : code === 'PROFILE_DATA_INCOMPLETE' ? 'Hồ sơ còn thiếu thông tin phục vụ xếp lịch.'
   : code
 export const asPtSchedulePublishError = (error: any) => ({ ...error, message: error.message || 'Lỗi thử nghiệm', conflicts: [], errorDetails: error.errorDetails || [] })
 export const getPtScheduleSlotCandidates = async (input: any) => { track('candidates', input); return { candidates: workspace.students.map((s: any) => ({ studentId: s.id, name: s.name, phone: '', eligible: !(workspace.schedule[input.slotId] || []).some((e: any) => e.studentId === s.id), manualSelectable: !(workspace.schedule[input.slotId] || []).some((e: any) => e.studentId === s.id), matchesStudentAvailability: true, reasons: [], contractId: `c-${s.id}` })) } }
@@ -88,7 +93,11 @@ export const applyAdminPtScheduleEdit = async (input: any) => {
   workspace.draftRevision++
   return structuredClone({ draftRevision: workspace.draftRevision, schedule: workspace.schedule, sessionChanged: true })
 }
-export const generatePtScheduleDraft = async (input: any) => { track('generate', input); await sleep(500); workspace.draftRevision++; return structuredClone({ schedule: workspace.schedule, draftRevision: workspace.draftRevision, warnings: [], unassignedEntries: [], optimizationSummary: { optimizationPasses: 2 } }) }
+export const generatePtScheduleDraft = async (input: any) => {
+  track('generate', input); await sleep(500); workspace.draftRevision++
+  if ((window as any).__generatedSchedule) workspace.schedule = (window as any).__generatedSchedule
+  return structuredClone({ schedule: workspace.schedule, draftRevision: workspace.draftRevision, warnings: [], unassignedEntries: (window as any).__generatedUnassigned || [], optimizationSummary: { optimizationPasses: 2 } })
+}
 export const validatePtScheduleDraft = async (input: any) => { track('validate', input); if ((window as any).__failScheduleValidation) throw Object.assign(Error('Lịch còn xung đột'), { errorDetails: [{ code: 'OUTSIDE_STUDENT_AVAILABILITY', slotId: 'T2-6', studentId: 'a', studentName: 'Lan', trainerId: 't', trainerName: 'Mai' }] }); return { draftRevision: workspace.draftRevision, version: 1, diff: { create: 2, update: 0, cancel: 0, unchanged: 0 }, warnings: (window as any).__validationWarnings || [] } }
 export const publishPtSchedule = async (input: any) => { track('publish', input); workspace.publishedVersion++; workspace.draftStatus = 'published'; return { version: workspace.publishedVersion, unchanged: false } }
 export const listPtScheduleVersions = async () => ({ currentDraftRevision: workspace.draftRevision, currentVersion: 1, versions: (window as any).__scheduleVersions || [] })
@@ -106,7 +115,7 @@ export const reopenPtStudentAvailability = async (input: any) => {
   const student = workspace.students.find((item: any) => item.id === input.studentId)
   const availabilityRevision = Number(student?.availabilityRevision || 1) + 1
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     changed: true,
     availabilityRevision,
     availabilityStatus: 'reopened',
@@ -122,7 +131,7 @@ export const setPtStudentWeeklyTarget = async (input: any) => {
     ? Number(student?.defaultSessionsPerWeek || student?.sessionsPerWeek || 0)
     : Number(input.targetSessions || 0)
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     changed: true,
     revision: Number(student?.availabilityRevision || 1) + 1,
     targetSessions,
