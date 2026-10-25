@@ -1562,8 +1562,28 @@ async function nutritionTimelineEvidence(db, studentId, projection) {
   }
 }
 
+function authorityPayload(value) {
+  if (!value) return value
+  const { updatedAt, ...body } = value
+  return body
+}
+
+function sameAuthoritySnapshot(before, after) {
+  return before.exists === after.exists && (!before.exists || isDeepStrictEqual(authorityPayload(before.data()), authorityPayload(after.data())))
+}
+
+function rootProfileMetadataOnly(event) {
+  const before = event?.data?.before, after = event?.data?.after
+  const path = after?.ref?.path || before?.ref?.path || ''
+  // Only these root timestamps are absent from every 360 output/dependency.
+  // Nested metric, workout, contract and attendance timestamps are business
+  // evidence and must keep their existing reconciliation semantics.
+  return /^(?:students|users)\/[^/]+$/.test(path) && before?.exists && after?.exists
+    && isDeepStrictEqual(authorityPayload(before.data()), authorityPayload(after.data()))
+}
+
 function operationsAuthorityFingerprint(sources) {
-  const value = { student: sources.student, profile: sources.profile, accountUid: sources.accountUid, accountLinkSource: sources.accountLinkSource }
+  const value = { student: authorityPayload(sources.student), profile: authorityPayload(sources.profile), accountUid: sources.accountUid, accountLinkSource: sources.accountLinkSource }
   const serialized = JSON.stringify(value, (_, item) => item && typeof item === 'object' && !Array.isArray(item)
     ? Object.fromEntries(Object.keys(item).sort().map(key => [key, item[key]])) : item)
   return createHash('sha256').update(serialized).digest('hex')
@@ -2076,11 +2096,10 @@ async function refreshStudent360OperationsProjection({ db, studentId, lease }) {
   requireCurrentDay()
   const fields = ['identity', 'assignments', 'contract', 'schedule', 'attendance', 'training', 'health', 'alerts', 'nextActions', 'dataQuality', 'nutritionRefreshBasis']
   const patch = Object.fromEntries(fields.map(key => [key, projection[key]]))
-  const sameVersion = (left, right) => left.exists === right.exists && (!left.exists || left.updateTime?.isEqual(right.updateTime))
   const guardedLease = { runTransaction: work => lease.runTransaction(async transaction => {
     requireCurrentDay()
     const [currentStudent, currentProfile] = await transaction.getAll(studentReference, profileReference)
-    if (!sameVersion(studentSnapshot, currentStudent) || !sameVersion(profileSnapshot, currentProfile)) throw student360RetryError('operations_authority_changed')
+    if (!sameAuthoritySnapshot(studentSnapshot, currentStudent) || !sameAuthoritySnapshot(profileSnapshot, currentProfile)) throw student360RetryError('operations_authority_changed')
     return work(transaction)
   }) }
   const summaryChanged = Object.entries(patch).some(([key, value]) => !isDeepStrictEqual(previous[key], value))
@@ -2350,6 +2369,7 @@ async function resolveEventStudentId(db, event) {
 
 async function syncStudent360ProjectionFromEvent({ db, event, logger = console, operationsEnabled = operationsPartialEnabled.value() }) {
   if (!sourceChanged(event)) return { skipped: true, reason: 'source_unchanged' }
+  if (rootProfileMetadataOnly(event)) return { skipped: true, reason: 'source_metadata_only' }
   const resolvedStudentId = await resolveEventStudentId(db, event)
   const operationsSource = operationsEventSource(event)
   const studentIds = resolvedStudentId ? [resolvedStudentId] : []
