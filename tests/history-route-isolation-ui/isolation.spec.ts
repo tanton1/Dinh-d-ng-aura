@@ -1,5 +1,25 @@
 import { expect, test } from '@playwright/test'
 
+test('finance overview and cashbook do not subscribe to student or contract directories', async ({ page }) => {
+  await page.goto('/tests/history-route-isolation-ui/index.html?finance')
+  const active = () => page.evaluate(() => [...(window as any).isolationCalls.active].sort())
+  await expect.poll(active).toEqual(['branches'])
+  await page.getByRole('button', { name: 'Cashbook', exact: true }).click()
+  expect(await page.evaluate(() => (window as any).isolationCalls.subscriptions.some((path: string) => ['students', 'contracts'].includes(path)))).toBe(false)
+  await page.getByRole('button', { name: 'Ledger', exact: true }).click()
+  await expect.poll(active).toEqual(['branches', 'contracts', 'students'])
+  await expect(page.locator('output')).toHaveText('Directory 1/1')
+  const count = await page.evaluate(() => (window as any).isolationCalls.subscriptions.length)
+  await page.getByRole('button', { name: 'Second consumer', exact: true }).click()
+  expect(await page.evaluate(() => (window as any).isolationCalls.subscriptions.length)).toBe(count)
+  await page.getByRole('button', { name: 'Overview', exact: true }).click()
+  expect(await active()).toEqual(['branches', 'contracts', 'students'])
+  await page.getByRole('button', { name: 'Second consumer', exact: true }).click()
+  await expect.poll(active).toEqual(['branches'])
+  await page.getByRole('button', { name: 'Ledger', exact: true }).click()
+  await expect(page.locator('output')).toHaveText('Directory 1/1')
+})
+
 test('only active trainer consumers subscribe; StrictMode and duplicate cleanup release safely', async ({ page }) => {
   await page.goto('/tests/history-route-isolation-ui/index.html')
   const calls = () => page.evaluate(() => (window as any).isolationCalls)

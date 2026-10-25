@@ -3,6 +3,7 @@ import { CalendarDays, CheckCircle2, ChevronDown, CircleAlert, Clock3, PencilLin
 import { useAuth } from '../../../contexts/AuthContext'
 import { useDatabase } from '../../../contexts/DatabaseContext'
 import { getStudentContractUsage, listStudentTrainingHistory, listTrainerTeachingHistory, type ContractUsageSummary, type TrainingHistoryPage, type TrainingHistoryStatus } from '../../../services/businessReportingService'
+import { mergeTrainingHistoryPage } from '../../../utils/trainingHistoryPagination'
 import type { TrainerSessionSummary, TrainerStudentContractDetail } from '../../../services/ptOperationsV2Service'
 import { correctTeachingShift } from '../../../services/sessionOperationsService'
 import '../../../styles-training-history.css'
@@ -300,7 +301,7 @@ function TrainingHistoryContent({ subject, subjectId, subjectName, contractId, i
       ?? contractUsage[0]
       ?? null
   }, [contractId, contractUsage, subject])
-  const periodUsage = page?.summary.usage
+  const periodUsage = page?.summary?.usage
   const canCorrectTeachingShift = !isDemo && (
     profile?.role === 'admin'
     || profile?.role === 'super_admin'
@@ -339,17 +340,13 @@ function TrainingHistoryContent({ subject, subjectId, subjectName, contractId, i
         setPage(demoPage(subjectId, initialSessions, startDate, endDate, status))
         return
       }
-      const query = { startDate, endDate, status, pageSize: 50, cursor: append ? nextCursorRef.current : null }
+      const query = { startDate, endDate, status, pageSize: 50, cursor: append ? nextCursorRef.current : null, includeSummary: !append }
       const response = subject === 'student'
         ? await listStudentTrainingHistory(subjectId, query)
         : await listTrainerTeachingHistory(subjectId, query)
       if (requestId !== historyRequestRef.current) return
       nextCursorRef.current = response.nextCursor
-      setPage((current) => {
-        if (!append || !current) return response
-        const previousIds = new Set(current.records.map((record) => record.id))
-        return { ...response, records: [...current.records, ...response.records.filter((record) => !previousIds.has(record.id))] }
-      })
+      setPage((current) => mergeTrainingHistoryPage(current, response, append))
     } catch (cause) {
       if (requestId !== historyRequestRef.current) return
       setError(cause instanceof Error ? cause.message : 'Không thể tải lịch sử buổi tập.')
@@ -626,16 +623,16 @@ function TrainingHistoryContent({ subject, subjectId, subjectName, contractId, i
       </div>
       {selectedUsage.legacyProjectionAdjustment > 0 ? <small className="training-history__legacy-note">{selectedUsage.legacyProjectionAdjustment} buổi dữ liệu cũ đang được giữ riêng để đối soát.</small> : null}
     </section> : null}
-    {page && subject === 'trainer' && page.summary.teaching ? <div className="training-history__summary"><div><strong>{page.summary.teaching.totalShifts}</strong><span>Ca dạy</span></div><div><strong>{page.summary.teaching.pairedShifts}</strong><span>Ca đôi</span></div><div><strong>{page.summary.teaching.learnerBookings}</strong><span>Lượt học viên</span></div><div><strong>{page.summary.noShow}</strong><span>Vắng mặt</span></div></div> : null}
+    {page && subject === 'trainer' && page.summary?.teaching ? <div className="training-history__summary"><div><strong>{page.summary.teaching.totalShifts}</strong><span>Ca dạy</span></div><div><strong>{page.summary.teaching.pairedShifts}</strong><span>Ca đôi</span></div><div><strong>{page.summary.teaching.learnerBookings}</strong><span>Lượt học viên</span></div><div><strong>{page.summary.noShow}</strong><span>Vắng mặt</span></div></div> : null}
     <div className="training-history__records">
       {loading && !page ? <div className="training-history__empty">Đang tải lịch sử an toàn…</div> : null}
-      {!loading && !error && page && page.records.length === 0 ? <div className="training-history__empty">Không có buổi tập nào trong bộ lọc này.</div> : null}
+      {!loading && !error && page && page.records.length === 0 ? <div className="training-history__empty">{page.hasMore ? 'Chưa tìm thấy buổi phù hợp trong phần đã tải. Tải thêm để xem các ngày trước.' : 'Không có buổi tập nào trong bộ lọc này.'}</div> : null}
       {subject === 'trainer' ? trainerShifts.map((shift) => <article className="training-history__shift" data-session-id={shift.records.some((record) => record.id === focusSessionId) ? focusSessionId : undefined} key={shift.key}>
         <header><div className="training-history__date"><strong>{shift.date.slice(8) || '—'}</strong><span>{shift.date.slice(5, 7) || '—'}</span></div><div><small>CA DẠY</small><h4>{formatDate(shift.date)} {shift.hour !== null ? `· ${String(shift.hour).padStart(2, '0')}:00` : ''}</h4><p><UsersRound size={14} /> {shift.studentCount} học viên</p></div><div className="training-history__shift-actions"><em className={shift.studentCount >= 2 ? 'is-paired' : ''}>{shift.studentCount >= 2 ? 'Ca đôi' : 'Ca đơn'}</em>{canCorrectTeachingShift ? <button type="button" onClick={() => openCorrection(shift)}><PencilLine size={14} /> Điều chỉnh</button> : null}</div></header>
         <div className="training-history__shift-students">{shift.records.map((record, index) => <section key={record.id}><span className="training-history__student-order">{index + 1}</span><div className="training-history__shift-student-main"><strong>{record.counterpartName}</strong><RecordAuditDetails record={record} /></div><div className="training-history__shift-state"><span className={`training-history__status training-history__status--${record.status}`}>{statusLabel(record.status)}</span><small>{record.attendance?.attendanceStatus && record.attendance.attendanceStatus !== 'pending' ? <CheckCircle2 size={14} /> : <Clock3 size={14} />}{attendanceLabel(record)}</small></div></section>)}</div>
       </article>) : page?.records.map((record) => <article className="training-history__record" data-session-id={record.id === focusSessionId ? focusSessionId : undefined} key={record.id}><div className="training-history__date"><strong>{record.date.slice(8) || '—'}</strong><span>{record.date.slice(5, 7) || '—'}</span></div><div className="training-history__record-main"><div className="training-history__record-title"><strong>{formatDate(record.date)} {record.hour !== null ? `· ${String(record.hour).padStart(2, '0')}:00` : ''}</strong>{!['completed', 'attended', 'no_show'].includes(record.status) ? <span className={`training-history__status training-history__status--${record.status}`}>{statusLabel(record.status)}</span> : null}</div><p><UserRound size={14} /> {counterpartLabel}: <b>{record.counterpartName}</b></p><RecordAuditDetails record={record} /></div><div className="training-history__attendance">{record.attendance?.attendanceStatus && record.attendance.attendanceStatus !== 'pending' ? <CheckCircle2 size={18} /> : <Clock3 size={18} />}<span>{attendanceLabel(record)}</span>{canCorrectTeachingShift ? <button type="button" onClick={() => openCorrection({ key: record.id, date: record.date, hour: record.hour, branchId: normaliseHistoryBranchId(record.branchId), studentCount: 1, records: [record] })}><PencilLine size={14} /> Điều chỉnh</button> : null}</div></article>)}
     </div>
-    {page?.summary.truncated ? <p className="training-history__truncated">Tóm tắt bị giới hạn để bảo vệ hiệu năng. Hãy thu hẹp khoảng thời gian để xem số liệu đầy đủ.</p> : null}
+    {page?.summary?.truncated ? <p className="training-history__truncated">Tóm tắt bị giới hạn để bảo vệ hiệu năng. Hãy thu hẹp khoảng thời gian để xem số liệu đầy đủ.</p> : null}
     {page?.hasMore ? <button type="button" className="training-history__more" disabled={loading} onClick={() => void load(true)}>{loading ? 'Đang tải…' : 'Tải thêm lịch sử'}</button> : null}
     {correction ? <div className="training-history__correction-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !correctionSaving) setCorrection(null) }}>
       <section className="training-history__correction" role="dialog" aria-modal="true" aria-labelledby="teaching-shift-correction-title">

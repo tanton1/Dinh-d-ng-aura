@@ -1,6 +1,7 @@
 'use strict'
 
 const { createHash, randomUUID } = require('node:crypto')
+const { isDeepStrictEqual } = require('node:util')
 const { FieldPath, FieldValue } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
 const { projectionSourceChanged } = require('./projection-event-policy')
@@ -864,6 +865,17 @@ async function sourceEventTargets({ db, event, source } = {}) {
 async function syncPtScheduleWeeklyViewSource({ db, event, source = 'source', logger = console } = {}) {
   if (source === 'contractUsage' && !projectionSourceChanged(event, 'contractUsageViews')) {
     return { source, marked: 0, skipped: 'projection_timestamps_only' }
+  }
+  // These source updatedAt values are not consumed by the weekly display or
+  // entitlement validation. Compare before any target discovery: one profile
+  // timestamp touch otherwise scans and invalidates its whole view history.
+  // Keep every other field significant, including future fields, revisions,
+  // nested timestamps and all ownership/date changes. Creates/deletes always
+  // propagate; draft/availability/session timestamps retain their own semantics.
+  if (['student', 'trainer', 'contract'].includes(source) && event?.data?.before?.exists && event?.data?.after?.exists) {
+    const { updatedAt: beforeUpdatedAt, ...before } = event.data.before.data() || {}
+    const { updatedAt: afterUpdatedAt, ...after } = event.data.after.data() || {}
+    if (isDeepStrictEqual(before, after)) return { source, marked: 0, skipped: 'source_metadata_only' }
   }
   const targets = await sourceEventTargets({ db, event, source })
   let marked = 0

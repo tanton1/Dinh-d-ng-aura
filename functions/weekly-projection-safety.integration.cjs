@@ -233,6 +233,33 @@ test('real Firestore: validation-only rebuild cannot acknowledge a concurrent so
 
 const sourceEvent = (before, after, params) => ({ params, data: { before: { exists: Boolean(before), data: () => before }, after: { exists: Boolean(after), data: () => after } } })
 
+for (const [source, collection] of [['student', 'students'], ['trainer', 'trainers'], ['contract', 'contracts']]) {
+  test(`real Firestore: ${source} timestamp-only delivery preserves weekly state; a business edit still dirties old and new branches`, async () => {
+    const db = fixture()
+    const base = await seed(db)
+    const past = '2025-01-06'
+    await db.doc(viewPath('branch-next', past)).set({ ...base, branchId: 'branch-next', weekId: past })
+    const ref = db.doc(`${collection}/${source}-a`)
+    await ref.set({ branchId: BRANCH, studentId: 'student-a', name: 'Original', updatedAt: FieldValue.serverTimestamp() })
+    const before = await ref.get()
+    await ref.update({ updatedAt: FieldValue.serverTimestamp() })
+    const touched = await ref.get()
+    const params = { [`${source}Id`]: ref.id }
+    const viewBefore = await db.doc(viewPath()).get()
+    const skipped = await syncPtScheduleWeeklyViewSource({ db, source, logger: quiet, event: { params, data: { before, after: touched } } })
+    assert.equal(skipped.marked, 0)
+    assert.equal(skipped.skipped, 'source_metadata_only')
+    assert.equal((await db.collection('ptScheduleWeeklyViewStates').get()).size, 0)
+    assert.ok(viewBefore.updateTime.isEqual((await db.doc(viewPath()).get()).updateTime))
+    await ref.update({ branchId: 'branch-next', name: 'Changed', updatedAt: FieldValue.serverTimestamp() })
+    const changed = await ref.get()
+    const propagated = await syncPtScheduleWeeklyViewSource({ db, source, logger: quiet, event: { params, data: { before: touched, after: changed } } })
+    assert.equal(propagated.marked, 2)
+    const states = await db.getAll(db.doc(statePath()), db.doc(statePath('branch-next', past)))
+    assert.ok(states.every(snapshot => snapshot.data()?.dirtyGeneration === 1 && snapshot.data()?.dirty === true))
+  })
+}
+
 test('real Firestore: source queries cover both sides of a move and paginate beyond two hundred views', async () => {
   const db = fixture()
   const base = await seed(db)

@@ -771,6 +771,57 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // Revisions reveal no customer, address, payment or OTP data. Read access
+    // depends on the CURRENT profile as well as the claim, including missing docs.
+    match /eatCleanDriverChanges/{shipperId} {
+      allow get: if isOwner(shipperId) && hasRole(['shipper', 'admin', 'super_admin']);
+      allow list, write: if false;
+    }
+
+    match /eatCleanWorkspaceChanges/{signalId} {
+      allow get: if (signalId == 'config' && hasRole(['shipper', 'admin', 'super_admin']))
+                 || (signalId == 'dispatch' && isAdmin());
+      allow list, write: if false;
+    }
+
+    function canTrackEatCleanOrder(orderId) {
+      let order = get(/databases/$(database)/documents/eatCleanOrders/$(orderId)).data;
+      return signedIn() && currentUser() != null
+             && currentUser().get('disabled', false) != true
+             && order != null
+             && (order.get('userId', '') == request.auth.uid
+                 || hasRole(['admin', 'super_admin'])
+                 || (hasRole(['shipper'])
+                     && get(/databases/$(database)/documents/eatCleanDeliveries/$(orderId)).data.get('shipperId', '') == request.auth.uid));
+    }
+
+    match /eatCleanOrderChanges/{orderId} {
+      allow get: if canTrackEatCleanOrder(orderId);
+      allow list, write: if false;
+    }
+
+    function currentEatCleanLocation(orderId) {
+      let delivery = get(/databases/$(database)/documents/eatCleanDeliveries/$(orderId)).data;
+      return delivery != null
+             && delivery.get('status', '') in ['accepted', 'at_store', 'picked_up', 'arrived']
+             && (resource == null
+                 || (resource.data.get('schemaVersion', 0) == 1
+                     && resource.data.get('orderId', '') == orderId
+                     && resource.data.get('binding', '').matches('^[a-f0-9]{64}$')
+                     && resource.data.get('shipperId', '') == delivery.get('shipperId', '')
+                     && resource.data.get('assignmentAt', null) == delivery.get('assignedAt', null)
+                     && resource.data.get('acceptanceAt', null) == delivery.get('acceptedAt', null)
+                     && resource.data.get('active', false) == true
+                     && resource.data.expiresAt is timestamp && resource.data.expiresAt > request.time));
+    }
+
+    // A latest-point document contains no customer, address, payment or OTP.
+    // Current profile, order ownership and assignment authorize every result.
+    match /eatCleanLiveLocationViews/{orderId} {
+      allow get: if canTrackEatCleanOrder(orderId) && currentEatCleanLocation(orderId);
+      allow list, write: if false;
+    }
+
     match /eatCleanDeliveries/{orderId} {
       // Includes private OTP-verification state. All actors receive a
       // role-filtered/sanitized view through callable functions only.

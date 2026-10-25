@@ -1,6 +1,7 @@
 import { useLocalTimeBoundaries, useVietnamDay, useWorkspaceAccountId, useWorkspaceSync } from '../../hooks/useWorkspaceSync'
 import { runCoalescedRefresh, type CoalescedRefreshState } from '../../utils/coalescedRefresh'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { mergeTrainingHistoryPage } from '../../utils/trainingHistoryPagination'
 import {
   AlertCircle,
   CalendarCheck,
@@ -294,11 +295,10 @@ export default function SchedulePage({ onNavigate, isDemo = false }: { onNavigat
         status: 'all',
         pageSize: 100,
         cursor,
+        includeSummary: !append,
       })
       if (requestId !== historyRequestRef.current || currentHistoryScopeRef.current !== historyScope) return
-      setHistoryPage((current) => append && current
-        ? { ...response, records: [...current.records, ...response.records] }
-        : response)
+      setHistoryPage((current) => mergeTrainingHistoryPage(current, response, append))
     } catch (caught) {
       if (requestId === historyRequestRef.current && currentHistoryScopeRef.current === historyScope) setHistoryError(caught instanceof Error ? caught.message : 'Không thể tải toàn bộ lịch sử buổi tập.')
     } finally {

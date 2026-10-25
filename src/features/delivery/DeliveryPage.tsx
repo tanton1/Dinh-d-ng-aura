@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowLeft,
   Bike,
@@ -22,12 +22,13 @@ import {
   acceptEatCleanDelivery,
   completeEatCleanDelivery,
   getDeliveryServiceError,
-  listMyEatCleanDeliveryJobs,
   setEatCleanDriverAvailability,
   updateEatCleanDeliveryMilestone,
 } from './deliveryService'
 import type { EatCleanDeliveryJob, EatCleanDeliveryJobStatus, EatCleanDriverWorkspace } from './types'
 import { useDriverLocationPublisher } from './useDriverLocationPublisher'
+import { useDeliveryWorkspace } from './useDeliveryWorkspace'
+import { useLocalTimeBoundaries } from '../../hooks/useLocalTimeBoundaries'
 import './DeliveryPage.css'
 
 interface DeliveryPageProps {
@@ -69,7 +70,11 @@ function mapsUrl(job: EatCleanDeliveryJob) {
 }
 
 export default function DeliveryPage({ driverId, displayName, onSignOut }: DeliveryPageProps) {
-  const [workspace, setWorkspace] = useState<EatCleanDriverWorkspace | null>(null)
+  const [loadedWorkspace, setWorkspace] = useState<EatCleanDriverWorkspace | null>(null)
+  const workspace = loadedWorkspace?.workspaceSync?.accountId === driverId ? loadedWorkspace : null
+  const accountRef = useRef(driverId)
+  accountRef.current = driverId
+  const previousAccount = useRef(driverId)
   const [selectedJobId, setSelectedJobId] = useState<string | null>(() => {
     const params = new URLSearchParams(window.location.hash.split('?')[1] ?? '')
     return params.get('orderId') ?? params.get('jobId')
@@ -79,6 +84,9 @@ export default function DeliveryPage({ driverId, displayName, onSignOut }: Deliv
   const [error, setError] = useState('')
   const [action, setAction] = useState('')
   const [otp, setOtp] = useState('')
+  const boundaryNow = useLocalTimeBoundaries((workspace?.jobs || [])
+    .filter(job => !['completed', 'cancelled'].includes(job.status))
+    .map(job => Date.parse(job.promisedAt || '') + 1))
 
   const selectedJob = useMemo(
     () => workspace?.jobs.find((job) => job.id === selectedJobId) ?? null,
@@ -93,26 +101,27 @@ export default function DeliveryPage({ driverId, displayName, onSignOut }: Deliv
     trackingReady,
   )
 
-  const load = useCallback(async (background = false) => {
-    background ? setRefreshing(true) : setLoading(true)
-    setError('')
-    try {
-      const next = await listMyEatCleanDeliveryJobs()
+  const { refresh: load, invalidate } = useDeliveryWorkspace({
+    accountId: driverId,
+    apply: next => {
       setWorkspace(next)
-      if (selectedJobId && !next.jobs.some((job) => job.id === selectedJobId)) setSelectedJobId(null)
-    } catch (loadError) {
-      setError(getDeliveryServiceError(loadError))
-    } finally {
-      setLoading(false)
-      setRefreshing(false)
-    }
-  }, [selectedJobId])
-
+      setSelectedJobId(current => current && !next.jobs.some(job => job.id === current) ? null : current)
+      setError('')
+    },
+    clear: () => { setWorkspace(null); setSelectedJobId(null); location.stop() },
+    pending: (value, initial) => { if (initial) setLoading(value); else setRefreshing(value) },
+    failure: (loadError, accessDenied) => {
+      setLoading(false); setRefreshing(false)
+      setError(accessDenied ? 'Quyền giao hàng đã thay đổi. Vui lòng đăng nhập lại.'
+        : loadError instanceof Error && loadError.message === 'DELIVERY_SYNC_UNAVAILABLE'
+          ? 'Chưa thể đồng bộ chuyến giao. Bấm Làm mới để thử lại.' : getDeliveryServiceError(loadError))
+    },
+  })
   useEffect(() => {
-    void load()
-    const timer = window.setInterval(() => void load(true), 30_000)
-    return () => window.clearInterval(timer)
-  }, [load])
+    if (previousAccount.current === driverId) return
+    previousAccount.current = driverId
+    setSelectedJobId(null); setOtp(''); setAction(''); setError('')
+  }, [driverId])
 
   const openJob = (jobId: string) => {
     setSelectedJobId(jobId)
@@ -129,16 +138,20 @@ export default function DeliveryPage({ driverId, displayName, onSignOut }: Deliv
   }
 
   const runAction = async (key: string, operation: () => Promise<EatCleanDeliveryJob>) => {
+    const actor = driverId
     setAction(key)
     setError('')
     try {
       const nextJob = await operation()
-      await load(true)
+      if (accountRef.current !== actor) return
+      invalidate()
+      setRefreshing(false)
+      setWorkspace(current => current ? { ...current, jobs: current.jobs.map(job => job.id === nextJob.id ? nextJob : job) } : current)
       if (nextJob.status === 'completed') location.stop()
     } catch (actionError) {
-      setError(getDeliveryServiceError(actionError))
+      if (accountRef.current === actor) setError(getDeliveryServiceError(actionError))
     } finally {
-      setAction('')
+      if (accountRef.current === actor) setAction('')
     }
   }
 
@@ -203,6 +216,7 @@ export default function DeliveryPage({ driverId, displayName, onSignOut }: Deliv
   }
 
   const activeJobs = workspace.jobs.filter((job) => !['completed', 'cancelled'].includes(job.status))
+    .map(job => ({ ...job, isLate: job.isLate || Date.parse(job.promisedAt || '') < boundaryNow }))
   const completedJobs = workspace.jobs.filter((job) => job.status === 'completed')
   return (
     <main className="driver-page">
@@ -214,11 +228,17 @@ export default function DeliveryPage({ driverId, displayName, onSignOut }: Deliv
       <section className="driver-availability">
         <span className={workspace.driver.available ? 'is-online' : ''}><i /><strong>{workspace.driver.available ? 'Đang sẵn sàng' : 'Đang tạm nghỉ'}</strong><small>{workspace.driver.available ? 'Hệ thống có thể gán chuyến mới' : 'Bạn sẽ không nhận chuyến mới'}</small></span>
         <button type="button" disabled={Boolean(action)} onClick={() => {
+          const actor = driverId
           setAction('availability')
           void setEatCleanDriverAvailability(!workspace.driver.available)
-            .then((driver) => setWorkspace({ ...workspace, driver }))
-            .catch((availabilityError) => setError(getDeliveryServiceError(availabilityError)))
-            .finally(() => setAction(''))
+            .then((driver) => {
+              if (accountRef.current !== actor) return
+              invalidate()
+              setRefreshing(false)
+              setWorkspace(current => current ? { ...current, driver } : current)
+            })
+            .catch((availabilityError) => { if (accountRef.current === actor) setError(getDeliveryServiceError(availabilityError)) })
+            .finally(() => { if (accountRef.current === actor) setAction('') })
         }}>{workspace.driver.available ? 'Tạm nghỉ' : 'Bắt đầu nhận đơn'}</button>
       </section>
 

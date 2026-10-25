@@ -1,5 +1,6 @@
 const { renewalDateSyncPatch, assertRenewalLink } = require('./contract-renewal-handover')
 const { createHash } = require('node:crypto')
+const { isDeepStrictEqual } = require('node:util')
 const { FieldPath, FieldValue } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
 const { trustedAccessContext } = require('./identity-access')
@@ -13,6 +14,7 @@ const { sourceChanged, coalesceProjectionRebuild, upsertChangedTimeline } = requ
 const { calculateNutritionTargets, canonicalNutritionProfile } = require('./nutrition-core.mjs')
 const { canonicalSessionRows } = require('./session-schedule-normalization')
 const { cacheScope, createProcessCache } = require('./process-cache')
+const { enqueueStudent360Refresh } = require('./student-360-refresh-queue')
 
 const TIME_ZONE = 'Asia/Ho_Chi_Minh'
 // Bump the projection schema when account-link resolution changes. Existing
@@ -24,7 +26,6 @@ const HEALTH_FORMULA_VERSION = 'student-health-v1'
 // prevents an unchanged profile from re-reading every history collection each
 // time Staff opens it, while the scheduled reconciler repairs missed triggers.
 const PROJECTION_MAX_AGE_MS = 24 * 60 * 60 * 1000
-const PROJECTION_REFRESH_QUEUE = 'systemJobs/student360ProjectionRefreshQueue'
 const projectionRefreshQueueCache = createProcessCache({ ttlMs: 10 * 60 * 1000, maxEntries: 2_000 })
 const studentProjectionReadCache = createProcessCache({ ttlMs: 5_000, maxEntries: 512 })
 
@@ -1223,6 +1224,23 @@ async function studentAccountProfile(db, student) {
   }
 }
 
+async function studentProgressSources(db, accountUid) {
+  if (!accountUid) return { bodyMetrics: [], progressPhotos: [], progressSourceDocuments: 0 }
+  const [bodyMetrics, bodyMeasurements, weightLogs, progressCheckIns, legacyProgressPhotos, progressPhotos] = await Promise.all([
+    latestDocuments(db.collection(`users/${accountUid}/bodyMetrics`), 'date', PROJECTION_READ_LIMITS.bodyMetrics),
+    latestDocuments(db.collection(`users/${accountUid}/bodyMeasurements`), 'date', PROJECTION_READ_LIMITS.bodyMeasurements),
+    latestDocuments(db.collection(`users/${accountUid}/weightLogs`), 'date', PROJECTION_READ_LIMITS.weightLogs),
+    latestDocuments(db.collection(`users/${accountUid}/progressCheckIns`), 'date', PROJECTION_READ_LIMITS.progressCheckIns),
+    latestDocuments(db.collection(`users/${accountUid}/progress_photos`).select('date', 'createdAt', 'updatedAt'), 'date', PROJECTION_READ_LIMITS.legacyProgressPhotos),
+    latestDocuments(db.collection(`users/${accountUid}/progressPhotos`).select('date', 'createdAt', 'updatedAt'), 'date', PROJECTION_READ_LIMITS.progressPhotos),
+  ])
+  return {
+    bodyMetrics: uniqueProgressDocuments([...bodyMetrics, ...bodyMeasurements, ...weightLogs, ...progressCheckIns]),
+    progressPhotos: uniqueProgressPhotos([...legacyProgressPhotos, ...progressPhotos, ...progressCheckIns]),
+    progressSourceDocuments: [bodyMetrics, bodyMeasurements, weightLogs, progressCheckIns, legacyProgressPhotos, progressPhotos].reduce((total, rows) => total + rows.length, 0),
+  }
+}
+
 async function projectionSources(db, studentId, weekId) {
   const studentSnapshot = await db.doc(`students/${studentId}`).get()
   if (!studentSnapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy học viên.')
@@ -1247,17 +1265,12 @@ async function projectionSources(db, studentId, weekId) {
   ])
   const profile = profileResult.profile
   const accountUid = profileResult.accountUid
-  const [mealLogs, mealReviews, bodyMetrics, bodyMeasurements, weightLogs, progressCheckIns, trainingProgramSnapshot, legacyProgressPhotos, progressPhotos] = accountUid ? await Promise.all([
-    latestDocuments(db.collection(`users/${accountUid}/mealLogs`), 'date', PROJECTION_READ_LIMITS.mealLogs),
-    latestDocuments(db.collection('mealReviews').where('userId', '==', accountUid), 'createdAt', PROJECTION_READ_LIMITS.mealReviews),
-    latestDocuments(db.collection(`users/${accountUid}/bodyMetrics`), 'date', PROJECTION_READ_LIMITS.bodyMetrics),
-    latestDocuments(db.collection(`users/${accountUid}/bodyMeasurements`), 'date', PROJECTION_READ_LIMITS.bodyMeasurements),
-    latestDocuments(db.collection(`users/${accountUid}/weightLogs`), 'date', PROJECTION_READ_LIMITS.weightLogs),
-    latestDocuments(db.collection(`users/${accountUid}/progressCheckIns`), 'date', PROJECTION_READ_LIMITS.progressCheckIns),
+  const [mealLogs, mealReviews, progressSources, trainingProgramSnapshot] = await Promise.all([
+    accountUid ? latestDocuments(db.collection(`users/${accountUid}/mealLogs`), 'date', PROJECTION_READ_LIMITS.mealLogs) : [],
+    accountUid ? latestDocuments(db.collection('mealReviews').where('userId', '==', accountUid), 'createdAt', PROJECTION_READ_LIMITS.mealReviews) : [],
+    studentProgressSources(db, accountUid),
     db.doc(`ptTrainingPrograms/${studentId}`).get(),
-    latestDocuments(db.collection(`users/${accountUid}/progress_photos`).select('date', 'createdAt', 'updatedAt'), 'date', PROJECTION_READ_LIMITS.legacyProgressPhotos),
-    latestDocuments(db.collection(`users/${accountUid}/progressPhotos`).select('date', 'createdAt', 'updatedAt'), 'date', PROJECTION_READ_LIMITS.progressPhotos),
-  ]) : [[], [], [], [], [], [], await db.doc(`ptTrainingPrograms/${studentId}`).get(), [], []]
+  ])
   return {
     student,
     contracts,
@@ -1278,8 +1291,7 @@ async function projectionSources(db, studentId, weekId) {
     accountLinkSource: profileResult.source || (accountUid ? 'students.accountUid' : 'missing'),
     mealLogs,
     mealReviews,
-    bodyMetrics: uniqueProgressDocuments([...bodyMetrics, ...bodyMeasurements, ...weightLogs, ...progressCheckIns]),
-    progressPhotos: uniqueProgressPhotos([...legacyProgressPhotos, ...progressPhotos, ...progressCheckIns]),
+    ...progressSources,
     trainingProgram: trainingProgramSnapshot.exists ? { id: trainingProgramSnapshot.id, ...trainingProgramSnapshot.data() } : null,
   }
 }
@@ -1463,24 +1475,7 @@ async function queueStudent360ProjectionRefresh(db, studentId, weekId, reason = 
   // from creating one background job per request. The Firestore trigger in
   // functions/index.js consumes the newest requestedAt watermark.
   const key = projectionCacheKey(db, studentId, weekId)
-  const result = await projectionRefreshQueueCache.get(key, async () => {
-    const reference = db.doc(`${PROJECTION_REFRESH_QUEUE}/${studentId}`)
-    const existing = await reference.get()
-    const current = existing.exists ? existing.data() || {} : {}
-    const requestedAt = timestampMillis(current.requestedAt)
-    const processedAt = timestampMillis(current.processedAt)
-    const now = Date.now()
-    if ((['queued', 'processing'].includes(current.status) && now - requestedAt < 10 * 60 * 1000)
-      || (current.status === 'completed' && now - processedAt < 15 * 60 * 1000)) return false
-    await reference.set({
-      studentId,
-      weekId,
-      reason,
-      requestedAt: FieldValue.serverTimestamp(),
-      status: 'queued',
-    }, { merge: true })
-    return true
-  })
+  const result = await projectionRefreshQueueCache.get(key, () => enqueueStudent360Refresh({ db, studentId, weekId, reason }))
   return result.value
 }
 
@@ -1879,6 +1874,74 @@ async function refreshStudent360NutritionProjection({ db, studentId, event, leas
   return { mode: 'nutrition', sourceDocuments: mealLogs.length + mealReviews.length }
 }
 
+function progressEventSource(event) {
+  const reference = event?.data?.after?.ref || event?.data?.before?.ref
+  const collection = reference?.parent?.id || reference?.path?.split('/').at(-2)
+  return ['bodyMetrics', 'bodyMeasurements', 'weightLogs', 'progressCheckIns', 'progress_photos', 'progressPhotos'].includes(collection) ? collection : null
+}
+
+async function refreshStudent360ProgressProjection({ db, studentId, event, lease }) {
+  const weekId = mondayDateKey(), today = vietnamDateKey()
+  const reference = db.doc(`studentOperationalViews/${studentId}`)
+  const existing = await reference.get()
+  const previous = existing.exists ? existing.data() : null
+  const components = ['attendance', 'training', 'nutrition', 'progress', 'engagement', 'payment', 'renewal']
+  const fullRefresh = async () => {
+    await buildStudent360Projection({ db, studentId, weekId, persist: true, lease })
+    return { mode: 'full' }
+  }
+  if (previous?.schemaVersion !== OVERVIEW_SCHEMA_VERSION || previous?.formulaVersion !== HEALTH_FORMULA_VERSION
+      || previous?.schedule?.weekId !== weekId || previous?.nutritionRefreshBasis?.day !== today
+      || !components.every(id => previous?.health?.components?.some(item => item.id === id))) return fullRefresh()
+  const studentReference = db.doc(`students/${studentId}`)
+  const studentSnapshot = await studentReference.get()
+  if (!studentSnapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy học viên.')
+  const accountUid = safeAccountUid(studentSnapshot.data().accountUid)
+  const eventReference = event?.data?.after?.ref || event?.data?.before?.ref
+  // Legacy or changed account links require the full authority resolver.
+  if (!accountUid || accountUid !== previous.accountUid || !eventReference?.path?.startsWith(`users/${accountUid}/`)) return fullRefresh()
+  const profileReference = db.doc(`users/${accountUid}`)
+  const profileSnapshot = await profileReference.get()
+  const sources = await studentProgressSources(db, accountUid)
+  const profile = profileSnapshot.exists ? { id: accountUid, ...profileSnapshot.data() } : null
+  const progress = profileProgress(profile || {}, sources.bodyMetrics).summary
+  const age = progress?.latestDate ? Math.max(0, daysBetween(progress.latestDate, today)) : null
+  const healthInput = Object.fromEntries(previous.health.components.flatMap(item => [
+    [`${item.id}Score`, item.available ? item.score : null], [`${item.id}Reason`, item.reason],
+  ]))
+  healthInput.progressScore = age === null ? null : age <= 7 ? 100 : age >= 28 ? 20 : Math.round(100 - (age - 7) * 80 / 21)
+  healthInput.progressReason = age === null ? 'Chưa có dữ liệu cân đo.' : `Cập nhật gần nhất ${age} ngày trước.`
+  const alerts = (previous.alerts || []).filter(item => item.id !== 'progress-stale')
+  if (age === null || age >= 14) alerts.push(alert('progress-stale', 'amber', 'Chưa cập nhật cân đo', age === null ? 'Chưa có dữ liệu tiến độ cơ thể.' : `${age} ngày chưa cập nhật.`, 'progress', 'coaching'))
+  const sortedAlerts = sortAlerts(alerts)
+  const patch = {
+    progress, health: buildHealthScore(healthInput), alerts: sortedAlerts,
+    nextActions: sortedAlerts.slice(0, 3).map((item, index) => ({ id: `action-${item.id}`, priority: index + 1, title: item.title,
+      description: item.message, action: item.action, severity: item.severity, audience: item.audience })),
+  }
+  const timeline = sourceTimelineEvents(studentId, {
+    contracts: [], sessions: [], attendance: [], workoutLogs: [], leaveRequests: [], sessionRequests: [],
+    payments: [], renewals: [], dailyCheckins: [], mealLogs: [], mealReviews: [], profile, ...sources,
+  })
+  const sameVersion = (left, right) => left.exists === right.exists && (!left.exists || left.updateTime?.isEqual(right.updateTime))
+  const guardedLease = { runTransaction: work => lease.runTransaction(async transaction => {
+    const [student, account] = await transaction.getAll(studentReference, profileReference)
+    if (!sameVersion(studentSnapshot, student) || !sameVersion(profileSnapshot, account)) {
+      throw new HttpsError('unavailable', 'Student progress authority changed during refresh; retry required.')
+    }
+    return work(transaction)
+  }) }
+  const summaryChanged = Object.entries(patch).some(([key, value]) => !isDeepStrictEqual(previous[key], value))
+  // Retain the full projection's freshness and existing timeline retention.
+  // Photo-only changes can update timeline rows without rewriting the overview.
+  await Promise.all([
+    summaryChanged ? guardedLease.runTransaction(async transaction => transaction.update(reference, { ...patch, progressUpdatedAt: new Date().toISOString() })) : Promise.resolve(),
+    upsertTimeline(db, timeline, guardedLease),
+  ])
+  studentProjectionReadCache.clear(`${cacheScope(db)}|${studentId}|`)
+  return { mode: 'progress', sourceDocuments: sources.progressSourceDocuments, summaryChanged }
+}
+
 function actorIds(actor) {
   return new Set(normalizedArray([actor.uid, actor.legacyStaffId]))
 }
@@ -2024,9 +2087,10 @@ async function loadAuthorizedProjection(db, actor, studentId, weekId, forceRefre
     permissions = permissionsFor(actor, stored)
     try {
       refreshQueued = await queueStudent360ProjectionRefresh(db, studentId, weekId, 'age')
-    } catch {
+    } catch (error) {
       // A queue write is an optimization, never a reason to hide a usable
       // projection. The scheduled reconciler remains the safety net.
+      console.warn('student_360_projection_queue_enqueue_failed', { code: typeof error?.code === 'string' ? error.code : 'unknown' })
     }
   }
   const projection = forceRefresh || (!serveStale && stale)
@@ -2140,11 +2204,13 @@ async function syncStudent360ProjectionFromEvent({ db, event, logger = console }
   if (!studentId) return { skipped: true, reason: 'student_not_resolved' }
   try {
     const nutritionOnly = Boolean(nutritionEventSource(event))
+    const progressOnly = Boolean(progressEventSource(event))
     let refresh = { mode: 'full' }
     const result = await coalesceProjectionRebuild({
-      db, studentId, event, scope: nutritionOnly ? 'nutrition' : 'full',
+      db, studentId, event, scope: nutritionOnly ? 'nutrition' : progressOnly ? 'progress' : 'full',
       rebuild: async (lease) => {
         if (nutritionOnly) refresh = await refreshStudent360NutritionProjection({ db, studentId, event, lease })
+        else if (progressOnly) refresh = await refreshStudent360ProgressProjection({ db, studentId, event, lease })
         else await buildStudent360Projection({ db, studentId, weekId: mondayDateKey(), persist: true, lease })
       },
     })

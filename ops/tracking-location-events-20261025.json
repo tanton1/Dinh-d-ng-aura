@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-25",
+  "phase": "D2.3 customer tracking event cutover",
+  "productionDeployed": false,
+  "backendDependency": "94dfe4ddfeecb5df57c1c921516ad1e0ce9a29b6",
+  "behavior": {
+    "bootstrapCalls": 1,
+    "periodicReadTimer": false,
+    "businessRefresh": "Only a newer order watermark or explicit refresh; one in-flight read and coalesced notifications",
+    "gps": "Exact latest-point listener updates only coordinates, age and expiry; no business callable",
+    "authority": "Current account profile subscription plus current profile/order/assignment rules",
+    "background": "Detach state and GPS listeners while hidden or offline; reconnect latest server snapshots and reconcile only newer state",
+    "recovery": "Transient transport failures stop automatic recovery; explicit refresh retries. A GPS assignment/terminal denial triggers at most one authority reconciliation per binding.",
+    "privacy": "Hide old account/order results, cleared assignments and revoked OTP/GPS. A new assignment point cannot be displayed with the previous driver identity.",
+    "time": "Local stale/expiry deadlines do not read the server. A mobile effect that misses a deadline repaints the crossing immediately."
+  },
+  "validation": {
+    "syntheticFixturesOnly": true,
+    "checks": [
+      "Chrome and iPhone WebKit event/recovery suites",
+      "TypeScript",
+      "Production build and performance budget",
+      "Existing tracking visibility/order-switch regression"
+    ],
+    "scenarios": [
+      "one idle hour: one bootstrap and zero periodic reads",
+      "20 GPS changes: zero extra order reads",
+      "burst/replay and in-flight revision race",
+      "account/order changes and stale callbacks",
+      "disabled profile and stale successful response",
+      "new assignment point before business marker",
+      "terminal GPS denial and per-binding retry cap",
+      "hidden/offline detach and changed/unchanged resume",
+      "local expiry while offline",
+      "missing backend capability fails explicitly"
+    ]
+  },
+  "release": {
+    "frontendOnly": true,
+    "functionsToRedeploy": [],
+    "requireAllBackendServingAndRulesVerified": true,
+    "requireLocationTtlActive": true,
+    "mergeAfterBackendPR": 24,
+    "rollback": "Roll back frontend consumption with both tracking/dispatch readers before returning to the old RTDB-only location writer."
+  },
+  "remaining": [
+    "Dispatch dashboard still has its separate 30-second refresh and needs state/roster/count/GPS separation",
+    "Actual billed savings require production traffic and byte/fan-out measurements; emulator call counts are not a billing estimate"
+  ]
+}

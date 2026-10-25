@@ -1,25 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { publishEatCleanDriverLocation } from './deliveryService'
+import { createLocationPublisher } from './locationPublisher'
 
 export type DriverLocationState = 'idle' | 'requesting' | 'sharing' | 'unavailable' | 'error'
 
-function distanceInMeters(left: GeolocationCoordinates, right: GeolocationCoordinates) {
-  const earthRadius = 6_371_000
-  const toRadians = (value: number) => value * Math.PI / 180
-  const latitudeDelta = toRadians(right.latitude - left.latitude)
-  const longitudeDelta = toRadians(right.longitude - left.longitude)
-  const leftLatitude = toRadians(left.latitude)
-  const rightLatitude = toRadians(right.latitude)
-  const value = Math.sin(latitudeDelta / 2) ** 2
-    + Math.cos(leftLatitude) * Math.cos(rightLatitude) * Math.sin(longitudeDelta / 2) ** 2
-  return earthRadius * 2 * Math.atan2(Math.sqrt(value), Math.sqrt(1 - value))
-}
-
 export function useDriverLocationPublisher(deliveryId: string | null, driverId: string, trackingReady: boolean) {
   const watchIdRef = useRef<number | null>(null)
-  const lastPositionRef = useRef<GeolocationPosition | null>(null)
-  const lastPublishedAtRef = useRef(0)
-  const publishInFlightRef = useRef(false)
+  const publisherRef = useRef<ReturnType<typeof createLocationPublisher> | null>(null)
   const generationRef = useRef(0)
   const [state, setState] = useState<DriverLocationState>('idle')
   const [message, setMessage] = useState('')
@@ -27,22 +14,16 @@ export function useDriverLocationPublisher(deliveryId: string | null, driverId: 
   const stop = useCallback(() => {
     if (watchIdRef.current !== null) navigator.geolocation.clearWatch(watchIdRef.current)
     watchIdRef.current = null
-    lastPositionRef.current = null
-    lastPublishedAtRef.current = 0
-    publishInFlightRef.current = false
+    publisherRef.current?.stop()
+    publisherRef.current = null
     generationRef.current += 1
     setState('idle')
   }, [])
 
   const start = useCallback(() => {
-    if (!deliveryId) return
-    if (watchIdRef.current !== null) {
-      navigator.geolocation.clearWatch(watchIdRef.current)
-      watchIdRef.current = null
-    }
-    const generation = generationRef.current + 1
-    generationRef.current = generation
-    publishInFlightRef.current = false
+    stop()
+    if (!deliveryId || !driverId) return
+    const generation = generationRef.current
     if (!trackingReady) {
       setState('unavailable')
       setMessage('Hạ tầng GPS realtime phía máy chủ chưa sẵn sàng. Bạn vẫn có thể cập nhật các mốc giao hàng.')
@@ -56,43 +37,40 @@ export function useDriverLocationPublisher(deliveryId: string | null, driverId: 
 
     setState('requesting')
     setMessage('Đang xin quyền truy cập vị trí…')
+    const publisher = createLocationPublisher({
+      publish: (position) => publishEatCleanDriverLocation(deliveryId, driverId, position),
+      now: Date.now,
+      online: () => navigator.onLine !== false,
+      schedule: (callback, delay) => window.setTimeout(callback, delay),
+      cancel: (timer) => window.clearTimeout(timer as number),
+      onResult: (position, result) => {
+        if (generationRef.current !== generation) return
+        setState('sharing')
+        setMessage(result.accepted
+          ? `Đã gửi vị trí · độ chính xác khoảng ${Math.round(position.coords.accuracy)} m`
+          : 'Đang chờ vị trí mới đủ chính xác để cập nhật.')
+      },
+      onRejected: () => {
+        if (generationRef.current === generation) setMessage('Đang chờ tín hiệu GPS mới, có độ chính xác tốt hơn.')
+      },
+      onError: (error) => {
+        if (generationRef.current !== generation) return
+        const code = String((error as { code?: unknown })?.code || '')
+        if (/permission-denied|unauthenticated|failed-precondition/.test(code)) stop()
+        setState('error')
+        setMessage(error instanceof Error ? error.message : 'Không thể cập nhật vị trí realtime.')
+      },
+    })
+    publisherRef.current = publisher
     watchIdRef.current = navigator.geolocation.watchPosition(
       (position) => {
         if (generationRef.current !== generation) return
-        const now = Date.now()
-        if (publishInFlightRef.current) return
-        const movedMeters = lastPositionRef.current
-          ? distanceInMeters(lastPositionRef.current.coords, position.coords)
-          : Number.POSITIVE_INFINITY
-        if (movedMeters < 30 && now - lastPublishedAtRef.current < 15_000) {
-          setState('sharing')
-          return
-        }
-        // Record the attempt before awaiting the network so rapid GPS callbacks
-        // cannot create concurrent callable requests while connectivity is weak.
-        lastPositionRef.current = position
-        lastPublishedAtRef.current = now
-        publishInFlightRef.current = true
-        void publishEatCleanDriverLocation(deliveryId, driverId, position)
-          .then(() => {
-            if (generationRef.current !== generation) return
-            setState('sharing')
-            setMessage(`Đã gửi vị trí · độ chính xác khoảng ${Math.round(position.coords.accuracy)} m`)
-          })
-          .catch((error) => {
-            if (generationRef.current !== generation) return
-            setState('error')
-            setMessage(error instanceof Error ? error.message : 'Không thể cập nhật vị trí realtime.')
-          })
-          .finally(() => {
-            if (generationRef.current === generation) publishInFlightRef.current = false
-          })
+        publisher.offer(position)
       },
       (error) => {
         if (generationRef.current !== generation) return
         if (error.code === error.PERMISSION_DENIED && watchIdRef.current !== null) {
-          navigator.geolocation.clearWatch(watchIdRef.current)
-          watchIdRef.current = null
+          stop()
         }
         setState(error.code === error.PERMISSION_DENIED ? 'unavailable' : 'error')
         setMessage(error.code === error.PERMISSION_DENIED
@@ -101,12 +79,17 @@ export function useDriverLocationPublisher(deliveryId: string | null, driverId: 
       },
       { enableHighAccuracy: true, maximumAge: 10_000, timeout: 20_000 },
     )
-  }, [deliveryId, driverId, trackingReady])
+  }, [deliveryId, driverId, trackingReady, stop])
 
   useEffect(() => stop, [stop])
   useEffect(() => {
     stop()
-  }, [deliveryId, stop])
+  }, [deliveryId, driverId, trackingReady, stop])
+  useEffect(() => {
+    const resume = () => publisherRef.current?.resume()
+    window.addEventListener('online', resume)
+    return () => window.removeEventListener('online', resume)
+  }, [])
 
   return { state, message, start, stop, configured: trackingReady }
 }

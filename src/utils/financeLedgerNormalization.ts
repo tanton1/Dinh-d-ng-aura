@@ -52,7 +52,7 @@ export function normalizeFinanceLedgerPage(value: unknown): FinanceLedgerPage {
   const raw = value && typeof value === 'object' ? value as Partial<FinanceLedgerPage> : {}
   return {
     entries: Array.isArray(raw.entries) ? raw.entries : [],
-    summary: normalizeFinanceLedgerSummary(raw.summary),
+    summary: raw.summary === null ? null : normalizeFinanceLedgerSummary(raw.summary),
     hasMore: raw.hasMore === true,
     nextCursor: typeof raw.nextCursor === 'string' && raw.nextCursor ? raw.nextCursor : null,
     canonicalOnly: true,

@@ -3,6 +3,8 @@ const { FieldPath, FieldValue, Timestamp } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
 const { defineSecret } = require('firebase-functions/params')
 const { eatCleanRevenueRecognitionWrites } = require('./finance-recognition')
+const { COLLECTION: LOCATION_COLLECTION, writeFirestoreLocation, readFirestoreLocations, locationStream } = require('./delivery-location-store')
+const { readDeliveryWorkspaceState, readOrderTrackingState } = require('./delivery-workspace-signals')
 
 const CITY_CODE = 'da-nang'
 const CITY_NAME = 'Đà Nẵng'
@@ -3147,31 +3149,37 @@ function createEatCleanFunctions(dependencies) {
     const cursor = normalizeDeliveryCursor(request.data?.cursor)
     const deliveryCollection = db.collection('eatCleanDeliveries')
     const deliveriesQuery = buildActiveDeliveriesQuery(deliveryCollection, { cursor, limit })
-    const [deliveriesSnapshot, shipperProfilesSnapshot, availabilitySnapshot, configSnapshot, operationalSignalSnapshot, totalActive] = await Promise.all([
+    const [deliveriesSnapshot, shipperProfilesSnapshot, configSnapshot, operationalSignalSnapshot, totalActive] = await Promise.all([
       deliveriesQuery.get(),
-      db.collection('users').where('role', '==', 'shipper').limit(100).get(),
-      db.collection('eatCleanShippers').limit(100).get(),
+      db.collection('users').where('role', '==', 'shipper').limit(100)
+        .select('displayName', 'phoneNumber', 'photoURL', 'disabled').get(),
       db.doc('system/eat_clean_config').get(),
       db.doc(`eatCleanOperationalSignals/${operationalSignalDocumentId()}`).get(),
       countActiveDeliveryJobs(deliveryCollection),
     ])
-    const orderSnapshots = deliveriesSnapshot.empty
-      ? []
-      : await db.getAll(...deliveriesSnapshot.docs.map((item) => db.doc(`eatCleanOrders/${item.id}`)))
+    const activeShipperProfiles = shipperProfilesSnapshot.docs.filter((item) => item.data().disabled !== true)
+    // Independent limit(100) queries can return different sets of shippers.
+    // Hydrate only the displayed, enabled roster; never scan unrelated presence
+    // records. Each ID query returns at most 30 rows, including legacy records
+    // with missing fields, and an empty roster needs no availability query.
+    const availabilityQueries = []
+    for (let offset = 0; offset < activeShipperProfiles.length; offset += 30) {
+      const ids = activeShipperProfiles.slice(offset, offset + 30).map(item => item.id)
+      availabilityQueries.push(db.collection('eatCleanShippers').where(FieldPath.documentId(), 'in', ids)
+        .select('available', 'lastSeenAt').get())
+    }
+    const [orderSnapshots, availabilityPages] = await Promise.all([
+      deliveriesSnapshot.empty ? [] : db.getAll(...deliveriesSnapshot.docs.map((item) => db.doc(`eatCleanOrders/${item.id}`))),
+      Promise.all(availabilityQueries),
+    ])
     const orderMap = new Map(orderSnapshots.filter((item) => item.exists).map((item) => [item.id, item.data()]))
     let liveLocations = new Map()
     let gpsReadWarning = null
-    if (realtimeDb && !deliveriesSnapshot.empty) {
+    if (!deliveriesSnapshot.empty) {
       try {
-        // Never download the full GPS tree for the dispatch dashboard. It can
-        // contain locations from other pages/cursors until the retention job
-        // removes them. Read only the bounded set of active deliveries shown
-        // in this response.
-        const locationEntries = await Promise.all(deliveriesSnapshot.docs.map(async (item) => {
-          const snapshot = await realtimeDb.ref(`eatCleanLiveLocations/${item.id}`).get()
-          return [item.id, snapshot.exists() ? snapshot.val() : null]
-        }))
-        liveLocations = new Map(locationEntries.filter(([, value]) => value && typeof value === 'object'))
+        liveLocations = await readFirestoreLocations({ db, realtimeDb,
+          deliveries: deliveriesSnapshot.docs.map(item => ({ ...item.data(), id: item.id })),
+        })
       } catch (error) {
         gpsReadWarning = 'realtime_temporarily_unavailable'
         logger.warn('Unable to load Eat Clean GPS signals for dispatch', {
@@ -3222,8 +3230,7 @@ function createEatCleanFunctions(dependencies) {
         }
       })
       .map((item) => Object.fromEntries(Object.entries(item).filter(([, value]) => value !== undefined)))
-    const availabilityMap = new Map(availabilitySnapshot.docs.map((item) => [item.id, item.data()]))
-    const activeShipperProfiles = shipperProfilesSnapshot.docs.filter((item) => item.data().disabled !== true)
+    const availabilityMap = new Map(availabilityPages.flatMap(page => page.docs.map((item) => [item.id, item.data()])))
     const activeJobCountEntries = await Promise.all(activeShipperProfiles.map(async (item) => (
       [item.id, await countActiveDeliveryJobs(deliveryCollection, item.id)]
     )))
@@ -3343,6 +3350,9 @@ function createEatCleanFunctions(dependencies) {
         createdAt: deliverySnapshot.exists ? current.createdAt : FieldValue.serverTimestamp(),
       }
       transaction.set(deliveryReference, next, { merge: true })
+      // Reassignment invalidates the old point in the same commit. A listener
+      // for the new assignment can attach to a missing document immediately.
+      transaction.delete(db.doc(`${LOCATION_COLLECTION}/${orderId}`))
       transaction.update(orderReference, {
         deliveryId: orderId,
         assignedShipperId: shipperId,
@@ -3404,6 +3414,7 @@ function createEatCleanFunctions(dependencies) {
         acceptedAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
       })
+      transaction.delete(db.doc(`${LOCATION_COLLECTION}/${orderId}`))
       return { orderId, status: 'accepted', acceptedAt: new Date().toISOString() }
     })
     const realtimeMirror = await bestEffortRealtimeWrite({
@@ -3504,56 +3515,30 @@ function createEatCleanFunctions(dependencies) {
   })
 
   const updateEatCleanShipperLocation = onCall(writeOptions, async (request) => {
-    const { actorId, role } = await trustedShipper(request)
-    if (!realtimeDb) throw new HttpsError('failed-precondition', 'Realtime Database chưa được cấu hình.')
+    const actorId = requireUser(request)
     const orderId = documentId(request.data?.orderId, 'Mã đơn hàng')
     const position = normalizeLatLng(request.data, 'Vị trí shipper')
-    const deliverySnapshot = await db.doc(`eatCleanDeliveries/${orderId}`).get()
-    if (!deliverySnapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy nhiệm vụ giao hàng.')
-    const delivery = deliverySnapshot.data()
-    if (role === 'shipper' && delivery.shipperId !== actorId) throw new HttpsError('permission-denied', 'Đơn này chưa được gán cho bạn.')
-    if (!['accepted', 'at_store', 'picked_up', 'arrived'].includes(delivery.status)) {
-      throw new HttpsError('failed-precondition', 'Đơn chưa ở trạng thái cho phép cập nhật vị trí.')
-    }
-    let currentReference
-    let currentSnapshot
-    try {
-      currentReference = realtimeDb.ref(`eatCleanLiveLocations/${orderId}`)
-      currentSnapshot = await currentReference.get()
-    } catch (error) {
-      logger.warn('Unable to read Eat Clean live location before update', {
-        operation: 'location_read_before_update',
-        orderId,
-        actorId,
-        code: typeof error?.code === 'string' ? error.code : 'unknown',
-      })
-      throw new HttpsError('unavailable', 'Theo dõi vị trí tạm thời gián đoạn. Vui lòng thử lại.')
-    }
-    const currentLocation = currentSnapshot.exists() ? currentSnapshot.val() : null
     const nowMillis = Date.now()
-    if (currentLocation?.latitude != null && currentLocation?.longitude != null) {
-      const elapsedMs = nowMillis - Number(currentLocation.updatedAt || 0)
-      const movedMeters = distanceBetweenCoordinates(currentLocation, position)
-      if (elapsedMs < 10000 && movedMeters < 30) {
-        return { location: currentLocation, throttled: true }
-      }
-    }
     const payload = {
-      orderId,
-      customerId: delivery.userId,
-      shipperId: delivery.shipperId,
       latitude: position.latitude,
       longitude: position.longitude,
-      accuracyMeters: optionalNumber(request.data?.accuracyMeters, 'Độ chính xác GPS', 0, 10000, 0),
+      accuracyMeters: typeof request.data?.accuracyMeters === 'number' ? request.data.accuracyMeters : Number.NaN,
+      // Older clients omitted capture time. Their writes remain compatible;
+      // all current clients send the actual timestamp of the device fix.
+      capturedAt: request.data?.capturedAt == null ? nowMillis : Number(request.data.capturedAt),
       heading: optionalNumber(request.data?.heading, 'Hướng di chuyển', 0, 360, 0),
       speedMetersPerSecond: optionalNumber(request.data?.speedMetersPerSecond, 'Tốc độ', 0, 100, 0),
-      active: true,
-      updatedAt: nowMillis,
-      expiresAt: nowMillis + LIVE_LOCATION_RETENTION_MS,
     }
     try {
-      await currentReference.set(payload)
+      const result = await writeFirestoreLocation({
+        db, request, orderId, position: payload, distance: distanceBetweenCoordinates,
+      })
+      if (['inactive', 'assignment_changed'].includes(result.reason)) {
+        throw new HttpsError('failed-precondition', 'Nhiệm vụ giao hàng đã thay đổi hoặc kết thúc. Hãy tải lại dữ liệu.')
+      }
+      return result
     } catch (error) {
+      if (error instanceof HttpsError) throw error
       logger.warn('Unable to update Eat Clean live location', {
         operation: 'location_update',
         orderId,
@@ -3562,7 +3547,6 @@ function createEatCleanFunctions(dependencies) {
       })
       throw new HttpsError('unavailable', 'Theo dõi vị trí tạm thời gián đoạn. Vui lòng thử lại.')
     }
-    return { location: payload }
   })
 
   const completeEatCleanDelivery = onCall(otpWriteOptions, async (request) => {
@@ -3676,6 +3660,7 @@ function createEatCleanFunctions(dependencies) {
 
   const listMyShipperJobs = onCall(deliveryOperationsCallableOptions, async (request) => {
     const { actorId, role } = await trustedShipper(request)
+    const workspaceSync = await readDeliveryWorkspaceState({ db, actorId, role })
     const limit = finiteInteger(request.data?.limit ?? 50, 'Số nhiệm vụ', 1, 100)
     const cursor = normalizeDeliveryCursor(request.data?.cursor)
     const deliveryCollection = db.collection('eatCleanDeliveries')
@@ -3726,39 +3711,44 @@ function createEatCleanFunctions(dependencies) {
         hasMore: snapshot.size === limit,
       },
       readiness: deliveryRuntimeReadiness(config, realtimeDb),
+      workspaceSync,
     }
   })
 
   const getEatCleanOrderTracking = onCall(otpCallableOptions, async (request) => {
     const actorId = requireUser(request)
     const orderId = documentId(request.data?.orderId, 'Mã đơn hàng')
+    const workspaceSync = await readOrderTrackingState({ db, actorId, orderId })
     const [actorSnapshot, orderSnapshot, deliverySnapshot] = await Promise.all([
       db.doc(`users/${actorId}`).get(),
       db.doc(`eatCleanOrders/${orderId}`).get(),
       db.doc(`eatCleanDeliveries/${orderId}`).get(),
     ])
+    const profile = actorSnapshot.data()
+    // Ownership does not bypass revocation of the current account. Check this
+    // before reading location or deriving an OTP, including for existing tokens.
+    if (!actorSnapshot.exists || profile?.disabled === true) {
+      throw new HttpsError('permission-denied', 'Tài khoản không có quyền xem hành trình đơn này.')
+    }
     if (!orderSnapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy đơn Eat Clean.')
     const order = orderSnapshot.data()
     const delivery = deliverySnapshot.data() || null
-    const role = actorSnapshot.data()?.role
-    const isAdmin = trustedRole(request, actorSnapshot.data(), new Set(['admin', 'super_admin']))
-    const isAssignedShipper = role === 'shipper' && trustedRole(request, actorSnapshot.data(), new Set(['shipper']))
+    const isAdmin = trustedRole(request, profile, new Set(['admin', 'super_admin']))
+    const isAssignedShipper = trustedRole(request, profile, new Set(['shipper']))
       && delivery?.shipperId === actorId
     const isOwner = order.userId === actorId
     if (!isOwner && !isAdmin && !isAssignedShipper) throw new HttpsError('permission-denied', 'Bạn không có quyền xem hành trình đơn này.')
     let liveLocation = null
-    let realtimeTracking = realtimeDb
-      ? { configured: true, synced: true, warning: null }
-      : { configured: false, synced: false, warning: 'realtime_not_configured' }
-    if (realtimeDb && delivery && !['delivered', 'cancelled'].includes(delivery.status)) {
+    let realtimeTracking = { configured: true, synced: true, warning: null, transport: 'firestore' }
+    if (delivery && !['delivered', 'cancelled'].includes(delivery.status)) {
       try {
-        const locationSnapshot = await realtimeDb.ref(`eatCleanLiveLocations/${orderId}`).get()
-        if (locationSnapshot.exists()) {
-          liveLocation = locationSnapshot.val()
+        const locations = await readFirestoreLocations({ db, realtimeDb, deliveries: [{ ...delivery, id: orderId }] })
+        liveLocation = locations.get(orderId) || null
+        if (liveLocation) {
           const health = liveLocationHealth(liveLocation)
           if (health.expired) {
             liveLocation = null
-            realtimeTracking = { configured: true, synced: true, warning: 'location_expired' }
+            realtimeTracking = { ...realtimeTracking, warning: 'location_expired' }
           } else {
             liveLocation.stale = health.stale
             liveLocation.expiresAt = Number(liveLocation.expiresAt || (Number(liveLocation.updatedAt || 0) + LIVE_LOCATION_RETENTION_MS))
@@ -3771,7 +3761,7 @@ function createEatCleanFunctions(dependencies) {
           actorId,
           code: typeof error?.code === 'string' ? error.code : 'unknown',
         })
-        realtimeTracking = { configured: true, synced: false, warning: 'realtime_temporarily_unavailable' }
+        realtimeTracking = { ...realtimeTracking, synced: false, warning: 'realtime_temporarily_unavailable' }
       }
     }
     const deliveryOtp = isOwner && delivery?.shipperId && !['delivered', 'cancelled'].includes(delivery.status)
@@ -3785,6 +3775,8 @@ function createEatCleanFunctions(dependencies) {
       liveLocation,
       realtimeTracking,
       deliveryOtp,
+      workspaceSync,
+      locationStream: locationStream(delivery),
     }
   })
 

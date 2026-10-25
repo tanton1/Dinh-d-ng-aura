@@ -4,6 +4,56 @@ const test = require('node:test')
 const { parseArguments, selectIndexes, signature, CONFIRMATION } = require('./firebase-firestore-index-deploy.cjs')
 const indexes = require('../firestore.indexes.json').indexes
 
+test('users role scope selects the ordered collection index and requires exact production confirmation', () => {
+  const [index] = selectIndexes(indexes, 'users-role-reads')
+  assert.deepEqual(index, { collectionGroup: 'users', queryScope: 'COLLECTION', fields: [
+    { fieldPath: 'role', order: 'ASCENDING' }, { fieldPath: '__name__', order: 'ASCENDING' },
+  ] })
+  assert.equal(selectIndexes(indexes, 'users-role-reads').length, 1)
+  assert.throws(() => selectIndexes([], 'users-role-reads'), /exactly once/)
+  assert.throws(() => selectIndexes([index, index], 'users-role-reads'), /exactly once/)
+  for (const invalid of [
+    { ...index, collectionGroup: 'students' },
+    { ...index, queryScope: 'COLLECTION_GROUP' },
+    { ...index, fields: [{ fieldPath: 'role', order: 'DESCENDING' }, index.fields[1]] },
+    { ...index, fields: [index.fields[0], { fieldPath: '__name__', order: 'DESCENDING' }] },
+  ]) assert.throws(() => selectIndexes([invalid], 'users-role-reads'), /exactly once/)
+  assert.deepEqual(parseArguments(['dry-run', '--scope=users-role-reads']), { mode: 'dry-run', scope: 'users-role-reads' })
+  assert.deepEqual(parseArguments(['apply', '--scope=users-role-reads', `--confirm=${CONFIRMATION}`]), { mode: 'apply', scope: 'users-role-reads' })
+  assert.throws(() => parseArguments(['apply', '--scope=users-role-reads']), /confirmation/)
+  assert.throws(() => parseArguments(['apply', '--scope=users-role-reads', '--confirm=other-project']), /confirmation/)
+})
+
+test('progress scope selects only the six owner collection date indexes, with exact tie-break direction', () => {
+  const selected = selectIndexes(indexes, 'student-progress-reads')
+  assert.deepEqual(selected.map(index => index.collectionGroup), ['bodyMetrics', 'bodyMeasurements', 'weightLogs', 'progressCheckIns', 'progress_photos', 'progressPhotos'])
+  for (const index of selected) {
+    assert.equal(index.queryScope, 'COLLECTION')
+    assert.deepEqual(index.fields, [{ fieldPath: 'date', order: 'DESCENDING' }, { fieldPath: '__name__', order: 'DESCENDING' }])
+    assert.throws(() => selectIndexes(indexes.filter(value => value !== index), 'student-progress-reads'), /exactly once/)
+    assert.throws(() => selectIndexes([...indexes, index], 'student-progress-reads'), /exactly once/)
+    for (const invalid of [
+      { ...index, queryScope: 'COLLECTION_GROUP' },
+      { ...index, fields: [{ fieldPath: 'date', order: 'ASCENDING' }, index.fields[1]] },
+      { ...index, fields: [index.fields[0], { fieldPath: '__name__', order: 'ASCENDING' }] },
+    ]) assert.throws(() => selectIndexes(indexes.map(value => value === index ? invalid : value), 'student-progress-reads'), /exactly once/)
+  }
+  assert.deepEqual(parseArguments(['dry-run', '--scope=student-progress-reads']), { mode: 'dry-run', scope: 'student-progress-reads' })
+  assert.deepEqual(parseArguments(['apply', '--scope=student-progress-reads', `--confirm=${CONFIRMATION}`]), { mode: 'apply', scope: 'student-progress-reads' })
+  assert.throws(() => parseArguments(['apply', '--scope=student-progress-reads']), /confirmation/)
+})
+
+test('ledger date scope creates only the ordered range index and requires the exact production target', () => {
+  const selected = selectIndexes(indexes, 'ledger-date-range')
+  assert.deepEqual(selected, [{ collectionGroup: 'ledgerEntries', queryScope: 'COLLECTION', fields: [
+    { fieldPath: 'effectiveAt', order: 'DESCENDING' }, { fieldPath: '__name__', order: 'DESCENDING' },
+  ] }])
+  assert.throws(() => selectIndexes([], 'ledger-date-range'), /exactly once/)
+  assert.throws(() => selectIndexes([...selected, ...selected], 'ledger-date-range'), /exactly once/)
+  assert.deepEqual(parseArguments(['apply', `--confirm=${CONFIRMATION}`, '--scope=ledger-date-range']), { mode: 'apply', scope: 'ledger-date-range' })
+  assert.throws(() => parseArguments(['apply', '--scope=ledger-date-range']), /confirmation/)
+})
+
 test('dashboard scope selects exactly its two approved indexes and rejects absent or duplicated definitions', () => {
   const wanted = [
     { collectionGroup: 'attendanceEvents', queryScope: 'COLLECTION', fields: [

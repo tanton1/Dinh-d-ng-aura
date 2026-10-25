@@ -1,6 +1,7 @@
 import { httpsCallable } from 'firebase/functions'
 import { firebaseFunctions } from '../lib/firebaseFunctions'
 import { callRegionalRead } from './regionalReadService'
+import type { WorkspaceSyncState } from '../utils/workspaceSync'
 
 export type PtExerciseTrackingMode = 'weight_reps' | 'bodyweight_reps' | 'time' | 'distance' | 'assisted_weight'
 
@@ -131,6 +132,28 @@ export interface PtWorkoutHistory {
     painAlerts: number
     personalRecords: Array<{ catalogExerciseId: string; exerciseName: string; maximumWeightKg: number; maximumSetVolumeKg: number }>
   }
+}
+
+export interface PersonalTrainingPlan {
+  studentId: string
+  program: PtTrainingProgram | null
+  syncState: WorkspaceSyncState
+}
+
+export interface PersonalWorkoutHistoryPage {
+  studentId: string
+  logs: PtWorkoutLog[]
+  hasMore: boolean
+  nextCursor: string | null
+  syncState: WorkspaceSyncState
+}
+
+export async function getMyPtTrainingPlan(): Promise<PersonalTrainingPlan> {
+  return callRegionalRead('getPtStudentTrainingPlan', { personal: true })
+}
+
+export async function listMyPtWorkoutHistoryPage(cursor: string | null = null): Promise<PersonalWorkoutHistoryPage> {
+  return callRegionalRead('listPtWorkoutHistory', { personal: true, pageSize: 25, ...(cursor ? { cursor } : {}) })
 }
 
 function callable<Input, Output>(name: string) {

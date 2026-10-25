@@ -498,7 +498,7 @@ export default function EatCleanPage({
         />
       )}
       {route.screen === 'orders' && <OrdersScreen orders={orders} loading={ordersLoading} error={ordersError} onRetry={() => setOrdersReloadKey((value) => value + 1)} onOpen={(orderId) => navigate({ screen: 'order-detail', orderId })} onBrowse={() => navigate({ screen: 'storefront' })} />}
-      {route.screen === 'order-detail' && <OrderDetailScreen order={selectedOrder} loading={ordersLoading} error={ordersError} submitting={submitting} onCancel={cancelOrder} onConfirmConsumption={confirmConsumption} onOrders={() => navigate({ screen: 'orders' })} />}
+      {route.screen === 'order-detail' && <OrderDetailScreen accountId={ownerId || ''} order={selectedOrder} loading={ordersLoading} error={ordersError} submitting={submitting} onCancel={cancelOrder} onConfirmConsumption={confirmConsumption} onOrders={() => navigate({ screen: 'orders' })} />}
 
       {route.screen === 'storefront' && cartQuantity > 0 && (
         <button type="button" className="eat-clean-cart-dock" onClick={() => navigate({ screen: 'cart' })}>
@@ -676,7 +676,7 @@ function OrdersScreen({ orders, loading, error, onRetry, onOpen, onBrowse }: { o
   return <section className="eat-clean-orders" data-testid="eat-clean-orders"><div className="eat-clean-section-heading"><div><small>LỊCH SỬ</small><h1>Đơn Eat Clean</h1></div><span>{orders.length} đơn</span></div><div className="eat-clean-order-list">{orders.map((order) => <button type="button" key={order.id} className="eat-clean-order-card" onClick={() => onOpen(order.id)}><span className="eat-clean-order-card__icon"><ShoppingBag size={20} /></span><span><small>{order.code} · {formatEatCleanDate(order.createdAt)}</small><strong>{order.items.map((item) => `${item.quantity}× ${item.name}`).join(', ')}</strong><em>{formatEatCleanMoney(order.total)}</em></span><EatCleanStatusBadge status={order.status} /><ChevronRight size={18} /></button>)}</div></section>
 }
 
-function OrderDetailScreen({ order, loading, error, submitting, onCancel, onConfirmConsumption, onOrders }: { order?: EatCleanOrder; loading: boolean; error: string; submitting: boolean; onCancel: (order: EatCleanOrder) => void; onConfirmConsumption: (order: EatCleanOrder, consumedRatio: 25 | 50 | 75 | 100) => void; onOrders: () => void }) {
+function OrderDetailScreen({ accountId, order, loading, error, submitting, onCancel, onConfirmConsumption, onOrders }: { accountId: string; order?: EatCleanOrder; loading: boolean; error: string; submitting: boolean; onCancel: (order: EatCleanOrder) => void; onConfirmConsumption: (order: EatCleanOrder, consumedRatio: 25 | 50 | 75 | 100) => void; onOrders: () => void }) {
   const [consumedRatio, setConsumedRatio] = useState<25 | 50 | 75 | 100>(100)
   if (loading) return <EatCleanLoading />
   if (error) return <EatCleanState icon={<AlertCircle size={28} />} title="Chưa tải được đơn" description={error} action={<button type="button" className="eat-clean-button eat-clean-button--primary" onClick={onOrders}>Về danh sách đơn</button>} />
@@ -687,7 +687,7 @@ function OrderDetailScreen({ order, loading, error, submitting, onCancel, onConf
   return (
     <div className="eat-clean-order-detail" data-testid="eat-clean-order-detail">
       <section className="eat-clean-order-hero"><div><span>ĐƠN {order.code}</span><h1>{EAT_CLEAN_STATUS_LABELS[order.status]}</h1><p>Cập nhật lần cuối: {formatEatCleanDate(order.updatedAt ?? order.createdAt)}</p></div><EatCleanStatusBadge status={order.status} /></section>
-      {order.status !== 'cancelled' && <EatCleanTrackingPanel key={order.id} order={order} />}
+      {order.status !== 'cancelled' && <EatCleanTrackingPanel key={`${accountId}:${order.id}`} accountId={accountId} order={order} />}
       <div className="eat-clean-order-detail__grid">
         <div className="eat-clean-stack">
           <section className="eat-clean-card"><h2>Hành trình đơn</h2><div className="eat-clean-timeline">{order.status === 'cancelled' ? <span className="is-cancelled"><XCircle size={19} /><strong>Đơn đã hủy</strong></span> : steps.map((step) => <span key={`${step.status}-${step.label}`} className={step.completed ? 'is-completed' : ''}><i>{step.completed ? <Check size={15} /> : null}</i><b><strong>{step.label}</strong><small>{step.at ? formatEatCleanDate(step.at) : 'Đang chờ'}</small></b></span>)}</div></section>

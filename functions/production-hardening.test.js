@@ -101,7 +101,7 @@ test('nutrition route keeps a small orchestrator and lazy task boundaries', () =
 
 test('progress overview does not open the legacy progress-photo listener', () => {
   assert.match(progressPage, /const needsLegacyPhotos = category === 'body' \|\| category === 'history'/)
-  assert.match(progressPage, /if \(needsLegacyPhotos\) unsubscribers\.push\(subscribeToUserProgressPhotos/)
+  assert.match(progressPage, /if \(!needsLegacyPhotos\) return[\s\S]*?subscribeToUserProgressPhotos/)
 })
 
 test('Aura UI rollout is Super Admin-only, fail-closed and audited', () => {

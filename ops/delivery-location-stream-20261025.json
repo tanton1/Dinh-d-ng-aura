@@ -1,0 +1,111 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-25",
+  "phase": "D2.3 delivery location transport foundation",
+  "productionDeployed": false,
+  "observedDatabase": {
+    "project": "gen-lang-client-0815966909",
+    "database": "ai-studio-aurafitnesselear-0f7609b4-b8d1-4fb3-9d62-99a2c03e1ce7",
+    "edition": "ENTERPRISE",
+    "location": "asia-southeast1",
+    "observedAt": "2026-10-25T02:10:09.435Z"
+  },
+  "decision": "Replace RTDB latest-fix writes with one small Firestore latest-point document. Direct listeners use current Firestore authority; do not mirror every fix or maintain a second asynchronous authorization database.",
+  "primary": "eatCleanLiveLocationViews/{orderId}",
+  "retentionHours": 24,
+  "writes": {
+    "acceptedFix": {
+      "transactionReads": [
+        "current actor profile",
+        "current delivery assignment/status",
+        "last point"
+      ],
+      "documentsWritten": 1,
+      "rtdbWrites": 0,
+      "businessWrites": 0,
+      "revisionWrites": 0
+    },
+    "rejectedFix": {
+      "documentsWritten": 0
+    },
+    "assignmentOrAcceptance": {
+      "pointDeletes": 1,
+      "atomicWithBusinessChange": true
+    },
+    "businessEvent": {
+      "extraOrderMarkerWritesAtMost": 1,
+      "replayNoop": true,
+      "gpsTrigger": false
+    }
+  },
+  "reads": {
+    "trackingBootstrap": {
+      "authorityDocuments": 3,
+      "preHydrationMarker": 1,
+      "activePointAtMost": 1,
+      "legacyRtdbAtMost": 1
+    },
+    "dispatch": {
+      "pointReads": "Only displayed GPS-active jobs, maximum 200; no collection or RTDB tree scan"
+    },
+    "legacyFallback": "Only when no primary point exists, matching shipper and point time at/after current assignment and acceptance. Never fall back from an invalid existing primary."
+  },
+  "security": [
+    "Current enabled profile and matching staff claims; customer ownership remains identity-based",
+    "Canonical assignment checked within each write transaction and browser rule evaluation",
+    "Only exact-document gets; no browser writes or collection lists",
+    "No customer, address, payment or OTP in the location document",
+    "Expired/terminal/previous-assignment points cannot be read",
+    "Reassignment and acceptance remove old primary points atomically"
+  ],
+  "cost": {
+    "baselineTrackingForegroundCallsPerHour": 240,
+    "targetPeriodicTrackingCallsPerHour": 0,
+    "qualification": "Zero periodic calls requires the separately verified frontend event cutover. This backend alone does not remove polling and temporarily adds a marker and point read to old clients.",
+    "costsToInclude": [
+      "accepted and rejected write transactions plus retries",
+      "location writes and TTL deletion write units",
+      "initial listener reads and reconnects",
+      "realtime update units and dependent security-rule reads",
+      "extra metadata markers on business changes",
+      "legacy RTDB fallback during transition",
+      "Function CPU, duration, network egress and actual document byte sizes"
+    ],
+    "savingPercent": null,
+    "observedBillingSavings": null,
+    "reason": "Do not equate fewer callables with guaranteed lower total cost; Enterprise byte units and listener fan-out must be measured."
+  },
+  "rollout": {
+    "holdWriterUntilFrontendValidated": true,
+    "prerequisites": [
+      "CI and CodeQL on exact source",
+      "TTL ACTIVE on named database after empty-namespace check",
+      "Deploy tracking and dispatch readers before location writer",
+      "Deploy assignment/acceptance invalidation and the two existing order/delivery triggers",
+      "Verify exact serving revisions and named rules hash",
+      "Deploy writer last, then frontend event cutover"
+    ],
+    "functionOrder": [
+      "getEatCleanOrderTracking",
+      "listEatCleanDispatchData",
+      "assignEatCleanShipper",
+      "acceptEatCleanDelivery",
+      "syncEatCleanWorkspaceFromOrder",
+      "syncEatCleanWorkspaceFromDelivery",
+      "updateEatCleanShipperLocation"
+    ],
+    "workflowNote": "First release dispatched from earlier main must verify the new TTL prerequisite in release control as well; the embedded guard applies once this workflow is merged.",
+    "rollback": "Roll back frontend event consumption and both readers together before reverting to the RTDB writer. Keeping a primary-preferring reader with an old RTDB-only writer can show a stale primary until expiry.",
+    "noBackfill": true
+  },
+  "remaining": [
+    "Tracking frontend event/GPS subscriptions and mobile tests",
+    "Dispatch state/roster/config/count/GPS separation",
+    "Measurement of total cost under representative viewer/shipper fan-out"
+  ],
+  "references": [
+    "https://firebase.google.com/docs/firestore/enterprise/pricing",
+    "https://firebase.google.com/docs/firestore/pricing",
+    "https://firebase.google.com/docs/firestore/ttl"
+  ]
+}

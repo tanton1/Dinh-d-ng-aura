@@ -16,6 +16,8 @@ export interface NutritionJournalDaySummary {
   reviewCount: number
   revision: number
   updatedAt: string | null
+  /** Available after the v2 daily-summary writers/readers are deployed. */
+  mealOccasions?: { breakfast: boolean; lunch: boolean; dinner: boolean; snackCount: number }
 }
 export interface NutritionJournalSummaryResponse {
   items: NutritionJournalDaySummary[]

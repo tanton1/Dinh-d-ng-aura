@@ -18,6 +18,11 @@ on:
         required: false
         default: ''
         type: string
+      backend_only:
+        description: Deploy verified backend dependencies from a reviewed commit before merging its frontend
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -66,6 +71,15 @@ jobs:
       - run: npx playwright install --with-deps chromium webkit
       - run: npm run test:e2e
       - run: npm run test:schedule-ui
+      - run: npm run test:data-cost
+      - run: npm run test:data-cost-ui
+      - run: npm run test:progress-summary-ui
+      - run: npm run test:delivery-workspace-ui -- --project=delivery-mobile-webkit
+      - run: npm run test:delivery-map-ui
+      - run: npm run test:workspace-sync-ui
+      - run: npx playwright test --config tests/training-history-panel-ui/playwright.config.ts
+      - run: npm run test:data-cost-transaction
+      - run: npm run test:delivery-location-transaction
       - run: npm run test:rules
       - run: npm run test:storage
       - run: npm run test:rtdb
@@ -159,8 +173,13 @@ jobs:
         shell: bash
         env:
           BACKEND_FUNCTIONS: ${{ inputs.backend_functions }}
+          BACKEND_ONLY: ${{ inputs.backend_only }}
         run: |
           TARGETS="$(printf '%s' "$BACKEND_FUNCTIONS" | tr -d '[:space:]')"
+          if [ "$BACKEND_ONLY" = "true" ] && [ -z "$TARGETS" ]; then
+            echo "backend_only requires explicit backend_functions." >&2
+            exit 1
+          fi
           if [ -z "$TARGETS" ]; then
             echo "enabled=false" >> "$GITHUB_OUTPUT"
             echo "Frontend-only release: Functions deployment skipped."
@@ -232,6 +251,9 @@ jobs:
 
           IFS=',' read -ra TARGETS <<< "$BACKEND_FUNCTIONS"
           for FUNCTION_NAME in "${TARGETS[@]}"; do
+            if [ "$FUNCTION_NAME" = "updateEatCleanShipperLocation" ]; then
+              node scripts/delivery-location-retention.cjs verify
+            fi
             echo "Deploying ${FUNCTION_NAME}..."
             # Explicit backend targets are already reviewed by the release
             # input. `--force` confirms Firebase's retry-policy prompt for
@@ -257,10 +279,12 @@ jobs:
             fi
 
             CONFIRMATION="gen-lang-client-0815966909/$FUNCTION_REGION"
-            # Managed Functions can reject a v2 traffic-only PATCH because its
-            # template conversion conflicts with the immutable revision. Keep
-            # the original v1 template and resourceVersion for traffic changes.
-            if ! node scripts/cloud-run-functions-promote-latest.cjs --functions="$SERVICE_NAME" --region="$FUNCTION_REGION" --traffic-api=v1 --confirm="$CONFIRMATION"; then
+            # Preserve v1 templates for Firebase-created revisions. When the
+            # helper stages a new v2 template, it keeps that promotion on v2
+            # with its etag, avoiding a conflicting cross-API conversion.
+            # A pinned previous revision can leave the candidate unstarted.
+            # Stage its exact image at zero traffic before the same health gate.
+            if ! node scripts/cloud-run-functions-promote-latest.cjs --functions="$SERVICE_NAME" --region="$FUNCTION_REGION" --traffic-api=v1 --stage-retired --confirm="$CONFIRMATION"; then
               node scripts/cloud-run-functions-rollback.cjs --functions="$SERVICE_NAME" --region="$FUNCTION_REGION" --confirm="$CONFIRMATION" || true
               exit 1
             fi
@@ -275,7 +299,12 @@ jobs:
         # Keep Realtime Database separate: some production projects do not
         # expose the Firebase Database Management API to the deploy identity,
         # and a missing/optional RTDB must not block unrelated releases.
-        run: npx --yes firebase-tools@15.9.1 deploy --only firestore:rules,storage --project gen-lang-client-0815966909 --non-interactive
+        # The rules selector alone matches no database in an array config in
+        # the pinned CLI. Select the database AND rules to avoid index changes.
+        # Verify the actual named release: a zero CLI exit is insufficient.
+        run: |
+          npx --yes firebase-tools@15.9.1 deploy --only firestore:rules,firestore:ai-studio-aurafitnesselear-0f7609b4-b8d1-4fb3-9d62-99a2c03e1ce7,storage --project gen-lang-client-0815966909 --non-interactive
+          node scripts/firebase-firestore-rules-verify.cjs
 
       - name: Deploy Realtime Database Rules
         # Enable only after the production deploy identity has access to the
@@ -292,6 +321,7 @@ jobs:
       # protected production environment. Wait for that deployment to become
       # reachable instead of relying on a stale CLI token.
       - name: Build and promote production on Vercel
+        if: ${{ !inputs.backend_only }}
         id: deploy
         env:
           AURA_PROD_URL: https://aurafitness-jet.vercel.app
@@ -310,6 +340,7 @@ jobs:
           exit 1
 
       - name: Post-deploy smoke
+        if: ${{ !inputs.backend_only }}
         env:
           # Vercel can protect the immutable deployment hostname even after
           # the production alias has been promoted. Smoke the public alias;
@@ -325,4 +356,5 @@ jobs:
           echo "- Git SHA: \`${{ steps.revision.outputs.sha }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Deployment: ${{ steps.deploy.outputs.url }}" >> "$GITHUB_STEP_SUMMARY"
           echo "- Backend Functions: \`${{ steps.backend.outputs.targets || 'skipped' }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Backend-only preparation: \`${{ inputs.backend_only }}\` (frontend alias smoke is performed after the frontend merge)" >> "$GITHUB_STEP_SUMMARY"
           echo "- App Check compatibility rollout: \`${{ inputs.allow_pending_app_check }}\`" >> "$GITHUB_STEP_SUMMARY"

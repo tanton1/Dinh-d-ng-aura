@@ -1,0 +1,431 @@
+{
+  "schemaVersion": 1,
+  "database": "ai-studio-aurafitnesselear-0f7609b4-b8d1-4fb3-9d62-99a2c03e1ce7",
+  "project": "gen-lang-client-0815966909",
+  "observedBefore": "2026-10-24T19:06:58.513Z",
+  "observedAfter": "2026-10-24T19:09:37.796Z",
+  "method": "Firestore Enterprise ExecutePipeline explain mode, using the installed SDK createFrom(Core query) conversion. No analyze/stats execution; synthetic owner/branch values.",
+  "documentation": "https://firebase.google.com/docs/firestore/pipelines/enterprise-query-explain",
+  "deployment": {
+    "scope": "ledger-date-range",
+    "created": 1,
+    "ready": 1,
+    "deleted": 0
+  },
+  "queries": [
+    {
+      "name": "ledger_page_all_month",
+      "source": "functions/finance-ledger.js",
+      "query": {
+        "from": [
+          {
+            "collectionId": "ledgerEntries"
+          }
+        ],
+        "where": {
+          "compositeFilter": {
+            "op": "AND",
+            "filters": [
+              {
+                "fieldFilter": {
+                  "field": {
+                    "fieldPath": "effectiveAt"
+                  },
+                  "op": "GREATER_THAN_OR_EQUAL",
+                  "value": {
+                    "timestampValue": "2026-09-30T17:00:00Z"
+                  }
+                }
+              },
+              {
+                "fieldFilter": {
+                  "field": {
+                    "fieldPath": "effectiveAt"
+                  },
+                  "op": "LESS_THAN",
+                  "value": {
+                    "timestampValue": "2026-10-31T17:00:00Z"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "orderBy": [
+          {
+            "field": {
+              "fieldPath": "effectiveAt"
+            },
+            "direction": "DESCENDING"
+          },
+          {
+            "field": {
+              "fieldPath": "__name__"
+            },
+            "direction": "DESCENDING"
+          }
+        ],
+        "limit": 150
+      },
+      "before": "Tree:\n• Compute\n|  $out_1: map_set($record_1, \"__name__\", $__name___1, \"__key__\", unset)\n|  is query result: true\n|\n└── • Compute\n    |  $__name___1: $__key___2\n    |\n    └── • Fetch\n        |  order: PRESERVE_INPUT_ORDER\n        |  source: /ledgerEntries\n        |  input record id: $rid_2\n        |  output bindings: {$__key___2=row().__key__, $record_1=row()}\n        |  output: [$__key___2, $record_1]\n        |\n        └── • MajorSort\n            |  fields: [$effectiveAt_3 DESC, $key_5 DESC]\n            |  output: [$rid_2]\n            |  limit: 150\n            |\n            └── • Filter\n                |  expression: (exists($effectiveAt_3) AND exists($key_5))\n                |\n                └── • SeekingScan\n                       properties: Selection {  }\n                       fields: [null, $effectiveAt_3, $rid_2]\n                       key: $key_5\n                       index: /ledgerEntries (referralStaffId ASC, effectiveAt ASC)@[id = CICAgLjy8IAK]\n                       partition: /\n                       constraints: /\n                                    |----(-∞..+∞)\n                                         |----[{timestampValue={seconds=\"1790787600\"}}..{timestampValue={seconds=\"1793466000\"}})\n",
+      "after": "Tree:\n• Compute\n|  $out_1: map_set($record_1, \"__name__\", $__name___1, \"__key__\", unset)\n|  is query result: true\n|\n└── • Compute\n    |  $__name___1: $__key___6\n    |\n    └── • Fetch\n        |  order: PRESERVE_INPUT_ORDER\n        |  source: /ledgerEntries\n        |  input record id: $rid_2\n        |  output bindings: {$__key___6=row().__key__, $record_1=row()}\n        |  output: [$__key___6, $record_1]\n        |\n        └── • Limit\n            |  limit: 150\n            |\n            └── • Filter\n                |  expression: (exists($effectiveAt_3) AND exists($__key___4))\n                |\n                └── • SequentialScan\n                       properties: Selection {  }\n                       fields: [$effectiveAt_3, $__key___4, $rid_2]\n                       index: /ledgerEntries (effectiveAt DESC, __key__ DESC)@[id = CICAgNiryskJ]\n                       partition: /\n                       key ordering length: 3\n                       ranges: /\n                               |----[{timestampValue={seconds=\"1790787600\"}}..{timestampValue={seconds=\"1793466000\"}})\n"
+    },
+    {
+      "name": "ledger_page_branch_month",
+      "source": "functions/finance-ledger.js",
+      "query": {
+        "from": [
+          {
+            "collectionId": "ledgerEntries"
+          }
+        ],
+        "where": {
+          "compositeFilter": {
+            "op": "AND",
+            "filters": [
+              {
+                "fieldFilter": {
+                  "field": {
+                    "fieldPath": "effectiveAt"
+                  },
+                  "op": "GREATER_THAN_OR_EQUAL",
+                  "value": {
+                    "timestampValue": "2026-09-30T17:00:00Z"
+                  }
+                }
+              },
+              {
+                "fieldFilter": {
+                  "field": {
+                    "fieldPath": "effectiveAt"
+                  },
+                  "op": "LESS_THAN",
+                  "value": {
+                    "timestampValue": "2026-10-31T17:00:00Z"
+                  }
+                }
+              },
+              {
+                "fieldFilter": {
+                  "field": {
+                    "fieldPath": "branchId"
+                  },
+                  "op": "EQUAL",
+                  "value": {
+                    "stringValue": "query-plan-branch"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "orderBy": [
+          {
+            "field": {
+              "fieldPath": "effectiveAt"
+            },
+            "direction": "DESCENDING"
+          },
+          {
+            "field": {
+              "fieldPath": "__name__"
+            },
+            "direction": "DESCENDING"
+          }
+        ],
+        "limit": 150
+      },
+      "before": "Tree:\n• Compute\n|  $out_1: map_set($record_1, \"__name__\", $__name___1, \"__key__\", unset)\n|  is query result: true\n|\n└── • Compute\n    |  $__name___1: $__key___2\n    |\n    └── • Fetch\n        |  order: PRESERVE_INPUT_ORDER\n        |  source: /ledgerEntries\n        |  input record id: $rid_2\n        |  output bindings: {$__key___2=row().__key__, $record_1=row()}\n        |  output: [$__key___2, $record_1]\n        |\n        └── • Limit\n            |  limit: 150\n            |\n            └── • Filter\n                |  expression: (exists($effectiveAt_3) AND exists($branchId_3) AND exists($key_6))\n                |\n                └── • SequentialScan\n                       properties: Selection {  }\n                       fields: [$branchId_3, $effectiveAt_3, $key_6, $rid_2]\n                       index: /ledgerEntries (branchId ASC, effectiveAt DESC, __key__ DESC)@[id = CICAgLjywZkK]\n                       partition: /\n                       key ordering length: 4\n                       ranges: /\n                               |----[\"query-plan-branch\"]\n                                    |----[{timestampValue={seconds=\"1790787600\"}}..{timestampValue={seconds=\"1793466000\"}})\n",
+      "after": "Tree:\n• Compute\n|  $out_1: map_set($record_1, \"__name__\", $__name___1, \"__key__\", unset)\n|  is query result: true\n|\n└── • Compute\n    |  $__name___1: $__key___6\n    |\n    └── • Fetch\n        |  order: PRESERVE_INPUT_ORDER\n        |  source: /ledgerEntries\n        |  input record id: $rid_2\n        |  output bindings: {$__key___6=row().__key__, $record_1=row()}\n        |  output: [$__key___6, $record_1]\n        |\n        └── • Limit\n            |  limit: 150\n            |\n            └── • Filter\n                |  expression: (exists($effectiveAt_3) AND exists($branchId_3) AND exists($__key___4))\n                |\n                └── • SequentialScan\n                       properties: Selection {  }\n                       fields: [$branchId_3, $effectiveAt_3, $__key___4, $rid_2]\n                       index: /ledgerEntries (branchId ASC, effectiveAt DESC, __key__ DESC)@[id = CICAgLjywZkK]\n                       partition: /\n                       key ordering length: 4\n                       ranges: /\n                               |----[\"query-plan-branch\"]\n                                    |----[{timestampValue={seconds=\"1790787600\"}}..{timestampValue={seconds=\"1793466000\"}})\n"
+    },
+    {
+      "name": "student_history_page_month",
+      "source": "functions/business-reporting.js",
+      "query": {
+        "from": [
+          {
+            "collectionId": "sessions"
+          }
+        ],
+        "where": {
+          "compositeFilter": {
+            "op": "AND",
+            "filters": [
+              {
+                "fieldFilter": {
+                  "field": {
+                    "fieldPath": "studentId"
+                  },
+                  "op": "EQUAL",
+                  "value": {
+                    "stringValue": "query-plan-student"
+                  }
+                }
+              },
+              {
+                "fieldFilter": {
+                  "field": {
+                    "fieldPath": "date"
+                  },
+                  "op": "GREATER_THAN_OR_EQUAL",
+                  "value": {
+                    "stringValue": "2026-10-01"
+                  }
+                }
+              },
+              {
+                "fieldFilter": {
+                  "field": {
+                    "fieldPath": "date"
+                  },
+                  "op": "LESS_THAN",
+                  "value": {
+                    "stringValue": "2026-11-01"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "orderBy": [
+          {
+            "field": {
+              "fieldPath": "date"
+            },
+            "direction": "DESCENDING"
+          },
+          {
+            "field": {
+              "fieldPath": "__name__"
+            },
+            "direction": "DESCENDING"
+          }
+        ],
+        "limit": 151
+      },
+      "before": "Tree:\n• Compute\n|  $out_1: map_set($record_1, \"__name__\", $__name___1, \"__key__\", unset)\n|  is query result: true\n|\n└── • Compute\n    |  $__name___1: $__key___6\n    |\n    └── • Fetch\n        |  order: PRESERVE_INPUT_ORDER\n        |  source: /sessions\n        |  input record id: $rid_2\n        |  output bindings: {$__key___6=row().__key__, $record_1=row()}\n        |  output: [$__key___6, $record_1]\n        |\n        └── • Limit\n            |  limit: 151\n            |\n            └── • Filter\n                |  expression: (exists($studentId_3) AND exists($date_3) AND exists($__key___4))\n                |\n                └── • SequentialScan\n                       properties: Selection {  }\n                       fields: [$studentId_3, $date_3, $__key___4, $rid_2]\n                       index: /sessions (studentId ASC, date DESC, __key__ DESC)@[id = CICAgJiUsdIJ]\n                       partition: /\n                       key ordering length: 4\n                       ranges: /\n                               |----[\"query-plan-student\"]\n                                    |----[\"2026-10-01\"..\"2026-11-01\")\n",
+      "after": "Tree:\n• Compute\n|  $out_1: map_set($record_1, \"__name__\", $__name___1, \"__key__\", unset)\n|  is query result: true\n|\n└── • Compute\n    |  $__name___1: $__key___6\n    |\n    └── • Fetch\n        |  order: PRESERVE_INPUT_ORDER\n        |  source: /sessions\n        |  input record id: $rid_2\n        |  output bindings: {$__key___6=row().__key__, $record_1=row()}\n        |  output: [$__key___6, $record_1]\n        |\n        └── • Limit\n            |  limit: 151\n            |\n            └── • Filter\n                |  expression: (exists($studentId_3) AND exists($date_3) AND exists($__key___4))\n                |\n                └── • SequentialScan\n                       properties: Selection {  }\n                       fields: [$studentId_3, $date_3, $__key___4, $rid_2]\n                       index: /sessions (studentId ASC, date DESC, __key__ DESC)@[id = CICAgJiUsdIJ]\n                       partition: /\n                       key ordering length: 4\n                       ranges: /\n                               |----[\"query-plan-student\"]\n                                    |----[\"2026-10-01\"..\"2026-11-01\")\n"
+    },
+    {
+      "name": "trainer_history_page_month",
+      "source": "functions/business-reporting.js",
+      "query": {
+        "from": [
+          {
+            "collectionId": "sessions"
+          }
+        ],
+        "where": {
+          "compositeFilter": {
+            "op": "AND",
+            "filters": [
+              {
+                "fieldFilter": {
+                  "field": {
+                    "fieldPath": "trainerId"
+                  },
+                  "op": "EQUAL",
+                  "value": {
+                    "stringValue": "query-plan-trainer"
+                  }
+                }
+              },
+              {
+                "fieldFilter": {
+                  "field": {
+                    "fieldPath": "date"
+                  },
+                  "op": "GREATER_THAN_OR_EQUAL",
+                  "value": {
+                    "stringValue": "2026-10-01"
+                  }
+                }
+              },
+              {
+                "fieldFilter": {
+                  "field": {
+                    "fieldPath": "date"
+                  },
+                  "op": "LESS_THAN",
+                  "value": {
+                    "stringValue": "2026-11-01"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "orderBy": [
+          {
+            "field": {
+              "fieldPath": "date"
+            },
+            "direction": "DESCENDING"
+          },
+          {
+            "field": {
+              "fieldPath": "__name__"
+            },
+            "direction": "DESCENDING"
+          }
+        ],
+        "limit": 151
+      },
+      "before": "Tree:\n• Compute\n|  $out_1: map_set($record_1, \"__name__\", $__name___1, \"__key__\", unset)\n|  is query result: true\n|\n└── • Compute\n    |  $__name___1: $__key___6\n    |\n    └── • Fetch\n        |  order: PRESERVE_INPUT_ORDER\n        |  source: /sessions\n        |  input record id: $rid_2\n        |  output bindings: {$__key___6=row().__key__, $record_1=row()}\n        |  output: [$__key___6, $record_1]\n        |\n        └── • Limit\n            |  limit: 151\n            |\n            └── • Filter\n                |  expression: (exists($trainerId_3) AND exists($date_3) AND exists($__key___4))\n                |\n                └── • SequentialScan\n                       properties: Selection {  }\n                       fields: [$trainerId_3, $date_3, $__key___4, $rid_2]\n                       index: /sessions (trainerId ASC, date DESC, __key__ DESC)@[id = CICAgJiUsbII]\n                       partition: /\n                       key ordering length: 4\n                       ranges: /\n                               |----[\"query-plan-trainer\"]\n                                    |----[\"2026-10-01\"..\"2026-11-01\")\n",
+      "after": "Tree:\n• Compute\n|  $out_1: map_set($record_1, \"__name__\", $__name___1, \"__key__\", unset)\n|  is query result: true\n|\n└── • Compute\n    |  $__name___1: $__key___6\n    |\n    └── • Fetch\n        |  order: PRESERVE_INPUT_ORDER\n        |  source: /sessions\n        |  input record id: $rid_2\n        |  output bindings: {$__key___6=row().__key__, $record_1=row()}\n        |  output: [$__key___6, $record_1]\n        |\n        └── • Limit\n            |  limit: 151\n            |\n            └── • Filter\n                |  expression: (exists($trainerId_3) AND exists($date_3) AND exists($__key___4))\n                |\n                └── • SequentialScan\n                       properties: Selection {  }\n                       fields: [$trainerId_3, $date_3, $__key___4, $rid_2]\n                       index: /sessions (trainerId ASC, date DESC, __key__ DESC)@[id = CICAgJiUsbII]\n                       partition: /\n                       key ordering length: 4\n                       ranges: /\n                               |----[\"query-plan-trainer\"]\n                                    |----[\"2026-10-01\"..\"2026-11-01\")\n"
+    },
+    {
+      "name": "student_history_summary_month",
+      "source": "functions/business-reporting.js",
+      "query": {
+        "from": [
+          {
+            "collectionId": "sessions"
+          }
+        ],
+        "where": {
+          "compositeFilter": {
+            "op": "AND",
+            "filters": [
+              {
+                "fieldFilter": {
+                  "field": {
+                    "fieldPath": "studentId"
+                  },
+                  "op": "EQUAL",
+                  "value": {
+                    "stringValue": "query-plan-student"
+                  }
+                }
+              },
+              {
+                "fieldFilter": {
+                  "field": {
+                    "fieldPath": "date"
+                  },
+                  "op": "GREATER_THAN_OR_EQUAL",
+                  "value": {
+                    "stringValue": "2026-10-01"
+                  }
+                }
+              },
+              {
+                "fieldFilter": {
+                  "field": {
+                    "fieldPath": "date"
+                  },
+                  "op": "LESS_THAN",
+                  "value": {
+                    "stringValue": "2026-11-01"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "limit": 5001
+      },
+      "before": "Tree:\n• Compute\n|  $out_1: map_set($record_1, \"__name__\", $__name___1, \"__key__\", unset)\n|  is query result: true\n|\n└── • Compute\n    |  $__name___1: $__key___6\n    |\n    └── • Fetch\n        |  order: PRESERVE_INPUT_ORDER\n        |  source: /sessions\n        |  input record id: $rid_2\n        |  output bindings: {$__key___6=row().__key__, $record_1=row()}\n        |  output: [$__key___6, $record_1]\n        |\n        └── • MinorSort\n            |  prefix: [$date_3 ASC]\n            |  ordering: [$key_3 ASC]\n            |  output: [$rid_2]\n            |  limit: 5,001\n            |\n            └── • Filter\n                |  expression: (exists($studentId_3) AND exists($date_3) AND exists($key_3))\n                |\n                └── • SequentialScan\n                       properties: Selection {  }\n                       fields: [$studentId_3, $date_3, $rid_2]\n                       key: $key_3\n                       index: /sessions (studentId ASC, date ASC)@[id = CICAgJiUsZIJ]\n                       partition: /\n                       key ordering length: 3\n                       ranges: /\n                               |----[\"query-plan-student\"]\n                                    |----[\"2026-10-01\"..\"2026-11-01\")\n",
+      "after": "Tree:\n• Compute\n|  $out_1: map_set($record_1, \"__name__\", $__name___1, \"__key__\", unset)\n|  is query result: true\n|\n└── • Compute\n    |  $__name___1: $__key___6\n    |\n    └── • Fetch\n        |  order: PRESERVE_INPUT_ORDER\n        |  source: /sessions\n        |  input record id: $rid_2\n        |  output bindings: {$__key___6=row().__key__, $record_1=row()}\n        |  output: [$__key___6, $record_1]\n        |\n        └── • MinorSort\n            |  prefix: [$date_3 ASC]\n            |  ordering: [$key_3 ASC]\n            |  output: [$rid_2]\n            |  limit: 5,001\n            |\n            └── • Filter\n                |  expression: (exists($studentId_3) AND exists($date_3) AND exists($key_3))\n                |\n                └── • SequentialScan\n                       properties: Selection {  }\n                       fields: [$studentId_3, $date_3, $rid_2]\n                       key: $key_3\n                       index: /sessions (studentId ASC, date ASC)@[id = CICAgJiUsZIJ]\n                       partition: /\n                       key ordering length: 3\n                       ranges: /\n                               |----[\"query-plan-student\"]\n                                    |----[\"2026-10-01\"..\"2026-11-01\")\n"
+    },
+    {
+      "name": "business_ledger_month",
+      "source": "functions/business-reporting.js",
+      "query": {
+        "from": [
+          {
+            "collectionId": "ledgerEntries"
+          }
+        ],
+        "where": {
+          "compositeFilter": {
+            "op": "AND",
+            "filters": [
+              {
+                "fieldFilter": {
+                  "field": {
+                    "fieldPath": "effectiveAt"
+                  },
+                  "op": "GREATER_THAN_OR_EQUAL",
+                  "value": {
+                    "timestampValue": "2026-09-30T17:00:00Z"
+                  }
+                }
+              },
+              {
+                "fieldFilter": {
+                  "field": {
+                    "fieldPath": "effectiveAt"
+                  },
+                  "op": "LESS_THAN",
+                  "value": {
+                    "timestampValue": "2026-10-31T17:00:00Z"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "limit": 10001
+      },
+      "before": "Tree:\n• Compute\n|  $out_1: map_set($record_1, \"__name__\", $__name___1, \"__key__\", unset)\n|  is query result: true\n|\n└── • Compute\n    |  $__name___1: $__key___2\n    |\n    └── • Fetch\n        |  order: PRESERVE_INPUT_ORDER\n        |  source: /ledgerEntries\n        |  input record id: $rid_2\n        |  output bindings: {$__key___2=row().__key__, $record_1=row()}\n        |  output: [$__key___2, $record_1]\n        |\n        └── • MajorSort\n            |  fields: [$effectiveAt_3 ASC, $key_5 ASC]\n            |  output: [$rid_2]\n            |  limit: 10,001\n            |\n            └── • Filter\n                |  expression: (exists($effectiveAt_3) AND exists($key_5))\n                |\n                └── • SeekingScan\n                       properties: Selection {  }\n                       fields: [null, $effectiveAt_3, $rid_2]\n                       key: $key_5\n                       index: /ledgerEntries (referralStaffId ASC, effectiveAt ASC)@[id = CICAgLjy8IAK]\n                       partition: /\n                       constraints: /\n                                    |----(-∞..+∞)\n                                         |----[{timestampValue={seconds=\"1790787600\"}}..{timestampValue={seconds=\"1793466000\"}})\n",
+      "after": "Tree:\n• Compute\n|  $out_1: map_set($record_1, \"__name__\", $__name___1, \"__key__\", unset)\n|  is query result: true\n|\n└── • Compute\n    |  $__name___1: $__key___6\n    |\n    └── • Fetch\n        |  order: PRESERVE_INPUT_ORDER\n        |  source: /ledgerEntries\n        |  input record id: $rid_2\n        |  output bindings: {$__key___6=row().__key__, $record_1=row()}\n        |  output: [$__key___6, $record_1]\n        |\n        └── • MajorSort\n            |  fields: [$effectiveAt_3 ASC, $__key___4 ASC]\n            |  output: [$rid_2]\n            |  limit: 10,001\n            |\n            └── • Filter\n                |  expression: (exists($effectiveAt_3) AND exists($__key___4))\n                |\n                └── • SequentialScan\n                       properties: Selection {  }\n                       fields: [$effectiveAt_3, $__key___4, $rid_2]\n                       index: /ledgerEntries (effectiveAt DESC, __key__ DESC)@[id = CICAgNiryskJ]\n                       partition: /\n                       key ordering length: 3\n                       ranges: /\n                               |----[{timestampValue={seconds=\"1790787600\"}}..{timestampValue={seconds=\"1793466000\"}})\n"
+    },
+    {
+      "name": "pt_workout_history",
+      "source": "functions/pt-workout-tracking.js",
+      "query": {
+        "from": [
+          {
+            "collectionId": "ptWorkoutLogs"
+          }
+        ],
+        "where": {
+          "compositeFilter": {
+            "op": "AND",
+            "filters": [
+              {
+                "fieldFilter": {
+                  "field": {
+                    "fieldPath": "studentId"
+                  },
+                  "op": "EQUAL",
+                  "value": {
+                    "stringValue": "query-plan-student"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "orderBy": [
+          {
+            "field": {
+              "fieldPath": "date"
+            },
+            "direction": "DESCENDING"
+          },
+          {
+            "field": {
+              "fieldPath": "hour"
+            },
+            "direction": "DESCENDING"
+          }
+        ],
+        "limit": 60
+      },
+      "before": "Tree:\n• Compute\n|  $out_1: map_set($record_1, \"__name__\", $__name___1, \"__key__\", unset)\n|  is query result: true\n|\n└── • Compute\n    |  $__name___1: $__key___6\n    |\n    └── • Fetch\n        |  order: PRESERVE_INPUT_ORDER\n        |  source: /ptWorkoutLogs\n        |  input record id: $rid_2\n        |  output bindings: {$__key___6=row().__key__, $record_1=row()}\n        |  output: [$__key___6, $record_1]\n        |\n        └── • MinorSort\n            |  prefix: [$date_3 DESC, $hour_3 DESC]\n            |  ordering: [$key_3 DESC]\n            |  output: [$rid_2]\n            |  limit: 60\n            |\n            └── • Filter\n                |  expression: (exists($studentId_3) AND exists($date_3) AND exists($hour_3) AND exists($key_3))\n                |\n                └── • SequentialScan\n                       properties: Selection {  }\n                       fields: [$studentId_3, $date_3, $hour_3, $rid_2]\n                       key: $key_3\n                       index: /ptWorkoutLogs (studentId ASC, date DESC, hour DESC)@[id = CICAgJjFqZML]\n                       partition: /\n                       key ordering length: 4\n                       ranges: /\n                               |----[\"query-plan-student\"]\n",
+      "after": "Tree:\n• Compute\n|  $out_1: map_set($record_1, \"__name__\", $__name___1, \"__key__\", unset)\n|  is query result: true\n|\n└── • Compute\n    |  $__name___1: $__key___6\n    |\n    └── • Fetch\n        |  order: PRESERVE_INPUT_ORDER\n        |  source: /ptWorkoutLogs\n        |  input record id: $rid_2\n        |  output bindings: {$__key___6=row().__key__, $record_1=row()}\n        |  output: [$__key___6, $record_1]\n        |\n        └── • MinorSort\n            |  prefix: [$date_3 DESC, $hour_3 DESC]\n            |  ordering: [$key_3 DESC]\n            |  output: [$rid_2]\n            |  limit: 60\n            |\n            └── • Filter\n                |  expression: (exists($studentId_3) AND exists($date_3) AND exists($hour_3) AND exists($key_3))\n                |\n                └── • SequentialScan\n                       properties: Selection {  }\n                       fields: [$studentId_3, $date_3, $hour_3, $rid_2]\n                       key: $key_3\n                       index: /ptWorkoutLogs (studentId ASC, date DESC, hour DESC)@[id = CICAgJjFqZML]\n                       partition: /\n                       key ordering length: 4\n                       ranges: /\n                               |----[\"query-plan-student\"]\n"
+    }
+  ],
+  "findings": [
+    "Unfiltered descending ledger pages changed from SeekingScan over referralStaffId/effectiveAt plus MajorSort to ordered SequentialScan over effectiveAt DESC and document ID DESC without MajorSort.",
+    "Branch ledger and student/trainer history already select dedicated indexes; no duplicate indexes were added for them.",
+    "Ascending business-report scans now use the date index but retain MajorSort. A second direction index was not added without runtime/read-versus-write evidence."
+  ],
+  "limitations": [
+    "Planner evidence does not measure billed units, latency, savings percentage or currency.",
+    "Synthetic equality values can differ from a real parameter-specific plan; recheck representative scopes before workload-wide claims.",
+    "The new index adds storage and index write maintenance. Retain it only if measured read benefit justifies that overhead."
+  ]
+}

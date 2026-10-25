@@ -117,6 +117,28 @@ test('an in-flight nutrition refresh blocks full rebuilds through the same lease
   assert.equal(db.data.get('systemJobs/student360Rebuild/subjects/a').coveredThrough, undefined)
 })
 
+test('progress, nutrition and full rebuilds retain independent coverage under one lease', async () => {
+  const db = memoryDb()
+  const run = (scope, ms) => coalesceProjectionRebuild({ db, studentId: 'a', event: eventAt(ms), scope, rebuild: async () => {} })
+  await run('full', 999)
+  db.time = 3000
+  assert.equal((await run('progress', 2000)).rebuilt, true)
+  assert.equal((await run('progress', 2000)).rebuilt, false)
+  let state = db.data.get('systemJobs/student360Rebuild/subjects/a')
+  assert.equal(state.coveredThrough.toMillis(), 1000)
+  assert.equal(state.progressCoveredThrough.toMillis(), 3000)
+  assert.equal(state.nutritionCoveredThrough, undefined)
+  assert.equal((await run('nutrition', 2500)).rebuilt, true)
+  db.time = 4000
+  assert.equal((await run('full', 2500)).rebuilt, true)
+  assert.equal((await run('progress', 3500)).rebuilt, false, 'full coverage includes progress')
+  assert.equal((await run('nutrition', 3500)).rebuilt, false, 'full coverage includes nutrition')
+  state = db.data.get('systemJobs/student360Rebuild/subjects/a')
+  assert.equal(state.coveredThrough.toMillis(), 4000)
+  await assert.rejects(run('unrecognized-domain', 4500), { code: 'invalid-argument' })
+  assert.equal(state, db.data.get('systemJobs/student360Rebuild/subjects/a'), 'invalid scope does no database work')
+})
+
 function usageEvent(before, after, collection = 'contractUsageViews') {
   const snapshot = (data) => ({ exists: data !== null, data: () => data, ref: { parent: { id: collection } } })
   return { params: { contractId: 'contract-a' }, data: { before: snapshot(before), after: snapshot(after) } }

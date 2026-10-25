@@ -307,6 +307,60 @@ function sourceEvent(before, after, params = {}) {
 }
 const silentLogger = { info() {} }
 
+test('profile and contract timestamp touches perform no weekly discovery reads or invalidation writes', async () => {
+  const db = new Proxy({}, { get() { throw new Error('A timestamp-only touch must not access Firestore') } })
+  for (const source of ['student', 'trainer', 'contract']) {
+    const body = { branchId: BRANCH, name: 'Same profile', details: { updatedAt: 'meaningful-nested-value' } }
+    for (const [previous, next] of [[undefined, '2026-10-25'], ['2026-10-24', undefined], ['2026-10-24', '2026-10-25'], [undefined, undefined]]) {
+      const result = await syncPtScheduleWeeklyViewSource({ db, source, logger: silentLogger, event: sourceEvent(
+        { ...body, ...(previous ? { updatedAt: previous } : {}) },
+        { ...body, ...(next ? { updatedAt: next } : {}) },
+        { [`${source}Id`]: `${source}-a` },
+      ) })
+      assert.deepEqual(result, { source, marked: 0, skipped: 'source_metadata_only' })
+    }
+  }
+})
+
+test('profile and contract business edits still invalidate historical and cross-branch dependent weeks', async () => {
+  for (const source of ['student', 'trainer', 'contract']) {
+    for (const change of [{ name: 'Renamed' }, { revision: 2 }, { endDate: '2026-12-31' }, { futureBusinessField: true }, { details: { updatedAt: 'new-nested-business-value' } }]) {
+      const past = '2025-01-06'
+      const db = fakeDb({
+        [viewPath()]: initialView(),
+        [viewPath(BRANCH, past)]: { ...initialView(), weekId: past },
+        [viewPath('branch-c', past)]: { ...initialView(), branchId: 'branch-c', weekId: past, sourceStudentIds: ['student-a'], sourceTrainerIds: ['trainer-a'], sourceContractIds: ['contract-a'] },
+      })
+      const before = { branchId: BRANCH, name: 'Original', studentId: 'student-a', updatedAt: '2026-10-24' }
+      const result = await syncPtScheduleWeeklyViewSource({ db, source, logger: silentLogger, event: sourceEvent(before, { ...before, ...change, updatedAt: '2026-10-25' }, { [`${source}Id`]: `${source}-a` }) })
+      assert.equal(result.marked, 3, `${source}: ${JSON.stringify(change)}`)
+      for (const target of [statePath(), statePath(BRANCH, past), statePath('branch-c', past)]) assert.equal(db.values.get(target)?.dirtyGeneration, 1)
+    }
+  }
+})
+
+test('profile and contract creation and deletion remain meaningful even with identical remaining fields', async () => {
+  for (const source of ['student', 'trainer', 'contract']) {
+    for (const removing of [false, true]) {
+      const db = fakeDb({ [viewPath()]: initialView() })
+      const value = { branchId: BRANCH, updatedAt: '2026-10-25' }
+      const result = await syncPtScheduleWeeklyViewSource({ db, source, logger: silentLogger, event: sourceEvent(removing ? value : undefined, removing ? undefined : value, { [`${source}Id`]: `${source}-a` }) })
+      assert.equal(result.marked, 1)
+      assert.equal(db.values.get(statePath()).dirtyGeneration, 1)
+    }
+  }
+})
+
+test('draft timestamps retain their displayed meaning and still invalidate their week', async () => {
+  const db = fakeDb({ [viewPath()]: initialView() })
+  const result = await syncPtScheduleWeeklyViewSource({ db, source: 'draft', logger: silentLogger, event: sourceEvent(
+    { branchId: BRANCH, weekId: WEEK, updatedAt: '2026-10-24' },
+    { branchId: BRANCH, weekId: WEEK, updatedAt: '2026-10-25' }, { documentId: weeklyViewId(BRANCH, WEEK) },
+  ) })
+  assert.equal(result.marked, 1)
+  assert.equal(db.values.get(statePath()).dirtyGeneration, 1)
+})
+
 test('session moves invalidate both old/new weeks and cross-branch coverage', async () => {
   const db = fakeDb({
     [viewPath('branch-c', WEEK)]: { ...initialView(), branchId: 'branch-c', sourceStudentIds: ['student-a'] },

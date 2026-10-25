@@ -24,6 +24,13 @@ const AGGREGATE_TARGETS = Object.freeze({
   syncOpsStudentDailyAggregateRegional: { document: 'students/{studentId}', region: 'asia-southeast2' },
 })
 
+const DELIVERY_TARGETS = Object.freeze({
+  syncEatCleanWorkspaceFromOrder: 'eatCleanOrders/{orderId}',
+  syncEatCleanWorkspaceFromDelivery: 'eatCleanDeliveries/{orderId}',
+  syncEatCleanWorkspaceFromShipper: 'eatCleanShippers/{shipperId}',
+  syncEatCleanWorkspaceFromConfig: 'system/eat_clean_config',
+})
+
 // Exercise the real CommonJS entry point and Firebase onCall wrapper in fresh
 // processes. Only Firestore access is replaced; request auth uses the actual
 // scheduleActor/trustedAccessContext implementation. A network tripwire makes
@@ -117,7 +124,7 @@ Module._load = function (request, parent, isMain) {
   const selectedName = input.selectedName || 'getPtScheduleWeeklyViewRegional';
   const selected = entry[selectedName];
   const handlers = {};
-  for (const name of ['getPtScheduleWeeklyView', 'getPtScheduleWeeklyViewRegional', ...Object.keys(${JSON.stringify(AGGREGATE_TARGETS)})]) {
+  for (const name of ['getPtScheduleWeeklyView', 'getPtScheduleWeeklyViewRegional', ...Object.keys(${JSON.stringify(AGGREGATE_TARGETS)}), ...Object.keys(${JSON.stringify(DELIVERY_TARGETS)})]) {
     if (entry[name]) handlers[name] = {
       endpoint: entry[name].__endpoint,
       trigger: entry[name].__trigger,
@@ -244,7 +251,14 @@ test('weekly runtime selection is exact, runtime-only and has no request-control
 
 test('normal, unknown-target and control-API discovery expose the unchanged complete manifest', () => {
   const baseline = probe()
-  assert.equal(baseline.exportNames.length, 540)
+  // Includes the five Aura Club dashboard projections, three membership
+  // workers, regional admin dashboard, plan-only invalidation trigger and
+  // four delivery metadata sources (no new callable or GPS event subscriber).
+  assert.equal(baseline.exportNames.length, 554)
+  assert.ok(baseline.exportNames.includes('syncStudentTrainingProgram'))
+  for (const name of ['syncLoyaltyDashboardStudent', 'syncLoyaltyDashboardAccount', 'syncLoyaltyDashboardRedemption', 'syncLoyaltyDashboardReferral', 'syncLoyaltyDashboardAmbassador', 'syncLoyaltyContractMembership', 'syncLoyaltyMembershipActivation', 'advanceLoyaltyMembershipsScheduled', 'getLoyaltyAdminDashboardRegional']) {
+    assert.ok(baseline.exportNames.includes(name))
+  }
   for (const name of ['getMyNutritionJournalSummary', 'syncNutritionMealDailySummary', 'syncNutritionWaterDailySummary', 'syncNutritionActivityDailySummary', 'syncNutritionReminderSchedule']) {
     assert.ok(baseline.exportNames.includes(name))
   }
@@ -276,6 +290,27 @@ test('existing scoped discovery stays scoped even if the parent has an allowlist
     assert.deepEqual(actual.exportNames, baseline.exportNames)
     assert.ok(actual.exportNames.length > 400)
     assert.deepEqual(actual.handlers, baseline.handlers)
+  }
+})
+
+test('delivery revision manifests cover exactly four private event sources in the named database', () => {
+  const full = probe()
+  assert.deepEqual(full.exportNames.filter(name => name.startsWith('syncEatCleanWorkspaceFrom')), Object.keys(DELIVERY_TARGETS).sort())
+  for (const [name, document] of Object.entries(DELIVERY_TARGETS)) {
+    const endpoint = full.handlers[name].endpoint
+    assert.equal(endpoint.minInstances, 0)
+    assert.equal(endpoint.maxInstances, 3)
+    assert.equal(endpoint.cpu, 'gcf_gen1')
+    assert.equal(endpoint.eventTrigger.retry, true)
+    assert.deepEqual(endpoint.region, ['asia-southeast1'])
+    assert.equal(endpoint.eventTrigger.eventType, 'google.cloud.firestore.document.v1.written')
+    assert.equal(endpoint.eventTrigger.eventFilters.database, CANONICAL_DATABASE)
+    const isPattern = document.includes('{')
+    assert.equal(endpoint.eventTrigger.eventFilterPathPatterns.document, isPattern ? document : undefined)
+    assert.equal(endpoint.eventTrigger.eventFilters.document, isPattern ? undefined : document)
+    assert.equal(endpoint.callableTrigger, undefined)
+    assert.equal(endpoint.httpsTrigger, undefined)
+    assert.equal(endpoint.scheduleTrigger, undefined)
   }
 })
 

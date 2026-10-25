@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { useForegroundRefresh } from '../../../../hooks/useForegroundRefresh'
 import {
   AlertTriangle,
   Bike,
@@ -103,7 +104,7 @@ export function EatCleanDispatchTab({ isDemo = false }: { isDemo?: boolean }) {
     ? { status: 'deferred', message: 'Kiểm tra khi mở Phí giao & SLA' }
     : { status: 'missing', message: 'Thiếu VITE_GOOGLE_MAPS_API_KEY trong bản build frontend' })
 
-  const load = useCallback(async (background = false) => {
+  const read = async (background: boolean, isCurrent: () => boolean) => {
     background ? setRefreshing(true) : setLoading(true)
     setError('')
     try {
@@ -124,22 +125,16 @@ export function EatCleanDispatchTab({ isDemo = false }: { isDemo?: boolean }) {
             signals: { mapsErrorsToday: 0, otpRejected: 0, otpLocked: 0, gpsStale: 0, lateOrders: 0 },
           }
         : await listEatCleanDispatchSnapshot()
+      if (!isCurrent()) return
       setSnapshot(next)
-      setConfigDraft(next.config)
+      if (!background) setConfigDraft(next.config)
     } catch (loadError) {
-      setError(getDeliveryServiceError(loadError))
+      if (isCurrent()) setError(getDeliveryServiceError(loadError))
     } finally {
-      setLoading(false)
-      setRefreshing(false)
+      if (isCurrent()) { setLoading(false); setRefreshing(false) }
     }
-  }, [])
-
-  useEffect(() => {
-    void load()
-    if (isDemo) return undefined
-    const timer = window.setInterval(() => void load(true), 30_000)
-    return () => window.clearInterval(timer)
-  }, [isDemo, load])
+  }
+  const { refresh: load } = useForegroundRefresh({ scopeKey: `dispatch:${isDemo}`, read, intervalMs: isDemo || section === 'settings' ? null : 30_000 })
 
   useEffect(() => {
     // Loading Google Maps/Places only to render a health badge added hundreds of
@@ -189,7 +184,8 @@ export function EatCleanDispatchTab({ isDemo = false }: { isDemo?: boolean }) {
     setError('')
     try {
       const saved = await assignEatCleanShipper(assigningJob.id, shipperId)
-      await load(true)
+      setSnapshot(current => current ? { ...current, jobs: current.jobs.map(job => job.id === saved.id ? saved : job) } : current)
+      await load(true, true)
       setAssigningJob(null)
       setShipperId('')
       setSuccess(`Đã gán ${saved.orderCode} cho shipper.`)
@@ -217,7 +213,7 @@ export function EatCleanDispatchTab({ isDemo = false }: { isDemo?: boolean }) {
       const saved = await saveEatCleanDeliveryOperationsConfig(configDraft)
       setConfigDraft(saved)
       setSnapshot((current) => current ? { ...current, config: saved } : current)
-      await load(true)
+      await load(true, true)
       setSuccess('Đã lưu bảng phí giao và SLA mới.')
     } catch (saveError) {
       setError(getDeliveryServiceError(saveError))

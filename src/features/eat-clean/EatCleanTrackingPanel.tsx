@@ -1,9 +1,13 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { Bike, Clock3, LoaderCircle, MapPin, Navigation, Phone, RefreshCw, ShieldCheck, TriangleAlert } from 'lucide-react'
-import { getEatCleanOrderTracking } from './eatCleanService'
-import { googleMapsConfigured, loadGoogleMaps } from './googleMapsLoader'
+import { useMemo, useState } from 'react'
+import { Bike, Clock3, LoaderCircle, MapPin, Phone, RefreshCw, ShieldCheck, TriangleAlert } from 'lucide-react'
+import { EatCleanTrackingMap as TrackingMap } from './EatCleanTrackingMap'
 import { EAT_CLEAN_STATUS_LABELS, formatEatCleanDate } from './EatCleanUi'
-import type { EatCleanCoordinate, EatCleanOrder, EatCleanOrderTracking } from './types'
+import type { EatCleanOrder, EatCleanOrderTracking } from './types'
+import { useLocalTimeBoundaries } from '../../hooks/useLocalTimeBoundaries'
+import { useOrderTracking } from './useOrderTracking'
+
+// Match the existing tracking response's two-minute GPS freshness window.
+const GPS_STALE_AFTER_MS = 2 * 60_000
 
 function etaLabel(value?: string) {
   if (!value) return 'Đang tính ETA'
@@ -14,59 +18,16 @@ function etaLabel(value?: string) {
   return minutes > 0 ? `${minutes} phút · khoảng ${time}` : `Dự kiến lúc ${time}`
 }
 
-function toMapPosition(coordinate?: EatCleanCoordinate) {
-  return coordinate ? { lat: coordinate.latitude, lng: coordinate.longitude } : undefined
-}
-
-function TrackingMap({ tracking }: { tracking: EatCleanOrderTracking }) {
-  const elementRef = useRef<HTMLDivElement>(null)
-  const [available, setAvailable] = useState<boolean | null>(null)
-  const center = tracking.shipperLocation || tracking.destination || tracking.kitchenLocation
-
-  useEffect(() => {
-    let active = true
-    const markers: Array<{ setMap: (map: unknown) => void }> = []
-    void loadGoogleMaps().then((maps) => {
-      if (!active) return
-      setAvailable(Boolean(maps))
-      if (!maps || !elementRef.current || !center) return
-      const map = new maps.Map(elementRef.current, {
-        center: toMapPosition(center),
-        zoom: 14,
-        mapTypeControl: false,
-        streetViewControl: false,
-        fullscreenControl: false,
-      })
-      const points = [
-        { coordinate: tracking.kitchenLocation, title: 'Bếp Aura' },
-        { coordinate: tracking.destination, title: 'Điểm nhận hàng' },
-        { coordinate: tracking.shipperLocation, title: 'Shipper' },
-      ]
-      points.forEach(({ coordinate, title }) => {
-        if (!coordinate) return
-        markers.push(new maps.Marker({ map, position: toMapPosition(coordinate), title }))
-      })
-    })
-    return () => { active = false; markers.forEach((marker) => marker.setMap(null)) }
-  }, [center?.latitude, center?.longitude, tracking.destination?.latitude, tracking.destination?.longitude, tracking.kitchenLocation?.latitude, tracking.kitchenLocation?.longitude, tracking.shipperLocation?.latitude, tracking.shipperLocation?.longitude])
-
-  if (!googleMapsConfigured() || available === false || !center) {
-    return (
-      <div className="eat-clean-tracking-map is-fallback">
-        <div><Navigation size={29} /><strong>{center ? 'Theo dõi vị trí đang hoạt động' : 'Chưa có vị trí shipper'}</strong><span>{center ? 'Bản đồ trực quan sẽ hiện khi Google Maps được cấu hình.' : 'Bản đồ sẽ tự cập nhật sau khi shipper nhận đơn.'}</span></div>
-      </div>
-    )
-  }
-  return <div ref={elementRef} className="eat-clean-tracking-map">{available === null && <LoaderCircle className="eat-clean-spin" size={25} />}</div>
-}
-
-export function EatCleanTrackingPanel({ order }: { order: EatCleanOrder }) {
-  const [tracking, setTracking] = useState<EatCleanOrderTracking | null>(order.tracking ?? null)
+export function EatCleanTrackingPanel({ order, accountId }: { order: EatCleanOrder; accountId: string }) {
+  const scope = `${accountId}:${order.id}`, demo = order.id.startsWith('demo-order-')
+  const [snapshot, setSnapshot] = useState<{ scope: string; value: EatCleanOrderTracking } | null>(null)
+  const tracking = snapshot?.scope === scope ? snapshot.value : null
   const [loading, setLoading] = useState(false)
-  const [message, setMessage] = useState('')
-  const refreshInFlightRef = useRef(false)
-  const mountedRef = useRef(true)
-  const live: EatCleanOrderTracking = tracking ?? {
+  const [failure, setFailure] = useState<{ scope: string; denied: boolean } | null>(null)
+  const currentFailure = failure?.scope === scope ? failure : null
+  const accessDenied = currentFailure?.denied === true
+  const detailsVisible = !accessDenied && Boolean(tracking || demo)
+  const live: EatCleanOrderTracking = tracking ?? (demo ? order.tracking : undefined) ?? {
     orderId: order.id,
     status: order.status,
     shipper: order.shipper,
@@ -76,53 +37,35 @@ export function EatCleanTrackingPanel({ order }: { order: EatCleanOrder }) {
     estimatedArrivalAt: order.estimatedArrivalAt,
     promisedAt: order.promisedAt,
   }
-  const terminal = live.status === 'delivered' || live.status === 'cancelled'
+  const terminal = ['delivered', 'cancelled'].includes(live.status) || ['delivered', 'cancelled'].includes(order.status)
+  const locationMillis = Date.parse(live.lastLocationAt || '')
+  const boundaryNow = useLocalTimeBoundaries(detailsVisible && !terminal && live.shipperLocation
+    ? [locationMillis + GPS_STALE_AFTER_MS + 1, live.locationExpiresAt || Number.NaN] : [])
+  const expired = Boolean(live.locationExpiresAt && boundaryNow >= live.locationExpiresAt)
+  const displayLive = expired ? { ...live, shipperLocation: undefined } : live
+  const gpsStale = Boolean(expired || live.stale || (!terminal && live.shipperLocation
+    && (!Number.isFinite(locationMillis) || boundaryNow - locationMillis > GPS_STALE_AFTER_MS)))
 
-  const refresh = async (quiet = false) => {
-    if (refreshInFlightRef.current) return
-    refreshInFlightRef.current = true
-    if (!quiet) setLoading(true)
-    try {
-      const next = await getEatCleanOrderTracking(order.id)
-      if (mountedRef.current && next) {
-        setTracking(next)
-        setMessage('')
-      }
-    } catch {
-      if (mountedRef.current && !quiet) setMessage('Chưa thể cập nhật vị trí. Timeline đơn hàng vẫn được giữ nguyên.')
-    } finally {
-      refreshInFlightRef.current = false
-      if (mountedRef.current && !quiet) setLoading(false)
-    }
-  }
-
-  useEffect(() => {
-    mountedRef.current = true
-    return () => { mountedRef.current = false }
-  }, [])
-
-  useEffect(() => {
-    if (order.id.startsWith('demo-order-')) return
-    void refresh(true)
-    if (terminal) return
-    const interval = window.setInterval(() => void refresh(true), 15_000)
-    return () => window.clearInterval(interval)
-    // Poll theo orderId; tránh tạo lại timer khi ETA thay đổi.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [order.id, terminal])
+  const { refresh } = useOrderTracking({ accountId, orderId: order.id, enabled: !demo,
+    apply: value => setSnapshot({ scope, value }), clear: () => setSnapshot(null), pending: setLoading,
+    failure: (error, denied) => {
+      if (!error) setFailure(null)
+      else setFailure(previous => ({ scope, denied: denied || (previous?.scope === scope && previous.denied) }))
+    },
+  })
 
   const eta = live.estimatedArrivalAt || order.estimatedArrivalAt
-  const shipper = live.shipper || order.shipper
+  const shipper = live.shipper
   const locationFreshness = useMemo(() => live.lastLocationAt ? formatEatCleanDate(live.lastLocationAt) : 'Chưa có tín hiệu GPS', [live.lastLocationAt])
   const showDeliveryOtp = Boolean(live.deliveryOtp && shipper && ['assigned', 'picked-up', 'delivering', 'arrived'].includes(live.status))
 
   return (
     <section className="eat-clean-card eat-clean-live-tracking">
       <header>
-        <div><small>THEO DÕI GIAO HÀNG</small><h2>Hành trình: {EAT_CLEAN_STATUS_LABELS[live.status]}</h2><p><Clock3 size={15} /> {terminal ? EAT_CLEAN_STATUS_LABELS[live.status] : etaLabel(eta)}</p></div>
-        <button type="button" onClick={() => void refresh()} disabled={loading} aria-label="Làm mới vị trí">{loading ? <LoaderCircle className="eat-clean-spin" size={19} /> : <RefreshCw size={19} />}</button>
+        <div><small>THEO DÕI GIAO HÀNG</small><h2>{!detailsVisible ? 'Hành trình đơn hàng' : `Hành trình: ${EAT_CLEAN_STATUS_LABELS[live.status]}`}</h2>{detailsVisible && <p><Clock3 size={15} /> {terminal ? EAT_CLEAN_STATUS_LABELS[live.status] : etaLabel(eta)}</p>}</div>
+        <button type="button" onClick={refresh} disabled={loading} aria-label="Làm mới vị trí">{loading ? <LoaderCircle className="eat-clean-spin" size={19} /> : <RefreshCw size={19} />}</button>
       </header>
-      <TrackingMap tracking={live} />
+      {detailsVisible && <><TrackingMap tracking={displayLive} />
       <div className="eat-clean-tracking-meta">
         {shipper ? (
           <div className="eat-clean-shipper-card">
@@ -133,14 +76,16 @@ export function EatCleanTrackingPanel({ order }: { order: EatCleanOrder }) {
         ) : (
           <div className="eat-clean-tracking-wait"><Bike size={20} /><span><strong>Đang chờ shipper nhận đơn</strong><small>Aura sẽ báo ngay khi có người giao.</small></span></div>
         )}
-        <div className={`eat-clean-gps-state ${live.stale ? 'is-stale' : ''}`}>
-          {live.stale ? <TriangleAlert size={16} /> : <ShieldCheck size={16} />}
-          <span>{live.stale ? 'Tín hiệu GPS đang chậm' : 'Vị trí được bảo vệ'}<small>Cập nhật: {locationFreshness}</small></span>
+        <div className={`eat-clean-gps-state ${gpsStale ? 'is-stale' : ''}`}>
+          {gpsStale ? <TriangleAlert size={16} /> : <ShieldCheck size={16} />}
+          <span>{gpsStale ? 'Tín hiệu GPS đang chậm' : 'Vị trí được bảo vệ'}<small>Cập nhật: {locationFreshness}</small></span>
         </div>
         {showDeliveryOtp && <div className="eat-clean-delivery-otp"><ShieldCheck size={20} /><span><small>MÃ XÁC NHẬN GIAO HÀNG</small><strong aria-label={`Mã giao hàng ${live.deliveryOtp}`}>{live.deliveryOtp?.split('').map((digit, index) => <i key={`${digit}-${index}`}>{digit}</i>)}</strong><em>Chỉ đọc mã này khi bạn đã nhận đủ món.</em></span></div>}
         {live.promisedAt && <p className="eat-clean-sla"><MapPin size={15} /> Cam kết hoàn thành trước {formatEatCleanDate(live.promisedAt)}</p>}
-      </div>
-      {message && <p className="eat-clean-inline-message" role="status">{message}</p>}
+      </div></>}
+      {currentFailure && <p className="eat-clean-inline-message" role="status">{accessDenied
+        ? 'Không thể truy cập hành trình đơn này. Vui lòng kiểm tra tài khoản hoặc bấm làm mới để thử lại.'
+        : 'Chưa thể cập nhật vị trí. Dữ liệu lần trước được giữ lại; bấm làm mới để thử lại.'}</p>}
     </section>
   )
 }

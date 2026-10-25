@@ -73,3 +73,18 @@ test('a newer revision recovers an initial read failure exactly once', async () 
   assert.equal(h.error(), false)
   await h.tick(); assert.equal(h.calls(), 2)
 })
+
+test('draft begun during a read retains its revision and resumes once without another event', async () => {
+  let finish!: () => void
+  const h = setup(() => new Promise<void>(resolve => { finish = resolve }))
+  h.engine.accept(state())
+  h.engine.observe('user', '0001'); await h.tick()
+  h.available(false)
+  finish(); await flush(); await h.tick()
+  assert.equal(h.calls(), 1)
+  assert.equal(h.error(), false)
+  h.available(true); h.engine.resume(); await h.tick()
+  assert.equal(h.calls(), 2)
+  h.engine.accept(state('0001')); finish(); await flush(); await h.tick()
+  assert.equal(h.calls(), 2)
+})

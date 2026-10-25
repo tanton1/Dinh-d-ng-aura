@@ -4,6 +4,7 @@ const { trustedAccessContext, requireCapability } = require('./identity-access')
 const { canonicalUsageSessions, sessionCountsTowardContract, summarizeSessionUsage, summarizeContractUsage } = require('./contract-usage')
 const { canonicalUsageSummary, loadContractUsageViews, USAGE_VIEW_SOURCE_VERSION } = require('./contract-usage-view')
 const { canonicalSessionRows } = require('./session-schedule-normalization')
+const { decodeHistoryCursor, historyCursorScope, readCanonicalHistoryPage } = require('./training-history-pagination')
 
 const MAX_RANGE_DAYS = 366
 const MAX_LEDGER_DOCUMENTS = 10000
@@ -202,11 +203,6 @@ function summaryFromLedger(entries, input) {
   return result
 }
 
-function encodeCursor(document) {
-  const value = typeof document?.data === 'function' ? document.data() : document || {}
-  return Buffer.from(JSON.stringify({ date: String(value.date || '').slice(0, 10), id: document.id }), 'utf8').toString('base64url')
-}
-
 function canonicalHistoryRows(rows = []) {
   return canonicalSessionRows(rows).sort((left, right) => {
     const dateOrder = String(right.date || '').slice(0, 10).localeCompare(String(left.date || '').slice(0, 10))
@@ -223,16 +219,6 @@ function canonicalStudentHistoryRows(rows = []) {
   })
 }
 
-function decodeCursor(value) {
-  if (!value) return null
-  try {
-    const parsed = JSON.parse(Buffer.from(String(value), 'base64url').toString('utf8'))
-    return { date: dateKey(parsed.date, 'Con trỏ lịch sử'), id: documentId(parsed.id, 'Con trỏ lịch sử') }
-  } catch {
-    throw new HttpsError('invalid-argument', 'Con trỏ lịch sử không hợp lệ.')
-  }
-}
-
 function normaliseHistoryInput(data = {}) {
   const allTime = data.allTime === true
   const startDate = dateKey(data.startDate || '2020-01-01', 'Ngày bắt đầu')
@@ -243,7 +229,10 @@ function normaliseHistoryInput(data = {}) {
   const status = typeof data.status === 'string' && data.status.trim() ? data.status.trim() : 'all'
   if (status !== 'all' && !validHistoryStatuses.has(status)) throw new HttpsError('invalid-argument', 'Trạng thái buổi tập không hợp lệ.')
   const pageSize = Math.min(MAX_HISTORY_PAGE, Math.max(1, Number.isInteger(data.pageSize) ? data.pageSize : DEFAULT_HISTORY_PAGE))
-  return { startDate, endDate, status, pageSize, cursor: decodeCursor(data.cursor), allTime }
+  const cursor = decodeHistoryCursor(data.cursor)
+  // The first page always establishes fresh totals. New clients can retain
+  // those totals while appending records; legacy clients keep the old result.
+  return { startDate, endDate, status, pageSize, cursor, allTime, includeSummary: !cursor || data.includeSummary !== false }
 }
 
 function matchesAssignment(contract, actor) {
@@ -545,53 +534,53 @@ function createBusinessReportingFunctions({ db, onCall }) {
         .where('date', '>=', input.startDate)
         .where('date', '<', followingDateKey(input.endDate))
     }
-    if (input.status !== 'all') query = query.where('status', '==', input.status)
+    // Status is evaluated after canonicalisation, as it is for totals. A
+    // cancelled mirror must not reappear just because its attended source is
+    // excluded by an early status predicate.
     query = query.orderBy('date', 'desc').orderBy(FieldPath.documentId(), 'desc')
-    if (input.cursor) query = query.startAfter(input.cursor.date, input.cursor.id)
-    // A cancelled/exempt mirror can sit beside the attendance row for the
-    // same published slot. Read a small safety window before canonicalising
-    // so the mirror does not consume a page item or appear as a second visit.
-    const pageReadLimit = Math.min(MAX_USAGE_SESSIONS + 1, Math.max(input.pageSize + 1, input.pageSize * 3 + 1))
-    const snapshot = await query.limit(pageReadLimit).get()
     const historyCutoff = subjectType === 'student' && input.allTime ? vietnamDateKey(new Date()) : ''
-    const scannedPageDocuments = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))
-    const canonicalPageDocuments = subjectType === 'student'
-      ? canonicalStudentHistoryRows(scannedPageDocuments)
-      : canonicalHistoryRows(scannedPageDocuments)
-    const pageDocuments = canonicalPageDocuments
-      .filter((item) => !historyCutoff || item.status !== 'scheduled' || String(item.date || '').slice(0, 10) < historyCutoff)
-      .filter((item) => access.scope !== 'branch_manager' || access.actor.branchIds.includes(item.branchId))
-      .slice(0, input.pageSize)
+    const historyPage = await readCanonicalHistoryPage({
+      query, input, scope: historyCursorScope({ subjectType, subjectId, input, access }),
+      canonicalize: subjectType === 'student' ? canonicalStudentHistoryRows : canonicalHistoryRows,
+      accepts: item => (!historyCutoff || item.status !== 'scheduled' || String(item.date || '').slice(0, 10) < historyCutoff)
+        && (access.scope !== 'branch_manager' || access.actor.branchIds.includes(item.branchId))
+        && (input.status === 'all' || item.status === input.status),
+    })
+    const { snapshot, records: pageDocuments } = historyPage
     const sessionIds = pageDocuments.map((item) => item.id)
     const records = pageDocuments
     const [{ attendanceBySession, eventsBySession }, names] = await Promise.all([
       relatedEvents(db, sessionIds),
       namesForHistory(db, records, subjectType),
     ])
-    let summaryQuery = db.collection('sessions').where(ownerField, '==', subjectId)
-    if (!input.allTime) {
-      summaryQuery = summaryQuery
-        .where('date', '>=', input.startDate)
-        .where('date', '<', followingDateKey(input.endDate))
+    let summary = null
+    if (input.includeSummary) {
+      let summaryQuery = db.collection('sessions').where(ownerField, '==', subjectId)
+      if (!input.allTime) {
+        summaryQuery = summaryQuery
+          .where('date', '>=', input.startDate)
+          .where('date', '<', followingDateKey(input.endDate))
+      }
+      const summaryLimit = input.allTime ? MAX_USAGE_SESSIONS + 1 : 5001
+      summaryQuery = summaryQuery.limit(summaryLimit)
+      // Only a complete date-bounded first page proves that the page and
+      // summary queries are equivalent. All-time legacy rows can lack dates.
+      const completeRangeInPage = !input.allTime && !input.cursor && historyPage.exhausted
+      const summarySnapshot = completeRangeInPage ? snapshot : await summaryQuery.get()
+      const summaryRows = summarySnapshot.docs.map((item) => ({ ...item.data(), id: item.id }))
+      const summaryRecords = (subjectType === 'student'
+        ? canonicalStudentHistoryRows(summaryRows)
+        : canonicalHistoryRows(summaryRows))
+        .filter((item) => !historyCutoff || item.status !== 'scheduled' || String(item.date || '').slice(0, 10) < historyCutoff)
+        .filter((item) => (access.scope !== 'branch_manager' || access.actor.branchIds.includes(item.branchId)))
+        .filter((item) => input.status === 'all' || item.status === input.status)
+      summary = {
+        ...sessionStatusSummary(summaryRecords),
+        usage: summarizeSessionUsage(summaryRecords),
+        teaching: subjectType === 'trainer' ? teachingShiftSummary(summaryRecords) : null,
+        truncated: summarySnapshot.size >= summaryLimit,
+      }
     }
-    const summaryLimit = input.allTime ? MAX_USAGE_SESSIONS + 1 : 5001
-    summaryQuery = summaryQuery.limit(summaryLimit)
-    // A complete, unfiltered first page already contains the entire range.
-    // Reusing it preserves canonical counting and avoids reading every small
-    // learner/week history twice. Filtered, partial and subsequent pages still
-    // need the independent range summary to keep totals correct.
-    // All-time legacy rows may lack `date` and be absent from the ordered
-    // page query; only a date-bounded range proves the two queries equivalent.
-    const completeRangeInPage = !input.allTime && !input.cursor && input.status === 'all' && snapshot.size < pageReadLimit
-    const summarySnapshot = completeRangeInPage ? snapshot : await summaryQuery.get()
-    const summaryRows = summarySnapshot.docs.map((item) => ({ id: item.id, ...item.data() }))
-    const summaryRecords = (subjectType === 'student'
-      ? canonicalStudentHistoryRows(summaryRows)
-      : canonicalHistoryRows(summarySnapshot.docs
-        .map((item) => ({ id: item.id, ...item.data() }))))
-      .filter((item) => !historyCutoff || item.status !== 'scheduled' || String(item.date || '').slice(0, 10) < historyCutoff)
-      .filter((item) => (access.scope !== 'branch_manager' || access.actor.branchIds.includes(item.branchId)))
-      .filter((item) => input.status === 'all' || item.status === input.status)
     return {
       schemaVersion: 3,
       subjectType,
@@ -635,16 +624,9 @@ function createBusinessReportingFunctions({ db, onCall }) {
           revision: Number(item.revision || 0),
         }
       }),
-      summary: {
-        ...sessionStatusSummary(summaryRecords),
-        usage: summarizeSessionUsage(summaryRecords),
-        teaching: subjectType === 'trainer' ? teachingShiftSummary(summaryRecords) : null,
-        truncated: summarySnapshot.size >= summaryLimit,
-      },
-      hasMore: snapshot.size >= pageReadLimit || canonicalPageDocuments.length > input.pageSize,
-      nextCursor: (snapshot.size >= pageReadLimit || canonicalPageDocuments.length > input.pageSize) && pageDocuments.length
-        ? encodeCursor(pageDocuments[pageDocuments.length - 1])
-        : null,
+      summary,
+      hasMore: historyPage.hasMore,
+      nextCursor: historyPage.nextCursor,
       filters: { startDate: input.allTime ? '' : input.startDate, endDate: input.allTime ? '' : input.endDate, status: input.status, allTime: input.allTime },
     }
   }

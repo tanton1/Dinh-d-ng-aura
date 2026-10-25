@@ -3,6 +3,7 @@
 const path = require('node:path')
 const { GoogleAuth } = require('google-auth-library')
 const { shortName, revisionResource, assertHealthyRevision, servesRevision } = require('./cloud-run-revision-policy.cjs')
+const { isRetired, stageRetiredCandidate } = require('./cloud-run-retired-stage.cjs')
 
 const DEFAULT_PROJECT = 'gen-lang-client-0815966909'
 const DEFAULT_REGION = 'asia-southeast1'
@@ -45,6 +46,7 @@ async function requestJson(url, headers, options = {}) {
   for (let attempt = 1; attempt <= 5; attempt += 1) {
     const response = await fetch(url, {
       ...options,
+      signal: AbortSignal.timeout(45_000),
       headers: {
         ...headers,
         ...(options.body ? { 'content-type': 'application/json' } : {}),
@@ -98,14 +100,28 @@ async function replaceTrafficV1(project, region, name, headers, current, approve
   await request(v1Url, headers, { method: 'PUT', body: JSON.stringify(body) })
 }
 
-async function promoteLatest(project, region, name, headers, { request = requestJson, pause = sleep, expectedRevision, expectedImage, trafficApi = 'v2' } = {}) {
+async function promoteLatest(project, region, name, headers, { request = requestJson, pause = sleep, expectedRevision, expectedImage, trafficApi = 'v2', stageRetired = false, log = () => {} } = {}) {
   if (!['v1', 'v2'].includes(trafficApi)) throw new Error('Traffic API must be v1 or v2 (--traffic-api=v1|v2).')
   const v2Url = `https://run.googleapis.com/v2/projects/${project}/locations/${region}/services/${name}`
-  const current = await request(v2Url, headers)
+  let current = await request(v2Url, headers)
   if (current.name !== `projects/${project}/locations/${region}/services/${name}`) throw new Error('Unexpected service identity.')
-  const createdRevision = shortName(current.latestCreatedRevision)
+  let createdRevision = shortName(current.latestCreatedRevision)
   if (!createdRevision) throw new Error(`${name} chưa có revision mới để chuyển traffic.`)
-  const revision = await request(`https://run.googleapis.com/v2/${revisionResource(current)}`, headers)
+  let revision = await request(`https://run.googleapis.com/v2/${revisionResource(current)}`, headers)
+  if (stageRetired && isRetired(revision)) {
+    const staged = await stageRetiredCandidate(current, revision, headers, { request, pause, expectedRevision, expectedImage, log })
+    current = staged.service
+    revision = staged.revision
+    expectedRevision = staged.expectedRevision
+    expectedImage = staged.expectedImage
+    createdRevision = shortName(current.latestCreatedRevision)
+    // This template was just created through v2. Replacing its converted v1
+    // representation can conflict with the immutable staged revision even
+    // when the GET/PUT body is preserved. Keep the traffic-only update on v2,
+    // guarded by the staging etag. This is chosen before any promotion write;
+    // it is not a fallback/retry after an uncertain request.
+    trafficApi = 'v2'
+  }
   const approved = assertHealthyRevision(current, revision, { expectedRevision, expectedImage })
   if (!hasPinnedTraffic(current, createdRevision) || !servesRevision(current, createdRevision)) {
     if (!current.etag) throw new Error('Missing service etag; refusing an unguarded traffic change.')
@@ -160,7 +176,7 @@ async function main() {
   const token = await accessToken()
   const headers = { authorization: `Bearer ${token}` }
   for (const name of names) {
-    const revision = await promoteLatest(project, region, name, headers, { expectedRevision, expectedImage, trafficApi })
+    const revision = await promoteLatest(project, region, name, headers, { expectedRevision, expectedImage, trafficApi, stageRetired: process.argv.includes('--stage-retired'), log: value => console.log(JSON.stringify(value)) })
     console.log(`+ ${name} -> ${revision}`)
   }
 }

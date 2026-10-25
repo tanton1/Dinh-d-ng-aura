@@ -1,6 +1,27 @@
 {
   "indexes": [
     {
+      "collectionGroup": "users",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "role", "order": "ASCENDING" },
+        { "fieldPath": "__name__", "order": "ASCENDING" }
+      ]
+    },
+    {"collectionGroup":"bodyMetrics","queryScope":"COLLECTION","fields":[{"fieldPath":"date","order":"DESCENDING"},{"fieldPath":"__name__","order":"DESCENDING"}]},
+    {"collectionGroup":"bodyMeasurements","queryScope":"COLLECTION","fields":[{"fieldPath":"date","order":"DESCENDING"},{"fieldPath":"__name__","order":"DESCENDING"}]},
+    {"collectionGroup":"weightLogs","queryScope":"COLLECTION","fields":[{"fieldPath":"date","order":"DESCENDING"},{"fieldPath":"__name__","order":"DESCENDING"}]},
+    {"collectionGroup":"progressCheckIns","queryScope":"COLLECTION","fields":[{"fieldPath":"date","order":"DESCENDING"},{"fieldPath":"__name__","order":"DESCENDING"}]},
+    {"collectionGroup":"progress_photos","queryScope":"COLLECTION","fields":[{"fieldPath":"date","order":"DESCENDING"},{"fieldPath":"__name__","order":"DESCENDING"}]},
+    {"collectionGroup":"progressPhotos","queryScope":"COLLECTION","fields":[{"fieldPath":"date","order":"DESCENDING"},{"fieldPath":"__name__","order":"DESCENDING"}]},
+    {"collectionGroup":"students","queryScope":"COLLECTION","fields":[{"fieldPath":"loyaltyMembership.managed","order":"ASCENDING"},{"fieldPath":"__name__","order":"ASCENDING"}]},
+    {"collectionGroup":"students","queryScope":"COLLECTION","fields":[{"fieldPath":"loyaltyMembership.managed","order":"ASCENDING"},{"fieldPath":"branchId","order":"ASCENDING"},{"fieldPath":"__name__","order":"ASCENDING"}]},
+    {"collectionGroup":"students","queryScope":"COLLECTION","fields":[{"fieldPath":"loyaltyMembership.nextCheckOn","order":"ASCENDING"},{"fieldPath":"__name__","order":"ASCENDING"}]},
+    {"collectionGroup":"loyaltyRedemptions","queryScope":"COLLECTION","fields":[{"fieldPath":"studentId","order":"ASCENDING"},{"fieldPath":"__name__","order":"ASCENDING"}]},
+    {"collectionGroup":"memberReferrals","queryScope":"COLLECTION","fields":[{"fieldPath":"referrerStudentId","order":"ASCENDING"},{"fieldPath":"__name__","order":"ASCENDING"}]},
+    {"collectionGroup":"ambassadorProfiles","queryScope":"COLLECTION","fields":[{"fieldPath":"studentId","order":"ASCENDING"},{"fieldPath":"__name__","order":"ASCENDING"}]},
+
+    {
       "collectionGroup": "students",
       "queryScope": "COLLECTION",
       "fields": [
@@ -565,6 +586,14 @@
       "collectionGroup": "ledgerEntries",
       "queryScope": "COLLECTION",
       "fields": [
+        { "fieldPath": "effectiveAt", "order": "DESCENDING" },
+        { "fieldPath": "__name__", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "ledgerEntries",
+      "queryScope": "COLLECTION",
+      "fields": [
         { "fieldPath": "branchId", "order": "ASCENDING" },
         { "fieldPath": "effectiveAt", "order": "DESCENDING" },
         { "fieldPath": "__name__", "order": "DESCENDING" }
@@ -906,6 +935,12 @@
     {
       "collectionGroup": "academyReviewRevisions",
       "fieldPath": "*",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "eatCleanLiveLocationViews",
+      "fieldPath": "expiresAt",
+      "ttl": true,
       "indexes": []
     },
     {

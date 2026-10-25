@@ -813,7 +813,7 @@ function createOperationsDashboardFunctions({
     const active = dashboardInflight.get(memoryCacheKey)
     if (active && !request.data?.forceRefresh) return active
     const load = async () => {
-    const sharedCached = await sharedCache.get(cacheKey, request.data?.forceRefresh === true)
+    const { cached: sharedCached, lease } = await sharedCache.acquire(cacheKey, request.data?.forceRefresh === true)
     if (sharedCached) {
       if (dashboardInflight.get(memoryCacheKey) === pending) setCachedDashboard(memoryCacheKey, sharedCached)
       logger.info('operations_dashboard_request', {
@@ -825,6 +825,7 @@ function createOperationsDashboardFunctions({
       return sharedCached
     }
 
+    try {
     // Daily aggregates are built once and maintained by Firestore triggers.
     // They replace the largest ledger/session scans for administrator views;
     // actor-scoped staff views continue to use the stricter raw queries.
@@ -1049,9 +1050,9 @@ function createOperationsDashboardFunctions({
       todayRows: result.today.rows.length,
       receivableRows: result.receivables.rows.length,
     })
-    if (dashboardInflight.get(memoryCacheKey) === pending) {
+    const published = await sharedCache.publish(cacheKey, result, lease)
+    if (published && dashboardInflight.get(memoryCacheKey) === pending) {
       setCachedDashboard(memoryCacheKey, result)
-      await sharedCache.set(cacheKey, result)
     }
     logger.info('operations_dashboard_request', {
       durationMs: Date.now() - startedAt,
@@ -1063,6 +1064,10 @@ function createOperationsDashboardFunctions({
       aggregateUsed: Boolean(dailyAggregate),
     })
     return result
+    } catch (error) {
+      await sharedCache.release(cacheKey, lease)
+      throw error
+    }
     }
     const pending = load()
     dashboardInflight.set(memoryCacheKey, pending)

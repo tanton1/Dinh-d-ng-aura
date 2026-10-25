@@ -208,6 +208,8 @@ function normalizeConfig(value: unknown): EatCleanDeliveryOperationsConfig {
 export async function listMyEatCleanDeliveryJobs(): Promise<EatCleanDriverWorkspace> {
   const callable = httpsCallable<Record<string, never>, unknown>(functionsClient(), 'listMyShipperJobs')
   const source = recordOf((await callable({})).data)
+  const sync = recordOf(source.workspaceSync)
+  const validVersion = (value: unknown) => typeof value === 'string' && /^(0|\d{12}\.\d{9})$/.test(value)
   return {
     driver: normalizeDriver(source.driver ?? source.shipper, 0),
     jobs: (Array.isArray(source.jobs) ? source.jobs : Array.isArray(source.deliveries) ? source.deliveries : []).map(normalizeJob),
@@ -215,6 +217,10 @@ export async function listMyEatCleanDeliveryJobs(): Promise<EatCleanDriverWorksp
       ? normalizeReadiness(source.readiness)
       : undefined,
     serverTime: text(source.serverTime) || undefined,
+    workspaceSync: sync.schemaVersion === 1 && ['shipper', 'dispatch'].includes(text(sync.scope))
+      && text(sync.accountId) && validVersion(sync.userVersion) && validVersion(sync.policyVersion)
+      ? { schemaVersion: 1, accountId: text(sync.accountId), scope: sync.scope as 'shipper' | 'dispatch', version: text(sync.version), userVersion: text(sync.userVersion), policyVersion: text(sync.policyVersion) }
+      : undefined,
   }
 }
 
@@ -357,7 +363,7 @@ export async function publishEatCleanDriverLocation(
   deliveryId: string,
   driverId: string,
   position: GeolocationPosition,
-): Promise<void> {
+): Promise<{ accepted: boolean; reason?: string }> {
   const { latitude, longitude, accuracy, heading, speed } = position.coords
   const payload = {
     orderId: deliveryId,
@@ -369,7 +375,8 @@ export async function publishEatCleanDriverLocation(
     capturedAt: position.timestamp,
   }
   const callable = httpsCallable<typeof payload, unknown>(functionsClient(), 'updateEatCleanShipperLocation')
-  await callable(payload)
+  const result = recordOf((await callable(payload)).data)
+  return { accepted: result.throttled !== true, ...(typeof result.reason === 'string' ? { reason: result.reason } : {}) }
 }
 
 export function getDeliveryServiceError(error: unknown): string {
