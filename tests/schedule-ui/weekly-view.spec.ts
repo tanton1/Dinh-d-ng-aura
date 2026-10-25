@@ -238,7 +238,8 @@ for (const sameRevision of [false, true]) {
     await expect(page.locator('.branch-schedule__loading')).toHaveCount(0)
     await expect(page.locator('.branch-schedule__sync')).toHaveText('Đang đồng bộ')
     await page.getByRole('tab', { name: /Cảnh báo/ }).click()
-    await expect(page.getByRole('button', { name: /Do hợp đồng/ })).toBeDisabled()
+    await expect(page.getByRole('button', { name: /Do hợp đồng/ })).toBeEnabled()
+    await expect(page.getByRole('region', { name: 'Phiên bản cảnh báo' })).toHaveClass(/is-pending/)
     expect(await page.evaluate(() => (window as any).__scheduleCalls.map((item: any) => item.operation))).toEqual(['weekly-view'])
     await page.evaluate((same) => {
       const compact = (window as any).__compactWeeklyFixture
@@ -290,8 +291,9 @@ for (const fromCache of [false, true, undefined]) {
     await expect.poll(() => page.evaluate(() => (window as any).__weeklyViewResponses)).toBe(1)
     await expect(page.locator('.branch-schedule__sync')).toHaveText(expectedState)
     await page.getByRole('tab', { name: /Cảnh báo/ }).click()
-    if (fromCache === false) await expect(page.getByRole('button', { name: /Do hợp đồng/ })).toBeEnabled()
-    else await expect(page.getByRole('button', { name: /Do hợp đồng/ })).toBeDisabled()
+    await expect(page.getByRole('button', { name: /Do hợp đồng/ })).toBeEnabled()
+    if (fromCache === false) await expect(page.getByRole('region', { name: 'Phiên bản cảnh báo' })).not.toHaveClass(/is-pending/)
+    else await expect(page.getByRole('region', { name: 'Phiên bản cảnh báo' })).toHaveClass(/is-pending/)
     expect(await page.evaluate(() => (window as any).__scheduleCalls.map((item: any) => item.operation))).toEqual(['weekly-view'])
   })
 }
