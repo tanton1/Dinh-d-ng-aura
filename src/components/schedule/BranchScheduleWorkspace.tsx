@@ -291,7 +291,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
   const [branchCatalogState, setBranchCatalogState] = useState<'loading' | 'ready' | 'error'>('loading')
   const [branchCatalogError, setBranchCatalogError] = useState<string | null>(null)
   const [weekOffset, setWeekOffset] = useState(0)
-  const [workspace, setWorkspace] = useState<PtScheduleWorkspaceV2Result | null>(null)
+  const [workspace, setWorkspaceState] = useState<PtScheduleWorkspaceV2Result | null>(null)
   const [selectedTrainerId, setSelectedTrainerId] = useState('')
   const [tab, setTab] = useState<WorkspaceTab>('matrix')
   const [opportunityStudentId, setOpportunityStudentId] = useState('')
@@ -346,6 +346,8 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
   const weeklyRefreshPendingRef = useRef<{ scope: string; pending: boolean }>({ scope: '', pending: false })
   const weeklyControlStatusRef = useRef<{ scope: string; status: 'disabled' | 'pending' | 'ready' | 'error' }>({ scope: '', status: 'disabled' })
   const activeWorkspaceScopeRef = useRef('')
+  const latestDraftRef = useRef<{ scope: string; value: Record<string, unknown> } | null>(null)
+  const draftSubscriptionFailedRef = useRef('')
   const setSyncState = useCallback((next: WorkspaceSyncState | ((current: WorkspaceSyncState) => WorkspaceSyncState)) => {
     setRawSyncState((current) => {
       const control = weeklyControlStatusRef.current
@@ -353,6 +355,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
       // not repair a terminal control subscription error. Only a new scope or
       // a server-confirmed control callback can lift this transport state.
       if (control.scope === activeWorkspaceScopeRef.current && control.status === 'error') return 'offline'
+      if (draftSubscriptionFailedRef.current === activeWorkspaceScopeRef.current) return 'offline'
       return typeof next === 'function' ? next(current) : next
     })
   }, [])
@@ -375,6 +378,26 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
   const isAdmin = accessContext.accessRole === 'admin' || accessContext.accessRole === 'super_admin'
   const ownerScope = `${accessContext.uid}|${accessContext.authzVersion}|${accessContext.accessRole}|${accessBranchIdsKey}`
   const workspaceScope = `${ownerScope}|${branchId}|${currentWeekId}`
+  // Commit a saved matrix to React, async readers and the scoped cache together.
+  // A display-only payload is cacheable; it is not current validation evidence.
+  const setWorkspace = useCallback((update: PtScheduleWorkspaceV2Result | null | ((current: PtScheduleWorkspaceV2Result | null) => PtScheduleWorkspaceV2Result | null)) => {
+    if (activeWorkspaceScopeRef.current !== workspaceScope) return
+    const current = workspaceRef.current
+    let next = typeof update === 'function' ? update(current) : update
+    if (next && (next.branch.id !== branchId || next.weekId !== currentWeekId)) return
+    if (next && current?.branch.id === branchId && current.weekId === currentWeekId
+      && (next.draftRevision < current.draftRevision || next.draftRevision === current.draftRevision
+        && (next.publishedVersion < current.publishedVersion || current.draftStatus === 'published' && next.draftStatus !== 'published'))) next = current
+    const draft = latestDraftRef.current
+    if (next && draft?.scope === workspaceScope && (Number(draft.value.revision) > next.draftRevision
+      || Number(draft.value.revision) === next.draftRevision
+        && (Number(draft.value.publishedVersion || 0) > next.publishedVersion || draft.value.status === 'published' && next.draftStatus !== 'published'))) {
+      next = workspaceFromDraftSnapshot(next, draft.value)
+    }
+    workspaceRef.current = next
+    if (next) writeWorkspaceCache(workspaceScope, next)
+    setWorkspaceState(next)
+  }, [branchId, currentWeekId, workspaceScope])
   if (workspaceReadyTimingRef.current.scope !== workspaceScope) {
     workspaceReadyTimingRef.current = {
       scope: workspaceScope,
@@ -458,12 +481,6 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
     }
   }, [])
 
-  useEffect(() => {
-    workspaceRef.current = workspace
-    if (workspace && !workspace.partial && workspace.branch.id === branchId && workspace.weekId === currentWeekId) {
-      writeWorkspaceCache(workspaceScope, workspace)
-    }
-  }, [branchId, currentWeekId, workspace, workspaceScope])
   useEffect(() => {
     const timing = workspaceReadyTimingRef.current
     if (!workspace || workspace.partial || loading || timing.reported || timing.scope !== workspaceScope) return
@@ -686,14 +703,12 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
       // has not invalidated this week since we last visited it.
       const provisional = applyWeeklyValidation(cached.value, { rebuilding: true, freshness: 'stale' }, cached.value)
       provisional.weeklyViewFreshness = 'stale'
-      workspaceRef.current = provisional
       setWorkspace(provisional)
       setSelectedTrainerId((current) => availableTrainerId(cached.value.trainers, current))
       setLoading(false)
       setLastSyncedAt(new Date(cached.storedAt))
       setSyncState('syncing')
     } else {
-      workspaceRef.current = null
       setWorkspace(null)
       setLoading(Boolean(branchId))
       setSyncState('connecting')
@@ -796,45 +811,60 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
         }
       })
     }
-    const startDraftFallback = () => {
-      requestBootstrap()
+    const startDraftListener = () => {
       if (fallbackStarted || !firestoreDb || !canListenToDraft) return
       fallbackStarted = true
       stopDraftListener = onSnapshot(
         doc(firestoreDb, 'ptScheduleDrafts', `${branchId}_${currentWeekId}`),
+        { includeMetadataChanges: true },
         (snapshot) => {
           if (listenerInactive()) return
+          const serverDraft = snapshot.metadata?.fromCache === false
+          if (serverDraft) draftSubscriptionFailedRef.current = ''
           const raw = snapshot.data()
           const current = workspaceRef.current
-          if (!snapshot.exists() || !raw || !current || current.branch.id !== branchId || current.weekId !== currentWeekId) return
+          if (!snapshot.exists() || !raw || !raw.schedule || typeof raw.schedule !== 'object' || Array.isArray(raw.schedule)) return
           if (raw.branchId && raw.branchId !== branchId) return
           if (raw.weekId && raw.weekId !== currentWeekId) return
           const revision = Number(raw.revision ?? 0)
+          if (!Number.isSafeInteger(revision) || revision < 0) return
+          const previousDraft = latestDraftRef.current
+          if (previousDraft?.scope === listenerScope && revision < Number(previousDraft.value.revision)) return
+          latestDraftRef.current = { scope: listenerScope, value: raw }
+          if (!current || current.branch.id !== branchId || current.weekId !== currentWeekId) return
           const publishedVersion = Number(raw.publishedVersion ?? current.publishedVersion)
           const nextStatus = raw.status === 'published' ? 'published' : 'draft'
           if (revision < current.draftRevision) return
           if (revision === current.draftRevision
             && publishedVersion === current.publishedVersion
             && nextStatus === current.draftStatus) {
-            setSyncState('live')
+            if (serverDraft && controlReady) setSyncState('live')
             return
           }
-          startTransition(() => setWorkspace((value) => {
+          setWorkspace((value) => {
             if (!value || value.branch.id !== branchId || value.weekId !== currentWeekId) return value
-            const next = workspaceFromDraftSnapshot(value, raw)
-            workspaceRef.current = next
-            return next
-          }))
+            return workspaceFromDraftSnapshot(value, raw)
+          })
           candidateCache.current.clear()
           setLastSyncedAt(new Date())
-          setSyncState('live')
+          if (serverDraft && controlReady) setSyncState('live')
         },
         () => {
-          if (!listenerInactive()) setSyncState((current) => current === 'connecting' ? 'offline' : current)
+          if (!listenerInactive()) {
+            draftSubscriptionFailedRef.current = listenerScope
+            setSyncState('offline')
+          }
         },
       )
     }
+    const startDraftFallback = () => {
+      requestBootstrap()
+      startDraftListener()
+    }
     if (firestoreDb && canListenToDraft) {
+      // One bounded draft document, not a roster/session scan. Catch other
+      // admins' saved edits before the background weekly projection rebuilds.
+      startDraftListener()
       // Give the authenticated server stream one short opportunity to supply
       // the complete week. A miss, denial or invalidation bypasses this wait;
       // a slow/offline stream cannot leave bootstrap hanging indefinitely.
@@ -893,7 +923,6 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
               weeklyRefreshPendingRef.current = { scope: listenerScope, pending: false }
             }
             if (!current) {
-              workspaceRef.current = initial
               setWorkspace(initial)
               setSelectedTrainerId(initial.trainers.find((trainer) => !isTrainerLocked(trainer))?.id || '')
               setLoading(false)
@@ -922,7 +951,6 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
               const stale = applyWeeklyValidation(pendingCurrent, { dirty: true, validationDirty: true }, pendingCurrent)
               stale.weeklyViewFreshness = 'stale'
               stale.weeklyViewDirtyGeneration = Math.max(Number(pendingCurrent.weeklyViewDirtyGeneration || 0), Number(raw.dirtyGeneration || 0))
-              workspaceRef.current = stale
               setWorkspace(stale)
             }
             latestDirtyGeneration = typeof raw.dirtyGeneration === 'number'
@@ -944,10 +972,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
               : workspaceFromWeeklyViewSnapshot(current, evidence)
             setSyncState(next.weeklyViewFreshness === 'stale' ? 'syncing' : 'live')
             if (workspaceRealtimeFingerprint(next) === workspaceRealtimeFingerprint(current)) return
-            startTransition(() => {
-              workspaceRef.current = next
-              setWorkspace(next)
-            })
+            setWorkspace(next)
             candidateCache.current.clear()
             setLastSyncedAt(new Date())
           } catch {
@@ -1779,7 +1804,6 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
           // them.
           unassignedEntries: current.unassignedEntries || current.unassigned || [],
         })
-        workspaceRef.current = next
         return next
       })
       setNotice(`Đã lưu draft r${result.draftRevision}. Bấm Publish để đồng bộ lên lịch PT.`)
@@ -1820,7 +1844,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
       })
       if (activeWorkspaceScopeRef.current !== commandScope) return false
       setWorkspace((current) => {
-        if (!current) return current
+        if (!current || result.draftRevision < current.draftRevision) return current
         const next = workspaceFromDraftSnapshot(current, {
           revision: result.draftRevision,
           schedule: result.schedule,
@@ -1848,7 +1872,6 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
           }
           next.sessionRefs = Object.fromEntries(Object.entries(refs).filter(([, value]) => value.sessionId))
         }
-        workspaceRef.current = next
         return next
       })
       candidateCache.current.clear()
@@ -2029,7 +2052,6 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
           .filter((item) => item.eligibleForWeek === true)
           .reduce((total, item) => total + Math.max(0, item.sessionsPerWeek - (scheduledByStudent.get(item.id) || 0)), 0)
         const next = { ...current, students: nextStudents, summary: { ...current.summary, missingSessions } }
-        workspaceRef.current = next
         return next
       })
       candidateCache.current.clear()
@@ -2170,17 +2192,15 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
         mode,
       }))
       if (activeWorkspaceScopeRef.current !== commandScope) return
-      setWorkspace((current) => current ? {
-        ...current,
+      setWorkspace((current) => current ? workspaceFromDraftSnapshot(current, {
+        revision: result.draftRevision,
         schedule: result.schedule,
-        draftRevision: result.draftRevision,
-        draftStatus: 'draft',
+        status: 'draft',
         warnings: result.warnings,
-        optimizationSummary: result.optimizationSummary || current.optimizationSummary,
-        unassignedEntries: result.unassignedEntries || result.unassigned || current.unassignedEntries,
-        trainerLoads: result.trainerLoads || current.trainerLoads,
-        studentCoverage: result.studentCoverage || current.studentCoverage,
-      } : current)
+        optimizationSummary: result.optimizationSummary || {},
+        unassignedEntries: result.unassignedEntries || result.unassigned || [],
+      }) : current)
+      setTab('matrix')
       // The optimizer is the explicit reconciliation boundary. Once it has
       // run, hydrate the richer workspace projection so warning/coverage tabs
       // reflect the same evidence used by the server-side optimizer.
@@ -2203,7 +2223,6 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
       setNotice(unresolved
         ? `Đã tối ưu draft r${result.draftRevision}; còn ${unresolved} hồ sơ cần xử lý.${deepRun}${searchNote}`
         : `Đã tối ưu draft r${result.draftRevision}; đã ưu tiên đủ học viên, ca đôi và PT chính/phụ.${deepRun}${searchNote}`)
-      if (unresolved) setTab('warnings')
     } catch (arrangeError) {
       if (activeWorkspaceScopeRef.current !== commandScope) return
       const normalized = asPtSchedulePublishError(arrangeError)
@@ -2327,7 +2346,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
     () => new Map((workspace?.students || []).map((student) => [student.id, student.name || 'Học viên chưa cập nhật'])),
     [workspace?.students],
   )
-  const studentName = (studentId: string) => studentNames.get(studentId) || 'Học viên đã xóa'
+  const studentName = (studentId: string) => studentNames.get(studentId) || 'Đang cập nhật hồ sơ'
   const highlightedStudent = workspace?.students.find((student) => student.id === highlightedStudentId) || null
   const hoveredStudent = workspace?.students.find((student) => student.id === hoveredStudentId) || null
   const hoveredAvailabilitySlots = useMemo(
@@ -2404,7 +2423,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
         <div className="branch-schedule__tabs" role="tablist" aria-label="Nội dung xếp lịch">
           <button id="schedule-tab-matrix" type="button" role="tab" aria-selected={tab === 'matrix'} aria-controls="schedule-panel-matrix" tabIndex={tab === 'matrix' ? 0 : -1} className={tab === 'matrix' ? 'is-active' : ''} onClick={() => setTab('matrix')}>Lịch PT</button>
           <button id="schedule-tab-opportunities" type="button" role="tab" aria-selected={tab === 'opportunities'} aria-controls="schedule-panel-opportunities" tabIndex={tab === 'opportunities' ? 0 : -1} className={tab === 'opportunities' ? 'is-active' : ''} onClick={() => setTab('opportunities')}>Kho ca {tab === 'opportunities' && <b>{scheduleOpportunities.length}</b>}</button>
-          <button id="schedule-tab-warnings" type="button" role="tab" aria-selected={tab === 'warnings'} aria-controls="schedule-panel-warnings" tabIndex={tab === 'warnings' ? 0 : -1} className={tab === 'warnings' ? 'is-active' : ''} onClick={openFirstWarningStudentAvailability}>Cảnh báo <b>{coveragePending ? '—' : warningCount}</b></button>
+          <button id="schedule-tab-warnings" type="button" role="tab" aria-selected={tab === 'warnings'} aria-controls="schedule-panel-warnings" tabIndex={tab === 'warnings' ? 0 : -1} className={tab === 'warnings' ? 'is-active' : ''} onClick={openFirstWarningStudentAvailability}>Cảnh báo <b title={coveragePending ? 'Thiếu buổi chưa đối soát cho lịch hiện tại' : undefined}>{coveragePending ? retainedValidation ? 'cũ' : '—' : warningCount}</b></button>
           <button id="schedule-tab-students" type="button" role="tab" aria-selected={tab === 'students'} aria-controls="schedule-panel-students" tabIndex={tab === 'students' ? 0 : -1} className={tab === 'students' ? 'is-active' : ''} onClick={() => setTab('students')}>Học viên</button>
         </div>
         <div className="branch-schedule__actions">
@@ -2452,6 +2471,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
 
       {workspace && tab === 'matrix' && (
         <main id="schedule-panel-matrix" role="tabpanel" aria-labelledby="schedule-tab-matrix" className="branch-schedule__workspace">
+          <p className="branch-schedule__draft-state" aria-label="Phiên bản lịch đang hiển thị"><strong>{workspace.draftStatus === 'published' ? 'Lịch đã publish' : 'Draft'} r{workspace.draftRevision}</strong><span>{workspace.draftStatus === 'published' ? `Bản công bố v${workspace.publishedVersion}` : 'Đã lưu · chưa Publish'}</span></p>
           <section className="branch-schedule__matrix-toolbar">
             <label><span>Huấn luyện viên</span><select value={selectedTrainerId} disabled={workspaceHydrating} onChange={(event) => setSelectedTrainerId(event.target.value)}>{visibleTrainers.map((trainer) => <option key={trainer.id} value={trainer.id}>{trainer.name}</option>)}</select></label>
             {selectedTrainer && <div className={`trainer-availability-chip is-${selectedTrainer.availabilityMode}`}><Clock3 size={14} />{selectedTrainer.availabilityMode === 'configured' ? `${selectedTrainer.availableSlots?.length || 0} khung giờ rảnh` : selectedTrainer.availabilityMode === 'unrestricted' ? 'Không giới hạn' : 'Chưa khai lịch rảnh'}</div>}

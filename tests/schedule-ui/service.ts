@@ -11,6 +11,8 @@ const track = (operation: string, input: any) => { (window as any).__scheduleCal
 export const listPtScheduleBranches = async () => ({ branches: [{ id: 'b', name: 'CS1' }, { id: 'c', name: 'CS2' }] })
 export const getPtScheduleWorkspace = async (input: any) => {
   track('load', input)
+  if ((window as any).__failFullWorkspace) throw Error('Đối soát tạm gián đoạn')
+  if ((window as any).__holdFullWorkspace) await new Promise<void>(resolve => { (window as any).__releaseFullWorkspace = resolve })
   if ((window as any).__workspaceDelayMs) await sleep((window as any).__workspaceDelayMs)
   return structuredClone({ ...workspace, weekId: input.weekId, branch: { ...workspace.branch, id: input.branchId }, readMode: 'reconciled', partial: false })
 }
@@ -31,6 +33,7 @@ export const weeklyViewFixture = (input: any) => {
     coverage, weeklySessionCoverage: {}, optimizationSummary: { slotUtilization: {}, studentCoverage: {}, optimizationPasses: 0 },
   }
   const view: any = { ...((window as any).__weeklyViewCompact ? compact : full), ...(window as any).__weeklyViewOverride }
+  Object.assign(view, (window as any).__weeklyViewByBranch?.[input.branchId] || {})
   const mode = (window as any).__validationMode
   if (mode) {
     const metadata = { schemaVersion: 1, branchId: input.branchId, weekId: input.weekId, sourceRevision: 'independent-validation-hash', draftRevision: workspace.draftRevision, dirtyGeneration: 1, validatedAt: '2026-10-19T01:00:00Z' }
@@ -58,6 +61,8 @@ export const getPtScheduleWeeklyView = async (input: any) => {
 }
 export const ptScheduleConflictLabel = (code: string) => code === 'STUDENT_AVAILABILITY_DAYS_INSUFFICIENT'
   ? 'Học viên đăng ký chưa đủ số ngày rảnh để hoàn thành mục tiêu tuần.'
+  : code === 'STUDENT_MISSING_SESSIONS' ? 'Học viên chưa được xếp đủ số buổi trong tuần.'
+  : code === 'PROFILE_DATA_INCOMPLETE' ? 'Hồ sơ còn thiếu thông tin phục vụ xếp lịch.'
   : code
 export const asPtSchedulePublishError = (error: any) => ({ ...error, message: error.message || 'Lỗi thử nghiệm', conflicts: [], errorDetails: error.errorDetails || [] })
 export const getPtScheduleSlotCandidates = async (input: any) => { track('candidates', input); return { candidates: workspace.students.map((s: any) => ({ studentId: s.id, name: s.name, phone: '', eligible: !(workspace.schedule[input.slotId] || []).some((e: any) => e.studentId === s.id), manualSelectable: !(workspace.schedule[input.slotId] || []).some((e: any) => e.studentId === s.id), matchesStudentAvailability: true, reasons: [], contractId: `c-${s.id}` })) } }
@@ -88,7 +93,11 @@ export const applyAdminPtScheduleEdit = async (input: any) => {
   workspace.draftRevision++
   return structuredClone({ draftRevision: workspace.draftRevision, schedule: workspace.schedule, sessionChanged: true })
 }
-export const generatePtScheduleDraft = async (input: any) => { track('generate', input); await sleep(500); workspace.draftRevision++; return structuredClone({ schedule: workspace.schedule, draftRevision: workspace.draftRevision, warnings: [], unassignedEntries: [], optimizationSummary: { optimizationPasses: 2 } }) }
+export const generatePtScheduleDraft = async (input: any) => {
+  track('generate', input); await sleep(500); workspace.draftRevision++
+  if ((window as any).__generatedSchedule) workspace.schedule = (window as any).__generatedSchedule
+  return structuredClone({ schedule: workspace.schedule, draftRevision: workspace.draftRevision, warnings: [], unassignedEntries: (window as any).__generatedUnassigned || [], optimizationSummary: { optimizationPasses: 2 } })
+}
 export const validatePtScheduleDraft = async (input: any) => { track('validate', input); if ((window as any).__failScheduleValidation) throw Object.assign(Error('Lịch còn xung đột'), { errorDetails: [{ code: 'OUTSIDE_STUDENT_AVAILABILITY', slotId: 'T2-6', studentId: 'a', studentName: 'Lan', trainerId: 't', trainerName: 'Mai' }] }); return { draftRevision: workspace.draftRevision, version: 1, diff: { create: 2, update: 0, cancel: 0, unchanged: 0 }, warnings: (window as any).__validationWarnings || [] } }
 export const publishPtSchedule = async (input: any) => { track('publish', input); workspace.publishedVersion++; workspace.draftStatus = 'published'; return { version: workspace.publishedVersion, unchanged: false } }
 export const listPtScheduleVersions = async () => ({ currentDraftRevision: workspace.draftRevision, currentVersion: 1, versions: (window as any).__scheduleVersions || [] })
