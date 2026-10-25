@@ -51,6 +51,7 @@ import {
   type CourseRevisionSummary,
 } from '../../services/firebaseService'
 import { generateCourseMemory, generateCourseOutline, generateCourseQuiz } from '../../services/generativeAiService'
+import { appendGeneratedItems, appendGeneratedText } from '../../utils/contentAiApplication'
 import { firebaseAuth } from '../../lib/firebase'
 import { useAcademySessionEpoch } from '../../features/academy/useAcademySessionEpoch'
 import { applyAcademyAdoption, type AcademyAdoptionCandidate } from '../../features/academy/adoption'
@@ -308,7 +309,15 @@ export default function CourseEditorPage({ onNavigate, onSave, onDirtyChange, ca
     return () => { active = false }
   }, [course.id, course.revision, saveTarget])
 
-  const handleGenerateOutline = async () => {
+  const assertAiDraftCurrent = (generation: number, snapshot: string) => {
+    if (adoptionGeneration.current !== generation || editorOwner.current !== firebaseAuth?.currentUser
+      || editorSnapshotRef.current !== snapshot) {
+      throw new Error('Nội dung đang biên tập đã thay đổi. Kết quả AI đã được lưu; bấm tạo bằng AI để lấy lại khi bạn sẵn sàng.')
+    }
+  }
+
+  const handleGenerateOutline = async (newDraft = false) => {
+    if (needsFullAuthoring || isContentLocked || adoptionBusyRef.current || saving || workflowBusy) return
     if (!course.title) {
       alert("Vui lòng nhập tên khóa học ở Bước 1 trước khi tự động lên sườn.");
       return;
@@ -316,22 +325,24 @@ export default function CourseEditorPage({ onNavigate, onSave, onDirtyChange, ca
     if (course.modules.length > 0) {
       if (!window.confirm("Khóa học đã có chương. Việc tạo tự động có thể sẽ xóa hoặc ghi đè nội dung. Bạn có chắc chắn muốn tiếp tục?")) return;
     }
+    const generation = adoptionGeneration.current, snapshot = editorSnapshotRef.current
     try {
       setGeneratingOutline(true);
       const data = await generateCourseOutline({
         topic: course.title,
         audience: course.description || course.outcomes.join(', '),
         weeks: Number.parseInt(course.duration, 10) || 4,
-      });
+      }, { newDraft });
+      assertAiDraftCurrent(generation, snapshot)
       if (data && data.modules) {
-        setCourse((c) => ({
+        setCourse((c) => JSON.stringify(c) !== snapshot || adoptionGeneration.current !== generation ? c : ({
           ...c,
           modules: data.modules.map((m: any, i: number) => ({
-            id: 'module-' + crypto.randomUUID(),
+            id: `ai-module-${data.generationId}-${i}`,
             title: m.title,
             order: i,
             lessons: m.lessons.map((l: any, j: number) => ({
-              id: 'lesson-' + crypto.randomUUID(),
+              id: `ai-lesson-${data.generationId}-${i}-${j}`,
               type: "Video",
               title: l.title,
               duration: "5 phút",
@@ -342,76 +353,72 @@ export default function CourseEditorPage({ onNavigate, onSave, onDirtyChange, ca
         }));
       }
     } catch (e) {
-      alert("Có lỗi xảy ra khi gọi AI.");
+      if (adoptionGeneration.current === generation) alert(e instanceof Error ? e.message : 'Chưa thể lấy kết quả AI.');
     } finally {
-      setGeneratingOutline(false);
+      if (adoptionGeneration.current === generation) setGeneratingOutline(false);
     }
   }
 
-  const handleGenerateQuiz = async () => {
+  const handleGenerateQuiz = async (newDraft = false) => {
+    if (needsFullAuthoring || isContentLocked || adoptionBusyRef.current || saving || workflowBusy) return
     const detailLesson = course.modules[detailLessonModuleIndex]?.lessons[detailLessonIndex]
     if (!detailLesson) return;
+    const generation = adoptionGeneration.current, snapshot = editorSnapshotRef.current
+    const moduleId = course.modules[detailLessonModuleIndex].id, lessonId = detailLesson.id
     try {
       setGeneratingQuiz(true);
       const data = await generateCourseQuiz({
         lessonTitle: detailLesson.title,
         lessonSummary: detailLesson.summary || detailLesson.coachNotes || course.title,
-      });
+      }, { newDraft });
+      assertAiDraftCurrent(generation, snapshot)
       if (data && data.questions) {
         setCourse((c) => {
-          const newCourse = { ...c };
-          const mod = newCourse.modules[detailLessonModuleIndex];
-          const les = mod.lessons[detailLessonIndex];
-          if (!les.quiz) {
-            les.quiz = { id: crypto.randomUUID(),
-              questionOrder: 'sequential',
-              passPercent: 70,
-              publicSettings: { maxAttempts: 3, revealMode: 'after-submit' },
-              questions: []
-            };
-          }
-          les.quiz!.questions = [
-            ...(les.quiz!.questions || []),
-            ...data.questions.map((q: any) => ({
-              id: 'quiz-' + crypto.randomUUID(),
-              question: q.question,
-              options: q.options,
-              correctIndex: q.correctIndex,
-              explanation: q.explanation
-            }))
-          ];
-          return newCourse;
+          if (JSON.stringify(c) !== snapshot || adoptionGeneration.current !== generation) return c
+          return { ...c, modules: c.modules.map(mod => mod.id !== moduleId ? mod : { ...mod,
+            lessons: mod.lessons.map(les => {
+              if (les.id !== lessonId) return les
+              const quiz = les.quiz || createDefaultQuiz()
+              return { ...les, quiz: { ...quiz, questions: appendGeneratedItems(quiz.questions || [], data.questions, data.generationId, 'quiz') } }
+            }),
+          }) }
         });
       }
     } catch (e) {
-      alert("Có lỗi xảy ra khi gọi AI Quiz.");
+      if (adoptionGeneration.current === generation) alert(e instanceof Error ? e.message : 'Chưa thể lấy câu hỏi AI.');
     } finally {
-      setGeneratingQuiz(false);
+      if (adoptionGeneration.current === generation) setGeneratingQuiz(false);
     }
   }
 
-  const handleGenerateMemory = async () => {
+  const handleGenerateMemory = async (newDraft = false) => {
+    if (needsFullAuthoring || isContentLocked || adoptionBusyRef.current || saving || workflowBusy) return
     const detailLesson = course.modules[detailLessonModuleIndex]?.lessons[detailLessonIndex]
     if (!detailLesson) return;
+    const generation = adoptionGeneration.current, snapshot = editorSnapshotRef.current
+    const moduleId = course.modules[detailLessonModuleIndex].id, lessonId = detailLesson.id
     try {
       setGeneratingMemory(true);
       const data = await generateCourseMemory({
         lessonTitle: detailLesson.title,
         lessonSummary: detailLesson.summary || detailLesson.coachNotes || course.title,
-      });
+      }, { newDraft });
+      assertAiDraftCurrent(generation, snapshot)
       if (data) {
         setCourse((c) => {
-          const newCourse = { ...c };
-          const mod = newCourse.modules[detailLessonModuleIndex];
-          const les = mod.lessons[detailLessonIndex];
+          if (JSON.stringify(c) !== snapshot || adoptionGeneration.current !== generation) return c
+          const newCourse = { ...c, modules: c.modules.map(mod => mod.id !== moduleId ? mod : { ...mod, lessons: mod.lessons.map(les => les.id !== lessonId ? les : { ...les }) }) };
+          const mod = newCourse.modules.find(item => item.id === moduleId);
+          const les = mod?.lessons.find(item => item.id === lessonId);
+          if (!les) return c
           const existingContent = getAcademyLessonContent(les);
           
           const newContent = {
              minuteSummary: data.minuteSummary || existingContent.minuteSummary,
-             keyTakeaways: [...(existingContent.keyTakeaways||[]), ...(data.keyTakeaways||[])],
-             terms: [...(existingContent.terms||[]), ...(data.terms||[]).map((t:any) => ({ id: crypto.randomUUID(), term: t.term, definition: t.definition }))],
-             recallPrompts: [...(existingContent.recallPrompts||[]), ...(data.recallPrompts||[]).map((r:any) => ({ id: crypto.randomUUID(), prompt: r.prompt, answer: r.answer }))],
-             flashcards: [...(existingContent.flashcards||[]), ...(data.flashcards||[]).map((f:any) => ({ id: crypto.randomUUID(), front: f.front, back: f.back, hint: f.hint }))]
+             keyTakeaways: appendGeneratedText(existingContent.keyTakeaways || [], data.keyTakeaways || []),
+             terms: appendGeneratedItems(existingContent.terms || [], data.terms || [], data.generationId, 'term'),
+             recallPrompts: appendGeneratedItems(existingContent.recallPrompts || [], data.recallPrompts || [], data.generationId, 'recall'),
+             flashcards: appendGeneratedItems(existingContent.flashcards || [], data.flashcards || [], data.generationId, 'flashcard')
           };
           
           les.memory = toAcademyLessonMemory(newContent);
@@ -419,9 +426,9 @@ export default function CourseEditorPage({ onNavigate, onSave, onDirtyChange, ca
         });
       }
     } catch (e) {
-      alert("Có lỗi xảy ra khi gọi AI Flashcard.");
+      if (adoptionGeneration.current === generation) alert(e instanceof Error ? e.message : 'Chưa thể lấy thẻ ghi nhớ AI.');
     } finally {
-      setGeneratingMemory(false);
+      if (adoptionGeneration.current === generation) setGeneratingMemory(false);
     }
   }
 
@@ -430,6 +437,7 @@ export default function CourseEditorPage({ onNavigate, onSave, onDirtyChange, ca
   useEffect(() => {
     const nextCourse = createEditorDraft(initialCourse)
     adoptionGeneration.current++; adoptionBusyRef.current = false; setAdoptionBusy(false)
+    setGeneratingOutline(false); setGeneratingQuiz(false); setGeneratingMemory(false)
     setCourse(nextCourse)
     lastSavedSnapshot.current = JSON.stringify(nextCourse)
     setActiveStep(1)
@@ -1529,7 +1537,7 @@ export default function CourseEditorPage({ onNavigate, onSave, onDirtyChange, ca
 
           {activeStep === 2 && (
             <section className="editor-step-panel" id="course-curriculum">
-              <div className="builder-heading"><div><span className="eyebrow">BƯỚC 2 / 4</span><h1>Nội dung Aura Academy</h1><p>Thiết kế khóa đào tạo dinh dưỡng chuyên sâu, độc lập hoàn toàn với giáo án PT.</p></div><div className="builder-heading-actions"><button className="outline-button academy-curriculum-import" disabled={adoptionBusy || workflowBusy || saving} onClick={() => void applyAuraNutritionCurriculum()}><BookOpen size={17} /> Nạp giáo trình 20 chương</button><button className="outline-button" onClick={handleGenerateOutline} disabled={generatingOutline} style={{color: '#8b5cf6', border: '1px solid #8b5cf6'}}><Sparkles size={17} /> {generatingOutline ? 'Đang tạo...' : 'AI Lên sườn nội dung'}</button><button className="outline-button" onClick={addModule}><Plus size={17} /> Thêm chương</button></div></div>
+              <div className="builder-heading"><div><span className="eyebrow">BƯỚC 2 / 4</span><h1>Nội dung Aura Academy</h1><p>Thiết kế khóa đào tạo dinh dưỡng chuyên sâu, độc lập hoàn toàn với giáo án PT.</p></div><div className="builder-heading-actions"><button className="outline-button academy-curriculum-import" disabled={adoptionBusy || workflowBusy || saving} onClick={() => void applyAuraNutritionCurriculum()}><BookOpen size={17} /> Nạp giáo trình 20 chương</button><button className="outline-button" onClick={() => void handleGenerateOutline()} disabled={generatingOutline} style={{color: '#8b5cf6', border: '1px solid #8b5cf6'}}><Sparkles size={17} /> {generatingOutline ? 'Đang tạo...' : 'AI Lên sườn nội dung'}</button><button className="outline-button" disabled={generatingOutline} onClick={() => void handleGenerateOutline(true)} aria-label="Tạo dàn ý AI khác">Tạo bản khác</button><button className="outline-button" onClick={addModule}><Plus size={17} /> Thêm chương</button></div></div>
               <div className="builder-tip"><span>📚</span><p><strong>Giáo trình AURA 2026 đã sẵn sàng</strong>Nút “Nạp giáo trình 20 chương” tạo 4 chặng, 60 bài micro-learning, bài thực hành, active recall, flashcard và checkpoint có đáp án bảo mật. Khóa được đặt miễn phí, mở toàn bộ cho mọi thành viên sau khi xuất bản.</p></div>
               <CourseNotebookLmImportPanel disabled={isContentLocked} onImport={importNotebookLmContent} />
               <div className="module-list">
@@ -1678,7 +1686,7 @@ export default function CourseEditorPage({ onNavigate, onSave, onDirtyChange, ca
                             </select>
                           </div>
                           <div className="builder-quiz-head" style={{marginTop: 16, borderTop: '1px solid #e2e8f0', paddingTop: 16}}>
-                            <button className="outline-button" onClick={handleGenerateQuiz} disabled={generatingQuiz} style={{color: '#8b5cf6', border: '1px solid #8b5cf6'}}><Sparkles size={14} /> {generatingQuiz ? 'Đang tạo...' : 'AI Tạo câu hỏi'}</button>
+                            <button className="outline-button" onClick={() => void handleGenerateQuiz()} disabled={generatingQuiz} style={{color: '#8b5cf6', border: '1px solid #8b5cf6'}}><Sparkles size={14} /> {generatingQuiz ? 'Đang tạo...' : 'AI Tạo câu hỏi'}</button><button className="outline-button" disabled={generatingQuiz} onClick={() => void handleGenerateQuiz(true)} aria-label="Tạo bộ câu hỏi AI khác">Tạo bản khác</button><small>Dùng lại kết quả trước; chọn tạo bản khác để gửi yêu cầu AI mới.</small>
                           </div>
                           {(detailLesson.quiz?.questions ?? []).map((question, questionIndex) => (
                             <div className="builder-question" key={question.id}>

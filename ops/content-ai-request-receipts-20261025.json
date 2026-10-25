@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-25",
+  "status": "local_validation_passed_release_pending",
+  "parentSource": "f00aa83ac7a1cd8d69f450d7f816c95df2be43fc",
+  "parentPullRequest": 32,
+  "scope": "Durable content AI receipts and recovery in the existing generateAuraContent callable and CourseEditor consumers.",
+  "functionTargets": ["generateAuraContent"],
+  "newFunctionExports": 0,
+  "behavior": [
+    "Reuse the existing nutrition AI transaction coordinator with a separate auraContent operation and server prompt/schema/model-policy fingerprint.",
+    "A request identity shares one quota charge and one provider-generation workflow across duplicate requests and instances while its durable receipt remains available. Provider dispatch intent is recorded before network I/O; ambiguous outcomes never trigger automatic regeneration.",
+    "Legacy clients without request IDs use a deterministic server fingerprint. New clients persist an account/action/payload request ID and use a separate read-only request-status action after reload or an uncertain transport response.",
+    "Recovery checks status at most 12 additional times only when the server reports processing. There is no idle or background polling and no cross-region fallback.",
+    "An explicit new draft creates and durably stores a new request ID before invocation. Invalid local state, an expired missing receipt or an old-server response never silently starts another generation.",
+    "Current authorization is checked before replay, within a new claim and after generation. Owner changes fence browser invocation, waiting and late responses.",
+    "Stable generated item IDs prevent duplicate recovered quiz and memory items while retaining existing edits. Late results cannot modify another course or a draft edited while generation was pending.",
+    "The existing provider-rejection-only model fallback and quota limits remain in place. No release workflow, Rules, runtime settings, indexes or Academy workbook protocol changes."
+  ],
+  "storage": {
+    "collection": "users/{uid}/nutritionAiRequests",
+    "operation": "auraContent",
+    "browser": "Request identifiers and state only; no prompts or generated results.",
+    "server": "Owner-scoped fingerprint, state, lease and completed response, with existing seven-day expiresAt TTL policy.",
+    "ttlPolicy": "ACTIVE, read-only verification at 2026-10-25T05:28:39.573Z; no new policy or business data writes."
+  },
+  "validation": {
+    "fullLocalCi": "passed; final missing-completed-receipt guard also passed the affected client and actual-service suites",
+    "realFirestoreTransactionSuite": {"passed": 67, "newContentAiCases": 9},
+    "backendContentCoordinatorAndAppCheckCases": 28,
+    "clientRequestAndApplicationCases": 12,
+    "actualServiceContractCases": 3,
+    "browserCases": {"passed": 12, "engines": ["Chromium", "mobile WebKit"], "casesPerEngine": 6},
+    "existingAcademyAuthoringAdoptionBrowserCases": 13,
+    "fixtures": "Actual Firestore emulator transactions and actual frontend service/editor with synthetic callable/provider transport.",
+    "paidProviderRequests": 0,
+    "productionBusinessFixtures": 0
+  },
+  "tradeoffs": [
+    "Receipts add Firestore reads, writes, temporary response storage and TTL deletions. Replays avoid another provider call but still read current authority and the receipt. Currency savings are not measured.",
+    "Idempotency is bounded by receipt retention and identity continuity. Provider-internal retries or billing are outside this guarantee. Old and new clients can use different default IDs; no cross-version universal deduplication is claimed.",
+    "An unknown provider outcome stays read-only. Users may explicitly create another draft knowing it is a new generation; there is no automated recovery that could charge twice.",
+    "Missing local storage still supports deterministic default IDs, but arbitrary new-draft IDs require durable local storage. Clearing local state or losing receipts limits recovery.",
+    "A changed server prompt/model policy conflicts with a prior request fingerprint instead of silently rerunning it. An explicit new draft is required."
+  ],
+  "rollout": {
+    "productionDeployed": false,
+    "requires": "Complete the coordinated Academy handoff and PR28/30/31/32 cutover; then deploy and verify only generateAuraContent from this reviewed source before merging this frontend.",
+    "rollback": "Restore the previous frontend first. Retain the new compatible backend so pending receipts remain recoverable; reverting the backend removes durable recovery semantics."
+  }
+}

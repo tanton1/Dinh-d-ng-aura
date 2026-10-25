@@ -175,6 +175,9 @@ jobs:
       - name: Test persistent delivery map on mobile Safari
         if: matrix.project == 'mobile-webkit'
         run: npm run test:delivery-map-ui -- --project=map-mobile-webkit
+      - name: Test durable content AI recovery on mobile Safari
+        if: matrix.project == 'mobile-webkit'
+        run: npm run test:content-ai-ui -- --project=content-ai-mobile-webkit
       - name: Upload browser failure evidence
         if: failure()
         uses: actions/upload-artifact@v4
