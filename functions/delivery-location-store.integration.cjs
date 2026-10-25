@@ -77,6 +77,7 @@ test('actual callable accepts old clients without capturedAt, keeps its public r
   assert.equal(typeof result.location.expiresAt, 'number')
   assert.equal(result.location.assignmentAt, undefined)
   assert.equal(result.location.customerId, undefined)
+  assert.match(result.location.binding, /^[a-f0-9]{64}$/)
   assert.deepEqual(f.rtdbCalls, [])
   assert.ok((await f.reference.get()).exists)
 })

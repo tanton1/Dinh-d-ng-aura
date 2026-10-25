@@ -31,7 +31,7 @@ function publicLocation(value) {
   if (!value) return null
   // Never return assignment metadata or fields injected by a legacy mirror.
   return Object.fromEntries(Object.entries({
-    orderId: value.orderId, shipperId: value.shipperId,
+    orderId: value.orderId, shipperId: value.shipperId, binding: value.binding,
     latitude: value.latitude, longitude: value.longitude,
     accuracyMeters: value.accuracyMeters, capturedAt: value.capturedAt,
     heading: value.heading, speedMetersPerSecond: value.speedMetersPerSecond,
@@ -71,6 +71,7 @@ async function writeFirestoreLocation({ db, request, orderId, position, distance
       schemaVersion: 1,
       orderId,
       shipperId: delivery.shipperId,
+      binding: locationStream(delivery).binding,
       assignmentAt: delivery.assignedAt ?? null,
       acceptanceAt: delivery.acceptedAt ?? null,
       latitude: position.latitude, longitude: position.longitude,
@@ -105,6 +106,7 @@ async function readFirestoreLocations({ db, realtimeDb, deliveries, now = Date.n
     if (snapshot.exists) {
       const point = snapshot.data()
       if (point.schemaVersion === 1 && point.orderId === delivery.id && point.active === true
+          && point.binding === locationStream(delivery).binding
           && validCoordinates(point) && matchesAssignment(point, delivery) && millis(point.expiresAt) > now()) {
         result.set(delivery.id, publicLocation(point))
       }

@@ -239,7 +239,7 @@ describe('Aura PT Firestore rules', () => {
   async function locationFixture() {
     const now = Date.now(), assignedAt = Timestamp.fromMillis(now - 200000), acceptedAt = Timestamp.fromMillis(now - 100000)
     const delivery = { shipperId: 'shipper-a', status: 'accepted', assignedAt, acceptedAt }
-    const point = { schemaVersion: 1, orderId: 'live-order', shipperId: 'shipper-a', assignmentAt: assignedAt, acceptanceAt: acceptedAt,
+    const point = { schemaVersion: 1, orderId: 'live-order', shipperId: 'shipper-a', binding: 'a'.repeat(64), assignmentAt: assignedAt, acceptanceAt: acceptedAt,
       active: true, latitude: 16, longitude: 108, updatedAt: now, expiresAt: Timestamp.fromMillis(now + 86400000) }
     await testEnvironment.withSecurityRulesDisabled(async context => {
       const db = context.firestore()

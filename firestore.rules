@@ -774,6 +774,7 @@ service cloud.firestore {
              && (resource == null
                  || (resource.data.get('schemaVersion', 0) == 1
                      && resource.data.get('orderId', '') == orderId
+                     && resource.data.get('binding', '').matches('^[a-f0-9]{64}$')
                      && resource.data.get('shipperId', '') == delivery.get('shipperId', '')
                      && resource.data.get('assignmentAt', null) == delivery.get('assignedAt', null)
                      && resource.data.get('acceptanceAt', null) == delivery.get('acceptedAt', null)
