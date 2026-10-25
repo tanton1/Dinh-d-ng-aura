@@ -20,7 +20,7 @@ test('pending warnings follow every canonical draft, keep group filters and neve
   await expect(page.locator('.schedule-warning-student')).toHaveCount(1)
   await expect(page.locator('.schedule-warning-student')).toContainText('Ngọc')
   await expect(page.locator('.schedule-warning-student')).toContainText('1/2 buổi')
-  await expect(page.locator('.schedule-warning-stat.is-missing small')).toContainText('1 buổi tạm tính · draft r2')
+  await expect(page.locator('.schedule-warning-state')).toHaveAttribute('data-missing-sessions', '1')
   const groups = page.getByRole('region', { name: 'Lọc theo lý do' })
   for (const button of await groups.getByRole('button').all()) await expect(button).toBeEnabled()
   expect((await groups.locator('strong').allTextContents()).reduce((n, text) => n + Number(text), 0)).toBe(1)
@@ -31,8 +31,8 @@ test('pending warnings follow every canonical draft, keep group filters and neve
     } })
   })
   await expect(page.locator('.schedule-warning-student')).toHaveCount(0)
-  await expect(page.locator('.schedule-warning-stat.is-missing small')).toContainText('0 buổi tạm tính · draft r3')
-  await expect(page.getByText(/Chưa có học viên thiếu buổi trong nhóm này theo draft r3/)).toBeVisible()
+  await expect(page.locator('.schedule-warning-state')).toHaveAttribute('data-missing-sessions', '0')
+  await expect(page.getByText(/Chưa có học viên thiếu buổi · đang đối soát/)).toBeVisible()
   await page.evaluate(() => (window as any).__emitScheduleSnapshot('ptScheduleDrafts', { revision: 2, schedule: {} }))
   await expect(page.getByRole('region', { name: 'Phiên bản cảnh báo' })).toContainText('Draft r3')
   await expect(page.locator('.schedule-warning-student')).toHaveCount(0)
@@ -107,4 +107,35 @@ test('embedded validation cannot claim current for a different draft or generati
       applyWeeklyValidation(current, embedded, current).validationState]
   })
   expect(states).toEqual(['stale', 'stale', 'stale', 'current'])
+})
+
+test('search limits never inherit a PT-capacity group from old blocker categories in either validation mode', async ({ page }) => {
+  await page.goto('/tests/schedule-ui/index.html')
+  const result = await page.evaluate(async () => {
+    const { getPtScheduleWorkspace, weeklyViewFixture } = await import('/tests/schedule-ui/service.ts')
+    const { workspaceFromWeeklyViewSnapshot } = await import('/src/features/schedule/workspaceModel.ts')
+    const { presentScheduleWarnings } = await import('/src/features/schedule/warningPresentation.ts')
+    const input = { branchId: 'b', weekId: '2026-10-26' }
+    Object.assign(window, { __weeklyViewCompact: true, __validationMode: 'stale' })
+    const raw = weeklyViewFixture(input)
+    const workspace = workspaceFromWeeklyViewSnapshot(await getPtScheduleWorkspace(input), raw)
+    const student = workspace.students.find(row => row.id === 'a')!
+    Object.assign(student, { contractStatus: 'active', availabilityStatus: 'submitted', availableSlots: ['T2-6', 'T3-6', 'T4-6'] })
+    workspace.unassignedEntries = [{ studentId: 'a', primaryReasonCode: 'SEARCH_LIMIT_REACHED',
+      blockerCategory: 'trainer_capacity', reasonCodes: ['ALL_MATCHING_TRAINERS_FULL'] }] as any
+    const profile = { student, missingSessions: 1, scheduledSessions: 1, scheduledEntries: [],
+      crossBranchScheduledSessions: 0, primaryReasonCode: 'ALL_MATCHING_TRAINERS_FULL',
+      reasonCodes: ['ALL_MATCHING_TRAINERS_FULL', 'SEARCH_LIMIT_REACHED'], warningCause: 'capacity' as const }
+    const pending = presentScheduleWarnings(workspace, [], true, {}).rows.find(row => row.id === 'a')!
+    const current = presentScheduleWarnings(workspace, [profile], false, {}).rows[0]
+    const learner = presentScheduleWarnings(workspace, [{ ...profile, primaryReasonCode: 'STUDENT_AVAILABILITY_DAYS_INSUFFICIENT' }], false, {}).rows[0]
+    workspace.unassignedEntries[0].primaryReasonCode = 'ALL_MATCHING_TRAINERS_FULL'
+    const capacity = presentScheduleWarnings(workspace, [], true, {}).rows.find(row => row.id === 'a')!
+    return { pending: [pending.primaryReasonCode, pending.warningCause], current: [current.primaryReasonCode, current.warningCause],
+      learner: learner.warningCause, capacity: capacity.warningCause }
+  })
+  expect(result.pending).toEqual(['SEARCH_LIMIT_REACHED', 'system'])
+  expect(result.current).toEqual(['SEARCH_LIMIT_REACHED', 'system'])
+  expect(result.learner).toBe('learner')
+  expect(result.capacity).toBe('capacity')
 })
