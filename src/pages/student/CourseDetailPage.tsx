@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
   ArrowLeft,
   BookOpen,
@@ -15,11 +15,13 @@ import {
   Search,
 } from 'lucide-react'
 import { ProgressBar } from '../../components/ui'
-import type { Course, CourseLessonDraft, CourseProgress } from '../../types'
+import type { AcademyPracticeCompletionEvidence, Course, CourseLessonDraft, CourseProgress } from '../../types'
 import { flattenCourseLessons, getCourseModules, getInitialDemoCompletedLessonIds } from '../../utils/courseContent'
 import '../../styles-academy.css'
 import AcademyLoadError from '../../components/academy/AcademyLoadError'
 import { courseLoadErrorMessage } from '../../features/academy/courseLoadError'
+import { useAcademyChapterDelivery } from '../../features/academy/useAcademyChapterDelivery'
+import { academyQuizCompletionCurrent } from '../../features/academy/quizPolicy'
 import '../../components/academy/academy-module-upgrades.css'
 
 type ReaderView = 'content' | 'resources'
@@ -49,10 +51,11 @@ interface CourseDetailPageProps {
   onRetry?: () => void
   allowDemoContent?: boolean
   previewMode?: boolean
+  accessRevision?: string
   onBack: () => void
   onSelectLesson: (lessonId: string) => void
   onEnroll: () => Promise<void>
-  onComplete: (courseId: string, lessonId: string) => Promise<void>
+  onComplete: (courseId: string, lessonId: string, workoutLogId?: string, practiceEvidence?: AcademyPracticeCompletionEvidence, chapterVersion?: string) => Promise<void>
   onUpgrade: () => void
 }
 
@@ -108,13 +111,28 @@ function firstPdfResource(lesson: CourseLessonDraft | undefined) {
   return lesson?.resources?.find(isPdfResource)
 }
 
-export default function CourseDetailPage({
+export default function CourseDetailPage(props: CourseDetailPageProps) {
+  const delivery = useAcademyChapterDelivery({ course: props.course, lessonId: props.activeLessonId, lastLessonId: props.progress?.lastLessonId,
+    ownerId: props.noteOwnerId, accessRevision: props.accessRevision ?? JSON.stringify([props.enrolled, props.accessLocked, props.enrolledAt, props.previewMode]),
+    enrolled: props.enrolled, enrolledAt: props.enrolledAt, accessLocked: props.accessLocked === true,
+    previewMode: props.previewMode === true, demoMode: props.allowDemoContent === true, loading: props.loading === true,
+    accessError: props.learningWarning || props.loadError, onRefreshCatalog: props.onRetry })
+  return <CourseDetailView {...props} course={delivery.course}
+    key={`${props.noteOwnerId}:${props.course?.id ?? ''}:${props.accessRevision ?? ''}`}
+    chapterLoading={delivery.loading} chapterError={delivery.error} onRetryChapter={delivery.retry}
+    loadedReviewLessons={delivery.usesDelivery ? delivery.loadedLessons : undefined}
+    onPrepareReview={delivery.usesDelivery ? delivery.prepareReview : undefined}
+    onPreparePortfolio={delivery.usesDelivery ? delivery.preparePortfolio : undefined} />
+}
+
+function CourseDetailView({
   course,
   progress,
   activeLessonId,
   enrolled,
   enrolledAt,
   noteOwnerId,
+  accessRevision,
   accessLocked = false,
   learningWarning,
   loading = false,
@@ -127,8 +145,16 @@ export default function CourseDetailPage({
   onEnroll,
   onComplete,
   onUpgrade,
-}: CourseDetailPageProps) {
-  const [readerView, setReaderView] = useState<ReaderView>('content')
+  chapterLoading,
+  chapterError,
+  onRetryChapter,
+  loadedReviewLessons,
+  onPrepareReview,
+  onPreparePortfolio,
+}: CourseDetailPageProps & { chapterLoading?: boolean; chapterError?: unknown; onRetryChapter?: () => void;
+  loadedReviewLessons?: CourseLessonDraft[]; onPrepareReview?: (lessonIds: string[]) => Promise<CourseLessonDraft[]>;
+  onPreparePortfolio?: (chapter: 5 | 10 | 15 | 20) => Promise<CourseLessonDraft[]> }) {
+  const [readerState, setReaderState] = useState<{ key: string; value: ReaderView }>({ key: '', value: 'content' })
   const [completeState, setCompleteState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [enrollState, setEnrollState] = useState<'idle' | 'saving' | 'error'>('idle')
   const [actionError, setActionError] = useState<string | null>(null)
@@ -162,7 +188,15 @@ export default function CourseDetailPage({
   const selectedLesson = isAuraNutritionCurriculum
     ? requestedModule?.lessons.find((lesson) => lesson.id.endsWith('-core')) ?? navigationLessons[0]
     : requestedLesson
+  const completionContext = JSON.stringify([noteOwnerId, course?.id, selectedLesson?.id, selectedLesson?.contentVersion])
+  const activeCompletionContext = useRef<string | null>(completionContext)
+  activeCompletionContext.current = completionContext
+  useEffect(() => { activeCompletionContext.current = completionContext; return () => { activeCompletionContext.current = null } }, [completionContext])
   const selectedPdfResource = firstPdfResource(selectedLesson)
+  const authoredReading = selectedLesson?.primaryContent?.kind === 'rich-text' && Boolean(selectedLesson.learningDesign?.practice.reviewRubric)
+  const readerIdentity = JSON.stringify([selectedLesson?.id, selectedLesson?.contentVersion, selectedPdfResource?.id, authoredReading])
+  const readerView = readerState.key === readerIdentity ? readerState.value : selectedPdfResource && !authoredReading ? 'resources' : 'content'
+  const setReaderView = (value: ReaderView) => setReaderState({ key: readerIdentity, value })
   const selectedModuleIndex = selectedLesson
     ? modules.findIndex((module) => module.lessons.some((lesson) => lesson.id === selectedLesson.id))
     : -1
@@ -170,7 +204,8 @@ export default function CourseDetailPage({
   const selectedChapterQuiz = isAuraNutritionCurriculum
     ? selectedModule?.lessons.find((lesson) => lesson.type === 'Quiz')
     : undefined
-  const selectedChapterQuizCompleted = Boolean(selectedChapterQuiz && completedLessonIds.includes(selectedChapterQuiz.id))
+  const selectedChapterQuizCompleted = academyQuizCompletionCurrent(selectedChapterQuiz, completedLessonIds, progress?.quizCompletionChapterVersions)
+  const selectedChapterPractice = isAuraNutritionCurriculum ? selectedModule?.lessons.find((lesson) => lesson.id.endsWith('-practice')) : undefined
   const selectedLessonIndex = selectedLesson ? navigationLessons.findIndex((lesson) => lesson.id === selectedLesson.id) : -1
   const previousLesson = selectedLessonIndex > 0 ? navigationLessons[selectedLessonIndex - 1] : undefined
   const nextLesson = selectedLessonIndex >= 0 && selectedLessonIndex < navigationLessons.length - 1 ? navigationLessons[selectedLessonIndex + 1] : undefined
@@ -184,7 +219,9 @@ export default function CourseDetailPage({
   const selectedUnlockAt = getModuleUnlockAt(selectedModuleIndex)
   const selectedLessonAvailable = selectedUnlockAt === null || selectedUnlockAt <= now
   const percent = Math.max(0, Math.min(100, progress?.percent ?? course?.progress ?? 0))
-  const lessonCompleted = Boolean(selectedLesson && completedLessonIds.includes(selectedLesson.id))
+  const lessonCompleted = selectedLesson?.type === 'Quiz'
+    ? academyQuizCompletionCurrent(selectedLesson, completedLessonIds, progress?.quizCompletionChapterVersions)
+    : Boolean(selectedLesson && completedLessonIds.includes(selectedLesson.id))
   const completionPolicy = lessonCompletionPolicy(selectedLesson)
   const completionThreshold = Math.max(1, Math.min(100, completionPolicy.thresholdPercent ?? 80))
   const mediaThresholdReached = mediaProgress >= completionThreshold
@@ -200,8 +237,10 @@ export default function CourseDetailPage({
     && fullChapterNumber >= 1
     && fullChapterNumber <= 20
   const openToAllMembers = course?.settings?.accessTier === 'free' && course.settings.visibility === 'members'
-  const canStudy = (enrolled || previewMode) && !accessLocked && selectedLessonAvailable
-  const canViewContent = canStudy || Boolean(selectedLesson?.preview)
+  const canStudy = (enrolled || previewMode) && !accessLocked && selectedLessonAvailable && !chapterLoading && !chapterError
+  const canViewContent = canStudy || Boolean(selectedLesson?.preview && course?.settings?.visibility === 'members' && !chapterLoading && !chapterError)
+  const mediaAccess = { ownerId: noteOwnerId, accessRevision: accessRevision ?? JSON.stringify([enrolled, enrolledAt, accessLocked, previewMode]),
+    chapterVersion: selectedLesson?.contentVersion, courseRevision: course?.revision ?? 0, authoringPreview: previewMode }
   const normalizedOutlineQuery = normalizeOutlineSearch(outlineQuery)
   const outlineModules = useMemo(() => isAuraNutritionCurriculum
     ? modules.flatMap((module) => {
@@ -226,15 +265,15 @@ export default function CourseDetailPage({
 
   useEffect(() => {
     setCompleteState(lessonCompleted ? 'saved' : 'idle')
-  }, [lessonCompleted, selectedLesson?.id])
+  }, [lessonCompleted, selectedLesson?.id, selectedLesson?.contentVersion])
 
   useEffect(() => {
-    // The canonical handbook is the first stop for Aura chapters. Learners can
-    // still switch to the guided study layer when they want active practice.
-    setReaderView(selectedPdfResource ? 'resources' : 'content')
+    // New bespoke chapters deliver the complete text. Retained legacy PDFs
+    // stay optional and must not start a media read on entry.
+    setReaderView(selectedPdfResource && !authoredReading ? 'resources' : 'content')
     setMediaProgress(0)
     setActionError(null)
-  }, [selectedLesson?.id, selectedPdfResource?.id])
+  }, [selectedLesson?.id, selectedLesson?.contentVersion, selectedPdfResource?.id, authoredReading])
 
   useEffect(() => {
     if (!mobileLessonsOpen) return
@@ -269,9 +308,11 @@ export default function CourseDetailPage({
     setCompleteState('saving')
     setActionError(null)
     try {
-      await onComplete(String(course.id), selectedLesson.id)
+      await onComplete(String(course.id), selectedLesson.id, undefined, undefined, selectedLesson.contentVersion)
+      if (activeCompletionContext.current !== completionContext) return
       setCompleteState('saved')
     } catch (error) {
+      if (activeCompletionContext.current !== completionContext) return
       setCompleteState('error')
       setActionError(courseLoadErrorMessage(error))
     }
@@ -317,6 +358,7 @@ export default function CourseDetailPage({
       return <button className="primary-button" onClick={enroll} disabled={enrollState === 'saving' || lessons.length === 0}><Play size={16} fill="currentColor" /> {enrollState === 'saving' ? 'Đang mở…' : enrollState === 'error' ? 'Thử lại' : openToAllMembers ? 'Bắt đầu miễn phí' : 'Bắt đầu học'}</button>
     }
     if (!selectedLessonAvailable) return <button className="primary-button" disabled><LockKeyhole size={16} /> {unlockLabel(selectedUnlockAt) ?? 'Chưa mở'}</button>
+    if (chapterLoading || chapterError) return <button className="primary-button" disabled><BookOpen size={16} /> {chapterLoading ? 'Đang tải chương…' : 'Cần tải lại chương'}</button>
     if (isLegacyWorkoutLesson) return <button className="primary-button" disabled><BookOpen size={16} /> Đang chuyển đổi</button>
     if (completionPolicy.mode === 'quiz-pass') return <button className="primary-button" disabled><ListChecks size={16} /> {lessonCompleted ? 'Đã hoàn thành' : 'Hoàn thành quiz'}</button>
     const disabled = !selectedLesson || completeState === 'saving' || completeState === 'saved'
@@ -332,6 +374,8 @@ export default function CourseDetailPage({
   }
 
   const renderReaderContent = () => {
+    if (chapterError) return <AcademyLoadError error={chapterError} onRetry={onRetryChapter} />
+    if (chapterLoading) return <CourseRuntimeFallback />
     if (readerView === 'resources') {
       if (!selectedLesson?.resources?.length) {
         return <div className="lesson-empty-state"><FileText size={28} /><h2>Chưa có tài nguyên</h2><p>Chương này chưa có tệp đính kèm.</p></div>
@@ -340,12 +384,12 @@ export default function CourseDetailPage({
         const supplementalResources = selectedLesson.resources.filter((resource) => resource.id !== selectedPdfResource.id)
         return (
           <article className="course-reader-resources">
-            <CoursePdfReader key={`${noteOwnerId}:${course.id}:${selectedLesson.id}`} ownerId={noteOwnerId} courseId={String(course.id)} lessonId={selectedLesson.id} resource={selectedPdfResource} canAccess={canViewContent} />
+            <CoursePdfReader key={`${noteOwnerId}:${course.id}:${selectedLesson.id}:${selectedLesson.contentVersion ?? course.revision ?? 0}`} ownerId={noteOwnerId} courseId={String(course.id)} lessonId={selectedLesson.id} resource={selectedPdfResource} canAccess={canViewContent} mediaAccess={mediaAccess} onRefreshCourse={onRetry} />
             {supplementalResources.length ? (
               <details className="course-reader-supplemental" open>
                 <summary>Tài nguyên bổ sung <span>{supplementalResources.length}</span></summary>
                 <div className="lesson-resource-list">
-                  {supplementalResources.map((resource) => <CourseResourceItem key={resource.id} courseId={String(course.id)} lessonId={selectedLesson.id} resource={resource} canAccess={canViewContent} />)}
+                  {supplementalResources.map((resource) => <CourseResourceItem key={resource.id} courseId={String(course.id)} lessonId={selectedLesson.id} resource={resource} canAccess={canViewContent} mediaAccess={mediaAccess} onRefreshCourse={onRetry} />)}
                 </div>
               </details>
             ) : null}
@@ -356,7 +400,7 @@ export default function CourseDetailPage({
         <article className="course-reader-resources">
           <header><div><small>TÀI LIỆU CHƯƠNG {Math.max(1, selectedModuleIndex + 1)}</small><h2>Tài nguyên bổ sung</h2></div><strong>{selectedLesson.resources.length}</strong></header>
           <div className="lesson-resource-list">
-            {selectedLesson.resources.map((resource) => <CourseResourceItem key={resource.id} courseId={String(course.id)} lessonId={selectedLesson.id} resource={resource} canAccess={canViewContent} />)}
+            {selectedLesson.resources.map((resource) => <CourseResourceItem key={resource.id} courseId={String(course.id)} lessonId={selectedLesson.id} resource={resource} canAccess={canViewContent} mediaAccess={mediaAccess} onRefreshCourse={onRetry} />)}
           </div>
         </article>
       )
@@ -367,14 +411,27 @@ export default function CourseDetailPage({
       }
       return (
         <AcademyChapterLearningStudio
-          key={`${noteOwnerId}:${course.id}:${selectedLesson.id}`}
+          key={`${noteOwnerId}:${course.id}:${selectedLesson.id}:${selectedLesson.contentVersion ?? course.revision ?? 0}`}
           chapter={fullChapterNumber}
           ownerId={noteOwnerId}
           courseId={String(course.id)}
           coreLesson={selectedLesson}
-          reviewLessons={navigationLessons}
+          reviewLessons={loadedReviewLessons?.filter((lesson) => lesson.id.endsWith('-core')) ?? navigationLessons}
+          portfolioLessons={navigationLessons}
+          onPrepareReview={onPrepareReview}
+          onPreparePortfolio={onPreparePortfolio}
+          reviewScopeKey={JSON.stringify([course.revision, modules.map((module) => [module.id, module.contentVersion])])}
           canStudy={canStudy && !previewMode}
           quizCompleted={selectedChapterQuizCompleted}
+          quizPreviouslyCompleted={Boolean(selectedChapterQuiz && completedLessonIds.includes(selectedChapterQuiz.id) && !selectedChapterQuizCompleted)}
+          practiceCompleted={Boolean(selectedChapterPractice && completedLessonIds.includes(selectedChapterPractice.id))}
+          submittedPracticeRevision={selectedChapterPractice ? progress?.practiceSubmissionRevisions?.[selectedChapterPractice.id] : undefined}
+          practiceSubmissionRevisions={progress?.practiceSubmissionRevisions}
+          practiceSubmissionDefinitionVersions={progress?.practiceSubmissionDefinitionVersions}
+          practiceSubmissionDefinitionHashes={progress?.practiceSubmissionDefinitionHashes}
+          completedLessonIds={progress?.completedLessonIds}
+          onSubmitPractice={selectedChapterPractice ? (evidence) => onComplete(String(course.id), selectedChapterPractice.id, undefined, evidence, selectedChapterPractice.contentVersion) : undefined}
+          demoMode={allowDemoContent}
           quizContent={(onReviewCards, remediationCards) => selectedChapterQuiz
             ? <CourseQuizRunner
                 courseId={String(course.id)}
@@ -384,7 +441,7 @@ export default function CourseDetailPage({
                 completed={selectedChapterQuizCompleted}
                 onReviewCards={onReviewCards}
                 remediationCards={remediationCards}
-                onPassed={() => onComplete(String(course.id), selectedChapterQuiz.id)}
+                onPassed={() => onComplete(String(course.id), selectedChapterQuiz.id, undefined, undefined, selectedChapterQuiz.contentVersion)}
               />
             : <div className="lesson-empty-state"><ListChecks size={28} /><h2>Checkpoint đang đồng bộ</h2><p>Bài kiểm tra của chương này chưa có trong bản khóa học đang xuất bản.</p></div>}
         />
@@ -394,7 +451,7 @@ export default function CourseDetailPage({
     if (selectedLesson.type === 'Quiz') {
       return <CourseQuizRunner courseId={String(course.id)} lesson={selectedLesson} canSubmit={canStudy && !previewMode} demoMode={allowDemoContent} completed={lessonCompleted} onPassed={completeLesson} />
     }
-    return <CoursePrimaryContent courseId={String(course.id)} lesson={selectedLesson} canView={canViewContent} lockedMessage={accessLocked ? 'Nâng cấp Aura Pro để mở nội dung này.' : openToAllMembers ? 'Bấm Bắt đầu miễn phí để mở toàn bộ bài học.' : selectedLessonAvailable ? 'Ghi danh để mở khóa bài học' : unlockLabel(selectedUnlockAt) ?? 'Bài học chưa mở'} onMediaProgress={setMediaProgress} onOpenResources={() => setReaderView('resources')} />
+    return <CoursePrimaryContent courseId={String(course.id)} lesson={selectedLesson} canView={canViewContent} mediaAccess={mediaAccess} onRefreshCourse={onRetry} lockedMessage={accessLocked ? 'Nâng cấp Aura Pro để mở nội dung này.' : openToAllMembers ? 'Bấm Bắt đầu miễn phí để mở toàn bộ bài học.' : selectedLessonAvailable ? 'Ghi danh để mở khóa bài học' : unlockLabel(selectedUnlockAt) ?? 'Bài học chưa mở'} onMediaProgress={setMediaProgress} onOpenResources={() => setReaderView('resources')} />
   }
 
   const renderOutline = (mobile = false): ReactNode => {
@@ -454,7 +511,7 @@ export default function CourseDetailPage({
 
           <nav className="course-reader-toolbar" aria-label="Công cụ đọc">
             <div role="tablist" aria-label="Loại nội dung">
-              {selectedLesson?.resources?.length ? <button type="button" role="tab" aria-selected={readerView === 'resources'} className={readerView === 'resources' ? 'is-active' : ''} onClick={() => setReaderView('resources')}><FileText size={15} />{selectedPdfResource ? 'Nội Dung' : 'Tài nguyên'}{selectedLesson.resources.length ? <span className="course-reader-resource-count">{selectedLesson.resources.length}</span> : null}</button> : null}
+              {selectedLesson?.resources?.length ? <button type="button" role="tab" aria-selected={readerView === 'resources'} className={readerView === 'resources' ? 'is-active' : ''} onClick={() => setReaderView('resources')}><FileText size={15} />{authoredReading ? 'Tham khảo' : selectedPdfResource ? 'Nội Dung' : 'Tài nguyên'}{selectedLesson.resources.length ? <span className="course-reader-resource-count">{selectedLesson.resources.length}</span> : null}</button> : null}
               {(!selectedPdfResource || isAuraNutritionCurriculum) ? <button type="button" role="tab" aria-selected={readerView === 'content'} className={readerView === 'content' ? 'is-active' : ''} onClick={() => setReaderView('content')}><BookOpen size={15} /> {isAuraNutritionCurriculum ? 'Học cùng Aura' : 'Nội dung'}</button> : null}
             </div>
             <div className="course-reader-lesson-pager">

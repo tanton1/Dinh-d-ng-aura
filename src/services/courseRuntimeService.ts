@@ -1,6 +1,10 @@
 import { httpsCallable } from 'firebase/functions'
 import { firebaseFunctions } from '../lib/firebaseFunctions'
 import { callAcademyReadFunction } from './academyReadService'
+import { onAuthStateChanged } from 'firebase/auth'
+import { firebaseAuth } from '../lib/firebase'
+import { createAcademyMediaClient, type AcademyMediaInput } from '../features/academy/mediaClient'
+export type { AcademyMediaContext } from '../features/academy/mediaClient'
 
 export type QuizAnswers = Record<string, number>
 
@@ -47,15 +51,6 @@ function optionalFiniteNumber(value: unknown) {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined
 }
 
-function toExpiryMillis(value: unknown) {
-  if (typeof value === 'number' && Number.isFinite(value)) return value
-  if (typeof value === 'string') {
-    const parsed = Date.parse(value)
-    return Number.isNaN(parsed) ? null : parsed
-  }
-  return null
-}
-
 /**
  * Only returns browser-safe course URLs. Private Firebase assets must first be
  * exchanged for a short-lived HTTPS URL by getCourseMediaUrl.
@@ -77,6 +72,8 @@ export async function gradeCourseQuiz(input: {
   courseId: string
   lessonId: string
   answers: QuizAnswers
+  requestId?: string
+  chapterVersion?: string
 }): Promise<QuizGradeResult> {
   const answerEntries = Object.entries(input.answers)
   if (!input.courseId.trim() || !input.lessonId.trim() || answerEntries.length === 0) {
@@ -88,6 +85,8 @@ export async function gradeCourseQuiz(input: {
   const payload = {
     courseId: input.courseId,
     lessonId: input.lessonId,
+    ...(input.requestId ? { requestId: input.requestId } : {}),
+    ...(input.chapterVersion ? { chapterVersion: input.chapterVersion } : {}),
     answers: answerEntries.map(([questionId, optionIndex]): QuizAnswerPayload => ({
       questionId,
       optionIndex,
@@ -138,35 +137,11 @@ export async function gradeCourseQuiz(input: {
   }
 }
 
-export async function getCourseMediaUrl(input: {
-  courseId: string
-  lessonId: string
-  storagePath: string
-}): Promise<ResolvedCourseMedia> {
-  if (!input.courseId.trim() || !input.lessonId.trim() || !input.storagePath.trim()) {
-    throw new Error('Tài nguyên media thiếu thông tin định danh.')
-  }
-  if (!input.storagePath.startsWith(`course-media/${input.courseId}/${input.lessonId}/`)) {
-    throw new Error('Đường dẫn media không thuộc bài học hiện tại.')
-  }
-  const payload = { courseId: input.courseId, lessonId: input.lessonId, path: input.storagePath }
-  const response = await callAcademyReadFunction<typeof payload, unknown>('getCourseMediaUrl', payload)
-  if (!response || typeof response !== 'object') {
-    throw new Error('Phản hồi media không hợp lệ.')
-  }
-
-  const data = response as Record<string, unknown>
-  if (data.path !== input.storagePath) {
-    throw new Error('Phản hồi media không khớp với tài nguyên được yêu cầu.')
-  }
-  const url = safeCourseMediaUrl(data.url)
-  if (!url) throw new Error('Aura không nhận được liên kết media an toàn.')
-  const downloadUrl = safeCourseMediaUrl(data.downloadUrl)
-  return {
-    url,
-    ...(downloadUrl ? { downloadUrl } : {}),
-    ...(typeof data.fileName === 'string' && data.fileName.trim() ? { fileName: data.fileName.trim() } : {}),
-    contentType: typeof data.contentType === 'string' ? data.contentType : undefined,
-    expiresAt: toExpiryMillis(data.expiresAt),
-  }
-}
+const mediaClient = createAcademyMediaClient({ session: () => firebaseAuth?.currentUser ?? null,
+  read: (payload, access) => callAcademyReadFunction('getCourseMediaUrl', payload, access), safeUrl: safeCourseMediaUrl })
+let mediaOwner = firebaseAuth?.currentUser ?? null
+if (firebaseAuth) onAuthStateChanged(firebaseAuth, (next) => {
+  if (mediaOwner !== next) { mediaOwner = next; mediaClient.clear() }
+})
+export const getCourseMediaUrl = (input: AcademyMediaInput): Promise<ResolvedCourseMedia> => mediaClient.load(input)
+export const clearAcademyMediaCache = mediaClient.clear

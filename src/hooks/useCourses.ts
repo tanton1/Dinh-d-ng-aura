@@ -1,11 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { courses as demoCourses } from '../data'
-import { isFirebaseConfigured } from '../lib/firebase'
+import { firebaseAuth, isFirebaseConfigured } from '../lib/firebase'
+import { useAcademySessionEpoch } from '../features/academy/useAcademySessionEpoch'
 import { academyDemoFallbackEnabled, subscribeToCourses } from '../services/firebaseService'
 import type { Course } from '../types'
 import { courseLoadErrorMessage } from '../features/academy/courseLoadError'
 
 export function useCourses(enabled: boolean, includeDrafts = false, refreshKey = '') {
+  const sessionEpoch = useAcademySessionEpoch()
+  const owner = firebaseAuth?.currentUser ?? null
+  const [loadedScope, setLoadedScope] = useState<{ owner: object | null; epoch: number; access: string; drafts: boolean } | null>(null)
+  const currentScope = !isFirebaseConfigured || (loadedScope?.owner === owner && loadedScope?.epoch === sessionEpoch
+    && loadedScope?.access === refreshKey && loadedScope?.drafts === includeDrafts)
   const [items, setItems] = useState<Course[]>(isFirebaseConfigured || !academyDemoFallbackEnabled ? [] : demoCourses)
   const [source, setSource] = useState<'demo' | 'firebase'>(
     isFirebaseConfigured || !academyDemoFallbackEnabled ? 'firebase' : 'demo',
@@ -58,6 +64,7 @@ export function useCourses(enabled: boolean, includeDrafts = false, refreshKey =
     const unsubscribe = subscribeToCourses(
       includeDrafts,
       (firebaseCourses) => {
+        setLoadedScope({ owner, epoch: sessionEpoch, access: refreshKey, drafts: includeDrafts })
         setItems(firebaseCourses)
         setSource('firebase')
         setError(null)
@@ -65,6 +72,7 @@ export function useCourses(enabled: boolean, includeDrafts = false, refreshKey =
         readPending.current = false
       },
       (subscriptionError) => {
+        setLoadedScope({ owner, epoch: sessionEpoch, access: refreshKey, drafts: includeDrafts })
         setError(courseLoadErrorMessage(subscriptionError))
         setItems(academyDemoFallbackEnabled ? demoCourses : [])
         setSource('firebase')
@@ -74,7 +82,7 @@ export function useCourses(enabled: boolean, includeDrafts = false, refreshKey =
       refreshKey,
     )
     return () => { readPending.current = false; unsubscribe() }
-  }, [enabled, includeDrafts, refreshKey, refreshNonce])
+  }, [enabled, includeDrafts, refreshKey, refreshNonce, owner, sessionEpoch])
 
-  return { courses: items, source, loading, error, retry }
+  return { courses: enabled && currentScope ? items : [], source, loading: enabled && (loading || !currentScope), error: currentScope ? error : null, retry }
 }

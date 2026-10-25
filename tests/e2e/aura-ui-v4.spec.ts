@@ -219,7 +219,10 @@ test('Aura Academy shows one focused course on the responsive curriculum artwork
   await outline.getByRole('button', { name: /CHƯƠNG 5 Tiêu hóa và hấp thu/i }).click()
   await studio.getByRole('navigation', { name: 'Các bước học trong chương' }).getByRole('button', { name: 'Làm' }).click()
   const portfolio = studio.getByRole('region', { name: 'Bản đồ nền tảng' })
-  await expect(portfolio).toContainText('0/5 bài thực hành')
+  // Chapter definitions are loaded only when the portfolio opens. Unknown
+  // evidence must not be reported as zero submitted work before that read.
+  await expect(portfolio).toContainText('Chưa đối chiếu đủ tiêu chí năm chương')
+  await expect(portfolio).not.toContainText('0/5 bài thực hành')
   await portfolio.getByRole('button', { name: /Mở portfolio để tổng hợp/ }).click()
   await expect(portfolio.getByText('RUBRIC CAPSTONE')).toBeVisible()
   await expect(portfolio.getByText('Chia sẻ portfolio với coach phụ trách')).toBeVisible()

@@ -135,13 +135,13 @@ test('Academy full course documents are staff-only and learner content uses a ca
   const courseBlock = rulesSource.match(/match \/courses\/\{courseId\} \{[\s\S]*?match \/quizKeys/)?.[0] ?? ''
   assert.match(courseBlock, /allow read: if isAcademyStaff\(\);/)
   assert.match(functionsSource, /exports\.listAcademyCourses\s*=\s*onCall/)
-  assert.match(functionsSource, /academyModulesForLearner\(course\.modules, contentMode, maxFullModuleIndex\)/)
+  assert.match(functionsSource, /academyModulesForLearner\(deliveryModules, catalogOnly \? 'locked' : contentMode, maxFullModuleIndex\)/)
   assert.match(functionsSource, /const hasFullAccess = isStaff \|\| \(hasEnrollment && hasMembershipAccess\)/)
   assert.match(functionsSource, /mode === 'preview' && lesson\.preview === true/)
   assert.match(functionsSource, /selected\.lesson\.preview === true\s*&& course\.settings\?\.visibility === 'members'/)
   const mediaBlock = storageRulesSource.match(/match \/course-media\/\{courseId\}\/\{lessonId\}\/\{allPaths=\*\*\} \{[\s\S]*?\n    \}/)?.[0] ?? ''
   assert.match(mediaBlock, /allow create: if canManageCourseMedia\(\)/)
-  assert.match(mediaBlock, /allow update: if isAdmin\(\)/)
+  assert.match(mediaBlock, /allow update, delete: if false;/)
 })
 
 test('next PT workout is resolved from completed coaching logs', () => {

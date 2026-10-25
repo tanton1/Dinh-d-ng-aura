@@ -14,6 +14,8 @@ export let firebaseStudentManagementFunctions: Functions | null = null
 export let firebaseStudent360Functions: Functions | null = null
 /** Read-only Academy overflow; no enrollment/progress writes are retried here. */
 export let firebaseAcademyFunctions: Functions | null = null
+/** Version-bound submissions and coach review; no automatic regional write fallback. */
+export let firebaseAcademySubmissionFunctions: Functions | null = null
 /** Overflow region for read-only business reports and training history. */
 export let firebaseBusinessReportingFunctions: Functions | null = null
 /** Bounded asia-east1 overflow aliases for authentication bootstrap and telemetry. */
@@ -30,6 +32,7 @@ if (isFirebaseConfigured && firebaseApp) {
   firebaseStudentManagementFunctions = firebaseScheduleOptimizerFunctions
   firebaseStudent360Functions = firebaseScheduleOptimizerFunctions
   firebaseAcademyFunctions = firebaseScheduleOptimizerFunctions
+  firebaseAcademySubmissionFunctions = firebaseScheduleOptimizerFunctions
   firebaseBusinessReportingFunctions = firebaseScheduleOptimizerFunctions
   firebaseTelemetryFunctions = firebaseScheduleOptimizerFunctions
 
