@@ -9,10 +9,11 @@ interface Props {
   selected: Set<string>
   onChange: (next: Set<string>) => void
   disabled?: boolean
+  disabledDays?: Set<string>
   ariaLabel?: string
 }
 
-export default function AvailabilityMatrix({ days, hours, selected, onChange, disabled = false, ariaLabel = 'Ma trận thời gian rảnh' }: Props) {
+export default function AvailabilityMatrix({ days, hours, selected, onChange, disabled = false, disabledDays, ariaLabel = 'Ma trận thời gian rảnh' }: Props) {
   const toggle = (slot: string) => {
     if (disabled) return
     const next = new Set(selected)
@@ -26,7 +27,7 @@ export default function AvailabilityMatrix({ days, hours, selected, onChange, di
         <tbody>{hours.map((hour) => <tr key={hour}><th>{String(hour).padStart(2, '0')}:00</th>{days.map((day) => {
           const slot = `${day}-${hour}`
           const active = selected.has(slot)
-          return <td key={slot}><button type="button" disabled={disabled} aria-pressed={active} aria-label={`${LABELS[day] || day} ${hour} giờ${active ? ', đã chọn' : ''}`} className={active ? 'is-selected' : ''} onClick={() => toggle(slot)}>{active && <Check />}</button></td>
+          return <td key={slot}><button type="button" disabled={disabled || disabledDays?.has(day)} aria-pressed={active} aria-label={`${LABELS[day] || day} ${hour} giờ${active ? ', đã chọn' : ''}`} className={active ? 'is-selected' : ''} onClick={() => toggle(slot)}>{active && <Check />}</button></td>
         })}</tr>)}</tbody>
       </table>
     </div>

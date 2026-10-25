@@ -266,6 +266,8 @@ export interface TrainerAvailabilityWorkspace {
   weeklyOverride: boolean
   offDates: string[]
   locked: boolean
+  canManage?: boolean
+  reopenedUntil?: string | null
   cutoffAt: string | null
   source: 'recurring' | 'weekly'
   updatedAt: string | null
@@ -482,8 +484,18 @@ export async function getMyTrainerAvailability(weekId?: string) {
     'getMyTrainerAvailabilityRegional',
     'getMyTrainerAvailability',
     input,
-    30_000,
+    0,
   )
+}
+
+export async function getPtTrainerAvailability(trainerUid: string, weekId?: string) {
+  return regionalCall<{ trainerUid: string; weekId?: string }, TrainerAvailabilityWorkspace>(
+    'getPtTrainerAvailabilityRegional', { trainerUid, ...(weekId ? { weekId } : {}) }, { readOnly: true },
+  )
+}
+
+export async function savePtTrainerAvailability(input: { trainerUid: string; weekId?: string; availableSlots: string[]; offDates?: string[]; expectedRevision: number }) {
+  return regionalCall<typeof input, TrainerAvailabilityWorkspace>('savePtTrainerAvailabilityRegional', input)
 }
 
 export async function saveMyTrainerAvailability(input: { weekId?: string; availableSlots: string[]; offDates?: string[]; expectedRevision: number }) {

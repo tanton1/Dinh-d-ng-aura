@@ -54,7 +54,7 @@ for (const mode of ['unknown', 'stale', 'exact']) {
       await expect(prior).toContainText('Ngọc')
       await expect(prior).toContainText('0900000002')
       await expect(prior).toContainText('Gói 24')
-      await expect(prior.locator('article').filter({ hasText: 'Lan' })).toContainText('Gói 24 · active · hạn 2099-12-31')
+      await expect(prior.locator('article').filter({ hasText: 'Lan' })).toContainText('Gói 24 · Còn hiệu lực · hạn 2099-12-31')
       await expect(page.getByRole('button', { name: /Do hợp đồng/ })).toBeDisabled()
     } else {
       await expect(page.getByRole('button', { name: /Do hợp đồng/ })).toBeEnabled()
