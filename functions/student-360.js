@@ -3,6 +3,7 @@ const { createHash } = require('node:crypto')
 const { isDeepStrictEqual } = require('node:util')
 const { FieldPath, FieldValue } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
+const { defineBoolean } = require('firebase-functions/params')
 const { trustedAccessContext } = require('./identity-access')
 const { PT_OPERATIONS_POLICY_EFFECTIVE_FROM, PT_OPERATIONS_POLICY_VERSION } = require('./pt-policy')
 const { effectiveContractStatus } = require('./contract-status')
@@ -26,6 +27,7 @@ const HEALTH_FORMULA_VERSION = 'student-health-v1'
 // prevents an unchanged profile from re-reading every history collection each
 // time Staff opens it, while the scheduled reconciler repairs missed triggers.
 const PROJECTION_MAX_AGE_MS = 24 * 60 * 60 * 1000
+const operationsPartialEnabled = defineBoolean('STUDENT360_OPERATIONS_PARTIAL_ENABLED', { default: true })
 const projectionRefreshQueueCache = createProcessCache({ ttlMs: 10 * 60 * 1000, maxEntries: 2_000 })
 const studentProjectionReadCache = createProcessCache({ ttlMs: 5_000, maxEntries: 512 })
 
@@ -1241,38 +1243,43 @@ async function studentProgressSources(db, accountUid) {
   }
 }
 
-async function projectionSources(db, studentId, weekId) {
-  const studentSnapshot = await db.doc(`students/${studentId}`).get()
+async function projectionSources(db, studentId, weekId, options = {}) {
+  const studentSnapshot = options.studentSnapshot || await db.doc(`students/${studentId}`).get()
   if (!studentSnapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy học viên.')
   const student = { id: studentSnapshot.id, ...studentSnapshot.data() }
+  let contractSourceDocuments = 0
   const [contracts, sessions, attendance, leaveRequests, sessionRequests, legacyWorkoutLogs, ptWorkoutLogs, renewals, dailyCheckins, payments, ledgerEntries, availabilitySnapshot, profileResult] = await Promise.all([
     Promise.all([
       latestDocuments(db.collection('contracts').where('studentId', '==', studentId), 'startDate', 50),
       latestDocuments(db.collection('contracts').where('crmProfileId', '==', studentId), 'startDate', 50),
-    ]).then(([canonical, legacy]) => [...new Map([...canonical, ...legacy].map((item) => [item.id, item])).values()].slice(0, 50)),
+    ]).then(([canonical, legacy]) => {
+      contractSourceDocuments = canonical.length + legacy.length
+      return [...new Map([...canonical, ...legacy].map((item) => [item.id, item])).values()].slice(0, 50)
+    }),
     latestDocuments(db.collection('sessions').where('studentId', '==', studentId), 'date', 1000),
     latestDocuments(db.collection('attendanceEvents').where('studentId', '==', studentId), 'date', 1000),
     latestDocuments(db.collection('leaveRequests').where('studentId', '==', studentId), 'startDate', PROJECTION_READ_LIMITS.leaveRequests),
     latestDocuments(db.collection('sessionRequests').where('studentId', '==', studentId), 'createdAt', PROJECTION_READ_LIMITS.sessionRequests),
-    latestDocuments(db.collection('workoutLogs').where('studentId', '==', studentId), 'date', PROJECTION_READ_LIMITS.workoutLogs),
-    latestDocuments(db.collection('ptWorkoutLogs').where('studentId', '==', studentId), 'date', PROJECTION_READ_LIMITS.ptWorkoutLogs),
-    latestDocuments(db.collection('contractRenewalCases').where('studentId', '==', studentId), 'updatedAt', PROJECTION_READ_LIMITS.renewals),
-    latestDocuments(db.collection('dailyCheckins').where('studentId', '==', studentId), 'date', PROJECTION_READ_LIMITS.dailyCheckins),
-    latestDocuments(db.collection('payments').where('studentId', '==', studentId), 'effectiveAt', PROJECTION_READ_LIMITS.payments),
-    latestDocuments(db.collection('ledgerEntries').where('studentId', '==', studentId), 'effectiveAt', PROJECTION_READ_LIMITS.ledgerEntries),
+    options.operationsOnly ? [] : latestDocuments(db.collection('workoutLogs').where('studentId', '==', studentId), 'date', PROJECTION_READ_LIMITS.workoutLogs),
+    options.operationsOnly ? [] : latestDocuments(db.collection('ptWorkoutLogs').where('studentId', '==', studentId), 'date', PROJECTION_READ_LIMITS.ptWorkoutLogs),
+    options.operationsOnly ? [] : latestDocuments(db.collection('contractRenewalCases').where('studentId', '==', studentId), 'updatedAt', PROJECTION_READ_LIMITS.renewals),
+    options.operationsOnly ? [] : latestDocuments(db.collection('dailyCheckins').where('studentId', '==', studentId), 'date', PROJECTION_READ_LIMITS.dailyCheckins),
+    options.operationsOnly ? [] : latestDocuments(db.collection('payments').where('studentId', '==', studentId), 'effectiveAt', PROJECTION_READ_LIMITS.payments),
+    options.operationsOnly ? [] : latestDocuments(db.collection('ledgerEntries').where('studentId', '==', studentId), 'effectiveAt', PROJECTION_READ_LIMITS.ledgerEntries),
     db.doc(`ptAvailability/${studentId}_${weekId}`).get(),
-    studentAccountProfile(db, student),
+    options.profileResult || studentAccountProfile(db, student),
   ])
   const profile = profileResult.profile
   const accountUid = profileResult.accountUid
   const [mealLogs, mealReviews, progressSources, trainingProgramSnapshot] = await Promise.all([
-    accountUid ? latestDocuments(db.collection(`users/${accountUid}/mealLogs`), 'date', PROJECTION_READ_LIMITS.mealLogs) : [],
-    accountUid ? latestDocuments(db.collection('mealReviews').where('userId', '==', accountUid), 'createdAt', PROJECTION_READ_LIMITS.mealReviews) : [],
-    studentProgressSources(db, accountUid),
+    !options.operationsOnly && accountUid ? latestDocuments(db.collection(`users/${accountUid}/mealLogs`), 'date', PROJECTION_READ_LIMITS.mealLogs) : [],
+    !options.operationsOnly && accountUid ? latestDocuments(db.collection('mealReviews').where('userId', '==', accountUid), 'createdAt', PROJECTION_READ_LIMITS.mealReviews) : [],
+    options.operationsOnly ? { bodyMetrics: [], progressPhotos: [], progressSourceDocuments: 0 } : studentProgressSources(db, accountUid),
     db.doc(`ptTrainingPrograms/${studentId}`).get(),
   ])
   return {
     student,
+    operationsSourceDocuments: contractSourceDocuments + sessions.length + attendance.length + leaveRequests.length + sessionRequests.length,
     contracts,
     sessions: canonicalSessionRows(sessions),
     attendance,
@@ -1334,7 +1341,7 @@ async function assignmentNames(db, sources, contract) {
   }
 }
 
-function sourceTimelineEvents(studentId, sources) {
+function sourceTimelineEvents(studentId, sources, limit = 400) {
   const values = []
   const attendanceBySessionId = new Map((sources.attendance || []).map((item) => [bounded(item.sessionId || item.id, 200), item]))
   for (const contract of sources.contracts || []) {
@@ -1463,7 +1470,54 @@ function sourceTimelineEvents(studentId, sources) {
       canonical ? 'progressCheckIns' : metric ? 'bodyMetrics' : 'progressPhotos',
     ))
   }
-  return normalizeTimelineEvents(values.filter((item) => item.occurredAtMillis > 0)).slice(0, 400)
+  return normalizeTimelineEvents(values.filter((item) => item.occurredAtMillis > 0)).slice(0, limit)
+}
+
+const OPERATION_TIMELINE_TYPES = new Set(['training', 'freeze', 'off', 'schedule_change'])
+const TIMELINE_RANK_GROUPS = ['beforeTraining', 'beforeRequests', 'afterOperations', 'nutrition', 'progress']
+
+function timelineRankGroup(event) {
+  if (event.type === 'contract') return 'beforeTraining'
+  if (event.type === 'workout') return 'beforeRequests'
+  if (event.type === 'nutrition' || event.type === 'progress') return event.type
+  return 'afterOperations'
+}
+
+function timelineRanks(events) {
+  const groups = Object.fromEntries(TIMELINE_RANK_GROUPS.map(group => [group, []]))
+  for (const event of events) {
+    if (OPERATION_TIMELINE_TYPES.has(event.type)) continue
+    const ranks = groups[timelineRankGroup(event)]
+    if (ranks.length < 400) ranks.push(event.sortKey)
+  }
+  // A compact scalar avoids hundreds of individually indexed array entries.
+  // No event contents or learner details are copied into the lease document.
+  return JSON.stringify(groups)
+}
+
+function currentTimelineRanks(lease) {
+  const basis = lease?.timelineBasis
+  if (basis?.version !== 1 || typeof basis.ranks !== 'string' || basis.ranks.length > 40_000
+      || !isDeepStrictEqual(basis.coverage, lease.timelineCoverage)) return null
+  try {
+    const ranks = JSON.parse(basis.ranks)
+    return TIMELINE_RANK_GROUPS.every(group => Array.isArray(ranks[group]) && ranks[group].length <= 400
+      && ranks[group].every((key, index) => Number.isSafeInteger(key) && key > 0 && (!index || key <= ranks[group][index - 1]))) ? ranks : null
+  } catch { return null }
+}
+
+function operationsTimeline(events, ranks) {
+  const phase = type => type === 'training' ? 1 : type === 'schedule_change' ? 4 : 3
+  const candidates = events.filter(event => OPERATION_TIMELINE_TYPES.has(event.type))
+    .map(event => ({ event, sortKey: event.sortKey, phase: phase(event.type) }))
+  for (const group of TIMELINE_RANK_GROUPS) {
+    const position = group === 'beforeTraining' ? 0 : group === 'beforeRequests' ? 2 : 5
+    candidates.push(...ranks[group].map(sortKey => ({ sortKey, phase: position })))
+  }
+  // Match the full builder's stable tie order, including contract/workout
+  // rows at the boundary. Partial input must not expand the global 400 cap.
+  return candidates.sort((a, b) => b.sortKey - a.sortKey || a.phase - b.phase)
+    .slice(0, 400).flatMap(item => item.event ? [item.event] : [])
 }
 
 async function upsertTimeline(db, events, lease = null) {
@@ -1508,18 +1562,15 @@ async function nutritionTimelineEvidence(db, studentId, projection) {
   }
 }
 
-async function buildStudent360Projection({ db, studentId, weekId = mondayDateKey(), persist = true, lease = null }) {
-  // Callable repairs, scheduled reconciliation and source triggers must all
-  // serialize with nutrition refreshes, not only Eventarc-triggered rebuilds.
-  if (persist && !lease) {
-    let projection
-    await coalesceProjectionRebuild({ db, studentId, rebuild: async (lease) => {
-      projection = await buildStudent360Projection({ db, studentId, weekId, persist: true, lease })
-    } })
-    return projection
-  }
+function operationsAuthorityFingerprint(sources) {
+  const value = { student: sources.student, profile: sources.profile, accountUid: sources.accountUid, accountLinkSource: sources.accountLinkSource }
+  const serialized = JSON.stringify(value, (_, item) => item && typeof item === 'object' && !Array.isArray(item)
+    ? Object.fromEntries(Object.keys(item).sort().map(key => [key, item[key]])) : item)
+  return createHash('sha256').update(serialized).digest('hex')
+}
+
+async function student360ProjectionData({ db, studentId, weekId, sources, operationsBase = null, ranks = null }) {
   const today = vietnamDateKey()
-  const sources = await projectionSources(db, studentId, weekId)
   const contract = activeContract(sources.contracts, today)
   const contractEffectiveStatus = contract ? effectiveContractStatus(contract, today) : null
   const usageView = contract ? await db.doc(`contractUsageViews/${contract.id}`).get() : null
@@ -1559,20 +1610,21 @@ async function buildStudent360Projection({ db, studentId, weekId = mondayDateKey
   const completed28 = attendanceRows.filter((item) => ['present', 'late'].includes(item.normalizedAttendance)).length
   const trainingTarget28 = requiredPerWeek * 4
   const trainingAdherence = trainingTarget28 ? Math.min(100, Math.round(completed28 / trainingTarget28 * 100)) : null
-  const nutrition = mealProjection(sources.mealLogs, sources.profile, today)
-  const progress = profileProgress(sources.profile || {}, sources.bodyMetrics).summary
+  const nutrition = operationsBase ? operationsBase.nutrition : mealProjection(sources.mealLogs, sources.profile, today)
+  const progress = operationsBase ? operationsBase.progress : profileProgress(sources.profile || {}, sources.bodyMetrics).summary
   const progressAgeDays = progress?.latestDate ? Math.max(0, daysBetween(progress.latestDate, today)) : null
   const availability = sources.availability || sources.student.latestSubmittedAvailability || sources.student.legacyDefaultAvailability || null
   const slots = normalizedArray(availability?.slots || sources.student.availableSlots)
   const confirmedAvailability = Boolean(availability?.confirmed || ['submitted', 'locked', 'inherited'].includes(availability?.status) || sources.student.isScheduleConfirmed)
   const latestAttendanceMillis = Math.max(0, ...attendanceRows.map((item) => timestampMillis(item.updatedAt || item.createdAt) || dateKeyMillis(sessionDate(item))))
-  const latestNonNutritionActivityMillis = Math.max(0, ...[
-    latestAttendanceMillis,
+  const latestNonAttendanceActivityMillis = operationsBase ? operationsBase.nutritionRefreshBasis.operations.latestNonAttendanceActivityMillis : Math.max(0, ...[
     ...sources.workoutLogs.map((item) => timestampMillis(item.completedAt || item.updatedAt || item.createdAt) || dateKeyMillis(item.date)),
     ...sources.dailyCheckins.map((item) => timestampMillis(item.createdAt || item.updatedAt) || dateKeyMillis(item.date)),
   ])
-  const latestActivityMillis = Math.max(latestNonNutritionActivityMillis,
-    ...sources.mealLogs.map((item) => timestampMillis(item.createdAt || item.timestamp) || dateKeyMillis(item.date)))
+  const latestNonNutritionActivityMillis = Math.max(latestAttendanceMillis, latestNonAttendanceActivityMillis)
+  const latestMealActivityMillis = operationsBase ? operationsBase.nutritionRefreshBasis.operations.latestMealActivityMillis
+    : Math.max(0, ...sources.mealLogs.map((item) => timestampMillis(item.createdAt || item.timestamp) || dateKeyMillis(item.date)))
+  const latestActivityMillis = Math.max(latestNonNutritionActivityMillis, latestMealActivityMillis)
   const lastAttendanceAt = latestAttendanceMillis ? new Date(latestAttendanceMillis).toISOString() : null
   const activityAgeDays = latestActivityMillis ? Math.floor((Date.now() - latestActivityMillis) / 86_400_000) : null
   const attendanceAgeDays = latestAttendanceMillis ? Math.floor((Date.now() - latestAttendanceMillis) / 86_400_000) : null
@@ -1632,7 +1684,8 @@ async function buildStudent360Projection({ db, studentId, weekId = mondayDateKey
     severity: item.severity,
     audience: item.audience,
   }))
-  const timeline = sourceTimelineEvents(studentId, sources)
+  const allTimeline = sourceTimelineEvents(studentId, sources, Infinity)
+  const timeline = operationsBase ? operationsTimeline(allTimeline, ranks) : allTimeline.slice(0, 400)
   const projection = {
     schemaVersion: OVERVIEW_SCHEMA_VERSION,
     formulaVersion: HEALTH_FORMULA_VERSION,
@@ -1713,8 +1766,8 @@ async function buildStudent360Projection({ db, studentId, weekId = mondayDateKey
       // derived from the already loaded session evidence, so the directory
       // never performs a second per-student session scan.
       sessionCount: sources.sessions.length,
-      workoutLogCount: sources.workoutLogs.length,
-      latestWorkoutAt: sources.workoutLogs.length ? iso(Math.max(...sources.workoutLogs.map((item) => timestampMillis(item.completedAt || item.updatedAt || item.createdAt) || dateKeyMillis(item.date)))) : null,
+      workoutLogCount: operationsBase ? operationsBase.training.workoutLogCount : sources.workoutLogs.length,
+      latestWorkoutAt: operationsBase ? operationsBase.training.latestWorkoutAt : sources.workoutLogs.length ? iso(Math.max(...sources.workoutLogs.map((item) => timestampMillis(item.completedAt || item.updatedAt || item.createdAt) || dateKeyMillis(item.date)))) : null,
       program: sources.trainingProgram ? {
         id: sources.trainingProgram.id,
         title: sources.trainingProgram.title || 'Giáo án Aura',
@@ -1723,7 +1776,7 @@ async function buildStudent360Projection({ db, studentId, weekId = mondayDateKey
         revision: Math.max(0, finite(sources.trainingProgram.revision)),
         trainingDays: Array.isArray(sources.trainingProgram.trainingDays) ? sources.trainingProgram.trainingDays.slice(0, 12) : [],
       } : null,
-      recentLogs: sources.workoutLogs.sort((left, right) => timestampMillis(right.completedAt || right.updatedAt || right.createdAt) - timestampMillis(left.completedAt || left.updatedAt || left.createdAt)).slice(0, 12).map((item) => ({
+      recentLogs: operationsBase ? operationsBase.training.recentLogs : sources.workoutLogs.sort((left, right) => timestampMillis(right.completedAt || right.updatedAt || right.createdAt) - timestampMillis(left.completedAt || left.updatedAt || left.createdAt)).slice(0, 12).map((item) => ({
         id: item.id,
         date: item.date || (iso(item.completedAt || item.updatedAt || item.createdAt) || '').slice(0, 10),
         title: item.trainingDayTitle || item.programName || item.exerciseName || item.title || 'Buổi tập',
@@ -1734,9 +1787,15 @@ async function buildStudent360Projection({ db, studentId, weekId = mondayDateKey
       })),
     },
     nutrition,
-    nutritionRefreshBasis: { day: today, latestNonNutritionActivityMillis },
+    // Existing readers already remove this private basis. Keep the new
+    // domain metadata inside it so a rolling deployment cannot expose it.
+    nutritionRefreshBasis: { day: today, latestNonNutritionActivityMillis, operations: {
+      version: 1, day: today, authorityFingerprint: operationsAuthorityFingerprint(sources),
+      latestNonAttendanceActivityMillis, latestMealActivityMillis,
+      nutritionUpdatedAt: operationsBase?.nutritionUpdatedAt || null,
+    } },
     progress,
-    renewal: renewal ? {
+    renewal: operationsBase ? operationsBase.renewal : renewal ? {
       caseId: renewal.id,
       stage: renewal.stage || 'uncontacted',
       probability: Math.max(0, Math.min(100, finite(renewal.probability))),
@@ -1755,11 +1814,27 @@ async function buildStudent360Projection({ db, studentId, weekId = mondayDateKey
       sources.sessions.length >= 1000 ? { code: 'SESSION_LIMIT_REACHED', severity: 'warning', message: 'Lịch sử vượt giới hạn xem nhanh.' } : null,
     ].filter(Boolean),
   }
+  return { projection, timeline, ranks: operationsBase ? null : timelineRanks(allTimeline) }
+}
+
+async function buildStudent360Projection({ db, studentId, weekId = mondayDateKey(), persist = true, lease = null }) {
+  // Callable repairs, scheduled reconciliation and source triggers must all
+  // serialize with nutrition refreshes, not only Eventarc-triggered rebuilds.
+  if (persist && !lease) {
+    let projection
+    await coalesceProjectionRebuild({ db, studentId, rebuild: async (lease) => {
+      projection = await buildStudent360Projection({ db, studentId, weekId, persist: true, lease })
+    } })
+    return projection
+  }
+  const sources = await projectionSources(db, studentId, weekId)
+  const { projection, timeline, ranks } = await student360ProjectionData({ db, studentId, weekId, sources })
   if (persist) {
     await Promise.all([
       lease.runTransaction(async (transaction) => transaction.set(db.doc(`studentOperationalViews/${studentId}`), projection, { merge: false })),
       upsertTimeline(db, timeline, lease),
     ])
+    lease.setTimelineRanks(ranks)
     studentProjectionReadCache.clear(`${cacheScope(db)}|${studentId}|`)
   }
   return projection
@@ -1852,11 +1927,18 @@ async function refreshStudent360NutritionProjection({ db, studentId, event, leas
     alerts.push(alert('nutrition-stale', 'amber', 'Bảy ngày chưa ghi bữa ăn', 'Coach cần hỏi thăm và hỗ trợ cách ghi nhận bữa ăn.', 'nutrition', 'coaching'))
   }
   const sortedAlerts = sortAlerts(alerts)
+  const nutritionUpdatedAt = new Date().toISOString()
   const patch = {
     nutrition, health: buildHealthScore(healthInput), alerts: sortedAlerts,
     nextActions: sortedAlerts.slice(0, 3).map((item, index) => ({ id: `action-${item.id}`, priority: index + 1, title: item.title,
       description: item.message, action: item.action, severity: item.severity, audience: item.audience })),
-    nutritionUpdatedAt: new Date().toISOString(),
+    nutritionUpdatedAt,
+    // Older nutrition revisions do not know this basis. The operations path
+    // detects their different nutritionUpdatedAt and performs a full repair.
+    ...(previous.nutritionRefreshBasis?.operations?.version === 1 ? {
+      'nutritionRefreshBasis.operations.latestMealActivityMillis': Math.max(0, ...mealLogs.map(item => timestampMillis(item.createdAt || item.timestamp) || dateKeyMillis(item.date))),
+      'nutritionRefreshBasis.operations.nutritionUpdatedAt': nutritionUpdatedAt,
+    } : {}),
   }
   const timeline = nutritionOnlyTimeline(studentId,
     [...new Map([...mealLogs, ...current.meals].map((item) => [item.id, item])).values()],
@@ -1870,6 +1952,11 @@ async function refreshStudent360NutritionProjection({ db, studentId, event, leas
     }),
     upsertTimeline(db, timeline, lease),
   ])
+  const ranks = currentTimelineRanks(lease)
+  if (ranks) {
+    ranks.nutrition = nutritionOnlyTimeline(studentId, mealLogs, mealReviews).map(item => item.sortKey)
+    lease.setTimelineRanks(JSON.stringify(ranks))
+  }
   studentProjectionReadCache.clear(`${cacheScope(db)}|${studentId}|`)
   return { mode: 'nutrition', sourceDocuments: mealLogs.length + mealReviews.length }
 }
@@ -1938,8 +2025,71 @@ async function refreshStudent360ProgressProjection({ db, studentId, event, lease
     summaryChanged ? guardedLease.runTransaction(async transaction => transaction.update(reference, { ...patch, progressUpdatedAt: new Date().toISOString() })) : Promise.resolve(),
     upsertTimeline(db, timeline, guardedLease),
   ])
+  const ranks = currentTimelineRanks(lease)
+  if (ranks) {
+    ranks.progress = timeline.map(item => item.sortKey)
+    lease.setTimelineRanks(JSON.stringify(ranks))
+  }
   studentProjectionReadCache.clear(`${cacheScope(db)}|${studentId}|`)
   return { mode: 'progress', sourceDocuments: sources.progressSourceDocuments, summaryChanged }
+}
+
+function operationsEventSource(event) {
+  const reference = event?.data?.after?.ref || event?.data?.before?.ref
+  const collection = reference?.parent?.id || reference?.path?.split('/').at(-2)
+  // Contract edits can also be the only invalidation for canonical payment
+  // timeline rows. Keep them on the complete path until finance has coverage.
+  return ['contractUsageViews', 'sessions', 'attendanceEvents', 'ptAvailability', 'leaveRequests', 'sessionRequests'].includes(collection) ? collection : null
+}
+
+async function refreshStudent360OperationsProjection({ db, studentId, lease }) {
+  const weekId = mondayDateKey(), today = vietnamDateKey()
+  const reference = db.doc(`studentOperationalViews/${studentId}`)
+  const existing = await reference.get(), previous = existing.exists ? existing.data() : null
+  const basis = previous?.nutritionRefreshBasis?.operations
+  const ranks = currentTimelineRanks(lease)
+  const fullRefresh = async () => {
+    await buildStudent360Projection({ db, studentId, weekId, persist: true, lease })
+    return { mode: 'full' }
+  }
+  if (previous?.schemaVersion !== OVERVIEW_SCHEMA_VERSION || previous?.formulaVersion !== HEALTH_FORMULA_VERSION
+      || previous?.schedule?.weekId !== weekId || basis?.version !== 1 || basis?.day !== today || !ranks
+      || previous?.nutritionRefreshBasis?.day !== today
+      || !Number.isFinite(basis.latestNonAttendanceActivityMillis) || !Number.isFinite(basis.latestMealActivityMillis)
+      || basis.nutritionUpdatedAt !== (previous.nutritionUpdatedAt || null)
+      || !Array.isArray(previous?.training?.recentLogs) || !Number.isFinite(previous?.training?.workoutLogCount)
+      || !Object.hasOwn(previous.training, 'latestWorkoutAt')
+      || !['nutrition', 'progress', 'renewal'].every(key => Object.hasOwn(previous, key))) return fullRefresh()
+  const studentReference = db.doc(`students/${studentId}`), studentSnapshot = await studentReference.get()
+  if (!studentSnapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy học viên.')
+  const student = { id: studentId, ...studentSnapshot.data() }, accountUid = safeAccountUid(student.accountUid)
+  // Legacy/changed account links retain the complete authority resolver.
+  if (!accountUid || accountUid !== previous.accountUid) return fullRefresh()
+  const profileReference = db.doc(`users/${accountUid}`), profileSnapshot = await profileReference.get()
+  const profileResult = { accountUid, source: 'students.accountUid', profile: profileSnapshot.exists ? { id: accountUid, ...profileSnapshot.data() } : null }
+  if (basis.authorityFingerprint !== operationsAuthorityFingerprint({ student, profile: profileResult.profile, accountUid, accountLinkSource: profileResult.source })) return fullRefresh()
+  const sources = await projectionSources(db, studentId, weekId, { operationsOnly: true, studentSnapshot, profileResult })
+  const { projection, timeline } = await student360ProjectionData({ db, studentId, weekId, sources, operationsBase: previous, ranks })
+  const requireCurrentDay = () => {
+    if (vietnamDateKey() !== today || mondayDateKey() !== weekId) throw student360RetryError('operations_day_changed')
+  }
+  requireCurrentDay()
+  const fields = ['identity', 'assignments', 'contract', 'schedule', 'attendance', 'training', 'health', 'alerts', 'nextActions', 'dataQuality', 'nutritionRefreshBasis']
+  const patch = Object.fromEntries(fields.map(key => [key, projection[key]]))
+  const sameVersion = (left, right) => left.exists === right.exists && (!left.exists || left.updateTime?.isEqual(right.updateTime))
+  const guardedLease = { runTransaction: work => lease.runTransaction(async transaction => {
+    requireCurrentDay()
+    const [currentStudent, currentProfile] = await transaction.getAll(studentReference, profileReference)
+    if (!sameVersion(studentSnapshot, currentStudent) || !sameVersion(profileSnapshot, currentProfile)) throw student360RetryError('operations_authority_changed')
+    return work(transaction)
+  }) }
+  const summaryChanged = Object.entries(patch).some(([key, value]) => !isDeepStrictEqual(previous[key], value))
+  await Promise.all([
+    summaryChanged ? guardedLease.runTransaction(async transaction => transaction.update(reference, { ...patch, operationsUpdatedAt: new Date().toISOString() })) : Promise.resolve(),
+    upsertTimeline(db, timeline, guardedLease),
+  ])
+  studentProjectionReadCache.clear(`${cacheScope(db)}|${studentId}|`)
+  return { mode: 'operations', summaryChanged, sourceDocuments: sources.operationsSourceDocuments }
 }
 
 function actorIds(actor) {
@@ -2198,21 +2348,38 @@ async function resolveEventStudentId(db, event) {
   return null
 }
 
-async function syncStudent360ProjectionFromEvent({ db, event, logger = console }) {
+async function syncStudent360ProjectionFromEvent({ db, event, logger = console, operationsEnabled = operationsPartialEnabled.value() }) {
   if (!sourceChanged(event)) return { skipped: true, reason: 'source_unchanged' }
-  const studentId = await resolveEventStudentId(db, event)
-  if (!studentId) return { skipped: true, reason: 'student_not_resolved' }
+  const resolvedStudentId = await resolveEventStudentId(db, event)
+  const operationsSource = operationsEventSource(event)
+  const studentIds = resolvedStudentId ? [resolvedStudentId] : []
+  if (operationsSource && event.data?.before?.exists) {
+    const owner = value => [value?.studentId || '', value?.crmProfileId || '', value?.userId || '']
+    if (!resolvedStudentId || (event.data?.after?.exists && !isDeepStrictEqual(owner(event.data.before.data()), owner(event.data.after.data())))) {
+      const previousStudentId = await resolveEventStudentId(db, { ...event, data: { before: event.data.before, after: event.data.before } })
+      if (previousStudentId && !studentIds.includes(previousStudentId)) studentIds.push(previousStudentId)
+    }
+  }
+  if (!studentIds.length) return { skipped: true, reason: 'student_not_resolved' }
+  const studentId = studentIds[0]
+  const results = []
+  for (const subjectId of studentIds) results.push(await syncStudent360Subject({ db, event, logger, studentId: subjectId, operationsOnly: Boolean(operationsEnabled && operationsSource) }))
+  return results.length === 1 ? results[0] : { skipped: results.every(result => result.skipped), studentId, studentIds, mode: results.some(result => result.mode === 'full') ? 'full' : results.find(result => result.mode)?.mode }
+}
+
+async function syncStudent360Subject({ db, event, logger, studentId, operationsOnly }) {
   let projectionScope = 'unknown'
   try {
     const nutritionOnly = Boolean(nutritionEventSource(event))
     const progressOnly = Boolean(progressEventSource(event))
-    projectionScope = nutritionOnly ? 'nutrition' : progressOnly ? 'progress' : 'full'
+    projectionScope = nutritionOnly ? 'nutrition' : progressOnly ? 'progress' : operationsOnly ? 'operations' : 'full'
     let refresh = { mode: 'full' }
     const result = await coalesceProjectionRebuild({
       db, studentId, event, scope: projectionScope,
       rebuild: async (lease) => {
         if (nutritionOnly) refresh = await refreshStudent360NutritionProjection({ db, studentId, event, lease })
         else if (progressOnly) refresh = await refreshStudent360ProgressProjection({ db, studentId, event, lease })
+        else if (operationsOnly) refresh = await refreshStudent360OperationsProjection({ db, studentId, lease })
         else await buildStudent360Projection({ db, studentId, weekId: mondayDateKey(), persist: true, lease })
       },
     })
@@ -3192,6 +3359,8 @@ module.exports = {
   uniqueProgressDocuments,
   uniqueProgressPhotos,
   sourceTimelineEvents,
+  timelineRanks,
+  operationsTimeline,
   sessionDateTimeMillis,
   safeTimelineEvent,
   safeAccountUid,

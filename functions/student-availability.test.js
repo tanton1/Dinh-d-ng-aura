@@ -169,7 +169,8 @@ test('a future profile projection does not hide an exact current-week submission
   assert.deepEqual(result.slots, ['T2-14', 'T3-14'])
 })
 
-test('an admin reopen keeps a new learner editable even before a weekly document exists', () => {
+test('an admin reopen keeps a new learner editable even before a weekly document exists', t => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-23T00:00:00.000Z') })
   const targetWeek = '2026-10-19'
   const result = effectiveStudentAvailability({
     targetWeek,
