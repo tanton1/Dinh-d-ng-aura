@@ -20,7 +20,8 @@
     "Add an explicit Academy backend-only release mode: exact 16 targets, privacy Rules first, 13 runtime consumers before the 3 authoring mutators, no legacy automatic rollback, no RTDB or unrelated composite-index deployment.",
     "Run Academy logic, browser and real transaction suites in CI and the protected production workflow.",
     "Fix the startup size check to resolve index.html from the Vite manifest instead of mistaking a larger lazy index-named dependency for startup JS. Keep every performance budget unchanged.",
-    "Update shared source-contract tests for additive Firestore Filter import, selected chapter serialization and immutable course media; retain authorization and privacy assertions."
+    "Update shared source-contract tests for additive Firestore Filter import, selected chapter serialization and immutable course media; retain authorization and privacy assertions.",
+    "Run all 98 Academy fixture cases only on their dedicated Vite fixture server; keep the production-preview suite at its existing 133 Chromium cases. Retain the input hit-test while waiting for smooth scroll to settle, and upload failure traces."
   ],
   "functionScope": {
     "runtimeFirst": ["academySubmissionAction", "completeCourseLesson", "enrollInCourse", "getCourseMediaUrl", "getCourseMediaUrlRegional", "getCourseRevisionDiff", "getCourseRevisionHistory", "getCourseWorkoutSession", "gradeCourseQuiz", "listAcademyCourses", "listAcademyCoursesRegional", "manageAcademyEnrollment", "saveCourseWorkoutLog"],
@@ -46,7 +47,7 @@
     "releaseAndPerformanceTools": { "passed": 19, "failed": 0 },
     "sharedContractChecks": { "passed": 40, "failed": 0 },
     "productionReleaseChecks": { "passed": 17, "failed": 0 },
-    "fullApplicationCi": "rerunning after integration contract fixes",
+    "fullApplicationCi": "passed on Node 22; exit code 0",
     "performanceBudget": "passed without raising limits; actual startup JS 40.3 KiB, initial gzip assets 130.0 KiB",
     "qualification": "Local engineering checks, not deployed runtime, production latency or billed-read measurements."
   },

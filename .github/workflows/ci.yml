@@ -258,6 +258,14 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - run: npm run test:academy-ui
       - run: npm run test:academy-storage
+      - name: Upload Academy failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: academy-${{ github.sha }}
+          path: test-results/
+          if-no-files-found: ignore
+          retention-days: 7
 
   dependency-review:
     name: Dependency review

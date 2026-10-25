@@ -3,9 +3,10 @@ import { defineConfig } from '@playwright/test'
 export default defineConfig({
   testDir: './tests/e2e',
   workers: 2,
-  testMatch: ['academy-modules.spec.ts', 'academy-submissions.spec.ts', 'academy-authoring.spec.ts', 'academy-delivery.spec.ts', 'academy-review.spec.ts', 'academy-media.spec.ts', 'academy-adoption.spec.ts', 'academy-learner-content.spec.ts'],
+  testMatch: ['academy-*.spec.ts'],
   use: {
     baseURL: 'http://127.0.0.1:4179',
+    trace: 'retain-on-failure',
     launchOptions: process.platform === 'win32' ? { executablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe' } : {},
   },
   projects: [{ name: 'academy-chromium' }],

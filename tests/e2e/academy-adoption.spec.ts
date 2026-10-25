@@ -206,7 +206,9 @@ for (const width of [320, 1440]) test(`scientific review form and private checkp
   const reviewNotes = panel.getByLabel('Nhận xét chuyên môn', { exact: true })
   await reviewNotes.focus()
   await reviewNotes.evaluate((element) => element.scrollIntoView({ block: 'center' }))
-  expect(await reviewNotes.evaluate((element) => {
+  // The document uses smooth scrolling. Keep the real hit-test, but wait for
+  // scrolling to settle instead of sampling an intermediate animation frame.
+  await expect.poll(() => reviewNotes.evaluate((element) => {
     const box = element.getBoundingClientRect()
     return document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2) === element
   })).toBe(true)
