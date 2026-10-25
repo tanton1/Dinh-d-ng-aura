@@ -68,6 +68,52 @@ test('explicit definition change preserves the old device draft, clears evidence
   assert.throws(() => f.service.beginAcademyWorkbookDefinition('student', 'course', 'core', next, 2))
 })
 
+test('saving identical workbook content acknowledges the device draft with one read and no cloud writes', async () => {
+  const f = fixture()
+  const draft = f.service.persistAcademyWorkbookDraft('student', 'course', 'core', {
+    ...f.old, answers: { ...f.old.answers }, rubric: { safety: 2, feasibility: 2, mechanism: 2, data: 2 },
+  }).state
+  assert.equal(draft.pendingSync, true)
+  const saved = await f.service.saveAcademyWorkbook('student', 'course', 'core', draft)
+  assert.equal(f.reads(), 1)
+  assert.equal(f.writes.flat().length, 0)
+  assert.deepEqual(f.store.get(cloudKey), f.document)
+  assert.equal(saved.cloudRevision, 4)
+  assert.equal(saved.pendingSync, false)
+  assert.equal(saved.updatedAt, 100)
+  assert.equal(saved.localEditId, draft.localEditId)
+  assert.equal(JSON.parse(f.device.get(key)!).pendingSync, false)
+})
+
+test('identical content never bypasses a newer remote revision or malformed cloud body', async () => {
+  for (const failure of ['revision', 'body']) {
+    const f = fixture()
+    if (failure === 'revision') f.store.get(cloudKey).revision = 5
+    else f.store.get(cloudKey).body = '{'
+    const before = plain(f.store.get(cloudKey))
+    await assert.rejects(f.service.saveAcademyWorkbook('student', 'course', 'core', f.old),
+      failure === 'revision' ? persistence.AcademyWorkbookConflictError : /không đọc được/)
+    assert.equal(f.writes.flat().length, 0)
+    assert.deepEqual(f.store.get(cloudKey), before)
+  }
+})
+
+test('sharing, safety, answers and envelope repairs still write an authoritative new workbook revision', async () => {
+  for (const change of ['sharing', 'safety', 'answers', 'envelope']) {
+    const f = fixture()
+    const next = { ...f.old }
+    if (change === 'sharing') next.sharedWithCoach = false
+    else if (change === 'safety') next.safetyAcknowledged = false
+    else if (change === 'answers') next.answers = { context: 'Nội dung đã thay đổi' }
+    else f.store.get(cloudKey).sharedWithCoach = false
+    const saved = await f.service.saveAcademyWorkbook('student', 'course', 'core', next)
+    assert.equal(saved.cloudRevision, 5)
+    assert.deepEqual(f.writes.flat(), [cloudKey])
+    assert.equal(f.store.get(cloudKey).sharedWithCoach, next.sharedWithCoach)
+    assert.equal(JSON.parse(f.store.get(cloudKey).body).safetyAcknowledged, next.safetyAcknowledged)
+  }
+})
+
 test('failed device backup leaves the original draft unchanged and never starts a new definition', () => {
   const f = fixture(); f.failBackup()
   assert.throws(() => f.service.beginAcademyWorkbookDefinition('student', 'course', 'core', f.old, 2), /bản nháp cũ/)
