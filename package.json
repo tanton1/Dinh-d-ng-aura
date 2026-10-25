@@ -41,7 +41,7 @@
     "check:repo-hygiene": "node scripts/check-repo-hygiene.mjs",
     "exercise:compare": "node scripts/compare-exercise-sources.cjs",
     "exercise:release": "node scripts/release-free-exercise-catalog.cjs",
-    "ci": "npm run check:repo-hygiene && npm run typecheck && npm run test:profile-sync && npm run test:regional-reads && npm run test:callable-audit && npm run test:function-lifecycle && npm run test:eat-clean && npm run build && npm run performance:check && npm --prefix functions run check && npm --prefix functions run check:weekly-view && npm --prefix functions run check:apikey-fun",
+    "ci": "npm run check:repo-hygiene && npm run typecheck && npm run test:profile-sync && npm run test:regional-reads && npm run test:callable-audit && npm run test:function-lifecycle && npm run test:production-smoke && npm run test:eat-clean && npm run build && npm run performance:check && npm --prefix functions run check && npm --prefix functions run check:weekly-view && npm --prefix functions run check:apikey-fun",
     "typecheck": "tsc -b --force",
     "start": "vite preview --host 0.0.0.0",
     "test:catalog-ui": "playwright test --config tests/workout-catalog-ui/playwright.config.ts",
@@ -60,7 +60,8 @@
     "test:progress-summary-ui": "playwright test --config tests/data-cost-ui/playwright.progress.config.ts",
     "test:nutrition-review-ui": "playwright test --config tests/nutrition-review-ui/playwright.config.ts",
     "test:nutrition-transaction": "npx --yes firebase-tools@15.9.1 emulators:exec --only firestore --project demo-aura-fitness \"node --test functions/nutrition-daily-summary.integration.cjs functions/nutrition-write-transaction.integration.cjs functions/student-360-nutrition.integration.cjs\"",
-    "test:content-ai-ui": "playwright test --config playwright.content-ai.config.ts"
+    "test:content-ai-ui": "playwright test --config playwright.content-ai.config.ts",
+    "test:production-smoke": "node --test scripts/production-smoke-reader.test.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.15.0",

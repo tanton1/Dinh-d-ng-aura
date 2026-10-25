@@ -8,6 +8,7 @@ import test from 'node:test'
 
 const workflow = readFileSync('.github/workflows/release-production.yml', 'utf8')
 const productionSmoke = readFileSync('scripts/production-smoke.mjs', 'utf8')
+const productionSmokeReader = readFileSync('scripts/production-smoke-reader.mjs', 'utf8')
 const healthAudit = readFileSync('scripts/cloud-run-functions-health.cjs', 'utf8')
 const rollback = readFileSync('scripts/cloud-run-functions-rollback.cjs', 'utf8')
 const require = createRequire(import.meta.url)
@@ -117,10 +118,12 @@ test('Exercise Catalog rollout does not inspect unrelated OpenRouter secrets', (
 
 test('production smoke retries a complete cache-busted alias snapshot', () => {
   assert.match(productionSmoke, /readConsistentProductionSnapshot/)
-  assert.match(productionSmoke, /url\.searchParams\.set\('aura-smoke'/)
-  assert.match(productionSmoke, /cache:\s*'no-store'/)
-  assert.match(productionSmoke, /Public alias has not promoted release/)
-  assert.match(productionSmoke, /await wait\(snapshotRetryDelayMs\)/)
+  assert.match(productionSmokeReader, /url\.searchParams\.set\('aura-smoke'/)
+  assert.match(productionSmokeReader, /cache:\s*'no-store'/)
+  assert.match(productionSmokeReader, /Public alias has not promoted release/)
+  const pkg = JSON.parse(readFileSync('package.json', 'utf8'))
+  assert.match(pkg.scripts.ci, /test:production-smoke/)
+  assert.match(pkg.scripts['test:production-smoke'], /production-smoke-reader\.test\.mjs/)
 })
 
 test('rules deployment selects the named database, excludes index deployment and verifies the live source', () => {
