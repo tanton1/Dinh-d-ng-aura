@@ -5,6 +5,7 @@ const { after, test } = require('node:test')
 const { initializeApp, deleteApp } = require('firebase-admin/app')
 const { getFirestore, FieldValue } = require('firebase-admin/firestore')
 const { buildStudent360Projection, syncStudent360ProjectionFromEvent, vietnamDateKey } = require('./student-360')
+const { student360FailureFields } = require('./student-360-projection-writes')
 
 assert.match(process.env.FIRESTORE_EMULATOR_HOST || '', /^(127\.0\.0\.1|localhost):\d+$/)
 const app = initializeApp({ projectId: 'demo-aura-fitness' }, 'progress-domain-' + randomUUID())
@@ -152,7 +153,11 @@ test('profile changes during loading reject publication and retry from current a
       await db.doc('users/learner').update({ history: [{ id: 'new-baseline', date: day(-40), weightKg: 90 }] })
     }
   })
-  await assert.rejects(sync(delayed, event), { code: 'unavailable' })
+  await assert.rejects(sync(delayed, event), error => {
+    assert.equal(error.code, 'unavailable')
+    assert.deepEqual(student360FailureFields(error), { failureReason: 'progress_authority_changed', failurePhase: 'progress_write' })
+    return true
+  })
   assert.deepEqual((await current(db)).progress, projection.progress)
   const state = (await db.doc('systemJobs/student360Rebuild/subjects/student').get()).data()
   assert.equal(state.progressCoveredThrough, undefined)
@@ -174,7 +179,11 @@ test('an account reassignment during loading fences the old account and the stud
       await studentRef.update({ accountUid: 'replacement' })
     }
   })
-  await assert.rejects(sync(delayed, event), { code: 'unavailable' })
+  await assert.rejects(sync(delayed, event), error => {
+    assert.equal(error.code, 'unavailable')
+    assert.deepEqual(student360FailureFields(error), { failureReason: 'progress_authority_changed', failurePhase: 'progress_write' })
+    return true
+  })
   assert.deepEqual((await current(db)).progress, projection.progress)
   assert.equal((await sync(db, event)).reason, 'student_not_resolved', 'an old account event does not revive its former link')
   const studentEvent = { params: { studentId: 'student' }, data: { before: beforeStudent, after: await studentRef.get() } }

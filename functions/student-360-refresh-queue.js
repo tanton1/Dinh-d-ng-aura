@@ -1,7 +1,7 @@
 'use strict'
 
 const { FieldValue } = require('firebase-admin/firestore')
-const { coalesceProjectionRebuild } = require('./student-360-projection-writes')
+const { coalesceProjectionRebuild, student360FailureFields } = require('./student-360-projection-writes')
 
 const STUDENT360_REFRESH_QUEUE = 'systemJobs/student360ProjectionRefreshQueue/requests'
 const STUDENT360_REFRESH_DOCUMENT = `${STUDENT360_REFRESH_QUEUE}/{studentId}`
@@ -77,7 +77,7 @@ async function processStudent360Refresh({ db, event, rebuild, fallbackWeekId, lo
   } catch (error) {
     const code = typeof error?.code === 'string' ? error.code.slice(0, 80) : 'unknown'
     await settle({ status: 'failed', lastError: code }).catch(() => {})
-    logger.error('student_360_projection_queue_failed', { operation: 'refreshStudent360ProjectionFromQueue', code })
+    logger.error('student_360_projection_queue_failed', { operation: 'refreshStudent360ProjectionFromQueue', code, projectionScope: 'full', ...student360FailureFields(error) })
     throw error
   }
 }

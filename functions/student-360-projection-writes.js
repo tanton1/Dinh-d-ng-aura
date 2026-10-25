@@ -4,6 +4,29 @@ const { Timestamp } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
 const { projectionSourceChanged } = require('./projection-event-policy')
 
+// Keep diagnostic classifications server-local. They must not change callable
+// error details, database documents, retry behavior or log arbitrary messages.
+const failureFields = new WeakMap()
+const retryFailures = Object.freeze({
+  lease_busy: ['lease_acquire', 'Student 360 projection rebuild is already running.'],
+  lease_replaced_during_write: ['projection_write', 'Projection rebuild lease expired or changed; retry required.'],
+  lease_expired_during_write: ['projection_write', 'Projection rebuild lease expired or changed; retry required.'],
+  lease_replaced_before_completion: ['lease_complete', 'Projection rebuild lease changed; retry required.'],
+  progress_authority_changed: ['progress_write', 'Student progress authority changed during refresh; retry required.'],
+})
+
+function student360RetryError(reason) {
+  if (!Object.hasOwn(retryFailures, reason)) throw new Error('Unknown Student 360 retry classification.')
+  const [phase, message] = retryFailures[reason]
+  const error = new HttpsError('unavailable', message)
+  failureFields.set(error, { failureReason: reason, failurePhase: phase })
+  return error
+}
+
+function student360FailureFields(error) {
+  return { ...(failureFields.get(error) || { failureReason: 'unclassified', failurePhase: 'unknown' }) }
+}
+
 function sourceChanged(event) {
   return projectionSourceChanged(event)
 }
@@ -32,7 +55,7 @@ async function coalesceProjectionRebuild({ db, studentId, event, rebuild, now = 
     if (atOrBefore(version, state.coveredThrough)
         || (scope !== 'full' && atOrBefore(version, state[watermark]))) return null
     if (state.leaseUntil?.toMillis() > now()) {
-      throw new HttpsError('unavailable', 'Student 360 projection rebuild is already running.')
+      throw student360RetryError('lease_busy')
     }
     transaction.set(reference, {
       token,
@@ -49,9 +72,8 @@ async function coalesceProjectionRebuild({ db, studentId, event, rebuild, now = 
     // old source data after its successor has acquired the lease.
     runTransaction: (work) => db.runTransaction(async (transaction) => {
       const snapshot = await transaction.get(reference)
-      if (snapshot.data()?.token !== token || !(snapshot.data()?.leaseUntil?.toMillis() > now())) {
-        throw new HttpsError('unavailable', 'Projection rebuild lease expired or changed; retry required.')
-      }
+      if (snapshot.data()?.token !== token) throw student360RetryError('lease_replaced_during_write')
+      if (!(snapshot.data()?.leaseUntil?.toMillis() > now())) throw student360RetryError('lease_expired_during_write')
       return work(transaction)
     }),
   }
@@ -59,7 +81,7 @@ async function coalesceProjectionRebuild({ db, studentId, event, rebuild, now = 
     await rebuild(lease)
     await db.runTransaction(async (transaction) => {
       const snapshot = await transaction.get(reference)
-      if (snapshot.data()?.token !== token) throw new HttpsError('unavailable', 'Projection rebuild lease changed; retry required.')
+      if (snapshot.data()?.token !== token) throw student360RetryError('lease_replaced_before_completion')
       transaction.set(reference, {
         token: null, leaseUntil: null,
         // Partial refreshes cannot acknowledge contract/session/finance
@@ -97,4 +119,4 @@ async function upsertChangedTimeline(db, events, lease = null) {
   return { total: events.length, changed }
 }
 
-module.exports = { atOrBefore, sourceChanged, coalesceProjectionRebuild, upsertChangedTimeline }
+module.exports = { atOrBefore, sourceChanged, coalesceProjectionRebuild, upsertChangedTimeline, student360RetryError, student360FailureFields }
