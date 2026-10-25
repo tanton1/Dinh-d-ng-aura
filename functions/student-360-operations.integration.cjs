@@ -18,6 +18,20 @@ const operationalQueries = new Set(['contracts', 'sessions', 'attendanceEvents',
 const row = (patch = {}) => ({ studentId: 'student', contractId: 'contract', branchId: 'branch', date: today, hour: 8, status: 'scheduled', ...patch })
 const sync = (db, event, enabled = true) => syncStudent360ProjectionFromEvent({ db, event, logger, operationsEnabled: enabled })
 const current = async (db, id = 'student') => (await db.doc('studentOperationalViews/' + id).get()).data()
+
+test('optional runtime override enables operations by default and preserves full fallback without a required deploy parameter', async () => {
+  const key = 'STUDENT360_OPERATIONS_PARTIAL_ENABLED', previous = process.env[key]
+  try {
+    for (const [value, expected] of [[undefined, 'operations'], ['true', 'operations'], ['false', 'full'], ['invalid', 'full']]) {
+      if (value === undefined) delete process.env[key]; else process.env[key] = value
+      const { db } = await fixture()
+      assert.equal((await syncStudent360ProjectionFromEvent({ db, event: await event(db, 'sessions/new', row()), logger })).mode, expected)
+    }
+  } finally {
+    if (previous === undefined) delete process.env[key]; else process.env[key] = previous
+  }
+})
+
 async function fixture(large = false) {
   const db = getFirestore(app, 'operations-domain-' + randomUUID()); clients.push(db)
   const initial = {

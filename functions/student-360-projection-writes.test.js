@@ -25,6 +25,12 @@ function memoryDb() {
 }
 const eventAt = (ms) => ({ data: { after: { exists: true, updateTime: Timestamp.fromMillis(ms) } } })
 
+test('Student 360 does not require a deployment parameter for its optional runtime override', () => {
+  require('./student-360')
+  const { declaredParams } = require('firebase-functions/params')
+  assert.equal(declaredParams.some(param => param.name === 'STUDENT360_OPERATIONS_PARTIAL_ENABLED'), false)
+})
+
 test('timeline rebuild only writes missing or materially changed events', async () => {
   const db = memoryDb()
   const events = Array.from({ length: 205 }, (_, id) => ({ id: String(id), metadata: { amount: id }, title: 'Buổi tập' }))
@@ -248,7 +254,7 @@ test('event logging identifies contention with one lease read, no writes and a r
   db.runTransaction = work => { transactionCalls++; return transaction(work) }
   db.data.set('systemJobs/student360Rebuild/subjects/s1', { token: 'another-owner', leaseUntil: Timestamp.fromMillis(Date.now() + 180_000) })
   const event = usageEvent({ studentId: 's1', usedSessions: 1 }, { studentId: 's1', usedSessions: 2 })
-  await assert.rejects(syncStudent360ProjectionFromEvent({ db, event, logger: { info() { throw Error('failed event must not log success') }, error: (...args) => logs.push(args) } }), error => {
+  await assert.rejects(syncStudent360ProjectionFromEvent({ db, event, operationsEnabled: false, logger: { info() { throw Error('failed event must not log success') }, error: (...args) => logs.push(args) } }), error => {
     assert.equal(error.code, 'unavailable')
     assert.equal(student360FailureFields(error).failureReason, 'lease_busy')
     return true
@@ -263,7 +269,7 @@ test('event logging preserves unknown dependency errors and never labels them as
   const error = Object.assign(new Error('private transport diagnostics'), { code: 14 }), logs = []
   const db = { doc: path => ({ path }), runTransaction: async () => { throw error } }
   const event = usageEvent({ studentId: 's1', usedSessions: 1 }, { studentId: 's1', usedSessions: 2 })
-  await assert.rejects(syncStudent360ProjectionFromEvent({ db, event, logger: { info() {}, error: (...args) => logs.push(args) } }), received => received === error)
+  await assert.rejects(syncStudent360ProjectionFromEvent({ db, event, operationsEnabled: false, logger: { info() {}, error: (...args) => logs.push(args) } }), received => received === error)
   assert.equal(logs.length, 1)
   assert.deepEqual(logs[0][1], { studentId: 's1', code: 14, projectionScope: 'full', failureReason: 'unclassified', failurePhase: 'unknown' })
   assert.equal(JSON.stringify(logs).includes('private transport diagnostics'), false)
