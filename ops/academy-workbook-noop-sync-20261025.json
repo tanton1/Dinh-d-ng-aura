@@ -3,7 +3,7 @@
   "scope": "D5.2: avoid unchanged Academy workbook writes",
   "behavior": [
     "Compare learning content against the workbook already read by the existing save transaction, after checking the current cloud revision.",
-    "When content and its document envelope match, acknowledge the device draft without changing the cloud body, timestamps or revision.",
+    "When content and its document envelope match an established positive revision, acknowledge the device draft without changing the cloud body, timestamps or revision. Legacy unversioned workbooks still establish revision one.",
     "Changed answers, rubric, sharing, safety or definition still persist. Definition changes retain atomic history archival.",
     "A stale device revision still conflicts even when its content matches. Invalid cloud JSON remains an error."
   ],
@@ -15,8 +15,8 @@
     "rulesChanged": false
   },
   "validation": {
-    "focusedWorkbookTests": 22,
-    "newBehaviorCases": 3,
+    "focusedWorkbookTests": 23,
+    "newBehaviorCases": 4,
     "method": "Actual service functions with atomic SDK and device-storage fixtures; browser and Rules regression coverage remains required in hosted CI.",
     "productionBusinessFixtures": 0
   },

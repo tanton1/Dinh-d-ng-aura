@@ -98,6 +98,21 @@ test('identical content never bypasses a newer remote revision or malformed clou
   }
 })
 
+test('an unchanged legacy workbook still establishes its first cloud revision', async () => {
+  for (const existingRevision of [undefined, 0]) {
+    const f = fixture()
+    const legacy = { ...f.old, cloudRevision: 0 }
+    const document = { ...f.document, body: JSON.stringify(legacy), revision: existingRevision }
+    f.store.set(cloudKey, plain(document))
+    f.device.set(key, JSON.stringify(legacy))
+    const saved = await f.service.saveAcademyWorkbook('student', 'course', 'core', legacy)
+    assert.equal(saved.cloudRevision, 1)
+    assert.deepEqual(f.writes.flat(), [cloudKey])
+    assert.equal(f.store.get(cloudKey).revision, 1)
+    assert.equal(JSON.parse(f.device.get(key)!).cloudRevision, 1)
+  }
+})
+
 test('sharing, safety, answers and envelope repairs still write an authoritative new workbook revision', async () => {
   for (const change of ['sharing', 'safety', 'answers', 'envelope']) {
     const f = fixture()

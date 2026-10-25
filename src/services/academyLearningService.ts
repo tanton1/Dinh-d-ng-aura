@@ -478,7 +478,7 @@ async function saveAcademyWorkbookToCloud(ownerId: string, courseId: string, les
       // The revision check above still rejects stale-device saves. Reuse the
       // transaction's existing read to acknowledge unchanged learning content
       // without rewriting its body, timestamps or revision.
-      if (existing.data().courseId === courseId && existing.data().lessonId === lessonId
+      if (remoteRevision > 0 && existing.data().courseId === courseId && existing.data().lessonId === lessonId
         && existing.data().sharedWithCoach === state.sharedWithCoach && previous.cloudRevision === remoteRevision
         && academyWorkbookSignature(previous) === academyWorkbookSignature(state)) {
         return { ...state, updatedAt: previous.updatedAt, cloudRevision: remoteRevision, pendingSync: false }
