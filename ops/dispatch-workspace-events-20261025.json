@@ -13,14 +13,14 @@
     "scopeLabels": "Show whole-scope active-job total and explicitly disclose capped job/roster display; page-only empty states do not imply a complete empty queue."
   },
   "validation": {
-    "newDispatchBrowserCases": 38,
+    "newDispatchBrowserCases": 40,
     "browsers": ["Chrome", "iPhone WebKit"],
     "baseDataCostBrowserCases": 67,
     "serviceProtocolTests": 4,
     "typecheck": "passed",
     "buildAndPerformance": "passed",
     "fixtureBudgets": { "oneIdleHourBootstrapRequests": 1, "oneIdleHourPeriodicRequests": 0, "twentyGpsUpdatesAdditionalBusinessRequests": 0 },
-    "notes": "The base browser suite passed 67 cases; the wrapper command then reported no matching tests in its unrelated history suite because --grep was forwarded to that second command. This is not recorded as a complete npm test:data-cost-ui pass. The initial 108-case delivery run had a mobile long clock-advance test failure; the final deterministic midnight and all dispatch cases passed."
+    "notes": "The base browser suite passed 67 cases; the wrapper command then reported no matching tests in its unrelated history suite because --grep was forwarded to that second command. This is not recorded as a complete npm test:data-cost-ui pass. The initial 108-case delivery run had a mobile long clock-advance test failure; the final deterministic midnight and all dispatch cases passed. A new test reproduced a successful assignment racing an older read incorrectly pausing refresh; queued section reconciliation now completes without acknowledging stale versions."
   },
   "release": {
     "backendPrerequisite": "PR26: selective callable, all section source triggers and named Firestore rules serving and verified, after PR24/25.",

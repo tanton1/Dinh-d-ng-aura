@@ -115,7 +115,8 @@ export function useDispatchWorkspace(options: {
         latest.current.pending(true)
         try {
           const next = await listEatCleanDispatchSnapshot(sections)
-          if (!current() || ticket !== generation) return
+          if (!current()) return
+          if (ticket !== generation) { if (!paused) requestSections(sections); return }
           if (next.workspaceSync.accountId !== accountId || JSON.stringify(next.sections) !== JSON.stringify(sections)) throw Error('DISPATCH_SYNC_UNAVAILABLE')
           if (!value && (!next.jobs || !next.drivers || !next.config || !next.readiness || !next.signals)) throw Error('DISPATCH_BOOTSTRAP_INCOMPLETE')
           if (next.jobs) {
@@ -131,9 +132,13 @@ export function useDispatchWorkspace(options: {
           latest.current.failure(null, false); apply(); reconcile()
         } catch (error) {
           if (current() && ticket === generation) { fail(error); engine.fail() }
+          else if (current() && !paused) requestSections(sections)
         } finally { if (current()) latest.current.pending(false) }
       },
-      onError: failed => { if (failed && current() && !paused) fail(Error('DISPATCH_SYNC_UNAVAILABLE')) },
+      // A mutation/manual refresh can deliberately discard an older response.
+      // Its queued follow-up must finish before treating a dirty baseline as a
+      // transport failure; no accepted version is fabricated to clear it.
+      onError: failed => { if (failed && current() && !paused && !activeSections().some(key => forced.has(key))) fail(Error('DISPATCH_SYNC_UNAVAILABLE')) },
     })
     const handle = {
       refresh() { if (!current()) return; paused = false; generation++; observedRole = ''; gpsDenied.clear(); stopAll(); requestSections(activeSections()) },

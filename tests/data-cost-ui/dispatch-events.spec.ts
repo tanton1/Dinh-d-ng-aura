@@ -246,6 +246,24 @@ test('assignment refreshes only jobs/roster; a late mutation cannot affect the n
   await expect(page.getByText(/Đã gán ORDER-A/)).toHaveCount(0)
 })
 
+test('an assignment during an in-flight read queues reconciliation without turning the discarded response into an error', async ({ page }) => {
+  await open(page, { dispatchJobs: [{ ...job, canAssign: true }] }); await ready(page)
+  await page.evaluate(() => (window as any).costState.delayed = true)
+  await revisions(page, ['jobs'], 1)
+  await expect.poll(() => calls(page)).toHaveLength(2)
+  await page.getByRole('button', { name: 'Gán shipper', exact: true }).click()
+  await page.getByRole('button', { name: 'Xác nhận gán', exact: true }).click()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  expect(await calls(page)).toHaveLength(2)
+  await page.evaluate(() => { const state = (window as any).costState; state.delayed = false; state.pending.splice(0).forEach((done: () => void) => done()) })
+  await page.clock.runFor(300)
+  await expect.poll(() => calls(page)).toHaveLength(3)
+  expect((await calls(page))[2]).toEqual(['jobs', 'roster'])
+  await expect(page.getByRole('alert')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Gán shipper', exact: true })).toHaveCount(0)
+  await page.clock.runFor(60000); expect(await calls(page)).toHaveLength(3)
+})
+
 test('saving settings refreshes config only and keeps live sources detached', async ({ page }) => {
   await open(page); await ready(page)
   await page.getByRole('tab', { name: 'Phí giao & SLA' }).click()
