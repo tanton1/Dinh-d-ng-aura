@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from 'motion/react'
 import { AlertCircle, CheckCircle, Clock, DollarSign, Plus, RefreshCw, Search, Undo2, WalletCards, X } from 'lucide-react'
 import type { StudentContract, UserProfile } from '../../../types'
 import { useDatabase } from '../../../contexts/DatabaseContext'
+import { useLocalTimeBoundaries } from '../../../hooks/useLocalTimeBoundaries'
 import {
   listFinanceLedger,
   recordContractPayment,
@@ -139,6 +140,12 @@ export default function FinanceManagement(props: Props) {
 function FinanceWorkspace({ profile }: Props) {
   const { branches, contracts, students, acquireFinanceDirectory, refreshData, operationsSync } = useDatabase()
   useEffect(() => acquireFinanceDirectory(), [acquireFinanceDirectory])
+  // Keep the existing local calendar semantics. Reclassifying a due date only
+  // needs the current contracts, so midnight/resume must not reload them.
+  const nextMidnight = new Date()
+  nextMidnight.setHours(24, 0, 0, 0)
+  const calendarClock = useLocalTimeBoundaries([nextMidnight.getTime()])
+  const todayKey = localDateKey(new Date(calendarClock))
   const [selectedBranchId, setSelectedBranchId] = useState('all')
   const [dateRange, setDateRange] = useState<{ start: Date; end: Date }>(currentMonthRange)
   const [debtFilter, setDebtFilter] = useState<DebtFilter>(initialDebtFilter)
@@ -271,8 +278,7 @@ function FinanceWorkspace({ profile }: Props) {
   const debtGroups = useMemo<Record<DebtFilter, StudentContract[]>>(() => {
     const overpaid = filteredContracts.filter((contract) => Number(contract.paidAmount || 0) > Number(contract.totalPrice || 0) - Number(contract.discount || 0))
     const debtContracts = filteredContracts.filter((contract) => Number(contract.totalPrice || 0) - Number(contract.discount || 0) > Number(contract.paidAmount || 0))
-    const now = new Date()
-    const todayKey = localDateKey(now)
+    const now = new Date(`${todayKey}T12:00:00`)
     const startOfWeek = new Date(now)
     startOfWeek.setDate(now.getDate() - now.getDay())
     startOfWeek.setHours(0, 0, 0, 0)
@@ -307,18 +313,17 @@ function FinanceWorkspace({ profile }: Props) {
       'this-month': dated.filter((contract) => amountDueInRange(contract, startOfMonthKey, endOfMonthKey) > 0),
       overpaid,
     }
-  }, [filteredContracts])
+  }, [filteredContracts, todayKey])
 
   const currentDebtMetrics = useMemo(() => {
-    const now = new Date()
-    const todayKey = localDateKey(now)
+    const now = new Date(`${todayKey}T12:00:00`)
     const startOfMonthKey = localDateKey(new Date(now.getFullYear(), now.getMonth(), 1))
     const endOfMonthKey = localDateKey(new Date(now.getFullYear(), now.getMonth() + 1, 0))
     return {
       overdue: filteredContracts.reduce((sum, contract) => sum + overdueAmount(contract, todayKey), 0),
       thisMonth: filteredContracts.reduce((sum, contract) => sum + amountDueInRange(contract, startOfMonthKey, endOfMonthKey), 0),
     }
-  }, [filteredContracts])
+  }, [filteredContracts, todayKey])
 
   const studentById = useMemo(() => new Map(students.map((student) => [student.id, student])), [students])
   const contractsWithDebt = debtGroups[debtFilter]
@@ -540,7 +545,7 @@ function FinanceWorkspace({ profile }: Props) {
             const debt = contractDebt(contract)
             const nextInstallment = pendingInstallments(contract)[0]
             const dueDate = nextInstallment?.date || contract.nextPaymentDate
-            const overdue = overdueAmount(contract, localDateKey()) > 0
+            const overdue = overdueAmount(contract, todayKey) > 0
             const student = studentById.get(contract.studentId)
             return <article key={contract.id} className={overdue ? 'is-overdue' : ''} title={`Hợp đồng ${contract.id}`}><div className="finance-management__debt-row"><div className="min-w-0"><div className="finance-management__debt-name"><h3>{studentName(contract.studentId)}</h3>{overdue && <span>Quá hạn</span>}{contract.status === 'frozen' && <span className="is-frozen">Bảo lưu</span>}</div><p>{student?.phone || 'Chưa có SĐT'} · {contract.packageName}</p></div><div className="finance-management__debt-amount"><b className={debt >= 0 ? 'is-debt' : 'is-credit'}>{debt >= 0 ? money(debt) : `+${money(Math.abs(debt))}`}</b><div className="finance-management__debt-meta"><span>{debt >= 0 ? 'Phải thu' : 'Dư'}</span>{dueDate && debt > 0 && <small><Clock size={12} /> {new Date(dueDate).toLocaleDateString('vi-VN')}</small>}{debt > 0 && <button onClick={() => openPayment(contract)} className="finance-management__collect-button" aria-label={`Thu tiền của ${studentName(contract.studentId)}`}><Plus size={14} /><span>Thu</span></button>}</div></div></div></article>
           })}

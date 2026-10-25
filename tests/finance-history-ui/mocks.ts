@@ -7,6 +7,11 @@ export const state = {
   cashCalls: [] as Array<{ owner: string }>, cashDefer: false, cashSettled: 0, cashFailure: '',
   cashAccounts: [{ id: 'cash-a', branchId: 'a', status: 'active', name: 'Test cash', balance: 100_000 }],
   cashPending: [] as Array<{ resolve: (result: any) => void; reject: (error: Error) => void; result: any }>,
+  updateContract(id: string, patch: Record<string, unknown>) {
+    Object.assign(contracts.find(contract => contract.id === id)!, patch)
+    database.contracts = [...contracts]
+    publish()
+  },
   resolveCash(index: number, failure = '') {
     const pending = this.cashPending[index]
     if (!pending) throw Error('Missing pending cash request')
