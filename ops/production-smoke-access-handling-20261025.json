@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-25",
+  "planScope": "D0 release verification and bounded request attempts",
+  "baseSource": "be935a78fe118fa25be424c664f40aa2704afce2",
+  "problem": "The public snapshot checker retried an HTTP 403 security checkpoint thirty times at a fixed three-second interval.",
+  "changes": [
+    "Stop immediately on HTTP 401, 403, 407 or a recognized security checkpoint, including a checkpoint returned with HTTP 200.",
+    "Respect Retry-After seconds and HTTP dates; back off transient transport failures and defer when the required delay exceeds the run budget.",
+    "Keep cache-busted complete snapshots, exact release, immutable asset, manifest, Firebase configuration and Auth checks.",
+    "Bound request and snapshot duration and report structured failures without copying challenge bodies."
+  ],
+  "validation": {
+    "unitAndExecutableCases": 23,
+    "fullLocalCiPassed": true,
+    "localHttpServerOnly": true,
+    "hostedCiRequiredBeforeMerge": true
+  },
+  "production": {
+    "deployed": false,
+    "applicationRuntimeChanged": false,
+    "functionsChanged": false,
+    "securitySettingsChanged": false,
+    "challengeBypassAdded": false,
+    "successfulVerificationCriteriaRelaxed": false,
+    "measuredBillingSavings": null
+  }
+}
