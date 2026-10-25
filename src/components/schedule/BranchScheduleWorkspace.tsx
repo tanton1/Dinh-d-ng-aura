@@ -1665,7 +1665,6 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
   const warningCount = useMemo(() => {
     return warningProfiles.length + scheduleConflictWarnings.length
   }, [scheduleConflictWarnings.length, warningProfiles.length])
-  const retainedValidation = coveragePending ? workspace?.validationSnapshot : null
 
   // Candidate ranking only depends on the workspace/slot, not on the search
   // text. Keeping it memoized prevents a full branch scan on every keystroke
@@ -2051,7 +2050,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
     setAvailabilityError('')
   }
 
-  const openWarningStudentAvailability = (student: PtScheduleWorkspaceV2Result['students'][number]) => {
+  const openWarningStudentAvailability = (student: Pick<PtScheduleWorkspaceV2Result['students'][number], 'id' | 'name'>) => {
     // Keep the operator on the warning center. The warning row itself is the
     // entry point for the learner's availability and cross-branch schedule;
     // navigating to the Students tab made the warning context disappear.
@@ -2392,7 +2391,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
         <div className="branch-schedule__tabs" role="tablist" aria-label="Nội dung xếp lịch">
           <button id="schedule-tab-matrix" type="button" role="tab" aria-selected={tab === 'matrix'} aria-controls="schedule-panel-matrix" tabIndex={tab === 'matrix' ? 0 : -1} className={tab === 'matrix' ? 'is-active' : ''} onClick={() => setTab('matrix')}>Lịch PT</button>
           <button id="schedule-tab-opportunities" type="button" role="tab" aria-selected={tab === 'opportunities'} aria-controls="schedule-panel-opportunities" tabIndex={tab === 'opportunities' ? 0 : -1} className={tab === 'opportunities' ? 'is-active' : ''} onClick={() => setTab('opportunities')}>Kho ca {tab === 'opportunities' && <b>{scheduleOpportunities.length}</b>}</button>
-          <button id="schedule-tab-warnings" type="button" role="tab" aria-selected={tab === 'warnings'} aria-controls="schedule-panel-warnings" tabIndex={tab === 'warnings' ? 0 : -1} className={tab === 'warnings' ? 'is-active' : ''} onClick={openFirstWarningStudentAvailability}>Cảnh báo <b title={coveragePending ? 'Thiếu buổi chưa đối soát cho lịch hiện tại' : undefined}>{coveragePending ? retainedValidation ? 'cũ' : '—' : warningCount}</b></button>
+          <button id="schedule-tab-warnings" type="button" role="tab" aria-selected={tab === 'warnings'} aria-controls="schedule-panel-warnings" tabIndex={tab === 'warnings' ? 0 : -1} className={tab === 'warnings' ? 'is-active' : ''} onClick={openFirstWarningStudentAvailability}>Cảnh báo <b title={coveragePending ? 'Đang cập nhật cảnh báo theo draft hiện tại' : undefined}>{coveragePending ? '—' : warningCount}</b></button>
           <button id="schedule-tab-students" type="button" role="tab" aria-selected={tab === 'students'} aria-controls="schedule-panel-students" tabIndex={tab === 'students' ? 0 : -1} className={tab === 'students' ? 'is-active' : ''} onClick={() => setTab('students')}>Học viên</button>
         </div>
         <div className="branch-schedule__actions">
