@@ -113,10 +113,15 @@ export function isAcademyPracticeArtifactComplete(workbook: AcademyWorkbookState
     && workbook.safetyAcknowledged
 }
 
-export function isAcademyPortfolioComplete(stage: AcademyPortfolioStage, workbook: AcademyWorkbookState) {
+/** Draft readiness only: not submission proof, coach review or course completion. */
+export function isAcademyPortfolioDraftReady(stage: AcademyPortfolioStage, workbook: AcademyWorkbookState) {
   const rubricScore = Object.values(workbook.rubric).reduce<number>((total, score) => total + score, 0)
   return stage.fields.every((field) => String(workbook.answers[field.id] ?? '').trim().length > 0)
     && Boolean(workbook.reviewAt)
     && workbook.safetyAcknowledged
+    && workbook.rubric.safety >= 1
     && rubricScore >= 6
 }
+
+/** @deprecated Prefer the explicit draft-readiness name. */
+export const isAcademyPortfolioComplete = isAcademyPortfolioDraftReady

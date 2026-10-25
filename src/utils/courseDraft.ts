@@ -4,6 +4,8 @@ export function toCourseDraft(course: Course): CourseDraftInput {
   return {
     id: String(course.id),
     revision: Number.isInteger(course.revision) ? course.revision : 0,
+    contentStorage: course.contentStorage,
+    publishedRevision: course.publishedRevision,
     coverUrl: course.coverUrl,
     slug: course.slug ?? String(course.id),
     title: course.title,

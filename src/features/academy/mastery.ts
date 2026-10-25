@@ -16,7 +16,9 @@ export function academyMastery(design: AcademyLearningDesignV1, workbook: Academ
   const fields = design.practice.fields.filter((field) => field.required)
   const filled = fields.filter((field) => String(field.id === 'reviewAt' ? workbook.reviewAt : workbook.answers[field.id] ?? '').trim()).length
   const practiceTotal = fields.length + 1
-  const practiceFilled = filled + Number(workbook.safetyAcknowledged)
+  const compatible = workbook.definitionVersion === design.practice.version
+    && (!design.practice.identityHash || workbook.definitionHash === design.practice.identityHash)
+  const practiceFilled = compatible ? filled + Number(workbook.safetyAcknowledged) : 0
   return {
     correct, reviewed, remembered, due,
     understandPercent: design.microChecks.length ? Math.round(correct / design.microChecks.length * 100) : 0,

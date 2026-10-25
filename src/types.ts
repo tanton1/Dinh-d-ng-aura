@@ -36,6 +36,7 @@ export interface UserProfile {
   accessRole?: AccessRole
   positions?: StaffPosition[]
   authzVersion?: number
+  disabled?: boolean
   membership: 'free' | 'pro' | 'coach'
   branchId?: string
   history?: ProgressRecord[]
@@ -107,6 +108,10 @@ export interface CourseProgress {
   completedLessonIds: string[]
   percent: number
   lastLessonId: string
+  practiceSubmissionRevisions?: Record<string, number>
+  practiceSubmissionDefinitionVersions?: Record<string, number>
+  practiceSubmissionDefinitionHashes?: Record<string, string>
+  quizCompletionChapterVersions?: Record<string, string>
   completedAt?: unknown
   updatedAt?: unknown
 }
@@ -353,6 +358,11 @@ export interface Course {
   schemaVersion?: 2
   /** Monotonic server revision used to detect concurrent Academy edits. */
   revision?: number
+  contentStorage?: 'chapters-v1'
+  contentDelivery?: 'catalog' | 'full'
+  contentAccess?: 'full' | 'preview' | 'locked' | 'staff-preview'
+  /** Active learner revision, independently of the editor's working draft. */
+  publishedRevision?: number | null
   updatedAt?: unknown
 }
 
@@ -459,11 +469,18 @@ export interface AcademyPracticeFieldDefinition {
 
 export interface AcademyPracticeDefinition {
   version: number
+  /** Server-computed identity of bespoke prompts, requirements and rubric. */
+  identityHash?: string
   title: string
   outcome: string
   fields: AcademyPracticeFieldDefinition[]
   minimumEvidence: string[]
   safetyPrompt: string
+  /** Published, chapter-specific educational criteria; absent on legacy definitions. */
+  reviewRubric?: {
+    version: number
+    criteria: Array<{ id: 'data' | 'mechanism' | 'feasibility' | 'safety'; label: string; levels: [string, string, string] }>
+  }
 }
 
 export interface AcademySafetyGate {
@@ -493,6 +510,11 @@ export interface AcademyPracticeSubmissionV1 {
   decision: 'keep' | 'adjust' | 'stop' | 'refer' | null
   reviewAt: string | null
   updatedAt: string
+}
+
+export interface AcademyPracticeCompletionEvidence {
+  workbookLessonId: string
+  workbookRevision: number
 }
 
 export interface AcademyReviewRating {
@@ -736,6 +758,8 @@ export type CourseQuizAnswerKeys = Record<string, Record<string, number[]>>
 
 export interface CourseLessonDraft {
   id: string
+  /** Opaque published chapter version, supplied by the learner delivery API. */
+  contentVersion?: string
   title: string
   type: CourseLessonType
   duration: string
@@ -756,6 +780,9 @@ export interface CourseLessonDraft {
 
 export interface CourseModuleDraft {
   id: string
+  contentVersion?: string
+  /** Staff-only binding to immutable reviewed content; omitted from learner delivery. */
+  academyAdoption?: { candidateId: string }
   title: string
   order: number
   lessons: CourseLessonDraft[]
@@ -774,7 +801,9 @@ export interface CourseDraftInput {
   schemaVersion?: 2
   /** Revision loaded when the editor opened. New and legacy unversioned courses use 0. */
   revision?: number
-  /** Editor-only keys, persisted into courses/{courseId}/quizKeys/{lessonId}. */
+  contentStorage?: 'chapters-v1'
+  publishedRevision?: number | null
+  /** Editor-only keys. New saves keep them inside server-only chapter versions. */
   quizAnswerKeys?: CourseQuizAnswerKeys
   coverUrl?: string
   title: string

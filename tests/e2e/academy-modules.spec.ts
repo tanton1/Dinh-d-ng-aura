@@ -1,4 +1,459 @@
 import { expect, test } from '@playwright/test'
+import { getAcademyLearningDraft } from '../../content/academy/learning-drafts'
+import { academyDraftChapterNumbers } from '../../src/features/academy/draftCatalog'
+
+for (const width of [320, 1440]) {
+  test(`practice definition change preserves the old draft and uses chapter-specific criteria at ${width}px`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width, height: 1000 })
+    await page.addInitScript(() => {
+      const key = 'aura:academy:workbook:v1:academy-fixture-owner:academy-fixture:chapter-01-core'
+      if (!localStorage.getItem(key)) localStorage.setItem(key, JSON.stringify({
+        schemaVersion: 2, definitionVersion: 1, cloudRevision: 0, answers: { context: 'Câu trả lời bản trước phải còn nguyên' },
+        safetyAcknowledged: true, rubric: { data: 2, mechanism: 2, feasibility: 2, safety: 2 }, updatedAt: 100,
+      }))
+    })
+    await page.goto('/tests/e2e/fixtures/academy-modules.html?scenario=practice-version')
+    await page.getByRole('tab', { name: 'Học cùng Aura' }).click()
+    await page.getByRole('navigation', { name: 'Các bước học trong chương' }).getByRole('button', { name: /Thực hành|^Làm$/ }).click()
+    const notice = page.locator('.academy-practice-version')
+    await expect(notice).toContainText('Yêu cầu bài thực hành đã thay đổi')
+    await expect(page.locator('.academy-practice-studio__fields')).toHaveCount(0)
+    await notice.locator('summary').click()
+    await expect(notice).toContainText('Câu trả lời bản trước phải còn nguyên')
+    expect(await page.evaluate(() => JSON.parse(localStorage.getItem('aura:academy:workbook:v1:academy-fixture-owner:academy-fixture:chapter-01-core')!).definitionVersion)).toBe(1)
+    await notice.scrollIntoViewIfNeeded()
+    await page.screenshot({ path: testInfo.outputPath(`practice-version-${width}.png`) })
+    await notice.getByRole('button', { name: 'Giữ bản cũ và bắt đầu bản mới' }).click()
+    await expect(notice).toHaveCount(0)
+    await expect(page.locator('.academy-practice-studio__fields textarea').first()).toHaveValue('')
+    await expect(page.locator('.academy-practice-safety input')).not.toBeChecked()
+    await expect(page.locator('.academy-practice-submission')).toContainText('Đã nộp phiên bản trước — bản mới chưa nộp')
+    await page.getByRole('button', { name: 'Xem bản nháp trước' }).click()
+    await page.locator('.academy-workbook-history summary').click()
+    await expect(page.locator('.academy-workbook-history')).toContainText('Câu trả lời bản trước phải còn nguyên')
+    const criterion = page.locator('.academy-practice-rubric article').first()
+    await criterion.getByText('Xem các mức đánh giá').click()
+    const authored = getAcademyLearningDraft(1)!.unit.practice.rubric[0]
+    for (const level of authored.levels) await expect(criterion).toContainText(level)
+    await criterion.scrollIntoViewIfNeeded()
+    await page.screenshot({ path: testInfo.outputPath(`practice-rubric-${width}.png`) })
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0)
+    await page.reload()
+    await page.getByRole('tab', { name: 'Học cùng Aura' }).click()
+    await expect(page.locator('.academy-practice-version')).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'Xem bản nháp trước' })).toBeVisible()
+  })
+}
+
+test('a first visit to a new practice definition starts empty without inventing an older draft', async ({ page }) => {
+  await page.goto('/tests/e2e/fixtures/academy-modules.html?scenario=practice-version')
+  await page.getByRole('tab', { name: 'Học cùng Aura' }).click()
+  await page.getByRole('navigation', { name: 'Các bước học trong chương' }).getByRole('button', { name: /Thực hành|^Làm$/ }).click()
+  await expect(page.locator('.academy-practice-version')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Xem bản nháp trước' })).toHaveCount(0)
+  await page.locator('.academy-practice-studio__fields textarea').first().fill('Bắt đầu từ yêu cầu mới')
+  const state = await page.evaluate(() => JSON.parse(localStorage.getItem('aura:academy:workbook:v1:academy-fixture-owner:academy-fixture:chapter-01-core')!))
+  expect(state.definitionVersion).toBe(2); expect(state.definitionHash).toBe('a'.repeat(64))
+})
+
+test('failed local backup blocks the version switch and keeps the old answers visible', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('aura:academy:workbook:v1:academy-fixture-owner:academy-fixture:chapter-01-core', JSON.stringify({
+      schemaVersion: 2, definitionVersion: 1, cloudRevision: 0, answers: { context: 'Không được mất khi đầy bộ nhớ' }, updatedAt: 100,
+    }))
+    const original = Storage.prototype.setItem
+    Storage.prototype.setItem = function (key, value) {
+      if (key.includes(':archive:')) throw new DOMException('Storage is full', 'QuotaExceededError')
+      return original.call(this, key, value)
+    }
+  })
+  await page.goto('/tests/e2e/fixtures/academy-modules.html?scenario=practice-version')
+  await page.getByRole('tab', { name: 'Học cùng Aura' }).click()
+  await page.getByRole('navigation', { name: 'Các bước học trong chương' }).getByRole('button', { name: /Thực hành|^Làm$/ }).click()
+  await page.getByRole('button', { name: 'Giữ bản cũ và bắt đầu bản mới' }).click()
+  await expect(page.locator('.academy-practice-version [role="alert"]')).toContainText('Chưa giữ được bản nháp cũ')
+  const state = await page.evaluate(() => JSON.parse(localStorage.getItem('aura:academy:workbook:v1:academy-fixture-owner:academy-fixture:chapter-01-core')!))
+  expect(state.definitionVersion).toBe(1); expect(state.answers.context).toBe('Không được mất khi đầy bộ nhớ')
+  await expect(page.locator('.academy-practice-studio__fields')).toHaveCount(0)
+})
+
+test('staff draft selector loads only a chosen chapter, retries errors and discards late responses', async ({ page }, testInfo) => {
+  const calls: number[] = []
+  let releaseSlow: () => void = () => undefined
+  const slow = new Promise<void>((resolve) => { releaseSlow = resolve })
+  let failChapter4 = true
+  await page.route('**/src/services/academyDraftReviewService.ts', (route) => route.fulfill({ contentType: 'application/javascript', body: `
+    export async function loadAcademyLearningDraft(chapter) {
+      const response = await fetch('/__academy_draft_fixture?chapter=' + chapter);
+      if (!response.ok) throw new Error('Chưa tải được bản nháp. Hãy thử lại.');
+      const packet = await response.json(); window.__academyDraftSettled = chapter; return packet;
+    }
+  ` }))
+  await page.route('**/__academy_draft_fixture?chapter=*', async (route) => {
+    const chapter = Number(new URL(route.request().url()).searchParams.get('chapter'))
+    calls.push(chapter)
+    if (chapter === 2) await slow
+    if (chapter === 4 && failChapter4) { failChapter4 = false; return route.fulfill({ status: 503 }) }
+    return route.fulfill({ json: getAcademyLearningDraft(chapter) })
+  })
+  await page.setViewportSize({ width: 320, height: 950 })
+  await page.goto('/tests/e2e/fixtures/academy-modules.html?scenario=draft-selector#admin-course-editor')
+  const panel = page.getByRole('region', { name: 'Rà soát giáo trình chuyên sâu' })
+  await expect(panel).toContainText('20/20 bản nháp chuyên sâu')
+  await expect(panel).toContainText('Nội dung cần được duyệt trước khi xuất bản cho học viên.')
+  await expect(panel).not.toContainText('Các chương còn lại')
+  await expect(panel.getByRole('button', { name: /^Chương \d+$/ })).toHaveCount(20)
+  expect(calls).toEqual([])
+  await panel.getByRole('button', { name: 'Chương 1', exact: true }).click()
+  await expect(panel).toContainText('Không yêu cầu chương trước.')
+  await panel.getByRole('button', { name: 'Chương 1', exact: true }).click()
+  expect(calls).toEqual([1])
+  await panel.getByRole('button', { name: 'Chương 2', exact: true }).click()
+  await expect(panel.getByRole('status')).toContainText('Đang tải bản nháp chương 2')
+  await expect.poll(() => calls).toEqual([1, 2])
+  await panel.getByRole('button', { name: 'Chương 5', exact: true }).click()
+  await expect(panel.getByRole('heading', { name: getAcademyLearningDraft(5)!.unit.title, exact: true })).toBeVisible()
+  const delayedResponse = page.waitForResponse('**/__academy_draft_fixture?chapter=2')
+  releaseSlow()
+  await delayedResponse
+  await page.waitForFunction(() => (window as Window & { __academyDraftSettled?: number }).__academyDraftSettled === 2)
+  await expect(panel.getByRole('heading', { name: getAcademyLearningDraft(5)!.unit.title, exact: true })).toBeVisible()
+  await expect(panel.getByRole('button', { name: 'Chương 5', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await panel.getByRole('button', { name: 'Chương 4', exact: true }).click()
+  await expect(panel.getByRole('alert')).toContainText('Chưa tải được bản nháp')
+  await expect(panel.locator('.academy-unit-reader')).toHaveCount(0)
+  await panel.getByRole('button', { name: 'Thử lại bản nháp' }).click()
+  await expect(panel.getByRole('heading', { name: getAcademyLearningDraft(4)!.unit.title, exact: true })).toBeVisible()
+  expect(calls).toEqual([1, 2, 5, 4, 4])
+  for (const chapter of [6, 7, 9, 10, 11, 12, 13, 14, 15, 16, 19, 20]) {
+    await panel.getByRole('button', { name: `Chương ${chapter}`, exact: true }).click()
+    await expect(panel.getByRole('heading', { name: getAcademyLearningDraft(chapter)!.unit.title, exact: true })).toBeVisible()
+    await expect(panel.getByRole('button', { name: `Chương ${chapter}`, exact: true })).toHaveAttribute('aria-pressed', 'true')
+  }
+  expect(calls).toEqual([1, 2, 5, 4, 4, 6, 7, 9, 10, 11, 12, 13, 14, 15, 16, 19, 20])
+  await expect(panel.getByRole('button', { name: /Nộp|Xuất bản|Lưu khóa/ })).toHaveCount(0)
+  expect(new URL(page.url()).hash).toBe('#admin-course-editor')
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0)
+  await page.screenshot({ path: testInfo.outputPath('draft-selector-320.png') })
+})
+
+test('digestive safety feedback preserves the distinction between teaching and medical self-testing', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await page.goto('/tests/e2e/fixtures/academy-modules.html?scenario=pilot-review&chapter=5#admin-course-editor')
+  await page.getByRole('link', { name: 'Tự kiểm', exact: true }).click()
+  const check = page.locator('.academy-unit-reader__check').nth(3)
+  await check.getByRole('radio').first().check()
+  await expect(check.getByRole('status')).toContainText('Cần xem lại.')
+  await check.getByRole('radio').last().check()
+  await expect(check.getByRole('status')).toContainText('Đúng cách hiểu.')
+  await expect(check.getByRole('status')).toContainText('không tạo chỉ định tự thử lại')
+  await check.getByRole('link', { name: 'Đọc lại phần liên quan' }).click()
+  await expect(page.locator('#academy-unit-5-ch05-safe-next-step')).toBeFocused()
+  await expect(page.locator('#academy-unit-5-ch05-safe-next-step')).toContainText('không tự ăn lại gluten')
+  const section = page.locator('#academy-unit-5-ch05-safe-next-step')
+  await section.getByRole('link', { name: 'NIDDK: Diagnosis of Celiac Disease', exact: true }).click()
+  await expect(page.locator('#academy-unit-5-niddk-celiac-diagnosis')).toBeFocused()
+  await expect(page.locator('#academy-unit-5-niddk-celiac-diagnosis').getByRole('link')).toHaveAttribute('href', 'https://www.niddk.nih.gov/health-information/digestive-diseases/celiac-disease/diagnosis')
+  await page.getByRole('link', { name: 'Nội dung', exact: true }).click()
+  await section.scrollIntoViewIfNeeded()
+  expect(new URL(page.url()).hash).toBe('#admin-course-editor')
+  await page.screenshot({ path: testInfo.outputPath('foundation-safety-desktop.png') })
+})
+
+test('glucose feedback does not dismiss alarms or turn the practice into a dietary experiment', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await page.goto('/tests/e2e/fixtures/academy-modules.html?scenario=pilot-review&chapter=6#admin-course-editor')
+  await page.getByRole('link', { name: 'Tự kiểm', exact: true }).click()
+  const check = page.locator('.academy-unit-reader__check').nth(3)
+  await check.getByRole('radio').first().check()
+  await expect(check.getByRole('status')).toContainText('Cần xem lại.')
+  await expect(check.getByRole('status')).toContainText('không phải lý do gạt cảnh báo')
+  await check.getByRole('radio').last().check()
+  await expect(check.getByRole('status')).toContainText('Đúng cách hiểu.')
+  await check.getByRole('link', { name: 'Đọc lại phần liên quan' }).click()
+  const section = page.locator('#academy-unit-6-ch06-care-boundary')
+  await expect(section).toBeFocused()
+  await expect(section).toContainText('không cố cho ăn uống và không chờ phản hồi trên app')
+  await page.screenshot({ path: testInfo.outputPath('glucose-safety-desktop.png') })
+  await page.getByRole('link', { name: 'Bài thực hành', exact: true }).click()
+  const practice = page.locator('#academy-unit-6-practice')
+  await expect(practice).toContainText('không là thử nghiệm ăn uống bảy ngày')
+  await expect(practice.locator('dt')).toHaveCount(6)
+  await expect(page.getByRole('button', { name: /Nộp|Hoàn thành|Xuất bản/ })).toHaveCount(0)
+  expect(new URL(page.url()).hash).toBe('#admin-course-editor')
+})
+
+test('meal safety remediation retains hot-weather timing and scoped arithmetic on mobile', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 390, height: 1000 })
+  await page.goto('/tests/e2e/fixtures/academy-modules.html?scenario=pilot-review&chapter=9#admin-course-editor')
+  await page.getByRole('link', { name: 'Tự kiểm', exact: true }).click()
+  const check = page.locator('.academy-unit-reader__check').nth(3)
+  await check.getByRole('radio').first().check()
+  await expect(check.getByRole('status')).toContainText('Cần xem lại.')
+  await check.getByRole('link', { name: 'Đọc lại phần liên quan' }).click()
+  const section = page.locator('#academy-unit-9-ch09-safe-storage')
+  await expect(section).toBeFocused()
+  await expect(section).toContainText('1 giờ khi môi trường trên 32°C')
+  await expect(section).toContainText('không là hạn chung cho mọi món')
+  await page.getByRole('link', { name: 'Ví dụ có lời giải', exact: true }).click()
+  const example = page.locator('.academy-unit-reader__example').nth(2)
+  await example.locator('summary').click()
+  await expect(example).toContainText('90 phút vượt 60 phút')
+  await expect(example).toContainText('không cố cứu bằng hâm lại')
+  await example.scrollIntoViewIfNeeded()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0)
+  await page.screenshot({ path: testInfo.outputPath('meal-transport-mobile.png') })
+  expect(new URL(page.url()).hash).toBe('#admin-course-editor')
+})
+
+for (const scenario of [
+  { chapter: 11, check: 2, correct: 2, section: 'ch11-hydration', text: 'Nó không đo nồng độ sodium trong mồ hôi.', example: 2, conclusion: 'Ước tính 1,0 lít trong một giờ' },
+  { chapter: 12, check: 3, correct: 3, section: 'ch12-support-decisions', text: 'không cần chờ đủ cả ba', example: 1, conclusion: '36 kcal/kg khối không mỡ/ngày; cân bằng năng lượng là −200 kcal/ngày' },
+  { chapter: 13, check: 3, correct: 3, section: 'ch13-review-gates', text: 'không chờ đủ tuần để bảo vệ biểu đồ', example: 0, conclusion: '300 kcal/ngày ở kịch bản trung tâm' },
+  { chapter: 14, check: 1, correct: 1, section: 'ch14-protein-context', text: 'người có bệnh thận không tự áp khoảng này', example: 0, conclusion: '98–140 g protein/ngày trong bài toán, chưa phải mục tiêu' },
+]) {
+  test(`performance chapter ${scenario.chapter} feedback links to scoped guidance and worked arithmetic`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: scenario.chapter === 14 ? 1440 : 390, height: 1000 })
+    await page.goto(`/tests/e2e/fixtures/academy-modules.html?scenario=pilot-review&chapter=${scenario.chapter}#admin-course-editor`)
+    await page.getByRole('link', { name: 'Tự kiểm', exact: true }).click()
+    const check = page.locator('.academy-unit-reader__check').nth(scenario.check)
+    await check.getByRole('radio').first().check()
+    await expect(check.getByRole('status')).toContainText('Cần xem lại.')
+    await check.getByRole('radio').nth(scenario.correct).check()
+    await expect(check.getByRole('status')).toContainText('Đúng cách hiểu.')
+    await check.getByRole('link', { name: 'Đọc lại phần liên quan' }).click()
+    const section = page.locator(`#academy-unit-${scenario.chapter}-${scenario.section}`)
+    await expect(section).toBeFocused()
+    await expect(section).toContainText(scenario.text)
+    await page.screenshot({ path: testInfo.outputPath(`performance-${scenario.chapter}-guidance.png`) })
+    await page.getByRole('link', { name: 'Ví dụ có lời giải', exact: true }).click()
+    const example = page.locator('.academy-unit-reader__example').nth(scenario.example)
+    await expect(example.locator('details')).not.toHaveAttribute('open')
+    await example.locator('summary').click()
+    await expect(example).toContainText(scenario.conclusion)
+    await expect(example).toContainText('Giới hạn:')
+    await page.getByRole('link', { name: 'Bài thực hành', exact: true }).click()
+    await expect(page.locator(`#academy-unit-${scenario.chapter}-practice dt`)).toHaveCount(6)
+    await expect(page.getByRole('button', { name: /Nộp|Hoàn thành|Xuất bản/ })).toHaveCount(0)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0)
+    expect(new URL(page.url()).hash).toBe('#admin-course-editor')
+  })
+}
+
+for (const scenario of [
+  { chapter: 15, check: 2, correct: 2, section: 'ch15-comparable-signals', text: 'Mốc rà 4–8 tuần trong bài là lựa chọn tổ chức học tập', example: 0, conclusion: '−1,4 kg mỡ và +1,4 kg không mỡ' },
+  { chapter: 16, check: 1, correct: 1, section: 'ch16-folate-label', text: 'không phải một thành phần thứ hai để cộng', example: 0, conclusion: '600 mcg folic acid = 0,6 mg' },
+  { chapter: 19, check: 3, correct: 3, section: 'ch19-review-and-restart', text: 'không phải lời hứa tạo thói quen sau đúng 21 hoặc 66 ngày', example: 1, conclusion: '75% trong phần có dữ liệu, độ phủ khoảng 66,7%' },
+  { chapter: 20, check: 3, correct: 3, section: 'ch20-versioned-continuity', text: 'không cấp danh xưng chuyên gia', example: 1, conclusion: 'Đủ 5/5 bản nộp nhưng chỉ 4/5 bản hiện tại' },
+]) {
+  test(`mastery chapter ${scenario.chapter} feedback preserves evidence scope and worked examples`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: scenario.chapter === 20 ? 1440 : 390, height: 1000 })
+    await page.goto(`/tests/e2e/fixtures/academy-modules.html?scenario=pilot-review&chapter=${scenario.chapter}#admin-course-editor`)
+    await page.getByRole('link', { name: 'Tự kiểm', exact: true }).click()
+    const check = page.locator('.academy-unit-reader__check').nth(scenario.check)
+    await check.getByRole('radio').first().check()
+    await expect(check.getByRole('status')).toContainText('Cần xem lại.')
+    await check.getByRole('radio').nth(scenario.correct).check()
+    await expect(check.getByRole('status')).toContainText('Đúng cách hiểu.')
+    await check.getByRole('link', { name: 'Đọc lại phần liên quan' }).click()
+    const section = page.locator(`#academy-unit-${scenario.chapter}-${scenario.section}`)
+    await expect(section).toBeFocused()
+    await expect(section).toContainText(scenario.text)
+    await page.screenshot({ path: testInfo.outputPath(`mastery-${scenario.chapter}-guidance.png`) })
+    await page.getByRole('link', { name: 'Ví dụ có lời giải', exact: true }).click()
+    const example = page.locator('.academy-unit-reader__example').nth(scenario.example)
+    await expect(example.locator('details')).not.toHaveAttribute('open')
+    await example.locator('summary').click()
+    await expect(example).toContainText(scenario.conclusion)
+    await expect(example).toContainText('Giới hạn:')
+    await page.getByRole('link', { name: 'Bài thực hành', exact: true }).click()
+    await expect(page.locator(`#academy-unit-${scenario.chapter}-practice dt`)).toHaveCount(6)
+    await expect(page.getByRole('button', { name: /Nộp|Hoàn thành|Xuất bản/ })).toHaveCount(0)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0)
+    expect(new URL(page.url()).hash).toBe('#admin-course-editor')
+  })
+}
+
+test('maternal warning remediation does not delay care after six weeks and keeps the practice hypothetical', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 390, height: 1000 })
+  await page.goto('/tests/e2e/fixtures/academy-modules.html?scenario=pilot-review&chapter=16#admin-course-editor')
+  await page.getByRole('link', { name: 'Tự kiểm', exact: true }).click()
+  const check = page.locator('.academy-unit-reader__check').nth(2)
+  await check.getByRole('radio').nth(3).check()
+  await expect(check.getByRole('status')).toContainText('Cần xem lại.')
+  await expect(check.getByRole('status')).toContainText('Không cần tự chẩn đoán hoặc hoàn thiện hồ sơ')
+  await check.getByRole('radio').nth(2).check()
+  await expect(check.getByRole('status')).toContainText('Đúng cách hiểu.')
+  await check.getByRole('link', { name: 'Đọc lại phần liên quan' }).click()
+  const section = page.locator('#academy-unit-16-ch16-pregnancy-postpartum')
+  await expect(section).toBeFocused()
+  const warning = section.getByText('Sau sinh cần cả người mua', { exact: false })
+  await expect(warning).toContainText('không chờ đủ mọi triệu chứng hoặc cuộc hẹn coach')
+  await warning.scrollIntoViewIfNeeded()
+  await page.screenshot({ path: testInfo.outputPath('mastery-16-maternal-warning.png') })
+  await page.getByRole('link', { name: 'Bài thực hành', exact: true }).click()
+  await expect(page.locator('#academy-unit-16-practice')).toContainText('không phải thử chế độ ăn')
+  await expect(page.locator('#academy-unit-16-practice')).toContainText('phần nhạy cảm không cần ghi')
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0)
+  expect(new URL(page.url()).hash).toBe('#admin-course-editor')
+})
+
+test('progress reader separates BIA estimates and version-bound portfolio evidence from approval', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await page.goto('/tests/e2e/fixtures/academy-modules.html?scenario=pilot-review&chapter=10#admin-course-editor')
+  await page.getByRole('link', { name: 'Ví dụ có lời giải', exact: true }).click()
+  const example = page.locator('.academy-unit-reader__example').nth(1)
+  await expect(example.locator('details')).not.toHaveAttribute('open')
+  await example.locator('summary').click()
+  await expect(example).toContainText('13,2 và 11,9 kg, chênh −1,3 kg')
+  await expect(example).toContainText('chưa xác nhận mô mỡ thật')
+  await page.getByRole('link', { name: 'Tự kiểm', exact: true }).click()
+  const check = page.locator('.academy-unit-reader__check').nth(3)
+  await check.getByRole('radio').first().check()
+  await expect(check.getByRole('status')).toContainText('Cần xem lại.')
+  await check.getByRole('radio').last().check()
+  await expect(check.getByRole('status')).toContainText('không tạo trạng thái đã nộp hoặc đã được coach duyệt')
+  await check.getByRole('link', { name: 'Đọc lại phần liên quan' }).click()
+  await expect(page.locator('#academy-unit-10-ch10-evidence-chain')).toBeFocused()
+  await expect(page.locator('#academy-unit-10-ch10-evidence-chain')).toContainText('bản cũ không tự trở thành nhận xét bản mới')
+  await page.getByRole('link', { name: 'Bài thực hành', exact: true }).click()
+  const practice = page.locator('#academy-unit-10-practice')
+  await expect(practice).toContainText('sau khi nộp bài 10 mới tổng hợp đủ năm bản nộp')
+  await expect(practice).toContainText('không có cân nặng hoặc ảnh')
+  await expect(page.getByRole('button', { name: /Nộp|Hoàn thành|Xuất bản/ })).toHaveCount(0)
+  await page.screenshot({ path: testInfo.outputPath('progress-practice-desktop.png') })
+  expect(new URL(page.url()).hash).toBe('#admin-course-editor')
+})
+
+for (const width of [320, 1440]) {
+  test(`portfolio separates submitted artifacts from filled drafts at ${width}px`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width, height: 1000 })
+    await page.addInitScript(() => {
+      localStorage.setItem('aura:academy:workbook:v1:academy-fixture-owner:academy-fixture:chapter-02-core', JSON.stringify({
+        schemaVersion: 2, definitionVersion: 1, cloudRevision: 0, updatedAt: 10, pendingSync: true,
+        answers: Object.fromEntries(['context', 'hypothesis', 'action', 'minimum', 'data', 'stop'].map((id) => [id, 'Bản nháp đủ mục, chưa nộp'])),
+        reviewAt: '2026-10-30', safetyAcknowledged: true,
+      }))
+    })
+    await page.goto('/tests/e2e/fixtures/academy-modules.html?scenario=portfolio-evidence&chapter=5')
+    await page.getByRole('tab', { name: 'Học cùng Aura' }).click()
+    await page.getByRole('navigation', { name: 'Các bước học trong chương' }).getByRole('button', { name: /Thực hành|^Làm$/ }).click()
+    const portfolio = page.locator('.academy-portfolio')
+    await expect(portfolio).toContainText('1/5 bài thực hành đã nộp')
+    await expect(portfolio).toContainText('Chương 2: Đã điền đủ, chưa nộp')
+    await expect(portfolio).toContainText('Chương 3: Chưa tải bản nháp')
+    await expect(portfolio.locator('.academy-portfolio__body')).toHaveCount(0)
+    await portfolio.getByRole('button', { name: /Mở portfolio để tổng hợp/ }).click()
+    for (const field of await portfolio.locator('.academy-portfolio__fields textarea').all()) await field.fill('Minh chứng học tập giả định, chưa được coach đánh giá.')
+    await portfolio.locator('.academy-portfolio__review input').fill('2026-10-30')
+    for (const row of await portfolio.locator('.academy-portfolio__rubric article').all()) await row.getByRole('button', { name: '2', exact: true }).click()
+    await portfolio.locator('.academy-practice-safety input').check()
+    await expect(portfolio).toContainText('Nháp đã đủ mục')
+    await expect(portfolio).toContainText('1/5 bài thực hành đã nộp')
+    await expect(portfolio).not.toContainText('Đã hoàn thiện')
+    await expect(portfolio).toContainText('chưa phải điểm của coach')
+    await portfolio.getByRole('button', { name: /Thu gọn portfolio/ }).click()
+    await portfolio.scrollIntoViewIfNeeded()
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0)
+    await page.screenshot({ path: testInfo.outputPath(`portfolio-evidence-${width}.png`) })
+    await portfolio.getByRole('button', { name: /Mở portfolio để tổng hợp/ }).click()
+    await expect(portfolio.locator('.academy-portfolio__fields textarea').first()).toHaveValue('Minh chứng học tập giả định, chưa được coach đánh giá.')
+  })
+}
+
+for (const chapter of academyDraftChapterNumbers) {
+  test(`draft chapter ${chapter} has scoped teaching, examples and sources at 320px`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: 320, height: 900 })
+    await page.goto(`/tests/e2e/fixtures/academy-modules.html?scenario=pilot-review&chapter=${chapter}`)
+    await expect(page.getByRole('note')).toContainText('Chưa được chuyên gia chuyên môn duyệt')
+    await expect(page.getByRole('navigation', { name: 'Mục lục chương bản nháp' }).getByRole('link')).toHaveCount(7)
+    await expect(page.locator('.academy-unit-reader__example')).toHaveCount(3)
+    await expect(page.locator('.academy-unit-reader__case')).toHaveCount(3)
+    await expect(page.locator('.academy-unit-reader__check')).toHaveCount(4)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0)
+    await page.screenshot({ path: testInfo.outputPath(`pilot-${chapter}-320.png`) })
+    const example = page.locator('.academy-unit-reader__example').first()
+    await expect(example.locator('details')).not.toHaveAttribute('open')
+    await example.locator('summary').click()
+    await expect(example.locator('details')).toHaveAttribute('open')
+    await expect(example).toContainText('Giới hạn:')
+    await page.getByRole('link', { name: 'Nguồn', exact: true }).click()
+    await expect(page.getByRole('heading', { name: 'Nguồn và phạm vi sử dụng' })).toBeVisible()
+    const links = await page.locator('.academy-unit-reader__references a').evaluateAll((items) => items.map((item) => (item as HTMLAnchorElement).href))
+    expect(links.length).toBeGreaterThanOrEqual(2)
+    expect(links.every((link) => link.startsWith('https://'))).toBe(true)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0)
+  })
+}
+
+test('pilot formative feedback explains errors without implying a graded completion', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await page.goto('/tests/e2e/fixtures/academy-modules.html?scenario=pilot-review&chapter=18#admin-course-editor')
+  await page.getByRole('link', { name: 'Tự kiểm', exact: true }).click()
+  const check = page.locator('.academy-unit-reader__check').nth(1)
+  await expect(check.getByRole('status')).toHaveCount(0)
+  await check.getByRole('radio').first().check()
+  await expect(check.getByRole('status')).toContainText('Cần xem lại.')
+  await expect(check.getByRole('status')).toContainText('2 điểm phần trăm')
+  await check.getByRole('radio').nth(1).check()
+  await expect(check.getByRole('status')).toContainText('Đúng cách hiểu.')
+  await check.scrollIntoViewIfNeeded()
+  await page.screenshot({ path: testInfo.outputPath('pilot-check-desktop.png') })
+  await check.getByRole('link', { name: 'Đọc lại phần liên quan' }).click()
+  await expect(page.getByRole('heading', { name: '25% và 1 điểm phần trăm có thể cùng đúng' })).toBeVisible()
+  expect(new URL(page.url()).hash).toBe('#admin-course-editor')
+  await expect(page.locator('#academy-unit-18-ch18-effects')).toBeFocused()
+  await expect(page.getByRole('button', { name: /Nộp|Hoàn thành|Xuất bản/ })).toHaveCount(0)
+})
+
+test('draft survives immediate reload before the cloud debounce and never claims cloud success offline', async ({ page }) => {
+  await page.goto('/tests/e2e/fixtures/academy-modules.html')
+  await page.getByRole('tab', { name: 'Học cùng Aura' }).click()
+  await page.getByRole('navigation', { name: 'Các bước học trong chương' }).getByRole('button', { name: /Thực hành|^Làm$/ }).click()
+  const answer = page.locator('.academy-practice-studio__fields textarea').first()
+  await answer.fill('Vừa gõ xong là chuyển trang — phải còn nguyên.')
+  // Verify synchronously, without waiting for the 600ms cloud debounce.
+  const stored = await page.evaluate(() => JSON.parse(localStorage.getItem('aura:academy:workbook:v1:academy-fixture-owner:academy-fixture:chapter-01-core') || '{}'))
+  expect(stored.answers.context).toBe('Vừa gõ xong là chuyển trang — phải còn nguyên.')
+  expect(stored.pendingSync).toBe(true)
+  await page.reload()
+  await page.getByRole('tab', { name: 'Học cùng Aura' }).click()
+  await page.getByRole('navigation', { name: 'Các bước học trong chương' }).getByRole('button', { name: /Thực hành|^Làm$/ }).click()
+  await expect(answer).toHaveValue('Vừa gõ xong là chuyển trang — phải còn nguyên.')
+  await expect(page.getByText('Đã lưu trên thiết bị', { exact: true })).toBeVisible()
+  await expect(page.locator('.academy-practice-studio').getByText('Đã đồng bộ', { exact: true })).toHaveCount(0)
+})
+
+test('practice completion is explicit and distinct from filling fields', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 390, height: 900 })
+  await page.goto('/tests/e2e/fixtures/academy-modules.html')
+  await page.getByRole('tab', { name: 'Học cùng Aura' }).click()
+  await page.getByRole('navigation', { name: 'Các bước học trong chương' }).getByRole('button', { name: /Thực hành|^Làm$/ }).click()
+  const fields = page.locator('.academy-practice-studio__fields')
+  for (const input of await fields.locator('textarea, input:not([type=date])').all()) await input.fill('Đầu ra của tình huống học tập, không phải chỉ định cá nhân.')
+  await fields.locator('input[type=date]').fill('2026-10-30')
+  await page.locator('.academy-practice-safety input').check()
+  await expect(page.getByText('Đã điền đủ — chưa nộp bài', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Nộp bài thực hành', exact: true }).click()
+  await expect(page.getByText('Đã ghi nhận bài nộp', { exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Đã nộp bản này', exact: true })).toBeDisabled()
+  await expect(page.locator('.academy-practice-submission')).toContainText('chưa phải kết quả đánh giá của coach')
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0)
+  await page.locator('.academy-practice-submission').scrollIntoViewIfNeeded()
+  await page.screenshot({ path: testInfo.outputPath('practice-submission-mobile.png') })
+})
+
+test('clinical practice offers a coordination case instead of a seven-day dietary challenge', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto('/tests/e2e/fixtures/academy-modules.html?chapter=17')
+  await page.getByRole('tab', { name: 'Học cùng Aura' }).click()
+  await page.getByRole('navigation', { name: 'Các bước học trong chương' }).getByRole('button', { name: /Thực hành|^Làm$/ }).click()
+  await expect(page.getByRole('region', { name: 'Bài tập phối hợp' })).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Thử nghiệm 7 ngày' })).toHaveCount(0)
+  await expect(page.locator('.academy-practice-studio__fields').getByText('Bước phối hợp tiếp theo', { exact: false })).toBeVisible()
+  await page.getByRole('region', { name: 'Bài tập phối hợp' }).scrollIntoViewIfNeeded()
+  await page.screenshot({ path: testInfo.outputPath('clinical-coordination-desktop.png') })
+})
 
 for (const scenario of ['error-catalog', 'error-detail']) {
   test(`outage shows an actionable error and retry retains route: ${scenario}`, async ({ page }) => {
@@ -55,7 +510,7 @@ for (const width of [320, 390, 1440]) {
     const challenge = page.getByRole('region', { name: 'Thử nghiệm 7 ngày', exact: true })
     await challenge.getByRole('checkbox').first().check()
     await expect(challenge).toContainText('1/7')
-    await expect(page.getByText('Đã lưu', { exact: true }).first()).toBeVisible()
+    await expect(page.getByText('Đã lưu trên thiết bị', { exact: true }).first()).toBeVisible()
     expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0)
     // Completing the core must not switch the learner back to PDF unexpectedly.
     await page.getByRole('button', { name: 'Hoàn thành', exact: true }).click()

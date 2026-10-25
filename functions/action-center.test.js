@@ -92,7 +92,8 @@ test('learner actions require an explicit staff assignment outside Admin and bra
 })
 
 test('Action Center and contract usage maintenance exports stay deployable and bounded', () => {
-  assert.match(functionsSource, /const \{ FieldPath, FieldValue, Timestamp, getFirestore \}/)
+  const firestoreBindings = functionsSource.match(/const \{ ([^}]+) \} = require\('firebase-admin\/firestore'\)/)?.[1].split(',').map((name) => name.trim()) || []
+  for (const binding of ['FieldPath', 'FieldValue', 'Timestamp', 'getFirestore']) assert.ok(firestoreBindings.includes(binding), `${binding} remains available`)
   assert.match(functionsSource, /const operationalActionTrigger = \(document\) => onDocumentWritten\(\{[\s\S]*?cpu: 0\.25,[\s\S]*?concurrency: 1,[\s\S]*?maxInstances: 1,[\s\S]*?retry: true/)
   for (const exportName of [
     'syncContractOperationalActions',
