@@ -6,6 +6,7 @@ const { initializeApp, deleteApp } = require('firebase-admin/app')
 const { getFirestore, Timestamp } = require('firebase-admin/firestore')
 const { enqueueStudent360Refresh, processStudent360Refresh, refreshQueueReference } = require('./student-360-refresh-queue')
 const { buildStudent360Projection, createStudent360Functions } = require('./student-360')
+const { student360FailureFields } = require('./student-360-projection-writes')
 
 assert.match(process.env.FIRESTORE_EMULATOR_HOST || '', /^(127\.0\.0\.1|localhost):\d+$/)
 const app = initializeApp({ projectId: 'demo-aura-fitness' }, `queue-${randomUUID()}`)
@@ -69,7 +70,13 @@ test('real Firestore: failed work retries without falsely acknowledging a stale 
   const { db, ref } = fixture()
   await enqueue(db)
   const queued = await ref.get()
-  await assert.rejects(run(db, event(queued), async () => { throw Object.assign(new Error('private payload'), { code: 'unavailable' }) }), /private payload/)
+  const failure = Object.assign(new Error('private payload'), { code: 'unavailable' }), errors = []
+  await assert.rejects(processStudent360Refresh({ db, event: event(queued), rebuild: async () => { throw failure }, fallbackWeekId: () => weekId,
+    logger: { info() {}, error: (...args) => errors.push(args) },
+  }), error => error === failure)
+  assert.deepEqual(errors, [['student_360_projection_queue_failed', {
+    operation: 'refreshStudent360ProjectionFromQueue', code: 'unavailable', projectionScope: 'full', failureReason: 'unclassified', failurePhase: 'unknown',
+  }]])
   const failed = await ref.get()
   assert.equal(failed.data().status, 'failed')
   assert.equal(failed.data().lastError, 'unavailable')
@@ -78,6 +85,39 @@ test('real Firestore: failed work retries without falsely acknowledging a stale 
   const completed = (await ref.get()).data()
   assert.equal(completed.status, 'completed')
   assert.equal(completed.lastError, undefined)
+})
+
+test('real Firestore: classified lease contention still rejects the queue delivery and retry completes it', async () => {
+  const { db, ref } = fixture()
+  await enqueue(db)
+  const queued = await ref.get(), errors = []
+  const leaseRef = db.doc(`systemJobs/student360Rebuild/subjects/${studentId}`)
+  await leaseRef.set({ token: 'existing-owner', leaseUntil: Timestamp.fromMillis(Date.now() + 180_000), coveredThrough: Timestamp.fromMillis(1000) })
+  let builds = 0
+  const rebuild = async input => { builds++; await build(db)(input) }
+  await assert.rejects(processStudent360Refresh({ db, event: event(queued), rebuild, fallbackWeekId: () => weekId,
+    logger: { info() {}, error: (...args) => errors.push(args) },
+  }), error => {
+    assert.equal(error.code, 'unavailable')
+    assert.deepEqual(student360FailureFields(error), { failureReason: 'lease_busy', failurePhase: 'lease_acquire' })
+    return true
+  })
+  assert.equal(builds, 0)
+  assert.deepEqual(errors, [['student_360_projection_queue_failed', {
+    operation: 'refreshStudent360ProjectionFromQueue', code: 'unavailable', projectionScope: 'full', failureReason: 'lease_busy', failurePhase: 'lease_acquire',
+  }]])
+  assert.equal((await leaseRef.get()).data().token, 'existing-owner')
+  assert.equal((await leaseRef.get()).data().coveredThrough.toMillis(), 1000)
+  const failed = (await ref.get()).data()
+  assert.equal(failed.status, 'failed')
+  assert.equal(failed.lastError, 'unavailable')
+  assert.equal(failed.failureReason, undefined, 'diagnostics are not new database writes')
+  assert.equal((await db.doc(`studentOperationalViews/${studentId}`).get()).exists, false)
+  await leaseRef.update({ leaseUntil: Timestamp.fromMillis(0) })
+  assert.equal((await run(db, event(queued), rebuild)).settled, true)
+  assert.equal(builds, 1)
+  assert.equal((await ref.get()).data().status, 'completed')
+  assert.equal((await ref.get()).data().lastError, undefined)
 })
 
 test('real Firestore: delayed failure cannot fail a replacement request', async () => {

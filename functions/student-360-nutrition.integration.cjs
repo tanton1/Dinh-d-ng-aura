@@ -6,6 +6,7 @@ const { after, test } = require('node:test')
 const { initializeApp, deleteApp } = require('firebase-admin/app')
 const { getFirestore, FieldValue, Timestamp } = require('firebase-admin/firestore')
 const { buildStudent360Projection, syncStudent360ProjectionFromEvent, vietnamDateKey } = require('./student-360')
+const { student360FailureFields } = require('./student-360-projection-writes')
 
 assert.match(process.env.FIRESTORE_EMULATOR_HOST || '', /^(127\.0\.0\.1|localhost):\d+$/)
 const app = initializeApp({ projectId: 'demo-aura-fitness' }, `student360-nutrition-${randomUUID()}`)
@@ -112,7 +113,15 @@ test('callable full rebuild and nutrition refresh share an exclusive lease; retr
   await ready
   const event = await writeEvent(db, 'users/learner/mealLogs/meal', meal())
   try {
-    await assert.rejects(syncStudent360ProjectionFromEvent({ db, event, logger }), { code: 'unavailable' })
+    const errors = []
+    await assert.rejects(syncStudent360ProjectionFromEvent({ db, event, logger: { info() {}, error: (...args) => errors.push(args) } }), error => {
+      assert.equal(error.code, 'unavailable')
+      assert.deepEqual(student360FailureFields(error), { failureReason: 'lease_busy', failurePhase: 'lease_acquire' })
+      return true
+    })
+    assert.equal(errors.length, 1)
+    assert.equal(errors[0][1].projectionScope, 'nutrition')
+    assert.equal(errors[0][1].failureReason, 'lease_busy')
   } finally { release() }
   await full
   const retry = await syncStudent360ProjectionFromEvent({ db, event, logger })
@@ -150,7 +159,11 @@ for (const mode of ['full', 'nutrition']) test(`expired ${mode} worker cannot ov
     ? buildStudent360Projection({ db: wrapped, studentId: 'student' })
     : syncStudent360ProjectionFromEvent({ db: wrapped, event, logger }))
   // Attach the rejection handler before releasing the blocked worker.
-  const rejected = assert.rejects(old, { code: 'unavailable' })
+  const rejected = assert.rejects(old, error => {
+    assert.equal(error.code, 'unavailable')
+    assert.deepEqual(student360FailureFields(error), { failureReason: 'lease_replaced_during_write', failurePhase: 'projection_write' })
+    return true
+  })
   await ready
   try {
     await db.doc('systemJobs/student360Rebuild/subjects/student').update({ leaseUntil: Timestamp.fromMillis(1) })

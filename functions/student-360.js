@@ -10,7 +10,7 @@ const { ptOperationsPolicySnapshot } = require('./pt-policy')
 const { canonicalUsageSummary, isCanonicalUsageView } = require('./contract-usage-view')
 const { summarizeContractUsage } = require('./contract-usage')
 const { canViewAction } = require('./action-center')
-const { sourceChanged, coalesceProjectionRebuild, upsertChangedTimeline } = require('./student-360-projection-writes')
+const { sourceChanged, coalesceProjectionRebuild, upsertChangedTimeline, student360RetryError, student360FailureFields } = require('./student-360-projection-writes')
 const { calculateNutritionTargets, canonicalNutritionProfile } = require('./nutrition-core.mjs')
 const { canonicalSessionRows } = require('./session-schedule-normalization')
 const { cacheScope, createProcessCache } = require('./process-cache')
@@ -1927,7 +1927,7 @@ async function refreshStudent360ProgressProjection({ db, studentId, event, lease
   const guardedLease = { runTransaction: work => lease.runTransaction(async transaction => {
     const [student, account] = await transaction.getAll(studentReference, profileReference)
     if (!sameVersion(studentSnapshot, student) || !sameVersion(profileSnapshot, account)) {
-      throw new HttpsError('unavailable', 'Student progress authority changed during refresh; retry required.')
+      throw student360RetryError('progress_authority_changed')
     }
     return work(transaction)
   }) }
@@ -2202,12 +2202,14 @@ async function syncStudent360ProjectionFromEvent({ db, event, logger = console }
   if (!sourceChanged(event)) return { skipped: true, reason: 'source_unchanged' }
   const studentId = await resolveEventStudentId(db, event)
   if (!studentId) return { skipped: true, reason: 'student_not_resolved' }
+  let projectionScope = 'unknown'
   try {
     const nutritionOnly = Boolean(nutritionEventSource(event))
     const progressOnly = Boolean(progressEventSource(event))
+    projectionScope = nutritionOnly ? 'nutrition' : progressOnly ? 'progress' : 'full'
     let refresh = { mode: 'full' }
     const result = await coalesceProjectionRebuild({
-      db, studentId, event, scope: nutritionOnly ? 'nutrition' : progressOnly ? 'progress' : 'full',
+      db, studentId, event, scope: projectionScope,
       rebuild: async (lease) => {
         if (nutritionOnly) refresh = await refreshStudent360NutritionProjection({ db, studentId, event, lease })
         else if (progressOnly) refresh = await refreshStudent360ProgressProjection({ db, studentId, event, lease })
@@ -2218,7 +2220,7 @@ async function syncStudent360ProjectionFromEvent({ db, event, logger = console }
     return { skipped: !result.rebuilt, studentId, mode: refresh.mode }
   } catch (error) {
     if (error?.code === 'functions/not-found' || error?.code === 'not-found') return { skipped: true, reason: 'student_deleted', studentId }
-    logger.error('student_360_projection_sync_failed', { studentId, code: error?.code || 'unknown' })
+    logger.error('student_360_projection_sync_failed', { studentId, code: error?.code || 'unknown', projectionScope, ...student360FailureFields(error) })
     throw error
   }
 }
@@ -2246,7 +2248,7 @@ async function reconcileStudent360ProjectionBatch({ db, logger = console, batchS
     const results = await Promise.allSettled(chunk.map((studentId) => buildStudent360Projection({ db, studentId, weekId: mondayDateKey(), persist: true })))
     results.forEach((result, index) => {
       if (result.status === 'fulfilled') rebuiltCount += 1
-      else logger.error('student_360_projection_reconcile_failed', { studentId: chunk[index], code: result.reason?.code || 'unknown' })
+      else logger.error('student_360_projection_reconcile_failed', { studentId: chunk[index], code: result.reason?.code || 'unknown', projectionScope: 'full', ...student360FailureFields(result.reason) })
     })
   }
   const nextCursor = students.size < Math.max(1, Math.min(50, batchSize)) ? '' : students.docs[students.docs.length - 1].id
@@ -2815,7 +2817,7 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
     try {
       await buildStudent360Projection({ db, studentId, weekId: mondayDateKey(), persist: true })
     } catch (error) {
-      logger.warn('student_360_contract_projection_refresh_deferred', { studentId, contractId, action, code: error?.code || 'unknown' })
+      logger.warn('student_360_contract_projection_refresh_deferred', { studentId, contractId, action, code: error?.code || 'unknown', projectionScope: 'full', ...student360FailureFields(error) })
     }
     return result
   })

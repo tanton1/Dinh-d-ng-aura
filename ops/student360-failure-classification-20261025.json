@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-25",
+  "planScope": "D0.0/D0.3 evidence before D4.1 retry and projection changes",
+  "baseSource": "1b5b2e968588858568e5c32b89d09127b03b2542",
+  "observedProblem": {
+    "windowStart": "2026-10-25T02:00:00Z",
+    "windowEnd": "2026-10-25T06:00:00Z",
+    "http500Attempts": 41,
+    "services": 6,
+    "matchingCodeOnlyFailureEntries": 41,
+    "observedCode": "unavailable",
+    "underlyingCause": "unproven",
+    "note": "Request and stderr entries are different observations of attempts; do not sum them or interpret them as unique business failures."
+  },
+  "changes": [
+    "Add allowlisted reason, phase and projection scope fields to existing failure logs.",
+    "Distinguish busy, expired or replaced leases and changed progress authority; leave unrecognized dependency errors unclassified.",
+    "Keep classifications in a WeakMap so callable error envelopes and stored queue documents remain unchanged.",
+    "Preserve unavailable errors, Eventarc rejection/retry, shared lease duration, coverage watermarks and stale-writer fencing."
+  ],
+  "validation": {
+    "focusedUnitCases": 75,
+    "firestoreEmulatorCases": 22,
+    "fullLocalCiPassed": true,
+    "additionalDatabaseOperationsIntroduced": false,
+    "additionalLogEventsIntroduced": false,
+    "productionFixturesUsed": false
+  },
+  "proposedInitialRuntimeTargets": [
+    "syncStudent360Attendance",
+    "syncStudent360Availability",
+    "syncStudent360Contract",
+    "syncStudent360LeaveRequest",
+    "syncStudent360Session",
+    "syncStudent360Student"
+  ],
+  "production": {
+    "deployed": false,
+    "runtimeCapacityChanged": false,
+    "retryPolicyChanged": false,
+    "monetarySavingsMeasured": false,
+    "historicalFailuresReclassified": false,
+    "followup": "Verify the selected serving images and transport, then observe classified failures and backlog in a bounded post-release window before changing retry or capacity. Other Student 360 targets retain their earlier runtime until explicitly deployed."
+  }
+}

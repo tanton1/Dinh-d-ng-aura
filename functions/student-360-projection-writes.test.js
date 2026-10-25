@@ -1,7 +1,8 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
 const { Timestamp } = require('firebase-admin/firestore')
-const { atOrBefore, sourceChanged, coalesceProjectionRebuild, upsertChangedTimeline } = require('./student-360-projection-writes')
+const { atOrBefore, sourceChanged, coalesceProjectionRebuild, upsertChangedTimeline, student360RetryError, student360FailureFields } = require('./student-360-projection-writes')
+const { HttpsError } = require('firebase-functions/v2/https')
 
 function memoryDb() {
   const data = new Map()
@@ -191,4 +192,90 @@ test('usage business changes and deletes still reach database reconciliation in 
     await assert.rejects(syncOperationalActionSource({ db, event, logger }), /Reconciliation reached database/)
     await assert.rejects(syncPtScheduleWeeklyViewSource({ db, event, source: 'contractUsage', logger }), /Reconciliation reached database/)
   }
+})
+
+test('failure classifications remain server-local and preserve callable error envelopes', () => {
+  for (const reason of ['lease_busy', 'lease_replaced_during_write', 'lease_expired_during_write', 'lease_replaced_before_completion', 'progress_authority_changed']) {
+    const error = student360RetryError(reason)
+    assert.equal(error.code, 'unavailable')
+    assert.deepEqual(error.toJSON(), new HttpsError('unavailable', error.message).toJSON())
+    assert.equal(JSON.stringify(error).includes('failureReason'), false)
+    assert.equal(student360FailureFields(error).failureReason, reason)
+    student360FailureFields(error).failureReason = 'modified-by-consumer'
+    assert.equal(student360FailureFields(error).failureReason, reason)
+  }
+  assert.throws(() => student360RetryError('arbitrary user content'), /Unknown Student 360 retry classification/)
+})
+
+test('untagged unavailable and transport errors remain unclassified without logging their payloads', () => {
+  for (const error of [null, 'private payload', new HttpsError('unavailable', 'private account data'),
+    Object.assign(new Error('private account data'), { code: 14, failureReason: 'lease_busy', details: 'secret' })]) {
+    assert.deepEqual(student360FailureFields(error), { failureReason: 'unclassified', failurePhase: 'unknown' })
+  }
+})
+
+test('event logging identifies contention with one lease read, no writes and a rejected event', async () => {
+  const { syncStudent360ProjectionFromEvent } = require('./student-360')
+  const db = memoryDb(), logs = []
+  let transactionCalls = 0
+  const transaction = db.runTransaction.bind(db)
+  db.runTransaction = work => { transactionCalls++; return transaction(work) }
+  db.data.set('systemJobs/student360Rebuild/subjects/s1', { token: 'another-owner', leaseUntil: Timestamp.fromMillis(Date.now() + 180_000) })
+  const event = usageEvent({ studentId: 's1', usedSessions: 1 }, { studentId: 's1', usedSessions: 2 })
+  await assert.rejects(syncStudent360ProjectionFromEvent({ db, event, logger: { info() { throw Error('failed event must not log success') }, error: (...args) => logs.push(args) } }), error => {
+    assert.equal(error.code, 'unavailable')
+    assert.equal(student360FailureFields(error).failureReason, 'lease_busy')
+    return true
+  })
+  assert.equal(transactionCalls, 1)
+  assert.deepEqual(db.writes, [])
+  assert.deepEqual(logs, [['student_360_projection_sync_failed', { studentId: 's1', code: 'unavailable', projectionScope: 'full', failureReason: 'lease_busy', failurePhase: 'lease_acquire' }]])
+})
+
+test('event logging preserves unknown dependency errors and never labels them as lease contention', async () => {
+  const { syncStudent360ProjectionFromEvent } = require('./student-360')
+  const error = Object.assign(new Error('private transport diagnostics'), { code: 14 }), logs = []
+  const db = { doc: path => ({ path }), runTransaction: async () => { throw error } }
+  const event = usageEvent({ studentId: 's1', usedSessions: 1 }, { studentId: 's1', usedSessions: 2 })
+  await assert.rejects(syncStudent360ProjectionFromEvent({ db, event, logger: { info() {}, error: (...args) => logs.push(args) } }), received => received === error)
+  assert.equal(logs.length, 1)
+  assert.deepEqual(logs[0][1], { studentId: 's1', code: 14, projectionScope: 'full', failureReason: 'unclassified', failurePhase: 'unknown' })
+  assert.equal(JSON.stringify(logs).includes('private transport diagnostics'), false)
+})
+
+test('expired and replaced write leases stay fenced and do not advance coverage', async t => {
+  for (const replaced of [false, true]) {
+    await t.test(replaced ? 'replaced' : 'expired', async () => {
+      const db = memoryDb()
+      await assert.rejects(coalesceProjectionRebuild({ db, studentId: 'a', event: eventAt(999), now: () => 1000,
+        rebuild: async lease => {
+          const key = 'systemJobs/student360Rebuild/subjects/a'
+          db.data.set(key, { ...db.data.get(key), ...(replaced ? { token: 'new-owner' } : { leaseUntil: Timestamp.fromMillis(999) }) })
+          await lease.runTransaction(async transaction => transaction.set(db.doc('studentOperationalViews/a'), { forbidden: true }))
+        },
+      }), error => {
+        assert.equal(error.code, 'unavailable')
+        assert.deepEqual(student360FailureFields(error), { failureReason: replaced ? 'lease_replaced_during_write' : 'lease_expired_during_write', failurePhase: 'projection_write' })
+        return true
+      })
+      assert.equal(db.data.has('studentOperationalViews/a'), false)
+      assert.equal(db.data.get('systemJobs/student360Rebuild/subjects/a').coveredThrough, undefined)
+      if (replaced) assert.equal(db.data.get('systemJobs/student360Rebuild/subjects/a').token, 'new-owner')
+    })
+  }
+})
+
+test('a replaced completion lease retains the successor and a failed dependency retains its identity', async () => {
+  const db = memoryDb()
+  await assert.rejects(coalesceProjectionRebuild({ db, studentId: 'a', event: eventAt(999), rebuild: async () => {
+    db.data.set('systemJobs/student360Rebuild/subjects/a', { token: 'new-owner', leaseUntil: Timestamp.fromMillis(Date.now() + 180_000) })
+  } }), error => {
+    assert.deepEqual(student360FailureFields(error), { failureReason: 'lease_replaced_before_completion', failurePhase: 'lease_complete' })
+    return true
+  })
+  assert.equal(db.data.get('systemJobs/student360Rebuild/subjects/a').token, 'new-owner')
+  const dependency = new Error('dependency failed')
+  await assert.rejects(coalesceProjectionRebuild({ db, studentId: 'b', event: eventAt(999), rebuild: async () => { throw dependency } }), error => error === dependency)
+  assert.equal(db.data.get('systemJobs/student360Rebuild/subjects/b').coveredThrough, undefined)
+  assert.deepEqual(student360FailureFields(dependency), { failureReason: 'unclassified', failurePhase: 'unknown' })
 })
