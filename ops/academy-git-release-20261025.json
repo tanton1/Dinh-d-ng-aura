@@ -1,11 +1,19 @@
 {
   "schemaVersion": 1,
-  "status": "integrated_candidate_under_verification_not_deployed",
+  "status": "integrated_candidate_local_gates_passed_not_deployed",
   "scope": "Học cùng Aura: versioned learning runtime and staff-only chapter drafts",
   "route": "Existing GitHub integration builds Vercel production only after the verified backend release and main merge. Local Vercel CLI login is not required.",
   "repository": "tanton1/Dinh-d-ng-aura",
   "branch": "codex/academy-runtime-release-20261025",
-  "integrationBase": "5a269ba30693fca0f5f75ed467067b5d3639035a",
+  "integrationBase": "f3dc21d443309c05c1b1166f927ff2dbb9df7e5c",
+  "releaseCoordination": {
+    "previousRelease": 40158255603,
+    "previousReleaseResult": "success",
+    "pr26And27": "merged; exact public SHA verified by the owning task",
+    "rulesBaselineHash": "54d6a62c5af42d01e2c055527752079a8de2b4d607f5a18d2c88b8d5b10e6e94",
+    "preserved": "Dispatch jobs/roster signals, exact-get daily counter and all current frontend optimizations",
+    "fieldPolicyCoordination": "The other active release task confirmed it changes no Academy/courses/courseRevisions exemptions and is holding PR28/30 until Academy finishes. Its independent cashTransactions composite is preserved."
+  },
   "frozenSource": {
     "baseCommit": "30c10f4015071a31c703e1b0cf2aa0fb47bc7b99",
     "sourceFingerprint": "34ec2008e0e349b0a3ff5facaaea2f783abe201eae45c57565dd5900893ecad3",
@@ -32,7 +40,7 @@
     "impactAudit": "Transitive dependency audit matches exactly these 16 functions against integrationBase; no PT callable affected."
   },
   "releaseOrder": [
-    "Finish the other task's PR26/27 release, integrate its final main and rerun affected verification before any Academy Rules change or main merge.",
+    "Completed: integrate final main after PR26/27 and rerun the full local CI, exact 16-function impact audit and 68 emulator/Rules cases before any Academy Rules change or main merge.",
     "Pass the exact final source CI, CodeQL, secret scan, source-impact audit and protected production configuration gate.",
     "Apply only a fresh reviewed plan for the 16 Academy field exemptions; preserve unrelated indexes and TTL.",
     "Dispatch the protected release with backend_only=true, academy_release=true and the exact ordered targets; deploy and verify named Firestore and Storage Rules first.",
@@ -43,11 +51,11 @@
   "localChecks": {
     "academyLogic": { "passed": 250, "failed": 0 },
     "academyBrowser": { "passed": 98, "failed": 0 },
-    "emulatorAndRules": { "passed": 67, "failed": 0 },
+    "emulatorAndRules": { "passed": 68, "failed": 0 },
     "releaseAndPerformanceTools": { "passed": 19, "failed": 0 },
     "sharedContractChecks": { "passed": 40, "failed": 0 },
     "productionReleaseChecks": { "passed": 17, "failed": 0 },
-    "fullApplicationCi": "passed on Node 22; exit code 0",
+    "fullApplicationCi": "passed after PR26/27 integration on Node 22; exit code 0",
     "performanceBudget": "passed without raising limits; actual startup JS 40.3 KiB, initial gzip assets 130.0 KiB",
     "qualification": "Local engineering checks, not deployed runtime, production latency or billed-read measurements."
   },
