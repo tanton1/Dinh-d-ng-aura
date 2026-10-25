@@ -5,7 +5,7 @@ import {
   assertSucceeds,
   initializeTestEnvironment,
 } from '@firebase/rules-unit-testing'
-import { getBytes, ref, uploadBytes } from 'firebase/storage'
+import { deleteObject, getBytes, ref, updateMetadata, uploadBytes } from 'firebase/storage'
 
 const projectId = 'demo-aura-fitness-storage'
 const rulesPath = new URL('../storage.rules', import.meta.url)
@@ -99,6 +99,35 @@ describe('Aura Academy Storage rules', () => {
     await assertFails(uploadCover(editorStorage, 'course-gif', 'cover.gif', validImage, { contentType: 'image/gif' }))
     await assertFails(uploadCover(editorStorage, 'course-meta', 'cover.jpg', validImage, { metadataCourseId: 'another-course' }))
     await assertFails(uploadCover(editorStorage, 'course-owner', 'cover.jpg', validImage, { uploadedBy: 'someone-else' }))
+  })
+
+  test('course media is immutable even for admins; replacements require a new path and learners cannot read it directly', async () => {
+    const courseId = `media-${Date.now()}`
+    const path = `course-media/${courseId}/reading/asset-original.pdf`
+    const owner = storageFor('admin-1', 'admin')
+    const metadata = { contentType: 'application/pdf', customMetadata: { courseId, lessonId: 'reading', resourceKind: 'document', uploadedBy: 'admin-1', assetId: 'asset-original' } }
+    const bytes = new Uint8Array([37, 80, 68, 70])
+    await assertSucceeds(uploadBytes(ref(owner, path), bytes, metadata))
+    await assertSucceeds(getBytes(ref(owner, path)))
+    await assertSucceeds(getBytes(ref(storageFor('editor-1', 'editor'), path)))
+    await assertFails(getBytes(ref(storageFor('student-1', 'student'), path)))
+    await assertFails(getBytes(ref(testEnvironment.unauthenticatedContext().storage(), path)))
+    await assertFails(uploadBytes(ref(owner, path), new Uint8Array([1, 2, 3, 4]), metadata))
+    await assertFails(updateMetadata(ref(owner, path), { customMetadata: { ...metadata.customMetadata, assetId: 'changed' } }))
+    await assertFails(deleteObject(ref(owner, path)))
+    await assertSucceeds(uploadBytes(ref(owner, `course-media/${courseId}/reading/asset-new.pdf`), bytes,
+      { ...metadata, customMetadata: { ...metadata.customMetadata, assetId: 'asset-new' } }))
+  })
+
+  test('course media creation rejects cross-course metadata, students and unsafe document formats', async () => {
+    const courseId = `invalid-media-${Date.now()}`
+    const owner = storageFor('editor-1', 'editor')
+    const path = `course-media/${courseId}/reading/asset.pdf`
+    const bytes = new Uint8Array([37, 80, 68, 70])
+    const metadata = { contentType: 'application/pdf', customMetadata: { courseId, lessonId: 'reading', resourceKind: 'document', uploadedBy: 'editor-1', assetId: 'asset' } }
+    await assertFails(uploadBytes(ref(owner, path), bytes, { ...metadata, customMetadata: { ...metadata.customMetadata, courseId: 'other' } }))
+    await assertFails(uploadBytes(ref(owner, path), bytes, { ...metadata, contentType: 'text/html' }))
+    await assertFails(uploadBytes(ref(storageFor('student-1', 'student'), path), bytes, { ...metadata, customMetadata: { ...metadata.customMetadata, uploadedBy: 'student-1' } }))
   })
 
   test('cover uploads larger than five MiB are denied', async () => {

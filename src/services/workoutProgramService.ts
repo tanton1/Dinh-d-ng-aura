@@ -140,6 +140,8 @@ export async function loadWorkoutProgramSession(
     courseId: string
     lessonId: string
     workoutRef: LessonWorkoutReference
+    chapterVersion?: string
+    courseRevision?: number
   },
 ): Promise<RuntimeWorkoutProgram> {
   if (!firebaseFunctions) throw new Error('Dịch vụ giáo án chưa sẵn sàng.')
@@ -156,6 +158,8 @@ export async function loadWorkoutProgramSession(
     programId: workoutRef.programId,
     sessionId: workoutRef.sessionId,
     versionId: workoutRef.versionId,
+    ...(input.chapterVersion ? { chapterVersion: input.chapterVersion } : {}),
+    ...(input.courseRevision !== undefined ? { courseRevision: input.courseRevision } : {}),
   }
   const callable = httpsCallable<typeof payload, unknown>(firebaseFunctions, 'getCourseWorkoutSession')
   const response = await callable(payload)
@@ -165,6 +169,7 @@ export async function loadWorkoutProgramSession(
     data.programId !== workoutRef.programId
     || data.versionId !== workoutRef.versionId
     || data.sessionId !== workoutRef.sessionId
+    || (input.chapterVersion && (data.courseId !== courseId || data.lessonId !== lessonId || data.chapterVersion !== input.chapterVersion))
   ) throw new Error('Định danh phiên bản giáo án không khớp với bài học.')
 
   return {

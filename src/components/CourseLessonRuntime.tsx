@@ -40,20 +40,21 @@ import {
 import type { CourseLessonDraft, LessonResourceDraft } from '../types'
 import type { AuraNutritionDeepDive } from '../data/auraNutritionStudyGuides'
 import { firebaseAuth } from '../lib/firebase'
+import AcademyChapterArticle from './academy/AcademyChapterArticle'
 import { courseLoadErrorMessage } from '../features/academy/courseLoadError'
+import { callableCode } from '../services/readOnlyCallableCore'
+import { academyQuizCanReveal, academyQuizOptionOrder, selectAcademyQuizQuestions } from '../features/academy/quizPolicy'
+import { useAcademyWorkbook } from '../features/academy/useAcademyWorkbook'
+import { useAcademySessionEpoch } from '../features/academy/useAcademySessionEpoch'
+import { auraPracticeMode } from '../data/auraNutritionPracticePolicy'
 import { emptyReaderState, flattenPdfOutline, loadReaderState, normalizeReaderState, readerStorageKey, saveReaderState } from '../features/academy/readerState'
 import {
-  AcademyWorkbookConflictError,
-  loadAcademyWorkbookFromCloud,
-  loadAcademyWorkbook,
-  saveAcademyWorkbook,
-  type AcademyWorkbookState,
-} from '../services/academyLearningService'
-import {
   getCourseMediaUrl,
+  clearAcademyMediaCache,
   gradeCourseQuiz,
   safeCourseMediaUrl,
   type QuizGradeResult,
+  type AcademyMediaContext,
 } from '../services/courseRuntimeService'
 
 type RuntimeResource = LessonResourceDraft & {
@@ -91,6 +92,7 @@ interface ResolvedMediaState {
   fileName?: string
   contentType?: string
   message?: string
+  errorCode?: string
 }
 
 const resourceLabels = {
@@ -99,34 +101,32 @@ const resourceLabels = {
   document: 'tài liệu',
 }
 
-function stableOrderScore(value: string) {
-  let score = 0
-  for (let index = 0; index < value.length; index += 1) score = Math.imul(31, score) + value.charCodeAt(index) | 0
-  return score
-}
-
 function runtimeResource(resource: LessonResourceDraft): RuntimeResource {
   return resource as RuntimeResource
 }
 
-function useResolvedMedia(courseId: string, lessonId: string, resource: RuntimeResource | undefined, enabled: boolean) {
+function useResolvedMedia(courseId: string, lessonId: string, resource: RuntimeResource | undefined, enabled: boolean, access: AcademyMediaContext = {}, onRefreshCourse?: () => void) {
+  const sessionEpoch = useAcademySessionEpoch()
   const [retryKey, setRetryKey] = useState(0)
-  const [state, setState] = useState<ResolvedMediaState>({ status: 'idle', url: null })
+  const [state, setState] = useState<ResolvedMediaState & { scope?: string }>({ status: 'idle', url: null })
   const storagePath = resource?.assetRef?.storagePath
   const externalUrl = resource?.url
   const contentType = resource?.assetRef?.contentType
   const assetStatus = resource?.assetRef?.status
   const resourceId = resource?.id
+  const scope = JSON.stringify([courseId, lessonId, resourceId, storagePath, externalUrl, contentType, assetStatus, enabled,
+    access.ownerId, firebaseAuth?.currentUser?.uid, sessionEpoch, access.accessRevision, access.chapterVersion, access.courseRevision, access.authoringPreview])
 
   useEffect(() => {
     let cancelled = false
     let refreshTimer: number | undefined
     if (!enabled || !resource) {
-      setState({ status: 'idle', url: null })
+      setState({ status: 'idle', url: null, scope })
       return
     }
     if (assetStatus && assetStatus !== 'ready') {
       setState({
+        scope,
         status: 'error',
         url: null,
         message: assetStatus === 'uploading' ? 'Media đang được xử lý.' : 'Media tải lên chưa sẵn sàng.',
@@ -135,12 +135,13 @@ function useResolvedMedia(courseId: string, lessonId: string, resource: RuntimeR
     }
 
     const resolve = async () => {
-      setState({ status: 'loading', url: null })
+      setState({ status: 'loading', url: null, scope })
       try {
         if (storagePath) {
-          const resolved = await getCourseMediaUrl({ courseId, lessonId, storagePath })
+          const resolved = await getCourseMediaUrl({ courseId, lessonId, storagePath, ...access })
           if (cancelled) return
           setState({
+            scope,
             status: 'ready',
             url: resolved.url,
             downloadUrl: resolved.downloadUrl,
@@ -155,13 +156,15 @@ function useResolvedMedia(courseId: string, lessonId: string, resource: RuntimeR
         }
         const safeUrl = safeCourseMediaUrl(externalUrl)
         if (!safeUrl) throw new Error('Tài nguyên chưa có liên kết HTTPS hợp lệ.')
-        if (!cancelled) setState({ status: 'ready', url: safeUrl, contentType })
+        if (!cancelled) setState({ status: 'ready', url: safeUrl, contentType, scope })
       } catch (error) {
         if (!cancelled) {
           setState({
+            scope,
             status: 'error',
             url: null,
-            message: error instanceof Error ? error.message : 'Không thể mở media lúc này.',
+            message: courseLoadErrorMessage(error),
+            errorCode: callableCode(error),
           })
         }
       }
@@ -172,9 +175,15 @@ function useResolvedMedia(courseId: string, lessonId: string, resource: RuntimeR
       cancelled = true
       if (refreshTimer) window.clearTimeout(refreshTimer)
     }
-  }, [assetStatus, contentType, courseId, enabled, externalUrl, lessonId, resourceId, retryKey, storagePath])
+  }, [scope, retryKey])
 
-  return { ...state, retry: () => setRetryKey((value) => value + 1) }
+  const visible: ResolvedMediaState = !enabled ? { status: 'idle', url: null }
+    : state.scope === scope ? state : { status: 'loading', url: null }
+  return { ...visible, retry: () => {
+    clearAcademyMediaCache()
+    if (['aborted', 'permission-denied', 'unauthenticated', 'not-found', 'failed-precondition'].includes(state.errorCode ?? '')) onRefreshCourse?.()
+    setRetryKey((value) => value + 1)
+  } }
 }
 
 function trustedVideoEmbed(value: string) {
@@ -216,15 +225,22 @@ export function CoursePdfReader({
   resource,
   canAccess = true,
   ownerId = firebaseAuth?.currentUser?.uid ?? 'guest',
+  mediaAccess,
+  resolvedMedia,
+  onRefreshCourse,
 }: {
   courseId: string
   lessonId: string
   resource: LessonResourceDraft
   canAccess?: boolean
   ownerId?: string
+  mediaAccess?: AcademyMediaContext
+  resolvedMedia?: ReturnType<typeof useResolvedMedia>
+  onRefreshCourse?: () => void
 }) {
   const runtime = runtimeResource(resource)
-  const media = useResolvedMedia(courseId, lessonId, runtime, canAccess)
+  const ownMedia = useResolvedMedia(courseId, lessonId, runtime, canAccess && !resolvedMedia, { ...mediaAccess, ownerId }, onRefreshCourse)
+  const media = resolvedMedia ?? ownMedia
   const stageRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const renderTaskRef = useRef<RenderTask | null>(null)
@@ -238,6 +254,8 @@ export function CoursePdfReader({
   const [outlineQuery, setOutlineQuery] = useState('')
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [pdfDocument, setPdfDocument] = useState<PDFDocumentProxy | null>(null)
+  const [loadedDocumentScope, setLoadedDocumentScope] = useState('')
+  const documentScope = JSON.stringify([storageKey, media.url, mediaAccess?.chapterVersion, mediaAccess?.courseRevision, mediaAccess?.authoringPreview])
   const [documentStatus, setDocumentStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle')
   const [documentError, setDocumentError] = useState('')
   const [pageNumber, setPageNumber] = useState(1)
@@ -339,6 +357,7 @@ export function CoursePdfReader({
       const document = await loadingTask.promise
       if (cancelled) return
       setPdfDocument(document)
+      setLoadedDocumentScope(documentScope)
       setOutlineStatus('idle')
       setPageNumber((current) => Math.max(1, Math.min(document.numPages, current)))
       setReadingState((current) => normalizeReaderState(current, document.numPages))
@@ -353,7 +372,7 @@ export function CoursePdfReader({
       renderTaskRef.current?.cancel()
       void loadingTask?.destroy()
     }
-  }, [media.status, media.url, storageKey])
+  }, [media.status, media.url, storageKey, documentScope])
 
   useEffect(() => {
     if (!pdfDocument || documentStatus !== 'ready' || !stageWidth || !canvasRef.current) return
@@ -403,7 +422,7 @@ export function CoursePdfReader({
   if (media.status === 'error' || !media.url) {
     return <div className="lesson-pdf-reader-state is-error" role="alert"><FileType size={20} /><div><strong>Chưa mở được tài liệu</strong><p>{media.message ?? 'Liên kết PDF chưa sẵn sàng.'}</p><button type="button" className="outline-button small" onClick={media.retry}><RefreshCw size={13} /> Thử lại</button></div></div>
   }
-  if (documentStatus === 'loading' || documentStatus === 'idle') {
+  if (documentStatus === 'loading' || documentStatus === 'idle' || (documentStatus === 'ready' && loadedDocumentScope !== documentScope)) {
     return <div className="lesson-pdf-reader-state" role="status"><LoaderCircle className="spin" size={20} /><span>Đang chuẩn bị các trang tài liệu…</span></div>
   }
   if (documentStatus === 'error' || !pdfDocument) {
@@ -530,11 +549,6 @@ function speakableLessonText(body: string) {
     .slice(0, 18_000)
 }
 
-function workbookContentSignature(workbook: AcademyWorkbookState) {
-  const { cloudRevision: _cloudRevision, updatedAt: _updatedAt, ...content } = workbook
-  return JSON.stringify(content)
-}
-
 function AcademyWorkbookPanel({ lesson, courseId }: { lesson: CourseLessonDraft; courseId: string }) {
   const chapter = lessonChapterNumber(lesson)
   const [deepDive, setDeepDive] = useState<AuraNutritionDeepDive | undefined>(undefined)
@@ -542,17 +556,8 @@ function AcademyWorkbookPanel({ lesson, courseId }: { lesson: CourseLessonDraft;
   const [guideError, setGuideError] = useState(false)
   const [guideRetry, setGuideRetry] = useState(0)
   const ownerId = firebaseAuth?.currentUser?.uid ?? 'demo'
-  const [state, setState] = useState<AcademyWorkbookState>(() => loadAcademyWorkbook(ownerId, courseId, lesson.id))
-  const [ready, setReady] = useState(false)
-  const [saved, setSaved] = useState(true)
-  const [dirty, setDirty] = useState(false)
-  const [saving, setSaving] = useState(false)
-  const [syncIssue, setSyncIssue] = useState<'conflict' | 'offline' | null>(null)
-  const [saveNonce, setSaveNonce] = useState(0)
-  const stateRef = useRef(state)
-  const workbookScope = `${ownerId}:${courseId}:${lesson.id}`
-  const workbookScopeRef = useRef(workbookScope)
-  const mountedRef = useRef(true)
+  const controller = useAcademyWorkbook(ownerId, courseId, lesson.id, true)
+  const { workbook: state, ready, synced: saved, issue: syncIssue, change: changeState } = controller
 
   // Study guides are large editorial data and are only needed inside the
   // workbook panel. Keep them out of the course runtime's initial chunk.
@@ -573,66 +578,6 @@ function AcademyWorkbookPanel({ lesson, courseId }: { lesson: CourseLessonDraft;
     return () => { cancelled = true }
   }, [chapter, guideRetry])
 
-  useEffect(() => { stateRef.current = state }, [state])
-  useEffect(() => {
-    mountedRef.current = true
-    return () => { mountedRef.current = false }
-  }, [])
-
-  useEffect(() => {
-    let cancelled = false
-    workbookScopeRef.current = workbookScope
-    setReady(false)
-    setDirty(false)
-    setSaving(false)
-    setSyncIssue(null)
-    void loadAcademyWorkbookFromCloud(ownerId, courseId, lesson.id).then((remote) => {
-      if (!cancelled) {
-        setState(remote)
-        setSaved(true)
-        setReady(true)
-      }
-    }).catch((error) => {
-      if (!cancelled) {
-        setDirty(loadAcademyWorkbook(ownerId, courseId, lesson.id).updatedAt > 0)
-        setSyncIssue(error instanceof AcademyWorkbookConflictError ? 'conflict' : 'offline')
-        setSaved(false)
-        setReady(true)
-      }
-    })
-    return () => { cancelled = true }
-  }, [courseId, lesson.id, ownerId, workbookScope])
-
-  useEffect(() => {
-    if (!ready || !dirty || saving || syncIssue === 'conflict') return
-    const signature = workbookContentSignature(state)
-    const scope = workbookScope
-    const timer = window.setTimeout(() => {
-      setSaving(true)
-      void saveAcademyWorkbook(ownerId, courseId, lesson.id, state)
-        .then((synchronized) => {
-          if (!mountedRef.current || workbookScopeRef.current !== scope) return
-          const hasNewerLocalChanges = workbookContentSignature(stateRef.current) !== signature
-          setState((current) => ({ ...current, cloudRevision: synchronized.cloudRevision, updatedAt: synchronized.updatedAt }))
-          setDirty(hasNewerLocalChanges)
-          setSaved(!hasNewerLocalChanges)
-          setSyncIssue(null)
-        })
-        .catch((error) => {
-          if (!mountedRef.current || workbookScopeRef.current !== scope) return
-          setSaved(false)
-          setSyncIssue(error instanceof AcademyWorkbookConflictError ? 'conflict' : 'offline')
-        })
-        .finally(() => { if (mountedRef.current && workbookScopeRef.current === scope) setSaving(false) })
-    }, 650)
-    return () => window.clearTimeout(timer)
-  }, [courseId, dirty, lesson.id, ownerId, ready, saveNonce, saving, state, syncIssue, workbookScope])
-
-  const changeState = (update: (current: AcademyWorkbookState) => AcademyWorkbookState) => {
-    setState(update)
-    setDirty(true)
-    setSaved(false)
-  }
   const updateAnswer = (id: string, value: string) => changeState((current) => ({
     ...current,
     answers: { ...current.answers, [id]: value.slice(0, 2000) },
@@ -641,21 +586,6 @@ function AcademyWorkbookPanel({ lesson, courseId }: { lesson: CourseLessonDraft;
     ...current,
     challengeDone: { ...current.challengeDone, [String(day)]: !current.challengeDone[String(day)] },
   }))
-  const reloadFromCloud = async () => {
-    setReady(false)
-    try {
-      const remote = await loadAcademyWorkbookFromCloud(ownerId, courseId, lesson.id, { preferRemote: true })
-      setState(remote)
-      setDirty(false)
-      setSaved(true)
-      setSyncIssue(null)
-    } catch {
-      setSyncIssue('offline')
-    } finally {
-      setReady(true)
-    }
-  }
-
   if (!chapter) return null
   if (guideError) return <div className="academy-workbook-sync" role="alert"><p>Chưa tải được nội dung workbook. Bản ghi của bạn vẫn được giữ.</p><button type="button" onClick={() => setGuideRetry((value) => value + 1)}>Thử lại</button></div>
   if (guideChapter !== chapter) return <div role="status" aria-live="polite">Đang tải workbook…</div>
@@ -668,10 +598,11 @@ function AcademyWorkbookPanel({ lesson, courseId }: { lesson: CourseLessonDraft;
           <span className="academy-section-kicker"><ClipboardCheck size={17} /><span><small>WORKBOOK TƯƠNG TÁC</small><strong id={`workbook-${lesson.id}`}>Biến bài đọc thành quyết định của bạn</strong></span></span>
           <p>Điền ngắn, lưu tự động. Nội dung chỉ thuộc tài khoản của bạn và có thể chỉnh lại bất cứ lúc nào.</p>
         </div>
-        <span className={`academy-workbook-save ${saved ? 'is-saved' : syncIssue ? 'has-error' : ''}`} role="status"><Save size={14} />{saved ? 'Đã lưu' : syncIssue ? 'Chưa đồng bộ' : 'Đang lưu…'}</span>
+        <span className={`academy-workbook-save ${saved ? 'is-saved' : syncIssue ? 'has-error' : ''}`} role="status"><Save size={14} />{controller.status}</span>
       </header>
-      {syncIssue ? <div className={`academy-workbook-sync academy-workbook-sync--${syncIssue}`} role="alert"><AlertCircle size={18} /><div><strong>{syncIssue === 'conflict' ? 'Có bản mới từ thiết bị khác' : 'Cloud đang tạm gián đoạn'}</strong><p>{syncIssue === 'conflict' ? 'Bản trên thiết bị vẫn được giữ. Tải bản Cloud mới nhất để tránh ghi đè.' : 'Dữ liệu vẫn nằm trên thiết bị này. Hãy thử đồng bộ lại khi kết nối ổn định.'}</p></div><button type="button" onClick={() => syncIssue === 'conflict' || !dirty ? void reloadFromCloud() : (setSyncIssue(null), setSaveNonce((value) => value + 1))}>{syncIssue === 'conflict' ? 'Tải bản mới nhất' : 'Thử lại'}</button></div> : null}
-      <div className="academy-workbook-fields">
+      {syncIssue ? <div className={`academy-workbook-sync academy-workbook-sync--${syncIssue}`} role="alert"><AlertCircle size={18} /><div><strong>{syncIssue === 'conflict' ? 'Có bản mới từ thiết bị khác' : syncIssue === 'size' ? 'Bài quá dài để đồng bộ' : 'Chưa đồng bộ lên Cloud'}</strong><p>{syncIssue === 'conflict' ? 'Tải bản Cloud để tiếp tục; bản nháp được giữ trong bản sao khôi phục.' : syncIssue === 'size' ? 'Rút gọn câu trả lời trước khi thử lại; hệ thống không cắt mất nội dung.' : 'Kiểm tra kết nối và phiên đăng nhập rồi thử lại.'}</p></div><button type="button" onClick={() => syncIssue === 'conflict' || !state.pendingSync ? void controller.reload() : controller.retry()}>{syncIssue === 'conflict' ? 'Tải bản mới nhất' : 'Thử lại'}</button></div> : null}
+      {!controller.deviceSaved ? <p role="alert">Chưa lưu được bản nháp trên thiết bị. Giữ trang mở tới khi đồng bộ hoặc sao chép nội dung.</p> : null}
+      <fieldset disabled={!ready} className="academy-workbook-fields">
         {deepDive.workbookFields.map((field) => (
           <label key={field.id} className={`academy-workbook-field is-${field.kind}`}>
             <span>{field.label}</span>
@@ -687,11 +618,11 @@ function AcademyWorkbookPanel({ lesson, courseId }: { lesson: CourseLessonDraft;
             )}
           </label>
         ))}
-      </div>
+      </fieldset>
       <div className="academy-challenge-card">
-        <div className="academy-challenge-card__title"><Target size={17} /><div><small>THỬ NGHIỆM 7 NGÀY</small><strong>{deepDive.challenge.title}</strong></div><span>{Object.values(state.challengeDone).filter(Boolean).length}/7</span></div>
+        <div className="academy-challenge-card__title"><Target size={17} /><div><small>{auraPracticeMode(chapter) === 'coordination' ? 'HỒ SƠ PHỐI HỢP' : 'THỬ NGHIỆM 7 NGÀY'}</small><strong>{deepDive.challenge.title}</strong></div><span>{Object.values(state.challengeDone).filter(Boolean).length}/{deepDive.challenge.days.length}</span></div>
         <div className="academy-challenge-days">
-          {deepDive.challenge.days.map((day) => <label key={day.day} className={state.challengeDone[String(day.day)] ? 'is-done' : ''}><input type="checkbox" checked={Boolean(state.challengeDone[String(day.day)])} onChange={() => toggleDay(day.day)} /><span><b>Ngày {day.day}</b>{day.task}<small>{day.reflection}</small></span>{state.challengeDone[String(day.day)] ? <Check size={15} /> : null}</label>)}
+          {deepDive.challenge.days.map((day) => <label key={day.day} className={state.challengeDone[String(day.day)] ? 'is-done' : ''}><input type="checkbox" checked={Boolean(state.challengeDone[String(day.day)])} onChange={() => toggleDay(day.day)} /><span><b>{auraPracticeMode(chapter) === 'coordination' ? 'Bước' : 'Ngày'} {day.day}</b>{day.task}<small>{day.reflection}</small></span>{state.challengeDone[String(day.day)] ? <Check size={15} /> : null}</label>)}
         </div>
       </div>
       <div className="academy-readiness-card"><div><ShieldCheck size={17} /><strong>Cổng sẵn sàng</strong></div>{deepDive.readinessChecklist.map((item) => <span key={item}><CheckCircle2 size={14} />{item}</span>)}</div>
@@ -849,6 +780,8 @@ export function CoursePrimaryContent({
   lockedMessage,
   onMediaProgress,
   onOpenResources,
+  mediaAccess,
+  onRefreshCourse,
 }: {
   courseId: string
   lesson: CourseLessonDraft
@@ -856,19 +789,23 @@ export function CoursePrimaryContent({
   lockedMessage: string
   onMediaProgress?: (percent: number) => void
   onOpenResources?: () => void
+  mediaAccess?: AcademyMediaContext
+  onRefreshCourse?: () => void
 }) {
   const runtimeLesson = lesson as RuntimeLesson
   const resources = useMemo(() => (lesson.resources ?? []).map(runtimeResource), [lesson.resources])
   const primaryResource = resources.find((resource) => resource.id === runtimeLesson.primaryContent?.resourceId)
     ?? resources.find((resource) => resource.isPrimary)
     ?? resources.find((resource) => lesson.type === 'Video' ? resource.kind === 'video' : resource.kind !== 'video')
-  const media = useResolvedMedia(courseId, lesson.id, primaryResource, canView && runtimeLesson.primaryContent?.kind !== 'rich-text')
+  const media = useResolvedMedia(courseId, lesson.id, primaryResource, canView && runtimeLesson.primaryContent?.kind !== 'rich-text'
+    && runtimeLesson.primaryContent?.kind !== 'workout' && lesson.type !== 'Buổi tập', { ...mediaAccess, chapterVersion: lesson.contentVersion }, onRefreshCourse)
 
   if (!canView) {
     return <div className="video-player locked"><div className="video-pattern"><i /><i /><i /></div><div className="video-copy"><strong>{lesson.title}</strong><small>{lockedMessage}</small></div><div className="video-play" aria-hidden="true"><LockKeyhole size={29} /></div></div>
   }
 
   if (runtimeLesson.primaryContent?.kind === 'rich-text' && runtimeLesson.primaryContent.body?.trim()) {
+    if (lesson.contentVersion) return <AcademyChapterArticle lesson={lesson} />
     return <AcademyRichLesson courseId={courseId} lesson={lesson} body={runtimeLesson.primaryContent.body} onOpenResources={onOpenResources} />
   }
 
@@ -900,7 +837,8 @@ export function CoursePrimaryContent({
     return <div className="video-player lesson-runtime-player"><iframe src={slideEmbed} title={primaryResource.title || lesson.title} allowFullScreen sandbox="allow-scripts allow-same-origin allow-popups" referrerPolicy="no-referrer" /></div>
   }
   if ((primaryResource.kind === 'document' || primaryResource.kind === 'slide') && looksLikePdf) {
-    return <CoursePdfReader courseId={courseId} lessonId={lesson.id} resource={primaryResource} canAccess={canView} />
+    return <CoursePdfReader courseId={courseId} lessonId={lesson.id} resource={primaryResource} canAccess={canView}
+      ownerId={mediaAccess?.ownerId} mediaAccess={mediaAccess} resolvedMedia={media} />
   }
 
   return <div className="video-player"><div className="video-pattern"><i /><i /><i /></div><div className="video-copy"><strong>{primaryResource.title || lesson.title}</strong><small>Mở {resourceLabels[primaryResource.kind]} trong cửa sổ mới.</small></div><a className="video-play" href={media.url} target="_blank" rel="noopener noreferrer" aria-label={`Mở ${primaryResource.title || resourceLabels[primaryResource.kind]}`}><ExternalLink size={26} /></a></div>
@@ -911,14 +849,18 @@ export function CourseResourceItem({
   lessonId,
   resource,
   canAccess = true,
+  mediaAccess,
+  onRefreshCourse,
 }: {
   courseId: string
   lessonId: string
   resource: LessonResourceDraft
   canAccess?: boolean
+  mediaAccess?: AcademyMediaContext
+  onRefreshCourse?: () => void
 }) {
   const runtime = runtimeResource(resource)
-  const media = useResolvedMedia(courseId, lessonId, runtime, canAccess)
+  const media = useResolvedMedia(courseId, lessonId, runtime, canAccess, mediaAccess, onRefreshCourse)
   const Icon = runtime.kind === 'slide' ? FileSpreadsheet : runtime.kind === 'video' ? Play : FileType
   const title = runtime.title || `Tài nguyên ${resourceLabels[runtime.kind]}`
   const content = <><span><Icon size={16} /></span><div><strong>{title}</strong><small>{runtime.assetRef?.storagePath ? <><ShieldCheck size={12} /> Media bảo mật Aura</> : <><ExternalLink size={12} /> Liên kết ngoài</>}</small>{runtime.note ? <small>{runtime.note}</small> : null}</div></>
@@ -968,20 +910,15 @@ export function CourseQuizRunner({
   const [result, setResult] = useState<QuizGradeResult | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [localAttempts, setLocalAttempts] = useState(0)
+  const [presentationAttempt, setPresentationAttempt] = useState(0)
   const [questionIndex, setQuestionIndex] = useState(0)
   const questionRef = useRef<HTMLFieldSetElement>(null)
-  const questions = useMemo(() => {
-    const items = [...(quiz?.questions ?? [])]
-    if (quiz?.questionOrder === 'shuffle') {
-      const ownerId = firebaseAuth?.currentUser?.uid ?? 'preview'
-      items.sort((left, right) => stableOrderScore(`${ownerId}:${lesson.id}:${left.id}`) - stableOrderScore(`${ownerId}:${lesson.id}:${right.id}`))
-    }
-    const requested = quiz?.publicSettings?.questionsPerAttempt
-    const count = Number.isInteger(requested) ? Math.max(1, Math.min(items.length, Number(requested))) : items.length
-    const required = items.filter((question) => question.mustPass === true)
-    const optional = items.filter((question) => question.mustPass !== true)
-    return [...required, ...optional.slice(0, Math.max(0, count - required.length))]
-  }, [lesson.id, quiz?.publicSettings?.questionsPerAttempt, quiz?.questionOrder, quiz?.questions])
+  const submissionRef = useRef<{ signature: string; id: string } | null>(null)
+  const quizOwnerId = firebaseAuth?.currentUser?.uid ?? 'preview'
+  const quizIdentity = JSON.stringify([quizOwnerId, courseId, lesson.id, lesson.contentVersion ?? null])
+  const activeQuiz = useRef<string | null>(quizIdentity)
+  activeQuiz.current = quizIdentity
+  const questions = useMemo(() => selectAcademyQuizQuestions(quiz?.questions ?? [], quizOwnerId, lesson.id, quiz?.publicSettings?.questionsPerAttempt, quiz?.questionOrder), [lesson.id, quizOwnerId, quiz?.publicSettings?.questionsPerAttempt, quiz?.questionOrder, quiz?.questions])
   const answeredCount = questions.filter((question) => answers[question.id] !== undefined).length
   const moveQuestion = (index: number) => {
     setQuestionIndex(Math.max(0, Math.min(questions.length - 1, index)))
@@ -997,13 +934,17 @@ export function CourseQuizRunner({
   )
 
   useEffect(() => {
+    activeQuiz.current = quizIdentity
+    submissionRef.current = null
     setAnswers({})
     setSubmitState('idle')
     setResult(null)
     setError(null)
     setLocalAttempts(0)
+    setPresentationAttempt(0)
     setQuestionIndex(0)
-  }, [lesson.id])
+    return () => { activeQuiz.current = null }
+  }, [quizIdentity])
 
   if (!quiz || questions.length === 0) {
     return <div className="lesson-empty-state"><AlertCircle size={28} /><h2>Quiz chưa sẵn sàng</h2><p>Giảng viên cần bổ sung câu hỏi trước khi bạn có thể làm bài.</p></div>
@@ -1028,19 +969,26 @@ export function CourseQuizRunner({
         const mustPassPassed = questions.filter((question) => question.mustPass).every((question) => answers[question.id] === question.correctIndex)
         grade = { correctCount, totalQuestions: questions.length, percent, mustPassPassed, passed: percent >= quiz.passPercent && mustPassPassed, review: questions.map((question) => ({ questionId: question.id, correct: answers[question.id] === question.correctIndex, explanation: question.explanation ?? '', remediationCardIds: question.remediationCardIds ?? [] })) }
       } else {
-        grade = await gradeCourseQuiz({ courseId, lessonId: lesson.id, answers })
+        const signature = JSON.stringify([courseId, lesson.id, lesson.contentVersion ?? null, Object.entries(answers).sort(([a], [b]) => a.localeCompare(b))])
+        if (submissionRef.current?.signature !== signature) submissionRef.current = { signature, id: crypto.randomUUID() }
+        grade = await gradeCourseQuiz({ courseId, lessonId: lesson.id, chapterVersion: lesson.contentVersion, answers, requestId: submissionRef.current.id })
       }
+      if (activeQuiz.current !== quizIdentity) return
       setLocalAttempts((value) => value + 1)
       setResult(grade)
       if (grade.passed && !completed) await onPassed()
+      if (activeQuiz.current !== quizIdentity) return
       setSubmitState('idle')
     } catch (caught) {
+      if (activeQuiz.current !== quizIdentity) return
       setSubmitState('error')
       setError(courseLoadErrorMessage(caught))
     }
   }
 
   const retry = () => {
+    submissionRef.current = null
+    setPresentationAttempt((value) => value + 1)
     setAnswers({})
     setResult(null)
     setError(null)
@@ -1070,7 +1018,7 @@ export function CourseQuizRunner({
       {questions.slice(questionIndex, questionIndex + 1).map((question) => (
         <fieldset ref={questionRef} tabIndex={-1} key={question.id} disabled={!canSubmit || submitState === 'submitting' || Boolean(result)}>
           <legend>Câu {questionIndex + 1}. {question.question || `Câu hỏi ${questionIndex + 1}`}{question.mustPass ? <small className="academy-quiz-required">An toàn · Bắt buộc đúng</small> : null}</legend>
-          {question.options.map((option, optionIndex) => (
+          {academyQuizOptionOrder(question.options, [quizOwnerId, lesson.id, question.id, 'options', presentationAttempt].join(':')).map(({ option, optionIndex }) => (
             <label key={`${question.id}-${optionIndex}`}>
               <input type="radio" name={`quiz-${lesson.id}-${question.id}`} checked={answers[question.id] === optionIndex} onChange={() => { setAnswers((current) => ({ ...current, [question.id]: optionIndex })); setError(null) }} />
               <span>{option || `Lựa chọn ${optionIndex + 1}`}</span>
@@ -1081,7 +1029,7 @@ export function CourseQuizRunner({
       <nav className="academy-quiz-pager" aria-label="Chuyển câu hỏi"><button type="button" disabled={questionIndex === 0} onClick={() => moveQuestion(questionIndex - 1)}><ChevronLeft size={16} /> Câu trước</button><span>{questionIndex + 1}/{questions.length}</span><button type="button" disabled={questionIndex >= questions.length - 1} onClick={() => moveQuestion(questionIndex + 1)}>Câu sau <ChevronRight size={16} /></button></nav>
       {result ? <>
         <div className={`learning-action-error ${result.passed ? 'is-success' : ''}`} role="status" aria-live="polite">{result.passed ? <CheckCircle2 size={18} /> : <AlertCircle size={18} />}<strong>{result.passed ? 'Bạn đã đạt!' : 'Chưa đạt lần này'}</strong><span>{result.correctCount}/{result.totalQuestions} câu đúng · {result.percent}%</span>{result.mustPassPassed === false ? <small>Cần đúng câu an toàn bắt buộc.</small> : null}{result.attemptsRemaining !== undefined && result.attemptsRemaining !== null ? <small>Còn {result.attemptsRemaining} lượt làm.</small> : null}</div>
-        {result.review?.length ? <details className="course-quiz-review" open>
+        {academyQuizCanReveal(quiz.publicSettings?.revealMode, result.passed) && result.review?.length ? <details className="course-quiz-review" open>
           <summary>Giải thích và thẻ cần xem lại <span>{result.review.filter((item) => !item.correct).length} câu cần ôn</span></summary>
           <div>{result.review.map((item) => { const index = questions.findIndex((question) => question.id === item.questionId); const cards = remediationCards.filter((card) => item.remediationCardIds.includes(card.id)); return <article key={item.questionId}><strong>{item.correct ? '✓' : '×'} {index >= 0 ? `Câu ${index + 1}` : 'Câu cần xem lại'}</strong><p>{item.explanation || (item.correct ? 'Đáp án của bạn phù hợp với nội dung chương.' : 'Hãy mở lại các thẻ được gợi ý và thử lại khi đã rõ hơn.')}</p>{cards.length && onReviewCards ? <button type="button" className="outline-button" onClick={() => onReviewCards(cards.map((card) => card.id))}>Ôn lại: {cards.map((card) => card.title).join(' · ')}</button> : item.remediationCardIds.length ? <small>Ôn lại phần Nắm lõi của chương này.</small> : null}</article> })}</div>
         </details> : null}

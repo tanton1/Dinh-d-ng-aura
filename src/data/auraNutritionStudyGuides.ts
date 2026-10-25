@@ -1,3 +1,5 @@
+import { auraPracticeMode } from './auraNutritionPracticePolicy'
+
 export type AuraNutritionStudySection = {
   title: string
   explanation: string
@@ -943,7 +945,7 @@ function enrichStudyGuide(guide: AuraNutritionStudyGuide, chapter: number): Aura
       {
         name: 'Ca C · Khi cần hỗ trợ',
         context: `Nếu dữ liệu chạm đến cờ đỏ hoặc vượt phạm vi tự học, ưu tiên an toàn và chuyển tuyến. ${guide.evidenceNote}`,
-        signal: `Dấu hiệu dừng cần nhớ: ${guide.evidenceNote}`,
+        signal: 'Đọc cổng an toàn của chương và hướng dẫn của chuyên môn đang phụ trách; ghi chú bằng chứng không phải công cụ tự chẩn đoán.',
         interpretation: 'Một quyết định tốt không phải lúc nào cũng là làm thêm; đôi khi là dừng thử nghiệm và tìm đúng người.',
         nextStep: 'Chuẩn bị tóm tắt ngắn: điều đã xảy ra, thời điểm, mức độ, yếu tố liên quan và câu hỏi muốn được giải đáp.',
       },
@@ -979,6 +981,39 @@ function enrichStudyGuide(guide: AuraNutritionStudyGuide, chapter: number): Aura
       { id: 'confidence', label: 'Mức tự tin', prompt: 'Bạn tự tin thực hiện bước này ở mức nào?', kind: 'scale' },
       { id: 'next', label: 'Ngày rà lại', prompt: 'Ngày hoặc mốc nào bạn sẽ nhìn lại dữ liệu?', kind: 'short' },
     ],
+  }
+  if (auraPracticeMode(chapter) === 'coordination') {
+    deepDive.visualModel = {
+      title: 'Từ thông tin đến phối hợp đúng người',
+      steps: [
+        { label: 'Xác minh', detail: 'Tách dữ kiện đã được chuyên môn xác nhận khỏi suy đoán; chỉ dùng thông tin được đồng ý chia sẻ.' },
+        { label: 'Giới hạn', detail: 'Nhận diện quyết định vượt phạm vi tự học hoặc PT. Không tự chỉnh thuốc, kê sản phẩm hoặc đặt phác đồ.' },
+        { label: 'Phối hợp', detail: 'Ghi câu hỏi, người chịu trách nhiệm và kênh liên hệ phù hợp.' },
+        { label: 'Theo dõi', detail: 'Rà việc trao đổi và khả năng thực hiện hướng dẫn đã được chuyên môn thống nhất.' },
+      ],
+    }
+    deepDive.caseStudies = [
+      { name: 'Ca A · Chuẩn bị cuộc trao đổi', context: guide.workedExample, signal: 'Thông tin nào đã được xác nhận và câu hỏi nào chưa có câu trả lời?', interpretation: 'Bài học hỗ trợ chuẩn bị trao đổi; không thay thế lượng giá cá nhân.', nextStep: guide.practiceExample },
+      { name: 'Ca B · Lời khuyên chung không khớp hồ sơ', context: chapter === 16 ? 'Một học viên đang mang thai muốn dùng công thức giảm cân trên mạng vì trước đây từng có kết quả.' : 'Một học viên có bệnh thận muốn tự dùng mục tiêu protein của người tập khỏe mạnh.', signal: 'Có giai đoạn hoặc tình trạng sức khỏe cần đánh giá riêng; chưa có chấp thuận phù hợp cho kế hoạch mới.', interpretation: 'Không suy rộng hướng dẫn cho người khỏe mạnh thành chỉ định cho tình huống này.', nextStep: 'Ghi câu hỏi và kế hoạch đang cân nhắc để trao đổi với người có chuyên môn phù hợp trước khi áp dụng.' },
+      { name: 'Ca C · Khi không nên chờ bài tập', context: 'Người học mô tả tình huống khiến họ lo ngại cần trợ giúp y tế, nhưng đang cố hoàn tất bảng theo dõi.', signal: 'Nhu cầu trợ giúp thực tế quan trọng hơn tiến độ khóa học.', interpretation: 'Không dùng bài tập hay chatbot để loại trừ tình huống khẩn cấp.', nextStep: 'Tìm trợ giúp y tế phù hợp; nếu nghi cấp cứu, liên hệ cấp cứu tại nơi đang ở và không chờ đủ dữ liệu.' },
+    ]
+    deepDive.vietnamExample = { title: 'Trao đổi trong bối cảnh gia đình', before: 'Người thân đưa nhiều lời khuyên về món ăn hoặc sản phẩm trong khi hướng dẫn chuyên môn chưa được làm rõ.', adjustment: 'Tập hợp câu hỏi và nhãn sản phẩm để trao đổi; không tự thêm liều hoặc bỏ hướng dẫn hiện có.', rationale: 'Giữ khẩu vị và nguồn lực gia đình trong cuộc trao đổi, nhưng quyết định điều trị thuộc người có phạm vi chuyên môn phù hợp.' }
+    deepDive.challenge = {
+      title: `Hồ sơ phối hợp · Chương ${chapter}`,
+      days: [
+        { day: 1, task: 'Chọn một tình huống giả định hoặc được đồng ý sử dụng; ghi điều đã biết và chưa biết.', reflection: 'Tôi đang ghi dữ kiện hay suy đoán?' },
+        { day: 2, task: 'Chuẩn bị câu hỏi và xác định người có thẩm quyền cho từng quyết định.', reflection: 'Quyết định nào tôi không được tự làm thay?' },
+        { day: 3, task: 'Viết bản tóm tắt bàn giao và lịch rà việc phối hợp; có thể hoàn thành bằng tình huống giả định.', reflection: 'Bản này có vô tình trở thành chỉ định ăn uống hoặc chỉnh thuốc không?' },
+      ],
+    }
+    deepDive.readinessChecklist = ['Tôi phân biệt dữ kiện với suy đoán.', 'Tôi xác định người phụ trách từng quyết định.', 'Tôi có câu hỏi và kênh liên hệ cụ thể.', 'Tôi không dùng bài học để thay thế chẩn đoán hoặc điều trị.']
+    deepDive.workbookFields = [
+      { id: 'snapshot', label: 'Thông tin đã biết', prompt: 'Dùng tình huống giả định nếu không muốn chia sẻ sức khỏe cá nhân.', kind: 'long' },
+      { id: 'signal', label: 'Thông tin cần xác minh', prompt: 'Điều gì chưa rõ và cần hỏi ai?', kind: 'long' },
+      { id: 'experiment', label: 'Kế hoạch phối hợp', prompt: 'Tôi sẽ chuẩn bị và chuyển câu hỏi nào, cho ai?', kind: 'long' },
+      { id: 'confidence', label: 'Mức tự tin về giới hạn', prompt: 'Tôi có phân biệt được hỗ trợ học tập với quyết định điều trị không?', kind: 'scale' },
+      { id: 'next', label: 'Mốc rà việc phối hợp', prompt: 'Khi nào rà lại? Không chờ mốc này khi cần trợ giúp sớm.', kind: 'short' },
+    ]
   }
   return { ...guide, deepDive }
 }

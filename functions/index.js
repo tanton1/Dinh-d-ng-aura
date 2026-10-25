@@ -9,7 +9,7 @@ if (weeklyReadRuntime.shouldUseWeeklyReadRuntime(process.env)) {
 const { initializeApp } = require('firebase-admin/app')
 const { getAuth } = require('firebase-admin/auth')
 const { getDatabase } = require('firebase-admin/database')
-const { FieldPath, FieldValue, Timestamp, getFirestore } = require('firebase-admin/firestore')
+const { FieldPath, FieldValue, Filter, Timestamp, getFirestore } = require('firebase-admin/firestore')
 const { getMessaging } = require('firebase-admin/messaging')
 const { getStorage } = require('firebase-admin/storage')
 const { HttpsError, onCall: firebaseOnCall } = require('firebase-functions/v2/https')
@@ -18,6 +18,11 @@ const { onDocumentWritten } = require('firebase-functions/v2/firestore')
 const { setGlobalOptions } = require('firebase-functions/v2/options')
 const { logger } = require('firebase-functions')
 const { createHash } = require('node:crypto')
+const { auraPracticeDefinition, academyWorkbookDocumentId, validateAcademyPracticeSubmission } = require('./academy-practice')
+const { createAcademySubmissionHandler, prepareAcademySubmission, writeAcademySubmission } = require('./academy-submissions')
+const { createAcademyCourseStorage } = require('./academy-course-storage')
+const { createAcademyAuthoringHandlers } = require('./academy-authoring')
+const { createAcademyDraftAdoption } = require('./academy-draft-adoption')
 // Firebase resolves every declared secret before it applies a function-name
 // filter. A narrow Student 360 rollout therefore used to require the deploy
 // identity to inspect unrelated AI secrets. Release automation may opt into a
@@ -95,6 +100,7 @@ const app = initializeApp()
 const defaultFirestoreDatabaseId = 'ai-studio-aurafitnesselear-0f7609b4-b8d1-4fb3-9d62-99a2c03e1ce7'
 const databaseId = process.env.FIRESTORE_DATABASE_ID || defaultFirestoreDatabaseId
 const db = getFirestore(app, databaseId)
+const academyCourseStorage = createAcademyCourseStorage({ db, HttpsError })
 const auth = getAuth(app)
 const messaging = getMessaging(app)
 const storage = getStorage(app)
@@ -2659,20 +2665,42 @@ function normalizeCourseLearningDesign(value) {
         mustAcknowledge: value.safetyGate.mustAcknowledge === true,
       }
     : undefined
-  return {
-    version: 1,
-    chapterId: courseId(value.chapterId, 'Mã chương học tập'),
-    competencyIds,
-    cards,
-    microChecks,
-    practice: {
+  let reviewRubric
+  if (practice.reviewRubric !== undefined) {
+    const rubric = practice.reviewRubric
+    const criteriaIds = ['data', 'mechanism', 'feasibility', 'safety']
+    if (!isPlainObject(rubric) || !Number.isSafeInteger(rubric.version) || rubric.version < 1
+        || !Array.isArray(rubric.criteria) || rubric.criteria.length !== criteriaIds.length
+        || new Set(rubric.criteria.map((row) => row?.id)).size !== criteriaIds.length) {
+      throw new HttpsError('invalid-argument', 'Tiêu chí đánh giá bài thực hành không hợp lệ.')
+    }
+    reviewRubric = { version: rubric.version, criteria: rubric.criteria.map((row) => {
+      if (!isPlainObject(row) || !criteriaIds.includes(row.id) || !Array.isArray(row.levels) || row.levels.length !== 3) {
+        throw new HttpsError('invalid-argument', 'Mỗi tiêu chí cần đủ ba mức đánh giá.')
+      }
+      return { id: row.id, label: courseString(row.label, 'Tên tiêu chí', 300),
+        levels: row.levels.map((level) => courseString(level, 'Mô tả mức đánh giá', 2000)) }
+    }) }
+  }
+  const normalizedPractice = {
       version: practice.version,
       title: courseString(practice.title, 'Tên bài thực hành', 300),
       outcome: courseString(practice.outcome, 'Đầu ra bài thực hành', 3000),
       fields,
       minimumEvidence: courseStringList(practice.minimumEvidence ?? [], 'Dữ liệu tối thiểu', 20, 500),
       safetyPrompt: courseString(practice.safetyPrompt, 'Cổng an toàn bài thực hành', 4000),
-    },
+      ...(reviewRubric ? { reviewRubric } : {}),
+  }
+  // A copied version number cannot make answers to different prompts valid.
+  // Legacy definitions stay byte-compatible until bespoke criteria are adopted.
+  if (reviewRubric) normalizedPractice.identityHash = createHash('sha256').update(JSON.stringify(normalizedPractice)).digest('hex')
+  return {
+    version: 1,
+    chapterId: courseId(value.chapterId, 'Mã chương học tập'),
+    competencyIds,
+    cards,
+    microChecks,
+    practice: normalizedPractice,
     ...(safetyGate ? { safetyGate } : {}),
   }
 }
@@ -2944,8 +2972,15 @@ function normalizeCourseDraftInput(value) {
         ...(provenance ? { provenance } : {}),
       }
     })
+    if (module.academyAdoption !== undefined && (!isPlainObject(module.academyAdoption)
+        || Object.keys(module.academyAdoption).length !== 1
+        || typeof module.academyAdoption.candidateId !== 'string'
+        || !/^[a-f0-9]{64}$/.test(module.academyAdoption.candidateId))) {
+      throw new HttpsError('invalid-argument', 'Dấu duyệt chương không hợp lệ.')
+    }
     return {
       id: moduleIdentifier,
+      ...(module.academyAdoption ? { academyAdoption: { candidateId: module.academyAdoption.candidateId } } : {}),
       title: courseString(module.title, 'Tên chương', 300, false),
       order: Number.isInteger(module.order) ? module.order : moduleIndex + 1,
       ...(typeof module.description === 'string' ? { description: courseString(module.description, 'Mô tả chương', 3000, false) } : {}),
@@ -3089,169 +3124,39 @@ function assertCourseReadyToPublish(course, quizDocuments) {
   }
 }
 
-async function requireTrustedAcademyStaffContext(request) {
+async function requireTrustedAcademyStaffContext(request, read = (reference) => reference.get()) {
   const actorId = requireCaller(request)
-  const snapshot = await db.doc(`users/${actorId}`).get()
-  if (!snapshot.exists || !hasTrustedRole(request, snapshot.data(), academyStaffRoles)) {
+  const snapshot = await read(db.doc(`users/${actorId}`))
+  if (!snapshot.exists || snapshot.data().disabled === true || !hasTrustedRole(request, snapshot.data(), academyStaffRoles)) {
     throw new HttpsError('permission-denied', 'Bạn không có quyền quản trị Aura Academy.')
   }
   return { actorId, role: snapshot.data().role }
 }
 
-/** Atomically saves the course, private quiz keys, immutable revision and audit event. */
-exports.saveCourseDraftAtomic = onCall({ cpu: 'gcf_gen1', maxInstances: 3, invoker: 'public' }, async (request) => {
-  const actor = await requireTrustedAcademyStaffContext(request)
-  const normalized = normalizeCourseDraftInput(request.data?.course)
-  const expectedRevision = request.data?.expectedRevision
-  if (!Number.isInteger(expectedRevision) || expectedRevision < 0) {
-    throw new HttpsError('invalid-argument', 'Cần revision hiện tại để lưu khóa học an toàn.')
-  }
-  const courseReference = db.doc(`courses/${normalized.identifier}`)
-  let savedRevision = 0
-  await db.runTransaction(async (transaction) => {
-    const courseSnapshot = await transaction.get(courseReference)
-    const quizKeySnapshot = await transaction.get(courseReference.collection('quizKeys'))
-    const existingCourse = courseSnapshot.data() ?? {}
-    const currentRevision = courseSnapshot.exists ? Number(existingCourse.revision) || 0 : 0
-    if (currentRevision !== expectedRevision) {
-      throw new HttpsError(
-        'aborted',
-        'Khóa học đã được thay đổi ở một phiên khác. Hãy tải lại bản mới nhất trước khi lưu.',
-        { expectedRevision, currentRevision },
-      )
-    }
-    assertCourseContentSaveStatus(existingCourse.status ?? 'draft', normalized.requestedStatus, actor.role, courseSnapshot.exists)
-    const existingKeys = new Map(quizKeySnapshot.docs.map((snapshot) => [snapshot.id, snapshot.data()]))
-    const quizDocuments = new Map()
-    for (const [lessonId, quiz] of normalized.quizDefinitions) {
-      if (!quiz.questions.length) continue
-      const existingAnswers = isPlainObject(existingKeys.get(lessonId)?.answers) ? existingKeys.get(lessonId).answers : {}
-      const suppliedAnswers = normalized.answerCandidates.get(lessonId) ?? {}
-      const answers = Object.fromEntries(quiz.questions.flatMap((question) => {
-        const candidate = Number.isInteger(suppliedAnswers[question.id])
-          ? suppliedAnswers[question.id]
-          : existingAnswers[question.id]
-        return Number.isInteger(candidate) && candidate >= 0 && candidate < question.options.length
-          ? [[question.id, candidate]]
-          : []
-      }))
-      const contentHash = buildQuizContentHash(quiz, answers)
-      quizDocuments.set(lessonId, {
-        quizId: quiz.id,
-        passPercent: quiz.passPercent,
-        answers,
-        questionCount: quiz.questions.length,
-        contentHash,
-      })
-    }
-    if (normalized.requestedStatus === 'review') {
-      assertCourseReadyToPublish(normalized.course, quizDocuments)
-    }
-
-    savedRevision = currentRevision + 1
-    const nextCourse = {
-      ...normalized.course,
-      revision: savedRevision,
-      createdAt: existingCourse.createdAt ?? FieldValue.serverTimestamp(),
-      createdBy: existingCourse.createdBy ?? actor.actorId,
-      updatedAt: FieldValue.serverTimestamp(),
-      updatedBy: actor.actorId,
-      revisionUpdatedAt: FieldValue.serverTimestamp(),
-      revisionUpdatedBy: actor.actorId,
-      ...(existingCourse.publishedAt ? { publishedAt: existingCourse.publishedAt } : {}),
-    }
-    const revisionId = `${normalized.identifier}_${String(savedRevision).padStart(6, '0')}`
-    const revisionCourse = { ...normalized.course, revision: savedRevision }
-    const revisionQuizKeys = Object.fromEntries(quizDocuments)
-    const revisionPayload = JSON.stringify({ course: revisionCourse, quizKeys: revisionQuizKeys })
-    if (Buffer.byteLength(revisionPayload, 'utf8') > 750 * 1024) {
-      throw new HttpsError(
-        'resource-exhausted',
-        'Khóa học đã vượt giới hạn an toàn của một phiên bản. Hãy chia nhỏ nội dung hoặc học liệu trước khi lưu.',
-      )
-    }
-    transaction.set(courseReference, nextCourse)
-    for (const [lessonId, data] of quizDocuments) {
-      const existingKey = existingKeys.get(lessonId) ?? {}
-      transaction.set(courseReference.collection('quizKeys').doc(lessonId), {
-        ...data,
-        createdAt: existingKey.createdAt ?? FieldValue.serverTimestamp(),
-        updatedAt: FieldValue.serverTimestamp(),
-        updatedBy: actor.actorId,
-      })
-    }
-    for (const snapshot of quizKeySnapshot.docs) {
-      if (!quizDocuments.has(snapshot.id)) transaction.delete(snapshot.ref)
-    }
-    transaction.create(db.doc(`courseRevisions/${revisionId}`), {
-      courseId: normalized.identifier,
-      revision: savedRevision,
-      contentHash: createHash('sha256').update(revisionPayload).digest('hex'),
-      course: revisionCourse,
-      quizKeys: revisionQuizKeys,
-      createdBy: actor.actorId,
-      createdAt: FieldValue.serverTimestamp(),
-    })
-    transaction.set(db.collection('auditLogs').doc(), {
-      action: !courseSnapshot.exists
-        ? 'course.created'
-        : existingCourse.status !== normalized.requestedStatus
-          ? 'course.status.changed'
-          : 'course.updated',
-      actorUid: actor.actorId,
-      targetId: normalized.identifier,
-      previousStatus: courseSnapshot.exists ? existingCourse.status ?? 'draft' : null,
-      status: normalized.requestedStatus,
-      revision: savedRevision,
-      createdAt: FieldValue.serverTimestamp(),
-    })
-    const importBatchIds = [...new Set(normalized.course.modules.flatMap((module) => module.lessons
-      .map((lesson) => lesson.provenance?.importBatchId)
-      .filter((batchId) => typeof batchId === 'string' && batchId.length > 0)))]
-    for (const importBatchId of importBatchIds) {
-      transaction.set(db.collection('courseImportBatches').doc(`${normalized.identifier}_${importBatchId}`), {
-        courseId: normalized.identifier,
-        importBatchId,
-        source: 'NotebookLM',
-        latestRevision: savedRevision,
-        updatedBy: actor.actorId,
-        updatedAt: FieldValue.serverTimestamp(),
-      }, { merge: true })
-    }
-  })
-  return { courseId: normalized.identifier, revision: savedRevision, status: normalized.requestedStatus }
+const academyDraftAdoption = createAcademyDraftAdoption({
+  db, HttpsError, FieldValue, storage: academyCourseStorage, authorize: requireTrustedAcademyStaffContext,
+  validateId: courseId, normalize: normalizeCourseDraftInput, assertReady: assertCourseReadyToPublish, buildQuizContentHash,
+  loadDraft: (chapter) => require('./generated/academy-learning-drafts.cjs').getAcademyLearningDraft(chapter),
+  loadCheckpoint: (chapter) => require('./generated/academy-learning-checkpoints.cjs').getAcademyLearningCheckpoint(chapter),
 })
 
-function immutableCourseRevisionSnapshot(value, status, revision) {
-  const {
-    createdAt: _createdAt,
-    createdBy: _createdBy,
-    updatedAt: _updatedAt,
-    updatedBy: _updatedBy,
-    revisionUpdatedAt: _revisionUpdatedAt,
-    revisionUpdatedBy: _revisionUpdatedBy,
-    approvedAt: _approvedAt,
-    approvedBy: _approvedBy,
-    firstPublishedAt: _firstPublishedAt,
-    publishedAt: _publishedAt,
-    publishedBy: _publishedBy,
-    archivedAt: _archivedAt,
-    archivedBy: _archivedBy,
-    ...content
-  } = value
-  return { ...content, status, revision }
-}
+const academyAuthoring = createAcademyAuthoringHandlers({
+  db, HttpsError, FieldValue, storage: academyCourseStorage, authorize: requireTrustedAcademyStaffContext,
+  validateId: courseId, normalize: normalizeCourseDraftInput, assertSaveStatus: assertCourseContentSaveStatus,
+  assertReady: assertCourseReadyToPublish, buildQuizContentHash, buildDiff: buildCourseRevisionDiff,
+  schedulerAvailable: academyCoursePublishingSchedulerAvailable,
+  validateScientificReview: academyDraftAdoption.validateCourse,
+})
 
-function immutableQuizRevisionSnapshot(snapshot) {
-  const value = snapshot.data()
-  return {
-    quizId: typeof value.quizId === 'string' ? value.quizId : snapshot.id,
-    passPercent: Number.isInteger(value.passPercent) ? value.passPercent : 0,
-    answers: isPlainObject(value.answers) ? value.answers : {},
-    questionCount: Number.isInteger(value.questionCount) ? value.questionCount : 0,
-    contentHash: typeof value.contentHash === 'string' ? value.contentHash : '',
+/** Atomically saves chapter versions, the manifest, immutable revision and audit event. */
+exports.saveCourseDraftAtomic = onCall({ cpu: 'gcf_gen1', maxInstances: 3, invoker: 'public' }, async (request) => {
+  if (request.data?.academyAdoption !== undefined) {
+    academyAuthoring.assertClientProtocol(request)
+    if (request.data.course !== undefined) throw new HttpsError('invalid-argument', 'Chỉ thực hiện một thao tác khóa học mỗi lần.')
+    return academyDraftAdoption.mutate(request)
   }
-}
+  return academyAuthoring.save(request)
+})
 
 /**
  * Moves a saved course through the server-owned publication workflow.
@@ -3259,107 +3164,7 @@ function immutableQuizRevisionSnapshot(snapshot) {
  * editor cannot smuggle an approval status inside a content save.
  */
 exports.transitionCoursePublicationStatus = onCall({ cpu: 'gcf_gen1', maxInstances: 3, invoker: 'public' }, async (request) => {
-  const actor = await requireTrustedAcademyStaffContext(request)
-  if (!privilegedAdminRoles.has(actor.role)) {
-    throw new HttpsError('permission-denied', 'Chỉ Administrator được duyệt, xuất bản hoặc lưu trữ khóa học.')
-  }
-  const targetCourseId = courseId(request.data?.courseId, 'Mã khóa học')
-  const expectedRevision = Number(request.data?.expectedRevision)
-  const nextStatus = request.data?.nextStatus
-  if (!Number.isInteger(expectedRevision) || expectedRevision < 1 || !coursePublicationStatuses.has(nextStatus)) {
-    throw new HttpsError('invalid-argument', 'Yêu cầu chuyển trạng thái khóa học không hợp lệ.')
-  }
-  if (nextStatus === 'scheduled' && !academyCoursePublishingSchedulerAvailable) {
-    throw new HttpsError(
-      'failed-precondition',
-      'Lên lịch xuất bản đang khóa vì chưa có scheduler backend. Hãy xuất bản thủ công sau khi nội dung được duyệt.',
-    )
-  }
-
-  const allowedTransitions = {
-    review: new Set(['approved']),
-    approved: new Set(academyCoursePublishingSchedulerAvailable ? ['scheduled', 'published'] : ['published']),
-    scheduled: new Set(['published']),
-    published: new Set(['archived']),
-    archived: new Set(['published']),
-  }
-  const courseReference = db.doc(`courses/${targetCourseId}`)
-  let nextRevision = 0
-  await db.runTransaction(async (transaction) => {
-    const [courseSnapshot, quizKeySnapshot] = await Promise.all([
-      transaction.get(courseReference),
-      transaction.get(courseReference.collection('quizKeys')),
-    ])
-    if (!courseSnapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy khóa học.')
-    const current = courseSnapshot.data()
-    const currentStatus = current.status ?? 'draft'
-    const currentRevision = Number(current.revision) || 0
-    if (currentRevision !== expectedRevision) {
-      throw new HttpsError(
-        'aborted',
-        'Khóa học đã thay đổi ở một phiên khác. Hãy tải lại trước khi duyệt hoặc xuất bản.',
-        { expectedRevision, currentRevision },
-      )
-    }
-    if (!allowedTransitions[currentStatus]?.has(nextStatus)) {
-      throw new HttpsError('failed-precondition', `Không thể chuyển khóa học từ ${currentStatus} sang ${nextStatus}.`)
-    }
-
-    const quizDocuments = new Map(quizKeySnapshot.docs.map((item) => [item.id, immutableQuizRevisionSnapshot(item)]))
-    if (nextStatus === 'approved' || nextStatus === 'published' || nextStatus === 'scheduled') {
-      assertCourseReadyToPublish(current, quizDocuments)
-    }
-    nextRevision = currentRevision + 1
-    const revisionCourse = immutableCourseRevisionSnapshot(current, nextStatus, nextRevision)
-    const revisionQuizKeys = Object.fromEntries(quizDocuments)
-    const revisionPayload = JSON.stringify({ course: revisionCourse, quizKeys: revisionQuizKeys })
-    if (Buffer.byteLength(revisionPayload, 'utf8') > 750 * 1024) {
-      throw new HttpsError('resource-exhausted', 'Khóa học đã vượt giới hạn an toàn của một phiên bản.')
-    }
-    const lifecycleFields = nextStatus === 'approved'
-      ? { approvedAt: FieldValue.serverTimestamp(), approvedBy: actor.actorId }
-      : nextStatus === 'published'
-        ? {
-            firstPublishedAt: current.firstPublishedAt ?? current.publishedAt ?? FieldValue.serverTimestamp(),
-            publishedAt: FieldValue.serverTimestamp(),
-            publishedBy: actor.actorId,
-            archivedAt: FieldValue.delete(),
-            archivedBy: FieldValue.delete(),
-          }
-        : nextStatus === 'archived'
-          ? { archivedAt: FieldValue.serverTimestamp(), archivedBy: actor.actorId }
-          : {}
-
-    transaction.update(courseReference, {
-      status: nextStatus,
-      revision: nextRevision,
-      updatedAt: FieldValue.serverTimestamp(),
-      updatedBy: actor.actorId,
-      revisionUpdatedAt: FieldValue.serverTimestamp(),
-      revisionUpdatedBy: actor.actorId,
-      ...lifecycleFields,
-    })
-    transaction.create(db.doc(`courseRevisions/${targetCourseId}_${String(nextRevision).padStart(6, '0')}`), {
-      courseId: targetCourseId,
-      revision: nextRevision,
-      transition: { from: currentStatus, to: nextStatus },
-      contentHash: createHash('sha256').update(revisionPayload).digest('hex'),
-      course: revisionCourse,
-      quizKeys: revisionQuizKeys,
-      createdBy: actor.actorId,
-      createdAt: FieldValue.serverTimestamp(),
-    })
-    transaction.set(db.collection('auditLogs').doc(), {
-      action: 'course.status.changed',
-      actorUid: actor.actorId,
-      targetId: targetCourseId,
-      previousStatus: currentStatus,
-      status: nextStatus,
-      revision: nextRevision,
-      createdAt: FieldValue.serverTimestamp(),
-    })
-  })
-  return { courseId: targetCourseId, revision: nextRevision, status: nextStatus }
+  return academyAuthoring.transition(request)
 })
 
 function academyDiffValue(value) {
@@ -3413,7 +3218,7 @@ function buildCourseRevisionDiff(fromCourse, toCourse) {
         addChange(`modules.${moduleId}.lessons.${lessonId}`, `Bài học · ${lessonLabel}`, beforeLesson ? 'Có' : 'Không', afterLesson ? 'Có' : 'Không')
         continue
       }
-      for (const field of ['title', 'type', 'duration', 'preview', 'summary', 'resources', 'tags', 'coachNotes', 'memory', 'quiz', 'primaryContent', 'completionPolicy']) {
+      for (const field of ['title', 'type', 'duration', 'preview', 'summary', 'resources', 'tags', 'coachNotes', 'memory', 'learningDesign', 'quiz', 'primaryContent', 'completionPolicy']) {
         addChange(`modules.${moduleId}.lessons.${lessonId}.${field}`, `Bài “${lessonLabel}” · ${field}`, beforeLesson[field], afterLesson[field])
       }
     }
@@ -3439,6 +3244,7 @@ exports.getCourseRevisionHistory = onCall({ invoker: 'public' }, async (request)
     .where('courseId', '==', targetCourseId)
     .orderBy('revision', 'desc')
     .limit(50)
+    .select('revision', 'contentHash', 'createdBy', 'createdAt', 'course.status', 'course.title', 'restoredFromRevision')
     .get()
   return { revisions: snapshot.docs.map((item) => ({
     id: item.id,
@@ -3456,75 +3262,12 @@ exports.getCourseRevisionHistory = onCall({ invoker: 'public' }, async (request)
 
 /** Returns a bounded, answer-key-free field diff between two immutable revisions. */
 exports.getCourseRevisionDiff = onCall({ invoker: 'public' }, async (request) => {
-  await requireTrustedAcademyStaffContext(request)
-  const targetCourseId = courseId(request.data?.courseId, 'Mã khóa học')
-  const fromRevision = Number(request.data?.fromRevision)
-  const toRevision = Number(request.data?.toRevision)
-  if (!Number.isInteger(fromRevision) || fromRevision < 1
-      || !Number.isInteger(toRevision) || toRevision < 1
-      || fromRevision === toRevision) {
-    throw new HttpsError('invalid-argument', 'Cần chọn hai phiên bản khác nhau để so sánh.')
-  }
-  const revisionReference = (revision) => db.doc(
-    `courseRevisions/${targetCourseId}_${String(revision).padStart(6, '0')}`,
-  )
-  const [fromSnapshot, toSnapshot] = await Promise.all([
-    revisionReference(fromRevision).get(),
-    revisionReference(toRevision).get(),
-  ])
-  if (!fromSnapshot.exists || !toSnapshot.exists
-      || fromSnapshot.data().courseId !== targetCourseId
-      || toSnapshot.data().courseId !== targetCourseId) {
-    throw new HttpsError('not-found', 'Không tìm thấy một trong hai phiên bản cần so sánh.')
-  }
-  const fromCourse = fromSnapshot.data().course
-  const toCourse = toSnapshot.data().course
-  if (!isPlainObject(fromCourse) || !isPlainObject(toCourse)) {
-    throw new HttpsError('failed-precondition', 'Dữ liệu phiên bản khóa học không hợp lệ.')
-  }
-  return {
-    courseId: targetCourseId,
-    fromRevision,
-    toRevision,
-    ...buildCourseRevisionDiff(fromCourse, toCourse),
-  }
+  return academyAuthoring.diff(request)
 })
 
 /** Restores an immutable revision as a new draft; published history is never edited. */
 exports.restoreCourseRevisionToDraft = onCall({ invoker: 'public' }, async (request) => {
-  const actor = await requireTrustedAcademyStaffContext(request)
-  if (actor.role === 'editor') throw new HttpsError('permission-denied', 'Biên tập viên không có quyền khôi phục phiên bản.')
-  const targetCourseId = courseId(request.data?.courseId, 'Mã khóa học')
-  const sourceRevision = Number(request.data?.revision)
-  const expectedRevision = Number(request.data?.expectedRevision)
-  if (!Number.isInteger(sourceRevision) || sourceRevision < 1 || !Number.isInteger(expectedRevision) || expectedRevision < 0) {
-    throw new HttpsError('invalid-argument', 'Phiên bản khôi phục không hợp lệ.')
-  }
-  const courseReference = db.doc(`courses/${targetCourseId}`)
-  const revisionReference = db.doc(`courseRevisions/${targetCourseId}_${String(sourceRevision).padStart(6, '0')}`)
-  let nextRevision = 0
-  await db.runTransaction(async (transaction) => {
-    const [current, source, currentQuizKeys] = await Promise.all([
-      transaction.get(courseReference), transaction.get(revisionReference), transaction.get(courseReference.collection('quizKeys')),
-    ])
-    if (!current.exists || !source.exists) throw new HttpsError('not-found', 'Không tìm thấy khóa học hoặc phiên bản cần khôi phục.')
-    const currentRevision = Number(current.data().revision || 0)
-    if (currentRevision !== expectedRevision) throw new HttpsError('aborted', 'Khóa học đã thay đổi. Hãy tải lại trước khi khôi phục.')
-    const sourceCourse = source.data().course
-    const sourceQuizKeys = isPlainObject(source.data().quizKeys) ? source.data().quizKeys : {}
-    if (!isPlainObject(sourceCourse) || source.data().courseId !== targetCourseId) {
-      throw new HttpsError('failed-precondition', 'Nội dung phiên bản lưu trữ không hợp lệ.')
-    }
-    nextRevision = currentRevision + 1
-    const draftCourse = { ...sourceCourse, status: 'draft', revision: nextRevision }
-    transaction.set(courseReference, { ...draftCourse, createdAt: current.data().createdAt, createdBy: current.data().createdBy, updatedAt: FieldValue.serverTimestamp(), updatedBy: actor.actorId, revisionUpdatedAt: FieldValue.serverTimestamp(), revisionUpdatedBy: actor.actorId })
-    for (const item of currentQuizKeys.docs) transaction.delete(item.ref)
-    for (const [lessonId, quizKey] of Object.entries(sourceQuizKeys)) transaction.set(courseReference.collection('quizKeys').doc(lessonId), { ...quizKey, updatedAt: FieldValue.serverTimestamp(), updatedBy: actor.actorId })
-    const payload = JSON.stringify({ course: draftCourse, quizKeys: sourceQuizKeys })
-    transaction.create(db.doc(`courseRevisions/${targetCourseId}_${String(nextRevision).padStart(6, '0')}`), { courseId: targetCourseId, revision: nextRevision, restoredFromRevision: sourceRevision, contentHash: createHash('sha256').update(payload).digest('hex'), course: draftCourse, quizKeys: sourceQuizKeys, createdBy: actor.actorId, createdAt: FieldValue.serverTimestamp() })
-    transaction.set(db.collection('auditLogs').doc(), { action: 'course.revision.restored', actorUid: actor.actorId, targetId: targetCourseId, fromRevision: sourceRevision, revision: nextRevision, createdAt: FieldValue.serverTimestamp() })
-  })
-  return { courseId: targetCourseId, revision: nextRevision, status: 'draft', restoredFromRevision: sourceRevision }
+  return academyAuthoring.restore(request)
 })
 
 exports.recordCourseRevision = onCall(async (request) => {
@@ -3746,41 +3489,54 @@ function assertDripAccess(course, enrollment, moduleIndex, isStaff) {
   }
 }
 
-async function requireCourseLessonAccess({ request, userId, courseId, lessonId, allowPreview }) {
+async function requireCourseLessonAccess({ request, userId, courseId, lessonId, allowPreview, read = (reference) => reference.get(), requireExpectedVersion = false, allowAuthoringPreview = false }) {
+  const authoringPreview = request.data?.authoringPreview === true
+  if (authoringPreview && !allowAuthoringPreview) throw new HttpsError('permission-denied', 'Bản nháp chỉ dành cho xem trước, không dùng để ghi nhận học tập.')
   const userReference = db.doc(`users/${userId}`)
   const courseReference = db.doc(`courses/${courseId}`)
   const enrollmentReference = db.doc(`enrollments/${userId}_${courseId}`)
   const [userSnapshot, courseSnapshot, enrollmentSnapshot] = await Promise.all([
-    userReference.get(),
-    courseReference.get(),
-    enrollmentReference.get(),
+    read(userReference),
+    read(courseReference),
+    authoringPreview ? Promise.resolve({ exists: false, data: () => undefined }) : read(enrollmentReference),
   ])
 
   if (!userSnapshot.exists) {
     throw new HttpsError('failed-precondition', 'Hồ sơ người dùng chưa sẵn sàng.')
   }
-  if (!courseSnapshot.exists || courseSnapshot.data().status !== 'published') {
+  const profile = userSnapshot.data()
+  const isStaff = hasTrustedRole(request, profile, academyStaffRoles)
+  if (authoringPreview && !isStaff) throw new HttpsError('permission-denied', 'Bạn không có quyền xem trước bản nháp.')
+  const course = courseSnapshot.exists ? (authoringPreview ? courseSnapshot.data() : academyCourseStorage.publishedCourse(courseSnapshot.data())) : null
+  if (!course) {
     throw new HttpsError('not-found', 'Khóa học chưa được xuất bản hoặc không tồn tại.')
   }
 
-  const profile = userSnapshot.data()
-  const course = courseSnapshot.data()
   const enrollment = enrollmentSnapshot.data()
-  const isStaff = hasTrustedRole(request, profile, academyStaffRoles)
   const selected = findCourseLesson(course, lessonId)
   if (!isStaff && course.schemaVersion !== 2) {
     throw new HttpsError('failed-precondition', 'Khóa học cần được quản trị viên nâng cấp lên dữ liệu V2.')
   }
-  const isPreview = allowPreview === true
-    && selected.lesson.preview === true
-    && course.settings?.visibility === 'members'
-
   if (profile.disabled === true) {
     throw new HttpsError('permission-denied', 'Tài khoản này đang bị tạm khóa.')
   }
   if (!hasValidCourseAccessSettings(course)) {
     throw new HttpsError('failed-precondition', 'Thiết lập quyền truy cập của khóa học không hợp lệ.')
   }
+
+  let canReadFullModule = isStaff
+  if (!isStaff && ['active', 'completed'].includes(enrollment?.status)
+      && enrollment?.userId === userId && enrollment?.courseId === courseId
+      && hasCourseEntitlement(course, profile, false)) {
+    try {
+      assertDripAccess(course, enrollment, selected.moduleIndex, false)
+      canReadFullModule = true
+    } catch (error) {
+      if (error.code !== 'failed-precondition') throw error
+    }
+  }
+  const isPreview = !canReadFullModule && allowPreview === true
+    && selected.lesson.preview === true && course.settings?.visibility === 'members'
 
   if (!isStaff && !isPreview) {
     if (!enrollmentSnapshot.exists || !['active', 'completed'].includes(enrollment?.status)) {
@@ -3795,12 +3551,25 @@ async function requireCourseLessonAccess({ request, userId, courseId, lessonId, 
     assertDripAccess(course, enrollment, selected.moduleIndex, false)
   }
 
+  const moduleId = course.modules[selected.moduleIndex].id
+  if (authoringPreview && (!Number.isSafeInteger(request.data?.courseRevision) || request.data.courseRevision !== (Number(course.revision) || 0))) {
+    throw new HttpsError('aborted', 'Bản nháp đã thay đổi. Hãy tải lại chương để xem đúng phiên bản.')
+  }
+  if (requireExpectedVersion && course.contentStorage !== 'chapters-v1' && request.data?.courseRevision !== undefined
+      && (!Number.isSafeInteger(request.data.courseRevision) || request.data.courseRevision !== (Number(course.revision) || 0))) {
+    throw new HttpsError('aborted', 'Khóa học đã thay đổi. Hãy tải lại danh mục để mở đúng phiên bản chương.')
+  }
+  if (requireExpectedVersion) academyCourseStorage.requireVersion(course, moduleId, request.data?.chapterVersion)
+  const loaded = await academyCourseStorage.load({ courseId, course, moduleIds: [moduleId], read })
   return {
-    course,
+    course: loaded.course,
     courseReference,
-    lesson: selected.lesson,
+    lesson: findCourseLesson(loaded.course, lessonId).lesson,
     moduleIndex: selected.moduleIndex,
+    chapterVersion: course.contentStorage === 'chapters-v1' ? course.chapterRefs[moduleId].versionId : null,
+    quizKeys: course.contentStorage === 'chapters-v1' ? loaded.quizKeys : null,
     isPreview,
+    isAuthoringPreview: authoringPreview,
     isStaff,
   }
 }
@@ -3861,6 +3630,8 @@ function normalizeQuizQuestions(lesson) {
     passPercent,
     maxAttempts: rawMaxAttempts && rawMaxAttempts > 0 ? rawMaxAttempts : null,
     questionsPerAttempt: rawQuestionsPerAttempt ?? questions.length,
+    questionOrder: quiz.questionOrder === 'shuffle' ? 'shuffle' : 'sequential',
+    revealMode: ['never', 'after-pass', 'after-submit'].includes(quiz.publicSettings?.revealMode) ? quiz.publicSettings.revealMode : 'after-submit',
     questions,
     legacyQuestions: quiz.questions,
   }
@@ -3874,8 +3645,9 @@ function stableQuizOrderScore(value) {
 
 function quizQuestionsForAttempt(quiz, userId, lessonId) {
   const items = [...quiz.questions]
-  if (quiz.questionsPerAttempt >= items.length) return items
-  items.sort((left, right) => stableQuizOrderScore(`${userId}:${lessonId}:${left.id}`) - stableQuizOrderScore(`${userId}:${lessonId}:${right.id}`))
+  if (quiz.questionsPerAttempt < items.length || quiz.questionOrder === 'shuffle') {
+    items.sort((left, right) => stableQuizOrderScore(`${userId}:${lessonId}:${left.id}`) - stableQuizOrderScore(`${userId}:${lessonId}:${right.id}`) || (left.id < right.id ? -1 : left.id > right.id ? 1 : 0))
+  }
   const required = items.filter((question) => question.mustPass === true)
   const optional = items.filter((question) => question.mustPass !== true)
   return [...required, ...optional.slice(0, Math.max(0, quiz.questionsPerAttempt - required.length))]
@@ -3883,13 +3655,17 @@ function quizQuestionsForAttempt(quiz, userId, lessonId) {
 
 function buildQuizContentHash(quiz, answers) {
   const canonicalQuiz = {
+    gradingPolicyVersion: 3,
     quizId: quiz.id,
     passPercent: quiz.passPercent,
+    questionsPerAttempt: quiz.questionsPerAttempt,
+    questionOrder: quiz.questionOrder,
     questions: quiz.questions.map((question) => ({
       id: question.id,
       question: question.question,
       options: question.options,
       correctIndex: answers[question.id],
+      mustPass: question.mustPass === true,
     })),
   }
   return createHash('sha256').update(JSON.stringify(canonicalQuiz)).digest('hex')
@@ -4027,6 +3803,7 @@ function academyModulesForLearner(modules, mode, maxFullModuleIndex = Number.POS
   if (!Array.isArray(modules)) return []
   return modules.flatMap((module, moduleIndex) => {
     if (!isPlainObject(module) || !Array.isArray(module.lessons)) return []
+    const version = typeof module.contentVersion === 'string' ? module.contentVersion : null
     const lessons = module.lessons
       .map((lesson) => {
         if (!isPlainObject(lesson)) return lesson
@@ -4039,6 +3816,7 @@ function academyModulesForLearner(modules, mode, maxFullModuleIndex = Number.POS
             type: lesson.type,
             duration: lesson.duration,
             preview: lesson.preview === true,
+            ...(version ? { contentVersion: version } : {}),
           }
         }
         const { coachNotes: _instructorNotes, workoutRef: _legacyWorkout, provenance: _importProvenance, ...safeLesson } = lesson
@@ -4061,9 +3839,10 @@ function academyModulesForLearner(modules, mode, maxFullModuleIndex = Number.POS
             }),
           }
         }
-        return safeLesson
+        return { ...safeLesson, ...(version ? { contentVersion: version } : {}) }
       })
-    return lessons.length ? [{ id: module.id, title: module.title, description: module.description ?? '', lessons }] : []
+    return lessons.length ? [{ id: module.id, title: module.title, order: moduleIndex + 1,
+      description: module.description ?? '', lessons, ...(version ? { contentVersion: version } : {}) }] : []
   })
 }
 
@@ -4072,70 +3851,143 @@ function academyModulesForLearner(modules, mode, maxFullModuleIndex = Number.POS
 // Fractional CPU requires concurrency 1. Keep zero reserved instances and a
 // bounded scale-out without changing entitlement or grading handlers.
 const academyLearnerRuntime = { cpu: 'gcf_gen1', memory: '256MiB', concurrency: 1, minInstances: 0, maxInstances: 2, timeoutSeconds: 60 }
+exports.academySubmissionAction = onCall(
+  { ...academyLearnerRuntime, region: 'asia-east1', invoker: 'public' },
+  createAcademySubmissionHandler({ db, HttpsError, FieldValue, requireCaller, requireDocumentId,
+    hasTrustedRole, hasCourseEntitlement, hasValidCourseAccessSettings, assertDripAccess, courseStorage: academyCourseStorage }),
+)
 exports.listAcademyCourses = onCall(academyLearnerRuntime, async (request) => {
   const userId = requireCaller(request)
-  const [profileSnapshot, courseSnapshot, enrollmentSnapshot] = await Promise.all([
-    db.doc(`users/${userId}`).get(),
-    db.collection('courses').where('status', '==', 'published').get(),
-    db.collection('enrollments').where('userId', '==', userId).get(),
-  ])
-  const profile = profileSnapshot.exists
-    ? profileSnapshot.data()
-    : { role: 'student', disabled: false, membership: 'free' }
-  if (profile.disabled === true) {
-    throw new HttpsError('permission-denied', 'Tài khoản không sẵn sàng để truy cập Aura Academy.')
+  if (request.data?.adoptionCandidate !== undefined) return academyDraftAdoption.readCandidate(request)
+  if (request.data?.authoringCourseId !== undefined) return academyAuthoring.readForEditor(request)
+  if (request.data?.learningUnitDraft !== undefined) {
+    return require('./academy-learning-drafts').readAcademyLearningDraft({
+      request, HttpsError, requireStaff: requireTrustedAcademyStaffContext,
+      loadDraft: (chapter) => require('./generated/academy-learning-drafts.cjs').getAcademyLearningDraft(chapter),
+    })
   }
-  const isStaff = hasTrustedRole(request, profile, academyStaffRoles)
-  const enrollmentByCourseId = new Map(enrollmentSnapshot.docs.flatMap((item) => {
-    const enrollment = item.data()
-    return typeof enrollment.courseId === 'string' && enrollment.userId === userId
-      ? [[enrollment.courseId, enrollment]]
-      : []
-  }))
-  const courses = courseSnapshot.docs.filter((item) => item.data().schemaVersion === 2).flatMap((item) => {
-    const course = item.data()
-    const enrollment = enrollmentByCourseId.get(item.id)
-    const hasEnrollment = enrollment?.status === 'active' || enrollment?.status === 'completed'
-    if (!isStaff && course.settings?.visibility === 'private' && !hasEnrollment) return []
-    const hasMembershipAccess = hasCourseEntitlement(course, profile, isStaff)
-    const hasFullAccess = isStaff || (hasEnrollment && hasMembershipAccess)
-    const contentMode = hasFullAccess
-      ? 'full'
-      : course.settings?.visibility === 'members'
-        ? 'preview'
-        : 'locked'
-    const enrolledAtMillis = typeof enrollment?.enrolledAt?.toMillis === 'function'
-      ? enrollment.enrolledAt.toMillis()
-      : Number.NaN
-    const maxFullModuleIndex = !isStaff && hasFullAccess && course.settings?.dripSchedule === 'weekly'
-      ? Number.isFinite(enrolledAtMillis)
-        ? Math.max(0, Math.floor((Date.now() - enrolledAtMillis) / (7 * 24 * 60 * 60 * 1000)))
-        : 0
-      : Number.POSITIVE_INFINITY
-    return [{
-      id: item.id,
-      schemaVersion: 2,
-      title: typeof course.title === 'string' ? course.title : 'Khóa học Aura Academy',
-      coverUrl: typeof course.coverUrl === 'string' ? course.coverUrl : null,
-      slug: typeof course.slug === 'string' ? course.slug : item.id,
-      description: typeof course.description === 'string' ? course.description : '',
-      category: typeof course.category === 'string' ? course.category : 'Dinh dưỡng chuyên sâu',
-      level: typeof course.level === 'string' ? course.level : 'Mọi cấp độ',
-      duration: typeof course.duration === 'string' ? course.duration : 'Tự học',
-      coach: typeof course.coach === 'string' ? course.coach : 'Aura Academy',
-      outcomes: Array.isArray(course.outcomes) ? course.outcomes : [],
-      requirements: Array.isArray(course.requirements) ? course.requirements : [],
-      settings: course.settings,
-      lessons: Number.isInteger(course.lessons) ? course.lessons : 0,
-      accent: typeof course.accent === 'string' ? course.accent : 'purple',
-      icon: typeof course.icon === 'string' ? course.icon : 'nutrition',
-      status: 'published',
-      modules: academyModulesForLearner(course.modules, contentMode, maxFullModuleIndex),
-      contentAccess: contentMode,
-      updatedAt: course.updatedAt ?? null,
-    }]
+  if (request.data?.template !== undefined) {
+    if (request.data.template !== 'nutrition-foundation') throw new HttpsError('invalid-argument', 'Mẫu khóa học không hợp lệ.')
+    await requireTrustedAcademyStaffContext(request)
+    // Lazy server-only authoring artifact: never include checkpoint keys in web bundles.
+    return { template: require('./generated/academy-course-template.cjs').auraFoundationCourse }
+  }
+  if (request.data?.chapter !== undefined) {
+    if (request.data.chapter !== true) throw new HttpsError('invalid-argument', 'Yêu cầu tải chương không hợp lệ.')
+    const targetCourseId = requireDocumentId(request.data?.courseId, 'Mã khóa học')
+    const lessonId = requireDocumentId(request.data?.lessonId, 'Mã bài học')
+    // Read one coherent authorization/content snapshot. This does not cache
+    // entitlement and never returns the private chapter document itself.
+    return db.runTransaction(async (transaction) => {
+      const access = await requireCourseLessonAccess({ request, userId, courseId: targetCourseId, lessonId,
+        allowPreview: true, requireExpectedVersion: true, read: (reference) => transaction.get(reference) })
+      const selectedModule = { ...access.course.modules[access.moduleIndex],
+        ...(access.chapterVersion ? { contentVersion: access.chapterVersion } : {}) }
+      const [module] = academyModulesForLearner([selectedModule], access.isPreview ? 'preview' : 'full')
+      return { courseId: targetCourseId, courseRevision: Number(access.course.revision) || 0,
+        contentAccess: access.isPreview ? 'preview' : 'full', chapterVersion: access.chapterVersion, module: { ...module, order: access.moduleIndex + 1,
+          ...(access.chapterVersion ? { contentVersion: access.chapterVersion } : {}) } }
+    })
+  }
+  if (request.data?.authoringChapter !== undefined) {
+    if (request.data.authoringChapter !== true) throw new HttpsError('invalid-argument', 'Yêu cầu xem trước chương không hợp lệ.')
+    const courseId = requireDocumentId(request.data?.courseId, 'Mã khóa học')
+    const lessonId = requireDocumentId(request.data?.lessonId, 'Mã bài học')
+    return db.runTransaction(async (transaction) => {
+      await requireTrustedAcademyStaffContext(request, (ref) => transaction.get(ref))
+      const snapshot = await transaction.get(db.doc(`courses/${courseId}`))
+      if (!snapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy bản biên tập khóa học.')
+      const course = snapshot.data()
+      if (!Number.isSafeInteger(request.data.courseRevision) || request.data.courseRevision !== (Number(course.revision) || 0)) {
+        throw new HttpsError('aborted', 'Bản biên tập đã thay đổi. Hãy mở lại danh mục khóa học.')
+      }
+      const { moduleIndex } = findCourseLesson(course, lessonId)
+      const moduleId = course.modules[moduleIndex].id
+      academyCourseStorage.requireVersion(course, moduleId, request.data.chapterVersion)
+      const loaded = await academyCourseStorage.load({ courseId, course, moduleIds: [moduleId], read: (ref) => transaction.get(ref) })
+      const chapterVersion = course.contentStorage === 'chapters-v1' ? course.chapterRefs[moduleId].versionId : null
+      const [module] = academyModulesForLearner([{ ...loaded.course.modules[moduleIndex], ...(chapterVersion ? { contentVersion: chapterVersion } : {}) }], 'full')
+      return { courseId, courseRevision: Number(course.revision) || 0, chapterVersion, contentAccess: 'staff-preview',
+        module: { ...module, order: moduleIndex + 1 } }
+    })
+  }
+  return db.runTransaction(async (transaction) => {
+    const [profileSnapshot, courseSnapshot, enrollmentSnapshot] = await Promise.all([
+      transaction.get(db.doc(`users/${userId}`)),
+      transaction.get(db.collection('courses').where(Filter.or(Filter.where('status', '==', 'published'), Filter.where('publishedSnapshot.active', '==', true)))),
+      transaction.get(db.collection('enrollments').where('userId', '==', userId)),
+    ])
+    const profile = profileSnapshot.exists
+      ? profileSnapshot.data()
+      : { role: 'student', disabled: false, membership: 'free' }
+    if (!profileSnapshot.exists || profile.disabled === true) {
+      throw new HttpsError('permission-denied', 'Tài khoản không sẵn sàng để truy cập Aura Academy.')
+    }
+    const isStaff = hasTrustedRole(request, profile, academyStaffRoles)
+    const enrollmentByCourseId = new Map(enrollmentSnapshot.docs.flatMap((item) => {
+      const enrollment = item.data()
+      return typeof enrollment.courseId === 'string' && enrollment.userId === userId
+        ? [[enrollment.courseId, enrollment]]
+        : []
+    }))
+    const rows = await Promise.all(courseSnapshot.docs.map(async (item) => {
+      const course = academyCourseStorage.publishedCourse(item.data())
+      if (!course || course.schemaVersion !== 2 || !hasValidCourseAccessSettings(course)) return null
+      const enrollment = enrollmentByCourseId.get(item.id)
+      const hasEnrollment = enrollment?.status === 'active' || enrollment?.status === 'completed'
+      if (!isStaff && course.settings?.visibility === 'private' && !hasEnrollment) return null
+      const hasMembershipAccess = hasCourseEntitlement(course, profile, isStaff)
+      const hasFullAccess = isStaff || (hasEnrollment && hasMembershipAccess)
+      const contentMode = hasFullAccess
+        ? 'full'
+        : course.settings?.visibility === 'members'
+          ? 'preview'
+          : 'locked'
+      const enrolledAtMillis = typeof enrollment?.enrolledAt?.toMillis === 'function'
+        ? enrollment.enrolledAt.toMillis()
+        : Number.NaN
+      const maxFullModuleIndex = !isStaff && hasFullAccess && course.settings?.dripSchedule === 'weekly'
+        ? Number.isFinite(enrolledAtMillis)
+          ? Math.max(0, Math.floor((Date.now() - enrolledAtMillis) / (7 * 24 * 60 * 60 * 1000)))
+          : 0
+        : Number.POSITIVE_INFINITY
+      const catalogOnly = request.data?.catalogOnly === true
+      let delivery = course
+      if (!catalogOnly && course.contentStorage === 'chapters-v1') {
+        const moduleIds = course.modules.filter((module, index) => (contentMode === 'full' && index <= maxFullModuleIndex)
+          || (contentMode === 'preview' && module.lessons.some((lesson) => lesson.preview === true))).map((module) => module.id)
+        delivery = (await academyCourseStorage.load({ courseId: item.id, course, moduleIds, read: (ref) => transaction.get(ref) })).course
+      }
+      const deliveryModules = delivery.modules.map((module) => ({ ...module,
+        ...(course.contentStorage === 'chapters-v1' ? { contentVersion: course.chapterRefs[module.id].versionId } : {}) }))
+      return {
+        id: item.id,
+        schemaVersion: 2,
+        revision: Number(course.revision) || 0,
+        ...(course.contentStorage ? { contentStorage: course.contentStorage } : {}),
+        contentDelivery: catalogOnly ? 'catalog' : 'full',
+        title: typeof course.title === 'string' ? course.title : 'Khóa học Aura Academy',
+        coverUrl: typeof course.coverUrl === 'string' ? course.coverUrl : null,
+        slug: typeof course.slug === 'string' ? course.slug : item.id,
+        description: typeof course.description === 'string' ? course.description : '',
+        category: typeof course.category === 'string' ? course.category : 'Dinh dưỡng chuyên sâu',
+        level: typeof course.level === 'string' ? course.level : 'Mọi cấp độ',
+        duration: typeof course.duration === 'string' ? course.duration : 'Tự học',
+        coach: typeof course.coach === 'string' ? course.coach : 'Aura Academy',
+        outcomes: Array.isArray(course.outcomes) ? course.outcomes : [],
+        requirements: Array.isArray(course.requirements) ? course.requirements : [],
+        settings: course.settings,
+        lessons: Number.isInteger(course.lessons) ? course.lessons : 0,
+        accent: typeof course.accent === 'string' ? course.accent : 'purple',
+        icon: typeof course.icon === 'string' ? course.icon : 'nutrition',
+        status: 'published',
+        modules: academyModulesForLearner(deliveryModules, catalogOnly ? 'locked' : contentMode, maxFullModuleIndex),
+        contentAccess: contentMode,
+        updatedAt: course.updatedAt ?? item.data().publishedAt ?? null,
+      }
+    }))
+    return { courses: rows.filter(Boolean) }
   })
-  return { courses }
 })
 
 // Keep the legacy endpoint for existing app shells. The regional read uses
@@ -4171,24 +4023,27 @@ exports.manageAcademyEnrollment = onCall(async (request) => {
     throw error
   }
   const userId = authUser.uid
-  const [profileSnapshot, courseSnapshot] = await Promise.all([
-    db.doc(`users/${userId}`).get(),
-    db.doc(`courses/${courseId}`).get(),
-  ])
-  const profile = assertActiveStudentAccount(authUser, profileSnapshot)
-  if (!courseSnapshot.exists
-      || courseSnapshot.data().schemaVersion !== 2
-      || courseSnapshot.data().status !== 'published') {
-    throw new HttpsError('failed-precondition', 'Chỉ có thể gán khóa học V2 đã xuất bản.')
-  }
-  const course = courseSnapshot.data()
-  if (action === 'assign' && !hasCourseEntitlement(course, profile, false)) {
-    throw new HttpsError('failed-precondition', 'Gói thành viên của học viên chưa đủ quyền cho khóa học này.')
-  }
   const enrollmentReference = db.doc(`enrollments/${userId}_${courseId}`)
   await db.runTransaction(async (transaction) => {
-    const existingSnapshot = await transaction.get(enrollmentReference)
+    const [latestActor, profileSnapshot, courseSnapshot, existingSnapshot] = await Promise.all([
+      transaction.get(db.doc(`users/${actorId}`)), transaction.get(db.doc(`users/${userId}`)),
+      transaction.get(db.doc(`courses/${courseId}`)), transaction.get(enrollmentReference),
+    ])
+    if (!latestActor.exists || !hasTrustedRole(request, latestActor.data(), privilegedAdminRoles)) {
+      throw new HttpsError('permission-denied', 'Bạn không còn quyền quản lý ghi danh Aura Academy.')
+    }
+    const profile = assertActiveStudentAccount(authUser, profileSnapshot)
+    const course = courseSnapshot.exists ? academyCourseStorage.publishedCourse(courseSnapshot.data()) : null
+    if (!course || course.schemaVersion !== 2 || !hasValidCourseAccessSettings(course)) {
+      throw new HttpsError('failed-precondition', 'Chỉ có thể gán khóa học V2 đã xuất bản.')
+    }
+    if (action === 'assign' && !hasCourseEntitlement(course, profile, false)) {
+      throw new HttpsError('failed-precondition', 'Gói thành viên của học viên chưa đủ quyền cho khóa học này.')
+    }
     const existing = existingSnapshot.data() ?? {}
+    if (existingSnapshot.exists && (existing.userId !== userId || existing.courseId !== courseId)) {
+      throw new HttpsError('failed-precondition', 'Dữ liệu ghi danh không nhất quán.')
+    }
     transaction.set(enrollmentReference, {
       userId,
       courseId,
@@ -4216,12 +4071,12 @@ exports.enrollInCourse = onCall(academyLearnerRuntime, async (request) => {
       transaction.get(enrollmentReference),
     ])
     if (!userSnapshot.exists) throw new HttpsError('failed-precondition', 'Hồ sơ người dùng chưa sẵn sàng.')
-    if (!courseSnapshot.exists || courseSnapshot.data().status !== 'published') {
+    const course = courseSnapshot.exists ? academyCourseStorage.publishedCourse(courseSnapshot.data()) : null
+    if (!course) {
       throw new HttpsError('not-found', 'Khóa học chưa được xuất bản hoặc không tồn tại.')
     }
 
     const profile = userSnapshot.data()
-    const course = courseSnapshot.data()
     const isStaff = hasTrustedRole(request, profile, academyStaffRoles)
     const existingEnrollment = enrollmentSnapshot.data()
     if (!isStaff && course.schemaVersion !== 2) {
@@ -4285,12 +4140,12 @@ exports.completeCourseLesson = onCall(academyLearnerRuntime, async (request) => 
       transaction.get(progressReference),
     ])
     if (!userSnapshot.exists) throw new HttpsError('failed-precondition', 'Hồ sơ người dùng chưa sẵn sàng.')
-    if (!courseSnapshot.exists || courseSnapshot.data().status !== 'published') {
+    const course = courseSnapshot.exists ? academyCourseStorage.publishedCourse(courseSnapshot.data()) : null
+    if (!course) {
       throw new HttpsError('not-found', 'Khóa học chưa được xuất bản hoặc không tồn tại.')
     }
 
     const profile = userSnapshot.data()
-    const course = courseSnapshot.data()
     const enrollment = enrollmentSnapshot.data()
     const isStaff = hasTrustedRole(request, profile, academyStaffRoles)
     if (!isStaff && course.schemaVersion !== 2) {
@@ -4315,7 +4170,7 @@ exports.completeCourseLesson = onCall(academyLearnerRuntime, async (request) => 
       throw new HttpsError('permission-denied', 'Gói thành viên hiện tại không còn quyền truy cập khóa học.')
     }
 
-    const modules = Array.isArray(course.modules) ? course.modules : []
+    let modules = Array.isArray(course.modules) ? course.modules : []
     const lessonIds = modules.length
       ? modules.flatMap((module) => Array.isArray(module?.lessons)
         ? module.lessons.map((lesson) => lesson?.id).filter((id) => typeof id === 'string')
@@ -4329,7 +4184,7 @@ exports.completeCourseLesson = onCall(academyLearnerRuntime, async (request) => 
     }
     const selectedModuleIndex = modules.findIndex((module) => Array.isArray(module?.lessons)
       && module.lessons.some((lesson) => lesson?.id === lessonId))
-    const selectedLesson = modules[selectedModuleIndex]?.lessons?.find((lesson) => lesson?.id === lessonId)
+    let selectedLesson = modules[selectedModuleIndex]?.lessons?.find((lesson) => lesson?.id === lessonId)
     if (!isStaff && course.settings.dripSchedule === 'weekly' && selectedModuleIndex > 0) {
       const enrolledAtMillis = typeof enrollment.enrolledAt?.toMillis === 'function'
         ? enrollment.enrolledAt.toMillis()
@@ -4343,6 +4198,30 @@ exports.completeCourseLesson = onCall(academyLearnerRuntime, async (request) => 
       }
     }
 
+    const selectedModuleId = modules[selectedModuleIndex].id
+    academyCourseStorage.requireVersion(course, selectedModuleId, request.data?.chapterVersion)
+    const chapter = await academyCourseStorage.load({ courseId, course, moduleIds: [selectedModuleId], read: (ref) => transaction.get(ref) })
+    modules = chapter.course.modules
+    selectedLesson = modules[selectedModuleIndex].lessons.find((lesson) => lesson.id === lessonId)
+    const chapterVersion = course.contentStorage === 'chapters-v1' ? course.chapterRefs[selectedModuleId].versionId : null
+    const practiceDefinition = auraPracticeDefinition(modules[selectedModuleIndex], selectedLesson)
+    let practiceSubmission = null
+    let practiceSubmissionPlan = null
+    if (practiceDefinition) {
+      const workbookId = academyWorkbookDocumentId(courseId, practiceDefinition.coreLessonId || '')
+      const workbookSnapshot = await transaction.get(db.doc(`users/${userId}/academyWorkbooks/${workbookId}`))
+      practiceSubmission = validateAcademyPracticeSubmission({
+        courseId, definition: practiceDefinition, workbookDocument: workbookSnapshot.data(), evidence: request.data?.practiceEvidence,
+      })
+      if (!practiceSubmission.ok) throw new HttpsError('failed-precondition', practiceSubmission.message)
+      practiceSubmissionPlan = await prepareAcademySubmission({
+        db, transaction, HttpsError, userId, courseId, lessonId,
+        artifactId: practiceSubmission.coreLessonId, kind: 'practice',
+        title: practiceSubmission.definitionSnapshot.title || selectedLesson.title || lessonId,
+        validated: practiceSubmission,
+      })
+    }
+
     const completionMode = selectedLesson?.completionPolicy?.mode
       ?? (selectedLesson?.type === 'Quiz'
         ? 'quiz-pass'
@@ -4351,15 +4230,16 @@ exports.completeCourseLesson = onCall(academyLearnerRuntime, async (request) => 
           : 'manual')
     if (!isStaff && completionMode === 'quiz-pass') {
       const quiz = normalizeQuizQuestions(selectedLesson)
-      const keyReference = courseReference.collection('quizKeys').doc(lessonId)
       const proofReference = db.doc(`users/${userId}/courseLessonProofs/${courseLessonScopedId(courseId, lessonId)}`)
-      const [keySnapshot, proofSnapshot] = await Promise.all([
-        transaction.get(keyReference),
-        transaction.get(proofReference),
-      ])
-      const answerKey = keySnapshot.exists
-        ? normalizeQuizAnswerKey(keySnapshot.data(), quiz)
-        : legacyQuizAnswerKey(quiz)
+      const proofSnapshot = await transaction.get(proofReference)
+      let answerKey
+      if (chapterVersion) {
+        if (!chapter.quizKeys[lessonId]) throw new HttpsError('failed-precondition', 'Phiên bản chương chưa có kho đáp án hợp lệ.')
+        answerKey = normalizeQuizAnswerKey(chapter.quizKeys[lessonId], quiz)
+      } else {
+        const keySnapshot = await transaction.get(courseReference.collection('quizKeys').doc(lessonId))
+        answerKey = keySnapshot.exists ? normalizeQuizAnswerKey(keySnapshot.data(), quiz) : legacyQuizAnswerKey(quiz)
+      }
       const contentHash = buildQuizContentHash(quiz, answerKey)
       const proof = proofSnapshot.data()
       if (!proofSnapshot.exists
@@ -4367,7 +4247,8 @@ exports.completeCourseLesson = onCall(academyLearnerRuntime, async (request) => 
           || proof?.courseId !== courseId
           || proof?.lessonId !== lessonId
           || proof?.quizId !== quiz.id
-          || proof?.contentHash !== contentHash) {
+          || proof?.contentHash !== contentHash
+          || (chapterVersion && proof?.chapterVersion !== chapterVersion)) {
         throw new HttpsError('failed-precondition', 'Bạn cần đạt quiz trước khi hoàn thành bài học.')
       }
     } else if (!isStaff && completionMode === 'workout-complete') {
@@ -4375,6 +4256,9 @@ exports.completeCourseLesson = onCall(academyLearnerRuntime, async (request) => 
       const workoutLogSnapshot = await transaction.get(db.doc(`users/${userId}/workoutLogs/${workoutLogId}`))
       const workoutLog = workoutLogSnapshot.data()
       const workoutRef = selectedLesson?.workoutRef
+      // The request is bound to the displayed chapter, but existing evidence is
+      // bound to the immutable workout reference. A storage/text-only chapter
+      // revision must not invalidate an unchanged program/session/version.
       if (!workoutLogSnapshot.exists
           || !isPlainObject(workoutRef)
           || workoutLog?.verificationVersion !== 2
@@ -4415,6 +4299,42 @@ exports.completeCourseLesson = onCall(academyLearnerRuntime, async (request) => 
     }
     if (progressWasReconciled) progressWrite.reconciledAt = FieldValue.serverTimestamp()
 
+    // Keep historical completion IDs, but only claim the current checkpoint
+    // after validating its exact server-side proof and opaque chapter version.
+    if (!isStaff && completionMode === 'quiz-pass' && chapterVersion) {
+      progressWrite.quizCompletionChapterVersions = {
+        ...(isPlainObject(existingProgress.quizCompletionChapterVersions) ? existingProgress.quizCompletionChapterVersions : {}),
+        [lessonId]: chapterVersion,
+      }
+    }
+
+    if (practiceSubmission) {
+      progressWrite.practiceSubmissionRevisions = {
+        ...(isPlainObject(existingProgress.practiceSubmissionRevisions) ? existingProgress.practiceSubmissionRevisions : {}),
+        [lessonId]: practiceSubmission.workbookRevision,
+      }
+      progressWrite.practiceSubmissionDefinitionVersions = {
+        ...(isPlainObject(existingProgress.practiceSubmissionDefinitionVersions) ? existingProgress.practiceSubmissionDefinitionVersions : {}),
+        [lessonId]: practiceSubmission.definitionVersion,
+      }
+      progressWrite.practiceSubmissionDefinitionHashes = {
+        ...(isPlainObject(existingProgress.practiceSubmissionDefinitionHashes) ? existingProgress.practiceSubmissionDefinitionHashes : {}),
+        [lessonId]: practiceSubmission.definitionSnapshot.identityHash || '',
+      }
+      writeAcademySubmission(transaction, practiceSubmissionPlan, FieldValue)
+      if (!practiceSubmissionPlan.duplicate) transaction.set(db.doc(`users/${userId}/courseLessonProofs/${courseLessonScopedId(courseId, lessonId)}`), {
+        kind: 'practice-submission', courseId, lessonId,
+        workbookLessonId: practiceSubmission.coreLessonId,
+        workbookRevision: practiceSubmission.workbookRevision,
+        definitionVersion: practiceSubmission.definitionVersion,
+        definitionHash: practiceSubmission.definitionHash,
+        contentHash: practiceSubmission.contentHash,
+        submissionId: practiceSubmissionPlan.submissionId,
+        // Submission completeness is intentionally separate from coach review.
+        reviewStatus: 'not-reviewed', verifiedAt: FieldValue.serverTimestamp(),
+      })
+    }
+
     transaction.set(progressReference, progressWrite, { merge: true })
     if (courseCompleted && enrollment.status !== 'completed') {
       transaction.update(enrollmentReference, {
@@ -4428,7 +4348,13 @@ exports.completeCourseLesson = onCall(academyLearnerRuntime, async (request) => 
       })
     }
 
-    return { userId, courseId, completedLessonIds, percent, lastLessonId: lessonId }
+    return { userId, courseId, completedLessonIds, percent, lastLessonId: lessonId,
+      quizCompletionChapterVersions: progressWrite.quizCompletionChapterVersions ?? existingProgress.quizCompletionChapterVersions ?? {},
+      ...(practiceSubmission ? { practiceSubmissionRevisions: progressWrite.practiceSubmissionRevisions,
+        practiceSubmissionDefinitionVersions: progressWrite.practiceSubmissionDefinitionVersions,
+        practiceSubmissionDefinitionHashes: progressWrite.practiceSubmissionDefinitionHashes,
+        practiceSubmissionId: practiceSubmissionPlan.submissionId } : {}),
+    }
   })
 })
 
@@ -4451,69 +4377,85 @@ exports.gradeCourseQuiz = onCall({ ...academyLearnerRuntime, invoker: 'public' }
   const userId = requireCaller(request)
   const courseId = requireDocumentId(request.data?.courseId, 'Mã khóa học')
   const lessonId = requireDocumentId(request.data?.lessonId, 'Mã bài học')
-  const access = await requireCourseLessonAccess({
-    request,
-    userId,
-    courseId,
-    lessonId,
-    allowPreview: false,
-  })
-  const quiz = normalizeQuizQuestions(access.lesson)
-  const attemptQuestions = quizQuestionsForAttempt(quiz, userId, lessonId)
-  const answers = normalizeSubmittedAnswers(request.data?.answers, attemptQuestions)
-  const keySnapshot = await access.courseReference.collection('quizKeys').doc(lessonId).get()
-  const answerKey = keySnapshot.exists
-    ? normalizeQuizAnswerKey(keySnapshot.data(), quiz)
-    : legacyQuizAnswerKey(quiz)
-  const contentHash = buildQuizContentHash(quiz, answerKey)
-
-  const correctAnswers = answers.reduce(
-    (total, answer) => total + (answerKey[answer.questionId] === answer.optionIndex ? 1 : 0),
-    0,
-  )
-  const totalQuestions = attemptQuestions.length
-  const scorePercent = Math.round((correctAnswers / totalQuestions) * 100)
-  const answerByQuestionId = new Map(answers.map((answer) => [answer.questionId, answer.optionIndex]))
-  const mustPassQuestionIds = attemptQuestions.filter((question) => question.mustPass === true).map((question) => question.id)
-  const mustPassPassed = mustPassQuestionIds.every((questionId) => answerKey[questionId] === answerByQuestionId.get(questionId))
-  const review = answers.map((answer) => {
-    const question = attemptQuestions.find((candidate) => candidate.id === answer.questionId)
-    return {
-      questionId: answer.questionId,
-      correct: answerKey[answer.questionId] === answer.optionIndex,
-      explanation: typeof question?.explanation === 'string' ? question.explanation : '',
-      remediationCardIds: Array.isArray(question?.remediationCardIds) ? question.remediationCardIds.slice(0, 10) : [],
-    }
-  })
-  const passed = scorePercent >= quiz.passPercent && mustPassPassed
-  const attemptReference = db.collection(`users/${userId}/quizAttempts`).doc()
+  const requestId = request.data?.requestId
+  if (requestId !== undefined && (typeof requestId !== 'string' || !/^[A-Za-z0-9_-]{16,100}$/.test(requestId))) {
+    throw new HttpsError('invalid-argument', 'Mã lần nộp bài không hợp lệ.')
+  }
+  const attemptCollection = db.collection(`users/${userId}/quizAttempts`)
+  const attemptReference = requestId
+    ? attemptCollection.doc(createHash('sha256').update(`${courseId}\u0000${lessonId}\u0000${requestId}`).digest('hex'))
+    : attemptCollection.doc()
   const scopedLessonId = courseLessonScopedId(courseId, lessonId)
   const counterReference = db.doc(`users/${userId}/quizAttemptCounters/${scopedLessonId}`)
   const proofReference = db.doc(`users/${userId}/courseLessonProofs/${scopedLessonId}`)
-  const attemptData = {
-    courseId,
-    lessonId,
-    quizId: quiz.id,
-    answers,
-    correctAnswers,
-    totalQuestions,
-    scorePercent,
-    passPercent: quiz.passPercent,
-    passed,
-    mustPassPassed,
-    review,
-    feedbackCode: passed ? 'passed' : 'retry',
-    contentHash,
-    gradingVersion: 2,
-    createdAt: FieldValue.serverTimestamp(),
-  }
-  let attemptsRemaining = null
+  const resultFor = (attempt, attemptsRemaining) => ({
+    attemptId: attemptReference.id, courseId, lessonId, quizId: attempt.quizId,
+    scorePercent: attempt.scorePercent, correctAnswers: attempt.correctAnswers, totalQuestions: attempt.totalQuestions,
+    passed: attempt.passed, mustPassPassed: attempt.mustPassPassed, review: attempt.review, attemptsRemaining,
+    ...(attempt.chapterVersion ? { chapterVersion: attempt.chapterVersion } : {}),
+    feedback: attempt.passed
+      ? 'Bạn đã đạt yêu cầu của bài kiểm tra.'
+      : !attempt.mustPassPassed
+        ? 'Bạn cần trả lời đúng câu an toàn bắt buộc trước khi hoàn thành chương.'
+        : 'Bạn chưa đạt điểm yêu cầu. Hãy xem lại bài học và thử lại.',
+  })
 
-  await db.runTransaction(async (transaction) => {
+  return db.runTransaction(async (transaction) => {
+    // Re-read access, active publication and keys on EVERY transaction retry.
+    // A revoked enrollment or changed chapter cannot produce a stale proof.
+    const access = await requireCourseLessonAccess({ request, userId, courseId, lessonId, allowPreview: false,
+      requireExpectedVersion: true, read: (reference) => transaction.get(reference) })
+    const quiz = normalizeQuizQuestions(access.lesson)
+    const attemptQuestions = quizQuestionsForAttempt(quiz, userId, lessonId)
+    const answers = normalizeSubmittedAnswers(request.data?.answers, attemptQuestions)
+    let answerKey
+    if (access.quizKeys) {
+      if (!access.quizKeys[lessonId]) throw new HttpsError('failed-precondition', 'Phiên bản chương chưa có đáp án để chấm bài.')
+      answerKey = normalizeQuizAnswerKey(access.quizKeys[lessonId], quiz)
+    } else {
+      const keySnapshot = await transaction.get(access.courseReference.collection('quizKeys').doc(lessonId))
+      answerKey = keySnapshot.exists ? normalizeQuizAnswerKey(keySnapshot.data(), quiz) : legacyQuizAnswerKey(quiz)
+    }
+    const contentHash = buildQuizContentHash(quiz, answerKey)
+    const requestHash = createHash('sha256').update(JSON.stringify({ contentHash,
+      // Omit this field for legacy courses to preserve existing replay hashes.
+      ...(access.chapterVersion ? { chapterVersion: access.chapterVersion } : {}),
+      answers: [...answers].sort((a, b) => a.questionId.localeCompare(b.questionId)) })).digest('hex')
+    if (requestId) {
+      const existingAttempt = await transaction.get(attemptReference)
+      if (existingAttempt.exists) {
+        const previous = existingAttempt.data()
+        if (previous.requestHash !== requestHash) throw new HttpsError('already-exists', 'Lần nộp này đã được dùng cho câu trả lời hoặc phiên bản khác.')
+        const canRevealPrevious = quiz.revealMode !== 'never' && (quiz.revealMode !== 'after-pass' || previous.passed)
+        return resultFor({ ...previous, review: canRevealPrevious ? previous.review : [] }, previous.attemptsRemaining ?? null)
+      }
+    }
+    const correctAnswers = answers.reduce((total, answer) => total + (answerKey[answer.questionId] === answer.optionIndex ? 1 : 0), 0)
+    const totalQuestions = attemptQuestions.length
+    const scorePercent = Math.round((correctAnswers / totalQuestions) * 100)
+    const answerByQuestionId = new Map(answers.map((answer) => [answer.questionId, answer.optionIndex]))
+    const mustPassQuestionIds = attemptQuestions.filter((question) => question.mustPass === true).map((question) => question.id)
+    const mustPassPassed = mustPassQuestionIds.every((questionId) => answerKey[questionId] === answerByQuestionId.get(questionId))
+    const passed = scorePercent >= quiz.passPercent && mustPassPassed
+    const canReveal = quiz.revealMode !== 'never' && (quiz.revealMode !== 'after-pass' || passed)
+    // Keep hidden feedback out of internal attempts too; only this authorized
+    // response exposes results. Grading hashes never go into a public payload.
+    const review = canReveal ? answers.map((answer) => {
+      const question = attemptQuestions.find((candidate) => candidate.id === answer.questionId)
+      return { questionId: answer.questionId, correct: answerKey[answer.questionId] === answer.optionIndex,
+        explanation: typeof question?.explanation === 'string' ? question.explanation : '',
+        remediationCardIds: Array.isArray(question?.remediationCardIds) ? question.remediationCardIds.slice(0, 10) : [] }
+    }) : []
+    const attemptData = { courseId, lessonId, quizId: quiz.id, answers, correctAnswers, totalQuestions, scorePercent,
+      passPercent: quiz.passPercent, passed, mustPassPassed, review, feedbackCode: passed ? 'passed' : 'retry',
+      contentHash, gradingVersion: 3, requestHash, createdAt: FieldValue.serverTimestamp(),
+      ...(access.chapterVersion ? { chapterVersion: access.chapterVersion } : {}) }
+    let attemptsRemaining = null
     if (!access.isStaff && quiz.maxAttempts) {
       const counterSnapshot = await transaction.get(counterReference)
       const counter = counterSnapshot.data() ?? {}
       const sameQuizVersion = counter.quizId === quiz.id && counter.contentHash === contentHash
+        && (!access.chapterVersion || counter.chapterVersion === access.chapterVersion)
       const previousCount = sameQuizVersion ? counter.count : 0
       if (!Number.isInteger(previousCount) || previousCount < 0) {
         throw new HttpsError('failed-precondition', 'Bộ đếm lượt làm quiz không hợp lệ.')
@@ -4529,12 +4471,13 @@ exports.gradeCourseQuiz = onCall({ ...academyLearnerRuntime, invoker: 'public' }
         quizId: quiz.id,
         contentHash,
         count: nextCount,
+        ...(access.chapterVersion ? { chapterVersion: access.chapterVersion } : {}),
         lastAttemptId: attemptReference.id,
         updatedAt: FieldValue.serverTimestamp(),
       })
     }
 
-    transaction.set(attemptReference, attemptData)
+    transaction.set(attemptReference, { ...attemptData, attemptsRemaining })
     if (passed && !access.isStaff) {
       transaction.set(proofReference, {
         courseId,
@@ -4543,29 +4486,12 @@ exports.gradeCourseQuiz = onCall({ ...academyLearnerRuntime, invoker: 'public' }
         quizId: quiz.id,
         contentHash,
         attemptId: attemptReference.id,
+        ...(access.chapterVersion ? { chapterVersion: access.chapterVersion } : {}),
         verifiedAt: FieldValue.serverTimestamp(),
       })
     }
+    return resultFor(attemptData, attemptsRemaining)
   })
-
-  return {
-    attemptId: attemptReference.id,
-    courseId,
-    lessonId,
-    quizId: quiz.id,
-    scorePercent,
-    correctAnswers,
-    totalQuestions,
-    passed,
-    mustPassPassed,
-    review,
-    attemptsRemaining,
-    feedback: passed
-      ? 'Bạn đã đạt yêu cầu của bài kiểm tra.'
-      : !mustPassPassed
-        ? 'Bạn cần trả lời đúng câu an toàn bắt buộc trước khi hoàn thành chương.'
-        : 'Bạn chưa đạt điểm yêu cầu. Hãy xem lại bài học và thử lại.',
-  }
 })
 
 /**
@@ -4578,15 +4504,18 @@ exports.getCourseMediaUrl = onCall(academyLearnerRuntime, async (request) => {
   const courseId = requireDocumentId(request.data?.courseId, 'Mã khóa học')
   const lessonId = requireDocumentId(request.data?.lessonId, 'Mã bài học')
   const path = requireCourseMediaPath(request.data?.path, courseId, lessonId)
-  const access = await requireCourseLessonAccess({
+  const access = await db.runTransaction((transaction) => requireCourseLessonAccess({
     request,
     userId,
     courseId,
     lessonId,
     allowPreview: true,
-  })
+    allowAuthoringPreview: true,
+    requireExpectedVersion: true,
+    read: (reference) => transaction.get(reference),
+  }), { readOnly: true })
   const lessonResource = findLessonMediaReference(access.lesson, path)
-  if (!access.isStaff && !lessonResource) {
+  if (!lessonResource) {
     throw new HttpsError('permission-denied', 'Media chưa được gắn với bài học này.')
   }
 
@@ -4612,8 +4541,8 @@ exports.getCourseMediaUrl = onCall(academyLearnerRuntime, async (request) => {
       || typeof mediaId !== 'string'
       || !mediaId.trim()
       || !['slide', 'video', 'document'].includes(customMetadata.resourceKind)
-      || (!access.isStaff && mediaId !== lessonResource.assetRef.assetId)
-      || (!access.isStaff && customMetadata.resourceKind !== lessonResource.kind)
+      || mediaId !== lessonResource.assetRef.assetId
+      || customMetadata.resourceKind !== lessonResource.kind
       || !isSupportedCourseMediaType(fileMetadata.contentType, customMetadata.resourceKind)
       || !Number.isSafeInteger(size)
       || size <= 0
@@ -4658,6 +4587,11 @@ exports.getCourseMediaUrl = onCall(academyLearnerRuntime, async (request) => {
   return {
     url,
     path,
+    courseId,
+    lessonId,
+    courseRevision: Number(access.course.revision) || 0,
+    chapterVersion: access.chapterVersion,
+    contentAccess: access.isAuthoringPreview ? 'staff-preview' : access.isPreview ? 'preview' : 'full',
     expiresAt: new Date(expiresAt).toISOString(),
     contentType: fileMetadata.contentType,
     size,
@@ -4741,12 +4675,26 @@ function workoutSessionForLearner(session) {
   return safeSession
 }
 
-async function loadPublishedProgramSession({ programId, versionId, sessionId }) {
+// Academy checkpoint feedback stays private until grading. Keep this policy
+// scoped to course delivery so its release does not also change PT endpoints.
+function academyWorkoutSessionForLearner(session) {
+  const safeSession = workoutSessionForLearner(session)
+  if (isPlainObject(safeSession.quiz) && Array.isArray(safeSession.quiz.questions)) {
+    safeSession.quiz.questions = safeSession.quiz.questions.map((question) => {
+      if (!isPlainObject(question)) return question
+      const { explanation: _privateExplanation, ...publicQuestion } = question
+      return publicQuestion
+    })
+  }
+  return safeSession
+}
+
+async function loadPublishedProgramSession({ programId, versionId, sessionId, read = (reference) => reference.get() }) {
   const programReference = db.doc(`programs/${programId}`)
   const versionReference = programReference.collection('versions').doc(versionId)
   const [programSnapshot, versionSnapshot] = await Promise.all([
-    programReference.get(),
-    versionReference.get(),
+    read(programReference),
+    read(versionReference),
   ])
   if (!programSnapshot.exists || programSnapshot.data().status !== 'published') {
     throw new HttpsError('failed-precondition', 'Giáo án chưa được xuất bản.')
@@ -4858,32 +4806,37 @@ function normalizePtWorkoutLog(value, workoutRef, session) {
 }
 
 /** Saves a verified course workout log that can be used as completion proof. */
-exports.saveCourseWorkoutLog = onCall(async (request) => {
+exports.saveCourseWorkoutLog = onCall(academyLearnerRuntime, async (request) => {
   const userId = requireCaller(request)
   const courseId = requireDocumentId(request.data?.courseId, 'Mã khóa học')
   const lessonId = requireDocumentId(request.data?.lessonId, 'Mã bài học')
-  const access = await requireCourseLessonAccess({ request, userId, courseId, lessonId, allowPreview: false })
-  const workoutRef = access.lesson?.workoutRef
-  if (access.lesson?.type !== 'Buổi tập' || !isPlainObject(workoutRef)) {
-    throw new HttpsError('failed-precondition', 'Bài học chưa liên kết giáo án hợp lệ.')
-  }
-  const programId = requireDocumentId(workoutRef.programId, 'Mã giáo án')
-  const sessionId = requireDocumentId(workoutRef.sessionId, 'Mã session')
-  const versionId = requireDocumentId(workoutRef.versionId, 'Mã phiên bản')
-  const { selected } = await loadPublishedProgramSession({ programId, versionId, sessionId })
-  const log = normalizeCourseWorkoutLog(request.data?.log, workoutRef, selected.session)
-  const logReference = db.doc(`users/${userId}/workoutLogs/${log.clientLogId}`)
-
-  await db.runTransaction(async (transaction) => {
+  return db.runTransaction(async (transaction) => {
+    const read = (reference) => transaction.get(reference)
+    const access = await requireCourseLessonAccess({ request, userId, courseId, lessonId, allowPreview: false, requireExpectedVersion: true, read })
+    const workoutRef = access.lesson?.workoutRef
+    if (access.lesson?.type !== 'Buổi tập' || !isPlainObject(workoutRef)) {
+      throw new HttpsError('failed-precondition', 'Bài học chưa liên kết giáo án hợp lệ.')
+    }
+    const programId = requireDocumentId(workoutRef.programId, 'Mã giáo án')
+    const sessionId = requireDocumentId(workoutRef.sessionId, 'Mã session')
+    const versionId = requireDocumentId(workoutRef.versionId, 'Mã phiên bản')
+    const { selected } = await loadPublishedProgramSession({ programId, versionId, sessionId, read })
+    const log = normalizeCourseWorkoutLog(request.data?.log, workoutRef, selected.session)
+    const requestHash = createHash('sha256').update(JSON.stringify(log)).digest('hex')
+    const logReference = db.doc(`users/${userId}/workoutLogs/${log.clientLogId}`)
+    const response = { userId, logId: log.clientLogId, courseId, lessonId, chapterVersion: access.chapterVersion }
     const existingSnapshot = await transaction.get(logReference)
     if (existingSnapshot.exists) {
       const existing = existingSnapshot.data()
+      // An exact replay may cross a chapter-only revision. Keep the original
+      // evidence's chapterVersion as provenance; never retag or rewrite it.
       if (existing.verificationVersion === 2
           && existing.verifiedCourseId === courseId
           && existing.verifiedLessonId === lessonId
           && existing.programId === programId
           && existing.sessionId === sessionId
-          && existing.versionId === versionId) return
+          && existing.versionId === versionId
+          && (existing.requestHash ? existing.requestHash === requestHash : JSON.stringify(normalizeCourseWorkoutLog(existing, workoutRef, selected.session)) === JSON.stringify(log))) return response
       throw new HttpsError('already-exists', 'Mã nhật ký đã được dùng cho một buổi tập khác.')
     }
     transaction.create(logReference, {
@@ -4891,46 +4844,42 @@ exports.saveCourseWorkoutLog = onCall(async (request) => {
       verifiedCourseId: courseId,
       verifiedLessonId: lessonId,
       verificationVersion: 2,
+      chapterVersion: access.chapterVersion,
+      requestHash,
       completedAt: FieldValue.serverTimestamp(),
       createdAt: FieldValue.serverTimestamp(),
     })
+    return response
   })
-  return { userId, logId: log.clientLogId }
 })
 
 /** Resolves the exact immutable workout session after course entitlement checks. */
-exports.getCourseWorkoutSession = onCall(async (request) => {
+exports.getCourseWorkoutSession = onCall(academyLearnerRuntime, async (request) => {
   const userId = requireCaller(request)
   const courseId = requireDocumentId(request.data?.courseId, 'Mã khóa học')
   const lessonId = requireDocumentId(request.data?.lessonId, 'Mã bài học')
   const programId = requireDocumentId(request.data?.programId, 'Mã giáo án')
   const sessionId = requireDocumentId(request.data?.sessionId, 'Mã session')
   const versionId = requireDocumentId(request.data?.versionId, 'Mã phiên bản')
-  const access = await requireCourseLessonAccess({
-    request,
-    userId,
-    courseId,
-    lessonId,
-    allowPreview: false,
-  })
-  const workoutRef = access.lesson?.workoutRef
-  if (access.lesson?.type !== 'Buổi tập'
-      || !isPlainObject(workoutRef)
-      || workoutRef.programId !== programId
-      || workoutRef.sessionId !== sessionId
-      || workoutRef.versionId !== versionId) {
-    throw new HttpsError('permission-denied', 'Liên kết giáo án không khớp với bài học.')
-  }
-
-  const { versionData, selected } = await loadPublishedProgramSession({ programId, versionId, sessionId })
-  return {
-    programId,
-    versionId,
-    sessionId,
-    weekNumber: selected.weekNumber,
-    programTitle: typeof versionData.title === 'string' ? versionData.title : 'Giáo án Aura',
-    session: workoutSessionForLearner(selected.session),
-  }
+  return db.runTransaction(async (transaction) => {
+    const read = (reference) => transaction.get(reference)
+    const access = await requireCourseLessonAccess({ request, userId, courseId, lessonId, allowPreview: false, requireExpectedVersion: true, read })
+    const workoutRef = access.lesson?.workoutRef
+    if (access.lesson?.type !== 'Buổi tập'
+        || !isPlainObject(workoutRef)
+        || workoutRef.programId !== programId
+        || workoutRef.sessionId !== sessionId
+        || workoutRef.versionId !== versionId) {
+      throw new HttpsError('permission-denied', 'Liên kết giáo án không khớp với bài học.')
+    }
+    const { versionData, selected } = await loadPublishedProgramSession({ programId, versionId, sessionId, read })
+    return {
+      courseId, lessonId, chapterVersion: access.chapterVersion, programId, versionId, sessionId,
+      weekNumber: selected.weekNumber,
+      programTitle: typeof versionData.title === 'string' ? versionData.title : 'Giáo án Aura',
+      session: academyWorkoutSessionForLearner(selected.session),
+    }
+  }, { readOnly: true })
 })
 
 async function requirePtStaffActor(request) {
