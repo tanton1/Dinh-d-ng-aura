@@ -1,0 +1,44 @@
+{
+  "status": "implementation_validated_release_pending",
+  "scope": "listEatCleanDispatchData roster availability hydration",
+  "problem": "Two independent limit(100) queries selected shipper profiles and availability records. Unrelated availability rows could displace the selected shippers and incorrectly report them as unavailable.",
+  "change": {
+    "profiles": "Keep the existing first 100 shipper profiles and disabled-account filtering; fetch only displayName, phoneNumber, photoURL and disabled.",
+    "availability": "Query by document IDs of the selected enabled profiles, in disjoint batches of at most 30, projecting available and lastSeenAt. An empty roster issues no availability query.",
+    "failure": "A failed availability query still fails the request. Missing records or missing available fields retain the existing unavailable default.",
+    "authorization": "The current administrator check still precedes all dispatch business reads. No raw order, payment or OTP permissions change."
+  },
+  "budgets": {
+    "maximumProfileDocuments": 100,
+    "maximumAvailabilityQueries": 4,
+    "maximumAvailabilityDocuments": 100,
+    "emptyRosterAvailabilityQueries": 0,
+    "unrelatedAvailabilityDocuments": 0,
+    "additionalWritesOrTriggers": 0
+  },
+  "validation": {
+    "newEmulatorCases": 7,
+    "existingDeliverySignalEmulatorCases": 8,
+    "fullFunctionsCheck": "passed",
+    "fixtures": [
+      "140 unrelated presence rows before the visible roster; active, disabled, missing and legacy records.",
+      "105 shipper profiles retain the existing 100-profile scope with four disjoint availability batches.",
+      "No profiles, all disabled profiles, availability updates/removal and profile disabling.",
+      "A one-delivery page retains the complete active-job count and distinct next cursor.",
+      "Authorization failure before collection reads and availability-read failure propagation."
+    ]
+  },
+  "release": {
+    "functions": ["listEatCleanDispatchData"],
+    "requiresNewIndex": false,
+    "requiresRulesChange": false,
+    "requiresBackfill": false,
+    "prerequisite": "Merge the named-database rules workflow correction before dispatching this scoped release."
+  },
+  "remaining": [
+    "The existing 100-profile cap still needs a real roster cursor.",
+    "Whole-scope count queries, per-page GPS reads and the dispatch 30-second refresh remain unchanged.",
+    "Query groups have overhead; field projection reduces returned payload but does not by itself prove lower billed read units. Measure representative production traffic before claiming a cost saving."
+  ],
+  "measuredSavings": null
+}
