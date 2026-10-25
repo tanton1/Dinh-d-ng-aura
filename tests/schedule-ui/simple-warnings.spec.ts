@@ -18,6 +18,9 @@ for (const width of [390, 1440]) {
     await expect(row.locator('.schedule-warning-availability')).toContainText('Thứ 2')
     await expect(row.locator('.schedule-warning-availability')).toContainText('06:00')
     await expect(row.locator('.schedule-warning-schedule li')).toHaveCount(1)
+    // Compact weekly payloads can carry the raw branch ID as branch.name.
+    // The branch selector already has the human-readable label; reuse it.
+    await expect(row.locator('.schedule-warning-schedule li span')).toHaveText('Mai · CS1')
     await expect(row.locator('.schedule-warning-managers')).toHaveText('PT quản lýMai, Vy')
     await expect(row.locator('.schedule-warning-profile, .schedule-warning-contract, .schedule-warning-action, .is-suggestion')).toHaveCount(0)
     await expect(row).not.toContainText('Gói 24')
