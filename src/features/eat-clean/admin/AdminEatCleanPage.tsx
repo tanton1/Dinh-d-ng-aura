@@ -1,4 +1,4 @@
-import { Suspense, useCallback, useEffect, useMemo, useState, type KeyboardEvent } from 'react'
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import {
   AlertCircle,
   AlertTriangle,
@@ -92,20 +92,35 @@ function EatCleanTabLoading() {
   )
 }
 
-export default function AdminEatCleanPage({ accountId, currentRole, initialTab = 'dispatch', className = '', isDemo = false }: AdminEatCleanPageProps) {
+export default function AdminEatCleanPage(props: AdminEatCleanPageProps) {
+  return <AdminEatCleanWorkspace key={`${props.accountId}:${props.currentRole}:${Boolean(props.isDemo)}`} {...props} />
+}
+
+function AdminEatCleanWorkspace({ accountId, currentRole, initialTab = 'dispatch', className = '', isDemo = false }: AdminEatCleanPageProps) {
   const [activeTab, setActiveTab] = useState<EatCleanAdminTab>(initialTab)
+  const needsAdminData = activeTab !== 'dispatch'
   const [data, setData] = useState<EatCleanAdminData | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const [loadError, setLoadError] = useState('')
   const [initializing, setInitializing] = useState(false)
   const [initializeError, setInitializeError] = useState('')
+  const alive = useRef(true)
+  const requestSequence = useRef(0)
+  const pendingRead = useRef<Promise<EatCleanAdminData> | null>(null)
 
-  const loadData = useCallback(async (background = false) => {
+  useEffect(() => {
+    alive.current = true
+    return () => { alive.current = false; requestSequence.current++ }
+  }, [])
+
+  const loadData = useCallback(async (background = false, afterMutation = false) => {
     if (!canManageEatClean(currentRole)) {
       setLoading(false)
       return
     }
+    const sequence = ++requestSequence.current
+    const current = () => alive.current && sequence === requestSequence.current
     if (background) setRefreshing(true)
     else setLoading(true)
     setLoadError('')
@@ -121,23 +136,34 @@ export default function AdminEatCleanPage({ accountId, currentRole, initialTab =
           seeded: true,
         })
       } else {
-        setData(await listEatCleanAdminData())
+        // StrictMode replay and simultaneous refresh consumers share the same
+        // request; each consumer still fences its own stale response.
+        // A mutation must not acknowledge a read that began before its commit.
+        const request = (!afterMutation && pendingRead.current) || listEatCleanAdminData()
+        pendingRead.current = request
+        try {
+          const result = await request
+          if (current()) setData(result)
+        } finally {
+          if (pendingRead.current === request) pendingRead.current = null
+        }
       }
     } catch (error) {
-      setLoadError(getEatCleanAdminErrorMessage(error))
+      if (current()) {
+        if (/(?:permission-denied|unauthenticated)$/.test(String((error as { code?: unknown })?.code || ''))) setData(null)
+        setLoadError(getEatCleanAdminErrorMessage(error))
+      }
     } finally {
-      setLoading(false)
-      setRefreshing(false)
+      if (current()) { setLoading(false); setRefreshing(false) }
     }
   }, [currentRole, isDemo])
 
   useEffect(() => {
-    void loadData()
-  }, [loadData])
+    if (needsAdminData && !data && !loading && !loadError) void loadData()
+  }, [needsAdminData, data, loading, loadError, loadData])
 
   useEffect(() => {
-    // Overlap the active tool download with the admin-data request. Other tools
-    // remain outside the initial route and are fetched only on clear user intent.
+    // Download only the active tool; hovering another tab preloads code only.
     void preloadEatCleanTab(activeTab)
   }, [activeTab])
 
@@ -168,7 +194,7 @@ export default function AdminEatCleanPage({ accountId, currentRole, initialTab =
     setInitializeError('')
     try {
       await initializeEatCleanCatalog()
-      await loadData(true)
+      await loadData(true, true)
     } catch (error) {
       setInitializeError(getEatCleanAdminErrorMessage(error))
     } finally {
@@ -229,7 +255,7 @@ export default function AdminEatCleanPage({ accountId, currentRole, initialTab =
   const handleRecordRefundOutcome = async (input: Parameters<typeof recordEatCleanRefundOutcome>[0]) => {
     try {
       await recordEatCleanRefundOutcome(input)
-      await loadData(true)
+      await loadData(true, true)
     } catch (error) {
       throw new Error(getEatCleanAdminErrorMessage(error))
     }
@@ -238,7 +264,7 @@ export default function AdminEatCleanPage({ accountId, currentRole, initialTab =
   const handleReverseRefundOutcome = async (input: Parameters<typeof reverseEatCleanRefundOutcome>[0]) => {
     try {
       await reverseEatCleanRefundOutcome(input)
-      await loadData(true)
+      await loadData(true, true)
     } catch (error) {
       throw new Error(getEatCleanAdminErrorMessage(error))
     }
@@ -257,25 +283,25 @@ export default function AdminEatCleanPage({ accountId, currentRole, initialTab =
   }
 
   return (
-    <main className={`page admin-eat-clean-page ${className}`.trim()} aria-busy={loading || refreshing}>
+    <main className={`page admin-eat-clean-page ${className}`.trim()} aria-busy={needsAdminData && (loading || refreshing)}>
       <header className="eat-clean-hero">
         <div className="eat-clean-hero__content">
           <span className="eat-clean-eyebrow"><ChefHat size={14} /> AURA · EAT CLEAN ADMIN</span>
           <h1>Trung tâm vận hành Eat Clean</h1>
           <p>Kiểm soát đơn hàng, món ăn, nguyên liệu và lịch giao trong một luồng rõ ràng.</p>
-          <div className="eat-clean-hero__actions">
-            <span className={`eat-clean-live-state ${data?.config.acceptingOrders ? 'is-open' : ''}`}>
-              <span /> {data?.config.acceptingOrders ? 'Đang nhận đơn' : 'Đang tạm dừng'}
-            </span>
+          {needsAdminData && <div className="eat-clean-hero__actions">
+            {data && <span className={`eat-clean-live-state ${data.config.acceptingOrders ? 'is-open' : ''}`}>
+              <span /> {data.config.acceptingOrders ? 'Đang nhận đơn' : 'Đang tạm dừng'}
+            </span>}
             <button type="button" className="eat-clean-refresh-button" onClick={() => void loadData(true)} disabled={loading || refreshing}>
               <RefreshCw size={16} className={refreshing ? 'is-spinning' : ''} /> {refreshing ? 'Đang tải…' : 'Làm mới'}
             </button>
-          </div>
+          </div>}
         </div>
         <img src="/images/eat-clean/hero-bowl.webp" alt="Suất ăn Eat Clean với rau củ tươi" />
       </header>
 
-      {!loading && data && (
+      {needsAdminData && !loading && data && (
         <section className="eat-clean-stats" aria-label="Tổng quan Eat Clean">
           <article><span><ClipboardList size={19} /></span><div><strong>{summary.pendingOrders}</strong><small>Đơn chờ xác nhận</small></div></article>
           <article><span><PackageCheck size={19} /></span><div><strong>{summary.preparingOrders}</strong><small>Đang chuẩn bị</small></div></article>
@@ -284,7 +310,7 @@ export default function AdminEatCleanPage({ accountId, currentRole, initialTab =
         </section>
       )}
 
-      {!loading && data && data.summary.missingDeliveryRecords > 0 && (
+      {needsAdminData && !loading && data && data.summary.missingDeliveryRecords > 0 && (
         <section className="eat-clean-integrity-alert" role="alert">
           <span><AlertTriangle size={20} /></span>
           <div>
@@ -320,7 +346,11 @@ export default function AdminEatCleanPage({ accountId, currentRole, initialTab =
         })}
       </nav>
 
-      {loading ? (
+      {!needsAdminData ? (
+        <div id="eat-clean-panel-dispatch" role="tabpanel" aria-labelledby="eat-clean-tab-dispatch" tabIndex={0} className="eat-clean-tab-panel">
+          <Suspense fallback={<EatCleanTabLoading />}><EatCleanDispatchTab accountId={accountId} isDemo={isDemo} /></Suspense>
+        </div>
+      ) : loading || (!data && !loadError) ? (
         <div className="eat-clean-loading" role="status" aria-live="polite">
           <span className="eat-clean-loader" />
           <strong>Đang tải dữ liệu Eat Clean…</strong>
@@ -364,7 +394,6 @@ export default function AdminEatCleanPage({ accountId, currentRole, initialTab =
                 onReverseRefundOutcome={handleReverseRefundOutcome}
               />
             )}
-            {activeTab === 'dispatch' && <EatCleanDispatchTab key={`${accountId}:${isDemo}`} accountId={accountId} isDemo={isDemo} />}
             {activeTab === 'menu' && <EatCleanMenuTab meals={data.meals} deliverySlots={data.config.deliverySlots} onSaveMeal={handleSaveMeal} />}
             {activeTab === 'inventory' && <EatCleanInventoryTab inventory={data.inventory} meals={data.meals} onSaveInventory={handleSaveInventory} />}
             {activeTab === 'operations' && <EatCleanOperationsTab config={data.config} meals={data.meals} inventory={data.inventory} onSaveConfig={handleSaveConfig} />}

@@ -5,6 +5,8 @@ import { firebaseAuth } from './mocks'
 import { createRoot } from 'react-dom/client'
 import DeliveryPage from '../../src/features/delivery/DeliveryPage'
 import { EatCleanDispatchTab } from '../../src/features/eat-clean/admin/components/EatCleanDispatchTab'
+import AdminEatCleanPage from '../../src/features/eat-clean/admin/AdminEatCleanPage'
+import type { UserRole } from '../../src/types'
 import { EatCleanTrackingPanel } from '../../src/features/eat-clean/EatCleanTrackingPanel'
 import ProgressPage from '../../src/pages/student/ProgressPage'
 import { useDriverLocationPublisher as useActualLocationPublisher } from '../../src/features/delivery/useDriverLocationPublisher'
@@ -47,6 +49,13 @@ function Progress() {
   const [owner, setOwner] = useState('student-a')
   return <><button onClick={() => { firebaseAuth.currentUser.uid = 'student-b'; setOwner('student-b') }}>Change account</button><ProgressPage ownerId={owner} nutritionProfile={{ ...DEFAULT_PROFILE, age: 30, heightCm: 165, weightKg: 60, biologicalSex: 'female', goal: 'maintain', activityLevel: 'moderate', trainingSessions: 3, mealsPerDay: 5 }} /></>
 }
+function DispatchParent() {
+  const [account, setAccount] = useState('admin-a')
+  const [role, setRole] = useState<UserRole>('admin')
+  return <><button onClick={() => { (window as any).costState.dispatchAccount = 'admin-b'; setAccount('admin-b') }}>Change admin account</button>
+    <button onClick={() => setRole('student')}>Revoke admin</button><button onClick={() => setRole('admin')}>Restore admin</button>
+    <AdminEatCleanPage accountId={account} currentRole={role} initialTab={(window as any).costState.adminInitialTab || 'dispatch'} isDemo={Boolean((window as any).costState.adminDemo)} /></>
+}
 createRoot(document.getElementById('root')!).render(<StrictMode>{
-  view === 'gps' ? <Location /> : view === 'dispatch' ? <Dispatch /> : view === 'tracking' ? <Tracking /> : view === 'progress' ? <Progress /> : <Driver />
+  view === 'gps' ? <Location /> : view === 'dispatch-parent' ? <DispatchParent /> : view === 'dispatch' ? <Dispatch /> : view === 'tracking' ? <Tracking /> : view === 'progress' ? <Progress /> : <Driver />
 }</StrictMode>)

@@ -1,0 +1,41 @@
+{
+  "status": "implemented_validated_release_pending",
+  "planItem": "D2.3",
+  "baseSource": "6b6930441c689c19b1f158cbfa1b5b786bb30d25",
+  "scope": "Full Eat Clean admin route, including its parent bootstrap and private cached catalog.",
+  "finding": "AdminEatCleanPage called listEatCleanAdminData on every mount and blocked all tabs on its completion or seeded state. Dispatch then independently called listEatCleanDispatchData, duplicating order/config hydration and unnecessarily loading menu/inventory.",
+  "changes": [
+    "Dispatch mounts directly and owns its existing authorized event/GPS workspace. The parent does not request or render unrelated catalog totals on that tab.",
+    "Orders, menu, inventory and operations load the existing admin snapshot on first demand and reuse it until explicit refresh or mutation. Hover preloads code only.",
+    "Slow, unavailable or unseeded catalog data does not block dispatch or initialize business data automatically.",
+    "Concurrent unchanged reads and StrictMode replay share one pending request with per-consumer response fencing.",
+    "Post-mutation refresh starts a fresh read, fencing any response whose read began before the commit.",
+    "Account, role and demo changes reset the workspace. Authorization errors clear private totals; transient failures require explicit retry."
+  ],
+  "backendChanges": false,
+  "rulesChanges": false,
+  "newFunctionExports": 0,
+  "validation": {
+    "parentBrowserCases": 18,
+    "existingDeliveryBrowserCases": 118,
+    "finalAffectedBrowserCases": 20,
+    "coverage": "Chrome and iPhone WebKit: idle, hover, refresh, tab reuse, slow/error/unseeded catalog, account/role changes, denied refresh and mutation/read race.",
+    "regressionDetail": "The broad run passed132/134. Two external-auth fixture controls were occluded after the real parent stylesheet loaded its modal backdrop. The tests now invoke that fixture control as an external auth event; both passed in the final20-case affected run. There is no product click-through workaround.",
+    "typecheck": "passed",
+    "productionBuild": "passed_with_final_denial_guard",
+    "performanceBudget": "passed",
+    "productionBusinessFixtures": false
+  },
+  "fixtureReadBudget": {
+    "idleHourFullAdminDispatchRoute": { "dispatchBootstrap": 1, "adminCatalogCalls": 0, "periodicBusinessCalls": 0 },
+    "firstCatalogVisit": 1,
+    "subsequentCatalogTabChangesWithoutMutationOrRefresh": 0,
+    "measuredSavings": null
+  },
+  "releaseOrder": [
+    "Finish and verify dispatcher PR26/27.",
+    "Hold main changes while the separate Academy release owns the next window.",
+    "Integrate this frontend on the resulting main, require exact CI and public smoke; no backend redeploy for this isolated change."
+  ],
+  "remaining": "Catalog tabs still share a full bounded admin snapshot. Splitting those non-dispatch tabs into server sections and adding cursors is separate work."
+}
