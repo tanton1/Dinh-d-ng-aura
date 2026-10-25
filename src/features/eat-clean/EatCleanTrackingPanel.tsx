@@ -18,7 +18,9 @@ function etaLabel(value?: string) {
 export function EatCleanTrackingPanel({ order }: { order: EatCleanOrder }) {
   const [tracking, setTracking] = useState<EatCleanOrderTracking | null>(order.tracking ?? null)
   const [loading, setLoading] = useState(false)
-  const [message, setMessage] = useState('')
+  const [failure, setFailure] = useState<{ orderId: string; denied: boolean } | null>(null)
+  const currentFailure = failure?.orderId === order.id ? failure : null
+  const accessDenied = currentFailure?.denied === true
   const live: EatCleanOrderTracking = (tracking?.orderId === order.id ? tracking : order.tracking) ?? {
     orderId: order.id,
     status: order.status,
@@ -37,16 +39,23 @@ export function EatCleanTrackingPanel({ order }: { order: EatCleanOrder }) {
       const next = await getEatCleanOrderTracking(order.id)
       if (isCurrent() && next) {
         setTracking(next)
-        setMessage('')
+        setFailure(null)
       }
-    } catch {
-      if (isCurrent() && !quiet) setMessage('Chưa thể cập nhật vị trí. Timeline đơn hàng vẫn được giữ nguyên.')
+    } catch (error) {
+      if (isCurrent()) {
+        const code = String((error as { code?: unknown })?.code || '').replace(/^functions\//, '')
+        const denied = ['permission-denied', 'unauthenticated', 'not-found'].includes(code)
+        if (denied) setTracking(null)
+        // A later transient retry failure cannot restore data hidden after
+        // access denial. Only an authorized successful response clears it.
+        setFailure(current => ({ orderId: order.id, denied: denied || (current?.orderId === order.id && current.denied) }))
+      }
     } finally {
       if (isCurrent()) setLoading(false)
     }
   }
 
-  const { refresh } = useForegroundRefresh({ scopeKey: `tracking:${order.id}`, read, intervalMs: terminal ? null : 15_000, enabled: !order.id.startsWith('demo-order-') })
+  const { refresh } = useForegroundRefresh({ scopeKey: `tracking:${order.id}`, read, intervalMs: terminal || currentFailure ? null : 15_000, enabled: !order.id.startsWith('demo-order-') })
 
   const eta = live.estimatedArrivalAt || order.estimatedArrivalAt
   const shipper = live.shipper || order.shipper
@@ -56,10 +65,10 @@ export function EatCleanTrackingPanel({ order }: { order: EatCleanOrder }) {
   return (
     <section className="eat-clean-card eat-clean-live-tracking">
       <header>
-        <div><small>THEO DÕI GIAO HÀNG</small><h2>Hành trình: {EAT_CLEAN_STATUS_LABELS[live.status]}</h2><p><Clock3 size={15} /> {terminal ? EAT_CLEAN_STATUS_LABELS[live.status] : etaLabel(eta)}</p></div>
+        <div><small>THEO DÕI GIAO HÀNG</small><h2>{accessDenied ? 'Hành trình đơn hàng' : `Hành trình: ${EAT_CLEAN_STATUS_LABELS[live.status]}`}</h2>{!accessDenied && <p><Clock3 size={15} /> {terminal ? EAT_CLEAN_STATUS_LABELS[live.status] : etaLabel(eta)}</p>}</div>
         <button type="button" onClick={() => void refresh(false)} disabled={loading} aria-label="Làm mới vị trí">{loading ? <LoaderCircle className="eat-clean-spin" size={19} /> : <RefreshCw size={19} />}</button>
       </header>
-      <TrackingMap tracking={live} />
+      {!accessDenied && <><TrackingMap tracking={live} />
       <div className="eat-clean-tracking-meta">
         {shipper ? (
           <div className="eat-clean-shipper-card">
@@ -76,8 +85,10 @@ export function EatCleanTrackingPanel({ order }: { order: EatCleanOrder }) {
         </div>
         {showDeliveryOtp && <div className="eat-clean-delivery-otp"><ShieldCheck size={20} /><span><small>MÃ XÁC NHẬN GIAO HÀNG</small><strong aria-label={`Mã giao hàng ${live.deliveryOtp}`}>{live.deliveryOtp?.split('').map((digit, index) => <i key={`${digit}-${index}`}>{digit}</i>)}</strong><em>Chỉ đọc mã này khi bạn đã nhận đủ món.</em></span></div>}
         {live.promisedAt && <p className="eat-clean-sla"><MapPin size={15} /> Cam kết hoàn thành trước {formatEatCleanDate(live.promisedAt)}</p>}
-      </div>
-      {message && <p className="eat-clean-inline-message" role="status">{message}</p>}
+      </div></>}
+      {currentFailure && <p className="eat-clean-inline-message" role="status">{accessDenied
+        ? 'Không thể truy cập hành trình đơn này. Vui lòng kiểm tra tài khoản hoặc bấm làm mới để thử lại.'
+        : 'Chưa thể cập nhật vị trí. Dữ liệu lần trước được giữ lại; bấm làm mới để thử lại.'}</p>}
     </section>
   )
 }

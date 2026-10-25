@@ -1,0 +1,33 @@
+{
+  "status": "implementation_validated_release_pending",
+  "scope": "EatCleanTrackingPanel request recovery and access-denial state",
+  "problem": "A failed background read was silent and the screen kept polling every 15 seconds. Permission denial could leave old GPS, shipper details and delivery OTP visible, including fallback data passed by the parent.",
+  "change": [
+    "Pause automatic interval/focus/reconnect reads after any request failure and expose an explicit refresh action.",
+    "Hide the entire tracking detail/map and discard the local response on permission-denied, unauthenticated or not-found, even for a background request.",
+    "Keep denied data hidden if a manual retry fails transiently; only a successful authorized response restores it.",
+    "Preserve last data with an explicit stale-data message for transient failures. A successful manual refresh restores normal active-order updates.",
+    "Keep the existing order-scoped response fence, no-overlap controller, hidden/offline suppression and terminal-delivery stop."
+  ],
+  "validation": {
+    "newScenarios": 9,
+    "browserCasesPassed": 18,
+    "browsers": ["Chromium", "mobile Safari WebKit"],
+    "existingTrackingRegressionCasesPassed": 1,
+    "typecheck": "passed",
+    "productionBuild": "passed",
+    "fixtures": "Synthetic callable failures and data. Ten simulated minutes after a failed read cause no automatic request; manual retries never overlap. No production calls or provider access."
+  },
+  "release": {
+    "frontendOnly": true,
+    "functionsRedeployed": [],
+    "requiresRulesChange": false,
+    "requiresBackfill": false
+  },
+  "remaining": [
+    "Healthy active orders still use the existing 15-second foreground interval pending a separately authorized realtime transport.",
+    "This clears visible data after the callable reports access denial; it is not instant server-side revocation or a replacement for backend authorization.",
+    "No production billing reduction is quantified."
+  ],
+  "measuredSavings": null
+}
