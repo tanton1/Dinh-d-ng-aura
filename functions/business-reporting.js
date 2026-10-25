@@ -452,11 +452,21 @@ function createBusinessReportingFunctions({ db, onCall }) {
     }
     const start = utcDateAtVietnamStart(input.startDate)
     const end = utcDateAtVietnamStart(input.nextEndDate)
+    const scopedRange = (collection, field, maximum, direction = 'asc') => {
+      let query = db.collection(collection).where(field, '>=', start).where(field, '<', end)
+      // Apply scope before the limit: another branch's history must never
+      // consume this branch's report budget. Missing branch IDs remain visible
+      // only in the system report, matching the existing ledger/cash totals.
+      if (input.branchId !== 'all') query = query.where('branchId', '==', input.branchId).orderBy(field, direction)
+      return query.limit(maximum).get()
+    }
     const [ledgerSnapshot, cashSnapshot, payrollSnapshot, attendanceSnapshot, cashAccountSnapshot] = await Promise.all([
-      db.collection('ledgerEntries').where('effectiveAt', '>=', start).where('effectiveAt', '<', end).limit(MAX_LEDGER_DOCUMENTS + 1).get(),
-      db.collection('cashTransactions').where('effectiveAt', '>=', start).where('effectiveAt', '<', end).limit(MAX_LEDGER_DOCUMENTS + 1).get(),
+      scopedRange('ledgerEntries', 'effectiveAt', MAX_LEDGER_DOCUMENTS + 1, 'desc'),
+      scopedRange('cashTransactions', 'effectiveAt', MAX_LEDGER_DOCUMENTS + 1, 'desc'),
+      // Legacy payroll with no branch is deliberately included by the existing
+      // reconciliation policy. Do not silently drop it with an equality query.
       db.collection('payrollRuns').where('paidAt', '>=', start).where('paidAt', '<', end).limit(500).get(),
-      db.collection('attendanceEvents').where('occurredAt', '>=', start).where('occurredAt', '<', end).limit(MAX_ATTENDANCE_DOCUMENTS + 1).get(),
+      scopedRange('attendanceEvents', 'occurredAt', MAX_ATTENDANCE_DOCUMENTS + 1),
       db.collection('cashAccounts').limit(201).get(),
     ])
     const ledgerEntries = ledgerSnapshot.docs.slice(0, MAX_LEDGER_DOCUMENTS).map((item) => item.data())
@@ -486,6 +496,10 @@ function createBusinessReportingFunctions({ db, onCall }) {
     if (cashAccountSnapshot.empty) qualityMessages.push('sổ quỹ chưa có tài khoản tiền mặt/ngân hàng/ví')
     if (unlinkedCashTransactions) qualityMessages.push('còn giao dịch sổ quỹ chưa liên kết ledger')
     if (payrollPaidOutsideLedger) qualityMessages.push('còn bảng lương đã trả ngoài ledger')
+    if (ledgerSnapshot.size > MAX_LEDGER_DOCUMENTS || cashSnapshot.size > MAX_LEDGER_DOCUMENTS
+      || attendanceSnapshot.size > MAX_ATTENDANCE_DOCUMENTS || payrollSnapshot.size >= 500) {
+      qualityMessages.push('dữ liệu chạm giới hạn tải; số liệu có thể chưa đầy đủ, hãy thu hẹp khoảng ngày')
+    }
     return {
       schemaVersion: 3,
       range: { startDate: input.startDate, endDate: input.endDate, timeZone: 'Asia/Ho_Chi_Minh' },
@@ -506,6 +520,9 @@ function createBusinessReportingFunctions({ db, onCall }) {
       dataQuality: {
         scannedLedgerEntries: ledgerSnapshot.size,
         ledgerTruncated: ledgerSnapshot.size > MAX_LEDGER_DOCUMENTS,
+        cashTransactionsTruncated: cashSnapshot.size > MAX_LEDGER_DOCUMENTS,
+        payrollLimitReached: payrollSnapshot.size >= 500,
+        reconciliationBranchId: input.branchId,
         legacyUnclassifiedEntries: summary.legacyUnclassifiedEntries,
         unlinkedCashTransactions,
         payrollPaidOutsideLedger,

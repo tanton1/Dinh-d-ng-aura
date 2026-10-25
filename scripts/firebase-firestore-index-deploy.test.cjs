@@ -4,6 +4,21 @@ const test = require('node:test')
 const { parseArguments, selectIndexes, signature, CONFIRMATION } = require('./firebase-firestore-index-deploy.cjs')
 const indexes = require('../firestore.indexes.json').indexes
 
+test('business report scope reuses ledger/attendance indexes and creates only branch cash range', () => {
+  const selected = selectIndexes(indexes, 'business-report-branch-reads')
+  assert.deepEqual(selected.map(index => index.collectionGroup), ['ledgerEntries', 'cashTransactions', 'attendanceEvents'])
+  assert.deepEqual(selected.map(index => index.fields[1].order), ['DESCENDING', 'DESCENDING', 'ASCENDING'])
+  for (const index of selected) {
+    assert.equal(index.fields[0].fieldPath, 'branchId')
+    assert.equal(index.queryScope, 'COLLECTION')
+    assert.throws(() => selectIndexes(indexes.filter(value => value !== index), 'business-report-branch-reads'), /exactly once/)
+    assert.throws(() => selectIndexes([...indexes, index], 'business-report-branch-reads'), /exactly once/)
+    assert.throws(() => selectIndexes(indexes.map(value => value === index ? { ...value, queryScope: 'COLLECTION_GROUP' } : value), 'business-report-branch-reads'), /exactly once/)
+  }
+  assert.deepEqual(parseArguments(['dry-run', '--scope=business-report-branch-reads']), { mode: 'dry-run', scope: 'business-report-branch-reads' })
+  assert.throws(() => parseArguments(['apply', '--scope=business-report-branch-reads']), /confirmation/)
+})
+
 test('users role scope selects the ordered collection index and requires exact production confirmation', () => {
   const [index] = selectIndexes(indexes, 'users-role-reads')
   assert.deepEqual(index, { collectionGroup: 'users', queryScope: 'COLLECTION', fields: [
