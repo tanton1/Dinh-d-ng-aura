@@ -19,7 +19,7 @@ export default function ScheduleWarningDetail({ row, workspace, branchId, branch
     || (coveragePending ? workspace.validationSnapshot?.weeklySessionCoverage?.[row.id] : undefined)
   const schedule = [
     ...row.scheduledEntries.map(entry => ({ id: `${entry.slotId}|${entry.trainerId}`, label: entry.label,
-      branch: workspace.branch.name, trainer: workspace.trainers.find(t => t.id === entry.trainerId)?.name || 'PT chưa cập nhật', crossBranch: false })),
+      branch: branches.find(branch => branch.id === branchId)?.name || 'Cơ sở hiện tại', trainer: workspace.trainers.find(t => t.id === entry.trainerId)?.name || 'PT chưa cập nhật', crossBranch: false })),
     ...(coverage?.entries || []).filter(entry => entry.branchId !== branchId).map(entry => {
       const day = Object.keys(weekDates).find(day => weekDates[day].full === entry.date)
       return { id: entry.id, label: day && entry.hour !== null ? scheduleSlotLabel(`${day}-${entry.hour}`, weekDates) : entry.date,
