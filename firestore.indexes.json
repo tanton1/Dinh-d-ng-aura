@@ -350,6 +350,15 @@
       ]
     },
     {
+      "collectionGroup": "cashTransactions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "branchId", "order": "ASCENDING" },
+        { "fieldPath": "effectiveAt", "order": "DESCENDING" },
+        { "fieldPath": "__name__", "order": "DESCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "contractRenewalActivities",
       "queryScope": "COLLECTION",
       "fields": [
