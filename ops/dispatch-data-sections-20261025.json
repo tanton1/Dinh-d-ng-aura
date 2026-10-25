@@ -1,0 +1,40 @@
+{
+  "status": "implementation_validated_release_pending",
+  "scope": "Selective dispatch hydration and section invalidation; existing callable and source triggers",
+  "protocol": {
+    "sections": ["jobs", "roster", "config", "signals"],
+    "compatibility": "Omitting sections retains the legacy full response, including GPS hydration. Explicit requests return only selected groups and acknowledge only selected markers read before business hydration.",
+    "jobs": "One bounded active-delivery page, exact joined orders and one whole-scope count. Includes assignment binding and OTP deadline. Explicit section requests do not read any GPS storage.",
+    "roster": "At most 100 profiles, exact enabled-profile availability batches of 30, and one whole-scope active count per selected enabled driver.",
+    "config": "One config marker and one configuration document, after the existing admin check.",
+    "signals": "Only the current Vietnam-day aggregate, after the existing admin check. No section marker is required for direct daily-counter subscription."
+  },
+  "invalidation": {
+    "jobs": "Order and delivery changes, including delivery ordering-key changes.",
+    "roster": "Availability/lastSeenAt, displayed shipper profile fields, and changes to a delivery's active-count membership or assigned driver.",
+    "profile": "Reuse syncStudent360Profile. Unrelated user changes perform zero delivery IO; no additional all-users trigger is created.",
+    "replay": "Existing monotonic commit-time transactions suppress duplicate or out-of-order marker writes.",
+    "addedMarkerWrites": "At most one jobs marker per relevant order/delivery event and one roster marker when its inputs change. GPS writes trigger neither."
+  },
+  "validation": {
+    "functionsCheck": "passed",
+    "combinedEmulatorCases": 75,
+    "newSectionIntegrationCases": 9,
+    "cases": ["Selected read budgets and omitted fields", "Whole-scope counts with bounded pages", "Pre-hydration race and selective acknowledgement", "Legacy response compatibility", "Invalid input, revoked access and unavailable requested data", "Selective source routing, replay and profile-trigger wiring", "Exact admin-only reads, no lists or writes, missing documents and current-profile revocation"]
+  },
+  "release": {
+    "functions": ["listEatCleanDispatchData", "syncEatCleanWorkspaceFromOrder", "syncEatCleanWorkspaceFromDelivery", "syncEatCleanWorkspaceFromShipper", "syncStudent360Profile"],
+    "newFunctionExports": 0,
+    "requiresRulesChange": true,
+    "requiresNewIndex": false,
+    "requiresBackfill": false,
+    "prerequisite": "Verify PR24 backend and PR25 frontend before this separate scoped release; deploy all section sources and rules before switching dispatch UI."
+  },
+  "remaining": [
+    "Dispatch UI still uses its existing 30-second full refresh until the follow-up client is deployed.",
+    "The existing 100-profile cap and 100-job default remain; limitReached/page metadata do not establish a complete roster.",
+    "Count aggregation fan-out occurs on roster changes; a later measured contribution model may replace it.",
+    "Fixture operation counts exclude billed index/rules units and do not prove currency savings."
+  ],
+  "measuredSavings": null
+}

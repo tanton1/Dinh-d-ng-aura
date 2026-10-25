@@ -1110,7 +1110,7 @@ function AuraApplication() {
       case 'admin-roles': return <AuraOperationsFrame><AdminRolesPage users={adminUsers} currentRole={role} currentUserUid={user?.uid} loading={adminUsersLoading} onRoleChange={updateUserRole} /></AuraOperationsFrame>
       case 'admin-nutrition-reviews': return <AdminNutritionReviewsPage onNavigate={navigate} focus={route.focus} />
       case 'admin-notifications': return <AdminNotificationsPage onNavigate={navigate} users={adminUsers} currentUserUid={user?.uid} canManageUiRollout={role === 'super_admin'} backendMode={backendMode} />
-      case 'admin-eat-clean': return <AdminEatCleanPage currentRole={role} isDemo={backendMode === 'demo'} />
+      case 'admin-eat-clean': return <AdminEatCleanPage key={user?.uid ?? backendMode} accountId={user?.uid || ''} currentRole={role} isDemo={backendMode === 'demo'} />
 
       // PT Coaching & Gym Management Views
       case 'trainer-portal':

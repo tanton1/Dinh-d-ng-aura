@@ -5,10 +5,11 @@ const { createHash } = require('node:crypto')
 const { Timestamp } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
 const { locationUpdateIssue } = require('./delivery-location-policy')
+const { GPS_DELIVERY_STATUSES } = require('./delivery-status-policy')
 
 const COLLECTION = 'eatCleanLiveLocationViews'
 const RETENTION_MS = 24 * 60 * 60 * 1000
-const ACTIVE = new Set(['accepted', 'at_store', 'picked_up', 'arrived'])
+const ACTIVE = new Set(GPS_DELIVERY_STATUSES)
 const ROLES = new Set(['shipper', 'admin', 'super_admin'])
 const id = value => typeof value === 'string' && value.length > 0 && value.length <= 160
   && value.trim() === value && !value.includes('/') && !['.', '..'].includes(value)

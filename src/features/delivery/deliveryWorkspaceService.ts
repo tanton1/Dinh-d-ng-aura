@@ -44,3 +44,12 @@ export function subscribeDeliveryLocation(orderId: string, next: (value: Deliver
       ? { binding: value.binding, latitude: value.latitude, longitude: value.longitude, updatedAt: value.updatedAt, expiresAt } : null)
   }, error)
 }
+
+export function subscribeDispatchDailySignals(day: string, next: (mapsErrorsToday: number) => void, error: (error: unknown) => void) {
+  if (!firestoreDb || !/^\d{4}-\d{2}-\d{2}$/.test(day)) { queueMicrotask(() => error(new Error('Dispatch daily signals are unavailable'))); return () => {} }
+  return onSnapshot(doc(firestoreDb, 'eatCleanOperationalSignals', day), { includeMetadataChanges: true }, snapshot => {
+    if (snapshot.metadata.fromCache || snapshot.metadata.hasPendingWrites) return
+    const counts = snapshot.data()?.counts || {}
+    next(['maps_error', 'address_error', 'route_error'].reduce((sum, key) => sum + Math.max(0, Number(counts[key]) || 0), 0))
+  }, error)
+}

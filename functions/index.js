@@ -760,6 +760,11 @@ const student360Trigger = (document) => onDocumentWritten({
   const [projection, changes] = await Promise.all([
     syncStudent360ProjectionFromEvent({ db, event, logger }),
     syncWorkspaceChangesFromEvent({ db, event, source: document.includes('/{accountUid}/') ? document.split('/')[2] : document.split('/')[0] }),
+    // Reuse the canonical profile event. Non-shipper/profile-noop edits do no
+    // delivery reads or writes and do not add another all-users trigger.
+    document === 'users/{accountUid}'
+      ? require('./delivery-workspace-signals').syncDeliveryWorkspaceChange({ db, event, source: 'users' })
+      : Promise.resolve(null),
   ])
   if (changes.overflowCount) logger.warn('workspace_change_audience_overflow', { source: changes.source, count: changes.overflowCount })
   return projection
