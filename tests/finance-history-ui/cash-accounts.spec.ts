@@ -34,7 +34,7 @@ test('opening reads once and blocks payment until active cash accounts arrive', 
   })
   await open(page)
   await expect.poll(() => cashCount(page)).toBe(1)
-  await expect(payment(page).getByRole('status')).toContainText('Đang tải danh sách quỹ')
+  await expect(payment(page).getByRole('status').filter({ hasText: 'Đang tải danh sách quỹ' })).toBeVisible()
   await expect(funds(page)).toBeDisabled()
   await expect(payment(page).getByRole('button', { name: 'Ghi khoản thu', exact: true })).toBeDisabled()
   await expect(payment(page).getByText('Chưa có quỹ.', { exact: false })).toHaveCount(0)

@@ -116,20 +116,6 @@ export async function reverseContractPayment(entryId: string, reason: string) {
   return (await callable<{ entryId: string; reason: string; idempotencyKey: string }, { entryId: string; unchanged: boolean; receiptVoucherId?: string; receiptVoucherNumber?: string }>('reverseContractPayment')({ entryId, reason, idempotencyKey: crypto.randomUUID() })).data
 }
 
-export async function recordRefund(input: {
-  contractId: string
-  amount: number
-  effectiveAt: string
-  paymentMethod: string
-  reason: string
-  installmentId?: string
-  cashAccountId: string
-  idempotencyKey?: string
-}) {
-  const idempotencyKey = input.idempotencyKey || crypto.randomUUID()
-  return (await callable<Omit<typeof input, 'idempotencyKey'> & { idempotencyKey: string }, { entryId: string; unchanged: boolean }>('recordRefund')({ ...input, idempotencyKey })).data
-}
-
 export async function lockFinancePeriod(periodId: string) {
   return (await callable<{ periodId: string }, { periodId: string; status: 'locked' }>('lockFinancePeriod')({ periodId })).data
 }

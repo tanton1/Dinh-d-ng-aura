@@ -236,6 +236,19 @@ describe('Aura PT Firestore rules', () => {
     await testEnvironment?.cleanup()
   })
 
+  test('financial cancellation markers are server-only even for administrators', async () => {
+    const path = 'financeOperationCancellations/synthetic-operation'
+    const value = { schemaVersion: 1, actorUid: 'admin-1', type: 'payment', payloadHash: 'synthetic' }
+    const clients = [authenticatedDb('admin-1', 'admin'), authenticatedDb('super-1', 'super_admin'), authenticatedDb('client-1', 'student'), testEnvironment.unauthenticatedContext().firestore()]
+    for (const db of clients) await assertFails(setDoc(doc(db, path), value))
+    await testEnvironment.withSecurityRulesDisabled(context => setDoc(doc(context.firestore(), path), value))
+    for (const db of clients) {
+      await assertFails(getDoc(doc(db, path)))
+      await assertFails(updateDoc(doc(db, path), { actorUid: 'other' }))
+      await assertFails(deleteDoc(doc(db, path)))
+    }
+  })
+
   async function locationFixture() {
     const now = Date.now(), assignedAt = Timestamp.fromMillis(now - 200000), acceptedAt = Timestamp.fromMillis(now - 100000)
     const delivery = { shipperId: 'shipper-a', status: 'accepted', assignedAt, acceptedAt }

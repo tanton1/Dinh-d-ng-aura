@@ -102,10 +102,55 @@ function replayPayload(type, data, idempotencyKey) {
   }
 }
 
+const financeIntentPrefix = 'aura-finance-v1:'
+const financeIntentKey = /^aura-finance-v1:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+
+function normalizeFinanceMutation(type, input, actorUid) {
+  const idempotencyKey = text(input?.idempotencyKey, 'Khóa chống trùng', 100)
+  const common = { type, createdBy: actorUid, idempotencyKey }
+  if (type === 'reversal') return { ...common, reversedEntryId: text(input?.entryId, 'Mã bút toán'), reason: text(input?.reason, 'Lý do', 500) }
+  const contractId = text(input?.contractId, 'Mã hợp đồng')
+  const amount = positiveAmount(input?.amount)
+  return {
+    ...common, contractId, amount: type === 'refund' ? -amount : amount,
+    effectiveAt: effectiveTimestamp(input?.effectiveAt),
+    paymentMethod: type === 'refund' ? text(input?.paymentMethod || 'transfer', 'Phương thức hoàn') : text(input?.paymentMethod, 'Phương thức thanh toán', 50),
+    cashAccountId: text(input?.cashAccountId, 'Tài khoản quỹ', 200),
+    installmentId: optionalText(input?.installmentId, 'Kỳ trả góp', 100),
+    requestExpectedPaidAmount: expectedPaidAmount(input?.expectedPaidAmount),
+    ...(type === 'refund' ? { reason: text(input?.reason, 'Lý do', 500) } : { note: boundedReceiptText(input?.note, 500) || `Thu tiền hợp đồng ${contractId}` }),
+  }
+}
+
+function cancellationReference(db, reference) {
+  return db.doc(`financeOperationCancellations/${reference.id}`)
+}
+
+function financePayloadHash(payload) {
+  return createHash('sha256').update(JSON.stringify(replayPayload(payload.type, payload, payload.idempotencyKey))).digest('hex')
+}
+
+function replayReceipt(document) {
+  const value = document.data()
+  return { entryId: document.id, unchanged: true, referenceCode: value.referenceCode || null, receiptVoucherId: value.accountingDocumentId || null, receiptVoucherNumber: value.voucherNumber || null }
+}
+
 async function financeReplay(transaction, db, reference, idempotencyKey, payload) {
   const canonical = await transaction.get(reference)
   let existing = canonical.exists ? canonical : null
-  if (!existing) {
+  if (!existing && financeIntentKey.test(idempotencyKey)) {
+    // The versioned endpoint owns this namespace, so it needs no legacy query.
+    // Reading the cancellation document in the financial transaction makes a
+    // delayed submit contend with cancellation without an extra success write.
+    const cancellation = await transaction.get(cancellationReference(db, reference))
+    if (cancellation.exists) {
+      const value = cancellation.data()
+      if (value.schemaVersion !== 1 || value.actorUid !== payload.createdBy || value.payloadHash !== financePayloadHash(payload)) {
+        throw new HttpsError('already-exists', 'Yêu cầu này đã được dừng với nội dung khác.', { reason: 'finance-replay-mismatch' })
+      }
+      throw new HttpsError('failed-precondition', 'Yêu cầu này đã được dừng trước khi ghi nhận.', { reason: 'finance-intent-cancelled' })
+    }
+  } else if (!existing) {
     // Old clients/rollback versions wrote random IDs. Keep this bounded bridge
     // for those records, and never pick an arbitrary row from an ambiguous key.
     const legacy = await transaction.get(db.collection('ledgerEntries').where('idempotencyKey', '==', idempotencyKey).limit(2))
@@ -643,25 +688,19 @@ function createFinanceLedgerFunctions({ db, onCall }) {
     }
   })
 
-  const recordContractPayment = onCall(async (request) => {
+  const recordContractPayment = async (request) => {
     const actor = await financeActor(request, db)
-    const contractId = text(request.data?.contractId, 'Mã hợp đồng')
-    const amount = positiveAmount(request.data?.amount)
-    const idempotencyKey = text(request.data?.idempotencyKey, 'Khóa chống trùng', 100)
-    const effectiveAt = effectiveTimestamp(request.data?.effectiveAt)
-    const paymentMethod = text(request.data?.paymentMethod, 'Phương thức thanh toán', 50)
-    const cashAccountId = text(request.data?.cashAccountId, 'Tài khoản quỹ', 200)
-    const installmentId = optionalText(request.data?.installmentId, 'Kỳ trả góp', 100)
-    const expectedPaid = expectedPaidAmount(request.data?.expectedPaidAmount)
-    const note = boundedReceiptText(request.data?.note, 500) || `Thu tiền hợp đồng ${contractId}`
+    const payload = normalizeFinanceMutation('payment', request.data, actor.uid)
+    const { contractId, amount, idempotencyKey, effectiveAt, paymentMethod, cashAccountId, installmentId, note, requestExpectedPaidAmount: expectedPaid } = payload
     const contractReference = db.doc(`contracts/${contractId}`)
     const ledgerReference = financeOperationReference(db, idempotencyKey)
     const journalReference = db.doc(`journalEntries/${ledgerReference.id}`)
     return db.runTransaction(async (transaction) => {
       const [contract, duplicate] = await Promise.all([
         transaction.get(contractReference),
-        financeReplay(transaction, db, ledgerReference, idempotencyKey, { type: 'payment', createdBy: actor.uid, idempotencyKey, contractId, amount, effectiveAt, paymentMethod, cashAccountId, installmentId, note, requestExpectedPaidAmount: expectedPaid }),
+        financeReplay(transaction, db, ledgerReference, idempotencyKey, payload),
       ])
+      if (duplicate && financeIntentKey.test(idempotencyKey)) return replayReceipt(duplicate)
       if (!contract.exists) throw new HttpsError('not-found', 'Không tìm thấy hợp đồng.')
       if (duplicate) return {
         entryId: duplicate.id,
@@ -721,20 +760,20 @@ function createFinanceLedgerFunctions({ db, onCall }) {
       })
       return { entryId: ledgerReference.id, unchanged: false, referenceCode: code, receiptVoucherId: receipt.reference.id, receiptVoucherNumber: receipt.voucherNumber }
     })
-  })
+  }
 
-  const reverseContractPayment = onCall(async (request) => {
+  const reverseContractPayment = async (request) => {
     const actor = await financeActor(request, db)
-    const entryId = text(request.data?.entryId, 'Mã bút toán')
-    const idempotencyKey = text(request.data?.idempotencyKey, 'Khóa chống trùng', 100)
-    const reason = text(request.data?.reason, 'Lý do', 500)
+    const payload = normalizeFinanceMutation('reversal', request.data, actor.uid)
+    const { reversedEntryId: entryId, idempotencyKey, reason } = payload
     const reversalEffectiveAt = Timestamp.now()
     const originalReference = db.doc(`ledgerEntries/${entryId}`)
     const originalReceiptReference = db.doc(`accountingDocuments/receipt_${entryId}`)
     const reversalReference = financeOperationReference(db, idempotencyKey)
     const reversalJournalReference = db.doc(`journalEntries/${reversalReference.id}`)
     return db.runTransaction(async (transaction) => {
-      const [original, duplicate] = await Promise.all([transaction.get(originalReference), financeReplay(transaction, db, reversalReference, idempotencyKey, { type: 'reversal', createdBy: actor.uid, idempotencyKey, reversedEntryId: entryId, reason })])
+      const [original, duplicate] = await Promise.all([transaction.get(originalReference), financeReplay(transaction, db, reversalReference, idempotencyKey, payload)])
+      if (duplicate && financeIntentKey.test(idempotencyKey)) return replayReceipt(duplicate)
       if (!original.exists || original.data().type !== 'payment') throw new HttpsError('failed-precondition', 'Chỉ có thể hoàn tác khoản thu hợp lệ.')
       if (duplicate) return { entryId: duplicate.id, unchanged: true, receiptVoucherId: duplicate.data().accountingDocumentId || null, receiptVoucherNumber: duplicate.data().voucherNumber || null }
       if (original.data().status === 'reversed') throw new HttpsError('already-exists', 'Khoản thu đã được hoàn tác.')
@@ -801,24 +840,19 @@ function createFinanceLedgerFunctions({ db, onCall }) {
       })
       return { entryId: reversalReference.id, unchanged: false, receiptVoucherId: reversalReceipt.reference.id, receiptVoucherNumber: reversalReceipt.voucherNumber }
     })
-  })
+  }
 
-  const recordRefund = onCall(async (request) => {
+  const recordRefund = async (request) => {
     const actor = await financeActor(request, db)
-    const contractId = text(request.data?.contractId, 'Mã hợp đồng')
-    const amount = positiveAmount(request.data?.amount)
-    const idempotencyKey = text(request.data?.idempotencyKey, 'Khóa chống trùng', 100)
-    const reason = text(request.data?.reason, 'Lý do', 500)
-    const effectiveAt = effectiveTimestamp(request.data?.effectiveAt)
-    const installmentId = optionalText(request.data?.installmentId, 'Kỳ trả góp', 100)
-    const cashAccountId = text(request.data?.cashAccountId, 'Tài khoản quỹ', 200)
-    const paymentMethod = text(request.data?.paymentMethod || 'transfer', 'Phương thức hoàn')
-    const expectedPaid = expectedPaidAmount(request.data?.expectedPaidAmount)
+    const payload = normalizeFinanceMutation('refund', request.data, actor.uid)
+    const { contractId, idempotencyKey, reason, effectiveAt, installmentId, cashAccountId, paymentMethod, requestExpectedPaidAmount: expectedPaid } = payload
+    const amount = -payload.amount
     const reference = financeOperationReference(db, idempotencyKey)
     const journalReference = db.doc(`journalEntries/${reference.id}`)
     const contractReference = db.doc(`contracts/${contractId}`)
     return db.runTransaction(async (transaction) => {
-      const [contract, duplicate] = await Promise.all([transaction.get(contractReference), financeReplay(transaction, db, reference, idempotencyKey, { type: 'refund', createdBy: actor.uid, idempotencyKey, contractId, amount: -amount, effectiveAt, paymentMethod, cashAccountId, installmentId, reason, requestExpectedPaidAmount: expectedPaid })])
+      const [contract, duplicate] = await Promise.all([transaction.get(contractReference), financeReplay(transaction, db, reference, idempotencyKey, payload)])
+      if (duplicate && financeIntentKey.test(idempotencyKey)) return replayReceipt(duplicate)
       if (!contract.exists) throw new HttpsError('not-found', 'Không tìm thấy hợp đồng.')
       if (duplicate) return { entryId: duplicate.id, unchanged: true }
       assertExpectedPaidAmount(contract.data(), expectedPaid)
@@ -887,6 +921,43 @@ function createFinanceLedgerFunctions({ db, onCall }) {
       createCashMovement(transaction, db, reference, cashAccount, -amount, effectiveAt, actor.uid, 'contract_refund')
       return { entryId: reference.id, unchanged: false }
     })
+  }
+
+  const manageFinanceOperation = onCall(async (request) => {
+    const input = request.data
+    if (input?.protocol !== 1 || !['submit', 'cancel'].includes(input.action) || !['payment', 'refund', 'reversal'].includes(input.operation?.type)
+        || !financeIntentKey.test(input.operation?.payload?.idempotencyKey || '')
+        || (input.operation.type !== 'reversal' && input.operation.payload.expectedPaidAmount === undefined)) {
+      throw new HttpsError('invalid-argument', 'Yêu cầu tài chính không đúng phiên bản hoặc thiếu thông tin đối chiếu.')
+    }
+    if (!request.auth?.uid || input.ownerUid !== request.auth.uid) throw new HttpsError('permission-denied', 'Tài khoản thực hiện yêu cầu đã thay đổi.', { reason: 'finance-owner-changed' })
+    const { type, payload: data } = input.operation
+    const outcome = (state, receipt) => ({ protocol: 1, idempotencyKey: data.idempotencyKey, state, ...(receipt ? { receipt } : {}) })
+    try {
+      if (input.action === 'submit') {
+        const handler = { payment: recordContractPayment, refund: recordRefund, reversal: reverseContractPayment }[type]
+        return outcome('committed', await handler({ ...request, data }))
+      }
+      const actor = await financeActor(request, db)
+      const payload = normalizeFinanceMutation(type, data, actor.uid)
+      const reference = financeOperationReference(db, payload.idempotencyKey)
+      return await db.runTransaction(async (transaction) => {
+        const committed = await financeReplay(transaction, db, reference, payload.idempotencyKey, payload)
+        if (committed) return outcome('committed', replayReceipt(committed))
+        transaction.create(cancellationReference(db, reference), { schemaVersion: 1, actorUid: actor.uid, type, payloadHash: financePayloadHash(payload), cancelledAt: FieldValue.serverTimestamp() })
+        return outcome('cancelled')
+      })
+    } catch (error) {
+      if (error instanceof HttpsError && error.details?.reason === 'finance-intent-cancelled') return outcome('cancelled')
+      throw error
+    }
+  })
+
+  const legacyMutation = (handler) => onCall((request) => {
+    // Never send an intent through a compatibility endpoint. In particular,
+    // cancellation must not be mistaken for a new payment during rollback.
+    if (String(request.data?.idempotencyKey || '').startsWith(financeIntentPrefix)) throw new HttpsError('failed-precondition', 'Yêu cầu này cần được xử lý qua phiên bản tài chính mới.')
+    return handler(request)
   })
 
   const lockFinancePeriod = onCall(async (request) => {
@@ -902,7 +973,7 @@ function createFinanceLedgerFunctions({ db, onCall }) {
     return { periodId, status: 'locked' }
   })
 
-  return { listFinanceLedger, recordContractPayment, reverseContractPayment, recordRefund, lockFinancePeriod }
+  return { listFinanceLedger, recordContractPayment: legacyMutation(recordContractPayment), reverseContractPayment: legacyMutation(reverseContractPayment), recordRefund: legacyMutation(recordRefund), manageFinanceOperation, lockFinancePeriod }
 }
 
 module.exports = {
