@@ -25,6 +25,8 @@ export const createStudentCommandKey = unused, updateStudentProfile = unused
 export const archiveBranch = unused, createBranchCommandKey = unused, upsertBranch = unused
 export const bulkConfirmMySessions = unused, recordMySessionAttendance = unused, reportMySessionAdvanceAbsence = unused
 export const requestStudentSessionAddition = unused, requestSessionChange = unused, createStudentCareActivity = unused, saveMyTrainerAvailability = unused
+export const getPtTrainerAvailability = async () => { throw new Error('Unexpected managed trainer availability read') }
+export const savePtTrainerAvailability = unused
 export const useWorkspaceAccountId = () => 'trainer'
 export const useVietnamDay = () => '2026-10-24'
 export function useWorkspaceSync(options: { scopeKey: string; refresh: () => Promise<void> }) {
