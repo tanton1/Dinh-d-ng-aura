@@ -1,0 +1,58 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-25",
+  "status": "backend_protocol_validated_client_cutover_pending",
+  "scope": "One existing callable: listEatCleanAdminData. No new exports, Rules, indexes, triggers or business writes.",
+  "protocol": {
+    "sections": [
+      "orders",
+      "meals",
+      "inventory",
+      "config"
+    ],
+    "omittedSections": "Full legacy response and source-limit/filter semantics preserved.",
+    "explicitResponse": "Unrequested properties are omitted; section membership and source-limit coverage are explicit.",
+    "authorization": "Current trusted admin is checked before input validation or business reads.",
+    "sharedReads": "Configuration is read once for catalog initialization state. No extra collection query when the configuration exists.",
+    "legacyInitialization": "If configuration and requested catalogs are empty/missing, at most one ID-only document per unchecked catalog determines global seeded state; date-filtered empty inventory is rechecked without its date filter.",
+    "orderJoins": "Explicit filtered reads hydrate refund and delivery documents only for matching rows inside the existing newest-order window.",
+    "caps": "Meals 200, inventory 500, orders requested 1-200/default100. limitReached is a conservative coverage flag, not proof of another page."
+  },
+  "validation": {
+    "realFirestoreCases": 8,
+    "dispatchRegressionCases": 9,
+    "functionsChecks": "passed",
+    "productionBusinessFixtures": 0
+  },
+  "readBudget": {
+    "configuredConfigSection": {
+      "authorizationDocuments": 1,
+      "configurationDocuments": 1,
+      "businessCollectionQueries": 0
+    },
+    "configuredMealsSection": {
+      "authorizationDocuments": 1,
+      "configurationDocuments": 1,
+      "mealsQueries": 1,
+      "maximumMealDocuments": 200,
+      "orderOrRefundOrDeliveryReads": 0
+    },
+    "legacyMissingConfigExistenceProbe": {
+      "maximumExtraDocuments": 2,
+      "idProjectionOnly": true
+    }
+  },
+  "rollout": {
+    "backendTarget": "listEatCleanAdminData",
+    "sourceBase": "b3cc0fd49696a19dfcdb229bfbea28452d62e893",
+    "dependency": "PR30 full admin route isolation; preserve Academy main/Rules in the final integration.",
+    "next": "Implement and validate section-aware frontend caches before production cutover; deploy and verify the reader before activating explicit callers.",
+    "productionDeployed": false
+  },
+  "limitations": [
+    "Existing unfiltered orders use their bounded newest-source window; status/date database predicates and pagination remain separate work.",
+    "No current frontend requests explicit sections yet; no runtime or billing savings claimed from preparation alone.",
+    "Other tabs must hide unloaded totals rather than presenting missing sections as zero.",
+    "No automatic refresh, data initialization or full history backfill is added."
+  ]
+}
