@@ -5,10 +5,11 @@ test('stale missing results never leak into conflicts or assert that all conflic
     __initialWeeklySnapshot: 'server', __validationMode: 'stale' }))
   await page.goto('/tests/schedule-ui/index.html')
   await page.getByRole('tab', { name: /Cảnh báo/ }).click()
-  await expect(page.getByRole('region', { name: 'Kết quả đối soát trước' })).toBeVisible()
-  await expect(page.getByRole('tab', { name: /Thiếu buổi/ })).toContainText('3 cũ')
+  await expect(page.locator('.schedule-warning-student')).toHaveCount(3)
+  await expect(page.getByRole('tab', { name: /Thiếu buổi/ })).toContainText('3 tạm tính')
   await page.getByRole('tab', { name: /Trùng \/ xung đột/ }).click()
-  await expect(page.getByRole('region', { name: 'Kết quả đối soát trước' })).toHaveCount(0)
+  await expect(page.locator('.schedule-warning-student')).toHaveCount(0)
+  await expect(page.locator('.schedule-warning-retained')).toHaveCount(0)
   await expect(page.getByRole('region', { name: 'Danh sách trùng và xung đột lịch' })).toHaveCount(0)
   await expect(page.getByText('Chưa phát hiện xung đột trong dữ liệu đã tải. Chưa có kết quả đối soát đầy đủ.')).toBeVisible()
   expect(await page.evaluate(() => (window as any).__scheduleCalls || [])).toEqual([])
@@ -26,17 +27,18 @@ test('missing count and rows agree, excluding old profile warnings and already c
     const raw = weeklyViewFixture({ branchId, weekId })
     raw.viewRevision = 2
     raw.validationSnapshot.coverage.byStudent.c.missingSessions = 0
+    raw.schedule['T3-6'] = [{ studentId: 'c', trainerId: 't', type: 'training', branchId }]
     raw.validationSnapshot.coverage.byStudent['old-contract'] = { studentId: 'old-contract', targetSessions: 0, scheduledSessions: 0, draftSessions: 0, otherBranchSessions: 0, missingSessions: 0 }
     raw.validationSnapshot.warnings.push({ studentId: 'old-contract', code: 'PROFILE_DATA_INCOMPLETE' }, { studentId: 'c', code: 'STUDENT_UNSCHEDULED' })
     ;(window as any).__emitScheduleSnapshot('ptScheduleWeeklyViews', raw)
   })
   await page.getByRole('tab', { name: /Cảnh báo/ }).click()
-  const retained = page.getByRole('region', { name: 'Kết quả đối soát trước' })
+  const retained = page.locator('.schedule-warning-grid')
   await expect(retained.locator('article')).toHaveCount(2)
   await expect(retained).not.toContainText('Hợp đồng cũ')
   await expect(retained).not.toContainText('Bình')
   await expect(page.locator('.schedule-warning-stat.is-missing .schedule-warning-stat__value')).toHaveText('2')
-  await expect(page.getByRole('tab', { name: /Thiếu buổi/ })).toContainText('2 cũ')
+  await expect(page.getByRole('tab', { name: /Thiếu buổi/ })).toContainText('2 tạm tính')
 })
 
 for (const width of [390, 1440]) {
@@ -48,15 +50,16 @@ for (const width of [390, 1440]) {
     await page.addStyleTag({ content: 'body { font-family: Inter, ui-sans-serif, system-ui, sans-serif; }' })
     await page.evaluate(() => window.scrollTo(0, 400))
     await page.getByRole('tab', { name: /Cảnh báo/ }).click()
-    const retained = page.getByRole('region', { name: 'Kết quả đối soát trước' })
+    const retained = page.locator('.schedule-warning-grid')
     await expect(retained).toBeVisible()
     await expect(retained).not.toContainText('STUDENT_MISSING_SESSIONS')
-    await retained.locator('summary').first().click()
+    await retained.getByRole('button', { name: 'Mở lịch rảnh của Lan', exact: true }).click()
+    await expect(page.locator('.schedule-warning-profile')).toBeVisible()
     const geometry = await page.evaluate(() => ({
       width: document.documentElement.scrollWidth, viewport: window.innerWidth,
       heading: document.querySelector('#schedule-panel-warnings > header')!.getBoundingClientRect().top,
       toolbar: document.querySelector('.branch-schedule__toolbar')!.getBoundingClientRect().bottom,
-      cards: [...document.querySelectorAll('.schedule-warning-retained__student')].map(element => element.getBoundingClientRect().width),
+      cards: [...document.querySelectorAll('.schedule-warning-student')].map(element => element.getBoundingClientRect().width),
     }))
     expect(geometry.width).toBeLessThanOrEqual(geometry.viewport + 1)
     expect(geometry.heading).toBeGreaterThanOrEqual(geometry.toolbar)
