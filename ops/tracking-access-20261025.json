@@ -1,0 +1,36 @@
+{
+  "status": "implementation_validated_release_pending",
+  "scope": "getEatCleanOrderTracking current-profile authorization",
+  "problem": "The owner branch authorized only by the current order userId. Unlike the administrator and shipper paths, it did not reject a missing or disabled current user profile. Reproduced against the local callable with synthetic records; serving production behavior was not tested.",
+  "change": "Require an existing, enabled current profile before returning any tracking data, reading live location or deriving an owner OTP. Reuse the existing profile read. Keep owner identity checks and the stricter staff claim/profile checks.",
+  "budgets": {
+    "firestoreDocumentReadsPerAuthenticatedValidRequest": 3,
+    "maximumRealtimeLocationReads": 1,
+    "unauthorizedRealtimeLocationReads": 0,
+    "additionalReads": 0,
+    "additionalWritesOrTriggers": 0
+  },
+  "validation": {
+    "newCallableHandlerCases": 18,
+    "fullFunctionsCheck": "passed",
+    "fixtures": "Synthetic in-memory Firestore and RTDB adapters exercise the actual callable. No production documents, provider requests or account mutations.",
+    "coverage": [
+      "Disable or delete an owner after a successful request, reusing the same authentication token.",
+      "Current owner, administrator, super administrator and assigned shipper; OTP only for the owner.",
+      "Changed owner, reassigned shipper, stale staff claims, missing/disabled staff profiles and unrelated users.",
+      "Three-document read budget, no RTDB read on denial, terminal or absent delivery, profile-read failure and RTDB failure."
+    ]
+  },
+  "release": {
+    "functions": ["getEatCleanOrderTracking"],
+    "requiresNewIndex": false,
+    "requiresRulesChange": false,
+    "requiresBackfill": false
+  },
+  "remaining": [
+    "Tracking still refreshes every 15 seconds in the foreground. Event and location stream work is separate.",
+    "Authorization is evaluated per request using its current snapshots; data already returned cannot be revoked retroactively.",
+    "No production billing saving is inferred from this authorization correction."
+  ],
+  "measuredSavings": null
+}
