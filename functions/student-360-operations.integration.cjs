@@ -241,6 +241,33 @@ test('profile changes during loading fence publication and leave the event retry
   await parity(db)
 })
 
+test('root timestamp touches neither write the overview nor invalidate warm operations', async () => {
+  const { db, projection } = await fixture()
+  for (const path of ['students/student', 'users/learner']) {
+    const data = (await db.doc(path).get()).data(), reads = [], counts = { logicalDocumentReads: 0, writesAttempted: 0 }
+    const changed = await event(db, path, { ...data, updatedAt: FieldValue.serverTimestamp() })
+    assert.equal((await sync(observedDb(db, reads, undefined, counts), changed)).reason, 'source_metadata_only')
+    assert.deepEqual(counts, { logicalDocumentReads: 0, writesAttempted: 0 })
+  }
+  assert.equal((await current(db)).generatedAt, projection.generatedAt)
+  assert.equal((await sync(db, await event(db, 'sessions/new', row()))).mode, 'operations')
+  await parity(db)
+})
+
+test('timestamp-only authority writes during loading do not abort an otherwise current operations refresh', async () => {
+  const { db } = await fixture(), change = await event(db, 'sessions/new', row())
+  let touched = false
+  const loading = observedDb(db, [], async path => {
+    if (path === 'sessions' && !touched) {
+      touched = true
+      await db.doc('users/learner').update({ updatedAt: FieldValue.serverTimestamp() })
+      await db.doc('students/student').update({ updatedAt: FieldValue.serverTimestamp() })
+    }
+  })
+  assert.equal((await sync(loading, change)).mode, 'operations')
+  await parity(db)
+})
+
 test('a later session and nutrition event survive an in-flight operations refresh', async () => {
   const { db } = await fixture(), first = await event(db, 'sessions/s', row())
   let enter, release, paused = false

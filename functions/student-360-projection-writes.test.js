@@ -25,6 +25,31 @@ function memoryDb() {
 }
 const eventAt = (ms) => ({ data: { after: { exists: true, updateTime: Timestamp.fromMillis(ms) } } })
 
+test('root profile timestamp-only events do no database work, while real/nested/create/delete changes still reconcile', async () => {
+  const { syncStudent360ProjectionFromEvent } = require('./student-360')
+  let accesses = 0
+  const db = new Proxy({}, { get() { accesses++; throw new Error('database reached') } })
+  const snapshot = (path, value) => ({ exists: value !== null, ref: { path, parent: { id: path.split('/').at(-2) } }, data: () => value })
+  const run = (path, before, after) => syncStudent360ProjectionFromEvent({ db, logger: { error() {} }, event: { params: { studentId: 's' }, data: { before: snapshot(path, before), after: snapshot(path, after) } } })
+  for (const path of ['students/s', 'users/u']) {
+    const base = { name: 'Learner', revision: 2, history: [{ date: '2026-10-20', updatedAt: 1 }] }
+    assert.deepEqual(await run(path, base, { ...base, updatedAt: Timestamp.now() }), { skipped: true, reason: 'source_metadata_only' })
+    assert.deepEqual(await run(path, { ...base, updatedAt: 1 }, base), { skipped: true, reason: 'source_metadata_only' })
+  }
+  assert.equal(accesses, 0)
+  for (const [path, before, after] of [
+    ['students/s', { revision: 1 }, { revision: 2 }],
+    ['students/s', { accountUid: 'old' }, { accountUid: 'new' }],
+    ['users/u', { authzVersion: 1 }, { authzVersion: 2 }],
+    ['users/u', { history: [{ updatedAt: 1 }] }, { history: [{ updatedAt: 2 }] }],
+    ['users/u', { newField: 1 }, { newField: 2 }],
+    ['students/s', null, { name: 'New' }], ['users/u', { name: 'Old' }, null],
+    ['contracts/c', { updatedAt: 1 }, { updatedAt: 2 }],
+    ['sessions/s', { updatedAt: 1 }, { updatedAt: 2 }],
+    ['users/u/bodyMetrics/m', { updatedAt: 1 }, { updatedAt: 2 }],
+  ]) await assert.rejects(run(path, before, after), /database reached/, path)
+})
+
 test('Student 360 does not require a deployment parameter for its optional runtime override', () => {
   require('./student-360')
   const { declaredParams } = require('firebase-functions/params')

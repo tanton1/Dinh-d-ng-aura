@@ -2,6 +2,7 @@
 
 const { createHash, randomUUID } = require('node:crypto')
 const { FieldValue, Timestamp } = require('firebase-admin/firestore')
+const { readDashboardQuery } = require('./operations-dashboard-read-policy')
 
 // Isolate v2 from old in-flight trigger/scheduler revisions. A rolling deploy
 // (or rollback) must never let a v1 delta writer corrupt the v2 baseline.
@@ -209,11 +210,15 @@ async function loadDailyAggregates({ db, startDate, endDate, scope }) {
   const coverage = coverageSnapshot.data() || {}
   if (!coverageSnapshot.exists || !usableCoverage(coverage)
     || coverage.startDate > startDate || coverage.endDate < endDate) return null
-  const snapshot = await db.collection(AGGREGATE_COLLECTION)
+  // Every v2 bucket has a normalized scalar branchId, including __none__.
+  // Apply scope before the global completeness limit so unrelated branches
+  // neither consume the read budget nor force an unnecessary raw fallback.
+  const aggregateScope = scope.unrestricted ? null : {
+    field: 'branchId', ids: scope.branchId === 'none' ? ['__none__'] : (scope.branchIds || []),
+  }
+  const snapshot = await readDashboardQuery(db.collection(AGGREGATE_COLLECTION)
     .where('date', '>=', startDate)
-    .where('date', '<=', endDate)
-    .limit(20_000)
-    .get()
+    .where('date', '<=', endDate), aggregateScope, 20_000)
   if (snapshot.size >= 20_000) return null
   // A rebuild may have replaced buckets after our first coverage read. Do not
   // expose a partial/mixed generation, even if it finished during the query.

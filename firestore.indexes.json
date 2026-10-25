@@ -1,5 +1,6 @@
 {
   "indexes": [
+    {"collectionGroup":"operationsDailyAggregatesV2","queryScope":"COLLECTION","fields":[{"fieldPath":"branchId","order":"ASCENDING"},{"fieldPath":"date","order":"ASCENDING"},{"fieldPath":"__name__","order":"ASCENDING"}]},
     {
       "collectionGroup": "users",
       "queryScope": "COLLECTION",
