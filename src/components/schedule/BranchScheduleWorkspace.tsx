@@ -2063,7 +2063,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
     setExpandedWarningStudentId((current) => current === student.id ? null : student.id)
     setAvailabilityEditorStudentId(null)
     setAvailabilityError('')
-    setNotice(`Đã mở thông tin lịch của ${student.name} trong cảnh báo.`)
+    setNotice('')
   }
 
   const openFirstWarningStudentAvailability = () => {
