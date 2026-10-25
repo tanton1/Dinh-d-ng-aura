@@ -50,7 +50,6 @@ import {
   type PtScheduleQuickCoverage,
   type PtScheduleStudentCoverage,
   type PtScheduleStudentFeasibility,
-  type PtScheduleSwapMove,
   type PtScheduleTrainerDailyLoad,
   type PtScheduleUnassignedEntry,
   type PtSchedulePublishResult,
@@ -83,6 +82,7 @@ const ScheduleHistoryPanel = lazy(() => import('./ScheduleHistoryPanel'))
 const ScheduleResetDialog = lazy(() => import('./ScheduleResetDialog'))
 const SchedulePublishDialog = lazy(() => import('./SchedulePublishDialog'))
 const ScheduleAvailabilityEditor = lazy(() => import('./ScheduleAvailabilityEditor'))
+const ScheduleOptimizationResult = lazy(() => import('./ScheduleOptimizationResult'))
 
 import {
   APP_UPDATE_READY_EVENT,
@@ -1662,41 +1662,10 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
   }, [workspace?.schedule])
 
   const selectedTrainerLoads = useMemo(() => trainerLoads.filter((load) => load.trainerId === selectedTrainerId), [selectedTrainerId, trainerLoads])
-  const optimizationTrace = useMemo<PtScheduleSwapMove[]>(
-    () => workspace?.optimizationSummary?.swapTrace || [],
-    [workspace?.optimizationSummary?.swapTrace],
-  )
   const warningCount = useMemo(() => {
     return warningProfiles.length + scheduleConflictWarnings.length
   }, [scheduleConflictWarnings.length, warningProfiles.length])
-  const contractWarningProfiles = useMemo(() => warningProfiles.filter((profile) => profile.warningCause === 'contract'), [warningProfiles])
-  const learnerWarningProfiles = useMemo(() => warningProfiles.filter((profile) => profile.warningCause === 'learner'), [warningProfiles])
-  const capacityWarningProfiles = useMemo(() => warningProfiles.filter((profile) => profile.warningCause === 'capacity'), [warningProfiles])
-  const systemWarningProfiles = useMemo(() => warningProfiles.filter((profile) => profile.warningCause === 'system'), [warningProfiles])
-  const warningMissingSessions = useMemo(
-    () => warningProfiles.reduce((total, profile) => total + profile.missingSessions, 0),
-    [warningProfiles],
-  )
   const retainedValidation = coveragePending ? workspace?.validationSnapshot : null
-  const warningMissingValue = coveragePending
-    ? retainedValidation ? String(Object.values(retainedValidation.coverage.byStudent).filter(row => row.missingSessions > 0).length) : '—'
-    : String(warningProfiles.length)
-  const warningMissingNote = coveragePending
-    ? retainedValidation ? `${retainedValidation.coverage.missingSessions} buổi · kết quả trước, cần đối soát lại` : workspace?.validationDirty ? 'Đang chờ đối soát nền' : (quickCoverageEstimate ? 'Ước tính · cần đối soát' : 'Chưa có kết quả đối soát')
-    : `${warningMissingSessions} buổi trong tuần`
-  const visibleWarningProfiles = warningFilter === 'priority'
-    ? warningProfiles
-    : warningFilter === 'conflict'
-      ? []
-    : warningFilter === 'contract'
-      ? contractWarningProfiles
-      : warningFilter === 'learner'
-        ? learnerWarningProfiles
-        : warningFilter === 'capacity'
-          ? capacityWarningProfiles
-          : warningFilter === 'system'
-            ? systemWarningProfiles
-            : []
 
   // Candidate ranking only depends on the workspace/slot, not on the search
   // text. Keeping it memoized prevents a full branch scan on every keystroke
@@ -2454,18 +2423,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
         setSelectedTrainerId(trainer); setInspectorSlotId(issue.slotId); setPendingMove(null); setPendingManualCandidate(null)
       }}>{[issue.studentName, issue.trainerName, issue.slotId ? scheduleSlotLabel(issue.slotId, weekDates) : '', ptScheduleConflictLabel(issue.code)].filter(Boolean).join(' · ')}</button>)}</section>}
       {optimizationStatus && <div className="branch-schedule__optimization-progress" role="status" aria-live="polite"><RefreshCw className="is-spinning" /><div><strong>Bộ tối ưu lịch đang chạy</strong><span>{optimizationStatus}</span></div></div>}
-      {!optimizationStatus && workspace?.optimizationSummary?.comparison && <p className="branch-schedule__notice" role="status">
-        Trước → sau: {workspace.optimizationSummary.comparison.before.sessions} → {workspace.optimizationSummary.comparison.after.sessions} buổi · {workspace.optimizationSummary.comparison.before.complete} → {workspace.optimizationSummary.comparison.after.complete} học viên đủ lịch · {workspace.optimizationSummary.comparison.before.paired} → {workspace.optimizationSummary.comparison.after.paired} ca đôi.
-      </p>}
-      {!optimizationStatus && optimizationTrace.length > 0 && <details className="branch-schedule__optimization-trace">
-        <summary><span><Sparkles size={16} /><strong>{optimizationTrace.length} bước xếp/đổi chỗ gần nhất</strong></span><small>Mở chi tiết</small></summary>
-        <ol>{optimizationTrace.map((move, index) => {
-          const fromTrainer = workspace?.trainers.find((trainer) => trainer.id === move.fromTrainerId)?.name || 'PT cũ'
-          const toTrainer = workspace?.trainers.find((trainer) => trainer.id === move.toTrainerId)?.name || 'PT mới'
-          return <li key={`${move.studentId}-${move.fromSlotId || 'new'}-${move.toSlotId}-${index}`}><b>{index + 1}</b><div><strong>{move.studentName || studentName(move.studentId)}</strong><span>{move.fromSlotId ? `${scheduleSlotLabel(move.fromSlotId, weekDates)} · ${fromTrainer} → ` : 'Bổ sung vào '}{scheduleSlotLabel(move.toSlotId, weekDates)} · {toTrainer}</span></div></li>
-        })}</ol>
-      </details>}
-      {!optimizationStatus && searchLimitWarning && <div className="branch-schedule__search-limit" role="status"><AlertTriangle size={16} /> Tối ưu đã dừng ở ngân sách tìm kiếm an toàn cho một số hồ sơ còn thiếu. Ca thủ công, ca khóa và ca đã publish vẫn được giữ nguyên; bấm “Tối ưu tiếp” hoặc xử lý hồ sơ trong Cảnh báo.</div>}
+      {!optimizationStatus && workspace && Boolean(workspace.optimizationSummary?.comparison || workspace.optimizationSummary?.swapTrace?.length || searchLimitWarning) && <Suspense fallback={null}><ScheduleOptimizationResult workspace={workspace} weekDates={weekDates} searchLimitWarning={searchLimitWarning} /></Suspense>}
       {loading && !workspace && <div className="branch-schedule__loading"><RefreshCw className="is-spinning" /> Đang tải workspace theo phạm vi…</div>}
       {workspaceHydrating && <div className="branch-schedule__loading"><RefreshCw className="is-spinning" /> Đang đối soát hợp đồng và cảnh báo…</div>}
 
@@ -2638,7 +2596,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
       )}
 
       {workspace && tab === 'warnings' && (
-        <Suspense fallback={<div role="status">Đang tải cảnh báo…</div>}><ScheduleWarningsPanel workspace={workspace} branchId={branchId} branches={branches} weekDates={weekDates} coveragePending={coveragePending} warningCount={warningCount} warningFilter={warningFilter} setWarningFilter={setWarningFilter} warningMissingValue={warningMissingValue} warningMissingNote={warningMissingNote} warningProfiles={warningProfiles} visibleWarningProfiles={visibleWarningProfiles} contractWarningProfiles={contractWarningProfiles} learnerWarningProfiles={learnerWarningProfiles} capacityWarningProfiles={capacityWarningProfiles} systemWarningProfiles={systemWarningProfiles} scheduleConflictWarnings={scheduleConflictWarnings} expandedWarningStudentId={expandedWarningStudentId} openWarningStudentAvailability={openWarningStudentAvailability} onOpenSlot={(slotId, trainerId) => { setSelectedTrainerId(trainerId); setInspectorSlotId(slotId); setCandidateSearch(''); setPendingManualCandidate(null); setTab('matrix') }} /></Suspense>
+        <Suspense fallback={<div role="status">Đang tải cảnh báo…</div>}><ScheduleWarningsPanel workspace={workspace} branchId={branchId} branches={branches} weekDates={weekDates} coveragePending={coveragePending} warningCount={warningCount} warningFilter={warningFilter} setWarningFilter={setWarningFilter} warningProfiles={warningProfiles} scheduleConflictWarnings={scheduleConflictWarnings} expandedWarningStudentId={expandedWarningStudentId} openWarningStudentAvailability={openWarningStudentAvailability} onOpenSlot={(slotId, trainerId) => { setSelectedTrainerId(trainerId); setInspectorSlotId(slotId); setCandidateSearch(''); setPendingManualCandidate(null); setTab('matrix') }} /></Suspense>
       )}
 
       {workspace && tab === 'history' && (

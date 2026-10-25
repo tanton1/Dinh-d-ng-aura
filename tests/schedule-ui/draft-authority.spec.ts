@@ -2,6 +2,33 @@ import { expect, test } from '@playwright/test'
 
 const assigned = { 'T3-6': [{ studentId: 'b', trainerId: 't', type: 'training', branchId: 'b', source: 'auto_v2' }] }
 
+test('optimizer diagnostics load only with results and keep comparison and move details', async ({ page }) => {
+  const diagnosticsRequests: string[] = []
+  page.on('request', request => { if (request.url().includes('/ScheduleOptimizationResult.tsx')) diagnosticsRequests.push(request.url()) })
+  await page.addInitScript(() => Object.assign(window, { __enableScheduleListener: true, __weeklyViewCompact: true, __initialWeeklySnapshot: 'server' }))
+  await page.goto('/tests/schedule-ui/index.html')
+  await expect(page.locator('.branch-schedule__sync')).toHaveText('Trực tiếp')
+  expect(diagnosticsRequests).toEqual([])
+  await page.evaluate(async () => {
+    const { weeklyViewFixture } = await import('/tests/schedule-ui/service.ts')
+    const key = [...(window as any).__scheduleListeners.keys()].find((p: string) => p.startsWith('ptScheduleWeeklyViews/'))
+    const [branchId, weekId] = key.split('/')[1].split('_')
+    const view = weeklyViewFixture({ branchId, weekId })
+    view.viewRevision = 2
+    view.optimizationSummary = { comparison: { before: { sessions: 1, complete: 0, paired: 0 }, after: { sessions: 2, complete: 1, paired: 1 } },
+      swapTrace: [{ studentId: 'a', fromSlotId: 'T2-6', toSlotId: 'T3-6', fromTrainerId: 't', toTrainerId: 't-secondary' }] }
+    ;(window as any).__emitScheduleSnapshot('ptScheduleWeeklyViews', view)
+  })
+  await expect(page.getByText('Trước → sau: 1 → 2 buổi · 0 → 1 học viên đủ lịch · 0 → 1 ca đôi.')).toBeVisible()
+  await page.getByText('1 bước xếp/đổi chỗ gần nhất').click()
+  const trace = page.locator('.branch-schedule__optimization-trace')
+  await expect(trace).toContainText('Lan')
+  await expect(trace).toContainText('Mai →')
+  await expect(trace).toContainText('Vy')
+  expect(diagnosticsRequests).toHaveLength(1)
+  expect(await page.evaluate(() => (window as any).__scheduleCalls || [])).toEqual([])
+})
+
 test('optimizer result paints immediately and survives A-B-A with an older empty weekly projection', async ({ page }) => {
   await page.addInitScript((schedule) => {
     Object.assign(window, { __weeklyViewCompact: true, __holdFullWorkspace: true, __generatedSchedule: schedule,

@@ -1,4 +1,4 @@
-import { lazy, Suspense, useLayoutEffect } from 'react'
+import { lazy, Suspense, useLayoutEffect, useMemo } from 'react'
 import { AlertTriangle, CheckCircle2, ChevronRight, RefreshCw } from 'lucide-react'
 import type { PtScheduleBranchOption, PtScheduleUnassignedEntry, PtScheduleV2Student, PtScheduleWorkspaceV2Result } from '../../services/ptSchedulePublishService'
 import { contractStatusLabel, diagnosticReasonLabel, scheduleSlotLabel, warningCauseLabel, type WarningCause, type WarningFilter } from '../../features/schedule/workspaceModel'
@@ -27,14 +27,7 @@ interface Props {
   warningCount: number
   warningFilter: WarningFilter
   setWarningFilter: (value: WarningFilter) => void
-  warningMissingValue: string
-  warningMissingNote: string
   warningProfiles: WarningProfile[]
-  visibleWarningProfiles: WarningProfile[]
-  contractWarningProfiles: WarningProfile[]
-  learnerWarningProfiles: WarningProfile[]
-  capacityWarningProfiles: WarningProfile[]
-  systemWarningProfiles: WarningProfile[]
   scheduleConflictWarnings: Conflict[]
   expandedWarningStudentId: string | null
   openWarningStudentAvailability: (student: PtScheduleV2Student) => void
@@ -80,7 +73,22 @@ function RetainedValidation({ workspace }: { workspace: PtScheduleWorkspaceV2Res
   </section>
 }
 
-export default function WeeklyScheduleWarningsPanel({ workspace, branchId, branches, weekDates, coveragePending, warningCount, warningFilter, setWarningFilter, warningMissingValue, warningMissingNote, warningProfiles, visibleWarningProfiles, contractWarningProfiles, learnerWarningProfiles, capacityWarningProfiles, systemWarningProfiles, scheduleConflictWarnings, expandedWarningStudentId, openWarningStudentAvailability, onOpenSlot }: Props) {
+export default function WeeklyScheduleWarningsPanel({ workspace, branchId, branches, weekDates, coveragePending, warningCount, warningFilter, setWarningFilter, warningProfiles, scheduleConflictWarnings, expandedWarningStudentId, openWarningStudentAvailability, onOpenSlot }: Props) {
+  const groups = useMemo(() => ({
+    contract: warningProfiles.filter(profile => profile.warningCause === 'contract'),
+    learner: warningProfiles.filter(profile => profile.warningCause === 'learner'),
+    capacity: warningProfiles.filter(profile => profile.warningCause === 'capacity'),
+    system: warningProfiles.filter(profile => profile.warningCause === 'system'),
+  }), [warningProfiles])
+  const { contract: contractWarningProfiles, learner: learnerWarningProfiles, capacity: capacityWarningProfiles, system: systemWarningProfiles } = groups
+  const visibleWarningProfiles = warningFilter === 'priority' ? warningProfiles : warningFilter === 'conflict' ? [] : groups[warningFilter]
+  const retained = coveragePending ? workspace.validationSnapshot : null
+  const warningMissingValue = coveragePending
+    ? retained ? String(Object.values(retained.coverage.byStudent).filter(row => row.missingSessions > 0).length) : '—'
+    : String(warningProfiles.length)
+  const warningMissingNote = coveragePending
+    ? retained ? `${retained.coverage.missingSessions} buổi · kết quả trước, cần đối soát lại` : workspace.validationDirty ? 'Đang chờ đối soát nền' : (workspace.quickCoverage ? 'Ước tính · cần đối soát' : 'Chưa có kết quả đối soát')
+    : `${warningProfiles.reduce((total, profile) => total + profile.missingSessions, 0)} buổi trong tuần`
   useLayoutEffect(() => {
     const panel = document.getElementById('schedule-panel-warnings')
     const toolbar = panel?.parentElement?.querySelector('.branch-schedule__toolbar')
