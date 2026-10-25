@@ -1,5 +1,5 @@
 import type { PtScheduleUnassignedEntry, PtScheduleV2Student, PtScheduleWorkspaceV2Result } from '../../services/ptSchedulePublishService'
-import { CONFIRMED_AVAILABILITY_STATUSES, CONTRACT_WARNING_REASONS, scheduleSlotLabel, warningCauseFor, type WarningCause } from './workspaceModel'
+import { CONFIRMED_AVAILABILITY_STATUSES, CONTRACT_WARNING_REASONS, LEARNER_WARNING_REASONS, scheduleSlotLabel, warningCauseFor, type WarningCause } from './workspaceModel'
 
 export interface WarningProfile {
   student: PtScheduleV2Student
@@ -36,10 +36,22 @@ const contractReason: Record<string, string> = {
  * This is entirely local and is loaded only with the warning panel. */
 export function presentScheduleWarnings(workspace: PtScheduleWorkspaceV2Result, profiles: WarningProfile[], pending: boolean,
   weekDates: Record<string, { display: string; full: string }>): { rows: WarningRow[]; hasTargets: boolean } {
-  if (!pending) return { hasTargets: true, rows: profiles.map(profile => ({ ...profile,
-    id: profile.student.id, name: profile.student.name, phone: profile.student.phone || '', email: profile.student.email || '',
-    targetSessions: profile.student.sessionsPerWeek,
-  })) }
+  if (!pending) return { hasTargets: true, rows: profiles.map(profile => {
+    let primaryReasonCode = profile.primaryReasonCode
+    const diagnostic = workspace.unassignedEntries?.find(row => row.studentId === profile.student.id)
+    // Exhausting a search budget cannot prove that all PT capacity is full.
+    // Keep genuine current contract/learner blockers ahead of this result,
+    // but never promote one failed candidate into a capacity conclusion.
+    if (diagnostic?.primaryReasonCode === 'SEARCH_LIMIT_REACHED'
+      && !CONTRACT_WARNING_REASONS.has(primaryReasonCode || '') && !LEARNER_WARNING_REASONS.has(primaryReasonCode || '')) {
+      primaryReasonCode = diagnostic.primaryReasonCode
+    }
+    return { ...profile, primaryReasonCode,
+      warningCause: primaryReasonCode ? warningCauseFor(undefined, profile.student.contractStatus, [primaryReasonCode]) : profile.warningCause,
+      id: profile.student.id, name: profile.student.name, phone: profile.student.phone || '', email: profile.student.email || '',
+      targetSessions: profile.student.sessionsPerWeek,
+    }
+  }) }
   const snapshot = workspace.validationSnapshot
   if (!snapshot || snapshot.branchId !== workspace.branch.id || snapshot.weekId !== workspace.weekId
     || snapshot.draftRevision > workspace.draftRevision) return { rows: [], hasTargets: false }
@@ -97,7 +109,7 @@ export function presentScheduleWarnings(workspace: PtScheduleWorkspaceV2Result, 
       phone: student?.phone || warning?.studentPhone || '', email: student?.email || '', targetSessions,
       missingSessions, scheduledSessions, scheduledEntries, crossBranchScheduledSessions,
       primaryReasonCode, reasonCodes: [primaryReasonCode],
-      warningCause: warningCauseFor(diagnostic?.blockerCategory, status, [primaryReasonCode]),
+      warningCause: warningCauseFor(undefined, status, [primaryReasonCode]),
       // Old slot suggestions and action codes are unsafe after a draft edit.
       candidateSlots: [], suggestedSlots: [],
     })
