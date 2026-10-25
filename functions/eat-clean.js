@@ -3740,12 +3740,17 @@ function createEatCleanFunctions(dependencies) {
       db.doc(`eatCleanOrders/${orderId}`).get(),
       db.doc(`eatCleanDeliveries/${orderId}`).get(),
     ])
+    const profile = actorSnapshot.data()
+    // Ownership does not bypass revocation of the current account. Check this
+    // before reading location or deriving an OTP, including for existing tokens.
+    if (!actorSnapshot.exists || profile?.disabled === true) {
+      throw new HttpsError('permission-denied', 'Tài khoản không có quyền xem hành trình đơn này.')
+    }
     if (!orderSnapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy đơn Eat Clean.')
     const order = orderSnapshot.data()
     const delivery = deliverySnapshot.data() || null
-    const role = actorSnapshot.data()?.role
-    const isAdmin = trustedRole(request, actorSnapshot.data(), new Set(['admin', 'super_admin']))
-    const isAssignedShipper = role === 'shipper' && trustedRole(request, actorSnapshot.data(), new Set(['shipper']))
+    const isAdmin = trustedRole(request, profile, new Set(['admin', 'super_admin']))
+    const isAssignedShipper = trustedRole(request, profile, new Set(['shipper']))
       && delivery?.shipperId === actorId
     const isOwner = order.userId === actorId
     if (!isOwner && !isAdmin && !isAssignedShipper) throw new HttpsError('permission-denied', 'Bạn không có quyền xem hành trình đơn này.')
