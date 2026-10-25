@@ -1,10 +1,13 @@
 import { readdir, readFile, stat } from 'node:fs/promises'
 import path from 'node:path'
 import { gzipSync } from 'node:zlib'
+import { viteEntryAsset } from './performance-assets.mjs'
 
 const rootDir = process.cwd()
 const assetsDir = path.join(rootDir, 'dist', 'assets')
 const manifestPath = path.join(rootDir, 'dist', '.vite', 'manifest.json')
+const manifest = JSON.parse(await readFile(manifestPath, 'utf8'))
+const entryAsset = viteEntryAsset(manifest)
 
 const budgets = {
   entryCss: 20_000,
@@ -67,7 +70,7 @@ function assertWithinBudget(label, asset, budget) {
 
 const [entryCss, entryJs, firebaseAuthVendor, firebaseFirestoreVendor, adminDashboardJs, adminDashboardCss, courseDetailJs, courseRuntimeJs, student360Js, schedulerWorkspaceJs, schedulerFallbackJs, progressPageJs, splashStats, html, builtHtml, appSource, onboardingSource] = await Promise.all([
   largestMatchingAsset(/^index-[\w-]+\.css$/),
-  largestMatchingAsset(/^index-[\w-]+\.js$/),
+  stat(path.join(rootDir, 'dist', entryAsset)).then((value) => ({ file: entryAsset, bytes: value.size })),
   largestMatchingAsset(/^vendor-firebase-auth-[\w-]+\.js$/),
   largestMatchingAsset(/^vendor-firebase-firestore-[\w-]+\.js$/),
   gzipMatchingAsset(/^AdminDashboard-[\w-]+\.js$/),
@@ -123,7 +126,6 @@ if (startupTransfer > budgets.startupTransfer) {
 }
 console.log(`✓ Tổng tải khởi động gồm HTML: ${formatBytes(startupTransfer)} / ${formatBytes(budgets.startupTransfer)}`)
 
-const manifest = JSON.parse(await readFile(manifestPath, 'utf8'))
 const initialAssetFiles = new Set(initialAssetNames.map((file) => `assets/${file}`))
 
 function collectStaticRouteAssets(manifestKey, visited = new Set()) {

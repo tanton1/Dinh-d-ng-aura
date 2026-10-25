@@ -232,6 +232,33 @@ jobs:
         if: matrix.suite == 'firestore'
         run: npm run test:data-cost-transaction
 
+  academy:
+    name: Academy versioned learning
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            functions/package-lock.json
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+      - run: npm ci
+      - run: npm --prefix functions ci
+      - run: npm run test:academy
+      - name: Generated Academy assets must match reviewed source
+        run: git diff --exit-code -- functions/generated src/data/generated
+      - run: node --test scripts/prepare-academy-release.test.cjs scripts/academy-release-gate.test.cjs scripts/performance-assets.test.mjs
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:academy-ui
+      - run: npm run test:academy-storage
+
   dependency-review:
     name: Dependency review
     if: github.event_name == 'pull_request'

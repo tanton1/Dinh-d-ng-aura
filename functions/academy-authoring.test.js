@@ -5,6 +5,23 @@ const assert = require('node:assert/strict')
 const { academyAuthoringFixture } = require('./test-support/academy-authoring-fixture')
 const clone = (value) => JSON.parse(JSON.stringify(value))
 
+test('old or unknown editor protocols cannot save, restore or publish before any document reads or writes', async () => {
+  for (const protocol of [undefined, null, 'legacy', 'chapters-v2']) {
+    const f = academyAuthoringFixture()
+    const before = JSON.stringify([...f.store])
+    for (const [action, data] of [
+      ['save', { course: f.input, expectedRevision: 0 }],
+      ['transition', { courseId: 'course', expectedRevision: 1, nextStatus: 'published' }],
+      ['restore', { courseId: 'course', expectedRevision: 1, revision: 1 }],
+    ]) {
+      await assert.rejects(f.handlers[action](f.request({ ...data, academyAuthoringProtocol: protocol })),
+        (error) => error.code === 'failed-precondition' && /tải lại trang/.test(error.message))
+    }
+    assert.equal(JSON.stringify([...f.store]), before)
+    assert.equal(f.reads.length, 0)
+  }
+})
+
 test('the real authoring normalizer preserves bespoke practice rubrics and rejects incomplete or duplicated criteria', () => {
   const { academyAuthoringValidation } = require('./test-support/academy-template-fixture')
   class HttpsError extends Error { constructor(code, message) { super(message); this.code = code } }

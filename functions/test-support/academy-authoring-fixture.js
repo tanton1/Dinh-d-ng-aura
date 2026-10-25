@@ -77,7 +77,7 @@ function academyAuthoringFixture(options = {}) {
           { id: `q-${n}`, question: 'Lựa chọn nào?', options: ['Đúng', 'Sai'], correctIndex: 0, mustPass: true },
         ] } },
     ] })) }
-  const request = (data, role = 'admin') => ({ auth: { uid: role, token: { role } }, data })
+  const request = (data, role = 'admin') => ({ auth: { uid: role, token: { role } }, data: { academyAuthoringProtocol: 'chapters-v1', ...data } })
   const readEditor = async (revision) => (await handlers.readForEditor(request({ authoringCourseId: 'course', expectedRevision: revision }))).course
   const chapterCount = () => [...store.keys()].filter((path) => path.includes('/academyChapterVersions/')).length
   return { store, reads, db, storage, handlers, input, request, readEditor, chapterCount, validation, HttpsError, authorize,

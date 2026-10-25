@@ -3146,6 +3146,7 @@ const academyAuthoring = createAcademyAuthoringHandlers({
 /** Atomically saves chapter versions, the manifest, immutable revision and audit event. */
 exports.saveCourseDraftAtomic = onCall({ cpu: 'gcf_gen1', maxInstances: 3, invoker: 'public' }, async (request) => {
   if (request.data?.academyAdoption !== undefined) {
+    academyAuthoring.assertClientProtocol(request)
     if (request.data.course !== undefined) throw new HttpsError('invalid-argument', 'Chỉ thực hiện một thao tác khóa học mỗi lần.')
     return academyDraftAdoption.mutate(request)
   }

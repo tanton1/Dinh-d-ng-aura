@@ -11,6 +11,14 @@ const lessons = (course) => (course?.modules || []).flatMap((module) => module.l
 function createAcademyAuthoringHandlers({ db, HttpsError, FieldValue, storage, authorize, validateId,
   normalize, assertSaveStatus, assertReady, buildQuizContentHash, buildDiff, schedulerAvailable = false, validateScientificReview }) {
   const fail = (code, message) => { throw new HttpsError(code, message) }
+  function assertClientProtocol(request) {
+    // The backend ships before the new editor. An old tab must not migrate a
+    // course to chapter storage while it still assumes inline course content.
+    // This is a compatibility fence, never a substitute for staff authorization.
+    if (request.data?.academyAuthoringProtocol !== STORAGE) {
+      fail('failed-precondition', 'Trình biên tập khóa học đã được nâng cấp. Hãy tải lại trang trước khi lưu, khôi phục hoặc xuất bản; nội dung chưa được thay đổi.')
+    }
+  }
   const revisionRef = (courseId, revision) => db.doc(`courseRevisions/${courseId}_${String(revision).padStart(6, '0')}`)
   const expected = (value, minimum = 0) => {
     if (!Number.isSafeInteger(value) || value < minimum) fail('invalid-argument', 'Cần revision hiện tại để thao tác khóa học an toàn.')
@@ -145,6 +153,7 @@ function createAcademyAuthoringHandlers({ db, HttpsError, FieldValue, storage, a
   }
 
   async function save(request) {
+    assertClientProtocol(request)
     const courseId = validateId(request.data?.course?.id, 'Mã khóa học')
     const expectedRevision = expected(request.data?.expectedRevision)
     return db.runTransaction(async (transaction) => {
@@ -179,6 +188,7 @@ function createAcademyAuthoringHandlers({ db, HttpsError, FieldValue, storage, a
   }
 
   async function transition(request) {
+    assertClientProtocol(request)
     const courseId = validateId(request.data?.courseId, 'Mã khóa học')
     const expectedRevision = expected(request.data?.expectedRevision, 1)
     const nextStatus = request.data?.nextStatus
@@ -253,6 +263,7 @@ function createAcademyAuthoringHandlers({ db, HttpsError, FieldValue, storage, a
   }
 
   async function restore(request) {
+    assertClientProtocol(request)
     const courseId = validateId(request.data?.courseId, 'Mã khóa học')
     const sourceRevision = expected(request.data?.revision, 1)
     const expectedRevision = expected(request.data?.expectedRevision)
@@ -332,7 +343,7 @@ function createAcademyAuthoringHandlers({ db, HttpsError, FieldValue, storage, a
     })
   }
 
-  return { save, transition, restore, readForEditor, diff }
+  return { save, transition, restore, readForEditor, diff, assertClientProtocol }
 }
 
 module.exports = { createAcademyAuthoringHandlers }

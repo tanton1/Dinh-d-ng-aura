@@ -9,6 +9,7 @@ async function action<Output>(input: object): Promise<Output> {
   const owner = firebaseAuth?.currentUser
   if (!owner || !firebaseFunctions) throw new Error('Hãy đăng nhập bằng tài khoản biên tập trước khi thao tác.')
   const result = await httpsCallable<object, Output>(firebaseFunctions, 'saveCourseDraftAtomic', { timeout: 60_000 })({
+    academyAuthoringProtocol: 'chapters-v1',
     academyAdoption: { ...input, expectedActorId: owner.uid },
   })
   if (firebaseAuth?.currentUser !== owner) throw new Error('Phiên đăng nhập đã đổi. Hãy mở lại khóa học để kiểm tra kết quả trên server.')

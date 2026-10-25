@@ -94,6 +94,7 @@ test('actual mutation service sends the initiating UID, uses one existing endpoi
   await assert.rejects(f.api.prepareAcademyAdoption('course', 3, 4), /network result unknown/)
   assert.equal(f.calls.length, 1)
   assert.equal(f.calls[0].callable, 'saveCourseDraftAtomic')
+  assert.equal(f.calls[0].input.academyAuthoringProtocol, 'chapters-v1')
   assert.equal(f.calls[0].input.academyAdoption.expectedActorId, 'staff')
   f.auth.currentUser = null
   await assert.rejects(f.api.prepareAcademyAdoption('course', 3, 4), /đăng nhập/)

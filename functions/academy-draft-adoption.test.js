@@ -229,6 +229,9 @@ test('existing production callables route explicit adoption commands without add
   const context = { exports: {}, onCall: (_config, handler) => handler, academyLearnerRuntime: {}, HttpsError: f.HttpsError,
     requireCaller: (request) => request.auth.uid, academyDraftAdoption: f.adoption, academyAuthoring: f.handlers }
   runInNewContext([callback('saveCourseDraftAtomic'), callback('listAcademyCourses')].join('\n'), context)
+  const oldClient = f.command({ action: 'prepare', chapter: 3, expectedRevision: 3 })
+  delete oldClient.data.academyAuthoringProtocol
+  await unchanged(f, () => context.exports.saveCourseDraftAtomic(oldClient), 'failed-precondition')
   const prepared = await context.exports.saveCourseDraftAtomic(f.command({ action: 'prepare', chapter: 3, expectedRevision: 3 }))
   const read = await context.exports.listAcademyCourses(f.request({ adoptionCandidate: { courseId: 'course', candidateId: prepared.candidateId } }))
   assert.equal(read.artifact.chapter, 3)

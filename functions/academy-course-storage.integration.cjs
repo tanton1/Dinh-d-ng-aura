@@ -41,7 +41,7 @@ test('reviewed chapter adoption uses real transactions without publishing drafts
     validateId: validation.courseId, normalize: validation.normalizeCourseDraftInput, assertSaveStatus: validation.assertCourseContentSaveStatus,
     assertReady: validation.assertCourseReadyToPublish, buildQuizContentHash: validation.buildQuizContentHash,
     buildDiff: validation.buildCourseRevisionDiff, validateScientificReview: adoption.validateCourse })
-  const staff = (data) => ({ auth: { uid: adminId, token: { role: 'admin' } }, data: { courseId, ...data } })
+  const staff = (data) => ({ auth: { uid: adminId, token: { role: 'admin' } }, data: { courseId, academyAuthoringProtocol: 'chapters-v1', ...data } })
   const learner = (data) => ({ auth: { uid: learnerId, token: { role: 'student' } }, data: { courseId, ...data } })
   const command = (data) => staff({ academyAdoption: { courseId, ...data } })
   const input = JSON.parse(JSON.stringify(require('./generated/academy-course-template.cjs').auraFoundationCourse))
@@ -291,7 +291,7 @@ test('real authoring, publication, catalog, grade and completion remain consiste
   const courseId = `academy-authoring-${randomUUID()}`
   const rootRef = db.doc(`courses/${courseId}`)
   const input = { ...academyAuthoringFixture().input, id: courseId, publicationStatus: 'review' }
-  const staff = (data) => ({ auth: { uid: adminId, token: { role: 'admin' } }, data: { courseId, ...data } })
+  const staff = (data) => ({ auth: { uid: adminId, token: { role: 'admin' } }, data: { courseId, academyAuthoringProtocol: 'chapters-v1', ...data } })
   const learner = (data = {}) => ({ auth: { uid: learnerId, token: { role: 'student' } }, data: { courseId, ...data } })
   await authoring.save(staff({ course: input, expectedRevision: 0 }))
   await authoring.transition(staff({ expectedRevision: 1, nextStatus: 'approved' }))

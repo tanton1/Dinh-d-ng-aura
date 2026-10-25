@@ -478,6 +478,7 @@ export async function saveCourseDraft(input: CourseDraftInput) {
   const payload = {
     course: withoutUndefined({ ...input, id: normalizedCourseId }),
     expectedRevision,
+    academyAuthoringProtocol: 'chapters-v1',
   }
   const callable = httpsCallable<
     typeof payload,
@@ -558,6 +559,7 @@ export async function transitionCoursePublicationStatus(
     courseId: requireDocumentId(courseId, 'Mã khóa học'),
     expectedRevision,
     nextStatus,
+    academyAuthoringProtocol: 'chapters-v1',
   }
   const callable = httpsCallable<typeof input, { courseId: string; revision: number; status: CourseDraftInput['publicationStatus']; publishedRevision?: number | null }>(
     requireFunctions(),
@@ -580,7 +582,7 @@ export async function transitionCoursePublicationStatus(
 }
 
 export async function restoreCourseRevisionToDraft(courseId: string, revision: number, expectedRevision: number) {
-  const input = { courseId: requireDocumentId(courseId, 'Mã khóa học'), revision, expectedRevision }
+  const input = { courseId: requireDocumentId(courseId, 'Mã khóa học'), revision, expectedRevision, academyAuthoringProtocol: 'chapters-v1' }
   const callable = httpsCallable<typeof input, { courseId: string; revision: number; status: 'draft'; restoredFromRevision: number; publishedRevision?: number | null }>(requireFunctions(), 'restoreCourseRevisionToDraft')
   try {
     return (await callable(input)).data
