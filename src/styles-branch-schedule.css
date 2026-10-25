@@ -916,10 +916,6 @@
 .schedule-warning-cause-label.is-learner { color:#946410; background:#fff6db; }
 .schedule-warning-cause-label.is-capacity { color:#2d60a9; background:#edf4ff; }
 .schedule-warning-cause-label.is-system { color:#655181; background:#f4effa; }
-.schedule-warning-student.is-cause-contract { border-left:3px solid #df7a42; }
-.schedule-warning-student.is-cause-learner { border-left:3px solid #d5a12c; }
-.schedule-warning-student.is-cause-capacity { border-left:3px solid #4d82cc; }
-.schedule-warning-student.is-cause-system { border-left:3px solid #8069a6; }
 .schedule-warning-student > button i { font-weight: 600; }
 .schedule-warning-primary {
   color: #a85872;
