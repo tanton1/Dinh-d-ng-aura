@@ -4,6 +4,15 @@ const publish = () => { state.databaseVersion++; subscribers.forEach(callback =>
 export const state = {
   owner: 'admin-a', calls: [] as Array<{ owner: string; query: any }>, refreshes: 0,
   databaseVersion: 0, defer: false, settled: 0, failure: '', payments: 0, reversals: 0,
+  cashCalls: [] as Array<{ owner: string }>, cashDefer: false, cashSettled: 0, cashFailure: '',
+  cashAccounts: [{ id: 'cash-a', branchId: 'a', status: 'active', name: 'Test cash', balance: 100_000 }],
+  cashPending: [] as Array<{ resolve: (result: any) => void; reject: (error: Error) => void; result: any }>,
+  resolveCash(index: number, failure = '') {
+    const pending = this.cashPending[index]
+    if (!pending) throw Error('Missing pending cash request')
+    if (failure) pending.reject(Object.assign(new Error('Cash read failed'), { code: 'functions/' + failure }))
+    else pending.resolve(pending.result)
+  },
   pending: [] as Array<{ resolve: (result: any) => void; reject: (error: Error) => void; page: any }>,
   resolve(index: number, failure = '') {
     const pending = this.pending[index]
@@ -38,7 +47,19 @@ export async function listFinanceLedger(query: any) {
   try { return await new Promise((resolve, reject) => { state.pending.push({ resolve, reject, page }) }) }
   finally { state.settled++ }
 }
-export const listCashAccounts = async () => ({ accounts: [{ id: 'cash-a', branchId: 'a', status: 'active', name: 'Test cash' }] })
+export async function listCashAccounts() {
+  state.cashCalls.push({ owner: state.owner })
+  const result = { accounts: state.cashAccounts.map(account => ({ ...account })) }
+  try {
+    if (state.cashFailure) {
+      const code = state.cashFailure
+      state.cashFailure = ''
+      throw Object.assign(new Error('Cash read failed'), { code: 'functions/' + code })
+    }
+    if (!state.cashDefer) return result
+    return await new Promise((resolve, reject) => { state.cashPending.push({ resolve, reject, result }) })
+  } finally { state.cashSettled++ }
+}
 export async function recordContractPayment(input: { contractId: string; amount: number }) {
   state.payments++
   const contract = contracts.find(item => item.id === input.contractId)!

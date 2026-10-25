@@ -155,10 +155,13 @@ function FinanceWorkspace({ profile }: Props) {
   const [entryToReverse, setEntryToReverse] = useState<FinanceLedgerEntry | null>(null)
   const [alertMessage, setAlertMessage] = useState<string | null>(null)
   const [cashAccounts, setCashAccounts] = useState<CashAccount[]>([])
+  const [cashAccountsLoading, setCashAccountsLoading] = useState(false)
+  const [cashAccountsError, setCashAccountsError] = useState('')
   const [selectedCashAccountId, setSelectedCashAccountId] = useState('')
   const [debtSearch, setDebtSearch] = useState('')
   const [visibleDebtCount, setVisibleDebtCount] = useState(20)
   const requestSequence = useRef(0)
+  const cashRequestSequence = useRef(0)
   const mounted = useRef(true)
   const historyVisible = useRef(showHistory)
   historyVisible.current = showHistory
@@ -257,12 +260,6 @@ function FinanceWorkspace({ profile }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showHistory, dateRange, effectiveBranchId])
 
-  useEffect(() => {
-    let active = true
-    void listCashAccounts().then((result) => { if (active) setCashAccounts(result.accounts.filter((item) => item.status === 'active')) }).catch(() => { if (active) setCashAccounts([]) })
-    return () => { active = false }
-  }, [])
-
   const filteredContracts = useMemo(() => contracts.filter((contract) => {
     if (effectiveBranchId === 'all') return true
     if (effectiveBranchId === 'none') return !contract.branchId
@@ -350,16 +347,52 @@ function FinanceWorkspace({ profile }: Props) {
 
   const studentName = (studentId: string) => studentById.get(studentId)?.name || 'Học viên đã xóa'
 
+  const loadPaymentCashAccounts = async (contract: StudentContract) => {
+    const sequence = ++cashRequestSequence.current
+    const isCurrent = () => mounted.current && cashRequestSequence.current === sequence
+    setCashAccounts([])
+    setSelectedCashAccountId('')
+    setCashAccountsLoading(true)
+    setCashAccountsError('')
+    try {
+      const result = await listCashAccounts()
+      if (!isCurrent()) return
+      const accounts = result.accounts.filter((item) => item.status === 'active')
+      setCashAccounts(accounts)
+      setSelectedCashAccountId(accounts.find((item) => !contract.branchId || item.branchId === contract.branchId)?.id || '')
+    } catch (cause) {
+      if (!isCurrent()) return
+      const { code } = callableErrorDetails(cause)
+      setCashAccountsError(/permission-denied|unauthenticated/i.test(code)
+        ? 'Tài khoản chưa có quyền đọc danh sách quỹ.'
+        : 'Chưa tải được danh sách quỹ. Hãy thử lại.')
+    } finally {
+      if (isCurrent()) setCashAccountsLoading(false)
+    }
+  }
+
+  const closePayment = () => {
+    cashRequestSequence.current += 1
+    setSelectedContract(null)
+    setSelectedInstallmentId(null)
+    setCashAccounts([])
+    setSelectedCashAccountId('')
+    setCashAccountsLoading(false)
+    setCashAccountsError('')
+  }
+
   const openPayment = (contract: StudentContract) => {
     const debt = contractDebt(contract)
     setSelectedContract(contract)
     setSelectedInstallmentId(null)
     setPayAmount(String(Math.max(0, debt)))
-    setSelectedCashAccountId(cashAccounts.find((item) => !contract.branchId || item.branchId === contract.branchId)?.id || '')
+    // A fresh read belongs to this explicit payment dialog, not the debt page.
+    // Closing/reopening or changing authority fences every earlier response.
+    void loadPaymentCashAccounts(contract)
   }
 
   const submitPayment = async () => {
-    if (!selectedContract || isSubmitting) return
+    if (!selectedContract || isSubmitting || cashAccountsLoading || cashAccountsError) return
     const amount = Number(payAmount)
     if (!Number.isSafeInteger(amount) || amount === 0) {
       setAlertMessage('Số tiền phải là số nguyên khác 0.')
@@ -393,8 +426,7 @@ function FinanceWorkspace({ profile }: Props) {
           reason: selectedInstallmentId ? 'Hoàn tiền kỳ trả góp' : 'Hoàn tiền từ trang tài chính',
         })
       }
-      setSelectedContract(null)
-      setSelectedInstallmentId(null)
+      closePayment()
       setPayAmount('')
       await loadLedger(false)
       setAlertMessage(amount > 0 ? 'Đã ghi khoản thu và projection hợp đồng trong cùng transaction.' : 'Đã ghi hoàn tiền và projection hợp đồng trong cùng transaction.')
@@ -527,16 +559,18 @@ function FinanceWorkspace({ profile }: Props) {
           {!ledgerLoading && !ledgerError && cashEntries.length === 0 && <p className="py-8 text-center text-sm text-zinc-500">Chưa có dòng tiền trong bộ lọc.</p>}
         </Modal>}
 
-        {selectedContract && <Modal onClose={() => { setSelectedContract(null); setSelectedInstallmentId(null) }} title="Thu công nợ">
+        {selectedContract && <Modal onClose={closePayment} title="Thu công nợ">
           <p className="text-sm text-zinc-400">Học viên: <b className="text-white">{studentName(selectedContract.studentId)}</b></p>
           <div className="mt-4 rounded-xl border border-zinc-800 bg-zinc-950 p-4 text-sm"><div className="flex justify-between text-zinc-500"><span>Tổng hợp đồng</span><span className="text-zinc-300">{money(Number(selectedContract.totalPrice || 0) - Number(selectedContract.discount || 0))}</span></div><div className="mt-2 flex justify-between text-zinc-500"><span>Đã thanh toán</span><span className="text-zinc-300">{money(Number(selectedContract.paidAmount || 0))}</span></div></div>
           {(selectedContract.installments || []).some((item) => item.status === 'pending') && <div className="mt-4"><p className="mb-2 text-xs font-bold text-zinc-500">Chọn nhanh kỳ trả góp</p><div className="flex flex-wrap gap-2">{selectedContract.installments?.filter((item) => item.status === 'pending').map((item) => <button key={item.id} onClick={() => { setSelectedInstallmentId(item.id); setPayAmount(String(item.amount)) }} className={`rounded-lg border px-3 py-2 text-xs ${selectedInstallmentId === item.id ? 'border-pink-500 bg-pink-500/10 text-pink-300' : 'border-zinc-700 bg-zinc-900 text-zinc-300'}`}>{new Date(item.date).toLocaleDateString('vi-VN')} · {money(item.amount)}</button>)}</div></div>}
           <label className="mt-4 block text-xs font-bold text-zinc-500">Số tiền; nhập số âm để hoàn tiền</label>
           <input type="number" value={payAmount} onChange={(event) => { setPayAmount(event.target.value); setSelectedInstallmentId(null) }} className="mt-2 min-h-12 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-4 text-lg font-bold text-white" />
           <label className="mt-4 block text-xs font-bold text-zinc-500">Quỹ nhận/chi</label>
-          <select required value={selectedCashAccountId} onChange={(event) => setSelectedCashAccountId(event.target.value)} className="mt-2 min-h-12 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-4 text-sm font-bold text-white"><option value="">Chọn quỹ bắt buộc</option>{cashAccounts.map((item) => <option key={item.id} value={item.id}>{item.name} · {money(item.balance)}</option>)}</select>
-          {!cashAccounts.length && <p className="mt-2 text-xs text-amber-400">Chưa có quỹ. Mở Sổ quỹ và nhập số dư đầu kỳ đã kiểm kê trước khi thu/hoàn.</p>}
-          <button onClick={() => void submitPayment()} disabled={isSubmitting || !selectedCashAccountId || !payAmount || Number(payAmount) === 0} className="mt-4 min-h-12 w-full rounded-xl bg-gradient-to-r from-pink-500 to-orange-500 font-bold text-white disabled:opacity-50">{isSubmitting ? 'Đang ghi sổ…' : Number(payAmount) < 0 ? 'Ghi khoản hoàn tiền' : 'Ghi khoản thu'}</button>
+          <select aria-label="Quỹ nhận/chi" required disabled={cashAccountsLoading || Boolean(cashAccountsError)} value={selectedCashAccountId} onChange={(event) => setSelectedCashAccountId(event.target.value)} className="mt-2 min-h-12 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-4 text-sm font-bold text-white"><option value="">Chọn quỹ bắt buộc</option>{cashAccounts.map((item) => <option key={item.id} value={item.id}>{item.name} · {money(item.balance)}</option>)}</select>
+          {cashAccountsLoading && <p role="status" className="mt-2 text-xs text-zinc-400">Đang tải danh sách quỹ…</p>}
+          {cashAccountsError && <div className="mt-2 text-xs text-amber-400"><p role="alert">{cashAccountsError}</p><button type="button" onClick={() => void loadPaymentCashAccounts(selectedContract)} className="mt-2 min-h-11 underline">Thử tải lại danh sách quỹ</button></div>}
+          {!cashAccountsLoading && !cashAccountsError && !cashAccounts.length && <p className="mt-2 text-xs text-amber-400">Chưa có quỹ. Mở Sổ quỹ và nhập số dư đầu kỳ đã kiểm kê trước khi thu/hoàn.</p>}
+          <button onClick={() => void submitPayment()} disabled={isSubmitting || cashAccountsLoading || Boolean(cashAccountsError) || !selectedCashAccountId || !payAmount || Number(payAmount) === 0} className="mt-4 min-h-12 w-full rounded-xl bg-gradient-to-r from-pink-500 to-orange-500 font-bold text-white disabled:opacity-50">{isSubmitting ? 'Đang ghi sổ…' : Number(payAmount) < 0 ? 'Ghi khoản hoàn tiền' : 'Ghi khoản thu'}</button>
         </Modal>}
 
         {entryToReverse && <Modal onClose={() => setEntryToReverse(null)} title="Đảo bút toán">
