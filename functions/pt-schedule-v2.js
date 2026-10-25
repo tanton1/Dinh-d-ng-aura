@@ -1310,7 +1310,7 @@ async function loadBranchDataFresh(db, branchId, week, options = {}) {
     const inactive = ['inactive', 'archived', 'deleted'].includes(String(profile.status || '').toLowerCase())
     if (inactive) return false
     if (referencedStudentIds.has(studentId) || previousWeekSessionCounts.has(studentId)) return true
-    return studentWeekEligibility(mappedContractsByStudent.get(studentId) || [], studentId, branchId, week).eligible
+    return studentWeekEligibility(mappedContractsByStudent.get(studentId) || [], studentId, branchId, week, undefined, false, config.data() || {}).eligible
   }))
   // Read exact weekly availability only for learners who can affect this
   // workspace. The old implementation issued one document read for every
@@ -1373,7 +1373,7 @@ async function loadBranchDataFresh(db, branchId, week, options = {}) {
           : 'missing'
     const availabilityWindow = availabilityWindowForWeek(week, config.data(), effectiveAvailability)
     const studentContracts = mappedContractsByStudent.get(item.id) || []
-    const eligibility = studentWeekEligibility(studentContracts, item.id, displayOnly ? data.branchId : branchId, week)
+    const eligibility = studentWeekEligibility(studentContracts, item.id, displayOnly ? data.branchId : branchId, week, undefined, false, config.data() || {})
     const studentInactive = ['inactive', 'archived', 'deleted'].includes(String(data.status || '').toLowerCase())
     const weeklySessionTargetOverride = Object.prototype.hasOwnProperty.call(weeklySessionTargets, item.id)
       ? weeklySessionTargets[item.id]
@@ -1645,7 +1645,7 @@ async function loadManualMutationData(db, branchId, week, trainerId, studentId, 
         ? 'recurring'
         : 'missing'
   const availabilityWindow = availabilityWindowForWeek(week, config.data(), effectiveAvailability)
-  const eligibility = studentWeekEligibility(contracts, studentId, branchId, week, todayInHoChiMinh(), allowCrossBranchStudent)
+  const eligibility = studentWeekEligibility(contracts, studentId, branchId, week, todayInHoChiMinh(), allowCrossBranchStudent, config.data() || {})
   const studentInactive = ['inactive', 'archived', 'deleted'].includes(String(rawStudent.status || '').toLowerCase())
   const weeklySessionTargets = weeklySessionTargetsForWeek(draftData, targetOverrideData)
   const adminSessionTarget = Object.prototype.hasOwnProperty.call(weeklySessionTargets, studentId)
@@ -1749,7 +1749,7 @@ function contractCanServeScheduledDate(contract, date) {
   return contractEffectiveOnDate(contract, date)
 }
 
-function studentWeekEligibility(contracts, studentId, branchId, week, referenceDate = todayInHoChiMinh(), allowCrossBranch = false) {
+function studentWeekEligibility(contracts, studentId, branchId, week, referenceDate = todayInHoChiMinh(), allowCrossBranch = false, scheduleConfig = null) {
   const reasons = new Set()
   const weekDates = datesForWeek(week)
   const weekStart = weekDates[0]
@@ -1785,7 +1785,14 @@ function studentWeekEligibility(contracts, studentId, branchId, week, referenceD
     }
     return true
   })
-  const dates = weekDates.filter((date) => date >= referenceDate)
+  // Contract dates span seven calendar days, but a closed Sunday must not
+  // keep a learner eligible when approved OFF covers every operating day.
+  // All production callers provide the same calendar used by the matrix.
+  const calendar = scheduleConfig ? normalizedScheduleConfig(scheduleConfig) : null
+  const operatingDates = calendar
+    ? new Set(calendar.workingDays.map((day) => dateForSlot(week, day)).filter((date) => !calendar.holidays.includes(date)))
+    : new Set(weekDates)
+  const dates = weekDates.filter((date) => date >= referenceDate && operatingDates.has(date))
   const validDates = []
   const pausedDates = []
   const eligibleContractIds = new Set()

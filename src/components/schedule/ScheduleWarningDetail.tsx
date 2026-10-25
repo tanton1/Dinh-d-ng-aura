@@ -1,92 +1,56 @@
-import { ChevronRight } from 'lucide-react'
-import type {
-  PtScheduleV2Student,
-  PtScheduleWorkspaceV2Result,
-} from '../../services/ptSchedulePublishService'
-import {
-  DAY_LABELS,
-  contractStatusLabel,
-  diagnosticReasonLabel,
-  scheduleSlotLabel,
-} from '../../features/schedule/workspaceModel'
-
-// These labels are used only by expanded warning details. Keep them in this
-// lazy panel so the initial schedule matrix does not download/parse them.
-function availabilitySlotLabel(slotId: string) {
-  const [day, rawHour] = slotId.split('-')
-  return `${DAY_LABELS[day] || day} ${String(Number(rawHour)).padStart(2, '0')}:00`
-}
-
-function diagnosticActionLabel(code: string | undefined) {
-  switch (code) {
-    case 'EDIT_STUDENT_AVAILABILITY': return 'Bổ sung / điều chỉnh lịch rảnh'
-    case 'REVIEW_CONTRACT_QUOTA': return 'Kiểm tra quota hoặc nối tiếp hợp đồng'
-    case 'REVIEW_CONTRACT_DATES': return 'Kiểm tra ngày hiệu lực hợp đồng'
-    case 'ADD_TRAINER_AVAILABILITY': return 'Bổ sung lịch rảnh PT hoặc mở PT hỗ trợ'
-    case 'OPEN_OTHER_SLOT': return 'Mở ca khác còn công suất'
-    case 'RERUN_OPTIMIZER': return 'Chạy tối ưu lần 2 hoặc xếp tay'
-    default: return 'Mở ca đề xuất và xử lý thủ công'
-  }
-}
-
-interface WarningSlot {
-  slotId: string
-  date: string
-  hour: number
-  learnerAvailable: boolean
-  availableTrainerIds: string[]
-  blockedTrainerIds?: string[]
-  blockerCodes?: string[]
-}
+import type { PtScheduleBranchOption, PtScheduleWorkspaceV2Result } from '../../services/ptSchedulePublishService'
+import type { WarningRow } from '../../features/schedule/warningPresentation'
+import { DAY_LABELS, scheduleSlotLabel } from '../../features/schedule/workspaceModel'
+import { approvedOffOnDate, scheduleDate } from '../../features/schedule/weeklyOff'
 
 interface Props {
-  student: PtScheduleV2Student
+  row: WarningRow
   workspace: PtScheduleWorkspaceV2Result
   branchId: string
+  branches: PtScheduleBranchOption[]
   weekDates: Record<string, { display: string; full: string }>
-  scheduledSessions: number
-  crossBranchScheduledSessions: number
-  actionCode?: string
-  topCandidates: WarningSlot[]
-  suggestedSlots: string[]
-  primaryContract: PtScheduleWorkspaceV2Result['contracts'][number] | null
-  homeBranchName: string
-  allScheduledEntries: Array<{
-    id: string
-    label: string
-    branchName: string
-    trainerName: string
-    crossBranch: boolean
-  }>
-  openDiagnosticSlot: (slot: WarningSlot) => void
-  validationPending?: boolean
+  coveragePending: boolean
 }
 
-export default function ScheduleWarningDetail({
-  student,
-  workspace,
-  branchId,
-  weekDates,
-  scheduledSessions,
-  crossBranchScheduledSessions,
-  actionCode,
-  topCandidates,
-  suggestedSlots,
-  primaryContract,
-  homeBranchName,
-  allScheduledEntries,
-  openDiagnosticSlot,
-  validationPending = false,
-}: Props) {
-  return <div className="schedule-warning-detail schedule-warning-detail--compact">
-    <section className="is-wide schedule-warning-action"><small>{validationPending ? 'Trạng thái đối soát' : 'Hướng xử lý'}</small><strong>{validationPending ? 'Số buổi đã cập nhật theo draft; nguyên nhân và thông tin điều kiện đang chờ đối soát.' : diagnosticActionLabel(actionCode)}</strong></section>
-    <section className="is-wide schedule-warning-profile"><small>Thông tin học viên</small><strong>{student.phone || 'Thiếu số điện thoại'} · {student.email || 'Thiếu email'}</strong><span>{student.studentHomeBranchId && student.studentHomeBranchId !== branchId ? `${homeBranchName} → ${workspace.branch.name}` : `Hồ sơ tại ${homeBranchName}`}{student.phone && student.email ? '' : ' · Hồ sơ chưa đủ dữ liệu'}</span></section>
-    <section className="is-wide schedule-warning-contract"><small>Hợp đồng / quota{validationPending ? ' · thông tin đã lưu, chờ xác minh' : ''}</small><strong>{primaryContract?.packageName || (student.contractStatus === 'missing' && !validationPending ? 'Chưa có hợp đồng hợp lệ' : 'Chưa có thông tin gói')}</strong><span>{primaryContract ? `${contractStatusLabel(primaryContract.status)} · còn ${primaryContract.remainingSchedulableSessions ?? primaryContract.remainingEntitlementSessions ?? 'chưa xác định'} buổi có thể xếp · hết hạn ${primaryContract.endDate || 'chưa cập nhật'}` : `Trạng thái: ${contractStatusLabel(student.contractStatus)}`}</span></section>
-    <section className="is-wide schedule-warning-availability"><small>Lịch rảnh đã đăng ký</small><strong>{student.availableSlots.length ? `${student.availableSlots.length} khung giờ` : 'Chưa có lịch rảnh'}</strong>{student.availableSlots.length ? <div className="schedule-warning-availability__slots">{student.availableSlots.map((slot) => <span key={slot}>{availabilitySlotLabel(slot)}</span>)}</div> : <em>Học viên chưa gửi khung giờ rảnh cho tuần này.</em>}</section>
-    <section className="is-wide schedule-warning-schedule"><small>{validationPending ? 'Lịch đã xếp · dữ liệu hai cơ sở đã tải' : 'Lịch đã xếp · đủ cả hai cơ sở'}</small><strong>{scheduledSessions} buổi trong tuần{crossBranchScheduledSessions > 0 ? ` · ${crossBranchScheduledSessions} ở cơ sở khác` : ''}</strong><div>{allScheduledEntries.length ? allScheduledEntries.map((entry) => <span key={entry.id} className={entry.crossBranch ? 'is-cross-branch' : ''}><b>{entry.label}</b><small>{entry.branchName} · {entry.trainerName}</small></span>) : <em>Chưa có buổi nào trong tuần.</em>}</div></section>
-    <section className="is-wide is-suggestion"><small>Ca có thể xử lý</small><div>{topCandidates.length ? topCandidates.slice(0, 2).map((slot) => {
-      const trainerNamesForSlot = slot.availableTrainerIds?.map((trainerId) => workspace.trainers.find((trainer) => trainer.id === trainerId)?.name).filter(Boolean).join(', ')
-      return <button type="button" key={slot.slotId} onClick={() => openDiagnosticSlot(slot)}><span>{scheduleSlotLabel(slot.slotId, weekDates)}</span><b>{trainerNamesForSlot || slot.blockerCodes?.slice(0, 1).map(diagnosticReasonLabel).join('')}</b><ChevronRight size={13} /></button>
-    }) : suggestedSlots.length ? suggestedSlots.slice(0, 2).map((slot) => <span key={slot}>{scheduleSlotLabel(slot, weekDates)}</span>) : <em>{validationPending ? 'Đang chờ đối soát ca phù hợp' : 'Chưa có ca phù hợp'}</em>}</div></section>
+// Opening a learner reuses the weekly snapshot, with no profile/contract reads.
+export default function ScheduleWarningDetail({ row, workspace, branchId, branches, weekDates, coveragePending }: Props) {
+  const { student } = row
+  const coverage = workspace.weeklySessionCoverage?.[row.id]
+    || (coveragePending ? workspace.validationSnapshot?.weeklySessionCoverage?.[row.id] : undefined)
+  const schedule = [
+    ...row.scheduledEntries.map(entry => ({ id: `${entry.slotId}|${entry.trainerId}`, label: entry.label,
+      branch: workspace.branch.name, trainer: workspace.trainers.find(t => t.id === entry.trainerId)?.name || 'PT chưa cập nhật', crossBranch: false })),
+    ...(coverage?.entries || []).filter(entry => entry.branchId !== branchId).map(entry => {
+      const day = Object.keys(weekDates).find(day => weekDates[day].full === entry.date)
+      return { id: entry.id, label: day && entry.hour !== null ? scheduleSlotLabel(`${day}-${entry.hour}`, weekDates) : entry.date,
+        branch: branches.find(branch => branch.id === entry.branchId)?.name || 'Cơ sở khác',
+        trainer: entry.trainerName || workspace.trainers.find(t => t.id === entry.trainerId)?.name || 'PT chưa cập nhật', crossBranch: true }
+    }),
+  ]
+  const dates = Object.values(weekDates).map(day => day.full).sort()
+  const liveContracts = workspace.contracts.filter(contract => contract.studentId === row.id)
+  const knownContracts = liveContracts.length ? liveContracts : workspace.validationSnapshot?.contracts || []
+  const assignedIds = new Set(knownContracts.filter(contract => contract.studentId === row.id
+    && (student?.eligibleContractIds.length ? student.eligibleContractIds.includes(contract.id)
+      : !['cancelled', 'expired', 'completed'].includes(contract.status)
+        && contract.startDate <= (dates.at(-1) || workspace.weekId) && contract.endDate >= workspace.weekId))
+    .flatMap(contract => [contract.trainerId, ...(contract.trainerIds || [])]).filter(Boolean))
+  const managers = workspace.trainers.filter(trainer => assignedIds.has(trainer.id)).map(trainer => trainer.name).filter(Boolean)
+  const availability = (workspace.scheduleConfig.workingDays || []).map(day => ({ day,
+    hours: [...new Set((student?.availableSlots || []).filter(slot => slot.split('-')[0] === day)
+      .map(slot => Number(slot.split('-')[1])).filter(Number.isFinite))].sort((a, b) => a - b),
+  })).filter(({ day, hours }) => hours.length && !(workspace.scheduleConfig.holidays || []).includes(scheduleDate(workspace.weekId, day))
+    && !approvedOffOnDate(student, scheduleDate(workspace.weekId, day)))
+
+  return <div className="schedule-warning-detail schedule-warning-detail--simple" id={`warning-detail-${row.id}`}>
+    {managers.length > 0 && <section className="schedule-warning-managers"><h4>PT quản lý</h4><p>{managers.join(', ')}</p></section>}
+    <section className="schedule-warning-availability"><h4>Lịch rảnh</h4>
+      {availability.length ? <dl>{availability.map(({ day, hours }) => <div key={day}><dt>{DAY_LABELS[day] || day}</dt><dd>{hours.map(hour => `${String(hour).padStart(2, '0')}:00`).join(', ')}</dd></div>)}</dl>
+        : <p>{student ? 'Chưa có lịch rảnh' : 'Chưa có dữ liệu lịch rảnh'}</p>}
+    </section>
+    <section className="schedule-warning-schedule"><h4>Đã xếp</h4>
+      {schedule.length ? <ul>{schedule.map(entry => <li key={entry.id} className={entry.crossBranch ? 'is-cross-branch' : ''}><strong>{entry.label}</strong><span>{entry.trainer} · {entry.branch}</span></li>)}</ul>
+        : <p>Chưa có buổi đã xếp</p>}
+    </section>
   </div>
 }

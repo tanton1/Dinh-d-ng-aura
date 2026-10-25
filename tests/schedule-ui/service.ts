@@ -22,7 +22,7 @@ export const getPtScheduleWorkspace = async (input: any) => {
 // rollout path without requiring Firebase.
 export const weeklyViewFixture = (input: any) => {
   const coverage = { verified: true, verification: 'exact', totalTargetSessions: 6, scheduledEntries: 2, missingSessions: 4, studentsWithAtLeastOne: 2, fullyScheduledStudents: 0,
-    byStudent: { a: { studentId: 'a', targetSessions: 2, scheduledSessions: 1, draftSessions: 1, otherBranchSessions: 0, missingSessions: 1 }, b: { studentId: 'b', targetSessions: 2, scheduledSessions: 0, draftSessions: 0, otherBranchSessions: 0, missingSessions: 2 }, c: { studentId: 'c', targetSessions: 2, scheduledSessions: 1, draftSessions: 1, otherBranchSessions: 0, missingSessions: 1 } } }
+    byStudent: { a: { studentId: 'a', targetSessions: 2, scheduledSessions: 1, draftSessions: 1, otherBranchSessions: 0, missingSessions: 1 }, b: { studentId: 'b', targetSessions: 2, scheduledSessions: 0, draftSessions: 0, otherBranchSessions: 0, missingSessions: 2 }, c: { studentId: 'c', targetSessions: 2, scheduledSessions: 1, draftSessions: 1, otherBranchSessions: 0, missingSessions: 1 } }, ...(window as any).__weeklyCoverageOverride }
   const full = { ...workspace, weekId: input.weekId, branch: { ...workspace.branch, id: input.branchId }, dirty: false, dirtyGeneration: 1, freshness: 'verified', verification: 'exact', coverage, weeklySessionCoverage: {}, readMode: 'reconciled', partial: false, viewRevision: 1, sourceRevision: 1 }
   const compact = {
     schemaVersion: 3, branchId: input.branchId, weekId: input.weekId,
