@@ -74,6 +74,8 @@ interface WorkoutPageProps {
   onExit?: () => void
   courseId?: string
   lessonId?: string
+  chapterVersion?: string
+  courseRevision?: number
   workoutRef?: LessonWorkoutReference
   workoutTitle?: string
 }
@@ -240,7 +242,7 @@ function createDemoRuntime(workoutRef: LessonWorkoutReference): RuntimeWorkoutPr
 }
 
 export default function WorkoutPage(props: WorkoutPageProps) {
-  const { courseId, lessonId, workoutRef: explicitWorkoutRef, onExit, onNavigate } = props
+  const { courseId, lessonId, chapterVersion, courseRevision, workoutRef: explicitWorkoutRef, onExit, onNavigate } = props
   const legacyCourseContext = Boolean(courseId || lessonId)
   const [reloadToken, setReloadToken] = useState(0)
   const [resolvedWorkoutRef, setResolvedWorkoutRef] = useState<LessonWorkoutReference | null>(() => (
@@ -288,7 +290,7 @@ export default function WorkoutPage(props: WorkoutPageProps) {
       return
     }
     const loader = legacyCourseContext
-      ? loadWorkoutProgramSession({ courseId: courseId!, lessonId: lessonId!, workoutRef: explicitWorkoutRef })
+      ? loadWorkoutProgramSession({ courseId: courseId!, lessonId: lessonId!, workoutRef: explicitWorkoutRef, chapterVersion, courseRevision })
       : loadPtWorkoutSession(explicitWorkoutRef)
     loader
       .then((result) => {
@@ -303,7 +305,7 @@ export default function WorkoutPage(props: WorkoutPageProps) {
     return () => {
       active = false
     }
-  }, [courseId, explicitWorkoutRef, legacyCourseContext, lessonId, reloadToken])
+  }, [courseId, explicitWorkoutRef, legacyCourseContext, lessonId, chapterVersion, courseRevision, reloadToken])
 
   const leaveWorkout = () => {
     if (onExit) onExit()

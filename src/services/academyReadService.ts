@@ -7,8 +7,8 @@ import { callReadOnlyFunction } from './readOnlyCallableService'
 import { runAcademyReadWithFallback } from './academyReadPolicy'
 
 type AcademyReadName = 'listAcademyCourses' | 'getCourseMediaUrl'
-// In-flight only: no course bodies or signed links are persisted/cached across
-// requests, accounts, enrollment changes, or permission checks.
+// Transport deduplication only. The chapter/media clients separately manage
+// bounded memory leases scoped to a session, observed access and exact version.
 const pendingBySession = new WeakMap<User, Map<string, Promise<unknown>>>()
 
 export async function callAcademyReadFunction<Input, Output>(name: AcademyReadName, input: Input, accessRevision = ''): Promise<Output> {

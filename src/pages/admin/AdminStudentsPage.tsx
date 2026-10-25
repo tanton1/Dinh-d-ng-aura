@@ -1,5 +1,6 @@
 import {
   Activity,
+  BookOpen,
   AlertCircle,
   Bell,
   CalendarCheck,
@@ -26,7 +27,7 @@ import {
   X,
   Zap,
 } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import '../../styles-admin.css'
 import PtClientSchedulePanel from '../../components/coaching/PtClientSchedulePanel'
 import { PageHeader } from '../../components/ui'
@@ -46,6 +47,7 @@ import {
 } from '../../services/ptCoachingClientService'
 import type { AdminStudentDirectoryItem } from '../../types'
 import '../../styles-coaching.css'
+const AcademyCoachReviewPanel = lazy(() => import('../../components/academy/AcademyCoachReviewPanel'))
 
 interface AdminStudentsPageProps {
   students: AdminStudentDirectoryItem[]
@@ -56,7 +58,7 @@ interface AdminStudentsPageProps {
 }
 
 type SortKey = 'name' | 'checkIn' | 'readiness'
-type ClientDrawerTab = 'profile' | 'schedule' | 'push'
+type ClientDrawerTab = 'profile' | 'schedule' | 'push' | 'academy'
 
 type DisplayClient = AdminStudentDirectoryItem & {
   normalizedName: string
@@ -551,6 +553,9 @@ export default function AdminStudentsPage({
             <button type="button" role="tab" aria-selected={drawerTab === 'push'} className={drawerTab === 'push' ? 'active' : ''} onClick={() => setDrawerTab('push')}>
               <Bell size={16} /> Gửi Push Notification
             </button>
+            <button type="button" role="tab" aria-selected={drawerTab === 'academy'} className={drawerTab === 'academy' ? 'active' : ''} onClick={() => setDrawerTab('academy')}>
+              <BookOpen size={16} /> Bài học đã chia sẻ
+            </button>
           </div>
 
           {drawerTab === 'profile' && (
@@ -640,6 +645,12 @@ export default function AdminStudentsPage({
               <PtClientSchedulePanel clientId={selectedClient.uid} clientName={selectedClient.displayName} coachingStatus={selectedClient.coaching.coachingStatus} relationshipReady={Boolean(selectedClient.coaching.coachId)} />
             </div>
           )}
+
+          {drawerTab === 'academy' && <div className="pt-client-drawer__body" role="tabpanel" aria-label="Bài học đã chia sẻ">
+            <Suspense fallback={<p role="status">Đang mở phần nhận xét bài học…</p>}>
+              <AcademyCoachReviewPanel key={selectedClient.uid} clientId={selectedClient.uid} clientName={selectedClient.displayName} />
+            </Suspense>
+          </div>}
 
           {drawerTab === 'push' && (
             <div className="pt-client-drawer__body direct-push" id="pt-client-push-tab-panel" role="tabpanel">

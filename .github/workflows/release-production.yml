@@ -23,6 +23,11 @@ on:
         required: false
         default: false
         type: boolean
+      academy_release:
+        description: Exact Academy runtime rollout; privacy Rules first, fenced writers last, no automatic legacy rollback
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -49,6 +54,19 @@ jobs:
         id: revision
         shell: bash
         run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Validate Academy release boundary
+        env:
+          ACADEMY_RELEASE: ${{ inputs.academy_release }}
+          BACKEND_ONLY: ${{ inputs.backend_only }}
+          BACKEND_FUNCTIONS: ${{ inputs.backend_functions }}
+        run: |
+          if [ -f scripts/academy-release-gate.cjs ]; then
+            node scripts/academy-release-gate.cjs validate
+          elif [ "$ACADEMY_RELEASE" = "true" ]; then
+            echo "Academy release mode requires the reviewed release gate." >&2
+            exit 1
+          fi
 
       - uses: actions/setup-node@v5
         with:
@@ -84,6 +102,14 @@ jobs:
       - run: npm run test:storage
       - run: npm run test:rtdb
       - run: npm run test:projection-transaction
+      - name: Verify Academy runtime and chapter transactions
+        if: inputs.academy_release
+        run: |
+          npm run test:academy
+          git diff --exit-code -- functions/generated src/data/generated
+          node --test scripts/prepare-academy-release.test.cjs scripts/academy-release-gate.test.cjs scripts/performance-assets.test.mjs
+          npm run test:academy-ui
+          npm run test:academy-storage
 
   deploy:
     needs: verify
@@ -166,6 +192,7 @@ jobs:
       # READY. The deploy helper is create-only and leaves every existing index
       # untouched.
       - name: Deploy Firestore indexes and wait until ready
+        if: ${{ !inputs.academy_release }}
         run: node scripts/firebase-firestore-index-deploy.cjs apply --confirm=projects/gen-lang-client-0815966909/databases/ai-studio-aurafitnesselear-0f7609b4-b8d1-4fb3-9d62-99a2c03e1ce7:create-missing-indexes
 
       - name: Validate backend deployment scope
@@ -221,11 +248,18 @@ jobs:
             echo "discovery_node_env=" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Academy privacy Rules before Functions
+        if: inputs.academy_release
+        run: |
+          npx --yes firebase-tools@15.9.1 deploy --only firestore:rules,firestore:ai-studio-aurafitnesselear-0f7609b4-b8d1-4fb3-9d62-99a2c03e1ce7,storage --project gen-lang-client-0815966909 --non-interactive
+          node scripts/academy-release-gate.cjs verify-rules
+
       - name: Deploy backend Functions sequentially and require healthy revisions
         if: steps.backend.outputs.enabled == 'true'
         shell: bash
         env:
           BACKEND_FUNCTIONS: ${{ steps.backend.outputs.targets }}
+          ACADEMY_RELEASE: ${{ inputs.academy_release }}
           AURA_FIREBASE_DISCOVERY_SCOPE: ${{ steps.backend.outputs.discovery_scope }}
           # firebase-tools forwards NODE_ENV (but not arbitrary shell variables)
           # to the source-discovery child on Linux.
@@ -237,6 +271,10 @@ jobs:
           npx --yes firebase-tools@15.9.1 functions:list --project gen-lang-client-0815966909 --json > "$BEFORE_MANIFEST"
 
           rollback_previous() {
+            if [ "$ACADEMY_RELEASE" = "true" ]; then
+              echo "Academy rollout stopped. Keep chapter-aware revisions and privacy Rules; no automatic legacy rollback."
+              return 0
+            fi
             local function_name="$1"
             local previous_region previous_service
             previous_region="$(node scripts/firebase-function-region.cjs --file="$BEFORE_MANIFEST" --function="$function_name" --field=region --allow-missing)"
@@ -285,16 +323,17 @@ jobs:
             # A pinned previous revision can leave the candidate unstarted.
             # Stage its exact image at zero traffic before the same health gate.
             if ! node scripts/cloud-run-functions-promote-latest.cjs --functions="$SERVICE_NAME" --region="$FUNCTION_REGION" --traffic-api=v1 --stage-retired --confirm="$CONFIRMATION"; then
-              node scripts/cloud-run-functions-rollback.cjs --functions="$SERVICE_NAME" --region="$FUNCTION_REGION" --confirm="$CONFIRMATION" || true
+              rollback_previous "$FUNCTION_NAME"
               exit 1
             fi
             if ! node scripts/cloud-run-functions-health.cjs --functions="$SERVICE_NAME" --region="$FUNCTION_REGION" --fail-on-unhealthy; then
-              node scripts/cloud-run-functions-rollback.cjs --functions="$SERVICE_NAME" --region="$FUNCTION_REGION" --confirm="$CONFIRMATION"
+              rollback_previous "$FUNCTION_NAME"
               exit 1
             fi
           done
 
       - name: Deploy Firestore and Storage Rules
+        if: ${{ !inputs.academy_release }}
         # Firestore and Storage are always part of the production release.
         # Keep Realtime Database separate: some production projects do not
         # expose the Firebase Database Management API to the deploy identity,
@@ -311,7 +350,7 @@ jobs:
         # Firebase Database Management API and the RTDB instance is confirmed.
         # The default is intentionally skipped for releases that do not change
         # database.rules.json, avoiding a false-negative after Functions ship.
-        if: ${{ vars.DEPLOY_REALTIME_DATABASE_RULES == 'true' }}
+        if: ${{ vars.DEPLOY_REALTIME_DATABASE_RULES == 'true' && !inputs.academy_release }}
         run: npx --yes firebase-tools@15.9.1 deploy --only database --project gen-lang-client-0815966909 --non-interactive
 
       # Sensitive Vercel variables are deliberately returned as [SENSITIVE] by

@@ -1,0 +1,22 @@
+.academy-chapter-article { width: 100%; max-width: 72ch; min-width: 0; color: #20202a; background: #ffffff; font-size: 16px; line-height: 1.75; overflow-wrap: anywhere; scroll-margin-block: 200px 80px; }
+.academy-chapter-article > header { display: block; margin-bottom: 24px; }
+.academy-chapter-article > header h3 { margin: 0 0 12px; font-size: 24px; line-height: 1.35; }
+.academy-chapter-article > header p { margin: 0; color: #575563; }
+.academy-chapter-article > nav { border-block: 1px solid #e8e7ee; padding-block: 16px; margin-bottom: 28px; }
+.academy-chapter-article > nav ul { padding-left: 22px; margin: 8px 0 0; }
+.academy-chapter-article a { color: #a52e59; text-decoration: underline; text-underline-offset: 3px; }
+.academy-chapter-article > nav a { display: inline-block; padding-block: 5px; }
+.academy-chapter-article a:focus-visible, .academy-chapter-article h4:focus { outline: 2px solid #a52e59; outline-offset: 4px; }
+.academy-chapter-article__body h4 { margin: 36px 0 12px; font-size: 22px; line-height: 1.4; scroll-margin-block: 200px 80px; }
+.academy-chapter-article__body h5 { margin: 24px 0 10px; font-size: 18px; line-height: 1.5; }
+.academy-chapter-article__body h6 { margin: 20px 0 10px; font-size: 16px; }
+.academy-chapter-article__body p { margin: 0 0 16px; }
+.academy-chapter-article__body li { margin-bottom: 8px; }
+.academy-chapter-article__body ul, .academy-chapter-article__body ol { padding-left: 24px; }
+.academy-chapter-article__body blockquote { margin: 20px 0; padding-left: 16px; border-left: 3px solid #a52e59; }
+.academy-chapter-article__body img { max-width: 100%; height: auto; }
+.academy-chapter-article__body pre { max-width: 100%; overflow: auto; }
+@media (max-width: 600px) {
+  .academy-chapter-article > header h3 { font-size: 22px; }
+  .academy-chapter-article__body h4 { font-size: 20px; }
+}

@@ -1,7 +1,11 @@
 import { collection, doc, getDoc, getDocs, query, runTransaction, serverTimestamp, setDoc, Timestamp, where } from 'firebase/firestore'
 import { firebaseAuth } from '../lib/firebase'
+import { onAuthStateChanged } from 'firebase/auth'
 import { firestoreDb } from '../lib/firebaseFirestore'
 import type { AcademyLessonMemory, CourseLessonDraft } from '../types'
+import { acknowledgeAcademyWorkbook, AcademyWorkbookConflictError, prepareAcademyWorkbookDraft, reconcileAcademyWorkbook, serializeAcademyWorkbookForCloud } from '../features/academy/workbookPersistence'
+import { createAcademyReviewClient } from '../features/academy/reviewClient'
+export { AcademyWorkbookConflictError, AcademyWorkbookSizeError } from '../features/academy/workbookPersistence'
 
 export interface AcademyTerm {
   id: string
@@ -33,6 +37,7 @@ export interface AcademyLessonContent {
 export type AcademyWorkbookState = {
   schemaVersion: 2
   definitionVersion: number
+  definitionHash?: string
   cloudRevision: number
   sharedWithCoach: boolean
   answers: Record<string, string>
@@ -45,16 +50,11 @@ export type AcademyWorkbookState = {
   reviewAt: string
   safetyAcknowledged: boolean
   updatedAt: number
-}
-
-export class AcademyWorkbookConflictError extends Error {
-  readonly remoteRevision: number
-
-  constructor(remoteRevision: number) {
-    super('Workbook đã có thay đổi mới hơn từ một thiết bị khác.')
-    this.name = 'AcademyWorkbookConflictError'
-    this.remoteRevision = remoteRevision
-  }
+  /** Device-only markers: absent on legacy drafts; never trusted as server proof. */
+  pendingSync?: boolean
+  localEditId?: string
+  /** Explicit version changes retain the preceding draft separately. */
+  previousArchiveId?: string
 }
 
 export type AcademyReviewRating = 'again' | 'hard' | 'good' | 'easy'
@@ -309,6 +309,7 @@ function normalizeWorkbookState(value: Partial<AcademyWorkbookState> | null | un
     definitionVersion: Number.isInteger(value?.definitionVersion) && Number(value?.definitionVersion) >= 1
       ? Number(value?.definitionVersion)
       : 1,
+    ...(typeof value?.definitionHash === 'string' && /^[a-f0-9]{64}$/.test(value.definitionHash) ? { definitionHash: value.definitionHash } : {}),
     cloudRevision: Number.isInteger(value?.cloudRevision) && Number(value?.cloudRevision) >= 0
       ? Number(value?.cloudRevision)
       : 0,
@@ -328,38 +329,99 @@ function normalizeWorkbookState(value: Partial<AcademyWorkbookState> | null | un
     reviewAt: typeof value?.reviewAt === 'string' ? value.reviewAt.slice(0, 10) : '',
     safetyAcknowledged: value?.safetyAcknowledged === true,
     updatedAt: typeof value?.updatedAt === 'number' ? value.updatedAt : 0,
+    ...(typeof value?.pendingSync === 'boolean' ? { pendingSync: value.pendingSync } : {}),
+    ...(typeof value?.localEditId === 'string' ? { localEditId: value.localEditId } : {}),
+    ...(typeof value?.previousArchiveId === 'string' && /^[A-Za-z0-9_%.-]{1,1000}$/.test(value.previousArchiveId)
+      ? { previousArchiveId: value.previousArchiveId } : {}),
   }
 }
 
-export function loadAcademyWorkbook(ownerId: string, courseId: string, lessonId: string): AcademyWorkbookState {
+export function loadAcademyWorkbook(ownerId: string, courseId: string, lessonId: string, definitionVersion = 1, definitionHash?: string): AcademyWorkbookState {
+  const empty = () => ({ ...emptyAcademyWorkbookState(), definitionVersion, ...(definitionHash ? { definitionHash } : {}) })
   try {
     const raw = localStorage.getItem(academyWorkbookStorageKey(ownerId, courseId, lessonId))
-    if (!raw) return emptyAcademyWorkbookState()
+    if (!raw) return empty()
     return normalizeWorkbookState(JSON.parse(raw) as Partial<AcademyWorkbookState>)
   } catch {
-    return emptyAcademyWorkbookState()
+    return empty()
   }
 }
 
 function writeAcademyWorkbookToDevice(ownerId: string, courseId: string, lessonId: string, state: AcademyWorkbookState) {
   try {
     localStorage.setItem(academyWorkbookStorageKey(ownerId, courseId, lessonId), JSON.stringify(state))
+    return true
   } catch {
-    // The panel remains usable for this session when device storage is unavailable.
+    return false
   }
 }
 
-export async function saveAcademyWorkbook(ownerId: string, courseId: string, lessonId: string, state: AcademyWorkbookState) {
-  const bounded: AcademyWorkbookState = {
+const reviewClient = createAcademyReviewClient({
+  session: () => firebaseAuth?.currentUser ?? null,
+  readRemote: readAcademyReviewStateFromCloud,
+  readLocal: loadAcademyReviewState,
+  writeLocal: writeAcademyReviewStateToDevice,
+})
+let reviewCacheOwner = firebaseAuth?.currentUser ?? null
+if (firebaseAuth) onAuthStateChanged(firebaseAuth, (next) => {
+  if (reviewCacheOwner !== next) { reviewCacheOwner = next; reviewClient.clear() }
+})
+
+/** Synchronous, called directly on input before any debounce or navigation. */
+export function persistAcademyWorkbookDraft(ownerId: string, courseId: string, lessonId: string, state: AcademyWorkbookState) {
+  const bounded = prepareAcademyWorkbookDraft({
     ...normalizeWorkbookState(state),
     answers: Object.fromEntries(Object.entries(state.answers).slice(0, 30).map(([key, value]) => [key, value.slice(0, 2000)])),
     challengeDone: Object.fromEntries(Object.entries(state.challengeDone).slice(0, 20)),
     microCheckAnswers: Object.fromEntries(Object.entries(state.microCheckAnswers).slice(0, 20)),
-    updatedAt: Date.now(),
+  }, Date.now(), globalThis.crypto.randomUUID())
+  const stored = writeAcademyWorkbookToDevice(ownerId, courseId, lessonId, bounded)
+  return { state: bounded, stored }
+}
+
+/** Called only after explicit confirmation; a failed backup must leave the old draft intact. */
+export function beginAcademyWorkbookDefinition(ownerId: string, courseId: string, lessonId: string, current: AcademyWorkbookState, definitionVersion: number, definitionHash?: string) {
+  if (!Number.isSafeInteger(definitionVersion) || definitionVersion < 1
+      || (definitionVersion === current.definitionVersion && definitionHash === current.definitionHash)
+      || (definitionHash !== undefined && !/^[a-f0-9]{64}$/.test(definitionHash))) {
+    throw new Error('Phiên bản bài thực hành không hợp lệ.')
   }
-  writeAcademyWorkbookToDevice(ownerId, courseId, lessonId, bounded)
-  const synchronized = await saveAcademyWorkbookToCloud(ownerId, courseId, lessonId, bounded)
-  writeAcademyWorkbookToDevice(ownerId, courseId, lessonId, synchronized)
+  const previousArchiveId = current.cloudRevision > 0
+    ? `${academyStateDocumentId(courseId, lessonId)}__r${current.cloudRevision}`
+    : `local-${globalThis.crypto.randomUUID()}`
+  try {
+    localStorage.setItem(`${academyWorkbookStorageKey(ownerId, courseId, lessonId)}:archive:${previousArchiveId}`, JSON.stringify(current))
+  } catch {
+    throw new Error('Chưa giữ được bản nháp cũ. Hãy sao chép bài trước khi bắt đầu phiên bản mới.')
+  }
+  const result = persistAcademyWorkbookDraft(ownerId, courseId, lessonId, {
+    ...emptyAcademyWorkbookState(), definitionVersion, ...(definitionHash ? { definitionHash } : {}), cloudRevision: current.cloudRevision, previousArchiveId,
+  })
+  if (!result.stored) throw new Error('Chưa lưu được bản mới trên thiết bị. Bản cũ vẫn được giữ để khôi phục.')
+  return result.state
+}
+
+/** No history scan on page load: read one known preceding draft only on request. */
+export async function loadAcademyWorkbookArchive(ownerId: string, courseId: string, lessonId: string, archiveId: string) {
+  if (!/^[A-Za-z0-9_%.-]{1,1000}$/.test(archiveId)) throw new Error('Mã bản nháp cũ không hợp lệ.')
+  const local = localStorage.getItem(`${academyWorkbookStorageKey(ownerId, courseId, lessonId)}:archive:${archiveId}`)
+  if (local) return normalizeWorkbookState(JSON.parse(local))
+  if (!canSyncAcademyState(ownerId) || !firestoreDb) throw new Error('Cần kết nối và đúng tài khoản để tải bản nháp cũ.')
+  const snapshot = await getDoc(doc(firestoreDb, 'users', ownerId, 'academyWorkbookArchives', archiveId))
+  if (!canSyncAcademyState(ownerId)) throw new Error('Phiên đăng nhập đã thay đổi.')
+  const source = snapshot.data()?.source
+  if (!snapshot.exists() || source?.courseId !== courseId || source?.lessonId !== lessonId || typeof source.body !== 'string') {
+    throw new Error('Không tìm thấy bản nháp cũ của bài học này.')
+  }
+  return { ...normalizeWorkbookState(JSON.parse(source.body)), cloudRevision: source.revision }
+}
+
+export async function saveAcademyWorkbook(ownerId: string, courseId: string, lessonId: string, state: AcademyWorkbookState) {
+  const synchronized = await saveAcademyWorkbookToCloud(ownerId, courseId, lessonId, state)
+  // Read again after the network request: the learner may have kept typing or left this chapter.
+  const current = loadAcademyWorkbook(ownerId, courseId, lessonId)
+  const merged = current.updatedAt > 0 ? acknowledgeAcademyWorkbook(current, state, synchronized) : synchronized
+  writeAcademyWorkbookToDevice(ownerId, courseId, lessonId, merged)
   return synchronized
 }
 
@@ -367,12 +429,13 @@ export async function loadAcademyWorkbookFromCloud(
   ownerId: string,
   courseId: string,
   lessonId: string,
-  options: { preferRemote?: boolean } = {},
+  options: { preferRemote?: boolean; definitionVersion?: number; definitionHash?: string; isCurrent?: () => boolean } = {},
 ) {
-  const localState = loadAcademyWorkbook(ownerId, courseId, lessonId)
-  if (!canSyncAcademyState(ownerId) || !firestoreDb) return localState
+  if (!canSyncAcademyState(ownerId) || !firestoreDb) return loadAcademyWorkbook(ownerId, courseId, lessonId, options.definitionVersion, options.definitionHash)
   const snapshot = await getDoc(doc(firestoreDb, 'users', ownerId, 'academyWorkbooks', academyStateDocumentId(courseId, lessonId)))
-  if (!snapshot.exists()) return localState
+  const localState = loadAcademyWorkbook(ownerId, courseId, lessonId, options.definitionVersion, options.definitionHash)
+  if (!canSyncAcademyState(ownerId) || options.isCurrent?.() === false) return localState
+  if (!snapshot.exists()) return localState.updatedAt > 0 ? { ...localState, pendingSync: true } : localState
   const body = snapshot.data().body
   if (typeof body !== 'string') return localState
   let parsedRemote: AcademyWorkbookState
@@ -384,18 +447,21 @@ export async function loadAcademyWorkbookFromCloud(
   } catch {
     return localState
   }
-  if (!options.preferRemote && localState.updatedAt > parsedRemote.updatedAt) {
-    if (localState.cloudRevision !== parsedRemote.cloudRevision) {
-      throw new AcademyWorkbookConflictError(parsedRemote.cloudRevision)
+  const reconciled = reconcileAcademyWorkbook(localState, parsedRemote, options.preferRemote)
+  if (options.preferRemote && localState.pendingSync) {
+    // Keep the displaced device draft recoverable when the learner chooses the cloud version.
+    try {
+      localStorage.setItem(`${academyWorkbookStorageKey(ownerId, courseId, lessonId)}:recovery`, JSON.stringify(localState))
+    } catch {
+      throw new Error('Không thể giữ bản nháp dự phòng. Hãy sao chép nội dung trước khi tải bản Cloud.')
     }
-    return localState
   }
-  writeAcademyWorkbookToDevice(ownerId, courseId, lessonId, parsedRemote)
-  return parsedRemote
+  writeAcademyWorkbookToDevice(ownerId, courseId, lessonId, reconciled)
+  return reconciled
 }
 
 async function saveAcademyWorkbookToCloud(ownerId: string, courseId: string, lessonId: string, state: AcademyWorkbookState) {
-  if (!canSyncAcademyState(ownerId) || !firestoreDb) return state
+  if (!canSyncAcademyState(ownerId) || !firestoreDb) throw new Error('Chưa có phiên đồng bộ được xác thực. Bản nháp chỉ được giữ trên thiết bị.')
   const reference = doc(firestoreDb, 'users', ownerId, 'academyWorkbooks', academyStateDocumentId(courseId, lessonId))
   return runTransaction(firestoreDb, async (transaction) => {
     const existing = await transaction.get(reference)
@@ -403,17 +469,33 @@ async function saveAcademyWorkbookToCloud(ownerId: string, courseId: string, les
       ? Number(existing.data().revision)
       : 0
     if (remoteRevision !== state.cloudRevision) throw new AcademyWorkbookConflictError(remoteRevision)
+    let previousArchiveId = state.previousArchiveId
+    if (existing.exists()) {
+      let previous: AcademyWorkbookState
+      try { previous = normalizeWorkbookState(JSON.parse(existing.data().body)) } catch {
+        throw new Error('Bản Cloud hiện tại không đọc được. Không ghi đè khi chưa giữ được bản cũ.')
+      }
+      if (previous.definitionVersion !== state.definitionVersion || previous.definitionHash !== state.definitionHash) {
+        // Archive the actual transaction snapshot, not the client's copy. Both
+        // the backup and replacement commit together, or neither is changed.
+        previousArchiveId = `${academyStateDocumentId(courseId, lessonId)}__r${remoteRevision}`
+        transaction.set(doc(firestoreDb!, 'users', ownerId, 'academyWorkbookArchives', previousArchiveId), {
+          sourceWorkbookId: reference.id, source: existing.data(), archivedAt: serverTimestamp(),
+        })
+      }
+    }
     const synchronized = {
       ...state,
       cloudRevision: remoteRevision + 1,
-      updatedAt: Date.now(),
+      pendingSync: false,
+      ...(previousArchiveId ? { previousArchiveId } : {}),
     }
     transaction.set(reference, {
       courseId,
       lessonId,
       revision: synchronized.cloudRevision,
       sharedWithCoach: synchronized.sharedWithCoach,
-      body: JSON.stringify(synchronized).slice(0, 20_000),
+      body: serializeAcademyWorkbookForCloud(synchronized),
       ...(existing.exists() ? { createdAt: existing.data().createdAt } : { createdAt: serverTimestamp() }),
       updatedAt: serverTimestamp(),
     })
@@ -464,13 +546,20 @@ function writeAcademyReviewStateToDevice(ownerId: string, courseId: string, stat
 }
 
 export async function loadAcademyReviewStateFromCloud(ownerId: string, courseId: string) {
-  const localState = loadAcademyReviewState(ownerId, courseId)
-  if (!canSyncAcademyState(ownerId) || !firestoreDb) return localState
+  if (!canSyncAcademyState(ownerId) || !firestoreDb) {
+    reviewClient.clear()
+    return loadAcademyReviewState(ownerId, courseId)
+  }
+  return reviewClient.load(ownerId, courseId)
+}
+
+async function readAcademyReviewStateFromCloud(ownerId: string, courseId: string): Promise<AcademyReviewState> {
+  if (!firestoreDb) throw new Error('Chưa kết nối được lịch ôn trên cloud.')
   const snapshot = await getDocs(query(
     collection(firestoreDb, 'users', ownerId, 'academyReviewItems'),
     where('courseId', '==', courseId),
   ))
-  const cards = { ...localState.cards }
+  const cards: AcademyReviewState['cards'] = {}
   snapshot.docs.forEach((reviewDocument) => {
     const data = reviewDocument.data()
     if (typeof data.lessonId !== 'string' || typeof data.cardId !== 'string') return
@@ -491,9 +580,7 @@ export async function loadAcademyReviewStateFromCloud(ownerId: string, courseId:
       dueAt,
     }
   })
-  const state: AcademyReviewState = { version: 1, cards }
-  writeAcademyReviewStateToDevice(ownerId, courseId, state)
-  return state
+  return { version: 1, cards }
 }
 
 async function saveAcademyReviewToCloud(ownerId: string, courseId: string, progress: AcademyCardProgress) {

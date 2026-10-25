@@ -55,17 +55,6 @@ service firebase.storage {
                      && request.resource.metadata.mediaId.size() <= 200));
     }
 
-    function hasImmutableCourseMediaMetadata() {
-      return request.resource.metadata.courseId == resource.metadata.courseId
-             && request.resource.metadata.lessonId == resource.metadata.lessonId
-             && request.resource.metadata.resourceKind == resource.metadata.resourceKind
-             && request.resource.metadata.uploadedBy == resource.metadata.uploadedBy
-             && ((request.resource.metadata.assetId is string
-                  && request.resource.metadata.assetId == resource.metadata.assetId)
-                 || (request.resource.metadata.mediaId is string
-                     && request.resource.metadata.mediaId == resource.metadata.mediaId));
-    }
-
     function isExerciseCatalogStaff() {
       return signedIn()
              && ((request.auth.token.keys().hasAll(['role'])
@@ -119,18 +108,17 @@ service firebase.storage {
     }
 
     match /course-media/{courseId}/{lessonId}/{allPaths=**} {
-      // Paid lesson media stays staff-only until delivery uses a callable
-      // entitlement check and short-lived signed URLs.
+      // Browser reads remain staff-only. Learners use entitlement-checked,
+      // short-lived signed URLs bound to the selected chapter version.
       allow read: if isAcademyStaff();
       allow create: if canManageCourseMedia()
                     && resource == null
                     && isSupportedCourseMedia()
                     && hasValidCourseMediaMetadata(courseId, lessonId);
-      allow update: if isAdmin()
-                    && isSupportedCourseMedia()
-                    && hasValidCourseMediaMetadata(courseId, lessonId)
-                    && hasImmutableCourseMediaMetadata();
-      allow delete: if isAdmin();
+      // Replacing a file must use the uploader's fresh asset ID/path and a new
+      // reviewed chapter revision. Even admins cannot rewrite a published file.
+      // Cleanup must be server-side after checking retained chapter references.
+      allow update, delete: if false;
     }
 
     match /avatars/{userId}/{fileName} {
