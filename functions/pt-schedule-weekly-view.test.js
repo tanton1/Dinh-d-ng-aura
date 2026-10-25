@@ -55,6 +55,17 @@ test('compact schedule strips raw fields but keeps editable identity', () => {
   assert.equal(schedule['T2-6'][0].secret, undefined)
 })
 
+test('weekly compact coverage excludes old cells on approved OFF without deleting matrix cells', () => {
+  const data = workspace()
+  data.students[0].pausedScheduleDates = [WEEK]
+  data.students[0].validScheduleDates = ['2026-10-20']
+  data.schedule['T3-6'] = [{ ...data.schedule['T2-6'][0] }]
+  const view = buildPtScheduleWeeklyView({ branchId: BRANCH, weekId: WEEK, data })
+  assert.equal(view.schedule['T2-6'].length, 1)
+  assert.equal(view.coverage.byStudent['student-a'].scheduledSessions, 1)
+  assert.equal(view.coverage.byStudent['student-a'].missingSessions, 1)
+})
+
 test('display coverage is explicitly estimated, never verified', () => {
   const value = compactCoverage({
     students: [{ id: 's', sessionsPerWeek: 2 }],

@@ -50,6 +50,63 @@ function harness(data = fixture(), options = {}) {
   }
 }
 const command = (name, payload, extra = {}) => ({ data: { branchId: BRANCH, weekId: WEEK, command: name, payload, expectedDraftRevision: 1, idempotencyKey: 'test-command-123', ...extra } })
+
+test('expiry visibility uses one calendar month, ignores cancelled renewals and retains a real renewal', () => {
+  const { monthAfter, hiddenExpiredStudent, requireScheduleContract } = require('./schedule-entitlement-policy')
+  assert.equal(monthAfter('2026-01-31'), '2026-02-28')
+  assert.equal(monthAfter('2028-01-31'), '2028-02-29')
+  const contracts = [{ id: 'old', studentId: 'a', startDate: '2026-01-01', endDate: '2026-09-25', status: 'expired' }]
+  assert.equal(hiddenExpiredStudent(contracts, 'a', '2026-10-25'), false)
+  assert.equal(hiddenExpiredStudent(contracts, 'a', '2026-10-26'), true)
+  contracts.push({ ...contracts[0], id: 'cancelled', status: 'CANCELLED', endDate: '2027-12-31' })
+  assert.equal(hiddenExpiredStudent(contracts, 'a', '2026-10-26'), true)
+  contracts.push({ ...contracts[0], id: 'renewed', status: 'active', startDate: '2026-10-01', endDate: '2027-03-01' })
+  assert.equal(hiddenExpiredStudent(contracts, 'a', '2026-10-26'), false)
+  assert.equal(requireScheduleContract(contracts, 'a', '2026-10-26', 'old').id, 'renewed')
+})
+
+for (const action of ['add_student', 'move_student']) for (const problem of ['off', 'expired', 'future', 'missing']) {
+  test(`admin draft ${action} rejects ${problem} without changing matrix or receipt`, async () => {
+    const data = fixture()
+    data.schedule = { 'T2-6': [{ ...entry('a'), source: 'manual_v2' }] }
+    const h = harness(data)
+    const contract = { ...h.docs.get('contracts/c-a') }
+    if (problem === 'off') contract.pausePeriods = [{ startDate: '2090-01-03', endDate: '2090-01-04' }]
+    if (problem === 'expired') contract.endDate = WEEK
+    if (problem === 'future') contract.startDate = '2090-01-04'
+    if (problem === 'missing') h.docs.delete('contracts/c-a')
+    else h.docs.set('contracts/c-a', contract)
+    const before = JSON.stringify([...h.docs])
+    await assert.rejects(h.api.applyPtScheduleDraftCommand(command(action, {
+      studentId: 'a', trainerId: 't', slotId: 'T3-6', fromSlotId: 'T2-6', fromTrainerId: 't', adminOverride: true,
+    })), error => error.code === 'failed-precondition' && error.details.errors.includes(problem === 'off' ? 'CONTRACT_PAUSED' : 'ACTIVE_CONTRACT_NOT_FOUND'))
+    assert.equal(JSON.stringify([...h.docs]), before)
+  })
+}
+
+test('admin override alone does not consent to cross-branch draft placement', async () => {
+  const h = harness()
+  h.docs.set('students/a', { ...h.docs.get('students/a'), branchId: 'other' })
+  const before = JSON.stringify([...h.docs])
+  await assert.rejects(h.api.applyPtScheduleDraftCommand(command('add_student', {
+    studentId: 'a', trainerId: 't', slotId: 'T3-6', adminOverride: true,
+  })), error => error.details.issueCode === 'STUDENT_BRANCH_CONFIRMATION_REQUIRED')
+  assert.equal(JSON.stringify([...h.docs]), before)
+})
+
+test('manual search hides long-expired cross-branch names, but Students directory and renewal remain discoverable', async () => {
+  const h = harness()
+  h.docs.set('students/external', { ...h.docs.get('students/a'), id: 'external', name: 'Thảo My', branchId: 'home' })
+  h.docs.set('contracts/c-external', { ...h.docs.get('contracts/c-a'), id: 'c-external', studentId: 'external', branchId: 'home', startDate: '2020-01-01', endDate: '2020-06-30' })
+  const input = { branchId: BRANCH, weekId: WEEK, trainerId: 't', slotId: 'T2-6', search: 'thao my', crossBranchOnly: true }
+  assert.equal((await h.api.getPtScheduleSlotCandidates({ data: input })).candidates.length, 0)
+  const directory = await h.api.getPtScheduleSlotCandidates({ data: { branchId: BRANCH, weekId: WEEK, search: 'thao my', directoryOnly: true } })
+  assert.equal(directory.candidates[0].studentId, 'external')
+  h.docs.set('contracts/c-renewal', { ...h.docs.get('contracts/c-a'), id: 'c-renewal', studentId: 'external', branchId: 'home' })
+  const renewed = await h.api.getPtScheduleSlotCandidates({ data: input })
+  assert.equal(renewed.candidates[0].contractId, 'c-renewal')
+  assert.equal(renewed.candidates[0].adminManualSelectable, true)
+})
 test('confirmed reset clears all unpublished bookings only in its branch/week and is idempotent', async () => {
   const data = fixture()
   data.crossBranchStudents = [{ id: 'external', branchId: 'home' }]
@@ -134,6 +191,7 @@ test('historical search returns cross-branch learners only to Admin with an expl
 
 test('Admin draft search can resolve a cross-branch learner without a full workspace scan', async () => {
   const h = crossBranchHarness()
+  h.docs.set('contracts/c-external', { ...h.docs.get('contracts/c-external'), endDate: '2099-12-31' })
   const result = await h.api.getPtScheduleSlotCandidates({ data: {
     branchId: BRANCH,
     weekId: h.input.weekId,
@@ -146,7 +204,7 @@ test('Admin draft search can resolve a cross-branch learner without a full works
   assert.equal(result.candidates[0]?.studentBranchWarning, true)
 })
 
-test('Admin current-week cross-branch search stays projection-only until confirmation', async () => {
+test('Admin cross-branch search checks bounded contract matches without full manual validation', async () => {
   const data = fixture()
   const h = harness(data, {
     manualData: async () => { throw new Error('manual validation should wait for the write') },
@@ -162,7 +220,8 @@ test('Admin current-week cross-branch search stays projection-only until confirm
   } })
   assert.equal(result.candidates[0]?.studentId, 'external')
   assert.equal(result.candidates[0]?.contractId, null)
-  assert.deepEqual(result.candidates[0]?.reasons, ['STUDENT_BRANCH_MISMATCH'])
+  assert.deepEqual(result.candidates[0]?.reasons, ['ACTIVE_CONTRACT_NOT_FOUND', 'STUDENT_BRANCH_MISMATCH'])
+  assert.equal(result.candidates[0]?.adminManualSelectable, false)
 })
 
 test('historical cross-branch write requires Admin confirmation and acknowledgement, without partial writes', async () => {
@@ -359,7 +418,7 @@ test('Admin manual placement can add a learner from another branch', async () =>
   h.docs.set(`ptAvailability/external_${WEEK}`, { studentId: 'external', weekId: WEEK, status: 'submitted', slots: ['T2-6'] })
   h.docs.set('contracts/c-external', { ...h.docs.get('contracts/c-a'), id: 'c-external', studentId: 'external', branchId: 'home' })
   const result = await h.api.applyPtScheduleDraftCommand(command('add_student', {
-    studentId: 'external', trainerId: 't', slotId: 'T2-6', adminOverride: true,
+    studentId: 'external', trainerId: 't', slotId: 'T2-6', adminOverride: true, confirmCrossBranchStudent: true,
   }, { idempotencyKey: 'admin-cross-branch' }))
   const saved = h.docs.get(`ptScheduleDrafts/${BRANCH}_${WEEK}`).schedule['T2-6'][0]
   assert.equal(result.schedule['T2-6'][0].studentId, 'external')

@@ -28,3 +28,14 @@ export function approvedOffForWeek(student: PtScheduleV2Student, workspace: Pick
 export function approvedOffOnDate(student: PtScheduleV2Student | undefined, date: string): boolean {
   return Boolean(student?.pausedScheduleDates?.includes(date) && !student.validScheduleDates?.includes(date))
 }
+
+export function validScheduledCount(student: PtScheduleV2Student | undefined, entries: Array<{ slotId: string }>, weekId: string): number {
+  return entries.filter(entry => !approvedOffOnDate(student, scheduleDate(weekId, entry.slotId.split('-')[0]))).length
+}
+
+export function validOtherBranchCount(student: PtScheduleV2Student | undefined, coverage: PtScheduleWorkspaceV2Result['weeklySessionCoverage'], branchId: string, fallback = 0): number {
+  const row = student && coverage?.[student.id]
+  if (!row) return Math.max(0, fallback)
+  const invalid = (row.entries || []).filter(entry => entry.branchId !== branchId && approvedOffOnDate(student, entry.date)).length
+  return Math.max(0, Number(row.otherBranches || 0) - invalid)
+}

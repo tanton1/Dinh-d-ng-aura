@@ -77,6 +77,38 @@ function fixture() {
   }
 }
 
+test('retained manual OFF cells stay visible but do not satisfy coverage or the optimizer target', () => {
+  const data = fixture()
+  data.students[0].sessionsPerWeek = 3
+  data.students[0].availableSlots = ['T2-6', 'T4-6', 'T7-6']
+  data.trainers[0].availableSlots = ['T2-6', 'T4-6', 'T7-6']
+  data.contracts[0].pausePeriods = [{ startDate: '2026-08-24', endDate: '2026-08-28' }]
+  data.contracts[0].totalSessions = 1
+  const manual = { studentId: 'student-a', contractId: 'contract-a', trainerId: 'trainer-a', type: 'training', branchId: BRANCH, source: 'manual_v2', adminOverride: true }
+  data.schedule = { 'T2-6': [{ ...manual }], 'T4-6': [{ ...manual }] }
+  const generated = generateSchedule(data)
+  assert.equal(Object.values(generated.schedule).flat().length, 3)
+  assert.equal(generated.schedule['T2-6'][0].studentId, 'student-a')
+  assert.equal(generated.schedule['T4-6'][0].studentId, 'student-a')
+  assert.equal(generated.schedule['T7-6'][0].studentId, 'student-a')
+  assert.equal(generated.optimizationSummary.studentCoverage.scheduledEntries, 1)
+  assert.equal(generated.optimizationSummary.studentCoverage.missingSessions, 2)
+  assert.equal(generated.warnings.filter(warning => warning.code === 'CONTRACT_PAUSED').length, 2)
+})
+
+test('other-branch coverage excludes approved OFF but preserves unpaused dates', () => {
+  const data = fixture()
+  data.contracts[0].pausePeriods = [{ startDate: WEEK, endDate: '2026-08-28' }]
+  const coverage = weeklySessionCoverageForStudents({
+    weekId: WEEK, branchId: BRANCH, contracts: data.contracts,
+    sessions: [
+      { id: 'invalid', studentId: 'student-a', branchId: 'other', date: WEEK, hour: 6, status: 'scheduled' },
+      { id: 'valid', studentId: 'student-a', branchId: 'other', date: '2026-08-29', hour: 6, status: 'scheduled' },
+    ],
+  })
+  assert.equal(coverage['student-a'].otherBranches, 1)
+})
+
 test('exact submitted PT week overrides recurring slots, including a full OFF week', () => {
   const recurring = { availableSlots: ['T2-6', 'T3-6'], availabilityMode: 'configured', availabilityRevision: 9 }
   const weekly = { trainerId: 'trainer-a', weekId: WEEK, status: 'submitted', slots: ['T4-18'], offDates: ['2026-08-24'], revision: 2 }

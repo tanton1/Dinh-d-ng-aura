@@ -59,6 +59,31 @@ test('a booking on approved OFF remains a conflict even when the learner is excl
   await expect(conflicts).toContainText('CONTRACT_PAUSED')
 })
 
+for (const mode of ['exact', 'stale'] as const) test(`partial OFF keeps matrix cells but shows 1/3 valid sessions and two conflicts (${mode})`, async ({ page }) => {
+  await page.clock.setFixedTime(new Date('2026-10-25T09:00:00Z'))
+  await page.addInitScript(mode => {
+    const student = { id: 'a', name: 'Phương Thảo', status: 'active', branchId: 'b', sessionsPerWeek: 3,
+      defaultSessionsPerWeek: 3, maxWeeklySessions: 7, schedulableSessionsThisWeek: 1,
+      availableSlots: ['T4-6', 'T5-6', 'T7-6'], availabilityStatus: 'submitted',
+      eligibleForWeek: true, eligibilityReasons: [], eligibleContractIds: ['c-a'],
+      validScheduleDates: ['2026-10-31'], pausedScheduleDates: ['2026-10-26', '2026-10-27', '2026-10-28', '2026-10-29', '2026-10-30'],
+      remainingSchedulableSessions: 20, contractStatus: 'valid' }
+    Object.assign(window, { __enableScheduleListener: true, __weeklyViewCompact: true, __validationMode: mode,
+      __weeklyCoverageOverride: { totalTargetSessions: 3, scheduledEntries: 3, missingSessions: 0,
+        byStudent: { a: { studentId: 'a', targetSessions: 3, scheduledSessions: 3, draftSessions: 3, missingSessions: 0, otherBranchSessions: 0 } } },
+      __workspaceOverride: { students: [student], contracts: [], schedule: Object.fromEntries(['T4-6', 'T5-6', 'T7-6'].map(slot => [slot, [{ studentId: 'a', trainerId: 't', type: 'training', source: 'manual_v2', adminOverride: true, branchId: 'b' }]])) } })
+  }, mode)
+  await page.goto('/tests/schedule-ui/index.html')
+  await page.getByRole('button', { name: 'Tuần sau', exact: true }).click()
+  await expect(page.locator('.schedule-cell__student').filter({ hasText: 'Phương Thảo' })).toHaveCount(3)
+  await page.getByRole('tab', { name: /Cảnh báo/ }).click()
+  await expect(page.locator('.schedule-warning-student').filter({ hasText: 'Phương Thảo' })).toContainText('1/3')
+  await page.getByRole('tab', { name: /Trùng \/ xung đột/ }).click()
+  const conflicts = page.getByRole('region', { name: 'Danh sách trùng và xung đột lịch' })
+  await expect(conflicts).toContainText('CONTRACT_PAUSED')
+  expect(await conflicts.getByText('Phương Thảo', { exact: true }).count()).toBe(2)
+})
+
 test('OFF classification uses operating dates and never treats missing availability as approved leave', async ({ page }) => {
   await page.goto('/tests/schedule-ui/index.html')
   const results = await page.evaluate(async () => {
