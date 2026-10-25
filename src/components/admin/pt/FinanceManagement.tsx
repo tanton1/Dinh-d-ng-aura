@@ -129,8 +129,15 @@ function ledgerErrorMessage(cause: unknown) {
   return message || 'Không thể tải ledger canonical. Aura không dùng payment legacy thay thế để tránh cộng trùng doanh thu.'
 }
 
-export default function FinanceManagement({ profile }: Props) {
-  const { branches, contracts, students, acquireFinanceDirectory } = useDatabase()
+export default function FinanceManagement(props: Props) {
+  const { user, profile } = props
+  const authority = JSON.stringify([user?.uid, profile?.uid, profile?.role, profile?.accessRole,
+    profile?.authzVersion, profile?.branchId, profile?.disabled, [...(profile?.positions || [])].sort()])
+  return <FinanceWorkspace key={authority} {...props} />
+}
+
+function FinanceWorkspace({ profile }: Props) {
+  const { branches, contracts, students, acquireFinanceDirectory, refreshData, operationsSync } = useDatabase()
   useEffect(() => acquireFinanceDirectory(), [acquireFinanceDirectory])
   const [selectedBranchId, setSelectedBranchId] = useState('all')
   const [dateRange, setDateRange] = useState<{ start: Date; end: Date }>(currentMonthRange)
@@ -152,11 +159,22 @@ export default function FinanceManagement({ profile }: Props) {
   const [debtSearch, setDebtSearch] = useState('')
   const [visibleDebtCount, setVisibleDebtCount] = useState(20)
   const requestSequence = useRef(0)
+  const mounted = useRef(true)
+  const historyVisible = useRef(showHistory)
+  historyVisible.current = showHistory
   const receivablesRef = useRef<HTMLElement>(null)
+
+  useEffect(() => {
+    mounted.current = true
+    return () => { mounted.current = false; requestSequence.current += 1 }
+  }, [])
 
   const effectiveBranchId = profile?.branchId && profile.role !== 'admin' && profile.role !== 'super_admin'
     ? profile.branchId
     : selectedBranchId
+  const ledgerScope = JSON.stringify([effectiveBranchId, dateRange.start.getTime(), dateRange.end.getTime()])
+  const latestLedgerScope = useRef(ledgerScope)
+  latestLedgerScope.current = ledgerScope
 
   const updateDateRange = useCallback((start: Date, end: Date) => {
     setDateRange((current) => current.start.getTime() === start.getTime() && current.end.getTime() === end.getTime()
@@ -165,9 +183,16 @@ export default function FinanceManagement({ profile }: Props) {
   }, [])
 
   const loadLedger = useCallback(async (append = false) => {
+    if (!mounted.current || !historyVisible.current) return
     const sequence = ++requestSequence.current
+    const isCurrent = () => mounted.current && historyVisible.current && latestLedgerScope.current === ledgerScope && sequence === requestSequence.current
     setLedgerLoading(true)
     setLedgerError('')
+    if (!append) {
+      setLedgerEntries([])
+      setLedgerCursor(null)
+      setLedgerHasMore(false)
+    }
     try {
       const query = {
         pageSize: 50,
@@ -184,6 +209,7 @@ export default function FinanceManagement({ profile }: Props) {
       try {
         page = await listFinanceLedger(query)
       } catch (cause) {
+        if (!isCurrent()) return
         const { code, message } = callableErrorDetails(cause)
         // Keep the cash workspace compatible while Functions and Vercel are
         // promoted in sequence. An older callable may reject newer type
@@ -196,7 +222,7 @@ export default function FinanceManagement({ profile }: Props) {
           throw cause
         }
       }
-      if (sequence !== requestSequence.current) return
+      if (!isCurrent()) return
       setLedgerEntries((current) => {
         if (!append) return page.entries
         const byId = new Map(current.map((entry) => [entry.id, entry]))
@@ -206,21 +232,30 @@ export default function FinanceManagement({ profile }: Props) {
       setLedgerCursor(page.nextCursor)
       setLedgerHasMore(page.hasMore)
     } catch (cause) {
-      if (sequence !== requestSequence.current) return
+      if (!isCurrent()) return
       setLedgerError(ledgerErrorMessage(cause))
       if (!append) {
         setLedgerEntries([])
       }
     } finally {
-      if (sequence === requestSequence.current) setLedgerLoading(false)
+      if (isCurrent()) setLedgerLoading(false)
     }
-  }, [dateRange, effectiveBranchId, ledgerCursor])
+  }, [dateRange, effectiveBranchId, ledgerCursor, ledgerScope])
 
   useEffect(() => {
-    void loadLedger(false)
+    if (showHistory) void loadLedger(false)
+    else {
+      setLedgerEntries([])
+      setLedgerCursor(null)
+      setLedgerHasMore(false)
+      setLedgerLoading(false)
+      setLedgerError('')
+    }
+    return () => { requestSequence.current += 1 }
     // ledgerCursor is intentionally excluded: a new cursor must not automatically fetch the next page.
+    // Reopening is an explicit fresh read; hidden history never reads after filters or mutations.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dateRange, effectiveBranchId])
+  }, [showHistory, dateRange, effectiveBranchId])
 
   useEffect(() => {
     let active = true
@@ -439,8 +474,6 @@ export default function FinanceManagement({ profile }: Props) {
     <div className="finance-management space-y-6 pb-28">
       <AuraMetricCarousel slides={financeSlides} label="Tổng quan trả góp" />
 
-      {ledgerError && <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">{ledgerError}</div>}
-
       <div className="finance-management__filters">
         <DateRangeFilter compact excludeFuture initialRange="Tháng này" onFilter={updateDateRange} />
         {(!profile?.branchId || profile.role === 'admin' || profile.role === 'super_admin') && (
@@ -451,7 +484,7 @@ export default function FinanceManagement({ profile }: Props) {
           </select>
         )}
         <button type="button" onClick={() => setShowHistory(true)} className="finance-management__tool-button" aria-label="Mở lịch sử thu trả góp" title="Lịch sử thu"><WalletCards size={17} /></button>
-        <button type="button" onClick={() => void loadLedger(false)} disabled={ledgerLoading} className="finance-management__tool-button" aria-label="Làm mới trả góp" title="Làm mới"><RefreshCw size={17} className={ledgerLoading ? 'animate-spin' : ''} /></button>
+        <button type="button" onClick={() => { void refreshData(); void loadLedger(false) }} disabled={ledgerLoading || operationsSync.status === 'loading'} className="finance-management__tool-button" aria-label="Làm mới trả góp" title="Làm mới"><RefreshCw size={17} className={ledgerLoading || operationsSync.status === 'loading' ? 'animate-spin' : ''} /></button>
         <AuraHelpPopover title="Trả góp & công nợ"><p>Ba slide chỉ phản ánh số tiền còn phải thu theo hợp đồng. Bộ lọc ngày áp dụng cho lịch sử giao dịch; dữ liệu tiền thu thực tế vẫn lấy từ ledger canonical.</p></AuraHelpPopover>
       </div>
 
@@ -486,10 +519,12 @@ export default function FinanceManagement({ profile }: Props) {
 
       <AnimatePresence>
         {showHistory && <Modal onClose={() => setShowHistory(false)} title="Sổ giao dịch">
+          {ledgerError && <div role="alert" className="mb-4 rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">{ledgerError}<button type="button" onClick={() => void loadLedger(false)} disabled={ledgerLoading} className="ml-3 underline">Thử lại</button></div>}
+          {ledgerLoading && <p role="status" className="mb-4 text-sm text-zinc-400">Đang tải giao dịch…</p>}
           <p className="mb-4 rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3 text-xs text-emerald-200">{cashEntries.length.toLocaleString('vi-VN')} giao dịch tiền đã tải. Bút toán doanh thu thực hiện không được trộn vào công nợ trả góp.</p>
           <div className="space-y-2">{cashEntries.map((entry) => <div key={entry.id} className="rounded-xl border border-zinc-800 bg-zinc-950 p-3"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="truncate text-sm font-semibold text-white">{studentName(entry.studentId)}</p><p className="mt-1 text-xs text-zinc-500">{entry.referenceCode} · {entryLabel(entry.type)}</p><p className="mt-1 text-xs text-zinc-600">{new Date(entry.effectiveAt).toLocaleString('vi-VN')}</p></div><div className="text-right"><b className={(entry.cashImpact ?? entry.amount) >= 0 ? 'text-emerald-400' : 'text-amber-400'}>{money(entry.cashImpact ?? entry.amount)}</b>{entry.type === 'payment' && entry.status === 'posted' && <button onClick={() => setEntryToReverse(entry)} className="mt-2 flex items-center gap-1 text-xs font-semibold text-amber-400"><Undo2 className="h-3.5 w-3.5" /> Tạo bút toán đảo</button>}</div></div></div>)}</div>
           {ledgerHasMore && <button onClick={() => void loadLedger(true)} disabled={ledgerLoading} className="mt-4 min-h-11 w-full rounded-xl border border-zinc-700 bg-zinc-800 text-sm font-bold text-white disabled:opacity-50">{ledgerLoading ? 'Đang tải…' : 'Tải thêm giao dịch'}</button>}
-          {!ledgerLoading && cashEntries.length === 0 && <p className="py-8 text-center text-sm text-zinc-500">Chưa có dòng tiền trong bộ lọc.</p>}
+          {!ledgerLoading && !ledgerError && cashEntries.length === 0 && <p className="py-8 text-center text-sm text-zinc-500">Chưa có dòng tiền trong bộ lọc.</p>}
         </Modal>}
 
         {selectedContract && <Modal onClose={() => { setSelectedContract(null); setSelectedInstallmentId(null) }} title="Thu công nợ">
