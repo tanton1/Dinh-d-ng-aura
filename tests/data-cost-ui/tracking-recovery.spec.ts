@@ -1,0 +1,147 @@
+import { expect, test, type Page } from '@playwright/test'
+
+const reads = (page: Page) => page.evaluate(() => (window as any).costState.reads.tracking)
+const change = (page: Page, value: Record<string, unknown>) => page.evaluate(value => Object.assign((window as any).costState, value), value)
+async function open(page: Page, initial: Record<string, unknown> = {}) {
+  await page.clock.install()
+  await page.addInitScript(initial => { (window as any).costInitial = { trackingSensitive: true, trackingFallback: true, ...initial } }, initial)
+  await page.goto('/tests/data-cost-ui/index.html?view=tracking')
+}
+async function resume(page: Page) {
+  await page.evaluate(() => {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' })
+    document.dispatchEvent(new Event('visibilitychange'))
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' })
+    document.dispatchEvent(new Event('visibilitychange'))
+    window.dispatchEvent(new Event('online'))
+  })
+}
+
+for (const code of ['functions/permission-denied', 'permission-denied', 'functions/unauthenticated', 'functions/not-found']) {
+  test(`tracking ${code} hides cached GPS/OTP and pauses automatic requests`, async ({ page }) => {
+    await open(page)
+    await expect(page.getByLabel('Mã giao hàng 1234')).toBeVisible()
+    await change(page, { trackingError: code })
+    await page.clock.runFor(15_001)
+    await expect(page.getByRole('status')).toContainText('Không thể truy cập')
+    await expect(page.getByText('order-a', { exact: true })).toBeHidden()
+    await expect(page.getByText('Fallback driver', { exact: true })).toBeHidden()
+    await expect(page.getByLabel('Mã giao hàng 1234')).toBeHidden()
+    await expect(page.getByLabel('Mã giao hàng 5678')).toBeHidden()
+    await expect(page.locator('.eat-clean-tracking-map')).toHaveCount(0)
+    expect(await reads(page)).toBe(2)
+    await page.clock.runFor(600_000)
+    await resume(page)
+    expect(await reads(page)).toBe(2)
+  })
+}
+
+test('tracking transient failure retains last data, stops retries, and a successful manual refresh restores updates', async ({ page }) => {
+  await open(page)
+  await expect(page.getByLabel('Mã giao hàng 1234')).toBeVisible()
+  await change(page, { trackingError: 'functions/unavailable' })
+  await page.clock.runFor(15_001)
+  await expect(page.getByRole('status')).toContainText('Dữ liệu lần trước được giữ lại')
+  await expect(page.getByLabel('Mã giao hàng 1234')).toBeVisible()
+  await page.clock.runFor(600_000)
+  await resume(page)
+  expect(await reads(page)).toBe(2)
+  await change(page, { trackingError: '' })
+  await page.getByRole('button', { name: 'Làm mới vị trí' }).click()
+  await expect(page.getByRole('status')).toHaveCount(0)
+  expect(await reads(page)).toBe(3)
+  await page.clock.runFor(15_001)
+  expect(await reads(page)).toBe(4)
+})
+
+test('tracking denied data stays hidden after a transient retry and recovers only on success', async ({ page }) => {
+  await open(page, { trackingError: 'functions/permission-denied' })
+  await expect(page.getByRole('status')).toContainText('Không thể truy cập')
+  await change(page, { trackingError: 'functions/unavailable' })
+  await page.getByRole('button', { name: 'Làm mới vị trí' }).click()
+  await expect.poll(() => reads(page)).toBe(2)
+  await expect(page.getByRole('button', { name: 'Làm mới vị trí' })).toBeEnabled()
+  await expect(page.getByLabel('Mã giao hàng 5678')).toBeHidden()
+  await expect(page.locator('.eat-clean-tracking-map')).toHaveCount(0)
+  await change(page, { trackingError: '' })
+  await page.getByRole('button', { name: 'Làm mới vị trí' }).click()
+  await expect(page.getByLabel('Mã giao hàng 1234')).toBeVisible()
+  await expect(page.getByRole('status')).toHaveCount(0)
+  expect(await reads(page)).toBe(3)
+})
+
+test('tracking changing order clears the old failure and ignores a late denied response', async ({ page }) => {
+  await open(page)
+  await expect(page.getByText('order-a', { exact: true })).toBeVisible()
+  await change(page, { delayed: true, trackingError: 'functions/permission-denied' })
+  await page.clock.runFor(15_001)
+  expect(await reads(page)).toBe(2)
+  await change(page, { delayed: false, trackingError: '' })
+  await page.getByRole('button', { name: 'Change order' }).click()
+  await expect(page.getByText('order-b', { exact: true })).toBeVisible()
+  await page.evaluate(() => (window as any).costState.pending.splice(0).forEach((resolve: () => void) => resolve()))
+  await expect(page.getByLabel('Mã giao hàng 1234')).toBeVisible()
+  await expect(page.getByRole('status')).toHaveCount(0)
+  expect(await reads(page)).toBe(3)
+})
+
+test('tracking a failure for one order does not suppress a new order request', async ({ page }) => {
+  await open(page, { trackingError: 'functions/not-found' })
+  await expect(page.getByRole('status')).toContainText('Không thể truy cập')
+  await change(page, { trackingError: '' })
+  await page.getByRole('button', { name: 'Change order' }).click()
+  await expect(page.getByText('order-b', { exact: true })).toBeVisible()
+  await expect(page.getByRole('status')).toHaveCount(0)
+  expect(await reads(page)).toBe(2)
+})
+
+test('tracking manual retries never overlap while a denied request is pending', async ({ page }) => {
+  await open(page, { trackingError: 'functions/permission-denied' })
+  await expect(page.getByRole('status')).toContainText('Không thể truy cập')
+  await change(page, { delayed: true, trackingError: '' })
+  await page.getByRole('button', { name: 'Làm mới vị trí' }).click()
+  await expect(page.getByRole('button', { name: 'Làm mới vị trí' })).toBeDisabled()
+  await page.clock.runFor(600_000)
+  await resume(page)
+  expect(await reads(page)).toBe(2)
+  await page.evaluate(() => (window as any).costState.pending.splice(0).forEach((resolve: () => void) => resolve()))
+  await expect(page.getByLabel('Mã giao hàng 1234')).toBeVisible()
+  expect(await reads(page)).toBe(2)
+})
+
+test('tracking cached GPS becomes stale on a local deadline while error recovery is paused', async ({ page }) => {
+  await open(page)
+  await expect(page.getByLabel('Mã giao hàng 1234')).toBeVisible()
+  await expect(page.locator('.eat-clean-gps-state')).not.toHaveClass(/is-stale/)
+  await change(page, { trackingError: 'functions/unavailable' })
+  await page.clock.runFor(15_001)
+  await expect(page.getByRole('status')).toContainText('Dữ liệu lần trước được giữ lại')
+  await page.clock.runFor(106_000)
+  await expect(page.locator('.eat-clean-gps-state')).toHaveClass(/is-stale/)
+  await expect(page.getByText('Tín hiệu GPS đang chậm')).toBeVisible()
+  expect(await reads(page)).toBe(2)
+  await change(page, { trackingError: '' })
+  await page.getByRole('button', { name: 'Làm mới vị trí' }).click()
+  await expect(page.getByRole('status')).toHaveCount(0)
+  await expect(page.locator('.eat-clean-gps-state')).not.toHaveClass(/is-stale/)
+  expect(await reads(page)).toBe(3)
+})
+
+test('tracking GPS with an unknown sample time is never shown as fresh', async ({ page }) => {
+  await open(page, { trackingLocationAt: '' })
+  await expect(page.getByLabel('Mã giao hàng 1234')).toBeVisible()
+  await expect(page.locator('.eat-clean-gps-state')).toHaveClass(/is-stale/)
+  expect(await reads(page)).toBe(1)
+})
+
+test('tracking local GPS freshness changes while offline without a server read', async ({ page }) => {
+  await open(page)
+  await expect(page.getByLabel('Mã giao hàng 1234')).toBeVisible()
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, 'onLine', { configurable: true, value: false })
+    window.dispatchEvent(new Event('offline'))
+  })
+  await page.clock.runFor(121_000)
+  await expect(page.locator('.eat-clean-gps-state')).toHaveClass(/is-stale/)
+  expect(await reads(page)).toBe(1)
+})
