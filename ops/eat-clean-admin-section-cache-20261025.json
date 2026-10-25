@@ -1,0 +1,84 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-25",
+  "status": "local_validation_passed_release_pending",
+  "backendSource": "f9ac09a2081f0eed7dcd2ed5c5e25aa7759caf95",
+  "backendPullRequest": 31,
+  "scope": "Frontend-only explicit section client and account-scoped admin cache; no backend, Rules, indexes or new Functions.",
+  "tabDependencies": {
+    "dispatch": [],
+    "orders": [
+      "orders",
+      "config"
+    ],
+    "menu": [
+      "meals",
+      "config"
+    ],
+    "inventory": [
+      "meals",
+      "inventory",
+      "config"
+    ],
+    "operations": [
+      "meals",
+      "inventory",
+      "config"
+    ]
+  },
+  "behavior": [
+    "Bootstrap only missing sections; retain completed sections across tabs and share pending section requests in StrictMode and rapid navigation.",
+    "Reject missing explicit protocol/requested properties; do not fall back to the full legacy admin reader.",
+    "Fence per-section responses and common seeded metadata across successful mutations; reconcile outstanding dirty sections without reusing pre-commit reads.",
+    "Order patches recalculate loaded-order totals and invalidate stock. Inactive stock waits until consumed; refreshing cached stock keeps the current view mounted.",
+    "Account/role/demo changes remount private state. Denied reads clear all cached sections and fence other in-flight responses. Transient errors require explicit retry and preserve mounted forms when cached data exists.",
+    "Show totals only for sections used by the active tab and warn when a source cap is reached. No periodic refresh is introduced."
+  ],
+  "validation": {
+    "serviceContractCases": 3,
+    "parentRouteBrowserCases": 28,
+    "sectionCacheBrowserCases": 12,
+    "existingDeliveryRegressionCases": 118,
+    "broadRun": {
+      "passed": 153,
+      "failed": 3,
+      "total": 156,
+      "note": "Three new timing assertions observed the DOM before a queued React render; assertions now await the committed state."
+    },
+    "finalAffectedRuns": [
+      {
+        "cases": 38,
+        "result": "passed"
+      },
+      {
+        "cases": 2,
+        "result": "passed",
+        "scope": "Actual operations draft retained after a failed refresh"
+      }
+    ],
+    "typecheck": "passed via final production build",
+    "build": "passed",
+    "performance": "passed",
+    "productionBusinessFixtures": 0,
+    "profileRegressionCases": 212,
+    "hygiene": "passed",
+    "secrets": "passed"
+  },
+  "readBudget": {
+    "menuColdStart": "One scoped call: meals/config; no orders, inventory, refunds or deliveries.",
+    "menuThenInventory": "Second call requests inventory only; cached meals/config reused.",
+    "ordersThenInventoryThenMenuThenOperations": "Two calls: orders/config, then meals/inventory. Remaining tabs reuse cache.",
+    "idle": "One-hour menu/dispatch fixtures issue no additional periodic business calls."
+  },
+  "tradeoffs": [
+    "Visiting every tab can add authentication/configuration reads compared with one broad bootstrap; gains depend on which tabs are actually used.",
+    "Source document limits and returned-row budgets are not Enterprise billed units or a measured currency reduction.",
+    "Other-device catalog edits appear on manual refresh or a new workspace; this adds no catalog realtime fanout.",
+    "Catalog order-window filters/paging remain unchanged."
+  ],
+  "rollout": {
+    "productionDeployed": false,
+    "requires": "Finish the coordinated Academy release and integrate its main/Rules, then deploy and verify PR31 listEatCleanAdminData before merging this UI.",
+    "rollback": "Restore the previous frontend; the optional-section reader remains compatible with omitted sections."
+  }
+}

@@ -192,6 +192,14 @@ export interface EatCleanAdminData {
   seeded: boolean
 }
 
+export const EAT_CLEAN_ADMIN_SECTIONS = ['orders', 'meals', 'inventory', 'config'] as const
+export type EatCleanAdminSection = typeof EAT_CLEAN_ADMIN_SECTIONS[number]
+export interface EatCleanAdminSnapshot extends Partial<EatCleanAdminData> {
+  sections: EatCleanAdminSection[]
+  seeded: boolean
+  coverage: Partial<Record<EatCleanAdminSection, { limitReached: boolean }>>
+}
+
 export interface SaveEatCleanMealInput {
   meal: EatCleanMeal
   expectedRevision?: number

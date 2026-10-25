@@ -6,6 +6,7 @@ import { createRoot } from 'react-dom/client'
 import DeliveryPage from '../../src/features/delivery/DeliveryPage'
 import { EatCleanDispatchTab } from '../../src/features/eat-clean/admin/components/EatCleanDispatchTab'
 import AdminEatCleanPage from '../../src/features/eat-clean/admin/AdminEatCleanPage'
+import { AdminSectionsHarness } from './AdminSectionsHarness'
 import type { UserRole } from '../../src/types'
 import { EatCleanTrackingPanel } from '../../src/features/eat-clean/EatCleanTrackingPanel'
 import ProgressPage from '../../src/pages/student/ProgressPage'
@@ -57,5 +58,5 @@ function DispatchParent() {
     <AdminEatCleanPage accountId={account} currentRole={role} initialTab={(window as any).costState.adminInitialTab || 'dispatch'} isDemo={Boolean((window as any).costState.adminDemo)} /></>
 }
 createRoot(document.getElementById('root')!).render(<StrictMode>{
-  view === 'gps' ? <Location /> : view === 'dispatch-parent' ? <DispatchParent /> : view === 'dispatch' ? <Dispatch /> : view === 'tracking' ? <Tracking /> : view === 'progress' ? <Progress /> : <Driver />
+  view === 'gps' ? <Location /> : view === 'admin-sections' ? <AdminSectionsHarness /> : view === 'dispatch-parent' ? <DispatchParent /> : view === 'dispatch' ? <Dispatch /> : view === 'tracking' ? <Tracking /> : view === 'progress' ? <Progress /> : <Driver />
 }</StrictMode>)

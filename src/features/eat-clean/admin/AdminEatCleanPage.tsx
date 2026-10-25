@@ -1,4 +1,4 @@
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
+import { Suspense, useEffect, useMemo, useState, type KeyboardEvent } from 'react'
 import {
   AlertCircle,
   AlertTriangle,
@@ -20,7 +20,6 @@ import { formatCurrency, inventoryStatusFor } from './adminEatCleanUtils'
 import {
   getEatCleanAdminErrorMessage,
   initializeEatCleanCatalog,
-  listEatCleanAdminData,
   recordEatCleanRefundOutcome,
   reverseEatCleanRefundOutcome,
   saveEatCleanConfig,
@@ -29,13 +28,14 @@ import {
   updateEatCleanOrder,
 } from './eatCleanAdminService'
 import type {
-  EatCleanAdminData,
+  EatCleanAdminSection,
   EatCleanConfig,
   EatCleanMeal,
   SaveEatCleanInventoryInput,
   UpdateEatCleanOrderInput,
 } from './types'
-import { DEFAULT_EAT_CLEAN_CONFIG, EMPTY_EAT_CLEAN_SUMMARY } from './types'
+import { EAT_CLEAN_ADMIN_SECTIONS, EMPTY_EAT_CLEAN_SUMMARY } from './types'
+import { useAdminSections } from './useAdminSections'
 import { lazyWithRetry } from '../../../components/ChunkErrorBoundary'
 import './AdminEatCleanPage.css'
 
@@ -58,6 +58,11 @@ export interface AdminEatCleanPageProps {
   initialTab?: EatCleanAdminTab
   className?: string
   isDemo?: boolean
+}
+
+const TAB_SECTIONS: Record<EatCleanAdminTab, readonly EatCleanAdminSection[]> = {
+  dispatch: [], orders: ['orders', 'config'], menu: ['meals', 'config'],
+  inventory: ['meals', 'inventory', 'config'], operations: ['meals', 'inventory', 'config'],
 }
 
 const TABS: Array<{ id: EatCleanAdminTab; label: string; icon: typeof ShoppingBag }> = [
@@ -99,68 +104,11 @@ export default function AdminEatCleanPage(props: AdminEatCleanPageProps) {
 function AdminEatCleanWorkspace({ accountId, currentRole, initialTab = 'dispatch', className = '', isDemo = false }: AdminEatCleanPageProps) {
   const [activeTab, setActiveTab] = useState<EatCleanAdminTab>(initialTab)
   const needsAdminData = activeTab !== 'dispatch'
-  const [data, setData] = useState<EatCleanAdminData | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [refreshing, setRefreshing] = useState(false)
-  const [loadError, setLoadError] = useState('')
+  const workspace = useAdminSections(TAB_SECTIONS[activeTab], canManageEatClean(currentRole), isDemo)
+  const { data, loading, refreshing, error: loadError } = workspace
   const [initializing, setInitializing] = useState(false)
   const [initializeError, setInitializeError] = useState('')
-  const alive = useRef(true)
-  const requestSequence = useRef(0)
-  const pendingRead = useRef<Promise<EatCleanAdminData> | null>(null)
-
-  useEffect(() => {
-    alive.current = true
-    return () => { alive.current = false; requestSequence.current++ }
-  }, [])
-
-  const loadData = useCallback(async (background = false, afterMutation = false) => {
-    if (!canManageEatClean(currentRole)) {
-      setLoading(false)
-      return
-    }
-    const sequence = ++requestSequence.current
-    const current = () => alive.current && sequence === requestSequence.current
-    if (background) setRefreshing(true)
-    else setLoading(true)
-    setLoadError('')
-    try {
-      if (isDemo) {
-        setData({
-          schemaVersion: 1,
-          orders: [],
-          meals: [],
-          inventory: [],
-          config: { ...DEFAULT_EAT_CLEAN_CONFIG },
-          summary: { ...EMPTY_EAT_CLEAN_SUMMARY },
-          seeded: true,
-        })
-      } else {
-        // StrictMode replay and simultaneous refresh consumers share the same
-        // request; each consumer still fences its own stale response.
-        // A mutation must not acknowledge a read that began before its commit.
-        const request = (!afterMutation && pendingRead.current) || listEatCleanAdminData()
-        pendingRead.current = request
-        try {
-          const result = await request
-          if (current()) setData(result)
-        } finally {
-          if (pendingRead.current === request) pendingRead.current = null
-        }
-      }
-    } catch (error) {
-      if (current()) {
-        if (/(?:permission-denied|unauthenticated)$/.test(String((error as { code?: unknown })?.code || ''))) setData(null)
-        setLoadError(getEatCleanAdminErrorMessage(error))
-      }
-    } finally {
-      if (current()) { setLoading(false); setRefreshing(false) }
-    }
-  }, [currentRole, isDemo])
-
-  useEffect(() => {
-    if (needsAdminData && !data && !loading && !loadError) void loadData()
-  }, [needsAdminData, data, loading, loadError, loadData])
+  const loadData = (_background = false, _afterMutation = false) => workspace.refresh()
 
   useEffect(() => {
     // Download only the active tool; hovering another tab preloads code only.
@@ -194,6 +142,7 @@ function AdminEatCleanWorkspace({ accountId, currentRole, initialTab = 'dispatch
     setInitializeError('')
     try {
       await initializeEatCleanCatalog()
+      workspace.invalidate(EAT_CLEAN_ADMIN_SECTIONS)
       await loadData(true, true)
     } catch (error) {
       setInitializeError(getEatCleanAdminErrorMessage(error))
@@ -205,13 +154,13 @@ function AdminEatCleanWorkspace({ accountId, currentRole, initialTab = 'dispatch
   const handleSaveMeal = async (meal: EatCleanMeal) => {
     try {
       const savedMeal = await saveEatCleanMeal({ meal })
-      setData((current) => current ? {
+      workspace.patch(['meals'], (current) => ({
         ...current,
         seeded: true,
         meals: current.meals.some((item) => item.id === savedMeal.id)
           ? current.meals.map((item) => item.id === savedMeal.id ? savedMeal : item)
           : [savedMeal, ...current.meals],
-      } : current)
+      }))
     } catch (error) {
       throw new Error(getEatCleanAdminErrorMessage(error))
     }
@@ -220,12 +169,12 @@ function AdminEatCleanWorkspace({ accountId, currentRole, initialTab = 'dispatch
   const handleSaveInventory = async (input: SaveEatCleanInventoryInput) => {
     try {
       const savedItem = await saveEatCleanInventory(input)
-      setData((current) => current ? {
+      workspace.patch(['inventory'], (current) => ({
         ...current,
         inventory: current.inventory.some((item) => item.id === savedItem.id)
           ? current.inventory.map((item) => item.id === savedItem.id ? savedItem : item)
           : [savedItem, ...current.inventory],
-      } : current)
+      }))
     } catch (error) {
       throw new Error(getEatCleanAdminErrorMessage(error))
     }
@@ -234,7 +183,7 @@ function AdminEatCleanWorkspace({ accountId, currentRole, initialTab = 'dispatch
   const handleSaveConfig = async (config: EatCleanConfig) => {
     try {
       const savedConfig = await saveEatCleanConfig({ config })
-      setData((current) => current ? { ...current, seeded: true, config: savedConfig } : current)
+      workspace.patch(['config'], (current) => ({ ...current, seeded: true, config: savedConfig }))
     } catch (error) {
       throw new Error(getEatCleanAdminErrorMessage(error))
     }
@@ -243,10 +192,19 @@ function AdminEatCleanWorkspace({ accountId, currentRole, initialTab = 'dispatch
   const handleUpdateOrder = async (input: UpdateEatCleanOrderInput) => {
     try {
       const savedOrder = await updateEatCleanOrder(input)
-      setData((current) => current ? {
-        ...current,
-        orders: current.orders.map((order) => order.id === savedOrder.id ? { ...order, ...savedOrder } : order),
-      } : current)
+      workspace.patch(['orders'], (current) => {
+        const orders = current.orders.map((order) => order.id === savedOrder.id ? { ...order, ...savedOrder } : order)
+        const summary = orders.reduce((value, order) => {
+          value.totalOrders++
+          value.byStatus[order.status] = (value.byStatus[order.status] || 0) + 1
+          if (order.status === 'delivered') value.deliveredRevenue += order.total || 0
+          if (order.refund && !['refunded', 'rejected'].includes(order.refund.status)) value.pendingRefunds++
+          if (order.deliveryRecordMissing) value.missingDeliveryRecords++
+          return value
+        }, { ...EMPTY_EAT_CLEAN_SUMMARY, byStatus: { ...EMPTY_EAT_CLEAN_SUMMARY.byStatus } })
+        return { ...current, orders, summary }
+      })
+      workspace.invalidate(['inventory'])
     } catch (error) {
       throw new Error(getEatCleanAdminErrorMessage(error))
     }
@@ -301,16 +259,16 @@ function AdminEatCleanWorkspace({ accountId, currentRole, initialTab = 'dispatch
         <img src="/images/eat-clean/hero-bowl.webp" alt="Suất ăn Eat Clean với rau củ tươi" />
       </header>
 
-      {needsAdminData && !loading && data && (
+      {needsAdminData && activeTab !== 'menu' && !loading && data && (
         <section className="eat-clean-stats" aria-label="Tổng quan Eat Clean">
-          <article><span><ClipboardList size={19} /></span><div><strong>{summary.pendingOrders}</strong><small>Đơn chờ xác nhận</small></div></article>
+          {activeTab === 'orders' && <><article><span><ClipboardList size={19} /></span><div><strong>{summary.pendingOrders}</strong><small>Đơn chờ xác nhận</small></div></article>
           <article><span><PackageCheck size={19} /></span><div><strong>{summary.preparingOrders}</strong><small>Đang chuẩn bị</small></div></article>
-          <article><span><WalletCards size={19} /></span><div><strong>{formatCurrency(summary.todayRevenue)}</strong><small>Doanh thu đã giao</small></div></article>
-          <article><span><AlertCircle size={19} /></span><div><strong>{summary.lowStockItems}</strong><small>Nguyên liệu cần chú ý</small></div></article>
+          <article><span><WalletCards size={19} /></span><div><strong>{formatCurrency(summary.todayRevenue)}</strong><small>Doanh thu đã giao</small></div></article></>}
+          {(activeTab === 'inventory' || activeTab === 'operations') && <article><span><AlertCircle size={19} /></span><div><strong>{summary.lowStockItems}</strong><small>Nguyên liệu cần chú ý</small></div></article>}
         </section>
       )}
 
-      {needsAdminData && !loading && data && data.summary.missingDeliveryRecords > 0 && (
+      {activeTab === 'orders' && !loading && data && data.summary.missingDeliveryRecords > 0 && (
         <section className="eat-clean-integrity-alert" role="alert">
           <span><AlertTriangle size={20} /></span>
           <div>
@@ -320,6 +278,12 @@ function AdminEatCleanWorkspace({ accountId, currentRole, initialTab = 'dispatch
           <button type="button" onClick={() => setActiveTab('orders')}>Mở đơn hàng</button>
         </section>
       )}
+
+      {needsAdminData && workspace.ready && workspace.limited && <p role="status" className="eat-clean-inline-error">Dữ liệu đang xem đã chạm giới hạn tải. Danh sách và tổng số có thể chưa đầy đủ.</p>}
+      {needsAdminData && workspace.ready && loadError && <div role="alert" className="eat-clean-inline-error">
+        <span>{loadError} Dữ liệu trước đó vẫn đang hiển thị.</span>
+        <button type="button" onClick={() => void loadData()}>Thử tải lại</button>
+      </div>}
 
       <nav className="eat-clean-tabs" role="tablist" aria-label="Quản trị Eat Clean">
         {TABS.map((tab, index) => {
@@ -356,7 +320,7 @@ function AdminEatCleanWorkspace({ accountId, currentRole, initialTab = 'dispatch
           <strong>Đang tải dữ liệu Eat Clean…</strong>
           <p>Kết nối hệ thống đơn hàng và thực đơn.</p>
         </div>
-      ) : loadError ? (
+      ) : loadError && !workspace.ready ? (
         <div className="eat-clean-error-state" role="alert">
           <AlertCircle size={34} />
           <h2>Chưa thể tải trung tâm Eat Clean</h2>
