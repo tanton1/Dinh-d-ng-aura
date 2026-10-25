@@ -16,7 +16,7 @@
     "initialWorkflowRun": "https://github.com/tanton1/Dinh-d-ng-aura/actions/runs/40120991612",
     "verification": "18 original targets match phase-one source; the remaining five match the consolidated b9 source. See per-function evidence in the verification record."
   },
-  "observedAt": "2026-10-25T00:35:15.640Z",
+  "observedAt": "2026-10-25T00:53:17.053Z",
   "items": {
     "D0.0": {
       "status": "triaged",
@@ -205,10 +205,19 @@
       }
     },
     "D5.5": {
-      "status": "ledger_and_progress_date_indexes_live_retention_pending",
+      "status": "ledger_progress_and_users_role_indexes_live_retention_pending",
       "change": "One ordered ledger date index was created and verified READY. Unfiltered descending ledger pages now use a date-range SequentialScan without MajorSort. Existing 92 indexes were preserved; branch/history indexes were reused. Evidence: ops/ledger-date-index-observation-20261025.json. Six collection-scoped date/document-ID descending indexes are now READY for progress sources. All six synthetic explain plans use ordered SequentialScan without TableScan or MajorSort. Existing 93 indexes were preserved; total 99. Evidence: ops/progress-date-index-observation-20261025.json.",
       "remaining": "Measure runtime and read benefit against added index write/storage overhead; other retention/index work remains pending. Ascending report plans still sort.",
-      "validation": "Seven index-scope/target/direction tests passed; create-only apply verified six created, six READY and zero deleted; independent dry-run verified 99 indexes and no missing progress target. Regional routing/lifecycle regression checks are recorded with this change."
+      "validation": "Seven index-scope/target/direction tests passed; create-only apply verified six created, six READY and zero deleted; independent dry-run verified 99 indexes and no missing progress target. Regional routing/lifecycle regression checks are recorded with this change. Eight index-scope/target tests passed after adding the users-role scope. One index was created and verified READY; independent dry-run found 100 existing indexes and no missing users-role target.",
+      "usersRoleIndex": {
+        "observation": "ops/users-role-index-observation-20261025.json",
+        "created": 1,
+        "ready": 1,
+        "deleted": 0,
+        "totalIndexes": 100,
+        "plan": "Role-range SequentialScan with limit before Fetch; no TableScan or MajorSort",
+        "sourceReviewPending": true
+      }
     },
     "virtualGym": {
       "status": "architecture_only",
@@ -233,7 +242,8 @@
     "tmp/data-cost-implementation-20261025/projection-transport.json",
     "tmp/data-cost-implementation-20261025/backend-check-final.log",
     "ops/data-cost-serving-verification-20261025.json",
-    "ops/progress-date-index-observation-20261025.json"
+    "ops/progress-date-index-observation-20261025.json",
+    "ops/users-role-index-observation-20261025.json"
   ],
   "limitations": [
     "Production observations precede this release and do not demonstrate savings from it.",
@@ -242,10 +252,19 @@
     "Original Academy working tree is excluded from this isolated change."
   ],
   "currentProduction": {
-    "frontendCommit": "264eb1222cdca41fdd73641f4ea24691b1aa05b7",
-    "frontendCheckedAt": "2026-10-25T00:34:27.306Z",
+    "frontendCommit": "6bb773967ecd7a7b3f11daf663e1807c208aed07",
+    "frontendCheckedAt": "2026-10-25T00:48:09.721Z",
     "verifiedFunctionCount": 61,
     "verificationRecord": "tmp/data-cost-implementation-20261025/current-rollout-verification.json",
     "overallPlanComplete": false
+  },
+  "rulesDeployment": {
+    "source": "ebbddf4432eb1390573c120b970b06a0682ba277",
+    "mergeCommit": "6bb773967ecd7a7b3f11daf663e1807c208aed07",
+    "pullRequest": 19,
+    "status": "merged_with_live_source_verified",
+    "runtimeUnchanged": true,
+    "sourceChecksPassed": true,
+    "observation": "ops/named-firestore-rules-release-20261025.json"
   }
 }

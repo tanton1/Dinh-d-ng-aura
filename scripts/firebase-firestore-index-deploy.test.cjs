@@ -4,6 +4,26 @@ const test = require('node:test')
 const { parseArguments, selectIndexes, signature, CONFIRMATION } = require('./firebase-firestore-index-deploy.cjs')
 const indexes = require('../firestore.indexes.json').indexes
 
+test('users role scope selects the ordered collection index and requires exact production confirmation', () => {
+  const [index] = selectIndexes(indexes, 'users-role-reads')
+  assert.deepEqual(index, { collectionGroup: 'users', queryScope: 'COLLECTION', fields: [
+    { fieldPath: 'role', order: 'ASCENDING' }, { fieldPath: '__name__', order: 'ASCENDING' },
+  ] })
+  assert.equal(selectIndexes(indexes, 'users-role-reads').length, 1)
+  assert.throws(() => selectIndexes([], 'users-role-reads'), /exactly once/)
+  assert.throws(() => selectIndexes([index, index], 'users-role-reads'), /exactly once/)
+  for (const invalid of [
+    { ...index, collectionGroup: 'students' },
+    { ...index, queryScope: 'COLLECTION_GROUP' },
+    { ...index, fields: [{ fieldPath: 'role', order: 'DESCENDING' }, index.fields[1]] },
+    { ...index, fields: [index.fields[0], { fieldPath: '__name__', order: 'DESCENDING' }] },
+  ]) assert.throws(() => selectIndexes([invalid], 'users-role-reads'), /exactly once/)
+  assert.deepEqual(parseArguments(['dry-run', '--scope=users-role-reads']), { mode: 'dry-run', scope: 'users-role-reads' })
+  assert.deepEqual(parseArguments(['apply', '--scope=users-role-reads', `--confirm=${CONFIRMATION}`]), { mode: 'apply', scope: 'users-role-reads' })
+  assert.throws(() => parseArguments(['apply', '--scope=users-role-reads']), /confirmation/)
+  assert.throws(() => parseArguments(['apply', '--scope=users-role-reads', '--confirm=other-project']), /confirmation/)
+})
+
 test('progress scope selects only the six owner collection date indexes, with exact tie-break direction', () => {
   const selected = selectIndexes(indexes, 'student-progress-reads')
   assert.deepEqual(selected.map(index => index.collectionGroup), ['bodyMetrics', 'bodyMeasurements', 'weightLogs', 'progressCheckIns', 'progress_photos', 'progressPhotos'])
