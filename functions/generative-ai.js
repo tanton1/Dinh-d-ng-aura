@@ -1,6 +1,8 @@
-const { FieldValue } = require('firebase-admin/firestore')
 const { HttpsError, onCall } = require('firebase-functions/v2/https')
 const { withFunctionTelemetry } = require('./observability')
+const {
+  createNutritionAiRequests, requestFingerprint, nutritionAiRequestId, requireAiRequestOwner,
+} = require('./nutrition-ai-requests')
 const {
   OPENROUTER_API_KEY,
   getOpenRouterApiKey,
@@ -311,44 +313,41 @@ async function requestStructuredContent(apiKey, task, action) {
   })
 }
 
-async function consumeRateLimit(db, uid) {
-  const reference = db.doc(`users/${uid}/aiRateLimits/contentGeneration`)
-  const now = Date.now()
-  await db.runTransaction(async (transaction) => {
-    const snapshot = await transaction.get(reference)
-    const data = snapshot.data() || {}
-    const windowStartedAt = Number(data.windowStartedAt) || now
-    const dayStartedAt = Number(data.dayStartedAt) || now
-    const sameWindow = now - windowStartedAt < 10 * 60 * 1000
-    const sameDay = now - dayStartedAt < 24 * 60 * 60 * 1000
-    const windowCount = sameWindow ? (Number(data.windowCount) || 0) : 0
-    const dayCount = sameDay ? (Number(data.dayCount) || 0) : 0
-    if (windowCount >= 30 || dayCount >= 150) {
-      throw new HttpsError('resource-exhausted', 'Bạn đã gửi quá nhiều yêu cầu AI. Hãy thử lại sau.')
-    }
-    transaction.set(reference, {
-      windowStartedAt: sameWindow ? windowStartedAt : now,
-      windowCount: windowCount + 1,
-      dayStartedAt: sameDay ? dayStartedAt : now,
-      dayCount: dayCount + 1,
-      updatedAt: FieldValue.serverTimestamp(),
-    }, { merge: true })
-  })
-}
-
-async function requireRole(db, request, roles) {
+async function requireRole(db, request, roles, transaction) {
   if (!roles) return
   const uid = request.auth.uid
   const tokenRole = request.auth.token?.role
-  const profile = await db.doc(`users/${uid}`).get()
+  const reference = db.doc(`users/${uid}`)
+  const profile = await (transaction ? transaction.get(reference) : reference.get())
   const storedRole = profile.data()?.role
   if (!roles.has(tokenRole) || storedRole !== tokenRole) {
     throw new HttpsError('permission-denied', 'Bạn không có quyền dùng tác vụ AI này.')
   }
 }
 
-function createGenerativeAiFunctions({ db }) {
-  const generateAuraContent = onCall({
+function contentRequestIdentity(uid, action, task, suppliedRequestId) {
+  // Bind replay to the actual server prompt/schema/model policy, not arbitrary
+  // extra client fields. An explicit new request ID means a new draft.
+  const fingerprint = requestFingerprint({ version: 1, action, prompt: task.prompt, schema: task.schema,
+    maxOutputTokens: task.maxOutputTokens, models: getModelCandidates() })
+  return { uid, operation: 'auraContent', fingerprint,
+    requestId: nutritionAiRequestId(suppliedRequestId, `content_${fingerprint}`) }
+}
+
+function contentRequestError(error) {
+  const kind = error?.details?.kind
+  if (error instanceof HttpsError && typeof kind === 'string' && kind.startsWith('nutrition_ai_')) {
+    return new HttpsError(error.code, error.message, { ...error.details, kind: kind.replace('nutrition_ai_', 'content_ai_') })
+  }
+  return error
+}
+
+function createGenerativeAiFunctions({ db, onCallImpl = onCall, generate = requestStructuredContent,
+  apiKey = getOpenRouterApiKey, now = Date.now }) {
+  // Reuse the existing transactional receipt/quota coordinator and its TTL
+  // namespace. The auraContent operation is disjoint from nutrition requests.
+  const requests = createNutritionAiRequests({ db, now })
+  const generateAuraContent = onCallImpl({
     timeoutSeconds: 60,
     memory: '256MiB',
     maxInstances: 3,
@@ -358,20 +357,42 @@ function createGenerativeAiFunctions({ db }) {
   }, withFunctionTelemetry('generateAuraContent', async (request) => {
     const uid = request.auth?.uid
     if (!uid) throw new HttpsError('unauthenticated', 'Bạn cần đăng nhập để dùng AI.')
-    const action = typeof request.data?.action === 'string' ? request.data.action : ''
+    requireAiRequestOwner(request, uid)
+    const statusOnly = request.data?.action === 'request-status'
+    const action = typeof (statusOnly ? request.data?.targetAction : request.data?.action) === 'string'
+      ? (statusOnly ? request.data.targetAction : request.data.action) : ''
     const task = buildTask(action, request.data?.payload)
     await requireRole(db, request, task.roles)
-    await consumeRateLimit(db, uid)
-
-    const apiKey = getOpenRouterApiKey()
-    if (!apiKey) throw new HttpsError('failed-precondition', 'OpenRouter chưa được cấu hình trên máy chủ.')
-    const result = await requestStructuredContent(apiKey, task, action)
-    return {
-      action,
-      data: result.data,
-      model: result.model,
-      providerRequestId: result.requestId,
-      usage: result.usage,
+    const identity = contentRequestIdentity(uid, action, task, request.data?.requestId)
+    let acquired
+    try {
+      const replay = await requests.replay(identity)
+      if (replay) return replay
+      // A separate unsupported action is safe against an older backend: it
+      // cannot accidentally start paid work when the browser checks a timeout.
+      if (statusOnly) throw new HttpsError('not-found', 'Chưa có kết quả AI đã lưu cho yêu cầu này.', {
+        kind: 'content_ai_not_started', requestId: identity.requestId, retryable: true,
+      })
+      const key = apiKey()
+      if (!key) throw new HttpsError('failed-precondition', 'OpenRouter chưa được cấu hình trên máy chủ.')
+      acquired = await requests.claim({ ...identity,
+        guard: transaction => requireRole(db, request, task.roles, transaction),
+        quota: { key: 'contentGeneration', windowLimit: 30, dayLimit: 150 },
+      })
+      if (acquired.response) return acquired.response
+      await requests.startProvider(acquired)
+      const result = await generate(key, task, action)
+      const response = { action, data: result.data, model: result.model,
+        providerRequestId: result.requestId ?? null, usage: result.usage ?? null,
+        receipt: { schemaVersion: 1, requestId: identity.requestId, status: 'completed' },
+      }
+      await requests.complete(acquired, response)
+      // A long generation must not return a privileged result after revocation.
+      await requireRole(db, request, task.roles)
+      return response
+    } catch (error) {
+      if (acquired?.acquired) await requests.fail(acquired, error)
+      throw contentRequestError(error)
     }
   }))
 
@@ -383,4 +404,5 @@ module.exports = {
   createGenerativeAiFunctions,
   getModelCandidates,
   requestStructuredContent,
+  contentRequestIdentity,
 }

@@ -2,6 +2,7 @@ import { httpsCallable } from 'firebase/functions'
 import { firebaseAuth } from '../lib/firebase'
 import { firebaseFunctions } from '../lib/firebaseFunctions'
 import { runKeyedSingleFlight } from '../utils/singleFlight'
+import { runContentAiRequest, type ContentAiReceiptResponse } from './contentAiRequest'
 
 type AuraAiAction =
   | 'course-outline'
@@ -11,16 +12,7 @@ type AuraAiAction =
   | 'recipe'
   | 'meal-plan'
 
-interface AuraAiResponse<T> {
-  action: AuraAiAction
-  data: T
-  model: string
-  providerRequestId: string | null
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value)
-}
+export interface GenerateContentOptions { newDraft?: boolean }
 
 function stableSerialize(value: unknown): string {
   if (value === undefined) return 'undefined'
@@ -32,22 +24,26 @@ function stableSerialize(value: unknown): string {
 
 const inFlightContentRequests = new Map<string, Promise<unknown>>()
 
-async function generateAuraContent<T>(action: AuraAiAction, payload: Record<string, unknown>): Promise<T> {
+async function generateAuraContent<T>(action: AuraAiAction, payload: Record<string, unknown>, options: GenerateContentOptions = {}): Promise<T & { generationId: string }> {
   const functions = firebaseFunctions
   if (!functions) throw new Error('Firebase Functions chưa được cấu hình.')
-  const ownerId = firebaseAuth?.currentUser?.uid ?? 'anonymous'
+  const ownerId = firebaseAuth?.currentUser?.uid
+  if (!ownerId) throw new Error('Bạn cần đăng nhập để dùng AI.')
   const requestKey = `${ownerId}:${action}:${stableSerialize(payload)}`
   return runKeyedSingleFlight(inFlightContentRequests, requestKey, async () => {
     const callable = httpsCallable<
-      { action: AuraAiAction; payload: Record<string, unknown> },
-      AuraAiResponse<T>
+      Record<string, unknown>,
+      ContentAiReceiptResponse<T>
     >(functions, 'generateAuraContent', { timeout: 60_000 })
-    const response = await callable({ action, payload })
-    if (response.data?.action !== action || !isRecord(response.data?.data)) {
-      throw new Error('Phản hồi AI không hợp lệ.')
-    }
-    return response.data.data
-  }) as Promise<T>
+    const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(requestKey))
+    const fingerprint = Array.from(new Uint8Array(bytes), value => value.toString(16).padStart(2, '0')).join('')
+    let storage: Storage | undefined
+    try { storage = window.localStorage } catch { /* Default request identity remains deterministic on the server. */ }
+    return runContentAiRequest<T>(action, payload, async input => (await callable(input)).data, {
+      ownerUid: ownerId, currentOwnerUid: () => firebaseAuth?.currentUser?.uid,
+      storageKey: `aura.content-ai.v1.${ownerId}.${fingerprint}`, defaultRequestId: `content_${fingerprint}`, storage, newDraft: options.newDraft,
+    })
+  }) as Promise<T & { generationId: string }>
 }
 
 export interface GeneratedCourseOutline {
@@ -109,34 +105,34 @@ export interface GeneratedMealPlan {
   }>
 }
 
-export function generateCourseOutline(payload: { topic: string; audience: string; weeks: number }) {
-  return generateAuraContent<GeneratedCourseOutline>('course-outline', payload)
+export function generateCourseOutline(payload: { topic: string; audience: string; weeks: number }, options?: GenerateContentOptions) {
+  return generateAuraContent<GeneratedCourseOutline>('course-outline', payload, options)
 }
 
-export function generateCourseQuiz(payload: { lessonTitle: string; lessonSummary: string }) {
-  return generateAuraContent<GeneratedCourseQuiz>('course-quiz', payload)
+export function generateCourseQuiz(payload: { lessonTitle: string; lessonSummary: string }, options?: GenerateContentOptions) {
+  return generateAuraContent<GeneratedCourseQuiz>('course-quiz', payload, options)
 }
 
-export function generateCourseMemory(payload: { lessonTitle: string; lessonSummary: string }) {
-  return generateAuraContent<GeneratedCourseMemory>('course-memory', payload)
+export function generateCourseMemory(payload: { lessonTitle: string; lessonSummary: string }, options?: GenerateContentOptions) {
+  return generateAuraContent<GeneratedCourseMemory>('course-memory', payload, options)
 }
 
 export function summarizeLessonWithAi(payload: {
   courseTitle: string
   lessonTitle: string
   lessonContent: string
-}) {
-  return generateAuraContent<GeneratedLessonSummary>('lesson-summary', payload)
+}, options?: GenerateContentOptions) {
+  return generateAuraContent<GeneratedLessonSummary>('lesson-summary', payload, options)
 }
 
-export function generateRecipeWithAi(payload: { prompt: string; goal: string; mealType: string }) {
-  return generateAuraContent<GeneratedRecipe>('recipe', payload)
+export function generateRecipeWithAi(payload: { prompt: string; goal: string; mealType: string }, options?: GenerateContentOptions) {
+  return generateAuraContent<GeneratedRecipe>('recipe', payload, options)
 }
 
 export function generateMealPlanWithAi(payload: {
   goal: string
   targetCalories: number
   targetProtein: number
-}) {
-  return generateAuraContent<GeneratedMealPlan>('meal-plan', payload)
+}, options?: GenerateContentOptions) {
+  return generateAuraContent<GeneratedMealPlan>('meal-plan', payload, options)
 }
