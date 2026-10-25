@@ -67,7 +67,7 @@ export const ptScheduleConflictLabel = (code: string) => code === 'STUDENT_AVAIL
   : code === 'PROFILE_DATA_INCOMPLETE' ? 'Hồ sơ còn thiếu thông tin phục vụ xếp lịch.'
   : code
 export const asPtSchedulePublishError = (error: any) => ({ ...error, message: error.message || 'Lỗi thử nghiệm', conflicts: [], errorDetails: error.errorDetails || [] })
-export const getPtScheduleSlotCandidates = async (input: any) => { track('candidates', input); return { candidates: workspace.students.map((s: any) => ({ studentId: s.id, name: s.name, phone: '', eligible: !(workspace.schedule[input.slotId] || []).some((e: any) => e.studentId === s.id), manualSelectable: !(workspace.schedule[input.slotId] || []).some((e: any) => e.studentId === s.id), matchesStudentAvailability: true, reasons: [], contractId: `c-${s.id}` })) } }
+export const getPtScheduleSlotCandidates = async (input: any) => { track('candidates', input); return { candidates: input.directoryOnly || input.crossBranchOnly ? ((window as any).__searchCandidates || []) : workspace.students.map((s: any) => ({ studentId: s.id, name: s.name, phone: '', eligible: !(workspace.schedule[input.slotId] || []).some((e: any) => e.studentId === s.id), manualSelectable: !(workspace.schedule[input.slotId] || []).some((e: any) => e.studentId === s.id), matchesStudentAvailability: true, reasons: [], contractId: `c-${s.id}` })) } }
 export const applyPtScheduleDraftCommand = async (input: any) => {
   track('command', input); await sleep(200)
   if ((window as any).__failScheduleCommand) throw Error('Ca đích không hợp lệ; ca cũ được giữ')

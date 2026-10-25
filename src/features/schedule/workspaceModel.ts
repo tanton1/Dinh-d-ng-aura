@@ -11,6 +11,7 @@ import {
 
 import { readWorkspaceCache, writeWorkspaceCache, WORKSPACE_CACHE_REVALIDATE_MS } from './workspaceCache'
 import { applyWeeklyValidation } from './weeklyValidation'
+import { approvedOffOnDate } from './weeklyOff'
 
 type WorkspaceTab = 'matrix' | 'opportunities' | 'students' | 'warnings' | 'history'
 type StudentFilter = 'all' | 'missing' | 'contract' | 'availability' | 'trainer' | 'ready'
@@ -172,6 +173,7 @@ function candidateMatchesStudentAvailability(candidate: PtScheduleSlotCandidate)
 }
 
 function candidateCanBeManuallyScheduled(candidate: PtScheduleSlotCandidate, adminOverride = false) {
+  if (candidate.reasons.some(reason => ['ACTIVE_CONTRACT_NOT_FOUND', 'CONTRACT_PAUSED', 'CONTRACT_EXPIRED_BEFORE_WEEK', 'CONTRACT_NOT_STARTED_IN_WEEK'].includes(reason))) return false
   if (adminOverride) return true
   return candidate.manualSelectable
     ?? (candidate.eligible || candidate.reasons.every((reason) => STUDENT_AVAILABILITY_CONFLICTS.has(reason)))
@@ -564,6 +566,10 @@ function currentVietnamDateKey(force = false) {
   return vietnamDateCacheKey
 }
 
+export function normalizeScheduleSearchText(value: unknown) {
+  return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[đĐ]/g, 'd').toLocaleLowerCase('vi-VN').trim()
+}
+
 function localSlotCandidates(
   workspace: PtScheduleWorkspaceV2Result,
   trainerId: string,
@@ -600,13 +606,25 @@ function localSlotCandidates(
     contractsByStudent.set(contract.studentId, contracts)
   }
   const studentsById = new Map(workspace.students.map((student) => [student.id, student]))
-  return workspace.students.filter((student) => !student.isCrossBranchDisplayOnly).map((student): PtScheduleSlotCandidate => {
+  return workspace.students.filter((student) => {
+    if (student.isCrossBranchDisplayOnly) return false
+    const contractRows = contractsByStudent.get(student.id) || []
+    const latestEnd = (contractRows.length ? contractRows.filter(contract => !['cancelled', 'inactive', 'archived', 'draft'].includes(String(contract.status || '').toLowerCase())).map(contract => String(contract.endDate || '').slice(0, 10)) : [student.contractEndDate || '']).filter(Boolean).sort().at(-1)
+    if (!latestEnd) return true
+    const end = new Date(`${latestEnd}T00:00:00Z`), day = end.getUTCDate()
+    if (!Number.isFinite(end.getTime())) return true
+    end.setUTCDate(1)
+    end.setUTCMonth(end.getUTCMonth() + 1)
+    end.setUTCDate(Math.min(day, new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth() + 1, 0)).getUTCDate()))
+    return end.toISOString().slice(0, 10) >= currentVietnamDateKey()
+  }).map((student): PtScheduleSlotCandidate => {
     const reasons = new Set<string>()
     if (student.status === 'inactive' || student.eligibleForWeek !== true) {
       ;(student.eligibilityReasons?.length ? student.eligibilityReasons : ['STUDENT_NOT_ACTIVE']).forEach((reason) => reasons.add(reason))
     }
     if (student.branchId !== workspace.branch.id) reasons.add('STUDENT_BRANCH_MISMATCH')
-    if (date && student.validScheduleDates?.length && !student.validScheduleDates.includes(date)) reasons.add('ACTIVE_CONTRACT_NOT_FOUND')
+    if (approvedOffOnDate(student, date)) reasons.add('CONTRACT_PAUSED')
+    else if (date && student.validScheduleDates?.length && !student.validScheduleDates.includes(date)) reasons.add('ACTIVE_CONTRACT_NOT_FOUND')
     if (studentsScheduledThisDay.has(student.id)) reasons.add('STUDENT_MULTIPLE_SESSIONS_PER_DAY')
 
     // Older/migrated workspace payloads may omit the denormalized eligible
@@ -618,7 +636,9 @@ function localSlotCandidates(
     const eligibleContracts = (contractsByStudent.get(student.id) || []).filter((contract) =>
       (!eligibleContractIds.size || eligibleContractIds.has(contract.id))
       && (!date || (String(contract.startDate || '').slice(0, 10) <= date && String(contract.endDate || '').slice(0, 10) >= date)))
-    if (!eligibleContracts.length && student.eligibleForWeek) reasons.add('ACTIVE_CONTRACT_NOT_FOUND')
+    // Compact weekly documents deliberately omit contracts. Missing rows are
+    // unknown evidence, not proof of expiry; the write always checks the date.
+    if (!eligibleContracts.length && (contractsByStudent.get(student.id)?.length || 0) > 0 && student.eligibleForWeek) reasons.add('ACTIVE_CONTRACT_NOT_FOUND')
     if (eligibleContracts.length > 1) reasons.add('AMBIGUOUS_ACTIVE_CONTRACT')
     const selectedContract = eligibleContracts.length === 1 ? eligibleContracts[0] : null
     const assignedTrainerIds = selectedContract

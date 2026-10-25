@@ -437,6 +437,7 @@ export interface PtScheduleSlotCandidate {
   eligible: boolean
   reasons: string[]
   contractId: string | null
+  contractEndDate?: string
   date: string
   /** True khi học viên đã đăng ký đúng khung giờ đang mở. */
   matchesStudentAvailability?: boolean
@@ -771,8 +772,10 @@ export function generatePtScheduleDraft(input: { weekId: string; branchId: strin
 export function getPtScheduleSlotCandidates(input: {
   weekId: string
   branchId: string
-  trainerId: string
-  slotId: string
+  trainerId?: string
+  slotId?: string
+  /** Admin-only directory lookup, without loading a whole branch. */
+  directoryOnly?: boolean
   search?: string
   historical?: boolean
   /** Admin picker optimization: return only cross-branch matches. */

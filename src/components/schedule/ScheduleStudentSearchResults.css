@@ -1,0 +1,8 @@
+.schedule-student-search-results:empty { display:none; }
+.schedule-student-search-results { grid-column:1/-1; min-width:0; }
+.schedule-student-search-results > div { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 0; border-bottom:1px solid #eadce3; }
+.schedule-student-search-results span { display:grid; gap:4px; min-width:0; }
+.schedule-student-search-results strong { font-size:.82rem; overflow-wrap:anywhere; }
+.schedule-student-search-results small,.schedule-student-search-results p { color:#897785; font-size:.74rem; }
+.schedule-student-search-results button { flex:0 0 auto; min-height:40px; padding:0 12px; border:1px solid #ead0df; border-radius:10px; background:#fff; color:#d92c77; font:inherit; font-size:.75rem; }
+.schedule-student-search-results button:focus-visible { outline:2px solid #d92c77; outline-offset:3px; }
