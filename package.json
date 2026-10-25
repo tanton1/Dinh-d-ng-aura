@@ -22,6 +22,7 @@
     "test:schedule-ui": "playwright test --config playwright.schedule.config.ts",
     "test:admin-dashboard-ui": "playwright test --config tests/admin-dashboard-ui/playwright.config.ts",
     "test:staff-dashboard-ui": "playwright test --config tests/staff-dashboard-ui/playwright.config.ts",
+    "test:finance-history-ui": "playwright test --config tests/finance-history-ui/playwright.config.ts",
     "test:action-center-ui": "playwright test --config tests/action-center-ui/playwright.config.ts",
     "test:dashboard-ui": "npm run test:admin-dashboard-ui && npm run test:staff-dashboard-ui && npm run test:action-center-ui",
     "test:renewal-ui": "playwright test --config playwright.renewal.config.ts",

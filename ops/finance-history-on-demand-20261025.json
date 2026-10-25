@@ -1,0 +1,33 @@
+{
+  "scope": "D3.2 finance history visibility and request lifecycle",
+  "parentSource": "68c21d431aeab160a53ed86406f3a8b8048cd4fb",
+  "behavior": [
+    "Receivables entry, hidden history filter changes and hidden-history payment completion make zero ledger calls.",
+    "Opening or reopening history explicitly requests one fresh first page with includeSummary=false; subsequent pages are requested only by Load more.",
+    "Closing history, changing its filter, unmounting or changing account/authority fences late success, errors and legacy type fallback.",
+    "The receivables refresh button now refreshes its contract/student directory; it reads the ledger only while history is open.",
+    "History loading/error/retry states appear inside the dialog. Failed history is never presented as an empty successful ledger.",
+    "Existing global debt and installment totals continue to use the complete authorized contract directory, independently of loaded ledger pages."
+  ],
+  "validation": {
+    "fullLocalCi": "passed",
+    "typecheck": "passed",
+    "browserScenarios": 9,
+    "browsers": ["desktop Chromium", "mobile WebKit"],
+    "verifiedScenarioRuns": 18,
+    "browserRunDetails": "Initial run passed14/18; four filter cases used an incorrect CSS selector. Those four passed after switching to the observed accessible combobox label. Production implementation was unchanged between runs.",
+    "fixtures": "Local mocked service boundaries with the real FinanceManagement component; no live financial mutations.",
+    "logs": "tmp/finance-history-validation/"
+  },
+  "deployment": {
+    "state": "not_deployed",
+    "backendFunctionsChanged": false,
+    "rulesOrIndexesChanged": false,
+    "backendDeployRequired": false,
+    "order": "Review on top of PR34; preserve the existing backend-first release sequence for PR28/30/31/32 and PR34 before this frontend cutover."
+  },
+  "remaining": [
+    "Finance directory cursor pagination with separately authoritative complete debt totals.",
+    "Production observation of reduced calls; no billed-unit or currency saving is claimed."
+  ]
+}

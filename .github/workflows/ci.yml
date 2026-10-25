@@ -140,6 +140,12 @@ jobs:
       - name: Test history totals on mobile Safari
         if: matrix.project == 'mobile-webkit'
         run: npx playwright test --config tests/training-history-panel-ui/playwright.config.ts --project=history-mobile-webkit
+      - name: Test finance history reads on demand
+        if: matrix.project == 'chromium'
+        run: npm run test:finance-history-ui -- --project=finance-chromium
+      - name: Test finance history reads on mobile Safari
+        if: matrix.project == 'mobile-webkit'
+        run: npm run test:finance-history-ui -- --project=finance-mobile-webkit
       - name: Test workspace refresh on mobile Safari
         if: matrix.project == 'mobile-webkit'
         run: npm run test:workspace-sync-ui -- --project=sync-mobile-webkit
