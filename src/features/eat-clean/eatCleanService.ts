@@ -540,6 +540,7 @@ export async function getEatCleanOrderTracking(orderId: string): Promise<EatClea
   }
   const shipperCoordinate = coordinate(location)
   const gpsExpected = ['accepted', 'at_store', 'picked_up', 'arrived'].includes(rawDeliveryStatus)
+  const sync = recordOf(data?.workspaceSync), stream = recordOf(data?.locationStream)
   return {
     orderId,
     status: normalizeStatus(raw.status || order?.status),
@@ -560,5 +561,11 @@ export async function getEatCleanOrderTracking(orderId: string): Promise<EatClea
     lastLocationAt: isoValue(liveLocation?.recordedAt || liveLocation?.updatedAt || raw.lastLocationAt || raw.updatedAt),
     stale: raw.stale === true || liveLocation?.stale === true || (gpsExpected && !shipperCoordinate),
     deliveryOtp: textValue(data?.deliveryOtp) || undefined,
+    locationExpiresAt: numberValue(liveLocation?.expiresAt, 0) || undefined,
+    workspaceSync: sync && sync.schemaVersion === 1 && /^(0|\d{12}\.\d{9})$/.test(textValue(sync.version)) ? {
+      schemaVersion: 1, accountId: textValue(sync.accountId), orderId: textValue(sync.orderId), version: textValue(sync.version),
+    } : undefined,
+    locationStream: stream && typeof stream.enabled === 'boolean' && (stream.enabled === false || /^[a-f0-9]{64}$/.test(textValue(stream.binding)))
+      ? { enabled: stream.enabled, binding: textValue(stream.binding) } : undefined,
   }
 }

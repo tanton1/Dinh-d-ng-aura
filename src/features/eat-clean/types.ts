@@ -282,6 +282,9 @@ export interface EatCleanOrderTracking {
   lastLocationAt?: string
   stale?: boolean
   deliveryOtp?: string
+  locationExpiresAt?: number
+  workspaceSync?: { schemaVersion: number; accountId: string; orderId: string; version: string }
+  locationStream?: { enabled: boolean; binding: string }
 }
 
 export interface EatCleanRecommendationProfile {

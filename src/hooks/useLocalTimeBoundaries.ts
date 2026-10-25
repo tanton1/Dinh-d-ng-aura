@@ -6,7 +6,12 @@ export function useLocalTimeBoundaries(boundaries: number[]) {
   const key = boundaries.filter(Number.isFinite).sort((left, right) => left - right).join(',')
   useEffect(() => {
     const current = Date.now()
-    const next = key.split(',').map(Number).find((value) => value > current)
+    const deadlines = key.split(',').map(Number)
+    // An effect can run after a deadline crossed since the last render (for
+    // example a busy mobile frame). Repaint that crossing immediately instead
+    // of waiting for the next, later deadline. The guard avoids a render loop.
+    if (deadlines.some(value => value > now && value <= current)) setNow(current)
+    const next = deadlines.find((value) => value > current)
     const timer = next === undefined ? undefined : window.setTimeout(() => setNow(Date.now()), Math.min(next - current + 25, 2_147_483_647))
     const resume = () => { if (!document.hidden) setNow(Date.now()) }
     document.addEventListener('visibilitychange', resume)

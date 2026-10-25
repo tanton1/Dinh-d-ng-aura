@@ -64,9 +64,10 @@ test('tracking pauses while hidden, ignores old-order responses and stops automa
   await available(page, false, true)
   await page.clock.runFor(600_000)
   expect(await reads(page, 'tracking')).toBe(1)
-  await page.evaluate(() => { (window as any).costState.delayed = true })
+  await page.evaluate(() => { (window as any).costState.delayed = true; (window as any).emitDeliveryRevision('eatCleanOrderChanges/order-a', 1) })
   await available(page, true, true)
   await expect.poll(() => reads(page, 'tracking')).toBe(2)
+  await page.evaluate(() => { (window as any).costState.terminal = true })
   await page.getByRole('button', { name: 'Change order' }).click()
   await expect.poll(() => reads(page, 'tracking')).toBe(3)
   await page.evaluate(() => {
