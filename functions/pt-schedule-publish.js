@@ -744,21 +744,19 @@ function desiredEntries({ scheduleId, week, branchId, schedule, trainers, studen
         reservationsByContract,
       })
       if (!contractResolution.contract) {
+        const dateEntitled = contracts.some(item => item.studentId === studentId && contractSchedulableOn(item, date))
+        if (!dateEntitled) {
+          contractResolution.reasons.forEach(addError)
+          continue
+        }
         if (!policyOverride) {
           contractResolution.reasons.forEach(operationalIssue)
           continue
         }
         contractResolution.reasons.forEach(addWarning)
       }
-      // Keep a concrete contract object even for an admin override.  A manual
-      // placement must still produce a deterministic session payload when the
-      // learner has no active contract in the target branch; the contract id
-      // may be empty (or come from the draft entry) and the conflict is
-      // surfaced as a warning instead of crashing publish validation.
-      // Admin policy override may keep a row for audit, but it must not turn a
-      // cancelled/out-of-window contract into a billable session. Use only a
-      // date-effective contract as metadata fallback; otherwise publish with
-      // an empty link and the existing warning.
+      // Admin quota overrides still require a date-effective, non-paused
+      // contract. No publish mode may turn an invalid date into a session.
       const fallbackContract = contracts
         .filter((item) => item.studentId === studentId && contractSchedulableOn(item, date))
         .sort((left, right) => String(right.startDate || '').localeCompare(String(left.startDate || ''))
