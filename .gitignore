@@ -8,8 +8,6 @@ dist/
 functions/.env
 functions/.env.*
 !functions/.env.example
-# This exact project file contains reviewed, non-secret rollout switches.
-!functions/.env.gen-lang-client-0815966909
 *.log
 qa-*.png
 .chrome-qa*/
