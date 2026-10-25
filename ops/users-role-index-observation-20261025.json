@@ -1,0 +1,71 @@
+{
+  "schemaVersion": 1,
+  "status": "index_ready_source_review_pending",
+  "project": "gen-lang-client-0815966909",
+  "database": "ai-studio-aurafitnesselear-0f7609b4-b8d1-4fb3-9d62-99a2c03e1ce7",
+  "observedBefore": "2026-10-25T00:49:59.637Z",
+  "observedAfter": "2026-10-25T00:53:17.053Z",
+  "method": "Enterprise ExecutePipeline explain-only for the equivalent Core query; no analyze or business result query.",
+  "adapterCaveat": "The diagnostic defers projection after Core sort/limit because SDK 9.1 createFrom can drop document identity before its implicit sort. Application code continues to use native Core queries.",
+  "query": {
+    "collection": "users",
+    "filter": [
+      "role",
+      "==",
+      "shipper"
+    ],
+    "limit": 100,
+    "normalizedOrder": "__name__ ASC",
+    "selectedFields": [
+      "displayName",
+      "phoneNumber",
+      "photoURL",
+      "disabled"
+    ],
+    "applicationSource": "d8b0add77ef80b80a1c93cd2f820a8d78b6fb9eb"
+  },
+  "deployment": {
+    "scope": "users-role-reads",
+    "created": 1,
+    "ready": 1,
+    "deleted": 0,
+    "previousIndexCount": 99,
+    "verifiedIndexCount": 100,
+    "indexId": "CICAgLjy1YQJ",
+    "definition": {
+      "collectionGroup": "users",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "role",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "__name__",
+          "order": "ASCENDING"
+        }
+      ]
+    }
+  },
+  "before": "Tree:\n• Compute\n|  $out_1: map(\"__name__\", $__name___2, \"displayName\", $displayName_1, \"phoneNumber\", $phoneNumber_1, \"photoURL\", $photoURL_1, \"disabled\", $disabled_1)\n|  is query result: true\n|\n└── • Compute\n    |  $__name___2: $__name___1\n    |  $displayName_1: $displayName_2\n    |  $phoneNumber_1: $phoneNumber_2\n    |  $photoURL_1: $photoURL_2\n    |  $disabled_1: $disabled_2\n    |\n    └── • Compute\n        |  $__name___1: $__key___2\n        |\n        └── • MajorSort\n            |  fields: [$v_2 ASC]\n            |  output: [$__key___2, $disabled_2, $displayName_2, $phoneNumber_2, $photoURL_2]\n            |  limit: 100\n            |\n            └── • Compute\n                |  $v_2: $__key___2\n                |\n                └── • TableScan\n                       source: /users\n                       order: UNDEFINED\n                       filter: (exists(row().role) AND (row().role == \"shipper\") AND exists(row().__key__))\n                       output bindings: {$__key___2=row().__key__, $disabled_2=row().disabled, $displayName_2=row().displayName, $phoneNumber_2=row().phoneNumber, $photoURL_2=row().photoURL}\n                       output: [$__key___2, $disabled_2, $displayName_2, $phoneNumber_2, $photoURL_2]\n",
+  "after": "Tree:\n• Compute\n|  $out_1: map(\"__name__\", $__name___2, \"displayName\", $displayName_1, \"phoneNumber\", $phoneNumber_1, \"photoURL\", $photoURL_1, \"disabled\", $disabled_1)\n|  is query result: true\n|\n└── • Compute\n    |  $__name___2: $__name___1\n    |  $displayName_1: $displayName_2\n    |  $phoneNumber_1: $phoneNumber_2\n    |  $photoURL_1: $photoURL_2\n    |  $disabled_1: $disabled_2\n    |\n    └── • Compute\n        |  $__name___1: $__key___6\n        |\n        └── • Fetch\n            |  order: PRESERVE_INPUT_ORDER\n            |  source: /users\n            |  input record id: $rid_2\n            |  output bindings: {$__key___6=row().__key__, $disabled_2=row().disabled, $displayName_2=row().displayName, $phoneNumber_2=row().phoneNumber, $photoURL_2=row().photoURL}\n            |  output: [$__key___6, $disabled_2, $displayName_2, $phoneNumber_2, $photoURL_2]\n            |\n            └── • Limit\n                |  limit: 100\n                |\n                └── • Filter\n                    |  expression: (exists($role_3) AND exists($__key___4))\n                    |\n                    └── • SequentialScan\n                           properties: Selection {  }\n                           fields: [$role_3, $__key___4, $rid_2]\n                           index: /users (role ASC, __key__ ASC)@[id = CICAgLjy1YQJ]\n                           partition: /\n                           key ordering length: 3\n                           ranges: /\n                                   |----[\"shipper\"]\n",
+  "findings": [
+    "The same role-equality profile lookup now uses the role ASC/document-ID ASC index and applies limit 100 before fetching selected profile fields, replacing TableScan and MajorSort.",
+    "Availability lookups for one or 30 synthetic IDs use direct Values/Fetch plans, with a bounded sort; they do not scan the availability collection.",
+    "The index supports the existing query shape without changing user permissions, profile page membership, business documents or Function runtime."
+  ],
+  "validation": {
+    "indexScopeAndTargetTests": 8,
+    "independentDryRun": true,
+    "explainBeforeAndAfter": true
+  },
+  "limitations": [
+    "Planner evidence does not measure real request frequency, latency, billed units or monetary savings.",
+    "The index adds storage and write maintenance. No other index was deleted or modified by the create-only operation.",
+    "The existing 100-profile cap and dispatch polling remain follow-up work."
+  ],
+  "documentation": [
+    "https://docs.cloud.google.com/firestore/native/docs/enterprise-optimize-query-performance",
+    "https://docs.cloud.google.com/firestore/native/docs/query-data/understanding-core-pipelines"
+  ]
+}
