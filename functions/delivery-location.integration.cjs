@@ -3,9 +3,8 @@ const test = require('node:test')
 const assert = require('node:assert/strict')
 const { initializeApp, deleteApp } = require('firebase-admin/app')
 const { getDatabase } = require('firebase-admin/database')
-const { Timestamp } = require('firebase-admin/firestore')
 const { writeLiveLocation } = require('./delivery-location-policy')
-const { createEatCleanFunctions, __test: { distanceBetweenCoordinates: distance } } = require('./eat-clean')
+const { __test: { distanceBetweenCoordinates: distance } } = require('./eat-clean')
 
 if (!process.env.FIREBASE_DATABASE_EMULATOR_HOST) throw new Error('RTDB emulator is required')
 const app = initializeApp({ projectId: 'demo-aura-fitness-rtdb', databaseURL: 'https://demo-aura-fitness-rtdb-default-rtdb.firebaseio.com' }, 'location-tests')
@@ -55,23 +54,5 @@ test('an old inactive assignment mirror may recover after an authoritative accep
   assert.equal((await write(reference, point(now), now)).throttled, false)
 })
 
-test('actual callable checks current role, assignment and terminal state before publishing', async () => {
-  const now = Date.now()
-  const reference = database.ref('eatCleanLiveLocations/order')
-  await reference.remove()
-  const values = new Map([
-    ['users/driver', { role: 'shipper' }],
-    ['users/outsider', { role: 'shipper' }],
-    ['eatCleanDeliveries/order', { shipperId: 'driver', userId: 'customer', status: 'accepted', acceptedAt: Timestamp.fromMillis(now - 100000) }],
-  ])
-  const db = { doc: path => ({ get: async () => ({ exists: values.has(path), data: () => values.get(path) }) }) }
-  const fn = createEatCleanFunctions({ db, realtimeDb: database, onCall: (_options, handler) => handler, requireTrustedAdmin: async () => 'admin', routesAdapter: {}, addressAdapter: {}, logger: { warn() {} } }).updateEatCleanShipperLocation
-  const request = uid => ({ auth: { uid, token: { role: 'shipper' } }, data: { orderId: 'order', latitude: 16, longitude: 108, accuracyMeters: 5, capturedAt: Date.now() } })
-  await assert.rejects(fn(request('outsider')), error => error.code === 'permission-denied')
-  assert.equal((await reference.get()).exists(), false)
-  assert.equal((await fn(request('driver'))).throttled, false)
-  values.set('eatCleanDeliveries/order', { ...values.get('eatCleanDeliveries/order'), status: 'delivered' })
-  await assert.rejects(fn(request('driver')), error => error.code === 'failed-precondition')
-  values.set('users/driver', { role: 'shipper', disabled: true })
-  await assert.rejects(fn(request('driver')), error => error.code === 'permission-denied')
-})
+// Current callable and authorization coverage uses real Firestore transactions
+// in delivery-location-store.integration.cjs. These retain legacy RTDB coverage.

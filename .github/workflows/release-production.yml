@@ -251,6 +251,9 @@ jobs:
 
           IFS=',' read -ra TARGETS <<< "$BACKEND_FUNCTIONS"
           for FUNCTION_NAME in "${TARGETS[@]}"; do
+            if [ "$FUNCTION_NAME" = "updateEatCleanShipperLocation" ]; then
+              node scripts/delivery-location-retention.cjs verify
+            fi
             echo "Deploying ${FUNCTION_NAME}..."
             # Explicit backend targets are already reviewed by the release
             # input. `--force` confirms Firebase's retry-policy prompt for

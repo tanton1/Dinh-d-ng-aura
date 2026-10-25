@@ -6,7 +6,7 @@ import {
   assertSucceeds,
   initializeTestEnvironment,
 } from '@firebase/rules-unit-testing'
-import { collection, deleteDoc, doc, getDoc, getDocs, onSnapshot, serverTimestamp, setDoc, updateDoc } from 'firebase/firestore'
+import { collection, deleteDoc, doc, getDoc, getDocs, onSnapshot, serverTimestamp, setDoc, updateDoc, Timestamp } from 'firebase/firestore'
 
 const projectId = 'demo-aura-fitness'
 const rulesPath = new URL('../firestore.rules', import.meta.url)
@@ -234,6 +234,117 @@ describe('Aura PT Firestore rules', () => {
 
   after(async () => {
     await testEnvironment?.cleanup()
+  })
+
+  async function locationFixture() {
+    const now = Date.now(), assignedAt = Timestamp.fromMillis(now - 200000), acceptedAt = Timestamp.fromMillis(now - 100000)
+    const delivery = { shipperId: 'shipper-a', status: 'accepted', assignedAt, acceptedAt }
+    const point = { schemaVersion: 1, orderId: 'live-order', shipperId: 'shipper-a', assignmentAt: assignedAt, acceptanceAt: acceptedAt,
+      active: true, latitude: 16, longitude: 108, updatedAt: now, expiresAt: Timestamp.fromMillis(now + 86400000) }
+    await testEnvironment.withSecurityRulesDisabled(async context => {
+      const db = context.firestore()
+      await Promise.all([
+        setDoc(doc(db, 'users', 'shipper-a'), { role: 'shipper' }),
+        setDoc(doc(db, 'users', 'shipper-b'), { role: 'shipper' }),
+        setDoc(doc(db, 'eatCleanOrders', 'live-order'), { userId: 'client-1', status: 'out_for_delivery' }),
+        setDoc(doc(db, 'eatCleanDeliveries', 'live-order'), delivery),
+      ])
+    })
+    const write = (collection, value) => testEnvironment.withSecurityRulesDisabled(context => setDoc(doc(context.firestore(), collection, 'live-order'), value))
+    return { delivery, point, write }
+  }
+
+  test('order signals and latest points allow only the current owner, assigned shipper and enabled administrators', async () => {
+    const f = await locationFixture()
+    const allowed = [authenticatedDb('client-1', 'student'), authenticatedDb('shipper-a', 'shipper'), authenticatedDb('admin-1', 'admin'), authenticatedDb('super-1', 'super_admin')]
+    const denied = [authenticatedDb('other-client', 'student'), authenticatedDb('shipper-b', 'shipper'), authenticatedDb('coach-1', 'coach'), testEnvironment.unauthenticatedContext().firestore()]
+    for (const present of [false, true]) {
+      if (present) {
+        await f.write('eatCleanLiveLocationViews', f.point)
+        await f.write('eatCleanOrderChanges', { schemaVersion: 1, version: '001792890000.000000001' })
+      }
+      for (const collectionId of ['eatCleanLiveLocationViews', 'eatCleanOrderChanges']) {
+        for (const db of allowed) await assertSucceeds(getDoc(doc(db, collectionId, 'live-order')))
+        for (const db of denied) await assertFails(getDoc(doc(db, collectionId, 'live-order')))
+      }
+    }
+    for (const collectionId of ['eatCleanLiveLocationViews', 'eatCleanOrderChanges']) for (const db of allowed) {
+      await assertFails(getDocs(collection(db, collectionId)))
+      await assertFails(setDoc(doc(db, collectionId, 'live-order'), f.point))
+      await assertFails(deleteDoc(doc(db, collectionId, 'live-order')))
+    }
+  })
+
+  test('location rules reject stale claims, disabled and deleted current profiles, including owners', async () => {
+    const f = await locationFixture(); await f.write('eatCleanLiveLocationViews', f.point)
+    for (const [uid, role] of [['client-1', 'student'], ['shipper-a', 'shipper'], ['admin-1', 'admin']]) {
+      for (const profile of [{ role, disabled: true }, null, ...(role === 'student' ? [] : [{ role: 'student' }])]) {
+        await testEnvironment.withSecurityRulesDisabled(context => profile
+          ? setDoc(doc(context.firestore(), 'users', uid), profile)
+          : deleteDoc(doc(context.firestore(), 'users', uid)))
+        for (const collectionId of ['eatCleanLiveLocationViews', 'eatCleanOrderChanges']) await assertFails(getDoc(doc(authenticatedDb(uid, role), collectionId, 'live-order')))
+      }
+    }
+  })
+
+  test('expired, wrong-assignment, wrong-order, inactive and terminal points cannot be read even by an owner or admin', async () => {
+    const f = await locationFixture()
+    const readers = [authenticatedDb('client-1', 'student'), authenticatedDb('admin-1', 'admin')]
+    for (const patch of [
+      { expiresAt: Timestamp.fromMillis(Date.now() - 1) }, { expiresAt: Date.now() + 86400000 },
+      { assignmentAt: Timestamp.fromMillis(Date.now()) }, { acceptanceAt: Timestamp.fromMillis(Date.now()) },
+      { shipperId: 'shipper-b' }, { orderId: 'another-order' }, { active: false }, { schemaVersion: 2 },
+    ]) {
+      await f.write('eatCleanLiveLocationViews', { ...f.point, ...patch })
+      for (const db of readers) await assertFails(getDoc(doc(db, 'eatCleanLiveLocationViews', 'live-order')))
+    }
+    await f.write('eatCleanLiveLocationViews', f.point)
+    for (const status of ['assigned', 'delivered', 'cancelled']) {
+      await f.write('eatCleanDeliveries', { ...f.delivery, status })
+      for (const db of readers) {
+        await assertFails(getDoc(doc(db, 'eatCleanLiveLocationViews', 'live-order')))
+        await assertSucceeds(getDoc(doc(db, 'eatCleanOrderChanges', 'live-order')))
+      }
+    }
+  })
+
+  test('changing current ownership and assignment revokes former readers without refreshing their tokens', async () => {
+    const f = await locationFixture(); await f.write('eatCleanLiveLocationViews', f.point)
+    const formerOwner = authenticatedDb('client-1', 'student'), formerDriver = authenticatedDb('shipper-a', 'shipper')
+    await assertSucceeds(getDoc(doc(formerOwner, 'eatCleanLiveLocationViews', 'live-order')))
+    await assertSucceeds(getDoc(doc(formerDriver, 'eatCleanLiveLocationViews', 'live-order')))
+    await f.write('eatCleanOrders', { userId: 'other-client' })
+    await f.write('eatCleanDeliveries', { ...f.delivery, shipperId: 'shipper-b' })
+    await f.write('eatCleanLiveLocationViews', { ...f.point, shipperId: 'shipper-b' })
+    for (const collectionId of ['eatCleanLiveLocationViews', 'eatCleanOrderChanges']) {
+      for (const db of [formerOwner, formerDriver]) await assertFails(getDoc(doc(db, collectionId, 'live-order')))
+      for (const db of [authenticatedDb('other-client', 'student'), authenticatedDb('shipper-b', 'shipper')]) await assertSucceeds(getDoc(doc(db, collectionId, 'live-order')))
+    }
+  })
+
+  test('GPS listeners deliver point changes and reject further results after canonical assignment changes', async () => {
+    const f = await locationFixture(); await f.write('eatCleanLiveLocationViews', f.point)
+    let first, changed, denied, timeout
+    const received = [], boot = new Promise(resolve => { first = resolve }), update = new Promise(resolve => { changed = resolve }), revoked = new Promise(resolve => { denied = resolve })
+    const stop = onSnapshot(doc(authenticatedDb('shipper-a', 'shipper'), 'eatCleanLiveLocationViews', 'live-order'), { includeMetadataChanges: true }, snapshot => {
+      if (snapshot.metadata.fromCache) return
+      received.push(snapshot.data()?.latitude)
+      if (snapshot.data()?.latitude === 16) first()
+      if (snapshot.data()?.latitude === 16.001) changed()
+    }, error => denied(error.code))
+    const bounded = async promise => {
+      try { return await Promise.race([promise, new Promise((_, reject) => { timeout = setTimeout(() => reject(Error('location listener timeout')), 10000) })]) }
+      finally { clearTimeout(timeout) }
+    }
+    try {
+      await bounded(boot)
+      await f.write('eatCleanLiveLocationViews', { ...f.point, latitude: 16.001 })
+      await bounded(update)
+      await f.write('eatCleanDeliveries', { ...f.delivery, shipperId: 'shipper-b' })
+      await f.write('eatCleanLiveLocationViews', { ...f.point, shipperId: 'shipper-b', latitude: 17 })
+      assert.equal(await bounded(revoked), 'permission-denied')
+      assert.ok(!received.includes(17))
+    } finally { clearTimeout(timeout); stop() }
   })
 
   test('delivery revisions enforce current role/owner on missing and populated markers; no lists or browser writes', async () => {

@@ -23,7 +23,7 @@ function fixture() {
   ])
   const reads = [], locationReads = [], warnings = []
   let unavailable = false, failedDocument = ''
-  const db = { doc(path) {
+  const db = { getAll: (...references) => Promise.all(references.map(reference => reference.get())), doc(path) {
     return { async get() {
       reads.push(path)
       if (path === failedDocument) throw Object.assign(Error('Read unavailable'), { code: 'unavailable' })
@@ -76,14 +76,15 @@ test('anonymous and invalid-order requests fail before database reads', async ()
   assert.deepEqual(f.locationReads, [])
 })
 
-test('active owner retains location, owner-only OTP and the existing three-document read budget', async () => {
+test('active owner retains location and owner-only OTP with bounded authority, revision and point reads', async () => {
   const f = fixture(), result = await f.read()
   assert.equal(result.order.id, 'order-a')
   assert.equal(result.liveLocation.latitude, 16)
   assert.match(result.deliveryOtp, /^\d{4}$/)
   assert.equal(result.delivery.deliveryOtpHash, undefined)
   assert.equal(result.delivery.otpFailedAttempts, undefined)
-  assert.deepEqual(f.reads.sort(), ['eatCleanDeliveries/order-a', 'eatCleanOrders/order-a', 'users/owner'])
+  assert.deepEqual(f.reads.sort(), ['eatCleanDeliveries/order-a', 'eatCleanLiveLocationViews/order-a', 'eatCleanOrderChanges/order-a', 'eatCleanOrders/order-a', 'users/owner'])
+  assert.deepEqual(result.workspaceSync, { schemaVersion: 1, accountId: 'owner', orderId: 'order-a', version: '0' })
   assert.deepEqual(f.locationReads, ['eatCleanLiveLocations/order-a'])
 })
 
@@ -119,7 +120,7 @@ test('reassignment revokes the former shipper on the next request with the same 
   f.records.set('eatCleanDeliveries/order-a', { shipperId: 'driver-b', status: 'assigned' })
   await assert.rejects(f.read(a), error => error.code === 'permission-denied')
   assert.equal((await f.read(b)).delivery.shipperId, 'driver-b')
-  assert.equal(f.locationReads.length, 2)
+  assert.equal(f.locationReads.length, 1) // A newly assigned job has no accepted GPS stream.
 })
 
 test('changing the current owner revokes the former customer without token refresh', async () => {

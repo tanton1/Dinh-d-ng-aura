@@ -1,0 +1,26 @@
+'use strict'
+const assert = require('node:assert/strict')
+const { test } = require('node:test')
+const { BASE, FIELD, CONFIRM, parseArgs, assertTarget, assertEmpty } = require('./delivery-location-retention.cjs')
+test('location retention cannot target a different database or business collection', () => {
+  assert.doesNotThrow(() => assertTarget({ name: BASE, type: 'FIRESTORE_NATIVE' }, { name: FIELD }))
+  assert.throws(() => assertTarget({ name: BASE.replace('gen-lang-client-0815966909', 'other'), type: 'FIRESTORE_NATIVE' }, { name: FIELD }))
+  assert.throws(() => assertTarget({ name: BASE, type: 'DATASTORE_MODE' }, { name: FIELD }))
+  assert.throws(() => assertTarget({ name: BASE, type: 'FIRESTORE_NATIVE' }, { name: FIELD.replace('eatCleanLiveLocationViews', 'eatCleanOrders') }))
+})
+test('enable requires the exact scope and a durable intent path', () => {
+  assert.equal(parseArgs([]).mode, 'status')
+  assert.equal(parseArgs(['verify']).mode, 'verify')
+  assert.throws(() => parseArgs(['enable']))
+  assert.throws(() => parseArgs(['enable', '--confirm=' + CONFIRM]))
+  assert.throws(() => parseArgs(['enable', '--confirm=wrong', '--journal=tmp/proof.json']))
+  assert.throws(() => parseArgs(['enable', '--confirm=' + CONFIRM, '--journal=tmp/proof.json', '--collection=eatCleanOrders']))
+  assert.equal(parseArgs(['enable', '--confirm=' + CONFIRM, '--journal=tmp/proof.json']).mode, 'enable')
+})
+test('pre-existing or unverified data prevents the first retention activation', () => {
+  assert.doesNotThrow(() => assertEmpty({}))
+  assert.doesNotThrow(() => assertEmpty({ documents: [] }))
+  assert.throws(() => assertEmpty(null))
+  assert.throws(() => assertEmpty({ documents: [{}] }))
+  assert.throws(() => assertEmpty({ documents: [], nextPageToken: 'more' }))
+})
