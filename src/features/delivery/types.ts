@@ -47,6 +47,9 @@ export interface EatCleanDeliveryJob {
   gpsStale?: boolean
   otpFailureCount?: number
   otpLocked?: boolean
+  otpLockedUntil?: string
+  locationStream?: { enabled: boolean; binding: string }
+  liveLocation?: { latitude: number; longitude: number; updatedAt: number; expiresAt: number }
   customerDeliveryOtpRequired: boolean
   isLate: boolean
 }
@@ -139,6 +142,20 @@ export interface EatCleanDispatchSnapshot {
     gpsReadWarning?: string
   }
   serverTime?: string
+  totalActive?: number
+  page?: { limit: number; hasMore: boolean }
+  rosterLimitReached?: boolean
+  signalsDay?: string
+}
+
+export const DISPATCH_DATA_SECTIONS = ['jobs', 'roster', 'config', 'signals'] as const
+export type DispatchDataSection = typeof DISPATCH_DATA_SECTIONS[number]
+export type DispatchMarkerSection = Exclude<DispatchDataSection, 'signals'>
+export interface DispatchDataPatch extends Partial<Omit<EatCleanDispatchSnapshot, 'signals'>> {
+  sections: DispatchDataSection[]
+  workspaceSync: { schemaVersion: 1; accountId: string; versions: Partial<Record<DispatchMarkerSection, string>> }
+  signals?: Partial<EatCleanDispatchSnapshot['signals']>
+  signalsDay?: string
 }
 
 export const DEFAULT_DELIVERY_OPERATIONS_CONFIG: EatCleanDeliveryOperationsConfig = {

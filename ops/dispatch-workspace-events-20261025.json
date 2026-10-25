@@ -1,0 +1,37 @@
+{
+  "status": "implementation_validated_release_pending",
+  "scope": "Dispatch UI section events, independent GPS and daily counters",
+  "behavior": {
+    "bootstrap": "One authorized jobs/roster/config/signals request; explicit protocol capability is required and no heavier admin/driver fallback remains.",
+    "changes": "Section versions coalesce into one request for only changed visible groups. Responses acknowledge selected pre-hydration versions; newer events stay pending.",
+    "locations": "Exact displayed active-job subscriptions check assignment bindings. GPS changes patch coordinates without business calls. Terminal/assignment access loss clears the point and reconciles jobs once per failed binding.",
+    "dailyCounters": "One current Vietnam-day aggregate subscription. Midnight switches that document only; yesterday counts disappear locally even while recovery is paused.",
+    "visibility": "Hidden/offline detaches all subscriptions. Settings retains only current-account and configuration subscriptions. Unchanged resume makes no business request.",
+    "localDeadlines": ["SLA", "OTP unlock", "GPS staleness and expiry", "Vietnam midnight"],
+    "access": "Account-keyed UI and current-profile listener clear private data on revocation. Late account/authority responses and mutations are fenced. Mutation recovery requires a successful authorized snapshot.",
+    "drafts": "Unedited configuration follows updates; changed drafts and their expected revision survive background reads. Assignment refreshes jobs/roster only; saving configuration refreshes config only.",
+    "scopeLabels": "Show whole-scope active-job total and explicitly disclose capped job/roster display; page-only empty states do not imply a complete empty queue."
+  },
+  "validation": {
+    "newDispatchBrowserCases": 38,
+    "browsers": ["Chrome", "iPhone WebKit"],
+    "baseDataCostBrowserCases": 67,
+    "serviceProtocolTests": 4,
+    "typecheck": "passed",
+    "buildAndPerformance": "passed",
+    "fixtureBudgets": { "oneIdleHourBootstrapRequests": 1, "oneIdleHourPeriodicRequests": 0, "twentyGpsUpdatesAdditionalBusinessRequests": 0 },
+    "notes": "The base browser suite passed 67 cases; the wrapper command then reported no matching tests in its unrelated history suite because --grep was forwarded to that second command. This is not recorded as a complete npm test:data-cost-ui pass. The initial 108-case delivery run had a mobile long clock-advance test failure; the final deterministic midnight and all dispatch cases passed."
+  },
+  "release": {
+    "backendPrerequisite": "PR26: selective callable, all section source triggers and named Firestore rules serving and verified, after PR24/25.",
+    "backendRedeployRequired": false,
+    "rollback": "Revert this frontend to PR25 to restore the legacy full dispatch reader. PR26 continues accepting legacy requests. Do not independently roll back the separate location writer/readers from PR24."
+  },
+  "remaining": [
+    "The roster cap and bounded delivery page require a separate cursor UI.",
+    "Per-driver count queries still occur on roster changes; GPS/rules/listener reconnects have costs.",
+    "Mutation/source acknowledgements can still require a later reconciliation when a source trigger arrives after the immediate read.",
+    "Actual Enterprise units, request latency and currency savings require post-release observation."
+  ],
+  "measuredSavings": null
+}
