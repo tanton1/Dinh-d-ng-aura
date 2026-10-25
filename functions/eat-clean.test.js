@@ -677,7 +677,7 @@ test('module exposes the complete callable contract and keeps all writes in back
   assert.match(source, /createGoogleAddressAdapter/)
   assert.match(source, /buildActiveDeliveriesQuery/)
   assert.match(source, /countActiveDeliveryJobs/)
-  assert.match(source, /ref\(`eatCleanLiveLocations\/\$\{item\.id\}`\)\.get\(\)/)
+  assert.match(source, /readFirestoreLocations\(\{ db, realtimeDb/)
   assert.doesNotMatch(source, /ref\('eatCleanLiveLocations'\)\.get\(\)/)
   assert.match(source, /bestEffortRealtimeWrite/)
   assert.match(source, /realtimeMirror/)

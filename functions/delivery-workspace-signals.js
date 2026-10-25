@@ -28,6 +28,7 @@ async function syncDeliveryWorkspaceChange({ db, event, source }) {
   const version = timestampVersion(event.data?.after?.exists ? event.data.after.updateTime : event.time) || timestampVersion(event.time)
   if (!version) throw Error('DELIVERY_SIGNAL_MISSING_COMMIT_TIME')
   const paths = new Set(source === 'system' ? [SHARED_PATH] : [DISPATCH_PATH])
+  if (['eatCleanOrders', 'eatCleanDeliveries'].includes(source)) paths.add(`eatCleanOrderChanges/${id}`)
   const addDriver = value => { const uid = idOf(value); if (uid) paths.add(`eatCleanDriverChanges/${uid}`) }
   if (source === 'eatCleanShippers') addDriver(id)
   if (source === 'eatCleanDeliveries') [before, after].forEach(value => addDriver(value?.shipperId))
@@ -77,4 +78,11 @@ function createDeliveryWorkspaceTriggers({ db, databaseId, onDocumentWritten }) 
   }
 }
 
-module.exports = { syncDeliveryWorkspaceChange, readDeliveryWorkspaceState, createDeliveryWorkspaceTriggers }
+async function readOrderTrackingState({ db, actorId, orderId }) {
+  if (!idOf(actorId) || !idOf(orderId)) throw Error('DELIVERY_SIGNAL_INVALID_ACTOR')
+  // Capture the watermark before hydrating business state, as for driver lists.
+  const snapshot = await db.doc(`eatCleanOrderChanges/${orderId}`).get()
+  return { schemaVersion: 1, accountId: actorId, orderId, version: versionOf(snapshot.data()) }
+}
+
+module.exports = { syncDeliveryWorkspaceChange, readDeliveryWorkspaceState, readOrderTrackingState, createDeliveryWorkspaceTriggers }
