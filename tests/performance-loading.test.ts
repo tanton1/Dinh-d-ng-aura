@@ -30,7 +30,6 @@ test('heavy route assets remain behind their interaction boundaries', () => {
   const preloader = readFileSync('src/utils/routePreloader.ts', 'utf8')
 
   assert.doesNotMatch(application, /import ['"]\.\/styles-progress\.css['"]/)
-  assert.match(progress, /React\.lazy\(\(\) => import\('\.\.\/\.\.\/components\/progress\/ProgressPhotosCard'\)/)
   assert.match(progress, /period === '7-days' \? 7 : period === '30-days' \? 30 : 90/)
   assert.match(schedulerWrapper, /from ["']\.\.\/\.\.\/utils\/schedulerWarnings["']/)
   assert.doesNotMatch(schedulerWrapper, /import \{ calculateWarnings \} from ["']\.\.\/\.\.\/utils\/scheduler["']/)

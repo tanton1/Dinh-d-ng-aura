@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   AlertCircle,
   ArrowRight,
@@ -47,14 +47,6 @@ import { safeLocalStorageSet } from '../../lib/safeStorage'
 import { readProgressPhotoCache } from '../../dataSync/progressPhotoCache'
 import '../../styles-progress.css'
 import './ProgressPage.css'
-
-// Keep secondary progress visuals outside the first route chunk. They are
-// loaded only by the corresponding detail surfaces in the full progress UI.
-const ProgressPhotosCard = React.lazy(() => import('../../components/progress/ProgressPhotosCard').then((module) => ({ default: module.ProgressPhotosCard })))
-const NutritionChartsCard = React.lazy(() => import('../../components/progress/NutritionChartsCard').then((module) => ({ default: module.NutritionChartsCard })))
-const EnergyBalanceCard = React.lazy(() => import('../../components/progress/EnergyBalanceCard').then((module) => ({ default: module.EnergyBalanceCard })))
-const StreaksAndBadgesCard = React.lazy(() => import('../../components/progress/StreaksAndBadgesCard').then((module) => ({ default: module.StreaksAndBadgesCard })))
-const AiWeeklyAnalysisCard = React.lazy(() => import('../../components/progress/AiWeeklyAnalysisCard').then((module) => ({ default: module.AiWeeklyAnalysisCard })))
 
 interface ProgressPageProps {
   courseItems?: Course[]
