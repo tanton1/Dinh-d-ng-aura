@@ -3925,35 +3925,50 @@ function createEatCleanFunctions(dependencies) {
 
   const listEatCleanAdminData = onCall(adminReadOptions, async (request) => {
     await trustedAdminId(request)
+    const sectionNames = ['orders', 'meals', 'inventory', 'config']
+    const requested = request.data?.sections
+    if (requested !== undefined && (!Array.isArray(requested) || !requested.length
+      || requested.some(section => !sectionNames.includes(section))
+      || new Set(requested).size !== requested.length)) {
+      throw new HttpsError('invalid-argument', 'Phần dữ liệu quản trị không hợp lệ.')
+    }
+    // Omitted sections retain the full legacy response. Explicit readers must
+    // distinguish an unrequested section from a requested empty collection.
+    const sections = requested === undefined ? null : sectionNames.filter(section => requested.includes(section))
+    const includes = section => !sections || sections.includes(section)
     const serviceDate = request.data?.serviceDate ? dateKey(request.data.serviceDate) : ''
     const status = request.data?.status ? boundedString(request.data.status, 'Trạng thái', 40) : ''
     if (status && !ORDER_STATUSES.has(status)) throw new HttpsError('invalid-argument', 'Trạng thái lọc không hợp lệ.')
     const limit = finiteInteger(request.data?.limit ?? 100, 'Giới hạn dữ liệu', 1, 200)
     const [configSnapshot, mealsSnapshot, inventorySnapshot, ordersSnapshot] = await Promise.all([
       db.doc('system/eat_clean_config').get(),
-      db.collection('eatCleanMeals').limit(200).get(),
-      serviceDate
+      includes('meals') ? db.collection('eatCleanMeals').limit(200).get() : null,
+      !includes('inventory') ? null : serviceDate
         ? db.collection('eatCleanInventory').where('serviceDate', '==', serviceDate).limit(500).get()
         : db.collection('eatCleanInventory').limit(500).get(),
-      db.collection('eatCleanOrders').orderBy('createdAt', 'desc').limit(limit).get(),
+      includes('orders') ? db.collection('eatCleanOrders').orderBy('createdAt', 'desc').limit(limit).get() : null,
     ])
     const config = {
       ...normalizeStoredConfig(configSnapshot.exists ? configSnapshot.data() : {}),
       revision: configSnapshot.data()?.revision || 0,
       updatedAt: serializeValue(configSnapshot.data()?.updatedAt),
     }
-    const meals = mealsSnapshot.docs
+    const meals = (mealsSnapshot?.docs || [])
       .map((snapshot) => ({ id: snapshot.id, ...serializeValue(snapshot.data()) }))
       .sort((left, right) => (left.sortOrder || 0) - (right.sortOrder || 0) || left.name.localeCompare(right.name, 'vi'))
-    const inventory = inventorySnapshot.docs.map((snapshot) => {
+    const inventory = (inventorySnapshot?.docs || []).map((snapshot) => {
       const item = { id: snapshot.id, ...serializeValue(snapshot.data()) }
       return { ...item, available: Math.max(0, (item.capacity || 0) - (item.reserved || 0) - (item.sold || 0)) }
     })
-    const [refundJobSnapshots, deliverySnapshots] = ordersSnapshot.empty
+    const matchesOrder = order => (!status || order.status === status) && (!serviceDate || order.serviceDate === serviceDate)
+    // Keep the legacy newest-source-window/filter semantics. Explicit clients
+    // avoid hydrating refunds/deliveries for rows outside the selected filter.
+    const orderDocuments = (ordersSnapshot?.docs || []).filter(snapshot => !sections || matchesOrder(snapshot.data()))
+    const [refundJobSnapshots, deliverySnapshots] = !orderDocuments.length
       ? [[], []]
       : await Promise.all([
-          db.getAll(...ordersSnapshot.docs.map((snapshot) => db.doc(`eatCleanRefundJobs/${snapshot.id}`))),
-          db.getAll(...ordersSnapshot.docs.map((snapshot) => db.doc(`eatCleanDeliveries/${snapshot.id}`))),
+          db.getAll(...orderDocuments.map((snapshot) => db.doc(`eatCleanRefundJobs/${snapshot.id}`))),
+          db.getAll(...orderDocuments.map((snapshot) => db.doc(`eatCleanDeliveries/${snapshot.id}`))),
         ])
     const refundsByOrderId = new Map(refundJobSnapshots
       .filter((snapshot) => snapshot.exists)
@@ -3962,15 +3977,14 @@ function createEatCleanFunctions(dependencies) {
         { id: snapshot.id, ...serializeValue(snapshot.data()) },
       ]))
     const deliveryIds = new Set(deliverySnapshots.filter((snapshot) => snapshot.exists).map((snapshot) => snapshot.id))
-    const orders = ordersSnapshot.docs
+    const orders = orderDocuments
       .map((snapshot) => ({
         id: snapshot.id,
         ...serializeValue(snapshot.data()),
         refund: refundsByOrderId.get(snapshot.id) || null,
         deliveryRecordMissing: !deliveryIds.has(snapshot.id),
       }))
-      .filter((order) => !status || order.status === status)
-      .filter((order) => !serviceDate || order.serviceDate === serviceDate)
+      .filter(matchesOrder)
     const summary = orders.reduce((value, order) => {
       value.totalOrders += 1
       value.byStatus[order.status] = (value.byStatus[order.status] || 0) + 1
@@ -3979,14 +3993,34 @@ function createEatCleanFunctions(dependencies) {
       if (order.deliveryRecordMissing) value.missingDeliveryRecords += 1
       return value
     }, { totalOrders: 0, deliveredRevenue: 0, pendingRefunds: 0, missingDeliveryRecords: 0, byStatus: {} })
+    let seeded = configSnapshot.exists || meals.length > 0 || inventory.length > 0
+    if (sections && !seeded) {
+      // Older catalogs can exist without a configuration document. A partial
+      // read must not falsely offer initialization or download both catalogs
+      // merely to check existence. A date-filtered empty inventory is not a
+      // proof that the global inventory is empty.
+      const presence = await Promise.all([
+        mealsSnapshot || db.collection('eatCleanMeals').select().limit(1).get(),
+        (!serviceDate && inventorySnapshot) || db.collection('eatCleanInventory').select().limit(1).get(),
+      ])
+      seeded = presence.some(snapshot => !snapshot.empty)
+    }
+    const coverage = sections ? {
+      ...(includes('orders') ? { orders: {
+        sourceLimit: limit, sourceRows: ordersSnapshot.size, returned: orders.length,
+        limitReached: ordersSnapshot.size >= limit, filtersAppliedAfterLimit: true,
+      } } : {}),
+      ...(includes('meals') ? { meals: { limit: 200, returned: meals.length, limitReached: mealsSnapshot.size >= 200 } } : {}),
+      ...(includes('inventory') ? { inventory: { limit: 500, returned: inventory.length, limitReached: inventorySnapshot.size >= 500 } } : {}),
+    } : null
     return {
       schemaVersion: SCHEMA_VERSION,
-      seeded: configSnapshot.exists || meals.length > 0 || inventory.length > 0,
-      config,
-      meals,
-      inventory,
-      orders,
-      summary,
+      seeded,
+      ...(sections ? { sections, coverage } : {}),
+      ...(includes('config') ? { config } : {}),
+      ...(includes('meals') ? { meals } : {}),
+      ...(includes('inventory') ? { inventory } : {}),
+      ...(includes('orders') ? { orders, summary } : {}),
     }
   })
 
