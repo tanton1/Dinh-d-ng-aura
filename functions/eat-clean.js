@@ -3149,17 +3149,29 @@ function createEatCleanFunctions(dependencies) {
     const cursor = normalizeDeliveryCursor(request.data?.cursor)
     const deliveryCollection = db.collection('eatCleanDeliveries')
     const deliveriesQuery = buildActiveDeliveriesQuery(deliveryCollection, { cursor, limit })
-    const [deliveriesSnapshot, shipperProfilesSnapshot, availabilitySnapshot, configSnapshot, operationalSignalSnapshot, totalActive] = await Promise.all([
+    const [deliveriesSnapshot, shipperProfilesSnapshot, configSnapshot, operationalSignalSnapshot, totalActive] = await Promise.all([
       deliveriesQuery.get(),
-      db.collection('users').where('role', '==', 'shipper').limit(100).get(),
-      db.collection('eatCleanShippers').limit(100).get(),
+      db.collection('users').where('role', '==', 'shipper').limit(100)
+        .select('displayName', 'phoneNumber', 'photoURL', 'disabled').get(),
       db.doc('system/eat_clean_config').get(),
       db.doc(`eatCleanOperationalSignals/${operationalSignalDocumentId()}`).get(),
       countActiveDeliveryJobs(deliveryCollection),
     ])
-    const orderSnapshots = deliveriesSnapshot.empty
-      ? []
-      : await db.getAll(...deliveriesSnapshot.docs.map((item) => db.doc(`eatCleanOrders/${item.id}`)))
+    const activeShipperProfiles = shipperProfilesSnapshot.docs.filter((item) => item.data().disabled !== true)
+    // Independent limit(100) queries can return different sets of shippers.
+    // Hydrate only the displayed, enabled roster; never scan unrelated presence
+    // records. Each ID query returns at most 30 rows, including legacy records
+    // with missing fields, and an empty roster needs no availability query.
+    const availabilityQueries = []
+    for (let offset = 0; offset < activeShipperProfiles.length; offset += 30) {
+      const ids = activeShipperProfiles.slice(offset, offset + 30).map(item => item.id)
+      availabilityQueries.push(db.collection('eatCleanShippers').where(FieldPath.documentId(), 'in', ids)
+        .select('available', 'lastSeenAt').get())
+    }
+    const [orderSnapshots, availabilityPages] = await Promise.all([
+      deliveriesSnapshot.empty ? [] : db.getAll(...deliveriesSnapshot.docs.map((item) => db.doc(`eatCleanOrders/${item.id}`))),
+      Promise.all(availabilityQueries),
+    ])
     const orderMap = new Map(orderSnapshots.filter((item) => item.exists).map((item) => [item.id, item.data()]))
     let liveLocations = new Map()
     let gpsReadWarning = null
@@ -3224,8 +3236,7 @@ function createEatCleanFunctions(dependencies) {
         }
       })
       .map((item) => Object.fromEntries(Object.entries(item).filter(([, value]) => value !== undefined)))
-    const availabilityMap = new Map(availabilitySnapshot.docs.map((item) => [item.id, item.data()]))
-    const activeShipperProfiles = shipperProfilesSnapshot.docs.filter((item) => item.data().disabled !== true)
+    const availabilityMap = new Map(availabilityPages.flatMap(page => page.docs.map((item) => [item.id, item.data()])))
     const activeJobCountEntries = await Promise.all(activeShipperProfiles.map(async (item) => (
       [item.id, await countActiveDeliveryJobs(deliveryCollection, item.id)]
     )))
