@@ -6,6 +6,8 @@ export const state = {
   intentCalls: [] as Array<any>, intentFailure: '', intentDefer: false,
   intentPending: [] as Array<{ resolve: () => void }>,
   studentInstallmentStatus: 'pending', workspaceLoads: 0, projectionRefreshes: 0,
+  bookCalls: [] as Array<{ name: string; owner: string; input: any }>, bookDefer: [] as string[], bookFailures: {} as Record<string, string>,
+  bookPending: [] as Array<{ name: string; resolve: () => void; reject: (code: string) => void }>, bookMutations: [] as Array<{ name: string; input: any }>,
   databaseVersion: 0, defer: false, settled: 0, failure: '', payments: 0, refunds: 0, reversals: 0,
   cashCalls: [] as Array<{ owner: string }>, cashDefer: false, cashSettled: 0, cashFailure: '',
   cashAccounts: [{ id: 'cash-a', branchId: 'a', status: 'active', name: 'Test cash', balance: 100_000 }],
@@ -130,3 +132,40 @@ export async function getStudent360ContractWorkspace() {
 }
 export async function mutateStudent360Contract() { throw Error('Unexpected contract mutation in finance fixture') }
 export async function refreshStudent360Projection() { state.projectionRefreshes++; return {} }
+
+async function bookRead(name: string, input: any, result: any) {
+  state.bookCalls.push({ name, owner: state.owner, input: structuredClone(input) })
+  if (state.bookFailures[name]) {
+    const code = state.bookFailures[name]; delete state.bookFailures[name]
+    throw Object.assign(new Error('Synthetic ' + name + ' failure'), { code: 'functions/' + code })
+  }
+  if (state.bookDefer.includes(name)) return new Promise((resolve, reject) => state.bookPending.push({ name, resolve: () => resolve(result), reject: code => reject(Object.assign(new Error('Synthetic read failure'), { code: 'functions/' + code })) }))
+  return result
+}
+const bookSettings = () => ({ businessName: state.owner, address: 'Synthetic address', taxCode: 'TEST-ONLY', representativeName: '', unit: 'VND' })
+export async function getS2eCashDetailBook(input: any) {
+  return bookRead('s2e', input, { formCode: 'S2e-HKD', settings: { ...bookSettings(), businessName: `${state.owner}:${input.accountId || 'all'}:${input.periodStart}` }, sections: [], ...input })
+}
+export async function listCashTransactions(input: any) {
+  return bookRead('cash', input, { transactions: [{ id: 'transaction-a', referenceCode: `${state.owner}:${input.accountId || 'all'}:movement`, amount: 100_000, category: 'Synthetic movement', effectiveAt: '2026-10-26T00:00:00Z' }], hasMore: false })
+}
+export async function listExpenseVouchers(input: any) {
+  return bookRead('vouchers', input, { vouchers: [{ id: 'expense-a', voucherNumber: `${state.owner}:expense`, status: 'pending_approval', documentType: 'expense_voucher', totalAmount: 100_000, revision: 1, purposeLabel: 'Synthetic expense', payeeName: 'Test payee', effectiveAt: '2026-10-26T00:00:00Z' }], hasMore: true })
+}
+export async function listReceiptVouchers(input: any) {
+  return bookRead('receipts', input, { vouchers: [{ id: 'receipt-a', voucherNumber: `${state.owner}:${input.accountId || 'all'}:receipt`, status: 'posted', documentType: 'receipt_voucher', totalAmount: 100_000, payerName: 'Test payer', accountId: 'cash-a', effectiveAt: '2026-10-26T00:00:00Z', journalLines: [] }], hasMore: false })
+}
+export async function listAccountingCatalog() {
+  return bookRead('catalog', {}, { accounts: [{ code: '1111', name: 'Synthetic cash', group: 'asset' }],
+    expensePurposes: [{ code: 'expense', label: 'Synthetic expense purpose', debitAccountCode: '642', expenseImpact: true, vatAllowed: false }],
+    receiptPurposes: [{ code: 'other', label: 'Synthetic receipt purpose', creditAccountCode: '711', revenueImpact: true }], approvalSeparationThreshold: 10_000_000 })
+}
+async function bookMutation(name: string, input: any) { state.bookMutations.push({ name, input }); return { voucherNumber: 'SYNTHETIC-RECEIPT', voucherId: 'synthetic-voucher' } }
+export const approveAndPostExpenseVoucher = (input: any) => bookMutation('approve', input)
+export const createManualReceiptVoucher = (input: any) => bookMutation('receipt', input)
+export const initializeCashAccount = (input: any) => bookMutation('initialize', input)
+export const reverseExpenseVoucher = (input: any) => bookMutation('reverse-expense', input)
+export const reverseManualReceiptVoucher = (input: any) => bookMutation('reverse-receipt', input)
+export const saveS2eCashDetailSettings = (input: any) => bookMutation('settings', input)
+export const saveExpenseVoucherDraft = (input: any) => bookMutation('expense', input)
+export const transferCash = (input: any) => bookMutation('transfer', input)
