@@ -77,6 +77,38 @@ function fixture() {
   }
 }
 
+test('retained manual OFF cells stay visible but do not satisfy coverage or the optimizer target', () => {
+  const data = fixture()
+  data.students[0].sessionsPerWeek = 3
+  data.students[0].availableSlots = ['T2-6', 'T4-6', 'T7-6']
+  data.trainers[0].availableSlots = ['T2-6', 'T4-6', 'T7-6']
+  data.contracts[0].pausePeriods = [{ startDate: '2026-08-24', endDate: '2026-08-28' }]
+  data.contracts[0].totalSessions = 1
+  const manual = { studentId: 'student-a', contractId: 'contract-a', trainerId: 'trainer-a', type: 'training', branchId: BRANCH, source: 'manual_v2', adminOverride: true }
+  data.schedule = { 'T2-6': [{ ...manual }], 'T4-6': [{ ...manual }] }
+  const generated = generateSchedule(data)
+  assert.equal(Object.values(generated.schedule).flat().length, 3)
+  assert.equal(generated.schedule['T2-6'][0].studentId, 'student-a')
+  assert.equal(generated.schedule['T4-6'][0].studentId, 'student-a')
+  assert.equal(generated.schedule['T7-6'][0].studentId, 'student-a')
+  assert.equal(generated.optimizationSummary.studentCoverage.scheduledEntries, 1)
+  assert.equal(generated.optimizationSummary.studentCoverage.missingSessions, 2)
+  assert.equal(generated.warnings.filter(warning => warning.code === 'CONTRACT_PAUSED').length, 2)
+})
+
+test('other-branch coverage excludes approved OFF but preserves unpaused dates', () => {
+  const data = fixture()
+  data.contracts[0].pausePeriods = [{ startDate: WEEK, endDate: '2026-08-28' }]
+  const coverage = weeklySessionCoverageForStudents({
+    weekId: WEEK, branchId: BRANCH, contracts: data.contracts,
+    sessions: [
+      { id: 'invalid', studentId: 'student-a', branchId: 'other', date: WEEK, hour: 6, status: 'scheduled' },
+      { id: 'valid', studentId: 'student-a', branchId: 'other', date: '2026-08-29', hour: 6, status: 'scheduled' },
+    ],
+  })
+  assert.equal(coverage['student-a'].otherBranches, 1)
+})
+
 test('exact submitted PT week overrides recurring slots, including a full OFF week', () => {
   const recurring = { availableSlots: ['T2-6', 'T3-6'], availabilityMode: 'configured', availabilityRevision: 9 }
   const weekly = { trainerId: 'trainer-a', weekId: WEEK, status: 'submitted', slots: ['T4-18'], offDates: ['2026-08-24'], revision: 2 }
@@ -299,10 +331,73 @@ test('weekly eligibility keeps a contract usable on at least one unpaused day', 
   assert.ok(result.validDates.includes('2026-08-26'))
 })
 
+test('approved Monday-Saturday OFF excludes a learner when Sunday is closed, without changing their default target', () => {
+  const data = fixture()
+  const contract = { ...data.contracts[0], pausePeriods: [{ type: 'off', startDate: '2026-10-26', endDate: '2026-10-31' }] }
+  const result = studentWeekEligibility([contract], 'student-a', BRANCH, '2026-10-26', '2026-10-25', false, data.config)
+  assert.equal(result.eligible, false)
+  assert.deepEqual(result.validDates, [])
+  assert.equal(result.pausedDates.length, 6)
+  assert.equal(studentWeekEligibility([contract], 'student-a', BRANCH, '2026-10-26', '2026-10-25', false, {}).eligible, false)
+  assert.deepEqual(result.reasonCodes, ['CONTRACT_PAUSED'])
+  const target = weeklyTargetForStudent(3, null, result)
+  assert.equal(target.sessionsPerWeek, 0)
+  assert.equal(target.defaultSessionsPerWeek, 3)
+  assert.equal(target.weeklySessionTargetOverride, null)
+  const resumed = studentWeekEligibility([contract], 'student-a', BRANCH, '2026-11-02', '2026-10-25', false, data.config)
+  assert.equal(weeklyTargetForStudent(3, null, resumed).sessionsPerWeek, 3)
+  assert.equal(contract.pausePeriods[0].endDate, '2026-10-31')
+})
+
+test('partial approved OFF, pending requests and an open Sunday do not erase weekly demand', () => {
+  const data = fixture()
+  const fullOff = { ...data.contracts[0], pausePeriods: [{ type: 'off', startDate: '2026-10-26', endDate: '2026-10-31' }] }
+  for (const [contract, config] of [
+    [{ ...fullOff, pausePeriods: [{ type: 'off', startDate: '2026-10-26', endDate: '2026-10-27' }] }, data.config],
+    [data.contracts[0], data.config], // A pending request is not a contract pause.
+    [fullOff, { ...data.config, workingDays: [...data.config.workingDays, 'CN'] }],
+  ]) {
+    const result = studentWeekEligibility([contract], 'student-a', BRANCH, '2026-10-26', '2026-10-25', false, config)
+    assert.equal(result.eligible, true)
+    assert.equal(weeklyTargetForStudent(3, null, result).sessionsPerWeek, 3)
+  }
+  const holidaySunday = studentWeekEligibility([fullOff], 'student-a', BRANCH, '2026-10-26', '2026-10-25', false,
+    { ...data.config, workingDays: [...data.config.workingDays, 'CN'], holidays: ['2026-11-01'] })
+  assert.equal(holidaySunday.eligible, false)
+  const anotherContract = studentWeekEligibility([fullOff, { ...data.contracts[0], id: 'other' }], 'student-a', BRANCH, '2026-10-26', '2026-10-25', false, data.config)
+  assert.equal(anotherContract.eligible, true)
+})
+
 test('current week excludes contract days that already ended before today', () => {
   const contract = fixture().contracts[0]
   const result = studentWeekEligibility([{ ...contract, endDate: '2026-08-25' }], 'student-a', BRANCH, WEEK, '2026-08-27')
   assert.equal(result.eligible, false)
+})
+
+test('a closed Sunday does not erase ordinary weekly targets or existing bookings', () => {
+  const data = fixture()
+  const contract = { ...data.contracts[0], activeScheduledSessions: 3, activeScheduledThisWeek: 3 }
+  const result = studentWeekEligibility([contract], 'student-a', BRANCH, '2026-10-19', '2026-10-25', false, data.config)
+  const legacy = studentWeekEligibility([contract], 'student-a', BRANCH, '2026-10-19', '2026-10-25')
+  assert.deepEqual(result, legacy)
+  assert.equal(result.eligible, true)
+  assert.equal(result.activeScheduledThisWeek, 3)
+  assert.equal(weeklyTargetForStudent(3, null, result).sessionsPerWeek, 3)
+})
+
+test('approved full-week OFF remains excluded on the closed Sunday without suppressing another usable contract', () => {
+  const data = fixture()
+  const fullOff = { ...data.contracts[0], pausePeriods: [{ type: 'off', startDate: '2026-10-19', endDate: '2026-10-24' }] }
+  const result = studentWeekEligibility([fullOff], 'student-a', BRANCH, '2026-10-19', '2026-10-25', false, data.config)
+  assert.equal(result.eligible, false)
+  assert.deepEqual(result.validDates, [])
+  assert.equal(result.pausedDates.length, 6)
+  assert.deepEqual(result.reasonCodes, ['CONTRACT_PAUSED'])
+  assert.equal(weeklyTargetForStudent(3, null, result).sessionsPerWeek, 0)
+  const another = studentWeekEligibility([fullOff, { ...data.contracts[0], id: 'other' }], 'student-a', BRANCH,
+    '2026-10-19', '2026-10-25', false, data.config)
+  assert.equal(another.eligible, true)
+  assert.equal(weeklyTargetForStudent(3, null, another).sessionsPerWeek, 3)
 })
 
 test('weekly target remains the profile demand while remaining dates are reported separately', () => {
@@ -1263,16 +1358,18 @@ test('three consecutive days remain allowed when they are the only way to fulfil
   assert.equal(generated.unassignedEntries.length, 0)
 })
 
-test('reset draft removes only mutable draft sessions and preserves OFF, locks and published sessions', () => {
+test('reset draft clears automatic, manual, locked and cross-branch drafts while preserving OFF and published sessions', () => {
   const data = fixture()
+  data.crossBranchStudents = [{ id: 'external', branchId: 'other' }]
   const reset = resetDraftSchedule({ ...data, weekId: WEEK }, {
     'T2-6': [{ studentId: 'student-a', trainerId: 'trainer-a', contractId: 'contract-a', branchId: BRANCH, type: 'training', source: 'auto_v3' }],
     'T3-6': [{ studentId: 'locked', trainerId: 'trainer-a', contractId: 'contract-a', branchId: BRANCH, type: 'training', source: 'manual_v2', isLocked: true }],
     'T4-6': [{ studentId: 'OFF', trainerId: 'trainer-a', branchId: BRANCH, type: 'off', source: 'manual_v2', isLocked: true }],
     'T5-6': [{ studentId: 'published', trainerId: 'trainer-a', contractId: 'contract-a', branchId: BRANCH, type: 'training', source: 'published_existing' }],
+    'T6-6': [{ studentId: 'manual', trainerId: 'trainer-a', contractId: 'contract-a', branchId: BRANCH, type: 'training', source: 'manual_v2', availabilityOverride: true }],
+    'T7-6': [{ studentId: 'external', trainerId: 'trainer-a', contractId: 'contract-external', branchId: BRANCH, type: 'training', source: 'manual_v2', isLocked: true, studentBranchWarning: true }],
   })
-  assert.equal(reset['T2-6'], undefined)
-  assert.equal(reset['T3-6'][0].studentId, 'locked')
+  assert.deepEqual(Object.keys(reset).sort(), ['T4-6', 'T5-6'])
   assert.equal(reset['T4-6'][0].type, 'off')
   assert.equal(reset['T5-6'][0].source, 'published_existing')
 })

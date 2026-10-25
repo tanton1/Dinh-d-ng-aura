@@ -130,6 +130,7 @@ function compactStudent(student = {}, branchId = '', contract = null) {
     // path still reads the authoritative availability document on demand.
     availableSlots: Array.isArray(student.availableSlots) ? student.availableSlots.slice(0, 48) : [],
     contractStatus: stringValue(student.contractStatus, 40) || 'missing',
+    contractEndDate: stringValue(student.contractEndDate || contract?.endDate, 20),
     eligibleContractIds: Array.isArray(student.eligibleContractIds) ? student.eligibleContractIds.slice(0, 20) : [],
     eligibleForWeek: student.eligibleForWeek === true,
     eligibilityReasons: Array.isArray(student.eligibilityReasons) ? student.eligibilityReasons.slice(0, 24) : [],
@@ -235,8 +236,10 @@ function scheduleCounts(schedule = {}) {
   return counts
 }
 
-function compactCoverage({ students = [], schedule = {}, weeklySessionCoverage = {}, exact = false } = {}) {
-  const counts = scheduleCounts(schedule)
+function compactCoverage({ students = [], schedule = {}, weeklySessionCoverage = {}, exact = false, weekId = '' } = {}) {
+  const { entryOnApprovedOff } = require('./schedule-entitlement-policy')
+  const data = { students, weekId }
+  const counts = scheduleCounts(Object.fromEntries(Object.entries(schedule).map(([slot, entries]) => [slot, entries.filter(entry => !entryOnApprovedOff(data, slot, entry))])))
   const rows = {}
   let totalTargetSessions = 0
   let scheduledEntries = 0
@@ -566,7 +569,7 @@ function buildPtScheduleWeeklyView({ branchId, weekId, data, previousView = null
     .filter((contract) => contractIdsForView.has(contract.id))
     .slice(0, MAX_VIEW_STUDENTS + MAX_VIEW_SCHEDULE_ENTRIES)
     .map(compactContract)
-  const coverage = compactCoverage({ students, schedule, weeklySessionCoverage: data.weeklySessionCoverage, exact })
+  const coverage = compactCoverage({ students, schedule, weeklySessionCoverage: data.weeklySessionCoverage, exact, weekId })
   const weeklySessionCoverage = compactWeeklySessionCoverage(data.weeklySessionCoverage)
   const warnings = enrichedWarnings({ data: { ...data, weekId }, branchId, coverage, exact })
   const generatedAt = now instanceof Date ? now.toISOString() : new Date().toISOString()
