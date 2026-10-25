@@ -448,7 +448,7 @@ test('opening a clean legacy view upgrades lightly once and retains only existin
     })
     const request = { data: { branchId: BRANCH, weekId: WEEK, initialPaint: true } }
     const first = await functions.getPtScheduleWeeklyView(request)
-    assert.equal(first.schemaVersion, 2)
+    assert.equal(first.schemaVersion, 3)
     assert.equal(first.verification, 'draft_only')
     assert.equal(first.validationState, exact ? 'stale' : 'unknown')
     assert.equal(Boolean(first.validationSnapshot), exact)
@@ -474,6 +474,21 @@ test('availability edits invalidate subsequent inherited weeks and the old/new h
   assert.notEqual(db.values.get(viewPath(BRANCH, '2026-10-12')).dirty, true)
   assert.equal(db.values.get(statePath(BRANCH, '2026-10-26')).dirty, true)
   assert.equal(db.values.get(statePath('branch-b', '2026-10-26')).dirty, true)
+})
+
+test('PT weekly edits invalidate only that exact week, including cross-branch views', async () => {
+  const db = fakeDb({
+    [viewPath()]: initialView(),
+    [viewPath('branch-b')]: { ...initialView(), branchId: 'branch-b' },
+    [viewPath(BRANCH, '2026-10-26')]: { ...initialView(), weekId: '2026-10-26' },
+  })
+  const result = await syncPtScheduleWeeklyViewSource({ db, source: 'trainerAvailability', logger: silentLogger, event: sourceEvent(
+    null, { branchId: BRANCH, trainerId: 'trainer-a', weekId: WEEK, slots: ['T3-6'] }, { availabilityId: `trainer-a_${WEEK}` },
+  ) })
+  assert.equal(result.marked, 2)
+  assert.equal(db.values.get(statePath()).dirty, true)
+  assert.equal(db.values.get(statePath('branch-b')).dirty, true)
+  assert.notEqual(db.values.get(statePath(BRANCH, '2026-10-26'))?.dirty, true)
 })
 
 test('deleted draft invalidates its week and cross-branch student coverage', async () => {

@@ -1114,6 +1114,25 @@
 .schedule-warning-detail--compact .is-suggestion > div { gap: 4px; }
 .schedule-warning-detail--compact .is-suggestion > div > button { min-width: 0; padding: 5px 6px; }
 .schedule-warning-conflicts { max-width: 900px; margin-bottom: 11px; padding: 11px; border-radius: 14px; box-shadow: none; }
+.branch-schedule__warning-page { scroll-margin-top: calc(var(--shell-topbar-height,72px) + 76px); }
+.branch-schedule__draft-state { display:flex; flex-wrap:wrap; align-items:baseline; gap:5px 12px; margin:0 4px 10px; font-size:.72rem; }
+.branch-schedule__draft-state strong { color:var(--branch-ink); font-weight:650; }
+.branch-schedule__draft-state span { color:var(--branch-muted); font-size:.66rem; }
+.schedule-warning-retained { max-width:900px; margin-bottom:14px; color:var(--branch-ink); }
+.schedule-warning-retained > header { display:grid; gap:5px; padding:12px; border-left:3px solid #d68a46; background:#fff6eb; }
+.schedule-warning-retained > header strong { font-size:.82rem; }
+.schedule-warning-retained > header span,.schedule-warning-retained > p { font-size:.72rem; line-height:1.5; }
+.schedule-warning-retained__grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+.schedule-warning-retained__student { min-width:0; border:1px solid var(--branch-line); border-radius:12px; padding:12px; background:#fff; }
+.schedule-warning-retained__student > header { display:flex; justify-content:space-between; align-items:start; gap:8px; }
+.schedule-warning-retained__student strong { font-size:.8rem; overflow-wrap:anywhere; }
+.schedule-warning-retained__student b { flex-shrink:0; color:#c52e6b; font-size:.7rem; }
+.schedule-warning-retained__student p { margin:7px 0; font-size:.72rem; line-height:1.5; overflow-wrap:anywhere; }
+.schedule-warning-retained__reason { color:#98532c; }
+.schedule-warning-retained__student details { border-top:1px solid var(--branch-line); padding-top:8px; }
+.schedule-warning-retained__student summary { cursor:pointer; font-size:.7rem; color:#725765; }
+.schedule-warning-retained__student summary:focus-visible { outline:2px solid var(--branch-pink); outline-offset:3px; }
+@media(max-width:700px) { .schedule-warning-retained__grid { grid-template-columns:1fr; } }
 
 @media (max-width: 760px) {
   .branch-schedule__students-page,
