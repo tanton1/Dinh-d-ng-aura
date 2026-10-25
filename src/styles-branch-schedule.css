@@ -1128,6 +1128,15 @@
 .schedule-warning-group { display:flex; align-items:baseline; gap:8px; margin:10px 0 2px; color:var(--branch-ink); font-size:.8rem; font-weight:650; }
 .schedule-warning-group > span { color:var(--branch-muted); font-size:.7rem; }
 .schedule-warning-student__meta { flex-wrap:wrap; }
+.schedule-approved-off { max-width:900px; margin:0 0 14px; padding:10px 12px; background:var(--aura-surface, #fff); border:1px solid var(--aura-line, #ece8ec); border-radius:8px; color:var(--branch-ink); font-size:.75rem; }
+.schedule-approved-off summary { cursor:pointer; line-height:1.7; }
+.schedule-approved-off summary strong { margin:0 8px; }
+.schedule-approved-off summary span { color:var(--branch-muted); font-size:.7rem; }
+.schedule-approved-off summary:focus-visible { outline:2px solid var(--branch-pink); outline-offset:4px; }
+.schedule-approved-off p { max-width:75ch; color:var(--branch-muted); line-height:1.6; }
+.schedule-approved-off ul { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr)); gap:10px 20px; padding:0; list-style:none; }
+.schedule-approved-off li { display:flex; flex-direction:column; gap:4px; }
+.schedule-approved-off li span { color:var(--branch-muted); font-size:.7rem; }
 
 @media (max-width: 760px) {
   .branch-schedule__students-page,

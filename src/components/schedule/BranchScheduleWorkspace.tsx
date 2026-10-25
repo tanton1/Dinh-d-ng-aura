@@ -11,7 +11,6 @@ import {
   Clock3,
   History,
   Lock,
-  Minus,
   MoreHorizontal,
   Plus,
   RefreshCw,
@@ -66,6 +65,7 @@ import { measureScheduleTask } from '../../features/schedule/performance'
 import { hasActionableSearchLimit } from '../../features/schedule/searchLimit'
 import { loadWorkspaceRequest } from '../../features/schedule/workspaceCache'
 import { applyWeeklyValidation, mergeWeeklyControl } from '../../features/schedule/weeklyValidation'
+import { approvedOffForWeek, approvedOffOnDate } from '../../features/schedule/weeklyOff'
 
 interface Props {
   accessContext: AccessContext
@@ -83,6 +83,7 @@ const ScheduleResetDialog = lazy(() => import('./ScheduleResetDialog'))
 const SchedulePublishDialog = lazy(() => import('./SchedulePublishDialog'))
 const ScheduleAvailabilityEditor = lazy(() => import('./ScheduleAvailabilityEditor'))
 const ScheduleOptimizationResult = lazy(() => import('./ScheduleOptimizationResult'))
+const ScheduleStudentSummary = lazy(() => import('./ScheduleStudentSummary'))
 
 import {
   APP_UPDATE_READY_EVENT,
@@ -182,7 +183,7 @@ function normalizeWeeklyViewResult(
       eligibilityReasons: stringList(student.eligibilityReasons),
       eligibleContractIds: stringList(student.eligibleContractIds),
       validScheduleDates: stringList(student.validScheduleDates),
-      pausedScheduleDates: [],
+      pausedScheduleDates: stringList(student.pausedScheduleDates),
       remainingSchedulableSessions: Number(student.remainingSchedulableSessions ?? student.remainingSessions ?? 0),
       activeScheduledSessions: Number(student.activeScheduledSessions ?? student.scheduledSessions ?? 0),
       activeScheduledThisWeek: Number(student.activeScheduledThisWeek ?? student.scheduledSessions ?? 0),
@@ -1179,6 +1180,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
         byStudent.set(entry.studentId, current)
         const day = String(slotId).split('-')[0]
         const date = weekDates[day as keyof typeof weekDates]?.full || day
+        if (approvedOffOnDate(studentsById.get(entry.studentId), date)) add(slotId, entry, 'CONTRACT_PAUSED')
         const studentDayKey = `${entry.studentId}|${date}`
         const studentDayEntries = entriesByStudentDay.get(studentDayKey) || []
         studentDayEntries.push({ slotId, entry })
@@ -1301,6 +1303,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
       .filter((student) => !student.isCrossBranchDisplayOnly
         && !['archived', 'deleted'].includes(String(student.status || '').toLowerCase())
         && (student.eligibleForWeek === true
+          || approvedOffForWeek(student, workspace)
           || (scheduledEntriesByStudent.get(student.id)?.length || 0) > 0
           || student.hadSchedulePreviousWeek === true))
       .map((student) => {
@@ -1313,7 +1316,8 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
         workspace.weeklySessionCoverage?.[student.id]?.otherBranches,
       ))
       const scheduled = scheduledEntries.length + crossBranchScheduledSessions
-      const missing = Math.max(0, Number(student.sessionsPerWeek || 0) - scheduled)
+      const approvedOffWeek = approvedOffForWeek(student, workspace)
+      const missing = approvedOffWeek ? 0 : Math.max(0, Number(student.sessionsPerWeek || 0) - scheduled)
       const eligibleContractIds = new Set(student.eligibleContractIds || [])
       const contracts = (contractsByStudent.get(student.id) || [])
         .filter((contract) => eligibleContractIds.has(contract.id))
@@ -1330,11 +1334,11 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
         ...scheduledEntries.map((entry) => entry.trainerId),
       ].filter((value): value is string => Boolean(value)))]
       const trainerNames = trainerIds.map((id) => trainersById.get(id)?.name).filter(Boolean).join(', ')
-      const inputWarning = missing > 0
+      const inputWarning = !approvedOffWeek && (missing > 0
         || student.eligibleForWeek !== true
         || student.contractStatus === 'expiring'
         || !CONFIRMED_AVAILABILITY_STATUSES.has(student.availabilityStatus)
-        || student.eligibilityReasons.includes('AMBIGUOUS_ACTIVE_CONTRACT')
+        || student.eligibilityReasons.includes('AMBIGUOUS_ACTIVE_CONTRACT'))
       return {
         student,
         scheduled,
@@ -1344,6 +1348,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
         contract,
         trainerNames,
         inputWarning,
+        approvedOffWeek,
         feasibility: feasibilityByStudent.get(student.id),
       }
     })
@@ -1362,6 +1367,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
     const needle = studentSearch.trim().toLocaleLowerCase('vi-VN')
     const diagnosticsByStudent = new Map((workspace?.unassignedEntries || workspace?.unassigned || []).map((entry) => [entry.studentId, entry]))
     return operationalStudentRows.filter((row) => {
+      if (row.approvedOffWeek && studentFilter !== 'all') return false
       if (studentFilter === 'missing' && row.missing < 1) return false
       if (studentFilter === 'contract' && row.student.contractStatus !== 'expiring' && row.student.eligibleForWeek === true && !row.student.eligibilityReasons.some((reason) => reason.includes('CONTRACT') || reason === 'ACTIVE_CONTRACT_NOT_FOUND')) return false
       if (studentFilter === 'availability' && CONFIRMED_AVAILABILITY_STATUSES.has(row.student.availabilityStatus)) return false
@@ -1382,7 +1388,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
       || workspace?.studentCoverage
     let eligible = 0, withAtLeastOne = 0, fullyScheduled = 0, totalTargetSessions = 0, scheduledEntries = 0
     for (const row of operationalStudentRows) {
-      if (row.student.eligibleForWeek !== true) continue
+      if (row.student.eligibleForWeek !== true || row.approvedOffWeek) continue
       eligible += 1
       if (row.scheduled > 0) withAtLeastOne += 1
       if (row.missing === 0) fullyScheduled += 1
@@ -1390,7 +1396,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
       scheduledEntries += Math.min(row.student.sessionsPerWeek, row.scheduled)
     }
     return {
-      eligible: finiteCount(source?.eligibleStudents, source?.eligible, eligible),
+      eligible: operationalStudentRows.some(row => row.approvedOffWeek) ? eligible : finiteCount(source?.eligibleStudents, source?.eligible, eligible),
       // These counts are deliberately derived from the rows above instead of
       // trusting the optimizer snapshot, which is branch-scoped by design.
       // The rows include the compact cross-branch coverage projection.
@@ -1639,7 +1645,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
       // Chỉ giữ hồ sơ đang xếp tuần này hoặc vừa có lịch ở tuần liền trước.
       // Hợp đồng/quota cũ và chẩn đoán còn sót trong draft không được kéo học
       // viên lịch sử trở lại trung tâm cảnh báo.
-      .filter((profile) => profile.missingSessions > 0
+      .filter((profile) => !approvedOffForWeek(profile.student, workspace) && profile.missingSessions > 0
         && (profile.student.eligibleForWeek === true
         || Number(profile.student.previousWeekScheduledSessions || 0) > 0
         || profile.scheduledEntries.length > 0))
@@ -2527,23 +2533,13 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
             <select aria-label="Lọc học viên" disabled={coveragePending} value={studentFilter} onChange={(event) => setStudentFilter(event.target.value as StudentFilter)}><option value="all">Tất cả</option><option value="missing">Còn thiếu buổi</option><option value="contract">Hợp đồng / quota</option><option value="availability">Thiếu lịch rảnh</option><option value="trainer">Thiếu PT / ca</option><option value="ready">Đã đủ lịch</option></select>
           </div>
           <div className="branch-schedule__student-list">
-            {studentRows.map(({ student, scheduled, scheduledEntries, crossBranchScheduledSessions, missing }) => {
-              const diagnosis = unassignedByStudent.get(student.id)
-              const contractIssue = student.eligibilityReasons.find((reason) => reason.includes('CONTRACT') || reason === 'ACTIVE_CONTRACT_NOT_FOUND')
-              const primaryReason = diagnosis?.primaryReasonCode || contractIssue || (missing > 0 ? 'STUDENT_UNSCHEDULED' : undefined)
-              const statusText = coveragePending
-                ? 'Chưa đối soát'
-                : student.eligibleForWeek !== true
-                ? diagnosticReasonLabel(primaryReason)
-                : missing > 0
-                  ? `Thiếu ${missing} buổi`
-                  : 'Đủ lịch tuần'
+            {studentRows.map(({ student, scheduled, scheduledEntries, crossBranchScheduledSessions, missing, approvedOffWeek }) => {
               return <article id={`schedule-student-${student.id}`} key={student.id} className={`${missing > 0 ? 'is-missing' : 'is-ready'}${student.eligibleForWeek !== true ? ' is-ineligible' : ''}${availabilityEditorStudentId === student.id ? ' is-editing-availability' : ''}`}>
-              <div className="branch-schedule__student-person"><span><UsersRound size={17} /></span><div><strong>{student.name || 'Chưa cập nhật tên'}</strong><small>{statusText}</small></div></div>
-              <div className="branch-schedule__student-progress"><strong>{coveragePending ? '—' : `${scheduled}/${student.sessionsPerWeek}`}</strong><span>{coveragePending ? 'Chạy Xếp tối ưu để tính' : student.eligibleForWeek !== true ? 'Cần rà lại' : statusText}</span><i><b style={{ width: coveragePending ? '0%' : `${Math.min(100, student.sessionsPerWeek ? scheduled / student.sessionsPerWeek * 100 : 100)}%` }} /></i></div>
-              <div className="branch-schedule__weekly-target"><small>Mục tiêu</small><div><button type="button" aria-label={`Giảm mục tiêu tuần của ${student.name}`} disabled={busy || student.sessionsPerWeek <= scheduled} onClick={() => void setWeeklyTarget(student.id, student.sessionsPerWeek - 1)}><Minus /></button><strong>{student.sessionsPerWeek}</strong><button type="button" aria-label={`Tăng mục tiêu tuần của ${student.name}`} disabled={busy || student.sessionsPerWeek >= student.maxWeeklySessions} onClick={() => void setWeeklyTarget(student.id, student.sessionsPerWeek + 1)}><Plus /></button>{student.sessionsPerWeek > 0 && <button type="button" className="is-zero" title={scheduled > 0 ? 'Gỡ lịch trong tuần trước khi đặt 0 buổi' : 'Đặt nhanh mục tiêu về 0 buổi'} aria-label={`Đặt nhanh mục tiêu của ${student.name} về 0 buổi`} disabled={busy || scheduled > 0} onClick={() => void setWeeklyTarget(student.id, 0)}>0</button>}{student.weeklySessionTargetOverridden && <button type="button" className="is-reset" title={`Về ${student.defaultSessionsPerWeek} buổi`} aria-label={`Khôi phục mục tiêu của ${student.name} về ${student.defaultSessionsPerWeek} buổi`} disabled={busy || Math.min(student.defaultSessionsPerWeek, student.maxWeeklySessions) < scheduled} onClick={() => void setWeeklyTarget(student.id, null)}><RotateCcw /></button>}</div></div>
+              <Suspense fallback={<div className="branch-schedule__student-person">{student.name}</div>}>
+                <ScheduleStudentSummary student={student} approvedOffWeek={approvedOffWeek} coveragePending={coveragePending} scheduled={scheduled} missing={missing} primaryReasonCode={unassignedByStudent.get(student.id)?.primaryReasonCode} busy={busy} onSetWeeklyTarget={setWeeklyTarget} />
+              </Suspense>
               <div className="branch-schedule__student-schedule"><small>Buổi trong tuần{crossBranchScheduledSessions > 0 ? ` · +${crossBranchScheduledSessions} ở cơ sở khác` : ''}</small><div>{scheduledEntries.length ? scheduledEntries.map((entry) => <span key={`${entry.slotId}-${entry.trainerId}`} className={entry.trainerAssignmentWarning ? 'has-assignment-warning' : ''}>{entry.label}<b>{workspace.trainers.find((trainer) => trainer.id === entry.trainerId)?.name || 'PT chưa cập nhật'}{entry.trainerAssignmentWarning && <AlertTriangle size={12} aria-label="PT hỗ trợ" />}</b></span>) : crossBranchScheduledSessions > 0 ? <em>Đã có lịch ở cơ sở khác</em> : <em>Chưa có buổi trong tuần</em>}</div></div>
-              <div className="branch-schedule__student-availability-action"><button type="button" className={`is-${student.availabilityStatus}`} aria-expanded={availabilityEditorStudentId === student.id} onClick={() => openAvailabilityEditor(student)}><CalendarRange size={16} />{student.availabilityStatus === 'locked' ? 'Lịch rảnh đã khóa' : CONFIRMED_AVAILABILITY_STATUSES.has(student.availabilityStatus) ? 'Lịch rảnh' : 'Thêm lịch rảnh'}</button>{!CONFIRMED_AVAILABILITY_STATUSES.has(student.availabilityStatus) && <span className="is-warning">Cần lịch rảnh</span>}</div>
+              {!approvedOffWeek && <div className="branch-schedule__student-availability-action"><button type="button" className={`is-${student.availabilityStatus}`} aria-expanded={availabilityEditorStudentId === student.id} onClick={() => openAvailabilityEditor(student)}><CalendarRange size={16} />{student.availabilityStatus === 'locked' ? 'Lịch rảnh đã khóa' : CONFIRMED_AVAILABILITY_STATUSES.has(student.availabilityStatus) ? 'Lịch rảnh' : 'Thêm lịch rảnh'}</button>{!CONFIRMED_AVAILABILITY_STATUSES.has(student.availabilityStatus) && <span className="is-warning">Cần lịch rảnh</span>}</div>}
               {availabilityEditorStudentId === student.id && <Suspense fallback={<section className="branch-schedule__availability-editor" role="status">Đang tải lịch rảnh…</section>}>
                 <ScheduleAvailabilityEditor student={student} weekId={currentWeekId} days={workingDays} hours={workingHours} selected={availabilityDraft} onChange={setAvailabilityDraft} busy={availabilityBusy} error={availabilityError} isAdmin={isAdmin} onClose={() => setAvailabilityEditorStudentId(null)} onReopen={() => void reopenStudentAvailability(student)} onSave={() => void saveStudentAvailability(student)} />
               </Suspense>}

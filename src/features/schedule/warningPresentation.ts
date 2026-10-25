@@ -1,5 +1,6 @@
 import type { PtScheduleUnassignedEntry, PtScheduleV2Student, PtScheduleWorkspaceV2Result } from '../../services/ptSchedulePublishService'
 import { CONFIRMED_AVAILABILITY_STATUSES, CONTRACT_WARNING_REASONS, LEARNER_WARNING_REASONS, scheduleSlotLabel, warningCauseFor, type WarningCause } from './workspaceModel'
+import { approvedOffForWeek } from './weeklyOff'
 
 export interface WarningProfile {
   student: PtScheduleV2Student
@@ -36,7 +37,7 @@ const contractReason: Record<string, string> = {
  * This is entirely local and is loaded only with the warning panel. */
 export function presentScheduleWarnings(workspace: PtScheduleWorkspaceV2Result, profiles: WarningProfile[], pending: boolean,
   weekDates: Record<string, { display: string; full: string }>): { rows: WarningRow[]; hasTargets: boolean } {
-  if (!pending) return { hasTargets: true, rows: profiles.map(profile => {
+  if (!pending) return { hasTargets: true, rows: profiles.filter(profile => !approvedOffForWeek(profile.student, workspace)).map(profile => {
     let primaryReasonCode = profile.primaryReasonCode
     const diagnostic = workspace.unassignedEntries?.find(row => row.studentId === profile.student.id)
     // Exhausting a search budget cannot prove that all PT capacity is full.
@@ -70,6 +71,7 @@ export function presentScheduleWarnings(workspace: PtScheduleWorkspaceV2Result, 
   const rows: WarningRow[] = []
   for (const id of ids) {
     const student = students.get(id), prior = snapshot.coverage.byStudent[id]
+    if (student && approvedOffForWeek(student, workspace)) continue
     if (student?.isCrossBranchDisplayOnly || ['archived', 'deleted'].includes(String(student?.status || ''))) continue
     if (prior?.targetSessions === 0 && !student?.eligibleForWeek && !scheduled.has(id)) continue
     const targetSessions = Math.max(0, Number(student?.sessionsPerWeek ?? prior?.targetSessions ?? 0))

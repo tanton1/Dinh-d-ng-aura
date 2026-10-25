@@ -3,6 +3,7 @@ import { AlertTriangle, CheckCircle2, ChevronRight, RefreshCw } from 'lucide-rea
 import type { PtScheduleBranchOption, PtScheduleV2Student, PtScheduleWorkspaceV2Result } from '../../services/ptSchedulePublishService'
 import { contractStatusLabel, diagnosticReasonLabel, scheduleSlotLabel, warningCauseLabel, type WarningFilter } from '../../features/schedule/workspaceModel'
 import { presentScheduleWarnings, type WarningProfile } from '../../features/schedule/warningPresentation'
+import { approvedOffForWeek } from '../../features/schedule/weeklyOff'
 const ScheduleWarningDetail = lazy(() => import('./ScheduleWarningDetail'))
 
 interface Conflict { key: string; slotId: string; studentId: string; trainerId: string; studentName: string; trainerName: string; code: string }
@@ -24,6 +25,8 @@ interface Props {
 
 export default function WeeklyScheduleWarningsPanel({ workspace, branchId, branches, weekDates, coveragePending, warningCount, warningFilter, setWarningFilter, warningProfiles, scheduleConflictWarnings, expandedWarningStudentId, openWarningStudentAvailability, onOpenSlot }: Props) {
   const { rows, hasTargets } = useMemo(() => presentScheduleWarnings(workspace, warningProfiles, coveragePending, weekDates), [workspace, warningProfiles, coveragePending, weekDates])
+  const approvedOffStudents = useMemo(() => workspace.students.filter(student => !student.isCrossBranchDisplayOnly
+    && !['archived', 'deleted'].includes(student.status || '') && approvedOffForWeek(student, workspace)), [workspace])
   const groups = useMemo(() => ({
     contract: rows.filter(profile => profile.warningCause === 'contract'),
     learner: rows.filter(profile => profile.warningCause === 'learner'),
@@ -47,6 +50,11 @@ export default function WeeklyScheduleWarningsPanel({ workspace, branchId, branc
             <strong>Draft r{workspace.draftRevision}</strong><span>{coveragePending ? 'Tạm tính theo mục tiêu tuần đã lưu · chưa phải kết luận đối soát' : 'Đã đối soát với lịch hiện tại'}</span>
             {coveragePending && workspace.validationSnapshot && <details><summary>Lần đối soát gần nhất: draft r{workspace.validationSnapshot.draftRevision}</summary><p>{workspace.validationSnapshot.coverage.scheduledEntries}/{workspace.validationSnapshot.coverage.totalTargetSessions} buổi; còn thiếu {workspace.validationSnapshot.coverage.missingSessions} buổi ở lần đối soát trước. Số liệu này chỉ để tham khảo, không dùng làm số thiếu buổi hiện tại.{workspace.validationSnapshot.validatedAt ? ` Cập nhật: ${new Date(workspace.validationSnapshot.validatedAt).toLocaleString('vi-VN')}.` : ''}</p></details>}
           </section>
+          {approvedOffStudents.length > 0 && <details className="schedule-approved-off" aria-label="Học viên OFF đã duyệt">
+            <summary>OFF / bảo lưu đã duyệt <strong>{approvedOffStudents.length}</strong><span>Không tính thiếu buổi</span></summary>
+            <p>Nghỉ toàn bộ ngày hoạt động trong tuần. Mục tiêu mặc định giữ nguyên; ca trùng ngày nghỉ vẫn hiện trong Trùng / xung đột.{coveragePending ? ' Thông tin nghỉ theo lần đối soát gần nhất.' : ''}</p>
+            <ul>{approvedOffStudents.map(student => <li key={student.id}><strong>{student.name}</strong><span>{student.pausedScheduleDates.map(date => date.slice(5).split('-').reverse().join('/')).join(', ')}</span></li>)}</ul>
+          </details>}
           <section className="schedule-warning-overview" aria-label="Tổng hợp cảnh báo lịch tập">
             <button type="button" className={`schedule-warning-stat is-missing${coveragePending ? ' is-pending' : ''}`} aria-pressed={warningFilter === 'priority'} onClick={() => setWarningFilter('priority')}><span className="schedule-warning-stat__value">{warningMissingValue}</span><span className="schedule-warning-stat__label">Thiếu buổi</span><small>{warningMissingNote}</small></button>
             <button type="button" className="schedule-warning-stat is-conflict" aria-pressed={warningFilter === 'conflict'} onClick={() => setWarningFilter('conflict')}><span className="schedule-warning-stat__value">{scheduleConflictWarnings.length}</span><span className="schedule-warning-stat__label">Trùng / xung đột</span><small>{coveragePending ? 'Phát hiện nhanh · chưa đối soát đầy đủ' : 'Chọn dòng để mở ma trận'}</small></button>
