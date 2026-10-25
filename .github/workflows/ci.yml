@@ -39,6 +39,8 @@ jobs:
         run: npm run test:callable-audit
       - name: Test production smoke access and retry policy
         run: npm run test:production-smoke
+      - name: Test bounded deployment metadata recovery
+        run: node --test scripts/read-firebase-function-inventory.test.cjs
       - name: Test regional routing and function lifecycle safeguards
         run: |
           npm run test:regional-reads
