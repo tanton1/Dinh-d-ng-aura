@@ -390,6 +390,38 @@ describe('Aura PT Firestore rules', () => {
     }
   })
 
+  test('dispatch section markers and daily counters allow exact admin reads only, including missing documents and revocation', async () => {
+    const paths = [['eatCleanWorkspaceChanges', 'jobs'], ['eatCleanWorkspaceChanges', 'roster'], ['eatCleanOperationalSignals', '2026-10-25']]
+    const admin = authenticatedDb('admin-1', 'admin'), superAdmin = authenticatedDb('super-1', 'super_admin')
+    const others = [authenticatedDb('client-1', 'student'), authenticatedDb('coach-1', 'coach'), authenticatedDb('shipper-a', 'shipper'), testEnvironment.unauthenticatedContext().firestore()]
+    for (const present of [false, true]) {
+      if (present) await testEnvironment.withSecurityRulesDisabled(async context => {
+        for (const path of paths) await setDoc(doc(context.firestore(), ...path), { schemaVersion: 1, version: '001792890000.000000001', counts: { maps_error: 1 } })
+      })
+      for (const path of paths) {
+        for (const db of [admin, superAdmin]) await assertSucceeds(getDoc(doc(db, ...path)))
+        for (const db of others) await assertFails(getDoc(doc(db, ...path)))
+        for (const db of [admin, superAdmin, ...others]) {
+          await assertFails(setDoc(doc(db, ...path), { forged: true }))
+          await assertFails(deleteDoc(doc(db, ...path)))
+        }
+      }
+    }
+    for (const db of [admin, superAdmin, ...others]) {
+      await assertFails(getDocs(collection(db, 'eatCleanOperationalSignals')))
+      await assertFails(getDocs(collection(db, 'eatCleanWorkspaceChanges')))
+      await assertFails(getDoc(doc(db, 'eatCleanOperationalSignals', 'all')))
+      await assertFails(getDoc(doc(db, 'eatCleanWorkspaceChanges', 'unknown')))
+    }
+    for (const profile of [{ role: 'admin', disabled: true }, { role: 'student' }, null]) {
+      await testEnvironment.withSecurityRulesDisabled(async context => {
+        const ref = doc(context.firestore(), 'users', 'admin-1')
+        if (profile) await setDoc(ref, profile); else await deleteDoc(ref)
+      })
+      for (const path of paths) await assertFails(getDoc(doc(admin, ...path)))
+    }
+  })
+
   test('an already attached delivery listener denies further result updates after the account is disabled', async () => {
     await testEnvironment.withSecurityRulesDisabled(async context => {
       await setDoc(doc(context.firestore(), 'users', 'shipper-a'), { role: 'shipper' })
