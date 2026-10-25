@@ -30,8 +30,9 @@ function Location() {
 }
 function Tracking() {
   const [id, setId] = useState('order-a')
+  const [account, setAccount] = useState('owner-a')
   const fallback = (window as any).costState.trackingFallback
-  return <><button onClick={() => setId('order-b')}>Change order</button><EatCleanTrackingPanel order={{ id, status: 'delivering', deliveryAddress: {},
+  return <><button onClick={() => setId('order-b')}>Change order</button><button onClick={() => { (window as any).costState.trackingAccount = 'owner-b'; setAccount('owner-b') }}>Change tracking account</button><EatCleanTrackingPanel accountId={account} order={{ id, status: 'delivering', deliveryAddress: {},
     ...(fallback ? { shipper: { displayName: 'Fallback driver' }, tracking: { orderId: id, status: 'delivering', shipper: { displayName: 'Fallback driver' }, deliveryOtp: '5678' } } : {}) } as any} /></>
 }
 function Driver() {

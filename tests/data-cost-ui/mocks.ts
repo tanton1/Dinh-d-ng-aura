@@ -6,6 +6,7 @@ Object.assign(state, { summaryCalls: [], summaryPending: [], summaryHold: false,
 Object.assign(window, { costState: state })
 const deliveryState = state as any
 Object.assign(deliveryState, { driverAccount: 'driver', driverScope: 'shipper', deliveryVersions: {}, deliveryObservers: [], gpsStops: 0 })
+deliveryState.trackingAccount = 'owner-a'
 const deliveryVersion = (n: number) => n ? `${String(n).padStart(12, '0')}.000000000` : '0'
 export const subscribeDeliveryRevision = (path: string, next: (value: string) => void, error: (error: unknown) => void) => {
   const observer = { path, next, error, active: true }
@@ -17,6 +18,18 @@ export const subscribeDeliveryAccess = (account: string, next: (value: any) => v
   const observer = { path: `users/${account}`, next, error, active: true }
   deliveryState.deliveryObservers.push(observer)
   queueMicrotask(() => { if (observer.active) next({ role: deliveryState.driverScope === 'dispatch' ? 'admin' : 'shipper', disabled: false }) })
+  return () => { observer.active = false }
+}
+export const subscribeDeliveryLocation = (orderId: string, next: (value: any) => void, error: (error: unknown) => void) => {
+  const observer = { path: `eatCleanLiveLocationViews/${orderId}`, next, error, active: true }
+  deliveryState.deliveryObservers.push(observer)
+  queueMicrotask(() => {
+    if (!observer.active) return
+    const updatedAt = Date.parse(deliveryState.trackingLocationAt ?? new Date().toISOString())
+    next(deliveryState.trackingStreamPoint !== undefined ? deliveryState.trackingStreamPoint
+      : deliveryState.trackingSensitive && Number.isFinite(updatedAt)
+        ? { binding: (deliveryState.trackingBinding || 'a').repeat(64), latitude: 16, longitude: 108, updatedAt, expiresAt: deliveryState.trackingExpiresAt ?? Date.now() + 86400000 } : null)
+  })
   return () => { observer.active = false }
 }
 Object.assign(window, { emitDeliveryRevision(path: string, n: number) {
@@ -68,10 +81,13 @@ export const assignEatCleanShipper = async () => ({ ...job })
 export const saveEatCleanDeliveryOperationsConfig = async (value: unknown) => value
 export const getEatCleanOrderTracking = async (id: string) => {
   const error = deliveryState.trackingError
+  const result = { orderId: id, status: state.terminal ? 'delivered' : deliveryState.trackingUnassigned ? 'preparing' : 'delivering', shipper: deliveryState.trackingUnassigned ? undefined : { displayName: id },
+    workspaceSync: deliveryState.omitTrackingSync ? undefined : { schemaVersion: 1, accountId: deliveryState.trackingAccount, orderId: id, version: deliveryVersion(deliveryState.deliveryVersions[`eatCleanOrderChanges/${id}`] || 0) },
+    locationStream: { enabled: !state.terminal && !deliveryState.trackingUnassigned, binding: (deliveryState.trackingBinding || 'a').repeat(64) },
+    ...(deliveryState.trackingSensitive ? { deliveryOtp: '1234', shipperLocation: { latitude: 16, longitude: 108 }, lastLocationAt: deliveryState.trackingLocationAt ?? new Date().toISOString(), locationExpiresAt: deliveryState.trackingExpiresAt ?? Date.now() + 86400000 } : {}) }
   await read('tracking')
   if (error) throw Object.assign(new Error('Tracking fixture failure'), { code: error })
-  return { orderId: id, status: state.terminal ? 'delivered' : 'delivering', shipper: { displayName: id },
-    ...(deliveryState.trackingSensitive ? { deliveryOtp: '1234', shipperLocation: { latitude: 16, longitude: 108 }, lastLocationAt: deliveryState.trackingLocationAt ?? new Date().toISOString() } : {}) }
+  return result
 }
 export const googleMapsConfigured = () => false
 export const loadGoogleMaps = async () => null

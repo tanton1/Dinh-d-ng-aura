@@ -1,11 +1,10 @@
 import { useMemo, useState } from 'react'
 import { Bike, Clock3, LoaderCircle, MapPin, Phone, RefreshCw, ShieldCheck, TriangleAlert } from 'lucide-react'
-import { getEatCleanOrderTracking } from './eatCleanService'
 import { EatCleanTrackingMap as TrackingMap } from './EatCleanTrackingMap'
 import { EAT_CLEAN_STATUS_LABELS, formatEatCleanDate } from './EatCleanUi'
 import type { EatCleanOrder, EatCleanOrderTracking } from './types'
-import { useForegroundRefresh } from '../../hooks/useForegroundRefresh'
 import { useLocalTimeBoundaries } from '../../hooks/useLocalTimeBoundaries'
+import { useOrderTracking } from './useOrderTracking'
 
 // Match the existing tracking response's two-minute GPS freshness window.
 const GPS_STALE_AFTER_MS = 2 * 60_000
@@ -19,13 +18,16 @@ function etaLabel(value?: string) {
   return minutes > 0 ? `${minutes} phút · khoảng ${time}` : `Dự kiến lúc ${time}`
 }
 
-export function EatCleanTrackingPanel({ order }: { order: EatCleanOrder }) {
-  const [tracking, setTracking] = useState<EatCleanOrderTracking | null>(order.tracking ?? null)
+export function EatCleanTrackingPanel({ order, accountId }: { order: EatCleanOrder; accountId: string }) {
+  const scope = `${accountId}:${order.id}`, demo = order.id.startsWith('demo-order-')
+  const [snapshot, setSnapshot] = useState<{ scope: string; value: EatCleanOrderTracking } | null>(null)
+  const tracking = snapshot?.scope === scope ? snapshot.value : null
   const [loading, setLoading] = useState(false)
-  const [failure, setFailure] = useState<{ orderId: string; denied: boolean } | null>(null)
-  const currentFailure = failure?.orderId === order.id ? failure : null
+  const [failure, setFailure] = useState<{ scope: string; denied: boolean } | null>(null)
+  const currentFailure = failure?.scope === scope ? failure : null
   const accessDenied = currentFailure?.denied === true
-  const live: EatCleanOrderTracking = (tracking?.orderId === order.id ? tracking : order.tracking) ?? {
+  const detailsVisible = !accessDenied && Boolean(tracking || demo)
+  const live: EatCleanOrderTracking = tracking ?? (demo ? order.tracking : undefined) ?? {
     orderId: order.id,
     status: order.status,
     shipper: order.shipper,
@@ -37,50 +39,33 @@ export function EatCleanTrackingPanel({ order }: { order: EatCleanOrder }) {
   }
   const terminal = ['delivered', 'cancelled'].includes(live.status) || ['delivered', 'cancelled'].includes(order.status)
   const locationMillis = Date.parse(live.lastLocationAt || '')
-  const boundaryNow = useLocalTimeBoundaries(!accessDenied && !terminal && live.shipperLocation
-    ? [locationMillis + GPS_STALE_AFTER_MS + 1] : [])
-  const gpsStale = Boolean(live.stale || (!terminal && live.shipperLocation
+  const boundaryNow = useLocalTimeBoundaries(detailsVisible && !terminal && live.shipperLocation
+    ? [locationMillis + GPS_STALE_AFTER_MS + 1, live.locationExpiresAt || Number.NaN] : [])
+  const expired = Boolean(live.locationExpiresAt && boundaryNow >= live.locationExpiresAt)
+  const displayLive = expired ? { ...live, shipperLocation: undefined } : live
+  const gpsStale = Boolean(expired || live.stale || (!terminal && live.shipperLocation
     && (!Number.isFinite(locationMillis) || boundaryNow - locationMillis > GPS_STALE_AFTER_MS)))
 
-  const read = async (quiet: boolean, isCurrent: () => boolean) => {
-    // A queued interval/focus callback can run before passive-effect cleanup.
-    // Guard the read itself so a render that paused recovery cannot call again.
-    if (quiet && (currentFailure || terminal)) return
-    if (!quiet) setLoading(true)
-    try {
-      const next = await getEatCleanOrderTracking(order.id)
-      if (isCurrent() && next) {
-        setTracking(next)
-        setFailure(null)
-      }
-    } catch (error) {
-      if (isCurrent()) {
-        const code = String((error as { code?: unknown })?.code || '').replace(/^functions\//, '')
-        const denied = ['permission-denied', 'unauthenticated', 'not-found'].includes(code)
-        if (denied) setTracking(null)
-        // A later transient retry failure cannot restore data hidden after
-        // access denial. Only an authorized successful response clears it.
-        setFailure(current => ({ orderId: order.id, denied: denied || (current?.orderId === order.id && current.denied) }))
-      }
-    } finally {
-      if (isCurrent()) setLoading(false)
-    }
-  }
-
-  const { refresh } = useForegroundRefresh({ scopeKey: `tracking:${order.id}`, read, intervalMs: terminal || currentFailure ? null : 15_000, enabled: !order.id.startsWith('demo-order-') })
+  const { refresh } = useOrderTracking({ accountId, orderId: order.id, enabled: !demo,
+    apply: value => setSnapshot({ scope, value }), clear: () => setSnapshot(null), pending: setLoading,
+    failure: (error, denied) => {
+      if (!error) setFailure(null)
+      else setFailure(previous => ({ scope, denied: denied || (previous?.scope === scope && previous.denied) }))
+    },
+  })
 
   const eta = live.estimatedArrivalAt || order.estimatedArrivalAt
-  const shipper = live.shipper || order.shipper
+  const shipper = live.shipper
   const locationFreshness = useMemo(() => live.lastLocationAt ? formatEatCleanDate(live.lastLocationAt) : 'Chưa có tín hiệu GPS', [live.lastLocationAt])
   const showDeliveryOtp = Boolean(live.deliveryOtp && shipper && ['assigned', 'picked-up', 'delivering', 'arrived'].includes(live.status))
 
   return (
     <section className="eat-clean-card eat-clean-live-tracking">
       <header>
-        <div><small>THEO DÕI GIAO HÀNG</small><h2>{accessDenied ? 'Hành trình đơn hàng' : `Hành trình: ${EAT_CLEAN_STATUS_LABELS[live.status]}`}</h2>{!accessDenied && <p><Clock3 size={15} /> {terminal ? EAT_CLEAN_STATUS_LABELS[live.status] : etaLabel(eta)}</p>}</div>
-        <button type="button" onClick={() => void refresh(false)} disabled={loading} aria-label="Làm mới vị trí">{loading ? <LoaderCircle className="eat-clean-spin" size={19} /> : <RefreshCw size={19} />}</button>
+        <div><small>THEO DÕI GIAO HÀNG</small><h2>{!detailsVisible ? 'Hành trình đơn hàng' : `Hành trình: ${EAT_CLEAN_STATUS_LABELS[live.status]}`}</h2>{detailsVisible && <p><Clock3 size={15} /> {terminal ? EAT_CLEAN_STATUS_LABELS[live.status] : etaLabel(eta)}</p>}</div>
+        <button type="button" onClick={refresh} disabled={loading} aria-label="Làm mới vị trí">{loading ? <LoaderCircle className="eat-clean-spin" size={19} /> : <RefreshCw size={19} />}</button>
       </header>
-      {!accessDenied && <><TrackingMap tracking={live} />
+      {detailsVisible && <><TrackingMap tracking={displayLive} />
       <div className="eat-clean-tracking-meta">
         {shipper ? (
           <div className="eat-clean-shipper-card">

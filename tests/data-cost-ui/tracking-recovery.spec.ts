@@ -7,6 +7,10 @@ async function open(page: Page, initial: Record<string, unknown> = {}) {
   await page.addInitScript(initial => { (window as any).costInitial = { trackingSensitive: true, trackingFallback: true, ...initial } }, initial)
   await page.goto('/tests/data-cost-ui/index.html?view=tracking')
 }
+async function invalidate(page: Page) {
+  await page.evaluate(() => { const state = (window as any).costState; const path = 'eatCleanOrderChanges/order-a'; (window as any).emitDeliveryRevision(path, (state.deliveryVersions[path] || 0) + 1) })
+  await page.clock.runFor(200)
+}
 async function resume(page: Page) {
   await page.evaluate(() => {
     Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' })
@@ -22,7 +26,7 @@ for (const code of ['functions/permission-denied', 'permission-denied', 'functio
     await open(page)
     await expect(page.getByLabel('Mã giao hàng 1234')).toBeVisible()
     await change(page, { trackingError: code })
-    await page.clock.runFor(15_001)
+    await invalidate(page)
     await expect(page.getByRole('status')).toContainText('Không thể truy cập')
     await expect(page.getByText('order-a', { exact: true })).toBeHidden()
     await expect(page.getByText('Fallback driver', { exact: true })).toBeHidden()
@@ -40,7 +44,7 @@ test('tracking transient failure retains last data, stops retries, and a success
   await open(page)
   await expect(page.getByLabel('Mã giao hàng 1234')).toBeVisible()
   await change(page, { trackingError: 'functions/unavailable' })
-  await page.clock.runFor(15_001)
+  await invalidate(page)
   await expect(page.getByRole('status')).toContainText('Dữ liệu lần trước được giữ lại')
   await expect(page.getByLabel('Mã giao hàng 1234')).toBeVisible()
   await page.clock.runFor(600_000)
@@ -50,7 +54,7 @@ test('tracking transient failure retains last data, stops retries, and a success
   await page.getByRole('button', { name: 'Làm mới vị trí' }).click()
   await expect(page.getByRole('status')).toHaveCount(0)
   expect(await reads(page)).toBe(3)
-  await page.clock.runFor(15_001)
+  await invalidate(page)
   expect(await reads(page)).toBe(4)
 })
 
@@ -74,7 +78,7 @@ test('tracking changing order clears the old failure and ignores a late denied r
   await open(page)
   await expect(page.getByText('order-a', { exact: true })).toBeVisible()
   await change(page, { delayed: true, trackingError: 'functions/permission-denied' })
-  await page.clock.runFor(15_001)
+  await invalidate(page)
   expect(await reads(page)).toBe(2)
   await change(page, { delayed: false, trackingError: '' })
   await page.getByRole('button', { name: 'Change order' }).click()
@@ -114,9 +118,9 @@ test('tracking cached GPS becomes stale on a local deadline while error recovery
   await expect(page.getByLabel('Mã giao hàng 1234')).toBeVisible()
   await expect(page.locator('.eat-clean-gps-state')).not.toHaveClass(/is-stale/)
   await change(page, { trackingError: 'functions/unavailable' })
-  await page.clock.runFor(15_001)
+  await invalidate(page)
   await expect(page.getByRole('status')).toContainText('Dữ liệu lần trước được giữ lại')
-  await page.clock.runFor(106_000)
+  await page.clock.runFor(121_000)
   await expect(page.locator('.eat-clean-gps-state')).toHaveClass(/is-stale/)
   await expect(page.getByText('Tín hiệu GPS đang chậm')).toBeVisible()
   expect(await reads(page)).toBe(2)
