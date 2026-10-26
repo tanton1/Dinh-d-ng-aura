@@ -26,6 +26,8 @@ test('UI 4.0 nests catalog and insights under Explore', () => {
 })
 
 test('both legacy and UI 4.0 nutrition deep links resolve to the same task', () => {
+  installHash('#/food-library?foodId=food%2Fa')
+  assert.equal(nutritionSectionFromHash(), 'catalog')
   installHash('#/nutrition?section=catalog')
   assert.equal(nutritionSectionFromHash(), 'catalog')
   installHash('#/nutrition?section=explore&view=catalog')

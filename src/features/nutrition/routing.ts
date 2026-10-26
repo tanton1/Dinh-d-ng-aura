@@ -12,6 +12,7 @@ export function nutritionFoodIdFromHash() {
 }
 
 export function nutritionSectionFromHash(): NutritionRouteSection {
+  if (window.location.hash.split('?')[0] === '#/food-library') return 'catalog'
   const query = window.location.hash.split('?')[1] ?? ''
   const params = new URLSearchParams(query)
   const rawSection = params.get('section')

@@ -226,8 +226,8 @@ test('home route keeps deferred assets out of the initial request path', async (
 
 test('retired food, menu and workout links redirect to active workspaces', async ({ page }) => {
   const redirects = [
-    ['/#/food-database', /#\/nutrition$/],
-    ['/#/dish-collection', /#\/nutrition$/],
+    ['/#/food-database', /#\/food-library$/],
+    ['/#/dish-collection', /#\/food-library$/],
     ['/#/meal-plan', /#\/nutrition\?section=plan$/],
     ['/#/admin-workout-plans', /#\/admin-programs$/],
     ['/#/admin-meal-plans', /#\/admin-eat-clean$/],
@@ -267,9 +267,9 @@ test('nutrition exposes both the goal-based meal plan and full food catalog whil
   await expect(page.getByRole('group', { name: 'Lọc nhanh thực đơn' })).toBeVisible()
   await expect(page.getByText(/kcal/).first()).toBeVisible()
 
-  await page.getByRole('button', { name: 'Món ăn', exact: true }).click()
-  await expect(page).toHaveURL(/#\/nutrition\?section=catalog$/)
-  await expect(page.getByRole('heading', { name: /Món ăn & thực phẩm/i })).toBeVisible()
+  await page.goto('/#/food-library')
+  await expect(page).toHaveURL(/#\/food-library$/)
+  await expect(page.getByRole('heading', { name: /Thư viện món ăn/i })).toBeVisible()
 
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto('/#/home')

@@ -339,9 +339,9 @@ export default function NutritionFoodDetail({
   return (
     <article className={`nutrition-food-detail ${className}`.trim()} aria-labelledby="nutrition-food-title">
       <header className="nutrition-food-detail__topbar">
-        <button type="button" className="nutrition-food-detail__back" onClick={onBack} aria-label="Quay lại thư viện dinh dưỡng">
+        <button type="button" className="nutrition-food-detail__back" onClick={onBack} aria-label="Quay lại thư viện món ăn">
           <ArrowLeft size={18} aria-hidden="true" />
-          <span>Thư viện dinh dưỡng</span>
+          <span>Thư viện món ăn</span>
         </button>
 
         <div className="nutrition-food-detail__top-actions">
@@ -403,9 +403,9 @@ export default function NutritionFoodDetail({
           </div>
 
           <div className="nutrition-food-detail__hero-actions">
-            <button type="button" className="nutrition-food-detail__primary" onClick={() => onAdd?.(record, serving)} disabled={!onAdd || multiplier <= 0}>
+            <button type="button" className="nutrition-food-detail__primary" onClick={() => onAdd?.(record, serving)} disabled={!onAdd || multiplier <= 0 || energy == null || protein == null || carbohydrate == null || fat == null}>
               <Plus size={18} aria-hidden="true" />
-              Thêm vào nhật ký
+              Ghi nhật ký
             </button>
             <button type="button" className={`nutrition-food-detail__icon-save ${saved ? 'is-saved' : ''}`} onClick={handleSave} aria-label={saved ? 'Bỏ lưu món' : 'Lưu món'} aria-pressed={saved}>
               {saved ? <BookmarkCheck size={18} aria-hidden="true" /> : <Bookmark size={18} aria-hidden="true" />}
@@ -610,8 +610,8 @@ export default function NutritionFoodDetail({
               <small><span>0</span><span>1 khẩu phần</span><span>5</span></small>
             </label>
 
-            <button type="button" className="nutrition-food-detail__primary is-full" onClick={() => onAdd?.(record, serving)} disabled={!onAdd || multiplier <= 0}>
-              <Plus size={17} aria-hidden="true" /> Thêm {serving.label} vào nhật ký
+            <button type="button" className="nutrition-food-detail__primary is-full" onClick={() => onAdd?.(record, serving)} disabled={!onAdd || multiplier <= 0 || energy == null || protein == null || carbohydrate == null || fat == null}>
+              <Plus size={17} aria-hidden="true" /> Ghi nhật ký
             </button>
           </section>
 
@@ -663,8 +663,8 @@ export default function NutritionFoodDetail({
         <button type="button" className={saved ? 'is-saved' : ''} onClick={handleSave} aria-label={saved ? 'Bỏ lưu món' : 'Lưu món'} aria-pressed={saved}>
           {saved ? <BookmarkCheck size={19} aria-hidden="true" /> : <Bookmark size={19} aria-hidden="true" />}
         </button>
-        <button type="button" className="nutrition-food-detail__primary" onClick={() => onAdd?.(record, serving)} disabled={!onAdd || multiplier <= 0}>
-          <Plus size={18} aria-hidden="true" /> Thêm {serving.label}
+        <button type="button" className="nutrition-food-detail__primary" onClick={() => onAdd?.(record, serving)} disabled={!onAdd || multiplier <= 0 || energy == null || protein == null || carbohydrate == null || fat == null}>
+          <Plus size={18} aria-hidden="true" /> Ghi nhật ký
         </button>
       </div>
     </article>

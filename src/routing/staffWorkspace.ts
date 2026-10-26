@@ -10,6 +10,8 @@ const personalViews = new Set<ViewId>([
   'pt-workout',
   'workout',
   'nutrition',
+  'cooking',
+  'food-library',
   'eat-clean',
   'progress',
   'profile',

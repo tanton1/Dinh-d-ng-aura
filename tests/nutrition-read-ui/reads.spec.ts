@@ -1,5 +1,13 @@
 import { expect, test } from '@playwright/test'
 const path = '/tests/nutrition-read-ui/index.html'
+test('standalone library browsing does not attach diary, weight or plan readers', async ({ page }) => {
+  await page.goto(`${path}?mode=library#/food-library`)
+  await expect(page.getByRole('heading', { name: 'Thư viện món ăn', exact: true })).toBeVisible()
+  expect(await activeListeners(page)).toHaveLength(0)
+  expect(await calls(page, 'summary')).toHaveLength(0)
+  expect(await calls(page, 'plan')).toHaveLength(0)
+  expect(await calls(page, 'weight')).toHaveLength(0)
+})
 async function section(page: any, value: string) { await page.evaluate((section: string) => { location.hash = `#/nutrition?section=${section}` }, value) }
 async function calls(page: any, name: string) { return page.evaluate((kind: string) => (window as any).nutritionFixture.calls.filter((item: any) => item.name === kind), name) }
 async function activeListeners(page: any) { return page.evaluate(() => (window as any).nutritionFixture.listeners.filter((item: any) => !item.stopped)) }

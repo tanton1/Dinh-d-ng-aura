@@ -81,10 +81,10 @@ export const MealEditorSheet = React.memo(function MealEditorSheet({ food, initi
         <label><span>Ngày</span><input data-dialog-autofocus type="date" value={date} onChange={(event) => setDate(event.target.value)} disabled={lockDate || saving} /></label>
         <label><span>Thời gian</span><input type="time" value={time} onChange={(event) => setTime(event.target.value)} disabled={saving} /></label>
         <label><span>Loại bữa</span><select value={mealType} onChange={(event) => setMealType(event.target.value as NutritionMealDraft['mealType'])} disabled={saving}><option value="breakfast">Bữa sáng</option><option value="lunch">Bữa trưa</option><option value="dinner">Bữa tối</option><option value="snack">Bữa phụ</option></select></label>
-        <div><span>Nguồn dữ liệu</span><strong>{food.source ?? 'Viện Dinh dưỡng Quốc gia'}</strong><small>Giá trị được lưu thành snapshot tại thời điểm ghi.</small></div>
+        <div><span>Nguồn dữ liệu</span><strong>{food.source ?? 'Viện Dinh dưỡng Quốc gia'}</strong><small>Lưu dinh dưỡng theo phần ăn đã chọn.</small></div>
       </div>
-      <p className="nutrition-meal-editor__notice"><Info size={14} /> {hasCompleteCoreNutrition ? (isPlan ? 'Món được lưu vào tuần này với kcal và macro tại thời điểm chọn.' : 'Dữ liệu được lưu thành snapshot; vi chất còn thiếu vẫn giữ là “—”.') : `Bản ghi nguồn còn thiếu kcal hoặc macro nên chưa thể thêm vào ${isPlan ? 'kế hoạch' : 'nhật ký'}.`}</p>
-      <button type="button" className="nutrition-primary-button" disabled={!date || !time || !hasCompleteCoreNutrition || saving} onClick={() => void submit()}><Check size={17} /> {saving ? 'Đang lưu…' : isPlan ? 'Xác nhận món' : 'Thêm vào nhật ký'}</button>
+      <p className="nutrition-meal-editor__notice"><Info size={14} /> {hasCompleteCoreNutrition ? (isPlan ? 'Món được lưu vào tuần này với kcal và macro tại thời điểm chọn.' : 'Dinh dưỡng được lưu theo phần ăn này; vi chất chưa có dữ liệu hiển thị “—”.') : `Bản ghi nguồn còn thiếu kcal hoặc macro nên chưa thể thêm vào ${isPlan ? 'kế hoạch' : 'nhật ký'}.`}</p>
+      <button type="button" className="nutrition-primary-button" disabled={!date || !time || !hasCompleteCoreNutrition || saving} onClick={() => void submit()}><Check size={17} /> {saving ? 'Đang lưu…' : isPlan ? 'Xác nhận món' : 'Ghi nhật ký'}</button>
     </section>
   </div>
 })

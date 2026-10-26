@@ -1,0 +1,3 @@
+# Preserve the supplied cookbook sources and extracted images byte-for-byte.
+public/cooking/sources/*.pdf binary
+public/cooking/images/*.webp binary

@@ -214,6 +214,8 @@
 }
 .nutrition-food-detail__primary:not(:disabled):hover { transform: translateY(-1px); box-shadow: 0 14px 26px rgba(99, 91, 255, .28); }
 .nutrition-food-detail__primary.is-full { width: 100%; margin-top: 17px; }
+.nutrition-food-detail .nutrition-food-detail__primary { min-height: 44px; padding: 10px 14px; font-size: 13px; box-shadow: none; }
+.nutrition-food-detail .nutrition-food-detail__primary.is-full { width: auto; max-width: 100%; }
 
 .nutrition-food-detail__icon-save {
   width: 44px;
@@ -454,13 +456,15 @@
   .nutrition-food-detail__mobile-actions {
     position: fixed;
     z-index: 17;
-    right: 0;
+    right: 12px;
     bottom: calc(70px + env(safe-area-inset-bottom));
-    left: 0;
+    left: auto;
     display: grid;
-    grid-template-columns: 46px minmax(0, 1fr);
+    grid-template-columns: 44px max-content;
     gap: 8px;
-    padding: 10px 15px;
+    padding: 6px;
+    max-width: calc(100% - 24px);
+    border-radius: 15px;
     border-top: 1px solid var(--nfd-line);
     background: rgba(255, 255, 255, .94);
     box-shadow: 0 -10px 28px rgba(24, 55, 42, .08);
