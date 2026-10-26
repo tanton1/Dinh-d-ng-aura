@@ -60,8 +60,9 @@ function publicStaffManagedCounts(value, now = Date.now()) {
 
 function staffManagedContractsQuery(db, uid) {
   // Firestore returns each contract once even when several aliases match.
-  // Ordering by status/key follows one compact index, avoiding six assignment
-  // indexes (and their write/storage cost) for this small active-contract set.
+  // Assignment/status/key indexes narrow every alias before hydration. The
+  // status-only index is insufficient when most active contracts belong to
+  // other staff; projection alone does not avoid fetching those documents.
   return db.collection('contracts')
     .where('status', 'in', [...activeContractStatuses])
     .where(Filter.or(...assignmentFields.map(([field, operation]) => Filter.where(field, operation, uid))))
