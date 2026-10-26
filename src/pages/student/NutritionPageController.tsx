@@ -2153,7 +2153,8 @@ export default function NutritionPageController({ entry = 'nutrition', displayNa
         initialSaved={savedFoodIds.has(selectedFood.id)}
         loadRecord={isDemo ? undefined : loadNutritionCatalogDetail}
         onBack={closeFoodDetail}
-        onAdd={addFoodFromDetail}
+        onAdd={isLibrary && !planCatalogAction ? undefined : addFoodFromDetail}
+        lookupOnly={isLibrary && !planCatalogAction}
         onSave={saveFood}
         onScan={scanFromFoodDetail}
         onSelectRelated={(item) => {
@@ -2308,7 +2309,6 @@ export default function NutritionPageController({ entry = 'nutrition', displayNa
           onReload={reloadNutritionPlan}
           onShiftWeek={shiftPlanWeek}
           onOpenCatalogFood={(food, items) => openFoodDetail(food, items, 'plan')}
-          onLogCatalogFood={(food) => { setDiaryCatalogDefaults(null); return queueCatalogFood(food, 1, !isDemo) }}
           onLogPlannedMeal={logPlannedMeal}
           onToggleSaved={(food, saved) => setFoodSaved(food.id, saved)}
         /></React.Suspense>

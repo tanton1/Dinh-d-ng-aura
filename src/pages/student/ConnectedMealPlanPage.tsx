@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import {
   Bookmark,
   CalendarDays,
@@ -21,14 +21,15 @@ import {
   X,
 } from 'lucide-react'
 import { useMealPlanCatalog, type MealPlanTab } from '../../features/nutrition/useMealPlanCatalog'
+import { catalogServingLabel } from '../../features/nutrition/catalogPresentation'
+import IngredientArtwork from '../../components/IngredientArtwork'
+import { getIngredientArtwork } from '../../features/nutrition/ingredientArtwork'
 import type { NutritionFoodCatalogItem } from '../../features/nutrition/types'
 import type { NutritionPlanDay, NutritionPlannedMeal } from './NutritionWorkspace'
 import '../../styles-meal-plan.css'
 
 type CalorieFilter = 'all' | 'under-300' | '300-500' | 'over-500'
 type ProteinFilter = 'all' | 'high-protein'
-type GoalFilter = 'all' | 'lose-fat' | 'gain-muscle' | 'maintain'
-type MealTypeFilter = 'all' | 'breakfast' | 'lunch' | 'snack' | 'dinner'
 
 
 
@@ -66,7 +67,6 @@ export interface ConnectedMealPlanPageProps {
   onReload: () => void
   onShiftWeek: (direction: -1 | 1) => void
   onOpenCatalogFood: (food: NutritionFoodCatalogItem, items: NutritionFoodCatalogItem[]) => void
-  onLogCatalogFood: (food: NutritionFoodCatalogItem) => void | Promise<void>
   onLogPlannedMeal: (meal: NutritionPlannedMeal) => void | Promise<void>
   onToggleSaved: (food: NutritionFoodCatalogItem, saved: boolean) => void
 }
@@ -84,33 +84,6 @@ function calorieMatches(value: number | null, filter: CalorieFilter) {
   return value > 500
 }
 
-function foldMealText(value: unknown) {
-  return String(value || '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[đĐ]/g, 'd')
-    .toLocaleLowerCase('vi-VN')
-}
-
-function itemMatchesGoal(item: NutritionFoodCatalogItem, goal: GoalFilter) {
-  if (goal === 'all') return true
-  const calories = Number(item.calories)
-  const protein = Number(item.protein)
-  if (!Number.isFinite(calories) || !Number.isFinite(protein)) return false
-  if (goal === 'gain-muscle') return protein >= 20 || (calories > 0 && protein / calories >= 0.055)
-  if (goal === 'lose-fat') return calories <= 500 && protein >= 12 && (item.fat == null || item.fat <= 24)
-  return calories >= 250 && calories <= 650 && protein >= 10
-}
-
-function itemMatchesMealType(item: NutritionFoodCatalogItem, type: MealTypeFilter): boolean {
-  if (type === 'all') return true
-  const text = foldMealText(`${item.name} ${item.category?.nameVi || ''}`)
-  if (type === 'breakfast') return /\b(sang|sua|trung|yen mach|chao|banh mi|xoi|ngu coc|pho|bun)\b/.test(text)
-  if (type === 'snack') return /\b(phu|trai cay|sua chua|hat|sinh to|salad|nuoc ep|chuoi|tao|bo|che)\b/.test(text) || Number(item.calories) <= 280
-  if (type === 'dinner') return /\b(t?oi|salad|ca|ga|tom|rau|sup)\b/.test(text) && Number(item.calories) <= 700
-  return !itemMatchesMealType(item, 'breakfast') && !itemMatchesMealType(item, 'snack')
-}
-
 function planMealKey(meal: NutritionPlannedMeal) {
   return `${meal.dayId}|${meal.id}`
 }
@@ -122,26 +95,14 @@ export default function ConnectedMealPlanPage(props: ConnectedMealPlanPageProps)
   const [category, setCategory] = useState('all')
   const [calorieFilter, setCalorieFilter] = useState<CalorieFilter>('all')
   const [proteinFilter, setProteinFilter] = useState<ProteinFilter>('all')
-  const [goalFilter, setGoalFilter] = useState<GoalFilter>('all')
-  const [mealTypeFilter, setMealTypeFilter] = useState<MealTypeFilter>('all')
   const [mobileColumns, setMobileColumns] = useState<1 | 2>(2)
   const [savedOnly, setSavedOnly] = useState(props.initialSavedOnly ?? false)
   useEffect(() => setSavedOnly(props.initialSavedOnly ?? false), [props.initialSavedOnly])
   const [filterOpen, setFilterOpen] = useState(false)
   const catalog = useMealPlanCatalog({ tab: activeTab, active: props.catalogActive, query, category, savedOnly, savedFoodIds: props.savedFoodIds, initialCatalog: props.initialCatalog, allowDemo: props.allowDemo })
-  const { items, categories, status: catalogState, filteredCount: totalCount, hasMore, loadingMore, loadMore, reload: reloadCatalog } = catalog
-  const [loggingId, setLoggingId] = useState<string | null>(null)
-  const logging = useRef(false)
-  const logFood = async (food: NutritionFoodCatalogItem) => {
-    if (logging.current) return
-    logging.current = true
-    setLoggingId(food.id)
-    try { await props.onLogCatalogFood(food) } finally { logging.current = false; setLoggingId(null) }
-  }
+  const { items, categories, status: catalogState, hasMore, loadingMore, loadMore, reload: reloadCatalog } = catalog
   const selectTab = (tab: MealPlanTab) => {
     setCategory('all')
-    setGoalFilter('all')
-    setMealTypeFilter('all')
     setLocalTab(tab)
     props.onTabChange?.(tab)
   }
@@ -150,10 +111,8 @@ export default function ConnectedMealPlanPage(props: ConnectedMealPlanPageProps)
     if (savedOnly && !props.savedFoodIds.has(item.id)) return false
     if (!calorieMatches(item.calories, calorieFilter)) return false
     if (proteinFilter === 'high-protein' && (item.protein ?? 0) < 20) return false
-    if (!itemMatchesGoal(item, goalFilter)) return false
-    if (!itemMatchesMealType(item, mealTypeFilter)) return false
     return true
-  }), [calorieFilter, goalFilter, items, mealTypeFilter, proteinFilter, props.savedFoodIds, savedOnly])
+  }), [calorieFilter, items, proteinFilter, props.savedFoodIds, savedOnly])
 
   const selectedDay = props.days.find((day) => day.id === props.selectedDayId) ?? props.days[0]
   const selectedDayMeals = useMemo(() => props.meals
@@ -165,7 +124,7 @@ export default function ConnectedMealPlanPage(props: ConnectedMealPlanPageProps)
     carbs: sum.carbs + (Number(meal.carbs) || 0),
     fat: sum.fat + (Number(meal.fat) || 0),
   }), { calories: 0, protein: 0, carbs: 0, fat: 0 }), [selectedDayMeals])
-  const filterCount = (category !== 'all' ? 1 : 0) + (calorieFilter !== 'all' ? 1 : 0) + (proteinFilter !== 'all' ? 1 : 0) + (goalFilter !== 'all' ? 1 : 0) + (mealTypeFilter !== 'all' ? 1 : 0) + (savedOnly ? 1 : 0)
+  const filterCount = (category !== 'all' ? 1 : 0) + (calorieFilter !== 'all' ? 1 : 0) + (proteinFilter !== 'all' ? 1 : 0) + (savedOnly ? 1 : 0)
 
 
   return (
@@ -175,7 +134,7 @@ export default function ConnectedMealPlanPage(props: ConnectedMealPlanPageProps)
           <div className="meal-plan-header__top">
             <div>
               <h1 className="meal-plan-header__title">Thực đơn</h1>
-              <p className="meal-plan-header__subtitle">Chọn món dễ dàng. Ăn uống theo mục tiêu.</p>
+              <p className="meal-plan-header__subtitle">Tra cứu năng lượng và thành phần dinh dưỡng.</p>
             </div>
             <div className="meal-plan-header__actions">
               <button type="button" className={`meal-plan-icon-btn ${savedOnly ? 'is-active' : ''}`} onClick={() => { if (activeTab === 'plan') selectTab('recipes'); setSavedOnly((current) => !current) }} aria-label={savedOnly ? 'Hiện tất cả món' : 'Xem món đã lưu'} aria-pressed={savedOnly}>
@@ -187,7 +146,7 @@ export default function ConnectedMealPlanPage(props: ConnectedMealPlanPageProps)
           </div>
 
           <div className="meal-plan-tabs" role="tablist" aria-label="Nội dung thực đơn">
-            {([['recipes', 'Món ăn'], ['ingredients', 'Nguyên liệu'], ['plan', 'Kế hoạch 7 ngày']] as const).map(([tab, label]) => (
+            {([['recipes', 'Tra cứu Kcal Món Ăn'], ['ingredients', 'Nguyên liệu'], ['plan', 'Kế hoạch 7 ngày']] as const).map(([tab, label]) => (
               <button key={tab} id={`menu-tab-${tab}`} type="button" role="tab" aria-selected={activeTab === tab} aria-controls="menu-tab-panel" onClick={() => selectTab(tab)} className={`meal-plan-tab-btn ${activeTab === tab ? 'meal-plan-tab-btn--active' : ''}`}>
                 {label}{activeTab === tab && <span className="meal-plan-tab-indicator" />}
               </button>
@@ -211,25 +170,6 @@ export default function ConnectedMealPlanPage(props: ConnectedMealPlanPageProps)
             {filterOpen && (
               <section id="meal-plan-filter-panel" className="meal-plan-filter-panel" aria-label="Bộ lọc thực đơn">
                 <div>
-                  <span>Mục tiêu</span>
-                  <select value={goalFilter} onChange={(event) => setGoalFilter(event.target.value as GoalFilter)} aria-label="Mục tiêu dinh dưỡng">
-                    <option value="all">Tất cả mục tiêu</option>
-                    <option value="lose-fat">Giảm mỡ</option>
-                    <option value="gain-muscle">Tăng cơ</option>
-                    <option value="maintain">Duy trì</option>
-                  </select>
-                </div>
-                <div>
-                  <span>Loại bữa</span>
-                  <select value={mealTypeFilter} onChange={(event) => setMealTypeFilter(event.target.value as MealTypeFilter)} aria-label="Loại bữa ăn">
-                    <option value="all">Tất cả bữa</option>
-                    <option value="breakfast">Bữa sáng</option>
-                    <option value="lunch">Bữa chính</option>
-                    <option value="snack">Bữa phụ</option>
-                    <option value="dinner">Bữa tối</option>
-                  </select>
-                </div>
-                <div>
                   <span>Nhóm món</span>
                   <select value={category} onChange={(event) => setCategory(event.target.value)} aria-label="Nhóm món">
                     <option value="all">Tất cả nhóm món</option>
@@ -247,21 +187,13 @@ export default function ConnectedMealPlanPage(props: ConnectedMealPlanPageProps)
                 </div>
                 <button type="button" className={proteinFilter === 'high-protein' ? 'is-active' : ''} onClick={() => setProteinFilter((current) => current === 'all' ? 'high-protein' : 'all')} aria-pressed={proteinFilter === 'high-protein'}>Giàu đạm ≥ 20g</button>
                 <button type="button" className={savedOnly ? 'is-active' : ''} onClick={() => setSavedOnly((current) => !current)} aria-pressed={savedOnly}><Heart size={15} /> Món đã lưu</button>
-                {filterCount > 0 && <button type="button" className="meal-plan-filter-panel__clear" onClick={() => { setCategory('all'); setCalorieFilter('all'); setProteinFilter('all'); setGoalFilter('all'); setMealTypeFilter('all'); setSavedOnly(false) }}>Xóa lọc</button>}
+                {filterCount > 0 && <button type="button" className="meal-plan-filter-panel__clear" onClick={() => { setCategory('all'); setCalorieFilter('all'); setProteinFilter('all'); setSavedOnly(false) }}>Xóa lọc</button>}
               </section>
             )}
 
-            <div className="meal-plan-quick-filters" role="group" aria-label="Lọc nhanh thực đơn">
-              <span>Lọc nhanh</span>
-              <button type="button" className={goalFilter === 'lose-fat' ? 'is-active' : ''} onClick={() => setGoalFilter((current) => current === 'lose-fat' ? 'all' : 'lose-fat')} aria-pressed={goalFilter === 'lose-fat'}>Giảm mỡ</button>
-              <button type="button" className={goalFilter === 'gain-muscle' ? 'is-active' : ''} onClick={() => setGoalFilter((current) => current === 'gain-muscle' ? 'all' : 'gain-muscle')} aria-pressed={goalFilter === 'gain-muscle'}>Tăng cơ</button>
-              <button type="button" className={mealTypeFilter === 'breakfast' ? 'is-active' : ''} onClick={() => setMealTypeFilter((current) => current === 'breakfast' ? 'all' : 'breakfast')} aria-pressed={mealTypeFilter === 'breakfast'}>Bữa sáng</button>
-              <button type="button" className={calorieFilter === 'under-300' ? 'is-active' : ''} onClick={() => setCalorieFilter((current) => current === 'under-300' ? 'all' : 'under-300')} aria-pressed={calorieFilter === 'under-300'}>&lt; 300 kcal</button>
-            </div>
-
             <section className="meal-plan-live-section" aria-labelledby="meal-plan-catalog-title">
               <div className="meal-plan-live-heading">
-              <div><div><h2 id="meal-plan-catalog-title">{savedOnly ? 'Đã lưu' : activeTab === 'ingredients' ? 'Nguyên liệu' : 'Món ăn'}</h2><p>{catalogState === 'loading' ? 'Đang tải…' : `${formatNumber(visibleItems.length)} ${activeTab === 'ingredients' ? 'nguyên liệu' : 'món'}${hasMore ? ` đã hiển thị${savedOnly ? '' : ` / ${formatNumber(totalCount)}`}` : ''}`}</p></div></div>
+              <div><div><h2 id="meal-plan-catalog-title">{savedOnly ? 'Đã lưu' : activeTab === 'ingredients' ? 'Nguyên liệu' : 'Tra cứu Kcal Món Ăn'}</h2><p>{catalogState === 'loading' ? 'Đang tải…' : `${formatNumber(visibleItems.length)} ${activeTab === 'ingredients' ? 'nguyên liệu' : 'món'}${hasMore ? ' đã hiển thị' : ''}`}</p></div></div>
               <div className="meal-plan-display-toggle" role="group" aria-label="Mật độ hiển thị trên điện thoại">
                 <button type="button" className={mobileColumns === 1 ? 'is-active' : ''} onClick={() => setMobileColumns(1)} aria-pressed={mobileColumns === 1}>1 cột</button>
                 <button type="button" className={mobileColumns === 2 ? 'is-active' : ''} onClick={() => setMobileColumns(2)} aria-pressed={mobileColumns === 2}>2 cột</button>
@@ -276,24 +208,25 @@ export default function ConnectedMealPlanPage(props: ConnectedMealPlanPageProps)
                 <div className={`meal-plan-live-grid meal-plan-live-grid--mobile-${mobileColumns}`}>
                   {visibleItems.map((food) => {
                     const saved = props.savedFoodIds.has(food.id)
+                    const servingLabel = catalogServingLabel(food.servingLabel, food.servingGrams)
+                    const artwork = food.kind === 'food' ? getIngredientArtwork(food.code) : null
                     return (
                       <article className="meal-plan-live-card" key={food.id}>
                         <div className="meal-plan-live-card__media"><button type="button" className="meal-plan-live-card__visual" onClick={() => props.onOpenCatalogFood(food, items)} aria-label={`Xem chi tiết ${food.name}`}>
-                          {food.imageUrl ? <img src={food.imageUrl} alt="" loading="lazy" decoding="async" width="480" height="360" /> : <span>{activeTab === 'ingredients' ? <Leaf size={34} /> : <Utensils size={34} />}</span>}
+                          {food.imageUrl ? <img src={food.imageUrl} alt="" loading="lazy" decoding="async" width="480" height="360" /> : artwork ? <IngredientArtwork artwork={artwork} name={food.name} /> : <span>{activeTab === 'ingredients' ? <Leaf size={34} /> : <Utensils size={34} />}</span>}
                           {food.category?.nameVi && <em>{food.category.nameVi}</em>}
                         </button><button type="button" className={`meal-plan-live-card__save ${saved ? 'is-saved' : ''}`} onClick={() => props.onToggleSaved(food, !saved)} aria-label={saved ? `Bỏ lưu ${food.name}` : `Lưu ${food.name}`} aria-pressed={saved}><Heart size={17} /></button></div>
                         <div className="meal-plan-live-card__body">
                           <div className="meal-plan-live-card__title-row"><button type="button" onClick={() => props.onOpenCatalogFood(food, items)}>{food.name}</button></div>
                           <p><strong>{formatNumber(food.calories)} kcal</strong><span>{formatNumber(food.protein, 1)}g đạm</span><span>{formatNumber(food.carbs, 1)}g carb</span></p>
-                          <small>{food.servingLabel || (food.servingGrams ? `${formatNumber(food.servingGrams)} g` : 'Khẩu phần theo nguồn')}</small>
-                          <button type="button" className="meal-plan-live-card__log" aria-label={`Ghi nhật ký: ${food.name}`} disabled={loggingId !== null || food.calories === null || food.protein === null || food.carbs === null || food.fat === null} onClick={() => void logFood(food)}>{loggingId === food.id ? <LoaderCircle size={15} className="is-spinning" /> : <Plus size={15} />} Ghi nhật ký</button>
+                          {servingLabel && <small>{servingLabel}</small>}
                         </div>
                       </article>
                     )
                   })}
                 </div>
               ) : (
-                <div className="meal-plan-live-empty"><Utensils size={25} /><h3>{hasMore ? 'Chưa có món phù hợp trong phần đã tải' : 'Chưa tìm thấy món phù hợp'}</h3><p>{hasMore ? 'Bấm Xem thêm món để tiếp tục tìm với các bộ lọc đang chọn.' : 'Thử bỏ bớt bộ lọc hoặc tìm bằng tên món khác.'}</p><button type="button" onClick={() => { setQuery(''); setCategory('all'); setCalorieFilter('all'); setProteinFilter('all'); setGoalFilter('all'); setMealTypeFilter('all'); setSavedOnly(false) }}>Xóa bộ lọc</button></div>
+                <div className="meal-plan-live-empty"><Utensils size={25} /><h3>{hasMore ? 'Chưa có món phù hợp trong phần đã tải' : 'Chưa tìm thấy món phù hợp'}</h3><p>{hasMore ? 'Bấm Xem thêm món để tiếp tục tìm với các bộ lọc đang chọn.' : 'Thử bỏ bớt bộ lọc hoặc tìm bằng tên món khác.'}</p><button type="button" onClick={() => { setQuery(''); setCategory('all'); setCalorieFilter('all'); setProteinFilter('all'); setSavedOnly(false) }}>Xóa bộ lọc</button></div>
               )}
               {hasMore && catalogState === 'live' && <button type="button" className="meal-plan-load-more" onClick={loadMore} disabled={loadingMore}>{loadingMore ? <LoaderCircle className="is-spinning" size={17} /> : <Plus size={17} />} Xem thêm món</button>}
             </section>
