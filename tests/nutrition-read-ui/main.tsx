@@ -21,4 +21,4 @@ function SummaryFixture() {
   return <div data-testid="consumed">{summary.caloriesConsumed}</div>
 }
 const mode = new URLSearchParams(location.search).get('mode')
-createRoot(document.getElementById('root')!).render(mode === 'assistant' ? <AssistantFixture /> : mode === 'summary' ? <SummaryFixture /> : <NutritionPageController storageOwnerId="a" displayName="Read fixture" hasProfile profile={profile} />)
+createRoot(document.getElementById('root')!).render(mode === 'assistant' ? <AssistantFixture /> : mode === 'summary' ? <SummaryFixture /> : <NutritionPageController entry={mode === 'library' ? 'library' : 'nutrition'} storageOwnerId="a" displayName="Read fixture" hasProfile profile={profile} />)

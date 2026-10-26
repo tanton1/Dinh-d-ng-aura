@@ -7,6 +7,7 @@ import {
   Bot,
   BookOpen,
   Check,
+  ChefHat,
   CalendarClock,
   CalendarDays,
   ChevronDown,
@@ -106,6 +107,8 @@ const studentNavSections: ShellNavSection[] = [
     label: 'HỌC & DỊCH VỤ',
     items: [
       { id: 'courses' as const, label: 'Học cùng Aura', icon: BookOpen },
+      { id: 'cooking' as const, label: 'Vào Bếp cùng Aura', icon: ChefHat },
+      { id: 'food-library' as const, label: 'Thư viện món ăn', icon: Soup },
       { id: 'eat-clean' as const, label: 'Đặt món Eat Clean', icon: ShoppingBasket },
     ],
   },
@@ -328,6 +331,8 @@ const viewTitles: Partial<Record<ViewId, string>> = {
   courses: 'Học',
   'course-detail': 'Không gian học',
   nutrition: 'Dinh dưỡng',
+  cooking: 'Vào Bếp cùng Aura',
+  'food-library': 'Thư viện món ăn',
   'eat-clean': 'Đặt món Eat Clean',
   'trainer-portal': 'Cổng làm việc HLV',
   'staff-dashboard': 'Tổng quan Staff',
@@ -463,7 +468,7 @@ export default function AppShell({ children, mode, view, onNavigate, onModeChang
   // Progress already has a contextual AI Coach action in its header. Keep a
   // single launcher there while preserving an open global conversation when
   // the member navigates into the page.
-  const showAiCoachLauncher = showAiCoach && view !== 'progress' && view !== 'student-360'
+  const showAiCoachLauncher = showAiCoach && view !== 'progress' && view !== 'student-360' && view !== 'cooking' && view !== 'food-library'
 
   useEffect(() => {
     if (!showAiCoach) setAiCoachOpen(false)
@@ -557,6 +562,8 @@ export default function AppShell({ children, mode, view, onNavigate, onModeChang
         { id: 'student-availability', label: 'Lịch rảnh', icon: CalendarClock },
         { id: 'progress', label: 'Tiến độ', icon: BarChart3 },
         { id: 'courses', label: 'Aura Academy', icon: BookOpen },
+        { id: 'cooking', label: 'Vào Bếp cùng Aura', icon: ChefHat },
+        { id: 'food-library', label: 'Thư viện món ăn', icon: Soup },
         { id: 'eat-clean', label: 'Eat Clean', icon: ShoppingBasket },
         { id: 'profile', label: 'Cá nhân', icon: UserRound },
         ].filter((item) => isNavigationViewVisible(item.id as ViewId) && canNavigate(item.id as ViewId)) as ShellMoreNavItem[]

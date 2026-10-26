@@ -166,6 +166,8 @@ export type StudentView =
   | 'student-availability'
   | 'pt-workout'
   | 'nutrition'
+  | 'cooking'
+  | 'food-library'
   | 'eat-clean'
   | 'meal-plan'
   | 'food-database'

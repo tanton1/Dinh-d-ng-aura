@@ -7,6 +7,8 @@ const routeImporters: Partial<Record<ViewId, () => Promise<unknown>>> = {
   courses: () => import('../pages/student/CoursesPage'),
   'course-detail': () => import('../pages/student/CourseDetailPage'),
   nutrition: () => import('../pages/student/NutritionPage'),
+  cooking: () => import('../features/cooking/CookingPage'),
+  'food-library': () => import('../pages/student/NutritionPage'),
   'eat-clean': () => import('../features/eat-clean/EatCleanPage'),
   progress: () => import('../pages/student/ProgressPage'),
   'progress-photo-studio': () => import('../pages/student/ProgressPhotoStudio'),

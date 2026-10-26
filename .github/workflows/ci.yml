@@ -35,6 +35,8 @@ jobs:
         run: npm --prefix functions ci
       - name: Run web unit and contract tests
         run: npm run test:profile-sync
+      - name: Validate cookbook sources and catalog
+        run: npm run test:cooking
       - name: Test callable inventory coverage
         run: npm run test:callable-audit
       - name: Test production smoke access and retry policy

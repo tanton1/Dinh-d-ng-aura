@@ -1,0 +1,14 @@
+import { defineConfig } from '@playwright/test'
+import { fileURLToPath } from 'node:url'
+export default defineConfig({
+  testDir: '.', testMatch: '*.spec.ts', workers: 1,
+  outputDir: fileURLToPath(new URL('../../test-results/cooking', import.meta.url)),
+  use: { baseURL: 'http://127.0.0.1:4201', timezoneId: 'Asia/Ho_Chi_Minh',
+    launchOptions: process.platform === 'win32' ? { executablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe' } : {},
+  },
+  webServer: {
+    cwd: fileURLToPath(new URL('../..', import.meta.url)),
+    command: 'npx vite --config tests/cooking-ui/vite.config.ts --host 127.0.0.1 --port 4201',
+    url: 'http://127.0.0.1:4201/tests/cooking-ui/index.html', reuseExistingServer: !process.env.CI, timeout: 60_000,
+  },
+})
