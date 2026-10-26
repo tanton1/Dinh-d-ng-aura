@@ -1,6 +1,6 @@
 'use strict'
 
-const { FieldPath, FieldValue, Filter, Timestamp } = require('firebase-admin/firestore')
+const { FieldPath, FieldValue, Timestamp } = require('firebase-admin/firestore')
 
 const activeContractStatuses = new Set(['active', 'future', 'frozen'])
 const STAFF_SUMMARY_VERSION = 2
@@ -58,37 +58,46 @@ function publicStaffManagedCounts(value, now = Date.now()) {
   }
 }
 
-function staffManagedContractsQuery(db, uid) {
-  // Firestore returns each contract once even when several aliases match.
-  // Assignment/status/key indexes narrow every alias before hydration. The
-  // status-only index is insufficient when most active contracts belong to
-  // other staff; projection alone does not avoid fetching those documents.
-  return db.collection('contracts')
-    .where('status', 'in', [...activeContractStatuses])
-    .where(Filter.or(...assignmentFields.map(([field, operation]) => Filter.where(field, operation, uid))))
-    .orderBy('status').orderBy(FieldPath.documentId())
+function staffManagedContractQueries(db, uid) {
+  // Enterprise currently plans the combined OR as a broad status scan even
+  // with assignment indexes. Separate aliases select their narrow indexes;
+  // the reader deduplicates contracts across all aliases at one source time.
+  return assignmentFields.map(([field, operation]) => db.collection('contracts')
+    .where(field, operation, uid).where('status', 'in', [...activeContractStatuses])
+    .orderBy('status').orderBy(FieldPath.documentId()))
 }
 
 async function readStaffManagedClientCounts(db, uid) {
-  const query = staffManagedContractsQuery(db, uid).select(...contractFields).limit(CONTRACT_PAGE_SIZE)
-  // The first strong query establishes the source time. All continuations use
-  // that exact snapshot without locking contracts or their financial writers.
-  let page = await query.get()
-  const sourceReadTime = page.readTime
-  if (!(sourceReadTime instanceof Timestamp)) throw new Error('Staff summary source time is unavailable')
+  // Even an empty first alias establishes the source time. Every later alias
+  // and continuation uses that same snapshot without locking source writers.
+  let sourceReadTime
+  const readSnapshot = query => db.runTransaction(transaction => transaction.get(query), { readOnly: true, readTime: sourceReadTime })
+  const seen = new Set()
   const counts = { main: 0, secondary: 0, nutrition: 0 }
   let contractsRead = 0, queryPages = 0
-  while (true) {
-    const part = managedClientCountsFromContracts(uid, page.docs.map(document => document.data()))
-    for (const role of Object.keys(counts)) counts[role] += part[role]
-    contractsRead += page.size
-    queryPages++
-    if (page.size < CONTRACT_PAGE_SIZE) break
-    const continuation = query.startAfter(page.docs.at(-1))
-    page = await db.runTransaction(transaction => transaction.get(continuation), { readOnly: true, readTime: sourceReadTime })
+  for (const alias of staffManagedContractQueries(db, uid)) {
+    const query = alias.select(...contractFields).limit(CONTRACT_PAGE_SIZE)
+    let page = sourceReadTime ? await readSnapshot(query) : await query.get()
+    if (!sourceReadTime) {
+      sourceReadTime = page.readTime
+      if (!(sourceReadTime instanceof Timestamp)) throw new Error('Staff summary source time is unavailable')
+    }
+    while (true) {
+      const unique = page.docs.filter(document => {
+        if (seen.has(document.id)) return false
+        seen.add(document.id)
+        return true
+      })
+      const part = managedClientCountsFromContracts(uid, unique.map(document => document.data()))
+      for (const role of Object.keys(counts)) counts[role] += part[role]
+      contractsRead += page.size
+      queryPages++
+      if (page.size < CONTRACT_PAGE_SIZE) break
+      page = await readSnapshot(query.startAfter(page.docs.at(-1)))
+    }
   }
   // A failed/incomplete scan throws before publishing any partial count.
-  return { counts, sourceReadTime, contractsRead, queryPages }
+  return { counts, sourceReadTime, contractsRead, uniqueContractsRead: seen.size, queryPages }
 }
 
 function completeFencedSummary(value) {
@@ -157,5 +166,5 @@ async function reconcileStaffManagedClientSummaries({ db, logger = console, batc
 module.exports = {
   staffIdsFromContract, managedClientCountsFromContracts, refreshStaffManagedClientSummary,
   publicStaffManagedCounts, staffSummaryIsStale, syncStaffManagedClientSummary, reconcileStaffManagedClientSummaries,
-  staffManagedContractsQuery, readStaffManagedClientCounts,
+  staffManagedContractQueries, readStaffManagedClientCounts,
 }

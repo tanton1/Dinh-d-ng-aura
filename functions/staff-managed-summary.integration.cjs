@@ -76,7 +76,7 @@ test('all assignment aliases deduplicate contracts but preserve multiple roles a
   const db = await fixture(rows), f = observe(db)
   const result = await refreshStaffManagedClientSummary(f.reader, 'pt')
   assert.deepEqual(result, { ...managedClientCountsFromContracts('pt', rows.map(([, value]) => value)), stale: false, truncated: false })
-  assert.deepEqual(f.reads, [4])
+  assert.deepEqual(f.reads, [1, 1, 3, 1, 1, 2])
   assert.equal(f.writes.length, 1)
   const value = (await db.doc('staffOperationalSummaries/pt').get()).data()
   assert.equal(value.refreshVersion, 1)
@@ -88,9 +88,10 @@ test('pagination counts more than 750 contracts without capping or duplicating a
   const db = await fixture(rows), f = observe(db)
   const result = await readStaffManagedClientCounts(f.reader, 'pt')
   assert.deepEqual(result.counts, { main: 1001, secondary: 0, nutrition: 1001 })
-  assert.deepEqual(f.reads, [250, 250, 250, 250, 1])
-  assert.equal(result.contractsRead, 1001)
-  assert.equal(result.queryPages, 5)
+  assert.deepEqual(f.reads, [250, 250, 250, 250, 1, 0, 250, 250, 250, 250, 1, 0, 250, 250, 250, 250, 1, 0])
+  assert.equal(result.contractsRead, 3003)
+  assert.equal(result.uniqueContractsRead, 1001)
+  assert.equal(result.queryPages, 18)
   assert.ok(f.options.every(option => option.readOnly && option.readTime.isEqual(result.sourceReadTime)))
   assert.equal(f.writes.length, 0)
 })
@@ -99,7 +100,7 @@ test('an exactly full last page completes only after an empty continuation', asy
   const db = await fixture(Array.from({ length: 250 }, (_, index) => [`row-${index}`, { status: 'active', trainerId: 'pt' }]))
   const f = observe(db), result = await readStaffManagedClientCounts(f.reader, 'pt')
   assert.equal(result.counts.main, 250)
-  assert.deepEqual(f.reads, [250, 0])
+  assert.deepEqual(f.reads, [250, 0, 0, 0, 0, 0, 0])
 })
 
 test('a delayed older refresh cannot overwrite a newer completed refresh', async () => {
@@ -144,6 +145,32 @@ test('status changes, deletion and insertion between pages cannot mix snapshots'
   } })
   assert.equal((await refreshStaffManagedClientSummary(f.reader, 'pt')).main, 251)
   assert.equal((await refreshStaffManagedClientSummary(db, 'pt')).main, 250)
+})
+
+test('an empty first alias still fences all later aliases to its original snapshot', async () => {
+  const db = await fixture([['nutrition', { status: 'active', nutritionPTIds: ['pt'] }]])
+  const f = observe(db, { firstPage: async snapshot => {
+    assert.equal(snapshot.size, 0)
+    const batch = db.batch()
+    batch.update(db.doc('contracts/nutrition'), { nutritionPTIds: ['other'] })
+    batch.set(db.doc('contracts/new-a'), { status: 'active', nutritionPTIds: ['pt'] })
+    batch.set(db.doc('contracts/new-b'), { status: 'active', nutritionPTIds: ['pt'] })
+    await batch.commit()
+  } })
+  const result = await readStaffManagedClientCounts(f.reader, 'pt')
+  assert.deepEqual(result.counts, { main: 0, secondary: 0, nutrition: 1 })
+  assert.deepEqual(f.reads, [0, 0, 0, 0, 0, 1])
+  assert.ok(f.options.every(option => option.readOnly && option.readTime.isEqual(result.sourceReadTime)))
+  assert.equal((await readStaffManagedClientCounts(db, 'pt')).counts.nutrition, 2)
+})
+
+test('a later alias failure cannot publish a successfully read primary count', async () => {
+  const db = await fixture([['primary', { status: 'active', trainerId: 'pt' }]])
+  const f = observe(db, { continuation: async () => { throw Error('injected alias failure') } })
+  await assert.rejects(refreshStaffManagedClientSummary(f.reader, 'pt'), /injected alias failure/)
+  assert.deepEqual(f.reads, [1])
+  assert.equal(f.writes.length, 0)
+  assert.equal((await db.doc('staffOperationalSummaries/pt').get()).exists, false)
 })
 
 test('page failure publishes nothing; retry starts from current source and completes', async () => {
