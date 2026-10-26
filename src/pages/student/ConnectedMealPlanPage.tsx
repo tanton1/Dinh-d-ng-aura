@@ -24,14 +24,12 @@ import { useMealPlanCatalog, type MealPlanTab } from '../../features/nutrition/u
 import { catalogServingLabel } from '../../features/nutrition/catalogPresentation'
 import IngredientArtwork from '../../components/IngredientArtwork'
 import { getIngredientArtwork } from '../../features/nutrition/ingredientArtwork'
+import { KCAL_CATALOG_TITLE } from '../../features/nutrition/catalogLabels'
+import { catalogNutritionMatches, emptyCatalogFilters, type CatalogEnergyFilter, type CatalogFilters, type IngredientProteinFilter } from '../../features/nutrition/catalogFilters'
+import { useCatalogInfiniteScroll } from '../../features/nutrition/useCatalogInfiniteScroll'
 import type { NutritionFoodCatalogItem } from '../../features/nutrition/types'
 import type { NutritionPlanDay, NutritionPlannedMeal } from './NutritionWorkspace'
 import '../../styles-meal-plan.css'
-
-type CalorieFilter = 'all' | 'under-300' | '300-500' | 'over-500'
-type ProteinFilter = 'all' | 'high-protein'
-
-
 
 export interface ConnectedMealPlanPageProps {
   activeTab?: MealPlanTab
@@ -76,14 +74,6 @@ function formatNumber(value: number | null | undefined, digits = 0) {
   return new Intl.NumberFormat('vi-VN', { maximumFractionDigits: digits }).format(value)
 }
 
-function calorieMatches(value: number | null, filter: CalorieFilter) {
-  if (filter === 'all') return true
-  if (value === null) return false
-  if (filter === 'under-300') return value < 300
-  if (filter === '300-500') return value >= 300 && value <= 500
-  return value > 500
-}
-
 function planMealKey(meal: NutritionPlannedMeal) {
   return `${meal.dayId}|${meal.id}`
 }
@@ -91,28 +81,41 @@ function planMealKey(meal: NutritionPlannedMeal) {
 export default function ConnectedMealPlanPage(props: ConnectedMealPlanPageProps) {
   const [localTab, setLocalTab] = useState<MealPlanTab>('recipes')
   const activeTab = props.activeTab ?? localTab
-  const [query, setQuery] = useState('')
-  const [category, setCategory] = useState('all')
-  const [calorieFilter, setCalorieFilter] = useState<CalorieFilter>('all')
-  const [proteinFilter, setProteinFilter] = useState<ProteinFilter>('all')
+  const ingredients = activeTab === 'ingredients'
+  const filterTab = ingredients ? 'ingredients' : 'recipes'
+  const [tabFilters, setTabFilters] = useState(() => ({
+    recipes: { ...emptyCatalogFilters(), savedOnly: props.initialSavedOnly ?? false },
+    ingredients: { ...emptyCatalogFilters(), savedOnly: props.initialSavedOnly ?? false },
+  }))
+  const filters = tabFilters[filterTab]
+  const { query, category, energy: calorieFilter, protein: proteinFilter, savedOnly } = filters
+  const updateFilters = (patch: Partial<CatalogFilters>) => setTabFilters(current => ({ ...current, [filterTab]: { ...current[filterTab], ...patch } }))
+  const resetFilters = () => setTabFilters(current => ({ ...current, [filterTab]: emptyCatalogFilters() }))
   const [mobileColumns, setMobileColumns] = useState<1 | 2>(2)
-  const [savedOnly, setSavedOnly] = useState(props.initialSavedOnly ?? false)
-  useEffect(() => setSavedOnly(props.initialSavedOnly ?? false), [props.initialSavedOnly])
+  useEffect(() => {
+    setTabFilters(current => ({
+      recipes: { ...current.recipes, savedOnly: props.initialSavedOnly ?? false },
+      ingredients: { ...current.ingredients, savedOnly: props.initialSavedOnly ?? false },
+    }))
+  }, [props.initialSavedOnly])
   const [filterOpen, setFilterOpen] = useState(false)
   const catalog = useMealPlanCatalog({ tab: activeTab, active: props.catalogActive, query, category, savedOnly, savedFoodIds: props.savedFoodIds, initialCatalog: props.initialCatalog, allowDemo: props.allowDemo })
-  const { items, categories, status: catalogState, hasMore, loadingMore, loadMore, reload: reloadCatalog } = catalog
+  const { items, categories, status: catalogState, hasMore, nextCursor, loadingMore, loadMoreError, loadMore, reload: reloadCatalog } = catalog
   const selectTab = (tab: MealPlanTab) => {
-    setCategory('all')
     setLocalTab(tab)
     props.onTabChange?.(tab)
   }
 
   const visibleItems = useMemo(() => items.filter((item) => {
     if (savedOnly && !props.savedFoodIds.has(item.id)) return false
-    if (!calorieMatches(item.calories, calorieFilter)) return false
-    if (proteinFilter === 'high-protein' && (item.protein ?? 0) < 20) return false
-    return true
-  }), [calorieFilter, items, proteinFilter, props.savedFoodIds, savedOnly])
+    return catalogNutritionMatches(item, ingredients, calorieFilter, proteinFilter)
+  }), [calorieFilter, items, ingredients, proteinFilter, props.savedFoodIds, savedOnly])
+  const catalogEnd = useCatalogInfiniteScroll({
+    scope: JSON.stringify([activeTab, filters, catalog.requestKey]),
+    active: props.catalogActive !== false && activeTab !== 'plan',
+    enabled: catalogState === 'live' && hasMore && !loadMoreError,
+    cursor: nextCursor, loading: loadingMore, loadMore,
+  })
 
   const selectedDay = props.days.find((day) => day.id === props.selectedDayId) ?? props.days[0]
   const selectedDayMeals = useMemo(() => props.meals
@@ -133,11 +136,11 @@ export default function ConnectedMealPlanPage(props: ConnectedMealPlanPageProps)
         <header className="meal-plan-header meal-plan-header--connected">
           <div className="meal-plan-header__top">
             <div>
-              <h1 className="meal-plan-header__title">Thực đơn</h1>
+              <h1 className="meal-plan-header__title">{KCAL_CATALOG_TITLE}</h1>
               <p className="meal-plan-header__subtitle">Tra cứu năng lượng và thành phần dinh dưỡng.</p>
             </div>
             <div className="meal-plan-header__actions">
-              <button type="button" className={`meal-plan-icon-btn ${savedOnly ? 'is-active' : ''}`} onClick={() => { if (activeTab === 'plan') selectTab('recipes'); setSavedOnly((current) => !current) }} aria-label={savedOnly ? 'Hiện tất cả món' : 'Xem món đã lưu'} aria-pressed={savedOnly}>
+              <button type="button" className={`meal-plan-icon-btn ${savedOnly ? 'is-active' : ''}`} onClick={() => { if (activeTab === 'plan') selectTab('recipes'); updateFilters({ savedOnly: !savedOnly }) }} aria-label={savedOnly ? 'Hiện tất cả' : ingredients ? 'Xem nguyên liệu đã lưu' : 'Xem món đã lưu'} aria-pressed={savedOnly}>
                 <Bookmark size={20} />
                 {props.savedFoodIds.size > 0 && <span className="meal-plan-badge-count">{props.savedFoodIds.size}</span>}
               </button>
@@ -145,8 +148,8 @@ export default function ConnectedMealPlanPage(props: ConnectedMealPlanPageProps)
             </div>
           </div>
 
-          <div className="meal-plan-tabs" role="tablist" aria-label="Nội dung thực đơn">
-            {([['recipes', 'Tra cứu Kcal Món Ăn'], ['ingredients', 'Nguyên liệu'], ['plan', 'Kế hoạch 7 ngày']] as const).map(([tab, label]) => (
+          <div className="meal-plan-tabs" role="tablist" aria-label="Nội dung tra cứu">
+            {([['recipes', 'Món ăn'], ['ingredients', 'Nguyên liệu'], ['plan', 'Kế hoạch 7 ngày']] as const).map(([tab, label]) => (
               <button key={tab} id={`menu-tab-${tab}`} type="button" role="tab" aria-selected={activeTab === tab} aria-controls="menu-tab-panel" onClick={() => selectTab(tab)} className={`meal-plan-tab-btn ${activeTab === tab ? 'meal-plan-tab-btn--active' : ''}`}>
                 {label}{activeTab === tab && <span className="meal-plan-tab-indicator" />}
               </button>
@@ -159,8 +162,8 @@ export default function ConnectedMealPlanPage(props: ConnectedMealPlanPageProps)
             <div className="meal-plan-search-row">
               <div className="meal-plan-search-input-wrapper">
                 <Search size={20} aria-hidden="true" />
-                <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={activeTab === 'ingredients' ? 'Tìm nguyên liệu, nhóm thực phẩm…' : 'Tìm món ăn, nhóm món…'} className="meal-plan-search-input" aria-label={activeTab === 'ingredients' ? 'Tìm nguyên liệu' : 'Tìm món ăn'} type="search" />
-                {query && <button type="button" onClick={() => setQuery('')} aria-label="Xóa từ khóa"><X size={16} /></button>}
+                <input value={query} onChange={(event) => updateFilters({ query: event.target.value })} placeholder={ingredients ? 'Tìm nguyên liệu, nhóm thực phẩm…' : 'Tìm món ăn, nhóm món…'} className="meal-plan-search-input" aria-label={ingredients ? 'Tìm nguyên liệu' : 'Tìm món ăn'} type="search" />
+                {query && <button type="button" onClick={() => updateFilters({ query: '' })} aria-label="Xóa từ khóa"><X size={16} /></button>}
               </div>
               <button type="button" onClick={() => setFilterOpen((current) => !current)} aria-label="Bộ lọc" className={`meal-plan-filter-trigger ${filterCount ? 'meal-plan-filter-trigger--active' : ''}`} aria-expanded={filterOpen} aria-controls="meal-plan-filter-panel">
                 <SlidersHorizontal size={18} /><span>Bộ lọc{filterCount ? ` (${filterCount})` : ''}</span>
@@ -168,32 +171,39 @@ export default function ConnectedMealPlanPage(props: ConnectedMealPlanPageProps)
             </div>
 
             {filterOpen && (
-              <section id="meal-plan-filter-panel" className="meal-plan-filter-panel" aria-label="Bộ lọc thực đơn">
+              <section id="meal-plan-filter-panel" className="meal-plan-filter-panel" aria-label={ingredients ? 'Bộ lọc nguyên liệu' : 'Bộ lọc món ăn'}>
                 <div>
-                  <span>Nhóm món</span>
-                  <select value={category} onChange={(event) => setCategory(event.target.value)} aria-label="Nhóm món">
-                    <option value="all">Tất cả nhóm món</option>
+                  <span>{ingredients ? 'Nhóm nguyên liệu' : 'Nhóm món'}</span>
+                  <select value={category} onChange={(event) => updateFilters({ category: event.target.value })} aria-label={ingredients ? 'Nhóm nguyên liệu' : 'Nhóm món'}>
+                    <option value="all">{ingredients ? 'Tất cả nhóm nguyên liệu' : 'Tất cả nhóm món'}</option>
                     {categories.map((value) => <option key={value} value={value}>{value}</option>)}
                   </select>
                 </div>
                 <div>
-                  <span>Kcal mong muốn</span>
-                  <select value={calorieFilter} onChange={(event) => setCalorieFilter(event.target.value as CalorieFilter)} aria-label="Mức năng lượng">
+                  <span>{ingredients ? 'Năng lượng / 100 g' : 'Kcal theo nguồn'}</span>
+                  <select value={calorieFilter} onChange={(event) => updateFilters({ energy: event.target.value as CatalogEnergyFilter })} aria-label={ingredients ? 'Năng lượng trên 100 g' : 'Kcal theo nguồn'}>
                     <option value="all">Mọi mức kcal</option>
-                    <option value="under-300">Dưới 300 kcal</option>
-                    <option value="300-500">300–500 kcal</option>
-                    <option value="over-500">Trên 500 kcal</option>
+                    <option value="lower">{ingredients ? 'Dưới 100 kcal' : 'Dưới 300 kcal'}</option>
+                    <option value="middle">{ingredients ? '100–300 kcal' : '300–500 kcal'}</option>
+                    <option value="higher">{ingredients ? 'Trên 300 kcal' : 'Trên 500 kcal'}</option>
                   </select>
                 </div>
-                <button type="button" className={proteinFilter === 'high-protein' ? 'is-active' : ''} onClick={() => setProteinFilter((current) => current === 'all' ? 'high-protein' : 'all')} aria-pressed={proteinFilter === 'high-protein'}>Giàu đạm ≥ 20g</button>
-                <button type="button" className={savedOnly ? 'is-active' : ''} onClick={() => setSavedOnly((current) => !current)} aria-pressed={savedOnly}><Heart size={15} /> Món đã lưu</button>
-                {filterCount > 0 && <button type="button" className="meal-plan-filter-panel__clear" onClick={() => { setCategory('all'); setCalorieFilter('all'); setProteinFilter('all'); setSavedOnly(false) }}>Xóa lọc</button>}
+                {ingredients && <div>
+                  <span>Đạm / 100 g</span>
+                  <select value={proteinFilter} onChange={(event) => updateFilters({ protein: event.target.value as IngredientProteinFilter })} aria-label="Đạm trên 100 g">
+                    <option value="all">Mọi mức đạm</option>
+                    <option value="at-least-10">Từ 10 g</option>
+                    <option value="at-least-20">Từ 20 g</option>
+                  </select>
+                </div>}
+                <button type="button" className={savedOnly ? 'is-active' : ''} onClick={() => updateFilters({ savedOnly: !savedOnly })} aria-pressed={savedOnly}><Heart size={15} /> {ingredients ? 'Nguyên liệu đã lưu' : 'Món đã lưu'}</button>
+                {filterCount > 0 && <button type="button" className="meal-plan-filter-panel__clear" onClick={() => updateFilters({ category: 'all', energy: 'all', protein: 'all', savedOnly: false })}>Xóa lọc</button>}
               </section>
             )}
 
             <section className="meal-plan-live-section" aria-labelledby="meal-plan-catalog-title">
               <div className="meal-plan-live-heading">
-              <div><div><h2 id="meal-plan-catalog-title">{savedOnly ? 'Đã lưu' : activeTab === 'ingredients' ? 'Nguyên liệu' : 'Tra cứu Kcal Món Ăn'}</h2><p>{catalogState === 'loading' ? 'Đang tải…' : `${formatNumber(visibleItems.length)} ${activeTab === 'ingredients' ? 'nguyên liệu' : 'món'}${hasMore ? ' đã hiển thị' : ''}`}</p></div></div>
+              <div><div><h2 id="meal-plan-catalog-title">{savedOnly ? 'Đã lưu' : ingredients ? 'Nguyên liệu' : 'Món ăn'}</h2><p>{catalogState === 'loading' ? 'Đang tải…' : `${formatNumber(visibleItems.length)} ${ingredients ? 'nguyên liệu' : 'món'}${hasMore ? ' đã hiển thị' : ''}`}</p></div></div>
               <div className="meal-plan-display-toggle" role="group" aria-label="Mật độ hiển thị trên điện thoại">
                 <button type="button" className={mobileColumns === 1 ? 'is-active' : ''} onClick={() => setMobileColumns(1)} aria-pressed={mobileColumns === 1}>1 cột</button>
                 <button type="button" className={mobileColumns === 2 ? 'is-active' : ''} onClick={() => setMobileColumns(2)} aria-pressed={mobileColumns === 2}>2 cột</button>
@@ -203,7 +213,7 @@ export default function ConnectedMealPlanPage(props: ConnectedMealPlanPageProps)
 
               {catalogState === 'error' && <p className="meal-plan-catalog-error" role="alert">Chưa tải được danh sách. Bấm Tải lại để thử lại.</p>}
               {catalogState === 'loading' ? (
-                <div className="meal-plan-live-loading" role="status"><LoaderCircle className="is-spinning" size={22} /> Đang tải thực đơn…</div>
+                <div className="meal-plan-live-loading" role="status"><LoaderCircle className="is-spinning" size={22} /> Đang tải {ingredients ? 'nguyên liệu' : 'món ăn'}…</div>
               ) : visibleItems.length ? (
                 <div className={`meal-plan-live-grid meal-plan-live-grid--mobile-${mobileColumns}`}>
                   {visibleItems.map((food) => {
@@ -226,9 +236,11 @@ export default function ConnectedMealPlanPage(props: ConnectedMealPlanPageProps)
                   })}
                 </div>
               ) : (
-                <div className="meal-plan-live-empty"><Utensils size={25} /><h3>{hasMore ? 'Chưa có món phù hợp trong phần đã tải' : 'Chưa tìm thấy món phù hợp'}</h3><p>{hasMore ? 'Bấm Xem thêm món để tiếp tục tìm với các bộ lọc đang chọn.' : 'Thử bỏ bớt bộ lọc hoặc tìm bằng tên món khác.'}</p><button type="button" onClick={() => { setQuery(''); setCategory('all'); setCalorieFilter('all'); setProteinFilter('all'); setSavedOnly(false) }}>Xóa bộ lọc</button></div>
+                <div className="meal-plan-live-empty"><Utensils size={25} /><h3>{hasMore ? 'Chưa có kết quả phù hợp trong phần đã tải' : 'Chưa tìm thấy kết quả phù hợp'}</h3><p>{hasMore ? 'Cuộn xuống để tiếp tục tìm với các bộ lọc đang chọn.' : 'Thử bỏ bớt bộ lọc hoặc tìm bằng tên khác.'}</p><button type="button" onClick={resetFilters}>Xóa bộ lọc</button></div>
               )}
-              {hasMore && catalogState === 'live' && <button type="button" className="meal-plan-load-more" onClick={loadMore} disabled={loadingMore}>{loadingMore ? <LoaderCircle className="is-spinning" size={17} /> : <Plus size={17} />} Xem thêm món</button>}
+              <div ref={catalogEnd} className="meal-plan-catalog-end" data-catalog-end tabIndex={hasMore ? 0 : -1} aria-label="Cuối danh sách tra cứu" aria-busy={loadingMore}>
+                {loadMoreError ? <><span role="alert">Chưa tải được phần tiếp theo.</span><button type="button" onClick={loadMore}>Thử tải lại</button></> : <span role="status" aria-live="polite">{loadingMore ? <><LoaderCircle className="is-spinning" size={17} /> Đang tải thêm {ingredients ? 'nguyên liệu' : 'món ăn'}…</> : hasMore ? 'Cuộn xuống để xem tiếp' : catalogState !== 'loading' && items.length > 0 ? 'Đã hết danh sách' : ''}</span>}
+              </div>
             </section>
           </main>
         ) : (

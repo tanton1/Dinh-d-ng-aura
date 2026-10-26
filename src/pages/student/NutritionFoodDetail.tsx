@@ -30,6 +30,7 @@ import NutritionGroupIcon, { getNutritionGroupVisual } from '../../components/Nu
 import { catalogServingLabel } from '../../features/nutrition/catalogPresentation'
 import IngredientArtwork from '../../components/IngredientArtwork'
 import { getIngredientArtwork } from '../../features/nutrition/ingredientArtwork'
+import { KCAL_CATALOG_TITLE } from '../../features/nutrition/catalogLabels'
 import '../../styles-nutrition-detail.css'
 
 export type NutritionFoodDetailKind = 'dish' | 'food'
@@ -347,9 +348,9 @@ export default function NutritionFoodDetail({
   return (
     <article className={`nutrition-food-detail ${lookupOnly ? 'nutrition-food-detail--lookup' : ''} ${className}`.trim()} aria-labelledby="nutrition-food-title">
       <header className="nutrition-food-detail__topbar">
-        <button type="button" className="nutrition-food-detail__back" onClick={onBack} aria-label="Quay lại thực đơn">
+        <button type="button" className="nutrition-food-detail__back" onClick={onBack} aria-label="Quay lại tra cứu">
           <ArrowLeft size={18} aria-hidden="true" />
-          <span>Thực đơn</span>
+          <span>{KCAL_CATALOG_TITLE}</span>
         </button>
 
         <div className="nutrition-food-detail__top-actions">
