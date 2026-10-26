@@ -77,6 +77,13 @@ test('release explicitly stages retired images and still requires the strict hea
   assert.match(pkg.scripts['test:regional-reads'], /cloud-run-retired-stage\.test\.cjs/)
 })
 
+test('native readiness exception is restricted to the reviewed aggregate scheduler', () => {
+  const scope = workflow.match(/PLATFORM_GATE=\(\)\s*if \[ "\$FUNCTION_NAME" = "([A-Za-z]+)" \]; then\s*PLATFORM_GATE=\(--platform-readiness-gate\)\s*fi/)
+  assert.equal(scope?.[1], 'rebuildOperationsDashboardAggregatesScheduled')
+  assert.match(workflow, /cloud-run-functions-promote-latest\.cjs[^\n]*"\$\{PLATFORM_GATE\[@\]\}"/)
+  assert.equal(workflow.match(/--platform-readiness-gate/g)?.length, 1)
+})
+
 test('production health audit checks the effective traffic revision', () => {
   const policy = readFileSync('scripts/cloud-run-revision-policy.cjs', 'utf8')
   assert.match(policy, /trafficStatuses/)

@@ -330,7 +330,14 @@ jobs:
             # with its etag, avoiding a conflicting cross-API conversion.
             # A pinned previous revision can leave the candidate unstarted.
             # Stage its exact image at zero traffic before the same health gate.
-            if ! node scripts/cloud-run-functions-promote-latest.cjs --functions="$SERVICE_NAME" --region="$FUNCTION_REGION" --traffic-api=v1 --stage-retired --confirm="$CONFIRMATION"; then
+            # This reviewed scheduler cannot have a tagged URL because its
+            # service name is too long. Explicitly use Cloud Run's startup
+            # readiness gate; verify actual health/image/traffic afterwards.
+            PLATFORM_GATE=()
+            if [ "$FUNCTION_NAME" = "rebuildOperationsDashboardAggregatesScheduled" ]; then
+              PLATFORM_GATE=(--platform-readiness-gate)
+            fi
+            if ! node scripts/cloud-run-functions-promote-latest.cjs --functions="$SERVICE_NAME" --region="$FUNCTION_REGION" --traffic-api=v1 --stage-retired "${PLATFORM_GATE[@]}" --confirm="$CONFIRMATION"; then
               rollback_previous "$FUNCTION_NAME"
               exit 1
             fi
