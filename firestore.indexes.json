@@ -1,5 +1,6 @@
 {
   "indexes": [
+    { "collectionGroup": "ptAvailability", "queryScope": "COLLECTION", "fields": [{ "fieldPath": "__name__", "order": "DESCENDING" }] },
     {"collectionGroup":"ptScheduleWeeklyViews","queryScope":"COLLECTION","fields":[{"fieldPath":"branchId","order":"ASCENDING"},{"fieldPath":"__name__","order":"ASCENDING"}]},
     {"collectionGroup":"ptScheduleWeeklyViews","queryScope":"COLLECTION","fields":[{"fieldPath":"schemaVersion","order":"ASCENDING"},{"fieldPath":"__name__","order":"ASCENDING"}]},
     {"collectionGroup":"ptScheduleWeeklyViews","queryScope":"COLLECTION","fields":[{"fieldPath":"weekId","order":"ASCENDING"},{"fieldPath":"__name__","order":"ASCENDING"}]},
