@@ -1,5 +1,80 @@
 {
   "indexes": [
+    {
+      "collectionGroup": "nutritionReminderSchedules",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "nextDueAt",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "__name__",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "ptScheduleWeeklyViewStates",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "validationDirty",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "__name__",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "ptScheduleWeeklyViews",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "dirty",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "__name__",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "ptScheduleWeeklyViewStates",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "dirty",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "__name__",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "ptScheduleWeeklyViews",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "validationDirty",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "__name__",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {"collectionGroup":"contracts","queryScope":"COLLECTION","fields":[{"fieldPath":"__name__","order":"ASCENDING"}]},
+    {"collectionGroup":"students","queryScope":"COLLECTION","fields":[{"fieldPath":"__name__","order":"ASCENDING"}]},
+    {"collectionGroup":"ledgerEntries","queryScope":"COLLECTION","fields":[{"fieldPath":"effectiveAt","order":"ASCENDING"},{"fieldPath":"__name__","order":"ASCENDING"}]},
+    {"collectionGroup":"sessions","queryScope":"COLLECTION","fields":[{"fieldPath":"date","order":"ASCENDING"},{"fieldPath":"__name__","order":"ASCENDING"}]},
+    {"collectionGroup":"attendanceEvents","queryScope":"COLLECTION","fields":[{"fieldPath":"occurredAt","order":"ASCENDING"},{"fieldPath":"__name__","order":"ASCENDING"}]},
     {"collectionGroup":"contracts","queryScope":"COLLECTION","fields":[{"fieldPath":"trainerId","order":"ASCENDING"},{"fieldPath":"status","order":"ASCENDING"},{"fieldPath":"__name__","order":"ASCENDING"}]},
     {"collectionGroup":"contracts","queryScope":"COLLECTION","fields":[{"fieldPath":"secondaryTrainerId","order":"ASCENDING"},{"fieldPath":"status","order":"ASCENDING"},{"fieldPath":"__name__","order":"ASCENDING"}]},
     {"collectionGroup":"contracts","queryScope":"COLLECTION","fields":[{"fieldPath":"trainerIds","arrayConfig":"CONTAINS"},{"fieldPath":"status","order":"ASCENDING"},{"fieldPath":"__name__","order":"ASCENDING"}]},

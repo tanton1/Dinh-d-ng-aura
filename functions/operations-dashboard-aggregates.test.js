@@ -75,6 +75,8 @@ function copy(value) {
 function fakeDatabase(seed = {}) {
   const records = new Map(Object.entries(seed).map(([key, value]) => [key, copy(value)]))
   const versions = new Map()
+  const snapshots = new Map()
+  let snapshotNumber = 0
   const stats = { reads: 0, writes: 0, transactions: 0, retries: 0 }
   const transform = (value, prior, merge) => {
     if (value?.constructor?.name === 'NumericIncrementTransform') return (prior || 0) + value.operand
@@ -98,38 +100,63 @@ function fakeDatabase(seed = {}) {
     path, id: path.split('/').at(-1),
     get: async () => { stats.reads += 1; return snapshot(path) },
   })
-  const snapshot = (path, fields = null) => {
-    const original = records.get(path)
+  const snapshot = (path, fields = null, sourceRecords = records) => {
+    const original = sourceRecords.get(path)
     const data = copy(fields && original ? Object.fromEntries(fields.filter(key => Object.hasOwn(original, key)).map(key => [key, original[key]])) : original)
     return { exists: data !== undefined, ref: reference(path), id: path.split('/').at(-1), data: () => copy(data) }
   }
   const comparable = (value) => value instanceof Timestamp ? value.toMillis() : value
-  const query = (name, filters = [], cap = Infinity, fields = null) => ({
-    name, filters, cap, fields,
+  const query = (name, filters = [], cap = Infinity, fields = null, orders = [], cursor = null) => ({
+    name, filters, cap, fields, orders, cursor,
     doc: (id) => reference(`${name}/${id}`),
-    where: (field, operator, value) => query(name, [...filters, [field, operator, value]], cap, fields),
-    limit: (value) => query(name, filters, value, fields),
-    select: (...value) => query(name, filters, cap, value),
+    where: (field, operator, value) => query(name, [...filters, [field, operator, value]], cap, fields, orders, cursor),
+    limit: (value) => query(name, filters, value, fields, orders, cursor),
+    select: (...value) => query(name, filters, cap, value, orders, cursor),
+    orderBy: (field, direction = 'asc') => query(name, filters, cap, fields, [...orders, [String(field), direction]], cursor),
+    startAfter: (value) => query(name, filters, cap, fields, orders, value),
     async get() {
+      const readTime = Timestamp.fromMillis(++snapshotNumber)
+      snapshots.set(readTime.toMillis(), new Map([...records].map(([path, value]) => [path, copy(value)])))
+      return this.getAtReadTime(readTime)
+    },
+    async getAtReadTime(readTime) {
+      const sourceRecords = snapshots.get(readTime.toMillis())
+      assert.ok(sourceRecords, 'historical snapshot must exist')
       stats.reads += 1
-      const docs = [...records.keys()].filter((path) => path.startsWith(`${name}/`) && path.split('/').length === 2)
+      const ordering = orders.length ? orders : [['__name__', 'asc']]
+      const orderedValues = path => ordering.map(([field]) => field === '__name__' ? path : comparable(sourceRecords.get(path)[field]))
+      const compare = (left, right) => {
+        for (let index = 0; index < ordering.length; index++) {
+          const difference = left[index] < right[index] ? -1 : left[index] > right[index] ? 1 : 0
+          if (difference) return ordering[index][1] === 'desc' ? -difference : difference
+        }
+        return 0
+      }
+      const cursorValues = cursor ? ordering.map(([field]) => field === '__name__' ? cursor.ref.path : comparable(cursor.data()[field])) : null
+      const docs = [...sourceRecords.keys()].filter((path) => path.startsWith(`${name}/`) && path.split('/').length === 2)
         .filter((path) => filters.every(([field, operator, expected]) => {
-          const actual = comparable(records.get(path)[field])
+          const actual = comparable(sourceRecords.get(path)[field])
           if (operator === '>=') return actual >= comparable(expected)
           if (operator === '<=') return actual <= comparable(expected)
           if (operator === '<') return actual < comparable(expected)
           if (operator === 'in') return expected.includes(actual)
           return actual === comparable(expected)
-        })).slice(0, cap).map(path => snapshot(path, fields))
-      const result = { docs, size: docs.length }
-      if (db.afterQuery) await db.afterQuery({ name, filters, cap, fields }, result)
+        })).filter(path => !cursorValues || compare(orderedValues(path), cursorValues) > 0)
+        .sort((left, right) => compare(orderedValues(left), orderedValues(right)))
+        .slice(0, cap).map(path => snapshot(path, fields, sourceRecords))
+      const result = { docs, size: docs.length, readTime }
+      if (db.afterQuery) await db.afterQuery({ name, filters, cap, fields, orders, cursor }, result)
       return result
     },
   })
   const db = {
     records, stats, write, remove,
     collection: (name) => query(name),
-    async runTransaction(callback) {
+    async runTransaction(callback, options) {
+      if (options?.readOnly) {
+        assert.ok(options.readTime instanceof Timestamp)
+        return callback({ get: target => target.getAtReadTime(options.readTime) })
+      }
       for (let attempt = 0; attempt < 10; attempt += 1) {
         stats.transactions += 1
         const reads = new Map()
@@ -546,15 +573,111 @@ test('rebuild uses Vietnam midnight boundaries for timestamp sources', async () 
   assert.equal(value.totals.attendanceEvents, 1)
 })
 
-test('capped source query leaves coverage incomplete and does not publish partial data', async () => {
+test('invalid source pages leave coverage incomplete and never publish partial data', async () => {
   const db = fakeDatabase()
   db.afterQuery = async ({ name }, result) => {
     if (name === 'students') result.size = 20_001
   }
-  await assert.rejects(rebuild(db), /SOURCE_LIMIT/)
+  await assert.rejects(rebuild(db), /INVALID_SOURCE_PAGE/)
   assert.equal(await load(db), null)
   assert.equal(db.records.get(coveragePath).complete, false)
   assert.equal([...db.records.keys()].some((key) => key.startsWith('operationsDailyAggregatesV2/')), false)
+})
+
+test('source pages share an empty-first-query snapshot across moves, deletes, inserts and later collections', async () => {
+  const seed = Object.fromEntries(Array.from({ length: 601 }, (_, index) => [`sessions/s${String(index).padStart(4, '0')}`, defaultSession]))
+  const originalStudent = { joinDate: '2026-10-22', branchId: 'branch-1' }
+  seed['students/u1'] = originalStudent
+  const db = fakeDatabase(seed)
+  const edits = [
+    ['sessions/s0000', { ...defaultSession, date: '2026-10-22', status: 'completed' }],
+    ['sessions/s0400', { ...defaultSession, date: '2026-10-21', branchId: 'branch-2' }],
+    ['sessions/s0450', undefined],
+    ['sessions/inserted-after-anchor', { ...defaultSession, branchId: 'branch-2' }],
+    ['students/u1', { ...originalStudent, branchId: 'branch-2' }],
+  ]
+  let changed = false
+  const pageSizes = []
+  db.afterQuery = async (query, result) => {
+    if (query.name !== 'sessions') return
+    pageSizes.push(result.size)
+    if (changed) return
+    changed = true
+    for (const [path, value] of edits) value ? db.write(path, value) : db.remove(path)
+  }
+  const result = await rebuild(db)
+  assert.deepEqual(pageSizes, [300, 300, 1])
+  assert.deepEqual(result.sourcePages, { ledger: 1, session: 3, attendance: 1, contract: 1, student: 1 })
+  assert.equal(result.sourceCounts.session, 601)
+  assert.equal((await load(db)).totals.sessions, 601)
+  assert.equal((await load(db)).totals.confirmedSessions, 0)
+  assert.equal((await load(db, { branchIds: ['branch-1'] })).totals.newStudents, 1)
+  assert.deepEqual((await load(db, { branchIds: ['branch-2'] })).totals, {})
+  for (const [path, value] of edits) await sync(db, path, seed[path], value, path.startsWith('students/') ? 'student' : 'session')
+  assert.equal((await load(db)).totals.sessions, 601)
+  assert.equal((await load(db)).totals.confirmedSessions, 1)
+  assert.equal((await load(db, { branchIds: ['branch-2'] })).totals.sessions, 2)
+  assert.equal((await load(db, { branchIds: ['branch-2'] })).totals.newStudents, 1)
+})
+
+test('a failed continuation leaves partial baselines unreadable and a full retry absorbs deleted sources', async () => {
+  const db = fakeDatabase(Object.fromEntries(Array.from({ length: 601 }, (_, index) => [`sessions/s${String(index).padStart(4, '0')}`, defaultSession])))
+  db.afterQuery = async query => { if (query.name === 'sessions' && query.cursor) throw new Error('continuation unavailable') }
+  await assert.rejects(rebuild(db), /continuation unavailable/)
+  assert.equal(db.records.get(coveragePath).status, 'failed')
+  assert.equal(await load(db), null)
+  assert.equal([...db.records.keys()].filter(path => path.startsWith('operationsAggregateContributions/')).length, 300)
+  db.remove('sessions/s0000')
+  db.remove('sessions/s0400')
+  db.afterQuery = null
+  const recovered = await rebuild(db)
+  assert.equal(recovered.sourceCounts.session, 599)
+  assert.equal((await load(db)).totals.sessions, 599)
+  await sync(db, 'sessions/s0000', defaultSession, undefined)
+  await sync(db, 'sessions/s0400', defaultSession, undefined)
+  assert.equal((await load(db)).totals.sessions, 599)
+})
+
+test('losing rebuild ownership between pages fences further baselines and preserves the replacement owner', async () => {
+  const db = fakeDatabase(Object.fromEntries(Array.from({ length: 601 }, (_, index) => [`sessions/s${String(index).padStart(4, '0')}`, defaultSession])))
+  db.afterQuery = async query => {
+    if (query.name === 'sessions' && query.cursor) db.write(coveragePath, { schemaVersion: 2, generation: 'replacement', status: 'building', complete: false })
+  }
+  await assert.rejects(rebuild(db), /OWNERSHIP_LOST/)
+  assert.equal(db.records.get(coveragePath).generation, 'replacement')
+  assert.equal(db.records.get(coveragePath).status, 'building')
+  assert.equal([...db.records.keys()].filter(path => path.startsWith('operationsAggregateContributions/')).length, 300)
+  assert.equal([...db.records.keys()].filter(path => path.startsWith('operationsDailyAggregatesV2/')).length, 0)
+})
+
+test('soft rebuild deadline marks coverage failed without publishing a partially read page', async () => {
+  const originalNow = Date.now, started = originalNow()
+  let expired = false
+  Date.now = () => started + (expired ? 7 * 60 * 1000 : 0)
+  try {
+    const db = fakeDatabase({ 'sessions/s1': defaultSession })
+    db.afterQuery = async query => { if (query.name === 'sessions') expired = true }
+    await assert.rejects(rebuild(db), /REBUILD_DEADLINE/)
+    assert.equal(db.records.get(coveragePath).status, 'failed')
+    assert.equal(await load(db), null)
+    assert.equal([...db.records.keys()].some(path => path.startsWith('operationsAggregateContributions/')), false)
+  } finally { Date.now = originalNow }
+})
+
+test('a missing anchor timestamp fails closed even if the first source query is empty', async () => {
+  const db = fakeDatabase({ 'sessions/s1': defaultSession })
+  db.afterQuery = async (query, result) => { if (query.name === 'ledgerEntries') result.readTime = null }
+  await assert.rejects(rebuild(db), /SNAPSHOT_UNAVAILABLE/)
+  assert.equal(db.records.get(coveragePath).complete, false)
+  assert.equal([...db.records.keys()].some(path => path.startsWith('operationsAggregateContributions/')), false)
+})
+
+test('an exact-full source page uses an empty lookahead before declaring complete coverage', async () => {
+  const db = fakeDatabase(Object.fromEntries(Array.from({ length: 300 }, (_, index) => [`sessions/s${index}`, defaultSession])))
+  const result = await rebuild(db)
+  assert.equal(result.sourceCounts.session, 300)
+  assert.equal(result.sourcePages.session, 2)
+  assert.equal((await load(db)).totals.sessions, 300)
 })
 
 test('all five source types share idempotent baseline semantics, including financial amounts', async () => {

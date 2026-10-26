@@ -1,8 +1,9 @@
 'use strict'
 
 const { createHash, randomUUID } = require('node:crypto')
-const { FieldValue, Timestamp } = require('firebase-admin/firestore')
+const { FieldPath, FieldValue, Timestamp } = require('firebase-admin/firestore')
 const { readDashboardQuery } = require('./operations-dashboard-read-policy')
+const { visitAggregateSourcePages } = require('./operations-aggregate-source-pages')
 
 // Isolate v2 from old in-flight trigger/scheduler revisions. A rolling deploy
 // (or rollback) must never let a v1 delta writer corrupt the v2 baseline.
@@ -11,9 +12,12 @@ const COVERAGE_COLLECTION = 'operationsAggregateCoverage'
 const COVERAGE_DOCUMENT = 'dashboard-v2'
 const CONTRIBUTION_COLLECTION = 'operationsAggregateContributions'
 const AGGREGATE_SCHEMA_VERSION = 2
-const MAX_REBUILD_DOCUMENTS = 20_000
+const MAX_REBUILD_BUCKETS = 20_000
 const REBUILD_LOCK_MILLIS = 20 * 60 * 1000
 const REBUILD_BATCH_SIZE = 300
+// Leave room for an in-flight request and failure publication before the
+// scheduler's 540-second hard timeout. Failed scans never publish coverage.
+const REBUILD_BUDGET_MILLIS = 7 * 60 * 1000
 const SOURCE_COLLECTIONS = {
   ledger: 'ledgerEntries', session: 'sessions', attendance: 'attendanceEvents', contract: 'contracts', student: 'students',
 }
@@ -267,6 +271,10 @@ function dateKey(date) {
 }
 
 async function rebuildOperationsDailyAggregates({ db, logger = console, days = 366, now = new Date() }) {
+  const deadline = Date.now() + REBUILD_BUDGET_MILLIS
+  const assertBudget = () => {
+    if (Date.now() >= deadline) throw new Error('OPERATIONS_AGGREGATE_REBUILD_DEADLINE')
+  }
   const endDate = dateKey(now)
   // Runtime timezone is normally UTC, whereas contribution dates use Vietnam.
   // Make the source-query boundaries match the bucket dates exactly.
@@ -298,6 +306,7 @@ async function rebuildOperationsDailyAggregates({ db, logger = console, days = 3
   // never overwrite the replacement builder's contribution baseline/buckets.
   const writeChunks = async (operations) => {
     for (let index = 0; index < operations.length; index += REBUILD_BATCH_SIZE) {
+      assertBudget()
       const chunk = operations.slice(index, index + REBUILD_BATCH_SIZE)
       await db.runTransaction(async (transaction) => {
         await assertOwner(transaction)
@@ -308,40 +317,45 @@ async function rebuildOperationsDailyAggregates({ db, logger = console, days = 3
     }
   }
   try {
-    const limit = MAX_REBUILD_DOCUMENTS + 1
-    const [ledger, sessions, attendance, contracts, students] = await Promise.all([
-      db.collection('ledgerEntries').where('effectiveAt', '>=', Timestamp.fromDate(start)).where('effectiveAt', '<', Timestamp.fromDate(endExclusive)).select(...REBUILD_SOURCE_FIELDS.ledger).limit(limit).get(),
-      db.collection('sessions').where('date', '>=', startDate).where('date', '<=', endDate).select(...REBUILD_SOURCE_FIELDS.session).limit(limit).get(),
-      db.collection('attendanceEvents').where('occurredAt', '>=', Timestamp.fromDate(start)).where('occurredAt', '<', Timestamp.fromDate(endExclusive)).select(...REBUILD_SOURCE_FIELDS.attendance).limit(limit).get(),
-      db.collection('contracts').select(...REBUILD_SOURCE_FIELDS.contract).limit(limit).get(),
-      db.collection('students').select(...REBUILD_SOURCE_FIELDS.student).limit(limit).get(),
-    ])
-    const snapshots = [
-      ['ledger', ledger], ['session', sessions], ['attendance', attendance], ['contract', contracts], ['student', students],
-    ]
-    const sourceCounts = Object.fromEntries(snapshots.map(([source, snapshot]) => [source, snapshot.size]))
-    // Never publish a capped query as complete, nor replace a usable baseline
-    // with a partial one. Source-query fallback stays active until repaired.
-    if (snapshots.some(([, snapshot]) => snapshot.size > MAX_REBUILD_DOCUMENTS)) {
-      throw new Error('OPERATIONS_AGGREGATE_REBUILD_SOURCE_LIMIT')
-    }
-    const previous = await db.collection(AGGREGATE_COLLECTION).where('date', '>=', startDate).where('date', '<=', endDate).select().limit(limit).get()
-    if (previous.size > MAX_REBUILD_DOCUMENTS) throw new Error('OPERATIONS_AGGREGATE_REBUILD_BUCKET_LIMIT')
     const groups = new Map()
-    const states = []
-    snapshots.forEach(([source, snapshot]) => snapshot.docs.forEach((item) => {
-      const next = rangedContribution(source, item.data(), { startDate, endDate })
-      if (!next) return
-      const key = `${next.date}|${next.branchId}`
-      const group = groups.get(key) || { date: next.date, branchId: next.branchId, metrics: {} }
-      Object.entries(next.metrics).forEach(([name, amount]) => mergeMetric(group.metrics, name, amount))
-      groups.set(key, group)
-      const sourcePath = item.ref.path
-      states.push({ reference: db.collection(CONTRIBUTION_COLLECTION).doc(contributionDocumentId(sourcePath)), value: {
-        schemaVersion: AGGREGATE_SCHEMA_VERSION, generation, sourcePath, contribution: next,
-        updatedAt: FieldValue.serverTimestamp(),
-      } })
-    }))
+    const key = FieldPath.documentId()
+    const { sourceCounts, sourcePages, readTime } = await visitAggregateSourcePages({
+      db, pageSize: REBUILD_BATCH_SIZE, assertBudget,
+      sources: {
+        ledger: db.collection('ledgerEntries').where('effectiveAt', '>=', Timestamp.fromDate(start)).where('effectiveAt', '<', Timestamp.fromDate(endExclusive))
+          .orderBy('effectiveAt').orderBy(key).select(...REBUILD_SOURCE_FIELDS.ledger),
+        session: db.collection('sessions').where('date', '>=', startDate).where('date', '<=', endDate)
+          .orderBy('date').orderBy(key).select(...REBUILD_SOURCE_FIELDS.session),
+        attendance: db.collection('attendanceEvents').where('occurredAt', '>=', Timestamp.fromDate(start)).where('occurredAt', '<', Timestamp.fromDate(endExclusive))
+          .orderBy('occurredAt').orderBy(key).select(...REBUILD_SOURCE_FIELDS.attendance),
+        contract: db.collection('contracts').orderBy(key).select(...REBUILD_SOURCE_FIELDS.contract),
+        student: db.collection('students').orderBy(key).select(...REBUILD_SOURCE_FIELDS.student),
+      },
+      visit: async (source, docs) => {
+        const states = []
+        docs.forEach(item => {
+          const next = rangedContribution(source, item.data(), { startDate, endDate })
+          if (!next) return
+          const key = `${next.date}|${next.branchId}`
+          const group = groups.get(key) || { date: next.date, branchId: next.branchId, metrics: {} }
+          Object.entries(next.metrics).forEach(([name, amount]) => mergeMetric(group.metrics, name, amount))
+          groups.set(key, group)
+          if (groups.size > MAX_REBUILD_BUCKETS) throw new Error('OPERATIONS_AGGREGATE_REBUILD_BUCKET_LIMIT')
+          const sourcePath = item.ref.path
+          states.push({ reference: db.collection(CONTRIBUTION_COLLECTION).doc(contributionDocumentId(sourcePath)), value: {
+            schemaVersion: AGGREGATE_SCHEMA_VERSION, generation, sourcePath, contribution: next,
+            updatedAt: FieldValue.serverTimestamp(),
+          } })
+        })
+        // At most one page of source baselines is buffered. The ownership
+        // check still fences every write before any coverage can be published.
+        await writeChunks(states)
+      },
+    })
+    assertBudget()
+    const previous = await db.runTransaction(transaction => transaction.get(db.collection(AGGREGATE_COLLECTION)
+      .where('date', '>=', startDate).where('date', '<=', endDate).select().limit(MAX_REBUILD_BUCKETS + 1)), { readOnly: true, readTime })
+    if (previous.size > MAX_REBUILD_BUCKETS) throw new Error('OPERATIONS_AGGREGATE_REBUILD_BUCKET_LIMIT')
     const buckets = [...groups.values()].map((item) => ({
       reference: db.collection(AGGREGATE_COLLECTION).doc(aggregateDocumentId(item.date, item.branchId)),
       value: {
@@ -354,19 +368,19 @@ async function rebuildOperationsDailyAggregates({ db, logger = console, days = 3
     // set() replaces the entire reused bucket, including obsolete metric keys.
     // Coverage stays building and every batch retains its ownership fence;
     // deleting a reused key first would add a write without improving safety.
-    await writeChunks(states)
     await writeChunks(obsoleteBuckets.map(item => ({ reference: item.ref, remove: true })))
     await writeChunks(buckets)
+    assertBudget()
     await db.runTransaction(async (transaction) => {
       await assertOwner(transaction)
       transaction.set(coverageReference, {
         schemaVersion: AGGREGATE_SCHEMA_VERSION, generation,
-        status: 'ready', complete: true, startDate, endDate, sourceCounts,
+        status: 'ready', complete: true, startDate, endDate, sourceCounts, sourcePages, sourceReadTime: readTime,
         generatedAt: FieldValue.serverTimestamp(),
       })
     })
     const result = {
-      startDate, endDate, complete: true, buckets: groups.size, sourceCounts,
+      startDate, endDate, complete: true, buckets: groups.size, sourceCounts, sourcePages,
       deletedBuckets: obsoleteBuckets.length, reusedBuckets: previous.size - obsoleteBuckets.length,
     }
     logger.info('operations_daily_aggregates_rebuilt', result)
