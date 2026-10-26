@@ -2,10 +2,10 @@ import { expect, test } from '@playwright/test'
 const path = '/tests/nutrition-read-ui/index.html'
 test('standalone library browsing does not attach diary, weight or plan readers', async ({ page }) => {
   await page.goto(`${path}?mode=library#/food-library`)
-  await expect(page.getByRole('heading', { name: 'Thư viện món ăn', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Thực đơn', exact: true })).toBeVisible()
   expect(await activeListeners(page)).toHaveLength(0)
   expect(await calls(page, 'summary')).toHaveLength(0)
-  expect(await calls(page, 'plan')).toHaveLength(0)
+  expect(await calls(page, 'workspace')).toHaveLength(0)
   expect(await calls(page, 'weight')).toHaveLength(0)
 })
 async function section(page: any, value: string) { await page.evaluate((section: string) => { location.hash = `#/nutrition?section=${section}` }, value) }
@@ -165,7 +165,7 @@ test('a confirmed day entry starts fresh aggregation instead of resuming an unfi
 
 test('plan/menu share the workspace scope and plan reads only week meal logs', async ({ page }) => {
   await page.goto(`${path}#/nutrition?section=plan`)
-  await expect(page.getByRole('textbox', { name: 'Tìm món ăn', exact: true })).toBeVisible()
+  await expect(page.getByRole('searchbox', { name: 'Tìm món ăn', exact: true })).toBeVisible()
   await expect.poll(async () => (await calls(page, 'workspace')).length).toBe(1)
   const history = await calls(page, 'history-meals')
   expect(history).toHaveLength(1)
@@ -178,7 +178,7 @@ test('plan/menu share the workspace scope and plan reads only week meal logs', a
 })
 
 test('plan mutations from an earlier A-B-A visit cannot replace newer state or clear its saving flag', async ({ page }) => {
-  await page.goto(`${path}#/nutrition?section=plan`)
+  await page.goto(`${path}?mode=library#/food-library`)
   await page.getByRole('tab', { name: 'Kế hoạch 7 ngày', exact: true }).click()
   await page.evaluate(() => (window as any).nutritionFixture.hold = ['generate-plan'])
   const generate = page.getByRole('button', { name: 'Tạo kế hoạch 7 ngày', exact: true })
@@ -206,12 +206,12 @@ test('plan mutations from an earlier A-B-A visit cannot replace newer state or c
 })
 
 test('late catalog page cannot overwrite the new search cursor or rows', async ({ page }) => {
-  await page.goto(`${path}#/nutrition?section=plan`)
+  await page.goto(`${path}?mode=library#/food-library`)
   await expect(page.getByText('original page 1', { exact: true })).toBeVisible()
   await page.evaluate(() => (window as any).nutritionFixture.hold = ['catalog'])
   await page.getByRole('button', { name: 'Xem thêm món' }).click()
   await expect.poll(async () => (await calls(page, 'catalog')).length).toBe(2)
-  await page.getByRole('textbox', { name: 'Tìm món ăn', exact: true }).fill('new')
+  await page.getByRole('searchbox', { name: 'Tìm món ăn', exact: true }).fill('new')
   await expect.poll(async () => (await calls(page, 'catalog')).length).toBe(3)
   const requests = await calls(page, 'catalog')
   await page.evaluate((id: number) => (window as any).nutritionFixture.release(id), requests[2].id)
@@ -270,4 +270,86 @@ test('Eat Clean summary rolls over at midnight and clears another owner before a
   })
   await expect(page.getByTestId('consumed')).toHaveText('0')
   await expect.poll(async () => (await activeListeners(page)).filter((item: any) => item.kind === 'meals').map((item: any) => item.owner)).toEqual(['b'])
+})
+
+
+test('menu tabs load only the active kind and reuse loaded pages when returning', async ({ page }) => {
+  await page.goto(`${path}?mode=library#/food-library`)
+  await expect(page.getByText('original page 1', { exact: true })).toBeVisible()
+  expect(await calls(page, 'catalog')).toHaveLength(1)
+  expect((await calls(page, 'catalog'))[0].input).toMatchObject({ kind: 'dish', limit: 30 })
+  await page.getByRole('button', { name: 'Xem thêm món' }).click()
+  await expect(page.getByText('original page 2', { exact: true })).toBeVisible()
+  await page.getByRole('tab', { name: 'Nguyên liệu', exact: true }).click()
+  await expect(page.getByText('ingredient page 1', { exact: true })).toBeVisible()
+  expect((await calls(page, 'catalog'))[2].input.kind).toBe('food')
+  await page.getByRole('tab', { name: 'Món ăn', exact: true }).click()
+  await expect(page.getByText('original page 2', { exact: true })).toBeVisible()
+  expect(await calls(page, 'catalog')).toHaveLength(3)
+  expect(await calls(page, 'workspace')).toHaveLength(0)
+  expect(await calls(page, 'history-meals')).toHaveLength(0)
+  expect(await activeListeners(page)).toHaveLength(0)
+})
+
+test('weekly plan does not prefetch either catalog and returning reuses its confirmed reads', async ({ page }) => {
+  await page.goto(`${path}?mode=library#/food-library?tab=plan`)
+  await expect(page.getByRole('button', { name: 'Tạo kế hoạch 7 ngày', exact: true })).toBeVisible()
+  expect(await calls(page, 'catalog')).toHaveLength(0)
+  expect(await calls(page, 'workspace')).toHaveLength(1)
+  expect(await calls(page, 'history-meals')).toHaveLength(1)
+  await page.getByRole('tab', { name: 'Món ăn', exact: true }).click()
+  await expect(page.getByText('original page 1', { exact: true })).toBeVisible()
+  await expect.poll(async () => (await activeListeners(page)).length).toBe(0)
+  await page.getByRole('tab', { name: 'Kế hoạch 7 ngày', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Tạo kế hoạch 7 ngày', exact: true })).toBeVisible()
+  expect(await calls(page, 'workspace')).toHaveLength(1)
+  expect(await calls(page, 'history-meals')).toHaveLength(1)
+  expect(await calls(page, 'catalog')).toHaveLength(1)
+})
+
+test('changing kind rejects stale pages and empty saved lists issue no reads', async ({ page }) => {
+  await page.goto(`${path}?mode=library#/food-library`)
+  await expect(page.getByText('original page 1', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Xem món đã lưu', exact: true }).click()
+  await expect(page.locator('.meal-plan-live-card')).toHaveCount(0)
+  expect(await calls(page, 'catalog')).toHaveLength(1)
+  await page.getByRole('button', { name: 'Hiện tất cả món', exact: true }).click()
+  await expect(page.getByText('original page 1', { exact: true })).toBeVisible()
+  await page.evaluate(() => (window as any).nutritionFixture.hold = ['catalog'])
+  await page.getByRole('button', { name: 'Xem thêm món' }).dblclick()
+  await expect.poll(async () => (await calls(page, 'catalog')).length).toBe(2)
+  await page.getByRole('tab', { name: 'Nguyên liệu', exact: true }).click()
+  await expect.poll(async () => (await calls(page, 'catalog')).length).toBe(3)
+  const requests = await calls(page, 'catalog')
+  await page.evaluate((id: number) => (window as any).nutritionFixture.release(id), requests[2].id)
+  await expect(page.getByText('ingredient page 1', { exact: true })).toBeVisible()
+  await page.evaluate((id: number) => (window as any).nutritionFixture.release(id), requests[1].id)
+  await expect(page.getByText('original page 2', { exact: true })).toHaveCount(0)
+})
+
+
+test('direct menu detail loads only its ID and defers browsing until Back', async ({ page }) => {
+  await page.goto(`${path}?mode=library#/food-library?foodId=known-food`)
+  await expect(page.locator('#nutrition-food-title')).toHaveText('known-food')
+  expect(await calls(page, 'catalog')).toHaveLength(1)
+  expect((await calls(page, 'catalog'))[0].input).toEqual({ ids: ['known-food'] })
+  expect(await calls(page, 'detail')).toHaveLength(1)
+  expect(await activeListeners(page)).toHaveLength(0)
+  await page.getByRole('button', { name: 'Quay lại thực đơn', exact: true }).click()
+  await expect(page.getByText('original page 1', { exact: true })).toBeVisible()
+  expect(await calls(page, 'catalog')).toHaveLength(2)
+  await page.getByRole('button', { name: 'Xem chi tiết original page 1', exact: true }).click()
+  await expect(page.locator('#nutrition-food-title')).toHaveText('original-1')
+  expect(await calls(page, 'catalog')).toHaveLength(2)
+  await page.getByRole('button', { name: 'Quay lại thực đơn', exact: true }).click()
+  await expect(page.getByText('original page 1', { exact: true })).toBeVisible()
+  expect(await calls(page, 'catalog')).toHaveLength(2)
+})
+
+test('a missing detail returns to the existing menu instead of an endless catalog loader', async ({ page }) => {
+  await page.goto(`${path}?mode=library#/food-library?foodId=missing`)
+  await expect(page.getByText('original page 1', { exact: true })).toBeVisible()
+  await expect(page).toHaveURL(/#\/food-library$/)
+  expect(await calls(page, 'catalog')).toHaveLength(2)
+  expect(await calls(page, 'detail')).toHaveLength(0)
 })

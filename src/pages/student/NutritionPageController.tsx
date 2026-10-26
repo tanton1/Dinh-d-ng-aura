@@ -1,4 +1,4 @@
-import { DEMO_CATALOG } from '../../features/nutrition/demoCatalog'
+import { DEMO_CATALOG, DEMO_MENU_DISHES } from '../../features/nutrition/demoCatalog'
 import { useNutritionWeight } from '../../hooks/useNutritionWeight'
 import { useNutritionDate } from '../../features/nutrition/useNutritionDate'
 import { nutritionDateAfter, nutritionReadPolicy } from '../../features/nutrition/readLifecycle'
@@ -74,6 +74,9 @@ import type {
 } from '../../features/nutrition/types'
 import {
   dateFromLocalKey,
+  foodLibraryTabFromHash,
+  foodLibraryHash,
+  type MealPlanTab,
   getCalendarStart,
   getRecentDateKeys,
   getWeekDays,
@@ -553,11 +556,14 @@ export default function NutritionPageController({ entry = 'nutrition', displayNa
   const [planSelectedDay, setPlanSelectedDay] = useState(todayKey)
   const [homeWeekStart, setHomeWeekStart] = useState(() => getCalendarStart())
   const [activeSection, setActiveSection] = useState<NutritionRouteSection>(() => nutritionSectionFromHash())
+  const [libraryTab, setLibraryTab] = useState<MealPlanTab>(foodLibraryTabFromHash)
   const [catalogSavedOnly, setCatalogSavedOnly] = useState(() => isLibrary && new URLSearchParams(window.location.hash.split('?')[1]).get('saved') === '1')
   const [quickAddOpen, setQuickAddOpen] = useState(false)
   const [waterSheetOpen, setWaterSheetOpen] = useState(false)
   const [exerciseSheetOpen, setExerciseSheetOpen] = useState(false)
   const [selectedFood, setSelectedFood] = useState<NutritionFoodCatalogItem | null>(null)
+  const selectedFoodRef = useRef(selectedFood)
+  selectedFoodRef.current = selectedFood
   const [foodDetailReturnSection, setFoodDetailReturnSection] = useState<'catalog' | 'plan' | 'menu'>('catalog')
   const [pendingFood, setPendingFood] = useState<NutritionFoodCatalogItem | null>(null)
   const [diaryCatalogDefaults, setDiaryCatalogDefaults] = useState<{
@@ -579,7 +585,7 @@ export default function NutritionPageController({ entry = 'nutrition', displayNa
   const [selectedLoggedMealId, setSelectedLoggedMealId] = useState<string | null>(null)
   const [catalogSnapshot, setCatalogSnapshot] = useState<NutritionFoodCatalogItem[]>(foodCatalog ?? [])
   const [catalogServingMultiplier, setCatalogServingMultiplier] = useState(1)
-  const libraryReturn = useRef<{ top: number; opener: HTMLElement | null } | null>(null)
+  const libraryReturn = useRef<{ hash: string; top: number; opener: HTMLElement | null } | null>(null)
   const [savedFoodIds, setSavedFoodIds] = useState<Set<string>>(() => {
     try {
       const saved = JSON.parse(window.localStorage.getItem(savedFoodStorageKey) ?? '[]') as unknown
@@ -604,7 +610,10 @@ export default function NutritionPageController({ entry = 'nutrition', displayNa
   const onDiaryPeriodChange = useCallback((period: { fromDate: string; toDate: string; view: 'day' | 'week' | 'month' }) => setDiaryPeriod((current) => current?.fromDate === period.fromDate && current?.toDate === period.toDate && current?.view === period.view ? current : period), [])
   const [planLoggedMeals, setPlanLoggedMeals] = useState<MealLog[]>([])
   const dayEditorOpen = Boolean(editingMealId || selectedLoggedMealId || pendingFood || waterSheetOpen || exerciseSheetOpen)
-  const readPolicy = nutritionReadPolicy(activeSection, dayEditorOpen)
+  const readSection = isLibrary ? libraryTab === 'plan' && !nutritionFoodIdFromHash() ? 'plan' : 'catalog' : activeSection
+  const readPolicy = nutritionReadPolicy(readSection, dayEditorOpen)
+  const lastPlanRead = useRef({ key: '', at: 0 })
+  const lastPlanJournalRead = useRef({ key: '', at: 0 })
   const dayReadEnabled = readPolicy.day && (dayEditorOpen || !(activeSection === 'diary' && diaryPeriod && diaryPeriod.view !== 'day'))
   const planReadEnabled = readPolicy.plan
   const calendarReadEnabled = readPolicy.calendar && Boolean(diaryPeriod && diaryPeriod.view !== 'day')
@@ -938,12 +947,15 @@ export default function NutritionPageController({ entry = 'nutrition', displayNa
 
   useEffect(() => {
     if (!planReadEnabled || isDemo || resolvedOwnerId === 'anonymous') return
+    const readKey = JSON.stringify([resolvedOwnerId, authorityKey, planWeekStart, nutritionPlanReloadToken])
+    if (isLibrary && lastPlanRead.current.key === readKey && Date.now() - lastPlanRead.current.at < 120_000) return
     let active = true
     const generation = ++planRequestGeneration.current
     setNutritionPlanLoading(true)
     setNutritionPlanError('')
     void getMyNutritionPlanWorkspace(planWeekStart, { ownerId: resolvedOwnerId, authorityKey, forceRefresh: nutritionPlanReloadToken > 0 }).then((workspace) => {
       if (!active || generation !== planRequestGeneration.current) return
+      lastPlanRead.current = { key: readKey, at: Date.now() }
       setNutritionPlan(workspace.plan)
       setActiveNutritionPlan(workspace.activePlan ?? (workspace.plan?.status === 'active' ? workspace.plan : null))
     }).catch((error) => {
@@ -955,17 +967,19 @@ export default function NutritionPageController({ entry = 'nutrition', displayNa
       if (active && generation === planRequestGeneration.current) setNutritionPlanLoading(false)
     })
     return () => { active = false }
-  }, [planReadEnabled, isDemo, nutritionPlanReloadToken, planWeekStart, resolvedOwnerId, authorityKey])
+  }, [planReadEnabled, isLibrary, isDemo, nutritionPlanReloadToken, planWeekStart, resolvedOwnerId, authorityKey])
 
   useEffect(() => {
-    if (isDemo || activeSection !== 'plan' || resolvedOwnerId === 'anonymous') return
+    if (isDemo || readSection !== 'plan' || resolvedOwnerId === 'anonymous') return
+    const readKey = JSON.stringify([resolvedOwnerId, authorityKey, planWeekStart, journalReloadToken])
+    if (isLibrary && lastPlanJournalRead.current.key === readKey && Date.now() - lastPlanJournalRead.current.at < 120_000) return
     let active = true
     setPlanLoggedMeals([])
     void loadRecentUserMealLogs(resolvedOwnerId, planWeekStart, undefined, nutritionDateAfter(planWeekStart, 6)).then((items) => {
-      if (active) setPlanLoggedMeals(items)
+      if (active) { lastPlanJournalRead.current = { key: readKey, at: Date.now() }; setPlanLoggedMeals(items) }
     }).catch((error) => { if (active) setNutritionPlanError(error instanceof Error ? error.message : 'Chưa kiểm tra được các món đã ghi trong tuần.') })
     return () => { active = false }
-  }, [activeSection === 'plan', isDemo, resolvedOwnerId, authorityKey, planWeekStart, journalReloadToken])
+  }, [readSection === 'plan', isLibrary, isDemo, resolvedOwnerId, authorityKey, planWeekStart, journalReloadToken])
 
   useEffect(() => {
     if ((activeSection !== 'diary' && activeSection !== 'classic-diary') || selectedDate <= todayKey) return
@@ -1146,12 +1160,14 @@ export default function NutritionPageController({ entry = 'nutrition', displayNa
       
       const queryStr = window.location.hash.split('?')[1] ?? ''
       const params = new URLSearchParams(queryStr)
+      if (isLibrary) { setLibraryTab(foodLibraryTabFromHash()); setCatalogSavedOnly(params.get('saved') === '1') }
       if (params.get('action') === 'water') {
         setWaterSheetOpen(true)
       }
 
       const foodId = nutritionFoodIdFromHash()
       if (!foodId) {
+        selectedFoodRef.current = null
         setSelectedFood(null)
         if (isLibrary && libraryReturn.current) {
           const previous = libraryReturn.current
@@ -1160,7 +1176,8 @@ export default function NutritionPageController({ entry = 'nutrition', displayNa
         }
         return
       }
-      const suppliedItems = foodCatalog?.length ? foodCatalog : isDemo ? DEMO_CATALOG : null
+      if (selectedFoodRef.current?.id === foodId) return
+      const suppliedItems = foodCatalog?.length ? foodCatalog : isDemo ? [...DEMO_CATALOG, ...DEMO_MENU_DISHES] : null
       const knownItem = suppliedItems?.find((item) => item.id === foodId)
       if (knownItem && suppliedItems) {
         setCatalogSnapshot(suppliedItems)
@@ -1169,10 +1186,17 @@ export default function NutritionPageController({ entry = 'nutrition', displayNa
       }
       void loadNutritionCatalog({ ids: [foodId] }).then((items) => {
         if (!active || nutritionFoodIdFromHash() !== foodId) return
+        if (!items.some(item => item.id === foodId)) throw new Error('catalog-item-not-found')
         setCatalogSnapshot(items)
         setSelectedFood(items.find((item) => item.id === foodId) ?? null)
       }).catch(() => {
-        if (active && nutritionFoodIdFromHash() === foodId) setSelectedFood(null)
+        if (active && nutritionFoodIdFromHash() === foodId) {
+          setSelectedFood(null)
+          if (isLibrary) {
+            window.history.replaceState(null, '', foodLibraryHash(foodLibraryTabFromHash(), params.get('saved') === '1'))
+            showMessage('Chưa mở được chi tiết món. Bạn có thể chọn lại từ thực đơn.')
+          }
+        }
       })
     }
     syncFoodDetail()
@@ -1192,7 +1216,14 @@ export default function NutritionPageController({ entry = 'nutrition', displayNa
   }
 
   const navigateNutrition = (section: NutritionRouteSection) => {
-    const nextHash = isLibrary && section === 'catalog' ? '#/food-library' : nutritionSectionHash(section, nutritionV4)
+    if (section === 'plan') {
+      setSelectedFood(null)
+      setPlanCatalogAction(null)
+      if (isLibrary) { setLibraryTab('plan'); setActiveSection('catalog') }
+      window.location.hash = foodLibraryHash('plan')
+      return
+    }
+    const nextHash = isLibrary && section === 'catalog' ? foodLibraryHash(libraryTab, catalogSavedOnly) : nutritionSectionHash(section, nutritionV4)
     setSelectedFood(null)
     if (section !== 'catalog') setPlanCatalogAction(null)
     setActiveSection(section)
@@ -1214,7 +1245,7 @@ export default function NutritionPageController({ entry = 'nutrition', displayNa
 
   const closeScan = () => navigateNutrition(taskReturnSection)
   const closeCatalog = () => {
-    if (isLibrary) { window.location.hash = '#/home'; return }
+    if (isLibrary) { if (planCatalogAction) setPlanCatalogAction(null); else window.location.hash = '#/home'; return }
     if (planCatalogAction) {
       setPlanCatalogAction(null)
       navigateNutrition('plan')
@@ -1235,6 +1266,8 @@ export default function NutritionPageController({ entry = 'nutrition', displayNa
   const reloadNutritionPlan = () => setNutritionPlanReloadToken((current) => current + 1)
 
   const shiftPlanWeek = (direction: -1 | 1) => {
+    lastPlanRead.current = { key: '', at: 0 }
+    lastPlanJournalRead.current = { key: '', at: 0 }
     const nextStart = dateFromLocalKey(planWeekStart)
     nextStart.setDate(nextStart.getDate() + direction * 7)
     const nextWeekStart = toLocalDateKey(nextStart)
@@ -1329,7 +1362,7 @@ export default function NutritionPageController({ entry = 'nutrition', displayNa
       time: meal?.time ?? '12:00',
       servingMultiplier: 1,
     })
-    openCatalog(false)
+    if (!isLibrary) openCatalog(false)
   }
 
   const removeNutritionPlanMeal = async (mealId: string) => {
@@ -1939,17 +1972,19 @@ export default function NutritionPageController({ entry = 'nutrition', displayNa
   }
 
   const openFoodDetail = (food: NutritionFoodCatalogItem, items: NutritionFoodCatalogItem[] = catalogSnapshot, returnSection: 'catalog' | 'plan' | 'menu' = 'catalog') => {
-    if (isLibrary && !selectedFood) libraryReturn.current = { top: window.scrollY, opener: document.activeElement instanceof HTMLElement ? document.activeElement : null }
+    if (isLibrary && !selectedFood) libraryReturn.current = { hash: window.location.hash, top: window.scrollY, opener: document.activeElement instanceof HTMLElement ? document.activeElement : null }
     setFoodDetailReturnSection(returnSection)
+    selectedFoodRef.current = food
     setSelectedFood(food)
     if (items.length) setCatalogSnapshot(items)
-    const nextHash = isLibrary ? `#/food-library?foodId=${encodeURIComponent(food.id)}` : nutritionFoodDetailHash(food.id, nutritionV4)
+    const nextHash = isLibrary ? foodLibraryHash(libraryTab, catalogSavedOnly, food.id) : nutritionFoodDetailHash(food.id, nutritionV4)
     if (window.location.hash !== nextHash) window.location.hash = nextHash
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
   const closeFoodDetail = () => {
     setSelectedFood(null)
+    if (isLibrary) { window.location.hash = libraryReturn.current?.hash ?? foodLibraryHash(libraryTab, catalogSavedOnly); return }
     navigateNutrition(foodDetailReturnSection)
   }
 
@@ -2229,38 +2264,11 @@ export default function NutritionPageController({ entry = 'nutrition', displayNa
     </div>
   )
 
-  if (activeSection === 'catalog') return (
-    <div className={`page nutrition-page nutrition-page--workspace ${nutritionV4 ? 'nutrition-page--v4 aura-ui-v4-surface aura-ui-v4-member' : ''}`.trim()} data-testid="nutrition-dashboard">
-      {toastContent}
-      {foodDetailContent}
-      <div className="nutrition-workspace" style={foodDetailContent ? { display: 'none' } : undefined}>
-        {!isLibrary && <NutritionSectionNav activeSection="catalog" onSectionChange={(section) => navigateNutrition(section)} onScan={openScan} onOpenCatalog={() => openCatalog(false)} onOpenAskAura={openAssistant} v4={nutritionV4} />}
-        {profileSyncBanner && <div className="nutrition-sync-banner-wrap">{profileSyncBanner}</div>}
-        <FoodCatalogModal presentation="page" standalone={isLibrary} actionLabel={planCatalogAction ? 'Chọn món' : 'Ghi nhật ký'} catalog={foodCatalog} savedFoodIds={savedFoodIds} initialSavedOnly={catalogSavedOnly} allowDemo={isDemo} onClose={closeCatalog} onAdd={queueCatalogFood} onOpenDetail={openFoodDetail} onToggleSaved={(food, saved) => setFoodSaved(food.id, saved)} />
-      </div>
-      {quickSheets}
-    </div>
-  )
-
-  return (
-    <div className={`page nutrition-page nutrition-page--workspace ${nutritionV4 ? 'nutrition-page--v4 aura-ui-v4-surface aura-ui-v4-member' : ''}`.trim()} data-testid="nutrition-dashboard">
-      {toastContent}
-      <NutritionWorkspace
-        v4={nutritionV4}
-        activeSection={workspaceSection}
-        onSectionChange={(section) => navigateNutrition(section)}
-        onScan={openScan}
-        onOpenCatalog={() => openCatalog(false)}
-        onOpenSaved={() => openCatalog(true)}
-        onOpenEatClean={onOpenEatClean}
-        onOpenAskAura={openAssistant}
-        weightKg={profileDraft.weightKg}
-        targetWeightDeltaKg={profileDraft.targetWeightDeltaKg}
-        targetTimeframeMonths={profileDraft.targetTimeframeMonths}
-        heightCm={profileDraft.heightCm}
-        nutritionProfile={profileDraft}
-        ownerId={resolvedOwnerId}
-        legacyPlanContent={<React.Suspense fallback={<div role="status">Đang tải kế hoạch…</div>}><ConnectedMealPlanPage
+  const connectedMenuContent = <React.Suspense fallback={<div role="status">Đang tải kế hoạch…</div>}><ConnectedMealPlanPage
+          activeTab={isLibrary ? libraryTab : undefined}
+          catalogActive={!isLibrary || !nutritionFoodIdFromHash()}
+          initialSavedOnly={catalogSavedOnly}
+          onTabChange={isLibrary ? (tab) => { setLibraryTab(tab); window.location.hash = foodLibraryHash(tab, catalogSavedOnly) } : undefined}
           days={workspacePlanDays}
           selectedDayId={planSelectedDay}
           meals={workspacePlannedMeals}
@@ -2288,7 +2296,7 @@ export default function NutritionPageController({ entry = 'nutrition', displayNa
           allowDemo={isDemo}
           loggedMealKeys={loggedPlanMealKeys}
           onSelectDay={setPlanSelectedDay}
-          onGeneratePlan={generateNutritionPlan}
+          onGeneratePlan={() => profileReady ? void generateNutritionPlan() : onStartOnboarding?.()}
           onAddMeal={(dayId) => openPlanCatalog('add', dayId)}
           onReplaceMeal={(mealId) => {
             const meal = nutritionPlan?.days.flatMap((day) => day.meals).find((candidate) => candidate.id === mealId)
@@ -2303,7 +2311,53 @@ export default function NutritionPageController({ entry = 'nutrition', displayNa
           onLogCatalogFood={(food) => { setDiaryCatalogDefaults(null); return queueCatalogFood(food, 1, !isDemo) }}
           onLogPlannedMeal={logPlannedMeal}
           onToggleSaved={(food, saved) => setFoodSaved(food.id, saved)}
-        /></React.Suspense>}
+        /></React.Suspense>
+
+  if (isLibrary) return (
+    <div className="page nutrition-page nutrition-page--workspace nutrition-page--menu" data-testid="nutrition-dashboard">
+      {toastContent}
+      {foodDetailContent}
+      <div hidden={Boolean(foodDetailContent)}>
+        {profileSyncBanner}
+        {connectedMenuContent}
+      </div>
+      {planCatalogAction && !pendingFood && !foodDetailContent && <React.Suspense fallback={<div role="status">Đang mở danh sách món…</div>}><FoodCatalogModal catalog={foodCatalog} actionLabel="Chọn món" savedFoodIds={savedFoodIds} allowDemo={isDemo} onClose={closeCatalog} onAdd={queueCatalogFood} onOpenDetail={openFoodDetail} onToggleSaved={(food, saved) => setFoodSaved(food.id, saved)} /></React.Suspense>}
+      {quickSheets}
+    </div>
+  )
+
+  if (activeSection === 'catalog') return (
+    <div className={`page nutrition-page nutrition-page--workspace ${nutritionV4 ? 'nutrition-page--v4 aura-ui-v4-surface aura-ui-v4-member' : ''}`.trim()} data-testid="nutrition-dashboard">
+      {toastContent}
+      {foodDetailContent}
+      <div className="nutrition-workspace" style={foodDetailContent ? { display: 'none' } : undefined}>
+        {!isLibrary && <NutritionSectionNav activeSection="catalog" onSectionChange={(section) => navigateNutrition(section)} onScan={openScan} onOpenCatalog={() => openCatalog(false)} onOpenAskAura={openAssistant} v4={nutritionV4} />}
+        {profileSyncBanner && <div className="nutrition-sync-banner-wrap">{profileSyncBanner}</div>}
+        <FoodCatalogModal presentation="page" actionLabel={planCatalogAction ? 'Chọn món' : 'Ghi nhật ký'} catalog={foodCatalog} savedFoodIds={savedFoodIds} initialSavedOnly={catalogSavedOnly} allowDemo={isDemo} onClose={closeCatalog} onAdd={queueCatalogFood} onOpenDetail={openFoodDetail} onToggleSaved={(food, saved) => setFoodSaved(food.id, saved)} />
+      </div>
+      {quickSheets}
+    </div>
+  )
+
+  return (
+    <div className={`page nutrition-page nutrition-page--workspace ${nutritionV4 ? 'nutrition-page--v4 aura-ui-v4-surface aura-ui-v4-member' : ''}`.trim()} data-testid="nutrition-dashboard">
+      {toastContent}
+      <NutritionWorkspace
+        v4={nutritionV4}
+        activeSection={workspaceSection}
+        onSectionChange={(section) => navigateNutrition(section)}
+        onScan={openScan}
+        onOpenCatalog={() => openCatalog(false)}
+        onOpenSaved={() => openCatalog(true)}
+        onOpenEatClean={onOpenEatClean}
+        onOpenAskAura={openAssistant}
+        weightKg={profileDraft.weightKg}
+        targetWeightDeltaKg={profileDraft.targetWeightDeltaKg}
+        targetTimeframeMonths={profileDraft.targetTimeframeMonths}
+        heightCm={profileDraft.heightCm}
+        nutritionProfile={profileDraft}
+        ownerId={resolvedOwnerId}
+        legacyPlanContent={connectedMenuContent}
         todayContent={<>{profileSyncBanner}<React.Suspense fallback={<div className="nutrition-dashboard-loading" role="status" aria-live="polite">Đang tải tổng quan dinh dưỡng…</div>}><NutritionDashboardHome
           selectedDate={selectedDate}
           days={days}

@@ -42,7 +42,7 @@ async function harness() {
           };
         ` : path === 'firebase/storage' ? 'export const getDownloadURL = async () => "photo"; export const ref = (_, path) => path; export const uploadBytes = async () => {}'
           : path.endsWith('/versionedCache') ? `export const readVersionedCache = (key, owner) => { const item = state.cache.get(key); return item?.owner === owner ? item : null }; export const writeVersionedCache = (key, owner, scope, value) => { const item = { owner, scope, value, revision: 1, cachedAt: 'confirmed' }; state.writes.push({ key, ...item }); state.cache.set(key, item); return item };`
-            : path.endsWith('/internalNutritionCatalogService') ? `export const listInternalNutritionCatalog = async input => { state.calls.push({ name: 'catalog', input }); if (state.hold) return new Promise((resolve,reject) => state.pending.push({ name: 'catalog', input, resolve, reject })); return { items: [], filteredCount: 0, catalogTotal: 0, catalogVersion: 'v1' }; }; export const getInternalNutritionCatalogItem = async id => ({ id, kind: 'dish', nameVi: id });`
+            : path.endsWith('/internalNutritionCatalogService') ? `export const listInternalNutritionCatalog = async input => { state.calls.push({ name: 'catalog', input }); if (state.hold) return new Promise((resolve,reject) => state.pending.push({ name: 'catalog', input, resolve, reject })); return { items: [], filteredCount: 0, catalogTotal: 0, catalogVersion: 'v1' }; }; export const getInternalNutritionCatalogItem = async id => { state.calls.push({ name: 'detail', id }); return { id, kind: 'dish', nameVi: id }; };`
               : path.endsWith('/firebaseFunctions') ? 'export const firebaseFunctions = {}'
                 : path.endsWith('/firebaseFirestore') ? 'export const firestoreDb = {}'
                   : path.endsWith('/firebaseStorage') ? 'export const firebaseStorage = {}'
@@ -208,4 +208,25 @@ test('calendar summary refresh starts a new flight and rejects a mismatched cove
   await Promise.resolve()
   state.pending[3].resolve({ items: [], fromDate: '2026-09-01', toDate: '2026-09-30', coverage: 'ready' })
   await assert.rejects(invalid, /không hợp lệ/)
+})
+
+
+test('catalog detail reuse is owner-scoped, expires and clears on explicit refresh', async () => {
+  const { state, service } = await harness()
+  await Promise.all([service.loadNutritionCatalogDetail('dish-1'), service.loadNutritionCatalogDetail('dish-1')])
+  await service.loadNutritionCatalogDetail('dish-1')
+  assert.equal(state.calls.filter(call => call.name === 'detail').length, 1)
+  state.auth.currentUser = { uid: 'b' }
+  await service.loadNutritionCatalogDetail('dish-1')
+  assert.equal(state.calls.filter(call => call.name === 'detail').length, 2)
+  const realNow = Date.now
+  try {
+    const later = realNow() + 121_000
+    Date.now = () => later
+    await service.loadNutritionCatalogDetail('dish-1')
+    assert.equal(state.calls.filter(call => call.name === 'detail').length, 3)
+  } finally { Date.now = realNow }
+  service.resetNutritionCatalog()
+  await service.loadNutritionCatalogDetail('dish-1')
+  assert.equal(state.calls.filter(call => call.name === 'detail').length, 4)
 })
