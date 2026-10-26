@@ -2,6 +2,7 @@ const { AggregateField, FieldPath, FieldValue, Timestamp } = require('firebase-a
 const { HttpsError } = require('firebase-functions/v2/https')
 const { trustedAccessContext, requireCapability } = require('./identity-access')
 const { assertFinancePeriodOpen, receiptVoucherNumber } = require('./finance-ledger')
+const { listCashTransactionsPage, listExpenseVouchersPage, listReceiptVouchersPage } = require('./cashbook-pagination')
 const {
   CHART_OF_ACCOUNTS,
   EXPENSE_PURPOSES,
@@ -51,8 +52,8 @@ function s2ePeriod(startValue, endValue) {
   return { start: Timestamp.fromDate(start), end: Timestamp.fromDate(end) }
 }
 
-async function actorForFinance(request, db) {
-  const actor = await trustedAccessContext(request, db)
+async function actorForFinance(request, db, options) {
+  const actor = await trustedAccessContext(request, db, options)
   requireCapability(actor, 'finance.operations.manage')
   return actor
 }
@@ -175,6 +176,27 @@ function voucherNumber(reference, branchId, at) {
   return `PC-${branch}-${date}-${reference.id.slice(0, 6).toUpperCase()}`
 }
 
+function serializeLegacyReceipt(document, { journals, students }) {
+  const value = document.data()
+  const student = students.get(value.studentId) || {}
+  const journal = journals.get(value.journalEntryId) || {}
+  return {
+    id: `derived_${document.id}`,
+    voucherNumber: value.voucherNumber || receiptVoucherNumber({ id: `receipt_${document.id}` }, value.branchId, value.effectiveAt),
+    documentType: 'receipt_voucher', status: value.status === 'reversed' ? 'reversed' : 'posted', revision: 0,
+    accountId: value.cashAccountId || '', branchId: value.branchId || '', contractId: value.contractId || '', studentId: value.studentId || '',
+    payerName: student.name || student.displayName || `Học viên ${String(value.studentId || '').slice(0, 24)}`.trim(),
+    payerAddress: student.address || student.homeAddress || '',
+    description: value.note || `Thu tiền hợp đồng ${value.contractId || ''}`.trim(),
+    paymentMethod: value.paymentMethod || '', source: value.source || 'pt_gym', installmentId: value.installmentId || '',
+    totalAmount: Number(value.amount || 0), amountInWords: amountInVietnameseWords(Number(value.amount || 0)),
+    journalLines: Array.isArray(journal.lines) ? journal.lines : [], effectiveAt: timestampIso(value.effectiveAt),
+    createdAt: timestampIso(value.createdAt), postedAt: timestampIso(value.createdAt), reversedAt: timestampIso(value.reversedAt),
+    ledgerEntryId: document.id, journalEntryId: value.journalEntryId || '', cashTransactionId: value.cashAccountId ? `ledger_${document.id}` : '',
+    originalVoucherId: '', reversalVoucherId: '', reason: '', createdBy: value.createdBy || '', postedBy: value.createdBy || '', reversedBy: value.reversedBy || '', derived: true,
+  }
+}
+
 function attachmentUrls(value) {
   if (!Array.isArray(value)) return []
   if (value.length > 10) throw new HttpsError('invalid-argument', 'Mỗi phiếu chỉ được đính kèm tối đa 10 chứng từ.')
@@ -235,13 +257,8 @@ function createCashbookFunctions({ db, onCall }) {
   })
 
   const listCashTransactions = onCall(async (request) => {
-    await actorForFinance(request, db)
-    const accountId = typeof request.data?.accountId === 'string' ? request.data.accountId.trim() : ''
-    const pageSize = Math.min(100, Math.max(1, Number.isInteger(request.data?.pageSize) ? request.data.pageSize : 50))
-    let query = db.collection('cashTransactions').orderBy('effectiveAt', 'desc').orderBy(FieldPath.documentId(), 'desc')
-    if (accountId) query = query.where('accountId', '==', accountId)
-    const snapshot = await query.limit(pageSize).get()
-    return { transactions: snapshot.docs.map(serializeTransaction), hasMore: snapshot.size === pageSize }
+    const actor = await actorForFinance(request, db, { freshAssignment: true })
+    return listCashTransactionsPage({ db, actor, data: request.data, serialize: serializeTransaction })
   })
 
   const getS2eCashDetailBook = onCall(async (request) => {
@@ -342,92 +359,13 @@ function createCashbookFunctions({ db, onCall }) {
   })
 
   const listExpenseVouchers = onCall(async (request) => {
-    await actorForFinance(request, db)
-    const pageSize = Math.min(100, Math.max(1, Number.isInteger(request.data?.pageSize) ? request.data.pageSize : 50))
-    const snapshot = await db.collection('accountingDocuments')
-      .orderBy('createdAt', 'desc')
-      .limit(Math.min(300, pageSize * 3))
-      .get()
-    const voucherDocuments = snapshot.docs
-      .filter((document) => ['expense_voucher', 'expense_voucher_reversal'].includes(document.data()?.documentType))
-      .slice(0, pageSize)
-    return { vouchers: voucherDocuments.map(serializeExpenseVoucher), hasMore: voucherDocuments.length === pageSize }
+    const actor = await actorForFinance(request, db, { freshAssignment: true })
+    return listExpenseVouchersPage({ db, actor, data: request.data, serialize: serializeExpenseVoucher })
   })
 
   const listReceiptVouchers = onCall(async (request) => {
-    await actorForFinance(request, db)
-    const pageSize = Math.min(100, Math.max(1, Number.isInteger(request.data?.pageSize) ? request.data.pageSize : 50))
-    const accountId = optionalClean(request.data?.accountId, 200)
-    const scanLimit = Math.min(500, pageSize * 5)
-    const [snapshot, ledgerSnapshot] = await Promise.all([
-      db.collection('accountingDocuments').orderBy('createdAt', 'desc').limit(scanLimit).get(),
-      db.collection('ledgerEntries').orderBy('effectiveAt', 'desc').limit(scanLimit).get(),
-    ])
-    const receiptDocuments = snapshot.docs
-      .filter((document) => ['receipt_voucher', 'receipt_voucher_reversal'].includes(document.data()?.documentType))
-      .filter((document) => !accountId || document.data()?.accountId === accountId)
-    const linkedLedgerIds = new Set(receiptDocuments.map((document) => document.data()?.ledgerEntryId).filter(Boolean))
-    const legacyPayments = ledgerSnapshot.docs
-      .filter((document) => document.data()?.type === 'payment')
-      .filter((document) => Number(document.data()?.amount || 0) > 0)
-      .filter((document) => !linkedLedgerIds.has(document.id))
-      .filter((document) => !accountId || document.data()?.cashAccountId === accountId)
-      .slice(0, pageSize)
-    const journalReferences = legacyPayments
-      .map((document) => document.data()?.journalEntryId)
-      .filter(Boolean)
-      .map((id) => db.doc(`journalEntries/${id}`))
-    const studentIds = [...new Set(legacyPayments.map((document) => document.data()?.studentId).filter(Boolean))]
-    const [journalSnapshots, studentSnapshots] = await Promise.all([
-      journalReferences.length ? db.getAll(...journalReferences) : [],
-      studentIds.length ? db.getAll(...studentIds.map((id) => db.doc(`students/${id}`))) : [],
-    ])
-    const journals = new Map(journalSnapshots.filter((item) => item.exists).map((item) => [item.id, item.data()]))
-    const students = new Map(studentSnapshots.filter((item) => item.exists).map((item) => [item.id, item.data()]))
-    const legacyReceipts = legacyPayments.map((document) => {
-      const value = document.data()
-      const student = students.get(value.studentId) || {}
-      const journal = journals.get(value.journalEntryId) || {}
-      const legacyReference = { id: `receipt_${document.id}` }
-      return {
-        id: `derived_${document.id}`,
-        voucherNumber: value.voucherNumber || receiptVoucherNumber(legacyReference, value.branchId, value.effectiveAt),
-        documentType: 'receipt_voucher',
-        status: value.status === 'reversed' ? 'reversed' : 'posted',
-        revision: 0,
-        accountId: value.cashAccountId || '',
-        branchId: value.branchId || '',
-        contractId: value.contractId || '',
-        studentId: value.studentId || '',
-        payerName: student.name || student.displayName || `Học viên ${String(value.studentId || '').slice(0, 24)}`.trim(),
-        payerAddress: student.address || student.homeAddress || '',
-        description: value.note || `Thu tiền hợp đồng ${value.contractId || ''}`.trim(),
-        paymentMethod: value.paymentMethod || '',
-        source: value.source || 'pt_gym',
-        installmentId: value.installmentId || '',
-        totalAmount: Number(value.amount || 0),
-        amountInWords: amountInVietnameseWords(Number(value.amount || 0)),
-        journalLines: Array.isArray(journal.lines) ? journal.lines : [],
-        effectiveAt: timestampIso(value.effectiveAt),
-        createdAt: timestampIso(value.createdAt),
-        postedAt: timestampIso(value.createdAt),
-        reversedAt: timestampIso(value.reversedAt),
-        ledgerEntryId: document.id,
-        journalEntryId: value.journalEntryId || '',
-        cashTransactionId: value.cashAccountId ? `ledger_${document.id}` : '',
-        originalVoucherId: '',
-        reversalVoucherId: '',
-        reason: '',
-        createdBy: value.createdBy || '',
-        postedBy: value.createdBy || '',
-        reversedBy: value.reversedBy || '',
-        derived: true,
-      }
-    })
-    const vouchers = [...receiptDocuments.map(serializeReceiptVoucher), ...legacyReceipts]
-      .sort((left, right) => String(right.effectiveAt || right.createdAt).localeCompare(String(left.effectiveAt || left.createdAt)))
-      .slice(0, pageSize)
-    return { vouchers, hasMore: vouchers.length === pageSize }
+    const actor = await actorForFinance(request, db, { freshAssignment: true })
+    return listReceiptVouchersPage({ db, actor, data: request.data, serializeReceipt: serializeReceiptVoucher, serializeLegacy: serializeLegacyReceipt })
   })
 
   const createManualReceiptVoucher = onCall(async (request) => {

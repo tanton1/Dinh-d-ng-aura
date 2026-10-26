@@ -64,6 +64,12 @@
 .cashbook-list .positive { color: #168458; }
 .cashbook-list .negative { color: #d92f63; }
 .cashbook-list > p { padding: 28px; color: #80767b; text-align: center; }
+.cashbook-page-summary p { margin-bottom: 4px; }
+.cashbook-page-summary small { color: #80767b; }
+.cashbook-pagination { display: grid; justify-items: center; gap: 10px; padding: 16px; text-align: center; }
+.cashbook-pagination p { margin: 0; color: #80767b; }
+.cashbook-pagination button { min-height: 44px; min-width: 160px; padding: 10px 20px; border: 1px solid #ead8e0; border-radius: 12px; background: #fff; color: #a62658; font-weight: 700; cursor: pointer; }
+.cashbook-pagination button:disabled { opacity: .55; cursor: default; }
 
 .manual-receipt-form { overflow: hidden; padding: 18px; border: 1px solid #bfe4d3; border-radius: 20px; background: linear-gradient(135deg,#f5fff9,#fff); box-shadow: 0 14px 34px rgba(27,105,75,.07); }
 .manual-receipt-form__heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 15px; margin-bottom: 15px; }

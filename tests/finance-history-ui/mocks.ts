@@ -7,7 +7,8 @@ export const state = {
   intentPending: [] as Array<{ resolve: () => void }>,
   studentInstallmentStatus: 'pending', workspaceLoads: 0, projectionRefreshes: 0,
   bookCalls: [] as Array<{ name: string; owner: string; input: any }>, bookDefer: [] as string[], bookFailures: {} as Record<string, string>,
-  bookPending: [] as Array<{ name: string; resolve: () => void; reject: (code: string) => void }>, bookMutations: [] as Array<{ name: string; input: any }>,
+  bookPages: {} as Record<string, any[]>,
+  bookPending: [] as Array<{ name: string; resolve: () => void; reject: (code: string, reason?: string) => void }>, bookMutations: [] as Array<{ name: string; input: any }>,
   databaseVersion: 0, defer: false, settled: 0, failure: '', payments: 0, refunds: 0, reversals: 0,
   cashCalls: [] as Array<{ owner: string }>, cashDefer: false, cashSettled: 0, cashFailure: '',
   cashAccounts: [{ id: 'cash-a', branchId: 'a', status: 'active', name: 'Test cash', balance: 100_000 }],
@@ -139,21 +140,25 @@ async function bookRead(name: string, input: any, result: any) {
     const code = state.bookFailures[name]; delete state.bookFailures[name]
     throw Object.assign(new Error('Synthetic ' + name + ' failure'), { code: 'functions/' + code })
   }
-  if (state.bookDefer.includes(name)) return new Promise((resolve, reject) => state.bookPending.push({ name, resolve: () => resolve(result), reject: code => reject(Object.assign(new Error('Synthetic read failure'), { code: 'functions/' + code })) }))
+  if (state.bookDefer.includes(name)) return new Promise((resolve, reject) => state.bookPending.push({ name, resolve: () => resolve(result), reject: (code, reason) => reject(Object.assign(new Error('Synthetic read failure'), { code: 'functions/' + code, details: { reason } })) }))
   return result
+}
+function bookPage(name: string, input: any, key: string, rows: any[]) {
+  const result = state.bookPages[name]?.shift() || { [key]: rows, paginationVersion: 1, hasMore: false, nextCursor: null, scanLimited: false, asOf: '2026-10-26T00:00:00.000Z' }
+  return bookRead(name, input, result)
 }
 const bookSettings = () => ({ businessName: state.owner, address: 'Synthetic address', taxCode: 'TEST-ONLY', representativeName: '', unit: 'VND' })
 export async function getS2eCashDetailBook(input: any) {
   return bookRead('s2e', input, { formCode: 'S2e-HKD', settings: { ...bookSettings(), businessName: `${state.owner}:${input.accountId || 'all'}:${input.periodStart}` }, sections: [], ...input })
 }
 export async function listCashTransactions(input: any) {
-  return bookRead('cash', input, { transactions: [{ id: 'transaction-a', referenceCode: `${state.owner}:${input.accountId || 'all'}:movement`, amount: 100_000, category: 'Synthetic movement', effectiveAt: '2026-10-26T00:00:00Z' }], hasMore: false })
+  return bookPage('cash', input, 'transactions', [{ id: 'transaction-a', referenceCode: `${state.owner}:${input.accountId || 'all'}:movement`, amount: 100_000, category: 'Synthetic movement', effectiveAt: '2026-10-26T00:00:00Z' }])
 }
 export async function listExpenseVouchers(input: any) {
-  return bookRead('vouchers', input, { vouchers: [{ id: 'expense-a', voucherNumber: `${state.owner}:expense`, status: 'pending_approval', documentType: 'expense_voucher', totalAmount: 100_000, revision: 1, purposeLabel: 'Synthetic expense', payeeName: 'Test payee', effectiveAt: '2026-10-26T00:00:00Z' }], hasMore: true })
+  return bookPage('vouchers', input, 'vouchers', [{ id: 'expense-a', voucherNumber: `${state.owner}:expense`, status: 'pending_approval', documentType: 'expense_voucher', totalAmount: 100_000, revision: 1, purposeLabel: 'Synthetic expense', payeeName: 'Test payee', effectiveAt: '2026-10-26T00:00:00Z' }])
 }
 export async function listReceiptVouchers(input: any) {
-  return bookRead('receipts', input, { vouchers: [{ id: 'receipt-a', voucherNumber: `${state.owner}:${input.accountId || 'all'}:receipt`, status: 'posted', documentType: 'receipt_voucher', totalAmount: 100_000, payerName: 'Test payer', accountId: 'cash-a', effectiveAt: '2026-10-26T00:00:00Z', journalLines: [] }], hasMore: false })
+  return bookPage('receipts', input, 'vouchers', [{ id: 'receipt-a', voucherNumber: `${state.owner}:${input.accountId || 'all'}:receipt`, status: 'posted', documentType: 'receipt_voucher', totalAmount: 100_000, payerName: 'Test payer', accountId: 'cash-a', effectiveAt: '2026-10-26T00:00:00Z', journalLines: [] }])
 }
 export async function listAccountingCatalog() {
   return bookRead('catalog', {}, { accounts: [{ code: '1111', name: 'Synthetic cash', group: 'asset' }],
