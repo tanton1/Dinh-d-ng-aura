@@ -263,8 +263,8 @@ test('nutrition exposes both the goal-based meal plan and full food catalog whil
   await page.goto('/#/meal-plan')
   await expect(page).toHaveURL(/#\/food-library$/)
   await expect(page.getByRole('heading', { name: /^THỰC ĐƠN$/i })).toBeVisible()
-  await expect(page.getByRole('region', { name: 'Món ăn', exact: true })).toBeVisible()
-  await expect(page.getByRole('group', { name: 'Lọc nhanh thực đơn' })).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Tra cứu Kcal Món Ăn', exact: true })).toBeVisible()
+  await expect(page.getByRole('group', { name: 'Lọc nhanh thực đơn' })).toHaveCount(0)
   await expect(page.getByText(/kcal/).first()).toBeVisible()
 
   await page.goto('/#/food-library')

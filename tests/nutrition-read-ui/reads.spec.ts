@@ -283,7 +283,7 @@ test('menu tabs load only the active kind and reuse loaded pages when returning'
   await page.getByRole('tab', { name: 'Nguyên liệu', exact: true }).click()
   await expect(page.getByText('ingredient page 1', { exact: true })).toBeVisible()
   expect((await calls(page, 'catalog'))[2].input.kind).toBe('food')
-  await page.getByRole('tab', { name: 'Món ăn', exact: true }).click()
+  await page.getByRole('tab', { name: 'Tra cứu Kcal Món Ăn', exact: true }).click()
   await expect(page.getByText('original page 2', { exact: true })).toBeVisible()
   expect(await calls(page, 'catalog')).toHaveLength(3)
   expect(await calls(page, 'workspace')).toHaveLength(0)
@@ -297,7 +297,7 @@ test('weekly plan does not prefetch either catalog and returning reuses its conf
   expect(await calls(page, 'catalog')).toHaveLength(0)
   expect(await calls(page, 'workspace')).toHaveLength(1)
   expect(await calls(page, 'history-meals')).toHaveLength(1)
-  await page.getByRole('tab', { name: 'Món ăn', exact: true }).click()
+  await page.getByRole('tab', { name: 'Tra cứu Kcal Món Ăn', exact: true }).click()
   await expect(page.getByText('original page 1', { exact: true })).toBeVisible()
   await expect.poll(async () => (await activeListeners(page)).length).toBe(0)
   await page.getByRole('tab', { name: 'Kế hoạch 7 ngày', exact: true }).click()
@@ -352,4 +352,40 @@ test('a missing detail returns to the existing menu instead of an endless catalo
   await expect(page).toHaveURL(/#\/food-library$/)
   expect(await calls(page, 'catalog')).toHaveLength(2)
   expect(await calls(page, 'detail')).toHaveLength(0)
+})
+
+test('duplicate pages remain deduplicated without extra reads or cursor changes', async ({ page }) => {
+  await page.goto(`${path}?mode=library#/food-library`)
+  await expect(page.locator('.meal-plan-live-card')).toHaveCount(1)
+  await page.evaluate(() => (window as any).nutritionFixture.hold = ['catalog'])
+  await page.getByRole('button', { name: 'Xem thêm món' }).click()
+  await expect.poll(async () => (await calls(page, 'catalog')).length).toBe(2)
+  await page.evaluate(() => {
+    const fixture = (window as any).nutritionFixture
+    const pending = [...fixture.pending.values()][0] as any
+    pending.value.items.push({ ...pending.value.items[0], id: 'duplicate-from-page-1', name: 'ORIGINAL page 1.' })
+    fixture.release(fixture.calls.findLast((call: any) => call.name === 'catalog').id)
+  })
+  await expect(page.locator('.meal-plan-live-card')).toHaveCount(2)
+  await expect(page.getByText('original page 2', { exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Xem thêm món' })).toHaveCount(0)
+  expect(await calls(page, 'catalog')).toHaveLength(2)
+})
+
+test('lookup detail does not invent a serving or offer diary writes when the source omits its basis', async ({ page }) => {
+  await page.goto(`${path}?mode=library#/food-library`)
+  await expect(page.locator('.meal-plan-live-card')).toHaveCount(1)
+  await page.evaluate(() => (window as any).nutritionFixture.hold = ['detail'])
+  await page.getByRole('button', { name: 'Xem chi tiết original page 1', exact: true }).click()
+  await expect.poll(async () => (await calls(page, 'detail')).length).toBe(1)
+  await page.evaluate(() => {
+    const fixture = (window as any).nutritionFixture
+    const pending = [...fixture.pending.values()][0] as any
+    pending.value.basis = { amount: null, unit: null, labelVi: 'Trang nguồn không nêu rõ khẩu phần chuẩn' }
+    fixture.release(fixture.calls.findLast((call: any) => call.name === 'detail').id)
+  })
+  await expect(page.getByRole('heading', { name: 'Dinh dưỡng tham khảo', exact: true })).toBeVisible()
+  await expect(page.getByText(/Trang nguồn không nêu rõ khẩu phần|Nguồn chưa nêu khối lượng/)).toHaveCount(0)
+  await expect(page.getByRole('heading', { name: 'Khẩu phần của bạn' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: /Ghi nhật ký/ })).toHaveCount(0)
 })

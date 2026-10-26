@@ -2006,8 +2006,8 @@
   font-size: 28px; letter-spacing: -.6px;
 }
 .meal-plan-header--connected .meal-plan-header__subtitle { font-size: 13px; line-height: 1.5; color: #71656a; }
-.meal-plan-header--connected .meal-plan-tabs { grid-template-columns: 1fr 1fr 1.35fr; margin-top: 16px; }
-.meal-plan-header--connected .meal-plan-tab-btn { min-height: 44px; padding: 8px 4px 12px; font-size: 14px; }
+.meal-plan-header--connected .meal-plan-tabs { grid-template-columns: 1.5fr 1fr 1.1fr; margin-top: 16px; }
+.meal-plan-header--connected .meal-plan-tab-btn { min-width: 0; min-height: 52px; padding: 8px 5px 12px; font-size: 14px; line-height: 1.35; white-space: normal; text-wrap: balance; }
 .meal-plan-main { margin-top: 14px; }
 .meal-plan-search-input-wrapper { min-width: 0; min-height: 46px; border-radius: 14px; padding: 0 12px; box-shadow: none; }
 .meal-plan-search-input-wrapper > svg { flex-shrink: 0; }

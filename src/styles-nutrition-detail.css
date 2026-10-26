@@ -403,6 +403,8 @@
 .nutrition-food-detail__scan-card > svg { color: rgba(255, 255, 255, .65); }
 
 .nutrition-food-detail__mobile-actions { display: none; }
+.nutrition-food-detail--lookup .nutrition-food-detail__hero-actions { display: none; }
+.nutrition-food-detail--lookup .nutrition-food-detail__top-actions .nutrition-food-detail__save { display: inline-flex; min-height: 44px; }
 
 @media (max-width: 1080px) {
   .nutrition-food-detail__hero { grid-template-columns: minmax(320px, .82fr) minmax(420px, 1.18fr); }
