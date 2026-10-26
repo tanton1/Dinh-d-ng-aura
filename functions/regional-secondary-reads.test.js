@@ -6,6 +6,7 @@ const { readFileSync } = require('node:fs')
 const { join } = require('node:path')
 const { execFileSync } = require('node:child_process')
 const { onCall: firebaseOnCall } = require('firebase-functions/v2/https')
+const { Timestamp } = require('firebase-admin/firestore')
 const { createRegionalSecondaryReadAliases, SECONDARY_READ_OPTIONS, SECONDARY_READ_TARGETS } = require('./regional-secondary-reads')
 const { createCashbookFunctions } = require('./cashbook')
 const { createFinanceLedgerFunctions } = require('./finance-ledger')
@@ -66,13 +67,14 @@ const inputs = {
 // Only the actual canonical read handlers run; no mocked authorization helpers.
 function readOnlyDb({ role = 'admin', disabled = false, assignment, profileExists = true, exerciseStatus = 'published', seed = {} } = {}) {
   const reads = [], writes = []
+  const readTime = Timestamp.now()
   const records = new Map(Object.entries({
     'users/reader': { role, disabled, displayName: 'Test reader', branchId: 'branch-one' },
     'exercises/exercise-one': { status: exerciseStatus, nameVi: 'Test exercise', nameEn: 'Test exercise' },
     'nutritionCatalog/food-one': { kind: 'food', nameVi: 'Test food', energyKcal: 100 },
     'cashAccounts/account-one': { name: 'Account one', branchId: 'branch-one', balance: 100 },
-    'cashTransactions/transaction-one': { accountId: 'account-one', amount: 100, branchId: 'branch-one' },
-    'accountingDocuments/voucher-one': { documentType: 'expense_voucher', amount: 100, status: 'draft' },
+    'cashTransactions/transaction-one': { accountId: 'account-one', amount: 100, branchId: 'branch-one', effectiveAt: readTime },
+    'accountingDocuments/voucher-one': { documentType: 'expense_voucher', amount: 100, status: 'draft', createdAt: readTime },
     'contractRenewalCases/case-one': { studentId: 'student-one', branchId: 'branch-one', active: true, contractSnapshot: {} },
     ...seed,
   }))
@@ -80,7 +82,8 @@ function readOnlyDb({ role = 'admin', disabled = false, assignment, profileExist
   if (assignment) records.set('roleAssignments/reader', assignment)
   const mutation = operation => (...args) => { writes.push(operation); throw new Error(`Persistent write forbidden: ${operation}`) }
   const guard = object => new Proxy(object, { get(target, key) {
-    if (['set', 'create', 'update', 'delete', 'add', 'commit', 'runTransaction', 'batch', 'bulkWriter', 'setCustomUserClaims', 'updateUser'].includes(key)) return mutation(String(key))
+    if (key === 'runTransaction') return target.runTransaction || mutation(String(key))
+    if (['set', 'create', 'update', 'delete', 'add', 'commit', 'batch', 'bulkWriter', 'setCustomUserClaims', 'updateUser'].includes(key)) return mutation(String(key))
     return Reflect.get(target, key)
   } })
   const snapshot = reference => ({
@@ -105,14 +108,26 @@ function readOnlyDb({ role = 'admin', disabled = false, assignment, profileExist
         if (operation === 'limit') rows = rows.slice(0, args[0])
       }
       const docs = rows.map(([key]) => snapshot(document(key)))
-      return { docs, size: docs.length, empty: !docs.length }
+      return { docs, size: docs.length, empty: !docs.length, readTime }
     }
     reference.count = () => ({ get: async () => { const result = await reference.get(); return { data: () => ({ count: result.size }) } } })
     return guard(reference)
   }
-  return { db: guard({ doc: document, collection, getAll: (...refs) => Promise.all(refs.map(ref => ref.get())) }), reads, writes, records }
+  return { db: guard({ doc: document, collection, getAll: (...refs) => Promise.all(refs.map(ref => ref.get())),
+    async runTransaction(action, options) {
+      if (options?.readOnly !== true) return mutation('runTransaction')()
+      return action(guard({ get: reference => reference.get(), getAll: (...refs) => Promise.all(refs.map(ref => ref.get())) }))
+    },
+  }), reads, writes, records }
 }
 const request = (data = {}, role = 'admin') => ({ auth: { uid: 'reader', token: { role } }, data })
+
+test('the read-only transaction fixture still rejects writable transactions and transaction writes', async () => {
+  const state = readOnlyDb()
+  await assert.rejects(state.db.runTransaction(() => {}), /Persistent write forbidden: runTransaction/)
+  await assert.rejects(state.db.runTransaction(tx => tx.set(state.db.doc('cashAccounts/unsafe'), {}), { readOnly: true }), /Persistent write forbidden: set/)
+  assert.deepEqual(state.writes, ['runTransaction', 'set'])
+})
 
 test('only seventeen reviewed reads register real callable endpoints; regional resources stay fractional and min0', () => {
   const registrations = []
@@ -231,9 +246,12 @@ test('canonical finance query bounds and account filters are preserved by the al
   for (const name of ['listCashAccountsRegional','listCashTransactionsRegional','listExpenseVouchersRegional']) await aliases[name].handler(request(inputs[name]))
   const query = collection => state.reads.find(read => read.path === collection && read.type === 'query')
   assert.deepEqual(query('cashAccounts').operations.find(item => item.operation === 'limit').args,[200])
-  assert.deepEqual(query('cashTransactions').operations.find(item => item.operation === 'limit').args,[100])
+  assert.deepEqual(query('cashTransactions').operations.find(item => item.operation === 'limit').args,[101])
   assert.deepEqual(query('cashTransactions').operations.find(item => item.operation === 'where').args,['accountId','==','account-one'])
-  assert.deepEqual(query('accountingDocuments').operations.find(item => item.operation === 'limit').args,[300])
+  assert.deepEqual(query('accountingDocuments').operations.find(item => item.operation === 'limit').args,[101])
+  const expenseQueries = state.reads.filter(read => read.path === 'accountingDocuments' && read.type === 'query')
+  assert.deepEqual(expenseQueries.map(read => read.operations.find(item => item.operation === 'where').args),
+    [['documentType','==','expense_voucher'], ['documentType','==','expense_voucher_reversal']])
   assert.deepEqual(state.writes, [])
 })
 

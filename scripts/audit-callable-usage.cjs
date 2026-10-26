@@ -99,6 +99,44 @@ function auditProject(root, { liveInventory = null } = {}) {
     }
   })
   const lookupTables = new Map()
+  function literalArrays(expression, seen = new Set()) {
+    const node = unwrap(expression)
+    if (!node || seen.has(node)) return { arrays: [], unknown: true }
+    seen = new Set(seen).add(node)
+    if (ts.isArrayLiteralExpression(node)) return { arrays: [node], unknown: false }
+    if (ts.isCallExpression(node) && node.expression.getText() === 'Object.freeze') return literalArrays(node.arguments[0], seen)
+    const inputs = ts.isIdentifier(node)
+      ? declarations(node).map((declaration) => declaration.initializer)
+      : ts.isConditionalExpression(node) ? [node.whenTrue, node.whenFalse] : []
+    const results = inputs.map((value) => literalArrays(value, seen))
+    return { arrays: results.flatMap((value) => value.arrays), unknown: !results.length || results.some((value) => value.unknown) }
+  }
+  function loopBindingStrings(declaration, seen) {
+    let variable = declaration, column = null
+    if (ts.isBindingElement(declaration) && ts.isArrayBindingPattern(declaration.parent)) {
+      if (declaration.dotDotDotToken || declaration.initializer) return { values: [], unknown: true }
+      column = declaration.parent.elements.indexOf(declaration)
+      variable = declaration.parent.parent
+    }
+    const loop = variable.parent?.parent
+    if (!ts.isVariableDeclaration(variable) || !ts.isVariableDeclarationList(variable.parent)
+      || !loop || !ts.isForOfStatement(loop) || loop.initializer !== variable.parent) return null
+    const rows = literalArrays(loop.expression)
+    const results = []
+    let unknown = rows.unknown
+    for (const array of rows.arrays) for (const element of array.elements) {
+      if (ts.isSpreadElement(element) || ts.isOmittedExpression(element)) { unknown = true; continue }
+      if (column === null) { results.push(strings(element, seen)); continue }
+      const tuples = literalArrays(element)
+      unknown ||= tuples.unknown
+      for (const tuple of tuples.arrays) {
+        const value = tuple.elements[column]
+        if (!value || ts.isOmittedExpression(value) || tuple.elements.slice(0, column + 1).some(ts.isSpreadElement)) { unknown = true; continue }
+        results.push(strings(value, seen))
+      }
+    }
+    return { values: unique(results.flatMap((value) => value.values)), unknown: unknown || results.some((value) => value.unknown) }
+  }
   // Finite string sets, including explicit parameter markers. Unknown values
   // stay unknown: naming conventions never invent missing endpoints.
   function strings(expression, seen = new Set()) {
@@ -125,7 +163,9 @@ function auditProject(root, { liveInventory = null } = {}) {
     if (ts.isIdentifier(node)) {
       const results = []
       for (const declaration of declarations(node)) {
-        if (ts.isParameter(declaration)) results.push({ values: [`\u0001${nodeKey(declaration)}\u0001`], unknown: false })
+        const loopValues = loopBindingStrings(declaration, seen)
+        if (loopValues) results.push(loopValues)
+        else if (ts.isParameter(declaration)) results.push({ values: [`\u0001${nodeKey(declaration)}\u0001`], unknown: false })
         else if (ts.isVariableDeclaration(declaration) || ts.isPropertyAssignment(declaration)) {
           if (declaration.initializer && declaration.initializer.kind !== ts.SyntaxKind.NullKeyword) results.push(strings(declaration.initializer, seen))
         }
@@ -290,7 +330,7 @@ function auditProject(root, { liveInventory = null } = {}) {
   }
 
   const indexSource = sources.get(normalize(path.join(root, 'functions/index.js')))
-  const backend = new Map(), unresolvedExports = []
+  const backend = new Map(), unresolvedExports = [], unresolvedComputedExports = []
   function runtimeKinds(expression, seen = new Set()) {
     const node = unwrap(expression)
     if (!node || seen.has(node)) return []
@@ -318,6 +358,12 @@ function auditProject(root, { liveInventory = null } = {}) {
   }
   if (indexSource) walk(indexSource, (node) => {
     if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken && ts.isPropertyAccessExpression(node.left) && node.left.expression.getText() === 'exports') addExport(node.left.name.text, node.right, node)
+    if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken && ts.isElementAccessExpression(node.left) && ['exports', 'module.exports'].includes(node.left.expression.getText())) {
+      const names = strings(node.left.argumentExpression)
+      const resolved = names.values.filter((name) => /^[A-Za-z_$][\w$]*$/.test(name))
+      for (const name of resolved) addExport(name, node.right, node)
+      if (names.unknown || resolved.length !== names.values.length) unresolvedComputedExports.push({ ...location(node), expression: node.left.getText().slice(0, 180), resolvedCandidates: resolved })
+    }
     if (ts.isCallExpression(node) && node.expression.getText() === 'Object.assign' && node.arguments[0]?.getText() === 'exports') {
       for (const argument of node.arguments.slice(1)) {
         const properties = objectProperties(argument)
@@ -344,7 +390,7 @@ function auditProject(root, { liveInventory = null } = {}) {
   return {
     schemaVersion: 1,
     generatedAt: new Date().toISOString(),
-    method: 'TypeScript AST, callable wrapper parameter flow, static/dynamic literal import graph and backend factory-return exports; no application code execution',
+    method: 'TypeScript AST, callable wrapper parameter flow, literal import graph, backend factory-return exports and finite computed export names; no application code execution',
     limitations: [
       'Static candidates include conditional/fallback branches and may overapproximate parameter-dependent routing guards; an unmatched candidate is not proof of a missing backend endpoint.',
       'Static references are not request counts or proof that requests run simultaneously.',
@@ -352,10 +398,11 @@ function auditProject(root, { liveInventory = null } = {}) {
       'Read/write labels use names only. A read-shaped handler may write caches, synchronize data or generate side effects.',
       'Possible regions contain only statically resolved client evidence; dynamic parameter/option overrides can add unresolved regions. Use liveDeployments for deployed regions.',
       'Parameterized wrapper declarations are expected; unresolved dynamic names and exports remain listed for manual review.',
+      'Computed export names resolve finite literal loops; runtime-generated names remain unresolved and block lifecycle review readiness.',
       'No resolved frontend reference is not evidence of an unused endpoint: triggers, schedules, admin scripts and older clients still matter.',
       'Aliases and multiple export assignments are not automatically redundant services. No endpoint can be safely deleted from this report alone.',
     ],
-    coverage: { frontendFiles: frontendSources.length, uiModules: uiFiles.length, backendFiles: backendFiles.length, importEdges: [...moduleEdges.values()].reduce((sum, values) => sum + values.size, 0), callableSites: callSites.length, directTransportSites: callSites.filter((site) => site.directTransport).length, staticCallableCandidates: callableNames.length, candidatesMatchingBackendExports: frontendCallables.filter((row) => row.foundBackendExport).length, parameterizedOrUnresolvedSites: callSites.filter((site) => site.dynamic).length, backendExportNames: backendExports.length, backendExportsWithoutResolvedFrontendReference: backendExports.filter((row) => !row.hasResolvedFrontendReference).length, unresolvedExportSpreads: unresolvedExports.length, unresolvedDynamicImports: dynamicImports.length, wrapperDiscoveryPasses: passes },
+    coverage: { frontendFiles: frontendSources.length, uiModules: uiFiles.length, backendFiles: backendFiles.length, importEdges: [...moduleEdges.values()].reduce((sum, values) => sum + values.size, 0), callableSites: callSites.length, directTransportSites: callSites.filter((site) => site.directTransport).length, staticCallableCandidates: callableNames.length, candidatesMatchingBackendExports: frontendCallables.filter((row) => row.foundBackendExport).length, parameterizedOrUnresolvedSites: callSites.filter((site) => site.dynamic).length, backendExportNames: backendExports.length, backendExportsWithoutResolvedFrontendReference: backendExports.filter((row) => !row.hasResolvedFrontendReference).length, unresolvedExportSpreads: unresolvedExports.length, unresolvedComputedExports: unresolvedComputedExports.length, unresolvedDynamicImports: dynamicImports.length, wrapperDiscoveryPasses: passes },
     frontendCallables,
     backendExports,
     multipleServiceReferences: frontendCallables.filter((row) => row.serviceFiles.length > 1).map(({ name, serviceFiles }) => ({ name, serviceFiles, meaning: 'review sharing opportunities; multiple callers alone do not prove redundant calls' })),
@@ -363,6 +410,7 @@ function auditProject(root, { liveInventory = null } = {}) {
     aliasFamilies,
     unresolvedCallableSites: callSites.filter((site) => site.dynamic),
     unresolvedExports,
+    unresolvedComputedExports,
     unresolvedDynamicImports: dynamicImports,
     uiModules: uiFiles.map((file) => ({ file, callableCandidates: frontendCallables.filter((row) => row.uiModuleReachability.includes(file)).map((row) => row.name) })),
   }
@@ -373,7 +421,7 @@ function renderReport(report) {
   for (const row of report.frontendCallables) lines.push('', `${row.name} | ${row.operationHint}`, `  Services: ${row.serviceFiles.join(', ')}`, `  UI import reachability: ${row.uiModuleReachability.join(', ') || '(none resolved)'}`, `  Backend export: ${row.foundBackendExport}; live: ${row.liveDeployments.map((deployment) => deployment.region).join(', ') || '(not supplied / not found)'}`)
   lines.push('', 'MULTIPLE SERVICE REFERENCES (REVIEW CANDIDATES, NOT PROVEN DUPLICATION)', ...report.multipleServiceReferences.map((row) => `${row.name}: ${row.serviceFiles.join(', ')}`), '', 'DYNAMIC/PARAMETERIZED CALLABLE SITES')
   for (const row of report.unresolvedCallableSites) lines.push(`${row.file}:${row.line} ${row.transport}(${row.nameExpression})${row.parameterized ? ' [wrapper parameter]' : ''}`)
-  lines.push('', 'UNRESOLVED BACKEND EXPORT SPREADS', ...report.unresolvedExports.map((row) => `${row.file}:${row.line} ${row.expression}`), '', 'BACKEND EXPORTS WITHOUT A RESOLVED FRONTEND REFERENCE (NOT SAFE TO DELETE)', ...report.backendExports.filter((row) => !row.hasResolvedFrontendReference).map((row) => `${row.name} [${row.kinds.join(', ') || 'unknown'}]`))
+  lines.push('', 'UNRESOLVED BACKEND EXPORT SPREADS', ...report.unresolvedExports.map((row) => `${row.file}:${row.line} ${row.expression}`), '', 'UNRESOLVED COMPUTED BACKEND EXPORTS', ...(report.unresolvedComputedExports || []).map((row) => `${row.file}:${row.line} ${row.expression}`), '', 'BACKEND EXPORTS WITHOUT A RESOLVED FRONTEND REFERENCE (NOT SAFE TO DELETE)', ...report.backendExports.filter((row) => !row.hasResolvedFrontendReference).map((row) => `${row.name} [${row.kinds.join(', ') || 'unknown'}]`))
   return lines.join('\n') + '\n'
 }
 

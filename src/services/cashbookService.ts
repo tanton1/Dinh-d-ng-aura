@@ -9,6 +9,8 @@ function callable<Input, Output>(name: string) {
 export type CashAccountType = 'cash' | 'bank' | 'wallet'
 export interface CashAccount { id: string; name: string; type: CashAccountType; branchId: string; currency: 'VND'; balance: number; status: string; openingBalanceAt: string }
 export interface CashTransaction { id: string; accountId: string; pairedAccountId: string; branchId: string; type: string; category: string; amount: number; effectiveAt: string; referenceCode: string; note: string; status: string; reversedTransactionId: string }
+export interface CashbookPageMetadata { paginationVersion: 1; hasMore: boolean; nextCursor: string | null; scanLimited: boolean; asOf: string }
+export interface CashbookPageInput { pageSize?: number; cursor?: string }
 export interface S2eCashDetailSettings { businessName: string; address: string; taxCode: string; representativeName: string; unit: string }
 export interface S2eCashDetailRow { id: string; voucherNumber: string; documentDate: string; description: string; receipt: number; payment: number; runningBalance: number; category: string }
 export interface S2eCashDetailSection {
@@ -69,6 +71,7 @@ export interface ExpenseVoucher {
 export type ReceiptVoucherStatus = 'posted' | 'reversed'
 export interface ReceiptVoucher {
   id: string
+  listIdentity?: string
   voucherNumber: string
   documentType: 'receipt_voucher' | 'receipt_voucher_reversal'
   status: ReceiptVoucherStatus
@@ -128,18 +131,18 @@ export async function listCashAccounts() {
   return callSecondaryRead<Record<string, never>, { accounts: CashAccount[] }>('listCashAccounts', {})
 }
 export async function initializeCashAccount(input: { name: string; type: CashAccountType; branchId: string; openingBalance: number; openingBalanceAt: string; idempotencyKey: string }) { return (await callable<typeof input, { accountId: string }>('initializeCashAccount')(input)).data }
-export async function listCashTransactions(input: { accountId?: string; pageSize?: number } = {}) {
+export async function listCashTransactions(input: CashbookPageInput & { accountId?: string } = {}) {
   const { callSecondaryRead } = await import('./secondaryReadService')
-  return callSecondaryRead<typeof input, { transactions: CashTransaction[]; hasMore: boolean }>('listCashTransactions', input)
+  return callSecondaryRead<typeof input, CashbookPageMetadata & { transactions: CashTransaction[] }>('listCashTransactions', input)
 }
 export async function getS2eCashDetailBook(input: { periodStart: string; periodEnd: string; accountId?: string }) { return (await callable<typeof input, S2eCashDetailBook>('getS2eCashDetailBook')(input)).data }
 export async function saveS2eCashDetailSettings(input: S2eCashDetailSettings) { return (await callable<S2eCashDetailSettings, { settings: S2eCashDetailSettings }>('saveS2eCashDetailSettings')(input)).data }
 export async function recordCashExpense(input: { accountId: string; amount: number; category: string; effectiveAt: string; note?: string; idempotencyKey: string }) { return (await callable<typeof input, { transactionId: string }>('recordCashExpense')(input)).data }
-export async function listExpenseVouchers(input: { pageSize?: number } = {}) {
+export async function listExpenseVouchers(input: CashbookPageInput = {}) {
   const { callSecondaryRead } = await import('./secondaryReadService')
-  return callSecondaryRead<typeof input, { vouchers: ExpenseVoucher[]; hasMore: boolean }>('listExpenseVouchers', input)
+  return callSecondaryRead<typeof input, CashbookPageMetadata & { vouchers: ExpenseVoucher[] }>('listExpenseVouchers', input)
 }
-export async function listReceiptVouchers(input: { accountId?: string; pageSize?: number } = {}) { return (await callable<typeof input, { vouchers: ReceiptVoucher[]; hasMore: boolean }>('listReceiptVouchers')(input)).data }
+export async function listReceiptVouchers(input: CashbookPageInput & { accountId?: string } = {}) { return (await callable<typeof input, CashbookPageMetadata & { vouchers: ReceiptVoucher[] }>('listReceiptVouchers')(input)).data }
 export async function createManualReceiptVoucher(input: { accountId: string; purposeCode: string; payerName: string; payerAddress?: string; description: string; amount: number; effectiveAt: string; paymentMethod: string; idempotencyKey: string }) { return (await callable<typeof input, { voucherId: string; voucherNumber: string; ledgerEntryId: string; unchanged: boolean }>('createManualReceiptVoucher')(input)).data }
 export async function reverseManualReceiptVoucher(input: { voucherId: string; reason: string }) { return (await callable<typeof input, { voucherId: string; voucherNumber: string; unchanged: boolean }>('reverseManualReceiptVoucher')(input)).data }
 export async function saveExpenseVoucherDraft(input: ExpenseVoucherInput) { return (await callable<ExpenseVoucherInput, { voucherId: string; voucherNumber: string; status: ExpenseVoucherStatus; revision: number; journalLines: JournalLine[] }>('saveExpenseVoucherDraft')(input)).data }

@@ -1,7 +1,7 @@
 'use strict'
 const assert = require('node:assert/strict')
 const test = require('node:test')
-const { parseArguments, selectIndexes, signature, CONFIRMATION } = require('./firebase-firestore-index-deploy.cjs')
+const { parseArguments, selectIndexes, signature, indexMatches, CONFIRMATION } = require('./firebase-firestore-index-deploy.cjs')
 const indexes = require('../firestore.indexes.json').indexes
 
 test('business report scope reuses ledger/attendance indexes and creates only branch cash range', () => {
@@ -124,10 +124,30 @@ test('target confirmation and exact scope required before production apply', () 
   assert.throws(() => parseArguments(['dry-run', '--project=other']), /Usage/)
 })
 
-test('explicit cursor direction must match, implicit Firestore default is equivalent', () => {
+test('desired signatures retain shorthand compatibility while live explicit cursor matching is strict', () => {
   const selected = selectIndexes(indexes, 'finance-ledger-reads')[0]
   const implicit = { ...selected, fields: selected.fields.slice(0, -1) }
   assert.equal(signature(implicit), signature(selected))
+  assert.equal(indexMatches(selected, implicit), false, 'implicit Enterprise index must not prevent creation of an explicit cursor index')
+  assert.equal(indexMatches(implicit, selected), true, 'an existing explicit index can satisfy an unspecified desired key')
+  assert.equal(indexMatches(selected, selected), true)
+  assert.equal(indexMatches(implicit, implicit), true)
   const opposite = { ...selected, fields: [...implicit.fields, { fieldPath: '__name__', order: 'ASCENDING' }] }
   assert.notEqual(signature(opposite), signature(selected))
+  assert.equal(indexMatches(selected, opposite), false)
+})
+
+test('cashbook ordered and reverse-link queries each have a distinct explicit index', () => {
+  const fields = (collectionGroup, names) => indexes.filter(index => index.collectionGroup === collectionGroup && index.fields.map(field => field.fieldPath).join(',') === names.join(','))
+  const [account] = fields('cashTransactions', ['accountId', 'effectiveAt', '__name__'])
+  assert.ok(account)
+  assert.equal(account.fields.at(-1).order, 'DESCENDING')
+  const implicitAccount = { ...account, fields: account.fields.slice(0, -1) }
+  assert.equal(indexMatches(account, implicitAccount), false)
+  assert.equal(fields('cashTransactions', ['effectiveAt', '__name__']).length, 1)
+  assert.equal(fields('accountingDocuments', ['ledgerEntryId', '__name__']).length, 1)
+  assert.equal(fields('accountingDocuments', ['documentType', 'createdAt', '__name__']).length, 1)
+  assert.equal(fields('accountingDocuments', ['documentType', 'effectiveAt', '__name__']).length, 1)
+  assert.equal(fields('accountingDocuments', ['documentType', 'accountId', 'effectiveAt', '__name__']).length, 1)
+  assert.equal(fields('ledgerEntries', ['type', 'cashAccountId', 'effectiveAt', '__name__']).length, 1)
 })

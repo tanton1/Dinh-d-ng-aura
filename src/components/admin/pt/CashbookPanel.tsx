@@ -24,6 +24,7 @@ import {
 import { reverseContractPayment } from '../../../services/financeLedgerService'
 import { useAuth } from '../../../contexts/AuthContext'
 import S2eCashDetailBook from './S2eCashDetailBook'
+import useCashbookPages from './useCashbookPages'
 
 type PanelMode = 'none' | 'account' | 'receipt' | 'voucher' | 'transfer'
 type LedgerTab = 's2e' | 'receipts' | 'vouchers' | 'cash'
@@ -121,12 +122,15 @@ function CashbookSession({ branches, onAccessDenied }: Props & { onAccessDenied:
   useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
   const accountRead = useCashbookRead(String(refreshVersion), listCashAccounts)
   const pageKey = JSON.stringify([activeTab, activeTab === 'vouchers' ? '' : selectedAccount, activeTab === 's2e' ? [periodStart, periodEnd] : null, refreshVersion])
-  const pageRead = useCashbookRead(pageKey, async () => {
-    if (activeTab === 'receipts') return { kind: 'receipts' as const, ...await listReceiptVouchers({ accountId: selectedAccount || undefined, pageSize: 100 }) }
-    if (activeTab === 'vouchers') return { kind: 'vouchers' as const, ...await listExpenseVouchers({ pageSize: 100 }) }
-    if (activeTab === 'cash') return { kind: 'cash' as const, ...await listCashTransactions({ accountId: selectedAccount || undefined, pageSize: 100 }) }
+  const listRead = useCashbookPages(activeTab === 's2e' ? null : pageKey, async cursor => {
+    if (activeTab === 'vouchers') return { kind: 'vouchers' as const, ...await listExpenseVouchers({ pageSize: 25, cursor }) }
+    if (activeTab === 'cash') return { kind: 'cash' as const, ...await listCashTransactions({ accountId: selectedAccount || undefined, pageSize: 25, cursor }) }
+    return { kind: 'receipts' as const, ...await listReceiptVouchers({ accountId: selectedAccount || undefined, pageSize: 25, cursor }) }
+  })
+  const s2eRead = useCashbookRead(activeTab === 's2e' ? pageKey : null, async () => {
     return { kind: 's2e' as const, book: await getS2eCashDetailBook({ accountId: selectedAccount || undefined, periodStart: `${periodStart}T00:00:00+07:00`, periodEnd: `${dayAfter(periodEnd)}T00:00:00+07:00` }) }
   })
+  const pageRead = activeTab === 's2e' ? s2eRead : listRead
   const needsCatalog = mode === 'receipt' || mode === 'voucher'
   const catalogRead = useCashbookRead(needsCatalog ? JSON.stringify([mode, catalogVersion]) : null, listAccountingCatalog)
   const accounts = accountRead.data?.accounts || []
@@ -464,7 +468,7 @@ function CashbookSession({ branches, onAccessDenied }: Props & { onAccessDenied:
 
     <div className="cashbook-ledger-tabs"><button className={activeTab === 's2e' ? 'is-active' : ''} onClick={() => { setSelectedReceipt(null); setActiveTab('s2e') }}>Sổ S2e-HKD</button><button className={activeTab === 'receipts' ? 'is-active' : ''} onClick={() => setActiveTab('receipts')}>Phiếu thu</button><button className={activeTab === 'vouchers' ? 'is-active' : ''} onClick={() => { setSelectedReceipt(null); setActiveTab('vouchers') }}>Phiếu chi</button><button className={activeTab === 'cash' ? 'is-active' : ''} onClick={() => { setSelectedReceipt(null); setActiveTab('cash') }}>Biến động quỹ</button></div>
     {activeTab !== 's2e' && loading && <p role="status">Đang tải sổ quỹ…</p>}
-    {pageRead.data && pageRead.data.kind !== 's2e' && <p>{pageRead.data.kind === 'cash' ? transactions.length : pageRead.data.vouchers.length} chứng từ đã tải.{pageRead.data.hasMore ? ' Đang hiển thị 100 chứng từ gần nhất.' : ''}</p>}
+    {listRead.data && <div className="cashbook-page-summary" role="status"><p>{listRead.data.kind === 'cash' ? transactions.length : listRead.data.vouchers.length} chứng từ đã tải.</p><small>Dữ liệu lúc {new Date(listRead.data.asOf).toLocaleString('vi-VN')}. Tải lại để cập nhật.</small></div>}
 
     {activeTab === 's2e' && <S2eCashDetailBook
       accounts={accounts}
@@ -481,17 +485,23 @@ function CashbookSession({ branches, onAccessDenied }: Props & { onAccessDenied:
       onSaveSettings={saveS2eSettings}
     />}
 
-    {activeTab === 'receipts' && <div className="expense-voucher-list receipt-voucher-list">{receipts.map((receipt) => <article key={receipt.id}>
+    {activeTab === 'receipts' && <div className="expense-voucher-list receipt-voucher-list">{receipts.map((receipt) => <article key={receipt.listIdentity || receipt.id}>
       <div className="expense-voucher-list__main"><div><ReceiptText size={16} /><b>{receipt.voucherNumber}</b><span className={`expense-voucher-status status-${receipt.status}`}>{statusLabels[receipt.status]}</span></div><p>{receipt.payerName} · {accounts.find((item) => item.id === receipt.accountId)?.name || 'Quỹ đã lưu'}</p><small>{receipt.effectiveAt ? new Date(receipt.effectiveAt).toLocaleDateString('vi-VN') : ''} · {receipt.description}</small></div>
       <div className="expense-voucher-list__amount"><strong className={receipt.documentType === 'receipt_voucher_reversal' ? 'negative' : 'positive'}>{receipt.documentType === 'receipt_voucher_reversal' ? '−' : '+'}{money(receipt.totalAmount)}</strong><div><button onClick={() => setSelectedReceipt(receipt)}><Eye size={15} /> Xem / In</button>{receipt.status === 'posted' && receipt.documentType === 'receipt_voucher' && <button disabled={busy || !receipt.ledgerEntryId} onClick={() => void reverseReceipt(receipt)}><RotateCcw size={15} /> Đảo phiếu</button>}</div></div>
-    </article>)}{!loading && !pageRead.error && receipts.length === 0 && <p>Chưa có phiếu thu trong quỹ đã chọn. Phiếu sẽ tự tạo khi thu tiền hợp đồng hoặc thu đầu kỳ tái ký.</p>}</div>}
+    </article>)}{!loading && !pageRead.error && !listRead.data?.hasMore && receipts.length === 0 && <p>Chưa có phiếu thu trong quỹ đã chọn. Phiếu sẽ tự tạo khi thu tiền hợp đồng hoặc thu đầu kỳ tái ký.</p>}</div>}
 
     {activeTab === 'vouchers' && <div className="expense-voucher-list">{vouchers.map((voucher) => <article key={voucher.id}>
       <div className="expense-voucher-list__main"><div><b>{voucher.voucherNumber}</b><span className={`expense-voucher-status status-${voucher.status}`}>{statusLabels[voucher.status]}</span></div><p>{voucher.purposeLabel} · {voucher.payeeName}</p><small>{voucher.effectiveAt ? new Date(voucher.effectiveAt).toLocaleDateString('vi-VN') : ''} · {voucher.description}</small></div>
       <div className="expense-voucher-list__amount"><strong>{money(voucher.totalAmount)}</strong><div>{voucher.status === 'draft' && <button onClick={() => openVoucher(voucher)}><FilePenLine size={15} /> Sửa</button>}{voucher.status === 'pending_approval' && <button className="cashbook-primary" disabled={busy} onClick={() => void approveVoucher(voucher)}><CheckCircle2 size={15} /> Duyệt & ghi sổ</button>}{voucher.status === 'posted' && voucher.documentType === 'expense_voucher' && <button disabled={busy} onClick={() => void reverseVoucher(voucher)}><RotateCcw size={15} /> Đảo phiếu</button>}</div></div>
-    </article>)}{!loading && !pageRead.error && vouchers.length === 0 && <p>Chưa có phiếu chi. Hãy lập phiếu đầu tiên để chi tiền đúng chứng từ và bút toán.</p>}</div>}
+    </article>)}{!loading && !pageRead.error && !listRead.data?.hasMore && vouchers.length === 0 && <p>Chưa có phiếu chi. Hãy lập phiếu đầu tiên để chi tiền đúng chứng từ và bút toán.</p>}</div>}
 
-    {activeTab === 'cash' && <div className="cashbook-list">{transactions.map((item) => <article key={item.id}><div><b>{item.referenceCode}</b><span>{item.category || item.type} · {new Date(item.effectiveAt).toLocaleString('vi-VN')}</span></div><strong className={item.amount >= 0 ? 'positive' : 'negative'}>{money(item.amount)}</strong></article>)}{!loading && !pageRead.error && transactions.length === 0 && <p>Chưa có giao dịch. Hãy mở quỹ bằng số dư đã kiểm kê tại ngày chuyển đổi.</p>}</div>}
+    {activeTab === 'cash' && <div className="cashbook-list">{transactions.map((item) => <article key={item.id}><div><b>{item.referenceCode}</b><span>{item.category || item.type} · {new Date(item.effectiveAt).toLocaleString('vi-VN')}</span></div><strong className={item.amount >= 0 ? 'positive' : 'negative'}>{money(item.amount)}</strong></article>)}{!loading && !pageRead.error && !listRead.data?.hasMore && transactions.length === 0 && <p>Chưa có giao dịch. Hãy mở quỹ bằng số dư đã kiểm kê tại ngày chuyển đổi.</p>}</div>}
+
+    {listRead.data?.hasMore && <div className="cashbook-pagination">
+      {receipts.length + vouchers.length + transactions.length === 0 && <p>Chưa có chứng từ phù hợp trong phần đã tải. Tiếp tục tải thêm.</p>}
+      {listRead.refreshRequired ? <button onClick={() => void load()} disabled={busy}>Tải lại danh sách</button>
+        : <button onClick={listRead.loadMore} disabled={busy || listRead.appending}>{listRead.appending ? 'Đang tải thêm…' : listRead.error ? 'Thử tải thêm' : 'Tải thêm'}</button>}
+    </div>}
 
     {selectedReceipt && <div className="receipt-voucher-modal" role="dialog" aria-modal="true" aria-label={`Phiếu thu ${selectedReceipt.voucherNumber}`} onClick={() => setSelectedReceipt(null)}>
       <article className="receipt-voucher-document" onClick={(event) => event.stopPropagation()}>

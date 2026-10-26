@@ -219,6 +219,16 @@ function signature(index) {
   })
 }
 
+function indexMatches(desired, existing) {
+  // This Enterprise database reports omitted document-key ordering literally.
+  // Its cash account index needs a MinorSort for an explicit descending key.
+  // An implicit live key therefore cannot satisfy a declared cursor direction.
+  // Keep accepting already-built explicit indexes for unspecified desired keys.
+  if (desired.fields?.some(field => field.fieldPath === '__name__')
+    && !existing.fields?.some(field => field.fieldPath === '__name__')) return false
+  return signature(desired) === signature(existing)
+}
+
 async function listIndexes(token) {
   const indexes = []
   let pageToken = ''
@@ -243,15 +253,14 @@ async function createIndex(token, index) {
 }
 
 async function waitUntilReady(token, desired) {
-  const wanted = new Set(desired.map(signature))
   for (let attempt = 1; attempt <= POLL_LIMIT; attempt += 1) {
     const current = await listIndexes(token)
-    const states = new Map(current.map((index) => [signature(index), index.state || 'STATE_UNSPECIFIED']))
-    const missing = [...wanted].filter((key) => !states.has(key))
-    const failed = [...wanted].filter((key) => states.get(key) === 'ERROR')
-    const pending = [...wanted].filter((key) => states.has(key) && states.get(key) !== 'READY')
+    const matches = desired.map(index => current.filter(existing => indexMatches(index, existing)))
+    const missing = matches.filter(indexes => indexes.length === 0)
+    const failed = matches.filter(indexes => indexes.length && !indexes.some(index => index.state === 'READY') && indexes.every(index => index.state === 'ERROR'))
+    const pending = matches.filter(indexes => indexes.length && !indexes.some(index => index.state === 'READY'))
     if (failed.length) throw new Error(`${failed.length} Firestore index(es) entered ERROR state.`)
-    if (!missing.length && !pending.length) return { attempts: attempt, ready: wanted.size }
+    if (!missing.length && !pending.length) return { attempts: attempt, ready: desired.length }
     await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS))
   }
   throw new Error('Firestore indexes did not become READY within 20 minutes.')
@@ -263,8 +272,7 @@ async function main() {
   await assertTarget(token)
   const desired = selectIndexes(desiredIndexes(), scope)
   const existing = await listIndexes(token)
-  const existingSignatures = new Set(existing.map(signature))
-  const missing = desired.filter((index) => !existingSignatures.has(signature(index)))
+  const missing = desired.filter(index => !existing.some(current => indexMatches(index, current)))
   if (mode === 'dry-run') {
     console.log(JSON.stringify({ mode, scope, target: TARGET, desired: desired.length, selected: desired, existing: existing.length, missing: missing.length, writesPerformed: false }, null, 2))
     return
@@ -274,7 +282,7 @@ async function main() {
   console.log(JSON.stringify({ mode, scope, target: TARGET, created: missing.length, ...verification, deleted: 0 }, null, 2))
 }
 
-module.exports = { parseArguments, selectIndexes, signature, CONFIRMATION }
+module.exports = { parseArguments, selectIndexes, signature, indexMatches, CONFIRMATION }
 
 if (require.main === module) main().catch((error) => {
   console.error(error instanceof Error ? error.message : 'Firestore index deployment failed.')
