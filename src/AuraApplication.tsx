@@ -1336,7 +1336,7 @@ function routeLoadingLabel(view: ViewId) {
   if (view === 'student-360') return 'Đang mở hồ sơ Học viên 360'
   if (view.includes('schedule') || view.includes('availability')) return 'Đang mở lịch Aura'
   if (view === 'cooking') return 'Đang mở bếp Aura'
-  if (view === 'food-library') return 'Đang mở thư viện món ăn'
+  if (view === 'food-library') return 'Đang mở thực đơn'
   if (view === 'nutrition' || view === 'eat-clean') return 'Đang mở không gian dinh dưỡng'
   if (view === 'courses' || view === 'course-detail') return 'Đang mở Aura Academy'
   if (view.startsWith('admin-') || view.startsWith('staff-')) return 'Đang mở không gian vận hành'

@@ -108,7 +108,7 @@ const studentNavSections: ShellNavSection[] = [
     items: [
       { id: 'courses' as const, label: 'Học cùng Aura', icon: BookOpen },
       { id: 'cooking' as const, label: 'Vào Bếp cùng Aura', icon: ChefHat },
-      { id: 'food-library' as const, label: 'Thư viện món ăn', icon: Soup },
+      { id: 'food-library' as const, label: 'Thực đơn', icon: Soup },
       { id: 'eat-clean' as const, label: 'Đặt món Eat Clean', icon: ShoppingBasket },
     ],
   },
@@ -332,7 +332,7 @@ const viewTitles: Partial<Record<ViewId, string>> = {
   'course-detail': 'Không gian học',
   nutrition: 'Dinh dưỡng',
   cooking: 'Vào Bếp cùng Aura',
-  'food-library': 'Thư viện món ăn',
+  'food-library': 'Thực đơn',
   'eat-clean': 'Đặt món Eat Clean',
   'trainer-portal': 'Cổng làm việc HLV',
   'staff-dashboard': 'Tổng quan Staff',
@@ -563,7 +563,7 @@ export default function AppShell({ children, mode, view, onNavigate, onModeChang
         { id: 'progress', label: 'Tiến độ', icon: BarChart3 },
         { id: 'courses', label: 'Aura Academy', icon: BookOpen },
         { id: 'cooking', label: 'Vào Bếp cùng Aura', icon: ChefHat },
-        { id: 'food-library', label: 'Thư viện món ăn', icon: Soup },
+        { id: 'food-library', label: 'Thực đơn', icon: Soup },
         { id: 'eat-clean', label: 'Eat Clean', icon: ShoppingBasket },
         { id: 'profile', label: 'Cá nhân', icon: UserRound },
         ].filter((item) => isNavigationViewVisible(item.id as ViewId) && canNavigate(item.id as ViewId)) as ShellMoreNavItem[]

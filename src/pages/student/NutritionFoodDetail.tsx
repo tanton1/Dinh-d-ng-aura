@@ -339,9 +339,9 @@ export default function NutritionFoodDetail({
   return (
     <article className={`nutrition-food-detail ${className}`.trim()} aria-labelledby="nutrition-food-title">
       <header className="nutrition-food-detail__topbar">
-        <button type="button" className="nutrition-food-detail__back" onClick={onBack} aria-label="Quay lại thư viện món ăn">
+        <button type="button" className="nutrition-food-detail__back" onClick={onBack} aria-label="Quay lại thực đơn">
           <ArrowLeft size={18} aria-hidden="true" />
-          <span>Thư viện món ăn</span>
+          <span>Thực đơn</span>
         </button>
 
         <div className="nutrition-food-detail__top-actions">
