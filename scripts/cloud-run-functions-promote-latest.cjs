@@ -100,7 +100,14 @@ async function replaceTrafficV1(project, region, name, headers, current, approve
   await request(v1Url, headers, { method: 'PUT', body: JSON.stringify(body) })
 }
 
-async function promoteLatest(project, region, name, headers, { request = requestJson, pause = sleep, expectedRevision, expectedImage, trafficApi = 'v2', stageRetired = false, log = () => {} } = {}) {
+function validatePlatformScope(names, stageRetired, platformReadinessGate) {
+  if (platformReadinessGate && (!stageRetired || names.length !== 1 || names[0].length < 44 || names[0].length > 49)) {
+    throw new Error('Platform readiness gate requires --stage-retired and exactly one long-name service.')
+  }
+}
+
+async function promoteLatest(project, region, name, headers, { request = requestJson, pause = sleep, expectedRevision, expectedImage, trafficApi = 'v2', stageRetired = false, platformReadinessGate = false, log = () => {} } = {}) {
+  validatePlatformScope([name], stageRetired, platformReadinessGate)
   if (!['v1', 'v2'].includes(trafficApi)) throw new Error('Traffic API must be v1 or v2 (--traffic-api=v1|v2).')
   const v2Url = `https://run.googleapis.com/v2/projects/${project}/locations/${region}/services/${name}`
   let current = await request(v2Url, headers)
@@ -109,7 +116,7 @@ async function promoteLatest(project, region, name, headers, { request = request
   if (!createdRevision) throw new Error(`${name} chưa có revision mới để chuyển traffic.`)
   let revision = await request(`https://run.googleapis.com/v2/${revisionResource(current)}`, headers)
   if (stageRetired && isRetired(revision)) {
-    const staged = await stageRetiredCandidate(current, revision, headers, { request, pause, expectedRevision, expectedImage, log })
+    const staged = await stageRetiredCandidate(current, revision, headers, { request, pause, expectedRevision, expectedImage, platformReadinessGate, log })
     current = staged.service
     revision = staged.revision
     expectedRevision = staged.expectedRevision
@@ -171,12 +178,15 @@ async function main() {
   const expectedRevision = argument('expected-revision', '')
   const expectedImage = argument('expected-image', '')
   const trafficApi = argument('traffic-api', 'v2')
+  const stageRetired = process.argv.includes('--stage-retired')
+  const platformReadinessGate = process.argv.includes('--platform-readiness-gate')
+  validatePlatformScope(names, stageRetired, platformReadinessGate)
   if (!['v1', 'v2'].includes(trafficApi)) throw new Error('Traffic API must be v1 or v2 (--traffic-api=v1|v2).')
   if ((expectedRevision || expectedImage) && names.length !== 1) throw new Error('Expected revision/image require exactly one service.')
   const token = await accessToken()
   const headers = { authorization: `Bearer ${token}` }
   for (const name of names) {
-    const revision = await promoteLatest(project, region, name, headers, { expectedRevision, expectedImage, trafficApi, stageRetired: process.argv.includes('--stage-retired'), log: value => console.log(JSON.stringify(value)) })
+    const revision = await promoteLatest(project, region, name, headers, { expectedRevision, expectedImage, trafficApi, stageRetired, platformReadinessGate, log: value => console.log(JSON.stringify(value)) })
     console.log(`+ ${name} -> ${revision}`)
   }
 }

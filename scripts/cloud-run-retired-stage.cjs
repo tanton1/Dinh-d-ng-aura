@@ -1,7 +1,7 @@
 'use strict'
 
 const { randomUUID } = require('node:crypto')
-const { recoveryBody, assertHealthyServingRevision } = require('./recover-function-revisions.cjs')
+const { recoveryBody, assertHealthyServingRevision, platformReadinessRevisionName, recoverWithPlatformReadiness } = require('./recover-function-revisions.cjs')
 const { shortName, assertHealthyRevision, servesRevision } = require('./cloud-run-revision-policy.cjs')
 
 function isRetired(revision) {
@@ -21,7 +21,7 @@ function assertStagingTraffic(service, previous, candidate) {
 // source nor the serving percentage changes until normal health gates pass.
 // https://docs.cloud.google.com/run/docs/rollouts-rollbacks-traffic-migration
 async function stageRetiredCandidate(current, revision, headers, {
-  request, pause, expectedRevision, expectedImage,
+  request, pause, expectedRevision, expectedImage, platformReadinessGate = false,
   nonce = randomUUID().replace(/-/g, '').slice(0, 12), log = () => {},
 } = {}) {
   const resource = current.latestCreatedRevision
@@ -40,6 +40,35 @@ async function stageRetiredCandidate(current, revision, headers, {
   if (!/^[a-z0-9]{12}$/.test(nonce)) throw new Error('A unique bounded staging nonce is required.')
   const functionName = current.template?.containers?.[0]?.env?.find(item => item.name === 'FUNCTION_TARGET')?.value
   if (!/^[A-Za-z][A-Za-z0-9]+$/.test(functionName || '')) throw new Error('Managed function entrypoint is missing.')
+  if (platformReadinessGate) {
+    // Explicit exception for names that cannot have a tagged staging URL.
+    // Reuse the recovery path's native startup gate, exact image/traffic
+    // verification and ownership-checked rollback; never retry a mutation.
+    const candidate = platformReadinessRevisionName(current.name, nonce)
+    const operationPrefix = current.name.split('/services/')[0] + '/operations/'
+    const expectedResource = `${current.name}/revisions/${candidate}`
+    const operationDone = async (initial, timeoutMs = 600_000) => {
+      const operationName = initial.name
+      if (!operationName?.startsWith(operationPrefix)) throw new Error('Unexpected platform operation identity; inspect before retrying.')
+      let operation = initial
+      for (let attempt = 0; !operation.done && attempt < Math.ceil(timeoutMs / 2500); attempt++) {
+        await pause(2500)
+        operation = await request(`https://run.googleapis.com/v2/${operationName}`, headers)
+        if (operation.name !== operationName) throw new Error('Unexpected platform operation identity; inspect before retrying.')
+      }
+      if (!operation.done) throw new Error('Platform operation still pending; inspect before retrying.')
+      if (operation.error) throw new Error('Platform startup failed; inspect the recorded operation.')
+      if (operation.response?.name !== current.name || operation.response?.latestCreatedRevision !== expectedResource) throw new Error('Platform operation did not produce the exact candidate.')
+      return operation
+    }
+    const service = await recoverWithPlatformReadiness({
+      api: (url, options) => request(url, headers, options), operationDone, record: log,
+      service: current, revision, functionName, candidateRevision: candidate,
+    })
+    const ready = await request(`https://run.googleapis.com/v2/${expectedResource}`, headers)
+    assertHealthyRevision(service, ready, { expectedRevision: candidate, expectedImage: image, requireServing: true })
+    return { service, revision: ready, expectedRevision: candidate, expectedImage: image }
+  }
   const body = recoveryBody(current, revision, functionName)
   const candidate = `${shortName(current.name)}-stg-${nonce}`
   const previous = shortName(current.latestReadyRevision)
