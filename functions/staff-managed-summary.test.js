@@ -41,3 +41,23 @@ test('contract trigger refreshes every changed assignment, including removals', 
   assert.equal(result.refreshed, 2)
   assert.deepEqual(refreshed, ['pt-old', 'pt-new'])
 })
+
+test('financial, session and alias-only edits do not rebuild unchanged counts', async () => {
+  const before = { status: 'active', trainerId: 'pt', trainerIds: ['pt'], paidAmount: 0, usedSessions: 1 }
+  const after = { ...before, trainerIds: ['pt', 'other'], paidAmount: 100000, usedSessions: 2 }
+  const refreshed = []
+  await syncStaffManagedClientSummary({ event: { data: {
+    before: { exists: true, data: () => before }, after: { exists: true, data: () => after },
+  } }, refresh: async (_db, uid) => { refreshed.push(uid) } })
+  assert.deepEqual(refreshed, ['other'])
+})
+
+test('a large assignment removal does not silently cap affected staff', async () => {
+  const ids = Array.from({ length: 35 }, (_, index) => `pt-${index}`)
+  const refreshed = []
+  await syncStaffManagedClientSummary({ event: { data: {
+    before: { exists: true, data: () => ({ status: 'active', nutritionPTIds: ids }) },
+    after: { exists: false },
+  } }, refresh: async (_db, uid) => { refreshed.push(uid) } })
+  assert.deepEqual(refreshed, ids)
+})

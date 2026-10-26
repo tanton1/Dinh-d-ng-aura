@@ -1,11 +1,17 @@
 'use strict'
 
-const { FieldPath, FieldValue } = require('firebase-admin/firestore')
+const { FieldPath, FieldValue, Timestamp } = require('firebase-admin/firestore')
 
 const activeContractStatuses = new Set(['active', 'future', 'frozen'])
 const STAFF_SUMMARY_VERSION = 2
 const STAFF_SUMMARY_MAX_AGE_MS = 6 * 60 * 60 * 1000
-const CONTRACT_QUERY_LIMIT = 750
+const CONTRACT_PAGE_SIZE = 250
+const REFRESH_VERSION = 1
+const assignmentFields = [
+  ['trainerId', '=='], ['secondaryTrainerId', '=='], ['trainerIds', 'array-contains'],
+  ['nutritionTrainerId', '=='], ['nutritionTrainerIds', 'array-contains'], ['nutritionPTIds', 'array-contains'],
+]
+const contractFields = ['status', ...assignmentFields.map(([field]) => field)]
 
 function staffIdsFromContract(contract = {}) {
   const value = contract && typeof contract === 'object' ? contract : {}
@@ -52,22 +58,73 @@ function publicStaffManagedCounts(value, now = Date.now()) {
   }
 }
 
+function staffManagedContractQueries(db, uid) {
+  // Enterprise currently plans the combined OR as a broad status scan even
+  // with assignment indexes. Separate aliases select their narrow indexes;
+  // the reader deduplicates contracts across all aliases at one source time.
+  return assignmentFields.map(([field, operation]) => db.collection('contracts')
+    .where(field, operation, uid).where('status', 'in', [...activeContractStatuses])
+    .orderBy('status').orderBy(FieldPath.documentId()))
+}
+
+async function readStaffManagedClientCounts(db, uid) {
+  // Even an empty first alias establishes the source time. Every later alias
+  // and continuation uses that same snapshot without locking source writers.
+  let sourceReadTime
+  const readSnapshot = query => db.runTransaction(transaction => transaction.get(query), { readOnly: true, readTime: sourceReadTime })
+  const seen = new Set()
+  const counts = { main: 0, secondary: 0, nutrition: 0 }
+  let contractsRead = 0, queryPages = 0
+  for (const alias of staffManagedContractQueries(db, uid)) {
+    const query = alias.select(...contractFields).limit(CONTRACT_PAGE_SIZE)
+    let page = sourceReadTime ? await readSnapshot(query) : await query.get()
+    if (!sourceReadTime) {
+      sourceReadTime = page.readTime
+      if (!(sourceReadTime instanceof Timestamp)) throw new Error('Staff summary source time is unavailable')
+    }
+    while (true) {
+      const unique = page.docs.filter(document => {
+        if (seen.has(document.id)) return false
+        seen.add(document.id)
+        return true
+      })
+      const part = managedClientCountsFromContracts(uid, unique.map(document => document.data()))
+      for (const role of Object.keys(counts)) counts[role] += part[role]
+      contractsRead += page.size
+      queryPages++
+      if (page.size < CONTRACT_PAGE_SIZE) break
+      page = await readSnapshot(query.startAfter(page.docs.at(-1)))
+    }
+  }
+  // A failed/incomplete scan throws before publishing any partial count.
+  return { counts, sourceReadTime, contractsRead, uniqueContractsRead: seen.size, queryPages }
+}
+
+function completeFencedSummary(value) {
+  return value?.schemaVersion === STAFF_SUMMARY_VERSION && value.refreshVersion === REFRESH_VERSION
+    && value.sourceReadTime instanceof Timestamp && value.truncated === false
+    && ['main', 'secondary', 'nutrition'].every(role => Number.isSafeInteger(value.managedClientCounts?.[role]) && value.managedClientCounts[role] >= 0)
+}
+
+function atLeastAsRecent(left, right) {
+  return left.seconds > right.seconds || (left.seconds === right.seconds && left.nanoseconds >= right.nanoseconds)
+}
+
 async function refreshStaffManagedClientSummary(db, uid) {
-  const fields = [
-    ['trainerId', '=='], ['secondaryTrainerId', '=='], ['trainerIds', 'array-contains'],
-    ['nutritionTrainerId', '=='], ['nutritionTrainerIds', 'array-contains'], ['nutritionPTIds', 'array-contains'],
-  ]
-  const snapshots = await Promise.all(fields.map(([field, operation]) => db.collection('contracts')
-    .where(field, operation, uid).limit(CONTRACT_QUERY_LIMIT).get()))
-  const contracts = new Map()
-  for (const snapshot of snapshots) for (const document of snapshot.docs) contracts.set(document.id, document.data() || {})
-  const counts = managedClientCountsFromContracts(uid, [...contracts.values()])
-  const truncated = snapshots.some((snapshot) => snapshot.size >= CONTRACT_QUERY_LIMIT)
-  await db.doc(`staffOperationalSummaries/${uid}`).set({
-    schemaVersion: STAFF_SUMMARY_VERSION, staffUid: uid, managedClientCounts: counts,
-    source: 'contracts', truncated, generatedAt: FieldValue.serverTimestamp(),
-  }, { merge: true })
-  return { ...counts, stale: false, truncated }
+  const { counts, sourceReadTime } = await readStaffManagedClientCounts(db, uid)
+  const reference = db.doc(`staffOperationalSummaries/${uid}`)
+  return db.runTransaction(async transaction => {
+    const current = (await transaction.get(reference)).data()
+    if (completeFencedSummary(current) && atLeastAsRecent(current.sourceReadTime, sourceReadTime)) return publicStaffManagedCounts(current)
+    // Advance the watermark even if counts are equal: an older A→B refresh
+    // must not overwrite a newer B→A result that happens to match stored A.
+    transaction.set(reference, {
+      schemaVersion: STAFF_SUMMARY_VERSION, refreshVersion: REFRESH_VERSION,
+      staffUid: uid, managedClientCounts: counts, source: 'contracts',
+      sourceReadTime, truncated: false, generatedAt: FieldValue.serverTimestamp(),
+    }, { merge: true })
+    return { ...counts, stale: false, truncated: false }
+  })
 }
 
 async function syncStaffManagedClientSummary({ db, event, staffIds: suppliedStaffIds, refresh = refreshStaffManagedClientSummary }) {
@@ -77,8 +134,8 @@ async function syncStaffManagedClientSummary({ db, event, staffIds: suppliedStaf
     .filter((uid) => JSON.stringify(managedClientCountsFromContracts(uid, [before]))
       !== JSON.stringify(managedClientCountsFromContracts(uid, [after])))
   // Process all affected staff, including removed assignments. Never silently
-  // drop IDs with slice(0, 20), or fan out six contract queries for every PT at
-  // once. Financial/usage-only updates do not need any staff-summary reads.
+  // drop IDs with slice(0, 20), or fan out refreshes for every PT at once.
+  // Financial/usage-only updates do not need any staff-summary reads.
   for (const uid of affected) await refresh(db, uid)
   return { refreshed: affected.length }
 }
@@ -94,7 +151,8 @@ async function reconcileStaffManagedClientSummaries({ db, logger = console, batc
   const summaries = page.empty ? [] : await db.getAll(...page.docs.map((item) => db.doc(`staffOperationalSummaries/${item.id}`)))
   let refreshed = 0
   for (let index = 0; index < page.docs.length; index++) {
-    if (!staffSummaryIsStale(summaries[index]?.data(), now)) continue
+    const value = summaries[index]?.data()
+    if (completeFencedSummary(value) && !staffSummaryIsStale(value, now)) continue
     await refresh(db, page.docs[index].id)
     refreshed++
   }
@@ -108,4 +166,5 @@ async function reconcileStaffManagedClientSummaries({ db, logger = console, batc
 module.exports = {
   staffIdsFromContract, managedClientCountsFromContracts, refreshStaffManagedClientSummary,
   publicStaffManagedCounts, staffSummaryIsStale, syncStaffManagedClientSummary, reconcileStaffManagedClientSummaries,
+  staffManagedContractQueries, readStaffManagedClientCounts,
 }

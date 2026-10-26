@@ -1,5 +1,12 @@
 {
   "indexes": [
+    {"collectionGroup":"contracts","queryScope":"COLLECTION","fields":[{"fieldPath":"trainerId","order":"ASCENDING"},{"fieldPath":"status","order":"ASCENDING"},{"fieldPath":"__name__","order":"ASCENDING"}]},
+    {"collectionGroup":"contracts","queryScope":"COLLECTION","fields":[{"fieldPath":"secondaryTrainerId","order":"ASCENDING"},{"fieldPath":"status","order":"ASCENDING"},{"fieldPath":"__name__","order":"ASCENDING"}]},
+    {"collectionGroup":"contracts","queryScope":"COLLECTION","fields":[{"fieldPath":"trainerIds","arrayConfig":"CONTAINS"},{"fieldPath":"status","order":"ASCENDING"},{"fieldPath":"__name__","order":"ASCENDING"}]},
+    {"collectionGroup":"contracts","queryScope":"COLLECTION","fields":[{"fieldPath":"nutritionTrainerId","order":"ASCENDING"},{"fieldPath":"status","order":"ASCENDING"},{"fieldPath":"__name__","order":"ASCENDING"}]},
+    {"collectionGroup":"contracts","queryScope":"COLLECTION","fields":[{"fieldPath":"nutritionTrainerIds","arrayConfig":"CONTAINS"},{"fieldPath":"status","order":"ASCENDING"},{"fieldPath":"__name__","order":"ASCENDING"}]},
+    {"collectionGroup":"contracts","queryScope":"COLLECTION","fields":[{"fieldPath":"nutritionPTIds","arrayConfig":"CONTAINS"},{"fieldPath":"status","order":"ASCENDING"},{"fieldPath":"__name__","order":"ASCENDING"}]},
+    {"collectionGroup":"contracts","queryScope":"COLLECTION","fields":[{"fieldPath":"status","order":"ASCENDING"},{"fieldPath":"__name__","order":"ASCENDING"}]},
     {"collectionGroup":"operationsDailyAggregatesV2","queryScope":"COLLECTION","fields":[{"fieldPath":"branchId","order":"ASCENDING"},{"fieldPath":"date","order":"ASCENDING"},{"fieldPath":"__name__","order":"ASCENDING"}]},
     {
       "collectionGroup": "users",
