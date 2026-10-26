@@ -48,21 +48,145 @@ const load = (db, scope = { unrestricted: true }) => loadDailyAggregates({ db, s
 // increment transforms and locks still run through the real Admin SDK/emulator.
 function afterSessionQuery(db, hook) {
   let fired = false
+  const fire = async () => { if (!fired) { fired = true; await hook() } }
   const wrap = query => ({
+    rawQuery: query,
     where: (...args) => wrap(query.where(...args)),
     limit: (...args) => wrap(query.limit(...args)),
     select: (...args) => wrap(query.select(...args)),
+    orderBy: (...args) => wrap(query.orderBy(...args)),
+    startAfter: (...args) => wrap(query.startAfter(...args)),
     async get() {
       const result = await query.get()
-      if (!fired) { fired = true; await hook() }
+      await fire()
       return result
     },
   })
   return {
     collection: name => name === 'sessions' ? wrap(db.collection(name)) : db.collection(name),
-    runTransaction: (...args) => db.runTransaction(...args),
+    runTransaction: (callback, options) => db.runTransaction(options?.readOnly ? transaction => callback({
+      get: async target => {
+        const result = await transaction.get(target.rawQuery || target)
+        if (target.rawQuery) await fire()
+        return result
+      },
+    }) : callback, options),
   }
 }
+
+function interceptAggregateQueries(db, hook) {
+  const receive = async (name, result) => { await hook(name, result); return result }
+  const wrap = (query, name) => ({
+    rawQuery: query, name,
+    where: (...args) => wrap(query.where(...args), name),
+    limit: (...args) => wrap(query.limit(...args), name),
+    select: (...args) => wrap(query.select(...args), name),
+    orderBy: (...args) => wrap(query.orderBy(...args), name),
+    startAfter: (...args) => wrap(query.startAfter(...args), name),
+    doc: id => query.doc(id),
+    get: async () => receive(name, await query.get()),
+  })
+  return {
+    collection: name => wrap(db.collection(name), name),
+    runTransaction: (callback, options) => db.runTransaction(options?.readOnly ? transaction => callback({
+      get: async target => {
+        const result = await transaction.get(target.rawQuery || target)
+        return target.rawQuery ? receive(target.name, result) : result
+      },
+    }) : callback, options),
+  }
+}
+
+async function seedPagedSessions(db, count) {
+  for (let offset = 0; offset < count; offset += 400) {
+    const batch = db.batch()
+    for (let index = offset; index < Math.min(count, offset + 400); index++) batch.set(db.doc('sessions/source-' + String(index).padStart(5, '0')), {
+      ...session, date: '2026-10-22', ignoredPayload: 'not a reporting input',
+    })
+    await batch.commit()
+  }
+}
+
+test('real Firestore: paginated rebuild publishes over 20000 source baselines and reconciles changes after its snapshot', { timeout: 180000 }, async t => {
+  const db = fixture(), count = 20005
+  await seedPagedSessions(db, count)
+  const pages = [], deliveries = []
+  const observed = interceptAggregateQueries(db, async (name, snapshot) => {
+    if (name !== 'sessions') return
+    pages.push(snapshot.size)
+    if (pages.length !== 1) return
+    const refs = ['source-00000', 'source-01000', 'source-01500', 'inserted-after-anchor'].map(id => db.doc('sessions/' + id))
+    const before = await db.getAll(...refs)
+    const batch = db.batch()
+    batch.update(refs[0], { date: '2026-10-23', status: 'completed' })
+    batch.update(refs[1], { date: '2026-10-21', branchId: 'branch-2' })
+    batch.delete(refs[2])
+    batch.set(refs[3], { ...session, date: '2026-10-22', branchId: 'branch-2' })
+    await batch.commit()
+    const after = await db.getAll(...refs)
+    refs.forEach((_, index) => deliveries.push({ id: randomUUID(), data: { before: before[index], after: after[index] } }))
+  })
+  const result = await rebuild(observed)
+  assert.equal(result.complete, true)
+  assert.equal(result.sourceCounts.session, count)
+  assert.equal(result.sourcePages.session, 67)
+  assert.equal(Math.max(...pages), 300)
+  assert.equal(pages.at(-1), 205)
+  assert.equal((await load(db)).totals.sessions, count)
+  assert.equal((await load(db)).totals.confirmedSessions, 0)
+  assert.deepEqual((await load(db, { branchIds: ['branch-2'] })).totals, {})
+  const coverage = (await db.doc(coveragePath).get()).data()
+  assert.ok(coverage.sourceReadTime instanceof Timestamp)
+  const baselines = await db.collection('operationsAggregateContributions').select('generation').get()
+  assert.equal(baselines.size, count)
+  assert.ok(baselines.docs.every(doc => doc.data().generation === coverage.generation))
+  for (const delivery of deliveries) {
+    await syncDailyAggregateWrite({ db, source: 'session', event: delivery, logger: quiet })
+    assert.deepEqual(await syncDailyAggregateWrite({ db, source: 'session', event: delivery, logger: quiet }), { updated: 0 })
+  }
+  assert.equal((await load(db)).totals.sessions, count)
+  assert.equal((await load(db)).totals.confirmedSessions, 1)
+  assert.equal((await load(db, { branchIds: ['branch-2'] })).totals.sessions, 2)
+  t.diagnostic(JSON.stringify({ sourceRows: count, sourcePages: result.sourcePages, maxSourcePageRows: 300, baselineDocuments: baselines.size, postSnapshotChangesReconciled: deliveries.length }))
+})
+
+test('real Firestore: continuation failure leaves partial baselines unavailable and retries recover deleted rows', async () => {
+  const db = fixture()
+  await seedPagedSessions(db, 601)
+  let pages = 0
+  const failing = interceptAggregateQueries(db, async name => { if (name === 'sessions' && ++pages === 2) throw new Error('injected continuation failure') })
+  await assert.rejects(rebuild(failing), /injected continuation failure/)
+  assert.equal((await db.doc(coveragePath).get()).data().status, 'failed')
+  assert.equal(await load(db), null)
+  assert.equal((await db.collection('operationsAggregateContributions').select().get()).size, 300)
+  const deletes = db.batch()
+  deletes.delete(db.doc('sessions/source-00000'))
+  deletes.delete(db.doc('sessions/source-00400'))
+  await deletes.commit()
+  const recovered = await rebuild(db)
+  assert.equal(recovered.sourceCounts.session, 599)
+  assert.equal((await load(db)).totals.sessions, 599)
+  assert.equal((await db.doc(coveragePath).get()).data().complete, true)
+})
+
+test('real Firestore: ownership replacement between pages prevents further contribution writes', async () => {
+  const db = fixture()
+  await seedPagedSessions(db, 601)
+  let pages = 0
+  const replaced = interceptAggregateQueries(db, async name => {
+    if (name === 'sessions' && ++pages === 2) await db.doc(coveragePath).set({
+      schemaVersion: 2, generation: 'replacement-owner', status: 'building', complete: false,
+      lockExpiresAt: Timestamp.fromMillis(Date.now() + 120000),
+    })
+  })
+  await assert.rejects(rebuild(replaced), /OWNERSHIP_LOST/)
+  const coverage = (await db.doc(coveragePath).get()).data()
+  assert.equal(coverage.generation, 'replacement-owner')
+  assert.equal(coverage.status, 'building')
+  assert.equal((await db.collection('operationsAggregateContributions').select().get()).size, 300)
+  assert.equal((await db.collection('operationsDailyAggregatesV2').select().get()).size, 0)
+  assert.equal(await load(db), null)
+})
 
 test('real Firestore: projected rebuild reads omit payloads and reuse buckets with one replacement write', async t => {
   const db = fixture()
@@ -84,9 +208,12 @@ test('real Firestore: projected rebuild reads omit payloads and reuse buckets wi
 
   const queries = [], writes = []
   const wrap = (query, name) => ({
+    rawQuery: query, name,
     where: (...args) => wrap(query.where(...args), name),
     limit: (...args) => wrap(query.limit(...args), name),
     select: (...args) => wrap(query.select(...args), name),
+    orderBy: (...args) => wrap(query.orderBy(...args), name),
+    startAfter: (...args) => wrap(query.startAfter(...args), name),
     doc: id => query.doc(id),
     async get() {
       const result = await query.get()
@@ -96,7 +223,14 @@ test('real Firestore: projected rebuild reads omit payloads and reuse buckets wi
   })
   const observed = {
     collection: name => wrap(db.collection(name), name),
-    runTransaction: async callback => {
+    runTransaction: async (callback, options) => {
+      if (options?.readOnly) return db.runTransaction(transaction => callback({
+        get: async target => {
+          const result = await transaction.get(target.rawQuery || target)
+          if (target.rawQuery) queries.push({ name: target.name, rows: result.docs.map(doc => doc.data()) })
+          return result
+        },
+      }), options)
       let committed = []
       const result = await db.runTransaction(async transaction => {
         committed = []
