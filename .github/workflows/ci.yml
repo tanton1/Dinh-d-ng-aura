@@ -91,8 +91,10 @@ jobs:
   browser:
     name: Browser (${{ matrix.project }})
     runs-on: ubuntu-latest
-    # A fresh WebKit runner can spend ~15 minutes installing OS dependencies.
-    # Leave time for the Safari suites after setup; retain Chromium's bound.
+    # Match the lockfile and reuse browser/OS dependencies across CI runs.
+    container:
+      image: mcr.microsoft.com/playwright:v1.62.1-noble@sha256:dcc5531e97840b9b5e794f2814476b21571c5124a3fca2267d73041f56e7580e
+      options: --init --ipc=host
     timeout-minutes: ${{ matrix.project == 'mobile-webkit' && 45 || 20 }}
     strategy:
       fail-fast: false
@@ -111,8 +113,21 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: Install Playwright browser
-        run: npx playwright install --with-deps ${{ matrix.browser }}
+      - name: Verify bundled Playwright browser
+        env:
+          PLAYWRIGHT_BROWSER: ${{ matrix.browser }}
+        run: |
+          node <<'NODE'
+          const assert = require('node:assert/strict')
+          const fs = require('node:fs')
+          const playwright = require('playwright')
+          assert.equal(require('playwright/package.json').version, '1.62.1',
+            'Update the pinned Playwright container when upgrading the lockfile')
+          const browser = process.env.PLAYWRIGHT_BROWSER
+          assert(['chromium', 'webkit'].includes(browser))
+          fs.accessSync(playwright[browser].executablePath(), fs.constants.X_OK)
+          console.log('Bundled ' + browser + ' executable is ready')
+          NODE
       - name: Run browser tests
         run: npm run test:e2e -- --project=${{ matrix.project }}
       - name: Test production branch scheduling workspace

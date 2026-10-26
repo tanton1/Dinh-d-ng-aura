@@ -675,8 +675,11 @@ async function contractsForStudents(db, studentIds) {
   // Load the complete bounded contract chain for each learner. A renewal that
   // starts later in the selected week is normally stored as `future`; hiding
   // it here creates an artificial gap between the source and next contract.
+  // Order by the existing equality field so Enterprise can use its learner
+  // index for multi-learner batches instead of scanning all contract payloads.
   const snapshots = await Promise.all(splitChunks(studentIds).map((ids) => db.collection('contracts')
     .where('studentId', 'in', ids)
+    .orderBy('studentId')
     .get()))
   const unique = new Map()
   snapshots.flatMap((snapshot) => snapshot.docs).forEach((item) => unique.set(item.id, { id: item.id, ...item.data() }))
@@ -728,10 +731,14 @@ async function activeSessionsForStudents(db, studentIds, week) {
 // the workspace into a project-wide sessions scan.
 async function weeklySessionsForStudents(db, studentIds, week) {
   if (!studentIds.length) return []
+  // Align with the learner/date index. Both fields already occur in filters,
+  // so ordering adds no field-existence restriction or new coverage limit.
   const snapshots = await Promise.all(splitChunks(studentIds, 30).map((ids) => db.collection('sessions')
     .where('studentId', 'in', ids)
     .where('date', '>=', week)
     .where('date', '<', nextWeek(week))
+    .orderBy('studentId')
+    .orderBy('date')
     .limit(1001)
     .get()))
   const documents = snapshots.flatMap((snapshot) => snapshot.docs)
