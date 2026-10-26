@@ -27,6 +27,9 @@ import {
   Wheat,
 } from 'lucide-react'
 import NutritionGroupIcon, { getNutritionGroupVisual } from '../../components/NutritionGroupIcon'
+import { catalogServingLabel } from '../../features/nutrition/catalogPresentation'
+import IngredientArtwork from '../../components/IngredientArtwork'
+import { getIngredientArtwork } from '../../features/nutrition/ingredientArtwork'
 import '../../styles-nutrition-detail.css'
 
 export type NutritionFoodDetailKind = 'dish' | 'food'
@@ -137,6 +140,7 @@ export interface NutritionFoodDetailProps {
   initialSaved?: boolean
   loadRecord?: (id: string) => Promise<NutritionFoodDetailRecord>
   className?: string
+  lookupOnly?: boolean
   onBack: () => void
   onAdd?: (record: NutritionFoodDetailRecord, serving: NutritionServingSelection) => void
   onSave?: (record: NutritionFoodDetailRecord, saved: boolean) => void
@@ -213,6 +217,7 @@ export default function NutritionFoodDetail({
   initialSaved = false,
   loadRecord,
   className = '',
+  lookupOnly = false,
   onBack,
   onAdd,
   onSave,
@@ -310,6 +315,9 @@ export default function NutritionFoodDetail({
   }, [energy, multiplier, record])
 
   const imageUrl = record.imageUrl || item.imageUrl
+  const artwork = isFood ? getIngredientArtwork(record.code) : null
+  const servingLabel = catalogServingLabel(record.basis?.labelVi, record.basis?.unit === 'g' ? record.basis?.amount : null)
+  const canAdjustPortion = !lookupOnly || (isFood && record.basis?.unit === 'g' && !!record.basis.amount)
   const groupVisual = getNutritionGroupVisual(record.category?.nameVi, record.kind)
   const categoryName = record.category?.nameVi || 'Chưa phân nhóm'
   const regionName = record.region?.nameVi
@@ -337,7 +345,7 @@ export default function NutritionFoodDetail({
   }
 
   return (
-    <article className={`nutrition-food-detail ${className}`.trim()} aria-labelledby="nutrition-food-title">
+    <article className={`nutrition-food-detail ${lookupOnly ? 'nutrition-food-detail--lookup' : ''} ${className}`.trim()} aria-labelledby="nutrition-food-title">
       <header className="nutrition-food-detail__topbar">
         <button type="button" className="nutrition-food-detail__back" onClick={onBack} aria-label="Quay lại thực đơn">
           <ArrowLeft size={18} aria-hidden="true" />
@@ -364,7 +372,7 @@ export default function NutritionFoodDetail({
       </header>
 
       <section className="nutrition-food-detail__hero">
-        <div className={`nutrition-food-detail__media ${!imageUrl || imageFailed ? 'is-fallback' : ''}`}>
+        <div className={`nutrition-food-detail__media ${(!imageUrl || imageFailed) && !artwork ? 'is-fallback' : ''}`}>
           {imageUrl && !imageFailed ? (
             <img
               src={imageUrl}
@@ -374,7 +382,7 @@ export default function NutritionFoodDetail({
               referrerPolicy="no-referrer"
               onError={() => setImageFailed(true)}
             />
-          ) : (
+          ) : artwork ? <IngredientArtwork artwork={artwork} name={record.nameVi} eager /> : (
             <div className="nutrition-food-detail__fallback">
               <NutritionGroupIcon categoryName={record.category?.nameVi} kind={record.kind} size={64} strokeWidth={1.35} className="nutrition-food-detail__fallback-icon" ariaLabel={`Không có ảnh; minh họa ${groupVisual.label.toLocaleLowerCase('vi')} cho ${record.nameVi}`} />
               <span>{record.category?.nameVi || (record.kind === 'dish' ? 'Món ăn Việt' : 'Thực phẩm')}</span>
@@ -385,6 +393,7 @@ export default function NutritionFoodDetail({
             {record.kind === 'dish' ? 'Món ăn' : 'Thực phẩm'}
           </span>
           {imageUrl && !imageFailed && <small>Ảnh từ nguồn dữ liệu</small>}
+          {(!imageUrl || imageFailed) && artwork && <small>Ảnh minh hoạ</small>}
         </div>
 
         <div className="nutrition-food-detail__intro">
@@ -399,14 +408,14 @@ export default function NutritionFoodDetail({
           <div className="nutrition-food-detail__metadata" aria-label="Thông tin món ăn">
             <span><Database size={15} aria-hidden="true" /> {sourcePublisher}</span>
             {regionName && <span><MapPin size={15} aria-hidden="true" /> {regionName}</span>}
-            <span><Scale size={15} aria-hidden="true" /> {record.basis?.labelVi || 'Khẩu phần theo dữ liệu nguồn'}</span>
+            {(!lookupOnly || servingLabel) && <span><Scale size={15} aria-hidden="true" /> {lookupOnly ? servingLabel : record.basis?.labelVi || 'Khẩu phần theo dữ liệu nguồn'}</span>}
           </div>
 
           <div className="nutrition-food-detail__hero-actions">
-            <button type="button" className="nutrition-food-detail__primary" onClick={() => onAdd?.(record, serving)} disabled={!onAdd || multiplier <= 0 || energy == null || protein == null || carbohydrate == null || fat == null}>
+            {!lookupOnly && <button type="button" className="nutrition-food-detail__primary" onClick={() => onAdd?.(record, serving)} disabled={!onAdd || multiplier <= 0 || energy == null || protein == null || carbohydrate == null || fat == null}>
               <Plus size={18} aria-hidden="true" />
               Ghi nhật ký
-            </button>
+            </button>}
             <button type="button" className={`nutrition-food-detail__icon-save ${saved ? 'is-saved' : ''}`} onClick={handleSave} aria-label={saved ? 'Bỏ lưu món' : 'Lưu món'} aria-pressed={saved}>
               {saved ? <BookmarkCheck size={18} aria-hidden="true" /> : <Bookmark size={18} aria-hidden="true" />}
             </button>
@@ -437,7 +446,7 @@ export default function NutritionFoodDetail({
               <div className="nutrition-food-detail__section-heading">
                 <div>
                   <span>THÀNH PHẦN CHÍNH</span>
-                  <h2 id="macro-heading">Dinh dưỡng theo {serving.label}</h2>
+                  <h2 id="macro-heading">{lookupOnly && !canAdjustPortion ? 'Dinh dưỡng tham khảo' : `Dinh dưỡng theo ${serving.label}`}</h2>
                 </div>
                 <span className="nutrition-food-detail__reference-label">Dữ liệu tham khảo</span>
               </div>
@@ -570,7 +579,7 @@ export default function NutritionFoodDetail({
         </div>
 
         <aside className="nutrition-food-detail__side" aria-label="Điều chỉnh khẩu phần và gợi ý">
-          <section className="nutrition-food-detail__portion-card">
+          {canAdjustPortion && <section className="nutrition-food-detail__portion-card">
             <div className="nutrition-food-detail__side-heading">
               <span><Scale size={18} aria-hidden="true" /></span>
               <div><small>ĐIỀU CHỈNH</small><h2>Khẩu phần của bạn</h2></div>
@@ -610,10 +619,10 @@ export default function NutritionFoodDetail({
               <small><span>0</span><span>1 khẩu phần</span><span>5</span></small>
             </label>
 
-            <button type="button" className="nutrition-food-detail__primary is-full" onClick={() => onAdd?.(record, serving)} disabled={!onAdd || multiplier <= 0 || energy == null || protein == null || carbohydrate == null || fat == null}>
+            {!lookupOnly && <button type="button" className="nutrition-food-detail__primary is-full" onClick={() => onAdd?.(record, serving)} disabled={!onAdd || multiplier <= 0 || energy == null || protein == null || carbohydrate == null || fat == null}>
               <Plus size={17} aria-hidden="true" /> Ghi nhật ký
-            </button>
-          </section>
+            </button>}
+          </section>}
 
           <section className="nutrition-food-detail__notice-card">
             <div className="nutrition-food-detail__side-heading">
@@ -623,7 +632,7 @@ export default function NutritionFoodDetail({
             <ul>
               {notices.map((notice) => <li key={notice}>{notice}</li>)}
             </ul>
-            <p><CircleAlert size={13} aria-hidden="true" /> Thông tin chỉ nhằm hỗ trợ ghi nhật ký, không thay thế tư vấn y khoa.</p>
+            <p><CircleAlert size={13} aria-hidden="true" /> Thông tin dinh dưỡng mang tính tham khảo.</p>
           </section>
 
           {!!related.length && (
@@ -659,14 +668,14 @@ export default function NutritionFoodDetail({
         </aside>
       </div>
 
-      <div className="nutrition-food-detail__mobile-actions" aria-label="Thao tác nhanh">
+      {!lookupOnly && <div className="nutrition-food-detail__mobile-actions" aria-label="Thao tác nhanh">
         <button type="button" className={saved ? 'is-saved' : ''} onClick={handleSave} aria-label={saved ? 'Bỏ lưu món' : 'Lưu món'} aria-pressed={saved}>
           {saved ? <BookmarkCheck size={19} aria-hidden="true" /> : <Bookmark size={19} aria-hidden="true" />}
         </button>
         <button type="button" className="nutrition-food-detail__primary" onClick={() => onAdd?.(record, serving)} disabled={!onAdd || multiplier <= 0 || energy == null || protein == null || carbohydrate == null || fat == null}>
           <Plus size={18} aria-hidden="true" /> Ghi nhật ký
         </button>
-      </div>
+      </div>}
     </article>
   )
 }

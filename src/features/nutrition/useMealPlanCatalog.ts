@@ -4,6 +4,7 @@ import { loadNutritionCatalogPage, resetNutritionCatalog, type NutritionCatalogP
 import { DEMO_CATALOG, DEMO_MENU_DISHES } from './demoCatalog'
 import { normalizeNutritionSearch, type MealPlanTab } from './routing'
 import type { NutritionFoodCatalogItem } from './types'
+import { uniqueCatalogItems } from './catalogPresentation'
 
 export type { MealPlanTab } from './routing'
 const PAGE_SIZE = 30
@@ -59,7 +60,7 @@ export function useMealPlanCatalog({ tab, query, category, savedOnly, savedFoodI
     setLoadingMore(false)
     if (allowDemo || initialCatalog) {
       const source = initialCatalog ?? [...DEMO_MENU_DISHES, ...DEMO_CATALOG.filter(food => food.kind === 'food')]
-      const items = source.filter(matches)
+      const items = uniqueCatalogItems(source.filter(matches))
       setResult({ key, status: allowDemo ? 'demo' : 'live', page: { ...EMPTY, items, filteredCount: items.length, categories: [...new Set(source.filter(food => food.kind === kind).map(food => food.category?.nameVi).filter((value): value is string => Boolean(value)))] } })
       return
     }
@@ -102,5 +103,5 @@ export function useMealPlanCatalog({ tab, query, category, savedOnly, savedFoodI
     }
   }
   const reload = () => { cache.current.clear(); resetNutritionCatalog(); setRetry(value => value + 1) }
-  return { ...current.page, status: current.status, loadingMore, loadMore, reload }
+  return { ...current.page, items: uniqueCatalogItems(current.page.items), status: current.status, loadingMore, loadMore, reload }
 }

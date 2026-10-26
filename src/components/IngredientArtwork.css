@@ -1,0 +1,14 @@
+.ingredient-artwork.ingredient-artwork {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  width: 100%; height: 100%; overflow: hidden; background: #fff;
+}
+.ingredient-artwork .ingredient-artwork__crop {
+  position: relative; display: block; height: 100%; aspect-ratio: 1; max-width: 100%; overflow: hidden;
+}
+.ingredient-artwork .ingredient-artwork__crop > img {
+  position: absolute; display: block; max-width: none; object-fit: fill; margin: 0;
+}
+.ingredient-artwork__error {
+  position: absolute; inset: 0; display: grid; place-items: center; color: #786d70;
+  font-size: 12px; padding: 12px; text-align: center;
+}
