@@ -11,6 +11,7 @@ const bundled = build({
   stdin: { contents: `
     export * as cashbook from './src/services/cashbookService';
     export * as finance from './src/services/financeLedgerService';
+    export * as financeIntent from './src/services/financeOperationService';
     export * as renewal from './src/services/contractRenewalService';
     export * as exercise from './src/services/exerciseCatalogService';
     export * as nutrition from './src/services/internalNutritionCatalogService';
@@ -31,7 +32,7 @@ const bundled = build({
         : args.path.endsWith('firebaseFunctions')
           ? 'export const firebaseFunctions = globalThis.routing.sg; export const firebaseStudent360Functions = globalThis.routing.east; export const firebaseRegionalReadFunctions = globalThis.routing.jakarta'
           : args.path.endsWith('/firebase')
-            ? 'export const firebaseAuth = globalThis.routing.auth'
+            ? 'export const firebaseAuth = globalThis.routing.auth; export const firebaseConfig = { projectId: "synthetic-project" }'
             : 'export const createClientCorrelationId = () => globalThis.routing.correlation(); export const reportClientIssue = (...args) => globalThis.routing.report(...args)',
     }))
   } }],
@@ -327,7 +328,7 @@ test('concurrent and repeated money reads are not cached or coalesced, including
 
 test('runtime allowlist rejects every mutation and prototype key before Firebase I/O', async () => {
   const { service, requests } = await fixture()
-  for (const name of ['recordContractPayment', 'recordRefund', 'recordCashExpense', 'transferCash', 'renewPtContract', 'saveExerciseCatalogDraft', 'publishExerciseCatalogItem', 'listReceiptVouchers', 'toString', '__proto__', 'constructor']) {
+  for (const name of ['recordContractPayment', 'recordRefund', 'manageFinanceOperation', 'recordCashExpense', 'transferCash', 'renewPtContract', 'saveExerciseCatalogDraft', 'publishExerciseCatalogItem', 'listReceiptVouchers', 'toString', '__proto__', 'constructor']) {
     await assert.rejects(service.callSecondaryRead(name, {}), (error: any) => error.code === 'functions/invalid-argument')
   }
   assert.equal(requests.length, 0)
@@ -340,7 +341,6 @@ test('actual mutation callers remain single-attempt with their existing region a
     { group: 'cashbook', name: 'transferCash', args: [{ idempotencyKey: 'operation-one' }], region: 'asia-southeast1' },
     { group: 'cashbook', name: 'approveAndPostExpenseVoucher', args: [{ voucherId: 'voucher-one', expectedRevision: 2 }], region: 'asia-southeast1' },
     { group: 'finance', name: 'recordContractPayment', args: [{ idempotencyKey: 'operation-one' }], region: 'asia-southeast1' },
-    { group: 'finance', name: 'recordRefund', args: [{ idempotencyKey: 'operation-one' }], region: 'asia-southeast1' },
     { group: 'finance', name: 'reverseContractPayment', args: ['entry-one', 'reason'], region: 'asia-southeast1' },
     { group: 'renewal', name: 'renewPtContract', args: [{ idempotencyKey: 'operation-one' }], region: 'asia-east1', wireName: 'renewPtContractRegional' },
     { group: 'loyalty', name: 'adjustLoyaltyBalance', args: [{ studentId: 'student-one', points: 10, reason: 'fixture', idempotencyKey: 'operation-one' }], region: 'asia-southeast1' },
@@ -357,6 +357,38 @@ test('actual mutation callers remain single-attempt with their existing region a
       if ('idempotencyKey' in Object(mutation.args[0])) assert.equal(requests[0].input.idempotencyKey, 'operation-one')
       if (mutation.name === 'reverseContractPayment') assert.equal(requests[0].input.idempotencyKey, 'mutation-operation-id')
     }
+  }
+})
+
+const durableOperation = { type: 'payment', payload: { contractId: 'synthetic-contract', amount: 100000, effectiveAt: '2026-10-25T12:00:00Z', paymentMethod: 'transfer', cashAccountId: 'synthetic-cash', expectedPaidAmount: 200000, idempotencyKey: 'aura-finance-v1:00000000-0000-4000-8000-000000000001' } }
+
+test('versioned finance submits and cancellations preserve identity with no retry or compatibility fallback', async () => {
+  for (const action of ['submit', 'cancel']) {
+    for (const code of ['internal', 'unavailable', 'deadline-exceeded', 'resource-exhausted', 'not-found', 'permission-denied']) {
+      const error = callableError(code), { service, requests } = await fixture({ errors: [error] })
+      await assert.rejects(service.financeIntent.manageFinanceOperation('actor-one', action, durableOperation), actual => actual === error)
+      assert.equal(requests.length, 1)
+      assert.equal(requests[0].region, 'asia-southeast1')
+      assert.equal(requests[0].name, 'manageFinanceOperation')
+      assert.deepEqual(plain(requests[0].input), { protocol: 1, ownerUid: 'actor-one', action, operation: durableOperation })
+    }
+  }
+})
+
+test('versioned finance rejects a changed owner before I/O and refuses mismatched receipts', async () => {
+  for (const uid of [null, 'different-owner']) {
+    const { service, requests } = await fixture({ uid })
+    await assert.rejects(service.financeIntent.manageFinanceOperation('actor-one', 'submit', durableOperation))
+    assert.equal(requests.length, 0)
+  }
+  const valid = { protocol: 1, idempotencyKey: durableOperation.payload.idempotencyKey, state: 'committed', receipt: { entryId: 'synthetic-entry', unchanged: false } }
+  const { service, requests } = await fixture({ response: valid })
+  assert.deepEqual(plain(await service.financeIntent.manageFinanceOperation('actor-one', 'submit', durableOperation)), valid)
+  assert.equal(requests.length, 1)
+  for (const response of [{ ...valid, idempotencyKey: 'different-key' }, { ...valid, protocol: 2 }, { ...valid, receipt: null }]) {
+    const next = await fixture({ response })
+    await assert.rejects(next.service.financeIntent.manageFinanceOperation('actor-one', 'submit', durableOperation))
+    assert.equal(next.requests.length, 1)
   }
 })
 

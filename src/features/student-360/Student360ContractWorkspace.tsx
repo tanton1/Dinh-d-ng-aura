@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle,
   CalendarClock,
@@ -27,7 +27,9 @@ import type { Student, StudentContract } from '../../types'
 import type { ViewId } from '../../types'
 import { prepareContractRenewal, type PreparedContractRenewal } from '../../services/contractRenewalService'
 import { listCashAccounts, type CashAccount } from '../../services/cashbookService'
-import { recordContractPayment, recordRefund } from '../../services/financeLedgerService'
+import { useAuth } from '../../contexts/AuthContext'
+import FinanceIntentBoundary, { FinancePendingOperations } from '../../components/admin/pt/FinanceIntentBoundary'
+import type { FinanceIntentOutcome, FinanceOperationDraft } from '../../services/financeOperationIntent'
 import { getStudent360ContractWorkspace, mutateStudent360Contract, refreshStudent360Projection } from './student360Service'
 import type {
   Student360ContractInstallment,
@@ -207,7 +209,17 @@ function formFor(workspace: Workspace, contract?: Student360ContractRecord): Con
   }
 }
 
-export default function Student360ContractWorkspace({ studentId, overview, source, isDemo, onNavigate, onChanged, onNotice }: Props) {
+export default function Student360ContractWorkspace(props: Props) {
+  const { user, profile, authzReady } = useAuth()
+  const authority = JSON.stringify([props.studentId, user?.uid, profile?.uid, profile?.role, profile?.accessRole, profile?.authzVersion, profile?.disabled, profile?.branchId, [...(profile?.positions || [])].sort(), authzReady])
+  return <ContractWorkspaceSession key={authority} {...props} />
+}
+
+function ContractWorkspaceSession({ studentId, overview, source, isDemo, onNavigate, onChanged, onNotice }: Props) {
+  const mounted = useRef(true)
+  const cashRequest = useRef(0)
+  const workspaceRequest = useRef(0)
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; cashRequest.current++; workspaceRequest.current++ } }, [])
   const [workspace, setWorkspace] = useState<Workspace | null>(null)
   const [selectedId, setSelectedId] = useState('')
   const [loading, setLoading] = useState(true)
@@ -230,21 +242,24 @@ export default function Student360ContractWorkspace({ studentId, overview, sourc
   const [paymentMethod, setPaymentMethod] = useState('transfer')
 
   const load = useCallback(async () => {
+    const sequence = ++workspaceRequest.current
     setLoading(true)
     setError('')
     try {
       const next = isDemo ? demoWorkspace(overview) : await getStudent360ContractWorkspace(studentId)
+      if (!mounted.current || sequence !== workspaceRequest.current) return
       setWorkspace(next)
       setSelectedId((current) => next.contracts.some((item) => item.id === current) ? current : next.activeContractId || next.contracts[0]?.id || '')
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Không thể tải nghiệp vụ hợp đồng.')
+      if (mounted.current && sequence === workspaceRequest.current) setError(cause instanceof Error ? cause.message : 'Không thể tải nghiệp vụ hợp đồng.')
     } finally {
-      setLoading(false)
+      if (mounted.current && sequence === workspaceRequest.current) setLoading(false)
     }
   }, [isDemo, overview, studentId])
 
   useEffect(() => { void load() }, [load])
   const selected = useMemo(() => workspace?.contracts.find((item) => item.id === selectedId) || null, [selectedId, workspace])
+  useEffect(() => { cashRequest.current++; setFinanceOpen(false); setCashAccounts([]); setCashAccountId('') }, [selectedId])
   const trainerById = useMemo(() => new Map((workspace?.trainers || []).map((item) => [item.id, item])), [workspace?.trainers])
   const selectableTrainers = useMemo(() => {
     if (!workspace || !form) return []
@@ -370,15 +385,19 @@ export default function Student360ContractWorkspace({ studentId, overview, sourc
 
   const openFinance = async () => {
     if (!workspace?.permissions.canCollectPayments) return
+    if (financeOpen) { cashRequest.current++; setFinanceOpen(false); return }
     setFinanceOpen(true)
-    if (cashAccounts.length) return
+    const sequence = ++cashRequest.current
+    setCashAccounts([])
+    setCashAccountId('')
     try {
       const result = await listCashAccounts()
+      if (!mounted.current || sequence !== cashRequest.current) return
       const allowed = result.accounts.filter((item) => item.status === 'active' && (!selected?.branchId || item.branchId === selected.branchId))
       setCashAccounts(allowed)
       setCashAccountId(allowed[0]?.id || '')
     } catch (cause) {
-      onNotice(cause instanceof Error ? cause.message : 'Không thể tải danh sách quỹ.')
+      if (mounted.current && sequence === cashRequest.current) onNotice(cause instanceof Error ? cause.message : 'Không thể tải danh sách quỹ.')
     }
   }
 
@@ -410,33 +429,31 @@ export default function Student360ContractWorkspace({ studentId, overview, sourc
       : 'Đã bổ sung quyền lợi buổi tập và lưu CRM Timeline.')
   }
 
+  const financeCompleted = async (outcome: FinanceIntentOutcome) => {
+    if (!mounted.current) return
+    setConfirmation(null)
+    setReason('')
+    if (outcome.state === 'committed') await refreshStudent360Projection(studentId).catch(() => undefined)
+    if (!mounted.current) return
+    await load()
+    if (!mounted.current) return
+    await onChanged()
+    if (mounted.current) onNotice(outcome.state === 'committed' ? 'Đã xác nhận giao dịch được ghi nhận và cập nhật thanh toán.' : 'Đã dừng yêu cầu chưa ghi nhận. Có thể mở lại biểu mẫu để tạo yêu cầu mới.')
+  }
+
+  const submitInstallment = async (submit: (draft: FinanceOperationDraft) => Promise<void>) => {
+    if (!confirmation || !selected || (confirmation.action !== 'payment' && confirmation.action !== 'refund')) return
+    if (isDemo) return onNotice('Cần đăng nhập để ghi nhận thanh toán.')
+    if (!cashAccountId) return onNotice('Hãy chọn quỹ nhận hoặc chi tiền.')
+    const installment = confirmation.installment
+    const payload = { contractId: selected.id, amount: installment.amount || 0, effectiveAt: new Date().toISOString(), paymentMethod, cashAccountId, installmentId: installment.id, expectedPaidAmount: selected.paidAmount || 0 }
+    await submit(confirmation.action === 'payment'
+      ? { type: 'payment', payload: { ...payload, note: `Thu kỳ ${installment.id} từ Học viên 360` } }
+      : { type: 'refund', payload: { ...payload, reason: reason.trim() || `Hoàn khoản thu kỳ ${installment.id} từ Học viên 360` } })
+  }
+
   const executeConfirmation = async () => {
-    if (!confirmation || !selected) return
-    if (confirmation.action === 'payment' || confirmation.action === 'refund') {
-      const installment = confirmation.installment
-      if (!cashAccountId) return onNotice('Hãy chọn quỹ nhận hoặc chi tiền.')
-      setSaving(true)
-      try {
-        if (!isDemo) {
-          if (confirmation.action === 'payment') {
-            await recordContractPayment({ contractId: selected.id, amount: installment.amount || 0, effectiveAt: new Date().toISOString(), paymentMethod, cashAccountId, installmentId: installment.id, idempotencyKey: crypto.randomUUID(), note: `Thu kỳ ${installment.id} từ Học viên 360` })
-          } else {
-            await recordRefund({ contractId: selected.id, amount: installment.amount || 0, effectiveAt: new Date().toISOString(), paymentMethod, cashAccountId, installmentId: installment.id, reason: reason.trim() || `Hoàn khoản thu kỳ ${installment.id} từ Học viên 360` })
-          }
-          await refreshStudent360Projection(studentId).catch(() => undefined)
-        }
-        setConfirmation(null)
-        setReason('')
-        await load()
-        await onChanged()
-        onNotice(confirmation.action === 'payment' ? 'Đã thu tiền và tạo phiếu thu.' : 'Đã ghi bút toán hoàn tiền và mở lại kỳ thu.')
-      } catch (cause) {
-        onNotice(cause instanceof Error ? cause.message : 'Không thể xử lý khoản thanh toán.')
-      } finally {
-        setSaving(false)
-      }
-      return
-    }
+    if (!confirmation || !selected || confirmation.action === 'payment' || confirmation.action === 'refund') return
     if (confirmation.action === 'cancel') {
       await mutate({ studentId, contractId: selected.id, expectedRevision: selected.revision, action: 'cancel', reason: reason.trim(), cancelDebt: false }, 'Đã hủy hợp đồng; công nợ cũ vẫn được giữ để đối soát.')
       return
@@ -465,6 +482,7 @@ export default function Student360ContractWorkspace({ studentId, overview, sourc
       </div>
     </section>
 
+    {selected && !isDemo && workspace.permissions.canCollectPayments && <FinancePendingOperations contractId={selected.id} describeContract={() => `${workspace.student.name} · ${selected.packageName}`} onCompleted={financeCompleted} />}
     {workspace.contracts.length > 1 && <section className="student360-contract-history-strip" aria-label="Lịch sử hợp đồng">
       {workspace.contracts.map((item) => <button type="button" key={item.id} className={selectedId === item.id ? 'active' : ''} aria-current={selectedId === item.id ? 'true' : undefined} title={`${item.packageName} · ${dateLabel(item.startDate)} → ${dateLabel(item.endDate)}`} onClick={() => setSelectedId(item.id)}><span className={`is-${item.status}`}>{statusLabel(item)}</span><strong>{item.packageName}</strong><small>{dateLabel(item.startDate)} → {dateLabel(item.endDate)}</small></button>)}
     </section>}
@@ -524,7 +542,16 @@ export default function Student360ContractWorkspace({ studentId, overview, sourc
 
     {addSessionsForm && selected && <div className="student360-dialog-layer"><button type="button" className="student360-dialog-backdrop" aria-label="Đóng" onClick={() => setAddSessionsForm(null)} /><form className="student360-dialog student360-contract-addon" onSubmit={(event) => { event.preventDefault(); void saveAddSessions() }}><header><div><small>QUYỀN LỢI BỔ SUNG</small><h2>Mua thêm buổi</h2></div><button type="button" onClick={() => setAddSessionsForm(null)}><X /></button></header><div className="student360-contract-form-grid"><label>Số buổi mua thêm<input required type="number" min="1" max="100000" value={addSessionsForm.extraSessions} onChange={(event) => setAddSessionsForm({ ...addSessionsForm, extraSessions: Number(event.target.value) })} /></label><label>Gia hạn thêm (tháng)<input required type="number" min="0" max="120" value={addSessionsForm.extraDurationMonths} onChange={(event) => setAddSessionsForm({ ...addSessionsForm, extraDurationMonths: Number(event.target.value) })} /></label><label>Giá trị phát sinh<input required type="number" min="0" value={addSessionsForm.extraPrice} onChange={(event) => setAddSessionsForm({ ...addSessionsForm, extraPrice: Number(event.target.value) })} /></label>{addSessionsForm.extraPrice > 0 && <label>Ngày hẹn thanh toán<input required type="date" min={new Date().toISOString().slice(0, 10)} value={addSessionsForm.paymentDueDate} onChange={(event) => setAddSessionsForm({ ...addSessionsForm, paymentDueDate: event.target.value })} /></label>}</div><div className="student360-contract-addon-preview"><span><small>Tổng quyền lợi mới</small><strong>{selected.totalSessions + Math.max(0, addSessionsForm.extraSessions || 0)} buổi</strong></span><span><small>Hạn sử dụng mới</small><strong>{dateLabel(addMonths(selected.endDate, Math.max(0, addSessionsForm.extraDurationMonths || 0)))}</strong></span><span><small>Giá trị hợp đồng mới</small><strong>{money.format((selected.totalPrice || 0) + Math.max(0, addSessionsForm.extraPrice || 0))}đ</strong></span></div><label>Nội dung thỏa thuận<textarea required minLength={2} maxLength={500} rows={3} value={addSessionsForm.reason} onChange={(event) => setAddSessionsForm({ ...addSessionsForm, reason: event.target.value })} placeholder="Ví dụ: mua thêm 12 buổi theo báo giá ngày…" /></label><p className="student360-contract-addon-note"><ShieldCheck /> Aura tạo khoản phải thu riêng; tiền chỉ được ghi nhận sau khi thu qua phiếu thu, không tự tăng số đã thanh toán.</p><footer><button type="button" onClick={() => setAddSessionsForm(null)}>Hủy</button><button type="submit" disabled={saving || addSessionsForm.extraSessions < 1 || addSessionsForm.reason.trim().length < 2}>{saving ? 'Đang ghi nhận…' : 'Xác nhận mua thêm'}</button></footer></form></div>}
 
-    {confirmation && <div className="student360-dialog-layer"><button type="button" className="student360-dialog-backdrop" aria-label="Đóng" onClick={() => setConfirmation(null)} /><section className="student360-dialog student360-confirm-dialog" role="alertdialog" aria-modal="true"><header><div><small>XÁC NHẬN NGHIỆP VỤ</small><h2>{confirmation.title}</h2></div><button type="button" onClick={() => setConfirmation(null)}><X /></button></header><p>{confirmation.message}</p>{(confirmation.action === 'cancel' || confirmation.action === 'refund') && <label>{confirmation.action === 'cancel' ? 'Lý do hủy' : 'Lý do hoàn tiền'}<textarea required minLength={2} rows={3} value={reason} onChange={(event) => setReason(event.target.value)} /></label>}<footer><button type="button" onClick={() => setConfirmation(null)}>Quay lại</button><button type="button" className={confirmation.action === 'cancel' ? 'is-danger' : ''} disabled={saving || ((confirmation.action === 'cancel' || confirmation.action === 'refund') && reason.trim().length < 2)} onClick={() => void executeConfirmation()}>{saving ? 'Đang xử lý…' : 'Xác nhận'}</button></footer></section></div>}
+    {confirmation && <div className="student360-dialog-layer"><button type="button" className="student360-dialog-backdrop" aria-label="Đóng" onClick={() => setConfirmation(null)} /><section className="student360-dialog student360-confirm-dialog" role="alertdialog" aria-modal="true">
+      <header><div><small>XÁC NHẬN NGHIỆP VỤ</small><h2>{confirmation.title}</h2></div><button type="button" onClick={() => setConfirmation(null)}><X /></button></header><p>{confirmation.message}</p>
+      {(confirmation.action === 'payment' || confirmation.action === 'refund') && selected ? <FinanceIntentBoundary contractId={selected.id} onCompleted={financeCompleted}>{({ blocked, busy, submit }) => <>
+        {confirmation.action === 'refund' && <label>Lý do hoàn tiền<textarea required minLength={2} rows={3} disabled={blocked || busy} value={reason} onChange={(event) => setReason(event.target.value)} /></label>}
+        <footer><button type="button" onClick={() => setConfirmation(null)}>Quay lại</button><button type="button" disabled={blocked || busy || !cashAccountId || (confirmation.action === 'refund' && reason.trim().length < 2)} onClick={() => void submitInstallment(submit)}>{busy ? 'Đang xử lý…' : 'Xác nhận'}</button></footer>
+      </>}</FinanceIntentBoundary> : <>
+        {confirmation.action === 'cancel' && <label>Lý do hủy<textarea required minLength={2} rows={3} value={reason} onChange={(event) => setReason(event.target.value)} /></label>}
+        <footer><button type="button" onClick={() => setConfirmation(null)}>Quay lại</button><button type="button" className={confirmation.action === 'cancel' ? 'is-danger' : ''} disabled={saving || (confirmation.action === 'cancel' && reason.trim().length < 2)} onClick={() => void executeConfirmation()}>{saving ? 'Đang xử lý…' : 'Xác nhận'}</button></footer>
+      </>}
+    </section></div>}
 
     {createChoiceOpen && <div className="student360-dialog-layer"><button type="button" className="student360-dialog-backdrop" aria-label="Đóng lựa chọn hợp đồng" onClick={() => !preparingRenewal && setCreateChoiceOpen(false)} /><section className="student360-dialog" role="dialog" aria-modal="true" aria-labelledby="renewal-choice-title">
       <header><div><small>HỢP ĐỒNG TIẾP THEO</small><h2 id="renewal-choice-title">{waitingContract ? 'Đã có hợp đồng chờ nối tiếp' : 'Tạo hợp đồng nối tiếp'}</h2></div><button type="button" disabled={preparingRenewal} onClick={() => setCreateChoiceOpen(false)} aria-label="Đóng"><X /></button></header>

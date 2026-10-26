@@ -195,7 +195,17 @@ test('editing commercial terms replaces the invalidated quote before confirmatio
 })
 
 test('Student 360 suggests a linked continuation before opening an independent contract form', async ({ page }) => {
+  const pageErrors: string[] = []
+  page.on('pageerror', error => pageErrors.push(error.message))
   await mockRenewals(page)
+  // The isolated workspace now fences asynchronous responses by its auth
+  // context. Supply a demo owner without opening a real Firebase session.
+  await page.route('**/src/contexts/AuthContext.tsx*', route => route.fulfill({ contentType: 'application/javascript', body: `
+    export const useAuth = () => ({
+      user: { uid: 'renewal-demo-admin' }, profile: { uid: 'renewal-demo-admin', role: 'admin', authzVersion: 1 },
+      authzReady: true, backendMode: 'demo', hasCapability: () => true,
+    });
+  ` }))
   await page.goto('/tests/e2e/fixtures/contract-renewal.html?workspace=1')
   await page.getByRole('button', { name: 'Tạo hợp đồng', exact: true }).click()
   const choice = page.getByRole('dialog', { name: 'Tạo hợp đồng nối tiếp' })
@@ -204,6 +214,7 @@ test('Student 360 suggests a linked continuation before opening an independent c
   await expect(choice.getByRole('button', { name: 'Tiếp tục nối tiếp' })).toBeVisible()
   await choice.getByRole('button', { name: 'Tạo hợp đồng độc lập' }).click()
   await expect(page.getByRole('heading', { name: 'Tạo hợp đồng mới' })).toBeVisible()
+  expect(pageErrors).toEqual([])
 })
 
 test('real renewal service routes confirmation only to Taiwan and preserves the retry identity after a lost response', async ({ page }) => {

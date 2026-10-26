@@ -1,0 +1,43 @@
+.finance-intent-panel {
+  min-width: 0;
+  margin: 12px 0;
+  padding: 14px;
+  border: 1px solid #efd7b6;
+  border-radius: 16px;
+  background: #fffaf3;
+  color: #633e22;
+  font-size: 14px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.finance-intent-panel > strong { display: block; color: #52301a; font-size: 14px; }
+.finance-intent-panel > p { margin: 8px 0 0; color: #70533e; }
+.finance-intent-panel > .finance-intent-amount { color: #442b1c; font-size: 22px; font-weight: 800; }
+.finance-intent-panel > .finance-intent-note { font-size: 12px; line-height: 1.5; }
+.finance-intent-actions, .finance-intent-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.finance-intent-row { align-items: center; justify-content: space-between; }
+.finance-intent-row > span { flex: 1 1 220px; min-width: 0; }
+.finance-intent-button {
+  appearance: none;
+  min-height: 44px;
+  max-width: 100%;
+  padding: 10px 14px;
+  border: 1px solid #dfbfa5;
+  border-radius: 12px;
+  background: #fff;
+  color: #704723;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 750;
+  line-height: 1.4;
+  cursor: pointer;
+}
+.finance-intent-button--primary { border-color: transparent; background: linear-gradient(110deg, #ec2c76, #f46c48); color: #fff; }
+.finance-intent-button:disabled { cursor: default; opacity: .55; }
+.finance-intent-button:focus-visible { outline: 3px solid #b82764; outline-offset: 3px; }
+.finance-intent-error, .finance-intent-status { margin: 12px 0; color: #70533e; font-size: 13px; line-height: 1.5; }
+.finance-intent-error { padding: 12px 14px; border: 1px solid #f0ced8; border-radius: 12px; background: #fff4f7; color: #9b3158; }
+.finance-payment-fields { min-width: 0; margin: 0; padding: 0; border: 0; }
+@media (max-width: 480px) {
+  .finance-intent-actions > button { flex: 1 1 100%; }
+}

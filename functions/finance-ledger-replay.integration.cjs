@@ -15,7 +15,7 @@ after(async () => {
   await deleteApp(app)
 })
 
-async function fixture() {
+async function fixture({ beforeTransaction = async () => {} } = {}) {
   const db = getFirestore(app, `finance-replay-${randomUUID()}`)
   databases.push(db)
   const batch = db.batch()
@@ -30,7 +30,7 @@ async function fixture() {
   const reads = []
   const observedDb = {
     doc: path => db.doc(path), collection: name => db.collection(name),
-    runTransaction: callback => db.runTransaction(transaction => callback(new Proxy(transaction, {
+    runTransaction: async callback => { await beforeTransaction(); return db.runTransaction(transaction => callback(new Proxy(transaction, {
       get(target, name) {
         if (name === 'get') return async reference => {
           const result = await target.get(reference)
@@ -40,11 +40,12 @@ async function fixture() {
         const value = target[name]
         return typeof value === 'function' ? value.bind(target) : value
       },
-    }))),
+    }))) },
   }
   const handlers = createFinanceLedgerFunctions({ db: observedDb, onCall: handler => handler })
   const input = { contractId: 'example', amount: 100000, effectiveAt: '2026-10-25T12:00:00Z', paymentMethod: 'transfer', cashAccountId: 'example', note: 'Synthetic collection', reason: 'Synthetic refund' }
   const call = (name, key, patch = {}, uid = 'admin') => handlers[name]({ auth: { uid, token: { role: uid === 'student' ? 'student' : 'admin' } }, data: { ...input, ...patch, idempotencyKey: key } })
+  const intent = (action, type, key, patch = {}, uid = 'admin', protocol = 1, ownerUid = uid) => handlers.manageFinanceOperation({ auth: { uid, token: { role: uid === 'student' ? 'student' : 'admin' } }, data: { protocol, ownerUid, action, operation: { type, payload: { ...input, expectedPaidAmount: 400000, ...patch, idempotencyKey: key } } } })
   const inspect = async () => {
     const [contract, cash, ledger, movements, journals, vouchers, commissions] = await Promise.all([
       db.doc('contracts/example').get(), db.doc('cashAccounts/example').get(),
@@ -52,10 +53,151 @@ async function fixture() {
     ])
     return { paid: contract.data().paidAmount, cash: cash.data().balance, ledger: ledger.size, movements: movements.size, journals: journals.size, vouchers: vouchers.size, commissions: commissions.size }
   }
-  return { db, input, call, inspect, reads }
+  return { db, input, call, intent, inspect, reads }
 }
 const mismatch = error => error.code === 'already-exists' && error.details?.reason === 'finance-replay-mismatch'
 const changedBalance = error => error.code === 'failed-precondition' && error.details?.reason === 'finance-balance-changed'
+const intentKey = () => `aura-finance-v1:${randomUUID()}`
+
+for (const type of ['payment', 'refund']) {
+  test(`real Firestore: durable ${type} recovers a committed response without another financial effect`, async () => {
+    const f = await fixture(), key = intentKey()
+    const original = await f.intent('submit', type, key)
+    assert.equal(original.state, 'committed')
+    const before = await f.inspect()
+    await f.db.doc('financePeriods/2026-10').set({ status: 'locked' })
+    await f.db.doc('cashAccounts/example').update({ status: 'inactive' })
+    f.reads.length = 0
+    const retry = await f.intent('submit', type, key)
+    assert.equal(retry.state, 'committed')
+    assert.equal(retry.receipt.entryId, original.receipt.entryId)
+    assert.equal(retry.receipt.unchanged, true)
+    assert.equal(f.reads.length, 2)
+    assert.equal(f.reads.filter(row => row.query).length, 0)
+    assert.deepEqual(await f.inspect(), before)
+    assert.equal((await f.db.collection('financeOperationCancellations').get()).size, 0)
+  })
+
+  test(`real Firestore: cancelling ${type} before submit permanently prevents that operation`, async () => {
+    const f = await fixture(), key = intentKey(), before = await f.inspect()
+    const cancelled = await f.intent('cancel', type, key)
+    assert.deepEqual(cancelled, { protocol: 1, idempotencyKey: key, state: 'cancelled' })
+    assert.deepEqual(await f.intent('submit', type, key), cancelled)
+    assert.deepEqual(await f.intent('cancel', type, key), cancelled)
+    assert.deepEqual(await f.inspect(), before)
+    assert.equal((await f.db.collection('financeOperationCancellations').get()).size, 1)
+    await assert.rejects(f.intent('submit', type, key, { amount: 200000 }), mismatch)
+    await assert.rejects(f.intent('cancel', type, key, {}, 'other'), mismatch)
+    assert.equal((await f.intent('submit', type, intentKey())).state, 'committed')
+  })
+
+  test(`real Firestore: cancelling committed ${type} reports its receipt, never reverses it`, async () => {
+    const f = await fixture(), key = intentKey()
+    const submitted = await f.intent('submit', type, key), before = await f.inspect()
+    const result = await f.intent('cancel', type, key)
+    assert.equal(result.state, 'committed')
+    assert.equal(result.receipt.entryId, submitted.receipt.entryId)
+    assert.deepEqual(await f.inspect(), before)
+    assert.equal((await f.db.collection('financeOperationCancellations').get()).size, 0)
+    await assert.rejects(f.intent('cancel', type, key, { cashAccountId: 'other' }), mismatch)
+  })
+
+  test(`real Firestore: simultaneous ${type} and cancellation agree on one terminal outcome`, async () => {
+    const f = await fixture(), key = intentKey(), before = await f.inspect()
+    const [submit, cancel, replay] = await Promise.all([f.intent('submit', type, key), f.intent('cancel', type, key), f.intent('submit', type, key)])
+    assert.equal(submit.state, cancel.state)
+    assert.equal(submit.state, replay.state)
+    const after = await f.inspect()
+    if (submit.state === 'cancelled') assert.deepEqual(after, before)
+    else {
+      assert.equal(after.ledger, 1)
+      assert.equal(after.movements, 1)
+      assert.equal(after.journals, 1)
+      assert.equal(after.paid, before.paid + (type === 'payment' ? 100000 : -100000))
+      assert.equal(submit.receipt.entryId, cancel.receipt.entryId)
+    }
+    assert.equal((await f.db.collection('financeOperationCancellations').get()).size, submit.state === 'cancelled' ? 1 : 0)
+  })
+}
+
+test('real Firestore: an earlier delayed request cannot commit after cancellation returns', async () => {
+  let release, entered, count = 0
+  const pending = new Promise(resolve => { release = resolve })
+  const started = new Promise(resolve => { entered = resolve })
+  const f = await fixture({ beforeTransaction: async () => { if (++count === 1) { entered(); await pending } } }), key = intentKey()
+  const before = await f.inspect(), delayed = f.intent('submit', 'payment', key)
+  await started
+  try { assert.equal((await f.intent('cancel', 'payment', key)).state, 'cancelled') }
+  finally { release() }
+  assert.equal((await delayed).state, 'cancelled')
+  assert.deepEqual(await f.inspect(), before)
+})
+
+test('real Firestore: a stale failed attempt remains recoverable and can be durably cancelled', async () => {
+  const f = await fixture(), key = intentKey()
+  await f.db.doc('contracts/example').update({ paidAmount: 500000 })
+  await assert.rejects(f.intent('submit', 'payment', key), changedBalance)
+  const before = await f.inspect()
+  assert.equal((await f.intent('cancel', 'payment', key)).state, 'cancelled')
+  await f.db.doc('contracts/example').update({ paidAmount: 400000 })
+  assert.equal((await f.intent('submit', 'payment', key)).state, 'cancelled', 'change-and-revert must not revive a cancelled attempt')
+  assert.equal((await f.inspect()).ledger, before.ledger)
+})
+
+test('real Firestore: durable reversal cancellation and replay retain the original payment', async () => {
+  const f = await fixture()
+  const original = await f.call('recordContractPayment', randomUUID()), stopped = intentKey()
+  const patch = { entryId: original.entryId, reason: 'Synthetic reversal' }, before = await f.inspect()
+  assert.equal((await f.intent('cancel', 'reversal', stopped, patch)).state, 'cancelled')
+  assert.equal((await f.intent('submit', 'reversal', stopped, patch)).state, 'cancelled')
+  assert.deepEqual(await f.inspect(), before)
+  const key = intentKey(), posted = await f.intent('submit', 'reversal', key, patch)
+  assert.equal(posted.state, 'committed')
+  const after = await f.inspect()
+  assert.equal(after.ledger, 2)
+  assert.equal(after.movements, 2)
+  assert.equal(after.paid, 400000)
+  assert.equal((await f.intent('cancel', 'reversal', key, patch)).receipt.entryId, posted.receipt.entryId)
+  assert.equal((await f.intent('submit', 'reversal', key, patch)).receipt.entryId, posted.receipt.entryId)
+  assert.deepEqual(await f.inspect(), after)
+})
+
+test('real Firestore: cancelled intent binds every payment field, type and authority', async () => {
+  const f = await fixture(), key = intentKey()
+  await f.intent('cancel', 'payment', key)
+  for (const patch of [{ contractId: 'other' }, { amount: 50000 }, { effectiveAt: '2026-10-25T12:00:01Z' }, { paymentMethod: 'cash' }, { cashAccountId: 'other' }, { installmentId: 'i' }, { note: 'Changed' }, { expectedPaidAmount: 500000 }]) {
+    await assert.rejects(f.intent('cancel', 'payment', key, patch), mismatch)
+  }
+  await assert.rejects(f.intent('submit', 'refund', key), mismatch)
+  await assert.rejects(f.intent('cancel', 'payment', key, {}, 'student'), error => error.code === 'permission-denied')
+  await f.db.doc('users/admin').update({ disabled: true })
+  await assert.rejects(f.intent('cancel', 'payment', key), error => error.code === 'permission-denied')
+  assert.equal((await f.inspect()).ledger, 0)
+})
+
+test('real Firestore: versioned intents never fall through legacy mutations or unknown actions', async () => {
+  const f = await fixture(), key = intentKey(), before = await f.inspect()
+  for (const name of ['recordContractPayment', 'recordRefund', 'reverseContractPayment']) await assert.rejects(async () => f.call(name, key), error => error.code === 'failed-precondition')
+  for (const action of ['discard', '', undefined]) await assert.rejects(f.intent(action, 'payment', key), error => error.code === 'invalid-argument')
+  await assert.rejects(f.intent('submit', 'payment', key, {}, 'admin', 2), error => error.code === 'invalid-argument')
+  await assert.rejects(f.intent('submit', 'payment', randomUUID()), error => error.code === 'invalid-argument')
+  await assert.rejects(f.intent('submit', 'payment', key, { expectedPaidAmount: undefined }), error => error.code === 'invalid-argument')
+  await assert.rejects(f.intent('submit', 'payment', key, {}, 'other', 1, 'admin'), error => error.details?.reason === 'finance-owner-changed')
+  for (const type of ['payment', 'refund']) {
+    await assert.rejects(f.intent('submit', type, key, { cashAccountId: '' }), error => error.code === 'invalid-argument')
+    await assert.rejects(f.call(type === 'payment' ? 'recordContractPayment' : 'recordRefund', randomUUID(), { cashAccountId: '' }), error => error.code === 'invalid-argument')
+  }
+  assert.deepEqual(await f.inspect(), before)
+  assert.equal((await f.db.collection('financeOperationCancellations').get()).size, 0)
+})
+
+test('real Firestore: committed durable receipt remains recoverable after source deletion', async () => {
+  const f = await fixture(), key = intentKey(), posted = await f.intent('submit', 'payment', key)
+  await f.db.doc('contracts/example').delete()
+  assert.equal((await f.intent('submit', 'payment', key)).receipt.entryId, posted.receipt.entryId)
+  assert.equal((await f.intent('cancel', 'payment', key)).receipt.entryId, posted.receipt.entryId)
+  assert.equal((await f.db.collection('ledgerEntries').get()).size, 1)
+})
 
 for (const name of ['recordContractPayment', 'recordRefund']) {
   const sign = name === 'recordContractPayment' ? 1 : -1

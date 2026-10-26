@@ -147,7 +147,7 @@ test('finance mutations guard locked periods and keep installment state in the l
 })
 
 test('selected cash accounts move balances in the same immutable ledger transaction', () => {
-  assert.match(ledgerSource, /const cashAccountId = text\(request\.data\?\.cashAccountId, 'Tài khoản quỹ', 200\)/)
+  assert.match(ledgerSource, /cashAccountId: text\(input\?\.cashAccountId, 'Tài khoản quỹ', 200\)/)
   assert.match(ledgerSource, /cashAccountForMovement\(transaction, db, cashAccountId, amount\)/)
   assert.match(ledgerSource, /createCashMovement\(transaction, db, ledgerReference, cashAccount, amount/)
   assert.match(ledgerSource, /FieldValue\.increment\(signedAmount\)/)
