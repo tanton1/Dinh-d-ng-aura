@@ -1,4 +1,5 @@
 import React from 'react'
+import { KCAL_CATALOG_TITLE } from '../../features/nutrition/catalogLabels'
 import { lazyWithRetry } from '../../components/ChunkErrorBoundary'
 import { MEAL_TYPE_LABELS, formatNumber, clampPercent } from '../../features/nutrition/presentation'
 import {
@@ -150,7 +151,7 @@ const LEGACY_SECTION_ITEMS: Array<{
 }> = [
   { id: 'today', label: 'Hôm nay', icon: Salad },
   { id: 'diary', label: 'Nhật ký', icon: CalendarDays },
-  { id: 'plan', label: 'Thực đơn', icon: ShoppingBasket },
+  { id: 'plan', label: KCAL_CATALOG_TITLE, icon: ShoppingBasket },
   { id: 'insights', label: 'Tiến độ', icon: BarChart3 },
 ]
 
@@ -585,7 +586,7 @@ function NutritionWorkspace({
           {activeSection === 'classic-diary' && <NutritionClassicDiaryPage {...diary} />}
           {activeSection === 'plan' && (legacyPlanContent ?? <NutritionPlanPage {...plan} />)}
           {activeSection === 'menu' && menu && <NutritionMenuPage {...menu} />}
-          {v4 && activeSection === 'explore' && <section className="nutrition-explore" aria-labelledby="nutrition-explore-title"><header><small>KHÁM PHÁ DINH DƯỠNG</small><h2 id="nutrition-explore-title">Tìm món và hiểu tiến độ</h2><p>Các công cụ tham khảo được gom tại đây để phần Hôm nay luôn tập trung vào việc cần làm.</p></header><div><button type="button" onClick={() => { window.location.hash = '#/food-library' }}><span><Database size={21} /></span><strong>Thực đơn</strong><small>Tìm món theo khẩu phần và macro</small><ChevronRight size={18} /></button><button type="button" onClick={() => { window.location.hash = '#/food-library?saved=1' }}><span><Salad size={21} /></span><strong>Món đã lưu</strong><small>Mở nhanh món bạn dùng thường xuyên</small><ChevronRight size={18} /></button><button type="button" onClick={() => { window.location.hash = '#/progress' }}><span><BarChart3 size={21} /></span><strong>Tiến độ</strong><small>Mở hành trình cơ thể và thói quen</small><ChevronRight size={18} /></button>{onOpenEatClean && <button type="button" onClick={onOpenEatClean}><span><ShoppingBasket size={21} /></span><strong>Eat Clean</strong><small>Chọn món phù hợp mục tiêu hôm nay</small><ChevronRight size={18} /></button>}</div></section>}
+          {v4 && activeSection === 'explore' && <section className="nutrition-explore" aria-labelledby="nutrition-explore-title"><header><small>KHÁM PHÁ DINH DƯỠNG</small><h2 id="nutrition-explore-title">Tìm món và hiểu tiến độ</h2><p>Các công cụ tham khảo được gom tại đây để phần Hôm nay luôn tập trung vào việc cần làm.</p></header><div><button type="button" onClick={() => { window.location.hash = '#/food-library' }}><span><Database size={21} /></span><strong>{KCAL_CATALOG_TITLE}</strong><small>Tra cứu món ăn và nguyên liệu</small><ChevronRight size={18} /></button><button type="button" onClick={() => { window.location.hash = '#/food-library?saved=1' }}><span><Salad size={21} /></span><strong>Món đã lưu</strong><small>Mở nhanh món bạn dùng thường xuyên</small><ChevronRight size={18} /></button><button type="button" onClick={() => { window.location.hash = '#/progress' }}><span><BarChart3 size={21} /></span><strong>Tiến độ</strong><small>Mở hành trình cơ thể và thói quen</small><ChevronRight size={18} /></button>{onOpenEatClean && <button type="button" onClick={onOpenEatClean}><span><ShoppingBasket size={21} /></span><strong>Eat Clean</strong><small>Chọn món phù hợp mục tiêu hôm nay</small><ChevronRight size={18} /></button>}</div></section>}
           {activeSection === 'insights' && <section className="nutrition-explore" aria-labelledby="nutrition-progress-link-title"><header><h2 id="nutrition-progress-link-title">Tiến độ đã có trang riêng</h2><p>Ảnh, số đo, xu hướng và Aura Club được gom trong một hành trình thống nhất.</p></header><div><button type="button" onClick={() => { window.location.hash = '#/progress' }}><span><BarChart3 size={21} /></span><strong>Mở trang Tiến độ</strong><small>Không tải lại dữ liệu dinh dưỡng trùng lặp</small><ChevronRight size={18} /></button></div></section>}
         </>}
       </div>
