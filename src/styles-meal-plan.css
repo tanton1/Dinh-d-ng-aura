@@ -1006,7 +1006,7 @@
 }
 
 .meal-plan-live-section {
-  padding: 24px 20px 0;
+  padding: 4px 20px 0;
 }
 
 .meal-plan-live-heading,
@@ -1156,7 +1156,7 @@
   -webkit-line-clamp: 2;
 }
 
-.meal-plan-live-card__title-row > button:last-child {
+.meal-plan-live-card__save {
   display: grid;
   place-items: center;
   width: 34px;
@@ -1170,11 +1170,11 @@
   cursor: pointer;
 }
 
-.meal-plan-live-card__title-row > button.is-saved {
+.meal-plan-live-card__save.is-saved {
   color: #f12f6f;
 }
 
-.meal-plan-live-card__title-row > button.is-saved svg {
+.meal-plan-live-card__save.is-saved svg {
   fill: currentColor;
 }
 
@@ -1973,12 +1973,12 @@
 .meal-plan-day-meal__image img { object-fit: cover; object-position: center; }
 .meal-plan-live-heading { flex-wrap: wrap; }
 .meal-plan-live-heading > div:first-child { flex: 1 1 auto; }
-.meal-plan-live-heading > .meal-plan-display-toggle { margin-left: auto; }
+.meal-plan-live-heading > .meal-plan-display-toggle { display: none; margin-left: auto; }
 
 @media (max-width: 560px) {
   .meal-plan-quick-filters { margin-inline: 14px; }
   .meal-plan-live-section { padding-inline: 0; }
-  .meal-plan-display-toggle { display: inline-flex; }
+  .meal-plan-live-heading > .meal-plan-display-toggle { display: inline-flex; }
   .meal-plan-live-heading { padding-inline: 14px; }
   .meal-plan-live-grid { padding-inline: 8px; }
   .meal-plan-live-grid--mobile-1 { grid-template-columns: 1fr; }
@@ -1992,6 +1992,71 @@
 @media (max-width: 360px) {
   .meal-plan-live-grid { padding-inline: 6px; gap: 8px; }
   .meal-plan-live-card__body { padding: 9px; }
-  .meal-plan-live-card__title-row > button:last-child { width: 30px; height: 30px; flex-basis: 30px; }
+  .meal-plan-live-card__save { width: 44px; height: 44px; }
   .meal-plan-display-toggle > button { padding-inline: 6px; }
+}
+
+/* The original menu now lives on its own route, with the same image cards. */
+.nutrition-page--menu { padding: 0; min-width: 0; }
+.meal-plan-page-container--connected { background: #fff; }
+.meal-plan-shell--connected { box-shadow: none; }
+.meal-plan-header--connected { position: static; padding-top: 20px; background: #fff; }
+.meal-plan-header--connected .meal-plan-header__title {
+  color: #d92568; background: none; -webkit-text-fill-color: currentColor;
+  font-size: 28px; letter-spacing: -.6px;
+}
+.meal-plan-header--connected .meal-plan-header__subtitle { font-size: 13px; line-height: 1.5; color: #71656a; }
+.meal-plan-header--connected .meal-plan-tabs { grid-template-columns: 1fr 1fr 1.35fr; margin-top: 16px; }
+.meal-plan-header--connected .meal-plan-tab-btn { min-height: 44px; padding: 8px 4px 12px; font-size: 14px; }
+.meal-plan-main { margin-top: 14px; }
+.meal-plan-search-input-wrapper { min-width: 0; min-height: 46px; border-radius: 14px; padding: 0 12px; box-shadow: none; }
+.meal-plan-search-input-wrapper > svg { flex-shrink: 0; }
+.meal-plan-search-input-wrapper > button { min-width: 44px; min-height: 44px; border: 0; background: transparent; }
+.meal-plan-search-input { min-width: 0; font-size: 16px; }
+.meal-plan-filter-trigger { min-height: 46px; flex-shrink: 0; border-radius: 14px; }
+.meal-plan-filter-trigger > svg { flex-shrink: 0; }
+.meal-plan-quick-filters { margin-top: 8px; }
+.meal-plan-quick-filters > button { min-height: 44px; font-size: 12px; }
+.meal-plan-quick-filters > span { display: none; }
+.meal-plan-live-heading { gap: 12px; margin-block: 12px; }
+.meal-plan-live-heading > div:first-child { flex: 1; min-width: 0; }
+.meal-plan-live-heading h2 { font-size: 17px; }
+.meal-plan-live-heading p { font-size: 12px; line-height: 1.4; }
+.meal-plan-display-toggle { padding: 0; gap: 0; }
+.meal-plan-display-toggle > button { min-height: 44px; min-width: 44px; font-size: 12px; }
+.meal-plan-live-card { display: flex; flex-direction: column; box-shadow: none; }
+.meal-plan-live-card__media { position: relative; }
+.meal-plan-live-card__save { position: absolute; top: 8px; right: 8px; width: 44px; height: 44px; margin: 0; background: rgba(255,255,255,.95); box-shadow: 0 1px 5px #0000000a; }
+.meal-plan-live-card__body { display: flex; flex: 1; flex-direction: column; align-items: flex-start; }
+.meal-plan-live-card__title-row { width: 100%; min-height: 44px; }
+.meal-plan-live-card__title-row > button:first-child { min-height: 44px; }
+.meal-plan-live-card__body > p { font-size: 12px; }
+.meal-plan-live-card__body > small { max-width: 100%; margin-bottom: 8px; color: #74686d; font-size: 12px; }
+.meal-plan-live-card__log {
+  width: auto; max-width: 100%; min-height: 44px; margin: auto 0 0 auto;
+  padding: 0 10px; border: 1px solid #efd3de; border-radius: 11px;
+  color: #b71f55; background: #fff1f6; font-size: 12px; font-weight: 700;
+  white-space: nowrap;
+}
+.meal-plan-live-card__log svg { flex-shrink: 0; }
+.meal-plan-page-container--connected button:focus-visible,
+.meal-plan-page-container--connected input:focus-visible,
+.meal-plan-page-container--connected select:focus-visible { outline: 2px solid #c92360; outline-offset: 3px; }
+.meal-plan-day-meal__actions button { min-height: 44px; }
+.meal-plan-catalog-error { color: #a52a45; font-size: 14px; }
+@media (max-width: 560px) {
+  .meal-plan-header--connected { padding: 16px 14px 0; }
+  .meal-plan-header--connected .meal-plan-header__title { font-size: 24px; }
+  .meal-plan-header--connected .meal-plan-tab-btn { font-size: 13px; }
+  .meal-plan-filter-trigger { width: 46px; min-width: 46px; padding: 0; justify-content: center; color: #4c4446; }
+  .meal-plan-filter-trigger span { display: none; }
+  .meal-plan-live-heading { flex-wrap: nowrap; gap: 8px; }
+  .meal-plan-live-grid { padding-inline: 12px; gap: 10px; }
+  .meal-plan-live-card__visual { aspect-ratio: 4 / 3; }
+  .meal-plan-live-card__visual em { left: 6px; bottom: 6px; max-width: calc(100% - 12px); padding-inline: 7px; }
+  .meal-plan-live-card__body { padding: 10px; }
+  .meal-plan-live-card__body > small { display: block; font-size: 11px; }
+  .meal-plan-live-card__title-row > button:first-child { font-size: 14px; }
+  .meal-plan-live-card__body > p span { display: inline; }
+  .meal-plan-live-card__body > p span:last-child { display: none; }
 }

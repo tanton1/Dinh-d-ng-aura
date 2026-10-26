@@ -1,5 +1,20 @@
 import type { NutritionWorkspaceSection } from '../../pages/student/NutritionWorkspace'
 
+export type MealPlanTab = 'recipes' | 'ingredients' | 'plan'
+
+export function foodLibraryTabFromHash(): MealPlanTab {
+  const tab = new URLSearchParams(window.location.hash.split('?')[1] ?? '').get('tab')
+  return tab === 'ingredients' || tab === 'plan' ? tab : 'recipes'
+}
+
+export function foodLibraryHash(tab: MealPlanTab = 'recipes', saved = false, foodId?: string) {
+  const params = new URLSearchParams()
+  if (tab !== 'recipes') params.set('tab', tab)
+  if (saved) params.set('saved', '1')
+  if (foodId) params.set('foodId', foodId)
+  return `#/food-library${params.size ? `?${params}` : ''}`
+}
+
 export type NutritionRouteSection = 'today' | 'diary' | 'classic-diary' | 'scan' | 'catalog' | 'plan' | 'menu' | 'explore' | 'insights' | 'assistant' | 'profile'
 export type NutritionPrimarySection = Extract<NutritionRouteSection, NutritionWorkspaceSection>
 export type NutritionAssistantIntent = 'hydration' | 'protein' | 'carbs' | 'fat' | 'fiber' | 'sugar' | 'sodium' | 'workout' | 'allergy' | 'next-meal' | 'energy' | 'getting-started' | 'general'
@@ -28,6 +43,7 @@ export function nutritionSectionFromHash(): NutritionRouteSection {
 }
 
 export function nutritionSectionHash(section: NutritionRouteSection, v4 = false) {
+  if (section === 'plan') return foodLibraryHash('plan')
   if (v4 && (section === 'catalog' || section === 'insights' || section === 'menu')) return `#/nutrition?section=explore&view=${section}`
   if (v4 && section === 'classic-diary') return '#/nutrition?section=explore&view=diary'
   return section === 'today' ? '#/nutrition' : `#/nutrition?section=${section}`

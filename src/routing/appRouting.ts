@@ -115,9 +115,9 @@ const retiredRouteRedirects: Record<string, { view: ViewId; hash: string }> = {
   'trainer-portal': { view: 'staff-students', hash: '#/staff-students' },
   'sales-portal': { view: 'staff-quotes', hash: '#/staff-quotes' },
   'schedule-pt': { view: 'schedule', hash: '#/schedule' },
-  'food-database': { view: 'food-library', hash: '#/food-library' },
+  'food-database': { view: 'food-library', hash: '#/food-library?tab=ingredients' },
   'dish-collection': { view: 'food-library', hash: '#/food-library' },
-  'meal-plan': { view: 'nutrition', hash: '#/nutrition?section=plan' },
+  'meal-plan': { view: 'food-library', hash: '#/food-library' },
   'admin-workout-plans': { view: 'admin-programs', hash: '#/admin-programs' },
   'admin-meal-plans': { view: 'admin-eat-clean', hash: '#/admin-eat-clean' },
   // These routes used to render duplicate workspaces. Keep old bookmarks
@@ -148,7 +148,11 @@ export function canonicalRouteHash(view: ViewId, courseId?: string | null, lesso
  */
 export function canonicalizeRetiredRouteHash() {
   const rawHash = window.location.hash.replace(/^#\/?/, '')
-  const [rawView = 'home'] = rawHash.split('?')
+  const [rawView = 'home', query = ''] = rawHash.split('?')
+  if (rawView === 'nutrition' && new URLSearchParams(query).get('section') === 'plan') {
+    window.history.replaceState(null, '', '#/food-library')
+    return true
+  }
   const retiredRoute = retiredRouteRedirects[rawView]
   if (!retiredRoute || window.location.hash === retiredRoute.hash) return false
   window.history.replaceState(null, '', retiredRoute.hash)

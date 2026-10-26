@@ -70,6 +70,8 @@ const CATALOG_PAGE_CACHE_MS = 2 * 60 * 1000
 const MAX_CATALOG_PAGES = 40
 const catalogRequests = new Map<string, { expiresAt: number; request: Promise<NutritionCatalogPage> }>()
 const detailRequests = new Map<string, Promise<NutritionFoodDetailRecord>>()
+const detailCache = new Map<string, { record: NutritionFoodDetailRecord; expiresAt: number }>()
+let cacheGeneration = 0
 
 function isRetryableCatalogError(error: unknown) {
   if (!error || typeof error !== 'object') return false
@@ -154,19 +156,28 @@ export function loadNutritionCatalog(input: InternalNutritionCatalogQuery = {}) 
 }
 
 export function resetNutritionCatalog() {
+  cacheGeneration++
   catalogRequests.clear()
   detailRequests.clear()
+  detailCache.clear()
 }
 
 export function loadNutritionCatalogDetail(id: string): Promise<NutritionFoodDetailRecord> {
   const ownerId = firebaseAuth?.currentUser?.uid ?? ''
   const key = JSON.stringify([ownerId, id])
+  const cached = detailCache.get(key)
+  if (cached && cached.expiresAt > Date.now()) return Promise.resolve(cached.record)
+  const generation = cacheGeneration
   if (!detailRequests.has(key) && detailRequests.size >= 64) detailRequests.delete(detailRequests.keys().next().value!)
   return runKeyedSingleFlight(detailRequests, key, async () => {
     if ((firebaseAuth?.currentUser?.uid ?? '') !== ownerId) throw new Error('Phiên đăng nhập đã thay đổi.')
     const payload = await getInternalNutritionCatalogItem(id)
     const record = findNutritionDetailRecord(payload, id)
     if (!record) throw new Error('catalog_detail_invalid')
+    if (generation === cacheGeneration && (firebaseAuth?.currentUser?.uid ?? '') === ownerId) {
+      if (detailCache.size >= 64) detailCache.delete(detailCache.keys().next().value!)
+      detailCache.set(key, { record: record as NutritionFoodDetailRecord, expiresAt: Date.now() + CATALOG_PAGE_CACHE_MS })
+    }
     return record as NutritionFoodDetailRecord
   })
 }
