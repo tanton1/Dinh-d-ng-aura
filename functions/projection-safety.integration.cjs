@@ -51,6 +51,7 @@ function afterSessionQuery(db, hook) {
   const wrap = query => ({
     where: (...args) => wrap(query.where(...args)),
     limit: (...args) => wrap(query.limit(...args)),
+    select: (...args) => wrap(query.select(...args)),
     async get() {
       const result = await query.get()
       if (!fired) { fired = true; await hook() }
@@ -62,6 +63,89 @@ function afterSessionQuery(db, hook) {
     runTransaction: (...args) => db.runTransaction(...args),
   }
 }
+
+test('real Firestore: projected rebuild reads omit payloads and reuse buckets with one replacement write', async t => {
+  const db = fixture()
+  const at = Timestamp.fromDate(now)
+  const common = { branchId: 'branch-1', unrelatedPayload: 'x'.repeat(50000) }
+  const rows = {
+    'sessions/s1': { ...common, ...session },
+    'ledgerEntries/l1': { ...common, status: 'posted', type: 'payment', effectiveAt: at, amount: 999, cashImpact: 150, revenueImpact: 7 },
+    'attendanceEvents/a1': { ...common, occurredAt: at, date: '2000-01-01' },
+    'contracts/c1': { ...common, status: 'active', contractDate: '2026-10-23', startDate: '2000-01-01', totalPrice: 1000, discount: 100 },
+    'students/u1': { ...common, createdAt: at },
+  }
+  const seed = db.batch()
+  Object.entries(rows).forEach(([path, value]) => seed.set(db.doc(path), value))
+  await seed.commit()
+  await rebuild(db)
+  const bucket = (await db.collection('operationsDailyAggregatesV2').get()).docs[0]
+  await bucket.ref.update({ 'metrics.obsoleteMetric': 999, obsoleteField: true })
+
+  const queries = [], writes = []
+  const wrap = (query, name) => ({
+    where: (...args) => wrap(query.where(...args), name),
+    limit: (...args) => wrap(query.limit(...args), name),
+    select: (...args) => wrap(query.select(...args), name),
+    doc: id => query.doc(id),
+    async get() {
+      const result = await query.get()
+      queries.push({ name, rows: result.docs.map(doc => doc.data()) })
+      return result
+    },
+  })
+  const observed = {
+    collection: name => wrap(db.collection(name), name),
+    runTransaction: async callback => {
+      let committed = []
+      const result = await db.runTransaction(async transaction => {
+        committed = []
+        return callback({
+          get: (...args) => transaction.get(...args),
+          set: (...args) => { committed.push({ kind: 'set', path: args[0].path, options: args[2] }); transaction.set(...args) },
+          delete: (...args) => { committed.push({ kind: 'delete', path: args[0].path }); transaction.delete(...args) },
+        })
+      })
+      writes.push(...committed)
+      return result
+    },
+  }
+  const result = await rebuild(observed)
+  assert.equal(result.reusedBuckets, 1)
+  assert.equal(result.deletedBuckets, 0)
+  assert.equal(queries.length, 6)
+  queries.forEach(query => query.rows.forEach(row => assert.equal(row.unrelatedPayload, undefined)))
+  assert.deepEqual(queries.find(query => query.name === 'operationsDailyAggregatesV2').rows, [{}])
+  const replacements = writes.filter(item => item.path.startsWith('operationsDailyAggregatesV2/'))
+  assert.deepEqual(replacements, [{ kind: 'set', path: bucket.ref.path, options: undefined }])
+  assert.equal((await bucket.ref.get()).data().obsoleteField, undefined)
+  const report = await load(db, { branchIds: ['branch-1'] })
+  assert.deepEqual(report.totals, {
+    ledgerEntries: 1, cashCollected: 150, refunds: 0, reversals: 0, adjustments: 0,
+    netCash: 150, grossCash: 150, recognizedRevenue: 7,
+    sessions: 1, confirmedSessions: 0, noShowSessions: 0, sessionStatus__scheduled: 1,
+    attendanceEvents: 1, contractSales: 900, newStudents: 1,
+  })
+  for (const [path, value] of Object.entries(rows)) assert.deepEqual((await db.doc(path).get()).data(), value)
+  const projectedBytes = Buffer.byteLength(JSON.stringify(queries.flatMap(query => query.rows)))
+  const fullFixtureBytes = Buffer.byteLength(JSON.stringify(Object.values(rows)))
+  assert.ok(projectedBytes < fullFixtureBytes / 100)
+  t.diagnostic(JSON.stringify({ fullFixtureBytes, projectedBytes, sourceRows: 5, stableBucketWrites: 1, stableBucketDeletes: 0, units: 'synthetic JSON payload bytes and logical writes, not billed units' }))
+
+  // Removing every old source and moving the session leaves no reusable bucket.
+  const moved = db.batch()
+  Object.keys(rows).filter(path => path !== 'sessions/s1').forEach(path => moved.delete(db.doc(path)))
+  moved.set(db.doc('sessions/s1'), { ...session, branchId: 'branch-2' })
+  await moved.commit()
+  writes.length = 0
+  const changed = await rebuild(observed)
+  assert.equal(changed.deletedBuckets, 1)
+  assert.equal(changed.reusedBuckets, 0)
+  assert.equal((await bucket.ref.get()).exists, false)
+  assert.equal((await db.collection('operationsDailyAggregatesV2').get()).size, 1)
+  assert.equal((await load(db, { branchIds: ['branch-2'] })).totals.sessions, 1)
+  assert.deepEqual((await load(db, { branchIds: ['branch-1'] })).totals, {})
+})
 
 test('real Firestore: parallel duplicate deliveries, out-of-order moves and deletion converge once', async () => {
   const db = fixture()
