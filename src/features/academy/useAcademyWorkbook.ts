@@ -94,7 +94,9 @@ export function useAcademyWorkbook(ownerId: string, courseId: string, lessonId: 
 
   useEffect(() => {
     if (!ready || !canStudy || !workbook.pendingSync || saving || issue) return
-    const timer = window.setTimeout(() => { void sync().catch(() => undefined) }, 600)
+    // Drafts are already saved on-device on every edit. Coalesce short typing
+    // pauses before cloud sync; explicit submission still flushes immediately.
+    const timer = window.setTimeout(() => { void sync().catch(() => undefined) }, 2_000)
     return () => window.clearTimeout(timer)
   }, [ready, canStudy, workbook, saving, issue, retryNonce, sync])
 
