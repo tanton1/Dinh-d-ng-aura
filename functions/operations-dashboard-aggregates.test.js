@@ -98,16 +98,18 @@ function fakeDatabase(seed = {}) {
     path, id: path.split('/').at(-1),
     get: async () => { stats.reads += 1; return snapshot(path) },
   })
-  const snapshot = (path) => {
-    const data = copy(records.get(path))
+  const snapshot = (path, fields = null) => {
+    const original = records.get(path)
+    const data = copy(fields && original ? Object.fromEntries(fields.filter(key => Object.hasOwn(original, key)).map(key => [key, original[key]])) : original)
     return { exists: data !== undefined, ref: reference(path), id: path.split('/').at(-1), data: () => copy(data) }
   }
   const comparable = (value) => value instanceof Timestamp ? value.toMillis() : value
-  const query = (name, filters = [], cap = Infinity) => ({
-    name, filters, cap,
+  const query = (name, filters = [], cap = Infinity, fields = null) => ({
+    name, filters, cap, fields,
     doc: (id) => reference(`${name}/${id}`),
-    where: (field, operator, value) => query(name, [...filters, [field, operator, value]], cap),
-    limit: (value) => query(name, filters, value),
+    where: (field, operator, value) => query(name, [...filters, [field, operator, value]], cap, fields),
+    limit: (value) => query(name, filters, value, fields),
+    select: (...value) => query(name, filters, cap, value),
     async get() {
       stats.reads += 1
       const docs = [...records.keys()].filter((path) => path.startsWith(`${name}/`) && path.split('/').length === 2)
@@ -118,9 +120,9 @@ function fakeDatabase(seed = {}) {
           if (operator === '<') return actual < comparable(expected)
           if (operator === 'in') return expected.includes(actual)
           return actual === comparable(expected)
-        })).slice(0, cap).map(snapshot)
+        })).slice(0, cap).map(path => snapshot(path, fields))
       const result = { docs, size: docs.length }
-      if (db.afterQuery) await db.afterQuery({ name, filters, cap }, result)
+      if (db.afterQuery) await db.afterQuery({ name, filters, cap, fields }, result)
       return result
     },
   })
@@ -338,7 +340,7 @@ test('failed partial rebuild is never readable and recovery replaces the complet
   await rebuild(db)
   let failed = false
   db.beforeCommit = async (operations) => {
-    if (!failed && operations.some((item) => item.path.startsWith('operationsDailyAggregatesV2/') && item.remove)) {
+    if (!failed && operations.some((item) => item.path.startsWith('operationsDailyAggregatesV2/') && !item.remove)) {
       failed = true
       throw new Error('injected write failure')
     }
@@ -434,6 +436,96 @@ test('repeated rebuilds reuse source state and bucket keys rather than accumulat
   assert.notEqual(db.records.get(coveragePath).generation, generation)
   await sync(db, 'sessions/s1', undefined, defaultSession)
   assert.equal((await load(db)).totals.sessions, 1)
+})
+
+test('rebuild replaces reused buckets once and removes obsolete metrics without a delete', async () => {
+  const db = fakeDatabase({ 'sessions/s1': defaultSession })
+  await rebuild(db)
+  const path = [...db.records.keys()].find(key => key.startsWith('operationsDailyAggregatesV2/'))
+  db.write(path, { ...db.records.get(path), metrics: { sessions: 99, obsoleteMetric: 1000 }, obsoleteField: true })
+  const operations = []
+  db.beforeCommit = async items => operations.push(...items.filter(item => item.path.startsWith('operationsDailyAggregatesV2/')))
+  const result = await rebuild(db)
+  assert.equal(result.reusedBuckets, 1)
+  assert.equal(result.deletedBuckets, 0)
+  assert.equal(operations.length, 1, 'a stable bucket takes one replacement write')
+  assert.equal(operations[0].path, path)
+  assert.equal(operations[0].remove, undefined)
+  assert.equal(operations[0].merge, false)
+  assert.equal(db.records.get(path).obsoleteField, undefined)
+  assert.equal(db.records.get(path).metrics.obsoleteMetric, undefined)
+  assert.equal((await load(db)).totals.sessions, 1)
+})
+
+test('rebuild deletes moved or removed buckets and recovers after a later replacement fails', async () => {
+  const db = fakeDatabase({
+    'sessions/kept': defaultSession,
+    'sessions/moved': { ...defaultSession, branchId: 'before-move' },
+    'sessions/removed': { ...defaultSession, branchId: 'removed' },
+  })
+  await rebuild(db)
+  db.write('sessions/moved', { ...defaultSession, branchId: 'after-move', date: '2026-10-22', status: 'completed' })
+  db.remove('sessions/removed')
+  const oldGeneration = db.records.get(coveragePath).generation
+  const operations = []
+  db.beforeCommit = async items => {
+    const bucketWrites = items.filter(item => item.path.startsWith('operationsDailyAggregatesV2/'))
+    if (bucketWrites.some(item => !item.remove)) throw new Error('replacement failed after obsolete deletes')
+    operations.push(...bucketWrites)
+  }
+  await assert.rejects(rebuild(db), /replacement failed/)
+  assert.equal(operations.length, 2)
+  assert.ok(operations.every(item => item.remove))
+  assert.equal(db.records.get(coveragePath).status, 'failed')
+  assert.equal(await load(db), null, 'old and partial generations remain unreadable')
+  assert.notEqual(db.records.get(coveragePath).generation, oldGeneration)
+  db.beforeCommit = null
+  const result = await rebuild(db)
+  assert.equal(result.reusedBuckets, 1)
+  assert.equal(result.deletedBuckets, 0, 'recovery tolerates already removed obsolete keys')
+  assert.equal((await load(db)).totals.sessions, 2)
+  assert.equal((await load(db, { branchIds: ['after-move'] })).totals.confirmedSessions, 1)
+  assert.deepEqual((await load(db, { branchIds: ['before-move', 'removed'] })).totals, {})
+  assert.equal([...db.records.keys()].filter(key => key.startsWith('operationsDailyAggregatesV2/')).length, 2)
+})
+
+test('projected rebuild inputs preserve amount overrides, date fallback precedence and branch totals', async () => {
+  const at = Timestamp.fromDate(now)
+  const common = { branchId: 'branch-1', unrelatedPayload: 'not a reporting input' }
+  const seed = {
+    'ledgerEntries/payment': { ...common, status: 'posted', type: 'payment', effectiveAt: at, amount: 999, cashImpact: 150, revenueImpact: 7 },
+    'ledgerEntries/refund': { ...common, status: 'reversed', type: 'refund', effectiveAt: at, amount: -20 },
+    'ledgerEntries/revenue': { ...common, status: 'posted', type: 'revenue_recognition', effectiveAt: at, amount: 40 },
+    'sessions/s1': { ...common, date: '2026-10-23', status: 'no_show' },
+    'attendanceEvents/a1': { ...common, occurredAt: at, date: '2000-01-01' },
+    'contracts/signed': { ...common, status: 'active', signedAt: at, createdAt: '2000-01-01', totalPrice: 100, discount: 10 },
+    'contracts/created': { ...common, status: 'active', createdAt: at, contractDate: '2000-01-01', totalPrice: 200, discount: 20 },
+    'contracts/contract-date': { ...common, status: 'active', contractDate: '2026-10-22', startDate: '2000-01-01', totalPrice: 300, discount: 30 },
+    'contracts/start': { ...common, status: 'active', startDate: '2026-10-21', totalPrice: 400, discount: 40 },
+    'contracts/cancelled': { ...common, status: 'cancelled', signedAt: at, totalPrice: 500 },
+    'students/joined': { ...common, joinDate: '2026-10-22', createdAt: '2000-01-01' },
+    'students/created': { ...common, createdAt: at },
+  }
+  const db = fakeDatabase(seed)
+  const queries = []
+  db.afterQuery = async (query, snapshot) => {
+    queries.push(query)
+    snapshot.docs.forEach(item => assert.equal(item.data().unrelatedPayload, undefined))
+  }
+  const result = await rebuild(db)
+  assert.deepEqual(result.sourceCounts, { ledger: 3, session: 1, attendance: 1, contract: 5, student: 2 })
+  assert.ok(queries.slice(0, 5).every(query => query.fields.length > 0))
+  assert.deepEqual(queries.at(-1).fields, [], 'old buckets are read by key only')
+  db.afterQuery = null
+  const report = await load(db, { branchIds: ['branch-1'] })
+  assert.deepEqual(report.totals, {
+    ledgerEntries: 3, cashCollected: 150, refunds: 20, reversals: 0, adjustments: 0,
+    netCash: 130, grossCash: 150, recognizedRevenue: 47,
+    sessions: 1, confirmedSessions: 1, noShowSessions: 1, sessionStatus__no_show: 1,
+    attendanceEvents: 1, contractSales: 900, newStudents: 2,
+  })
+  assert.deepEqual((await load(db, { branchIds: ['outside'] })).totals, {})
+  Object.entries(seed).forEach(([path, value]) => assert.deepEqual(db.records.get(path), value))
 })
 
 test('rebuild uses Vietnam midnight boundaries for timestamp sources', async () => {

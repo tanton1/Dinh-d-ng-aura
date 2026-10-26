@@ -17,6 +17,15 @@ const REBUILD_BATCH_SIZE = 300
 const SOURCE_COLLECTIONS = {
   ledger: 'ledgerEntries', session: 'sessions', attendance: 'attendanceEvents', contract: 'contracts', student: 'students',
 }
+// Keep the repair scan limited to fields used by contribution(). Business
+// payloads (notes, lesson content, attachments, etc.) are not reporting inputs.
+const REBUILD_SOURCE_FIELDS = {
+  ledger: ['branchId', 'status', 'type', 'effectiveAt', 'cashImpact', 'amount', 'revenueImpact'],
+  session: ['branchId', 'date', 'status'],
+  attendance: ['branchId', 'occurredAt', 'date'],
+  contract: ['branchId', 'status', 'signedAt', 'createdAt', 'contractDate', 'startDate', 'totalPrice', 'discount'],
+  student: ['branchId', 'joinDate', 'createdAt'],
+}
 
 const formatter = new Intl.DateTimeFormat('en-CA', {
   timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit', day: '2-digit',
@@ -301,11 +310,11 @@ async function rebuildOperationsDailyAggregates({ db, logger = console, days = 3
   try {
     const limit = MAX_REBUILD_DOCUMENTS + 1
     const [ledger, sessions, attendance, contracts, students] = await Promise.all([
-      db.collection('ledgerEntries').where('effectiveAt', '>=', Timestamp.fromDate(start)).where('effectiveAt', '<', Timestamp.fromDate(endExclusive)).limit(limit).get(),
-      db.collection('sessions').where('date', '>=', startDate).where('date', '<=', endDate).limit(limit).get(),
-      db.collection('attendanceEvents').where('occurredAt', '>=', Timestamp.fromDate(start)).where('occurredAt', '<', Timestamp.fromDate(endExclusive)).limit(limit).get(),
-      db.collection('contracts').limit(limit).get(),
-      db.collection('students').limit(limit).get(),
+      db.collection('ledgerEntries').where('effectiveAt', '>=', Timestamp.fromDate(start)).where('effectiveAt', '<', Timestamp.fromDate(endExclusive)).select(...REBUILD_SOURCE_FIELDS.ledger).limit(limit).get(),
+      db.collection('sessions').where('date', '>=', startDate).where('date', '<=', endDate).select(...REBUILD_SOURCE_FIELDS.session).limit(limit).get(),
+      db.collection('attendanceEvents').where('occurredAt', '>=', Timestamp.fromDate(start)).where('occurredAt', '<', Timestamp.fromDate(endExclusive)).select(...REBUILD_SOURCE_FIELDS.attendance).limit(limit).get(),
+      db.collection('contracts').select(...REBUILD_SOURCE_FIELDS.contract).limit(limit).get(),
+      db.collection('students').select(...REBUILD_SOURCE_FIELDS.student).limit(limit).get(),
     ])
     const snapshots = [
       ['ledger', ledger], ['session', sessions], ['attendance', attendance], ['contract', contracts], ['student', students],
@@ -316,7 +325,7 @@ async function rebuildOperationsDailyAggregates({ db, logger = console, days = 3
     if (snapshots.some(([, snapshot]) => snapshot.size > MAX_REBUILD_DOCUMENTS)) {
       throw new Error('OPERATIONS_AGGREGATE_REBUILD_SOURCE_LIMIT')
     }
-    const previous = await db.collection(AGGREGATE_COLLECTION).where('date', '>=', startDate).where('date', '<=', endDate).limit(limit).get()
+    const previous = await db.collection(AGGREGATE_COLLECTION).where('date', '>=', startDate).where('date', '<=', endDate).select().limit(limit).get()
     if (previous.size > MAX_REBUILD_DOCUMENTS) throw new Error('OPERATIONS_AGGREGATE_REBUILD_BUCKET_LIMIT')
     const groups = new Map()
     const states = []
@@ -333,15 +342,21 @@ async function rebuildOperationsDailyAggregates({ db, logger = console, days = 3
         updatedAt: FieldValue.serverTimestamp(),
       } })
     }))
-    await writeChunks(states)
-    await writeChunks(previous.docs.map((item) => ({ reference: item.ref, remove: true })))
-    await writeChunks([...groups.values()].map((item) => ({
+    const buckets = [...groups.values()].map((item) => ({
       reference: db.collection(AGGREGATE_COLLECTION).doc(aggregateDocumentId(item.date, item.branchId)),
       value: {
         schemaVersion: AGGREGATE_SCHEMA_VERSION, generation, date: item.date, branchId: item.branchId,
         metrics: item.metrics, updatedAt: FieldValue.serverTimestamp(),
       },
-    })))
+    }))
+    const nextBucketIds = new Set(buckets.map(item => item.reference.id))
+    const obsoleteBuckets = previous.docs.filter(item => !nextBucketIds.has(item.id))
+    // set() replaces the entire reused bucket, including obsolete metric keys.
+    // Coverage stays building and every batch retains its ownership fence;
+    // deleting a reused key first would add a write without improving safety.
+    await writeChunks(states)
+    await writeChunks(obsoleteBuckets.map(item => ({ reference: item.ref, remove: true })))
+    await writeChunks(buckets)
     await db.runTransaction(async (transaction) => {
       await assertOwner(transaction)
       transaction.set(coverageReference, {
@@ -350,8 +365,12 @@ async function rebuildOperationsDailyAggregates({ db, logger = console, days = 3
         generatedAt: FieldValue.serverTimestamp(),
       })
     })
-    logger.info('operations_daily_aggregates_rebuilt', { startDate, endDate, complete: true, buckets: groups.size, sourceCounts })
-    return { startDate, endDate, complete: true, buckets: groups.size, sourceCounts }
+    const result = {
+      startDate, endDate, complete: true, buckets: groups.size, sourceCounts,
+      deletedBuckets: obsoleteBuckets.length, reusedBuckets: previous.size - obsoleteBuckets.length,
+    }
+    logger.info('operations_daily_aggregates_rebuilt', result)
+    return result
   } catch (error) {
     await db.runTransaction(async (transaction) => {
       const value = (await transaction.get(coverageReference)).data() || {}
