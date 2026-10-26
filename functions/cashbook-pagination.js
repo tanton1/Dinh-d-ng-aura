@@ -38,7 +38,7 @@ function input(data, kind, actor) {
   if (accountId.length > 200) throw new HttpsError('invalid-argument', 'Tài khoản quỹ không hợp lệ.')
   const pageSize = Math.min(100, Math.max(1, Number.isInteger(data?.pageSize) ? data.pageSize : 50))
   const scope = createHash('sha256').update(JSON.stringify([kind, actor.uid, actor.accessRole, actor.authzVersion, [...(actor.positions || [])].sort(), [...(actor.branchIds || [])].sort(), accountId])).digest('hex')
-  const count = kind === 'receipts' ? 2 : 1
+  const count = kind === 'receipts' ? RECEIPTS.length + 1 : kind === 'expenses' ? EXPENSES.length : 1
   let streams = Array.from({ length: count }, () => ({ after: null, done: false }))
   let snapshotTime = null
   if (data?.cursor !== undefined && data.cursor !== null && data.cursor !== '') {
@@ -76,28 +76,59 @@ function withSnapshot(db, config, action) {
   }), { readOnly: true, ...(config.readTime ? { readTime: config.readTime } : {}) })
 }
 
-async function simplePage({ db, actor, data, kind, serialize }) {
-  const config = input(data, kind, actor)
-  const field = kind === 'cash' ? 'effectiveAt' : 'createdAt'
-  const key = kind === 'cash' ? 'transactions' : 'vouchers'
-  if (config.streams[0].done) return envelope(config, config.streams, false, [], key)
-  let query = db.collection(kind === 'cash' ? 'cashTransactions' : 'accountingDocuments')
-  if (kind === 'expenses') query = query.where('documentType', 'in', EXPENSES)
-  else if (config.accountId) query = query.where('accountId', '==', config.accountId)
-  query = after(query.orderBy(field, 'desc').orderBy(FieldPath.documentId(), 'desc'), config.streams[0].after)
+async function listCashTransactionsPage({ db, actor, data, serialize }) {
+  const config = input(data, 'cash', actor)
+  if (config.streams[0].done) return envelope(config, config.streams, false, [], 'transactions')
+  let query = db.collection('cashTransactions')
+  if (config.accountId) query = query.where('accountId', '==', config.accountId)
+  query = after(query.orderBy('effectiveAt', 'desc').orderBy(FieldPath.documentId(), 'desc'), config.streams[0].after)
   return withSnapshot(db, config, async read => {
     const snapshot = await read.get(query.limit(config.pageSize + 1))
     const documents = snapshot.docs.slice(0, config.pageSize)
     const hasMore = snapshot.size > config.pageSize
     // Preserve timestamp nanoseconds and the ID so deleting the boundary row
     // cannot break the next page or skip rows sharing its timestamp.
-    const next = documents.length ? position(documents.at(-1), field) : config.streams[0].after
-    return envelope(config, [{ after: next, done: !hasMore }], hasMore, documents.map(serialize), key)
+    const next = documents.length ? position(documents.at(-1), 'effectiveAt') : config.streams[0].after
+    return envelope(config, [{ after: next, done: !hasMore }], hasMore, documents.map(serialize), 'transactions')
   })
 }
 
-const listCashTransactionsPage = options => simplePage({ ...options, kind: 'cash' })
-const listExpenseVouchersPage = options => simplePage({ ...options, kind: 'expenses' })
+function before(left, right) {
+  if (!right) return true
+  const a = left.position, b = right.position
+  const idOrder = Buffer.compare(Buffer.from(a.id), Buffer.from(b.id))
+  return a.seconds > b.seconds || (a.seconds === b.seconds && (a.nanos > b.nanos
+    || (a.nanos === b.nanos && (idOrder > 0 || (idOrder === 0 && left.stream.index > right.stream.index)))))
+}
+
+// An IN over document types requires a whole-result sort on Enterprise.
+// Each equality query follows its index; merge only bounded page candidates.
+async function listExpenseVouchersPage({ db, actor, data, serialize }) {
+  const config = input(data, 'expenses', actor)
+  if (config.streams.every(stream => stream.done)) return envelope(config, config.streams, false, [], 'vouchers')
+  return withSnapshot(db, config, async read => {
+    const streams = await Promise.all(config.streams.map(async (state, index) => {
+      const stream = { ...state, index, rows: [], offset: 0 }
+      if (state.done) return stream
+      const query = db.collection('accountingDocuments').where('documentType', '==', EXPENSES[index])
+        .orderBy('createdAt', 'desc').orderBy(FieldPath.documentId(), 'desc')
+      const snapshot = await read.get(after(query, state.after).limit(config.pageSize + 1))
+      stream.rows = snapshot.docs.map(document => ({ document, position: position(document, 'createdAt'), stream }))
+      return stream
+    }))
+    const selected = []
+    while (selected.length < config.pageSize) {
+      const candidates = streams.map(stream => stream.rows[stream.offset]).filter(Boolean)
+      if (!candidates.length) break
+      const row = candidates.reduce((best, candidate) => before(candidate, best) ? candidate : best)
+      row.stream.after = row.position
+      row.stream.offset += 1
+      selected.push(serialize(row.document))
+    }
+    const next = streams.map(stream => ({ after: stream.after, done: stream.offset >= stream.rows.length }))
+    return envelope(config, next, next.some(stream => !stream.done), selected, 'vouchers')
+  })
+}
 
 function receiptIdentity(value) { return `${value.documentType}:${value.ledgerEntryId || value.id}` }
 
@@ -109,6 +140,7 @@ async function linkedPayments(db, read, documents) {
     const ids = documents.slice(start, start + 30).map(document => document.id)
     const maximum = ids.length * 4
     const snapshot = await read.get(db.collection('accountingDocuments').where('ledgerEntryId', 'in', ids)
+      .orderBy('ledgerEntryId', 'asc').orderBy(FieldPath.documentId(), 'asc')
       .select('documentType', 'ledgerEntryId').limit(maximum + 1))
     if (snapshot.size > maximum) throw dataIssue()
     for (const document of snapshot.docs) {
@@ -155,21 +187,21 @@ async function listReceiptVouchersPage({ db, actor, data, serializeReceipt, seri
 async function receiptPage({ db, read, config, serializeReceipt, serializeLegacy }) {
   const blocked = Symbol('source-needs-another-batch')
   const materialized = new Set()
-  const streams = config.streams.map((state, index) => ({ ...state, index, rows: [], offset: 0, loads: 0 }))
+  const streams = config.streams.map((state, index) => ({ ...state, index, legacy: index === RECEIPTS.length, rows: [], offset: 0, loads: 0 }))
   async function load(stream) {
-    let query = db.collection(stream.index === 0 ? 'accountingDocuments' : 'ledgerEntries')
-    query = stream.index === 0 ? query.where('documentType', 'in', RECEIPTS) : query.where('type', '==', 'payment')
-    if (config.accountId) query = query.where(stream.index === 0 ? 'accountId' : 'cashAccountId', '==', config.accountId)
+    let query = db.collection(stream.legacy ? 'ledgerEntries' : 'accountingDocuments')
+    query = stream.legacy ? query.where('type', '==', 'payment') : query.where('documentType', '==', RECEIPTS[stream.index])
+    if (config.accountId) query = query.where(stream.legacy ? 'cashAccountId' : 'accountId', '==', config.accountId)
     query = after(query.orderBy('effectiveAt', 'desc').orderBy(FieldPath.documentId(), 'desc'), stream.after)
     const snapshot = await read.get(query.limit(config.pageSize + 1))
     stream.loads += 1
     stream.done = snapshot.size < config.pageSize + 1
-    const positive = stream.index === 1 ? snapshot.docs.filter(document => Number(document.data().amount || 0) > 0) : []
+    const positive = stream.legacy ? snapshot.docs.filter(document => Number(document.data().amount || 0) > 0) : []
     const linked = positive.length ? await linkedPayments(db, read, positive) : new Set()
     stream.rows = snapshot.docs.map(document => {
       const value = document.data()
-      if (stream.index === 0 && value.ledgerEntryId) materialized.add(value.ledgerEntryId)
-      return { document, position: position(document, 'effectiveAt'), stream, eligible: stream.index === 0 || (Number(value.amount || 0) > 0 && !linked.has(document.id)) }
+      if (!stream.legacy && value.ledgerEntryId) materialized.add(value.ledgerEntryId)
+      return { document, position: position(document, 'effectiveAt'), stream, eligible: !stream.legacy || (Number(value.amount || 0) > 0 && !linked.has(document.id)) }
     })
     stream.offset = 0
   }
@@ -178,7 +210,7 @@ async function receiptPage({ db, read, config, serializeReceipt, serializeLegacy
     for (;;) {
       if (stream.offset < stream.rows.length) {
         const row = stream.rows[stream.offset]
-        if (row.eligible && !(stream.index === 1 && materialized.has(row.document.id))) return row
+        if (row.eligible && !(stream.legacy && materialized.has(row.document.id))) return row
         consume(row)
         continue
       }
@@ -189,50 +221,46 @@ async function receiptPage({ db, read, config, serializeReceipt, serializeLegacy
       await load(stream)
     }
   }
-  function before(left, right) {
-    if (!right) return true
-    const a = left.position, b = right.position
-    return a.seconds > b.seconds || (a.seconds === b.seconds && (a.nanos > b.nanos
-      || (a.nanos === b.nanos && `${left.stream.index}:${a.id}` > `${right.stream.index}:${b.id}`)))
-  }
   const selected = [], identities = new Map()
   let heads
   for (;;) {
     heads = await Promise.all(streams.map(peek))
     // A parallel materialized-source fetch may have completed after the
     // legacy peek. Apply that newly observed link before choosing the row.
-    if (heads[1] && heads[1] !== blocked && materialized.has(heads[1].document.id)) { consume(heads[1]); continue }
+    const legacyHead = heads[RECEIPTS.length]
+    if (legacyHead && legacyHead !== blocked && materialized.has(legacyHead.document.id)) { consume(legacyHead); continue }
     if (heads.every(value => value === null)) break
     // One eligible lookahead already proves another page exists; its ordering
     // against an unread stream only matters when that page is requested.
     if (selected.length >= config.pageSize && heads.some(head => head !== blocked && head !== null)) break
     let chosen
     const pending = streams.filter(stream => heads[stream.index] === blocked)
+    const available = heads.filter(head => head !== blocked && head !== null)
+      .reduce((best, candidate) => before(candidate, best) ? candidate : best, null)
     if (pending.length) {
-      const available = heads.find(head => head !== blocked && head !== null)
       // Every unread row in the pending stream sorts below its consumed
       // frontier. Emit a known newer row without forcing another source scan.
-      if (pending.length === 1 && available && pending[0].after && before(available, { position: pending[0].after, stream: pending[0] })) chosen = available
+      if (available && pending.every(stream => stream.after && before(available, { position: stream.after, stream }))) chosen = available
       else {
         const reload = pending.filter(stream => stream.loads < MAX_SOURCE_BATCHES)
         if (!reload.length) break
         await Promise.all(reload.map(load))
         continue
       }
-    } else chosen = !heads[0] ? heads[1] : before(heads[0], heads[1]) ? heads[0] : heads[1]
+    } else chosen = available
     if (selected.length >= config.pageSize) break
     consume(chosen)
     const value = chosen.document.data()
-    const identity = chosen.stream.index === 0 ? `${value.documentType}:${value.ledgerEntryId || chosen.document.id}` : `receipt_voucher:${chosen.document.id}`
+    const identity = chosen.stream.legacy ? `receipt_voucher:${chosen.document.id}` : `${value.documentType}:${value.ledgerEntryId || chosen.document.id}`
     if (identities.has(identity)) {
-      if (chosen.stream.index === 0 && selected[identities.get(identity)].stream.index === 1) selected[identities.get(identity)] = chosen
+      if (!chosen.stream.legacy && selected[identities.get(identity)].stream.legacy) selected[identities.get(identity)] = chosen
     } else { identities.set(identity, selected.length); selected.push(chosen) }
   }
   const hasMore = heads.some(value => value !== null)
-  const legacy = selected.filter(row => row.stream.index === 1).map(row => row.document)
+  const legacy = selected.filter(row => row.stream.legacy).map(row => row.document)
   const related = await hydrateLegacy(db, read, legacy)
   const vouchers = selected.map(row => {
-    const value = row.stream.index === 0 ? serializeReceipt(row.document) : serializeLegacy(row.document, related)
+    const value = row.stream.legacy ? serializeLegacy(row.document, related) : serializeReceipt(row.document)
     return { ...value, listIdentity: receiptIdentity(value) }
   })
   const next = streams.map(stream => ({ after: stream.after, done: stream.done && stream.offset >= stream.rows.length }))

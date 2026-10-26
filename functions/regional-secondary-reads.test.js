@@ -249,7 +249,9 @@ test('canonical finance query bounds and account filters are preserved by the al
   assert.deepEqual(query('cashTransactions').operations.find(item => item.operation === 'limit').args,[101])
   assert.deepEqual(query('cashTransactions').operations.find(item => item.operation === 'where').args,['accountId','==','account-one'])
   assert.deepEqual(query('accountingDocuments').operations.find(item => item.operation === 'limit').args,[101])
-  assert.deepEqual(query('accountingDocuments').operations.find(item => item.operation === 'where').args,['documentType','in',['expense_voucher','expense_voucher_reversal']])
+  const expenseQueries = state.reads.filter(read => read.path === 'accountingDocuments' && read.type === 'query')
+  assert.deepEqual(expenseQueries.map(read => read.operations.find(item => item.operation === 'where').args),
+    [['documentType','==','expense_voucher'], ['documentType','==','expense_voucher_reversal']])
   assert.deepEqual(state.writes, [])
 })
 

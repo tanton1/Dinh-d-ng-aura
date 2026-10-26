@@ -137,7 +137,35 @@ test('real Firestore: expenses beyond hundreds of unrelated documents are paged 
   assert.equal(result.rows.length, 52, 'the expense list preserves its existing all-account scope')
   assert.equal(result.pages.length, 4)
   assert.equal(result.pages.at(-1).hasMore, false)
-  assert.ok(f.reads.every(read => read.kind === 'query' && read.maximum === 14 && read.size <= 14 && read.filters.some(filter => filter[0] === 'documentType')))
+  assert.ok(f.reads.every(read => read.kind === 'query' && read.maximum === 14 && read.size <= 14 && read.filters.some(filter => filter[0] === 'documentType' && filter[1] === '==')))
+})
+
+test('real Firestore: separate document types merge in date/key order across ties and unequal stream endings', async () => {
+  const expenseRows = Array.from({ length: 31 }, (_, index) => [
+    `accountingDocuments/expense-${String(index).padStart(3, '0')}`,
+    receipt(Math.floor(index / 5), { documentType: index % 5 ? 'expense_voucher' : 'expense_voucher_reversal' }),
+  ])
+  const receiptRows = Array.from({ length: 43 }, (_, index) => {
+    const id = index === 0 ? '\u{10000}' : index === 1 ? '\uE000' : `row-${String(index).padStart(3, '0')}`
+    return index % 3 === 2
+      ? [`ledgerEntries/${id}`, payment(Math.floor(index / 5))]
+      : [`accountingDocuments/${id}`, receipt(Math.floor(index / 5), { documentType: index % 3 ? 'receipt_voucher_reversal' : 'receipt_voucher' })]
+  })
+  const f = await fixture([...expenseRows, ...receiptRows])
+  for (const [kind, sourceRows] of [['expenses', expenseRows], ['receipts', receiptRows]]) {
+    const expected = [...sourceRows].sort(([leftPath, left], [rightPath, right]) =>
+      right.effectiveAt.toMillis() - left.effectiveAt.toMillis()
+      || Buffer.compare(Buffer.from(rightPath.split('/')[1]), Buffer.from(leftPath.split('/')[1])))
+      .map(([name]) => (name.startsWith('ledgerEntries/') ? 'derived_' : '') + name.split('/')[1])
+    for (const pageSize of [1, 7, 25]) {
+      const result = await allPages(f, kind, { pageSize })
+      assert.deepEqual(result.rows.map(row => row.id), expected)
+      assert.ok(result.pages.every(page => page.vouchers.length <= pageSize))
+      assert.equal(result.pages.at(-1).hasMore, false)
+    }
+  }
+  assert.ok(f.reads.filter(read => read.kind === 'query' && !read.projection)
+    .every(read => read.filters.every(filter => filter[1] === '==')))
 })
 
 test('real Firestore: malformed, expired, cross-account, cross-reader and cross-owner cursors fail before business reads', async () => {
