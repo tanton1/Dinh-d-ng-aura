@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useDebounce } from '../../hooks/useDebounce'
 import { loadNutritionCatalogPage, resetNutritionCatalog, type NutritionCatalogPage } from './catalog'
 import { DEMO_CATALOG, DEMO_MENU_DISHES } from './demoCatalog'
@@ -24,6 +24,7 @@ export function useMealPlanCatalog({ tab, query, category, savedOnly, savedFoodI
   const [retry, setRetry] = useState(0)
   const [result, setResult] = useState({ key: '', page: EMPTY, status: 'loading' as 'loading' | 'live' | 'demo' | 'error' })
   const [loadingMore, setLoadingMore] = useState(false)
+  const [failedMoreKey, setFailedMoreKey] = useState<string | null>(null)
   const cache = useRef(new Map<string, { page: NutritionCatalogPage; expires: number }>())
   const scope = `${enabled}|${key}|${retry}`
   const generation = useRef({ scope, value: 0 })
@@ -58,6 +59,7 @@ export function useMealPlanCatalog({ tab, query, category, savedOnly, savedFoodI
     const ticket = generation.current.value
     moreRequest.current = null
     setLoadingMore(false)
+    setFailedMoreKey(null)
     if (allowDemo || initialCatalog) {
       const source = initialCatalog ?? [...DEMO_MENU_DISHES, ...DEMO_CATALOG.filter(food => food.kind === 'food')]
       const items = uniqueCatalogItems(source.filter(matches))
@@ -86,8 +88,9 @@ export function useMealPlanCatalog({ tab, query, category, savedOnly, savedFoodI
   const current = enabled && result.key === key ? result : { key, page: EMPTY, status: 'loading' as const }
   const loadMore = async () => {
     const ticket = generation.current.value
-    if (!enabled || result.key !== key || !result.page.hasMore || !result.page.nextCursor || moreRequest.current === ticket) return
+    if (!enabled || result.key !== key || result.status !== 'live' || !result.page.hasMore || !result.page.nextCursor || moreRequest.current === ticket) return
     moreRequest.current = ticket
+    setFailedMoreKey(null)
     setLoadingMore(true)
     try {
       const page = await fetchPage(result.page)
@@ -97,11 +100,12 @@ export function useMealPlanCatalog({ tab, query, category, savedOnly, savedFoodI
       storePage(merged)
       setResult({ key, page: merged, status: 'live' })
     } catch {
-      if (ticket === generation.current.value) setResult(current => ({ ...current, status: 'error' }))
+      if (ticket === generation.current.value) setFailedMoreKey(key)
     } finally {
       if (ticket === generation.current.value) { moreRequest.current = null; setLoadingMore(false) }
     }
   }
   const reload = () => { cache.current.clear(); resetNutritionCatalog(); setRetry(value => value + 1) }
-  return { ...current.page, items: uniqueCatalogItems(current.page.items), status: current.status, loadingMore, loadMore, reload }
+  const items = useMemo(() => uniqueCatalogItems(current.page.items), [current.page.items])
+  return { ...current.page, items, requestKey: scope, status: current.status, loadingMore, loadMoreError: failedMoreKey === key, loadMore, reload }
 }
