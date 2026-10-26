@@ -171,6 +171,7 @@ export interface PersistedScanReview {
 }
 
 export interface NutritionPageProps {
+  entry?: 'nutrition' | 'library'
   displayName?: string
   isDemo?: boolean
   storageOwnerId?: string

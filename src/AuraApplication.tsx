@@ -72,6 +72,7 @@ const CourseEditorPage = lazyWithRetry(() => import('./pages/admin/CourseEditorP
 const CourseDetailPage = lazyWithRetry(() => import('./pages/student/CourseDetailPage'))
 const CoursesPage = lazyWithRetry(() => import('./pages/student/CoursesPage'))
 const NutritionPage = lazyWithRetry(() => import('./pages/student/NutritionPage'))
+const CookingPage = lazyWithRetry(() => import('./features/cooking/CookingPage'))
 const ProfilePage = lazyWithRetry(() => import('./pages/student/ProfilePage'))
 const ProgressPage = lazyWithRetry(() => import('./pages/student/ProgressPage'))
 const ProgressPhotoStudio = lazyWithRetry(() => import('./pages/student/ProgressPhotoStudio'))
@@ -887,8 +888,11 @@ function AuraApplication() {
       }} onSelectLesson={(lessonId) => selectedCourseId && (isAdminCoursePreview ? goTo('course-detail', selectedCourseId, lessonId) : openCourse(selectedCourseId, lessonId))} onEnroll={enrollSelectedCourse} onComplete={completeLesson} onUpgrade={() => navigate('profile')} />
       case 'schedule': return <SchedulePage key={user?.uid ?? 'demo'} onNavigate={navigate} isDemo={backendMode === 'demo'} ownerId={user?.uid ?? 'demo'} />
       case 'student-availability': return <StudentAvailabilityPage key={user?.uid ?? 'demo'} onNavigate={navigate} isDemo={backendMode === 'demo'} />
+      case 'cooking': return <CookingPage ownerId={user?.uid ?? 'demo'} />
+      case 'food-library':
       case 'nutrition': return <NutritionPage
-        key={user?.uid ?? 'demo'}
+        key={`${view}:${user?.uid ?? 'demo'}`}
+        entry={view === 'food-library' ? 'library' : 'nutrition'}
         displayName={effectiveDisplayName ?? user?.displayName ?? undefined}
         isDemo={backendMode === 'demo'}
         storageOwnerId={user?.uid ?? 'demo'}
@@ -1331,6 +1335,8 @@ function AuraApplication() {
 function routeLoadingLabel(view: ViewId) {
   if (view === 'student-360') return 'Đang mở hồ sơ Học viên 360'
   if (view.includes('schedule') || view.includes('availability')) return 'Đang mở lịch Aura'
+  if (view === 'cooking') return 'Đang mở bếp Aura'
+  if (view === 'food-library') return 'Đang mở thư viện món ăn'
   if (view === 'nutrition' || view === 'eat-clean') return 'Đang mở không gian dinh dưỡng'
   if (view === 'courses' || view === 'course-detail') return 'Đang mở Aura Academy'
   if (view.startsWith('admin-') || view.startsWith('staff-')) return 'Đang mở không gian vận hành'

@@ -35,6 +35,7 @@ const budgets = {
 }
 
 const routeBudgets = [
+  { label: 'Vào Bếp cùng Aura', key: 'src/features/cooking/CookingPage.tsx', bytes: 45_000, eagerDynamic: ['src/features/cooking/data/cookbook.json'] },
   { label: 'Dinh dưỡng', key: 'src/pages/student/NutritionPage.tsx', bytes: 84_000 },
   { label: 'Quản lý học viên PT', key: 'src/components/admin/pt/StudentManagement.tsx', bytes: 75_000 },
   { label: 'Tổng quan Admin mới', key: 'src/pages/admin/AdminDashboard.tsx', bytes: 34_000 },
@@ -166,7 +167,14 @@ assertWithinBudget('Shell sau đăng nhập · tải thêm', {
 }, budgets.authenticatedShellGzip)
 
 for (const route of routeBudgets) {
-  const routeFiles = [...collectStaticRouteAssets(resolveRouteManifestKey(route.key))]
+  const files = collectStaticRouteAssets(resolveRouteManifestKey(route.key))
+  for (const key of route.eagerDynamic ?? []) {
+    for (const file of collectStaticRouteAssets(resolveRouteManifestKey(key))) {
+      if (authenticatedBaselineFiles.has(file)) throw new Error('Cookbook data must remain outside the startup shell')
+      files.add(file)
+    }
+  }
+  const routeFiles = [...files]
     .filter((file) => !authenticatedBaselineFiles.has(file))
   const gzipSizes = await Promise.all(routeFiles.map(async (file) => {
     const contents = await readFile(path.join(rootDir, 'dist', file))

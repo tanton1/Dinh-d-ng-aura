@@ -1,0 +1,4443 @@
+{
+  "version": 1,
+  "chapters": [
+    {
+      "id": "1",
+      "label": "Bữa sáng",
+      "title": "Bữa sáng từ bếp nhà",
+      "count": 10,
+      "pdf": "cooking/sources/chapter-01.pdf",
+      "methodPage": 24,
+      "safetyPage": 25,
+      "sourceSha256": "61bedf88a19875d4e794180b627fc76b89ce5140ff8eb65db41df621552787f9"
+    },
+    {
+      "id": "2",
+      "label": "Món chính",
+      "title": "Món chính quen vị Việt",
+      "count": 14,
+      "pdf": "cooking/sources/chapter-02.pdf",
+      "methodPage": 32,
+      "safetyPage": 33,
+      "sourceSha256": "97d35341497badd37b9673de3ccaf33404bafe797406b14dadc5f6d8f38c52bf"
+    },
+    {
+      "id": "3",
+      "label": "Đậu & rau",
+      "title": "Bữa ngon với đậu và rau",
+      "count": 8,
+      "pdf": "cooking/sources/chapter-03.pdf",
+      "methodPage": 20,
+      "safetyPage": 21,
+      "sourceSha256": "713f4cee8813592d21589fbf4355cd0dc874cede1adabbd3db0fdaca16a8a378"
+    },
+    {
+      "id": "4",
+      "label": "Canh & rau",
+      "title": "Thêm rau, thêm vị",
+      "count": 10,
+      "pdf": "cooking/sources/chapter-04.pdf",
+      "methodPage": 24,
+      "safetyPage": 25,
+      "sourceSha256": "5cfe6de3ff93f4ad6be0121389895baa6398949ad4046cc9ad8143859de6d9e5"
+    },
+    {
+      "id": "5",
+      "label": "Bữa phụ & chút ngọt",
+      "title": "Bữa phụ và chút ngọt",
+      "count": 8,
+      "pdf": "cooking/sources/chapter-05.pdf",
+      "methodPage": 20,
+      "safetyPage": 21,
+      "sourceSha256": "d48e813ce1d7375052188980552c9d38725879ae8753b064f32de4ab03a62f86"
+    },
+    {
+      "id": "6",
+      "label": "Sốt & gia vị",
+      "title": "Sốt ngon, món quen đổi vị",
+      "count": 10,
+      "pdf": "cooking/sources/chapter-06.pdf",
+      "methodPage": 14,
+      "safetyPage": 15,
+      "sourceSha256": "c9fa0307bb18b0c0f99c66620220c8c8fb74ea2a7d74de0f7d7fcc272c8d0c3e"
+    }
+  ],
+  "recipes": [
+    {
+      "id": "B01",
+      "chapterId": "1",
+      "name": "Bánh mì trứng, dưa leo và cà chua",
+      "description": "Bánh mì giòn nhẹ, trứng chín mềm và rau tươi mát. Một bữa sáng quen thuộc, dễ làm bằng chiếc chảo sẵn có.",
+      "kcalPerServing": 265,
+      "batchKcal": null,
+      "servings": 2,
+      "timeLabels": [
+        "Chuẩn bị 8 phút",
+        "Nấu 7 phút"
+      ],
+      "timeNote": "",
+      "portionNote": "Kcal cho 1/2 công thức, gồm mọi nguyên liệu và sốt đã liệt kê.",
+      "ingredients": [
+        {
+          "name": "Bánh mì nguyên cám",
+          "amount": "4 lát / khoảng 120 g"
+        },
+        {
+          "name": "Trứng gà (không vỏ)",
+          "amount": "2 quả / khoảng 100 g"
+        },
+        {
+          "name": "Dưa leo (sống)",
+          "amount": "120 g"
+        },
+        {
+          "name": "Cà chua (sống)",
+          "amount": "120 g"
+        },
+        {
+          "name": "Dầu ăn",
+          "amount": "5 g"
+        },
+        {
+          "name": "Muối và tiêu",
+          "amount": "0,5 g muối + 0,1 g tiêu"
+        }
+      ],
+      "steps": [
+        {
+          "title": "Chuẩn bị",
+          "text": "Rửa sạch rau, để ráo. Cắt dưa leo thành lát, cà chua thành miếng vừa ăn. Đánh tan trứng với muối và tiêu."
+        },
+        {
+          "title": "Làm giòn bánh",
+          "text": "Làm nóng chảo ở lửa vừa. Áp từng mặt bánh mì khoảng 1 phút, đến khi mặt bánh hơi giòn. Lấy bánh ra hai đĩa."
+        },
+        {
+          "title": "Làm chín trứng",
+          "text": "Cho dầu vào chảo, trải đều rồi đổ trứng. Hạ lửa, dàn trứng thành lớp mỏng và nấu đến khi đông hoàn toàn. Chia đôi phần trứng."
+        },
+        {
+          "title": "Bày và dùng",
+          "text": "Đặt trứng lên bánh mì, thêm dưa leo và cà chua bên cạnh. Mỗi phần gồm hai lát bánh, nửa phần trứng và nửa lượng rau."
+        }
+      ],
+      "tip": "Để rau thật ráo trước khi bày; thêm rau lúc ăn giúp bánh giữ độ giòn.",
+      "substitution": "Có thể dùng bánh mì thường cùng khối lượng; thành phần dinh dưỡng thay đổi theo loại bánh.",
+      "portionDetail": "Dùng ngay sau khi làm. Sữa chua hoặc trái cây ăn thêm được tính riêng với khẩu phần này.",
+      "allergenNote": "Trứng, lúa mì. Kiểm tra nhãn bánh mì để biết các thành phần khác.",
+      "requiresCooking": false,
+      "image": "cooking/images/B01.webp",
+      "thumbnail": "cooking/images/B01-small.webp",
+      "sourcePage": 3
+    },
+    {
+      "id": "B02",
+      "chapterId": "1",
+      "name": "Bánh mì gà xé sốt sữa chua",
+      "description": "Gà xé mềm kết hợp sốt sữa chua chanh nhẹ và rau giòn. Chuẩn bị riêng từng phần rồi kẹp bánh ngay trước khi ăn.",
+      "kcalPerServing": 420,
+      "batchKcal": null,
+      "servings": 2,
+      "timeLabels": [
+        "Chuẩn bị 10 phút",
+        "Nấu 20 phút"
+      ],
+      "timeNote": "",
+      "portionNote": "Kcal cho 1/2 công thức, gồm mọi nguyên liệu và sốt đã liệt kê.",
+      "ingredients": [
+        {
+          "name": "Bánh mì",
+          "amount": "2 ổ nhỏ / tổng 180 g"
+        },
+        {
+          "name": "Ức gà bỏ da (sống, không xương)",
+          "amount": "240 g"
+        },
+        {
+          "name": "Sữa chua không đường (trắng, nguyên kem, giữ lạnh)",
+          "amount": "80 g"
+        },
+        {
+          "name": "Dưa leo (sống)",
+          "amount": "120 g"
+        },
+        {
+          "name": "Cà rốt (sống, đã gọt)",
+          "amount": "80 g"
+        },
+        {
+          "name": "Nước cốt chanh (lọc bỏ hạt)",
+          "amount": "10 ml"
+        },
+        {
+          "name": "Muối và tiêu",
+          "amount": "0,6 g muối + 0,1 g tiêu"
+        },
+        {
+          "name": "Nước để luộc gà",
+          "amount": "600 ml hoặc đủ ngập"
+        }
+      ],
+      "steps": [
+        {
+          "title": "Làm chín gà",
+          "text": "Cho gà và nước vào nồi. Đun đến sôi nhẹ, hạ lửa và nấu khoảng 12-18 phút tùy độ dày. Tâm phần thịt dày nhất cần đạt 74°C."
+        },
+        {
+          "title": "Chuẩn bị rau",
+          "text": "Trong lúc nấu gà, rửa và để ráo rau. Cắt dưa leo thành lát; bào cà rốt thành sợi mảnh để dễ kẹp bánh."
+        },
+        {
+          "title": "Pha sốt và xé gà",
+          "text": "Trộn sữa chua với chanh, muối và tiêu. Lấy gà chín ra, chờ bớt nóng vài phút rồi xé. Trộn gà với nửa lượng sốt."
+        },
+        {
+          "title": "Kẹp bánh",
+          "text": "Làm ấm bánh mì, rạch dọc. Chia gà và rau vào hai ổ, thêm lượng sốt còn lại. Kẹp vừa tay và dùng ngay."
+        }
+      ],
+      "tip": "Để gà bớt nóng trước khi trộn sốt, giúp sốt bám đều và rau giữ độ giòn.",
+      "substitution": "Thay cà rốt bằng bắp cải thái thật mảnh, cùng khối lượng.",
+      "portionDetail": "Mỗi phần gồm một ổ bánh và một nửa lượng nhân, rau, sốt. Toàn bộ lượng sốt thuộc công thức.",
+      "allergenNote": "Sữa, lúa mì. Kiểm tra nhãn bánh mì và sữa chua.",
+      "requiresCooking": false,
+      "image": "cooking/images/B02.webp",
+      "thumbnail": "cooking/images/B02-small.webp",
+      "sourcePage": 5
+    },
+    {
+      "id": "B03",
+      "chapterId": "1",
+      "name": "Cháo gà nấm",
+      "description": "Cháo mềm, gà thái nhỏ và nấm thơm tạo nên một tô ăn sáng dễ ăn. Điều chỉnh nước để có độ đặc bạn thích.",
+      "kcalPerServing": 330,
+      "batchKcal": null,
+      "servings": 2,
+      "timeLabels": [
+        "Chuẩn bị 10 phút",
+        "Nấu 35 phút"
+      ],
+      "timeNote": "",
+      "portionNote": "Kcal cho 1/2 công thức, gồm mọi nguyên liệu và sốt đã liệt kê.",
+      "ingredients": [
+        {
+          "name": "Gạo tẻ (khô, trước khi vo)",
+          "amount": "100 g"
+        },
+        {
+          "name": "Ức gà bỏ da (sống, không xương)",
+          "amount": "200 g"
+        },
+        {
+          "name": "Nấm mỡ tươi (đã bỏ gốc cứng)",
+          "amount": "120 g"
+        },
+        {
+          "name": "Gừng (sống, đã gọt)",
+          "amount": "5 g"
+        },
+        {
+          "name": "Hành lá",
+          "amount": "10 g"
+        },
+        {
+          "name": "Nước mắm",
+          "amount": "10 ml"
+        },
+        {
+          "name": "Tiêu xay",
+          "amount": "0,1 g"
+        },
+        {
+          "name": "Nước",
+          "amount": "900-1.000 ml"
+        }
+      ],
+      "steps": [
+        {
+          "title": "Sơ chế",
+          "text": "Vo gạo rồi để ráo. Cắt gà thành miếng khoảng 1,5 cm bằng dụng cụ riêng. Làm sạch nấm, thái lát; thái gừng và hành lá."
+        },
+        {
+          "title": "Nấu nền cháo",
+          "text": "Cho gạo, gừng và 900 ml nước vào nồi. Đun sôi, hạ lửa rồi nấu khoảng 25 phút. Khuấy sát đáy vài lần để cháo không bén."
+        },
+        {
+          "title": "Thêm gà và nấm",
+          "text": "Cho gà vào, khuấy tơi rồi thêm nấm. Nấu tiếp khoảng 8-10 phút; kiểm tra phần gà dày nhất đạt 74°C. Thêm nước nóng nếu cháo đặc."
+        },
+        {
+          "title": "Hoàn thiện",
+          "text": "Thêm nước mắm, khuấy đều và nấu thêm một phút. Tắt bếp, cho hành và tiêu. Chia cháo cùng phần thịt, nấm đều vào hai tô."
+        }
+      ],
+      "tip": "Chọn nồi đáy dày và giữ lửa nhỏ sau khi sôi; khuấy nhẹ để hạt gạo không dính đáy.",
+      "substitution": "Dùng nấm rơm, nấm mỡ hoặc nấm bào ngư cùng khối lượng; thái theo kích thước phù hợp.",
+      "portionDetail": "Thời gian tính từ gạo sống. Lượng nước linh hoạt theo độ đặc; lượng gạo, gà và nấm giữ nguyên.",
+      "allergenNote": "Cá trong nước mắm; kiểm tra nhãn gia vị.",
+      "requiresCooking": false,
+      "image": "cooking/images/B03.webp",
+      "thumbnail": "cooking/images/B03-small.webp",
+      "sourcePage": 7
+    },
+    {
+      "id": "B04",
+      "chapterId": "1",
+      "name": "Cháo yến mạch thịt băm, cà rốt",
+      "description": "Yến mạch nấu mặn với thịt băm và cà rốt mềm ngọt. Món cháo ít thao tác, phù hợp khi muốn đổi vị bữa sáng.",
+      "kcalPerServing": 305,
+      "batchKcal": null,
+      "servings": 2,
+      "timeLabels": [
+        "Chuẩn bị 10 phút",
+        "Nấu 15 phút"
+      ],
+      "timeNote": "",
+      "portionNote": "Kcal cho 1/2 công thức, gồm mọi nguyên liệu và sốt đã liệt kê.",
+      "ingredients": [
+        {
+          "name": "Yến mạch cán dẹt (khô)",
+          "amount": "80 g"
+        },
+        {
+          "name": "Thịt heo băm (sống; tham chiếu 96% nạc)",
+          "amount": "180 g"
+        },
+        {
+          "name": "Cà rốt (sống, đã gọt)",
+          "amount": "100 g"
+        },
+        {
+          "name": "Hành lá",
+          "amount": "10 g"
+        },
+        {
+          "name": "Dầu ăn",
+          "amount": "5 g"
+        },
+        {
+          "name": "Nước mắm",
+          "amount": "10 ml"
+        },
+        {
+          "name": "Tiêu xay",
+          "amount": "0,1 g"
+        },
+        {
+          "name": "Nước",
+          "amount": "650 ml"
+        }
+      ],
+      "steps": [
+        {
+          "title": "Cắt nguyên liệu",
+          "text": "Cắt cà rốt thành hạt lựu nhỏ khoảng 3 mm. Thái hành lá, để riêng phần đầu trắng và phần lá xanh."
+        },
+        {
+          "title": "Xào thịt",
+          "text": "Làm nóng dầu trong nồi, cho đầu hành và thịt vào. Đảo, tách thịt thành những vụn nhỏ trong khoảng 3 phút; tránh để thịt đóng thành cục lớn."
+        },
+        {
+          "title": "Nấu cháo",
+          "text": "Thêm nước và cà rốt, đun sôi nhẹ khoảng 5 phút. Cho yến mạch vào, khuấy đều rồi nấu thêm 5-7 phút. Phần thịt cần chín kỹ, đạt ít nhất 71°C."
+        },
+        {
+          "title": "Nêm và chia phần",
+          "text": "Thêm nước mắm, khuấy sát đáy nồi. Tắt bếp, cho lá hành và tiêu. Chia đều cháo cùng thịt, cà rốt vào hai tô."
+        }
+      ],
+      "tip": "Cháo tiếp tục đặc lên sau khi tắt bếp. Có thể thêm một ít nước nóng khi chia ra tô.",
+      "substitution": "Dùng bí đỏ thay cà rốt cùng khối lượng; cắt nhỏ và kiểm tra độ mềm.",
+      "portionDetail": "Dùng yến mạch cán dẹt; nếu đổi loại, điều chỉnh thời gian theo hướng dẫn trên bao bì.",
+      "allergenNote": "Cá trong nước mắm. Kiểm tra nhãn yến mạch nếu cần tránh gluten.",
+      "requiresCooking": false,
+      "image": "cooking/images/B04.webp",
+      "thumbnail": "cooking/images/B04-small.webp",
+      "sourcePage": 9
+    },
+    {
+      "id": "B05",
+      "chapterId": "1",
+      "name": "Bún cá thì là",
+      "description": "Cá nấu mềm trong nước dùng cà chua, thêm rau xanh và thì là thơm. Chia bún, cá và rau đều để mỗi tô trọn vị.",
+      "kcalPerServing": 355,
+      "batchKcal": null,
+      "servings": 2,
+      "timeLabels": [
+        "Chuẩn bị 15 phút",
+        "Nấu 20 phút"
+      ],
+      "timeNote": "",
+      "portionNote": "Kcal cho 1/2 công thức, gồm mọi nguyên liệu và sốt đã liệt kê.",
+      "ingredients": [
+        {
+          "name": "Bún tươi (đã làm chín)",
+          "amount": "300 g"
+        },
+        {
+          "name": "Phi lê cá rô phi (sống, đã lọc xương)",
+          "amount": "260 g"
+        },
+        {
+          "name": "Cà chua (sống)",
+          "amount": "200 g"
+        },
+        {
+          "name": "Cải thìa (sống, đã nhặt)",
+          "amount": "150 g"
+        },
+        {
+          "name": "Thì là và hành lá",
+          "amount": "10 g mỗi loại"
+        },
+        {
+          "name": "Gừng (sống, đã gọt)",
+          "amount": "5 g"
+        },
+        {
+          "name": "Dầu ăn",
+          "amount": "5 g"
+        },
+        {
+          "name": "Nước mắm và muối",
+          "amount": "10 ml + 1 g"
+        },
+        {
+          "name": "Nước",
+          "amount": "800 ml"
+        }
+      ],
+      "steps": [
+        {
+          "title": "Sơ chế",
+          "text": "Kiểm tra xương cá, thấm khô rồi cắt miếng vừa ăn. Rửa rau, để ráo; bổ cà chua múi cau, thái gừng, hành và thì là."
+        },
+        {
+          "title": "Nấu nước dùng",
+          "text": "Cho dầu và cà chua vào nồi, đảo khoảng 3 phút. Thêm nước, gừng và muối. Đun sôi nhẹ rồi nấu thêm 5 phút."
+        },
+        {
+          "title": "Làm chín cá",
+          "text": "Thả cá vào nước dùng, giữ sôi nhẹ. Nấu khoảng 5-8 phút tùy độ dày, đến khi tâm miếng cá dày nhất đạt 63°C; hạn chế đảo mạnh."
+        },
+        {
+          "title": "Hoàn thiện tô bún",
+          "text": "Thêm rau cải, nấu vừa chín rồi cho nước mắm. Làm nóng bún theo hướng dẫn bao bì, chia hai tô. Thêm cá, rau, nước dùng, hành và thì là."
+        }
+      ],
+      "tip": "Giữ nước dùng sôi nhẹ sau khi cho cá vào giúp miếng cá ít bị vỡ.",
+      "substitution": "Có thể thay bằng phi lê cá rô đồng hoặc cá basa cùng khối lượng; kcal sẽ thay đổi theo loại cá.",
+      "portionDetail": "Mỗi tô dùng 150 g bún chín, nửa lượng cá, rau và nước dùng. Đây là công thức cá nấu nước.",
+      "allergenNote": "Cá và nước mắm. Kiểm tra thành phần bún, gia vị đóng gói.",
+      "requiresCooking": false,
+      "image": "cooking/images/B05.webp",
+      "thumbnail": "cooking/images/B05-small.webp",
+      "sourcePage": 11
+    },
+    {
+      "id": "B06",
+      "chapterId": "1",
+      "name": "Miến gà rau cải",
+      "description": "Sợi miến mềm, gà xé và rau cải trong một tô nóng. Nước luộc gà được dùng ngay để nấu phần rau và nấm.",
+      "kcalPerServing": 355,
+      "batchKcal": null,
+      "servings": 2,
+      "timeLabels": [
+        "Chuẩn bị 10 phút",
+        "Nấu 25 phút"
+      ],
+      "timeNote": "",
+      "portionNote": "Kcal cho 1/2 công thức, gồm mọi nguyên liệu và sốt đã liệt kê.",
+      "ingredients": [
+        {
+          "name": "Miến dong khô (khô, trước khi ngâm)",
+          "amount": "100 g"
+        },
+        {
+          "name": "Ức gà bỏ da (sống, không xương)",
+          "amount": "240 g"
+        },
+        {
+          "name": "Cải thìa (sống, đã nhặt)",
+          "amount": "250 g"
+        },
+        {
+          "name": "Nấm mỡ tươi (đã bỏ gốc cứng)",
+          "amount": "100 g"
+        },
+        {
+          "name": "Gừng (sống, đã gọt)",
+          "amount": "5 g"
+        },
+        {
+          "name": "Hành lá",
+          "amount": "10 g"
+        },
+        {
+          "name": "Nước mắm và muối",
+          "amount": "10 ml + 0,5 g"
+        },
+        {
+          "name": "Nước",
+          "amount": "900 ml"
+        }
+      ],
+      "steps": [
+        {
+          "title": "Luộc gà",
+          "text": "Cho gà, gừng và nước vào nồi. Đun sôi nhẹ rồi hạ lửa, nấu khoảng 12-18 phút tùy độ dày. Tâm thịt cần đạt 74°C."
+        },
+        {
+          "title": "Chuẩn bị phần ăn kèm",
+          "text": "Ngâm miến theo hướng dẫn trên bao bì rồi để ráo. Rửa rau, cắt đoạn vừa ăn; thái nấm và hành lá."
+        },
+        {
+          "title": "Xé gà, nấu rau",
+          "text": "Lấy gà chín ra, chờ bớt nóng rồi xé. Giữ nước dùng nóng, thêm nấm, sau đó thêm rau cải. Nấu đến khi rau vừa chín."
+        },
+        {
+          "title": "Hoàn thiện",
+          "text": "Cho miến vào nấu theo thời gian trên bao bì. Thêm nước mắm và muối, chia miến cùng rau, nấm vào hai tô. Thêm gà xé, hành và nước dùng."
+        }
+      ],
+      "tip": "Chia miến ra tô ngay khi vừa mềm; để lâu trong nồi nóng có thể làm sợi trương và dễ đứt.",
+      "substitution": "Dùng cải thìa hoặc cải ngọt cùng khối lượng; cho phần thân dày vào trước phần lá.",
+      "portionDetail": "100 g miến là lượng khô cho cả công thức. Mỗi tô nhận một nửa lượng miến, gà, rau và nấm.",
+      "allergenNote": "Cá trong nước mắm; kiểm tra nhãn miến và gia vị.",
+      "requiresCooking": false,
+      "image": "cooking/images/B06.webp",
+      "thumbnail": "cooking/images/B06-small.webp",
+      "sourcePage": 13
+    },
+    {
+      "id": "B07",
+      "chapterId": "1",
+      "name": "Khoai lang, trứng luộc và sữa chua",
+      "description": "Một bữa sáng lắp ghép từ ba nguyên liệu quen. Khoai hấp mềm, trứng luộc chín và sữa chua được chia gọn thành hai phần.",
+      "kcalPerServing": 305,
+      "batchKcal": null,
+      "servings": 2,
+      "timeLabels": [
+        "Chuẩn bị 5 phút",
+        "Nấu 25 phút"
+      ],
+      "timeNote": "",
+      "portionNote": "Kcal cho 1/2 công thức, gồm mọi nguyên liệu và sốt đã liệt kê.",
+      "ingredients": [
+        {
+          "name": "Khoai lang (sống, phần ăn được)",
+          "amount": "400 g"
+        },
+        {
+          "name": "Trứng gà (tham chiếu trước nấu, không vỏ)",
+          "amount": "2 quả / khoảng 100 g"
+        },
+        {
+          "name": "Sữa chua không đường (trắng, nguyên kem, giữ lạnh)",
+          "amount": "200 g"
+        },
+        {
+          "name": "Nước hấp và luộc",
+          "amount": "đủ dùng cho dụng cụ"
+        }
+      ],
+      "steps": [
+        {
+          "title": "Chuẩn bị khoai",
+          "text": "Chà rửa sạch vỏ khoai, bỏ phần hỏng. Cắt củ lớn thành khúc khoảng 3 cm để các miếng chín tương đối đều."
+        },
+        {
+          "title": "Hấp khoai",
+          "text": "Đun sôi nước ở đáy nồi hấp, xếp khoai lên xửng. Đậy nắp, hấp khoảng 15-25 phút, đến khi xiên qua phần dày nhất thấy mềm."
+        },
+        {
+          "title": "Luộc trứng",
+          "text": "Trong lúc hấp khoai, cho trứng vào nồi, thêm nước ngập. Khi nước sôi nhẹ, hạ lửa và luộc khoảng 10-12 phút; lòng trắng, lòng đỏ cần đông hoàn toàn."
+        },
+        {
+          "title": "Chia phần",
+          "text": "Làm mát trứng bằng nước sạch rồi bóc vỏ. Chia khoai chín và trứng ra hai đĩa. Lấy sữa chua từ tủ lạnh, mỗi phần 100 g."
+        }
+      ],
+      "tip": "Chạy nồi hấp và nồi trứng cùng lúc để rút ngắn thời gian chuẩn bị bữa ăn.",
+      "substitution": "Dùng khoai lang vàng hoặc tím tùy mùa; thời gian hấp phụ thuộc kích thước và loại khoai.",
+      "portionDetail": "Mỗi phần gồm một nửa khoai, một quả trứng và 100 g sữa chua. Khối lượng khoai trong nguyên liệu được tính trước khi hấp.",
+      "allergenNote": "Trứng, sữa.",
+      "requiresCooking": false,
+      "image": "cooking/images/B07.webp",
+      "thumbnail": "cooking/images/B07-small.webp",
+      "sourcePage": 15
+    },
+    {
+      "id": "B08",
+      "chapterId": "1",
+      "name": "Yến mạch ngâm sữa chua, chuối và đậu phộng",
+      "description": "Trộn nền yến mạch từ tối trước, thêm chuối và đậu phộng khi ăn. Kết cấu mềm mát đi cùng chút giòn thơm.",
+      "kcalPerServing": 395,
+      "batchKcal": null,
+      "servings": 2,
+      "timeLabels": [
+        "Chuẩn bị 8 phút",
+        "Ngâm lạnh 6-12 giờ"
+      ],
+      "timeNote": "Ngâm lạnh 6-12 giờ; chuẩn bị tối trước, dùng vào sáng hôm sau.",
+      "portionNote": "Kcal cho 1/2 công thức, gồm mọi nguyên liệu và sốt đã liệt kê.",
+      "ingredients": [
+        {
+          "name": "Yến mạch cán dẹt (khô)",
+          "amount": "80 g"
+        },
+        {
+          "name": "Sữa tươi không đường (không đường, tham chiếu 3,25% béo)",
+          "amount": "200 ml"
+        },
+        {
+          "name": "Sữa chua không đường (trắng, nguyên kem, giữ lạnh)",
+          "amount": "160 g"
+        },
+        {
+          "name": "Chuối chín (đã bỏ vỏ)",
+          "amount": "160 g"
+        },
+        {
+          "name": "Đậu phộng rang không muối (rang khô, không thêm dầu)",
+          "amount": "20 g"
+        }
+      ],
+      "steps": [
+        {
+          "title": "Trộn nền",
+          "text": "Cho yến mạch, sữa tươi và sữa chua vào bát sạch. Khuấy kỹ để toàn bộ yến mạch tiếp xúc với phần sữa."
+        },
+        {
+          "title": "Ngâm lạnh",
+          "text": "Chia hỗn hợp vào hai hộp sạch có nắp, đậy kín. Đặt ngay vào ngăn mát ở 4°C hoặc thấp hơn trong 6-12 giờ."
+        },
+        {
+          "title": "Chuẩn bị lúc ăn",
+          "text": "Lấy phần yến mạch ra, khuấy lại cho đều. Bóc và cắt chuối ngay trước khi ăn. Giã hoặc băm đậu phộng thành miếng nhỏ."
+        },
+        {
+          "title": "Hoàn thiện",
+          "text": "Chia chuối và đậu phộng lên hai phần yến mạch. Dùng khi còn mát, điều chỉnh độ đặc bằng một ít nước uống được nếu cần."
+        }
+      ],
+      "tip": "Cho đậu phộng vào lúc ăn để giữ độ giòn. Chọn hộp đủ rộng vì yến mạch sẽ nở khi ngâm.",
+      "substitution": "Thay chuối bằng xoài chín cùng khối lượng để đổi vị; thông tin dinh dưỡng cần tính lại.",
+      "portionDetail": "Công thức cần thời gian ngâm lạnh. Dùng sữa và sữa chua còn trong hạn sử dụng, theo hướng dẫn bảo quản trên nhãn.",
+      "allergenNote": "Sữa, đậu phộng. Kiểm tra nhãn yến mạch nếu cần tránh gluten.",
+      "requiresCooking": false,
+      "image": "cooking/images/B08.webp",
+      "thumbnail": "cooking/images/B08-small.webp",
+      "sourcePage": 17
+    },
+    {
+      "id": "B09",
+      "chapterId": "1",
+      "name": "Bánh chuối yến mạch áp chảo",
+      "description": "Chuối chín tạo vị ngọt và độ mềm cho những chiếc bánh nhỏ. Chảo nóng vừa và lớp bột mỏng giúp bánh chín đều.",
+      "kcalPerServing": 410,
+      "batchKcal": null,
+      "servings": 2,
+      "timeLabels": [
+        "Chuẩn bị 10 phút",
+        "Nấu 15 phút"
+      ],
+      "timeNote": "Cho bột nghỉ khoảng 5 phút trong lúc chuẩn bị chảo.",
+      "portionNote": "Kcal cho 1/2 công thức, gồm mọi nguyên liệu và sốt đã liệt kê.",
+      "ingredients": [
+        {
+          "name": "Chuối chín (đã bỏ vỏ)",
+          "amount": "200 g"
+        },
+        {
+          "name": "Yến mạch cán xay mịn (khô, tự xay từ yến mạch cán)",
+          "amount": "100 g"
+        },
+        {
+          "name": "Trứng gà (không vỏ)",
+          "amount": "2 quả / khoảng 100 g"
+        },
+        {
+          "name": "Sữa tươi không đường (không đường, tham chiếu 3,25% béo)",
+          "amount": "80 ml"
+        },
+        {
+          "name": "Dầu ăn (dùng cho tất cả các mẻ bánh)",
+          "amount": "8 g"
+        },
+        {
+          "name": "Bột nở (baking powder)",
+          "amount": "3 g"
+        },
+        {
+          "name": "Bột quế",
+          "amount": "0,3 g"
+        }
+      ],
+      "steps": [
+        {
+          "title": "Trộn phần ướt",
+          "text": "Để riêng 40 g chuối, cắt lát để ăn cùng. Nghiền mịn 160 g còn lại bằng nĩa, thêm trứng và sữa rồi đánh đều."
+        },
+        {
+          "title": "Thêm phần khô",
+          "text": "Trộn bột yến mạch, bột nở và quế rồi cho vào bát chuối. Khuấy vừa hòa quyện, để nghỉ khoảng 5 phút cho bột hút nước."
+        },
+        {
+          "title": "Áp chảo",
+          "text": "Làm nóng chảo chống dính ở lửa vừa nhỏ. Quét một phần dầu, chia bột làm khoảng tám bánh nhỏ, dàn mỏng. Nấu từng mẻ, chừa khoảng cách giữa bánh."
+        },
+        {
+          "title": "Lật và làm chín",
+          "text": "Khi mép bánh se lại, lật nhẹ rồi nấu mặt còn lại. Giữ lửa nhỏ đến khi ruột bánh đông, không còn bột ướt. Chia bánh và chuối để riêng thành hai phần."
+        }
+      ],
+      "tip": "Thử chiếc bánh đầu tiên để chỉnh lửa. Mặt bánh vàng quá nhanh thì hạ nhiệt và dàn bột mỏng hơn.",
+      "substitution": "Có thể dùng yến mạch cán dẹt xay mịn thay bột yến mạch đóng gói, cùng khối lượng.",
+      "portionDetail": "Công thức cho khoảng tám bánh nhỏ. Sốt, mật ong hoặc sữa chua thêm vào được tính riêng.",
+      "allergenNote": "Trứng, sữa. Kiểm tra nhãn yến mạch và bột nở nếu cần tránh gluten.",
+      "requiresCooking": false,
+      "image": "cooking/images/B09.webp",
+      "thumbnail": "cooking/images/B09-small.webp",
+      "sourcePage": 19
+    },
+    {
+      "id": "B10",
+      "chapterId": "1",
+      "name": "Cơm cuộn trứng và rau củ",
+      "description": "Cơm, trứng chín và rau được cuộn gọn trong rong biển. Dùng cơm vừa nấu, hạ bớt nhiệt rồi cuộn và thưởng thức ngay.",
+      "kcalPerServing": 380,
+      "batchKcal": null,
+      "servings": 2,
+      "timeLabels": [
+        "Chuẩn bị 15 phút",
+        "Nấu 10 phút"
+      ],
+      "timeNote": "Thời gian không bao gồm nấu cơm; nguyên liệu dùng 300 g cơm đã chín.",
+      "portionNote": "Kcal cho 1/2 công thức, gồm mọi nguyên liệu và sốt đã liệt kê.",
+      "ingredients": [
+        {
+          "name": "Cơm (đã nấu chín, còn ấm)",
+          "amount": "300 g"
+        },
+        {
+          "name": "Trứng gà (không vỏ)",
+          "amount": "3 quả / khoảng 150 g"
+        },
+        {
+          "name": "Cà rốt (sống, đã gọt)",
+          "amount": "100 g"
+        },
+        {
+          "name": "Dưa leo (sống)",
+          "amount": "100 g"
+        },
+        {
+          "name": "Nori cuộn khô (rang sẵn, không dầu và gia vị)",
+          "amount": "2 lá lớn / tổng 6 g"
+        },
+        {
+          "name": "Dầu ăn (dùng cho trứng)",
+          "amount": "5 g"
+        },
+        {
+          "name": "Giấm gạo",
+          "amount": "10 ml"
+        },
+        {
+          "name": "Mè rang (đã rang)",
+          "amount": "5 g"
+        },
+        {
+          "name": "Nước tương (chia làm phần chấm)",
+          "amount": "10 ml"
+        },
+        {
+          "name": "Muối",
+          "amount": "0,3 g"
+        }
+      ],
+      "steps": [
+        {
+          "title": "Chuẩn bị cơm và rau",
+          "text": "Trộn cơm còn ấm với giấm và mè, dàn ra bát rộng để hạ bớt nhiệt. Cắt cà rốt, dưa leo thành thanh mảnh; chần cà rốt rồi để ráo."
+        },
+        {
+          "title": "Làm chín trứng",
+          "text": "Đánh trứng cùng muối. Làm nóng dầu trong chảo, tráng thành lớp vừa mỏng. Nấu đến khi trứng đông hoàn toàn, lấy ra và cắt thành dải."
+        },
+        {
+          "title": "Cuộn",
+          "text": "Đặt rong biển lên mành cuộn sạch. Trải nửa lượng cơm, chừa một mép nhỏ. Xếp nửa phần trứng và rau, cuộn chắc vừa tay. Làm tiếp cuộn thứ hai."
+        },
+        {
+          "title": "Cắt và dùng",
+          "text": "Dùng dao sạch hơi ẩm, cắt mỗi cuộn thành miếng vừa ăn. Chia đều hai phần cùng nước tương chấm và dùng ngay sau khi hoàn thiện."
+        }
+      ],
+      "tip": "Để rau thật ráo, cuộn vừa chặt; quá nhiều nhân hoặc cơm quá ướt dễ làm rong biển rách.",
+      "substitution": "Thay dưa leo bằng rau cải đã luộc chín, vắt ráo và cắt gọn.",
+      "portionDetail": "Khối lượng cơm được tính khi đã chín. Lượng nước tương là cho cả công thức; phần ăn kèm thêm được tính riêng.",
+      "allergenNote": "Trứng, mè, đậu nành; nước tương thường có lúa mì. Kiểm tra nhãn sản phẩm.",
+      "requiresCooking": false,
+      "image": "cooking/images/B10.webp",
+      "thumbnail": "cooking/images/B10-small.webp",
+      "sourcePage": 21
+    },
+    {
+      "id": "M01",
+      "chapterId": "2",
+      "name": "Gà áp chảo sả chanh",
+      "description": "Gà vàng nhẹ bên ngoài, thơm sả và chanh. Dùng miếng thịt có độ dày tương đối đều để dễ kiểm soát khi áp chảo.",
+      "kcalPerServing": 240,
+      "batchKcal": null,
+      "servings": 2,
+      "timeLabels": [
+        "Chuẩn bị 10 phút",
+        "Nấu 15 phút"
+      ],
+      "timeNote": "Ướp 15 phút trong ngăn mát, ngoài thời gian thao tác.",
+      "portionNote": "Kcal cho 1 phần món ăn; chưa gồm cơm, rau hoặc món ăn thêm.",
+      "ingredients": [
+        {
+          "name": "Ức gà bỏ da (sống, không xương)",
+          "amount": "300 g"
+        },
+        {
+          "name": "Sả (phần lõi mềm, băm nhỏ)",
+          "amount": "15 g"
+        },
+        {
+          "name": "Tỏi (đã bóc vỏ, băm)",
+          "amount": "5 g"
+        },
+        {
+          "name": "Nước cốt chanh (lọc bỏ hạt)",
+          "amount": "10 ml"
+        },
+        {
+          "name": "Nước mắm",
+          "amount": "10 ml"
+        },
+        {
+          "name": "Dầu ăn",
+          "amount": "8 g"
+        },
+        {
+          "name": "Đường",
+          "amount": "4 g"
+        },
+        {
+          "name": "Tiêu xay",
+          "amount": "0,1 g"
+        },
+        {
+          "name": "Nước",
+          "amount": "30 ml"
+        }
+      ],
+      "steps": [
+        {
+          "title": "Chuẩn bị thịt",
+          "text": "Thấm khô gà, xẻ phần dày để các miếng dày khoảng 1,5 cm. Trộn nước mắm, sả, tỏi, đường và tiêu trong bát riêng."
+        },
+        {
+          "title": "Ướp gà",
+          "text": "Áo đều hỗn hợp lên gà. Đậy kín, để ngăn mát 15 phút. Trước khi nấu, gạt bớt sả và tỏi bám dày; giữ lại trong bát ướp để nấu cùng sốt."
+        },
+        {
+          "title": "Áp chảo",
+          "text": "Làm nóng dầu ở lửa vừa, áp gà 2-3 phút mỗi mặt. Thêm 30 ml nước cùng toàn bộ sả, tỏi và sốt ướp còn lại. Đun sôi sốt, hạ lửa rồi đậy nắp; nấu đến khi tâm thịt đạt 74°C."
+        },
+        {
+          "title": "Hoàn thiện",
+          "text": "Mở nắp cho nước sốt sánh nhẹ, tắt bếp rồi thêm chanh. Để gà nghỉ khoảng 2 phút, cắt miếng và chia đều cùng sốt."
+        }
+      ],
+      "tip": "Giữ lửa vừa khi có sả, tỏi và đường. Nếu mặt thịt sậm quá nhanh, hạ lửa rồi thêm phần nước đã định lượng.",
+      "substitution": "Có thể dùng đùi gà lọc xương bỏ da cùng khối lượng; kiểm tra độ dày và nhiệt độ chín.",
+      "portionDetail": "Chia gà và lượng sốt thành hai phần. Cơm, rau hoặc canh ăn cùng được tính riêng.",
+      "allergenNote": "Cá trong nước mắm; kiểm tra nhãn gia vị.",
+      "requiresCooking": false,
+      "image": "cooking/images/M01.webp",
+      "thumbnail": "cooking/images/M01-small.webp",
+      "sourcePage": 3
+    },
+    {
+      "id": "M02",
+      "chapterId": "2",
+      "name": "Gà xé trộn rau thơm",
+      "description": "Gà xé mềm đi cùng bắp cải, cà rốt và rau thơm. Trộn gần lúc ăn để giữ độ giòn và hương vị tươi mát.",
+      "kcalPerServing": 250,
+      "batchKcal": null,
+      "servings": 2,
+      "timeLabels": [
+        "Chuẩn bị 15 phút",
+        "Nấu 25 phút"
+      ],
+      "timeNote": "",
+      "portionNote": "Kcal cho 1 phần món ăn; chưa gồm cơm, rau hoặc món ăn thêm.",
+      "ingredients": [
+        {
+          "name": "Ức gà bỏ da (sống, không xương)",
+          "amount": "300 g"
+        },
+        {
+          "name": "Bắp cải (sống, đã bỏ lõi cứng)",
+          "amount": "150 g"
+        },
+        {
+          "name": "Cà rốt (sống, đã gọt)",
+          "amount": "100 g"
+        },
+        {
+          "name": "Hành tây (sống, đã bóc vỏ)",
+          "amount": "50 g"
+        },
+        {
+          "name": "Rau răm",
+          "amount": "20 g"
+        },
+        {
+          "name": "Nước cốt chanh (lọc bỏ hạt)",
+          "amount": "20 ml"
+        },
+        {
+          "name": "Nước mắm",
+          "amount": "15 ml"
+        },
+        {
+          "name": "Đường",
+          "amount": "5 g"
+        },
+        {
+          "name": "Nước để luộc gà",
+          "amount": "700 ml hoặc đủ ngập"
+        }
+      ],
+      "steps": [
+        {
+          "title": "Luộc gà",
+          "text": "Cho gà và nước vào nồi, đun sôi nhẹ rồi hạ lửa. Nấu khoảng 15-20 phút tùy độ dày; tâm phần thịt dày nhất cần đạt 74°C."
+        },
+        {
+          "title": "Chuẩn bị rau",
+          "text": "Rửa rau bằng dụng cụ riêng, để ráo. Thái bắp cải và hành thật mảnh, bào cà rốt. Ngâm hành trong nước lạnh sạch 5 phút rồi để ráo."
+        },
+        {
+          "title": "Pha sốt, xé gà",
+          "text": "Hòa tan đường trong nước mắm và chanh. Lấy gà chín ra, chờ bớt nóng vài phút rồi xé thành sợi vừa ăn."
+        },
+        {
+          "title": "Trộn và chia phần",
+          "text": "Cho gà, bắp cải, cà rốt, hành và rau thơm vào bát lớn. Rưới sốt, đảo nhẹ đến khi áo đều. Chia hai phần và dùng ngay."
+        }
+      ],
+      "tip": "Chưa ăn ngay: giữ riêng gà chín, rau và sốt trong ngăn mát ≤4°C. Trộn gần bữa ăn để giữ độ giòn.",
+      "substitution": "Đổi rau răm sang húng lủi hoặc rau mùi theo khẩu vị, giữ tổng lượng rau thơm như công thức.",
+      "portionDetail": "Đây là món chính có rau ăn kèm. Nếu ăn cùng cơm hoặc bánh tráng, tính lượng đó riêng với công thức.",
+      "allergenNote": "Cá trong nước mắm; kiểm tra nhãn gia vị.",
+      "requiresCooking": false,
+      "image": "cooking/images/M02.webp",
+      "thumbnail": "cooking/images/M02-small.webp",
+      "sourcePage": 5
+    },
+    {
+      "id": "M03",
+      "chapterId": "2",
+      "name": "Gà cuộn nấm hấp",
+      "description": "Lớp gà ôm phần nấm và cà rốt, được hấp rồi cắt khoanh. Chuẩn bị nhân gọn giúp cuộn chắc và dễ chia phần.",
+      "kcalPerServing": 235,
+      "batchKcal": null,
+      "servings": 2,
+      "timeLabels": [
+        "Chuẩn bị 20 phút",
+        "Nấu 35 phút"
+      ],
+      "timeNote": "",
+      "portionNote": "Kcal cho 1 phần món ăn; chưa gồm cơm, rau hoặc món ăn thêm.",
+      "ingredients": [
+        {
+          "name": "Ức gà bỏ da (sống, không xương)",
+          "amount": "2 miếng / tổng 300 g"
+        },
+        {
+          "name": "Nấm mỡ tươi (đã bỏ gốc cứng)",
+          "amount": "100 g"
+        },
+        {
+          "name": "Cà rốt (sống, đã gọt)",
+          "amount": "60 g"
+        },
+        {
+          "name": "Hành lá",
+          "amount": "10 g"
+        },
+        {
+          "name": "Nước tương",
+          "amount": "10 ml"
+        },
+        {
+          "name": "Dầu ăn (dùng xào nhân)",
+          "amount": "5 g"
+        },
+        {
+          "name": "Muối và tiêu",
+          "amount": "0,5 g muối + 0,1 g tiêu"
+        },
+        {
+          "name": "Nước hấp",
+          "amount": "700 ml hoặc theo nồi"
+        }
+      ],
+      "steps": [
+        {
+          "title": "Làm nhân",
+          "text": "Thái nhỏ nấm, bào cà rốt, thái hành. Xào nấm và cà rốt với dầu, muối khoảng 3 phút. Thêm hành, để nhân bớt nóng."
+        },
+        {
+          "title": "Cuộn gà",
+          "text": "Xẻ gà thành miếng rộng, dày khoảng 1 cm. Xoa nước tương và tiêu, chia nhân vào giữa rồi cuộn lại. Buộc bằng dây dùng cho thực phẩm."
+        },
+        {
+          "title": "Hấp chín",
+          "text": "Đun sôi nước, đặt cuộn gà lên đĩa chịu nhiệt trong xửng. Hấp khoảng 25-30 phút; nhiệt độ tại tâm cuộn và phần nhân cần đạt 74°C."
+        },
+        {
+          "title": "Cắt khoanh",
+          "text": "Lấy đĩa ra cẩn thận, để cuộn nghỉ khoảng 3 phút. Tháo hết dây, cắt khoanh bằng dao sạch. Chia đều gà và phần nước trong đĩa."
+        }
+      ],
+      "tip": "Chừa mép quanh miếng gà, cho nhân vừa đủ. Kiểm tra nước trong đáy nồi để xửng không bị cạn khi hấp.",
+      "substitution": "Dùng nấm mỡ hoặc nấm bào ngư; thái nhỏ và xào cho nhân bớt nước trước khi cuộn.",
+      "portionDetail": "Mỗi người dùng một cuộn cùng nửa lượng nhân. Cơm hoặc rau ăn cùng được tính riêng.",
+      "allergenNote": "Đậu nành; nước tương thường có lúa mì. Kiểm tra nhãn sản phẩm.",
+      "requiresCooking": false,
+      "image": "cooking/images/M03.webp",
+      "thumbnail": "cooking/images/M03-small.webp",
+      "sourcePage": 7
+    },
+    {
+      "id": "M04",
+      "chapterId": "2",
+      "name": "Thịt thăn heo rim gừng",
+      "description": "Thịt thăn được rim với gừng và một lượng sốt vừa đủ. Lửa nhỏ ở cuối giúp sốt bám đều quanh từng miếng thịt.",
+      "kcalPerServing": 210,
+      "batchKcal": null,
+      "servings": 2,
+      "timeLabels": [
+        "Chuẩn bị 10 phút",
+        "Nấu 20 phút"
+      ],
+      "timeNote": "Ướp 10 phút trong ngăn mát, ngoài thời gian thao tác.",
+      "portionNote": "Kcal cho 1 phần món ăn; chưa gồm cơm, rau hoặc món ăn thêm.",
+      "ingredients": [
+        {
+          "name": "Thịt thăn heo (sống, lọc gân và mỡ ngoài)",
+          "amount": "300 g"
+        },
+        {
+          "name": "Gừng (sống, đã gọt)",
+          "amount": "15 g"
+        },
+        {
+          "name": "Tỏi (đã bóc vỏ)",
+          "amount": "5 g"
+        },
+        {
+          "name": "Nước mắm",
+          "amount": "10 ml"
+        },
+        {
+          "name": "Nước tương",
+          "amount": "5 ml"
+        },
+        {
+          "name": "Đường",
+          "amount": "5 g"
+        },
+        {
+          "name": "Dầu ăn",
+          "amount": "5 g"
+        },
+        {
+          "name": "Tiêu xay",
+          "amount": "0,1 g"
+        },
+        {
+          "name": "Nước",
+          "amount": "80 ml"
+        }
+      ],
+      "steps": [
+        {
+          "title": "Thái và ướp",
+          "text": "Thái thịt thành miếng dày khoảng 1 cm. Trộn với nước mắm, nước tương, đường và tiêu. Đậy kín, ướp trong ngăn mát 10 phút."
+        },
+        {
+          "title": "Áp thịt",
+          "text": "Thái gừng thành sợi, băm tỏi. Làm nóng dầu ở lửa vừa, đảo gừng và tỏi ngắn rồi cho thịt vào áp hai mặt."
+        },
+        {
+          "title": "Rim nhẹ",
+          "text": "Thêm nước và phần gia vị ướp. Đun sôi toàn bộ sốt rồi hạ lửa rồi rim khoảng 6-8 phút, lật thịt để sốt áo đều. Tâm miếng dày nhất đạt 63°C."
+        },
+        {
+          "title": "Nghỉ và chia phần",
+          "text": "Tắt bếp, đậy nắp và để thịt nghỉ ít nhất 3 phút sau khi đạt nhiệt độ. Chia đều thịt, gừng và sốt ra hai phần."
+        }
+      ],
+      "tip": "Dừng rim khi sốt còn đủ để áo thịt. Nếu nước cạn trước khi thịt chín, thêm một ít nước nóng.",
+      "substitution": "Có thể dùng phần thịt nạc heo khác, cắt cùng độ dày và kiểm tra nhiệt độ chín.",
+      "portionDetail": "Lượng sốt thuộc cả công thức. Cơm, canh hoặc rau gợi ý ăn cùng được tính riêng.",
+      "allergenNote": "Cá, đậu nành; nước tương có thể chứa lúa mì.",
+      "requiresCooking": false,
+      "image": "cooking/images/M04.webp",
+      "thumbnail": "cooking/images/M04-small.webp",
+      "sourcePage": 9
+    },
+    {
+      "id": "M05",
+      "chapterId": "2",
+      "name": "Trứng hấp thịt băm và nấm",
+      "description": "Trứng hấp cùng thịt băm và nấm tạo thành món mềm, dễ chia. Dùng bát nông vừa phải để phần giữa chín đồng đều.",
+      "kcalPerServing": 240,
+      "batchKcal": null,
+      "servings": 2,
+      "timeLabels": [
+        "Chuẩn bị 15 phút",
+        "Nấu 30 phút"
+      ],
+      "timeNote": "",
+      "portionNote": "Kcal cho 1 phần món ăn; chưa gồm cơm, rau hoặc món ăn thêm.",
+      "ingredients": [
+        {
+          "name": "Trứng gà (không vỏ)",
+          "amount": "3 quả / khoảng 150 g"
+        },
+        {
+          "name": "Thịt heo băm (sống; tham chiếu 96% nạc)",
+          "amount": "150 g"
+        },
+        {
+          "name": "Nấm mỡ tươi (đã bỏ gốc cứng)",
+          "amount": "80 g"
+        },
+        {
+          "name": "Cà rốt (sống, đã gọt)",
+          "amount": "50 g"
+        },
+        {
+          "name": "Hành lá",
+          "amount": "10 g"
+        },
+        {
+          "name": "Nước mắm",
+          "amount": "10 ml"
+        },
+        {
+          "name": "Dầu ăn (quét bát hấp)",
+          "amount": "3 g"
+        },
+        {
+          "name": "Tiêu xay",
+          "amount": "0,1 g"
+        },
+        {
+          "name": "Nước",
+          "amount": "120 ml + nước hấp"
+        }
+      ],
+      "steps": [
+        {
+          "title": "Sơ chế nhân",
+          "text": "Băm nấm và cà rốt thành miếng nhỏ khoảng 3 mm, thái hành. Tách thịt băm cho tơi để tránh cục thịt lớn trong hỗn hợp."
+        },
+        {
+          "title": "Trộn trứng",
+          "text": "Đánh tan trứng với 120 ml nước, nước mắm và tiêu. Trộn thịt, nấm, cà rốt và hành vào, đảo nhẹ để nhân phân bố đều."
+        },
+        {
+          "title": "Hấp",
+          "text": "Quét dầu lên hai bát chịu nhiệt, chia hỗn hợp dày khoảng 3 cm. Đặt vào xửng đang có hơi nước, che bằng đĩa chịu nhiệt và hấp nhẹ."
+        },
+        {
+          "title": "Kiểm tra và dùng",
+          "text": "Sau khoảng 20-25 phút, đo tâm món đạt 74°C; hỗn hợp đã đông đều. Lấy bát ra bằng dụng cụ cách nhiệt, chờ bớt nóng rồi dùng."
+        }
+      ],
+      "tip": "Giữ nước sôi nhẹ và che bát để hạn chế nước nhỏ xuống mặt trứng. Bát sâu hơn sẽ cần thêm thời gian hấp.",
+      "substitution": "Thay cà rốt bằng bí ngòi thái nhỏ cùng khối lượng; thấm ráo trước khi trộn.",
+      "portionDetail": "Mỗi bát là một phần món chính. Cơm và rau ăn cùng được tính riêng với công thức.",
+      "allergenNote": "Trứng và cá trong nước mắm; kiểm tra nhãn gia vị.",
+      "requiresCooking": false,
+      "image": "cooking/images/M05.webp",
+      "thumbnail": "cooking/images/M05-small.webp",
+      "sourcePage": 11
+    },
+    {
+      "id": "M06",
+      "chapterId": "2",
+      "name": "Thịt thăn heo nướng sả",
+      "description": "Sả và tỏi tạo mùi thơm cho thịt thăn nướng. Xếp thịt thành một lớp để bề mặt lên màu và miếng thịt chín đều.",
+      "kcalPerServing": 225,
+      "batchKcal": null,
+      "servings": 2,
+      "timeLabels": [
+        "Chuẩn bị 10 phút",
+        "Nấu 20 phút"
+      ],
+      "timeNote": "Ướp 20 phút trong ngăn mát; làm nóng lò trong lúc chờ.",
+      "portionNote": "Kcal cho 1 phần món ăn; chưa gồm cơm, rau hoặc món ăn thêm.",
+      "ingredients": [
+        {
+          "name": "Thịt thăn heo (sống, lọc gân và mỡ ngoài)",
+          "amount": "300 g"
+        },
+        {
+          "name": "Sả (lõi mềm, băm nhỏ)",
+          "amount": "15 g"
+        },
+        {
+          "name": "Tỏi (đã bóc vỏ, băm)",
+          "amount": "5 g"
+        },
+        {
+          "name": "Nước mắm",
+          "amount": "10 ml"
+        },
+        {
+          "name": "Dầu ăn",
+          "amount": "8 g"
+        },
+        {
+          "name": "Đường",
+          "amount": "5 g"
+        },
+        {
+          "name": "Tiêu xay",
+          "amount": "0,1 g"
+        },
+        {
+          "name": "Nước cốt chanh (dùng khi ăn)",
+          "amount": "10 ml"
+        }
+      ],
+      "steps": [
+        {
+          "title": "Cắt và pha ướp",
+          "text": "Cắt thịt thành miếng dày khoảng 1,2 cm. Trộn sả, tỏi, nước mắm, dầu, đường và tiêu; áo đều lên từng miếng thịt."
+        },
+        {
+          "title": "Ướp và làm nóng lò",
+          "text": "Đậy kín thịt, ướp ngăn mát 20 phút. Làm nóng lò ở 200°C. Lót khay bằng giấy nướng phù hợp với nhiệt độ sử dụng."
+        },
+        {
+          "title": "Nướng",
+          "text": "Xếp thịt một lớp, nướng khoảng 12-18 phút và lật giữa chừng. Tâm miếng dày nhất cần đạt 63°C; kiểm tra sớm nếu miếng thịt mỏng."
+        },
+        {
+          "title": "Nghỉ trước khi ăn",
+          "text": "Lấy thịt ra, để nghỉ ít nhất 3 phút sau khi đạt nhiệt độ. Chia thịt và nước thịt thành hai phần, thêm chanh tùy khẩu vị."
+        }
+      ],
+      "tip": "Gạt bớt sả, tỏi bám thành lớp dày trước khi nướng để hạn chế cháy. Thời gian thực tế phụ thuộc từng lò.",
+      "substitution": "Có thể dùng thịt nạc vai đã lọc phần mỡ nhìn thấy; cách nấu và thành phần dinh dưỡng sẽ thay đổi.",
+      "portionDetail": "Món dùng lò nướng. Cơm, bún hoặc rau ăn cùng được tính riêng với hai phần thịt.",
+      "allergenNote": "Cá trong nước mắm; kiểm tra nhãn gia vị.",
+      "requiresCooking": false,
+      "image": "cooking/images/M06.webp",
+      "thumbnail": "cooking/images/M06-small.webp",
+      "sourcePage": 13
+    },
+    {
+      "id": "M07",
+      "chapterId": "2",
+      "name": "Bò xào bông cải",
+      "description": "Bò thái mỏng, bông cải xanh và sốt áo nhẹ tạo nên món xào quen. Chuẩn bị sẵn nguyên liệu trước khi bật bếp.",
+      "kcalPerServing": 315,
+      "batchKcal": null,
+      "servings": 2,
+      "timeLabels": [
+        "Chuẩn bị 15 phút",
+        "Nấu 12 phút"
+      ],
+      "timeNote": "",
+      "portionNote": "Kcal cho 1 phần món ăn; chưa gồm cơm, rau hoặc món ăn thêm.",
+      "ingredients": [
+        {
+          "name": "Thịt thăn bò nạc (sống, lọc gân và mỡ ngoài)",
+          "amount": "300 g"
+        },
+        {
+          "name": "Bông cải xanh (sống)",
+          "amount": "300 g"
+        },
+        {
+          "name": "Tỏi (đã bóc vỏ)",
+          "amount": "8 g"
+        },
+        {
+          "name": "Gừng (sống, đã gọt)",
+          "amount": "5 g"
+        },
+        {
+          "name": "Nước tương",
+          "amount": "15 ml"
+        },
+        {
+          "name": "Dầu ăn (chia hai lần xào)",
+          "amount": "8 g"
+        },
+        {
+          "name": "Bột bắp (khô)",
+          "amount": "5 g"
+        },
+        {
+          "name": "Tiêu xay",
+          "amount": "0,1 g"
+        },
+        {
+          "name": "Nước",
+          "amount": "30 ml + nước chần"
+        }
+      ],
+      "steps": [
+        {
+          "title": "Sơ chế",
+          "text": "Thái bò ngang thớ thành lát khoảng 5 mm. Trộn với 10 ml nước tương, bột bắp và tiêu. Cắt bông cải thành nhánh nhỏ, băm tỏi và gừng."
+        },
+        {
+          "title": "Chần bông cải",
+          "text": "Đun sôi nước, chần bông cải khoảng 1-2 phút rồi để ráo. Giữ phần bò trong ngăn mát khi chuẩn bị các nguyên liệu khác."
+        },
+        {
+          "title": "Xào bò",
+          "text": "Làm nóng 4 g dầu, đảo tỏi và gừng rồi cho bò vào, dàn một lớp. Xào đến khi thịt đạt 63°C, chuyển sang đĩa sạch và để nghỉ 3 phút."
+        },
+        {
+          "title": "Ghép món",
+          "text": "Cho dầu còn lại, bông cải, 30 ml nước và nước tương còn lại vào chảo. Đảo nóng, đợi bò đủ thời gian nghỉ rồi cho vào đảo nhanh, chia hai phần."
+        }
+      ],
+      "tip": "Thấm ráo bông cải sau khi chần. Nếu chảo nhỏ, xào bò thành hai mẻ để thịt không bị dồn thành lớp dày.",
+      "substitution": "Thay bông cải bằng đậu cô ve cùng khối lượng; chần đến khi vừa chín rồi xào.",
+      "portionDetail": "Đã tính bông cải và toàn bộ sốt trong hai phần món xào. Cơm ăn cùng được tính riêng.",
+      "allergenNote": "Đậu nành; nước tương thường chứa lúa mì.",
+      "requiresCooking": false,
+      "image": "cooking/images/M07.webp",
+      "thumbnail": "cooking/images/M07-small.webp",
+      "sourcePage": 15
+    },
+    {
+      "id": "M08",
+      "chapterId": "2",
+      "name": "Bò cuốn lá lốt áp chảo",
+      "description": "Lá lốt ôm nhân bò băm, được áp chảo đến khi thơm. Cuốn kích thước tương tự nhau giúp phần nhân chín đồng đều.",
+      "kcalPerServing": 265,
+      "batchKcal": null,
+      "servings": 2,
+      "timeLabels": [
+        "Chuẩn bị 20 phút",
+        "Nấu 15 phút"
+      ],
+      "timeNote": "",
+      "portionNote": "Kcal cho 1 phần món ăn; chưa gồm cơm, rau hoặc món ăn thêm.",
+      "ingredients": [
+        {
+          "name": "Thịt bò băm (sống; tham chiếu 95% nạc)",
+          "amount": "300 g"
+        },
+        {
+          "name": "Lá lốt",
+          "amount": "12-14 lá / khoảng 30 g"
+        },
+        {
+          "name": "Hành tím (đã bóc vỏ)",
+          "amount": "20 g"
+        },
+        {
+          "name": "Tỏi (đã bóc vỏ)",
+          "amount": "5 g"
+        },
+        {
+          "name": "Sả (lõi mềm)",
+          "amount": "10 g"
+        },
+        {
+          "name": "Nước mắm",
+          "amount": "10 ml"
+        },
+        {
+          "name": "Dầu ăn",
+          "amount": "8 g"
+        },
+        {
+          "name": "Tiêu xay",
+          "amount": "0,1 g"
+        },
+        {
+          "name": "Nước",
+          "amount": "30 ml"
+        }
+      ],
+      "steps": [
+        {
+          "title": "Chuẩn bị nhân",
+          "text": "Rửa lá lốt, để ráo và thấm khô. Băm thật nhỏ hành tím, tỏi và sả. Trộn đều với bò băm, nước mắm và tiêu."
+        },
+        {
+          "title": "Cuốn",
+          "text": "Đặt mặt xanh đậm của lá xuống dưới. Chia nhân thành khoảng 12 phần, đặt gần cuống rồi cuộn gọn, dày khoảng 2 cm. Đặt mép lá xuống khay."
+        },
+        {
+          "title": "Áp chảo",
+          "text": "Làm nóng dầu ở lửa vừa, đặt mép cuốn xuống trước. Lật các mặt khi lá đã se, thêm nước rồi đậy nắp và hạ lửa."
+        },
+        {
+          "title": "Kiểm tra tâm nhân",
+          "text": "Nấu tổng cộng khoảng 10-15 phút; đo tâm phần thịt dày nhất đạt 71°C. Mở nắp cho nước cạn nhẹ, chia đều các cuốn thành hai phần."
+        }
+      ],
+      "tip": "Độ chín cần được kiểm tra ở phần thịt bên trong; màu lá bên ngoài không cho biết nhân đã chín hay chưa.",
+      "substitution": "Có thể dùng thịt heo nạc băm cùng khối lượng; kiểm tra tâm nhân đạt ít nhất 71°C.",
+      "portionDetail": "Công thức cho khoảng 12 cuốn nhỏ. Bún, rau sống và nước chấm thêm được tính riêng.",
+      "allergenNote": "Cá trong nước mắm; kiểm tra nhãn gia vị.",
+      "requiresCooking": false,
+      "image": "cooking/images/M08.webp",
+      "thumbnail": "cooking/images/M08-small.webp",
+      "sourcePage": 17
+    },
+    {
+      "id": "M09",
+      "chapterId": "2",
+      "name": "Cá nục kho cà chua",
+      "description": "Cá nục kho cùng cà chua mềm và hành thơm. Nước kho áo quanh cá, phù hợp ghép với cơm và một món rau.",
+      "kcalPerServing": 230,
+      "batchKcal": null,
+      "servings": 2,
+      "timeLabels": [
+        "Chuẩn bị 15 phút",
+        "Nấu 30 phút"
+      ],
+      "timeNote": "",
+      "portionNote": "Kcal cho 1 phần món ăn; chưa gồm cơm, rau hoặc món ăn thêm.",
+      "ingredients": [
+        {
+          "name": "Thịt cá nục (sống, đã lọc xương, còn da)",
+          "amount": "300 g"
+        },
+        {
+          "name": "Cà chua (sống)",
+          "amount": "250 g"
+        },
+        {
+          "name": "Hành tím (đã bóc vỏ)",
+          "amount": "15 g"
+        },
+        {
+          "name": "Hành lá (đã nhặt sạch, thái nhỏ)",
+          "amount": "5 g"
+        },
+        {
+          "name": "Tỏi (đã bóc vỏ)",
+          "amount": "5 g"
+        },
+        {
+          "name": "Nước mắm",
+          "amount": "12 ml"
+        },
+        {
+          "name": "Dầu ăn",
+          "amount": "5 g"
+        },
+        {
+          "name": "Đường",
+          "amount": "4 g"
+        },
+        {
+          "name": "Tiêu xay",
+          "amount": "0,1 g"
+        },
+        {
+          "name": "Nước",
+          "amount": "150 ml"
+        }
+      ],
+      "steps": [
+        {
+          "title": "Chuẩn bị",
+          "text": "Lọc xương, giữ da rồi cân đủ 300 g thịt cá sống; thấm khô, cắt miếng lớn. Cắt cà chua nhỏ, băm hành tím và tỏi."
+        },
+        {
+          "title": "Làm sốt",
+          "text": "Cho dầu vào nồi, đảo hành và tỏi đến thơm. Thêm cà chua, nấu khoảng 4-5 phút đến khi mềm và bắt đầu tạo sốt."
+        },
+        {
+          "title": "Kho cá",
+          "text": "Xếp cá vào nồi, thêm nước, nước mắm, đường và tiêu. Đun sôi nhẹ, hạ lửa rồi kho khoảng 20 phút; hạn chế đảo bằng đũa."
+        },
+        {
+          "title": "Kiểm tra và chia",
+          "text": "Đo phần cá dày nhất đạt 63°C. Mở nắp cho sốt sánh, thêm hành lá rồi tắt bếp. Chia đều cá và sốt thành hai phần."
+        }
+      ],
+      "tip": "Dùng nồi vừa đủ để xếp cá một lớp. Lắc nhẹ nồi khi cần giúp sốt phân bố mà ít làm cá nát.",
+      "substitution": "Có thể dùng cá bạc má đã làm sạch; điều chỉnh thời gian theo kích thước và độ dày.",
+      "portionDetail": "Mỗi phần dùng 150 g thịt cá sống trước nấu và một nửa sốt. Cơm, rau ăn thêm tính riêng.",
+      "allergenNote": "Cá và nước mắm.",
+      "requiresCooking": false,
+      "image": "cooking/images/M09.webp",
+      "thumbnail": "cooking/images/M09-small.webp",
+      "sourcePage": 19
+    },
+    {
+      "id": "M10",
+      "chapterId": "2",
+      "name": "Cá rô hấp gừng",
+      "description": "Phi lê cá hấp cùng gừng và hành, giữ phần nước tiết ra để ăn cùng. Dùng miếng cá tương đối đều về độ dày.",
+      "kcalPerServing": 265,
+      "batchKcal": null,
+      "servings": 2,
+      "timeLabels": [
+        "Chuẩn bị 10 phút",
+        "Nấu 20 phút"
+      ],
+      "timeNote": "",
+      "portionNote": "Kcal cho 1 phần món ăn; chưa gồm cơm, rau hoặc món ăn thêm.",
+      "ingredients": [
+        {
+          "name": "Phi lê cá rô đồng (sống, đã lọc xương)",
+          "amount": "350 g"
+        },
+        {
+          "name": "Gừng (sống, đã gọt)",
+          "amount": "15 g"
+        },
+        {
+          "name": "Hành tây (sống, đã bóc vỏ)",
+          "amount": "50 g"
+        },
+        {
+          "name": "Hành lá",
+          "amount": "10 g"
+        },
+        {
+          "name": "Nước tương",
+          "amount": "10 ml"
+        },
+        {
+          "name": "Dầu ăn",
+          "amount": "5 g"
+        },
+        {
+          "name": "Tiêu xay",
+          "amount": "0,1 g"
+        },
+        {
+          "name": "Nước hấp",
+          "amount": "600 ml hoặc theo nồi"
+        }
+      ],
+      "steps": [
+        {
+          "title": "Kiểm tra cá",
+          "text": "Rà lại xương nhỏ trong phi lê, thấm khô. Cắt gừng thành sợi, thái hành tây mỏng và cắt hành lá thành đoạn ngắn."
+        },
+        {
+          "title": "Xếp đĩa",
+          "text": "Lót hành tây và nửa lượng gừng trong đĩa chịu nhiệt. Đặt cá lên, rưới nước tương, dầu và tiêu; thêm phần gừng còn lại."
+        },
+        {
+          "title": "Hấp",
+          "text": "Đun sôi nước trong nồi, đặt đĩa cá vào xửng rồi đậy nắp. Hấp khoảng 10-15 phút tùy độ dày; tâm phần cá dày nhất cần đạt 63°C."
+        },
+        {
+          "title": "Hoàn thiện",
+          "text": "Thêm hành lá vào gần cuối để hành vừa chín. Lấy đĩa ra cẩn thận, chia cá cùng hành, gừng và phần nước trong đĩa thành hai phần."
+        }
+      ],
+      "tip": "Dùng đĩa có lòng để giữ nước hấp. Kiểm tra cá sớm nếu phi lê mỏng để chọn thời gian phù hợp.",
+      "substitution": "Thay bằng phi lê cá rô phi hoặc cá basa cùng khối lượng; rà xương và kiểm tra độ chín ở phần dày nhất.",
+      "portionDetail": "350 g là khối lượng phi lê sống, đã lọc xương. Cơm hoặc rau ăn cùng được tính riêng.",
+      "allergenNote": "Cá, đậu nành; nước tương có thể chứa lúa mì.",
+      "requiresCooking": false,
+      "image": "cooking/images/M10.webp",
+      "thumbnail": "cooking/images/M10-small.webp",
+      "sourcePage": 21
+    },
+    {
+      "id": "M11",
+      "chapterId": "2",
+      "name": "Cá thu kho thơm",
+      "description": "Thơm chín tạo vị chua ngọt cho nồi cá thu kho. Giữ lửa nhỏ để cá nguyên miếng và phần sốt sánh nhẹ.",
+      "kcalPerServing": 340,
+      "batchKcal": null,
+      "servings": 2,
+      "timeLabels": [
+        "Chuẩn bị 15 phút",
+        "Nấu 25 phút"
+      ],
+      "timeNote": "",
+      "portionNote": "Kcal cho 1 phần món ăn; chưa gồm cơm, rau hoặc món ăn thêm.",
+      "ingredients": [
+        {
+          "name": "Thịt cá thu (sống, đã lọc xương, còn da)",
+          "amount": "300 g"
+        },
+        {
+          "name": "Thơm (đã bỏ vỏ, mắt và lõi cứng)",
+          "amount": "200 g"
+        },
+        {
+          "name": "Hành tím (đã bóc vỏ)",
+          "amount": "15 g"
+        },
+        {
+          "name": "Hành lá (đã nhặt sạch, thái nhỏ)",
+          "amount": "5 g"
+        },
+        {
+          "name": "Nước mắm",
+          "amount": "10 ml"
+        },
+        {
+          "name": "Nước tương",
+          "amount": "5 ml"
+        },
+        {
+          "name": "Dầu ăn",
+          "amount": "5 g"
+        },
+        {
+          "name": "Đường",
+          "amount": "4 g"
+        },
+        {
+          "name": "Tiêu xay",
+          "amount": "0,1 g"
+        },
+        {
+          "name": "Nước",
+          "amount": "120 ml"
+        }
+      ],
+      "steps": [
+        {
+          "title": "Chuẩn bị",
+          "text": "Lọc xương, giữ da rồi cân đủ 300 g thịt cá sống. Thấm khô, cắt miếng dày khoảng 2 cm. Cắt thơm vừa ăn và thái mỏng hành tím."
+        },
+        {
+          "title": "Tạo nền thơm",
+          "text": "Cho dầu vào nồi, đảo hành đến thơm. Thêm thơm, đảo khoảng 2 phút rồi xếp cá vào; chọn nồi đủ để cá nằm một lớp."
+        },
+        {
+          "title": "Kho",
+          "text": "Hòa nước mắm, nước tương, đường và nước, đổ vào nồi. Đun sôi nhẹ rồi hạ lửa, kho khoảng 15-20 phút; nghiêng nồi hoặc rưới sốt lên cá."
+        },
+        {
+          "title": "Hoàn thiện",
+          "text": "Kiểm tra phần thịt dày nhất đạt 63°C. Mở nắp cho sốt sánh vừa, thêm tiêu và hành lá rồi chia đều cá, thơm và sốt."
+        }
+      ],
+      "tip": "Chọn thơm chín vừa, còn giữ miếng. Nước gần cạn mà cá chưa chín thì thêm một ít nước nóng.",
+      "substitution": "Có thể dùng cá basa cắt khúc; thời gian thay đổi theo độ dày và phần cá đã chọn.",
+      "portionDetail": "Mỗi phần dùng 150 g thịt cá sống trước nấu, nửa lượng thơm và sốt. Cơm, rau ăn thêm tính riêng.",
+      "allergenNote": "Cá, đậu nành; nước tương có thể chứa lúa mì.",
+      "requiresCooking": false,
+      "image": "cooking/images/M11.webp",
+      "thumbnail": "cooking/images/M11-small.webp",
+      "sourcePage": 23
+    },
+    {
+      "id": "M12",
+      "chapterId": "2",
+      "name": "Tôm rang tỏi",
+      "description": "Tôm săn, tỏi thơm và một lớp sốt mỏng tạo nên món nhanh gọn. Chuẩn bị đủ nguyên liệu trước khi làm nóng chảo.",
+      "kcalPerServing": 180,
+      "batchKcal": null,
+      "servings": 2,
+      "timeLabels": [
+        "Chuẩn bị 10 phút",
+        "Nấu 8 phút"
+      ],
+      "timeNote": "",
+      "portionNote": "Kcal cho 1 phần món ăn; chưa gồm cơm, rau hoặc món ăn thêm.",
+      "ingredients": [
+        {
+          "name": "Tôm biển (sống, đã bỏ đầu, vỏ và chỉ lưng)",
+          "amount": "300 g"
+        },
+        {
+          "name": "Tỏi (đã bóc vỏ, băm)",
+          "amount": "15 g"
+        },
+        {
+          "name": "Hành lá",
+          "amount": "10 g"
+        },
+        {
+          "name": "Dầu ăn",
+          "amount": "8 g"
+        },
+        {
+          "name": "Nước mắm",
+          "amount": "8 ml"
+        },
+        {
+          "name": "Đường",
+          "amount": "3 g"
+        },
+        {
+          "name": "Nước cốt chanh (lọc bỏ hạt)",
+          "amount": "5 ml"
+        },
+        {
+          "name": "Tiêu xay",
+          "amount": "0,1 g"
+        },
+        {
+          "name": "Nước",
+          "amount": "20 ml"
+        }
+      ],
+      "steps": [
+        {
+          "title": "Chuẩn bị",
+          "text": "Thấm ráo tôm, thái hành lá. Hòa nước mắm, đường, tiêu và nước trong bát nhỏ để sẵn bên cạnh bếp."
+        },
+        {
+          "title": "Phi tỏi",
+          "text": "Làm nóng 5 g dầu ở lửa vừa, cho tỏi vào đảo đến thơm và vừa ngả vàng. Vớt tỏi ra đĩa sạch để tránh cháy."
+        },
+        {
+          "title": "Rang tôm",
+          "text": "Thêm dầu còn lại và tôm, dàn một lớp. Lật khi mặt dưới chuyển màu, thêm phần sốt rồi đảo đến khi tôm đục hoàn toàn và thịt săn."
+        },
+        {
+          "title": "Hoàn thiện",
+          "text": "Khi sốt áo mỏng quanh tôm, thêm tỏi đã phi và hành lá. Tắt bếp, thêm chanh, đảo nhẹ rồi chia tôm cùng sốt thành hai phần."
+        }
+      ],
+      "tip": "Tỏi chỉ cần vàng nhẹ lúc vớt ra vì vẫn tiếp tục sậm màu. Tôm thấm ráo sẽ hạn chế bắn dầu khi cho vào chảo.",
+      "substitution": "Dùng các cỡ tôm khác, cân cùng lượng thịt sau sơ chế và điều chỉnh thời gian nấu.",
+      "portionDetail": "300 g là phần tôm sống đã sơ chế. Cơm hoặc món rau ăn cùng được tính riêng.",
+      "allergenNote": "Tôm và cá trong nước mắm; kiểm tra nhãn gia vị.",
+      "requiresCooking": false,
+      "image": "cooking/images/M12.webp",
+      "thumbnail": "cooking/images/M12-small.webp",
+      "sourcePage": 25
+    },
+    {
+      "id": "M13",
+      "chapterId": "2",
+      "name": "Mực xào cần tây và cà chua",
+      "description": "Mực đi cùng cần tây, cà chua và hành tây trong một món xào nhiều màu. Chuẩn bị rau và sốt trước khi nấu.",
+      "kcalPerServing": 210,
+      "batchKcal": null,
+      "servings": 2,
+      "timeLabels": [
+        "Chuẩn bị 15 phút",
+        "Nấu 10 phút"
+      ],
+      "timeNote": "",
+      "portionNote": "Kcal cho 1 phần món ăn; chưa gồm cơm, rau hoặc món ăn thêm.",
+      "ingredients": [
+        {
+          "name": "Mực (sống, đã làm sạch, phần ăn được)",
+          "amount": "350 g"
+        },
+        {
+          "name": "Cần tây (sống, đã bỏ phần xơ cứng)",
+          "amount": "150 g"
+        },
+        {
+          "name": "Cà chua (sống)",
+          "amount": "150 g"
+        },
+        {
+          "name": "Hành tây (sống, đã bóc vỏ)",
+          "amount": "80 g"
+        },
+        {
+          "name": "Tỏi (đã bóc vỏ, băm)",
+          "amount": "5 g"
+        },
+        {
+          "name": "Dầu ăn (chia hai lần xào)",
+          "amount": "8 g"
+        },
+        {
+          "name": "Nước mắm",
+          "amount": "10 ml"
+        },
+        {
+          "name": "Muối và tiêu",
+          "amount": "0,5 g muối + 0,1 g tiêu"
+        }
+      ],
+      "steps": [
+        {
+          "title": "Sơ chế",
+          "text": "Thấm ráo mực, cắt khoanh khoảng 1 cm. Cắt cần tây thành đoạn, tách phần thân và lá; bổ cà chua, thái hành tây vừa ăn."
+        },
+        {
+          "title": "Xào mực",
+          "text": "Làm nóng 4 g dầu và nửa lượng tỏi. Cho mực vào xào khoảng 1-2 phút đến khi bắt đầu chuyển đục, chuyển ra bát riêng."
+        },
+        {
+          "title": "Xào rau",
+          "text": "Thêm dầu, tỏi còn lại và hành tây vào chảo. Cho thân cần tây, cà chua và muối vào, đảo đến khi rau vừa mềm nhưng còn giữ miếng."
+        },
+        {
+          "title": "Làm chín hoàn toàn",
+          "text": "Cho mực trở lại cùng nước mắm, tiêu và lá cần tây. Đảo đến khi mực đục hoàn toàn, phần dày nhất đạt 63°C; chia đều thành hai phần."
+        }
+      ],
+      "tip": "Chuẩn bị sẵn toàn bộ nguyên liệu để hoàn thiện món liên tục. Chia mẻ nếu chảo nhỏ, tránh để thức ăn chồng quá dày.",
+      "substitution": "Có thể thay cần tây bằng cải thìa cùng khối lượng; cho phần thân vào trước phần lá.",
+      "portionDetail": "Hai phần đã gồm mực, rau và gia vị. Phần cơm hoặc bún ăn cùng được tính riêng.",
+      "allergenNote": "Mực, cần tây và cá trong nước mắm.",
+      "requiresCooking": false,
+      "image": "cooking/images/M13.webp",
+      "thumbnail": "cooking/images/M13-small.webp",
+      "sourcePage": 27
+    },
+    {
+      "id": "M14",
+      "chapterId": "2",
+      "name": "Cá basa kho nghệ",
+      "description": "Nghệ tươi tạo màu vàng và hương thơm cho cá basa kho. Nấu nhẹ tay để những miếng cá mềm vẫn giữ được hình dáng.",
+      "kcalPerServing": 175,
+      "batchKcal": null,
+      "servings": 2,
+      "timeLabels": [
+        "Chuẩn bị 10 phút",
+        "Nấu 20 phút"
+      ],
+      "timeNote": "",
+      "portionNote": "Kcal cho 1 phần món ăn; chưa gồm cơm, rau hoặc món ăn thêm.",
+      "ingredients": [
+        {
+          "name": "Phi lê cá basa (sống, bỏ da, xương và mỡ thừa)",
+          "amount": "350 g"
+        },
+        {
+          "name": "Nghệ tươi (đã gọt, giã nhỏ)",
+          "amount": "10 g"
+        },
+        {
+          "name": "Hành tím (đã bóc vỏ)",
+          "amount": "10 g"
+        },
+        {
+          "name": "Hành lá (đã nhặt sạch, thái nhỏ)",
+          "amount": "5 g"
+        },
+        {
+          "name": "Tỏi (đã bóc vỏ)",
+          "amount": "5 g"
+        },
+        {
+          "name": "Nước mắm",
+          "amount": "10 ml"
+        },
+        {
+          "name": "Dầu ăn",
+          "amount": "5 g"
+        },
+        {
+          "name": "Đường",
+          "amount": "4 g"
+        },
+        {
+          "name": "Tiêu xay",
+          "amount": "0,1 g"
+        },
+        {
+          "name": "Nước",
+          "amount": "120 ml"
+        }
+      ],
+      "steps": [
+        {
+          "title": "Chuẩn bị cá",
+          "text": "Rà xương còn sót trong phi lê, thấm khô rồi cắt miếng rộng khoảng 4 cm. Băm hành tím và tỏi, giã hoặc băm nhuyễn nghệ."
+        },
+        {
+          "title": "Làm nền kho",
+          "text": "Cho dầu vào nồi, đảo hành, tỏi và nghệ khoảng 30 giây ở lửa vừa nhỏ. Thêm nước, nước mắm, đường và tiêu, khuấy đều."
+        },
+        {
+          "title": "Kho cá",
+          "text": "Khi nước kho sôi nhẹ, xếp cá vào một lớp. Hạ lửa, đậy hé nắp và kho khoảng 12-15 phút tùy độ dày; rưới sốt lên mặt cá."
+        },
+        {
+          "title": "Kiểm tra và dùng",
+          "text": "Đo phần cá dày nhất đạt 63°C. Mở nắp cho sốt sánh nhẹ, thêm hành lá rồi tắt bếp. Dùng muỗng rộng lấy cá ra, chia đều cùng phần sốt."
+        }
+      ],
+      "tip": "Nghệ dễ bám màu vào tay và dụng cụ; chuẩn bị dụng cụ phù hợp. Đảo hành, tỏi và nghệ ngắn để tránh cháy.",
+      "substitution": "Có thể dùng phi lê cá rô phi cùng khối lượng; kiểm tra độ dày và nhiệt độ chín.",
+      "portionDetail": "Cân cá sau rã đông, để ráo; dùng phi lê bỏ da và mỡ thừa. Chia đều cá, sốt; cơm và rau tính riêng.",
+      "allergenNote": "Cá và nước mắm.",
+      "requiresCooking": false,
+      "image": "cooking/images/M14.webp",
+      "thumbnail": "cooking/images/M14-small.webp",
+      "sourcePage": 29
+    },
+    {
+      "id": "V01",
+      "chapterId": "3",
+      "name": "Đậu hũ sốt cà chua và nấm",
+      "description": "Đậu hũ vàng nhẹ, nấm mềm và sốt cà chua tạo nên món quen trên mâm cơm. Nấu sốt trước giúp đậu thấm vị mà vẫn giữ miếng.",
+      "kcalPerServing": 295,
+      "batchKcal": null,
+      "servings": 2,
+      "timeLabels": [
+        "Chuẩn bị 10 phút",
+        "Nấu 20 phút"
+      ],
+      "timeNote": "",
+      "portionNote": "Kcal cho 1 phần món ăn; chưa gồm cơm, rau hoặc món ăn thêm.",
+      "ingredients": [
+        {
+          "name": "Đậu hũ chắc (loại thường, chưa rán, để ráo)",
+          "amount": "400 g"
+        },
+        {
+          "name": "Cà chua (sống)",
+          "amount": "250 g"
+        },
+        {
+          "name": "Nấm mỡ tươi (đã bỏ gốc cứng)",
+          "amount": "150 g"
+        },
+        {
+          "name": "Hành tím (đã bóc vỏ)",
+          "amount": "15 g"
+        },
+        {
+          "name": "Tỏi (đã bóc vỏ)",
+          "amount": "5 g"
+        },
+        {
+          "name": "Hành lá",
+          "amount": "10 g"
+        },
+        {
+          "name": "Nước tương",
+          "amount": "15 ml"
+        },
+        {
+          "name": "Dầu ăn (chia hai lần nấu)",
+          "amount": "8 g"
+        },
+        {
+          "name": "Đường",
+          "amount": "4 g"
+        },
+        {
+          "name": "Nước",
+          "amount": "80 ml"
+        }
+      ],
+      "steps": [
+        {
+          "title": "Chuẩn bị",
+          "text": "Thấm khô đậu, cắt khối khoảng 2 cm. Rửa cà chua rồi cắt nhỏ; làm sạch nấm, thái lát. Băm hành tím, tỏi và cắt hành lá."
+        },
+        {
+          "title": "Áp đậu",
+          "text": "Làm nóng 5 g dầu trong chảo chống dính. Xếp đậu một lớp, áp các mặt khoảng 6-8 phút đến khi vàng nhẹ rồi gắp ra."
+        },
+        {
+          "title": "Nấu sốt",
+          "text": "Thêm dầu còn lại, đảo hành tím và tỏi đến thơm. Cho cà chua, nấm vào nấu khoảng 5 phút. Thêm nước, nước tương và đường, khuấy đều."
+        },
+        {
+          "title": "Rim và chia phần",
+          "text": "Cho đậu trở lại, rim lửa nhỏ khoảng 5 phút đến khi nóng đều và sốt áo quanh miếng. Thêm hành lá, đảo nhẹ rồi chia đậu cùng sốt thành hai phần."
+        }
+      ],
+      "tip": "Thấm đậu thật ráo trước khi áp chảo. Lật khi mặt dưới đã se để đậu ít vỡ.",
+      "substitution": "Thay nấm mỡ bằng nấm bào ngư cùng khối lượng, xé miếng vừa ăn.",
+      "portionDetail": "Hai phần đã gồm đậu, nấm và sốt. Cơm hoặc rau ăn thêm được tính riêng.",
+      "allergenNote": "Đậu nành; nước tương có thể chứa lúa mì.",
+      "requiresCooking": false,
+      "image": "cooking/images/V01.webp",
+      "thumbnail": "cooking/images/V01-small.webp",
+      "sourcePage": 3
+    },
+    {
+      "id": "V02",
+      "chapterId": "3",
+      "name": "Đậu hũ áp chảo sả",
+      "description": "Sả băm và tỏi áo quanh những miếng đậu hũ vàng nhẹ. Cho gia vị vào sau giúp giữ mùi thơm và hạn chế cháy khi áp chảo.",
+      "kcalPerServing": 260,
+      "batchKcal": null,
+      "servings": 2,
+      "timeLabels": [
+        "Chuẩn bị 10 phút",
+        "Nấu 15 phút"
+      ],
+      "timeNote": "",
+      "portionNote": "Kcal cho 1 phần món ăn; chưa gồm cơm, rau hoặc món ăn thêm.",
+      "ingredients": [
+        {
+          "name": "Đậu hũ chắc (loại thường, chưa rán, để ráo)",
+          "amount": "400 g"
+        },
+        {
+          "name": "Sả (phần lõi mềm)",
+          "amount": "20 g"
+        },
+        {
+          "name": "Tỏi (đã bóc vỏ)",
+          "amount": "5 g"
+        },
+        {
+          "name": "Hành lá (đã nhặt sạch, thái nhỏ)",
+          "amount": "5 g"
+        },
+        {
+          "name": "Nước tương",
+          "amount": "12 ml"
+        },
+        {
+          "name": "Dầu ăn",
+          "amount": "10 g"
+        },
+        {
+          "name": "Đường",
+          "amount": "3 g"
+        },
+        {
+          "name": "Tiêu xay",
+          "amount": "0,1 g"
+        },
+        {
+          "name": "Nước",
+          "amount": "20 ml"
+        }
+      ],
+      "steps": [
+        {
+          "title": "Cắt đậu và pha sốt",
+          "text": "Thấm khô đậu, cắt miếng chữ nhật dày khoảng 1,5 cm. Băm thật nhỏ sả và tỏi. Hòa nước tương, đường, tiêu và nước trong bát."
+        },
+        {
+          "title": "Áp chảo",
+          "text": "Làm nóng dầu ở lửa vừa, xếp đậu một lớp. Áp hai mặt lớn khoảng 3-4 phút mỗi mặt đến khi vàng nhẹ; gắp đậu ra đĩa."
+        },
+        {
+          "title": "Làm thơm sả",
+          "text": "Hạ lửa, cho sả và tỏi vào phần dầu còn trong chảo. Đảo khoảng 30 giây đến thơm rồi đổ sốt vào, khuấy cho gia vị phân bố đều."
+        },
+        {
+          "title": "Áo vị",
+          "text": "Cho đậu trở lại, trở nhẹ các mặt và rim khoảng 1-2 phút đến khi nóng đều. Khi sốt bám mỏng quanh đậu, thêm hành lá, tắt bếp và chia hai phần."
+        }
+      ],
+      "tip": "Chọn phần lõi sả mềm và băm mịn. Không để sả khô sậm màu trước khi thêm sốt.",
+      "substitution": "Dùng đậu hũ chắc đóng hộp đã để ráo; tránh loại đậu non dễ vỡ khi trở mặt.",
+      "portionDetail": "Chia đậu cùng toàn bộ sả và sốt. Cơm, bún hoặc rau ăn cùng tính riêng.",
+      "allergenNote": "Đậu nành; nước tương có thể chứa lúa mì.",
+      "requiresCooking": false,
+      "image": "cooking/images/V02.webp",
+      "thumbnail": "cooking/images/V02-small.webp",
+      "sourcePage": 5
+    },
+    {
+      "id": "V03",
+      "chapterId": "3",
+      "name": "Đậu hũ kho củ cải và nấm",
+      "description": "Củ cải mềm, nấm hương thơm và đậu hũ trắng cùng nằm trong nồi kho nhỏ. Cho đậu vào sau để giữ miếng khi củ cải cần nấu lâu hơn.",
+      "kcalPerServing": 260,
+      "batchKcal": null,
+      "servings": 2,
+      "timeLabels": [
+        "Chuẩn bị 15 phút",
+        "Nấu 30 phút"
+      ],
+      "timeNote": "",
+      "portionNote": "Kcal cho 1 phần món ăn; chưa gồm cơm, rau hoặc món ăn thêm.",
+      "ingredients": [
+        {
+          "name": "Đậu hũ chắc (loại thường, chưa rán, để ráo)",
+          "amount": "350 g"
+        },
+        {
+          "name": "Củ cải trắng (sống, đã gọt)",
+          "amount": "250 g"
+        },
+        {
+          "name": "Nấm hương tươi (đã bỏ gốc cứng)",
+          "amount": "150 g"
+        },
+        {
+          "name": "Hành tím (đã bóc vỏ)",
+          "amount": "15 g"
+        },
+        {
+          "name": "Hành lá",
+          "amount": "10 g"
+        },
+        {
+          "name": "Nước tương",
+          "amount": "15 ml"
+        },
+        {
+          "name": "Dầu ăn",
+          "amount": "5 g"
+        },
+        {
+          "name": "Đường",
+          "amount": "4 g"
+        },
+        {
+          "name": "Tiêu xay",
+          "amount": "0,1 g"
+        },
+        {
+          "name": "Nước",
+          "amount": "250 ml"
+        }
+      ],
+      "steps": [
+        {
+          "title": "Sơ chế",
+          "text": "Cắt củ cải thành miếng bán nguyệt dày khoảng 1 cm. Làm sạch nấm rồi bổ đôi; cắt đậu thành khối khoảng 2,5 cm. Thái hành tím và hành lá."
+        },
+        {
+          "title": "Nấu củ cải",
+          "text": "Cho dầu vào nồi, đảo hành tím và nấm khoảng 2 phút. Thêm củ cải, nước, nước tương và đường; đun sôi rồi hạ lửa, đậy hé nắp."
+        },
+        {
+          "title": "Thêm đậu",
+          "text": "Kho khoảng 12-15 phút đến khi củ cải gần mềm. Cho đậu vào, rưới nước kho lên mặt rồi nấu thêm khoảng 5-7 phút cho nóng đều và thấm vị."
+        },
+        {
+          "title": "Hoàn thiện",
+          "text": "Mở nắp cho nước kho còn vừa đủ để chan. Thử củ cải đã mềm bằng đầu đũa sạch; thêm tiêu, hành lá rồi chia đậu, củ cải, nấm và nước kho."
+        }
+      ],
+      "tip": "Dùng nồi nhỏ để nước kho phủ được phần dưới nguyên liệu. Lắc nhẹ nồi thay vì đảo mạnh.",
+      "substitution": "Có thể đổi nấm hương tươi sang nấm đùi gà, cắt lát vừa ăn.",
+      "portionDetail": "Định lượng cho hai phần món kho. Cơm hoặc món ăn thêm được tính riêng.",
+      "allergenNote": "Đậu nành; nước tương có thể chứa lúa mì.",
+      "requiresCooking": false,
+      "image": "cooking/images/V03.webp",
+      "thumbnail": "cooking/images/V03-small.webp",
+      "sourcePage": 7
+    },
+    {
+      "id": "V04",
+      "chapterId": "3",
+      "name": "Cà tím nướng đậu hũ, hành lá",
+      "description": "Cà tím nướng mềm làm nền cho lớp đậu hũ bóp vụn và hành lá. Nướng cà trước giúp phần ruột chín đều mà lớp phủ vẫn giữ độ mềm.",
+      "kcalPerServing": 255,
+      "batchKcal": null,
+      "servings": 2,
+      "timeLabels": [
+        "Chuẩn bị 15 phút",
+        "Nấu 40 phút"
+      ],
+      "timeNote": "",
+      "portionNote": "Kcal cho 1 phần món ăn; chưa gồm cơm, rau hoặc món ăn thêm.",
+      "ingredients": [
+        {
+          "name": "Cà tím dài (sống, bỏ cuống)",
+          "amount": "2 quả / tổng 400 g"
+        },
+        {
+          "name": "Đậu hũ chắc (loại thường, chưa rán, để ráo)",
+          "amount": "300 g"
+        },
+        {
+          "name": "Hành lá",
+          "amount": "20 g"
+        },
+        {
+          "name": "Tỏi (đã bóc vỏ)",
+          "amount": "5 g"
+        },
+        {
+          "name": "Nước tương",
+          "amount": "15 ml"
+        },
+        {
+          "name": "Dầu ăn (chia hai lần nấu)",
+          "amount": "10 g"
+        },
+        {
+          "name": "Đường",
+          "amount": "3 g"
+        },
+        {
+          "name": "Tiêu xay",
+          "amount": "0,1 g"
+        },
+        {
+          "name": "Nước",
+          "amount": "30 ml"
+        }
+      ],
+      "steps": [
+        {
+          "title": "Chuẩn bị cà",
+          "text": "Làm nóng lò ở 200°C. Bổ đôi cà theo chiều dọc, khía nhẹ mặt ruột mà không xuyên vỏ. Quét 6 g dầu lên mặt cắt, xếp vào khay."
+        },
+        {
+          "title": "Nướng nền",
+          "text": "Nướng cà khoảng 18-22 phút đến khi ruột gần mềm. Trong lúc chờ, bóp vụn đậu hũ, thái hành lá và băm tỏi để chuẩn bị lớp phủ."
+        },
+        {
+          "title": "Làm lớp đậu",
+          "text": "Làm nóng dầu còn lại, đảo tỏi đến thơm. Cho đậu, nước tương, đường, tiêu và nước vào; đảo khoảng 3 phút rồi trộn hành lá."
+        },
+        {
+          "title": "Nướng hoàn thiện",
+          "text": "Dàn đậu lên bốn nửa cà, nướng thêm khoảng 8-10 phút đến khi cà mềm hoàn toàn và lớp phủ nóng đều. Chia mỗi người hai nửa, dùng lúc còn ấm."
+        }
+      ],
+      "tip": "Giữ lại vỏ cà làm phần đỡ. Chọn hai quả có độ lớn tương tự để thời gian nướng gần nhau.",
+      "substitution": "Có thể dùng cà tím tròn cắt lát dày; điều chỉnh thời gian theo độ dày.",
+      "portionDetail": "Hai phần đã gồm cà, đậu và gia vị. Cơm hoặc món ăn thêm tính riêng.",
+      "allergenNote": "Đậu nành; nước tương có thể chứa lúa mì.",
+      "requiresCooking": false,
+      "image": "cooking/images/V04.webp",
+      "thumbnail": "cooking/images/V04-small.webp",
+      "sourcePage": 9
+    },
+    {
+      "id": "V05",
+      "chapterId": "3",
+      "name": "Chả đậu hũ, đậu xanh áp chảo",
+      "description": "Đậu hũ và đậu xanh chín tạo thành những miếng chả mềm, vàng nhẹ. Ép ráo đậu hũ và nặn chả mỏng giúp hỗn hợp dễ giữ hình khi trở mặt.",
+      "kcalPerServing": 335,
+      "batchKcal": null,
+      "servings": 2,
+      "timeLabels": [
+        "Chuẩn bị 25 phút",
+        "Nấu 20 phút"
+      ],
+      "timeNote": "Dùng đậu xanh đã nấu chín; thời gian không gồm nấu đậu từ khô.",
+      "portionNote": "Kcal cho 1 phần món ăn; chưa gồm cơm, rau hoặc món ăn thêm.",
+      "ingredients": [
+        {
+          "name": "Đậu hũ chắc (loại thường, chưa rán, để ráo)",
+          "amount": "300 g"
+        },
+        {
+          "name": "Đậu xanh cà vỏ đã nấu chín (đã để ráo, cân sau nấu)",
+          "amount": "150 g"
+        },
+        {
+          "name": "Cà rốt (sống, đã gọt)",
+          "amount": "60 g"
+        },
+        {
+          "name": "Hành lá",
+          "amount": "10 g"
+        },
+        {
+          "name": "Bột gạo (khô)",
+          "amount": "25 g"
+        },
+        {
+          "name": "Nước tương",
+          "amount": "10 ml"
+        },
+        {
+          "name": "Dầu ăn (dùng cho hai mẻ áp chảo)",
+          "amount": "12 g"
+        },
+        {
+          "name": "Muối và tiêu",
+          "amount": "0,5 g muối + 0,1 g tiêu"
+        }
+      ],
+      "steps": [
+        {
+          "title": "Làm ráo và nghiền",
+          "text": "Bọc đậu hũ trong khăn sạch, ép nhẹ khoảng 10 phút rồi bóp vụn. Nghiền đậu xanh chín cho mịn; bào cà rốt thật nhỏ và thái hành lá."
+        },
+        {
+          "title": "Trộn và nặn",
+          "text": "Trộn hai loại đậu, cà rốt, hành, bột gạo, nước tương, muối và tiêu. Để nghỉ 5 phút, chia khoảng 10 miếng chả tròn, dẹt, dày khoảng 1-1,2 cm."
+        },
+        {
+          "title": "Áp từng mẻ",
+          "text": "Làm nóng 6 g dầu trong chảo chống dính, xếp nửa số chả. Áp lửa vừa nhỏ khoảng 4 phút mỗi mặt; chỉ lật khi mặt dưới đã se chắc."
+        },
+        {
+          "title": "Nấu mẻ còn lại",
+          "text": "Dùng dầu còn lại cho mẻ thứ hai. Nấu đến khi tâm chả chín đều, không còn bột ướt và chả giữ được hình. Để chả nghỉ khoảng 2 phút, chia đều thành hai phần."
+        }
+      ],
+      "tip": "Dùng xẻng mỏng đỡ cả miếng khi trở. Để chả nghỉ sau khi nấu giúp dễ gắp và chia phần hơn.",
+      "substitution": "Có thể đổi cà rốt sang bí đỏ bào mịn cùng khối lượng; thấm bớt nước trước khi trộn.",
+      "portionDetail": "Mỗi người khoảng năm miếng chả. Cơm, rau và sốt thêm được tính riêng.",
+      "allergenNote": "Đậu nành; nước tương có thể chứa lúa mì.",
+      "requiresCooking": false,
+      "image": "cooking/images/V05.webp",
+      "thumbnail": "cooking/images/V05-small.webp",
+      "sourcePage": 11
+    },
+    {
+      "id": "V06",
+      "chapterId": "3",
+      "name": "Gỏi cuốn đậu hũ và rau",
+      "description": "Bánh tráng ôm đậu hũ vàng, rau giòn và chút húng thơm. Cuốn vừa tay, dùng gần lúc làm để giữ được kết cấu mềm và tươi của từng lớp.",
+      "kcalPerServing": 350,
+      "batchKcal": null,
+      "servings": 2,
+      "timeLabels": [
+        "Chuẩn bị 25 phút",
+        "Nấu 12 phút"
+      ],
+      "timeNote": "",
+      "portionNote": "Kcal cho 1/2 công thức, gồm mọi nguyên liệu và sốt đã liệt kê.",
+      "ingredients": [
+        {
+          "name": "Đậu hũ chắc (loại thường, chưa rán, để ráo)",
+          "amount": "300 g"
+        },
+        {
+          "name": "Bánh tráng cuốn (khô, cỡ 20-22 cm)",
+          "amount": "8 tấm / khoảng 80 g"
+        },
+        {
+          "name": "Xà lách (sống, đã nhặt)",
+          "amount": "80 g"
+        },
+        {
+          "name": "Cà rốt (sống, đã gọt)",
+          "amount": "80 g"
+        },
+        {
+          "name": "Dưa leo (sống)",
+          "amount": "120 g"
+        },
+        {
+          "name": "Húng lủi (đã nhặt)",
+          "amount": "10 g"
+        },
+        {
+          "name": "Nước tương",
+          "amount": "20 ml"
+        },
+        {
+          "name": "Nước cốt chanh (lọc bỏ hạt)",
+          "amount": "15 ml"
+        },
+        {
+          "name": "Dầu ăn (dùng áp đậu)",
+          "amount": "8 g"
+        },
+        {
+          "name": "Nước",
+          "amount": "30 ml + nước nhúng"
+        }
+      ],
+      "steps": [
+        {
+          "title": "Chuẩn bị rau",
+          "text": "Rửa rau và dưa leo dưới vòi nước sạch, để thật ráo. Cắt cà rốt, dưa leo thành sợi hoặc thanh nhỏ; tách lá xà lách và húng."
+        },
+        {
+          "title": "Áp đậu",
+          "text": "Thấm khô đậu, cắt miếng dày khoảng 1 cm. Áp với dầu khoảng 3-4 phút mỗi mặt đến khi vàng nhẹ và nóng đều; để bớt nóng rồi cắt thanh."
+        },
+        {
+          "title": "Pha nước chấm",
+          "text": "Hòa nước tương với chanh và 30 ml nước. Chia đậu, xà lách, cà rốt, dưa leo và húng thành tám phần nhỏ để các cuốn có lượng nhân tương tự."
+        },
+        {
+          "title": "Cuốn",
+          "text": "Làm mềm từng bánh tráng theo hướng dẫn bao bì. Đặt nhân gần mép dưới, gập hai bên rồi cuộn vừa chắc. Làm đủ tám cuốn, chia cùng nước chấm và dùng ngay."
+        }
+      ],
+      "tip": "Nếu chưa dùng ngay, giữ riêng đậu, rau và sốt trong hộp kín ở ngăn mát ≤4°C; cuốn gần bữa.",
+      "substitution": "Đổi húng lủi thành rau mùi, giữ tổng lượng rau thơm như công thức.",
+      "portionDetail": "Mỗi người bốn cuốn và nửa nước chấm. Đã tính bánh tráng, đậu và rau trong định lượng.",
+      "allergenNote": "Đậu nành; nước tương có thể có lúa mì. Kiểm tra nhãn bánh tráng.",
+      "requiresCooking": false,
+      "image": "cooking/images/V06.webp",
+      "thumbnail": "cooking/images/V06-small.webp",
+      "sourcePage": 13
+    },
+    {
+      "id": "V07",
+      "chapterId": "3",
+      "name": "Bún trộn đậu hũ, sốt đậu phộng",
+      "description": "Bún mềm, rau giòn và đậu hũ vàng gặp nhau trong lớp sốt đậu phộng sánh nhẹ. Pha sốt riêng rồi trộn gần lúc ăn để rau giữ độ tươi.",
+      "kcalPerServing": 500,
+      "batchKcal": null,
+      "servings": 2,
+      "timeLabels": [
+        "Chuẩn bị 15 phút",
+        "Nấu 15 phút"
+      ],
+      "timeNote": "",
+      "portionNote": "Kcal cho 1/2 công thức, gồm mọi nguyên liệu và sốt đã liệt kê.",
+      "ingredients": [
+        {
+          "name": "Đậu hũ chắc (loại thường, chưa rán, để ráo)",
+          "amount": "300 g"
+        },
+        {
+          "name": "Bún tươi (đã chín)",
+          "amount": "300 g"
+        },
+        {
+          "name": "Dưa leo (sống)",
+          "amount": "120 g"
+        },
+        {
+          "name": "Cà rốt (sống, đã gọt)",
+          "amount": "80 g"
+        },
+        {
+          "name": "Xà lách (sống, đã nhặt)",
+          "amount": "100 g"
+        },
+        {
+          "name": "Bơ đậu phộng (không đường, dạng mịn)",
+          "amount": "40 g"
+        },
+        {
+          "name": "Nước tương",
+          "amount": "15 ml"
+        },
+        {
+          "name": "Nước cốt chanh (lọc bỏ hạt)",
+          "amount": "15 ml"
+        },
+        {
+          "name": "Dầu ăn (dùng áp đậu)",
+          "amount": "8 g"
+        },
+        {
+          "name": "Nước",
+          "amount": "40 ml + nước trụng bún"
+        }
+      ],
+      "steps": [
+        {
+          "title": "Chuẩn bị rau và bún",
+          "text": "Rửa rau dưới vòi nước sạch, để ráo. Cắt dưa leo, cà rốt thành sợi và xà lách vừa ăn. Trụng bún theo hướng dẫn bao bì rồi để ráo."
+        },
+        {
+          "title": "Áp đậu",
+          "text": "Thấm khô đậu, cắt miếng dày khoảng 1 cm. Làm nóng dầu, áp hai mặt khoảng 3-4 phút mỗi mặt đến khi vàng nhẹ và nóng đều; cắt miếng vừa ăn."
+        },
+        {
+          "title": "Pha sốt đậu phộng",
+          "text": "Cho bơ đậu phộng vào bát, thêm từng ít trong 40 ml nước ấm rồi khuấy mịn. Thêm nước tương và chanh, khuấy đến khi sốt sánh đều."
+        },
+        {
+          "title": "Xếp bát",
+          "text": "Chia bún, rau và đậu vào hai bát. Rưới đều phần sốt đã pha, trộn nhẹ ngay trước khi ăn để từng thành phần được áo sốt mà rau còn giòn."
+        }
+      ],
+      "tip": "Nếu chuẩn bị trước, giữ riêng các thành phần và sốt trong hộp kín ở ngăn mát ≤4°C; trộn gần bữa.",
+      "substitution": "Có thể đổi xà lách sang bắp cải thái mảnh cùng khối lượng, rửa sạch và để ráo.",
+      "portionDetail": "Hai phần đã gồm bún, đậu, rau, dầu và toàn bộ sốt đậu phộng.",
+      "allergenNote": "Đậu phộng, đậu nành; nước tương có thể chứa lúa mì.",
+      "requiresCooking": false,
+      "image": "cooking/images/V07.webp",
+      "thumbnail": "cooking/images/V07-small.webp",
+      "sourcePage": 15
+    },
+    {
+      "id": "V08",
+      "chapterId": "3",
+      "name": "Cơm đậu đỏ với rau củ áp chảo",
+      "description": "Cơm nóng trộn đậu đỏ chín, ăn cùng bông cải, cà rốt và nấm. Đậu đóng hộp và cơm đã nấu giúp phần hoàn thiện bữa ăn gọn hơn.",
+      "kcalPerServing": 445,
+      "batchKcal": null,
+      "servings": 2,
+      "timeLabels": [
+        "Chuẩn bị 15 phút",
+        "Nấu 15 phút"
+      ],
+      "timeNote": "Dùng cơm chín còn nóng và đậu đóng hộp đã chín; thời gian không gồm nấu cơm hay đậu khô.",
+      "portionNote": "Kcal cho 1/2 công thức, gồm mọi nguyên liệu và sốt đã liệt kê.",
+      "ingredients": [
+        {
+          "name": "Cơm trắng (đã nấu chín, còn nóng)",
+          "amount": "300 g"
+        },
+        {
+          "name": "Đậu đỏ kidney đóng hộp (đã chín, không đường; cân sau rửa ráo)",
+          "amount": "200 g"
+        },
+        {
+          "name": "Bông cải xanh (sống)",
+          "amount": "200 g"
+        },
+        {
+          "name": "Cà rốt (sống, đã gọt)",
+          "amount": "100 g"
+        },
+        {
+          "name": "Nấm mỡ tươi (đã bỏ gốc cứng)",
+          "amount": "150 g"
+        },
+        {
+          "name": "Tỏi (đã bóc vỏ)",
+          "amount": "5 g"
+        },
+        {
+          "name": "Nước tương",
+          "amount": "15 ml"
+        },
+        {
+          "name": "Dầu ăn (dùng áp chảo rau củ)",
+          "amount": "10 g"
+        },
+        {
+          "name": "Tiêu xay",
+          "amount": "0,1 g"
+        },
+        {
+          "name": "Nước",
+          "amount": "30 ml"
+        }
+      ],
+      "steps": [
+        {
+          "title": "Chuẩn bị",
+          "text": "Rửa sạch rau củ và nấm. Rửa đậu đỏ đóng hộp, để ráo rồi cân đủ lượng. Cắt bông cải thành nhánh nhỏ, cà rốt thành lát mỏng và nấm thành lát dày; băm tỏi."
+        },
+        {
+          "title": "Áp chảo rau củ",
+          "text": "Làm nóng dầu, đảo tỏi và nấm khoảng 2 phút. Thêm cà rốt, bông cải, nước tương và 20 ml nước; đậy khoảng 3-4 phút rồi mở nắp, đảo đến vừa chín."
+        },
+        {
+          "title": "Trộn cơm đậu",
+          "text": "Trong nồi nhỏ, làm nóng đậu đỏ cùng 10 ml nước còn lại khoảng 3 phút, đảo nhẹ. Cho cơm nóng vào trộn đều để hạt cơm và đậu phân bố cùng nhau."
+        },
+        {
+          "title": "Chia phần",
+          "text": "Thêm tiêu vào rau củ, đảo nhẹ rồi tắt bếp. Chia cơm đậu đỏ và toàn bộ rau, nấm cùng phần sốt thành hai đĩa; dùng ngay khi còn nóng."
+        }
+      ],
+      "tip": "Dùng đậu đóng hộp đã nấu chín; không thay trực tiếp bằng đậu khô. Cơm trong bảng được cân sau nấu.",
+      "substitution": "Đổi bông cải sang đậu cô ve cùng khối lượng; nấu đến khi vừa chín trước khi chia phần.",
+      "portionDetail": "Hai phần đã gồm cơm, đậu đỏ, rau củ và gia vị; món ăn thêm tính riêng.",
+      "allergenNote": "Đậu nành; nước tương có thể chứa lúa mì.",
+      "requiresCooking": false,
+      "image": "cooking/images/V08.webp",
+      "thumbnail": "cooking/images/V08-small.webp",
+      "sourcePage": 17
+    },
+    {
+      "id": "R01",
+      "chapterId": "4",
+      "name": "Canh bí xanh nấu tôm",
+      "description": "Bí xanh vừa mềm, tôm săn ngọt và nước canh trong. Một nồi canh gọn nhẹ để ăn cùng món kho hoặc món áp chảo.",
+      "kcalPerServing": 110,
+      "batchKcal": null,
+      "servings": 2,
+      "timeLabels": [
+        "Chuẩn bị 10 phút",
+        "Nấu 15 phút"
+      ],
+      "timeNote": "",
+      "portionNote": "Kcal cho 1 phần canh/rau; đã gồm sốt, chưa gồm cơm và món chính.",
+      "ingredients": [
+        {
+          "name": "Bí xanh (sống, bỏ vỏ và ruột xốp)",
+          "amount": "350 g"
+        },
+        {
+          "name": "Tôm biển (sống, bỏ đầu, vỏ và chỉ lưng)",
+          "amount": "160 g"
+        },
+        {
+          "name": "Hành tím (đã bóc vỏ)",
+          "amount": "10 g"
+        },
+        {
+          "name": "Gừng (sống, đã gọt)",
+          "amount": "5 g"
+        },
+        {
+          "name": "Hành lá",
+          "amount": "10 g"
+        },
+        {
+          "name": "Nước mắm",
+          "amount": "10 ml"
+        },
+        {
+          "name": "Dầu ăn",
+          "amount": "3 g"
+        },
+        {
+          "name": "Tiêu xay",
+          "amount": "0,1 g"
+        },
+        {
+          "name": "Nước",
+          "amount": "650 ml"
+        }
+      ],
+      "steps": [
+        {
+          "title": "Sơ chế",
+          "text": "Rửa bí, cắt miếng dày khoảng 1 cm. Băm hành tím, thái gừng thành sợi và cắt hành lá. Thấm ráo tôm; giữ tôm trong ngăn mát đến khi nấu."
+        },
+        {
+          "title": "Nấu bí",
+          "text": "Làm nóng dầu trong nồi, đảo hành tím và gừng khoảng 30 giây. Thêm nước, đun sôi rồi cho bí vào; hạ lửa vừa, nấu khoảng 6-8 phút."
+        },
+        {
+          "title": "Thêm tôm",
+          "text": "Cho tôm và nước mắm vào khi bí gần mềm. Nấu sôi nhẹ thêm khoảng 3-4 phút, đến khi thịt tôm săn, trắng ngọc và đục hoàn toàn."
+        },
+        {
+          "title": "Hoàn thiện",
+          "text": "Thử bí bằng đầu đũa: miếng bí mềm nhưng còn giữ hình. Thêm hành lá và tiêu, khuấy nhẹ rồi tắt bếp. Chia đều bí, tôm và nước canh vào hai bát."
+        }
+      ],
+      "tip": "Cắt bí đều nhau để miếng chín cùng lúc; chỉ thêm tôm khi bí gần đạt độ mềm mong muốn.",
+      "substitution": "Có thể thay bí xanh bằng bầu đã gọt, cùng khối lượng. Thời gian nấu và kcal sẽ thay đổi.",
+      "portionDetail": "Hai phần canh, đã gồm tôm và nước dùng. Cơm và món chính ăn cùng được tính riêng.",
+      "allergenNote": "Tôm; nước mắm chứa cá.",
+      "requiresCooking": false,
+      "image": "cooking/images/R01.webp",
+      "thumbnail": "cooking/images/R01-small.webp",
+      "sourcePage": 3
+    },
+    {
+      "id": "R02",
+      "chapterId": "4",
+      "name": "Canh chua cá và rau",
+      "description": "Vị chua từ chanh hòa cùng thơm, cà chua và cá rô phi. Cho chanh cuối cùng để nồi canh giữ hương tươi nhẹ.",
+      "kcalPerServing": 215,
+      "batchKcal": null,
+      "servings": 2,
+      "timeLabels": [
+        "Chuẩn bị 15 phút",
+        "Nấu 20 phút"
+      ],
+      "timeNote": "",
+      "portionNote": "Kcal cho 1 phần canh/rau; đã gồm sốt, chưa gồm cơm và món chính.",
+      "ingredients": [
+        {
+          "name": "Phi lê cá rô phi (sống, đã lọc xương)",
+          "amount": "240 g"
+        },
+        {
+          "name": "Cà chua (sống)",
+          "amount": "200 g"
+        },
+        {
+          "name": "Thơm (bỏ vỏ, mắt và lõi cứng)",
+          "amount": "150 g"
+        },
+        {
+          "name": "Đậu bắp (sống, bỏ cuống cứng)",
+          "amount": "120 g"
+        },
+        {
+          "name": "Gừng (sống, đã gọt)",
+          "amount": "5 g"
+        },
+        {
+          "name": "Hành lá",
+          "amount": "10 g"
+        },
+        {
+          "name": "Nước mắm",
+          "amount": "15 ml"
+        },
+        {
+          "name": "Nước cốt chanh (lọc bỏ hạt)",
+          "amount": "20 ml"
+        },
+        {
+          "name": "Đường",
+          "amount": "5 g"
+        },
+        {
+          "name": "Nước",
+          "amount": "650 ml"
+        }
+      ],
+      "steps": [
+        {
+          "title": "Chuẩn bị",
+          "text": "Rà xương rồi cắt cá thành miếng lớn khoảng 3 cm. Rửa rau; cắt cà chua múi cau, thơm miếng mỏng và đậu bắp khúc ngắn. Thái gừng và hành lá."
+        },
+        {
+          "title": "Nấu nền canh",
+          "text": "Đun sôi nước với gừng. Cho cà chua và thơm vào, nấu sôi nhẹ khoảng 5 phút. Thêm nước mắm và đường, khuấy cho đường tan."
+        },
+        {
+          "title": "Làm chín cá",
+          "text": "Cho cá vào nồi, giữ sôi nhẹ và hạn chế đảo. Sau khoảng 4 phút, thêm đậu bắp rồi nấu tiếp đến khi tâm miếng cá dày nhất đạt 63°C."
+        },
+        {
+          "title": "Nêm chua và chia",
+          "text": "Khi đậu bắp vừa mềm, thêm hành lá rồi tắt bếp. Khuấy nước chanh vào nhẹ tay. Chia đều cá, rau và nước canh thành hai phần, dùng khi còn nóng."
+        }
+      ],
+      "tip": "Giữ lửa sôi nhẹ sau khi thêm cá để miếng cá ít vỡ. Độ chua thực tế tùy quả chanh.",
+      "substitution": "Thay cá rô phi bằng phi lê cá rô đồng cùng khối lượng; rà xương kỹ và tính lại kcal theo loại cá.",
+      "portionDetail": "Mỗi phần gồm nửa lượng cá, rau và nước canh. Cơm hoặc món ăn thêm được tính riêng.",
+      "allergenNote": "Cá; nước mắm chứa cá.",
+      "requiresCooking": false,
+      "image": "cooking/images/R02.webp",
+      "thumbnail": "cooking/images/R02-small.webp",
+      "sourcePage": 5
+    },
+    {
+      "id": "R03",
+      "chapterId": "4",
+      "name": "Canh cải nấu thịt băm",
+      "description": "Cải thìa chín vừa, thịt băm tơi nhỏ và nước canh ngọt nhẹ. Cho phần thân cải vào trước giúp cả thân lẫn lá vừa chín.",
+      "kcalPerServing": 145,
+      "batchKcal": null,
+      "servings": 2,
+      "timeLabels": [
+        "Chuẩn bị 10 phút",
+        "Nấu 15 phút"
+      ],
+      "timeNote": "",
+      "portionNote": "Kcal cho 1 phần canh/rau; đã gồm sốt, chưa gồm cơm và món chính.",
+      "ingredients": [
+        {
+          "name": "Cải thìa (sống, bỏ gốc cứng)",
+          "amount": "300 g"
+        },
+        {
+          "name": "Thịt heo băm (sống; tham chiếu 96% nạc)",
+          "amount": "160 g"
+        },
+        {
+          "name": "Hành tím (đã bóc vỏ)",
+          "amount": "10 g"
+        },
+        {
+          "name": "Hành lá",
+          "amount": "10 g"
+        },
+        {
+          "name": "Nước mắm",
+          "amount": "10 ml"
+        },
+        {
+          "name": "Dầu ăn",
+          "amount": "3 g"
+        },
+        {
+          "name": "Tiêu xay",
+          "amount": "0,1 g"
+        },
+        {
+          "name": "Nước",
+          "amount": "650 ml"
+        }
+      ],
+      "steps": [
+        {
+          "title": "Rửa và cắt",
+          "text": "Tách lá cải, rửa kỹ phần kẽ thân dưới vòi nước sạch rồi để ráo. Cắt khúc khoảng 3 cm, để thân và lá riêng. Băm hành tím, cắt hành lá."
+        },
+        {
+          "title": "Làm tơi thịt",
+          "text": "Cho dầu và hành tím vào nồi, đảo đến thơm. Thêm thịt, dùng thìa tách thành vụn nhỏ. Đảo khoảng 3 phút; thịt chưa cần chín hoàn toàn ở bước này."
+        },
+        {
+          "title": "Nấu canh",
+          "text": "Thêm nước, đun sôi rồi giữ sôi nhẹ đến khi thịt chín. Cho thân cải vào khoảng 2 phút, sau đó thêm lá cải và nước mắm; nấu thêm 2-3 phút."
+        },
+        {
+          "title": "Kiểm tra và chia",
+          "text": "Thịt heo băm cần chín hoàn toàn, đạt 71°C. Khi thân cải mềm vừa, thêm hành lá và tiêu rồi tắt bếp. Chia đều thịt, cải và nước canh thành hai phần."
+        }
+      ],
+      "tip": "Cắt thân và lá riêng để dễ canh thời điểm cho vào nồi. Dùng thìa dầm thịt ngay lúc xào để thịt tơi.",
+      "substitution": "Có thể dùng cải xanh thay cải thìa cùng khối lượng; vị canh sẽ hơi cay và kcal có thể thay đổi.",
+      "portionDetail": "Định lượng cho hai phần canh. Cơm và các món ăn kèm nằm ngoài kcal của công thức.",
+      "allergenNote": "Nước mắm chứa cá.",
+      "requiresCooking": false,
+      "image": "cooking/images/R03.webp",
+      "thumbnail": "cooking/images/R03-small.webp",
+      "sourcePage": 7
+    },
+    {
+      "id": "R04",
+      "chapterId": "4",
+      "name": "Canh nấm đậu hũ",
+      "description": "Đậu hũ mềm, hai loại nấm tươi và củ cải trắng tạo vị ngọt dịu. Nồi canh không cần xào trước, chỉ nấu theo thứ tự chín của rau.",
+      "kcalPerServing": 170,
+      "batchKcal": null,
+      "servings": 2,
+      "timeLabels": [
+        "Chuẩn bị 15 phút",
+        "Nấu 20 phút"
+      ],
+      "timeNote": "",
+      "portionNote": "Kcal cho 1 phần canh/rau; đã gồm sốt, chưa gồm cơm và món chính.",
+      "ingredients": [
+        {
+          "name": "Đậu hũ chắc (loại thường, chưa rán, để ráo)",
+          "amount": "250 g"
+        },
+        {
+          "name": "Nấm mỡ tươi (đã bỏ gốc cứng)",
+          "amount": "100 g"
+        },
+        {
+          "name": "Nấm hương tươi (đã bỏ gốc cứng)",
+          "amount": "80 g"
+        },
+        {
+          "name": "Củ cải trắng (sống, đã gọt)",
+          "amount": "150 g"
+        },
+        {
+          "name": "Gừng (sống, đã gọt)",
+          "amount": "5 g"
+        },
+        {
+          "name": "Hành lá",
+          "amount": "10 g"
+        },
+        {
+          "name": "Nước tương",
+          "amount": "15 ml"
+        },
+        {
+          "name": "Muối",
+          "amount": "0,5 g"
+        },
+        {
+          "name": "Nước",
+          "amount": "650 ml"
+        }
+      ],
+      "steps": [
+        {
+          "title": "Cắt nguyên liệu",
+          "text": "Cắt đậu hũ thành khối khoảng 2 cm. Rửa nấm, để ráo rồi thái lát dày. Cắt củ cải miếng mỏng vừa ăn; thái gừng thành sợi và cắt hành lá."
+        },
+        {
+          "title": "Nấu củ cải",
+          "text": "Đun sôi nước với gừng, cho củ cải vào rồi hạ lửa vừa. Nấu khoảng 7-9 phút, đến khi củ cải bắt đầu trong và gần mềm."
+        },
+        {
+          "title": "Thêm nấm và đậu",
+          "text": "Cho hai loại nấm vào, nấu khoảng 4 phút. Thêm đậu hũ, nước tương và muối. Đun sôi nhẹ thêm khoảng 4-5 phút để nấm chín, đậu nóng đều tới tâm."
+        },
+        {
+          "title": "Bày canh",
+          "text": "Thêm hành lá, đảo nhẹ bằng muỗng để đậu ít vỡ rồi tắt bếp. Múc đều đậu, nấm và củ cải vào hai bát trước, sau đó chia phần nước canh."
+        }
+      ],
+      "tip": "Dùng nấm hương tươi đúng định lượng; nấm khô có độ đậm vị và khối lượng quy đổi khác.",
+      "substitution": "Thay nấm mỡ bằng nấm bào ngư tươi cùng khối lượng; xé miếng vừa ăn và tính lại kcal theo nấm.",
+      "portionDetail": "Hai phần đã gồm đậu, nấm, rau và nước canh. Cơm hoặc món chính ăn cùng được tính riêng.",
+      "allergenNote": "Đậu nành; nước tương có thể chứa lúa mì.",
+      "requiresCooking": false,
+      "image": "cooking/images/R04.webp",
+      "thumbnail": "cooking/images/R04-small.webp",
+      "sourcePage": 9
+    },
+    {
+      "id": "R05",
+      "chapterId": "4",
+      "name": "Canh bí đỏ đậu xanh",
+      "description": "Bí đỏ ngọt dịu hòa với đậu xanh mềm bùi. Dùng đậu đã nấu chín giúp thời gian nấu canh gọn hơn và định lượng rõ ràng.",
+      "kcalPerServing": 135,
+      "batchKcal": null,
+      "servings": 2,
+      "timeLabels": [
+        "Chuẩn bị 10 phút",
+        "Nấu 20 phút"
+      ],
+      "timeNote": "",
+      "portionNote": "Kcal cho 1 phần canh/rau; đã gồm sốt, chưa gồm cơm và món chính.",
+      "ingredients": [
+        {
+          "name": "Bí đỏ (sống, bỏ vỏ và hạt)",
+          "amount": "350 g"
+        },
+        {
+          "name": "Đậu xanh cà vỏ đã chín (để ráo, cân sau nấu)",
+          "amount": "150 g"
+        },
+        {
+          "name": "Hành tím (đã bóc vỏ)",
+          "amount": "10 g"
+        },
+        {
+          "name": "Hành lá",
+          "amount": "10 g"
+        },
+        {
+          "name": "Nước tương",
+          "amount": "10 ml"
+        },
+        {
+          "name": "Muối",
+          "amount": "0,5 g"
+        },
+        {
+          "name": "Nước",
+          "amount": "600 ml"
+        }
+      ],
+      "steps": [
+        {
+          "title": "Chuẩn bị",
+          "text": "Cắt bí đỏ thành khối khoảng 2 cm. Thái mỏng hành tím và cắt hành lá. Cân đậu xanh đã nấu chín mềm, để ráo; tách nhẹ những phần đậu đang vón."
+        },
+        {
+          "title": "Nấu bí",
+          "text": "Cho nước và hành tím vào nồi, đun sôi. Thêm bí đỏ, hạ lửa vừa rồi nấu khoảng 10-12 phút, đến khi đầu đũa xuyên qua miếng bí dễ dàng."
+        },
+        {
+          "title": "Thêm đậu xanh",
+          "text": "Cho đậu xanh chín vào cùng nước tương và muối. Khuấy nhẹ, đun sôi trở lại rồi nấu khoảng 3-5 phút để đậu nóng đều và nước canh hơi sánh."
+        },
+        {
+          "title": "Hoàn thiện",
+          "text": "Giữ lại các miếng bí còn nguyên hình, tránh khuấy mạnh. Thêm hành lá rồi tắt bếp. Chia đều bí, đậu và nước canh thành hai phần, dùng khi còn nóng."
+        }
+      ],
+      "tip": "Muốn canh sánh hơn, dầm vài miếng bí ngay trong nồi rồi khuấy nhẹ; không cần thêm bột.",
+      "substitution": "Có thể thay bí đỏ bằng khoai lang cùng khối lượng; điều chỉnh thời gian và kcal theo nguyên liệu mới.",
+      "portionDetail": "Hai phần canh; cơm và món ăn thêm tính riêng. Thời gian chưa gồm nấu đậu xanh từ hạt khô.",
+      "allergenNote": "Đậu nành; nước tương có thể chứa lúa mì.",
+      "requiresCooking": false,
+      "image": "cooking/images/R05.webp",
+      "thumbnail": "cooking/images/R05-small.webp",
+      "sourcePage": 11
+    },
+    {
+      "id": "R06",
+      "chapterId": "4",
+      "name": "Rau củ hấp với sốt mè",
+      "description": "Rau vừa chín vẫn giữ màu tươi và độ giòn nhẹ. Sốt mè rang giã nhỏ giúp món hấp có hương thơm bùi, dễ ăn cùng bữa cơm.",
+      "kcalPerServing": 160,
+      "batchKcal": null,
+      "servings": 2,
+      "timeLabels": [
+        "Chuẩn bị 15 phút",
+        "Nấu 15 phút"
+      ],
+      "timeNote": "",
+      "portionNote": "Kcal cho 1 phần canh/rau; đã gồm sốt, chưa gồm cơm và món chính.",
+      "ingredients": [
+        {
+          "name": "Bông cải xanh (sống)",
+          "amount": "250 g"
+        },
+        {
+          "name": "Cà rốt (sống, đã gọt)",
+          "amount": "150 g"
+        },
+        {
+          "name": "Củ cải trắng (sống, đã gọt)",
+          "amount": "200 g"
+        },
+        {
+          "name": "Mè rang (nguyên hạt, không thêm dầu)",
+          "amount": "20 g"
+        },
+        {
+          "name": "Nước tương",
+          "amount": "15 ml"
+        },
+        {
+          "name": "Nước cốt chanh (lọc bỏ hạt)",
+          "amount": "15 ml"
+        },
+        {
+          "name": "Đường",
+          "amount": "4 g"
+        },
+        {
+          "name": "Nước pha sốt",
+          "amount": "25 ml"
+        },
+        {
+          "name": "Nước hấp",
+          "amount": "700 ml hoặc theo nồi"
+        }
+      ],
+      "steps": [
+        {
+          "title": "Cắt rau củ",
+          "text": "Rửa sạch bông cải, chia thành bông vừa ăn. Cắt cà rốt và củ cải thành thanh dày khoảng 1 cm. Chuẩn bị xửng, để mặt nước nằm dưới đáy xửng."
+        },
+        {
+          "title": "Pha sốt mè",
+          "text": "Giã hoặc xay mè rang thành vụn nhỏ, còn độ lợn cợn nhẹ. Khuấy nước tương, chanh, đường và 25 ml nước cho đường tan rồi trộn cùng toàn bộ mè."
+        },
+        {
+          "title": "Hấp vừa chín",
+          "text": "Đun sôi nước hấp. Cho cà rốt và củ cải vào xửng khoảng 5 phút, sau đó thêm bông cải. Hấp tiếp 5-7 phút, đến khi rau mềm vừa nhưng còn giữ hình."
+        },
+        {
+          "title": "Chia rau và sốt",
+          "text": "Gắp rau ra hai đĩa, để thoát hơi khoảng 1 phút cho ráo. Chia toàn bộ sốt mè vào hai chén nhỏ; chấm từng miếng hoặc rưới đều lúc dùng."
+        }
+      ],
+      "tip": "Cắt củ cùng độ dày, cho bông cải vào sau để hạn chế chín nhũn. Giã mè kỹ hơn nếu thích sốt mịn.",
+      "substitution": "Thay một phần củ cải bằng bí xanh cùng khối lượng; hấp đến mềm vừa và tính lại kcal nếu đổi rau.",
+      "portionDetail": "Hai phần rau hấp đã gồm toàn bộ sốt mè. Cơm và món chính ăn cùng được tính riêng.",
+      "allergenNote": "Mè, đậu nành; nước tương có thể chứa lúa mì.",
+      "requiresCooking": false,
+      "image": "cooking/images/R06.webp",
+      "thumbnail": "cooking/images/R06-small.webp",
+      "sourcePage": 13
+    },
+    {
+      "id": "R07",
+      "chapterId": "4",
+      "name": "Bắp cải xào nấm",
+      "description": "Bắp cải, cà rốt và nấm mỡ tạo một đĩa rau nhiều màu. Xào nấm trước giúp nước rút bớt, rồi mới thêm rau để giữ độ giòn.",
+      "kcalPerServing": 135,
+      "batchKcal": null,
+      "servings": 2,
+      "timeLabels": [
+        "Chuẩn bị 15 phút",
+        "Nấu 12 phút"
+      ],
+      "timeNote": "",
+      "portionNote": "Kcal cho 1 phần canh/rau; đã gồm sốt, chưa gồm cơm và món chính.",
+      "ingredients": [
+        {
+          "name": "Bắp cải (sống, bỏ lõi cứng)",
+          "amount": "400 g"
+        },
+        {
+          "name": "Nấm mỡ tươi (đã bỏ gốc cứng)",
+          "amount": "150 g"
+        },
+        {
+          "name": "Cà rốt (sống, đã gọt)",
+          "amount": "80 g"
+        },
+        {
+          "name": "Tỏi (đã bóc vỏ)",
+          "amount": "8 g"
+        },
+        {
+          "name": "Nước tương",
+          "amount": "15 ml"
+        },
+        {
+          "name": "Dầu ăn",
+          "amount": "8 g"
+        },
+        {
+          "name": "Tiêu xay",
+          "amount": "0,1 g"
+        },
+        {
+          "name": "Nước",
+          "amount": "30 ml"
+        }
+      ],
+      "steps": [
+        {
+          "title": "Cắt và để ráo",
+          "text": "Rửa bắp cải, để ráo rồi thái sợi rộng khoảng 1 cm. Thái nấm thành lát, cà rốt thành sợi mảnh. Băm tỏi, để riêng các nhóm nguyên liệu."
+        },
+        {
+          "title": "Xào nấm",
+          "text": "Làm nóng dầu ở lửa vừa, đảo tỏi khoảng 20 giây đến thơm. Cho nấm vào, dàn đều và đảo khoảng 3-4 phút cho nấm chín, nước tiết ra rút bớt."
+        },
+        {
+          "title": "Thêm rau",
+          "text": "Cho cà rốt, bắp cải và 30 ml nước vào chảo. Đảo đều khoảng 3-4 phút; thêm nước tương rồi tiếp tục xào đến khi lá rau chín và cuống mềm vừa."
+        },
+        {
+          "title": "Hoàn thiện",
+          "text": "Rắc tiêu, đảo thêm vài lần rồi tắt bếp. Chia đều nấm, rau và phần nước xào còn lại vào hai đĩa. Dùng ngay để rau giữ độ giòn nhẹ."
+        }
+      ],
+      "tip": "Chảo rộng giúp rau thoát hơi nhanh. Nếu chảo nhỏ, chia nguyên liệu và toàn bộ dầu thành hai mẻ bằng nhau.",
+      "substitution": "Thay nấm mỡ bằng nấm bào ngư tươi cùng khối lượng; xé nhỏ và tính lại kcal theo nấm.",
+      "portionDetail": "Hai phần món rau, đã gồm dầu và gia vị. Cơm hoặc món chính ăn cùng được tính riêng.",
+      "allergenNote": "Đậu nành; nước tương có thể chứa lúa mì.",
+      "requiresCooking": false,
+      "image": "cooking/images/R07.webp",
+      "thumbnail": "cooking/images/R07-small.webp",
+      "sourcePage": 15
+    },
+    {
+      "id": "R08",
+      "chapterId": "4",
+      "name": "Đậu bắp luộc với sốt chanh tỏi",
+      "description": "Đậu bắp luộc vừa chín, chấm sốt chanh tỏi pha nhẹ. Luộc nguyên quả rồi mới cắt giúp món rau gọn gàng, dễ bày ra đĩa.",
+      "kcalPerServing": 75,
+      "batchKcal": null,
+      "servings": 2,
+      "timeLabels": [
+        "Chuẩn bị 10 phút",
+        "Nấu 8 phút"
+      ],
+      "timeNote": "",
+      "portionNote": "Kcal cho 1 phần canh/rau; đã gồm sốt, chưa gồm cơm và món chính.",
+      "ingredients": [
+        {
+          "name": "Đậu bắp (sống, bỏ phần cuống cứng)",
+          "amount": "350 g"
+        },
+        {
+          "name": "Tỏi (đã bóc vỏ)",
+          "amount": "6 g"
+        },
+        {
+          "name": "Nước cốt chanh (lọc bỏ hạt)",
+          "amount": "20 ml"
+        },
+        {
+          "name": "Nước mắm",
+          "amount": "12 ml"
+        },
+        {
+          "name": "Đường",
+          "amount": "5 g"
+        },
+        {
+          "name": "Nước pha sốt",
+          "amount": "30 ml"
+        },
+        {
+          "name": "Nước luộc",
+          "amount": "1.000 ml hoặc đủ ngập"
+        }
+      ],
+      "steps": [
+        {
+          "title": "Rửa đậu bắp",
+          "text": "Rửa từng quả dưới vòi nước sạch. Tỉa phần cuống cứng, giữ nguyên thân quả. Để ráo; băm tỏi thật nhỏ để dễ hòa vào sốt."
+        },
+        {
+          "title": "Pha sốt",
+          "text": "Hòa đường với 30 ml nước, khuấy cho tan. Thêm nước mắm, chanh và tỏi, trộn đều. Chia sốt vào hai chén nhỏ để dùng cùng từng phần rau."
+        },
+        {
+          "title": "Luộc vừa chín",
+          "text": "Đun sôi nước luộc rồi cho đậu bắp vào. Nấu khoảng 3-5 phút tùy kích cỡ, đến khi quả xanh, mềm vừa và đầu đũa xuyên qua dễ dàng."
+        },
+        {
+          "title": "Bày đĩa",
+          "text": "Vớt đậu bắp ra rổ cho ráo. Để bớt nóng khoảng 1 phút rồi bổ đôi theo chiều dài. Chia thành hai đĩa bằng nhau, dùng ngay với toàn bộ sốt đã pha."
+        }
+      ],
+      "tip": "Chọn các quả cỡ gần nhau để chín đều. Rửa và luộc nguyên quả trước khi cắt sẽ dễ thao tác hơn.",
+      "substitution": "Có thể thay nước mắm bằng nước tương cùng thể tích; hương vị, thành phần dị ứng và kcal sẽ thay đổi.",
+      "portionDetail": "Hai phần rau đã gồm sốt chanh tỏi. Nước luộc được bỏ đi; cơm và món chính tính riêng.",
+      "allergenNote": "Nước mắm chứa cá.",
+      "requiresCooking": false,
+      "image": "cooking/images/R08.webp",
+      "thumbnail": "cooking/images/R08-small.webp",
+      "sourcePage": 17
+    },
+    {
+      "id": "R09",
+      "chapterId": "4",
+      "name": "Salad dưa leo, cà chua và đậu hũ",
+      "description": "Đậu hũ áp chảo vàng nhẹ đi cùng dưa leo, cà chua và hành tây. Trộn sốt sát lúc ăn để rau vẫn giòn và đậu giữ miếng.",
+      "kcalPerServing": 235,
+      "batchKcal": null,
+      "servings": 2,
+      "timeLabels": [
+        "Chuẩn bị 15 phút",
+        "Nấu 12 phút"
+      ],
+      "timeNote": "",
+      "portionNote": "Kcal cho 1 phần canh/rau; đã gồm sốt, chưa gồm cơm và món chính.",
+      "ingredients": [
+        {
+          "name": "Đậu hũ chắc (loại thường, chưa rán, để ráo)",
+          "amount": "300 g"
+        },
+        {
+          "name": "Dưa leo (sống)",
+          "amount": "200 g"
+        },
+        {
+          "name": "Cà chua (sống)",
+          "amount": "250 g"
+        },
+        {
+          "name": "Hành tây tím (sống, đã bóc vỏ)",
+          "amount": "50 g"
+        },
+        {
+          "name": "Nước cốt chanh (lọc bỏ hạt)",
+          "amount": "15 ml"
+        },
+        {
+          "name": "Nước tương",
+          "amount": "10 ml"
+        },
+        {
+          "name": "Dầu ăn (5 g áp đậu + 3 g pha sốt)",
+          "amount": "8 g"
+        },
+        {
+          "name": "Đường",
+          "amount": "3 g"
+        },
+        {
+          "name": "Tiêu xay",
+          "amount": "0,1 g"
+        },
+        {
+          "name": "Nước pha sốt",
+          "amount": "15 ml"
+        }
+      ],
+      "steps": [
+        {
+          "title": "Chuẩn bị rau",
+          "text": "Rửa dưa leo, cà chua và hành tây dưới vòi nước sạch rồi để ráo. Cắt rau vừa ăn, thái hành thật mỏng. Thấm ráo đậu, cắt khối khoảng 2 cm."
+        },
+        {
+          "title": "Áp chảo đậu",
+          "text": "Làm nóng 5 g dầu trong chảo chống dính. Xếp đậu một lớp, áp các mặt khoảng 8-10 phút đến khi vàng nhẹ và nóng đều tới tâm. Gắp ra đĩa sạch."
+        },
+        {
+          "title": "Pha sốt",
+          "text": "Khuấy chanh, nước tương, đường, tiêu và 15 ml nước cho đường tan. Thêm 3 g dầu còn lại, khuấy đều. Để đậu bớt nóng vài phút trước khi trộn."
+        },
+        {
+          "title": "Trộn và dùng",
+          "text": "Cho rau và đậu còn ấm vào tô, rưới toàn bộ sốt rồi đảo nhẹ. Chia đều thành hai phần và dùng ngay. Nếu chuẩn bị trước, giữ các phần riêng ở ngăn mát ≤4°C."
+        }
+      ],
+      "tip": "Để rau thật ráo giúp sốt bám vị. Đậu chỉ cần bớt nóng; có thể dùng salad với đậu còn ấm.",
+      "substitution": "Thay hành tây tím bằng hành tây trắng cùng khối lượng; hoặc đổi loại rau và tính lại kcal tương ứng.",
+      "portionDetail": "Hai phần salad đã gồm đậu, rau, dầu và toàn bộ sốt. Cơm, bánh mì hoặc món ăn thêm tính riêng.",
+      "allergenNote": "Đậu nành; nước tương có thể chứa lúa mì.",
+      "requiresCooking": false,
+      "image": "cooking/images/R09.webp",
+      "thumbnail": "cooking/images/R09-small.webp",
+      "sourcePage": 19
+    },
+    {
+      "id": "R10",
+      "chapterId": "4",
+      "name": "Gỏi bắp cải, cà rốt và đậu phộng",
+      "description": "Bắp cải thái mảnh, cà rốt tươi và đậu phộng rang tạo món gỏi dễ ghép bữa. Húng lủi và sốt chanh tỏi làm vị rau thêm tươi.",
+      "kcalPerServing": 165,
+      "batchKcal": null,
+      "servings": 2,
+      "timeLabels": [
+        "Chuẩn bị 20 phút",
+        "Không cần nấu"
+      ],
+      "timeNote": "",
+      "portionNote": "Kcal cho 1 phần canh/rau; đã gồm sốt, chưa gồm cơm và món chính.",
+      "ingredients": [
+        {
+          "name": "Bắp cải (sống, bỏ lõi cứng)",
+          "amount": "300 g"
+        },
+        {
+          "name": "Cà rốt (sống, đã gọt)",
+          "amount": "150 g"
+        },
+        {
+          "name": "Đậu phộng rang không muối (rang khô, không thêm dầu)",
+          "amount": "25 g"
+        },
+        {
+          "name": "Húng lủi",
+          "amount": "10 g"
+        },
+        {
+          "name": "Nước cốt chanh (lọc bỏ hạt)",
+          "amount": "25 ml"
+        },
+        {
+          "name": "Nước mắm",
+          "amount": "15 ml"
+        },
+        {
+          "name": "Đường",
+          "amount": "5 g"
+        },
+        {
+          "name": "Tỏi (đã bóc vỏ)",
+          "amount": "5 g"
+        },
+        {
+          "name": "Nước pha sốt",
+          "amount": "20 ml"
+        }
+      ],
+      "steps": [
+        {
+          "title": "Rửa và để ráo",
+          "text": "Tách lá bắp cải, rửa kỹ cùng cà rốt và húng lủi dưới vòi nước sạch. Để thật ráo trước khi cắt. Dùng dao, thớt sạch riêng cho rau ăn sống."
+        },
+        {
+          "title": "Cắt rau, giã hạt",
+          "text": "Thái bắp cải thành sợi thật mảnh, bào cà rốt thành sợi. Cắt hoặc xé húng lủi vừa ăn. Giã đậu phộng hơi dập, giữ lại các mảnh hạt còn giòn."
+        },
+        {
+          "title": "Pha sốt",
+          "text": "Băm tỏi. Khuấy đường với 20 ml nước cho tan, thêm nước mắm, chanh và tỏi. Trộn bắp cải, cà rốt với toàn bộ sốt, đảo nhẹ trong khoảng 1 phút."
+        },
+        {
+          "title": "Hoàn thiện",
+          "text": "Thêm húng lủi và một nửa đậu phộng, trộn nhẹ rồi chia thành hai đĩa. Rắc phần đậu phộng còn lại đều lên trên. Dùng ngay sau khi trộn để rau giữ độ giòn."
+        }
+      ],
+      "tip": "Chuẩn bị trước thì giữ rau ráo và sốt riêng trong ngăn mát ≤4°C; thêm đậu phộng ngay trước bữa ăn.",
+      "substitution": "Có thể thay một nửa bắp cải bằng bắp cải tím cùng khối lượng; màu sắc và kcal sẽ thay đổi.",
+      "portionDetail": "Hai phần gỏi đã gồm toàn bộ sốt và 25 g đậu phộng. Cơm, bánh tráng hoặc món ăn thêm tính riêng.",
+      "allergenNote": "Đậu phộng; nước mắm chứa cá.",
+      "requiresCooking": false,
+      "image": "cooking/images/R10.webp",
+      "thumbnail": "cooking/images/R10-small.webp",
+      "sourcePage": 21
+    },
+    {
+      "id": "S01",
+      "chapterId": "5",
+      "name": "Sữa chua xoài và yến mạch",
+      "description": "Xoài chín vàng đi cùng sữa chua mát và yến mạch mềm. Trộn từ tối trước để có một phần ăn nhẹ sẵn trong ngăn mát.",
+      "kcalPerServing": 185,
+      "batchKcal": null,
+      "servings": 2,
+      "timeLabels": [
+        "Chuẩn bị 10 phút",
+        "Ngâm lạnh 6-12 giờ"
+      ],
+      "timeNote": "Ngâm lạnh 6-12 giờ; chuẩn bị tối trước, dùng vào ngày hôm sau.",
+      "portionNote": "Kcal cho 1/2 công thức, gồm mọi nguyên liệu và sốt đã liệt kê.",
+      "ingredients": [
+        {
+          "name": "Yến mạch cán dẹt (khô)",
+          "amount": "30 g"
+        },
+        {
+          "name": "Sữa chua không đường (trắng, nguyên kem, giữ lạnh)",
+          "amount": "200 g"
+        },
+        {
+          "name": "Sữa tươi không đường (thanh trùng hoặc tiệt trùng; 3,25% béo)",
+          "amount": "60 ml"
+        },
+        {
+          "name": "Xoài chín (phần thịt quả, bỏ vỏ và hạt)",
+          "amount": "160 g"
+        }
+      ],
+      "steps": [
+        {
+          "title": "Trộn nền",
+          "text": "Dùng hai hộp hoặc cốc sạch có nắp. Trộn yến mạch với toàn bộ sữa và sữa chua cho đều; vét phần bám ở thành bát rồi chia hỗn hợp vào hai hộp."
+        },
+        {
+          "title": "Ngâm lạnh",
+          "text": "Đậy kín, đặt ngay trong ngăn mát ≤4°C và ngâm 6-12 giờ. Giữ lạnh liên tục để yến mạch hút ẩm và mềm; không ngâm ở nhiệt độ phòng."
+        },
+        {
+          "title": "Chuẩn bị xoài",
+          "text": "Gần lúc ăn, rửa xoài dưới vòi nước sạch rồi lau khô. Gọt vỏ, bỏ hạt và cân đủ phần thịt quả; cắt thành những miếng vuông nhỏ vừa ăn."
+        },
+        {
+          "title": "Hoàn thiện",
+          "text": "Khuấy nhẹ từng phần yến mạch đã ngâm. Chia xoài đều lên trên, mỗi phần 80 g, rồi dùng ngay. Chỉ lấy phần định ăn ra khỏi ngăn mát."
+        }
+      ],
+      "tip": "Chọn xoài chín thơm, còn giữ được hình khi cắt. Độ sánh thay đổi theo loại yến mạch và sữa chua.",
+      "substitution": "Thay xoài bằng chuối chín cùng khối lượng; kcal sẽ thay đổi theo loại trái cây.",
+      "portionDetail": "Hai phần ăn nhẹ; mỗi phần gồm nửa lượng nền yến mạch và xoài. Đồ uống hoặc hạt ăn thêm tính riêng.",
+      "allergenNote": "Sữa. Kiểm tra nhãn yến mạch để biết các thành phần dị ứng khác.",
+      "requiresCooking": false,
+      "image": "cooking/images/S01.webp",
+      "thumbnail": "cooking/images/S01-small.webp",
+      "sourcePage": 3
+    },
+    {
+      "id": "S02",
+      "chapterId": "5",
+      "name": "Chuối áp chảo quế",
+      "description": "Một lớp vàng nhẹ trên mặt chuối, thêm chút quế thơm. Món nhỏ làm nhanh bằng chảo chống dính, dùng khi còn ấm.",
+      "kcalPerServing": 125,
+      "batchKcal": null,
+      "servings": 2,
+      "timeLabels": [
+        "Chuẩn bị 5 phút",
+        "Nấu 6 phút"
+      ],
+      "timeNote": "",
+      "portionNote": "Kcal cho 1/2 công thức, gồm mọi nguyên liệu và sốt đã liệt kê.",
+      "ingredients": [
+        {
+          "name": "Chuối chín (phần thịt quả, bỏ vỏ)",
+          "amount": "240 g"
+        },
+        {
+          "name": "Dầu ăn",
+          "amount": "4 g"
+        },
+        {
+          "name": "Bột quế",
+          "amount": "0,4 g"
+        }
+      ],
+      "steps": [
+        {
+          "title": "Cắt chuối",
+          "text": "Chọn chuối chín nhưng còn chắc. Bóc vỏ, cân đủ phần thịt quả rồi bổ đôi theo chiều dọc. Cắt mỗi nửa thành hai đoạn để dễ lật trong chảo."
+        },
+        {
+          "title": "Làm nóng chảo",
+          "text": "Đặt chảo chống dính lên lửa vừa nhỏ. Cho toàn bộ dầu vào, nghiêng chảo để phủ thành lớp mỏng; tránh làm dầu bốc khói trước khi đặt chuối."
+        },
+        {
+          "title": "Áp mặt chuối",
+          "text": "Xếp chuối một lớp, đặt mặt cắt xuống trước. Áp khoảng 2-3 phút đến khi vàng nhẹ, dùng xẻng mỏng lật rồi nấu mặt còn lại khoảng 1-2 phút."
+        },
+        {
+          "title": "Thêm quế và chia",
+          "text": "Hạ lửa nhỏ, rắc quế đều lên chuối và nghiêng chảo nhẹ. Tắt bếp khi chuối nóng mềm nhưng còn giữ hình. Chia toàn bộ chuối thành hai phần và dùng ấm."
+        }
+      ],
+      "tip": "Không trở chuối quá sớm; đợi mặt dưới se vàng sẽ dễ nhấc và ít bị nát hơn.",
+      "substitution": "Có thể giảm quế theo khẩu vị; nếu thêm sữa chua hoặc hạt, tính thêm kcal của phần đó.",
+      "portionDetail": "Hai phần chuối, đã gồm dầu và quế. Sốt, sữa chua hoặc món dùng thêm không nằm trong định lượng.",
+      "allergenNote": "Chuối, quế. Kiểm tra nhãn dầu ăn nếu có dị ứng.",
+      "requiresCooking": false,
+      "image": "cooking/images/S02.webp",
+      "thumbnail": "cooking/images/S02-small.webp",
+      "sourcePage": 5
+    },
+    {
+      "id": "S03",
+      "chapterId": "5",
+      "name": "Khoai lang nướng mè",
+      "description": "Khoai cắt miếng vừa tay, mặt ngoài vàng nhẹ và bên trong mềm. Mè rang làm phần ăn nhỏ thêm thơm mà không cần sốt riêng.",
+      "kcalPerServing": 180,
+      "batchKcal": null,
+      "servings": 2,
+      "timeLabels": [
+        "Chuẩn bị 10 phút",
+        "Nấu 30 phút"
+      ],
+      "timeNote": "",
+      "portionNote": "Kcal cho 1/2 công thức, gồm mọi nguyên liệu và sốt đã liệt kê.",
+      "ingredients": [
+        {
+          "name": "Khoai lang (sống, đã gọt vỏ, phần ăn được)",
+          "amount": "300 g"
+        },
+        {
+          "name": "Mè rang (nguyên hạt, không thêm dầu)",
+          "amount": "12 g"
+        },
+        {
+          "name": "Dầu ăn",
+          "amount": "4 g"
+        },
+        {
+          "name": "Muối",
+          "amount": "0,3 g"
+        }
+      ],
+      "steps": [
+        {
+          "title": "Cắt và làm ráo",
+          "text": "Làm nóng lò ở 200°C. Rửa khoai đã gọt, để ráo rồi thấm khô. Cắt thành thanh hoặc múi dày khoảng 1,5 cm, giữ kích thước tương đối đều nhau."
+        },
+        {
+          "title": "Áo dầu",
+          "text": "Trộn khoai với dầu và muối trong tô. Xếp một lớp lên khay có giấy nến, chừa khoảng trống giữa các miếng để dễ trở và quan sát độ chín."
+        },
+        {
+          "title": "Nướng khoai",
+          "text": "Nướng khoảng 20 phút, lấy khay ra lật mặt. Nướng tiếp 5-10 phút tùy lò, đến khi đầu đũa xuyên qua tâm miếng khoai dễ dàng và mép hơi vàng."
+        },
+        {
+          "title": "Rắc mè",
+          "text": "Cho khoai nóng vào tô, rắc toàn bộ mè và xóc nhẹ để mè bám. Chia khoai cùng phần mè còn trong tô thành hai phần; dùng khi còn ấm."
+        }
+      ],
+      "tip": "Cắt miếng đều giúp khoai chín cùng lúc. Nếu mặt khoai vàng nhanh, hạ nhiệt và kiểm tra phần tâm.",
+      "substitution": "Có thể dùng khoai lang ruột vàng hoặc tím; độ ẩm, thời gian nướng và kcal có thể khác.",
+      "portionDetail": "Hai phần ăn nhẹ đã gồm dầu và mè. Kcal tính từ 300 g khoai sống đã gọt cho cả công thức.",
+      "allergenNote": "Mè.",
+      "requiresCooking": false,
+      "image": "cooking/images/S03.webp",
+      "thumbnail": "cooking/images/S03-small.webp",
+      "sourcePage": 7
+    },
+    {
+      "id": "S04",
+      "chapterId": "5",
+      "name": "Chè đậu xanh hạt sen",
+      "description": "Hạt sen mềm đi cùng đậu xanh đã cà vỏ trong phần chè sánh nhẹ. Đường được đong riêng để công thức dễ làm lại theo cùng một vị.",
+      "kcalPerServing": 190,
+      "batchKcal": null,
+      "servings": 2,
+      "timeLabels": [
+        "Chuẩn bị 10 phút",
+        "Nấu 35 phút"
+      ],
+      "timeNote": "Thời gian chưa gồm nấu đậu xanh từ hạt khô; sen được cân sống trước nấu.",
+      "portionNote": "Kcal cho 1/2 công thức, gồm mọi nguyên liệu và sốt đã liệt kê.",
+      "ingredients": [
+        {
+          "name": "Hạt sen tươi (sống, bỏ vỏ và tim sen)",
+          "amount": "100 g"
+        },
+        {
+          "name": "Đậu xanh cà vỏ đã chín (để ráo, cân sau nấu)",
+          "amount": "150 g"
+        },
+        {
+          "name": "Đường",
+          "amount": "16 g"
+        },
+        {
+          "name": "Muối",
+          "amount": "0,2 g"
+        },
+        {
+          "name": "Nước",
+          "amount": "500 ml"
+        }
+      ],
+      "steps": [
+        {
+          "title": "Kiểm tra hạt",
+          "text": "Rửa hạt sen, kiểm tra và lấy hết phần tim xanh nếu còn. Cân đậu xanh đã nấu chín mềm, để ráo; dùng thìa tách nhẹ phần đậu đang vón."
+        },
+        {
+          "title": "Nấu hạt sen",
+          "text": "Cho sen và nước vào nồi, đun sôi rồi hạ lửa. Nấu sôi nhẹ khoảng 20-30 phút, đến khi bóp thử một hạt bằng thìa thấy mềm tới tâm."
+        },
+        {
+          "title": "Thêm đậu và đường",
+          "text": "Cho đậu xanh, đường và muối vào nồi. Khuấy nhẹ cho đường tan, đun sôi trở lại rồi nấu thêm khoảng 5 phút để đậu nóng đều và chè hơi sánh."
+        },
+        {
+          "title": "Chia chè",
+          "text": "Tắt bếp, chia đều hạt sen và đậu vào hai bát rồi thêm phần nước chè. Dùng ấm; nếu chuẩn bị trước, chia vào hộp nông, làm nguội nhanh và cất ngăn mát ≤4°C."
+        }
+      ],
+      "tip": "Cho đường sau khi sen đã mềm. Độ già của hạt sen làm thời gian nấu thay đổi; kiểm tra bằng độ mềm thực tế.",
+      "substitution": "Không thay 100 g sen tươi bằng 100 g sen khô; cần đổi định lượng, thời gian nấu và tính lại kcal.",
+      "portionDetail": "Hai phần chè đã gồm 16 g đường cho cả nồi. Nước cốt dừa hoặc món ăn thêm được tính riêng.",
+      "allergenNote": "Đậu xanh, hạt sen.",
+      "requiresCooking": false,
+      "image": "cooking/images/S04.webp",
+      "thumbnail": "cooking/images/S04-small.webp",
+      "sourcePage": 9
+    },
+    {
+      "id": "S05",
+      "chapterId": "5",
+      "name": "Bánh khoai lang yến mạch",
+      "description": "Bánh nhỏ vừa tay với phần khoai nghiền mịn và yến mạch tự xay. Chia vào khuôn nhỏ để dễ nướng chín đều và chia khẩu phần.",
+      "kcalPerServing": 220,
+      "batchKcal": null,
+      "servings": 2,
+      "timeLabels": [
+        "Chuẩn bị 15 phút",
+        "Nấu 35 phút"
+      ],
+      "timeNote": "Thời gian nấu gồm hấp khoai và nướng bánh; để bánh nghỉ trong khuôn 5 phút.",
+      "portionNote": "Kcal cho 1/2 công thức, gồm mọi nguyên liệu và sốt đã liệt kê.",
+      "ingredients": [
+        {
+          "name": "Khoai lang (sống, đã gọt vỏ, phần ăn được)",
+          "amount": "180 g"
+        },
+        {
+          "name": "Yến mạch cán xay mịn (khô, tự xay từ yến mạch cán)",
+          "amount": "40 g"
+        },
+        {
+          "name": "Trứng gà (không vỏ)",
+          "amount": "1 quả / khoảng 50 g"
+        },
+        {
+          "name": "Sữa tươi không đường (thanh trùng hoặc tiệt trùng; 3,25% béo)",
+          "amount": "40 ml"
+        },
+        {
+          "name": "Bột nở (baking powder)",
+          "amount": "2 g"
+        },
+        {
+          "name": "Dầu ăn (quét sáu ô khuôn bánh)",
+          "amount": "4 g"
+        },
+        {
+          "name": "Nước hấp",
+          "amount": "700 ml hoặc theo nồi"
+        }
+      ],
+      "steps": [
+        {
+          "title": "Hấp và nghiền khoai",
+          "text": "Cắt khoai thành miếng nhỏ, hấp trên nước sôi khoảng 12-15 phút đến mềm. Nghiền mịn khi còn nóng rồi để bớt nóng. Làm nóng lò ở 180°C."
+        },
+        {
+          "title": "Trộn bột bánh",
+          "text": "Đánh trứng với sữa, trộn vào khoai đã bớt nóng. Trộn riêng yến mạch xay và bột nở, cho vào hỗn hợp ướt rồi đảo đều; không nếm phần bột sống."
+        },
+        {
+          "title": "Chia khuôn",
+          "text": "Quét toàn bộ dầu vào sáu ô khuôn nhỏ, đường kính khoảng 5 cm. Chia bột đều vào các ô, không quá hai phần ba chiều cao khuôn; làm phẳng nhẹ mặt bánh."
+        },
+        {
+          "title": "Nướng và chia",
+          "text": "Nướng khoảng 18-22 phút đến khi bánh nở nhẹ, tâm đông hoàn toàn và que thử rút ra không dính bột ướt. Để nguội trong khuôn 5 phút rồi lấy ra; mỗi phần ba bánh."
+        }
+      ],
+      "tip": "Để khoai bớt nóng trước khi trộn trứng. Khuôn nhỏ và các phần bột bằng nhau giúp dễ kiểm tra độ chín.",
+      "substitution": "Có thể đổi màu khoai lang theo loại sẵn có; nếu đổi sữa hoặc thêm hạt, tính lại kcal tương ứng.",
+      "portionDetail": "Làm sáu bánh nhỏ, chia hai phần bằng nhau. Kcal đã gồm dầu quét khuôn; sốt hoặc sữa chua ăn thêm tính riêng.",
+      "allergenNote": "Trứng, sữa. Kiểm tra nhãn yến mạch và bột nở.",
+      "requiresCooking": false,
+      "image": "cooking/images/S05.webp",
+      "thumbnail": "cooking/images/S05-small.webp",
+      "sourcePage": 11
+    },
+    {
+      "id": "S06",
+      "chapterId": "5",
+      "name": "Kem chuối sữa chua",
+      "description": "Chuối chín xay cùng sữa chua rồi làm đông trong hộp nông. Thành phẩm có vị chua dịu và kết cấu mộc mạc, mềm hơn sau vài phút lấy ra.",
+      "kcalPerServing": 170,
+      "batchKcal": null,
+      "servings": 2,
+      "timeLabels": [
+        "Chuẩn bị 10 phút",
+        "Đông lạnh 4-6 giờ"
+      ],
+      "timeNote": "Làm đông 4-6 giờ; trước khi dùng, để bớt cứng 5-8 phút.",
+      "portionNote": "Kcal cho 1/2 công thức, gồm mọi nguyên liệu và sốt đã liệt kê.",
+      "ingredients": [
+        {
+          "name": "Chuối chín (phần thịt quả, bỏ vỏ)",
+          "amount": "240 g"
+        },
+        {
+          "name": "Sữa chua không đường (trắng, nguyên kem, giữ lạnh)",
+          "amount": "200 g"
+        },
+        {
+          "name": "Nước cốt chanh (lọc bỏ hạt)",
+          "amount": "5 ml"
+        }
+      ],
+      "steps": [
+        {
+          "title": "Chuẩn bị",
+          "text": "Chuẩn bị hộp thực phẩm sạch có nắp, đủ rộng để hỗn hợp dày khoảng 2-3 cm. Bóc vỏ chuối, cân phần thịt quả rồi cắt khúc để dễ xay."
+        },
+        {
+          "title": "Xay mịn",
+          "text": "Cho chuối, toàn bộ sữa chua và nước chanh vào máy. Xay đến mịn, dừng máy để vét thành cối nếu cần. Đổ vào hộp và dàn thành một lớp đều."
+        },
+        {
+          "title": "Làm đông",
+          "text": "Đậy nắp, đặt hộp trong ngăn đá 4-6 giờ. Trong hai giờ đầu, lấy ra khuấy hoặc dầm bằng nĩa hai lần, mỗi lần cách nhau khoảng 45 phút, rồi đậy kín cho đông tiếp."
+        },
+        {
+          "title": "Múc và dùng",
+          "text": "Lấy hộp ra khoảng 5-8 phút cho bớt cứng, dùng muỗng múc hoặc nạo thành từng phần. Chia đều toàn bộ kem vào hai bát, dùng ngay; giữ phần chưa dùng trong ngăn đá."
+        }
+      ],
+      "tip": "Hộp nông giúp dễ khuấy. Kem có thể có dăm đá nhỏ vì công thức chỉ dùng chuối và sữa chua làm nền.",
+      "substitution": "Có thể thay chuối bằng xoài chín nhưng kết cấu và kcal sẽ khác; không thêm trái cây ngoài định lượng nếu muốn giữ số kcal.",
+      "portionDetail": "Hai phần kem, đã tính toàn bộ chuối và sữa chua. Hạt, bánh hoặc sốt thêm lên kem được tính riêng.",
+      "allergenNote": "Sữa, chuối.",
+      "requiresCooking": false,
+      "image": "cooking/images/S06.webp",
+      "thumbnail": "cooking/images/S06-small.webp",
+      "sourcePage": 13
+    },
+    {
+      "id": "S07",
+      "chapterId": "5",
+      "name": "Sữa chua cacao và đậu phộng",
+      "description": "Cacao được khuấy thành hỗn hợp mịn trước khi trộn với sữa chua. Đậu phộng rang cho vào lúc ăn để giữ độ giòn.",
+      "kcalPerServing": 130,
+      "batchKcal": null,
+      "servings": 2,
+      "timeLabels": [
+        "Chuẩn bị 10 phút",
+        "Không cần nấu"
+      ],
+      "timeNote": "",
+      "portionNote": "Kcal cho 1/2 công thức, gồm mọi nguyên liệu và sốt đã liệt kê.",
+      "ingredients": [
+        {
+          "name": "Sữa chua không đường (trắng, nguyên kem, giữ lạnh)",
+          "amount": "200 g"
+        },
+        {
+          "name": "Bột cacao không đường (bột khô, không phải cacao hòa tan)",
+          "amount": "10 g"
+        },
+        {
+          "name": "Đậu phộng rang không muối (rang khô, không thêm dầu)",
+          "amount": "15 g"
+        },
+        {
+          "name": "Đường",
+          "amount": "6 g"
+        },
+        {
+          "name": "Nước ấm",
+          "amount": "20 ml"
+        }
+      ],
+      "steps": [
+        {
+          "title": "Làm mịn cacao",
+          "text": "Rây cacao vào bát nhỏ, thêm đường và 20 ml nước ấm. Khuấy kỹ thành hỗn hợp sánh, miết những chỗ còn vón bằng mặt sau của thìa."
+        },
+        {
+          "title": "Trộn sữa chua",
+          "text": "Chờ hỗn hợp cacao nguội hẳn. Cho vài thìa sữa chua vào khuấy trước, sau đó trộn với toàn bộ phần sữa chua còn lại đến khi màu nâu đều."
+        },
+        {
+          "title": "Chuẩn bị hạt",
+          "text": "Giã đậu phộng hơi dập, giữ lại những mảnh nhỏ vừa ăn. Chia hỗn hợp sữa chua cacao đều vào hai bát hoặc hai cốc thấp."
+        },
+        {
+          "title": "Hoàn thiện",
+          "text": "Chia toàn bộ đậu phộng lên hai phần rồi dùng ngay. Nếu chuẩn bị trước, đậy kín sữa chua và giữ ngăn mát ≤4°C; để hạt riêng, thêm lúc ăn."
+        }
+      ],
+      "tip": "Khuấy cacao với nước trước giúp bớt vón. Dùng đúng bột cacao không đường để vị và định lượng dễ kiểm soát.",
+      "substitution": "Có thể bỏ đường nếu hợp khẩu vị; vị đắng rõ hơn và kcal sẽ giảm theo lượng đường đã bỏ.",
+      "portionDetail": "Hai phần đã gồm cacao, 6 g đường và 15 g đậu phộng cho cả công thức; đồ ăn thêm tính riêng.",
+      "allergenNote": "Sữa, đậu phộng. Kiểm tra nhãn cacao.",
+      "requiresCooking": false,
+      "image": "cooking/images/S07.webp",
+      "thumbnail": "cooking/images/S07-small.webp",
+      "sourcePage": 15
+    },
+    {
+      "id": "S08",
+      "chapterId": "5",
+      "name": "Bắp trộn đậu đỏ và rau thơm",
+      "description": "Hạt bắp vàng, đậu đỏ mềm và dưa leo giòn tạo nên một phần ăn nhẹ có nhiều kết cấu. Trộn sốt chanh ngay trước khi dùng.",
+      "kcalPerServing": 200,
+      "batchKcal": null,
+      "servings": 2,
+      "timeLabels": [
+        "Chuẩn bị 15 phút",
+        "Không cần nấu"
+      ],
+      "timeNote": "Dùng bắp đã luộc chín; thời gian chuẩn bị chưa gồm công đoạn luộc bắp.",
+      "portionNote": "Kcal cho 1/2 công thức, gồm mọi nguyên liệu và sốt đã liệt kê.",
+      "ingredients": [
+        {
+          "name": "Bắp ngọt vàng tách hạt (đã luộc chín không muối, cân ráo)",
+          "amount": "200 g"
+        },
+        {
+          "name": "Đậu đỏ kidney đóng hộp (đã chín, không đường; cân sau rửa ráo)",
+          "amount": "120 g"
+        },
+        {
+          "name": "Dưa leo (sống)",
+          "amount": "100 g"
+        },
+        {
+          "name": "Húng lủi",
+          "amount": "10 g"
+        },
+        {
+          "name": "Nước cốt chanh (lọc bỏ hạt)",
+          "amount": "15 ml"
+        },
+        {
+          "name": "Dầu ăn (dùng pha sốt)",
+          "amount": "4 g"
+        },
+        {
+          "name": "Muối",
+          "amount": "0,4 g"
+        }
+      ],
+      "steps": [
+        {
+          "title": "Chuẩn bị bắp và đậu",
+          "text": "Dùng bắp đã luộc chín, để ráo rồi cân 200 g hạt. Đổ đậu kidney đóng hộp ra rổ, rửa dưới nước sạch và để ráo trước khi cân đủ 120 g."
+        },
+        {
+          "title": "Cắt rau",
+          "text": "Rửa dưa leo và húng lủi dưới vòi nước sạch rồi để thật ráo. Cắt dưa leo thành hạt lựu nhỏ; thái hoặc xé húng lủi vừa ăn."
+        },
+        {
+          "title": "Pha sốt",
+          "text": "Khuấy nước chanh với muối cho tan, thêm dầu rồi khuấy đều. Cho bắp đã bớt nóng, đậu đỏ và dưa leo vào tô; rưới toàn bộ sốt, đảo nhẹ."
+        },
+        {
+          "title": "Thêm rau thơm và chia",
+          "text": "Cho húng lủi vào sau cùng, đảo nhẹ để đậu ít vỡ. Chia đều thành hai phần và dùng ngay. Nếu chuẩn bị trước, giữ các thành phần riêng trong ngăn mát ≤4°C."
+        }
+      ],
+      "tip": "Để bắp và đậu thật ráo trước khi trộn. Đậu kidney trong công thức là loại đóng hộp đã chín, không dùng hạt khô trực tiếp.",
+      "substitution": "Có thể thay húng lủi bằng rau răm cùng khối lượng; mùi vị và kcal sẽ thay đổi.",
+      "portionDetail": "Hai phần ăn nhẹ đã gồm toàn bộ bắp, đậu, rau và sốt. Thời gian chưa gồm luộc bắp từ nguyên liệu sống.",
+      "allergenNote": "Bắp, đậu đỏ. Kiểm tra nhãn đậu đóng hộp và dầu ăn.",
+      "requiresCooking": false,
+      "image": "cooking/images/S08.webp",
+      "thumbnail": "cooking/images/S08-small.webp",
+      "sourcePage": 17
+    },
+    {
+      "id": "C01",
+      "chapterId": "6",
+      "name": "Nước mắm chanh tỏi",
+      "description": "Vị mặn, chua và ngọt được đong rõ. Một bát nước chấm nhỏ cho món cuốn, cá hoặc rau luộc.",
+      "kcalPerServing": 15,
+      "batchKcal": 55,
+      "servings": 4,
+      "timeLabels": [
+        "Pha 8 phút"
+      ],
+      "timeNote": "",
+      "portionNote": "Một phần = 1/4 mẻ; kcal chưa gồm món dùng kèm.",
+      "ingredients": [
+        {
+          "name": "Nước mắm",
+          "amount": "20 ml (dùng loại thường)"
+        },
+        {
+          "name": "Nước cốt chanh",
+          "amount": "20 ml (bỏ hạt)"
+        },
+        {
+          "name": "Nước ấm",
+          "amount": "40 ml (nước uống được)"
+        },
+        {
+          "name": "Đường",
+          "amount": "8 g (đường cát)"
+        },
+        {
+          "name": "Tỏi",
+          "amount": "6 g (sống, đã bóc vỏ)"
+        }
+      ],
+      "steps": [
+        {
+          "title": "Tan đường",
+          "text": "Hòa đường với toàn bộ nước ấm, khuấy cho tan rồi để nguội."
+        },
+        {
+          "title": "Pha vị",
+          "text": "Băm tỏi thật nhỏ. Khuấy nước mắm và nước chanh vào nước đường đã nguội."
+        },
+        {
+          "title": "Chia phần",
+          "text": "Cho tỏi vào, khuấy đều rồi chia bốn phần. Dùng gần lúc pha; nếu chờ, đậy kín và giữ ngăn mát ≤4°C."
+        }
+      ],
+      "tip": "Để nước đường nguội trước khi thêm chanh; dùng chanh mới vắt và không lẫn hạt.",
+      "substitution": "",
+      "portionDetail": "Một phần dùng chấm một phần gỏi cuốn, cá hấp hoặc rau luộc. Nếu thêm sốt, tính thêm lượng đã dùng.",
+      "allergenNote": "Cá; kiểm tra nhãn nước mắm.",
+      "requiresCooking": false,
+      "image": "cooking/images/C01.webp",
+      "thumbnail": "cooking/images/C01-small.webp",
+      "sourcePage": 3
+    },
+    {
+      "id": "C02",
+      "chapterId": "6",
+      "name": "Nước mắm gừng",
+      "description": "Gừng giã nhỏ làm bát nước chấm thơm rõ. Hợp với cá hấp, tôm hoặc thịt luộc đã nấu chín.",
+      "kcalPerServing": 20,
+      "batchKcal": 75,
+      "servings": 4,
+      "timeLabels": [
+        "Pha 10 phút"
+      ],
+      "timeNote": "",
+      "portionNote": "Một phần = 1/4 mẻ; kcal chưa gồm món dùng kèm.",
+      "ingredients": [
+        {
+          "name": "Nước mắm",
+          "amount": "24 ml (dùng loại thường)"
+        },
+        {
+          "name": "Nước ấm",
+          "amount": "45 ml (nước uống được)"
+        },
+        {
+          "name": "Nước cốt chanh",
+          "amount": "20 ml (bỏ hạt)"
+        },
+        {
+          "name": "Đường",
+          "amount": "10 g (đường cát)"
+        },
+        {
+          "name": "Gừng",
+          "amount": "15 g (sống, đã gọt vỏ)"
+        },
+        {
+          "name": "Tỏi",
+          "amount": "5 g (sống, đã bóc vỏ)"
+        }
+      ],
+      "steps": [
+        {
+          "title": "Giã thơm",
+          "text": "Băm hoặc giã gừng và tỏi thật nhỏ, giữ lại toàn bộ phần giã."
+        },
+        {
+          "title": "Pha nền",
+          "text": "Hòa đường trong nước ấm. Để nguội, thêm nước mắm và nước chanh, khuấy đều."
+        },
+        {
+          "title": "Hoàn thiện",
+          "text": "Trộn gừng, tỏi vào; chia bốn phần và dùng. Nếu chuẩn bị trước, đậy kín và giữ ngăn mát ≤4°C."
+        }
+      ],
+      "tip": "Gừng già thơm cay hơn; băm thật nhỏ để vị phân bố đều giữa các phần.",
+      "substitution": "",
+      "portionDetail": "Một phần dùng chấm một phần cá hấp hoặc thịt luộc chín; chia cả gừng, tỏi cùng nước chấm.",
+      "allergenNote": "Cá; kiểm tra nhãn nước mắm.",
+      "requiresCooking": false,
+      "image": "cooking/images/C02.webp",
+      "thumbnail": "cooking/images/C02-small.webp",
+      "sourcePage": 4
+    },
+    {
+      "id": "C03",
+      "chapterId": "6",
+      "name": "Xì dầu chanh gừng",
+      "description": "Nước tương, chanh và gừng tạo phần sốt loãng dễ rưới. Hợp với đậu hũ, nấm hoặc rau hấp.",
+      "kcalPerServing": 15,
+      "batchKcal": 60,
+      "servings": 4,
+      "timeLabels": [
+        "Pha 8 phút"
+      ],
+      "timeNote": "",
+      "portionNote": "Một phần = 1/4 mẻ; kcal chưa gồm món dùng kèm.",
+      "ingredients": [
+        {
+          "name": "Nước tương",
+          "amount": "32 ml (loại shoyu)"
+        },
+        {
+          "name": "Nước",
+          "amount": "40 ml (nước uống được)"
+        },
+        {
+          "name": "Nước cốt chanh",
+          "amount": "20 ml (bỏ hạt)"
+        },
+        {
+          "name": "Gừng",
+          "amount": "10 g (sống, đã gọt vỏ)"
+        },
+        {
+          "name": "Đường",
+          "amount": "6 g (đường cát)"
+        },
+        {
+          "name": "Tỏi",
+          "amount": "4 g (sống, đã bóc vỏ)"
+        }
+      ],
+      "steps": [
+        {
+          "title": "Làm nhỏ gia vị",
+          "text": "Băm gừng và tỏi thật nhỏ; giữ lại toàn bộ phần băm."
+        },
+        {
+          "title": "Khuấy sốt",
+          "text": "Hòa đường với nước, thêm nước tương và nước chanh. Khuấy đến khi không còn hạt đường."
+        },
+        {
+          "title": "Trộn và chia",
+          "text": "Cho gừng, tỏi vào. Khuấy đều trước khi chia bốn phần; dùng ngay hoặc đậy kín, giữ ngăn mát ≤4°C."
+        }
+      ],
+      "tip": "Nước tương giữa các nhãn có độ mặn khác nhau; dùng đúng lượng rồi nếm cùng món ăn.",
+      "substitution": "",
+      "portionDetail": "Một phần rưới lên khoảng 150-200 g đậu hũ, nấm hoặc rau hấp; phần thực phẩm này được tính kcal riêng.",
+      "allergenNote": "Đậu nành, lúa mì; kiểm tra nhãn nước tương.",
+      "requiresCooking": false,
+      "image": "cooking/images/C03.webp",
+      "thumbnail": "cooking/images/C03-small.webp",
+      "sourcePage": 5
+    },
+    {
+      "id": "C04",
+      "chapterId": "6",
+      "name": "Sốt mè rang",
+      "description": "Mè giã mịn hòa trong nền sữa chua, tạo phần sốt màu be dịu cho rau hấp hoặc salad.",
+      "kcalPerServing": 55,
+      "batchKcal": 220,
+      "servings": 4,
+      "timeLabels": [
+        "Pha 12 phút"
+      ],
+      "timeNote": "",
+      "portionNote": "Một phần = 1/4 mẻ; kcal chưa gồm món dùng kèm.",
+      "ingredients": [
+        {
+          "name": "Mè rang",
+          "amount": "24 g (nguyên hạt, không thêm dầu)"
+        },
+        {
+          "name": "Sữa chua không đường",
+          "amount": "80 g (trắng, nguyên kem)"
+        },
+        {
+          "name": "Nước tương",
+          "amount": "12 ml (loại shoyu)"
+        },
+        {
+          "name": "Nước",
+          "amount": "20 ml (nước uống được)"
+        },
+        {
+          "name": "Giấm gạo",
+          "amount": "10 ml (không pha thêm đường)"
+        },
+        {
+          "name": "Đường",
+          "amount": "6 g (đường cát)"
+        }
+      ],
+      "steps": [
+        {
+          "title": "Giã mè",
+          "text": "Giã mè rang thật mịn trong cối sạch; giữ lại toàn bộ mè và phần bám cối."
+        },
+        {
+          "title": "Pha nền",
+          "text": "Khuấy đường với nước, giấm và nước tương đến tan. Trộn đều với sữa chua."
+        },
+        {
+          "title": "Trộn sốt",
+          "text": "Cho mè giã vào, khuấy mịn rồi chia bốn phần. Giữ lạnh ≤4°C; đảo lại sốt trước khi dùng."
+        }
+      ],
+      "tip": "Mè càng mịn thì sốt càng đều. Không rắc thêm hạt ngoài 24 g nếu muốn giữ đúng kcal công thức.",
+      "substitution": "",
+      "portionDetail": "Một phần trộn khoảng 150-200 g rau hấp hoặc salad. Chia đều cả phần mè lắng dưới đáy.",
+      "allergenNote": "Mè, sữa, đậu nành, lúa mì.",
+      "requiresCooking": false,
+      "image": "cooking/images/C04.webp",
+      "thumbnail": "cooking/images/C04-small.webp",
+      "sourcePage": 6
+    },
+    {
+      "id": "C05",
+      "chapterId": "6",
+      "name": "Sốt đậu phộng",
+      "description": "Bơ đậu phộng không đường được làm loãng vừa đủ, thêm chanh và nước tương cho vị cân bằng.",
+      "kcalPerServing": 65,
+      "batchKcal": 270,
+      "servings": 4,
+      "timeLabels": [
+        "Pha 10 phút"
+      ],
+      "timeNote": "",
+      "portionNote": "Một phần = 1/4 mẻ; kcal chưa gồm món dùng kèm.",
+      "ingredients": [
+        {
+          "name": "Bơ đậu phộng không đường",
+          "amount": "40 g (loại mịn)"
+        },
+        {
+          "name": "Nước tương",
+          "amount": "12 ml (loại shoyu)"
+        },
+        {
+          "name": "Nước ấm",
+          "amount": "50 ml (nước uống được)"
+        },
+        {
+          "name": "Nước cốt chanh",
+          "amount": "15 ml (bỏ hạt)"
+        },
+        {
+          "name": "Đường",
+          "amount": "4 g (đường cát)"
+        },
+        {
+          "name": "Tỏi",
+          "amount": "4 g (sống, đã bóc vỏ)"
+        }
+      ],
+      "steps": [
+        {
+          "title": "Pha nền",
+          "text": "Băm tỏi thật nhỏ. Hòa đường trong nước ấm, thêm nước tương và khuấy đều."
+        },
+        {
+          "title": "Làm mịn",
+          "text": "Cho nước vừa pha vào bơ đậu phộng từng ít một, khuấy đến mịn rồi trộn nước chanh và tỏi."
+        },
+        {
+          "title": "Chia sốt",
+          "text": "Vét đủ phần bám bát, chia bốn phần. Dùng ngay; nếu chờ, đậy kín và giữ ngăn mát ≤4°C."
+        }
+      ],
+      "tip": "Khuấy bơ đậu phộng trong hũ trước khi cân nếu thấy tách dầu; không thêm dầu riêng.",
+      "substitution": "",
+      "portionDetail": "Một phần dùng chấm một phần gỏi cuốn hoặc trộn bún đậu hũ. Bún, đậu và rau được tính kcal riêng.",
+      "allergenNote": "Đậu phộng, đậu nành, lúa mì.",
+      "requiresCooking": false,
+      "image": "cooking/images/C05.webp",
+      "thumbnail": "cooking/images/C05-small.webp",
+      "sourcePage": 7
+    },
+    {
+      "id": "C06",
+      "chapterId": "6",
+      "name": "Sốt sữa chua tỏi chanh",
+      "description": "Sốt trắng ngà, chua dịu và điểm chút tiêu đen. Dùng lạnh với rau hoặc phần gà đã nấu chín.",
+      "kcalPerServing": 35,
+      "batchKcal": 135,
+      "servings": 4,
+      "timeLabels": [
+        "Pha 10 phút"
+      ],
+      "timeNote": "",
+      "portionNote": "Một phần = 1/4 mẻ; kcal chưa gồm món dùng kèm.",
+      "ingredients": [
+        {
+          "name": "Sữa chua không đường",
+          "amount": "120 g (trắng, nguyên kem)"
+        },
+        {
+          "name": "Tỏi",
+          "amount": "4 g (sống, đã bóc vỏ)"
+        },
+        {
+          "name": "Nước cốt chanh",
+          "amount": "12 ml (bỏ hạt)"
+        },
+        {
+          "name": "Dầu ăn",
+          "amount": "4 g (dùng cho cả công thức)"
+        },
+        {
+          "name": "Đường",
+          "amount": "4 g (đường cát)"
+        },
+        {
+          "name": "Muối",
+          "amount": "0,5 g (gia vị)"
+        },
+        {
+          "name": "Tiêu đen xay",
+          "amount": "0,2 g (gia vị)"
+        }
+      ],
+      "steps": [
+        {
+          "title": "Chuẩn bị",
+          "text": "Băm hoặc mài tỏi thật mịn. Khuấy đường và muối với nước chanh cho tan."
+        },
+        {
+          "title": "Trộn sốt",
+          "text": "Trộn sữa chua với phần chanh, tỏi, dầu và tiêu. Khuấy đều, vét đủ sốt bám thành bát."
+        },
+        {
+          "title": "Giữ lạnh",
+          "text": "Chia bốn phần, đậy kín và giữ ngăn mát ≤4°C. Khuấy lại trước khi rưới lên món ăn."
+        }
+      ],
+      "tip": "Dùng sữa chua trắng không đường; không thay bằng loại có trái cây hoặc có đường mà giữ nguyên kcal.",
+      "substitution": "",
+      "portionDetail": "Một phần rưới lên một phần salad hoặc khoảng 150 g gà chín. Dùng lạnh, không cần đun sốt.",
+      "allergenNote": "Sữa; kiểm tra nhãn dầu ăn.",
+      "requiresCooking": false,
+      "image": "cooking/images/C06.webp",
+      "thumbnail": "cooking/images/C06-small.webp",
+      "sourcePage": 8
+    },
+    {
+      "id": "C07",
+      "chapterId": "6",
+      "name": "Sốt cà chua nền",
+      "description": "Cà chua và hành tây được nấu mềm thành sốt nền. Chia sẵn để thêm vào món đậu hũ, trứng hoặc cá.",
+      "kcalPerServing": 40,
+      "batchKcal": 155,
+      "servings": 4,
+      "timeLabels": [
+        "Chuẩn bị 10 phút",
+        "Nấu 20 phút"
+      ],
+      "timeNote": "",
+      "portionNote": "Một phần = 1/4 mẻ; kcal chưa gồm món dùng kèm.",
+      "ingredients": [
+        {
+          "name": "Cà chua",
+          "amount": "300 g (sống, phần ăn được)"
+        },
+        {
+          "name": "Hành tây",
+          "amount": "60 g (sống, đã bóc vỏ)"
+        },
+        {
+          "name": "Tỏi",
+          "amount": "6 g (sống, đã bóc vỏ)"
+        },
+        {
+          "name": "Dầu ăn",
+          "amount": "6 g (dùng cho cả công thức)"
+        },
+        {
+          "name": "Nước",
+          "amount": "60 ml (nước uống được)"
+        },
+        {
+          "name": "Muối",
+          "amount": "1 g (gia vị)"
+        },
+        {
+          "name": "Đường",
+          "amount": "4 g (đường cát)"
+        }
+      ],
+      "steps": [
+        {
+          "title": "Sơ chế",
+          "text": "Rửa cà chua, bỏ cuống rồi cân đủ 300 g; cắt nhỏ. Băm hành tây và tỏi."
+        },
+        {
+          "title": "Nấu mềm",
+          "text": "Đun dầu, đảo hành và tỏi 2-3 phút ở lửa vừa nhỏ. Thêm cà chua, nước, đường và muối; đun sôi rồi hạ lửa."
+        },
+        {
+          "title": "Dầm sốt",
+          "text": "Nấu sôi nhẹ 15-18 phút, thỉnh thoảng đảo. Dầm cà chua đến mềm; chia đều sốt thành bốn phần, dùng nóng."
+        }
+      ],
+      "tip": "Nếu chưa dùng, chia hộp nông, làm nguội nhanh rồi giữ ngăn mát ≤4°C. Không để cả nồi chờ nguội lâu.",
+      "substitution": "",
+      "portionDetail": "Một phần dùng làm nền cho khoảng 150 g đậu hũ hoặc cá; nấu chín thực phẩm trước khi ăn. Kcal món chính tính riêng.",
+      "allergenNote": "Kiểm tra nhãn dầu ăn.",
+      "requiresCooking": false,
+      "image": "cooking/images/C07.webp",
+      "thumbnail": "cooking/images/C07-small.webp",
+      "sourcePage": 9
+    },
+    {
+      "id": "C08",
+      "chapterId": "6",
+      "name": "Sốt me",
+      "description": "Thịt me chín được xay dùng trọn, tạo phần sốt nâu chua ngọt cho món áp chảo hoặc rau củ.",
+      "kcalPerServing": 50,
+      "batchKcal": 205,
+      "servings": 4,
+      "timeLabels": [
+        "Chuẩn bị 10 phút",
+        "Nấu 8 phút"
+      ],
+      "timeNote": "",
+      "portionNote": "Một phần = 1/4 mẻ; kcal chưa gồm món dùng kèm.",
+      "ingredients": [
+        {
+          "name": "Thịt me chín",
+          "amount": "40 g (bỏ vỏ, hạt và xơ; không đường)"
+        },
+        {
+          "name": "Nước",
+          "amount": "80 ml (nước uống được)"
+        },
+        {
+          "name": "Đường",
+          "amount": "16 g (đường cát)"
+        },
+        {
+          "name": "Nước mắm",
+          "amount": "16 ml (dùng loại thường)"
+        },
+        {
+          "name": "Tỏi",
+          "amount": "4 g (sống, đã bóc vỏ)"
+        },
+        {
+          "name": "Dầu ăn",
+          "amount": "4 g (dùng cho cả công thức)"
+        }
+      ],
+      "steps": [
+        {
+          "title": "Xay me",
+          "text": "Xay toàn bộ thịt me với nước đến mịn, không lọc bỏ xác. Băm tỏi thật nhỏ."
+        },
+        {
+          "title": "Đun sốt",
+          "text": "Đun dầu ở lửa vừa nhỏ, đảo tỏi khoảng 30 giây. Thêm me xay, đường và nước mắm, khuấy rồi đun sôi."
+        },
+        {
+          "title": "Chia phần",
+          "text": "Nấu sôi nhẹ 5-7 phút, khuấy để không bén đáy. Tắt bếp, chia đều thành bốn phần; sốt sánh thêm khi bớt nóng."
+        }
+      ],
+      "tip": "Không thay bằng sốt me pha sẵn có đường. Nếu chưa dùng, làm nguội nhanh trong hộp nông rồi giữ lạnh ≤4°C.",
+      "substitution": "",
+      "portionDetail": "Một phần áo lên khoảng 150 g tôm, cá hoặc đậu hũ đã nấu chín. Phần thực phẩm này được tính kcal riêng.",
+      "allergenNote": "Cá; kiểm tra nhãn nước mắm.",
+      "requiresCooking": false,
+      "image": "cooking/images/C08.webp",
+      "thumbnail": "cooking/images/C08-small.webp",
+      "sourcePage": 10
+    },
+    {
+      "id": "C09",
+      "chapterId": "6",
+      "name": "Hỗn hợp ướp sả tỏi",
+      "description": "Sả, tỏi và gừng giã nhỏ thành hỗn hợp ướp. Phần này cần nấu chín cùng thực phẩm trước khi ăn.",
+      "kcalPerServing": 40,
+      "batchKcal": 165,
+      "servings": 4,
+      "timeLabels": [
+        "Pha 12 phút"
+      ],
+      "timeNote": "Ướp lạnh 15-30 phút; thời gian chưa gồm nấu chín món đã ướp.",
+      "portionNote": "Một phần = 1/4 mẻ; kcal chưa gồm món dùng kèm.",
+      "ingredients": [
+        {
+          "name": "Sả",
+          "amount": "30 g (sống, lấy lõi non)"
+        },
+        {
+          "name": "Tỏi",
+          "amount": "12 g (sống, đã bóc vỏ)"
+        },
+        {
+          "name": "Gừng",
+          "amount": "10 g (sống, đã gọt vỏ)"
+        },
+        {
+          "name": "Nước mắm",
+          "amount": "20 ml (dùng loại thường)"
+        },
+        {
+          "name": "Dầu ăn",
+          "amount": "8 g (dùng cho cả công thức)"
+        },
+        {
+          "name": "Đường",
+          "amount": "8 g (đường cát)"
+        },
+        {
+          "name": "Tiêu đen xay",
+          "amount": "0,4 g (gia vị)"
+        }
+      ],
+      "steps": [
+        {
+          "title": "Giã gia vị",
+          "text": "Thái thật mỏng lõi sả. Băm hoặc giã sả, tỏi và gừng đến nhỏ đều, giữ lại toàn bộ phần giã."
+        },
+        {
+          "title": "Trộn và chia",
+          "text": "Trộn gia vị giã với nước mắm, dầu, đường và tiêu. Chia bốn phần trước khi cho tiếp xúc với thực phẩm sống."
+        },
+        {
+          "title": "Ướp rồi nấu",
+          "text": "Ướp trong ngăn mát ≤4°C khoảng 15-30 phút. Nấu chín cùng món; bỏ phần ướp dư đã chạm thịt sống, không dùng để chấm."
+        }
+      ],
+      "tip": "Giữ riêng phần chưa dùng bằng dụng cụ sạch. Không dùng hỗn hợp đã chạm thịt sống làm nước chấm.",
+      "substitution": "",
+      "portionDetail": "Một phần ướp khoảng 150 g gà hoặc thăn heo sống. Kcal chỉ tính hỗn hợp ướp; thịt và dầu nấu thêm tính riêng.",
+      "allergenNote": "Cá; kiểm tra nhãn nước mắm.",
+      "requiresCooking": true,
+      "image": "cooking/images/C09.webp",
+      "thumbnail": "cooking/images/C09-small.webp",
+      "sourcePage": 11
+    },
+    {
+      "id": "C10",
+      "chapterId": "6",
+      "name": "Hỗn hợp ướp nghệ gừng",
+      "description": "Nghệ tươi, gừng và hành tím tạo hỗn hợp vàng thơm. Dùng để ướp rồi nấu chín cùng cá hoặc gà.",
+      "kcalPerServing": 40,
+      "batchKcal": 155,
+      "servings": 4,
+      "timeLabels": [
+        "Pha 12 phút"
+      ],
+      "timeNote": "Ướp lạnh 15-30 phút; thời gian chưa gồm nấu chín món đã ướp.",
+      "portionNote": "Một phần = 1/4 mẻ; kcal chưa gồm món dùng kèm.",
+      "ingredients": [
+        {
+          "name": "Nghệ tươi",
+          "amount": "20 g (sống, đã gọt vỏ)"
+        },
+        {
+          "name": "Gừng",
+          "amount": "15 g (sống, đã gọt vỏ)"
+        },
+        {
+          "name": "Tỏi",
+          "amount": "8 g (sống, đã bóc vỏ)"
+        },
+        {
+          "name": "Hành tím",
+          "amount": "20 g (sống, đã bóc vỏ)"
+        },
+        {
+          "name": "Nước mắm",
+          "amount": "20 ml (dùng loại thường)"
+        },
+        {
+          "name": "Dầu ăn",
+          "amount": "8 g (dùng cho cả công thức)"
+        },
+        {
+          "name": "Đường",
+          "amount": "8 g (đường cát)"
+        }
+      ],
+      "steps": [
+        {
+          "title": "Giã thơm",
+          "text": "Băm nhỏ nghệ, gừng, tỏi và hành tím, sau đó giã thành hỗn hợp hơi nhuyễn; giữ lại toàn bộ phần giã."
+        },
+        {
+          "title": "Trộn và chia",
+          "text": "Khuấy nước mắm, dầu và đường vào phần gia vị giã. Chia bốn phần trước khi cho tiếp xúc với thực phẩm sống."
+        },
+        {
+          "title": "Ướp rồi nấu",
+          "text": "Ướp trong ngăn mát ≤4°C khoảng 15-30 phút. Nấu chín cùng món; bỏ phần ướp dư đã chạm cá hoặc thịt sống, không dùng để chấm."
+        }
+      ],
+      "tip": "Đeo găng khi sơ chế nếu muốn tránh nghệ nhuộm màu tay; dùng riêng dụng cụ đã chạm cá hoặc thịt sống.",
+      "substitution": "",
+      "portionDetail": "Một phần ướp khoảng 150 g cá phi lê hoặc gà sống. Kcal chỉ tính hỗn hợp ướp; thực phẩm và dầu nấu thêm tính riêng.",
+      "allergenNote": "Cá; kiểm tra nhãn nước mắm.",
+      "requiresCooking": true,
+      "image": "cooking/images/C10.webp",
+      "thumbnail": "cooking/images/C10-small.webp",
+      "sourcePage": 12
+    }
+  ]
+}

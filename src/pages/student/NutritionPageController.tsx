@@ -1,3 +1,4 @@
+import { DEMO_CATALOG } from '../../features/nutrition/demoCatalog'
 import { useNutritionWeight } from '../../hooks/useNutritionWeight'
 import { useNutritionDate } from '../../features/nutrition/useNutritionDate'
 import { nutritionDateAfter, nutritionReadPolicy } from '../../features/nutrition/readLifecycle'
@@ -526,7 +527,8 @@ function ExerciseLogSheet({ dateLabel, weightKg, onClose, onSave }: { dateLabel:
   )
 }
 
-export default function NutritionPageController({ displayName = 'Thành viên Aura', isDemo = false, storageOwnerId, hasProfile = true, profile, onProfileComplete, onStartOnboarding, onMealSaved, onAnalyzeImage, foodCatalog, onOpenEatClean, syncState }: NutritionPageProps) {
+export default function NutritionPageController({ entry = 'nutrition', displayName = 'Thành viên Aura', isDemo = false, storageOwnerId, hasProfile = true, profile, onProfileComplete, onStartOnboarding, onMealSaved, onAnalyzeImage, foodCatalog, onOpenEatClean, syncState }: NutritionPageProps) {
+  const isLibrary = entry === 'library'
   const nutritionV4 = useAuraUiSurface('member-nutrition')
   const { accessContext } = useAuth()
   const resolvedOwnerId = storageOwnerId ?? firebaseAuth?.currentUser?.uid ?? 'anonymous'
@@ -551,7 +553,7 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
   const [planSelectedDay, setPlanSelectedDay] = useState(todayKey)
   const [homeWeekStart, setHomeWeekStart] = useState(() => getCalendarStart())
   const [activeSection, setActiveSection] = useState<NutritionRouteSection>(() => nutritionSectionFromHash())
-  const [catalogSavedOnly, setCatalogSavedOnly] = useState(false)
+  const [catalogSavedOnly, setCatalogSavedOnly] = useState(() => isLibrary && new URLSearchParams(window.location.hash.split('?')[1]).get('saved') === '1')
   const [quickAddOpen, setQuickAddOpen] = useState(false)
   const [waterSheetOpen, setWaterSheetOpen] = useState(false)
   const [exerciseSheetOpen, setExerciseSheetOpen] = useState(false)
@@ -576,6 +578,8 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
   const [editingMealId, setEditingMealId] = useState<string | null>(null)
   const [selectedLoggedMealId, setSelectedLoggedMealId] = useState<string | null>(null)
   const [catalogSnapshot, setCatalogSnapshot] = useState<NutritionFoodCatalogItem[]>(foodCatalog ?? [])
+  const [catalogServingMultiplier, setCatalogServingMultiplier] = useState(1)
+  const libraryReturn = useRef<{ top: number; opener: HTMLElement | null } | null>(null)
   const [savedFoodIds, setSavedFoodIds] = useState<Set<string>>(() => {
     try {
       const saved = JSON.parse(window.localStorage.getItem(savedFoodStorageKey) ?? '[]') as unknown
@@ -1149,9 +1153,14 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
       const foodId = nutritionFoodIdFromHash()
       if (!foodId) {
         setSelectedFood(null)
+        if (isLibrary && libraryReturn.current) {
+          const previous = libraryReturn.current
+          libraryReturn.current = null
+          window.requestAnimationFrame(() => { previous.opener?.focus({ preventScroll: true }); window.scrollTo({ top: previous.top, behavior: 'instant' }) })
+        }
         return
       }
-      const suppliedItems = foodCatalog?.length ? foodCatalog : null
+      const suppliedItems = foodCatalog?.length ? foodCatalog : isDemo ? DEMO_CATALOG : null
       const knownItem = suppliedItems?.find((item) => item.id === foodId)
       if (knownItem && suppliedItems) {
         setCatalogSnapshot(suppliedItems)
@@ -1159,11 +1168,11 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
         return
       }
       void loadNutritionCatalog({ ids: [foodId] }).then((items) => {
-        if (!active) return
+        if (!active || nutritionFoodIdFromHash() !== foodId) return
         setCatalogSnapshot(items)
         setSelectedFood(items.find((item) => item.id === foodId) ?? null)
       }).catch(() => {
-        if (active) setSelectedFood(null)
+        if (active && nutritionFoodIdFromHash() === foodId) setSelectedFood(null)
       })
     }
     syncFoodDetail()
@@ -1174,7 +1183,7 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
       window.removeEventListener('hashchange', syncFoodDetail)
       window.removeEventListener('popstate', syncFoodDetail)
     }
-  }, [foodCatalog])
+  }, [foodCatalog, isDemo, isLibrary])
 
   const showMessage = (text: string, action?: NutritionToastState['action']) => {
     setToast({ text, action })
@@ -1183,12 +1192,12 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
   }
 
   const navigateNutrition = (section: NutritionRouteSection) => {
-    const nextHash = nutritionSectionHash(section, nutritionV4)
+    const nextHash = isLibrary && section === 'catalog' ? '#/food-library' : nutritionSectionHash(section, nutritionV4)
     setSelectedFood(null)
     if (section !== 'catalog') setPlanCatalogAction(null)
     setActiveSection(section)
     if (window.location.hash !== nextHash) window.location.hash = nextHash
-    window.scrollTo({ top: 0, behavior: 'smooth' })
+    if (!isLibrary || section !== 'catalog') window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
   const openCatalog = (savedOnly = false) => {
@@ -1205,6 +1214,7 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
 
   const closeScan = () => navigateNutrition(taskReturnSection)
   const closeCatalog = () => {
+    if (isLibrary) { window.location.hash = '#/home'; return }
     if (planCatalogAction) {
       setPlanCatalogAction(null)
       navigateNutrition('plan')
@@ -1811,11 +1821,13 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
   }
 
   const queueCatalogFood = async (food: NutritionFoodCatalogItem, multiplier = 1, hydrateDetails = true) => {
+    if (!profileReady) { onStartOnboarding?.(); return }
+    setCatalogServingMultiplier(multiplier)
     if (planCatalogAction) {
       setPlanCatalogAction((current) => current ? { ...current, servingMultiplier: multiplier } : current)
     }
     let pending = scaleCatalogServing(food, multiplier)
-    if (hydrateDetails) {
+    if (hydrateDetails && !isDemo) {
       try {
         let detail = catalogDetailCache.current.get(food.id) ?? null
         if (!detail) {
@@ -1887,7 +1899,7 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
       id: `catalog-${context.idempotencyKey}`,
       catalogId: food.id,
       plannedMealId: diaryCatalogDefaults?.plannedMealId,
-      servingMultiplier: diaryCatalogDefaults?.servingMultiplier ?? 1,
+      servingMultiplier: diaryCatalogDefaults?.servingMultiplier ?? catalogServingMultiplier,
       date: context.date,
       type: context.mealType,
       label: mealLabels[context.mealType],
@@ -1922,15 +1934,16 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
     setDiaryCatalogDefaults(null)
     setHomeWeekStart(getCalendarStart(dateFromLocalKey(context.date)))
     setSelectedDate(context.date)
-    navigateNutrition('today')
-    showMessage(`Đã thêm ${food.name} vào ${mealLabels[context.mealType].toLocaleLowerCase('vi-VN')}`)
+    if (!isLibrary) navigateNutrition('today')
+    showMessage(`Đã thêm ${food.name} vào ${mealLabels[context.mealType].toLocaleLowerCase('vi-VN')}`, isLibrary ? { label: 'Xem nhật ký', onClick: () => navigateNutrition('diary') } : undefined)
   }
 
   const openFoodDetail = (food: NutritionFoodCatalogItem, items: NutritionFoodCatalogItem[] = catalogSnapshot, returnSection: 'catalog' | 'plan' | 'menu' = 'catalog') => {
+    if (isLibrary && !selectedFood) libraryReturn.current = { top: window.scrollY, opener: document.activeElement instanceof HTMLElement ? document.activeElement : null }
     setFoodDetailReturnSection(returnSection)
     setSelectedFood(food)
     if (items.length) setCatalogSnapshot(items)
-    const nextHash = nutritionFoodDetailHash(food.id, nutritionV4)
+    const nextHash = isLibrary ? `#/food-library?foodId=${encodeURIComponent(food.id)}` : nutritionFoodDetailHash(food.id, nutritionV4)
     if (window.location.hash !== nextHash) window.location.hash = nextHash
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
@@ -2066,7 +2079,7 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
     navigateNutrition('scan')
   }
 
-  if (!profileReady) return <React.Suspense fallback={<div className="nutrition-setup-page" role="status">Đang mở thiết lập dinh dưỡng…</div>}><NutritionSetupPrompt onStart={onStartOnboarding} /></React.Suspense>
+  if (!profileReady && !isLibrary) return <React.Suspense fallback={<div className="nutrition-setup-page" role="status">Đang mở thiết lập dinh dưỡng…</div>}><NutritionSetupPrompt onStart={onStartOnboarding} /></React.Suspense>
 
   const profileReadOnly = Boolean(syncState && syncState.status !== 'synced')
   const mutationSyncState: DataSyncState = nutritionMutation
@@ -2097,13 +2110,13 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
     </React.Suspense>
   )
 
-  if (selectedFood && selectedFoodSummary) return (
+  const foodDetailContent = selectedFood && selectedFoodSummary ? (
     <React.Suspense fallback={<div role="status" aria-live="polite">Đang tải chi tiết món ăn…</div>}>
       <NutritionFoodDetail
         item={selectedFoodSummary}
         relatedItems={relatedFoodSummaries}
         initialSaved={savedFoodIds.has(selectedFood.id)}
-        loadRecord={loadNutritionCatalogDetail}
+        loadRecord={isDemo ? undefined : loadNutritionCatalogDetail}
         onBack={closeFoodDetail}
         onAdd={addFoodFromDetail}
         onSave={saveFood}
@@ -2114,7 +2127,8 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
         }}
       />
     </React.Suspense>
-  )
+  ) : null
+  if (foodDetailContent && !isLibrary) return foodDetailContent
 
   const selectedLoggedMeal = selectedLoggedMealId ? meals.find((meal) => meal.id === selectedLoggedMealId) ?? null : null
 
@@ -2218,10 +2232,11 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
   if (activeSection === 'catalog') return (
     <div className={`page nutrition-page nutrition-page--workspace ${nutritionV4 ? 'nutrition-page--v4 aura-ui-v4-surface aura-ui-v4-member' : ''}`.trim()} data-testid="nutrition-dashboard">
       {toastContent}
-      <div className="nutrition-workspace">
-        <NutritionSectionNav activeSection="catalog" onSectionChange={(section) => navigateNutrition(section)} onScan={openScan} onOpenCatalog={() => openCatalog(false)} onOpenAskAura={openAssistant} v4={nutritionV4} />
+      {foodDetailContent}
+      <div className="nutrition-workspace" style={foodDetailContent ? { display: 'none' } : undefined}>
+        {!isLibrary && <NutritionSectionNav activeSection="catalog" onSectionChange={(section) => navigateNutrition(section)} onScan={openScan} onOpenCatalog={() => openCatalog(false)} onOpenAskAura={openAssistant} v4={nutritionV4} />}
         {profileSyncBanner && <div className="nutrition-sync-banner-wrap">{profileSyncBanner}</div>}
-        <FoodCatalogModal presentation="page" catalog={foodCatalog} savedFoodIds={savedFoodIds} initialSavedOnly={catalogSavedOnly} allowDemo={isDemo} onClose={closeCatalog} onAdd={queueCatalogFood} onOpenDetail={openFoodDetail} onToggleSaved={(food, saved) => setFoodSaved(food.id, saved)} />
+        <FoodCatalogModal presentation="page" standalone={isLibrary} actionLabel={planCatalogAction ? 'Chọn món' : 'Ghi nhật ký'} catalog={foodCatalog} savedFoodIds={savedFoodIds} initialSavedOnly={catalogSavedOnly} allowDemo={isDemo} onClose={closeCatalog} onAdd={queueCatalogFood} onOpenDetail={openFoodDetail} onToggleSaved={(food, saved) => setFoodSaved(food.id, saved)} />
       </div>
       {quickSheets}
     </div>
