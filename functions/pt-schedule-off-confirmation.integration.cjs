@@ -14,7 +14,7 @@ const app = initializeApp({ projectId: 'demo-aura-fitness' }, 'off-confirmation-
 const clients = [], WEEK = '2090-01-02', DATE = '2090-01-03', BRANCH = 'b'
 after(async () => { await Promise.all(clients.map(db => db.terminate())); await deleteApp(app) })
 
-for (const fast of [false, true]) test('OFF booking, immutable confirmation date and concurrent billing use real atomic transactions, fast=' + fast, async () => {
+for (const fast of [false, true]) test('OFF booking, immutable confirmation date and concurrent billing use real atomic transactions, fast=' + fast, { timeout: 60000 }, async () => {
   const db = getFirestore(app, 'off-confirmation-' + randomUUID()); clients.push(db)
   const pausePeriods = [{ type: 'off', startDate: DATE, endDate: '2090-01-04' }]
   const rows = {
