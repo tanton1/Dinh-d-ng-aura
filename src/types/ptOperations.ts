@@ -343,6 +343,8 @@ export interface ScheduleEntry {
   adminOverrideBy?: string
   adminOverrideAt?: string
   adminOverrideWarnings?: string[]
+  /** Ngày OFF được admin xác nhận riêng cho buổi này; không áp dụng sang ngày khác. */
+  studentOffConfirmedDate?: string
 }
 
 export interface Schedule {

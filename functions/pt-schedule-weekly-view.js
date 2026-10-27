@@ -210,6 +210,7 @@ function compactSchedule(schedule = {}) {
         contractId: stringValue(entry.contractId, 200),
         source: stringValue(entry.source, 40),
         isLocked: entry.isLocked === true,
+        ...(entry.studentOffConfirmedDate ? { studentOffConfirmedDate: entry.studentOffConfirmedDate } : {}),
         ...(Array.isArray(entry.adminOverrideWarnings) && entry.adminOverrideWarnings.length
           ? { warningCodes: entry.adminOverrideWarnings.slice(0, 16) }
           : {}),
@@ -291,6 +292,7 @@ function compactWeeklySessionCoverage(value = {}) {
       trainerId: stringValue(entry?.trainerId, 200),
       trainerName: stringValue(entry?.trainerName, 160),
       branchName: stringValue(entry?.branchName, 160),
+      ...(entry?.studentOffConfirmed === true ? { studentOffConfirmed: true } : {}),
     })) : [],
   }]))
 }

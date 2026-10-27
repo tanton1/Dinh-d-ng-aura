@@ -381,7 +381,7 @@ test('accepts an explicitly audited manual placement outside learner availabilit
   assert.ok(afterAvailabilityChanged.warnings.includes('MANUAL_STUDENT_AVAILABILITY_OVERRIDE'))
 })
 
-test('publish cannot override invalid date entitlement, including approved OFF', () => {
+test('publish requires an individually confirmed OFF row and cannot override invalid contract dates', () => {
   for (const problem of ['off', 'expired', 'future', 'missing']) {
     const fixture = baseFixture()
     if (problem === 'off') fixture.contracts[0].pausePeriods = [{ startDate: '2026-08-24', endDate: '2026-08-30' }]
@@ -393,6 +393,27 @@ test('publish cannot override invalid date entitlement, including approved OFF',
     assert.ok(result.errors.length > 0, problem)
     assert.equal(result.desired.size, 0, problem)
   }
+})
+
+for (const source of ['manual_v2', 'published_existing']) test(`publish preserves the confirmed OFF warning on ${source}`, () => {
+  const fixture = baseFixture()
+  fixture.contracts[0].pausePeriods = [{ startDate: WEEK, endDate: '2026-08-30' }]
+  Object.assign(fixture.schedule['T2-6'][0], { source, contractId: 'contract-a', adminOverride: true, adminOverrideBy: 'admin-a', adminOverrideWarnings: ['CONTRACT_PAUSED'], studentOffConfirmedDate: WEEK })
+  const result = desiredEntries({ ...fixture, allowAdminOverrides: true })
+  assert.deepEqual(result.errors, [])
+  assert.ok(result.warnings.includes('CONTRACT_PAUSED'))
+  assert.equal([...result.desired.values()][0].contractId, 'contract-a')
+  assert.ok([...result.desired.values()][0].adminOverrideWarnings.includes('CONTRACT_PAUSED'))
+  assert.equal([...result.desired.values()][0].studentOffConfirmedDate, WEEK)
+  const snap = branchScheduleSnapshot(fixture.schedule, fixture.branchId, fixture.students, fixture.trainers)
+  assert.equal(snap['T2-6'][0].studentOffConfirmedDate, WEEK)
+  assert.equal(normalizedDraftSchedule(snap, fixture.branchId, true)['T2-6'][0].studentOffConfirmedDate, WEEK)
+  assert.ok(desiredEntries(fixture).errors.includes('CONTRACT_PAUSED'))
+  fixture.schedule['T2-6'][0].studentOffConfirmedDate = '2026-08-25'
+  assert.ok(desiredEntries({ ...fixture, allowAdminOverrides: true }).errors.includes('CONTRACT_PAUSED'))
+  fixture.schedule['T2-6'][0].studentOffConfirmedDate = WEEK
+  fixture.contracts[0].endDate = '2026-08-23'
+  assert.equal(desiredEntries({ ...fixture, allowAdminOverrides: true }).desired.size, 0)
 })
 
 test('Admin override publish retains availability conflicts as warnings with valid entitlement', () => {

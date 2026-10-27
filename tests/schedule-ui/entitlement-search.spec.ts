@@ -37,7 +37,7 @@ test('cross-branch placement still requires explicit confirmation and does not s
   expect(await page.evaluate(() => (window as any).__scheduleCalls.find((call: any) => call.operation === 'command').input.payload.confirmCrossBranchStudent)).toBe(true)
 })
 
-test('compact local picker hides old expiry, blocks OFF and accepts valid projected dates without contract rows', async ({ page }) => {
+test('compact local picker hides old expiry and offers OFF only to admins outside the historical flow', async ({ page }) => {
   await page.clock.setFixedTime(new Date('2026-10-25T00:00:00+07:00'))
   await page.goto('/tests/schedule-ui/index.html')
   const result = await page.evaluate(async () => {
@@ -49,9 +49,9 @@ test('compact local picker hides old expiry, blocks OFF and accepts valid projec
       { ...base, id: 'old', name: 'Thảo My', contractEndDate: '2026-06-30' },
       { ...base, id: 'off', name: 'Phương Thảo', validScheduleDates: ['2026-10-31'], pausedScheduleDates: ['2026-10-28'] },
     ] }
-    return localSlotCandidates(data, 't', 'T4-6').map(row => [row.studentId, candidateCanBeManuallyScheduled(row, true)])
+    return localSlotCandidates(data, 't', 'T4-6').map(row => [row.studentId, candidateCanBeManuallyScheduled(row, true), candidateCanBeManuallyScheduled(row, false), candidateCanBeManuallyScheduled(row, true, false)])
   })
-  expect(result).toEqual(expect.arrayContaining([['valid', true], ['off', false]]))
+  expect(result).toEqual(expect.arrayContaining([['valid', true, true, true], ['off', true, false, false]]))
   expect(result).toHaveLength(2)
 })
 

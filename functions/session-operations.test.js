@@ -213,6 +213,44 @@ test('admin corrects a paired teaching shift atomically and invalidates the rela
   assert.equal(state.paths().filter((path) => path.startsWith('attendanceAuditLogs/')).length, 2)
 })
 
+for (const status of ['active', 'frozen']) test('an audited OFF booking is charged once without removing the pause, status=' + status, async () => {
+  const pausePeriods = [{ type: 'off', startDate: '2026-08-20', endDate: '2026-08-21' }]
+  const state = fakeDatabase({
+    'sessions/off-session': { status: 'scheduled', studentId: 'student-1', trainerId: 'trainer-1',
+      contractId: 'contract-1', branchId: 'branch-1', date: '2026-08-20', hour: 8, revision: 0,
+      adminOverride: true, adminOverrideBy: 'admin-1', adminOverrideWarnings: ['CONTRACT_PAUSED'],
+      studentOffConfirmedDate: '2026-08-20' },
+    'contracts/contract-1': { status, studentId: 'student-1', startDate: '2026-08-01', endDate: '2026-09-30',
+      totalSessions: 12, usedSessions: 4, pausePeriods },
+    'financePeriods/2026-08': { status: 'open' },
+  })
+  const input = { db: state.db, sessionId: 'off-session', expectedRevision: 0, actorUid: 'trainer-1', now: new Date('2026-08-20T02:00:00Z') }
+  await chargeSessionTransaction(input)
+  assert.equal(state.read('contracts/contract-1').usedSessions, 5)
+  assert.deepEqual(state.read('contracts/contract-1').pausePeriods, pausePeriods)
+  assert.equal(state.read('contracts/contract-1').status, status)
+  assert.equal((await chargeSessionTransaction(input)).unchanged, true)
+  assert.equal(state.read('contracts/contract-1').usedSessions, 5)
+})
+
+for (const proof of ['missing', 'wrong-date', 'missing-actor', 'expired', 'cancelled']) test('OFF charge rejects invalid proof or entitlement atomically: ' + proof, async () => {
+  const state = fakeDatabase({
+    'sessions/off-session': { status: 'scheduled', studentId: 'student-1', trainerId: 'trainer-1',
+      contractId: 'contract-1', branchId: 'branch-1', date: '2026-08-20', hour: 8, revision: 0,
+      adminOverride: true, adminOverrideBy: proof === 'missing-actor' ? '' : 'admin-1', adminOverrideWarnings: ['CONTRACT_PAUSED'],
+      ...(proof !== 'missing' ? { studentOffConfirmedDate: proof === 'wrong-date' ? '2026-08-19' : '2026-08-20' } : {}) },
+    'contracts/contract-1': { status: proof === 'cancelled' ? 'cancelled' : 'active', studentId: 'student-1',
+      startDate: '2026-08-01', endDate: proof === 'expired' ? '2026-08-19' : '2026-09-30', totalSessions: 12, usedSessions: 4,
+      pausePeriods: [{ type: 'off', startDate: '2026-08-20', endDate: '2026-08-21' }] },
+    'financePeriods/2026-08': { status: 'open' },
+  })
+  await assert.rejects(chargeSessionTransaction({ db: state.db, sessionId: 'off-session', expectedRevision: 0,
+    actorUid: 'trainer-1', now: new Date('2026-08-20T02:00:00Z') }))
+  assert.equal(state.read('contracts/contract-1').usedSessions, 4)
+  assert.equal(state.read('sessions/off-session').revision, 0)
+  assert.equal(state.read('sessionBillingEvents/off-session'), undefined)
+})
+
 test('PT make-up attendance is recorded without a second contract charge', async () => {
   const state = fakeDatabase({
     'sessions/makeup-request-1': {

@@ -65,6 +65,63 @@ test('expiry visibility uses one calendar month, ignores cancelled renewals and 
   assert.equal(requireScheduleContract(contracts, 'a', '2026-10-26', 'old').id, 'renewed')
 })
 
+for (const action of ['add_student', 'move_student']) for (const fast of [false, true]) {
+  test(`confirmed Admin OFF ${action} persists warnings and counts the booked session, fast=${fast}`, async () => {
+    const data = fixture()
+    data.contracts[0].pausePeriods = [{ startDate: '2090-01-03', endDate: '2090-01-04' }]
+    data.schedule = { 'T2-6': [{ ...entry('a'), source: 'manual_v2' }] }
+    const h = harness(data)
+    if (!fast) h.docs.get(`ptScheduleDrafts/${BRANCH}_${WEEK}`).status = 'published'
+    const input = command(action, { studentId: 'a', trainerId: 't', slotId: 'T3-6', fromSlotId: 'T2-6', fromTrainerId: 't', adminOverride: true, confirmStudentOff: true })
+    const result = await h.api.applyPtScheduleDraftCommand(input)
+    const row = result.schedule['T3-6'][0]
+    assert.equal(row.contractId, 'c-a')
+    assert.equal(row.adminOverrideBy, 'admin')
+    assert.equal(row.studentOffConfirmedDate, '2090-01-03')
+    assert.ok(row.adminOverrideWarnings.includes('CONTRACT_PAUSED'))
+    assert.ok(result.warnings.includes('CONTRACT_PAUSED'))
+    assert.equal(require('./schedule-entitlement-policy').entryOnApprovedOff(data, 'T3-6', row), false)
+    assert.equal(require('./schedule-entitlement-policy').entryOnApprovedOff(data, 'T4-6', row), true)
+    assert.deepEqual(await h.api.applyPtScheduleDraftCommand(input), result)
+    assert.equal(h.docs.get(`ptScheduleDrafts/${BRANCH}_${WEEK}`).revision, 2)
+  })
+}
+
+for (const adminOverride of [false, true]) test('staff cannot forge an Admin OFF confirmation, override=' + adminOverride, async () => {
+  const data = fixture()
+  data.contracts[0].pausePeriods = [{ startDate: '2090-01-03', endDate: '2090-01-04' }]
+  const h = harness(data, { actor: { uid: 'staff', accessRole: 'staff', branchIds: [BRANCH] } })
+  const before = JSON.stringify([...h.docs])
+  await assert.rejects(h.api.applyPtScheduleDraftCommand(command('add_student', {
+    studentId: 'a', trainerId: 't', slotId: 'T3-6', adminOverride, confirmStudentOff: true,
+  })), error => error.details?.errors.includes('CONTRACT_PAUSED'))
+  assert.equal(JSON.stringify([...h.docs]), before)
+})
+
+test('transaction revalidates entitlement after a confirmed OFF candidate was loaded', async () => {
+  const data = fixture()
+  data.contracts[0].pausePeriods = [{ startDate: '2090-01-03', endDate: '2090-01-04' }]
+  const h = harness(data)
+  h.docs.get(`ptScheduleDrafts/${BRANCH}_${WEEK}`).status = 'published'
+  h.docs.set('contracts/c-a', { ...data.contracts[0], endDate: WEEK })
+  const before = JSON.stringify([...h.docs])
+  await assert.rejects(h.api.applyPtScheduleDraftCommand(command('add_student', {
+    studentId: 'a', trainerId: 't', slotId: 'T3-6', adminOverride: true, confirmStudentOff: true,
+  })), error => error.details?.issueCode === 'ACTIVE_CONTRACT_NOT_FOUND')
+  assert.equal(JSON.stringify([...h.docs]), before)
+})
+
+test('OFF consent cannot create entitlement outside contract dates or bypass renewal handover', () => {
+  const { requireScheduleContract } = require('./schedule-entitlement-policy')
+  const contract = { id: 'a', studentId: 'a', status: 'frozen', startDate: WEEK, endDate: '2090-01-04' }
+  assert.equal(requireScheduleContract([contract], 'a', '2090-01-03', '', true).id, 'a')
+  for (const invalid of [
+    { ...contract, endDate: WEEK }, { ...contract, startDate: '2090-01-04' },
+    { ...contract, status: 'cancelled' },
+    { ...contract, sourceContractId: 'prior', handoverStatus: 'pending' },
+  ]) assert.throws(() => requireScheduleContract([invalid], 'a', '2090-01-03', '', true))
+})
+
 for (const action of ['add_student', 'move_student']) for (const problem of ['off', 'expired', 'future', 'missing']) {
   test(`admin draft ${action} rejects ${problem} without changing matrix or receipt`, async () => {
     const data = fixture()

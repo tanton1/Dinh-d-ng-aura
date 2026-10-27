@@ -1,5 +1,11 @@
 export type PtScheduleDraftCommand = string
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+function offConfirmationResult(input: any) {
+  if (!input.payload?.confirmStudentOff) return {}
+  const offset = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'].indexOf(input.payload.slotId.split('-')[0])
+  const date = new Date(Date.parse(input.weekId + 'T00:00:00Z') + offset * 86400000).toISOString().slice(0, 10)
+  return { adminOverride: true, adminOverrideBy: 'test-admin', adminOverrideWarnings: ['CONTRACT_PAUSED'], studentOffConfirmedDate: date }
+}
 const baseStudent = { status: 'active', branchId: 'b', sessionsPerWeek: 2, defaultSessionsPerWeek: 2, weeklySessionTargetOverride: null, weeklySessionTargetOverridden: false, maxWeeklySessions: 7, schedulableSessionsThisWeek: 6, availableSlots: ['T2-6', 'T3-6', 'T4-6'], availabilityStatus: 'submitted', availabilityRevision: 1, eligibleForWeek: true, eligibilityReasons: [], eligibleContractIds: [], validScheduleDates: [], pausedScheduleDates: [], remainingSchedulableSessions: 20 }
 const trainer = { id: 't', name: 'Mai', status: 'active', branchId: 'b', slotCapacity: 2, availabilityMode: 'configured', availabilityRevision: 1, availableSlots: ['T2-6', 'T3-6', 'T4-6'], employmentType: 'full_time', dailySessionTarget: 8 }
 const secondaryTrainer = { ...trainer, id: 't-secondary', name: 'Vy' }
@@ -74,9 +80,9 @@ export const applyPtScheduleDraftCommand = async (input: any) => {
   if (input.command === 'move_student') {
     workspace.schedule[input.payload.fromSlotId] = workspace.schedule[input.payload.fromSlotId].filter((e: any) => e.studentId !== input.payload.studentId)
     workspace.schedule[input.payload.slotId] ??= []
-    workspace.schedule[input.payload.slotId].push({ studentId: input.payload.studentId, trainerId: input.payload.trainerId, type: 'training', source: 'manual_v2', branchId: 'b' })
+    workspace.schedule[input.payload.slotId].push({ studentId: input.payload.studentId, trainerId: input.payload.trainerId, type: 'training', source: 'manual_v2', branchId: 'b', ...offConfirmationResult(input) })
   }
-  if (input.command === 'add_student') { workspace.schedule[input.payload.slotId] ??= []; workspace.schedule[input.payload.slotId].push({ ...input.payload, type: 'training', source: 'manual_v2', branchId: 'b' }) }
+  if (input.command === 'add_student') { workspace.schedule[input.payload.slotId] ??= []; workspace.schedule[input.payload.slotId].push({ ...input.payload, type: 'training', source: 'manual_v2', branchId: 'b', ...offConfirmationResult(input) }) }
   if (input.command === 'reset_draft') {
     workspace.schedule = Object.fromEntries(Object.entries(workspace.schedule)
       .map(([slotId, entries]: [string, any]) => [slotId, entries.filter((entry: any) => entry.type === 'off' || entry.source === 'published_existing')])
@@ -92,8 +98,9 @@ export const applyAdminPtScheduleEdit = async (input: any) => {
   if (input.command === 'move_student') {
     workspace.schedule[input.payload.fromSlotId] = workspace.schedule[input.payload.fromSlotId].filter((e: any) => e.studentId !== input.payload.studentId)
     workspace.schedule[input.payload.slotId] ??= []
-    workspace.schedule[input.payload.slotId].push({ studentId: input.payload.studentId, trainerId: input.payload.trainerId, type: 'training', source: 'manual_v2', branchId: 'b', isLocked: true })
+    workspace.schedule[input.payload.slotId].push({ studentId: input.payload.studentId, trainerId: input.payload.trainerId, type: 'training', source: 'manual_v2', branchId: 'b', isLocked: true, ...offConfirmationResult(input) })
   }
+  if (input.command === 'add_student') { workspace.schedule[input.payload.slotId] ??= []; workspace.schedule[input.payload.slotId].push({ ...input.payload, type: 'training', source: 'manual_v2', branchId: 'b', ...offConfirmationResult(input) }) }
   if (input.command === 'remove_student') {
     workspace.schedule[input.payload.slotId] = (workspace.schedule[input.payload.slotId] || []).filter((e: any) => e.studentId !== input.payload.studentId)
   }

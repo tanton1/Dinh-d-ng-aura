@@ -172,8 +172,9 @@ function candidateMatchesStudentAvailability(candidate: PtScheduleSlotCandidate)
     ?? !candidate.reasons.some((reason) => STUDENT_AVAILABILITY_CONFLICTS.has(reason))
 }
 
-function candidateCanBeManuallyScheduled(candidate: PtScheduleSlotCandidate, adminOverride = false) {
-  if (candidate.reasons.some(reason => ['ACTIVE_CONTRACT_NOT_FOUND', 'CONTRACT_PAUSED', 'CONTRACT_EXPIRED_BEFORE_WEEK', 'CONTRACT_NOT_STARTED_IN_WEEK'].includes(reason))) return false
+function candidateCanBeManuallyScheduled(candidate: PtScheduleSlotCandidate, adminOverride = false, allowStudentOff = true) {
+  if (candidate.reasons.some(reason => ['ACTIVE_CONTRACT_NOT_FOUND', 'CONTRACT_EXPIRED_BEFORE_WEEK', 'CONTRACT_NOT_STARTED_IN_WEEK'].includes(reason))) return false
+  if (candidate.reasons.includes('CONTRACT_PAUSED') && (!adminOverride || !allowStudentOff)) return false
   if (adminOverride) return true
   return candidate.manualSelectable
     ?? (candidate.eligible || candidate.reasons.every((reason) => STUDENT_AVAILABILITY_CONFLICTS.has(reason)))
@@ -638,7 +639,7 @@ function localSlotCandidates(
       && (!date || (String(contract.startDate || '').slice(0, 10) <= date && String(contract.endDate || '').slice(0, 10) >= date)))
     // Compact weekly documents deliberately omit contracts. Missing rows are
     // unknown evidence, not proof of expiry; the write always checks the date.
-    if (!eligibleContracts.length && (contractsByStudent.get(student.id)?.length || 0) > 0 && student.eligibleForWeek) reasons.add('ACTIVE_CONTRACT_NOT_FOUND')
+    if (!eligibleContracts.length && (contractsByStudent.get(student.id)?.length || 0) > 0 && student.eligibleForWeek && !approvedOffOnDate(student, date)) reasons.add('ACTIVE_CONTRACT_NOT_FOUND')
     if (eligibleContracts.length > 1) reasons.add('AMBIGUOUS_ACTIVE_CONTRACT')
     const selectedContract = eligibleContracts.length === 1 ? eligibleContracts[0] : null
     const assignedTrainerIds = selectedContract
