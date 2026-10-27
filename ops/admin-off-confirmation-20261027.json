@@ -15,13 +15,10 @@
     {
       "purpose": "Record attendance and charge the explicitly confirmed session once",
       "functions": [
-        "confirmMySession",
         "recordMySessionAttendance",
         "bulkConfirmMySessions",
-        "confirmMySessionRegional",
         "recordMySessionAttendanceRegional",
         "bulkConfirmMySessionsRegional",
-        "confirmSessionAttendance",
         "recordSessionAttendance",
         "bulkRecordSessionAttendance",
         "chargeDuePtSessionsScheduled",
@@ -77,5 +74,13 @@
     "Real Firestore transaction and concurrent-charge tests",
     "Current serving revision source, traffic, IAM and configuration",
     "Production web smoke after merge"
-  ]
+  ],
+  "deferredCallables": {
+    "functions": [
+      "confirmMySession",
+      "confirmMySessionRegional",
+      "confirmSessionAttendance"
+    ],
+    "reason": "Only unused client service wrappers reference these legacy confirmation entry points. Current PT and Admin screens use record/bulk attendance; preserve the legacy endpoints and their existing IAM/environment configuration."
+  }
 }
