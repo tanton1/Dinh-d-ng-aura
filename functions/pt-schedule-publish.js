@@ -14,7 +14,8 @@ const {
   contractSchedulingEntitlement,
   resolveSchedulingContract,
 } = require('./contract-scheduling')
-const { contractSchedulableOn } = require('./contract-status')
+const { contractSchedulableOn, contractPausedOn } = require('./contract-status')
+const { findScheduleContract, confirmedStudentOff } = require('./schedule-entitlement-policy')
 
 // Keep enough headroom for schedule/version/audit writes in the same atomic
 // publish transaction. A paired session still occupies one trainer time slot,
@@ -265,6 +266,7 @@ function sameSession(left, right) {
     && String(left.studentHomeBranchId || '') === String(right.studentHomeBranchId || '')
     && Boolean(left.adminOverride) === Boolean(right.adminOverride)
     && String(left.adminOverrideBy || '') === String(right.adminOverrideBy || '')
+    && String(left.studentOffConfirmedDate || '') === String(right.studentOffConfirmedDate || '')
     && JSON.stringify(left.adminOverrideWarnings || []) === JSON.stringify(right.adminOverrideWarnings || [])
 }
 
@@ -441,6 +443,7 @@ function branchScheduleSnapshot(schedule, branchId, students, trainers) {
           adminOverride: true,
           adminOverrideBy: typeof entry.adminOverrideBy === 'string' ? entry.adminOverrideBy.slice(0, 200) : '',
           adminOverrideAt: typeof entry.adminOverrideAt === 'string' ? entry.adminOverrideAt.slice(0, 40) : '',
+          ...(confirmedStudentOff(entry) ? { studentOffConfirmedDate: entry.studentOffConfirmedDate } : {}),
           ...(Array.isArray(entry.adminOverrideWarnings) ? { adminOverrideWarnings: [...new Set(entry.adminOverrideWarnings.filter((value) => typeof value === 'string').slice(0, MAX_ADMIN_OVERRIDE_WARNINGS))] } : {}),
         } : {}),
         ...(typeof entry.source === 'string' && entry.source ? { source: entry.source.slice(0, 40) } : {}),
@@ -523,6 +526,7 @@ function normalizedDraftSchedule(value, branchId, allowManualAvailabilityOverrid
           adminOverride: true,
           adminOverrideBy: typeof entry.adminOverrideBy === 'string' ? entry.adminOverrideBy.slice(0, 200) : '',
           adminOverrideAt: typeof entry.adminOverrideAt === 'string' ? entry.adminOverrideAt.slice(0, 40) : '',
+          ...(confirmedStudentOff(entry) ? { studentOffConfirmedDate: entry.studentOffConfirmedDate } : {}),
           ...(Array.isArray(entry.adminOverrideWarnings) ? {
             adminOverrideWarnings: [...new Set(entry.adminOverrideWarnings.filter((value) => typeof value === 'string').slice(0, MAX_ADMIN_OVERRIDE_WARNINGS))],
           } : {}),
@@ -649,7 +653,8 @@ function desiredEntries({ scheduleId, week, branchId, schedule, trainers, studen
         continue
       }
       const student = students.get(studentId)
-      const manualAdminOverride = allowAdminOverrides && raw.source === 'manual_v2' && raw.adminOverride === true
+      const manualAdminOverride = allowAdminOverrides && raw.adminOverride === true
+        && (raw.source === 'manual_v2' || raw.source === 'published_existing' && confirmedStudentOff(raw))
       // Keep the entry-level marker for an explicitly audited manual row.
       // Admin publish mode is a publish-level acknowledgement and must not
       // mark every otherwise valid session as “Admin xếp tay”.
@@ -743,9 +748,11 @@ function desiredEntries({ scheduleId, week, branchId, schedule, trainers, studen
         date,
         reservationsByContract,
       })
+      const confirmedOffContract = manualAdminOverride && confirmedStudentOff(raw, date)
+        ? findScheduleContract(contracts, studentId, date, raw.contractId, true) : null
       if (!contractResolution.contract) {
         const dateEntitled = contracts.some(item => item.studentId === studentId && contractSchedulableOn(item, date))
-        if (!dateEntitled) {
+        if (!dateEntitled && !confirmedOffContract) {
           contractResolution.reasons.forEach(addError)
           continue
         }
@@ -755,14 +762,15 @@ function desiredEntries({ scheduleId, week, branchId, schedule, trainers, studen
         }
         contractResolution.reasons.forEach(addWarning)
       }
-      // Admin quota overrides still require a date-effective, non-paused
-      // contract. No publish mode may turn an invalid date into a session.
+      // Approved OFF is permitted only on the individually confirmed Admin
+      // row. A blanket publish acknowledgement cannot override entitlement.
       const fallbackContract = contracts
         .filter((item) => item.studentId === studentId && contractSchedulableOn(item, date))
         .sort((left, right) => String(right.startDate || '').localeCompare(String(left.startDate || ''))
           || String(right.endDate || '').localeCompare(String(left.endDate || ''))
           || String(left.id || '').localeCompare(String(right.id || '')))[0]
       const contract = contractResolution.contract
+        || confirmedOffContract
         || fallbackContract
         || { id: '', trainerId: '', trainerIds: [], pausePeriods: [] }
       const assignedTrainerIds = [...new Set([
@@ -771,13 +779,8 @@ function desiredEntries({ scheduleId, week, branchId, schedule, trainers, studen
       ].filter(Boolean))]
       const trainerAssignmentWarning = assignedTrainerIds.length > 0 && !assignedTrainerIds.includes(trainerId)
       if (trainerAssignmentWarning) addWarning('TRAINER_ASSIGNMENT_MISMATCH')
-      const pauses = Array.isArray(contract.pausePeriods) ? contract.pausePeriods : []
-      if (pauses.some((period) => {
-        const pauseStart = storedDate(period?.startDate)
-        const pauseEnd = storedDate(period?.endDate)
-        return pauseStart && pauseEnd && date >= pauseStart && date <= pauseEnd
-      })) {
-        if (policyOverride) addWarning('CONTRACT_PAUSED')
+      if (contractPausedOn(contract, date)) {
+        if (confirmedOffContract) addWarning('CONTRACT_PAUSED')
         else {
           operationalIssue('CONTRACT_PAUSED')
           continue
@@ -808,6 +811,7 @@ function desiredEntries({ scheduleId, week, branchId, schedule, trainers, studen
           adminOverride: true,
           adminOverrideBy: typeof raw.adminOverrideBy === 'string' ? raw.adminOverrideBy.slice(0, 200) : '',
           adminOverrideAt: typeof raw.adminOverrideAt === 'string' ? raw.adminOverrideAt.slice(0, 40) : '',
+          ...(confirmedStudentOff(raw, date) ? { studentOffConfirmedDate: date } : {}),
           ...(adminOverrideWarnings.length ? { adminOverrideWarnings } : {}),
         } : {}),
         ...(contractResolution.earlyHandover ? {
@@ -1265,6 +1269,7 @@ function createPtSchedulePublishFunctions({ db, onCall, onScheduleMutation = () 
           adminOverrideBy: desired.adminOverride === true ? desired.adminOverrideBy || '' : FieldValue.delete(),
           adminOverrideAt: desired.adminOverride === true ? desired.adminOverrideAt || '' : FieldValue.delete(),
           adminOverrideWarnings: desired.adminOverride === true ? desired.adminOverrideWarnings || [] : FieldValue.delete(),
+          studentOffConfirmedDate: desired.studentOffConfirmedDate || FieldValue.delete(),
           scheduleVersion: nextVersion,
           status: 'scheduled',
           scheduleStatus: 'rescheduled',

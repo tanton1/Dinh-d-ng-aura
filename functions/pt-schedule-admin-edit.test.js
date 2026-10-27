@@ -110,8 +110,26 @@ function baseInput(harness, command, payload, actor = { uid: 'admin-a', accessRo
   }
 }
 
+for (const action of ['add_student', 'move_student']) for (const fast of [false, true]) {
+  test(`published ${action}, fast=${fast}: explicit OFF consent creates an audited session`, async () => {
+    const h = makeHarness()
+    h.docs.get(`contracts/${CONTRACT}`).pausePeriods = [{ startDate: '2090-01-03', endDate: '2090-01-04' }]
+    const result = await applyAdminScheduleEdit(baseInput(h, action, {
+      studentId: STUDENT, trainerId: TRAINER, slotId: 'T3-6', fromTrainerId: TRAINER, fromSlotId: 'T2-6', confirmStudentOff: true,
+      ...(fast ? { adminOverride: true, ...(action === 'move_student' ? { sessionId: 'session-a' } : {}) } : {}),
+    }))
+    assert.ok(result.schedule['T3-6'][0].adminOverrideWarnings.includes('CONTRACT_PAUSED'))
+    const saved = [...h.docs].find(([path, row]) => path.startsWith('sessions/') && row.date === '2090-01-03')[1]
+    assert.ok(saved.adminOverrideWarnings.includes('CONTRACT_PAUSED'))
+    assert.equal(saved.adminOverrideBy, 'admin-a')
+    assert.equal(saved.studentOffConfirmedDate, '2090-01-03')
+    assert.equal(result.schedule['T3-6'][0].studentOffConfirmedDate, '2090-01-03')
+    assert.ok([...h.docs].some(([path, row]) => path.startsWith('ptOperationsAuditLogs/') && row.warnings.includes('CONTRACT_PAUSED')))
+  })
+}
+
 for (const action of ['add_student', 'move_student']) for (const fast of [false, true]) for (const problem of ['off', 'expired']) {
-  test(`published ${action}, fast=${fast}: ${problem} is not admin-overridable and is atomic`, async () => {
+  test(`published ${action}, fast=${fast}: ${problem} without explicit OFF consent is rejected atomically`, async () => {
     const h = makeHarness()
     const contract = { ...h.docs.get(`contracts/${CONTRACT}`) }
     if (problem === 'off') contract.pausePeriods = [{ startDate: '2090-01-03', endDate: '2090-01-04' }]

@@ -65,7 +65,7 @@ import { measureScheduleTask } from '../../features/schedule/performance'
 import { hasActionableSearchLimit } from '../../features/schedule/searchLimit'
 import { loadWorkspaceRequest } from '../../features/schedule/workspaceCache'
 import { applyWeeklyValidation, mergeWeeklyControl } from '../../features/schedule/weeklyValidation'
-import { approvedOffForWeek, approvedOffOnDate, validScheduledCount, validOtherBranchCount } from '../../features/schedule/weeklyOff'
+import { approvedOffForWeek, approvedOffOnDate, scheduleDate, validScheduledCount, validOtherBranchCount } from '../../features/schedule/weeklyOff'
 
 interface Props {
   accessContext: AccessContext
@@ -81,6 +81,9 @@ const ScheduleWarningsPanel = lazy(() => import('./WeeklyScheduleWarningsPanel')
 const ScheduleHistoryPanel = lazy(() => import('./ScheduleHistoryPanel'))
 const ScheduleResetDialog = lazy(() => import('./ScheduleResetDialog'))
 const SchedulePublishDialog = lazy(() => import('./SchedulePublishDialog'))
+const ScheduleManualConfirmation = lazy(() => import('./ScheduleManualConfirmation'))
+const StudentOffNotice = lazy(() => import('./ScheduleManualConfirmation').then(module => ({ default: module.StudentOffNotice })))
+const ScheduleCandidateCard = lazy(() => import('./ScheduleManualConfirmation').then(module => ({ default: module.ScheduleCandidateCard })))
 const ScheduleAvailabilityEditor = lazy(() => import('./ScheduleAvailabilityEditor'))
 const ScheduleOptimizationResult = lazy(() => import('./ScheduleOptimizationResult'))
 const ScheduleStudentSummary = lazy(() => import('./ScheduleStudentSummary'))
@@ -1066,8 +1069,8 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
     const blocked: PtScheduleSlotCandidate[] = []
     for (const candidate of visible) {
       if (candidate.eligible && candidateMatchesStudentAvailability(candidate)) available.push(candidate)
-      else if (!candidate.eligible && candidateCanBeManuallyScheduled(candidate, isAdmin)) override.push(candidate)
-      else if (!candidateCanBeManuallyScheduled(candidate, isAdmin)) blocked.push(candidate)
+      else if (!candidate.eligible && candidateCanBeManuallyScheduled(candidate, isAdmin, !inspectorSlotIsPast)) override.push(candidate)
+      else if (!candidateCanBeManuallyScheduled(candidate, isAdmin, !inspectorSlotIsPast)) blocked.push(candidate)
     }
     return [
       {
@@ -1096,7 +1099,8 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
   const canPlaceManualCandidateImmediately = (candidate: PtScheduleSlotCandidate) => Boolean(
     !inspectorSlotIsPast
       && !candidate.studentBranchWarning
-      && candidateCanBeManuallyScheduled(candidate, isAdmin)
+      && !candidate.reasons.includes('CONTRACT_PAUSED')
+      && candidateCanBeManuallyScheduled(candidate, isAdmin, !inspectorSlotIsPast)
       && (isAdmin || !selectedTrainer || inspectorEntries.filter((entry) => entry.type !== 'off').length < selectedTrainer.slotCapacity),
   )
 
@@ -1248,7 +1252,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
   )
 
   const scheduledEntriesByStudent = useMemo(() => {
-    const result = new Map<string, Array<{ slotId: string; trainerId: string; contractId: string; label: string; trainerAssignmentWarning: boolean }>>()
+    const result = new Map<string, Array<{ slotId: string; trainerId: string; contractId: string; label: string; trainerAssignmentWarning: boolean; studentOffConfirmed: boolean }>>()
     if (!workspace) return result
     for (const [slotId, entries] of Object.entries(workspace.schedule)) {
       for (const entry of entries) {
@@ -1258,6 +1262,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
           slotId,
           trainerId: entry.trainerId,
           contractId: entry.contractId || '',
+          studentOffConfirmed: entry.studentOffConfirmedDate === scheduleDate(workspace.weekId, slotId.split('-')[0]),
           label: scheduleSlotLabel(slotId, weekDates),
           trainerAssignmentWarning: trainerAssignmentWarningKeys.has(`${slotId}|${entry.studentId}|${entry.trainerId}`),
         })
@@ -1859,12 +1864,14 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
 
   const confirmManualCandidate = async (candidateOverride?: PtScheduleSlotCandidate) => {
     const candidate = candidateOverride || pendingManualCandidate
-    if (!candidate || !inspectorSlotId || !selectedTrainerId || busyRef.current) return
+    if (!candidate || !inspectorSlotId || !selectedTrainerId || busyRef.current
+      || !candidateCanBeManuallyScheduled(candidate, isAdmin, !inspectorSlotIsPast)) return
     const outsideAvailability = !candidateMatchesStudentAvailability(candidate)
     const reason = [
       outsideAvailability ? 'Quản lý xác nhận xếp tay ngoài lịch rảnh học viên' : 'Quản lý xác nhận xếp tay',
       candidate.trainerAssignmentWarning ? 'PT hỗ trợ ngoài danh sách PT chính/phụ' : '',
       candidate.studentBranchWarning ? 'Xác nhận học viên tập khác cơ sở hồ sơ' : '',
+      candidate.reasons.includes('CONTRACT_PAUSED') ? 'Admin xác nhận xếp vào ngày OFF / bảo lưu' : '',
     ].filter(Boolean).join(' · ')
     const payload = {
       slotId: inspectorSlotId,
@@ -1872,6 +1879,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
       studentId: candidate.studentId,
       ...(candidate.contractId ? { contractId: candidate.contractId } : {}),
       ...(isAdmin ? { adminOverride: true } : {}),
+      ...(isAdmin && candidate.reasons.includes('CONTRACT_PAUSED') ? { confirmStudentOff: true } : {}),
       ...(outsideAvailability ? { allowOutsideStudentAvailability: true } : {}),
       ...(candidate.studentBranchWarning ? { confirmCrossBranchStudent: true } : {}),
     }
@@ -1921,13 +1929,18 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
     }
   }
 
+  const pendingMoveOnStudentOff = Boolean(pendingMove && approvedOffOnDate(
+    workspace?.students.find(student => student.id === pendingMove.studentId),
+    scheduleDate(currentWeekId, pendingMove.slotId.split('-')[0]),
+  ))
   const confirmMove = async () => {
-    if (!pendingMove) return
+    if (!pendingMove || (!isAdmin && pendingMoveOnStudentOff)) return
     const student = workspace?.students.find((item) => item.id === pendingMove.studentId)
     const outside = !student?.availableSlots.includes(pendingMove.slotId)
     const payload = {
       ...pendingMove,
       ...(isAdmin ? { adminOverride: true } : {}),
+      ...(isAdmin && pendingMoveOnStudentOff ? { confirmStudentOff: true } : {}),
       ...(outside ? { allowOutsideStudentAvailability: true } : {}),
       ...(student && student.branchId !== branchId ? { confirmCrossBranchStudent: true } : {}),
     }
@@ -2528,7 +2541,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
               <Suspense fallback={<div className="branch-schedule__student-person">{student.name}</div>}>
                 <ScheduleStudentSummary student={student} approvedOffWeek={approvedOffWeek} coveragePending={coveragePending} scheduled={scheduled} missing={missing} primaryReasonCode={unassignedByStudent.get(student.id)?.primaryReasonCode} busy={busy} onSetWeeklyTarget={setWeeklyTarget} />
               </Suspense>
-              <div className="branch-schedule__student-schedule"><small>Buổi trong tuần{crossBranchScheduledSessions > 0 ? ` · +${crossBranchScheduledSessions} ở cơ sở khác` : ''}</small><div>{scheduledEntries.length ? scheduledEntries.map((entry) => <span key={`${entry.slotId}-${entry.trainerId}`} className={entry.trainerAssignmentWarning ? 'has-assignment-warning' : ''}>{entry.label}{approvedOffOnDate(student, weekDates[entry.slotId.split('-')[0]]?.full || '') && <em>Trùng OFF · không tính buổi</em>}<b>{workspace.trainers.find((trainer) => trainer.id === entry.trainerId)?.name || 'PT chưa cập nhật'}{entry.trainerAssignmentWarning && <AlertTriangle size={12} aria-label="PT hỗ trợ" />}</b></span>) : crossBranchScheduledSessions > 0 ? <em>Đã có lịch ở cơ sở khác</em> : <em>Chưa có buổi trong tuần</em>}</div></div>
+              <div className="branch-schedule__student-schedule"><small>Buổi trong tuần{crossBranchScheduledSessions > 0 ? ` · +${crossBranchScheduledSessions} ở cơ sở khác` : ''}</small><div>{scheduledEntries.length ? scheduledEntries.map((entry) => <span key={`${entry.slotId}-${entry.trainerId}`} className={entry.trainerAssignmentWarning ? 'has-assignment-warning' : ''}>{entry.label}{approvedOffOnDate(student, weekDates[entry.slotId.split('-')[0]]?.full || '') && <em>{entry.studentOffConfirmed ? 'OFF · Admin đã xác nhận xếp lịch' : 'Trùng OFF · chưa xác nhận ngoại lệ'}</em>}<b>{workspace.trainers.find((trainer) => trainer.id === entry.trainerId)?.name || 'PT chưa cập nhật'}{entry.trainerAssignmentWarning && <AlertTriangle size={12} aria-label="PT hỗ trợ" />}</b></span>) : crossBranchScheduledSessions > 0 ? <em>Đã có lịch ở cơ sở khác</em> : <em>Chưa có buổi trong tuần</em>}</div></div>
               {!approvedOffWeek && <div className="branch-schedule__student-availability-action"><button type="button" className={`is-${student.availabilityStatus}`} aria-expanded={availabilityEditorStudentId === student.id} onClick={() => openAvailabilityEditor(student)}><CalendarRange size={16} />{student.availabilityStatus === 'locked' ? 'Lịch rảnh đã khóa' : CONFIRMED_AVAILABILITY_STATUSES.has(student.availabilityStatus) ? 'Lịch rảnh' : 'Thêm lịch rảnh'}</button>{!CONFIRMED_AVAILABILITY_STATUSES.has(student.availabilityStatus) && <span className="is-warning">Cần lịch rảnh</span>}</div>}
               {availabilityEditorStudentId === student.id && <Suspense fallback={<section className="branch-schedule__availability-editor" role="status">Đang tải lịch rảnh…</section>}>
                 <ScheduleAvailabilityEditor student={student} weekId={currentWeekId} days={workingDays} hours={workingHours} selected={availabilityDraft} onChange={setAvailabilityDraft} busy={availabilityBusy} error={availabilityError} isAdmin={isAdmin} onClose={() => setAvailabilityEditorStudentId(null)} onReopen={() => void reopenStudentAvailability(student)} onSave={() => void saveStudentAvailability(student)} />
@@ -2623,7 +2636,9 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
                 <p>{pendingMoveRequiresAdminEdit ? 'Admin có thể điều chỉnh nhanh; các xung đột lịch sẽ được ghi thành cảnh báo. Chỉ dữ liệu điểm danh, billing và quyền truy cập vẫn được bảo toàn.' : 'Máy chủ kiểm tra PT, hợp đồng và sức chứa. Ca cũ chỉ được chuyển khi ca mới hợp lệ.'}</p>
                 {pendingMoveRequiresAdminEdit && <p className="schedule-admin-fast-note">Lịch đã publish tự cập nhật, không cần Publish lại. Ô chưa có session sẽ tạo session mới.</p>}
                 <button type="button" onClick={() => setPendingMove(null)} disabled={busy}>Hủy chuyển</button>
-                <button type="button" onClick={() => void confirmMove()} disabled={busy || pendingMove.fromSlotId === pendingMove.slotId && pendingMove.fromTrainerId === pendingMove.trainerId}>Xác nhận chuyển ca</button>
+                {pendingMoveOnStudentOff
+                  ? <Suspense fallback={<p role="status">Đang tải cảnh báo…</p>}><StudentOffNotice move disabled={busy || !isAdmin || pendingMove.fromSlotId === pendingMove.slotId && pendingMove.fromTrainerId === pendingMove.trainerId} onConfirm={() => void confirmMove()} /></Suspense>
+                  : <button type="button" onClick={() => void confirmMove()} disabled={busy || pendingMove.fromSlotId === pendingMove.slotId && pendingMove.fromTrainerId === pendingMove.trainerId}>Xác nhận chuyển ca</button>}
               </section>}
               {pendingAdminRemoval && <section className="schedule-move-form is-admin-edit" aria-label="Xác nhận gỡ buổi">
                 <strong>Gỡ buổi · {studentName(pendingAdminRemoval.studentId)}</strong>
@@ -2637,35 +2652,21 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
                 {candidateLoading && <div className="schedule-candidate-sync"><RefreshCw className="is-spinning" /> Đang tìm hồ sơ…</div>}
                 {inspectorSlotIsPast && <label className="schedule-history-reason"><span>Lý do bổ sung <b>*</b></span><textarea value={historicalReason} maxLength={300} onChange={(event) => setHistoricalReason(event.target.value)} placeholder="Ví dụ: PT xác nhận đã dạy nhưng ca chưa được ghi nhận trên hệ thống" /><small>{historicalReason.trim().length}/8 ký tự tối thiểu · lưu cùng nhật ký audit</small></label>}
                 {inspectorSlotIsPast && pendingManualCandidate && pendingManualCandidate.reasons.length > 0 && <div className="schedule-manual-override-confirm"><AlertTriangle /><div><strong>Ca có lưu ý cần xác nhận</strong><p>{pendingManualCandidate.reasons.map(ptScheduleConflictLabel).join(' · ')} Lý do phía trên sẽ được lưu cùng các ngoại lệ này.</p></div></div>}
+                {!inspectorSlotIsPast && pendingManualCandidate?.reasons.includes('CONTRACT_PAUSED') && <Suspense fallback={<p role="status">Đang tải cảnh báo…</p>}><StudentOffNotice name={pendingManualCandidate.name} /></Suspense>}
                 {pendingManualCandidate?.studentBranchWarning && <div className="schedule-branch-confirm"><AlertTriangle /><div><strong>Xác nhận tập khác cơ sở</strong><p>{pendingManualCandidate.name} thuộc {branches.find((item) => item.id === pendingManualCandidate.studentHomeBranchId)?.name || 'cơ sở khác'} và sẽ tập tại {branches.find((item) => item.id === branchId)?.name || 'cơ sở đang xếp'}.</p></div></div>}
                 <div className="schedule-candidate-list">{candidateGroups.map((group) => group.items.length > 0 && <section className={`schedule-candidate-group is-${group.key}`} key={group.key}>
                   <header><strong>{group.label}</strong><span>{group.items.length} · {group.hint}</span></header>
                   {group.items.map((candidate) => {
-                    const manualSelectable = candidateCanBeManuallyScheduled(candidate, isAdmin)
+                    const manualSelectable = candidateCanBeManuallyScheduled(candidate, isAdmin, !inspectorSlotIsPast)
                     const outsideAvailability = !candidateMatchesStudentAvailability(candidate)
                     const selected = pendingManualCandidate?.studentId === candidate.studentId
-                    const assignmentNote = candidate.trainerAssignmentWarning ? ' · PT hỗ trợ ngoài danh sách chính/phụ' : ''
-                    const branchNote = candidate.studentBranchWarning
-                      ? ` · Khác cơ sở (${branches.find((item) => item.id === candidate.studentHomeBranchId)?.name || 'hồ sơ khác'})`
-                      : ''
-                    const candidateText = inspectorSlotIsPast
-                      ? candidate.eligible
-                        ? `Hợp đồng đúng ngày · còn buổi · khớp lịch rảnh${assignmentNote}${branchNote}`
-                        : manualSelectable
-                          ? `${candidate.reasons.map(ptScheduleConflictLabel).join(' · ')} · có thể bổ sung kèm audit${assignmentNote}${branchNote}`
-                          : `${candidate.reasons.map(ptScheduleConflictLabel).join(' · ')}${branchNote}`
-                      : candidate.eligible
-                        ? `Đã đăng ký rảnh đúng ca này${assignmentNote}${branchNote}`
-                        : manualSelectable && outsideAvailability
-                          ? `${ptScheduleConflictLabel(candidate.availabilityReason || candidate.reasons[0])} · Có thể xếp tay${assignmentNote}${branchNote}`
-                          : `${candidate.reasons.map(ptScheduleConflictLabel).join(' · ')}${branchNote}`
                     const immediate = canPlaceManualCandidateImmediately(candidate)
-                    return <article key={candidate.studentId} className={`${candidate.eligible ? 'is-eligible' : manualSelectable ? 'is-override' : 'is-disabled'}${candidate.trainerAssignmentWarning ? ' has-assignment-warning' : ''}${candidate.studentBranchWarning ? ' has-branch-warning' : ''}${selected ? ' is-selected' : ''}`}><div><strong>{candidate.name}{(candidate.trainerAssignmentWarning || candidate.studentBranchWarning || (isAdmin && !candidate.eligible)) && <AlertTriangle size={13} aria-label={candidate.studentBranchWarning ? "Cần xác nhận khác cơ sở" : "Ca có lưu ý"} />}</strong><span>{candidateText}</span></div><button type="button" aria-label={immediate ? `Xếp ngay ${candidate.name}` : selected ? `Bỏ chọn ${candidate.name}` : `Chọn ${candidate.name}`} aria-pressed={selected} disabled={!manualSelectable || busy || !isAdmin && inspectorEntries.filter((entry) => entry.type !== 'off').length >= selectedTrainer.slotCapacity} onClick={() => { if (immediate) { setPendingManualCandidate(null); void confirmManualCandidate(candidate) } else setPendingManualCandidate((current) => current?.studentId === candidate.studentId ? null : candidate) }}>{selected ? <CheckCircle2 /> : <UserPlus />}</button></article>
+                    return <Suspense key={candidate.studentId} fallback={null}><ScheduleCandidateCard candidate={candidate} historical={inspectorSlotIsPast} selectable={manualSelectable} outsideAvailability={outsideAvailability} selected={selected} isAdmin={isAdmin} immediate={immediate} disabled={!manualSelectable || busy || !isAdmin && inspectorEntries.filter(entry => entry.type !== 'off').length >= selectedTrainer.slotCapacity} branchName={branches.find(item => item.id === candidate.studentHomeBranchId)?.name || 'hồ sơ khác'} onSelect={() => { if (immediate) { setPendingManualCandidate(null); void confirmManualCandidate(candidate) } else setPendingManualCandidate(current => current?.studentId === candidate.studentId ? null : candidate) }} /></Suspense>
                   })}
                 </section>)}</div>
               </section>}
             </div>
-            {!inspectorEntries.some((entry) => entry.type === 'off') && (inspectorSlotIsPast || pendingManualCandidate?.studentBranchWarning) && <footer className="schedule-manual-confirm"><div>{pendingManualCandidate ? <><span>{inspectorSlotIsPast ? 'Bổ sung lịch sử' : 'Đang chọn'}</span><strong>{pendingManualCandidate.name}</strong></> : <><span>Chưa chọn học viên</span><strong>Chọn một hồ sơ ở trên</strong></>}</div><button type="button" onClick={() => setPendingManualCandidate(null)} disabled={!pendingManualCandidate || busy}>Hủy</button><button type="button" className="is-confirm" disabled={!pendingManualCandidate || busy || (inspectorSlotIsPast && historicalReason.trim().length < 8)} onClick={() => void (inspectorSlotIsPast ? confirmHistoricalCandidate() : confirmManualCandidate())}>{busy ? 'Đang xác nhận…' : inspectorSlotIsPast ? 'Ghi nhận ca bổ sung' : 'Xác nhận xếp ca'}</button></footer>}
+            {!inspectorEntries.some((entry) => entry.type === 'off') && (inspectorSlotIsPast || pendingManualCandidate?.studentBranchWarning || pendingManualCandidate?.reasons.includes('CONTRACT_PAUSED')) && <Suspense fallback={<div role="status">Đang tải xác nhận…</div>}><ScheduleManualConfirmation candidateName={pendingManualCandidate?.name} historical={inspectorSlotIsPast} studentOff={pendingManualCandidate?.reasons.includes('CONTRACT_PAUSED') === true} busy={busy} disabled={!pendingManualCandidate || (inspectorSlotIsPast && historicalReason.trim().length < 8)} onCancel={() => setPendingManualCandidate(null)} onConfirm={() => void (inspectorSlotIsPast ? confirmHistoricalCandidate() : confirmManualCandidate())} /></Suspense>}
           </aside>
         </div>
       )}

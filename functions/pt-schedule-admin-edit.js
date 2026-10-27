@@ -6,8 +6,8 @@ const { HttpsError } = require('firebase-functions/v2/https')
 const { branchScheduleSnapshot, branchSlotCapacity, dateForSlot, nextWeek, normalizedCapacity, normalizedScheduleConfig, reintroducedSessionId, storedDate, trainerProfileForWeek, trainerIsAvailable } = require('./pt-schedule-publish')
 const { effectiveStudentAvailability } = require('./student-availability')
 const { sessionCountsTowardContract, summarizeContractUsage } = require('./contract-usage')
-const { contractSchedulableOn } = require('./contract-status')
-const { requireScheduleContract, requireCrossBranchConfirmation } = require('./schedule-entitlement-policy')
+const { contractSchedulableOn, contractPausedOn } = require('./contract-status')
+const { findScheduleContract, requireScheduleContract, requireCrossBranchConfirmation } = require('./schedule-entitlement-policy')
 
 const occupies = (session) => ['scheduled', 'rescheduled', 'completed', 'attended', 'no_show'].includes(session.status) || sessionCountsTowardContract(session)
 const sessionHour = (session, id) => Number.isInteger(session.hour) ? session.hour : Number(/^(?:T[2-7]|CN)-(\d{1,2})-/.exec(id)?.[1] ?? -1)
@@ -280,8 +280,8 @@ async function applyFastAdminAdd({ db, actor, branchId, week, payload, reason, e
     // Resolve by the target date first, then prefer the newest overlapping
     // contract start so renewal chains remain deterministic.
     requireCrossBranchConfirmation(student, branchId, payload)
-    const selectedContract = requireScheduleContract(contractRows, studentId, targetDate, payload.contractId)
-    const warnings = []
+    const selectedContract = requireScheduleContract(contractRows, studentId, targetDate, payload.contractId, payload.confirmStudentOff === true)
+    const warnings = contractPausedOn(selectedContract, targetDate) ? ['CONTRACT_PAUSED'] : []
     if (reintroducedFromSessionId) warnings.push('CANCELLED_SESSION_REINTRODUCED')
     if (student.branchId && student.branchId !== branchId) warnings.push('STUDENT_BRANCH_MISMATCH')
     const nextEntry = {
@@ -295,6 +295,7 @@ async function applyFastAdminAdd({ db, actor, branchId, week, payload, reason, e
       adminOverrideBy: actor.uid,
       adminOverrideAt: instant.toISOString(),
       adminOverrideWarnings: warnings,
+      ...(contractPausedOn(selectedContract, targetDate) ? { studentOffConfirmedDate: targetDate } : {}),
       ...(student.branchId && student.branchId !== branchId ? { studentBranchWarning: true, studentHomeBranchId: student.branchId } : {}),
       ...(reintroducedFromSessionId ? { reintroducedFromSessionId, reintroducedAtRevision } : {}),
     }
@@ -333,6 +334,7 @@ async function applyFastAdminAdd({ db, actor, branchId, week, payload, reason, e
       adminOverrideBy: actor.uid,
       adminOverrideAt: instant.toISOString(),
       adminOverrideWarnings: warnings,
+      ...(contractPausedOn(selectedContract, targetDate) ? { studentOffConfirmedDate: targetDate } : {}),
       ...(nextEntry.studentBranchWarning ? { studentBranchWarning: true, studentHomeBranchId: nextEntry.studentHomeBranchId } : {}),
       ...(reintroducedFromSessionId ? { reintroducedFromSessionId, reintroducedAtRevision } : {}),
       revision: 0,
@@ -439,7 +441,7 @@ async function applyFastAdminMove({ db, actor, branchId, week, payload, reason, 
     const session = sourceSnapshot.data() || {}
     if (contracts.size > 100) throw new HttpsError('resource-exhausted', 'Quá nhiều hợp đồng để kiểm tra an toàn.')
     requireCrossBranchConfirmation(student, branchId, payload)
-    const selectedContract = requireScheduleContract(contracts.docs.map(item => ({ id: item.id, ...item.data() })), studentId, targetDate, session.contractId)
+    const selectedContract = requireScheduleContract(contracts.docs.map(item => ({ id: item.id, ...item.data() })), studentId, targetDate, session.contractId, payload.confirmStudentOff === true)
     if (sessionCountsTowardContract(session) && selectedContract.id !== session.contractId) fail('CHARGED_CONTRACT_IMMUTABLE', 'Buổi đã tính không thể chuyển sang hợp đồng khác.')
     if (session.studentId !== studentId || session.trainerId !== fromTrainerId
       || storedDate(session.date) !== sourceDate || sessionHour(session, sessionId) !== sourceHour) {
@@ -473,7 +475,7 @@ async function applyFastAdminMove({ db, actor, branchId, week, payload, reason, 
     const schedule = safeSchedule(draft ? draft.schedule : (legacy.data()?.schedule || {}))
     const targetEntries = (schedule[slotId] || []).filter((entry) => entry.type !== 'off')
     if (targetEntries.some((entry) => entry.studentId === studentId)) fail('DUPLICATE_SCHEDULE_ENTRY', 'Học viên đã có trong ca đích.')
-    const warnings = []
+    const warnings = contractPausedOn(selectedContract, targetDate) ? ['CONTRACT_PAUSED'] : []
     if (student.branchId && student.branchId !== branchId) warnings.push('STUDENT_BRANCH_MISMATCH')
     const nextEntry = {
       studentId,
@@ -486,6 +488,7 @@ async function applyFastAdminMove({ db, actor, branchId, week, payload, reason, 
       adminOverrideBy: actor.uid,
       adminOverrideAt: instant.toISOString(),
       adminOverrideWarnings: warnings,
+      ...(contractPausedOn(selectedContract, targetDate) ? { studentOffConfirmedDate: targetDate } : {}),
       ...(student.branchId && student.branchId !== branchId ? { studentBranchWarning: true, studentHomeBranchId: student.branchId } : {}),
     }
     const nextSchedule = { ...schedule }
@@ -507,6 +510,7 @@ async function applyFastAdminMove({ db, actor, branchId, week, payload, reason, 
     const after = { date: targetDate, hour: targetHour, trainerId, branchId }
     transaction.update(sourceRef, {
       ...nextEntry,
+      studentOffConfirmedDate: nextEntry.studentOffConfirmedDate || FieldValue.delete(),
       date: targetDate,
       hour: targetHour,
       slotId,
@@ -734,7 +738,8 @@ async function applyAdminScheduleEdit({ db, actor, branchId, week, command, payl
     let nextEntry = null
     if (command === 'add_student' || command === 'move_student') {
       requireCrossBranchConfirmation(student, branchId, payload)
-      contract = requireScheduleContract(contracts.docs.map(item => ({ id: item.id, ...item.data() })), studentId, targetDate, contractId)
+      contract = requireScheduleContract(contracts.docs.map(item => ({ id: item.id, ...item.data() })), studentId, targetDate, contractId, payload.confirmStudentOff === true)
+      if (contractPausedOn(contract, targetDate)) warnings.push('CONTRACT_PAUSED')
       if (session && sessionCountsTowardContract(session) && contract.id !== session.contractId) fail('CHARGED_CONTRACT_IMMUTABLE', 'Buổi đã tính không thể chuyển sang hợp đồng khác.')
       contractId = contract.id
     }
@@ -746,7 +751,6 @@ async function applyAdminScheduleEdit({ db, actor, branchId, week, command, payl
       if (!contract || contract.studentId !== studentId || !storedDate(contract.startDate) || !storedDate(contract.endDate)
         || ['cancelled', 'canceled', 'void', 'refunded', 'deleted'].includes(contract.status)
         || storedDate(contract.startDate) > targetDate || storedDate(contract.endDate) < targetDate) warnings.push('ACTIVE_CONTRACT_NOT_FOUND')
-      if ((contract?.pausePeriods || []).some((p) => storedDate(p.startDate) <= targetDate && storedDate(p.endDate) >= targetDate)) warnings.push('CONTRACT_PAUSED')
       if (session && (attendance?.exists || sessionCountsTowardContract(session)) && targetInstant > instant) fail('TEACHING_SHIFT_FUTURE_ATTENDANCE', 'Buổi đã tính hoặc điểm danh không thể chuyển sang tương lai.')
       if (session && sessionCountsTowardContract(session) && sourceDate.slice(0, 7) !== targetDate.slice(0, 7)) fail('TEACHING_SHIFT_CROSS_PERIOD_CORRECTION', 'Buổi đã tính không thể chuyển sang tháng khác; cần dùng bù trừ.')
       const calendar = normalizedScheduleConfig(configSnapshot.data())
@@ -794,6 +798,7 @@ async function applyAdminScheduleEdit({ db, actor, branchId, week, command, payl
         adminOverrideBy: actor.uid,
         adminOverrideAt: instant.toISOString(),
         adminOverrideWarnings: [...new Set(warnings)],
+        ...(contractPausedOn(contract, targetDate) ? { studentOffConfirmedDate: targetDate } : {}),
         ...(entries[0]?.isLocked || session ? { isLocked: true } : {}),
         ...(student.branchId !== branchId ? { studentBranchWarning: true, studentHomeBranchId: student.branchId } : {}),
         ...(warnings.includes('TRAINER_ASSIGNMENT_MISMATCH') ? { trainerAssignmentWarning: true } : {}),
@@ -844,11 +849,10 @@ async function applyAdminScheduleEdit({ db, actor, branchId, week, command, payl
           && row.data().billingStatus !== 'charged').length
         return usage.remainingSessions - held > 0
       })
-      // An Admin may still override quota, but the fallback must remain a
-      // date-effective, non-paused contract. Terminal or out-of-window rows
-      // must stay unlinked so attendance cannot fail later on status/window.
-      const fallbackContract = contractRows.find((item) =>
-        (!item.branchId || item.branchId === expectedContractBranch) && contractSchedulableOn(item, targetDate))
+      // Keep branch and date entitlement even when Admin confirms an OFF
+      // exception. Confirmation never revives a terminal or future contract.
+      const fallbackContract = findScheduleContract(contractRows.filter((item) =>
+        !item.branchId || item.branchId === expectedContractBranch), studentId, targetDate, contractId, payload.confirmStudentOff === true)
       const selectedContract = schedulableContract || fallbackContract
       if (!selectedContract) throw new HttpsError('failed-precondition', 'Không có hợp đồng hợp lệ tại cơ sở của học viên trong ngày tập.', { errors: ['ACTIVE_CONTRACT_NOT_FOUND'] })
       contract = selectedContract || null
@@ -888,6 +892,7 @@ async function applyAdminScheduleEdit({ db, actor, branchId, week, command, payl
         adminOverrideBy: actor.uid,
         adminOverrideAt: instant.toISOString(),
         adminOverrideWarnings: [...new Set(warnings)],
+        ...(contractPausedOn(contract, targetDate) ? { studentOffConfirmedDate: targetDate } : {}),
         ...(crossBranch ? { studentBranchWarning: true, studentHomeBranchId: student.branchId } : {}),
         ...(assignedTrainerIds.length && !assignedTrainerIds.includes(trainerId) ? { trainerAssignmentWarning: true } : {}),
         ...(availabilityReason ? { availabilityOverride: true, availabilityOverrideReason: availabilityReason, availabilityOverrideBy: actor.uid, availabilityOverrideAt: instant.toISOString() } : {}),
@@ -939,6 +944,7 @@ async function applyAdminScheduleEdit({ db, actor, branchId, week, command, payl
         adminOverrideBy: nextEntry.adminOverride === true ? nextEntry.adminOverrideBy || '' : FieldValue.delete(),
         adminOverrideAt: nextEntry.adminOverride === true ? nextEntry.adminOverrideAt || '' : FieldValue.delete(),
         adminOverrideWarnings: nextEntry.adminOverride === true ? nextEntry.adminOverrideWarnings || [] : FieldValue.delete(),
+        studentOffConfirmedDate: nextEntry.studentOffConfirmedDate || FieldValue.delete(),
         studentBranchWarning: nextEntry.studentBranchWarning || FieldValue.delete(),
         studentHomeBranchId: nextEntry.studentHomeBranchId || FieldValue.delete(),
         trainerAssignmentWarning: nextEntry.trainerAssignmentWarning || FieldValue.delete(),
@@ -998,6 +1004,7 @@ async function applyAdminScheduleEdit({ db, actor, branchId, week, command, payl
         adminOverrideBy: actor.uid,
         adminOverrideAt: instant.toISOString(),
         adminOverrideWarnings: [...new Set(warnings)],
+        ...(contractPausedOn(contract, targetDate) ? { studentOffConfirmedDate: targetDate } : {}),
         ...(nextEntry.studentBranchWarning ? { studentBranchWarning: true, studentHomeBranchId: nextEntry.studentHomeBranchId } : {}),
         ...(nextEntry.trainerAssignmentWarning ? { trainerAssignmentWarning: true } : {}),
         ...(nextEntry.availabilityOverride ? { availabilityOverride: true, availabilityOverrideReason: nextEntry.availabilityOverrideReason, availabilityOverrideBy: actor.uid, availabilityOverrideAt: instant.toISOString() } : {}),

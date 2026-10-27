@@ -28,13 +28,31 @@ function approvedContractOff(contracts, studentId, date) {
     contractDateKey(c.startDate) <= date && contractDateKey(c.endDate) >= date && contractPausedOn(c, date))
 }
 
-function requireScheduleContract(contracts, studentId, date, preferredId = '') {
+function findScheduleContract(contracts, studentId, date, preferredId = '', allowApprovedOff = false) {
   const rows = contracts.filter(c => c.studentId === studentId && contractSchedulableOn(c, date))
   const selected = rows.find(c => c.id === preferredId) || rows.sort((a, b) => String(b.startDate).localeCompare(String(a.startDate)))[0]
   if (selected) return selected
+  if (!allowApprovedOff) return null
+  // Ignore only the approved pause; dates, renewal handover and terminal
+  // contract states still have to provide entitlement on the selected day.
+  const paused = contracts.filter(c => c.studentId === studentId && contractPausedOn(c, date)
+    && contractSchedulableOn({ ...c, status: normalizedContractStatus(c.status) === 'frozen' ? 'active' : c.status, pausePeriods: [] }, date))
+  return paused.find(c => c.id === preferredId) || paused.sort((a, b) => String(b.startDate).localeCompare(String(a.startDate)))[0] || null
+}
+
+function confirmedStudentOff(entry, date = entry?.date || entry?.studentOffConfirmedDate) {
+  return entry?.adminOverride === true && Boolean(entry.adminOverrideBy)
+    && /^\d{4}-\d{2}-\d{2}$/.test(entry.studentOffConfirmedDate || '')
+    && entry.studentOffConfirmedDate === date
+    && Array.isArray(entry.adminOverrideWarnings) && entry.adminOverrideWarnings.includes('CONTRACT_PAUSED')
+}
+
+function requireScheduleContract(contracts, studentId, date, preferredId = '', allowApprovedOff = false) {
+  const selected = findScheduleContract(contracts, studentId, date, preferredId, allowApprovedOff)
+  if (selected) return selected
   const code = approvedContractOff(contracts, studentId, date) ? 'CONTRACT_PAUSED' : 'ACTIVE_CONTRACT_NOT_FOUND'
   throw new HttpsError('failed-precondition', code === 'CONTRACT_PAUSED'
-    ? 'Học viên đã được duyệt OFF / bảo lưu trong ngày này. Không thể xếp ca.'
+    ? 'Học viên đã được duyệt OFF / bảo lưu trong ngày này. Admin cần xác nhận xếp lịch ngoại lệ.'
     : 'Học viên không có hợp đồng còn hiệu lực trong ngày tập. Hãy kiểm tra đúng hồ sơ hoặc gia hạn hợp đồng.',
   { issueCode: code, errors: [code] })
 }
@@ -61,6 +79,7 @@ function entryOnApprovedOff(data, slotId, entry) {
     index.dates.set(offset, date.toISOString().slice(0, 10))
   }
   const key = index.dates.get(offset)
+  if (confirmedStudentOff(entry, key)) return false
   const contracts = index.byStudent.get(entry.studentId)
   if (contracts?.length) return approvedContractOff(contracts, entry.studentId, key)
   const student = index.profiles.get(entry.studentId)
@@ -73,4 +92,4 @@ function requireCrossBranchConfirmation(student, branchId, payload) {
   }
 }
 
-module.exports = { monthAfter, hiddenExpiredStudent, approvedContractOff, requireScheduleContract, entryOnApprovedOff, requireCrossBranchConfirmation }
+module.exports = { monthAfter, hiddenExpiredStudent, approvedContractOff, findScheduleContract, requireScheduleContract, confirmedStudentOff, entryOnApprovedOff, requireCrossBranchConfirmation }

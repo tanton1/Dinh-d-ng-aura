@@ -183,6 +183,7 @@ export interface PtScheduleWeeklyStudentCoverage {
     trainerId: string
     trainerName?: string
     branchName?: string
+    studentOffConfirmed?: boolean
   }>
 }
 

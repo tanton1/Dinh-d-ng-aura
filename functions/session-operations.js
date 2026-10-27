@@ -1,6 +1,7 @@
 const { FieldPath, FieldValue, Timestamp } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
 const { effectiveContractStatus, contractPausedOn } = require('./contract-status')
+const { confirmedStudentOff } = require('./schedule-entitlement-policy')
 const { prepareRenewalSessionCharge, renewalHandoverPlan, applyRenewalHandover, renewalReservationProjection, renewalDateSyncPatch, assertRenewalLink } = require('./contract-renewal-handover')
 const { createHash } = require('node:crypto')
 const { trustedAccessContext, requireCapability } = require('./identity-access')
@@ -1475,8 +1476,9 @@ async function chargeSessionTransaction({
     contract = prepared.contract
     contractReference = db.doc(`contracts/${contractId}`)
     if (contract.studentId !== session.studentId) throw new HttpsError('failed-precondition', 'Hợp đồng không thuộc học viên của buổi tập.', { issueCode: 'SESSION_CONTRACT_STUDENT_MISMATCH' })
-    if (!['active', 'expired'].includes(contract.status)) throw new HttpsError('failed-precondition', 'Hợp đồng liên kết không ở trạng thái có thể đối soát.', { issueCode: 'SESSION_CONTRACT_STATUS_INVALID' })
-    if (contractPausedOn(contract, sessionDate)) throw new HttpsError('failed-precondition', 'Hợp đồng đang bảo lưu trong ngày tập.', { issueCode: 'CONTRACT_PAUSED' })
+    const offConfirmed = contractId === previousContractId && confirmedStudentOff(session, sessionDate)
+    if (!['active', 'expired'].includes(contract.status) && !(offConfirmed && contract.status === 'frozen')) throw new HttpsError('failed-precondition', 'Hợp đồng liên kết không ở trạng thái có thể đối soát.', { issueCode: 'SESSION_CONTRACT_STATUS_INVALID' })
+    if (contractPausedOn(contract, sessionDate) && !offConfirmed) throw new HttpsError('failed-precondition', 'Hợp đồng đang bảo lưu trong ngày tập.', { issueCode: 'CONTRACT_PAUSED' })
     const contractStart = storedContractDate(contract.startDate, 'Ngày bắt đầu')
     const contractEnd = storedContractDate(contract.endDate, 'Ngày kết thúc')
     if (sessionDate < contractStart || sessionDate > contractEnd) {

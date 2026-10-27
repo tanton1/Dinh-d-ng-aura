@@ -27,14 +27,14 @@ const {
 } = require('./student-availability')
 const { summarizeContractUsage } = require('./contract-usage')
 const { canonicalUsageSummary, loadContractUsageViews } = require('./contract-usage-view')
-const { contractEffectiveOnDate, contractSchedulableOn, normalizedContractStatus, TERMINAL_CONTRACT_STATUSES } = require('./contract-status')
+const { contractEffectiveOnDate, contractSchedulableOn, contractPausedOn, normalizedContractStatus, TERMINAL_CONTRACT_STATUSES } = require('./contract-status')
 const {
   contractCanParticipateInWeek,
   contractSchedulingEntitlement,
   resolveSchedulingContract,
 } = require('./contract-scheduling')
 const { ptOperationsPolicySnapshot } = require('./pt-policy')
-const { hiddenExpiredStudent, approvedContractOff, requireScheduleContract, entryOnApprovedOff, requireCrossBranchConfirmation } = require('./schedule-entitlement-policy')
+const { hiddenExpiredStudent, approvedContractOff, findScheduleContract, requireScheduleContract, confirmedStudentOff, entryOnApprovedOff, requireCrossBranchConfirmation } = require('./schedule-entitlement-policy')
 
 const MAX_STUDENTS = 500
 const MAX_TRAINERS = 100
@@ -405,7 +405,8 @@ function activeAdministrator(actor) {
 const MAX_ADMIN_OVERRIDE_WARNINGS = 32
 
 function adminOverrideMetadata(entry) {
-  if (entry?.type === 'off' || entry?.source !== 'manual_v2' || entry?.adminOverride !== true) return null
+  if (entry?.type === 'off' || entry?.adminOverride !== true
+    || (entry.source !== 'manual_v2' && !(entry.source === 'published_existing' && confirmedStudentOff(entry)))) return null
   const warnings = Array.isArray(entry.adminOverrideWarnings)
     ? [...new Set(entry.adminOverrideWarnings.filter((value) => typeof value === 'string').slice(0, MAX_ADMIN_OVERRIDE_WARNINGS))]
     : []
@@ -413,6 +414,7 @@ function adminOverrideMetadata(entry) {
     adminOverride: true,
     adminOverrideBy: typeof entry.adminOverrideBy === 'string' ? entry.adminOverrideBy.slice(0, 200) : '',
     adminOverrideAt: typeof entry.adminOverrideAt === 'string' ? entry.adminOverrideAt.slice(0, 40) : '',
+    ...(confirmedStudentOff(entry) ? { studentOffConfirmedDate: entry.studentOffConfirmedDate } : {}),
     ...(warnings.length ? { adminOverrideWarnings: warnings } : {}),
   }
 }
@@ -783,6 +785,7 @@ async function weeklyDraftScheduleEntriesForStudents(db, studentIds, week) {
           hour,
           trainerId: entry.trainerId || '',
           status: 'scheduled',
+          ...(adminOverrideMetadata(entry) || {}),
         })
       }
     }
@@ -801,7 +804,7 @@ function weeklySessionCoverageForStudents({ weekId, branchId, sessions = [], sch
     const studentId = typeof session?.studentId === 'string' ? session.studentId : ''
     const date = storedDate(session?.date)
     if (!studentId || !date || date < weekId || date >= weekEnd || !historicalSessionOccupies(session)) continue
-    if (approvedContractOff(contracts, studentId, date)) continue
+    if (approvedContractOff(contracts, studentId, date) && !confirmedStudentOff(session)) continue
     const sessionBranchId = typeof session?.branchId === 'string' && session.branchId ? session.branchId : 'unknown'
     const hour = Number.isInteger(Number(session?.hour)) ? Number(session.hour) : -1
     // One learner cannot consume two weekly sessions at the same physical
@@ -832,6 +835,7 @@ function weeklySessionCoverageForStudents({ weekId, branchId, sessions = [], sch
       date,
       hour: hour >= 0 ? hour : null,
       trainerId: typeof session?.trainerId === 'string' ? session.trainerId : '',
+      ...(confirmedStudentOff(session) ? { studentOffConfirmed: true } : {}),
     })
     coverage[studentId] = row
   }
@@ -3948,6 +3952,7 @@ function mergePublishedSessions(data, schedule, warnings) {
       branchId: data.branch.id,
       type: 'training',
       source: 'published_existing',
+      ...(adminOverrideMetadata({ ...session, source: 'published_existing' }) || {}),
       ...(session.sessionKind === 'makeup' || session.makeupSession === true ? {
         sessionKind: 'makeup',
         makeupSourceSessionId: typeof session.makeupSourceSessionId === 'string' ? session.makeupSourceSessionId : '',
@@ -4457,7 +4462,7 @@ async function applyFastAdminDraftCommand({ db, actor, branchId, week, command, 
       const contracts = snapshots.contracts.docs.map((item) => ({ id: item.id, ...item.data() }))
       const targetDate = dateForSlot(week, slotId.split('-')[0])
       requireCrossBranchConfirmation(student, branchId, payload)
-      const contract = requireScheduleContract(contracts, studentId, targetDate, typeof payload.contractId === 'string' ? payload.contractId : '')
+      const contract = requireScheduleContract(contracts, studentId, targetDate, typeof payload.contractId === 'string' ? payload.contractId : '', payload.confirmStudentOff === true)
       selectedContractId = contract?.id || ''
       const warnings = adminDraftAvailabilityWarnings({
         student,
@@ -4469,7 +4474,9 @@ async function applyFastAdminDraftCommand({ db, actor, branchId, week, command, 
         leaves: snapshots.leaves.docs.map((item) => item.data()),
         contract,
       })
+      if (contractPausedOn(contract, targetDate)) warnings.push('CONTRACT_PAUSED')
       entryMetadata = {
+        ...(contractPausedOn(contract, targetDate) ? { studentOffConfirmedDate: targetDate } : {}),
         ...(warnings.includes('TRAINER_ASSIGNMENT_MISMATCH') ? { trainerAssignmentWarning: true } : {}),
         ...(warnings.includes('STUDENT_BRANCH_MISMATCH') ? { studentBranchWarning: true, studentHomeBranchId: student.branchId || '' } : {}),
         adminOverride: true,
@@ -4844,8 +4851,8 @@ function createPtScheduleV2Functions({
         ? externalMatches.map((profile) => {
           const date = dateForSlot(week, slotId.split('-')[0])
           const ownContracts = contractRows.filter(contract => contract.studentId === profile.id)
-          const contract = ownContracts.find(contract => contractSchedulableOn(contract, date))
-          const failure = contract ? [] : [approvedContractOff(ownContracts, profile.id, date) ? 'CONTRACT_PAUSED' : 'ACTIVE_CONTRACT_NOT_FOUND']
+          const contract = findScheduleContract(ownContracts, profile.id, date, '', true)
+          const failure = contract ? (contractPausedOn(contract, date) ? ['CONTRACT_PAUSED'] : []) : ['ACTIVE_CONTRACT_NOT_FOUND']
           return ({
           // Search results are intentionally a projection. Selecting the row
           // and confirming the Admin edit runs the canonical contract,
@@ -4855,7 +4862,7 @@ function createPtScheduleV2Functions({
           phone: profile.phone || '',
           eligible: false,
           manualSelectable: failure.length === 0,
-          adminManualSelectable: failure.length === 0,
+          adminManualSelectable: Boolean(contract),
           reasons: [...failure, 'STUDENT_BRANCH_MISMATCH'],
           warningReasons: ['STUDENT_BRANCH_MISMATCH'],
           hardReasons: failure,
@@ -5478,7 +5485,8 @@ function createPtScheduleV2Functions({
         ]))
         : schedule
       const result = manualSlotCandidate(candidateForSlot(data, { student, trainer, slotId, schedule: candidateSchedule }))
-      const entitledContract = requireScheduleContract(data.contracts, studentId, dateForSlot(week, slotId.split('-')[0]), result.contractId)
+      const targetDate = dateForSlot(week, slotId.split('-')[0])
+      const entitledContract = requireScheduleContract(data.contracts, studentId, targetDate, result.contractId, adminManualOverride && payload.confirmStudentOff === true)
       const allowAvailabilityOverride = payload.allowOutsideStudentAvailability === true
       if (!adminManualOverride && !result.eligible && !(result.manualSelectable && allowAvailabilityOverride)) {
         throw new HttpsError('failed-precondition', 'Học viên chưa đủ điều kiện vào ô lịch.', { issueCode: 'SLOT_CANDIDATE_REJECTED', errors: result.reasons })
@@ -5500,10 +5508,12 @@ function createPtScheduleV2Functions({
       if (adminManualOverride) {
         const warnings = [...new Set([
           ...(Array.isArray(result.reasons) ? result.reasons : []),
+          ...(contractPausedOn(entitledContract, targetDate) ? ['CONTRACT_PAUSED'] : []),
           ...(result.trainerAssignmentWarning ? ['TRAINER_ASSIGNMENT_MISMATCH'] : []),
           ...(result.studentBranchWarning ? ['STUDENT_BRANCH_MISMATCH'] : []),
         ])]
         adminOverrideMetadataValue = {
+          ...(contractPausedOn(entitledContract, targetDate) ? { studentOffConfirmedDate: targetDate } : {}),
           adminOverride: true,
           adminOverrideBy: actor.uid,
           adminOverrideAt: new Date().toISOString(),
@@ -5523,8 +5533,13 @@ function createPtScheduleV2Functions({
         ])
         if (currentContracts.size > 100) throw new HttpsError('resource-exhausted', 'Quá nhiều hợp đồng để kiểm tra an toàn.')
         requireCrossBranchConfirmation(currentStudent.data() || {}, branchId, payload)
-        const currentContract = requireScheduleContract(currentContracts.docs.map(item => ({ id: item.id, ...item.data() })), studentId, dateForSlot(week, slotId.split('-')[0]), selectedManualContractId)
+        const targetDate = dateForSlot(week, slotId.split('-')[0])
+        const currentContract = requireScheduleContract(currentContracts.docs.map(item => ({ id: item.id, ...item.data() })), studentId, targetDate, selectedManualContractId, adminManualOverride && payload.confirmStudentOff === true)
         if (currentContract.id !== selectedManualContractId) throw new HttpsError('aborted', 'Hợp đồng vừa thay đổi. Hãy tải lại ô lịch trước khi xếp.')
+        if (contractPausedOn(currentContract, targetDate)) {
+          adminOverrideMetadataValue.studentOffConfirmedDate = targetDate
+          adminOverrideMetadataValue.adminOverrideWarnings = [...new Set([...(adminOverrideMetadataValue.adminOverrideWarnings || []), 'CONTRACT_PAUSED'])]
+        }
       }
       schedule = safeSchedule(current.exists ? current.data().schedule : data.schedule)
       // Rehydrate published occupancy after the transaction re-read as well;

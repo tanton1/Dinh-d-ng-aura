@@ -6,7 +6,7 @@ export interface WarningProfile {
   student: PtScheduleV2Student
   missingSessions: number
   scheduledSessions: number
-  scheduledEntries: Array<{ slotId: string; trainerId: string; label: string }>
+  scheduledEntries: Array<{ slotId: string; trainerId: string; label: string; studentOffConfirmed?: boolean }>
   crossBranchScheduledSessions: number
   reasonCodes: string[]
   primaryReasonCode?: string
@@ -61,7 +61,8 @@ export function presentScheduleWarnings(workspace: PtScheduleWorkspaceV2Result, 
   for (const [slotId, entries] of Object.entries(workspace.schedule)) for (const entry of entries) {
     if (entry.type === 'off' || !entry.studentId || entry.studentId === 'OFF') continue
     const rows = scheduled.get(entry.studentId) || []
-    rows.push({ slotId, trainerId: entry.trainerId, label: scheduleSlotLabel(slotId, weekDates) })
+    rows.push({ slotId, trainerId: entry.trainerId, label: scheduleSlotLabel(slotId, weekDates),
+      studentOffConfirmed: Boolean(entry.studentOffConfirmedDate && entry.studentOffConfirmedDate === weekDates[slotId.split('-')[0]]?.full) })
     scheduled.set(entry.studentId, rows)
   }
   const ids = new Set([...Object.keys(snapshot.coverage.byStudent), ...workspace.students

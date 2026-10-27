@@ -4,6 +4,17 @@ const test = require('node:test')
 const assert = require('node:assert/strict')
 const { MAX_DRAFT_DOCUMENT_ENTRIES, MAX_DRAFT_ENTRIES, OPTIMIZER_VERSION, availabilityCutoff, availabilityStatusForWeek, candidateForSlot, compactPairedSlots, generateSchedule, historicalSlotCandidate, manualSlotCandidate, previousWeek, repairCoverageWithRelocations, resetDraftSchedule, resolveContract, safeSchedule, safeWeeklySessionTargets, scheduleConflictWarningsForWorkspace, slotUtilizationForSchedule, studentWeekEligibility, trainerIsLocked, trainerProfileForWeek, weeklySessionCoverageForStudents, weeklyTargetForStudent } = require('./pt-schedule-v2')
 
+test('weekly coverage counts explicit OFF exceptions and preserves their marker for other branches', () => {
+  const contracts = [{ studentId: 'a', status: 'active', startDate: '2090-01-02', endDate: '2090-01-09', pausePeriods: [{ startDate: '2090-01-02', endDate: '2090-01-05' }] }]
+  const row = { studentId: 'a', date: '2090-01-03', hour: 6, branchId: 'other', status: 'scheduled', adminOverride: true, adminOverrideBy: 'admin', adminOverrideWarnings: ['CONTRACT_PAUSED'], studentOffConfirmedDate: '2090-01-03' }
+  const coverage = weeklySessionCoverageForStudents({ weekId: '2090-01-02', branchId: 'home', contracts, sessions: [row, { ...row, date: '2090-01-04', adminOverrideWarnings: [] }] })
+  assert.equal(coverage.a.total, 1)
+  assert.equal(coverage.a.otherBranches, 1)
+  assert.equal(coverage.a.entries[0].studentOffConfirmed, true)
+  const restored = safeSchedule({ 'T3-6': [{ ...row, type: 'training', source: 'published_existing', trainerId: 't' }] })
+  assert.deepEqual(restored['T3-6'][0].adminOverrideWarnings, ['CONTRACT_PAUSED'])
+})
+
 const WEEK = '2026-08-24'
 const BRANCH = 'branch-a'
 

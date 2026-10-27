@@ -55,6 +55,15 @@ test('compact schedule strips raw fields but keeps editable identity', () => {
   assert.equal(schedule['T2-6'][0].secret, undefined)
 })
 
+test('compact weekly matrix retains the date of an audited OFF confirmation', () => {
+  const schedule = compactSchedule({ 'T2-6': [{ studentId: 's', trainerId: 't', branchId: BRANCH, contractId: 'c',
+    type: 'training', source: 'manual_v2', adminOverride: true, adminOverrideBy: 'admin',
+    adminOverrideWarnings: ['CONTRACT_PAUSED'], studentOffConfirmedDate: WEEK }] })
+  assert.equal(schedule['T2-6'][0].studentOffConfirmedDate, WEEK)
+  assert.deepEqual(schedule['T2-6'][0].warningCodes, ['CONTRACT_PAUSED'])
+  assert.equal(schedule['T2-6'][0].adminOverrideBy, undefined)
+})
+
 test('weekly compact coverage excludes old cells on approved OFF without deleting matrix cells', () => {
   const data = workspace()
   data.students[0].pausedScheduleDates = [WEEK]

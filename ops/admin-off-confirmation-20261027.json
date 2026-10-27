@@ -1,0 +1,81 @@
+{
+  "schemaVersion": 1,
+  "feature": "Admin-confirmed scheduling on student OFF days",
+  "baseCommit": "884e8555fe1609194bdf120642edb4c20dea4df6",
+  "confirmation": {
+    "requestField": "confirmStudentOff",
+    "storedDateField": "studentOffConfirmedDate",
+    "roles": [
+      "admin",
+      "super_admin"
+    ],
+    "scope": "One student booking on the explicitly confirmed date; keep the contract pause and normal billing rules."
+  },
+  "rolloutOrder": [
+    {
+      "purpose": "Record attendance and charge the explicitly confirmed session once",
+      "functions": [
+        "confirmMySession",
+        "recordMySessionAttendance",
+        "bulkConfirmMySessions",
+        "confirmMySessionRegional",
+        "recordMySessionAttendanceRegional",
+        "bulkConfirmMySessionsRegional",
+        "confirmSessionAttendance",
+        "recordSessionAttendance",
+        "bulkRecordSessionAttendance",
+        "chargeDuePtSessionsScheduled",
+        "reconcilePtSessionAutomationScheduled"
+      ]
+    },
+    {
+      "purpose": "Preserve the dated confirmation through publish and restore",
+      "functions": [
+        "validatePtScheduleDraft",
+        "publishPtSchedule",
+        "restorePtScheduleVersionToDraft",
+        "getMyBranchScheduleWorkspace",
+        "validatePtScheduleDraftRegional",
+        "publishPtScheduleRegional",
+        "restorePtScheduleVersionToDraftRegional",
+        "getMyBranchScheduleWorkspaceRegional"
+      ]
+    },
+    {
+      "purpose": "Retain confirmed reservations in workspace, optimizer and weekly projections",
+      "functions": [
+        "getPtScheduleWorkspace",
+        "getPtScheduleSlotCandidates",
+        "generatePtScheduleDraft",
+        "setPtStudentWeeklyTarget",
+        "createHistoricalPtSession",
+        "getPtScheduleWorkspaceRegional",
+        "getPtScheduleSlotCandidatesRegional",
+        "generatePtScheduleDraftV4",
+        "setPtStudentWeeklyTargetRegional",
+        "createHistoricalPtSessionRegional",
+        "getPtScheduleWeeklyView",
+        "getPtScheduleWeeklyViewRegional",
+        "rebuildPtScheduleWeeklyView",
+        "rebuildPtScheduleWeeklyViewRegional",
+        "rebuildDirtyPtScheduleWeeklyViewsScheduled"
+      ]
+    },
+    {
+      "purpose": "Enable the Admin-only writers after every consumer is ready",
+      "functions": [
+        "applyPtScheduleDraftCommand",
+        "applyPtScheduleDraftCommandRegional",
+        "adminEditPtSchedule",
+        "adminEditPtScheduleRegional"
+      ]
+    }
+  ],
+  "frontend": "Merge only after all listed backend targets serve the verified source.",
+  "verification": [
+    "Exact-source CI and CodeQL",
+    "Real Firestore transaction and concurrent-charge tests",
+    "Current serving revision source, traffic, IAM and configuration",
+    "Production web smoke after merge"
+  ]
+}
