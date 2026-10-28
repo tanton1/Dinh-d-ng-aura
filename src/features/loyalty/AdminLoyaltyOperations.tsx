@@ -177,6 +177,7 @@ export default function AdminLoyaltyOperations({
   const loadTab = async (tab: OperationsTab, appendAccounts = false) => {
     if (!enabled || !availableTabs.some(item => item.id === tab) || !mounted.current || tab !== activeTabRef.current || (appendAccounts && (accountsLoadingMore || !accountCursor))) return
     const generation = ++loadGeneration.current
+    loadedTabs.current.delete(tab)
     const isCurrent = () => mounted.current && generation === loadGeneration.current && tab === activeTabRef.current
     if (appendAccounts && tab === 'accounts') setAccountsLoadingMore(true)
     else { setLoading(true); setAccountsLoadingMore(false) }
@@ -208,12 +209,29 @@ export default function AdminLoyaltyOperations({
         if (isCurrent()) setAmbassadors(result.ambassadors)
       }
       if (tab === 'accounts') {
-        const page = await listLoyaltyAccounts({ pageSize: 100, ...(exactStudentId ? { studentId: exactStudentId } : appendAccounts && accountCursor ? { cursor: accountCursor } : {}) })
-        if (!isCurrent()) return
-        setAccounts((current) => appendAccounts ? [...new Map([...current, ...page.accounts].map((account) => [account.studentId, account])).values()] : page.accounts)
-        setAccountsTotal(page.totalCount)
-        setAccountsHasMore(page.hasMore === true)
-        setAccountCursor(page.nextCursor)
+        const directory = new Map((appendAccounts ? accounts : []).map(account => [account.studentId, account]))
+        const seenCursors = new Set<string>()
+        let cursor = appendAccounts ? accountCursor : null
+        if (cursor) seenCursors.add(cursor)
+        if (!appendAccounts) { setAccounts([]); setAccountsTotal(0); setAccountsHasMore(false); setAccountCursor(null) }
+        // The API page size is a transport boundary, never a member/tier total.
+        // Read only while Members is open, and publish each bounded page so the
+        // directory stays usable while its remaining members arrive.
+        do {
+          const page = await listLoyaltyAccounts({ pageSize: 100, ...(exactStudentId ? { studentId: exactStudentId } : cursor ? { cursor } : {}) })
+          if (!isCurrent()) return
+          for (const account of page.accounts) directory.set(account.studentId, account)
+          setAccounts([...directory.values()].sort((a, b) => a.studentName.localeCompare(b.studentName, 'vi')))
+          setAccountsTotal(page.totalCount)
+          setAccountsHasMore(page.hasMore === true && !exactStudentId)
+          setAccountCursor(page.nextCursor)
+          setLoading(false)
+          if (!page.hasMore || exactStudentId) break
+          if (!page.nextCursor || seenCursors.has(page.nextCursor)) throw new Error('Chưa tải đủ thành viên. Vui lòng tải lại danh sách.')
+          seenCursors.add(page.nextCursor)
+          cursor = page.nextCursor
+          setAccountsLoadingMore(true)
+        } while (isCurrent())
       }
       if (tab === 'adjustments') {
         const result = await listLoyaltyAdjustments('pending_approval')
@@ -224,8 +242,8 @@ export default function AdminLoyaltyOperations({
       if (isCurrent()) setError(cause instanceof Error ? cause.message : 'Không thể tải dữ liệu Aura Club.')
     } finally {
       if (isCurrent()) {
-        if (appendAccounts && tab === 'accounts') setAccountsLoadingMore(false)
-        else setLoading(false)
+        setAccountsLoadingMore(false)
+        setLoading(false)
       }
     }
   }
@@ -375,7 +393,7 @@ export default function AdminLoyaltyOperations({
   const closeReward = () => { if (!busy) { setEditingReward(null); setBannerFile(null); setError('') } }
 
   return <section className="loyalty-admin-card loyalty-admin-operations">
-    <header><div><h2>{availableTabs.find(item => item.id === activeTab)?.label || 'Thành viên'}</h2></div>{hideNavigation ? <button type="button" className="club-icon-button" aria-label="Tải lại tab đang mở" disabled={Boolean(busy)} onClick={() => void loadTab(activeTab)}><RefreshCw /></button> : <ShieldCheck />}</header>
+    {activeTab !== 'accounts' && <header><div><h2>{availableTabs.find(item => item.id === activeTab)?.label || 'Thành viên'}</h2></div>{hideNavigation ? <button type="button" className="club-icon-button" aria-label="Tải lại tab đang mở" disabled={Boolean(busy)} onClick={() => void loadTab(activeTab)}><RefreshCw /></button> : <ShieldCheck />}</header>}
     {!hideNavigation ? <nav className="loyalty-admin-operations__tabs" aria-label="Nghiệp vụ Aura Club">
       {availableTabs.map((item) => <button type="button" className={activeTab === item.id ? 'is-active' : ''} disabled={Boolean(busy)} key={item.id} onClick={() => { setNotice(''); setError(''); setActiveTab(item.id) }}><item.icon /> {item.label}</button>)}
       <button type="button" className="is-refresh" aria-label="Tải lại tab đang mở" disabled={Boolean(busy)} onClick={() => void loadTab(activeTab)}><RefreshCw /></button>
@@ -404,6 +422,7 @@ export default function AdminLoyaltyOperations({
     </div> : null}
 
     {!loading && activeTab === 'accounts' ? <div className="loyalty-admin-accounts" id="loyalty-accounts">
+      <div className="club-members-heading"><div><strong>{formatNumber(accountsTotal)} thành viên</strong><span>Đang tập, bảo lưu hoặc trong hạn chờ tái ký</span></div>{hideNavigation && <button type="button" className="club-icon-button" aria-label="Tải lại tab đang mở" disabled={Boolean(busy) || accountsLoadingMore} onClick={() => void loadTab('accounts')}><RefreshCw /></button>}</div>
       <div className="club-tier-tabs" role="tablist" aria-label="Hạng thành viên">
         {memberTiers.map((tier, index) => <button key={tier.id} type="button" role="tab" aria-selected={tierFilter === tier.id} aria-controls="club-tier-members" tabIndex={tierFilter === tier.id ? 0 : -1} onClick={() => setTierFilter(tier.id)} onKeyDown={(event) => {
           if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
@@ -411,21 +430,21 @@ export default function AdminLoyaltyOperations({
           const next = event.key === 'Home' ? 0 : event.key === 'End' ? memberTiers.length - 1 : (index + (event.key === 'ArrowRight' ? 1 : -1) + memberTiers.length) % memberTiers.length
           setTierFilter(memberTiers[next].id)
           ;(event.currentTarget.parentElement?.children[next] as HTMLButtonElement)?.focus()
-        }}><i className={`club-tier-dot is-${tier.id}`} />{tier.label}<b>{formatNumber(tier.id === 'all' ? matchingAccounts.length : matchingAccounts.filter((item) => item.tier === tier.id).length)}</b></button>)}
+        }}><i className={`club-tier-dot is-${tier.id}`} />{tier.label}{' '}<b>{tier.id === 'all' && !normalizedQuery ? formatNumber(accountsTotal) : accountsHasMore ? '…' : formatNumber(tier.id === 'all' ? matchingAccounts.length : matchingAccounts.filter((item) => item.tier === tier.id).length)}</b></button>)}
       </div>
       <div className="club-member-search-row">
-        <label className="loyalty-admin-search"><Search /><input aria-label="Tìm thành viên" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Tìm tên, mã hoặc chi nhánh" /></label>
-        <button type="button" disabled={!query.trim() || Boolean(busy) || accountsLoadingMore} onClick={() => { setTierFilter('all'); if (exactStudentId === query.trim()) void loadTab('accounts'); else setExactStudentId(query.trim()) }}>Tìm chính xác mã</button>
+        <label className="loyalty-admin-search"><Search /><input aria-label="Tìm thành viên" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Tìm tên hoặc mã thành viên" /></label>
+        {query.trim() && <button type="button" aria-label="Tìm chính xác mã" disabled={Boolean(busy) || accountsLoadingMore} onClick={() => { setTierFilter('all'); if (exactStudentId === query.trim()) void loadTab('accounts'); else setExactStudentId(query.trim()) }}>Tìm mã</button>}
         {exactStudentId && <button type="button" disabled={Boolean(busy)} onClick={() => { setQuery(''); setExactStudentId(''); setTierFilter('all') }}>Về danh sách</button>}
       </div>
-      <div className="loyalty-admin-sectionbar loyalty-admin-accounts__summary"><div><span>{exactStudentId ? `Mã: ${exactStudentId}` : `Lọc trong ${formatNumber(accounts.length)} / ${formatNumber(accountsTotal)} thành viên đã tải`}</span></div>{accountsHasMore && accountCursor ? <button type="button" onClick={() => void loadTab('accounts', true)} disabled={accountsLoadingMore || Boolean(busy)}>{accountsLoadingMore ? <LoaderCircle className="loyalty-spin" /> : <Plus />} {accountsLoadingMore ? 'Đang tải…' : 'Tải thêm'}</button> : null}</div>
+      {(exactStudentId || accountsHasMore || normalizedQuery || tierFilter !== 'all') && <div className="loyalty-admin-sectionbar loyalty-admin-accounts__summary"><div><span role="status">{exactStudentId ? `Mã: ${exactStudentId}` : accountsHasMore ? `${accountsLoadingMore ? 'Đang tải' : 'Đã tải'} ${formatNumber(accounts.length)} / ${formatNumber(accountsTotal)} thành viên` : `${formatNumber(visibleAccounts.length)} / ${formatNumber(accountsTotal)} thành viên`}</span></div>{accountsHasMore && accountCursor && !accountsLoadingMore ? <button type="button" onClick={() => void loadTab('accounts', true)} disabled={Boolean(busy)}>Tải tiếp</button> : null}</div>}
       <div className="loyalty-admin-list" id="club-tier-members" role="tabpanel" aria-label={`Thành viên ${memberTiers.find((tier) => tier.id === tierFilter)?.label}`}>{visibleAccounts.length ? visibleAccounts.map((item) => <article key={item.studentId} ref={item.studentId === initialStudentId ? selectedAccountRef : undefined} tabIndex={item.studentId === initialStudentId ? -1 : undefined} className={item.studentId === initialStudentId ? 'is-focused-account' : undefined}>
-        <div className="loyalty-admin-list__identity"><strong>{item.studentName}</strong><span>{item.studentId} · {item.branchId || 'Chưa có chi nhánh'}</span><small><b className={`club-tier-badge is-${item.tier}`}>{memberTiers.find((tier) => tier.id === item.tier)?.label}</b> {formatMoney(item.tierQualifyingValue)}</small></div>
+        <div className="loyalty-admin-list__identity"><strong>{item.studentName}</strong><small><b className={`club-tier-badge is-${item.tier}`}>{memberTiers.find((tier) => tier.id === item.tier)?.label}</b> {formatMoney(item.tierQualifyingValue)}</small></div>
         <div><span>Khả dụng</span><strong>{formatNumber(item.availablePoints)}</strong>{item.pendingPoints > 0 && <small>{formatNumber(item.pendingPoints)} đang chờ</small>}</div>
         <div><span>Đã đổi</span><strong>{formatNumber(item.lifetimeRedeemedPoints)}</strong>{item.debtPoints > 0 && <small className="is-debt">Nợ {formatNumber(item.debtPoints)}</small>}</div>
         <div><span>Trạng thái</span><strong>{item.membershipState === 'grace' ? 'Chờ tái ký' : item.membershipState === 'paused' ? 'Bảo lưu' : 'Đang tập'}</strong>{item.membershipState === 'grace' && item.manageUntil ? <small>Đến {new Intl.DateTimeFormat('vi-VN').format(new Date(item.manageUntil + 'T00:00:00+07:00'))}</small> : null}</div>
         <div className="loyalty-admin-actions">{canAdjust ? <button type="button" disabled={Boolean(busy) || accountsLoadingMore} onClick={() => setAdjustingAccount(item)}>Điều chỉnh</button> : null}</div>
-      </article>) : <div className="loyalty-empty loyalty-empty--compact"><Users /><h3>{exactStudentId ? 'Không có học viên phù hợp trong phạm vi truy cập' : 'Không có kết quả trong danh sách đã tải'}</h3><p>{exactStudentId ? 'Kiểm tra lại mã học viên hoặc quay về danh sách.' : 'Đổi từ khóa, tải thêm hoặc tra cứu chính xác mã học viên.'}</p></div>}</div>
+      </article>) : <div className="loyalty-empty loyalty-empty--compact"><Users /><h3>{exactStudentId ? 'Không có học viên phù hợp trong phạm vi truy cập' : accountsHasMore ? 'Đang tìm trong danh sách thành viên…' : 'Không tìm thấy thành viên'}</h3><p>{exactStudentId ? 'Kiểm tra lại mã học viên hoặc quay về danh sách.' : accountsHasMore ? 'Các thành viên còn lại đang được tải.' : 'Thử tên khác hoặc đổi hạng thành viên.'}</p></div>}</div>
     </div> : null}
 
     {!loading && activeTab === 'adjustments' ? <div className="loyalty-admin-list loyalty-admin-adjustments">

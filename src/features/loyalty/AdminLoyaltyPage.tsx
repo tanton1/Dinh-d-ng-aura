@@ -261,7 +261,7 @@ export default function AdminLoyaltyPage({
       {notice ? <div className="loyalty-inline-notice" role="status"><CheckCircle2 size={17} /> {notice}</div> : null}
       {section === 'overview' ? <div className="club-overview-panel">
       <section className="club-overview" aria-label="Chỉ số Aura Club">
-        <div><Users /><span>Thành viên</span><strong>{formatNumber(metrics.memberCount)}</strong></div>
+        <div><Users /><span>Đang tập</span><strong>{formatNumber(metrics.memberCount)}</strong></div>
         <div><Coins /><span>Điểm khả dụng</span><strong>{formatNumber(metrics.availablePoints)}</strong><small>{formatNumber(metrics.pendingPoints)} điểm đang chờ</small></div>
         <div><Gift /><span>Chờ đổi quà</span><strong>{formatNumber(metrics.pendingRedemptions)}</strong></div>
         <div><WalletCards /><span>Giá trị điểm</span><strong>{formatMoney(metrics.outstandingNominalValueVnd)}</strong></div>
@@ -272,7 +272,7 @@ export default function AdminLoyaltyPage({
         ]} />
         {metrics.debtPoints > 0 ? <aside className="loyalty-admin-risk"><AlertTriangle /><div><strong>{formatNumber(metrics.debtPoints)} điểm cần bù</strong><span>Tài khoản liên quan tạm khóa đổi quà đến khi bù đủ điểm.</span></div></aside> : null}
         <section className="loyalty-admin-card">
-          <header><div><h2>Thành viên theo hạng</h2></div><Crown /></header>
+          <header><div><h2>Hạng thành viên đang tập</h2></div><Crown /></header>
           <div className="loyalty-tier-chart">
             {dashboard.tiers.map((item) => <div key={item.tier}><span>{item.tier}</span><i><b style={{ width: `${Math.max(4, item.count / maxTier * 100)}%` }} /></i><strong>{formatNumber(item.count)}</strong></div>)}
           </div>
