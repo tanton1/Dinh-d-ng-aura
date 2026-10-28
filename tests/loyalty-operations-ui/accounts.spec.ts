@@ -17,7 +17,7 @@ async function openFixture(page: Page, query = '', hold: string[] = []) {
     const account = (studentId, studentName, points = 10) => ({
       studentId, studentName, branchId: 'branch-one', status: 'active', availablePoints: points, pendingPoints: 0,
       reservedPoints: 0, debtPoints: 0, lifetimeEarnedPoints: points, lifetimeRedeemedPoints: 0, tierQualifyingValue: 0,
-      tier: 'silver', tierProgress: { tier: 'silver', currentValue: 0 }, revision: 1, walletInitialized: true,
+      tier: studentId === 'student-two' ? 'gold' : 'silver', tierProgress: { tier: 'silver', currentValue: 0 }, revision: 1, walletInitialized: true,
     });
     export const listLoyaltyAccounts = async input => {
       const index = state.calls.push(input) - 1;
@@ -50,13 +50,31 @@ async function openFixture(page: Page, query = '', hold: string[] = []) {
   await expect.poll(() => page.evaluate(() => window.loyaltyFixture.calls.length)).toBe(1)
 }
 
-const search = (page: Page) => page.getByPlaceholder('Lọc tên, mã hoặc chi nhánh trong danh sách đã tải')
+const search = (page: Page) => page.getByRole('textbox', { name: 'Tìm thành viên' })
 const cards = (page: Page) => page.locator('.loyalty-admin-accounts .loyalty-admin-list > article')
+
+test('tier tabs filter members together with search and retain bounded pagination', async ({ page }) => {
+  await openFixture(page)
+  await page.getByRole('tab', { name: /^Gold/ }).click()
+  await expect(cards(page)).toHaveCount(1)
+  await expect(cards(page)).toContainText('Học viên Hai')
+  await search(page).fill('Học viên Một')
+  await expect(cards(page)).toHaveCount(0)
+  await search(page).fill('')
+  await page.getByRole('tab', { name: /^Silver/ }).click()
+  await page.getByRole('button', { name: 'Tải thêm', exact: true }).click()
+  await expect(cards(page)).toHaveCount(2)
+  await expect(cards(page).first()).toContainText('Học viên Một')
+  await expect(cards(page).last()).toContainText('Học viên Ba')
+  await page.getByRole('tab', { name: /^Tất cả/ }).click()
+  await expect(cards(page)).toHaveCount(3)
+  expect(await page.evaluate(() => window.loyaltyFixture.calls.length)).toBe(2)
+})
 
 test('first page is bounded, name filtering is explicitly loaded-only, and load-more deduplicates accounts', async ({ page }) => {
   await openFixture(page)
   await expect(cards(page)).toHaveCount(2)
-  await expect(page.getByText('Đã tải 2 / 3 học viên. Bộ lọc tên và chi nhánh chỉ áp dụng phần đã tải.')).toBeVisible()
+  await expect(page.getByText('Lọc trong 2 / 3 thành viên đã tải')).toBeVisible()
   expect(await page.evaluate(() => window.loyaltyFixture.calls)).toEqual([{ pageSize: 100 }])
   await search(page).fill('Học viên Ba')
   await expect(page.getByText('Không có kết quả trong danh sách đã tải')).toBeVisible()
@@ -75,7 +93,7 @@ test('deep-link starts with one exact-ID lookup even for a rewards administrator
   await openFixture(page, '?studentId=student-far&rewards=1')
   await expect(cards(page)).toHaveCount(1)
   await expect(cards(page)).toContainText('Học viên ngoài trang đầu')
-  await expect(page.getByText('Tra cứu chính xác mã: student-far')).toBeVisible()
+  await expect(page.getByText('Mã: student-far')).toBeVisible()
   expect(await page.evaluate(() => window.loyaltyFixture.calls)).toEqual([{ pageSize: 100, studentId: 'student-far' }])
   expect(await page.evaluate(() => window.loyaltyFixture.rewardsCalls)).toBe(0)
   await expect(page.getByRole('button', { name: 'Tải thêm', exact: true })).toHaveCount(0)
@@ -110,7 +128,7 @@ test('a late previous page cannot append after tab change or overwrite the new l
   await page.getByRole('button', { name: 'Tải thêm', exact: true }).click()
   await expect.poll(() => page.evaluate(() => Object.keys(window.loyaltyFixture.pending).length)).toBe(1)
   await page.getByRole('button', { name: 'Danh mục quà', exact: true }).click()
-  await expect(page.getByText('0 quyền lợi')).toBeVisible()
+  await expect(page.getByText('0 quà tặng')).toBeVisible()
   await page.getByRole('button', { name: 'Thành viên', exact: true }).click()
   await expect(cards(page)).toHaveCount(2)
   await page.evaluate(() => window.loyaltyFixture.pending[1].resolve())

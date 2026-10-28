@@ -6,6 +6,7 @@ const { allocateBehaviorBudget } = require('./loyalty-behavior-budget')
 const { readLoyaltyDashboardSummary } = require('./loyalty-dashboard-projection')
 const { writeMissionProgress } = require('./loyalty-mission-progress')
 const { readCreditMembership, requireManagedMember, membershipIsManaged } = require('./loyalty-membership')
+const { normalizeRewardBanner } = require('./loyalty-reward-media')
 const {
   DEFAULT_POLICY,
   DEFAULT_REWARDS,
@@ -1627,6 +1628,8 @@ function rewardView(value, id) {
     id,
     name: value.name || 'Quyền lợi Aura',
     description: value.description || '',
+    bannerUrl: value.bannerUrl || '',
+    bannerStoragePath: value.bannerStoragePath || '',
     pointsCost: Number(value.pointsCost || 0),
     category: value.category || 'other',
     fulfillmentType: value.fulfillmentType === 'automatic' ? 'automatic' : 'staff',
@@ -2399,6 +2402,7 @@ function createLoyaltyFunctions({ db, onCall, logger = console }) {
     const actor = await capabilityActor(request, db, 'loyalty.reward.manage')
     const rewardId = request.data?.id ? documentId(request.data.id, 'Mã quyền lợi') : db.collection('loyaltyRewards').doc().id
     const reference = db.doc(`loyaltyRewards/${rewardId}`)
+    const banner = request.data?.bannerUrl === undefined && request.data?.bannerStoragePath === undefined ? null : normalizeRewardBanner(request.data, rewardId)
     const expectedRevision = integer(request.data?.expectedRevision ?? 0, 'Phiên bản kỳ vọng', 0, 1_000_000)
     const fulfillmentType = request.data?.fulfillmentType
     if (!['automatic', 'staff'].includes(fulfillmentType)) throw new HttpsError('invalid-argument', 'Cách giao quyền lợi không hợp lệ.')
@@ -2407,6 +2411,7 @@ function createLoyaltyFunctions({ db, onCall, logger = console }) {
       throw new HttpsError('invalid-argument', 'Quyền lợi tự động chưa có luồng sử dụng an toàn.')
     }
     const reward = rewardView({
+      ...banner,
       name: boundedString(request.data?.name, 'Tên quyền lợi', 160),
       description: boundedString(request.data?.description, 'Mô tả', 1000, false),
       pointsCost: integer(request.data?.pointsCost, 'Điểm đổi', 1, 1_000_000),
@@ -2421,6 +2426,10 @@ function createLoyaltyFunctions({ db, onCall, logger = console }) {
     }, rewardId)
     return db.runTransaction(async (transaction) => {
       const snapshot = await transaction.get(reference)
+      if (!banner) {
+        reward.bannerUrl = snapshot.data()?.bannerUrl || ''
+        reward.bannerStoragePath = snapshot.data()?.bannerStoragePath || ''
+      }
       const revision = Number(snapshot.exists ? snapshot.data().revision || 0 : 0)
       if (revision !== expectedRevision) throw new HttpsError('aborted', 'Quyền lợi đã được người khác cập nhật. Hãy tải lại.')
       transaction.set(reference, { ...reward, schemaVersion: LOYALTY_SCHEMA_VERSION, revision: revision + 1, createdAt: snapshot.exists ? snapshot.data().createdAt : FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(), updatedBy: actor.uid }, { merge: true })

@@ -253,7 +253,7 @@ export default function AdminLoyaltyPage({
   return (
     <div className="loyalty-admin loyalty-admin--renewed club-workspace">
       <header className="loyalty-admin__header">
-        <div><h1>Aura Club</h1><p>Quản lý thành viên, quà tặng và yêu cầu đổi quà.</p></div>
+        <div><h1>Aura Club</h1></div>
         {!isOperations ? <button type="button" disabled={(section === 'redemptions' ? queueLoading : loading) || Boolean(busy)} onClick={() => { if (section === 'redemptions') void loadQueue(); else void load() }} aria-label="Tải lại dữ liệu Aura Club"><RefreshCw className={loading || queueLoading ? 'loyalty-spin' : ''} /><span>Tải lại</span></button> : null}
       </header>
       <ClubNavigation label="Vận hành Aura Club" active={section} primary={primary} secondary={secondary} onSelect={selectSection} disabled={Boolean(busy) || operationsBusy} mobileDock={useMobileDock} />
@@ -261,19 +261,18 @@ export default function AdminLoyaltyPage({
       {notice ? <div className="loyalty-inline-notice" role="status"><CheckCircle2 size={17} /> {notice}</div> : null}
       {section === 'overview' ? <div className="club-overview-panel">
       <section className="club-overview" aria-label="Chỉ số Aura Club">
-        <div><Users /><span>Thành viên active</span><strong>{formatNumber(metrics.memberCount)}</strong><small>Hợp đồng đang hiệu lực</small></div>
+        <div><Users /><span>Thành viên</span><strong>{formatNumber(metrics.memberCount)}</strong></div>
         <div><Coins /><span>Điểm khả dụng</span><strong>{formatNumber(metrics.availablePoints)}</strong><small>{formatNumber(metrics.pendingPoints)} điểm đang chờ</small></div>
-        <div><Gift /><span>Đang chờ xử lý</span><strong>{formatNumber(metrics.pendingRedemptions)}</strong><small>Yêu cầu đổi quyền lợi</small></div>
-        <div><WalletCards /><span>Giá trị điểm hiện tại</span><strong>{formatMoney(metrics.outstandingNominalValueVnd)}</strong><small>Của các ví đang quản lý</small></div>
+        <div><Gift /><span>Chờ đổi quà</span><strong>{formatNumber(metrics.pendingRedemptions)}</strong></div>
+        <div><WalletCards /><span>Giá trị điểm</span><strong>{formatMoney(metrics.outstandingNominalValueVnd)}</strong></div>
       </section>
         <RewardBanners items={[
           ...(canManageRewards ? [{ kind: 'gifts' as const, title: 'Quà tặng Aura', description: 'Danh mục quà, điểm đổi và số lượng còn lại.', action: 'Xem quà', onClick: () => selectSection('rewards') }] : []),
           ...(canReviewRedemptions ? [{ kind: 'vouchers' as const, title: 'Đổi quà', description: dashboard.features.redeem ? 'Duyệt yêu cầu và xác nhận đã trao quà.' : 'Đổi điểm đang tạm dừng. Các yêu cầu cũ vẫn được xử lý.', action: 'Xem yêu cầu', onClick: () => selectSection('redemptions') }] : []),
         ]} />
-        <p className="club-membership-note"><CheckCircle2 /> Quản lý học viên active và tiếp tục trong một tháng sau hết hạn. Lịch sử điểm được giữ khi học viên quay lại.</p>
         {metrics.debtPoints > 0 ? <aside className="loyalty-admin-risk"><AlertTriangle /><div><strong>{formatNumber(metrics.debtPoints)} điểm cần bù</strong><span>Tài khoản liên quan tạm khóa đổi quà đến khi bù đủ điểm.</span></div></aside> : null}
         <section className="loyalty-admin-card">
-          <header><div><span>Cơ cấu hạng</span><h2>Thành viên theo hạng</h2></div><Crown /></header>
+          <header><div><h2>Thành viên theo hạng</h2></div><Crown /></header>
           <div className="loyalty-tier-chart">
             {dashboard.tiers.map((item) => <div key={item.tier}><span>{item.tier}</span><i><b style={{ width: `${Math.max(4, item.count / maxTier * 100)}%` }} /></i><strong>{formatNumber(item.count)}</strong></div>)}
           </div>

@@ -45,6 +45,7 @@ import type {
   ReferralWorkspace,
 } from './types'
 import './loyalty.css'
+import RewardImage from './RewardImage'
 
 const tabs: Array<{ id: AuraClubTab; label: string; icon: typeof Gift }> = [
   { id: 'rewards', label: 'Đổi quà', icon: Gift },
@@ -372,7 +373,7 @@ function AuraClubWorkspace({ isDemo = false, ownerId, initialTab = 'rewards', on
           <div>
             <span className="loyalty-tier"><Crown size={18} /> Aura {tierLabels[account.tier]}</span>
             <h1>{formatNumber(account.availablePoints)} <small>Điểm Aura</small></h1>
-            <p>{dashboard.membership?.managed === false ? 'Điểm cũ được giữ lại. Tham gia lại khi hợp đồng có hiệu lực.' : 'Điểm dùng tại toàn hệ thống Aura và không hết hạn.'}</p>
+            <p>{dashboard.membership?.managed === false ? 'Điểm được giữ khi bạn quay lại.' : 'Dùng tại mọi chi nhánh · Không hết hạn'}</p>
           </div>
           <div className="loyalty-hero__wallet" aria-label="Số dư Điểm Aura">
             <span><Clock3 size={16} /> Đang chờ <strong>{formatNumber(account.pendingPoints)}</strong></span>
@@ -382,7 +383,7 @@ function AuraClubWorkspace({ isDemo = false, ownerId, initialTab = 'rewards', on
         {account.debtPoints > 0 ? <div className="loyalty-debt" role="alert">Có {formatNumber(account.debtPoints)} điểm cần bù từ giao dịch đã hoàn. Đổi thưởng tạm khóa.</div> : null}
         <div className="loyalty-tier-progress">
           <span><i style={{ width: `${account.tierProgress.percent}%` }} /></span>
-          <small>{account.tierProgress.nextTier ? `Còn ${formatMoney(account.tierProgress.remainingValue)} thực thu ròng để lên ${tierLabels[account.tierProgress.nextTier]}` : 'Bạn đang ở hạng cao nhất của Aura Club'}</small>
+          <small>{account.tierProgress.nextTier ? `Còn ${formatMoney(account.tierProgress.remainingValue)} để lên ${tierLabels[account.tierProgress.nextTier]}` : 'Hạng cao nhất'}</small>
         </div>
         <button type="button" className="loyalty-refresh" onClick={() => { void load(true); if (activeTab === 'rewards') void loadRewards(); if (activeTab === 'history') void loadHistory(false); if (activeTab === 'referral') void loadReferral() }} disabled={refreshing} aria-label="Tải lại Aura Club"><RefreshCw className={refreshing ? 'loyalty-spin' : ''} /></button>
       </header>
@@ -412,10 +413,10 @@ function AuraClubWorkspace({ isDemo = false, ownerId, initialTab = 'rewards', on
       <main className="loyalty-content">
         {activeTab === 'rewards' ? (
           <section aria-labelledby="loyalty-rewards-title">
-            <div className="loyalty-section-heading"><div><span>Quyền lợi</span><h2 id="loyalty-rewards-title">Dùng điểm cho điều bạn cần</h2><p>Quyền lợi số được cấp ngay; quà và dịch vụ sẽ được Staff xác nhận.</p></div><WalletCards /></div>
+            <div className="loyalty-section-heading"><div><h2 id="loyalty-rewards-title">Quà tặng Aura</h2></div><WalletCards /></div>
             {!features?.redeem ? <div className="loyalty-feature-pause"><Clock3 /> Danh mục đang ở chế độ xem trước. Admin chưa mở đổi điểm.</div> : null}
             {redemptions.length ? <div className="loyalty-my-redemptions">
-              <div className="loyalty-my-redemptions__heading"><div><strong>Quyền lợi của bạn</strong><span>Theo dõi yêu cầu gần đây ngay tại đây.</span></div><Clock3 /></div>
+              <div className="loyalty-my-redemptions__heading"><div><strong>Quà đã đổi</strong></div><Clock3 /></div>
               <div className="loyalty-my-redemptions__list">{redemptions.slice(0, 4).map((item) => <article key={item.id}>
                 <div><strong>{item.rewardName}</strong><small>{item.pointsCost.toLocaleString('vi-VN')} điểm · {item.createdAt ? new Intl.DateTimeFormat('vi-VN', { dateStyle: 'short' }).format(new Date(item.createdAt)) : 'Đang đồng bộ'}</small></div>
                 <span className={`loyalty-status loyalty-status--${item.status}`}>{item.status === 'pending' ? 'Chờ Staff' : item.status === 'approved' ? 'Đã duyệt' : item.status === 'fulfilled' ? 'Đã nhận' : item.status === 'cancelled' ? 'Đã hủy' : 'Đã từ chối'}</span>
@@ -436,9 +437,9 @@ function AuraClubWorkspace({ isDemo = false, ownerId, initialTab = 'rewards', on
               {availableRewards.map((reward) => {
                 const affordable = account.availablePoints >= reward.pointsCost && account.debtPoints === 0
                 return (
-                  <article key={reward.id} className={`loyalty-reward${reward.featured ? ' is-featured' : ''}`}>
-                    <div className="loyalty-reward__icon">{reward.category === 'schedule' ? <RefreshCw /> : reward.category === 'training' ? <Award /> : <Gift />}</div>
-                    <div className="loyalty-reward__copy"><span>{reward.fulfillmentType === 'automatic' ? 'Cấp tự động' : 'Staff xác nhận'}</span><h3>{reward.name}</h3><p>{reward.description || `Có hiệu lực ${reward.validityDays} ngày sau khi nhận.`}</p></div>
+                  <article key={reward.id} className={`loyalty-reward club-gift-card${reward.featured ? ' is-featured' : ''}`}>
+                    <RewardImage src={reward.bannerUrl} name={reward.name} />
+                    <div className="loyalty-reward__copy"><span>{reward.fulfillmentType === 'automatic' ? 'Cấp ngay' : 'Nhận tại Aura'}</span><h3>{reward.name}</h3>{reward.description && <p>{reward.description}</p>}</div>
                     <footer><strong>{formatNumber(reward.pointsCost)} điểm</strong><button type="button" disabled={!features?.redeem || !affordable || reward.stock === 0} onClick={() => setSelectedReward(reward)}>{reward.stock === 0 ? 'Hết lượt' : affordable ? 'Đổi ngay' : 'Chưa đủ điểm'}</button></footer>
                   </article>
                 )

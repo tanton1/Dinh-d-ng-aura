@@ -1,0 +1,41 @@
+.club-gift-image {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  aspect-ratio: 2 / 1;
+  flex: none;
+  overflow: hidden;
+  border-radius: 10px;
+  color: #dd647f;
+  background: #fdf2f6;
+}
+.club-gift-image img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.loyalty-admin-rewards__grid article > .club-gift-image { display: grid; margin-bottom: 12px; color: #dd647f; }
+.loyalty-reward.club-gift-card { display: flex; flex-direction: column; gap: 14px; overflow: hidden; box-shadow: none; }
+.club-gift-card .loyalty-reward__copy { flex: 1; }
+.club-gift-card footer { margin-top: auto; }
+.club-editor-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.club-editor-heading h2 { margin: 0; font-size: 22px; }
+.club-editor-heading > button { display: grid; place-items: center; flex: none; width: 40px; height: 40px; border: 0; border-radius: 10px; background: #f6f6f7; color: #514950; }
+.club-reward-fields { min-width: 0; margin: 0; padding: 0; border: 0; }
+.club-reward-fields:disabled { opacity: .65; }
+.club-banner-upload { margin: 16px 0; }
+.club-banner-upload .club-gift-image { max-height: 210px; }
+.club-banner-upload__controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; }
+.club-banner-upload__controls > small { flex-basis: 100%; color: #716874; font-size: 12px; }
+.club-upload-button, .club-remove-banner { position: relative; display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 42px; padding: 8px 12px; border: 1px solid #e7e3e8; border-radius: 9px; background: #fff; color: #514950; font: inherit; font-size: 13px; cursor: pointer; }
+.club-upload-button input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+.club-upload-button:focus-within { outline: 3px solid #f46366; outline-offset: 3px; }
+.club-upload-progress { display: flex; align-items: center; gap: 10px; margin-top: 12px; font-size: 12px; }
+.club-upload-progress progress { flex: 1; accent-color: #f46366; }
+.loyalty-admin-editor > form > footer { margin-top: 20px; }
+.loyalty-admin-editor > form { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+.loyalty-admin-editor .club-reward-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding-right: 4px; }
+.loyalty-admin-editor .club-reward-fields { min-width: 0; }
+.loyalty-admin-editor .club-reward-fields .loyalty-admin-editor__grid { overflow: visible; }
+.loyalty-admin-editor > form > footer { flex: none; padding-block: 12px 0; border-top: 1px solid #e7e3e8; background: #fff; }
+.loyalty-admin-editor .club-editor-heading { flex: none; }
+@media (max-width: 600px) {
+  .club-banner-upload .club-gift-image { max-height: 170px; }
+  .club-editor-heading h2 { font-size: 19px; }
+}

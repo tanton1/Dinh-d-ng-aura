@@ -17,6 +17,7 @@ function storageFor(uid, role) {
   return testEnvironment.authenticatedContext(uid, { role }).storage()
 }
 
+
 function uploadCover(storage, courseId, name, bytes = validImage, options = {}) {
   return uploadBytes(ref(storage, `public-assets/course-covers/${courseId}/${name}`), bytes, {
     contentType: options.contentType ?? 'image/jpeg',
@@ -72,6 +73,22 @@ function uploadPerformanceEvidence(storage, userId, periodId = '2026-09', eviden
 }
 
 describe('Aura Academy Storage rules', () => {
+  test('reward banners are public, immutable and writable only by admins with matching metadata', async () => {
+    const path = `public-assets/loyalty-rewards/gift-${Date.now()}/banner-12345678.webp`
+    const rewardId = path.split('/')[2]
+    const admin = storageFor('admin-banner', 'admin')
+    const metadata = { contentType: 'image/webp', customMetadata: { rewardId, uploadedBy: 'admin-banner', resourceKind: 'loyalty-reward-banner' } }
+    await assertFails(uploadBytes(ref(storageFor('student-banner', 'student'), path), validImage, { ...metadata, customMetadata: { ...metadata.customMetadata, uploadedBy: 'student-banner' } }))
+    await assertFails(uploadBytes(ref(storageFor('editor-banner', 'editor'), path), validImage, { ...metadata, customMetadata: { ...metadata.customMetadata, uploadedBy: 'editor-banner' } }))
+    await assertFails(uploadBytes(ref(admin, path), validImage, { ...metadata, contentType: 'image/svg+xml' }))
+    await assertFails(uploadBytes(ref(admin, path), validImage, { ...metadata, customMetadata: { ...metadata.customMetadata, rewardId: 'other-gift' } }))
+    await assertFails(uploadBytes(ref(admin, path), new Uint8Array(5 * 1024 * 1024 + 1), metadata))
+    await assertSucceeds(uploadBytes(ref(admin, path), validImage, metadata))
+    await assertSucceeds(getBytes(ref(testEnvironment.unauthenticatedContext().storage(), path)))
+    await assertFails(uploadBytes(ref(admin, path), validImage, metadata))
+    await assertFails(updateMetadata(ref(admin, path), { contentType: 'image/png' }))
+  })
+
   before(async () => {
     testEnvironment = await initializeTestEnvironment({
       projectId,

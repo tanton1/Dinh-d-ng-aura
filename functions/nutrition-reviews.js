@@ -515,12 +515,24 @@ function reviewPriority(left, right) {
   return right.createdAt - left.createdAt || left.id.localeCompare(right.id)
 }
 
-function pageCursor(cursor, status) {
+function normalizeReviewDateRange(input = {}) {
+  if (input.startDate === undefined && input.endDate === undefined) return null
+  const valid = (value) => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)
+    && Number.isFinite(Date.parse(`${value}T00:00:00Z`)) && new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) === value
+  if (!valid(input.startDate) || !valid(input.endDate)) throw new HttpsError('invalid-argument', 'Ngày lọc không hợp lệ.')
+  const start = Date.parse(`${input.startDate}T00:00:00+07:00`)
+  const end = Date.parse(`${input.endDate}T00:00:00+07:00`) + 86_400_000
+  if (end <= start || end - start > 31 * 86_400_000) throw new HttpsError('invalid-argument', 'Chọn khoảng ngày không quá 31 ngày.')
+  return { start: Timestamp.fromMillis(start), end: Timestamp.fromMillis(end), key: `${input.startDate}:${input.endDate}` }
+}
+
+function pageCursor(cursor, status, dateRange = null) {
   if (!cursor) return null
   try {
     const parsed = JSON.parse(Buffer.from(String(cursor), 'base64url').toString('utf8'))
     const createdAt = Number(parsed.createdAt)
     if (parsed.version !== 2 || parsed.status !== status || !Number.isFinite(createdAt) || createdAt <= 0 || !/^[A-Za-z0-9_-]+$/.test(parsed.id || '')) throw new Error('invalid')
+    if ((parsed.dateRangeKey || '') !== (dateRange?.key || '')) throw new Error('date range changed')
     const key = { createdAt, id: parsed.id }
     if (parsed.timestamp) {
       const { seconds, nanoseconds } = parsed.timestamp
@@ -553,11 +565,12 @@ function compareReviewKeys(left, right) {
     || (left.id < right.id ? -1 : left.id > right.id ? 1 : 0)
 }
 
-function nextPageCursor(status, snapshotOrKey) {
+function nextPageCursor(status, snapshotOrKey, dateRange = null) {
   const key = typeof snapshotOrKey.data === 'function' ? reviewDocumentKey(snapshotOrKey) : snapshotOrKey
   return Buffer.from(JSON.stringify({
     version: 2,
     status,
+    ...(dateRange ? { dateRangeKey: dateRange.key } : {}),
     ...key,
   }), 'utf8').toString('base64url')
 }
@@ -569,7 +582,7 @@ function clientChunks(clientIds) {
   return values
 }
 
-function scopedReviewQuery(db, clientIds, status, direction, cursor = null, timestampField = 'createdAt', overdueCutoff = null, actorIds = []) {
+function scopedReviewQuery(db, clientIds, status, direction, cursor = null, timestampField = 'createdAt', overdueCutoff = null, actorIds = [], dateRange = null) {
   const sources = clientChunks(clientIds).map((ids) => {
     let source = db.collection('mealReviews')
     if (ids) source = source.where('userId', 'in', ids)
@@ -583,6 +596,7 @@ function scopedReviewQuery(db, clientIds, status, direction, cursor = null, time
   }
   return sources.map((query) => {
     let source = query
+    if (dateRange) source = source.where(timestampField, '>=', dateRange.start).where(timestampField, '<', dateRange.end)
     if (overdueCutoff) source = source.where(timestampField, '<', overdueCutoff)
     source = source.orderBy(timestampField, direction).orderBy(FieldPath.documentId(), direction)
     if (cursor) source = source.startAfter(cursor.timestamp
@@ -592,12 +606,12 @@ function scopedReviewQuery(db, clientIds, status, direction, cursor = null, time
   })
 }
 
-async function fetchReviewDocuments(db, clientIds, status, cursor, { scanLimit = REVIEW_PAGE_SCAN_LIMIT, overdueCutoff = null, actorIds = [] } = {}) {
+async function fetchReviewDocuments(db, clientIds, status, cursor, { scanLimit = REVIEW_PAGE_SCAN_LIMIT, overdueCutoff = null, actorIds = [], dateRange = null } = {}) {
   const direction = status === 'pending' ? 'asc' : 'desc'
   const take = Math.min(REVIEW_PAGE_SCAN_LIMIT, Math.max(1, Math.trunc(scanLimit)))
   const compare = (left, right) => compareReviewKeys(left, right) * (direction === 'asc' ? 1 : -1)
   const streams = ['createdAt', 'submittedAt'].flatMap((field) => (
-    scopedReviewQuery(db, clientIds, status, direction, cursor, field, overdueCutoff, actorIds).map((query) => ({ field, query }))
+    scopedReviewQuery(db, clientIds, status, direction, cursor, field, overdueCutoff, actorIds, dateRange).map((query) => ({ field, query }))
   ))
   const snapshots = await Promise.all(streams.map(async ({ field, query }) => ({ field, docs: (await query.limit(take + 1).get()).docs })))
   // A full legacy stream may contain only duplicates. Advance through its raw
@@ -635,7 +649,25 @@ async function countScopedReviews(db, clientIds, constraints = []) {
   return snapshots.reduce((sum, snapshot) => sum + finite(snapshot.data()?.count), 0)
 }
 
-async function scopedReviewSummary(db, clientIds, slaMinutes, assignmentCount, now = Date.now(), actorIds = []) {
+async function scopedReviewSummary(db, clientIds, slaMinutes, assignmentCount, now = Date.now(), actorIds = [], dateRange = null) {
+  if (dateRange) {
+    const streams = ['createdAt', 'submittedAt'].flatMap((field) => scopedReviewQuery(db, clientIds, 'all', 'desc', null, field, null, actorIds, dateRange).map((query) => ({ field, query })))
+    const take = Math.max(1, Math.floor(REVIEW_SUMMARY_SCAN_LIMIT / Math.max(1, streams.length)))
+    const pages = await Promise.all(streams.map(async ({ field, query }) => ({ field, docs: (await query
+      .select('userId', 'status', 'priority', 'createdAt', 'submittedAt').limit(take + 1).get()).docs })))
+    const rows = [...new Map(pages.flatMap(({ field, docs }) => docs.slice(0, take)
+      .filter((item) => field === 'createdAt' || !timestampMillis(item.data()?.createdAt))).map((item) => [item.id, item.data()])).values()]
+    const pending = rows.filter((row) => row.status === 'pending')
+    const truncated = pages.some(({ docs }) => docs.length > take)
+    return { summary: {
+      total: rows.length, pending: pending.length,
+      approved: rows.filter((row) => row.status === 'approved').length,
+      rejected: rows.filter((row) => row.status === 'rejected').length,
+      overdue: pending.filter((row) => reviewTimestampMillis(row) + slaMinutes * 60_000 < now).length,
+      highPriority: pending.filter((row) => row.priority === 'high').length,
+      students: new Set(rows.map((row) => row.userId)).size,
+    }, truncated, countsTruncated: truncated }
+  }
   // A field-select query includes legacy documents with no createdAt and
   // transfers no meal images/analysis. Active-care counts remain exact; SLA
   // and captured-task counts declare when their bounded scans are partial.
@@ -716,12 +748,12 @@ function createNutritionReviewFunctions({ db, onCall, reviewCallOptions = {} }) 
   // Only aggregate counts are cached, never identities, permissions or photos.
   // Re-resolve caller scope on every request; local mutations invalidate it.
   const summaries = new Map()
-  const cachedSummary = (clientIds, slaMinutes, assignmentCount, now, forceRefresh = false, actorIds = []) => {
-    const key = snapshotHash({ clientIds: clientIds === null ? null : [...clientIds].sort(), slaMinutes, actorIds: [...actorIds].sort() })
+  const cachedSummary = (clientIds, slaMinutes, assignmentCount, now, forceRefresh = false, actorIds = [], dateRange = null) => {
+    const key = snapshotHash({ clientIds: clientIds === null ? null : [...clientIds].sort(), slaMinutes, actorIds: [...actorIds].sort(), dateRange: dateRange?.key || '' })
     const cached = summaries.get(key)
     if (!forceRefresh && cached && cached.expiresAt > now) return cached.promise
     if (summaries.size >= 50) summaries.delete(summaries.keys().next().value)
-    const promise = scopedReviewSummary(db, clientIds, slaMinutes, assignmentCount, now, actorIds)
+    const promise = scopedReviewSummary(db, clientIds, slaMinutes, assignmentCount, now, actorIds, dateRange)
     summaries.set(key, { promise, expiresAt: now + 15_000 })
     promise.catch(() => { if (summaries.get(key)?.promise === promise) summaries.delete(key) })
     return promise
@@ -987,7 +1019,8 @@ function createNutritionReviewFunctions({ db, onCall, reviewCallOptions = {} }) 
     const requestedStatus = request.data?.status
     const focus = request.data?.focus === 'overdue' ? 'overdue' : 'all'
     const status = focus === 'overdue' ? 'pending' : ['pending', 'approved', 'rejected'].includes(requestedStatus) ? requestedStatus : 'all'
-    const cursor = pageCursor(request.data?.cursor, status)
+    const dateRange = normalizeReviewDateRange(request.data)
+    const cursor = pageCursor(request.data?.cursor, status, dateRange)
     const coachId = typeof request.data?.coachId === 'string' && request.data.coachId.trim()
       ? request.data.coachId.trim().slice(0, 200)
       : 'all'
@@ -1008,9 +1041,10 @@ function createNutritionReviewFunctions({ db, onCall, reviewCallOptions = {} }) 
         scanLimit: hasDetailFilters ? Math.min(60, limit * 2) : limit,
         overdueCutoff: focus === 'overdue' ? Timestamp.fromMillis(now - slaMinutes * 60_000) : null,
         actorIds,
+        dateRange,
       }) : Promise.resolve({ documents: [], hasMore: false, resumeKey: null }),
       allScope && includeDirectory ? availableNutritionCoaches(db) : Promise.resolve({ coaches: [], coachesHasMore: false, coachesNextCursor: null }),
-      includeSummary ? cachedSummary(clientIds, slaMinutes, assignmentCount, now, request.data?.forceRefresh === true, actorIds)
+      includeSummary ? cachedSummary(clientIds, slaMinutes, assignmentCount, now, request.data?.forceRefresh === true, actorIds, dateRange)
         : Promise.resolve({ summary: { total: 0, pending: 0, approved: 0, rejected: 0, overdue: 0, highPriority: 0, students: assignmentCount }, truncated: false, countsTruncated: false }),
     ])
     const { summary } = summaryResult
@@ -1039,10 +1073,10 @@ function createNutritionReviewFunctions({ db, onCall, reviewCallOptions = {} }) 
       scope: allScope ? 'all' : 'assigned',
       assignmentCount,
       hasMore,
-      nextCursor: hasMore && resumeKey ? nextPageCursor(status, resumeKey) : null,
+      nextCursor: hasMore && resumeKey ? nextPageCursor(status, resumeKey, dateRange) : null,
       filteredCount: includeSummary ? (focus === 'overdue' ? summary.overdue : status === 'all' ? summary.total : summary[status]) : reviews.length,
       filteredCountExact: includeSummary && !assignedScope.truncated && !hasDetailFilters && !(focus === 'overdue' && summaryResult.truncated)
-        && !(['pending', 'all'].includes(status) && summaryResult.countsTruncated),
+        && !summaryResult.countsTruncated,
       summary,
       summaryTruncated: assignedScope.truncated || summaryResult.truncated,
       summaryCountsTruncated: assignedScope.truncated || summaryResult.countsTruncated,
@@ -1187,6 +1221,7 @@ module.exports = {
   reviewSummary,
   pageCursor,
   nextPageCursor,
+  normalizeReviewDateRange,
   sanitizeMealInput,
   snapshotHash,
   nutritionMealWriteReceiptId,

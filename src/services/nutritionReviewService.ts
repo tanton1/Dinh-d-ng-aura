@@ -4,6 +4,7 @@ import { firebaseFunctions, firebaseScheduleOptimizerFunctions } from '../lib/fi
 import { runReadOnlyWithFallback } from './readOnlyCallableService'
 
 export type NutritionReviewStatus = 'pending' | 'approved' | 'rejected'
+export type NutritionReviewDateRange = { startDate: string; endDate: string }
 
 export interface NutritionMealReview {
   id: string
@@ -114,6 +115,8 @@ export async function listNutritionMealReviews(
     forceRefresh?: boolean
     section?: 'page' | 'summary' | 'directory'
     directoryCursor?: string | null
+    startDate?: string
+    endDate?: string
   } = {},
   authorityKey = '',
 ) {
@@ -129,6 +132,8 @@ export async function listNutritionMealReviews(
     forceRefresh: input.forceRefresh,
     section: input.section,
     directoryCursor: input.directoryCursor,
+    startDate: input.startDate,
+    endDate: input.endDate,
   }
   const key = JSON.stringify([ownerId, authorityKey, payload])
   const existing = pendingReads.get(key)
@@ -161,8 +166,8 @@ export async function listNutritionMealReviews(
   try { return await pending } finally { if (pendingReads.get(key) === pending) pendingReads.delete(key) }
 }
 
-export function getNutritionReviewSummary(authorityKey = '', forceRefresh = false, freshnessKey = '') {
-  return listNutritionMealReviews({ section: 'summary', forceRefresh }, JSON.stringify([authorityKey, freshnessKey]))
+export function getNutritionReviewSummary(authorityKey = '', forceRefresh = false, freshnessKey = '', dateRange?: NutritionReviewDateRange) {
+  return listNutritionMealReviews({ section: 'summary', forceRefresh, ...dateRange }, JSON.stringify([authorityKey, freshnessKey]))
 }
 
 export function getNutritionReviewCoaches(authorityKey = '', directoryCursor: string | null = null): Promise<NutritionReviewDirectoryResult> {

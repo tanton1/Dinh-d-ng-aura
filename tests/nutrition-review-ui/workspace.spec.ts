@@ -1,7 +1,48 @@
 import { expect, test } from '@playwright/test'
 
 test.beforeEach(async ({ page }) => {
+  await page.clock.setFixedTime(new Date('2026-10-28T05:00:00Z'))
   await page.route('**/*', (route) => route.request().url().startsWith('http://127.0.0.1:4191/') ? route.continue() : route.abort())
+})
+
+test('entry loads today only; day and week navigation keep requests and counters in sync', async ({ page }, info) => {
+  await page.goto('/tests/nutrition-review-ui/index.html')
+  await expect(page.locator('.nrw-review-card')).toHaveCount(2)
+  expect(await page.evaluate(() => (window as any).reviewTest.reads[0])).toMatchObject({ startDate: '2026-10-28', endDate: '2026-10-28', cursor: null })
+  expect(await page.evaluate(() => (window as any).reviewTest.summaryReads[0])).toMatchObject({ startDate: '2026-10-28', endDate: '2026-10-28' })
+  await expect(page.getByText('Học viên hôm qua', { exact: true })).toHaveCount(0)
+  await page.getByRole('tab', { name: 'Theo tuần' }).click()
+  await expect(page.locator('.nrw-review-card')).toHaveCount(3)
+  await expect(page.locator('.nrw-kpis article').first()).toContainText('3')
+  expect(await page.evaluate(() => (window as any).reviewTest.reads.at(-1))).toMatchObject({ startDate: '2026-10-26', endDate: '2026-11-01', cursor: null })
+  await page.getByRole('tab', { name: 'Theo ngày' }).click()
+  await page.getByRole('button', { name: 'Ngày trước', exact: true }).click()
+  await expect(page.locator('.nrw-review-card')).toHaveCount(1)
+  await expect(page.locator('.nrw-review-card')).toContainText('Học viên hôm qua')
+  await page.getByRole('button', { name: 'Hôm nay', exact: true }).click()
+  await expect(page.locator('.nrw-review-card')).toHaveCount(2)
+  await expect(page.getByRole('button', { name: 'Ngày sau', exact: true })).toBeDisabled()
+  await page.screenshot({ path: info.outputPath('review-today.png'), fullPage: true })
+})
+
+test('a late previous-date page and summary cannot replace the new date', async ({ page }) => {
+  await page.goto('/tests/nutrition-review-ui/index.html')
+  await expect(page.locator('.nrw-review-card')).toHaveCount(2)
+  await page.evaluate(() => { const state = (window as any).reviewTest; state.holdRead = true; state.holdSummary = true })
+  await page.getByRole('button', { name: 'Ngày trước', exact: true }).click()
+  await expect.poll(() => page.evaluate(() => (window as any).reviewTest.reads.length)).toBe(2)
+  await page.evaluate(() => {
+    const state = (window as any).reviewTest
+    const oldRead = state.releaseRead, oldSummary = state.releaseSummary
+    ;(window as any).releasePrevious = () => { oldRead(); oldSummary() }
+    state.holdRead = false; state.holdSummary = false
+  })
+  await page.getByRole('button', { name: 'Hôm nay', exact: true }).click()
+  await expect(page.locator('.nrw-review-card')).toHaveCount(2)
+  await page.evaluate(() => (window as any).releasePrevious())
+  await expect(page.locator('.nrw-kpis article').first()).toContainText('2')
+  await expect(page.locator('.nrw-review-card')).toHaveCount(2)
+  await expect(page.getByText('Học viên hôm qua', { exact: true })).toHaveCount(0)
 })
 
 for (const width of [320, 390, 430, 1024]) {

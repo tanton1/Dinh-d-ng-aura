@@ -7,7 +7,7 @@ async function fixture(page: Page, holdHistory = false) {
     const state = window.club;
     const dashboard = () => ({ schemaVersion: 1, account: { studentId: state.owner, status:'active', availablePoints: state.owner === 'owner-1' ? 200 : 600, pendingPoints: 0, reservedPoints: 0, debtPoints: 0, lifetimeEarnedPoints: 200, lifetimeRedeemedPoints: 0, tierQualifyingValue: 0, tier: 'member', tierProgress: { tier: 'member', nextTier: 'silver', percent: 0, remainingValue: 10000000 }, revision: 1 }, missions: [], recognition: { totalKudos:0,totalXp:0,badges:[],recent:[] }, redemptions: [], ambassador: null, features:{earn:true,nutrition:true,redeem:false,referral:false,ambassador:false} });
     export const getMyLoyaltyDashboard = async () => { state.dashboard++; return dashboard(); };
-    export const listMyAvailableRewards = async () => { state.rewards++; if(state.failRewards)throw new Error('test'); return {rewards:[],redeemEnabled:false}; };
+    export const listMyAvailableRewards = async () => { state.rewards++; if(state.failRewards)throw new Error('test'); return {rewards:state.rewardItems||[],redeemEnabled:false}; };
     export const listMyLoyaltyHistory = async (cursor, pageSize) => {
       const owner=state.owner; state.history.push({cursor,pageSize,owner});
       const result={entries:[{id:owner+(cursor?'2':'1'),createdAt:'2026-10-24T12:00:00Z',description:'Lịch sử '+owner+(cursor?' trang hai':''),sourceType:'launch_bonus',kind:'earn',availableDelta:200,pendingDelta:0,reservedDelta:0,debtDelta:0,tierCreditDelta:0}],nextCursor:cursor?null:'opaque-next-cursor'};
@@ -26,6 +26,21 @@ async function fixture(page: Page, holdHistory = false) {
   await page.goto('/tests/loyalty-operations-ui/member.html')
   await expect.poll(() => page.evaluate(() => (window as any).club.dashboard)).toBe(1)
 }
+
+test('members see reward banners from the catalog with a fallback for a missing image', async ({ page }, info) => {
+  await fixture(page)
+  await page.evaluate(() => { (window as any).club.rewardItems = [{ id: 'gift', name: 'Bộ quà Aura', description: 'Bình nước và áo tập Aura', pointsCost: 150, category: 'other', fulfillmentType: 'staff', entitlementType: null, branchIds: [], stock: 5, validityDays: 60, active: true, featured: true, bannerUrl: '/images/aura-club/rewards-gifts-960.webp' }] })
+  await page.getByRole('button', { name: 'Đổi quà', exact: true }).filter({ visible: true }).click()
+  const card = page.locator('.club-gift-card').filter({ hasText: 'Bộ quà Aura' })
+  await expect(card.getByRole('img', { name: 'Bộ quà Aura' })).toBeVisible()
+  await expect.poll(() => card.locator('img').evaluate((image: HTMLImageElement) => image.naturalWidth)).toBeGreaterThan(0)
+  await page.screenshot({ path: info.outputPath('member-reward-banner.png'), fullPage: true })
+  await page.route('**/missing-reward.webp', route => route.fulfill({ status: 404, body: '' }))
+  await page.evaluate(() => { (window as any).club.rewardItems[0].bannerUrl = '/missing-reward.webp' })
+  await page.getByRole('button', { name: 'Tải lại Aura Club', exact: true }).click()
+  await expect(card.locator('img')).toHaveCount(0)
+  await expect(card.getByRole('heading', { name: 'Bộ quà Aura' })).toBeVisible()
+})
 
 test('history opens without loading rewards or referrals and uses the server cursor for more entries', async ({ page }) => {
   await fixture(page)
