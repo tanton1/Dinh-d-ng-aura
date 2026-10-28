@@ -61,7 +61,7 @@ for (const width of [360, 390, 430]) {
     expect(Math.round((await page.locator('.club-workspace').boundingBox())!.width)).toBe(width)
     const metrics = page.getByRole('region', { name: 'Chỉ số Aura Club' })
     await expect(metrics.locator(':scope > div')).toHaveCount(4)
-    await expect(metrics.getByText('Thành viên')).toBeVisible()
+    await expect(metrics.getByText('Đang tập')).toBeVisible()
     const nav = page.getByRole('navigation', { name: 'Vận hành Aura Club' })
     await expect(nav).toBeVisible()
     await expect(nav.getByRole('button')).toHaveCount(5)

@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { readFileSync } from 'node:fs'
 
 for (const width of [320, 390, 1280]) test(`member tiers and reward editor fit ${width}px`, async ({ page }, info) => {
   await page.setViewportSize({ width, height: 844 })
@@ -41,7 +42,7 @@ test('reward banners preview, save, reopen and remove without losing reward deta
   await expect(dialog.locator('.club-gift-image img')).toHaveAttribute('src', '/images/aura-club/rewards-20261028/assessment-480.webp')
   await dialog.getByLabel('Ảnh banner quà tặng').setInputFiles({ name: 'banner.svg', mimeType: 'image/svg+xml', buffer: Buffer.from('<svg/>') })
   await expect(dialog.getByRole('alert')).toContainText('JPG, PNG hoặc WebP')
-  await dialog.getByLabel('Ảnh banner quà tặng').setInputFiles('public/images/aura-club/rewards-gifts-960.webp')
+  await dialog.getByLabel('Ảnh banner quà tặng').setInputFiles({name:'banner.webp', mimeType:'image/webp', buffer:readFileSync('public/images/aura-club/rewards-gifts-960.webp')})
   await expect(dialog.locator('.club-gift-image img')).toHaveAttribute('src', /^blob:/)
   await expect(dialog.getByRole('alert')).toHaveCount(0)
   const name = await dialog.getByLabel('Tên quà', { exact: true }).inputValue()
@@ -79,7 +80,7 @@ test('operations load only on selection; queue failure never blocks other panels
     export const reconcileLoyaltyAccount=async()=>{};export const reviewLoyaltyAdjustment=async()=>{};export const saveLoyaltyReward=async()=>{};
   ` }))
   await page.goto('/tests/loyalty-operations-ui/admin.html')
-  await expect(page.getByText('Thành viên theo hạng')).toBeVisible()
+  await expect(page.getByText('Hạng thành viên đang tập')).toBeVisible()
   expect(await page.evaluate(() => (window as any).clubAdmin.queue)).toEqual([])
   const nav = page.getByRole('navigation', { name: 'Vận hành Aura Club' })
   await nav.getByRole('button', { name: 'Đổi quà', exact: true }).click()
@@ -99,7 +100,7 @@ test('operations load only on selection; queue failure never blocks other panels
   await nav.getByRole('button', { name: 'Quà tặng', exact: true }).click()
   await expect(page.getByText('0 quà tặng')).toBeVisible()
   await nav.getByRole('button', { name: 'Thành viên', exact: true }).click()
-  await expect(page.getByText('Không có kết quả trong danh sách đã tải')).toBeVisible()
+  await expect(page.getByText('Không tìm thấy thành viên')).toBeVisible()
   expect(await page.evaluate(() => ({accounts:(window as any).clubAdmin.accounts,rewards:(window as any).clubAdmin.rewards}))).toEqual({accounts:1,rewards:1})
   await page.getByRole('button', {name:'Tải lại tab đang mở'}).click()
   await expect.poll(() => page.evaluate(() => (window as any).clubAdmin.accounts)).toBe(2)
