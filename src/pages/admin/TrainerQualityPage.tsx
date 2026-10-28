@@ -8,6 +8,7 @@ import {
   type TrainerFeedbackAdminResponse,
 } from '../../services/sessionFeedbackService'
 import './TrainerQualityPage.css'
+import '../../styles-aura-workforce.css'
 
 const STATUS_LABELS: Record<SessionFeedbackStatus, string> = {
   submitted: 'Đã ghi nhận',
@@ -88,12 +89,13 @@ export default function TrainerQualityPage({ isDemo = false }: { isDemo?: boolea
     finally { setAction('') }
   }
 
-  return <main className="trainer-quality-page">
+  return <main className="trainer-quality-page aura-workforce">
+    <header className="aura-workforce__heading"><h1>Chất lượng PT</h1><button type="button" className="aura-workforce__icon-button" aria-label="Tải lại chất lượng PT" disabled={loading} onClick={() => void load()}><RefreshCw /></button></header>
     <section className="trainer-quality-metrics" aria-label="Tổng hợp chất lượng PT">
-      <article className="is-primary"><small>ĐIỂM TRUNG BÌNH</small><strong>{data?.summary.averageScore.toFixed(1) ?? '0.0'}<Star fill="currentColor" /></strong><span>{data?.summary.total ?? 0} lượt đánh giá trong kỳ</span></article>
-      <article><small>TỶ LỆ PHẢN HỒI</small><strong>{data?.summary.responseRate ?? 0}%</strong><span>{data?.summary.total ?? 0}/{data?.summary.eligibleAttendanceCount ?? 0} buổi có tập</span></article>
-      <article className={(data?.summary.lowCount ?? 0) > 0 ? 'is-warning' : ''}><small>ĐÁNH GIÁ 1–2 ĐIỂM</small><strong>{data?.summary.lowCount ?? 0}</strong><span>Cần xem lại trải nghiệm học viên</span></article>
-      <article className={(data?.summary.needsReview ?? 0) > 0 ? 'is-critical' : ''}><small>CHƯA XỬ LÝ</small><strong>{data?.summary.needsReview ?? 0}</strong><span>Phản hồi đang chờ quản lý</span></article>
+      <article className="is-primary"><small>Điểm trung bình</small><strong>{data?.summary.averageScore.toFixed(1) ?? '0.0'}<Star fill="currentColor" /></strong><span>{data?.summary.total ?? 0} đánh giá</span></article>
+      <article><small>Tỷ lệ phản hồi</small><strong>{data?.summary.responseRate ?? 0}%</strong><span>{data?.summary.total ?? 0}/{data?.summary.eligibleAttendanceCount ?? 0} buổi có tập</span></article>
+      <article className={(data?.summary.lowCount ?? 0) > 0 ? 'is-warning' : ''}><small>Đánh giá 1–2 điểm</small><strong>{data?.summary.lowCount ?? 0}</strong><span>Cần xem lại</span></article>
+      <article className={(data?.summary.needsReview ?? 0) > 0 ? 'is-critical' : ''}><small>Chưa xử lý</small><strong>{data?.summary.needsReview ?? 0}</strong><span>Chờ quản lý</span></article>
     </section>
 
     <section className="trainer-quality-toolbar" aria-label="Bộ lọc đánh giá PT">
@@ -102,18 +104,17 @@ export default function TrainerQualityPage({ isDemo = false }: { isDemo?: boolea
       <label><span>Đến ngày</span><input type="date" value={to} min={from} onChange={(event) => setTo(event.target.value)} /></label>
       <label><span>PT</span><select value={trainerId} onChange={(event) => setTrainerId(event.target.value)}><option value="">Tất cả PT</option>{data?.trainers.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
       <label><span>Trạng thái</span><select value={status} onChange={(event) => setStatus(event.target.value as SessionFeedbackStatus | '')}><option value="">Mọi trạng thái</option>{Object.entries(STATUS_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
-      <button type="button" className="trainer-quality-refresh" onClick={() => void load()}><RefreshCw /> Tải lại</button>
     </section>
 
     {error && <div className="trainer-quality-state is-error" role="alert"><AlertTriangle /> {error}</div>}
     {loading && <div className="trainer-quality-state" role="status"><LoaderCircle className="spin" /> Đang tải phản hồi học viên…</div>}
     {!loading && data && <>
       <section className="trainer-quality-analysis">
-        <article className="trainer-quality-chart"><header><span><BarChart3 /></span><div><small>PHÂN BỐ ĐIỂM</small><h2>Mức độ hài lòng</h2></div></header><div>{distribution.map((item) => <span key={item.value}><b>{item.value}<Star fill="currentColor" /></b><i><em style={{ width: `${item.count / maximumDistribution * 100}%` }} /></i><strong>{item.count}</strong></span>)}</div></article>
-        <article className="trainer-quality-ranking"><header><span><UserRoundCheck /></span><div><small>THEO HUẤN LUYỆN VIÊN</small><h2>Chất lượng PT</h2></div></header><div>{data.summary.byTrainer.map((item) => <button type="button" key={item.trainerId} onClick={() => setTrainerId(item.trainerId)}><span><strong>{item.trainerName}</strong><small>{item.total} đánh giá · {item.lowCount} điểm thấp</small></span><b>{item.averageScore.toFixed(1)}<Star fill="currentColor" /></b><ChevronRight /></button>)}{!data.summary.byTrainer.length && <p>Chưa có dữ liệu PT trong kỳ.</p>}</div></article>
+        <article className="trainer-quality-chart"><header><span><BarChart3 /></span><h2>Mức độ hài lòng</h2></header><div>{distribution.map((item) => <span key={item.value}><b>{item.value}<Star fill="currentColor" /></b><i><em style={{ width: `${item.count / maximumDistribution * 100}%` }} /></i><strong>{item.count}</strong></span>)}</div></article>
+        <article className="trainer-quality-ranking"><header><span><UserRoundCheck /></span><h2>Theo huấn luyện viên</h2></header><div>{data.summary.byTrainer.map((item) => <button type="button" key={item.trainerId} onClick={() => setTrainerId(item.trainerId)}><span><strong>{item.trainerName}</strong><small>{item.total} đánh giá · {item.lowCount} điểm thấp</small></span><b>{item.averageScore.toFixed(1)}<Star fill="currentColor" /></b><ChevronRight /></button>)}{!data.summary.byTrainer.length && <p>Chưa có dữ liệu PT trong kỳ.</p>}</div></article>
       </section>
 
-      <section className="trainer-quality-list"><header><div><small>HÀNG CHỜ QUẢN LÝ</small><h2>{rows.length} phản hồi</h2></div><button type="button" onClick={() => setStatus(status === 'needs_review' ? '' : 'needs_review')}><Filter /> {status === 'needs_review' ? 'Bỏ lọc' : 'Chỉ cần xử lý'}</button></header>
+      <section className="trainer-quality-list"><header><h2>{rows.length} phản hồi</h2><button type="button" aria-pressed={status === 'needs_review'} onClick={() => setStatus(status === 'needs_review' ? '' : 'needs_review')}><Filter /> {status === 'needs_review' ? 'Bỏ lọc' : 'Chỉ cần xử lý'}</button></header>
         <div>{rows.map((row) => <article className={`is-${row.status}${row.overallScore <= 2 ? ' is-low' : ''}`} key={row.id}>
           <button type="button" className="trainer-quality-row" aria-expanded={selectedId === row.id} onClick={() => { setSelectedId(selectedId === row.id ? null : row.id); setNote(row.resolutionNote || '') }}>
             <span className="trainer-quality-score"><strong>{row.overallScore}</strong><Star fill="currentColor" /></span>

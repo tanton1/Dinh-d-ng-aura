@@ -21,9 +21,21 @@ test('admin quality page starts with metrics and exposes low-score review detail
   await page.goto('/#/admin-trainer-quality')
 
   await expect(page.getByRole('region', { name: 'Tổng hợp chất lượng PT' })).toBeVisible()
-  await expect(page.getByText('ĐIỂM TRUNG BÌNH')).toBeVisible()
+  await expect(page.getByText('Điểm trung bình', { exact: true })).toBeVisible()
+  const metrics = page.locator('.trainer-quality-metrics article')
+  await expect(metrics).toHaveCount(4)
+  const metricBounds = await metrics.evaluateAll((items) => items.map((item) => ({
+    left: item.getBoundingClientRect().left,
+    right: item.getBoundingClientRect().right,
+    viewport: document.documentElement.clientWidth,
+  })))
+  for (const bounds of metricBounds) {
+    expect(bounds.left).toBeGreaterThanOrEqual(0)
+    expect(bounds.right).toBeLessThanOrEqual(bounds.viewport)
+  }
   await expect(page.getByRole('heading', { name: 'Mức độ hài lòng' })).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'Chất lượng PT' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Chất lượng PT', level: 1 })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Theo huấn luyện viên' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Aura Performance Score' })).toHaveCount(0)
   const lowFeedback = page.locator('.trainer-quality-list .trainer-quality-row').filter({ hasText: 'PT Minh' }).first()
   await lowFeedback.click()
