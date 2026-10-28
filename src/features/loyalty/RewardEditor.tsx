@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { ImagePlus, LoaderCircle, Save, Trash2, X } from 'lucide-react'
 import type { LoyaltyAdminReward } from './types'
 import RewardImage from './RewardImage'
+import { rewardArtwork } from './rewardArtwork'
 
 interface Props {
   reward: LoyaltyAdminReward
@@ -42,9 +43,9 @@ export default function RewardEditor({ reward, busy, error, progress, file, onFi
         <div className="club-reward-scroll">
         <fieldset disabled={busy} className="club-reward-fields">
           <div className="club-banner-upload">
-            <RewardImage src={preview || reward.bannerUrl} name={reward.name || 'Ảnh xem trước'} />
+            <RewardImage src={preview || reward.bannerUrl} name={reward.name || 'Ảnh xem trước'} rewardId={reward.id} />
             <div className="club-banner-upload__controls">
-              <label className="club-upload-button"><ImagePlus size={18} />{preview || reward.bannerUrl ? 'Thay ảnh banner' : 'Tải ảnh banner'}
+              <label className="club-upload-button"><ImagePlus size={18} />{preview || reward.bannerUrl || rewardArtwork(reward.id) ? 'Thay ảnh banner' : 'Tải ảnh banner'}
                 <input type="file" accept="image/jpeg,image/png,image/webp" aria-label="Ảnh banner quà tặng" onChange={(event) => {
                   const selected = event.target.files?.[0]
                   event.target.value = ''
