@@ -1,0 +1,68 @@
+.payroll-page.aura-workforce { --payroll-ink: #211720; --payroll-muted: #786870; --payroll-line: transparent; gap: 14px; }
+.payroll-page.aura-workforce > .aura-workforce__heading { margin-bottom: 0; }
+.aura-workforce :is(.payroll-page__nav, .payroll-page__toolbar, .payroll-page__runs, .payroll-policy, .payroll-adjustments, .payroll-targets, .payroll-intelligence-policy) { margin-inline: 0; border: 0; border-radius: 14px; box-shadow: none; }
+.payroll-page.aura-workforce .payroll-page__nav { gap: 4px; overflow: visible; padding: 0; background: transparent; }
+.payroll-page.aura-workforce .payroll-page__nav > button { min-height: 36px; padding: 7px 12px; border-radius: 8px; font-size: 12px; }
+.payroll-page.aura-workforce .payroll-page__nav > :last-child { margin-left: 0; }
+.payroll-page.aura-workforce .payroll-page__nav > button.is-active { color: #211720; background: var(--aw-action); box-shadow: none; }
+.payroll-page.aura-workforce .payroll-page__toolbar { padding: 0; background: transparent; }
+.payroll-page.aura-workforce label > span { font-size: 12px; }
+.payroll-page.aura-workforce :is(input:not([type='checkbox']), select) { min-height: 38px; border: 0; border-radius: 9px; font-size: 13px; box-shadow: none; }
+.payroll-page.aura-workforce .payroll-page__toolbar label > span { position: static; width: auto; height: auto; clip: auto; overflow: visible; }
+.payroll-page.aura-workforce .payroll-page__search svg { bottom: 11px; }
+.payroll-page.aura-workforce :is(.payroll-page__primary, .payroll-page__secondary, .payroll-policy__create) { min-height: 36px; border: 0; border-radius: 8px; padding: 8px 12px; font-size: 12px; box-shadow: none; }
+.payroll-page.aura-workforce .payroll-page__primary { color: #211720; background: var(--aw-action); }
+.payroll-page.aura-workforce :is(.payroll-page__secondary, .payroll-policy__create) { color: var(--aw-pink); background: var(--aw-soft); }
+.payroll-page.aura-workforce .payroll-page__refresh { width: 38px; height: 38px; border: 0; border-radius: 9px; box-shadow: none; }
+.payroll-page.aura-workforce .payroll-page__runs { padding: 16px; background: #fff; }
+.payroll-page.aura-workforce .payroll-page__section-title { gap: 10px; flex-wrap: wrap; }
+.payroll-page.aura-workforce .payroll-page__section-title span { color: var(--aw-muted); font-size: 12px; text-transform: none; letter-spacing: 0; }
+.payroll-page.aura-workforce .payroll-page__section-title strong { font-size: 20px; }
+.payroll-page.aura-workforce .payroll-page__section-title small { color: var(--aw-muted); font-size: 12px; }
+.payroll-page.aura-workforce .payroll-run-card { border: 0; border-radius: 12px; background: #fff6f9; box-shadow: none; }
+.payroll-page.aura-workforce .payroll-run-card__head strong { color: var(--aw-pink); font-size: 24px; }
+.payroll-page.aura-workforce .payroll-run-card :is(span, em, p) { font-size: 12px; }
+.payroll-page.aura-workforce .payroll-run-card__metrics { border: 0; background: transparent; }
+.payroll-page.aura-workforce .payroll-run-card__actions { border: 0; }
+.payroll-page.aura-workforce .payroll-run-card__actions button { min-height: 36px; border: 0; border-radius: 8px; padding: 7px 10px; font-size: 12px; box-shadow: none; }
+.payroll-page.aura-workforce .payroll-page__empty { min-height: 150px; border: 0; background: transparent; }
+.payroll-page.aura-workforce .payroll-page__empty strong { font-size: 15px; }
+.payroll-page.aura-workforce .payroll-page__empty p { font-size: 13px; line-height: 1.5; }
+.payroll-page.aura-workforce :is(.payroll-policy, .payroll-adjustments, .payroll-targets, .payroll-intelligence-policy) { padding: 16px; background: #fff; }
+.payroll-page.aura-workforce :is(.payroll-policy__card, .payroll-policy__fields, .payroll-adjustments__form, .payroll-intelligence-policy__list article) { border: 0; box-shadow: none; }
+.payroll-page.aura-workforce :is(.payroll-policy, .payroll-adjustments, .payroll-targets, .payroll-intelligence-policy) :is(p, small, label) { font-size: 12px; line-height: 1.5; }
+.payroll-page.aura-workforce :is(.payroll-policy, .payroll-adjustments, .payroll-targets, .payroll-intelligence-policy) :is(input:not([type='checkbox']), select) { background: #fff6f9; }
+.payroll-page.aura-workforce .payroll-run-setup, .payroll-page.aura-workforce .payroll-drawer > section, .payroll-page.aura-workforce .payroll-confirm > section { border: 0; border-radius: 16px; box-shadow: none; }
+.payroll-page.aura-workforce .staff-workdays__toolbar { border: 0; border-radius: 0; padding: 0; box-shadow: none; background: transparent; }
+.payroll-page.aura-workforce :is(.staff-workdays__summary, .staff-workdays__calendar-card, .staff-workdays__calendar-settings, .staff-workdays__people > button, .staff-workdays__people > article) { border: 0; border-radius: 14px; box-shadow: none; }
+.payroll-page.aura-workforce .staff-workdays__toolbar :is(input, select) { background: #fff; }
+.payroll-page.aura-workforce .staff-workdays__toolbar label { font-size: 12px; }
+.payroll-page.aura-workforce .staff-workdays__person strong { font-size: 15px; }
+.payroll-page.aura-workforce .staff-workdays__person small, .payroll-page.aura-workforce .staff-workdays__numbers span { font-size: 12px; }
+.aura-workforce .aura-metric-carousel__viewport { padding: 0 0 6px; gap: 10px; scroll-padding-inline: 0; }
+.aura-workforce .aura-metric-carousel__viewport:has(> .aura-metric-carousel__slide:only-child) { grid-auto-columns: 100%; }
+.aura-workforce .aura-metric-carousel__slide { min-height: 174px; padding: 16px; border-radius: 16px; color: #fff; background: var(--aw-berry); box-shadow: none; transform: none; }
+.aura-workforce .aura-metric-carousel__slide::before, .aura-workforce .aura-metric-carousel__slide::after { display: none; }
+.aura-workforce .aura-metric-carousel__icon { width: 30px; height: 30px; border: 0; border-radius: 8px; background: #ffffff18; }
+.aura-workforce .aura-metric-carousel__icon svg { width: 17px; }
+.aura-workforce .aura-metric-carousel__number { font-size: 11px; color: #fff0f6; font-weight: 500; letter-spacing: 0; }
+.aura-workforce .aura-metric-carousel__eyebrow { margin-top: 10px; font-size: 12px; line-height: 1.5; color: #fff0f6; text-transform: none; letter-spacing: 0; font-weight: 600; }
+.aura-workforce .aura-metric-carousel__slide strong { font-size: clamp(23px, 2.3vw, 29px); color: #fff; }
+.aura-workforce .aura-metric-carousel__slide small { color: #fff0f6; font-size: 12px; }
+.aura-workforce .aura-metric-carousel__action { color: #fff0f6; font-size: 11px; line-height: 1.5; text-transform: none; letter-spacing: 0; font-weight: 500; }
+.payroll-statement-workspace .staff-payroll--admin-statement { padding: 0; width: 100%; max-width: none; background: transparent; }
+.payroll-statement-workspace .staff-payroll__statement-head { border: 0; border-radius: 14px; box-shadow: none; }
+.payroll-statement-workspace .staff-payroll__statement-head h1 { font-size: 26px; color: var(--aw-pink); }
+@media (max-width: 760px) {
+  .payroll-page.aura-workforce .payroll-page__nav { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); width: 100%; }
+  .payroll-page.aura-workforce .payroll-page__nav > button { min-width: 0; min-height: 44px; padding: 6px 3px; font-size: 11px; white-space: normal; }
+  .payroll-page.aura-workforce .payroll-page__nav > button svg { display: none; }
+  .payroll-page.aura-workforce .payroll-page__toolbar { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .payroll-page.aura-workforce .payroll-page__search { grid-column: 1 / -1; }
+  .payroll-page.aura-workforce :is(input:not([type='checkbox']), select, .payroll-page__primary, .payroll-page__secondary, .payroll-policy__create, .payroll-run-card__actions button) { min-height: 40px; }
+  .payroll-page.aura-workforce .payroll-page__refresh { width: 40px; height: 40px; }
+  .payroll-page.aura-workforce .payroll-page__search svg { bottom: 12px; }
+  .aura-workforce .aura-metric-carousel__viewport { grid-auto-columns: 100%; padding: 0 0 6px; }
+  .aura-workforce .aura-metric-carousel__slide { min-height: 172px; padding: 16px; }
+  .payroll-page.aura-workforce :is(.payroll-page__runs, .payroll-policy, .payroll-adjustments, .payroll-targets, .payroll-intelligence-policy) { padding: 14px; }
+}

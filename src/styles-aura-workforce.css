@@ -1,0 +1,40 @@
+/* Shared CRM presentation, scoped to the four workforce workspaces. */
+.aura-workforce.aura-workforce {
+  --aw-ink: #211720;
+  --aw-muted: #786870;
+  --aw-pink: #cf246a;
+  --aw-soft: #fff0f6;
+  --aw-action: linear-gradient(135deg, #f62f82, #ff8751);
+  --aw-berry: linear-gradient(128deg, #171218, #4f213c 54%, #ba2a62);
+  box-sizing: border-box;
+  width: 100%; max-width: none; min-width: 0; margin: 0;
+  padding: 18px 12px 36px;
+  color: var(--aw-ink);
+  background: linear-gradient(145deg, #fff3f8, #fff8f5 65%, #fff6f9);
+  font-family: var(--aura-font, 'Be Vietnam Pro', sans-serif);
+}
+.aura-operations-page:has(.aura-workforce) { padding: 0; background: #fff6f9; }
+.aura-operations-page:has(.aura-workforce) > .aura-operations-page__content { width: 100%; max-width: none; margin: 0; z-index: auto; }
+.aura-operations-page:has(.aura-workforce) > .aura-operations-page__orb { display: none; }
+.page-content:has(.aura-workforce) { background: #fff6f9; }
+.aura-workforce *, .aura-workforce *::before, .aura-workforce *::after { box-sizing: border-box; }
+.aura-workforce :is(button, input, select, textarea) { font-family: inherit; }
+.aura-workforce button { cursor: pointer; }
+.aura-workforce button:disabled { cursor: not-allowed; }
+.aura-workforce :is(button, input, select, textarea, summary):focus-visible { outline: 2px solid #ba3260; outline-offset: 3px; }
+.aura-workforce .aura-workforce__heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 16px; }
+.aura-workforce .aura-workforce__heading h1 { margin: 0; color: var(--aw-pink); font-size: 28px; font-weight: 800; line-height: 1.2; letter-spacing: -.04em; }
+.aura-workforce .aura-workforce__heading > div { display: flex; min-width: 0; align-items: center; gap: 10px; }
+.aura-workforce .aura-workforce__icon-button { display: inline-grid; width: 36px; height: 36px; flex: none; place-items: center; padding: 0; border: 0; border-radius: 9px; background: var(--aw-soft); color: var(--aw-pink); box-shadow: none; }
+.aura-workforce .aura-workforce__icon-button svg { width: 18px; height: 18px; }
+/* The legacy AdminRoles import must not recolor the shell while these pages are open. */
+.app-shell.admin:has(.aura-workforce) .sidebar { color: #fff; background: linear-gradient(160deg, #2b1020, #0b090c 38%); border-color: #ffffff10; }
+.app-shell.admin:has(.aura-workforce) .brand-mark { color: #211720; background: #f62f82; }
+.app-shell.admin:has(.aura-workforce) .sidebar-nav button.active { background: #43152c; color: #fff; }
+.app-shell.admin:has(.aura-workforce) .sidebar-nav button.active svg { color: #ff4b94; }
+.app-shell.admin:has(.aura-workforce) .sidebar-bottom .mode-switch { background: linear-gradient(135deg, #4d142f, #2d173c); color: #fff; }
+@media (max-width: 760px) {
+  .aura-workforce.aura-workforce { padding: 14px 8px calc(88px + env(safe-area-inset-bottom, 0px)); }
+  .aura-workforce .aura-workforce__heading h1 { font-size: 26px; }
+  .aura-workforce .aura-workforce__icon-button { width: 40px; height: 40px; }
+}

@@ -145,6 +145,12 @@ jobs:
       - name: Test loyalty pagination on mobile Safari
         if: matrix.project == 'mobile-webkit'
         run: npm run test:loyalty-operations-ui -- --project=loyalty-mobile-webkit
+      - name: Test populated workforce scorecard and review controls
+        if: matrix.project == 'chromium'
+        run: npx playwright test --config tests/workforce-ui/playwright.config.ts --project=workforce-chromium
+      - name: Test workforce scorecard on mobile Safari
+        if: matrix.project == 'mobile-webkit'
+        run: npx playwright test --config tests/workforce-ui/playwright.config.ts --project=workforce-webkit
       - name: Test catalog loading and bounded autosave
         if: matrix.project == 'chromium'
         run: npm run test:catalog-ui -- --project=catalog-chromium

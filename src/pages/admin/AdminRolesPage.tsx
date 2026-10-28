@@ -1,10 +1,12 @@
 import '../../styles-admin.css'
 import './AdminRolesPage.css'
+import './AdminRolesTheme.css'
+import '../../styles-aura-workforce.css'
 import { lazy, Suspense, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import {
   AlertCircle, Building2, CheckCircle2, Columns3, LoaderCircle,
-  ArrowRight, BriefcaseBusiness, CalendarClock, KeyRound, LockKeyhole, Mail, MapPin,
-  Phone, Plus, Search, ShieldCheck, SlidersHorizontal, Sparkles, UserCog, Users,
+  ArrowRight, BriefcaseBusiness, CalendarClock, KeyRound, Mail, MapPin,
+  Phone, Plus, Search, ShieldCheck, SlidersHorizontal, UserCog, Users,
   Trash2, WalletCards, X,
 } from 'lucide-react'
 import { hasPermission } from '../../config/permissions'
@@ -656,13 +658,11 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
     }
   }
 
-  if (!canViewTeam) return <div className="page admin-students-page identity-admin-page"><div className="identity-forbidden"><ShieldCheck size={38} /><h3>Bạn chưa có quyền xem đội ngũ</h3><p>Liên hệ quản trị viên để được cấp quyền phù hợp.</p></div></div>
+  if (!canViewTeam) return <div className="page admin-students-page identity-admin-page aura-workforce"><div className="identity-forbidden"><ShieldCheck size={38} /><h3>Bạn chưa có quyền xem đội ngũ</h3><p>Liên hệ quản trị viên để được cấp quyền phù hợp.</p></div></div>
 
-  return <div className={`page admin-students-page identity-admin-page ${hasEditorPage ? 'identity-admin-page--subpage' : ''}`}>
+  return <div className={`page admin-students-page identity-admin-page aura-workforce ${hasEditorPage ? 'identity-admin-page--subpage' : ''}`}>
     <header className="identity-hero">
-      <span className="identity-hero__glow" aria-hidden="true" />
       <div className="identity-hero__copy">
-        <small><Sparkles size={14} /> AURA OPERATIONS</small>
         <h1>Đội ngũ Aura</h1>
       </div>
       <div className="identity-hero__actions">
@@ -672,16 +672,16 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
 
     <div className={`identity-carousel ${!TEAM_MEMBER_DIRECTORY_ENABLED ? 'identity-carousel--three' : ''}`} aria-label="Tổng quan Đội ngũ Aura">
       {TEAM_MEMBER_DIRECTORY_ENABLED && <button type="button" className={section === 'accounts' ? 'active' : ''} onClick={() => setSection('accounts')}>
-        <span><Users /></span><small>THÀNH VIÊN</small><strong>{stats.members}</strong><em>Tài khoản học viên</em><ArrowRight size={17} />
+        <span><Users /></span><small>Thành viên</small><strong>{stats.members}</strong><em>Tài khoản học viên</em><ArrowRight size={17} />
       </button>}
       <button type="button" className={section === 'staff' ? 'active' : ''} onClick={() => setSection('staff')}>
-        <span><BriefcaseBusiness /></span><small>NHÂN VIÊN</small><strong>{stats.staff}</strong><em>Đội ngũ đang quản lý</em><ArrowRight size={17} />
+        <span><BriefcaseBusiness /></span><small>Nhân viên</small><strong>{stats.staff}</strong><em>Đang quản lý</em><ArrowRight size={17} />
       </button>
       <button type="button" className={section === 'branches' ? 'active' : ''} onClick={() => setSection('branches')}>
-        <span><Building2 /></span><small>CHI NHÁNH</small><strong>{stats.branches}</strong><em>Cơ sở đang hoạt động</em><ArrowRight size={17} />
+        <span><Building2 /></span><small>Chi nhánh</small><strong>{stats.branches}</strong><em>Đang hoạt động</em><ArrowRight size={17} />
       </button>
       <button type="button" className={section === 'policy' ? 'active' : ''} onClick={() => setSection('policy')}>
-        <span><KeyRound /></span><small>CHÍNH SÁCH</small><strong>{scheduleConfig.complimentaryChangeCancelPerMonth ?? PT_OPERATIONS_POLICY_DEFAULTS.complimentaryChangeCancelPerMonth}</strong><em>Lượt đổi/hủy miễn mỗi tháng</em><ArrowRight size={17} />
+        <span><KeyRound /></span><small>Đổi/hủy miễn</small><strong>{scheduleConfig.complimentaryChangeCancelPerMonth ?? PT_OPERATIONS_POLICY_DEFAULTS.complimentaryChangeCancelPerMonth}</strong><em>Lượt mỗi tháng</em><ArrowRight size={17} />
       </button>
     </div>
 
@@ -691,8 +691,6 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
       <button type="button" className={section === 'branches' ? 'active' : ''} onClick={() => setSection('branches')} role="tab" aria-selected={section === 'branches'}><Building2 size={17} />Chi nhánh</button>
       <button type="button" className={section === 'policy' ? 'active' : ''} onClick={() => setSection('policy')} role="tab" aria-selected={section === 'policy'}><ShieldCheck size={17} />Chính sách</button>
     </nav>
-
-    {!TEAM_MEMBER_DIRECTORY_ENABLED && <div className="identity-member-directory-paused"><LockKeyhole size={15} /><span>Thành viên đang tạm ẩn để giảm tải. Tài khoản và dữ liệu học viên vẫn được giữ nguyên.</span></div>}
 
     {!canAssignRole && <div className="identity-readonly"><ShieldCheck size={18} />Bạn đang xem ở chế độ chỉ đọc. Chỉ quản trị viên được thay đổi tài khoản, chức danh và chi nhánh.</div>}
     {error && <div className="identity-message identity-message--error" role="alert"><AlertCircle size={17} />{error}</div>}

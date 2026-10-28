@@ -67,6 +67,8 @@ import {
 } from '../../../services/payrollService'
 import { listCashAccounts, type CashAccount } from '../../../services/cashbookService'
 import '../../../styles-payroll-canonical.css'
+import '../../../styles-payroll-theme.css'
+import '../../../styles-aura-workforce.css'
 import StaffWorkdayPayrollPanel from './StaffWorkdayPayrollPanel'
 import StaffPayrollStatementPanel from './StaffPayrollStatementPanel'
 import TrainingHistoryPanel from './TrainingHistoryPanel'
@@ -1038,17 +1040,17 @@ export default function TrainerPayroll({ profile }: Props) {
   const subpageActive = showRunSetup || Boolean(pendingConfirmation) || Boolean(detail) || detailLoading
   useEffect(() => { if (subpageActive) window.scrollTo({ top: 0, behavior: 'smooth' }) }, [subpageActive])
 
-  if (staffStatementId) return <StaffPayrollStatementPanel
+  if (staffStatementId) return <div className="aura-workforce payroll-statement-workspace"><StaffPayrollStatementPanel
     data={staffStatement}
     periodId={periodId}
     loading={staffStatementLoading}
     error={staffStatementError}
     onBack={() => { staffStatementSequence.current += 1; setStaffStatementId(''); setStaffStatement(null); setStaffStatementError('') }}
     onRetry={() => void openStaffStatement(staffStatementId)}
-  />
+  /></div>
 
-  return <div className={`payroll-page ${subpageActive ? 'payroll-page--subpage' : ''}`}>
-    <h1 className="aura-visually-hidden">Quản lý bảng lương</h1>
+  return <div className={`payroll-page aura-workforce ${subpageActive ? 'payroll-page--subpage' : ''}`}>
+    <header className="aura-workforce__heading"><h1>Bảng lương</h1><AuraHelpPopover title="Cách tính lương" label="Cách tính lương"><p>Tiền ca chỉ lấy từ ca đã điểm danh; hai học viên cùng HLV, ngày và giờ vẫn là một ca. Hoa hồng tách riêng, chỉ bằng 2–10% dòng tiền thực thu trong kỳ của hợp đồng có mã giới thiệu PT; khoản hoàn hoặc đảo thu làm giảm hoa hồng.</p></AuraHelpPopover></header>
     <AuraMetricCarousel slides={slides} label="Lương tạm tính từng nhân viên" loading={loading && liveRows.length === 0} />
 
     <div className="payroll-page__nav" role="tablist" aria-label="Quản lý lương">
@@ -1056,7 +1058,6 @@ export default function TrainerPayroll({ profile }: Props) {
       <button type="button" role="tab" aria-selected={view === 'workdays'} className={view === 'workdays' ? 'is-active' : ''} onClick={() => setView('workdays')}><CalendarCheck2 size={17} /> Ngày công</button>
       <button type="button" role="tab" aria-selected={view === 'adjustments'} className={view === 'adjustments' ? 'is-active' : ''} onClick={() => setView('adjustments')}><Gift size={17} /> Thưởng / phạt</button>
       <button type="button" role="tab" aria-selected={view === 'policies'} className={view === 'policies' ? 'is-active' : ''} onClick={() => setView('policies')}><Settings2 size={17} /> Chính sách</button>
-      <AuraHelpPopover title="Cách tính lương" label="Cách tính lương"><p>Tiền ca chỉ lấy từ ca đã điểm danh; hai học viên cùng HLV, ngày và giờ vẫn là một ca. Hoa hồng tách riêng, chỉ bằng 2–10% dòng tiền thực thu trong kỳ của hợp đồng có mã giới thiệu PT; khoản hoàn hoặc đảo thu làm giảm hoa hồng.</p></AuraHelpPopover>
     </div>
 
     {(message || (error && !payrollFailure)) && <div className={`payroll-page__notice ${error ? 'is-error' : 'is-success'}`} role="status">

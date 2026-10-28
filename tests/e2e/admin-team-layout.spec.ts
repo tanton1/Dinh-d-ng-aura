@@ -8,7 +8,7 @@ for (const width of [360, 390, 430]) {
     await expect(page.getByRole('heading', { name: 'Đội ngũ Aura' })).toBeVisible()
     await expect(page.locator('.identity-carousel > button')).toHaveCount(3)
     await expect(page.getByRole('tab', { name: 'Nhân viên' })).toHaveAttribute('aria-selected', 'true')
-    await expect(page.getByText('Thành viên đang tạm ẩn để giảm tải')).toBeVisible()
+    await expect(page.getByText('Thành viên đang tạm ẩn để giảm tải')).toHaveCount(0)
     await expect(page.getByText('Chuyển học viên thành nhân viên ngay tại nút')).toHaveCount(0)
 
     const layout = await page.evaluate(() => ({
@@ -17,7 +17,7 @@ for (const width of [360, 390, 430]) {
       viewportWidth: document.documentElement.clientWidth,
     }))
     expect(layout.overflow).toBeLessThanOrEqual(1)
-    expect(layout.heroWidth).toBeGreaterThanOrEqual(layout.viewportWidth - 2)
+    expect(layout.heroWidth).toBeGreaterThanOrEqual(layout.viewportWidth - 16)
 
     await page.getByRole('tab', { name: 'Nhân viên' }).click()
     await expect(page.getByText('Nhân viên Aura', { exact: true })).toBeVisible()
