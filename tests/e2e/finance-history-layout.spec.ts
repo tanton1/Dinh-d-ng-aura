@@ -105,6 +105,17 @@ test.describe('Aura Finance Intelligence responsive workspace', () => {
     await expect(payroll.getByText('Chọn một nhân viên')).toHaveCount(0)
     const workdayLayout = payroll.locator('.staff-workdays__layout')
     expect(await workdayLayout.evaluate((element) => getComputedStyle(element).minHeight)).toBe('0px')
+    const workdayMetrics = payroll.locator('.staff-workdays__summary article')
+    await expect(workdayMetrics).toHaveCount(4)
+    const workdayBounds = await payroll.locator('.staff-workdays__summary article, .staff-workdays__toolbar, .staff-workdays__layout').evaluateAll((elements) => elements.map((element) => ({
+      left: element.getBoundingClientRect().left,
+      right: element.getBoundingClientRect().right,
+      viewport: document.documentElement.clientWidth,
+    })))
+    for (const bounds of workdayBounds) {
+      expect(bounds.left).toBeGreaterThanOrEqual(0)
+      expect(bounds.right).toBeLessThanOrEqual(bounds.viewport)
+    }
     await payroll.getByRole('tab', { name: 'Kỳ lương' }).click()
     await expect(payroll.getByRole('textbox', { name: 'Kỳ lương', exact: true })).toBeVisible()
     await expect(payroll.getByLabel('Lọc trạng thái kỳ lương')).toBeVisible()

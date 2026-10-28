@@ -61,6 +61,7 @@
 .performance-review-page .performance-scorecard-review__summary :is(small, span) { font-size: 12px; line-height: 1.5; }
 .performance-review-page .performance-scorecard-review__gates { gap: 8px; background: transparent; }
 .performance-review-page .performance-scorecard-review__gates button { min-height: 72px; padding: 12px; border: 0; border-radius: 12px; box-shadow: none; }
+.performance-review-page .performance-scorecard-review__gates button:disabled { opacity: 1; cursor: default; }
 .performance-review-page .performance-scorecard-review__gates button.is-pass { background: #edf8f2; }
 .performance-review-page .performance-scorecard-review__gates button.is-fail { background: #fff0f4; }
 .performance-review-page .performance-scorecard-review__gates button.is-unknown { background: #fff4e6; }
