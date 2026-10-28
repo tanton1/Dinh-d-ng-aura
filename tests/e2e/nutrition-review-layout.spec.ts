@@ -25,7 +25,11 @@ for (const width of [360, 390, 430]) {
     expect(refreshBounds).not.toBeNull()
     expect(Math.abs(searchBounds!.y - refreshBounds!.y)).toBeLessThanOrEqual(2)
     expect(refreshBounds!.x).toBeGreaterThan(searchBounds!.x + searchBounds!.width)
-    expect(refreshBounds!.height).toBeGreaterThanOrEqual(42)
+    expect(refreshBounds!.height).toBeGreaterThanOrEqual(40)
+    expect(refreshBounds!.height).toBeLessThanOrEqual(44)
+    expect(await page.locator('.nrw-status-tabs .is-active').evaluate(element => getComputedStyle(element).backgroundImage)).toContain('linear-gradient')
+    expect(await page.locator('.nrw-hero').evaluate(element => getComputedStyle(element).borderTopWidth)).toBe('0px')
+    expect(Math.round((await page.locator('.nrw-page').boundingBox())!.width)).toBe(width)
 
     const workspaceBottomPadding = await page.locator('.nrw-page').evaluate((element) => (
       Number.parseFloat(window.getComputedStyle(element).paddingBottom)

@@ -11,7 +11,7 @@
 }
 .club-gift-image img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .loyalty-admin-rewards__grid article > .club-gift-image { display: grid; margin-bottom: 12px; color: #dd647f; }
-.loyalty-reward.club-gift-card { display: flex; flex-direction: column; gap: 14px; overflow: hidden; box-shadow: none; }
+.loyalty-reward.club-gift-card { display: flex; flex-direction: column; gap: 10px; overflow: hidden; box-shadow: none; }
 .club-gift-card .loyalty-reward__copy { flex: 1; }
 .club-gift-card footer { margin-top: auto; }
 .club-editor-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
@@ -23,7 +23,7 @@
 .club-banner-upload .club-gift-image { max-height: 210px; }
 .club-banner-upload__controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; }
 .club-banner-upload__controls > small { flex-basis: 100%; color: #716874; font-size: 12px; }
-.club-upload-button, .club-remove-banner { position: relative; display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 42px; padding: 8px 12px; border: 1px solid #e7e3e8; border-radius: 9px; background: #fff; color: #514950; font: inherit; font-size: 13px; cursor: pointer; }
+.club-upload-button, .club-remove-banner { position: relative; display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 40px; padding: 8px 12px; border: 0; border-radius: 8px; background: #f7f5f6; color: #514950; font: inherit; font-size: 13px; cursor: pointer; }
 .club-upload-button input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
 .club-upload-button:focus-within { outline: 3px solid #f46366; outline-offset: 3px; }
 .club-upload-progress { display: flex; align-items: center; gap: 10px; margin-top: 12px; font-size: 12px; }
@@ -33,7 +33,7 @@
 .loyalty-admin-editor .club-reward-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding-right: 4px; }
 .loyalty-admin-editor .club-reward-fields { min-width: 0; }
 .loyalty-admin-editor .club-reward-fields .loyalty-admin-editor__grid { overflow: visible; }
-.loyalty-admin-editor > form > footer { flex: none; padding-block: 12px 0; border-top: 1px solid #e7e3e8; background: #fff; }
+.loyalty-admin-editor > form > footer { flex: none; padding-block: 12px 0; border: 0; background: #fff; }
 .loyalty-admin-editor .club-editor-heading { flex: none; }
 @media (max-width: 600px) {
   .club-banner-upload .club-gift-image { max-height: 170px; }

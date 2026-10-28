@@ -53,6 +53,7 @@ for (const width of [320, 390, 430, 1024]) {
     await expect(page.getByRole('button', { name: 'Chỉ bữa quá hạn' })).toHaveAttribute('aria-pressed', 'true')
     await page.getByRole('button', { name: 'Viết nhận xét' }).click()
     await expect(page.getByRole('textbox', { name: 'Nhận xét dành riêng cho học viên', exact: true })).toBeInViewport()
+    await expect.poll(() => page.locator('.nrw-feedback-head').evaluate(el => el.getBoundingClientRect().top - document.querySelector('.nrw-detail-window')!.getBoundingClientRect().top)).toBeGreaterThanOrEqual(0)
     expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1)
     const search = page.getByRole('textbox', { name: 'Tìm học viên hoặc món ăn' })
     await expect(search).toBeVisible()

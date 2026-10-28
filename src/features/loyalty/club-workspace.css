@@ -1,111 +1,122 @@
-/* Aura Club: white surfaces, coral actions, compact member rows. */
+/* Aura Club: full-width, borderless surfaces with pink–orange actions. */
 .loyalty-admin.club-workspace {
-  --club-ink: #262229;
-  --club-muted: #716874;
-  --club-line: #e7e3e8;
-  --club-soft: #f6f6f7;
-  --club-pink: #da4265;
-  --club-orange: #f58b53;
-  --club-action: #c6375a;
-  color: var(--club-ink);
-  padding-top: 24px;
+  --club-ink: #2d2028;
+  --club-muted: #746a72;
+  --club-line: transparent;
+  --club-soft: #f7f5f6;
+  --club-pink: #d1396b;
+  --club-orange: #ffa16b;
+  --club-action: linear-gradient(110deg, #f36f9b, #ffa16b);
+  width: 100%; max-width: none; margin: 0; padding: 18px 12px 32px;
+  color: var(--club-ink); background: #fff;
 }
+.page-content:has(.club-workspace) { background: #fff; }
+/* The operations shell also adds gutters; let this workspace own its inset. */
+.aura-operations-page:has(.club-workspace) { padding: 0; background: #fff; }
+.aura-operations-page:has(.club-workspace) > .aura-operations-page__content { max-width: none; width: 100%; }
 .club-workspace [hidden] { display: none !important; }
 .club-workspace button { font-family: inherit; cursor: pointer; }
 .club-workspace button:disabled { cursor: not-allowed; opacity: .55; }
-.club-workspace :is(button, summary, input, select, textarea):focus-visible { outline: 3px solid #da4265; outline-offset: 3px; }
-.club-workspace .loyalty-admin__header { align-items: center; margin-bottom: 20px; }
-.club-workspace .loyalty-admin__header h1 { font-size: clamp(26px, 3vw, 32px); margin: 0; }
+.club-workspace :is(button, summary, input, select, textarea):focus-visible { outline: 2px solid #ba3260; outline-offset: 3px; }
+.club-workspace .loyalty-admin__header { align-items: center; gap: 12px; margin: 0 0 14px; }
+.club-workspace .loyalty-admin__header h1 { font-size: 28px; margin: 0; letter-spacing: -.04em; }
 .club-workspace .loyalty-admin__header p { font-size: 13px; }
-.club-workspace .loyalty-admin__header > button { border-radius: 10px; box-shadow: none; }
+.club-workspace .loyalty-admin__header > button { min-height: 36px; height: 36px; padding-inline: 10px; border: 0; border-radius: 8px; background: var(--club-soft); box-shadow: none; }
 
-.club-workspace .club-navigation { margin-bottom: 20px; }
-.club-workspace .club-dock { display: flex; align-items: center; gap: 5px; padding: 5px; width: fit-content; max-width: 100%; background: #fff; border: 1px solid var(--club-line); border-radius: 13px; }
-.club-workspace .club-dock button { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; gap: 7px; min-width: 44px; min-height: 44px; padding: 0 15px; border: 0; border-radius: 9px; color: var(--club-muted); background: transparent; font-size: 13px; font-weight: 650; }
-.club-workspace .club-dock button svg { width: 18px; height: 18px; flex: none; }
-.club-workspace .club-dock button:is([aria-current='page'], .is-active) { color: #fff; background: var(--club-action); }
+.club-workspace .club-navigation { margin-bottom: 16px; }
+.club-workspace .club-dock { display: flex; align-items: center; gap: 4px; padding: 0; width: fit-content; max-width: 100%; background: transparent; border: 0; border-radius: 0; }
+.club-workspace .club-dock button { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; gap: 6px; min-width: 36px; min-height: 36px; padding: 0 12px; border: 0; border-radius: 8px; color: var(--club-muted); background: transparent; font-size: 12px; font-weight: 650; }
+.club-workspace .club-dock button svg { width: 16px; height: 16px; flex: none; }
+.club-workspace .club-dock button:is([aria-current='page'], .is-active) { color: var(--club-ink); background: var(--club-action); }
 .club-workspace .club-dock button:hover:not(:disabled):not([aria-current='page']):not(.is-active) { color: var(--club-ink); background: var(--club-soft); }
-.club-workspace .club-more-links { display: flex; flex-wrap: wrap; gap: 10px; }
-.club-workspace .club-more-links button { display: inline-flex; align-items: center; gap: 9px; min-height: 44px; padding: 10px 14px; border: 1px solid var(--club-line); border-radius: 10px; color: var(--club-ink); background: #fff; font-size: 14px; font-weight: 600; }
-.club-workspace .club-more-links svg { width: 19px; height: 19px; }
-.club-workspace .club-more-links button[aria-current='page'] { background: var(--club-soft); border-color: var(--club-muted); }
+.club-workspace .club-more-links { display: flex; flex-wrap: wrap; gap: 8px; }
+.club-workspace .club-more-links button { display: inline-flex; align-items: center; gap: 8px; min-height: 40px; padding: 8px 12px; border: 0; border-radius: 8px; color: var(--club-ink); background: var(--club-soft); font-size: 13px; font-weight: 600; }
+.club-workspace .club-more-links svg { width: 17px; height: 17px; }
+.club-workspace .club-more-links button[aria-current='page'] { background: var(--club-action); }
 .club-workspace .aura-modal-close { color: var(--club-ink); background: var(--club-soft); }
 
-.club-workspace .club-overview { margin-bottom: 22px; padding-block: 20px; border-top: 0; }
-.club-workspace .club-overview strong { font-size: clamp(26px, 2.5vw, 34px); }
-.club-workspace .club-overview span { font-size: 13px; }
-.club-workspace .club-reward-banners { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; margin: 0 0 20px; }
-.club-workspace .club-reward-banner { display: grid; grid-template-columns: 52% 1fr; align-items: center; overflow: hidden; min-width: 0; background: #fff; border: 1px solid var(--club-line); border-radius: 16px; }
-.club-workspace .club-reward-banner img { display: block; width: 100%; height: 100%; min-height: 210px; object-fit: cover; }
-.club-workspace .club-reward-banner > div { padding: 20px; min-width: 0; }
-.club-workspace .club-reward-banner h2 { margin: 0 0 8px; font-size: clamp(18px, 1.9vw, 24px); line-height: 1.25; letter-spacing: -.03em; }
-.club-workspace .club-reward-banner p { margin: 0 0 16px; color: var(--club-muted); font-size: 13px; line-height: 1.6; max-width: 32ch; }
-.club-workspace .club-reward-banner button { display: inline-flex; align-items: center; justify-content: center; width: fit-content; min-height: 44px; padding: 8px 13px; border: 0; border-radius: 9px; color: #fff; background: var(--club-action); font-size: 12px; font-weight: 650; }
+.club-workspace .club-overview { margin-bottom: 20px; padding-block: 8px 16px; border: 0; gap: 16px; }
+.club-workspace .club-overview > div { border: 0; padding-inline: 0; }
+.club-workspace .club-overview svg { right: 8px; }
+.club-workspace .club-overview strong { font-size: clamp(24px, 2.5vw, 32px); }
+.club-workspace .club-overview span { font-size: 12px; }
+.club-workspace .club-reward-banners { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin: 0 0 26px; }
+.club-workspace .club-reward-banner { display: grid; grid-template-columns: 52% 1fr; align-items: center; overflow: hidden; min-width: 0; background: #fff3f1; border: 0; border-radius: 12px; }
+.club-workspace .club-reward-banner:nth-child(2) { background: #fff1f5; }
+.club-workspace .club-reward-banner img { display: block; width: 100%; height: 100%; max-height: 230px; min-height: 180px; object-fit: cover; }
+.club-workspace .club-reward-banner > div { padding: 18px; min-width: 0; }
+.club-workspace .club-reward-banner h2 { margin: 0 0 6px; font-size: clamp(18px, 1.9vw, 24px); line-height: 1.2; letter-spacing: -.03em; }
+.club-workspace .club-reward-banner p { margin: 0 0 12px; color: var(--club-muted); font-size: 12px; line-height: 1.5; max-width: 32ch; }
+.club-workspace .club-reward-banner button { display: inline-flex; align-items: center; justify-content: center; width: fit-content; min-height: 36px; padding: 6px 11px; border: 0; border-radius: 8px; color: var(--club-ink); background: var(--club-action); font-size: 12px; font-weight: 650; }
 .club-workspace .club-membership-note { max-width: 78ch; font-size: 12px; }
-.club-workspace .loyalty-admin-card { border-radius: 14px; box-shadow: none; margin-top: 0; }
-.club-workspace .loyalty-admin-card > header > svg { color: var(--club-muted); background: var(--club-soft); }
+.club-workspace .loyalty-admin-card { padding: 0; border: 0; border-radius: 0; box-shadow: none; margin-top: 0; background: transparent; }
+.club-workspace .loyalty-admin-card > header > svg { width: 30px; height: 30px; flex-basis: 30px; padding: 6px; color: var(--club-pink); background: #fff2f5; border-radius: 8px; }
 .club-workspace .loyalty-admin-card > header span { color: var(--club-muted); }
-.club-workspace .loyalty-admin-risk { margin-bottom: 18px; }
-.club-workspace .loyalty-tier-chart b { background: #ec2c76; }
-.club-workspace .loyalty-tier-chart > div:nth-child(even) b { background: #ff7a45; }
+.club-workspace .loyalty-admin-card > header h2 { font-size: 19px; }
+.club-workspace .loyalty-admin-card > footer { border: 0; padding-top: 0; margin-top: 16px; }
+.club-workspace .loyalty-admin-risk { margin: 0 0 16px; border: 0; }
+.club-workspace .loyalty-tier-chart { margin-top: 16px; }
+.club-workspace .loyalty-tier-chart b { background: var(--club-action); }
 
-.club-workspace :is(.loyalty-admin-actions, .loyalty-admin-sectionbar) button,
+.club-workspace :is(.loyalty-admin-actions, .loyalty-admin-sectionbar, .loyalty-admin-accounts__summary) button,
 .club-workspace .loyalty-admin-policy__save {
-  flex: 0 0 auto;
-  width: fit-content;
-  max-width: 100%;
-  min-height: 44px;
-  padding: 8px 13px;
-  border: 0;
-  border-radius: 9px;
-  color: #fff;
-  background: var(--club-action);
-  font-size: 12px;
-  line-height: 1.4;
-  font-weight: 650;
-  box-shadow: none;
+  flex: 0 0 auto; width: fit-content; max-width: 100%; min-height: 36px; padding: 6px 11px;
+  border: 0; border-radius: 8px; color: var(--club-ink); background: var(--club-action);
+  font-size: 12px; line-height: 1.4; font-weight: 650; box-shadow: none;
 }
 .club-workspace .loyalty-admin-actions { flex-wrap: wrap; justify-content: flex-end; }
-.club-workspace .loyalty-admin-actions .is-secondary { color: var(--club-ink); background: #eeeaf0; }
-.club-workspace .loyalty-admin-actions button:disabled { cursor: not-allowed; }
-.club-workspace .loyalty-admin-sectionbar { flex-wrap: wrap; align-items: center; gap: 10px; }
-.club-workspace .loyalty-admin-sectionbar > div { flex: 1 1 240px; }
-.club-workspace .loyalty-admin-sectionbar span { font-size: 12px; line-height: 1.6; }
-.club-workspace .loyalty-admin-rewards__grid { gap: 14px; }
+.club-workspace .loyalty-admin-actions .is-secondary { color: var(--club-muted); background: var(--club-soft); }
+.club-workspace .loyalty-admin-sectionbar { flex-wrap: wrap; align-items: center; gap: 10px; margin: 12px 0; }
+.club-workspace .loyalty-admin-sectionbar > div { flex: 1 1 160px; }
+.club-workspace .loyalty-admin-sectionbar span { font-size: 12px; line-height: 1.5; }
+.club-workspace .loyalty-admin-rewards__grid { grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 26px 16px; }
+.club-workspace .loyalty-admin-rewards__grid article { padding: 0; border: 0; border-radius: 0; background: transparent; }
+.club-workspace .loyalty-admin-rewards__grid article.is-inactive { opacity: .6; }
 .club-workspace .loyalty-admin-rewards__grid article > div { color: var(--club-muted); }
-.club-workspace .loyalty-admin-rewards__grid article > div b { color: #6d4932; background: #fff3e9; }
+.club-workspace .loyalty-admin-rewards__grid article > div b { color: #7b4833; background: #fff2e9; }
+.club-workspace .loyalty-admin-rewards__grid h3 { margin-top: 7px; font-size: 15px; }
 .club-workspace .loyalty-admin-rewards__grid :is(p, footer small) { font-size: 12px; }
-.club-workspace .loyalty-admin-rewards__grid footer button { min-width: 44px; min-height: 44px; font-size: 12px; background: var(--club-soft); color: var(--club-ink); }
+.club-workspace .loyalty-admin-rewards__grid footer { border: 0; padding-top: 0; margin-top: 12px; }
+.club-workspace .loyalty-admin-rewards__grid footer button { min-height: 36px; border-radius: 8px; font-size: 12px; background: var(--club-soft); color: var(--club-ink); }
+.club-workspace .loyalty-admin-list > article { border: 0; padding: 12px 8px; }
+.club-workspace :is(.loyalty-admin-list, .loyalty-admin-table) > article:nth-child(even) { background: #faf8f9; }
 .club-workspace .loyalty-admin-list > article > div > :is(small, span) { font-size: 12px; }
+.club-workspace .loyalty-admin-table article { border: 0; }
 .club-workspace .loyalty-admin-table article small { font-size: 11px; }
-.club-workspace .loyalty-admin-search:focus-within { border-color: var(--club-muted); box-shadow: 0 0 0 3px #eeeaf0; }
-.club-workspace .loyalty-admin-list > article.is-focused-account { border-color: var(--club-muted); background: var(--club-soft); box-shadow: none; }
-.club-workspace .club-icon-button { display: inline-grid; place-items: center; width: 44px; height: 44px; padding: 0; border: 1px solid var(--club-line); border-radius: 10px; color: var(--club-ink); background: #fff; }
-.club-workspace .club-icon-button svg { width: 18px; height: 18px; }
-.club-workspace .loyalty-policy-toggles input { accent-color: var(--club-action); }
-.club-workspace .loyalty-empty svg { color: var(--club-muted); }
+.club-workspace .loyalty-admin-table__student { border: 0; }
+.club-workspace .loyalty-admin-search { min-height: 36px; border: 0; border-radius: 8px; background: var(--club-soft); }
+.club-workspace .loyalty-admin-search:focus-within { outline: 2px solid #ba3260; outline-offset: 2px; box-shadow: none; }
+.club-workspace .loyalty-admin-list > article.is-focused-account { border: 0; background: #fff0f4; box-shadow: none; }
+.club-workspace .club-icon-button { display: inline-grid; place-items: center; width: 36px; height: 36px; padding: 0; border: 0; border-radius: 8px; color: var(--club-ink); background: var(--club-soft); }
+.club-workspace .club-icon-button svg { width: 16px; height: 16px; }
+.club-workspace .loyalty-policy-toggles input { accent-color: var(--club-pink); }
+.club-workspace .loyalty-policy-toggles label, .club-workspace .loyalty-policy-rules { border: 0; }
+.club-workspace .loyalty-empty { border: 0; background: transparent; min-height: 140px; padding-block: 24px; }
+.club-workspace .loyalty-empty svg { color: var(--club-pink); }
 .club-workspace .loyalty-modal { color: var(--club-ink); }
 .club-workspace .loyalty-modal > span { color: var(--club-muted); text-transform: none; letter-spacing: 0; }
-.club-workspace .loyalty-modal footer { display: flex; justify-content: flex-end; gap: 10px; }
-.club-workspace .loyalty-modal footer button { flex: 0 0 auto; width: fit-content; padding-inline: 14px; font-size: 13px; font-weight: 650; border-radius: 9px; color: var(--club-ink); background: var(--club-soft); }
-.club-workspace .loyalty-modal footer button:last-child { color: #fff; background: var(--club-action); }
-.club-workspace .loyalty-admin-editor__grid :is(input, select, textarea):focus { border-color: var(--club-muted); box-shadow: none; }
-.club-workspace .loyalty-admin-editor__grid input[type='checkbox'] { accent-color: var(--club-action); }
-.club-workspace .loyalty-admin-queue [role='alert'] > button { min-height: 44px; margin-left: 8px; padding: 6px 12px; border: 1px solid var(--club-line); border-radius: 9px; background: #fff; color: var(--club-ink); }
+.club-workspace .loyalty-modal footer { display: flex; justify-content: flex-end; gap: 8px; border: 0; }
+.club-workspace .loyalty-modal footer button { flex: 0 0 auto; width: fit-content; min-height: 40px; padding: 8px 13px; font-size: 13px; font-weight: 650; border-radius: 8px; color: var(--club-ink); background: var(--club-soft); }
+.club-workspace .loyalty-modal footer button:last-child { color: var(--club-ink); background: var(--club-action); }
+.club-workspace .loyalty-admin-editor__grid :is(input:not([type='checkbox']), select, textarea),
+.club-workspace .loyalty-policy-rules__grid input { border: 0; border-radius: 8px; background: var(--club-soft); }
+.club-workspace .loyalty-admin-editor__grid :is(input, select, textarea):focus { box-shadow: none; }
+.club-workspace .loyalty-admin-editor__grid input[type='checkbox'] { accent-color: var(--club-pink); }
+.club-workspace .loyalty-admin-queue [role='alert'] > button { min-height: 36px; margin-left: 8px; padding: 6px 11px; border: 0; border-radius: 8px; background: #fff; color: var(--club-ink); }
 
-.club-tier-tabs { display: flex; gap: 4px; max-width: 100%; overflow-x: auto; padding: 4px 0 10px; margin: 16px 0 0; border-bottom: 1px solid var(--club-line, #e7e3e8); }
-.club-tier-tabs button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; flex: none; min-height: 42px; padding: 8px 13px; border: 0; border-radius: 9px; background: transparent; color: #716874; font: inherit; font-size: 13px; font-weight: 650; cursor: pointer; }
-.club-tier-tabs button[aria-selected='true'] { background: #fdf0f4; color: #ad3150; }
+.club-tier-tabs { display: flex; gap: 4px; max-width: 100%; overflow-x: auto; padding: 2px 0 6px; margin: 12px 0 0; border: 0; scrollbar-width: thin; }
+.club-tier-tabs button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; flex: none; min-height: 36px; padding: 6px 11px; border: 0; border-radius: 8px; background: transparent; color: #746a72; font: inherit; font-size: 12px; font-weight: 650; cursor: pointer; }
+.club-tier-tabs button[aria-selected='true'] { background: var(--club-action); color: var(--club-ink); }
 .club-tier-tabs b { min-width: 20px; padding: 2px 5px; border-radius: 5px; background: #f1eff2; color: #655b68; font-size: 11px; font-variant-numeric: tabular-nums; }
-.club-tier-tabs button[aria-selected='true'] b { background: #f8dce5; color: #ad3150; }
-.club-tier-dot { width: 7px; height: 7px; border-radius: 50%; background: #8a8290; }
+.club-tier-tabs button[aria-selected='true'] b { background: #ffffff80; color: var(--club-ink); }
+.club-tier-dot { width: 6px; height: 6px; border-radius: 50%; background: #8a8290; }
 .club-tier-dot.is-all { display: none; }
 .club-tier-dot.is-silver { background: #8998aa; }
 .club-tier-dot.is-gold { background: #c69230; }
 .club-tier-dot.is-diamond { background: #6d78ce; }
-.club-member-search-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 16px; }
+.club-member-search-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; }
 .club-member-search-row .loyalty-admin-search { flex: 1 1 220px; width: auto; margin: 0; }
-.club-member-search-row > button { min-height: 44px; padding: 8px 12px; border: 1px solid #e7e3e8; border-radius: 10px; background: #fff; color: #655b68; font: inherit; font-size: 12px; cursor: pointer; }
+.club-member-search-row > button { min-height: 36px; padding: 6px 11px; border: 0; border-radius: 8px; background: var(--club-soft); color: var(--club-muted); font: inherit; font-size: 12px; cursor: pointer; }
 .club-tier-badge { display: inline-block; padding: 3px 7px; margin-right: 5px; border-radius: 5px; font-size: 11px; font-weight: 600; color: #655b68; background: #f3f1f4; }
 .club-tier-badge.is-silver { color: #536279; background: #eef1f5; }
 .club-tier-badge.is-gold { color: #87621e; background: #fbf3df; }
@@ -113,65 +124,53 @@
 .club-workspace .loyalty-admin-accounts__summary { margin: 8px 0 0; }
 .club-workspace .loyalty-admin-accounts .loyalty-admin-list { margin-top: 4px; }
 .club-workspace .loyalty-admin-accounts .loyalty-admin-list > article { grid-template-columns: minmax(190px, 1.7fr) repeat(2, minmax(75px, .65fr)) minmax(105px, 1fr) auto; gap: 12px; }
-.club-workspace .loyalty-admin-accounts .loyalty-admin-list__identity > small { margin-top: 6px; }
+.club-workspace .loyalty-admin-accounts .loyalty-admin-list__identity > small { margin-top: 4px; }
 
 @media (max-width: 1100px) {
   .club-workspace .club-reward-banner { grid-template-columns: 1fr; }
-  .club-workspace .club-reward-banner img { height: auto; min-height: 0; aspect-ratio: 2 / 1; object-fit: cover; }
-  .club-workspace .club-reward-banner > div { padding: 16px; }
-  .club-workspace .club-reward-banner p { min-height: 42px; }
+  .club-workspace .club-reward-banner img { height: auto; min-height: 0; aspect-ratio: 2 / 1; }
+  .club-workspace .club-reward-banner > div { padding: 14px; }
 }
 @media (max-width: 767px) {
-  .club-tier-tabs { margin-top: 12px; }
-  .club-tier-tabs button { padding-inline: 11px; }
-  .club-member-search-row .loyalty-admin-search { flex-basis: 100%; }
+  .loyalty-admin.club-workspace { padding: 14px 8px calc(80px + env(safe-area-inset-bottom, 0px)); }
+  .club-workspace .loyalty-admin__header h1 { font-size: 26px; }
+  .club-workspace .loyalty-admin__header > button { width: 40px; height: 40px; }
+  .club-tier-tabs button { min-height: 40px; padding-inline: 10px; }
+  .club-member-search-row .loyalty-admin-search { flex-basis: 100%; min-height: 40px; }
+  .club-member-search-row > button { min-height: 40px; }
   .club-workspace .loyalty-admin-accounts .loyalty-admin-list > article { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .club-workspace .loyalty-admin-accounts .loyalty-admin-list__identity { grid-column: 1 / -1; }
+  .club-workspace .loyalty-admin-accounts .loyalty-admin-list__identity,
   .club-workspace .loyalty-admin-accounts .loyalty-admin-actions { grid-column: 1 / -1; }
-  .loyalty-admin.club-workspace { width: 100%; padding: 18px 14px calc(88px + env(safe-area-inset-bottom, 0px)); }
-  .club-workspace .loyalty-admin__header { margin: 0 0 16px; }
-  .club-workspace .loyalty-admin__header h1 { font-size: 28px; }
-  .club-workspace .loyalty-admin__header p { font-size: 12px; max-width: 30ch; }
   .club-workspace .club-navigation:not(.club-navigation--mobile-dock) .club-dock { flex-wrap: wrap; }
   .club-workspace .club-navigation--mobile-dock { margin: 0; }
-  .club-workspace .club-navigation--mobile-dock .club-dock {
-    position: fixed;
-    z-index: 55;
-    inset: auto 0 0;
-    width: 100%;
-    max-width: none;
-    display: grid;
-    grid-auto-flow: column;
-    grid-auto-columns: minmax(0, 1fr);
-    gap: 3px;
-    padding: 7px 10px calc(7px + env(safe-area-inset-bottom, 0px));
-    border: 0;
-    border-top: 1px solid var(--club-line);
-    border-radius: 0;
-    background: #fff;
-    box-shadow: 0 -3px 16px rgb(38 34 41 / 5%);
-  }
-  .club-workspace .club-navigation--mobile-dock .club-dock button { display: grid; align-content: center; justify-items: center; gap: 4px; min-width: 0; min-height: 52px; padding: 5px 2px; font-size: 10px; border-radius: 10px; }
-  .club-workspace .club-navigation--mobile-dock .club-dock svg { width: 20px; height: 20px; }
-  .club-workspace .club-overview { margin-inline: 0; padding-block: 16px; row-gap: 16px; }
-  .club-workspace .club-overview span { font-size: 12px; }
-  .club-workspace .club-overview strong { font-size: 27px; }
+  .club-workspace .club-navigation--mobile-dock .club-dock { position: fixed; z-index: 55; inset: auto 0 0; width: 100%; max-width: none; display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 3px; padding: 6px 8px calc(6px + env(safe-area-inset-bottom, 0px)); border: 0; border-radius: 0; background: #fffffff5; box-shadow: 0 -2px 14px #2d202808; }
+  .club-workspace .club-navigation--mobile-dock .club-dock button { display: grid; align-content: center; justify-items: center; gap: 3px; min-width: 0; min-height: 48px; padding: 4px 2px; font-size: 10px; border-radius: 8px; }
+  .club-workspace .club-navigation--mobile-dock .club-dock svg { width: 18px; height: 18px; }
+  .club-workspace .club-overview { margin-inline: 0; padding-block: 10px; gap: 16px; }
+  .club-workspace .club-overview span { font-size: 11px; }
+  .club-workspace .club-overview strong { font-size: 25px; }
   .club-workspace .club-overview > div:last-child strong { font-size: clamp(18px, 4.8vw, 24px); line-height: 1.5; }
-  .club-workspace .club-reward-banners { gap: 10px; margin-bottom: 14px; }
-  .club-workspace .club-reward-banner { border-radius: 12px; display: flex; flex-direction: column; align-items: stretch; }
-  .club-workspace .club-reward-banner img { aspect-ratio: 3 / 2; }
-  .club-workspace .club-reward-banner > div { display: flex; flex-direction: column; align-items: flex-start; flex: 1; padding: 12px; }
-  .club-workspace .club-reward-banner h2 { font-size: 17px; margin-bottom: 6px; }
-  .club-workspace .club-reward-banner p { flex: 1; min-height: 0; font-size: 12px; margin-bottom: 12px; }
-  .club-workspace .club-reward-banner button { font-size: 11px; padding-inline: 10px; }
-  .club-workspace .club-membership-note { margin: 12px 0 18px; font-size: 11px; }
-  .club-workspace .loyalty-admin-card { border: 1px solid var(--club-line); border-radius: 12px; padding: 16px 12px; }
-  .club-workspace .loyalty-admin-table article { padding: 12px 0; border: 0; border-bottom: 1px solid var(--club-line); border-radius: 0; }
+  .club-workspace .club-reward-banners { gap: 8px; margin-bottom: 20px; }
+  .club-workspace .club-reward-banner { border-radius: 10px; display: flex; flex-direction: column; align-items: stretch; }
+  .club-workspace .club-reward-banner > div { display: flex; flex-direction: column; align-items: flex-start; flex: 1; padding: 12px 10px; }
+  .club-workspace .club-reward-banner h2 { font-size: 17px; }
+  .club-workspace .club-reward-banner p { flex: 1; font-size: 11px; margin-bottom: 10px; }
+  .club-workspace .club-reward-banner button { min-height: 40px; font-size: 11px; padding-inline: 10px; }
+  .club-workspace .loyalty-admin-table article { border-radius: 8px; padding: 12px 8px; }
   .club-workspace .loyalty-admin-table article > .loyalty-admin-actions button,
-  .club-workspace .loyalty-admin-list .loyalty-admin-actions button { flex: 0 0 auto; min-height: 44px; }
-  .club-workspace .loyalty-admin-list > article { border: 0; border-bottom: 1px solid var(--club-line); border-radius: 0; padding: 14px 0; }
-  .club-workspace .loyalty-admin-rewards__grid { grid-template-columns: 1fr; }
+  .club-workspace .loyalty-admin-list .loyalty-admin-actions button { flex: 0 0 auto; min-height: 40px; }
+  .club-workspace .loyalty-admin-list > article { border-radius: 8px; padding: 12px 8px; }
+  .club-workspace .loyalty-admin-rewards__grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 22px 10px; }
+  .club-workspace .loyalty-admin-rewards__grid h3 { font-size: 14px; }
+  .club-workspace .loyalty-admin-rewards__grid footer { gap: 2px 5px; }
+  .club-workspace .loyalty-admin-rewards__grid footer strong { font-size: 13px; }
+  .club-workspace .loyalty-admin-rewards__grid footer small { font-size: 11px; }
+  .club-workspace .loyalty-admin-rewards__grid footer button { min-height: 40px; padding-inline: 8px; font-size: 11px; }
   .club-workspace .loyalty-admin-actions { justify-content: flex-start; }
-  .club-workspace .loyalty-admin-risk { margin-inline: 0; }
   .club-workspace .loyalty-admin-editor > footer { padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px)); }
+  .club-workspace .club-icon-button { width: 40px; height: 40px; }
+}
+@media (max-width: 360px) {
+  .club-workspace .loyalty-admin-rewards__grid footer { grid-template-columns: 1fr; }
+  .club-workspace .loyalty-admin-rewards__grid footer button { grid-column: 1; grid-row: 3; justify-self: start; margin-top: 4px; }
 }

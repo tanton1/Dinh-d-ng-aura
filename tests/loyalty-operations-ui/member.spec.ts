@@ -42,6 +42,30 @@ test('members see reward banners from the catalog with a fallback for a missing 
   await expect(card.getByRole('heading', { name: 'Bộ quà Aura' })).toBeVisible()
 })
 
+test('built-in artwork follows stable reward IDs and recovers from a broken custom banner', async ({ page }, info) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await fixture(page)
+  await page.evaluate(() => {
+    const names = ['InBody / Assessment', 'Voucher 500K', 'Đổi lịch', 'Guest Pass', 'Voucher 100K', 'Tư vấn dinh dưỡng', 'Aura Shaker', 'Buổi PT', 'Áo Aura', 'Freeze bảy ngày', 'Voucher gia hạn 1 Triệu']
+    const ids = ['assessment', 'voucher-50k', 'extra-reschedule', 'guest-pass', 'voucher-100k', 'nutrition-consultation', 'aura-shaker', 'bonus-pt-session', 'aura-shirt', 'freeze-seven-days', 'renewal-voucher-300k']
+    ;(window as any).club.rewardItems = ids.map((id, index) => ({ id, name: names[index], description: '', pointsCost: 150, category: 'other', fulfillmentType: 'staff', entitlementType: null, branchIds: [], stock: 5, validityDays: 60, active: true, featured: false }))
+  })
+  await page.getByRole('button', { name: 'Đổi quà', exact: true }).filter({ visible: true }).click()
+  await expect(page.locator('.club-gift-card img')).toHaveCount(11)
+  for (const card of await page.locator('.club-gift-card').all()) {
+    await card.scrollIntoViewIfNeeded()
+    await expect.poll(() => card.locator('img').evaluate((image: HTMLImageElement) => image.naturalWidth)).toBeGreaterThan(0)
+  }
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1)
+  await page.screenshot({ path: info.outputPath('member-catalog.png'), fullPage: true })
+  await page.route('**/broken-custom.webp', route => route.fulfill({ status: 404, body: '' }))
+  await page.evaluate(() => { (window as any).club.rewardItems[0].bannerUrl = '/broken-custom.webp' })
+  await page.getByRole('button', { name: 'Tải lại Aura Club', exact: true }).click()
+  const assessment = page.getByRole('img', { name: 'InBody / Assessment', exact: true })
+  await expect(assessment).toHaveAttribute('src', '/images/aura-club/rewards-20261028/assessment-480.webp')
+  await expect.poll(() => assessment.evaluate((image: HTMLImageElement) => image.naturalWidth)).toBeGreaterThan(0)
+})
+
 test('history opens without loading rewards or referrals and uses the server cursor for more entries', async ({ page }) => {
   await fixture(page)
   await expect(page.getByText('Lịch sử owner-1', { exact: true })).toBeVisible()
