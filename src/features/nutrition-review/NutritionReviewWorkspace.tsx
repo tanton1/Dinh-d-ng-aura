@@ -289,7 +289,7 @@ function NutritionReviewContent({
     if (!viewport) return
     const overflowX = window.getComputedStyle(viewport).overflowX
     if (overflowX === 'auto' || overflowX === 'scroll') {
-      viewport.scrollTo({ left: viewport.clientWidth * target, behavior: scrollBehavior })
+      viewport.scrollTo({ left: viewport.clientWidth * target, top: 0, behavior: scrollBehavior })
     }
     // On touch widths the feedback slide lives below the review queue. Move
     // the document viewport with the horizontal slide so the primary input is
@@ -297,7 +297,13 @@ function NutritionReviewContent({
     if (target === 2) {
       feedbackScrollTimerRef.current = window.setTimeout(() => {
         feedbackScrollTimerRef.current = null
-        feedbackTextareaRef.current?.scrollIntoView({ behavior: scrollBehavior, block: 'center', inline: 'nearest' })
+        const textarea = feedbackTextareaRef.current
+        if (!textarea) return
+        // scrollIntoView also scrolls the carousel's hidden vertical axis,
+        // clipping the heading when another slide is taller. Move only the page.
+        viewport.scrollTop = 0
+        const bounds = textarea.getBoundingClientRect()
+        window.scrollBy({ top: bounds.top - Math.max(16, (window.innerHeight - bounds.height) / 2), behavior: scrollBehavior })
       }, scrollBehavior === 'smooth' ? 80 : 0)
     }
   }, [])
@@ -340,7 +346,7 @@ function NutritionReviewContent({
     }
     setFeedback(selected.coachFeedback || selected.analysis.coachFeedbackSuggestion || '')
     setDetailSlide(0)
-    detailWindowRef.current?.scrollTo({ left: 0, behavior: 'auto' })
+    detailWindowRef.current?.scrollTo({ left: 0, top: 0, behavior: 'auto' })
   }, [selected?.id])
 
   useEffect(() => {
