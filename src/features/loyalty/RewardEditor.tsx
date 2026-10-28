@@ -45,7 +45,7 @@ export default function RewardEditor({ reward, busy, error, progress, file, onFi
           <div className="club-banner-upload">
             <RewardImage src={preview || reward.bannerUrl} name={reward.name || 'Ảnh xem trước'} rewardId={reward.id} />
             <div className="club-banner-upload__controls">
-              <label className="club-upload-button"><ImagePlus size={18} />{preview || reward.bannerUrl || rewardArtwork(reward.id) ? 'Thay ảnh banner' : 'Tải ảnh banner'}
+              <label className="club-upload-button">
                 <input type="file" accept="image/jpeg,image/png,image/webp" aria-label="Ảnh banner quà tặng" onChange={(event) => {
                   const selected = event.target.files?.[0]
                   event.target.value = ''
@@ -53,6 +53,7 @@ export default function RewardEditor({ reward, busy, error, progress, file, onFi
                   if (!['image/jpeg', 'image/png', 'image/webp'].includes(selected.type) || selected.size === 0 || selected.size > 5 * 1024 * 1024) { setFileError('Chọn ảnh JPG, PNG hoặc WebP tối đa 5 MB.'); return }
                   setFileError(''); onFile(selected)
                 }} />
+                <ImagePlus size={18} /><span>{preview || reward.bannerUrl || rewardArtwork(reward.id) ? 'Thay ảnh banner' : 'Tải ảnh banner'}</span>
               </label>
               {(file || reward.bannerUrl) && <button type="button" className="club-remove-banner" onClick={() => { onFile(null); update({ bannerUrl: '', bannerStoragePath: '' }); setFileError('') }}><Trash2 size={16} /> Bỏ ảnh</button>}
               <small>Ảnh ngang 2:1 · JPG, PNG, WebP · tối đa 5 MB</small>

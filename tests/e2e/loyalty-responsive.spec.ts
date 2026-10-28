@@ -23,6 +23,25 @@ for (const width of [360, 390, 430]) {
   })
 }
 
+test('reward editor controls remain clickable above the desktop application header', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 720 })
+  await page.goto('/#/admin-loyalty')
+  await page.getByRole('navigation', { name: 'Vận hành Aura Club' }).getByRole('button', { name: 'Quà tặng', exact: true }).click()
+  await page.getByRole('button', { name: 'Sửa', exact: true }).first().click()
+  const editor = page.getByRole('dialog', { name: 'Sửa quà tặng' })
+  const close = editor.getByRole('button', { name: 'Đóng chỉnh sửa quà' })
+  await expect(close).toBeVisible()
+  expect(await close.evaluate(button => {
+    const bounds = button.getBoundingClientRect()
+    return button.contains(document.elementFromPoint(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2))
+  })).toBe(true)
+  const uploadIcon = await editor.locator('.club-upload-button > svg').boundingBox()
+  const uploadLabel = await editor.locator('.club-upload-button > span').boundingBox()
+  expect(uploadIcon!.x + uploadIcon!.width).toBeLessThan(uploadLabel!.x)
+  await close.click()
+  await expect(editor).toHaveCount(0)
+})
+
 test('Aura Club cancellation stays in context and uses an accessible confirmation', async ({ page }) => {
   await page.goto('/#/aura-club')
   await page.getByRole('button', { name: 'Hủy yêu cầu' }).click()

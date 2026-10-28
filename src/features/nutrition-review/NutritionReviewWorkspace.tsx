@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertCircle,
-  CalendarDays,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
@@ -434,7 +433,7 @@ function NutritionReviewContent({
       </div>
       <div className="nrw-date-picker">
         <button type="button" aria-label={period === 'day' ? 'Ngày trước' : 'Tuần trước'} disabled={submitting} onClick={() => setSelectedDate(shiftReviewDate(selectedDate, period === 'day' ? -1 : -7))}><ChevronLeft size={18} /></button>
-        <label><CalendarDays size={17} /><input type="date" aria-label={period === 'day' ? 'Ngày gửi bữa ăn' : 'Chọn ngày trong tuần'} value={selectedDate} max={today} disabled={submitting} onChange={(event) => { const value = event.target.value; if (/^\d{4}-\d{2}-\d{2}$/.test(value) && value <= today) setSelectedDate(value) }} /></label>
+        <label><input type="date" aria-label={period === 'day' ? 'Ngày gửi bữa ăn' : 'Chọn ngày trong tuần'} value={selectedDate} max={today} disabled={submitting} onChange={(event) => { const value = event.target.value; if (/^\d{4}-\d{2}-\d{2}$/.test(value) && value <= today) setSelectedDate(value) }} /></label>
         <button type="button" aria-label={period === 'day' ? 'Ngày sau' : 'Tuần sau'} disabled={submitting || endDate >= today} onClick={() => { const next = shiftReviewDate(selectedDate, period === 'day' ? 1 : 7); setSelectedDate(next > today ? today : next) }}><ChevronRight size={18} /></button>
       </div>
       <button type="button" className="nrw-today" disabled={submitting || (period === 'day' && selectedDate === today)} onClick={() => { setPeriod('day'); setSelectedDate(reviewToday()) }}>Hôm nay</button>

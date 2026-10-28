@@ -13,7 +13,7 @@
 .page-content:has(.club-workspace) { background: #fff; }
 /* The operations shell also adds gutters; let this workspace own its inset. */
 .aura-operations-page:has(.club-workspace) { padding: 0; background: #fff; }
-.aura-operations-page:has(.club-workspace) > .aura-operations-page__content { max-width: none; width: 100%; }
+.aura-operations-page:has(.club-workspace) > .aura-operations-page__content { max-width: none; width: 100%; z-index: auto; }
 .club-workspace [hidden] { display: none !important; }
 .club-workspace button { font-family: inherit; cursor: pointer; }
 .club-workspace button:disabled { cursor: not-allowed; opacity: .55; }
