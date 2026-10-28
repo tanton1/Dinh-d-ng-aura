@@ -40,6 +40,21 @@ for (const width of [360, 390, 430]) {
   })
 }
 
+for (const width of [390, 1440]) {
+  test(`review date stays readable inside the application shell at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 720 })
+    await page.goto('/#/admin-nutrition-reviews')
+    const date = page.getByLabel('Ngày gửi bữa ăn', { exact: true })
+    await expect(date).toBeVisible()
+    const usableWidth = await date.evaluate(element => {
+      const style = getComputedStyle(element)
+      return element.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight)
+    })
+    expect(usableWidth).toBeGreaterThanOrEqual(120)
+    await expectNoPageOverflow(page)
+  })
+}
+
 test('nutrition review photos fill the mobile width and detail slides scroll natively', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto('/#/admin-nutrition-reviews')
