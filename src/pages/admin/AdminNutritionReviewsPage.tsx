@@ -8,5 +8,5 @@ export default function AdminNutritionReviewsPage({
   onNavigate: (view: ViewId) => void
   focus?: string | null
 }) {
-  return <NutritionReviewWorkspace title="Trung tâm duyệt bữa ăn" initialFocus={focus} />
+  return <NutritionReviewWorkspace title="Duyệt ăn" initialFocus={focus} />
 }

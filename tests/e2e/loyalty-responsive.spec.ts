@@ -5,7 +5,7 @@ for (const width of [360, 390, 430]) {
     await page.setViewportSize({ width, height: 844 })
     await page.goto('/#/aura-club')
 
-    await expect(page.getByRole('heading', { name: 'Dùng điểm cho điều bạn cần' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Quà tặng Aura' })).toBeVisible()
     const navigation = page.getByRole('navigation', { name: 'Aura Club trên điện thoại' })
     await expect(navigation.getByRole('button')).toHaveCount(4)
     expect(await navigation.getByRole('button').allTextContents()).toEqual(['Đổi quà', 'Nhiệm vụ', 'Lịch sử', 'Thêm'])
@@ -40,7 +40,7 @@ for (const width of [360, 390, 430]) {
     await expect(page.getByRole('heading', { name: 'Aura Club', exact: true })).toBeVisible()
     const metrics = page.getByRole('region', { name: 'Chỉ số Aura Club' })
     await expect(metrics.locator(':scope > div')).toHaveCount(4)
-    await expect(metrics.getByText('Thành viên active')).toBeVisible()
+    await expect(metrics.getByText('Thành viên')).toBeVisible()
     const nav = page.getByRole('navigation', { name: 'Vận hành Aura Club' })
     await expect(nav).toBeVisible()
     await expect(nav.getByRole('button')).toHaveCount(5)
@@ -49,9 +49,9 @@ for (const width of [360, 390, 430]) {
     expect(Math.round(box!.y + box!.height)).toBe(844)
     await nav.getByRole('button', { name: 'Quà tặng', exact: true }).click()
     await page.getByRole('button', { name: 'Sửa' }).first().click()
-    const editor = page.getByRole('dialog', { name: 'Chỉnh quyền lợi' })
+    const editor = page.getByRole('dialog', { name: 'Sửa quà tặng' })
     await expect(editor).toBeVisible()
-    await expect(editor.getByRole('button', { name: 'Lưu quyền lợi' })).toBeVisible()
+    await expect(editor.getByRole('button', { name: 'Lưu quà tặng' })).toBeVisible()
 
     expect(await page.evaluate(() => ({
       document: document.documentElement.scrollWidth - document.documentElement.clientWidth,

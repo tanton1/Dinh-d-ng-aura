@@ -13,7 +13,7 @@ const record = (id: string, overdue: boolean): NutritionMealReview => ({
   analysis: { quantityAndCookingAnalysis: '', portionAndCalorieRationale: '', goalAlignmentAssessment: '', calorieOptimizationTip: '', macroBalanceAssessment: '', aiSuggestion: '', aiFeedback: '', coachFeedbackSuggestion: '' },
 })
 
-const rows = [record('old', true), record('recent', false)]
+const rows = [record('old', true), record('recent', false), { ...record('yesterday', true), studentName: 'Học viên hôm qua', createdAt: Date.now() - 86_400_000 }]
 export const control = {
   reads: [] as Record<string, unknown>[], writes: [] as Record<string, unknown>[],
   summaryReads: [] as unknown[], directoryReads: [] as unknown[],
@@ -34,20 +34,23 @@ export async function listNutritionMealReviews(input: Record<string, unknown>): 
 }
 
 function resultFor(input: Record<string, unknown>): NutritionReviewListResult {
-  const reviews = rows.filter((row) => (!input.status || input.status === 'all' || row.status === input.status)
+  const start = input.startDate ? Date.parse(`${input.startDate}T00:00:00+07:00`) : -Infinity
+  const end = input.endDate ? Date.parse(`${input.endDate}T00:00:00+07:00`) + 86_400_000 : Infinity
+  const periodRows = rows.filter((row) => row.createdAt >= start && row.createdAt < end)
+  const reviews = periodRows.filter((row) => (!input.status || input.status === 'all' || row.status === input.status)
     && (input.focus !== 'overdue' || (row.status === 'pending' && row.isOverdue))
     && (!input.query || row.studentName.includes(String(input.query))))
   return {
     reviews, coaches: [{ id: 'coach', name: 'Coach Aura', positions: [], branchIds: [] }], scope: 'all', assignmentCount: 2,
     hasMore: false, nextCursor: null, filteredCount: reviews.length, filteredCountExact: !input.query,
-    summary: { total: 2, pending: rows.filter((row) => row.status === 'pending').length, approved: rows.filter((row) => row.status === 'approved').length, rejected: 0, overdue: rows.filter((row) => row.isOverdue && row.status === 'pending').length, highPriority: 0, students: 2 },
+    summary: { total: periodRows.length, pending: periodRows.filter((row) => row.status === 'pending').length, approved: periodRows.filter((row) => row.status === 'approved').length, rejected: 0, overdue: periodRows.filter((row) => row.isOverdue && row.status === 'pending').length, highPriority: 0, students: periodRows.length },
     summaryTruncated: false, slaMinutes: 120,
   }
 }
 
-export async function getNutritionReviewSummary(authorityKey: string, forceRefresh: boolean) {
-  control.summaryReads.push({ authorityKey, forceRefresh })
-  const result = resultFor({})
+export async function getNutritionReviewSummary(authorityKey: string, forceRefresh: boolean, _freshness: string, dateRange: Record<string, unknown>) {
+  control.summaryReads.push({ authorityKey, forceRefresh, ...dateRange })
+  const result = resultFor(dateRange)
   if (control.holdSummary) await new Promise<void>((resolve) => { control.releaseSummary = resolve })
   if (control.failSummary) { control.failSummary = false; throw new Error('Tổng quan đang bận.') }
   return result

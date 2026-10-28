@@ -103,6 +103,8 @@ export function saveLoyaltyReward(reward: LoyaltyAdminReward) {
     expectedRevision: number
     name: string
     description: string
+    bannerUrl: string
+    bannerStoragePath: string
     pointsCost: number
     category: string
     fulfillmentType: 'automatic' | 'staff'
@@ -117,6 +119,8 @@ export function saveLoyaltyReward(reward: LoyaltyAdminReward) {
     expectedRevision: reward.revision,
     name: reward.name,
     description: reward.description,
+    bannerUrl: reward.bannerUrl || '',
+    bannerStoragePath: reward.bannerStoragePath || '',
     pointsCost: reward.pointsCost,
     category: reward.category,
     fulfillmentType: reward.fulfillmentType,

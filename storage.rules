@@ -91,6 +91,22 @@ service firebase.storage {
              && request.resource.metadata.uploadedBy == request.auth.uid;
     }
 
+    match /public-assets/loyalty-rewards/{rewardId}/{fileName} {
+      allow read: if true;
+      allow create: if isAdmin()
+                    && resource == null
+                    && rewardId.matches('[A-Za-z0-9_-]{1,200}')
+                    && fileName.matches('[A-Za-z0-9_-]{8,160}\\.webp')
+                    && request.resource.size > 0
+                    && request.resource.size <= 5 * 1024 * 1024
+                    && request.resource.contentType == 'image/webp'
+                    && request.resource.metadata.rewardId == rewardId
+                    && request.resource.metadata.uploadedBy == request.auth.uid
+                    && request.resource.metadata.resourceKind == 'loyalty-reward-banner';
+      allow update: if false;
+      allow delete: if isAdmin();
+    }
+
     match /public-assets/course-covers/{courseId}/{fileName} {
       // Covers are intentionally public catalog assets. Only trusted Academy
       // staff may upload them, and their ownership metadata is immutable.

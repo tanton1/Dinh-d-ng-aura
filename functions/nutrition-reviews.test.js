@@ -9,6 +9,7 @@ const {
   signReviewImages,
   reviewDocumentKey,
   nextPageCursor,
+  normalizeReviewDateRange,
   nutritionMealWriteReceiptId,
   pageCursor,
   reviewPriority,
@@ -61,7 +62,7 @@ function reviewDb(rows, extras = {}) {
         if (op === 'array-contains') return Array.isArray(value) && value.includes(expected)
         if (op === 'array-contains-any') return Array.isArray(value) && expected.some((id) => value.includes(id))
         if (value === undefined) return false
-        return op === '<' ? compare(value, expected) < 0 : false
+        return op === '<' ? compare(value, expected) < 0 : op === '>=' ? compare(value, expected) >= 0 : false
       })
       const effectiveOrder = order.length ? order : [[{}, 'asc']]
       found = found.filter((item) => effectiveOrder.every(([field]) => val(item, field) !== undefined))
@@ -122,6 +123,55 @@ function reviewDb(rows, extras = {}) {
 }
 
 const queueRow = (id, millis, legacy = false, extra = {}) => ({ id, userId: 'learner', status: 'pending', [legacy ? 'submittedAt' : 'createdAt']: Timestamp.fromMillis(millis), ...extra })
+
+test('date windows use Vietnam midnight, reject invalid ranges and bind pagination to the window', () => {
+  const range = normalizeReviewDateRange({ startDate: '2026-10-28', endDate: '2026-10-28' })
+  assert.equal(range.start.toDate().toISOString(), '2026-10-27T17:00:00.000Z')
+  assert.equal(range.end.toDate().toISOString(), '2026-10-28T17:00:00.000Z')
+  const cursor = nextPageCursor('pending', { id: 'meal', createdAt: range.start.toMillis() }, range)
+  assert.equal(pageCursor(cursor, 'pending', range).id, 'meal')
+  assert.throws(() => pageCursor(cursor, 'pending', normalizeReviewDateRange({ startDate: '2026-10-27', endDate: '2026-10-27' })), /Con trỏ/)
+  assert.throws(() => pageCursor(cursor, 'pending'), /Con trỏ/)
+  for (const input of [{ startDate: '2026-02-30', endDate: '2026-03-01' }, { startDate: '2026-10-28' }, { startDate: '2026-10-28', endDate: '2026-10-27' }, { startDate: '2026-01-01', endDate: '2026-10-28' }]) assert.throws(() => normalizeReviewDateRange(input))
+})
+
+test('page and summary queries read only the selected dates, including legacy and captured pending tasks', async () => {
+  const dateRange = normalizeReviewDateRange({ startDate: '2026-10-28', endDate: '2026-10-28' })
+  const start = dateRange.start.toMillis(), end = dateRange.end.toMillis()
+  const captured = { userId: 'former-learner', assignmentSnapshotVersion: 1, assignedCoachIds: ['coach'] }
+  const db = reviewDb([
+    queueRow('before', start - 1), queueRow('start', start), queueRow('legacy', start + 60_000, true),
+    queueRow('modern-with-legacy-clock', start + 120_000, false, { submittedAt: Timestamp.fromMillis(start + 90_000), status: 'approved' }),
+    queueRow('end', end), queueRow('other-learner', start + 60_000, false, { userId: 'private' }),
+    queueRow('captured', start + 180_000, false, captured), queueRow('captured-before', start - 1, true, captured),
+  ])
+  const page = await fetchReviewDocuments(db, ['learner'], 'all', null, { dateRange, actorIds: ['coach'] })
+  assert.deepEqual(page.documents.map((row) => row.id).sort(), ['captured', 'legacy', 'modern-with-legacy-clock', 'start'])
+  const result = await scopedReviewSummary(db, ['learner'], 120, 1, end, ['coach'], dateRange)
+  assert.deepEqual(result.summary, { total: 4, pending: 3, approved: 1, rejected: 0, overdue: 3, highPriority: 0, students: 2 })
+  assert.equal(result.truncated, false)
+  for (const read of db.reads.filter((read) => read.collection === 'mealReviews')) {
+    assert.ok(read.filters.some(([, operator, value]) => operator === '>=' && value.isEqual(dateRange.start)))
+    assert.ok(read.filters.some(([, operator, value]) => operator === '<' && value.isEqual(dateRange.end)))
+  }
+})
+
+test('summary cache isolates date windows and bounded summaries mark every count as partial', async () => {
+  const first = { startDate: '2026-10-28', endDate: '2026-10-28' }
+  const previous = { startDate: '2026-10-27', endDate: '2026-10-27' }
+  const start = normalizeReviewDateRange(first).start.toMillis()
+  const db = reviewDb([queueRow('today', start), queueRow('yesterday', start - 60_000, false, { status: 'approved' })], { 'users/admin': { role: 'admin' } })
+  const api = createNutritionReviewFunctions({ db, onCall: (...args) => args.at(-1) })
+  const summary = (range) => api.listNutritionMealReviews({ auth: { uid: 'admin', token: { role: 'admin' } }, data: { section: 'summary', ...range } })
+  assert.equal((await summary(first)).summary.pending, 1)
+  assert.equal((await summary(previous)).summary.pending, 0)
+  assert.equal((await summary(previous)).summary.approved, 1)
+  const many = reviewDb(Array.from({ length: 510 }, (_, index) => queueRow(`meal-${index}`, start + index, false, { status: 'approved' })))
+  const result = await scopedReviewSummary(many, null, 120, 0, start + 5_000, [], normalizeReviewDateRange(first))
+  assert.equal(result.summary.approved, 500)
+  assert.equal(result.countsTruncated, true)
+  assert.equal(result.truncated, true)
+})
 
 test('review clock, action severity and due date share the configured SLA for legacy dates', () => {
   const now = Date.UTC(2026, 9, 14, 12)

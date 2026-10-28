@@ -109,6 +109,8 @@ export interface LoyaltyReward {
   id: string
   name: string
   description: string
+  bannerUrl?: string
+  bannerStoragePath?: string
   pointsCost: number
   category: string
   fulfillmentType: 'automatic' | 'staff'
