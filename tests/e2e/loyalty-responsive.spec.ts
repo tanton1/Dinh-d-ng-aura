@@ -6,6 +6,7 @@ for (const width of [360, 390, 430]) {
     await page.goto('/#/aura-club')
 
     await expect(page.getByRole('heading', { name: 'Quà tặng Aura' })).toBeVisible()
+    expect(Math.round((await page.locator('.loyalty-page').boundingBox())!.width)).toBe(width)
     const navigation = page.getByRole('navigation', { name: 'Aura Club trên điện thoại' })
     await expect(navigation.getByRole('button')).toHaveCount(4)
     expect(await navigation.getByRole('button').allTextContents()).toEqual(['Đổi quà', 'Nhiệm vụ', 'Lịch sử', 'Thêm'])
@@ -38,6 +39,7 @@ for (const width of [360, 390, 430]) {
     await page.goto('/#/admin-loyalty')
 
     await expect(page.getByRole('heading', { name: 'Aura Club', exact: true })).toBeVisible()
+    expect(Math.round((await page.locator('.club-workspace').boundingBox())!.width)).toBe(width)
     const metrics = page.getByRole('region', { name: 'Chỉ số Aura Club' })
     await expect(metrics.locator(':scope > div')).toHaveCount(4)
     await expect(metrics.getByText('Thành viên')).toBeVisible()

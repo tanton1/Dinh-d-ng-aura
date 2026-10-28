@@ -267,8 +267,8 @@ export default function AdminLoyaltyPage({
         <div><WalletCards /><span>Giá trị điểm</span><strong>{formatMoney(metrics.outstandingNominalValueVnd)}</strong></div>
       </section>
         <RewardBanners items={[
-          ...(canManageRewards ? [{ kind: 'gifts' as const, title: 'Quà tặng Aura', description: 'Danh mục quà, điểm đổi và số lượng còn lại.', action: 'Xem quà', onClick: () => selectSection('rewards') }] : []),
-          ...(canReviewRedemptions ? [{ kind: 'vouchers' as const, title: 'Đổi quà', description: dashboard.features.redeem ? 'Duyệt yêu cầu và xác nhận đã trao quà.' : 'Đổi điểm đang tạm dừng. Các yêu cầu cũ vẫn được xử lý.', action: 'Xem yêu cầu', onClick: () => selectSection('redemptions') }] : []),
+          ...(canManageRewards ? [{ kind: 'gifts' as const, title: 'Quà tặng Aura', description: '', action: 'Xem quà', onClick: () => selectSection('rewards') }] : []),
+          ...(canReviewRedemptions ? [{ kind: 'vouchers' as const, title: 'Đổi quà', description: dashboard.features.redeem ? '' : 'Đổi điểm đang tạm dừng. Các yêu cầu cũ vẫn được xử lý.', action: 'Xem yêu cầu', onClick: () => selectSection('redemptions') }] : []),
         ]} />
         {metrics.debtPoints > 0 ? <aside className="loyalty-admin-risk"><AlertTriangle /><div><strong>{formatNumber(metrics.debtPoints)} điểm cần bù</strong><span>Tài khoản liên quan tạm khóa đổi quà đến khi bù đủ điểm.</span></div></aside> : null}
         <section className="loyalty-admin-card">

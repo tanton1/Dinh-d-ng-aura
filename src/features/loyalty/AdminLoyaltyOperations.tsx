@@ -388,8 +388,8 @@ export default function AdminLoyaltyOperations({
     {!loading && activeTab === 'rewards' ? <div className="loyalty-admin-rewards">
       <div className="loyalty-admin-sectionbar"><div><strong>{rewards.length} quà tặng</strong></div><button type="button" onClick={() => editReward(emptyReward)}><Plus /> Thêm quà</button></div>
       <div className="loyalty-admin-rewards__grid">{rewards.map((reward) => <article key={reward.id} className={!reward.active ? 'is-inactive' : ''}>
-        <RewardImage src={reward.bannerUrl} name={reward.name} />
-        <div><span>{!reward.active ? 'Tạm ẩn' : reward.category}</span>{reward.featured ? <b>Nổi bật</b> : null}</div><h3>{reward.name}</h3>{reward.description && <p>{reward.description}</p>}<footer><strong>{formatNumber(reward.pointsCost)} điểm</strong><small>{reward.stock === null ? 'Không giới hạn' : `Còn ${formatNumber(reward.stock)}`}</small><button type="button" onClick={() => editReward(reward)}><Pencil /> Sửa</button></footer>
+        <RewardImage src={reward.bannerUrl} name={reward.name} rewardId={reward.id} />
+        {(!reward.active || reward.featured) && <div>{!reward.active && <span>Tạm ẩn</span>}{reward.featured && <b>Nổi bật</b>}</div>}<h3>{reward.name}</h3>{reward.description && <p>{reward.description}</p>}<footer><strong>{formatNumber(reward.pointsCost)} điểm</strong><small>{reward.stock === null ? 'Không giới hạn' : `Còn ${formatNumber(reward.stock)}`}</small><button type="button" onClick={() => editReward(reward)}><Pencil /> Sửa</button></footer>
       </article>)}</div>
     </div> : null}
 

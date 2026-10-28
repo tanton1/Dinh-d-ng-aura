@@ -46,6 +46,7 @@ import type {
 } from './types'
 import './loyalty.css'
 import RewardImage from './RewardImage'
+import './club-member.css'
 
 const tabs: Array<{ id: AuraClubTab; label: string; icon: typeof Gift }> = [
   { id: 'rewards', label: 'Đổi quà', icon: Gift },
@@ -368,7 +369,7 @@ function AuraClubWorkspace({ isDemo = false, ownerId, initialTab = 'rewards', on
     <div className="loyalty-page">
       <header className={`loyalty-hero loyalty-hero--${account.tier}`}>
         <button type="button" className="loyalty-back" onClick={() => onNavigate('home')} aria-label="Về trang Hôm nay"><ArrowLeft /></button>
-        <div className="loyalty-hero__eyebrow"><Sparkles size={15} /> AURA CLUB</div>
+        <div className="loyalty-hero__eyebrow"><Sparkles size={15} /> Aura Club</div>
         <div className="loyalty-hero__main">
           <div>
             <span className="loyalty-tier"><Crown size={18} /> Aura {tierLabels[account.tier]}</span>
@@ -438,7 +439,7 @@ function AuraClubWorkspace({ isDemo = false, ownerId, initialTab = 'rewards', on
                 const affordable = account.availablePoints >= reward.pointsCost && account.debtPoints === 0
                 return (
                   <article key={reward.id} className={`loyalty-reward club-gift-card${reward.featured ? ' is-featured' : ''}`}>
-                    <RewardImage src={reward.bannerUrl} name={reward.name} />
+                    <RewardImage src={reward.bannerUrl} name={reward.name} rewardId={reward.id} />
                     <div className="loyalty-reward__copy"><span>{reward.fulfillmentType === 'automatic' ? 'Cấp ngay' : 'Nhận tại Aura'}</span><h3>{reward.name}</h3>{reward.description && <p>{reward.description}</p>}</div>
                     <footer><strong>{formatNumber(reward.pointsCost)} điểm</strong><button type="button" disabled={!features?.redeem || !affordable || reward.stock === 0} onClick={() => setSelectedReward(reward)}>{reward.stock === 0 ? 'Hết lượt' : affordable ? 'Đổi ngay' : 'Chưa đủ điểm'}</button></footer>
                   </article>

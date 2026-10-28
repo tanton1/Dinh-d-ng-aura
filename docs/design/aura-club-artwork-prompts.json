@@ -1,0 +1,61 @@
+{
+  "tool": "built-in image_gen",
+  "created": "2026-10-28",
+  "artworks": [
+    {
+      "id": "assessment",
+      "prompt": "Use case: product-mockup / ads-marketing. Create one landscape 2:1 reward banner for the Vietnamese premium wellness brand Aura Club. Visual style: refined photorealistic 3D editorial still life, tactile matte ceramic and satin finishes, soft studio daylight, subtle realistic contact shadows, seamless pale ivory-to-blush backdrop with a warm pink-to-peach-orange glow. Palette: rose pink #f36f9b, peach orange #ffa16b, warm ivory #fff7f2. Simple, chic, modern, welcoming. Main objects large and centered with generous but not empty margins, occupy central 80%, composed to survive a 2:1 crop. No border, no frame, no typography, no letters, no numbers, no logos, no watermark, no busy confetti. This is an image used above real text in a reward catalog; do not render a UI. Subject: a beautiful ivory and blush body-composition smart scale with its connected pair of hand-grip sensors neatly resting beside it, a subtle blank display, on a low peach plinth. Clearly a fitness assessment reward, not medical treatment.",
+      "asset": "public/images/aura-club/rewards-20261028/assessment"
+    },
+    {
+      "id": "voucher-50k",
+      "prompt": "Use case: product-mockup / ads-marketing. Create one landscape 2:1 reward banner for the Vietnamese premium wellness brand Aura Club. Visual style: refined photorealistic 3D editorial still life, tactile matte ceramic and satin finishes, soft studio daylight, subtle realistic contact shadows, seamless pale ivory-to-blush backdrop with a warm pink-to-peach-orange glow. Palette: rose pink #f36f9b, peach orange #ffa16b, warm ivory #fff7f2. Simple, chic, modern, welcoming. Main objects large and centered with generous but not empty margins, occupy central 80%, composed to survive a 2:1 crop. No border, no frame, no typography, no letters, no numbers, no logos, no watermark, no busy confetti. This is an image used above real text in a reward catalog; do not render a UI. Subject: a premium coral-pink gift voucher card partly slipped into a warm peach envelope with a single softly looping rose satin ribbon. The card is completely blank with a small abstract embossed sun motif, no amount or writing. Elegant asymmetric arrangement.",
+      "asset": "public/images/aura-club/rewards-20261028/voucher-50k"
+    },
+    {
+      "id": "extra-reschedule",
+      "prompt": "Use case: product-mockup / ads-marketing. Create one landscape 2:1 reward banner for the Vietnamese premium wellness brand Aura Club. Visual style: refined photorealistic 3D editorial still life, tactile matte ceramic and satin finishes, soft studio daylight, subtle realistic contact shadows, seamless pale ivory-to-blush backdrop with a warm pink-to-peach-orange glow. Palette: rose pink #f36f9b, peach orange #ffa16b, warm ivory #fff7f2. Simple, chic, modern, welcoming. Main objects large and centered with generous but not empty margins, occupy central 80%, composed to survive a 2:1 crop. No border, no frame, no typography, no letters, no numbers, no logos, no watermark, no busy confetti. This is an image used above real text in a reward catalog; do not render a UI. Subject: a sculptural blush desk calendar with a blank peach page and a minimal embossed calendar grid (no numerals), beside a chunky satin-pink circular arrow symbol suggesting changing an appointment. Friendly sophisticated physical objects, clean composition.",
+      "asset": "public/images/aura-club/rewards-20261028/extra-reschedule"
+    },
+    {
+      "id": "guest-pass",
+      "prompt": "undefinedSubject: two premium gym guest-access cards, one blush pink and one peach orange, side by side on simple satin lanyards. Blank passes with small abstract paired-circle embossing (no writing). A neatly rolled ivory gym towel subtly behind, suggesting inviting a friend to train together.",
+      "asset": "public/images/aura-club/rewards-20261028/guest-pass"
+    },
+    {
+      "id": "voucher-100k",
+      "prompt": "undefinedSubject: an elegant peach-orange gift certificate card with a tiny abstract embossed star, propped on a low ivory plinth, with one curled pink ribbon and a blush envelope behind. Entire card completely blank, no writing or amounts. Distinct from a flat envelope scene.",
+      "asset": "public/images/aura-club/rewards-20261028/voucher-100k"
+    },
+    {
+      "id": "nutrition-consultation",
+      "prompt": "undefinedSubject: a beautiful balanced meal in a wide ivory bowl: fresh greens, avocado, roasted salmon, cherry tomatoes and quinoa, beside a peach notebook with completely blank pages and a blush pen. Carefully styled premium nutrition consultation reward, fresh and appetizing, not a diet advertisement.",
+      "asset": "public/images/aura-club/rewards-20261028/nutrition-consultation"
+    },
+    {
+      "id": "aura-shaker",
+      "prompt": "Use case: product-mockup / ads-marketing. Create one landscape 2:1 reward banner for the Vietnamese premium wellness brand Aura Club. Visual style: refined photorealistic 3D editorial still life, tactile matte ceramic and satin finishes, soft studio daylight, subtle realistic contact shadows, seamless pale ivory-to-blush backdrop with a warm pink-to-peach-orange glow. Palette: rose pink #f36f9b, peach orange #ffa16b, warm ivory #fff7f2. Simple, chic, modern, welcoming. Main objects large and centered with generous but not empty margins, occupy central 80%, composed to survive a 2:1 crop. No border, no frame, no typography, no letters, no numbers, no logos, no watermark, no busy confetti. This is an image used above real text in a reward catalog; do not render a UI. Subject: one premium blush-pink fitness shaker bottle with a peach lid and soft satin finish, standing upright slightly tilted in a product pose beside its small stainless mixing ball and a neatly folded ivory gym towel. The bottle has no writing or logo. Beautiful realistic proportions, hero product photography.",
+      "asset": "public/images/aura-club/rewards-20261028/aura-shaker"
+    },
+    {
+      "id": "bonus-pt-session",
+      "prompt": "Use case: product-mockup / ads-marketing. Create one landscape 2:1 reward banner for the Vietnamese premium wellness brand Aura Club. Visual style: refined photorealistic 3D editorial still life, tactile matte ceramic and satin finishes, soft studio daylight, subtle realistic contact shadows, seamless pale ivory-to-blush backdrop with a warm pink-to-peach-orange glow. Palette: rose pink #f36f9b, peach orange #ffa16b, warm ivory #fff7f2. Simple, chic, modern, welcoming. Main objects large and centered with generous but not empty margins, occupy central 80%, composed to survive a 2:1 crop. No border, no frame, no typography, no letters, no numbers, no logos, no watermark, no busy confetti. This is an image used above real text in a reward catalog; do not render a UI. Subject: a compact pair of coral-pink dumbbells, an ivory stopwatch with a blank face, and a softly rolled peach training mat, arranged as a premium personal-training session gift. Tactile clean gym equipment, minimal composition, no people, no writing.",
+      "asset": "public/images/aura-club/rewards-20261028/bonus-pt-session"
+    },
+    {
+      "id": "aura-shirt",
+      "prompt": "Use case: product-mockup / ads-marketing. Create one landscape 2:1 reward banner for the Vietnamese premium wellness brand Aura Club. Visual style: refined photorealistic 3D editorial still life, tactile matte ceramic and satin finishes, soft studio daylight, subtle realistic contact shadows, seamless pale ivory-to-blush backdrop with a warm pink-to-peach-orange glow. Palette: rose pink #f36f9b, peach orange #ffa16b, warm ivory #fff7f2. Simple, chic, modern, welcoming. Main objects large and centered with generous but not empty margins, occupy central 80%, composed to survive a 2:1 crop. No border, no frame, no typography, no letters, no numbers, no logos, no watermark, no busy confetti. This is an image used above real text in a reward catalog; do not render a UI. Subject: a premium rose-pink athletic training T-shirt, realistically draped and folded with the neckline and sleeves visible, on a warm ivory low plinth. A softly rolled peach gym towel beside it. The T-shirt is completely plain with no logo, no text, stylish realistic sports fabric texture.",
+      "asset": "public/images/aura-club/rewards-20261028/aura-shirt"
+    },
+    {
+      "id": "freeze-seven-days",
+      "prompt": "Use case: product-mockup / ads-marketing. Create one landscape 2:1 reward banner for the Vietnamese premium wellness brand Aura Club. Visual style: refined photorealistic 3D editorial still life, tactile matte ceramic and satin finishes, soft studio daylight, subtle realistic contact shadows, seamless pale ivory-to-blush backdrop with a warm pink-to-peach-orange glow. Palette: rose pink #f36f9b, peach orange #ffa16b, warm ivory #fff7f2. Simple, chic, modern, welcoming. Main objects large and centered with generous but not empty margins, occupy central 80%, composed to survive a 2:1 crop. No border, no frame, no typography, no letters, no numbers, no logos, no watermark, no busy confetti. This is an image used above real text in a reward catalog; do not render a UI. Subject: a sculptural warm-pink desk calendar with seven small blank page tabs, beside a beautiful peach pause symbol (two smooth upright rounded bars). A small translucent blush snowflake accent suggests pausing a fitness membership. No writing or numerals, no blue or icy environment.",
+      "asset": "public/images/aura-club/rewards-20261028/freeze-seven-days"
+    },
+    {
+      "id": "renewal-voucher-300k",
+      "prompt": "Use case: product-mockup / ads-marketing. Create one landscape 2:1 reward banner for the Vietnamese premium wellness brand Aura Club. Visual style: refined photorealistic 3D editorial still life, tactile matte ceramic and satin finishes, soft studio daylight, subtle realistic contact shadows, seamless pale ivory-to-blush backdrop with a warm pink-to-peach-orange glow. Palette: rose pink #f36f9b, peach orange #ffa16b, warm ivory #fff7f2. Simple, chic, modern, welcoming. Main objects large and centered with generous but not empty margins, occupy central 80%, composed to survive a 2:1 crop. No border, no frame, no typography, no letters, no numbers, no logos, no watermark, no busy confetti. This is an image used above real text in a reward catalog; do not render a UI. Subject: a premium blank peach membership gift card with a soft coral-pink circular ribbon looping around it like a renewal arrow, an ivory gift envelope beneath. Distinct elegant sculptural composition suggesting renewing a gym membership, no denomination, no writing.",
+      "asset": "public/images/aura-club/rewards-20261028/renewal-voucher-300k"
+    }
+  ]
+}
