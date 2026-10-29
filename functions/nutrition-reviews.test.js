@@ -799,7 +799,20 @@ test('nutrition review and session feedback overflow aliases use bounded regiona
 
 test('coach workspace resolves tabs from primary, secondary and nutrition assignments', () => {
   const source = fs.readFileSync(path.join(__dirname, 'pt-operations-v2.js'), 'utf8')
-  assert.match(source, /const staffCall = \(handler\) => onCall\(\{[\s\S]*?cpu: 1,[\s\S]*?concurrency: 24,[\s\S]*?maxInstances: 6,[\s\S]*?\.\.\.staffCallOptions,[\s\S]*?\}, handler\)/)
+  const { createPtOperationsV2Functions } = require('./pt-operations-v2')
+  const onCall = (options, handler) => ({ options, handler })
+  const defaults = createPtOperationsV2Functions({ db: {}, onCall })
+  const staffNames = Object.entries(defaults).filter(([, api]) => api.options?.cpu === 1).map(([name]) => name)
+  assert.equal(staffNames.length, 22)
+  for (const name of staffNames) assert.deepEqual(defaults[name].options, {
+    cpu: 1, concurrency: 24, maxInstances: 6, invoker: 'public',
+  }, name)
+  const staffCallOptions = { cpu: 'gcf_gen1', maxInstances: 2, concurrency: 1, timeoutSeconds: 120 }
+  const regional = createPtOperationsV2Functions({ db: {}, onCall, staffCallOptions, trainerWorkspaceCallOptions: { maxInstances: 3 } })
+  for (const name of staffNames) assert.deepEqual(regional[name].options, {
+    invoker: 'public', ...staffCallOptions,
+    ...(name === 'getMyTrainerWorkspace' ? { maxInstances: 3 } : {}),
+  }, `Only trainer workspace receives its extra instance: ${name}`)
   assert.match(source, /const getMyCoachWorkspaceScope = staffCall/)
   assert.equal((source.match(/= staffCall\(/g) ?? []).length, 22)
   assert.match(source, /const getMyTrainerAvailability = staffCall/)

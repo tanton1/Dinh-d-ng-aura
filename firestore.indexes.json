@@ -1,5 +1,21 @@
 {
   "indexes": [
+    {
+      "collectionGroup": "subjects",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "dueAt", "order": "ASCENDING" },
+        { "fieldPath": "__name__", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "staffOperationalSummaries",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "nextReconcileAt", "order": "ASCENDING" },
+        { "fieldPath": "__name__", "order": "ASCENDING" }
+      ]
+    },
     { "collectionGroup": "ptAvailability", "queryScope": "COLLECTION", "fields": [{ "fieldPath": "__name__", "order": "DESCENDING" }] },
     {"collectionGroup":"ptScheduleWeeklyViews","queryScope":"COLLECTION","fields":[{"fieldPath":"branchId","order":"ASCENDING"},{"fieldPath":"__name__","order":"ASCENDING"}]},
     {"collectionGroup":"ptScheduleWeeklyViews","queryScope":"COLLECTION","fields":[{"fieldPath":"schemaVersion","order":"ASCENDING"},{"fieldPath":"__name__","order":"ASCENDING"}]},

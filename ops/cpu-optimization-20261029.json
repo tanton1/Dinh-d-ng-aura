@@ -1,0 +1,391 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-29",
+  "status": "verified_locally_pending_release",
+  "projectId": "gen-lang-client-0815966909",
+  "databaseId": "ai-studio-aurafitnesselear-0f7609b4-b8d1-4fb3-9d62-99a2c03e1ce7",
+  "methodology": {
+    "name": "Ponytail",
+    "commit": "96608e078b2d5ea607c5c3b8b5a54d1c1fba6846",
+    "skill": "https://github.com/DietrichGebert/ponytail/blob/96608e078b2d5ea607c5c3b8b5a54d1c1fba6846/skills/ponytail/SKILL.md",
+    "application": "Small complete changes; existing business handlers, fencing and authorization retained; no runtime dependency on Ponytail."
+  },
+  "indexes": {
+    "scope": "cpu-background",
+    "ready": 2,
+    "deleted": 0
+  },
+  "waves": [
+    [
+      "processStudent360SourceQueue",
+      "recoverStudent360SourceQueueScheduled"
+    ],
+    [
+      "syncStudent360Attendance",
+      "syncStudent360Session",
+      "syncStudent360ContractUsage",
+      "syncStudent360Contract"
+    ],
+    [
+      "syncStudent360Student",
+      "syncStudent360Availability",
+      "syncStudent360Workout",
+      "syncStudent360PtWorkout",
+      "syncStudent360MealReview",
+      "syncStudent360LeaveRequest",
+      "syncStudent360SessionRequest",
+      "syncStudent360Renewal",
+      "syncStudent360Payment",
+      "syncStudent360DailyCheckin",
+      "syncStudent360Profile",
+      "syncStudent360MealLog",
+      "syncStudent360BodyMetric",
+      "syncStudent360BodyMeasurement",
+      "syncStudent360WeightLog",
+      "syncStudent360LegacyProgressPhoto",
+      "syncStudent360ProgressPhoto",
+      "syncStudent360ProgressCheckIn"
+    ],
+    [
+      "refreshStudent360ProjectionFromQueue",
+      "reconcileStudent360ProjectionsScheduled",
+      "syncStaffOperationalSummary",
+      "reconcileStaffManagedClientSummariesScheduled",
+      "chargeDuePtSessionsScheduled",
+      "autoConfirmOverduePtAttendanceScheduled",
+      "vestPendingLoyaltySourcesScheduled",
+      "advanceLoyaltyMembershipsScheduled"
+    ],
+    [
+      "syncContractUsageOperationalActions",
+      "syncStudent360OperationalActions",
+      "syncPtScheduleWeeklyViewFromContractUsage",
+      "getMyPerformanceScoreV2",
+      "getMyTrainerWorkspaceRegional"
+    ]
+  ],
+  "resourceChanges": [
+    {
+      "functionName": "syncContractUsageOperationalActions",
+      "field": "maxInstances",
+      "before": 1,
+      "after": 2
+    },
+    {
+      "functionName": "syncStudent360OperationalActions",
+      "field": "maxInstances",
+      "before": 1,
+      "after": 2
+    },
+    {
+      "functionName": "syncPtScheduleWeeklyViewFromContractUsage",
+      "field": "maxInstances",
+      "before": 1,
+      "after": 2
+    },
+    {
+      "functionName": "getMyPerformanceScoreV2",
+      "field": "maxInstances",
+      "before": 1,
+      "after": 2
+    },
+    {
+      "functionName": "getMyTrainerWorkspaceRegional",
+      "field": "maxInstances",
+      "before": 2,
+      "after": 3
+    }
+  ],
+  "schedules": {
+    "recoverStudent360SourceQueueScheduled": "every 5 minutes",
+    "reconcileStaffManagedClientSummariesScheduled": "17 * * * *"
+  },
+  "localBenchmark": {
+    "measuredAt": "2026-10-29T14:52:07.835Z",
+    "node": "v24.19.0",
+    "rounds": 4,
+    "caveat": "Fresh local Node processes; no network or business execution. These measurements are not a claim of production CPU or billing savings.",
+    "measurements": {
+      "fullDiscovery": [
+        {
+          "initializationMs": 847.4558,
+          "moduleCount": 1021,
+          "localModuleCount": 108,
+          "exportedTargets": 562
+        },
+        {
+          "initializationMs": 848.3383,
+          "moduleCount": 1021,
+          "localModuleCount": 108,
+          "exportedTargets": 562
+        },
+        {
+          "initializationMs": 853.3643,
+          "moduleCount": 1021,
+          "localModuleCount": 108,
+          "exportedTargets": 562
+        },
+        {
+          "initializationMs": 874.2335,
+          "moduleCount": 1021,
+          "localModuleCount": 108,
+          "exportedTargets": 562
+        }
+      ],
+      "chargeDuePtSessionsScheduled": [
+        {
+          "initializationMs": 813.1023,
+          "moduleCount": 799,
+          "localModuleCount": 23,
+          "exportedTargets": 1
+        },
+        {
+          "initializationMs": 635.0815,
+          "moduleCount": 799,
+          "localModuleCount": 23,
+          "exportedTargets": 1
+        },
+        {
+          "initializationMs": 611.9269,
+          "moduleCount": 799,
+          "localModuleCount": 23,
+          "exportedTargets": 1
+        },
+        {
+          "initializationMs": 613.1293,
+          "moduleCount": 799,
+          "localModuleCount": 23,
+          "exportedTargets": 1
+        }
+      ],
+      "vestPendingLoyaltySourcesScheduled": [
+        {
+          "initializationMs": 1065.4625,
+          "moduleCount": 795,
+          "localModuleCount": 19,
+          "exportedTargets": 1
+        },
+        {
+          "initializationMs": 613.0868,
+          "moduleCount": 795,
+          "localModuleCount": 19,
+          "exportedTargets": 1
+        },
+        {
+          "initializationMs": 635.0514,
+          "moduleCount": 795,
+          "localModuleCount": 19,
+          "exportedTargets": 1
+        },
+        {
+          "initializationMs": 642.2737,
+          "moduleCount": 795,
+          "localModuleCount": 19,
+          "exportedTargets": 1
+        }
+      ],
+      "advanceLoyaltyMembershipsScheduled": [
+        {
+          "initializationMs": 1521.5677,
+          "moduleCount": 783,
+          "localModuleCount": 7,
+          "exportedTargets": 1
+        },
+        {
+          "initializationMs": 601.4707,
+          "moduleCount": 783,
+          "localModuleCount": 7,
+          "exportedTargets": 1
+        },
+        {
+          "initializationMs": 604.8059,
+          "moduleCount": 783,
+          "localModuleCount": 7,
+          "exportedTargets": 1
+        },
+        {
+          "initializationMs": 629.1769,
+          "moduleCount": 783,
+          "localModuleCount": 7,
+          "exportedTargets": 1
+        }
+      ],
+      "reconcileStaffManagedClientSummariesScheduled": [
+        {
+          "initializationMs": 744.9105,
+          "moduleCount": 782,
+          "localModuleCount": 6,
+          "exportedTargets": 1
+        },
+        {
+          "initializationMs": 629.9828,
+          "moduleCount": 782,
+          "localModuleCount": 6,
+          "exportedTargets": 1
+        },
+        {
+          "initializationMs": 618.1734,
+          "moduleCount": 782,
+          "localModuleCount": 6,
+          "exportedTargets": 1
+        },
+        {
+          "initializationMs": 692.0541,
+          "moduleCount": 782,
+          "localModuleCount": 6,
+          "exportedTargets": 1
+        }
+      ],
+      "syncStudent360Session": [
+        {
+          "initializationMs": 732.9548,
+          "moduleCount": 803,
+          "localModuleCount": 27,
+          "exportedTargets": 1
+        },
+        {
+          "initializationMs": 612.3179,
+          "moduleCount": 803,
+          "localModuleCount": 27,
+          "exportedTargets": 1
+        },
+        {
+          "initializationMs": 648.65,
+          "moduleCount": 803,
+          "localModuleCount": 27,
+          "exportedTargets": 1
+        },
+        {
+          "initializationMs": 750.1918,
+          "moduleCount": 803,
+          "localModuleCount": 27,
+          "exportedTargets": 1
+        }
+      ],
+      "processStudent360SourceQueue": [
+        {
+          "initializationMs": 621.7149,
+          "moduleCount": 784,
+          "localModuleCount": 8,
+          "exportedTargets": 1
+        },
+        {
+          "initializationMs": 590.7979,
+          "moduleCount": 784,
+          "localModuleCount": 8,
+          "exportedTargets": 1
+        },
+        {
+          "initializationMs": 598.0997,
+          "moduleCount": 784,
+          "localModuleCount": 8,
+          "exportedTargets": 1
+        },
+        {
+          "initializationMs": 625.6791,
+          "moduleCount": 784,
+          "localModuleCount": 8,
+          "exportedTargets": 1
+        }
+      ],
+      "recoverStudent360SourceQueueScheduled": [
+        {
+          "initializationMs": 596.7809,
+          "moduleCount": 784,
+          "localModuleCount": 8,
+          "exportedTargets": 1
+        },
+        {
+          "initializationMs": 595.2354,
+          "moduleCount": 784,
+          "localModuleCount": 8,
+          "exportedTargets": 1
+        },
+        {
+          "initializationMs": 603.2964,
+          "moduleCount": 784,
+          "localModuleCount": 8,
+          "exportedTargets": 1
+        },
+        {
+          "initializationMs": 609.2242,
+          "moduleCount": 784,
+          "localModuleCount": 8,
+          "exportedTargets": 1
+        }
+      ]
+    },
+    "summary": {
+      "fullDiscovery": {
+        "medianInitializationMs": 850.8513,
+        "moduleCount": 1021,
+        "localModuleCount": 108,
+        "exportedTargets": 562
+      },
+      "chargeDuePtSessionsScheduled": {
+        "medianInitializationMs": 624.1053999999999,
+        "moduleCount": 799,
+        "localModuleCount": 23,
+        "exportedTargets": 1
+      },
+      "vestPendingLoyaltySourcesScheduled": {
+        "medianInitializationMs": 638.66255,
+        "moduleCount": 795,
+        "localModuleCount": 19,
+        "exportedTargets": 1
+      },
+      "advanceLoyaltyMembershipsScheduled": {
+        "medianInitializationMs": 616.9914,
+        "moduleCount": 783,
+        "localModuleCount": 7,
+        "exportedTargets": 1
+      },
+      "reconcileStaffManagedClientSummariesScheduled": {
+        "medianInitializationMs": 661.01845,
+        "moduleCount": 782,
+        "localModuleCount": 6,
+        "exportedTargets": 1
+      },
+      "syncStudent360Session": {
+        "medianInitializationMs": 690.8024,
+        "moduleCount": 803,
+        "localModuleCount": 27,
+        "exportedTargets": 1
+      },
+      "processStudent360SourceQueue": {
+        "medianInitializationMs": 609.9073,
+        "moduleCount": 784,
+        "localModuleCount": 8,
+        "exportedTargets": 1
+      },
+      "recoverStudent360SourceQueueScheduled": {
+        "medianInitializationMs": 600.03865,
+        "moduleCount": 784,
+        "localModuleCount": 8,
+        "exportedTargets": 1
+      }
+    }
+  },
+  "verification": {
+    "sourceQueueUnitTests": 28,
+    "sourceQueueAndExistingProjectionIntegrationTests": 53,
+    "staffSummaryIntegrationTests": 15,
+    "vercelBuildIgnoreTests": 32,
+    "indexScopeTests": 12,
+    "fullCi": "passed",
+    "productionDependencyAudit": "passed: zero vulnerabilities",
+    "secretScan": "passed",
+    "completedAt": "2026-10-29T15:04:45.875Z"
+  },
+  "rolloutGates": [
+    "Indexes READY before queries",
+    "Consumer and recovery healthy before producers",
+    "Verify actual serving revisions and queue due age",
+    "Keep consumers after producer rollback until pending generations drain"
+  ],
+  "limitations": [
+    "Local startup measurements do not establish production CPU or billing savings.",
+    "Queue writes add cheap status-event invocations; compare rebuild CPU and due age, not invocation count alone.",
+    "Vercel skipped deployments still use a deployment slot."
+  ]
+}

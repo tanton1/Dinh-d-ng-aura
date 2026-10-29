@@ -1280,6 +1280,7 @@ function createPtOperationsV2Functions({
   db,
   onCall,
   staffCallOptions = {},
+  trainerWorkspaceCallOptions = {},
   staffMutationCallOptions = {},
   availabilityAccessResolver = trustedAccessContext,
 }) {
@@ -1287,12 +1288,13 @@ function createPtOperationsV2Functions({
   // A concurrency of one made harmless navigation bursts exhaust all six
   // instances and the browser surfaced a generic "service busy" message.
   // Keep the fleet bounded, but let each warm instance serve concurrent I/O.
-  const staffCall = (handler) => onCall({
+  const staffCall = (handler, options = {}) => onCall({
     cpu: 1,
     concurrency: 24,
     maxInstances: 6,
     invoker: 'public',
     ...staffCallOptions,
+    ...options,
   }, handler)
   // Small trainer commands should still start when the project is near its
   // Cloud Run CPU allocation quota. They perform one short transaction and do
@@ -1978,7 +1980,7 @@ function createPtOperationsV2Functions({
     // Adding a learner is a separate interaction. Merely checking this week's
     // teaching schedule must not hydrate the full assigned/branch roster.
     return { schemaVersion: independentTabs ? 3 : 2, syncState, scope, students: roster.students || [], branches: roster.branches || [], sessions: data.sessions, requests: data.requests, hasMore: Boolean(data.hasMore || roster.hasMore) }
-  })
+  }, trainerWorkspaceCallOptions)
 
   const getMyTrainerStudentDetail = staffCall(async (request) => {
     const actor = await trainerActor(request, db)

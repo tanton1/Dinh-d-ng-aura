@@ -876,8 +876,8 @@ function sanitizeGateAssessment(input, gateId) {
 }
 
 function createPerformanceScoreFunctions({ db, onCall, storage, logger = console }) {
-  const performanceCall = (handler) => onCall({
-    cpu: 'gcf_gen1', memory: '256MiB', maxInstances: 1, concurrency: 1, timeoutSeconds: 120,
+  const performanceCall = (handler, maxInstances = 1) => onCall({
+    cpu: 'gcf_gen1', memory: '256MiB', maxInstances, concurrency: 1, timeoutSeconds: 120,
   }, handler)
 
   const getMyPerformanceScore = performanceCall(async (request) => {
@@ -902,7 +902,7 @@ function createPerformanceScoreFunctions({ db, onCall, storage, logger = console
       generatedAt: new Date().toISOString(),
       ...result.summary,
     }
-  })
+  }, 2)
 
   const listMyPerformanceEvidence = performanceCall(async (request) => {
     const actor = await trustedAccessContext(request, db)

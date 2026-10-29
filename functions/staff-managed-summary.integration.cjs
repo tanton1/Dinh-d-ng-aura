@@ -206,11 +206,73 @@ test('repair upgrades fresh legacy summaries and keeps its cursor on failure', a
   const db = await fixture([['row', { status: 'active', trainerId: 'pt' }]])
   await db.doc('roleAssignments/pt').set({ accessRole: 'staff' })
   await db.doc('staffOperationalSummaries/pt').set({ schemaVersion: 2, managedClientCounts: { main: 9 }, generatedAt: Timestamp.now() })
-  await db.doc('systemJobs/staffManagedClientSummaryReconciliation').set({ cursor: 'old-cursor' })
+  await db.doc('systemJobs/staffManagedClientSummaryReconciliation').set({ cursor: 'z-legacy-tail' })
   await assert.rejects(reconcileStaffManagedClientSummaries({ db, refresh: async () => { throw Error('injected refresh failure') } }), /injected refresh failure/)
-  assert.equal((await db.doc('systemJobs/staffManagedClientSummaryReconciliation').get()).data().cursor, 'old-cursor')
+  assert.equal((await db.doc('systemJobs/staffManagedClientSummaryReconciliation').get()).data().cursor, 'z-legacy-tail')
   const logger = { info() {} }
   assert.equal((await reconcileStaffManagedClientSummaries({ db, logger })).refreshed, 1)
   assert.equal((await db.doc('staffOperationalSummaries/pt').get()).data().managedClientCounts.main, 1)
   assert.equal((await reconcileStaffManagedClientSummaries({ db, logger })).refreshed, 0)
+})
+
+test('healthy summaries use indexed due dates and skip staff discovery between passes', async () => {
+  const db = await fixture()
+  await db.doc('roleAssignments/pt').set({ accessRole: 'staff' })
+  await refreshStaffManagedClientSummary(db, 'pt')
+  const reference = db.doc('staffOperationalSummaries/pt')
+  const original = (await reference.get()).data()
+  assert.equal(original.nextReconcileAt.toMillis(), original.sourceReadTime.toMillis() + 6 * 3600_000)
+  const logger = { info() {} }
+  assert.equal((await reconcileStaffManagedClientSummaries({ db, logger })).checked, 1)
+  const checked = []
+  const reader = new Proxy(db, { get(target, key) {
+    if (key === 'collection') return name => { checked.push(name); return target.collection(name) }
+    return typeof target[key] === 'function' ? target[key].bind(target) : target[key]
+  } })
+  assert.deepEqual(await reconcileStaffManagedClientSummaries({ db: reader, logger }), { checked: 0, refreshed: 0, cursor: '' })
+  assert.deepEqual(checked, ['staffOperationalSummaries'])
+  assert.ok((await reference.get()).data().sourceReadTime.isEqual(original.sourceReadTime))
+})
+
+test('an exactly full discovery page completes at its empty tail and restarts only when due', async () => {
+  const db = await fixture(), logger = { info() {} }, now = Date.now()
+  for (const id of ['a', 'b']) await db.doc(`roleAssignments/${id}`).set({ accessRole: 'staff' })
+  const first = await reconcileStaffManagedClientSummaries({ db, logger, now, batchSize: 2 })
+  assert.equal(first.cursor, 'b')
+  const second = await reconcileStaffManagedClientSummaries({ db, logger, now, batchSize: 2 })
+  assert.deepEqual(second, { checked: 0, refreshed: 0, cursor: '' })
+  await db.doc('roleAssignments/new').set({ accessRole: 'staff' })
+  assert.equal((await reconcileStaffManagedClientSummaries({ db, logger, now })).checked, 0)
+  const later = await reconcileStaffManagedClientSummaries({ db, logger, now: now + 6 * 3600_000 + 1 })
+  assert.ok(later.refreshed >= 1)
+  assert.equal((await db.doc('staffOperationalSummaries/new').get()).exists, true)
+})
+
+test('fresh fenced legacy summaries get due dates without scanning contracts', async () => {
+  const db = await fixture(), logger = { info() {} }
+  await db.doc('roleAssignments/pt').set({ accessRole: 'staff' })
+  const reference = db.doc('staffOperationalSummaries/pt')
+  const sourceReadTime = Timestamp.now()
+  await reference.set({ schemaVersion: 2, refreshVersion: 1, truncated: false, sourceReadTime,
+    generatedAt: sourceReadTime, managedClientCounts: { main: 2, secondary: 1, nutrition: 0 } })
+  const result = await reconcileStaffManagedClientSummaries({ db, logger, refresh: async () => { throw Error('unexpected scan') } })
+  assert.equal(result.refreshed, 0)
+  assert.equal((await reference.get()).data().nextReconcileAt.toMillis(), sourceReadTime.toMillis() + 6 * 3600_000)
+})
+
+test('due repair is bounded, leaves failed items due and removes deleted staff from recurring scans', async () => {
+  const db = await fixture(), logger = { info() {} }, now = Date.now()
+  await db.doc('systemJobs/staffManagedClientSummaryReconciliation').set({ cursor: '', nextDiscoveryAt: Timestamp.fromMillis(now + 3600_000) })
+  for (const id of ['a', 'b', 'removed']) {
+    if (id !== 'removed') await db.doc(`roleAssignments/${id}`).set({ accessRole: 'staff' })
+    await db.doc(`staffOperationalSummaries/${id}`).set({ nextReconcileAt: Timestamp.fromMillis(now - 1000), managedClientCounts: { main: 8 } })
+  }
+  await assert.rejects(reconcileStaffManagedClientSummaries({ db, logger, now, batchSize: 1, refresh: async () => { throw Error('retry me') } }), /retry me/)
+  assert.ok((await db.doc('staffOperationalSummaries/a').get()).data().nextReconcileAt.toMillis() < now)
+  assert.equal((await reconcileStaffManagedClientSummaries({ db, logger, now, batchSize: 1 })).refreshed, 1)
+  assert.equal((await reconcileStaffManagedClientSummaries({ db, logger, now, batchSize: 1 })).refreshed, 1)
+  assert.equal((await reconcileStaffManagedClientSummaries({ db, logger, now })).refreshed, 0)
+  const removed = (await db.doc('staffOperationalSummaries/removed').get()).data()
+  assert.equal(removed.nextReconcileAt, undefined)
+  assert.equal(removed.managedClientCounts.main, 8)
 })

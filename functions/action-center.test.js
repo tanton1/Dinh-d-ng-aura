@@ -3,6 +3,7 @@
 const assert = require('node:assert/strict')
 const { readFileSync } = require('node:fs')
 const { join } = require('node:path')
+const { spawnSync } = require('node:child_process')
 const test = require('node:test')
 const { actionDocument, actionId, canViewAction, contractActionInputs, hasThreeConsecutiveNoShows, isVisibleToActor, redactedAction, scheduleDraftActionInputs, syncOperationalActionSource, upsertOperationalAction } = require('./action-center')
 
@@ -94,18 +95,47 @@ test('learner actions require an explicit staff assignment outside Admin and bra
 test('Action Center and contract usage maintenance exports stay deployable and bounded', () => {
   const firestoreBindings = functionsSource.match(/const \{ ([^}]+) \} = require\('firebase-admin\/firestore'\)/)?.[1].split(',').map((name) => name.trim()) || []
   for (const binding of ['FieldPath', 'FieldValue', 'Timestamp', 'getFirestore']) assert.ok(firestoreBindings.includes(binding), `${binding} remains available`)
-  assert.match(functionsSource, /const operationalActionTrigger = \(document\) => onDocumentWritten\(\{[\s\S]*?cpu: 0\.25,[\s\S]*?concurrency: 1,[\s\S]*?maxInstances: 1,[\s\S]*?retry: true/)
-  for (const exportName of [
-    'syncContractOperationalActions',
-    'syncContractUsageOperationalActions',
-    'syncSessionRequestOperationalActions',
-    'syncMealReviewOperationalActions',
-    'syncSessionOperationalActions',
-    'syncStudentOperationalActions',
-    'syncStudent360OperationalActions',
-    'syncScheduleDraftOperationalActions',
-    'syncRenewalOperationalActions',
-  ]) assert.match(functionsSource, new RegExp(`exports\\.${exportName} = operationalActionTrigger`))
+  const expectedActions = {
+    syncContractOperationalActions: ['contracts/{contractId}', 1],
+    syncContractUsageOperationalActions: ['contractUsageViews/{contractId}', 2],
+    syncSessionRequestOperationalActions: ['sessionRequests/{requestId}', 1],
+    syncMealReviewOperationalActions: ['mealReviews/{reviewId}', 1],
+    syncSessionOperationalActions: ['sessions/{sessionId}', 1],
+    syncStudentOperationalActions: ['students/{studentId}', 1],
+    syncStudent360OperationalActions: ['studentOperationalViews/{studentId}', 2],
+    syncScheduleDraftOperationalActions: ['ptScheduleDrafts/{documentId}', 1],
+    syncRenewalOperationalActions: ['contractRenewalCases/{documentId}', 1],
+  }
+  // Inspect actual SDK registrations; signature formatting does not determine
+  // whether a deployed function remains bounded, retryable or correctly scoped.
+  const probe = spawnSync(process.execPath, ['-e', `
+    require('node:net').Socket.prototype.connect = () => { throw Error('Metadata probe attempted network'); };
+    global.fetch = () => { throw Error('Metadata probe attempted network'); };
+    const entry = require('./index');
+    const names = ${JSON.stringify(Object.keys(expectedActions))};
+    console.log('ACTION_METADATA:' + JSON.stringify(Object.fromEntries(names.map(name => [name, entry[name].__endpoint]))));
+  `], {
+    cwd: __dirname, encoding: 'utf8', timeout: 30_000,
+    env: { ...process.env, FUNCTION_TARGET: '', FUNCTIONS_CONTROL_API: 'true',
+      GCLOUD_PROJECT: 'demo-action-metadata', GOOGLE_CLOUD_PROJECT: 'demo-action-metadata',
+      FIREBASE_CONFIG: JSON.stringify({ projectId: 'demo-action-metadata' }),
+      FIRESTORE_DATABASE_ID: 'action-metadata-database', FIRESTORE_EMULATOR_HOST: '127.0.0.1:9' },
+  })
+  assert.ifError(probe.error)
+  assert.equal(probe.status, 0, probe.stderr)
+  const metadata = JSON.parse(probe.stdout.split(/\r?\n/).find(line => line.startsWith('ACTION_METADATA:')).slice('ACTION_METADATA:'.length))
+  for (const [name, [document, maxInstances]] of Object.entries(expectedActions)) {
+    assert.match(functionsSource, new RegExp(`exports\\.${name} = operationalActionTrigger`))
+    const endpoint = metadata[name]
+    assert.equal(endpoint.cpu, 0.25, name)
+    assert.equal(endpoint.concurrency, 1, name)
+    assert.equal(endpoint.maxInstances, maxInstances, name)
+    assert.deepEqual(endpoint.region, ['asia-southeast1'], name)
+    assert.equal(endpoint.eventTrigger.eventType, 'google.cloud.firestore.document.v1.written', name)
+    assert.equal(endpoint.eventTrigger.retry, true, name)
+    assert.equal(endpoint.eventTrigger.eventFilters.database, 'action-metadata-database', name)
+    assert.equal(endpoint.eventTrigger.eventFilterPathPatterns.document, document, name)
+  }
   assert.match(functionsSource, /systemJobs\/contractUsageViewReconciliation/)
   assert.match(functionsSource, /collection\('contracts'\)\.orderBy\(FieldPath\.documentId\(\)\)\.limit\(25\)/)
   assert.match(functionsSource, /collection\('operationalActions'\)[\s\S]*?where\('status', '==', 'snoozed'\)[\s\S]*?where\('snoozedUntil', '<=', now\)[\s\S]*?limit\(200\)/)

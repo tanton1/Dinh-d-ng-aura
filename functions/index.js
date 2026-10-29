@@ -1,8 +1,13 @@
-// Runtime-only fast path for the two weekly snapshot readers. Discovery must
-// still expose the entire manifest; every other target keeps the legacy boot.
+// Targeted runtime paths load only their business dependencies. Discovery
+// still exposes the complete manifest, including all compatibility endpoints.
 const weeklyReadRuntime = require('./pt-schedule-weekly-runtime')
 if (weeklyReadRuntime.shouldUseWeeklyReadRuntime(process.env)) {
   module.exports = weeklyReadRuntime.loadWeeklyReadRuntime(process.env)
+  return
+}
+const backgroundRuntime = require('./background-runtime')
+if (backgroundRuntime.shouldUseBackgroundRuntime(process.env)) {
+  module.exports = backgroundRuntime.loadBackgroundRuntime(process.env)
   return
 }
 
@@ -53,7 +58,7 @@ if (!isStudent360Discovery) {
 }
 const { buildCompletedOnboardingDefaultsPatch } = require('./profile-defaults')
 const { createIdentityAccessFunctions } = require('./identity-access')
-const { staffIdsFromContract, syncStaffManagedClientSummary, reconcileStaffManagedClientSummaries } = require('./staff-managed-summary')
+const { staffIdsFromContract, syncStaffManagedClientSummary } = require('./staff-managed-summary')
 const { createPtOperationsV2Functions } = require('./pt-operations-v2')
 const { createSessionFeedbackFunctions } = require('./session-feedback')
 const { createPtSchedulePublishFunctions, documentId: scheduleDocumentId, weekId: scheduleWeekId } = require('./pt-schedule-publish')
@@ -74,7 +79,7 @@ const { createPtWorkoutTrackingFunctions } = require('./pt-workout-tracking')
 const { createNutritionReviewFunctions } = require('./nutrition-reviews')
 const { createContractRenewalFunctions } = require('./contract-renewals')
 const { createContractRenewalRegionalFunctions } = require('./contract-renewal-regional')
-const { createLoyaltyFunctions, reconcileAttendance: reconcileLoyaltyAttendance, reconcileAttendanceMissions, reconcileNutritionReview, reconcilePendingMemberReferrals, vestPendingSources } = require('./loyalty')
+const { createLoyaltyFunctions, reconcileAttendance: reconcileLoyaltyAttendance, reconcileAttendanceMissions, reconcileNutritionReview } = require('./loyalty')
 const { reconcileLoyaltyLedgerWrite } = require('./loyalty-ledger-trigger')
 const { createRegionalReadAliases } = require('./regional-read-aliases')
 const { createRegionalSecondaryReadAliases } = require('./regional-secondary-reads')
@@ -85,7 +90,9 @@ const { createQuoteManagementFunctions } = require('./quote-management')
 const { createScheduleConfigManagementFunctions } = require('./schedule-config-management')
 const { createStudentManagementFunctions } = require('./student-management')
 const { createBranchManagementFunctions } = require('./branch-management')
-const { buildStudent360Projection, createStudent360Functions, mondayDateKey, reconcileStudent360ProjectionBatch, syncStudent360ProjectionFromEvent } = require('./student-360')
+const { createStudent360Functions } = require('./student-360')
+const { createScheduledBackgroundFunction } = require('./scheduled-background-functions')
+const { createStudent360SourceTrigger, createStudent360BackgroundFunction } = require('./student-360-background-functions')
 const { syncWorkspaceChangesFromEvent } = require('./workspace-change-signals')
 const { refreshMealReviewActions } = require('./nutrition-review-maintenance')
 const { createNutritionSummaryFunctions, syncNutritionDailySummary } = require('./nutrition-daily-summary')
@@ -141,7 +148,7 @@ exports.syncSessionContractUsageView = onDocumentWritten({
   retry: true,
 }, async (event) => syncContractUsageView({ db, event, logger }))
 
-const operationalActionTrigger = (document) => onDocumentWritten({
+const operationalActionTrigger = (document, maxInstances = 1) => onDocumentWritten({
   document,
   database: databaseId,
   region: 'asia-southeast1',
@@ -150,17 +157,17 @@ const operationalActionTrigger = (document) => onDocumentWritten({
   // preserving the same retry policy and event semantics.
   cpu: 0.25,
   concurrency: 1,
-  maxInstances: 1,
+  maxInstances,
   retry: true,
 }, async (event) => syncOperationalActionSource({ db, event, logger }))
 
 exports.syncContractOperationalActions = operationalActionTrigger('contracts/{contractId}')
-exports.syncContractUsageOperationalActions = operationalActionTrigger('contractUsageViews/{contractId}')
+exports.syncContractUsageOperationalActions = operationalActionTrigger('contractUsageViews/{contractId}', 2)
 exports.syncSessionRequestOperationalActions = operationalActionTrigger('sessionRequests/{requestId}')
 exports.syncMealReviewOperationalActions = operationalActionTrigger('mealReviews/{reviewId}')
 exports.syncSessionOperationalActions = operationalActionTrigger('sessions/{sessionId}')
 exports.syncStudentOperationalActions = operationalActionTrigger('students/{studentId}')
-exports.syncStudent360OperationalActions = operationalActionTrigger('studentOperationalViews/{studentId}')
+exports.syncStudent360OperationalActions = operationalActionTrigger('studentOperationalViews/{studentId}', 2)
 exports.syncScheduleDraftOperationalActions = operationalActionTrigger('ptScheduleDrafts/{documentId}')
 exports.syncRenewalOperationalActions = operationalActionTrigger('contractRenewalCases/{documentId}')
 
@@ -335,20 +342,7 @@ exports.syncLoyaltyNutritionReview = onDocumentWritten({
   logger,
 }))
 
-exports.vestPendingLoyaltySourcesScheduled = onSchedule({
-  schedule: 'every 30 minutes',
-  region: 'asia-southeast1',
-  timeZone: 'Asia/Ho_Chi_Minh',
-  retryCount: 1,
-  cpu: 'gcf_gen1',
-  maxInstances: 1,
-  timeoutSeconds: 540,
-}, async () => {
-  const now = new Date()
-  const referrals = await reconcilePendingMemberReferrals({ db, logger, now, limit: 100 })
-  const sources = await vestPendingSources({ db, logger, now, limit: 300 })
-  return { referrals, sources }
-})
+exports.vestPendingLoyaltySourcesScheduled = createScheduledBackgroundFunction('vestPendingLoyaltySourcesScheduled', { db, databaseId, onSchedule, onDocumentWritten, logger })
 
 exports.cleanupEatCleanLiveLocations = onSchedule({
   schedule: 'every 60 minutes',
@@ -519,15 +513,7 @@ exports.syncStaffOperationalSummary = onDocumentWritten({
   const staffIds = [...new Set([...staffIdsFromContract(before), ...staffIdsFromContract(after)])]
   return syncStaffManagedClientSummary({ db, event, staffIds })
 })
-exports.reconcileStaffManagedClientSummariesScheduled = onSchedule({
-  schedule: '17,47 * * * *',
-  timeZone: 'Asia/Ho_Chi_Minh',
-  region: 'asia-southeast1',
-  cpu: 'gcf_gen1',
-  maxInstances: 1,
-  retryCount: 1,
-  timeoutSeconds: 540,
-}, async () => reconcileStaffManagedClientSummaries({ db, logger }))
+exports.reconcileStaffManagedClientSummariesScheduled = createScheduledBackgroundFunction('reconcileStaffManagedClientSummariesScheduled', { db, databaseId, onSchedule, onDocumentWritten, logger })
 // The Firebase CLI can selectively deploy these public account endpoints only
 // when it can discover them as static exports.  Keeping the factory assignment
 // preserves existing exports while avoiding a quota-heavy full Functions deploy.
@@ -640,6 +626,7 @@ const ptOperationsAvailabilityRegionalFunctions = createPtOperationsV2Functions(
   onCall: ptAvailabilityRegionalOnCall,
   logger,
   staffCallOptions: { cpu: 'gcf_gen1', maxInstances: 2, concurrency: 1, timeoutSeconds: 120 },
+  trainerWorkspaceCallOptions: { maxInstances: 3 },
   staffMutationCallOptions: { cpu: 'gcf_gen1', maxInstances: 2, concurrency: 1, timeoutSeconds: 120 },
 })
 exports.getMyTrainerAvailabilityRegional = ptOperationsAvailabilityRegionalFunctions.getMyTrainerAvailability
@@ -749,44 +736,15 @@ exports.refreshStudent360ProjectionRegional = student360RegionalFunctions.refres
 exports.getStudent360ContractWorkspaceRegional = student360RegionalFunctions.getStudent360ContractWorkspace
 exports.mutateStudent360ContractRegional = student360RegionalFunctions.mutateStudent360Contract
 
-const student360Trigger = (document) => onDocumentWritten({
-  document,
-  database: databaseId,
-  region: 'asia-southeast1',
-  cpu: 'gcf_gen1',
-  maxInstances: 3,
-  retry: true,
-}, async (event) => {
-  // Reuse the source trigger: retries advance monotonic metadata only once.
-  // Projection writes have their own source event when they settle later.
-  const [projection, changes] = await Promise.all([
-    syncStudent360ProjectionFromEvent({ db, event, logger }),
-    syncWorkspaceChangesFromEvent({ db, event, source: document.includes('/{accountUid}/') ? document.split('/')[2] : document.split('/')[0] }),
-    // Reuse the canonical profile event. Non-shipper/profile-noop edits do no
-    // delivery reads or writes and do not add another all-users trigger.
-    document === 'users/{accountUid}'
-      ? require('./delivery-workspace-signals').syncDeliveryWorkspaceChange({ db, event, source: 'users' })
-      : Promise.resolve(null),
-  ])
-  if (changes.overflowCount) logger.warn('workspace_change_audience_overflow', { source: changes.source, count: changes.overflowCount })
-  return projection
-})
+const student360BackgroundDependencies = { db, databaseId, onDocumentWritten, onSchedule, logger }
+const student360Trigger = document => createStudent360SourceTrigger(document, student360BackgroundDependencies)
 
 // Stale-while-revalidate queue for Student 360. A deterministic queue document
 // absorbs bursts of reads; only a change to requestedAt starts a rebuild, so
 // the completion/status write does not recursively enqueue itself.
-const { STUDENT360_REFRESH_DOCUMENT, processStudent360Refresh } = require('./student-360-refresh-queue')
-exports.refreshStudent360ProjectionFromQueue = onDocumentWritten({
-  document: STUDENT360_REFRESH_DOCUMENT,
-  database: databaseId,
-  region: 'asia-southeast1',
-  cpu: 'gcf_gen1',
-  maxInstances: 2,
-  retry: true,
-}, event => processStudent360Refresh({
-  db, event, logger, fallbackWeekId: mondayDateKey,
-  rebuild: ({ studentId, weekId, lease }) => buildStudent360Projection({ db, studentId, weekId, persist: true, lease }),
-}))
+exports.refreshStudent360ProjectionFromQueue = createStudent360BackgroundFunction('refreshStudent360ProjectionFromQueue', student360BackgroundDependencies)
+exports.processStudent360SourceQueue = createStudent360BackgroundFunction('processStudent360SourceQueue', student360BackgroundDependencies)
+exports.recoverStudent360SourceQueueScheduled = createStudent360BackgroundFunction('recoverStudent360SourceQueueScheduled', student360BackgroundDependencies)
 
 // Keep the overview projection fresh from canonical sources. The callable
 // repairs missing/schema/week projections synchronously; age-only staleness is
@@ -819,15 +777,7 @@ exports.syncStudent360WeightLog = student360Trigger('users/{accountUid}/weightLo
 exports.syncStudent360LegacyProgressPhoto = student360Trigger('users/{accountUid}/progress_photos/{documentId}')
 exports.syncStudent360ProgressPhoto = student360Trigger('users/{accountUid}/progressPhotos/{documentId}')
 exports.syncStudent360ProgressCheckIn = student360Trigger('users/{accountUid}/progressCheckIns/{documentId}')
-exports.reconcileStudent360ProjectionsScheduled = onSchedule({
-  schedule: 'every 60 minutes',
-  timeZone: 'Asia/Ho_Chi_Minh',
-  region: 'asia-southeast1',
-  retryCount: 1,
-  maxInstances: 1,
-  timeoutSeconds: 540,
-  memory: '1GiB',
-}, async () => reconcileStudent360ProjectionBatch({ db, logger, batchSize: 25, staleAfterDays: 2 }))
+exports.reconcileStudent360ProjectionsScheduled = createStudent360BackgroundFunction('reconcileStudent360ProjectionsScheduled', student360BackgroundDependencies)
 const sessionFeedbackFunctions = createSessionFeedbackFunctions({ db, onCall })
 Object.assign(exports, sessionFeedbackFunctions)
 exports.getMyPendingSessionFeedback = sessionFeedbackFunctions.getMyPendingSessionFeedback
@@ -1030,13 +980,13 @@ exports.markPtScheduleWeeklyViewDirtyRegional = ptScheduleWeeklyViewRegionalFunc
 // worker coalesces several adjacent edits (draft + availability + publish)
 // into one exact rebuild, so the browser receives one revision update instead
 // of reopening the full workspace for every write.
-const weeklyViewSourceTrigger = (document, source) => onDocumentWritten({
+const weeklyViewSourceTrigger = (document, source, maxInstances = 1) => onDocumentWritten({
   document,
   database: databaseId,
   region: 'asia-southeast1',
   cpu: 0.25,
   concurrency: 1,
-  maxInstances: 1,
+  maxInstances,
   retry: true,
 }, async (event) => {
   // Other sources already publish through student360Trigger above.
@@ -1056,7 +1006,7 @@ exports.syncPtScheduleWeeklyViewFromSession = weeklyViewSourceTrigger('sessions/
 exports.syncPtScheduleWeeklyViewFromStudent = weeklyViewSourceTrigger('students/{studentId}', 'student')
 exports.syncPtScheduleWeeklyViewFromTrainer = weeklyViewSourceTrigger('trainers/{trainerId}', 'trainer')
 exports.syncPtScheduleWeeklyViewFromContract = weeklyViewSourceTrigger('contracts/{contractId}', 'contract')
-exports.syncPtScheduleWeeklyViewFromContractUsage = weeklyViewSourceTrigger('contractUsageViews/{contractId}', 'contractUsage')
+exports.syncPtScheduleWeeklyViewFromContractUsage = weeklyViewSourceTrigger('contractUsageViews/{contractId}', 'contractUsage', 2)
 exports.syncPtScheduleWeeklyViewFromAvailability = weeklyViewSourceTrigger('ptAvailability/{availabilityId}', 'availability')
 exports.syncPtScheduleWeeklyViewFromTrainerAvailability = weeklyViewSourceTrigger('trainerAvailability/{availabilityId}', 'trainerAvailability')
 exports.syncPtScheduleWeeklyViewFromLeave = weeklyViewSourceTrigger('leaveRequests/{requestId}', 'leave')
@@ -1234,26 +1184,8 @@ exports.createMyAdditionalSessionRequestRegional = sessionOperationRegionalFunct
 exports.createMySessionRequestRegional = sessionOperationRegionalFunctions.createMySessionRequest
 exports.approveSessionRequestRegional = sessionOperationRegionalFunctions.approveSessionRequest
 exports.rejectSessionRequestRegional = sessionOperationRegionalFunctions.rejectSessionRequest
-exports.chargeDuePtSessionsScheduled = onSchedule({
-  schedule: 'every 30 minutes',
-  region: 'asia-southeast1',
-  timeZone: 'Asia/Ho_Chi_Minh',
-  retryCount: 1,
-  cpu: 'gcf_gen1',
-  concurrency: 1,
-  maxInstances: 1,
-  timeoutSeconds: 540,
-}, async () => chargeDuePtSessions({ db, now: new Date(), logger, limit: 500, includeRecent: true, includeCatchUp: false, pendingOnly: true }))
-exports.autoConfirmOverduePtAttendanceScheduled = onSchedule({
-  schedule: 'every 30 minutes',
-  region: 'asia-southeast1',
-  timeZone: 'Asia/Ho_Chi_Minh',
-  retryCount: 1,
-  cpu: 'gcf_gen1',
-  concurrency: 1,
-  maxInstances: 1,
-  timeoutSeconds: 540,
-}, async () => autoConfirmOverduePtAttendance({ db, now: new Date(), logger, limit: 500, includeRecent: true, includeCatchUp: false, pendingOnly: true }))
+exports.chargeDuePtSessionsScheduled = createScheduledBackgroundFunction('chargeDuePtSessionsScheduled', { db, databaseId, onSchedule, onDocumentWritten, logger })
+exports.autoConfirmOverduePtAttendanceScheduled = createScheduledBackgroundFunction('autoConfirmOverduePtAttendanceScheduled', { db, databaseId, onSchedule, onDocumentWritten, logger })
 exports.reconcilePtSessionAutomationScheduled = onSchedule({
   schedule: '17 2 * * *',
   region: 'asia-southeast1',

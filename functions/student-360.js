@@ -15,6 +15,7 @@ const { calculateNutritionTargets, canonicalNutritionProfile } = require('./nutr
 const { canonicalSessionRows } = require('./session-schedule-normalization')
 const { cacheScope, createProcessCache } = require('./process-cache')
 const { enqueueStudent360Refresh } = require('./student-360-refresh-queue')
+const { enqueueStudent360Source } = require('./student-360-source-queue')
 
 const TIME_ZONE = 'Asia/Ho_Chi_Minh'
 // Bump the projection schema when account-link resolution changes. Existing
@@ -2372,23 +2373,58 @@ async function resolveEventStudentId(db, event) {
   return null
 }
 
-async function syncStudent360ProjectionFromEvent({ db, event, logger = console, operationsEnabled = operationsPartialEnabled() }) {
-  if (!sourceChanged(event)) return { skipped: true, reason: 'source_unchanged' }
-  if (rootProfileMetadataOnly(event)) return { skipped: true, reason: 'source_metadata_only' }
+async function resolveEventStudentIds(db, event, includeAllOwners = false) {
   const resolvedStudentId = await resolveEventStudentId(db, event)
   const operationsSource = operationsEventSource(event)
   const studentIds = resolvedStudentId ? [resolvedStudentId] : []
-  if (operationsSource && event.data?.before?.exists) {
+  if ((operationsSource || includeAllOwners) && event.data?.before?.exists) {
     const owner = value => [value?.studentId || '', value?.crmProfileId || '', value?.userId || '']
     if (!resolvedStudentId || (event.data?.after?.exists && !isDeepStrictEqual(owner(event.data.before.data()), owner(event.data.after.data())))) {
       const previousStudentId = await resolveEventStudentId(db, { ...event, data: { before: event.data.before, after: event.data.before } })
       if (previousStudentId && !studentIds.includes(previousStudentId)) studentIds.push(previousStudentId)
     }
   }
+  return studentIds
+}
+
+async function enqueueStudent360ProjectionFromEvent({ db, event, logger = console, operationsEnabled = operationsPartialEnabled() }) {
+  if (!sourceChanged(event)) return { skipped: true, reason: 'source_unchanged' }
+  if (rootProfileMetadataOnly(event)) return { skipped: true, reason: 'source_metadata_only' }
+  // Nutrition carries point-repair IDs for old/deleted meal timeline rows;
+  // progress has its own account-authority fence. Keep those specialized
+  // paths intact rather than losing event-specific work in a dirty flag.
+  if (nutritionEventSource(event) || progressEventSource(event)) {
+    return syncStudent360ProjectionFromEvent({ db, event, logger, operationsEnabled })
+  }
+  const studentIds = await resolveEventStudentIds(db, event, true)
+  if (!studentIds.length) return { skipped: true, reason: 'student_not_resolved' }
+  const scope = operationsEnabled && operationsEventSource(event) ? 'operations' : 'full'
+  const results = []
+  for (const studentId of studentIds) results.push(await enqueueStudent360Source({ db, studentId, event, scope }))
+  return { queued: results.some(result => result.queued), studentIds, scope }
+}
+
+async function rebuildStudent360Source({ db, studentId, scope, lease }) {
+  try {
+    if (scope === 'operations') return await refreshStudent360OperationsProjection({ db, studentId, lease })
+    return await buildStudent360Projection({ db, studentId, weekId: mondayDateKey(), persist: true, lease })
+  } catch (error) {
+    // A deleted student is terminal only after checking canonical existence.
+    // A missing dependency for an existing student must remain queued.
+    if (['not-found', 'functions/not-found'].includes(error?.code)
+      && !(await db.doc(`students/${studentId}`).get()).exists) return { mode: 'student_deleted' }
+    throw error
+  }
+}
+
+async function syncStudent360ProjectionFromEvent({ db, event, logger = console, operationsEnabled = operationsPartialEnabled() }) {
+  if (!sourceChanged(event)) return { skipped: true, reason: 'source_unchanged' }
+  if (rootProfileMetadataOnly(event)) return { skipped: true, reason: 'source_metadata_only' }
+  const studentIds = await resolveEventStudentIds(db, event)
   if (!studentIds.length) return { skipped: true, reason: 'student_not_resolved' }
   const studentId = studentIds[0]
   const results = []
-  for (const subjectId of studentIds) results.push(await syncStudent360Subject({ db, event, logger, studentId: subjectId, operationsOnly: Boolean(operationsEnabled && operationsSource) }))
+  for (const subjectId of studentIds) results.push(await syncStudent360Subject({ db, event, logger, studentId: subjectId, operationsOnly: Boolean(operationsEnabled && operationsEventSource(event)) }))
   return results.length === 1 ? results[0] : { skipped: results.every(result => result.skipped), studentId, studentIds, mode: results.some(result => result.mode === 'full') ? 'full' : results.find(result => result.mode)?.mode }
 }
 
@@ -3393,6 +3429,8 @@ module.exports = {
   studentIdFromAccountUid,
   studentAccountProfile,
   nutritionTimelineEvidence,
+  enqueueStudent360ProjectionFromEvent,
+  rebuildStudent360Source,
   syncStudent360ProjectionFromEvent,
   timelineCursor,
   vietnamDateKey,
