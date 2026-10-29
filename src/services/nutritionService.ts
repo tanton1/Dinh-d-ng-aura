@@ -575,7 +575,7 @@ async function observeFoodScan(scanId: string, ownerUid: string, options: Analyz
   const result = await waitForFoodScanJob<unknown>({
     ownerUid, currentOwnerUid: () => auth.currentUser?.uid, signal: options.signal, onStatus: options.onQueueStatus,
     subscribeOwner: changed => onAuthStateChanged(auth, changed),
-    subscribe: (next, error) => onSnapshot(reference, snapshot => next({ exists: snapshot.exists(), fromCache: snapshot.metadata.fromCache, data: snapshot.data() }), error),
+    subscribe: (next, error) => onSnapshot(reference, { includeMetadataChanges: true }, snapshot => next({ exists: snapshot.exists(), fromCache: snapshot.metadata.fromCache, data: snapshot.data() }), error),
   }).catch(error => {
     // Only an explicit pre-provider rejection may start fresh on the user's
     // next attempt. Ambiguous/active paid work must retain its original ID.
@@ -663,7 +663,7 @@ export async function analyzeFoodPhoto(
       mealType: options.mealType ?? 'other', mealDate: options.mealDate, mealTime: options.mealTime })
     return await analyzeUploadedFoodPhoto(upload, options)
   } catch (error) {
-    reportClientIssue('apikey_fun', error, { phase: 'analyze_food_pipeline', provider: 'apikey_fun', retryable: true })
+    if (!options.signal?.aborted) reportClientIssue('apikey_fun', error, { phase: 'analyze_food_pipeline', provider: 'apikey_fun', retryable: true })
     throw error
   }
 }

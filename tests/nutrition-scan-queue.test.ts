@@ -12,6 +12,7 @@ test('queue status is pushed once per change and completion unsubscribes without
   })
   next({ exists: false, fromCache: true })
   next({ exists: true, data: { status: 'queued' } })
+  next({ exists: true, data: { status: 'queued' }, fromCache: false })
   next({ exists: true, data: { status: 'processing' } })
   next({ exists: true, data: { status: 'completed', response: { sameResult: true } } })
   assert.deepEqual(await result, { sameResult: true })

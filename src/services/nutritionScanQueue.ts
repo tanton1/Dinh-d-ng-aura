@@ -61,6 +61,7 @@ export function waitForFoodScanJob<T>({ ownerUid, currentOwnerUid, subscribe, su
 }): Promise<T> {
   return new Promise((resolve, reject) => {
     let done = false
+    let lastStatus: string | undefined
     let unsubscribe = () => {}
     let unsubscribeOwner = () => {}
     let timeout: ReturnType<typeof setTimeout> | undefined
@@ -95,7 +96,10 @@ export function waitForFoodScanJob<T>({ ownerUid, currentOwnerUid, subscribe, su
         const job = snapshot.data
         if (job?.status === 'completed') finish(undefined, job.response as T)
         else if (job?.status === 'failed') finish(queueError(job.error?.code || 'internal', job.error?.message || 'Không thể phân tích ảnh này.', job.error?.kind))
-        else if (job?.status === 'queued' || job?.status === 'processing') onStatus?.(job.status)
+        else if ((job?.status === 'queued' || job?.status === 'processing') && job.status !== lastStatus) {
+          lastStatus = job.status
+          onStatus?.(job.status)
+        }
       }, error => finish(error))
       // Test adapters and cache listeners may deliver synchronously.
       if (done) { unsubscribe(); unsubscribeOwner() }
