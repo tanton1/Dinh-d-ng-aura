@@ -5,13 +5,15 @@ const DATABASE = 'projects/gen-lang-client-0815966909/databases/ai-studio-aurafi
 const CONFIRMATION = `${DATABASE}/nutritionScanJobs:configure-retention`
 const fields = Object.freeze(['*', 'expiresAt'])
 const fieldPath = field => `/collectionGroups/nutritionScanJobs/fields/${field}`
-const indexesDisabled = current => Boolean(current.indexConfig) && current.indexConfig.usesAncestorConfig !== true
+const defaultFieldPath = '/collectionGroups/__default__/fields/*'
+const indexesDisabled = (current, emptyAncestors = new Set()) => Boolean(current.indexConfig)
   && current.indexConfig.reverting !== true && !(current.indexConfig.indexes?.length)
+  && (current.indexConfig.usesAncestorConfig !== true || emptyAncestors.has(current.indexConfig.ancestorField))
 
-function changesFor(field, current) {
+function changesFor(field, current, emptyAncestors) {
   if (!fields.includes(field) || current.name !== DATABASE + fieldPath(field)) throw new Error('Queue field identity mismatch.')
   const body = { name: current.name }, mask = []
-  if (!indexesDisabled(current)) {
+  if (!indexesDisabled(current, emptyAncestors)) {
     body.indexConfig = { indexes: [] }; mask.push('indexConfig')
   }
   if (field === 'expiresAt' && !['ACTIVE', 'CREATING'].includes(current.ttlConfig?.state)) {
@@ -21,14 +23,22 @@ function changesFor(field, current) {
 }
 
 async function configure(request, apply = false) {
+  // Enterprise Native databases may inherit an empty default configuration
+  // even after an explicit empty exemption. Verify that ancestor rather than
+  // requiring the Standard-edition usesAncestorConfig=false representation.
+  const defaultField = await request(defaultFieldPath)
+  if (defaultField.name !== DATABASE + defaultFieldPath) throw new Error('Default field identity mismatch.')
+  const emptyAncestors = new Set(indexesDisabled(defaultField) ? [defaultField.name] : [])
   const result = []
   for (const field of fields) {
     const current = await request(fieldPath(field))
-    const { body, mask } = changesFor(field, current)
+    const { body, mask } = changesFor(field, current, emptyAncestors)
     if (apply && mask.length) {
       await request(`${fieldPath(field)}?updateMask=${mask.join(',')}`, { method: 'PATCH', body: JSON.stringify(body) })
     }
-    result.push({ field, changes: mask, ttlState: current.ttlConfig?.state, indexesDisabled: indexesDisabled(current) })
+    const disabled = indexesDisabled(current, emptyAncestors)
+    if (disabled) emptyAncestors.add(current.name)
+    result.push({ field, changes: mask, ttlState: current.ttlConfig?.state, indexesDisabled: disabled })
   }
   return result
 }
