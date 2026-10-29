@@ -12,6 +12,7 @@ test('retention deployment changes only the two queue fields and leaves active T
   assert.equal(writes[0].path, '/collectionGroups/nutritionScanJobs/fields/*?updateMask=indexConfig')
   assert.equal(writes[0].ttlConfig, undefined)
   assert.deepEqual(writes[1].ttlConfig, {})
+  assert.deepEqual(changesFor('*', { name: `${DATABASE}/collectionGroups/nutritionScanJobs/fields/*`, indexConfig: {} }).mask, [])
   assert.deepEqual(changesFor('expiresAt', { name: `${DATABASE}/collectionGroups/nutritionScanJobs/fields/expiresAt`, indexConfig: { usesAncestorConfig: false, indexes: [] }, ttlConfig: { state: 'ACTIVE' } }).mask, [])
   assert.throws(() => changesFor('other', { name: DATABASE }), /identity/)
   assert.throws(() => changesFor('*', { name: 'other/collectionGroups/nutritionScanJobs/fields/*' }), /identity/)

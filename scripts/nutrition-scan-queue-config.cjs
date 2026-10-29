@@ -5,11 +5,13 @@ const DATABASE = 'projects/gen-lang-client-0815966909/databases/ai-studio-aurafi
 const CONFIRMATION = `${DATABASE}/nutritionScanJobs:configure-retention`
 const fields = Object.freeze(['*', 'expiresAt'])
 const fieldPath = field => `/collectionGroups/nutritionScanJobs/fields/${field}`
+const indexesDisabled = current => Boolean(current.indexConfig) && current.indexConfig.usesAncestorConfig !== true
+  && current.indexConfig.reverting !== true && !(current.indexConfig.indexes?.length)
 
 function changesFor(field, current) {
   if (!fields.includes(field) || current.name !== DATABASE + fieldPath(field)) throw new Error('Queue field identity mismatch.')
   const body = { name: current.name }, mask = []
-  if (current.indexConfig?.usesAncestorConfig !== false || current.indexConfig?.indexes?.length) {
+  if (!indexesDisabled(current)) {
     body.indexConfig = { indexes: [] }; mask.push('indexConfig')
   }
   if (field === 'expiresAt' && !['ACTIVE', 'CREATING'].includes(current.ttlConfig?.state)) {
@@ -26,7 +28,7 @@ async function configure(request, apply = false) {
     if (apply && mask.length) {
       await request(`${fieldPath(field)}?updateMask=${mask.join(',')}`, { method: 'PATCH', body: JSON.stringify(body) })
     }
-    result.push({ field, changes: mask, ttlState: current.ttlConfig?.state, indexesDisabled: current.indexConfig?.usesAncestorConfig === false && !(current.indexConfig?.indexes?.length) })
+    result.push({ field, changes: mask, ttlState: current.ttlConfig?.state, indexesDisabled: indexesDisabled(current) })
   }
   return result
 }
