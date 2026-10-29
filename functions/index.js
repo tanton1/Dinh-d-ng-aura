@@ -462,6 +462,9 @@ setGlobalOptions({
 })
 
 if (!isStudent360Discovery && !isExerciseCatalogDiscovery) {
+  const { createFoodScanProcessor, parseAnalyzeRequest } = require('./nutrition')
+  const { createNutritionScanQueueFunctions } = require('./nutrition-scan-queue')
+  Object.assign(exports, createNutritionScanQueueFunctions({ app, db, databaseId, parseInput: parseAnalyzeRequest, processScan: createFoodScanProcessor({ app, db }) }))
   const nutritionFunctions = createNutritionFunctions({ app, db })
   Object.assign(exports, nutritionFunctions)
   const nutritionRegionalFunctions = createNutritionFunctions({ app, db, onCall: nutritionRegionalOnCall })

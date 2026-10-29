@@ -125,7 +125,8 @@ test('target selection is exact and never narrows deployment discovery', () => {
 
 test('all background runtimes retain discovery metadata, named database and minimal module graph', () => {
   const discovery = probe()
-  assert.equal(discovery.exportNames.length, 562)
+  assert.equal(discovery.exportNames.length, 565)
+  for (const name of ['enqueueNutritionScan', 'dispatchNutritionScan', 'processNutritionScanQueue']) assert.ok(discovery.exportNames.includes(name))
   for (const target of BACKGROUND_RUNTIME_TARGETS) {
     const runtime = probe({ target, runtime: true })
     assert.deepEqual(runtime.exportNames, [target])

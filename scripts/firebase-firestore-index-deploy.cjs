@@ -294,7 +294,7 @@ async function main() {
   console.log(JSON.stringify({ mode, scope, target: TARGET, created: missing.length, ...verification, deleted: 0 }, null, 2))
 }
 
-module.exports = { parseArguments, selectIndexes, signature, indexMatches, CONFIRMATION }
+module.exports = { parseArguments, selectIndexes, signature, indexMatches, CONFIRMATION, accessToken, requestJson, assertTarget }
 
 if (require.main === module) main().catch((error) => {
   console.error(error instanceof Error ? error.message : 'Firestore index deployment failed.')

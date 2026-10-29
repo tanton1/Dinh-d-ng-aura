@@ -60,8 +60,8 @@ export function getFoodAnalysisErrorMessage(error: unknown): string {
   const hasUsefulMessage = rawMessage.length > 0 && !/^(internal|unknown|error)$/i.test(rawMessage)
 
   if (code === 'failed-precondition') return hasUsefulMessage ? rawMessage : 'Aura chưa nhận ra món ăn trong ảnh này. Hãy thử ảnh rõ hơn và chụp trọn phần ăn.'
-  if (code === 'resource-exhausted') return 'Dịch vụ AI đang bận. Vui lòng chờ một chút rồi thử lại chính ảnh này.'
-  if (code === 'deadline-exceeded') return 'Phân tích mất nhiều thời gian hơn dự kiến. Vui lòng thử lại chính ảnh này.'
+  if (code === 'resource-exhausted') return hasUsefulMessage ? rawMessage : 'Dịch vụ AI đang bận. Vui lòng chờ một chút rồi thử lại chính ảnh này.'
+  if (code === 'deadline-exceeded') return hasUsefulMessage ? rawMessage : 'Phân tích mất nhiều thời gian hơn dự kiến. Vui lòng thử lại chính ảnh này.'
   if (code === 'unavailable' || code === 'internal' || /^(internal|unknown)$/i.test(rawMessage)) {
     return code === 'unavailable' && hasUsefulMessage ? rawMessage : 'Aura AI chưa hoàn tất lần phân tích này. Bạn có thể thử lại chính ảnh vừa chọn.'
   }

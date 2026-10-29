@@ -255,8 +255,9 @@ test('normal, unknown-target and control-API discovery expose the unchanged comp
   // workers, regional admin dashboard, plan-only invalidation trigger and
   // four delivery metadata sources, one regional Academy submission callable,
   // one versioned finance-operation callable alongside its compatibility endpoints,
-  // and the Student 360 source queue worker plus recovery scheduler.
-  assert.equal(baseline.exportNames.length, 562)
+    // the Student 360 source queue worker plus recovery scheduler, and the
+    // nutrition scan admission, dispatcher and task worker.
+  assert.equal(baseline.exportNames.length, 565)
   for (const name of ['manageFinanceOperation', 'recordContractPayment', 'recordRefund', 'reverseContractPayment']) assert.ok(baseline.exportNames.includes(name))
   for (const name of ['getPtTrainerAvailabilityRegional', 'savePtTrainerAvailabilityRegional']) {
     assert.ok(baseline.exportNames.includes(name))

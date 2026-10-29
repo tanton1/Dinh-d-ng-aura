@@ -142,6 +142,7 @@ export type NutritionClarificationResponse = 'confirmed' | 'adjust' | 'unknown'
 
 export interface PersistedScanReview {
   ownerId: string
+  scanId?: string
   saveAttemptId?: string
   dishName: string
   items: AiFoodItem[]
@@ -180,6 +181,7 @@ export interface NutritionPageProps {
   onProfileComplete?: (profile: NutritionProfileDraft) => void
   onStartOnboarding?: () => void
   onMealSaved?: (meal: NutritionMealDraft) => void
+  onResumeImageAnalysis?: (options?: AnalyzeFoodPhotoOptions) => Promise<NutritionImageAnalysisResponse | null>
   onAnalyzeImage?: (file: File, options?: AnalyzeFoodPhotoOptions) => Promise<NutritionImageAnalysisResponse>
   foodCatalog?: NutritionFoodCatalogItem[]
   onOpenEatClean?: () => void

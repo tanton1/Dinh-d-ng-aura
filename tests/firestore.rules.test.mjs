@@ -236,6 +236,21 @@ describe('Aura PT Firestore rules', () => {
     await testEnvironment?.cleanup()
   })
 
+  test('food scan jobs allow owner document subscriptions but deny lists, staff access and every client write', async () => {
+    const path = 'users/client-1/nutritionScanJobs/scan_request_1'
+    await testEnvironment.withSecurityRulesDisabled(context => setDoc(doc(context.firestore(), path), { status: 'queued', input: { notes: 'private fixture' } }))
+    const owner = authenticatedDb('client-1', 'student')
+    await assertSucceeds(getDoc(doc(owner, path)))
+    await assertFails(getDocs(collection(owner, 'users/client-1/nutritionScanJobs')))
+    for (const db of [owner, authenticatedDb('other-client', 'student'), authenticatedDb('coach-1', 'coach'), authenticatedDb('admin-1', 'admin'), testEnvironment.unauthenticatedContext().firestore()]) {
+      if (db !== owner) await assertFails(getDoc(doc(db, path)))
+      await assertFails(setDoc(doc(db, path), { status: 'completed', response: { forged: true } }))
+      await assertFails(deleteDoc(doc(db, path)))
+      await assertFails(getDoc(doc(db, 'systemJobs/nutritionProviderCapacity/slots/0')))
+      await assertFails(getDoc(doc(db, 'users/client-1/nutritionAiRequests/foodScan_internal')))
+    }
+  })
+
   test('financial cancellation markers are server-only even for administrators', async () => {
     const path = 'financeOperationCancellations/synthetic-operation'
     const value = { schemaVersion: 1, actorUid: 'admin-1', type: 'payment', payloadHash: 'synthetic' }

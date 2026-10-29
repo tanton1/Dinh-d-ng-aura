@@ -1,3 +1,4 @@
+import { clearPendingFoodScan, readPendingFoodScan, type FoodScanQueueStatus } from '../../services/nutritionScanQueue'
 import React, { useEffect, useId, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import {
   ArrowLeft, Camera, Check, CircleAlert, Flame, History, ImagePlus, Info,
@@ -87,7 +88,8 @@ function loadPendingScanReview(ownerId: string): PersistedScanReview | null {
   }
 }
 
-const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOwnerId, allowDemo = false, onClose, onSave, onAnalyzeImage, presentation = 'modal' }: { initialDate: string; storageOwnerId: string; allowDemo?: boolean; onClose: () => void; onSave: (meal: NutritionMealDraft) => Promise<void>; onAnalyzeImage?: NutritionPageProps['onAnalyzeImage']; presentation?: 'modal' | 'page' }) {
+const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOwnerId, allowDemo = false, onClose, onSave, onAnalyzeImage, onResumeImageAnalysis, presentation = 'modal' }: { initialDate: string; storageOwnerId: string; allowDemo?: boolean; onClose: () => void; onSave: (meal: NutritionMealDraft) => Promise<void>; onAnalyzeImage?: NutritionPageProps['onAnalyzeImage']; onResumeImageAnalysis?: NutritionPageProps['onResumeImageAnalysis']; presentation?: 'modal' | 'page' }) {
+  const [pendingScan] = useState(() => readPendingFoodScan(storageOwnerId))
   const reviewStorageKey = scanReviewSessionKey(storageOwnerId)
   const [restoredReview] = useState(() => {
     const step = new URLSearchParams(window.location.hash.split('?')[1] ?? '').get('step')
@@ -101,15 +103,15 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
   const [previewUrl, setPreviewUrl] = useState<string>('')
   const [fileName, setFileName] = useState(restoredReview?.fileName ?? '')
   const [uploadError, setUploadError] = useState('')
-  const [mealType, setMealType] = useState<NutritionMealDraft['mealType']>(() => restoredReview?.mealType ?? (() => {
+  const [mealType, setMealType] = useState<NutritionMealDraft['mealType']>(() => restoredReview?.mealType ?? (pendingScan?.mealType === 'other' ? 'snack' : pendingScan?.mealType) ?? (() => {
     const hour = new Date().getHours()
     if (hour < 10) return 'breakfast'
     if (hour < 14) return 'lunch'
     if (hour < 17) return 'snack'
     return 'dinner'
   })())
-  const [mealDate, setMealDate] = useState(restoredReview?.mealDate ?? initialDate)
-  const [mealTime, setMealTime] = useState(restoredReview?.mealTime ?? new Date().toTimeString().slice(0, 5))
+  const [mealDate, setMealDate] = useState(restoredReview?.mealDate ?? pendingScan?.mealDate ?? initialDate)
+  const [mealTime, setMealTime] = useState(restoredReview?.mealTime ?? pendingScan?.mealTime ?? new Date().toTimeString().slice(0, 5))
   const [items, setItems] = useState<AiFoodItem[]>(restoredReview?.items ?? INITIAL_ANALYSIS)
   const [resultMode, setResultMode] = useState<'live' | 'demo'>(restoredReview?.resultMode ?? 'demo')
   const [resultNotice, setResultNotice] = useState(restoredReview?.resultNotice ?? '')
@@ -143,6 +145,11 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
     return step === 'review' && !restoredReview ? 'Kết quả phân tích của phiên trước không còn trong tab này. Hãy chọn lại ảnh để phân tích; Aura chưa lưu món vào nhật ký.' : ''
   })
   const [isSaving, setIsSaving] = useState(false)
+  const [queueStatus, setQueueStatus] = useState<FoodScanQueueStatus>('uploading')
+  const analysisAbortRef = useRef<AbortController | null>(null)
+  const analysisMountedRef = useRef(true)
+  const analysisScanIdRef = useRef(restoredReview?.scanId || pendingScan?.upload.scanId)
+  const lastAnalysisNotesRef = useRef('')
   const [lastFile, setLastFile] = useState<File | null>(null)
   // Some mobile browsers can reject FileReader for a photo picked from the
   // native gallery even though the File itself is valid. Keep an object URL
@@ -373,6 +380,7 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
     if (stage !== 'result' || !hasAnalysisResult) return
     const review: PersistedScanReview = {
       ownerId: storageOwnerId,
+      scanId: analysisScanIdRef.current,
       saveAttemptId: saveAttemptIdRef.current,
       dishName,
       items,
@@ -437,18 +445,29 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
     analyzeTimerRef.current = window.setTimeout(() => setStage('result'), 1450)
   }
 
-  const runImageAnalysis = async (file: File, notes = '') => {
-    setLastFile(file)
+  const runImageAnalysis = async (file: File | null, notes = '') => {
+    if (!analysisMountedRef.current) return
+    analysisAbortRef.current?.abort()
+    const controller = new AbortController()
+    analysisAbortRef.current = controller
+    lastAnalysisNotesRef.current = notes
+    if (file) setLastFile(file)
     setAnalysisError('')
     setHasAnalysisResult(false)
-    if (!onAnalyzeImage) {
+    if (file ? !onAnalyzeImage : !onResumeImageAnalysis) {
       setAnalysisError('Tính năng AI chưa sẵn sàng trong phiên này. Hãy đăng nhập lại hoặc thử lại sau; ảnh của bạn chưa được phân tích.')
       setStage('error')
       return
     }
     setStage('analyzing')
     try {
-      const response = await onAnalyzeImage(file, { mealType, notes: notes || undefined })
+      setQueueStatus(file ? 'uploading' : 'queued')
+      const options = { mealType, mealDate, mealTime, notes: notes || undefined, signal: controller.signal,
+        onQueueStatus: (status: FoodScanQueueStatus) => { if (!controller.signal.aborted) setQueueStatus(status) } }
+      const response = file ? await onAnalyzeImage!(file, options) : await onResumeImageAnalysis!(options)
+      if (controller.signal.aborted) return
+      if (!response) { setStage('upload'); return }
+      analysisScanIdRef.current = response.scanId
       const normalized = normalizeAnalysis(response)
       if (response.analysis) {
         setQuantityCookingAnalysis(getUsableFoodAnalysisText(response.analysis.quantityAndCookingAnalysis))
@@ -486,10 +505,20 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
       }
       setStage('result')
     } catch (error) {
+      if (controller.signal.aborted) return
       setAnalysisError(getFoodAnalysisErrorMessage(error))
       setStage('error')
     }
   }
+
+  useEffect(() => {
+    analysisMountedRef.current = true
+    if (pendingScan && !restoredReview && onResumeImageAnalysis) void runImageAnalysis(null)
+    return () => { analysisMountedRef.current = false; analysisAbortRef.current?.abort() }
+    // This component is keyed by owner; parent callback identity can change
+    // during a scan and must not restart its subscription.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [storageOwnerId])
 
   const handleFile = (file?: File) => {
     if (!file) return
@@ -667,6 +696,7 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
           coachFeedbackSuggestion,
         })
         clearPendingScanReview(storageOwnerId)
+        if (analysisScanIdRef.current) clearPendingFoodScan(storageOwnerId, analysisScanIdRef.current)
       } finally {
         setIsSaving(false)
       }
@@ -740,7 +770,7 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
               <i><Sparkles size={20} /></i>
             </div>
             <div className="nutrition-loading-spinner" />
-            <p><strong>Aura Vision đang phân tích...</strong><small>Đang nhận diện nguyên liệu, calo và dinh dưỡng</small></p>
+            <p><strong>{queueStatus === 'uploading' ? 'Đang gửi ảnh...' : queueStatus === 'queued' ? 'Ảnh đang chờ đến lượt...' : 'Aura Vision đang phân tích...'}</strong><small>{queueStatus === 'queued' ? 'Bạn có thể rời trang và mở lại để nhận kết quả. Ảnh đã gửi sẽ giữ nguyên mã yêu cầu.' : 'Đang nhận diện nguyên liệu, calo và dinh dưỡng'}</small></p>
           </div>
         )}
 
@@ -753,9 +783,9 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
             <h3>Không thể phân tích ảnh này</h3>
             <p>{analysisError || 'Rất tiếc, AI không thể nhận diện được món ăn trong ảnh. Bạn có thể thử chụp lại ảnh rõ nét hơn hoặc nhập thủ công.'}</p>
             <div className="nutrition-scan-error__actions">
-              {lastFile && (
-                <button type="button" className="nutrition-primary-button" onClick={() => void runImageAnalysis(lastFile)} data-testid="nutrition-retry-scan">
-                  <RefreshCw size={16} /> Thử lại ảnh này
+              {(lastFile || pendingScan && onResumeImageAnalysis) && (
+                <button type="button" className="nutrition-primary-button" onClick={() => void runImageAnalysis(lastFile, lastAnalysisNotesRef.current)} data-testid="nutrition-retry-scan">
+                  <RefreshCw size={16} /> {lastFile ? 'Thử lại ảnh này' : 'Kiểm tra ảnh đã gửi'}
                 </button>
               )}
               <label htmlFor={cameraInputId} className="nutrition-secondary-button cursor-pointer">
