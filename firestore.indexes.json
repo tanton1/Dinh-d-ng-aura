@@ -984,6 +984,8 @@
     }
   ],
   "fieldOverrides": [
+    { "collectionGroup": "nutritionScanJobs", "fieldPath": "*", "indexes": [] },
+    { "collectionGroup": "nutritionScanJobs", "fieldPath": "expiresAt", "ttl": true, "indexes": [] },
     { "collectionGroup": "academyScientificReviewers", "fieldPath": "*", "indexes": [] },
     { "collectionGroup": "academyAdoptionCandidates", "fieldPath": "*", "indexes": [] },
     { "collectionGroup": "academyAdoptionHeads", "fieldPath": "*", "indexes": [] },

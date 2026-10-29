@@ -530,7 +530,7 @@ function ExerciseLogSheet({ dateLabel, weightKg, onClose, onSave }: { dateLabel:
   )
 }
 
-export default function NutritionPageController({ entry = 'nutrition', displayName = 'Thành viên Aura', isDemo = false, storageOwnerId, hasProfile = true, profile, onProfileComplete, onStartOnboarding, onMealSaved, onAnalyzeImage, foodCatalog, onOpenEatClean, syncState }: NutritionPageProps) {
+export default function NutritionPageController({ entry = 'nutrition', displayName = 'Thành viên Aura', isDemo = false, storageOwnerId, hasProfile = true, profile, onProfileComplete, onStartOnboarding, onMealSaved, onAnalyzeImage, onResumeImageAnalysis, foodCatalog, onOpenEatClean, syncState }: NutritionPageProps) {
   const isLibrary = entry === 'library'
   const nutritionV4 = useAuraUiSurface('member-nutrition')
   const { accessContext } = useAuth()
@@ -2259,7 +2259,7 @@ export default function NutritionPageController({ entry = 'nutrition', displayNa
       <div className="nutrition-workspace">
         <NutritionSectionNav activeSection="today" onSectionChange={(section) => navigateNutrition(section)} onScan={openScan} onOpenCatalog={() => openCatalog(false)} onOpenAskAura={openAssistant} v4={nutritionV4} />
         {profileSyncBanner && <div className="nutrition-sync-banner-wrap">{profileSyncBanner}</div>}
-        <FoodScanModal key={resolvedOwnerId} initialDate={selectedDate} storageOwnerId={resolvedOwnerId} allowDemo={isDemo} presentation="page" onClose={closeScan} onSave={saveScannedMeal} onAnalyzeImage={onAnalyzeImage} />
+        <FoodScanModal key={resolvedOwnerId} initialDate={selectedDate} storageOwnerId={resolvedOwnerId} allowDemo={isDemo} presentation="page" onClose={closeScan} onSave={saveScannedMeal} onAnalyzeImage={onAnalyzeImage} onResumeImageAnalysis={onResumeImageAnalysis} />
       </div>
       {quickSheets}
     </div>

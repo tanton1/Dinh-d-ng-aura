@@ -1,5 +1,6 @@
 import { createRoot } from 'react-dom/client'
 import { useState } from 'react'
+import ScanQueueFixture from './scan-queue-fixture'
 import NutritionPageController from '../../src/pages/student/NutritionPageController'
 import { DEFAULT_PROFILE } from '../../src/features/nutrition/profileDefaults'
 import { useNutritionAssistantController } from '../../src/features/nutrition/useNutritionAssistantController'
@@ -21,4 +22,4 @@ function SummaryFixture() {
   return <div data-testid="consumed">{summary.caloriesConsumed}</div>
 }
 const mode = new URLSearchParams(location.search).get('mode')
-createRoot(document.getElementById('root')!).render(mode === 'assistant' ? <AssistantFixture /> : mode === 'summary' ? <SummaryFixture /> : <NutritionPageController entry={mode === 'library' ? 'library' : 'nutrition'} storageOwnerId="a" displayName="Read fixture" hasProfile profile={profile} />)
+createRoot(document.getElementById('root')!).render(mode === 'scan-queue' ? <ScanQueueFixture /> : mode === 'assistant' ? <AssistantFixture /> : mode === 'summary' ? <SummaryFixture /> : <NutritionPageController entry={mode === 'library' ? 'library' : 'nutrition'} storageOwnerId="a" displayName="Read fixture" hasProfile profile={profile} />)

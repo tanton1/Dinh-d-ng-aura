@@ -1,3 +1,7 @@
+import { onAuthStateChanged } from 'firebase/auth'
+import { doc, onSnapshot } from 'firebase/firestore'
+import { firestoreDb } from '../lib/firebaseFirestore'
+import { clearPendingFoodScan, foodScanFingerprint, readPendingFoodScan, rememberPendingFoodScan, waitForFoodScanJob, type FoodScanQueueStatus } from './nutritionScanQueue'
 import { httpsCallable } from 'firebase/functions'
 import { deleteObject, ref, uploadBytes } from 'firebase/storage'
 import { firebaseAppCheckStatus, firebaseAuth, initializeFirebaseAppCheck, isFirebaseConfigured, useFirebaseEmulators } from '../lib/firebase'
@@ -165,6 +169,10 @@ export interface FoodAnalysisResponse {
 }
 
 export interface AnalyzeFoodPhotoOptions {
+  signal?: AbortSignal
+  onQueueStatus?: (status: FoodScanQueueStatus) => void
+  mealDate?: string
+  mealTime?: string
   mealType?: MealType
   notes?: string
   /** Images are deleted after analysis by default. Set true only with explicit user consent. */
@@ -555,50 +563,69 @@ export async function uploadAiCoachPhoto(image: Blob, kind: AiCoachImageKind): P
   return { ...upload, kind }
 }
 
+function assertScanOwner(ownerUid: string, signal?: AbortSignal) {
+  if (signal?.aborted) throw new DOMException('Đã ngừng theo dõi ảnh.', 'AbortError')
+  if (firebaseAuth?.currentUser?.uid !== ownerUid) throw new Error('Tài khoản đã thay đổi. Hãy mở lại ảnh từ tài khoản đã gửi.')
+}
+
+async function observeFoodScan(scanId: string, ownerUid: string, options: AnalyzeFoodPhotoOptions) {
+  if (!firestoreDb || !firebaseAuth) throw new Error('Dịch vụ hàng đợi chưa sẵn sàng.')
+  const auth = firebaseAuth
+  const reference = doc(firestoreDb, 'users', ownerUid, 'nutritionScanJobs', scanId)
+  const result = await waitForFoodScanJob<unknown>({
+    ownerUid, currentOwnerUid: () => auth.currentUser?.uid, signal: options.signal, onStatus: options.onQueueStatus,
+    subscribeOwner: changed => onAuthStateChanged(auth, changed),
+    subscribe: (next, error) => onSnapshot(reference, snapshot => next({ exists: snapshot.exists(), fromCache: snapshot.metadata.fromCache, data: snapshot.data() }), error),
+  }).catch(error => {
+    // Only an explicit pre-provider rejection may start fresh on the user's
+    // next attempt. Ambiguous/active paid work must retain its original ID.
+    if (['nutrition_scan_expired', 'nutrition_ai_quota'].includes(error?.details?.kind)) clearPendingFoodScan(ownerUid, scanId)
+    throw error
+  })
+  assertScanOwner(ownerUid, options.signal)
+  return validateAnalysisResponse(result, scanId)
+}
+
+export async function resumePendingFoodPhoto(options: AnalyzeFoodPhotoOptions = {}): Promise<FoodAnalysisResponse | null> {
+  const ownerUid = firebaseAuth?.currentUser?.uid
+  if (!ownerUid) return null
+  const pending = readPendingFoodScan(ownerUid)
+  if (!pending) return null
+  await initializeFirebaseAppCheck()
+  assertScanOwner(ownerUid, options.signal)
+  const firebase = requireNutritionFirebase()
+  const callable = httpsCallable(firebase.functions, 'enqueueNutritionScan', { timeout: 30_000 })
+  await callable({ resumeScanId: pending.upload.scanId, expectedOwnerUid: ownerUid })
+  assertScanOwner(ownerUid, options.signal)
+  options.onQueueStatus?.('queued')
+  return observeFoodScan(pending.upload.scanId, ownerUid, options)
+}
+
 export async function analyzeUploadedFoodPhoto(
   upload: UploadedFoodImage,
   options: AnalyzeFoodPhotoOptions = {},
 ): Promise<FoodAnalysisResponse> {
-  let storage = firebaseStorage
-  try {
-    const firebase = requireNutritionFirebase()
-    storage = firebase.storage
-    validateAnalyzeOptions(options)
-    const notes = options.notes?.trim() ?? ''
-
-    const callable = httpsCallable<AnalyzeFoodImageRequest, FoodAnalysisResponse>(
-      firebase.functions,
-      firebase.regional ? 'analyzeFoodImageRegional' : 'analyzeFoodImage',
-      { timeout: 120_000 },
-    )
-    const expectedOwnerUid = firebaseAuth?.currentUser?.uid || ''
-    const payload: AnalyzeFoodImageRequest = {
-      requestId: upload.scanId,
-      expectedOwnerUid,
-      storagePath: upload.storagePath,
-      mealType: options.mealType ?? 'other',
-      notes,
-      retainImage: options.retainImage === true,
-      studentGoal: options.userGoal,
-      studentCondition: options.userCondition,
-    }
-    const result = await runNutritionAiRequest(() => callable(payload), { expectedOwnerUid, currentOwnerUid: () => firebaseAuth?.currentUser?.uid })
-    const response = validateAnalysisResponse(result.data, upload.scanId)
-    if (options.retainImage !== true && response.imageRetained) {
-      try {
-        await deleteObject(ref(storage, upload.storagePath))
-        return { ...response, imageRetained: false }
-      } catch {
-        // Preserve the server-reported state so the UI can disclose that cleanup failed.
-      }
-    }
-    return response
-  } catch (error) {
-    reportClientIssue('apikey_fun', error, { phase: 'analyze_food_callable', provider: 'apikey_fun', retryable: true })
-    // A timed-out or duplicate client does not own the server worker. Keep
-    // its private temporary image available; the owner/retention job cleans it.
-    throw error
+  const firebase = requireNutritionFirebase()
+  validateAnalyzeOptions(options)
+  const expectedOwnerUid = firebase.user.uid
+  assertScanOwner(expectedOwnerUid, options.signal)
+  const callable = httpsCallable<AnalyzeFoodImageRequest, { scanId: string; status: string }>(
+    firebase.functions, 'enqueueNutritionScan', { timeout: 30_000 },
+  )
+  const payload: AnalyzeFoodImageRequest = {
+    requestId: upload.scanId, expectedOwnerUid, storagePath: upload.storagePath,
+    mealType: options.mealType ?? 'other', notes: options.notes?.trim() ?? '', retainImage: options.retainImage === true,
+    studentGoal: options.userGoal, studentCondition: options.userCondition,
   }
+  try { await callable(payload) } catch (error) {
+    // A lost acknowledgement can follow a successful enqueue. Read the same
+    // job instead of uploading again or issuing another paid inference.
+    const code = (error as { code?: string })?.code?.replace('functions/', '')
+    if (!['unavailable', 'deadline-exceeded', 'internal', 'cancelled'].includes(code || '')) throw error
+  }
+  assertScanOwner(expectedOwnerUid, options.signal)
+  options.onQueueStatus?.('queued')
+  return observeFoodScan(upload.scanId, expectedOwnerUid, options)
 }
 
 export async function analyzeFoodPhoto(
@@ -621,7 +648,19 @@ export async function analyzeFoodPhoto(
       appCheckError.code = 'failed-precondition'
       throw appCheckError
     }
-    const upload = await uploadFoodPhoto(image)
+    const ownerUid = requireNutritionFirebase().user.uid
+    assertScanOwner(ownerUid, options.signal)
+    const fingerprint = await foodScanFingerprint(image, {
+      mealType: options.mealType ?? 'other', notes: options.notes?.trim() || '', retainImage: options.retainImage === true,
+      userGoal: options.userGoal || '', userCondition: options.userCondition || '',
+    })
+    assertScanOwner(ownerUid, options.signal)
+    const pending = readPendingFoodScan(ownerUid)
+    options.onQueueStatus?.('uploading')
+    const upload = pending?.fingerprint === fingerprint ? pending.upload : await uploadFoodPhoto(image)
+    assertScanOwner(ownerUid, options.signal)
+    rememberPendingFoodScan({ ownerUid, fingerprint, upload, createdAt: pending?.fingerprint === fingerprint ? pending.createdAt : Date.now(),
+      mealType: options.mealType ?? 'other', mealDate: options.mealDate, mealTime: options.mealTime })
     return await analyzeUploadedFoodPhoto(upload, options)
   } catch (error) {
     reportClientIssue('apikey_fun', error, { phase: 'analyze_food_pipeline', provider: 'apikey_fun', retryable: true })

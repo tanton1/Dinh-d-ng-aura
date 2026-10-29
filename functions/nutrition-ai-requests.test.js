@@ -23,7 +23,11 @@ function memoryDb(seed = {}) {
       : value instanceof Timestamp ? value : Array.isArray(value) ? value.map(stored)
         : value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).map(([k, v]) => [k, stored(v)])) : value
   const snapshot = path => ({ exists: documents.has(path), id: path.split('/').at(-1), data: () => documents.get(path) })
-  const write = (path, value, options) => documents.set(path, stored(options?.merge ? { ...documents.get(path), ...value } : value))
+  const write = (path, value, options) => {
+    const next = options?.merge ? { ...documents.get(path), ...value } : { ...value }
+    for (const [key, item] of Object.entries(next)) if (item?.constructor?.name === 'DeleteTransform') delete next[key]
+    documents.set(path, stored(next))
+  }
   const doc = path => ({ path, get: async () => { reads.push(path); return snapshot(path) }, set: async (value, options) => write(path, value, options) })
   const query = (path, filters = [], cap = Infinity) => {
     const result = {
@@ -263,6 +267,50 @@ test('AI Coach failed duplicate claim leaves the original worker image untouched
   await assert.rejects(functions.askAiCoach(callable({ clientTurnId: 'turn_test_123', conversationId: 'default', message: 'Phân tích món ăn này', attachment })), { code: 'aborted' })
   assert.equal(deletes, 0)
   assert.equal(db.documents.size, 1)
+})
+
+test('queued scan honors a first HTTP 429 without model/provider fanout, then safely reuses its quota', async () => {
+  const db = memoryDb()
+  let calls = 0
+  const file = { getMetadata: async () => [{ size: 3, contentType: 'image/jpeg', metadata: { ownerUid: 'student-1', scanId: 'scan_test_123', purpose: 'food-analysis' } }],
+    download: async () => [Buffer.from([255, 216, 255])], delete: async () => {} }
+  const storage = { bucket: () => ({ file: () => file }) }
+  const analysis = { isFood: false, dishNameVi: 'Không phải món ăn', dishNameEn: 'Not food', portionSummary: 'Không có khẩu phần', confidence: .95,
+    calorieRange: { low: 0, high: 0 }, totals: { calories: 0, proteinG: 0, carbsG: 0, fatG: 0, fiberG: 0, sugarG: 0, sodiumMg: 0 },
+    ...Object.fromEntries(['quantityAndCookingAnalysis', 'portionAndCalorieRationale', 'goalAlignmentAssessment', 'calorieOptimizationTip', 'macroBalanceAssessment', 'coachFeedbackSuggestion', 'aiFeedback'].map(key => [key, 'Không áp dụng vì ảnh không chứa món ăn.'])),
+    items: [], questions: [], warnings: ['Ảnh không chứa món ăn.'] }
+  const fetch = async () => {
+    if (++calls === 1) return { ok: false, status: 429, headers: { get: name => name === 'retry-after' ? '45' : null }, json: async () => ({ error: { message: 'busy' } }) }
+    return jsonResponse(analysis)
+  }
+  const module = loadModule('nutrition.js', { db, storage, fetch, primaryKey: 'test-primary', fallbackKey: 'test-fallback' })
+  const input = module.parseAnalyzeRequest({ storagePath: 'nutrition-scans/student-1/scan_test_123/original.jpg' }, 'student-1')
+  const process = module.createFoodScanProcessor({ db })
+  const request = { uid: 'student-1', input, queueMode: true }
+  await assert.rejects(process(request), error => error.details.kind === 'nutrition_provider_busy' && error.details.retryAfterMs === 45_000)
+  assert.equal(calls, 1)
+  const result = await process(request)
+  assert.equal(result.status, 'completed')
+  assert.equal(calls, 2)
+  assert.equal(db.documents.get('users/student-1/aiRateLimits/foodVision').dayCount, 1)
+  assert.equal((await process(request)).status, 'completed')
+  assert.equal(calls, 2)
+})
+
+test('lost food-provider responses neither fan out nor issue AI again on task redelivery', async () => {
+  const db = memoryDb(); let calls = 0
+  const storage = { bucket: () => ({ file: () => ({
+    getMetadata: async () => [{ size: 3, contentType: 'image/jpeg', metadata: { ownerUid: 'student-1', scanId: 'scan_test_123', purpose: 'food-analysis' } }],
+    download: async () => [Buffer.from([255, 216, 255])], delete: async () => assert.fail('active input must survive'),
+  }) }) }
+  const module = loadModule('nutrition.js', { db, storage, fetch: async () => { calls++; throw new Error('lost response') }, primaryKey: 'test-primary', fallbackKey: 'test-fallback' })
+  const input = module.parseAnalyzeRequest({ storagePath: 'nutrition-scans/student-1/scan_test_123/original.jpg' }, 'student-1')
+  const process = module.createFoodScanProcessor({ db })
+  const request = { uid: 'student-1', input, queueMode: true }
+  await assert.rejects(process(request), error => error.details.kind === 'nutrition_ai_outcome_unknown')
+  await assert.rejects(process(request), unknown)
+  assert.equal(calls, 1)
+  assert.equal([...db.documents.entries()].filter(([path, value]) => path.includes('/slots/') && value.leaseUntil > Date.now()).length, 1)
 })
 
 test('all paid handlers reject an account switch before reads, receipts, Storage, or provider access', async () => {

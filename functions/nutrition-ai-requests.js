@@ -1,7 +1,7 @@
 'use strict'
 
 const { createHash, randomUUID } = require('node:crypto')
-const { Timestamp } = require('firebase-admin/firestore')
+const { Timestamp, FieldValue } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
 
 const RECEIPT_TTL_MS = 7 * 24 * 60 * 60 * 1000
@@ -54,7 +54,7 @@ function quotaMutation(value = {}, quota, now) {
   const withinDay = now - millis(value.dayStartedAt) < dayMs && millis(value.dayStartedAt) > 0
   const windowCount = withinWindow ? Math.max(0, Number(value.windowCount) || 0) : 0
   const dayCount = withinDay ? Math.max(0, Number(value.dayCount) || 0) : 0
-  if (windowCount >= quota.windowLimit || dayCount >= quota.dayLimit) throw new HttpsError('resource-exhausted', quota.message || 'Bạn đã đạt giới hạn yêu cầu AI. Hãy thử lại sau.')
+  if (windowCount >= quota.windowLimit || dayCount >= quota.dayLimit) throw new HttpsError('resource-exhausted', quota.message || 'Bạn đã đạt giới hạn yêu cầu AI. Hãy thử lại sau.', { kind: 'nutrition_ai_quota' })
   return {
     windowCount: windowCount + 1, dayCount: dayCount + 1,
     windowStartedAt: withinWindow ? value.windowStartedAt : Timestamp.fromMillis(now),
@@ -130,6 +130,13 @@ function createNutritionAiRequests({ db, now = Date.now, token = randomUUID } = 
     await assertOwner(transaction, acquired)
     transaction.set(acquired.reference, { providerStartedAt: Timestamp.fromMillis(now()) }, { merge: true })
   })
+  // Only the caller that received an explicit first-attempt HTTP 429 may
+  // clear provider admission. Network failures and lost responses cannot.
+  const deferProvider = acquired => db.runTransaction(async transaction => {
+    await assertOwner(transaction, acquired)
+    transaction.set(acquired.reference, { status: 'deferred', providerStartedAt: FieldValue.delete(), leaseUntil: Timestamp.fromMillis(0) }, { merge: true })
+    if (acquired.lockReference) transaction.set(acquired.lockReference, { status: 'released', token: null, leaseUntil: Timestamp.fromMillis(0) }, { merge: true })
+  })
   const ownsLease = acquired => db.runTransaction(async transaction => {
     await assertOwner(transaction, acquired)
     return true
@@ -158,7 +165,7 @@ function createNutritionAiRequests({ db, now = Date.now, token = randomUUID } = 
     transaction.set(acquired.reference, { status: 'failed', errorCode: error instanceof HttpsError ? error.code : 'internal', leaseUntil: Timestamp.fromMillis(0), failedAt: Timestamp.fromMillis(now()) }, { merge: true })
     if (acquired.lockReference && lockSnapshot?.data()?.token === acquired.token) transaction.set(acquired.lockReference, { status: 'released', token: null, leaseUntil: Timestamp.fromMillis(0) }, { merge: true })
   }).catch(() => undefined)
-  return { replay, claim, assertOwner, ownsLease, startProvider, writeCompletion, complete, markImageDeleted, fail }
+  return { replay, claim, assertOwner, ownsLease, startProvider, deferProvider, writeCompletion, complete, markImageDeleted, fail }
 }
 
 function createAiProviderBudget({ totalMs, maxAttempts, perAttemptMs, now = Date.now }) {

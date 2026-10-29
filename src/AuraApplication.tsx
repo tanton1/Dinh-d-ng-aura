@@ -916,6 +916,10 @@ function AuraApplication() {
           }
           setLocalNutritionProfile(nutritionProfile)
         }}
+        onResumeImageAnalysis={async options => {
+          const { resumePendingFoodPhoto } = await import('./services/nutritionService')
+          return resumePendingFoodPhoto(options)
+        }}
         onAnalyzeImage={async (file, options) => {
           const p: any = effectiveNutritionProfile
           const goalStr = p?.goal === 'lose-fat' ? 'Giảm mỡ thâm hụt calo' : p?.goal === 'gain-muscle' ? 'Tăng cơ nạc' : 'Duy trì vóc dáng'

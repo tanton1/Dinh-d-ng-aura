@@ -680,6 +680,13 @@ service cloud.firestore {
         allow read, write: if false;
       }
 
+      // The owner listens to one durable scan only; queue inputs/results are
+      // never writable by clients or visible to another student/staff account.
+      match /nutritionScanJobs/{scanId} {
+        allow get: if isOwner(userId);
+        allow list, write: if false;
+      }
+
       match /aiRateLimits/{documentId} {
         allow read, write: if false;
       }
