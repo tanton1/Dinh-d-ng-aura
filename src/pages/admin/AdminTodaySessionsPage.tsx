@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AlertCircle, ArrowLeft, Building2, CalendarDays, CheckCircle2, Clock3, RefreshCw, Search, UserRound, UsersRound } from 'lucide-react'
 import type { ViewId } from '../../types'
 import { getTodaySessions, type TodaySessionsData } from '../../services/operationsDashboardService'
@@ -65,22 +65,29 @@ export default function AdminTodaySessionsPage({ onNavigate }: { onNavigate: (vi
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState('')
+  const loadGeneration = useRef(0)
 
   const load = useCallback(async (forceRefresh = false) => {
+    const generation = ++loadGeneration.current
     forceRefresh ? setRefreshing(true) : setLoading(true)
     setError('')
     try {
       const result = await getTodaySessions({ branchId, forceRefresh })
-      setData(result)
+      if (generation === loadGeneration.current) setData(result)
     } catch (loadError) {
-      setError(loadErrorMessage(loadError))
+      if (generation === loadGeneration.current) setError(loadErrorMessage(loadError))
     } finally {
-      setLoading(false)
-      setRefreshing(false)
+      if (generation === loadGeneration.current) {
+        setLoading(false)
+        setRefreshing(false)
+      }
     }
   }, [branchId])
 
-  useEffect(() => { void load() }, [load])
+  useEffect(() => {
+    void load()
+    return () => { loadGeneration.current += 1 }
+  }, [load])
 
   const summary = useMemo(() => {
     const rows = data?.today.rows ?? []
