@@ -1,6 +1,6 @@
 // Bump the shell whenever production Firebase bootstrap configuration changes.
 // Activation removes every older Aura cache before the client reloads.
-const CACHE_VERSION = 'aura-shell-v26-20261020-canonical-usage'
+const CACHE_VERSION = 'aura-shell-v27-20261029-cache-lifecycle'
 const APP_SHELL = [
   '/',
   '/manifest.webmanifest',
@@ -71,6 +71,19 @@ self.addEventListener('notificationclick', (event) => {
   )
 })
 
+function cacheResponse(event, request, response) {
+  if (!response.ok) return
+  // Clone before the browser consumes the body; keep writes alive until saved.
+  const copy = response.clone()
+  event.waitUntil(caches.open(CACHE_VERSION)
+    .then((cache) => cache.put(request, copy))
+    .catch(() => undefined))
+}
+
+function cachedResponse(request) {
+  return caches.open(CACHE_VERSION).then((cache) => cache.match(request)).catch(() => undefined)
+}
+
 self.addEventListener('fetch', (event) => {
   const request = event.request
   if (request.method !== 'GET') return
@@ -81,10 +94,10 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(
       fetch(request, { cache: 'no-store' })
         .then((response) => {
-          if (response.ok) caches.open(CACHE_VERSION).then((cache) => cache.put('/', response.clone()))
+          cacheResponse(event, '/', response)
           return response
         })
-        .catch(() => caches.match('/')),
+        .catch(async () => (await cachedResponse('/')) || Response.error()),
     )
     return
   }
@@ -95,13 +108,15 @@ self.addEventListener('fetch', (event) => {
   if (!isStaticAsset) return
 
   event.respondWith(
-    caches.match(request).then((cached) => {
+    cachedResponse(request).then((cached) => {
+      // Vite assets include a content hash; a changed release has a different URL.
+      if (cached && url.pathname.startsWith('/assets/')) return cached
       const refreshed = fetch(request).then((response) => {
-        if (response.ok) caches.open(CACHE_VERSION).then((cache) => cache.put(request, response.clone()))
+        cacheResponse(event, request, response)
         return response
       })
       if (!cached) return refreshed
-      void refreshed.catch(() => undefined)
+      event.waitUntil(refreshed.catch(() => undefined))
       return cached
     }),
   )
