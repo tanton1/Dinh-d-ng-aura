@@ -4,6 +4,41 @@ const test = require('node:test')
 const { parseArguments, selectIndexes, signature, indexMatches, CONFIRMATION } = require('./firebase-firestore-index-deploy.cjs')
 const indexes = require('../firestore.indexes.json').indexes
 
+test('CPU background scope selects only the two due queues with explicit Enterprise cursor ordering', () => {
+  const expected = [
+    { collectionGroup: 'subjects', queryScope: 'COLLECTION', fields: [
+      { fieldPath: 'dueAt', order: 'ASCENDING' }, { fieldPath: '__name__', order: 'ASCENDING' },
+    ] },
+    { collectionGroup: 'staffOperationalSummaries', queryScope: 'COLLECTION', fields: [
+      { fieldPath: 'nextReconcileAt', order: 'ASCENDING' }, { fieldPath: '__name__', order: 'ASCENDING' },
+    ] },
+  ]
+  const selected = selectIndexes(indexes, 'cpu-background')
+  assert.deepEqual(selected, expected, 'unrelated missing indexes cannot enter this deployment')
+  for (const index of selected) {
+    const replace = (invalid) => indexes.map(value => value === index ? invalid : value)
+    assert.throws(() => selectIndexes(indexes.filter(value => value !== index), 'cpu-background'), /exactly once/)
+    assert.throws(() => selectIndexes([...indexes, index], 'cpu-background'), /exactly once/)
+    for (const invalid of [
+      { ...index, queryScope: 'COLLECTION_GROUP' },
+      { ...index, fields: [index.fields[0]] },
+      { ...index, fields: [{ ...index.fields[0], order: 'DESCENDING' }, index.fields[1]] },
+      { ...index, fields: [index.fields[0], { fieldPath: '__name__', order: 'DESCENDING' }] },
+      { ...index, fields: [...index.fields].reverse() },
+    ]) assert.throws(() => selectIndexes(replace(invalid), 'cpu-background'), /exactly once/)
+    assert.equal(indexMatches(index, { ...index, fields: [index.fields[0]] }), false)
+  }
+})
+
+test('CPU background dry-run remains read-only and apply keeps the exact target confirmation', () => {
+  assert.deepEqual(parseArguments(['dry-run', '--scope=cpu-background']), { mode: 'dry-run', scope: 'cpu-background' })
+  assert.deepEqual(parseArguments(['apply', '--scope=cpu-background', `--confirm=${CONFIRMATION}`]), { mode: 'apply', scope: 'cpu-background' })
+  assert.throws(() => parseArguments(['apply', '--scope=cpu-background']), /confirmation/)
+  assert.throws(() => parseArguments(['apply', '--scope=cpu-background', '--confirm=other-project']), /confirmation/)
+  assert.throws(() => parseArguments(['dry-run', '--scope=cpu-background', '--project=other-project']), /Usage/)
+  assert.throws(() => parseArguments(['help']), /--scope=cpu-background/)
+})
+
 test('business report scope reuses ledger/attendance indexes and creates only branch cash range', () => {
   const selected = selectIndexes(indexes, 'business-report-branch-reads')
   assert.deepEqual(selected.map(index => index.collectionGroup), ['ledgerEntries', 'cashTransactions', 'attendanceEvents'])

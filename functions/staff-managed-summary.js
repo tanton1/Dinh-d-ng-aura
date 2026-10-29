@@ -115,13 +115,19 @@ async function refreshStaffManagedClientSummary(db, uid) {
   const reference = db.doc(`staffOperationalSummaries/${uid}`)
   return db.runTransaction(async transaction => {
     const current = (await transaction.get(reference)).data()
-    if (completeFencedSummary(current) && atLeastAsRecent(current.sourceReadTime, sourceReadTime)) return publicStaffManagedCounts(current)
+    if (completeFencedSummary(current) && atLeastAsRecent(current.sourceReadTime, sourceReadTime)) {
+      if (!(current.nextReconcileAt instanceof Timestamp)) transaction.set(reference, {
+        nextReconcileAt: Timestamp.fromMillis(current.sourceReadTime.toMillis() + STAFF_SUMMARY_MAX_AGE_MS),
+      }, { merge: true })
+      return publicStaffManagedCounts(current)
+    }
     // Advance the watermark even if counts are equal: an older A→B refresh
     // must not overwrite a newer B→A result that happens to match stored A.
     transaction.set(reference, {
       schemaVersion: STAFF_SUMMARY_VERSION, refreshVersion: REFRESH_VERSION,
       staffUid: uid, managedClientCounts: counts, source: 'contracts',
       sourceReadTime, truncated: false, generatedAt: FieldValue.serverTimestamp(),
+      nextReconcileAt: Timestamp.fromMillis(sourceReadTime.toMillis() + STAFF_SUMMARY_MAX_AGE_MS),
     }, { merge: true })
     return { ...counts, stale: false, truncated: false }
   })
@@ -140,27 +146,57 @@ async function syncStaffManagedClientSummary({ db, event, staffIds: suppliedStaf
   return { refreshed: affected.length }
 }
 
-async function reconcileStaffManagedClientSummaries({ db, logger = console, batchSize = 10, now = Date.now(), refresh = refreshStaffManagedClientSummary }) {
+async function reconcileStaffManagedClientSummaries({ db, logger = console, batchSize = 25, now = Date.now(), refresh = refreshStaffManagedClientSummary }) {
+  const size = Math.max(1, Math.min(25, Number.isFinite(batchSize) ? Math.floor(batchSize) : 25))
+  const due = await db.collection('staffOperationalSummaries').where('nextReconcileAt', '<=', Timestamp.fromMillis(now))
+    .orderBy('nextReconcileAt').orderBy(FieldPath.documentId()).limit(size).get()
+  let refreshed = 0
+  for (const summary of due.docs) {
+    const staffRef = db.doc(`roleAssignments/${summary.id}`)
+    const active = await db.runTransaction(async transaction => {
+      if ((await transaction.get(staffRef)).data()?.accessRole === 'staff') return true
+      // Removed staff retain historical counts but should not keep recurring
+      // source scans alive. Discovery re-enrolls a later staff assignment.
+      transaction.update(summary.ref, { nextReconcileAt: FieldValue.delete() })
+      return false
+    })
+    if (!active) continue
+    await refresh(db, summary.id)
+    refreshed++
+  }
   const stateRef = db.doc('systemJobs/staffManagedClientSummaryReconciliation')
   const state = await stateRef.get()
-  const cursor = typeof state.data()?.cursor === 'string' ? state.data().cursor : ''
-  const size = Math.max(1, Math.min(25, Number.isFinite(batchSize) ? Math.floor(batchSize) : 10))
+  const cursor = state.data()?.nextDiscoveryAt instanceof Timestamp && typeof state.data()?.cursor === 'string' ? state.data().cursor : ''
+  if (!cursor && state.data()?.nextDiscoveryAt?.toMillis?.() > now) {
+    logger.info('staff_summary_reconciled', { checked: due.size, refreshed })
+    return { checked: due.size, refreshed, cursor: '' }
+  }
+  // The due index excludes legacy/missing summaries, so keep a bounded staff
+  // discovery pass every six hours. Continue unfinished pages on the next run.
   const query = () => db.collection('roleAssignments').where('accessRole', '==', 'staff').orderBy(FieldPath.documentId()).limit(size)
-  let page = await (cursor ? query().startAfter(cursor) : query()).get()
-  if (page.empty && cursor) page = await query().get()
+  const page = await (cursor ? query().startAfter(cursor) : query()).get()
   const summaries = page.empty ? [] : await db.getAll(...page.docs.map((item) => db.doc(`staffOperationalSummaries/${item.id}`)))
-  let refreshed = 0
   for (let index = 0; index < page.docs.length; index++) {
     const value = summaries[index]?.data()
-    if (completeFencedSummary(value) && !staffSummaryIsStale(value, now)) continue
+    if (completeFencedSummary(value) && !staffSummaryIsStale(value, now)) {
+      if (!(value.nextReconcileAt instanceof Timestamp)) await db.runTransaction(async transaction => {
+        const current = (await transaction.get(summaries[index].ref)).data()
+        if (completeFencedSummary(current) && !(current.nextReconcileAt instanceof Timestamp)) transaction.set(summaries[index].ref, {
+          nextReconcileAt: Timestamp.fromMillis(current.sourceReadTime.toMillis() + STAFF_SUMMARY_MAX_AGE_MS),
+        }, { merge: true })
+      })
+      continue
+    }
     await refresh(db, page.docs[index].id)
     refreshed++
   }
   // Advance only after successful processing. A failed batch can safely retry.
-  const nextCursor = page.docs.at(-1)?.id || ''
-  await stateRef.set({ cursor: nextCursor, checkedAt: FieldValue.serverTimestamp(), checked: page.size, refreshed }, { merge: true })
-  logger.info('staff_summary_reconciled', { checked: page.size, refreshed })
-  return { checked: page.size, refreshed, cursor: nextCursor }
+  const nextCursor = page.size === size ? page.docs.at(-1).id : ''
+  const checked = due.size + page.size
+  await stateRef.set({ cursor: nextCursor, nextDiscoveryAt: Timestamp.fromMillis(now + STAFF_SUMMARY_MAX_AGE_MS),
+    checkedAt: FieldValue.serverTimestamp(), checked, refreshed }, { merge: true })
+  logger.info('staff_summary_reconciled', { checked, refreshed })
+  return { checked, refreshed, cursor: nextCursor }
 }
 
 module.exports = {

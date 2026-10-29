@@ -1,9 +1,6 @@
 'use strict'
 const assert = require('node:assert/strict')
 const { randomUUID } = require('node:crypto')
-const { readFileSync } = require('node:fs')
-const { join } = require('node:path')
-const { runInNewContext } = require('node:vm')
 const { test, after } = require('node:test')
 const { initializeApp, deleteApp } = require('firebase-admin/app')
 const { getFirestore, Timestamp } = require('firebase-admin/firestore')
@@ -208,21 +205,43 @@ test('profile edits publish roster only; unrelated users and internal availabili
   assert.deepEqual((await db.collection('eatCleanWorkspaceChanges').get()).docs.map(row => row.id), ['roster'])
 })
 
-test('the actual shared profile trigger awaits roster publication without adding another users trigger', async () => {
-  const db = fixture(), source = readFileSync(join(__dirname, 'index.js'), 'utf8')
-  const block = source.slice(source.indexOf('const student360Trigger ='), source.indexOf('// Stale-while-revalidate queue'))
+test('the actual shared profile trigger awaits roster publication without adding another users trigger', async (t) => {
+  const db = fixture()
+  const { createStudent360SourceTrigger } = require('./student-360-background-functions')
   const registrations = [], projections = [], changes = []
-  const register = runInNewContext(block + '; student360Trigger', {
+  t.mock.method(require('./student-360'), 'enqueueStudent360ProjectionFromEvent', async args => {
+    projections.push(args); return 'queued'
+  })
+  t.mock.method(require('./workspace-change-signals'), 'syncWorkspaceChangesFromEvent', async args => {
+    changes.push(args); return {}
+  })
+  const publishRoster = signals.syncDeliveryWorkspaceChange
+  let rosterStarted, releaseRoster, rosterCalls = 0
+  const started = new Promise(resolve => { rosterStarted = resolve })
+  const released = new Promise(resolve => { releaseRoster = resolve })
+  t.mock.method(signals, 'syncDeliveryWorkspaceChange', async args => {
+    rosterCalls++; rosterStarted(); await released
+    return publishRoster(args)
+  })
+  const register = document => createStudent360SourceTrigger(document, {
     db, databaseId: 'named', logger: { warn() {} },
     onDocumentWritten: (options, handler) => { registrations.push(options); return handler },
-    syncStudent360ProjectionFromEvent: async args => { projections.push(args); return 'projected' },
-    syncWorkspaceChangesFromEvent: async args => { changes.push(args); return {} },
-    require: name => { assert.equal(name, './delivery-workspace-signals'); return signals },
   })
-  assert.equal(await register('users/{accountUid}')(event(db, 'users/a', null, { role: 'shipper' })), 'projected')
+  let completed = false
+  const pending = register('users/{accountUid}')(event(db, 'users/a', null, { role: 'shipper' }))
+    .then(value => { completed = true; return value })
+  try {
+    await started
+    await new Promise(resolve => setImmediate(resolve))
+    assert.equal(completed, false, 'the source event must not acknowledge before roster publication')
+    assert.equal((await db.doc('eatCleanWorkspaceChanges/roster').get()).exists, false)
+  } finally { releaseRoster() }
+  assert.equal(await pending, 'queued')
   const roster = await db.doc('eatCleanWorkspaceChanges/roster').get()
   assert.ok(roster.exists); assert.equal(changes[0].source, 'users'); assert.equal(projections.length, 1)
   await register('students/{studentId}')(event(db, 'students/a', null, { role: 'shipper' }, 2))
   assert.ok(roster.updateTime.isEqual((await roster.ref.get()).updateTime))
+  assert.equal(rosterCalls, 1)
+  assert.deepEqual(registrations.map(row => row.document), ['users/{accountUid}', 'students/{studentId}'])
   assert.ok(registrations.every(row => row.database === 'named' && row.region === 'asia-southeast1' && row.retry))
 })

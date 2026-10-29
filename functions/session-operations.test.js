@@ -151,9 +151,30 @@ test('frequent PT automation scans only the recent window and daily catch-up own
   assert.equal(state.read('sessions/historical-session').billingStatus, 'charged')
 })
 
-test('production PT automation uses low-frequency bounded workers plus one daily catch-up', () => {
-  assert.match(functionsIndex, /chargeDuePtSessionsScheduled = onSchedule\(\{[\s\S]*?schedule: 'every 30 minutes'[\s\S]*?limit: 500, includeRecent: true, includeCatchUp: false, pendingOnly: true/)
-  assert.match(functionsIndex, /autoConfirmOverduePtAttendanceScheduled = onSchedule\(\{[\s\S]*?schedule: 'every 30 minutes'[\s\S]*?limit: 500, includeRecent: true, includeCatchUp: false, pendingOnly: true/)
+test('production PT automation uses low-frequency bounded workers plus one daily catch-up', async context => {
+  const { createScheduledBackgroundFunction } = require('./scheduled-background-functions')
+  const business = require('./session-operations')
+  const db = {}, logger = {}, calls = []
+  for (const handlerName of ['chargeDuePtSessions', 'autoConfirmOverduePtAttendance']) {
+    context.mock.method(business, handlerName, async args => { calls.push({ handlerName, args }); return { handlerName } })
+    const target = `${handlerName}Scheduled`
+    assert.match(functionsIndex, new RegExp(`exports\\.${target} = createScheduledBackgroundFunction\\('${target}'`))
+    const registered = createScheduledBackgroundFunction(target, { db, logger, onSchedule: (options, handler) => ({ options, handler }) })
+    assert.deepEqual(registered.options, {
+      schedule: 'every 30 minutes', region: 'asia-southeast1', timeZone: 'Asia/Ho_Chi_Minh',
+      retryCount: 1, cpu: 'gcf_gen1', concurrency: 1, maxInstances: 1, timeoutSeconds: 540,
+    })
+    const startedAt = Date.now()
+    assert.deepEqual(await registered.handler(), { handlerName })
+    const call = calls.at(-1)
+    assert.equal(call.handlerName, handlerName)
+    assert.equal(call.args.db, db)
+    assert.equal(call.args.logger, logger)
+    assert.ok(call.args.now instanceof Date && call.args.now.getTime() >= startedAt && call.args.now.getTime() <= Date.now())
+    const { now, ...args } = call.args
+    assert.deepEqual(args, { db, logger, limit: 500, includeRecent: true, includeCatchUp: false, pendingOnly: true })
+  }
+  assert.equal(calls.length, 2)
   assert.match(functionsIndex, /reconcilePtSessionAutomationScheduled = onSchedule\(\{[\s\S]*?schedule: '17 2 \* \* \*'[\s\S]*?includeRecent: false, includeCatchUp: true/)
   assert.match(source, /filters: pendingOnly \? \[\{ field: 'billingStatus', value: 'pending' \}\] : \[\]/)
   assert.match(source, /filters: pendingOnly \? \[\{ field: 'attendanceStatus', value: 'pending' \}\] : \[\]/)

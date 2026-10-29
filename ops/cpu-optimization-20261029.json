@@ -1,0 +1,787 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-29",
+  "status": "backend_verified_frontend_pending_merge",
+  "projectId": "gen-lang-client-0815966909",
+  "databaseId": "ai-studio-aurafitnesselear-0f7609b4-b8d1-4fb3-9d62-99a2c03e1ce7",
+  "methodology": {
+    "name": "Ponytail",
+    "commit": "96608e078b2d5ea607c5c3b8b5a54d1c1fba6846",
+    "skill": "https://github.com/DietrichGebert/ponytail/blob/96608e078b2d5ea607c5c3b8b5a54d1c1fba6846/skills/ponytail/SKILL.md",
+    "application": "Small complete changes; existing business handlers, fencing and authorization retained; no runtime dependency on Ponytail."
+  },
+  "indexes": {
+    "scope": "cpu-background",
+    "ready": 2,
+    "deleted": 0
+  },
+  "waves": [
+    [
+      "processStudent360SourceQueue",
+      "recoverStudent360SourceQueueScheduled"
+    ],
+    [
+      "syncStudent360Attendance",
+      "syncStudent360Session",
+      "syncStudent360ContractUsage",
+      "syncStudent360Contract"
+    ],
+    [
+      "syncStudent360Student",
+      "syncStudent360Availability",
+      "syncStudent360Workout",
+      "syncStudent360PtWorkout",
+      "syncStudent360MealReview",
+      "syncStudent360LeaveRequest",
+      "syncStudent360SessionRequest",
+      "syncStudent360Renewal",
+      "syncStudent360Payment",
+      "syncStudent360DailyCheckin",
+      "syncStudent360Profile",
+      "syncStudent360MealLog",
+      "syncStudent360BodyMetric",
+      "syncStudent360BodyMeasurement",
+      "syncStudent360WeightLog",
+      "syncStudent360LegacyProgressPhoto",
+      "syncStudent360ProgressPhoto",
+      "syncStudent360ProgressCheckIn"
+    ],
+    [
+      "refreshStudent360ProjectionFromQueue",
+      "reconcileStudent360ProjectionsScheduled",
+      "syncStaffOperationalSummary",
+      "reconcileStaffManagedClientSummariesScheduled",
+      "chargeDuePtSessionsScheduled",
+      "autoConfirmOverduePtAttendanceScheduled",
+      "vestPendingLoyaltySourcesScheduled",
+      "advanceLoyaltyMembershipsScheduled"
+    ],
+    [
+      "syncContractUsageOperationalActions",
+      "syncStudent360OperationalActions",
+      "syncPtScheduleWeeklyViewFromContractUsage",
+      "getMyPerformanceScoreV2",
+      "getMyTrainerWorkspaceRegional"
+    ]
+  ],
+  "resourceChanges": [
+    {
+      "functionName": "syncContractUsageOperationalActions",
+      "field": "maxInstances",
+      "before": 1,
+      "after": 2
+    },
+    {
+      "functionName": "syncStudent360OperationalActions",
+      "field": "maxInstances",
+      "before": 1,
+      "after": 2
+    },
+    {
+      "functionName": "syncPtScheduleWeeklyViewFromContractUsage",
+      "field": "maxInstances",
+      "before": 1,
+      "after": 2
+    },
+    {
+      "functionName": "getMyPerformanceScoreV2",
+      "field": "maxInstances",
+      "before": 1,
+      "after": 2
+    },
+    {
+      "functionName": "getMyTrainerWorkspaceRegional",
+      "field": "maxInstances",
+      "before": 2,
+      "after": 3
+    }
+  ],
+  "schedules": {
+    "recoverStudent360SourceQueueScheduled": "every 5 minutes",
+    "reconcileStaffManagedClientSummariesScheduled": "17 * * * *"
+  },
+  "localBenchmark": {
+    "measuredAt": "2026-10-29T14:52:07.835Z",
+    "node": "v24.19.0",
+    "rounds": 4,
+    "caveat": "Fresh local Node processes; no network or business execution. These measurements are not a claim of production CPU or billing savings.",
+    "measurements": {
+      "fullDiscovery": [
+        {
+          "initializationMs": 847.4558,
+          "moduleCount": 1021,
+          "localModuleCount": 108,
+          "exportedTargets": 562
+        },
+        {
+          "initializationMs": 848.3383,
+          "moduleCount": 1021,
+          "localModuleCount": 108,
+          "exportedTargets": 562
+        },
+        {
+          "initializationMs": 853.3643,
+          "moduleCount": 1021,
+          "localModuleCount": 108,
+          "exportedTargets": 562
+        },
+        {
+          "initializationMs": 874.2335,
+          "moduleCount": 1021,
+          "localModuleCount": 108,
+          "exportedTargets": 562
+        }
+      ],
+      "chargeDuePtSessionsScheduled": [
+        {
+          "initializationMs": 813.1023,
+          "moduleCount": 799,
+          "localModuleCount": 23,
+          "exportedTargets": 1
+        },
+        {
+          "initializationMs": 635.0815,
+          "moduleCount": 799,
+          "localModuleCount": 23,
+          "exportedTargets": 1
+        },
+        {
+          "initializationMs": 611.9269,
+          "moduleCount": 799,
+          "localModuleCount": 23,
+          "exportedTargets": 1
+        },
+        {
+          "initializationMs": 613.1293,
+          "moduleCount": 799,
+          "localModuleCount": 23,
+          "exportedTargets": 1
+        }
+      ],
+      "vestPendingLoyaltySourcesScheduled": [
+        {
+          "initializationMs": 1065.4625,
+          "moduleCount": 795,
+          "localModuleCount": 19,
+          "exportedTargets": 1
+        },
+        {
+          "initializationMs": 613.0868,
+          "moduleCount": 795,
+          "localModuleCount": 19,
+          "exportedTargets": 1
+        },
+        {
+          "initializationMs": 635.0514,
+          "moduleCount": 795,
+          "localModuleCount": 19,
+          "exportedTargets": 1
+        },
+        {
+          "initializationMs": 642.2737,
+          "moduleCount": 795,
+          "localModuleCount": 19,
+          "exportedTargets": 1
+        }
+      ],
+      "advanceLoyaltyMembershipsScheduled": [
+        {
+          "initializationMs": 1521.5677,
+          "moduleCount": 783,
+          "localModuleCount": 7,
+          "exportedTargets": 1
+        },
+        {
+          "initializationMs": 601.4707,
+          "moduleCount": 783,
+          "localModuleCount": 7,
+          "exportedTargets": 1
+        },
+        {
+          "initializationMs": 604.8059,
+          "moduleCount": 783,
+          "localModuleCount": 7,
+          "exportedTargets": 1
+        },
+        {
+          "initializationMs": 629.1769,
+          "moduleCount": 783,
+          "localModuleCount": 7,
+          "exportedTargets": 1
+        }
+      ],
+      "reconcileStaffManagedClientSummariesScheduled": [
+        {
+          "initializationMs": 744.9105,
+          "moduleCount": 782,
+          "localModuleCount": 6,
+          "exportedTargets": 1
+        },
+        {
+          "initializationMs": 629.9828,
+          "moduleCount": 782,
+          "localModuleCount": 6,
+          "exportedTargets": 1
+        },
+        {
+          "initializationMs": 618.1734,
+          "moduleCount": 782,
+          "localModuleCount": 6,
+          "exportedTargets": 1
+        },
+        {
+          "initializationMs": 692.0541,
+          "moduleCount": 782,
+          "localModuleCount": 6,
+          "exportedTargets": 1
+        }
+      ],
+      "syncStudent360Session": [
+        {
+          "initializationMs": 732.9548,
+          "moduleCount": 803,
+          "localModuleCount": 27,
+          "exportedTargets": 1
+        },
+        {
+          "initializationMs": 612.3179,
+          "moduleCount": 803,
+          "localModuleCount": 27,
+          "exportedTargets": 1
+        },
+        {
+          "initializationMs": 648.65,
+          "moduleCount": 803,
+          "localModuleCount": 27,
+          "exportedTargets": 1
+        },
+        {
+          "initializationMs": 750.1918,
+          "moduleCount": 803,
+          "localModuleCount": 27,
+          "exportedTargets": 1
+        }
+      ],
+      "processStudent360SourceQueue": [
+        {
+          "initializationMs": 621.7149,
+          "moduleCount": 784,
+          "localModuleCount": 8,
+          "exportedTargets": 1
+        },
+        {
+          "initializationMs": 590.7979,
+          "moduleCount": 784,
+          "localModuleCount": 8,
+          "exportedTargets": 1
+        },
+        {
+          "initializationMs": 598.0997,
+          "moduleCount": 784,
+          "localModuleCount": 8,
+          "exportedTargets": 1
+        },
+        {
+          "initializationMs": 625.6791,
+          "moduleCount": 784,
+          "localModuleCount": 8,
+          "exportedTargets": 1
+        }
+      ],
+      "recoverStudent360SourceQueueScheduled": [
+        {
+          "initializationMs": 596.7809,
+          "moduleCount": 784,
+          "localModuleCount": 8,
+          "exportedTargets": 1
+        },
+        {
+          "initializationMs": 595.2354,
+          "moduleCount": 784,
+          "localModuleCount": 8,
+          "exportedTargets": 1
+        },
+        {
+          "initializationMs": 603.2964,
+          "moduleCount": 784,
+          "localModuleCount": 8,
+          "exportedTargets": 1
+        },
+        {
+          "initializationMs": 609.2242,
+          "moduleCount": 784,
+          "localModuleCount": 8,
+          "exportedTargets": 1
+        }
+      ]
+    },
+    "summary": {
+      "fullDiscovery": {
+        "medianInitializationMs": 850.8513,
+        "moduleCount": 1021,
+        "localModuleCount": 108,
+        "exportedTargets": 562
+      },
+      "chargeDuePtSessionsScheduled": {
+        "medianInitializationMs": 624.1053999999999,
+        "moduleCount": 799,
+        "localModuleCount": 23,
+        "exportedTargets": 1
+      },
+      "vestPendingLoyaltySourcesScheduled": {
+        "medianInitializationMs": 638.66255,
+        "moduleCount": 795,
+        "localModuleCount": 19,
+        "exportedTargets": 1
+      },
+      "advanceLoyaltyMembershipsScheduled": {
+        "medianInitializationMs": 616.9914,
+        "moduleCount": 783,
+        "localModuleCount": 7,
+        "exportedTargets": 1
+      },
+      "reconcileStaffManagedClientSummariesScheduled": {
+        "medianInitializationMs": 661.01845,
+        "moduleCount": 782,
+        "localModuleCount": 6,
+        "exportedTargets": 1
+      },
+      "syncStudent360Session": {
+        "medianInitializationMs": 690.8024,
+        "moduleCount": 803,
+        "localModuleCount": 27,
+        "exportedTargets": 1
+      },
+      "processStudent360SourceQueue": {
+        "medianInitializationMs": 609.9073,
+        "moduleCount": 784,
+        "localModuleCount": 8,
+        "exportedTargets": 1
+      },
+      "recoverStudent360SourceQueueScheduled": {
+        "medianInitializationMs": 600.03865,
+        "moduleCount": 784,
+        "localModuleCount": 8,
+        "exportedTargets": 1
+      }
+    }
+  },
+  "verification": {
+    "sourceQueueUnitTests": 28,
+    "sourceQueueAndExistingProjectionIntegrationTests": 53,
+    "staffSummaryIntegrationTests": 15,
+    "vercelBuildIgnoreTests": 32,
+    "indexScopeTests": 12,
+    "fullCi": "passed",
+    "productionDependencyAudit": "passed: zero vulnerabilities",
+    "secretScan": "passed",
+    "completedAt": "2026-10-29T15:04:45.875Z",
+    "dataCostIntegrationTests": 73,
+    "dataCostIntegrationNote": "Actual shared trigger factory exercised against the Firestore emulator; includes await-before-acknowledgement verification."
+  },
+  "rolloutGates": [
+    "Indexes READY before queries",
+    "Consumer and recovery healthy before producers",
+    "Verify actual serving revisions and queue due age",
+    "Keep consumers after producer rollback until pending generations drain"
+  ],
+  "limitations": [
+    "Local startup measurements do not establish production CPU or billing savings.",
+    "Queue writes add cheap status-event invocations; compare rebuild CPU and due age, not invocation count alone.",
+    "Vercel skipped deployments still use a deployment slot."
+  ],
+  "backendRelease": {
+    "sourceSha": "8086dfe9bb2e65020f016f0027d61e759f54a7a4",
+    "completedAt": "2026-10-29T15:37:09.280Z",
+    "liveVerifiedAt": "2026-10-29T15:39:30.700Z",
+    "allHealthy": true,
+    "targets": [
+      {
+        "target": "processStudent360SourceQueue",
+        "region": "asia-southeast1",
+        "revision": "processstudent360sourcequeue-00001-zem",
+        "image": "asia-southeast1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast1__process_student360_source_queue@sha256:84c836b1845ef1cb9fa89249d1f2f1314c775562af0b4864e9a67a7a5498a1af",
+        "trafficPercent": 100,
+        "completedAt": "2026-10-29T15:11:13.755Z"
+      },
+      {
+        "target": "recoverStudent360SourceQueueScheduled",
+        "region": "asia-southeast1",
+        "revision": "recoverstudent360sourcequeuescheduled-00001-pov",
+        "image": "asia-southeast1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast1__recover_student360_source_queue_scheduled@sha256:ef42d6543aac7633777553c31bd8b66638566a4e049c37e59d71d08ff97c7154",
+        "trafficPercent": 100,
+        "completedAt": "2026-10-29T15:13:01.146Z"
+      },
+      {
+        "target": "syncStudent360Attendance",
+        "region": "asia-southeast1",
+        "revision": "syncstudent360attendance-stg-649c5d03e214",
+        "image": "asia-southeast1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast1__sync_student360_attendance@sha256:725087404c1cfe835672fa1845f6d1b802e3e8b445ee30cf977fd67a8be4409d",
+        "trafficPercent": 100,
+        "completedAt": "2026-10-29T15:14:57.331Z"
+      },
+      {
+        "target": "syncStudent360Session",
+        "region": "asia-southeast1",
+        "revision": "syncstudent360session-stg-cf1ecf2089cc",
+        "image": "asia-southeast1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast1__sync_student360_session@sha256:43d6937c6a32d04deb1ed4a6c05aff0578744fbb4a6c47e1e7e22a8502a22e80",
+        "trafficPercent": 100,
+        "completedAt": "2026-10-29T15:16:48.953Z"
+      },
+      {
+        "target": "syncStudent360ContractUsage",
+        "region": "asia-southeast1",
+        "revision": "syncstudent360contractusage-stg-785b178f62e9",
+        "image": "asia-southeast1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast1__sync_student360_contract_usage@sha256:1e741c5c1e9fcdc3aaeda8e17c749b4d2b01a6821a8226fa0af1cde70608f5b9",
+        "trafficPercent": 100,
+        "completedAt": "2026-10-29T15:18:28.980Z"
+      },
+      {
+        "target": "syncStudent360Contract",
+        "region": "asia-southeast1",
+        "revision": "syncstudent360contract-stg-06154ed9388e",
+        "image": "asia-southeast1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast1__sync_student360_contract@sha256:b69021d5db3896b147f00fe1df867d416d5869bb1007761c6c32d6763e0d0e40",
+        "trafficPercent": 100,
+        "completedAt": "2026-10-29T15:20:31.304Z"
+      },
+      {
+        "target": "syncStudent360Student",
+        "region": "asia-southeast1",
+        "revision": "syncstudent360student-stg-b8139dc3ffb1",
+        "image": "asia-southeast1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast1__sync_student360_student@sha256:fb6c99f8a3b39be639e8fa7ad51322fb0f6d0f6b184fb7b5ebecf5ea6f4f2fc2",
+        "trafficPercent": 100,
+        "completedAt": "2026-10-29T15:23:19.995Z"
+      },
+      {
+        "target": "syncStudent360Availability",
+        "region": "asia-southeast1",
+        "revision": "syncstudent360availability-stg-bf5933d3bd96",
+        "image": "asia-southeast1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast1__sync_student360_availability@sha256:04fdedfe0a11645ef87f63826946b097c03137cbac475188a0bd62fc399446a8",
+        "trafficPercent": 100,
+        "completedAt": "2026-10-29T15:25:00.679Z"
+      },
+      {
+        "target": "syncStudent360Workout",
+        "region": "asia-southeast1",
+        "revision": "syncstudent360workout-00015-zej",
+        "image": "asia-southeast1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast1__sync_student360_workout@sha256:e4a4744c85662ee13e14812a894fd0b71a2156dd281a9df4c8aa4c2e57646b67",
+        "trafficPercent": 100,
+        "completedAt": "2026-10-29T15:26:27.354Z"
+      },
+      {
+        "target": "syncStudent360PtWorkout",
+        "region": "asia-southeast1",
+        "revision": "syncstudent360ptworkout-stg-3aa6ccff8d45",
+        "image": "asia-southeast1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast1__sync_student360_pt_workout@sha256:591c014b7ccc2789594e36bb93739540c4130f7687f4f28340bd21f65b7d63fd",
+        "trafficPercent": 100,
+        "completedAt": "2026-10-29T15:28:32.147Z"
+      },
+      {
+        "target": "syncStudent360MealReview",
+        "region": "asia-southeast1",
+        "revision": "syncstudent360mealreview-stg-31f49dec239e",
+        "image": "asia-southeast1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast1__sync_student360_meal_review@sha256:dc1a1aa1f2f9991af1502f75bfb3c4e6c0b8b7a13a42c9ee6a2291319e53dacf",
+        "trafficPercent": 100,
+        "completedAt": "2026-10-29T15:30:13.980Z"
+      },
+      {
+        "target": "syncStudent360LeaveRequest",
+        "region": "asia-southeast1",
+        "revision": "syncstudent360leaverequest-stg-69600bab6c74",
+        "image": "asia-southeast1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast1__sync_student360_leave_request@sha256:8d674c13576d1f8a353145f20c426316745d3e34206ba10256682f481264229b",
+        "trafficPercent": 100,
+        "completedAt": "2026-10-29T15:31:53.226Z"
+      },
+      {
+        "target": "syncStudent360SessionRequest",
+        "region": "asia-southeast1",
+        "revision": "syncstudent360sessionrequest-stg-2097ca4dd81c",
+        "image": "asia-southeast1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast1__sync_student360_session_request@sha256:891a3e486d5850c909cbc9b4a3cfb4ba767e239e49a7e0ff76e7d7b89074501c",
+        "trafficPercent": 100,
+        "completedAt": "2026-10-29T15:33:28.484Z"
+      },
+      {
+        "target": "syncStudent360Renewal",
+        "region": "asia-southeast1",
+        "revision": "syncstudent360renewal-00014-hek",
+        "image": "asia-southeast1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast1__sync_student360_renewal@sha256:e19958b9b4872688ab11822248e6edb392f78bc35b139d67923fbed839cea175",
+        "trafficPercent": 100,
+        "completedAt": "2026-10-29T15:35:09.916Z"
+      },
+      {
+        "target": "syncStudent360Payment",
+        "region": "asia-southeast1",
+        "revision": "syncstudent360payment-00015-not",
+        "image": "asia-southeast1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast1__sync_student360_payment@sha256:a9e74e6e2c71c4363577dbd1c0533cdf6d27f0ffe13e10f2d3ad01a1f6384e0e",
+        "trafficPercent": 100,
+        "completedAt": "2026-10-29T15:37:09.280Z"
+      },
+      {
+        "target": "syncStudent360DailyCheckin",
+        "region": "asia-southeast1",
+        "revision": "syncstudent360dailycheckin-00015-xam",
+        "image": "asia-southeast1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast1__sync_student360_daily_checkin@sha256:ff9075a206ed6755e66744a0c4bf00263d5f77c2a5e54dbcab935bd9893d554b",
+        "trafficPercent": 100,
+        "completedAt": "2026-10-29T15:23:41.962Z"
+      },
+      {
+        "target": "syncStudent360Profile",
+        "region": "asia-southeast1",
+        "revision": "syncstudent360profile-stg-17aeb211a572",
+        "image": "asia-southeast1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast1__sync_student360_profile@sha256:0926e20760f45a88075147a7ebd86525453e115146b06859950db1f7af7c2c67",
+        "trafficPercent": 100,
+        "completedAt": "2026-10-29T15:25:51.410Z"
+      },
+      {
+        "target": "syncStudent360MealLog",
+        "region": "asia-southeast1",
+        "revision": "syncstudent360meallog-stg-a83fc2f65d69",
+        "image": "asia-southeast1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast1__sync_student360_meal_log@sha256:cc0afd35db20aad675e93c5d51c2a09aa4ee33862aeff09abd7dc93433de456e",
+        "trafficPercent": 100,
+        "completedAt": "2026-10-29T15:27:29.622Z"
+      },
+      {
+        "target": "syncStudent360BodyMetric",
+        "region": "asia-southeast1",
+        "revision": "syncstudent360bodymetric-stg-0e13feaeee4d",
+        "image": "asia-southeast1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast1__sync_student360_body_metric@sha256:99a6830b0adaf5a225333f0e202a8df0b44faa4592c2dd4ca110949fe0c449d2",
+        "trafficPercent": 100,
+        "completedAt": "2026-10-29T15:29:07.281Z"
+      },
+      {
+        "target": "syncStudent360BodyMeasurement",
+        "region": "asia-southeast1",
+        "revision": "syncstudent360bodymeasurement-stg-bc8df467c4b2",
+        "image": "asia-southeast1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast1__sync_student360_body_measurement@sha256:7c7352a8180d3bf6ffda2bca936bf651ea444450e0f1f809c63c10c379b6f9c0",
+        "trafficPercent": 100,
+        "completedAt": "2026-10-29T15:30:45.202Z"
+      },
+      {
+        "target": "syncStudent360WeightLog",
+        "region": "asia-southeast1",
+        "revision": "syncstudent360weightlog-stg-7daae4521fe4",
+        "image": "asia-southeast1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast1__sync_student360_weight_log@sha256:9027cb6bde40bc708a25b8e072fd94cafece09a72a4f7863ad69e3706a564a43",
+        "trafficPercent": 100,
+        "completedAt": "2026-10-29T15:32:14.242Z"
+      },
+      {
+        "target": "syncStudent360LegacyProgressPhoto",
+        "region": "asia-southeast1",
+        "revision": "syncstudent360legacyprogressphoto-stg-c9e16714ff61",
+        "image": "asia-southeast1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast1__sync_student360_legacy_progress_photo@sha256:59bb3edde209bdcfa99c23bb6470423a42cb5927a1e39b10799321d5ac5afc3f",
+        "trafficPercent": 100,
+        "completedAt": "2026-10-29T15:33:55.053Z"
+      },
+      {
+        "target": "syncStudent360ProgressPhoto",
+        "region": "asia-southeast1",
+        "revision": "syncstudent360progressphoto-stg-d202e1436489",
+        "image": "asia-southeast1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast1__sync_student360_progress_photo@sha256:9295ff7e938d94659407b1a285a5a4e3b3e9e1aaccb324089e8fad20b3f7f9a0",
+        "trafficPercent": 100,
+        "completedAt": "2026-10-29T15:35:23.047Z"
+      },
+      {
+        "target": "syncStudent360ProgressCheckIn",
+        "region": "asia-southeast1",
+        "revision": "syncstudent360progresscheckin-stg-e55e362db03d",
+        "image": "asia-southeast1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast1__sync_student360_progress_check_in@sha256:a3ba71fb63223d0cfa74306f1a3d9536885056244c756c1b6d6c0c5f6a66990b",
+        "trafficPercent": 100,
+        "completedAt": "2026-10-29T15:36:56.480Z"
+      },
+      {
+        "target": "refreshStudent360ProjectionFromQueue",
+        "region": "asia-southeast1",
+        "revision": "refreshstudent360projectionfromqueue-stg-bf94ca83f18e",
+        "image": "asia-southeast1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast1__refresh_student360_projection_from_queue@sha256:baf14f99677f6c5279d4237866c6bfdb2cb88f47b50004436c88523cd5192dce",
+        "trafficPercent": 100,
+        "completedAt": "2026-10-29T15:21:45.944Z"
+      },
+      {
+        "target": "reconcileStudent360ProjectionsScheduled",
+        "region": "asia-southeast1",
+        "revision": "reconcilestudent360projectionsscheduled-00013-qil",
+        "image": "asia-southeast1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast1__reconcile_student360_projections_scheduled@sha256:05352cae2df626fec0906d0b3fac41d03d5f864424d024fa1ade4b0184bdbd73",
+        "trafficPercent": 100,
+        "completedAt": "2026-10-29T15:23:26.596Z"
+      },
+      {
+        "target": "syncStaffOperationalSummary",
+        "region": "asia-southeast1",
+        "revision": "syncstaffoperationalsummary-stg-c5c071d27a78",
+        "image": "asia-southeast1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast1__sync_staff_operational_summary@sha256:fecfaea89e6e30011a9ebf108d8ef6fdb5e56662409f5ce7c0bd690929da1a14",
+        "trafficPercent": 100,
+        "completedAt": "2026-10-29T15:25:04.007Z"
+      },
+      {
+        "target": "reconcileStaffManagedClientSummariesScheduled",
+        "region": "asia-southeast1",
+        "revision": "reconcilestaffmanagedclientsummariesscheduled-prg-e8e15228c05e",
+        "image": "asia-southeast1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast1__reconcile_staff_managed_client_summaries_scheduled@sha256:7277757cc663c16b529ef98cd9616f0c4936f7cc81b557b6aa09859bd6e99a58",
+        "trafficPercent": 100,
+        "completedAt": "2026-10-29T15:26:40.177Z"
+      },
+      {
+        "target": "chargeDuePtSessionsScheduled",
+        "region": "asia-southeast1",
+        "revision": "chargedueptsessionsscheduled-stg-da6280804d2f",
+        "image": "asia-southeast1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast1__charge_due_pt_sessions_scheduled@sha256:047d9aa6dcb58bab705bdef1ebd680b912cdce4985eb9190a0dce9c7d92516e0",
+        "trafficPercent": 100,
+        "completedAt": "2026-10-29T15:28:41.094Z"
+      },
+      {
+        "target": "autoConfirmOverduePtAttendanceScheduled",
+        "region": "asia-southeast1",
+        "revision": "autoconfirmoverdueptattendancescheduled-00019-cad",
+        "image": "asia-southeast1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast1__auto_confirm_overdue_pt_attendance_scheduled@sha256:55894912a28089444b55b19dc2954a0968595c3b909b086859ef4a34ae5dc843",
+        "trafficPercent": 100,
+        "completedAt": "2026-10-29T15:30:13.490Z"
+      },
+      {
+        "target": "vestPendingLoyaltySourcesScheduled",
+        "region": "asia-southeast1",
+        "revision": "vestpendingloyaltysourcesscheduled-00016-zah",
+        "image": "asia-southeast1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast1__vest_pending_loyalty_sources_scheduled@sha256:be97a3839bcb08552a036ff90e5d319ef892c086e6bebf06babf32f35118556d",
+        "trafficPercent": 100,
+        "completedAt": "2026-10-29T15:31:51.275Z"
+      },
+      {
+        "target": "advanceLoyaltyMembershipsScheduled",
+        "region": "asia-southeast2",
+        "revision": "advanceloyaltymembershipsscheduled-00003-fep",
+        "image": "asia-southeast2-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast2__advance_loyalty_memberships_scheduled@sha256:3d84e3a7941d5d97b2189440d4a655f25df753542c01433118e020a3e8aae183",
+        "trafficPercent": 100,
+        "completedAt": "2026-10-29T15:33:32.482Z"
+      },
+      {
+        "target": "syncContractUsageOperationalActions",
+        "region": "asia-southeast1",
+        "revision": "synccontractusageoperationalactions-stg-de320888b921",
+        "image": "asia-southeast1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast1__sync_contract_usage_operational_actions@sha256:97668bf7dae5b5652fdf8cfcc5e0d8dba536bad9591b9d4d23fe9a17783d11d6",
+        "trafficPercent": 100,
+        "completedAt": "2026-10-29T15:13:11.407Z"
+      },
+      {
+        "target": "syncStudent360OperationalActions",
+        "region": "asia-southeast1",
+        "revision": "syncstudent360operationalactions-stg-a6078b28f492",
+        "image": "asia-southeast1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast1__sync_student360_operational_actions@sha256:6b0d1e94bf29e740ea158324956065dd6fb6e679b6b7169e1253eeb3653c4032",
+        "trafficPercent": 100,
+        "completedAt": "2026-10-29T15:15:29.628Z"
+      },
+      {
+        "target": "syncPtScheduleWeeklyViewFromContractUsage",
+        "region": "asia-southeast1",
+        "revision": "syncptscheduleweeklyviewfromcontractusage-stg-011130ec7b46",
+        "image": "asia-southeast1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast1__sync_pt_schedule_weekly_view_from_contract_usage@sha256:3a34bafd589b9466c4be3d856b42798010c71d999e8ffecd577d28a3b3945a45",
+        "trafficPercent": 100,
+        "completedAt": "2026-10-29T15:17:22.990Z"
+      },
+      {
+        "target": "getMyPerformanceScoreV2",
+        "region": "asia-east1",
+        "revision": "getmyperformancescorev2-00012-keh",
+        "image": "asia-east1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--east1__get_my_performance_score_v2@sha256:4b1fb46b73845e5ed940bf12b1045c2d7272651589adcd63bce7c39bd4339d69",
+        "trafficPercent": 100,
+        "completedAt": "2026-10-29T15:19:29.248Z"
+      },
+      {
+        "target": "getMyTrainerWorkspaceRegional",
+        "region": "asia-east1",
+        "revision": "getmytrainerworkspaceregional-stg-24d540431397",
+        "image": "asia-east1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--east1__get_my_trainer_workspace_regional@sha256:6589efc069c4a9a402a764af30e682d34ae0c22f26bf2725d927abad74231b1c",
+        "trafficPercent": 100,
+        "completedAt": "2026-10-29T15:21:31.222Z"
+      }
+    ],
+    "observation": {
+      "measuredAt": "2026-10-29T15:37:30.920Z",
+      "projectId": "gen-lang-client-0815966909",
+      "databaseId": "ai-studio-aurafitnesselear-0f7609b4-b8d1-4fb3-9d62-99a2c03e1ce7",
+      "readOnly": true,
+      "note": "Aggregate observations only. Empty ERROR results do not exclude warnings, 429s logged below ERROR or errors outside the 37 release services. Truncated sections are incomplete.",
+      "sections": {
+        "queue": {
+          "documents": 0,
+          "pending": 0,
+          "due": 0,
+          "pendingWithoutDueAt": 0,
+          "oldestDueAgeSeconds": null,
+          "maxAttempts": 0,
+          "pendingMaxAttempts": 0,
+          "stateCounts": {},
+          "lastErrorCounts": {},
+          "malformedDocuments": 0,
+          "pages": 1,
+          "truncated": false
+        },
+        "recoverStudent360SourceQueueScheduled": {
+          "functionName": "recoverStudent360SourceQueueScheduled",
+          "found": true,
+          "expectedSchedule": "every 5 minutes",
+          "schedule": "every 5 minutes",
+          "timeZone": "Asia/Ho_Chi_Minh",
+          "state": "ENABLED",
+          "matchesExpected": true,
+          "lastAttemptTime": "2026-10-29T15:37:05.098549Z",
+          "nextScheduleTime": "2026-10-29T15:42:04.582587Z",
+          "lastStatusCode": null,
+          "attemptDeadline": "540s",
+          "retryCount": 1,
+          "httpMethod": "POST",
+          "targetNamesFunction": true,
+          "hasOidcServiceAccount": true
+        },
+        "reconcileStaffManagedClientSummariesScheduled": {
+          "functionName": "reconcileStaffManagedClientSummariesScheduled",
+          "found": true,
+          "expectedSchedule": "17 * * * *",
+          "schedule": "17 * * * *",
+          "timeZone": "Asia/Ho_Chi_Minh",
+          "state": "ENABLED",
+          "matchesExpected": true,
+          "lastAttemptTime": "2026-10-29T15:27:25.816760Z",
+          "nextScheduleTime": "2026-10-29T16:17:01.767133Z",
+          "lastStatusCode": null,
+          "attemptDeadline": "540s",
+          "retryCount": 1,
+          "httpMethod": "POST",
+          "targetNamesFunction": true,
+          "hasOidcServiceAccount": true
+        },
+        "errors": {
+          "since": "2026-10-29T15:09:00.000Z",
+          "until": "2026-10-29T15:37:30.920Z",
+          "minimumSeverity": "ERROR",
+          "serviceCount": 37,
+          "entries": 0,
+          "pages": 1,
+          "truncated": false,
+          "unexpectedServiceEntries": 0,
+          "firstTimestamp": null,
+          "lastTimestamp": null,
+          "groups": []
+        }
+      }
+    },
+    "initialStaffReconciliation": {
+      "measuredAt": "2026-10-29T15:27:51.562Z",
+      "total": 20,
+      "withDueDate": 16,
+      "fencedCurrent": 16,
+      "truncated": false,
+      "discovery": {
+        "checked": 16,
+        "refreshed": 12,
+        "checkedAt": "2026-10-29T15:27:37.640Z",
+        "nextDiscoveryAt": "2026-10-29T21:27:25.929Z",
+        "cursorComplete": true
+      }
+    }
+  },
+  "frontendRelease": {
+    "status": "pending_merge",
+    "previewSourceSha": "8086dfe9bb2e65020f016f0027d61e759f54a7a4",
+    "preview": "https://vercel.com/tanton/aurafitness/FWw7Q5ajkcVgbATGTEHbthZuwKpd",
+    "note": "Final frontend smoke and Vercel skip-canary evidence are recorded in PR #76 after release."
+  }
+}

@@ -225,7 +225,7 @@ jobs:
           IFS=',' read -ra REQUESTED_TARGETS <<< "$TARGETS"
           for FUNCTION_NAME in "${REQUESTED_TARGETS[@]}"; do
             case "$FUNCTION_NAME" in
-              getStudent360*|listStudent360*|refreshStudent360*|saveStudent360*|mutateStudent360*|createStudentCareActivity*|syncStudent360*|reconcileStudent360ProjectionsScheduled|listInternalNutritionCatalog) ;;
+              getStudent360*|listStudent360*|refreshStudent360*|saveStudent360*|mutateStudent360*|createStudentCareActivity*|syncStudent360*|reconcileStudent360ProjectionsScheduled|listInternalNutritionCatalog|processStudent360SourceQueue|recoverStudent360SourceQueueScheduled) ;;
               *) STUDENT_360_ONLY="false" ;;
             esac
             case "$FUNCTION_NAME" in
