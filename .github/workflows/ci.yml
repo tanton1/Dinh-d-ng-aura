@@ -215,6 +215,12 @@ jobs:
       - name: Test durable content AI recovery on mobile Safari
         if: matrix.project == 'mobile-webkit'
         run: npm run test:content-ai-ui -- --project=content-ai-mobile-webkit
+      - name: Test legacy session read isolation
+        if: matrix.project == 'chromium'
+        run: npx playwright test --config tests/legacy-read-scope-ui/playwright.config.ts --project=legacy-read-chromium
+      - name: Test legacy session read isolation on mobile Safari
+        if: matrix.project == 'mobile-webkit'
+        run: npx playwright test --config tests/legacy-read-scope-ui/playwright.config.ts --project=legacy-read-mobile-webkit
       - name: Upload browser failure evidence
         if: failure()
         uses: actions/upload-artifact@v4
