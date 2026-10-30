@@ -211,10 +211,13 @@ export interface LoyaltyAdminAccount extends LoyaltyAccount {
 }
 
 export interface LoyaltyAdminAccountPage {
+  schemaVersion?: number
   accounts: LoyaltyAdminAccount[]
   hasMore: boolean
   nextCursor: string | null
-  totalCount: number
+  totalCount: number | null
+  tierCounts?: Record<LoyaltyTier, number>
+  directoryStale?: boolean
 }
 
 export interface LoyaltyAdminReward extends LoyaltyReward {

@@ -53,7 +53,7 @@ export function PushHistoryPanel({ broadcasts, automations, loading, error, filt
         if (filter === 'automation') return entry.kind === 'automation'
         if (filter === 'errors') {
           return entry.kind === 'manual'
-            ? (entry.log.webPushFailureCount ?? 0) > 0
+            ? (entry.log.webPushFailureCount ?? 0) > 0 || (entry.log.webPushUnknownCount ?? 0) > 0
             : entry.log.webPushFailureCount > 0
         }
         return true
@@ -121,7 +121,7 @@ export function PushHistoryPanel({ broadcasts, automations, loading, error, filt
               )
             }
 
-            const hasError = (entry.log.webPushFailureCount ?? 0) > 0
+            const hasError = (entry.log.webPushFailureCount ?? 0) > 0 || (entry.log.webPushUnknownCount ?? 0) > 0
             return (
               <article key={entry.id} className="push-history-item">
                 <div className={`push-history-item__icon ${hasError ? 'is-danger' : 'is-manual'}`}>
@@ -140,6 +140,8 @@ export function PushHistoryPanel({ broadcasts, automations, loading, error, filt
                     <span><Inbox size={15} /> {entry.log.sentCount} inbox</span>
                     <span><CheckCircle2 size={15} /> {entry.log.webPushSentCount ?? 0} FCM chấp nhận</span>
                     <span className={hasError ? 'is-danger' : ''}><AlertTriangle size={15} /> {entry.log.webPushFailureCount ?? 0} lỗi</span>
+                    {(entry.log.webPushUnknownCount ?? 0) > 0 && <span className="is-danger">{entry.log.webPushUnknownCount} chưa xác nhận · không tự gửi lại</span>}
+                    {['pending', 'processing'].includes(entry.log.status ?? '') && <span>Lượt gửi chưa hoàn tất</span>}
                     {(entry.log.filteredOutCount ?? 0) > 0 && <span>{entry.log.filteredOutCount} không đủ điều kiện</span>}
                   </div>
                   <div className="push-history-item__actions">

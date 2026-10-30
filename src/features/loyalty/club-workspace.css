@@ -1,15 +1,15 @@
 /* Aura Club: full-width, borderless surfaces with pink–orange actions. */
 .loyalty-admin.club-workspace {
-  --club-ink: #211720;
-  --club-muted: #786870;
+  --club-ink: var(--aura-crm-ink);
+  --club-muted: var(--aura-crm-muted);
   --club-line: transparent;
-  --club-soft: #fff0f6;
-  --club-pink: #cf246a;
-  --club-orange: #ff8751;
-  --club-action: linear-gradient(135deg, #f62f82, #ff8751);
-  --club-berry: linear-gradient(128deg, #171218, #4f213c 54%, #ba2a62);
+  --club-soft: var(--aura-crm-soft);
+  --club-pink: var(--aura-crm-pink);
+  --club-orange: var(--aura-crm-orange);
+  --club-action: var(--aura-crm-action);
+  --club-berry: var(--aura-crm-overview);
   width: 100%; max-width: none; margin: 0; padding: 18px 12px 32px;
-  color: var(--club-ink); background: linear-gradient(145deg, #fff3f8, #fff8f5 65%, #fff6f9);
+  color: var(--club-ink); background: var(--aura-crm-canvas);
 }
 .page-content:has(.club-workspace) { background: #fff6f9; }
 /* The operations shell also adds gutters; let this workspace own its inset. */

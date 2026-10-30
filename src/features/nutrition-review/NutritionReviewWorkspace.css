@@ -1,16 +1,16 @@
 /* Compact Aura review workspace; dates and meal content lead the page. */
 .nrw-page {
-  --nrw-pink: #cf246a; --nrw-orange: #ff8751; --nrw-ink: #211720; --nrw-muted: #786870;
-  --nrw-action: linear-gradient(135deg, #f62f82, #ff8751); --nrw-soft: #fff;
+  --nrw-pink: var(--aura-crm-pink); --nrw-orange: var(--aura-crm-orange); --nrw-ink: var(--aura-crm-ink); --nrw-muted: var(--aura-crm-muted);
+  --nrw-action: var(--aura-crm-action); --nrw-soft: #fff;
   box-sizing: border-box; min-width: 0; width: 100%; max-width: none; margin: 0; padding: 18px 12px 32px;
-  color: var(--nrw-ink); background: linear-gradient(145deg, #fff3f8, #fff8f5 65%, #fff6f9);
+  color: var(--nrw-ink); background: var(--aura-crm-canvas);
 }
 .nrw-page.is-compact { padding: 6px 0 24px; }
 .page-content:has(> .nrw-page) { background: #fff6f9; }
 .nrw-page button { cursor: pointer; font-family: inherit; }
 .nrw-page button:disabled, .nrw-actions:disabled button { opacity: .5; cursor: not-allowed; }
 .nrw-page :is(button, input, select, textarea):focus-visible { outline: 2px solid #ba3260; outline-offset: 3px; }
-.nrw-hero { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 18px 20px; border: 0; border-radius: 18px; background: linear-gradient(128deg, #171218, #4f213c 54%, #ba2a62); color: #fff; }
+.nrw-hero { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 18px 20px; border: 0; border-radius: 18px; background: var(--aura-crm-overview); color: #fff; }
 .nrw-hero-copy { min-width: 0; }
 .nrw-hero h1 { margin: 0; font-size: 28px; letter-spacing: -.04em; line-height: 1.2; }
 .nrw-hero-copy > span { display: block; margin-top: 4px; color: #fff0f6; font-size: 12px; }

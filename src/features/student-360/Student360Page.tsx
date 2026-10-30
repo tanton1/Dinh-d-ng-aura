@@ -327,6 +327,14 @@ function Student360Workspace({ studentId, source, isDemo = false, onBack, onNavi
   const [timelineCursor, setTimelineCursor] = useState<number | null>(null)
   const [timelineHasMore, setTimelineHasMore] = useState(false)
   const [timelineLoading, setTimelineLoading] = useState(false)
+  const timelineRequest = useRef(0)
+  const timelinePending = useRef<object | null>(null)
+  const timelineScope = useMemo(() => {
+    const days = timelineRanges.find((item) => item.id === timelineRange)?.days || 0
+    return { fromMillis: days ? Date.now() - days * 86_400_000 : undefined }
+  }, [activeTab, studentId, timelineFilter, timelineRange])
+  const currentTimelineScope = useRef(timelineScope)
+  currentTimelineScope.current = timelineScope
   const [trainingHistoryPage, setTrainingHistoryPage] = useState<TrainingHistoryPage | null>(null)
   const [trainingHistoryLoading, setTrainingHistoryLoading] = useState(false)
   const [trainingHistoryError, setTrainingHistoryError] = useState('')
@@ -458,13 +466,19 @@ function Student360Workspace({ studentId, source, isDemo = false, onBack, onNavi
   }, [isDemo, loyaltyRequested, studentId])
 
   const loadTimeline = useCallback(async (append = false) => {
-    if (timelineLoading) return
+    if (!isScopeCurrent() || !mounted.current) return
+    if (append && (!timelineHasMore || timelineCursor === null || timelinePending.current === timelineScope)) return
+    const request = ++timelineRequest.current
+    timelinePending.current = timelineScope
+    const isCurrent = () => mounted.current && isScopeCurrent()
+      && currentTimelineScope.current === timelineScope && request === timelineRequest.current
     setTimelineLoading(true)
     setTimelineError('')
     try {
       if (isDemo) {
         setTimeline(demoTimeline())
         setTimelineHasMore(false)
+        setTimelineCursor(null)
         return
       }
       const types = timelineFilter === 'all'
@@ -476,23 +490,23 @@ function Student360Workspace({ studentId, source, isDemo = false, onBack, onNavi
             : timelineFilter === 'care'
               ? ['care', 'checkin', 'progress', 'renewal']
             : [timelineFilter]
-      const rangeDays = timelineRanges.find((item) => item.id === timelineRange)?.days || 0
       const result = await listStudent360Timeline({
         studentId,
         ...(types ? { types } : {}),
         ...(append && timelineCursor !== null ? { cursor: timelineCursor } : {}),
         pageSize: 30,
-        ...(rangeDays ? { fromMillis: Date.now() - rangeDays * 86_400_000 } : {}),
+        ...(timelineScope.fromMillis ? { fromMillis: timelineScope.fromMillis } : {}),
       })
+      if (!isCurrent()) return
       setTimeline((current) => append ? mergeTimelineRows(current, result.rows) : mergeTimelineRows([], result.rows))
       setTimelineCursor(result.nextCursor)
       setTimelineHasMore(result.hasMore)
     } catch (cause) {
-      setTimelineError(cause instanceof Error ? cause.message : 'Không thể tải dòng hoạt động.')
+      if (isCurrent()) setTimelineError(cause instanceof Error ? cause.message : 'Không thể tải dòng hoạt động.')
     } finally {
-      setTimelineLoading(false)
+      if (isCurrent()) { timelinePending.current = null; setTimelineLoading(false) }
     }
-  }, [isDemo, studentId, timelineCursor, timelineFilter, timelineLoading, timelineRange])
+  }, [isDemo, isScopeCurrent, studentId, timelineCursor, timelineFilter, timelineHasMore, timelineScope])
 
   const loadTrainingHistory = useCallback(async (append = false) => {
     if (isDemo) return
@@ -532,6 +546,9 @@ function Student360Workspace({ studentId, source, isDemo = false, onBack, onNavi
   }, [activeTab, isDemo, loadTrainingHistory, studentId, timelineFilter])
 
   useEffect(() => {
+    timelineRequest.current++
+    timelinePending.current = null
+    setTimelineLoading(false)
     if (activeTab !== 'activity' || timelineFilter === 'training') return
     setTimeline([])
     setTimelineCursor(null)
@@ -541,7 +558,7 @@ function Student360Workspace({ studentId, source, isDemo = false, onBack, onNavi
     // loadTimeline deliberately changes after a page response; pagination is
     // user-triggered and must not cause the first page to load again.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab, timelineFilter, timelineRange, studentId])
+  }, [timelineScope])
 
   useEffect(() => {
     activePhotoStudentRef.current = studentId

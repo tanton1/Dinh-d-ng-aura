@@ -24,6 +24,16 @@
   --aura-radius-lg: 20px;
   --aura-radius-pill: 999px;
   --aura-font: "Be Vietnam Pro", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  /* CRM surfaces share the student workspace palette. Status colors retain
+     their semantic success/warning/error meanings. */
+  --aura-crm-ink: #211720;
+  --aura-crm-muted: #786870;
+  --aura-crm-pink: #cf246a;
+  --aura-crm-orange: #ff8751;
+  --aura-crm-soft: #fff0f6;
+  --aura-crm-canvas: linear-gradient(145deg, #fff3f8, #fff8f5 65%, #fff6f9);
+  --aura-crm-action: linear-gradient(135deg, #f62f82, var(--aura-crm-orange));
+  --aura-crm-overview: linear-gradient(128deg, #171218, #4f213c 54%, #ba2a62);
 
   /* Compatibility aliases. New code should prefer the semantic Aura names. */
   --aura-pink: var(--aura-brand-pink);

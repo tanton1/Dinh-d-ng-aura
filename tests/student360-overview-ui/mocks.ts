@@ -60,7 +60,9 @@ export function useAuraUiSurface() { return true }
 export async function createStudentCareActivity() { throw Error('Unexpected write in overview fixture') }
 export async function getStudent360NutritionActivityDetail() { throw Error('Unexpected nutrition read in overview fixture') }
 export async function getStudent360ProgressPhotos() { return { photos: [], hasMore: false, nextCursor: null } }
-export async function listStudent360Timeline() { return { events: [], hasMore: false, nextCursor: null } }
+export const timelinePending: Array<{ input: any; resolve: (value: any) => void; reject: (error: unknown) => void }> = []
+Object.assign(window, { timelinePending })
+export function listStudent360Timeline(input: unknown) { return new Promise((resolve, reject) => timelinePending.push({ input, resolve, reject })) }
 export async function listStudentTrainingHistory() { return { rows: [], hasMore: false, nextCursor: null } }
 export async function getStudentLoyaltySummary() { return { account: null } }
 export async function trackProductEvent(...args: unknown[]) { state.telemetry.push(args) }

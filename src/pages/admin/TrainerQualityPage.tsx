@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, BarChart3, CheckCircle2, ChevronRight, Clock3, Filter, LoaderCircle, RefreshCw, Star, UserRoundCheck } from 'lucide-react'
 import {
   listTrainerFeedbackAdmin,
@@ -52,20 +52,30 @@ export default function TrainerQualityPage({ isDemo = false }: { isDemo?: boolea
   const [score, setScore] = useState(0)
   const [data, setData] = useState<TrainerFeedbackAdminResponse | null>(null)
   const [loading, setLoading] = useState(true)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const loadGeneration = useRef(0)
   const [error, setError] = useState('')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [note, setNote] = useState('')
   const [action, setAction] = useState('')
 
-  const load = useCallback(async () => {
-    setLoading(true); setError('')
+  const load = useCallback(async (cursor?: string | null) => {
+    const generation = ++loadGeneration.current
+    if (cursor) setLoadingMore(true)
+    else { setLoading(true); setLoadingMore(false); setSelectedId(null) }
+    setError('')
     try {
-      setData(isDemo ? demoData() : await listTrainerFeedbackAdmin({ from, to, trainerId, branchId, status, score: score || undefined }))
+      const result = isDemo ? demoData() : await listTrainerFeedbackAdmin({ from, to, trainerId, branchId, status, score: score || undefined, cursor, includeSummary: !cursor })
+      if (generation !== loadGeneration.current) return
+      setData(previous => ({ ...result,
+        ...(cursor && previous && result.summaryIncluded === false ? { summary: previous.summary, truncated: previous.truncated, attendanceTruncated: previous.attendanceTruncated, trainers: previous.trainers, branches: previous.branches } : {}),
+        rows: cursor ? [...new Map([...(previous?.rows || []), ...result.rows].map(row => [row.id, row])).values()] : result.rows,
+      }))
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Chưa thể tải dữ liệu chất lượng PT.')
-    } finally { setLoading(false) }
+      if (generation === loadGeneration.current) { setData(null); setError(caught instanceof Error ? caught.message : 'Chưa thể tải dữ liệu chất lượng PT.') }
+    } finally { if (generation === loadGeneration.current) { setLoading(false); setLoadingMore(false) } }
   }, [branchId, from, isDemo, score, status, to, trainerId])
-  useEffect(() => { void load() }, [load])
+  useEffect(() => { void load(); return () => { loadGeneration.current += 1 } }, [load])
 
   const rows = useMemo(() => [...(data?.rows ?? [])].sort((left, right) => {
     const rank = (item: SessionFeedbackAdminRow) => item.status === 'needs_review' ? 0 : item.status === 'reviewing' ? 1 : item.status === 'submitted' ? 2 : 3
@@ -74,6 +84,8 @@ export default function TrainerQualityPage({ isDemo = false }: { isDemo?: boolea
   const selected = rows.find((item) => item.id === selectedId) ?? null
   const distribution = [5, 4, 3, 2, 1].map((value) => ({ value, count: rows.filter((item) => item.overallScore === value).length }))
   const maximumDistribution = Math.max(1, ...distribution.map((item) => item.count))
+  const summaryComplete = data && !data.truncated && data.summary.complete !== false
+  const responseComplete = summaryComplete && !data.attendanceTruncated && data.summary.responseComplete !== false
 
   const setPreset = (days: number) => {
     const start = new Date(now)
@@ -92,28 +104,30 @@ export default function TrainerQualityPage({ isDemo = false }: { isDemo?: boolea
   return <main className="trainer-quality-page aura-workforce">
     <header className="aura-workforce__heading"><h1>Chất lượng PT</h1><button type="button" className="aura-workforce__icon-button" aria-label="Tải lại chất lượng PT" disabled={loading} onClick={() => void load()}><RefreshCw /></button></header>
     <section className="trainer-quality-metrics" aria-label="Tổng hợp chất lượng PT">
-      <article className="is-primary"><small>Điểm trung bình</small><strong>{data?.summary.averageScore.toFixed(1) ?? '0.0'}<Star fill="currentColor" /></strong><span>{data?.summary.total ?? 0} đánh giá</span></article>
-      <article><small>Tỷ lệ phản hồi</small><strong>{data?.summary.responseRate ?? 0}%</strong><span>{data?.summary.total ?? 0}/{data?.summary.eligibleAttendanceCount ?? 0} buổi có tập</span></article>
-      <article className={(data?.summary.lowCount ?? 0) > 0 ? 'is-warning' : ''}><small>Đánh giá 1–2 điểm</small><strong>{data?.summary.lowCount ?? 0}</strong><span>Cần xem lại</span></article>
-      <article className={(data?.summary.needsReview ?? 0) > 0 ? 'is-critical' : ''}><small>Chưa xử lý</small><strong>{data?.summary.needsReview ?? 0}</strong><span>Chờ quản lý</span></article>
+      <article className="is-primary"><small>Điểm trung bình</small><strong>{summaryComplete ? data.summary.averageScore.toFixed(1) : '—'}<Star fill="currentColor" /></strong><span>{summaryComplete ? `${data.summary.total} đánh giá` : 'Chưa đủ dữ liệu'}</span></article>
+      <article><small>Tỷ lệ phản hồi</small><strong>{responseComplete ? `${data.summary.responseRate ?? 0}%` : '—'}</strong><span>{responseComplete ? `${data.summary.responseCount ?? data.summary.total}/${data.summary.eligibleAttendanceCount} buổi có tập · mọi trạng thái` : 'Chưa đủ dữ liệu'}</span></article>
+      <article className={(data?.summary.lowCount ?? 0) > 0 ? 'is-warning' : ''}><small>Đánh giá 1–2 điểm</small><strong>{summaryComplete ? data.summary.lowCount : '—'}</strong><span>Cần xem lại</span></article>
+      <article className={(data?.summary.needsReview ?? 0) > 0 ? 'is-critical' : ''}><small>Chưa xử lý</small><strong>{summaryComplete ? data.summary.needsReview : '—'}</strong><span>Chờ quản lý</span></article>
     </section>
 
     <section className="trainer-quality-toolbar" aria-label="Bộ lọc đánh giá PT">
       <div className="trainer-quality-presets"><button type="button" onClick={() => setPreset(7)}>7 ngày</button><button type="button" onClick={() => setPreset(30)}>30 ngày</button><button type="button" onClick={() => { setFrom(dateKey(monthStart)); setTo(dateKey(now)) }}>Tháng này</button></div>
-      <label><span>Từ ngày</span><input type="date" value={from} max={to} onChange={(event) => setFrom(event.target.value)} /></label>
+      <label><span>Buổi tập từ ngày</span><input type="date" value={from} max={to} onChange={(event) => setFrom(event.target.value)} /></label>
       <label><span>Đến ngày</span><input type="date" value={to} min={from} onChange={(event) => setTo(event.target.value)} /></label>
       <label><span>PT</span><select value={trainerId} onChange={(event) => setTrainerId(event.target.value)}><option value="">Tất cả PT</option>{data?.trainers.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+      <label><span>Chi nhánh</span><select value={branchId} onChange={(event) => setBranchId(event.target.value)}><option value="">Mọi chi nhánh</option>{data?.branches.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+      <label><span>Điểm</span><select value={score} onChange={(event) => setScore(Number(event.target.value))}><option value={0}>Mọi mức điểm</option>{[5, 4, 3, 2, 1].map(value => <option key={value} value={value}>{value} điểm</option>)}</select></label>
       <label><span>Trạng thái</span><select value={status} onChange={(event) => setStatus(event.target.value as SessionFeedbackStatus | '')}><option value="">Mọi trạng thái</option>{Object.entries(STATUS_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
     </section>
 
     {error && <div className="trainer-quality-state is-error" role="alert"><AlertTriangle /> {error}</div>}
+    {data && (data.truncated || data.attendanceTruncated) && <div className="trainer-quality-state" role="status"><AlertTriangle /> Tổng hợp chưa đầy đủ. Chọn khoảng ngày ngắn hơn hoặc lọc PT, chi nhánh để xem chỉ số chính xác; danh sách vẫn có thể tải tiếp.</div>}
     {loading && <div className="trainer-quality-state" role="status"><LoaderCircle className="spin" /> Đang tải phản hồi học viên…</div>}
     {!loading && data && <>
       <section className="trainer-quality-analysis">
-        <article className="trainer-quality-chart"><header><span><BarChart3 /></span><h2>Mức độ hài lòng</h2></header><div>{distribution.map((item) => <span key={item.value}><b>{item.value}<Star fill="currentColor" /></b><i><em style={{ width: `${item.count / maximumDistribution * 100}%` }} /></i><strong>{item.count}</strong></span>)}</div></article>
+        <article className="trainer-quality-chart"><header><span><BarChart3 /></span><h2>Mức độ hài lòng · {rows.length} đã tải</h2></header><div>{distribution.map((item) => <span key={item.value}><b>{item.value}<Star fill="currentColor" /></b><i><em style={{ width: `${item.count / maximumDistribution * 100}%` }} /></i><strong>{item.count}</strong></span>)}</div></article>
         <article className="trainer-quality-ranking"><header><span><UserRoundCheck /></span><h2>Theo huấn luyện viên</h2></header><div>{data.summary.byTrainer.map((item) => <button type="button" key={item.trainerId} onClick={() => setTrainerId(item.trainerId)}><span><strong>{item.trainerName}</strong><small>{item.total} đánh giá · {item.lowCount} điểm thấp</small></span><b>{item.averageScore.toFixed(1)}<Star fill="currentColor" /></b><ChevronRight /></button>)}{!data.summary.byTrainer.length && <p>Chưa có dữ liệu PT trong kỳ.</p>}</div></article>
       </section>
-
       <section className="trainer-quality-list"><header><h2>{rows.length} phản hồi</h2><button type="button" aria-pressed={status === 'needs_review'} onClick={() => setStatus(status === 'needs_review' ? '' : 'needs_review')}><Filter /> {status === 'needs_review' ? 'Bỏ lọc' : 'Chỉ cần xử lý'}</button></header>
         <div>{rows.map((row) => <article className={`is-${row.status}${row.overallScore <= 2 ? ' is-low' : ''}`} key={row.id}>
           <button type="button" className="trainer-quality-row" aria-expanded={selectedId === row.id} onClick={() => { setSelectedId(selectedId === row.id ? null : row.id); setNote(row.resolutionNote || '') }}>
@@ -124,6 +138,7 @@ export default function TrainerQualityPage({ isDemo = false }: { isDemo?: boolea
           {selectedId === row.id && <div className="trainer-quality-detail"><div className="trainer-quality-tags">{row.tags.map((tag) => <span key={tag}>{TAG_LABELS[tag] || tag}</span>)}</div><dl><div><dt>Session</dt><dd>{row.sessionId}</dd></div><div><dt>Gửi lúc</dt><dd>{formatDate(row.submittedAt)}</dd></div><div><dt>Nhóm vấn đề</dt><dd>{row.issueCategory === 'none' ? 'Không có' : row.issueCategory}</dd></div></dl><label><span>Ghi chú xử lý</span><textarea rows={3} maxLength={500} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Kết quả xác minh, trao đổi với PT hoặc học viên…" /></label><footer>{row.status === 'needs_review' && <button type="button" disabled={Boolean(action)} onClick={() => void runAction(row.id, 'mark_reviewing')}><Clock3 /> Nhận xử lý</button>}{row.status !== 'resolved' && <button type="button" className="is-resolve" disabled={Boolean(action) || note.trim().length < 3} onClick={() => void runAction(row.id, 'resolve')}><CheckCircle2 /> Hoàn tất</button>}{row.status === 'resolved' && <button type="button" disabled={Boolean(action)} onClick={() => void runAction(row.id, 'reopen')}><RefreshCw /> Mở lại</button>}</footer></div>}
         </article>)}{!rows.length && <div className="trainer-quality-empty"><CheckCircle2 /><strong>Chưa có phản hồi trong bộ lọc</strong><span>Đánh giá mới sẽ xuất hiện sau khi học viên hoàn thành buổi tập.</span></div>}</div>
       </section>
+      {data.hasMore && <button type="button" className="aura-workforce__icon-button" disabled={loadingMore} onClick={() => void load(data.nextCursor)}>{loadingMore ? 'Đang tải…' : 'Tải thêm phản hồi'}</button>}
     </>}
   </main>
 }

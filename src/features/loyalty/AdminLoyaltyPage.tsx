@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { getClubSession, subscribeClubSession } from './clubSession'
+import { isLoyaltyAccessError } from './loyaltyAccessError'
 import {
   AlertTriangle,
   Award as AwardIcon,
@@ -92,6 +94,8 @@ function demoDashboard(): LoyaltyAdminDashboard {
 }
 
 interface AdminLoyaltyPageProps {
+  actorUid?: string
+  accessRevision?: string
   useMobileDock?: boolean
   isDemo?: boolean
   initialStudentId?: string
@@ -110,7 +114,22 @@ function launchDateToday() {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date())
 }
 
-export default function AdminLoyaltyPage({
+export default function AdminLoyaltyPage(props: AdminLoyaltyPageProps) {
+  const owner = useSyncExternalStore(subscribeClubSession, getClubSession)
+  const sequence = useRef(0)
+  const permissionKey = JSON.stringify([props.actorUid, props.accessRevision, props.canManagePolicy, props.canManageRewards,
+    props.canManageAmbassadors, props.canReviewRedemptions, props.canAudit, props.canAdjust, props.canApproveAdjustments])
+  const scope = useMemo(() => ({ id: ++sequence.current }), [owner, permissionKey, props.isDemo])
+  const currentScope = useRef(scope)
+  currentScope.current = scope
+  const ready = Boolean(props.isDemo || props.actorUid === undefined || (props.actorUid && owner?.uid === props.actorUid))
+  const isScopeCurrent = useCallback(() => ready && currentScope.current === scope
+    && (Boolean(props.isDemo) || getClubSession() === owner), [owner, props.isDemo, ready, scope])
+  if (!ready) return <div className="loyalty-state" role="status"><LoaderCircle className="loyalty-spin" /><strong>Đang xác minh quyền Aura Club</strong></div>
+  return <AdminLoyaltyWorkspace key={scope.id} {...props} isScopeCurrent={isScopeCurrent} />
+}
+
+function AdminLoyaltyWorkspace({
   useMobileDock = false,
   isDemo = false,
   initialStudentId,
@@ -120,7 +139,8 @@ export default function AdminLoyaltyPage({
   canReviewRedemptions = false,
   canAdjust = false,
   canApproveAdjustments = false,
-}: AdminLoyaltyPageProps) {
+  isScopeCurrent,
+}: AdminLoyaltyPageProps & { isScopeCurrent: () => boolean }) {
   const [dashboard, setDashboard] = useState<LoyaltyAdminDashboard | null>(isDemo ? demoDashboard() : null)
   const [redemptions, setRedemptions] = useState<Redemption[]>(isDemo ? [
     { id: 'demo-1', status: 'pending', pointsCost: 700, studentId: 'HV-001', rewardSnapshot: { name: 'Guest Pass' }, createdAt: new Date().toISOString() },
@@ -159,37 +179,64 @@ export default function AdminLoyaltyPage({
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const mounted = useRef(true)
+  const accessGeneration = useRef(0)
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; accessGeneration.current++ } }, [])
+  const canPublish = () => {
+    const generation = accessGeneration.current
+    return () => mounted.current && isScopeCurrent() && generation === accessGeneration.current
+  }
+  const revokeAccess = (cause: unknown) => {
+    accessGeneration.current++
+    overviewRequest.current++
+    queueRequest.current++
+    queueLoadedAt.current = 0
+    setDashboard(null); setRedemptions([]); setFeatures(defaultFeatures); setPolicyConfig(defaultPolicy)
+    setQueueLoaded(false); setQueueError(''); setQueueLoading(false); setLoading(false)
+    setOperationsVisited(false); setOperationsBusy(false); setOperationsRevision(value => value + 1)
+    setBusy(''); setNotice('')
+    setError(cause instanceof Error ? cause.message : 'Quyền truy cập Aura Club đã thay đổi. Vui lòng đăng nhập lại.')
+  }
 
   const loadQueue = async () => {
+    if (!isScopeCurrent()) return
+    const current = canPublish()
     const request = ++queueRequest.current
     if (isDemo || !canReviewRedemptions) return
     setQueueLoading(true)
     setQueueError('')
     try {
       const queue = await listLoyaltyRedemptions('open')
-      if (request === queueRequest.current) { setRedemptions(queue.redemptions); setQueueLoaded(true); queueLoadedAt.current = Date.now() }
+      if (current() && request === queueRequest.current) { setRedemptions(queue.redemptions); setQueueLoaded(true); queueLoadedAt.current = Date.now() }
     } catch (loadError) {
-      if (request === queueRequest.current) setQueueError(loadError instanceof Error ? loadError.message : 'Không thể tải yêu cầu đổi thưởng.')
+      if (current() && request === queueRequest.current) {
+        if (isLoyaltyAccessError(loadError)) revokeAccess(loadError)
+        else setQueueError(loadError instanceof Error ? loadError.message : 'Không thể tải yêu cầu đổi thưởng.')
+      }
     } finally {
-      if (request === queueRequest.current) setQueueLoading(false)
+      if (current() && request === queueRequest.current) setQueueLoading(false)
     }
   }
 
   const load = async () => {
-    if (isDemo) return
+    if (isDemo || !isScopeCurrent()) return
+    const current = canPublish()
     const request = ++overviewRequest.current
     setLoading(true)
     setError('')
     try {
       const overview = await getLoyaltyAdminDashboard()
-      if (request !== overviewRequest.current) return
+      if (!current() || request !== overviewRequest.current) return
       setDashboard(overview)
       setFeatures(overview.features)
       setPolicyConfig(overview.policy || defaultPolicy)
     } catch (loadError) {
-      if (request === overviewRequest.current) setError(loadError instanceof Error ? loadError.message : 'Không thể tải trung tâm Aura Club.')
+      if (current() && request === overviewRequest.current) {
+        if (isLoyaltyAccessError(loadError)) revokeAccess(loadError)
+        else setError(loadError instanceof Error ? loadError.message : 'Không thể tải trung tâm Aura Club.')
+      }
     } finally {
-      if (request === overviewRequest.current) setLoading(false)
+      if (current() && request === overviewRequest.current) setLoading(false)
     }
   }
 
@@ -210,39 +257,50 @@ export default function AdminLoyaltyPage({
   const pendingQueue = redemptions.filter((item) => ['pending', 'approved'].includes(item.status))
 
   const saveFeatures = async () => {
-    if (!dashboard) return
+    if (!dashboard || !isScopeCurrent()) return
+    const current = canPublish()
     setBusy('policy')
     setNotice('')
     setError('')
     try {
       if (!isDemo) {
         const result = await saveLoyaltyPolicy(dashboard.policyRevision, features, policyConfig)
+        if (!current()) return
         setDashboard((current) => current ? { ...current, policyRevision: result.revision, features, policy: policyConfig } : current)
       } else {
         setDashboard((current) => current ? { ...current, policyRevision: current.policyRevision + 1, features, policy: policyConfig } : current)
       }
       setNotice('Đã lưu cài đặt. Các giao dịch trước đây giữ nguyên điều kiện đã áp dụng.')
     } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : 'Không thể lưu chính sách Aura Club.')
+      if (current()) {
+        if (isLoyaltyAccessError(saveError)) revokeAccess(saveError)
+        else setError(saveError instanceof Error ? saveError.message : 'Không thể lưu chính sách Aura Club.')
+      }
     } finally {
-      setBusy('')
+      if (current()) setBusy('')
     }
   }
 
   const transition = async (id: string, status: 'approved' | 'fulfilled' | 'rejected' | 'cancelled') => {
+    if (!isScopeCurrent()) return
+    const current = canPublish()
     if (status === 'cancelled' && !window.confirm('Hủy quyền lợi đã duyệt và hoàn toàn bộ điểm đang giữ cho học viên?')) return
     setBusy(id)
     setError('')
     try {
       if (!isDemo) await transitionLoyaltyRedemption(id, status)
+      if (!current()) return
       setOperationsRevision(value => value + 1)
       setRedemptions((current) => current.map((item) => item.id === id ? { ...item, status } : item))
       if (status === 'fulfilled' || status === 'rejected' || status === 'cancelled') setDashboard(current => current ? { ...current, metrics: { ...current.metrics, pendingRedemptions: Math.max(0, current.metrics.pendingRedemptions - 1) } } : current)
       setNotice(status === 'fulfilled' ? 'Đã hoàn tất giao quyền lợi.' : status === 'approved' ? 'Đã duyệt yêu cầu.' : status === 'cancelled' ? 'Đã hủy quyền lợi và hoàn lại điểm giữ chỗ.' : 'Đã từ chối và hoàn lại điểm giữ chỗ.')
     } catch (transitionError) {
-      setError(transitionError instanceof Error ? transitionError.message : 'Không thể đổi trạng thái yêu cầu.')
+      if (current()) {
+        if (isLoyaltyAccessError(transitionError)) revokeAccess(transitionError)
+        else setError(transitionError instanceof Error ? transitionError.message : 'Không thể đổi trạng thái yêu cầu.')
+      }
     } finally {
-      setBusy('')
+      if (current()) setBusy('')
     }
   }
 
@@ -292,7 +350,7 @@ export default function AdminLoyaltyPage({
         </div> : !queueLoading && !queueError ? <div className="loyalty-empty loyalty-empty--compact"><CheckCircle2 /><h3>Đã xử lý hết yêu cầu</h3><p>Yêu cầu mới sẽ xuất hiện tại đây theo phạm vi chi nhánh.</p></div> : null}
       </section> : null}
       {operationsVisited ? <div hidden={!isOperations}>
-        <AdminLoyaltyOperations requestedTab={isOperations ? section as OperationsTab : undefined} enabled={isOperations} cacheEpoch={operationsRevision} hideNavigation onBusyChange={setOperationsBusy} initialStudentId={initialStudentId} isDemo={isDemo} canManageRewards={canManageRewards} canManageAmbassadors={canManageAmbassadors} canAdjust={canAdjust} canApproveAdjustments={canApproveAdjustments} largeAdjustmentThreshold={policyConfig.largeAdjustmentThreshold} />
+        <AdminLoyaltyOperations requestedTab={isOperations ? section as OperationsTab : undefined} enabled={isOperations} cacheEpoch={operationsRevision} hideNavigation onBusyChange={setOperationsBusy} onAccessDenied={revokeAccess} isScopeCurrent={isScopeCurrent} initialStudentId={initialStudentId} isDemo={isDemo} canManageRewards={canManageRewards} canManageAmbassadors={canManageAmbassadors} canAdjust={canAdjust} canApproveAdjustments={canApproveAdjustments} largeAdjustmentThreshold={policyConfig.largeAdjustmentThreshold} />
       </div> : null}
       {section === 'settings' ? <>
         <section id="club-policy" className="loyalty-admin-card loyalty-admin-policy">

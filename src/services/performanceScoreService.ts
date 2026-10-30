@@ -291,8 +291,8 @@ export async function listMyPerformanceEvidence(periodId: string) {
   return Array.isArray(result.rows) ? result.rows.map(normalizeEvidence) : []
 }
 
-export async function listPerformanceReviewQueue(input: { periodId: string; branchId?: string; status?: PerformanceEvidenceStatus | ''; type?: PerformanceEvidenceType | '' }) {
-  const result = await call<typeof input, { rows?: unknown[]; profiles?: unknown[]; staff?: unknown[]; truncated?: boolean }>('listPerformanceReviewQueue', input)
+export async function listPerformanceReviewQueue(input: { periodId: string; branchId?: string; status?: PerformanceEvidenceStatus | ''; type?: PerformanceEvidenceType | ''; cursor?: string | null; profilesCursor?: string | null; pageSize?: number; profileStaffId?: string; includeQueue?: boolean; includeDirectory?: boolean; includeProfiles?: boolean }) {
+  const result = await call<typeof input, { rows?: unknown[]; profiles?: unknown[]; staff?: unknown[]; truncated?: boolean; hasMore?: boolean; nextCursor?: string | null; profilesHasMore?: boolean; profilesNextCursor?: string | null }>('listPerformanceReviewQueue', input)
   const rows = Array.isArray(result.rows) ? result.rows.map(normalizeEvidence) : []
   const staff: PerformanceStaffDirectoryItem[] = Array.isArray(result.staff) ? result.staff.flatMap((value) => {
     const raw = object(value)
@@ -300,7 +300,7 @@ export async function listPerformanceReviewQueue(input: { periodId: string; bran
     return staffId ? [{ staffId, ownerUid: text(raw.ownerUid), name: text(raw.name) || 'Nhân sự Aura', branchIds: stringArray(raw.branchIds) }] : []
   }) : []
   const profiles = Array.isArray(result.profiles) ? result.profiles.map(normalizeEvidence) : []
-  return { rows, profiles, staff, truncated: result.truncated === true }
+  return { rows, profiles, staff, truncated: result.truncated === true, hasMore: result.hasMore === true, nextCursor: result.nextCursor || null, profilesHasMore: result.profilesHasMore === true, profilesNextCursor: result.profilesNextCursor || null }
 }
 
 async function fileHash(file: File) {

@@ -224,6 +224,9 @@ jobs:
       - name: Test Student 360 overview scope isolation
         if: matrix.project == 'chromium'
         run: npm run test:student360-overview-ui -- --project=student360-overview-chromium
+      - name: Test bounded directory and scoped PT review interactions
+        if: matrix.project == 'chromium'
+        run: node --test tests/pt-review-directory-ui.test.mjs
       - name: Test Student 360 overview scope isolation on mobile Safari
         if: matrix.project == 'mobile-webkit'
         run: npm run test:student360-overview-ui -- --project=student360-overview-mobile-webkit
@@ -286,6 +289,24 @@ jobs:
       - name: Verify reporting snapshots and shared refresh leases
         if: matrix.suite == 'firestore'
         run: npm run test:app-optimization-transaction
+
+  graphify-regressions:
+    name: Scoped pagination and durable operations
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: functions/package-lock.json
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+      - run: npm --prefix functions ci
+      - run: npm run test:graphify-transaction
 
   academy:
     name: Academy versioned learning

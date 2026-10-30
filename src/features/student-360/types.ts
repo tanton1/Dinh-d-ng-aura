@@ -388,10 +388,13 @@ export interface Student360DirectoryItem {
   phone: string
   email?: string
   dob?: string | null
+  joinDate?: string | null
+  weeklyEligible?: boolean
+  healthAvailable?: boolean
   sessionsPerWeek?: number
   branchId: string
   branchName: string
-  status: Student360Overview['identity']['status']
+  status: Student360Overview['identity']['status'] | 'cancelled'
   health: Student360Overview['health']
   remainingSessions: number | null
   daysRemaining: number | null

@@ -301,6 +301,8 @@ export interface PushBroadcastLog {
   /** Older log records may not contain Web Push delivery counters. */
   webPushSentCount?: number
   webPushFailureCount?: number
+  webPushUnknownCount?: number
+  status?: 'pending' | 'processing' | 'completed' | 'needs_review'
   filteredOutCount?: number
   createdAt: string
   sentBy: string
@@ -312,6 +314,12 @@ export interface PushDispatchResult {
   webPushFailureCount: number
   filteredOutCount: number
   logId: string
+  webPushUnknownCount?: number
+  status?: 'pending' | 'processing' | 'completed' | 'needs_review'
+  complete?: boolean
+  replayed?: boolean
+  legacyDeduplicated?: boolean
+  retryAfterMs?: number
 }
 
 /** Privacy-safe aggregate health metrics returned only to privileged admins. */

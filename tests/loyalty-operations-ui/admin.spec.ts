@@ -70,7 +70,7 @@ test('operations load only on selection; queue failure never blocks other panels
     const s=window.clubAdmin;
     export const getLoyaltyAdminDashboard=async()=>{s.dashboard++;return {schemaVersion:1,policyRevision:1,scope:'all',generatedAt:'2026-10-24',metrics:{memberCount:1010,walletCount:900,availablePoints:200,pendingPoints:0,reservedPoints:0,debtPoints:0,lifetimeRedeemedPoints:0,pendingRedemptions:1,fulfilledRedemptions:0,qualifiedReferrals:0,approvedAmbassadors:0,outstandingNominalValueVnd:20000},tiers:[{tier:'member',count:1010}],features:{earn:true,redeem:false,referral:false,ambassador:false,nutrition:true}}};
     export const listLoyaltyRedemptions=async status=>{s.queue.push(status);if(s.hold)return new Promise((resolve,reject)=>{s.fail=()=>reject(new Error('Lỗi tải hàng chờ'));s.release=()=>resolve({redemptions:[]})});return{redemptions:s.items||[]}};
-    export const listLoyaltyAccounts=async()=>{s.accounts++;return{accounts:[],totalCount:0,hasMore:false,nextCursor:null}};
+    export const listLoyaltyAccounts=async()=>{s.accounts++;return{schemaVersion:2,accounts:[],totalCount:0,tierCounts:{member:0,silver:0,gold:0,diamond:0},hasMore:false,nextCursor:null}};
     export const listLoyaltyRewardsAdmin=async()=>{s.rewards++;return{rewards:[]}};
     export const listLoyaltyAmbassadors=async()=>({ambassadors:[]});
     export const listLoyaltyAdjustments=async()=>({adjustments:[]});
