@@ -6,13 +6,15 @@ import { academyDemoFallbackEnabled, subscribeToCourses } from '../services/fire
 import type { Course } from '../types'
 import { courseLoadErrorMessage } from '../features/academy/courseLoadError'
 
+const EMPTY_COURSES: Course[] = []
+
 export function useCourses(enabled: boolean, includeDrafts = false, refreshKey = '') {
   const sessionEpoch = useAcademySessionEpoch()
   const owner = firebaseAuth?.currentUser ?? null
   const [loadedScope, setLoadedScope] = useState<{ owner: object | null; epoch: number; access: string; drafts: boolean } | null>(null)
   const currentScope = !isFirebaseConfigured || (loadedScope?.owner === owner && loadedScope?.epoch === sessionEpoch
     && loadedScope?.access === refreshKey && loadedScope?.drafts === includeDrafts)
-  const [items, setItems] = useState<Course[]>(isFirebaseConfigured || !academyDemoFallbackEnabled ? [] : demoCourses)
+  const [items, setItems] = useState<Course[]>(isFirebaseConfigured || !academyDemoFallbackEnabled ? EMPTY_COURSES : demoCourses)
   const [source, setSource] = useState<'demo' | 'firebase'>(
     isFirebaseConfigured || !academyDemoFallbackEnabled ? 'firebase' : 'demo',
   )
@@ -50,7 +52,7 @@ export function useCourses(enabled: boolean, includeDrafts = false, refreshKey =
   useEffect(() => {
     if (!enabled || !isFirebaseConfigured) {
       if (enabled && !isFirebaseConfigured && !academyDemoFallbackEnabled) {
-        setItems([])
+        setItems(EMPTY_COURSES)
         setError('Firebase Academy chưa được cấu hình cho môi trường production.')
       }
       setLoading(false)
@@ -61,9 +63,12 @@ export function useCourses(enabled: boolean, includeDrafts = false, refreshKey =
     setError(null)
     readPending.current = true
     lastAutoRefreshAt.current = Date.now()
+    let active = true
+    const current = () => active && firebaseAuth?.currentUser === owner
     const unsubscribe = subscribeToCourses(
       includeDrafts,
       (firebaseCourses) => {
+        if (!current()) return
         setLoadedScope({ owner, epoch: sessionEpoch, access: refreshKey, drafts: includeDrafts })
         setItems(firebaseCourses)
         setSource('firebase')
@@ -72,17 +77,18 @@ export function useCourses(enabled: boolean, includeDrafts = false, refreshKey =
         readPending.current = false
       },
       (subscriptionError) => {
+        if (!current()) return
         setLoadedScope({ owner, epoch: sessionEpoch, access: refreshKey, drafts: includeDrafts })
         setError(courseLoadErrorMessage(subscriptionError))
-        setItems(academyDemoFallbackEnabled ? demoCourses : [])
+        setItems(academyDemoFallbackEnabled ? demoCourses : EMPTY_COURSES)
         setSource('firebase')
         setLoading(false)
         readPending.current = false
       },
       refreshKey,
     )
-    return () => { readPending.current = false; unsubscribe() }
+    return () => { active = false; readPending.current = false; unsubscribe() }
   }, [enabled, includeDrafts, refreshKey, refreshNonce, owner, sessionEpoch])
 
-  return { courses: enabled && currentScope ? items : [], source, loading: enabled && (loading || !currentScope), error: currentScope ? error : null, retry }
+  return { courses: enabled && currentScope ? items : EMPTY_COURSES, source, loading: enabled && (loading || !currentScope), error: currentScope ? error : null, retry }
 }
