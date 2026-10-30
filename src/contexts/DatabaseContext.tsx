@@ -1,4 +1,6 @@
-import React, { createContext, useContext, useState, useEffect, useRef, useCallback, ReactNode } from 'react'
+import React, { createContext, useContext, useState, useEffect, useMemo, useRef, useCallback, ReactNode } from 'react'
+import { onAuthStateChanged } from 'firebase/auth'
+import { firebaseAuth } from '../lib/firebase'
 import { collection, doc, setDoc, deleteDoc, runTransaction, updateDoc, onSnapshot, query, where, orderBy, limit } from 'firebase/firestore'
 import { db } from '../lib/firebaseFirestore'
 import { useAuth } from './AuthContext'
@@ -85,6 +87,23 @@ export interface PtAvailabilityDocument {
   minimumSlots: number
   status: 'draft' | 'submitted' | 'locked'
   revision: number
+}
+
+const EMPTY_LEGACY_OPERATIONS = {
+  students: [] as Student[],
+  contracts: [] as StudentContract[],
+  payments: [] as PaymentRecord[],
+  sessions: [] as Session[],
+  trainers: [] as Trainer[],
+  branches: [] as Branch[],
+  packages: [] as TrainingPackage[],
+  staff: [] as StaffMember[],
+  dailyCheckins: [] as DailyCheckin[],
+  workoutLogs: [] as WorkoutLog[],
+  leaveRequests: [] as LeaveRequest[],
+  sessionRequests: [] as SessionRequest[],
+  ptAvailability: [] as PtAvailabilityDocument[],
+  schedules: {} as Record<string, ScheduleDocumentState>,
 }
 
 type LegacyOperationSource =
@@ -264,7 +283,23 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
   const [scheduleConfig, setScheduleConfig] = useState<ScheduleConfig>(DEFAULT_SCHEDULE_CONFIG)
   const [isMigrating] = useState(false)
   const [isMigrated, setIsMigrated] = useState(false)
-  const [canUseLegacyOperations, setCanUseLegacyOperations] = useState(false)
+  const fixtureMode = import.meta.env.MODE === 'e2e' || backendMode === 'demo'
+  const owner = firebaseAuth?.currentUser ?? null
+  const observedOwner = useRef(owner)
+  const [sessionEpoch, setSessionEpoch] = useState(0)
+  useEffect(() => firebaseAuth ? onAuthStateChanged(firebaseAuth, (next) => {
+    if (observedOwner.current !== next) {
+      observedOwner.current = next
+      setSessionEpoch(value => value + 1)
+    }
+  }) : undefined, [])
+  // Keep the legacy role policy; require its context to belong to the actual
+  // Firebase session before opening any of the transitional listeners.
+  const canUseLegacyOperations = fixtureMode || Boolean(authenticatedUser && authzReady
+    && owner?.uid === authenticatedUser.uid
+    && (!accessContext?.uid || accessContext.uid === authenticatedUser.uid)
+    && (accessContext?.accessRole === 'admin' || accessContext?.accessRole === 'super_admin'
+      || authenticatedRole === 'admin' || authenticatedRole === 'super_admin'))
   const [operationsView, setOperationsView] = useState<LegacyOperationsView | null>(currentLegacyOperationsView)
   // Mounting the requests/OFF tabs must not implicitly read the PT directory.
   // A reference count also keeps concurrent drawers and StrictMode cleanup safe.
@@ -279,7 +314,7 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
     }
   }, [])
   const [operationsSyncAttempt, setOperationsSyncAttempt] = useState(0)
-  const operationsSyncRetryRef = useRef<{ view: LegacyOperationsView | null; attempts: number }>({ view: null, attempts: 0 })
+  const operationsSyncRetryRef = useRef<{ scope: object | null; attempts: number }>({ scope: null, attempts: 0 })
   const [operationsSync, setOperationsSync] = useState<OperationsSyncState>({
     status: 'idle',
     lastSyncedAt: null,
@@ -295,10 +330,23 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
     ? null
     : operationsView
 
+  // Equivalent profile snapshots must not restart reads. These values change
+  // only when the account, authorization, route or actual session changes.
+  const accessRevision = JSON.stringify([authenticatedUser?.uid, authenticatedRole, authzReady,
+    accessContext?.uid, accessContext?.accessRole, accessContext?.status, accessContext?.authzVersion,
+    [...(accessContext?.branchIds ?? [])].sort(), [...(accessContext?.positions ?? [])].sort(),
+    [...(accessContext?.capabilities ?? [])].sort()])
+  const readScope = useMemo(() => ({ owner }),
+    [owner, sessionEpoch, accessRevision, backendMode, effectiveOperationsView, canUseLegacyOperations])
+  const currentReadScope = useRef(readScope)
+  currentReadScope.current = readScope
+  const dataScope = useRef<object | null>(null)
+
   const refreshData = async () => {
+    if (currentReadScope.current !== readScope || (!fixtureMode && firebaseAuth?.currentUser !== owner)) return
     // Recreate the scoped listeners instead of forcing a full page reload. This
     // preserves any data already received and is safe for read-only listeners.
-    operationsSyncRetryRef.current = { view: effectiveOperationsView, attempts: 0 }
+    operationsSyncRetryRef.current = { scope: readScope, attempts: 0 }
     setOperationsSyncAttempt((value) => value + 1)
   }
 
@@ -332,42 +380,7 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
   }, [])
 
   useEffect(() => {
-    if (import.meta.env.MODE === 'e2e' || backendMode === 'demo') {
-      setCanUseLegacyOperations(true)
-      setOperationsSync({ status: 'ready', lastSyncedAt: new Date().toISOString(), error: null })
-      return
-    }
-
-    if (!authenticatedUser) {
-      setCanUseLegacyOperations(false)
-      clearLegacyOperationsData()
-      setOperationsSync({ status: 'idle', lastSyncedAt: null, error: null })
-      return
-    }
-
-    if (!authzReady) {
-      setCanUseLegacyOperations(false)
-      setOperationsSync({
-        status: effectiveOperationsView ? 'loading' : 'idle',
-        lastSyncedAt: null,
-        error: null,
-      })
-      return
-    }
-
-    const accessRole = accessContext?.accessRole ?? ''
-    const canUse = accessRole === 'admin' || accessRole === 'super_admin'
-      || authenticatedRole === 'admin' || authenticatedRole === 'super_admin'
-    setCanUseLegacyOperations(canUse)
-    if (!canUse) clearLegacyOperationsData()
-    setOperationsSync({
-      status: canUse && effectiveOperationsView ? 'loading' : canUse ? 'idle' : 'forbidden',
-      lastSyncedAt: null,
-      error: canUse ? null : 'Tài khoản này không có quyền truy cập dữ liệu vận hành.',
-    })
-  }, [accessContext?.accessRole, authenticatedRole, authenticatedUser?.uid, authzReady, backendMode, effectiveOperationsView])
-
-  useEffect(() => {
+    dataScope.current = readScope
     // Browser layout tests use deterministic, non-sensitive PT fixtures. Do
     // not replace them with an empty emulator snapshot while a form is open.
     if (import.meta.env.MODE === 'e2e' || backendMode === 'demo') {
@@ -375,10 +388,14 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
       return
     }
     if (!canUseLegacyOperations || !effectiveOperationsView) {
-      if (!effectiveOperationsView) {
-        clearLegacyOperationsData()
-        if (canUseLegacyOperations) setOperationsSync({ status: 'idle', lastSyncedAt: null, error: null })
-      }
+      clearLegacyOperationsData()
+      const pending = authenticatedUser && (!authzReady || owner?.uid !== authenticatedUser.uid)
+      const forbidden = authenticatedUser && !pending && !canUseLegacyOperations
+      setOperationsSync({
+        status: pending && effectiveOperationsView ? 'loading' : forbidden ? 'forbidden' : 'idle',
+        lastSyncedAt: null,
+        error: forbidden ? 'Tài khoản này không có quyền truy cập dữ liệu vận hành.' : null,
+      })
       return
     }
     if (!db) {
@@ -391,9 +408,9 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
       return
     }
 
-    const retryingSameView = operationsSyncRetryRef.current.view === effectiveOperationsView && operationsSyncAttempt > 0
-    if (operationsSyncRetryRef.current.view !== effectiveOperationsView) {
-      operationsSyncRetryRef.current = { view: effectiveOperationsView, attempts: 0 }
+    const retryingSameView = operationsSyncRetryRef.current.scope === readScope && operationsSyncAttempt > 0
+    if (operationsSyncRetryRef.current.scope !== readScope) {
+      operationsSyncRetryRef.current = { scope: readScope, attempts: 0 }
     }
 
     // A route change must never leave stale data from a broader legacy view in
@@ -403,6 +420,9 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
     if (!retryingSameView) clearLegacyOperationsData()
     setOperationsSync({ status: 'loading', lastSyncedAt: null, error: null })
     
+    let disposed = false
+    const isCurrent = () => !disposed && currentReadScope.current === readScope
+      && firebaseAuth?.currentUser === owner
     const unsubs: (() => void)[] = []
     const activeSources = new Set<LegacyOperationSource>(LEGACY_OPERATIONS_VIEW_SOURCES[effectiveOperationsView])
     const coreSources = new Set<LegacyOperationSource>(LEGACY_CORE_SOURCES[effectiveOperationsView] ?? activeSources)
@@ -413,6 +433,7 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
     let retryScheduled = false
     let initialSyncTimeout: number | undefined
     const markReady = (source: LegacyOperationSource) => {
+      if (!isCurrent()) return
       receivedInitialSnapshots.add(source)
       failedSources.delete(source)
       if (receivedInitialSnapshots.size === expectedInitialSnapshots.size) {
@@ -421,6 +442,7 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
       }
     }
     const listenerError = (source: LegacyOperationSource, error: unknown) => {
+      if (!isCurrent()) return
       const code = typeof error === 'object' && error && 'code' in error
         ? String((error as { code?: unknown }).code || '').replace(/^functions\//, '').toLowerCase()
         : ''
@@ -444,6 +466,7 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
           error: `Đang tự kết nối lại dữ liệu ${source}…`,
         })
         retryTimer = window.setTimeout(() => {
+          if (!isCurrent()) return
           retryScheduled = false
           setOperationsSyncAttempt((value) => value + 1)
         }, 600 * (2 ** retryAttempts))
@@ -458,6 +481,7 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
     }
 
     initialSyncTimeout = window.setTimeout(() => {
+      if (!isCurrent()) return
       const pendingSources = [...expectedInitialSnapshots].filter((source) => !receivedInitialSnapshots.has(source))
       if (!pendingSources.length) return
       const corePending = pendingSources.filter((source) => coreSources.has(source))
@@ -472,6 +496,7 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
         operationsSyncRetryRef.current.attempts += 1
         retryScheduled = true
         retryTimer = window.setTimeout(() => {
+          if (!isCurrent()) return
           retryScheduled = false
           setOperationsSyncAttempt((value) => value + 1)
         }, 600 * (2 ** retryAttempts))
@@ -485,12 +510,14 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
 
     try {
       if (activeSources.has('students')) unsubs.push(onSnapshot(query(collection(db, 'students'), limit(LEGACY_DIRECTORY_LIMIT + 1)), (snapshot) => {
+        if (!isCurrent()) return
         setStudents(snapshot.docs.slice(0, LEGACY_DIRECTORY_LIMIT).map(document => withDocumentId<Student>(document)))
         if (snapshot.size > LEGACY_DIRECTORY_LIMIT) listenerError('students', new Error('DIRECTORY_PAGE_REQUIRED'))
         else markReady('students')
       }, (err) => listenerError('students', err)))
 
       if (activeSources.has('contracts')) unsubs.push(onSnapshot(query(collection(db, 'contracts'), limit(LEGACY_DIRECTORY_LIMIT + 1)), (snapshot) => {
+        if (!isCurrent()) return
         setContracts(snapshot.docs.slice(0, LEGACY_DIRECTORY_LIMIT).map(document => withDocumentId<StudentContract>(document)))
         if (snapshot.size > LEGACY_DIRECTORY_LIMIT) listenerError('contracts', new Error('DIRECTORY_PAGE_REQUIRED'))
         else markReady('contracts')
@@ -523,6 +550,7 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
         limit(LEGACY_AVAILABILITY_LIMIT + 1),
       )
       if (activeSources.has('sessions')) unsubs.push(onSnapshot(sessionsQuery, (snapshot) => {
+        if (!isCurrent()) return
         const parsedSessions = snapshot.docs.map(document => {
           const data = withDocumentId<Session>(document)
           if (data.hour === undefined && data.id) {
@@ -542,26 +570,31 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
       }, (err) => listenerError('sessions', err)))
 
       if (activeSources.has('payments')) unsubs.push(onSnapshot(collection(db, 'payments'), (snapshot) => {
+        if (!isCurrent()) return
         setPayments(snapshot.docs.map(document => withDocumentId<PaymentRecord>(document)))
         markReady('payments')
       }, (err) => listenerError('payments', err)))
 
       if (activeSources.has('leaveRequests')) unsubs.push(onSnapshot(collection(db, 'leaveRequests'), (snapshot) => {
+        if (!isCurrent()) return
         setLeaveRequests(snapshot.docs.map(document => withDocumentId<LeaveRequest>(document)))
         markReady('leaveRequests')
       }, (err) => listenerError('leaveRequests', err)))
 
       if (activeSources.has('workoutLogs')) unsubs.push(onSnapshot(collection(db, 'workoutLogs'), (snapshot) => {
+        if (!isCurrent()) return
         setWorkoutLogs(snapshot.docs.map(document => withDocumentId<WorkoutLog>(document)))
         markReady('workoutLogs')
       }, (err) => listenerError('workoutLogs', err)))
 
       if (activeSources.has('sessionRequests')) unsubs.push(onSnapshot(collection(db, 'sessionRequests'), (snapshot) => {
+        if (!isCurrent()) return
         setSessionRequests(snapshot.docs.map(document => withDocumentId<SessionRequest>(document)))
         markReady('sessionRequests')
       }, (err) => listenerError('sessionRequests', err)))
 
       if (activeSources.has('scheduleConfig')) unsubs.push(onSnapshot(doc(db, 'settings', 'scheduleConfig'), (docSnap) => {
+        if (!isCurrent()) return
         if (docSnap.exists()) {
           const data = docSnap.data() as Partial<ScheduleConfig>
           setScheduleConfig(prev => ({
@@ -573,16 +606,19 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
       }, (err) => listenerError('scheduleConfig', err)))
 
       if (activeSources.has('trainers')) unsubs.push(onSnapshot(collection(db, 'trainers'), (snapshot) => {
+        if (!isCurrent()) return
         setTrainers(snapshot.docs.map(document => withDocumentId<Trainer>(document)))
         markReady('trainers')
       }, (err) => listenerError('trainers', err)))
 
       if (activeSources.has('branches')) unsubs.push(onSnapshot(collection(db, 'branches'), (snapshot) => {
+        if (!isCurrent()) return
         setBranches(snapshot.docs.map(document => withDocumentId<Branch>(document)))
         markReady('branches')
       }, (err) => listenerError('branches', err)))
 
       if (activeSources.has('packages')) unsubs.push(onSnapshot(collection(db, 'packages'), (snapshot) => {
+        if (!isCurrent()) return
         setPackages(snapshot.docs
           .map(document => withDocumentId<TrainingPackage>(document))
           .filter((item) => item.status !== 'archived'))
@@ -590,16 +626,19 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
       }, (err) => listenerError('packages', err)))
 
       if (activeSources.has('staff')) unsubs.push(onSnapshot(collection(db, 'staff'), (snapshot) => {
+        if (!isCurrent()) return
         setStaff(snapshot.docs.map(document => withDocumentId<StaffMember>(document)))
         markReady('staff')
       }, (err) => listenerError('staff', err)))
 
       if (activeSources.has('dailyCheckins')) unsubs.push(onSnapshot(collection(db, 'dailyCheckins'), (snapshot) => {
+        if (!isCurrent()) return
         setDailyCheckins(snapshot.docs.map(document => withDocumentId<DailyCheckin>(document)))
         markReady('dailyCheckins')
       }, (err) => listenerError('dailyCheckins', err)))
 
       if (activeSources.has('schedules')) unsubs.push(onSnapshot(collection(db, 'schedules'), (snapshot) => {
+        if (!isCurrent()) return
         const newSchedules: { [weekId: string]: ScheduleDocumentState } = {}
         snapshot.docs.forEach(docSnap => {
           if (docSnap.id === 'global_schedule') return
@@ -619,6 +658,7 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
       }, (err) => listenerError('schedules', err)))
 
       if (activeSources.has('ptAvailability')) unsubs.push(onSnapshot(availabilityQuery, (snapshot) => {
+        if (!isCurrent()) return
         setPtAvailability(snapshot.docs.slice(0, LEGACY_AVAILABILITY_LIMIT).map(document => withDocumentId<PtAvailabilityDocument>(document)))
         if (snapshot.size > LEGACY_AVAILABILITY_LIMIT) listenerError('ptAvailability', new Error('DIRECTORY_PAGE_REQUIRED'))
         else markReady('ptAvailability')
@@ -629,11 +669,12 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
     }
 
     return () => {
+      disposed = true
       if (initialSyncTimeout) window.clearTimeout(initialSyncTimeout)
       if (retryTimer) window.clearTimeout(retryTimer)
       unsubs.forEach(unsub => unsub())
     }
-  }, [backendMode, canUseLegacyOperations, effectiveOperationsView, operationsSyncAttempt])
+  }, [readScope, operationsSyncAttempt])
 
   const migrateData = async () => {
     throw new Error('Công cụ migration phía trình duyệt đã ngừng hoạt động. Hãy dùng quy trình migration có dry-run, manifest và đối soát phía server.')
@@ -941,9 +982,19 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
     await setDoc(doc(db, 'users', uid), data, { merge: true })
   }
 
+  // Mask old values during the render before effect cleanup, including the
+  // authorization hydration gap. A same-scope retry can retain current data.
+  const showData = fixtureMode || (canUseLegacyOperations && Boolean(effectiveOperationsView) && dataScope.current === readScope)
+  const visibleSync = dataScope.current === readScope ? operationsSync : {
+    status: (effectiveOperationsView && authenticatedUser ? 'loading' : 'idle') as OperationsSyncStatus,
+    lastSyncedAt: null, error: null,
+  }
   return (
     <DatabaseContext.Provider value={{
-      students, contracts, payments, sessions, trainers, branches, packages, staff, dailyCheckins, workoutLogs, leaveRequests, sessionRequests,
+      students: showData ? students : EMPTY_LEGACY_OPERATIONS.students, contracts: showData ? contracts : EMPTY_LEGACY_OPERATIONS.contracts, payments: showData ? payments : EMPTY_LEGACY_OPERATIONS.payments,
+      sessions: showData ? sessions : EMPTY_LEGACY_OPERATIONS.sessions, trainers: showData ? trainers : EMPTY_LEGACY_OPERATIONS.trainers, branches: showData ? branches : EMPTY_LEGACY_OPERATIONS.branches,
+      packages: showData ? packages : EMPTY_LEGACY_OPERATIONS.packages, staff: showData ? staff : EMPTY_LEGACY_OPERATIONS.staff, dailyCheckins: showData ? dailyCheckins : EMPTY_LEGACY_OPERATIONS.dailyCheckins,
+      workoutLogs: showData ? workoutLogs : EMPTY_LEGACY_OPERATIONS.workoutLogs, leaveRequests: showData ? leaveRequests : EMPTY_LEGACY_OPERATIONS.leaveRequests, sessionRequests: showData ? sessionRequests : EMPTY_LEGACY_OPERATIONS.sessionRequests,
       addStudent, updateStudent, deleteStudent,
       addContract, updateContract, deleteContract,
       addPayment, deletePayment,
@@ -956,12 +1007,13 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
       addWorkoutLog, updateWorkoutLog, deleteWorkoutLog,
       addLeaveRequest, updateLeaveRequest, deleteLeaveRequest,
       addSessionRequest, updateSessionRequest, deleteSessionRequest,
-      schedules, ptAvailability, scheduleConfig, operationsSync,
+      schedules: showData ? schedules : EMPTY_LEGACY_OPERATIONS.schedules, ptAvailability: showData ? ptAvailability : EMPTY_LEGACY_OPERATIONS.ptAvailability,
+      scheduleConfig: showData ? scheduleConfig : DEFAULT_SCHEDULE_CONFIG, operationsSync: visibleSync,
       updateScheduleData, updateScheduleSlot, updateScheduleSlots, updateSessionOverrides, updateBulkSessionOverrides, updateScheduleConfig,
       updateUserProfile,
       refreshData,
       acquireTrainingHistoryTrainerDirectory,
-      migrateData, isMigrating, isMigrated
+      migrateData, isMigrating, isMigrated: showData && isMigrated
     }}>
       {children}
     </DatabaseContext.Provider>
