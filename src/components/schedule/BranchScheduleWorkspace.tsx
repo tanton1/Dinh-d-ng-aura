@@ -757,9 +757,11 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
     let fallbackStarted = false
     let dirtyRefreshQueued = false
     let latestDirtyGeneration = ''
+    let highestDirtyGeneration = -1
     let requestedDirtyGeneration = ''
     let dirtyRetryCount = 0
     let dirtyRetryTimer: number | undefined
+    let dirtyRetryPending = false
     let bootstrapTimer: number | undefined
     let bootstrapRequested = false
     let disposed = false
@@ -779,12 +781,15 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
     const clearDirtyRetry = () => {
       window.clearTimeout(dirtyRetryTimer)
       dirtyRetryTimer = undefined
+      dirtyRetryPending = false
     }
     const refreshDirtyView = (retry = false) => {
-      if (listenerInactive() || controlFailed || dirtyRefreshQueued || !latestDirtyGeneration || (!retry && latestDirtyGeneration === requestedDirtyGeneration)) return
+      if (listenerInactive() || controlFailed || document.visibilityState === 'hidden' || dirtyRefreshQueued
+        || !latestDirtyGeneration || (!retry && latestDirtyGeneration === requestedDirtyGeneration)) return
       cancelBootstrap()
       bootstrapRequested = true
       if (latestDirtyGeneration !== requestedDirtyGeneration) dirtyRetryCount = 0
+      else if (retry) dirtyRetryCount++
       clearDirtyRetry()
       requestedDirtyGeneration = latestDirtyGeneration
       dirtyRefreshQueued = true
@@ -805,11 +810,23 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
           // A superseded builder may release its lease without another source
           // event. Retry twice with backoff, then leave recovery to the worker
           // or an explicit user refresh; never poll forever per viewer.
-          const delay = [2_000, 5_000][dirtyRetryCount++]
-          dirtyRetryTimer = window.setTimeout(() => { dirtyRetryTimer = undefined; refreshDirtyView(true) }, delay)
+          dirtyRetryPending = true
+          if (document.visibilityState !== 'hidden') {
+            const delay = [2_000, 5_000][dirtyRetryCount]
+            dirtyRetryTimer = window.setTimeout(() => { dirtyRetryTimer = undefined; refreshDirtyView(true) }, delay)
+          }
         }
       })
     }
+    const onRefreshVisibility = () => {
+      if (document.visibilityState === 'hidden') {
+        // Retain retry intent and its budget, but do not let background timers
+        // start reads. A visible resume consumes at most one pending attempt.
+        window.clearTimeout(dirtyRetryTimer)
+        dirtyRetryTimer = undefined
+      } else refreshDirtyView(dirtyRetryPending)
+    }
+    document.addEventListener('visibilitychange', onRefreshVisibility)
     const startDraftListener = () => {
       if (fallbackStarted || !firestoreDb || !canListenToDraft) return
       fallbackStarted = true
@@ -952,9 +969,13 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
               stale.weeklyViewDirtyGeneration = Math.max(Number(pendingCurrent.weeklyViewDirtyGeneration || 0), Number(raw.dirtyGeneration || 0))
               setWorkspace(stale)
             }
-            latestDirtyGeneration = typeof raw.dirtyGeneration === 'number'
-              ? `generation:${raw.dirtyGeneration}`
-              : `legacy:${String(raw.sourceRevision || '')}:${String(raw.dirtyAt?.seconds ?? raw.dirtyAt ?? '')}:${String(raw.dirtyAt?.nanoseconds ?? '')}`
+            if (typeof raw.dirtyGeneration === 'number') {
+              // Out-of-order callbacks must not replace a newer generation
+              // retained while hidden or while its request is still running.
+              if (raw.dirtyGeneration < highestDirtyGeneration) return
+              highestDirtyGeneration = raw.dirtyGeneration
+              latestDirtyGeneration = `generation:${raw.dirtyGeneration}`
+            } else latestDirtyGeneration = `legacy:${String(raw.sourceRevision || '')}:${String(raw.dirtyAt?.seconds ?? raw.dirtyAt ?? '')}:${String(raw.dirtyAt?.nanoseconds ?? '')}`
             refreshDirtyView()
             return
           }
@@ -1016,6 +1037,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
     } else requestBootstrap()
     return () => {
       disposed = true
+      document.removeEventListener('visibilitychange', onRefreshVisibility)
       cancelBootstrap()
       clearDirtyRetry()
       window.clearTimeout(controlJoinTimer)

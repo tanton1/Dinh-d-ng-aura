@@ -61,6 +61,7 @@ export const getPtScheduleWeeklyView = async (input: any) => {
   track('weekly-view', input)
   if ((window as any).__weeklyViewDelayMs) await sleep((window as any).__weeklyViewDelayMs)
   if ((window as any).__holdWeeklyView) await new Promise<void>((resolve) => { (window as any).__releaseWeeklyView = resolve })
+  if ((window as any).__weeklyViewError) throw Object.assign(new Error('Không thể tải lịch thử nghiệm'), { issueCode: (window as any).__weeklyViewError })
   ;(window as any).__weeklyViewResponses = Number((window as any).__weeklyViewResponses || 0) + 1
   const view = weeklyViewFixture(input)
   if ((window as any).__omitWeeklyResponseGeneration) delete view.dirtyGeneration
