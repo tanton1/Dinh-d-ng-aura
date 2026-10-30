@@ -8,13 +8,13 @@ export const firebaseBusinessReportingFunctions = { region: 'business-reporting'
 export async function callReadOnlyFunction(name: string, input: Record<string, unknown>, options: { functionsClient: { region: string } }) {
   calls.reporting.push({ name, input, region: options.functionsClient.region })
   if (name !== 'listFinanceReceivables') throw new Error(`Unexpected reporting call: ${name}`)
-  const id = input.cursor ? 'next' : 'first'
+  const ids = input.cursor ? ['next'] : Array.from({ length: 20 }, (_, index) => index ? `first-${index}` : 'first')
   const asOf = new Date().toISOString()
   return {
-    contracts: [{ id, studentId: id, packageName: 'Gói PT', totalPrice: 500000, discount: 0, paidAmount: 100000, status: 'active' }],
-    students: [{ id, name: `Finance learner ${id}`, phone: '' }],
-    summary: input.includeSummary ? { complete: true, totals: { debt: 800000, overdue: 0, thisMonth: 0 }, counts: { all: 2, overdue: 0, 'this-week': 0, 'this-month': 0, overpaid: 0 }, asOf, sourceDocuments: 2 } : null,
-    nextCursor: input.cursor ? null : 'next-page', hasMore: !input.cursor, asOf, scanned: 1,
+    contracts: ids.map(id => ({ id, studentId: id, packageName: 'Gói PT', totalPrice: 500000, discount: 0, paidAmount: 100000, status: 'active' })),
+    students: ids.map(id => ({ id, name: `Finance learner ${id}`, phone: '' })),
+    summary: input.includeSummary ? { complete: true, totals: { debt: 8400000, overdue: 0, thisMonth: 0 }, counts: { all: 21, overdue: 0, 'this-week': 0, 'this-month': 0, overpaid: 0 }, asOf, sourceDocuments: 21 } : null,
+    nextCursor: input.cursor ? null : 'next-page', hasMore: !input.cursor, asOf, scanned: ids.length,
   }
 }
 

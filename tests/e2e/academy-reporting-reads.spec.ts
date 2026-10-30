@@ -39,20 +39,35 @@ function financePage(id: string, hasMore = false, report: unknown = summary) {
 }
 
 test('finance loads only explicit pages, keeps full summary and does not poll idle', async ({ page }) => {
-  const calls = await fixture(page, call => financePage(call.input.cursor ? 'second' : 'first', !call.input.cursor, call.input.includeSummary ? summary : null))
+  const report = { ...summary, totals: { debt: 8400000, overdue: 0, thisMonth: 0 },
+    counts: { ...summary.counts, all: 21, overdue: 0, 'this-week': 0, 'this-month': 0 }, sourceDocuments: 21 }
+  const calls = await fixture(page, call => {
+    const currentSummary = call.input.includeSummary ? report : null
+    if (call.input.cursor) return financePage('second', false, currentSummary)
+    const firstWindow = Array.from({ length: 20 }, (_, index) => financePage(index === 0 ? 'first' : `first-${index}`))
+    return { ...financePage('first', true, currentSummary), contracts: firstWindow.flatMap(item => item.contracts),
+      students: firstWindow.flatMap(item => item.students), scanned: 20 }
+  })
   await page.goto('/tests/e2e/fixtures/academy-reporting.html')
-  await expect(page.getByRole('heading', { name: 'Học viên first' })).toBeVisible()
-  await expect(page.locator('.aura-metric-carousel')).toContainText('900.000đ')
+  await expect(page.getByRole('article', { name: 'Hợp đồng first', exact: true }).getByRole('heading', { name: 'Học viên first' })).toBeVisible()
+  await expect(page.locator('.aura-metric-carousel')).toContainText('8.400.000đ')
+  expect(calls).toHaveLength(1)
+  expect(calls[0].input.pageSize).toBe(20)
+  await expect(page.getByRole('heading', { name: 'Học viên second' })).toHaveCount(0)
   await page.getByRole('button', { name: 'Tải thêm hồ sơ' }).click()
   await expect(page.getByRole('heading', { name: 'Học viên second' })).toBeVisible()
+  await expect(page.locator('.aura-metric-carousel')).toContainText('8.400.000đ')
   expect(calls.map(call => call.input.includeSummary)).toEqual([true, false])
   expect(calls[1].input.cursor).toBe('next')
+  await expect(page.getByRole('button', { name: 'Tải thêm hồ sơ' })).toHaveCount(0)
   await page.clock.install()
   await page.clock.fastForward(6000)
   expect(calls).toHaveLength(2)
   await page.getByRole('button', { name: 'Làm mới trả góp' }).click()
   await expect.poll(() => calls.length).toBe(3)
   expect(calls[2].input.refresh).toBe(true)
+  expect(calls[2].input.cursor).toBeNull()
+  expect(calls.map(call => call.name)).toEqual(['finance', 'finance', 'finance'])
 })
 
 test('finance incomplete totals remain unknown and account switch fences late data', async ({ page }) => {
