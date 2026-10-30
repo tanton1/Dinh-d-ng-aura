@@ -1,6 +1,7 @@
 'use strict'
 
 const { FieldPath, FieldValue, Timestamp } = require('firebase-admin/firestore')
+const { recordEventMetrics, observeEventRead } = require('./event-operation-metrics')
 
 const activeContractStatuses = new Set(['active', 'future', 'frozen'])
 const STAFF_SUMMARY_VERSION = 2
@@ -71,13 +72,13 @@ async function readStaffManagedClientCounts(db, uid) {
   // Even an empty first alias establishes the source time. Every later alias
   // and continuation uses that same snapshot without locking source writers.
   let sourceReadTime
-  const readSnapshot = query => db.runTransaction(transaction => transaction.get(query), { readOnly: true, readTime: sourceReadTime })
+  const readSnapshot = query => db.runTransaction(transaction => observeEventRead('query', () => transaction.get(query)), { readOnly: true, readTime: sourceReadTime })
   const seen = new Set()
   const counts = { main: 0, secondary: 0, nutrition: 0 }
   let contractsRead = 0, queryPages = 0
   for (const alias of staffManagedContractQueries(db, uid)) {
     const query = alias.select(...contractFields).limit(CONTRACT_PAGE_SIZE)
-    let page = sourceReadTime ? await readSnapshot(query) : await query.get()
+    let page = sourceReadTime ? await readSnapshot(query) : await observeEventRead('query', () => query.get())
     if (!sourceReadTime) {
       sourceReadTime = page.readTime
       if (!(sourceReadTime instanceof Timestamp)) throw new Error('Staff summary source time is unavailable')
@@ -113,16 +114,25 @@ function atLeastAsRecent(left, right) {
 async function refreshStaffManagedClientSummary(db, uid) {
   const { counts, sourceReadTime } = await readStaffManagedClientCounts(db, uid)
   const reference = db.doc(`staffOperationalSummaries/${uid}`)
-  return db.runTransaction(async transaction => {
-    const current = (await transaction.get(reference)).data()
+  let committedWrites = 0, committedNoop = 0
+  const result = await db.runTransaction(async transaction => {
+    // Firestore may rerun this callback. Attempt counts include every run;
+    // committed counts are published only after runTransaction resolves.
+    committedWrites = 0; committedNoop = 0
+    recordEventMetrics({ transactionAttempts: 1 })
+    const current = (await observeEventRead('document', () => transaction.get(reference))).data()
     if (completeFencedSummary(current) && atLeastAsRecent(current.sourceReadTime, sourceReadTime)) {
-      if (!(current.nextReconcileAt instanceof Timestamp)) transaction.set(reference, {
-        nextReconcileAt: Timestamp.fromMillis(current.sourceReadTime.toMillis() + STAFF_SUMMARY_MAX_AGE_MS),
-      }, { merge: true })
+      if (!(current.nextReconcileAt instanceof Timestamp)) {
+        recordEventMetrics({ transactionWriteAttempts: 1 }); committedWrites++
+        transaction.set(reference, {
+          nextReconcileAt: Timestamp.fromMillis(current.sourceReadTime.toMillis() + STAFF_SUMMARY_MAX_AGE_MS),
+        }, { merge: true })
+      } else committedNoop = 1
       return publicStaffManagedCounts(current)
     }
     // Advance the watermark even if counts are equal: an older A→B refresh
     // must not overwrite a newer B→A result that happens to match stored A.
+    recordEventMetrics({ transactionWriteAttempts: 1 }); committedWrites++
     transaction.set(reference, {
       schemaVersion: STAFF_SUMMARY_VERSION, refreshVersion: REFRESH_VERSION,
       staffUid: uid, managedClientCounts: counts, source: 'contracts',
@@ -131,6 +141,8 @@ async function refreshStaffManagedClientSummary(db, uid) {
     }, { merge: true })
     return { ...counts, stale: false, truncated: false }
   })
+  recordEventMetrics({ transactionWritesCommitted: committedWrites, writeNoops: committedNoop })
+  return result
 }
 
 async function syncStaffManagedClientSummary({ db, event, staffIds: suppliedStaffIds, refresh = refreshStaffManagedClientSummary }) {
@@ -139,10 +151,14 @@ async function syncStaffManagedClientSummary({ db, event, staffIds: suppliedStaf
   const affected = [...new Set(suppliedStaffIds || [...staffIdsFromContract(before), ...staffIdsFromContract(after)])]
     .filter((uid) => JSON.stringify(managedClientCountsFromContracts(uid, [before]))
       !== JSON.stringify(managedClientCountsFromContracts(uid, [after])))
+  if (!affected.length) recordEventMetrics({ guardSkips: 1 })
   // Process all affected staff, including removed assignments. Never silently
   // drop IDs with slice(0, 20), or fan out refreshes for every PT at once.
   // Financial/usage-only updates do not need any staff-summary reads.
-  for (const uid of affected) await refresh(db, uid)
+  for (const uid of affected) {
+    await refresh(db, uid)
+    recordEventMetrics({ staffRefreshes: 1 })
+  }
   return { refreshed: affected.length }
 }
 

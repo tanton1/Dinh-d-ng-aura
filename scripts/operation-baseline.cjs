@@ -3,8 +3,9 @@
 // aggregates and endpoint/release names are written. This never queries user data.
 const fs = require('node:fs')
 const path = require('node:path')
-const METRICS = ['logicalQueries', 'documentsReturned', 'cacheHits', 'cacheMisses', 'responseBytes', 'projectionAgeMs', 'queueWaitMs', 'processingMs']
+const { OPERATION_METRIC_FIELDS: METRICS } = require('../functions/operation-metrics')
 const EXPECTED = ['getOperationsDashboard', 'getStudent360Overview', 'getMyNutritionJournalSummary', 'renewPtContract', 'getAcademyAnalyticsSummary', 'listFinanceReceivables', 'getPushAdminOverview', 'enqueueNutritionScan', 'nutritionScanCompletion']
+EXPECTED.push('syncStaffOperationalSummary', 'syncSessionOperationalActions', 'syncStudent360OperationalActions')
 const finite = value => typeof value === 'number' && Number.isFinite(value) && value >= 0
 const safeRelease = value => typeof value === 'string' && /^[A-Za-z0-9_.-]{1,150}$/.test(value) ? value : null
 const FAILURE_CATEGORIES = new Set(['AUTH', 'PERMISSION', 'VALIDATION', 'BUSINESS_RULE', 'CONFLICT', 'TIMEOUT', 'DEPENDENCY', 'INTERNAL'])
@@ -41,8 +42,9 @@ function cohortFor(entry, value) {
     service: /^[a-z][a-z0-9-]{0,62}$/.test(labels.service_name || '') ? labels.service_name : null,
     region: /^[a-z]+-[a-z]+[0-9]+$/.test(labels.location || '') ? labels.location : null,
     schemaVersion: [1, 2].includes(value.schemaVersion) ? value.schemaVersion : null,
-    authenticated: typeof value.authenticated === 'boolean' ? value.authenticated : null,
-    appVerified: typeof value.appVerified === 'boolean' ? value.appVerified : null,
+    invocationType: ['event', 'callable'].includes(value.invocationType) ? value.invocationType : null,
+    authenticated: value.invocationType === 'event' ? null : typeof value.authenticated === 'boolean' ? value.authenticated : null,
+    appVerified: value.invocationType === 'event' ? null : typeof value.appVerified === 'boolean' ? value.appVerified : null,
     outcome: value.outcome,
     failureCategory: value.outcome === 'success' ? null : FAILURE_CATEGORIES.has(value.errorCode) ? value.errorCode : 'unknown',
   }
@@ -72,6 +74,8 @@ function summarize(entries, { complete = true, project = 'unknown', start, end, 
       'Unauthenticated rejections can include deployment probes; they are not evidence of authenticated user latency or production usage.',
       'Success-only latency is separate. Missing authentication, release or metrics stay unknown; a sample does not establish a representative observation window.',
       'Quantiles are sample-rate weighted application observations, not provider-only processing latency or billing units.',
+      'Event invocations have unknown authentication and are separate cohorts from anonymous callable probes. Legacy invocation types stay unknown.',
+      'Event transactionAttempts and transactionWriteAttempts include callback retries; transactionWritesCommitted counts only the last callback after a successful transaction promise. Query/point reads are application attempts and returned documents, never billed reads.',
     ],
     operations: [...groups].map(([operation, rows]) => {
       const cohorts = new Map()
@@ -83,6 +87,7 @@ function summarize(entries, { complete = true, project = 'unknown', start, end, 
       const releases = [...new Set(rows.map(row => row.cohort.release).filter(Boolean))]
       return { operation, ...statistics(rows, complete), releases,
         evidence: { authenticatedSuccessSamples: rows.filter(row => row.cohort.authenticated === true && row.outcome === 'success').length,
+          eventSamples: rows.filter(row => row.cohort.invocationType === 'event').length,
           unauthenticatedErrorSamples: rows.filter(row => row.cohort.authenticated === false && row.outcome === 'error').length,
           unknownAuthenticationSamples: rows.filter(row => row.cohort.authenticated === null).length,
           mixedReleases: releases.length > 1, representativeWindow: 'not-established' },
