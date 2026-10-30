@@ -40,6 +40,7 @@ function SettlementSession({ contractId, branchId, onChanged }: Props) {
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [summaryError, setSummaryError] = useState('')
   const [pendingCommand, setPendingCommand] = useState<ContractSettlementCommand | null>(null)
   const [cashOpen, setCashOpen] = useState(false)
   const [cashAccounts, setCashAccounts] = useState<CashAccount[]>([])
@@ -53,6 +54,8 @@ function SettlementSession({ contractId, branchId, onChanged }: Props) {
   const reads = useRef(0)
   const cashReads = useRef(0)
   const mutationRunning = useRef(false)
+  const summaryRefreshRunning = useRef(false)
+  const summaryRefreshAgain = useRef(false)
   const initialized = useRef(false)
 
   useEffect(() => { alive.current = true; return () => { alive.current = false; reads.current++; cashReads.current++ } }, [])
@@ -76,6 +79,23 @@ function SettlementSession({ contractId, branchId, onChanged }: Props) {
 
   useEffect(() => { void load(); return () => { reads.current++ } }, [load])
 
+  // A confirmed settlement is usable immediately. Refreshing the surrounding
+  // student summary must not hold the next financial action or masquerade as
+  // an unknown result of the command that already succeeded.
+  const refreshSummary = async () => {
+    if (!alive.current) return
+    if (summaryRefreshRunning.current) { summaryRefreshAgain.current = true; return }
+    summaryRefreshRunning.current = true
+    try {
+      do {
+        summaryRefreshAgain.current = false
+        setSummaryError('')
+        try { await onChanged() }
+        catch { if (alive.current) setSummaryError('Quyết toán đã lưu. Chưa cập nhật được tóm tắt học viên.') }
+      } while (alive.current && summaryRefreshAgain.current)
+    } finally { summaryRefreshRunning.current = false }
+  }
+
   const runCommand = async (command: ContractSettlementCommand) => {
     if (mutationRunning.current) return
     mutationRunning.current = true
@@ -83,13 +103,14 @@ function SettlementSession({ contractId, branchId, onChanged }: Props) {
     setError('')
     setPendingCommand(command)
     reads.current++
+    let committed = false
     try {
       const result = await manageContractSettlement(command)
       if (!alive.current) return
       setData(result)
       setPendingCommand(null)
       if (result.settlement?.proposal) setProposal(result.settlement.proposal)
-      await onChanged()
+      committed = true
     } catch (cause) {
       if (alive.current) {
         setError(errorMessage(cause))
@@ -103,6 +124,7 @@ function SettlementSession({ contractId, branchId, onChanged }: Props) {
       }
     }
     finally { mutationRunning.current = false; if (alive.current) setBusy(false) }
+    if (committed && alive.current) void refreshSummary()
   }
 
   const command = (action: ContractSettlementCommand['action']) => {
@@ -132,7 +154,7 @@ function SettlementSession({ contractId, branchId, onChanged }: Props) {
     setCashOpen(false)
     cashReads.current++
     await load()
-    if (alive.current) await onChanged()
+    if (alive.current) void refreshSummary()
   }
 
   const preview = data?.preview
@@ -169,11 +191,14 @@ function SettlementSession({ contractId, branchId, onChanged }: Props) {
     <header className="contract-settlement__header"><h3>Quyết toán khi nghỉ</h3><span className={`contract-settlement__status is-${status}`}>{statusLabels[status]}</span></header>
     {loading && <p role="status">Đang tính số tiền…</p>}
     {error && <p role="alert" className="contract-settlement__alert">{error}</p>}
+    {summaryError && <div role="status" className="contract-settlement__alert"><p>{summaryError}</p><button type="button" onClick={() => void refreshSummary()}>Cập nhật tóm tắt</button></div>}
     {pendingCommand && !busy && <div className="contract-settlement__actions"><p>Chưa nhận được kết quả. Kiểm tra lại yêu cầu vừa gửi.</p><button type="button" onClick={() => void runCommand(pendingCommand)}>Kiểm tra kết quả</button></div>}
     {!data && !loading && !pendingCommand && <button type="button" onClick={() => void load()}>Tải lại</button>}
     {data && preview && <>
       <dl className="contract-settlement__figures"><div><dt>Đã thu</dt><dd>{money(preview.canonicalCash)}</dd></div><div><dt>Dịch vụ đã dùng</dt><dd>{money(serviceRevenue)}</dd></div></dl>
       <div className="contract-settlement__result" data-testid="settlement-result" aria-live="polite"><span>{balanceLabel}</span><strong>{money(balance)}</strong>{approved && status !== 'settled' && cashLimit === 0 && <small>Đã cân đối. Xác nhận hoàn tất hồ sơ.</small>}</div>
+      {editing && <p className="contract-settlement__note">Nhập ngày nghỉ và lý do, rồi gửi duyệt để tiếp tục hoàn tất.</p>}
+      {status === 'pending_approval' && <p className="contract-settlement__note">Xác nhận duyệt, sau đó thu hoặc hoàn phần chênh lệch để hoàn tất.</p>}
       {Boolean(preview.warnings?.length) && <div className="contract-settlement__alert" role="note">{preview.warnings!.map(item => <p key={item.code}>{item.message}</p>)}</div>}
       {blocked && <div role="alert" className="contract-settlement__alert"><strong>Cần kiểm tra trước khi tiếp tục</strong><ul>{preview.blockers.map(item => <li key={item.code}>{item.message}</li>)}</ul></div>}
       {editing ? <form onSubmit={event => { event.preventDefault(); if (fieldsValid && !blocked) command('submit') }}>

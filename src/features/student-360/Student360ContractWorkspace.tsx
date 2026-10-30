@@ -255,7 +255,11 @@ function ContractWorkspaceSession({ studentId, overview, source, isDemo, onNavig
       setWorkspace(next)
       setSelectedId((current) => next.contracts.some((item) => item.id === current) ? current : next.activeContractId || next.contracts[0]?.id || '')
     } catch (cause) {
-      if (mounted.current && sequence === workspaceRequest.current) setError(cause instanceof Error ? cause.message : 'Không thể tải nghiệp vụ hợp đồng.')
+      if (mounted.current && sequence === workspaceRequest.current) {
+        const code = cause && typeof cause === 'object' && 'code' in cause ? String(cause.code) : ''
+        if (/permission-denied|unauthenticated/.test(code)) { setWorkspace(null); setSelectedId('') }
+        setError(cause instanceof Error ? cause.message : 'Không thể tải nghiệp vụ hợp đồng.')
+      }
     } finally {
       if (mounted.current && sequence === workspaceRequest.current) setLoading(false)
     }
@@ -480,10 +484,12 @@ function ContractWorkspaceSession({ studentId, overview, source, isDemo, onNavig
     await mutate({ studentId, contractId: selected.id, expectedRevision: selected.revision, action: confirmation.action, reason: reason.trim() }, confirmation.action === 'freeze' ? 'Đã bảo lưu hợp đồng.' : 'Đã mở lại hợp đồng và cộng thời gian bảo lưu.')
   }
 
-  if (loading) return <div className="student360-contract-workspace-state"><LoaderCircle className="is-spinning" /><strong>Đang tải hồ sơ hợp đồng…</strong><span>Chỉ tải dữ liệu của học viên đang mở.</span></div>
-  if (error || !workspace) return <div className="student360-contract-workspace-state is-error"><AlertTriangle /><strong>Chưa tải được nghiệp vụ hợp đồng</strong><span>{error}</span><button type="button" onClick={() => void load()}>Thử lại</button></div>
+  if (loading && !workspace) return <div className="student360-contract-workspace-state"><LoaderCircle className="is-spinning" /><strong>Đang tải hồ sơ hợp đồng…</strong><span>Chỉ tải dữ liệu của học viên đang mở.</span></div>
+  if (!workspace) return <div className="student360-contract-workspace-state is-error"><AlertTriangle /><strong>Chưa tải được nghiệp vụ hợp đồng</strong><span>{error}</span><button type="button" onClick={() => void load()}>Thử lại</button></div>
 
   return <div className="student360-contract-workspace">
+    {loading && <p role="status">Đang cập nhật hồ sơ hợp đồng…</p>}
+    {error && <div role="alert" className="student360-contract-reconciliation"><AlertTriangle /><span>{error}</span><button type="button" onClick={() => void load()}>Thử lại</button></div>}
     <section className="student360-contract-commandbar">
       <div><small>Thao tác hợp đồng</small><strong>{selected ? selected.packageName : 'Quản lý quyền lợi học viên'}</strong><span>Thay đổi được lưu vào nhật ký để đối soát.</span></div>
       <div>
@@ -526,7 +532,7 @@ function ContractWorkspaceSession({ studentId, overview, source, isDemo, onNavig
         {selectedUsage && selectedUsage.reconciliationStatus !== 'matched' && <div className="student360-contract-reconciliation"><AlertTriangle /><span><strong>Cần đối soát số buổi</strong><small>Đã tập {selectedUsage.attendedSessions} · vắng tính buổi {selectedUsage.chargedNoShowSessions} · miễn trừ {selectedUsage.exemptSessions} · {selectedUsage.pendingReconciliationSessions} buổi chờ xác nhận.</small></span></div>}
       </section>
 
-      {selected.status === 'cancelled' && workspace.permissions.canViewFinancialAmounts && !isDemo && <Suspense fallback={<p role="status">Đang mở quyết toán…</p>}><ContractSettlementPanel contractId={selected.id} branchId={selected.branchId} onChanged={async () => { await refreshStudent360Projection(studentId).catch(() => undefined); await onChanged() }} /></Suspense>}
+      {selected.status === 'cancelled' && workspace.permissions.canViewFinancialAmounts && !isDemo && <Suspense fallback={<p role="status">Đang mở quyết toán…</p>}><ContractSettlementPanel contractId={selected.id} branchId={selected.branchId} onChanged={async () => { if (overview.permissions.canRefreshProjection) await refreshStudent360Projection(studentId); if (mounted.current) await onChanged() }} /></Suspense>}
 
       {workspace.permissions.canViewFinancialAmounts && selected.status !== 'cancelled' && <section className="student360-contract-payment-board">
         <header><div><WalletCards /><span><strong>Thanh toán & trả góp</strong><small>Thu tiền sinh phiếu thu; hoàn tiền sinh bút toán đối ứng.</small></span></div>{workspace.permissions.canCollectPayments && <button type="button" onClick={() => void openFinance()}><CircleDollarSign /> {financeOpen ? 'Đóng quản lý' : 'Quản lý thu tiền'}</button>}</header>
