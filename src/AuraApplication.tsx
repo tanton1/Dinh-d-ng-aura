@@ -17,8 +17,6 @@ import {
   manageAcademyEnrollment,
   markLessonComplete,
   saveCourseDraft,
-  subscribeToAllEnrollments,
-  subscribeToAllStudentProgress,
   subscribeToAdminUsers,
   uploadUserAvatar,
   updateUserRole,
@@ -33,10 +31,8 @@ import type {
   Course,
   CourseAnalytics,
   CourseDraftInput,
-  AdminStudentProgress,
   CourseProgress,
   AcademyPracticeCompletionEvidence,
-  Enrollment,
   ViewId,
   UserRole,
 } from './types'
@@ -167,8 +163,8 @@ const adminAcademyViews = new Set<ViewId>(['admin-courses', 'admin-course-editor
 // Admin HR owns its own bounded cursor directory. Keeping it out of the
 // application-wide directory subscription prevents roleAssignments/users
 // listeners from opening before the HR surface is actually used.
-const adminDirectoryViews = new Set<ViewId>(['admin-academy-students', 'admin-students', 'admin-notifications'])
-const adminAcademyAnalyticsViews = new Set<ViewId>(['admin-courses', 'admin-academy-students', 'admin-students'])
+const adminDirectoryViews = new Set<ViewId>(['admin-students', 'admin-notifications'])
+const adminAcademyAnalyticsViews = new Set<ViewId>(['admin-courses'])
 
 function AuraApplication() {
   const { user, profile, role, accessContext, setPreviewRole, loading, backendMode, signOut, changePassword, hasCapability, authorizationError, authzReady, profileSyncState, saveProfileChanges } = useAuth()
@@ -194,9 +190,11 @@ function AuraApplication() {
   const [mobileMenu, setMobileMenu] = useState(false)
   const [adminUsers, setAdminUsers] = useState<AdminUserRecord[]>([])
   const [adminUsersLoading, setAdminUsersLoading] = useState(false)
-  const [adminEnrollments, setAdminEnrollments] = useState<Enrollment[]>([])
-  const [adminStudentProgress, setAdminStudentProgress] = useState<AdminStudentProgress[]>([])
   const [adminCourseAnalytics, setAdminCourseAnalytics] = useState<CourseAnalytics[]>([])
+  const [adminAnalyticsMessage, setAdminAnalyticsMessage] = useState<string | null>(null)
+  const [adminAnalyticsRevision, setAdminAnalyticsRevision] = useState(0)
+  const [adminAnalyticsLoading, setAdminAnalyticsLoading] = useState(false)
+  const adminAnalyticsRefreshConsumed = useRef(0)
   const [globalSearchQuery, setGlobalSearchQuery] = useState('')
   const [staffStudentFocus, setStaffStudentFocus] = useState<{ id: string; name: string } | null>(null)
   const routeStartedAtRef = useRef(typeof performance !== 'undefined' ? performance.now() : Date.now())
@@ -351,22 +349,30 @@ function AuraApplication() {
   }, [adminDirectoryEnabled, backendMode, role])
 
   useEffect(() => {
-    if (!adminAcademyAnalyticsEnabled || backendMode !== 'firebase' || !hasPermission(role, 'analytics.view_all')) return
-    return (() => {
-      const unsubEnrollments = subscribeToAllEnrollments(
-        (items) => setAdminEnrollments(items),
-        () => setAdminEnrollments((current) => current),
-      )
-      const unsubProgress = subscribeToAllStudentProgress(
-        (items) => setAdminStudentProgress(items),
-        () => setAdminStudentProgress((current) => current),
-      )
-      return () => {
-        unsubEnrollments()
-        unsubProgress()
+    let active = true
+    setAdminCourseAnalytics([])
+    setAdminAnalyticsMessage(null)
+    setAdminAnalyticsLoading(false)
+    if (!adminAcademyAnalyticsEnabled || adminCourseData.loading || backendMode !== 'firebase' || !hasPermission(role, 'analytics.view_all')) return
+    setAdminAnalyticsMessage('Đang tải tổng hợp Academy…')
+    setAdminAnalyticsLoading(true)
+    const refresh = adminAnalyticsRevision > adminAnalyticsRefreshConsumed.current
+    adminAnalyticsRefreshConsumed.current = adminAnalyticsRevision
+    void import('./services/scopedReportingService').then(({ getAcademyAnalyticsSummary }) => getAcademyAnalyticsSummary(refresh)).then((summary) => {
+      if (!active) return
+      if (!summary.complete) {
+        setAdminAnalyticsMessage('Chưa đủ dữ liệu để tổng hợp Academy. Các chỉ số được để trống; hãy thử tải lại hoặc kiểm tra dữ liệu nguồn.')
+        return
       }
-    })()
-  }, [adminAcademyAnalyticsEnabled, backendMode, role])
+      const byCourse = new Map(summary.courses.map(item => [item.courseId, item]))
+      setAdminCourseAnalytics(adminCourseData.courses.map(course => byCourse.get(String(course.id)) || {
+        courseId: String(course.id), learners: 0, activeLearners: 0, completedLearners: 0, averageCompletion: 0, rating: null,
+      }))
+      setAdminAnalyticsMessage(`Tổng hợp lúc ${new Date(summary.asOf).toLocaleString('vi-VN')}. Làm mới để xem thay đổi mới nhất.`)
+    }).catch(() => { if (active) setAdminAnalyticsMessage('Chưa tải được tổng hợp Academy. Các chỉ số được để trống, không thay bằng số 0.') })
+      .finally(() => { if (active) setAdminAnalyticsLoading(false) })
+    return () => { active = false }
+  }, [adminAcademyAnalyticsEnabled, backendMode, role, user?.uid, profile?.authzVersion, adminCourseData.loading, adminCourseData.courses, adminAnalyticsRevision])
 
   useEffect(() => {
     if (!user || backendMode !== 'firebase') return
@@ -627,114 +633,15 @@ function AuraApplication() {
       studentCourseData.courses,
     ])
 
-  useEffect(() => {
-    const completionByCourse = new Map<string, Array<{ userId: string; percent: number }>>()
-    for (const progress of adminStudentProgress) {
-      const values = completionByCourse.get(progress.courseId) ?? []
-      values.push({ userId: progress.userId, percent: progress.percent })
-      completionByCourse.set(progress.courseId, values)
-    }
-    const enrollmentsByCourse = new Map<string, Enrollment[]>()
-    for (const enrollment of adminEnrollments) {
-      const values = enrollmentsByCourse.get(enrollment.courseId) ?? []
-      values.push(enrollment)
-      enrollmentsByCourse.set(enrollment.courseId, values)
-    }
-    setAdminCourseAnalytics(adminCourseData.courses.map((course) => {
-      const courseId = String(course.id)
-      const enrollments = enrollmentsByCourse.get(courseId) ?? []
-      const countedEnrollments = enrollments.filter((item) => item.status !== 'cancelled')
-      const countedUserIds = new Set(countedEnrollments.map((item) => item.userId))
-      const completionValues = (completionByCourse.get(courseId) ?? [])
-        .filter((item) => countedUserIds.has(item.userId))
-        .map((item) => item.percent)
-      const averageCompletion = completionValues.length
-        ? Math.round(completionValues.reduce((total, value) => total + value, 0) / completionValues.length)
-        : 0
-      return {
-        courseId,
-        learners: countedEnrollments.length,
-        activeLearners: countedEnrollments.filter((item) => item.status === 'active').length,
-        completedLearners: countedEnrollments.filter((item) => item.status === 'completed').length,
-        averageCompletion,
-        rating: null,
-        updatedAt: course.updatedAt,
-      } satisfies CourseAnalytics
-    }))
-  }, [adminCourseData.courses, adminEnrollments, adminStudentProgress])
-
-  const adminStudentsDirectory = useMemo(() => {
-    const toMillis = (value: unknown) => {
-      if (!value) return null
-      if (typeof value === 'number') return value
-      if (value instanceof Date) return value.getTime()
-      if (typeof value === 'string') {
-        const parsed = new Date(value).getTime()
-        return Number.isNaN(parsed) ? null : parsed
-      }
-      if (typeof value === 'object' && value !== null && 'toDate' in value && typeof value.toDate === 'function') {
-        const date = value.toDate()
-        if (!(date instanceof Date)) return null
-        return date.getTime()
-      }
-      return null
-    }
-    const coursesById = new Map(adminCourseData.courses.map((course) => [String(course.id), course.title]))
-    const enrollmentsByUser = new Map<string, Enrollment[]>()
-    for (const enrollment of adminEnrollments) {
-      const existing = enrollmentsByUser.get(enrollment.userId) ?? []
-      existing.push(enrollment)
-      enrollmentsByUser.set(enrollment.userId, existing)
-    }
-    const progressByUser = new Map<string, AdminStudentProgress[]>()
-    for (const progress of adminStudentProgress) {
-      const existing = progressByUser.get(progress.userId) ?? []
-      existing.push(progress)
-      progressByUser.set(progress.userId, existing)
-    }
-    return adminUsers.map((adminUser) => {
-      const enrollments = enrollmentsByUser.get(adminUser.uid) ?? []
-      const progresses = progressByUser.get(adminUser.uid) ?? []
-      const averageProgress = progresses.length
-        ? Math.round(progresses.reduce((total, item) => total + item.percent, 0) / progresses.length)
-        : 0
-      const lastActivity = (() => {
-        const entries = [...enrollments, ...progresses]
-        const times = entries
-        .map((item) => {
-          const enrollment = item as Enrollment & { enrolledAt?: unknown; completedAt?: unknown }
-          return toMillis(item.updatedAt ?? enrollment.enrolledAt ?? enrollment.completedAt ?? null)
-        })
-        .filter((value): value is number => value !== null)
-        if (!times.length) return undefined
-        const mostRecent = Math.max(...times)
-        return new Date(mostRecent)
-      })()
-      const programs = enrollments
-        .map((enrollment) => coursesById.get(enrollment.courseId) ?? enrollment.courseId)
-      const totalEnrollments = enrollments.length
-      const status = adminUser.status === 'disabled'
-        ? 'inactive'
-        : totalEnrollments === 0
-          ? 'invited'
-          : 'active'
-      return {
-        uid: adminUser.uid,
-        displayName: adminUser.displayName,
-        email: adminUser.email,
-        role: adminUser.role,
-        membership: adminUser.membership ?? 'free',
-        status,
-        programs: [...new Set(programs)],
-        totalEnrollments,
-        activeEnrollments: enrollments.filter((item) => item.status === 'active').length,
-        completedEnrollments: enrollments.filter((item) => item.status === 'completed').length,
-        averageProgress,
-        streak: Math.min(30, progresses.length),
-        lastActivityAt: lastActivity,
-      } satisfies AdminStudentDirectoryItem
-    })
-  }, [adminCourseData.courses, adminEnrollments, adminStudentProgress, adminUsers])
+  // The PT directory owns its canonical client query. Academy-wide progress
+  // must not be downloaded merely to build fallback identity labels.
+  const adminStudentsDirectory = useMemo<AdminStudentDirectoryItem[]>(() => adminUsers.map(adminUser => ({
+    uid: adminUser.uid, displayName: adminUser.displayName, email: adminUser.email,
+    role: adminUser.role, membership: adminUser.membership ?? 'free',
+    status: adminUser.status === 'disabled' ? 'inactive' : 'invited',
+    programs: [], totalEnrollments: 0, activeEnrollments: 0, completedEnrollments: 0,
+    averageProgress: 0, streak: 0,
+  })), [adminUsers])
 
   const isAdminCoursePreview = Boolean(route.courseId && adminPreviewCourseId === route.courseId)
   const selectedCourse = route.courseId
@@ -1069,7 +976,7 @@ function AuraApplication() {
           canApproveAdjustments={backendMode === 'demo' || hasCapability('loyalty.adjust.approve')}
         /></AuraOperationsFrame>
       case 'admin-today-sessions': return <AuraOperationsFrame><AdminTodaySessionsPage onNavigate={navigate} /></AuraOperationsFrame>
-      case 'admin-courses': return <AdminCoursesPage
+      case 'admin-courses': return <><div className="academy-enrollment-message" role="status">{adminAnalyticsMessage}<button type="button" className="outline-button" disabled={adminAnalyticsLoading || adminCourseData.loading} onClick={() => setAdminAnalyticsRevision(value => value + 1)}>Làm mới số liệu</button></div><AdminCoursesPage
         courseItems={adminCourseData.courses}
         analytics={adminCourseAnalytics}
         loading={adminCourseData.loading}
@@ -1080,11 +987,10 @@ function AuraApplication() {
         onCreate={createCourse}
         onEdit={editCourse}
         onView={previewAdminCourse}
-      />
+      /></>
       case 'admin-academy-students': return <AdminAcademyStudentsPage
         users={adminUsers}
         courses={adminCourseData.courses}
-        enrollments={adminEnrollments}
         loading={adminUsersLoading || adminCourseData.loading}
         onManage={async (input) => { await manageAcademyEnrollment(input) }}
       />
@@ -1194,7 +1100,7 @@ function AuraApplication() {
   if ((user || backendMode === 'demo') && showOnboarding) {
     return (
       <Suspense fallback={<RouteLoadingFallback view="profile" />}>
-        <Onboarding
+        <Onboarding key={user?.uid || 'demo'}
           initialProfile={
             (() => {
               const src = profile?.onboardingData || profile || {};

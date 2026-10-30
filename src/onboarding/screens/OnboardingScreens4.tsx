@@ -59,8 +59,8 @@ export const AnalyzingScreen = ({ profile, setGeneratedPlan, onNext }: any) => {
       'Ước tính nhu cầu năng lượng',
       'Phân tích mục tiêu',
       'Đánh giá mức vận động',
-      'Phân tích giấc ngủ và stress',
-      'Điều chỉnh theo thói quen ăn uống',
+      'Kiểm tra thông tin bổ sung đã cung cấp',
+      'Kiểm tra lưu ý ăn uống',
       'Kiểm tra yếu tố sức khỏe',
       'Xây kế hoạch khởi điểm'
     ];
@@ -110,13 +110,14 @@ export const AnalyzingScreen = ({ profile, setGeneratedPlan, onNext }: any) => {
 
   useEffect(() => {
     if (stepsCompleted >= 8) {
-      setTimeout(onNext, 600);
+      const timer = setTimeout(onNext, 600);
+      return () => clearTimeout(timer);
     }
   }, [stepsCompleted, onNext]);
 
   const steps = [
     'Phân tích chỉ số cơ thể', 'Ước tính nhu cầu năng lượng', 'Phân tích mục tiêu', 
-    'Đánh giá mức vận động', 'Phân tích giấc ngủ và stress', 'Điều chỉnh theo thói quen ăn uống', 
+    'Đánh giá mức vận động', 'Kiểm tra thông tin bổ sung đã cung cấp', 'Kiểm tra lưu ý ăn uống',
     'Kiểm tra yếu tố sức khỏe', 'Xây kế hoạch khởi điểm'
   ];
 
@@ -214,7 +215,7 @@ export const NotificationsScreen = ({ profile, updateProfile, onNext }: any) => 
         </div>
         <h2 style={{ fontSize: '28px', fontWeight: 800, color: '#0f172a', marginBottom: '8px' }}>Giờ ăn của bạn</h2>
         <p style={{ color: '#64748b', fontSize: '15px', lineHeight: 1.5, padding: '0 20px' }}>
-          Aura sẽ nhắc nhở bạn ghi chép bữa ăn để theo dõi calo chính xác nhất.
+          Aura sẽ nhắc bạn ghi chép bữa ăn để theo dõi năng lượng ước tính đều đặn hơn.
         </p>
       </div>
 

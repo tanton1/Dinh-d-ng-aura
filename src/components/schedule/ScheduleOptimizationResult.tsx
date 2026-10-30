@@ -1,6 +1,23 @@
 import { AlertTriangle, Sparkles } from 'lucide-react'
-import type { PtScheduleWorkspaceV2Result } from '../../services/ptSchedulePublishService'
+import type { PtScheduleWorkspaceV2Result, generatePtScheduleDraft } from '../../services/ptSchedulePublishService'
 import { scheduleSlotLabel } from '../../features/schedule/workspaceModel'
+import { hasActionableSearchLimit } from '../../features/schedule/searchLimit'
+
+export function optimizationNotice(result: Awaited<ReturnType<typeof generatePtScheduleDraft>>) {
+  const unresolved = result.unassignedEntries?.length || result.unassigned?.length || 0
+  const passes = Math.max(1, Number(result.optimizationSummary?.optimizationPasses || 1))
+  const refilled = Math.max(0, Number(result.optimizationSummary?.refillAssignments || 0))
+  const repaired = Math.max(0, Number(result.optimizationSummary?.rescueAssignments ?? result.optimizationSummary?.repairAssignments ?? 0))
+  const relocated = Math.max(0, Number(result.optimizationSummary?.rescueRelocations ?? result.optimizationSummary?.repairRelocations ?? 0))
+  const searchLimitReached = result.optimizationSummary?.rescueSearchLimitReached === true || result.optimizationSummary?.repairSearchLimitReached === true
+  const improvements = [refilled ? `lấp thêm ${refilled} buổi` : '', repaired ? `cứu thêm ${repaired} buổi bằng ${relocated} lần đổi chỗ` : ''].filter(Boolean).join(', ')
+  const deepRun = passes > 1 ? ` Đã chạy ${passes} lượt tối ưu${improvements ? `, ${improvements}` : ''}.` : ''
+  const searchNote = searchLimitReached && hasActionableSearchLimit(result.optimizationSummary, result.unassignedEntries || result.unassigned)
+    ? ' Bộ tìm kiếm đã chạm giới hạn an toàn cho các hồ sơ còn thiếu; hãy bấm Tối ưu tiếp hoặc xử lý ở tab Cảnh báo.' : ''
+  return unresolved
+    ? `Đã tối ưu draft r${result.draftRevision}; còn ${unresolved} hồ sơ cần xử lý.${deepRun}${searchNote}`
+    : `Đã tối ưu draft r${result.draftRevision}; đã ưu tiên đủ học viên, ca đôi và PT chính/phụ.${deepRun}${searchNote}`
+}
 
 interface Props {
   workspace: PtScheduleWorkspaceV2Result

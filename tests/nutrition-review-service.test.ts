@@ -9,7 +9,7 @@ const bundled = build({
     builder.onResolve({ filter: /^(firebase\/functions|\.\.\/lib\/firebase(?:Functions)?|\.\/clientTelemetryService)$/ }, (args) => ({ path: args.path, namespace: 'review-fixture' }))
     builder.onLoad({ filter: /.*/, namespace: 'review-fixture' }, ({ path }) => ({ contents:
       path === 'firebase/functions' ? 'export const httpsCallable = (client,name) => (input) => globalThis.fixture.invoke(client,name,input)'
-        : path.endsWith('/firebaseFunctions') ? 'export const firebaseFunctions={region:"legacy"}; export const firebaseScheduleOptimizerFunctions={region:"regional"}'
+        : path.endsWith('/firebaseFunctions') ? 'export const firebaseFunctions={region:"legacy"}; export const firebaseTelemetryFunctions=null; export const firebaseScheduleOptimizerFunctions={region:"regional"}'
           : path.endsWith('/firebase') ? 'export const firebaseAuth=globalThis.fixture.auth'
             : 'export const reportClientIssue=()=>{}; export const createClientCorrelationId=()=>"test"',
     }))

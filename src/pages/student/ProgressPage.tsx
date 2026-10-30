@@ -481,6 +481,14 @@ export default function ProgressPage({
           <div><Dumbbell /><span><strong>Vận động</strong><small>{periodSummary.activityDays}/{periodSummary.expectedActivities} ngày mục tiêu</small></span></div>
           <div><Waves /><span><strong>Nước uống</strong><small>{periodSummary.waterDays}/{days} ngày đạt ít nhất 80%</small></span></div>
         </div>}
+        {(localPreview || nutritionSummary.status === 'ready') && onNavigate && <div className="progress-v2-adherence__sync">
+          <p>Đối chiếu nhật ký trong {days} ngày để hiểu tiến độ. {periodSummary.mealDays < days
+            ? `Còn ${days - periodSummary.mealDays} ngày chưa ghi đủ khung bữa ăn.`
+            : periodSummary.activityDays < periodSummary.expectedActivities ? 'Kiểm tra lịch tập và những buổi đã hoàn thành để bổ sung ghi nhận.' : 'Bạn đã ghi nhận đều đặn; có thể bổ sung số đo để theo dõi thay đổi.'}</p>
+          <button type="button" onClick={() => periodSummary.mealDays < days ? onNavigate('nutrition') : periodSummary.activityDays < periodSummary.expectedActivities ? onNavigate('schedule') : openCheckIn()}>
+            {periodSummary.mealDays < days ? 'Xem nhật ký dinh dưỡng' : periodSummary.activityDays < periodSummary.expectedActivities ? 'Xem lịch và kết quả tập' : 'Cập nhật số đo'}
+          </button>
+        </div>}
         {!localPreview && <div className="progress-v2-adherence__sync">
           <p role={nutritionSummary.status === 'error' || nutritionSummary.status === 'partial' ? 'alert' : 'status'}>{nutritionSummary.status === 'loading'
             ? 'Đang tải tổng hợp nhật ký…'

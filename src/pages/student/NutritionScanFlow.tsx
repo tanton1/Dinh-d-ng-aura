@@ -1,4 +1,4 @@
-import { clearPendingFoodScan, readPendingFoodScan, type FoodScanQueueStatus } from '../../services/nutritionScanQueue'
+import { clearPendingFoodScan, foodScanElapsedLabel, readPendingFoodScan, type FoodScanQueueStatus } from '../../services/nutritionScanQueue'
 import React, { useEffect, useId, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import {
   ArrowLeft, Camera, Check, CircleAlert, Flame, History, ImagePlus, Info,
@@ -17,6 +17,7 @@ import {
 } from '../../features/nutrition/analysis'
 import { useAccessibleDialog } from '../../features/nutrition/useAccessibleDialog'
 import { runSingleFlight } from '../../utils/singleFlight'
+import { summarizeScanQuality } from '../../features/nutrition/scanQuality'
 
 const INITIAL_ANALYSIS: AiFoodItem[] = [
   { id: 'rice', name: 'Cơm gạo lứt đỏ', grams: 180, calories: 216, protein: 4.5, carbs: 45.0, fat: 1.6, confidence: 'high' },
@@ -146,6 +147,8 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
   })
   const [isSaving, setIsSaving] = useState(false)
   const [queueStatus, setQueueStatus] = useState<FoodScanQueueStatus>('uploading')
+  const [scanStartedAt, setScanStartedAt] = useState<number | undefined>(pendingScan?.createdAt)
+  const [displayNow, setDisplayNow] = useState(Date.now)
   const analysisAbortRef = useRef<AbortController | null>(null)
   const analysisMountedRef = useRef(true)
   const analysisScanIdRef = useRef(restoredReview?.scanId || pendingScan?.upload.scanId)
@@ -171,6 +174,22 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
   useEffect(() => () => {
     if (previewObjectUrlRef.current) URL.revokeObjectURL(previewObjectUrlRef.current)
   }, [])
+
+  useEffect(() => {
+    if (stage !== 'analyzing') return
+    // This clock updates text only. Status still comes from the single job
+    // listener; background tabs do not need clock work or network polling.
+    let timer: ReturnType<typeof setInterval> | undefined
+    const syncVisibility = () => {
+      clearInterval(timer)
+      if (document.visibilityState === 'hidden') return
+      setDisplayNow(Date.now())
+      timer = setInterval(() => setDisplayNow(Date.now()), 30_000)
+    }
+    syncVisibility()
+    document.addEventListener('visibilitychange', syncVisibility)
+    return () => { clearInterval(timer); document.removeEventListener('visibilitychange', syncVisibility) }
+  }, [stage])
 
   const totals = useMemo(() => items.reduce((sum, item) => ({
     calories: sum.calories + item.calories,
@@ -461,9 +480,15 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
     }
     setStage('analyzing')
     try {
+      setScanStartedAt(file ? Date.now() : readPendingFoodScan(storageOwnerId)?.createdAt)
+      setDisplayNow(Date.now())
       setQueueStatus(file ? 'uploading' : 'queued')
       const options = { mealType, mealDate, mealTime, notes: notes || undefined, signal: controller.signal,
-        onQueueStatus: (status: FoodScanQueueStatus) => { if (!controller.signal.aborted) setQueueStatus(status) } }
+        onQueueStatus: (status: FoodScanQueueStatus) => {
+          if (controller.signal.aborted) return
+          setQueueStatus(status)
+          if (status !== 'uploading') setScanStartedAt(readPendingFoodScan(storageOwnerId)?.createdAt ?? Date.now())
+        } }
       const response = file ? await onAnalyzeImage!(file, options) : await onResumeImageAnalysis!(options)
       if (controller.signal.aborted) return
       if (!response) { setStage('upload'); return }
@@ -665,6 +690,9 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
       try {
         await onSave({
           idempotencyKey: saveAttemptIdRef.current,
+          scanQuality: resultMode === 'live' ? summarizeScanQuality({ items, baselineCalories, finalCalories: adjustedTotals.calories,
+            unresolvedItemCount: unresolvedItems.length, unresolvedQuestionCount: unresolvedQuestions.length,
+            answeredQuestionCount: analysisQuestions.filter(question => questionResponses[question] && questionResponses[question] !== 'unknown').length }) : undefined,
           dishName: dishName.trim() || 'Bữa ăn dinh dưỡng',
           name: items.map((item) => item.name.trim()).filter(Boolean).slice(0, 2).join(', '),
           mealType,
@@ -770,7 +798,7 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
               <i><Sparkles size={20} /></i>
             </div>
             <div className="nutrition-loading-spinner" />
-            <p><strong>{queueStatus === 'uploading' ? 'Đang gửi ảnh...' : queueStatus === 'queued' ? 'Ảnh đang chờ đến lượt...' : 'Aura Vision đang phân tích...'}</strong><small>{queueStatus === 'queued' ? 'Bạn có thể rời trang và mở lại để nhận kết quả. Ảnh đã gửi sẽ giữ nguyên mã yêu cầu.' : 'Đang nhận diện nguyên liệu, calo và dinh dưỡng'}</small></p>
+            <p><strong>{queueStatus === 'uploading' ? 'Đang gửi ảnh...' : queueStatus === 'queued' ? 'Ảnh đang chờ đến lượt...' : 'Aura Vision đang phân tích...'}</strong><small>{queueStatus === 'queued' ? 'Bạn có thể rời trang và mở lại để nhận kết quả. Ảnh đã gửi sẽ giữ nguyên mã yêu cầu.' : 'Đang nhận diện nguyên liệu, calo và dinh dưỡng'}</small>{queueStatus !== 'uploading' && <small data-testid="nutrition-scan-elapsed">{foodScanElapsedLabel(scanStartedAt, displayNow)} · thời gian xử lý tùy ảnh và lượng yêu cầu.</small>}</p>
           </div>
         )}
 

@@ -28,7 +28,7 @@ const row: RenewalPipelineRow = {
 }
 const options: RenewalPipelineResponse['options'] = { packages: [{ id: 'package-1', name: 'PT 12 buổi', price: 3000000, totalSessions: 12, durationMonths: 3, branchId: 'branch-1' }], branches: [], cashAccounts: [], assignees: [] }
 
-async function mockRenewals(page: Page, fixture: PreparedContractRenewal = { row, options, scope: 'system' }, behavior: { quoteFailures?: number; holdQuote?: boolean } = {}) {
+async function mockRenewals(page: Page, fixture: PreparedContractRenewal = { row, options, scope: 'system' }, behavior: { quoteFailures?: number; holdQuote?: boolean; confirmationFailures?: number; committedAfterFailure?: boolean; reconciliationFails?: boolean } = {}) {
   await page.addInitScript(({ fixture, behavior }) => {
     Object.assign(window, { renewalFixture: fixture, renewalSubmissions: [], renewalQuoteRequests: [], renewalApprovalRequests: [], renewalApprovalStatus: 'pending', renewalMockBehavior: behavior })
   }, { fixture, behavior })
@@ -49,18 +49,27 @@ async function mockRenewals(page: Page, fixture: PreparedContractRenewal = { row
       approvalId = null;
       return { quoteId, revision: ++revision };
     };
-    export const getContractRenewalCaseDetail = async () => ({
-      case: { ...window.renewalFixture.row, revision: revision + (window.renewalApprovalStatus === 'approved' ? 1 : 0) },
+    export const getContractRenewalCaseDetail = async () => {
+      if (window.renewalMockBehavior.reconciliationFails) throw new Error('Không thể đọc kết quả giao dịch.');
+      return ({
+      case: { ...window.renewalFixture.row, renewedContractId: window.renewalMockBehavior.committedAfterFailure ? 'already-created' : null, revision: revision + (window.renewalApprovalStatus === 'approved' ? 1 : 0) },
       quote: quoteId ? { id: quoteId } : null,
       approval: approvalId ? { id: approvalId, status: window.renewalApprovalStatus } : null,
-    });
+    }); };
     export const submitRenewalApproval = async (input) => {
       window.renewalApprovalRequests.push(input);
       approvalId = 'approval';
       return { approvalId, status: 'pending', revision: ++revision };
     };
     export const prepareContractRenewal = async () => window.renewalFixture;
-    export const renewPtContract = async (input) => { window.renewalSubmissions.push(input); return { contractId: 'next', unchanged: false }; };
+    export const renewPtContract = async (input) => {
+      window.renewalSubmissions.push(input);
+      if (window.renewalMockBehavior.confirmationFailures > 0) {
+        window.renewalMockBehavior.confirmationFailures--;
+        throw Object.assign(new Error('Chưa xác nhận được kết quả tái ký.'), { code: 'functions/unavailable' });
+      }
+      return { contractId: 'next', unchanged: false };
+    };
   ` }))
 }
 
@@ -239,6 +248,12 @@ test('real renewal service routes confirmation only to Taiwan and preserves the 
     export const callReadOnlyFunction = async () => { throw new Error('Unexpected read'); };
     export const runReadOnlyWithFallback = async primary => primary();
   ` }))
+  await page.route('**/src/services/secondaryReadService.ts*', route => route.fulfill({ contentType: 'application/javascript', body: `
+    export const callSecondaryRead = async name => {
+      if (name !== 'getContractRenewalCaseDetail') throw new Error('Unexpected read');
+      return { case: window.renewalFixture.row };
+    };
+  ` }))
   await page.route('**/node_modules/.vite/deps/firebase_functions.js*', route => route.fulfill({ contentType: 'application/javascript', body: `
     let failConfirmation = true;
     export const getFunctions = (_app, region) => ({ region });
@@ -270,14 +285,48 @@ test('real renewal service routes confirmation only to Taiwan and preserves the 
     ['asia-southeast1', 'createRenewalQuote'], ['asia-east1', 'renewPtContractRegional'],
   ])
   expect(firstCalls[1].timeout).toBe(120000)
-  await confirm.click()
-  await expect(confirm).toBeDisabled()
+  await dialog.getByRole('button', { name: 'Kiểm tra & tiếp tục', exact: true }).click()
+  await expect(dialog.getByText('Đã xác nhận hợp đồng tái ký. Khoản thu không được gửi lại.')).toBeVisible()
   const calls = await page.evaluate(() => window.renewalTransportCalls)
   expect(calls).toHaveLength(3)
   expect(calls[2].region).toBe('asia-east1')
   expect(calls[2].name).toBe('renewPtContractRegional')
   expect(calls[2].input.idempotencyKey).toBeTruthy()
   expect(calls[2].input).toEqual(calls[1].input)
+})
+
+test('lost renewal acknowledgement restores the exact command after reload and checks committed result without another payment', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await mockRenewals(page, undefined, { confirmationFailures: 1, committedAfterFailure: true })
+  await page.goto('/tests/e2e/fixtures/contract-renewal.html')
+  const dialog = page.getByRole('dialog', { name: 'Tạo hợp đồng tiếp theo' })
+  const next = dialog.getByRole('button', { name: 'Tiếp tục', exact: true })
+  await next.click(); await next.click(); await next.click()
+  await expect(dialog.getByText('Hợp đồng mới: chờ kích hoạt', { exact: true })).toBeVisible()
+  await dialog.getByRole('button', { name: 'Xác nhận tái ký', exact: true }).click()
+  const original = await page.evaluate(() => window.renewalSubmissions[0])
+  await expect(dialog.getByRole('heading', { name: 'Đang đối chiếu giao dịch đã gửi' })).toBeVisible()
+  await expect(dialog.getByRole('button', { name: 'Lộ trình', exact: true })).toBeDisabled()
+  await page.reload()
+  await expect(dialog.getByText(String(original.idempotencyKey), { exact: true })).toBeVisible()
+  await expect(dialog.getByLabel('Ghi chú giao dịch')).toHaveCount(0)
+  await dialog.getByRole('button', { name: 'Kiểm tra & tiếp tục', exact: true }).click()
+  await expect(dialog.getByText('Đã xác nhận hợp đồng tái ký. Khoản thu không được gửi lại.')).toBeVisible()
+  expect(await page.evaluate(() => window.renewalSubmissions)).toEqual([])
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+})
+
+test('failed reconciliation keeps the original command and never sends another renewal', async ({ page }) => {
+  await mockRenewals(page, undefined, { confirmationFailures: 1, reconciliationFails: true })
+  await page.goto('/tests/e2e/fixtures/contract-renewal.html')
+  const dialog = page.getByRole('dialog', { name: 'Tạo hợp đồng tiếp theo' })
+  const next = dialog.getByRole('button', { name: 'Tiếp tục', exact: true })
+  await next.click(); await next.click(); await next.click()
+  await dialog.getByRole('button', { name: 'Xác nhận tái ký', exact: true }).click()
+  await dialog.getByRole('button', { name: 'Kiểm tra & tiếp tục', exact: true }).click()
+  await expect(dialog.getByRole('alert')).toContainText('Không thể đọc kết quả giao dịch')
+  expect(await page.evaluate(() => window.renewalSubmissions.length)).toBe(1)
+  await expect(dialog.getByRole('button', { name: 'Thanh toán', exact: true })).toBeDisabled()
 })
 
 const secondQueueRow: RenewalPipelineRow = {

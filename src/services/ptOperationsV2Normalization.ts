@@ -2,7 +2,7 @@ import type {
   TrainerSessionSummary,
   TrainerStudentContractDetail,
   TrainerStudentDetail,
-} from './ptOperationsV2Service'
+} from './ptOperationsV2Types'
 
 type UnknownRecord = Record<string, unknown>
 

@@ -30,7 +30,7 @@ const bundled = build({
         : args.path.endsWith('firebaseFirestore')
           ? 'export const firestoreDb = null'
         : args.path.endsWith('firebaseFunctions')
-          ? 'export const firebaseFunctions = globalThis.routing.sg; export const firebaseStudent360Functions = globalThis.routing.east; export const firebaseRegionalReadFunctions = globalThis.routing.jakarta'
+          ? 'export const firebaseFunctions = globalThis.routing.sg; export const firebaseTelemetryFunctions = null; export const firebaseStudent360Functions = globalThis.routing.east; export const firebaseRegionalReadFunctions = globalThis.routing.jakarta'
           : args.path.endsWith('/firebase')
             ? 'export const firebaseAuth = globalThis.routing.auth; export const firebaseConfig = { projectId: "synthetic-project" }'
             : 'export const createClientCorrelationId = () => globalThis.routing.correlation(); export const reportClientIssue = (...args) => globalThis.routing.report(...args)',

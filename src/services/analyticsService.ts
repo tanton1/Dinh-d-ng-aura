@@ -14,6 +14,7 @@ export type ProductEventName =
   | 'admin_dashboard_loaded'
   | 'route_loaded'
   | 'data_ready'
+  | 'read_operation_batch'
 
 const recentPageViews = new Map<string, number>()
 const PAGE_VIEW_DEDUPLICATION_MS = 30_000

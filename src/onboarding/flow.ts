@@ -1,6 +1,6 @@
 import { OnboardingProfile, OnboardingStepId } from './types';
 
-export function getSteps(profile: OnboardingProfile): OnboardingStepId[] {
+export function getSteps(profile: OnboardingProfile, includePreferences = false): OnboardingStepId[] {
   const steps: OnboardingStepId[] = [
     'welcome',
     'sex',
@@ -14,19 +14,13 @@ export function getSteps(profile: OnboardingProfile): OnboardingStepId[] {
     steps.push('target-weight');
   }
 
-  steps.push('secondary-goals');
-
   if (profile.primaryGoal === 'fat_loss' || profile.primaryGoal === 'muscle_gain') {
     steps.push('goal-pace');
   }
 
   steps.push(
     'activity',
-    'sleep',
-    'stress',
-    'diet',
     'restrictions',
-    'nutrition-tracking',
     'health'
   );
 
@@ -34,7 +28,11 @@ export function getSteps(profile: OnboardingProfile): OnboardingStepId[] {
     steps.push('health-details');
   }
 
-  steps.push('notifications', 'analyzing', 'result');
+  steps.push('preferences-choice');
+  if (includePreferences) {
+    steps.push('secondary-goals', 'sleep', 'stress', 'diet', 'nutrition-tracking', 'notifications');
+  }
+  steps.push('analyzing', 'result');
 
   return steps;
 }

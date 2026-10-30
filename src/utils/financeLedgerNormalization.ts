@@ -1,4 +1,4 @@
-import type { FinanceLedgerPage, FinanceLedgerSummary } from '../services/financeLedgerService'
+import type { FinanceLedgerPage, FinanceLedgerSummary } from '../services/financeLedgerTypes'
 
 function finiteAmount(value: unknown, fallback = 0) {
   const amount = typeof value === 'number' ? value : Number(value)

@@ -212,12 +212,12 @@ function callable<Input, Output>(name: string) {
       const code = typeof error.code === 'string' ? error.code.replace(/^functions\//, '') : ''
       const message = typeof error.message === 'string' ? error.message.trim() : ''
       if (['internal', 'resource-exhausted', 'unavailable', 'deadline-exceeded'].includes(code)) {
-        throw new Error(isConfirmation
-          ? 'Chưa xác nhận được kết quả tái ký. Vui lòng giữ cửa sổ này và bấm Xác nhận tái ký để thử lại với cùng mã giao dịch.'
-          : 'Dịch vụ tái ký đang bận. Vui lòng thử lại sau ít phút.')
+        throw Object.assign(new Error(isConfirmation
+          ? 'Chưa xác nhận được kết quả tái ký. Hãy kiểm tra giao dịch; Aura sẽ giữ nguyên mã giao dịch và khoản thu khi cần tiếp tục.'
+          : 'Dịch vụ tái ký đang bận. Vui lòng thử lại sau ít phút.'), { code })
       }
-      if (code === 'unauthenticated') throw new Error('Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.')
-      throw new Error(message || 'Không thể xử lý nghiệp vụ tái ký.')
+      if (code === 'unauthenticated') throw Object.assign(new Error('Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.'), { code })
+      throw Object.assign(new Error(message || 'Không thể xử lý nghiệp vụ tái ký.'), { code })
     }
   }
 }
@@ -305,7 +305,7 @@ export async function prepareContractRenewal(sourceContractId: string) {
   return (await callable<{ sourceContractId: string }, PreparedContractRenewal>('prepareContractRenewal')({ sourceContractId })).data
 }
 
-export async function renewPtContract(input: {
+export interface RenewPtContractInput {
   caseId: string
   sourceContractId: string
   packageId: string
@@ -325,7 +325,9 @@ export async function renewPtContract(input: {
   trainerIds: string[]
   nutritionPTIds: string[]
   note?: string
-}) {
+}
+
+export async function renewPtContract(input: RenewPtContractInput) {
   return (await callable<typeof input, { contractId: string; paymentEntryId: string | null; unchanged: boolean }>('renewPtContract')(input)).data
 }
 

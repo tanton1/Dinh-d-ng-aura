@@ -1,4 +1,4 @@
-import type { AcademyReviewState } from '../../services/academyLearningService'
+import type { AcademyReviewState } from './types'
 import { createAcademySessionCache } from './sessionCache'
 import { mergeAcademyReviewStates } from './reviewPersistence'
 

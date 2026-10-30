@@ -4,6 +4,8 @@ import { AnimatePresence, motion } from 'motion/react'
 import { AlertCircle, CheckCircle, Clock, DollarSign, Plus, RefreshCw, Search, Undo2, WalletCards, X } from 'lucide-react'
 import type { StudentContract, UserProfile } from '../../../types'
 import { useDatabase } from '../../../contexts/DatabaseContext'
+import { useAuth } from '../../../contexts/AuthContext'
+import { listFinanceReceivables, listFinanceStudentLabels, type ReceivablesPage, type ReceivablesSummary } from '../../../services/scopedReportingService'
 import { useLocalTimeBoundaries } from '../../../hooks/useLocalTimeBoundaries'
 import {
   listFinanceLedger,
@@ -54,23 +56,9 @@ function localDateKey(value = new Date()) {
 }
 
 function pendingInstallments(contract: StudentContract) {
-  return [...(contract.installments || [])]
-    .filter((item) => item.status === 'pending' && dateKey(item.date))
+  return [...(Array.isArray(contract.installments) ? contract.installments : [])]
+    .filter((item) => item && item.status === 'pending' && dateKey(item.date))
     .sort((left, right) => dateKey(left.date).localeCompare(dateKey(right.date)))
-}
-
-function amountDueInRange(contract: StudentContract, startKey: string, endKey: string) {
-  const debt = contractDebt(contract)
-  if (!debt || contract.status === 'frozen') return 0
-  const pending = pendingInstallments(contract)
-  if (pending.length) {
-    const due = pending
-      .filter((item) => dateKey(item.date) >= startKey && dateKey(item.date) <= endKey)
-      .reduce((sum, item) => sum + Math.max(0, Number(item.amount) || 0), 0)
-    return Math.min(debt, due)
-  }
-  const nextPaymentDate = dateKey(contract.nextPaymentDate)
-  return nextPaymentDate >= startKey && nextPaymentDate <= endKey ? debt : 0
 }
 
 function overdueAmount(contract: StudentContract, todayKey: string) {
@@ -93,15 +81,6 @@ function currentMonthRange() {
     start: new Date(now.getFullYear(), now.getMonth(), 1),
     end: new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999),
   }
-}
-
-function searchKey(value: unknown) {
-  return String(value || '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/đ/g, 'd')
-    .toLowerCase()
-    .trim()
 }
 
 function entryLabel(type: FinanceLedgerEntry['type']) {
@@ -137,10 +116,18 @@ export default function FinanceManagement(props: Props) {
 }
 
 function FinanceWorkspace({ profile }: Props) {
-  const { branches, contracts, students, acquireFinanceDirectory, refreshData, operationsSync } = useDatabase()
-  useEffect(() => acquireFinanceDirectory(), [acquireFinanceDirectory])
-  // Keep the existing local calendar semantics. Reclassifying a due date only
-  // needs the current contracts, so midnight/resume must not reload them.
+  const { branches } = useDatabase()
+  const { backendMode } = useAuth()
+  const [contracts, setContracts] = useState<ReceivablesPage['contracts']>([])
+  const [students, setStudents] = useState<ReceivablesPage['students']>([])
+  const [debtSummary, setDebtSummary] = useState<ReceivablesSummary | null>(null)
+  const [debtLoading, setDebtLoading] = useState(backendMode === 'firebase')
+  const [debtError, setDebtError] = useState('')
+  const [debtCursor, setDebtCursor] = useState<string | null>(null)
+  const [debtHasMore, setDebtHasMore] = useState(false)
+  const debtRequestSequence = useRef(0)
+  // Keep the existing local calendar semantics. Midnight advances the report
+  // scope once; an unchanged resume never starts another read.
   const nextMidnight = new Date()
   nextMidnight.setHours(24, 0, 0, 0)
   const calendarClock = useLocalTimeBoundaries([nextMidnight.getTime()])
@@ -164,7 +151,7 @@ function FinanceWorkspace({ profile }: Props) {
   const [cashAccountsError, setCashAccountsError] = useState('')
   const [selectedCashAccountId, setSelectedCashAccountId] = useState('')
   const [debtSearch, setDebtSearch] = useState('')
-  const [visibleDebtCount, setVisibleDebtCount] = useState(20)
+  const [debouncedDebtSearch, setDebouncedDebtSearch] = useState('')
   const requestSequence = useRef(0)
   const cashRequestSequence = useRef(0)
   const mounted = useRef(true)
@@ -174,7 +161,7 @@ function FinanceWorkspace({ profile }: Props) {
 
   useEffect(() => {
     mounted.current = true
-    return () => { mounted.current = false; requestSequence.current += 1 }
+    return () => { mounted.current = false; requestSequence.current += 1; debtRequestSequence.current += 1 }
   }, [])
 
   const effectiveBranchId = profile?.branchId && profile.role !== 'admin' && profile.role !== 'super_admin'
@@ -183,6 +170,38 @@ function FinanceWorkspace({ profile }: Props) {
   const ledgerScope = JSON.stringify([effectiveBranchId, dateRange.start.getTime(), dateRange.end.getTime()])
   const latestLedgerScope = useRef(ledgerScope)
   latestLedgerScope.current = ledgerScope
+
+  const debtScope = JSON.stringify([effectiveBranchId, todayKey, debtFilter, debouncedDebtSearch])
+  const latestDebtScope = useRef(debtScope)
+  latestDebtScope.current = debtScope
+  const loadDebts = useCallback(async (append = false, refresh = false) => {
+    if (backendMode !== 'firebase') return
+    const sequence = ++debtRequestSequence.current
+    const isCurrent = () => mounted.current && sequence === debtRequestSequence.current && latestDebtScope.current === debtScope
+    setDebtLoading(true); setDebtError('')
+    if (!append) { setContracts([]); setStudents([]); setDebtSummary(null); setDebtCursor(null); setDebtHasMore(false) }
+    try {
+      const page = await listFinanceReceivables({ branchId: effectiveBranchId, today: todayKey, filter: debtFilter,
+        search: debouncedDebtSearch, cursor: append ? debtCursor : null, includeSummary: !append, refresh })
+      if (!isCurrent()) return
+      setContracts(current => [...new Map([...(append ? current : []), ...page.contracts].map(item => [item.id, item])).values()])
+      setStudents(current => [...new Map([...(append ? current : []), ...page.students].map(item => [item.id, item])).values()])
+      if (page.summary) setDebtSummary(page.summary)
+      setDebtCursor(page.nextCursor); setDebtHasMore(page.hasMore)
+    } catch (error) { if (isCurrent()) setDebtError(error instanceof Error ? error.message : 'Chưa tải được công nợ. Hãy làm mới để thử lại.') }
+    finally { if (isCurrent()) setDebtLoading(false) }
+  }, [backendMode, effectiveBranchId, todayKey, debtFilter, debouncedDebtSearch, debtScope, debtCursor])
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedDebtSearch(debtSearch), 300)
+    return () => window.clearTimeout(timer)
+  }, [debtSearch])
+  useEffect(() => {
+    void loadDebts()
+    return () => { debtRequestSequence.current++ }
+    // Cursor changes only belong to the explicit next-page action.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debtScope, backendMode])
 
   const updateDateRange = useCallback((start: Date, end: Date) => {
     setDateRange((current) => current.start.getTime() === start.getTime() && current.end.getTime() === end.getTime()
@@ -237,6 +256,16 @@ function FinanceWorkspace({ profile }: Props) {
         page.entries.forEach((entry) => byId.set(entry.id, entry))
         return Array.from(byId.values())
       })
+      const studentIds = [...new Set(page.entries.map(entry => entry.studentId).filter(Boolean))]
+      if (studentIds.length) {
+        try {
+          const labels = await listFinanceStudentLabels(studentIds)
+          if (!isCurrent()) return
+          setStudents(current => [...new Map([...current, ...labels].map(item => [item.id, item])).values()])
+        } catch { /* Missing optional labels must never hide canonical cash history. */ }
+      }
+      // A rejected optional lookup can also finish after the scope has changed.
+      if (!isCurrent()) return
       setLedgerCursor(page.nextCursor)
       setLedgerHasMore(page.hasMore)
     } catch (cause) {
@@ -265,90 +294,17 @@ function FinanceWorkspace({ profile }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showHistory, dateRange, effectiveBranchId])
 
-  const filteredContracts = useMemo(() => contracts.filter((contract) => {
-    if (effectiveBranchId === 'all') return true
-    if (effectiveBranchId === 'none') return !contract.branchId
-    return contract.branchId === effectiveBranchId
-  }), [contracts, effectiveBranchId])
-
-  const totalDebt = filteredContracts.reduce((sum, contract) => sum + contractDebt(contract), 0)
-
-  const debtGroups = useMemo<Record<DebtFilter, StudentContract[]>>(() => {
-    const overpaid = filteredContracts.filter((contract) => Number(contract.paidAmount || 0) > Number(contract.totalPrice || 0) - Number(contract.discount || 0))
-    const debtContracts = filteredContracts.filter((contract) => Number(contract.totalPrice || 0) - Number(contract.discount || 0) > Number(contract.paidAmount || 0))
-    const now = new Date(`${todayKey}T12:00:00`)
-    const startOfWeek = new Date(now)
-    startOfWeek.setDate(now.getDate() - now.getDay())
-    startOfWeek.setHours(0, 0, 0, 0)
-    const endOfWeek = new Date(startOfWeek)
-    endOfWeek.setDate(startOfWeek.getDate() + 6)
-    endOfWeek.setHours(23, 59, 59, 999)
-    const startOfMonthKey = localDateKey(new Date(now.getFullYear(), now.getMonth(), 1))
-    const endOfMonthKey = localDateKey(new Date(now.getFullYear(), now.getMonth() + 1, 0))
-
-    const dueDateOf = (contract: StudentContract) => {
-      const nextInstallment = pendingInstallments(contract)[0]
-      return nextInstallment?.date || contract.nextPaymentDate || ''
-    }
-    const sorted = [...debtContracts].sort((left, right) => {
-      const leftDate = dueDateOf(left)
-      const rightDate = dueDateOf(right)
-      const leftTime = leftDate ? new Date(leftDate).getTime() : Number.POSITIVE_INFINITY
-      const rightTime = rightDate ? new Date(rightDate).getTime() : Number.POSITIVE_INFINITY
-      if (leftTime !== rightTime) return leftTime - rightTime
-      const leftDebt = Number(left.totalPrice || 0) - Number(left.discount || 0) - Number(left.paidAmount || 0)
-      const rightDebt = Number(right.totalPrice || 0) - Number(right.discount || 0) - Number(right.paidAmount || 0)
-      return rightDebt - leftDebt
-    })
-    const dated = sorted.filter((contract) => contract.status !== 'frozen' && dueDateOf(contract))
-    return {
-      all: sorted,
-      overdue: dated.filter((contract) => overdueAmount(contract, todayKey) > 0),
-      'this-week': dated.filter((contract) => {
-        const dueDate = new Date(dueDateOf(contract))
-        return dueDate >= startOfWeek && dueDate <= endOfWeek
-      }),
-      'this-month': dated.filter((contract) => amountDueInRange(contract, startOfMonthKey, endOfMonthKey) > 0),
-      overpaid,
-    }
-  }, [filteredContracts, todayKey])
-
-  const currentDebtMetrics = useMemo(() => {
-    const now = new Date(`${todayKey}T12:00:00`)
-    const startOfMonthKey = localDateKey(new Date(now.getFullYear(), now.getMonth(), 1))
-    const endOfMonthKey = localDateKey(new Date(now.getFullYear(), now.getMonth() + 1, 0))
-    return {
-      overdue: filteredContracts.reduce((sum, contract) => sum + overdueAmount(contract, todayKey), 0),
-      thisMonth: filteredContracts.reduce((sum, contract) => sum + amountDueInRange(contract, startOfMonthKey, endOfMonthKey), 0),
-    }
-  }, [filteredContracts, todayKey])
-
-  const studentById = useMemo(() => new Map(students.map((student) => [student.id, student])), [students])
-  const contractsWithDebt = debtGroups[debtFilter]
-  const searchedContractsWithDebt = useMemo(() => {
-    const query = searchKey(debtSearch)
-    if (!query) return contractsWithDebt
-    return contractsWithDebt.filter((contract) => {
-      const student = studentById.get(contract.studentId)
-      return searchKey([
-        student?.name,
-        student?.phone,
-        student?.email,
-        contract.packageName,
-        contract.id,
-      ].join(' ')).includes(query)
-    })
-  }, [contractsWithDebt, debtSearch, studentById])
-  const visibleContractsWithDebt = searchedContractsWithDebt.slice(0, visibleDebtCount)
-
-  useEffect(() => setVisibleDebtCount(20), [debtFilter, debtSearch, effectiveBranchId])
-
+  const studentById = useMemo(() => new Map(students.map(student => [student.id, student])), [students])
+  const visibleContractsWithDebt = contracts
+  const completeSummary = debtSummary?.complete === true ? debtSummary : null
+  const debtCount = (filter: DebtFilter) => completeSummary?.counts?.[filter] ?? null
+  const metric = (value: number | null | undefined) => value == null ? '—' : money(value)
   const cashEntries = useMemo(() => ledgerEntries.filter((entry) => {
     if (entry.cashImpact !== null && Number.isFinite(entry.cashImpact)) return entry.cashImpact !== 0
     return ['payment', 'refund', 'adjustment', 'reversal'].includes(entry.type)
   }), [ledgerEntries])
 
-  const studentName = (studentId: string) => studentById.get(studentId)?.name || 'Học viên đã xóa'
+  const studentName = (studentId: string) => studentById.get(studentId)?.name || (studentId ? `Học viên ${studentId}` : 'Chưa có tên học viên')
 
   const loadPaymentCashAccounts = async (contract: StudentContract) => {
     const sequence = ++cashRequestSequence.current
@@ -416,7 +372,7 @@ function FinanceWorkspace({ profile }: Props) {
     closePayment()
     setEntryToReverse(null)
     setPayAmount('')
-    await loadLedger(false)
+    await Promise.all([loadLedger(false), loadDebts(false, true)])
     if (mounted.current) setAlertMessage(outcome.state === 'committed' ? 'Đã xác nhận giao dịch được ghi nhận. Chứng từ và số dư đã được cập nhật.' : 'Đã dừng yêu cầu chưa ghi nhận. Bạn có thể mở lại biểu mẫu để tạo yêu cầu mới.')
   }
 
@@ -424,8 +380,8 @@ function FinanceWorkspace({ profile }: Props) {
     {
       id: 'total-debt',
       eyebrow: 'Tổng nợ',
-      value: money(totalDebt),
-      detail: `${debtGroups.all.length.toLocaleString('vi-VN')} hợp đồng còn phải thu`,
+      value: metric(completeSummary?.totals?.debt),
+      detail: `${debtCount('all') ?? '—'} hợp đồng còn phải thu`,
       icon: <DollarSign size={20} />,
       tone: 'pink',
       actionLabel: 'Xem tất cả',
@@ -437,8 +393,8 @@ function FinanceWorkspace({ profile }: Props) {
     {
       id: 'overdue-debt',
       eyebrow: 'Quá hạn',
-      value: money(currentDebtMetrics.overdue),
-      detail: `${debtGroups.overdue.length.toLocaleString('vi-VN')} hợp đồng cần ưu tiên xử lý`,
+      value: metric(completeSummary?.totals?.overdue),
+      detail: `${debtCount('overdue') ?? '—'} hợp đồng cần ưu tiên xử lý`,
       icon: <AlertCircle size={20} />,
       tone: 'orange',
       actionLabel: 'Xem quá hạn',
@@ -450,8 +406,8 @@ function FinanceWorkspace({ profile }: Props) {
     {
       id: 'month-debt',
       eyebrow: 'Nợ thu tháng này',
-      value: money(currentDebtMetrics.thisMonth),
-      detail: `${debtGroups['this-month'].length.toLocaleString('vi-VN')} hợp đồng có kỳ đến hạn`,
+      value: metric(completeSummary?.totals?.thisMonth),
+      detail: `${debtCount('this-month') ?? '—'} hợp đồng có kỳ đến hạn`,
       icon: <Clock size={20} />,
       tone: 'sunset',
       actionLabel: 'Xem tháng này',
@@ -462,17 +418,22 @@ function FinanceWorkspace({ profile }: Props) {
     },
   ]
 
-  const debtFilterOptions: Array<{ id: DebtFilter; label: string; count: number }> = [
-    { id: 'all', label: 'Đang nợ', count: debtGroups.all.length },
-    { id: 'overdue', label: 'Quá hạn', count: debtGroups.overdue.length },
-    { id: 'this-week', label: 'Tuần này', count: debtGroups['this-week'].length },
-    { id: 'this-month', label: 'Tháng này', count: debtGroups['this-month'].length },
-    { id: 'overpaid', label: 'Thanh toán dư', count: debtGroups.overpaid.length },
+  const debtFilterOptions: Array<{ id: DebtFilter; label: string; count: number | null }> = [
+    { id: 'all', label: 'Đang nợ', count: debtCount('all') },
+    { id: 'overdue', label: 'Quá hạn', count: debtCount('overdue') },
+    { id: 'this-week', label: 'Tuần này', count: debtCount('this-week') },
+    { id: 'this-month', label: 'Tháng này', count: debtCount('this-month') },
+    { id: 'overpaid', label: 'Thanh toán dư', count: debtCount('overpaid') },
   ]
 
   return (
     <div className="finance-management space-y-6 pb-28">
       <AuraMetricCarousel slides={financeSlides} label="Tổng quan trả góp" />
+      {debtLoading && <p role="status">Đang tải công nợ…</p>}
+      {debtError && <p role="alert">{debtError}</p>}
+      {debtSummary && <p role={debtSummary.complete ? 'status' : 'alert'}>{debtSummary.complete
+        ? `Tổng hợp lúc ${new Date(debtSummary.asOf).toLocaleString('vi-VN')}. Danh sách tải theo trang; số tiền khi thanh toán được kiểm tra lại.`
+        : 'Chưa đủ dữ liệu để tính tổng công nợ. Aura để trống các chỉ số; danh sách chi tiết vẫn có thể tải theo trang.'}</p>}
 
       <div className="finance-management__filters">
         <DateRangeFilter compact excludeFuture initialRange="Tháng này" onFilter={updateDateRange} />
@@ -484,15 +445,16 @@ function FinanceWorkspace({ profile }: Props) {
           </select>
         )}
         <button type="button" onClick={() => setShowHistory(true)} className="finance-management__tool-button" aria-label="Mở lịch sử thu trả góp" title="Lịch sử thu"><WalletCards size={17} /></button>
-        <button type="button" onClick={() => { void refreshData(); void loadLedger(false) }} disabled={ledgerLoading || operationsSync.status === 'loading'} className="finance-management__tool-button" aria-label="Làm mới trả góp" title="Làm mới"><RefreshCw size={17} className={ledgerLoading || operationsSync.status === 'loading' ? 'animate-spin' : ''} /></button>
-        <AuraHelpPopover title="Trả góp & công nợ"><p>Ba slide chỉ phản ánh số tiền còn phải thu theo hợp đồng. Bộ lọc ngày áp dụng cho lịch sử giao dịch; dữ liệu tiền thu thực tế vẫn lấy từ ledger canonical.</p></AuraHelpPopover>
+        <button type="button" onClick={() => { void loadDebts(false, true); void loadLedger(false) }} disabled={ledgerLoading || debtLoading} className="finance-management__tool-button" aria-label="Làm mới trả góp" title="Làm mới"><RefreshCw size={17} className={ledgerLoading || debtLoading ? 'animate-spin' : ''} /></button>
+        <AuraHelpPopover title="Trả góp & công nợ"><p>Chỉ số và số lượng từng nhóm tính trên toàn chi nhánh đang chọn. Từ khóa chỉ lọc danh sách bên dưới. Bộ lọc ngày áp dụng cho lịch sử giao dịch.</p></AuraHelpPopover>
       </div>
 
       <section ref={receivablesRef} className="finance-management__receivables">
         <div className="finance-management__section-head">
           <div className="finance-management__section-title"><h2><DollarSign size={20} /> Công nợ</h2><AuraHelpPopover title="Danh sách công nợ"><p>Số dư lấy từ hợp đồng. Lọc Quá hạn để ưu tiên thu hồi; Thanh toán dư là khoản khách đã nộp vượt số phải thu.</p></AuraHelpPopover></div>
-          <strong>{searchedContractsWithDebt.length.toLocaleString('vi-VN')} hồ sơ</strong>
+          <strong>{contracts.length.toLocaleString('vi-VN')} hồ sơ đã tải</strong>
         </div>
+        <p>Danh sách theo mã hợp đồng, tải lần lượt từng trang. Chọn Quá hạn để tập trung các khoản cần thu.</p>
         <div className="finance-management__debt-tools">
           <label className="finance-management__debt-search">
             <Search size={17} />
@@ -500,21 +462,21 @@ function FinanceWorkspace({ profile }: Props) {
             {debtSearch && <button type="button" onClick={() => setDebtSearch('')} aria-label="Xóa từ khóa"><X size={15} /></button>}
           </label>
           <div className="finance-management__debt-filters" aria-label="Nhóm công nợ">
-            {debtFilterOptions.map((filter) => <button key={filter.id} type="button" onClick={() => setDebtFilter(filter.id)} className={debtFilter === filter.id ? 'is-active' : ''} aria-pressed={debtFilter === filter.id}><span>{filter.label}</span><b>{filter.count}</b></button>)}
+            {debtFilterOptions.map((filter) => <button key={filter.id} type="button" onClick={() => setDebtFilter(filter.id)} className={debtFilter === filter.id ? 'is-active' : ''} aria-pressed={debtFilter === filter.id}><span>{filter.label}</span><b>{filter.count ?? '—'}</b></button>)}
           </div>
         </div>
         <div className="finance-management__receivables-list space-y-3">
           {visibleContractsWithDebt.map((contract) => {
-            const debt = contractDebt(contract)
+            const debt = Number(contract.totalPrice || 0) - Number(contract.discount || 0) - Number(contract.paidAmount || 0)
             const nextInstallment = pendingInstallments(contract)[0]
             const dueDate = nextInstallment?.date || contract.nextPaymentDate
             const overdue = overdueAmount(contract, todayKey) > 0
             const student = studentById.get(contract.studentId)
-            return <article key={contract.id} className={overdue ? 'is-overdue' : ''} title={`Hợp đồng ${contract.id}`}><div className="finance-management__debt-row"><div className="min-w-0"><div className="finance-management__debt-name"><h3>{studentName(contract.studentId)}</h3>{overdue && <span>Quá hạn</span>}{contract.status === 'frozen' && <span className="is-frozen">Bảo lưu</span>}</div><p>{student?.phone || 'Chưa có SĐT'} · {contract.packageName}</p></div><div className="finance-management__debt-amount"><b className={debt >= 0 ? 'is-debt' : 'is-credit'}>{debt >= 0 ? money(debt) : `+${money(Math.abs(debt))}`}</b><div className="finance-management__debt-meta"><span>{debt >= 0 ? 'Phải thu' : 'Dư'}</span>{dueDate && debt > 0 && <small><Clock size={12} /> {new Date(dueDate).toLocaleDateString('vi-VN')}</small>}{debt > 0 && <button onClick={() => openPayment(contract)} className="finance-management__collect-button" aria-label={`Thu tiền của ${studentName(contract.studentId)}`}><Plus size={14} /><span>Thu</span></button>}</div></div></div></article>
+            return <article key={contract.id} className={overdue ? 'is-overdue' : ''} title={`Hợp đồng ${contract.id}`}><div className="finance-management__debt-row"><div className="min-w-0"><div className="finance-management__debt-name"><h3>{studentName(contract.studentId)}</h3>{overdue && <span>Quá hạn</span>}{contract.status === 'frozen' && <span className="is-frozen">Bảo lưu</span>}</div><p>{student?.phone || 'Chưa có SĐT'} · {contract.packageName}</p></div><div className="finance-management__debt-amount"><b className={debt >= 0 ? 'is-debt' : 'is-credit'}>{contract.dataIssue ? 'Chưa xác định' : debt >= 0 ? money(debt) : `+${money(Math.abs(debt))}`}</b><div className="finance-management__debt-meta"><span>{debt >= 0 ? 'Phải thu' : 'Dư'}</span>{dueDate && debt > 0 && <small><Clock size={12} /> {new Date(dueDate).toLocaleDateString('vi-VN')}</small>}{debt > 0 && !contract.dataIssue && <button onClick={() => openPayment(contract)} className="finance-management__collect-button" aria-label={`Thu tiền của ${studentName(contract.studentId)}`}><Plus size={14} /><span>Thu</span></button>}</div></div></div></article>
           })}
-          {searchedContractsWithDebt.length === 0 && <div className="finance-management__empty"><CheckCircle size={36} /><p>{debtSearch ? 'Không tìm thấy hồ sơ phù hợp.' : 'Không có hợp đồng trong nhóm này.'}</p></div>}
+          {!debtLoading && !debtError && contracts.length === 0 && <div className="finance-management__empty"><CheckCircle size={36} /><p>{debtHasMore ? 'Chưa gặp hồ sơ phù hợp trong trang này. Tiếp tục tải để tìm thêm.' : debtSearch ? 'Không tìm thấy hồ sơ phù hợp.' : 'Không có hợp đồng trong nhóm này.'}</p></div>}
         </div>
-        {visibleDebtCount < searchedContractsWithDebt.length && <button type="button" className="finance-management__load-more" onClick={() => setVisibleDebtCount((current) => current + 20)}>Xem thêm 20 hồ sơ · còn {(searchedContractsWithDebt.length - visibleDebtCount).toLocaleString('vi-VN')}</button>}
+        {debtHasMore && <button type="button" className="finance-management__load-more" disabled={debtLoading} onClick={() => void loadDebts(true)}>{debtLoading ? 'Đang tải…' : 'Tải thêm hồ sơ'}</button>}
       </section>
 
       <FinancePendingOperations onCompleted={financeCompleted} describeContract={id => { const contract = contracts.find(item => item.id === id); return contract ? `${studentName(contract.studentId)} · ${contract.packageName}` : 'Hợp đồng đã thao tác' }} />

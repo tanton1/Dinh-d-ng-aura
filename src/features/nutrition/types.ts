@@ -7,6 +7,9 @@ import type {
 import type { DataSyncState } from '../../dataSync/profileSync'
 
 export type NutritionGoal = 'lose-fat' | 'gain-muscle' | 'maintain'
+export type NutritionWorkspaceSection = 'today' | 'diary' | 'classic-diary' | 'plan' | 'menu' | 'explore' | 'catalog' | 'insights'
+export type NutritionMealType = 'breakfast' | 'lunch' | 'dinner' | 'snack'
+export type NutritionDataConfidence = 'verified' | 'estimated' | 'needs-review'
 
 export interface NutritionProfileDraft {
   goal: NutritionGoal
@@ -79,7 +82,20 @@ export interface NutritionClarificationAnswer {
   adjustmentNote?: string
 }
 
+export interface ScanQualitySummary {
+  schemaVersion: 1
+  itemCount: number
+  manuallyAdjustedItemCount: number
+  unresolvedItemCount: number
+  unresolvedQuestionCount: number
+  answeredQuestionCount: number
+  baselineCalories: number
+  finalCalories: number
+  calorieAdjustment: number
+}
+
 export interface NutritionMealDraft {
+  scanQuality?: ScanQualitySummary
   /** Stable identifier for one save attempt; reused by retries to prevent duplicate meal logs. */
   idempotencyKey?: string
   /** Canonical dish title returned by the scan. Keep separate from ingredient fallback name. */
