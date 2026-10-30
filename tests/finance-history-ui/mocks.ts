@@ -78,6 +78,14 @@ export function useDatabase() {
 export function useAuth() {
   return { user: { uid: state.owner }, profile: { uid: state.owner, role: 'admin', authzVersion: state.authzVersion }, authzReady: true, hasCapability: () => true, backendMode: 'firebase' }
 }
+// The real Student360Page checks the live Firebase owner independently of context.
+// Keep the snapshot stable during profile rerenders, including StrictMode checks.
+let firebaseOwner = { uid: state.owner }
+export const firebaseAuth = { get currentUser() {
+  if (firebaseOwner.uid !== state.owner) firebaseOwner = { uid: state.owner }
+  return firebaseOwner
+} }
+export function onAuthStateChanged(_auth: unknown, callback: () => void) { callback(); return () => {} }
 // Model a bounded report response, not a live directory: later fixture writes
 // become visible only through a subsequent explicit or date-scoped report read.
 export async function listFinanceReceivables(query: any) {
