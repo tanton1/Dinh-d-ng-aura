@@ -1,6 +1,6 @@
 const { logger } = require('firebase-functions')
 const { randomUUID, createHash } = require('node:crypto')
-const { withOperationMetrics, measureResponseBytes } = require('./operation-metrics')
+const { withOperationMetrics, measureResponseBytes, OPERATION_METRIC_FIELDS } = require('./operation-metrics')
 
 function errorCode(error) {
   if (error && typeof error === 'object' && typeof error.code === 'string') {
@@ -73,10 +73,11 @@ function shouldSampleMetric(id, sampleRate) {
 
 function withFunctionTelemetry(functionName, handler, options = {}) {
   const metricLogger = options.logger || logger
+  const isEvent = options.invocationType === 'event'
   return async (request) => withOperationMetrics(async metrics => {
     const startedAt = Date.now()
-    const requestCorrelationId = correlationId(request)
-    if (request && typeof request === 'object') request.auraCorrelationId = requestCorrelationId
+    const requestCorrelationId = isEvent ? randomUUID() : correlationId(request)
+    if (!isEvent && request && typeof request === 'object') request.auraCorrelationId = requestCorrelationId
     let outcome = 'success'
     let failureCode = null
     let taxonomy = null
@@ -111,8 +112,9 @@ function withFunctionTelemetry(functionName, handler, options = {}) {
         failureCode,
         errorCode: taxonomy,
         retryable,
-        authenticated: Boolean(request?.auth?.uid),
-        appVerified: Boolean(request?.app?.appId),
+        ...(isEvent ? { invocationType: 'event' } : {}),
+        authenticated: isEvent ? null : Boolean(request?.auth?.uid),
+        appVerified: isEvent ? null : Boolean(request?.app?.appId),
       })
       throw error
     } finally {
@@ -131,11 +133,12 @@ function withFunctionTelemetry(functionName, handler, options = {}) {
         errorCode: taxonomy,
         retryable,
         durationMs: Date.now() - startedAt,
-        authenticated: Boolean(request?.auth?.uid),
-        appVerified: Boolean(request?.app?.appId),
+        ...(isEvent ? { invocationType: 'event' } : {}),
+        authenticated: isEvent ? null : Boolean(request?.auth?.uid),
+        appVerified: isEvent ? null : Boolean(request?.app?.appId),
       })
     }
-  })
+  }, { invocationType: isEvent ? 'event' : undefined })
 }
 
 // Opt-in for newly instrumented business operations. Keep the existing sampling
@@ -147,9 +150,8 @@ function withPrivateFunctionTelemetry(functionName, handler, options = {}) {
     'already-exists', 'permission-denied', 'resource-exhausted', 'failed-precondition', 'aborted', 'out-of-range',
     'unimplemented', 'internal', 'unavailable', 'data-loss', 'unauthenticated'])
   const fields = ['schemaVersion', 'domain', 'operation', 'release', 'sampleRate', 'functionName', 'outcome',
-    'errorCode', 'retryable', 'durationMs', 'authenticated', 'appVerified']
-  const metricFields = ['logicalQueries', 'documentsReturned', 'cacheHits', 'cacheMisses', 'projectionAgeMs',
-    'queueWaitMs', 'processingMs', 'responseBytes']
+    'errorCode', 'retryable', 'durationMs', 'authenticated', 'appVerified', 'invocationType']
+  const metricFields = OPERATION_METRIC_FIELDS
   const privateLogger = Object.fromEntries(['info', 'error'].map(level => [level, (message, value) => {
     const output = Object.fromEntries(fields.filter(field => value[field] !== undefined).map(field => [field, value[field]]))
     output.failureCode = value.failureCode === null ? null : knownCodes.has(value.failureCode) ? value.failureCode : 'internal'
@@ -165,4 +167,8 @@ function withPrivateFunctionTelemetry(functionName, handler, options = {}) {
   return withFunctionTelemetry(functionName, handler, { ...options, logger: privateLogger })
 }
 
-module.exports = { withFunctionTelemetry, withPrivateFunctionTelemetry, correlationId, domainForOperation, errorTaxonomy, retryableError, telemetrySampleRate, shouldSampleMetric }
+function withPrivateEventTelemetry(functionName, handler, options = {}) {
+  return withPrivateFunctionTelemetry(functionName, handler, { ...options, invocationType: 'event' })
+}
+
+module.exports = { withFunctionTelemetry, withPrivateFunctionTelemetry, withPrivateEventTelemetry, correlationId, domainForOperation, errorTaxonomy, retryableError, telemetrySampleRate, shouldSampleMetric }

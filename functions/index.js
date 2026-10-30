@@ -156,6 +156,7 @@ exports.syncSessionContractUsageView = onDocumentWritten({
   retry: true,
 }, async (event) => syncContractUsageView({ db, event, logger }))
 
+const { withPrivateEventTelemetry } = require('./observability')
 const operationalActionTrigger = (document, maxInstances = 1) => onDocumentWritten({
   document,
   database: databaseId,
@@ -167,7 +168,11 @@ const operationalActionTrigger = (document, maxInstances = 1) => onDocumentWritt
   concurrency: 1,
   maxInstances,
   retry: true,
-}, async (event) => syncOperationalActionSource({ db, event, logger }))
+}, (() => {
+  const handler = async (event) => syncOperationalActionSource({ db, event, logger })
+  const operation = { 'sessions/{sessionId}': 'syncSessionOperationalActions', 'studentOperationalViews/{studentId}': 'syncStudent360OperationalActions' }[document]
+  return operation ? withPrivateEventTelemetry(operation, handler, { logger }) : handler
+})())
 
 exports.syncContractOperationalActions = operationalActionTrigger('contracts/{contractId}')
 exports.syncContractUsageOperationalActions = operationalActionTrigger('contractUsageViews/{contractId}', 2)
@@ -518,12 +523,12 @@ exports.syncStaffOperationalSummary = onDocumentWritten({
   cpu: 'gcf_gen1',
   maxInstances: 1,
   retry: true,
-}, async (event) => {
+}, withPrivateEventTelemetry('syncStaffOperationalSummary', async (event) => {
   const before = event.data?.before?.exists ? event.data.before.data() || {} : {}
   const after = event.data?.after?.exists ? event.data.after.data() || {} : {}
   const staffIds = [...new Set([...staffIdsFromContract(before), ...staffIdsFromContract(after)])]
   return syncStaffManagedClientSummary({ db, event, staffIds })
-})
+}, { logger }))
 exports.reconcileStaffManagedClientSummariesScheduled = createScheduledBackgroundFunction('reconcileStaffManagedClientSummariesScheduled', { db, databaseId, onSchedule, onDocumentWritten, logger })
 // The Firebase CLI can selectively deploy these public account endpoints only
 // when it can discover them as static exports.  Keeping the factory assignment

@@ -2,8 +2,11 @@
 
 const { AsyncLocalStorage } = require('node:async_hooks')
 const context = new AsyncLocalStorage()
-const counters = new Set(['logicalQueries', 'documentsReturned', 'cacheHits', 'cacheMisses'])
+const EVENT_COUNTERS = Object.freeze(['guardSkips', 'queryAttempts', 'documentReadAttempts', 'documentReads', 'writeAttempts', 'writesCompleted', 'writeNoops', 'transactionAttempts', 'transactionWriteAttempts', 'transactionWritesCommitted', 'staffRefreshes'])
+const counters = new Set(['logicalQueries', 'documentsReturned', 'cacheHits', 'cacheMisses', ...EVENT_COUNTERS])
 const gauges = new Set(['projectionAgeMs', 'queueWaitMs', 'processingMs', 'responseBytes'])
+const OPERATION_METRIC_FIELDS = Object.freeze([...counters, ...gauges])
+const eventContexts = new WeakSet()
 
 // Unknown measurements are omitted. These are application observations, never
 // billing units. No query text, document contents or identifiers are accepted.
@@ -21,9 +24,17 @@ function recordOperationMetrics(values) {
   }
 }
 
-function withOperationMetrics(handler) {
+function withOperationMetrics(handler, options = {}) {
   const metrics = {}
+  if (options.invocationType === 'event') {
+    eventContexts.add(metrics)
+    for (const key of ['logicalQueries', 'documentsReturned', ...EVENT_COUNTERS]) metrics[key] = 0
+  }
   return context.run(metrics, () => handler(metrics))
+}
+
+function recordEventMetrics(values) {
+  if (eventContexts.has(context.getStore())) recordOperationMetrics(values)
 }
 
 function measureResponseBytes(value) {
@@ -33,4 +44,4 @@ function measureResponseBytes(value) {
   } catch { return undefined }
 }
 
-module.exports = { recordOperationMetrics, withOperationMetrics, measureResponseBytes }
+module.exports = { recordOperationMetrics, recordEventMetrics, withOperationMetrics, measureResponseBytes, OPERATION_METRIC_FIELDS }

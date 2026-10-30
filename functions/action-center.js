@@ -9,6 +9,7 @@ const { withFunctionTelemetry } = require('./observability')
 const { normalizeReviewSlaMinutes, reviewSlaState } = require('./review-sla')
 const { ASSIGNMENT_SNAPSHOT_VERSION } = require('./nutrition-review-assignment')
 const { projectionSourceChanged } = require('./projection-event-policy')
+const { recordEventMetrics, observeEventRead, observeEventWrite } = require('./event-operation-metrics')
 
 const MAX_PAGE_SIZE = 100
 const MAX_SCAN = 500
@@ -187,7 +188,7 @@ function actionDocument(input) {
 async function upsertOperationalAction({ db, input, logger = console }) {
   const next = actionDocument(input)
   const reference = db.doc(`operationalActions/${next.actionId}`)
-  const existing = await reference.get()
+  const existing = await observeEventRead('document', () => reference.get())
   const existingValue = existing.exists ? existing.data() : null
   const snoozedUntilMillis = existingValue?.snoozedUntil?.toMillis?.() || 0
   const sourceClosed = Boolean(existingValue?.sourceClosedAt)
@@ -230,8 +231,11 @@ async function upsertOperationalAction({ db, input, logger = console }) {
       // Firestore stores Date inputs as Timestamp values on the next read.
       || (field === 'dueAt' && timestampMillis(value) > 0
         && timestampMillis(existingValue[field]) === timestampMillis(value))
-  ))) return { ...existingValue, ...payload, updatedAt: existingValue.updatedAt }
-  await reference.set(payload, { merge: true })
+  ))) {
+    recordEventMetrics({ writeNoops: 1 })
+    return { ...existingValue, ...payload, updatedAt: existingValue.updatedAt }
+  }
+  await observeEventWrite(() => reference.set(payload, { merge: true }))
   logger.info?.('operational_action_upserted', {
     actionId: next.actionId,
     status: preservedStatus,
@@ -509,18 +513,18 @@ async function operationalStudentContext(db, { studentId: suppliedStudentId = ''
   let studentId = clean(suppliedStudentId, 200)
   const uid = clean(accountUid, 200)
   if (!studentId && uid) {
-    const reverse = await db.doc(`accountIdentityLinks/${uid}`).get()
+    const reverse = await observeEventRead('document', () => db.doc(`accountIdentityLinks/${uid}`).get())
     if (reverse.exists && reverse.data()?.status === 'active') studentId = clean(reverse.data()?.studentId, 200)
     if (!studentId) {
-      const linked = await db.collection('students').where('accountUid', '==', uid).limit(2).get()
+      const linked = await observeEventRead('query', () => db.collection('students').where('accountUid', '==', uid).limit(2).get())
       if (linked.size === 1) studentId = linked.docs[0].id
     }
   }
   if (!studentId) return { studentId: null, branchId: null, assignedStaffIds: [] }
   const [student, canonicalContracts, legacyContracts] = await Promise.all([
-    db.doc(`students/${studentId}`).get(),
-    db.collection('contracts').where('studentId', '==', studentId).limit(20).get(),
-    db.collection('contracts').where('crmProfileId', '==', studentId).limit(20).get(),
+    observeEventRead('document', () => db.doc(`students/${studentId}`).get()),
+    observeEventRead('query', () => db.collection('contracts').where('studentId', '==', studentId).limit(20).get()),
+    observeEventRead('query', () => db.collection('contracts').where('crmProfileId', '==', studentId).limit(20).get()),
   ])
   const contracts = [...new Map(
     [...canonicalContracts.docs, ...legacyContracts.docs].map((item) => [item.id, item.data() || {}]),
@@ -568,6 +572,7 @@ async function syncOperationalActionSource({ db, event, logger = console, review
     ? previousValue : value || previousValue || {}
   if (!collection || !sourceId) return { collection: null, sourceId: null, actions: 0 }
   if (collection === 'studentOperationalViews' && !studentProjectionActionSourceChanged(previousValue, value)) {
+    recordEventMetrics({ guardSkips: 1 })
     return { collection, sourceId, actions: 0, skipped: 'projection_timestamps_only' }
   }
   if (collection === 'contractUsageViews' && !projectionSourceChanged(event, collection)) {
@@ -575,6 +580,7 @@ async function syncOperationalActionSource({ db, event, logger = console, review
   }
   if (collection === 'sessions') {
     if (!sessionActionSourceChanged(previousValue, value)) {
+      recordEventMetrics({ guardSkips: 1 })
       return { collection, sourceId, actions: 0, skipped: 'session_fields_unchanged' }
     }
     const subjects = [...new Set([previousValue?.studentId, value?.studentId].filter(Boolean))]
@@ -615,11 +621,11 @@ async function syncOperationalActionSource({ db, event, logger = console, review
   }
   if (collection === 'sessions' && sourceValue.studentId) {
     const studentId = sourceValue.studentId
-    const recent = await db.collection('sessions')
+    const recent = await observeEventRead('query', () => db.collection('sessions')
       .where('studentId', '==', studentId)
       .orderBy('date', 'desc')
       .limit(20)
-      .get()
+      .get())
     const recentSessions = recent.docs.map((item) => ({ id: item.id, ...item.data() }))
     const consecutive = hasThreeConsecutiveNoShows(recentSessions)
     if (consecutive) inputs = [{ sourceType: 'student', sourceId: studentId, actionType: 'three_no_shows', branchId: sourceValue.branchId, studentId, assignedStaffIds: recent.docs.map((item) => item.data()?.trainerId).filter(Boolean), severity: 'critical', title: 'Ba lần vắng liên tiếp', redactedSummary: 'Học viên có ba buổi vắng liên tiếp; cần liên hệ và kiểm tra lại lịch.', allowedRoles: ['admin', 'super_admin', 'staff', 'trainer_pt', 'branch_manager'], availableActions: ['open_student', 'contact_student'] }]
@@ -721,16 +727,16 @@ async function syncOperationalActionSource({ db, event, logger = console, review
               : collection === 'ptScheduleDrafts'
                 ? { sourceType: 'schedule_draft', sourceId, actionTypes: new Set(inputs.map((item) => item.actionType)), actionPrefixes: ['pair_slot_', 'missing_student_'] }
             : { sourceType: 'renewal_case', sourceId, actionTypes: new Set(['follow_up']) }
-  const existing = await db.collection('operationalActions').where('sourceId', '==', cleanup.sourceId).limit(200).get()
+  const existing = await observeEventRead('query', () => db.collection('operationalActions').where('sourceId', '==', cleanup.sourceId).limit(200).get())
   for (const item of existing.docs) {
     const current = item.data()
     const removedFromSource = current.sourceType === cleanup.sourceType
       && (cleanup.actionTypes.has(current.actionType) || (Array.isArray(cleanup.actionPrefixes) && cleanup.actionPrefixes.some((prefix) => current.actionType?.startsWith(prefix))))
       && !expected.has(item.id)
     if (removedFromSource && ACTIVE_STATUSES.has(current.status)) {
-      await item.ref.set({ status: 'resolved', resolvedAt: FieldValue.serverTimestamp(), resolution: 'source_no_longer_actionable', sourceClosedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() }, { merge: true })
+      await observeEventWrite(() => item.ref.set({ status: 'resolved', resolvedAt: FieldValue.serverTimestamp(), resolution: 'source_no_longer_actionable', sourceClosedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() }, { merge: true }))
     } else if (removedFromSource && current.status === 'resolved' && current.resolution !== 'source_no_longer_actionable' && !current.sourceClosedAt) {
-      await item.ref.set({ sourceClosedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() }, { merge: true })
+      await observeEventWrite(() => item.ref.set({ sourceClosedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() }, { merge: true }))
     }
   }
   for (const input of inputs) await upsertOperationalAction({ db, input, logger })

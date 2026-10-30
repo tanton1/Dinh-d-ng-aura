@@ -2,6 +2,22 @@ const test = require('node:test')
 const assert = require('node:assert/strict')
 const { summarize, collect } = require('./operation-baseline.cjs')
 const metric = (value = {}) => ({ jsonPayload: { message: 'Aura function metric', operation: 'listTest', outcome: 'success', durationMs: 100, ...value } })
+
+test('event cohorts cannot masquerade as anonymous probes and retain attempt/commit metrics separately', () => {
+  const report = summarize([
+    metric({ operation: 'syncStaffOperationalSummary', invocationType: 'event', authenticated: false, appVerified: false, sampleRate: .1, metrics: { guardSkips: 1, transactionAttempts: 2, transactionWriteAttempts: 2, transactionWritesCommitted: 1, eventId: 'PRIVATE_EVENT' } }),
+    metric({ operation: 'syncStaffOperationalSummary', outcome: 'error', authenticated: false, errorCode: 'AUTH' }),
+  ])
+  const row = report.operations.find(r => r.operation === 'syncStaffOperationalSummary')
+  assert.equal(row.cohorts.length, 2); assert.equal(row.evidence.eventSamples, 1); assert.equal(row.evidence.unauthenticatedErrorSamples, 1)
+  const event = row.cohorts.find(c => c.invocationType === 'event')
+  assert.equal(event.authenticated, null); assert.equal(event.appVerified, null)
+  assert.equal(event.measured.transactionWriteAttempts.meanWhenMeasured, 2)
+  assert.equal(event.measured.transactionWritesCommitted.meanWhenMeasured, 1)
+  assert.equal(event.estimatedRequests, 10)
+  assert.equal(report.operations.find(r => r.operation === 'syncSessionOperationalActions').status, 'unknown')
+  assert.doesNotMatch(JSON.stringify(report), /PRIVATE_EVENT|eventId/)
+})
 test('expected coverage keeps newly instrumented operations and Push explicitly unknown until measured', () => {
   const report = summarize([])
   for (const operation of ['getOperationsDashboard', 'getStudent360Overview', 'renewPtContract', 'getPushAdminOverview']) {

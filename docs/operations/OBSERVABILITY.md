@@ -54,6 +54,26 @@ npm run operations:baseline -- --project=gen-lang-client-0815966909 --start=2026
 
 Both timestamps are required together; windows must be in the past and no longer than seven days. Cohort metadata never substitutes authentication for a role, labels a request as a deployment probe, or derives business scope from an identifier. Client diagnostic batches have session/batch/tail censoring and are not included in this function-metric estimator.
 
+### Opt-in event observations
+
+`syncStaffOperationalSummary`, `syncSessionOperationalActions` and `syncStudent360OperationalActions` use `withPrivateEventTelemetry`: 10% of successful invocations and 100% of failures, with the existing sample-rate override. These observations have `invocationType: event` and unknown (`null`) authentication/App Check; the collector separates them from anonymous callable rejections. Sampling uses an ephemeral random value, never the event ID. New metric/failure records exclude event, user, source and correlation IDs, error messages and payloads. Existing business audit logs are unchanged. The sink is neither awaited nor allowed to throw into business execution.
+
+| Measurement | Meaning within the three instrumented handlers |
+| --- | --- |
+| `guardSkips` | Existing source-field/contribution guard avoided work. It does not assert event deduplication. |
+| `queryAttempts` / `logicalQueries` | Existing query call attempts / query promises that resolved. Repeated pages and callback retries count separately. |
+| `documentReadAttempts` / `documentReads` | Existing point-read attempts / point-read promises that resolved, including missing documents. |
+| `documentsReturned` | Query result sizes plus existing point documents, including repeated observations of the same document. |
+| `writeAttempts` / `writesCompleted` | Direct action-document write attempts / acknowledged write promises. |
+| `writeNoops` | Equal action payloads or a completed staff-summary transaction whose current watermark required no write. |
+| `transactionAttempts` / `transactionWriteAttempts` | Staff-summary read-write transaction callbacks / writes queued by those callbacks, including retries. Read-only query transactions appear under query counters. |
+| `transactionWritesCommitted` | Writes queued by the final staff-summary callback, counted only after its transaction promise resolves. |
+| `staffRefreshes` | Staff refreshes that completed, including a current-watermark no-op. A later failure retains earlier completed counts. |
+
+Zeros describe only these explicitly observed paths; uninstrumented operations stay unknown. These are application observations, not SDK-internal RPC counts, billed reads/writes, or proof of exactly-once delivery. In particular, a rejected write/transaction promise may have an ambiguous server outcome; absence of an acknowledgment is not evidence that no write committed. Source guards, sequential staff refreshes, action reconciliation order, and the staff summary's Firestore `sourceReadTime` fence remain unchanged. No event receipts, polling or additional database operations are introduced. The Student 360 health guard is deliberately unchanged until a representative observation window establishes whether narrowing it is safe and valuable.
+
+Validate locally with `npm run test:app-optimization` and compare full SDK discovery metadata/options in both App Check modes before releasing only these three targets. Recheck actual serving revisions after release; do not deploy unrelated consumers just to distribute the opt-in helper. Request-count rankings alone cannot establish redundant functions or operating-cost savings.
+
 Deploy the four additive reporting endpoints in `asia-east1` before the frontend: `getAcademyAnalyticsSummary`, `listAcademyEnrollmentsPage`, `listFinanceReceivables`, `listFinanceStudentLabels`. Verify the actual serving revision, auth/App Check and branch boundaries, then deploy frontend. These APIs require existing admin permissions; no rules/index migration or raw-list fallback is introduced. Financial pages explicitly use contract-ID order; a future global due-date ordering needs a canonical projected sort field. Summary totals refer to the branch and selected contract category, while text search filters the paginated list.
 
 The concurrent finance changes from PR #79, #81 and #82 are retained. Installments and preservation use server-side categories included in cursor and cache scope; compatibility categories and filters remain available to earlier clients. Preservation includes only preserved contracts with positive debt and excludes cancelled/inactive/archived/draft contracts. Following PR #82, cancelled contracts are excluded from every receivables category, while their cash history and settlement remain available in the student profile. Finance cache and cursor namespaces are version 4 to prevent mixing earlier eligibility rules. Weekly due totals cover Monday through Sunday and all pending installments in the week. Financial receivables use contract price minus discount and net cash paid; service recognition attribution does not change that balance. Emulator tests cover payment, refund, reversal and replay alongside recognized revenue, plus settlement/cancellation/reopening category transitions.
