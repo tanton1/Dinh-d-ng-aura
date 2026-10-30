@@ -1,7 +1,9 @@
-import { collection, doc, onSnapshot, orderBy, query, setDoc, updateDoc, deleteDoc, serverTimestamp, getDocs, writeBatch, where, getDoc, limit } from 'firebase/firestore'
+import { collection, doc, onSnapshot, orderBy, query, setDoc, updateDoc, deleteDoc, serverTimestamp, getDocs, getDocsFromServer, writeBatch, where, getDoc, getDocFromServer, limit } from 'firebase/firestore'
 import { httpsCallable } from 'firebase/functions'
 import { firebaseFunctions } from '../lib/firebaseFunctions'
 import { firestoreDb } from '../lib/firebaseFirestore'
+import { getPushBroadcastLogsPage } from './pushHistoryService'
+export { getPushBroadcastLogsPage, type PushBroadcastCursor, type PushBroadcastPage } from './pushHistoryService'
 import { safeLocalStorageSet } from '../lib/safeStorage'
 import type {
   AppNotification,
@@ -331,7 +333,7 @@ export function sendBrowserNativePushNotification(title: string, message: string
 /**
  * Load System Push Settings from Firestore with LocalStorage fallback
  */
-export async function getSystemPushSettings(): Promise<SystemPushSettings> {
+export async function getSystemPushSettings(options: { requireServer?: boolean } = {}): Promise<SystemPushSettings> {
   let fallback = DEFAULT_PUSH_SETTINGS
   try {
     const cached = typeof window !== 'undefined' ? window.localStorage.getItem(PUSH_SETTINGS_KEY) : null
@@ -340,17 +342,22 @@ export async function getSystemPushSettings(): Promise<SystemPushSettings> {
     fallback = DEFAULT_PUSH_SETTINGS
   }
 
-  if (!firestoreDb) return fallback
+  if (!firestoreDb) {
+    if (options.requireServer) throw new Error('Chưa thể xác nhận cấu hình Push từ máy chủ.')
+    return fallback
+  }
 
   try {
     const docRef = doc(firestoreDb, 'system', 'push_settings')
-    const snap = await getDoc(docRef)
+    const snap = options.requireServer ? await getDocFromServer(docRef) : await getDoc(docRef)
     if (snap.exists()) {
       const data = normalizeSystemPushSettings(snap.data() as Partial<SystemPushSettings>)
       safeLocalStorageSet(PUSH_SETTINGS_KEY, JSON.stringify(data))
       return data
     }
+    if (options.requireServer) return normalizeSystemPushSettings(DEFAULT_PUSH_SETTINGS)
   } catch (e) {
+    if (options.requireServer) throw e
     console.warn('Could not read push settings from Firestore, using cached/default:', e)
   }
 
@@ -575,74 +582,20 @@ export async function dispatchAdminPushBroadcast(params: {
   }
 }
 
-/**
- * Fetch Admin Broadcast Logs
- */
+/** Compatibility reader for callers that need only the newest bounded page. */
 export async function getPushBroadcastLogs(): Promise<PushBroadcastLog[]> {
-  const cached = localStorage.getItem(PUSH_LOGS_KEY)
-  const fallback: PushBroadcastLog[] = cached
-    ? JSON.parse(cached)
-    : import.meta.env.VITE_FORCE_DEMO === 'true'
-      ? [
-    {
-      id: 'log_sample_1',
-      title: 'Nhắc nhở nộp nhật ký bữa ăn trưa 🥗',
-      message: 'Đã đến giờ ăn trưa rồi! Bạn hãy chụp ảnh bữa ăn gửi cho HLV nhé.',
-      type: 'REMINDER',
-      targetType: 'all',
-      actionUrl: '/nutrition',
-      sentCount: 24,
-      webPushSentCount: 20,
-      createdAt: new Date(Date.now() - 3600000 * 2).toISOString(),
-      sentBy: 'Admin Aura'
-    },
-    {
-      id: 'log_sample_2',
-      title: 'Khóa học mới: Dinh Dưỡng Giảm Mỡ Chuẩn Y Khoa 🎓',
-      message: 'Khóa học mới đã chính thức xuất bản trên Aura Academy. Vào học ngay!',
-      type: 'ANNOUNCEMENT',
-      targetType: 'all',
-      actionUrl: '/courses',
-      sentCount: 35,
-      webPushSentCount: 31,
-      createdAt: new Date(Date.now() - 86400000).toISOString(),
-      sentBy: 'Admin Aura'
-    }
-        ]
-      : []
-
-  if (!firestoreDb) return fallback
-
-  try {
-    const q = query(collection(firestoreDb, 'system', 'push_broadcast_logs', 'logs'), orderBy('createdAt', 'desc'))
-    const snap = await getDocs(q)
-    if (!snap.empty) {
-      const items = snap.docs.map(d => d.data() as PushBroadcastLog)
-      safeLocalStorageSet(PUSH_LOGS_KEY, JSON.stringify(items))
-      return items
-    }
-  } catch (e) {
-    console.warn('Error fetching push broadcast logs from Firestore:', e)
-  }
-
-  return fallback
+  return (await getPushBroadcastLogsPage()).items
 }
 
 /** Read the latest server-side scheduler runs for the admin health panel. */
 export async function getPushAutomationLogs(): Promise<PushAutomationLog[]> {
-  if (!firestoreDb) return []
-  try {
-    const logsQuery = query(
-      collection(firestoreDb, 'system', 'push_automation_logs', 'logs'),
-      orderBy('createdAt', 'desc'),
-      limit(10),
-    )
-    const snapshot = await getDocs(logsQuery)
-    return snapshot.docs.map((item) => item.data() as PushAutomationLog)
-  } catch (error) {
-    console.warn('Error fetching push automation logs from Firestore:', error)
-    return []
+  if (!firestoreDb) {
+    if (import.meta.env.VITE_FORCE_DEMO === 'true' || import.meta.env.MODE === 'e2e') return []
+    throw new Error('Dịch vụ lịch sử tự động hóa chưa sẵn sàng.')
   }
+  const logsQuery = query(collection(firestoreDb, 'system', 'push_automation_logs', 'logs'), orderBy('createdAt', 'desc'), limit(10))
+  const snapshot = await getDocsFromServer(logsQuery)
+  return snapshot.docs.map((item) => ({ ...item.data(), id: item.id }) as PushAutomationLog)
 }
 
 /** Read privacy-safe delivery and audience aggregates from the privileged backend. */
@@ -656,7 +609,10 @@ export async function getPushAdminOverview(): Promise<PushAdminOverview> {
     latestAutomationAt: null,
     latestBroadcastAt: null,
   }
-  if (!firebaseFunctions) return emptyOverview
+  if (!firebaseFunctions) {
+    if (import.meta.env.VITE_FORCE_DEMO === 'true' || import.meta.env.MODE === 'e2e') return emptyOverview
+    throw new Error('Dịch vụ tổng hợp Push chưa sẵn sàng.')
+  }
 
   const callable = httpsCallable<Record<string, never>, PushAdminOverview>(
     firebaseFunctions,
@@ -664,111 +620,71 @@ export async function getPushAdminOverview(): Promise<PushAdminOverview> {
   )
   const response = await callable({})
   const value = response.data
+  const fields = ['activeUsers', 'pushEnabledUsers', 'activeDevices', 'webPushAccepted24h', 'webPushFailures24h'] as const
+  if (!value || fields.some(field => !Number.isFinite(value[field]) || value[field] < 0)) {
+    throw new Error('Phản hồi tổng hợp Push chưa đầy đủ. Hãy thử tải lại.')
+  }
   return {
-    activeUsers: Number.isFinite(value.activeUsers) ? value.activeUsers : 0,
-    pushEnabledUsers: Number.isFinite(value.pushEnabledUsers) ? value.pushEnabledUsers : 0,
-    activeDevices: Number.isFinite(value.activeDevices) ? value.activeDevices : 0,
-    webPushAccepted24h: Number.isFinite(value.webPushAccepted24h) ? value.webPushAccepted24h : 0,
-    webPushFailures24h: Number.isFinite(value.webPushFailures24h) ? value.webPushFailures24h : 0,
+    ...Object.fromEntries(fields.map(field => [field, value[field]])),
     latestAutomationAt: typeof value.latestAutomationAt === 'string' ? value.latestAutomationAt : null,
     latestBroadcastAt: typeof value.latestBroadcastAt === 'string' ? value.latestBroadcastAt : null,
-  }
+  } as PushAdminOverview
 }
 
-/**
- * Load Push Templates with Firestore & LocalStorage sync
- */
-export async function getPushTemplates(): Promise<PushTemplate[]> {
-  const cached = localStorage.getItem(PUSH_TEMPLATES_KEY)
-  let fallback: PushTemplate[] = cached ? JSON.parse(cached) : DEFAULT_PUSH_TEMPLATES
-
-  const db = firestoreDb
-  if (!db) return fallback
-
+/** Demo catalog stays local. Production never substitutes another account's cache. */
+function demoPushTemplates(): PushTemplate[] {
+  if (import.meta.env.VITE_FORCE_DEMO !== 'true' && import.meta.env.MODE !== 'e2e') {
+    throw new Error('Dịch vụ mẫu thông báo chưa sẵn sàng.')
+  }
   try {
-    const colRef = collection(db, 'system', 'push_templates', 'templates')
-    const snap = await getDocs(colRef)
-    if (!snap.empty) {
-      const items = snap.docs.map(d => d.data() as PushTemplate)
-      safeLocalStorageSet(PUSH_TEMPLATES_KEY, JSON.stringify(items))
-      return items
-    } else {
-      // Seed default templates to Firestore if empty
-      const batch = writeBatch(db)
-      DEFAULT_PUSH_TEMPLATES.forEach(tmpl => {
-        const docRef = doc(db, 'system', 'push_templates', 'templates', tmpl.id)
-        batch.set(docRef, tmpl)
-      })
-      await batch.commit().catch(e => console.warn('Seeding push templates failed:', e))
-      safeLocalStorageSet(PUSH_TEMPLATES_KEY, JSON.stringify(DEFAULT_PUSH_TEMPLATES))
-      return DEFAULT_PUSH_TEMPLATES
-    }
-  } catch (e) {
-    console.warn('Error fetching push templates from Firestore:', e)
-  }
-
-  return fallback
+    const cached = typeof localStorage === 'undefined' ? null : localStorage.getItem(PUSH_TEMPLATES_KEY)
+    const items = cached ? JSON.parse(cached) : null
+    return Array.isArray(items) ? items : DEFAULT_PUSH_TEMPLATES
+  } catch { return DEFAULT_PUSH_TEMPLATES }
 }
 
-/**
- * Save / Create / Edit a Push Template
- */
+function pushTemplateId(value: string) {
+  if (typeof value !== 'string' || !value.trim() || value.includes('/')) throw new Error('Mã mẫu thông báo không hợp lệ.')
+  return value.trim()
+}
+
+/** An empty production collection is an authoritative empty catalog, never a seed command. */
+export async function getPushTemplates(): Promise<PushTemplate[]> {
+  if (!firestoreDb) return demoPushTemplates()
+  const snapshot = await getDocsFromServer(collection(firestoreDb, 'system', 'push_templates', 'templates'))
+  return snapshot.docs.map(item => ({ ...item.data(), id: item.id }) as PushTemplate)
+}
+
 export async function savePushTemplate(template: PushTemplate): Promise<void> {
-  const existing = await getPushTemplates()
-  const idx = existing.findIndex(t => t.id === template.id)
-  
-  let updated: PushTemplate[]
-  const updatedItem: PushTemplate = {
-    ...template,
-    updatedAt: new Date().toISOString()
-  }
-
-  if (idx >= 0) {
-    updated = [...existing]
-    updated[idx] = updatedItem
-  } else {
-    updated = [updatedItem, ...existing]
-  }
-
-  safeLocalStorageSet(PUSH_TEMPLATES_KEY, JSON.stringify(updated))
-
+  const id = pushTemplateId(template.id)
+  const updated: PushTemplate = { ...template, id, updatedAt: new Date().toISOString() }
   if (firestoreDb) {
-    try {
-      const docRef = doc(firestoreDb, 'system', 'push_templates', 'templates', template.id)
-      await setDoc(docRef, updatedItem, { merge: true })
-    } catch (e) {
-      console.error('Error saving push template to Firestore:', e)
-    }
+    await setDoc(doc(firestoreDb, 'system', 'push_templates', 'templates', id), updated, { merge: true })
+    return
   }
+  const existing = demoPushTemplates()
+  const next = existing.some(item => item.id === id) ? existing.map(item => item.id === id ? updated : item) : [updated, ...existing]
+  safeLocalStorageSet(PUSH_TEMPLATES_KEY, JSON.stringify(next))
 }
 
-/**
- * Delete a Push Template
- */
 export async function deletePushTemplate(templateId: string): Promise<void> {
-  const existing = await getPushTemplates()
-  const updated = existing.filter(t => t.id !== templateId)
-
-  safeLocalStorageSet(PUSH_TEMPLATES_KEY, JSON.stringify(updated))
-
+  const id = pushTemplateId(templateId)
   if (firestoreDb) {
-    try {
-      const docRef = doc(firestoreDb, 'system', 'push_templates', 'templates', templateId)
-      await deleteDoc(docRef)
-    } catch (e) {
-      console.error('Error deleting push template from Firestore:', e)
-    }
+    await deleteDoc(doc(firestoreDb, 'system', 'push_templates', 'templates', id))
+    return
   }
+  safeLocalStorageSet(PUSH_TEMPLATES_KEY, JSON.stringify(demoPushTemplates().filter(item => item.id !== id)))
 }
 
-/**
- * Toggle Active status of a Push Template
- */
 export async function togglePushTemplateActive(templateId: string, active: boolean): Promise<void> {
-  const existing = await getPushTemplates()
-  const target = existing.find(t => t.id === templateId)
-  if (target) {
-    await savePushTemplate({ ...target, active })
+  const id = pushTemplateId(templateId)
+  if (typeof active !== 'boolean') throw new Error('Trạng thái mẫu thông báo không hợp lệ.')
+  if (firestoreDb) {
+    // updateDoc rejects a missing record; never create a partial default template.
+    await updateDoc(doc(firestoreDb, 'system', 'push_templates', 'templates', id), { active, updatedAt: new Date().toISOString() })
+    return
   }
+  const existing = demoPushTemplates()
+  if (!existing.some(item => item.id === id)) throw new Error('Mẫu thông báo không còn tồn tại.')
+  safeLocalStorageSet(PUSH_TEMPLATES_KEY, JSON.stringify(existing.map(item => item.id === id ? { ...item, active, updatedAt: new Date().toISOString() } : item)))
 }
-

@@ -1,12 +1,10 @@
 import '../../styles-admin.css'
 import './push/AdminNotificationsPage.css'
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Activity, FlaskConical, History, Send, SlidersHorizontal } from 'lucide-react'
 import { PageHeader } from '../../components/ui'
 import type {
   AdminUserRecord,
-  PushAdminOverview,
-  PushAutomationLog,
   PushBroadcastLog,
   PushDispatchResult,
   PushTemplate,
@@ -14,14 +12,8 @@ import type {
   ViewId,
 } from '../../types'
 import {
-  DEFAULT_PUSH_SETTINGS,
   deletePushTemplate,
   dispatchAdminPushBroadcast,
-  getPushAdminOverview,
-  getPushAutomationLogs,
-  getPushBroadcastLogs,
-  getPushTemplates,
-  getSystemPushSettings,
   savePushTemplate,
   saveSystemPushSettings,
   togglePushTemplateActive,
@@ -29,25 +21,25 @@ import {
 import { getStoredFcmToken, requestFcmPermissionAndToken } from '../../services/fcmService'
 import { PushAutomationPanel } from './push/PushAutomationPanel'
 import { PushComposerPanel } from './push/PushComposerPanel'
-import { PushHistoryPanel } from './push/PushHistoryPanel'
+import { PushHistoryPanel, type HistoryFilter } from './push/PushHistoryPanel'
 import { PushOverviewPanel } from './push/PushOverviewPanel'
 import { PushTemplateDrawer } from './push/PushTemplateDrawer'
 import {
   DEFAULT_PUSH_DRAFT,
-  type PushAdminTab,
   type PushComposerDraft,
 } from './push/pushTypes'
 import { UiRolloutPanel } from './push/UiRolloutPanel'
+import { useAdminPushReads, type AdminSettingsTab } from './push/useAdminPushReads'
+import { subscribeToAdminUsers } from '../../services/firebaseService'
 
 interface AdminNotificationsPageProps {
   onNavigate?: (view: ViewId) => void
   users?: AdminUserRecord[]
   currentUserUid?: string
+  authzVersion?: string | number
   canManageUiRollout?: boolean
   backendMode?: 'demo' | 'firebase'
 }
-
-type AdminSettingsTab = PushAdminTab | 'ui-rollout'
 
 const TABS: Array<{
   id: AdminSettingsTab
@@ -88,24 +80,41 @@ function audienceFromTemplate(template: PushTemplate): PushComposerDraft['audien
   return 'all'
 }
 
-export default function AdminNotificationsPage({
-  users = [],
+export default function AdminNotificationsPage(props: AdminNotificationsPageProps) {
+  const scope = JSON.stringify([props.currentUserUid ?? '', props.authzVersion ?? '', props.backendMode ?? 'firebase'])
+  return <AdminNotificationsSession key={scope} {...props} />
+}
+
+function AdminNotificationsSession({
+  users: suppliedUsers = [],
   currentUserUid,
   canManageUiRollout = false,
   backendMode = 'firebase',
 }: AdminNotificationsPageProps) {
   const [activeTab, setActiveTab] = useState<AdminSettingsTab>('overview')
-  const [settings, setSettings] = useState<SystemPushSettings>({
-    ...DEFAULT_PUSH_SETTINGS,
-    mealReminderTimes: { ...DEFAULT_PUSH_SETTINGS.mealReminderTimes },
-  })
-  const [overview, setOverview] = useState<PushAdminOverview | null>(null)
-  const [templates, setTemplates] = useState<PushTemplate[]>([])
-  const [broadcasts, setBroadcasts] = useState<PushBroadcastLog[]>([])
-  const [automations, setAutomations] = useState<PushAutomationLog[]>([])
+  const reads = useAdminPushReads(activeTab, backendMode)
+  const { settings, setSettings, overview, templates, broadcasts, automations, loading, loadError } = reads
+  const [users, setUsers] = useState<AdminUserRecord[]>(backendMode === 'demo' ? suppliedUsers : [])
+  const [usersLoading, setUsersLoading] = useState(false)
+  const [usersError, setUsersError] = useState('')
+  const [usersRetry, setUsersRetry] = useState(0)
+  const [historyFilter, setHistoryFilter] = useState<HistoryFilter>('all')
   const [draft, setDraft] = useState<PushComposerDraft>({ ...DEFAULT_PUSH_DRAFT })
-  const [loading, setLoading] = useState(true)
-  const [loadError, setLoadError] = useState('')
+  const needsUsers = activeTab === 'compose' || activeTab === 'ui-rollout'
+  useEffect(() => {
+    if (!needsUsers || backendMode !== 'firebase' || !currentUserUid) return
+    let active = true
+    setUsersLoading(true)
+    setUsersError('')
+    const stop = subscribeToAdminUsers(items => {
+      if (!active) return
+      setUsers(items); setUsersLoading(false)
+    }, error => {
+      if (!active) return
+      setUsers([]); setUsersLoading(false); setUsersError(errorMessage(error, 'Chưa tải được người nhận.'))
+    })
+    return () => { active = false; stop() }
+  }, [backendMode, currentUserUid, needsUsers, usersRetry])
 
   const [dispatching, setDispatching] = useState(false)
   const [dispatchResult, setDispatchResult] = useState<PushDispatchResult | null>(null)
@@ -114,6 +123,7 @@ export default function AdminNotificationsPage({
   const [savingSettings, setSavingSettings] = useState(false)
   const [settingsSaved, setSettingsSaved] = useState(false)
   const [settingsError, setSettingsError] = useState('')
+  const [settingsDraft, setSettingsDraft] = useState<SystemPushSettings | null>(null)
 
   const [templateDrawerOpen, setTemplateDrawerOpen] = useState(false)
   const [templateBusy, setTemplateBusy] = useState(false)
@@ -124,52 +134,8 @@ export default function AdminNotificationsPage({
   const [deviceBusy, setDeviceBusy] = useState(false)
   const [deviceMessage, setDeviceMessage] = useState<{ tone: 'success' | 'error'; text: string } | null>(null)
 
-  const loadAdminPushData = useCallback(async () => {
-    setLoading(true)
-    setLoadError('')
-    const [settingsResult, templatesResult, broadcastsResult, automationsResult, overviewResult] = await Promise.allSettled([
-      getSystemPushSettings(),
-      getPushTemplates(),
-      getPushBroadcastLogs(),
-      getPushAutomationLogs(),
-      getPushAdminOverview(),
-    ])
-
-    if (settingsResult.status === 'fulfilled') setSettings(settingsResult.value)
-    if (templatesResult.status === 'fulfilled') setTemplates(templatesResult.value)
-    if (broadcastsResult.status === 'fulfilled') setBroadcasts(broadcastsResult.value)
-    if (automationsResult.status === 'fulfilled') setAutomations(automationsResult.value)
-    if (overviewResult.status === 'fulfilled') setOverview(overviewResult.value)
-
-    const failures = [settingsResult, templatesResult, broadcastsResult, automationsResult, overviewResult]
-      .filter((result) => result.status === 'rejected').length
-    if (failures > 0) {
-      setLoadError(`Có ${failures} nguồn dữ liệu chưa tải được. Các phần còn lại vẫn có thể sử dụng.`)
-    }
-    setLoading(false)
-  }, [])
-
-  useEffect(() => {
-    void loadAdminPushData()
-  }, [loadAdminPushData])
-
-  useEffect(() => {
-    setCurrentFcmToken(currentUserUid ? getStoredFcmToken(currentUserUid) : null)
-    setPermission(initialPermission())
-  }, [currentUserUid])
-
-  const refreshOperationalData = useCallback(async () => {
-    const [broadcastResult, automationResult, overviewResult] = await Promise.allSettled([
-      getPushBroadcastLogs(),
-      getPushAutomationLogs(),
-      getPushAdminOverview(),
-    ])
-    if (broadcastResult.status === 'fulfilled') setBroadcasts(broadcastResult.value)
-    if (automationResult.status === 'fulfilled') setAutomations(automationResult.value)
-    if (overviewResult.status === 'fulfilled') setOverview(overviewResult.value)
-  }, [])
-
   const handleDispatch = async (targetUserIds: string[]) => {
+    const current = reads.currentRequest()
     setDispatching(true)
     setDispatchError('')
     setDispatchResult(null)
@@ -193,40 +159,45 @@ export default function AdminNotificationsPage({
         sentBy: currentUserUid || 'Admin Aura',
         respectCategoryPreferences: true,
       })
+      if (!current()) return false
       setDispatchResult(result)
-      await refreshOperationalData()
+      reads.afterDelivery()
       return true
     } catch (error) {
-      setDispatchError(errorMessage(error, 'Chưa thể gửi thông báo. Vui lòng kiểm tra kết nối và thử lại.'))
+      if (current()) setDispatchError(errorMessage(error, 'Chưa thể gửi thông báo. Vui lòng kiểm tra kết nối và thử lại.'))
       return false
     } finally {
-      setDispatching(false)
+      if (current()) setDispatching(false)
     }
   }
 
   const handleSaveSettings = async () => {
+    if (!reads.settingsReady) return
+    const current = reads.currentRequest()
     setSavingSettings(true)
     setSettingsSaved(false)
     setSettingsError('')
     try {
       const nextSettings = {
-        ...settings,
+        ...(settingsDraft ?? settings),
         updatedAt: new Date().toISOString(),
         updatedBy: currentUserUid || 'Admin Aura',
       }
       await saveSystemPushSettings(nextSettings)
+      if (!current()) return
       setSettings(nextSettings)
+      setSettingsDraft(null)
       setSettingsSaved(true)
-      window.setTimeout(() => setSettingsSaved(false), 3500)
-      await refreshOperationalData()
+      window.setTimeout(() => { if (current()) setSettingsSaved(false) }, 3500)
     } catch (error) {
-      setSettingsError(errorMessage(error, 'Chưa thể lưu cấu hình Push.'))
+      if (current()) setSettingsError(errorMessage(error, 'Chưa thể lưu cấu hình Push.'))
     } finally {
-      setSavingSettings(false)
+      if (current()) setSavingSettings(false)
     }
   }
 
   const handleEnableDevice = async () => {
+    const current = reads.currentRequest()
     if (!currentUserUid) {
       setDeviceMessage({ tone: 'error', text: 'Không xác định được tài khoản quản trị hiện tại.' })
       return
@@ -243,21 +214,24 @@ export default function AdminNotificationsPage({
     setDeviceMessage(null)
     try {
       const token = await requestFcmPermissionAndToken(currentUserUid)
+      if (!current()) return
       setPermission(initialPermission())
       setCurrentFcmToken(token)
       setDeviceMessage(token
         ? { tone: 'success', text: 'Thiết bị quản trị đã được đăng ký nhận Push.' }
         : { tone: 'error', text: 'Chưa nhận được token thiết bị. Hãy kiểm tra quyền thông báo và thử lại.' })
-      await refreshOperationalData()
+      reads.afterDevice()
     } catch (error) {
+      if (!current()) return
       setPermission(initialPermission())
       setDeviceMessage({ tone: 'error', text: errorMessage(error, 'Không thể đăng ký thiết bị.') })
     } finally {
-      setDeviceBusy(false)
+      if (current()) setDeviceBusy(false)
     }
   }
 
   const handleSendDeviceTest = async () => {
+    const current = reads.currentRequest()
     if (!currentUserUid || !currentFcmToken) return
     setDeviceBusy(true)
     setDeviceMessage(null)
@@ -265,6 +239,7 @@ export default function AdminNotificationsPage({
       // Refresh the browser token and its server-side device registration before
       // every test. A local token can outlive a cleared or expired Firestore row.
       const registeredToken = await requestFcmPermissionAndToken(currentUserUid)
+      if (!current()) return
       if (!registeredToken) {
         setDeviceMessage({
           tone: 'error',
@@ -284,17 +259,18 @@ export default function AdminNotificationsPage({
         sentBy: currentUserUid,
         respectCategoryPreferences: false,
       })
+      if (!current()) return
       setDeviceMessage({
         tone: result.webPushSentCount > 0 ? 'success' : 'error',
         text: result.webPushSentCount > 0
           ? `FCM đã chấp nhận bản kiểm tra trên ${result.webPushSentCount} thiết bị.`
           : 'Đã tạo inbox nhưng FCM chưa chấp nhận thiết bị nào. Kiểm tra token và cấu hình Firebase.',
       })
-      await refreshOperationalData()
+      reads.afterDelivery()
     } catch (error) {
-      setDeviceMessage({ tone: 'error', text: errorMessage(error, 'Không thể gửi bản kiểm tra.') })
+      if (current()) setDeviceMessage({ tone: 'error', text: errorMessage(error, 'Không thể gửi bản kiểm tra.') })
     } finally {
-      setDeviceBusy(false)
+      if (current()) setDeviceBusy(false)
     }
   }
 
@@ -315,43 +291,49 @@ export default function AdminNotificationsPage({
   }
 
   const handleSaveTemplate = async (template: PushTemplate) => {
+    const current = reads.currentRequest()
     setTemplateBusy(true)
     setTemplateError('')
     try {
       await savePushTemplate(template)
-      setTemplates(await getPushTemplates())
+      if (!current()) return false
+      await reads.refreshTemplates()
       return true
     } catch (error) {
-      setTemplateError(errorMessage(error, 'Chưa thể lưu mẫu thông báo.'))
+      if (current()) setTemplateError(errorMessage(error, 'Chưa thể lưu mẫu thông báo.'))
       return false
     } finally {
-      setTemplateBusy(false)
+      if (current()) setTemplateBusy(false)
     }
   }
 
   const handleDeleteTemplate = async (templateId: string) => {
+    const current = reads.currentRequest()
     setTemplateBusy(true)
     setTemplateError('')
     try {
       await deletePushTemplate(templateId)
-      setTemplates(await getPushTemplates())
+      if (!current()) return
+      await reads.refreshTemplates()
     } catch (error) {
-      setTemplateError(errorMessage(error, 'Chưa thể xóa mẫu thông báo.'))
+      if (current()) setTemplateError(errorMessage(error, 'Chưa thể xóa mẫu thông báo.'))
     } finally {
-      setTemplateBusy(false)
+      if (current()) setTemplateBusy(false)
     }
   }
 
   const handleToggleTemplate = async (templateId: string, active: boolean) => {
+    const current = reads.currentRequest()
     setTemplateBusy(true)
     setTemplateError('')
     try {
       await togglePushTemplateActive(templateId, active)
-      setTemplates(await getPushTemplates())
+      if (!current()) return
+      await reads.refreshTemplates()
     } catch (error) {
-      setTemplateError(errorMessage(error, 'Chưa thể cập nhật trạng thái mẫu.'))
+      if (current()) setTemplateError(errorMessage(error, 'Chưa thể cập nhật trạng thái mẫu.'))
     } finally {
-      setTemplateBusy(false)
+      if (current()) setTemplateBusy(false)
     }
   }
 
@@ -402,9 +384,14 @@ export default function AdminNotificationsPage({
       </nav>
 
       <section id={`push-panel-${activeTab}`} role="tabpanel" className="push-admin-content">
+        {activeTab !== 'overview' && activeTab !== 'history' && (loadError || (needsUsers && usersError)) && <button type="button" className="push-button push-button--ghost" disabled={loading || (needsUsers && usersLoading)} onClick={() => {
+          void reads.retryFailed()
+          if (needsUsers && usersError) setUsersRetry(value => value + 1)
+        }}>Thử lại dữ liệu</button>}
         {activeTab === 'overview' && (
           <PushOverviewPanel
             settings={settings}
+            settingsReady={reads.settingsReady}
             overview={overview}
             loading={loading}
             loadError={loadError}
@@ -414,7 +401,7 @@ export default function AdminNotificationsPage({
             deviceMessage={deviceMessage}
             onCompose={() => setActiveTab('compose')}
             onOpenAutomation={() => setActiveTab('automation')}
-            onRefresh={() => void loadAdminPushData()}
+            onRefresh={() => void reads.refresh()}
             onEnableDevice={() => void handleEnableDevice()}
             onSendDeviceTest={() => void handleSendDeviceTest()}
           />
@@ -426,7 +413,8 @@ export default function AdminNotificationsPage({
             draft={draft}
             dispatching={dispatching}
             result={dispatchResult}
-            error={dispatchError}
+            error={dispatchError || usersError || loadError}
+            audienceLoading={usersLoading}
             onDraftChange={(nextDraft) => {
               setDraft(nextDraft)
               setDispatchResult(null)
@@ -437,30 +425,37 @@ export default function AdminNotificationsPage({
           />
         )}
         {activeTab === 'automation' && (
-          <PushAutomationPanel
-            settings={settings}
+          <><div role="status">{!reads.settingsReady ? 'Chưa xác nhận cấu hình từ máy chủ. Hãy tải lại trước khi chỉnh sửa.' : ''}</div><fieldset disabled={!reads.settingsReady || loading || savingSettings} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}><PushAutomationPanel
+            settings={settingsDraft ?? settings}
             latestLog={automations[0]}
             saving={savingSettings}
             saved={settingsSaved}
-            error={settingsError}
+            error={settingsError || loadError}
             onChange={(nextSettings) => {
-              setSettings(nextSettings)
+              setSettingsDraft(nextSettings)
               setSettingsSaved(false)
               setSettingsError('')
             }}
             onSave={() => void handleSaveSettings()}
-          />
+          /></fieldset></>
         )}
         {activeTab === 'history' && (
           <PushHistoryPanel
             broadcasts={broadcasts}
             automations={automations}
             loading={loading}
+            error={loadError}
+            filter={historyFilter}
+            onFilterChange={setHistoryFilter}
+            hasMore={reads.hasMore}
+            changed={reads.historyChanged}
+            onLoadMore={() => void reads.loadMore()}
+            onRefresh={() => void reads.refresh()}
             onReuse={reuseBroadcast}
           />
         )}
         {activeTab === 'ui-rollout' && (
-          <UiRolloutPanel users={users} currentUserUid={currentUserUid} canManage={canManageUiRollout} demo={backendMode === 'demo'} />
+          <><div role="status">{usersError || (usersLoading ? 'Đang tải tài khoản…' : '')}</div><UiRolloutPanel users={users} currentUserUid={currentUserUid} canManage={canManageUiRollout} demo={backendMode === 'demo'} /></>
         )}
       </section>
 

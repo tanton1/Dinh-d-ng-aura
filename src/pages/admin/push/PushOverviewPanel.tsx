@@ -17,6 +17,7 @@ import { formatPushTime } from './pushTypes'
 
 interface PushOverviewPanelProps {
   settings: SystemPushSettings
+  settingsReady?: boolean
   overview: PushAdminOverview | null
   loading: boolean
   loadError: string
@@ -58,6 +59,7 @@ function MetricCard({
 
 export function PushOverviewPanel({
   settings,
+  settingsReady = true,
   overview,
   loading,
   loadError,
@@ -72,11 +74,11 @@ export function PushOverviewPanel({
   onSendDeviceTest,
 }: PushOverviewPanelProps) {
   const deviceMessageRef = useRef<HTMLDivElement>(null)
-  const automationReady = settings.enabled && settings.automationEnabled && settings.autoMealReminders
+  const automationReady = settingsReady && settings.enabled && settings.automationEnabled && settings.autoMealReminders
   const deviceReady = permission === 'granted' && hasCurrentToken
-  const accepted = overview?.webPushAccepted24h ?? 0
-  const failed = overview?.webPushFailures24h ?? 0
-  const acceptanceRate = accepted + failed > 0
+  const accepted = overview?.webPushAccepted24h
+  const failed = overview?.webPushFailures24h
+  const acceptanceRate = accepted !== undefined && failed !== undefined && accepted + failed > 0
     ? `${Math.round((accepted / (accepted + failed)) * 100)}%`
     : '—'
 
@@ -94,9 +96,9 @@ export function PushOverviewPanel({
         <div className="push-status-banner__copy">
           <span className={`push-status-dot ${automationReady ? 'is-live' : 'is-paused'}`} />
           <div>
-            <strong>{automationReady ? 'Push đang vận hành' : 'Tự động hóa đang tạm dừng'}</strong>
+            <strong>{!settingsReady ? 'Chưa xác nhận cấu hình Push' : automationReady ? 'Push đang vận hành' : 'Tự động hóa đang tạm dừng'}</strong>
             <p>
-              {automationReady
+              {!settingsReady ? 'Hãy tải lại để xác nhận trạng thái từ máy chủ.' : automationReady
                 ? `Nhắc bữa ăn theo múi giờ ${settings.timezone}.`
                 : 'Gửi thủ công vẫn dùng được; kiểm tra cấu hình tự động để bật lịch nhắc.'}
             </p>
@@ -124,30 +126,30 @@ export function PushOverviewPanel({
       <section className="push-metric-grid" aria-label="Chỉ số Push">
         <MetricCard
           label="Học viên hoạt động"
-          value={loading ? '…' : overview?.activeUsers ?? 0}
+          value={loading ? '…' : overview?.activeUsers ?? '—'}
           helper="Tài khoản có thể nhận inbox"
           icon={<Users size={20} />}
         />
         <MetricCard
           label="Thiết bị đã đăng ký"
-          value={loading ? '…' : overview?.activeDevices ?? 0}
-          helper={`${overview?.pushEnabledUsers ?? 0} học viên đã bật Push`}
+          value={loading ? '…' : overview?.activeDevices ?? '—'}
+          helper={overview ? `${overview.pushEnabledUsers} học viên đã bật Push` : 'Chưa có số liệu xác nhận'}
           icon={<Smartphone size={20} />}
           tone={(overview?.activeDevices ?? 0) > 0 ? 'success' : 'neutral'}
         />
         <MetricCard
           label="FCM chấp nhận · 24 giờ"
-          value={loading ? '…' : accepted}
+          value={loading ? '…' : accepted ?? '—'}
           helper={`Tỷ lệ chấp nhận ${acceptanceRate}`}
           icon={<CheckCircle2 size={20} />}
           tone="success"
         />
         <MetricCard
           label="Lỗi thiết bị · 24 giờ"
-          value={loading ? '…' : failed}
+          value={loading ? '…' : failed ?? '—'}
           helper="Token lỗi hoặc thiết bị không còn hợp lệ"
-          icon={failed > 0 ? <XCircle size={20} /> : <ShieldCheck size={20} />}
-          tone={failed > 0 ? 'danger' : 'success'}
+          icon={(failed ?? 0) > 0 ? <XCircle size={20} /> : <ShieldCheck size={20} />}
+          tone={failed === undefined ? 'neutral' : failed > 0 ? 'danger' : 'success'}
         />
       </section>
 
@@ -164,9 +166,9 @@ export function PushOverviewPanel({
           </div>
 
           <div className="push-schedule-row">
-            <div><span>Sáng</span><strong>{settings.mealReminderTimes.breakfast}</strong></div>
-            <div><span>Trưa</span><strong>{settings.mealReminderTimes.lunch}</strong></div>
-            <div><span>Tối</span><strong>{settings.mealReminderTimes.dinner}</strong></div>
+            <div><span>Sáng</span><strong>{settingsReady ? settings.mealReminderTimes.breakfast : '—'}</strong></div>
+            <div><span>Trưa</span><strong>{settingsReady ? settings.mealReminderTimes.lunch : '—'}</strong></div>
+            <div><span>Tối</span><strong>{settingsReady ? settings.mealReminderTimes.dinner : '—'}</strong></div>
           </div>
           <div className="push-inline-meta">
             <Clock3 size={16} />
