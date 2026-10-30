@@ -191,6 +191,27 @@ test('projected financial rows retain imported contract labels when the student 
   assert.equal(row.phone, '0901234567')
 })
 
+test('projected dashboard retains cancellation snapshots, commercial impacts, approved debt and quality warnings', async () => {
+  const { db, handlers, request } = fixture()
+  const effectiveAt = Timestamp.fromDate(new Date(`${today}T08:00:00+07:00`))
+  db.records.set('contracts/new-cancel', { branchId: 'home', status: 'cancelled', studentId: 'student', totalPrice: 12000000, paidAmount: 3000000,
+    salesCancellationSnapshot: { schemaVersion: 1, netAmount: 12000000, effectiveAt },
+    cancellationSettlement: { schemaVersion: 1, status: 'approved', settlementAmount: 5000000, canonicalCash: 3000000 },
+    installments: [{ status: 'pending', amount: 9000000, date: today }], nextPaymentDate: today })
+  db.records.set('contracts/legacy-cancel', { branchId: 'home', status: 'cancelled', studentId: 'student', totalPrice: 9000000, paidAmount: 0 })
+  db.records.set('ledgerEntries/cancellation', { branchId: 'home', status: 'posted', type: 'adjustment', effectiveAt, amount: 0, cashImpact: 0, revenueImpact: 0, contractSalesImpact: -7000000 })
+  const result = await handlers.getOperationsDashboard(request())
+  assert.equal(result.finance.contractSales, 5000000)
+  assert.equal(result.finance.grossContractSales, 12000000)
+  assert.equal(result.finance.salesAdjustment, -7000000)
+  assert.equal(result.finance.receivables, 60 + 200 * 50 + 2000000)
+  assert.equal(result.receivables.rows.some(row => row.contractId === 'new-cancel'), false)
+  assert.equal(result.quality.cancelledSalesBaselineUnverified, 1)
+  assert.equal(result.quality.cancelledSettlementReviewRequired, 1)
+  assert.equal(result.quality.completeness, 'partial')
+  assert.equal(result.analytics.revenue.points.reduce((sum, point) => sum + point.contractSales, 0), result.finance.contractSales)
+})
+
 test('system-wide admin keeps count aggregates instead of downloading historical session documents', async () => {
   const { db, handlers, request } = fixture()
   const result = await handlers.getOperationsDashboard(request({ branchId: 'all' }))

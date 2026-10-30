@@ -54,6 +54,10 @@ function contractsQuery(db, branch) {
   return branch === 'all' || branch === 'none' ? db.collection('contracts') : db.collection('contracts').where('branchId', '==', branch)
 }
 function inBranch(value, branch) { return branch !== 'none' || !value.branchId }
+// Cancellation replaces the old payment plan with a separately approved
+// settlement managed in the student profile. Neither its old installments nor
+// settlement balances belong to this receivables workspace.
+function isReceivableContract(contract) { return contract.status !== 'cancelled' }
 function dateKey(value) {
   const key = String(value || '').slice(0, 10)
   const millis = Date.parse(`${key}T12:00:00Z`)
@@ -110,7 +114,7 @@ function summarizeReceivables(documents, today, branch, limit = SUMMARY_LIMIT, c
   const totals = { debt: 0, overdue: 0, thisMonth: 0 }, counts = Object.fromEntries(DEBT_FILTERS.map(key => [key, 0]))
   for (const document of documents) {
     const contract = document.data()
-    if (!inBranch(contract, branch)) continue
+    if (!inBranch(contract, branch) || !isReceivableContract(contract)) continue
     const state = debtState(contract, today)
     if (!state) return { complete: false, reason: 'invalid-amount', totals: null, counts: null }
     if (category !== 'all' && state.category !== category) continue
@@ -245,7 +249,7 @@ function createScopedReportingReadFunctions({ db, onCall, logger = console, auth
     if (!RECEIVABLE_CATEGORIES.includes(category)) throw new HttpsError('invalid-argument', 'Loại hợp đồng không hợp lệ.')
     const today = text(input.today, 10) || new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }).format(new Date())
     if (!/^\d{4}-\d{2}-\d{2}$/.test(today) || !Number.isFinite(Date.parse(`${today}T12:00:00Z`)) || new Date(`${today}T12:00:00Z`).toISOString().slice(0, 10) !== today) throw new HttpsError('invalid-argument', 'Ngày báo cáo không hợp lệ.')
-    const search = searchKey(text(input.search, 120)), scope = ['finance-receivables-v3', actor.uid, actor.authzVersion, branch, today, category, filter, search]
+    const search = searchKey(text(input.search, 120)), scope = ['finance-receivables-v4', actor.uid, actor.authzVersion, branch, today, category, filter, search]
     const after = cursorAfter(input.cursor, scope), rows = [], labels = new Map()
     let lastId = after, scanned = 0, hasMore = true
     while (rows.length < size && scanned < PAGE_SCAN_LIMIT && hasMore) {
@@ -255,14 +259,15 @@ function createScopedReportingReadFunctions({ db, onCall, logger = console, auth
       const snapshot = await query.limit(batchSize).get()
       recordOperationMetrics({ logicalQueries: 1, documentsReturned: snapshot.size })
       if (snapshot.empty) { hasMore = false; break }
-      const states = new Map(snapshot.docs.map(item => [item.id, debtState(item.data(), today)]))
-      const candidates = snapshot.docs.filter(item => inBranch(item.data(), branch) && matchesReceivableGroup(states.get(item.id), category, filter))
+      const eligible = snapshot.docs.filter(item => inBranch(item.data(), branch) && isReceivableContract(item.data()))
+      const states = new Map(eligible.map(item => [item.id, debtState(item.data(), today)]))
+      const candidates = eligible.filter(item => matchesReceivableGroup(states.get(item.id), category, filter))
       const students = await publicLabels(db, 'students', candidates.map(item => item.data().studentId), ['name', 'phone', 'email'])
       students.forEach(item => labels.set(item.id, item))
       for (const document of snapshot.docs) {
         scanned++; lastId = document.id
         const contract = { id: document.id, ...document.data() }, state = states.get(document.id)
-        if (!inBranch(contract, branch) || !matchesReceivableGroup(state, category, filter)) continue
+        if (!inBranch(contract, branch) || !isReceivableContract(contract) || !matchesReceivableGroup(state, category, filter)) continue
         const student = labels.get(contract.studentId)
         if (search && !searchKey([student?.name, student?.phone, student?.email, contract.packageName, contract.id].join(' ')).includes(search)) continue
         rows.push({ ...contract, dataIssue: state ? null : 'invalid-amount' })
@@ -272,7 +277,7 @@ function createScopedReportingReadFunctions({ db, onCall, logger = console, auth
     }
     let report = null
     if (input.includeSummary !== false) {
-      report = await summary(`receivables-v3-${fingerprint([branch, today, category])}`, input.refresh === true, () => readSummarySnapshot(db, async read => {
+      report = await summary(`receivables-v4-${fingerprint([branch, today, category])}`, input.refresh === true, () => readSummarySnapshot(db, async read => {
         const documents = await scanSummarySource(contractsQuery(db, branch).select(...CONTRACT_FIELDS), SUMMARY_LIMIT, read)
         return { ...summarizeReceivables(documents, today, branch, SUMMARY_LIMIT, category), source: 'contracts', sourceDocuments: documents.length }
       }))

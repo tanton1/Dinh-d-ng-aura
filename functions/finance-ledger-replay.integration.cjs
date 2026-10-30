@@ -6,6 +6,8 @@ const { after, test } = require('node:test')
 const { initializeApp, deleteApp } = require('firebase-admin/app')
 const { getFirestore, Timestamp } = require('firebase-admin/firestore')
 const { createFinanceLedgerFunctions } = require('./finance-ledger')
+const { createContractSettlementFunctions } = require('./contract-settlement')
+const { recordSessionAttendanceTransaction, createSessionOperationFunctions } = require('./session-operations')
 
 assert.match(process.env.FIRESTORE_EMULATOR_HOST || '', /^(127\.0\.0\.1|localhost):\d+$/)
 const app = initializeApp({ projectId: 'demo-aura-fitness' }, `finance-replay-${randomUUID()}`)
@@ -457,4 +459,177 @@ test('real Firestore: distinct accepted operations retain distinct reference and
   assert.match(a.referenceCode, /-[A-F0-9]{16}$/)
   assert.match(a.receiptVoucherNumber, /-[A-F0-9]{16}$/)
   assert.equal((await f.db.collection('ledgerEntries').where('idempotencyKey', '==', (await f.db.doc(`ledgerEntries/${a.entryId}`).get()).data().idempotencyKey).get()).docs[0].id, a.entryId, 'older query-based readers still find new canonical records')
+})
+
+test('real Firestore: cancelled contracts require approved settlement for new cash but existing receipts remain replayable', async () => {
+  const f = await fixture(), key = intentKey()
+  const posted = await f.intent('submit', 'payment', key)
+  await f.db.doc('contracts/example').update({ status: 'cancelled' })
+  const before = await f.inspect()
+  for (const type of ['payment', 'refund']) {
+    await assert.rejects(f.intent('submit', type, intentKey(), { expectedPaidAmount: 500000 }),
+      error => error.details?.reason === 'contract-settlement-required')
+  }
+  assert.equal((await f.intent('submit', 'payment', key)).receipt.entryId, posted.receipt.entryId)
+  assert.deepEqual(await f.inspect(), before)
+})
+
+test('real Firestore: cancelled review permits receipt correction without reviving a cancelled installment', async () => {
+  const f = await fixture(), key = intentKey()
+  await f.db.doc('contracts/example').update({ installments: [{ id: 'one', amount: 100000, date: '2026-10-25', status: 'pending' }] })
+  const payment = await f.call('recordContractPayment', randomUUID(), { installmentId: 'one' })
+  await f.db.doc('contracts/example').update({ status: 'cancelled', cancellationSettlement: { schemaVersion: 1, status: 'review_required', revision: 0 },
+    installments: [{ id: 'one', amount: 100000, date: '2026-10-25', status: 'cancelled' }], nextPaymentDate: null })
+  const reversed = await f.intent('submit', 'reversal', key, { entryId: payment.entryId })
+  assert.equal(reversed.state, 'committed')
+  const contract = (await f.db.doc('contracts/example').get()).data()
+  assert.equal(contract.paidAmount, 400000)
+  assert.equal(contract.installments[0].status, 'cancelled')
+  assert.equal(contract.nextPaymentDate, null)
+  await f.db.doc('contracts/example').update({ 'cancellationSettlement.status': 'approved' })
+  assert.equal((await f.intent('submit', 'reversal', key, { entryId: payment.entryId })).receipt.entryId, reversed.receipt.entryId)
+})
+
+test('real Firestore: pending and approved settlement cases block receipt reversal even with a stale contract summary', async () => {
+  const f = await fixture()
+  const payment = await f.call('recordContractPayment', randomUUID())
+  await f.db.doc('contracts/example').update({ status: 'cancelled', cancellationSettlement: { schemaVersion: 1, status: 'review_required', revision: 0 } })
+  const before = await f.inspect()
+  for (const status of ['pending_approval', 'approved', 'settled']) {
+    await f.db.doc('contractSettlements/example').set({ status, revision: 1 })
+    await assert.rejects(f.intent('submit', 'reversal', intentKey(), { entryId: payment.entryId }),
+      error => error.details?.reason === 'contract-settlement-reversal-blocked')
+    assert.deepEqual(await f.inspect(), before)
+  }
+})
+
+async function approvedSettlementFixture({ paidAmount = 400000, writeOffAmount = 0 } = {}) {
+  const f = await fixture()
+  const batch = f.db.batch()
+  batch.update(f.db.doc('contracts/example'), { totalPrice: 1200000, usedSessions: 6, paidAmount, status: 'cancelled', cancelledAt: '2026-10-25T10:00:00Z',
+    installments: [{ id: 'old', amount: 1200000 - paidAmount, date: '2026-10-25', status: 'cancelled' }], nextPaymentDate: null })
+  batch.set(f.db.doc('ledgerEntries/settlement-initial-payment'), { contractId: 'example', type: 'payment', source: 'pt_gym', status: 'posted', amount: paidAmount, cashImpact: paidAmount, revenueImpact: 0, effectiveAt: Timestamp.fromDate(new Date('2026-10-01T10:00:00Z')) })
+  for (let ordinal = 1; ordinal <= 6; ordinal += 1) {
+    const sessionId = `service-${ordinal}`, recognitionId = `pt_session_${sessionId}`
+    batch.set(f.db.doc(`sessions/${sessionId}`), { contractId: 'example', studentId: 'example', branchId: 'example', status: 'completed', billingStatus: 'charged', attendanceStatus: 'present', date: '2026-10-20', hour: ordinal + 8, serviceOrdinal: ordinal, revenueRecognitionEntryId: recognitionId })
+    batch.set(f.db.doc(`ledgerEntries/${recognitionId}`), { contractId: 'example', type: 'revenue_recognition', eventClass: 'revenue_recognition', source: 'pt_gym', status: 'posted', sessionId, serviceOrdinal: ordinal, amount: 100000, revenueImpact: 100000, cashImpact: 0, effectiveAt: Timestamp.fromDate(new Date('2026-10-20T10:00:00Z')) })
+  }
+  await batch.commit()
+  const handlers = createContractSettlementFunctions({ db: f.db, onCall: handler => handler, logger: { info() {} } })
+  const get = () => handlers.getContractSettlement({ auth: { uid: 'admin', token: { role: 'admin' } }, data: { contractId: 'example', cutoffDate: '2026-10-25' } })
+  const manage = (action, current, proposal) => handlers.manageContractSettlement({ auth: { uid: 'admin', token: { role: 'admin' } }, data: { contractId: 'example', action, operationId: randomUUID(), expectedRevision: current.revision, expectedSnapshotHash: current.preview.snapshotHash, ...(proposal ? { proposal } : {}) } })
+  const first = await get()
+  assert.deepEqual(first.preview.blockers, [])
+  const submitted = await manage('submit', first, { cutoffDate: '2026-10-25', reason: 'Synthetic settlement', waivedFutureAmount: 600000, feeAmount: 0, serviceReductionAmount: 0, writeOffAmount, writeOffReason: writeOffAmount ? 'Approved earned debt writeoff' : '', effectiveAt: '2026-10-25T10:00:00Z' })
+  const approved = await manage('approve', submitted)
+  assert.equal(approved.status, 'approved')
+  return { ...f, getSettlement: get, manageSettlement: manage, approved }
+}
+
+test('real Firestore: approved earned-debt settlement collects only the post-writeoff target and closes explicitly', async () => {
+  const f = await approvedSettlementFixture({ writeOffAmount: 100000 }), key = intentKey()
+  const patch = { expectedPaidAmount: 400000, expectedSettlementRevision: f.approved.revision, amount: 100000 }
+  const result = await f.intent('submit', 'payment', key, patch)
+  const contract = (await f.db.doc('contracts/example').get()).data()
+  const caseData = (await f.db.doc('contractSettlements/example').get()).data()
+  assert.equal(contract.paidAmount, 500000)
+  assert.equal(contract.cancellationSettlement.status, 'approved')
+  assert.equal(caseData.status, 'approved')
+  assert.equal(caseData.remainingReceivable, 0)
+  assert.equal(caseData.refundDue, 0)
+  assert.equal(caseData.revision, f.approved.revision + 1)
+  assert.equal(contract.cancellationSettlement.revision, caseData.revision)
+  assert.equal(contract.installments[0].status, 'cancelled')
+  assert.equal(contract.nextPaymentDate, null)
+  const ledger = (await f.db.doc(`ledgerEntries/${result.receipt.entryId}`).get()).data()
+  assert.equal(ledger.receivableImpact, -100000)
+  assert.equal(ledger.deferredRevenueImpact, 0)
+  assert.equal(ledger.requestExpectedSettlementRevision, f.approved.revision)
+  const before = await f.inspect()
+  assert.equal((await f.intent('submit', 'payment', key, patch)).receipt.entryId, result.receipt.entryId)
+  await assert.rejects(f.intent('submit', 'payment', key, { ...patch, expectedSettlementRevision: f.approved.revision + 1 }), mismatch)
+  await assert.rejects(f.intent('submit', 'payment', intentKey(), { amount: 1, expectedPaidAmount: 500000, expectedSettlementRevision: caseData.revision }), error => error.details?.reason === 'contract-settlement-cash-limit')
+  const closed = await f.manageSettlement('close', await f.getSettlement())
+  assert.equal(closed.status, 'settled')
+  assert.deepEqual(await f.inspect(), before, 'explicit closure changes no cash or ledger totals')
+  assert.equal((await f.intent('submit', 'payment', key, patch)).receipt.entryId, result.receipt.entryId, 'lost response remains replayable after closure')
+})
+
+test('real Firestore: settlement refund preserves earned revenue and cancelled installments, with one effect across stale concurrent intents', async () => {
+  const f = await approvedSettlementFixture({ paidAmount: 800000 })
+  const patch = { amount: 200000, expectedPaidAmount: 800000, expectedSettlementRevision: f.approved.revision }
+  const keys = [intentKey(), intentKey()]
+  const before = await f.inspect()
+  const results = await Promise.allSettled(keys.map(key => f.intent('submit', 'refund', key, patch)))
+  assert.equal(results.filter(row => row.status === 'fulfilled').length, 1, JSON.stringify(results.map(row => row.status === 'rejected' ? { code: row.reason.code, message: row.reason.message, details: row.reason.details } : row.status)))
+  assert.equal(results.filter(row => row.status === 'rejected' && ['failed-precondition', 'aborted', 10].includes(row.reason.code)).length, 1)
+  const winningIndex = results.findIndex(row => row.status === 'fulfilled')
+  const receipt = results[winningIndex].value.receipt
+  assert.equal((await f.intent('submit', 'refund', keys[winningIndex], patch)).receipt.entryId, receipt.entryId)
+  const contract = (await f.db.doc('contracts/example').get()).data()
+  assert.equal(contract.paidAmount, 600000)
+  assert.equal(contract.cancellationSettlement.refundDue, 0)
+  assert.equal(contract.cancellationSettlement.recognizedRevenueAfterAdjustments, 600000)
+  assert.equal(contract.installments[0].status, 'cancelled')
+  assert.equal(contract.nextPaymentDate, null)
+  const ledger = (await f.db.doc(`ledgerEntries/${receipt.entryId}`).get()).data()
+  assert.equal(ledger.revenueImpact, 0)
+  assert.equal(ledger.receivableImpact, 0)
+  assert.equal(ledger.deferredRevenueImpact, -200000)
+  const after = await f.inspect()
+  assert.equal(after.ledger, before.ledger + 1)
+  assert.equal(after.movements, before.movements + 1)
+  assert.equal(after.cash, before.cash - 200000)
+})
+
+test('real Firestore: settlement cash refuses stale evidence, projection drift, old installment and old revision before financial writes', async () => {
+  const f = await approvedSettlementFixture()
+  const patch = { expectedPaidAmount: 400000, expectedSettlementRevision: f.approved.revision }
+  const before = await f.inspect()
+  await assert.rejects(f.intent('submit', 'payment', intentKey(), { ...patch, expectedSettlementRevision: undefined }), error => error.details?.reason === 'contract-settlement-revision-changed')
+  await assert.rejects(f.intent('submit', 'payment', intentKey(), { ...patch, installmentId: 'old' }), error => error.details?.reason === 'contract-settlement-installment')
+  for (const value of [null, -1, 1.5, '2']) await assert.rejects(f.intent('submit', 'payment', intentKey(), { ...patch, expectedSettlementRevision: value }), error => error.code === 'invalid-argument')
+  await f.db.doc('sessions/service-1').update({ hour: 20 })
+  await assert.rejects(f.intent('submit', 'payment', intentKey(), patch), error => error.details?.reason === 'contract-settlement-evidence-changed')
+  await f.db.doc('sessions/service-1').update({ hour: 9 })
+  await f.db.doc('ledgerEntries/settlement-initial-payment').update({ amount: 300000, cashImpact: 300000 })
+  await assert.rejects(f.intent('submit', 'payment', intentKey(), patch), error => error.details?.reason === 'contract-settlement-cash-mismatch')
+  await f.db.doc('ledgerEntries/settlement-initial-payment').update({ amount: 400000, cashImpact: 400000 })
+  await f.db.doc('financePeriods/2026-10').set({ status: 'locked' })
+  await assert.rejects(f.intent('submit', 'payment', intentKey(), patch), error => error.code === 'failed-precondition' && /đã khóa/.test(error.message))
+  assert.deepEqual(await f.inspect(), before)
+  assert.equal((await f.db.doc('contractSettlements/example').get()).data().revision, f.approved.revision)
+})
+
+test('real Firestore: cancelled attendance and teaching corrections repair pre-cutoff evidence only before submission, while true retries stay unchanged', async () => {
+  const f = await fixture()
+  const batch = f.db.batch()
+  batch.update(f.db.doc('contracts/example'), { status: 'cancelled' })
+  for (const trainerId of ['trainer-1', 'trainer-2']) batch.set(f.db.doc(`trainers/${trainerId}`), { status: 'active', branchId: 'example', slotCapacity: 2 })
+  batch.set(f.db.doc('sessions/cancelled-evidence'), { contractId: 'example', studentId: 'example', trainerId: 'trainer-1', branchId: 'example',
+    status: 'scheduled', billingStatus: 'charged', attendanceStatus: 'pending', date: '2026-10-20', hour: 9, serviceOrdinal: 1, revision: 0, attendanceEventId: 'cancelled-evidence' })
+  batch.set(f.db.doc('attendanceEvents/cancelled-evidence'), { sessionId: 'cancelled-evidence', contractId: 'example', studentId: 'example', trainerId: 'trainer-1',
+    billingStatus: 'charged', attendanceStatus: 'pending', serviceOrdinal: 1 })
+  batch.set(f.db.doc('sessionBillingEvents/cancelled-evidence'), { sessionId: 'cancelled-evidence', contractId: 'example', serviceOrdinal: 1, billingStatus: 'charged' })
+  await batch.commit()
+  const attendance = (overrides = {}) => recordSessionAttendanceTransaction({ db: f.db, sessionId: 'cancelled-evidence', expectedRevision: 0, actorUid: 'admin', attendanceStatus: 'present', now: new Date('2026-10-30T03:00:00Z'), ...overrides })
+  await assert.rejects(attendance(), error => error.details?.issueCode === 'CONTRACT_CANCELLATION_CUTOFF_REQUIRED')
+  assert.equal((await f.db.collection('ledgerEntries').get()).size, 0)
+  await f.db.doc('contracts/example').update({ cancelledAt: '2026-10-19T10:00:00Z' })
+  await assert.rejects(attendance(), error => error.details?.issueCode === 'CONTRACT_CANCELLATION_SERVICE_AFTER_CUTOFF')
+  await f.db.doc('contracts/example').update({ cancelledAt: '2026-10-25T10:00:00Z', cancellationSettlement: { status: 'review_required', cutoffDate: '2026-10-25' } })
+  assert.equal((await attendance()).unchanged, false)
+  const operations = createSessionOperationFunctions({ db: f.db, onCall: (...args) => args.at(-1), authorizeAdmin: async () => ({ uid: 'admin', accessRole: 'admin' }), now: () => new Date('2026-10-30T03:00:00Z') })
+  const correction = (overrides = {}) => operations.correctTeachingShift({ data: { items: [{ sessionId: 'cancelled-evidence', expectedRevision: 1, attendanceStatus: 'present' }],
+    date: '2026-10-20', hour: 9, trainerId: 'trainer-1', reason: 'Synthetic evidence correction', ...overrides } })
+  const before = await f.inspect()
+  for (const status of ['pending_approval', 'approved', 'settled']) {
+    await f.db.doc('contracts/example').update({ cancellationSettlement: { status, cutoffDate: '2026-10-25' } })
+    assert.equal((await attendance({ expectedRevision: 1 })).unchanged, true)
+    assert.equal((await correction()).unchanged, true)
+    await assert.rejects(attendance({ expectedRevision: 1, note: 'Changed evidence' }), error => error.details?.issueCode === 'CONTRACT_SETTLEMENT_EVIDENCE_LOCKED')
+    await assert.rejects(correction({ trainerId: 'trainer-2' }), error => error.details?.issueCode === 'CONTRACT_SETTLEMENT_EVIDENCE_LOCKED')
+    assert.deepEqual(await f.inspect(), before)
+    assert.equal((await f.db.doc('sessions/cancelled-evidence').get()).data().revision, 1)
+  }
 })

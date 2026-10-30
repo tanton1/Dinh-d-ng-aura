@@ -16,7 +16,7 @@ const fixtures = [
   ...['cancelled', 'inactive', 'archived', 'draft'].map(status => ({ ...base, id: `stale-pause-${status}`, studentId: `stale-pause-${status}`, status, pausePeriods: [{ type: 'preservation', startDate: '2026-10-30', endDate: '2026-10-31' }] })),
   { ...base, id: 'ordinary-off', studentId: 'ordinary-off', installments: pending, pausePeriods: [{ type: 'off', startDate: '2026-10-30', endDate: '2026-10-31' }] },
   { ...base, id: 'debt', studentId: 'debt', branchId: 'b', nextPaymentDate: '2026-10-30' },
-  { ...base, id: 'cancelled', studentId: 'cancelled', status: 'cancelled' },
+  { ...base, id: 'cancelled', studentId: 'cancelled', status: 'cancelled', installments: pending },
   { ...base, id: 'expired', studentId: 'expired', status: 'expired' },
   { ...base, id: 'historical-plan', studentId: 'historical-plan', installments: [{ ...pending[0], status: 'paid' }] },
   { ...base, id: 'overpaid', studentId: 'overpaid', paidAmount: 1_200_000, installments: pending },

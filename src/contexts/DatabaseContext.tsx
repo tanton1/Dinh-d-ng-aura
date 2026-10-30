@@ -7,6 +7,7 @@ import { PT_OPERATIONS_POLICY_DEFAULTS } from '../config/ptOperationsPolicy'
 import { normalizeScheduleLoadPolicy } from '../config/scheduleLoadPolicy'
 import { createStudentCommandKey, updateStudentProfile } from '../services/studentManagementService'
 import { archiveBranch, createBranchCommandKey, upsertBranch } from '../services/branchManagementService'
+import { legacyContractCreateCommand, legacyContractEditCommand } from '../services/legacyContractCommand'
 import { useAuraUiRollout } from '../features/ui-rollout/AuraUiRolloutContext'
 import type {
   Student,
@@ -683,14 +684,24 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
   }
 
   const addContract = async (contract: StudentContract) => {
+    if (import.meta.env.MODE === 'e2e' || backendMode === 'demo') {
+      setContracts(items => [...items.filter(item => item.id !== contract.id), contract])
+      return
+    }
     assertLegacyWriteAccess()
-    if (!db) return
-    await setDoc(doc(db, 'contracts', contract.id), sanitize(contract))
+    const command = legacyContractCreateCommand(contract)
+    const { mutateStudent360Contract } = await import('../features/student-360/student360Service')
+    await mutateStudent360Contract(command)
   }
   const updateContract = async (contract: StudentContract) => {
+    if (import.meta.env.MODE === 'e2e' || backendMode === 'demo') {
+      setContracts(items => items.map(item => item.id === contract.id ? { ...item, ...contract } : item))
+      return
+    }
     assertLegacyWriteAccess()
-    if (!db) return
-    await setDoc(doc(db, 'contracts', contract.id), sanitize(contract), { merge: true })
+    const command = legacyContractEditCommand(contract, contracts.find(item => item.id === contract.id))
+    const { mutateStudent360Contract } = await import('../features/student-360/student360Service')
+    await mutateStudent360Contract(command)
   }
   const deleteContract = async (id: string) => {
     assertLegacyWriteAccess()

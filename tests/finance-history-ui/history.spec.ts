@@ -141,3 +141,18 @@ test('a reversal refreshes the open history once without loading unused summarie
   await expect(history(page).getByText('admin-a-first-all-2', { exact: false })).toBeAttached()
   expect(await page.evaluate(() => (window as any).financeState.calls[1].query.includeSummary)).toBe(false)
 })
+
+for (const eligibility of [false, null]) test(`cash remains visible and profile review replaces reversal when eligibility is ${eligibility === null ? 'unknown' : 'denied'}`, async ({ page }) => {
+  await boot(page)
+  await page.evaluate(value => { (window as any).financeState.ledgerCanReverse = value }, eligibility)
+  await open(page)
+  await expect(history(page).getByText('admin-a-first-all-1', { exact: false })).toBeVisible()
+  await expect(history(page).getByText('5.000.000đ', { exact: true })).toBeVisible()
+  await expect(history(page).getByRole('button', { name: 'Tạo bút toán đảo', exact: true })).toHaveCount(0)
+  const review = history(page).getByRole('link', { name: 'Rà soát giao dịch admin-a-first-all-1 trong hồ sơ học viên', exact: true })
+  await expect(review).toHaveAttribute('href', '#/student-360?studentId=student-a&source=admin-pt-students')
+  await review.click()
+  await expect(page).toHaveURL(/#\/student-360\?studentId=student-a&source=admin-pt-students$/)
+  expect(await page.evaluate(() => ({ ledger: (window as any).financeState.calls.length,
+    directory: (window as any).financeState.directoryAcquisitions, reversals: (window as any).financeState.reversals }))).toEqual({ ledger: 1, directory: 0, reversals: 0 })
+})

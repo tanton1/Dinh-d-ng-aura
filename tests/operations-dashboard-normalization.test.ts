@@ -2,6 +2,19 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { normalizeOperationsDashboardData } from '../src/utils/operationsDashboardNormalization'
 
+test('dashboard preserves separate cancellation review counts and keeps legacy responses compatible', () => {
+  const result = normalizeOperationsDashboardData({ schemaVersion: 7, quality: { completeness: 'complete', cancelledSettlementReviewRequired: '2', cancelledSalesBaselineUnverified: 5 } })
+  assert.equal(result.quality.cancelledSettlementReviewRequired, 2)
+  assert.equal(result.quality.cancelledSalesBaselineUnverified, 5)
+  assert.equal(result.quality.completeness, 'partial')
+  const legacy = normalizeOperationsDashboardData({ schemaVersion: 7, quality: {} })
+  assert.equal(legacy.quality.cancelledSettlementReviewRequired, 0)
+  assert.equal(legacy.quality.cancelledSalesBaselineUnverified, 0)
+  const malformed = normalizeOperationsDashboardData({ schemaVersion: 7, quality: { cancelledSettlementReviewRequired: -1, cancelledSalesBaselineUnverified: 'invalid' } })
+  assert.equal(malformed.quality.cancelledSettlementReviewRequired, 0)
+  assert.equal(malformed.quality.cancelledSalesBaselineUnverified, 0)
+})
+
 test('dashboard accepts the previous callable schema during a rolling deployment', () => {
   const dashboard = normalizeOperationsDashboardData({
     schemaVersion: 1,

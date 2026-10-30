@@ -157,6 +157,10 @@ export async function mutateStudent360Contract(input: Student360ContractMutation
     const callable = httpsCallable<Student360ContractMutation, { contractId: string; revision: number; action: string }>(functionsClient, callableName, { timeout: 30_000 })
     return (await callable(input)).data
   } catch (cause) {
-    throw functionError(cause, 'Không thể cập nhật hợp đồng.')
+    const code = cause && typeof cause === 'object' && 'code' in cause ? String(cause.code) : ''
+    const error = /resource-exhausted|deadline-exceeded|unavailable|internal/.test(code)
+      ? new Error('Chưa xác định được kết quả cập nhật hợp đồng. Hãy kiểm tra lại cùng yêu cầu trước khi tạo thao tác mới.')
+      : functionError(cause, 'Không thể cập nhật hợp đồng.')
+    throw Object.assign(error, { code })
   }
 }

@@ -242,6 +242,10 @@ test('contract installment edits preserve posted history and reconcile outstandi
     previous[0],
     { ...previous[1], amount: 2_000_000 },
   ], previous, 3_000_000), /công nợ còn lại/i)
+  assert.throws(() => contractInstallments([previous[0]], previous, 3_000_000), /công nợ còn lại/i)
+  for (const status of ['paid', 'cancelled']) {
+    assert.throws(() => contractInstallments([previous[0], { ...previous[1], status }], previous, 0), /nghiệp vụ tài chính/i)
+  }
 })
 
 test('student profile lookup requires the canonical accountUid and never assumes studentId is an Auth uid', async () => {

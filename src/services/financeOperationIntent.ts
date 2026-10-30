@@ -12,6 +12,7 @@ interface ContractMovement {
   cashAccountId: string
   installmentId?: string
   expectedPaidAmount: number
+  expectedSettlementRevision?: number
 }
 
 export type FinanceOperationDraft =
@@ -82,7 +83,8 @@ export function assertFinanceOperationDraft(operation: FinanceOperationDraft, co
   if (!('contractId' in payload) || payload.contractId !== contractId || !Number.isSafeInteger(payload.amount) || payload.amount <= 0 || payload.amount > 1_000_000_000
       || !Number.isSafeInteger(payload.expectedPaidAmount) || payload.expectedPaidAmount < 0 || !validText(payload.effectiveAt, 50) || !Number.isFinite(Date.parse(payload.effectiveAt))
       || !validText(payload.cashAccountId, 200) || !validText(payload.paymentMethod, 50)
-      || (payload.installmentId !== undefined && !validText(payload.installmentId, 100))) throw invalid()
+      || (payload.installmentId !== undefined && !validText(payload.installmentId, 100))
+      || (payload.expectedSettlementRevision !== undefined && (!Number.isSafeInteger(payload.expectedSettlementRevision) || payload.expectedSettlementRevision < 0))) throw invalid()
   if (operation.type === 'refund' && (!('reason' in payload) || !validText(payload.reason, 500))) throw invalid()
   if (operation.type === 'payment' && 'note' in payload && payload.note !== undefined && (typeof payload.note !== 'string' || payload.note.length > 500)) throw invalid()
 }

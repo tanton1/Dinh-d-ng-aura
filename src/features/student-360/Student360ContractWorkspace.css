@@ -11,6 +11,8 @@
   line-height: 1.5;
 }
 
+.student360-contract-form fieldset.student360-contract-create-fields{border:0;padding:0;margin:0;min-width:0}
+
 .student360-contract-assignment-issues > strong {
   color: #522b0b;
   font-size: 0.875rem;

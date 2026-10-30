@@ -308,7 +308,7 @@ function scheduleIdentityForSession(session = {}, sessionId = '', fallbackBranch
 
 function scheduleEntryMatchesIdentity(entry, identity) {
   if (!entry || entry.type === 'off') return false
-  if (identity.scheduleEntryId && entry.scheduleEntryId === identity.scheduleEntryId) return true
+  if (identity.scheduleEntryId && entry.scheduleEntryId) return entry.scheduleEntryId === identity.scheduleEntryId
   return entry.studentId === identity.studentId && entry.trainerId === identity.trainerId
 }
 
@@ -1347,6 +1347,31 @@ function ptRevenueJournalWrite({ recognition, contract, sessionId, actorUid }) {
   }
 }
 
+// A cancellation may retain historical service evidence for reconciliation.
+// Approval reads this same contract, so these transactional reads fence a
+// concurrent submission/approval without relying on a stale UI status.
+function assertCancellationEvidenceChange({ contract, sourceDate, targetDate = sourceDate, changed }) {
+  if (!changed || !contract) return
+  const settlement = contract.cancellationSettlement
+  if (settlement && settlement.status !== 'review_required') {
+    throw new HttpsError('failed-precondition', 'Bằng chứng thanh lý đã gửi duyệt hoặc đã chốt. Cần đưa hồ sơ về đối soát trước khi sửa buổi tập.', { issueCode: 'CONTRACT_SETTLEMENT_EVIDENCE_LOCKED' })
+  }
+  if (contract.status !== 'cancelled') return
+  const cancelledAt = requestInstant(contract.cancelledAt)
+  const cutoffDate = settlement?.cutoffDate || (cancelledAt ? vietnamDateKey(cancelledAt) : '')
+  const validDate = value => {
+    const parsed = new Date(`${value}T00:00:00Z`)
+    return /^\d{4}-\d{2}-\d{2}$/.test(String(value || '')) && !Number.isNaN(parsed.getTime())
+      && parsed.toISOString().slice(0, 10) === value
+  }
+  if (!validDate(cutoffDate) || !validDate(sourceDate) || !validDate(targetDate)) {
+    throw new HttpsError('failed-precondition', 'Cần xác minh ngày kết thúc hiệu lực trước khi sửa bằng chứng hợp đồng đã hủy.', { issueCode: 'CONTRACT_CANCELLATION_CUTOFF_REQUIRED' })
+  }
+  if (sourceDate > cutoffDate || targetDate > cutoffDate) {
+    throw new HttpsError('failed-precondition', 'Không thể ghi nhận hoặc sửa doanh thu buổi tập sau ngày kết thúc hiệu lực hợp đồng.', { issueCode: 'CONTRACT_CANCELLATION_SERVICE_AFTER_CUTOFF' })
+  }
+}
+
 // Prepare every read before the correction writes. Posted financial evidence
 // is retained: moving its attribution creates an equal reversal and replacement.
 async function teachingRecognitionPlan({ transaction, db, session, attendance, attendanceEventId, target, actorUid, reason, pendingRecognition }) {
@@ -1366,7 +1391,7 @@ async function teachingRecognitionPlan({ transaction, db, session, attendance, a
   const billingStatus = session.data.billingStatus || attendance.billingStatus || (isSessionCharged(session.data) || session.item.attendanceStatus ? 'charged' : '')
   const manualEvidence = Boolean(session.item.attendanceStatus) || Boolean(attendance.confirmedBy && attendance.confirmationSource !== 'auto_after_48h')
   const eligible = billingStatus === 'charged' && manualEvidence && ['present', 'late', 'no_show'].includes(target.attendanceStatus)
-  const outcome = { writes, entryId: existing.exists ? reference.id : null, journalId: existingJournal.exists ? journalReference.id : null,
+  const outcome = { writes, contract, entryId: existing.exists ? reference.id : null, journalId: existingJournal.exists ? journalReference.id : null,
     reviewRequired: !eligible && (session.data.recognitionReviewRequired === true || attendance.recognitionReviewRequired === true) }
   const requireReview = (issueCode, details = {}) => {
     const reviewData = { schemaVersion: 1, status: 'open', issueCode, sessionId, attendanceEventId, contractId,
@@ -1450,7 +1475,7 @@ async function teachingRecognitionPlan({ transaction, db, session, attendance, a
       outcome.journalId = replacementJournalReference.id
     }
   }
-  if (review.exists && ((value && manualEvidence) || billingStatus === 'exempt')) writes.push({ type: 'update', reference: reviewReference,
+  if (review.exists && review.data().status !== 'resolved' && ((value && manualEvidence) || billingStatus === 'exempt')) writes.push({ type: 'update', reference: reviewReference,
     data: { status: 'resolved', resolvedAt: FieldValue.serverTimestamp(), resolvedBy: actorUid, resolution: 'admin_evidence_corrected' } })
   return outcome
 }
@@ -1877,6 +1902,7 @@ async function recordSessionAttendanceTransaction({
       && String(attendance.noShowReason || '') === normalizedReason
       && String(attendance.note || '') === normalizedNote
       && !(attendance.confirmationSource === 'auto_after_48h' && confirmationSource !== 'auto_after_48h')
+    assertCancellationEvidenceChange({ contract, sourceDate: session.date, changed: !sameConfirmation || Boolean(recognition || journal) })
     if (sameConfirmation && !recognition && !journal) {
       return { unchanged: true, revision, attendanceEventId: attendanceReference.id, attendanceStatus: normalizedStatus }
     }
@@ -3019,7 +3045,10 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
         }
         pendingRecognitionByContract.set(session.data.contractId, pendingRecognition)
       }
-      if (!scheduleChanged && !attendanceChanged && recognitionPlans.every((plan) => plan.writes.length === 0)) {
+      const evidenceChanged = scheduleChanged || attendanceChanged || recognitionPlans.some((plan) => plan.writes.length > 0)
+      recognitionPlans.forEach((plan, index) => assertCancellationEvidenceChange({ contract: plan.contract,
+        sourceDate: storedDateKey(sessions[index].data.date, 'Ngày ca gốc'), targetDate, changed: evidenceChanged }))
+      if (!evidenceChanged) {
         return { unchanged: true, revisions: Object.fromEntries(sessions.map((session) => [session.id, Number(session.data.revision || 0)])), invalidatedPayrollPeriods: [] }
       }
       const targetStart = Timestamp.fromDate(targetInstant)
@@ -4592,6 +4621,9 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
 }
 
 module.exports = {
+  assertCancellationEvidenceChange,
+  readCancellationSchedulePlan,
+  applyCancellationSchedulePlan,
   autoConfirmOverduePtAttendance,
   chargeDuePtSessions,
   chargeSessionTransaction,

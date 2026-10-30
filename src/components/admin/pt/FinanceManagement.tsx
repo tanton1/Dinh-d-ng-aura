@@ -360,6 +360,10 @@ function FinanceWorkspace({ profile, category = 'all' }: Props) {
   }
 
   const openPayment = (contract: StudentContract) => {
+    if (contract.status === 'cancelled') {
+      setAlertMessage('Mở hồ sơ học viên để rà soát và quyết toán hợp đồng đã hủy.')
+      return
+    }
     const balance = contractBalance(contract)
     setSelectedContract(contract)
     setSelectedInstallmentId(null)
@@ -371,6 +375,10 @@ function FinanceWorkspace({ profile, category = 'all' }: Props) {
 
   const submitPayment = async (submit: (draft: FinanceOperationDraft) => Promise<void>) => {
     if (!selectedContract || cashAccountsLoading || cashAccountsError) return
+    if (selectedContract.status === 'cancelled' || contracts.find(item => item.id === selectedContract.id)?.status === 'cancelled') {
+      setAlertMessage('Hợp đồng đã hủy. Mở hồ sơ học viên để thu/hoàn theo quyết toán được duyệt.')
+      return
+    }
     const amount = Number(payAmount)
     if (!Number.isSafeInteger(amount) || amount === 0) {
       setAlertMessage('Số tiền phải là số nguyên khác 0.')
@@ -468,7 +476,7 @@ function FinanceWorkspace({ profile, category = 'all' }: Props) {
         )}
         <button type="button" onClick={() => setShowHistory(true)} className="finance-management__tool-button" aria-label={category === 'all' ? 'Mở lịch sử thu trả góp' : 'Mở lịch sử giao dịch'} title="Lịch sử giao dịch"><WalletCards size={17} /></button>
         <button type="button" onClick={() => { void loadDebts(false, true); void loadLedger(false) }} disabled={ledgerLoading || debtLoading} className="finance-management__tool-button" aria-label={category === 'all' ? 'Làm mới trả góp' : `Làm mới ${categoryLabel.toLowerCase()}`} title="Làm mới"><RefreshCw size={17} className={ledgerLoading || debtLoading ? 'animate-spin' : ''} /></button>
-        <AuraHelpPopover title="Phân nhóm hợp đồng"><p>Bảo lưu chỉ gồm hợp đồng đang bảo lưu còn tiền phải thu. Trả góp gồm hợp đồng còn nợ có kỳ chưa thanh toán, không đang bảo lưu.</p><p>Số liệu theo chi nhánh và tab đang xem. Từ khóa chỉ lọc danh sách. Bộ lọc ngày chỉ áp dụng cho lịch sử giao dịch của chi nhánh.</p></AuraHelpPopover>
+        <AuraHelpPopover title="Phân nhóm hợp đồng"><p>Bảo lưu chỉ gồm hợp đồng đang bảo lưu còn tiền phải thu. Trả góp gồm hợp đồng còn nợ có kỳ chưa thanh toán, không đang bảo lưu. Hợp đồng đã hủy được quyết toán trong hồ sơ học viên.</p><p>Số liệu theo chi nhánh và tab đang xem. Từ khóa chỉ lọc danh sách. Bộ lọc ngày chỉ áp dụng cho lịch sử giao dịch của chi nhánh.</p></AuraHelpPopover>
       </div>
 
       <section ref={receivablesRef} className="finance-management__receivables">
@@ -523,7 +531,11 @@ function FinanceWorkspace({ profile, category = 'all' }: Props) {
           {ledgerError && <div role="alert" className="mb-4 rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">{ledgerError}<button type="button" onClick={() => void loadLedger(false)} disabled={ledgerLoading} className="ml-3 underline">Thử lại</button></div>}
           {ledgerLoading && <p role="status" className="mb-4 text-sm text-zinc-400">Đang tải giao dịch…</p>}
           <p className="mb-4 rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3 text-xs text-emerald-200">{cashEntries.length.toLocaleString('vi-VN')} giao dịch tiền đã tải. Lịch sử theo chi nhánh và khoảng ngày, gồm mọi nhóm hợp đồng.</p>
-          <div className="space-y-2">{cashEntries.map((entry) => <div key={entry.id} className="rounded-xl border border-zinc-800 bg-zinc-950 p-3"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="truncate text-sm font-semibold text-white">{studentName(entry.studentId)}</p><p className="mt-1 text-xs text-zinc-500">{entry.referenceCode} · {entryLabel(entry.type)}</p><p className="mt-1 text-xs text-zinc-600">{new Date(entry.effectiveAt).toLocaleString('vi-VN')}</p></div><div className="text-right"><b className={(entry.cashImpact ?? entry.amount) >= 0 ? 'text-emerald-400' : 'text-amber-400'}>{money(entry.cashImpact ?? entry.amount)}</b>{entry.type === 'payment' && entry.status === 'posted' && <button onClick={() => setEntryToReverse(entry)} className="mt-2 flex items-center gap-1 text-xs font-semibold text-amber-400"><Undo2 className="h-3.5 w-3.5" /> Tạo bút toán đảo</button>}</div></div></div>)}</div>
+          <div className="space-y-2">{cashEntries.map((entry) => <div key={entry.id} className="rounded-xl border border-zinc-800 bg-zinc-950 p-3"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="truncate text-sm font-semibold text-white">{studentName(entry.studentId)}</p><p className="mt-1 text-xs text-zinc-500">{entry.referenceCode} · {entryLabel(entry.type)}</p><p className="mt-1 text-xs text-zinc-600">{new Date(entry.effectiveAt).toLocaleString('vi-VN')}</p></div><div className="text-right"><b className={(entry.cashImpact ?? entry.amount) >= 0 ? 'text-emerald-400' : 'text-amber-400'}>{money(entry.cashImpact ?? entry.amount)}</b>{entry.type === 'payment' && entry.status === 'posted' && (entry.canReverse === true
+            ? <button onClick={() => setEntryToReverse(entry)} className="mt-2 flex items-center gap-1 text-xs font-semibold text-amber-400"><Undo2 className="h-3.5 w-3.5" /> Tạo bút toán đảo</button>
+            : entry.studentId
+              ? <a href={`#/student-360?studentId=${encodeURIComponent(entry.studentId)}&source=admin-pt-students`} aria-label={`Rà soát giao dịch ${entry.referenceCode} trong hồ sơ học viên`} className="mt-2 block text-xs font-semibold text-amber-400">Rà soát trong hồ sơ</a>
+              : <span className="mt-2 block text-xs text-zinc-400">Cần rà soát trước khi đảo bút toán</span>)}</div></div></div>)}</div>
           {ledgerHasMore && <button onClick={() => void loadLedger(true)} disabled={ledgerLoading} className="mt-4 min-h-11 w-full rounded-xl border border-zinc-700 bg-zinc-800 text-sm font-bold text-white disabled:opacity-50">{ledgerLoading ? 'Đang tải…' : 'Tải thêm giao dịch'}</button>}
           {!ledgerLoading && !ledgerError && cashEntries.length === 0 && <p className="py-8 text-center text-sm text-zinc-500">Chưa có dòng tiền trong bộ lọc.</p>}
         </Modal>}

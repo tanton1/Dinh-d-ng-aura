@@ -144,8 +144,16 @@ test('real Firestore refreshed preservation debt follows settled, overpaid, reop
   await db.doc('contracts/c').update({ status: 'cancelled' })
   await assertPreservedDebt(0)
   const cancelled = await api.listFinanceReceivables({ data: { ...input, category: 'installments' } })
-  assert.equal(cancelled.contracts[0].status, 'cancelled')
-  assert.equal(cancelled.summary.totals.overdue, 500)
+  assert.deepEqual(cancelled.contracts, [])
+  assert.equal(cancelled.summary.totals.overdue, 0)
+  for (const status of ['review_required', 'pending_approval', 'approved', 'settled']) {
+    await db.doc('contracts/c').update({ cancellationSettlement: { schemaVersion: 1, status, settlementAmount: 700, canonicalCash: 500 } })
+    const settlement = await api.listFinanceReceivables({ data: { ...input, category: 'all' } })
+    assert.deepEqual(settlement.contracts, [], 'approved settlement receivables belong in the student profile')
+    assert.equal(settlement.summary.complete, true)
+    assert.equal(settlement.summary.counts.all, 0)
+    assert.equal(settlement.summary.totals.debt, 0)
+  }
   await db.doc('contracts/c').update({ status: 'active', pausePeriods: [] })
   await assertPreservedDebt(0)
   const reopened = await api.listFinanceReceivables({ data: { ...input, category: 'installments' } })

@@ -1096,17 +1096,26 @@ service cloud.firestore {
     }
 
     match /contracts/{documentId} {
-      allow read, create, update: if isAdmin();
-      // Contracts are business records. Corrections must be represented by a
-      // server-side status transition/audit entry, never a browser hard-delete.
-      allow delete: if false;
+      allow read: if isAdmin();
+      // Revisioned commands own financial terms, paid projections and settlement.
+      allow create, update, delete: if false;
     }
 
     match /payments/{documentId} {
-      allow read, create, update: if isAdmin();
+      allow read: if isAdmin();
       // Legacy payments remain readable during reconciliation, but financial
       // history is immutable. Reversals are written to the canonical ledger.
-      allow delete: if false;
+      allow create, update, delete: if false;
+    }
+
+    match /contractSettlements/{documentId} {
+      allow read, write: if false;
+    }
+    match /contractSettlementOperations/{documentId} {
+      allow read, write: if false;
+    }
+    match /contractMutationReceipts/{documentId} {
+      allow read, write: if false;
     }
 
     match /sessions/{documentId} {

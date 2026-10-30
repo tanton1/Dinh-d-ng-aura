@@ -100,8 +100,8 @@ test('management categories retain cash debt and include only outstanding preser
     pages[category] = await api.listFinanceReceivables({ data: { ...input, category } })
   }
   const ids = page => page.contracts.map(value => value.id).sort()
-  assert.equal(pages.all.summary.totals.debt, 6_400_000)
-  assert.equal(pages.all.summary.counts.all, 8)
+  assert.equal(pages.all.summary.totals.debt, 5_600_000)
+  assert.equal(pages.all.summary.counts.all, 7)
   assert.deepEqual(ids(pages.installments), ['installments', 'ordinary-off'])
   assert.deepEqual(pages.installments.summary.totals, { debt: 1_600_000, overdue: 200_000, thisMonth: 800_000 })
   assert.equal(pages.installments.summary.counts['this-week'], 2)
@@ -113,8 +113,8 @@ test('management categories retain cash debt and include only outstanding preser
   assert.equal(pages.frozen.summary.counts.overpaid, 0)
   assert.equal(pages.frozen.contracts.find(value => value.id === 'frozen').frozenAt, '2026-10-15')
   assert.equal(pages.frozen.contracts.find(value => value.id === 'preservation').pausePeriods[0].type, 'preservation')
-  assert.deepEqual(ids(pages.debt), ['cancelled', 'debt', 'expired', 'historical-plan'])
-  assert.equal(pages.debt.summary.totals.debt, 3_200_000)
+  assert.deepEqual(ids(pages.debt), ['debt', 'expired', 'historical-plan'])
+  assert.equal(pages.debt.summary.totals.debt, 2_400_000)
   assert.equal(pages.debt.summary.counts.overpaid, 1)
   assert.equal(['installments', 'frozen', 'debt'].reduce((sum, key) => sum + pages[key].summary.totals.debt, 0), pages.all.summary.totals.debt)
   assert.deepEqual(ids(await api.listFinanceReceivables({ data: { ...input, category: 'frozen', filter: 'settled' } })), [])
@@ -132,14 +132,37 @@ test('category summaries respect branch but not search/filter, and category chan
   assert.equal(searched.summary.counts.all, 1)
   await api.listFinanceReceivables({ data: input })
   assert.equal(cacheKeys[0], cacheKeys[1])
-  assert.match(cacheKeys[0], /^receivables-v3-/)
+  assert.match(cacheKeys[0], /^receivables-v4-/)
   await api.listFinanceReceivables({ data: { ...input, category: 'debt' } })
   assert.notEqual(cacheKeys[1], cacheKeys[2])
   const first = await api.listFinanceReceivables({ data: { ...input, branchId: 'all', pageSize: 1, includeSummary: false } })
   await assert.rejects(api.listFinanceReceivables({ data: { ...input, branchId: 'all', category: 'debt', cursor: first.nextCursor } }), { code: 'invalid-argument' })
   await assert.rejects(api.listFinanceReceivables({ data: { ...input, category: 'unknown' } }), { code: 'invalid-argument' })
-  const oldCursor = nextCursor('frozen', ['finance-receivables-v2', admin.uid, admin.authzVersion, 'all', input.today, 'frozen', 'all', ''])
-  await assert.rejects(api.listFinanceReceivables({ data: { ...input, branchId: 'all', cursor: oldCursor } }), { code: 'invalid-argument' })
+  for (const version of ['v2', 'v3']) {
+    const oldCursor = nextCursor('frozen', [`finance-receivables-${version}`, admin.uid, admin.authzVersion, 'all', input.today, 'frozen', 'all', ''])
+    await assert.rejects(api.listFinanceReceivables({ data: { ...input, branchId: 'all', cursor: oldCursor } }), { code: 'invalid-argument' })
+  }
+})
+
+test('cancelled plans and settlement balances never enter workspace rows, labels or totals, including malformed history', async () => {
+  const pending = [{ status: 'pending', date: '2026-10-20', amount: 80 }]
+  const documents = ['review_required', 'pending_approval', 'approved', 'settled'].map(status => row(status,
+    contract({ status: 'cancelled', studentId: 'cancelled-student', installments: pending,
+      cancellationSettlement: { schemaVersion: 1, status, settlementAmount: 60, canonicalCash: 20 } })))
+  documents.push(row('paid', contract({ status: 'cancelled', paidAmount: 100 })),
+    row('overpaid', contract({ status: 'cancelled', paidAmount: 120 })),
+    row('invalid', { status: 'cancelled', totalPrice: null, paidAmount: null, installments: {}, pausePeriods: {} }))
+  const api = endpoints({ documents, labels: [{ id: 'cancelled-student', name: 'History learner' }] })
+  for (const category of ['all', 'installments', 'frozen', 'debt']) for (const filter of ['all', 'owing', 'settled', 'overpaid', 'overdue', 'this-week', 'this-month']) {
+    const page = await api.listFinanceReceivables({ data: { today: '2026-10-30', category, filter } })
+    assert.deepEqual(page.contracts, [])
+    assert.deepEqual(page.students, [])
+    assert.equal(page.summary.complete, true, 'excluded malformed history cannot invalidate collectible totals')
+    assert.deepEqual(page.summary.totals, { debt: 0, overdue: 0, thisMonth: 0 })
+    assert.ok(Object.values(page.summary.counts).every(count => count === 0))
+  }
+  assert.deepEqual((await api.listFinanceStudentLabels({ data: { studentIds: ['cancelled-student'] } })).students,
+    [{ id: 'cancelled-student', name: 'History learner' }], 'cash history can still resolve cancelled-contract student labels')
 })
 
 test('paid preserved contracts and cancelled preservation never enter the active preserved debt category', async () => {

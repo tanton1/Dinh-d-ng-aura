@@ -5,6 +5,7 @@ const { FieldPath, FieldValue, Timestamp } = require('firebase-admin/firestore')
 const { readDashboardQuery } = require('./operations-dashboard-read-policy')
 const { visitAggregateSourcePages } = require('./operations-aggregate-source-pages')
 const { ledgerReceiptImpact } = require('./finance-receipt-impact')
+const { contractSalesContribution } = require('./contract-financial-status')
 
 // Isolate v2 from old in-flight trigger/scheduler revisions. A rolling deploy
 // (or rollback) must never let a v1 delta writer corrupt the v2 baseline.
@@ -25,10 +26,10 @@ const SOURCE_COLLECTIONS = {
 // Keep the repair scan limited to fields used by contribution(). Business
 // payloads (notes, lesson content, attachments, etc.) are not reporting inputs.
 const REBUILD_SOURCE_FIELDS = {
-  ledger: ['branchId', 'status', 'type', 'source', 'eventClass', 'effectiveAt', 'cashImpact', 'amount', 'revenueImpact', 'expenseImpact'],
+  ledger: ['branchId', 'status', 'type', 'source', 'eventClass', 'effectiveAt', 'cashImpact', 'amount', 'revenueImpact', 'expenseImpact', 'contractSalesImpact'],
   session: ['branchId', 'date', 'status'],
   attendance: ['branchId', 'occurredAt', 'date'],
-  contract: ['branchId', 'status', 'signedAt', 'createdAt', 'contractDate', 'startDate', 'totalPrice', 'discount'],
+  contract: ['branchId', 'status', 'signedAt', 'createdAt', 'contractDate', 'startDate', 'totalPrice', 'discount', 'salesCancellationSnapshot'],
   student: ['branchId', 'joinDate', 'createdAt'],
 }
 
@@ -80,6 +81,7 @@ function contribution(source, value) {
     const date = storedDate(value.effectiveAt)
     if (!date) return null
     const receipt = ledgerReceiptImpact(value)
+    const salesAdjustment = Number.isSafeInteger(value.contractSalesImpact) ? value.contractSalesImpact : 0
     return { date, branchId, metrics: {
       ledgerEntries: 1,
       cashCollected: value.type === 'payment' && receipt > 0 ? receipt : 0,
@@ -89,6 +91,7 @@ function contribution(source, value) {
       netCash: receipt,
       grossCash: value.type === 'payment' && receipt > 0 ? receipt : 0,
       recognizedRevenue: ledgerRevenueImpact(value),
+      ...(salesAdjustment ? { contractSales: salesAdjustment, salesAdjustment } : {}),
     } }
   }
   if (source === 'session') {
@@ -108,10 +111,11 @@ function contribution(source, value) {
     return date ? { date, branchId, metrics: { attendanceEvents: 1 } } : null
   }
   if (source === 'contract') {
-    if (['draft', 'cancelled', 'inactive', 'archived'].includes(value.status)) return null
-    const date = storedDate(contractEffectiveDate(value))
+    const sale = contractSalesContribution(value)
+    if (!sale) return null
+    const date = storedDate(sale.effectiveAt)
     if (!date) return null
-    return { date, branchId, metrics: { contractSales: Math.max(0, finite(value.totalPrice) - finite(value.discount)) } }
+    return { date, branchId, metrics: { contractSales: sale.amount } }
   }
   if (source === 'student') {
     const date = storedDate(value.joinDate || value.createdAt)

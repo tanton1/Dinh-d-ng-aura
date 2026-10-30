@@ -13,11 +13,81 @@ const {
   updatedInstallments,
 } = require('./finance-ledger')
 const { Timestamp } = require('firebase-admin/firestore')
+const { settlementCashPlan, assertContractPaymentReversalAllowed } = require('./contract-settlement-cash')
 
 const repositoryRoot = join(__dirname, '..')
 const reportSource = readFileSync(join(repositoryRoot, 'src', 'pages', 'admin', 'AdminDashboard.tsx'), 'utf8')
 const financeSource = readFileSync(join(repositoryRoot, 'src', 'components', 'admin', 'pt', 'FinanceManagement.tsx'), 'utf8')
 const ledgerSource = readFileSync(join(__dirname, 'finance-ledger.js'), 'utf8')
+
+function settlementInput({ paidAmount = 400000, settlementAmount = 600000, writeOffAmount = 0, type = 'payment', amount = 100000 } = {}) {
+  const summary = { schemaVersion: 1, status: 'approved', revision: 3, cutoffDate: '2026-10-25', settlementAmount,
+    recognizedRevenueAfterAdjustments: settlementAmount + writeOffAmount, writeOffAmount, serviceEvidenceHash: 'evidence' }
+  return { contract: { status: 'cancelled', paidAmount, cancellationSettlement: summary }, caseData: { ...summary },
+    evidence: { canonicalCash: paidAmount, recognizedRevenue: summary.recognizedRevenueAfterAdjustments, serviceEvidenceHash: 'evidence', blockers: [] },
+    expectedSettlementRevision: 3, type, amount }
+}
+
+test('approved settlement collection uses the collectible amount after writeoff and remains awaiting explicit close', () => {
+  const plan = settlementCashPlan(settlementInput({ writeOffAmount: 200000, amount: 200000 }))
+  assert.equal(plan.recognizedReceivableTarget, 600000)
+  assert.equal(plan.summary.canonicalCash, 600000)
+  assert.equal(plan.summary.remainingReceivable, 0)
+  assert.equal(plan.summary.refundDue, 0)
+  assert.equal(plan.summary.status, 'approved')
+  assert.equal(plan.summary.revision, 4)
+  assert.equal(plan.summary.recognizedRevenueAfterAdjustments, 800000)
+  assert.equal(plan.casePatch.paidProjection, 600000)
+})
+
+test('settlement refunds stop at the retained amount and never create debt for waived future service', () => {
+  const input = settlementInput({ paidAmount: 800000, settlementAmount: 500000, type: 'refund', amount: 300000 })
+  const plan = settlementCashPlan(input)
+  assert.equal(plan.summary.canonicalCash, 500000)
+  assert.equal(plan.summary.remainingReceivable, 0)
+  assert.equal(plan.summary.refundDue, 0)
+  assert.equal(plan.summary.status, 'approved')
+  assert.throws(() => settlementCashPlan({ ...input, amount: 300001 }), error => error.details?.reason === 'contract-settlement-cash-limit')
+  assert.throws(() => settlementCashPlan({ ...input, type: 'payment' }), error => error.details?.reason === 'contract-settlement-cash-limit')
+})
+
+test('settlement cash fails closed on absent approval, stale versions, changed evidence, cash mismatch and old installments', () => {
+  for (const state of [undefined, 'review_required', 'pending_approval', 'settled']) {
+    const input = settlementInput()
+    input.contract.cancellationSettlement = state ? { ...input.contract.cancellationSettlement, status: state } : undefined
+    assert.throws(() => settlementCashPlan(input), error => error.details?.reason === 'contract-settlement-required')
+  }
+  const checks = [
+    [input => { input.expectedSettlementRevision = undefined }, 'contract-settlement-revision-changed'],
+    [input => { input.expectedSettlementRevision = 2 }, 'contract-settlement-revision-changed'],
+    [input => { input.caseData.revision = 4 }, 'contract-settlement-inconsistent'],
+    [input => { input.caseData.status = 'pending_approval' }, 'contract-settlement-inconsistent'],
+    [input => { delete input.caseData.schemaVersion }, 'contract-settlement-inconsistent'],
+    [input => { input.evidence.serviceEvidenceHash = 'changed' }, 'contract-settlement-evidence-changed'],
+    [input => { input.evidence.recognizedRevenue += 1 }, 'contract-settlement-evidence-changed'],
+    [input => { input.evidence.blockers.push({ code: 'UNCONFIRMED_SERVICE' }) }, 'contract-settlement-evidence-changed'],
+    [input => { input.evidence.canonicalCash -= 1 }, 'contract-settlement-cash-mismatch'],
+    [input => { input.installmentId = 'old-paid-installment' }, 'contract-settlement-installment'],
+    [input => { input.amount = 200001 }, 'contract-settlement-cash-limit'],
+  ]
+  for (const [change, reason] of checks) {
+    const input = settlementInput()
+    change(input)
+    assert.throws(() => settlementCashPlan(input), error => error.details?.reason === reason, reason)
+  }
+})
+
+test('cancelled receipt correction is limited to review and reads the case even when summary is missing', async () => {
+  const db = { doc: path => ({ path }) }
+  for (const state of [undefined, 'review_required', 'pending_approval', 'approved', 'settled']) {
+    let reads = 0
+    const transaction = { get: async reference => { assert.equal(reference.path, 'contractSettlements/c'); reads += 1; return { exists: state !== undefined, data: () => ({ status: state }) } } }
+    const run = () => assertContractPaymentReversalAllowed(transaction, db, 'c', { status: 'cancelled' })
+    if (!state || state === 'review_required') await run()
+    else await assert.rejects(run(), error => error.details?.reason === 'contract-settlement-reversal-blocked')
+    assert.equal(reads, 1)
+  }
+})
 
 function summaryInput(overrides = {}) {
   return {
@@ -192,8 +262,8 @@ test('contract refund creates a next-period Renew commission reversal from origi
 
 // Immutable query fake with real filtering/order/cursor/field-mask behavior.
 // Read budgets below count returned ledger documents, not index-entry billing.
-function ledgerReadFixture(values, { queryError, role = 'admin', disabled = false } = {}) {
-  const calls = []
+function ledgerReadFixture(values, { queryError, role = 'admin', disabled = false, contracts = {}, settlements = {} } = {}) {
+  const calls = [], metadataReads = []
   const documents = values.map((value, index) => ({
     id: `row-${String(index).padStart(5, '0')}`,
     data: () => value,
@@ -242,18 +312,68 @@ function ledgerReadFixture(values, { queryError, role = 'admin', disabled = fals
   const db = {
     collection(name) { assert.equal(name, 'ledgerEntries'); return query() },
     doc(path) {
+      if (/^(contracts|contractSettlements)\//.test(path)) return { path, id: path.split('/').at(-1) }
       assert.ok(['users/actor', 'roleAssignments/actor'].includes(path))
       return { get: async () => ({ exists: path === 'users/actor', data: () => ({ role, disabled }) }) }
     },
+    async getAll(...refs) {
+      const options = refs.pop()
+      metadataReads.push({ paths: refs.map(ref => ref.path), fields: options.fieldMask })
+      return refs.map(ref => {
+        const value = (ref.path.startsWith('contracts/') ? contracts : settlements)[ref.id]
+        return { id: ref.id, exists: value !== undefined, data: () => value }
+      })
+    },
   }
   const { listFinanceLedger } = createFinanceLedgerFunctions({ db, onCall: handler => handler })
-  return { calls, run: data => listFinanceLedger({ auth: { uid: 'actor', token: { role } }, data }), listFinanceLedger }
+  return { calls, metadataReads, run: data => listFinanceLedger({ auth: { uid: 'actor', token: { role } }, data }), listFinanceLedger }
 }
 
 const ledgerValue = (index, patch = {}) => ({
   type: 'payment', status: 'posted', branchId: 'a', amount: 100,
   effectiveAt: Timestamp.fromMillis(Date.parse('2026-10-22T10:00:00Z') - index * 1000),
   ...patch,
+})
+
+test('page reversal eligibility mirrors settlement locks without exposing contract financial metadata', async () => {
+  const contracts = {
+    active: { status: 'active', privateNote: 'must not leave server' },
+    review: { status: 'cancelled', cancellationSettlement: { status: 'review_required' } },
+    pending: { status: 'cancelled', cancellationSettlement: { status: 'pending_approval' } },
+    approved: { status: 'cancelled', cancellationSettlement: { status: 'approved' } },
+    settled: { status: 'cancelled', cancellationSettlement: { status: 'settled' } },
+    stale: { status: 'cancelled', cancellationSettlement: { status: 'review_required' } },
+    unprojected: { status: 'cancelled' },
+    malformed: { status: 'active', cancellationSettlement: { revision: 1 } },
+  }
+  const ids = [...Object.keys(contracts), 'missing', 'invalid/path']
+  const values = ids.map((contractId, i) => ledgerValue(i, { contractId }))
+  values.push(ledgerValue(20, { contractId: 'active', type: 'refund' }), ledgerValue(21, { contractId: 'active', status: 'reversed' }))
+  const f = ledgerReadFixture(values, { contracts, settlements: { review: { status: 'review_required' }, stale: { status: 'approved' }, unprojected: { status: 'settled' } } })
+  const page = await f.run({ includeSummary: false })
+  assert.deepEqual(page.entries.map(entry => entry.canReverse), [true, true, false, false, false, false, false, false, false, false, false, false])
+  assert.equal(JSON.stringify(page).includes('privateNote'), false)
+  assert.equal(JSON.stringify(page).includes('cancellationSettlement'), false)
+  assert.deepEqual(f.metadataReads[0].fields, ['status', 'cancellationSettlement'])
+  assert.deepEqual(f.metadataReads[1], { paths: ['contractSettlements/review', 'contractSettlements/stale', 'contractSettlements/unprojected'], fields: ['status'] })
+  assert.equal(f.metadataReads[0].paths.includes('contracts/invalid/path'), false)
+})
+
+test('reversal metadata reads only distinct posted-payment contracts selected for the bounded page', async () => {
+  const contracts = Object.fromEntries(Array.from({ length: 250 }, (_, i) => [`c${i}`, { status: 'active' }]))
+  const f = ledgerReadFixture(Array.from({ length: 250 }, (_, i) => ledgerValue(i, { contractId: `c${i}` })), { contracts })
+  const first = await f.run({ pageSize: 100, includeSummary: false })
+  assert.equal(first.entries.length, 100)
+  assert.equal(first.entries.every(entry => entry.canReverse), true)
+  assert.equal(f.metadataReads.length, 1)
+  assert.equal(f.metadataReads[0].paths.length, 100)
+  assert.equal(f.metadataReads[0].paths.includes('contracts/c100'), false, 'lookahead and scanned rows are not hydrated')
+  const repeated = ledgerReadFixture([ledgerValue(0, { contractId: 'c' }), ledgerValue(1, { contractId: 'c' })], { contracts: { c: { status: 'active' } } })
+  assert.equal((await repeated.run({})).entries.every(entry => entry.canReverse), true)
+  assert.deepEqual(repeated.metadataReads[0].paths, ['contracts/c'])
+  const nonPayments = ledgerReadFixture([ledgerValue(0, { contractId: 'c', type: 'refund' }), ledgerValue(1, { contractId: 'c', status: 'reversed' })])
+  assert.equal((await nonPayments.run({})).entries.every(entry => entry.canReverse === false), true)
+  assert.equal(nonPayments.metadataReads.length, 0)
 })
 
 test('small branch result shares one complete first snapshot and eliminates unrelated reads', async () => {

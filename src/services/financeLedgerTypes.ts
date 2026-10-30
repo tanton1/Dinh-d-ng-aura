@@ -24,6 +24,8 @@ export interface FinanceLedgerEntry {
   reversedEntryId: string
   note: string
   reason: string
+  /** Eligibility at the page read; legacy responses may omit this field. */
+  canReverse?: boolean
 }
 
 export interface FinanceLedgerSummary {
