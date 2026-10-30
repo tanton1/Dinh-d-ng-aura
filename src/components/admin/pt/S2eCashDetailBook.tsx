@@ -1,16 +1,13 @@
 import { useEffect, useState } from 'react'
 import { FileCog, Printer, Save, ShieldCheck, X } from 'lucide-react'
-import type { CashAccount, S2eCashDetailBook as S2eBook, S2eCashDetailSettings } from '../../../services/cashbookService'
+import type { S2eCashDetailBook as S2eBook, S2eCashDetailSettings } from '../../../services/cashbookService'
 
 interface Props {
-  accounts: CashAccount[]
-  accountId: string
   book: S2eBook | null
   busy: boolean
   loading: boolean
   periodStart: string
   periodEnd: string
-  onAccountChange: (value: string) => void
   onPeriodStartChange: (value: string) => void
   onPeriodEndChange: (value: string) => void
   onRefresh: () => void
@@ -29,14 +26,11 @@ const emptySettings: S2eCashDetailSettings = {
 }
 
 export default function S2eCashDetailBook({
-  accounts,
-  accountId,
   book,
   busy,
   loading,
   periodStart,
   periodEnd,
-  onAccountChange,
   onPeriodStartChange,
   onPeriodEndChange,
   onRefresh,
@@ -62,7 +56,6 @@ export default function S2eCashDetailBook({
     <div className="s2e-controls">
       <label>Từ ngày<input type="date" value={periodStart} max={periodEnd} onChange={(event) => onPeriodStartChange(event.target.value)} /></label>
       <label>Đến ngày<input type="date" value={periodEnd} min={periodStart} onChange={(event) => onPeriodEndChange(event.target.value)} /></label>
-      <label>Tài khoản tiền<select value={accountId} onChange={(event) => onAccountChange(event.target.value)}><option value="">Tất cả quỹ và ngân hàng</option>{accounts.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
       <div className="s2e-controls__actions">
         <button type="button" onClick={onRefresh} disabled={loading}>Cập nhật sổ</button>
         <button type="button" onClick={() => setEditingSettings((value) => !value)}><FileCog size={16} /> Thông tin hộ KD</button>

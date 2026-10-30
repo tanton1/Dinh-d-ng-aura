@@ -192,7 +192,34 @@ test('cashbook ordered and reverse-link queries each have a distinct explicit in
   assert.equal(fields('cashTransactions', ['effectiveAt', '__name__']).length, 1)
   assert.equal(fields('accountingDocuments', ['ledgerEntryId', '__name__']).length, 1)
   assert.equal(fields('accountingDocuments', ['documentType', 'createdAt', '__name__']).length, 1)
+  const expenseAccount = fields('accountingDocuments', ['documentType', 'accountId', 'createdAt', '__name__'])
+  assert.equal(expenseAccount.length, 1)
+  assert.deepEqual(expenseAccount[0].fields.map(field => field.order), ['ASCENDING', 'ASCENDING', 'DESCENDING', 'DESCENDING'])
   assert.equal(fields('accountingDocuments', ['documentType', 'effectiveAt', '__name__']).length, 1)
   assert.equal(fields('accountingDocuments', ['documentType', 'accountId', 'effectiveAt', '__name__']).length, 1)
   assert.equal(fields('ledgerEntries', ['type', 'cashAccountId', 'effectiveAt', '__name__']).length, 1)
+})
+
+test('finance workspace scope selects only the explicit expense account cursor index', () => {
+  const selected = selectIndexes(indexes, 'finance-workspace-expense-account')
+  const wanted = { collectionGroup: 'accountingDocuments', queryScope: 'COLLECTION', fields: [
+    { fieldPath: 'documentType', order: 'ASCENDING' },
+    { fieldPath: 'accountId', order: 'ASCENDING' },
+    { fieldPath: 'createdAt', order: 'DESCENDING' },
+    { fieldPath: '__name__', order: 'DESCENDING' },
+  ] }
+  assert.deepEqual(selected, [wanted])
+  assert.throws(() => selectIndexes([], 'finance-workspace-expense-account'), /exactly once/)
+  assert.throws(() => selectIndexes([...indexes, wanted], 'finance-workspace-expense-account'), /exactly once/)
+  for (const invalid of [
+    { ...wanted, collectionGroup: 'cashTransactions' },
+    { ...wanted, queryScope: 'COLLECTION_GROUP' },
+    { ...wanted, fields: wanted.fields.slice(0, -1) },
+    ...wanted.fields.map((field, position) => ({ ...wanted, fields: wanted.fields.map((value, index) => index === position ? { ...field, order: field.order === 'ASCENDING' ? 'DESCENDING' : 'ASCENDING' } : value) })),
+  ]) assert.throws(() => selectIndexes([invalid], 'finance-workspace-expense-account'), /exactly once/)
+  assert.deepEqual(parseArguments(['dry-run', '--scope=finance-workspace-expense-account']), { mode: 'dry-run', scope: 'finance-workspace-expense-account' })
+  assert.deepEqual(parseArguments(['apply', '--scope=finance-workspace-expense-account', `--confirm=${CONFIRMATION}`]), { mode: 'apply', scope: 'finance-workspace-expense-account' })
+  assert.throws(() => parseArguments(['apply', '--scope=finance-workspace-expense-account']), /confirmation/)
+  assert.throws(() => parseArguments(['apply', '--scope=finance-workspace-expense-account', '--confirm=other-project']), /confirmation/)
+  assert.throws(() => parseArguments(['dry-run', '--scope=finance-workspace-expense-account', '--project=other']), /Usage/)
 })

@@ -285,7 +285,10 @@ function createScopedReportingReadFunctions({ db, onCall, logger = console, auth
     while (rows.length < size && scanned < PAGE_SCAN_LIMIT && hasMore) {
       let query = contractsQuery(db, branch).orderBy(FieldPath.documentId()).select(...CONTRACT_FIELDS)
       if (lastId) query = query.startAfter(lastId)
-      const batchSize = Math.min(search ? 50 : size - rows.length, PAGE_SCAN_LIMIT - scanned)
+      // Sparse groups must not degrade into a query per remaining match. The
+      // cursor still advances only through processed documents, so a full page
+      // never skips the unprocessed tail of this bounded source batch.
+      const batchSize = Math.min(scanned === 0 && !search ? size : 50, PAGE_SCAN_LIMIT - scanned)
       const snapshot = await query.limit(batchSize).get()
       recordOperationMetrics({ logicalQueries: 1, documentsReturned: snapshot.size })
       if (snapshot.empty) { hasMore = false; break }
