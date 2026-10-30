@@ -323,6 +323,8 @@ export interface PushAdminOverview {
   webPushFailures24h: number
   latestAutomationAt?: string | null
   latestBroadcastAt?: string | null
+  asOf?: string
+  windowStart?: string
 }
 
 export interface PushAutomationLog {

@@ -599,7 +599,7 @@ export async function getPushAutomationLogs(): Promise<PushAutomationLog[]> {
 }
 
 /** Read privacy-safe delivery and audience aggregates from the privileged backend. */
-export async function getPushAdminOverview(): Promise<PushAdminOverview> {
+export async function getPushAdminOverview(options: { forceRefresh?: boolean } = {}): Promise<PushAdminOverview> {
   const emptyOverview: PushAdminOverview = {
     activeUsers: 0,
     pushEnabledUsers: 0,
@@ -614,12 +614,17 @@ export async function getPushAdminOverview(): Promise<PushAdminOverview> {
     throw new Error('Dịch vụ tổng hợp Push chưa sẵn sàng.')
   }
 
-  const callable = httpsCallable<Record<string, never>, PushAdminOverview>(
+  const callable = httpsCallable<{ forceRefresh?: boolean }, PushAdminOverview & { complete?: boolean; reason?: string }>(
     firebaseFunctions,
     'getPushAdminOverview',
   )
-  const response = await callable({})
+  const response = await callable(options.forceRefresh ? { forceRefresh: true } : {})
   const value = response.data
+  if (value?.complete === false) {
+    throw new Error(value.reason === 'scan-limit'
+      ? 'Chưa thể tổng hợp đầy đủ dữ liệu Push vì vượt giới hạn xử lý. Các chỉ số chưa được xác nhận.'
+      : 'Phản hồi tổng hợp Push chưa đầy đủ. Hãy thử tải lại.')
+  }
   const fields = ['activeUsers', 'pushEnabledUsers', 'activeDevices', 'webPushAccepted24h', 'webPushFailures24h'] as const
   if (!value || fields.some(field => !Number.isFinite(value[field]) || value[field] < 0)) {
     throw new Error('Phản hồi tổng hợp Push chưa đầy đủ. Hãy thử tải lại.')
@@ -628,6 +633,8 @@ export async function getPushAdminOverview(): Promise<PushAdminOverview> {
     ...Object.fromEntries(fields.map(field => [field, value[field]])),
     latestAutomationAt: typeof value.latestAutomationAt === 'string' ? value.latestAutomationAt : null,
     latestBroadcastAt: typeof value.latestBroadcastAt === 'string' ? value.latestBroadcastAt : null,
+    ...(typeof value.asOf === 'string' && Number.isFinite(Date.parse(value.asOf)) ? { asOf: value.asOf } : {}),
+    ...(typeof value.windowStart === 'string' && Number.isFinite(Date.parse(value.windowStart)) ? { windowStart: value.windowStart } : {}),
   } as PushAdminOverview
 }
 

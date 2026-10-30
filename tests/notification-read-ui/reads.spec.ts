@@ -58,11 +58,14 @@ test('overview reads only settings and aggregate, with no idle or resume traffic
   expect(initial.overview).toBeGreaterThanOrEqual(1)
   expect(initial.overview).toBeLessThanOrEqual(2)
   expect(initial.settings).toBe(initial.overview)
+  await expect(page.getByText(/Số liệu lúc/)).toBeVisible()
+  expect(await page.evaluate(() => (window as any).notificationFixture.calls.filter((row: any) => row.name === 'overview').every((row: any) => row.input.forceRefresh === false))).toBe(true)
   await page.clock.fastForward(10 * 60_000)
   await page.evaluate(() => { document.dispatchEvent(new Event('visibilitychange')); window.dispatchEvent(new Event('focus')) })
   expect(await counts(page)).toEqual(initial)
   await page.getByRole('button', { name: 'Làm mới', exact: true }).click()
   await expectDelta(page, initial, { settings: 1, overview: 1 })
+  expect(await page.evaluate(() => (window as any).notificationFixture.calls.filter((row: any) => row.name === 'overview').at(-1).input)).toEqual({ forceRefresh: true })
 })
 
 test('compose and rollout acquire users only while visible and reuse templates', async ({ page }) => {
@@ -224,6 +227,8 @@ test('broadcast requires review plus explicit all-audience confirmation and inva
   expect(await counts(page)).toEqual(after)
   await tab(page, 'overview').click()
   await expectDelta(page, after, { overview: 1 })
+  // A send while overview is hidden must not reuse a shared value from before the send.
+  expect(await page.evaluate(() => (window as any).notificationFixture.calls.filter((row: any) => row.name === 'overview').at(-1).input)).toEqual({ forceRefresh: true })
 })
 
 test('failed overview displays unknown counts and explicit refresh recovers without unrelated reads', async ({ page }) => {
