@@ -15,8 +15,10 @@ export function getOperationsDashboard(input: Record<string, unknown>) {
   const branchId = input.branchId || 'all'
   const amount = branchId === 'branch-a' ? 222222 : branchId === 'branch-b' ? 333333 : (window as any).dashboardFixture.uid === 'admin-a' ? 111111 : 444444
   return request('dashboard', input, normalizeOperationsDashboardData({
+    schemaVersion: 7,
     branchId, range: { startAt: input.startAt, endAt: input.endAt, timeZone: 'Asia/Ho_Chi_Minh' },
-    permissions: { payroll: true, finance: true, clients: true, operations: true },
+    permissions: { payroll: true, finance: true, clients: true, operations: true, quality: (window as any).dashboardFixture.canViewQuality !== false },
+    quality: (window as any).dashboardFixture.quality || {},
     finance: { recognizedRevenue: amount },
     filters: { branches: [{ id: 'branch-a', name: 'Cơ sở A' }, { id: 'branch-b', name: 'Cơ sở B' }] },
     generatedAt: '2026-10-24T06:00:00Z',

@@ -4,6 +4,7 @@ const { trustedAccessContext, requireCapability } = require('./identity-access')
 const { createSharedDashboardCache, stableDashboardCacheKey } = require('./operations-dashboard-cache')
 const { loadDailyAggregates } = require('./operations-dashboard-aggregates')
 const { ledgerReceiptImpact } = require('./finance-receipt-impact')
+const { contractSalesContribution, contractSettlementBalance, collectibleContractDebt } = require('./contract-financial-status')
 const { overlayContractUsageViews } = require('./contract-usage-view')
 const { normalizeReviewSlaMinutes, reviewTimestampMillis } = require('./review-sla')
 const { cacheScope } = require('./process-cache')
@@ -121,11 +122,6 @@ function contractDebt(value) {
   return Math.max(0, contractAmount(value) - Math.max(0, Number(value.paidAmount || 0)))
 }
 
-function collectibleContractDebt(value) {
-  if (['draft', 'cancelled', 'inactive', 'archived'].includes(value.status)) return 0
-  return contractDebt(value)
-}
-
 function ledgerRevenueImpact(value) {
   if (value.revenueImpact !== undefined && value.revenueImpact !== null && Number.isFinite(Number(value.revenueImpact))) {
     return Number(value.revenueImpact)
@@ -233,7 +229,7 @@ function dashboardAnalytics({ ledgerValues, contractValues, offValues, start, en
   const granularity = reportGranularity(start, end)
   const points = new Map()
   const point = (bucket) => {
-    const current = points.get(bucket.key) || { key: bucket.key, label: bucket.label, contractSales: 0, recognizedRevenue: 0, grossCash: 0, netCash: 0 }
+    const current = points.get(bucket.key) || { key: bucket.key, label: bucket.label, contractSales: 0, salesAdjustment: 0, recognizedRevenue: 0, grossCash: 0, netCash: 0 }
     points.set(bucket.key, current)
     return current
   }
@@ -242,11 +238,12 @@ function dashboardAnalytics({ ledgerValues, contractValues, offValues, start, en
   // selected period had sparse activity.
   seedContinuousReportPoints(start, end, granularity, point)
   for (const value of contractValues) {
-    if (['draft', 'cancelled', 'inactive', 'archived'].includes(value.status)) continue
-    const effectiveAt = contractEffectiveDate(value)
+    const sale = contractSalesContribution(value)
+    if (!sale) continue
+    const effectiveAt = sale.effectiveAt
     if (!effectiveAt || !inRange(effectiveAt, start, end)) continue
     const bucket = reportBucket(effectiveAt, granularity)
-    if (bucket) point(bucket).contractSales += contractAmount(value)
+    if (bucket) point(bucket).contractSales += sale.amount
   }
   for (const value of ledgerValues) {
     const bucket = reportBucket(value.effectiveAt, granularity)
@@ -256,6 +253,9 @@ function dashboardAnalytics({ ledgerValues, contractValues, offValues, start, en
     if (value.type === 'payment' && amount > 0) current.grossCash += amount
     current.netCash += amount
     current.recognizedRevenue += ledgerRevenueImpact(value)
+    const salesAdjustment = Number.isSafeInteger(value.contractSalesImpact) ? value.contractSalesImpact : 0
+    current.contractSales += salesAdjustment
+    current.salesAdjustment += salesAdjustment
   }
 
   const effectiveContracts = contractValues.filter((value) => isEffectiveContract(value, referenceDate))
@@ -304,7 +304,7 @@ function aggregateRevenueAnalytics(days, start, end) {
   const granularity = reportGranularity(start, end)
   const points = new Map()
   const point = (bucket) => {
-    const current = points.get(bucket.key) || { key: bucket.key, label: bucket.label, contractSales: 0, recognizedRevenue: 0, grossCash: 0, netCash: 0 }
+    const current = points.get(bucket.key) || { key: bucket.key, label: bucket.label, contractSales: 0, salesAdjustment: 0, recognizedRevenue: 0, grossCash: 0, netCash: 0 }
     points.set(bucket.key, current)
     return current
   }
@@ -314,6 +314,7 @@ function aggregateRevenueAnalytics(days, start, end) {
     if (!bucket) continue
     const current = point(bucket)
     current.contractSales += Number(day.metrics.contractSales || 0)
+    current.salesAdjustment += Number(day.metrics.salesAdjustment || 0)
     current.recognizedRevenue += Number(day.metrics.recognizedRevenue || 0)
     current.grossCash += Number(day.metrics.grossCash || 0)
     current.netCash += Number(day.metrics.netCash || 0)
@@ -346,7 +347,7 @@ function summarizeReceivables(contracts, today) {
     const debt = collectibleContractDebt(contract)
     if (!debt) continue
     summary.totalCount += 1
-    if (contract.status === 'frozen') {
+    if (['frozen', 'cancelled'].includes(contract.status)) {
       summary.warningCount += 1
       continue
     }
@@ -400,7 +401,7 @@ function receivableSchedule(contracts, studentValues, today, limit = 60) {
 
   for (const contract of contracts) {
     const debt = collectibleContractDebt(contract)
-    if (!debt || contract.status === 'frozen') continue
+    if (!debt || ['frozen', 'cancelled'].includes(contract.status)) continue
     let remainingDebt = debt
     const installments = pendingInstallments(contract)
       .map((item, index) => ({
@@ -836,7 +837,7 @@ function createOperationsDashboardFunctions({
     const canAggregateOperations = permissions.operations && scope.unrestricted
     const [ledger, sessionRange, confirmedSessionRange, noShowSessionRange, attendanceRange, todaySessions, contracts, students, trainers, staff, branches, offRequests, renewalAction, scheduleAction, nutritionAction] = await Promise.all([
       permissions.finance && !dailyAggregate ? readDashboardQuery(db.collection('ledgerEntries').where('effectiveAt', '>=', startTimestamp).where('effectiveAt', '<=', endTimestamp).orderBy('effectiveAt', 'desc'), branchScope, MAX_SCANNED_DOCUMENTS,
-        ['branchId', 'status', 'type', 'source', 'eventClass', 'amount', 'cashImpact', 'revenueImpact', 'expenseImpact', 'effectiveAt']) : null,
+        ['branchId', 'status', 'type', 'source', 'eventClass', 'amount', 'cashImpact', 'revenueImpact', 'expenseImpact', 'contractSalesImpact', 'effectiveAt']) : null,
       permissions.operations && !dailyAggregate ? (canAggregateOperations ? sessionRangeQuery.count().get() : readDashboardQuery(sessionRangeQuery, operationScope, MAX_SCANNED_DOCUMENTS, ['branchId', 'trainerId', 'status'])) : null,
       permissions.operations && !dailyAggregate && canAggregateOperations ? confirmedSessionRangeQuery.count().get() : null,
       permissions.operations && !dailyAggregate && canAggregateOperations ? noShowSessionRangeQuery.count().get() : null,
@@ -885,6 +886,7 @@ function createOperationsDashboardFunctions({
       if (value.type === 'adjustment') result.adjustments += amount
       result.netCash += amount
       result.recognizedRevenue += ledgerRevenueImpact(value)
+      result.salesAdjustment += Number.isSafeInteger(value.contractSalesImpact) ? value.contractSalesImpact : 0
       return result
     }, dailyAggregate ? {
       cashCollected: Number(aggregateTotals.cashCollected || 0),
@@ -893,17 +895,21 @@ function createOperationsDashboardFunctions({
       adjustments: Number(aggregateTotals.adjustments || 0),
       netCash: Number(aggregateTotals.netCash || 0),
       recognizedRevenue: Number(aggregateTotals.recognizedRevenue || 0),
-    } : { cashCollected: 0, refunds: 0, reversals: 0, adjustments: 0, netCash: 0, recognizedRevenue: 0 })
+      salesAdjustment: Number(aggregateTotals.salesAdjustment || 0),
+    } : { cashCollected: 0, refunds: 0, reversals: 0, adjustments: 0, netCash: 0, recognizedRevenue: 0, salesAdjustment: 0 })
 
     let missingContractEffectiveDate = 0
     const rawContractSales = contractValues.reduce((total, value) => {
-      if (['draft', 'cancelled', 'inactive', 'archived'].includes(value.status)) return total
-      const effectiveDate = contractEffectiveDate(value)
+      const sale = contractSalesContribution(value)
+      if (!sale) return total
+      const effectiveDate = sale.effectiveAt
       if (!effectiveDate) { missingContractEffectiveDate += 1; return total }
       if (!inRange(effectiveDate, start, end)) return total
-      return total + Math.max(0, Number(value.totalPrice || 0) - Number(value.discount || 0))
+      return total + sale.amount
     }, 0)
-    const contractSales = dailyAggregate ? Number(aggregateTotals.contractSales || 0) : rawContractSales
+    const contractSales = dailyAggregate ? Number(aggregateTotals.contractSales || 0) : rawContractSales + finance.salesAdjustment
+    const cancelledSalesBaselineUnverified = contractValues.filter(value => value.status === 'cancelled' && !contractSalesContribution(value)).length
+    const cancelledSettlementReviewRequired = contractValues.filter(value => value.status === 'cancelled' && !contractSettlementBalance(value).verified).length
     const receivables = contractValues.reduce((total, value) => total + collectibleContractDebt(value), 0)
     const frozenReceivables = contractValues
       .filter((value) => value.status === 'frozen')
@@ -983,7 +989,7 @@ function createOperationsDashboardFunctions({
         rows: attendanceDetails.rows,
         truncated: attendanceDetails.truncated || Boolean(todaySessions && todaySessions.size > 500),
       },
-      finance: { ...finance, contractSales, receivables, frozenReceivables, ledgerEntries: dailyAggregate ? Number(aggregateTotals.ledgerEntries || 0) : ledgerValues.length },
+      finance: { ...finance, contractSales, grossContractSales: contractSales - finance.salesAdjustment, receivables, frozenReceivables, ledgerEntries: dailyAggregate ? Number(aggregateTotals.ledgerEntries || 0) : ledgerValues.length },
       receivables: receivableDetails,
       clients: {
         total: studentValues.length,
@@ -1005,8 +1011,10 @@ function createOperationsDashboardFunctions({
         branches: branchValues.filter((value) => value.status !== 'inactive').length,
       },
       quality: {
-        completeness: incomplete ? 'partial' : missingContractEffectiveDate ? 'partial' : 'complete',
+        completeness: incomplete || missingContractEffectiveDate || cancelledSalesBaselineUnverified || cancelledSettlementReviewRequired ? 'partial' : 'complete',
         missingContractEffectiveDate,
+        cancelledSalesBaselineUnverified,
+        cancelledSettlementReviewRequired,
         truncated: incomplete,
         canonicalFinanceSource: 'ledgerEntries',
         canonicalAttendanceSource: 'attendanceEvents',
@@ -1108,5 +1116,6 @@ module.exports = {
   ledgerReceiptImpact,
   ledgerRevenueImpact,
   dashboardAnalytics,
+  aggregateRevenueAnalytics,
   summarizeAttendance,
 }

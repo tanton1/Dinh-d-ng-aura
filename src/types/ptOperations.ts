@@ -1,3 +1,5 @@
+import type { ContractSettlementSummary } from '../services/contractSettlementService'
+
 export type Day = 'T2' | 'T3' | 'T4' | 'T5' | 'T6' | 'T7'
 
 export const DAYS: Day[] = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7']
@@ -217,6 +219,7 @@ export interface LeaveRequest {
 }
 
 export interface StudentContract {
+  cancellationSettlement?: ContractSettlementSummary
   activationMode?: 'automatic' | 'fixed_date'
   earlyHandoverRequested?: boolean
   signedDate?: string

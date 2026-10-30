@@ -3,6 +3,7 @@ const assert = require('node:assert/strict')
 const { readFileSync } = require('node:fs')
 const { join } = require('node:path')
 const {
+  assertCancellationEvidenceChange,
   autoConfirmOverduePtAttendance,
   chargeDuePtSessions,
   chargeSessionTransaction,
@@ -258,6 +259,51 @@ const revenueCorrection = (expectedRevision = 0, overrides = {}) => ({ data: {
   items: [{ sessionId: 'revenue-session', expectedRevision, attendanceEventId: 'revenue-session', attendanceStatus: 'present' }],
   date: '2026-08-18', hour: 8, trainerId: 'trainer-1', reason: 'Đối soát bằng chứng ca thực dạy', ...overrides,
 } })
+
+test('cancelled evidence guard permits only review repairs through the verified cutoff and preserves genuine no-ops', () => {
+  const contract = { status: 'cancelled', cancelledAt: '2026-08-17T18:00:00Z' }
+  assert.doesNotThrow(() => assertCancellationEvidenceChange({ contract, sourceDate: '2026-08-18', changed: true }))
+  assert.doesNotThrow(() => assertCancellationEvidenceChange({ contract: { status: 'active' }, sourceDate: '2026-08-30', changed: true }))
+  for (const status of ['pending_approval', 'approved', 'settled']) {
+    const locked = { ...contract, cancellationSettlement: { status, cutoffDate: '2026-08-18' } }
+    assert.doesNotThrow(() => assertCancellationEvidenceChange({ contract: locked, sourceDate: '2026-08-30', changed: false }))
+    assert.throws(() => assertCancellationEvidenceChange({ contract: locked, sourceDate: '2026-08-17', changed: true }), error => error.details?.issueCode === 'CONTRACT_SETTLEMENT_EVIDENCE_LOCKED')
+  }
+  for (const cutoffDate of ['', '2026-99-99', '2026-02-30']) {
+    assert.throws(() => assertCancellationEvidenceChange({ contract: { status: 'cancelled', cancellationSettlement: { status: 'review_required', cutoffDate } }, sourceDate: '2026-08-18', changed: true }), error => error.details?.issueCode === 'CONTRACT_CANCELLATION_CUTOFF_REQUIRED')
+  }
+  for (const dates of [{ sourceDate: '2026-08-19' }, { sourceDate: '2026-08-18', targetDate: '2026-08-19' }, { sourceDate: '2026-08-19', targetDate: '2026-08-18' }]) {
+    assert.throws(() => assertCancellationEvidenceChange({ contract, ...dates, changed: true }), error => error.details?.issueCode === 'CONTRACT_CANCELLATION_SERVICE_AFTER_CUTOFF')
+  }
+})
+
+for (const operation of ['attendance', 'correction']) test(`cancelled ${operation} repairs are limited to review and cannot create or move recognition after cutoff`, async () => {
+  const invoke = (state, revision = 0, overrides = {}) => operation === 'attendance'
+    ? recordSessionAttendanceTransaction({ db: state.db, sessionId: 'revenue-session', expectedRevision: revision, actorUid: 'admin-1', attendanceStatus: 'present', now: new Date('2026-08-20T03:00:00Z'), ...overrides })
+    : state.correctTeachingShift(revenueCorrection(revision, overrides))
+  const state = revenueCorrectionState()
+  const contract = state.read('contracts/contract-1')
+  Object.assign(contract, { status: 'cancelled', cancelledAt: '2026-08-18T10:00:00Z', cancellationSettlement: { status: 'review_required', cutoffDate: '2026-08-18' } })
+  await invoke(state)
+  assert.equal(state.read('ledgerEntries/pt_session_revenue-session').revenueImpact, 100000)
+  for (const status of ['pending_approval', 'approved', 'settled']) {
+    contract.cancellationSettlement.status = status
+    const before = JSON.stringify(state.paths().map(path => [path, state.read(path)]))
+    assert.equal((await invoke(state, 1)).unchanged, true)
+    await assert.rejects(invoke(state, 1, operation === 'attendance' ? { note: 'Changed evidence' } : { trainerId: 'trainer-2' }), error => error.details?.issueCode === 'CONTRACT_SETTLEMENT_EVIDENCE_LOCKED')
+    assert.equal(JSON.stringify(state.paths().map(path => [path, state.read(path)])), before)
+  }
+  contract.cancellationSettlement.status = 'review_required'
+  contract.cancellationSettlement.cutoffDate = '2026-08-17'
+  await assert.rejects(invoke(state, 1, operation === 'attendance' ? { note: 'After cutoff' } : { trainerId: 'trainer-2' }), error => error.details?.issueCode === 'CONTRACT_CANCELLATION_SERVICE_AFTER_CUTOFF')
+  const missing = revenueCorrectionState()
+  Object.assign(missing.read('contracts/contract-1'), { status: 'cancelled' })
+  await assert.rejects(invoke(missing), error => error.details?.issueCode === 'CONTRACT_CANCELLATION_CUTOFF_REQUIRED')
+  assert.equal(missing.paths().filter(path => path.startsWith('ledgerEntries/')).length, 0)
+  Object.assign(missing.read('contracts/contract-1'), { cancelledAt: '2026-08-17T10:00:00Z' })
+  await assert.rejects(invoke(missing), error => error.details?.issueCode === 'CONTRACT_CANCELLATION_SERVICE_AFTER_CUTOFF')
+  assert.equal(missing.paths().filter(path => path.startsWith('ledgerEntries/')).length, 0)
+})
 
 test('admin confirmation creates missing revenue and journal once using posted revenue for cash allocation', async () => {
   const state = revenueCorrectionState()

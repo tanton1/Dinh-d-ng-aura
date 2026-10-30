@@ -1,5 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { mergeTrainingHistoryPage } from '../../utils/trainingHistoryPagination'
+import { student360PaymentPresentation } from './student360PaymentPresentation'
 import {
   Activity,
   AlertTriangle,
@@ -126,13 +127,6 @@ function healthCopy(status: Student360Overview['health']['status']) {
 
 function confidenceCopy(value: Student360Overview['health']['confidence']) {
   return value === 'high' ? 'Cao' : value === 'medium' ? 'Trung bình' : 'Thấp'
-}
-
-function paymentCopy(status?: 'paid' | 'due' | 'overdue') {
-  if (status === 'paid') return 'Đã thanh toán'
-  if (status === 'overdue') return 'Quá hạn'
-  if (status === 'due') return 'Sắp đến hạn'
-  return 'Chưa có lịch thu'
 }
 
 function availabilityCopy(source: string) {
@@ -680,7 +674,7 @@ export default function Student360Page({ studentId, source, isDemo = false, onBa
   const isAdminView = source === 'admin-pt-students'
   const daysLabel = contract?.daysRemaining === null || contract?.daysRemaining === undefined ? '—' : Math.max(0, contract.daysRemaining)
   const weeklyPercent = Math.min(100, schedule.requiredSessions ? schedule.bookedSessions / schedule.requiredSessions * 100 : 0)
-  const paymentStatus = contract?.payment?.status
+  const paymentPresentation = student360PaymentPresentation(contract, permissions.canViewFinancialAmounts)
   const scheduleView = source.startsWith('staff') ? 'staff-schedule' : 'admin-pt-schedule'
 
   return <main className="student360-page aura-ui-v4-surface aura-ui-v4-operations student360-page--v4" data-tab={activeTab}>
@@ -718,7 +712,7 @@ export default function Student360Page({ studentId, source, isDemo = false, onBa
         <Metric label="Còn buổi" value={contract ? `${contract.remainingSessions}/${contract.totalSessions}` : '—'} note={contract ? `${contract.usedSessions} buổi tính quota · ${contract.chargedSessions} buổi trong lịch sử đối soát` : 'Chưa có hợp đồng'} />
         {permissions.canViewOperations ? <Metric label="Lịch tuần" value={`${schedule.bookedSessions}/${schedule.requiredSessions}`} note={schedule.bookedSessions >= schedule.requiredSessions ? 'Đã đủ lịch mục tiêu' : `Còn thiếu ${Math.max(0, schedule.requiredSessions - schedule.bookedSessions)} buổi`} /> : <Metric label="Phạm vi" value={permissions.scope === 'sales' ? 'CSKH' : 'Coach'} note="Hiển thị theo quyền được cấp" />}
         <Metric label="Thời hạn" value={daysLabel} note={contract?.endDate ? `ngày · đến ${safeDate(contract.endDate)}` : 'Chưa có ngày hết hạn'} />
-        {permissions.canViewFinancialStatus ? <Metric label="Thanh toán" value={paymentCopy(paymentStatus)} note={contract?.payment?.nextPaymentDate ? `Hạn ${safeDate(contract.payment.nextPaymentDate)}` : 'Không có khoản đến hạn'} tone={paymentStatus === 'overdue' ? 'action_required' : paymentStatus === 'due' ? 'attention' : 'stable'} /> : <Metric label="Chăm sóc" value={health.score} note={`${healthCopy(health.status)} · dữ liệu ${confidenceCopy(health.confidence).toLowerCase()}`} tone={health.status} />}
+        {permissions.canViewFinancialStatus ? <Metric label={paymentPresentation.label} value={paymentPresentation.value} note={paymentPresentation.note ?? (contract?.payment?.nextPaymentDate ? `Hạn ${safeDate(contract.payment.nextPaymentDate)}` : 'Không có khoản đến hạn')} tone={paymentPresentation.tone} /> : <Metric label="Chăm sóc" value={health.score} note={`${healthCopy(health.status)} · dữ liệu ${confidenceCopy(health.confidence).toLowerCase()}`} tone={health.status} />}
       </section>
 
     <nav className="student360-tabs student360-tabs--desktop" aria-label="Nội dung Học viên 360">{tabs.map(({ id, label, icon: Icon }) => <button key={id} type="button" className={activeTab === id ? 'active' : ''} aria-current={activeTab === id ? 'page' : undefined} onClick={() => setActiveTab(id)}><Icon /><span>{label}</span></button>)}</nav>
