@@ -8,6 +8,7 @@ const assert = require('node:assert/strict')
 const { createHash } = require('node:crypto')
 const { recordSessionAttendanceTransaction } = require('../functions/session-operations')
 const { replacementServiceOrdinal } = require('../functions/service-ordinal-allocation')
+const { ptFinanceBranch } = require('../functions/pt-finance-branch')
 const PROJECT = 'gen-lang-client-0815966909'
 const DATABASE = 'ai-studio-aurafitnesselear-0f7609b4-b8d1-4fb3-9d62-99a2c03e1ce7'
 const RUN = 'pt-finance-20261031-v1'
@@ -34,7 +35,7 @@ function evidenceHash(values) {
 }
 function runtimeHash() {
   return digest(['functions/session-operations.js','functions/finance-recognition.js','functions/finance-recognition-evidence.js',
-    'functions/finance-recognition-balance.js','functions/service-ordinal-allocation.js','functions/contract-usage-core.js',
+    'functions/finance-recognition-balance.js','functions/service-ordinal-allocation.js','functions/contract-usage-core.js','functions/pt-finance-branch.js',
     'scripts/firebase-pt-finance-repair.cjs'].map(p => [p,digest(fs.readFileSync(path.join(ROOT,p),'utf8'))]))
 }
 async function connect() {
@@ -63,6 +64,8 @@ async function period(db, collection, field) {
   return snap.docs.map(doc => ({ ...doc.data(), id: doc.id }))
 }
 async function plan(db) {
+  assert((await db.collection('financeReconciliationRepairs').where('runId','==',RUN).limit(1).get()).empty,
+    'This run already changed data; use resume-plan to preserve its reviewed baselines')
   const [attendance, ledger] = await Promise.all([period(db,'attendanceEvents','occurredAt'),period(db,'ledgerEntries','effectiveAt')])
   const sessions = await batches(db,'sessions',attendance.map(row=>row.sessionId))
   const contracts = await batches(db,'contracts',[...sessions.values()].map(row=>row.contractId))
@@ -96,6 +99,26 @@ async function plan(db) {
   fs.mkdirSync(DIR,{recursive:true});fs.writeFileSync(PLAN,JSON.stringify(value,null,2))
   return {mode:'plan',planDigest:value.planDigest,manualCandidates:rows.length,branchCandidates:branchRows.length,sourceCounts:value.sourceCounts,
     outcomes:rows.reduce((out,row)=>({...out,[row.preview.outcome]:(out[row.preview.outcome]||0)+1}),{}),revenue:rows.reduce((sum,row)=>sum+(row.preview.revenue||0),0)}
+}
+async function resumePlan(db) {
+  const saved=JSON.parse(fs.readFileSync(PLAN)),{planDigest,...original}=saved
+  assert.equal(digest(original),planDigest);assert.equal(saved.runId,RUN);assert.equal(saved.project,PROJECT);assert.equal(saved.database,DATABASE)
+  const receipts=await db.collection('financeReconciliationRepairs').where('runId','==',RUN).limit(251).get()
+  assert(receipts.size>0&&receipts.size<=250,'Invalid partial repair receipt count')
+  const applied=new Set(receipts.docs.map(doc=>doc.data().sessionId)),changes=[],reserved=new Map()
+  for(const row of saved.rows){
+    if(applied.has(row.sessionId))continue
+    const result=await repairOne(db,row,{dryRun:true,reserved:reserved.get(row.contractId)||[]})
+    const preview={outcome:result.recognitionEntryId?'posted':result.recognitionReviewRequired?'review_required':'unchanged',revenue:result.revenue||0,issueCode:result.issueCode||null,allocatedOrdinal:result.allocatedOrdinal||null}
+    changes.push({sessionId:row.sessionId,before:row.preview,after:preview});row.preview=preview
+    if(result.allocatedOrdinal)reserved.set(row.contractId,[...(reserved.get(row.contractId)||[]),result.allocatedOrdinal])
+  }
+  fs.copyFileSync(PLAN,path.join(DIR,`${RUN}-plan-${planDigest}.json`),fs.constants.COPYFILE_EXCL)
+  delete saved.planDigest
+  saved.resume={previousPlanDigest:planDigest,at:new Date().toISOString(),changes};saved.runtimeHash=runtimeHash()
+  saved.planDigest=digest(saved);fs.writeFileSync(PLAN,JSON.stringify(saved,null,2))
+  return {mode:'resume-plan',planDigest:saved.planDigest,alreadyApplied:applied.size,remaining:changes.length,
+    additionalRevenue:changes.reduce((sum,row)=>sum+row.after.revenue,0)}
 }
 async function repairOne(db,row,{dryRun=false,reserved=[]}={}) {
   const receipt=db.doc(`financeReconciliationRepairs/${RUN}_${digest(row.sessionId).slice(0,32)}`)
@@ -174,23 +197,82 @@ async function repairBranches(db,rows) {
       const batch=rows.slice(i,i+80),snapshots=await Promise.all(batch.map(async row=>({row,a:await tx.get(db.doc('attendanceEvents/'+row.attendanceId)),s:await tx.get(db.doc('sessions/'+row.sessionId))})))
       const contractIds=[...new Set(snapshots.filter(v=>v.s.exists).map(v=>v.s.data().contractId).filter(Boolean))]
       const contracts=new Map(await Promise.all(contractIds.map(async id=>[id,await tx.get(db.doc('contracts/'+id))])))
-      const branchIds=[...new Set(snapshots.filter(v=>v.s.exists).map(v=>v.s.data().branchId).filter(Boolean))]
+      const branchIds=[...new Set(snapshots.filter(v=>v.s.exists).map(v=>ptFinanceBranch(v.s.data(),contracts.get(v.s.data().contractId)?.data())).filter(Boolean))]
       const branches=new Map(await Promise.all(branchIds.map(async id=>[id,(await tx.get(db.doc('branches/'+id))).exists])))
       let count=0,skip=0
       for(const {row,a,s} of snapshots){if(!a.exists||!s.exists){skip++;continue}const av=a.data(),sv=s.data(),cv=contracts.get(sv.contractId)?.data();
-        if(av.branchId)continue
-        if(!branches.get(sv.branchId)||av.sessionId!==row.sessionId||av.studentId!==sv.studentId||av.contractId!==sv.contractId||cv?.studentId!==sv.studentId){skip++;continue}
-        tx.update(a.ref,{branchId:sv.branchId,branchReconciliationRun:RUN,branchReconciledAt:new Date()});count++
+        if(av.branchId&&av.branchId!=='all')continue
+        const branchId=ptFinanceBranch(sv,cv)
+        if(!branches.get(branchId)||av.sessionId!==row.sessionId||av.studentId!==sv.studentId||av.contractId!==sv.contractId||cv?.studentId!==sv.studentId){skip++;continue}
+        tx.update(a.ref,{branchId,branchReconciliationRun:RUN,branchReconciledAt:new Date(),
+          branchAttributionSource:sv.branchId===branchId?'session':'linked_contract_for_unscoped_session'});count++
       }return {count,skip}
     });written+=result.count;skipped+=result.skip
   }return {written,skipped}
 }
+async function repairLedgerBranches(db) {
+  const rows=(await period(db,'ledgerEntries','effectiveAt')).filter(row=>row.type==='revenue_recognition'&&row.source==='pt_gym'&&row.status==='posted'&&(!row.branchId||row.branchId==='all'))
+  assert(rows.length<=250,'Unscoped ledger branch budget exceeded')
+  let written=0,skipped=0
+  for(const row of rows){
+    const changed=await db.runTransaction(async tx=>{
+      const ref=db.doc('ledgerEntries/'+row.id),journalRef=db.doc('journalEntries/'+(row.journalEntryId||row.id))
+      const receipt=db.doc(`financeBranchReconciliationRepairs/${RUN}_${digest(row.id).slice(0,32)}`)
+      const [ls,js,rs,ss]=await Promise.all([tx.get(ref),tx.get(journalRef),tx.get(receipt),tx.get(db.doc('sessions/'+row.sessionId))])
+      if(rs.exists)return false
+      assert(ls.exists&&js.exists&&ss.exists,'Branch repair requires ledger, journal and service evidence')
+      const ledger=ls.data(),journal=js.data(),session=ss.data()
+      const contractSnapshot=await tx.get(db.doc('contracts/'+ledger.contractId)),contract=contractSnapshot.data()
+      assert(contractSnapshot.exists&&ledger.contractId===session.contractId&&ledger.studentId===session.studentId&&contract.studentId===session.studentId,'Branch evidence identity mismatch')
+      assert.equal(ledger.status,'posted');assert.equal(journal.status,'posted')
+      const branchId=ptFinanceBranch(session,contract)
+      assert(branchId&&(await tx.get(db.doc('branches/'+branchId))).exists,'Verified accounting branch required')
+      if(ledger.branchId&&ledger.branchId!=='all')return false
+      assert(!journal.branchId||journal.branchId==='all'||journal.branchId===branchId,'Journal attribution conflicts with contract')
+      const patch={branchId,branchReconciliationRun:RUN,branchReconciledAt:new Date(),branchAttributionSource:session.branchId===branchId?'session':'linked_contract_for_unscoped_session'}
+      tx.update(ref,patch);tx.update(journalRef,patch)
+      tx.create(receipt,{runId:RUN,ledgerEntryId:row.id,journalEntryId:journalRef.id,previousLedgerBranchId:ledger.branchId||null,
+        previousJournalBranchId:journal.branchId||null,branchId,createdAt:new Date(),
+        protectedFinancials:{amount:ledger.amount??null,revenueImpact:ledger.revenueImpact??null,cashImpact:ledger.cashImpact??null,
+          receivableImpact:ledger.receivableImpact??null,deferredRevenueImpact:ledger.deferredRevenueImpact??null,totalDebit:journal.totalDebit,totalCredit:journal.totalCredit}})
+      return true
+    });if(changed)written++;else skipped++
+  }
+  return {written,skipped}
+}
+async function repairCancelledAttendance(db) {
+  const candidates=(await period(db,'attendanceEvents','occurredAt')).filter(row=>row.type==='pending_confirmation'&&row.attendanceStatus==='pending')
+  assert(candidates.length<=250,'Pending reconciliation budget exceeded')
+  const sessions=await batches(db,'sessions',candidates.map(row=>row.sessionId))
+  const rows=candidates.filter(row=>{const s=sessions.get(row.sessionId);return s?.billingStatus==='exempt'&&['cancelled','student_cancelled','trainer_cancelled'].includes(s.status)})
+  let written=0
+  for(const row of rows){const changed=await db.runTransaction(async tx=>{
+    const ref=db.doc('attendanceEvents/'+row.id),sessionRef=db.doc('sessions/'+row.sessionId)
+    const receipt=db.doc(`financeAttendanceReconciliationRepairs/${RUN}_${digest(row.id).slice(0,32)}`)
+    const [a,s,r,ledger]=await Promise.all([tx.get(ref),tx.get(sessionRef),tx.get(receipt),
+      tx.get(db.collection('ledgerEntries').where('sessionId','==',row.sessionId).limit(2))])
+    if(r.exists)return false
+    assert(a.exists&&s.exists&&ledger.empty,'Cancelled evidence has unexpected financial history')
+    const av=a.data(),sv=s.data()
+    assert(av.sessionId===row.sessionId&&av.studentId===sv.studentId&&av.contractId===sv.contractId,'Cancelled evidence identity mismatch')
+    assert(av.type==='pending_confirmation'&&av.attendanceStatus==='pending'&&!av.confirmedAt&&!av.revenueRecognitionEntryId,'Attendance no longer unconfirmed')
+    assert(sv.billingStatus==='exempt'&&['cancelled','student_cancelled','trainer_cancelled'].includes(sv.status),'Session is not explicitly exempt and cancelled')
+    tx.update(ref,{type:'cancelled',scheduleStatus:'cancelled',billingStatus:'exempt',attendanceStatus:'cancelled',countsTowardContract:false,
+      revenueRecognitionState:'not_applicable',recognitionReviewRequired:false,recognitionReviewIssueCode:null,attendanceReconciliationRun:RUN,attendanceReconciledAt:new Date()})
+    tx.create(receipt,{runId:RUN,sessionId:row.sessionId,attendanceId:row.id,createdAt:new Date(),
+      before:{type:av.type,billingStatus:av.billingStatus??null,attendanceStatus:av.attendanceStatus},sourceSessionRevision:sv.revision??null,
+      reason:'Synchronize unconfirmed orphan attendance with explicit historical cancellation; no ledger and no entitlement change.'})
+    return true
+  });if(changed)written++}
+  return {written}
+}
 async function main(argv) {
   const args=Object.fromEntries(argv.map(arg=>arg.replace(/^--/,'').split('=')))
-  const mode=args.mode||'plan';assert(['plan','apply','verify'].includes(mode),'Invalid mode')
+  const mode=args.mode||'plan';assert(['plan','resume-plan','apply','verify'].includes(mode),'Invalid mode')
   const db=await connect()
   try{
     if(mode==='plan')return await plan(db)
+    if(mode==='resume-plan')return await resumePlan(db)
     if(mode==='verify'){
       const [attendance,ledger,receipts]=await Promise.all([period(db,'attendanceEvents','occurredAt'),period(db,'ledgerEntries','effectiveAt'),db.collection('financeReconciliationRepairs').where('runId','==',RUN).limit(251).get()])
       assert(receipts.size<=250,'Receipt budget exceeded')
@@ -213,6 +295,7 @@ async function main(argv) {
         assert.equal(entry.sessionId,receipt.sessionId);assert.equal(entry.contractId,receipt.contractId)
         assert.equal(entry.serviceOrdinal,receipt.allocatedOrdinal||receipt.previousServiceOrdinal)
         assert.equal(entry.revenueImpact,receipt.revenue);assert.equal(entry.cashImpact,0);assert.equal(entry.expenseImpact,0)
+        assert.equal(entry.branchId,attendances.get(receipt.sessionId).branchId);assert.notEqual(entry.branchId,'all')
         assert.equal(journal.totalDebit,entry.revenueImpact);assert.equal(journal.totalCredit,entry.revenueImpact)
         assert.equal(journal.lines.reduce((sum,line)=>sum+Number(line.debit||0),0),journal.totalDebit)
         assert.equal(journal.lines.reduce((sum,line)=>sum+Number(line.credit||0),0),journal.totalCredit)
@@ -235,11 +318,13 @@ async function main(argv) {
       catch(error){results.push({sessionHash:digest(row.sessionId),outcome:'blocked',reason:String(error.message).slice(0,180)})}
     }
     const branches=await repairBranches(db,value.branchRows)
-    const result={mode,at:new Date().toISOString(),planDigest,results,branches,outcomes:{}}
+    const ledgerBranches=await repairLedgerBranches(db)
+    const cancelledAttendance=await repairCancelledAttendance(db)
+    const result={mode,at:new Date().toISOString(),planDigest,results,branches,ledgerBranches,cancelledAttendance,outcomes:{}}
     for(const row of results)result.outcomes[row.outcome]=(result.outcomes[row.outcome]||0)+1
     fs.writeFileSync(path.join(DIR,`${RUN}-apply.json`),JSON.stringify(result,null,2))
-    return {mode,planDigest,outcomes:result.outcomes,branches}
+    return {mode,planDigest,outcomes:result.outcomes,branches,ledgerBranches,cancelledAttendance}
   }finally{await db.terminate()}
 }
-module.exports={connect,batches,evidenceHash,repairOne,repairBranches,PROJECT,DATABASE,RUN}
+module.exports={connect,batches,evidenceHash,repairOne,repairBranches,repairLedgerBranches,repairCancelledAttendance,PROJECT,DATABASE,RUN}
 if(require.main===module)main(process.argv.slice(2)).then(result=>console.log(JSON.stringify(result))).catch(error=>{console.error(String(error.message).replace(/https?:\/\/\S+/g,'[url]'));process.exitCode=1})

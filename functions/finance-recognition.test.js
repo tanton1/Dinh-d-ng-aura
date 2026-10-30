@@ -27,6 +27,17 @@ test('incomplete legacy PT contract does not invent revenue', () => {
   assert.equal(ptRevenueRecognitionWrite({ sessionId: 'session-2', session: {}, contractId: 'contract-2', contract: { totalSessions: 0, totalPrice: 0 }, attendanceEventId: 'attendance-2', actorUid: 'admin-1' }), null)
 })
 
+test('PT branch attribution rejects the all filter while retaining an explicit service branch', () => {
+  const {ptFinanceBranch}=require('./pt-finance-branch')
+  assert.equal(ptFinanceBranch({branchId:'all'},{branchId:'home'}),'home')
+  assert.equal(ptFinanceBranch({branchId:'visit'},{branchId:'home'}),'visit')
+  assert.equal(ptFinanceBranch(null,{branchId:'home'}),'home')
+  assert.equal(ptFinanceBranch({branchId:'all'},{branchId:'all'}),'')
+  const value=ptRevenueRecognitionWrite({sessionId:'session',session:{branchId:'all'},contractId:'contract',
+    contract:{branchId:'home',totalPrice:100,totalSessions:1},attendanceEventId:'session',actorUid:'admin'})
+  assert.equal(value.branchId,'home')
+})
+
 test('out-of-order confirmation releases paid value using actual posted revenue', () => {
   const write = ptRevenueRecognitionWrite({ sessionId: 'second', session: { date: '2026-08-21' }, contractId: 'contract-1',
     contract: { totalPrice: 200_000, totalSessions: 2, usedSessions: 2, paidAmount: 100_000 },

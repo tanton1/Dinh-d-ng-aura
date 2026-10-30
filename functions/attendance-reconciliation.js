@@ -18,7 +18,7 @@ function attendanceReconciliation(attendance, ledger) {
     automaticReview: 0, billingReview: 0, recognitionReview: 0, exempt: 0, unresolved: 0, conflicts: 0,
     missingBranch: 0, posted: 0, verifiedMissingPosting: null }
   for (const rows of groups.values()) {
-    if (rows.some(row => !row.branchId)) result.missingBranch++
+    if (rows.some(row => !row.branchId || row.branchId === 'all')) result.missingBranch++
     const statuses = new Set(rows.map(row => [row.billingStatus || '', row.attendanceStatus || '', row.confirmationSource || ''].join('|')))
     let conflict = statuses.size > 1
     const candidates = new Map()

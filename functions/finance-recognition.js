@@ -1,4 +1,5 @@
 const { FieldValue, Timestamp } = require('firebase-admin/firestore')
+const { ptFinanceBranch } = require('./pt-finance-branch')
 
 // PT revenue is recognised only from eligible, confirmed service evidence.
 // Charging a contract entitlement and recognising earned revenue are separate
@@ -76,7 +77,7 @@ function ptRevenueRecognitionWrite({ sessionId, session, contractId, contract, a
     contractId,
     studentId: session?.studentId || contract?.studentId || '',
     trainerId: session?.trainerId || '',
-    branchId: session?.branchId || contract?.branchId || '',
+    branchId: ptFinanceBranch(session, contract),
     sessionId,
     attendanceEventId,
     amount,

@@ -8,6 +8,7 @@ const { trustedAccessContext, requireCapability } = require('./identity-access')
 const { ptRevenueRecognitionWrite, contractNetValue } = require('./finance-recognition')
 const { recognitionEvidenceIssue, recognitionBalanceIssue } = require('./finance-recognition-evidence')
 const { nextServiceOrdinal } = require('./service-ordinal-allocation')
+const { ptFinanceBranch } = require('./pt-finance-branch')
 const { readContractRecognitionState } = require('./finance-recognition-balance')
 const { serviceRevenueJournal, reversedJournalLines } = require('./accounting-core')
 const {
@@ -1554,7 +1555,7 @@ async function chargeSessionTransaction({
         studentId: session.studentId,
         trainerId: session.trainerId || '',
         contractId: linkedContractId(session),
-        branchId: session.branchId || '',
+        branchId: ptFinanceBranch(session),
         revenueRecognitionState: 'not_applicable',
         scheduleStatus: session.scheduleStatus || session.status,
         billingStatus: 'exempt',
@@ -1662,7 +1663,7 @@ async function chargeSessionTransaction({
         scheduleStatus: session.scheduleStatus || session.status,
         billingStatus: BILLING_REVIEW_STATUS,
         billingIssueCode: 'CONTRACT_QUOTA_EXHAUSTED',
-        branchId: session.branchId || contract.branchId || '',
+        branchId: ptFinanceBranch(session, contract),
         revenueRecognitionState: 'review_required',
         attendanceStatus: 'pending',
         scheduledAt: startsAtTimestamp,
@@ -1759,7 +1760,7 @@ async function chargeSessionTransaction({
     transaction.create(attendanceReference, {
       schemaVersion: 3,
       type: 'pending_confirmation',
-      branchId: session.branchId || contract.branchId || '',
+      branchId: ptFinanceBranch(session, contract),
       revenueRecognitionState: 'pending_confirmation',
       sessionId,
       studentId: session.studentId,
@@ -1924,7 +1925,7 @@ async function recordSessionAttendanceTransaction({
         : autoConfirmation ? 'AUTO_CONFIRMATION_REQUIRES_REVIEW' : periodLocked ? 'FINANCE_PERIOD_LOCKED' : calculationIssue
     const reviewRequired = Boolean(reviewIssueCode)
     const recognitionPatch = {
-      branchId: session.branchId || contract.branchId || attendance.branchId || '',
+      branchId: ptFinanceBranch(session, contract) || ptFinanceBranch(attendance),
       revenueRecognitionState: reviewRequired ? 'review_required' : recognitionForJournal ? 'posted' : 'not_applicable',
       revenueRecognitionEntryId: recognitionForJournal ? recognitionReference.id : null,
       revenueRecognitionJournalId: journal || recognitionJournalSnapshot.exists ? recognitionJournalReference.id : null,
@@ -4107,7 +4108,7 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
           sessionId,
           sessionRequestId: requestId,
           chargeId,
-          branchId: session.branchId || contract.branchId || '',
+          branchId: ptFinanceBranch(session, contract),
           billingStatus: 'charged',
           confirmationSource: 'approved_policy',
           serviceOrdinal: policyRecognition.serviceOrdinal,
