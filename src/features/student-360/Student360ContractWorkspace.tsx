@@ -484,6 +484,19 @@ function ContractWorkspaceSession({ studentId, overview, source, isDemo, onNavig
     await mutate({ studentId, contractId: selected.id, expectedRevision: selected.revision, action: confirmation.action, reason: reason.trim() }, confirmation.action === 'freeze' ? 'Đã bảo lưu hợp đồng.' : 'Đã mở lại hợp đồng và cộng thời gian bảo lưu.')
   }
 
+  const refreshSettlementSummary = async () => {
+    let projectionFailed = false
+    let projectionError: unknown
+    try {
+      if (overview.permissions.canRefreshProjection) await refreshStudent360Projection(studentId)
+    } catch (cause) { projectionFailed = true; projectionError = cause }
+    if (!mounted.current) return
+    // The read rechecks current authority even if rebuilding the cached
+    // projection failed. Its failure must not be hidden by the earlier error.
+    await onChanged()
+    if (projectionFailed) throw projectionError
+  }
+
   if (loading && !workspace) return <div className="student360-contract-workspace-state"><LoaderCircle className="is-spinning" /><strong>Đang tải hồ sơ hợp đồng…</strong><span>Chỉ tải dữ liệu của học viên đang mở.</span></div>
   if (!workspace) return <div className="student360-contract-workspace-state is-error"><AlertTriangle /><strong>Chưa tải được nghiệp vụ hợp đồng</strong><span>{error}</span><button type="button" onClick={() => void load()}>Thử lại</button></div>
 
@@ -532,7 +545,7 @@ function ContractWorkspaceSession({ studentId, overview, source, isDemo, onNavig
         {selectedUsage && selectedUsage.reconciliationStatus !== 'matched' && <div className="student360-contract-reconciliation"><AlertTriangle /><span><strong>Cần đối soát số buổi</strong><small>Đã tập {selectedUsage.attendedSessions} · vắng tính buổi {selectedUsage.chargedNoShowSessions} · miễn trừ {selectedUsage.exemptSessions} · {selectedUsage.pendingReconciliationSessions} buổi chờ xác nhận.</small></span></div>}
       </section>
 
-      {selected.status === 'cancelled' && workspace.permissions.canViewFinancialAmounts && !isDemo && <Suspense fallback={<p role="status">Đang mở quyết toán…</p>}><ContractSettlementPanel contractId={selected.id} branchId={selected.branchId} onChanged={async () => { if (overview.permissions.canRefreshProjection) await refreshStudent360Projection(studentId); if (mounted.current) await onChanged() }} /></Suspense>}
+      {selected.status === 'cancelled' && workspace.permissions.canViewFinancialAmounts && !isDemo && <Suspense fallback={<p role="status">Đang mở quyết toán…</p>}><ContractSettlementPanel contractId={selected.id} branchId={selected.branchId} onChanged={refreshSettlementSummary} /></Suspense>}
 
       {workspace.permissions.canViewFinancialAmounts && selected.status !== 'cancelled' && <section className="student360-contract-payment-board">
         <header><div><WalletCards /><span><strong>Thanh toán & trả góp</strong><small>Thu tiền sinh phiếu thu; hoàn tiền sinh bút toán đối ứng.</small></span></div>{workspace.permissions.canCollectPayments && <button type="button" onClick={() => void openFinance()}><CircleDollarSign /> {financeOpen ? 'Đóng quản lý' : 'Quản lý thu tiền'}</button>}</header>

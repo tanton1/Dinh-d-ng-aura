@@ -317,6 +317,30 @@ test('refreshing student data preserves an unsaved settlement draft and the sele
   expect(await page.evaluate(() => (window as any).financeState.settlementCommands)).toEqual([])
 })
 
+test('a denied projection refresh still checks overview access and hides revoked financial data', async ({ page }) => {
+  await openStudentPage(page)
+  await proposal(page)
+  const before = await page.evaluate(() => {
+    const s = (window as any).financeState
+    s.projectionFailure = 'permission-denied'
+    s.overviewFailure = 'permission-denied'
+    return { overview: s.overviewLoads, projection: s.projectionRefreshes }
+  })
+  await panel(page).getByRole('button', { name: 'Gửi duyệt', exact: true }).click()
+  await expect.poll(() => page.evaluate(() => {
+    const s = (window as any).financeState
+    return { overview: s.overviewLoads, projection: s.projectionRefreshes }
+  })).toEqual({ overview: before.overview + 1, projection: before.projection + 1 })
+  await expect(page.getByRole('heading', { name: 'Chưa thể mở Học viên 360', exact: true })).toBeVisible()
+  await expect(page.getByText('Không tải được tổng quan thử nghiệm.', { exact: true })).toBeVisible()
+  await expect(panel(page)).toHaveCount(0)
+  const result = await page.evaluate(() => {
+    const s = (window as any).financeState
+    return { actions: s.settlementCommands.map((item: any) => item.action), status: s.settlementStatus, payments: s.payments, refunds: s.refunds }
+  })
+  expect(result).toEqual({ actions: ['submit'], status: 'pending_approval', payments: 0, refunds: 0 })
+})
+
 for (const source of ['overview', 'workspace'] as const) {
   for (const code of ['unavailable', source === 'overview' ? 'unauthenticated' : 'permission-denied']) {
     test(`${source} refresh ${code} ${code === 'unavailable' ? 'preserves' : 'hides'} the existing financial workspace`, async ({ page }) => {

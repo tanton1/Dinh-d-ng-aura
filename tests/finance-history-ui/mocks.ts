@@ -14,7 +14,7 @@ export const state = {
   settlementPermissions: { canSubmit: true, canApprove: true, canClose: true },
   settlementSyncFailure: '', settlementSyncDefer: false,
   settlementSyncPending: [] as Array<{ resolve: () => void }>,
-  overviewLoads: 0, overviewDefer: false,
+  overviewLoads: 0, overviewDefer: false, overviewFailure: '', projectionFailure: '',
   overviewPending: [] as Array<{ resolve: () => void; reject: (cause: Error) => void }>,
   workspaceDefer: false, workspaceFailure: '', workspacePending: [] as Array<{ resolve: () => void }>,
   directoryAcquisitions: 0,
@@ -225,7 +225,11 @@ export async function mutateStudent360Contract(input: any) {
   if (state.contractCreateFailure === 'commit-lost') { state.contractCreateFailure = ''; throw Object.assign(Error('Mất phản hồi tạo hợp đồng thử nghiệm'), { code: 'functions/unavailable' }) }
   return { contractId: input.contractId, revision: 1, action: 'create' }
 }
-export async function refreshStudent360Projection() { state.projectionRefreshes++; return {} }
+export async function refreshStudent360Projection() {
+  state.projectionRefreshes++
+  if (state.projectionFailure) throw Object.assign(new Error('Không cập nhật được tổng hợp thử nghiệm.'), { code: 'functions/' + state.projectionFailure })
+  return {}
+}
 
 export async function settlementChanged() {
   state.refreshes++
@@ -237,6 +241,7 @@ export async function settlementChanged() {
 export async function getStudent360Overview(studentId: string) {
   state.overviewLoads++
   if (state.overviewDefer) await new Promise<void>((resolve, reject) => state.overviewPending.push({ resolve, reject }))
+  if (state.overviewFailure) throw Object.assign(new Error('Không tải được tổng quan thử nghiệm.'), { code: 'functions/' + state.overviewFailure })
   return {
     studentId, generatedAt: new Date().toISOString(),
     permissions: { scope: 'system', canManageContract: true, canViewFinancialAmounts: true, canRefreshProjection: true },
