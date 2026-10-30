@@ -24,6 +24,7 @@ import { ProgressBar } from '../../components/ui'
 interface AdminCoursesPageProps {
   courseItems?: Course[]
   analytics?: CourseAnalytics[]
+  analyticsComplete?: boolean
   canCreate: boolean
   canEdit: boolean
   onCreate: () => void
@@ -128,6 +129,7 @@ function getAttentionReason(course: CourseAdminRow) {
 export default function AdminCoursesPage({
   courseItems,
   analytics,
+  analyticsComplete = false,
   canCreate,
   canEdit,
   onCreate,
@@ -150,9 +152,9 @@ export default function AdminCoursesPage({
 
   const analyticsByCourseId = useMemo(() => {
     const map = new Map<string, CourseAnalytics>()
-    for (const item of analytics ?? []) map.set(item.courseId, item)
+    if (analyticsComplete) for (const item of analytics ?? []) map.set(item.courseId, item)
     return map
-  }, [analytics])
+  }, [analytics, analyticsComplete])
 
   const rows: CourseAdminRow[] = useMemo(() => (courseItems ?? []).map((course) => {
     const courseId = String(course.id)
@@ -242,13 +244,14 @@ export default function AdminCoursesPage({
       published: rows.filter((course) => course.status === 'published').length,
       draft: rows.filter((course) => course.status === 'draft').length,
       pending: rows.filter((course) => course.status === 'review').length,
-      learners: rows.reduce((sum, course) => sum + (course.learners ?? 0), 0),
-      avgCompletion: coursesWithCompletion.length
+      learners: analyticsComplete && !loading && !error && rows.every(course => course.learners !== null)
+        ? rows.reduce((sum, course) => sum + (course.learners ?? 0), 0) : null,
+      avgCompletion: coursesWithCompletion.length && coursesWithCompletion.length === rows.length
         ? Math.round(coursesWithCompletion.reduce((sum, course) => sum + (course.completion ?? 0), 0) / coursesWithCompletion.length)
         : null,
       attention: rows.filter((course) => course.needsAttention).length,
     }
-  }, [rows])
+  }, [rows, analyticsComplete, loading, error])
 
   return (
     <div className="page admin-courses-page">
@@ -266,7 +269,7 @@ export default function AdminCoursesPage({
 
       <div className="admin-kpi-grid admin-course-kpis">
         <article className="admin-kpi"><div className="admin-kpi__icon gradient-pink-orange"><BookOpen size={16} /></div><div><span>TỔNG KHÓA HỌC</span><strong>{totals.total}</strong><small><TrendingUp size={10} /> {totals.published} đang xuất bản</small></div></article>
-        <article className="admin-kpi"><div className="admin-kpi__icon gradient-pink-orange"><Users size={16} /></div><div><span>HỌC VIÊN GHI DANH</span><strong>{totals.learners}</strong><small>Dữ liệu từ Academy</small></div></article>
+        <article className="admin-kpi"><div className="admin-kpi__icon gradient-pink-orange"><Users size={16} /></div><div><span>HỌC VIÊN GHI DANH</span><strong>{totals.learners ?? '—'}</strong><small>{totals.learners === null ? 'Chưa đủ dữ liệu' : 'Dữ liệu từ Academy'}</small></div></article>
         <article className="admin-kpi"><div className="admin-kpi__icon gradient-pink-orange"><CheckCircle2 size={16} /></div><div><span>HOÀN THÀNH TRUNG BÌNH</span><strong>{totals.avgCompletion === null ? '—' : `${totals.avgCompletion}%`}</strong><small>{totals.avgCompletion === null ? 'Chưa đủ dữ liệu' : 'Chỉ tính khóa có analytics'}</small></div></article>
         <article className="admin-kpi"><div className="admin-kpi__icon gradient-pink-orange"><AlertCircle size={16} /></div><div><span>CẦN XỬ LÝ</span><strong>{totals.attention}</strong><small>{totals.pending} chờ duyệt · {totals.draft} bản nháp</small></div></article>
       </div>
@@ -302,7 +305,7 @@ export default function AdminCoursesPage({
               <article className={`admin-course-row ${course.needsAttention ? 'needs-attention' : ''}`} key={course.id}>
                 <div className="admin-course-title"><span className={`admin-course-thumb ${index % 2 === 0 ? 'green' : 'pink'}`}><BookOpen size={22} /></span><span><strong>{course.title || 'Khóa học chưa đặt tên'}</strong><small>{course.category} · {course.level}</small><small>{course.lessons} bài · {course.duration} · {course.coach}</small>{attentionReason && <em className="admin-course-attention"><AlertCircle size={11} /> {attentionReason}</em>}</span></div>
                 <span className="list-metric" data-label="Học viên"><Users size={15} /> {course.learners ?? '—'}</span>
-                <span className="list-progress" data-label="Tiến độ"><ProgressBar value={course.completion ?? 0} tone={index % 4 === 1 ? 'green' : index % 4 === 2 ? 'orange' : index % 4 === 3 ? 'pink' : 'purple'} /><small>{course.completion === null ? '—' : `${course.completion}%`}</small></span>
+                <span className="list-progress" data-label="Tiến độ">{course.completion !== null && <ProgressBar value={course.completion} tone={index % 4 === 1 ? 'green' : index % 4 === 2 ? 'orange' : index % 4 === 3 ? 'pink' : 'purple'} />}<small>{course.completion === null ? '—' : `${course.completion}%`}</small></span>
                 <span className="rating" data-label="Đánh giá"><Star size={15} fill="currentColor" /> {formatRating(course.rating)}</span>
                 <span className="course-status-cell"><i className={`status-badge ${getStatusTone(course.status)}`}>{course.status === 'published' ? <CheckCircle2 size={13} /> : <Clock3 size={13} />}{course.statusLabel}</i>{course.accessTier && <small>{course.accessTier === 'pro' ? 'Aura Pro' : 'Miễn phí'}</small>}</span>
                 <span className="updated-time" data-label="Cập nhật">{course.updatedAt}</span>

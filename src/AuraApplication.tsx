@@ -6,6 +6,7 @@ import { hasPermission, type Permission } from './config/permissions'
 import { calculateNutritionTargets, canonicalNutritionProfile } from './services/nutritionSyncService'
 import { useAuth } from './contexts/AuthContext'
 import { useCourses } from './hooks/useCourses'
+import { useAcademyAnalyticsSummary } from './hooks/useAcademyAnalyticsSummary'
 import { useLearningProgress } from './hooks/useLearningProgress'
 import { useDailyNutritionSummary } from './hooks/useDailyNutritionSummary'
 import type { NutritionProfileDraft } from './features/nutrition/types'
@@ -29,7 +30,6 @@ import type {
   AdminUserRecord,
   AppMode,
   Course,
-  CourseAnalytics,
   CourseDraftInput,
   CourseProgress,
   AcademyPracticeCompletionEvidence,
@@ -190,11 +190,6 @@ function AuraApplication() {
   const [mobileMenu, setMobileMenu] = useState(false)
   const [adminUsers, setAdminUsers] = useState<AdminUserRecord[]>([])
   const [adminUsersLoading, setAdminUsersLoading] = useState(false)
-  const [adminCourseAnalytics, setAdminCourseAnalytics] = useState<CourseAnalytics[]>([])
-  const [adminAnalyticsMessage, setAdminAnalyticsMessage] = useState<string | null>(null)
-  const [adminAnalyticsRevision, setAdminAnalyticsRevision] = useState(0)
-  const [adminAnalyticsLoading, setAdminAnalyticsLoading] = useState(false)
-  const adminAnalyticsRefreshConsumed = useRef(0)
   const [globalSearchQuery, setGlobalSearchQuery] = useState('')
   const [staffStudentFocus, setStaffStudentFocus] = useState<{ id: string; name: string } | null>(null)
   const routeStartedAtRef = useRef(typeof performance !== 'undefined' ? performance.now() : Date.now())
@@ -222,7 +217,14 @@ function AuraApplication() {
       enrollment.status === 'completed' ? 'active' : enrollment.status, enrollment.enrolledAt]).sort(([a], [b]) => String(a).localeCompare(String(b))),
     [...localEnrollmentIds].sort()])
   const studentCourseData = useCourses(learnerAcademyEnabled, false, academyAccessRevision)
-  const adminCourseData = useCourses(adminAcademyEnabled, true)
+  const adminAcademyAccessRevision = JSON.stringify([user?.uid, role, profile?.authzVersion, profile?.disabled])
+  const adminCourseData = useCourses(adminAcademyEnabled, true, adminAcademyAccessRevision)
+  const adminAnalytics = useAcademyAnalyticsSummary({
+    enabled: adminAcademyAnalyticsEnabled && !profile?.disabled && hasPermission(role, 'analytics.view_all'),
+    backendMode,
+    accessRevision: adminAcademyAccessRevision,
+    courses: adminCourseData.courses,
+  })
   const mode: AppMode = view === 'student-360'
     ? route.source === 'admin-pt-students' ? 'admin' : 'student'
     : adminViews.includes(view) ? 'admin' : 'student'
@@ -347,32 +349,6 @@ function AuraApplication() {
       () => setAdminUsersLoading(false),
     )
   }, [adminDirectoryEnabled, backendMode, role])
-
-  useEffect(() => {
-    let active = true
-    setAdminCourseAnalytics([])
-    setAdminAnalyticsMessage(null)
-    setAdminAnalyticsLoading(false)
-    if (!adminAcademyAnalyticsEnabled || adminCourseData.loading || backendMode !== 'firebase' || !hasPermission(role, 'analytics.view_all')) return
-    setAdminAnalyticsMessage('Đang tải tổng hợp Academy…')
-    setAdminAnalyticsLoading(true)
-    const refresh = adminAnalyticsRevision > adminAnalyticsRefreshConsumed.current
-    adminAnalyticsRefreshConsumed.current = adminAnalyticsRevision
-    void import('./services/scopedReportingService').then(({ getAcademyAnalyticsSummary }) => getAcademyAnalyticsSummary(refresh)).then((summary) => {
-      if (!active) return
-      if (!summary.complete) {
-        setAdminAnalyticsMessage('Chưa đủ dữ liệu để tổng hợp Academy. Các chỉ số được để trống; hãy thử tải lại hoặc kiểm tra dữ liệu nguồn.')
-        return
-      }
-      const byCourse = new Map(summary.courses.map(item => [item.courseId, item]))
-      setAdminCourseAnalytics(adminCourseData.courses.map(course => byCourse.get(String(course.id)) || {
-        courseId: String(course.id), learners: 0, activeLearners: 0, completedLearners: 0, averageCompletion: 0, rating: null,
-      }))
-      setAdminAnalyticsMessage(`Tổng hợp lúc ${new Date(summary.asOf).toLocaleString('vi-VN')}. Làm mới để xem thay đổi mới nhất.`)
-    }).catch(() => { if (active) setAdminAnalyticsMessage('Chưa tải được tổng hợp Academy. Các chỉ số được để trống, không thay bằng số 0.') })
-      .finally(() => { if (active) setAdminAnalyticsLoading(false) })
-    return () => { active = false }
-  }, [adminAcademyAnalyticsEnabled, backendMode, role, user?.uid, profile?.authzVersion, adminCourseData.loading, adminCourseData.courses, adminAnalyticsRevision])
 
   useEffect(() => {
     if (!user || backendMode !== 'firebase') return
@@ -708,6 +684,7 @@ function AuraApplication() {
     if (backendMode === 'firebase') {
       if (!user) throw new Error('Bạn cần đăng nhập để lưu tiến độ.')
       await markLessonComplete(user.uid, courseId, lessonId, workoutLogId, practiceEvidence, chapterVersion)
+      adminAnalytics.invalidate()
       return
     }
 
@@ -735,6 +712,7 @@ function AuraApplication() {
     if (backendMode === 'firebase') {
       if (!user) throw new Error('Bạn cần đăng nhập để ghi danh.')
       await enrollInCourse(user.uid, courseId)
+      adminAnalytics.invalidate()
     }
     setLocalEnrollmentIds((current) => new Set(current).add(courseId))
   }
@@ -976,9 +954,10 @@ function AuraApplication() {
           canApproveAdjustments={backendMode === 'demo' || hasCapability('loyalty.adjust.approve')}
         /></AuraOperationsFrame>
       case 'admin-today-sessions': return <AuraOperationsFrame><AdminTodaySessionsPage onNavigate={navigate} /></AuraOperationsFrame>
-      case 'admin-courses': return <><div className="academy-enrollment-message" role="status">{adminAnalyticsMessage}<button type="button" className="outline-button" disabled={adminAnalyticsLoading || adminCourseData.loading} onClick={() => setAdminAnalyticsRevision(value => value + 1)}>Làm mới số liệu</button></div><AdminCoursesPage
+      case 'admin-courses': return <><div className="academy-enrollment-message" role="status">{adminAnalytics.message}<button type="button" className="outline-button" disabled={adminAnalytics.loading || adminCourseData.loading} onClick={adminAnalytics.refresh}>Làm mới số liệu</button></div><AdminCoursesPage
         courseItems={adminCourseData.courses}
-        analytics={adminCourseAnalytics}
+        analytics={adminAnalytics.analytics}
+        analyticsComplete={adminAnalytics.complete}
         loading={adminCourseData.loading}
         error={adminCourseData.error}
         initialQuery={globalSearchQuery}
@@ -992,7 +971,7 @@ function AuraApplication() {
         users={adminUsers}
         courses={adminCourseData.courses}
         loading={adminUsersLoading || adminCourseData.loading}
-        onManage={async (input) => { await manageAcademyEnrollment(input) }}
+        onManage={async (input) => { await manageAcademyEnrollment(input); adminAnalytics.invalidate() }}
       />
       case 'admin-course-editor': {
         if (editingCourseId && adminCourseData.loading) return <div className="course-detail-state"><BookOpenIcon /><h1>Đang tải giáo án</h1><p>Aura đang lấy phiên bản mới nhất từ Firebase.</p></div>
