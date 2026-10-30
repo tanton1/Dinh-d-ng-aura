@@ -1016,7 +1016,7 @@ function createOperationsDashboardFunctions({
         branches: branchValues.filter((value) => value.status !== 'inactive').length,
       },
       quality: {
-        completeness: incomplete || missingContractEffectiveDate || cancelledSalesBaselineUnverified || cancelledSettlementReviewRequired ? 'partial' : 'complete',
+        completeness: incomplete || missingContractEffectiveDate || cancelledSettlementReviewRequired ? 'partial' : 'complete',
         missingContractEffectiveDate,
         cancelledSalesBaselineUnverified,
         cancelledSettlementReviewRequired,

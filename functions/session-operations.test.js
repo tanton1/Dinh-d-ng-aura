@@ -27,6 +27,74 @@ const historyPanel = readFileSync(join(root, 'src', 'components', 'admin', 'pt',
 const branchScheduleWorkspace = readFileSync(join(root, 'src', 'components', 'schedule', 'BranchScheduleWorkspace.tsx'), 'utf8')
 const branchScheduleModel = readFileSync(join(root, 'src', 'features', 'schedule', 'workspaceModel.ts'), 'utf8')
 
+function historicalRecognitionFixture(patch = {}) {
+  const evidence = { sessionId: 'historic', studentId: 'student', trainerId: 'trainer', contractId: 'contract',
+    billingStatus: 'charged', attendanceStatus: 'present', confirmationSource: 'manual', confirmedBy: 'original-pt',
+    confirmedAt: '2026-10-14T04:00:00Z', serviceOrdinal: 1 }
+  return fakeDatabase({
+    'sessions/historic': { ...evidence, date: '2026-10-14', hour: 8, status: 'completed', branchId: 'branch', revision: 3 },
+    'attendanceEvents/historic': { ...evidence, type: 'attended', note: '', lateMinutes: null, noShowReason: '' },
+    'sessionBillingEvents/historic': { ...evidence, schemaVersion: 2 },
+    'contracts/contract': { studentId: 'student', status: 'active', totalPrice: 1000000, paidAmount: 500000, totalSessions: 10, usedSessions: 4 },
+    ...patch,
+  })
+}
+
+const reconcileHistoric = state => recordSessionAttendanceTransaction({ db: state.db, sessionId: 'historic', actorUid: 'admin',
+  expectedRevision: 3, attendanceStatus: 'present', confirmationSource: 'manual', now: new Date('2026-10-31T00:00:00Z') })
+
+test('mixed-version historical confirmation is repaired once without rewriting attendance or entitlement usage', async () => {
+  const state = historicalRecognitionFixture()
+  const original = state.read('attendanceEvents/historic').confirmedAt
+  const result = await reconcileHistoric(state)
+  assert.equal(result.recognitionEntryId, 'pt_session_historic')
+  assert.equal(state.read('ledgerEntries/pt_session_historic').revenueImpact, 100000)
+  assert.equal(state.read('journalEntries/pt_session_historic').totalDebit, 100000)
+  assert.equal(state.read('attendanceEvents/historic').confirmedAt, original)
+  assert.equal(state.read('attendanceEvents/historic').confirmedBy, 'original-pt')
+  assert.equal(state.read('attendanceEvents/historic').branchId, 'branch')
+  assert.equal(state.read('contracts/contract').usedSessions, 4)
+  assert.equal(state.read('contracts/contract').paidAmount, 500000)
+  assert.equal((await reconcileHistoric(state)).unchanged, true)
+  assert.equal(state.paths().filter(p=>p.startsWith('ledgerEntries/')).length, 1)
+})
+
+test('zero value never silently resolves an existing review on identical manual confirmation', async () => {
+  const state = historicalRecognitionFixture({
+    'contracts/contract': { studentId: 'student', status: 'active', totalPrice: 0, totalSessions: 10 },
+    'revenueRecognitionReviews/historic': { status: 'open', issueCode: 'AUTO_CONFIRMATION_REQUIRES_REVIEW' },
+  })
+  assert.equal((await reconcileHistoric(state)).recognitionReviewRequired, true)
+  assert.equal(state.read('revenueRecognitionReviews/historic').status, 'open')
+  assert.equal(state.read('revenueRecognitionReviews/historic').issueCode, 'RECOGNITION_ZERO_VALUE_REQUIRES_REVIEW')
+  assert.equal(state.read('sessions/historic').revenueRecognitionState, 'review_required')
+  assert.equal(state.read('ledgerEntries/pt_session_historic'), undefined)
+  assert.equal((await reconcileHistoric(state)).unchanged, true)
+})
+
+test('manual confirmation rejects ordinal collisions without losing attendance evidence', async () => {
+  const state = historicalRecognitionFixture({ 'ledgerEntries/another': { contractId: 'contract', sessionId: 'other',
+    serviceOrdinal: 1, status: 'posted', type: 'revenue_recognition', revenueImpact: 100000 } })
+  assert.equal((await reconcileHistoric(state)).recognitionReviewRequired, true)
+  assert.equal(state.read('revenueRecognitionReviews/historic').issueCode, 'RECOGNITION_SERVICE_ORDINAL_COLLISION')
+  assert.equal(state.read('ledgerEntries/pt_session_historic'), undefined)
+  assert.equal(state.read('attendanceEvents/historic').attendanceStatus, 'present')
+})
+
+test('invalid billing identity, quota and fractional ordinals produce explicit review outcomes', async () => {
+  for (const [patch, expected] of [
+    [{ 'sessionBillingEvents/historic': { contractId: 'different', serviceOrdinal: 1 } }, 'RECOGNITION_EVIDENCE_IDENTITY_MISMATCH'],
+    [{ 'sessionBillingEvents/historic': { contractId: 'contract', serviceOrdinal: 1.5 } }, 'RECOGNITION_SERVICE_ORDINAL_INVALID'],
+    [{ 'contracts/contract': { studentId: 'student', totalPrice: 1000000, totalSessions: 0 } }, 'RECOGNITION_CONTRACT_QUOTA_INVALID'],
+    [{ 'ledgerEntries/over': { contractId: 'contract', sessionId: 'other', serviceOrdinal: 2, status: 'posted', type: 'revenue_recognition', revenueImpact: 1000000 } }, 'RECOGNITION_CONTRACT_VALUE_EXCEEDED'],
+  ]) {
+    const state = historicalRecognitionFixture(patch)
+    assert.equal((await reconcileHistoric(state)).recognitionReviewRequired, true)
+    assert.equal(state.read('revenueRecognitionReviews/historic').issueCode, expected)
+    assert.equal(state.read('ledgerEntries/pt_session_historic'), undefined)
+  }
+})
+
 function clone(value) {
   return value === undefined ? undefined : JSON.parse(JSON.stringify(value))
 }

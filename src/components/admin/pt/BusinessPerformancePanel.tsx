@@ -178,14 +178,22 @@ export default function BusinessPerformancePanel({ compact = false }: Props) {
     </>}
 
     <article className="business-performance__quality">
-      <div className="business-performance__quality-heading"><h2>Đối soát dữ liệu</h2><AuraHelpPopover title="Thông tin đối soát"><p>Các mục này giúp phát hiện dữ liệu cũ hoặc nguồn chưa liên kết; chúng không tự được cộng vào kết quả kinh doanh.</p></AuraHelpPopover></div>
+      <div className="business-performance__quality-heading"><h2>Đối soát dữ liệu</h2><AuraHelpPopover title="Thông tin đối soát"><p>Đối soát PT theo chi nhánh và khoảng ngày đang chọn. Bộ lọc nguồn chỉ áp dụng cho kết quả kinh doanh. Khớp bút toán và trạng thái cần duyệt được kiểm tra riêng; chưa khớp trong kỳ không có nghĩa là thiếu doanh thu.</p></AuraHelpPopover></div>
       <dl>
         <div><dt>Legacy chưa phân loại</dt><dd>{complete.ledger ? `${report?.dataQuality.legacyUnclassifiedEntries || 0} bút toán` : incompleteLabel}</dd></div>
         <div><dt>Sổ quỹ chưa liên kết</dt><dd>{complete.cashReconciliation ? money(report?.dataQuality.unlinkedCashTransactions || 0) : incompleteLabel}</dd></div>
         <div><dt>Lương đã trả ngoài ledger</dt><dd>{complete.payrollReconciliation ? money(report?.dataQuality.payrollPaidOutsideLedger || 0) : incompleteLabel}</dd></div>
-        <div><dt>Buổi đã chấm công</dt><dd>{complete.attendance ? `${(report?.dataQuality.attendanceEvents || 0).toLocaleString('vi-VN')} buổi` : incompleteLabel}</dd></div>
-        <div><dt>Đã ghi nhận doanh thu</dt><dd>{complete.recognitionReconciliation ? `${(report?.dataQuality.recognisedAttendanceEvents || 0).toLocaleString('vi-VN')} buổi` : incompleteLabel}</dd></div>
-        <div><dt>Chờ đối soát doanh thu</dt><dd>{complete.recognitionReconciliation ? `${(report?.dataQuality.unrecognisedAttendanceEvents || 0).toLocaleString('vi-VN')} buổi` : incompleteLabel}</dd></div>
+        {report?.dataQuality.reconciliation ? <>
+          <div><dt>Bằng chứng PT trong kỳ</dt><dd>{complete.attendance ? report.dataQuality.reconciliation.evidenceCount.toLocaleString('vi-VN') : incompleteLabel}</dd></div>
+          <div><dt>Khớp bút toán trong kỳ</dt><dd>{complete.recognitionReconciliation ? report.dataQuality.reconciliation.matchedInPeriod.toLocaleString('vi-VN') : incompleteLabel}</dd></div>
+          <div><dt>Chờ xác nhận điểm danh</dt><dd>{complete.attendance ? report.dataQuality.reconciliation.pendingConfirmation.toLocaleString('vi-VN') : incompleteLabel}</dd></div>
+          <div><dt>Tự xác nhận · cần duyệt</dt><dd>{complete.attendance ? report.dataQuality.reconciliation.automaticReview.toLocaleString('vi-VN') : incompleteLabel}</dd></div>
+          <div><dt>Cần rà soát hạn mức</dt><dd>{complete.attendance ? report.dataQuality.reconciliation.billingReview.toLocaleString('vi-VN') : incompleteLabel}</dd></div>
+          <div><dt>Cần rà soát ghi nhận</dt><dd>{complete.attendance ? report.dataQuality.reconciliation.recognitionReview.toLocaleString('vi-VN') : incompleteLabel}</dd></div>
+          <div><dt>Miễn tính phí</dt><dd>{complete.attendance ? report.dataQuality.reconciliation.exempt.toLocaleString('vi-VN') : incompleteLabel}</dd></div>
+          <div><dt>Chưa xác minh liên kết/kỳ</dt><dd>{complete.recognitionReconciliation ? (report.dataQuality.reconciliation.unresolved + report.dataQuality.reconciliation.conflicts).toLocaleString('vi-VN') : incompleteLabel}</dd></div>
+          <div><dt>Chưa gắn chi nhánh</dt><dd>{complete.attendance ? report.dataQuality.reconciliation.missingBranch.toLocaleString('vi-VN') : incompleteLabel}</dd></div>
+        </> : <div><dt>Đối soát điểm danh PT</dt><dd>Chưa có phân loại chi tiết</dd></div>}
         <div><dt>Tài khoản sổ quỹ</dt><dd>{complete.cashAccounts ? `${report?.dataQuality.cashAccounts || 0} tài khoản` : incompleteLabel}</dd></div>
         <div><dt>Nguồn chờ tích hợp</dt><dd>{report?.dataQuality.missingSourceIntegrations.length || 0} nguồn</dd></div>
       </dl>

@@ -513,7 +513,7 @@ function AdminDashboardContent({
     </section>
 
     {error && <div className="admin-data-warning"><AlertCircle size={18} /><span>{error}</span><button type="button" onClick={() => void load(true)}>Thử lại</button></div>}
-    {data?.permissions.quality && (data.quality.cancelledSettlementReviewRequired > 0 || data.quality.cancelledSalesBaselineUnverified > 0) && <div className="admin-data-warning" role="note" aria-label="Đối soát hợp đồng đã hủy"><AlertCircle size={18} /><span>Hợp đồng đã hủy: {data.quality.cancelledSettlementReviewRequired} cần rà soát quyết toán; {data.quality.cancelledSalesBaselineUnverified} chưa xác minh doanh số ký gốc. Mở hồ sơ học viên để đối soát.</span>{data.permissions.clients && <button type="button" onClick={() => goTo('admin-pt-students')}>Mở Học viên</button>}</div>}
+    {data?.permissions.quality && data.quality.cancelledSettlementReviewRequired > 0 && <div className="admin-data-warning" role="note" aria-label="Đối soát hợp đồng đã hủy"><AlertCircle size={18} /><span>Hợp đồng đã hủy: {data.quality.cancelledSettlementReviewRequired} cần rà soát quyết toán. Mở hồ sơ học viên để đối soát.</span>{data.permissions.clients && <button type="button" onClick={() => goTo('admin-pt-students')}>Mở Học viên</button>}</div>}
 
     <div className="admin-dashboard__main-grid">
       <section className="admin-dashboard__tasks" aria-labelledby="dashboard-tasks-title">

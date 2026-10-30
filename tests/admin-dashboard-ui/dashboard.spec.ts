@@ -19,12 +19,18 @@ test('cancellation reconciliation warning survives normalization and respects qu
   await page.evaluate(() => { (window as any).dashboardFixture.quality = { cancelledSettlementReviewRequired: 2, cancelledSalesBaselineUnverified: 5 } })
   await page.getByRole('button', { name: 'Làm mới tổng quan' }).click()
   const warning = page.getByRole('note', { name: 'Đối soát hợp đồng đã hủy' })
-  await expect(warning).toContainText('2 cần rà soát quyết toán; 5 chưa xác minh doanh số ký gốc')
+  await expect(warning).toContainText('2 cần rà soát quyết toán.')
   await expect(warning.getByRole('button', { name: 'Mở Học viên' })).toBeVisible()
   expect(await calls(page, 'dashboard')).toHaveLength(2)
   await page.evaluate(() => { (window as any).dashboardFixture.canViewQuality = false })
   await page.getByRole('button', { name: 'Làm mới tổng quan' }).click()
   await expect(warning).toHaveCount(0)
+})
+
+test('cancelled contracts missing only the historical sales baseline do not show an actionable warning', async ({ page }) => {
+  await page.evaluate(() => { (window as any).dashboardFixture.quality = { cancelledSettlementReviewRequired: 0, cancelledSalesBaselineUnverified: 8 } })
+  await page.getByRole('button', { name: 'Làm mới tổng quan' }).click()
+  await expect(page.getByRole('note', { name: 'Đối soát hợp đồng đã hủy' })).toHaveCount(0)
 })
 
 test('opening and scrolling dashboard uses one aggregate read; payroll reads require explicit choices', async ({ page }) => {

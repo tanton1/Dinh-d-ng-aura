@@ -6,7 +6,9 @@ const { prepareRenewalSessionCharge, renewalHandoverPlan, applyRenewalHandover, 
 const { createHash } = require('node:crypto')
 const { trustedAccessContext, requireCapability } = require('./identity-access')
 const { ptRevenueRecognitionWrite, contractNetValue } = require('./finance-recognition')
-const { readContractRecognizedRevenue, readContractRecognitionState } = require('./finance-recognition-balance')
+const { recognitionEvidenceIssue, recognitionBalanceIssue } = require('./finance-recognition-evidence')
+const { nextServiceOrdinal } = require('./service-ordinal-allocation')
+const { readContractRecognitionState } = require('./finance-recognition-balance')
 const { serviceRevenueJournal, reversedJournalLines } = require('./accounting-core')
 const {
   branchSlotCapacity,
@@ -1411,10 +1413,13 @@ async function teachingRecognitionPlan({ transaction, db, session, attendance, a
     const issueCode = !contract || contract.studentId !== session.data.studentId ? 'RECOGNITION_CONTRACT_MISSING_OR_MISMATCHED' : ''
     if (issueCode) return requireReview(issueCode)
     const serviceOrdinal = serviceOrdinalForEvidence({ sessionId, session: session.data, attendance, billing: billing.data?.() || {}, contract })
+    const evidenceIssue = recognitionEvidenceIssue({ sessionId, session: session.data, attendance, billing: billing.data?.() || {}, contract, serviceOrdinal })
+    if (evidenceIssue) return requireReview(evidenceIssue)
     const recognitionState = await readContractRecognitionState(transaction, db, contractId)
     const recognisedRevenueBefore = recognitionState.recognizedRevenue + (pendingRecognition?.recognizedRevenue || 0)
     value = ptRevenueRecognitionWrite({ sessionId, session: target, contractId, contract, attendanceEventId,
       actorUid, serviceOrdinal, recognisedRevenueBefore, evidenceStatus: target.attendanceStatus, confirmationSource: 'admin_correction' })
+    if (!value) return requireReview('RECOGNITION_AMOUNT_UNAVAILABLE')
     if (value) {
       const details = { serviceOrdinal, requestedRevenue: value.revenueImpact, recognizedRevenueToDate: recognisedRevenueBefore, contractNetValue: contractNetValue(contract) }
       if ((recognitionState.revenueBySession.get(sessionId) || 0) > 0 || (pendingRecognition?.revenueBySession.get(sessionId) || 0) > 0) {
@@ -1549,6 +1554,8 @@ async function chargeSessionTransaction({
         studentId: session.studentId,
         trainerId: session.trainerId || '',
         contractId: linkedContractId(session),
+        branchId: session.branchId || '',
+        revenueRecognitionState: 'not_applicable',
         scheduleStatus: session.scheduleStatus || session.status,
         billingStatus: 'exempt',
         attendanceStatus: 'pending',
@@ -1655,6 +1662,8 @@ async function chargeSessionTransaction({
         scheduleStatus: session.scheduleStatus || session.status,
         billingStatus: BILLING_REVIEW_STATUS,
         billingIssueCode: 'CONTRACT_QUOTA_EXHAUSTED',
+        branchId: session.branchId || contract.branchId || '',
+        revenueRecognitionState: 'review_required',
         attendanceStatus: 'pending',
         scheduledAt: startsAtTimestamp,
         occurredAt: startsAtTimestamp,
@@ -1712,9 +1721,17 @@ async function chargeSessionTransaction({
       throw new HttpsError('already-exists', 'Bản ghi hiện diện đã tồn tại nhưng chưa có sổ tính buổi. Cần đối soát trước khi thử lại.', { issueCode: 'SESSION_ATTENDANCE_LEDGER_MISMATCH' })
     }
 
-    const serviceOrdinal = Math.max(1, Math.floor(Number(contract.usedSessions || 0)) + 1)
+    // Usage is a mutable projection (for example after removing a duplicate).
+    // Never reuse its next number if historical billing or revenue owns it.
+    const ordinalBilling = await transaction.get(db.collection('sessionBillingEvents').where('contractId', '==', contractId)
+      .select('serviceOrdinal').limit(5001))
+    if (ordinalBilling.size > 5000) throw new HttpsError('resource-exhausted', 'Cần đối soát lịch sử tính buổi của hợp đồng.')
+    const ordinalRevenue = await readContractRecognitionState(transaction, db, contractId)
+    const serviceOrdinal = nextServiceOrdinal({ usedSessions: contract.usedSessions, totalSessions: contract.totalSessions,
+      billings: ordinalBilling.docs.map(doc => doc.data()), revenueOrdinals: ordinalRevenue.revenueByOrdinal.keys() })
+    if (!serviceOrdinal) throw new HttpsError('failed-precondition', 'Cần đối soát số thứ tự tính phí trước khi tính thêm buổi.', { issueCode: 'CONTRACT_SERVICE_ORDINAL_REVIEW_REQUIRED' })
     const afterChargeHandover = prepared.pendingNext ? renewalHandoverPlan({
-      sourceId: contractId, source: { ...contract, usedSessions: serviceOrdinal },
+      sourceId: contractId, source: { ...contract, usedSessions: Number(contract.usedSessions || 0) + 1 },
       ...prepared.pendingNext, date: sessionDate, actorUid,
     }) : null
     applyRenewalHandover(transaction, db, prepared.handover, actorUid)
@@ -1742,6 +1759,8 @@ async function chargeSessionTransaction({
     transaction.create(attendanceReference, {
       schemaVersion: 3,
       type: 'pending_confirmation',
+      branchId: session.branchId || contract.branchId || '',
+      revenueRecognitionState: 'pending_confirmation',
       sessionId,
       studentId: session.studentId,
       trainerId: session.trainerId || '',
@@ -1776,7 +1795,7 @@ async function chargeSessionTransaction({
       updatedBy: actorUid,
     })
     transaction.update(contractReference, {
-      usedSessions: serviceOrdinal,
+      usedSessions: Math.max(0, Math.floor(Number(contract.usedSessions || 0))) + 1,
       revision: FieldValue.increment(1),
       // Keep the legacy projection until all old reports have migrated.
       attendedClasses: FieldValue.arrayUnion(sessionId),
@@ -1876,88 +1895,95 @@ async function recordSessionAttendanceTransaction({
     const autoConfirmation = confirmationSource === 'auto_after_48h'
     const periodLocked = periodSnapshot.exists && periodSnapshot.data().status === 'locked'
     const recognitionAllowed = effectiveBillingStatus === 'charged' && !autoConfirmation && !periodLocked
-    const recognisedRevenueBefore = recognitionAllowed && !recognitionSnapshot.exists
-      ? await readContractRecognizedRevenue(transaction, db, contractId)
-      : undefined
-    const recognition = recognitionAllowed && !recognitionSnapshot.exists
-      ? ptRevenueRecognitionWrite({
-        sessionId,
-        session,
-        contractId,
-        contract,
-        attendanceEventId: attendanceReference.id,
-        actorUid,
-        serviceOrdinal,
-        recognisedRevenueBefore,
-        evidenceStatus: normalizedStatus,
-        confirmationSource,
-      })
-      : null
+    if (recognitionSnapshot.exists) {
+      const value = recognitionSnapshot.data()
+      if (value.type !== 'revenue_recognition' || value.status !== 'posted' || value.sessionId !== sessionId || value.contractId !== contractId) {
+        throw new HttpsError('failed-precondition', 'Bút toán doanh thu không khớp bằng chứng buổi tập.', { issueCode: 'SESSION_RECOGNITION_MISMATCH' })
+      }
+    } else if (recognitionJournalSnapshot.exists) {
+      throw new HttpsError('failed-precondition', 'Nhật ký kế toán thiếu bút toán nguồn.', { issueCode: 'SESSION_RECOGNITION_MISMATCH' })
+    }
+    let calculationIssue = recognitionAllowed && !recognitionSnapshot.exists
+      ? recognitionEvidenceIssue({ sessionId, session, attendance, billing: billingSnapshot.data?.() || {}, contract, serviceOrdinal }) : ''
+    const recognitionState = recognitionAllowed && !recognitionSnapshot.exists && !calculationIssue
+      ? await readContractRecognitionState(transaction, db, contractId) : null
+    let recognition = recognitionState ? ptRevenueRecognitionWrite({ sessionId, session, contractId, contract,
+      attendanceEventId: attendanceReference.id, actorUid, serviceOrdinal,
+      recognisedRevenueBefore: recognitionState.recognizedRevenue, evidenceStatus: normalizedStatus, confirmationSource }) : null
+    if (recognition) {
+      calculationIssue = recognitionBalanceIssue({ state: recognitionState, sessionId, serviceOrdinal,
+        amount: recognition.revenueImpact, netValue: contractNetValue(contract) })
+      if (calculationIssue) recognition = null
+    }
+    if (recognitionAllowed && !recognitionSnapshot.exists && !recognition && !calculationIssue) calculationIssue = 'RECOGNITION_AMOUNT_UNAVAILABLE'
     const recognitionForJournal = recognition || (recognitionSnapshot.exists ? recognitionSnapshot.data() : null)
     const journal = recognitionAllowed && recognitionForJournal && !recognitionJournalSnapshot.exists
-      ? ptRevenueJournalWrite({ recognition: recognitionForJournal, contract, sessionId, actorUid })
-      : null
+      ? ptRevenueJournalWrite({ recognition: recognitionForJournal, contract, sessionId, actorUid }) : null
+    const reviewIssueCode = effectiveBillingStatus === 'exempt' ? ''
+      : effectiveBillingStatus === BILLING_REVIEW_STATUS ? 'BILLING_REVIEW_REQUIRED'
+        : autoConfirmation ? 'AUTO_CONFIRMATION_REQUIRES_REVIEW' : periodLocked ? 'FINANCE_PERIOD_LOCKED' : calculationIssue
+    const reviewRequired = Boolean(reviewIssueCode)
+    const recognitionPatch = {
+      branchId: session.branchId || contract.branchId || attendance.branchId || '',
+      revenueRecognitionState: reviewRequired ? 'review_required' : recognitionForJournal ? 'posted' : 'not_applicable',
+      revenueRecognitionEntryId: recognitionForJournal ? recognitionReference.id : null,
+      revenueRecognitionJournalId: journal || recognitionJournalSnapshot.exists ? recognitionJournalReference.id : null,
+      recognitionReviewRequired: reviewRequired, recognitionReviewIssueCode: reviewIssueCode || null,
+    }
     const sameConfirmation = attendance.attendanceStatus === normalizedStatus
       && Number(attendance.lateMinutes || 0) === Number(normalizedLate || 0)
       && String(attendance.noShowReason || '') === normalizedReason
       && String(attendance.note || '') === normalizedNote
       && !(attendance.confirmationSource === 'auto_after_48h' && confirmationSource !== 'auto_after_48h')
     assertCancellationEvidenceChange({ contract, sourceDate: session.date, changed: !sameConfirmation || Boolean(recognition || journal) })
-    if (sameConfirmation && !recognition && !journal) {
-      return { unchanged: true, revision, attendanceEventId: attendanceReference.id, attendanceStatus: normalizedStatus }
-    }
-    if (sameConfirmation && (recognition || journal)) {
+    const reviewCurrent = recognitionReviewSnapshot.data?.() || {}
+    const reviewChanged = reviewRequired
+      ? !recognitionReviewSnapshot.exists || reviewCurrent.status !== 'open' || reviewCurrent.issueCode !== reviewIssueCode
+      : recognitionReviewSnapshot.exists && reviewCurrent.status !== 'resolved'
+    const metadataChanged = [attendance, session].some(row => Object.entries(recognitionPatch).some(([key, value]) => row[key] !== value))
+    const persistRecognition = () => {
       if (recognition) transaction.create(recognitionReference, { ...recognition, journalEntryId: recognitionJournalReference.id })
       if (journal) transaction.create(recognitionJournalReference, journal)
-      transaction.update(attendanceReference, { revenueRecognitionEntryId: recognitionReference.id, revenueRecognitionJournalId: recognitionJournalReference.id, recognitionReviewRequired: false, updatedAt: FieldValue.serverTimestamp(), updatedBy: actorUid })
-      transaction.update(sessionReference, { revenueRecognitionEntryId: recognitionReference.id, recognitionReviewRequired: false, updatedAt: FieldValue.serverTimestamp(), updatedBy: actorUid })
-      if (recognitionReviewSnapshot.exists) transaction.update(recognitionReviewReference, { status: 'resolved', resolvedAt: FieldValue.serverTimestamp(), resolvedBy: actorUid, resolution: 'manual_evidence_confirmed' })
-      return { unchanged: false, revision, attendanceEventId: attendanceReference.id, attendanceStatus: normalizedStatus, recognitionEntryId: recognitionReference.id }
+      if (reviewRequired && reviewChanged) {
+        const value = { schemaVersion: 1, status: 'open', issueCode: reviewIssueCode, sessionId,
+          attendanceEventId: attendanceReference.id, contractId, studentId: session.studentId || '',
+          trainerId: session.trainerId || '', branchId: recognitionPatch.branchId,
+          serviceOrdinal: Number.isSafeInteger(serviceOrdinal) ? serviceOrdinal : null,
+          evidenceStatus: normalizedStatus, confirmationSource, financePeriodId: periodId,
+          updatedAt: FieldValue.serverTimestamp(), updatedBy: actorUid }
+        if (recognitionReviewSnapshot.exists) transaction.update(recognitionReviewReference, value)
+        else transaction.create(recognitionReviewReference, { ...value, createdAt: FieldValue.serverTimestamp(), createdBy: actorUid })
+      } else if (!reviewRequired && reviewChanged) {
+        transaction.update(recognitionReviewReference, { status: 'resolved', resolvedAt: FieldValue.serverTimestamp(), resolvedBy: actorUid,
+          resolution: effectiveBillingStatus === 'exempt' ? 'billing_exempt' : 'manual_evidence_confirmed' })
+      }
+    }
+    if (sameConfirmation) {
+      const changed = Boolean(recognition || journal || reviewChanged || metadataChanged)
+      if (changed) {
+        persistRecognition()
+        for (const reference of [attendanceReference, sessionReference]) transaction.update(reference,
+          { ...recognitionPatch, updatedAt: FieldValue.serverTimestamp(), updatedBy: actorUid })
+      }
+      return { unchanged: !changed, revision, attendanceEventId: attendanceReference.id, attendanceStatus: normalizedStatus,
+        recognitionEntryId: recognitionPatch.revenueRecognitionEntryId, recognitionReviewRequired: reviewRequired }
     }
     if (revision !== expectedRevision) throw new HttpsError('aborted', 'Buổi tập đã thay đổi. Hãy tải lại.')
     const startsAt = sessionStartInstant(session, sessionId)
-    if (now.getTime() < startsAt.getTime()) {
-      throw new HttpsError('failed-precondition', 'Không thể xác nhận trước giờ tập.', { issueCode: 'ATTENDANCE_TOO_EARLY' })
-    }
+    if (now.getTime() < startsAt.getTime()) throw new HttpsError('failed-precondition', 'Không thể xác nhận trước giờ tập.', { issueCode: 'ATTENDANCE_TOO_EARLY' })
     if (normalizedStatus === 'no_show' && now.getTime() < startsAt.getTime() + NO_SHOW_GRACE_MINUTES * 60_000) {
       throw new HttpsError('failed-precondition', `Chỉ có thể xác nhận không đến sau ${NO_SHOW_GRACE_MINUTES} phút.`, {
         issueCode: 'NO_SHOW_GRACE_ACTIVE',
         availableAt: new Date(startsAt.getTime() + NO_SHOW_GRACE_MINUTES * 60_000).toISOString(),
       })
     }
+    persistRecognition()
     const beforeStatus = ATTENDANCE_STATUSES.has(attendance.attendanceStatus) ? attendance.attendanceStatus : 'pending'
     const auditReference = db.collection('attendanceAuditLogs').doc()
     const legacyStatus = normalizedStatus === 'no_show' ? 'no_show' : 'completed'
     const autoConfirmationPatch = autoConfirmation
       ? { autoConfirmedAt: FieldValue.serverTimestamp() }
       : {}
-    const reviewRequired = effectiveBillingStatus === 'charged' && (autoConfirmation || periodLocked)
-    const reviewIssueCode = autoConfirmation ? 'AUTO_CONFIRMATION_REQUIRES_REVIEW' : periodLocked ? 'FINANCE_PERIOD_LOCKED' : ''
-    if (reviewRequired) {
-      const reviewData = {
-        schemaVersion: 1,
-        status: 'open',
-        issueCode: reviewIssueCode,
-        sessionId,
-        attendanceEventId: attendanceReference.id,
-        contractId,
-        studentId: session.studentId || '',
-        trainerId: session.trainerId || '',
-        serviceOrdinal,
-        evidenceStatus: normalizedStatus,
-        confirmationSource,
-        financePeriodId: periodId,
-        legacyRecognitionEntryId: recognitionSnapshot.exists ? recognitionReference.id : null,
-        updatedAt: FieldValue.serverTimestamp(),
-        updatedBy: actorUid,
-      }
-      if (recognitionReviewSnapshot.exists) transaction.update(recognitionReviewReference, reviewData)
-      else transaction.create(recognitionReviewReference, { ...reviewData, createdAt: FieldValue.serverTimestamp(), createdBy: actorUid })
-    } else if (recognitionReviewSnapshot.exists) {
-      transaction.update(recognitionReviewReference, { status: 'resolved', resolvedAt: FieldValue.serverTimestamp(), resolvedBy: actorUid, resolution: 'manual_evidence_confirmed' })
-    }
-    if (recognition) transaction.create(recognitionReference, { ...recognition, journalEntryId: recognitionJournalReference.id })
-    if (journal) transaction.create(recognitionJournalReference, journal)
     transaction.update(attendanceReference, {
       type: normalizedStatus === 'no_show' ? 'no_show' : 'attended',
       attendanceStatus: normalizedStatus,
@@ -1967,7 +1993,8 @@ async function recordSessionAttendanceTransaction({
       confirmedAt: FieldValue.serverTimestamp(),
       confirmedBy: actorUid,
       confirmationSource,
-      serviceOrdinal,
+      serviceOrdinal: Number.isSafeInteger(serviceOrdinal) ? serviceOrdinal : null,
+      ...recognitionPatch,
       revenueRecognitionEntryId: recognition || recognitionSnapshot.exists ? recognitionReference.id : null,
       revenueRecognitionJournalId: journal || recognitionJournalSnapshot.exists ? recognitionJournalReference.id : null,
       recognitionReviewRequired: reviewRequired,
@@ -1984,7 +2011,8 @@ async function recordSessionAttendanceTransaction({
       confirmedAt: FieldValue.serverTimestamp(),
       confirmedBy: actorUid,
       confirmationSource,
-      serviceOrdinal,
+      serviceOrdinal: Number.isSafeInteger(serviceOrdinal) ? serviceOrdinal : null,
+      ...recognitionPatch,
       revenueRecognitionEntryId: recognition || recognitionSnapshot.exists ? recognitionReference.id : null,
       recognitionReviewRequired: reviewRequired,
       recognitionReviewIssueCode: reviewIssueCode || null,
@@ -3071,7 +3099,8 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
         const recognitionPlan = recognitionPlans[index]
         recognitionPlan.writes.forEach((write) => transaction[write.type](write.reference, write.data))
         const recognitionPatch = { revenueRecognitionEntryId: recognitionPlan.entryId, revenueRecognitionJournalId: recognitionPlan.journalId,
-          recognitionReviewRequired: recognitionPlan.reviewRequired, recognitionReviewIssueCode: recognitionPlan.issueCode || null }
+          recognitionReviewRequired: recognitionPlan.reviewRequired, recognitionReviewIssueCode: recognitionPlan.issueCode || null,
+          revenueRecognitionState: recognitionPlan.reviewRequired ? 'review_required' : recognitionPlan.entryId ? 'posted' : 'not_applicable' }
         transaction.update(session.reference, {
           previousSchedule: FieldValue.arrayUnion({ date: before.date, hour: before.hour, trainerId: before.trainerId, branchId: before.branchId, changedAt: correctionInstant.toISOString(), reason }),
           date: targetDate,
@@ -3931,6 +3960,12 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
           transaction.get(policyRecognitionJournalReference),
         ])
         if (attendanceSnapshot.exists || recognitionSnapshot.exists || recognitionJournalSnapshot.exists) throw new HttpsError('already-exists', 'Lượt tính buổi của yêu cầu đã tồn tại nhưng trạng thái chưa đồng bộ. Cần đối soát trước khi duyệt lại.')
+        const policyBilling = await transaction.get(db.collection('sessionBillingEvents').where('contractId', '==', contractId).select('serviceOrdinal').limit(5001))
+        if (policyBilling.size > 5000) throw new HttpsError('resource-exhausted', 'Cần đối soát lịch sử tính buổi của hợp đồng.')
+        const policyRevenue = await readContractRecognitionState(transaction, db, contractId)
+        const policyOrdinal = nextServiceOrdinal({ usedSessions: contract.usedSessions, totalSessions: contract.totalSessions,
+          billings: policyBilling.docs.map(doc => doc.data()), revenueOrdinals: policyRevenue.revenueByOrdinal.keys() })
+        if (!policyOrdinal) throw new HttpsError('failed-precondition', 'Cần đối soát số thứ tự tính phí trước khi tính thêm buổi.', { issueCode: 'CONTRACT_SERVICE_ORDINAL_REVIEW_REQUIRED' })
         policyRecognition = ptRevenueRecognitionWrite({
           sessionId: chargeId,
           session: { ...session, date: originalDate },
@@ -3938,11 +3973,14 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
           contract,
           attendanceEventId: chargeId,
           actorUid: actor.uid,
-          serviceOrdinal: Math.max(1, Math.floor(Number(contract.usedSessions || 0)) + 1),
-          recognisedRevenueBefore: await readContractRecognizedRevenue(transaction, db, contractId),
+          serviceOrdinal: policyOrdinal,
+          recognisedRevenueBefore: policyRevenue.recognizedRevenue,
           evidenceStatus: 'policy_charge',
           confirmationSource: 'approved_policy',
         })
+        if (policyRecognition && recognitionBalanceIssue({ state: policyRevenue, sessionId: chargeId, serviceOrdinal: policyOrdinal,
+          amount: policyRecognition.revenueImpact, netValue: contractNetValue(contract) })) policyRecognition = null
+        if (!policyRecognition) throw new HttpsError('failed-precondition', 'Cần xác minh giá trị và hạn mức hợp đồng trước khi tính phí hủy/đổi lịch.', { issueCode: 'POLICY_RECOGNITION_REQUIRES_REVIEW' })
         if (policyRecognition) {
           policyRecognition = {
             ...policyRecognition,
@@ -4069,6 +4107,13 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
           sessionId,
           sessionRequestId: requestId,
           chargeId,
+          branchId: session.branchId || contract.branchId || '',
+          billingStatus: 'charged',
+          confirmationSource: 'approved_policy',
+          serviceOrdinal: policyRecognition.serviceOrdinal,
+          revenueRecognitionState: policyRecognition ? 'posted' : 'review_required',
+          revenueRecognitionEntryId: policyRecognition ? policyRecognitionReference.id : null,
+          revenueRecognitionJournalId: policyRecognition ? policyRecognitionJournalReference.id : null,
           studentId: session.studentId,
           trainerId: session.trainerId,
           contractId,
@@ -4621,6 +4666,8 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
 }
 
 module.exports = {
+  serviceOrdinalForEvidence,
+  ptRevenueJournalWrite,
   assertCancellationEvidenceChange,
   readCancellationSchedulePlan,
   applyCancellationSchedulePlan,

@@ -1,5 +1,11 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+
+test('unverified cancelled sales baseline is informational and does not invalidate current totals', () => {
+  const result=normalizeOperationsDashboardData({schemaVersion:7,quality:{completeness:'complete',cancelledSalesBaselineUnverified:8,cancelledSettlementReviewRequired:0}})
+  assert.equal(result.quality.completeness,'complete')
+  assert.equal(result.quality.cancelledSalesBaselineUnverified,8)
+})
 import { normalizeOperationsDashboardData } from '../src/utils/operationsDashboardNormalization'
 
 test('dashboard preserves separate cancellation review counts and keeps legacy responses compatible', () => {

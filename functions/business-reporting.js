@@ -1,3 +1,4 @@
+const { attendanceReconciliation } = require('./attendance-reconciliation')
 const { FieldPath, Timestamp } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
 const { trustedAccessContext, requireCapability } = require('./identity-access')
@@ -469,7 +470,7 @@ function createBusinessReportingFunctions({ db, onCall }) {
       scopedRange('attendanceEvents', 'occurredAt', MAX_ATTENDANCE_DOCUMENTS + 1),
       db.collection('cashAccounts').limit(201).get(),
     ])
-    const ledgerEntries = ledgerSnapshot.docs.slice(0, MAX_LEDGER_DOCUMENTS).map((item) => item.data())
+    const ledgerEntries = ledgerSnapshot.docs.slice(0, MAX_LEDGER_DOCUMENTS).map((item) => ({ ...item.data(), id: item.id }))
     const summary = summaryFromLedger(ledgerEntries, input)
     const unlinkedCashTransactions = cashSnapshot.docs
       .map((item) => item.data())
@@ -491,8 +492,12 @@ function createBusinessReportingFunctions({ db, onCall }) {
       .filter(Boolean))
     const recognisedAttendanceEvents = [...attendanceSessionIds].filter((sessionId) => recognisedSessionIds.has(sessionId)).length
     const unrecognisedAttendanceEvents = Math.max(0, attendanceSessionIds.size - recognisedAttendanceEvents)
+    const reconciliation = attendanceReconciliation(attendanceSnapshot.docs.slice(0, MAX_ATTENDANCE_DOCUMENTS)
+      .map(item => ({ ...item.data(), id: item.id })), ledgerEntries)
     const qualityMessages = []
-    if (unrecognisedAttendanceEvents) qualityMessages.push(`${unrecognisedAttendanceEvents.toLocaleString('vi-VN')} buổi đã chấm công chưa có bút toán doanh thu thực hiện`)
+    if (reconciliation.unresolved || reconciliation.conflicts) qualityMessages.push(`${reconciliation.unresolved + reconciliation.conflicts} bằng chứng PT cần xác minh liên kết hoặc kỳ ghi nhận; chưa kết luận thiếu doanh thu`)
+    if (reconciliation.automaticReview + reconciliation.billingReview + reconciliation.recognitionReview) qualityMessages.push('còn bằng chứng PT chờ xác nhận hoặc rà soát điều kiện ghi nhận')
+    if (reconciliation.missingBranch) qualityMessages.push(`${reconciliation.missingBranch} bằng chứng chưa gắn chi nhánh`)
     if (cashAccountSnapshot.empty) qualityMessages.push('sổ quỹ chưa có tài khoản tiền mặt/ngân hàng/ví')
     if (unlinkedCashTransactions) qualityMessages.push('còn giao dịch sổ quỹ chưa liên kết ledger')
     if (payrollPaidOutsideLedger) qualityMessages.push('còn bảng lương đã trả ngoài ledger')
@@ -526,6 +531,7 @@ function createBusinessReportingFunctions({ db, onCall }) {
         legacyUnclassifiedEntries: summary.legacyUnclassifiedEntries,
         unlinkedCashTransactions,
         payrollPaidOutsideLedger,
+        reconciliation,
         attendanceEvents: attendanceSessionIds.size,
         recognisedAttendanceEvents,
         unrecognisedAttendanceEvents,
