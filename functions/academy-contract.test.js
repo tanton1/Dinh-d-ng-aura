@@ -204,6 +204,7 @@ test('client does not write a course before recording its revision', () => {
 test('sample courses cannot mask empty or failed Firebase data in production', () => {
   assert.match(serviceSource, /academyDemoFallbackEnabled = import\.meta\.env\.DEV \|\| import\.meta\.env\.MODE === 'e2e'/)
   assert.match(serviceSource, /academyDemoFallbackEnabled \? demoCourses : \[\]/)
-  assert.match(hookSource, /academyDemoFallbackEnabled \? demoCourses : \[\]/)
+  assert.match(hookSource, /const EMPTY_COURSES: Course\[\] = \[\]/)
+  assert.match(hookSource, /setItems\(academyDemoFallbackEnabled \? demoCourses : EMPTY_COURSES\)/)
   assert.doesNotMatch(hookSource, /setItems\(demoCourses\)/)
 })
