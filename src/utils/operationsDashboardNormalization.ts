@@ -386,7 +386,7 @@ export function normalizeOperationsDashboardData(value: unknown): OperationsDash
       branches: nonNegativeNumber(operations.branches),
     },
     quality: {
-      completeness: quality.completeness === 'partial' || schemaVersion < 2 || nonNegativeNumber(quality.cancelledSalesBaselineUnverified) > 0 || nonNegativeNumber(quality.cancelledSettlementReviewRequired) > 0 ? 'partial' : 'complete',
+      completeness: quality.completeness === 'partial' || schemaVersion < 2 || nonNegativeNumber(quality.cancelledSettlementReviewRequired) > 0 ? 'partial' : 'complete',
       missingContractEffectiveDate: nonNegativeNumber(quality.missingContractEffectiveDate),
       cancelledSalesBaselineUnverified: Math.floor(nonNegativeNumber(quality.cancelledSalesBaselineUnverified)),
       cancelledSettlementReviewRequired: Math.floor(nonNegativeNumber(quality.cancelledSettlementReviewRequired)),

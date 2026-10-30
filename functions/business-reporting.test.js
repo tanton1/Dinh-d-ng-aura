@@ -278,6 +278,14 @@ test('period sales retain original cancellation baseline and signed cancellation
   assert.equal(summary.dailySeries[0].contractSales, -500, 'sales join cannot mutate ledger summary')
 })
 
+test('cancelled contracts without a verified baseline contribute zero without blocking period sales', () => {
+  const input=normaliseBusinessRange({startDate:'2026-10-01',endDate:'2026-10-31',branchId:'a'})
+  const result=businessContractSales([{branchId:'a',status:'cancelled',totalPrice:9000000}],summaryFromLedger([],input),input)
+  assert.equal(result.sales.complete,true)
+  assert.equal(result.sales.grossContractSales,0)
+  assert.equal(result.cancelledSalesBaselineUnverified,1)
+})
+
 test('sales missing dates, unverified cancellations and read caps cannot claim completeness', () => {
   const input = normaliseBusinessRange({ startDate: '2026-10-01', endDate: '2026-10-31', branchId: 'a' })
   const summary = summaryFromLedger([], input)

@@ -139,26 +139,37 @@ export default function BusinessPerformancePanel({ compact = false }: Props) {
     if (complete.ledger && quality.legacyUnclassifiedEntries > 0) reconciliationIssues.push(quality.legacyUnclassifiedEntries.toLocaleString('vi-VN') + ' bút toán chưa phân loại')
     if (complete.cashReconciliation && ((quality.unlinkedCashTransactionCount || 0) > 0 || quality.unlinkedCashTransactions)) reconciliationIssues.push('Sổ quỹ chưa liên kết: ' + (quality.unlinkedCashTransactionCount === undefined ? money(quality.unlinkedCashTransactions) : quality.unlinkedCashTransactionCount.toLocaleString('vi-VN') + ' giao dịch · ' + money(quality.unlinkedCashTransactions) + ' ròng'))
     if (complete.payrollReconciliation && quality.payrollPaidOutsideLedger) reconciliationIssues.push('Lương đã trả ngoài sổ: ' + money(quality.payrollPaidOutsideLedger))
-    if (complete.recognitionReconciliation && quality.unrecognisedAttendanceEvents > 0) reconciliationIssues.push(quality.unrecognisedAttendanceEvents.toLocaleString('vi-VN') + ' buổi chờ đối soát doanh thu')
+    if (complete.recognitionReconciliation && quality.reconciliation) {
+      const evidence=quality.reconciliation
+      if(evidence.unresolved+evidence.conflicts) reconciliationIssues.push((evidence.unresolved+evidence.conflicts).toLocaleString('vi-VN')+' bằng chứng cần xác minh liên kết/kỳ')
+      if(evidence.automaticReview+evidence.billingReview+evidence.recognitionReview) reconciliationIssues.push((evidence.automaticReview+evidence.billingReview+evidence.recognitionReview).toLocaleString('vi-VN')+' bằng chứng cần duyệt điều kiện ghi nhận')
+    }
     if (quality.missingSourceIntegrations.length) reconciliationIssues.push('Nguồn chờ tích hợp: ' + quality.missingSourceIntegrations.map(item => sourceLabels[item as BusinessSource] || item).join(', '))
-    if (report.sales && (quality.cancelledSalesBaselineUnverified || 0) > 0) reconciliationIssues.push(quality.cancelledSalesBaselineUnverified + ' hợp đồng huỷ thiếu doanh số gốc')
     if (report.sales && (quality.contractSalesDatesMissing || 0) > 0) reconciliationIssues.push(quality.contractSalesDatesMissing + ' hợp đồng thiếu ngày doanh số')
-    if (report.sales && (quality.cancelledSalesBaselineUnverified === undefined || quality.contractSalesDatesMissing === undefined)) reconciliationIssues.push('Chưa có đủ thông tin kiểm tra doanh số')
+    if (report.sales && quality.contractSalesDatesMissing === undefined) reconciliationIssues.push('Chưa có đủ thông tin kiểm tra doanh số')
   }
 
   const reconciliation = <article className="business-performance__quality business-performance__quality--compact">
-      <div className="business-performance__quality-heading"><h2>Đối soát dữ liệu</h2><AuraHelpPopover title="Thông tin đối soát"><p>Các mục này giúp phát hiện dữ liệu cũ hoặc nguồn chưa liên kết; chúng không tự được cộng vào kết quả kinh doanh.</p></AuraHelpPopover></div>
+      <div className="business-performance__quality-heading"><h2>Đối soát dữ liệu</h2><AuraHelpPopover title="Thông tin đối soát"><p>Đối soát PT theo chi nhánh và khoảng ngày đang chọn. Bộ lọc nguồn chỉ áp dụng cho kết quả kinh doanh. Chưa khớp bút toán trong kỳ chưa đủ để kết luận thiếu doanh thu.</p></AuraHelpPopover></div>
       {reconciliationIssues.length ? <ul className="business-performance__review-list">{reconciliationIssues.map(issue => <li key={issue}>{issue}</li>)}</ul> : <p className="business-performance__review-status">{report ? 'Chưa thấy mục cần đối soát trong dữ liệu hiện có.' : 'Đang chờ dữ liệu đối soát.'}</p>}
       <details className="business-performance__review-details"><summary>Chi tiết đối soát</summary><dl>
         <div><dt>Legacy chưa phân loại</dt><dd>{complete.ledger ? `${report?.dataQuality.legacyUnclassifiedEntries || 0} bút toán` : incompleteLabel}</dd></div>
         <div><dt>Sổ quỹ chưa liên kết</dt><dd>{complete.cashReconciliation ? money(report?.dataQuality.unlinkedCashTransactions || 0) : incompleteLabel}</dd></div>
         <div><dt>Lương đã trả ngoài ledger</dt><dd>{complete.payrollReconciliation ? money(report?.dataQuality.payrollPaidOutsideLedger || 0) : incompleteLabel}</dd></div>
-        <div><dt>Buổi đã chấm công</dt><dd>{complete.attendance ? `${(report?.dataQuality.attendanceEvents || 0).toLocaleString('vi-VN')} buổi` : incompleteLabel}</dd></div>
-        <div><dt>Đã ghi nhận doanh thu</dt><dd>{complete.recognitionReconciliation ? `${(report?.dataQuality.recognisedAttendanceEvents || 0).toLocaleString('vi-VN')} buổi` : incompleteLabel}</dd></div>
-        <div><dt>Chờ đối soát doanh thu</dt><dd>{complete.recognitionReconciliation ? `${(report?.dataQuality.unrecognisedAttendanceEvents || 0).toLocaleString('vi-VN')} buổi` : incompleteLabel}</dd></div>
+        {report?.dataQuality.reconciliation ? <>
+          <div><dt>Bằng chứng PT trong kỳ</dt><dd>{complete.attendance ? report.dataQuality.reconciliation.evidenceCount.toLocaleString('vi-VN') : incompleteLabel}</dd></div>
+          <div><dt>Khớp bút toán trong kỳ</dt><dd>{complete.recognitionReconciliation ? report.dataQuality.reconciliation.matchedInPeriod.toLocaleString('vi-VN') : incompleteLabel}</dd></div>
+          <div><dt>Chờ xác nhận điểm danh</dt><dd>{complete.attendance ? report.dataQuality.reconciliation.pendingConfirmation.toLocaleString('vi-VN') : incompleteLabel}</dd></div>
+          <div><dt>Tự xác nhận · cần duyệt</dt><dd>{complete.attendance ? report.dataQuality.reconciliation.automaticReview.toLocaleString('vi-VN') : incompleteLabel}</dd></div>
+          <div><dt>Cần rà soát hạn mức</dt><dd>{complete.attendance ? report.dataQuality.reconciliation.billingReview.toLocaleString('vi-VN') : incompleteLabel}</dd></div>
+          <div><dt>Cần rà soát ghi nhận</dt><dd>{complete.attendance ? report.dataQuality.reconciliation.recognitionReview.toLocaleString('vi-VN') : incompleteLabel}</dd></div>
+          <div><dt>Miễn tính phí</dt><dd>{complete.attendance ? report.dataQuality.reconciliation.exempt.toLocaleString('vi-VN') : incompleteLabel}</dd></div>
+          <div><dt>Chưa xác minh liên kết/kỳ</dt><dd>{complete.recognitionReconciliation ? (report.dataQuality.reconciliation.unresolved + report.dataQuality.reconciliation.conflicts).toLocaleString('vi-VN') : incompleteLabel}</dd></div>
+          <div><dt>Chưa gắn chi nhánh</dt><dd>{complete.attendance ? report.dataQuality.reconciliation.missingBranch.toLocaleString('vi-VN') : incompleteLabel}</dd></div>
+        </> : <div><dt>Đối soát điểm danh PT</dt><dd>{complete.attendance ? 'Chưa có phân loại chi tiết' : incompleteLabel}</dd></div>}
         <div><dt>Tài khoản sổ quỹ</dt><dd>{complete.cashAccounts ? `${report?.dataQuality.cashAccounts || 0} tài khoản` : incompleteLabel}</dd></div>
         <div><dt>Nguồn chờ tích hợp</dt><dd>{report?.dataQuality.missingSourceIntegrations.length || 0} nguồn</dd></div>
-        {report?.sales && <><div><dt>HĐ huỷ thiếu doanh số gốc</dt><dd>{report.dataQuality.cancelledSalesBaselineUnverified ?? 'Chưa có thông tin'}</dd></div><div><dt>HĐ thiếu ngày doanh số</dt><dd>{report.dataQuality.contractSalesDatesMissing ?? 'Chưa có thông tin'}</dd></div></>}
+        {report?.sales && <><div><dt>HĐ thiếu ngày doanh số</dt><dd>{report.dataQuality.contractSalesDatesMissing ?? 'Chưa có thông tin'}</dd></div></>}
       </dl></details>
     </article>
 
@@ -209,7 +220,9 @@ export default function BusinessPerformancePanel({ compact = false }: Props) {
 
     </>}
 
+
     {(!report || report.dataQuality.ledgerTruncated) && reconciliation}
+
 
   </section>
 }

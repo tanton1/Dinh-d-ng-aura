@@ -189,7 +189,7 @@ test('source completeness flags invalidate only their dependent analytics', asyn
   await expect(quality.getByText('Chưa kiểm tra đủ dữ liệu chấm công', { exact: true })).toBeVisible()
   await expect(quality.getByText('Chưa kiểm tra đủ liên kết sổ quỹ', { exact: true })).toBeVisible()
   await quality.getByText('Chi tiết đối soát', { exact: true }).click()
-  await expect(quality.locator('dl div').filter({ hasText: 'Buổi đã chấm công' })).toContainText('Chưa đủ dữ liệu')
+  await expect(quality.locator('dl div').filter({ hasText: 'Đối soát điểm danh PT' })).toContainText('Chưa đủ dữ liệu')
   await expect(quality.locator('dl div').filter({ hasText: 'Sổ quỹ chưa liên kết' })).toContainText('Chưa đủ dữ liệu')
   await page.getByRole('button', { name: 'Làm mới báo cáo', exact: true }).click()
   await pending(page, 2)

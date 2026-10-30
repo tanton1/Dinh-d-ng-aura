@@ -144,7 +144,7 @@ test('a free cancellation of a pending renewal reservation leaves both quotas an
 test('a chargeable cancellation consumes the last source entitlement and releases the renewal immediately', async () => {
   // Stored usage lags the eleven charged sessions; billing must use the
   // canonical count and persist twelve rather than increment ten to eleven.
-  const state = fixture({ usedSessions: 10 }, {}, {}, {
+  const state = fixture({ usedSessions: 10, totalPrice: 1_200_000, paidAmount: 1_200_000 }, {}, {}, {
     ...Object.fromEntries(Array.from({ length: 11 }, (_, index) => [`sessions/charged-${index}`, {
       ...session, date: addDateDays('2026-08-01', index), status: 'completed', billingStatus: 'charged', countsTowardContract: true,
     }])),
@@ -156,6 +156,18 @@ test('a chargeable cancellation consumes the last source entitlement and release
   assert.equal(state.get('contracts/source').usedSessions, 12)
   assert.equal(state.get('contracts/next').status, 'active')
   assert.equal(state.get('contracts/next').usedSessions, 0)
+})
+
+test('a paid policy charge with missing financial terms cannot consume quota or release a renewal', async () => {
+  const state = fixture({}, {}, {}, {
+    'sessionRequests/cancel': { status: 'pending', type: 'cancel', sessionId: 'current', studentId: 'student-1', contractId: 'source', requestedBy: 'student', originalDate: session.date, originalHour: session.hour, originalSessionRevision: 0, reason: 'Bận đột xuất', submittedAtIso: '2026-08-20T00:00:00Z', policyMonth: '2026-08' },
+  })
+  const operations = createSessionOperationFunctions({ db: state.db, onCall: (...args) => args.at(-1), authorizeAdmin: async () => ({ uid: 'admin' }), now: () => new Date('2026-08-20T03:00:00Z') })
+  await assert.rejects(operations.approveSessionRequest({ data: { requestId: 'cancel', expectedSessionRevision: 0 } }),error=>error.details?.issueCode==='POLICY_RECOGNITION_REQUIRES_REVIEW')
+  assert.equal(state.get('contracts/source').usedSessions,11)
+  assert.equal(state.get('contracts/next').status,'future')
+  assert.equal(state.get('sessionRequests/cancel').status,'pending')
+  assert.equal(state.get('ledgerEntries/pt_policy_cancel'),undefined)
 })
 
 test('first renewal session activates and charges its own quota before the nightly worker', async () => {

@@ -1,3 +1,4 @@
+const { attendanceReconciliation } = require('./attendance-reconciliation')
 const { FieldPath, Timestamp } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
 const { trustedAccessContext, requireCapability } = require('./identity-access')
@@ -254,7 +255,7 @@ function businessContractSales(contracts, summary, input, { contractsTruncated =
   return {
     sales: { grossContractSales, contractSalesAdjustment: summary.contractSalesAdjustment,
       netContractSales: grossContractSales + summary.contractSalesAdjustment, contractCount,
-      complete: !contractsTruncated && !ledgerTruncated && !cancelledSalesBaselineUnverified && !contractSalesDatesMissing },
+      complete: !contractsTruncated && !ledgerTruncated && !contractSalesDatesMissing },
     dailySeries: [...daily.values()].sort((left, right) => left.date.localeCompare(right.date)),
     cancelledSalesBaselineUnverified, contractSalesDatesMissing,
   }
@@ -534,7 +535,7 @@ function createBusinessReportingFunctions({ db, onCall }) {
       db.collection('cashAccounts').limit(201).get(),
       salesQuery ? salesQuery.limit(MAX_SALES_CONTRACTS + 1).get() : Promise.resolve(null),
     ])
-    const ledgerEntries = ledgerSnapshot.docs.slice(0, MAX_LEDGER_DOCUMENTS).map((item) => item.data())
+    const ledgerEntries = ledgerSnapshot.docs.slice(0, MAX_LEDGER_DOCUMENTS).map((item) => ({ ...item.data(), id: item.id }))
     const summary = summaryFromLedger(ledgerEntries, input)
     const contractsTruncated = Boolean(contractSnapshot && contractSnapshot.size > MAX_SALES_CONTRACTS)
     const sales = contractSnapshot ? businessContractSales(contractSnapshot.docs.slice(0, MAX_SALES_CONTRACTS).map(item => item.data()), summary, input,
@@ -559,12 +560,15 @@ function createBusinessReportingFunctions({ db, onCall }) {
       .filter(Boolean))
     const recognisedAttendanceEvents = [...attendanceSessionIds].filter((sessionId) => recognisedSessionIds.has(sessionId)).length
     const unrecognisedAttendanceEvents = Math.max(0, attendanceSessionIds.size - recognisedAttendanceEvents)
+    const reconciliation = attendanceReconciliation(attendanceSnapshot.docs.slice(0, MAX_ATTENDANCE_DOCUMENTS)
+      .map(item => ({ ...item.data(), id: item.id })), ledgerEntries)
     const qualityMessages = []
-    if (unrecognisedAttendanceEvents) qualityMessages.push(`${unrecognisedAttendanceEvents.toLocaleString('vi-VN')} buổi đã chấm công chưa có bút toán doanh thu thực hiện`)
+    if (reconciliation.unresolved || reconciliation.conflicts) qualityMessages.push(`${reconciliation.unresolved + reconciliation.conflicts} bằng chứng PT cần xác minh liên kết hoặc kỳ ghi nhận; chưa kết luận thiếu doanh thu`)
+    if (reconciliation.automaticReview + reconciliation.billingReview + reconciliation.recognitionReview) qualityMessages.push('còn bằng chứng PT chờ xác nhận hoặc rà soát điều kiện ghi nhận')
+    if (reconciliation.missingBranch) qualityMessages.push(`${reconciliation.missingBranch} bằng chứng chưa gắn chi nhánh`)
     if (cashAccountSnapshot.empty) qualityMessages.push('sổ quỹ chưa có tài khoản tiền mặt/ngân hàng/ví')
     if (unlinkedCashRows.length) qualityMessages.push('còn giao dịch sổ quỹ chưa liên kết ledger')
     if (payrollPaidOutsideLedger) qualityMessages.push('còn bảng lương đã trả ngoài ledger')
-    if (sales?.cancelledSalesBaselineUnverified) qualityMessages.push('còn hợp đồng hủy chưa xác minh doanh số gốc')
     if (sales?.contractSalesDatesMissing) qualityMessages.push('còn hợp đồng thiếu ngày ghi nhận doanh số')
     if (contractsTruncated) qualityMessages.push('doanh số chạm giới hạn tải hợp đồng; hãy chọn chi nhánh hoặc đối soát phạm vi hợp đồng')
     if (ledgerSnapshot.size > MAX_LEDGER_DOCUMENTS || cashSnapshot.size > MAX_LEDGER_DOCUMENTS
@@ -604,6 +608,7 @@ function createBusinessReportingFunctions({ db, onCall }) {
         unlinkedCashTransactions,
         unlinkedCashTransactionCount: unlinkedCashRows.length,
         payrollPaidOutsideLedger,
+        reconciliation,
         attendanceEvents: attendanceSessionIds.size,
         recognisedAttendanceEvents,
         unrecognisedAttendanceEvents,

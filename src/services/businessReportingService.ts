@@ -84,6 +84,9 @@ export interface BusinessPerformanceReport {
     unlinkedCashTransactions: number
     unlinkedCashTransactionCount?: number
     payrollPaidOutsideLedger: number
+    reconciliation?: { schemaVersion: 1; evidenceCount: number; matchedInPeriod: number; pendingConfirmation: number;
+      automaticReview: number; billingReview: number; recognitionReview: number; exempt: number; unresolved: number;
+      conflicts: number; missingBranch: number; posted: number; verifiedMissingPosting: null }
     attendanceEvents: number
     recognisedAttendanceEvents: number
     unrecognisedAttendanceEvents: number
