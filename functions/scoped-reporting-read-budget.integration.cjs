@@ -120,6 +120,13 @@ test('paired Academy and Finance SDK read budgets with production authorization 
   const academyWarm = await measure(openAcademy)
   const financeCold = await measure(openFinance)
   const financeWarm = await measure(openFinance)
+  const categorySwitches = []
+  for (const category of ['installments', 'frozen', 'debt']) {
+    const result = await measure(() => api.listFinanceReceivables({ auth, data: { ...financeInput, category } }))
+    assert.equal(result.value.summary.complete, true)
+    assert.equal(result.value.summary.totals.debt, category === 'debt' ? N * 800000 : 0)
+    categorySwitches.push({ category, ...describePhase(result, describeFinance(result.value), result.value.summary) })
+  }
   const academyReference = await measure(fullAcademyReference)
   const financeReference = await measure(fullFinanceReference)
 
@@ -187,12 +194,13 @@ test('paired Academy and Finance SDK read budgets with production authorization 
   assert.equal(network.blocked.length, 0)
   assert.deepEqual(sourceBinding(ROOT), binding, 'Source must remain unchanged throughout the measurement')
   const artifact = { schemaVersion: 1, kind: 'emulator-sdk-read-budget', startedAt, completedAt: new Date().toISOString(), source: binding,
-    fixture: { version: 1, project: 'demo-aura-fitness', learners: N, progress: N, branchAContracts: N, branchBSentinelContracts: 1,
+    fixture: { version: 2, project: 'demo-aura-fitness', learners: N, progress: N, branchAContracts: N, branchBSentinelContracts: 1,
       distinctLabelsPerDomain: N, pageSize: PAGE_SIZE, today: TODAY, financeBranch: 'a', financeCategory: 'all', financeFilter: 'all',
       auth: 'production trustedAccessContext with fixture admin profile, assignment and request.auth claims; live profile; normal 5s assignment cache; onCall transport/token verification not exercised',
-      order: ['academy-cold', 'academy-warm', 'finance-cold', 'finance-warm', 'complete-academy-reference', 'complete-finance-reference'],
+      order: ['academy-cold', 'academy-warm', 'finance-cold', 'finance-warm', 'finance-installments', 'finance-frozen', 'finance-debt', 'complete-academy-reference', 'complete-finance-reference'],
       sharedSummaryCacheTtlSeconds: 180, mutationBetweenColdAndWarm: false, reference: 'complete full-list fixture reference, no source limit, canonical current formulas; not historical production measurement' },
-    academy, finance, authorizationProbes: { unauthenticated: unauthenticated.counters, disabledAfterWarmCache: revoked.counters },
+    academy, finance, financeCategorySwitches: categorySwitches,
+    authorizationProbes: { unauthenticated: unauthenticated.counters, disabledAfterWarmCache: revoked.counters },
     limitations: [
       'Counts observe public Firestore SDK calls/results, not billed reads, index entries, wire RPC retries, rule reads, or provider invoices.',
       'Point read attempts include missing documents; existing and missing snapshots are reported separately. Query documents include page sentinels.',
@@ -203,11 +211,20 @@ test('paired Academy and Finance SDK read budgets with production authorization 
       'The production profile/roleAssignment authorization path is exercised with fixture request.auth claims; Firebase token verification, callable transport and App Check are not exercised.',
       'JSON byte counts serialize handler response objects and the reference payload; callable envelopes, compression and network traffic are excluded.',
       'The 80% target concerns returned document rows versus this complete fixture reference; it is not a server cold-read or billing reduction claim.',
-      'Emulator timings and this dense unsearched first-page scope are not production latency or sparse/search/category cost measurements.',
+      'Emulator timings are not production latency. Category switches use this all-debt fixture: installments/frozen examine the 200-row page cap and return valid empty pages; debt returns 20 rows. Other data distributions and search are not measured.',
     ] }
   const output = process.env.REPORTING_READ_BUDGET_OUTPUT || path.join(ROOT, '.migration-private', `reporting-read-budget-${Date.now()}.json`)
   assert.equal(path.dirname(path.resolve(output)), path.join(ROOT, '.migration-private'), 'Evidence must remain in this worktree private directory')
   fs.mkdirSync(path.dirname(output), { recursive: true })
   fs.writeFileSync(output, JSON.stringify(artifact, null, 2) + '\n', { flag: 'wx' })
   console.log(JSON.stringify({ readBudgetArtifact: path.basename(output), academy: academy.comparison, finance: finance.comparison }))
+  // Write the observations first so running this same test against the previous
+  // runtime produces a source-bound negative control, not an estimated baseline.
+  for (const phase of categorySwitches) {
+    assert.equal(phase.summary.cacheHit, true, `${phase.category} must reuse the branch/day summary`)
+    assert.equal(phase.summary.asOf, financeCold.value.summary.asOf)
+    assert.equal(phase.counters.transactions.readOnlyCalls, 0)
+    assert.equal(phase.counters.buckets.source.queryDocumentSnapshots, phase.category === 'debt' ? PAGE_SIZE : 200)
+    assert.equal(phase.counters.buckets.cache.committedWrites, 0)
+  }
 })

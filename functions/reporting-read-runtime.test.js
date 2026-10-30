@@ -233,3 +233,28 @@ test('authorized bounded pages, masked labels and cached summaries retain canoni
     }
   }
 })
+
+test('targeted and discovery finance runtimes project the selected category from the shared v5 cache', () => {
+  const documents = profile('admin', 'admin')
+  const categorySummaries = Object.fromEntries(['all', 'installments', 'frozen', 'debt'].map((category, index) => [category, {
+    complete: true, totals: { debt: index * 100, overdue: 0, thisMonth: 0 }, counts: { all: index },
+  }]))
+  const summary = { categorySummaries, source: 'contracts', sourceDocuments: 42, asOf: '2026-10-30T00:00:00.000Z' }
+  const requests = ['frozen', 'debt'].map(category => ({ name: 'listFinanceReceivables', call: call('admin', 'admin', {
+    branchId: 'a', category, today: '2026-10-30',
+  }) }))
+  const results = [probe({ documents, cachedSummary: summary, requests }),
+    probe({ environment: { FUNCTION_TARGET: 'listFinanceReceivables' }, documents, cachedSummary: summary, requests })]
+  for (const result of results) {
+    assert.ok(result.results.every(row => row.ok))
+    assert.deepEqual(result.results.map(row => row.value.summary.totals.debt), [200, 300])
+    for (const row of result.results) {
+      assert.equal(row.value.summary.cache.hit, true)
+      assert.equal(row.value.summary.sourceDocuments, 42)
+      assert.equal(row.value.summary.asOf, summary.asOf)
+      assert.equal(row.value.summary.categorySummaries, undefined)
+      assert.equal(row.reads.filter(path => path.startsWith('systemOperationsDashboardCache/receivables-v5-')).length, 1)
+    }
+  }
+  assert.deepEqual(results[0].results.map(row => row.value.summary), results[1].results.map(row => row.value.summary))
+})

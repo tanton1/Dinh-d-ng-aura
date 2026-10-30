@@ -2,7 +2,7 @@
 
 const assert = require('node:assert/strict')
 const test = require('node:test')
-const { createScopedReportingReadFunctions, summarizeAcademy, summarizeReceivables, debtState, cursorAfter, nextCursor, scanSummarySource, SUMMARY_LIMIT } = require('./scoped-reporting-reads')
+const { createScopedReportingReadFunctions, summarizeAcademy, summarizeReceivables, summarizeReceivableCategories, debtState, cursorAfter, nextCursor, scanSummarySource, SUMMARY_LIMIT } = require('./scoped-reporting-reads')
 
 const admin = { uid: 'admin', accessRole: 'admin', authzVersion: 2, capabilities: ['finance.operations.manage'] }
 const row = (id, value, path = `contracts/${id}`) => ({ id, ref: { path }, exists: true, data: () => value })
@@ -123,7 +123,7 @@ test('management categories retain cash debt and include only outstanding preser
   assert.deepEqual(ids(await api.listFinanceReceivables({ data: input })), ids(pages.all), 'omitted category remains compatible')
 })
 
-test('category summaries respect branch but not search/filter, and category changes fence cache/cursors', async () => {
+test('categories share the branch/day cache while category changes still fence cursors', async () => {
   const cacheKeys = [], api = endpoints({ documents: managementContracts(), cacheKeys })
   const input = { today: '2026-10-30', category: 'frozen', branchId: 'b' }
   const searched = await api.listFinanceReceivables({ data: { ...input, search: 'not found', filter: 'settled' } })
@@ -132,9 +132,13 @@ test('category summaries respect branch but not search/filter, and category chan
   assert.equal(searched.summary.counts.all, 1)
   await api.listFinanceReceivables({ data: input })
   assert.equal(cacheKeys[0], cacheKeys[1])
-  assert.match(cacheKeys[0], /^receivables-v4-/)
+  assert.match(cacheKeys[0], /^receivables-v5-/)
   await api.listFinanceReceivables({ data: { ...input, category: 'debt' } })
-  assert.notEqual(cacheKeys[1], cacheKeys[2])
+  assert.equal(cacheKeys[1], cacheKeys[2])
+  await api.listFinanceReceivables({ data: { ...input, branchId: 'a' } })
+  await api.listFinanceReceivables({ data: { ...input, today: '2026-10-31' } })
+  assert.notEqual(cacheKeys[2], cacheKeys[3])
+  assert.notEqual(cacheKeys[2], cacheKeys[4])
   const first = await api.listFinanceReceivables({ data: { ...input, branchId: 'all', pageSize: 1, includeSummary: false } })
   await assert.rejects(api.listFinanceReceivables({ data: { ...input, branchId: 'all', category: 'debt', cursor: first.nextCursor } }), { code: 'invalid-argument' })
   await assert.rejects(api.listFinanceReceivables({ data: { ...input, category: 'unknown' } }), { code: 'invalid-argument' })
@@ -142,6 +146,35 @@ test('category summaries respect branch but not search/filter, and category chan
     const oldCursor = nextCursor('frozen', [`finance-receivables-${version}`, admin.uid, admin.authzVersion, 'all', input.today, 'frozen', 'all', ''])
     await assert.rejects(api.listFinanceReceivables({ data: { ...input, branchId: 'all', cursor: oldCursor } }), { code: 'invalid-argument' })
   }
+})
+
+test('single-pass category rollups equal canonical calculations across branches, dates, unknown rows and overflow', () => {
+  const categories = ['all', 'installments', 'frozen', 'debt']
+  const compare = (documents, branch = 'all', today = '2026-10-30', limit = SUMMARY_LIMIT) => {
+    const actual = summarizeReceivableCategories(documents, today, branch, limit)
+    for (const category of categories) assert.deepEqual(actual[category], summarizeReceivables(documents, today, branch, limit, category), `${branch}/${today}/${category}`)
+    return actual
+  }
+  for (const today of ['2026-10-29', '2026-10-30', '2026-10-31', '2026-11-01']) {
+    const documents = [...managementContracts(), row('unassigned', contract()), row('null-branch', contract({ branchId: null }))]
+    for (const branch of ['all', 'none', 'a', 'b']) compare(branch === 'a' || branch === 'b' ? documents.filter(d => d.data().branchId === branch) : documents, branch, today)
+  }
+  compare([])
+  compare([row('bad-excluded', contract({ branchId: 'a', paidAmount: null })), row('cancelled', { status: 'cancelled' })], 'none')
+  for (const patch of [{ paidAmount: null }, { installments: {} }, { pausePeriods: {} }, { nextPaymentDate: '2026-02-30' }]) {
+    const unknown = compare([...managementContracts(), row('bad', contract(patch))])
+    assert.ok(categories.every(category => unknown[category].complete === false))
+  }
+  const limited = compare(managementContracts(), 'none', '2026-10-30', 1)
+  assert.equal(limited.frozen.reason, 'limit', 'the limit precedes the unassigned-branch filter')
+  const huge = Number.MAX_VALUE * 0.75
+  const overflow = compare([row('debt', contract({ totalPrice: huge, paidAmount: 0 })), row('frozen', contract({ totalPrice: huge, paidAmount: 0, status: 'frozen' }))])
+  assert.equal(overflow.all.complete, false)
+  assert.equal(overflow.debt.totals.debt, huge)
+  assert.equal(overflow.frozen.totals.debt, huge)
+  assert.equal(overflow.installments.totals.debt, 0)
+  compare([row('overflow-balance', contract({ totalPrice: 0, discount: Number.MAX_VALUE, paidAmount: Number.MAX_VALUE }))])
+  compare([row('first', contract({ totalPrice: huge, paidAmount: 0 })), row('second', contract({ totalPrice: huge, paidAmount: 0 })), row('bad-after-overflow', contract({ paidAmount: null }))])
 })
 
 test('cancelled plans and settlement balances never enter workspace rows, labels or totals, including malformed history', async () => {

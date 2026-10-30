@@ -2,11 +2,12 @@
 
 const assert = require('node:assert/strict')
 const { test, after } = require('node:test')
-const { randomUUID } = require('node:crypto')
+const { randomUUID, createHash } = require('node:crypto')
 const { initializeApp, deleteApp } = require('firebase-admin/app')
 const { getFirestore } = require('firebase-admin/firestore')
 const { createScopedReportingReadFunctions } = require('./scoped-reporting-reads')
 const { createFinanceLedgerFunctions } = require('./finance-ledger')
+const { createSharedDashboardCache, CACHE_COLLECTION } = require('./operations-dashboard-cache')
 
 assert.match(process.env.FIRESTORE_EMULATOR_HOST || '', /^(127\.0\.0\.1|localhost):\d+$/)
 const app = initializeApp({ projectId: 'demo-aura-fitness' }, `reporting-${randomUUID()}`)
@@ -18,6 +19,163 @@ function fixture() {
   const api = createScopedReportingReadFunctions({ db, onCall: handler => handler, authorize: async () => admin, logger: { warn() {} } })
   return { db, api }
 }
+
+const deferred = () => { let resolve; const promise = new Promise(done => { resolve = done }); return { promise, resolve } }
+async function categoryFixture() {
+  const { db } = fixture(), batch = db.batch()
+  const base = { studentId: 's', branchId: 'a', totalPrice: 1000, paidAmount: 200, status: 'active' }
+  batch.set(db.doc('students/s'), { name: 'Synthetic learner' })
+  batch.set(db.doc('contracts/plan'), { ...base, installments: [{ status: 'pending', date: '2026-10-30', amount: 800 }] })
+  batch.set(db.doc('contracts/frozen'), { ...base, status: 'frozen', paidAmount: 800 })
+  batch.set(db.doc('contracts/debt'), { ...base, paidAmount: 600 })
+  await batch.commit()
+  return db
+}
+function categoryApi(db, cache) {
+  return createScopedReportingReadFunctions({ db, sharedCache: cache, onCall: handler => handler, authorize: async () => admin, logger: { warn() {} } })
+}
+const categoryInput = { branchId: 'a', today: '2026-10-30', pageSize: 20 }
+
+for (const refresh of [false, true]) test(`different category callers share one ${refresh ? 'forced refresh' : 'cold'} snapshot and lease`, { timeout: 15000 }, async () => {
+  const db = await categoryFixture(), followerWaiting = deferred(), published = deferred()
+  const caches = [0, 1].map(() => createSharedDashboardCache({ db, coalesceRefresh: true, buildLeaseMs: 120000,
+    pause: async () => { followerWaiting.resolve(); await published.promise } }))
+  const apis = caches.map(cache => categoryApi(db, cache)), transact = db.runTransaction.bind(db)
+  if (refresh) await apis[0].listFinanceReceivables({ data: { ...categoryInput, category: 'all' } })
+  for (const cache of caches) {
+    const publish = cache.publish
+    cache.publish = async (...args) => { const result = await publish(...args); published.resolve(); return result }
+  }
+  let builds = 0
+  db.runTransaction = (callback, options) => transact(async transaction => {
+    if (options?.readOnly) { builds++; await followerWaiting.promise }
+    return callback(transaction)
+  }, options)
+  const responses = await Promise.all(apis.map((api, index) => api.listFinanceReceivables({ data: {
+    ...categoryInput, category: index ? 'frozen' : 'installments', refresh,
+  } })))
+  assert.equal(builds, 1)
+  assert.deepEqual(responses.map(value => value.summary.totals.debt), [800, 200])
+  assert.equal(responses.filter(value => value.summary.cache?.hit).length, 1)
+  assert.equal(responses[0].summary.asOf, responses[1].summary.asOf)
+  for (const response of responses) {
+    assert.equal(response.summary.sourceDocuments, 3)
+    assert.equal(response.summary.categorySummaries, undefined)
+    assert.deepEqual(Object.keys(response.summary).sort(), ['asOf', ...(response.summary.cache ? ['cache'] : []), 'complete', 'counts', 'source', 'sourceDocuments', 'totals'].sort())
+  }
+  const debt = await apis[1].listFinanceReceivables({ data: { ...categoryInput, category: 'debt' } })
+  assert.equal(debt.summary.totals.debt, 400)
+  assert.equal(debt.summary.cache.hit, true)
+  assert.equal(builds, 1)
+})
+
+test('post-payment refresh in another category cannot join a late pre-payment category snapshot', { timeout: 15000 }, async () => {
+  const db = await categoryFixture(), captured = deferred(), followerWaiting = deferred(), published = deferred()
+  const caches = [0, 1].map(() => createSharedDashboardCache({ db, coalesceRefresh: true, buildLeaseMs: 120000,
+    pause: async () => { followerWaiting.resolve(); await published.promise } }))
+  const publish = caches[0].publish
+  caches[0].publish = async (...args) => { const result = await publish(...args); published.resolve(); return result }
+  const apis = caches.map(cache => categoryApi(db, cache)), transact = db.runTransaction.bind(db)
+  let builds = 0, sourceReads = 0
+  db.runTransaction = (callback, options) => transact(transaction => {
+    if (!options?.readOnly) return callback(transaction)
+    builds++
+    return callback(new Proxy(transaction, { get(target, key) {
+      if (key === 'get') return async query => {
+        const result = await target.get(query)
+        if (++sourceReads === 1) { captured.resolve(); await followerWaiting.promise }
+        return result
+      }
+      const value = target[key]
+      return typeof value === 'function' ? value.bind(target) : value
+    } }))
+  }, options)
+  const older = apis[0].listFinanceReceivables({ data: { ...categoryInput, category: 'installments' } })
+  await captured.promise
+  const payment = db.batch()
+  payment.update(db.doc('contracts/plan'), { paidAmount: 1000 })
+  payment.update(db.doc('contracts/debt'), { paidAmount: 900 })
+  await payment.commit()
+  const fresh = apis[1].listFinanceReceivables({ data: { ...categoryInput, category: 'debt', refresh: true } })
+  const [oldResult, freshResult] = await Promise.all([older, fresh])
+  assert.equal(oldResult.summary.totals.debt, 800, 'old caller keeps its original source snapshot')
+  assert.equal(freshResult.summary.totals.debt, 100, 'post-payment refresh must take a newer source snapshot')
+  assert.equal(freshResult.summary.cache, undefined)
+  assert.equal(builds, 2)
+  for (const [category, expected] of [['all', 300], ['installments', 0], ['frozen', 200], ['debt', 100]]) {
+    const result = await apis[0].listFinanceReceivables({ data: { ...categoryInput, category } })
+    assert.equal(result.summary.totals.debt, expected)
+    assert.equal(result.summary.cache.hit, true)
+    assert.equal(result.summary.asOf, freshResult.summary.asOf)
+  }
+  assert.equal(builds, 2, 'one refreshed snapshot supplies every subsequent category')
+})
+
+test('all category rollups retain one read-only snapshot when a later source page changes', async () => {
+  const { db, api } = fixture()
+  for (let offset = 0; offset < 501; offset += 250) {
+    const batch = db.batch()
+    for (let i = offset; i < Math.min(501, offset + 250); i++) batch.set(db.doc(`contracts/c${String(i).padStart(3, '0')}`), {
+      studentId: 's', branchId: 'a', totalPrice: 100, paidAmount: 20, status: i === 500 ? 'frozen' : 'active',
+    })
+    await batch.commit()
+  }
+  const transact = db.runTransaction.bind(db)
+  let mutated = false, sourcePages = 0
+  db.runTransaction = (callback, options) => transact(transaction => callback(options?.readOnly ? new Proxy(transaction, {
+    get(target, key) {
+      if (key === 'get') return async query => {
+        const result = await target.get(query); sourcePages++
+        if (!mutated) { mutated = true; await db.doc('contracts/c500').update({ paidAmount: 100 }) }
+        return result
+      }
+      const value = target[key]
+      return typeof value === 'function' ? value.bind(target) : value
+    },
+  }) : transaction), options)
+  const all = await api.listFinanceReceivables({ data: categoryInput })
+  const frozen = await api.listFinanceReceivables({ data: { ...categoryInput, category: 'frozen' } })
+  assert.equal(mutated, true)
+  assert.equal(sourcePages, 2)
+  assert.equal(all.summary.totals.debt, 501 * 80)
+  assert.equal(frozen.summary.totals.debt, 80, 'cached other category shares the original snapshot, even though its page is now settled')
+  assert.equal(frozen.summary.cache.hit, true)
+  assert.equal(frozen.summary.asOf, all.summary.asOf)
+  const refreshed = await api.listFinanceReceivables({ data: { ...categoryInput, category: 'frozen', refresh: true } })
+  assert.equal(refreshed.summary.totals.debt, 0)
+  assert.equal(sourcePages, 4)
+})
+
+test('v5 category cache ignores legacy payloads and propagates unknown then recovered zero totals across tabs', async () => {
+  const db = await categoryFixture(), api = categoryApi(db)
+  const oldKey = `receivables-v4-${createHash('sha256').update(JSON.stringify(['a', categoryInput.today, 'frozen'])).digest('hex')}`
+  const oldCache = createSharedDashboardCache({ db }), oldClaim = await oldCache.acquire(oldKey)
+  await oldCache.publish(oldKey, { complete: true, totals: { debt: 999 }, source: 'legacy-fixture' }, oldClaim.lease)
+  const first = await api.listFinanceReceivables({ data: { ...categoryInput, category: 'frozen' } })
+  assert.equal(first.summary.totals.debt, 200)
+  const cacheRows = await db.collection(CACHE_COLLECTION).get()
+  assert.equal(cacheRows.size, 2)
+  assert.equal(cacheRows.docs.filter(doc => doc.id.startsWith('receivables-v5-')).length, 1)
+  assert.equal((await oldCache.get(oldKey)).totals.debt, 999, 'migration does not mutate an old revision cache')
+  await db.doc('contracts/plan').update({ paidAmount: null })
+  const unknown = await api.listFinanceReceivables({ data: { ...categoryInput, category: 'frozen', refresh: true } })
+  assert.equal(unknown.summary.complete, false)
+  assert.equal(unknown.summary.reason, 'invalid-amount')
+  for (const category of ['all', 'installments', 'debt']) {
+    const result = await api.listFinanceReceivables({ data: { ...categoryInput, category } })
+    assert.equal(result.summary.cache.hit, true)
+    assert.equal(result.summary.complete, false)
+    assert.equal(result.summary.totals, null)
+    assert.equal(result.summary.counts, null)
+  }
+  await db.doc('contracts/plan').update({ paidAmount: 1000 })
+  await api.listFinanceReceivables({ data: { ...categoryInput, category: 'debt', refresh: true } })
+  const zero = await api.listFinanceReceivables({ data: { ...categoryInput, category: 'installments' } })
+  assert.equal(zero.summary.cache.hit, true)
+  assert.equal(zero.summary.complete, true)
+  assert.deepEqual(zero.summary.totals, { debt: 0, overdue: 0, thisMonth: 0 })
+  assert.ok(Object.values(zero.summary.counts).every(value => value === 0))
+})
 
 test('real Firestore collection-group pagination counts more than 5,000 learners and cached opens do no source scans', { timeout: 120000 }, async () => {
   const { db, api } = fixture()

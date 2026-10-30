@@ -125,6 +125,36 @@ function summarizeReceivables(documents, today, branch, limit = SUMMARY_LIMIT, c
   return { complete: true, totals, counts }
 }
 
+function summarizeReceivableCategories(documents, today, branch, limit = SUMMARY_LIMIT) {
+  const unknown = reason => ({ complete: false, reason, totals: null, counts: null })
+  const allUnknown = reason => Object.fromEntries(RECEIVABLE_CATEGORIES.map(category => [category, unknown(reason)]))
+  if (documents.length > limit) return allUnknown('limit')
+  const summaries = Object.fromEntries(RECEIVABLE_CATEGORIES.map(category => [category, {
+    complete: true, totals: { debt: 0, overdue: 0, thisMonth: 0 }, counts: Object.fromEntries(DEBT_FILTERS.map(key => [key, 0])),
+  }]))
+  for (const document of documents) {
+    const contract = document.data()
+    if (!inBranch(contract, branch) || !isReceivableContract(contract)) continue
+    const state = debtState(contract, today)
+    // As with the canonical category calculation, malformed eligible source
+    // rows make every category unknown, even when they cannot be classified.
+    if (!state) return allUnknown('invalid-amount')
+    for (const category of state.category ? ['all', state.category] : ['all']) {
+      const result = summaries[category]
+      if (!result.complete) continue
+      result.totals.debt += state.debt; result.totals.overdue += state.overdue; result.totals.thisMonth += state.thisMonth
+      // Overflow belongs to the affected category; a combined total can
+      // overflow while its individual categories remain finite and usable.
+      if (Object.values(result.totals).some(value => !Number.isFinite(value))) {
+        summaries[category] = unknown('invalid-amount')
+        continue
+      }
+      for (const key of DEBT_FILTERS) if (matchesReceivableGroup(state, category, key)) result.counts[key]++
+    }
+  }
+  return summaries
+}
+
 function summarizeAcademy(enrollments, progresses, limit = SUMMARY_LIMIT) {
   if (enrollments.length > limit || progresses.length > limit) return { complete: false, reason: 'limit', courses: [] }
   const rows = new Map(), members = new Set(), completion = new Map()
@@ -277,10 +307,13 @@ function createScopedReportingReadFunctions({ db, onCall, logger = console, auth
     }
     let report = null
     if (input.includeSummary !== false) {
-      report = await summary(`receivables-v4-${fingerprint([branch, today, category])}`, input.refresh === true, () => readSummarySnapshot(db, async read => {
+      // v5 stores all categories from one branch/day snapshot. Keep the v4
+      // cursor above category-specific; only the internal cache shape changes.
+      const { categorySummaries, ...metadata } = await summary(`receivables-v5-${fingerprint([branch, today])}`, input.refresh === true, () => readSummarySnapshot(db, async read => {
         const documents = await scanSummarySource(contractsQuery(db, branch).select(...CONTRACT_FIELDS), SUMMARY_LIMIT, read)
-        return { ...summarizeReceivables(documents, today, branch, SUMMARY_LIMIT, category), source: 'contracts', sourceDocuments: documents.length }
+        return { categorySummaries: summarizeReceivableCategories(documents, today, branch), source: 'contracts', sourceDocuments: documents.length }
       }))
+      report = { ...categorySummaries[category], ...metadata }
     }
     const visibleIds = new Set(rows.map(item => item.studentId))
     return { contracts: rows, students: [...labels.values()].filter(item => visibleIds.has(item.id)), summary: report,
@@ -296,4 +329,4 @@ function createScopedReportingReadFunctions({ db, onCall, logger = console, auth
   return { getAcademyAnalyticsSummary, listAcademyEnrollmentsPage, listFinanceReceivables, listFinanceStudentLabels }
 }
 
-module.exports = { createScopedReportingReadFunctions, summarizeAcademy, summarizeReceivables, debtState, branchScope, cursorAfter, nextCursor, scanSummarySource, SUMMARY_LIMIT, SUMMARY_PAGE_SIZE, PAGE_SCAN_LIMIT }
+module.exports = { createScopedReportingReadFunctions, summarizeAcademy, summarizeReceivables, summarizeReceivableCategories, debtState, branchScope, cursorAfter, nextCursor, scanSummarySource, SUMMARY_LIMIT, SUMMARY_PAGE_SIZE, PAGE_SCAN_LIMIT }
