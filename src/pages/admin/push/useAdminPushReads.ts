@@ -28,6 +28,7 @@ export function useAdminPushReads(tab: AdminSettingsTab, backendMode: 'demo' | '
   const inFlight = useRef(new Set<Source>())
   const cursor = useRef<PushBroadcastCursor | null>(null)
   const historyPages = useRef(1)
+  const overviewNeedsFresh = useRef(false)
   const lifetime = useRef(0)
   const alive = useRef(false)
   const activeTab = useRef(tab)
@@ -73,10 +74,10 @@ export function useAdminPushReads(tab: AdminSettingsTab, backendMode: 'demo' | '
         setHasMore(more)
         if (!append) setHistoryChanged(false)
       } else {
-        const value = await ({ settings: () => getSystemPushSettings({ requireServer: backendMode === 'firebase' }), overview: getPushAdminOverview, templates: getPushTemplates, automations: getPushAutomationLogs }[source])()
+        const value = await ({ settings: () => getSystemPushSettings({ requireServer: backendMode === 'firebase' }), overview: () => getPushAdminOverview({ forceRefresh: force || overviewNeedsFresh.current }), templates: getPushTemplates, automations: getPushAutomationLogs }[source])()
         if (!valid()) return
         if (source === 'settings') { setSettings(value as SystemPushSettings); setSettingsReady(true) }
-        if (source === 'overview') setOverview(value as PushAdminOverview)
+        if (source === 'overview') { setOverview(value as PushAdminOverview); overviewNeedsFresh.current = false }
         if (source === 'templates') setTemplates(value as PushTemplate[])
         if (source === 'automations') setAutomations(value as PushAutomationLog[])
       }
@@ -104,6 +105,7 @@ export function useAdminPushReads(tab: AdminSettingsTab, backendMode: 'demo' | '
   }
   const refresh = () => Promise.all(sourcesFor(tab).map(source => load(source, true)))
   const afterDelivery = () => {
+    overviewNeedsFresh.current = true
     invalidate('overview')
     // A request started before delivery must not clear the changed notice or
     // publish a cursor whose source snapshot predates the new notification.
@@ -113,6 +115,7 @@ export function useAdminPushReads(tab: AdminSettingsTab, backendMode: 'demo' | '
     if (activeTab.current === 'overview') void load('overview', true)
   }
   const afterDevice = () => {
+    overviewNeedsFresh.current = true
     invalidate('overview')
     if (activeTab.current === 'overview') void load('overview', true)
   }

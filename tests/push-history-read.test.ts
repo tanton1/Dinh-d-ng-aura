@@ -4,7 +4,7 @@ import { build } from 'esbuild'
 
 async function harness(databaseAvailable = true, demo = false) {
   const state = { auth: { currentUser: { uid: 'admin-a' } as object | null }, rows: [] as any[], reads: [] as any[], failure: null as Error | null,
-    defer: false, pending: [] as Array<() => void>, overview: {} as any, databaseAvailable, serverSettingsReads: 0,
+    defer: false, pending: [] as Array<() => void>, overview: {} as any, overviewRequests: [] as any[], databaseAvailable, serverSettingsReads: 0,
     cachedSettings: null as any, serverSettingsFailure: null as Error | null, defaultDocumentReads: 0,
     writes: [] as any[], writeFailure: null as Error | null, documents: new Map<string, any>(), localCache: new Map<string, string>(), serverQueryReads: 0, serverQueryFailure: null as Error | null }
   ;(globalThis as any).__pushHistoryRead = state
@@ -40,7 +40,7 @@ async function harness(databaseAvailable = true, demo = false) {
           export const updateDoc = async (ref,value) => { s.writes.push({ kind: 'update', ref, value }); if (s.writeFailure) throw s.writeFailure; if (!s.documents.has(ref.path)) throw Error('not-found'); s.documents.set(ref.path, { ...s.documents.get(ref.path), ...value }); };
           export const deleteDoc = async ref => { s.writes.push({ kind: 'delete', ref }); if (s.writeFailure) throw s.writeFailure; s.documents.delete(ref.path); };
           export const writeBatch = () => { throw Error('Unexpected batch write'); };
-        ` : path === 'firebase/functions' ? `export const httpsCallable = () => async () => ({ data: s.overview });`
+        ` : path === 'firebase/functions' ? `export const httpsCallable = () => async input => { s.overviewRequests.push(input); return { data: s.overview }; };`
           : path.endsWith('/firebaseFirestore') ? 'export const firestoreDb = s.databaseAvailable ? {} : null'
             : path.endsWith('/firebaseFunctions') ? 'export const firebaseFunctions = {}'
               : path.endsWith('/safeStorage') ? 'export const safeLocalStorageSet = (key,value) => { s.localCache.set(key,value); }'
@@ -120,6 +120,26 @@ test('read failures propagate without local history fallback and unknown metrics
   state.overview = complete
   assert.equal((await service.getPushAdminOverview()).activeDevices, 4)
   delete (globalThis as any).localStorage
+})
+
+test('overview distinguishes cached opens and explicit fresh reads, rejects incomplete totals and preserves source time', async () => {
+  const { state, service } = await harness()
+  const counts = { activeUsers: 3, pushEnabledUsers: 2, activeDevices: 4, webPushAccepted24h: 5, webPushFailures24h: 1 }
+  state.overview = { ...counts, complete: true, asOf: '2026-10-30T02:00:00.000Z', windowStart: '2026-10-29T02:00:00.000Z' }
+  const first = await service.getPushAdminOverview()
+  await service.getPushAdminOverview({ forceRefresh: true })
+  assert.deepEqual(state.overviewRequests, [{}, { forceRefresh: true }])
+  assert.equal(first.asOf, state.overview.asOf)
+  assert.equal(first.windowStart, state.overview.windowStart)
+  state.overview = { ...counts, complete: false, reason: 'scan-limit' }
+  await assert.rejects(service.getPushAdminOverview(), /vượt giới hạn/)
+  state.overview = { ...counts, complete: false, reason: 'invalid-metric' }
+  await assert.rejects(service.getPushAdminOverview(), /chưa đầy đủ/)
+  state.overview = { ...counts, asOf: 'invalid', windowStart: 'invalid' }
+  const compatible = await service.getPushAdminOverview()
+  assert.equal(compatible.asOf, undefined)
+  assert.equal(compatible.windowStart, undefined)
+  assert.equal(compatible.activeUsers, counts.activeUsers)
 })
 
 test('strict admin settings cannot fall back to defaults/cache or look ready without a database', async () => {

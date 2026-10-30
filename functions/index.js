@@ -73,6 +73,7 @@ const { applyAdminScheduleEdit } = require('./pt-schedule-admin-edit')
 const { trustedAccessContext, requireCapability } = require('./identity-access')
 const { createFinanceLedgerFunctions } = require('./finance-ledger')
 const { createReportingReadFunctions } = require('./reporting-read-runtime')
+const { createPushOverviewReads } = require('./push-overview-reads')
 const { createContractSettlementFunctions } = require('./contract-settlement')
 const { autoConfirmOverduePtAttendance, chargeDuePtSessions, createSessionOperationFunctions, remindUnconfirmedPtAttendance } = require('./session-operations')
 const { createPayrollFunctions, priceTeachingSlots, payrollPolicyProfiles, payrollProfile, policySupportsProfile } = require('./payroll')
@@ -1585,27 +1586,6 @@ function acceptsPushCategory(profile, category) {
   return true
 }
 
-function isMemberProfile(profile) {
-  const role = profile?.role
-  return (role === undefined || role === null || role === '' || role === 'student')
-    && profile?.disabled !== true
-    && profile?.status !== 'disabled'
-}
-
-function pushTimestampToIso(value) {
-  if (!value) return null
-  const date = typeof value.toDate === 'function'
-    ? value.toDate()
-    : value instanceof Date
-      ? value
-      : new Date(value)
-  return Number.isFinite(date.getTime()) ? date.toISOString() : null
-}
-
-function pushMetric(value) {
-  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : 0
-}
-
 const scheduledReminderDefaults = {
   enabled: true,
   automationEnabled: true,
@@ -2006,82 +1986,8 @@ exports.unregisterFcmToken = onCall(async (request) => {
  * never leave the trusted backend. Both the Auth claim and Firestore role must
  * agree before an operator can read these figures.
  */
-exports.getPushAdminOverview = onCall({ cpu: 'gcf_gen1', maxInstances: 2 }, async (request) => {
-  const actorId = requireCaller(request)
-  const actorSnapshot = await db.doc(`users/${actorId}`).get()
-  if (!actorSnapshot.exists || !hasTrustedRole(request, actorSnapshot.data(), privilegedAdminRoles)) {
-    throw new HttpsError('permission-denied', 'Báº¡n khÃ´ng cÃ³ quyá»n xem tráº¡ng thÃ¡i Push.')
-  }
-
-  const broadcastLogs = db.collection('system').doc('push_broadcast_logs').collection('logs')
-  const automationLogs = db.collection('system').doc('push_automation_logs').collection('logs')
-  const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000)
-  const [
-    usersSnapshot,
-    devicesSnapshot,
-    recentBroadcasts,
-    recentAutomation,
-    latestBroadcast,
-    latestAutomation,
-  ] = await Promise.all([
-    db.collection('users').get(),
-    db.collectionGroup('devices').get(),
-    broadcastLogs.where('createdAt', '>=', cutoff).get(),
-    automationLogs.where('createdAt', '>=', cutoff).get(),
-    broadcastLogs.orderBy('createdAt', 'desc').limit(1).get(),
-    automationLogs.orderBy('createdAt', 'desc').limit(1).get(),
-  ])
-
-  const activeProfiles = new Map()
-  usersSnapshot.docs.forEach((snapshot) => {
-    const profile = snapshot.data() || {}
-    if (isMemberProfile(profile)) activeProfiles.set(snapshot.id, profile)
-  })
-
-  const activeDeviceUsers = new Set()
-  let activeDevices = 0
-  devicesSnapshot.docs.forEach((snapshot) => {
-    const device = snapshot.data() || {}
-    if (device.enabled === false
-        || typeof device.token !== 'string'
-        || !device.token
-        || !activeProfiles.has(device.userId)) return
-    activeDevices += 1
-    activeDeviceUsers.add(device.userId)
-  })
-
-  const pushEnabledUsers = [...activeProfiles].reduce((count, [userId, profile]) => {
-    const preferences = profile.notificationSettings && typeof profile.notificationSettings === 'object'
-      ? profile.notificationSettings
-      : {}
-    const enabled = preferences.enabled !== false
-      && (preferences.fcmEnabled === true || activeDeviceUsers.has(userId))
-    return count + (enabled ? 1 : 0)
-  }, 0)
-
-  let webPushAccepted24h = 0
-  let webPushFailures24h = 0
-  for (const snapshot of [...recentBroadcasts.docs, ...recentAutomation.docs]) {
-    const log = snapshot.data() || {}
-    webPushAccepted24h += pushMetric(log.webPushSentCount)
-    webPushFailures24h += pushMetric(log.webPushFailureCount)
-  }
-
-  const overview = {
-    activeUsers: activeProfiles.size,
-    pushEnabledUsers,
-    activeDevices,
-    webPushAccepted24h,
-    webPushFailures24h,
-    latestAutomationAt: latestAutomation.empty
-      ? null
-      : pushTimestampToIso(latestAutomation.docs[0].data()?.createdAt),
-    latestBroadcastAt: latestBroadcast.empty
-      ? null
-      : pushTimestampToIso(latestBroadcast.docs[0].data()?.createdAt),
-  }
-  return overview
-})
+const pushOverviewReads = createPushOverviewReads({ db, logger, requireCaller, hasTrustedRole, privilegedAdminRoles })
+exports.getPushAdminOverview = onCall({ cpu: 'gcf_gen1', maxInstances: 2 }, pushOverviewReads.getPushAdminOverview)
 
 exports.dispatchPushBroadcast = onCall({
   cpu: 'gcf_gen1',

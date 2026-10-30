@@ -972,15 +972,11 @@ test('client incident reporting is bounded, validated and rate limited', () => {
   assert.doesNotMatch(incidentSource, /request\.data\?\.message/)
 })
 
-test('push admin overview is privileged, aggregate-only and serializes timestamps', () => {
-  const overviewSource = functionsSource.match(/exports\.getPushAdminOverview = onCall[\s\S]*?\r?\n\}\)\r?\n\r?\nexports\.dispatchPushBroadcast/)?.[0] ?? ''
-  assert.match(overviewSource, /hasTrustedRole\(request, actorSnapshot\.data\(\), privilegedAdminRoles\)/)
-  assert.match(overviewSource, /activeUsers: activeProfiles\.size/)
-  assert.match(overviewSource, /webPushAccepted24h/)
-  assert.match(overviewSource, /webPushFailures24h/)
-  assert.match(overviewSource, /pushTimestampToIso/)
-  assert.match(overviewSource, /return overview/)
-  assert.doesNotMatch(overviewSource, /return\s+\{[^}]*token/s)
+test('push admin overview retains its privileged policy and canonical callable registration', () => {
+  // Behavioral cache/auth/privacy coverage lives in push-overview-reads.test.js.
+  // This contract ensures the actual entrypoint injects that existing policy.
+  assert.match(functionsSource, /const pushOverviewReads = createPushOverviewReads\(\{ db, logger, requireCaller, hasTrustedRole, privilegedAdminRoles \}\)/)
+  assert.match(functionsSource, /exports\.getPushAdminOverview = onCall\(\{ cpu: 'gcf_gen1', maxInstances: 2 \}, pushOverviewReads\.getPushAdminOverview\)/)
   assert.match(notificationServiceSource, /'getPushAdminOverview'/)
   assert.match(typesSource, /export interface PushAdminOverview/)
 })

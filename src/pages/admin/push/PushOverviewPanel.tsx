@@ -123,6 +123,13 @@ export function PushOverviewPanel({
         </div>
       )}
 
+      {overview?.asOf && (
+        <p className="push-inline-meta" role="status">
+          <Clock3 size={16} aria-hidden="true" />
+          <span>Số liệu lúc {formatPushTime(overview.asOf)}. Dùng Làm mới để cập nhật.</span>
+        </p>
+      )}
+
       <section className="push-metric-grid" aria-label="Chỉ số Push">
         <MetricCard
           label="Học viên hoạt động"

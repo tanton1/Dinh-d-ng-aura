@@ -57,13 +57,14 @@ async function read<T>(name: string, value: T, input?: unknown): Promise<T> {
 }
 
 export function getSystemPushSettings(options?: { requireServer?: boolean }) { return read('settings', state.settings, options) }
-export function getPushAdminOverview() {
+export function getPushAdminOverview(options?: { forceRefresh?: boolean }) {
   const overview: PushAdminOverview = {
     activeUsers: (state.owner === 'admin-a' ? 111 : 222) + (state.authzVersion - 1) * 10,
     pushEnabledUsers: 2, activeDevices: 3, webPushAccepted24h: 4, webPushFailures24h: 1,
     latestAutomationAt: '2026-10-30T01:00:00Z',
+    asOf: '2026-10-30T02:00:00Z', windowStart: '2026-10-29T02:00:00Z',
   }
-  return read('overview', overview)
+  return read('overview', overview, options)
 }
 export function getPushTemplates() {
   return read('templates', state.owner === 'admin-a' ? state.templates : [makeTemplate(state.owner)])
