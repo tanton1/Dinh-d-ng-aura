@@ -36,7 +36,7 @@ Toàn bộ kế hoạch vẫn chưa hoàn thành. Trạng thái theo từng đ�
 
 | Đợt | Đã xác minh | Phần tiếp tục |
 | --- | --- | --- |
-| 0 — Đo lường | Collector có giới hạn trang; cohort theo revision/vùng/auth/kết quả; ma trận năm miền, telemetry sáu callable đã phát hành | Mẫu sử dụng đại diện, refresh/retry/role-scope, read budget cùng fixture và Billing theo SKU/region chưa đủ; không dùng p95 từ smoke làm SLO |
+| 0 — Đo lường | Collector có giới hạn trang; cohort theo revision/vùng/auth/kết quả; ma trận năm miền, telemetry sáu callable đã phát hành; paired cold/warm fixture Academy/Finance đã đạt mục tiêu giảm document trả client | Mẫu sử dụng production đại diện, refresh/retry/role-scope và Billing theo SKU/region chưa đủ; không dùng p95 từ smoke làm SLO |
 | 1 — Giảm đọc | Academy/Finance dùng summary/cursor; thông báo đọc theo tab, lịch sử cursor; overview Push có cache/snapshot | Full Push audience/queue còn mở; cold summary vẫn scan trong cap; adapter legacy chỉ thu hồi sau bằng chứng rollout và tương thích |
 | 2 — Client/phụ thuộc | Hai runtime cycle, bốn type cycle và vòng đời summary/catalog Academy đã xử lý | Kiểm thử riêng callback session/authz và freshness của directory/Student 360; giữ key phiên/quyền/version; không làm lại PR #89 |
 | 3 — Runtime/vòng đời | Weekly/background runtime và bốn reporting runtime có allowlist/parity; manifest offline đã merge | Chưa hoàn tất owner/handler/consumer động, caller cũ, health mọi revision và review retirement từng endpoint |
@@ -120,6 +120,8 @@ Trạng thái: Academy/Finance summary/cursor đã phát hành. Bảng dưới g
 
 **Đích đo đề xuất:** Trên fixture đủ lớn, giảm ít nhất 80% document trả về trong lần mở màn hình summary; số request lặp cùng scope sau một mutation không vượt số lần cần làm mới theo thiết kế. Đây là tiêu chí kiểm thử cần xác minh, không phải cam kết giảm 80% hóa đơn.
 
+**Phần paired fixture đã xác minh:** [Phép đo Academy/Finance ngày 30/10/2026](../operations/REPORTING_READ_BUDGET_2026-10-30.md) dùng 5.501 bản ghi mỗi nguồn và trang 20, đạt mục tiêu giảm ít nhất 80% dòng document trả client so với full-list tổng hợp trên cùng fixture. Cold/warm tách số đọc nguồn, label, authorization và cache; tổng hợp khớp reference đầy đủ. Đây không phải phép đo UI cũ, token/transport Firebase, workload production đại diện hay Billing. Cặp đo không có mutation ở giữa; tiêu chí refresh sau mutation và các scope khác vẫn cần bằng chứng riêng.
+
 ## Đợt 2 Chuẩn hóa client và gỡ phụ thuộc vòng
 
 **Ưu tiên P1/P2, 3–5 ngày kỹ thuật; giữ riêng thay đổi frontend và backend.**
@@ -175,7 +177,7 @@ Graphify phục vụ truy vết cấu trúc; auditor của Aura nối endpoint d
 | --- | --- | --- |
 | Hoàn thành ở source / release đã ghi | Graphify/tooling, Academy/Finance scoped reads, type/core boundaries, reporting runtime, Push overview, telemetry callable, Academy lifecycle, manifest offline | Duy trì regression/parity; không làm lại chỉ vì kế hoạch ban đầu còn mô tả thiết kế |
 | Rollout phạm vi đã hoàn tất | PR #91 event metrics, #92 Push admission, #93 legacy read lifecycle đã merge; backend live, web đúng SHA trên hai tên miền và smoke đọc trong phiên đăng nhập đã đạt | Tiếp tục quan sát nghiệp vụ đại diện; không coi rollout này là hoàn tất toàn kế hoạch |
-| Tiếp theo có thể làm độc lập | Read budget cold/warm cùng fixture; lifecycle/freshness Student 360; mở rộng ma trận/owner | Có assertions về read/refresh, quyền và dữ liệu; chỉ số chưa quan sát giữ unknown |
+| Tiếp theo có thể làm độc lập | Lifecycle/freshness Student 360; mở rộng ma trận/owner; đo workload production sau paired fixture Academy/Finance đã đạt | Có assertions về read/refresh, quyền và dữ liệu; chỉ số chưa quan sát giữ unknown |
 | Tiếp theo của Push | Server audience preparation/preview, confirmation snapshot, queue và receipts | Audience đầy đủ, không đổi chính sách, thử replay/concurrency bằng transport giả trước rollout |
 | Sau khi có input | Đối chiếu Billing SKU/region với cohort workload và provider usage | Không suy chi phí từ counters; không chạy query trả phí hoặc đổi export/IAM ngoài phạm vi được giao |
 | Sau quan sát và review | Retirement legacy/endpoint và tuning AI concurrency | Caller cũ/trigger/queue/owner được xác nhận, đủ cửa sổ hiếm, có rollback; không xóa từ absence-of-series |
