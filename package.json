@@ -4,6 +4,9 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "graphify": "node scripts/graphify.mjs",
+    "graphify:install": "node scripts/graphify.mjs install",
+    "graphify:build": "node scripts/graphify.mjs build",
     "dev": "vite",
     "lint": "tsc -b",
     "build": "tsc -b && vite build",

@@ -24,3 +24,5 @@ playwright-report/
 /tmp/
 .migration-private/
 .vercel
+/graphify-out/
+__pycache__/

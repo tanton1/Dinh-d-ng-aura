@@ -1,0 +1,9 @@
+{
+  "name": "aura-graphify-tools",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Isolated TypeScript parser for Aura callable inventory alongside Graphify",
+  "dependencies": {
+    "typescript": "5.8.3"
+  }
+}
