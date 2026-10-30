@@ -2,6 +2,30 @@ const test = require('node:test')
 const assert = require('node:assert/strict')
 const { summarize, collect } = require('./operation-baseline.cjs')
 const metric = (value = {}) => ({ jsonPayload: { message: 'Aura function metric', operation: 'listTest', outcome: 'success', durationMs: 100, ...value } })
+test('expected coverage keeps newly instrumented operations and Push explicitly unknown until measured', () => {
+  const report = summarize([])
+  for (const operation of ['getOperationsDashboard', 'getStudent360Overview', 'renewPtContract', 'getPushAdminOverview']) {
+    const row = report.operations.find(item => item.operation === operation)
+    assert.equal(row.status, 'unknown'); assert.equal(row.estimatedRequests, null)
+    assert.equal(row.successLatencyMs.p95, null); assert.deepEqual(row.cohorts, [])
+    assert.equal(row.measured.cacheHits.meanWhenMeasured, null)
+  }
+})
+
+test('canonical operation aliases retain separate release/service/auth cohorts without private identities', () => {
+  const entry = (service, release, value) => ({ ...metric({ operation: 'renewPtContract', schemaVersion: 2, release, ...value }),
+    resource: { labels: { service_name: service, revision_name: release, location: 'asia-east1' } } })
+  const report = summarize([
+    entry('renewptcontract', 'renewptcontract-00001-old', { outcome: 'error', authenticated: false, errorCode: 'AUTH', durationMs: 2, actorUid: 'PRIVATE_ACTOR' }),
+    entry('renewptcontractregional', 'renewptcontractregional-00002-new', { authenticated: true, durationMs: 700, sourceId: 'PRIVATE_CONTRACT', correlationId: 'PRIVATE_CORRELATION' }),
+  ])
+  const row = report.operations.find(item => item.operation === 'renewPtContract')
+  assert.equal(row.cohorts.length, 2); assert.equal(row.evidence.authenticatedSuccessSamples, 1)
+  assert.equal(row.evidence.unauthenticatedErrorSamples, 1)
+  assert.equal(row.cohorts.find(item => item.service === 'renewptcontractregional').successLatencyMs.p95, 700)
+  assert.equal(row.measured.documentsReturned.sampleCount, 0)
+  assert.doesNotMatch(JSON.stringify(report), /PRIVATE_|actorUid|sourceId|correlationId/)
+})
 test('baseline weights sampled traffic, retains unknown metrics, and strips source data', () => {
   const report = summarize([metric({ sampleRate: .1, actorUid: 'secret', metrics: { documentsReturned: 3, privateData: 'secret' } }), metric({ outcome: 'error', durationMs: 500 })], { expected: ['unused'] })
   const row = report.operations.find(value => value.operation === 'listTest')

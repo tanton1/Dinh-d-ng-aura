@@ -4,7 +4,7 @@
 const fs = require('node:fs')
 const path = require('node:path')
 const METRICS = ['logicalQueries', 'documentsReturned', 'cacheHits', 'cacheMisses', 'responseBytes', 'projectionAgeMs', 'queueWaitMs', 'processingMs']
-const EXPECTED = ['getOperationsDashboard', 'getStudent360Overview', 'getMyNutritionJournalSummary', 'renewPtContract', 'getAcademyAnalyticsSummary', 'listFinanceReceivables', 'enqueueNutritionScan', 'nutritionScanCompletion']
+const EXPECTED = ['getOperationsDashboard', 'getStudent360Overview', 'getMyNutritionJournalSummary', 'renewPtContract', 'getAcademyAnalyticsSummary', 'listFinanceReceivables', 'getPushAdminOverview', 'enqueueNutritionScan', 'nutritionScanCompletion']
 const finite = value => typeof value === 'number' && Number.isFinite(value) && value >= 0
 const safeRelease = value => typeof value === 'string' && /^[A-Za-z0-9_.-]{1,150}$/.test(value) ? value : null
 const FAILURE_CATEGORIES = new Set(['AUTH', 'PERMISSION', 'VALIDATION', 'BUSINESS_RULE', 'CONFLICT', 'TIMEOUT', 'DEPENDENCY', 'INTERNAL'])

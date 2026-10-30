@@ -90,7 +90,7 @@ function memoryDb(seed) {
 const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }).format(new Date())
 const period = { startAt: `${today}T00:00:00+07:00`, endAt: `${today}T23:59:59.999+07:00`, branchId: 'home' }
 const quiet = { info() {}, warn() {} }
-function fixture(role = 'admin') {
+function fixture(role = 'admin', logger = quiet) {
   const seed = {
     'users/actor': { role, displayName: 'Actor' },
     'roleAssignments/actor': { accessRole: role, status: 'active', authzVersion: 1, positions: role === 'staff' ? ['trainer_pt'] : [], branchIds: ['home'], crmProfileId: 'trainer' },
@@ -117,12 +117,33 @@ function fixture(role = 'admin') {
     seed[`contracts/expired-${index}`] = { branchId: 'home', studentId: 'student', status: 'active', startDate: '2020-01-01', endDate: '2020-12-31', totalSessions: 10, usedSessions: 0, totalPrice: 100, paidAmount: 50 }
   }
   const db = memoryDb(seed)
-  const handlers = createOperationsDashboardFunctions({ db, logger: quiet, onCall: (_options, handler) => handler })
+  const handlers = createOperationsDashboardFunctions({ db, logger, onCall: (_options, handler) => handler })
   const request = (data = {}) => ({ auth: { uid: 'actor', token: { accessRole: role, authzVersion: 1 } }, data: { ...period, ...data } })
   return { db, handlers, request }
 }
 const queries = (db, name) => db.reads.filter((read) => read.type === 'query' && read.name === name)
 const documents = (reads) => reads.reduce((total, read) => total + read.documents, 0)
+
+test('dashboard telemetry measures executed scoped reads and cache hits without using cached source totals as new reads', async () => {
+  const { shouldSampleMetric } = require('./observability')
+  const logs = [], logger = { info: (message, value) => logs.push({ message, value }), warn() {}, error: (message, value) => logs.push({ message, value }) }
+  const { db, handlers, request } = fixture('admin', logger)
+  const correlationId = Array.from({ length: 100 }, (_, index) => `dashboard-test-${index}`).find(id => shouldSampleMetric(id, .1))
+  const first = await handlers.getOperationsDashboard(request({ correlationId }))
+  const readsBefore = db.reads.length
+  const second = await handlers.getOperationsDashboard(request({ correlationId }))
+  const metrics = logs.filter(log => log.message === 'Aura function metric')
+  assert.equal(metrics.length, 2)
+  assert.equal(metrics[0].value.metrics.cacheMisses, 1)
+  assert.ok(metrics[0].value.metrics.logicalQueries > 0)
+  assert.ok(metrics[0].value.metrics.documentsReturned >= 201)
+  assert.equal(metrics[1].value.metrics.cacheHits, 1)
+  assert.equal(metrics[1].value.metrics.documentsReturned, undefined)
+  assert.equal(metrics[1].value.metrics.logicalQueries, undefined)
+  assert.equal(db.reads.slice(readsBefore).filter(read => read.type === 'query').length, 0)
+  assert.deepEqual(second.finance, first.finance)
+  assert.doesNotMatch(JSON.stringify(metrics), /correlationId|actorUid|sourceId|Actor|Student|Trainer|Foreign/)
+})
 
 test('branch dashboard reduces document reads before limits while preserving canonical package/debt/session metrics', async () => {
   const { db, handlers, request } = fixture()

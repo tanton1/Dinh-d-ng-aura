@@ -15,6 +15,8 @@ const { sourceChanged, coalesceProjectionRebuild, upsertChangedTimeline, student
 const { calculateNutritionTargets, canonicalNutritionProfile } = require('./nutrition-core.mjs')
 const { canonicalSessionRows } = require('./session-schedule-normalization')
 const { cacheScope, createProcessCache } = require('./process-cache')
+const { withPrivateFunctionTelemetry } = require('./observability')
+const { recordOperationMetrics } = require('./operation-metrics')
 const { enqueueStudent360Refresh } = require('./student-360-refresh-queue')
 const { enqueueStudent360Source } = require('./student-360-source-queue')
 
@@ -2229,13 +2231,20 @@ async function loadAuthorizedProjection(db, actor, studentId, weekId, forceRefre
   const reference = db.doc(`studentOperationalViews/${studentId}`)
   const cacheKey = projectionCacheKey(db, studentId, weekId)
   if (forceRefresh) studentProjectionReadCache.clear(`${cacheScope(db)}|${studentId}|`)
-  const snapshot = (await studentProjectionReadCache.get(cacheKey, () => reference.get())).value
+  const snapshot = (await studentProjectionReadCache.get(cacheKey, async () => {
+    const observed = await reference.get()
+    recordOperationMetrics({ logicalQueries: 1, documentsReturned: observed.exists ? 1 : 0 })
+    return observed
+  })).value
   const stored = snapshot.exists ? snapshot.data() : null
   // Contract usage views are the quota source of truth. A projection can be
   // fresh by age while still containing the previous pre-deduplication count,
   // so detect that case before serving stale-while-revalidate data.
   const usageViewSnapshot = stored?.contract?.id
-    ? await db.doc(`contractUsageViews/${stored.contract.id}`).get().catch(() => null)
+    ? await db.doc(`contractUsageViews/${stored.contract.id}`).get().then(observed => {
+      recordOperationMetrics({ logicalQueries: 1, documentsReturned: observed.exists ? 1 : 0 })
+      return observed
+    }).catch(() => null)
     : null
   const usageStale = Boolean(stored && usageViewSnapshot?.exists && projectionUsageMismatch(stored, usageViewSnapshot.data()))
   const missing = !stored
@@ -3075,12 +3084,15 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
     return result
   })
 
-  const getStudent360Overview = readCall(async (request) => {
+  const getStudent360Overview = readCall(withPrivateFunctionTelemetry('getStudent360Overview', async (request) => {
     const actor = await trustedAccessContext(request, db)
     const studentId = documentId(request.data?.studentId)
     const weekId = bounded(request.data?.weekId, 10) || mondayDateKey()
     if (!/^\d{4}-\d{2}-\d{2}$/.test(weekId)) throw new HttpsError('invalid-argument', 'Tuần xem không hợp lệ.')
     const { projection, permissions, cache } = await loadAuthorizedProjection(db, actor, studentId, weekId, false)
+    recordOperationMetrics({ cacheHit: cache.hit,
+      ...(typeof projection?.generatedAtMillis === 'number' && Number.isFinite(projection.generatedAtMillis)
+        ? { projectionAgeMs: Math.max(0, Date.now() - projection.generatedAtMillis) } : {}) })
     const redacted = redactProjection(projection, permissions)
     let operationalActions = []
     if (request.data?.includeOperationalActions === true) {
@@ -3093,7 +3105,7 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
       }
     }
     return { ...redacted, ...(operationalActions.length ? { nextActions: operationalActions } : {}), cache }
-  })
+  }, { logger }))
 
   const listStudent360Directory = readCall(async (request) => {
     const actor = await trustedAccessContext(request, db)
