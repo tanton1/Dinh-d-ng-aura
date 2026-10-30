@@ -221,6 +221,12 @@ jobs:
       - name: Test legacy session read isolation on mobile Safari
         if: matrix.project == 'mobile-webkit'
         run: npx playwright test --config tests/legacy-read-scope-ui/playwright.config.ts --project=legacy-read-mobile-webkit
+      - name: Test Student 360 overview scope isolation
+        if: matrix.project == 'chromium'
+        run: npm run test:student360-overview-ui -- --project=student360-overview-chromium
+      - name: Test Student 360 overview scope isolation on mobile Safari
+        if: matrix.project == 'mobile-webkit'
+        run: npm run test:student360-overview-ui -- --project=student360-overview-mobile-webkit
       - name: Upload browser failure evidence
         if: failure()
         uses: actions/upload-artifact@v4
