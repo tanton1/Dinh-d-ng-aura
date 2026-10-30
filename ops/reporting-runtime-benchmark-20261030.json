@@ -1,0 +1,128 @@
+{
+  "schemaVersion": 1,
+  "baseCommit": "200dcbffca50219bdc3b77dcabfadba28ed3adb6",
+  "measuredAt": "2026-10-30T09:17:51.115Z",
+  "mode": "local fresh Node processes with network blocked; real Firebase SDK registrations; no handler traffic",
+  "manifest": {
+    "endpointCount": 571,
+    "metadataEqual": true,
+    "hashEncoding": "UTF-8 compact JSON; recursively sorted object keys; original array order; no trailing newline",
+    "sha256": "a3b68deb09bfd10732cb5a7d534e517e08e5646e2c4d5d9b2e6af98685e34ba5"
+  },
+  "targets": [
+    {
+      "target": "getAcademyAnalyticsSummary",
+      "region": "asia-east1",
+      "before": {
+        "runs": 3,
+        "elapsedMs": [
+          766.258,
+          744.4754,
+          738.2745
+        ],
+        "medianMs": 744.4754,
+        "loadedModuleCount": 917,
+        "localModuleCount": 120
+      },
+      "after": {
+        "runs": 3,
+        "elapsedMs": [
+          496.8422,
+          561.2741,
+          540.5079
+        ],
+        "medianMs": 540.5079,
+        "loadedModuleCount": 668,
+        "localModuleCount": 13
+      }
+    },
+    {
+      "target": "listAcademyEnrollmentsPage",
+      "region": "asia-east1",
+      "before": {
+        "runs": 3,
+        "elapsedMs": [
+          765.4425,
+          749.4418,
+          740.6841
+        ],
+        "medianMs": 749.4418,
+        "loadedModuleCount": 917,
+        "localModuleCount": 120
+      },
+      "after": {
+        "runs": 3,
+        "elapsedMs": [
+          522.6141,
+          507.65939999999995,
+          513.8129
+        ],
+        "medianMs": 513.8129,
+        "loadedModuleCount": 668,
+        "localModuleCount": 13
+      }
+    },
+    {
+      "target": "listFinanceReceivables",
+      "region": "asia-east1",
+      "before": {
+        "runs": 3,
+        "elapsedMs": [
+          752.5576,
+          736.2003000000001,
+          750.0638
+        ],
+        "medianMs": 750.0638,
+        "loadedModuleCount": 917,
+        "localModuleCount": 120
+      },
+      "after": {
+        "runs": 3,
+        "elapsedMs": [
+          499.89799999999997,
+          508.66720000000004,
+          591.8804
+        ],
+        "medianMs": 508.66720000000004,
+        "loadedModuleCount": 668,
+        "localModuleCount": 13
+      }
+    },
+    {
+      "target": "listFinanceStudentLabels",
+      "region": "asia-east1",
+      "before": {
+        "runs": 3,
+        "elapsedMs": [
+          753.2176,
+          737.8828000000001,
+          755.4276
+        ],
+        "medianMs": 753.2176,
+        "loadedModuleCount": 917,
+        "localModuleCount": 120
+      },
+      "after": {
+        "runs": 3,
+        "elapsedMs": [
+          491.34039999999993,
+          524.7219,
+          506.7485
+        ],
+        "medianMs": 506.7485,
+        "loadedModuleCount": 668,
+        "localModuleCount": 13
+      }
+    }
+  ],
+  "validation": {
+    "focusedTestsPassed": 19,
+    "regressionTestsPassed": 86,
+    "productionDeployed": false
+  },
+  "limitations": [
+    "Three local processes per target describe this development machine, not production cold-start percentiles.",
+    "No billed compute or read-unit reduction is inferred from module counts or initialization timing.",
+    "Other endpoint runtimes retain their current registration path."
+  ]
+}

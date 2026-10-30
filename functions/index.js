@@ -5,6 +5,11 @@ if (weeklyReadRuntime.shouldUseWeeklyReadRuntime(process.env)) {
   module.exports = weeklyReadRuntime.loadWeeklyReadRuntime(process.env)
   return
 }
+const reportingReadRuntime = require('./reporting-read-runtime')
+if (reportingReadRuntime.shouldUseReportingReadRuntime(process.env)) {
+  module.exports = reportingReadRuntime.loadReportingReadRuntime(process.env)
+  return
+}
 const backgroundRuntime = require('./background-runtime')
 if (backgroundRuntime.shouldUseBackgroundRuntime(process.env)) {
   module.exports = backgroundRuntime.loadBackgroundRuntime(process.env)
@@ -67,7 +72,7 @@ const { createPtScheduleWeeklyViewFunctions, rebuildDirtyPtScheduleWeeklyViews, 
 const { applyAdminScheduleEdit } = require('./pt-schedule-admin-edit')
 const { trustedAccessContext, requireCapability } = require('./identity-access')
 const { createFinanceLedgerFunctions } = require('./finance-ledger')
-const { createScopedReportingReadFunctions } = require('./scoped-reporting-reads')
+const { createReportingReadFunctions } = require('./reporting-read-runtime')
 const { createContractSettlementFunctions } = require('./contract-settlement')
 const { autoConfirmOverduePtAttendance, chargeDuePtSessions, createSessionOperationFunctions, remindUnconfirmedPtAttendance } = require('./session-operations')
 const { createPayrollFunctions, priceTeachingSlots, payrollPolicyProfiles, payrollProfile, policySupportsProfile } = require('./payroll')
@@ -1126,10 +1131,7 @@ exports.generatePtScheduleDraftV4 = ptScheduleOverflowFunctions.generatePtSchedu
 Object.assign(exports, createFinanceLedgerFunctions({ db, onCall, logger }))
 // Reporting uses the existing overflow pool. A shared lease coalesces summary
 // scans across instances; detailed pages remain bounded independently.
-Object.assign(exports, createScopedReportingReadFunctions({
-  db, logger,
-  onCall: handler => asiaEastOnCall({ memory: '512MiB', timeoutSeconds: 180, maxInstances: 2, concurrency: 4 }, handler),
-}))
+Object.assign(exports, createReportingReadFunctions({ db, logger, onCall: asiaEastOnCall }))
 Object.assign(exports, createContractSettlementFunctions({ db, onCall: handler => onCall({ cpu: 'gcf_gen1', maxInstances: 2, concurrency: 1, timeoutSeconds: 60 }, handler), logger }))
 const contractRenewalFunctions = createContractRenewalFunctions({ db, onCall, onSchedule, logger })
 Object.assign(exports, contractRenewalFunctions)
