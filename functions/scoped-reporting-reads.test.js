@@ -93,7 +93,7 @@ function managementContracts() {
   ].map(([id, patch]) => row(id, { ...base, studentId: id, packageName: id, ...patch })).sort((a, b) => a.id.localeCompare(b.id))
 }
 
-test('management categories retain cash debt, settled preservation and disjoint contract homes', async () => {
+test('management categories retain cash debt and include only outstanding preservation balances', async () => {
   const api = endpoints({ documents: managementContracts() }), input = { today: '2026-10-30', pageSize: 20 }
   const pages = {}
   for (const category of ['all', 'installments', 'frozen', 'debt']) {
@@ -105,18 +105,20 @@ test('management categories retain cash debt, settled preservation and disjoint 
   assert.deepEqual(ids(pages.installments), ['installments', 'ordinary-off'])
   assert.deepEqual(pages.installments.summary.totals, { debt: 1_600_000, overdue: 200_000, thisMonth: 800_000 })
   assert.equal(pages.installments.summary.counts['this-week'], 2)
-  assert.deepEqual(ids(pages.frozen), ['frozen', 'frozen-paid', 'preservation'])
+  assert.deepEqual(ids(pages.frozen), ['frozen', 'preservation'])
   assert.deepEqual(pages.frozen.summary.totals, { debt: 1_600_000, overdue: 0, thisMonth: 0 })
-  assert.equal(pages.frozen.summary.counts.all, 3)
+  assert.equal(pages.frozen.summary.counts.all, 2)
   assert.equal(pages.frozen.summary.counts.owing, 2)
-  assert.equal(pages.frozen.summary.counts.settled, 1)
+  assert.equal(pages.frozen.summary.counts.settled, 0)
+  assert.equal(pages.frozen.summary.counts.overpaid, 0)
   assert.equal(pages.frozen.contracts.find(value => value.id === 'frozen').frozenAt, '2026-10-15')
   assert.equal(pages.frozen.contracts.find(value => value.id === 'preservation').pausePeriods[0].type, 'preservation')
   assert.deepEqual(ids(pages.debt), ['cancelled', 'debt', 'expired', 'historical-plan'])
   assert.equal(pages.debt.summary.totals.debt, 3_200_000)
   assert.equal(pages.debt.summary.counts.overpaid, 1)
   assert.equal(['installments', 'frozen', 'debt'].reduce((sum, key) => sum + pages[key].summary.totals.debt, 0), pages.all.summary.totals.debt)
-  assert.deepEqual(ids(await api.listFinanceReceivables({ data: { ...input, category: 'frozen', filter: 'settled' } })), ['frozen-paid'])
+  assert.deepEqual(ids(await api.listFinanceReceivables({ data: { ...input, category: 'frozen', filter: 'settled' } })), [])
+  assert.deepEqual(ids(await api.listFinanceReceivables({ data: { ...input, category: 'all', filter: 'settled' } })), ['frozen-paid'])
   assert.deepEqual(ids(await api.listFinanceReceivables({ data: { ...input, category: 'debt', filter: 'overpaid' } })), ['overpaid'])
   assert.deepEqual(ids(await api.listFinanceReceivables({ data: input })), ids(pages.all), 'omitted category remains compatible')
 })
@@ -130,11 +132,39 @@ test('category summaries respect branch but not search/filter, and category chan
   assert.equal(searched.summary.counts.all, 1)
   await api.listFinanceReceivables({ data: input })
   assert.equal(cacheKeys[0], cacheKeys[1])
+  assert.match(cacheKeys[0], /^receivables-v3-/)
   await api.listFinanceReceivables({ data: { ...input, category: 'debt' } })
   assert.notEqual(cacheKeys[1], cacheKeys[2])
   const first = await api.listFinanceReceivables({ data: { ...input, branchId: 'all', pageSize: 1, includeSummary: false } })
   await assert.rejects(api.listFinanceReceivables({ data: { ...input, branchId: 'all', category: 'debt', cursor: first.nextCursor } }), { code: 'invalid-argument' })
   await assert.rejects(api.listFinanceReceivables({ data: { ...input, category: 'unknown' } }), { code: 'invalid-argument' })
+  const oldCursor = nextCursor('frozen', ['finance-receivables-v2', admin.uid, admin.authzVersion, 'all', input.today, 'frozen', 'all', ''])
+  await assert.rejects(api.listFinanceReceivables({ data: { ...input, branchId: 'all', cursor: oldCursor } }), { code: 'invalid-argument' })
+})
+
+test('paid preserved contracts and cancelled preservation never enter the active preserved debt category', async () => {
+  const pausePeriods = [{ type: 'preservation', startDate: '2026-10-01', endDate: '2026-10-31' }]
+  const installments = [{ status: 'pending', date: '2026-10-20', amount: 80 }]
+  const input = { today: '2026-10-30', category: 'frozen' }
+  for (const paidAmount of [20, 100, 110, 50]) {
+    const api = endpoints({ documents: [row('c', contract({ paidAmount, pausePeriods, installments }))] })
+    const page = await api.listFinanceReceivables({ data: input }), expected = Math.max(0, 100 - paidAmount)
+    assert.equal(page.contracts.length, expected > 0 ? 1 : 0)
+    assert.equal(page.summary.counts.all, expected > 0 ? 1 : 0)
+    assert.equal(page.summary.counts.settled, 0)
+    assert.equal(page.summary.counts.overpaid, 0)
+    assert.deepEqual(page.summary.totals, { debt: expected, overdue: 0, thisMonth: 0 })
+  }
+  for (const status of ['cancelled', 'inactive', 'archived', 'draft']) {
+    const value = contract({ status, pausePeriods, installments }), state = debtState(value, input.today)
+    assert.equal(state.preserved, false)
+    assert.equal(state.category, 'installments', 'main retains outstanding installment scope when preservation ends')
+    assert.equal(state.overdue, 80)
+    const page = await endpoints({ documents: [row('c', value)] }).listFinanceReceivables({ data: input })
+    assert.equal(page.contracts.length, 0)
+    assert.equal(page.summary.counts.all, 0)
+    assert.equal(page.summary.totals.debt, 0)
+  }
 })
 
 test('preservation dates are inclusive, ordinary OFF stays collectible and weeks run Monday to Sunday', () => {

@@ -87,6 +87,7 @@
 .finance-management__section-title .aura-help-popover summary { width: 32px; height: 32px; border-radius: 10px; }
 .finance-management__section-head > strong { flex: 0 0 auto; padding: 7px 10px; border-radius: 999px; background: #fff0f5; color: #c64171; font-size: 11px; }
 .finance-management__debt-tools { display: grid; grid-template-columns: minmax(250px, .7fr) minmax(0, 1.3fr); gap: 9px; }
+.finance-management__debt-tools--search-only { grid-template-columns: minmax(0, 1fr); }
 .finance-management__debt-search { display: grid; grid-template-columns: 18px minmax(0,1fr) auto; align-items: center; gap: 8px; min-width: 0; min-height: 45px; padding: 0 11px; border: 1px solid #ecdde4; border-radius: 13px; background: #fffafa; color: #db4278; }
 .finance-management__debt-search input { grid-column: 2; min-width: 0; min-height: 41px; padding: 0 !important; border: 0; border-radius: 0; background: transparent; box-shadow: none; font-size: 12px; }
 .finance-management__debt-search input:focus { border: 0; box-shadow: none; }

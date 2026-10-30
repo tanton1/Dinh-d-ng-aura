@@ -83,13 +83,14 @@ test('real Firestore finance pages join bounded labels, retain branch scope and 
   await assert.rejects(api.listFinanceReceivables({ data: { ...input, today: '2026-02-30' } }), { code: 'invalid-argument' })
 })
 
-test('real Firestore category pages preserve settled frozen rows, branch totals and category cursor fences', async () => {
+test('real Firestore preserved debt pages exclude settled rows and retain branch totals and category cursor fences', async () => {
   const { db, api } = fixture(), batch = db.batch()
   const base = { studentId: 's', branchId: 'a', totalPrice: 1000, paidAmount: 200, status: 'active' }
   const pending = [{ status: 'pending', date: '2026-10-30', amount: 300 }]
   batch.set(db.doc('students/s'), { name: 'Synthetic learner' })
   for (const [id, patch] of [
     ['a-plan', { installments: pending }],
+    ['b-frozen-owing', { status: 'frozen' }],
     ['b-frozen-paid', { status: 'frozen', paidAmount: 1000 }],
     ['c-preserved', { installments: pending, pausePeriods: [{ type: 'preservation', startDate: '2026-10-30', endDate: '2026-10-31' }] }],
     ['d-debt', {}], ['e-overpaid', { installments: pending, paidAmount: 1100 }],
@@ -98,10 +99,11 @@ test('real Firestore category pages preserve settled frozen rows, branch totals 
   await batch.commit()
   const input = { branchId: 'a', today: '2026-10-30', category: 'frozen', pageSize: 1 }
   const first = await api.listFinanceReceivables({ data: input })
-  assert.equal(first.contracts[0].id, 'b-frozen-paid')
+  assert.equal(first.contracts[0].id, 'b-frozen-owing')
   assert.equal(first.summary.counts.all, 2)
-  assert.equal(first.summary.counts.settled, 1)
-  assert.equal(first.summary.totals.debt, 800)
+  assert.equal(first.summary.counts.settled, 0)
+  assert.equal(first.summary.counts.overpaid, 0)
+  assert.equal(first.summary.totals.debt, 1600)
   assert.equal(first.summary.totals.overdue, 0)
   const second = await api.listFinanceReceivables({ data: { ...input, cursor: first.nextCursor, includeSummary: false } })
   assert.equal(second.contracts[0].id, 'c-preserved')
@@ -114,6 +116,41 @@ test('real Firestore category pages preserve settled frozen rows, branch totals 
   assert.equal(plan.contracts[0].id, 'a-plan')
   assert.equal(plan.summary.totals.debt, 800)
   assert.equal(plan.summary.counts['this-week'], 1)
+})
+
+test('real Firestore refreshed preservation debt follows settled, overpaid, reopened and cancelled transitions', async () => {
+  const { db, api } = fixture()
+  await db.doc('contracts/c').set({ studentId: 's', branchId: 'a', totalPrice: 1000, paidAmount: 200, status: 'active',
+    installments: [{ status: 'pending', date: '2026-10-20', amount: 800 }],
+    pausePeriods: [{ type: 'preservation', startDate: '2026-10-01', endDate: '2026-10-31' }] })
+  const input = { branchId: 'a', today: '2026-10-30', category: 'frozen', refresh: true }
+  const assertPreservedDebt = async expected => {
+    const page = await api.listFinanceReceivables({ data: input })
+    assert.equal(page.summary.complete, true)
+    assert.equal(page.contracts.length, expected > 0 ? 1 : 0)
+    assert.equal(page.summary.counts.all, expected > 0 ? 1 : 0)
+    assert.equal(page.summary.counts.owing, expected > 0 ? 1 : 0)
+    assert.equal(page.summary.counts.settled, 0)
+    assert.equal(page.summary.counts.overpaid, 0)
+    assert.deepEqual(page.summary.totals, { debt: expected, overdue: 0, thisMonth: 0 })
+  }
+  await assertPreservedDebt(800)
+  await db.doc('contracts/c').update({ paidAmount: 1000 })
+  await assertPreservedDebt(0)
+  await db.doc('contracts/c').update({ paidAmount: 1100 })
+  await assertPreservedDebt(0)
+  await db.doc('contracts/c').update({ paidAmount: 500 })
+  await assertPreservedDebt(500)
+  await db.doc('contracts/c').update({ status: 'cancelled' })
+  await assertPreservedDebt(0)
+  const cancelled = await api.listFinanceReceivables({ data: { ...input, category: 'installments' } })
+  assert.equal(cancelled.contracts[0].status, 'cancelled')
+  assert.equal(cancelled.summary.totals.overdue, 500)
+  await db.doc('contracts/c').update({ status: 'active', pausePeriods: [] })
+  await assertPreservedDebt(0)
+  const reopened = await api.listFinanceReceivables({ data: { ...input, category: 'installments' } })
+  assert.equal(reopened.summary.counts.all, 1)
+  assert.equal(reopened.summary.totals.debt, 500)
 })
 
 test('real Firestore receivables follow atomic cash changes independently of posted recognition corrections', async () => {

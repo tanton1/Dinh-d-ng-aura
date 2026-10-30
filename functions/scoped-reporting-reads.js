@@ -73,7 +73,8 @@ function debtState(contract, today) {
   if (contract.pausePeriods != null && !Array.isArray(contract.pausePeriods)) return null
   const preservation = (contract.pausePeriods || []).filter(item => item?.type === 'preservation')
   if (preservation.some(item => !dateKey(item.startDate) || !dateKey(item.endDate) || dateKey(item.startDate) > dateKey(item.endDate))) return null
-  const preserved = contract.status === 'frozen' || preservation.some(item => dateKey(item.startDate) <= today && dateKey(item.endDate) >= today)
+  const preserved = !['cancelled', 'inactive', 'archived', 'draft'].includes(contract.status)
+    && (contract.status === 'frozen' || preservation.some(item => dateKey(item.startDate) <= today && dateKey(item.endDate) >= today))
   const now = new Date(`${today}T12:00:00Z`), weekStart = new Date(now)
   weekStart.setUTCDate(now.getUTCDate() - ((now.getUTCDay() + 6) % 7))
   const weekEnd = new Date(weekStart); weekEnd.setUTCDate(weekStart.getUTCDate() + 6)
@@ -89,7 +90,9 @@ function debtState(contract, today) {
   const thisWeek = amountIn(weekStart.toISOString().slice(0, 10), weekEnd.toISOString().slice(0, 10))
   // Receivables remain the contract balance after cash payments/refunds. Posted
   // service recognition and its attribution corrections never alter this debt.
-  const category = preserved ? 'frozen' : balance < 0 || !pending.length ? 'debt' : balance > 0 ? 'installments' : null
+  // Preservation management includes only outstanding debt. Paid or overpaid
+  // preserved contracts remain queryable through the compatible all category.
+  const category = preserved ? (balance > 0 ? 'frozen' : null) : balance < 0 || !pending.length ? 'debt' : balance > 0 ? 'installments' : null
   return { balance, debt, overdue, thisMonth, preserved, category, groups: {
     all: debt > 0, owing: debt > 0, settled: balance === 0, overpaid: balance < 0, overdue: overdue > 0, 'this-month': thisMonth > 0,
     'this-week': thisWeek > 0,
@@ -100,7 +103,7 @@ function matchesReceivableGroup(state, category, filter) {
   // explicitly unknown if any source row cannot be safely classified.
   if (!state) return category === 'all' && filter === 'all'
   if (category !== 'all' && state.category !== category) return false
-  return category === 'frozen' && filter === 'all' ? true : state.groups[filter]
+  return state.groups[filter]
 }
 function summarizeReceivables(documents, today, branch, limit = SUMMARY_LIMIT, category = 'all') {
   if (documents.length > limit) return { complete: false, reason: 'limit', totals: null, counts: null }
@@ -242,7 +245,7 @@ function createScopedReportingReadFunctions({ db, onCall, logger = console, auth
     if (!RECEIVABLE_CATEGORIES.includes(category)) throw new HttpsError('invalid-argument', 'Loại hợp đồng không hợp lệ.')
     const today = text(input.today, 10) || new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }).format(new Date())
     if (!/^\d{4}-\d{2}-\d{2}$/.test(today) || !Number.isFinite(Date.parse(`${today}T12:00:00Z`)) || new Date(`${today}T12:00:00Z`).toISOString().slice(0, 10) !== today) throw new HttpsError('invalid-argument', 'Ngày báo cáo không hợp lệ.')
-    const search = searchKey(text(input.search, 120)), scope = ['finance-receivables-v2', actor.uid, actor.authzVersion, branch, today, category, filter, search]
+    const search = searchKey(text(input.search, 120)), scope = ['finance-receivables-v3', actor.uid, actor.authzVersion, branch, today, category, filter, search]
     const after = cursorAfter(input.cursor, scope), rows = [], labels = new Map()
     let lastId = after, scanned = 0, hasMore = true
     while (rows.length < size && scanned < PAGE_SCAN_LIMIT && hasMore) {
@@ -269,7 +272,7 @@ function createScopedReportingReadFunctions({ db, onCall, logger = console, auth
     }
     let report = null
     if (input.includeSummary !== false) {
-      report = await summary(`receivables-v2-${fingerprint([branch, today, category])}`, input.refresh === true, () => readSummarySnapshot(db, async read => {
+      report = await summary(`receivables-v3-${fingerprint([branch, today, category])}`, input.refresh === true, () => readSummarySnapshot(db, async read => {
         const documents = await scanSummarySource(contractsQuery(db, branch).select(...CONTRACT_FIELDS), SUMMARY_LIMIT, read)
         return { ...summarizeReceivables(documents, today, branch, SUMMARY_LIMIT, category), source: 'contracts', sourceDocuments: documents.length }
       }))

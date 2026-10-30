@@ -75,9 +75,10 @@ export async function listFinanceReceivables(query: any) {
     const balance = contract.totalPrice - contract.discount - contract.paidAmount, debt = Math.max(0, balance)
     const pending = contract.installments.filter((item: any) => item.status === 'pending').sort((a: any, b: any) => a.date.localeCompare(b.date))
     const due = pending[0]?.date || contract.nextPaymentDate || ''
-    const preserved = contract.status === 'frozen' || (contract.pausePeriods || []).some((period: any) =>
-      period.type === 'preservation' && period.startDate <= query.today && period.endDate >= query.today)
-    const included = category === 'all' || (category === 'frozen' ? preserved : !preserved &&
+    const preserved = !['cancelled', 'inactive', 'archived', 'draft'].includes(contract.status) &&
+      (contract.status === 'frozen' || (contract.pausePeriods || []).some((period: any) =>
+        period.type === 'preservation' && period.startDate <= query.today && period.endDate >= query.today))
+    const included = category === 'all' || (category === 'frozen' ? preserved && debt > 0 : !preserved &&
       (category === 'installments' ? pending.length > 0 && balance > 0 : balance < 0 || pending.length === 0))
     const amountIn = (matches: (date: string) => boolean) => {
       if (preserved) return 0
@@ -85,7 +86,7 @@ export async function listFinanceReceivables(query: any) {
         : due && matches(due) ? debt : 0
     }
     const overdue = amountIn(date => date < query.today), thisMonth = amountIn(date => date.slice(0, 7) === query.today.slice(0, 7))
-    return { contract, included, debt, overdue, thisMonth, groups: { all: category === 'frozen' || debt > 0,
+    return { contract, included, debt, overdue, thisMonth, groups: { all: debt > 0,
       owing: debt > 0, settled: balance === 0, overdue: overdue > 0,
       'this-week': amountIn(date => date >= start && date <= end) > 0,
       'this-month': thisMonth > 0, overpaid: balance < 0 } as Record<string, boolean> }
