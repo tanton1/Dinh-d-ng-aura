@@ -349,6 +349,24 @@ test('late send completion does not refresh or display success in a different ac
   expect((await counts(page)).dispatch).toBe(1)
 })
 
+test('audience admission rejection keeps the draft and confirmation without retries or success refresh', async ({ page }) => {
+  await open(page)
+  await compose(page)
+  await fillDraft(page)
+  const before = await counts(page)
+  await page.evaluate(() => { (window as any).notificationFixture.dispatchRejection = { code: 'functions/resource-exhausted', message: 'Danh bạ vượt giới hạn. Chưa gửi thông báo nào; hãy thu hẹp nhóm.', details: { reason: 'POPULATION_LIMIT', noDeliveryStarted: true } } })
+  await page.getByRole('button', { name: 'Kiểm tra trước khi gửi' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Gửi thông báo này?' })
+  await dialog.getByRole('checkbox').check()
+  await dialog.getByRole('button', { name: 'Xác nhận gửi', exact: true }).click()
+  await expect(dialog).toBeVisible()
+  await expect(page.getByRole('alert')).toContainText('Chưa gửi thông báo nào')
+  await expect(page.getByPlaceholder('Ví dụ: Đến giờ cập nhật bữa trưa')).toHaveValue('Fixture draft')
+  await expect(page.getByPlaceholder('Thông điệp bạn muốn gửi đến học viên…')).toHaveValue('Review this fixture message')
+  await expect(page.getByText('Đã hoàn tất lượt gửi', { exact: true })).toHaveCount(0)
+  await expectDelta(page, before, { dispatch: 1 })
+})
+
 test('template read failure retries only that source without discarding the draft', async ({ page }) => {
   await open(page, '?fail=templates')
   await compose(page)

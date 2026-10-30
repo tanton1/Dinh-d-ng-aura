@@ -416,10 +416,10 @@ export async function dispatchAdminPushBroadcast(params: {
     targetUserIds, 
     actionUrl, 
     sentBy = 'Admin Aura',
-    respectCategoryPreferences = true 
   } = params
 
-  if (firebaseFunctions) {
+  const demoMode = import.meta.env.VITE_FORCE_DEMO === 'true' || import.meta.env.MODE === 'e2e'
+  if (firebaseFunctions && !demoMode) {
     const callable = httpsCallable<typeof params, PushDispatchResult>(firebaseFunctions, 'dispatchPushBroadcast')
     const response = await callable(params)
     return {
@@ -431,155 +431,27 @@ export async function dispatchAdminPushBroadcast(params: {
     }
   }
 
-  let sentCount = 0
-  let filteredOutCount = 0
-  const logId = `log_${Date.now()}`
-
-  let userProfilesMap: Record<string, any> = {}
-  let finalTargetUserIds = [...targetUserIds]
-
-  // If targetType is 'all' or targetUserIds is empty, query all users from Firestore
-  if (firestoreDb && (targetType === 'all' || finalTargetUserIds.length === 0)) {
-    try {
-      const usersSnap = await getDocs(collection(firestoreDb, 'users'))
-      if (!usersSnap.empty) {
-        usersSnap.docs.forEach(d => {
-          userProfilesMap[d.id] = d.data()
-        })
-        const dbUids = Object.keys(userProfilesMap)
-        if (dbUids.length > 0) {
-          finalTargetUserIds = Array.from(new Set([...finalTargetUserIds, ...dbUids]))
-        }
-      }
-    } catch (e) {
-      console.warn('Could not fetch all users from Firestore for broadcast:', e)
-    }
+  if (!demoMode) {
+    throw Object.assign(new Error('Dịch vụ gửi thông báo chưa sẵn sàng. Chưa gửi thông báo nào; bản nháp vẫn được giữ. Hãy thử lại khi dịch vụ được khôi phục.'), { code: 'functions/failed-precondition' })
   }
 
-  // Filter users based on their Profile "Danh mục thông báo muốn nhận" preferences
-  const eligibleUserIds: string[] = []
-
-  for (const uId of finalTargetUserIds) {
-    const userData = userProfilesMap[uId]
-    const userRole = userData?.role
-    // "Táº¥t cáº£" means all active members, not operational staff accounts.
-    // Explicitly selected users remain eligible regardless of their role.
-    if (targetType === 'all' && userRole && userRole !== 'student') continue
-    if (userData?.disabled === true || userData?.status === 'disabled') {
-      filteredOutCount++
-      continue
-    }
-    const settings = userData?.notificationSettings
-
-    if (respectCategoryPreferences && settings) {
-      // 1. Check master toggle
-      if (settings.enabled === false) {
-        filteredOutCount++
-        continue
-      }
-
-      // 2. Check category specific toggle
-      const isWorkout = category === 'workout' || type === 'WORKOUT'
-      const isNutrition = category === 'nutrition' || (type === 'REMINDER' && category !== 'learning' && category !== 'coach' && category !== 'workout')
-      const isLearning = category === 'learning' || ((type === 'ANNOUNCEMENT' || type === 'MOTIVATION') && category !== 'workout' && category !== 'nutrition' && category !== 'coach')
-      const isCoach = category === 'coach' || ((type === 'PROMOTION' || type === 'INFO') && category !== 'workout' && category !== 'nutrition' && category !== 'learning')
-
-      if (isWorkout && settings.workoutReminders === false) {
-        filteredOutCount++
-        continue
-      }
-      if (isNutrition && settings.mealReminders === false) {
-        filteredOutCount++
-        continue
-      }
-      if (isLearning && settings.learningUpdates === false) {
-        filteredOutCount++
-        continue
-      }
-      if (isCoach && settings.coachMessages === false) {
-        filteredOutCount++
-        continue
-      }
-    }
-
-    eligibleUserIds.push(uId)
-  }
-
-  // Write notification for eligible users in Firestore
-  if (firestoreDb && eligibleUserIds.length > 0) {
-    // Process in batches of 400 (Firestore batch limit is 500)
-    for (let i = 0; i < eligibleUserIds.length; i += 400) {
-      const chunk = eligibleUserIds.slice(i, i + 400)
-      const batch = writeBatch(firestoreDb)
-
-      for (const uId of chunk) {
-        const ref = doc(collection(firestoreDb, 'users', uId, 'notifications'))
-        batch.set(ref, {
-          id: ref.id,
-          userId: uId,
-          title,
-          message,
-          type,
-          category,
-          read: false,
-          actionUrl: actionUrl || '/home',
-          createdAt: serverTimestamp()
-        })
-        sentCount++
-      }
-
-      try {
-        await batch.commit()
-      } catch (err) {
-        console.error('Error committing notification batch chunk to Firestore:', err)
-      }
-    }
-  } else {
-    // Fallback count for demo / local
-    sentCount = eligibleUserIds.length > 0 ? eligibleUserIds.length : (finalTargetUserIds.length - filteredOutCount)
-    if (sentCount < 0) sentCount = 0
-  }
-
-  // Create Broadcast Log entry
+  // Explicit demo only: simulate locally, without inbox, device or log writes
+  // to Firestore even if a Firebase instance happens to be configured.
+  const eligibleUserIds = [...new Set(targetUserIds)]
+  const logId = 'demo_log_' + Date.now()
   const newLog: PushBroadcastLog = {
-    id: logId,
-    title,
-    message,
-    type,
-    category,
-    targetType,
+    id: logId, title, message, type, category, targetType,
     targetValue: targetType === 'individual' ? targetUserIds[0] : targetType,
-    actionUrl,
-    sentCount,
-    webPushSentCount: 0,
-    webPushFailureCount: 0,
-    filteredOutCount,
-    createdAt: new Date().toISOString(),
-    sentBy
+    actionUrl, sentCount: eligibleUserIds.length, webPushSentCount: 0,
+    webPushFailureCount: 0, filteredOutCount: 0, createdAt: new Date().toISOString(), sentBy,
   }
-
-  // Save log locally & in Firestore
   try {
-    const existingLogsRaw = localStorage.getItem(PUSH_LOGS_KEY)
-    const existingLogs: PushBroadcastLog[] = existingLogsRaw ? JSON.parse(existingLogsRaw) : []
-    const updatedLogs = [newLog, ...existingLogs].slice(0, 50)
-    safeLocalStorageSet(PUSH_LOGS_KEY, JSON.stringify(updatedLogs))
-
-    if (firestoreDb) {
-      const logRef = doc(firestoreDb, 'system', 'push_broadcast_logs', 'logs', logId)
-      await setDoc(logRef, newLog)
-    }
-  } catch (err) {
-    console.warn('Error saving broadcast log:', err)
+    const existingLogs: PushBroadcastLog[] = JSON.parse(localStorage.getItem(PUSH_LOGS_KEY) || '[]')
+    safeLocalStorageSet(PUSH_LOGS_KEY, JSON.stringify([newLog, ...existingLogs].slice(0, 50)))
+  } catch {
+    // Local storage availability does not turn a demo into a production send.
   }
-
-  return {
-    sentCount,
-    webPushSentCount: 0,
-    webPushFailureCount: 0,
-    filteredOutCount,
-    logId,
-  }
+  return { sentCount: eligibleUserIds.length, webPushSentCount: 0, webPushFailureCount: 0, filteredOutCount: 0, logId }
 }
 
 /** Compatibility reader for callers that need only the newest bounded page. */
