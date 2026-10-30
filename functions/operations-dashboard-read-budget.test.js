@@ -159,6 +159,29 @@ test('trainer dashboard queries both current and legacy trainer IDs without unre
   assert.equal(db.reads.some((read) => read.path?.startsWith('contractUsageViews/')), false)
 })
 
+test('projected ledger rows exclude expense refunds and payroll corrections from net receipts', async () => {
+  const { db, handlers, request } = fixture()
+  const common = { branchId: 'home', status: 'posted', effectiveAt: Timestamp.fromDate(new Date(`${today}T08:00:00+07:00`)) }
+  for (const [index, row] of [
+    { type: 'reversal', source: 'accounting', cashImpact: 500, expenseImpact: 0 },
+    { type: 'reversal', eventClass: 'expense_voucher_reversal', cashImpact: 600, expenseImpact: 0 },
+    { type: 'adjustment', source: 'payroll', cashImpact: 700 },
+    { type: 'adjustment', cashImpact: 800, expenseImpact: -800 },
+    { type: 'payment', source: 'other', eventClass: 'manual_cash_receipt', cashImpact: 100 },
+    { type: 'reversal', source: 'other', eventClass: 'manual_cash_receipt_reversal', cashImpact: -20 },
+    { type: 'refund', amount: -10 },
+    { type: 'adjustment', amount: 5 },
+  ].entries()) db.records.set(`ledgerEntries/classified-${index}`, { ...common, ...row })
+  const result = await handlers.getOperationsDashboard(request())
+  assert.equal(result.finance.cashCollected, 140)
+  assert.equal(result.finance.netCash, 115)
+  assert.equal(result.finance.refunds, 10)
+  assert.equal(result.finance.reversals, 20)
+  assert.equal(result.finance.adjustments, 5)
+  assert.equal(result.finance.recognizedRevenue, 30)
+  assert.equal(result.analytics.revenue.points.reduce((sum, point) => sum + point.netCash, 0), 115)
+})
+
 test('projected financial rows retain imported contract labels when the student profile is missing', async () => {
   const { db, handlers, request } = fixture()
   db.records.set('contracts/current', { ...db.records.get('contracts/current'), studentId: 'missing', studentName: 'Imported student', studentPhone: '0901234567' })

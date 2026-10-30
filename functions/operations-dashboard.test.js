@@ -144,6 +144,29 @@ test('migrated contracts use startDate as a reporting fallback without emptying 
   assert.equal(analytics.revenue.points.reduce((total, item) => total + item.contractSales, 0), 9_000_000)
 })
 
+test('contract-sales chart excludes terminal workflow states while retaining discounted active, expired and frozen contracts', () => {
+  const contract = (status, totalPrice, discount, day) => ({
+    id: status, status, totalPrice, discount,
+    signedAt: `2026-08-${day}T09:00:00+07:00`,
+    startDate: '2026-08-01', endDate: status === 'expired' ? '2026-08-02' : '2026-11-01',
+    totalSessions: 12, usedSessions: 2,
+  })
+  const analytics = dashboardAnalytics({
+    start: new Date('2026-08-01T00:00:00+07:00'),
+    end: new Date('2026-08-03T23:59:59+07:00'),
+    referenceDate: '2026-08-03',
+    ledgerValues: [], offValues: [],
+    contractValues: [
+      contract('active', 1_000_000, 100_000, '01'),
+      contract('expired', 2_000_000, 200_000, '02'),
+      contract('frozen', 3_000_000, 300_000, '03'),
+      ...['draft', 'cancelled', 'inactive', 'archived'].map(status => contract(status, 9_000_000, 500_000, '02')),
+    ],
+  })
+  assert.deepEqual(analytics.revenue.points.map(point => point.contractSales), [900_000, 1_800_000, 2_700_000])
+  assert.equal(analytics.revenue.points.reduce((sum, point) => sum + point.contractSales, 0), 5_400_000)
+})
+
 test('receivable actions count overdue and due-today contracts without duplicating debt', () => {
   const summary = summarizeReceivables([
     { totalPrice: 1_000_000, paidAmount: 800_000, installments: [{ status: 'pending', date: '2026-08-25', amount: 200_000 }] },

@@ -4,6 +4,7 @@ const { createHash, randomUUID } = require('node:crypto')
 const { FieldPath, FieldValue, Timestamp } = require('firebase-admin/firestore')
 const { readDashboardQuery } = require('./operations-dashboard-read-policy')
 const { visitAggregateSourcePages } = require('./operations-aggregate-source-pages')
+const { ledgerReceiptImpact } = require('./finance-receipt-impact')
 
 // Isolate v2 from old in-flight trigger/scheduler revisions. A rolling deploy
 // (or rollback) must never let a v1 delta writer corrupt the v2 baseline.
@@ -24,7 +25,7 @@ const SOURCE_COLLECTIONS = {
 // Keep the repair scan limited to fields used by contribution(). Business
 // payloads (notes, lesson content, attachments, etc.) are not reporting inputs.
 const REBUILD_SOURCE_FIELDS = {
-  ledger: ['branchId', 'status', 'type', 'effectiveAt', 'cashImpact', 'amount', 'revenueImpact'],
+  ledger: ['branchId', 'status', 'type', 'source', 'eventClass', 'effectiveAt', 'cashImpact', 'amount', 'revenueImpact', 'expenseImpact'],
   session: ['branchId', 'date', 'status'],
   attendance: ['branchId', 'occurredAt', 'date'],
   contract: ['branchId', 'status', 'signedAt', 'createdAt', 'contractDate', 'startDate', 'totalPrice', 'discount'],
@@ -60,12 +61,6 @@ function aggregateDocumentId(date, branchId) {
 function finite(value) {
   const parsed = Number(value)
   return Number.isFinite(parsed) ? parsed : 0
-}
-
-function ledgerReceiptImpact(value) {
-  if (!['payment', 'refund', 'reversal', 'adjustment'].includes(value.type)) return 0
-  if (value.cashImpact !== undefined && value.cashImpact !== null) return finite(value.cashImpact)
-  return finite(value.amount)
 }
 
 function ledgerRevenueImpact(value) {

@@ -5,8 +5,9 @@ const { confirmedStudentOff } = require('./schedule-entitlement-policy')
 const { prepareRenewalSessionCharge, renewalHandoverPlan, applyRenewalHandover, renewalReservationProjection, renewalDateSyncPatch, assertRenewalLink } = require('./contract-renewal-handover')
 const { createHash } = require('node:crypto')
 const { trustedAccessContext, requireCapability } = require('./identity-access')
-const { ptRevenueRecognitionWrite } = require('./finance-recognition')
-const { serviceRevenueJournal } = require('./accounting-core')
+const { ptRevenueRecognitionWrite, contractNetValue } = require('./finance-recognition')
+const { readContractRecognizedRevenue, readContractRecognitionState } = require('./finance-recognition-balance')
+const { serviceRevenueJournal, reversedJournalLines } = require('./accounting-core')
 const {
   branchSlotCapacity,
   normalizedDraftSchedule,
@@ -1346,6 +1347,114 @@ function ptRevenueJournalWrite({ recognition, contract, sessionId, actorUid }) {
   }
 }
 
+// Prepare every read before the correction writes. Posted financial evidence
+// is retained: moving its attribution creates an equal reversal and replacement.
+async function teachingRecognitionPlan({ transaction, db, session, attendance, attendanceEventId, target, actorUid, reason, pendingRecognition }) {
+  const sessionId = session.id
+  const contractId = optionalText(session.data.contractId, 128)
+  const entryId = session.data.revenueRecognitionEntryId || attendance.revenueRecognitionEntryId || `pt_session_${sessionId}`
+  const reference = db.doc(`ledgerEntries/${id(entryId, 'Mã doanh thu buổi tập')}`)
+  const journalReference = db.doc(`journalEntries/${reference.id}`)
+  const reviewReference = db.doc(`revenueRecognitionReviews/${sessionId}`)
+  const [existing, existingJournal, review, contractSnapshot, billing] = await Promise.all([
+    transaction.get(reference), transaction.get(journalReference), transaction.get(reviewReference),
+    contractId ? transaction.get(db.doc(`contracts/${id(contractId, 'Mã hợp đồng')}`)) : Promise.resolve(null),
+    transaction.get(db.doc(`sessionBillingEvents/${sessionId}`)),
+  ])
+  const contract = contractSnapshot?.exists ? contractSnapshot.data() : null
+  const writes = []
+  const billingStatus = session.data.billingStatus || attendance.billingStatus || (isSessionCharged(session.data) || session.item.attendanceStatus ? 'charged' : '')
+  const manualEvidence = Boolean(session.item.attendanceStatus) || Boolean(attendance.confirmedBy && attendance.confirmationSource !== 'auto_after_48h')
+  const eligible = billingStatus === 'charged' && manualEvidence && ['present', 'late', 'no_show'].includes(target.attendanceStatus)
+  const outcome = { writes, entryId: existing.exists ? reference.id : null, journalId: existingJournal.exists ? journalReference.id : null,
+    reviewRequired: !eligible && (session.data.recognitionReviewRequired === true || attendance.recognitionReviewRequired === true) }
+  const requireReview = (issueCode, details = {}) => {
+    const reviewData = { schemaVersion: 1, status: 'open', issueCode, sessionId, attendanceEventId, contractId,
+      studentId: session.data.studentId || '', trainerId: target.trainerId, evidenceStatus: target.attendanceStatus,
+      confirmationSource: 'admin_correction', financePeriodId: target.date.slice(0, 7), ...details,
+      updatedAt: FieldValue.serverTimestamp(), updatedBy: actorUid }
+    writes.push({ type: review.exists ? 'update' : 'create', reference: reviewReference,
+      data: { ...reviewData, ...(!review.exists ? { createdAt: FieldValue.serverTimestamp(), createdBy: actorUid } : {}) } })
+    return { ...outcome, reviewRequired: true, issueCode }
+  }
+  let value = existing.exists ? existing.data() : null
+  if (!value && existingJournal.exists) throw new HttpsError('failed-precondition', 'Nhật ký doanh thu chưa có bút toán nguồn. Cần đối soát trước khi sửa ca.', { issueCode: 'SESSION_RECOGNITION_MISMATCH', sessionId })
+  if (value && (value.type !== 'revenue_recognition' || value.status !== 'posted' || value.sessionId !== sessionId || value.contractId !== contractId)) {
+    throw new HttpsError('failed-precondition', 'Bút toán doanh thu của buổi không khớp. Cần đối soát trước khi sửa ca.', { issueCode: 'SESSION_RECOGNITION_MISMATCH', sessionId })
+  }
+  if (!value && eligible) {
+    const issueCode = !contract || contract.studentId !== session.data.studentId ? 'RECOGNITION_CONTRACT_MISSING_OR_MISMATCHED' : ''
+    if (issueCode) return requireReview(issueCode)
+    const serviceOrdinal = serviceOrdinalForEvidence({ sessionId, session: session.data, attendance, billing: billing.data?.() || {}, contract })
+    const recognitionState = await readContractRecognitionState(transaction, db, contractId)
+    const recognisedRevenueBefore = recognitionState.recognizedRevenue + (pendingRecognition?.recognizedRevenue || 0)
+    value = ptRevenueRecognitionWrite({ sessionId, session: target, contractId, contract, attendanceEventId,
+      actorUid, serviceOrdinal, recognisedRevenueBefore, evidenceStatus: target.attendanceStatus, confirmationSource: 'admin_correction' })
+    if (value) {
+      const details = { serviceOrdinal, requestedRevenue: value.revenueImpact, recognizedRevenueToDate: recognisedRevenueBefore, contractNetValue: contractNetValue(contract) }
+      if ((recognitionState.revenueBySession.get(sessionId) || 0) > 0 || (pendingRecognition?.revenueBySession.get(sessionId) || 0) > 0) {
+        return requireReview('RECOGNITION_SESSION_ALREADY_RECOGNIZED', details)
+      }
+      const hasOtherSession = (sessions) => [...(sessions || [])].some(([otherSessionId, amount]) => otherSessionId !== sessionId && amount > 0)
+      if (hasOtherSession(recognitionState.revenueByOrdinal.get(serviceOrdinal)) || hasOtherSession(pendingRecognition?.revenueByOrdinal.get(serviceOrdinal))) {
+        return requireReview('RECOGNITION_SERVICE_ORDINAL_COLLISION', details)
+      }
+      if (recognisedRevenueBefore + value.revenueImpact > contractNetValue(contract)) {
+        return requireReview('RECOGNITION_CONTRACT_VALUE_EXCEEDED', details)
+      }
+      const journal = ptRevenueJournalWrite({ recognition: value, contract, sessionId, actorUid })
+      writes.push({ type: 'create', reference, data: { ...value, journalEntryId: journalReference.id } },
+        { type: 'create', reference: journalReference, data: journal })
+      outcome.entryId = reference.id
+      outcome.journalId = journalReference.id
+      outcome.createdRevenue = value.revenueImpact
+      outcome.createdServiceOrdinal = serviceOrdinal
+    }
+  } else if (value) {
+    const originalInstant = requestInstant(value.effectiveAt)
+    const originalDate = originalInstant ? vietnamDateKey(originalInstant) : storedDateKey(session.data.date, 'Ngày ca gốc')
+    const attributionChanged = value.trainerId !== target.trainerId || value.branchId !== target.branchId || originalDate !== target.date
+    const originalJournal = existingJournal.exists ? existingJournal.data() : ptRevenueJournalWrite({ recognition: value, contract, sessionId, actorUid })
+    if (!existingJournal.exists) writes.push({ type: 'create', reference: journalReference, data: originalJournal })
+    outcome.journalId = journalReference.id
+    if (attributionChanged) {
+      if (originalDate.slice(0, 7) !== target.date.slice(0, 7)) throw new HttpsError('failed-precondition', 'Doanh thu buổi tập thuộc kỳ khác. Cần đối soát bằng khoản điều chỉnh.', { issueCode: 'TEACHING_SHIFT_CROSS_PERIOD_CORRECTION', sessionId })
+      const correctionId = `pt_session_${sessionId}_correction_${Number(session.data.revision || 0) + 1}`
+      const replacementReference = db.doc(`ledgerEntries/${correctionId}`)
+      const replacementJournalReference = db.doc(`journalEntries/${correctionId}`)
+      const reversalReference = db.doc(`ledgerEntries/${correctionId}_reversal`)
+      const reversalJournalReference = db.doc(`journalEntries/${correctionId}_reversal`)
+      const collisions = await Promise.all([replacementReference, replacementJournalReference, reversalReference, reversalJournalReference].map((ref) => transaction.get(ref)))
+      if (collisions.some((snapshot) => snapshot.exists)) throw new HttpsError('already-exists', 'Bút toán điều chỉnh đã tồn tại. Hãy tải lại trước khi sửa ca.')
+      const common = { createdAt: FieldValue.serverTimestamp(), createdBy: actorUid, correctionReason: reason, correctedEntryId: reference.id }
+      const reversal = { ...value, ...common, type: 'adjustment', eventClass: 'revenue_recognition_reversal',
+        amount: -Number(value.amount), revenueImpact: -Number(value.revenueImpact ?? value.amount),
+        cashImpact: 0, expenseImpact: 0, receivableImpact: -Number(value.receivableImpact || 0),
+        deferredRevenueImpact: -Number(value.deferredRevenueImpact || 0), status: 'posted',
+        reversedEntryId: reference.id, journalEntryId: reversalJournalReference.id, idempotencyKey: `${correctionId}:reversal` }
+      const replacement = { ...value, ...common, trainerId: target.trainerId, branchId: target.branchId,
+        effectiveAt: Timestamp.fromDate(new Date(`${target.date}T12:00:00+07:00`)),
+        evidenceStatus: target.attendanceStatus, confirmationSource: session.item.attendanceStatus ? 'admin_correction' : value.confirmationSource || 'manual',
+        journalEntryId: replacementJournalReference.id, idempotencyKey: `${correctionId}:recognition`, status: 'posted' }
+      writes.push(
+        { type: 'create', reference: reversalReference, data: reversal },
+        { type: 'create', reference: reversalJournalReference, data: { ...originalJournal, ...common, documentType: 'pt_revenue_recognition_reversal', documentId: reversalReference.id,
+          lines: reversedJournalLines(originalJournal.lines), reversedJournalEntryId: journalReference.id, status: 'posted' } },
+        { type: 'create', reference: replacementReference, data: replacement },
+        { type: 'create', reference: replacementJournalReference, data: { ...originalJournal, ...common, documentId: replacementReference.id,
+          branchId: target.branchId, effectiveAt: replacement.effectiveAt, status: 'posted' } },
+        { type: 'update', reference, data: { status: 'reversed', reversedAt: FieldValue.serverTimestamp(), reversedBy: actorUid,
+          reversalEntryId: reversalReference.id, replacementEntryId: replacementReference.id } },
+      )
+      outcome.entryId = replacementReference.id
+      outcome.journalId = replacementJournalReference.id
+    }
+  }
+  if (review.exists && ((value && manualEvidence) || billingStatus === 'exempt')) writes.push({ type: 'update', reference: reviewReference,
+    data: { status: 'resolved', resolvedAt: FieldValue.serverTimestamp(), resolvedBy: actorUid, resolution: 'admin_evidence_corrected' } })
+  return outcome
+}
+
 function assertSessionCanBeCharged(session) {
   if (!isActiveSessionStatus(session.status)) throw new HttpsError('failed-precondition', 'Chỉ buổi đang lên lịch mới được tự động tính buổi.')
   if (session.scheduleStatus === 'cancelled' || session.billingStatus === 'exempt') {
@@ -1722,8 +1831,9 @@ async function recordSessionAttendanceTransaction({
     const contractId = linkedContractId(session)
     const contractReference = db.doc(`contracts/${contractId}`)
     const billingReference = db.doc(`sessionBillingEvents/${sessionId}`)
-    const recognitionReference = db.doc(`ledgerEntries/pt_session_${sessionId}`)
-    const recognitionJournalReference = db.doc(`journalEntries/pt_session_${sessionId}`)
+    const recognitionEntryId = session.revenueRecognitionEntryId || attendance.revenueRecognitionEntryId || `pt_session_${sessionId}`
+    const recognitionReference = db.doc(`ledgerEntries/${id(recognitionEntryId, 'Mã doanh thu buổi tập')}`)
+    const recognitionJournalReference = db.doc(`journalEntries/${recognitionReference.id}`)
     const recognitionReviewReference = db.doc(`revenueRecognitionReviews/${sessionId}`)
     const periodId = String(session.date || '').slice(0, 7)
     const periodReference = db.doc(`financePeriods/${periodId}`)
@@ -1741,6 +1851,9 @@ async function recordSessionAttendanceTransaction({
     const autoConfirmation = confirmationSource === 'auto_after_48h'
     const periodLocked = periodSnapshot.exists && periodSnapshot.data().status === 'locked'
     const recognitionAllowed = effectiveBillingStatus === 'charged' && !autoConfirmation && !periodLocked
+    const recognisedRevenueBefore = recognitionAllowed && !recognitionSnapshot.exists
+      ? await readContractRecognizedRevenue(transaction, db, contractId)
+      : undefined
     const recognition = recognitionAllowed && !recognitionSnapshot.exists
       ? ptRevenueRecognitionWrite({
         sessionId,
@@ -1750,6 +1863,7 @@ async function recordSessionAttendanceTransaction({
         attendanceEventId: attendanceReference.id,
         actorUid,
         serviceOrdinal,
+        recognisedRevenueBefore,
         evidenceStatus: normalizedStatus,
         confirmationSource,
       })
@@ -2766,8 +2880,10 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
         return attendance.attendanceStatus !== session.item.attendanceStatus
           || Number(attendance.lateMinutes || 0) !== Number(session.item.lateMinutes || 0)
           || String(attendance.noShowReason || '') !== session.item.noShowReason
+          || attendance.confirmationSource === 'auto_after_48h'
+          || attendance.recognitionReviewRequired === true
       })
-      if (!scheduleChanged && !attendanceChanged) {
+      if (!scheduleChanged && !attendanceChanged && sessions.every((session) => session.data.revenueRecognitionEntryId || session.data.billingStatus === 'exempt')) {
         return { unchanged: true, revisions: Object.fromEntries(sessions.map((session) => [session.id, Number(session.data.revision || 0)])), invalidatedPayrollPeriods: [] }
       }
 
@@ -2882,6 +2998,30 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
         })
       }
 
+      const recognitionPlans = []
+      const pendingRecognitionByContract = new Map()
+      for (const [index, session] of sessions.entries()) {
+        const pendingRecognition = pendingRecognitionByContract.get(session.data.contractId)
+          || { recognizedRevenue: 0, revenueBySession: new Map(), revenueByOrdinal: new Map() }
+        const plan = await teachingRecognitionPlan({
+          transaction, db, session, attendance: attendanceSnapshots[index].data?.() || {}, attendanceEventId: attendanceReferences[index].id,
+          target: { ...session.data, date: targetDate, trainerId: targetTrainerId, branchId: targetBranchId,
+            attendanceStatus: session.item.attendanceStatus || attendanceSnapshots[index].data?.()?.attendanceStatus || session.data.attendanceStatus || 'pending' },
+          actorUid: actor.uid, reason, pendingRecognition,
+        })
+        recognitionPlans.push(plan)
+        if (plan.createdRevenue) {
+          pendingRecognition.recognizedRevenue += plan.createdRevenue
+          pendingRecognition.revenueBySession.set(session.id, plan.createdRevenue)
+          const ordinalSessions = pendingRecognition.revenueByOrdinal.get(plan.createdServiceOrdinal) || new Map()
+          ordinalSessions.set(session.id, plan.createdRevenue)
+          pendingRecognition.revenueByOrdinal.set(plan.createdServiceOrdinal, ordinalSessions)
+        }
+        pendingRecognitionByContract.set(session.data.contractId, pendingRecognition)
+      }
+      if (!scheduleChanged && !attendanceChanged && recognitionPlans.every((plan) => plan.writes.length === 0)) {
+        return { unchanged: true, revisions: Object.fromEntries(sessions.map((session) => [session.id, Number(session.data.revision || 0)])), invalidatedPayrollPeriods: [] }
+      }
       const targetStart = Timestamp.fromDate(targetInstant)
       const revisions = {}
       sessions.forEach((session, index) => {
@@ -2899,6 +3039,10 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
           : session.data.status
         const nextRevision = Number(session.data.revision || 0) + 1
         revisions[session.id] = nextRevision
+        const recognitionPlan = recognitionPlans[index]
+        recognitionPlan.writes.forEach((write) => transaction[write.type](write.reference, write.data))
+        const recognitionPatch = { revenueRecognitionEntryId: recognitionPlan.entryId, revenueRecognitionJournalId: recognitionPlan.journalId,
+          recognitionReviewRequired: recognitionPlan.reviewRequired, recognitionReviewIssueCode: recognitionPlan.issueCode || null }
         transaction.update(session.reference, {
           previousSchedule: FieldValue.arrayUnion({ date: before.date, hour: before.hour, trainerId: before.trainerId, branchId: before.branchId, changedAt: correctionInstant.toISOString(), reason }),
           date: targetDate,
@@ -2907,6 +3051,7 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
           branchId: targetBranchId,
           status: nextSessionStatus,
           attendanceStatus: nextAttendanceStatus,
+          ...recognitionPatch,
           ...(session.item.attendanceStatus
             ? {
                 attendanceEventId: attendanceReferences[index].id,
@@ -2914,6 +3059,9 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
                 // chargeable attendance record. Existing billing values are
                 // preserved when present.
                 billingStatus: session.data.billingStatus || 'charged',
+                confirmationSource: 'admin_correction',
+                confirmedAt: FieldValue.serverTimestamp(),
+                confirmedBy: actor.uid,
               }
             : {}),
           correctedAt: FieldValue.serverTimestamp(),
@@ -2931,6 +3079,8 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
             trainerId: targetTrainerId,
             studentId: session.data.studentId || '',
             contractId: session.data.contractId || '',
+            branchId: targetBranchId,
+            ...recognitionPatch,
             scheduledAt: targetStart,
             occurredAt: targetStart,
             scheduleStatus: session.data.scheduleStatus || 'scheduled',
@@ -3760,6 +3910,7 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
           attendanceEventId: chargeId,
           actorUid: actor.uid,
           serviceOrdinal: Math.max(1, Math.floor(Number(contract.usedSessions || 0)) + 1),
+          recognisedRevenueBefore: await readContractRecognizedRevenue(transaction, db, contractId),
           evidenceStatus: 'policy_charge',
           confirmationSource: 'approved_policy',
         })

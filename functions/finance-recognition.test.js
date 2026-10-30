@@ -27,6 +27,15 @@ test('incomplete legacy PT contract does not invent revenue', () => {
   assert.equal(ptRevenueRecognitionWrite({ sessionId: 'session-2', session: {}, contractId: 'contract-2', contract: { totalSessions: 0, totalPrice: 0 }, attendanceEventId: 'attendance-2', actorUid: 'admin-1' }), null)
 })
 
+test('out-of-order confirmation releases paid value using actual posted revenue', () => {
+  const write = ptRevenueRecognitionWrite({ sessionId: 'second', session: { date: '2026-08-21' }, contractId: 'contract-1',
+    contract: { totalPrice: 200_000, totalSessions: 2, usedSessions: 2, paidAmount: 100_000 },
+    serviceOrdinal: 2, recognisedRevenueBefore: 0, attendanceEventId: 'second', actorUid: 'admin-1' })
+  assert.equal(write.revenueImpact, 100_000)
+  assert.equal(write.deferredRevenueImpact, -100_000)
+  assert.equal(write.receivableImpact, 0)
+})
+
 test('Eat Clean revenue is recognised on delivery with food and delivery sources separate', () => {
   const writes = eatCleanRevenueRecognitionWrites({
     orderId: 'order-1',

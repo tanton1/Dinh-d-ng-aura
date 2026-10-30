@@ -24,7 +24,8 @@ test('midnight updates overdue, week and month groups without another server rea
   await page.clock.fastForward(61_000)
   await expect(metrics(page).nth(1)).toHaveText('1.000.000đ')
   await expect(metrics(page).nth(2)).toHaveText('0đ')
-  await expect(filters(page).getByRole('button', { name: 'Tuần này 0', exact: true })).toBeVisible()
+  // Sunday remains in the same Monday–Sunday collection week.
+  await expect(filters(page).getByRole('button', { name: 'Tuần này 1', exact: true })).toBeVisible()
   await expect(page.locator('.finance-management__receivables-list article.is-overdue')).toHaveCount(1)
   expect(await reads(page)).toEqual(before)
 })

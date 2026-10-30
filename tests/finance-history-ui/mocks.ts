@@ -3,6 +3,9 @@ const subscribers = new Set<() => void>()
 const publish = () => { state.databaseVersion++; subscribers.forEach(callback => callback()) }
 export const state = {
   owner: 'admin-a', authzVersion: 1, calls: [] as Array<{ owner: string; query: any }>, refreshes: 0,
+  directoryAcquisitions: 0,
+  performanceCalls: [] as Array<any>, performanceDefer: false, performanceSettled: 0,
+  performancePending: [] as Array<{ resolve: (report: any) => void; reject: (cause: Error) => void }>,
   intentCalls: [] as Array<any>, intentFailure: '', intentDefer: false,
   intentPending: [] as Array<{ resolve: () => void }>,
   studentInstallmentStatus: 'pending', workspaceLoads: 0, projectionRefreshes: 0,
@@ -16,6 +19,12 @@ export const state = {
   updateContract(id: string, patch: Record<string, unknown>) {
     Object.assign(contracts.find(contract => contract.id === id)!, patch)
     database.contracts = [...contracts]
+    publish()
+  },
+  replaceContracts(rows: any[], people: any[]) {
+    contracts.splice(0, contracts.length, ...rows)
+    database.contracts = [...contracts]
+    database.students = people
     publish()
   },
   resolveCash(index: number, failure = '') {
@@ -41,7 +50,7 @@ const subscribe = (callback: () => void) => { subscribers.add(callback); return 
 const database = {
   contracts, students: [{ id: 'student-a', name: 'Test learner A' }, { id: 'student-b', name: 'Test learner B' }],
   branches: [{ id: 'a', name: 'Branch A' }, { id: 'b', name: 'Branch B' }],
-  acquireFinanceDirectory: () => () => {},
+  acquireFinanceDirectory: () => { state.directoryAcquisitions++; return () => {} },
   refreshData: async () => { state.refreshes++ }, operationsSync: { status: 'ready' },
 }
 export function useDatabase() {
@@ -50,6 +59,12 @@ export function useDatabase() {
 }
 export function useAuth() {
   return { user: { uid: state.owner }, profile: { uid: state.owner, role: 'admin', authzVersion: state.authzVersion }, authzReady: true, hasCapability: () => true, backendMode: 'firebase' }
+}
+export async function listBusinessPerformance(input: any) {
+  state.performanceCalls.push(structuredClone(input))
+  if (!state.performanceDefer) return { dailySeries: [], sourceRows: [], cashFlow: { cashIn: 0, cashOut: 0, cashNet: 0 }, managementPnl: { recognisedRevenue: 0, operatingExpense: 0, operatingResult: 0 }, balanceMovement: { receivableMovement: 0, deferredRevenueMovement: 0 }, dataQuality: { missingSourceIntegrations: [] } }
+  try { return await new Promise((resolve, reject) => state.performancePending.push({ resolve, reject })) }
+  finally { state.performanceSettled++ }
 }
 export async function listFinanceLedger(query: any) {
   const owner = state.owner, number = state.calls.push({ owner, query: { ...query } })
