@@ -63,6 +63,12 @@ test('successive midnights retain the payment draft and never reload its account
   await payment.getByRole('spinbutton').fill('250000')
   const before = await reads(page)
   await page.clock.fastForward(61_000)
+  // The overdue total is already zero on both dates. Wait for the first
+  // date-scoped read before advancing again so React observes both midnights.
+  await expect.poll(() => page.evaluate(() => {
+    const calls = (window as any).financeState.reportCalls
+    return { reports: calls.length, today: calls.at(-1)?.query.today }
+  })).toEqual({ reports: before.reports + 1, today: '2026-10-31' })
   await expect(metrics(page).nth(1)).toHaveText('0đ')
   await page.clock.fastForward(86_400_000)
   await expect(metrics(page).nth(1)).toHaveText('1.000.000đ')
