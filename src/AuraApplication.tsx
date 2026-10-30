@@ -163,7 +163,7 @@ const adminAcademyViews = new Set<ViewId>(['admin-courses', 'admin-course-editor
 // Admin HR owns its own bounded cursor directory. Keeping it out of the
 // application-wide directory subscription prevents roleAssignments/users
 // listeners from opening before the HR surface is actually used.
-const adminDirectoryViews = new Set<ViewId>(['admin-students', 'admin-notifications'])
+const adminDirectoryViews = new Set<ViewId>(['admin-students'])
 const adminAcademyAnalyticsViews = new Set<ViewId>(['admin-courses'])
 
 function AuraApplication() {
@@ -1023,7 +1023,7 @@ function AuraApplication() {
       />
       case 'admin-roles': return <AuraOperationsFrame><AdminRolesPage users={adminUsers} currentRole={role} currentUserUid={user?.uid} loading={adminUsersLoading} onRoleChange={updateUserRole} /></AuraOperationsFrame>
       case 'admin-nutrition-reviews': return <AdminNutritionReviewsPage onNavigate={navigate} focus={route.focus} />
-      case 'admin-notifications': return <AdminNotificationsPage onNavigate={navigate} users={adminUsers} currentUserUid={user?.uid} canManageUiRollout={role === 'super_admin'} backendMode={backendMode} />
+      case 'admin-notifications': return <AdminNotificationsPage onNavigate={navigate} currentUserUid={user?.uid} authzVersion={JSON.stringify([profile?.authzVersion, role])} canManageUiRollout={role === 'super_admin'} backendMode={backendMode} />
       case 'admin-eat-clean': return <AdminEatCleanPage key={user?.uid ?? backendMode} accountId={user?.uid || ''} currentRole={role} isDemo={backendMode === 'demo'} />
 
       // PT Coaching & Gym Management Views
