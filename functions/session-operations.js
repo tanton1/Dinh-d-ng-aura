@@ -5,8 +5,8 @@ const { confirmedStudentOff } = require('./schedule-entitlement-policy')
 const { prepareRenewalSessionCharge, renewalHandoverPlan, applyRenewalHandover, renewalReservationProjection, renewalDateSyncPatch, assertRenewalLink } = require('./contract-renewal-handover')
 const { createHash } = require('node:crypto')
 const { trustedAccessContext, requireCapability } = require('./identity-access')
-const { ptRevenueRecognitionWrite } = require('./finance-recognition')
-const { readContractRecognizedRevenue } = require('./finance-recognition-balance')
+const { ptRevenueRecognitionWrite, contractNetValue } = require('./finance-recognition')
+const { readContractRecognizedRevenue, readContractRecognitionState } = require('./finance-recognition-balance')
 const { serviceRevenueJournal, reversedJournalLines } = require('./accounting-core')
 const {
   branchSlotCapacity,
@@ -1349,7 +1349,7 @@ function ptRevenueJournalWrite({ recognition, contract, sessionId, actorUid }) {
 
 // Prepare every read before the correction writes. Posted financial evidence
 // is retained: moving its attribution creates an equal reversal and replacement.
-async function teachingRecognitionPlan({ transaction, db, session, attendance, attendanceEventId, target, actorUid, reason, pendingRecognizedRevenue = 0 }) {
+async function teachingRecognitionPlan({ transaction, db, session, attendance, attendanceEventId, target, actorUid, reason, pendingRecognition }) {
   const sessionId = session.id
   const contractId = optionalText(session.data.contractId, 128)
   const entryId = session.data.revenueRecognitionEntryId || attendance.revenueRecognitionEntryId || `pt_session_${sessionId}`
@@ -1368,6 +1368,15 @@ async function teachingRecognitionPlan({ transaction, db, session, attendance, a
   const eligible = billingStatus === 'charged' && manualEvidence && ['present', 'late', 'no_show'].includes(target.attendanceStatus)
   const outcome = { writes, entryId: existing.exists ? reference.id : null, journalId: existingJournal.exists ? journalReference.id : null,
     reviewRequired: !eligible && (session.data.recognitionReviewRequired === true || attendance.recognitionReviewRequired === true) }
+  const requireReview = (issueCode, details = {}) => {
+    const reviewData = { schemaVersion: 1, status: 'open', issueCode, sessionId, attendanceEventId, contractId,
+      studentId: session.data.studentId || '', trainerId: target.trainerId, evidenceStatus: target.attendanceStatus,
+      confirmationSource: 'admin_correction', financePeriodId: target.date.slice(0, 7), ...details,
+      updatedAt: FieldValue.serverTimestamp(), updatedBy: actorUid }
+    writes.push({ type: review.exists ? 'update' : 'create', reference: reviewReference,
+      data: { ...reviewData, ...(!review.exists ? { createdAt: FieldValue.serverTimestamp(), createdBy: actorUid } : {}) } })
+    return { ...outcome, reviewRequired: true, issueCode }
+  }
   let value = existing.exists ? existing.data() : null
   if (!value && existingJournal.exists) throw new HttpsError('failed-precondition', 'Nhật ký doanh thu chưa có bút toán nguồn. Cần đối soát trước khi sửa ca.', { issueCode: 'SESSION_RECOGNITION_MISMATCH', sessionId })
   if (value && (value.type !== 'revenue_recognition' || value.status !== 'posted' || value.sessionId !== sessionId || value.contractId !== contractId)) {
@@ -1375,26 +1384,31 @@ async function teachingRecognitionPlan({ transaction, db, session, attendance, a
   }
   if (!value && eligible) {
     const issueCode = !contract || contract.studentId !== session.data.studentId ? 'RECOGNITION_CONTRACT_MISSING_OR_MISMATCHED' : ''
-    if (issueCode) {
-      const reviewData = { schemaVersion: 1, status: 'open', issueCode, sessionId, attendanceEventId, contractId,
-        studentId: session.data.studentId || '', trainerId: target.trainerId, evidenceStatus: target.attendanceStatus,
-        confirmationSource: 'admin_correction', financePeriodId: target.date.slice(0, 7),
-        updatedAt: FieldValue.serverTimestamp(), updatedBy: actorUid }
-      writes.push({ type: review.exists ? 'update' : 'create', reference: reviewReference,
-        data: { ...reviewData, ...(!review.exists ? { createdAt: FieldValue.serverTimestamp(), createdBy: actorUid } : {}) } })
-      return { ...outcome, reviewRequired: true, issueCode }
-    }
+    if (issueCode) return requireReview(issueCode)
     const serviceOrdinal = serviceOrdinalForEvidence({ sessionId, session: session.data, attendance, billing: billing.data?.() || {}, contract })
-    const recognisedRevenueBefore = await readContractRecognizedRevenue(transaction, db, contractId) + pendingRecognizedRevenue
+    const recognitionState = await readContractRecognitionState(transaction, db, contractId)
+    const recognisedRevenueBefore = recognitionState.recognizedRevenue + (pendingRecognition?.recognizedRevenue || 0)
     value = ptRevenueRecognitionWrite({ sessionId, session: target, contractId, contract, attendanceEventId,
       actorUid, serviceOrdinal, recognisedRevenueBefore, evidenceStatus: target.attendanceStatus, confirmationSource: 'admin_correction' })
     if (value) {
+      const details = { serviceOrdinal, requestedRevenue: value.revenueImpact, recognizedRevenueToDate: recognisedRevenueBefore, contractNetValue: contractNetValue(contract) }
+      if ((recognitionState.revenueBySession.get(sessionId) || 0) > 0 || (pendingRecognition?.revenueBySession.get(sessionId) || 0) > 0) {
+        return requireReview('RECOGNITION_SESSION_ALREADY_RECOGNIZED', details)
+      }
+      const hasOtherSession = (sessions) => [...(sessions || [])].some(([otherSessionId, amount]) => otherSessionId !== sessionId && amount > 0)
+      if (hasOtherSession(recognitionState.revenueByOrdinal.get(serviceOrdinal)) || hasOtherSession(pendingRecognition?.revenueByOrdinal.get(serviceOrdinal))) {
+        return requireReview('RECOGNITION_SERVICE_ORDINAL_COLLISION', details)
+      }
+      if (recognisedRevenueBefore + value.revenueImpact > contractNetValue(contract)) {
+        return requireReview('RECOGNITION_CONTRACT_VALUE_EXCEEDED', details)
+      }
       const journal = ptRevenueJournalWrite({ recognition: value, contract, sessionId, actorUid })
       writes.push({ type: 'create', reference, data: { ...value, journalEntryId: journalReference.id } },
         { type: 'create', reference: journalReference, data: journal })
       outcome.entryId = reference.id
       outcome.journalId = journalReference.id
       outcome.createdRevenue = value.revenueImpact
+      outcome.createdServiceOrdinal = serviceOrdinal
     }
   } else if (value) {
     const originalInstant = requestInstant(value.effectiveAt)
@@ -2987,15 +3001,23 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
       const recognitionPlans = []
       const pendingRecognitionByContract = new Map()
       for (const [index, session] of sessions.entries()) {
-        const pendingRecognizedRevenue = pendingRecognitionByContract.get(session.data.contractId) || 0
+        const pendingRecognition = pendingRecognitionByContract.get(session.data.contractId)
+          || { recognizedRevenue: 0, revenueBySession: new Map(), revenueByOrdinal: new Map() }
         const plan = await teachingRecognitionPlan({
           transaction, db, session, attendance: attendanceSnapshots[index].data?.() || {}, attendanceEventId: attendanceReferences[index].id,
           target: { ...session.data, date: targetDate, trainerId: targetTrainerId, branchId: targetBranchId,
             attendanceStatus: session.item.attendanceStatus || attendanceSnapshots[index].data?.()?.attendanceStatus || session.data.attendanceStatus || 'pending' },
-          actorUid: actor.uid, reason, pendingRecognizedRevenue,
+          actorUid: actor.uid, reason, pendingRecognition,
         })
         recognitionPlans.push(plan)
-        pendingRecognitionByContract.set(session.data.contractId, pendingRecognizedRevenue + (plan.createdRevenue || 0))
+        if (plan.createdRevenue) {
+          pendingRecognition.recognizedRevenue += plan.createdRevenue
+          pendingRecognition.revenueBySession.set(session.id, plan.createdRevenue)
+          const ordinalSessions = pendingRecognition.revenueByOrdinal.get(plan.createdServiceOrdinal) || new Map()
+          ordinalSessions.set(session.id, plan.createdRevenue)
+          pendingRecognition.revenueByOrdinal.set(plan.createdServiceOrdinal, ordinalSessions)
+        }
+        pendingRecognitionByContract.set(session.data.contractId, pendingRecognition)
       }
       if (!scheduleChanged && !attendanceChanged && recognitionPlans.every((plan) => plan.writes.length === 0)) {
         return { unchanged: true, revisions: Object.fromEntries(sessions.map((session) => [session.id, Number(session.data.revision || 0)])), invalidatedPayrollPeriods: [] }

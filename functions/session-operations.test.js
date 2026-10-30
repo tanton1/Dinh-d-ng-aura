@@ -310,6 +310,62 @@ test('one correction transaction never releases the same contract advance twice'
   assert.equal(revenues.reduce((sum, value) => sum + value.receivableImpact, 0), 100_000)
 })
 
+for (const scenario of [
+  { name: 'another session already owns the service ordinal', issueCode: 'RECOGNITION_SERVICE_ORDINAL_COLLISION',
+    existing: { sessionId: 'other-session', serviceOrdinal: 2, amount: 100_000 } },
+  { name: 'the same session already has revenue under a legacy ID', issueCode: 'RECOGNITION_SESSION_ALREADY_RECOGNIZED',
+    existing: { sessionId: 'revenue-session', serviceOrdinal: 1, amount: 100_000 } },
+  { name: 'old denominator pricing leaves less than the proposed session value', issueCode: 'RECOGNITION_CONTRACT_VALUE_EXCEEDED',
+    existing: { sessionId: 'other-session', serviceOrdinal: 1, serviceTotal: 1, amount: 175_000 } },
+]) test(`admin correction keeps attendance but queues revenue review when ${scenario.name}`, async () => {
+  const state = revenueCorrectionState({
+    'ledgerEntries/legacy-revenue': { type: 'revenue_recognition', status: 'posted', contractId: 'contract-1', ...scenario.existing },
+  })
+  await state.correctTeachingShift(revenueCorrection())
+  assert.equal(state.read('sessions/revenue-session').attendanceStatus, 'present')
+  assert.equal(state.read('attendanceEvents/revenue-session').confirmationSource, 'admin_correction')
+  assert.equal(state.read('sessions/revenue-session').recognitionReviewRequired, true)
+  assert.equal(state.read('attendanceEvents/revenue-session').recognitionReviewIssueCode, scenario.issueCode)
+  assert.equal(state.read('revenueRecognitionReviews/revenue-session').status, 'open')
+  assert.equal(state.read('revenueRecognitionReviews/revenue-session').issueCode, scenario.issueCode)
+  assert.equal(state.paths().filter((path) => path.startsWith('ledgerEntries/')).length, 1)
+  assert.equal(state.paths().filter((path) => path.startsWith('journalEntries/')).length, 0)
+  await state.correctTeachingShift(revenueCorrection(1))
+  assert.equal(state.paths().filter((path) => path.startsWith('ledgerEntries/')).length, 1)
+})
+
+test('fully reversed session revenue frees its ordinal while replacement revenue is counted once', async () => {
+  const state = revenueCorrectionState({
+    'ledgerEntries/old': { type: 'revenue_recognition', status: 'reversed', contractId: 'contract-1', sessionId: 'old-session', serviceOrdinal: 2, amount: 100_000 },
+    'ledgerEntries/undo': { type: 'adjustment', status: 'posted', contractId: 'contract-1', reversedEntryId: 'old', revenueImpact: -100_000 },
+    'ledgerEntries/replacement': { type: 'revenue_recognition', status: 'posted', contractId: 'contract-1', sessionId: 'replacement-session', serviceOrdinal: 1, amount: 100_000 },
+  })
+  await state.correctTeachingShift(revenueCorrection())
+  assert.equal(state.read('ledgerEntries/pt_session_revenue-session').revenueImpact, 100_000)
+  assert.equal(state.read('ledgerEntries/pt_session_revenue-session').receivableImpact, 100_000)
+  assert.equal(state.read('sessions/revenue-session').recognitionReviewRequired, false)
+  assert.equal(state.read('revenueRecognitionReviews/revenue-session'), undefined)
+})
+
+for (const sameOrdinal of [true, false]) test(`paired correction accounts for pending ${sameOrdinal ? 'ordinal ownership' : 'revenue limit'} before creating another entry`, async () => {
+  const state = revenueCorrectionState({
+    ...(!sameOrdinal ? { 'ledgerEntries/existing-adjustment': { type: 'adjustment', status: 'posted', contractId: 'contract-1', revenueImpact: 75_000 } } : {}),
+    'sessions/revenue-second': { status: 'scheduled', billingStatus: 'charged', attendanceStatus: 'pending', attendanceEventId: 'revenue-second',
+      studentId: 'student-1', trainerId: 'trainer-1', contractId: 'contract-1', branchId: 'branch-1', date: '2026-08-18', hour: 8, revision: 0, serviceOrdinal: sameOrdinal ? 2 : 1 },
+    'attendanceEvents/revenue-second': { sessionId: 'revenue-second', studentId: 'student-1', contractId: 'contract-1', trainerId: 'trainer-1',
+      attendanceStatus: 'pending', billingStatus: 'charged', serviceOrdinal: sameOrdinal ? 2 : 1 },
+  })
+  await state.correctTeachingShift(revenueCorrection(0, { items: [
+    { sessionId: 'revenue-session', expectedRevision: 0, attendanceStatus: 'present' },
+    { sessionId: 'revenue-second', expectedRevision: 0, attendanceStatus: 'present' },
+  ] }))
+  assert.equal(state.read('ledgerEntries/pt_session_revenue-session').revenueImpact, 100_000)
+  assert.equal(state.read('ledgerEntries/pt_session_revenue-second'), undefined)
+  assert.equal(state.read('sessions/revenue-second').attendanceStatus, 'present')
+  assert.equal(state.read('revenueRecognitionReviews/revenue-second').issueCode,
+    sameOrdinal ? 'RECOGNITION_SERVICE_ORDINAL_COLLISION' : 'RECOGNITION_CONTRACT_VALUE_EXCEEDED')
+})
+
 test('same-month date and trainer corrections append balanced reversal/replacement and later attendance follows the replacement', async () => {
   const state = revenueCorrectionState()
   await state.correctTeachingShift(revenueCorrection())

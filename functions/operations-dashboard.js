@@ -3,6 +3,7 @@ const { HttpsError } = require('firebase-functions/v2/https')
 const { trustedAccessContext, requireCapability } = require('./identity-access')
 const { createSharedDashboardCache, stableDashboardCacheKey } = require('./operations-dashboard-cache')
 const { loadDailyAggregates } = require('./operations-dashboard-aggregates')
+const { ledgerReceiptImpact } = require('./finance-receipt-impact')
 const { overlayContractUsageViews } = require('./contract-usage-view')
 const { normalizeReviewSlaMinutes, reviewTimestampMillis } = require('./review-sla')
 const { cacheScope } = require('./process-cache')
@@ -123,15 +124,6 @@ function contractDebt(value) {
 function collectibleContractDebt(value) {
   if (['draft', 'cancelled', 'inactive', 'archived'].includes(value.status)) return 0
   return contractDebt(value)
-}
-
-function ledgerReceiptImpact(value) {
-  if (!['payment', 'refund', 'reversal', 'adjustment'].includes(value.type)) return 0
-  if (value.cashImpact !== undefined && value.cashImpact !== null && Number.isFinite(Number(value.cashImpact))) {
-    return Number(value.cashImpact)
-  }
-  const amount = Number(value.amount || 0)
-  return Number.isFinite(amount) ? amount : 0
 }
 
 function ledgerRevenueImpact(value) {
@@ -844,7 +836,7 @@ function createOperationsDashboardFunctions({
     const canAggregateOperations = permissions.operations && scope.unrestricted
     const [ledger, sessionRange, confirmedSessionRange, noShowSessionRange, attendanceRange, todaySessions, contracts, students, trainers, staff, branches, offRequests, renewalAction, scheduleAction, nutritionAction] = await Promise.all([
       permissions.finance && !dailyAggregate ? readDashboardQuery(db.collection('ledgerEntries').where('effectiveAt', '>=', startTimestamp).where('effectiveAt', '<=', endTimestamp).orderBy('effectiveAt', 'desc'), branchScope, MAX_SCANNED_DOCUMENTS,
-        ['branchId', 'status', 'type', 'amount', 'cashImpact', 'revenueImpact', 'effectiveAt']) : null,
+        ['branchId', 'status', 'type', 'source', 'eventClass', 'amount', 'cashImpact', 'revenueImpact', 'expenseImpact', 'effectiveAt']) : null,
       permissions.operations && !dailyAggregate ? (canAggregateOperations ? sessionRangeQuery.count().get() : readDashboardQuery(sessionRangeQuery, operationScope, MAX_SCANNED_DOCUMENTS, ['branchId', 'trainerId', 'status'])) : null,
       permissions.operations && !dailyAggregate && canAggregateOperations ? confirmedSessionRangeQuery.count().get() : null,
       permissions.operations && !dailyAggregate && canAggregateOperations ? noShowSessionRangeQuery.count().get() : null,
