@@ -22,7 +22,9 @@ async function replacement(page: Page, old: number) {
 }
 async function noOldData(page: Page, historyStart: number) {
   await expect.poll(() => page.evaluate(() => window.__legacy.snapshot.branches)).toEqual([])
-  expect(await page.evaluate(start => window.__legacy.renders.slice(start).map(item => item.branches), historyStart)).not.toContainEqual(['Old branch'])
+  const commits = await page.evaluate(start => window.__legacy.renders.slice(start).map(({ branches, actualUid, contextUid, authzReady, authzVersion }) => ({ branches, actualUid, contextUid, authzReady, authzVersion })), historyStart)
+  expect(commits.length).toBeGreaterThan(0)
+  expect(commits.filter(item => item.branches.includes('Old branch')), 'Committed old data after the transition, including its actual/context owner').toEqual([])
 }
 async function lateDelivery(page: Page, old: number) {
   await page.evaluate(index => { window.__legacy.emit(index, 'Late old branch'); window.__legacy.fail(index) }, old)
@@ -37,8 +39,7 @@ async function freeze(page: Page) {
 test('changing admin owner replaces same-route listeners and masks old data on every committed render', async ({ page }) => {
   const old = await open(page)
   await seed(page, old)
-  const start = await page.evaluate(() => window.__legacy.renders.length)
-  await page.evaluate(() => window.__legacy.owner('admin-b'))
+  const start = await page.evaluate(() => { const start = window.__legacy.renders.length; window.__legacy.owner('admin-b'); return start })
   const next = await replacement(page, old)
   await noOldData(page, start)
   await lateDelivery(page, old)
@@ -48,8 +49,7 @@ test('changing admin owner replaces same-route listeners and masks old data on e
 test('a new Firebase owner object with the same UID starts a fresh data scope', async ({ page }) => {
   const old = await open(page)
   await seed(page, old)
-  const start = await page.evaluate(() => window.__legacy.renders.length)
-  await page.evaluate(() => window.__legacy.owner('admin-a', false))
+  const start = await page.evaluate(() => { const start = window.__legacy.renders.length; window.__legacy.owner('admin-a', false); return start })
   const next = await replacement(page, old)
   await noOldData(page, start)
   await lateDelivery(page, old)
@@ -61,17 +61,21 @@ test('actual Firebase owner changing before AuthContext hydration blocks queued 
   const old = await open(page)
   await seed(page, old)
   const before = await count(page)
-  const start = await page.evaluate(() => window.__legacy.renders.length)
-  await page.evaluate(index => {
+  const start = await page.evaluate(index => {
+    // Capture the history boundary in the transition's task; a pending old-owner
+    // consumer effect can commit between two separate page.evaluate calls.
+    const start = window.__legacy.renders.length
     window.__legacy.saveRefresh()
     window.__legacy.owner('admin-b', false)
     // Same JavaScript task, before React has rendered the new owner.
     window.__legacy.emit(index, 'Immediate stale branch')
     window.__legacy.fail(index)
     window.__legacy.savedRefresh()
+    return start
   }, old)
   await expect.poll(() => page.evaluate(() => window.__legacy.listeners.filter(item => item.active).length)).toBe(0)
   await noOldData(page, start)
+  expect(await page.evaluate(start => window.__legacy.renders.slice(start).every(item => item.actualUid === 'admin-b' && item.contextUid === 'admin-a'), start)).toBe(true)
   await page.clock.runFor(20_000)
   expect(await count(page)).toBe(before)
   expect(await page.evaluate(start => window.__legacy.renders.slice(start).some(item => item.branches.includes('Immediate stale branch')), start)).toBe(false)
@@ -98,8 +102,7 @@ test('signing out clears visible data and old callbacks cannot restart reads', a
 test('authzReady=false immediately masks data, closes reads and defers fresh listeners until ready', async ({ page }) => {
   const old = await open(page)
   await seed(page, old)
-  const start = await page.evaluate(() => window.__legacy.renders.length)
-  await page.evaluate(() => window.__legacy.ready(false))
+  const start = await page.evaluate(() => { const start = window.__legacy.renders.length; window.__legacy.ready(false); return start })
   await expect.poll(() => page.evaluate(() => window.__legacy.listeners.filter(item => item.active).length)).toBe(0)
   await noOldData(page, start)
   expect(await page.evaluate(() => window.__legacy.snapshot.sync.status)).toBe('loading')
@@ -117,8 +120,7 @@ for (const [name, patch] of [
   test(`changing ${name} clears previous data and replaces listeners`, async ({ page }) => {
     const old = await open(page)
     await seed(page, old)
-    const start = await page.evaluate(() => window.__legacy.renders.length)
-    await page.evaluate(patch => window.__legacy.access(patch), patch)
+    const start = await page.evaluate(patch => { const start = window.__legacy.renders.length; window.__legacy.access(patch); return start }, patch)
     const next = await replacement(page, old)
     await noOldData(page, start)
     await lateDelivery(page, old)

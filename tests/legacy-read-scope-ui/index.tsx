@@ -12,10 +12,13 @@ function Consumer() {
     state.effectRuns += 1
     if (state.effectRuns <= 40) setDerivedRevision(value => value + 1)
   }, references)
-  state.snapshot = { branches: branches.map(item => item.name), trainers: trainers.map(item => item.name), packages: packages.map(item => item.name), students: students.map(item => item.name), rows: references.filter(Array.isArray).flatMap(items => items.map(item => item.id)), configRevision: database.scheduleConfig.revision ?? null, sync: operationsSync, references: references.map(identity), derivedRevision }
-  useLayoutEffect(() => { state.renders.push({ ...state.snapshot, ...state.authState() }) })
+  const snapshot = { branches: branches.map(item => item.name), trainers: trainers.map(item => item.name), packages: packages.map(item => item.name), students: students.map(item => item.name), rows: references.filter(Array.isArray).flatMap(items => items.map(item => item.id)), configRevision: database.scheduleConfig.revision ?? null, sync: operationsSync, references: references.map(identity), derivedRevision }
+  useLayoutEffect(() => {
+    state.snapshot = snapshot
+    state.renders.push({ ...snapshot, ...state.authState() })
+  })
   state.refresh = refreshData
-  return <output>{JSON.stringify(state.snapshot)}</output>
+  return <output>{JSON.stringify(snapshot)}</output>
 }
 const identities = new WeakMap<object, number>()
 let nextIdentity = 0
