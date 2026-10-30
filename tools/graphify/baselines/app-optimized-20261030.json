@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-30",
+  "sourceCommit": "12f22c37f2ed702dfab36c1b0cf24972b6a15945",
+  "graphifyVersion": "0.9.97",
+  "mode": "local-code-only-no-dedup-no-llm-labels",
+  "sourceFingerprint": "6a764a03dde3441807eb6ed8d74ad832cf37097d7b7522af22a2df2447c9c1cf",
+  "graphSha256": "52e730d99861481a11e2a2f5b9e8a4ae4eb7dd8937150186fd72af22037bcc76",
+  "structure": {
+    "sourceFiles": 552,
+    "nodes": 7396,
+    "edges": 20903,
+    "importEdges": 1441,
+    "importCycleCandidates": 0
+  },
+  "callableCoverage": {
+    "frontendFiles": 424,
+    "uiModules": 185,
+    "backendFiles": 128,
+    "importEdges": 1063,
+    "callableSites": 352,
+    "directTransportSites": 137,
+    "staticCallableCandidates": 352,
+    "candidatesMatchingBackendExports": 348,
+    "parameterizedOrUnresolvedSites": 49,
+    "backendExportNames": 569,
+    "backendExportsWithoutResolvedFrontendReference": 221,
+    "unresolvedExportSpreads": 0,
+    "unresolvedComputedExports": 0,
+    "unresolvedDynamicImports": 1,
+    "wrapperDiscoveryPasses": 4
+  },
+  "interpretation": [
+    "The final source contents match the graph fingerprint; commits created after extraction contain these same source files.",
+    "Two reviewed runtime cycle groups and four type-only cycle groups were removed; static imports now report zero cycle candidates.",
+    "Four reporting endpoints are additive; no existing endpoint was deleted.",
+    "Static references do not establish production usage or billed cost."
+  ],
+  "validation": {
+    "backendUnitTestsPassed": 1594,
+    "frontendUnitTestsPassed": 440,
+    "reportingBrowserTestsPassed": 5,
+    "scheduleRegressionTestsPassed": 5,
+    "journeyBrowserScenariosPassed": 33,
+    "finalCacheAndReportingTestsPassed": 24,
+    "queueEmulatorTestsPassed": 3,
+    "buildPassed": true,
+    "performanceBudgetsPassed": true,
+    "productionDeployed": false
+  }
+}

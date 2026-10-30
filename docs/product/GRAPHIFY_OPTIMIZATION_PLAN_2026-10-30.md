@@ -2,6 +2,16 @@
 
 Ngày 30/10/2026. Ưu tiên tiếp theo là giảm dữ liệu đọc ở các màn hình còn lấy tập lớn, đo chi phí theo thao tác và làm rõ phụ thuộc backend. Graphify đã được tích hợp vào công cụ phát triển để hỗ trợ truy vết trước mỗi thay đổi. Việc cài công cụ không tự làm giảm hóa đơn Firebase; mức tiết kiệm phải đo sau từng thay đổi nghiệp vụ.
 
+## Bản triển khai cải thiện toàn app
+
+Nhánh `codex/app-optimization-20261030` bổ sung báo cáo Academy và công nợ theo trang, cache tổng hợp dùng chung và trạng thái chưa đầy đủ; bỏ các listener toàn bộ enrollments/progress và nguồn danh bạ legacy trên màn tài chính. Hai vòng runtime hợp đồng/loyalty và các vòng type Academy/PT/finance/nutrition được tách mà giữ API tương thích. Mỗi endpoint mới kiểm tra quyền trước khi đọc cache.
+
+Luồng tái ký giải thích kích hoạt/chuyển buổi và giữ yêu cầu chưa rõ kết quả để đối soát trước khi gửi lại. Ảnh AI hiện thời gian chờ không polling; số liệu chỉnh sửa đi cùng lần lưu bữa ăn hiện có. Onboarding đưa thói quen tùy chọn xuống sau thông tin cốt lõi, vẫn yêu cầu trả lời sức khỏe; buổi tập phân biệt bản nháp và xác nhận lưu. Báo cáo tiến độ có đường mở nhật ký/lịch để bổ sung ghi nhận.
+
+Số đo mới lấy mẫu, không tạo thêm document cho mỗi read. Cách thu baseline, giới hạn quét 25.000 bản ghi mỗi nguồn, thứ tự phân trang công nợ và trình tự deploy nằm trong [hướng dẫn vận hành](../operations/OBSERVABILITY.md#operation-baseline-and-reporting-rollout-2026-10-30). Không coi bản triển khai local là đã rollout production hoặc đã đạt mức tiết kiệm cụ thể. Không xóa endpoint, mở các trang Academy đang ẩn, tăng quota AI hay bật Phòng tập ảo trong bản này.
+
+[Snapshot sau điều chỉnh](../../tools/graphify/baselines/app-optimized-20261030.json) ghi nhận 552 file nguồn, không còn ứng viên vòng import trong phạm vi graph và 569 export backend (thêm bốn API báo cáo, không xóa endpoint cũ). Kiểm tra cuối: 1.594 test backend, 440 test frontend, 5 kịch bản báo cáo, 5 hồi quy xếp lịch và 33 kịch bản hành trình đạt; build và toàn bộ budget hiệu năng đạt. Kiểm thử Firestore xác nhận tổng hợp trên 11.002 bản ghi, cache dùng chung, snapshot nhất quán và làm mới sau thanh toán không nhận bản cũ công bố muộn. Thử tải queue 30 học viên với provider giả đạt; chưa suy ra tốc độ provider thật hay mức giảm hóa đơn.
+
 ## Mốc phân tích
 
 Phân tích chính dựa trên [main af311e9](https://github.com/tanton1/Dinh-d-ng-aura/tree/af311e9c144b2d2318fb0a4c751f1c1082c09c2d), gồm thay đổi hàng đợi ảnh dinh dưỡng đã merge. Bản này được tách khỏi checkout đang có nhiều thay đổi chưa commit. Graph của hai bản lưu riêng; kết luận dưới đây dùng main.

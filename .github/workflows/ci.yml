@@ -35,6 +35,8 @@ jobs:
         run: npm --prefix functions ci
       - name: Run web unit and contract tests
         run: npm run test:profile-sync
+      - name: Verify bounded reports, anonymous metrics and recoverable journeys
+        run: npm run test:app-optimization
       - name: Validate cookbook sources and catalog
         run: npm run test:cooking
       - name: Test callable inventory coverage
@@ -133,12 +135,12 @@ jobs:
       - name: Test production branch scheduling workspace
         if: matrix.project == 'chromium'
         run: npm run test:schedule-ui
-      - name: Test contract renewal quote and confirmation flow
+      - name: Test renewal, food queue and workout recovery
         if: matrix.project == 'chromium'
-        run: npm run test:renewal-ui -- --project=renewal-chromium
-      - name: Test contract renewal on mobile Safari
+        run: npm run test:journeys-ui -- --project=renewal-chromium
+      - name: Test renewal, food queue and workout recovery on mobile Safari
         if: matrix.project == 'mobile-webkit'
-        run: npm run test:renewal-ui -- --project=renewal-mobile-webkit
+        run: npm run test:journeys-ui -- --project=renewal-mobile-webkit
       - name: Test bounded loyalty pages and fresh balances
         if: matrix.project == 'chromium'
         run: npm run test:loyalty-operations-ui -- --project=loyalty-chromium
@@ -269,6 +271,9 @@ jobs:
       - name: Verify refresh queue and renewal concurrency
         if: matrix.suite == 'firestore'
         run: npm run test:data-cost-transaction
+      - name: Verify reporting snapshots and shared refresh leases
+        if: matrix.suite == 'firestore'
+        run: npm run test:app-optimization-transaction
 
   academy:
     name: Academy versioned learning
