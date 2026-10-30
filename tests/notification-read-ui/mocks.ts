@@ -33,6 +33,7 @@ export const state = {
   owner: 'admin-a', authzVersion: 1, calls: [] as Call[], held: new Set<string>(new URLSearchParams(location.search).getAll('hold')), pending: [] as Pending[],
   failures: Object.fromEntries(new URLSearchParams(location.search).getAll('fail').map(name => [name, true])) as Record<string, boolean>, subscriptions: [] as Subscription[],
   userStarts: 0, userStops: 0,
+  dispatchRejection: null as { code: string; message: string; details?: object } | null,
   settings: clone(DEFAULT_PUSH_SETTINGS), templates: [makeTemplate('admin-a')],
   release(name: string, owner?: string) {
     const pending = state.pending.filter(item => item.name === name && (!owner || item.owner === owner))
@@ -102,7 +103,9 @@ export async function togglePushTemplateActive(id: string, active: boolean) {
   record('toggleTemplate', { id, active }); if (state.failures.toggleTemplate) throw new Error('Fixture toggleTemplate unavailable'); state.templates = state.templates.map(row => row.id === id ? { ...row, active } : row)
 }
 export async function dispatchAdminPushBroadcast(input: unknown): Promise<PushDispatchResult> {
-  return read('dispatch', { sentCount: 1, webPushSentCount: 1, webPushFailureCount: 0, filteredOutCount: 0, logId: 'fixture-sent' }, input)
+  const result = await read('dispatch', { sentCount: 1, webPushSentCount: 1, webPushFailureCount: 0, filteredOutCount: 0, logId: 'fixture-sent' }, input)
+  if (state.dispatchRejection) throw Object.assign(new Error(state.dispatchRejection.message), state.dispatchRejection)
+  return result
 }
 export function getStoredFcmToken() { return null }
 export async function requestFcmPermissionAndToken() { record('registerDevice'); return 'fixture-only-token' }

@@ -74,6 +74,7 @@ const { trustedAccessContext, requireCapability } = require('./identity-access')
 const { createFinanceLedgerFunctions } = require('./finance-ledger')
 const { createReportingReadFunctions } = require('./reporting-read-runtime')
 const { createPushOverviewReads } = require('./push-overview-reads')
+const { PUSH_ADMISSION_LIMITS, assertPushAdmissionCount, normalizePushRequestedIds, createPushAdmissionBudget, preparePushDevices } = require('./push-broadcast-admission')
 const { createContractSettlementFunctions } = require('./contract-settlement')
 const { autoConfirmOverduePtAttendance, chargeDuePtSessions, createSessionOperationFunctions, remindUnconfirmedPtAttendance } = require('./session-operations')
 const { createPayrollFunctions, priceTeachingSlots, payrollPolicyProfiles, payrollProfile, policySupportsProfile } = require('./payroll')
@@ -2001,6 +2002,7 @@ exports.dispatchPushBroadcast = onCall({
   // requireCaller + hasTrustedRole below still enforce administrator access.
   invoker: 'public',
 }, async (request) => {
+  const checkAdmissionBudget = createPushAdmissionBudget()
   const actorId = requireCaller(request)
   const actorSnapshot = await db.doc(`users/${actorId}`).get()
   const actor = actorSnapshot.data()
@@ -2018,13 +2020,14 @@ exports.dispatchPushBroadcast = onCall({
     ? request.data.category
     : 'general'
   const targetType = request.data?.targetType === 'all' ? 'all' : 'selected'
-  const requestedIds = Array.isArray(request.data?.targetUserIds)
-    ? [...new Set(request.data.targetUserIds
-      .filter((value) => typeof value === 'string' && value.trim() && !value.includes('/'))
-      .map((value) => value.trim()))].slice(0, 1000)
-    : []
-  if (targetType !== 'all' && !requestedIds.length) {
-    throw new HttpsError('invalid-argument', 'Cần chọn ít nhất một người nhận.')
+  const requestedIds = normalizePushRequestedIds(request.data)
+  checkAdmissionBudget()
+  // Category IDs still come from the legacy browser directory. Refuse a
+  // possibly truncated group until server-prepared audiences replace it.
+  if (request.data?.targetType === 'category') {
+    const directory = await db.collection('users').select().limit(PUSH_ADMISSION_LIMITS.directoryProfiles + 1).get()
+    assertPushAdmissionCount(directory.docs.length, PUSH_ADMISSION_LIMITS.directoryProfiles, 'DIRECTORY_LIMIT')
+    checkAdmissionBudget()
   }
 
   // The only preference bypass allowed is an administrator testing their own
@@ -2035,8 +2038,10 @@ exports.dispatchPushBroadcast = onCall({
     && requestedIds[0] === actorId
 
   const profileSnapshots = targetType === 'all'
-    ? (await db.collection('users').limit(2000).get()).docs
+    ? (await db.collection('users').select('role', 'disabled', 'status', 'notificationSettings').limit(PUSH_ADMISSION_LIMITS.allProfiles + 1).get()).docs
     : await db.getAll(...requestedIds.map((userId) => db.doc(`users/${userId}`)))
+  if (targetType === 'all') assertPushAdmissionCount(profileSnapshots.length, PUSH_ADMISSION_LIMITS.allProfiles, 'POPULATION_LIMIT')
+  checkAdmissionBudget()
   const existingProfiles = profileSnapshots
     .filter((snapshot) => snapshot.exists)
     .map((snapshot) => ({ userId: snapshot.id, profile: snapshot.data() }))
@@ -2053,6 +2058,10 @@ exports.dispatchPushBroadcast = onCall({
   const eligibleUserIds = eligibleProfiles.map(({ userId }) => userId)
   const consideredProfileCount = targetType === 'all' ? audienceProfiles.length : profileSnapshots.length
   const filteredOutCount = consideredProfileCount - eligibleUserIds.length
+  // Finish every bounded admission read before inbox, FCM, token cleanup or
+  // broadcast-log writes. Rejections never report a partially delivered send.
+  const devices = await preparePushDevices({ db, eligibleUserIds, checkBudget: checkAdmissionBudget })
+  checkAdmissionBudget()
   const logReference = db.collection('system').doc('push_broadcast_logs').collection('logs').doc()
 
   for (let offset = 0; offset < eligibleUserIds.length; offset += 400) {
@@ -2072,21 +2081,6 @@ exports.dispatchPushBroadcast = onCall({
       })
     }
     await batch.commit()
-  }
-
-  const devices = []
-  for (let offset = 0; offset < eligibleUserIds.length; offset += 30) {
-    const userIdChunk = eligibleUserIds.slice(offset, offset + 30)
-    if (!userIdChunk.length) continue
-    const snapshot = await db.collectionGroup('devices')
-      .where('userId', 'in', userIdChunk)
-      .get()
-    snapshot.docs.forEach((device) => {
-      const data = device.data()
-      const token = data.token
-      if (data.enabled === false) return
-      if (typeof token === 'string' && token) devices.push({ token, reference: device.ref })
-    })
   }
 
   let webPushSentCount = 0

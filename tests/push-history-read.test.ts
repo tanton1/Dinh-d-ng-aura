@@ -2,13 +2,14 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { build } from 'esbuild'
 
-async function harness(databaseAvailable = true, demo = false) {
+async function harness(databaseAvailable = true, demo = false, functionsAvailable = true) {
   const state = { auth: { currentUser: { uid: 'admin-a' } as object | null }, rows: [] as any[], reads: [] as any[], failure: null as Error | null,
     defer: false, pending: [] as Array<() => void>, overview: {} as any, overviewRequests: [] as any[], databaseAvailable, serverSettingsReads: 0,
     cachedSettings: null as any, serverSettingsFailure: null as Error | null, defaultDocumentReads: 0,
-    writes: [] as any[], writeFailure: null as Error | null, documents: new Map<string, any>(), localCache: new Map<string, string>(), serverQueryReads: 0, serverQueryFailure: null as Error | null }
+    writes: [] as any[], writeFailure: null as Error | null, documents: new Map<string, any>(), localCache: new Map<string, string>(), serverQueryReads: 0, serverQueryFailure: null as Error | null,
+    functionsAvailable, callableFailure: null as Error | null, dispatchRequests: [] as any[] }
   ;(globalThis as any).__pushHistoryRead = state
-  const result = await build({ stdin: { contents: `export { getPushBroadcastLogsPage, getPushBroadcastLogs, getPushAdminOverview, getPushAutomationLogs, getSystemPushSettings, getPushTemplates, savePushTemplate, deletePushTemplate, togglePushTemplateActive, DEFAULT_PUSH_TEMPLATES } from './src/services/notificationService'`, resolveDir: process.cwd() }, bundle: true, write: false, platform: 'node', format: 'esm',
+  const result = await build({ stdin: { contents: `export { dispatchAdminPushBroadcast, getPushBroadcastLogsPage, getPushBroadcastLogs, getPushAdminOverview, getPushAutomationLogs, getSystemPushSettings, getPushTemplates, savePushTemplate, deletePushTemplate, togglePushTemplateActive, DEFAULT_PUSH_TEMPLATES } from './src/services/notificationService'; export { filterAudienceUsers } from './src/pages/admin/push/pushTypes'`, resolveDir: process.cwd() }, bundle: true, write: false, platform: 'node', format: 'esm',
     define: { 'import.meta.env': JSON.stringify({ MODE: 'production', VITE_FORCE_DEMO: demo ? 'true' : 'false' }) },
     plugins: [{ name: 'push-read-fakes', setup(builder) {
       builder.onResolve({ filter: /^(firebase\/(firestore|functions))$|lib\/firebase(?:Firestore|Functions)?$|lib\/safeStorage$/ }, args => ({ path: args.path, namespace: 'push-read-fakes' }))
@@ -40,9 +41,9 @@ async function harness(databaseAvailable = true, demo = false) {
           export const updateDoc = async (ref,value) => { s.writes.push({ kind: 'update', ref, value }); if (s.writeFailure) throw s.writeFailure; if (!s.documents.has(ref.path)) throw Error('not-found'); s.documents.set(ref.path, { ...s.documents.get(ref.path), ...value }); };
           export const deleteDoc = async ref => { s.writes.push({ kind: 'delete', ref }); if (s.writeFailure) throw s.writeFailure; s.documents.delete(ref.path); };
           export const writeBatch = () => { throw Error('Unexpected batch write'); };
-        ` : path === 'firebase/functions' ? `export const httpsCallable = () => async input => { s.overviewRequests.push(input); return { data: s.overview }; };`
+        ` : path === 'firebase/functions' ? `export const httpsCallable = (_,name) => async input => { if (name === 'dispatchPushBroadcast') { s.dispatchRequests.push(input); if(s.callableFailure) throw s.callableFailure; } else { s.overviewRequests.push(input); } return { data: s.overview }; };`
           : path.endsWith('/firebaseFirestore') ? 'export const firestoreDb = s.databaseAvailable ? {} : null'
-            : path.endsWith('/firebaseFunctions') ? 'export const firebaseFunctions = {}'
+            : path.endsWith('/firebaseFunctions') ? 'export const firebaseFunctions = s.functionsAvailable ? {} : null'
               : path.endsWith('/safeStorage') ? 'export const safeLocalStorageSet = (key,value) => { s.localCache.set(key,value); }'
                 : 'export const firebaseAuth = s.auth'
       ) }))
@@ -51,6 +52,46 @@ async function harness(databaseAvailable = true, demo = false) {
   const service = await import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString('base64')}#${Math.random()}`)
   return { state, service }
 }
+
+const broadcastInput = { title: 'Draft title', message: 'Draft message', type: 'INFO', category: 'general', targetType: 'category', targetUserIds: ['student-a'], actionUrl: '/home' }
+
+test('production send without Functions never reads or writes Firestore and explicit demo stays local', async () => {
+  const production = await harness(true, false, false)
+  await assert.rejects(production.service.dispatchAdminPushBroadcast(broadcastInput), /Chưa gửi thông báo nào/)
+  assert.equal(production.state.reads.length, 0); assert.equal(production.state.writes.length, 0)
+  assert.equal(production.state.dispatchRequests.length, 0); assert.equal(production.state.localCache.size, 0)
+  const demo = await harness(true, true, true)
+  assert.equal((await demo.service.dispatchAdminPushBroadcast(broadcastInput)).sentCount, 1)
+  assert.equal(demo.state.reads.length, 0); assert.equal(demo.state.writes.length, 0); assert.equal(demo.state.dispatchRequests.length, 0)
+})
+
+test('audience admission failures propagate unchanged with one callable attempt and no fallback effects', async () => {
+  const { state, service } = await harness()
+  for (const reason of ['SELECTED_AUDIENCE_LIMIT', 'POPULATION_LIMIT', 'DIRECTORY_LIMIT', 'DEVICE_LIMIT', 'ADMISSION_TIMEOUT']) {
+    const error = Object.assign(new Error('Chưa gửi thông báo nào; hãy thu hẹp nhóm.'), { code: 'functions/resource-exhausted', details: { reason, noDeliveryStarted: true } })
+    state.callableFailure = error
+    await assert.rejects(service.dispatchAdminPushBroadcast(broadcastInput), actual => actual === error)
+  }
+  assert.equal(state.dispatchRequests.length, 5)
+  assert(state.dispatchRequests.every(input => input === broadcastInput))
+  assert.equal(state.reads.length, 0); assert.equal(state.writes.length, 0); assert.equal(state.localCache.size, 0)
+})
+
+test('existing goal aliases, opt-in groups and Academy meaning are unchanged before selected dispatch', async () => {
+  const { state, service } = await harness()
+  const user = (uid: string, extra: object = {}) => ({ uid, role: 'student', status: 'active', ...extra })
+  const users = [user('lose', { goals: [' GiẢM CÂN '] }), user('gain', { nutritionProfile: { goal: 'muscle_gain' } }), user('maintain', { goals: ['maintenance'] }), user('health', { goals: ['healthy'] }),
+    user('disabled', { status: 'disabled', goals: ['giảm cân'] }), user('staff', { role: 'coach', goals: ['giảm cân'] }),
+    user('master-out', { notificationSettings: { enabled: false } }), user('nutrition-out', { notificationSettings: { mealReminders: false } })]
+  for (const [group, expected] of [['goal_lose_fat', 'lose'], ['goal_gain_muscle', 'gain'], ['goal_maintain', 'maintain'], ['goal_health', 'health']]) {
+    const ids = service.filterAudienceUsers(users, group, '').map((item: any) => item.uid)
+    assert.deepEqual(ids, [expected]); state.overview = { sentCount: 1, webPushSentCount: 0, webPushFailureCount: 0, filteredOutCount: 0, logId: 'log' }
+    await service.dispatchAdminPushBroadcast({ ...broadcastInput, targetUserIds: ids })
+    assert.deepEqual(state.dispatchRequests.at(-1).targetUserIds, [expected])
+  }
+  assert.deepEqual(service.filterAudienceUsers(users, 'academy', '').map((u: any) => u.uid), ['lose', 'gain', 'maintain', 'health', 'master-out', 'nutrition-out'])
+  assert.deepEqual(service.filterAudienceUsers(users, 'pref_nutrition', '').map((u: any) => u.uid), ['lose', 'gain', 'maintain', 'health'])
+})
 
 test('broadcast history pages use stable timestamp/id cursor and return every row beyond 2500', async () => {
   const { state, service } = await harness()
