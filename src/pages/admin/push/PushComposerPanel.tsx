@@ -26,6 +26,7 @@ interface PushComposerPanelProps {
   templates: PushTemplate[]
   draft: PushComposerDraft
   dispatching: boolean
+  audienceLoading?: boolean
   result: PushDispatchResult | null
   error: string
   onDraftChange: (draft: PushComposerDraft) => void
@@ -64,6 +65,7 @@ export function PushComposerPanel({
   templates,
   draft,
   dispatching,
+  audienceLoading = false,
   result,
   error,
   onDraftChange,
@@ -82,7 +84,7 @@ export function PushComposerPanel({
   const isServerResolvedAll = draft.audience === 'all' && allStudents.length === 0
   const hasAudience = isServerResolvedAll || targetUsers.length > 0
   const hasContent = draft.title.trim().length > 0 && draft.message.trim().length > 0
-  const canReview = hasAudience && hasContent && draft.title.length <= 120 && draft.message.length <= 1000
+  const canReview = !audienceLoading && hasAudience && hasContent && draft.title.length <= 120 && draft.message.length <= 1000
 
   const updateDraft = <K extends keyof PushComposerDraft>(key: K, value: PushComposerDraft[K]) => {
     onDraftChange({ ...draft, [key]: value })

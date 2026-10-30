@@ -92,6 +92,7 @@ export function PushTemplateDrawer({
           </div>
           <button type="button" className="push-icon-button" onClick={onClose} aria-label="Đóng thư viện mẫu"><X size={21} /></button>
         </header>
+        {error && <div className="push-alert push-alert--error" role="alert">{error}</div>}
 
         {editing ? (
           <div className="push-template-editor">
@@ -148,7 +149,6 @@ export function PushTemplateDrawer({
               <input type="checkbox" checked={editing.active} onChange={(event) => updateEditing('active', event.target.checked)} />
               <span>Cho phép sử dụng mẫu này</span>
             </label>
-            {error && <div className="push-alert push-alert--error">{error}</div>}
             <div className="push-drawer__actions">
               <button type="button" className="push-button push-button--ghost" onClick={() => setEditing(null)} disabled={busy}>Hủy</button>
               <button type="button" className="push-button push-button--primary" onClick={saveEditing} disabled={busy || !editing.title.trim() || !editing.message.trim()}>

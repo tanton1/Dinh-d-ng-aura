@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import {
   AlertTriangle,
   Bot,
@@ -13,12 +13,19 @@ import {
 import type { PushAutomationLog, PushBroadcastLog } from '../../../types'
 import { categoryLabel, formatPushTime } from './pushTypes'
 
-type HistoryFilter = 'all' | 'manual' | 'automation' | 'errors'
+export type HistoryFilter = 'all' | 'manual' | 'automation' | 'errors'
 
 interface PushHistoryPanelProps {
   broadcasts: PushBroadcastLog[]
   automations: PushAutomationLog[]
   loading: boolean
+  error: string
+  filter: HistoryFilter
+  onFilterChange: (filter: HistoryFilter) => void
+  hasMore: boolean
+  changed: boolean
+  onLoadMore: () => void
+  onRefresh: () => void
   onReuse: (log: PushBroadcastLog) => void
 }
 
@@ -34,8 +41,7 @@ function timestampNumber(value: unknown) {
   return Number.isNaN(date.getTime()) ? 0 : date.getTime()
 }
 
-export function PushHistoryPanel({ broadcasts, automations, loading, onReuse }: PushHistoryPanelProps) {
-  const [filter, setFilter] = useState<HistoryFilter>('all')
+export function PushHistoryPanel({ broadcasts, automations, loading, error, filter, onFilterChange, hasMore, changed, onLoadMore, onRefresh, onReuse }: PushHistoryPanelProps) {
   const entries = useMemo<HistoryEntry[]>(() => {
     const merged: HistoryEntry[] = [
       ...broadcasts.map((log) => ({ kind: 'manual' as const, id: `manual-${log.id}`, timestamp: log.createdAt, log })),
@@ -61,7 +67,8 @@ export function PushHistoryPanel({ broadcasts, automations, loading, onReuse }: 
         <div>
           <span className="push-section-heading__eyebrow">Nhật ký vận hành</span>
           <h2>Gửi thủ công và tự động hóa</h2>
-          <p>Theo dõi riêng số inbox được tạo, thiết bị được FCM chấp nhận và lỗi phát sinh.</p>
+          <p>Bộ lọc áp dụng cho {broadcasts.length} thông báo đã tải và {automations.length} lần tự động hóa gần nhất.</p>
+          <button type="button" className="push-button push-button--ghost" disabled={loading} onClick={onRefresh}>Làm mới lịch sử</button>
         </div>
         <div className="push-history-filter" role="group" aria-label="Lọc lịch sử thông báo">
           <Filter size={17} aria-hidden="true" />
@@ -71,14 +78,16 @@ export function PushHistoryPanel({ broadcasts, automations, loading, onReuse }: 
             ['automation', 'Tự động'],
             ['errors', 'Có lỗi'],
           ] as Array<[HistoryFilter, string]>).map(([value, label]) => (
-            <button key={value} type="button" className={filter === value ? 'is-active' : ''} onClick={() => setFilter(value)}>
+            <button key={value} type="button" className={filter === value ? 'is-active' : ''} onClick={() => onFilterChange(value)}>
               {label}
             </button>
           ))}
         </div>
       </section>
 
-      {loading ? (
+      {changed && <div className="push-alert" role="status">Lịch sử có thay đổi. Làm mới để cập nhật; các trang đang xem được giữ nguyên.</div>}
+      {error && <div className="push-alert push-alert--warning" role="alert">{error}</div>}
+      {loading && !broadcasts.length && !automations.length ? (
         <div className="push-empty-state"><Clock3 size={28} /><strong>Đang tải lịch sử…</strong></div>
       ) : entries.length === 0 ? (
         <div className="push-empty-state">
@@ -144,6 +153,7 @@ export function PushHistoryPanel({ broadcasts, automations, loading, onReuse }: 
           })}
         </section>
       )}
+      {hasMore && <button type="button" className="push-button push-button--ghost" disabled={loading} onClick={onLoadMore}>{loading ? 'Đang tải…' : 'Tải thêm thông báo'}</button>}
     </div>
   )
 }
