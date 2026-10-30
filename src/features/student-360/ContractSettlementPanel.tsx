@@ -17,6 +17,11 @@ interface Props {
 
 const money = (value: number) => `${value.toLocaleString('vi-VN')}đ`
 const today = () => new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Ho_Chi_Minh' }).format(new Date())
+const validCutoffDate = (value: string) => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
+  const date = new Date(`${value}T00:00:00Z`)
+  return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value && value <= today()
+}
 const blankProposal = (): ContractSettlementProposal => ({ cutoffDate: '', reason: '', waivedFutureAmount: 0, feeAmount: 0, feeReason: '', serviceReductionAmount: 0, serviceReductionReason: '', writeOffAmount: 0, writeOffReason: '', effectiveAt: new Date().toISOString() })
 const errorMessage = (cause: unknown) => cause instanceof Error ? cause.message : 'Chưa tải được quyết toán. Hãy thử lại.'
 const adjustmentFields = [
@@ -71,7 +76,7 @@ function SettlementSession({ contractId, branchId, onChanged }: Props) {
       setData(result)
       if (!initialized.current) {
         initialized.current = true
-        setProposal(current => result.settlement?.proposal || { ...current, cutoffDate: result.preview.cutoffDate || '' })
+        setProposal(current => result.settlement?.proposal || { ...current, cutoffDate: result.preview.cutoffDate || '', reason: result.settlement?.cutoffVerificationReason || current.reason })
       }
     } catch (cause) { if (alive.current && sequence === reads.current) setError(errorMessage(cause)) }
     finally { if (alive.current && sequence === reads.current) setLoading(false) }
@@ -128,9 +133,11 @@ function SettlementSession({ contractId, branchId, onChanged }: Props) {
   }
 
   const command = (action: ContractSettlementCommand['action']) => {
-    if (!data || busy || pendingCommand) return
+    if (!data || busy || loading || pendingCommand) return
+    if (action === 'verify_cutoff' && !canVerifyCutoff) return
     void runCommand({ contractId, action, operationId: crypto.randomUUID(), expectedRevision: data.revision, expectedSnapshotHash: data.preview.snapshotHash,
-      ...(action === 'submit' ? { proposal: { ...proposal, waivedFutureAmount: data.preview.unservedValue, reason: proposal.reason.trim(), effectiveAt: new Date().toISOString() } } : {}) })
+      ...(action === 'submit' ? { proposal: { ...proposal, waivedFutureAmount: data.preview.unservedValue, reason: proposal.reason.trim(), effectiveAt: new Date().toISOString() } }
+        : action === 'verify_cutoff' ? { cutoffDate: proposal.cutoffDate, reason: proposal.reason.trim() } : {}) })
   }
 
   const loadCash = async () => {
@@ -170,7 +177,15 @@ function SettlementSession({ contractId, branchId, onChanged }: Props) {
   const cashLimit = Math.max(due || 0, refund || 0)
   const refunding = (refund || 0) > 0
   const blocked = Boolean(preview?.blockers.length)
-  const fieldsValid = preview && proposal.cutoffDate && proposal.cutoffDate <= today() && proposal.reason.trim().length >= 2
+  // Absence of this response field means an older server: do not expose a
+  // command it does not support or infer confirmation from a preview date.
+  const needsCutoffVerification = editing && preview?.confirmedCutoffDate !== undefined
+    && Boolean(proposal.cutoffDate) && proposal.cutoffDate !== preview.confirmedCutoffDate
+  const cutoffEvidenceBlocked = preview?.blockers.some(item => ['SETTLEMENT_CUTOFF_REQUIRED', 'SETTLEMENT_CUTOFF_INVALID', 'SETTLEMENT_SERVICE_AFTER_CUTOFF', 'SERVICE_AFTER_CUTOFF'].includes(item.code))
+  const canVerifyCutoff = needsCutoffVerification && validCutoffDate(proposal.cutoffDate)
+    && proposal.reason.trim().length >= 2 && proposal.reason.trim().length <= 500
+    && preview?.cutoffDate === proposal.cutoffDate && !cutoffEvidenceBlocked
+  const fieldsValid = preview && validCutoffDate(proposal.cutoffDate) && proposal.reason.trim().length >= 2
     && (!preview.cutoffDate || proposal.cutoffDate === preview.cutoffDate)
     && [preview.unservedValue, proposal.feeAmount, proposal.serviceReductionAmount, proposal.writeOffAmount].every(value => Number.isSafeInteger(value) && value >= 0)
     && proposal.serviceReductionAmount <= serviceRevenue
@@ -204,6 +219,7 @@ function SettlementSession({ contractId, branchId, onChanged }: Props) {
       {editing ? <form onSubmit={event => { event.preventDefault(); if (fieldsValid && !blocked) command('submit') }}>
         <fieldset disabled={disabled}>
           <div className="contract-settlement__form-grid"><label>Ngày nghỉ<input type="date" required max={today()} value={proposal.cutoffDate} onChange={event => { const value = event.target.value; setProposal(current => ({ ...current, cutoffDate: value })); setCutoff(value) }} /></label><label>Lý do nghỉ<textarea required minLength={2} maxLength={500} rows={2} value={proposal.reason} placeholder="Theo thỏa thuận với học viên" onChange={event => setProposal({ ...proposal, reason: event.target.value })} /></label></div>
+          {needsCutoffVerification && <div className="contract-settlement__actions"><button type="button" className="contract-settlement__primary" data-testid="settlement-verify-cutoff" disabled={disabled || !canVerifyCutoff} onClick={() => command('verify_cutoff')}>Xác nhận ngày nghỉ</button><p className="contract-settlement__note">Chỉ lưu ngày nghỉ. Các khoản tiền vẫn cần đối soát trước khi gửi duyệt.</p></div>}
           <p className="contract-settlement__waiver" data-testid="settlement-waiver">Không thu phần chưa tập: <strong>{money(preview.unservedValue)}</strong></p>
           <details className="contract-settlement__details"><summary>Điều chỉnh thêm{adjustments.length > 0 && <span>{adjustments.length} khoản</span>}</summary>
             <div className="contract-settlement__adjustments">{adjustmentFields.map(([amountKey, reasonKey, label]) => <div key={amountKey}><label>{label} (đ)<input type="number" min="0" step="1" required value={proposal[amountKey]} onChange={event => setProposal({ ...proposal, [amountKey]: Number(event.target.value) })} /></label>{proposal[amountKey] > 0 && <label>Lý do {label.toLowerCase()}<input required minLength={2} maxLength={500} value={proposal[reasonKey]} onChange={event => setProposal({ ...proposal, [reasonKey]: event.target.value })} /></label>}</div>)}</div>

@@ -21,6 +21,7 @@ export interface ContractSettlementSummary {
   revision: number
   settlementAmount?: number
   cutoffDate?: string
+  cutoffVerificationReason?: string
   recognizedRevenueAfterAdjustments?: number
 }
 
@@ -28,7 +29,7 @@ export interface ContractSettlementResponse {
   contractId: string
   revision: number
   status: ContractSettlementStatus
-  settlement: (ContractSettlementSummary & { proposal: ContractSettlementProposal }) | null
+  settlement: (ContractSettlementSummary & { proposal?: ContractSettlementProposal | null }) | null
   preview: {
     originalNetValue: number
     canonicalCash: number
@@ -37,6 +38,7 @@ export interface ContractSettlementResponse {
     serviceRecognizedRevenue?: number
     unservedValue: number
     cutoffDate?: string
+    confirmedCutoffDate?: string | null
     blockers: Array<{ code: string; message: string }>
     warnings?: Array<{ code: string; message: string }>
     snapshotHash: string
@@ -49,11 +51,13 @@ export interface ContractSettlementResponse {
 
 export interface ContractSettlementCommand {
   contractId: string
-  action: 'submit' | 'approve' | 'close' | 'withdraw'
+  action: 'submit' | 'approve' | 'close' | 'withdraw' | 'verify_cutoff'
   operationId: string
   expectedRevision: number
   expectedSnapshotHash: string
   proposal?: ContractSettlementProposal
+  cutoffDate?: string
+  reason?: string
 }
 
 export async function getContractSettlement(input: { contractId: string; cutoffDate?: string }): Promise<ContractSettlementResponse> {
