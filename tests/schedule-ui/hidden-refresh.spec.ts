@@ -45,6 +45,50 @@ test('hidden dirty events retain the highest generation and resume exactly once 
   expect((await calls(page)).map(row => row.input.forceRefresh)).toEqual([false])
 })
 
+test('a strictly older dirty marker cannot downgrade a clean newer generation or trigger a read', async ({ page }) => {
+  await open(page)
+  await visibility(page, 'hidden')
+  await dirty(page, [7])
+  await page.evaluate(() => { (window as any).__weeklyViewOverride = { dirtyGeneration: 7 } })
+  await visibility(page, 'visible')
+  await expect.poll(async () => (await calls(page)).length).toBe(1)
+  await expect(page.locator('.branch-schedule__sync')).toHaveText('Trực tiếp')
+  await dirty(page, [4])
+  await expect(page.locator('.branch-schedule__sync')).toHaveText('Trực tiếp')
+  await page.clock.runFor(10_000)
+  expect((await calls(page)).length).toBe(1)
+  await expect(page.locator('.branch-schedule__sync')).toHaveText('Trực tiếp')
+})
+
+for (const cleanGeneration of [7, 6]) test(`first clean generation ${cleanGeneration} ${cleanGeneration === 7 ? 'satisfies' : 'retains'} hidden metadata invalidation 7 before bootstrap`, async ({ page }) => {
+  await page.addInitScript(() => {
+    ;(window as any).__initialWeeklySnapshot = undefined
+    ;(window as any).__scheduleVisibility = 'hidden'
+  })
+  await page.clock.install()
+  await page.clock.pauseAt(new Date())
+  await page.goto('/tests/schedule-ui/index.html')
+  await expect.poll(() => page.evaluate(() => typeof (window as any).__emitScheduleSnapshot)).toBe('function')
+  await dirty(page, [7])
+  await expect(page.locator('.schedule-cell')).toHaveCount(0)
+  expect(await calls(page)).toEqual([])
+  await page.evaluate(async cleanGeneration => {
+    const { weeklyViewFixture } = await import('/tests/schedule-ui/service.ts')
+    const key = [...(window as any).__scheduleListeners.keys()].find((key: string) => key.startsWith('ptScheduleWeeklyViews/')) as string
+    const [branchId, weekId] = key.split('/')[1].split('_')
+    ;(window as any).__weeklyViewOverride = { dirtyGeneration: cleanGeneration }
+    ;(window as any).__emitScheduleSnapshot('ptScheduleWeeklyViews', weeklyViewFixture({ branchId, weekId }))
+  }, cleanGeneration)
+  await expect(page.locator('.branch-schedule__sync')).toHaveText('Trực tiếp')
+  await expect(page.locator('.schedule-cell').filter({ hasText: 'Lan' })).toHaveCount(1)
+  await page.clock.runFor(1_000)
+  expect(await calls(page)).toEqual([])
+  await page.evaluate(() => { (window as any).__weeklyViewOverride = { dirtyGeneration: 7 } })
+  await visibility(page, 'visible')
+  await page.clock.runFor(10_000)
+  expect((await calls(page)).map(row => row.input.forceRefresh)).toEqual(cleanGeneration === 7 ? [] : [false])
+})
+
 test('a hidden retry timer retains intent and the two-attempt budget across repeated resumes', async ({ page }) => {
   await open(page)
   await page.evaluate(() => { (window as any).__weeklyViewError = 'CALLABLE_UNAVAILABLE' })

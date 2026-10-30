@@ -896,6 +896,9 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
             return
           }
           if ((raw.branchId && raw.branchId !== branchId) || (raw.weekId && raw.weekId !== currentWeekId)) return
+          // Reject an old dirty marker before it can downgrade the visible
+          // workspace or disturb the newer pending generation's join timer.
+          if (raw.dirty === true && typeof raw.dirtyGeneration === 'number' && raw.dirtyGeneration < highestDirtyGeneration) return
           window.clearTimeout(controlJoinTimer)
           controlJoinTimer = undefined
           if (raw.controlPending === true && !controlFailed) {
@@ -937,6 +940,12 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
             if (accepted && freshEnough) {
               cancelBootstrap()
               weeklyRefreshPendingRef.current = { scope: listenerScope, pending: false }
+              // A first complete snapshot can paint the workspace, but an
+              // older generation cannot consume a newer deferred invalidation.
+              if (Number(initial.weeklyViewDirtyGeneration ?? 0) >= highestDirtyGeneration) {
+                latestDirtyGeneration = ''
+                clearDirtyRetry()
+              }
             }
             if (!current) {
               setWorkspace(initial)
@@ -970,19 +979,13 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
               setWorkspace(stale)
             }
             if (typeof raw.dirtyGeneration === 'number') {
-              // Out-of-order callbacks must not replace a newer generation
-              // retained while hidden or while its request is still running.
-              if (raw.dirtyGeneration < highestDirtyGeneration) return
               highestDirtyGeneration = raw.dirtyGeneration
               latestDirtyGeneration = `generation:${raw.dirtyGeneration}`
             } else latestDirtyGeneration = `legacy:${String(raw.sourceRevision || '')}:${String(raw.dirtyAt?.seconds ?? raw.dirtyAt ?? '')}:${String(raw.dirtyAt?.nanoseconds ?? '')}`
             refreshDirtyView()
             return
           }
-          if (accepted) {
-            latestDirtyGeneration = ''
-            clearDirtyRetry()
-          } else if (raw.controlPending !== true && serverSnapshot) requestBootstrap()
+          if (!accepted && raw.controlPending !== true && serverSnapshot) requestBootstrap()
           if (!current || current.branch.id !== branchId || current.weekId !== currentWeekId) return
           const revisionValue = Number(raw.draft?.revision ?? raw.draftRevision ?? current.draftRevision)
           if (Number.isFinite(revisionValue) && revisionValue < current.draftRevision) return
