@@ -15,7 +15,7 @@ const { sourceChanged, coalesceProjectionRebuild, upsertChangedTimeline, student
 const { calculateNutritionTargets, canonicalNutritionProfile } = require('./nutrition-core.mjs')
 const { canonicalSessionRows } = require('./session-schedule-normalization')
 const { cacheScope, createProcessCache } = require('./process-cache')
-const { withPrivateFunctionTelemetry } = require('./observability')
+const { withStudent360CallableDiagnostics } = require('./student-360-callable-diagnostics')
 const { recordOperationMetrics } = require('./operation-metrics')
 const { enqueueStudent360Refresh } = require('./student-360-refresh-queue')
 const { enqueueStudent360Source } = require('./student-360-source-queue')
@@ -3084,7 +3084,7 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
     return result
   })
 
-  const getStudent360Overview = readCall(withPrivateFunctionTelemetry('getStudent360Overview', async (request) => {
+  const getStudent360Overview = readCall(withStudent360CallableDiagnostics('getStudent360Overview', async (request) => {
     const actor = await trustedAccessContext(request, db)
     const studentId = documentId(request.data?.studentId)
     const weekId = bounded(request.data?.weekId, 10) || mondayDateKey()
@@ -3109,6 +3109,7 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
 
   const listStudent360Directory = readCall(async (request) => {
     const actor = await trustedAccessContext(request, db)
+    if (request.data?.mode === 'admin') return require('./student-directory-admin').listAdminStudentDirectory({ db, actor, data: request.data })
     if (actor.accessRole === 'student') throw new HttpsError('permission-denied', 'Học viên 360 chỉ dành cho nhân sự Aura.')
     // Search is accent-insensitive so staff can find Vietnamese names from a
     // phone keyboard without switching input method. The source scan remains
@@ -3415,7 +3416,7 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
     return { schemaVersion: 2, studentId, rows: page, hasMore, nextCursor: hasMore ? String(offset + pageSize) : null, truncated: legacy.size >= 30 || current.size >= 30 || checkIns.size >= 30, hasLegacyImages, expiresInSeconds: 300 }
   })
 
-  const refreshStudent360Projection = writeCall(async (request) => {
+  const refreshStudent360Projection = writeCall(withStudent360CallableDiagnostics('refreshStudent360Projection', async (request) => {
     const actor = await trustedAccessContext(request, db)
     const studentId = documentId(request.data?.studentId)
     const existing = await db.doc(`studentOperationalViews/${studentId}`).get()
@@ -3425,7 +3426,7 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
     const projection = await buildStudent360Projection({ db, studentId, weekId: mondayDateKey(), persist: true })
     studentProjectionReadCache.clear(`${cacheScope(db)}|${studentId}|`)
     return { studentId, generatedAt: projection.generatedAt, dataQuality: projection.dataQuality }
-  })
+  }, { logger }))
 
   return { getStudent360Overview, listStudent360Directory, listStudent360Timeline, getStudent360NutritionActivityDetail, createStudentCareActivity, getStudent360ProgressPhotos, saveStudent360ProgressCheckIn, refreshStudent360Projection, getStudent360ContractWorkspace, mutateStudent360Contract }
 }

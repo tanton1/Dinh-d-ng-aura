@@ -8,7 +8,9 @@ const {
   feedbackReviewStatus,
   feedbackSummary,
   normalizedFeedbackInput,
+  createSessionFeedbackFunctions,
 } = require('./session-feedback')
+const { reviewFixture, adminRequest } = require('./test-support/review-query-fixture')
 
 test('feedback is deterministic, bounded and only accepts approved tags', () => {
   assert.equal(feedbackId('session-1', 'student-1'), feedbackId('session-1', 'student-1'))
@@ -90,4 +92,75 @@ test('session feedback callables are statically exported and remain callable-onl
   }
   assert.match(rulesSource, /match \/sessionFeedback\/\{feedbackId\}/)
   assert.match(rulesSource, /match \/sessionFeedbackAuditLogs\/\{logId\}/)
+})
+
+function qualityRows(id, extra = {}) {
+  return { id, sessionId: id, trainerId: 'pt_a', studentId: `student_${id}`, branchId: 'branch_a',
+    sessionDate: '2026-10-31', submittedAt: new Date('2026-11-01T08:00:00+07:00'),
+    status: 'submitted', overallScore: 5, ...extra }
+}
+function attendance(id, extra = {}) {
+  return { id, sessionId: id, trainerId: 'pt_a', branchId: 'branch_a', attendanceStatus: 'present', scheduledAt: new Date('2026-10-31T10:00:00+07:00'), ...extra }
+}
+const qualityInput = { from: '2026-10-01', to: '2026-10-31', trainerId: 'pt_a', branchId: 'branch_a' }
+const qualityHandler = fixture => createSessionFeedbackFunctions({ db: fixture.db, onCall: (_options, handler) => handler }).listTrainerFeedbackAdmin
+
+test('quality uses actual PT and branch attendance for session month, including feedback submitted next month', async () => {
+  const fixture = reviewFixture({
+    sessionFeedback: [qualityRows('s1'), qualityRows('s0', { sessionDate: '2026-09-30', submittedAt: new Date('2026-10-01') })],
+    attendanceEvents: [attendance('s1'), attendance('s2', { trainerId: 'pt_b' }), attendance('s3', { branchId: 'branch_b' }), attendance('s4', { attendanceStatus: 'no_show' })],
+  })
+  const result = await qualityHandler(fixture)(adminRequest(qualityInput))
+  assert.equal(result.summary.total, 1)
+  assert.equal(result.summary.responseCount, 1)
+  assert.equal(result.summary.eligibleAttendanceCount, 1)
+  assert.equal(result.summary.responseRate, 100)
+  assert.equal(result.periodBasis, 'session_date')
+  assert.deepEqual(result.rows.map(row => row.id), ['s1'])
+  for (const query of fixture.queries.filter(query => ['sessionFeedback', 'attendanceEvents'].includes(query.name))) {
+    assert.ok(query.predicates.some(item => item.field === 'trainerId' && item.value === 'pt_a'))
+    assert.ok(query.predicates.some(item => item.field === 'branchId' && item.value === 'branch_a'))
+  }
+})
+
+test('quality filters before page limit and review status never changes the cohort response rate', async () => {
+  const fixture = reviewFixture({
+    sessionFeedback: [...Array.from({ length: 600 }, (_, i) => qualityRows(`other_${i}`, { trainerId: 'pt_b', status: 'resolved' })),
+      qualityRows('s1', { status: 'needs_review', overallScore: 2 }), qualityRows('s2')],
+    attendanceEvents: [attendance('s1'), attendance('s2')],
+  })
+  const result = await qualityHandler(fixture)(adminRequest({ ...qualityInput, status: 'needs_review', score: 2, pageSize: 1 }))
+  assert.equal(result.summary.total, 1)
+  assert.equal(result.summary.responseCount, 2)
+  assert.equal(result.summary.responseRate, 100)
+  assert.equal(result.hasMore, false)
+  assert.deepEqual(result.rows.map(row => row.id), ['s1'])
+})
+
+test('quality deduplicates sessions and marks capped summaries incomplete instead of an official percentage', async () => {
+  const fixture = reviewFixture({ sessionFeedback: [qualityRows('s1'), qualityRows('duplicate', { sessionId: 's1' })], attendanceEvents: [attendance('s1'), attendance('duplicate', { sessionId: 's1' })] })
+  const result = await qualityHandler(fixture)(adminRequest(qualityInput))
+  assert.equal(result.summary.total, 1)
+  assert.equal(result.summary.eligibleAttendanceCount, 1)
+  assert.equal(result.summary.responseRate, 100)
+  fixture.collections.attendanceEvents = Array.from({ length: 5001 }, (_, i) => attendance(`attendance_${i}`))
+  const partial = await qualityHandler(fixture)(adminRequest(qualityInput))
+  assert.equal(partial.attendanceTruncated, true)
+  assert.equal(partial.summary.responseComplete, false)
+  assert.equal(partial.summary.responseRate, null)
+  fixture.collections.sessionFeedback = Array.from({ length: 5001 }, (_, i) => qualityRows(`feedback_${i}`))
+  const feedbackPartial = await qualityHandler(fixture)(adminRequest(qualityInput))
+  assert.equal(feedbackPartial.truncated, true)
+  assert.equal(feedbackPartial.summary.complete, false)
+})
+
+test('quality pagination reaches every matching row and binds cursors to filters and actor', async () => {
+  const fixture = reviewFixture({ sessionFeedback: [qualityRows('s1'), qualityRows('s2'), qualityRows('s3')] })
+  const call = qualityHandler(fixture)
+  const first = await call(adminRequest({ ...qualityInput, pageSize: 2 }))
+  const second = await call(adminRequest({ ...qualityInput, pageSize: 2, cursor: first.nextCursor }))
+  assert.deepEqual([...first.rows, ...second.rows].map(row => row.id), ['s3', 's2', 's1'])
+  assert.equal(second.hasMore, false)
+  await assert.rejects(call(adminRequest({ ...qualityInput, trainerId: 'pt_b', cursor: first.nextCursor })), { code: 'invalid-argument' })
+  await assert.rejects(call({ ...adminRequest({ ...qualityInput, cursor: first.nextCursor }), auth: { uid: 'audit_other', token: { role: 'admin' } } }), { code: 'invalid-argument' })
 })

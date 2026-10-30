@@ -1,0 +1,3152 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-30",
+  "status": "prepared_not_deployed",
+  "projectId": "gen-lang-client-0815966909",
+  "capturedAt": "2026-10-30T15:49:30.860Z",
+  "inventory": {
+    "totalFunctions": 569,
+    "byRegion": {
+      "asia-east1": 149,
+      "asia-southeast1": 385,
+      "asia-southeast2": 35
+    }
+  },
+  "waves": [
+    [
+      "listLoyaltyAccounts",
+      "listLoyaltyAccountsRegional",
+      "syncLoyaltyDashboardStudent",
+      "syncLoyaltyDashboardAccount",
+      "listTrainerFeedbackAdmin",
+      "listTrainerFeedbackAdminRegional",
+      "listStudent360Directory",
+      "listStudent360DirectoryRegional",
+      "listPerformanceReviewQueueV2"
+    ],
+    [
+      "getMyPerformanceScoreV2",
+      "getPerformanceStaffScoreV2",
+      "submitPerformanceBrandEvidenceV2",
+      "withdrawPerformanceBrandEvidenceV2",
+      "reviewPerformanceBrandEvidenceV2",
+      "savePerformanceProfileChecklistV2",
+      "savePerformanceMetricAssessmentV2",
+      "savePerformanceGateAssessmentV2",
+      "refreshPerformanceSnapshotV2",
+      "setPerformanceSnapshotLockV2",
+      "getPayrollRun",
+      "getPayrollRunV2",
+      "reviewPayrollRun",
+      "reviewPayrollRunV2",
+      "lockPayrollRun",
+      "lockPayrollRunV2",
+      "listBusinessPerformance",
+      "listBusinessPerformanceRegional"
+    ],
+    [
+      "dispatchPushBroadcast",
+      "processStudent360SourceQueue",
+      "recoverStudent360SourceQueueScheduled",
+      "rebuildDirtyPtScheduleWeeklyViewsScheduled",
+      "getStudent360Overview",
+      "getStudent360OverviewRegional",
+      "refreshStudent360Projection",
+      "refreshStudent360ProjectionRegional"
+    ]
+  ],
+  "batchSize": 5,
+  "discovery": {
+    "scope": "student360",
+    "networkBlocked": true,
+    "count": 517,
+    "selected": [
+      {
+        "name": "listLoyaltyAccounts",
+        "region": [
+          "asia-southeast1"
+        ],
+        "platform": "gcfv2",
+        "kind": "callable"
+      },
+      {
+        "name": "listLoyaltyAccountsRegional",
+        "region": [
+          "asia-southeast2"
+        ],
+        "platform": "gcfv2",
+        "kind": "callable"
+      },
+      {
+        "name": "syncLoyaltyDashboardStudent",
+        "region": [
+          "asia-southeast2"
+        ],
+        "platform": "gcfv2",
+        "kind": "event"
+      },
+      {
+        "name": "syncLoyaltyDashboardAccount",
+        "region": [
+          "asia-southeast2"
+        ],
+        "platform": "gcfv2",
+        "kind": "event"
+      },
+      {
+        "name": "listTrainerFeedbackAdmin",
+        "region": [
+          "asia-southeast1"
+        ],
+        "platform": "gcfv2",
+        "kind": "callable"
+      },
+      {
+        "name": "listTrainerFeedbackAdminRegional",
+        "region": [
+          "asia-east1"
+        ],
+        "platform": "gcfv2",
+        "kind": "callable"
+      },
+      {
+        "name": "listStudent360Directory",
+        "region": [
+          "asia-southeast1"
+        ],
+        "platform": "gcfv2",
+        "kind": "callable"
+      },
+      {
+        "name": "listStudent360DirectoryRegional",
+        "region": [
+          "asia-east1"
+        ],
+        "platform": "gcfv2",
+        "kind": "callable"
+      },
+      {
+        "name": "listPerformanceReviewQueueV2",
+        "region": [
+          "asia-east1"
+        ],
+        "platform": "gcfv2",
+        "kind": "callable"
+      },
+      {
+        "name": "getMyPerformanceScoreV2",
+        "region": [
+          "asia-east1"
+        ],
+        "platform": "gcfv2",
+        "kind": "callable"
+      },
+      {
+        "name": "getPerformanceStaffScoreV2",
+        "region": [
+          "asia-east1"
+        ],
+        "platform": "gcfv2",
+        "kind": "callable"
+      },
+      {
+        "name": "submitPerformanceBrandEvidenceV2",
+        "region": [
+          "asia-east1"
+        ],
+        "platform": "gcfv2",
+        "kind": "callable"
+      },
+      {
+        "name": "withdrawPerformanceBrandEvidenceV2",
+        "region": [
+          "asia-east1"
+        ],
+        "platform": "gcfv2",
+        "kind": "callable"
+      },
+      {
+        "name": "reviewPerformanceBrandEvidenceV2",
+        "region": [
+          "asia-east1"
+        ],
+        "platform": "gcfv2",
+        "kind": "callable"
+      },
+      {
+        "name": "savePerformanceProfileChecklistV2",
+        "region": [
+          "asia-east1"
+        ],
+        "platform": "gcfv2",
+        "kind": "callable"
+      },
+      {
+        "name": "savePerformanceMetricAssessmentV2",
+        "region": [
+          "asia-east1"
+        ],
+        "platform": "gcfv2",
+        "kind": "callable"
+      },
+      {
+        "name": "savePerformanceGateAssessmentV2",
+        "region": [
+          "asia-east1"
+        ],
+        "platform": "gcfv2",
+        "kind": "callable"
+      },
+      {
+        "name": "refreshPerformanceSnapshotV2",
+        "region": [
+          "asia-east1"
+        ],
+        "platform": "gcfv2",
+        "kind": "callable"
+      },
+      {
+        "name": "setPerformanceSnapshotLockV2",
+        "region": [
+          "asia-east1"
+        ],
+        "platform": "gcfv2",
+        "kind": "callable"
+      },
+      {
+        "name": "getPayrollRun",
+        "region": [
+          "asia-southeast1"
+        ],
+        "platform": "gcfv2",
+        "kind": "callable"
+      },
+      {
+        "name": "getPayrollRunV2",
+        "region": [
+          "asia-east1"
+        ],
+        "platform": "gcfv2",
+        "kind": "callable"
+      },
+      {
+        "name": "reviewPayrollRun",
+        "region": [
+          "asia-southeast1"
+        ],
+        "platform": "gcfv2",
+        "kind": "callable"
+      },
+      {
+        "name": "reviewPayrollRunV2",
+        "region": [
+          "asia-east1"
+        ],
+        "platform": "gcfv2",
+        "kind": "callable"
+      },
+      {
+        "name": "lockPayrollRun",
+        "region": [
+          "asia-southeast1"
+        ],
+        "platform": "gcfv2",
+        "kind": "callable"
+      },
+      {
+        "name": "lockPayrollRunV2",
+        "region": [
+          "asia-east1"
+        ],
+        "platform": "gcfv2",
+        "kind": "callable"
+      },
+      {
+        "name": "listBusinessPerformance",
+        "region": [
+          "asia-southeast1"
+        ],
+        "platform": "gcfv2",
+        "kind": "callable"
+      },
+      {
+        "name": "listBusinessPerformanceRegional",
+        "region": [
+          "asia-east1"
+        ],
+        "platform": "gcfv2",
+        "kind": "callable"
+      },
+      {
+        "name": "dispatchPushBroadcast",
+        "region": [
+          "asia-southeast1"
+        ],
+        "platform": "gcfv2",
+        "kind": "callable"
+      },
+      {
+        "name": "processStudent360SourceQueue",
+        "region": [
+          "asia-southeast1"
+        ],
+        "platform": "gcfv2",
+        "kind": "event"
+      },
+      {
+        "name": "recoverStudent360SourceQueueScheduled",
+        "region": [
+          "asia-southeast1"
+        ],
+        "platform": "gcfv2",
+        "kind": "schedule"
+      },
+      {
+        "name": "rebuildDirtyPtScheduleWeeklyViewsScheduled",
+        "region": [
+          "asia-southeast1"
+        ],
+        "platform": "gcfv2",
+        "kind": "schedule"
+      },
+      {
+        "name": "getStudent360Overview",
+        "region": [
+          "asia-southeast1"
+        ],
+        "platform": "gcfv2",
+        "kind": "callable"
+      },
+      {
+        "name": "getStudent360OverviewRegional",
+        "region": [
+          "asia-east1"
+        ],
+        "platform": "gcfv2",
+        "kind": "callable"
+      },
+      {
+        "name": "refreshStudent360Projection",
+        "region": [
+          "asia-southeast1"
+        ],
+        "platform": "gcfv2",
+        "kind": "callable"
+      },
+      {
+        "name": "refreshStudent360ProjectionRegional",
+        "region": [
+          "asia-east1"
+        ],
+        "platform": "gcfv2",
+        "kind": "callable"
+      }
+    ]
+  },
+  "sourcePolicy": "Apply requires committed-clean source; every target receipt pins the same SHA, immutable image and exact serving revision. No automatic deploy, mutation retry or rollback.",
+  "targets": [
+    {
+      "target": "listLoyaltyAccounts",
+      "name": "projects/gen-lang-client-0815966909/locations/asia-southeast1/functions/listLoyaltyAccounts",
+      "service": "projects/gen-lang-client-0815966909/locations/asia-southeast1/services/listloyaltyaccounts",
+      "region": "asia-southeast1",
+      "isNew": false,
+      "function": {
+        "name": "projects/gen-lang-client-0815966909/locations/asia-southeast1/functions/listLoyaltyAccounts",
+        "state": "ACTIVE",
+        "updateTime": "2026-10-24T16:47:40.959824442Z",
+        "environment": "GEN_2",
+        "build": "projects/607039870489/locations/asia-southeast1/builds/393e039c-8f66-4152-b3b3-0105e4bcd5b9",
+        "runtime": "nodejs22",
+        "entryPoint": "listLoyaltyAccounts",
+        "service": "projects/gen-lang-client-0815966909/locations/asia-southeast1/services/listloyaltyaccounts",
+        "revision": "listloyaltyaccounts-00010-kav",
+        "cpu": "0.1666",
+        "memory": "256Mi",
+        "max": 2,
+        "concurrency": 1,
+        "timeout": 90
+      },
+      "serviceMetadata": {
+        "name": "projects/gen-lang-client-0815966909/locations/asia-southeast1/services/listloyaltyaccounts",
+        "generation": "10",
+        "observedGeneration": "10",
+        "updateTime": "2026-10-24T16:47:32.313486Z",
+        "etag": "\"CKTC89YGELDVvZUB/cHJvamVjdHMvZ2VuLWxhbmctY2xpZW50LTA4MTU5NjY5MDkvbG9jYXRpb25zL2FzaWEtc291dGhlYXN0MS9zZXJ2aWNlcy9saXN0bG95YWx0eWFjY291bnRz\"",
+        "latestCreatedRevision": "projects/gen-lang-client-0815966909/locations/asia-southeast1/services/listloyaltyaccounts/revisions/listloyaltyaccounts-00010-kav",
+        "latestReadyRevision": "projects/gen-lang-client-0815966909/locations/asia-southeast1/services/listloyaltyaccounts/revisions/listloyaltyaccounts-00010-kav",
+        "traffic": [
+          {
+            "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST",
+            "percent": 100
+          }
+        ],
+        "trafficStatuses": [
+          {
+            "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST",
+            "revision": "listloyaltyaccounts-00010-kav",
+            "percent": 100
+          }
+        ],
+        "conditions": [
+          {
+            "type": "RoutesReady",
+            "state": "CONDITION_SUCCEEDED"
+          },
+          {
+            "type": "ConfigurationsReady",
+            "state": "CONDITION_SUCCEEDED"
+          }
+        ],
+        "scaling": {
+          "maxInstanceCount": 12
+        },
+        "template": {
+          "scaling": {
+            "maxInstanceCount": 2
+          },
+          "maxInstanceRequestConcurrency": 1,
+          "containers": [
+            {
+              "image": "asia-southeast1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast1__get_my_loyalty_dashboard:version_1",
+              "resources": {
+                "limits": {
+                  "cpu": "0.1666",
+                  "memory": "256Mi"
+                },
+                "cpuIdle": true,
+                "startupCpuBoost": true
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "target": "listLoyaltyAccountsRegional",
+      "name": "projects/gen-lang-client-0815966909/locations/asia-southeast2/functions/listLoyaltyAccountsRegional",
+      "service": "projects/gen-lang-client-0815966909/locations/asia-southeast2/services/listloyaltyaccountsregional",
+      "region": "asia-southeast2",
+      "isNew": false,
+      "function": {
+        "name": "projects/gen-lang-client-0815966909/locations/asia-southeast2/functions/listLoyaltyAccountsRegional",
+        "state": "ACTIVE",
+        "updateTime": "2026-10-24T16:47:40.158974992Z",
+        "environment": "GEN_2",
+        "build": "projects/607039870489/locations/asia-southeast2/builds/26f66f4f-76df-4e46-966b-776ec8b7759b",
+        "runtime": "nodejs22",
+        "entryPoint": "listLoyaltyAccountsRegional",
+        "service": "projects/gen-lang-client-0815966909/locations/asia-southeast2/services/listloyaltyaccountsregional",
+        "revision": "listloyaltyaccountsregional-00003-yip",
+        "cpu": "0.1666",
+        "memory": "256Mi",
+        "max": 2,
+        "concurrency": 1,
+        "timeout": 60
+      },
+      "serviceMetadata": {
+        "name": "projects/gen-lang-client-0815966909/locations/asia-southeast2/services/listloyaltyaccountsregional",
+        "generation": "3",
+        "observedGeneration": "3",
+        "updateTime": "2026-10-24T16:47:31.423444Z",
+        "etag": "\"CKPC89YGEKD89MkB/cHJvamVjdHMvZ2VuLWxhbmctY2xpZW50LTA4MTU5NjY5MDkvbG9jYXRpb25zL2FzaWEtc291dGhlYXN0Mi9zZXJ2aWNlcy9saXN0bG95YWx0eWFjY291bnRzcmVnaW9uYWw\"",
+        "latestCreatedRevision": "projects/gen-lang-client-0815966909/locations/asia-southeast2/services/listloyaltyaccountsregional/revisions/listloyaltyaccountsregional-00003-yip",
+        "latestReadyRevision": "projects/gen-lang-client-0815966909/locations/asia-southeast2/services/listloyaltyaccountsregional/revisions/listloyaltyaccountsregional-00003-yip",
+        "traffic": [
+          {
+            "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST",
+            "percent": 100
+          }
+        ],
+        "trafficStatuses": [
+          {
+            "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST",
+            "revision": "listloyaltyaccountsregional-00003-yip",
+            "percent": 100
+          }
+        ],
+        "conditions": [
+          {
+            "type": "RoutesReady",
+            "state": "CONDITION_SUCCEEDED"
+          },
+          {
+            "type": "ConfigurationsReady",
+            "state": "CONDITION_SUCCEEDED"
+          }
+        ],
+        "scaling": {
+          "maxInstanceCount": 12
+        },
+        "template": {
+          "scaling": {
+            "maxInstanceCount": 2
+          },
+          "maxInstanceRequestConcurrency": 1,
+          "containers": [
+            {
+              "image": "asia-southeast2-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast2__get_loyalty_admin_dashboard_regional:version_1",
+              "resources": {
+                "limits": {
+                  "cpu": "0.1666",
+                  "memory": "256Mi"
+                },
+                "cpuIdle": true,
+                "startupCpuBoost": true
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "target": "syncLoyaltyDashboardStudent",
+      "name": "projects/gen-lang-client-0815966909/locations/asia-southeast2/functions/syncLoyaltyDashboardStudent",
+      "service": "projects/gen-lang-client-0815966909/locations/asia-southeast2/services/syncloyaltydashboardstudent",
+      "region": "asia-southeast2",
+      "isNew": false,
+      "function": {
+        "name": "projects/gen-lang-client-0815966909/locations/asia-southeast2/functions/syncLoyaltyDashboardStudent",
+        "state": "ACTIVE",
+        "updateTime": "2026-10-24T16:50:46.990534093Z",
+        "environment": "GEN_2",
+        "build": "projects/607039870489/locations/asia-southeast2/builds/69b21f86-0560-43a9-8abd-82982e4f55dd",
+        "runtime": "nodejs22",
+        "entryPoint": "syncLoyaltyDashboardStudent",
+        "service": "projects/gen-lang-client-0815966909/locations/asia-southeast2/services/syncloyaltydashboardstudent",
+        "revision": "syncloyaltydashboardstudent-00003-def",
+        "cpu": "0.1666",
+        "memory": "256Mi",
+        "max": 2,
+        "concurrency": 1,
+        "timeout": 540
+      },
+      "serviceMetadata": {
+        "name": "projects/gen-lang-client-0815966909/locations/asia-southeast2/services/syncloyaltydashboardstudent",
+        "generation": "3",
+        "observedGeneration": "3",
+        "updateTime": "2026-10-24T16:50:36.831680Z",
+        "etag": "\"CNzD89YGEIDcyYwD/cHJvamVjdHMvZ2VuLWxhbmctY2xpZW50LTA4MTU5NjY5MDkvbG9jYXRpb25zL2FzaWEtc291dGhlYXN0Mi9zZXJ2aWNlcy9zeW5jbG95YWx0eWRhc2hib2FyZHN0dWRlbnQ\"",
+        "latestCreatedRevision": "projects/gen-lang-client-0815966909/locations/asia-southeast2/services/syncloyaltydashboardstudent/revisions/syncloyaltydashboardstudent-00003-def",
+        "latestReadyRevision": "projects/gen-lang-client-0815966909/locations/asia-southeast2/services/syncloyaltydashboardstudent/revisions/syncloyaltydashboardstudent-00003-def",
+        "traffic": [
+          {
+            "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST",
+            "percent": 100
+          }
+        ],
+        "trafficStatuses": [
+          {
+            "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST",
+            "revision": "syncloyaltydashboardstudent-00003-def",
+            "percent": 100
+          }
+        ],
+        "conditions": [
+          {
+            "type": "RoutesReady",
+            "state": "CONDITION_SUCCEEDED"
+          },
+          {
+            "type": "ConfigurationsReady",
+            "state": "CONDITION_SUCCEEDED"
+          }
+        ],
+        "scaling": {
+          "maxInstanceCount": 12
+        },
+        "template": {
+          "scaling": {
+            "maxInstanceCount": 2
+          },
+          "maxInstanceRequestConcurrency": 1,
+          "containers": [
+            {
+              "image": "asia-southeast2-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast2__sync_loyalty_dashboard_student:version_1",
+              "resources": {
+                "limits": {
+                  "cpu": "0.1666",
+                  "memory": "256Mi"
+                },
+                "cpuIdle": true,
+                "startupCpuBoost": true
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "target": "syncLoyaltyDashboardAccount",
+      "name": "projects/gen-lang-client-0815966909/locations/asia-southeast2/functions/syncLoyaltyDashboardAccount",
+      "service": "projects/gen-lang-client-0815966909/locations/asia-southeast2/services/syncloyaltydashboardaccount",
+      "region": "asia-southeast2",
+      "isNew": false,
+      "function": {
+        "name": "projects/gen-lang-client-0815966909/locations/asia-southeast2/functions/syncLoyaltyDashboardAccount",
+        "state": "ACTIVE",
+        "updateTime": "2026-10-24T16:50:50.500647286Z",
+        "environment": "GEN_2",
+        "build": "projects/607039870489/locations/asia-southeast2/builds/69b21f86-0560-43a9-8abd-82982e4f55dd",
+        "runtime": "nodejs22",
+        "entryPoint": "syncLoyaltyDashboardAccount",
+        "service": "projects/gen-lang-client-0815966909/locations/asia-southeast2/services/syncloyaltydashboardaccount",
+        "revision": "syncloyaltydashboardaccount-00003-xoj",
+        "cpu": "0.1666",
+        "memory": "256Mi",
+        "max": 2,
+        "concurrency": 1,
+        "timeout": 540
+      },
+      "serviceMetadata": {
+        "name": "projects/gen-lang-client-0815966909/locations/asia-southeast2/services/syncloyaltydashboardaccount",
+        "generation": "3",
+        "observedGeneration": "3",
+        "updateTime": "2026-10-24T16:50:42.794505Z",
+        "etag": "\"COLD89YGEKje7PoC/cHJvamVjdHMvZ2VuLWxhbmctY2xpZW50LTA4MTU5NjY5MDkvbG9jYXRpb25zL2FzaWEtc291dGhlYXN0Mi9zZXJ2aWNlcy9zeW5jbG95YWx0eWRhc2hib2FyZGFjY291bnQ\"",
+        "latestCreatedRevision": "projects/gen-lang-client-0815966909/locations/asia-southeast2/services/syncloyaltydashboardaccount/revisions/syncloyaltydashboardaccount-00003-xoj",
+        "latestReadyRevision": "projects/gen-lang-client-0815966909/locations/asia-southeast2/services/syncloyaltydashboardaccount/revisions/syncloyaltydashboardaccount-00003-xoj",
+        "traffic": [
+          {
+            "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST",
+            "percent": 100
+          }
+        ],
+        "trafficStatuses": [
+          {
+            "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST",
+            "revision": "syncloyaltydashboardaccount-00003-xoj",
+            "percent": 100
+          }
+        ],
+        "conditions": [
+          {
+            "type": "RoutesReady",
+            "state": "CONDITION_SUCCEEDED"
+          },
+          {
+            "type": "ConfigurationsReady",
+            "state": "CONDITION_SUCCEEDED"
+          }
+        ],
+        "scaling": {
+          "maxInstanceCount": 12
+        },
+        "template": {
+          "scaling": {
+            "maxInstanceCount": 2
+          },
+          "maxInstanceRequestConcurrency": 1,
+          "containers": [
+            {
+              "image": "asia-southeast2-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast2__sync_loyalty_dashboard_student:version_1",
+              "resources": {
+                "limits": {
+                  "cpu": "0.1666",
+                  "memory": "256Mi"
+                },
+                "cpuIdle": true,
+                "startupCpuBoost": true
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "target": "listTrainerFeedbackAdmin",
+      "name": "projects/gen-lang-client-0815966909/locations/asia-southeast1/functions/listTrainerFeedbackAdmin",
+      "service": "projects/gen-lang-client-0815966909/locations/asia-southeast1/services/listtrainerfeedbackadmin",
+      "region": "asia-southeast1",
+      "isNew": false,
+      "function": {
+        "name": "projects/gen-lang-client-0815966909/locations/asia-southeast1/functions/listTrainerFeedbackAdmin",
+        "state": "ACTIVE",
+        "updateTime": "2026-10-22T10:26:42.422055741Z",
+        "environment": "GEN_2",
+        "build": "projects/607039870489/locations/asia-southeast1/builds/6a9a2015-e27b-4844-8394-b7b38a54a0d0",
+        "runtime": "nodejs22",
+        "entryPoint": "listTrainerFeedbackAdmin",
+        "service": "projects/gen-lang-client-0815966909/locations/asia-southeast1/services/listtrainerfeedbackadmin",
+        "revision": "listtrainerfeedbackadmin-00010-fov",
+        "cpu": "1",
+        "memory": "256Mi",
+        "max": 6,
+        "concurrency": 24,
+        "timeout": 60
+      },
+      "serviceMetadata": {
+        "name": "projects/gen-lang-client-0815966909/locations/asia-southeast1/services/listtrainerfeedbackadmin",
+        "generation": "10",
+        "observedGeneration": "10",
+        "updateTime": "2026-10-22T10:26:39.526710Z",
+        "etag": "\"CN_J59YGEPDpk_sB/cHJvamVjdHMvZ2VuLWxhbmctY2xpZW50LTA4MTU5NjY5MDkvbG9jYXRpb25zL2FzaWEtc291dGhlYXN0MS9zZXJ2aWNlcy9saXN0dHJhaW5lcmZlZWRiYWNrYWRtaW4\"",
+        "latestCreatedRevision": "projects/gen-lang-client-0815966909/locations/asia-southeast1/services/listtrainerfeedbackadmin/revisions/listtrainerfeedbackadmin-00010-fov",
+        "latestReadyRevision": "projects/gen-lang-client-0815966909/locations/asia-southeast1/services/listtrainerfeedbackadmin/revisions/listtrainerfeedbackadmin-00001-piq",
+        "traffic": [
+          {
+            "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_REVISION",
+            "revision": "listtrainerfeedbackadmin-00001-piq",
+            "percent": 100
+          }
+        ],
+        "trafficStatuses": [
+          {
+            "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_REVISION",
+            "revision": "listtrainerfeedbackadmin-00001-piq",
+            "percent": 100
+          }
+        ],
+        "conditions": [
+          {
+            "type": "RoutesReady",
+            "state": "CONDITION_SUCCEEDED"
+          },
+          {
+            "type": "BaseImageValidated",
+            "state": "CONDITION_SUCCEEDED"
+          },
+          {
+            "type": "ConfigurationsReady",
+            "state": "CONDITION_SUCCEEDED",
+            "revisionReason": "RETIRED"
+          }
+        ],
+        "scaling": {
+          "maxInstanceCount": 6
+        },
+        "template": {
+          "scaling": {
+            "maxInstanceCount": 6
+          },
+          "maxInstanceRequestConcurrency": 24,
+          "containers": [
+            {
+              "image": "asia-southeast1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast1__sync_pt_contract_usage_projection:version_1",
+              "resources": {
+                "limits": {
+                  "cpu": "1",
+                  "memory": "256Mi"
+                },
+                "cpuIdle": true,
+                "startupCpuBoost": true
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "target": "listTrainerFeedbackAdminRegional",
+      "name": "projects/gen-lang-client-0815966909/locations/asia-east1/functions/listTrainerFeedbackAdminRegional",
+      "service": "projects/gen-lang-client-0815966909/locations/asia-east1/services/listtrainerfeedbackadminregional",
+      "region": "asia-east1",
+      "isNew": false,
+      "function": {
+        "name": "projects/gen-lang-client-0815966909/locations/asia-east1/functions/listTrainerFeedbackAdminRegional",
+        "state": "ACTIVE",
+        "updateTime": "2026-10-22T10:38:11.762389523Z",
+        "environment": "GEN_2",
+        "build": "projects/607039870489/locations/asia-east1/builds/3fd8af1d-1596-455f-8504-8b338f5966cc",
+        "runtime": "nodejs22",
+        "entryPoint": "listTrainerFeedbackAdminRegional",
+        "service": "projects/gen-lang-client-0815966909/locations/asia-east1/services/listtrainerfeedbackadminregional",
+        "revision": "listtrainerfeedbackadminregional-00002-zat",
+        "cpu": "0.1666",
+        "memory": "256Mi",
+        "max": 2,
+        "concurrency": 1,
+        "timeout": 60
+      },
+      "serviceMetadata": {
+        "name": "projects/gen-lang-client-0815966909/locations/asia-east1/services/listtrainerfeedbackadminregional",
+        "generation": "2",
+        "observedGeneration": "2",
+        "updateTime": "2026-10-22T10:33:53.941895Z",
+        "etag": "\"CJHN59YGENjakMED/cHJvamVjdHMvZ2VuLWxhbmctY2xpZW50LTA4MTU5NjY5MDkvbG9jYXRpb25zL2FzaWEtZWFzdDEvc2VydmljZXMvbGlzdHRyYWluZXJmZWVkYmFja2FkbWlucmVnaW9uYWw\"",
+        "latestCreatedRevision": "projects/gen-lang-client-0815966909/locations/asia-east1/services/listtrainerfeedbackadminregional/revisions/listtrainerfeedbackadminregional-00002-zat",
+        "latestReadyRevision": "projects/gen-lang-client-0815966909/locations/asia-east1/services/listtrainerfeedbackadminregional/revisions/listtrainerfeedbackadminregional-00002-zat",
+        "traffic": [
+          {
+            "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST",
+            "percent": 100
+          }
+        ],
+        "trafficStatuses": [
+          {
+            "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST",
+            "revision": "listtrainerfeedbackadminregional-00002-zat",
+            "percent": 100
+          }
+        ],
+        "conditions": [
+          {
+            "type": "RoutesReady",
+            "state": "CONDITION_SUCCEEDED"
+          },
+          {
+            "type": "ConfigurationsReady",
+            "state": "CONDITION_SUCCEEDED"
+          }
+        ],
+        "scaling": {
+          "maxInstanceCount": 12
+        },
+        "template": {
+          "scaling": {
+            "maxInstanceCount": 2
+          },
+          "maxInstanceRequestConcurrency": 1,
+          "containers": [
+            {
+              "image": "asia-east1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--east1__submit_workout_note_regional:version_1",
+              "resources": {
+                "limits": {
+                  "cpu": "0.1666",
+                  "memory": "256Mi"
+                },
+                "cpuIdle": true,
+                "startupCpuBoost": true
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "target": "listStudent360Directory",
+      "name": "projects/gen-lang-client-0815966909/locations/asia-southeast1/functions/listStudent360Directory",
+      "service": "projects/gen-lang-client-0815966909/locations/asia-southeast1/services/liststudent360directory",
+      "region": "asia-southeast1",
+      "isNew": false,
+      "function": {
+        "name": "projects/gen-lang-client-0815966909/locations/asia-southeast1/functions/listStudent360Directory",
+        "state": "ACTIVE",
+        "updateTime": "2026-10-24T11:50:53.701040053Z",
+        "environment": "GEN_2",
+        "build": "projects/607039870489/locations/asia-southeast1/builds/b10af9ab-2686-4713-8b4a-9e7f0778f65c",
+        "runtime": "nodejs22",
+        "entryPoint": "listStudent360Directory",
+        "service": "projects/gen-lang-client-0815966909/locations/asia-southeast1/services/liststudent360directory",
+        "revision": "liststudent360directory-00027-wan",
+        "cpu": "0.1666",
+        "memory": "256Mi",
+        "max": 8,
+        "concurrency": 1,
+        "timeout": 60
+      },
+      "serviceMetadata": {
+        "name": "projects/gen-lang-client-0815966909/locations/asia-southeast1/services/liststudent360directory",
+        "generation": "27",
+        "observedGeneration": "27",
+        "updateTime": "2026-10-24T11:50:42.997325Z",
+        "etag": "\"CJK38tYGEMjxx9sD/cHJvamVjdHMvZ2VuLWxhbmctY2xpZW50LTA4MTU5NjY5MDkvbG9jYXRpb25zL2FzaWEtc291dGhlYXN0MS9zZXJ2aWNlcy9saXN0c3R1ZGVudDM2MGRpcmVjdG9yeQ\"",
+        "latestCreatedRevision": "projects/gen-lang-client-0815966909/locations/asia-southeast1/services/liststudent360directory/revisions/liststudent360directory-00027-wan",
+        "latestReadyRevision": "projects/gen-lang-client-0815966909/locations/asia-southeast1/services/liststudent360directory/revisions/liststudent360directory-00027-wan",
+        "traffic": [
+          {
+            "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST",
+            "percent": 100
+          }
+        ],
+        "trafficStatuses": [
+          {
+            "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST",
+            "revision": "liststudent360directory-00027-wan",
+            "percent": 100
+          }
+        ],
+        "conditions": [
+          {
+            "type": "RoutesReady",
+            "state": "CONDITION_SUCCEEDED"
+          },
+          {
+            "type": "ConfigurationsReady",
+            "state": "CONDITION_SUCCEEDED"
+          }
+        ],
+        "scaling": {
+          "maxInstanceCount": 6
+        },
+        "template": {
+          "scaling": {
+            "maxInstanceCount": 8
+          },
+          "maxInstanceRequestConcurrency": 1,
+          "containers": [
+            {
+              "image": "asia-southeast1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast1__get_student360_overview:version_1",
+              "resources": {
+                "limits": {
+                  "cpu": "0.1666",
+                  "memory": "256Mi"
+                },
+                "cpuIdle": true,
+                "startupCpuBoost": true
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "target": "listStudent360DirectoryRegional",
+      "name": "projects/gen-lang-client-0815966909/locations/asia-east1/functions/listStudent360DirectoryRegional",
+      "service": "projects/gen-lang-client-0815966909/locations/asia-east1/services/liststudent360directoryregional",
+      "region": "asia-east1",
+      "isNew": false,
+      "function": {
+        "name": "projects/gen-lang-client-0815966909/locations/asia-east1/functions/listStudent360DirectoryRegional",
+        "state": "ACTIVE",
+        "updateTime": "2026-10-24T11:52:32.303272568Z",
+        "environment": "GEN_2",
+        "build": "projects/607039870489/locations/asia-east1/builds/c0ef90dc-5c9f-4758-ae1a-cb1be6f7ef2f",
+        "runtime": "nodejs22",
+        "entryPoint": "listStudent360DirectoryRegional",
+        "service": "projects/gen-lang-client-0815966909/locations/asia-east1/services/liststudent360directoryregional",
+        "revision": "liststudent360directoryregional-00019-sis",
+        "cpu": "0.1666",
+        "memory": "256Mi",
+        "max": 8,
+        "concurrency": 1,
+        "timeout": 60
+      },
+      "serviceMetadata": {
+        "name": "projects/gen-lang-client-0815966909/locations/asia-east1/services/liststudent360directoryregional",
+        "generation": "19",
+        "observedGeneration": "19",
+        "updateTime": "2026-10-24T11:52:15.663591Z",
+        "etag": "\"CO-38tYGENiwtrwC/cHJvamVjdHMvZ2VuLWxhbmctY2xpZW50LTA4MTU5NjY5MDkvbG9jYXRpb25zL2FzaWEtZWFzdDEvc2VydmljZXMvbGlzdHN0dWRlbnQzNjBkaXJlY3RvcnlyZWdpb25hbA\"",
+        "latestCreatedRevision": "projects/gen-lang-client-0815966909/locations/asia-east1/services/liststudent360directoryregional/revisions/liststudent360directoryregional-00019-sis",
+        "latestReadyRevision": "projects/gen-lang-client-0815966909/locations/asia-east1/services/liststudent360directoryregional/revisions/liststudent360directoryregional-00019-sis",
+        "traffic": [
+          {
+            "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST",
+            "percent": 100
+          }
+        ],
+        "trafficStatuses": [
+          {
+            "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST",
+            "revision": "liststudent360directoryregional-00019-sis",
+            "percent": 100
+          }
+        ],
+        "conditions": [
+          {
+            "type": "RoutesReady",
+            "state": "CONDITION_SUCCEEDED"
+          },
+          {
+            "type": "ConfigurationsReady",
+            "state": "CONDITION_SUCCEEDED"
+          }
+        ],
+        "scaling": {
+          "maxInstanceCount": 12
+        },
+        "template": {
+          "scaling": {
+            "maxInstanceCount": 8
+          },
+          "maxInstanceRequestConcurrency": 1,
+          "containers": [
+            {
+              "image": "asia-east1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--east1__list_student360_directory_regional:version_1",
+              "resources": {
+                "limits": {
+                  "cpu": "0.1666",
+                  "memory": "256Mi"
+                },
+                "cpuIdle": true,
+                "startupCpuBoost": true
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "target": "listPerformanceReviewQueueV2",
+      "name": "projects/gen-lang-client-0815966909/locations/asia-east1/functions/listPerformanceReviewQueueV2",
+      "service": "projects/gen-lang-client-0815966909/locations/asia-east1/services/listperformancereviewqueuev2",
+      "region": "asia-east1",
+      "isNew": false,
+      "function": {
+        "name": "projects/gen-lang-client-0815966909/locations/asia-east1/functions/listPerformanceReviewQueueV2",
+        "state": "ACTIVE",
+        "updateTime": "2026-10-22T10:40:17.978744568Z",
+        "environment": "GEN_2",
+        "build": "projects/607039870489/locations/asia-east1/builds/26e4cb38-a1cd-4a6a-b32c-ecf8e4fc89d7",
+        "runtime": "nodejs22",
+        "entryPoint": "listPerformanceReviewQueueV2",
+        "service": "projects/gen-lang-client-0815966909/locations/asia-east1/services/listperformancereviewqueuev2",
+        "cpu": "0.1666",
+        "memory": "256Mi",
+        "max": 1,
+        "concurrency": 1,
+        "timeout": 120
+      },
+      "serviceMetadata": {
+        "name": "projects/gen-lang-client-0815966909/locations/asia-east1/services/listperformancereviewqueuev2",
+        "generation": "9",
+        "observedGeneration": "9",
+        "updateTime": "2026-10-23T08:42:25.836257Z",
+        "etag": "\"CPG77NYGEOiJ4Y4D/cHJvamVjdHMvZ2VuLWxhbmctY2xpZW50LTA4MTU5NjY5MDkvbG9jYXRpb25zL2FzaWEtZWFzdDEvc2VydmljZXMvbGlzdHBlcmZvcm1hbmNlcmV2aWV3cXVldWV2Mg\"",
+        "latestCreatedRevision": "projects/gen-lang-client-0815966909/locations/asia-east1/services/listperformancereviewqueuev2/revisions/listperformancereviewqueuev2-00008-nx7",
+        "latestReadyRevision": "projects/gen-lang-client-0815966909/locations/asia-east1/services/listperformancereviewqueuev2/revisions/listperformancereviewqueuev2-00008-nx7",
+        "traffic": [
+          {
+            "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST",
+            "percent": 100
+          }
+        ],
+        "trafficStatuses": [
+          {
+            "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST",
+            "revision": "listperformancereviewqueuev2-00008-nx7",
+            "percent": 100
+          }
+        ],
+        "conditions": [
+          {
+            "type": "RoutesReady",
+            "state": "CONDITION_SUCCEEDED"
+          },
+          {
+            "type": "BaseImageValidated",
+            "state": "CONDITION_SUCCEEDED"
+          },
+          {
+            "type": "ConfigurationsReady",
+            "state": "CONDITION_SUCCEEDED"
+          }
+        ],
+        "scaling": {
+          "maxInstanceCount": 12
+        },
+        "template": {
+          "scaling": {
+            "maxInstanceCount": 1
+          },
+          "maxInstanceRequestConcurrency": 1,
+          "containers": [
+            {
+              "image": "asia-east1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--east1__get_my_access_context_overflow@sha256:65087f4f33fae3f4e1246476c07e763cc3c2a7ab8b4ee2de843f63040f9cac87",
+              "resources": {
+                "limits": {
+                  "cpu": "0.1666",
+                  "memory": "256Mi"
+                },
+                "cpuIdle": true,
+                "startupCpuBoost": true
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "target": "getMyPerformanceScoreV2",
+      "name": "projects/gen-lang-client-0815966909/locations/asia-east1/functions/getMyPerformanceScoreV2",
+      "service": "projects/gen-lang-client-0815966909/locations/asia-east1/services/getmyperformancescorev2",
+      "region": "asia-east1",
+      "isNew": false,
+      "function": {
+        "name": "projects/gen-lang-client-0815966909/locations/asia-east1/functions/getMyPerformanceScoreV2",
+        "state": "ACTIVE",
+        "updateTime": "2026-10-29T15:19:15.407852794Z",
+        "environment": "GEN_2",
+        "build": "projects/607039870489/locations/asia-east1/builds/768097eb-6030-459f-9563-cdd0384375ec",
+        "runtime": "nodejs22",
+        "entryPoint": "getMyPerformanceScoreV2",
+        "service": "projects/gen-lang-client-0815966909/locations/asia-east1/services/getmyperformancescorev2",
+        "revision": "getmyperformancescorev2-00012-keh",
+        "cpu": "0.1666",
+        "memory": "256Mi",
+        "max": 2,
+        "concurrency": 1,
+        "timeout": 120
+      },
+      "serviceMetadata": {
+        "name": "projects/gen-lang-client-0815966909/locations/asia-east1/services/getmyperformancescorev2",
+        "generation": "13",
+        "observedGeneration": "13",
+        "updateTime": "2026-10-29T15:19:27.811241Z",
+        "etag": "\"CP_HjdcGEKic6oID/cHJvamVjdHMvZ2VuLWxhbmctY2xpZW50LTA4MTU5NjY5MDkvbG9jYXRpb25zL2FzaWEtZWFzdDEvc2VydmljZXMvZ2V0bXlwZXJmb3JtYW5jZXNjb3JldjI\"",
+        "latestCreatedRevision": "projects/gen-lang-client-0815966909/locations/asia-east1/services/getmyperformancescorev2/revisions/getmyperformancescorev2-00012-keh",
+        "latestReadyRevision": "projects/gen-lang-client-0815966909/locations/asia-east1/services/getmyperformancescorev2/revisions/getmyperformancescorev2-00012-keh",
+        "traffic": [
+          {
+            "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_REVISION",
+            "revision": "getmyperformancescorev2-00012-keh",
+            "percent": 100
+          }
+        ],
+        "trafficStatuses": [
+          {
+            "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_REVISION",
+            "revision": "getmyperformancescorev2-00012-keh",
+            "percent": 100
+          }
+        ],
+        "conditions": [
+          {
+            "type": "RoutesReady",
+            "state": "CONDITION_SUCCEEDED"
+          },
+          {
+            "type": "BaseImageValidated",
+            "state": "CONDITION_SUCCEEDED"
+          },
+          {
+            "type": "ConfigurationsReady",
+            "state": "CONDITION_SUCCEEDED"
+          }
+        ],
+        "scaling": {
+          "maxInstanceCount": 12
+        },
+        "template": {
+          "scaling": {
+            "maxInstanceCount": 2
+          },
+          "maxInstanceRequestConcurrency": 1,
+          "containers": [
+            {
+              "image": "asia-east1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--east1__get_my_performance_score_v2:version_1",
+              "resources": {
+                "limits": {
+                  "cpu": "0.1666",
+                  "memory": "256Mi"
+                },
+                "cpuIdle": true,
+                "startupCpuBoost": true
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "target": "getPerformanceStaffScoreV2",
+      "name": "projects/gen-lang-client-0815966909/locations/asia-east1/functions/getPerformanceStaffScoreV2",
+      "service": "projects/gen-lang-client-0815966909/locations/asia-east1/services/getperformancestaffscorev2",
+      "region": "asia-east1",
+      "isNew": false,
+      "function": {
+        "name": "projects/gen-lang-client-0815966909/locations/asia-east1/functions/getPerformanceStaffScoreV2",
+        "state": "ACTIVE",
+        "updateTime": "2026-10-22T10:35:58.982549122Z",
+        "environment": "GEN_2",
+        "build": "projects/607039870489/locations/asia-east1/builds/26e4cb38-a1cd-4a6a-b32c-ecf8e4fc89d7",
+        "runtime": "nodejs22",
+        "entryPoint": "getPerformanceStaffScoreV2",
+        "service": "projects/gen-lang-client-0815966909/locations/asia-east1/services/getperformancestaffscorev2",
+        "cpu": "0.1666",
+        "memory": "256Mi",
+        "max": 1,
+        "concurrency": 1,
+        "timeout": 120
+      },
+      "serviceMetadata": {
+        "name": "projects/gen-lang-client-0815966909/locations/asia-east1/services/getperformancestaffscorev2",
+        "generation": "9",
+        "observedGeneration": "9",
+        "updateTime": "2026-10-23T08:29:16.456583Z",
+        "etag": "\"CNy17NYGENjO29kB/cHJvamVjdHMvZ2VuLWxhbmctY2xpZW50LTA4MTU5NjY5MDkvbG9jYXRpb25zL2FzaWEtZWFzdDEvc2VydmljZXMvZ2V0cGVyZm9ybWFuY2VzdGFmZnNjb3JldjI\"",
+        "latestCreatedRevision": "projects/gen-lang-client-0815966909/locations/asia-east1/services/getperformancestaffscorev2/revisions/getperformancestaffscorev2-00008-9g8",
+        "latestReadyRevision": "projects/gen-lang-client-0815966909/locations/asia-east1/services/getperformancestaffscorev2/revisions/getperformancestaffscorev2-00008-9g8",
+        "traffic": [
+          {
+            "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST",
+            "percent": 100
+          }
+        ],
+        "trafficStatuses": [
+          {
+            "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST",
+            "revision": "getperformancestaffscorev2-00008-9g8",
+            "percent": 100
+          }
+        ],
+        "conditions": [
+          {
+            "type": "RoutesReady",
+            "state": "CONDITION_SUCCEEDED"
+          },
+          {
+            "type": "BaseImageValidated",
+            "state": "CONDITION_SUCCEEDED"
+          },
+          {
+            "type": "ConfigurationsReady",
+            "state": "CONDITION_SUCCEEDED"
+          }
+        ],
+        "scaling": {
+          "maxInstanceCount": 12
+        },
+        "template": {
+          "scaling": {
+            "maxInstanceCount": 1
+          },
+          "maxInstanceRequestConcurrency": 1,
+          "containers": [
+            {
+              "image": "asia-east1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--east1__get_my_access_context_overflow@sha256:65087f4f33fae3f4e1246476c07e763cc3c2a7ab8b4ee2de843f63040f9cac87",
+              "resources": {
+                "limits": {
+                  "cpu": "0.1666",
+                  "memory": "256Mi"
+                },
+                "cpuIdle": true,
+                "startupCpuBoost": true
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "target": "submitPerformanceBrandEvidenceV2",
+      "name": "projects/gen-lang-client-0815966909/locations/asia-east1/functions/submitPerformanceBrandEvidenceV2",
+      "service": "projects/gen-lang-client-0815966909/locations/asia-east1/services/submitperformancebrandevidencev2",
+      "region": "asia-east1",
+      "isNew": false,
+      "function": {
+        "name": "projects/gen-lang-client-0815966909/locations/asia-east1/functions/submitPerformanceBrandEvidenceV2",
+        "state": "ACTIVE",
+        "updateTime": "2026-10-22T10:40:17.948783715Z",
+        "environment": "GEN_2",
+        "build": "projects/607039870489/locations/asia-east1/builds/26e4cb38-a1cd-4a6a-b32c-ecf8e4fc89d7",
+        "runtime": "nodejs22",
+        "entryPoint": "submitPerformanceBrandEvidenceV2",
+        "service": "projects/gen-lang-client-0815966909/locations/asia-east1/services/submitperformancebrandevidencev2",
+        "cpu": "0.1666",
+        "memory": "256Mi",
+        "max": 1,
+        "concurrency": 1,
+        "timeout": 120
+      },
+      "serviceMetadata": {
+        "name": "projects/gen-lang-client-0815966909/locations/asia-east1/services/submitperformancebrandevidencev2",
+        "generation": "9",
+        "observedGeneration": "9",
+        "updateTime": "2026-10-23T09:00:37.569433Z",
+        "etag": "\"CLXE7NYGEKi3w48C/cHJvamVjdHMvZ2VuLWxhbmctY2xpZW50LTA4MTU5NjY5MDkvbG9jYXRpb25zL2FzaWEtZWFzdDEvc2VydmljZXMvc3VibWl0cGVyZm9ybWFuY2VicmFuZGV2aWRlbmNldjI\"",
+        "latestCreatedRevision": "projects/gen-lang-client-0815966909/locations/asia-east1/services/submitperformancebrandevidencev2/revisions/submitperformancebrandevidencev2-00008-rgb",
+        "latestReadyRevision": "projects/gen-lang-client-0815966909/locations/asia-east1/services/submitperformancebrandevidencev2/revisions/submitperformancebrandevidencev2-00008-rgb",
+        "traffic": [
+          {
+            "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST",
+            "percent": 100
+          }
+        ],
+        "trafficStatuses": [
+          {
+            "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST",
+            "revision": "submitperformancebrandevidencev2-00008-rgb",
+            "percent": 100
+          }
+        ],
+        "conditions": [
+          {
+            "type": "RoutesReady",
+            "state": "CONDITION_SUCCEEDED"
+          },
+          {
+            "type": "BaseImageValidated",
+            "state": "CONDITION_SUCCEEDED"
+          },
+          {
+            "type": "ConfigurationsReady",
+            "state": "CONDITION_SUCCEEDED"
+          }
+        ],
+        "scaling": {
+          "maxInstanceCount": 12
+        },
+        "template": {
+          "scaling": {
+            "maxInstanceCount": 1
+          },
+          "maxInstanceRequestConcurrency": 1,
+          "containers": [
+            {
+              "image": "asia-east1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--east1__get_my_access_context_overflow@sha256:65087f4f33fae3f4e1246476c07e763cc3c2a7ab8b4ee2de843f63040f9cac87",
+              "resources": {
+                "limits": {
+                  "cpu": "0.1666",
+                  "memory": "256Mi"
+                },
+                "cpuIdle": true,
+                "startupCpuBoost": true
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "target": "withdrawPerformanceBrandEvidenceV2",
+      "name": "projects/gen-lang-client-0815966909/locations/asia-east1/functions/withdrawPerformanceBrandEvidenceV2",
+      "service": "projects/gen-lang-client-0815966909/locations/asia-east1/services/withdrawperformancebrandevidencev2",
+      "region": "asia-east1",
+      "isNew": false,
+      "function": {
+        "name": "projects/gen-lang-client-0815966909/locations/asia-east1/functions/withdrawPerformanceBrandEvidenceV2",
+        "state": "ACTIVE",
+        "updateTime": "2026-10-22T10:36:04.986845029Z",
+        "environment": "GEN_2",
+        "build": "projects/607039870489/locations/asia-east1/builds/26e4cb38-a1cd-4a6a-b32c-ecf8e4fc89d7",
+        "runtime": "nodejs22",
+        "entryPoint": "withdrawPerformanceBrandEvidenceV2",
+        "service": "projects/gen-lang-client-0815966909/locations/asia-east1/services/withdrawperformancebrandevidencev2",
+        "cpu": "0.1666",
+        "memory": "256Mi",
+        "max": 1,
+        "concurrency": 1,
+        "timeout": 120
+      },
+      "serviceMetadata": {
+        "name": "projects/gen-lang-client-0815966909/locations/asia-east1/services/withdrawperformancebrandevidencev2",
+        "generation": "9",
+        "observedGeneration": "9",
+        "updateTime": "2026-10-23T09:01:05.778312Z",
+        "etag": "\"CNHE7NYGEMCykPMC/cHJvamVjdHMvZ2VuLWxhbmctY2xpZW50LTA4MTU5NjY5MDkvbG9jYXRpb25zL2FzaWEtZWFzdDEvc2VydmljZXMvd2l0aGRyYXdwZXJmb3JtYW5jZWJyYW5kZXZpZGVuY2V2Mg\"",
+        "latestCreatedRevision": "projects/gen-lang-client-0815966909/locations/asia-east1/services/withdrawperformancebrandevidencev2/revisions/withdrawperformancebrandevidencev2-00008-xpd",
+        "latestReadyRevision": "projects/gen-lang-client-0815966909/locations/asia-east1/services/withdrawperformancebrandevidencev2/revisions/withdrawperformancebrandevidencev2-00008-xpd",
+        "traffic": [
+          {
+            "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST",
+            "percent": 100
+          }
+        ],
+        "trafficStatuses": [
+          {
+            "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST",
+            "revision": "withdrawperformancebrandevidencev2-00008-xpd",
+            "percent": 100
+          }
+        ],
+        "conditions": [
+          {
+            "type": "RoutesReady",
+            "state": "CONDITION_SUCCEEDED"
+          },
+          {
+            "type": "BaseImageValidated",
+            "state": "CONDITION_SUCCEEDED"
+          },
+          {
+            "type": "ConfigurationsReady",
+            "state": "CONDITION_SUCCEEDED"
+          }
+        ],
+        "scaling": {
+          "maxInstanceCount": 12
+        },
+        "template": {
+          "scaling": {
+            "maxInstanceCount": 1
+          },
+          "maxInstanceRequestConcurrency": 1,
+          "containers": [
+            {
+              "image": "asia-east1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--east1__get_my_access_context_overflow@sha256:65087f4f33fae3f4e1246476c07e763cc3c2a7ab8b4ee2de843f63040f9cac87",
+              "resources": {
+                "limits": {
+                  "cpu": "0.1666",
+                  "memory": "256Mi"
+                },
+                "cpuIdle": true,
+                "startupCpuBoost": true
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "target": "reviewPerformanceBrandEvidenceV2",
+      "name": "projects/gen-lang-client-0815966909/locations/asia-east1/functions/reviewPerformanceBrandEvidenceV2",
+      "service": "projects/gen-lang-client-0815966909/locations/asia-east1/services/reviewperformancebrandevidencev2",
+      "region": "asia-east1",
+      "isNew": false,
+      "function": {
+        "name": "projects/gen-lang-client-0815966909/locations/asia-east1/functions/reviewPerformanceBrandEvidenceV2",
+        "state": "ACTIVE",
+        "updateTime": "2026-10-22T10:40:22.034588261Z",
+        "environment": "GEN_2",
+        "build": "projects/607039870489/locations/asia-east1/builds/26e4cb38-a1cd-4a6a-b32c-ecf8e4fc89d7",
+        "runtime": "nodejs22",
+        "entryPoint": "reviewPerformanceBrandEvidenceV2",
+        "service": "projects/gen-lang-client-0815966909/locations/asia-east1/services/reviewperformancebrandevidencev2",
+        "cpu": "0.1666",
+        "memory": "256Mi",
+        "max": 1,
+        "concurrency": 1,
+        "timeout": 120
+      },
+      "serviceMetadata": {
+        "name": "projects/gen-lang-client-0815966909/locations/asia-east1/services/reviewperformancebrandevidencev2",
+        "generation": "9",
+        "observedGeneration": "9",
+        "updateTime": "2026-10-23T08:49:28.555023Z",
+        "etag": "\"CJi_7NYGEJj104gC/cHJvamVjdHMvZ2VuLWxhbmctY2xpZW50LTA4MTU5NjY5MDkvbG9jYXRpb25zL2FzaWEtZWFzdDEvc2VydmljZXMvcmV2aWV3cGVyZm9ybWFuY2VicmFuZGV2aWRlbmNldjI\"",
+        "latestCreatedRevision": "projects/gen-lang-client-0815966909/locations/asia-east1/services/reviewperformancebrandevidencev2/revisions/reviewperformancebrandevidencev2-00008-plp",
+        "latestReadyRevision": "projects/gen-lang-client-0815966909/locations/asia-east1/services/reviewperformancebrandevidencev2/revisions/reviewperformancebrandevidencev2-00008-plp",
+        "traffic": [
+          {
+            "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST",
+            "percent": 100
+          }
+        ],
+        "trafficStatuses": [
+          {
+            "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST",
+            "revision": "reviewperformancebrandevidencev2-00008-plp",
+            "percent": 100
+          }
+        ],
+        "conditions": [
+          {
+            "type": "RoutesReady",
+            "state": "CONDITION_SUCCEEDED"
+          },
+          {
+            "type": "BaseImageValidated",
+            "state": "CONDITION_SUCCEEDED"
+          },
+          {
+            "type": "ConfigurationsReady",
+            "state": "CONDITION_SUCCEEDED"
+          }
+        ],
+        "scaling": {
+          "maxInstanceCount": 12
+        },
+        "template": {
+          "scaling": {
+            "maxInstanceCount": 1
+          },
+          "maxInstanceRequestConcurrency": 1,
+          "containers": [
+            {
+              "image": "asia-east1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--east1__get_my_access_context_overflow@sha256:65087f4f33fae3f4e1246476c07e763cc3c2a7ab8b4ee2de843f63040f9cac87",
+              "resources": {
+                "limits": {
+                  "cpu": "0.1666",
+                  "memory": "256Mi"
+                },
+                "cpuIdle": true,
+                "startupCpuBoost": true
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "target": "savePerformanceProfileChecklistV2",
+      "name": "projects/gen-lang-client-0815966909/locations/asia-east1/functions/savePerformanceProfileChecklistV2",
+      "service": "projects/gen-lang-client-0815966909/locations/asia-east1/services/saveperformanceprofilechecklistv2",
+      "region": "asia-east1",
+      "isNew": false,
+      "function": {
+        "name": "projects/gen-lang-client-0815966909/locations/asia-east1/functions/savePerformanceProfileChecklistV2",
+        "state": "ACTIVE",
+        "updateTime": "2026-10-22T10:35:56.287460663Z",
+        "environment": "GEN_2",
+        "build": "projects/607039870489/locations/asia-east1/builds/26e4cb38-a1cd-4a6a-b32c-ecf8e4fc89d7",
+        "runtime": "nodejs22",
+        "entryPoint": "savePerformanceProfileChecklistV2",
+        "service": "projects/gen-lang-client-0815966909/locations/asia-east1/services/saveperformanceprofilechecklistv2",
+        "cpu": "0.1666",
+        "memory": "256Mi",
+        "max": 1,
+        "concurrency": 1,
+        "timeout": 120
+      },
+      "serviceMetadata": {
+        "name": "projects/gen-lang-client-0815966909/locations/asia-east1/services/saveperformanceprofilechecklistv2",
+        "generation": "9",
+        "observedGeneration": "9",
+        "updateTime": "2026-10-23T08:55:05.415070Z",
+        "etag": "\"COnB7NYGELDu9cUB/cHJvamVjdHMvZ2VuLWxhbmctY2xpZW50LTA4MTU5NjY5MDkvbG9jYXRpb25zL2FzaWEtZWFzdDEvc2VydmljZXMvc2F2ZXBlcmZvcm1hbmNlcHJvZmlsZWNoZWNrbGlzdHYy\"",
+        "latestCreatedRevision": "projects/gen-lang-client-0815966909/locations/asia-east1/services/saveperformanceprofilechecklistv2/revisions/saveperformanceprofilechecklistv2-00008-89l",
+        "latestReadyRevision": "projects/gen-lang-client-0815966909/locations/asia-east1/services/saveperformanceprofilechecklistv2/revisions/saveperformanceprofilechecklistv2-00008-89l",
+        "traffic": [
+          {
+            "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST",
+            "percent": 100
+          }
+        ],
+        "trafficStatuses": [
+          {
+            "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST",
+            "revision": "saveperformanceprofilechecklistv2-00008-89l",
+            "percent": 100
+          }
+        ],
+        "conditions": [
+          {
+            "type": "RoutesReady",
+            "state": "CONDITION_SUCCEEDED"
+          },
+          {
+            "type": "BaseImageValidated",
+            "state": "CONDITION_SUCCEEDED"
+          },
+          {
+            "type": "ConfigurationsReady",
+            "state": "CONDITION_SUCCEEDED"
+          }
+        ],
+        "scaling": {
+          "maxInstanceCount": 12
+        },
+        "template": {
+          "scaling": {
+            "maxInstanceCount": 1
+          },
+          "maxInstanceRequestConcurrency": 1,
+          "containers": [
+            {
+              "image": "asia-east1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--east1__get_my_access_context_overflow@sha256:65087f4f33fae3f4e1246476c07e763cc3c2a7ab8b4ee2de843f63040f9cac87",
+              "resources": {
+                "limits": {
+                  "cpu": "0.1666",
+                  "memory": "256Mi"
+                },
+                "cpuIdle": true,
+                "startupCpuBoost": true
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "target": "savePerformanceMetricAssessmentV2",
+      "name": "projects/gen-lang-client-0815966909/locations/asia-east1/functions/savePerformanceMetricAssessmentV2",
+      "service": "projects/gen-lang-client-0815966909/locations/asia-east1/services/saveperformancemetricassessmentv2",
+      "region": "asia-east1",
+      "isNew": false,
+      "function": {
+        "name": "projects/gen-lang-client-0815966909/locations/asia-east1/functions/savePerformanceMetricAssessmentV2",
+        "state": "ACTIVE",
+        "updateTime": "2026-10-22T10:40:12.807597376Z",
+        "environment": "GEN_2",
+        "build": "projects/607039870489/locations/asia-east1/builds/26e4cb38-a1cd-4a6a-b32c-ecf8e4fc89d7",
+        "runtime": "nodejs22",
+        "entryPoint": "savePerformanceMetricAssessmentV2",
+        "service": "projects/gen-lang-client-0815966909/locations/asia-east1/services/saveperformancemetricassessmentv2",
+        "cpu": "0.1666",
+        "memory": "256Mi",
+        "max": 1,
+        "concurrency": 1,
+        "timeout": 120
+      },
+      "serviceMetadata": {
+        "name": "projects/gen-lang-client-0815966909/locations/asia-east1/services/saveperformancemetricassessmentv2",
+        "generation": "7",
+        "observedGeneration": "7",
+        "updateTime": "2026-10-23T08:54:47.159807Z",
+        "etag": "\"CNfB7NYGEJjsmUw/cHJvamVjdHMvZ2VuLWxhbmctY2xpZW50LTA4MTU5NjY5MDkvbG9jYXRpb25zL2FzaWEtZWFzdDEvc2VydmljZXMvc2F2ZXBlcmZvcm1hbmNlbWV0cmljYXNzZXNzbWVudHYy\"",
+        "latestCreatedRevision": "projects/gen-lang-client-0815966909/locations/asia-east1/services/saveperformancemetricassessmentv2/revisions/saveperformancemetricassessmentv2-00006-lsl",
+        "latestReadyRevision": "projects/gen-lang-client-0815966909/locations/asia-east1/services/saveperformancemetricassessmentv2/revisions/saveperformancemetricassessmentv2-00006-lsl",
+        "traffic": [
+          {
+            "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST",
+            "percent": 100
+          }
+        ],
+        "trafficStatuses": [
+          {
+            "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST",
+            "revision": "saveperformancemetricassessmentv2-00006-lsl",
+            "percent": 100
+          }
+        ],
+        "conditions": [
+          {
+            "type": "RoutesReady",
+            "state": "CONDITION_SUCCEEDED"
+          },
+          {
+            "type": "BaseImageValidated",
+            "state": "CONDITION_SUCCEEDED"
+          },
+          {
+            "type": "ConfigurationsReady",
+            "state": "CONDITION_SUCCEEDED"
+          }
+        ],
+        "scaling": {
+          "maxInstanceCount": 12
+        },
+        "template": {
+          "scaling": {
+            "maxInstanceCount": 1
+          },
+          "maxInstanceRequestConcurrency": 1,
+          "containers": [
+            {
+              "image": "asia-east1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--east1__get_my_access_context_overflow@sha256:65087f4f33fae3f4e1246476c07e763cc3c2a7ab8b4ee2de843f63040f9cac87",
+              "resources": {
+                "limits": {
+                  "cpu": "0.1666",
+                  "memory": "256Mi"
+                },
+                "cpuIdle": true,
+                "startupCpuBoost": true
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "target": "savePerformanceGateAssessmentV2",
+      "name": "projects/gen-lang-client-0815966909/locations/asia-east1/functions/savePerformanceGateAssessmentV2",
+      "service": "projects/gen-lang-client-0815966909/locations/asia-east1/services/saveperformancegateassessmentv2",
+      "region": "asia-east1",
+      "isNew": false,
+      "function": {
+        "name": "projects/gen-lang-client-0815966909/locations/asia-east1/functions/savePerformanceGateAssessmentV2",
+        "state": "ACTIVE",
+        "updateTime": "2026-10-22T10:35:59.766656183Z",
+        "environment": "GEN_2",
+        "build": "projects/607039870489/locations/asia-east1/builds/26e4cb38-a1cd-4a6a-b32c-ecf8e4fc89d7",
+        "runtime": "nodejs22",
+        "entryPoint": "savePerformanceGateAssessmentV2",
+        "service": "projects/gen-lang-client-0815966909/locations/asia-east1/services/saveperformancegateassessmentv2",
+        "cpu": "0.1666",
+        "memory": "256Mi",
+        "max": 1,
+        "concurrency": 1,
+        "timeout": 120
+      },
+      "serviceMetadata": {
+        "name": "projects/gen-lang-client-0815966909/locations/asia-east1/services/saveperformancegateassessmentv2",
+        "generation": "7",
+        "observedGeneration": "7",
+        "updateTime": "2026-10-23T08:50:25.246267Z",
+        "etag": "\"CNG_7NYGEPj4tnU/cHJvamVjdHMvZ2VuLWxhbmctY2xpZW50LTA4MTU5NjY5MDkvbG9jYXRpb25zL2FzaWEtZWFzdDEvc2VydmljZXMvc2F2ZXBlcmZvcm1hbmNlZ2F0ZWFzc2Vzc21lbnR2Mg\"",
+        "latestCreatedRevision": "projects/gen-lang-client-0815966909/locations/asia-east1/services/saveperformancegateassessmentv2/revisions/saveperformancegateassessmentv2-00006-c4q",
+        "latestReadyRevision": "projects/gen-lang-client-0815966909/locations/asia-east1/services/saveperformancegateassessmentv2/revisions/saveperformancegateassessmentv2-00006-c4q",
+        "traffic": [
+          {
+            "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST",
+            "percent": 100
+          }
+        ],
+        "trafficStatuses": [
+          {
+            "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST",
+            "revision": "saveperformancegateassessmentv2-00006-c4q",
+            "percent": 100
+          }
+        ],
+        "conditions": [
+          {
+            "type": "RoutesReady",
+            "state": "CONDITION_SUCCEEDED"
+          },
+          {
+            "type": "BaseImageValidated",
+            "state": "CONDITION_SUCCEEDED"
+          },
+          {
+            "type": "ConfigurationsReady",
+            "state": "CONDITION_SUCCEEDED"
+          }
+        ],
+        "scaling": {
+          "maxInstanceCount": 12
+        },
+        "template": {
+          "scaling": {
+            "maxInstanceCount": 1
+          },
+          "maxInstanceRequestConcurrency": 1,
+          "containers": [
+            {
+              "image": "asia-east1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--east1__get_my_access_context_overflow@sha256:65087f4f33fae3f4e1246476c07e763cc3c2a7ab8b4ee2de843f63040f9cac87",
+              "resources": {
+                "limits": {
+                  "cpu": "0.1666",
+                  "memory": "256Mi"
+                },
+                "cpuIdle": true,
+                "startupCpuBoost": true
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "target": "refreshPerformanceSnapshotV2",
+      "name": "projects/gen-lang-client-0815966909/locations/asia-east1/functions/refreshPerformanceSnapshotV2",
+      "service": "projects/gen-lang-client-0815966909/locations/asia-east1/services/refreshperformancesnapshotv2",
+      "region": "asia-east1",
+      "isNew": false,
+      "function": {
+        "name": "projects/gen-lang-client-0815966909/locations/asia-east1/functions/refreshPerformanceSnapshotV2",
+        "state": "ACTIVE",
+        "updateTime": "2026-10-22T10:40:15.677941893Z",
+        "environment": "GEN_2",
+        "build": "projects/607039870489/locations/asia-east1/builds/26e4cb38-a1cd-4a6a-b32c-ecf8e4fc89d7",
+        "runtime": "nodejs22",
+        "entryPoint": "refreshPerformanceSnapshotV2",
+        "service": "projects/gen-lang-client-0815966909/locations/asia-east1/services/refreshperformancesnapshotv2",
+        "cpu": "0.1666",
+        "memory": "256Mi",
+        "max": 1,
+        "concurrency": 1,
+        "timeout": 120
+      },
+      "serviceMetadata": {
+        "name": "projects/gen-lang-client-0815966909/locations/asia-east1/services/refreshperformancesnapshotv2",
+        "generation": "9",
+        "observedGeneration": "9",
+        "updateTime": "2026-10-23T08:44:20.442611Z",
+        "etag": "\"COS87NYGELjqhtMB/cHJvamVjdHMvZ2VuLWxhbmctY2xpZW50LTA4MTU5NjY5MDkvbG9jYXRpb25zL2FzaWEtZWFzdDEvc2VydmljZXMvcmVmcmVzaHBlcmZvcm1hbmNlc25hcHNob3R2Mg\"",
+        "latestCreatedRevision": "projects/gen-lang-client-0815966909/locations/asia-east1/services/refreshperformancesnapshotv2/revisions/refreshperformancesnapshotv2-00008-cvs",
+        "latestReadyRevision": "projects/gen-lang-client-0815966909/locations/asia-east1/services/refreshperformancesnapshotv2/revisions/refreshperformancesnapshotv2-00008-cvs",
+        "traffic": [
+          {
+            "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST",
+            "percent": 100
+          }
+        ],
+        "trafficStatuses": [
+          {
+            "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST",
+            "revision": "refreshperformancesnapshotv2-00008-cvs",
+            "percent": 100
+          }
+        ],
+        "conditions": [
+          {
+            "type": "RoutesReady",
+            "state": "CONDITION_SUCCEEDED"
+          },
+          {
+            "type": "BaseImageValidated",
+            "state": "CONDITION_SUCCEEDED"
+          },
+          {
+            "type": "ConfigurationsReady",
+            "state": "CONDITION_SUCCEEDED"
+          }
+        ],
+        "scaling": {
+          "maxInstanceCount": 12
+        },
+        "template": {
+          "scaling": {
+            "maxInstanceCount": 1
+          },
+          "maxInstanceRequestConcurrency": 1,
+          "containers": [
+            {
+              "image": "asia-east1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--east1__get_my_access_context_overflow@sha256:65087f4f33fae3f4e1246476c07e763cc3c2a7ab8b4ee2de843f63040f9cac87",
+              "resources": {
+                "limits": {
+                  "cpu": "0.1666",
+                  "memory": "256Mi"
+                },
+                "cpuIdle": true,
+                "startupCpuBoost": true
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "target": "setPerformanceSnapshotLockV2",
+      "name": "projects/gen-lang-client-0815966909/locations/asia-east1/functions/setPerformanceSnapshotLockV2",
+      "service": "projects/gen-lang-client-0815966909/locations/asia-east1/services/setperformancesnapshotlockv2",
+      "region": "asia-east1",
+      "isNew": false,
+      "function": {
+        "name": "projects/gen-lang-client-0815966909/locations/asia-east1/functions/setPerformanceSnapshotLockV2",
+        "state": "ACTIVE",
+        "updateTime": "2026-10-22T10:36:01.496769030Z",
+        "environment": "GEN_2",
+        "build": "projects/607039870489/locations/asia-east1/builds/26e4cb38-a1cd-4a6a-b32c-ecf8e4fc89d7",
+        "runtime": "nodejs22",
+        "entryPoint": "setPerformanceSnapshotLockV2",
+        "service": "projects/gen-lang-client-0815966909/locations/asia-east1/services/setperformancesnapshotlockv2",
+        "cpu": "0.1666",
+        "memory": "256Mi",
+        "max": 1,
+        "concurrency": 1,
+        "timeout": 120
+      },
+      "serviceMetadata": {
+        "name": "projects/gen-lang-client-0815966909/locations/asia-east1/services/setperformancesnapshotlockv2",
+        "generation": "7",
+        "observedGeneration": "7",
+        "updateTime": "2026-10-23T08:59:56.183552Z",
+        "etag": "\"CIzE7NYGEICQw1c/cHJvamVjdHMvZ2VuLWxhbmctY2xpZW50LTA4MTU5NjY5MDkvbG9jYXRpb25zL2FzaWEtZWFzdDEvc2VydmljZXMvc2V0cGVyZm9ybWFuY2VzbmFwc2hvdGxvY2t2Mg\"",
+        "latestCreatedRevision": "projects/gen-lang-client-0815966909/locations/asia-east1/services/setperformancesnapshotlockv2/revisions/setperformancesnapshotlockv2-00006-5vf",
+        "latestReadyRevision": "projects/gen-lang-client-0815966909/locations/asia-east1/services/setperformancesnapshotlockv2/revisions/setperformancesnapshotlockv2-00006-5vf",
+        "traffic": [
+          {
+            "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST",
+            "percent": 100
+          }
+        ],
+        "trafficStatuses": [
+          {
+            "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST",
+            "revision": "setperformancesnapshotlockv2-00006-5vf",
+            "percent": 100
+          }
+        ],
+        "conditions": [
+          {
+            "type": "RoutesReady",
+            "state": "CONDITION_SUCCEEDED"
+          },
+          {
+            "type": "BaseImageValidated",
+            "state": "CONDITION_SUCCEEDED"
+          },
+          {
+            "type": "ConfigurationsReady",
+            "state": "CONDITION_SUCCEEDED"
+          }
+        ],
+        "scaling": {
+          "maxInstanceCount": 12
+        },
+        "template": {
+          "scaling": {
+            "maxInstanceCount": 1
+          },
+          "maxInstanceRequestConcurrency": 1,
+          "containers": [
+            {
+              "image": "asia-east1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--east1__get_my_access_context_overflow@sha256:65087f4f33fae3f4e1246476c07e763cc3c2a7ab8b4ee2de843f63040f9cac87",
+              "resources": {
+                "limits": {
+                  "cpu": "0.1666",
+                  "memory": "256Mi"
+                },
+                "cpuIdle": true,
+                "startupCpuBoost": true
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "target": "getPayrollRun",
+      "name": "projects/gen-lang-client-0815966909/locations/asia-southeast1/functions/getPayrollRun",
+      "service": "projects/gen-lang-client-0815966909/locations/asia-southeast1/services/getpayrollrun",
+      "region": "asia-southeast1",
+      "isNew": false,
+      "function": {
+        "name": "projects/gen-lang-client-0815966909/locations/asia-southeast1/functions/getPayrollRun",
+        "state": "ACTIVE",
+        "updateTime": "2026-10-22T10:31:46.383107935Z",
+        "environment": "GEN_2",
+        "build": "projects/607039870489/locations/asia-southeast1/builds/ef6d5672-42e2-454e-ae42-6506862adad1",
+        "runtime": "nodejs22",
+        "entryPoint": "getPayrollRun",
+        "service": "projects/gen-lang-client-0815966909/locations/asia-southeast1/services/getpayrollrun",
+        "revision": "getpayrollrun-00024-duq",
+        "cpu": "0.5",
+        "memory": "256Mi",
+        "max": 1,
+        "concurrency": 1,
+        "timeout": 300
+      },
+      "serviceMetadata": {
+        "name": "projects/gen-lang-client-0815966909/locations/asia-southeast1/services/getpayrollrun",
+        "generation": "24",
+        "observedGeneration": "24",
+        "updateTime": "2026-10-22T10:31:44.945810Z",
+        "etag": "\"CJDM59YGENDU_8ID/cHJvamVjdHMvZ2VuLWxhbmctY2xpZW50LTA4MTU5NjY5MDkvbG9jYXRpb25zL2FzaWEtc291dGhlYXN0MS9zZXJ2aWNlcy9nZXRwYXlyb2xscnVu\"",
+        "latestCreatedRevision": "projects/gen-lang-client-0815966909/locations/asia-southeast1/services/getpayrollrun/revisions/getpayrollrun-00024-duq",
+        "latestReadyRevision": "projects/gen-lang-client-0815966909/locations/asia-southeast1/services/getpayrollrun/revisions/getpayrollrun-00001-hug",
+        "traffic": [
+          {
+            "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_REVISION",
+            "revision": "getpayrollrun-00001-hug",
+            "percent": 100
+          }
+        ],
+        "trafficStatuses": [
+          {
+            "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_REVISION",
+            "revision": "getpayrollrun-00001-hug",
+            "percent": 100
+          }
+        ],
+        "conditions": [
+          {
+            "type": "RoutesReady",
+            "state": "CONDITION_SUCCEEDED"
+          },
+          {
+            "type": "BaseImageValidated",
+            "state": "CONDITION_SUCCEEDED"
+          },
+          {
+            "type": "ConfigurationsReady",
+            "state": "CONDITION_SUCCEEDED",
+            "revisionReason": "RETIRED"
+          }
+        ],
+        "scaling": {
+          "maxInstanceCount": 3
+        },
+        "template": {
+          "scaling": {
+            "maxInstanceCount": 1
+          },
+          "maxInstanceRequestConcurrency": 1,
+          "containers": [
+            {
+              "image": "asia-southeast1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast1__cleanup_eat_clean_live_locations:version_1",
+              "resources": {
+                "limits": {
+                  "cpu": "0.5",
+                  "memory": "256Mi"
+                },
+                "cpuIdle": true,
+                "startupCpuBoost": true
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "target": "getPayrollRunV2",
+      "name": "projects/gen-lang-client-0815966909/locations/asia-east1/functions/getPayrollRunV2",
+      "service": "projects/gen-lang-client-0815966909/locations/asia-east1/services/getpayrollrunv2",
+      "region": "asia-east1",
+      "isNew": false,
+      "function": {
+        "name": "projects/gen-lang-client-0815966909/locations/asia-east1/functions/getPayrollRunV2",
+        "state": "ACTIVE",
+        "updateTime": "2026-10-22T10:35:54.156668610Z",
+        "environment": "GEN_2",
+        "build": "projects/607039870489/locations/asia-east1/builds/26e4cb38-a1cd-4a6a-b32c-ecf8e4fc89d7",
+        "runtime": "nodejs22",
+        "entryPoint": "getPayrollRunV2",
+        "service": "projects/gen-lang-client-0815966909/locations/asia-east1/services/getpayrollrunv2",
+        "cpu": "0.5",
+        "memory": "256Mi",
+        "max": 1,
+        "concurrency": 1,
+        "timeout": 300
+      },
+      "serviceMetadata": {
+        "name": "projects/gen-lang-client-0815966909/locations/asia-east1/services/getpayrollrunv2",
+        "generation": "11",
+        "observedGeneration": "11",
+        "updateTime": "2026-10-23T08:29:03.501781Z",
+        "etag": "\"CM-17NYGEIikou8B/cHJvamVjdHMvZ2VuLWxhbmctY2xpZW50LTA4MTU5NjY5MDkvbG9jYXRpb25zL2FzaWEtZWFzdDEvc2VydmljZXMvZ2V0cGF5cm9sbHJ1bnYy\"",
+        "latestCreatedRevision": "projects/gen-lang-client-0815966909/locations/asia-east1/services/getpayrollrunv2/revisions/getpayrollrunv2-00010-dzk",
+        "latestReadyRevision": "projects/gen-lang-client-0815966909/locations/asia-east1/services/getpayrollrunv2/revisions/getpayrollrunv2-00010-dzk",
+        "traffic": [
+          {
+            "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST",
+            "percent": 100
+          }
+        ],
+        "trafficStatuses": [
+          {
+            "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST",
+            "revision": "getpayrollrunv2-00010-dzk",
+            "percent": 100
+          }
+        ],
+        "conditions": [
+          {
+            "type": "RoutesReady",
+            "state": "CONDITION_SUCCEEDED"
+          },
+          {
+            "type": "BaseImageValidated",
+            "state": "CONDITION_SUCCEEDED"
+          },
+          {
+            "type": "ConfigurationsReady",
+            "state": "CONDITION_SUCCEEDED"
+          }
+        ],
+        "scaling": {
+          "maxInstanceCount": 12
+        },
+        "template": {
+          "scaling": {
+            "maxInstanceCount": 1
+          },
+          "maxInstanceRequestConcurrency": 1,
+          "containers": [
+            {
+              "image": "asia-east1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--east1__get_my_access_context_overflow@sha256:65087f4f33fae3f4e1246476c07e763cc3c2a7ab8b4ee2de843f63040f9cac87",
+              "resources": {
+                "limits": {
+                  "cpu": "0.5",
+                  "memory": "256Mi"
+                },
+                "cpuIdle": true,
+                "startupCpuBoost": true
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "target": "reviewPayrollRun",
+      "name": "projects/gen-lang-client-0815966909/locations/asia-southeast1/functions/reviewPayrollRun",
+      "service": "projects/gen-lang-client-0815966909/locations/asia-southeast1/services/reviewpayrollrun",
+      "region": "asia-southeast1",
+      "isNew": false,
+      "function": {
+        "name": "projects/gen-lang-client-0815966909/locations/asia-southeast1/functions/reviewPayrollRun",
+        "state": "ACTIVE",
+        "updateTime": "2026-10-22T10:31:47.343236986Z",
+        "environment": "GEN_2",
+        "build": "projects/607039870489/locations/asia-southeast1/builds/ef6d5672-42e2-454e-ae42-6506862adad1",
+        "runtime": "nodejs22",
+        "entryPoint": "reviewPayrollRun",
+        "service": "projects/gen-lang-client-0815966909/locations/asia-southeast1/services/reviewpayrollrun",
+        "revision": "reviewpayrollrun-00027-xum",
+        "cpu": "0.5",
+        "memory": "256Mi",
+        "max": 1,
+        "concurrency": 1,
+        "timeout": 300
+      },
+      "serviceMetadata": {
+        "name": "projects/gen-lang-client-0815966909/locations/asia-southeast1/services/reviewpayrollrun",
+        "generation": "27",
+        "observedGeneration": "27",
+        "updateTime": "2026-10-22T10:31:45.207576Z",
+        "etag": "\"CJHM59YGEMC3_WI/cHJvamVjdHMvZ2VuLWxhbmctY2xpZW50LTA4MTU5NjY5MDkvbG9jYXRpb25zL2FzaWEtc291dGhlYXN0MS9zZXJ2aWNlcy9yZXZpZXdwYXlyb2xscnVu\"",
+        "latestCreatedRevision": "projects/gen-lang-client-0815966909/locations/asia-southeast1/services/reviewpayrollrun/revisions/reviewpayrollrun-00027-xum",
+        "latestReadyRevision": "projects/gen-lang-client-0815966909/locations/asia-southeast1/services/reviewpayrollrun/revisions/reviewpayrollrun-00006-zeq",
+        "traffic": [
+          {
+            "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_REVISION",
+            "revision": "reviewpayrollrun-00006-zeq",
+            "percent": 100
+          }
+        ],
+        "trafficStatuses": [
+          {
+            "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_REVISION",
+            "revision": "reviewpayrollrun-00006-zeq",
+            "percent": 100
+          }
+        ],
+        "conditions": [
+          {
+            "type": "RoutesReady",
+            "state": "CONDITION_SUCCEEDED"
+          },
+          {
+            "type": "BaseImageValidated",
+            "state": "CONDITION_SUCCEEDED"
+          },
+          {
+            "type": "ConfigurationsReady",
+            "state": "CONDITION_SUCCEEDED",
+            "revisionReason": "RETIRED"
+          }
+        ],
+        "scaling": {
+          "maxInstanceCount": 3
+        },
+        "template": {
+          "scaling": {
+            "maxInstanceCount": 1
+          },
+          "maxInstanceRequestConcurrency": 1,
+          "containers": [
+            {
+              "image": "asia-southeast1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast1__cleanup_eat_clean_live_locations:version_1",
+              "resources": {
+                "limits": {
+                  "cpu": "0.5",
+                  "memory": "256Mi"
+                },
+                "cpuIdle": true,
+                "startupCpuBoost": true
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "target": "reviewPayrollRunV2",
+      "name": "projects/gen-lang-client-0815966909/locations/asia-east1/functions/reviewPayrollRunV2",
+      "service": "projects/gen-lang-client-0815966909/locations/asia-east1/services/reviewpayrollrunv2",
+      "region": "asia-east1",
+      "isNew": false,
+      "function": {
+        "name": "projects/gen-lang-client-0815966909/locations/asia-east1/functions/reviewPayrollRunV2",
+        "state": "ACTIVE",
+        "updateTime": "2026-10-22T10:35:54.050325995Z",
+        "environment": "GEN_2",
+        "build": "projects/607039870489/locations/asia-east1/builds/26e4cb38-a1cd-4a6a-b32c-ecf8e4fc89d7",
+        "runtime": "nodejs22",
+        "entryPoint": "reviewPayrollRunV2",
+        "service": "projects/gen-lang-client-0815966909/locations/asia-east1/services/reviewpayrollrunv2",
+        "cpu": "0.5",
+        "memory": "256Mi",
+        "max": 1,
+        "concurrency": 1,
+        "timeout": 300
+      },
+      "serviceMetadata": {
+        "name": "projects/gen-lang-client-0815966909/locations/asia-east1/services/reviewpayrollrunv2",
+        "generation": "10",
+        "observedGeneration": "10",
+        "updateTime": "2026-10-23T08:49:15.935333Z",
+        "etag": "\"CIu_7NYGEIiZgL4D/cHJvamVjdHMvZ2VuLWxhbmctY2xpZW50LTA4MTU5NjY5MDkvbG9jYXRpb25zL2FzaWEtZWFzdDEvc2VydmljZXMvcmV2aWV3cGF5cm9sbHJ1bnYy\"",
+        "latestCreatedRevision": "projects/gen-lang-client-0815966909/locations/asia-east1/services/reviewpayrollrunv2/revisions/reviewpayrollrunv2-00009-fv8",
+        "latestReadyRevision": "projects/gen-lang-client-0815966909/locations/asia-east1/services/reviewpayrollrunv2/revisions/reviewpayrollrunv2-00009-fv8",
+        "traffic": [
+          {
+            "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST",
+            "percent": 100
+          }
+        ],
+        "trafficStatuses": [
+          {
+            "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST",
+            "revision": "reviewpayrollrunv2-00009-fv8",
+            "percent": 100
+          }
+        ],
+        "conditions": [
+          {
+            "type": "RoutesReady",
+            "state": "CONDITION_SUCCEEDED"
+          },
+          {
+            "type": "BaseImageValidated",
+            "state": "CONDITION_SUCCEEDED"
+          },
+          {
+            "type": "ConfigurationsReady",
+            "state": "CONDITION_SUCCEEDED"
+          }
+        ],
+        "scaling": {
+          "maxInstanceCount": 12
+        },
+        "template": {
+          "scaling": {
+            "maxInstanceCount": 1
+          },
+          "maxInstanceRequestConcurrency": 1,
+          "containers": [
+            {
+              "image": "asia-east1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--east1__get_my_access_context_overflow@sha256:65087f4f33fae3f4e1246476c07e763cc3c2a7ab8b4ee2de843f63040f9cac87",
+              "resources": {
+                "limits": {
+                  "cpu": "0.5",
+                  "memory": "256Mi"
+                },
+                "cpuIdle": true,
+                "startupCpuBoost": true
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "target": "lockPayrollRun",
+      "name": "projects/gen-lang-client-0815966909/locations/asia-southeast1/functions/lockPayrollRun",
+      "service": "projects/gen-lang-client-0815966909/locations/asia-southeast1/services/lockpayrollrun",
+      "region": "asia-southeast1",
+      "isNew": false,
+      "function": {
+        "name": "projects/gen-lang-client-0815966909/locations/asia-southeast1/functions/lockPayrollRun",
+        "state": "ACTIVE",
+        "updateTime": "2026-10-22T10:31:47.045340116Z",
+        "environment": "GEN_2",
+        "build": "projects/607039870489/locations/asia-southeast1/builds/ef6d5672-42e2-454e-ae42-6506862adad1",
+        "runtime": "nodejs22",
+        "entryPoint": "lockPayrollRun",
+        "service": "projects/gen-lang-client-0815966909/locations/asia-southeast1/services/lockpayrollrun",
+        "revision": "lockpayrollrun-00027-yow",
+        "cpu": "0.5",
+        "memory": "256Mi",
+        "max": 1,
+        "concurrency": 1,
+        "timeout": 300
+      },
+      "serviceMetadata": {
+        "name": "projects/gen-lang-client-0815966909/locations/asia-southeast1/services/lockpayrollrun",
+        "generation": "27",
+        "observedGeneration": "27",
+        "updateTime": "2026-10-22T10:31:45.539279Z",
+        "etag": "\"CJHM59YGEJj9koEC/cHJvamVjdHMvZ2VuLWxhbmctY2xpZW50LTA4MTU5NjY5MDkvbG9jYXRpb25zL2FzaWEtc291dGhlYXN0MS9zZXJ2aWNlcy9sb2NrcGF5cm9sbHJ1bg\"",
+        "latestCreatedRevision": "projects/gen-lang-client-0815966909/locations/asia-southeast1/services/lockpayrollrun/revisions/lockpayrollrun-00027-yow",
+        "latestReadyRevision": "projects/gen-lang-client-0815966909/locations/asia-southeast1/services/lockpayrollrun/revisions/lockpayrollrun-00006-kub",
+        "traffic": [
+          {
+            "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_REVISION",
+            "revision": "lockpayrollrun-00006-kub",
+            "percent": 100
+          }
+        ],
+        "trafficStatuses": [
+          {
+            "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_REVISION",
+            "revision": "lockpayrollrun-00006-kub",
+            "percent": 100
+          }
+        ],
+        "conditions": [
+          {
+            "type": "RoutesReady",
+            "state": "CONDITION_SUCCEEDED"
+          },
+          {
+            "type": "BaseImageValidated",
+            "state": "CONDITION_SUCCEEDED"
+          },
+          {
+            "type": "ConfigurationsReady",
+            "state": "CONDITION_SUCCEEDED",
+            "revisionReason": "RETIRED"
+          }
+        ],
+        "scaling": {
+          "maxInstanceCount": 3
+        },
+        "template": {
+          "scaling": {
+            "maxInstanceCount": 1
+          },
+          "maxInstanceRequestConcurrency": 1,
+          "containers": [
+            {
+              "image": "asia-southeast1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast1__cleanup_eat_clean_live_locations:version_1",
+              "resources": {
+                "limits": {
+                  "cpu": "0.5",
+                  "memory": "256Mi"
+                },
+                "cpuIdle": true,
+                "startupCpuBoost": true
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "target": "lockPayrollRunV2",
+      "name": "projects/gen-lang-client-0815966909/locations/asia-east1/functions/lockPayrollRunV2",
+      "service": "projects/gen-lang-client-0815966909/locations/asia-east1/services/lockpayrollrunv2",
+      "region": "asia-east1",
+      "isNew": false,
+      "function": {
+        "name": "projects/gen-lang-client-0815966909/locations/asia-east1/functions/lockPayrollRunV2",
+        "state": "ACTIVE",
+        "updateTime": "2026-10-22T10:35:14.172576533Z",
+        "environment": "GEN_2",
+        "build": "projects/607039870489/locations/asia-east1/builds/26e4cb38-a1cd-4a6a-b32c-ecf8e4fc89d7",
+        "runtime": "nodejs22",
+        "entryPoint": "lockPayrollRunV2",
+        "service": "projects/gen-lang-client-0815966909/locations/asia-east1/services/lockpayrollrunv2",
+        "cpu": "0.5",
+        "memory": "256Mi",
+        "max": 1,
+        "concurrency": 1,
+        "timeout": 300
+      },
+      "serviceMetadata": {
+        "name": "projects/gen-lang-client-0815966909/locations/asia-east1/services/lockpayrollrunv2",
+        "generation": "8",
+        "observedGeneration": "8",
+        "updateTime": "2026-10-23T08:43:50.067929Z",
+        "etag": "\"CMa87NYGEKiHsiA/cHJvamVjdHMvZ2VuLWxhbmctY2xpZW50LTA4MTU5NjY5MDkvbG9jYXRpb25zL2FzaWEtZWFzdDEvc2VydmljZXMvbG9ja3BheXJvbGxydW52Mg\"",
+        "latestCreatedRevision": "projects/gen-lang-client-0815966909/locations/asia-east1/services/lockpayrollrunv2/revisions/lockpayrollrunv2-00007-2jh",
+        "latestReadyRevision": "projects/gen-lang-client-0815966909/locations/asia-east1/services/lockpayrollrunv2/revisions/lockpayrollrunv2-00007-2jh",
+        "traffic": [
+          {
+            "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST",
+            "percent": 100
+          }
+        ],
+        "trafficStatuses": [
+          {
+            "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST",
+            "revision": "lockpayrollrunv2-00007-2jh",
+            "percent": 100
+          }
+        ],
+        "conditions": [
+          {
+            "type": "RoutesReady",
+            "state": "CONDITION_SUCCEEDED"
+          },
+          {
+            "type": "BaseImageValidated",
+            "state": "CONDITION_SUCCEEDED"
+          },
+          {
+            "type": "ConfigurationsReady",
+            "state": "CONDITION_SUCCEEDED"
+          }
+        ],
+        "scaling": {
+          "maxInstanceCount": 12
+        },
+        "template": {
+          "scaling": {
+            "maxInstanceCount": 1
+          },
+          "maxInstanceRequestConcurrency": 1,
+          "containers": [
+            {
+              "image": "asia-east1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--east1__get_my_access_context_overflow@sha256:65087f4f33fae3f4e1246476c07e763cc3c2a7ab8b4ee2de843f63040f9cac87",
+              "resources": {
+                "limits": {
+                  "cpu": "0.5",
+                  "memory": "256Mi"
+                },
+                "cpuIdle": true,
+                "startupCpuBoost": true
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "target": "listBusinessPerformance",
+      "name": "projects/gen-lang-client-0815966909/locations/asia-southeast1/functions/listBusinessPerformance",
+      "service": "projects/gen-lang-client-0815966909/locations/asia-southeast1/services/listbusinessperformance",
+      "region": "asia-southeast1",
+      "isNew": false,
+      "function": {
+        "name": "projects/gen-lang-client-0815966909/locations/asia-southeast1/functions/listBusinessPerformance",
+        "state": "ACTIVE",
+        "updateTime": "2026-10-25T07:01:12.163255523Z",
+        "environment": "GEN_2",
+        "build": "projects/607039870489/locations/asia-southeast1/builds/e1181141-f669-444c-8d92-a675653bf99c",
+        "runtime": "nodejs22",
+        "entryPoint": "listBusinessPerformance",
+        "service": "projects/gen-lang-client-0815966909/locations/asia-southeast1/services/listbusinessperformance",
+        "revision": "listbusinessperformance-stg-a78016602ac4",
+        "cpu": "0.1666",
+        "memory": "256Mi",
+        "max": 2,
+        "concurrency": 1,
+        "timeout": 60
+      },
+      "serviceMetadata": {
+        "name": "projects/gen-lang-client-0815966909/locations/asia-southeast1/services/listbusinessperformance",
+        "generation": "17",
+        "observedGeneration": "17",
+        "updateTime": "2026-10-25T07:01:43.585856Z",
+        "etag": "\"CNfS9tYGEIDorZcC/cHJvamVjdHMvZ2VuLWxhbmctY2xpZW50LTA4MTU5NjY5MDkvbG9jYXRpb25zL2FzaWEtc291dGhlYXN0MS9zZXJ2aWNlcy9saXN0YnVzaW5lc3NwZXJmb3JtYW5jZQ\"",
+        "latestCreatedRevision": "projects/gen-lang-client-0815966909/locations/asia-southeast1/services/listbusinessperformance/revisions/listbusinessperformance-stg-a78016602ac4",
+        "latestReadyRevision": "projects/gen-lang-client-0815966909/locations/asia-southeast1/services/listbusinessperformance/revisions/listbusinessperformance-stg-a78016602ac4",
+        "traffic": [
+          {
+            "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_REVISION",
+            "revision": "listbusinessperformance-stg-a78016602ac4",
+            "percent": 100
+          }
+        ],
+        "trafficStatuses": [
+          {
+            "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_REVISION",
+            "revision": "listbusinessperformance-stg-a78016602ac4",
+            "percent": 100
+          }
+        ],
+        "conditions": [
+          {
+            "type": "RoutesReady",
+            "state": "CONDITION_SUCCEEDED"
+          },
+          {
+            "type": "BaseImageValidated",
+            "state": "CONDITION_SUCCEEDED"
+          },
+          {
+            "type": "ConfigurationsReady",
+            "state": "CONDITION_SUCCEEDED"
+          }
+        ],
+        "scaling": {
+          "maxInstanceCount": 3
+        },
+        "template": {
+          "scaling": {
+            "maxInstanceCount": 2
+          },
+          "maxInstanceRequestConcurrency": 1,
+          "containers": [
+            {
+              "image": "asia-southeast1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast1__list_business_performance@sha256:d478e6cc95fb6718ddd1c22e50138121009bf51ab8924211c00af500c4541ab8",
+              "resources": {
+                "limits": {
+                  "cpu": "0.1666",
+                  "memory": "256Mi"
+                },
+                "cpuIdle": true,
+                "startupCpuBoost": true
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "target": "listBusinessPerformanceRegional",
+      "name": "projects/gen-lang-client-0815966909/locations/asia-east1/functions/listBusinessPerformanceRegional",
+      "service": "projects/gen-lang-client-0815966909/locations/asia-east1/services/listbusinessperformanceregional",
+      "region": "asia-east1",
+      "isNew": false,
+      "function": {
+        "name": "projects/gen-lang-client-0815966909/locations/asia-east1/functions/listBusinessPerformanceRegional",
+        "state": "ACTIVE",
+        "updateTime": "2026-10-25T07:03:42.767262681Z",
+        "environment": "GEN_2",
+        "build": "projects/607039870489/locations/asia-east1/builds/0b1c07af-cb02-475d-bf41-dfd6ae243410",
+        "runtime": "nodejs22",
+        "entryPoint": "listBusinessPerformanceRegional",
+        "service": "projects/gen-lang-client-0815966909/locations/asia-east1/services/listbusinessperformanceregional",
+        "revision": "listbusinessperformanceregional-00005-nal",
+        "cpu": "0.1666",
+        "memory": "256Mi",
+        "max": 2,
+        "concurrency": 1,
+        "timeout": 120
+      },
+      "serviceMetadata": {
+        "name": "projects/gen-lang-client-0815966909/locations/asia-east1/services/listbusinessperformanceregional",
+        "generation": "6",
+        "observedGeneration": "6",
+        "updateTime": "2026-10-25T07:03:57.406118Z",
+        "etag": "\"CN3T9tYGEPC808EB/cHJvamVjdHMvZ2VuLWxhbmctY2xpZW50LTA4MTU5NjY5MDkvbG9jYXRpb25zL2FzaWEtZWFzdDEvc2VydmljZXMvbGlzdGJ1c2luZXNzcGVyZm9ybWFuY2VyZWdpb25hbA\"",
+        "latestCreatedRevision": "projects/gen-lang-client-0815966909/locations/asia-east1/services/listbusinessperformanceregional/revisions/listbusinessperformanceregional-00005-nal",
+        "latestReadyRevision": "projects/gen-lang-client-0815966909/locations/asia-east1/services/listbusinessperformanceregional/revisions/listbusinessperformanceregional-00005-nal",
+        "traffic": [
+          {
+            "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_REVISION",
+            "revision": "listbusinessperformanceregional-00005-nal",
+            "percent": 100
+          }
+        ],
+        "trafficStatuses": [
+          {
+            "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_REVISION",
+            "revision": "listbusinessperformanceregional-00005-nal",
+            "percent": 100
+          }
+        ],
+        "conditions": [
+          {
+            "type": "RoutesReady",
+            "state": "CONDITION_SUCCEEDED"
+          },
+          {
+            "type": "BaseImageValidated",
+            "state": "CONDITION_SUCCEEDED"
+          },
+          {
+            "type": "ConfigurationsReady",
+            "state": "CONDITION_SUCCEEDED"
+          }
+        ],
+        "scaling": {
+          "maxInstanceCount": 12
+        },
+        "template": {
+          "scaling": {
+            "maxInstanceCount": 2
+          },
+          "maxInstanceRequestConcurrency": 1,
+          "containers": [
+            {
+              "image": "asia-east1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--east1__list_business_performance_regional:version_1",
+              "resources": {
+                "limits": {
+                  "cpu": "0.1666",
+                  "memory": "256Mi"
+                },
+                "cpuIdle": true,
+                "startupCpuBoost": true
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "target": "dispatchPushBroadcast",
+      "name": "projects/gen-lang-client-0815966909/locations/asia-southeast1/functions/dispatchPushBroadcast",
+      "service": "projects/gen-lang-client-0815966909/locations/asia-southeast1/services/dispatchpushbroadcast",
+      "region": "asia-southeast1",
+      "isNew": false,
+      "function": {
+        "name": "projects/gen-lang-client-0815966909/locations/asia-southeast1/functions/dispatchPushBroadcast",
+        "state": "ACTIVE",
+        "updateTime": "2026-10-30T13:08:53.039991113Z",
+        "environment": "GEN_2",
+        "build": "projects/607039870489/locations/asia-southeast1/builds/fb5540c5-08ee-496d-9a30-9251bd13daa6",
+        "runtime": "nodejs22",
+        "entryPoint": "dispatchPushBroadcast",
+        "service": "projects/gen-lang-client-0815966909/locations/asia-southeast1/services/dispatchpushbroadcast",
+        "revision": "dispatchpushbroadcast-00025-gup",
+        "cpu": "0.1666",
+        "memory": "256Mi",
+        "max": 1,
+        "concurrency": 1,
+        "timeout": 60
+      },
+      "serviceMetadata": {
+        "name": "projects/gen-lang-client-0815966909/locations/asia-southeast1/services/dispatchpushbroadcast",
+        "generation": "26",
+        "observedGeneration": "26",
+        "updateTime": "2026-10-30T13:09:00.702552Z",
+        "etag": "\"COytktcGEMCvgM8C/cHJvamVjdHMvZ2VuLWxhbmctY2xpZW50LTA4MTU5NjY5MDkvbG9jYXRpb25zL2FzaWEtc291dGhlYXN0MS9zZXJ2aWNlcy9kaXNwYXRjaHB1c2hicm9hZGNhc3Q\"",
+        "latestCreatedRevision": "projects/gen-lang-client-0815966909/locations/asia-southeast1/services/dispatchpushbroadcast/revisions/dispatchpushbroadcast-00025-gup",
+        "latestReadyRevision": "projects/gen-lang-client-0815966909/locations/asia-southeast1/services/dispatchpushbroadcast/revisions/dispatchpushbroadcast-00025-gup",
+        "traffic": [
+          {
+            "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_REVISION",
+            "revision": "dispatchpushbroadcast-00025-gup",
+            "percent": 100
+          }
+        ],
+        "trafficStatuses": [
+          {
+            "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_REVISION",
+            "revision": "dispatchpushbroadcast-00025-gup",
+            "percent": 100
+          }
+        ],
+        "conditions": [
+          {
+            "type": "RoutesReady",
+            "state": "CONDITION_SUCCEEDED"
+          },
+          {
+            "type": "BaseImageValidated",
+            "state": "CONDITION_SUCCEEDED"
+          },
+          {
+            "type": "ConfigurationsReady",
+            "state": "CONDITION_SUCCEEDED"
+          }
+        ],
+        "scaling": {
+          "maxInstanceCount": 12
+        },
+        "template": {
+          "scaling": {
+            "maxInstanceCount": 1
+          },
+          "maxInstanceRequestConcurrency": 1,
+          "containers": [
+            {
+              "image": "asia-southeast1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast1__dispatch_push_broadcast:version_1",
+              "resources": {
+                "limits": {
+                  "cpu": "0.1666",
+                  "memory": "256Mi"
+                },
+                "cpuIdle": true,
+                "startupCpuBoost": true
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "target": "processStudent360SourceQueue",
+      "name": "projects/gen-lang-client-0815966909/locations/asia-southeast1/functions/processStudent360SourceQueue",
+      "service": "projects/gen-lang-client-0815966909/locations/asia-southeast1/services/processstudent360sourcequeue",
+      "region": "asia-southeast1",
+      "isNew": false,
+      "function": {
+        "name": "projects/gen-lang-client-0815966909/locations/asia-southeast1/functions/processStudent360SourceQueue",
+        "state": "ACTIVE",
+        "updateTime": "2026-10-30T06:41:04.735736649Z",
+        "environment": "GEN_2",
+        "build": "projects/607039870489/locations/asia-southeast1/builds/669331f9-d228-4c9d-8747-c8486150dc0f",
+        "runtime": "nodejs22",
+        "entryPoint": "processStudent360SourceQueue",
+        "service": "projects/gen-lang-client-0815966909/locations/asia-southeast1/services/processstudent360sourcequeue",
+        "revision": "processstudent360sourcequeue-stg-ece2db4e2aa7",
+        "cpu": "0.1666",
+        "memory": "256Mi",
+        "max": 3,
+        "concurrency": 1,
+        "timeout": 540
+      },
+      "serviceMetadata": {
+        "name": "projects/gen-lang-client-0815966909/locations/asia-southeast1/services/processstudent360sourcequeue",
+        "generation": "5",
+        "observedGeneration": "5",
+        "updateTime": "2026-10-30T06:43:48.470656Z",
+        "etag": "\"CKT5kNcGEIDItuAB/cHJvamVjdHMvZ2VuLWxhbmctY2xpZW50LTA4MTU5NjY5MDkvbG9jYXRpb25zL2FzaWEtc291dGhlYXN0MS9zZXJ2aWNlcy9wcm9jZXNzc3R1ZGVudDM2MHNvdXJjZXF1ZXVl\"",
+        "latestCreatedRevision": "projects/gen-lang-client-0815966909/locations/asia-southeast1/services/processstudent360sourcequeue/revisions/processstudent360sourcequeue-stg-ece2db4e2aa7",
+        "latestReadyRevision": "projects/gen-lang-client-0815966909/locations/asia-southeast1/services/processstudent360sourcequeue/revisions/processstudent360sourcequeue-stg-ece2db4e2aa7",
+        "traffic": [
+          {
+            "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_REVISION",
+            "revision": "processstudent360sourcequeue-stg-ece2db4e2aa7",
+            "percent": 100
+          }
+        ],
+        "trafficStatuses": [
+          {
+            "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_REVISION",
+            "revision": "processstudent360sourcequeue-stg-ece2db4e2aa7",
+            "percent": 100
+          }
+        ],
+        "conditions": [
+          {
+            "type": "RoutesReady",
+            "state": "CONDITION_SUCCEEDED"
+          },
+          {
+            "type": "BaseImageValidated",
+            "state": "CONDITION_SUCCEEDED"
+          },
+          {
+            "type": "ConfigurationsReady",
+            "state": "CONDITION_SUCCEEDED"
+          }
+        ],
+        "scaling": {
+          "maxInstanceCount": 12
+        },
+        "template": {
+          "scaling": {
+            "maxInstanceCount": 3
+          },
+          "maxInstanceRequestConcurrency": 1,
+          "containers": [
+            {
+              "image": "asia-southeast1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast1__refresh_student360_projection_from_queue@sha256:319a1547325cfb8547e379ea10585775631896fb9d1582ac70336e738d6f0b44",
+              "resources": {
+                "limits": {
+                  "cpu": "0.1666",
+                  "memory": "256Mi"
+                },
+                "cpuIdle": true,
+                "startupCpuBoost": true
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "target": "recoverStudent360SourceQueueScheduled",
+      "name": "projects/gen-lang-client-0815966909/locations/asia-southeast1/functions/recoverStudent360SourceQueueScheduled",
+      "service": "projects/gen-lang-client-0815966909/locations/asia-southeast1/services/recoverstudent360sourcequeuescheduled",
+      "region": "asia-southeast1",
+      "isNew": false,
+      "function": {
+        "name": "projects/gen-lang-client-0815966909/locations/asia-southeast1/functions/recoverStudent360SourceQueueScheduled",
+        "state": "ACTIVE",
+        "updateTime": "2026-10-30T06:41:03.697004440Z",
+        "environment": "GEN_2",
+        "build": "projects/607039870489/locations/asia-southeast1/builds/669331f9-d228-4c9d-8747-c8486150dc0f",
+        "runtime": "nodejs22",
+        "entryPoint": "recoverStudent360SourceQueueScheduled",
+        "service": "projects/gen-lang-client-0815966909/locations/asia-southeast1/services/recoverstudent360sourcequeuescheduled",
+        "revision": "recoverstudent360sourcequeuescheduled-stg-2f5391bf69d3",
+        "cpu": "0.1666",
+        "memory": "256Mi",
+        "max": 1,
+        "concurrency": 1,
+        "timeout": 540
+      },
+      "serviceMetadata": {
+        "name": "projects/gen-lang-client-0815966909/locations/asia-southeast1/services/recoverstudent360sourcequeuescheduled",
+        "generation": "5",
+        "observedGeneration": "5",
+        "updateTime": "2026-10-30T06:44:05.301998Z",
+        "etag": "\"CLX5kNcGELC_gJAB/cHJvamVjdHMvZ2VuLWxhbmctY2xpZW50LTA4MTU5NjY5MDkvbG9jYXRpb25zL2FzaWEtc291dGhlYXN0MS9zZXJ2aWNlcy9yZWNvdmVyc3R1ZGVudDM2MHNvdXJjZXF1ZXVlc2NoZWR1bGVk\"",
+        "latestCreatedRevision": "projects/gen-lang-client-0815966909/locations/asia-southeast1/services/recoverstudent360sourcequeuescheduled/revisions/recoverstudent360sourcequeuescheduled-stg-2f5391bf69d3",
+        "latestReadyRevision": "projects/gen-lang-client-0815966909/locations/asia-southeast1/services/recoverstudent360sourcequeuescheduled/revisions/recoverstudent360sourcequeuescheduled-stg-2f5391bf69d3",
+        "traffic": [
+          {
+            "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_REVISION",
+            "revision": "recoverstudent360sourcequeuescheduled-stg-2f5391bf69d3",
+            "percent": 100
+          }
+        ],
+        "trafficStatuses": [
+          {
+            "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_REVISION",
+            "revision": "recoverstudent360sourcequeuescheduled-stg-2f5391bf69d3",
+            "percent": 100
+          }
+        ],
+        "conditions": [
+          {
+            "type": "RoutesReady",
+            "state": "CONDITION_SUCCEEDED"
+          },
+          {
+            "type": "BaseImageValidated",
+            "state": "CONDITION_SUCCEEDED"
+          },
+          {
+            "type": "ConfigurationsReady",
+            "state": "CONDITION_SUCCEEDED"
+          }
+        ],
+        "scaling": {
+          "maxInstanceCount": 12
+        },
+        "template": {
+          "scaling": {
+            "maxInstanceCount": 1
+          },
+          "maxInstanceRequestConcurrency": 1,
+          "containers": [
+            {
+              "image": "asia-southeast1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast1__refresh_student360_projection_from_queue@sha256:319a1547325cfb8547e379ea10585775631896fb9d1582ac70336e738d6f0b44",
+              "resources": {
+                "limits": {
+                  "cpu": "0.1666",
+                  "memory": "256Mi"
+                },
+                "cpuIdle": true,
+                "startupCpuBoost": true
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "target": "rebuildDirtyPtScheduleWeeklyViewsScheduled",
+      "name": "projects/gen-lang-client-0815966909/locations/asia-southeast1/functions/rebuildDirtyPtScheduleWeeklyViewsScheduled",
+      "service": "projects/gen-lang-client-0815966909/locations/asia-southeast1/services/rebuilddirtyptscheduleweeklyviewsscheduled",
+      "region": "asia-southeast1",
+      "isNew": false,
+      "function": {
+        "name": "projects/gen-lang-client-0815966909/locations/asia-southeast1/functions/rebuildDirtyPtScheduleWeeklyViewsScheduled",
+        "state": "ACTIVE",
+        "updateTime": "2026-10-27T16:54:33.613937056Z",
+        "environment": "GEN_2",
+        "build": "projects/607039870489/locations/asia-southeast1/builds/25f8c38a-73dc-4db4-b8b1-9df92056df21",
+        "runtime": "nodejs22",
+        "entryPoint": "rebuildDirtyPtScheduleWeeklyViewsScheduled",
+        "service": "projects/gen-lang-client-0815966909/locations/asia-southeast1/services/rebuilddirtyptscheduleweeklyviewsscheduled",
+        "revision": "rebuilddirtyptscheduleweeklyviewsscheduled-stg-e37da8ba900a",
+        "cpu": "1",
+        "memory": "512Mi",
+        "max": 1,
+        "concurrency": 80,
+        "timeout": 540
+      },
+      "serviceMetadata": {
+        "name": "projects/gen-lang-client-0815966909/locations/asia-southeast1/services/rebuilddirtyptscheduleweeklyviewsscheduled",
+        "generation": "26",
+        "observedGeneration": "26",
+        "updateTime": "2026-10-27T16:54:59.641142Z",
+        "etag": "\"COOug9cGEPCZ3LEC/cHJvamVjdHMvZ2VuLWxhbmctY2xpZW50LTA4MTU5NjY5MDkvbG9jYXRpb25zL2FzaWEtc291dGhlYXN0MS9zZXJ2aWNlcy9yZWJ1aWxkZGlydHlwdHNjaGVkdWxld2Vla2x5dmlld3NzY2hlZHVsZWQ\"",
+        "latestCreatedRevision": "projects/gen-lang-client-0815966909/locations/asia-southeast1/services/rebuilddirtyptscheduleweeklyviewsscheduled/revisions/rebuilddirtyptscheduleweeklyviewsscheduled-stg-e37da8ba900a",
+        "latestReadyRevision": "projects/gen-lang-client-0815966909/locations/asia-southeast1/services/rebuilddirtyptscheduleweeklyviewsscheduled/revisions/rebuilddirtyptscheduleweeklyviewsscheduled-stg-e37da8ba900a",
+        "traffic": [
+          {
+            "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_REVISION",
+            "revision": "rebuilddirtyptscheduleweeklyviewsscheduled-stg-e37da8ba900a",
+            "percent": 100
+          }
+        ],
+        "trafficStatuses": [
+          {
+            "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_REVISION",
+            "revision": "rebuilddirtyptscheduleweeklyviewsscheduled-stg-e37da8ba900a",
+            "percent": 100
+          }
+        ],
+        "conditions": [
+          {
+            "type": "RoutesReady",
+            "state": "CONDITION_SUCCEEDED"
+          },
+          {
+            "type": "BaseImageValidated",
+            "state": "CONDITION_SUCCEEDED"
+          },
+          {
+            "type": "ConfigurationsReady",
+            "state": "CONDITION_SUCCEEDED"
+          }
+        ],
+        "scaling": {
+          "maxInstanceCount": 3
+        },
+        "template": {
+          "scaling": {
+            "maxInstanceCount": 1
+          },
+          "maxInstanceRequestConcurrency": 80,
+          "containers": [
+            {
+              "image": "asia-southeast1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast1__rebuild_dirty_pt_schedule_weekly_views_scheduled@sha256:e2f4daafdada9e1b4cd5ee28aba15d9dae9a6ac95479832196c020b85bfe792d",
+              "resources": {
+                "limits": {
+                  "cpu": "1",
+                  "memory": "512Mi"
+                },
+                "cpuIdle": true,
+                "startupCpuBoost": true
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "target": "getStudent360Overview",
+      "name": "projects/gen-lang-client-0815966909/locations/asia-southeast1/functions/getStudent360Overview",
+      "service": "projects/gen-lang-client-0815966909/locations/asia-southeast1/services/getstudent360overview",
+      "region": "asia-southeast1",
+      "isNew": false,
+      "function": {
+        "name": "projects/gen-lang-client-0815966909/locations/asia-southeast1/functions/getStudent360Overview",
+        "state": "ACTIVE",
+        "updateTime": "2026-10-30T11:20:30.870975394Z",
+        "environment": "GEN_2",
+        "build": "projects/607039870489/locations/asia-southeast1/builds/edeeb9cc-2bb5-4ed4-aa7a-690235154a01",
+        "runtime": "nodejs22",
+        "entryPoint": "getStudent360Overview",
+        "service": "projects/gen-lang-client-0815966909/locations/asia-southeast1/services/getstudent360overview",
+        "revision": "getstudent360overview-stg-dd9d62e4477e",
+        "cpu": "0.1666",
+        "memory": "256Mi",
+        "max": 8,
+        "concurrency": 1,
+        "timeout": 60
+      },
+      "serviceMetadata": {
+        "name": "projects/gen-lang-client-0815966909/locations/asia-southeast1/services/getstudent360overview",
+        "generation": "44",
+        "observedGeneration": "44",
+        "updateTime": "2026-10-30T11:23:29.598160Z",
+        "etag": "\"CLH8kdcGEIDlnJ0C/cHJvamVjdHMvZ2VuLWxhbmctY2xpZW50LTA4MTU5NjY5MDkvbG9jYXRpb25zL2FzaWEtc291dGhlYXN0MS9zZXJ2aWNlcy9nZXRzdHVkZW50MzYwb3ZlcnZpZXc\"",
+        "latestCreatedRevision": "projects/gen-lang-client-0815966909/locations/asia-southeast1/services/getstudent360overview/revisions/getstudent360overview-stg-dd9d62e4477e",
+        "latestReadyRevision": "projects/gen-lang-client-0815966909/locations/asia-southeast1/services/getstudent360overview/revisions/getstudent360overview-stg-dd9d62e4477e",
+        "traffic": [
+          {
+            "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_REVISION",
+            "revision": "getstudent360overview-stg-dd9d62e4477e",
+            "percent": 100
+          }
+        ],
+        "trafficStatuses": [
+          {
+            "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_REVISION",
+            "revision": "getstudent360overview-stg-dd9d62e4477e",
+            "percent": 100
+          }
+        ],
+        "conditions": [
+          {
+            "type": "RoutesReady",
+            "state": "CONDITION_SUCCEEDED"
+          },
+          {
+            "type": "BaseImageValidated",
+            "state": "CONDITION_SUCCEEDED"
+          },
+          {
+            "type": "ConfigurationsReady",
+            "state": "CONDITION_SUCCEEDED"
+          }
+        ],
+        "scaling": {
+          "maxInstanceCount": 6
+        },
+        "template": {
+          "scaling": {
+            "maxInstanceCount": 8
+          },
+          "maxInstanceRequestConcurrency": 1,
+          "containers": [
+            {
+              "image": "asia-southeast1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast1__get_student360_overview@sha256:1d63c4d398d56f87f4f5226a967e5bd04e981e2aa6848441f398caf6cb935ec5",
+              "resources": {
+                "limits": {
+                  "cpu": "0.1666",
+                  "memory": "256Mi"
+                },
+                "cpuIdle": true,
+                "startupCpuBoost": true
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "target": "getStudent360OverviewRegional",
+      "name": "projects/gen-lang-client-0815966909/locations/asia-east1/functions/getStudent360OverviewRegional",
+      "service": "projects/gen-lang-client-0815966909/locations/asia-east1/services/getstudent360overviewregional",
+      "region": "asia-east1",
+      "isNew": false,
+      "function": {
+        "name": "projects/gen-lang-client-0815966909/locations/asia-east1/functions/getStudent360OverviewRegional",
+        "state": "ACTIVE",
+        "updateTime": "2026-10-30T11:14:44.258635236Z",
+        "environment": "GEN_2",
+        "build": "projects/607039870489/locations/asia-east1/builds/84531e64-82ce-4b5a-8f53-56f5465bdf73",
+        "runtime": "nodejs22",
+        "entryPoint": "getStudent360OverviewRegional",
+        "service": "projects/gen-lang-client-0815966909/locations/asia-east1/services/getstudent360overviewregional",
+        "revision": "getstudent360overviewregional-stg-808b9682e955",
+        "cpu": "0.1666",
+        "memory": "256Mi",
+        "max": 8,
+        "concurrency": 1,
+        "timeout": 60
+      },
+      "serviceMetadata": {
+        "name": "projects/gen-lang-client-0815966909/locations/asia-east1/services/getstudent360overviewregional",
+        "generation": "34",
+        "observedGeneration": "34",
+        "updateTime": "2026-10-30T11:24:13.462126Z",
+        "etag": "\"CN38kdcGELD3rdwB/cHJvamVjdHMvZ2VuLWxhbmctY2xpZW50LTA4MTU5NjY5MDkvbG9jYXRpb25zL2FzaWEtZWFzdDEvc2VydmljZXMvZ2V0c3R1ZGVudDM2MG92ZXJ2aWV3cmVnaW9uYWw\"",
+        "latestCreatedRevision": "projects/gen-lang-client-0815966909/locations/asia-east1/services/getstudent360overviewregional/revisions/getstudent360overviewregional-stg-808b9682e955",
+        "latestReadyRevision": "projects/gen-lang-client-0815966909/locations/asia-east1/services/getstudent360overviewregional/revisions/getstudent360overviewregional-stg-808b9682e955",
+        "traffic": [
+          {
+            "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_REVISION",
+            "revision": "getstudent360overviewregional-stg-808b9682e955",
+            "percent": 100
+          }
+        ],
+        "trafficStatuses": [
+          {
+            "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_REVISION",
+            "revision": "getstudent360overviewregional-stg-808b9682e955",
+            "percent": 100
+          }
+        ],
+        "conditions": [
+          {
+            "type": "RoutesReady",
+            "state": "CONDITION_SUCCEEDED"
+          },
+          {
+            "type": "BaseImageValidated",
+            "state": "CONDITION_SUCCEEDED"
+          },
+          {
+            "type": "ConfigurationsReady",
+            "state": "CONDITION_SUCCEEDED"
+          }
+        ],
+        "scaling": {
+          "maxInstanceCount": 12
+        },
+        "template": {
+          "scaling": {
+            "maxInstanceCount": 8
+          },
+          "maxInstanceRequestConcurrency": 1,
+          "containers": [
+            {
+              "image": "asia-east1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--east1__get_student360_overview_regional@sha256:2ccefc38a154ce9ce9fd0a632405700edb20618dae1bfe003eac2ff7a0d8492e",
+              "resources": {
+                "limits": {
+                  "cpu": "0.1666",
+                  "memory": "256Mi"
+                },
+                "cpuIdle": true,
+                "startupCpuBoost": true
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "target": "refreshStudent360Projection",
+      "name": "projects/gen-lang-client-0815966909/locations/asia-southeast1/functions/refreshStudent360Projection",
+      "service": "projects/gen-lang-client-0815966909/locations/asia-southeast1/services/refreshstudent360projection",
+      "region": "asia-southeast1",
+      "isNew": false,
+      "function": {
+        "name": "projects/gen-lang-client-0815966909/locations/asia-southeast1/functions/refreshStudent360Projection",
+        "state": "ACTIVE",
+        "updateTime": "2026-10-30T06:56:59.249030503Z",
+        "environment": "GEN_2",
+        "build": "projects/607039870489/locations/asia-southeast1/builds/fd59448e-6762-4d93-96b8-9ef959025522",
+        "runtime": "nodejs22",
+        "entryPoint": "refreshStudent360Projection",
+        "service": "projects/gen-lang-client-0815966909/locations/asia-southeast1/services/refreshstudent360projection",
+        "revision": "refreshstudent360projection-00024-xik",
+        "cpu": "0.1666",
+        "memory": "256Mi",
+        "max": 4,
+        "concurrency": 1,
+        "timeout": 60
+      },
+      "serviceMetadata": {
+        "name": "projects/gen-lang-client-0815966909/locations/asia-southeast1/services/refreshstudent360projection",
+        "generation": "24",
+        "observedGeneration": "24",
+        "updateTime": "2026-10-30T06:56:50.403094Z",
+        "etag": "\"CLL_kNcGEPDzmsAB/cHJvamVjdHMvZ2VuLWxhbmctY2xpZW50LTA4MTU5NjY5MDkvbG9jYXRpb25zL2FzaWEtc291dGhlYXN0MS9zZXJ2aWNlcy9yZWZyZXNoc3R1ZGVudDM2MHByb2plY3Rpb24\"",
+        "latestCreatedRevision": "projects/gen-lang-client-0815966909/locations/asia-southeast1/services/refreshstudent360projection/revisions/refreshstudent360projection-00024-xik",
+        "latestReadyRevision": "projects/gen-lang-client-0815966909/locations/asia-southeast1/services/refreshstudent360projection/revisions/refreshstudent360projection-00024-xik",
+        "traffic": [
+          {
+            "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST",
+            "percent": 100
+          }
+        ],
+        "trafficStatuses": [
+          {
+            "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST",
+            "revision": "refreshstudent360projection-00024-xik",
+            "percent": 100
+          }
+        ],
+        "conditions": [
+          {
+            "type": "RoutesReady",
+            "state": "CONDITION_SUCCEEDED"
+          },
+          {
+            "type": "ConfigurationsReady",
+            "state": "CONDITION_SUCCEEDED"
+          }
+        ],
+        "scaling": {
+          "maxInstanceCount": 4
+        },
+        "template": {
+          "scaling": {
+            "maxInstanceCount": 4
+          },
+          "maxInstanceRequestConcurrency": 1,
+          "containers": [
+            {
+              "image": "asia-southeast1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast1__get_student360_overview:version_1",
+              "resources": {
+                "limits": {
+                  "cpu": "0.1666",
+                  "memory": "256Mi"
+                },
+                "cpuIdle": true,
+                "startupCpuBoost": true
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "target": "refreshStudent360ProjectionRegional",
+      "name": "projects/gen-lang-client-0815966909/locations/asia-east1/functions/refreshStudent360ProjectionRegional",
+      "service": "projects/gen-lang-client-0815966909/locations/asia-east1/services/refreshstudent360projectionregional",
+      "region": "asia-east1",
+      "isNew": false,
+      "function": {
+        "name": "projects/gen-lang-client-0815966909/locations/asia-east1/functions/refreshStudent360ProjectionRegional",
+        "state": "ACTIVE",
+        "updateTime": "2026-10-30T06:57:11.577084244Z",
+        "environment": "GEN_2",
+        "build": "projects/607039870489/locations/asia-east1/builds/6e54d177-3a5e-4b1c-b2fe-0991a431c1e4",
+        "runtime": "nodejs22",
+        "entryPoint": "refreshStudent360ProjectionRegional",
+        "service": "projects/gen-lang-client-0815966909/locations/asia-east1/services/refreshstudent360projectionregional",
+        "revision": "refreshstudent360projectionregional-00019-dim",
+        "cpu": "0.1666",
+        "memory": "256Mi",
+        "max": 4,
+        "concurrency": 1,
+        "timeout": 60
+      },
+      "serviceMetadata": {
+        "name": "projects/gen-lang-client-0815966909/locations/asia-east1/services/refreshstudent360projectionregional",
+        "generation": "19",
+        "observedGeneration": "19",
+        "updateTime": "2026-10-30T06:57:01.206683Z",
+        "etag": "\"CL3_kNcGEPj2xmI/cHJvamVjdHMvZ2VuLWxhbmctY2xpZW50LTA4MTU5NjY5MDkvbG9jYXRpb25zL2FzaWEtZWFzdDEvc2VydmljZXMvcmVmcmVzaHN0dWRlbnQzNjBwcm9qZWN0aW9ucmVnaW9uYWw\"",
+        "latestCreatedRevision": "projects/gen-lang-client-0815966909/locations/asia-east1/services/refreshstudent360projectionregional/revisions/refreshstudent360projectionregional-00019-dim",
+        "latestReadyRevision": "projects/gen-lang-client-0815966909/locations/asia-east1/services/refreshstudent360projectionregional/revisions/refreshstudent360projectionregional-00019-dim",
+        "traffic": [
+          {
+            "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST",
+            "percent": 100
+          }
+        ],
+        "trafficStatuses": [
+          {
+            "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST",
+            "revision": "refreshstudent360projectionregional-00019-dim",
+            "percent": 100
+          }
+        ],
+        "conditions": [
+          {
+            "type": "RoutesReady",
+            "state": "CONDITION_SUCCEEDED"
+          },
+          {
+            "type": "ConfigurationsReady",
+            "state": "CONDITION_SUCCEEDED"
+          }
+        ],
+        "scaling": {
+          "maxInstanceCount": 12
+        },
+        "template": {
+          "scaling": {
+            "maxInstanceCount": 4
+          },
+          "maxInstanceRequestConcurrency": 1,
+          "containers": [
+            {
+              "image": "asia-east1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--east1__get_student360_overview_regional:version_1",
+              "resources": {
+                "limits": {
+                  "cpu": "0.1666",
+                  "memory": "256Mi"
+                },
+                "cpuIdle": true,
+                "startupCpuBoost": true
+              }
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

@@ -13,11 +13,85 @@ const {
   normalizeUrl,
   proofKey,
   assertBranchScope,
+  createPerformanceScoreFunctions,
 } = require('./performance-score')
+const { reviewFixture, adminRequest } = require('./test-support/review-query-fixture')
 
 function evidence(type, id, extra = {}) {
   return { id, type, status: 'approved', duplicateKey: id, ...extra }
 }
+
+function queueEvidence(id, extra = {}) {
+  return { id, periodId: '2026-10', branchIds: ['branch_a'], staffId: 'pt_a', type: 'personal_content', status: 'submitted', submittedAt: new Date('2026-10-20'), ...extra }
+}
+const queueHandler = fixture => createPerformanceScoreFunctions({ db: fixture.db, onCall: (_options, handler) => handler, storage: null }).listPerformanceReviewQueue
+
+test('Performance scopes branch/status/type before limiting a period with over 200 records', async () => {
+  const fixture = reviewFixture({ performanceEvidence: [
+    ...Array.from({ length: 250 }, (_, i) => queueEvidence(`other_${i}`, { branchIds: ['branch_b'] })),
+    queueEvidence('matching'), queueEvidence('wrong_status', { status: 'approved' }), queueEvidence('wrong_type', { type: 'aura_assignment' }),
+  ] })
+  const result = await queueHandler(fixture)(adminRequest({ periodId: '2026-10', branchId: 'branch_a', status: 'submitted', type: 'personal_content' }))
+  assert.deepEqual(result.rows.map(row => row.id), ['matching'])
+  assert.equal(result.hasMore, false)
+  for (const query of fixture.queries.filter(query => query.name === 'performanceEvidence')) {
+    assert.ok(query.predicates.some(item => item.field === 'branchIds' && item.value === 'branch_a'))
+    assert.ok(query.predicates.some(item => item.field === 'status'))
+    assert.ok(query.predicates.some(item => item.field === 'type'))
+  }
+})
+
+test('Performance cursor merges statuses and types without missing or repeating evidence', async () => {
+  const fixture = reviewFixture({ performanceEvidence: Array.from({ length: 207 }, (_, i) => queueEvidence(`e_${String(i).padStart(3, '0')}`, {
+    type: i % 2 ? 'personal_content' : 'aura_assignment', status: i % 3 ? 'submitted' : 'approved',
+  })) })
+  const call = queueHandler(fixture)
+  const ids = [], cursors = []
+  let cursor = null
+  do {
+    const result = await call(adminRequest({ periodId: '2026-10', pageSize: 37, cursor }))
+    ids.push(...result.rows.map(row => row.id))
+    cursor = result.nextCursor
+    if (cursor) cursors.push(cursor)
+  } while (cursor)
+  assert.equal(ids.length, 207)
+  assert.equal(new Set(ids).size, 207)
+  assert.deepEqual(ids, fixture.collections.performanceEvidence.map(row => row.id))
+  await assert.rejects(call(adminRequest({ periodId: '2026-09', cursor: cursors[0] })), { code: 'invalid-argument' })
+  await assert.rejects(call(adminRequest({ periodId: '2026-10', status: 'approved', cursor: cursors[0] })), { code: 'invalid-argument' })
+  await assert.rejects(call({ ...adminRequest({ periodId: '2026-10', cursor: cursors[0] }), auth: { uid: 'audit_other', token: { role: 'admin' } } }), { code: 'invalid-argument' })
+})
+
+test('branch reviewer cannot widen queries with another branch or a forged continuation', async () => {
+  const fixture = reviewFixture({ performanceEvidence: [queueEvidence('a'), queueEvidence('b', { branchIds: ['branch_b'] })] }, {
+    'users/reviewer': { role: 'manager', displayName: 'Branch manager', branchId: 'branch_a' },
+  })
+  const call = queueHandler(fixture)
+  const request = { auth: { uid: 'reviewer', token: { role: 'manager' } }, data: { periodId: '2026-10' } }
+  const result = await call(request)
+  assert.deepEqual(result.rows.map(row => row.id), ['a'])
+  await assert.rejects(call({ ...request, data: { ...request.data, branchId: 'branch_b' } }), { code: 'permission-denied' })
+  await assert.rejects(call({ ...request, data: { ...request.data, cursor: Buffer.from(JSON.stringify({ v: 1, scope: 'forged', after: ['a'] })).toString('base64url') } }), { code: 'invalid-argument' })
+})
+
+test('approved profiles paginate independently and selected PT loads beyond the first queue page', async () => {
+  const fixture = reviewFixture({ performanceEvidence: [
+    ...Array.from({ length: 230 }, (_, i) => queueEvidence(`e_${i}`)),
+    ...Array.from({ length: 3 }, (_, i) => queueEvidence(`profile_202610_pt_${i}`, { staffId: `pt_${i}`, type: 'profile_checklist', status: 'approved', checklist: { bio: true } })),
+  ], roleAssignments: [{ id: 'account_2', crmProfileId: 'pt_2', accessRole: 'staff', positions: ['trainer_pt'], status: 'active', branchIds: ['branch_a'] }] })
+  const call = queueHandler(fixture)
+  const first = await call(adminRequest({ periodId: '2026-10', status: 'submitted', pageSize: 1 }))
+  assert.equal(first.rows.length, 1)
+  assert.equal(first.profiles.length, 1)
+  assert.equal(first.profilesHasMore, true)
+  const next = await call(adminRequest({ periodId: '2026-10', status: 'rejected', pageSize: 2, profilesCursor: first.profilesNextCursor }))
+  assert.equal(next.rows.length, 0)
+  assert.deepEqual(next.profiles.map(row => row.staffId), ['pt_1', 'pt_2'])
+  const exact = await call(adminRequest({ periodId: '2026-10', profileStaffId: 'pt_2', includeQueue: false, includeDirectory: false }))
+  assert.equal(exact.rows.length, 0)
+  assert.equal(exact.profiles[0].staffId, 'pt_2')
+  assert.equal(exact.profiles[0].checklist.bio, true)
+})
 
 test('Aura Performance Score keeps the approved 100-point weight model', () => {
   assert.deepEqual(PERFORMANCE_CATEGORIES.map(({ id, weight }) => ({ id, weight })), [

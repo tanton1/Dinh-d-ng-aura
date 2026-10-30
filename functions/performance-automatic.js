@@ -164,11 +164,18 @@ async function loadOperationalSources(db, target, period) {
     db.collection('contracts').where('trainerIds', 'array-contains', id).limit(MAX_SOURCE_ROWS),
     db.collection('contracts').where('nutritionPTIds', 'array-contains', id).limit(MAX_SOURCE_ROWS),
   ])
+  // renewalMetrics only uses training assignments that are due or closed in
+  // this month. Include both closure timestamps as a conservative superset;
+  // its existing wonAt/updatedAt precedence still determines the final score.
+  // Keep the three date streams separate: ordering across an OR of different
+  // inequality fields can exclude legacy documents missing one timestamp.
   const renewalQueries = ids.flatMap((id) => [
-    db.collection('contractRenewalCases').where('contractSnapshot.trainerId', '==', id).limit(MAX_SOURCE_ROWS),
-    db.collection('contractRenewalCases').where('contractSnapshot.trainerIds', 'array-contains', id).limit(MAX_SOURCE_ROWS),
-    db.collection('contractRenewalCases').where('contractSnapshot.nutritionPTIds', 'array-contains', id).limit(MAX_SOURCE_ROWS),
-  ])
+    ['contractSnapshot.trainerId', '=='], ['contractSnapshot.trainerIds', 'array-contains'],
+  ].flatMap(([field, operator]) => [
+    db.collection('contractRenewalCases').where(field, operator, id).where('contractSnapshot.endDate', '>=', range.start).where('contractSnapshot.endDate', '<=', range.end).limit(MAX_SOURCE_ROWS),
+    db.collection('contractRenewalCases').where(field, operator, id).where('wonAt', '>=', range.startInstant).where('wonAt', '<', range.endExclusiveInstant).limit(MAX_SOURCE_ROWS),
+    db.collection('contractRenewalCases').where(field, operator, id).where('updatedAt', '>=', range.startInstant).where('updatedAt', '<', range.endExclusiveInstant).limit(MAX_SOURCE_ROWS),
+  ]))
   const [scheduledSessions, actualAttendanceEvents, contracts, renewalCases, careActivities, renewalActivities, ledgerEntries, salesLeads, contractApprovals, targetSnapshot, reviewSettings] = await Promise.all([
     safeQueries(sessionQueries, 'sessions', warnings),
     safeQueries(attendanceQueries, 'attendanceEvents', warnings),
@@ -190,14 +197,15 @@ async function loadOperationalSources(db, target, period) {
   const sessionsById = new Map(scheduledSessions.map((item) => [item.id, item]))
   actualSessionSnapshots.filter((item) => item.exists).forEach((item) => sessionsById.set(item.id, { id: item.id, ...item.data() }))
   const sessions = [...sessionsById.values()]
-  const attendanceSnapshots = sessions.length
-    ? await getAllChunks(db, sessions.map((item) => db.doc(`attendanceEvents/${item.id}`)))
+  const attendanceBySession = new Map(actualAttendanceEvents.map(item => [item.sessionId || item.id, item]))
+  const missingAttendanceSessions = sessions.filter(item => !attendanceBySession.has(item.id))
+  const attendanceSnapshots = missingAttendanceSessions.length
+    ? await getAllChunks(db, missingAttendanceSessions.map((item) => db.doc(`attendanceEvents/${item.id}`)))
     : []
-  const attendanceBySession = new Map(attendanceSnapshots.filter((item) => item.exists).map((item) => {
+  attendanceSnapshots.filter((item) => item.exists).forEach((item) => {
     const value = item.data()
-    return [value.sessionId || item.id, { id: item.id, ...value }]
-  }))
-  actualAttendanceEvents.forEach((item) => attendanceBySession.set(item.sessionId || item.id, item))
+    attendanceBySession.set(value.sessionId || item.id, { id: item.id, ...value })
+  })
   const trainerStudents = assignedStudentIds(contracts, range, ids, 'training')
   const nutritionStudents = assignedStudentIds(contracts, range, ids, 'nutrition')
   const allStudents = [...new Set([...trainerStudents, ...nutritionStudents])]
@@ -404,8 +412,10 @@ async function businessMetrics(db, source) {
   const convertedLeads = qualifiedLeads.filter((item) => ['approved', 'converted'].includes(approvalsByLead.get(item.id)?.status || item.status))
   const conversionTarget = finite(targets.qualified_lead_conversion)
   const contractIds = [...new Set(attributed.map((item) => item.contractId).filter(Boolean))]
-  const contractSnapshots = contractIds.length ? await getAllChunks(db, contractIds.map((id) => db.doc(`contracts/${id}`))) : []
-  const contractById = new Map(contractSnapshots.filter((item) => item.exists).map((item) => [item.id, item.data()]))
+  const contractById = new Map((source.contracts || []).map(item => [item.id, item]))
+  const missingContractIds = contractIds.filter(id => !contractById.has(id))
+  const contractSnapshots = missingContractIds.length ? await getAllChunks(db, missingContractIds.map((id) => db.doc(`contracts/${id}`))) : []
+  contractSnapshots.filter(item => item.exists).forEach(item => contractById.set(item.id, item.data()))
   const cashByContract = new Map()
   attributed.forEach((item) => cashByContract.set(item.contractId, finite(cashByContract.get(item.contractId)) + finite(item.cashImpact ?? item.amount)))
   const qualityReferrals = contractIds.filter((id) => {
@@ -464,6 +474,7 @@ async function automaticOperationalMetrics(db, target, period) {
 
 module.exports = {
   AUTO_SOURCE,
+  loadOperationalSources,
   automaticOperationalMetrics,
   periodRange,
   sessionMetrics,

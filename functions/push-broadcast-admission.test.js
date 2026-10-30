@@ -5,6 +5,7 @@ const fs = require('node:fs')
 const vm = require('node:vm')
 const { HttpsError } = require('firebase-functions/v2/https')
 const admission = require('./push-broadcast-admission')
+const { pushDeliveryFixture } = require('./test-support/push-delivery-fixture')
 const source = fs.readFileSync(require.resolve('./index.js'), 'utf8')
 const helpers = source.slice(source.indexOf('function requireCaller(request)'), source.indexOf('const scheduledReminderDefaults'))
 const dispatch = source.slice(source.indexOf('exports.dispatchPushBroadcast = onCall('), source.indexOf('\nfunction requireDocumentId('))
@@ -13,8 +14,11 @@ const admin = { role: 'admin' }
 const population = count => [['admin', admin], ...Array.from({ length: count - 1 }, (_, i) => [`student-${String(i).padStart(4, '0')}`, { role: 'student' }])]
 
 function harness(entries = population(2)) {
-  const state = { profiles: new Map(entries), devices: [], reads: [], effects: [], batches: 0, clock: 0, advance: 0, deviceFailureAt: 0, deviceQueries: 0 }
-  const doc = path => ({ path, id: path.split('/').at(-1), get: async () => snapshot(path.split('/').at(-1)), set: async value => state.effects.push({ kind: 'log', path, value }), collection: name => collection(path + '/' + name) })
+  const durable = pushDeliveryFixture()
+  const state = { profiles: new Map(entries), devices: [], reads: [], effects: durable.effects, batches: 0, clock: 0, advance: 0, deviceFailureAt: 0, deviceQueries: 0 }
+  const doc = path => /^users\/[^/]+$/.test(path)
+    ? { path, id: path.split('/').at(-1), get: async () => snapshot(path.split('/').at(-1)) }
+    : durable.db.doc(path)
   const snapshot = id => ({ id, exists: state.profiles.has(id), data: () => state.profiles.get(id), ref: doc('users/' + id) })
   let nextId = 0
   function collection(name, group = false) {
@@ -39,11 +43,11 @@ function harness(entries = population(2)) {
     }
     return query
   }
-  const db = { doc, collection, collectionGroup: name => collection(name, true),
+  const db = { doc, collection, collectionGroup: name => collection(name, true), runTransaction: durable.db.runTransaction,
     getAll: async (...refs) => { state.reads.push({ name: 'getAll', ids: refs.map(r => r.id) }); state.clock += state.advance; return refs.map(r => snapshot(r.id)) },
     batch: () => { state.batches++; const writes = []; return { set: (ref, value) => writes.push({ kind: 'inbox', path: ref.path, value }), delete: ref => writes.push({ kind: 'cleanup', path: ref.path }), commit: async () => state.effects.push(...writes) } },
   }
-  const context = { exports: {}, ...admission, createPushAdmissionBudget: () => admission.createPushAdmissionBudget(() => state.clock), db, HttpsError, FieldValue: { serverTimestamp: () => 1 }, URL,
+  const context = { exports: {}, require, ...admission, createPushAdmissionBudget: () => admission.createPushAdmissionBudget(() => state.clock), db, HttpsError, FieldValue: { serverTimestamp: () => 1 }, URL,
     publicAppUrl: 'https://fixture.invalid', console: { error: () => {} },
     onCall: (options, handler) => { assert.equal(options.cpu, 'gcf_gen1'); assert.equal(options.maxInstances, 1); assert.equal(options.invoker, 'public'); return handler },
     messaging: { sendEachForMulticast: async payload => { state.effects.push({ kind: 'fcm', payload }); return { successCount: payload.tokens.length, failureCount: 0, responses: payload.tokens.map(() => ({ success: true })) } } },
@@ -96,7 +100,7 @@ test('category directory guard matches unfiltered 2500-row client directory and 
 test('device budget counts every scanned document and finishes all chunks before first side effect', async () => {
   const exact = harness(); exact.state.devices = Array.from({ length: 2000 }, (_, i) => ({ userId: 'student-0000', token: `token-${i}` }))
   assert.equal((await exact.send()).webPushSentCount, 2000)
-  assert.equal(exact.state.effects.filter(e => e.kind === 'fcm').length, 4)
+  assert.equal(exact.state.effects.filter(e => e.kind === 'fcm').length, 10)
   const over = harness(); over.state.devices = [...exact.state.devices, { userId: 'student-0000', enabled: false, token: 'disabled' }]
   await rejectedBeforeDelivery(over, {}, 'DEVICE_LIMIT')
   assert.equal(over.state.reads.find(r => r.group).limit, 2001)
@@ -139,4 +143,19 @@ test('permissions and malformed input cannot start admission delivery or leak ra
   const h = harness(); h.state.deviceFailureAt = 1
   await assert.rejects(h.send(), e => e.code === 'unavailable' && !e.message.includes('Private database'))
   assert.equal(h.state.effects.length, 0)
+})
+
+test('a completed request replay reauthorizes the caller before reading or continuing its receipt', async () => {
+  const h = harness()
+  const data = { requestId: 'intent-authorization' }
+  await h.send(data)
+  const effects = h.state.effects.length
+  const reads = h.state.reads.length
+  for (const profile of [{ role: 'student' }, { role: 'admin', disabled: true }, null]) {
+    if (profile) h.state.profiles.set('admin', profile)
+    else h.state.profiles.delete('admin')
+    await assert.rejects(h.send(data), error => error.code === 'permission-denied')
+    assert.equal(h.state.effects.length, effects)
+    assert.equal(h.state.reads.length, reads)
+  }
 })

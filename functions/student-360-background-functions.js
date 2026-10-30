@@ -76,24 +76,26 @@ function createStudent360BackgroundFunction(target, dependencies) {
   }
   if (target === 'processStudent360SourceQueue') {
     const { STUDENT360_SOURCE_QUEUE_DOCUMENT, processStudent360Source } = require('./student-360-source-queue')
+    const { withPrivateEventTelemetry } = require('./observability')
     return onDocumentWritten({
       document: STUDENT360_SOURCE_QUEUE_DOCUMENT, database: databaseId, region: 'asia-southeast1',
       cpu: 'gcf_gen1', maxInstances: 3, retry: true, timeoutSeconds: 540,
-    }, event => processStudent360Source({
+    }, withPrivateEventTelemetry(target, event => processStudent360Source({
       db, event, logger,
       rebuild: input => require('./student-360').rebuildStudent360Source({ db, ...input }),
-    }))
+    }), { logger }))
   }
   // Status-only queue events and empty recovery scans never need the projection
   // module. Load it only after a durable claim needs an actual rebuild.
   const { recoverStudent360Sources } = require('./student-360-source-queue')
+  const { withPrivateEventTelemetry } = require('./observability')
   return onSchedule({
     schedule: 'every 5 minutes', timeZone: 'Asia/Ho_Chi_Minh', region: 'asia-southeast1',
     retryCount: 1, cpu: 'gcf_gen1', maxInstances: 1, timeoutSeconds: 540,
-  }, async () => recoverStudent360Sources({
+  }, withPrivateEventTelemetry(target, async () => recoverStudent360Sources({
     db, logger, batchSize: 25,
     rebuild: input => require('./student-360').rebuildStudent360Source({ db, ...input }),
-  }))
+  }), { logger }))
 }
 
 module.exports = {

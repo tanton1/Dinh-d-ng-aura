@@ -1,8 +1,9 @@
-const { FieldValue } = require('firebase-admin/firestore')
+const { FieldValue, FieldPath } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
 const { createHash } = require('node:crypto')
 const { trustedAccessContext, requireCapability } = require('./identity-access')
 const { automaticOperationalMetrics } = require('./performance-automatic')
+const { reviewPage, authorizedBranches } = require('./scoped-review-pagination')
 
 const PERFORMANCE_SCHEMA_VERSION = 2
 const PERFORMANCE_POLICY_VERSION = 'aura-pt-performance-v1.1-2026-09-08'
@@ -1037,42 +1038,61 @@ function createPerformanceScoreFunctions({ db, onCall, storage, logger = console
     assertReviewer(actor)
     const period = periodId(request.data?.periodId)
     const requestedBranch = boundedText(request.data?.branchId, 'Chi nhánh', 200)
-    if (requestedBranch && !['admin', 'super_admin'].includes(actor.accessRole) && !actor.branchIds.includes(requestedBranch)) {
-      throw new HttpsError('permission-denied', 'Bạn không có quyền xem chi nhánh này.')
-    }
+    const branches = authorizedBranches(actor, requestedBranch)
     const status = boundedText(request.data?.status, 'Trạng thái', 30)
     if (status && !EVIDENCE_STATUSES.has(status)) throw new HttpsError('invalid-argument', 'Trạng thái bằng chứng không hợp lệ.')
     const type = boundedText(request.data?.type, 'Loại bằng chứng', 40)
     if (type && !new Set([...EVIDENCE_TYPES, 'profile_checklist']).has(type)) throw new HttpsError('invalid-argument', 'Loại bằng chứng không hợp lệ.')
-    const snapshot = await db.collection('performanceEvidence').where('periodId', '==', period).limit(201).get()
-    if (snapshot.size > 200) throw new HttpsError('resource-exhausted', 'Hàng chờ kỳ này vượt 200 hồ sơ; hãy lọc theo chi nhánh hoặc trạng thái.')
-    const filtered = snapshot.docs.filter((item) => {
-      const data = item.data()
-      const branches = Array.isArray(data.branchIds) ? data.branchIds : []
-      if (!['admin', 'super_admin'].includes(actor.accessRole) && !branches.some((branchId) => actor.branchIds.includes(branchId))) return false
-      if (requestedBranch && !branches.includes(requestedBranch)) return false
-      if (status && data.status !== status) return false
-      if (type && data.type !== type) return false
-      return data.status !== 'withdrawn'
-    })
-    const profileDocuments = snapshot.docs.filter((item) => {
-      const data = item.data()
-      const branches = Array.isArray(data.branchIds) ? data.branchIds : []
-      if (data.type !== 'profile_checklist' || data.status !== 'approved') return false
-      if (!['admin', 'super_admin'].includes(actor.accessRole) && !branches.some((branchId) => actor.branchIds.includes(branchId))) return false
-      if (requestedBranch && !branches.includes(requestedBranch)) return false
-      return true
-    })
-    const rows = await Promise.all(filtered.sort((left, right) => iso(right.data().submittedAt).localeCompare(iso(left.data().submittedAt))).map(async (item) => (
+    const page = reviewPage(actor, ['performance', period, requestedBranch, status, type], request.data?.cursor, request.data?.pageSize)
+    const profilePage = reviewPage(actor, ['performance_profiles', period, requestedBranch], request.data?.profilesCursor, request.data?.pageSize)
+    const profileStaffId = request.data?.profileStaffId ? documentId(request.data.profileStaffId, 'Mã nhân sự') : ''
+    // Query each status separately: branch array membership plus status `in`
+    // can otherwise exceed Firestore's 30-disjunction limit. A single ID
+    // boundary merges all streams without repeating a multi-branch document.
+    const loadPage = async (config, statuses, selectedType) => {
+      const branchGroups = branches === null ? [null] : Array.from({ length: Math.ceil(branches.length / 30) }, (_, index) => branches.slice(index * 30, index * 30 + 30))
+      const types = selectedType ? [selectedType] : [...EVIDENCE_TYPES]
+      const snapshots = await Promise.all(branchGroups.flatMap(group => statuses.flatMap(selectedStatus => types.map(evidenceType => {
+        let query = db.collection('performanceEvidence').where('periodId', '==', period).where('status', '==', selectedStatus)
+        if (group) query = query.where('branchIds', group.length === 1 ? 'array-contains' : 'array-contains-any', group.length === 1 ? group[0] : group)
+        query = query.where('type', '==', evidenceType)
+        query = query.orderBy(FieldPath.documentId(), 'asc')
+        if (config.after) query = query.startAfter(config.after[0])
+        return query.limit(config.pageSize + 1).get()
+      }))))
+      const documents = [...new Map(snapshots.flatMap(snapshot => snapshot.docs).map(item => [item.id, item])).values()]
+        .sort((left, right) => left.id < right.id ? -1 : left.id > right.id ? 1 : 0)
+      const hasMore = documents.length > config.pageSize
+      const rows = documents.slice(0, config.pageSize)
+      return { rows, hasMore, nextCursor: hasMore ? config.next([rows.at(-1).id]) : null }
+    }
+    const [queue, profileResult, directory] = await Promise.all([
+      request.data?.includeQueue === false ? { rows: [], hasMore: false, nextCursor: null } : loadPage(page, status ? [status] : ['submitted', 'needs_revision', 'approved', 'rejected'], type),
+      request.data?.includeProfiles === false && !profileStaffId ? { rows: [], hasMore: false, nextCursor: null } : profileStaffId ? (async () => {
+        const target = await targetStaff(db, profileStaffId)
+        assertTrainerTarget(target)
+        assertBranchScope(actor, target.branchIds)
+        if (requestedBranch && !target.branchIds.includes(requestedBranch)) throw new HttpsError('permission-denied', 'Nhân sự không thuộc chi nhánh đang xem.')
+        const document = await db.doc(`performanceEvidence/profile_${period.replace('-', '')}_${target.staffId}`).get()
+        if (document.exists) assertBranchScope(actor, document.data().branchIds)
+        return { rows: document.exists ? [document] : [], hasMore: false, nextCursor: null }
+      })() : loadPage(profilePage, ['approved'], 'profile_checklist'),
+      request.data?.includeDirectory === false ? [] : staffDirectory(db, actor),
+    ])
+    const rows = await Promise.all(queue.rows.map(async (item) => (
       serializeEvidence(item, await signedEvidenceUrl(storage, item.data().screenshotPath))
     )))
-    const directory = await staffDirectory(db, actor)
     return {
       periodId: period,
       rows,
-      profiles: profileDocuments.map((item) => serializeEvidence(item)),
+      profiles: profileResult.rows.map((item) => serializeEvidence(item)),
       staff: directory,
       truncated: false,
+      paginationVersion: 1,
+      hasMore: queue.hasMore,
+      nextCursor: queue.nextCursor,
+      profilesHasMore: profileResult.hasMore,
+      profilesNextCursor: profileResult.nextCursor,
     }
   })
 

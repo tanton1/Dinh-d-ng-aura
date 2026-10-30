@@ -3,6 +3,7 @@
 const { createHash, randomUUID } = require('node:crypto')
 const { FieldValue, Timestamp } = require('firebase-admin/firestore')
 const { atOrBefore, coalesceProjectionRebuild, student360FailureFields } = require('./student-360-projection-writes')
+const { recordEventMetrics, observeEventRead } = require('./event-operation-metrics')
 
 const STUDENT360_SOURCE_QUEUE = 'systemJobs/student360SourceQueue/subjects'
 const STUDENT360_SOURCE_QUEUE_DOCUMENT = `${STUDENT360_SOURCE_QUEUE}/{studentId}`
@@ -10,6 +11,24 @@ const QUEUE_LEASE_MS = 4 * 60_000
 const millis = value => typeof value?.toMillis === 'function' ? value.toMillis() : 0
 const generation = value => Number.isSafeInteger(value) && value > 0 ? value : 0
 const pending = state => generation(state.generation) > generation(state.completedGeneration)
+
+// Measures queue-control work already performed. Rebuild/SDK internals are
+// deliberately outside these counters; this does not create telemetry writes.
+async function observeQueueTransaction(db, operation) {
+  let committedWrites = 0
+  const result = await db.runTransaction(async transaction => {
+    recordEventMetrics({ transactionAttempts: 1 })
+    let writes = 0
+    const value = await operation({
+      get: reference => observeEventRead('document', () => transaction.get(reference)),
+      set: (...args) => { writes++; recordEventMetrics({ transactionWriteAttempts: 1 }); return transaction.set(...args) },
+    })
+    committedWrites = writes
+    return value
+  })
+  recordEventMetrics({ transactionWritesCommitted: committedWrites })
+  return result
+}
 
 function sourceQueueReference(db, studentId) {
   if (typeof studentId !== 'string' || !studentId.trim() || studentId.includes('/')) throw new Error('INVALID_STUDENT360_QUEUE_SUBJECT')
@@ -73,20 +92,23 @@ async function enqueueStudent360Source({ db, studentId, event, scope, now = Date
 async function processStudent360Source({ db, studentId, event, rebuild, logger = console, now = Date.now }) {
   if (event) {
     const after = event.data?.after
-    if (!after?.exists) return { skipped: true, reason: 'queue_deleted' }
+    if (!after?.exists) { recordEventMetrics({ guardSkips: 1 }); return { skipped: true, reason: 'queue_deleted' } }
     const before = event.data?.before?.exists ? event.data.before.data() || {} : {}
-    if (generation(before.generation) === generation(after.data()?.generation)) return { skipped: true, reason: 'status_update' }
+    if (generation(before.generation) === generation(after.data()?.generation)) { recordEventMetrics({ guardSkips: 1 }); return { skipped: true, reason: 'status_update' } }
     studentId = event.params?.studentId
   }
   const reference = sourceQueueReference(db, studentId)
   let passes = 0, rebuilt = 0
   for (; passes < 3; passes++) {
     const token = randomUUID()
-    const claim = await db.runTransaction(async transaction => {
+    const claim = await observeQueueTransaction(db, async transaction => {
       const state = (await transaction.get(reference)).data() || {}
       if (!pending(state)) return { skipped: true, reason: 'already_processed' }
       if (millis(state.leaseUntil) > now()) return { skipped: true, reason: 'queue_busy' }
       if (millis(state.dueAt) > now()) return { skipped: true, reason: 'deferred' }
+      // For event invocations only: age of the latest coalesced request at
+      // claim, NOT age of the oldest outstanding job across the whole queue.
+      if (event && millis(state.requestedAt)) recordEventMetrics({ queueWaitMs: Math.max(0, now() - millis(state.requestedAt)) })
       const scope = generation(state.fullGeneration) > generation(state.completedGeneration) ? 'full' : 'operations'
       const version = scope === 'full' ? latestVersion(state.fullVersion, state.operationsVersion) : state.operationsVersion
       const leaseUntil = Timestamp.fromMillis(now() + QUEUE_LEASE_MS)
@@ -99,7 +121,7 @@ async function processStudent360Source({ db, studentId, event, rebuild, logger =
         attempts: generation(state.attempts) + 1,
       }
     })
-    if (claim.skipped) return { ...claim, passes, rebuilt }
+    if (claim.skipped) { recordEventMetrics({ guardSkips: 1 }); return { ...claim, passes, rebuilt } }
     try {
       const result = await coalesceProjectionRebuild({
         db, studentId, scope: claim.scope, now,
@@ -107,7 +129,7 @@ async function processStudent360Source({ db, studentId, event, rebuild, logger =
         rebuild: lease => rebuild({ studentId, scope: claim.scope, lease }),
       })
       rebuilt += Number(result.rebuilt)
-      const settled = await db.runTransaction(async transaction => {
+      const settled = await observeQueueTransaction(db, async transaction => {
         const current = (await transaction.get(reference)).data() || {}
         if (current.token !== token) return { owned: false }
         const newer = generation(current.generation) > claim.generation
@@ -129,7 +151,7 @@ async function processStudent360Source({ db, studentId, event, rebuild, logger =
       const code = typeof error?.code === 'string' ? error.code.slice(0, 80) : 'unknown'
       // A successful durable defer replaces Eventarc retries. If this write
       // fails, throw and retain transport retry as the final recovery path.
-      const deferred = await db.runTransaction(async transaction => {
+      const deferred = await observeQueueTransaction(db, async transaction => {
         const current = (await transaction.get(reference)).data() || {}
         if (current.token !== token) return false
         const delay = Math.min(300_000, 5_000 * 2 ** Math.min(6, claim.attempts - 1))
@@ -152,8 +174,9 @@ async function processStudent360Source({ db, studentId, event, rebuild, logger =
 
 async function recoverStudent360Sources({ db, rebuild, logger = console, batchSize = 25, now = Date.now }) {
   const startedAt = now()
-  const due = await db.collection(STUDENT360_SOURCE_QUEUE).where('dueAt', '<=', Timestamp.fromMillis(now()))
-    .orderBy('dueAt').limit(Math.max(1, Math.min(50, batchSize))).get()
+  const due = await observeEventRead('query', () => db.collection(STUDENT360_SOURCE_QUEUE).where('dueAt', '<=', Timestamp.fromMillis(now()))
+    .orderBy('dueAt').limit(Math.max(1, Math.min(50, batchSize))).get())
+  if (due.empty || due.size === 0) recordEventMetrics({ guardSkips: 1 })
   const results = []
   for (let offset = 0; offset < due.docs.length; offset += 3) {
     const work = await Promise.allSettled(due.docs.slice(offset, offset + 3).map(snapshot =>

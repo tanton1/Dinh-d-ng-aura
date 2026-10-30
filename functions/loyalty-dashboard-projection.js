@@ -5,6 +5,7 @@ const { FieldPath, FieldValue } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
 const { normalizeAccount, sourceDocumentId } = require('./loyalty-core')
 const { syncMembership } = require('./loyalty-membership-core')
+const { directorySourceChanged, syncLoyaltyMemberDirectory } = require('./loyalty-member-directory')
 
 const VERSION = 1
 const SHARDS = 4
@@ -118,6 +119,9 @@ async function syncLoyaltyDashboardEvent({ db, collection, event }) {
   const before = event.data?.before
   const after = event.data?.after
   if (typeof before?.exists !== 'boolean' || typeof after?.exists !== 'boolean') throw new Error('Missing loyalty dashboard event snapshots.')
+  if (directorySourceChanged(collection, before.exists ? before.data() : null, after.exists ? after.data() : null)) {
+    await syncLoyaltyMemberDirectory({ db, studentId: event.params.documentId })
+  }
   if (isDeepStrictEqual(relevantValue(collection, before.exists ? before.data() : null), relevantValue(collection, after.exists ? after.data() : null))) return { changed: false }
   const id = event.params.documentId
   if (collection === 'students' && (!before.exists || !after.exists || ['status', 'accountDeletedAt'].some(key => !isDeepStrictEqual(before.data()?.[key], after.data()?.[key])))) {

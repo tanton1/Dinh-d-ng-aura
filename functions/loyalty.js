@@ -4,6 +4,7 @@ const { trustedAccessContext, requireCapability } = require('./identity-access')
 const { readMemberDashboard, readMemberHistory } = require('./loyalty-member-reads')
 const { allocateBehaviorBudget } = require('./loyalty-behavior-budget')
 const { readLoyaltyDashboardSummary } = require('./loyalty-dashboard-projection')
+const { readLoyaltyMemberPage, foldMemberSearch, memberSearchPrefixes, TIERS: MEMBER_TIERS } = require('./loyalty-member-directory')
 const { writeMissionProgress } = require('./loyalty-mission-progress')
 const { readCreditMembership, requireManagedMember, membershipIsManaged } = require('./loyalty-membership-core')
 const { normalizeRewardBanner } = require('./loyalty-reward-media')
@@ -2061,8 +2062,33 @@ function createLoyaltyFunctions({ db, onCall, logger = console }) {
   })
 
   const listLoyaltyAccounts = loyaltyAdminCall(async (request) => {
-    const actor = await trustedAccessContext(request, db, { freshAssignment: request.data?.studentId !== undefined })
+    const actor = await trustedAccessContext(request, db, { freshAssignment: request.data?.studentId !== undefined || request.data?.directoryVersion === 2 })
     requireCapability(actor, 'loyalty.dashboard.read')
+    if (request.data?.directoryVersion === 2 && !request.data?.studentId) {
+      const page = await readLoyaltyMemberPage({ db, actor, data: request.data })
+      const [policy, profiles] = await Promise.all([
+        currentPolicy(db),
+        page.ids.length ? db.getAll(...page.ids.map(id => db.doc(`students/${id}`))) : [],
+      ])
+      const authorized = profiles.filter(item => item.exists && membershipIsManaged(item.data()) && canAccessBranch(actor, item.data().branchId || ''))
+      const wallets = authorized.length ? await db.getAll(...authorized.map(item => db.doc(`loyaltyAccounts/${item.id}`))) : []
+      const walletById = new Map(wallets.map(item => [item.id, item]))
+      let directoryStale = authorized.length !== page.ids.length
+      const accounts = authorized.flatMap(item => {
+        const student = item.data()
+        if (request.data.query && !memberSearchPrefixes(student).includes(foldMemberSearch(request.data.query))) { directoryStale = true; return [] }
+        const wallet = walletById.get(item.id)
+        const account = normalizeAccount(wallet?.exists ? wallet.data() : {}, { studentId: item.id, accountUid: student.accountUid || '' })
+        if (account.tier !== page.projectedTiers.get(item.id)) directoryStale = true
+        if (request.data.tier && request.data.tier !== 'all' && account.tier !== request.data.tier) return []
+        return [{ ...publicAccount(account, policy), studentId: item.id, studentName: student.name || student.displayName || 'Học viên Aura', branchId: student.branchId || '', membershipState: student.loyaltyMembership?.state || 'active', manageUntil: student.loyaltyMembership?.manageUntil || null, walletInitialized: wallet?.exists === true }]
+      })
+      const { ids: _ids, projectedTiers: _tiers, ...metadata } = page
+      // A source change may be waiting for its projection event. Never expose
+      // a moved/out-of-scope profile just because a cached directory matched.
+      if (directoryStale) { metadata.totalCount = null; delete metadata.tierCounts }
+      return { ...metadata, accounts, directoryStale }
+    }
     const requestedSize = request.data?.pageSize ?? 50
     if (!['number', 'string'].includes(typeof requestedSize) || !String(requestedSize).trim()) {
       throw new HttpsError('invalid-argument', 'Số học viên mỗi trang không hợp lệ.')
@@ -2075,7 +2101,8 @@ function createLoyaltyFunctions({ db, onCall, logger = console }) {
     let totalCount = 0
     let hasMore = false
     let nextCursor = null
-    if (actor.accessRole === 'staff' && !actor.branchIds.length) return { accounts: [], hasMore, nextCursor, totalCount }
+    const versionMetadata = request.data?.directoryVersion === 2 ? { schemaVersion: 2, tierCounts: Object.fromEntries(MEMBER_TIERS.map(tier => [tier, 0])) } : {}
+    if (actor.accessRole === 'staff' && !actor.branchIds.length) return { accounts: [], hasMore, nextCursor, totalCount, ...versionMetadata }
     if (studentId) {
       const snapshot = await db.doc(`students/${studentId}`).get()
       // A deep link must work beyond the first page. Missing and unauthorized
@@ -2113,7 +2140,7 @@ function createLoyaltyFunctions({ db, onCall, logger = console }) {
       nextCursor = hasMore && studentSnapshots.length ? studentSnapshots[studentSnapshots.length - 1].id : null
       totalCount = pages.reduce((total, page) => total + page.count, 0)
     }
-    if (!studentSnapshots.length) return { accounts: [], hasMore, nextCursor, totalCount }
+    if (!studentSnapshots.length) return { accounts: [], hasMore, nextCursor, totalCount, ...versionMetadata }
     const [policy, accountSnapshots] = await Promise.all([
       currentPolicy(db),
       db.getAll(...studentSnapshots.map((item) => db.doc(`loyaltyAccounts/${item.id}`))),
@@ -2127,7 +2154,7 @@ function createLoyaltyFunctions({ db, onCall, logger = console }) {
       const account = normalizeAccount(accountSnapshot?.exists ? accountSnapshot.data() : defaultAccount({ studentId: item.id, accountUid: student.accountUid || '' }), { studentId: item.id, accountUid: student.accountUid || '' })
       return [{ ...publicAccount(account, policy), studentId: item.id, studentName: student.name || student.displayName || 'Học viên Aura', branchId: student.branchId || '', membershipState: student.loyaltyMembership?.state || 'active', manageUntil: student.loyaltyMembership?.manageUntil || null, walletInitialized: accountSnapshot?.exists === true }]
     }).sort((left, right) => left.studentName.localeCompare(right.studentName, 'vi'))
-    return { accounts: rows, hasMore, nextCursor, totalCount }
+    return { accounts: rows, hasMore, nextCursor, totalCount, ...(request.data?.directoryVersion === 2 ? { schemaVersion: 2, tierCounts: Object.fromEntries(MEMBER_TIERS.map(tier => [tier, rows.filter(row => row.tier === tier).length])) } : {}) }
   })
 
   const listLoyaltyRewardsAdmin = loyaltyAdminCall(async (request) => {

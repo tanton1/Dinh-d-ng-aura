@@ -159,7 +159,7 @@ test('failed transaction never reports queued writes as committed; refresh progr
   assert.deepEqual(done, ['first']); assert.equal(partial.metric().metrics.staffRefreshes, 1)
 })
 
-test('real SDK registration opts in exactly three exports and their actual guard handlers require no database access', () => {
+test('real SDK registration opts in six exports and the original source guards require no database access', () => {
   const source = String.raw`
     const Module = require('node:module');
     const blocked = () => { throw Error('Network forbidden during event registration test'); };
@@ -198,7 +198,9 @@ test('real SDK registration opts in exactly three exports and their actual guard
   assert.ok(row)
   const value = JSON.parse(row.slice('EVENT_REGISTRATION:'.length))
   const targets = ['syncSessionOperationalActions', 'syncStaffOperationalSummary', 'syncStudent360OperationalActions']
-  assert.equal(value.count, 571); assert.deepEqual(value.registered.sort(), targets)
+  assert.equal(value.count, 571); assert.deepEqual(value.registered.sort(), [
+    'processStudent360SourceQueue', 'rebuildDirtyPtScheduleWeeklyViewsScheduled', 'recoverStudent360SourceQueueScheduled', ...targets,
+  ].sort())
   assert.equal(value.logs.length, 3)
   assert.deepEqual(value.logs.map(row => row.value.operation).sort(), targets)
   for (const { value: metric } of value.logs) {

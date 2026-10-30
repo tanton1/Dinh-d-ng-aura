@@ -714,6 +714,33 @@ function teachingSlotsFromAttendance(attendanceDocuments, sessionsById, policyVa
   }
 }
 
+const PAYROLL_VALIDATION_FIELDS = ['status', 'trainerId', 'studentId', 'date', 'hour', 'branchId', 'commissionEligible', 'makeupSession', 'sessionKind']
+
+async function readPayrollSessionValidation(db, runPeriodId, transaction) {
+  const bounds = periodDateBounds(runPeriodId)
+  const query = db.collection('sessions').where('date', '>=', bounds.start).where('date', '<', bounds.end)
+    .select(...PAYROLL_VALIDATION_FIELDS).limit(3001)
+  const snapshot = await (transaction ? transaction.get(query) : query.get())
+  if (snapshot.size > 3000) return { complete: false, sourceCount: snapshot.size, violations: [{
+    code: 'PAYROLL_DATA_LIMIT_EXCEEDED', severity: 'error', title: 'Không thể đối soát toàn bộ buổi của kỳ',
+    detail: 'Kỳ có quá nhiều buổi để kiểm tra an toàn. Hãy dùng báo cáo đối soát dữ liệu nguồn.', remediation: 'retry', periodId: runPeriodId,
+  }] }
+  const canonical = snapshot.docs.map(item => [item.id, ...PAYROLL_VALIDATION_FIELDS.map(field => item.data()[field] ?? null)])
+    .sort((a, b) => Buffer.compare(Buffer.from(a[0]), Buffer.from(b[0])))
+  return {
+    complete: true, sourceCount: snapshot.size,
+    fingerprint: createHash('sha256').update(JSON.stringify(canonical)).digest('hex'),
+    violations: await enrichPayrollViolations(db, duplicateLearnerDayViolations(snapshot.docs), transaction),
+  }
+}
+
+function closedPayrollValidation(run) {
+  const saved = run.sessionValidation
+  return ['locked', 'paid'].includes(run.status) && saved?.schemaVersion === 1 && saved.phase === 'locked'
+    && saved.complete === true && saved.periodId === run.periodId && saved.violationCount === 0
+    && typeof saved.fingerprint === 'string' && /^[a-f0-9]{64}$/.test(saved.fingerprint)
+}
+
 function duplicateLearnerDayViolations(sessionDocuments) {
   const learnerDays = new Map()
   for (const item of sessionDocuments || []) {
@@ -1958,23 +1985,9 @@ function createPayrollFunctions({ db, onCall, logger = console }) {
     if (!run.exists) throw new HttpsError('not-found', 'Không tìm thấy kỳ lương.')
     const runData = run.data()
     const runPeriodId = period(runData.periodId || runId)
-    const runDateBounds = periodDateBounds(runPeriodId)
-    const sourceSessionSnapshot = await db.collection('sessions')
-      .where('date', '>=', runDateBounds.start)
-      .where('date', '<', runDateBounds.end)
-      .select('status', 'trainerId', 'studentId', 'date', 'hour', 'branchId')
-      .limit(3001)
-      .get()
-    const validationViolations = sourceSessionSnapshot.size > 3000
-      ? [{
-        code: 'PAYROLL_DATA_LIMIT_EXCEEDED',
-        severity: 'error',
-        title: 'Không thể đối soát toàn bộ buổi của kỳ',
-        detail: 'Kỳ có quá nhiều buổi để kiểm tra trùng ngày trong một lần tải. Hãy dùng báo cáo đối soát dữ liệu nguồn.',
-        remediation: 'retry',
-        periodId: runPeriodId,
-      }]
-      : await enrichPayrollViolations(db, duplicateLearnerDayViolations(sourceSessionSnapshot.docs))
+    // A verified locked snapshot is historical evidence, not a live monthly
+    // query. Drafts and unverified legacy runs retain live validation.
+    const validationViolations = closedPayrollValidation(runData) ? [] : (await readPayrollSessionValidation(db, runPeriodId)).violations
     const itemValues = items.docs.map((item) => ({ id: item.id, ...item.data() }))
     const teachingRequiresRebuild = Number(runData.schemaVersion || 0) < 5 || itemValues.some((item) => !Array.isArray(item.teachingSlots))
     const requiresRebuild = runData.requiresRebuild === true || runData.sourceDataStale === true || teachingRequiresRebuild || Number(runData.schemaVersion || 0) < 7 || Number(runData.commissionFormulaVersion || 0) < 2
@@ -1985,7 +1998,7 @@ function createPayrollFunctions({ db, onCall, logger = console }) {
       responseItems = preview.items
       previewSummary = preview.summary
     } else {
-      const trainerIds = [...new Set(itemValues.map((item) => item.trainerId).filter(Boolean))]
+      const trainerIds = [...new Set(itemValues.filter(item => !payrollIdentityName(item.trainerSnapshot)).map((item) => item.trainerId).filter(Boolean))]
       const identities = await payrollIdentityByTrainerId(db, trainerIds)
       responseItems = itemValues.map((item) => ({
         ...item,
@@ -2707,16 +2720,15 @@ function createPayrollFunctions({ db, onCall, logger = console }) {
       if (to === 'reviewed' && snapshot.data().attendanceReviewRequired === true) {
         throw new HttpsError('failed-precondition', 'Ngày công, lịch làm việc hoặc bằng chứng ca dạy của kỳ chưa được đối soát đầy đủ.')
       }
+      if (to === 'reviewed' && (snapshot.data().sourceDataStale === true || snapshot.data().requiresRebuild === true)) {
+        throw new HttpsError('failed-precondition', 'Nguồn của kỳ lương đã thay đổi. Hãy lập lại kỳ nháp trước khi duyệt.')
+      }
       let renewCohorts = []
+      let sessionValidation = null
       if (to === 'reviewed') {
         const runPeriodId = period(snapshot.data().periodId || runId)
-        const dateBounds = periodDateBounds(runPeriodId)
-        const sessions = await transaction.get(db.collection('sessions')
-          .where('date', '>=', dateBounds.start)
-          .where('date', '<', dateBounds.end)
-          .select('status', 'trainerId', 'studentId', 'date', 'hour', 'branchId')
-          .limit(3001))
-        if (sessions.size > 3000) {
+        const validation = await readPayrollSessionValidation(db, runPeriodId, transaction)
+        if (!validation.complete) {
           throw payrollViolationError(
             'PAYROLL_DATA_LIMIT_EXCEEDED',
             'Không thể đối soát toàn bộ buổi của kỳ',
@@ -2726,13 +2738,14 @@ function createPayrollFunctions({ db, onCall, logger = console }) {
             'resource-exhausted',
           )
         }
-        const duplicateLearnerDays = await enrichPayrollViolations(db, duplicateLearnerDayViolations(sessions.docs), transaction)
+        const duplicateLearnerDays = validation.violations
         if (duplicateLearnerDays.length) throw payrollViolationsError(duplicateLearnerDays)
+        sessionValidation = { schemaVersion: 1, phase: 'reviewed', periodId: runPeriodId, complete: true, sourceCount: validation.sourceCount, fingerprint: validation.fingerprint, violationCount: 0, validatedAt: FieldValue.serverTimestamp() }
         const cohortSnapshot = await transaction.get(db.collection('renewCohortSnapshots').where('periodId', '==', runPeriodId).limit(101))
         if (cohortSnapshot.size > 100) throw new HttpsError('resource-exhausted', 'Kỳ có quá nhiều mẫu Renew để khóa an toàn.')
         renewCohorts = cohortSnapshot.docs
       }
-      transaction.update(reference, { status: to, ...fields, [`${to}At`]: FieldValue.serverTimestamp(), [`${to}By`]: actor.uid, updatedAt: FieldValue.serverTimestamp() })
+      transaction.update(reference, { status: to, ...fields, ...(sessionValidation ? { sessionValidation } : {}), [`${to}At`]: FieldValue.serverTimestamp(), [`${to}By`]: actor.uid, updatedAt: FieldValue.serverTimestamp() })
       renewCohorts.forEach((cohort) => transaction.update(cohort.ref, { status: 'locked', lockedAt: FieldValue.serverTimestamp(), lockedBy: actor.uid, updatedAt: FieldValue.serverTimestamp() }))
       transaction.create(db.collection('payrollAuditLogs').doc(), { schemaVersion: 1, runId, action: `payroll.${to}`, actorUid: actor.uid, fromStatus: from, toStatus: to, createdAt: FieldValue.serverTimestamp() })
     })
@@ -2753,6 +2766,14 @@ function createPayrollFunctions({ db, onCall, logger = console }) {
       if (run.data().status === 'locked') return
       if (run.data().status !== 'reviewed') throw new HttpsError('failed-precondition', 'Kỳ lương phải ở trạng thái reviewed.')
       assertPayrollPeriodClosed(period(run.data().periodId || runId))
+      if (run.data().sourceDataStale === true || run.data().requiresRebuild === true || run.data().attendanceReviewRequired === true) {
+        throw new HttpsError('failed-precondition', 'Nguồn kỳ lương cần đối soát lại trước khi khóa.')
+      }
+      const validation = await readPayrollSessionValidation(db, period(run.data().periodId || runId), transaction)
+      if (validation.violations.length) throw payrollViolationsError(validation.violations)
+      if (run.data().sessionValidation?.fingerprint && run.data().sessionValidation.fingerprint !== validation.fingerprint) {
+        throw new HttpsError('failed-precondition', 'Buổi tập của kỳ đã thay đổi sau khi duyệt. Hãy đối soát và lập lại kỳ trước khi khóa.')
+      }
       if (run.data().intelligenceSummary?.enabled === true && run.data().targetStatus !== 'approved') {
         throw payrollViolationError(
           'PAYROLL_TARGET_APPROVAL_REQUIRED',
@@ -2768,7 +2789,7 @@ function createPayrollFunctions({ db, onCall, logger = console }) {
       const effectiveAt = payrollEffectiveAt(periodId)
       await assertFinancePeriodOpen(transaction, db, effectiveAt)
       const journal = payrollAccrualJournal({ amount: finalAmount })
-      transaction.update(runReference, { status: 'locked', lockedAt: FieldValue.serverTimestamp(), lockedBy: actor.uid, ledgerEntryId: ledgerReference.id, journalEntryId: journalReference.id, updatedAt: FieldValue.serverTimestamp() })
+      transaction.update(runReference, { status: 'locked', lockedAt: FieldValue.serverTimestamp(), lockedBy: actor.uid, ledgerEntryId: ledgerReference.id, journalEntryId: journalReference.id, sessionValidation: { schemaVersion: 1, phase: 'locked', periodId, complete: true, sourceCount: validation.sourceCount, fingerprint: validation.fingerprint, violationCount: 0, validatedAt: FieldValue.serverTimestamp() }, updatedAt: FieldValue.serverTimestamp() })
       if (!existingLedger.exists) {
         transaction.create(ledgerReference, {
           schemaVersion: 3,
@@ -2958,6 +2979,8 @@ module.exports = {
   payrollProfile,
   policySupportsProfile,
   duplicateLearnerDayViolations,
+  closedPayrollValidation,
+  readPayrollSessionValidation,
   teachingSlotsFromAttendance,
   teachingSlotsFromSessions,
   payrollRunPolicyPlan,

@@ -41,7 +41,7 @@ function parseArguments(argv) {
   }))
   if (Object.keys(flags).some((key) => !['confirm', 'scope'].includes(key))) throw new Error(usage())
   const scope = flags.scope || 'all'
-  if (!['all', 'finance-ledger-reads', 'ledger-date-range', 'student-progress-reads', 'users-role-reads', 'business-report-branch-reads', 'loyalty-account-reads', 'dashboard-reads', 'cpu-background'].includes(scope)) throw new Error('Unknown index deployment scope.')
+  if (!['all', 'finance-ledger-reads', 'ledger-date-range', 'student-progress-reads', 'users-role-reads', 'business-report-branch-reads', 'loyalty-account-reads', 'dashboard-reads', 'cpu-background', 'graphify-fixes'].includes(scope)) throw new Error('Unknown index deployment scope.')
   if (mode === 'apply' && flags.confirm !== CONFIRMATION) throw new Error('Production confirmation is missing or incorrect.')
   return { mode, scope }
 }
@@ -137,6 +137,15 @@ function comparableFields(fields = []) {
 
 function selectIndexes(indexes, scope) {
   if (scope === 'all') return indexes
+  if (scope === 'graphify-fixes') {
+    const approved = JSON.parse(fs.readFileSync(path.resolve('ops/graphify-fixes-indexes-20261030.json'), 'utf8')).indexes
+    if (!Array.isArray(approved) || !approved.length) throw new Error('Missing Graphify fixes index manifest.')
+    return approved.map(index => {
+      const matches = indexes.filter(candidate => signature(candidate) === signature(index))
+      if (matches.length !== 1) throw new Error(`Graphify fixes index for ${index.collectionGroup} must appear exactly once.`)
+      return matches[0]
+    })
+  }
   if (scope === 'cpu-background') {
     return [['subjects', 'dueAt'], ['staffOperationalSummaries', 'nextReconcileAt']].map(([collectionGroup, fieldPath]) => {
       const wanted = { collectionGroup, queryScope: 'COLLECTION', fields: [
