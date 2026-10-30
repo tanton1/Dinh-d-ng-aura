@@ -57,7 +57,6 @@ test('business reporting reads prefer the overflow aliases and retain a transien
   assert.match(service, /`\$\{name\}Regional`/)
   assert.match(service, /runReadOnlyWithFallback/)
   assert.match(service, /maximumAttempts: 1/)
-  assert.match(service, /timeoutMs: 18_000/)
 })
 
 test('PT/Sales first-render reads prefer bounded East aliases and retain a transient fallback', () => {

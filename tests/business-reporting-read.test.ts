@@ -58,3 +58,45 @@ test('business history coalesces simultaneous matching reads, but isolates accou
   await Promise.all([anonymousFirst, anonymousSecond])
   delete (globalThis as any).__businessHistoryReadTest
 })
+
+test('a 21-second cold period report completes once without a duplicate fallback read', async () => {
+  const state = {
+    calls: [] as Array<{ name: string; options: { timeoutMs: number; maximumAttempts: number } }>,
+    response: { managementPnl: { recognisedRevenue: 12345 } },
+  }
+  ;(globalThis as any).__businessColdReportTest = state
+  const result = await build({
+    entryPoints: ['src/services/businessReportingService.ts'], bundle: true, write: false, platform: 'node', format: 'esm',
+    plugins: [{ name: 'cold-report-transport', setup(builder) {
+      builder.onResolve({ filter: /(?:lib\/firebase(?:Functions)?|clientTelemetryService|readOnlyCallableService)$/ }, (args) => ({ path: args.path, namespace: 'cold-report-fixture' }))
+      builder.onLoad({ filter: /.*/, namespace: 'cold-report-fixture' }, ({ path }) => ({ contents:
+        path.endsWith('/firebaseFunctions') ? 'export const firebaseFunctions = {}; export const firebaseBusinessReportingFunctions = {}'
+          : path.endsWith('/firebase') ? 'export const firebaseAuth = { currentUser: { uid: "finance-admin" } }'
+            : path.endsWith('/clientTelemetryService') ? 'export const createClientCorrelationId = () => "cold-report"'
+              : `export async function callReadOnlyFunction(name, input, options) {
+                const state = globalThis.__businessColdReportTest;
+                state.calls.push({ name, options });
+                const responseTime = name.startsWith('listBusinessPerformance') ? 21_000 : 100;
+                if (options.timeoutMs < responseTime) throw { code: 'functions/deadline-exceeded' };
+                return state.response;
+              }
+              export async function runReadOnlyWithFallback(primary, fallback) {
+                try { return await primary(); } catch { return fallback(); }
+              }`,
+      }))
+    } }],
+  })
+  try {
+    const service = await import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString('base64')}`)
+    const query = { startDate: '2026-10-02', endDate: '2026-10-31' }
+    assert.deepEqual(await service.listBusinessPerformance(query), state.response)
+    assert.equal(state.calls.length, 1, 'a successful cold report must not read both regions')
+    assert.equal(state.calls[0].name, 'listBusinessPerformanceRegional')
+    assert.equal(state.calls[0].options.maximumAttempts, 1)
+    assert.ok(state.calls[0].options.timeoutMs < 60_000, 'report wait remains bounded below the server deadline')
+    await service.listStudentTrainingHistory('student-1', query)
+    assert.equal(state.calls[1].options.timeoutMs, 18_000, 'ordinary history keeps its existing deadline')
+  } finally {
+    delete (globalThis as any).__businessColdReportTest
+  }
+})

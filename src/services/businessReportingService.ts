@@ -21,10 +21,11 @@ async function invokeBusinessReportingRead<Input, Output>(name: string, input: I
     if (!functionsClient) throw new Error('Firebase Functions chưa sẵn sàng.')
     return callReadOnlyFunction<Input, Output>(callableName, input, {
       functionsClient,
-      // A regional failover should happen quickly; the second region owns the
-      // retry budget instead of waiting through three attempts in one region.
+      // Period reports can take over 20 seconds on a cold instance. Give that
+      // bounded aggregation time to finish instead of duplicating its reads
+      // in the fallback region after 18 seconds. History keeps its short budget.
       maximumAttempts: 1,
-      timeoutMs: 18_000,
+      timeoutMs: name === 'listBusinessPerformance' ? 45_000 : 18_000,
       correlationId,
     })
   }
