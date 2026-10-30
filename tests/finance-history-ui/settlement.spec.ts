@@ -428,6 +428,53 @@ test('student overview and contract refresh keep the selected cancelled contract
   expect(errors).toEqual([])
 })
 
+test('verifying departure date inside Student 360 preserves the selected contract and unfinished adjustments through summary refresh', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', error => errors.push(error.message))
+  const contractChoice = await openStudentPage(page)
+  await panel(page).evaluate(node => { node.setAttribute('data-mount-probe', 'date-verification') })
+  await page.evaluate(() => {
+    (window as any).financeState.settlementBlockers = [{ code: 'SETTLEMENT_MISSING_RECOGNITION', message: 'Còn doanh thu cần đối soát.' }]
+  })
+  await proposal(page)
+  await adjustments(page)
+  await panel(page).getByLabel('Phí chấm dứt (đ)', { exact: true }).fill('50000')
+  await expect(panel(page).getByLabel('Lý do Phí chấm dứt')).toHaveValue('')
+  await expect(panel(page).getByRole('button', { name: 'Gửi duyệt', exact: true })).toBeDisabled()
+  await page.evaluate(() => { const s = (window as any).financeState; s.overviewDefer = true; s.workspaceDefer = true })
+  await panel(page).getByRole('button', { name: 'Xác nhận ngày nghỉ', exact: true }).click()
+  await expect.poll(() => page.evaluate(() => (window as any).financeState.overviewPending.length)).toBe(1)
+  await expect(contractChoice).toHaveAttribute('aria-current', 'true')
+  await expect(panel(page)).toHaveAttribute('data-mount-probe', 'date-verification')
+  await expect(panel(page).getByTestId('settlement-verify-cutoff')).toHaveCount(0)
+  await expect(panel(page).getByLabel('Phí chấm dứt (đ)', { exact: true })).toHaveValue('50000')
+  await page.evaluate(() => { const s = (window as any).financeState; s.overviewDefer = false; s.overviewPending[0].resolve() })
+  await expect.poll(() => page.evaluate(() => (window as any).financeState.workspacePending.length)).toBe(1)
+  await expect(panel(page)).toHaveAttribute('data-mount-probe', 'date-verification')
+  await expect(contractChoice).toHaveAttribute('aria-current', 'true')
+  await page.evaluate(() => { const s = (window as any).financeState; s.workspaceDefer = false; s.workspacePending[0].resolve() })
+  await expect(page.getByText('Đang cập nhật hồ sơ hợp đồng…')).toHaveCount(0)
+  await expect(page.getByRole('heading', { name: 'Test learner A', exact: true })).toBeVisible()
+  await expect(panel(page)).toHaveAttribute('data-mount-probe', 'date-verification')
+  await expect(contractChoice).toHaveAttribute('aria-current', 'true')
+  await expect(panel(page).getByLabel('Ngày nghỉ')).toHaveValue('2026-10-25')
+  await expect(panel(page).getByLabel('Lý do nghỉ')).toHaveValue('Khách xác nhận kết thúc dịch vụ theo biên bản.')
+  await expect(panel(page).getByLabel('Phí chấm dứt (đ)', { exact: true })).toHaveValue('50000')
+  await expect(panel(page).getByLabel('Lý do Phí chấm dứt')).toHaveValue('')
+  await expect(panel(page).getByText('Còn doanh thu cần đối soát.')).toBeVisible()
+  await expect(panel(page).getByRole('button', { name: 'Gửi duyệt', exact: true })).toBeDisabled()
+  const result = await page.evaluate(() => {
+    const s = (window as any).financeState
+    return { commands: s.settlementCommands, settlement: s.settlement, payments: s.payments, refunds: s.refunds }
+  })
+  expect(result.commands).toHaveLength(1)
+  expect(result.commands[0]).toMatchObject({ action: 'verify_cutoff', contractId: 'contract-a', cutoffDate: '2026-10-25' })
+  expect(result.commands[0].proposal).toBeUndefined()
+  expect(result.settlement.proposal).toBeUndefined()
+  expect(result.payments + result.refunds).toBe(0)
+  expect(errors).toEqual([])
+})
+
 test('refreshing student data preserves an unsaved settlement draft and the selected cancelled contract', async ({ page }) => {
   const contractChoice = await openStudentPage(page)
   await proposal(page)
