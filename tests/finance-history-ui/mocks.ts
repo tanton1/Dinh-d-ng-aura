@@ -4,6 +4,8 @@ const publish = () => { state.databaseVersion++; subscribers.forEach(callback =>
 export const state = {
   owner: 'admin-a', authzVersion: 1, calls: [] as Array<{ owner: string; query: any }>, refreshes: 0,
   settlementStatus: 'review_required', settlementRevision: 0, settlement: null as any,
+  settlementCutoffDate: new URLSearchParams(window.location.search).get('settlementCutoffDate') || '',
+  settlementRecognizedRevenue: 400_000, settlementUnservedValue: 800_000,
   settlementCalls: [] as any[], settlementCommands: [] as any[], settlementFailure: '',
   settlementDefer: false, settlementPending: [] as Array<{ resolve: () => void }>,
   settlementBlockers: [] as Array<{ code: string; message: string }>,
@@ -172,11 +174,12 @@ export function contractSettlementLabel(status: string) {
 function settlementResponse(input: any = {}) {
   const paid = contracts[0].paidAmount
   const target = state.settlement?.settlementAmount
+  const cutoffDate = input.cutoffDate || state.settlement?.proposal.cutoffDate || state.settlementCutoffDate
   return structuredClone({
     contractId: input.contractId || 'contract-a', revision: state.settlementRevision, status: state.settlementStatus,
     settlement: state.settlement ? { ...state.settlement, revision: state.settlementRevision, status: state.settlementStatus } : null,
-    preview: { originalNetValue: 1_200_000, canonicalCash: paid, paidProjection: paid, recognizedRevenue: 400_000, unservedValue: 800_000,
-      blockers: state.settlementBlockers, snapshotHash: `${state.owner}:${state.settlementRevision}:${paid}:${input.cutoffDate || state.settlement?.proposal.cutoffDate || ''}`,
+    preview: { originalNetValue: 1_200_000, canonicalCash: paid, paidProjection: paid, recognizedRevenue: state.settlementRecognizedRevenue, unservedValue: state.settlementUnservedValue, cutoffDate,
+      blockers: state.settlementBlockers, snapshotHash: `${state.owner}:${state.settlementRevision}:${paid}:${cutoffDate}:${state.settlementRecognizedRevenue}:${state.settlementUnservedValue}`,
       ...(['approved', 'settled'].includes(state.settlementStatus) ? { dueAmount: Math.max(0, target - paid), refundAmount: Math.max(0, paid - target) } : {}) },
     permissions: state.settlementPermissions,
   })

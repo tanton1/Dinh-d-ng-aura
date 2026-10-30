@@ -3,7 +3,7 @@ import { useAuth } from '../../contexts/AuthContext'
 import FinanceIntentBoundary from '../../components/admin/pt/FinanceIntentBoundary'
 import { listCashAccounts, type CashAccount } from '../../services/cashbookService'
 import {
-  contractSettlementLabel, getContractSettlement, manageContractSettlement,
+  getContractSettlement, manageContractSettlement,
   type ContractSettlementCommand, type ContractSettlementProposal, type ContractSettlementResponse,
 } from '../../services/contractSettlementService'
 import type { FinanceIntentOutcome } from '../../services/financeOperationIntent'
@@ -19,6 +19,12 @@ const money = (value: number) => `${value.toLocaleString('vi-VN')}đ`
 const today = () => new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Ho_Chi_Minh' }).format(new Date())
 const blankProposal = (): ContractSettlementProposal => ({ cutoffDate: '', reason: '', waivedFutureAmount: 0, feeAmount: 0, feeReason: '', serviceReductionAmount: 0, serviceReductionReason: '', writeOffAmount: 0, writeOffReason: '', effectiveAt: new Date().toISOString() })
 const errorMessage = (cause: unknown) => cause instanceof Error ? cause.message : 'Chưa tải được quyết toán. Hãy thử lại.'
+const adjustmentFields = [
+  ['feeAmount', 'feeReason', 'Phí chấm dứt'],
+  ['serviceReductionAmount', 'serviceReductionReason', 'Giảm giá trị dịch vụ đã ghi nhận'],
+  ['writeOffAmount', 'writeOffReason', 'Xóa nợ có phê duyệt'],
+] as const
+const statusLabels = { review_required: 'Cần kiểm tra', pending_approval: 'Chờ duyệt', approved: 'Đã duyệt', settled: 'Đã hoàn tất' }
 
 export default function ContractSettlementPanel(props: Props) {
   const { user, profile, authzReady } = useAuth()
@@ -62,7 +68,7 @@ function SettlementSession({ contractId, branchId, onChanged }: Props) {
       setData(result)
       if (!initialized.current) {
         initialized.current = true
-        if (result.settlement?.proposal) setProposal(result.settlement.proposal)
+        setProposal(current => result.settlement?.proposal || { ...current, cutoffDate: result.preview.cutoffDate || '' })
       }
     } catch (cause) { if (alive.current && sequence === reads.current) setError(errorMessage(cause)) }
     finally { if (alive.current && sequence === reads.current) setLoading(false) }
@@ -102,7 +108,7 @@ function SettlementSession({ contractId, branchId, onChanged }: Props) {
   const command = (action: ContractSettlementCommand['action']) => {
     if (!data || busy || pendingCommand) return
     void runCommand({ contractId, action, operationId: crypto.randomUUID(), expectedRevision: data.revision, expectedSnapshotHash: data.preview.snapshotHash,
-      ...(action === 'submit' ? { proposal: { ...proposal, reason: proposal.reason.trim(), effectiveAt: new Date().toISOString() } } : {}) })
+      ...(action === 'submit' ? { proposal: { ...proposal, waivedFutureAmount: data.preview.unservedValue, reason: proposal.reason.trim(), effectiveAt: new Date().toISOString() } } : {}) })
   }
 
   const loadCash = async () => {
@@ -134,7 +140,7 @@ function SettlementSession({ contractId, branchId, onChanged }: Props) {
   const status = data?.status || 'review_required'
   const editing = status === 'review_required' && Boolean(data?.permissions.canSubmit)
   const approved = status === 'approved' || status === 'settled'
-  const shownProposal = editing ? proposal : data?.settlement?.proposal
+  const shownProposal = editing ? { ...proposal, waivedFutureAmount: preview?.unservedValue ?? 0 } : data?.settlement?.proposal
   const proposedAmount = preview && shownProposal ? preview.originalNetValue - shownProposal.waivedFutureAmount + shownProposal.feeAmount - shownProposal.serviceReductionAmount - shownProposal.writeOffAmount : null
   const target = approved ? data?.settlement?.settlementAmount : proposedAmount
   const due = approved ? preview?.dueAmount : undefined
@@ -143,8 +149,8 @@ function SettlementSession({ contractId, branchId, onChanged }: Props) {
   const refunding = (refund || 0) > 0
   const blocked = Boolean(preview?.blockers.length)
   const fieldsValid = preview && proposal.cutoffDate && proposal.cutoffDate <= today() && proposal.reason.trim().length >= 2
-    && [proposal.waivedFutureAmount, proposal.feeAmount, proposal.serviceReductionAmount, proposal.writeOffAmount].every(value => Number.isSafeInteger(value) && value >= 0)
-    && proposal.waivedFutureAmount === preview.unservedValue
+    && (!preview.cutoffDate || proposal.cutoffDate === preview.cutoffDate)
+    && [preview.unservedValue, proposal.feeAmount, proposal.serviceReductionAmount, proposal.writeOffAmount].every(value => Number.isSafeInteger(value) && value >= 0)
     && proposal.serviceReductionAmount <= serviceRevenue
     && proposal.writeOffAmount <= Math.max(0, serviceRevenue - proposal.serviceReductionAmount - preview.canonicalCash)
     && (!proposal.feeAmount || proposal.feeReason.trim().length >= 2)
@@ -153,39 +159,45 @@ function SettlementSession({ contractId, branchId, onChanged }: Props) {
     && proposedAmount !== null && proposedAmount >= 0
   const cashValid = Number.isSafeInteger(Number(cashAmount)) && Number(cashAmount) > 0 && Number(cashAmount) <= cashLimit && cashAccountId && cashReason.trim().length >= 2
   const disabled = busy || loading || Boolean(pendingCommand)
+  const adjustments = adjustmentFields.filter(([amountKey]) => (shownProposal?.[amountKey] ?? 0) > 0)
+  const balance = approved ? cashLimit : Math.abs((target ?? serviceRevenue) - (preview?.canonicalCash ?? 0))
+  const resultRefunding = approved ? refunding : (target ?? serviceRevenue) < (preview?.canonicalCash ?? 0)
+  const balanceLabel = balance === 0 ? (approved ? 'Không còn chênh lệch' : 'Dự kiến không thu / hoàn')
+    : `${approved ? '' : 'Dự kiến '}${resultRefunding ? (approved ? 'Cần hoàn khách' : 'hoàn khách') : (approved ? 'Cần thu thêm' : 'cần thu thêm')}`
 
-  return <section className="contract-settlement" aria-label="Quyết toán khi hủy">
-    <header className="contract-settlement__header"><div><h3>Quyết toán khi hủy</h3><p>Hủy hiệu lực hợp đồng chưa kết thúc nghĩa vụ thanh toán.</p></div><span className={`contract-settlement__status is-${status}`}>{contractSettlementLabel(status)}</span></header>
-    {loading && <p role="status">Đang đối soát dịch vụ và tiền đã ghi sổ…</p>}
+  return <section className="contract-settlement" aria-label="Quyết toán khi nghỉ">
+    <header className="contract-settlement__header"><h3>Quyết toán khi nghỉ</h3><span className={`contract-settlement__status is-${status}`}>{statusLabels[status]}</span></header>
+    {loading && <p role="status">Đang tính số tiền…</p>}
     {error && <p role="alert" className="contract-settlement__alert">{error}</p>}
-    {pendingCommand && !busy && <div className="contract-settlement__actions"><p>Chưa xác định kết quả. Kiểm tra lại cùng yêu cầu trước khi thao tác tiếp.</p><button type="button" onClick={() => void runCommand(pendingCommand)}>Kiểm tra / gửi lại quyết toán</button></div>}
-    {!data && !loading && !pendingCommand && <button type="button" onClick={() => void load()}>Tải lại quyết toán</button>}
+    {pendingCommand && !busy && <div className="contract-settlement__actions"><p>Chưa nhận được kết quả. Kiểm tra lại yêu cầu vừa gửi.</p><button type="button" onClick={() => void runCommand(pendingCommand)}>Kiểm tra kết quả</button></div>}
+    {!data && !loading && !pendingCommand && <button type="button" onClick={() => void load()}>Tải lại</button>}
     {data && preview && <>
-      <dl className="contract-settlement__figures"><div><dt>Giá trị sau giảm giá</dt><dd>{money(preview.originalNetValue)}</dd></div><div><dt>Thực thu theo sổ</dt><dd>{money(preview.canonicalCash)}</dd></div><div><dt>Dịch vụ đã ghi nhận</dt><dd>{money(serviceRevenue)}</dd></div><div><dt>Chưa thực hiện</dt><dd>{money(preview.unservedValue)}</dd></div></dl>
+      <dl className="contract-settlement__figures"><div><dt>Đã thu</dt><dd>{money(preview.canonicalCash)}</dd></div><div><dt>Dịch vụ đã dùng</dt><dd>{money(serviceRevenue)}</dd></div></dl>
+      <div className="contract-settlement__result" data-testid="settlement-result" aria-live="polite"><span>{balanceLabel}</span><strong>{money(balance)}</strong>{approved && status !== 'settled' && cashLimit === 0 && <small>Đã cân đối. Xác nhận hoàn tất hồ sơ.</small>}</div>
       {Boolean(preview.warnings?.length) && <div className="contract-settlement__alert" role="note">{preview.warnings!.map(item => <p key={item.code}>{item.message}</p>)}</div>}
-      {blocked && <div role="alert" className="contract-settlement__alert"><strong>Cần xử lý trước khi lập quyết toán</strong><ul>{preview.blockers.map(item => <li key={item.code}>{item.message}</li>)}</ul><p>Xử lý các điểm đối soát rồi tải lại trước khi gửi đề xuất, duyệt hoặc thu/hoàn.</p></div>}
+      {blocked && <div role="alert" className="contract-settlement__alert"><strong>Cần kiểm tra trước khi tiếp tục</strong><ul>{preview.blockers.map(item => <li key={item.code}>{item.message}</li>)}</ul></div>}
       {editing ? <form onSubmit={event => { event.preventDefault(); if (fieldsValid && !blocked) command('submit') }}>
         <fieldset disabled={disabled}>
-          <div className="contract-settlement__form-grid"><label>Ngày chốt dịch vụ<input type="date" required max={today()} value={proposal.cutoffDate} onChange={event => { const value = event.target.value; setProposal(current => ({ ...current, cutoffDate: value })); setCutoff(value) }} /></label><label>Miễn phần chưa thực hiện (đ)<input type="number" required min="0" step="1" value={proposal.waivedFutureAmount} onChange={event => setProposal({ ...proposal, waivedFutureAmount: Number(event.target.value) })} /><small>Nhập đúng {money(preview.unservedValue)} sau khi đối soát.</small></label></div>
-          <label>Lý do và thỏa thuận quyết toán<textarea required minLength={2} maxLength={500} rows={2} value={proposal.reason} onChange={event => setProposal({ ...proposal, reason: event.target.value })} /></label>
-          <div className="contract-settlement__adjustments">{([
-            ['feeAmount', 'feeReason', 'Phí chấm dứt'], ['serviceReductionAmount', 'serviceReductionReason', 'Giảm giá trị dịch vụ đã ghi nhận'], ['writeOffAmount', 'writeOffReason', 'Xóa nợ có phê duyệt'],
-          ] as const).map(([amountKey, reasonKey, label]) => <div key={amountKey}><label>{label} (đ)<input type="number" min="0" step="1" required value={proposal[amountKey]} onChange={event => setProposal({ ...proposal, [amountKey]: Number(event.target.value) })} /></label><label>Lý do {label.toLowerCase()}<input required={proposal[amountKey] > 0} maxLength={500} value={proposal[reasonKey]} onChange={event => setProposal({ ...proposal, [reasonKey]: event.target.value })} /></label></div>)}</div>
-          <p className="contract-settlement__note">Phí, giảm dịch vụ và xóa nợ mặc định bằng 0. Chỉ xóa nợ dịch vụ còn lại, không gồm phí mới hay tiền đã thu; doanh thu dịch vụ đã ghi nhận được giữ nguyên. Ghi sổ khi duyệt, theo ngày gửi đề xuất.</p>
-          {target !== null && target !== undefined && <p className="contract-settlement__target">Nghĩa vụ đề xuất <strong>{money(target)}</strong><small>Giá trị hợp đồng − miễn phần chưa thực hiện + phí − giảm dịch vụ − xóa nợ.</small></p>}
-          <button type="submit" className="contract-settlement__primary" disabled={disabled || blocked || !fieldsValid}>{busy ? 'Đang gửi…' : 'Gửi đề xuất quyết toán'}</button>
+          <div className="contract-settlement__form-grid"><label>Ngày nghỉ<input type="date" required max={today()} value={proposal.cutoffDate} onChange={event => { const value = event.target.value; setProposal(current => ({ ...current, cutoffDate: value })); setCutoff(value) }} /></label><label>Lý do nghỉ<textarea required minLength={2} maxLength={500} rows={2} value={proposal.reason} placeholder="Theo thỏa thuận với học viên" onChange={event => setProposal({ ...proposal, reason: event.target.value })} /></label></div>
+          <p className="contract-settlement__waiver" data-testid="settlement-waiver">Không thu phần chưa tập: <strong>{money(preview.unservedValue)}</strong></p>
+          <details className="contract-settlement__details"><summary>Điều chỉnh thêm{adjustments.length > 0 && <span>{adjustments.length} khoản</span>}</summary>
+            <div className="contract-settlement__adjustments">{adjustmentFields.map(([amountKey, reasonKey, label]) => <div key={amountKey}><label>{label} (đ)<input type="number" min="0" step="1" required value={proposal[amountKey]} onChange={event => setProposal({ ...proposal, [amountKey]: Number(event.target.value) })} /></label>{proposal[amountKey] > 0 && <label>Lý do {label.toLowerCase()}<input required minLength={2} maxLength={500} value={proposal[reasonKey]} onChange={event => setProposal({ ...proposal, [reasonKey]: event.target.value })} /></label>}</div>)}</div>
+            <p className="contract-settlement__note">Chỉ nhập khi có thỏa thuận riêng. Xóa nợ chỉ áp dụng cho dịch vụ đã dùng còn chưa trả.</p>
+          </details>
+          {adjustments.length > 0 && <ul className="contract-settlement__adjustment-summary" data-testid="settlement-adjustment-summary">{adjustments.map(([amountKey, reasonKey, label]) => <li key={amountKey}><span>{label}: <strong>{money(proposal[amountKey])}</strong></span>{proposal[reasonKey] && <small>{proposal[reasonKey]}</small>}</li>)}</ul>}
+          <button type="submit" className="contract-settlement__primary" disabled={disabled || blocked || !fieldsValid}>{busy ? 'Đang gửi…' : 'Gửi duyệt'}</button>
         </fieldset>
-      </form> : shownProposal && <div className="contract-settlement__proposal"><dl><div><dt>Chốt dịch vụ</dt><dd>{shownProposal.cutoffDate}</dd></div><div><dt>Miễn phần chưa thực hiện</dt><dd>{money(shownProposal.waivedFutureAmount)}</dd></div><div><dt>Phí chấm dứt</dt><dd>{money(shownProposal.feeAmount)}{shownProposal.feeReason && <small>{shownProposal.feeReason}</small>}</dd></div><div><dt>Giảm dịch vụ</dt><dd>{money(shownProposal.serviceReductionAmount)}{shownProposal.serviceReductionReason && <small>{shownProposal.serviceReductionReason}</small>}</dd></div><div><dt>Xóa nợ</dt><dd>{money(shownProposal.writeOffAmount)}{shownProposal.writeOffReason && <small>{shownProposal.writeOffReason}</small>}</dd></div></dl><p>{shownProposal.reason}</p></div>}
-      {status === 'review_required' && !editing && <p>Chờ nhân sự có quyền tài chính lập đề xuất quyết toán.</p>}
-      {status === 'pending_approval' && <div className="contract-settlement__actions">{target !== null && target !== undefined && <p className="contract-settlement__target">Nghĩa vụ đề xuất <strong>{money(target)}</strong></p>}{data.permissions.canApprove && <button type="button" className="contract-settlement__primary" disabled={disabled || blocked} onClick={() => command('approve')}>Duyệt quyết toán</button>}{data.permissions.canSubmit && <button type="button" disabled={disabled} onClick={() => command('withdraw')}>Rút đề xuất để sửa</button>}</div>}
-      {approved && <div className="contract-settlement__balance"><p>Nghĩa vụ đã duyệt <strong>{money(target ?? 0)}</strong></p><p>{(due || 0) > 0 ? 'Còn phải thu' : (refund || 0) > 0 ? 'Cần hoàn khách' : 'Chênh lệch còn lại'}<strong>{money(cashLimit)}</strong></p>{status === 'approved' && cashLimit === 0 && <small>Đã cân đối tiền; cần xác nhận hoàn tất quyết toán.</small>}</div>}
-      {status === 'approved' && <div className="contract-settlement__actions">{hasCapability('finance.operations.manage') && cashLimit > 0 && !cashOpen && <button type="button" className="contract-settlement__primary" disabled={disabled || blocked} onClick={() => { setCashAmount(String(cashLimit)); setCashReason(''); setCashOpen(true); void loadCash() }}>{refunding ? 'Hoàn tiền quyết toán' : 'Thu tiền quyết toán'}</button>}{data.permissions.canClose && <button type="button" className="contract-settlement__primary" disabled={disabled || blocked || due !== 0 || refund !== 0 || cashOpen} onClick={() => command('close')}>Hoàn tất quyết toán</button>}</div>}
-      {cashOpen && status === 'approved' && <div className="contract-settlement__cash"><header><h4>{refunding ? 'Hoàn tiền quyết toán' : 'Thu tiền quyết toán'}</h4><button type="button" onClick={() => { cashReads.current++; setCashOpen(false) }}>Đóng biểu mẫu</button></header><FinanceIntentBoundary contractId={contractId} onCompleted={cashCompleted}>{({ blocked: intentBlocked, busy: cashBusy, submit }) => <form onSubmit={event => { event.preventDefault(); if (!cashValid || blocked || disabled || intentBlocked || cashBusy) return; const payload = { contractId, amount: Number(cashAmount), effectiveAt: new Date().toISOString(), paymentMethod, cashAccountId, expectedPaidAmount: preview.paidProjection, expectedSettlementRevision: data.revision }; void submit(refunding ? { type: 'refund', payload: { ...payload, reason: cashReason.trim() } } : { type: 'payment', payload: { ...payload, note: cashReason.trim() } }) }}><fieldset disabled={intentBlocked || cashBusy || disabled || blocked}>
+      </form> : shownProposal && <div className="contract-settlement__proposal"><p>Ngày nghỉ: <strong>{shownProposal.cutoffDate.split('-').reverse().join('/')}</strong> · {shownProposal.reason}</p><p data-testid="settlement-waiver">Không thu phần chưa tập: <strong>{money(shownProposal.waivedFutureAmount)}</strong></p>{adjustments.length > 0 && <ul className="contract-settlement__adjustment-summary" data-testid="settlement-adjustment-summary">{adjustments.map(([amountKey, reasonKey, label]) => <li key={amountKey}><span>{label}: <strong>{money(shownProposal[amountKey])}</strong></span><small>{shownProposal[reasonKey]}</small></li>)}</ul>}</div>}
+      {status === 'review_required' && !editing && <p>Chờ người phụ trách tài chính xử lý.</p>}
+      {status === 'pending_approval' && <div className="contract-settlement__actions">{data.permissions.canApprove && <button type="button" className="contract-settlement__primary" disabled={disabled || blocked} onClick={() => command('approve')}>Xác nhận duyệt</button>}{data.permissions.canSubmit && <button type="button" disabled={disabled} onClick={() => command('withdraw')}>Sửa đề xuất</button>}</div>}
+      {status === 'approved' && <div className="contract-settlement__actions">{hasCapability('finance.operations.manage') && cashLimit > 0 && !cashOpen && <button type="button" className="contract-settlement__primary" disabled={disabled || blocked} onClick={() => { setCashAmount(String(cashLimit)); setCashReason(`${refunding ? 'Hoàn tiền' : 'Thu tiền'} khi học viên nghỉ`); setCashOpen(true); void loadCash() }}>{refunding ? 'Hoàn tiền' : 'Thu tiền'}</button>}{data.permissions.canClose && due === 0 && refund === 0 && <button type="button" className="contract-settlement__primary" disabled={disabled || blocked || cashOpen} onClick={() => command('close')}>Hoàn tất</button>}</div>}
+      {cashOpen && status === 'approved' && <div className="contract-settlement__cash"><header><h4>{refunding ? 'Hoàn tiền' : 'Thu tiền'}</h4><button type="button" onClick={() => { cashReads.current++; setCashOpen(false) }}>Đóng biểu mẫu</button></header><FinanceIntentBoundary contractId={contractId} onCompleted={cashCompleted}>{({ blocked: intentBlocked, busy: cashBusy, submit }) => <form onSubmit={event => { event.preventDefault(); if (!cashValid || blocked || disabled || intentBlocked || cashBusy) return; const payload = { contractId, amount: Number(cashAmount), effectiveAt: new Date().toISOString(), paymentMethod, cashAccountId, expectedPaidAmount: preview.paidProjection, expectedSettlementRevision: data.revision }; void submit(refunding ? { type: 'refund', payload: { ...payload, reason: cashReason.trim() } } : { type: 'payment', payload: { ...payload, note: cashReason.trim() } }) }}><fieldset disabled={intentBlocked || cashBusy || disabled || blocked}>
         <div className="contract-settlement__form-grid"><label>Số tiền quyết toán (đ)<input type="number" required min="1" max={cashLimit} step="1" value={cashAmount} onChange={event => setCashAmount(event.target.value)} /></label><label>Quỹ nhận/chi<select required disabled={cashLoading || Boolean(cashError)} value={cashAccountId} onChange={event => setCashAccountId(event.target.value)}><option value="">Chọn quỹ</option>{cashAccounts.map(item => <option key={item.id} value={item.id}>{item.name} · {money(item.balance)}</option>)}</select></label><label>Phương thức<select value={paymentMethod} onChange={event => setPaymentMethod(event.target.value)}><option value="transfer">Chuyển khoản</option><option value="cash">Tiền mặt</option><option value="wallet">Ví điện tử</option></select></label><label>Nội dung thu/hoàn<input required minLength={2} maxLength={500} value={cashReason} onChange={event => setCashReason(event.target.value)} /></label></div>
         {cashLoading && <p role="status">Đang tải quỹ…</p>}{cashError && <div role="alert"><p>{cashError}</p><button type="button" onClick={() => void loadCash()}>Tải lại quỹ</button></div>}{!cashLoading && !cashError && !cashAccounts.length && <p role="alert">Chưa có quỹ hoạt động của chi nhánh. Kiểm tra Sổ quỹ trước khi thu/hoàn.</p>}
-        <p className="contract-settlement__note">Tối đa {money(cashLimit)} theo quyết toán đã duyệt. Giao dịch được ghi qua phiếu thu/hoàn hiện có.</p><button type="submit" className="contract-settlement__primary" disabled={!cashValid || cashLoading || Boolean(cashError) || intentBlocked || cashBusy || disabled || blocked}>{cashBusy ? 'Đang ghi sổ…' : refunding ? 'Ghi khoản hoàn quyết toán' : 'Ghi khoản thu quyết toán'}</button>
+        <p className="contract-settlement__note">Tối đa {money(cashLimit)} theo số đã duyệt.</p><button type="submit" className="contract-settlement__primary" disabled={!cashValid || cashLoading || Boolean(cashError) || intentBlocked || cashBusy || disabled || blocked}>{cashBusy ? 'Đang lưu…' : refunding ? 'Lưu phiếu hoàn' : 'Lưu phiếu thu'}</button>
       </fieldset></form>}</FinanceIntentBoundary></div>}
-      {!cashOpen && !pendingCommand && <button type="button" className="contract-settlement__refresh" disabled={busy || loading} onClick={() => void load()}>Đối soát lại</button>}
+      <details className="contract-settlement__details contract-settlement__calculation"><summary>Chi tiết cách tính</summary><dl><div><dt>Giá trị hợp đồng</dt><dd>{money(preview.originalNetValue)}</dd></div><div><dt>Phần chưa tập</dt><dd>{money(preview.unservedValue)}</dd></div>{target !== null && target !== undefined && <div><dt>{approved ? 'Tổng phải trả đã duyệt' : 'Tổng phải trả dự kiến'}</dt><dd>{money(target)}</dd></div>}</dl><p className="contract-settlement__note">Dịch vụ đã dùng + phí − giảm dịch vụ − xóa nợ. So với tiền đã thu để tính phần thu thêm hoặc hoàn lại.</p></details>
+      {!cashOpen && !pendingCommand && status !== 'settled' && <button type="button" className="contract-settlement__refresh" disabled={busy || loading} onClick={() => void load()}>Cập nhật</button>}
     </>}
   </section>
 }
