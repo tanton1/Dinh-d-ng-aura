@@ -7,6 +7,8 @@ export const state = {
   ledgerCanReverse: true as boolean | null,
   settlementStatus: 'review_required', settlementRevision: 0, settlement: null as any,
   settlementCutoffDate: new URLSearchParams(window.location.search).get('settlementCutoffDate') || '',
+  settlementConfirmedCutoffDate: (new URLSearchParams(window.location.search).get('settlementCutoffDate') || null) as string | null,
+  settlementSupportsCutoffVerification: true,
   settlementRecognizedRevenue: 400_000, settlementUnservedValue: 800_000,
   settlementCalls: [] as any[], settlementCommands: [] as any[], settlementFailure: '',
   settlementDefer: false, settlementPending: [] as Array<{ resolve: () => void }>,
@@ -268,11 +270,12 @@ export function contractSettlementLabel(status: string) {
 function settlementResponse(input: any = {}) {
   const paid = contracts[0].paidAmount
   const target = state.settlement?.settlementAmount
-  const cutoffDate = input.cutoffDate || state.settlement?.proposal.cutoffDate || state.settlementCutoffDate
+  const cutoffDate = input.cutoffDate || state.settlement?.proposal?.cutoffDate || state.settlementCutoffDate
   return structuredClone({
     contractId: input.contractId || 'contract-a', revision: state.settlementRevision, status: state.settlementStatus,
     settlement: state.settlement ? { ...state.settlement, revision: state.settlementRevision, status: state.settlementStatus } : null,
     preview: { originalNetValue: 1_200_000, canonicalCash: paid, paidProjection: paid, recognizedRevenue: state.settlementRecognizedRevenue, unservedValue: state.settlementUnservedValue, cutoffDate,
+      ...(state.settlementSupportsCutoffVerification ? { confirmedCutoffDate: state.settlementConfirmedCutoffDate } : {}),
       blockers: state.settlementBlockers, snapshotHash: `${state.owner}:${state.settlementRevision}:${paid}:${cutoffDate}:${state.settlementRecognizedRevenue}:${state.settlementUnservedValue}`,
       ...(['approved', 'settled'].includes(state.settlementStatus) ? { dueAmount: Math.max(0, target - paid), refundAmount: Math.max(0, paid - target) } : {}) },
     permissions: state.settlementPermissions,
@@ -295,7 +298,12 @@ export async function manageContractSettlement(input: any) {
   const stored = settlementReceipts.get(input.operationId)
   if (stored) return stored
   if (input.expectedRevision !== state.settlementRevision) throw Error('Hồ sơ đã thay đổi. Đối soát lại trước khi duyệt.')
-  if (input.action === 'submit') {
+  if (input.action === 'verify_cutoff') {
+    state.settlementCutoffDate = input.cutoffDate
+    state.settlementConfirmedCutoffDate = input.cutoffDate
+    state.settlement = { cutoffDate: input.cutoffDate, cutoffVerifiedDate: input.cutoffDate, cutoffVerificationReason: input.reason }
+    state.settlementStatus = 'review_required'
+  } else if (input.action === 'submit') {
     if (state.settlementBlockers.length) throw Object.assign(Error('Chưa đủ đối soát'), { code: 'functions/failed-precondition' })
     const p = input.proposal
     state.settlement = { proposal: p, settlementAmount: 1_200_000 - p.waivedFutureAmount + p.feeAmount - p.serviceReductionAmount - p.writeOffAmount }
