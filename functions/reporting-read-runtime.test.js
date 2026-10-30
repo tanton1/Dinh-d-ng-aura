@@ -7,13 +7,19 @@ const { REPORTING_READ_TARGETS, shouldUseReportingReadRuntime, loadReportingRead
 
 const DATABASE = 'ai-studio-aurafitnesselear-0f7609b4-b8d1-4fb3-9d62-99a2c03e1ce7'
 const PREFIX = 'REPORTING_RUNTIME_PROBE:'
-// Use the real entry point, SDK registration and trustedAccessContext. Only
-// Firestore is replaced; network and writes fail closed even on discovery.
+const PROBE_NOW_MS = Date.UTC(2026, 9, 30)
+// Use the real entry point, SDK registration and trustedAccessContext.
+// Firestore and wall clock are fixtures; network and writes fail closed even on discovery.
 const SOURCE = String.raw`
 const Module = require('node:module');
 const path = require('node:path');
 const { performance } = require('node:perf_hooks');
 const input = JSON.parse(process.env.AURA_REPORTING_RUNTIME_PROBE);
+// Discovery and targeted runtime run in separate child processes. Freeze the
+// fixture clock and use one stored expiration, as a Firestore Timestamp does.
+// Recomputing expiry inside toMillis can turn 60s into 61s across a 1ms tick.
+Date.now = () => ${PROBE_NOW_MS};
+const cachedSummaryExpiresAtMillis = ${PROBE_NOW_MS} + 60_000;
 const reads = [], queries = [], databaseIds = [], networkAttempts = [];
 const documents = { ...(input.documents || {}) };
 const blocked = kind => function () { networkAttempts.push(kind); throw new Error('Blocked network: ' + kind); };
@@ -48,7 +54,7 @@ const db = {
   doc(documentPath) { return { path: documentPath, async get() {
     reads.push(documentPath);
     if (documentPath.startsWith('systemOperationsDashboardCache/') && input.cachedSummary) return {
-      exists: true, data: () => ({ schemaVersion: 3, valueExpiresAt: { toMillis: () => Date.now() + 60_000 }, value: input.cachedSummary }),
+      exists: true, data: () => ({ schemaVersion: 3, valueExpiresAt: { toMillis: () => cachedSummaryExpiresAtMillis }, value: input.cachedSummary }),
     };
     return snapshot(documentPath);
   } }; },
@@ -204,7 +210,7 @@ test('authorized bounded pages, masked labels and cached summaries retain canoni
     listFinanceReceivables: { branchId: 'a', pageSize: 2, today: '2026-10-30', includeSummary: false },
     listFinanceStudentLabels: { studentIds: ['s1', 's1'] },
   }
-  function stable(results) { return results.map(row => ({ ...row, value: row.value ? { ...row.value, ...(row.value.asOf ? { asOf: 'AS_OF' } : {}), ...(row.value.cache ? { cache: { ...row.value.cache, expiresAtMillis: 0 } } : {}) } : undefined })) }
+  function stable(results) { return results.map(row => ({ ...row, value: row.value ? { ...row.value, ...(row.value.asOf ? { asOf: 'AS_OF' } : {}) } : undefined })) }
   for (const name of REPORTING_READ_TARGETS) {
     const requests = [
       { name, call: call('admin', 'admin', inputByName[name]) },
@@ -220,6 +226,10 @@ test('authorized bounded pages, masked labels and cached summaries retain canoni
     if (name === 'listAcademyEnrollmentsPage') assert.equal(runtime.results[0].value.enrollments.length, 1)
     if (name === 'listFinanceReceivables') assert.equal(runtime.results[0].value.contracts.length, 1)
     if (name === 'listFinanceStudentLabels') assert.equal(runtime.results[0].value.students.length, 1)
-    if (name === 'getAcademyAnalyticsSummary') assert.equal(runtime.results[0].value.cache.hit, true)
+    if (name === 'getAcademyAnalyticsSummary') {
+      assert.equal(runtime.results[0].value.cache.hit, true)
+      assert.equal(runtime.results[0].value.cache.ttlSeconds, 60)
+      assert.equal(runtime.results[0].value.cache.expiresAtMillis, PROBE_NOW_MS + 60_000)
+    }
   }
 })
