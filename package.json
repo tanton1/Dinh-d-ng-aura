@@ -62,7 +62,7 @@
     "test:delivery-location-transaction": "npx --yes firebase-tools@15.9.1 emulators:exec --only firestore,database --project demo-aura-fitness-rtdb \"node --test functions/delivery-location.integration.cjs functions/delivery-location-store.integration.cjs\"",
     "test:delivery-workspace-ui": "playwright test --config tests/data-cost-ui/playwright.delivery.config.ts",
     "test:delivery-map-ui": "playwright test --config tests/delivery-map-ui/playwright.config.ts",
-    "test:function-lifecycle": "node --test scripts/dashboard-cache-ttl.test.cjs scripts/evaluate-function-lifecycle.test.cjs scripts/nutrition-scan-queue-config.test.cjs",
+    "test:function-lifecycle": "node --test scripts/dashboard-cache-ttl.test.cjs scripts/evaluate-function-lifecycle.test.cjs scripts/nutrition-scan-queue-config.test.cjs scripts/build-endpoint-manifest.test.cjs",
     "test:workspace-sync-ui": "playwright test --config tests/workspace-sync-ui/playwright.config.ts",
     "test:training-history-ui": "playwright test --config tests/training-history-workspace-ui/playwright.config.ts && playwright test --config tests/training-history-panel-ui/playwright.config.ts && playwright test --config playwright.operations-requests.config.ts && playwright test --config tests/history-route-isolation-ui/playwright.config.ts",
     "test:nutrition-ui": "playwright test --config tests/nutrition-read-ui/playwright.config.ts",
