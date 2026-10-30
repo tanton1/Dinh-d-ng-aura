@@ -11,6 +11,7 @@ const {
   canonicalHistoryRows,
   canonicalStudentHistoryRows,
   summaryFromLedger,
+  businessContractSales,
   teachingShiftSummary,
 } = require('./business-reporting')
 const { Timestamp } = require('firebase-admin/firestore')
@@ -23,6 +24,7 @@ function reportFixture(values = {}, user = { role: 'admin' }) {
   const reads = [], authReads = []
   const snapshot = value => ({ exists: Boolean(value), data: () => value, id: value?.id })
   const query = (collection, filters = [], orders = [], maximum = Infinity) => ({
+    select: () => query(collection, filters, orders, maximum),
     where: (...filter) => query(collection, [...filters, filter], orders, maximum),
     orderBy: (...order) => query(collection, filters, [...orders, order], maximum),
     limit: limit => query(collection, filters, orders, limit),
@@ -45,7 +47,7 @@ function reportFixture(values = {}, user = { role: 'admin' }) {
     },
   })
   const db = {
-    collection: name => { assert(['ledgerEntries', 'cashTransactions', 'payrollRuns', 'attendanceEvents', 'cashAccounts'].includes(name)); return query(name) },
+    collection: name => { assert(['ledgerEntries', 'cashTransactions', 'payrollRuns', 'attendanceEvents', 'cashAccounts', 'contracts'].includes(name)); return query(name) },
     doc: path => ({ get: async () => { authReads.push(path); return snapshot(path === 'users/actor' ? user : undefined) } }),
   }
   const api = createBusinessReportingFunctions({ db, onCall: (_options, handler) => handler })
@@ -61,7 +63,7 @@ test('branch report applies three database predicates before caps and reuses ord
   assert.equal(result.cashFlow.cashIn, 100)
   assert.equal(result.dataQuality.unlinkedCashTransactions, 100)
   assert.equal(result.dataQuality.reconciliationBranchId, 'a')
-  assert.deepEqual(f.reads.map(read => [read.collection, read.returned]), [['ledgerEntries', 1], ['cashTransactions', 1], ['payrollRuns', 0], ['attendanceEvents', 0], ['cashAccounts', 0]])
+  assert.deepEqual(f.reads.map(read => [read.collection, read.returned]), [['ledgerEntries', 1], ['cashTransactions', 1], ['payrollRuns', 0], ['attendanceEvents', 0], ['cashAccounts', 0], ['contracts', 0]])
   for (const [collection, field, direction] of [['ledgerEntries', 'effectiveAt', 'desc'], ['cashTransactions', 'effectiveAt', 'desc'], ['attendanceEvents', 'occurredAt', 'asc']]) {
     const read = f.reads.find(row => row.collection === collection)
     assert.deepEqual(read.filters, [[field, '>=', reportStart], [field, '<', reportEnd], ['branchId', '==', 'a']])
@@ -102,6 +104,14 @@ test('source/date filters retain inferred legacy sources, reversals and unalloca
   }
 })
 
+test('offsetting unlinked cash rows remain visible as reconciliation issues', async () => {
+  const f = reportFixture({ cashTransactions: [reportRow('in', 'a', { amount: 100 }), reportRow('out', 'a', { amount: -100 })] })
+  const result = await f.run()
+  assert.equal(result.dataQuality.unlinkedCashTransactions, 0)
+  assert.equal(result.dataQuality.unlinkedCashTransactionCount, 2)
+  assert.match(result.dataQuality.message, /còn giao dịch sổ quỹ chưa liên kết ledger/)
+})
+
 test('legacy unallocated payroll and global cash account readiness retain existing policy', async () => {
   const f = reportFixture({ payrollRuns: [reportRow('a', 'a', { finalAmount: 100 }), reportRow('b', 'b', { finalAmount: 200 }),
     reportRow('unallocated', null, { finalAmount: 50 }), reportRow('linked', 'a', { finalAmount: 400, ledgerEntryId: 'linked' })], cashAccounts: [{ id: 'account', branchId: 'b' }] })
@@ -140,9 +150,9 @@ test('selected-scope caps remain bounded and never claim a complete reconciliati
 test('live authority denies outsiders before report queries and limits branch managers', async () => {
   const f = reportFixture({}, { role: 'manager', branchId: 'a' })
   await f.run()
-  assert.equal(f.reads.length, 5)
+  assert.equal(f.reads.length, 6)
   for (const branchId of ['all', 'b']) await assert.rejects(f.run({ branchId }), error => error.code === 'permission-denied')
-  assert.equal(f.reads.length, 5)
+  assert.equal(f.reads.length, 6)
   for (const user of [{ role: 'student' }, { role: 'admin', disabled: true }]) {
     const denied = reportFixture({}, user)
     await assert.rejects(denied.run(), error => error.code === 'permission-denied')
@@ -192,6 +202,115 @@ test('business P&L separates cash collection from recognised revenue', () => {
   assert.equal(summary.recognisedRevenue, 200_000)
   assert.equal(summary.operatingExpense, 50_000)
   assert.equal(summary.operatingResult, 150_000)
+})
+
+test('receipt bridge excludes expense/payroll corrections and daily Timestamp values keep Vietnam dates', () => {
+  const input = normaliseBusinessRange({ startDate: '2026-10-01', endDate: '2026-10-31', branchId: 'a' })
+  const at = Timestamp.fromDate(new Date('2026-10-01T17:00:00Z'))
+  const summary = summaryFromLedger([
+    reportRow('payment', 'a', { effectiveAt: Timestamp.fromMillis(at.toMillis() - 1), cashImpact: 1000 }),
+    reportRow('refund', 'a', { effectiveAt: at, type: 'refund', cashImpact: -200 }),
+    reportRow('reversal', 'a', { effectiveAt: at.toDate(), type: 'reversal', cashImpact: -100 }),
+    reportRow('adjustment', 'a', { effectiveAt: at, type: 'adjustment', cashImpact: 25 }),
+    reportRow('expense-refund', 'a', { effectiveAt: at, type: 'refund', cashImpact: 50, expenseImpact: -50, eventClass: 'expense_refund' }),
+    reportRow('payroll', 'a', { effectiveAt: at, type: 'adjustment', cashImpact: -75, source: 'payroll', expenseImpact: 75 }),
+    reportRow('manual', 'a', { effectiveAt: at, source: 'other', cashImpact: 30 }),
+    reportRow('pending', 'a', { effectiveAt: at, status: 'pending', cashImpact: 99999 }),
+    reportRow('foreign', 'b', { effectiveAt: at, cashImpact: 99999 }),
+  ], input)
+  assert.deepEqual(summary.receipts, { gross: 1030, refunds: 200, reversals: 100, adjustments: 25, net: 755 })
+  assert.equal(summary.cashNet, 730)
+  assert.deepEqual(summary.dailySeries.map(day => [day.date, day.grossCash, day.netCash, day.cashNet]),
+    [['2026-10-01', 1000, 1000, 1000], ['2026-10-02', 30, -245, -270]])
+  assert.equal(summary.dailySeries.reduce((total, day) => total + day.netCash, 0), summary.receipts.net)
+})
+
+test('receipt bridge retains signed undo-refund and legacy negative-payment adjustments', () => {
+  const input = normaliseBusinessRange({ startDate: '2026-10-01', endDate: '2026-10-31', branchId: 'a' })
+  const summary = summaryFromLedger([
+    reportRow('payment', 'a', { cashImpact: 1000 }),
+    reportRow('refund', 'a', { type: 'refund', cashImpact: -200 }),
+    reportRow('undo-refund', 'a', { type: 'reversal', cashImpact: 200 }),
+    reportRow('legacy-negative', 'a', { type: 'payment', cashImpact: -75 }),
+  ], input)
+  assert.deepEqual(summary.receipts, { gross: 1000, refunds: 200, reversals: 0, adjustments: 125, net: 925 })
+  const receipt = summary.receipts
+  assert.equal(receipt.gross - receipt.refunds - receipt.reversals + receipt.adjustments, receipt.net)
+})
+
+test('legacy null impacts fall back to amounts while explicit zero remains authoritative', () => {
+  const input = normaliseBusinessRange({ startDate: '2026-10-01', endDate: '2026-10-31', branchId: 'a' })
+  const summary = summaryFromLedger([
+    reportRow('payment', 'a', { amount: 100, cashImpact: null }),
+    reportRow('refund', 'a', { type: 'refund', amount: -30, cashImpact: null }),
+    reportRow('cash-zero', 'a', { amount: 500, cashImpact: 0 }),
+    reportRow('earned', 'a', { type: 'revenue_recognition', amount: 40, revenueImpact: null }),
+    reportRow('earned-zero', 'a', { type: 'revenue_recognition', amount: 500, revenueImpact: 0 }),
+    reportRow('expense', 'a', { type: 'expense', amount: -10, expenseImpact: null }),
+    reportRow('expense-zero', 'a', { type: 'expense', amount: -500, expenseImpact: 0 }),
+  ], input)
+  assert.equal(summary.cashNet, 70)
+  assert.equal(summary.receipts.net, 70)
+  assert.equal(summary.recognisedRevenue, 40)
+  assert.equal(summary.operatingExpense, 10)
+  assert.equal(summary.operatingResult, 30)
+})
+
+test('period sales retain original cancellation baseline and signed cancellation adjustments', () => {
+  const input = normaliseBusinessRange({ startDate: '2026-10-01', endDate: '2026-10-31', branchId: 'a' })
+  const summary = summaryFromLedger([reportRow('cancel', 'a', {
+    type: 'adjustment', cashImpact: 0, contractSalesImpact: -500,
+    effectiveAt: Timestamp.fromDate(new Date('2026-10-16T00:00:00+07:00')),
+  })], input)
+  const contracts = [
+    { branchId: 'a', status: 'active', totalPrice: 1000, discount: 100, signedAt: reportStart },
+    { branchId: 'a', status: 'completed', totalPrice: 200, contractDate: '2026-10-03' },
+    { branchId: 'a', status: 'cancelled', totalPrice: 0, salesCancellationSnapshot: { schemaVersion: 1, netAmount: 600, effectiveAt: '2026-10-04' } },
+    { branchId: 'a', status: 'cancelled', salesCancellationSnapshot: { schemaVersion: 1, netAmount: 800, effectiveAt: '2026-09-20' } },
+    { branchId: 'b', status: 'active', totalPrice: 99999, signedAt: reportStart },
+    { branchId: 'a', status: 'draft', totalPrice: 99999, signedAt: reportStart },
+    { branchId: 'a', status: 'active', totalPrice: 99999, signedAt: reportEnd },
+  ]
+  const result = businessContractSales(contracts, summary, input)
+  assert.deepEqual(result.sales, { grossContractSales: 1700, contractSalesAdjustment: -500, netContractSales: 1200, contractCount: 3, complete: true })
+  assert.deepEqual(result.dailySeries.map(day => [day.date, day.contractSales]),
+    [['2026-10-01', 900], ['2026-10-03', 200], ['2026-10-04', 600], ['2026-10-16', -500]])
+  assert.equal(summary.dailySeries[0].contractSales, -500, 'sales join cannot mutate ledger summary')
+})
+
+test('sales missing dates, unverified cancellations and read caps cannot claim completeness', () => {
+  const input = normaliseBusinessRange({ startDate: '2026-10-01', endDate: '2026-10-31', branchId: 'a' })
+  const summary = summaryFromLedger([], input)
+  const result = businessContractSales([
+    { branchId: 'a', status: 'active', totalPrice: 100 },
+    { branchId: 'a', status: 'cancelled', totalPrice: 100 },
+    { branchId: 'b', status: 'cancelled', totalPrice: 100 },
+  ], summary, input)
+  assert.equal(result.sales.complete, false)
+  assert.equal(result.contractSalesDatesMissing, 1)
+  assert.equal(result.cancelledSalesBaselineUnverified, 1)
+  for (const cap of [{ contractsTruncated: true }, { ledgerTruncated: true }]) {
+    assert.equal(businessContractSales([], summary, input, cap).sales.complete, false)
+  }
+})
+
+test('sales query is bounded after branch scope and skipped for non-PT source filters', async () => {
+  const foreign = Array.from({ length: 2002 }, (_, index) => ({ id: `foreign-${index}`, branchId: 'b', status: 'active', totalPrice: 100, signedAt: reportStart }))
+  const f = reportFixture({ contracts: [...foreign, { id: 'own', branchId: 'a', status: 'active', totalPrice: 120, signedAt: reportStart }] })
+  const branch = await f.run()
+  assert.equal(branch.sales.netContractSales, 120)
+  assert.equal(branch.sales.complete, true)
+  const read = f.reads.find(item => item.collection === 'contracts')
+  assert.deepEqual(read.filters, [['branchId', '==', 'a']])
+  assert.equal(read.maximum, 2001)
+  assert.equal(read.returned, 1)
+  const system = await f.run({ branchId: 'all' })
+  assert.equal(system.dataQuality.contractsTruncated, true)
+  assert.equal(system.sales.complete, false)
+  const count = f.reads.filter(item => item.collection === 'contracts').length
+  const academy = await f.run({ source: 'academy' })
+  assert.equal(academy.sales, null)
+  assert.equal(f.reads.filter(item => item.collection === 'contracts').length, count)
 })
 
 test('business report and training history retain bounded filters and actor-scoped access', () => {

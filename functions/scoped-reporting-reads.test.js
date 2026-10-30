@@ -274,3 +274,20 @@ test('sparse pages stop after 200 examined contracts and resume without losing m
   assert.equal(new Set([...second.contracts, ...third.contracts].map(c => c.id)).size, 30)
   assert.ok(reads.every(read => read.maximum <= 50))
 })
+
+test('sparse category scans batch remaining candidates without skipping an unprocessed tail', async () => {
+  const documents = Array.from({ length: 231 }, (_, i) => row(String(i).padStart(4, '0'), contract({ status: i >= 199 ? 'frozen' : 'active' })))
+  const reads = [], api = endpoints({ documents, reads })
+  const input = { category: 'frozen', pageSize: 20, includeSummary: false, today: '2026-10-30' }
+  const first = await api.listFinanceReceivables({ data: input })
+  assert.equal(first.scanned, 200)
+  assert.deepEqual(first.contracts.map(row => row.id), ['0199'])
+  assert.equal(reads.length, 5, '20 initial candidates then bounded 50-document batches')
+  assert.equal(reads.reduce((sum, read) => sum + read.count, 0), 200)
+  const second = await api.listFinanceReceivables({ data: { ...input, cursor: first.nextCursor } })
+  const third = await api.listFinanceReceivables({ data: { ...input, cursor: second.nextCursor } })
+  assert.equal(second.contracts.length, 20)
+  assert.equal(third.contracts.length, 11)
+  assert.equal(third.hasMore, false)
+  assert.equal(new Set([...first.contracts, ...second.contracts, ...third.contracts].map(row => row.id)).size, 32)
+})

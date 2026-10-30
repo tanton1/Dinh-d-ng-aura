@@ -217,7 +217,7 @@ test('admin reporting cannot fabricate or destructively synchronize legacy payme
   assert.doesNotMatch(financeSource, /ledgerSummary\.recognisedRevenue/)
   assert.match(financeSource, /eyebrow: 'Tổng nợ'/)
   assert.match(financeSource, /eyebrow: 'Quá hạn'/)
-  assert.match(financeSource, /eyebrow: 'Nợ thu tháng này'/)
+  assert.match(financeSource, /eyebrow: 'Tháng này'/)
 })
 
 test('finance mutations guard locked periods and keep installment state in the ledger transaction', () => {

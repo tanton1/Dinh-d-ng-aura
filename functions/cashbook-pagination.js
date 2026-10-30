@@ -34,7 +34,7 @@ function readTime(value) {
 }
 
 function input(data, kind, actor) {
-  const accountId = kind === 'expenses' ? '' : typeof data?.accountId === 'string' ? data.accountId.trim() : ''
+  const accountId = typeof data?.accountId === 'string' ? data.accountId.trim() : ''
   if (accountId.length > 200) throw new HttpsError('invalid-argument', 'Tài khoản quỹ không hợp lệ.')
   const pageSize = Math.min(100, Math.max(1, Number.isInteger(data?.pageSize) ? data.pageSize : 50))
   const scope = createHash('sha256').update(JSON.stringify([kind, actor.uid, actor.accessRole, actor.authzVersion, [...(actor.positions || [])].sort(), [...(actor.branchIds || [])].sort(), accountId])).digest('hex')
@@ -110,8 +110,9 @@ async function listExpenseVouchersPage({ db, actor, data, serialize }) {
     const streams = await Promise.all(config.streams.map(async (state, index) => {
       const stream = { ...state, index, rows: [], offset: 0 }
       if (state.done) return stream
-      const query = db.collection('accountingDocuments').where('documentType', '==', EXPENSES[index])
-        .orderBy('createdAt', 'desc').orderBy(FieldPath.documentId(), 'desc')
+      let query = db.collection('accountingDocuments').where('documentType', '==', EXPENSES[index])
+      if (config.accountId) query = query.where('accountId', '==', config.accountId)
+      query = query.orderBy('createdAt', 'desc').orderBy(FieldPath.documentId(), 'desc')
       const snapshot = await read.get(after(query, state.after).limit(config.pageSize + 1))
       stream.rows = snapshot.docs.map(document => ({ document, position: position(document, 'createdAt'), stream }))
       return stream

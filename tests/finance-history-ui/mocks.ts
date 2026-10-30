@@ -4,6 +4,8 @@ const publish = () => { state.databaseVersion++; subscribers.forEach(callback =>
 export const state = {
   owner: 'admin-a', authzVersion: 1, calls: [] as Array<{ owner: string; query: any }>, refreshes: 0,
   reportCalls: [] as Array<{ owner: string; query: any }>, labelCalls: [] as Array<{ owner: string; studentIds: string[] }>,
+  receivablesPages: [] as any[], receivablesDefer: false,
+  receivablesPending: [] as Array<{ resolve: () => void; reject: () => void }>,
   ledgerCanReverse: true as boolean | null,
   settlementStatus: 'review_required', settlementRevision: 0, settlement: null as any,
   settlementCutoffDate: new URLSearchParams(window.location.search).get('settlementCutoffDate') || '',
@@ -88,8 +90,14 @@ export const firebaseAuth = { get currentUser() {
 export function onAuthStateChanged(_auth: unknown, callback: () => void) { callback(); return () => {} }
 // Model a bounded report response, not a live directory: later fixture writes
 // become visible only through a subsequent explicit or date-scoped report read.
+async function receivablesResponse(value: any) {
+  const result = structuredClone(value)
+  if (state.receivablesDefer) await new Promise<void>((resolve, reject) => state.receivablesPending.push({ resolve, reject: () => reject(new Error('Chưa tải được hồ sơ.')) }))
+  return result
+}
 export async function listFinanceReceivables(query: any) {
   state.reportCalls.push({ owner: state.owner, query: structuredClone(query) })
+  if (state.receivablesPages.length) return receivablesResponse(state.receivablesPages.shift())
   const scoped = contracts.filter(contract => contract.status !== 'cancelled' && (query.branchId === 'all' || contract.branchId === query.branchId))
   const category = query.category || 'all'
   const weekStart = new Date(`${query.today}T12:00:00Z`)
@@ -125,11 +133,12 @@ export async function listFinanceReceivables(query: any) {
   const matching = entries.filter(entry => entry.groups[query.filter] && searchKey([
     entry.contract.id, entry.contract.packageName, database.students.find(student => student.id === entry.contract.studentId)?.name || '',
   ].join(' ')).includes(searchKey(query.search || ''))).map(entry => entry.contract)
-  const offset = Number(query.cursor || 0), rows = matching.slice(offset, offset + 20), hasMore = offset + 20 < matching.length
+  const size = query.pageSize ?? 20
+  const offset = Number(query.cursor || 0), rows = matching.slice(offset, offset + size), hasMore = offset + size < matching.length
   const asOf = new Date().toISOString()
-  return structuredClone({ contracts: rows, students: database.students.filter(student => rows.some(contract => contract.studentId === student.id)),
+  return receivablesResponse({ contracts: rows, students: database.students.filter(student => rows.some(contract => contract.studentId === student.id)),
     summary: query.includeSummary === false ? null : { complete: true, totals, counts, asOf, sourceDocuments: scoped.length },
-    nextCursor: hasMore ? String(offset + 20) : null, hasMore, asOf, scanned: scoped.length })
+    nextCursor: hasMore ? String(offset + size) : null, hasMore, asOf, scanned: scoped.length })
 }
 export async function listFinanceStudentLabels(studentIds: string[]) {
   state.labelCalls.push({ owner: state.owner, studentIds: [...studentIds] })
@@ -137,7 +146,7 @@ export async function listFinanceStudentLabels(studentIds: string[]) {
 }
 export async function listBusinessPerformance(input: any) {
   state.performanceCalls.push(structuredClone(input))
-  if (!state.performanceDefer) return { dailySeries: [], sourceRows: [], cashFlow: { cashIn: 0, cashOut: 0, cashNet: 0 }, managementPnl: { recognisedRevenue: 0, operatingExpense: 0, operatingResult: 0 }, balanceMovement: { receivableMovement: 0, deferredRevenueMovement: 0 }, dataQuality: { missingSourceIntegrations: [] } }
+  if (!state.performanceDefer) return { schemaVersion: 3, range: { startDate: input.startDate, endDate: input.endDate, timeZone: 'Asia/Ho_Chi_Minh' }, branchId: input.branchId || 'all', source: input.source || 'all', dailySeries: [], sourceRows: [], receipts: { gross: 0, refunds: 0, reversals: 0, adjustments: 0, net: 0 }, sales: ['all', 'pt_gym'].includes(input.source) ? { grossContractSales: 0, contractSalesAdjustment: 0, netContractSales: 0, contractCount: 0, complete: true } : null, cashFlow: { cashIn: 0, cashOut: 0, cashNet: 0 }, managementPnl: { recognisedRevenue: 0, operatingExpense: 0, operatingResult: 0 }, balanceMovement: { receivableMovement: 0, deferredRevenueMovement: 0 }, dataQuality: { missingSourceIntegrations: [], ledgerTruncated: false } }
   try { return await new Promise((resolve, reject) => state.performancePending.push({ resolve, reject })) }
   finally { state.performanceSettled++ }
 }

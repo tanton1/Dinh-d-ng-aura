@@ -1,0 +1,104 @@
+/* Compact operating view; printed accounting documents retain their full layout. */
+.cashbook-workspace { gap: 10px; min-width: 0; }
+.cashbook-workspace .cashbook-summary { padding: 12px 16px; border-radius: 14px; box-shadow: none; }
+.cashbook-workspace .cashbook-summary > div { display: grid; grid-template-columns: auto auto; column-gap: 16px; align-items: center; }
+.cashbook-workspace .cashbook-summary span { color: #62535c; font-size: 12px; }
+.cashbook-workspace .cashbook-summary strong { grid-column: 2; grid-row: 1 / 3; margin: 0; font-size: 23px; font-variant-numeric: tabular-nums; }
+.cashbook-workspace .cashbook-summary small { margin-top: 3px; font-size: 10px; }
+.cashbook-workspace .cashbook-summary svg { width: 25px; height: 25px; }
+.cashbook-workspace .cashbook-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.cashbook-workspace .cashbook-filters { display: flex; flex: 1 1 320px; gap: 6px; min-width: 0; }
+.cashbook-workspace .cashbook-filters select { width: 0; min-width: 0; flex: 1; padding: 0 10px; text-overflow: ellipsis; }
+.cashbook-workspace .cashbook-filters button { flex-shrink: 0; }
+.cashbook-workspace .cashbook-create-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.cashbook-workspace .cashbook-controls button,
+.cashbook-workspace .cashbook-controls select { min-height: 36px; border: 1px solid #e8dce2; border-radius: 9px; background: #fff; color: #493640; font: inherit; font-size: 12px; font-weight: 650; }
+.cashbook-workspace .cashbook-controls button { display: inline-flex; align-items: center; justify-content: center; gap: 5px; padding: 0 10px; white-space: nowrap; cursor: pointer; }
+.cashbook-workspace .cashbook-create-actions button { border-color: #f4cad9; background: #fff5f9; color: #ab2456; }
+.cashbook-workspace .cashbook-create-actions button:last-child { border-color: #f5d6c6; background: #fff6ef; color: #9c481f; }
+.cashbook-workspace button:disabled { cursor: default; opacity: .5; }
+.cashbook-workspace button:focus-visible,
+.cashbook-workspace select:focus-visible { outline: 2px solid #d72d6b; outline-offset: 2px; }
+.cashbook-workspace .cashbook-ledger-tabs { gap: 2px; padding: 3px; border-radius: 11px; }
+.cashbook-workspace .cashbook-ledger-tabs button { min-width: 0; min-height: 36px; padding: 0 9px; border-radius: 8px; font-size: 12px; white-space: nowrap; }
+.cashbook-workspace .cashbook-page-summary { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 3px 12px; align-items: baseline; padding: 0 2px; }
+.cashbook-workspace .cashbook-page-summary p { margin: 0; color: #62535c; font-size: 11px; }
+.cashbook-workspace .cashbook-page-summary small { font-size: 10px; }
+.cashbook-workspace .expense-voucher-list,
+.cashbook-workspace .cashbook-list { border-radius: 12px; }
+.cashbook-workspace .expense-voucher-list article { flex-direction: row; align-items: center; gap: 12px; padding: 11px 12px; }
+.cashbook-workspace .expense-voucher-list__main > div { flex-wrap: wrap; gap: 4px 7px; }
+.cashbook-workspace .expense-voucher-list__main b { overflow-wrap: anywhere; font-size: 12px; }
+.cashbook-workspace .expense-voucher-list__main p { margin: 4px 0; line-height: 1.45; }
+.cashbook-workspace .expense-voucher-list__main small { white-space: normal; line-height: 1.45; overflow-wrap: anywhere; }
+.cashbook-workspace .expense-voucher-list__amount { display: block; text-align: right; }
+.cashbook-workspace .expense-voucher-list__amount > strong { margin-bottom: 6px; font-size: 14px; font-variant-numeric: tabular-nums; }
+.cashbook-workspace .expense-voucher-list button { min-height: 32px; padding: 0 8px; gap: 4px; border-radius: 8px; font-size: 11px; }
+.cashbook-workspace .expense-voucher-list > p,
+.cashbook-workspace .cashbook-list > p { margin: 0; padding: 22px 12px; font-size: 12px; }
+.cashbook-workspace .cashbook-list article { padding: 11px 12px; }
+.cashbook-workspace .cashbook-list article > div { min-width: 0; overflow-wrap: anywhere; }
+.cashbook-workspace .cashbook-list article > strong { flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.cashbook-workspace .cashbook-pagination { padding: 10px; }
+.cashbook-workspace .cashbook-pagination button { min-height: 36px; min-width: 132px; padding: 7px 16px; border-radius: 9px; font-size: 12px; }
+.cashbook-workspace .manual-receipt-form,
+.cashbook-workspace .expense-voucher { border-color: #ecd8e1; border-radius: 14px; background: #fff; box-shadow: none; }
+.cashbook-workspace .manual-receipt-form { padding: 14px; }
+.cashbook-workspace .manual-receipt-form__heading { margin-bottom: 12px; }
+.cashbook-workspace .manual-receipt-form__heading h3,
+.cashbook-workspace .expense-voucher__title h3 { margin: 0 0 4px; color: #3a2932; font-size: 16px; }
+.cashbook-workspace .manual-receipt-form__grid { gap: 10px; }
+.cashbook-workspace .manual-receipt-form__actions button,
+.cashbook-workspace .expense-voucher__actions button { min-height: 38px; padding: 0 10px; border-radius: 9px; font-size: 12px; }
+.cashbook-workspace .manual-receipt-form__grid input,
+.cashbook-workspace .manual-receipt-form__grid select,
+.cashbook-workspace .manual-receipt-form__grid textarea,
+.cashbook-workspace .expense-voucher__grid input,
+.cashbook-workspace .expense-voucher__grid select,
+.cashbook-workspace .expense-voucher__grid textarea { min-height: 38px; padding: 8px 10px; border-radius: 9px; }
+.cashbook-workspace .expense-voucher__body { padding: 14px; }
+.cashbook-workspace .expense-voucher__title { margin-bottom: 12px; }
+.cashbook-workspace .expense-voucher__steps { padding: 6px; }
+.cashbook-workspace .expense-voucher__steps button { min-height: 36px; }
+.cashbook-workspace .s2e-controls { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.cashbook-workspace .s2e-controls__actions { grid-column: 1 / -1; }
+@media screen {
+  .cashbook-workspace .receipt-voucher-document { padding: 22px; border-radius: 16px; }
+  .cashbook-workspace .receipt-voucher-document__toolbar { margin: -8px -8px 16px; padding: 8px; }
+  .cashbook-workspace .receipt-voucher-document header { padding-bottom: 12px; }
+  .cashbook-workspace .receipt-voucher-document header strong { font-size: 21px; letter-spacing: .03em; }
+  .cashbook-workspace .receipt-voucher-document__date { margin: 8px 0 12px; }
+  .cashbook-workspace .receipt-voucher-document__fields > div { padding: 7px 0; }
+  .cashbook-workspace .receipt-voucher-document__journal { margin-top: 12px; padding: 11px; border-radius: 10px; }
+  .cashbook-workspace .receipt-voucher-document footer { margin-top: 18px; }
+  .cashbook-workspace .receipt-voucher-document footer div { min-height: 40px; }
+}
+@media (max-width: 600px) {
+  .cashbook-workspace .cashbook-summary { padding: 11px 12px; }
+  .cashbook-workspace .cashbook-summary > div { column-gap: 10px; }
+  .cashbook-workspace .cashbook-summary strong { font-size: 20px; }
+  .cashbook-workspace .cashbook-summary svg { display: none; }
+  .cashbook-workspace .cashbook-controls { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; }
+  .cashbook-workspace .cashbook-filters,
+  .cashbook-workspace .cashbook-create-actions { width: 100%; }
+  .cashbook-workspace .cashbook-controls button,
+  .cashbook-workspace .cashbook-controls select { min-height: 38px; }
+  .cashbook-workspace .cashbook-filters button span { display: none; }
+  .cashbook-workspace .cashbook-ledger-tabs button { padding: 0 4px; font-size: 11px; }
+  .cashbook-workspace .expense-voucher-list article { gap: 8px; padding: 10px; }
+  .cashbook-workspace .expense-voucher-list__amount > div { flex-direction: column; gap: 4px; }
+  .cashbook-workspace .expense-voucher-list__amount > strong { font-size: 13px; }
+  .cashbook-workspace .manual-receipt-form__classification { gap: 5px; padding: 9px; }
+  .cashbook-workspace .expense-voucher__steps { grid-template-columns: repeat(4,minmax(0,1fr)); }
+  .cashbook-workspace .expense-voucher__steps button { flex-direction: column; gap: 4px; padding: 4px 0; }
+  .cashbook-workspace .expense-voucher__steps button span { width: 20px; height: 20px; }
+}
+@media screen and (max-width: 600px) {
+  .cashbook-workspace .receipt-voucher-document { padding: 14px; }
+  .cashbook-workspace .receipt-voucher-document__toolbar { margin: -4px -4px 12px; gap: 7px; }
+  .cashbook-workspace .receipt-voucher-document header { grid-template-columns: 1fr 1fr; gap: 10px; }
+  .cashbook-workspace .receipt-voucher-document header b { font-size: 13px; }
+  .cashbook-workspace .receipt-voucher-document header strong { font-size: 17px; }
+  .cashbook-workspace .receipt-voucher-document header > div { text-align: left; }
+  .cashbook-workspace .receipt-voucher-document__fields > div { grid-template-columns: 95px minmax(0, 1fr); gap: 9px; }
+}
