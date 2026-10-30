@@ -1,22 +1,22 @@
 {
   "schemaVersion": 1,
   "date": "2026-10-30",
-  "sourceCommit": "12f22c37f2ed702dfab36c1b0cf24972b6a15945",
+  "sourceCommit": "004390d807ebabe447cdd5e6bb4e266d5e38271a",
   "graphifyVersion": "0.9.97",
   "mode": "local-code-only-no-dedup-no-llm-labels",
-  "sourceFingerprint": "6a764a03dde3441807eb6ed8d74ad832cf37097d7b7522af22a2df2447c9c1cf",
-  "graphSha256": "52e730d99861481a11e2a2f5b9e8a4ae4eb7dd8937150186fd72af22037bcc76",
+  "sourceFingerprint": "aa72628308ef181dc12bde32c6918e9e055cc474e5fd8097b570eecd7b244ebb",
+  "graphSha256": "4a03c95d04f95c9c682d373cfd01bf87d4c2a197d37c9875a4f343298e1889a1",
   "structure": {
-    "sourceFiles": 552,
-    "nodes": 7396,
-    "edges": 20903,
-    "importEdges": 1441,
+    "sourceFiles": 554,
+    "nodes": 7410,
+    "edges": 20956,
+    "importEdges": 1444,
     "importCycleCandidates": 0
   },
   "callableCoverage": {
     "frontendFiles": 424,
     "uiModules": 185,
-    "backendFiles": 128,
+    "backendFiles": 130,
     "importEdges": 1063,
     "callableSites": 352,
     "directTransportSites": 137,
@@ -37,7 +37,7 @@
     "Static references do not establish production usage or billed cost."
   ],
   "validation": {
-    "backendUnitTestsPassed": 1594,
+    "backendUnitTestsPassed": 1620,
     "frontendUnitTestsPassed": 440,
     "reportingBrowserTestsPassed": 5,
     "scheduleRegressionTestsPassed": 5,
@@ -46,6 +46,9 @@
     "queueEmulatorTestsPassed": 3,
     "buildPassed": true,
     "performanceBudgetsPassed": true,
-    "productionDeployed": false
+    "productionDeployed": false,
+    "financeBrowserTestsPassed": 73,
+    "routeIsolationBrowserTestsPassed": 6,
+    "postMergeFinanceReportingIntegrationTestsPassed": 47
   }
 }
