@@ -2393,7 +2393,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
         <div className="branch-schedule__actions">
           <button type="button" aria-label="Xếp tối ưu" onClick={() => void autoArrange()} disabled={!workspace || workspaceHydrating || busy}><Sparkles size={16} /><span>Xếp tối ưu</span></button>
           <button type="button" aria-label="Tối ưu tiếp" onClick={() => void autoArrange('continue')} disabled={!workspace || workspaceHydrating || busy}><RefreshCw size={16} /><span>Tối ưu tiếp</span></button>
-          <button type="button" className="is-publish" onClick={() => void validatePublish()} title="Kiểm tra & Publish" disabled={!workspace || workspaceHydrating || busy}><CheckCircle2 size={16} /><span>Publish</span></button>
+          <button type="button" className="is-publish" aria-label="Publish" onClick={() => void validatePublish()} title="Kiểm tra & Publish" disabled={!workspace || workspaceHydrating || busy}><CheckCircle2 size={16} /><span>Publish</span></button>
           <details className="branch-schedule__more" ref={moreMenuRef}>
             <summary aria-label="Mở thêm công cụ" title="Thêm công cụ"><MoreHorizontal size={18} /></summary>
             <div>
