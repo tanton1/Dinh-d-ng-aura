@@ -4,6 +4,9 @@ const publish = () => { state.databaseVersion++; subscribers.forEach(callback =>
 export const state = {
   owner: 'admin-a', authzVersion: 1, calls: [] as Array<{ owner: string; query: any }>, refreshes: 0,
   reportCalls: [] as Array<{ owner: string; query: any }>, labelCalls: [] as Array<{ owner: string; studentIds: string[] }>,
+  directoryAcquisitions: 0,
+  performanceCalls: [] as Array<any>, performanceDefer: false, performanceSettled: 0,
+  performancePending: [] as Array<{ resolve: (report: any) => void; reject: (cause: Error) => void }>,
   intentCalls: [] as Array<any>, intentFailure: '', intentDefer: false,
   intentPending: [] as Array<{ resolve: () => void }>,
   studentInstallmentStatus: 'pending', workspaceLoads: 0, projectionRefreshes: 0,
@@ -17,6 +20,12 @@ export const state = {
   updateContract(id: string, patch: Record<string, unknown>) {
     Object.assign(contracts.find(contract => contract.id === id)!, patch)
     database.contracts = [...contracts]
+    publish()
+  },
+  replaceContracts(rows: any[], people: any[]) {
+    contracts.splice(0, contracts.length, ...rows)
+    database.contracts = [...contracts]
+    database.students = people
     publish()
   },
   resolveCash(index: number, failure = '') {
@@ -42,6 +51,7 @@ const subscribe = (callback: () => void) => { subscribers.add(callback); return 
 const database = {
   contracts, students: [{ id: 'student-a', name: 'Test learner A' }, { id: 'student-b', name: 'Test learner B' }],
   branches: [{ id: 'a', name: 'Branch A' }, { id: 'b', name: 'Branch B' }],
+  acquireFinanceDirectory: () => { state.directoryAcquisitions++; return () => {} },
   refreshData: async () => { state.refreshes++ }, operationsSync: { status: 'ready' },
 }
 export function useDatabase() {
@@ -56,25 +66,31 @@ export function useAuth() {
 export async function listFinanceReceivables(query: any) {
   state.reportCalls.push({ owner: state.owner, query: structuredClone(query) })
   const scoped = contracts.filter(contract => query.branchId === 'all' || contract.branchId === query.branchId)
+  const category = query.category || 'all'
   const weekStart = new Date(`${query.today}T12:00:00Z`)
-  weekStart.setUTCDate(weekStart.getUTCDate() - weekStart.getUTCDay())
+  weekStart.setUTCDate(weekStart.getUTCDate() - ((weekStart.getUTCDay() + 6) % 7))
   const weekEnd = new Date(weekStart); weekEnd.setUTCDate(weekEnd.getUTCDate() + 6)
   const start = weekStart.toISOString().slice(0, 10), end = weekEnd.toISOString().slice(0, 10)
   const entries = scoped.map(contract => {
     const balance = contract.totalPrice - contract.discount - contract.paidAmount, debt = Math.max(0, balance)
     const pending = contract.installments.filter((item: any) => item.status === 'pending').sort((a: any, b: any) => a.date.localeCompare(b.date))
     const due = pending[0]?.date || contract.nextPaymentDate || ''
+    const preserved = contract.status === 'frozen' || (contract.pausePeriods || []).some((period: any) =>
+      period.type === 'preservation' && period.startDate <= query.today && period.endDate >= query.today)
+    const included = category === 'all' || (category === 'frozen' ? preserved : !preserved &&
+      (category === 'installments' ? pending.length > 0 && balance > 0 : balance < 0 || pending.length === 0))
     const amountIn = (matches: (date: string) => boolean) => {
-      if (contract.status === 'frozen') return 0
+      if (preserved) return 0
       return pending.length ? Math.min(debt, pending.filter((item: any) => matches(item.date)).reduce((sum: number, item: any) => sum + item.amount, 0))
         : due && matches(due) ? debt : 0
     }
     const overdue = amountIn(date => date < query.today), thisMonth = amountIn(date => date.slice(0, 7) === query.today.slice(0, 7))
-    return { contract, debt, overdue, thisMonth, groups: { all: debt > 0, overdue: overdue > 0,
-      'this-week': debt > 0 && contract.status !== 'frozen' && due >= start && due <= end,
+    return { contract, included, debt, overdue, thisMonth, groups: { all: category === 'frozen' || debt > 0,
+      owing: debt > 0, settled: balance === 0, overdue: overdue > 0,
+      'this-week': amountIn(date => date >= start && date <= end) > 0,
       'this-month': thisMonth > 0, overpaid: balance < 0 } as Record<string, boolean> }
-  })
-  const totals = { debt: 0, overdue: 0, thisMonth: 0 }, counts: Record<string, number> = { all: 0, overdue: 0, 'this-week': 0, 'this-month': 0, overpaid: 0 }
+  }).filter(entry => entry.included)
+  const totals = { debt: 0, overdue: 0, thisMonth: 0 }, counts: Record<string, number> = { all: 0, owing: 0, settled: 0, overdue: 0, 'this-week': 0, 'this-month': 0, overpaid: 0 }
   for (const entry of entries) {
     totals.debt += entry.debt; totals.overdue += entry.overdue; totals.thisMonth += entry.thisMonth
     for (const key of Object.keys(counts)) if (entry.groups[key]) counts[key]++
@@ -92,6 +108,12 @@ export async function listFinanceReceivables(query: any) {
 export async function listFinanceStudentLabels(studentIds: string[]) {
   state.labelCalls.push({ owner: state.owner, studentIds: [...studentIds] })
   return structuredClone(database.students.filter(student => studentIds.includes(student.id)))
+}
+export async function listBusinessPerformance(input: any) {
+  state.performanceCalls.push(structuredClone(input))
+  if (!state.performanceDefer) return { dailySeries: [], sourceRows: [], cashFlow: { cashIn: 0, cashOut: 0, cashNet: 0 }, managementPnl: { recognisedRevenue: 0, operatingExpense: 0, operatingResult: 0 }, balanceMovement: { receivableMovement: 0, deferredRevenueMovement: 0 }, dataQuality: { missingSourceIntegrations: [] } }
+  try { return await new Promise((resolve, reject) => state.performancePending.push({ resolve, reject })) }
+  finally { state.performanceSettled++ }
 }
 export async function listFinanceLedger(query: any) {
   const owner = state.owner, number = state.calls.push({ owner, query: { ...query } })

@@ -21,6 +21,7 @@ function database(seed) {
     path, filters, limitValue: limit,
     where: (field, operator, value) => query(path, [...filters, { field, operator, value }], limit),
     limit: (maximum) => query(path, filters, maximum),
+    select: () => query(path, filters, limit),
     get: async () => snapshot(query(path, filters, limit)),
     doc: (id = `generated-${++sequence}`) => ref(`${path}/${id}`),
   })

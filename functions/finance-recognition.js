@@ -51,13 +51,17 @@ function attendanceEffectiveAt(session = {}) {
   return FieldValue.serverTimestamp()
 }
 
-function ptRevenueRecognitionWrite({ sessionId, session, contractId, contract, attendanceEventId, actorUid, serviceOrdinal, evidenceStatus = 'present', confirmationSource = 'manual' }) {
+function ptRevenueRecognitionWrite({ sessionId, session, contractId, contract, attendanceEventId, actorUid, serviceOrdinal, recognisedRevenueBefore, evidenceStatus = 'present', confirmationSource = 'manual' }) {
   const ordinal = Math.max(1, Math.floor(Number(serviceOrdinal || (Number(contract?.usedSessions || 0) + 1))))
   const amount = recognitionForServiceOrdinal(contract, ordinal)
   const totalSessions = contractSessionCount(contract)
   if (!amount || !totalSessions || ordinal > totalSessions) return null
 
-  const recognisedBefore = recognitionThrough(contract, ordinal - 1)
+  // Entitlements can be confirmed out of order. Cash allocation must use the
+  // revenue actually posted, rather than assume every earlier charge earned it.
+  const recognisedBefore = recognisedRevenueBefore === undefined
+    ? recognitionThrough(contract, ordinal - 1)
+    : Math.max(0, Number(recognisedRevenueBefore))
   const paidBefore = Math.max(0, Number(contract?.paidAmount || 0))
   const deferredReleased = Math.min(amount, Math.max(0, paidBefore - recognisedBefore))
 

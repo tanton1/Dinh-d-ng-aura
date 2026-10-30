@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Building2, CalendarDays, CircleAlert, Coins, Landmark, RefreshCw, TrendingDown, TrendingUp, WalletCards } from 'lucide-react'
 import { useDatabase } from '../../../contexts/DatabaseContext'
 import { listBusinessPerformance, type BusinessPerformanceReport, type BusinessSource } from '../../../services/businessReportingService'
@@ -53,22 +53,34 @@ export default function BusinessPerformancePanel({ compact = false }: Props) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [activePreset, setActivePreset] = useState<7 | 30 | 90 | 'custom'>(30)
+  const requestSequence = useRef(0)
+  const reportScope = JSON.stringify([branchId, endDate, source, startDate])
+  const latestReportScope = useRef(reportScope)
+  latestReportScope.current = reportScope
 
   const load = useCallback(async () => {
+    const sequence = ++requestSequence.current
+    const isCurrent = () => sequence === requestSequence.current && latestReportScope.current === reportScope
     setLoading(true)
     setError('')
+    setReport(null)
     try {
       const next = await listBusinessPerformance({ startDate, endDate, branchId: branchId === 'all' ? undefined : branchId, source })
+      if (!isCurrent()) return
       setReport(next)
     } catch (cause) {
+      if (!isCurrent()) return
       setReport(null)
       setError(cause instanceof Error ? cause.message : 'Không thể tải báo cáo kết quả kinh doanh.')
     } finally {
-      setLoading(false)
+      if (isCurrent()) setLoading(false)
     }
-  }, [branchId, endDate, source, startDate])
+  }, [branchId, endDate, reportScope, source, startDate])
 
-  useEffect(() => { void load() }, [load])
+  useEffect(() => {
+    void load()
+    return () => { requestSequence.current += 1 }
+  }, [load])
 
   const days = useMemo(() => report?.dailySeries.slice(-14) || [], [report])
   const peak = Math.max(1, ...days.map((item) => Math.max(Math.abs(item.cashNet), Math.abs(item.recognisedRevenue), Math.abs(item.operatingResult))))
@@ -91,7 +103,7 @@ export default function BusinessPerformancePanel({ compact = false }: Props) {
       id: 'recognised-revenue',
       eyebrow: 'Doanh thu thực hiện',
       value: money(report?.managementPnl.recognisedRevenue || 0),
-      detail: 'Chỉ ghi nhận dịch vụ đã hoàn thành',
+      detail: 'Buổi xác nhận có tính phí; đơn đã giao',
       icon: <TrendingUp size={20} />,
       tone: 'orange',
     },
@@ -135,12 +147,14 @@ export default function BusinessPerformancePanel({ compact = false }: Props) {
         <RefreshCw size={17} className={loading ? 'is-spinning' : ''} />
       </button>
       <AuraHelpPopover title="Cách đọc báo cáo">
-        <p>Dòng tiền là số tiền thực thu/chi; doanh thu chỉ ghi nhận phần dịch vụ đã hoàn thành.</p>
+        <p>Dòng tiền ròng là tiền thu trừ tiền chi. Doanh thu thực hiện gồm buổi đã xác nhận có tính phí và đơn đã giao.</p>
+        <p>Buổi vắng được xác nhận có tính phí vẫn ghi nhận doanh thu. Tự động xác nhận sau 48 giờ chưa đủ để ghi nhận.</p>
         {report?.dataQuality?.message ? <p>{report.dataQuality.message}</p> : null}
       </AuraHelpPopover>
     </section>
 
     {error && <div className="business-performance__notice business-performance__notice--error"><CircleAlert size={19} /><span>{error}</span></div>}
+    {report?.dataQuality.ledgerTruncated && <div role="alert" className="business-performance__notice"><CircleAlert size={19} /><span>Số liệu chưa đầy đủ: khoảng lọc vượt giới hạn tổng hợp. Chọn khoảng ngày ngắn hơn để đối soát.</span></div>}
 
     <div className="business-performance__grid">
       <article className="business-performance__card business-performance__card--trend business-performance__card--wide">
@@ -152,8 +166,8 @@ export default function BusinessPerformancePanel({ compact = false }: Props) {
     <details className="business-performance__source-details">
       <summary><span>Chi tiết theo nguồn</span><small>{report?.sourceRows.reduce((total, row) => total + row.entryCount, 0).toLocaleString('vi-VN') ?? '0'} bút toán · bấm để mở</small></summary>
       <div className="business-performance__table" role="table">
-        <div className="business-performance__table-head" role="row"><span>Nguồn</span><span>Thu tiền</span><span>DT thực hiện</span><span>Chi phí</span><span>Kết quả</span></div>
-        {loading && !report ? <div className="business-performance__empty">Đang tổng hợp báo cáo…</div> : report?.sourceRows.length ? report.sourceRows.map((row) => <div key={row.source} className="business-performance__table-row" role="row"><strong>{sourceLabels[row.source] || row.source}</strong><span data-label="Thu tiền">{money(row.cashNet)}</span><span data-label="Doanh thu">{money(row.recognisedRevenue)}</span><span data-label="Chi phí">{money(row.operatingExpense)}</span><b className={row.operatingResult >= 0 ? 'is-positive' : 'is-negative'} data-label="Kết quả">{money(row.operatingResult)}</b></div>) : <div className="business-performance__empty">Chưa có bút toán quản trị phù hợp với bộ lọc.</div>}
+        <div className="business-performance__table-head" role="row"><span>Nguồn</span><span>Dòng tiền ròng</span><span>DT thực hiện</span><span>Chi phí</span><span>Kết quả</span></div>
+        {loading && !report ? <div className="business-performance__empty">Đang tổng hợp báo cáo…</div> : report?.sourceRows.length ? report.sourceRows.map((row) => <div key={row.source} className="business-performance__table-row" role="row"><strong>{sourceLabels[row.source] || row.source}</strong><span data-label="Dòng tiền ròng">{money(row.cashNet)}</span><span data-label="Doanh thu">{money(row.recognisedRevenue)}</span><span data-label="Chi phí">{money(row.operatingExpense)}</span><b className={row.operatingResult >= 0 ? 'is-positive' : 'is-negative'} data-label="Kết quả">{money(row.operatingResult)}</b></div>) : <div className="business-performance__empty">Chưa có bút toán quản trị phù hợp với bộ lọc.</div>}
       </div>
     </details>
 

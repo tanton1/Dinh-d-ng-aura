@@ -18,7 +18,8 @@ export interface AcademyEnrollmentsPage {
   hasMore: boolean
   asOf: string
 }
-export type ReceivableFilter = 'all' | 'overdue' | 'this-week' | 'this-month' | 'overpaid'
+export type ReceivableCategory = 'all' | 'installments' | 'frozen' | 'debt'
+export type ReceivableFilter = 'all' | 'owing' | 'settled' | 'overdue' | 'this-week' | 'this-month' | 'overpaid'
 export interface ReceivablesSummary {
   complete: boolean
   reason?: string
@@ -42,7 +43,7 @@ export function getAcademyAnalyticsSummary(refresh = false) {
 export function listAcademyEnrollmentsPage(cursor: string | null = null) {
   return callReadOnlyFunction<{ cursor: string | null; pageSize: number }, AcademyEnrollmentsPage>('listAcademyEnrollmentsPage', { cursor, pageSize: 50 }, reportingReadOptions)
 }
-export function listFinanceReceivables(input: { branchId: string; today: string; filter: ReceivableFilter; search: string; cursor?: string | null; includeSummary?: boolean; refresh?: boolean }) {
+export function listFinanceReceivables(input: { branchId: string; today: string; category?: ReceivableCategory; filter: ReceivableFilter; search: string; cursor?: string | null; includeSummary?: boolean; refresh?: boolean }) {
   return callReadOnlyFunction<typeof input & { pageSize: number }, ReceivablesPage>('listFinanceReceivables', { ...input, pageSize: 20 }, reportingReadOptions)
 }
 export async function listFinanceStudentLabels(studentIds: string[]): Promise<ReceivablesPage['students']> {

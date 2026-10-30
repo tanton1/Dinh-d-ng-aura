@@ -1,11 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { User } from 'firebase/auth'
 import { AnimatePresence, motion } from 'motion/react'
-import { AlertCircle, CheckCircle, Clock, DollarSign, Plus, RefreshCw, Search, Undo2, WalletCards, X } from 'lucide-react'
+import { AlertCircle, CheckCircle, Clock, DollarSign, PauseCircle, Plus, RefreshCw, Search, Undo2, WalletCards, X } from 'lucide-react'
 import type { StudentContract, UserProfile } from '../../../types'
 import { useDatabase } from '../../../contexts/DatabaseContext'
 import { useAuth } from '../../../contexts/AuthContext'
-import { listFinanceReceivables, listFinanceStudentLabels, type ReceivablesPage, type ReceivablesSummary } from '../../../services/scopedReportingService'
+import { listFinanceReceivables, listFinanceStudentLabels, type ReceivableCategory, type ReceivableFilter, type ReceivablesPage, type ReceivablesSummary } from '../../../services/scopedReportingService'
 import { useLocalTimeBoundaries } from '../../../hooks/useLocalTimeBoundaries'
 import {
   listFinanceLedger,
@@ -22,9 +22,10 @@ import '../../../styles-finance-management.css'
 interface Props {
   user: User | null
   profile: UserProfile | null
+  category?: ReceivableCategory
 }
 
-type DebtFilter = 'all' | 'overdue' | 'this-week' | 'this-month' | 'overpaid'
+type DebtFilter = ReceivableFilter
 
 function initialDebtFilter(): DebtFilter {
   const focus = new URLSearchParams(window.location.hash.split('?')[1] || '').get('focus')
@@ -36,11 +37,15 @@ function money(value: number) {
   return `${Math.round(Number.isFinite(amount) ? amount : 0).toLocaleString('vi-VN')}đ`
 }
 
-function contractDebt(contract: StudentContract) {
+function contractBalance(contract: StudentContract) {
   const total = Number(contract.totalPrice || 0) - Number(contract.discount || 0)
   const paid = Number(contract.paidAmount || 0)
   const debt = (Number.isFinite(total) ? total : 0) - (Number.isFinite(paid) ? paid : 0)
-  return Math.max(0, debt)
+  return debt
+}
+
+function contractDebt(contract: StudentContract) {
+  return Math.max(0, contractBalance(contract))
 }
 
 function dateKey(value: unknown) {
@@ -61,9 +66,19 @@ function pendingInstallments(contract: StudentContract) {
     .sort((left, right) => dateKey(left.date).localeCompare(dateKey(right.date)))
 }
 
+function currentPreservation(contract: StudentContract, todayKey: string) {
+  return (Array.isArray(contract.pausePeriods) ? contract.pausePeriods : []).find((period) =>
+    period && period.type === 'preservation' && dateKey(period.startDate) && dateKey(period.endDate)
+    && dateKey(period.startDate) <= todayKey && dateKey(period.endDate) >= todayKey)
+}
+
+function isPreserved(contract: StudentContract, todayKey: string) {
+  return contract.status === 'frozen' || Boolean(currentPreservation(contract, todayKey))
+}
+
 function overdueAmount(contract: StudentContract, todayKey: string) {
   const debt = contractDebt(contract)
-  if (!debt || contract.status === 'frozen') return 0
+  if (!debt || isPreserved(contract, todayKey)) return 0
   const pending = pendingInstallments(contract)
   if (pending.length) {
     const overdue = pending
@@ -115,7 +130,7 @@ export default function FinanceManagement(props: Props) {
   return <FinanceWorkspace key={authority} {...props} />
 }
 
-function FinanceWorkspace({ profile }: Props) {
+function FinanceWorkspace({ profile, category = 'all' }: Props) {
   const { branches } = useDatabase()
   const { backendMode } = useAuth()
   const [contracts, setContracts] = useState<ReceivablesPage['contracts']>([])
@@ -134,7 +149,10 @@ function FinanceWorkspace({ profile }: Props) {
   const todayKey = localDateKey(new Date(calendarClock))
   const [selectedBranchId, setSelectedBranchId] = useState('all')
   const [dateRange, setDateRange] = useState<{ start: Date; end: Date }>(currentMonthRange)
-  const [debtFilter, setDebtFilter] = useState<DebtFilter>(initialDebtFilter)
+  const [filterSelection, setFilterSelection] = useState({ category, filter: category === 'frozen' ? 'all' as DebtFilter : initialDebtFilter() })
+  const debtFilter = filterSelection.category === category ? filterSelection.filter : 'all'
+  const setDebtFilter = (filter: DebtFilter) => setFilterSelection({ category, filter })
+  const categoryLabel = category === 'installments' ? 'Trả góp' : category === 'frozen' ? 'Bảo lưu' : 'Công nợ'
   const [ledgerEntries, setLedgerEntries] = useState<FinanceLedgerEntry[]>([])
   const [ledgerCursor, setLedgerCursor] = useState<string | null>(null)
   const [ledgerHasMore, setLedgerHasMore] = useState(false)
@@ -171,7 +189,7 @@ function FinanceWorkspace({ profile }: Props) {
   const latestLedgerScope = useRef(ledgerScope)
   latestLedgerScope.current = ledgerScope
 
-  const debtScope = JSON.stringify([effectiveBranchId, todayKey, debtFilter, debouncedDebtSearch])
+  const debtScope = JSON.stringify([effectiveBranchId, todayKey, category, debtFilter, debouncedDebtSearch])
   const latestDebtScope = useRef(debtScope)
   latestDebtScope.current = debtScope
   const loadDebts = useCallback(async (append = false, refresh = false) => {
@@ -181,7 +199,7 @@ function FinanceWorkspace({ profile }: Props) {
     setDebtLoading(true); setDebtError('')
     if (!append) { setContracts([]); setStudents([]); setDebtSummary(null); setDebtCursor(null); setDebtHasMore(false) }
     try {
-      const page = await listFinanceReceivables({ branchId: effectiveBranchId, today: todayKey, filter: debtFilter,
+      const page = await listFinanceReceivables({ branchId: effectiveBranchId, today: todayKey, category, filter: debtFilter,
         search: debouncedDebtSearch, cursor: append ? debtCursor : null, includeSummary: !append, refresh })
       if (!isCurrent()) return
       setContracts(current => [...new Map([...(append ? current : []), ...page.contracts].map(item => [item.id, item])).values()])
@@ -190,7 +208,7 @@ function FinanceWorkspace({ profile }: Props) {
       setDebtCursor(page.nextCursor); setDebtHasMore(page.hasMore)
     } catch (error) { if (isCurrent()) setDebtError(error instanceof Error ? error.message : 'Chưa tải được công nợ. Hãy làm mới để thử lại.') }
     finally { if (isCurrent()) setDebtLoading(false) }
-  }, [backendMode, effectiveBranchId, todayKey, debtFilter, debouncedDebtSearch, debtScope, debtCursor])
+  }, [backendMode, effectiveBranchId, todayKey, category, debtFilter, debouncedDebtSearch, debtScope, debtCursor])
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedDebtSearch(debtSearch), 300)
@@ -341,10 +359,10 @@ function FinanceWorkspace({ profile }: Props) {
   }
 
   const openPayment = (contract: StudentContract) => {
-    const debt = contractDebt(contract)
+    const balance = contractBalance(contract)
     setSelectedContract(contract)
     setSelectedInstallmentId(null)
-    setPayAmount(String(Math.max(0, debt)))
+    setPayAmount(String(balance))
     // A fresh read belongs to this explicit payment dialog, not the debt page.
     // Closing/reopening or changing authority fences every earlier response.
     void loadPaymentCashAccounts(contract)
@@ -376,12 +394,16 @@ function FinanceWorkspace({ profile }: Props) {
     if (mounted.current) setAlertMessage(outcome.state === 'committed' ? 'Đã xác nhận giao dịch được ghi nhận. Chứng từ và số dư đã được cập nhật.' : 'Đã dừng yêu cầu chưa ghi nhận. Bạn có thể mở lại biểu mẫu để tạo yêu cầu mới.')
   }
 
-  const financeSlides: AuraMetricSlide[] = [
+  const financeSlides: AuraMetricSlide[] = category === 'frozen' ? [
+    { id: 'frozen-count', eyebrow: 'Đang bảo lưu', value: `${debtCount('all') ?? '—'} hợp đồng`, detail: 'Gồm hợp đồng còn nợ và đã tất toán', icon: <PauseCircle size={20} />, tone: 'orange', actionLabel: 'Xem tất cả', onSelect: () => setDebtFilter('all') },
+    { id: 'frozen-debt', eyebrow: 'Còn phải thu', value: metric(completeSummary?.totals?.debt), detail: `${debtCount('owing') ?? '—'} hợp đồng bảo lưu còn nợ`, icon: <DollarSign size={20} />, tone: 'pink', actionLabel: 'Xem còn nợ', onSelect: () => setDebtFilter('owing') },
+    { id: 'frozen-settled', eyebrow: 'Đã tất toán', value: `${debtCount('settled') ?? '—'} hợp đồng`, detail: 'Đã thanh toán đủ giá trị hợp đồng', icon: <CheckCircle size={20} />, tone: 'sunset', actionLabel: 'Xem đã tất toán', onSelect: () => setDebtFilter('settled') },
+  ] : [
     {
       id: 'total-debt',
       eyebrow: 'Tổng nợ',
       value: metric(completeSummary?.totals?.debt),
-      detail: `${debtCount('all') ?? '—'} hợp đồng còn phải thu`,
+      detail: `${debtCount('all') ?? '—'} hợp đồng ${category === 'installments' ? 'trả góp' : category === 'debt' ? 'ngoài lịch trả góp' : 'còn phải thu'}`,
       icon: <DollarSign size={20} />,
       tone: 'pink',
       actionLabel: 'Xem tất cả',
@@ -418,7 +440,12 @@ function FinanceWorkspace({ profile }: Props) {
     },
   ]
 
-  const debtFilterOptions: Array<{ id: DebtFilter; label: string; count: number | null }> = [
+  const debtFilterOptions: Array<{ id: DebtFilter; label: string; count: number | null }> = category === 'frozen' ? [
+    { id: 'all', label: 'Tất cả', count: debtCount('all') },
+    { id: 'owing', label: 'Còn nợ', count: debtCount('owing') },
+    { id: 'settled', label: 'Đã tất toán', count: debtCount('settled') },
+    { id: 'overpaid', label: 'Thanh toán dư', count: debtCount('overpaid') },
+  ] : [
     { id: 'all', label: 'Đang nợ', count: debtCount('all') },
     { id: 'overdue', label: 'Quá hạn', count: debtCount('overdue') },
     { id: 'this-week', label: 'Tuần này', count: debtCount('this-week') },
@@ -428,7 +455,7 @@ function FinanceWorkspace({ profile }: Props) {
 
   return (
     <div className="finance-management space-y-6 pb-28">
-      <AuraMetricCarousel slides={financeSlides} label="Tổng quan trả góp" />
+      <AuraMetricCarousel key={category} slides={financeSlides} label={`Tổng quan ${categoryLabel.toLowerCase()}`} />
       {debtLoading && <p role="status">Đang tải công nợ…</p>}
       {debtError && <p role="alert">{debtError}</p>}
       {debtSummary && <p role={debtSummary.complete ? 'status' : 'alert'}>{debtSummary.complete
@@ -444,17 +471,17 @@ function FinanceWorkspace({ profile }: Props) {
             {branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}
           </select>
         )}
-        <button type="button" onClick={() => setShowHistory(true)} className="finance-management__tool-button" aria-label="Mở lịch sử thu trả góp" title="Lịch sử thu"><WalletCards size={17} /></button>
-        <button type="button" onClick={() => { void loadDebts(false, true); void loadLedger(false) }} disabled={ledgerLoading || debtLoading} className="finance-management__tool-button" aria-label="Làm mới trả góp" title="Làm mới"><RefreshCw size={17} className={ledgerLoading || debtLoading ? 'animate-spin' : ''} /></button>
-        <AuraHelpPopover title="Trả góp & công nợ"><p>Chỉ số và số lượng từng nhóm tính trên toàn chi nhánh đang chọn. Từ khóa chỉ lọc danh sách bên dưới. Bộ lọc ngày áp dụng cho lịch sử giao dịch.</p></AuraHelpPopover>
+        <button type="button" onClick={() => setShowHistory(true)} className="finance-management__tool-button" aria-label={category === 'all' ? 'Mở lịch sử thu trả góp' : 'Mở lịch sử giao dịch'} title="Lịch sử giao dịch"><WalletCards size={17} /></button>
+        <button type="button" onClick={() => { void loadDebts(false, true); void loadLedger(false) }} disabled={ledgerLoading || debtLoading} className="finance-management__tool-button" aria-label={category === 'all' ? 'Làm mới trả góp' : `Làm mới ${categoryLabel.toLowerCase()}`} title="Làm mới"><RefreshCw size={17} className={ledgerLoading || debtLoading ? 'animate-spin' : ''} /></button>
+        <AuraHelpPopover title="Phân nhóm hợp đồng"><p>Bảo lưu gồm cả hợp đồng đã tất toán. Trả góp gồm hợp đồng còn nợ có kỳ chưa thanh toán. Công nợ gồm khoản còn nợ ngoài lịch trả góp và khoản thanh toán dư. Hợp đồng bảo lưu chỉ xuất hiện trong Bảo lưu.</p><p>Số liệu theo chi nhánh và tab đang xem. Từ khóa chỉ lọc danh sách. Bộ lọc ngày chỉ áp dụng cho lịch sử giao dịch của chi nhánh.</p></AuraHelpPopover>
       </div>
 
       <section ref={receivablesRef} className="finance-management__receivables">
         <div className="finance-management__section-head">
-          <div className="finance-management__section-title"><h2><DollarSign size={20} /> Công nợ</h2><AuraHelpPopover title="Danh sách công nợ"><p>Số dư lấy từ hợp đồng. Lọc Quá hạn để ưu tiên thu hồi; Thanh toán dư là khoản khách đã nộp vượt số phải thu.</p></AuraHelpPopover></div>
+          <div className="finance-management__section-title"><h2>{category === 'frozen' ? <PauseCircle size={20} /> : <DollarSign size={20} />} {categoryLabel}</h2><AuraHelpPopover title={`Danh sách ${categoryLabel.toLowerCase()}`}><p>{category === 'frozen' ? 'Mở hồ sơ học viên để kiểm tra thời gian bảo lưu và mở lại hợp đồng. Khoản còn phải thu vẫn được giữ nguyên.' : 'Số dư lấy từ hợp đồng. Lọc Quá hạn để ưu tiên thu hồi; Thanh toán dư là khoản khách đã nộp vượt số phải thu.'}</p></AuraHelpPopover></div>
           <strong>{contracts.length.toLocaleString('vi-VN')} hồ sơ đã tải</strong>
         </div>
-        <p>Danh sách theo mã hợp đồng, tải lần lượt từng trang. Chọn Quá hạn để tập trung các khoản cần thu.</p>
+        <p>Danh sách theo mã hợp đồng, tải lần lượt từng trang.{category !== 'frozen' && ' Chọn Quá hạn để tập trung các khoản cần thu.'}</p>
         <div className="finance-management__debt-tools">
           <label className="finance-management__debt-search">
             <Search size={17} />
@@ -467,14 +494,30 @@ function FinanceWorkspace({ profile }: Props) {
         </div>
         <div className="finance-management__receivables-list space-y-3">
           {visibleContractsWithDebt.map((contract) => {
-            const debt = Number(contract.totalPrice || 0) - Number(contract.discount || 0) - Number(contract.paidAmount || 0)
+            const balance = contractBalance(contract)
+            const debt = Math.max(0, balance)
             const nextInstallment = pendingInstallments(contract)[0]
             const dueDate = nextInstallment?.date || contract.nextPaymentDate
-            const overdue = overdueAmount(contract, todayKey) > 0
+            const overdue = !contract.dataIssue && overdueAmount(contract, todayKey) > 0
             const student = studentById.get(contract.studentId)
-            return <article key={contract.id} className={overdue ? 'is-overdue' : ''} title={`Hợp đồng ${contract.id}`}><div className="finance-management__debt-row"><div className="min-w-0"><div className="finance-management__debt-name"><h3>{studentName(contract.studentId)}</h3>{overdue && <span>Quá hạn</span>}{contract.status === 'frozen' && <span className="is-frozen">Bảo lưu</span>}</div><p>{student?.phone || 'Chưa có SĐT'} · {contract.packageName}</p></div><div className="finance-management__debt-amount"><b className={debt >= 0 ? 'is-debt' : 'is-credit'}>{contract.dataIssue ? 'Chưa xác định' : debt >= 0 ? money(debt) : `+${money(Math.abs(debt))}`}</b><div className="finance-management__debt-meta"><span>{debt >= 0 ? 'Phải thu' : 'Dư'}</span>{dueDate && debt > 0 && <small><Clock size={12} /> {new Date(dueDate).toLocaleDateString('vi-VN')}</small>}{debt > 0 && !contract.dataIssue && <button onClick={() => openPayment(contract)} className="finance-management__collect-button" aria-label={`Thu tiền của ${studentName(contract.studentId)}`}><Plus size={14} /><span>Thu</span></button>}</div></div></div></article>
+            const preserved = isPreserved(contract, todayKey)
+            const preservationStart = contract.status === 'frozen' ? dateKey(contract.frozenAt) : dateKey(currentPreservation(contract, todayKey)?.startDate)
+            return <article key={contract.id} className={overdue ? 'is-overdue' : ''} title={`Hợp đồng ${contract.id}`}>
+              <div className="finance-management__debt-row">
+                <div className="min-w-0">
+                  <div className="finance-management__debt-name"><h3><a href={`#/student-360?studentId=${encodeURIComponent(contract.studentId)}&source=admin-pt-students`} aria-label={`Hồ sơ ${studentName(contract.studentId)}`}>{studentName(contract.studentId)}</a></h3>{overdue && <span>Quá hạn</span>}{preserved && <span className="is-frozen">Bảo lưu</span>}{contract.status === 'expired' && <span className="is-review">Hết hạn</span>}{contract.status === 'cancelled' && <span className="is-review">Đã hủy</span>}</div>
+                  <p>{student?.phone || 'Chưa có SĐT'} · {contract.packageName}</p>
+                  <p className="finance-management__contract-code">HĐ {contract.id}</p>
+                </div>
+                <div className="finance-management__debt-amount">
+                  <b className={balance < 0 ? 'is-credit' : 'is-debt'}>{contract.dataIssue ? 'Chưa xác định' : balance < 0 ? `+${money(Math.abs(balance))}` : money(debt)}</b>
+                  <div className="finance-management__debt-meta"><span>{contract.dataIssue ? 'Cần kiểm tra dữ liệu' : balance < 0 ? 'Dư' : debt > 0 ? 'Phải thu' : 'Đã tất toán'}</span>{!contract.dataIssue && balance !== 0 && <button onClick={() => openPayment(contract)} className="finance-management__collect-button" aria-label={`${balance < 0 ? 'Hoàn tiền' : 'Thu tiền'} của ${studentName(contract.studentId)}`}>{balance < 0 ? <Undo2 size={14} /> : <Plus size={14} />}<span>{balance < 0 ? 'Hoàn' : 'Thu'}</span></button>}</div>
+                  <small className="finance-management__due-date">{preserved ? (preservationStart ? `Bảo lưu từ ${new Date(`${preservationStart}T12:00:00`).toLocaleDateString('vi-VN')}` : 'Đang bảo lưu') : debt > 0 ? (dateKey(dueDate) ? <><Clock size={12} /> Hạn {new Date(`${dateKey(dueDate)}T12:00:00`).toLocaleDateString('vi-VN')}</> : 'Chưa có hạn thu') : balance < 0 ? 'Cần đối soát' : 'Đã tất toán'}</small>
+                </div>
+              </div>
+            </article>
           })}
-          {!debtLoading && !debtError && contracts.length === 0 && <div className="finance-management__empty"><CheckCircle size={36} /><p>{debtHasMore ? 'Chưa gặp hồ sơ phù hợp trong trang này. Tiếp tục tải để tìm thêm.' : debtSearch ? 'Không tìm thấy hồ sơ phù hợp.' : 'Không có hợp đồng trong nhóm này.'}</p></div>}
+          {!debtLoading && !debtError && contracts.length === 0 && <div className="finance-management__empty"><CheckCircle size={36} /><p>{debtHasMore ? 'Chưa gặp hồ sơ phù hợp trong trang này. Tiếp tục tải để tìm thêm.' : debtSearch ? 'Không tìm thấy hồ sơ phù hợp.' : category === 'frozen' && debtFilter === 'all' ? 'Không có hợp đồng đang bảo lưu.' : category === 'installments' && debtFilter === 'all' ? 'Không có hợp đồng trả góp còn nợ.' : 'Không có hợp đồng trong nhóm này.'}</p>{debtSearch && <button type="button" className="finance-management__reset-search" onClick={() => setDebtSearch('')}>Xóa tìm kiếm</button>}</div>}
         </div>
         {debtHasMore && <button type="button" className="finance-management__load-more" disabled={debtLoading} onClick={() => void loadDebts(true)}>{debtLoading ? 'Đang tải…' : 'Tải thêm hồ sơ'}</button>}
       </section>
@@ -484,17 +527,17 @@ function FinanceWorkspace({ profile }: Props) {
         {showHistory && <Modal onClose={() => setShowHistory(false)} title="Sổ giao dịch">
           {ledgerError && <div role="alert" className="mb-4 rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">{ledgerError}<button type="button" onClick={() => void loadLedger(false)} disabled={ledgerLoading} className="ml-3 underline">Thử lại</button></div>}
           {ledgerLoading && <p role="status" className="mb-4 text-sm text-zinc-400">Đang tải giao dịch…</p>}
-          <p className="mb-4 rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3 text-xs text-emerald-200">{cashEntries.length.toLocaleString('vi-VN')} giao dịch tiền đã tải. Bút toán doanh thu thực hiện không được trộn vào công nợ trả góp.</p>
+          <p className="mb-4 rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3 text-xs text-emerald-200">{cashEntries.length.toLocaleString('vi-VN')} giao dịch tiền đã tải. Lịch sử theo chi nhánh và khoảng ngày, gồm mọi nhóm hợp đồng.</p>
           <div className="space-y-2">{cashEntries.map((entry) => <div key={entry.id} className="rounded-xl border border-zinc-800 bg-zinc-950 p-3"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="truncate text-sm font-semibold text-white">{studentName(entry.studentId)}</p><p className="mt-1 text-xs text-zinc-500">{entry.referenceCode} · {entryLabel(entry.type)}</p><p className="mt-1 text-xs text-zinc-600">{new Date(entry.effectiveAt).toLocaleString('vi-VN')}</p></div><div className="text-right"><b className={(entry.cashImpact ?? entry.amount) >= 0 ? 'text-emerald-400' : 'text-amber-400'}>{money(entry.cashImpact ?? entry.amount)}</b>{entry.type === 'payment' && entry.status === 'posted' && <button onClick={() => setEntryToReverse(entry)} className="mt-2 flex items-center gap-1 text-xs font-semibold text-amber-400"><Undo2 className="h-3.5 w-3.5" /> Tạo bút toán đảo</button>}</div></div></div>)}</div>
           {ledgerHasMore && <button onClick={() => void loadLedger(true)} disabled={ledgerLoading} className="mt-4 min-h-11 w-full rounded-xl border border-zinc-700 bg-zinc-800 text-sm font-bold text-white disabled:opacity-50">{ledgerLoading ? 'Đang tải…' : 'Tải thêm giao dịch'}</button>}
           {!ledgerLoading && !ledgerError && cashEntries.length === 0 && <p className="py-8 text-center text-sm text-zinc-500">Chưa có dòng tiền trong bộ lọc.</p>}
         </Modal>}
 
-        {selectedContract && <Modal onClose={closePayment} title="Thu công nợ">
+        {selectedContract && <Modal onClose={closePayment} title={contractBalance(selectedContract) < 0 ? 'Hoàn thanh toán dư' : 'Thu công nợ'}>
           <FinanceIntentBoundary contractId={selectedContract.id} onCompleted={financeCompleted}>{({ blocked, busy, submit }) => <fieldset disabled={blocked || busy} className="finance-payment-fields">
           <p className="text-sm text-zinc-400">Học viên: <b className="text-white">{studentName(selectedContract.studentId)}</b></p>
           <div className="mt-4 rounded-xl border border-zinc-800 bg-zinc-950 p-4 text-sm"><div className="flex justify-between text-zinc-500"><span>Tổng hợp đồng</span><span className="text-zinc-300">{money(Number(selectedContract.totalPrice || 0) - Number(selectedContract.discount || 0))}</span></div><div className="mt-2 flex justify-between text-zinc-500"><span>Đã thanh toán</span><span className="text-zinc-300">{money(Number(selectedContract.paidAmount || 0))}</span></div></div>
-          {(selectedContract.installments || []).some((item) => item.status === 'pending') && <div className="mt-4"><p className="mb-2 text-xs font-bold text-zinc-500">Chọn nhanh kỳ trả góp</p><div className="flex flex-wrap gap-2">{selectedContract.installments?.filter((item) => item.status === 'pending').map((item) => <button key={item.id} onClick={() => { setSelectedInstallmentId(item.id); setPayAmount(String(item.amount)) }} className={`rounded-lg border px-3 py-2 text-xs ${selectedInstallmentId === item.id ? 'border-pink-500 bg-pink-500/10 text-pink-300' : 'border-zinc-700 bg-zinc-900 text-zinc-300'}`}>{new Date(item.date).toLocaleDateString('vi-VN')} · {money(item.amount)}</button>)}</div></div>}
+          {contractBalance(selectedContract) > 0 && (selectedContract.installments || []).some((item) => item.status === 'pending') && <div className="mt-4"><p className="mb-2 text-xs font-bold text-zinc-500">Chọn nhanh kỳ trả góp</p><div className="flex flex-wrap gap-2">{selectedContract.installments?.filter((item) => item.status === 'pending').map((item) => <button key={item.id} onClick={() => { setSelectedInstallmentId(item.id); setPayAmount(String(item.amount)) }} className={`rounded-lg border px-3 py-2 text-xs ${selectedInstallmentId === item.id ? 'border-pink-500 bg-pink-500/10 text-pink-300' : 'border-zinc-700 bg-zinc-900 text-zinc-300'}`}>{new Date(item.date).toLocaleDateString('vi-VN')} · {money(item.amount)}</button>)}</div></div>}
           <label className="mt-4 block text-xs font-bold text-zinc-500">Số tiền; nhập số âm để hoàn tiền</label>
           <input type="number" value={payAmount} onChange={(event) => { setPayAmount(event.target.value); setSelectedInstallmentId(null) }} className="mt-2 min-h-12 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-4 text-lg font-bold text-white" />
           <label className="mt-4 block text-xs font-bold text-zinc-500">Quỹ nhận/chi</label>

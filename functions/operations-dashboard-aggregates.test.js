@@ -205,6 +205,37 @@ function load(db, scope = { unrestricted: true }) {
   return loadDailyAggregates({ db, startDate: '2026-10-21', endDate: '2026-10-23', scope })
 }
 
+test('rebuild projections and live ledger deltas exclude expense and payroll cash from net receipts', async () => {
+  const common = { status: 'posted', effectiveAt: Timestamp.fromDate(new Date('2026-10-23T10:00:00+07:00')), branchId: 'branch-1' }
+  const rows = [
+    { type: 'payment', amount: 1000 },
+    { type: 'refund', amount: -100 },
+    { type: 'reversal', amount: -50 },
+    { type: 'adjustment', amount: 10 },
+    { type: 'payment', source: 'other', eventClass: 'manual_cash_receipt', cashImpact: 100 },
+    { type: 'reversal', source: 'other', eventClass: 'manual_cash_receipt_reversal', cashImpact: -20 },
+    { type: 'reversal', source: 'accounting', cashImpact: 500, expenseImpact: 0 },
+    { type: 'reversal', eventClass: 'expense_voucher_reversal', cashImpact: 600, expenseImpact: 0 },
+    { type: 'adjustment', source: 'payroll', cashImpact: 700 },
+    { type: 'adjustment', eventClass: 'payroll_payment_reversal', cashImpact: 800 },
+    { type: 'adjustment', cashImpact: 900, expenseImpact: -900 },
+  ]
+  const db = fakeDatabase(Object.fromEntries(rows.map((row, index) => [`ledgerEntries/l${index}`, { ...common, ...row }])))
+  await rebuild(db)
+  const totals = (await load(db)).totals
+  assert.equal(totals.netCash, 940)
+  assert.equal(totals.cashCollected, 1100)
+  assert.equal(totals.refunds, 100)
+  assert.equal(totals.reversals, 70)
+  assert.equal(totals.adjustments, 10)
+  assert.equal(totals.ledgerEntries, rows.length, 'excluded cash remains a counted ledger posting')
+  const expenseReversal = { ...common, type: 'reversal', source: 'accounting', eventClass: 'expense_voucher_reversal', cashImpact: 1500, expenseImpact: 0 }
+  db.write('ledgerEntries/live', expenseReversal)
+  await sync(db, 'ledgerEntries/live', undefined, expenseReversal, 'ledger')
+  assert.equal((await load(db)).totals.netCash, 940)
+  assert.equal((await load(db)).totals.ledgerEntries, rows.length + 1)
+})
+
 test('v1 or missing baseline falls back and never bootstraps totals from a single event', async () => {
   for (const coverage of [undefined, { schemaVersion: 1, status: 'ready', complete: true, startDate: '2026-01-01', endDate: '2026-12-31' }]) {
     const db = fakeDatabase({ 'sessions/s1': defaultSession, ...(coverage ? { [coveragePath]: coverage } : {}) })

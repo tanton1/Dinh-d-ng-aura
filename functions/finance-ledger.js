@@ -2,7 +2,7 @@ const { createHash } = require('node:crypto')
 const { FieldPath, FieldValue, Timestamp } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
 const { trustedAccessContext, requireCapability } = require('./identity-access')
-const { recognitionThrough } = require('./finance-recognition')
+const { readContractRecognizedRevenue } = require('./finance-recognition-balance')
 const { contractPaymentJournal, reversedJournalLines, amountInVietnameseWords } = require('./accounting-core')
 
 // `payment` is a cash collection, while `revenue_recognition` is the
@@ -724,7 +724,7 @@ function createFinanceLedgerFunctions({ db, onCall }) {
       if (nextPaid > totalDue) throw new HttpsError('failed-precondition', 'Khoản thu vượt số tiền hợp đồng còn lại.')
       const installmentPatch = updatedInstallments(data, installmentId, 'paid', amount)
       const code = referenceCode('THU', ledgerReference)
-      const recognisedToDate = recognitionThrough(data, Number(data.usedSessions || 0))
+      const recognisedToDate = await readContractRecognizedRevenue(transaction, db, contractId)
       const receivableSettlement = Math.min(amount, Math.max(0, recognisedToDate - Number(data.paidAmount || 0)))
       const advanceAccountCode = contractAdvanceAccountCode(data, effectiveAt)
       const accountingCashAccountType = inferredCashAccountType(paymentMethod, cashAccount)
@@ -777,6 +777,7 @@ function createFinanceLedgerFunctions({ db, onCall }) {
       if (!original.exists || original.data().type !== 'payment') throw new HttpsError('failed-precondition', 'Chỉ có thể hoàn tác khoản thu hợp lệ.')
       if (duplicate) return { entryId: duplicate.id, unchanged: true, receiptVoucherId: duplicate.data().accountingDocumentId || null, receiptVoucherNumber: duplicate.data().voucherNumber || null }
       if (original.data().status === 'reversed') throw new HttpsError('already-exists', 'Khoản thu đã được hoàn tác.')
+      if (original.data().status !== 'posted') throw new HttpsError('failed-precondition', 'Chỉ có thể hoàn tác khoản thu đã ghi sổ.')
       await assertFinancePeriodOpen(transaction, db, reversalEffectiveAt)
       const originalCashAccountId = optionalText(original.data().cashAccountId, 'Tài khoản quỹ', 200)
       const cashAccount = await cashAccountForMovement(transaction, db, originalCashAccountId, -positiveAmount(original.data().amount))
@@ -791,13 +792,23 @@ function createFinanceLedgerFunctions({ db, onCall }) {
         ? await transaction.get(db.doc(`journalEntries/${originalJournalEntryId}`))
         : null
       const amount = positiveAmount(original.data().amount)
+      const paidAmount = Number(contract.data().paidAmount || 0)
+      // A refund may already have returned part of this contract's cash. Read
+      // and check the balance inside this transaction so a concurrent refund
+      // or reversal cannot return the same remaining amount twice.
+      if (!Number.isSafeInteger(paidAmount) || paidAmount < amount) {
+        throw new HttpsError('failed-precondition', 'Khoản đảo vượt số tiền đã thu còn lại. Hãy đối soát các khoản hoàn tiền trước khi tiếp tục.', { reason: 'finance-reversal-exceeds-paid' })
+      }
       const installmentPatch = updatedInstallments(contract.data(), original.data().installmentId || '', 'pending', amount)
-      const recognisedToDate = recognitionThrough(contract.data(), Number(contract.data().usedSessions || 0))
+      const hasOriginalReceivableImpact = original.data().receivableImpact != null && Number.isFinite(Number(original.data().receivableImpact))
+      const hasOriginalDeferredRevenueImpact = original.data().deferredRevenueImpact != null && Number.isFinite(Number(original.data().deferredRevenueImpact))
+      const recognisedToDate = hasOriginalReceivableImpact && hasOriginalDeferredRevenueImpact
+        ? 0 : await readContractRecognizedRevenue(transaction, db, contractReference.id)
       const deferredReduction = Math.min(amount, Math.max(0, Number(contract.data().paidAmount || 0) - recognisedToDate))
-      const reversalReceivableImpact = Number.isFinite(Number(original.data().receivableImpact))
+      const reversalReceivableImpact = hasOriginalReceivableImpact
         ? -Number(original.data().receivableImpact)
         : amount - deferredReduction
-      const reversalDeferredRevenueImpact = Number.isFinite(Number(original.data().deferredRevenueImpact))
+      const reversalDeferredRevenueImpact = hasOriginalDeferredRevenueImpact
         ? -Number(original.data().deferredRevenueImpact)
         : -deferredReduction
       const renewalCaseReference = original.data().renewalCaseId ? db.doc(`contractRenewalCases/${original.data().renewalCaseId}`) : null
@@ -830,7 +841,7 @@ function createFinanceLedgerFunctions({ db, onCall }) {
         reversalVoucherId: reversalReceipt.reference.id,
         updatedAt: FieldValue.serverTimestamp(),
       })
-      transaction.update(contractReference, { paidAmount: Math.max(0, Number(contract.data().paidAmount || 0) - amount), ...(installmentPatch || {}), financeProjectionUpdatedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() })
+      transaction.update(contractReference, { paidAmount: paidAmount - amount, ...(installmentPatch || {}), financeProjectionUpdatedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() })
       if (renewalCase?.exists) transaction.update(renewalCaseReference, { collectedValue: FieldValue.increment(-amount), updatedAt: FieldValue.serverTimestamp() })
       createCashMovement(transaction, db, reversalReference, cashAccount, -amount, reversalEffectiveAt, actor.uid, 'contract_payment_reversal', {
         referenceCode: reversalReceipt.voucherNumber,
@@ -860,7 +871,7 @@ function createFinanceLedgerFunctions({ db, onCall }) {
       const cashAccount = await cashAccountForMovement(transaction, db, cashAccountId, -amount)
       if (amount > Number(contract.data().paidAmount || 0)) throw new HttpsError('failed-precondition', 'Khoản hoàn vượt tổng tiền đã thu.')
       const installmentPatch = updatedInstallments(contract.data(), installmentId, 'pending', amount)
-      const recognisedToDate = recognitionThrough(contract.data(), Number(contract.data().usedSessions || 0))
+      const recognisedToDate = await readContractRecognizedRevenue(transaction, db, contractId)
       const deferredReduction = Math.min(amount, Math.max(0, Number(contract.data().paidAmount || 0) - recognisedToDate))
       const renewalCaseReference = contract.data().renewalCaseId ? db.doc(`contractRenewalCases/${contract.data().renewalCaseId}`) : null
       const renewalCase = renewalCaseReference ? await transaction.get(renewalCaseReference) : null

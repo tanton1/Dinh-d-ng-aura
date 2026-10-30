@@ -377,6 +377,76 @@ test('real Firestore: installment state, vouchers and renewal commission reversa
   for (const journal of (await f.db.collection('journalEntries').get()).docs) assert.equal(journal.data().totalDebit, journal.data().totalCredit)
 })
 
+test('real Firestore: an unposted payment cannot be reversed into a cash outflow', async () => {
+  const f = await fixture()
+  const payment = await f.call('recordContractPayment', randomUUID())
+  await f.db.doc(`ledgerEntries/${payment.entryId}`).update({ status: 'pending' })
+  const before = await f.inspect()
+  await assert.rejects(f.call('reverseContractPayment', randomUUID(), { entryId: payment.entryId }),
+    error => error.code === 'failed-precondition' && /đã ghi sổ/.test(error.message))
+  assert.deepEqual(await f.inspect(), before)
+  assert.equal((await f.db.doc(`ledgerEntries/${payment.entryId}`).get()).data().status, 'pending')
+})
+
+test('real Firestore: a partial refund blocks reversal beyond the remaining paid balance', async () => {
+  const f = await fixture()
+  const payment = await f.call('recordContractPayment', randomUUID(), { amount: 500000 })
+  await f.call('recordRefund', randomUUID(), { amount: 600000 })
+  const before = await f.inspect()
+  assert.equal(before.paid, 300000)
+  await assert.rejects(f.call('reverseContractPayment', randomUUID(), { entryId: payment.entryId }),
+    error => error.code === 'failed-precondition' && error.details?.reason === 'finance-reversal-exceeds-paid')
+  assert.deepEqual(await f.inspect(), before)
+  assert.equal((await f.db.doc(`ledgerEntries/${payment.entryId}`).get()).data().status, 'posted')
+})
+
+test('real Firestore: a concurrent refund and reversal cannot exceed the contract paid balance', async () => {
+  const f = await fixture()
+  await f.db.doc('contracts/example').update({ paidAmount: 0 })
+  const first = await f.call('recordContractPayment', randomUUID(), { amount: 500000 })
+  await f.call('recordContractPayment', randomUUID(), { amount: 500000 })
+  const before = await f.inspect()
+  const results = await Promise.allSettled([
+    f.call('recordRefund', randomUUID(), { amount: 600000 }),
+    f.call('reverseContractPayment', randomUUID(), { entryId: first.entryId }),
+  ])
+  assert.equal(results.filter(result => result.status === 'fulfilled').length, 1)
+  assert.equal(results.filter(result => result.status === 'rejected' && result.reason.code === 'failed-precondition').length, 1)
+  const after = await f.inspect()
+  assert.ok([400000, 500000].includes(after.paid))
+  assert.equal(after.ledger, before.ledger + 1)
+  assert.equal(after.movements, before.movements + 1)
+  assert.equal(after.cash - before.cash, after.paid - before.paid)
+})
+
+test('real Firestore: cash settlement uses posted recognition instead of consumed sessions', async () => {
+  for (const [operation, expectedReceivable, expectedDeferred] of [
+    ['recordContractPayment', 0, 100000],
+    ['recordRefund', 0, -100000],
+  ]) {
+    const f = await fixture()
+    await f.db.doc('contracts/example').update({ usedSessions: 8 })
+    await f.db.doc('ledgerEntries/confirmed-service').set({ contractId: 'example', type: 'revenue_recognition', status: 'posted', amount: 200000, revenueImpact: 200000 })
+    await f.db.doc('ledgerEntries/unconfirmed-service').set({ contractId: 'example', type: 'revenue_recognition', status: 'pending', amount: 500000, revenueImpact: 500000 })
+    const result = await f.call(operation, randomUUID())
+    const ledger = (await f.db.doc(`ledgerEntries/${result.entryId}`).get()).data()
+    assert.ok(ledger.receivableImpact === expectedReceivable)
+    assert.equal(ledger.deferredRevenueImpact, expectedDeferred)
+    const journal = (await f.db.doc(`journalEntries/${ledger.journalEntryId}`).get()).data()
+    assert.equal(journal.totalDebit, journal.totalCredit)
+  }
+})
+
+test('real Firestore: posted recognition corrections determine the receivable settlement', async () => {
+  const f = await fixture()
+  await f.db.doc('ledgerEntries/old-service').set({ contractId: 'example', type: 'revenue_recognition', status: 'reversed', amount: 700000, revenueImpact: 700000 })
+  await f.db.doc('ledgerEntries/correction').set({ contractId: 'example', type: 'reversal', status: 'posted', amount: -100000, revenueImpact: -100000, cashImpact: 0 })
+  const result = await f.call('recordContractPayment', randomUUID())
+  const ledger = (await f.db.doc(`ledgerEntries/${result.entryId}`).get()).data()
+  assert.equal(ledger.receivableImpact, -100000)
+  assert.equal(ledger.deferredRevenueImpact, 0)
+})
+
 test('real Firestore: distinct accepted operations retain distinct reference and voucher identities', async () => {
   const f = await fixture()
   const a = await f.call('recordContractPayment', randomUUID())

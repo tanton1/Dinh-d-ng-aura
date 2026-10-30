@@ -11,8 +11,9 @@ const { withFunctionTelemetry } = require('./observability')
 const SUMMARY_LIMIT = 25_000
 const SUMMARY_PAGE_SIZE = 500
 const PAGE_SCAN_LIMIT = 200
-const CONTRACT_FIELDS = ['studentId', 'branchId', 'packageName', 'totalPrice', 'discount', 'paidAmount', 'status', 'installments', 'nextPaymentDate']
-const DEBT_FILTERS = ['all', 'overdue', 'this-week', 'this-month', 'overpaid']
+const CONTRACT_FIELDS = ['studentId', 'branchId', 'packageName', 'totalPrice', 'discount', 'paidAmount', 'status', 'installments', 'nextPaymentDate', 'pausePeriods', 'frozenAt']
+const DEBT_FILTERS = ['all', 'owing', 'settled', 'overdue', 'this-week', 'this-month', 'overpaid']
+const RECEIVABLE_CATEGORIES = ['all', 'installments', 'frozen', 'debt']
 
 function text(value, max = 200) {
   if (value === undefined || value === null) return ''
@@ -69,24 +70,39 @@ function debtState(contract, today) {
     .filter(item => item?.status === 'pending').sort((a, b) => dateKey(a.date).localeCompare(dateKey(b.date)))
   if (pending.some(item => !dateKey(item.date)) || (contract.nextPaymentDate && !dateKey(contract.nextPaymentDate))) return null
   if (pending.some(item => !['number', 'string'].includes(typeof item.amount) || (typeof item.amount === 'string' && !item.amount.trim()) || !Number.isFinite(Number(item.amount)) || Number(item.amount) < 0)) return null
+  if (contract.pausePeriods != null && !Array.isArray(contract.pausePeriods)) return null
+  const preservation = (contract.pausePeriods || []).filter(item => item?.type === 'preservation')
+  if (preservation.some(item => !dateKey(item.startDate) || !dateKey(item.endDate) || dateKey(item.startDate) > dateKey(item.endDate))) return null
+  const preserved = contract.status === 'frozen' || preservation.some(item => dateKey(item.startDate) <= today && dateKey(item.endDate) >= today)
   const now = new Date(`${today}T12:00:00Z`), weekStart = new Date(now)
-  weekStart.setUTCDate(now.getUTCDate() - now.getUTCDay())
+  weekStart.setUTCDate(now.getUTCDate() - ((now.getUTCDay() + 6) % 7))
   const weekEnd = new Date(weekStart); weekEnd.setUTCDate(weekStart.getUTCDate() + 6)
   const monthStart = `${today.slice(0, 7)}-01`, monthEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0)).toISOString().slice(0, 10)
   const due = dateKey(pending[0]?.date || contract.nextPaymentDate)
   const amountIn = (start, end) => {
-    if (!debt || contract.status === 'frozen') return 0
+    if (!debt || preserved) return 0
     if (pending.length) return Math.min(debt, pending.filter(item => dateKey(item.date) >= start && dateKey(item.date) <= end).reduce((sum, item) => sum + Math.max(0, Number(item.amount)), 0))
     return due && due >= start && due <= end ? debt : 0
   }
   const overdueEnd = new Date(now); overdueEnd.setUTCDate(now.getUTCDate() - 1)
   const overdue = amountIn('0000-00-00', overdueEnd.toISOString().slice(0, 10)), thisMonth = amountIn(monthStart, monthEnd)
-  return { balance, debt, overdue, thisMonth, groups: {
-    all: debt > 0, overpaid: balance < 0, overdue: overdue > 0, 'this-month': thisMonth > 0,
-    'this-week': debt > 0 && contract.status !== 'frozen' && Boolean(due) && due >= weekStart.toISOString().slice(0, 10) && due <= weekEnd.toISOString().slice(0, 10),
+  const thisWeek = amountIn(weekStart.toISOString().slice(0, 10), weekEnd.toISOString().slice(0, 10))
+  // Receivables remain the contract balance after cash payments/refunds. Posted
+  // service recognition and its attribution corrections never alter this debt.
+  const category = preserved ? 'frozen' : balance < 0 || !pending.length ? 'debt' : balance > 0 ? 'installments' : null
+  return { balance, debt, overdue, thisMonth, preserved, category, groups: {
+    all: debt > 0, owing: debt > 0, settled: balance === 0, overpaid: balance < 0, overdue: overdue > 0, 'this-month': thisMonth > 0,
+    'this-week': thisWeek > 0,
   } }
 }
-function summarizeReceivables(documents, today, branch, limit = SUMMARY_LIMIT) {
+function matchesReceivableGroup(state, category, filter) {
+  // Invalid rows remain visible in the legacy all view. Category totals stay
+  // explicitly unknown if any source row cannot be safely classified.
+  if (!state) return category === 'all' && filter === 'all'
+  if (category !== 'all' && state.category !== category) return false
+  return category === 'frozen' && filter === 'all' ? true : state.groups[filter]
+}
+function summarizeReceivables(documents, today, branch, limit = SUMMARY_LIMIT, category = 'all') {
   if (documents.length > limit) return { complete: false, reason: 'limit', totals: null, counts: null }
   const totals = { debt: 0, overdue: 0, thisMonth: 0 }, counts = Object.fromEntries(DEBT_FILTERS.map(key => [key, 0]))
   for (const document of documents) {
@@ -94,9 +110,10 @@ function summarizeReceivables(documents, today, branch, limit = SUMMARY_LIMIT) {
     if (!inBranch(contract, branch)) continue
     const state = debtState(contract, today)
     if (!state) return { complete: false, reason: 'invalid-amount', totals: null, counts: null }
+    if (category !== 'all' && state.category !== category) continue
     totals.debt += state.debt; totals.overdue += state.overdue; totals.thisMonth += state.thisMonth
     if (Object.values(totals).some(value => !Number.isFinite(value))) return { complete: false, reason: 'invalid-amount', totals: null, counts: null }
-    for (const key of DEBT_FILTERS) if (state.groups[key]) counts[key]++
+    for (const key of DEBT_FILTERS) if (matchesReceivableGroup(state, category, key)) counts[key]++
   }
   return { complete: true, totals, counts }
 }
@@ -220,11 +237,12 @@ function createScopedReportingReadFunctions({ db, onCall, logger = console, auth
   }))
   const listFinanceReceivables = onCall(withFunctionTelemetry('listFinanceReceivables', async request => {
     const actor = await financeActor(request)
-    const input = request.data || {}, branch = branchScope(actor, input.branchId), size = pageSize(input.pageSize), filter = text(input.filter) || 'all'
+    const input = request.data || {}, branch = branchScope(actor, input.branchId), size = pageSize(input.pageSize), filter = text(input.filter) || 'all', category = text(input.category) || 'all'
     if (!DEBT_FILTERS.includes(filter)) throw new HttpsError('invalid-argument', 'Nhóm công nợ không hợp lệ.')
+    if (!RECEIVABLE_CATEGORIES.includes(category)) throw new HttpsError('invalid-argument', 'Loại hợp đồng không hợp lệ.')
     const today = text(input.today, 10) || new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }).format(new Date())
     if (!/^\d{4}-\d{2}-\d{2}$/.test(today) || !Number.isFinite(Date.parse(`${today}T12:00:00Z`)) || new Date(`${today}T12:00:00Z`).toISOString().slice(0, 10) !== today) throw new HttpsError('invalid-argument', 'Ngày báo cáo không hợp lệ.')
-    const search = searchKey(text(input.search, 120)), scope = ['finance-receivables-v1', actor.uid, actor.authzVersion, branch, today, filter, search]
+    const search = searchKey(text(input.search, 120)), scope = ['finance-receivables-v2', actor.uid, actor.authzVersion, branch, today, category, filter, search]
     const after = cursorAfter(input.cursor, scope), rows = [], labels = new Map()
     let lastId = after, scanned = 0, hasMore = true
     while (rows.length < size && scanned < PAGE_SCAN_LIMIT && hasMore) {
@@ -235,13 +253,13 @@ function createScopedReportingReadFunctions({ db, onCall, logger = console, auth
       recordOperationMetrics({ logicalQueries: 1, documentsReturned: snapshot.size })
       if (snapshot.empty) { hasMore = false; break }
       const states = new Map(snapshot.docs.map(item => [item.id, debtState(item.data(), today)]))
-      const candidates = snapshot.docs.filter(item => inBranch(item.data(), branch) && (states.get(item.id)?.groups[filter] || (!states.get(item.id) && filter === 'all')))
+      const candidates = snapshot.docs.filter(item => inBranch(item.data(), branch) && matchesReceivableGroup(states.get(item.id), category, filter))
       const students = await publicLabels(db, 'students', candidates.map(item => item.data().studentId), ['name', 'phone', 'email'])
       students.forEach(item => labels.set(item.id, item))
       for (const document of snapshot.docs) {
         scanned++; lastId = document.id
         const contract = { id: document.id, ...document.data() }, state = states.get(document.id)
-        if (!inBranch(contract, branch) || !(state?.groups[filter] || (!state && filter === 'all'))) continue
+        if (!inBranch(contract, branch) || !matchesReceivableGroup(state, category, filter)) continue
         const student = labels.get(contract.studentId)
         if (search && !searchKey([student?.name, student?.phone, student?.email, contract.packageName, contract.id].join(' ')).includes(search)) continue
         rows.push({ ...contract, dataIssue: state ? null : 'invalid-amount' })
@@ -251,9 +269,9 @@ function createScopedReportingReadFunctions({ db, onCall, logger = console, auth
     }
     let report = null
     if (input.includeSummary !== false) {
-      report = await summary(`receivables-v1-${fingerprint([branch, today])}`, input.refresh === true, () => readSummarySnapshot(db, async read => {
+      report = await summary(`receivables-v2-${fingerprint([branch, today, category])}`, input.refresh === true, () => readSummarySnapshot(db, async read => {
         const documents = await scanSummarySource(contractsQuery(db, branch).select(...CONTRACT_FIELDS), SUMMARY_LIMIT, read)
-        return { ...summarizeReceivables(documents, today, branch), source: 'contracts', sourceDocuments: documents.length }
+        return { ...summarizeReceivables(documents, today, branch, SUMMARY_LIMIT, category), source: 'contracts', sourceDocuments: documents.length }
       }))
     }
     const visibleIds = new Set(rows.map(item => item.studentId))

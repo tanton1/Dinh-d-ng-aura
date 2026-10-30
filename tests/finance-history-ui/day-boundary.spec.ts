@@ -26,7 +26,8 @@ test('midnight refreshes the date-scoped receivables once without reading ledger
   await page.clock.fastForward(61_000)
   await expect(metrics(page).nth(1)).toHaveText('1.000.000đ')
   await expect(metrics(page).nth(2)).toHaveText('0đ')
-  await expect(filters(page).getByRole('button', { name: 'Tuần này 0', exact: true })).toBeVisible()
+  // Sunday remains in the same Monday–Sunday collection week.
+  await expect(filters(page).getByRole('button', { name: 'Tuần này 1', exact: true })).toBeVisible()
   await expect(page.locator('.finance-management__receivables-list article.is-overdue')).toHaveCount(1)
   expect(await reads(page)).toEqual({ ...before, reports: before.reports + 1 })
   expect(await page.evaluate(() => (window as any).financeState.reportCalls.at(-1).query)).toMatchObject({ today: '2026-11-01', filter: 'overdue', cursor: null, includeSummary: true })
