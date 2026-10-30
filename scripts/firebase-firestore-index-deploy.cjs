@@ -24,6 +24,7 @@ function usage() {
     '  node scripts/firebase-firestore-index-deploy.cjs dry-run --scope=loyalty-account-reads',
     '  node scripts/firebase-firestore-index-deploy.cjs dry-run --scope=dashboard-reads',
     '  node scripts/firebase-firestore-index-deploy.cjs dry-run --scope=cpu-background',
+    '  node scripts/firebase-firestore-index-deploy.cjs dry-run --scope=finance-workspace-expense-account',
     `  node scripts/firebase-firestore-index-deploy.cjs apply --confirm=${CONFIRMATION}`,
     `  node scripts/firebase-firestore-index-deploy.cjs apply --scope=dashboard-reads --confirm=${CONFIRMATION}`,
     '',
@@ -41,7 +42,7 @@ function parseArguments(argv) {
   }))
   if (Object.keys(flags).some((key) => !['confirm', 'scope'].includes(key))) throw new Error(usage())
   const scope = flags.scope || 'all'
-  if (!['all', 'finance-ledger-reads', 'ledger-date-range', 'student-progress-reads', 'users-role-reads', 'business-report-branch-reads', 'loyalty-account-reads', 'dashboard-reads', 'cpu-background', 'graphify-fixes'].includes(scope)) throw new Error('Unknown index deployment scope.')
+  if (!['all', 'finance-ledger-reads', 'ledger-date-range', 'student-progress-reads', 'users-role-reads', 'business-report-branch-reads', 'loyalty-account-reads', 'dashboard-reads', 'cpu-background', 'graphify-fixes', 'finance-workspace-expense-account'].includes(scope)) throw new Error('Unknown index deployment scope.')
   if (mode === 'apply' && flags.confirm !== CONFIRMATION) throw new Error('Production confirmation is missing or incorrect.')
   return { mode, scope }
 }
@@ -137,6 +138,15 @@ function comparableFields(fields = []) {
 
 function selectIndexes(indexes, scope) {
   if (scope === 'all') return indexes
+  if (scope === 'finance-workspace-expense-account') {
+    const wanted = { collectionGroup: 'accountingDocuments', queryScope: 'COLLECTION', fields: [
+      { fieldPath: 'documentType', order: 'ASCENDING' }, { fieldPath: 'accountId', order: 'ASCENDING' },
+      { fieldPath: 'createdAt', order: 'DESCENDING' }, { fieldPath: '__name__', order: 'DESCENDING' },
+    ] }
+    const selected = indexes.filter(candidate => indexMatches(wanted, candidate))
+    if (selected.length !== 1) throw new Error('Scoped finance workspace expense index must appear exactly once with an explicit document-key order.')
+    return selected
+  }
   if (scope === 'graphify-fixes') {
     const approved = JSON.parse(fs.readFileSync(path.resolve('ops/graphify-fixes-indexes-20261030.json'), 'utf8')).indexes
     if (!Array.isArray(approved) || !approved.length) throw new Error('Missing Graphify fixes index manifest.')

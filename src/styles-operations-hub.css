@@ -32,6 +32,23 @@
 .finance-hub__tabs button.is-active > svg { background: rgba(255,255,255,.18); color: #fff; }
 .finance-hub__tabs button.is-active strong { color: #fff; }
 
+.finance-hub .finance-hub__tabs--management {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  margin-bottom: 12px;
+  padding: 4px;
+  border: 0;
+  border-radius: var(--aura-radius-md, 16px);
+  background: var(--aura-crm-soft, #fff0f6);
+  box-shadow: none;
+}
+.finance-hub .finance-hub__tabs--management button { min-width: 0; min-height: 42px; gap: 6px; padding: 7px 6px; border-radius: 12px; }
+.finance-hub .finance-hub__tabs--management button > svg { width: 17px; height: 17px; flex-basis: 17px; padding: 0; border-radius: 0; background: transparent; }
+.finance-hub .finance-hub__tabs--management strong { font-size: 12px; }
+.finance-hub .finance-hub__tabs--management button.is-active { background: var(--aura-crm-action, linear-gradient(135deg, #f62f82, #ff8751)); box-shadow: none; }
+.finance-hub .finance-hub__tabs--management button:focus-visible { outline: 2px solid var(--aura-crm-pink, #cf246a); outline-offset: 2px; }
+
 .admin-operations-tabs { display: flex; gap: 6px; overflow-x: auto; margin: 0 0 18px; padding: 5px; border: 1px solid #f4d8e2; border-radius: 16px; background: #fff8fa; }
 .admin-operations-tabs button { padding: 10px 14px; border: 0; border-radius: 12px; background: transparent; color: #746a70; font-weight: 700; white-space: nowrap; }
 .admin-operations-tabs button.active { background: linear-gradient(100deg,#f62f82,#ff8751); color: #fff; box-shadow: 0 8px 22px #f62f8230; }

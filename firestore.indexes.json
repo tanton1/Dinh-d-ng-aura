@@ -543,6 +543,16 @@
       ]
     },
     {
+      "collectionGroup": "accountingDocuments",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "documentType", "order": "ASCENDING" },
+        { "fieldPath": "accountId", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" },
+        { "fieldPath": "__name__", "order": "DESCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "cashTransactions",
       "queryScope": "COLLECTION",
       "fields": [

@@ -1,0 +1,11 @@
+.finance-chart { min-width: 0; color: #2e2832; font-variant-numeric: tabular-nums; }
+.finance-chart * { box-sizing: border-box; }
+.finance-chart__legend { display: flex; flex-wrap: wrap; gap: 9px 18px; padding: 4px 0 14px; color: #665d69; font-size: 12px; }
+.finance-chart__legend span { display: inline-flex; align-items: center; gap: 7px; }
+.finance-chart__legend i { width: 9px; height: 9px; border-radius: 3px; }
+.finance-chart > svg { display: block; width: 100%; min-height: 190px; overflow: visible; touch-action: pan-y; }
+.finance-chart > svg text { fill: #736976; font-family: inherit; font-size: 11px; }
+.finance-chart__grid { stroke: #ebe7ed; stroke-width: 1; }
+.finance-chart__zero { stroke: #aaa0ae; stroke-width: 1; }
+.finance-chart__cursor { stroke: #b5aab8; stroke-width: 1; stroke-dasharray: 3 4; }
+.finance-chart__empty { margin: 0; padding: 35px 16px; color: #746778; font-size: 13px; text-align: center; }

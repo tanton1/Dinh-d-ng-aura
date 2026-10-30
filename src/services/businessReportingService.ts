@@ -62,17 +62,27 @@ export interface BusinessPerformanceReport {
   source: BusinessSource
   managementPnl: { recognisedRevenue: number; operatingExpense: number; operatingResult: number }
   cashFlow: { cashIn: number; cashOut: number; cashNet: number }
+  /** Additive report fields: absence on an older backend means unavailable. */
+  receipts?: { gross: number; refunds: number; reversals: number; adjustments: number; net: number }
+  /** PT contract sales, only supported for the all / pt_gym source scopes. */
+  sales?: { grossContractSales: number; contractSalesAdjustment: number; netContractSales: number; contractCount: number; complete: boolean } | null
   balanceMovement: { receivableMovement: number; deferredRevenueMovement: number }
   sourceRows: BusinessSourceRow[]
-  dailySeries: Array<{ date: string; cashNet: number; recognisedRevenue: number; operatingExpense: number; operatingResult: number }>
+  dailySeries: Array<{ date: string; cashNet: number; recognisedRevenue: number; operatingExpense: number; operatingResult: number;
+    grossCash?: number; netCash?: number; contractSales?: number; salesAdjustment?: number }>
   dataQuality: {
     scannedLedgerEntries: number
     ledgerTruncated: boolean
+    contractsTruncated?: boolean
+    scannedSalesContracts?: number
+    cancelledSalesBaselineUnverified?: number
+    contractSalesDatesMissing?: number
     cashTransactionsTruncated?: boolean
     payrollLimitReached?: boolean
     cashAccountsTruncated?: boolean
     legacyUnclassifiedEntries: number
     unlinkedCashTransactions: number
+    unlinkedCashTransactionCount?: number
     payrollPaidOutsideLedger: number
     reconciliation?: { schemaVersion: 1; evidenceCount: number; matchedInPeriod: number; pendingConfirmation: number;
       automaticReview: number; billingReview: number; recognitionReview: number; exempt: number; unresolved: number;

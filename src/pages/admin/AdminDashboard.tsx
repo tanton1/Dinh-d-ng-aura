@@ -1,3 +1,4 @@
+import { RevenueComparisonChart } from '../../components/admin/pt/finance-analytics/FinanceChartGraphic'
 import './AdminDashboard.css'
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
@@ -177,48 +178,6 @@ function rangeCaption(startAt: string, endAt: string) {
   if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return 'Kỳ đang chọn'
   const format = (value: Date) => value.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: start.getFullYear() === end.getFullYear() ? undefined : 'numeric' })
   return `${format(start)} – ${format(end)}`
-}
-
-type RevenuePoint = OperationsDashboardData['analytics']['revenue']['points'][number]
-
-function RevenueTrend({ points }: { points: RevenuePoint[] }) {
-  if (!points.length) return <div className="admin-dashboard__chart-empty">Chưa có dòng tiền hoặc doanh số trong kỳ này.</div>
-  const width = 660
-  const height = 190
-  const top = 14
-  const bottom = 30
-  const chartLeft = 62
-  const chartRight = 14
-  const values = points.flatMap((item) => [item.contractSales, item.recognizedRevenue, item.grossCash, item.netCash])
-  const maximum = Math.max(1, ...values)
-  const minimum = Math.min(0, ...values)
-  const span = Math.max(1, maximum - minimum)
-  const x = (index: number) => points.length === 1 ? (chartLeft + width - chartRight) / 2 : chartLeft + index / (points.length - 1) * (width - chartLeft - chartRight)
-  const y = (value: number) => top + (maximum - value) / span * (height - top - bottom)
-  const path = (pick: (item: RevenuePoint) => number) => points.map((item, index) => `${index ? 'L' : 'M'}${x(index).toFixed(1)},${y(pick(item)).toFixed(1)}`).join(' ')
-  const areaPath = (pick: (item: RevenuePoint) => number) => `${path(pick)} L${x(points.length - 1).toFixed(1)},${y(0).toFixed(1)} L${x(0).toFixed(1)},${y(0).toFixed(1)} Z`
-  const barWidth = Math.max(3, Math.min(13, (width - chartLeft - chartRight) / Math.max(1, points.length) * .46))
-  const labelStep = Math.max(1, Math.ceil(points.length / 6))
-  return <div className="admin-dashboard__revenue-chart">
-    <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Biểu đồ doanh số hợp đồng, doanh thu thực hiện và thực thu ròng">
-      <defs>
-        <linearGradient id="dashboardRevenueArea" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#ff8751" stopOpacity=".24" /><stop offset="100%" stopColor="#ff8751" stopOpacity=".02" /></linearGradient>
-      </defs>
-      {[0, .5, 1].map((ratio) => <g key={ratio}><line x1={chartLeft} x2={width - chartRight} y1={top + ratio * (height - top - bottom)} y2={top + ratio * (height - top - bottom)} /><text className="is-axis" x="2" y={top + ratio * (height - top - bottom) + 3}>{compactMoney(maximum - ratio * span)}</text></g>)}
-      <line className="is-zero" x1={chartLeft} x2={width - chartRight} y1={y(0)} y2={y(0)} />
-      {points.map((item, index) => <rect key={`cash-${item.key}`} className="is-cash-bar" x={x(index) - barWidth / 2} y={Math.min(y(item.grossCash), y(0))} width={barWidth} height={Math.max(1, Math.abs(y(item.grossCash) - y(0)))} rx="2"><title>{`${item.label}: thực thu gộp ${money(item.grossCash)}`}</title></rect>)}
-      <path className="is-revenue-area" d={areaPath((item) => item.recognizedRevenue)} />
-      <path className="is-sales" d={path((item) => item.contractSales)} />
-      <path className="is-revenue" d={path((item) => item.recognizedRevenue)} />
-      <path className="is-net" d={path((item) => item.netCash)} />
-      {points.map((item, index) => <g key={item.key}>
-        <circle className="is-sales" cx={x(index)} cy={y(item.contractSales)} r="3"><title>{`${item.label}: doanh số ${money(item.contractSales)}`}</title></circle>
-        <circle className="is-revenue" cx={x(index)} cy={y(item.recognizedRevenue)} r="3"><title>{`${item.label}: doanh thu thực hiện ${money(item.recognizedRevenue)}`}</title></circle>
-        <circle className="is-net" cx={x(index)} cy={y(item.netCash)} r="3"><title>{`${item.label}: thu ròng ${money(item.netCash)}`}</title></circle>
-        {(index % labelStep === 0 || index === points.length - 1) && <text x={x(index)} y={height - 8} textAnchor="middle">{item.label}</text>}
-      </g>)}
-    </svg>
-  </div>
 }
 
 const ratioPalette = ['#f62f82', '#ff8751', '#7d4d70', '#f5a6c4', '#ffc3a7', '#bda6b3']
@@ -570,8 +529,7 @@ function AdminDashboardContent({
         {data.permissions.finance && <article className="admin-dashboard__chart-card admin-dashboard__chart-card--revenue">
           <header><div><small>DOANH THU & DÒNG TIỀN</small><strong>Biến động theo {data.analytics.revenue.granularity === 'day' ? 'ngày' : data.analytics.revenue.granularity === 'week' ? 'tuần' : 'tháng'}</strong></div><details><summary aria-label="Giải thích biểu đồ tài chính"><CircleHelp size={15} /></summary><p>Doanh số là giá trị hợp đồng ký trong kỳ. Doanh thu thực hiện là giá trị dịch vụ đã hoàn thành. Thực thu ròng chỉ phản ánh dòng tiền thực tế.</p></details></header>
           <div className="admin-dashboard__chart-totals"><span><small>Doanh số ký</small><b>{compactMoney(data.finance.contractSales)}</b></span><span><small>Doanh thu TH</small><b>{compactMoney(data.finance.recognizedRevenue)}</b></span><span><small>Thực thu ròng</small><b>{compactMoney(data.finance.netCash)}</b></span></div>
-          <div className="admin-dashboard__chart-legend"><span className="is-cash">Thực thu gộp</span><span className="is-sales">Doanh số HĐ</span><span className="is-revenue">Doanh thu thực hiện</span><span className="is-net">Thực thu ròng</span></div>
-          <RevenueTrend points={data.analytics.revenue.points} />
+          <RevenueComparisonChart points={data.analytics.revenue.points} />
         </article>}
 
         {data.permissions.clients && <article className="admin-dashboard__chart-card admin-dashboard__chart-card--ratio">

@@ -138,7 +138,7 @@ export async function listCashTransactions(input: CashbookPageInput & { accountI
 export async function getS2eCashDetailBook(input: { periodStart: string; periodEnd: string; accountId?: string }) { return (await callable<typeof input, S2eCashDetailBook>('getS2eCashDetailBook')(input)).data }
 export async function saveS2eCashDetailSettings(input: S2eCashDetailSettings) { return (await callable<S2eCashDetailSettings, { settings: S2eCashDetailSettings }>('saveS2eCashDetailSettings')(input)).data }
 export async function recordCashExpense(input: { accountId: string; amount: number; category: string; effectiveAt: string; note?: string; idempotencyKey: string }) { return (await callable<typeof input, { transactionId: string }>('recordCashExpense')(input)).data }
-export async function listExpenseVouchers(input: CashbookPageInput = {}) {
+export async function listExpenseVouchers(input: CashbookPageInput & { accountId?: string } = {}) {
   const { callSecondaryRead } = await import('./secondaryReadService')
   return callSecondaryRead<typeof input, CashbookPageMetadata & { vouchers: ExpenseVoucher[] }>('listExpenseVouchers', input)
 }

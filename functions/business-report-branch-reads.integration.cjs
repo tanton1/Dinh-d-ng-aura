@@ -31,6 +31,7 @@ async function fixture(entries = []) {
   }
   const reads = [], authReads = []
   const query = (target, name, filters = [], orders = [], maximum = Infinity) => ({
+    select: (...fields) => query(target.select(...fields), name, filters, orders, maximum),
     where: (...filter) => query(target.where(...filter), name, [...filters, filter], orders, maximum),
     orderBy: (...order) => query(target.orderBy(...order), name, filters, [...orders, order], maximum),
     limit: maximum => query(target.limit(maximum), name, filters, orders, maximum),
@@ -43,7 +44,7 @@ async function fixture(entries = []) {
   // The callable can only read. No transaction, batch or write method is exposed.
   const readDb = {
     doc: path => ({ get: () => { assert.match(path, /^(users|roleAssignments)\//); authReads.push(path); return db.doc(path).get() } }),
-    collection: name => { assert(['ledgerEntries', 'cashTransactions', 'payrollRuns', 'attendanceEvents', 'cashAccounts'].includes(name)); return query(db.collection(name), name) },
+    collection: name => { assert(['ledgerEntries', 'cashTransactions', 'payrollRuns', 'attendanceEvents', 'cashAccounts', 'contracts'].includes(name)); return query(db.collection(name), name) },
   }
   const api = createBusinessReportingFunctions({ db: readDb, onCall: (_options, handler) => handler })
   const run = (input = {}, role = 'admin') => api.listBusinessPerformance({ auth: role ? { uid: role, token: { role: role === 'disabled' ? 'admin' : role } } : null,
@@ -92,6 +93,11 @@ test('real Firestore: scope, Vietnam boundaries, legacy rows and payroll semanti
     ['attendanceEvents/other', row({ branchId: 'b', sessionId: 'other' })], ['attendanceEvents/unallocated', { occurredAt: date, sessionId: 'unallocated' }],
     ['payrollRuns/own', row({ finalAmount: 100 })], ['payrollRuns/other', row({ branchId: 'b', finalAmount: 300 })],
     ['payrollRuns/unallocated', { paidAt: date, finalAmount: 50 }], ['cashAccounts/ready', { status: 'active' }],
+    ['contracts/own', { branchId: 'a', status: 'active', totalPrice: 1000, discount: 100, signedAt: start }],
+    ['contracts/other', { branchId: 'b', status: 'active', totalPrice: 5000, signedAt: start }],
+    ['contracts/cancelled', { branchId: 'a', status: 'cancelled', totalPrice: 0,
+      salesCancellationSnapshot: { schemaVersion: 1, netAmount: 400, effectiveAt: date } }],
+    ['ledgerEntries/cancel-sales', row({ type: 'adjustment', amount: 0, cashImpact: 0, contractSalesImpact: -300 })],
   ])
   const branch = await f.run(), system = await f.run({ branchId: 'all' })
   assert.equal(branch.cashFlow.cashIn, 100)
@@ -102,6 +108,12 @@ test('real Firestore: scope, Vietnam boundaries, legacy rows and payroll semanti
   assert.equal(branch.dataQuality.payrollPaidOutsideLedger, 150)
   assert.equal(system.dataQuality.payrollPaidOutsideLedger, 450)
   assert.equal(branch.dataQuality.cashAccountsReady, true)
+  assert.equal(branch.sales.netContractSales, 1000)
+  assert.equal(system.sales.netContractSales, 6000)
+  assert.equal(branch.sales.complete, true)
+  assert.deepEqual(branch.dailySeries.map(day => [day.date, day.netCash, day.contractSales, day.recognisedRevenue]),
+    [['2026-10-01', 100, 900, 0], ['2026-10-15', 0, 100, 30]])
+  assert.equal(branch.receipts.net, 100)
   assert.equal((await f.run({ source: 'legacy_unclassified' })).cashFlow.cashIn, 0)
   assert.equal((await f.run({ source: 'legacy_unclassified', branchId: 'all' })).cashFlow.cashIn, 25)
   const before = f.reads.length

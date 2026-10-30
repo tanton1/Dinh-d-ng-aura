@@ -1,0 +1,486 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-31",
+  "status": "prepared_not_deployed",
+  "projectId": "gen-lang-client-0815966909",
+  "capturedAt": "2026-10-30T17:24:08.248Z",
+  "inventory": {
+    "totalFunctions": 569,
+    "byRegion": {
+      "asia-east1": 149,
+      "asia-southeast1": 385,
+      "asia-southeast2": 35
+    }
+  },
+  "waves": [
+    [
+      "listBusinessPerformance",
+      "listBusinessPerformanceRegional",
+      "listFinanceReceivables",
+      "listExpenseVouchers",
+      "listExpenseVouchersRegional"
+    ]
+  ],
+  "batchSize": 5,
+  "discovery": {
+    "scope": "student360",
+    "networkBlocked": true,
+    "count": 517,
+    "selected": [
+      {
+        "name": "listBusinessPerformance",
+        "region": [
+          "asia-southeast1"
+        ],
+        "platform": "gcfv2",
+        "kind": "callable"
+      },
+      {
+        "name": "listBusinessPerformanceRegional",
+        "region": [
+          "asia-east1"
+        ],
+        "platform": "gcfv2",
+        "kind": "callable"
+      },
+      {
+        "name": "listFinanceReceivables",
+        "region": [
+          "asia-east1"
+        ],
+        "platform": "gcfv2",
+        "kind": "callable"
+      },
+      {
+        "name": "listExpenseVouchers",
+        "region": [
+          "asia-southeast1"
+        ],
+        "platform": "gcfv2",
+        "kind": "callable"
+      },
+      {
+        "name": "listExpenseVouchersRegional",
+        "region": [
+          "asia-east1"
+        ],
+        "platform": "gcfv2",
+        "kind": "callable"
+      }
+    ]
+  },
+  "prerequisiteIndexScope": "finance-workspace-expense-account",
+  "sourcePolicy": "Apply requires committed-clean source; every target receipt pins the same SHA, immutable image and exact serving revision. No automatic deploy, mutation retry or rollback.",
+  "targets": [
+    {
+      "target": "listBusinessPerformance",
+      "name": "projects/gen-lang-client-0815966909/locations/asia-southeast1/functions/listBusinessPerformance",
+      "service": "projects/gen-lang-client-0815966909/locations/asia-southeast1/services/listbusinessperformance",
+      "region": "asia-southeast1",
+      "isNew": false,
+      "function": {
+        "name": "projects/gen-lang-client-0815966909/locations/asia-southeast1/functions/listBusinessPerformance",
+        "state": "ACTIVE",
+        "updateTime": "2026-10-30T16:21:33.810162668Z",
+        "environment": "GEN_2",
+        "build": "projects/607039870489/locations/asia-southeast1/builds/ac1ddff0-a5e6-4f7e-8ba2-76aea11c8905",
+        "runtime": "nodejs22",
+        "entryPoint": "listBusinessPerformance",
+        "service": "projects/gen-lang-client-0815966909/locations/asia-southeast1/services/listbusinessperformance",
+        "revision": "listbusinessperformance-stg-5bc4b69050fc",
+        "cpu": "0.1666",
+        "memory": "256Mi",
+        "max": 2,
+        "concurrency": 1,
+        "timeout": 60
+      },
+      "serviceMetadata": {
+        "name": "projects/gen-lang-client-0815966909/locations/asia-southeast1/services/listbusinessperformance",
+        "generation": "20",
+        "observedGeneration": "20",
+        "updateTime": "2026-10-30T16:22:04.176387Z",
+        "etag": "\"CKyIk9cGELjnjVQ/cHJvamVjdHMvZ2VuLWxhbmctY2xpZW50LTA4MTU5NjY5MDkvbG9jYXRpb25zL2FzaWEtc291dGhlYXN0MS9zZXJ2aWNlcy9saXN0YnVzaW5lc3NwZXJmb3JtYW5jZQ\"",
+        "latestCreatedRevision": "projects/gen-lang-client-0815966909/locations/asia-southeast1/services/listbusinessperformance/revisions/listbusinessperformance-stg-5bc4b69050fc",
+        "latestReadyRevision": "projects/gen-lang-client-0815966909/locations/asia-southeast1/services/listbusinessperformance/revisions/listbusinessperformance-stg-5bc4b69050fc",
+        "traffic": [
+          {
+            "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_REVISION",
+            "revision": "listbusinessperformance-stg-5bc4b69050fc",
+            "percent": 100
+          }
+        ],
+        "trafficStatuses": [
+          {
+            "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_REVISION",
+            "revision": "listbusinessperformance-stg-5bc4b69050fc",
+            "percent": 100
+          }
+        ],
+        "conditions": [
+          {
+            "type": "RoutesReady",
+            "state": "CONDITION_SUCCEEDED"
+          },
+          {
+            "type": "BaseImageValidated",
+            "state": "CONDITION_SUCCEEDED"
+          },
+          {
+            "type": "ConfigurationsReady",
+            "state": "CONDITION_SUCCEEDED"
+          }
+        ],
+        "scaling": {
+          "maxInstanceCount": 3
+        },
+        "template": {
+          "scaling": {
+            "maxInstanceCount": 2
+          },
+          "maxInstanceRequestConcurrency": 1,
+          "containers": [
+            {
+              "image": "asia-southeast1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast1__list_business_performance@sha256:fe34cfd15aa857aa62446af5397e92a33801a570a4a3f3c9dde93dcfa02c4993",
+              "resources": {
+                "limits": {
+                  "cpu": "0.1666",
+                  "memory": "256Mi"
+                },
+                "cpuIdle": true,
+                "startupCpuBoost": true
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "target": "listBusinessPerformanceRegional",
+      "name": "projects/gen-lang-client-0815966909/locations/asia-east1/functions/listBusinessPerformanceRegional",
+      "service": "projects/gen-lang-client-0815966909/locations/asia-east1/services/listbusinessperformanceregional",
+      "region": "asia-east1",
+      "isNew": false,
+      "function": {
+        "name": "projects/gen-lang-client-0815966909/locations/asia-east1/functions/listBusinessPerformanceRegional",
+        "state": "ACTIVE",
+        "updateTime": "2026-10-30T16:21:29.325420151Z",
+        "environment": "GEN_2",
+        "build": "projects/607039870489/locations/asia-east1/builds/b424ef11-4e33-45b8-abf1-cf69516d49c0",
+        "runtime": "nodejs22",
+        "entryPoint": "listBusinessPerformanceRegional",
+        "service": "projects/gen-lang-client-0815966909/locations/asia-east1/services/listbusinessperformanceregional",
+        "revision": "listbusinessperformanceregional-stg-1b3488d14568",
+        "cpu": "0.1666",
+        "memory": "256Mi",
+        "max": 2,
+        "concurrency": 1,
+        "timeout": 120
+      },
+      "serviceMetadata": {
+        "name": "projects/gen-lang-client-0815966909/locations/asia-east1/services/listbusinessperformanceregional",
+        "generation": "9",
+        "observedGeneration": "9",
+        "updateTime": "2026-10-30T16:22:18.269076Z",
+        "etag": "\"CLqIk9cGEKCMp4AB/cHJvamVjdHMvZ2VuLWxhbmctY2xpZW50LTA4MTU5NjY5MDkvbG9jYXRpb25zL2FzaWEtZWFzdDEvc2VydmljZXMvbGlzdGJ1c2luZXNzcGVyZm9ybWFuY2VyZWdpb25hbA\"",
+        "latestCreatedRevision": "projects/gen-lang-client-0815966909/locations/asia-east1/services/listbusinessperformanceregional/revisions/listbusinessperformanceregional-stg-1b3488d14568",
+        "latestReadyRevision": "projects/gen-lang-client-0815966909/locations/asia-east1/services/listbusinessperformanceregional/revisions/listbusinessperformanceregional-stg-1b3488d14568",
+        "traffic": [
+          {
+            "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_REVISION",
+            "revision": "listbusinessperformanceregional-stg-1b3488d14568",
+            "percent": 100
+          }
+        ],
+        "trafficStatuses": [
+          {
+            "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_REVISION",
+            "revision": "listbusinessperformanceregional-stg-1b3488d14568",
+            "percent": 100
+          }
+        ],
+        "conditions": [
+          {
+            "type": "RoutesReady",
+            "state": "CONDITION_SUCCEEDED"
+          },
+          {
+            "type": "BaseImageValidated",
+            "state": "CONDITION_SUCCEEDED"
+          },
+          {
+            "type": "ConfigurationsReady",
+            "state": "CONDITION_SUCCEEDED"
+          }
+        ],
+        "scaling": {
+          "maxInstanceCount": 12
+        },
+        "template": {
+          "scaling": {
+            "maxInstanceCount": 2
+          },
+          "maxInstanceRequestConcurrency": 1,
+          "containers": [
+            {
+              "image": "asia-east1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--east1__list_business_performance_regional@sha256:2e16fd17d25c2aa538629ce5d50448321b77a9172c7c9213c079202ecdbc772e",
+              "resources": {
+                "limits": {
+                  "cpu": "0.1666",
+                  "memory": "256Mi"
+                },
+                "cpuIdle": true,
+                "startupCpuBoost": true
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "target": "listFinanceReceivables",
+      "name": "projects/gen-lang-client-0815966909/locations/asia-east1/functions/listFinanceReceivables",
+      "service": "projects/gen-lang-client-0815966909/locations/asia-east1/services/listfinancereceivables",
+      "region": "asia-east1",
+      "isNew": false,
+      "function": {
+        "name": "projects/gen-lang-client-0815966909/locations/asia-east1/functions/listFinanceReceivables",
+        "state": "ACTIVE",
+        "updateTime": "2026-10-30T15:57:50.019244886Z",
+        "environment": "GEN_2",
+        "build": "projects/607039870489/locations/asia-east1/builds/9f314819-2a49-420a-8346-9976fe5dea68",
+        "runtime": "nodejs22",
+        "entryPoint": "listFinanceReceivables",
+        "service": "projects/gen-lang-client-0815966909/locations/asia-east1/services/listfinancereceivables",
+        "revision": "listfinancereceivables-stg-2ae8cbea2ee5",
+        "cpu": "1",
+        "memory": "512Mi",
+        "max": 2,
+        "concurrency": 4,
+        "timeout": 180
+      },
+      "serviceMetadata": {
+        "name": "projects/gen-lang-client-0815966909/locations/asia-east1/services/listfinancereceivables",
+        "generation": "11",
+        "observedGeneration": "11",
+        "updateTime": "2026-10-30T15:58:43.665059Z",
+        "etag": "\"CLP9ktcGELj9j70C/cHJvamVjdHMvZ2VuLWxhbmctY2xpZW50LTA4MTU5NjY5MDkvbG9jYXRpb25zL2FzaWEtZWFzdDEvc2VydmljZXMvbGlzdGZpbmFuY2VyZWNlaXZhYmxlcw\"",
+        "latestCreatedRevision": "projects/gen-lang-client-0815966909/locations/asia-east1/services/listfinancereceivables/revisions/listfinancereceivables-stg-2ae8cbea2ee5",
+        "latestReadyRevision": "projects/gen-lang-client-0815966909/locations/asia-east1/services/listfinancereceivables/revisions/listfinancereceivables-stg-2ae8cbea2ee5",
+        "traffic": [
+          {
+            "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_REVISION",
+            "revision": "listfinancereceivables-stg-2ae8cbea2ee5",
+            "percent": 100
+          }
+        ],
+        "trafficStatuses": [
+          {
+            "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_REVISION",
+            "revision": "listfinancereceivables-stg-2ae8cbea2ee5",
+            "percent": 100
+          }
+        ],
+        "conditions": [
+          {
+            "type": "RoutesReady",
+            "state": "CONDITION_SUCCEEDED"
+          },
+          {
+            "type": "BaseImageValidated",
+            "state": "CONDITION_SUCCEEDED"
+          },
+          {
+            "type": "ConfigurationsReady",
+            "state": "CONDITION_SUCCEEDED"
+          }
+        ],
+        "scaling": {
+          "maxInstanceCount": 3
+        },
+        "template": {
+          "scaling": {
+            "maxInstanceCount": 2
+          },
+          "maxInstanceRequestConcurrency": 4,
+          "containers": [
+            {
+              "image": "asia-east1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--east1__list_finance_receivables@sha256:9ab8b870c1af37aa24d6e3c679da28ad466972a562761f558dbde136e1906b21",
+              "resources": {
+                "limits": {
+                  "cpu": "1",
+                  "memory": "512Mi"
+                },
+                "cpuIdle": true,
+                "startupCpuBoost": true
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "target": "listExpenseVouchers",
+      "name": "projects/gen-lang-client-0815966909/locations/asia-southeast1/functions/listExpenseVouchers",
+      "service": "projects/gen-lang-client-0815966909/locations/asia-southeast1/services/listexpensevouchers",
+      "region": "asia-southeast1",
+      "isNew": false,
+      "function": {
+        "name": "projects/gen-lang-client-0815966909/locations/asia-southeast1/functions/listExpenseVouchers",
+        "state": "ACTIVE",
+        "updateTime": "2026-10-26T02:30:40.786583958Z",
+        "environment": "GEN_2",
+        "build": "projects/607039870489/locations/asia-southeast1/builds/dad5958d-abfb-4942-a253-83ad1b74e383",
+        "runtime": "nodejs22",
+        "entryPoint": "listExpenseVouchers",
+        "service": "projects/gen-lang-client-0815966909/locations/asia-southeast1/services/listexpensevouchers",
+        "revision": "listexpensevouchers-00012-xis",
+        "cpu": "1",
+        "memory": "256Mi",
+        "max": 3,
+        "concurrency": 80,
+        "timeout": 60
+      },
+      "serviceMetadata": {
+        "name": "projects/gen-lang-client-0815966909/locations/asia-southeast1/services/listexpensevouchers",
+        "generation": "13",
+        "observedGeneration": "13",
+        "updateTime": "2026-10-26T02:31:02.619775Z",
+        "etag": "\"COb2-tYGEJiIxKcC/cHJvamVjdHMvZ2VuLWxhbmctY2xpZW50LTA4MTU5NjY5MDkvbG9jYXRpb25zL2FzaWEtc291dGhlYXN0MS9zZXJ2aWNlcy9saXN0ZXhwZW5zZXZvdWNoZXJz\"",
+        "latestCreatedRevision": "projects/gen-lang-client-0815966909/locations/asia-southeast1/services/listexpensevouchers/revisions/listexpensevouchers-00012-xis",
+        "latestReadyRevision": "projects/gen-lang-client-0815966909/locations/asia-southeast1/services/listexpensevouchers/revisions/listexpensevouchers-00012-xis",
+        "traffic": [
+          {
+            "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_REVISION",
+            "revision": "listexpensevouchers-00012-xis",
+            "percent": 100
+          }
+        ],
+        "trafficStatuses": [
+          {
+            "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_REVISION",
+            "revision": "listexpensevouchers-00012-xis",
+            "percent": 100
+          }
+        ],
+        "conditions": [
+          {
+            "type": "RoutesReady",
+            "state": "CONDITION_SUCCEEDED"
+          },
+          {
+            "type": "BaseImageValidated",
+            "state": "CONDITION_SUCCEEDED"
+          },
+          {
+            "type": "ConfigurationsReady",
+            "state": "CONDITION_SUCCEEDED"
+          }
+        ],
+        "scaling": {
+          "maxInstanceCount": 3
+        },
+        "template": {
+          "scaling": {
+            "maxInstanceCount": 3
+          },
+          "maxInstanceRequestConcurrency": 80,
+          "containers": [
+            {
+              "image": "asia-southeast1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast1__list_expense_vouchers:version_1",
+              "resources": {
+                "limits": {
+                  "cpu": "1",
+                  "memory": "256Mi"
+                },
+                "cpuIdle": true,
+                "startupCpuBoost": true
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "target": "listExpenseVouchersRegional",
+      "name": "projects/gen-lang-client-0815966909/locations/asia-east1/functions/listExpenseVouchersRegional",
+      "service": "projects/gen-lang-client-0815966909/locations/asia-east1/services/listexpensevouchersregional",
+      "region": "asia-east1",
+      "isNew": false,
+      "function": {
+        "name": "projects/gen-lang-client-0815966909/locations/asia-east1/functions/listExpenseVouchersRegional",
+        "state": "ACTIVE",
+        "updateTime": "2026-10-26T02:32:17.223898653Z",
+        "environment": "GEN_2",
+        "build": "projects/607039870489/locations/asia-east1/builds/06551bcb-353a-4d57-a4b7-91e9fd3c74d8",
+        "runtime": "nodejs22",
+        "entryPoint": "listExpenseVouchersRegional",
+        "service": "projects/gen-lang-client-0815966909/locations/asia-east1/services/listexpensevouchersregional",
+        "revision": "listexpensevouchersregional-00002-biz",
+        "cpu": "0.1666",
+        "memory": "256Mi",
+        "max": 2,
+        "concurrency": 1,
+        "timeout": 60
+      },
+      "serviceMetadata": {
+        "name": "projects/gen-lang-client-0815966909/locations/asia-east1/services/listexpensevouchersregional",
+        "generation": "3",
+        "observedGeneration": "3",
+        "updateTime": "2026-10-26T02:32:35.607463Z",
+        "etag": "\"CMP3-tYGENjM1KEC/cHJvamVjdHMvZ2VuLWxhbmctY2xpZW50LTA4MTU5NjY5MDkvbG9jYXRpb25zL2FzaWEtZWFzdDEvc2VydmljZXMvbGlzdGV4cGVuc2V2b3VjaGVyc3JlZ2lvbmFs\"",
+        "latestCreatedRevision": "projects/gen-lang-client-0815966909/locations/asia-east1/services/listexpensevouchersregional/revisions/listexpensevouchersregional-00002-biz",
+        "latestReadyRevision": "projects/gen-lang-client-0815966909/locations/asia-east1/services/listexpensevouchersregional/revisions/listexpensevouchersregional-00002-biz",
+        "traffic": [
+          {
+            "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_REVISION",
+            "revision": "listexpensevouchersregional-00002-biz",
+            "percent": 100
+          }
+        ],
+        "trafficStatuses": [
+          {
+            "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_REVISION",
+            "revision": "listexpensevouchersregional-00002-biz",
+            "percent": 100
+          }
+        ],
+        "conditions": [
+          {
+            "type": "RoutesReady",
+            "state": "CONDITION_SUCCEEDED"
+          },
+          {
+            "type": "BaseImageValidated",
+            "state": "CONDITION_SUCCEEDED"
+          },
+          {
+            "type": "ConfigurationsReady",
+            "state": "CONDITION_SUCCEEDED"
+          }
+        ],
+        "scaling": {
+          "maxInstanceCount": 12
+        },
+        "template": {
+          "scaling": {
+            "maxInstanceCount": 2
+          },
+          "maxInstanceRequestConcurrency": 1,
+          "containers": [
+            {
+              "image": "asia-east1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--east1__list_expense_vouchers_regional:version_1",
+              "resources": {
+                "limits": {
+                  "cpu": "0.1666",
+                  "memory": "256Mi"
+                },
+                "cpuIdle": true,
+                "startupCpuBoost": true
+              }
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

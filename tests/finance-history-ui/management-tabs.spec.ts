@@ -33,9 +33,16 @@ async function boot(page: Page) {
   await seed(page)
 }
 async function select(page: Page, name: string) {
+  if (name === 'Bảo lưu') {
+    await page.getByRole('tab', { name: 'Trả góp', exact: true }).click()
+    await filters(page).getByRole('button', { name: 'Bảo lưu', exact: true }).click()
+    await expect(filters(page).getByRole('button', { name: 'Bảo lưu', exact: true })).toHaveAttribute('aria-pressed', 'true')
+    return
+  }
   await page.getByRole('tab', { name, exact: true }).click()
   await expect(page.getByRole('tab', { name, exact: true })).toHaveAttribute('aria-selected', 'true')
   await expect(page.getByRole('tabpanel')).toHaveAccessibleName(name)
+  if (name === 'Trả góp') await filters(page).getByRole('button', { name: 'Đang nợ', exact: true }).click()
 }
 async function ids(page: Page) {
   return rows(page).evaluateAll(elements => elements.map(element => element.getAttribute('title')?.replace('Hợp đồng ', '')).sort())
@@ -43,16 +50,16 @@ async function ids(page: Page) {
 
 test('shows only preserved outstanding debt and removes the debt tab without broadening installments', async ({ page }) => {
   await boot(page)
-  await expect(page.getByRole('tablist', { name: 'Phân hệ tài chính' }).getByRole('tab')).toHaveCount(4)
+  await expect(page.getByRole('tablist', { name: 'Phân hệ tài chính' }).getByRole('tab')).toHaveCount(3)
   await expect(page.getByRole('tab', { name: 'Công nợ', exact: true })).toHaveCount(0)
   expect(await page.evaluate(() => (window as any).financeState.directoryAcquisitions)).toBe(0)
-  await page.getByRole('tab', { name: 'Tổng quan', exact: true }).focus()
+  await page.getByRole('tab', { name: 'Báo cáo kỳ', exact: true }).focus()
   await page.keyboard.press('ArrowRight')
   await expect(page.getByRole('tab', { name: 'Trả góp', exact: true })).toBeFocused()
   await expect(rows(page)).toHaveCount(2)
   await expect.poll(() => ids(page)).toEqual(['installments', 'ordinary-off'])
   await expect(metric(page)).toHaveText('1.600.000đ')
-  await expect(filters(page).getByRole('button', { name: 'Tuần này 2', exact: true })).toBeVisible()
+  await expect(filters(page).getByRole('button', { name: 'Tuần này', exact: true })).toBeVisible()
   await expect(metric(page, 1)).toHaveText('200.000đ')
   expect(await page.evaluate(() => (window as any).financeState.directoryAcquisitions)).toBe(0)
 
@@ -61,17 +68,31 @@ test('shows only preserved outstanding debt and removes the debt tab without bro
   await expect(metric(page)).toHaveText('2 hợp đồng')
   await expect(metric(page, 1)).toHaveText('1.600.000đ')
   await expect(page.locator('.finance-management .aura-metric-carousel__slide')).toHaveCount(2)
-  await expect(filters(page)).toHaveCount(0)
-  for (const id of ['frozen-paid', 'frozen-overpaid', 'preservation-paid', 'preservation-overpaid', 'stale-pause-cancelled', 'stale-pause-inactive', 'stale-pause-archived', 'stale-pause-draft']) await expect(rows(page).filter({ hasText: `HĐ ${id}` })).toHaveCount(0)
-  await expect(rows(page).filter({ hasText: 'HĐ frozen' }).first()).toContainText('Bảo lưu từ 15/10/2026')
+  await expect(filters(page).getByRole('button')).toHaveCount(5)
+  await expect(filters(page).getByRole('button', { name: 'Thanh toán dư', exact: true })).toHaveCount(0)
+  for (const id of ['frozen-paid', 'frozen-overpaid', 'preservation-paid', 'preservation-overpaid', 'stale-pause-cancelled', 'stale-pause-inactive', 'stale-pause-archived', 'stale-pause-draft']) await expect(page.locator(`article[title="Hợp đồng ${id}"]`)).toHaveCount(0)
+  await expect(page.locator('article[title="Hợp đồng frozen"]')).toContainText('Bảo lưu từ 15/10/2026')
   await expect(page.locator('.finance-management__receivables-list article.is-overdue')).toHaveCount(0)
   await select(page, 'Trả góp')
   await expect.poll(() => ids(page)).toEqual(['installments', 'ordinary-off'])
   expect(await page.evaluate(() => ({ reads: (window as any).financeState.calls.length, acquisitions: (window as any).financeState.directoryAcquisitions }))).toEqual({ reads: 0, acquisitions: 0 })
   await select(page, 'Sổ quỹ')
   await expect(page.locator('.cashbook-panel')).toBeVisible()
-  await select(page, 'Tổng quan')
+  await select(page, 'Báo cáo kỳ')
   await expect(page.locator('.business-performance')).toBeVisible()
+})
+
+test('opens legacy preserved links inside installments without a separate top-level tab', async ({ page }) => {
+  await page.clock.install({ time: new Date('2026-10-30T12:00:00+07:00') })
+  await page.goto('/tests/finance-history-ui/index.html?workspace=hub&initialTab=frozen')
+  await expect(page.getByRole('tab', { name: 'Trả góp', exact: true })).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByRole('tab', { name: 'Bảo lưu', exact: true })).toHaveCount(0)
+  await expect(filters(page).getByRole('button', { name: 'Bảo lưu', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await expect(rows(page)).toHaveCount(1)
+  expect(await page.evaluate(() => (window as any).financeState.reportCalls.at(-1).query)).toMatchObject({ category: 'frozen', cursor: null })
+  await filters(page).getByRole('button', { name: 'Đang nợ', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Trả góp', exact: true })).toBeVisible()
+  expect(await page.evaluate(() => (window as any).financeState.reportCalls.at(-1).query)).toMatchObject({ category: 'installments', cursor: null })
 })
 
 test('keeps branch/search scope between management tabs, clear empty states and lazy ledger history', async ({ page }) => {
@@ -170,14 +191,14 @@ for (const width of [360, 390, 430, 1440]) {
       await select(page, tab)
       await expect(page.getByRole('heading', { name: tab, exact: true })).toBeVisible()
       await expect(rows(page).first()).toBeVisible()
-      for (const label of ['Tổng quan', 'Trả góp', 'Bảo lưu', 'Sổ quỹ']) await expect(page.getByRole('tab', { name: label, exact: true })).toBeInViewport()
+      for (const label of ['Báo cáo kỳ', 'Trả góp', 'Sổ quỹ']) await expect(page.getByRole('tab', { name: label, exact: true })).toBeInViewport()
       await expect(page.getByRole('tab', { name: 'Công nợ', exact: true })).toHaveCount(0)
       await expect(page.getByLabel('Tìm công nợ')).toBeVisible()
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
       expect(overflow).toBeLessThanOrEqual(1)
       const controls = await rows(page).getByRole('button').evaluateAll(items => items.map(item => ({ width: item.getBoundingClientRect().width, height: item.getBoundingClientRect().height })))
       expect(controls.every(control => control.width >= 50 && control.height >= 29)).toBe(true)
+      if (width === 390 || width === 1440) await page.screenshot({ path: testInfo.outputPath(`finance-${tab === 'Trả góp' ? 'installments' : 'preserved'}-${width}.png`), fullPage: true })
     }
-    if (width === 390 || width === 1440) await page.screenshot({ path: testInfo.outputPath(`finance-tabs-${width}.png`), fullPage: true })
   })
 }

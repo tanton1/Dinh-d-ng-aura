@@ -133,11 +133,42 @@ test('real Firestore: expenses beyond hundreds of unrelated documents are paged 
     ...Array.from({ length: 600 }, (_, index) => [`accountingDocuments/unrelated-${index}`, receipt(-index)]),
     ...Array.from({ length: 52 }, (_, index) => [`accountingDocuments/expense-${String(index).padStart(3, '0')}`, { documentType: index % 2 ? 'expense_voucher' : 'expense_voucher_reversal', accountId: index % 2 ? 'fund-a' : 'fund-b', createdAt: stamp(index + 1), effectiveAt: stamp(index + 1), status: ['draft', 'pending_approval', 'posted', 'reversed'][index % 4], totalAmount: 100 }]),
   ])
-  const result = await allPages(f, 'expenses', { pageSize: 13, accountId: 'fund-a' })
-  assert.equal(result.rows.length, 52, 'the expense list preserves its existing all-account scope')
+  const result = await allPages(f, 'expenses', { pageSize: 13 })
+  assert.equal(result.rows.length, 52, 'omitting accountId preserves the existing all-account scope')
   assert.equal(result.pages.length, 4)
   assert.equal(result.pages.at(-1).hasMore, false)
   assert.ok(f.reads.every(read => read.kind === 'query' && read.maximum === 14 && read.size <= 14 && read.filters.some(filter => filter[0] === 'documentType' && filter[1] === '==')))
+})
+
+test('real Firestore: expense account filtering merges both document types and binds the cursor before reads', async () => {
+  const selected = Array.from({ length: 27 }, (_, index) => [`accountingDocuments/expense-${String(index).padStart(3, '0')}`, {
+    ...receipt(Math.floor(index / 3)), documentType: index % 4 ? 'expense_voucher' : 'expense_voucher_reversal',
+    accountId: 'fund-a', status: ['draft', 'pending_approval', 'posted', 'reversed'][index % 4],
+  }])
+  const f = await fixture([
+    ...selected,
+    ...Array.from({ length: 180 }, (_, index) => [`accountingDocuments/other-${index}`, {
+      ...receipt(-index), documentType: index % 2 ? 'expense_voucher' : 'expense_voucher_reversal', accountId: 'fund-b',
+    }]),
+  ])
+  const expected = [...selected].sort(([leftId, left], [rightId, right]) => right.createdAt.toMillis() - left.createdAt.toMillis()
+    || Buffer.compare(Buffer.from(rightId), Buffer.from(leftId))).map(([id]) => id.split('/')[1])
+  const result = await allPages(f, 'expenses', { accountId: 'fund-a', pageSize: 7 })
+  assert.deepEqual(result.rows.map(row => row.id), expected)
+  assert.equal(result.pages.length, 4)
+  assert.ok(result.rows.every(row => row.accountId === 'fund-a'))
+  assert.deepEqual(new Set(result.rows.map(row => row.documentType)), new Set(['expense_voucher', 'expense_voucher_reversal']))
+  assert.ok(f.reads.every(read => read.maximum === 8 && read.size <= 8
+    && read.filters.some(filter => filter[0] === 'accountId' && filter[1] === '==' && filter[2] === 'fund-a')))
+  const before = f.reads.length
+  for (const accountId of ['fund-b', '', undefined]) {
+    await assert.rejects(f.run('expenses', { accountId, cursor: result.pages[0].nextCursor }), error => error.details?.reason === 'cashbook-cursor-invalid')
+  }
+  assert.equal(f.reads.length, before, 'changing account must fail before reading any page')
+  const unfiltered = await f.run('expenses', { pageSize: 1 })
+  const afterUnfiltered = f.reads.length
+  await assert.rejects(f.run('expenses', { accountId: 'fund-a', cursor: unfiltered.nextCursor }), error => error.details?.reason === 'cashbook-cursor-invalid')
+  assert.equal(f.reads.length, afterUnfiltered)
 })
 
 test('real Firestore: separate document types merge in date/key order across ties and unequal stream endings', async () => {

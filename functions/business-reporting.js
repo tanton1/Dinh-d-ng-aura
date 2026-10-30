@@ -6,6 +6,8 @@ const { canonicalUsageSessions, sessionCountsTowardContract, summarizeSessionUsa
 const { canonicalUsageSummary, loadContractUsageViews, USAGE_VIEW_SOURCE_VERSION } = require('./contract-usage-view')
 const { canonicalSessionRows } = require('./session-schedule-normalization')
 const { decodeHistoryCursor, historyCursorScope, readCanonicalHistoryPage } = require('./training-history-pagination')
+const { ledgerReceiptImpact } = require('./finance-receipt-impact')
+const { contractSalesContribution } = require('./contract-financial-status')
 
 const MAX_RANGE_DAYS = 366
 const MAX_LEDGER_DOCUMENTS = 10000
@@ -13,6 +15,8 @@ const MAX_ATTENDANCE_DOCUMENTS = 10000
 const MAX_HISTORY_PAGE = 100
 const DEFAULT_HISTORY_PAGE = 50
 const MAX_USAGE_SESSIONS = 10000
+const MAX_SALES_CONTRACTS = 2000
+const SALES_CONTRACT_FIELDS = ['branchId', 'status', 'totalPrice', 'discount', 'signedAt', 'createdAt', 'contractDate', 'startDate', 'salesCancellationSnapshot']
 const validHistoryStatuses = new Set([
   'scheduled',
   'rescheduled',
@@ -57,7 +61,7 @@ function dateKey(value, label = 'Ngày') {
 }
 
 function vietnamDateKey(value) {
-  const date = value instanceof Date ? value : new Date(value)
+  const date = value instanceof Date ? value : typeof value?.toDate === 'function' ? value.toDate() : new Date(value)
   if (Number.isNaN(date.getTime())) return ''
   const values = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit', day: '2-digit',
@@ -116,18 +120,18 @@ function sourceForLedger(entry = {}) {
 }
 
 function cashImpact(entry) {
-  if (Number.isFinite(Number(entry.cashImpact))) return Number(entry.cashImpact)
+  if (entry.cashImpact != null && Number.isFinite(Number(entry.cashImpact))) return Number(entry.cashImpact)
   if (entry.type === 'payment' || entry.type === 'refund' || entry.type === 'reversal' || entry.type === 'adjustment') return number(entry.amount)
   return 0
 }
 
 function revenueImpact(entry) {
-  if (Number.isFinite(Number(entry.revenueImpact))) return Number(entry.revenueImpact)
+  if (entry.revenueImpact != null && Number.isFinite(Number(entry.revenueImpact))) return Number(entry.revenueImpact)
   return entry.type === 'revenue_recognition' ? number(entry.amount) : 0
 }
 
 function expenseImpact(entry) {
-  if (Number.isFinite(Number(entry.expenseImpact))) return Number(entry.expenseImpact)
+  if (entry.expenseImpact != null && Number.isFinite(Number(entry.expenseImpact))) return Number(entry.expenseImpact)
   return entry.type === 'expense' || entry.type === 'payroll' ? Math.abs(number(entry.amount)) : 0
 }
 
@@ -144,6 +148,11 @@ function emptySourceRow(source) {
   }
 }
 
+function emptyBusinessDay(date) {
+  return { date, cashNet: 0, recognisedRevenue: 0, operatingExpense: 0, operatingResult: 0,
+    grossCash: 0, netCash: 0, contractSales: 0, salesAdjustment: 0 }
+}
+
 function summaryFromLedger(entries, input) {
   const sourceRows = new Map()
   const daily = new Map()
@@ -158,6 +167,8 @@ function summaryFromLedger(entries, input) {
     deferredRevenueMovement: 0,
     transactionCount: 0,
     legacyUnclassifiedEntries: 0,
+    receipts: { gross: 0, refunds: 0, reversals: 0, adjustments: 0, net: 0 },
+    contractSalesAdjustment: 0,
     sourceRows: [],
     dailySeries: [],
   }
@@ -169,6 +180,11 @@ function summaryFromLedger(entries, input) {
     const cash = cashImpact(entry)
     const revenue = revenueImpact(entry)
     const expense = expenseImpact(entry)
+    const receipt = ledgerReceiptImpact(entry)
+    const grossReceipt = entry.type === 'payment' && receipt > 0 ? receipt : 0
+    const refundReceipt = entry.type === 'refund' && receipt < 0 ? -receipt : 0
+    const reversedReceipt = entry.type === 'reversal' && receipt < 0 ? -receipt : 0
+    const salesAdjustment = Number.isSafeInteger(entry.contractSalesImpact) ? entry.contractSalesImpact : 0
     const row = sourceRows.get(source) || emptySourceRow(source)
     row.cashIn += Math.max(0, cash)
     row.cashOut += Math.abs(Math.min(0, cash))
@@ -187,14 +203,26 @@ function summaryFromLedger(entries, input) {
     result.receivableMovement += number(entry.receivableImpact)
     result.deferredRevenueMovement += number(entry.deferredRevenueImpact)
     result.transactionCount += 1
+    result.receipts.gross += grossReceipt
+    result.receipts.refunds += refundReceipt
+    result.receipts.reversals += reversedReceipt
+    // Positive reversals (for example undoing a refund) and legacy negative
+    // payments remain signed adjustments, so the receipt bridge always balances.
+    result.receipts.adjustments += receipt - grossReceipt + refundReceipt + reversedReceipt
+    result.receipts.net += receipt
+    result.contractSalesAdjustment += salesAdjustment
     if (source === 'legacy_unclassified') result.legacyUnclassifiedEntries += 1
     const date = vietnamDateKey(entry.effectiveAt)
     if (date) {
-      const item = daily.get(date) || { date, cashNet: 0, recognisedRevenue: 0, operatingExpense: 0, operatingResult: 0 }
+      const item = daily.get(date) || emptyBusinessDay(date)
       item.cashNet += cash
       item.recognisedRevenue += revenue
       item.operatingExpense += expense
       item.operatingResult = item.recognisedRevenue - item.operatingExpense
+      item.grossCash += grossReceipt
+      item.netCash += receipt
+      item.contractSales += salesAdjustment
+      item.salesAdjustment += salesAdjustment
       daily.set(date, item)
     }
   })
@@ -202,6 +230,35 @@ function summaryFromLedger(entries, input) {
   result.sourceRows = [...sourceRows.values()].sort((left, right) => right.recognisedRevenue - left.recognisedRevenue || right.cashNet - left.cashNet)
   result.dailySeries = [...daily.values()].sort((left, right) => left.date.localeCompare(right.date))
   return result
+}
+
+function businessContractSales(contracts, summary, input, { contractsTruncated = false, ledgerTruncated = false } = {}) {
+  const daily = new Map(summary.dailySeries.map(day => [day.date, { ...day }]))
+  let grossContractSales = 0, contractCount = 0, cancelledSalesBaselineUnverified = 0, contractSalesDatesMissing = 0
+  for (const contract of contracts) {
+    if (input.branchId !== 'all' && contract.branchId !== input.branchId) continue
+    const sale = contractSalesContribution(contract)
+    if (!sale) {
+      if (contract.status === 'cancelled') cancelledSalesBaselineUnverified++
+      continue
+    }
+    const millis = timestampMillis(sale.effectiveAt)
+    const date = millis ? vietnamDateKey(new Date(millis)) : ''
+    if (!date) { contractSalesDatesMissing++; continue }
+    if (date < input.startDate || date > input.endDate) continue
+    grossContractSales += sale.amount
+    contractCount++
+    const day = daily.get(date) || emptyBusinessDay(date)
+    day.contractSales += sale.amount
+    daily.set(date, day)
+  }
+  return {
+    sales: { grossContractSales, contractSalesAdjustment: summary.contractSalesAdjustment,
+      netContractSales: grossContractSales + summary.contractSalesAdjustment, contractCount,
+      complete: !contractsTruncated && !ledgerTruncated && !contractSalesDatesMissing },
+    dailySeries: [...daily.values()].sort((left, right) => left.date.localeCompare(right.date)),
+    cancelledSalesBaselineUnverified, contractSalesDatesMissing,
+  }
 }
 
 function canonicalHistoryRows(rows = []) {
@@ -461,7 +518,14 @@ function createBusinessReportingFunctions({ db, onCall }) {
       if (input.branchId !== 'all') query = query.where('branchId', '==', input.branchId).orderBy(field, direction)
       return query.limit(maximum).get()
     }
-    const [ledgerSnapshot, cashSnapshot, payrollSnapshot, attendanceSnapshot, cashAccountSnapshot] = await Promise.all([
+    // Signing dates have several supported legacy representations. A bounded
+    // metadata-only branch query preserves those dates and cancellation
+    // snapshots; it never calls the broader operations dashboard or scans its
+    // student, schedule, nutrition or payroll workspaces for a sales chart.
+    const salesSupported = input.source === 'all' || input.source === 'pt_gym'
+    let salesQuery = salesSupported ? db.collection('contracts').select(...SALES_CONTRACT_FIELDS) : null
+    if (salesQuery && input.branchId !== 'all') salesQuery = salesQuery.where('branchId', '==', input.branchId)
+    const [ledgerSnapshot, cashSnapshot, payrollSnapshot, attendanceSnapshot, cashAccountSnapshot, contractSnapshot] = await Promise.all([
       scopedRange('ledgerEntries', 'effectiveAt', MAX_LEDGER_DOCUMENTS + 1, 'desc'),
       scopedRange('cashTransactions', 'effectiveAt', MAX_LEDGER_DOCUMENTS + 1, 'desc'),
       // Legacy payroll with no branch is deliberately included by the existing
@@ -469,14 +533,18 @@ function createBusinessReportingFunctions({ db, onCall }) {
       db.collection('payrollRuns').where('paidAt', '>=', start).where('paidAt', '<', end).limit(500).get(),
       scopedRange('attendanceEvents', 'occurredAt', MAX_ATTENDANCE_DOCUMENTS + 1),
       db.collection('cashAccounts').limit(201).get(),
+      salesQuery ? salesQuery.limit(MAX_SALES_CONTRACTS + 1).get() : Promise.resolve(null),
     ])
     const ledgerEntries = ledgerSnapshot.docs.slice(0, MAX_LEDGER_DOCUMENTS).map((item) => ({ ...item.data(), id: item.id }))
     const summary = summaryFromLedger(ledgerEntries, input)
-    const unlinkedCashTransactions = cashSnapshot.docs
+    const contractsTruncated = Boolean(contractSnapshot && contractSnapshot.size > MAX_SALES_CONTRACTS)
+    const sales = contractSnapshot ? businessContractSales(contractSnapshot.docs.slice(0, MAX_SALES_CONTRACTS).map(item => item.data()), summary, input,
+      { contractsTruncated, ledgerTruncated: ledgerSnapshot.size > MAX_LEDGER_DOCUMENTS }) : null
+    const unlinkedCashRows = cashSnapshot.docs
       .map((item) => item.data())
       .filter((item) => !item.ledgerEntryId)
       .filter((item) => input.branchId === 'all' || item.branchId === input.branchId)
-      .reduce((result, item) => result + number(item.amount), 0)
+    const unlinkedCashTransactions = unlinkedCashRows.reduce((result, item) => result + number(item.amount), 0)
     const payrollPaidOutsideLedger = payrollSnapshot.docs
       .map((item) => item.data())
       .filter((item) => input.branchId === 'all' || !item.branchId || item.branchId === input.branchId)
@@ -499,8 +567,10 @@ function createBusinessReportingFunctions({ db, onCall }) {
     if (reconciliation.automaticReview + reconciliation.billingReview + reconciliation.recognitionReview) qualityMessages.push('còn bằng chứng PT chờ xác nhận hoặc rà soát điều kiện ghi nhận')
     if (reconciliation.missingBranch) qualityMessages.push(`${reconciliation.missingBranch} bằng chứng chưa gắn chi nhánh`)
     if (cashAccountSnapshot.empty) qualityMessages.push('sổ quỹ chưa có tài khoản tiền mặt/ngân hàng/ví')
-    if (unlinkedCashTransactions) qualityMessages.push('còn giao dịch sổ quỹ chưa liên kết ledger')
+    if (unlinkedCashRows.length) qualityMessages.push('còn giao dịch sổ quỹ chưa liên kết ledger')
     if (payrollPaidOutsideLedger) qualityMessages.push('còn bảng lương đã trả ngoài ledger')
+    if (sales?.contractSalesDatesMissing) qualityMessages.push('còn hợp đồng thiếu ngày ghi nhận doanh số')
+    if (contractsTruncated) qualityMessages.push('doanh số chạm giới hạn tải hợp đồng; hãy chọn chi nhánh hoặc đối soát phạm vi hợp đồng')
     if (ledgerSnapshot.size > MAX_LEDGER_DOCUMENTS || cashSnapshot.size > MAX_LEDGER_DOCUMENTS
       || attendanceSnapshot.size > MAX_ATTENDANCE_DOCUMENTS || payrollSnapshot.size >= 500) {
       qualityMessages.push('dữ liệu chạm giới hạn tải; số liệu có thể chưa đầy đủ, hãy thu hẹp khoảng ngày')
@@ -516,20 +586,27 @@ function createBusinessReportingFunctions({ db, onCall }) {
         operatingResult: summary.operatingResult,
       },
       cashFlow: { cashIn: summary.cashIn, cashOut: summary.cashOut, cashNet: summary.cashNet },
+      receipts: summary.receipts,
+      sales: sales?.sales || null,
       balanceMovement: {
         receivableMovement: summary.receivableMovement,
         deferredRevenueMovement: summary.deferredRevenueMovement,
       },
       sourceRows: summary.sourceRows,
-      dailySeries: summary.dailySeries,
+      dailySeries: sales?.dailySeries || summary.dailySeries,
       dataQuality: {
         scannedLedgerEntries: ledgerSnapshot.size,
         ledgerTruncated: ledgerSnapshot.size > MAX_LEDGER_DOCUMENTS,
+        contractsTruncated,
+        scannedSalesContracts: contractSnapshot?.size || 0,
+        cancelledSalesBaselineUnverified: sales?.cancelledSalesBaselineUnverified || 0,
+        contractSalesDatesMissing: sales?.contractSalesDatesMissing || 0,
         cashTransactionsTruncated: cashSnapshot.size > MAX_LEDGER_DOCUMENTS,
         payrollLimitReached: payrollSnapshot.size >= 500,
         reconciliationBranchId: input.branchId,
         legacyUnclassifiedEntries: summary.legacyUnclassifiedEntries,
         unlinkedCashTransactions,
+        unlinkedCashTransactionCount: unlinkedCashRows.length,
         payrollPaidOutsideLedger,
         reconciliation,
         attendanceEvents: attendanceSessionIds.size,
@@ -676,6 +753,7 @@ module.exports = {
   canonicalHistoryRows,
   canonicalStudentHistoryRows,
   summaryFromLedger,
+  businessContractSales,
   teachingShiftSummary,
   studentContractUsage,
 }
