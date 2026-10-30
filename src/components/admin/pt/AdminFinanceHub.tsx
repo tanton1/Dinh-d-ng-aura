@@ -1,14 +1,14 @@
 import { useState } from 'react'
 import type { User } from 'firebase/auth'
 import type { UserProfile } from '../../../types'
-import { BarChart3, CircleDollarSign, PauseCircle, ReceiptText, WalletCards } from 'lucide-react'
+import { BarChart3, CircleDollarSign, PauseCircle, WalletCards } from 'lucide-react'
 import { useDatabase } from '../../../contexts/DatabaseContext'
 import FinanceManagement from './FinanceManagement'
 import CashbookPanel from './CashbookPanel'
 import BusinessPerformancePanel from './BusinessPerformancePanel'
 import '../../../styles-operations-hub.css'
 
-type FinanceTab = 'overview' | 'ledger' | 'frozen' | 'debt' | 'cashbook'
+type FinanceTab = 'overview' | 'ledger' | 'frozen' | 'cashbook'
 
 export default function AdminFinanceHub({ user, profile, initialTab = 'overview' }: { user: User | null; profile: UserProfile | null; initialTab?: FinanceTab }) {
   const [tab, setTab] = useState<FinanceTab>(initialTab)
@@ -17,7 +17,6 @@ export default function AdminFinanceHub({ user, profile, initialTab = 'overview'
     { id: 'overview', label: 'Tổng quan', icon: BarChart3 },
     { id: 'ledger', label: 'Trả góp', icon: CircleDollarSign },
     { id: 'frozen', label: 'Bảo lưu', icon: PauseCircle },
-    { id: 'debt', label: 'Công nợ', icon: ReceiptText },
     { id: 'cashbook', label: 'Sổ quỹ', icon: WalletCards },
   ]
   return <div className="operations-hub">
@@ -36,7 +35,7 @@ export default function AdminFinanceHub({ user, profile, initialTab = 'overview'
     </nav>
     <div id="finance-tab-panel" role="tabpanel" aria-labelledby={`finance-tab-${tab}`}>
       {tab === 'overview' && <BusinessPerformancePanel />}
-      {(tab === 'ledger' || tab === 'frozen' || tab === 'debt') && <FinanceManagement user={user} profile={profile} category={tab === 'ledger' ? 'installments' : tab} />}
+      {(tab === 'ledger' || tab === 'frozen') && <FinanceManagement user={user} profile={profile} category={tab === 'ledger' ? 'installments' : tab} />}
       {tab === 'cashbook' && <CashbookPanel branches={branches} />}
     </div>
   </div>
