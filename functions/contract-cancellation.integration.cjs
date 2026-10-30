@@ -7,6 +7,8 @@ const { initializeApp, deleteApp } = require('firebase-admin/app')
 const { getFirestore } = require('firebase-admin/firestore')
 const { readContractCancellationPlan, applyContractCancellationPlan } = require('./contract-cancellation')
 const { createStudent360Functions, vietnamDateKey } = require('./student-360')
+const { createContractSettlementFunctions } = require('./contract-settlement')
+const { assertCancellationEvidenceChange } = require('./session-operations')
 
 assert.match(process.env.FIRESTORE_EMULATOR_HOST || '', /^(127\.0\.0\.1|localhost):\d+$/)
 const app = initializeApp({ projectId: 'demo-aura-fitness' }, 'contract-cancel-' + randomUUID())
@@ -153,4 +155,67 @@ test('real Firestore: actual cancellation callable replays once, retains cash an
   assert.equal((await db.collection('contractMutationReceipts').get()).size, 1)
   assert.equal((await db.collection('ledgerEntries').get()).size, 0)
   await assert.rejects(call({ ...input, reason: 'Altered replay' }), error => error.code === 'already-exists')
+})
+
+function settlementApi(db) {
+  return createContractSettlementFunctions({ db, onCall: handler => handler,
+    authorize: async () => ({ uid: 'admin', accessRole: 'admin', capabilities: ['finance.operations.manage'], branchIds: [] }),
+    logger: { info() {} } })
+}
+
+test('real Firestore: verify legacy cutoff persists only reviewed date and unlocks the actual evidence guard', async () => {
+  const db = await fixture({
+    'contracts/contract': { ...contract, status: 'cancelled', cancelledReason: 'Historical cancellation' },
+    'sessions/past': session({ date: '2026-10-29', status: 'completed', billingStatus: 'charged', attendanceStatus: 'present' }),
+    'ledgerEntries/receipt': { contractId: 'contract', type: 'payment', source: 'pt_gym', status: 'posted', amount: 100_000, cashImpact: 100_000, revenueImpact: 0 },
+    'revenueRecognitionReviews/open': { contractId: 'contract', sessionId: 'past', status: 'open' },
+    'sessionBillingIssues/open': { contractId: 'contract', sessionId: 'past', status: 'open' },
+  })
+  const api = settlementApi(db)
+  const view = await api.getContractSettlement({ data: { contractId: 'contract', cutoffDate: cutoff } })
+  assert.equal(view.preview.confirmedCutoffDate, null)
+  const before = await data(db, 'contracts/contract')
+  assert.throws(() => assertCancellationEvidenceChange({ contract: before, sourceDate: '2026-10-29', changed: true }), error => error.details.issueCode === 'CONTRACT_CANCELLATION_CUTOFF_REQUIRED')
+  const preservedPaths = ['sessions/past', 'ledgerEntries/receipt', 'revenueRecognitionReviews/open', 'sessionBillingIssues/open']
+  const preserved = await Promise.all(preservedPaths.map(path => data(db, path)))
+  const input = { contractId: 'contract', action: 'verify_cutoff', cutoffDate: cutoff, reason: 'Ngày nghỉ được xác minh theo biên bản.',
+    operationId: randomUUID(), expectedRevision: view.revision, expectedSnapshotHash: view.preview.snapshotHash }
+  const response = await api.manageContractSettlement({ data: input })
+  assert.equal(response.status, 'review_required'); assert.equal(response.preview.confirmedCutoffDate, cutoff)
+  assert.equal(response.settlement.proposal, undefined)
+  for (const code of ['SETTLEMENT_MISSING_RECOGNITION', 'SETTLEMENT_CASH_PROJECTION_MISMATCH', 'SETTLEMENT_FINANCE_REVIEW_OPEN']) assert(response.preview.blockers.some(item => item.code === code))
+  const stored = await data(db, 'contracts/contract')
+  assert.doesNotThrow(() => assertCancellationEvidenceChange({ contract: stored, sourceDate: '2026-10-29', changed: true }))
+  for (const key of ['status', 'totalPrice', 'paidAmount', 'usedSessions', 'revision', 'cancelledReason', 'cancelledAt']) assert.deepEqual(stored[key], before[key])
+  assert.equal(stored.cancellationSettlement.cutoffVerifiedBy, 'admin')
+  assert.equal(stored.cancellationSettlement.cutoffVerificationReason, input.reason)
+  assert.ok(stored.cancellationSettlement.cutoffVerifiedAt.toMillis() > 0)
+  assert.deepEqual(await Promise.all(preservedPaths.map(path => data(db, path))), preserved)
+  assert.equal((await db.collection('ledgerEntries').get()).size, 1)
+  assert.equal((await db.collection('journalEntries').get()).size, 0)
+  await api.manageContractSettlement({ data: input })
+  assert.deepEqual(await data(db, 'contracts/contract'), stored)
+  assert.equal((await db.collection('contractSettlementOperations').get()).size, 1)
+  await assert.rejects(api.manageContractSettlement({ data: { ...input, reason: 'Changed replay' } }), error => error.code === 'already-exists')
+  await assert.rejects(api.manageContractSettlement({ data: { contractId: 'contract', action: 'submit', operationId: randomUUID(), expectedRevision: response.revision,
+    expectedSnapshotHash: response.preview.snapshotHash, proposal: { cutoffDate: cutoff, reason: 'Submitted after date only', waivedFutureAmount: 1_200_000, effectiveAt: new Date().toISOString() } } }), error => error.code === 'failed-precondition')
+  assert.equal((await db.collection('contractSettlementOperations').get()).size, 1)
+})
+
+test('real Firestore: concurrent cutoff verification allows one revision and cannot overwrite its audit', async () => {
+  const db = await fixture({ 'contracts/contract': { ...contract, status: 'cancelled', paidAmount: 0, usedSessions: 0 } })
+  const api = settlementApi(db)
+  const view = await api.getContractSettlement({ data: { contractId: 'contract', cutoffDate: cutoff } })
+  const base = { contractId: 'contract', action: 'verify_cutoff', cutoffDate: cutoff, expectedRevision: view.revision, expectedSnapshotHash: view.preview.snapshotHash }
+  const inputs = [{ ...base, operationId: randomUUID(), reason: 'First operator verified date' }, { ...base, operationId: randomUUID(), reason: 'Second operator verified date' }]
+  const results = await Promise.allSettled(inputs.map(input => api.manageContractSettlement({ data: input })))
+  assert.equal(results.filter(result => result.status === 'fulfilled').length, 1)
+  assert.equal(results.filter(result => result.status === 'rejected' && result.reason.code === 'aborted').length, 1)
+  const winner = results.findIndex(result => result.status === 'fulfilled')
+  const stored = await data(db, 'contracts/contract')
+  assert.equal(stored.cancellationSettlement.revision, 1)
+  assert.equal(stored.cancellationSettlement.cutoffVerificationReason, inputs[winner].reason)
+  assert.equal((await db.collection('contractSettlementOperations').get()).size, 1)
+  assert.equal((await db.collection('ledgerEntries').get()).size, 0)
+  assert.equal((await db.collection('journalEntries').get()).size, 0)
 })
