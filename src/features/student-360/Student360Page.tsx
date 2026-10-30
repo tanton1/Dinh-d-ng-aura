@@ -1,4 +1,7 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { onAuthStateChanged } from 'firebase/auth'
+import { useAuth } from '../../contexts/AuthContext'
+import { firebaseAuth } from '../../lib/firebase'
 import { mergeTrainingHistoryPage } from '../../utils/trainingHistoryPagination'
 import { student360PaymentPresentation } from './student360PaymentPresentation'
 import {
@@ -274,7 +277,42 @@ function TimelineActivityCard({ item, onOpenNutrition, showTechnicalDetails }: {
   </article>
 }
 
-export default function Student360Page({ studentId, source, isDemo = false, onBack, onNavigate }: Props) {
+const subscribeSessionOwner = (notify: () => void) => firebaseAuth
+  ? onAuthStateChanged(firebaseAuth, notify)
+  : () => {}
+const getSessionOwner = () => firebaseAuth?.currentUser ?? null
+
+export default function Student360Page(props: Props) {
+  const { user, profile, role, accessContext, authzReady } = useAuth()
+  const owner = useSyncExternalStore(subscribeSessionOwner, getSessionOwner)
+  // Scope identity uses access values, not profile object identity or token refreshes.
+  const accessRevision = JSON.stringify([user?.uid, role, profile?.uid, profile?.authzVersion, profile?.disabled,
+    authzReady, accessContext?.uid, accessContext?.accessRole, accessContext?.status, accessContext?.authzVersion,
+    [...(accessContext?.branchIds ?? [])].sort(), [...(accessContext?.positions ?? [])].sort(),
+    [...(accessContext?.capabilities ?? [])].sort()])
+  const scopeSequence = useRef(0)
+  const scope = useMemo(() => ({ id: ++scopeSequence.current }),
+    [owner, accessRevision, props.studentId, props.isDemo])
+  const currentScope = useRef(scope)
+  currentScope.current = scope
+  // Route admission and backend authorization retain their existing policies.
+  // This boundary only waits for the access context to belong to the live session.
+  const ready = Boolean(props.isDemo || (authzReady && user && owner?.uid === user.uid
+    && (!profile?.uid || profile.uid === user.uid)
+    && (!accessContext?.uid || accessContext.uid === user.uid)))
+  const isScopeCurrent = useCallback(() => ready && currentScope.current === scope
+    && (Boolean(props.isDemo) || firebaseAuth?.currentUser === owner), [owner, props.isDemo, ready, scope])
+  if (!ready) return <OverviewLoading />
+  // Remount the whole workspace so old overview, tab data and action drafts
+  // disappear together before any new student's request can settle.
+  return <Student360Workspace key={scope.id} {...props} isScopeCurrent={isScopeCurrent} />
+}
+
+function OverviewLoading() {
+  return <main className="student360-page"><State><LoaderCircle className="is-spinning" /><h1>Đang dựng góc nhìn 360</h1><p>Aura đang đối chiếu hợp đồng, lịch tập và tiến độ.</p></State></main>
+}
+
+function Student360Workspace({ studentId, source, isDemo = false, onBack, onNavigate, isScopeCurrent }: Props & { isScopeCurrent: () => boolean }) {
   const actionCenterEnabled = useAuraUiSurface('action-center')
   const [activeTab, setActiveTab] = useState<Student360Tab>('overview')
   const [overview, setOverview] = useState<Student360Overview | null>(null)
@@ -315,6 +353,12 @@ export default function Student360Page({ studentId, source, isDemo = false, onBa
   const [loyaltyLoading, setLoyaltyLoading] = useState(false)
   const [loyaltyError, setLoyaltyError] = useState('')
   const [loyaltyExpanded, setLoyaltyExpanded] = useState(false)
+  const mounted = useRef(true)
+  const overviewRequest = useRef(0)
+  useLayoutEffect(() => {
+    mounted.current = true
+    return () => { mounted.current = false; overviewRequest.current++ }
+  }, [])
   const overviewReadyTimingRef = useRef({
     studentId,
     startedAt: typeof performance !== 'undefined' ? performance.now() : Date.now(),
@@ -330,12 +374,19 @@ export default function Student360Page({ studentId, source, isDemo = false, onBa
   }, [studentId])
 
   const loadOverview = useCallback(async (force = false, preserveWorkspace = false) => {
+    if (!mounted.current || !isScopeCurrent()) return
+    const request = ++overviewRequest.current
+    const isCurrent = () => mounted.current && isScopeCurrent() && request === overviewRequest.current
     force || preserveWorkspace ? setRefreshing(true) : setLoading(true)
     setError('')
     try {
-      const result = isDemo ? demoOverview(studentId) : force
-        ? (await refreshStudent360Projection(studentId), await getStudent360Overview(studentId, undefined, actionCenterEnabled))
+      if (!isDemo && force) {
+        await refreshStudent360Projection(studentId)
+        if (!isCurrent()) return
+      }
+      const result = isDemo ? demoOverview(studentId)
         : await getStudent360Overview(studentId, undefined, actionCenterEnabled)
+      if (!isCurrent()) return
       setOverview(result)
       const timing = overviewReadyTimingRef.current
       if (!force && !timing.reported && timing.studentId === studentId) {
@@ -349,6 +400,7 @@ export default function Student360Page({ studentId, source, isDemo = false, onBa
         })
       }
     } catch (cause) {
+      if (!isCurrent()) return
       const message = cause instanceof Error ? cause.message : 'Không thể tải Học viên 360.'
       const code = cause && typeof cause === 'object' && 'code' in cause ? String(cause.code) : ''
       const denied = /permission-denied|unauthenticated/.test(code)
@@ -356,10 +408,12 @@ export default function Student360Page({ studentId, source, isDemo = false, onBa
       else if (preserveWorkspace) setNotice(`Hồ sơ đã lưu. Chưa cập nhật được tóm tắt học viên: ${message}`)
       else setError(message)
     } finally {
-      setLoading(false)
-      setRefreshing(false)
+      if (isCurrent()) {
+        setLoading(false)
+        setRefreshing(false)
+      }
     }
-  }, [actionCenterEnabled, isDemo, studentId])
+  }, [actionCenterEnabled, isDemo, isScopeCurrent, studentId])
 
   useEffect(() => { void loadOverview(false) }, [loadOverview])
   useEffect(() => {
@@ -616,10 +670,11 @@ export default function Student360Page({ studentId, source, isDemo = false, onBa
   }
 
   const saveCare = async () => {
-    if (!careType || !overview) return
+    if (!careType || !overview || !mounted.current || !isScopeCurrent()) return
     setCareSaving(true)
     try {
       if (!isDemo) await createStudentCareActivity({ studentId, type: careType, note: careNote, actionId: careActionId })
+      if (!mounted.current || !isScopeCurrent()) return
       setCareType(null)
       setNotice('Đã ghi nhận vào lịch sử chăm sóc.')
       if (activeTab === 'activity') await loadTimeline(false)
@@ -672,7 +727,7 @@ export default function Student360Page({ studentId, source, isDemo = false, onBa
     return { total: demoTrainingHistorySessions.length, attended, chargedNoShow, exempt: 0 }
   }, [demoTrainingHistorySessions])
 
-  if (loading) return <main className="student360-page"><State><LoaderCircle className="is-spinning" /><h1>Đang dựng góc nhìn 360</h1><p>Aura đang đối chiếu hợp đồng, lịch tập và tiến độ.</p></State></main>
+  if (loading) return <OverviewLoading />
   if (error || !overview) return <main className="student360-page"><State type="error"><AlertTriangle /><h1>Chưa thể mở Học viên 360</h1><p>{error || 'Hồ sơ không có dữ liệu.'}</p><div><button type="button" onClick={onBack}>Quay lại</button><button type="button" onClick={() => void loadOverview(false)}>Thử lại</button></div></State></main>
 
   const { identity, assignments, contract, schedule, attendance, training, nutrition, progress, renewal, health, permissions } = overview
