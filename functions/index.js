@@ -1040,7 +1040,7 @@ exports.rebuildDirtyPtScheduleWeeklyViewsScheduled = onSchedule({
   maxInstances: 1,
   timeoutSeconds: 540,
   memory: '512MiB',
-}, async () => rebuildDirtyPtScheduleWeeklyViews({ db, limit: 20, logger }))
+}, withPrivateEventTelemetry('rebuildDirtyPtScheduleWeeklyViewsScheduled', async () => rebuildDirtyPtScheduleWeeklyViews({ db, limit: 20, logger }), { logger }))
 
 // Admin-only schedule corrections update the real session and the operational
 // draft in one transaction. They intentionally live beside (rather than
@@ -1998,11 +1998,11 @@ exports.getPushAdminOverview = onCall({ cpu: 'gcf_gen1', maxInstances: 2 }, push
 exports.dispatchPushBroadcast = onCall({
   cpu: 'gcf_gen1',
   maxInstances: 1,
+  timeoutSeconds: 120,
   // The callable endpoint must stay reachable by the Firebase client SDK.
   // requireCaller + hasTrustedRole below still enforce administrator access.
   invoker: 'public',
 }, async (request) => {
-  const checkAdmissionBudget = createPushAdmissionBudget()
   const actorId = requireCaller(request)
   const actorSnapshot = await db.doc(`users/${actorId}`).get()
   const actor = actorSnapshot.data()
@@ -2021,126 +2021,56 @@ exports.dispatchPushBroadcast = onCall({
     : 'general'
   const targetType = request.data?.targetType === 'all' ? 'all' : 'selected'
   const requestedIds = normalizePushRequestedIds(request.data)
-  checkAdmissionBudget()
-  // Category IDs still come from the legacy browser directory. Refuse a
-  // possibly truncated group until server-prepared audiences replace it.
-  if (request.data?.targetType === 'category') {
-    const directory = await db.collection('users').select().limit(PUSH_ADMISSION_LIMITS.directoryProfiles + 1).get()
-    assertPushAdmissionCount(directory.docs.length, PUSH_ADMISSION_LIMITS.directoryProfiles, 'DIRECTORY_LIMIT')
+  const payload = { title, message, type, category, actionUrl,
+    targetType: request.data?.targetType || 'selected',
+    requestedIds: [...requestedIds].sort(),
+    respectCategoryPreferences: request.data?.respectCategoryPreferences !== false }
+  const delivery = require('./push-broadcast-delivery').createPushBroadcastDelivery({ db, messaging, publicPushActionUrl })
+  return delivery.dispatch({ actorId, requestId: request.data?.requestId, payload, admit: async () => {
+    const checkAdmissionBudget = createPushAdmissionBudget()
     checkAdmissionBudget()
-  }
-
-  // The only preference bypass allowed is an administrator testing their own
-  // registered device. Broadcasts to members always respect opt-out settings.
-  const isSelfDeviceTest = request.data?.respectCategoryPreferences === false
-    && targetType === 'selected'
-    && requestedIds.length === 1
-    && requestedIds[0] === actorId
-
-  const profileSnapshots = targetType === 'all'
-    ? (await db.collection('users').select('role', 'disabled', 'status', 'notificationSettings').limit(PUSH_ADMISSION_LIMITS.allProfiles + 1).get()).docs
-    : await db.getAll(...requestedIds.map((userId) => db.doc(`users/${userId}`)))
-  if (targetType === 'all') assertPushAdmissionCount(profileSnapshots.length, PUSH_ADMISSION_LIMITS.allProfiles, 'POPULATION_LIMIT')
-  checkAdmissionBudget()
-  const existingProfiles = profileSnapshots
-    .filter((snapshot) => snapshot.exists)
-    .map((snapshot) => ({ userId: snapshot.id, profile: snapshot.data() }))
-  const audienceProfiles = targetType === 'all'
-    ? existingProfiles.filter(({ profile }) => {
-      const role = profile?.role
-      return role === undefined || role === null || role === '' || role === 'student'
-    })
-    : existingProfiles
-  const eligibleProfiles = audienceProfiles
-    .filter(({ profile }) => profile.disabled !== true
-      && profile.status !== 'disabled'
-      && (isSelfDeviceTest || acceptsPushCategory(profile, category)))
-  const eligibleUserIds = eligibleProfiles.map(({ userId }) => userId)
-  const consideredProfileCount = targetType === 'all' ? audienceProfiles.length : profileSnapshots.length
-  const filteredOutCount = consideredProfileCount - eligibleUserIds.length
-  // Finish every bounded admission read before inbox, FCM, token cleanup or
-  // broadcast-log writes. Rejections never report a partially delivered send.
-  const devices = await preparePushDevices({ db, eligibleUserIds, checkBudget: checkAdmissionBudget })
-  checkAdmissionBudget()
-  const logReference = db.collection('system').doc('push_broadcast_logs').collection('logs').doc()
-
-  for (let offset = 0; offset < eligibleUserIds.length; offset += 400) {
-    const batch = db.batch()
-    for (const userId of eligibleUserIds.slice(offset, offset + 400)) {
-      const notificationReference = db.collection(`users/${userId}/notifications`).doc()
-      batch.set(notificationReference, {
-        id: notificationReference.id,
-        userId,
-        title,
-        message,
-        type,
-        category,
-        actionUrl,
-        read: false,
-        createdAt: FieldValue.serverTimestamp(),
-      })
+    // Category IDs still come from the legacy browser directory. Refuse a
+    // possibly truncated group until server-prepared audiences replace it.
+    if (request.data?.targetType === 'category') {
+      const directory = await db.collection('users').select().limit(PUSH_ADMISSION_LIMITS.directoryProfiles + 1).get()
+      assertPushAdmissionCount(directory.docs.length, PUSH_ADMISSION_LIMITS.directoryProfiles, 'DIRECTORY_LIMIT')
+      checkAdmissionBudget()
     }
-    await batch.commit()
-  }
 
-  let webPushSentCount = 0
-  let webPushFailureCount = 0
-  const invalidDeviceReferences = []
-  for (let offset = 0; offset < devices.length; offset += 500) {
-    const deviceChunk = devices.slice(offset, offset + 500)
-    let response
-    try {
-      response = await messaging.sendEachForMulticast({
-        tokens: deviceChunk.map(({ token }) => token),
-        notification: { title, body: message },
-        data: { actionUrl, type, category, notificationId: `${logReference.id}` },
-        webpush: { fcmOptions: { link: publicPushActionUrl(actionUrl) } },
+    // The only preference bypass allowed is an administrator testing their own
+    // registered device. Broadcasts to members always respect opt-out settings.
+    const isSelfDeviceTest = request.data?.respectCategoryPreferences === false
+      && targetType === 'selected'
+      && requestedIds.length === 1
+      && requestedIds[0] === actorId
+
+    const profileSnapshots = targetType === 'all'
+      ? (await db.collection('users').select('role', 'disabled', 'status', 'notificationSettings').limit(PUSH_ADMISSION_LIMITS.allProfiles + 1).get()).docs
+      : await db.getAll(...requestedIds.map((userId) => db.doc(`users/${userId}`)))
+    if (targetType === 'all') assertPushAdmissionCount(profileSnapshots.length, PUSH_ADMISSION_LIMITS.allProfiles, 'POPULATION_LIMIT')
+    checkAdmissionBudget()
+    const existingProfiles = profileSnapshots
+      .filter((snapshot) => snapshot.exists)
+      .map((snapshot) => ({ userId: snapshot.id, profile: snapshot.data() }))
+    const audienceProfiles = targetType === 'all'
+      ? existingProfiles.filter(({ profile }) => {
+        const role = profile?.role
+        return role === undefined || role === null || role === '' || role === 'student'
       })
-    } catch (error) {
-      webPushFailureCount += deviceChunk.length
-      console.error('FCM multicast request failed', { code: error?.code ?? 'unknown' })
-      continue
-    }
-    webPushSentCount += response.successCount
-    webPushFailureCount += response.failureCount
-    response.responses.forEach((result, index) => {
-      if (!result.success && [
-        'messaging/registration-token-not-registered',
-        'messaging/invalid-registration-token',
-      ].includes(result.error?.code)) {
-        invalidDeviceReferences.push(deviceChunk[index].reference)
-      }
-    })
-  }
-  for (let offset = 0; offset < invalidDeviceReferences.length; offset += 400) {
-    const batch = db.batch()
-    invalidDeviceReferences.slice(offset, offset + 400).forEach((reference) => batch.delete(reference))
-    await batch.commit()
-  }
-
-  await logReference.set({
-    id: logReference.id,
-    title,
-    message,
-    type,
-    category,
-    targetType,
-    targetValue: targetType,
-    actionUrl,
-    sentCount: eligibleUserIds.length,
-    webPushSentCount,
-    webPushFailureCount,
-    filteredOutCount,
-    sentBy: actorId,
-    createdAt: FieldValue.serverTimestamp(),
-  })
-  return {
-    sentCount: eligibleUserIds.length,
-    webPushSentCount,
-    webPushFailureCount,
-    filteredOutCount,
-    logId: logReference.id,
-  }
+      : existingProfiles
+    const eligibleProfiles = audienceProfiles
+      .filter(({ profile }) => profile.disabled !== true
+        && profile.status !== 'disabled'
+        && (isSelfDeviceTest || acceptsPushCategory(profile, category)))
+    const eligibleUserIds = eligibleProfiles.map(({ userId }) => userId)
+    const consideredProfileCount = targetType === 'all' ? audienceProfiles.length : profileSnapshots.length
+    const filteredOutCount = consideredProfileCount - eligibleUserIds.length
+    // Finish every bounded admission read before inbox, FCM, token cleanup or
+    // broadcast-log writes. Rejections never report a partially delivered send.
+    const devices = await preparePushDevices({ db, eligibleUserIds, checkBudget: checkAdmissionBudget })
+    checkAdmissionBudget()
+    return { eligibleUserIds, filteredOutCount, devices }
+  } })
 })
 
 function requireDocumentId(value, label) {

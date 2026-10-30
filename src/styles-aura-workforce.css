@@ -1,16 +1,16 @@
 /* Shared CRM presentation, scoped to the four workforce workspaces. */
 .aura-workforce.aura-workforce {
-  --aw-ink: #211720;
-  --aw-muted: #786870;
-  --aw-pink: #cf246a;
-  --aw-soft: #fff0f6;
-  --aw-action: linear-gradient(135deg, #f62f82, #ff8751);
-  --aw-berry: linear-gradient(128deg, #171218, #4f213c 54%, #ba2a62);
+  --aw-ink: var(--aura-crm-ink);
+  --aw-muted: var(--aura-crm-muted);
+  --aw-pink: var(--aura-crm-pink);
+  --aw-soft: var(--aura-crm-soft);
+  --aw-action: var(--aura-crm-action);
+  --aw-berry: var(--aura-crm-overview);
   box-sizing: border-box;
   width: 100%; max-width: none; min-width: 0; margin: 0;
   padding: 18px 12px 36px;
   color: var(--aw-ink);
-  background: linear-gradient(145deg, #fff3f8, #fff8f5 65%, #fff6f9);
+  background: var(--aura-crm-canvas);
   font-family: var(--aura-font, 'Be Vietnam Pro', sans-serif);
 }
 .aura-operations-page:has(.aura-workforce) { padding: 0; background: #fff6f9; }

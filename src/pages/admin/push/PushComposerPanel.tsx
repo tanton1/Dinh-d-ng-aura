@@ -107,10 +107,11 @@ export function PushComposerPanel({
         <section className="push-result-card" role="status">
           <CheckCircle2 size={22} />
           <div>
-            <strong>Đã hoàn tất lượt gửi</strong>
+            <strong>{result.webPushUnknownCount ? 'Có kết quả Push cần đối soát' : result.complete === false ? 'Lượt gửi chưa hoàn tất' : result.replayed ? 'Đã đối soát lượt gửi trước' : 'Đã hoàn tất lượt gửi'}</strong>
             <p>
               Đã tạo {result.sentCount} inbox · FCM chấp nhận trên {result.webPushSentCount} thiết bị
               {result.webPushFailureCount > 0 ? ` · ${result.webPushFailureCount} lỗi thiết bị` : ''}
+              {(result.webPushUnknownCount ?? 0) > 0 ? ` · ${result.webPushUnknownCount} thiết bị chưa xác nhận kết quả, không tự gửi lại` : ''}
               {result.filteredOutCount > 0 ? ` · ${result.filteredOutCount} tài khoản không đủ điều kiện` : ''}.
             </p>
           </div>

@@ -941,6 +941,8 @@ function AuraApplication() {
       case 'admin-loyalty': return backendMode === 'firebase' && (!authzReady || !hasCapability('loyalty.dashboard.read'))
         ? <div className="course-detail-state" role="status"><h1>{authzReady ? 'Không có quyền mở Aura Club' : 'Đang xác minh quyền Aura Club'}</h1><p>{authzReady ? 'Tài khoản chưa được cấp quyền điều hành loyalty.' : 'Aura đang đối chiếu phạm vi quản trị.'}</p></div>
         : <AuraOperationsFrame><AdminLoyaltyPage
+          actorUid={user?.uid ?? ''}
+          accessRevision={JSON.stringify([authzReady, profile?.uid, profile?.authzVersion, profile?.disabled, accessContext?.uid, accessContext?.authzVersion, accessContext?.status, accessContext?.accessRole, accessContext?.branchIds, accessContext?.capabilities])}
           useMobileDock={usesClubOperationsDock(view, role, mode, isStaffWorkspace)}
           isDemo={backendMode === 'demo'}
           initialStudentId={staffStudentFocus?.id}

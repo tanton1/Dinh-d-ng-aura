@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
+import '../../src/styles-aura-tokens.css'
 import { NutritionReviewWorkspace } from '../../src/features/nutrition-review/NutritionReviewWorkspace'
 
 function Fixture() {

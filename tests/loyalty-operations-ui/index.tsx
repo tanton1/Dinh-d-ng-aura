@@ -1,5 +1,6 @@
 import { createRoot } from 'react-dom/client'
 import '../../src/styles-bootstrap.css'
+import '../../src/styles-aura-tokens.css'
 import '../../src/features/loyalty/loyalty.css'
 import '../../src/features/loyalty/loyalty-admin.css'
 import AdminLoyaltyOperations from '../../src/features/loyalty/AdminLoyaltyOperations'

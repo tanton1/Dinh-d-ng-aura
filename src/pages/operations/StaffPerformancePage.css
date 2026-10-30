@@ -20,6 +20,7 @@
   font-family: var(--aura-font, "Be Vietnam Pro", Inter, ui-sans-serif, system-ui, sans-serif);
 }
 
+
 .staff-performance-page__header {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
@@ -244,4 +245,31 @@
   .staff-performance-page__actions { grid-template-columns: 1fr; }
   .staff-performance-page__actions label { min-width: 0; }
   .staff-performance-page__actions > button { justify-content: center; }
+}
+
+/* Compact CRM layout follows the student workspace. */
+.aura-operations-page:has(.staff-performance-page) { padding:0; }
+.aura-operations-page:has(.staff-performance-page) > .aura-operations-page__content { max-width:none; width:100%; }
+.staff-performance-page { --staff-performance-ink:var(--aura-crm-ink); --staff-performance-muted:var(--aura-crm-muted); --staff-performance-brand:var(--aura-crm-pink); --staff-performance-accent:var(--aura-crm-orange); max-width:none; padding:18px 12px calc(96px + env(safe-area-inset-bottom)); background:var(--aura-crm-canvas); }
+.staff-performance-page__header { gap:12px; margin-bottom:16px; padding:0; border:0; background:transparent; }
+.staff-performance-page__header h1 { margin:0 0 5px; color:var(--aura-crm-pink); font-size:28px; line-height:1.2; letter-spacing:-.04em; }
+.staff-performance-page__header p { font-size:12px; }
+.staff-performance-page__header .is-back { width:36px; height:36px; border:0; border-radius:8px; color:var(--aura-crm-pink); background:var(--aura-crm-soft); }
+.staff-performance-page__actions > button { min-height:38px; padding:0 11px; border-radius:8px; color:var(--aura-crm-ink); background:var(--aura-crm-action); font-size:12px; }
+.staff-performance-page__actions input { border:0; border-radius:8px; }
+.staff-performance-page > .performance-brand { margin:0; border:0; border-radius:16px; padding:14px; }
+.staff-performance-page .performance-brand__mark { width:40px; height:40px; border-radius:10px; background:var(--aura-crm-action); box-shadow:none; }
+.staff-performance-page .performance-brand__head h2 { font-size:24px; }
+.staff-performance-page .performance-brand__head p { font-size:13px; }
+.staff-performance-page .performance-brand__overview,.staff-performance-page .performance-brand__gates,.staff-performance-page .performance-brand__metrics article,.staff-performance-page .performance-brand__rules,.staff-performance-page .performance-brand__framework { border:0; border-radius:12px; }
+.staff-performance-page .performance-brand__overview article { padding:12px; border:0; background:var(--aura-crm-soft); }
+.staff-performance-page .performance-brand__metrics article { min-height:100px; padding:13px; }
+.staff-performance-page :is(button,input,summary):focus-visible { outline:2px solid var(--aura-crm-pink); outline-offset:3px; }
+@media(max-width:760px) {
+  .staff-performance-page { padding:14px 8px calc(96px + env(safe-area-inset-bottom)); }
+  .staff-performance-page__header { grid-template-columns:auto minmax(0,1fr); gap:10px; }
+  .staff-performance-page__header h1 { font-size:26px; }
+  .staff-performance-page__actions { grid-column:1/-1; width:100%; justify-content:space-between; }
+  .staff-performance-page__actions > button,.staff-performance-page__header .is-back { min-height:40px; }
+  .staff-performance-page > .performance-brand { padding:12px; }
 }

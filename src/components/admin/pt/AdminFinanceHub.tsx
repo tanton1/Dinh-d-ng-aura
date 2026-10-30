@@ -1,14 +1,14 @@
-import { useState } from 'react'
+import { lazy, Suspense, useState } from 'react'
 import type { User } from 'firebase/auth'
 import type { UserProfile } from '../../../types'
 import { BarChart3, CircleDollarSign, PauseCircle, WalletCards } from 'lucide-react'
 import { useDatabase } from '../../../contexts/DatabaseContext'
-import FinanceManagement from './FinanceManagement'
-import CashbookPanel from './CashbookPanel'
-import BusinessPerformancePanel from './BusinessPerformancePanel'
 import '../../../styles-operations-hub.css'
 
 type FinanceTab = 'overview' | 'ledger' | 'frozen' | 'cashbook'
+const FinanceManagement = lazy(() => import('./FinanceManagement'))
+const CashbookPanel = lazy(() => import('./CashbookPanel'))
+const BusinessPerformancePanel = lazy(() => import('./BusinessPerformancePanel'))
 
 export default function AdminFinanceHub({ user, profile, initialTab = 'overview' }: { user: User | null; profile: UserProfile | null; initialTab?: FinanceTab }) {
   const [tab, setTab] = useState<FinanceTab>(initialTab)
@@ -34,9 +34,11 @@ export default function AdminFinanceHub({ user, profile, initialTab = 'overview'
       })}
     </nav>
     <div id="finance-tab-panel" role="tabpanel" aria-labelledby={`finance-tab-${tab}`}>
+      <Suspense fallback={<div role="status">Đang tải dữ liệu tài chính…</div>}>
       {tab === 'overview' && <BusinessPerformancePanel />}
       {(tab === 'ledger' || tab === 'frozen') && <FinanceManagement user={user} profile={profile} category={tab === 'ledger' ? 'installments' : tab} />}
       {tab === 'cashbook' && <CashbookPanel branches={branches} />}
+      </Suspense>
     </div>
   </div>
 }

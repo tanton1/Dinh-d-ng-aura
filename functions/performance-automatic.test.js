@@ -6,9 +6,56 @@ const {
   clientCareMetrics,
   nutritionMetrics,
   renewalMetrics,
+  loadOperationalSources,
+  businessMetrics,
 } = require('./performance-automatic')
+const { reviewFixture } = require('./test-support/review-query-fixture')
 
 const range = { start: '2026-09-01', end: '2026-09-30', effectiveEnd: '2026-09-08' }
+
+test('Performance reuses queried attendance but still reads substitute attendance for assigned sessions', async () => {
+  const occurredAt = new Date('2026-09-04T09:00:00+07:00')
+  const fixture = reviewFixture({ sessions: [
+    { id: 'delivered', date: '2026-09-04', trainerId: 'pt', studentId: 'a', status: 'completed' },
+    { id: 'substituted', date: '2026-09-04', trainerId: 'pt', studentId: 'b', status: 'completed' },
+  ], attendanceEvents: [
+    { id: 'delivered', sessionId: 'delivered', trainerId: 'pt', attendanceStatus: 'present', occurredAt },
+    { id: 'substituted', sessionId: 'substituted', trainerId: 'other', attendanceStatus: 'present', occurredAt },
+  ] })
+  const source = await loadOperationalSources(fixture.db, { staffId: 'pt', ownerUid: 'pt' }, '2026-09')
+  assert.equal(fixture.reads.includes('attendanceEvents/delivered'), false)
+  assert.equal(fixture.reads.filter(path => path === 'attendanceEvents/substituted').length, 1)
+  assert.equal(source.attendanceBySession.get('substituted').trainerId, 'other')
+  assert.equal(sessionMetrics(source).attendance.actual, 50)
+})
+
+test('bounded renewal streams preserve due/closed metrics and exclude irrelevant history', async () => {
+  const current = new Date('2026-09-05T09:00:00+07:00'), old = new Date('2025-09-05T09:00:00+07:00')
+  const cases = [
+    { id: 'due', contractSnapshot: { trainerId: 'pt', endDate: '2026-09-30' }, stage: 'contacting', expectedValue: 100 },
+    { id: 'won', contractSnapshot: { trainerId: 'pt', endDate: '2026-08-31' }, stage: 'won', wonAt: current, updatedAt: current, expectedValue: 100, collectedValue: 60 },
+    { id: 'lost', contractSnapshot: { trainerIds: ['pt'], endDate: '2026-10-30' }, stage: 'lost', updatedAt: current, lostReason: 'Chuyển nơi ở', expectedValue: 100 },
+    { id: 'old', contractSnapshot: { trainerId: 'pt', endDate: '2025-09-30' }, stage: 'won', wonAt: old, updatedAt: old },
+    { id: 'nutrition_only', contractSnapshot: { nutritionPTIds: ['pt'], endDate: '2026-09-30' }, stage: 'lost', updatedAt: current },
+  ]
+  const fixture = reviewFixture({ contractRenewalCases: cases })
+  const source = await loadOperationalSources(fixture.db, { staffId: 'pt', ownerUid: 'pt' }, '2026-09')
+  assert.deepEqual(source.renewalCases.map(row => row.id).sort(), ['due', 'lost', 'won'])
+  const actual = renewalMetrics(source), prior = renewalMetrics({ ...source, renewalCases: cases })
+  for (const metric of Object.keys(prior)) for (const field of ['actual', 'target', 'numerator', 'denominator', 'sampleSize']) assert.equal(actual[metric][field], prior[metric][field], `${metric}.${field}`)
+  assert.ok(fixture.queries.filter(query => query.name === 'contractRenewalCases').every(query => query.predicates.some(predicate => predicate.operator === '>=')))
+})
+
+test('referral scoring reuses already loaded contracts without changing the cash threshold', async () => {
+  const fixture = reviewFixture({ contracts: [{ id: 'missing', totalPrice: 100 }] })
+  const result = await businessMetrics(fixture.db, { ids: ['pt'], range, ledgerEntries: [
+    { id: 'one', contractId: 'known', referralStaffId: 'pt', status: 'posted', cashImpact: 30 },
+    { id: 'two', contractId: 'missing', referralStaffId: 'pt', status: 'posted', cashImpact: 20 },
+  ], contracts: [{ id: 'known', totalPrice: 100 }], salesLeads: [], contractApprovals: [], targets: {} })
+  assert.equal(result.quality_new_referral.numerator, 1)
+  assert.equal(result.quality_new_referral.denominator, 2)
+  assert.deepEqual(fixture.reads, ['contracts/missing'])
+})
 
 test('period range follows the Vietnam calendar month and stops current month at today', () => {
   const value = periodRange('2026-09', new Date('2026-09-08T04:00:00Z'))

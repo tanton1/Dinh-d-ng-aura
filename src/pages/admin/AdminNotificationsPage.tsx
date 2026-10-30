@@ -1,6 +1,6 @@
 import '../../styles-admin.css'
 import './push/AdminNotificationsPage.css'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Activity, FlaskConical, History, Send, SlidersHorizontal } from 'lucide-react'
 import { PageHeader } from '../../components/ui'
 import type {
@@ -31,6 +31,7 @@ import {
 import { UiRolloutPanel } from './push/UiRolloutPanel'
 import { useAdminPushReads, type AdminSettingsTab } from './push/useAdminPushReads'
 import { subscribeToAdminUsers } from '../../services/firebaseService'
+import { clearPushIntent, readPushIntent, savePushIntent, type PendingPushIntent } from '../../services/pushDispatchIntent'
 
 interface AdminNotificationsPageProps {
   onNavigate?: (view: ViewId) => void
@@ -99,7 +100,11 @@ function AdminNotificationsSession({
   const [usersError, setUsersError] = useState('')
   const [usersRetry, setUsersRetry] = useState(0)
   const [historyFilter, setHistoryFilter] = useState<HistoryFilter>('all')
-  const [draft, setDraft] = useState<PushComposerDraft>({ ...DEFAULT_PUSH_DRAFT })
+  const [pendingIntent, setPendingIntent] = useState<PendingPushIntent | null>(() => {
+    try { return currentUserUid ? readPushIntent(window.sessionStorage, currentUserUid) : null } catch { return null }
+  })
+  const [draft, setDraft] = useState<PushComposerDraft>(() => pendingIntent?.draft ?? { ...DEFAULT_PUSH_DRAFT })
+  const dispatchBusy = useRef(false)
   const needsUsers = activeTab === 'compose' || activeTab === 'ui-rollout'
   useEffect(() => {
     if (!needsUsers || backendMode !== 'firebase' || !currentUserUid) return
@@ -135,6 +140,8 @@ function AdminNotificationsSession({
   const [deviceMessage, setDeviceMessage] = useState<{ tone: 'success' | 'error'; text: string } | null>(null)
 
   const handleDispatch = async (targetUserIds: string[]) => {
+    if (dispatchBusy.current) return false
+    dispatchBusy.current = true
     const current = reads.currentRequest()
     setDispatching(true)
     setDispatchError('')
@@ -145,28 +152,49 @@ function AdminNotificationsSession({
         : draft.audience === 'individual'
           ? 'individual'
           : 'category'
-      if (targetType !== 'all' && targetUserIds.length === 0) {
+      if (!pendingIntent && targetType !== 'all' && targetUserIds.length === 0) {
         throw new Error('Nhóm đã chọn không có người nhận. Hãy chọn nhóm khác trước khi gửi.')
       }
-      const result = await dispatchAdminPushBroadcast({
-        title: draft.title.trim(),
-        message: draft.message.trim(),
-        type: draft.type,
-        category: draft.category,
-        targetType,
-        targetUserIds,
-        actionUrl: draft.actionUrl.startsWith('/') ? draft.actionUrl : '/home',
-        sentBy: currentUserUid || 'Admin Aura',
-        respectCategoryPreferences: true,
-      })
+      let intent = pendingIntent
+      if (!intent) {
+        if (!currentUserUid) throw new Error('Cần đăng nhập lại trước khi gửi thông báo.')
+        const requestId = crypto.randomUUID()
+        intent = { version: 1, actorId: currentUserUid, requestId, draft: { ...draft }, payload: {
+          requestId,
+          title: draft.title.trim(),
+          message: draft.message.trim(),
+          type: draft.type,
+          category: draft.category,
+          targetType,
+          targetUserIds,
+          actionUrl: draft.actionUrl.startsWith('/') ? draft.actionUrl : '/home',
+          sentBy: currentUserUid,
+          respectCategoryPreferences: true,
+        } }
+        savePushIntent(window.sessionStorage, intent)
+        setPendingIntent(intent)
+      }
+      const result = await dispatchAdminPushBroadcast(intent.payload)
       if (!current()) return false
       setDispatchResult(result)
+      if (result.complete !== false) {
+        clearPushIntent(window.sessionStorage, intent.actorId)
+        setPendingIntent(null)
+      }
       reads.afterDelivery()
-      return true
+      return result.complete !== false
     } catch (error) {
-      if (current()) setDispatchError(errorMessage(error, 'Chưa thể gửi thông báo. Vui lòng kiểm tra kết nối và thử lại.'))
+      if (current()) {
+        const details = (error as { details?: { noDeliveryStarted?: boolean } })?.details
+        if (details?.noDeliveryStarted && currentUserUid) {
+          clearPushIntent(window.sessionStorage, currentUserUid)
+          setPendingIntent(null)
+        }
+        setDispatchError(errorMessage(error, 'Chưa xác định đầy đủ kết quả. Tiếp tục cùng lượt gửi để đối soát; không tạo lượt mới.'))
+      }
       return false
     } finally {
+      dispatchBusy.current = false
       if (current()) setDispatching(false)
     }
   }
@@ -261,8 +289,13 @@ function AdminNotificationsSession({
       })
       if (!current()) return
       setDeviceMessage({
-        tone: result.webPushSentCount > 0 ? 'success' : 'error',
-        text: result.webPushSentCount > 0
+        tone: result.webPushSentCount > 0 && !result.webPushUnknownCount ? 'success' : 'error',
+        text: result.webPushUnknownCount
+          ? 'FCM chưa xác nhận kết quả bản kiểm tra. Hệ thống giữ kết quả cần đối soát và không tự gửi lại.'
+          : result.legacyDeduplicated
+          ? 'Đã đối soát bản kiểm tra trước đó; không gửi thêm thông báo giống nhau trong 24 giờ.'
+          : result.complete === false ? 'Bản kiểm tra đang được xử lý. Bấm lại để tiếp tục cùng lượt.'
+          : result.webPushSentCount > 0
           ? `FCM đã chấp nhận bản kiểm tra trên ${result.webPushSentCount} thiết bị.`
           : 'Đã tạo inbox nhưng FCM chưa chấp nhận thiết bị nào. Kiểm tra token và cấu hình Firebase.',
       })
@@ -275,6 +308,7 @@ function AdminNotificationsSession({
   }
 
   const applyTemplate = (template: PushTemplate) => {
+    if (pendingIntent) { setActiveTab('compose'); setTemplateDrawerOpen(false); return }
     setDraft({
       audience: audienceFromTemplate(template),
       userId: '',
@@ -338,6 +372,7 @@ function AdminNotificationsSession({
   }
 
   const reuseBroadcast = (log: PushBroadcastLog) => {
+    if (pendingIntent) { setActiveTab('compose'); return }
     setDraft({
       ...DEFAULT_PUSH_DRAFT,
       type: log.type,
@@ -406,7 +441,11 @@ function AdminNotificationsSession({
             onSendDeviceTest={() => void handleSendDeviceTest()}
           />
         )}
-        {activeTab === 'compose' && (
+        {activeTab === 'compose' && (<>
+          {pendingIntent && <div className="push-alert push-alert--warning" role="status">
+            <span>Đang giữ một lượt gửi chưa hoàn tất. Nội dung và người nhận được giữ nguyên khi tiếp tục.</span>
+            <button type="button" className="push-button" disabled={dispatching} onClick={() => void handleDispatch([])}>Tiếp tục lượt gửi</button>
+          </div>}
           <PushComposerPanel
             users={users}
             templates={templates}
@@ -416,13 +455,14 @@ function AdminNotificationsSession({
             error={dispatchError || usersError || loadError}
             audienceLoading={usersLoading}
             onDraftChange={(nextDraft) => {
+              if (pendingIntent) return
               setDraft(nextDraft)
               setDispatchResult(null)
               setDispatchError('')
             }}
             onOpenTemplates={() => setTemplateDrawerOpen(true)}
             onDispatch={handleDispatch}
-          />
+          /></>
         )}
         {activeTab === 'automation' && (
           <><div role="status">{!reads.settingsReady ? 'Chưa xác nhận cấu hình từ máy chủ. Hãy tải lại trước khi chỉnh sửa.' : ''}</div><fieldset disabled={!reads.settingsReady || loading || savingSettings} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}><PushAutomationPanel

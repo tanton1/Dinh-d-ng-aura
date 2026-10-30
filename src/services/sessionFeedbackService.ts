@@ -72,12 +72,19 @@ export interface TrainerFeedbackAdminResponse {
   schemaVersion: number
   truncated: boolean
   attendanceTruncated: boolean
+  periodBasis?: 'session_date'
+  summaryIncluded?: boolean
+  hasMore?: boolean
+  nextCursor?: string | null
   summary: {
     total: number
     averageScore: number
     lowCount: number
     needsReview: number
-    responseRate: number
+    responseRate: number | null
+    responseCount?: number
+    complete?: boolean
+    responseComplete?: boolean
     eligibleAttendanceCount: number
     byTrainer: TrainerFeedbackSummaryRow[]
   }
@@ -134,6 +141,9 @@ export async function listTrainerFeedbackAdmin(input: {
   branchId?: string
   status?: SessionFeedbackStatus | ''
   score?: number
+  cursor?: string | null
+  pageSize?: number
+  includeSummary?: boolean
 }): Promise<TrainerFeedbackAdminResponse> {
   const response = await readWithFallback<typeof input, TrainerFeedbackAdminResponse>(
     'listTrainerFeedbackAdminRegional',
@@ -150,7 +160,10 @@ export async function listTrainerFeedbackAdmin(input: {
       averageScore: Number(response.summary?.averageScore || 0),
       lowCount: Number(response.summary?.lowCount || 0),
       needsReview: Number(response.summary?.needsReview || 0),
-      responseRate: Number(response.summary?.responseRate || 0),
+      responseRate: response.summary?.responseRate === null ? null : Number(response.summary?.responseRate || 0),
+      responseCount: Number(response.summary?.responseCount ?? response.summary?.total ?? 0),
+      complete: response.summary?.complete !== false && !response.truncated,
+      responseComplete: response.summary?.responseComplete !== false && !response.truncated && !response.attendanceTruncated,
       eligibleAttendanceCount: Number(response.summary?.eligibleAttendanceCount || 0),
       byTrainer: Array.isArray(response.summary?.byTrainer) ? response.summary.byTrainer : [],
     },

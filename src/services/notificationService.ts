@@ -395,7 +395,8 @@ export async function saveSystemPushSettings(settings: SystemPushSettings): Prom
 /**
  * Dispatch an Admin Broadcast Notification to target users, respecting user notification category preferences
  */
-export async function dispatchAdminPushBroadcast(params: {
+export interface AdminPushBroadcastParams {
+  requestId?: string
   title: string
   message: string
   type: AppNotification['type']
@@ -406,7 +407,9 @@ export async function dispatchAdminPushBroadcast(params: {
   sentBy?: string
   sendBrowserPush?: boolean
   respectCategoryPreferences?: boolean
-}): Promise<PushDispatchResult> {
+}
+
+export async function dispatchAdminPushBroadcast(params: AdminPushBroadcastParams): Promise<PushDispatchResult> {
   const { 
     title, 
     message, 
@@ -420,7 +423,7 @@ export async function dispatchAdminPushBroadcast(params: {
 
   const demoMode = import.meta.env.VITE_FORCE_DEMO === 'true' || import.meta.env.MODE === 'e2e'
   if (firebaseFunctions && !demoMode) {
-    const callable = httpsCallable<typeof params, PushDispatchResult>(firebaseFunctions, 'dispatchPushBroadcast')
+    const callable = httpsCallable<typeof params, PushDispatchResult>(firebaseFunctions, 'dispatchPushBroadcast', { timeout: 125_000 })
     const response = await callable(params)
     return {
       sentCount: response.data.sentCount,
@@ -428,6 +431,12 @@ export async function dispatchAdminPushBroadcast(params: {
       webPushFailureCount: response.data.webPushFailureCount,
       filteredOutCount: response.data.filteredOutCount,
       logId: response.data.logId,
+      webPushUnknownCount: response.data.webPushUnknownCount,
+      status: response.data.status,
+      complete: response.data.complete,
+      replayed: response.data.replayed,
+      legacyDeduplicated: response.data.legacyDeduplicated,
+      retryAfterMs: response.data.retryAfterMs,
     }
   }
 

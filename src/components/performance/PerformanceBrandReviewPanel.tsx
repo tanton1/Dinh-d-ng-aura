@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, Camera, CheckCircle2, ClipboardCheck, ExternalLink, FileCheck2, Image, LoaderCircle, Megaphone, RefreshCw, ShieldCheck, UserRoundCheck, XCircle } from 'lucide-react'
 import {
   listPerformanceReviewQueue,
@@ -55,6 +55,11 @@ export default function PerformanceBrandReviewPanel({ isDemo = false }: { isDemo
   const [staff, setStaff] = useState<PerformanceStaffDirectoryItem[]>([])
   const [profiles, setProfiles] = useState<BrandPerformanceEvidence[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [nextCursor, setNextCursor] = useState<string | null>(null)
+  const loadGeneration = useRef(0)
+  const profileGeneration = useRef(0)
+  const [profileLoading, setProfileLoading] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [selected, setSelected] = useState<BrandPerformanceEvidence | null>(null)
@@ -65,21 +70,28 @@ export default function PerformanceBrandReviewPanel({ isDemo = false }: { isDemo
   const [checklist, setChecklist] = useState<Record<PerformanceProfileKey, boolean>>(emptyChecklist)
   const [profileReason, setProfileReason] = useState('')
 
-  const load = useCallback(async () => {
-    setLoading(true); setError('')
+  const load = useCallback(async (cursor?: string | null) => {
+    const generation = ++loadGeneration.current
+    if (cursor) setLoadingMore(true)
+    else { setLoading(true); setLoadingMore(false); setNextCursor(null) }
+    setError('')
     try {
       if (isDemo) {
         setRows([]); setProfiles([]); setStaff([])
       } else {
-        const result = await listPerformanceReviewQueue({ periodId, status, type })
-        setRows(result.rows); setProfiles(result.profiles); setStaff(result.staff)
-        setSelected((current) => current ? result.rows.find((item) => item.id === current.id) || null : null)
+        const result = await listPerformanceReviewQueue({ periodId, status, type, cursor, includeQueue: workspace === 'evidence', includeDirectory: !cursor, includeProfiles: workspace === 'profile' && !cursor })
+        if (generation !== loadGeneration.current) return
+        setRows(previous => cursor ? [...new Map([...previous, ...result.rows].map(row => [row.id, row])).values()] : result.rows)
+        setNextCursor(result.nextCursor); setProfiles(result.profiles)
+        if (!cursor) { setStaff(result.staff); setSelected((current) => current ? result.rows.find((item) => item.id === current.id) || null : null) }
       }
-    } catch (cause) { setError(errorMessage(cause)) }
-    finally { setLoading(false) }
-  }, [isDemo, periodId, status, type])
+    } catch (cause) { if (generation === loadGeneration.current) { setError(errorMessage(cause)); setRows([]); setProfiles([]); setStaff([]); setSelected(null) } }
+    finally { if (generation === loadGeneration.current) { setLoading(false); setLoadingMore(false) } }
+  }, [isDemo, periodId, status, type, workspace])
 
-  useEffect(() => { void load() }, [load])
+  useEffect(() => { void load(); return () => { loadGeneration.current += 1 } }, [load])
+  useEffect(() => { profileGeneration.current += 1; setProfileStaffId(''); setProfileLoading(false); setChecklist(emptyChecklist()); setProfileReason('') }, [periodId])
+  useEffect(() => () => { profileGeneration.current += 1 }, [])
   const summary = useMemo(() => ({
     submitted: rows.filter((item) => item.status === 'submitted').length,
     approved: rows.filter((item) => item.status === 'approved').length,
@@ -102,15 +114,29 @@ export default function PerformanceBrandReviewPanel({ isDemo = false }: { isDemo
     finally { setWorking('') }
   }
 
-  const chooseProfileStaff = (staffId: string) => {
+  const chooseProfileStaff = async (staffId: string) => {
+    const generation = ++profileGeneration.current
     setProfileStaffId(staffId)
     const existing = profiles.find((item) => item.staffId === staffId)
     setChecklist(existing ? { ...emptyChecklist(), ...existing.checklist } : emptyChecklist())
     setProfileReason(existing?.reviewReason || '')
+    if (!staffId || isDemo) { setProfileLoading(false); return }
+    setProfileLoading(true); setError('')
+    try {
+      // A profile can be beyond the first evidence page. Always fetch the
+      // selected PT independently before allowing an edit of their checklist.
+      const result = await listPerformanceReviewQueue({ periodId, profileStaffId: staffId, includeQueue: false, includeDirectory: false })
+      if (generation !== profileGeneration.current) return
+      const profile = result.profiles.find(item => item.staffId === staffId)
+      setChecklist(profile ? { ...emptyChecklist(), ...profile.checklist } : emptyChecklist())
+      setProfileReason(profile?.reviewReason || '')
+    } catch (cause) {
+      if (generation === profileGeneration.current) { setProfileStaffId(''); setChecklist(emptyChecklist()); setProfileReason(''); setError(errorMessage(cause)) }
+    } finally { if (generation === profileGeneration.current) setProfileLoading(false) }
   }
 
   const saveProfile = async () => {
-    if (!profileStaffId) { setNotice('Chọn PT cần đánh giá Profile Quality.'); return }
+    if (!profileStaffId || profileLoading) { setNotice('Chọn PT và chờ tải hồ sơ trước khi lưu.'); return }
     setWorking('profile'); setNotice('')
     try {
       await savePerformanceProfileChecklist({ periodId, staffId: profileStaffId, checklist, reason: profileReason.trim() })
@@ -150,7 +176,7 @@ export default function PerformanceBrandReviewPanel({ isDemo = false }: { isDemo
         <label><span>Trạng thái</span><select value={status} onChange={(event) => setStatus(event.target.value as PerformanceEvidenceStatus | '')}><option value="">Mọi trạng thái</option><option value="submitted">Chờ duyệt</option><option value="needs_revision">Cần bổ sung</option><option value="approved">Đã duyệt</option><option value="rejected">Từ chối</option></select></label>
       </div>
       <dl className="performance-review__metrics" aria-label="Tổng hợp hàng chờ bằng chứng">
-        <div><dt>Trong bộ lọc</dt><dd>{rows.length}<span>hồ sơ</span></dd></div>
+        <div><dt>Đã tải trong bộ lọc</dt><dd>{rows.length}<span>hồ sơ{nextCursor ? ' · còn nữa' : ''}</span></dd></div>
         <div><dt>Thương hiệu cá nhân</dt><dd>{summary.personal}<span>/ 5 điểm</span></dd></div>
         <div><dt>Aura Brand</dt><dd>{summary.aura}<span>/ 3 điểm</span></dd></div>
         <div><dt>Đã duyệt</dt><dd>{summary.approved}<span>hồ sơ</span></dd></div>
@@ -164,6 +190,7 @@ export default function PerformanceBrandReviewPanel({ isDemo = false }: { isDemo
             <b className={`is-${item.status}`}>{STATUS_LABELS[item.status]}</b>
           </button>)}
           {!rows.some((item) => item.type !== 'profile_checklist') && <div className="performance-review__empty"><CheckCircle2 /><strong>Hàng chờ đang trống</strong><span>{status || type ? 'Không có hồ sơ phù hợp. Mở mọi trạng thái để kiểm tra lại.' : 'Bằng chứng mới sẽ xuất hiện tại đây ngay sau khi PT gửi.'}</span>{(status || type) && <button type="button" onClick={() => { setStatus(''); setType('') }}>Xem mọi trạng thái</button>}</div>}
+          {nextCursor && <button type="button" disabled={loadingMore} onClick={() => void load(nextCursor)}>{loadingMore ? 'Đang tải…' : 'Tải thêm bằng chứng'}</button>}
         </div>
         <aside className={`performance-review__detail${selected ? '' : ' is-empty'}`}>
           {selected ? <>
@@ -181,10 +208,11 @@ export default function PerformanceBrandReviewPanel({ isDemo = false }: { isDemo
 
     {!loading && workspace === 'profile' && <section className="performance-review__profile" role="tabpanel">
       <header><div><h2>Chất lượng hồ sơ PT</h2><p>Chọn PT và xác nhận 10 tiêu chí có thể kiểm chứng. Mỗi tiêu chí đạt cộng 0,2 điểm.</p></div><span><strong>{profileCompleted}</strong>/10 mục</span></header>
-      <label className="performance-review__profile-staff"><span>Chọn PT</span><select value={profileStaffId} onChange={(event) => chooseProfileStaff(event.target.value)}><option value="">Chọn nhân sự</option>{staff.map((item) => <option value={item.staffId} key={item.staffId}>{item.name}</option>)}</select></label>
-      <div className="performance-review__checklist">{PERFORMANCE_PROFILE_KEYS.map((key) => <label key={key}><input type="checkbox" disabled={!profileStaffId} checked={checklist[key]} onChange={(event) => setChecklist((current) => ({ ...current, [key]: event.target.checked }))} /><span>{PROFILE_LABELS[key]}</span><b>{checklist[key] ? '+0,2' : '0'}</b></label>)}</div>
+      <label className="performance-review__profile-staff"><span>Chọn PT</span><select value={profileStaffId} onChange={(event) => void chooseProfileStaff(event.target.value)}><option value="">Chọn nhân sự</option>{staff.map((item) => <option value={item.staffId} key={item.staffId}>{item.name}</option>)}</select></label>
+      {profileLoading && <div className="performance-review__state" role="status"><LoaderCircle className="spin" /> Đang tải hồ sơ PT…</div>}
+      <div className="performance-review__checklist">{PERFORMANCE_PROFILE_KEYS.map((key) => <label key={key}><input type="checkbox" disabled={!profileStaffId || profileLoading} checked={checklist[key]} onChange={(event) => setChecklist((current) => ({ ...current, [key]: event.target.checked }))} /><span>{PROFILE_LABELS[key]}</span><b>{checklist[key] ? '+0,2' : '0'}</b></label>)}</div>
       <label className="performance-review__profile-note"><span>Ghi chú</span><input value={profileReason} maxLength={500} onChange={(event) => setProfileReason(event.target.value)} placeholder="Điểm cần hoàn thiện trên hồ sơ cá nhân…" /></label>
-      <footer><strong>{(profileCompleted * 0.2).toFixed(1).replace('.', ',')}/2 điểm</strong><button type="button" disabled={!profileStaffId || Boolean(working)} onClick={() => void saveProfile()}>{working === 'profile' ? <LoaderCircle className="spin" /> : <CheckCircle2 />} Lưu đánh giá hồ sơ</button></footer>
+      <footer><strong>{(profileCompleted * 0.2).toFixed(1).replace('.', ',')}/2 điểm</strong><button type="button" disabled={!profileStaffId || profileLoading || Boolean(working)} onClick={() => void saveProfile()}>{working === 'profile' ? <LoaderCircle className="spin" /> : <CheckCircle2 />} Lưu đánh giá hồ sơ</button></footer>
     </section>}
   </section>
 }

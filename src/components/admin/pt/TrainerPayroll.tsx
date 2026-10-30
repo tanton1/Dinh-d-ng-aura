@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { User as FirebaseUser } from 'firebase/auth'
 import {
   AlertTriangle,
@@ -69,9 +69,9 @@ import { listCashAccounts, type CashAccount } from '../../../services/cashbookSe
 import '../../../styles-payroll-canonical.css'
 import '../../../styles-payroll-theme.css'
 import '../../../styles-aura-workforce.css'
-import StaffWorkdayPayrollPanel from './StaffWorkdayPayrollPanel'
-import StaffPayrollStatementPanel from './StaffPayrollStatementPanel'
-import TrainingHistoryPanel from './TrainingHistoryPanel'
+const StaffWorkdayPayrollPanel = lazy(() => import('./StaffWorkdayPayrollPanel'))
+const StaffPayrollStatementPanel = lazy(() => import('./StaffPayrollStatementPanel'))
+const TrainingHistoryPanel = lazy(() => import('./TrainingHistoryPanel'))
 import {
   getStaffPayrollStatement,
   invalidateStaffPayrollAttendance,
@@ -1040,14 +1040,14 @@ export default function TrainerPayroll({ profile }: Props) {
   const subpageActive = showRunSetup || Boolean(pendingConfirmation) || Boolean(detail) || detailLoading
   useEffect(() => { if (subpageActive) window.scrollTo({ top: 0, behavior: 'smooth' }) }, [subpageActive])
 
-  if (staffStatementId) return <div className="aura-workforce payroll-statement-workspace"><StaffPayrollStatementPanel
+  if (staffStatementId) return <div className="aura-workforce payroll-statement-workspace"><Suspense fallback={<div role="status">Đang tải phiếu lương…</div>}><StaffPayrollStatementPanel
     data={staffStatement}
     periodId={periodId}
     loading={staffStatementLoading}
     error={staffStatementError}
     onBack={() => { staffStatementSequence.current += 1; setStaffStatementId(''); setStaffStatement(null); setStaffStatementError('') }}
     onRetry={() => void openStaffStatement(staffStatementId)}
-  /></div>
+  /></Suspense></div>
 
   return <div className={`payroll-page aura-workforce ${subpageActive ? 'payroll-page--subpage' : ''}`}>
     <header className="aura-workforce__heading"><h1>Bảng lương</h1><AuraHelpPopover title="Cách tính lương" label="Cách tính lương"><p>Tiền ca chỉ lấy từ ca đã điểm danh; hai học viên cùng HLV, ngày và giờ vẫn là một ca. Hoa hồng tách riêng, chỉ bằng 2–10% dòng tiền thực thu trong kỳ của hợp đồng có mã giới thiệu PT; khoản hoàn hoặc đảo thu làm giảm hoa hồng.</p></AuraHelpPopover></header>
@@ -1079,7 +1079,7 @@ export default function TrainerPayroll({ profile }: Props) {
       </article>) : <article><div><strong>Chưa nhận được chi tiết từ máy chủ</strong><p>Hãy thử lại một lần. Aura sẽ ghi mã đối soát nếu giao dịch tiếp tục thất bại.</p></div><button type="button" onClick={() => void refresh()}>Thử lại<RefreshCw size={15} /></button></article>}</div>
     </section>}
 
-    {view === 'workdays' ? <StaffWorkdayPayrollPanel branches={branches} periodId={periodId} attendance={liveAttendance} loading={loading} onPeriodChange={setPeriodId} onReload={() => refresh(true)} /> : view === 'runs' ? <>
+    {view === 'workdays' ? <Suspense fallback={<div role="status">Đang tải bảng ngày công…</div>}><StaffWorkdayPayrollPanel branches={branches} periodId={periodId} attendance={liveAttendance} loading={loading} onPeriodChange={setPeriodId} onReload={() => refresh(true)} /></Suspense> : view === 'runs' ? <>
       <section className="payroll-page__toolbar" aria-label="Bộ lọc kỳ lương">
         <label><span>Kỳ</span><input aria-label="Kỳ lương" type="month" value={periodId} onChange={(event) => setPeriodId(event.target.value)} /></label>
         <label><span>Trạng thái</span><select aria-label="Lọc trạng thái kỳ lương" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as RunStatusFilter)}><option value="all">Tất cả</option>{Object.entries(statusMeta).map(([id, meta]) => <option key={id} value={id}>{meta.label}</option>)}</select></label>
@@ -1265,7 +1265,7 @@ export default function TrainerPayroll({ profile }: Props) {
         </dl>
         <p className="payroll-correction-modal__guide">Chọn đúng buổi bên dưới để mở thẳng lịch sử và bảng điều chỉnh. Không xóa hoặc gộp buổi; kỳ lương hiện tại vẫn được giữ nguyên phía sau popup.</p>
         {((violationDialog.studentId || violationDialog.studentIds?.[0]) || (violationDialog.trainerId || violationDialog.trainerIds?.[0])) && violationSessionId ? <div className="payroll-correction-modal__history">
-          <TrainingHistoryPanel
+          <Suspense fallback={<div role="status">Đang tải lịch sử buổi tập…</div>}><TrainingHistoryPanel
             key={`${violationDialog.code}:${violationSessionId}`}
             subject={(violationDialog.studentId || violationDialog.studentIds?.[0]) ? 'student' : 'trainer'}
             subjectId={violationDialog.studentId || violationDialog.studentIds?.[0] || violationDialog.trainerId || violationDialog.trainerIds?.[0] || ''}
@@ -1273,7 +1273,7 @@ export default function TrainerPayroll({ profile }: Props) {
             focusSessionId={violationSessionId}
             focusDate={violationDialog.date}
             onCorrectionSaved={() => { setMessage('Đã lưu điều chỉnh ca. Hãy tải lại/ lập lại kỳ nháp để cập nhật đối soát.'); void refresh(true) }}
-          />
+          /></Suspense>
         </div> : <div className="payroll-correction-modal__empty">Chưa có mã buổi hợp lệ để mở lịch sử. Hãy tải lại dữ liệu đối soát.</div>}
         <footer><button className="payroll-page__secondary" type="button" onClick={() => setViolationDialog(null)}>Đóng, giữ kỳ lương</button></footer>
       </section>

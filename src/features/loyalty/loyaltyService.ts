@@ -7,6 +7,7 @@ import { isRegionalReadName } from '../../services/regionalReadPolicy'
 import { callRegionalRead } from '../../services/regionalReadService'
 import type {
   LoyaltyAccount,
+  LoyaltyTier,
   LoyaltyAdminAccount,
   LoyaltyAdminAccountPage,
   LoyaltyAdminAmbassador,
@@ -88,7 +89,7 @@ export async function listLoyaltyRedemptions(status = '') {
   return callSecondaryRead<{ status: string }, { redemptions: Array<Record<string, unknown> & { id: string; status: string }> }>('listLoyaltyRedemptions', { status })
 }
 
-export async function listLoyaltyAccounts(input: { pageSize?: number; cursor?: string; studentId?: string } = {}) {
+export async function listLoyaltyAccounts(input: { pageSize?: number; cursor?: string; studentId?: string; directoryVersion?: 2; tier?: LoyaltyTier | 'all'; query?: string; includeTotal?: boolean } = {}) {
   const { callSecondaryRead } = await import('../../services/secondaryReadService')
   return callSecondaryRead<typeof input, LoyaltyAdminAccountPage>('listLoyaltyAccounts', input)
 }

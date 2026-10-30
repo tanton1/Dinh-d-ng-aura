@@ -1,12 +1,13 @@
 const { createHash } = require('node:crypto')
-const { FieldValue, Timestamp } = require('firebase-admin/firestore')
+const { FieldValue, FieldPath, Timestamp } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
 const { trustedAccessContext, requireCapability } = require('./identity-access')
+const { reviewPage, authorizedBranches } = require('./scoped-review-pagination')
 
 const TIME_ZONE = 'Asia/Ho_Chi_Minh'
 const FEEDBACK_WINDOW_HOURS = 72
 const FEEDBACK_EDIT_WINDOW_MINUTES = 15
-const MAX_ADMIN_ROWS = 500
+const MAX_ADMIN_SUMMARY_ROWS = 5000
 const ALLOWED_TAGS = new Set([
   'trainer_on_time',
   'clear_guidance',
@@ -339,7 +340,7 @@ function createSessionFeedbackFunctions({ db, onCall, callOptions = {} }) {
   })
 
   const listTrainerFeedbackAdmin = call(async (request) => {
-    await administrator(request)
+    const actor = await administrator(request)
     const to = dateKey(request.data?.to, 'Ngày kết thúc')
     const from = dateKey(request.data?.from, 'Ngày bắt đầu')
     if (from > to || Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`) > 366 * 86400000) {
@@ -347,46 +348,79 @@ function createSessionFeedbackFunctions({ db, onCall, callOptions = {} }) {
     }
     const start = Timestamp.fromDate(new Date(`${from}T00:00:00+07:00`))
     const end = Timestamp.fromDate(new Date(`${addDateDays(to, 1)}T00:00:00+07:00`))
-    const [feedbackSnapshot, attendanceSnapshot] = await Promise.all([
-      db.collection('sessionFeedback')
-        .where('submittedAt', '>=', start)
-        .where('submittedAt', '<', end)
-        .orderBy('submittedAt', 'desc')
-        .limit(MAX_ADMIN_ROWS + 1)
-        .get(),
-      db.collection('attendanceEvents')
-        .where('scheduledAt', '>=', start)
-        .where('scheduledAt', '<', end)
-        .limit(5001)
-        .get(),
-    ])
-    const trainerId = typeof request.data?.trainerId === 'string' ? request.data.trainerId.trim() : ''
-    const branchId = typeof request.data?.branchId === 'string' ? request.data.branchId.trim() : ''
+    const trainerId = boundedString(request.data?.trainerId, 'PT', 200, false)
+    const branchId = boundedString(request.data?.branchId, 'Chi nhánh', 200, false)
+    const branchesInScope = authorizedBranches(actor, branchId)
     const status = ADMIN_STATUSES.has(request.data?.status) ? request.data.status : ''
     const score = Number.isInteger(request.data?.score) && request.data.score >= 1 && request.data.score <= 5 ? request.data.score : 0
-    const rows = feedbackSnapshot.docs.slice(0, MAX_ADMIN_ROWS).map((item) => ({ id: item.id, ...item.data() }))
-      .filter((item) => !trainerId || item.trainerId === trainerId)
-      .filter((item) => !branchId || item.branchId === branchId)
-      .filter((item) => !status || item.status === status)
-      .filter((item) => !score || Number(item.overallScore) === score)
-    const trainerIds = rows.map((item) => item.trainerId)
+    const page = reviewPage(actor, ['trainer_quality', from, to, trainerId, branchId, status, score], request.data?.cursor, request.data?.pageSize, 100)
+    const summaryIncluded = !page.after || request.data?.includeSummary !== false
+    const groups = branchesInScope === null ? [null] : Array.from({ length: Math.ceil(branchesInScope.length / 30) }, (_, index) => branchesInScope.slice(index * 30, index * 30 + 30))
+    const scopedQuery = (collection, group) => {
+      let query = db.collection(collection)
+      if (trainerId) query = query.where('trainerId', '==', trainerId)
+      if (group) query = query.where('branchId', group.length === 1 ? '==' : 'in', group.length === 1 ? group[0] : group)
+      return query
+    }
+    const feedbackQuery = group => scopedQuery('sessionFeedback', group)
+      .where('sessionDate', '>=', from).where('sessionDate', '<=', to)
+      .orderBy('sessionDate', 'desc').orderBy(FieldPath.documentId(), 'desc')
+    const [feedbackSnapshots, attendanceSnapshots, pageSnapshots] = await Promise.all([
+      summaryIncluded ? Promise.all(groups.map(group => feedbackQuery(group).limit(MAX_ADMIN_SUMMARY_ROWS + 1).get())) : [],
+      summaryIncluded ? Promise.all(groups.map(group => scopedQuery('attendanceEvents', group)
+        .where('scheduledAt', '>=', start).where('scheduledAt', '<', end).limit(MAX_ADMIN_SUMMARY_ROWS + 1).get())) : [],
+      !page.after && !status && !score ? [] : Promise.all(groups.map(group => {
+        let query = feedbackQuery(group)
+        if (status) query = query.where('status', '==', status)
+        if (score) query = query.where('overallScore', '==', score)
+        if (page.after) query = query.startAfter(...page.after)
+        return query.limit(page.pageSize + 1).get()
+      })),
+    ])
+    const merge = snapshots => [...new Map(snapshots.flatMap(snapshot => snapshot.docs).map(item => [item.id, { id: item.id, ...item.data() }])).values()]
+    const ordered = rows => rows.sort((left, right) => String(right.sessionDate).localeCompare(String(left.sessionDate)) || (left.id < right.id ? 1 : left.id > right.id ? -1 : 0))
+    const cohortRows = ordered(merge(feedbackSnapshots))
+    const attendanceRows = merge(attendanceSnapshots)
+    const summaryTruncated = cohortRows.length > MAX_ADMIN_SUMMARY_ROWS || feedbackSnapshots.some(snapshot => snapshot.size > MAX_ADMIN_SUMMARY_ROWS)
+    const attendanceTruncated = attendanceRows.length > MAX_ADMIN_SUMMARY_ROWS || attendanceSnapshots.some(snapshot => snapshot.size > MAX_ADMIN_SUMMARY_ROWS)
+    // A feedback submitted next month still belongs to the month of its
+    // session. Count each delivered session once; a retry/import must never
+    // inflate the response rate. Status/score filter the review list, while
+    // the rate always describes the whole trainer/branch/session-date cohort.
+    const uniqueFeedback = [...new Map(cohortRows.slice(0, MAX_ADMIN_SUMMARY_ROWS).reverse().map(item => [item.sessionId || item.id, item])).values()]
+    const filteredSummaryRows = uniqueFeedback.filter(item => (!status || item.status === status) && (!score || Number(item.overallScore) === score))
+    const eligibleSessions = new Set(attendanceRows.slice(0, MAX_ADMIN_SUMMARY_ROWS)
+      .filter(item => ['present', 'late'].includes(item.attendanceStatus)).map(item => item.sessionId || item.id))
+    const responseCount = uniqueFeedback.filter(item => eligibleSessions.has(item.sessionId || item.id)).length
+    const pageRows = !page.after && !status && !score ? cohortRows : ordered(merge(pageSnapshots))
+    const hasMore = pageRows.length > page.pageSize
+    const rows = pageRows.slice(0, page.pageSize)
+    const trainerIds = [...uniqueFeedback, ...rows].map((item) => item.trainerId)
     const studentIds = rows.map((item) => item.studentId)
-    const branchIds = rows.map((item) => item.branchId)
+    const branchIds = [...uniqueFeedback, ...rows].map((item) => item.branchId)
     const [trainers, students, branches] = await Promise.all([
       documentsById(db, 'trainers', trainerIds),
       documentsById(db, 'students', studentIds),
       documentsById(db, 'branches', branchIds),
     ])
-    const eligibleAttendanceCount = attendanceSnapshot.docs.filter((item) => ['present', 'late'].includes(item.data().attendanceStatus)).length
-    const summary = feedbackSummary(rows, eligibleAttendanceCount)
+    const eligibleAttendanceCount = eligibleSessions.size
+    const summary = feedbackSummary(filteredSummaryRows, eligibleAttendanceCount)
+    summary.responseCount = responseCount
+    summary.responseRate = summaryTruncated || attendanceTruncated ? null : eligibleAttendanceCount ? Math.round(responseCount / eligibleAttendanceCount * 1000) / 10 : 0
+    summary.complete = !summaryTruncated
+    summary.responseComplete = !summaryTruncated && !attendanceTruncated
     summary.byTrainer = summary.byTrainer.map((item) => ({
       ...item,
       trainerName: trainers.get(item.trainerId)?.name || 'PT đã ngừng hoạt động',
     }))
     return {
-      schemaVersion: 1,
-      truncated: feedbackSnapshot.size > MAX_ADMIN_ROWS,
-      attendanceTruncated: attendanceSnapshot.size > 5000,
+      schemaVersion: 2,
+      periodBasis: 'session_date',
+      summaryIncluded,
+      truncated: summaryTruncated,
+      attendanceTruncated,
+      hasMore,
+      nextCursor: hasMore ? page.next([rows.at(-1).sessionDate, rows.at(-1).id]) : null,
       summary,
       trainers: [...new Set(trainerIds)].filter(Boolean).map((id) => ({ id, name: trainers.get(id)?.name || 'PT đã ngừng hoạt động' })).sort((left, right) => left.name.localeCompare(right.name, 'vi')),
       branches: [...new Set(branchIds)].filter(Boolean).map((id) => ({ id, name: branches.get(id)?.name || 'Chi nhánh chưa xác định' })).sort((left, right) => left.name.localeCompare(right.name, 'vi')),

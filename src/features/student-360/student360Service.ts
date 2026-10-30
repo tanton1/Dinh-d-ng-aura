@@ -50,14 +50,23 @@ export async function getStudent360Overview(studentId: string, weekId?: string, 
 }
 
 export async function listStudent360Directory(input: {
+  mode?: 'admin'
   query?: string
   branchId?: string
   attention?: 'stable' | 'attention' | 'action_required'
   cursor?: string | null
   pageSize?: number
+  contractStatus?: 'all' | 'active' | 'expiring_week' | 'expiring_month' | 'expired' | 'paused' | 'inactive' | 'cancelled'
+  joinedFrom?: string
+  joinedTo?: string
+  trainerId?: string
+  nutritionPTId?: string
+  weekId?: string
+  optionsOnly?: boolean
+  optionsCursor?: string | null
 } = {}) {
   try {
-    return await callStudent360Read<typeof input, { schemaVersion: 1; rows: Student360DirectoryItem[]; hasMore: boolean; nextCursor: string | null; totalMatched: number | null; scanned: number; truncated: boolean }>(
+    return await callStudent360Read<typeof input, { schemaVersion: number; rows: Student360DirectoryItem[]; hasMore: boolean; nextCursor: string | null; totalMatched: number | null; scanned: number; truncated: boolean; matchedSoFar?: number; countComplete?: boolean; scannedTotal?: number; asOf?: string; weekId?: string; filterOptions?: { trainers: Array<{ id: string; name: string }>; hasMore: boolean; nextCursor: string | null } }>(
       'listStudent360Directory',
       input,
     )

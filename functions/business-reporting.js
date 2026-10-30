@@ -531,6 +531,7 @@ function createBusinessReportingFunctions({ db, onCall }) {
         unrecognisedAttendanceEvents,
         attendanceTruncated: attendanceSnapshot.size > MAX_ATTENDANCE_DOCUMENTS,
         cashAccounts: cashAccountSnapshot.size,
+        cashAccountsTruncated: cashAccountSnapshot.size > 200,
         cashAccountsReady: !cashAccountSnapshot.empty,
         missingSourceIntegrations: ['online_coaching', 'nutrition_coaching', 'academy'],
         message: qualityMessages.length

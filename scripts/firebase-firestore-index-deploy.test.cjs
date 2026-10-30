@@ -4,6 +4,16 @@ const test = require('node:test')
 const { parseArguments, selectIndexes, signature, indexMatches, CONFIRMATION } = require('./firebase-firestore-index-deploy.cjs')
 const indexes = require('../firestore.indexes.json').indexes
 
+test('Graphify fixes deploy only the reviewed manifest, rejecting absent and duplicate entries', () => {
+  const approved = require('../ops/graphify-fixes-indexes-20261030.json').indexes
+  const selected = selectIndexes(indexes, 'graphify-fixes')
+  assert.deepEqual(selected.map(signature), approved.map(signature))
+  assert.equal(selected.filter(index => index.collectionGroup === 'loyaltyMemberDirectory').length, 8)
+  assert.throws(() => selectIndexes([...indexes, selected[0]], 'graphify-fixes'), /exactly once/)
+  assert.throws(() => selectIndexes(indexes.filter(index => signature(index) !== signature(selected[0])), 'graphify-fixes'), /exactly once/)
+  assert.throws(() => parseArguments(['apply', '--scope=graphify-fixes']), /confirmation/)
+})
+
 test('CPU background scope selects only the two due queues with explicit Enterprise cursor ordering', () => {
   const expected = [
     { collectionGroup: 'subjects', queryScope: 'COLLECTION', fields: [

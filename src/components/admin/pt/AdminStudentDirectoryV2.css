@@ -16,3 +16,40 @@
 .admin-student-directory-v2__modal input{box-sizing:border-box;width:100%;min-width:0;background:#fff}
 .admin-student-directory-v2__modal footer button{min-width:110px}
 @media(max-width:760px){.admin-student-directory-v2__modal-backdrop{padding:16px}.admin-student-directory-v2__modal{width:min(100%,520px);max-height:calc(100dvh - 32px)}}
+
+/* Match the student CRM surface while keeping tables and forms readable. */
+.admin-student-directory-v2 { width:100%; max-width:none; min-width:0; margin:0; padding:18px 12px 32px; gap:14px; border:0; border-radius:0; background:var(--aura-crm-canvas); color:var(--aura-crm-ink); }
+.aura-operations-page:has(.admin-student-directory-v2) { padding:0; }
+.aura-operations-page:has(.admin-student-directory-v2) > .aura-operations-page__content { width:100%; max-width:none; }
+.admin-student-directory-v2 h1 { margin:0; color:var(--aura-crm-pink); font-size:28px; }
+.admin-student-directory-v2 button { min-height:36px; border-radius:8px; font-size:12px; }
+.admin-student-directory-v2 :is(button,input,select):focus-visible { outline:2px solid var(--aura-crm-pink); outline-offset:3px; }
+.admin-student-directory-v2__header { align-items:center; }
+.admin-student-directory-v2__header-actions button { white-space:nowrap; }
+.admin-student-directory-v2__search .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
+.admin-student-directory-v2__create,.admin-student-directory-v2__more button { color:var(--aura-crm-ink); background:var(--aura-crm-action); }
+.admin-student-directory-v2 :is(.admin-student-directory-v2__refresh,.admin-student-directory-v2__edit,.admin-student-directory-v2__archive,.admin-student-directory-v2__delete) { border:0!important; }
+.admin-student-directory-v2__refresh,.admin-student-directory-v2__open,.admin-student-directory-v2__edit { color:var(--aura-crm-pink); background:var(--aura-crm-soft); }
+.admin-student-directory-v2__toolbar { grid-template-columns:minmax(0,1fr) 44px; padding:10px; border:0; background:#fff; }
+.admin-student-directory-v2__search,.admin-student-directory-v2__filter { min-height:40px; border:0; background:var(--aura-crm-soft); }
+.admin-student-directory-v2__search { min-width:0; }
+.admin-student-directory-v2__search input { min-width:0; }
+.admin-student-directory-v2__filter-toggle { position:relative; display:grid; place-items:center; width:44px; height:44px; color:var(--aura-crm-pink); background:var(--aura-crm-soft); }
+.admin-student-directory-v2__filter-toggle:is(.is-active,[aria-expanded="true"]) { background:var(--aura-crm-action); color:var(--aura-crm-ink); }
+.admin-student-directory-v2__filter-count { position:absolute; top:-4px; right:-3px; display:grid; place-items:center; min-width:17px; height:17px; padding:0 4px; border-radius:20px; background:var(--aura-crm-pink); color:#fff; font-size:10px; font-weight:800; }
+.admin-student-directory-v2__filters { grid-column:1/-1; display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; }
+.admin-student-directory-v2__filters .admin-student-directory-v2__filter { min-width:0; flex-direction:column; align-items:stretch; gap:4px; padding:8px 10px; }
+.admin-student-directory-v2__filters :is(input,select) { width:100%; min-width:0; border:0; padding:0; background:transparent; color:var(--aura-crm-ink); font:inherit; font-size:13px; }
+.admin-student-directory-v2__date-actions { grid-column:1/-1; display:flex; flex-wrap:wrap; gap:8px; }
+.admin-student-directory-v2__summary { grid-column:1/-1; justify-content:flex-start; flex-wrap:wrap; gap:8px 16px; }
+.admin-student-directory-v2__table-wrap { border:0; background:#fff; }
+@media(max-width:760px) {
+  .admin-student-directory-v2 { padding:14px 8px 28px; }
+  .admin-student-directory-v2__header { display:flex; flex-wrap:wrap; }
+  .admin-student-directory-v2__header-actions { margin-left:auto; }
+  .admin-student-directory-v2 tr { border:0; }
+  .admin-student-directory-v2__table-wrap { background:transparent; }
+  .admin-student-directory-v2 button { min-height:40px; }
+  .admin-student-directory-v2__filters { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .admin-student-directory-v2__filters > .admin-student-directory-v2__filter:first-child { grid-column:1/-1; }
+}

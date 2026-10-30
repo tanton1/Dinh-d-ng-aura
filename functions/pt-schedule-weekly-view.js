@@ -1,5 +1,7 @@
 'use strict'
 
+const { observeEventRead, observeEventWrite, recordEventMetrics } = require('./event-operation-metrics')
+
 const { createHash, randomUUID } = require('node:crypto')
 const { isDeepStrictEqual } = require('node:util')
 const { FieldPath, FieldValue } = require('firebase-admin/firestore')
@@ -899,7 +901,7 @@ async function syncPtScheduleWeeklyViewSource({ db, event, source = 'source', lo
 async function rebuildDirtyPtScheduleWeeklyViews({ db, limit = 8, branchData = loadBranchData, logger = console } = {}) {
   const maximum = Math.max(1, Math.min(20, Number(limit) || 8))
   const checkpoint = db.doc('systemJobs/ptScheduleWeeklyViewQueue')
-  const progress = (await checkpoint.get()).data() || {}
+  const progress = (await observeEventRead('document', () => checkpoint.get())).data() || {}
   const definitions = [
     ['stateValidation', 'ptScheduleWeeklyViewStates', 'validationDirty'],
     ['legacyMatrix', 'ptScheduleWeeklyViews', 'dirty'],
@@ -914,10 +916,10 @@ async function rebuildDirtyPtScheduleWeeklyViews({ db, limit = 8, branchData = l
     const base = db.collection(collection).where(flag, '==', true).orderBy(FieldPath.documentId())
       .select('branchId', 'weekId').limit(maximum)
     const cursor = stringValue(cursors[key], 400)
-    let page = await (cursor ? base.startAfter(cursor) : base).get()
+    let page = await observeEventRead('query', () => (cursor ? base.startAfter(cursor) : base).get())
     if (!page.docs.length && cursor) {
       cursors[key] = ''
-      page = await base.get()
+      page = await observeEventRead('query', () => base.get())
     }
     return page
   }))
@@ -937,7 +939,8 @@ async function rebuildDirtyPtScheduleWeeklyViews({ db, limit = 8, branchData = l
   // are retried after wrap, rather than starving every later week forever.
   // Concurrent sweep checkpoints affect fairness only: per-view leases/CAS
   // still own correctness, and no cursor can remove a queued invalidation.
-  if (selected.size) await checkpoint.set({ cursors, nextQueue: (firstQueue + 1) % definitions.length }, { merge: true })
+  if (selected.size) await observeEventWrite(() => checkpoint.set({ cursors, nextQueue: (firstQueue + 1) % definitions.length }, { merge: true }))
+  else recordEventMetrics({ guardSkips: 1 })
   let rebuilt = 0
   let failed = 0
   for (const item of selected.values()) {

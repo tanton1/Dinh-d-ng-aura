@@ -989,7 +989,8 @@ test('all-member push broadcasts exclude staff while explicit targets stay suppo
   assert.match(dispatchSource, /const audienceProfiles = targetType === 'all'/)
   assert.match(dispatchSource, /role === undefined \|\| role === null \|\| role === '' \|\| role === 'student'/)
   assert.match(dispatchSource, /: existingProfiles/)
-  assert.match(dispatchSource, /webPushFailureCount/)
+  assert.match(dispatchSource, /return delivery\.dispatch/)
+  assert.match(readFileSync(join(__dirname, 'push-broadcast-delivery.js'), 'utf8'), /webPushFailureCount/)
   assert.match(dispatchSource, /filteredOutCount/)
 })
 

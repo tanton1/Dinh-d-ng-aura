@@ -76,11 +76,12 @@ export function studentEligibilityForWeek(
     if (!start || !end || remaining < 1) continue
     let usable = false
     for (const date of dates) {
-      if (!contractSchedulableInChainOn(contract, contracts, date)) continue
       if (pausedOn(contract, date)) {
-        pausedDates.add(date)
+        const unpaused = { ...contract, status: contract.status === 'frozen' ? 'active' as const : contract.status, pausePeriods: [] }
+        if (contractSchedulableInChainOn(unpaused, contracts, date)) pausedDates.add(date)
         continue
       }
+      if (!contractSchedulableInChainOn(contract, contracts, date)) continue
       validDates.add(date)
       usable = true
     }

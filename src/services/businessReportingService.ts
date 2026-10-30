@@ -68,6 +68,9 @@ export interface BusinessPerformanceReport {
   dataQuality: {
     scannedLedgerEntries: number
     ledgerTruncated: boolean
+    cashTransactionsTruncated?: boolean
+    payrollLimitReached?: boolean
+    cashAccountsTruncated?: boolean
     legacyUnclassifiedEntries: number
     unlinkedCashTransactions: number
     payrollPaidOutsideLedger: number

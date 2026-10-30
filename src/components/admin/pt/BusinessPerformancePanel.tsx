@@ -4,6 +4,7 @@ import { useDatabase } from '../../../contexts/DatabaseContext'
 import { listBusinessPerformance, type BusinessPerformanceReport, type BusinessSource } from '../../../services/businessReportingService'
 import AuraMetricCarousel, { type AuraMetricSlide } from './AuraMetricCarousel'
 import AuraHelpPopover from './AuraHelpPopover'
+import { businessReportCompleteness } from '../../../utils/businessReportCompleteness'
 import '../../../styles-business-performance.css'
 
 function vietnamDateKey(value = new Date()) {
@@ -82,7 +83,9 @@ export default function BusinessPerformancePanel({ compact = false }: Props) {
     return () => { requestSequence.current += 1 }
   }, [load])
 
-  const days = useMemo(() => report?.dailySeries.slice(-14) || [], [report])
+  const complete = businessReportCompleteness(report)
+  const incompleteLabel = report ? 'Chưa đủ dữ liệu' : '—'
+  const days = useMemo(() => report && !report.dataQuality.ledgerTruncated ? report.dailySeries.slice(-14) : [], [report])
   const peak = Math.max(1, ...days.map((item) => Math.max(Math.abs(item.cashNet), Math.abs(item.recognisedRevenue), Math.abs(item.operatingResult))))
   const applyPreset = (days: number) => {
     setActivePreset(days as 7 | 30 | 90)
@@ -94,15 +97,15 @@ export default function BusinessPerformancePanel({ compact = false }: Props) {
     {
       id: 'cash-flow',
       eyebrow: 'Dòng tiền ròng',
-      value: money(report?.cashFlow.cashNet || 0),
-      detail: `Thu ${money(report?.cashFlow.cashIn || 0)} · Chi ${money(report?.cashFlow.cashOut || 0)}`,
+      value: complete.ledger ? money(report?.cashFlow.cashNet || 0) : incompleteLabel,
+      detail: complete.ledger ? `Thu ${money(report?.cashFlow.cashIn || 0)} · Chi ${money(report?.cashFlow.cashOut || 0)}` : 'Chọn khoảng ngày ngắn hơn để tổng hợp đầy đủ',
       icon: <WalletCards size={20} />,
       tone: 'pink',
     },
     {
       id: 'recognised-revenue',
       eyebrow: 'Doanh thu thực hiện',
-      value: money(report?.managementPnl.recognisedRevenue || 0),
+      value: complete.ledger ? money(report?.managementPnl.recognisedRevenue || 0) : incompleteLabel,
       detail: 'Buổi xác nhận có tính phí; đơn đã giao',
       icon: <TrendingUp size={20} />,
       tone: 'orange',
@@ -110,7 +113,7 @@ export default function BusinessPerformancePanel({ compact = false }: Props) {
     {
       id: 'operating-expense',
       eyebrow: 'Chi phí vận hành',
-      value: money(report?.managementPnl.operatingExpense || 0),
+      value: complete.ledger ? money(report?.managementPnl.operatingExpense || 0) : incompleteLabel,
       detail: 'Chi phí đã hạch toán trong kỳ',
       icon: <TrendingDown size={20} />,
       tone: 'sunset',
@@ -118,12 +121,12 @@ export default function BusinessPerformancePanel({ compact = false }: Props) {
     {
       id: 'operating-result',
       eyebrow: 'Kết quả vận hành',
-      value: money(report?.managementPnl.operatingResult || 0),
-      detail: `Biến động phải thu ${money(report?.balanceMovement.receivableMovement || 0)}`,
+      value: complete.ledger ? money(report?.managementPnl.operatingResult || 0) : incompleteLabel,
+      detail: complete.ledger ? `Biến động phải thu ${money(report?.balanceMovement.receivableMovement || 0)}` : 'Chưa xác nhận tổng trong phạm vi này',
       icon: <Landmark size={20} />,
       tone: 'ink',
     },
-  ], [report])
+  ], [report, complete.ledger, incompleteLabel])
 
   return <section className={`business-performance ${compact ? 'business-performance--compact' : ''}`} aria-busy={loading}>
     <AuraMetricCarousel slides={metricSlides} label="Các chỉ số kinh doanh" loading={loading} />
@@ -156,6 +159,7 @@ export default function BusinessPerformancePanel({ compact = false }: Props) {
     {error && <div className="business-performance__notice business-performance__notice--error"><CircleAlert size={19} /><span>{error}</span></div>}
     {report?.dataQuality.ledgerTruncated && <div role="alert" className="business-performance__notice"><CircleAlert size={19} /><span>Số liệu chưa đầy đủ: khoảng lọc vượt giới hạn tổng hợp. Chọn khoảng ngày ngắn hơn để đối soát.</span></div>}
 
+    {report?.dataQuality.ledgerTruncated ? <div className="business-performance__empty">Biểu đồ và chi tiết theo nguồn sẽ hiện khi khoảng lọc có đủ dữ liệu.</div> : <>
     <div className="business-performance__grid">
       <article className="business-performance__card business-performance__card--trend business-performance__card--wide">
         <div className="business-performance__card-heading"><div><h2>Xu hướng 14 ngày</h2></div></div>
@@ -171,16 +175,18 @@ export default function BusinessPerformancePanel({ compact = false }: Props) {
       </div>
     </details>
 
+    </>}
+
     <article className="business-performance__quality">
       <div className="business-performance__quality-heading"><h2>Đối soát dữ liệu</h2><AuraHelpPopover title="Thông tin đối soát"><p>Các mục này giúp phát hiện dữ liệu cũ hoặc nguồn chưa liên kết; chúng không tự được cộng vào kết quả kinh doanh.</p></AuraHelpPopover></div>
       <dl>
-        <div><dt>Legacy chưa phân loại</dt><dd>{report?.dataQuality.legacyUnclassifiedEntries || 0} bút toán</dd></div>
-        <div><dt>Sổ quỹ chưa liên kết</dt><dd>{money(report?.dataQuality.unlinkedCashTransactions || 0)}</dd></div>
-        <div><dt>Lương đã trả ngoài ledger</dt><dd>{money(report?.dataQuality.payrollPaidOutsideLedger || 0)}</dd></div>
-        <div><dt>Buổi đã chấm công</dt><dd>{(report?.dataQuality.attendanceEvents || 0).toLocaleString('vi-VN')} buổi</dd></div>
-        <div><dt>Đã ghi nhận doanh thu</dt><dd>{(report?.dataQuality.recognisedAttendanceEvents || 0).toLocaleString('vi-VN')} buổi</dd></div>
-        <div><dt>Chờ đối soát doanh thu</dt><dd>{(report?.dataQuality.unrecognisedAttendanceEvents || 0).toLocaleString('vi-VN')} buổi</dd></div>
-        <div><dt>Tài khoản sổ quỹ</dt><dd>{report?.dataQuality.cashAccounts || 0} tài khoản</dd></div>
+        <div><dt>Legacy chưa phân loại</dt><dd>{complete.ledger ? `${report?.dataQuality.legacyUnclassifiedEntries || 0} bút toán` : incompleteLabel}</dd></div>
+        <div><dt>Sổ quỹ chưa liên kết</dt><dd>{complete.cashReconciliation ? money(report?.dataQuality.unlinkedCashTransactions || 0) : incompleteLabel}</dd></div>
+        <div><dt>Lương đã trả ngoài ledger</dt><dd>{complete.payrollReconciliation ? money(report?.dataQuality.payrollPaidOutsideLedger || 0) : incompleteLabel}</dd></div>
+        <div><dt>Buổi đã chấm công</dt><dd>{complete.attendance ? `${(report?.dataQuality.attendanceEvents || 0).toLocaleString('vi-VN')} buổi` : incompleteLabel}</dd></div>
+        <div><dt>Đã ghi nhận doanh thu</dt><dd>{complete.recognitionReconciliation ? `${(report?.dataQuality.recognisedAttendanceEvents || 0).toLocaleString('vi-VN')} buổi` : incompleteLabel}</dd></div>
+        <div><dt>Chờ đối soát doanh thu</dt><dd>{complete.recognitionReconciliation ? `${(report?.dataQuality.unrecognisedAttendanceEvents || 0).toLocaleString('vi-VN')} buổi` : incompleteLabel}</dd></div>
+        <div><dt>Tài khoản sổ quỹ</dt><dd>{complete.cashAccounts ? `${report?.dataQuality.cashAccounts || 0} tài khoản` : incompleteLabel}</dd></div>
         <div><dt>Nguồn chờ tích hợp</dt><dd>{report?.dataQuality.missingSourceIntegrations.length || 0} nguồn</dd></div>
       </dl>
       {report?.dataQuality.missingSourceIntegrations.length ? <p>Nguồn chờ tích hợp: {report.dataQuality.missingSourceIntegrations.map((item) => sourceLabels[item as BusinessSource] || item).join(', ')}.</p> : null}
