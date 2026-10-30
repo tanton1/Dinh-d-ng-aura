@@ -256,8 +256,10 @@ test('normal, unknown-target and control-API discovery expose the unchanged comp
   // four delivery metadata sources, one regional Academy submission callable,
   // one versioned finance-operation callable alongside its compatibility endpoints,
     // the Student 360 source queue worker plus recovery scheduler, and the
-    // nutrition scan admission, dispatcher and task worker.
-  assert.equal(baseline.exportNames.length, 565)
+    // nutrition scan admission, dispatcher and task worker, plus four scoped
+    // reporting readers replacing broad Academy/finance client subscriptions.
+  assert.equal(baseline.exportNames.length, 569)
+  for (const name of ['getAcademyAnalyticsSummary', 'listAcademyEnrollmentsPage', 'listFinanceReceivables', 'listFinanceStudentLabels']) assert.ok(baseline.exportNames.includes(name))
   for (const name of ['manageFinanceOperation', 'recordContractPayment', 'recordRefund', 'reverseContractPayment']) assert.ok(baseline.exportNames.includes(name))
   for (const name of ['getPtTrainerAvailabilityRegional', 'savePtTrainerAvailabilityRegional']) {
     assert.ok(baseline.exportNames.includes(name))

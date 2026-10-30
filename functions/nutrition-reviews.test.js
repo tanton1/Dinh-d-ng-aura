@@ -663,6 +663,9 @@ test('meal save retries use one receipt and do not increment the meal revision t
     status: 'logged',
     title: 'Cơm gà',
     calories: 450,
+    aiAnalysis: { scanQuality: { schemaVersion: 1, itemCount: 3, manuallyAdjustedItemCount: 1,
+      unresolvedItemCount: 0, unresolvedQuestionCount: 0, answeredQuestionCount: 1,
+      baselineCalories: 500, finalCalories: 450, calorieAdjustment: -50 } },
   }
   const request = {
     auth: { uid: 'student-1' },
@@ -680,6 +683,10 @@ test('meal save retries use one receipt and do not increment the meal revision t
   assert.equal(retried.mealRevision, 1)
   assert.equal(records.get('users/student-1/mealLogs/ai-attempt-1').mealRevision, 1)
   assert.equal(records.get(receiptPath).mealId, 'ai-attempt-1')
+  assert.deepEqual(records.get('users/student-1/mealLogs/ai-attempt-1').aiAnalysis.scanQuality, meal.aiAnalysis.scanQuality)
+  // Quality counters reuse the existing meal and receipt writes. No separate
+  // feedback stream or telemetry document is created, including on replay.
+  assert.deepEqual([...records.keys()].sort(), ['users/student-1/mealLogs/ai-attempt-1', receiptPath].sort())
 })
 
 test('meal receipt id is scoped by both user and save attempt', () => {

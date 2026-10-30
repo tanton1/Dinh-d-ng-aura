@@ -128,7 +128,22 @@ test('admin reporting cannot fabricate or destructively synchronize legacy payme
   assert.doesNotMatch(financeSource, /legacyReconciliation|showLegacyReconciliation/)
   assert.match(financeSource, /function contractDebt/)
   assert.match(financeSource, /function overdueAmount/)
-  assert.match(financeSource, /function amountDueInRange/)
+  assert.match(financeSource, /listFinanceReceivables/)
+  assert.doesNotMatch(financeSource, /filteredContracts\.reduce/, 'summary must not be computed from a cursor page')
+  const { debtState } = require('./scoped-reporting-reads')
+  const receivable = { totalPrice: 1000, paidAmount: 200, discount: 0, installments: [
+    { date: '2026-10-10', amount: 100, status: 'pending' },
+    { date: '2026-10-31', amount: 250, status: 'pending' },
+    { date: '2026-11-02', amount: 500, status: 'pending' },
+  ] }
+  const state = debtState(receivable, '2026-10-30')
+  assert.equal(state.debt, 800)
+  assert.equal(state.overdue, 100)
+  assert.equal(state.thisMonth, 350, 'month total includes all pending installments, not only the first')
+  const frozen = debtState({ ...receivable, status: 'frozen' }, '2026-10-30')
+  assert.equal(frozen.debt, 800)
+  assert.equal(frozen.overdue, 0)
+  assert.equal(frozen.thisMonth, 0)
   assert.doesNotMatch(financeSource, /ledgerSummary\.recognisedRevenue/)
   assert.match(financeSource, /eyebrow: 'Tổng nợ'/)
   assert.match(financeSource, /eyebrow: 'Quá hạn'/)

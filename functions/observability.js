@@ -1,5 +1,6 @@
 const { logger } = require('firebase-functions')
-const { randomUUID } = require('node:crypto')
+const { randomUUID, createHash } = require('node:crypto')
+const { withOperationMetrics, measureResponseBytes } = require('./operation-metrics')
 
 function errorCode(error) {
   if (error && typeof error === 'object' && typeof error.code === 'string') {
@@ -60,8 +61,19 @@ function correlationId(request) {
     : randomUUID()
 }
 
-function withFunctionTelemetry(functionName, handler) {
-  return async (request) => {
+function telemetrySampleRate(value = process.env.AURA_SUCCESS_METRIC_SAMPLE_RATE) {
+  if (value === undefined || value === '') return 0.1
+  const parsed = Number(value)
+  return Number.isFinite(parsed) && parsed >= 0 && parsed <= 1 ? parsed : 0.1
+}
+
+function shouldSampleMetric(id, sampleRate) {
+  return createHash('sha256').update(id).digest().readUInt32BE(0) / 0x100000000 < sampleRate
+}
+
+function withFunctionTelemetry(functionName, handler, options = {}) {
+  const metricLogger = options.logger || logger
+  return async (request) => withOperationMetrics(async metrics => {
     const startedAt = Date.now()
     const requestCorrelationId = correlationId(request)
     if (request && typeof request === 'object') request.auraCorrelationId = requestCorrelationId
@@ -79,13 +91,20 @@ function withFunctionTelemetry(functionName, handler) {
     }
 
     try {
-      return await handler(request)
+      const response = await handler(request)
+      // Measure only sampled requests; do not serialize payloads twice on every
+      // hot-path read. The serialized value is never written to the log.
+      if (shouldSampleMetric(requestCorrelationId, telemetrySampleRate(options.successSampleRate))) {
+        const bytes = measureResponseBytes(response)
+        if (bytes !== undefined) metrics.responseBytes = bytes
+      }
+      return response
     } catch (error) {
       outcome = 'error'
       failureCode = errorCode(error)
       taxonomy = errorTaxonomy(failureCode)
       retryable = retryableError(failureCode)
-      logger.error('Aura function failure', {
+      metricLogger.error('Aura function failure', {
         ...baseLog,
         functionName,
         outcome,
@@ -97,8 +116,15 @@ function withFunctionTelemetry(functionName, handler) {
       })
       throw error
     } finally {
-      logger.info('Aura function metric', {
-        ...baseLog,
+      const sampleRate = outcome === 'error' ? 1 : telemetrySampleRate(options.successSampleRate)
+      if (outcome === 'error' || shouldSampleMetric(requestCorrelationId, sampleRate)) metricLogger.info('Aura function metric', {
+        schemaVersion: 2,
+        correlationId: requestCorrelationId,
+        domain: baseLog.domain,
+        operation: functionName,
+        release: process.env.K_REVISION || process.env.AURA_RELEASE || 'local',
+        sampleRate,
+        metrics,
         functionName,
         outcome,
         failureCode,
@@ -109,7 +135,7 @@ function withFunctionTelemetry(functionName, handler) {
         appVerified: Boolean(request?.app?.appId),
       })
     }
-  }
+  })
 }
 
-module.exports = { withFunctionTelemetry, correlationId, domainForOperation, errorTaxonomy, retryableError }
+module.exports = { withFunctionTelemetry, correlationId, domainForOperation, errorTaxonomy, retryableError, telemetrySampleRate, shouldSampleMetric }

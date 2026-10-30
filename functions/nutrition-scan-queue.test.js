@@ -34,6 +34,20 @@ const inputFor = (uid, id = 'scan_request_1') => ({ scanId: id, storagePath: `nu
 const jobPath = (uid, id = 'scan_request_1') => `users/${uid}/nutritionScanJobs/${id}`
 const queueFor = (db, overrides = {}) => createNutritionScanQueue({ db, parseInput: value => value, processScan: async () => ({ analysis: 'done' }), enqueueTask: async () => {}, ...overrides })
 
+test('completed scan records anonymous queue timings once, after a successful terminal write', async () => {
+  const db = fixtureDb(), logs = []
+  let time = 100000
+  const queue = queueFor(db, { now: () => time, logger: { info: (name, value) => logs.push({ name, value }) }, processScan: async () => { time += 700; return { privateMeal: 'never log' } } })
+  await queue.submit({ uid: 'private-person', input: inputFor('private-person') })
+  time += 1500
+  await queue.run({ uid: 'private-person', scanId: 'scan_request_1' })
+  await queue.run({ uid: 'private-person', scanId: 'scan_request_1' })
+  assert.equal(logs.length, 1)
+  assert.deepEqual(logs[0].value.metrics, { queueWaitMs: 1500, processingMs: 700 })
+  assert.equal(logs[0].value.durationMs, 2200)
+  assert.doesNotMatch(JSON.stringify(logs), /private-person|privateMeal|never log|scan_request_1/)
+})
+
 test('30 users enqueue immediately; a duplicate ID neither writes a second job nor consumes another admission', async () => {
   const db = fixtureDb(), queue = queueFor(db)
   const accepted = await Promise.all(Array.from({ length: 30 }, (_, i) => queue.submit({ uid: `member-${i}`, input: inputFor(`member-${i}`) })))

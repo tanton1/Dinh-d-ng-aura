@@ -43,7 +43,13 @@ function cacheValue(stored, now) {
   return { ...stored.value, cache: { hit: true, tier: 'shared', ttlSeconds: Math.max(0, Math.ceil((expiresAtMillis - now) / 1000)), expiresAtMillis } }
 }
 
-function createSharedDashboardCache({ db, logger = console, ttlMs = SHARED_CACHE_TTL_MS, now = () => Date.now(), pause = ms => new Promise(resolve => setTimeout(resolve, ms)) }) {
+function compareReadTimes(left, right) {
+  if (!left || !right || !Number.isFinite(left.seconds) || !Number.isFinite(right.seconds)
+      || !Number.isFinite(left.nanoseconds) || !Number.isFinite(right.nanoseconds)) return null
+  return left.seconds - right.seconds || left.nanoseconds - right.nanoseconds
+}
+
+function createSharedDashboardCache({ db, logger = console, ttlMs = SHARED_CACHE_TTL_MS, buildLeaseMs = BUILD_LEASE_MS, coalesceRefresh = false, now = () => Date.now(), pause = ms => new Promise(resolve => setTimeout(resolve, ms)) }) {
   async function get(cacheKey, forceRefresh = false) {
     if (forceRefresh) return null
     try {
@@ -59,6 +65,7 @@ function createSharedDashboardCache({ db, logger = console, ttlMs = SHARED_CACHE
   }
 
   async function acquire(cacheKey, forceRefresh = false) {
+    let refreshReadTime = null
     const cached = await get(cacheKey, forceRefresh)
     if (cached) return { cached }
     const reference = db.collection(CACHE_COLLECTION).doc(cacheKey)
@@ -67,19 +74,31 @@ function createSharedDashboardCache({ db, logger = console, ttlMs = SHARED_CACHE
       const result = await db.runTransaction(async transaction => {
         const snapshot = await transaction.get(reference)
         const stored = snapshot.data() || {}, time = now()
-        const fresh = !forceRefresh && cacheValue(stored, time)
+        // Server read times, not instance clocks/publication time, own the
+        // refresh fence. A builder can publish after a payment while its source
+        // snapshot still predates that payment. Only a source snapshot taken
+        // after this refresh's first authoritative read can satisfy it.
+        if (coalesceRefresh && forceRefresh && !refreshReadTime) {
+          if (compareReadTimes(snapshot.readTime, snapshot.readTime) === null) {
+            throw new HttpsError('unavailable', 'Không thể xác minh thời điểm cập nhật báo cáo. Vui lòng thử lại.')
+          }
+          refreshReadTime = snapshot.readTime
+        }
+        const readOrder = compareReadTimes(stored.valueSourceReadTime, refreshReadTime)
+        const joinedRefresh = coalesceRefresh && readOrder !== null && readOrder >= 0
+        const fresh = (!forceRefresh || joinedRefresh) && cacheValue(stored, time)
         if (fresh) return { cached: fresh }
-        if (!forceRefresh && stored.leaseUntil?.toMillis?.() > time) return null
+        if ((!forceRefresh || coalesceRefresh) && stored.leaseUntil?.toMillis?.() > time) return null
         // An explicit refresh supersedes an earlier builder. Its token fences
         // the earlier result even if that worker finishes later on another region.
         transaction.set(reference, {
           schemaVersion: CACHE_SCHEMA_VERSION, leaseToken: token,
-          leaseUntil: Timestamp.fromMillis(time + BUILD_LEASE_MS),
+          leaseUntil: Timestamp.fromMillis(time + buildLeaseMs),
           // Retention expiry must not extend the freshness of a retained value.
           // Existing TTL/pruning cannot delete this live lease during its build.
-          expiresAt: Timestamp.fromMillis(time + Math.max(ttlMs, BUILD_LEASE_MS + 1000)),
+          expiresAt: Timestamp.fromMillis(time + Math.max(ttlMs, buildLeaseMs + 1000)),
         }, { merge: true })
-        return { lease: { token, cacheKey } }
+        return { lease: { token, cacheKey, startedAt: snapshot.readTime || null } }
       })
       if (result) return result
       if (attempt < BUILD_WAIT_DELAYS_MS.length) await pause(BUILD_WAIT_DELAYS_MS[attempt])
@@ -87,14 +106,19 @@ function createSharedDashboardCache({ db, logger = console, ttlMs = SHARED_CACHE
     throw new HttpsError('unavailable', 'Báo cáo đang được cập nhật. Vui lòng thử lại sau ít giây.')
   }
 
-  async function publish(cacheKey, value, lease) {
+  async function publish(cacheKey, value, lease, { sourceReadTime = lease?.startedAt } = {}) {
     if (!lease?.token || lease.cacheKey !== cacheKey) throw new Error('Dashboard cache lease does not match its scope.')
+    const sourceOrder = compareReadTimes(sourceReadTime, lease.startedAt)
+    if (coalesceRefresh && (sourceOrder === null || sourceOrder < 0)) {
+      throw new Error('Reporting cache publication requires a source snapshot taken after its lease was acquired.')
+    }
     const reference = db.collection(CACHE_COLLECTION).doc(cacheKey)
     return db.runTransaction(async transaction => {
       const snapshot = await transaction.get(reference), stored = snapshot.data() || {}, time = now()
       if (stored.leaseToken !== lease.token || !(stored.leaseUntil?.toMillis?.() > time)) return false
       transaction.set(reference, {
         schemaVersion: CACHE_SCHEMA_VERSION, value, createdAt: Timestamp.fromMillis(time),
+        ...(sourceReadTime ? { valueSourceReadTime: sourceReadTime } : {}),
         valueExpiresAt: Timestamp.fromMillis(time + ttlMs), expiresAt: Timestamp.fromMillis(time + ttlMs),
         leaseToken: null, leaseUntil: null,
       })
