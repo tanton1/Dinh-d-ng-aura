@@ -1,11 +1,11 @@
 {
   "schemaVersion": 1,
   "date": "2026-10-30",
-  "sourceCommit": "004390d807ebabe447cdd5e6bb4e266d5e38271a",
+  "sourceCommit": "84ca47759e65d20b9cd09f383940ab52bba61e54",
   "graphifyVersion": "0.9.97",
   "mode": "local-code-only-no-dedup-no-llm-labels",
-  "sourceFingerprint": "aa72628308ef181dc12bde32c6918e9e055cc474e5fd8097b570eecd7b244ebb",
-  "graphSha256": "4a03c95d04f95c9c682d373cfd01bf87d4c2a197d37c9875a4f343298e1889a1",
+  "sourceFingerprint": "c5d9132fd0a6331ce1ae195c4ce50a7b653fcd9694ef8076eea7fefb7e7204f4",
+  "graphSha256": "790633b99b2140a5ff5f61ed076b5315bbf94566e1149b81e40c8cdacdd532ac",
   "structure": {
     "sourceFiles": 554,
     "nodes": 7410,
@@ -47,8 +47,11 @@
     "buildPassed": true,
     "performanceBudgetsPassed": true,
     "productionDeployed": false,
-    "financeBrowserTestsPassed": 73,
+    "financeBrowserTestsPassed": 74,
     "routeIsolationBrowserTestsPassed": 6,
-    "postMergeFinanceReportingIntegrationTestsPassed": 47
+    "postMergeFinanceReportingIntegrationTestsPassed": 47,
+    "fullUnitValidationSourceCommit": "d3de20a08fef25f0a59a6b3be52864a6290c91da",
+    "postPr81ReportingUnitTestsPassed": 32,
+    "postPr81ReportingCacheIntegrationTestsPassed": 12
   }
 }
