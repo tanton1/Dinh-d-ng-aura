@@ -1,0 +1,224 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-10-30T09:00:27.811Z",
+  "reviewedHead": "731684f16317ccc8ebeb89dd0b6666f788ef976d",
+  "webCommit": "200dcbffca50219bdc3b77dcabfadba28ed3adb6",
+  "pr": "https://github.com/tanton1/Dinh-d-ng-aura/pull/80",
+  "vercelDeployment": "https://vercel.com/tanton/aurafitness/71CwKvKrNV1A4xzjG5aSuHxY9VSV",
+  "sourceTreeMatchesMergedMain": true,
+  "backend": {
+    "initialTargetCount": 8,
+    "finalFollowupTargets": [
+      "listFinanceReceivables",
+      "listFinanceLedgerRegional",
+      "listFinanceLedger"
+    ],
+    "distinctVerifiedTargetCount": 10,
+    "health": [
+      {
+        "region": "asia-east1",
+        "healthy": 1,
+        "total": 1,
+        "releaseBacklog": 0,
+        "services": [
+          {
+            "name": "listfinancereceivables",
+            "revision": "listfinancereceivables-stg-9be2157f4cc3",
+            "image": "asia-east1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--east1__list_finance_receivables@sha256:031898d30a5fb5f453d7db8647242c5bc4cbbff070b94754f5e98ad38239f200",
+            "healthy": true
+          }
+        ]
+      },
+      {
+        "region": "asia-east1",
+        "healthy": 1,
+        "total": 1,
+        "releaseBacklog": 0,
+        "services": [
+          {
+            "name": "listfinanceledgerregional",
+            "revision": "listfinanceledgerregional-stg-3523091f5d16",
+            "image": "asia-east1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--east1__list_finance_ledger_regional@sha256:225d96a77183751432d822e562e00c60deaed8878ad84d827305461a2a579f76",
+            "healthy": true
+          }
+        ]
+      },
+      {
+        "region": "asia-southeast1",
+        "healthy": 1,
+        "total": 1,
+        "releaseBacklog": 0,
+        "services": [
+          {
+            "name": "listfinanceledger",
+            "revision": "listfinanceledger-stg-f5be727a5856",
+            "image": "asia-southeast1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast1__list_finance_ledger@sha256:c01ea52b2644799c7eb3f33fc8cd9e1fe250e01b16368ff74a7b5ebbf3d5468c",
+            "healthy": true
+          }
+        ]
+      },
+      {
+        "region": "asia-east1",
+        "healthy": 4,
+        "total": 4,
+        "releaseBacklog": 0,
+        "services": [
+          {
+            "name": "getacademyanalyticssummary",
+            "revision": "getacademyanalyticssummary-00001-xig",
+            "image": "asia-east1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--east1__get_academy_analytics_summary@sha256:a553c09bd86f940df76bde228e7dfd45ec9621a0291b1f516603b399fb01fbc8",
+            "healthy": true
+          },
+          {
+            "name": "listacademyenrollmentspage",
+            "revision": "listacademyenrollmentspage-00001-ved",
+            "image": "asia-east1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--east1__list_academy_enrollments_page@sha256:b5b42169cd7cb26c08f92c7e17c37a0cf4851da1589238e63aa42f3e27ff9ae7",
+            "healthy": true
+          },
+          {
+            "name": "listfinancestudentlabels",
+            "revision": "listfinancestudentlabels-00001-hes",
+            "image": "asia-east1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--east1__list_finance_student_labels@sha256:7ba8000cbf1a6fcc66fdc70e6f9c41f7dc90a58f502e24e2a78e7b5f8d1db66d",
+            "healthy": true
+          },
+          {
+            "name": "trackproducteventoverflow",
+            "revision": "trackproducteventoverflow-00003-fin",
+            "image": "asia-east1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--east1__track_product_event_overflow@sha256:9d3368358bbd3f1d6a8c6f93fb99bc93b86b9aff77c177d86e6ab00ecf40c65d",
+            "healthy": true
+          }
+        ]
+      },
+      {
+        "region": "asia-southeast1",
+        "healthy": 1,
+        "total": 1,
+        "releaseBacklog": 0,
+        "services": [
+          {
+            "name": "trackproductevent",
+            "revision": "trackproductevent-00027-quj",
+            "image": "asia-southeast1-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast1__track_product_event@sha256:34272e619c1ca3e26a172b973f290022da3782fe3f75730a0d409d5d26740fbd",
+            "healthy": true
+          }
+        ]
+      },
+      {
+        "region": "asia-southeast2",
+        "healthy": 2,
+        "total": 2,
+        "releaseBacklog": 0,
+        "services": [
+          {
+            "name": "enqueuenutritionscan",
+            "revision": "enqueuenutritionscan-stg-a7e28e9e0f25",
+            "image": "asia-southeast2-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast2__enqueue_nutrition_scan@sha256:7b299c3c2a33096ff730a8bee84b36cffa7c974c723d629b85cd5a7329dbfbed",
+            "healthy": true
+          },
+          {
+            "name": "processnutritionscanqueue",
+            "revision": "processnutritionscanqueue-stg-ae9e67e354dc",
+            "image": "asia-southeast2-docker.pkg.dev/gen-lang-client-0815966909/gcf-artifacts/gen--lang--client--0815966909__asia--southeast2__process_nutrition_scan_queue@sha256:d9c420c05ccf46e8163237ee3cd56dfb2ba5195ef806c8fc14d2c45bd663d89c",
+            "healthy": true
+          }
+        ]
+      }
+    ]
+  },
+  "rules": {
+    "sourceVerified": true,
+    "expectedHash": "c1b9d8c44f1d9b567b24b4e710154162a512fad7f1efd2b573952b961e2683ac",
+    "deployedHash": "c1b9d8c44f1d9b567b24b4e710154162a512fad7f1efd2b573952b961e2683ac",
+    "observedAt": "2026-10-30T08:54:31.608Z"
+  },
+  "verification": {
+    "ci": "https://github.com/tanton1/Dinh-d-ng-aura/actions/runs/41026224330",
+    "codeql": "https://github.com/tanton1/Dinh-d-ng-aura/actions/runs/41026224331",
+    "financeBrowserCasesPerEngine": 86,
+    "engines": [
+      "chromium",
+      "mobile-webkit"
+    ],
+    "staticSmokeDomains": [
+      "https://aurafitness-jet.vercel.app",
+      "https://www.aurafitness.club"
+    ],
+    "browserSmoke": {
+      "passed": true,
+      "release": "200dcbffca50219bdc3b77dcabfadba28ed3adb6",
+      "authenticated": true,
+      "preservedContracts": 9,
+      "preservedDueVnd": 61800000,
+      "paginationUniqueCount": 9,
+      "paginationExhausted": true,
+      "branchChecks": [
+        {
+          "label": "CS2 Hải Châu",
+          "count": 5,
+          "dueVnd": 29600000
+        },
+        {
+          "label": "CS1 Thanh Khê, Bến Xe",
+          "count": 4,
+          "dueVnd": 32200000
+        }
+      ],
+      "manualRefreshPassed": true,
+      "installmentsLoaded": true,
+      "ledgerRows": 35,
+      "reversalControlsVisibleFromExplicitEligibility": true,
+      "errors": 0,
+      "warnings": 0,
+      "financialWritesExecuted": false
+    },
+    "authProbes": [
+      {
+        "name": "getAcademyAnalyticsSummary",
+        "region": "asia-east1",
+        "status": 401,
+        "code": "UNAUTHENTICATED",
+        "passed": true
+      },
+      {
+        "name": "listAcademyEnrollmentsPage",
+        "region": "asia-east1",
+        "status": 401,
+        "code": "UNAUTHENTICATED",
+        "passed": true
+      },
+      {
+        "name": "listFinanceReceivables",
+        "region": "asia-east1",
+        "status": 401,
+        "code": "UNAUTHENTICATED",
+        "passed": true
+      },
+      {
+        "name": "listFinanceStudentLabels",
+        "region": "asia-east1",
+        "status": 401,
+        "code": "UNAUTHENTICATED",
+        "passed": true
+      },
+      {
+        "name": "listFinanceLedgerRegional",
+        "region": "asia-east1",
+        "status": 401,
+        "code": "UNAUTHENTICATED",
+        "passed": true
+      },
+      {
+        "name": "listFinanceLedger",
+        "region": "asia-southeast1",
+        "status": 401,
+        "code": "UNAUTHENTICATED",
+        "passed": true
+      }
+    ]
+  },
+  "limitations": [
+    "Verification is scoped to this release, not every deployed function.",
+    "No billed cost saving, real-provider load latency or physical iOS result is established.",
+    "Earlier Graphify snapshot validation is historical pre-release evidence; this record supplies subsequent deployment evidence."
+  ]
+}
