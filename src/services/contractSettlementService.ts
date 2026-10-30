@@ -36,6 +36,7 @@ export interface ContractSettlementResponse {
     recognizedRevenue: number
     serviceRecognizedRevenue?: number
     unservedValue: number
+    cutoffDate?: string
     blockers: Array<{ code: string; message: string }>
     warnings?: Array<{ code: string; message: string }>
     snapshotHash: string
