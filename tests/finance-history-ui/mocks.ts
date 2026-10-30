@@ -3,6 +3,7 @@ const subscribers = new Set<() => void>()
 const publish = () => { state.databaseVersion++; subscribers.forEach(callback => callback()) }
 export const state = {
   owner: 'admin-a', authzVersion: 1, calls: [] as Array<{ owner: string; query: any }>, refreshes: 0,
+  reportCalls: [] as Array<{ owner: string; query: any }>, labelCalls: [] as Array<{ owner: string; studentIds: string[] }>,
   intentCalls: [] as Array<any>, intentFailure: '', intentDefer: false,
   intentPending: [] as Array<{ resolve: () => void }>,
   studentInstallmentStatus: 'pending', workspaceLoads: 0, projectionRefreshes: 0,
@@ -33,7 +34,7 @@ export const state = {
   },
 }
 Object.assign(window, { financeState: state })
-const contracts = [
+const contracts: Array<Record<string, any>> = [
   { id: 'contract-a', studentId: 'student-a', branchId: 'a', packageName: 'Test package A', totalPrice: 1_200_000, discount: 0, paidAmount: 200_000, status: 'active', installments: [] },
   { id: 'contract-b', studentId: 'student-b', branchId: 'b', packageName: 'Test package B', totalPrice: 600_000, discount: 0, paidAmount: 100_000, status: 'frozen', installments: [] },
 ]
@@ -41,7 +42,6 @@ const subscribe = (callback: () => void) => { subscribers.add(callback); return 
 const database = {
   contracts, students: [{ id: 'student-a', name: 'Test learner A' }, { id: 'student-b', name: 'Test learner B' }],
   branches: [{ id: 'a', name: 'Branch A' }, { id: 'b', name: 'Branch B' }],
-  acquireFinanceDirectory: () => () => {},
   refreshData: async () => { state.refreshes++ }, operationsSync: { status: 'ready' },
 }
 export function useDatabase() {
@@ -50,6 +50,48 @@ export function useDatabase() {
 }
 export function useAuth() {
   return { user: { uid: state.owner }, profile: { uid: state.owner, role: 'admin', authzVersion: state.authzVersion }, authzReady: true, hasCapability: () => true, backendMode: 'firebase' }
+}
+// Model a bounded report response, not a live directory: later fixture writes
+// become visible only through a subsequent explicit or date-scoped report read.
+export async function listFinanceReceivables(query: any) {
+  state.reportCalls.push({ owner: state.owner, query: structuredClone(query) })
+  const scoped = contracts.filter(contract => query.branchId === 'all' || contract.branchId === query.branchId)
+  const weekStart = new Date(`${query.today}T12:00:00Z`)
+  weekStart.setUTCDate(weekStart.getUTCDate() - weekStart.getUTCDay())
+  const weekEnd = new Date(weekStart); weekEnd.setUTCDate(weekEnd.getUTCDate() + 6)
+  const start = weekStart.toISOString().slice(0, 10), end = weekEnd.toISOString().slice(0, 10)
+  const entries = scoped.map(contract => {
+    const balance = contract.totalPrice - contract.discount - contract.paidAmount, debt = Math.max(0, balance)
+    const pending = contract.installments.filter((item: any) => item.status === 'pending').sort((a: any, b: any) => a.date.localeCompare(b.date))
+    const due = pending[0]?.date || contract.nextPaymentDate || ''
+    const amountIn = (matches: (date: string) => boolean) => {
+      if (contract.status === 'frozen') return 0
+      return pending.length ? Math.min(debt, pending.filter((item: any) => matches(item.date)).reduce((sum: number, item: any) => sum + item.amount, 0))
+        : due && matches(due) ? debt : 0
+    }
+    const overdue = amountIn(date => date < query.today), thisMonth = amountIn(date => date.slice(0, 7) === query.today.slice(0, 7))
+    return { contract, debt, overdue, thisMonth, groups: { all: debt > 0, overdue: overdue > 0,
+      'this-week': debt > 0 && contract.status !== 'frozen' && due >= start && due <= end,
+      'this-month': thisMonth > 0, overpaid: balance < 0 } as Record<string, boolean> }
+  })
+  const totals = { debt: 0, overdue: 0, thisMonth: 0 }, counts: Record<string, number> = { all: 0, overdue: 0, 'this-week': 0, 'this-month': 0, overpaid: 0 }
+  for (const entry of entries) {
+    totals.debt += entry.debt; totals.overdue += entry.overdue; totals.thisMonth += entry.thisMonth
+    for (const key of Object.keys(counts)) if (entry.groups[key]) counts[key]++
+  }
+  const searchKey = (value: string) => value.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase()
+  const matching = entries.filter(entry => entry.groups[query.filter] && searchKey([
+    entry.contract.id, entry.contract.packageName, database.students.find(student => student.id === entry.contract.studentId)?.name || '',
+  ].join(' ')).includes(searchKey(query.search || ''))).map(entry => entry.contract)
+  const offset = Number(query.cursor || 0), rows = matching.slice(offset, offset + 20), hasMore = offset + 20 < matching.length
+  const asOf = new Date().toISOString()
+  return structuredClone({ contracts: rows, students: database.students.filter(student => rows.some(contract => contract.studentId === student.id)),
+    summary: query.includeSummary === false ? null : { complete: true, totals, counts, asOf, sourceDocuments: scoped.length },
+    nextCursor: hasMore ? String(offset + 20) : null, hasMore, asOf, scanned: scoped.length })
+}
+export async function listFinanceStudentLabels(studentIds: string[]) {
+  state.labelCalls.push({ owner: state.owner, studentIds: [...studentIds] })
+  return structuredClone(database.students.filter(student => studentIds.includes(student.id)))
 }
 export async function listFinanceLedger(query: any) {
   const owner = state.owner, number = state.calls.push({ owner, query: { ...query } })

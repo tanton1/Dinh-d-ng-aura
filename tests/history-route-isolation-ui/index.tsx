@@ -1,4 +1,4 @@
-import { StrictMode, useEffect, useState } from 'react'
+import { StrictMode, Suspense, lazy, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { DatabaseProvider, useDatabase } from '../../src/contexts/DatabaseContext'
 import StaffScheduleWorkspace, { type StaffScheduleTab } from '../../src/pages/operations/StaffScheduleWorkspace'
@@ -12,25 +12,18 @@ function Consumer() {
   return <output>{trainers.map((trainer) => trainer.name).join(',')}</output>
 }
 
-function FinanceConsumer() {
-  const { acquireFinanceDirectory, students, contracts } = useDatabase()
-  useEffect(() => {
-    const release = acquireFinanceDirectory()
-    return () => { release(); release() }
-  }, [acquireFinanceDirectory])
-  return <output>Directory {students.length}/{contracts.length}</output>
-}
+const FinanceManagement = lazy(() => import('../../src/components/admin/pt/FinanceManagement'))
+const financeProfile = { uid: 'admin', role: 'admin', authzVersion: 1 } as const
 
 function FinanceApp() {
   const [details, setDetails] = useState(false)
-  const [second, setSecond] = useState(false)
+  const [renders, setRenders] = useState(0)
   return <>
     <button onClick={() => setDetails(false)}>Overview</button>
     <button onClick={() => setDetails(false)}>Cashbook</button>
     <button onClick={() => setDetails(true)}>Ledger</button>
-    <button onClick={() => setSecond(value => !value)}>Second consumer</button>
-    {details && <FinanceConsumer />}
-    {second && <FinanceConsumer />}
+    <button onClick={() => setRenders(value => value + 1)}>Rerender finance {renders}</button>
+    {details && <Suspense fallback={<p>Loading finance</p>}><FinanceManagement user={null} profile={financeProfile as any} /></Suspense>}
   </>
 }
 
