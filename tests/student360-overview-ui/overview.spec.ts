@@ -202,3 +202,19 @@ test('StrictMode cleanup rejects retired request results without cancelling the 
   await page.evaluate(() => (window as any).student360.unmount())
   await expect(page.getByText('Unmounted', { exact: true })).toBeVisible()
 })
+
+test('whole-page removal blocks an old callback during commit before passive cleanup', async ({ page }) => {
+  await resolve(page, 0)
+  await name(page, 'Learner A')
+  await page.getByRole('button', { name: 'Hợp đồng', exact: true }).first().click()
+  await expect(page.getByRole('button', { name: 'Fixture contract saved for A' })).toBeVisible()
+  await expect.poll(() => page.evaluate(() => (window as any).student360.contractCallbacks.length)).toBeGreaterThan(0)
+  await page.evaluate(() => {
+    const state = (window as any).student360
+    state.afterUnmountCallback = state.contractCallbacks[0]
+    state.unmount()
+  })
+  await expect(page.getByText('Unmounted', { exact: true })).toBeVisible()
+  await settle(page)
+  await pending(page, 1)
+})

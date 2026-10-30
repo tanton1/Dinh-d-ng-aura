@@ -20,6 +20,7 @@ type Pending = { kind: 'overview' | 'projection'; studentId: string; owner: stri
 export const state = {
   pending: [] as Pending[], navigation: [] as unknown[][], telemetry: [] as unknown[],
   contractCallbacks: [] as Array<() => Promise<void>>, go: (_id: string) => {}, unmount: () => {},
+  afterUnmountCallback: null as (() => Promise<void>) | null,
   setOwner(uid: string | null, updateContext = true) {
     auth.currentUser = uid ? { uid } : null
     ownerSubscribers.forEach(callback => callback())
