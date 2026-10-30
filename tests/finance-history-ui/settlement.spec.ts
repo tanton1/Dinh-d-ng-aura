@@ -86,6 +86,136 @@ test('known cancellation date is prefilled and a simple proposal automatically w
   expect(await page.evaluate(() => (window as any).financeState.payments + (window as any).financeState.refunds)).toBe(0)
 })
 
+test('date verification records the date without clearing missing recognition or submitting financial adjustments', async ({ page }, testInfo) => {
+  await open(page)
+  await page.evaluate(() => {
+    (window as any).financeState.settlementBlockers = [{ code: 'SETTLEMENT_MISSING_RECOGNITION', message: 'Có buổi đã tính phí chưa có doanh thu được đối soát.' }]
+  })
+  await proposal(page)
+  await adjustments(page)
+  // Date confirmation must not submit this unfinished monetary adjustment.
+  await panel(page).getByLabel('Phí chấm dứt (đ)', { exact: true }).fill('50000')
+  await expect(panel(page).getByRole('button', { name: 'Gửi duyệt', exact: true })).toBeDisabled()
+  await expect(panel(page).getByTestId('settlement-verify-cutoff')).toBeEnabled()
+  await panel(page).locator('summary').filter({ hasText: /^Điều chỉnh thêm/ }).click()
+  const capture = async (stage: string) => {
+    if (testInfo.project.name !== 'finance-chromium') return
+    for (const width of [390, 1024]) {
+      await page.setViewportSize({ width, height: 900 })
+      await panel(page).screenshot({ path: `.tools/settlement-cutoff-${stage}-${width}.png` })
+    }
+  }
+  await capture('before')
+  await panel(page).getByRole('button', { name: 'Xác nhận ngày nghỉ', exact: true }).click()
+  await expect(panel(page).getByTestId('settlement-verify-cutoff')).toHaveCount(0)
+  await expect(panel(page).getByText('Cần kiểm tra', { exact: true })).toBeVisible()
+  await expect(panel(page).getByText('Có buổi đã tính phí chưa có doanh thu được đối soát.')).toBeVisible()
+  await expect(panel(page).getByRole('button', { name: 'Gửi duyệt', exact: true })).toBeDisabled()
+  await expect(panel(page).getByRole('button', { name: /^(Xác nhận duyệt|Thu tiền|Hoàn tiền|Hoàn tất)$/ })).toHaveCount(0)
+  await expect(panel(page).getByLabel('Ngày nghỉ')).toHaveValue('2026-10-25')
+  await expect(panel(page).getByLabel('Lý do nghỉ')).toHaveValue('Khách xác nhận kết thúc dịch vụ theo biên bản.')
+  await capture('after')
+  const result = await page.evaluate(() => {
+    const s = (window as any).financeState
+    return { commands: s.settlementCommands, revision: s.settlementRevision, settlement: s.settlement, payments: s.payments, refunds: s.refunds }
+  })
+  expect(result.commands).toHaveLength(1)
+  expect(result.commands[0]).toMatchObject({
+    action: 'verify_cutoff', contractId: 'contract-a', cutoffDate: '2026-10-25',
+    reason: 'Khách xác nhận kết thúc dịch vụ theo biên bản.', expectedRevision: 0,
+    operationId: expect.any(String), expectedSnapshotHash: expect.any(String),
+  })
+  expect(result.commands[0].proposal).toBeUndefined()
+  expect(result.settlement.proposal).toBeUndefined()
+  expect(result.revision).toBe(1)
+  expect(result.payments + result.refunds).toBe(0)
+  await panel(page).getByRole('button', { name: 'Cập nhật', exact: true }).click()
+  await expect(panel(page).getByLabel('Ngày nghỉ')).toHaveValue('2026-10-25')
+  await expect(panel(page).getByLabel('Lý do nghỉ')).toHaveValue('Khách xác nhận kết thúc dịch vụ theo biên bản.')
+  await expect(panel(page).getByTestId('settlement-verify-cutoff')).toHaveCount(0)
+})
+
+test('date verification with a lost response retries the exact operation without approval or cash movement', async ({ page }) => {
+  await open(page)
+  await proposal(page)
+  await panel(page).getByLabel('Lý do nghỉ').fill('  Đã đối chiếu ngày nghỉ với học viên.  ')
+  await page.evaluate(() => { (window as any).financeState.settlementFailure = 'commit-lost' })
+  await panel(page).getByRole('button', { name: 'Xác nhận ngày nghỉ', exact: true }).click()
+  await expect(panel(page).getByRole('button', { name: 'Kiểm tra kết quả', exact: true })).toBeVisible()
+  await expect(panel(page).getByLabel('Ngày nghỉ', { exact: true })).toBeDisabled()
+  await expect(panel(page).getByLabel('Lý do nghỉ')).toBeDisabled()
+  await expect(panel(page).getByRole('button', { name: 'Gửi duyệt', exact: true })).toBeDisabled()
+  await panel(page).getByRole('button', { name: 'Kiểm tra kết quả', exact: true }).click()
+  await expect(panel(page).getByTestId('settlement-verify-cutoff')).toHaveCount(0)
+  await expect(panel(page).getByText('Cần kiểm tra', { exact: true })).toBeVisible()
+  await expect(panel(page).getByLabel('Ngày nghỉ', { exact: true })).toHaveValue('2026-10-25')
+  await expect(panel(page).getByLabel('Lý do nghỉ')).toHaveValue('  Đã đối chiếu ngày nghỉ với học viên.  ')
+  const result = await page.evaluate(() => {
+    const s = (window as any).financeState
+    return { commands: s.settlementCommands, revision: s.settlementRevision, status: s.settlementStatus, payments: s.payments, refunds: s.refunds }
+  })
+  expect(result.commands).toHaveLength(2)
+  expect(result.commands[0]).toEqual(result.commands[1])
+  expect(result.commands[0]).toMatchObject({ action: 'verify_cutoff', cutoffDate: '2026-10-25', reason: 'Đã đối chiếu ngày nghỉ với học viên.', expectedRevision: 0 })
+  expect(result.revision).toBe(1)
+  expect(result.status).toBe('review_required')
+  expect(result.payments + result.refunds).toBe(0)
+  await expect(panel(page).getByRole('button', { name: /^(Xác nhận duyệt|Thu tiền|Hoàn tiền|Hoàn tất)$/ })).toHaveCount(0)
+})
+
+test('date verification requires a valid past date and a meaningful reason', async ({ page }) => {
+  await page.clock.install({ time: new Date('2026-10-30T12:00:00+07:00') })
+  await open(page, '2026-02-30')
+  await page.evaluate(() => { (window as any).financeState.settlementConfirmedCutoffDate = null })
+  await panel(page).getByRole('button', { name: 'Cập nhật', exact: true }).click()
+  await panel(page).getByLabel('Lý do nghỉ').fill('Khách xác nhận ngày nghỉ.')
+  await expect(panel(page).getByTestId('settlement-verify-cutoff')).toBeDisabled()
+  await panel(page).getByLabel('Ngày nghỉ', { exact: true }).fill('2026-10-31')
+  await expect.poll(() => page.evaluate(() => (window as any).financeState.settlementCalls.at(-1).input.cutoffDate)).toBe('2026-10-31')
+  await expect(panel(page).getByLabel('Ngày nghỉ', { exact: true })).toBeEnabled()
+  await expect(panel(page).getByTestId('settlement-verify-cutoff')).toBeDisabled()
+  await panel(page).getByLabel('Ngày nghỉ', { exact: true }).fill('2026-10-25')
+  await expect(panel(page).getByTestId('settlement-verify-cutoff')).toBeEnabled()
+  await panel(page).getByLabel('Lý do nghỉ').fill(' x ')
+  await expect(panel(page).getByTestId('settlement-verify-cutoff')).toBeDisabled()
+  await panel(page).getByLabel('Ngày nghỉ', { exact: true }).fill('')
+  await expect(panel(page).getByTestId('settlement-verify-cutoff')).toHaveCount(0)
+  expect(await page.evaluate(() => (window as any).financeState.settlementCommands)).toEqual([])
+})
+
+for (const code of ['SETTLEMENT_CUTOFF_REQUIRED', 'SETTLEMENT_CUTOFF_INVALID', 'SETTLEMENT_SERVICE_AFTER_CUTOFF']) {
+  test(`date verification remains blocked by ${code}`, async ({ page }) => {
+    await open(page)
+    await page.evaluate(code => {
+      (window as any).financeState.settlementBlockers = [{ code, message: 'Cần đối soát bằng chứng của ngày nghỉ.' }]
+    }, code)
+    await proposal(page)
+    await expect(panel(page).getByText('Cần đối soát bằng chứng của ngày nghỉ.')).toBeVisible()
+    await expect(panel(page).getByTestId('settlement-verify-cutoff')).toBeDisabled()
+    await expect(panel(page).getByRole('button', { name: 'Gửi duyệt', exact: true })).toBeDisabled()
+    expect(await page.evaluate(() => (window as any).financeState.settlementCommands)).toEqual([])
+  })
+}
+
+test('date verification is unavailable without submit permission or server support', async ({ page }) => {
+  await open(page)
+  await proposal(page)
+  await expect(panel(page).getByTestId('settlement-verify-cutoff')).toBeEnabled()
+  await page.evaluate(() => { (window as any).financeState.settlementPermissions.canSubmit = false })
+  await panel(page).getByRole('button', { name: 'Cập nhật', exact: true }).click()
+  await expect(panel(page).getByText('Chờ người phụ trách tài chính xử lý.')).toBeVisible()
+  await expect(panel(page).getByTestId('settlement-verify-cutoff')).toHaveCount(0)
+  await page.evaluate(() => {
+    const s = (window as any).financeState
+    s.settlementPermissions.canSubmit = true
+    s.settlementSupportsCutoffVerification = false
+  })
+  await panel(page).getByRole('button', { name: 'Cập nhật', exact: true }).click()
+  await expect(panel(page).getByLabel('Lý do nghỉ')).toBeEnabled()
+  await expect(panel(page).getByTestId('settlement-verify-cutoff')).toHaveCount(0)
+  expect(await page.evaluate(() => (window as any).financeState.settlementCommands)).toEqual([])
+})
+
 test('refresh uses the latest exact unserved amount and service value in the proposal and forecast', async ({ page }) => {
   await open(page)
   await proposal(page)

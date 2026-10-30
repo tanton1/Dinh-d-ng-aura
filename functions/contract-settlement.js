@@ -55,6 +55,13 @@ function cancellationDate(value) {
   const instant = normalizedInstant(value)
   return instant ? localDay(new Date(instant)) : ''
 }
+function confirmedCancellationCutoff(contract) {
+  const persisted = contract.cancellationSettlement?.cutoffDate
+  // Match the session evidence guard: a present summary date takes precedence
+  // even when malformed. Never hide that required repair with a fallback date.
+  if (persisted) return typeof persisted === 'string' && persisted === dateKey(persisted) ? persisted : null
+  return cancellationDate(contract.cancelledAt) || null
+}
 const chargedSession = session => session.billingStatus === 'charged' || (!session.billingStatus && ['completed', 'attended', 'no_show'].includes(session.status))
 const cancelledSession = session => ['cancelled', 'student_cancelled', 'trainer_cancelled', 'canceled_by_student'].includes(session.status) || session.scheduleStatus === 'cancelled'
 function revenue(row) {
@@ -243,7 +250,8 @@ function publicResponse(contractId, contract, settlement, preview, actor) {
   if (['approved', 'settled'].includes(status) && (!settlement || settlement.serviceEvidenceHash !== preview.serviceEvidenceHash || settlement.recognizedRevenueAfterAdjustments !== preview.recognizedRevenue)) {
     preview = { ...preview, blockers: [...preview.blockers, { code: 'SETTLEMENT_APPROVAL_STALE', message: 'Bằng chứng dịch vụ đã thay đổi sau phê duyệt; cần đối soát lại trước khi thu, hoàn hoặc đóng hồ sơ.' }] }
   }
-  return { contractId, revision, status, settlement: settlement || null, preview: { ...preview, ...(['approved', 'settled'].includes(status) && Number.isSafeInteger(amount) ? { dueAmount: Math.max(0, amount - preview.canonicalCash), refundAmount: Math.max(0, preview.canonicalCash - amount) } : {}) }, permissions: permissions(actor) }
+  const confirmedCutoffDate = confirmedCancellationCutoff(contract)
+  return { contractId, revision, status, settlement: settlement || null, preview: { ...preview, confirmedCutoffDate, ...(['approved', 'settled'].includes(status) && Number.isSafeInteger(amount) ? { dueAmount: Math.max(0, amount - preview.canonicalCash), refundAmount: Math.max(0, preview.canonicalCash - amount) } : {}) }, permissions: permissions(actor) }
 }
 function assertReady(preview) { if (preview.blockers.length) fail('failed-precondition', preview.blockers[0].message, preview.blockers[0].code) }
 function assertApprovedEvidence(settlement, preview) {
@@ -272,12 +280,15 @@ function createContractSettlementFunctions({ db, onCall, logger = console, autho
   const manageContractSettlement = onCall(async request => {
     const actor = await actorFor(request, true)
     const input = request.data || {}, contractId = identifier(input.contractId), operationId = identifier(input.operationId)
-    if (!['submit', 'approve', 'close', 'withdraw'].includes(input.action)) fail('invalid-argument', 'Thao tác quyết toán không hợp lệ.')
+    if (!['verify_cutoff', 'submit', 'approve', 'close', 'withdraw'].includes(input.action)) fail('invalid-argument', 'Thao tác quyết toán không hợp lệ.')
     const expectedRevision = money(input.expectedRevision, 'Phiên bản hồ sơ')
     const expectedSnapshotHash = text(input.expectedSnapshotHash, 64)
     if (!/^[a-f0-9]{64}$/.test(expectedSnapshotHash)) fail('invalid-argument', 'Cần tải lại số liệu đối soát trước khi gửi.')
     const operationReference = db.doc(`contractSettlementOperations/${hash([contractId, operationId])}`)
-    const requestHash = hash({ contractId, action: input.action, expectedRevision, expectedSnapshotHash, proposal: input.proposal || null })
+    // Existing command fingerprints stay unchanged for already-issued receipts.
+    // Date verification additionally binds both fields, including exact retries.
+    const requestHash = hash({ contractId, action: input.action, expectedRevision, expectedSnapshotHash, proposal: input.proposal || null,
+      ...(input.action === 'verify_cutoff' ? { cutoffDate: input.cutoffDate ?? null, reason: input.reason ?? null } : {}) })
     await db.runTransaction(async transaction => {
       const reference = db.doc(`contracts/${contractId}`), caseReference = db.doc(`contractSettlements/${contractId}`)
       const [contractDoc, caseDoc, operationDoc] = await Promise.all([transaction.get(reference), transaction.get(caseReference), transaction.get(operationReference)])
@@ -292,13 +303,29 @@ function createContractSettlementFunctions({ db, onCall, logger = console, autho
       if ((current && contract.cancellationSettlement && (current.status !== contract.cancellationSettlement.status || current.revision !== contract.cancellationSettlement.revision)) || (!current && ['pending_approval', 'approved', 'settled'].includes(contract.cancellationSettlement?.status))) fail('failed-precondition', 'Hồ sơ và trạng thái quyết toán chưa đồng bộ.', 'SETTLEMENT_CASE_MISMATCH')
       if (revision !== expectedRevision) fail('aborted', 'Hồ sơ quyết toán vừa thay đổi. Hãy tải lại.')
       if (contract.status !== 'cancelled') fail('failed-precondition', 'Chỉ quyết toán hợp đồng đã kết thúc hiệu lực.')
-      const cutoff = input.action === 'submit' ? input.proposal?.cutoffDate : current?.proposal?.cutoffDate
+      const verifyingCutoff = input.action === 'verify_cutoff'
+      const verificationDate = verifyingCutoff && typeof input.cutoffDate === 'string' && input.cutoffDate.length === 10 ? dateKey(input.cutoffDate) : ''
+      const verificationReason = verifyingCutoff ? text(input.reason) : ''
+      if (verifyingCutoff) {
+        if ((current?.status || contract.cancellationSettlement?.status || 'review_required') !== 'review_required') fail('failed-precondition', 'Chỉ xác nhận ngày nghỉ khi hồ sơ đang cần kiểm tra.', 'SETTLEMENT_CUTOFF_STATE_LOCKED')
+        if (!verificationDate || verificationDate > localDay() || verificationReason.length < 2) fail('invalid-argument', 'Cần ngày nghỉ hợp lệ không ở tương lai và lý do xác nhận.')
+      }
+      const cutoff = verifyingCutoff ? verificationDate : input.action === 'submit' ? input.proposal?.cutoffDate : current?.proposal?.cutoffDate
       const preview = await readSettlementEvidence(transaction, db, contractId, contract, cutoff)
       if (preview.snapshotHash !== expectedSnapshotHash) fail('aborted', 'Tiền hoặc bằng chứng dịch vụ vừa thay đổi. Hãy tải lại và xem phương án mới.', 'SETTLEMENT_SNAPSHOT_CHANGED')
       const nextRevision = revision + 1
       let next = { ...current, schemaVersion: 1, contractId, studentId: contract.studentId || '', branchId: contract.branchId || '', revision: nextRevision, updatedAt: FieldValue.serverTimestamp(), updatedBy: actor.uid }
       const entries = []
-      if (input.action === 'submit') {
+      if (verifyingCutoff) {
+        const invalidDateEvidence = preview.blockers.find(item => ['SETTLEMENT_CUTOFF_REQUIRED', 'SETTLEMENT_CUTOFF_INVALID', 'SETTLEMENT_SERVICE_AFTER_CUTOFF'].includes(item.code))
+        if (invalidDateEvidence) fail('failed-precondition', invalidDateEvidence.message, invalidDateEvidence.code)
+        // Save only the audited date. Financial evidence remains blocked until
+        // separately reconciled; a withdrawn monetary proposal is now stale.
+        delete next.proposal
+        delete next.snapshot
+        next = { ...next, status: 'review_required', cutoffDate: verificationDate, cutoffVerifiedDate: verificationDate,
+          cutoffVerifiedAt: FieldValue.serverTimestamp(), cutoffVerifiedBy: actor.uid, cutoffVerificationReason: verificationReason }
+      } else if (input.action === 'submit') {
         if (['approved', 'settled'].includes(current?.status)) fail('failed-precondition', 'Phương án đã duyệt không thể thay trực tiếp.')
         assertReady(preview)
         const proposal = proposalInput(input.proposal, preview)
@@ -326,13 +353,17 @@ function createContractSettlementFunctions({ db, onCall, logger = console, autho
         next = { ...next, status: 'review_required', withdrawnAt: FieldValue.serverTimestamp(), withdrawnBy: actor.uid }
       }
       const summary = { schemaVersion: 1, settlementId: contractId, revision: nextRevision, status: next.status, cutoffDate: next.proposal?.cutoffDate || preview.cutoffDate, ...(next.status === 'approved' || next.status === 'settled' ? Object.fromEntries(['settlementAmount', 'recognizedRevenueBaseline', 'recognizedRevenueAfterAdjustments', 'feeAmount', 'serviceReductionAmount', 'writeOffAmount', 'waivedFutureAmount', 'serviceEvidenceHash', 'approvedSnapshotHash', 'canonicalCash', 'paidProjection', 'remainingReceivable', 'refundDue', 'approvedAt', 'approvedBy', 'accountingPolicy'].map(key => [key, next[key]])) : {}), ...(next.status === 'settled' ? { settledAt: next.settledAt, settledBy: actor.uid } : {}) }
+      if (next.cutoffVerifiedDate === summary.cutoffDate) Object.assign(summary,
+        Object.fromEntries(['cutoffVerifiedDate', 'cutoffVerifiedAt', 'cutoffVerifiedBy', 'cutoffVerificationReason'].map(key => [key, next[key]])))
       for (const entry of entries) {
         transaction.create(db.doc(`ledgerEntries/${entry.id}`), entry.ledger)
         if (entry.journal) transaction.create(db.doc(`journalEntries/${entry.id}`), entry.journal)
       }
       transaction.set(caseReference, next)
       transaction.update(reference, { cancellationSettlement: summary, updatedAt: FieldValue.serverTimestamp(), updatedBy: actor.uid })
-      transaction.create(operationReference, { schemaVersion: 1, contractId, action: input.action, actorUid: actor.uid, requestHash, revision: nextRevision, beforeStatus: current?.status || 'review_required', afterStatus: next.status, proposal: next.proposal || null, snapshotHash: preview.snapshotHash, createdAt: FieldValue.serverTimestamp() })
+      transaction.create(operationReference, { schemaVersion: 1, contractId, action: input.action, actorUid: actor.uid, requestHash, revision: nextRevision, beforeStatus: current?.status || 'review_required', afterStatus: next.status, proposal: next.proposal || null, snapshotHash: preview.snapshotHash,
+        ...(verifyingCutoff ? { cutoffDate: verificationDate, reason: verificationReason, previousCutoffDate: confirmedCancellationCutoff(contract) } : {}),
+        createdAt: FieldValue.serverTimestamp() })
     })
     logger.info('contract_settlement_operation', { action: input.action })
     return read(contractId, actor)
