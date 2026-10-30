@@ -18,6 +18,59 @@ function fixture(options = {}) {
   return { dbs, caches: dbs.map(db => createSharedDashboardCache({ db, logger: { warn() {} }, ...options })) }
 }
 
+test('reporting opt-in coalesces explicit refreshes across instances instead of replacing live leases', { timeout: 15000 }, async () => {
+  let clock = 1000, waiting, resume
+  const followerWaiting = new Promise(resolve => { waiting = resolve })
+  const published = new Promise(resolve => { resume = resolve })
+  const { dbs: [db], caches: [first, second] } = fixture({ coalesceRefresh: true, buildLeaseMs: 120_000, now: () => clock, pause: async () => { waiting(); await published } })
+  await db.doc('sources/current').set({ total: 1 })
+  const original = await first.acquire('report-refresh')
+  const originalSource = await db.doc('sources/current').get()
+  await first.publish('report-refresh', originalSource.data(), original.lease, { sourceReadTime: originalSource.readTime })
+  await db.doc('sources/current').set({ total: 2 })
+  clock = 2000
+  let builds = 0
+  const results = await Promise.all([first, second].map(async cache => {
+    const claim = await cache.acquire('report-refresh', true)
+    if (claim.cached) return claim.cached
+    builds++
+    await followerWaiting
+    clock = 2001
+    const source = await db.doc('sources/current').get()
+    assert.equal(await cache.publish('report-refresh', source.data(), claim.lease, { sourceReadTime: source.readTime }), true)
+    resume()
+    return { total: 2 }
+  }))
+  assert.equal(builds, 1)
+  assert.ok(results.every(value => value.total === 2))
+  assert.equal(results.filter(value => value.cache?.hit).length, 1)
+})
+
+test('post-mutation refresh cannot accept a pre-mutation snapshot published later by another instance', { timeout: 15000 }, async () => {
+  let waiting, resume
+  const followerWaiting = new Promise(resolve => { waiting = resolve })
+  const published = new Promise(resolve => { resume = resolve })
+  // Deliberately freeze wall time: publication/lease clocks cannot establish
+  // source freshness, even when all calls appear to happen in the same ms.
+  const { dbs: [db, otherDb], caches: [first, second] } = fixture({ coalesceRefresh: true, now: () => 1000, pause: async () => { waiting(); await published } })
+  await db.doc('sources/current').set({ total: 1 })
+  const oldClaim = await first.acquire('payment-report')
+  const oldSnapshot = await db.doc('sources/current').get()
+  await otherDb.doc('sources/current').set({ total: 2 })
+  const refresh = second.acquire('payment-report', true)
+  await followerWaiting
+  assert.equal(await first.publish('payment-report', oldSnapshot.data(), oldClaim.lease, { sourceReadTime: oldSnapshot.readTime }), true)
+  resume()
+  const refreshedClaim = await refresh
+  assert.equal(refreshedClaim.cached, undefined, 'late publication must not disguise the old source snapshot as fresh')
+  assert.ok(refreshedClaim.lease)
+  const freshSnapshot = await otherDb.doc('sources/current').get()
+  assert.equal(await second.publish('payment-report', freshSnapshot.data(), refreshedClaim.lease, { sourceReadTime: freshSnapshot.readTime }), true)
+  assert.equal((await first.get('payment-report')).total, 2)
+  const stored = (await db.doc(`${CACHE_COLLECTION}/payment-report`).get()).data()
+  assert.equal(stored.valueSourceReadTime.isEqual(freshSnapshot.readTime), true)
+})
+
 test('simultaneous cold misses on independent instances build once; followers reuse the published result', { timeout: 15000 }, async () => {
   let waiting, resume
   const followerWaiting = new Promise(resolve => { waiting = resolve })

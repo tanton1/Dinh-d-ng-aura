@@ -31,8 +31,13 @@ async function reachDietStep(page: Page) {
   await page.getByRole('button', { name: 'Tiếp tục' }).click()
   await page.getByText('Duy trì vóc dáng', { exact: true }).click()
   await page.getByRole('button', { name: 'Tiếp tục' }).click()
-  await page.getByRole('button', { name: 'Tiếp tục' }).click()
   await page.getByText('Ít vận động', { exact: true }).click()
+  await page.getByRole('button', { name: 'Tiếp tục' }).click()
+  await expect(page.getByRole('heading', { name: /Có thực phẩm nào Aura cần tránh/i })).toBeVisible()
+  await page.getByRole('button', { name: 'Tiếp tục' }).click()
+  await page.getByText('Không có', { exact: true }).click()
+  await page.getByRole('button', { name: 'Tiếp tục' }).click()
+  await page.getByRole('button', { name: 'Bổ sung thói quen ngay' }).click()
   await page.getByRole('button', { name: 'Tiếp tục' }).click()
   await page.getByText('Tốt', { exact: true }).click()
   await page.getByRole('button', { name: 'Tiếp tục' }).click()
@@ -45,6 +50,28 @@ async function reachDietStep(page: Page) {
   await expect(page.getByRole('heading', { name: 'Chế độ ăn uống?' })).toBeVisible()
   await expect(onboarding).toHaveClass(/onboarding-content--diet/)
 }
+
+test('short onboarding requires an explicit health answer before offering a plan', async ({ page }) => {
+  const renderErrors: string[] = []
+  page.on('console', message => { if (/Maximum update depth/i.test(message.text())) renderErrors.push(message.text()) })
+  await page.goto('/#/profile')
+  await page.getByRole('button', { name: /Cập nhật/i }).first().click()
+  await page.getByRole('button', { name: 'Thiết lập hồ sơ' }).click()
+  await page.getByText('Nữ giới', { exact: true }).click()
+  for (let index = 0; index < 4; index++) await page.getByRole('button', { name: 'Tiếp tục' }).click()
+  await page.getByText('Duy trì vóc dáng', { exact: true }).click()
+  await page.getByRole('button', { name: 'Tiếp tục' }).click()
+  await page.getByText('Ít vận động', { exact: true }).click()
+  await page.getByRole('button', { name: 'Tiếp tục' }).click()
+  await page.getByRole('button', { name: 'Tiếp tục' }).click()
+  await expect(page.getByRole('heading', { name: /Có vấn đề sức khỏe/i })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Tiếp tục' })).toBeDisabled()
+  await page.getByText('Không có', { exact: true }).click()
+  await page.getByRole('button', { name: 'Tiếp tục' }).click()
+  await page.getByRole('button', { name: 'Xem kế hoạch khởi điểm' }).click()
+  await expect(page.locator('[data-onboarding-step="result"]')).toBeVisible({ timeout: 15000 })
+  expect(renderErrors).toEqual([])
+})
 
 for (const viewport of [
   { name: 'portrait', width: 390, height: 844 },

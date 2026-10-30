@@ -4,7 +4,7 @@ const { isDeepStrictEqual } = require('node:util')
 const { FieldPath, FieldValue } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
 const { normalizeAccount, sourceDocumentId } = require('./loyalty-core')
-const { syncMembership } = require('./loyalty-membership')
+const { syncMembership } = require('./loyalty-membership-core')
 
 const VERSION = 1
 const SHARDS = 4

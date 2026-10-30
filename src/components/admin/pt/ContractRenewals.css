@@ -580,6 +580,18 @@
 .renewal-source-card span,
 .renewal-source-card small { color: var(--rn-muted); font-size: .58rem; }
 .renewal-source-card strong { font-size: .72rem; }
+.renewal-activation-summary, .renewal-recovery-panel, .renewal-confirmation-block { min-width: 0; padding: 14px; border: 1px solid #d1e6df; border-radius: 14px; background: #f1faf6; color: #265c4b; font-size: .78rem; line-height: 1.6; }
+.renewal-activation-summary p, .renewal-recovery-panel p, .renewal-confirmation-block p { margin: 6px 0 0; white-space: normal; overflow: visible; }
+.renewal-recovery-panel { display: flex; gap: 10px; }
+.renewal-recovery-panel > svg { flex-shrink: 0; width: 22px; }
+.renewal-recovery-panel > div { min-width: 0; }
+.renewal-recovery-panel h3 { margin: 0; }
+.renewal-recovery-panel dl { margin: 10px 0; }
+.renewal-recovery-panel dl > div { padding: 5px 0; }
+.renewal-recovery-panel dt { font-size: .72rem; }
+.renewal-recovery-panel dd { margin: 0; overflow-wrap: anywhere; font-weight: 700; }
+.renewal-confirmation-block { background: #fff7ef; border-color: #efd3b5; color: #79451f; }
+.renewal-confirmation-block button { margin-top: 8px; padding: 8px 12px; border: 1px solid currentColor; border-radius: 8px; background: transparent; color: inherit; font: inherit; cursor: pointer; }
 .renewal-form-section { display: grid; gap: 10px; padding: 13px; border: 1px solid #f0e1e7; border-radius: 17px; background: #fff; }
 .renewal-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .renewal-form-grid label,

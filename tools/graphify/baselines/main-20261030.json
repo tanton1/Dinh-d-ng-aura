@@ -1,0 +1,218 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-30",
+  "sourceCommit": "af311e9c144b2d2318fb0a4c751f1c1082c09c2d",
+  "graphifyVersion": "0.9.97",
+  "mode": "local-code-only-no-dedup-no-llm-labels",
+  "sourceFingerprint": "b3e26a502a2aca6c93c36a906f865ed45fa17770c5febd2267a65751ee9e3dda",
+  "graphSha256": "cd03ccbad7721afedf5a7a8ee481f467d819ae442c25885bcd0eaf52f10c0e16",
+  "structure": {
+    "sourceFiles": 539,
+    "nodes": 7308,
+    "edges": 20681,
+    "importEdges": 1413,
+    "communities": 257,
+    "zeroLlmTokensReported": true,
+    "topImportedFiles": [
+      [
+        "src/types.ts",
+        99
+      ],
+      [
+        "src/lib/firebaseFunctions.ts",
+        53
+      ],
+      [
+        "src/lib/firebase.ts",
+        46
+      ],
+      [
+        "functions/identity-access.js",
+        26
+      ],
+      [
+        "src/features/nutrition/types.ts",
+        26
+      ],
+      [
+        "src/types/ptOperations.ts",
+        26
+      ],
+      [
+        "src/services/clientTelemetryService.ts",
+        23
+      ],
+      [
+        "src/contexts/AuthContext.tsx",
+        20
+      ],
+      [
+        "src/services/ptSchedulePublishService.ts",
+        20
+      ],
+      [
+        "src/lib/firebaseFirestore.ts",
+        17
+      ],
+      [
+        "src/contexts/DatabaseContext.tsx",
+        15
+      ],
+      [
+        "functions/contract-status.js",
+        14
+      ]
+    ],
+    "topImportingFiles": [
+      [
+        "functions/index.js",
+        49
+      ],
+      [
+        "src/pages/student/NutritionPageController.tsx",
+        32
+      ],
+      [
+        "src/AuraApplication.tsx",
+        26
+      ],
+      [
+        "src/pages/student/ProgressPage.tsx",
+        17
+      ],
+      [
+        "src/components/admin/pt/StudentManagement.tsx",
+        15
+      ],
+      [
+        "src/components/schedule/SchedulerWrapper.tsx",
+        15
+      ],
+      [
+        "src/pages/student/SchedulePage.tsx",
+        15
+      ],
+      [
+        "functions/pt-operations-v2.js",
+        14
+      ],
+      [
+        "src/components/academy/AcademyChapterLearningStudio.tsx",
+        14
+      ],
+      [
+        "src/pages/admin/CourseEditorPage.tsx",
+        14
+      ],
+      [
+        "src/pages/student/HomePage.tsx",
+        14
+      ],
+      [
+        "functions/student-360.js",
+        13
+      ]
+    ],
+    "cycleCandidates": [
+      [
+        "src/features/academy/reviewClient.ts",
+        "src/features/academy/reviewPersistence.ts",
+        "src/features/academy/workbookPersistence.ts",
+        "src/services/academyLearningService.ts"
+      ],
+      [
+        "functions/loyalty-dashboard-projection.js",
+        "functions/loyalty-membership.js",
+        "functions/loyalty.js"
+      ],
+      [
+        "functions/contract-usage-view.js",
+        "functions/contract-usage.js"
+      ],
+      [
+        "src/features/nutrition/presentation.ts",
+        "src/pages/student/NutritionWorkspace.tsx"
+      ],
+      [
+        "src/services/financeLedgerService.ts",
+        "src/utils/financeLedgerNormalization.ts"
+      ],
+      [
+        "src/services/ptOperationsV2Normalization.ts",
+        "src/services/ptOperationsV2Service.ts"
+      ]
+    ]
+  },
+  "callableCoverage": {
+    "frontendFiles": 416,
+    "uiModules": 185,
+    "backendFiles": 123,
+    "importEdges": 1049,
+    "callableSites": 348,
+    "directTransportSites": 137,
+    "staticCallableCandidates": 348,
+    "candidatesMatchingBackendExports": 344,
+    "parameterizedOrUnresolvedSites": 49,
+    "backendExportNames": 565,
+    "backendExportsWithoutResolvedFrontendReference": 221,
+    "unresolvedExportSpreads": 0,
+    "unresolvedComputedExports": 0,
+    "unresolvedDynamicImports": 1,
+    "wrapperDiscoveryPasses": 4
+  },
+  "multipleServiceReferences": [
+    {
+      "name": "listAcademyCourses",
+      "serviceFiles": [
+        "src/services/academyAdoptionService.ts",
+        "src/services/academyChapterService.ts",
+        "src/services/academyDraftReviewService.ts",
+        "src/services/firebaseService.ts"
+      ],
+      "meaning": "review sharing opportunities; multiple callers alone do not prove redundant calls"
+    },
+    {
+      "name": "listAcademyCoursesRegional",
+      "serviceFiles": [
+        "src/services/academyAdoptionService.ts",
+        "src/services/academyChapterService.ts",
+        "src/services/academyDraftReviewService.ts",
+        "src/services/firebaseService.ts"
+      ],
+      "meaning": "review sharing opportunities; multiple callers alone do not prove redundant calls"
+    },
+    {
+      "name": "saveCourseDraftAtomic",
+      "serviceFiles": [
+        "src/services/academyAdoptionService.ts",
+        "src/services/firebaseService.ts"
+      ],
+      "meaning": "review sharing opportunities; multiple callers alone do not prove redundant calls"
+    }
+  ],
+  "duplicateBindingCandidates": 145,
+  "nameAliasCandidates": 148,
+  "unmatchedConditionalCandidates": [
+    "bulkRecordSessionAttendanceRegional",
+    "confirmSessionAttendanceRegional",
+    "correctTeachingShiftRegional",
+    "recordSessionAttendanceRegional"
+  ],
+  "reviewedInterpretation": {
+    "runtimeCycleGroups": [
+      [
+        "functions/contract-usage.js",
+        "functions/contract-usage-view.js"
+      ],
+      [
+        "functions/loyalty.js",
+        "functions/loyalty-dashboard-projection.js",
+        "functions/loyalty-membership.js"
+      ]
+    ],
+    "typeOnlyCycleGroups": 4,
+    "unmatchedConditionalCandidatesAreExcludedBy": "src/services/sessionOperationsService.ts regionalOperationNames allowlist",
+    "deploymentCountsOrCostsMeasured": false,
+    "warning": "Static exports, missing frontend references and similar names do not prove redundant or unused deployments."
+  }
+}

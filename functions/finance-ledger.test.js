@@ -198,7 +198,22 @@ test('admin reporting cannot fabricate or destructively synchronize legacy payme
   assert.doesNotMatch(financeSource, /legacyReconciliation|showLegacyReconciliation/)
   assert.match(financeSource, /function contractDebt/)
   assert.match(financeSource, /function overdueAmount/)
-  assert.match(financeSource, /function amountDueInRange/)
+  assert.match(financeSource, /listFinanceReceivables/)
+  assert.doesNotMatch(financeSource, /filteredContracts\.reduce/, 'summary must not be computed from a cursor page')
+  const { debtState } = require('./scoped-reporting-reads')
+  const receivable = { totalPrice: 1000, paidAmount: 200, discount: 0, installments: [
+    { date: '2026-10-10', amount: 100, status: 'pending' },
+    { date: '2026-10-31', amount: 250, status: 'pending' },
+    { date: '2026-11-02', amount: 500, status: 'pending' },
+  ] }
+  const state = debtState(receivable, '2026-10-30')
+  assert.equal(state.debt, 800)
+  assert.equal(state.overdue, 100)
+  assert.equal(state.thisMonth, 350, 'month total includes all pending installments, not only the first')
+  const frozen = debtState({ ...receivable, status: 'frozen' }, '2026-10-30')
+  assert.equal(frozen.debt, 800)
+  assert.equal(frozen.overdue, 0)
+  assert.equal(frozen.thisMonth, 0)
   assert.doesNotMatch(financeSource, /ledgerSummary\.recognisedRevenue/)
   assert.match(financeSource, /eyebrow: 'Tổng nợ'/)
   assert.match(financeSource, /eyebrow: 'Quá hạn'/)
@@ -247,8 +262,8 @@ test('contract refund creates a next-period Renew commission reversal from origi
 
 // Immutable query fake with real filtering/order/cursor/field-mask behavior.
 // Read budgets below count returned ledger documents, not index-entry billing.
-function ledgerReadFixture(values, { queryError, role = 'admin', disabled = false } = {}) {
-  const calls = []
+function ledgerReadFixture(values, { queryError, role = 'admin', disabled = false, contracts = {}, settlements = {} } = {}) {
+  const calls = [], metadataReads = []
   const documents = values.map((value, index) => ({
     id: `row-${String(index).padStart(5, '0')}`,
     data: () => value,
@@ -297,18 +312,68 @@ function ledgerReadFixture(values, { queryError, role = 'admin', disabled = fals
   const db = {
     collection(name) { assert.equal(name, 'ledgerEntries'); return query() },
     doc(path) {
+      if (/^(contracts|contractSettlements)\//.test(path)) return { path, id: path.split('/').at(-1) }
       assert.ok(['users/actor', 'roleAssignments/actor'].includes(path))
       return { get: async () => ({ exists: path === 'users/actor', data: () => ({ role, disabled }) }) }
     },
+    async getAll(...refs) {
+      const options = refs.pop()
+      metadataReads.push({ paths: refs.map(ref => ref.path), fields: options.fieldMask })
+      return refs.map(ref => {
+        const value = (ref.path.startsWith('contracts/') ? contracts : settlements)[ref.id]
+        return { id: ref.id, exists: value !== undefined, data: () => value }
+      })
+    },
   }
   const { listFinanceLedger } = createFinanceLedgerFunctions({ db, onCall: handler => handler })
-  return { calls, run: data => listFinanceLedger({ auth: { uid: 'actor', token: { role } }, data }), listFinanceLedger }
+  return { calls, metadataReads, run: data => listFinanceLedger({ auth: { uid: 'actor', token: { role } }, data }), listFinanceLedger }
 }
 
 const ledgerValue = (index, patch = {}) => ({
   type: 'payment', status: 'posted', branchId: 'a', amount: 100,
   effectiveAt: Timestamp.fromMillis(Date.parse('2026-10-22T10:00:00Z') - index * 1000),
   ...patch,
+})
+
+test('page reversal eligibility mirrors settlement locks without exposing contract financial metadata', async () => {
+  const contracts = {
+    active: { status: 'active', privateNote: 'must not leave server' },
+    review: { status: 'cancelled', cancellationSettlement: { status: 'review_required' } },
+    pending: { status: 'cancelled', cancellationSettlement: { status: 'pending_approval' } },
+    approved: { status: 'cancelled', cancellationSettlement: { status: 'approved' } },
+    settled: { status: 'cancelled', cancellationSettlement: { status: 'settled' } },
+    stale: { status: 'cancelled', cancellationSettlement: { status: 'review_required' } },
+    unprojected: { status: 'cancelled' },
+    malformed: { status: 'active', cancellationSettlement: { revision: 1 } },
+  }
+  const ids = [...Object.keys(contracts), 'missing', 'invalid/path']
+  const values = ids.map((contractId, i) => ledgerValue(i, { contractId }))
+  values.push(ledgerValue(20, { contractId: 'active', type: 'refund' }), ledgerValue(21, { contractId: 'active', status: 'reversed' }))
+  const f = ledgerReadFixture(values, { contracts, settlements: { review: { status: 'review_required' }, stale: { status: 'approved' }, unprojected: { status: 'settled' } } })
+  const page = await f.run({ includeSummary: false })
+  assert.deepEqual(page.entries.map(entry => entry.canReverse), [true, true, false, false, false, false, false, false, false, false, false, false])
+  assert.equal(JSON.stringify(page).includes('privateNote'), false)
+  assert.equal(JSON.stringify(page).includes('cancellationSettlement'), false)
+  assert.deepEqual(f.metadataReads[0].fields, ['status', 'cancellationSettlement'])
+  assert.deepEqual(f.metadataReads[1], { paths: ['contractSettlements/review', 'contractSettlements/stale', 'contractSettlements/unprojected'], fields: ['status'] })
+  assert.equal(f.metadataReads[0].paths.includes('contracts/invalid/path'), false)
+})
+
+test('reversal metadata reads only distinct posted-payment contracts selected for the bounded page', async () => {
+  const contracts = Object.fromEntries(Array.from({ length: 250 }, (_, i) => [`c${i}`, { status: 'active' }]))
+  const f = ledgerReadFixture(Array.from({ length: 250 }, (_, i) => ledgerValue(i, { contractId: `c${i}` })), { contracts })
+  const first = await f.run({ pageSize: 100, includeSummary: false })
+  assert.equal(first.entries.length, 100)
+  assert.equal(first.entries.every(entry => entry.canReverse), true)
+  assert.equal(f.metadataReads.length, 1)
+  assert.equal(f.metadataReads[0].paths.length, 100)
+  assert.equal(f.metadataReads[0].paths.includes('contracts/c100'), false, 'lookahead and scanned rows are not hydrated')
+  const repeated = ledgerReadFixture([ledgerValue(0, { contractId: 'c' }), ledgerValue(1, { contractId: 'c' })], { contracts: { c: { status: 'active' } } })
+  assert.equal((await repeated.run({})).entries.every(entry => entry.canReverse), true)
+  assert.deepEqual(repeated.metadataReads[0].paths, ['contracts/c'])
+  const nonPayments = ledgerReadFixture([ledgerValue(0, { contractId: 'c', type: 'refund' }), ledgerValue(1, { contractId: 'c', status: 'reversed' })])
+  assert.equal((await nonPayments.run({})).entries.every(entry => entry.canReverse === false), true)
+  assert.equal(nonPayments.metadataReads.length, 0)
 })
 
 test('small branch result shares one complete first snapshot and eliminates unrelated reads', async () => {

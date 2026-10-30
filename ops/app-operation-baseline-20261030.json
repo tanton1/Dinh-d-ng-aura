@@ -1,0 +1,500 @@
+{
+  "schemaVersion": 1,
+  "project": "gen-lang-client-0815966909",
+  "observedAt": "2026-10-30T03:14:39.414Z",
+  "range": {
+    "start": "2026-10-29T03:14:37.158Z",
+    "end": "2026-10-30T03:14:37.158Z"
+  },
+  "complete": true,
+  "warning": null,
+  "billing": "Application observations only; document counts are not Firestore billed reads. No currency estimate is inferred.",
+  "operations": [
+    {
+      "operation": "getOperationsDashboard",
+      "status": "unknown",
+      "sampleCount": 0,
+      "estimatedRequests": null,
+      "estimatedFailuresPer1000": null,
+      "latencyMs": {
+        "p50": null,
+        "p95": null
+      },
+      "measured": {
+        "logicalQueries": {
+          "sampleCount": 0,
+          "measuredRequestShare": null,
+          "meanWhenMeasured": null
+        },
+        "documentsReturned": {
+          "sampleCount": 0,
+          "measuredRequestShare": null,
+          "meanWhenMeasured": null
+        },
+        "cacheHits": {
+          "sampleCount": 0,
+          "measuredRequestShare": null,
+          "meanWhenMeasured": null
+        },
+        "cacheMisses": {
+          "sampleCount": 0,
+          "measuredRequestShare": null,
+          "meanWhenMeasured": null
+        },
+        "responseBytes": {
+          "sampleCount": 0,
+          "measuredRequestShare": null,
+          "meanWhenMeasured": null
+        },
+        "projectionAgeMs": {
+          "sampleCount": 0,
+          "measuredRequestShare": null,
+          "meanWhenMeasured": null
+        },
+        "queueWaitMs": {
+          "sampleCount": 0,
+          "measuredRequestShare": null,
+          "meanWhenMeasured": null
+        },
+        "processingMs": {
+          "sampleCount": 0,
+          "measuredRequestShare": null,
+          "meanWhenMeasured": null
+        }
+      },
+      "releases": []
+    },
+    {
+      "operation": "getStudent360Overview",
+      "status": "unknown",
+      "sampleCount": 0,
+      "estimatedRequests": null,
+      "estimatedFailuresPer1000": null,
+      "latencyMs": {
+        "p50": null,
+        "p95": null
+      },
+      "measured": {
+        "logicalQueries": {
+          "sampleCount": 0,
+          "measuredRequestShare": null,
+          "meanWhenMeasured": null
+        },
+        "documentsReturned": {
+          "sampleCount": 0,
+          "measuredRequestShare": null,
+          "meanWhenMeasured": null
+        },
+        "cacheHits": {
+          "sampleCount": 0,
+          "measuredRequestShare": null,
+          "meanWhenMeasured": null
+        },
+        "cacheMisses": {
+          "sampleCount": 0,
+          "measuredRequestShare": null,
+          "meanWhenMeasured": null
+        },
+        "responseBytes": {
+          "sampleCount": 0,
+          "measuredRequestShare": null,
+          "meanWhenMeasured": null
+        },
+        "projectionAgeMs": {
+          "sampleCount": 0,
+          "measuredRequestShare": null,
+          "meanWhenMeasured": null
+        },
+        "queueWaitMs": {
+          "sampleCount": 0,
+          "measuredRequestShare": null,
+          "meanWhenMeasured": null
+        },
+        "processingMs": {
+          "sampleCount": 0,
+          "measuredRequestShare": null,
+          "meanWhenMeasured": null
+        }
+      },
+      "releases": []
+    },
+    {
+      "operation": "getMyNutritionJournalSummary",
+      "status": "unknown",
+      "sampleCount": 0,
+      "estimatedRequests": null,
+      "estimatedFailuresPer1000": null,
+      "latencyMs": {
+        "p50": null,
+        "p95": null
+      },
+      "measured": {
+        "logicalQueries": {
+          "sampleCount": 0,
+          "measuredRequestShare": null,
+          "meanWhenMeasured": null
+        },
+        "documentsReturned": {
+          "sampleCount": 0,
+          "measuredRequestShare": null,
+          "meanWhenMeasured": null
+        },
+        "cacheHits": {
+          "sampleCount": 0,
+          "measuredRequestShare": null,
+          "meanWhenMeasured": null
+        },
+        "cacheMisses": {
+          "sampleCount": 0,
+          "measuredRequestShare": null,
+          "meanWhenMeasured": null
+        },
+        "responseBytes": {
+          "sampleCount": 0,
+          "measuredRequestShare": null,
+          "meanWhenMeasured": null
+        },
+        "projectionAgeMs": {
+          "sampleCount": 0,
+          "measuredRequestShare": null,
+          "meanWhenMeasured": null
+        },
+        "queueWaitMs": {
+          "sampleCount": 0,
+          "measuredRequestShare": null,
+          "meanWhenMeasured": null
+        },
+        "processingMs": {
+          "sampleCount": 0,
+          "measuredRequestShare": null,
+          "meanWhenMeasured": null
+        }
+      },
+      "releases": []
+    },
+    {
+      "operation": "renewPtContract",
+      "status": "unknown",
+      "sampleCount": 0,
+      "estimatedRequests": null,
+      "estimatedFailuresPer1000": null,
+      "latencyMs": {
+        "p50": null,
+        "p95": null
+      },
+      "measured": {
+        "logicalQueries": {
+          "sampleCount": 0,
+          "measuredRequestShare": null,
+          "meanWhenMeasured": null
+        },
+        "documentsReturned": {
+          "sampleCount": 0,
+          "measuredRequestShare": null,
+          "meanWhenMeasured": null
+        },
+        "cacheHits": {
+          "sampleCount": 0,
+          "measuredRequestShare": null,
+          "meanWhenMeasured": null
+        },
+        "cacheMisses": {
+          "sampleCount": 0,
+          "measuredRequestShare": null,
+          "meanWhenMeasured": null
+        },
+        "responseBytes": {
+          "sampleCount": 0,
+          "measuredRequestShare": null,
+          "meanWhenMeasured": null
+        },
+        "projectionAgeMs": {
+          "sampleCount": 0,
+          "measuredRequestShare": null,
+          "meanWhenMeasured": null
+        },
+        "queueWaitMs": {
+          "sampleCount": 0,
+          "measuredRequestShare": null,
+          "meanWhenMeasured": null
+        },
+        "processingMs": {
+          "sampleCount": 0,
+          "measuredRequestShare": null,
+          "meanWhenMeasured": null
+        }
+      },
+      "releases": []
+    },
+    {
+      "operation": "getAcademyAnalyticsSummary",
+      "status": "unknown",
+      "sampleCount": 0,
+      "estimatedRequests": null,
+      "estimatedFailuresPer1000": null,
+      "latencyMs": {
+        "p50": null,
+        "p95": null
+      },
+      "measured": {
+        "logicalQueries": {
+          "sampleCount": 0,
+          "measuredRequestShare": null,
+          "meanWhenMeasured": null
+        },
+        "documentsReturned": {
+          "sampleCount": 0,
+          "measuredRequestShare": null,
+          "meanWhenMeasured": null
+        },
+        "cacheHits": {
+          "sampleCount": 0,
+          "measuredRequestShare": null,
+          "meanWhenMeasured": null
+        },
+        "cacheMisses": {
+          "sampleCount": 0,
+          "measuredRequestShare": null,
+          "meanWhenMeasured": null
+        },
+        "responseBytes": {
+          "sampleCount": 0,
+          "measuredRequestShare": null,
+          "meanWhenMeasured": null
+        },
+        "projectionAgeMs": {
+          "sampleCount": 0,
+          "measuredRequestShare": null,
+          "meanWhenMeasured": null
+        },
+        "queueWaitMs": {
+          "sampleCount": 0,
+          "measuredRequestShare": null,
+          "meanWhenMeasured": null
+        },
+        "processingMs": {
+          "sampleCount": 0,
+          "measuredRequestShare": null,
+          "meanWhenMeasured": null
+        }
+      },
+      "releases": []
+    },
+    {
+      "operation": "listFinanceReceivables",
+      "status": "unknown",
+      "sampleCount": 0,
+      "estimatedRequests": null,
+      "estimatedFailuresPer1000": null,
+      "latencyMs": {
+        "p50": null,
+        "p95": null
+      },
+      "measured": {
+        "logicalQueries": {
+          "sampleCount": 0,
+          "measuredRequestShare": null,
+          "meanWhenMeasured": null
+        },
+        "documentsReturned": {
+          "sampleCount": 0,
+          "measuredRequestShare": null,
+          "meanWhenMeasured": null
+        },
+        "cacheHits": {
+          "sampleCount": 0,
+          "measuredRequestShare": null,
+          "meanWhenMeasured": null
+        },
+        "cacheMisses": {
+          "sampleCount": 0,
+          "measuredRequestShare": null,
+          "meanWhenMeasured": null
+        },
+        "responseBytes": {
+          "sampleCount": 0,
+          "measuredRequestShare": null,
+          "meanWhenMeasured": null
+        },
+        "projectionAgeMs": {
+          "sampleCount": 0,
+          "measuredRequestShare": null,
+          "meanWhenMeasured": null
+        },
+        "queueWaitMs": {
+          "sampleCount": 0,
+          "measuredRequestShare": null,
+          "meanWhenMeasured": null
+        },
+        "processingMs": {
+          "sampleCount": 0,
+          "measuredRequestShare": null,
+          "meanWhenMeasured": null
+        }
+      },
+      "releases": []
+    },
+    {
+      "operation": "enqueueNutritionScan",
+      "status": "unknown",
+      "sampleCount": 0,
+      "estimatedRequests": null,
+      "estimatedFailuresPer1000": null,
+      "latencyMs": {
+        "p50": null,
+        "p95": null
+      },
+      "measured": {
+        "logicalQueries": {
+          "sampleCount": 0,
+          "measuredRequestShare": null,
+          "meanWhenMeasured": null
+        },
+        "documentsReturned": {
+          "sampleCount": 0,
+          "measuredRequestShare": null,
+          "meanWhenMeasured": null
+        },
+        "cacheHits": {
+          "sampleCount": 0,
+          "measuredRequestShare": null,
+          "meanWhenMeasured": null
+        },
+        "cacheMisses": {
+          "sampleCount": 0,
+          "measuredRequestShare": null,
+          "meanWhenMeasured": null
+        },
+        "responseBytes": {
+          "sampleCount": 0,
+          "measuredRequestShare": null,
+          "meanWhenMeasured": null
+        },
+        "projectionAgeMs": {
+          "sampleCount": 0,
+          "measuredRequestShare": null,
+          "meanWhenMeasured": null
+        },
+        "queueWaitMs": {
+          "sampleCount": 0,
+          "measuredRequestShare": null,
+          "meanWhenMeasured": null
+        },
+        "processingMs": {
+          "sampleCount": 0,
+          "measuredRequestShare": null,
+          "meanWhenMeasured": null
+        }
+      },
+      "releases": []
+    },
+    {
+      "operation": "nutritionScanCompletion",
+      "status": "unknown",
+      "sampleCount": 0,
+      "estimatedRequests": null,
+      "estimatedFailuresPer1000": null,
+      "latencyMs": {
+        "p50": null,
+        "p95": null
+      },
+      "measured": {
+        "logicalQueries": {
+          "sampleCount": 0,
+          "measuredRequestShare": null,
+          "meanWhenMeasured": null
+        },
+        "documentsReturned": {
+          "sampleCount": 0,
+          "measuredRequestShare": null,
+          "meanWhenMeasured": null
+        },
+        "cacheHits": {
+          "sampleCount": 0,
+          "measuredRequestShare": null,
+          "meanWhenMeasured": null
+        },
+        "cacheMisses": {
+          "sampleCount": 0,
+          "measuredRequestShare": null,
+          "meanWhenMeasured": null
+        },
+        "responseBytes": {
+          "sampleCount": 0,
+          "measuredRequestShare": null,
+          "meanWhenMeasured": null
+        },
+        "projectionAgeMs": {
+          "sampleCount": 0,
+          "measuredRequestShare": null,
+          "meanWhenMeasured": null
+        },
+        "queueWaitMs": {
+          "sampleCount": 0,
+          "measuredRequestShare": null,
+          "meanWhenMeasured": null
+        },
+        "processingMs": {
+          "sampleCount": 0,
+          "measuredRequestShare": null,
+          "meanWhenMeasured": null
+        }
+      },
+      "releases": []
+    },
+    {
+      "operation": "getAiCoachOverview",
+      "status": "observed",
+      "sampleCount": 1,
+      "estimatedRequests": 1,
+      "estimatedFailuresPer1000": 0,
+      "latencyMs": {
+        "p50": 585,
+        "p95": 585
+      },
+      "measured": {
+        "logicalQueries": {
+          "sampleCount": 0,
+          "measuredRequestShare": 0,
+          "meanWhenMeasured": null
+        },
+        "documentsReturned": {
+          "sampleCount": 0,
+          "measuredRequestShare": 0,
+          "meanWhenMeasured": null
+        },
+        "cacheHits": {
+          "sampleCount": 0,
+          "measuredRequestShare": 0,
+          "meanWhenMeasured": null
+        },
+        "cacheMisses": {
+          "sampleCount": 0,
+          "measuredRequestShare": 0,
+          "meanWhenMeasured": null
+        },
+        "responseBytes": {
+          "sampleCount": 0,
+          "measuredRequestShare": 0,
+          "meanWhenMeasured": null
+        },
+        "projectionAgeMs": {
+          "sampleCount": 0,
+          "measuredRequestShare": 0,
+          "meanWhenMeasured": null
+        },
+        "queueWaitMs": {
+          "sampleCount": 0,
+          "measuredRequestShare": 0,
+          "meanWhenMeasured": null
+        },
+        "processingMs": {
+          "sampleCount": 0,
+          "measuredRequestShare": 0,
+          "meanWhenMeasured": null
+        }
+      },
+      "releases": []
+    }
+  ]
+}

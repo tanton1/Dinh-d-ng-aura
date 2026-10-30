@@ -1793,6 +1793,7 @@ export default function NutritionPageController({ entry = 'nutrition', displayNa
       items: meal.items,
       reviewStatus: undefined,
       aiAnalysis: {
+        scanQuality: meal.scanQuality,
         dishName: canonicalDishName,
         quantityAndCookingAnalysis: meal.quantityCookingAnalysis,
         portionAndCalorieRationale: meal.portionCalorieRationale,

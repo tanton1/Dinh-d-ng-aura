@@ -95,13 +95,13 @@ export const HealthScreen = ({ profile, updateProfile, onNext }: any) => {
   const toggleItem = (item: string) => {
     let list = profile.healthConditions || [];
     if (item === 'none') {
-      updateProfile({ healthConditions: [] });
+      updateProfile({ healthConditions: [], healthScreeningCompleted: true });
       return;
     }
     if (list.includes(item)) {
-      updateProfile({ healthConditions: list.filter((i: string) => i !== item) });
+      updateProfile({ healthConditions: list.filter((i: string) => i !== item), healthScreeningCompleted: true });
     } else {
-      updateProfile({ healthConditions: [...list, item] });
+      updateProfile({ healthConditions: [...list, item], healthScreeningCompleted: true });
     }
   };
 
@@ -121,7 +121,7 @@ export const HealthScreen = ({ profile, updateProfile, onNext }: any) => {
       <div style={{ textAlign: 'center', marginBottom: '32px' }}><h2 style={{ fontSize: '28px', fontWeight: 800, color: '#0f172a', marginBottom: '8px' }}>Có vấn đề sức khỏe nào Aura cần lưu ý không?</h2></div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 24 }}>
         {conditions.map(c => {
-          const selected = c.id === 'none' ? isNone && profile.healthConditions !== undefined : profile.healthConditions?.includes(c.id as never);
+          const selected = c.id === 'none' ? isNone && profile.healthScreeningCompleted === true : profile.healthConditions?.includes(c.id as never);
           return (
              <div key={c.id} 
               onClick={() => toggleItem(c.id)}
@@ -137,7 +137,7 @@ export const HealthScreen = ({ profile, updateProfile, onNext }: any) => {
         })}
       </div>
       <div className="bottom-cta" style={{ marginTop: 'auto' }}>
-        <button className="primary-button" disabled={profile.healthConditions === undefined} onClick={onNext} style={{ width: '100%', padding: '16px', borderRadius: '24px', background: 'linear-gradient(135deg, #ff3f7d, #ff8a38)', color: 'white', border: 'none', fontSize: '18px', fontWeight: 700, boxShadow: '0 8px 20px rgba(255, 63, 125, 0.3)' }}>Tiếp tục</button>
+        <button className="primary-button" disabled={profile.healthScreeningCompleted !== true} onClick={onNext} style={{ width: '100%', padding: '16px', borderRadius: '24px', background: 'linear-gradient(135deg, #ff3f7d, #ff8a38)', color: 'white', border: 'none', fontSize: '18px', fontWeight: 700, boxShadow: '0 8px 20px rgba(255, 63, 125, 0.3)' }}>Tiếp tục</button>
       </div>
     </motion.div>
   );

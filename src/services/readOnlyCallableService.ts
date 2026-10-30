@@ -3,6 +3,11 @@ import { firebaseAuth } from '../lib/firebase'
 import { firebaseFunctions } from '../lib/firebaseFunctions'
 import { createClientCorrelationId, reportClientIssue } from './clientTelemetryService'
 import { callableCode, isRetryableReadOnlyCallableError, runReadOnlyWithRetry } from './readOnlyCallableCore'
+import { createReadMetricBuffer } from './readMetrics'
+
+// Weak ownership prevents diagnostics crossing account/session changes. One
+// anonymous batch per 20 completed reads, at most 12 batches per sampled session.
+const metricSessions = new WeakMap<object, { sampled: boolean; sent: number; buffer: ReturnType<typeof createReadMetricBuffer> }>()
 
 export interface ReadOnlyCallableOptions {
   /** Reuse the same request identity across explicit regional failover. */
@@ -32,11 +37,24 @@ export async function callReadOnlyFunction<Input, Output>(
     : input
   const invoke = httpsCallable<Input, Output>(functionsClient, name, { timeout: options.timeoutMs ?? 18_000 })
   const currentUser = firebaseAuth?.currentUser
-  return runReadOnlyWithRetry(async () => (await invoke(correlatedInput)).data, {
+  const startedAt = Date.now()
+  let attempts = 0
+  let failed = true
+  try {
+  const result = await runReadOnlyWithRetry(async () => {
+    if (currentUser && firebaseAuth?.currentUser !== currentUser) throw Object.assign(new Error('Phiên đăng nhập đã thay đổi.'), { code: 'permission-denied' })
+    attempts++
+    const response = await invoke(correlatedInput)
+    if (currentUser && firebaseAuth?.currentUser !== currentUser) throw Object.assign(new Error('Phiên đăng nhập đã thay đổi.'), { code: 'permission-denied' })
+    return response.data
+  }, {
     signal: options.signal,
     maximumAttempts: options.maximumAttempts ?? 3,
     baseDelayMs: options.baseDelayMs ?? 300,
-    refreshAuth: currentUser ? () => currentUser.getIdToken(true) : undefined,
+    refreshAuth: currentUser ? () => {
+      if (firebaseAuth?.currentUser !== currentUser) throw Object.assign(new Error('Phiên đăng nhập đã thay đổi.'), { code: 'permission-denied' })
+      return currentUser.getIdToken(true)
+    } : undefined,
     onFinalFailure: (error, context) => {
       reportClientIssue('firestore', error, {
         phase: `read_callable_${name}_a${context.attempts}`.slice(0, 80),
@@ -46,6 +64,24 @@ export async function callReadOnlyFunction<Input, Output>(
       })
     },
   })
+  failed = false
+  return result
+  } finally {
+    if (currentUser && firebaseAuth?.currentUser === currentUser) {
+      let session = metricSessions.get(currentUser)
+      if (!session) {
+        session = { sampled: Math.random() < .1, sent: 0, buffer: createReadMetricBuffer() }
+        metricSessions.set(currentUser, session)
+      }
+      const batch = session.buffer.record({ operation: name, durationMs: Date.now() - startedAt, attempts, failed })
+      if (batch && session.sampled && session.sent < 12) {
+        session.sent++
+        void import('./analyticsService').then(({ trackProductEvent }) => {
+          if (firebaseAuth?.currentUser === currentUser) return trackProductEvent('read_operation_batch', { ...batch, sampleRate: .1 })
+        }).catch(() => undefined)
+      }
+    }
+  }
 }
 
 /**

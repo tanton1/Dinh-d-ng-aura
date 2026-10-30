@@ -572,7 +572,11 @@ test('legacy operations listeners are route scoped and never load the admin dash
   assert.doesNotMatch(viewScope, /['"]admin-dashboard['"]/, 'the dashboard must use aggregate APIs, not legacy listeners')
   assert.doesNotMatch(viewScope, /['"]admin-report['"]/, 'the report must use aggregate APIs, not legacy listeners')
   assert.match(viewScope, /'admin-finance': \['branches'\]/)
-  assert.match(viewScope, /'admin-finance-details': \['branches', 'contracts', 'students'\]/)
+  assert.doesNotMatch(viewScope, /'admin-finance-details':/, 'receivable detail must use bounded server pages, never broad contract/student listeners')
+  assert.doesNotMatch(databaseContextSource, /acquireFinanceDirectory|financeDirectoryConsumers/, 'opening a finance tab must not reactivate the legacy directory')
+  const financeReadSource = readFileSync(join(repositoryRoot, 'src', 'components', 'admin', 'pt', 'FinanceManagement.tsx'), 'utf8')
+  assert.match(financeReadSource, /listFinanceReceivables/)
+  assert.match(financeReadSource, /listFinanceStudentLabels/, 'cash history should resolve only the returned page identities')
   assert.match(viewScope, /'admin-payroll': \['trainers', 'branches'\]/)
   assert.match(viewScope, /'admin-schedule-settings': \['scheduleConfig', 'branches'\]/)
   assert.doesNotMatch(viewScope, /'admin-quotes':/, 'the quote facade must use its actor-scoped cursor API')
@@ -721,10 +725,28 @@ test('exact history projection is digest-gated, fully linked and backup protecte
 })
 
 test('contract usage projection and history share one auditable charge formula', () => {
-  assert.match(contractUsageSource, /billingStatus === 'exempt'/)
-  assert.match(contractUsageSource, /billingStatus === 'charged'/)
-  assert.match(contractUsageSource, /LEGACY_CHARGED_STATUSES\.has/)
-  assert.match(contractUsageSource, /legacyProjectionAdjustment/)
+  const core = require('./contract-usage-core')
+  const facade = require('./contract-usage')
+  const { contractUsageViewFromEvidence } = require('./contract-usage-view-core')
+  assert.strictEqual(facade.sessionCountsTowardContract, core.sessionCountsTowardContract)
+  assert.strictEqual(facade.summarizeContractUsage, core.summarizeContractUsage)
+  const sessions = [
+    { id: 'charged', studentId: 's', date: '2026-10-01', status: 'completed', billingStatus: 'charged' },
+    { id: 'exempt', studentId: 's', date: '2026-10-02', status: 'completed', billingStatus: 'exempt' },
+    { id: 'legacy', studentId: 's', date: '2026-10-03', status: 'completed' },
+    { id: 'pending', studentId: 's', date: '2026-10-04', status: 'completed', billingStatus: 'pending' },
+  ]
+  assert.deepEqual(sessions.map(core.sessionCountsTowardContract), [true, false, true, false])
+  const contract = { studentId: 's', totalSessions: 12, usedSessions: 4 }
+  const summary = core.summarizeContractUsage(contract, sessions)
+  const view = contractUsageViewFromEvidence('c', contract, sessions)
+  assert.equal(summary.chargedSessions, 2)
+  assert.deepEqual(summary.canonicalChargedSessionIds, ['charged', 'legacy'])
+  assert.equal(summary.legacyProjectionAdjustment, 2)
+  assert.equal(summary.usedSessions, 4)
+  assert.equal(summary.remainingSessions, 8)
+  for (const field of ['chargedSessions', 'legacyProjectionAdjustment', 'usedSessions', 'remainingSessions']) assert.equal(view[field], summary[field])
+  assert.match(contractUsageSource, /require\('\.\/contract-usage-core'\)/)
   assert.match(contractUsageSource, /chargedSessionIds/)
   assert.doesNotMatch(functionsSource, /exports\.syncPtContractUsageProjection\s*=/)
   assert.match(functionsSource, /exports\.syncSessionContractUsageView = onDocumentWritten\(\{[\s\S]*?document: 'sessions\/\{sessionId\}'[\s\S]*?database: databaseId[\s\S]*?retry: true,[\s\S]*?syncContractUsageView\(\{ db, event, logger \}\)/)

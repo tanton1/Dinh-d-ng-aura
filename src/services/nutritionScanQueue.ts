@@ -1,5 +1,16 @@
 export type FoodScanQueueStatus = 'uploading' | 'queued' | 'processing'
 
+/** Elapsed observation time only: never a queue position or provider ETA. */
+export function foodScanElapsedLabel(startedAt: number | undefined, now = Date.now()): string {
+  if (!startedAt || !Number.isFinite(startedAt) || startedAt > now) return 'Vừa gửi'
+  const seconds = Math.max(0, Math.floor((now - startedAt) / 1_000))
+  if (seconds < 60) return 'Đã gửi chưa đến 1 phút'
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `Đã gửi ${minutes} phút`
+  const hours = Math.floor(minutes / 60)
+  return `Đã gửi ${hours} giờ${minutes % 60 ? ` ${minutes % 60} phút` : ''}`
+}
+
 export interface PendingFoodScan {
   ownerUid: string
   fingerprint: string

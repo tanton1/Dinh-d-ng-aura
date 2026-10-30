@@ -34,10 +34,10 @@ import { useEffect, useId, useMemo, useRef, useState, type FormEvent, type React
 import '../../styles-nutrition-workspace.css'
 import MealImage from '../../components/nutrition/MealImage'
 
-export type NutritionWorkspaceSection = 'today' | 'diary' | 'classic-diary' | 'plan' | 'menu' | 'explore' | 'catalog' | 'insights'
-export type NutritionMealType = 'breakfast' | 'lunch' | 'dinner' | 'snack'
-export type NutritionDataConfidence = 'verified' | 'estimated' | 'needs-review'
-export type NutritionActivityIntensity = 'low' | 'moderate' | 'high'
+import type { NutritionWorkspaceSection, NutritionMealType, NutritionDataConfidence, NutritionActivityIntensity } from '../../features/nutrition/types'
+// Compatibility exports keep existing consumers stable while pure helpers no
+// longer depend on this React workspace.
+export type { NutritionWorkspaceSection, NutritionMealType, NutritionDataConfidence, NutritionActivityIntensity } from '../../features/nutrition/types'
 
 export interface NutritionDailyTargets {
   calories: number

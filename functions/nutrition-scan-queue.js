@@ -8,6 +8,8 @@ const { onTaskDispatched } = require('firebase-functions/v2/tasks')
 const { ENFORCE_AI_APP_CHECK, requireAiAppCheck, requireAiRequestOwner, requestFingerprint, quotaMutation, createNutritionAiRequests } = require('./nutrition-ai-requests')
 const { APIKEY_FUN_API_KEY } = require('./apikey-fun')
 const { OPENROUTER_API_KEY } = require('./openrouter')
+const { logger: defaultLogger } = require('firebase-functions')
+const { withFunctionTelemetry } = require('./observability')
 
 const SCAN_QUEUE_REGION = 'asia-southeast2'
 const SCAN_QUEUE_WORKER = 'processNutritionScanQueue'
@@ -24,7 +26,7 @@ const jobReference = (db, uid, scanId) => {
   return db.doc(`users/${uid}/nutritionScanJobs/${scanId}`)
 }
 
-function createNutritionScanQueue({ db, processScan, parseInput, enqueueTask, now = Date.now }) {
+function createNutritionScanQueue({ db, processScan, parseInput, enqueueTask, now = Date.now, logger = defaultLogger }) {
   const receipts = createNutritionAiRequests({ db, now })
   const submit = async ({ uid, input, callerRole = 'student' }) => {
     const reference = jobReference(db, uid, input.scanId)
@@ -50,11 +52,32 @@ function createNutritionScanQueue({ db, processScan, parseInput, enqueueTask, no
       return { scanId: input.scanId, status: 'queued' }
     })
   }
-  const finish = async (reference, update) => db.runTransaction(async transaction => {
-    const snapshot = await transaction.get(reference)
-    if (!snapshot.exists || terminal(snapshot.data())) return
-    transaction.set(reference, { ...update, input: FieldValue.delete(), finishedAt: now() }, { merge: true })
-  })
+  const finish = async (reference, update) => {
+    const observation = await db.runTransaction(async transaction => {
+      const snapshot = await transaction.get(reference)
+      if (!snapshot.exists || terminal(snapshot.data())) return null
+      const job = snapshot.data(), finishedAt = now()
+      transaction.set(reference, { ...update, input: FieldValue.delete(), finishedAt }, { merge: true })
+      const firstStart = job.firstStartedAt ?? job.startedAt
+      return {
+        schemaVersion: 2, domain: 'nutrition', operation: 'nutritionScanCompletion',
+        outcome: update.status === 'completed' ? 'success' : 'error',
+        sampleRate: 1, release: process.env.K_REVISION || 'local',
+        durationMs: Math.max(0, finishedAt - job.createdAt),
+        metrics: typeof firstStart === 'number' ? {
+          queueWaitMs: Math.max(0, firstStart - job.createdAt),
+          // Wall time after first claim, including provider backoff/retries.
+          // This is not provider execution time or a billing duration.
+          processingMs: Math.max(0, finishedAt - firstStart),
+        } : {},
+      }
+    })
+    // Log after commit, never from the transaction callback (which may replay).
+    // No photo, job ID, user ID, meal content or health data is emitted.
+    if (observation) {
+      try { logger.info('Aura function metric', observation) } catch { /* Telemetry cannot undo completed work. */ }
+    }
+  }
   const fail = (reference, code, message, kind) => finish(reference, {
     status: 'failed', error: { code, message, kind: kind || 'nutrition_scan_failed' },
   })
@@ -90,7 +113,7 @@ function createNutritionScanQueue({ db, processScan, parseInput, enqueueTask, no
         const current = await transaction.get(reference)
         if (!current.exists || terminal(current.data())) return false
         if (current.data().status !== 'processing') {
-          transaction.set(reference, { status: 'processing', startedAt: now() }, { merge: true })
+          transaction.set(reference, { status: 'processing', startedAt: now(), firstStartedAt: current.data().firstStartedAt ?? current.data().startedAt ?? now() }, { merge: true })
         }
         return true
       })
@@ -136,7 +159,7 @@ function createNutritionScanQueueFunctions({ app, db, parseInput, processScan, d
   const tasks = getFunctions(app).taskQueue(`locations/${SCAN_QUEUE_REGION}/functions/${SCAN_QUEUE_WORKER}`)
   const queue = createNutritionScanQueue({ db, parseInput, processScan, enqueueTask: (data, options) => tasks.enqueue(data, options) })
   return {
-    enqueueNutritionScan: onCall({ region: SCAN_QUEUE_REGION, invoker: 'public', timeoutSeconds: 30, memory: '256MiB', maxInstances: 3, concurrency: 20, enforceAppCheck: ENFORCE_AI_APP_CHECK }, async request => {
+    enqueueNutritionScan: onCall({ region: SCAN_QUEUE_REGION, invoker: 'public', timeoutSeconds: 30, memory: '256MiB', maxInstances: 3, concurrency: 20, enforceAppCheck: ENFORCE_AI_APP_CHECK }, withFunctionTelemetry('enqueueNutritionScan', async request => {
       const uid = request.auth?.uid
       if (!uid) throw new HttpsError('unauthenticated', 'Bạn cần đăng nhập để phân tích món ăn.')
       requireAiAppCheck(request)
@@ -149,7 +172,7 @@ function createNutritionScanQueueFunctions({ app, db, parseInput, processScan, d
       const input = parseInput(request.data, uid)
       if (request.data?.requestId !== input.scanId) throw new HttpsError('invalid-argument', 'Mã yêu cầu không khớp với ảnh.')
       return queue.submit({ uid, input, callerRole: request.auth.token.role })
-    }),
+    })),
     dispatchNutritionScan: onDocumentCreated({ region: SCAN_QUEUE_REGION, serviceAccount: SCAN_TASK_SERVICE_ACCOUNT, database: databaseId, document: 'users/{uid}/nutritionScanJobs/{scanId}', retry: true, timeoutSeconds: 60, memory: '256MiB', maxInstances: 2, concurrency: 20 }, event => queue.dispatch(event.params.uid, event.params.scanId)),
     processNutritionScanQueue: onTaskDispatched({
       region: SCAN_QUEUE_REGION, serviceAccount: SCAN_TASK_SERVICE_ACCOUNT, invoker: [SCAN_TASK_SERVICE_ACCOUNT], timeoutSeconds: 120, memory: '512MiB', minInstances: 0, maxInstances: 4, concurrency: 2,

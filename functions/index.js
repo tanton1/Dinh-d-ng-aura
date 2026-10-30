@@ -67,6 +67,7 @@ const { createPtScheduleWeeklyViewFunctions, rebuildDirtyPtScheduleWeeklyViews, 
 const { applyAdminScheduleEdit } = require('./pt-schedule-admin-edit')
 const { trustedAccessContext, requireCapability } = require('./identity-access')
 const { createFinanceLedgerFunctions } = require('./finance-ledger')
+const { createScopedReportingReadFunctions } = require('./scoped-reporting-reads')
 const { createContractSettlementFunctions } = require('./contract-settlement')
 const { autoConfirmOverduePtAttendance, chargeDuePtSessions, createSessionOperationFunctions, remindUnconfirmedPtAttendance } = require('./session-operations')
 const { createPayrollFunctions, priceTeachingSlots, payrollPolicyProfiles, payrollProfile, policySupportsProfile } = require('./payroll')
@@ -1123,6 +1124,12 @@ const ptScheduleOverflowOnCall = (optionsOrHandler, maybeHandler) => {
 const ptScheduleOverflowFunctions = createPtScheduleV2Functions({ db, onCall: ptScheduleOverflowOnCall })
 exports.generatePtScheduleDraftV4 = ptScheduleOverflowFunctions.generatePtScheduleDraft
 Object.assign(exports, createFinanceLedgerFunctions({ db, onCall, logger }))
+// Reporting uses the existing overflow pool. A shared lease coalesces summary
+// scans across instances; detailed pages remain bounded independently.
+Object.assign(exports, createScopedReportingReadFunctions({
+  db, logger,
+  onCall: handler => asiaEastOnCall({ memory: '512MiB', timeoutSeconds: 180, maxInstances: 2, concurrency: 4 }, handler),
+}))
 Object.assign(exports, createContractSettlementFunctions({ db, onCall: handler => onCall({ cpu: 'gcf_gen1', maxInstances: 2, concurrency: 1, timeoutSeconds: 60 }, handler), logger }))
 const contractRenewalFunctions = createContractRenewalFunctions({ db, onCall, onSchedule, logger })
 Object.assign(exports, contractRenewalFunctions)
@@ -3230,6 +3237,7 @@ const productEventNames = new Set([
   'admin_dashboard_loaded',
   'route_loaded',
   'data_ready',
+  'read_operation_batch',
 ])
 // UI telemetry is useful for diagnosis but does not belong in the hot
 // Firestore path. Business milestones remain durable; high-volume navigation
@@ -3327,6 +3335,24 @@ const trackProductEventHandler = async (request) => {
     }))
     : {}
   if (!allowInMemoryProductEvent(userId)) throw new HttpsError('resource-exhausted', 'Quá nhiều sự kiện trong một phút.')
+
+  if (name === 'read_operation_batch') {
+    // This diagnostic event is deliberately anonymous and never persisted.
+    // Do not accept arbitrary properties from a browser telemetry payload.
+    const operation = properties.operation
+    const numeric = ['count', 'failed', 'attempts', 'totalDurationMs', 'maxDurationMs', 'sampleRate']
+    if (typeof operation !== 'string' || !/^[A-Za-z][A-Za-z0-9_]{0,99}$/.test(operation)
+      || numeric.some(key => typeof properties[key] !== 'number' || !Number.isFinite(properties[key]) || properties[key] < 0)
+      || properties.count < 1 || properties.count > 20 || properties.failed > properties.count
+      || properties.attempts > properties.count * 4 || properties.sampleRate <= 0 || properties.sampleRate > 1) {
+      throw new HttpsError('invalid-argument', 'Số đo không hợp lệ.')
+    }
+    logger.info('Aura client read batch', {
+      operation, ...Object.fromEntries(numeric.map(key => [key, properties[key]])),
+      schemaVersion: 1, release: process.env.K_REVISION || 'local', persisted: false,
+    })
+    return { accepted: true, persisted: false }
+  }
 
   if (!durableProductEventNames.has(name)) {
     logger.info('aura_product_event', {

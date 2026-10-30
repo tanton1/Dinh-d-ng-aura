@@ -50,8 +50,8 @@ export const ChoiceCard = ({ title, subtitle, selected, onClick, icon }: any) =>
   </div>
 );
 
-export const Header = ({ currentStep, profile, onBack, onSkip }: any) => {
-  const steps = getSteps(profile);
+export const Header = ({ currentStep, profile, onBack, onSkip, includePreferences = false }: any) => {
+  const steps = getSteps(profile, includePreferences);
   const index = steps.indexOf(currentStep);
   const progress = ((index + 1) / steps.length) * 100;
   

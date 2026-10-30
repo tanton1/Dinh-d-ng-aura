@@ -20,6 +20,8 @@ export interface OnboardingProfile {
   nutritionTracking: 'none' | 'occasionally' | 'calories' | 'full_macros' | null;
   
   healthConditions: string[];
+  /** Explicitly answered; an empty normalized array is not a health answer. */
+  healthScreeningCompleted?: boolean;
   diabetesType?: 'type_1' | 'type_2' | 'pre' | 'unknown' | null;
   bpStatus?: 'medicated' | 'unmedicated' | 'unknown' | null;
   mealTimes?: string[];
@@ -44,6 +46,7 @@ export type OnboardingStepId =
   | 'nutrition-tracking'
   | 'health'
   | 'health-details'
+  | 'preferences-choice'
   | 'notifications'
   | 'analyzing'
   | 'result';

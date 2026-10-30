@@ -24,7 +24,7 @@ async function fixture(values) {
   batch.set(db.doc('users/student'), { role: 'student' })
   for (const [index, value] of values.entries()) batch.set(db.doc(`ledgerEntries/row-${String(index).padStart(4, '0')}`), value)
   await batch.commit()
-  const reads = []
+  const reads = [], metadataReads = []
   const query = (target, state = { filters: [], limited: false, summary: false }) => ({
     orderBy: (...args) => query(target.orderBy(...args), state),
     where: (...args) => query(target.where(...args), { ...state, filters: [...state.filters, args] }),
@@ -39,18 +39,50 @@ async function fixture(values) {
   })
   // The callable receives only read methods. A surprise business write fails.
   const readDb = {
-    doc: path => ({ get: () => db.doc(path).get() }),
+    doc: path => ({ path, id: path.split('/').at(-1), get: () => db.doc(path).get() }),
+    getAll: async (...refs) => {
+      const options = refs.pop()
+      metadataReads.push({ paths: refs.map(ref => ref.path), fields: options.fieldMask })
+      return db.getAll(...refs.map(ref => db.doc(ref.path)), options)
+    },
     collection: name => { assert.equal(name, 'ledgerEntries'); return query(db.collection(name)) },
   }
   const { listFinanceLedger } = createFinanceLedgerFunctions({ db: readDb, onCall: handler => handler })
   const run = (data, role = 'admin') => listFinanceLedger({ auth: { uid: role, token: { role } }, data })
-  return { db, run, reads }
+  return { db, run, reads, metadataReads }
 }
 
 const value = (index, patch = {}) => ({
   type: 'payment', status: 'posted', branchId: 'a', amount: 100,
   effectiveAt: Timestamp.fromMillis(Date.parse('2026-10-22T17:00:00Z') - index * 1000),
   ...patch,
+})
+
+test('real Firestore: reversal hints follow current canonical settlement state with bounded private joins', async () => {
+  const f = await fixture([value(0, { contractId: 'normal' }), value(1, { contractId: 'review' }),
+    value(2, { contractId: 'stale' }), value(3, { contractId: 'missing' }), value(4, { contractId: 'normal', type: 'refund' }),
+    value(5, { contractId: 'malformed' })])
+  const batch = f.db.batch()
+  batch.set(f.db.doc('contracts/normal'), { status: 'active', privateNote: 'private' })
+  batch.set(f.db.doc('contracts/review'), { status: 'cancelled', cancellationSettlement: { status: 'review_required', canonicalCash: 100 } })
+  batch.set(f.db.doc('contractSettlements/review'), { status: 'review_required' })
+  batch.set(f.db.doc('contracts/stale'), { status: 'cancelled', cancellationSettlement: { status: 'review_required' } })
+  batch.set(f.db.doc('contractSettlements/stale'), { status: 'approved' })
+  batch.set(f.db.doc('contracts/malformed'), { status: 'active', cancellationSettlement: { revision: 1 } })
+  await batch.commit()
+  const page = await f.run({ includeSummary: false })
+  assert.deepEqual(page.entries.map(entry => entry.canReverse), [true, true, false, false, false, false])
+  assert.equal(JSON.stringify(page).includes('canonicalCash'), false)
+  assert.equal(JSON.stringify(page).includes('privateNote'), false)
+  assert.deepEqual(f.metadataReads, [
+    { paths: ['contracts/normal', 'contracts/review', 'contracts/stale', 'contracts/missing', 'contracts/malformed'], fields: ['status', 'cancellationSettlement'] },
+    { paths: ['contractSettlements/review', 'contractSettlements/stale'], fields: ['status'] },
+  ])
+  await f.db.doc('contractSettlements/review').update({ status: 'approved' })
+  assert.equal((await f.run({ includeSummary: false })).entries[1].canReverse, false, 'no stale TTL hint after approval')
+  const before = f.metadataReads.length
+  await assert.rejects(f.run({ includeSummary: false }, 'student'), { code: 'permission-denied' })
+  assert.equal(f.metadataReads.length, before, 'authorization precedes private metadata reads')
 })
 
 test('real Firestore: selective exhausted first snapshot supplies exact totals with one read pass', async () => {

@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 
-export const calls = { subscriptions: [] as string[], stops: [] as string[], active: [] as string[], workspace: [] as string[], availability: [] as string[], roster: [] as number[] }
+export const calls = { subscriptions: [] as string[], stops: [] as string[], active: [] as string[], workspace: [] as string[], availability: [] as string[], roster: [] as number[], reporting: [] as Array<{ name: string; input: Record<string, unknown>; region: string }>, ledger: [] as Record<string, unknown>[], cashAccounts: 0 }
 Object.assign(window, { isolationCalls: calls })
 export const db = {}
 export const useAuth = () => ({ user: { uid: 'admin' }, role: 'admin', accessContext: { accessRole: 'admin' }, authzReady: true, backendMode: 'firebase' })

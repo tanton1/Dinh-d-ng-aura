@@ -1,6 +1,5 @@
 import {
   collection,
-  collectionGroup,
   deleteDoc,
   doc,
   getDoc,
@@ -75,7 +74,6 @@ import type {
   CourseQuizAnswerKeys,
   CourseProgress,
   AcademyPracticeCompletionEvidence,
-  AdminStudentProgress,
   CourseAnalytics,
   CourseSettings,
   Enrollment,
@@ -277,15 +275,6 @@ function mapEnrollment(snapshot: QueryDocumentSnapshot<DocumentData>): Enrollmen
   }
 }
 
-function mapAdminStudentProgress(snapshot: QueryDocumentSnapshot<DocumentData>): AdminStudentProgress {
-  const data = mapCourseProgress(snapshot)
-  const path = snapshot.ref.path.split('/')
-  const userId = path.length >= 3 && path[0] === 'users' && path[2] === 'progress'
-    ? path[1]
-    : ''
-  return { ...data, userId }
-}
-
 function requireDocumentId(value: string, label: string) {
   const normalized = value.trim()
   if (!normalized || normalized.includes('/')) {
@@ -340,32 +329,6 @@ export function subscribeToCourses(
       onError(error)
     })
   return () => { active = false }
-}
-
-export function subscribeToAllEnrollments(
-  onData: (items: Enrollment[]) => void,
-  onError: (error: Error) => void,
-): Unsubscribe {
-  const db = requireDb()
-  return onSnapshot(
-    query(collection(db, 'enrollments'), limit(5_000)),
-    { includeMetadataChanges: true },
-    (snapshot) => onData(snapshot.docs.map(mapEnrollment)),
-    (error) => onError(error),
-  )
-}
-
-export function subscribeToAllStudentProgress(
-  onData: (items: AdminStudentProgress[]) => void,
-  onError: (error: Error) => void,
-): Unsubscribe {
-  const db = requireDb()
-  return onSnapshot(
-    query(collectionGroup(db, 'progress'), limit(5_000)),
-    { includeMetadataChanges: true },
-    (snapshot) => onData(snapshot.docs.map(mapAdminStudentProgress)),
-    (error) => onError(error),
-  )
 }
 
 export function subscribeToUserProgress(

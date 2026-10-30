@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertCircle,
   Check,
@@ -33,6 +33,7 @@ import {
 import { loadPtWorkoutSession, readPtExercisePrescription, visibleExerciseTags } from '../../services/ptCoachingProgramService'
 import { loadAssignedPtWorkout, type CompletedPtProgram } from '../../services/ptCoachingWorkoutService'
 import '../../styles-coaching.css'
+import { restoreWorkoutSubmission } from '../../features/workouts/submissionRecovery'
 
 const DEMO_WORKOUT_REF: LessonWorkoutReference = {
   programId: 'foundation-strength-8-week',
@@ -50,6 +51,8 @@ type SetInput = { weightKg: number; reps: number }
 type SetInputs = Record<string, SetInput>
 
 interface WorkoutDraft {
+  pendingSubmission?: WorkoutLogInput
+  pendingSubmissionInvalid?: boolean
   version: number
   clientLogId: string
   programId: string
@@ -161,25 +164,28 @@ function sanitizeDraft(
 
   const totalSets = exercises.reduce((total, item) => total + item.sets, 0)
   const allSetsComplete = countCompletedSets(completedSets) >= totalSets
+  const clientLogId = typeof draft.clientLogId === 'string' && /^[A-Za-z0-9_-]{8,128}$/.test(draft.clientLogId) ? draft.clientLogId : createClientLogId()
+  const pendingSubmission = draft.pendingSubmission ? restoreWorkoutSubmission(draft.pendingSubmission, workoutRef, clientLogId, exercises) : null
+  if (pendingSubmission) exercises.forEach(exercise => { completedSets[exercise.id] = pendingSubmission.sets.filter(set => set.exerciseId === exercise.id) })
   return {
     version: DRAFT_VERSION,
-    clientLogId: typeof draft.clientLogId === 'string' && /^[A-Za-z0-9_-]{8,128}$/.test(draft.clientLogId)
-      ? draft.clientLogId
-      : createClientLogId(),
+    clientLogId,
+    pendingSubmission: pendingSubmission || undefined,
+    pendingSubmissionInvalid: draft.pendingSubmissionInvalid === true || Boolean(draft.pendingSubmission && !pendingSubmission),
     programId: workoutRef.programId,
     sessionId: workoutRef.sessionId,
     versionId: workoutRef.versionId,
     exerciseIndex: Math.round(clampNumber(draft.exerciseIndex, 0, exercises.length - 1, 0)),
     completedSets,
     setInputs,
-    elapsed: Math.round(clampNumber(draft.elapsed, 0, MAX_WORKOUT_SECONDS, 0)),
+    elapsed: pendingSubmission?.durationSeconds ?? Math.round(clampNumber(draft.elapsed, 0, MAX_WORKOUT_SECONDS, 0)),
     paused: Boolean(draft.paused),
     rest: Math.round(clampNumber(draft.rest, 0, 60 * 60, 0)),
-    finished: allSetsComplete && Boolean(draft.finished),
-    perceivedExertion: Math.round(clampNumber(draft.perceivedExertion, 1, 4, 2)),
-    readiness: Math.round(clampNumber(draft.readiness, 1, 5, 3)),
-    sleepQuality: Math.round(clampNumber(draft.sleepQuality, 1, 5, 3)),
-    painNote: typeof draft.painNote === 'string' ? draft.painNote.trim().slice(0, 1_000) : '',
+    finished: Boolean(pendingSubmission) || (allSetsComplete && Boolean(draft.finished)),
+    perceivedExertion: pendingSubmission?.perceivedExertion ?? Math.round(clampNumber(draft.perceivedExertion, 1, 4, 2)),
+    readiness: pendingSubmission?.readiness ?? Math.round(clampNumber(draft.readiness, 1, 5, 3)),
+    sleepQuality: pendingSubmission?.sleepQuality ?? Math.round(clampNumber(draft.sleepQuality, 1, 5, 3)),
+    painNote: pendingSubmission?.painNote ?? (typeof draft.painNote === 'string' ? draft.painNote.trim().slice(0, 1_000) : ''),
   }
 }
 
@@ -242,6 +248,9 @@ function createDemoRuntime(workoutRef: LessonWorkoutReference): RuntimeWorkoutPr
 }
 
 export default function WorkoutPage(props: WorkoutPageProps) {
+  const { user } = useAuth()
+  const ownerId = user?.uid || 'demo'
+  const [runtimeOwnerId, setRuntimeOwnerId] = useState(ownerId)
   const { courseId, lessonId, chapterVersion, courseRevision, workoutRef: explicitWorkoutRef, onExit, onNavigate } = props
   const legacyCourseContext = Boolean(courseId || lessonId)
   const [reloadToken, setReloadToken] = useState(0)
@@ -259,6 +268,7 @@ export default function WorkoutPage(props: WorkoutPageProps) {
       const demoRef = explicitWorkoutRef ?? DEMO_WORKOUT_REF
       setResolvedWorkoutRef(demoRef)
       setRuntime(createDemoRuntime(demoRef))
+      setRuntimeOwnerId(ownerId)
       setProgramCompletion(null)
       setLoadError(null)
       return
@@ -278,6 +288,7 @@ export default function WorkoutPage(props: WorkoutPageProps) {
           }
           setResolvedWorkoutRef(result.workoutRef)
           setRuntime(result.runtime)
+          setRuntimeOwnerId(ownerId)
         })
         .catch((error: unknown) => {
           if (!active) return
@@ -297,6 +308,7 @@ export default function WorkoutPage(props: WorkoutPageProps) {
         if (!active) return
         setResolvedWorkoutRef(explicitWorkoutRef)
         setRuntime(result)
+        setRuntimeOwnerId(ownerId)
       })
       .catch((error: unknown) => {
         if (!active) return
@@ -305,7 +317,7 @@ export default function WorkoutPage(props: WorkoutPageProps) {
     return () => {
       active = false
     }
-  }, [courseId, explicitWorkoutRef, legacyCourseContext, lessonId, chapterVersion, courseRevision, reloadToken])
+  }, [courseId, explicitWorkoutRef, legacyCourseContext, lessonId, chapterVersion, courseRevision, reloadToken, ownerId])
 
   const leaveWorkout = () => {
     if (onExit) onExit()
@@ -339,7 +351,7 @@ export default function WorkoutPage(props: WorkoutPageProps) {
     )
   }
 
-  if (!runtime) {
+  if (!runtime || runtimeOwnerId !== ownerId) {
     return (
       <div className="course-detail-state" aria-busy="true" aria-live="polite">
         <LoaderCircle className="spin" size={34} />
@@ -354,7 +366,7 @@ export default function WorkoutPage(props: WorkoutPageProps) {
   return (
     <WorkoutSessionPlayer
       {...props}
-      key={`${runtime.programId}:${runtime.versionId}:${runtime.session.id}`}
+      key={`${ownerId}:${runtime.programId}:${runtime.versionId}:${runtime.session.id}`}
       workoutRef={workoutRef}
       runtime={runtime}
     />
@@ -387,7 +399,14 @@ function WorkoutSessionPlayer({
   const [rest, setRest] = useState(initialDraft?.rest ?? 0)
   const [finished, setFinished] = useState(initialDraft?.finished ?? false)
   const [perceivedExertion, setPerceivedExertion] = useState(initialDraft?.perceivedExertion ?? 2)
-  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'error'>('idle')
+  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'error' | 'saved'>(initialDraft?.pendingSubmission ? 'error' : 'idle')
+  const [pendingSubmission, setPendingSubmission] = useState<WorkoutLogInput | undefined>(initialDraft?.pendingSubmission)
+  const [navigationError, setNavigationError] = useState(false)
+  const savingRef = useRef(false)
+  const activeRef = useRef(true)
+  useEffect(() => { activeRef.current = true; return () => { activeRef.current = false } }, [])
+  const latestDraftRef = useRef<WorkoutDraft | null>(null)
+  const [draftStorageAvailable, setDraftStorageAvailable] = useState(true)
   const [muted, setMuted] = useState(true)
   const [videoExpanded, setVideoExpanded] = useState(false)
   const [techniqueOpen, setTechniqueOpen] = useState(false)
@@ -462,26 +481,31 @@ function WorkoutSessionPlayer({
       readiness,
       sleepQuality,
       painNote,
+      pendingSubmission,
+      pendingSubmissionInvalid: initialDraft?.pendingSubmissionInvalid,
     }
+    latestDraftRef.current = draft
     const id = window.setTimeout(() => {
       try {
+        if (savingRef.current) return
         window.localStorage.setItem(workoutDraftKey, JSON.stringify(draft))
+        setDraftStorageAvailable(true)
       } catch {
-        // The in-memory workout remains usable when local storage is unavailable.
+        setDraftStorageAvailable(false)
       }
     }, 150)
     return () => window.clearTimeout(id)
-  }, [clientLogId, completedSets, elapsed, exerciseIndex, finished, painNote, paused, perceivedExertion, readiness, rest, setInputs, sleepQuality, workoutDraftKey, workoutRef.programId, workoutRef.sessionId, workoutRef.versionId])
+  }, [clientLogId, completedSets, elapsed, exerciseIndex, finished, painNote, paused, pendingSubmission, perceivedExertion, readiness, rest, setInputs, sleepQuality, workoutDraftKey, workoutRef.programId, workoutRef.sessionId, workoutRef.versionId, initialDraft?.pendingSubmissionInvalid])
 
   useEffect(() => {
-    if (doneSets === 0) return
+    if (doneSets === 0 || saveState === 'saved') return
     const confirmReload = (event: BeforeUnloadEvent) => {
       event.preventDefault()
       event.returnValue = ''
     }
     window.addEventListener('beforeunload', confirmReload)
     return () => window.removeEventListener('beforeunload', confirmReload)
-  }, [doneSets])
+  }, [doneSets, saveState])
 
   const timeLabel = useMemo(
     () => `${String(Math.floor(elapsed / 60)).padStart(2, '0')}:${String(elapsed % 60).padStart(2, '0')}`,
@@ -520,44 +544,76 @@ function WorkoutSessionPlayer({
   }
 
   const exitWorkout = () => {
-    if (doneSets > 0 && !window.confirm('Tiến độ đã được lưu trên thiết bị. Bạn có thể quay lại để tiếp tục buổi tập này. Thoát bây giờ?')) return
+    if (savingRef.current) return
+    let stored = draftStorageAvailable
+    if (doneSets > 0 && latestDraftRef.current) {
+      try { window.localStorage.setItem(workoutDraftKey, JSON.stringify(latestDraftRef.current)); stored = true }
+      catch { stored = false; setDraftStorageAvailable(false) }
+    }
+    if (doneSets > 0 && !window.confirm(stored
+      ? 'Tiến độ đang là bản nháp trên thiết bị, chưa được ghi nhận vào lịch tập. Bạn có thể quay lại để tiếp tục. Thoát bây giờ?'
+      : 'Thiết bị chưa lưu được bản nháp. Nếu thoát, tiến độ chưa đồng bộ có thể bị mất. Vẫn thoát?')) return
     if (doneSets === 0) clearWorkoutDraft(workoutDraftKey)
     if (onExit) onExit()
     else onNavigate('schedule')
   }
 
   const persistWorkout = async () => {
-    if (!allSetsComplete) return
+    if ((!allSetsComplete && !pendingSubmission) || savingRef.current || initialDraft?.pendingSubmissionInvalid) return
     if (!onSave) {
       clearWorkoutDraft(workoutDraftKey)
       onNavigate('schedule')
       return
     }
+    savingRef.current = true
+    const workoutLog: WorkoutLogInput = pendingSubmission ?? {
+      clientLogId,
+      programId: workoutRef.programId,
+      sessionId: workoutRef.sessionId,
+      versionId: workoutRef.versionId,
+      title: resolvedTitle,
+      durationSeconds: elapsed,
+      completedSets: flattenedSets.length,
+      totalLoadKg,
+      perceivedExertion,
+      readiness,
+      sleepQuality,
+      painNote: painNote.trim().slice(0, 1_000),
+      sets: flattenedSets,
+    }
+    setPendingSubmission(workoutLog)
+    if (latestDraftRef.current) {
+      latestDraftRef.current = { ...latestDraftRef.current, pendingSubmission: workoutLog }
+      try { window.localStorage.setItem(workoutDraftKey, JSON.stringify(latestDraftRef.current)); setDraftStorageAvailable(true) }
+      catch { setDraftStorageAvailable(false) }
+    }
     setSaveState('saving')
     try {
-      const workoutLog: WorkoutLogInput & { versionId: string } = {
-        clientLogId,
-        programId: workoutRef.programId,
-        sessionId: workoutRef.sessionId,
-        versionId: workoutRef.versionId,
-        title: resolvedTitle,
-        durationSeconds: elapsed,
-        completedSets: flattenedSets.length,
-        totalLoadKg,
-        perceivedExertion,
-        readiness,
-        sleepQuality,
-        painNote: painNote.trim().slice(0, 1_000),
-        sets: flattenedSets,
-      }
       await onSave(workoutLog)
-      clearWorkoutDraft(workoutDraftKey)
+    } catch {
+      if (!activeRef.current) return
+      setSaveState('error')
+      savingRef.current = false
+      if (latestDraftRef.current) {
+        try { window.localStorage.setItem(workoutDraftKey, JSON.stringify(latestDraftRef.current)); setDraftStorageAvailable(true) }
+        catch { setDraftStorageAvailable(false) }
+      }
+      return
+    }
+    // A successful server acknowledgement stays successful even if returning
+    // to the schedule fails. Do not resurrect the draft or offer another save.
+    clearWorkoutDraft(workoutDraftKey)
+    if (!activeRef.current) return
+    setSaveState('saved')
+    try {
       if (onExit) onExit()
       else onNavigate('schedule')
     } catch {
-      setSaveState('error')
+      setNavigationError(true)
     }
   }
+
+  if (initialDraft?.pendingSubmissionInvalid) return <div className="course-detail-state" role="alert"><AlertCircle /><h1>Cần kiểm tra kết quả buổi tập</h1><p>Bản nháp đã gửi không còn nguyên vẹn. Aura dừng gửi lại để tránh thay đổi kết quả hoặc tạo bản ghi trùng. Hãy mở lịch sử giáo án và kiểm tra buổi tập đã lưu.</p><button type="button" className="primary-button" onClick={() => onNavigate('pt-workout')}>Mở giáo án & lịch sử</button></div>
 
   if (!preflightComplete) {
     return (
@@ -596,12 +652,16 @@ function WorkoutSessionPlayer({
           <strong>Buổi tập hôm nay thế nào?</strong>
           <span>Chọn cảm nhận của bạn</span>
           <div>{['Rất nhẹ', 'Vừa sức', 'Khó', 'Rất khó'].map((item, index) => (
-            <button type="button" className={perceivedExertion === index + 1 ? 'active' : ''} aria-pressed={perceivedExertion === index + 1} disabled={saveState === 'saving'} onClick={() => setPerceivedExertion(index + 1)} key={item}><i>{index + 1}</i>{item}</button>
+            <button type="button" className={perceivedExertion === index + 1 ? 'active' : ''} aria-pressed={perceivedExertion === index + 1} disabled={Boolean(pendingSubmission) || saveState === 'saving' || saveState === 'saved'} onClick={() => setPerceivedExertion(index + 1)} key={item}><i>{index + 1}</i>{item}</button>
           ))}</div>
         </div>
-        {saveState === 'error' && <div className="save-error" role="alert">Chưa thể đồng bộ Firebase. Dữ liệu vẫn được giữ trên thiết bị, hãy thử lại.</div>}
-        <button type="button" className="primary-button large" onClick={persistWorkout} disabled={saveState === 'saving'}>
-          {saveState === 'saving' ? 'Đang lưu kết quả...' : saveState === 'error' ? 'Thử lưu lại' : 'Lưu kết quả & về lịch tập'}
+        <p role="status" data-testid="workout-save-status">{saveState === 'saved' ? 'Đã ghi nhận kết quả trên máy chủ.' : saveState === 'saving'
+          ? 'Đang gửi kết quả. Chờ xác nhận trước khi đóng màn hình.'
+          : draftStorageAvailable ? 'Bản nháp trên thiết bị · Chưa ghi nhận vào lịch tập.' : 'Chưa lưu được bản nháp trên thiết bị. Giữ màn hình này cho đến khi gửi kết quả thành công.'}</p>
+        {saveState === 'error' && <div className="save-error" role="alert">Chưa xác nhận được kết quả đã lưu. {draftStorageAvailable ? 'Bản nháp vẫn còn trên thiết bị.' : 'Dữ liệu hiện chỉ còn trong màn hình này.'} Thử lại sẽ giữ nguyên mã buổi tập và toàn bộ kết quả đã gửi để tránh ghi trùng.</div>}
+        {navigationError && <div className="save-error" role="alert">Kết quả đã lưu thành công nhưng chưa mở được lịch tập. Bạn có thể tải lại trang hoặc mở lịch từ menu; không cần lưu lại kết quả.</div>}
+        <button type="button" className="primary-button large" onClick={persistWorkout} disabled={saveState === 'saving' || saveState === 'saved'}>
+          {saveState === 'saved' ? 'Đã lưu kết quả' : saveState === 'saving' ? 'Đang lưu kết quả...' : saveState === 'error' ? 'Thử lưu lại' : 'Lưu kết quả & về lịch tập'}
         </button>
       </div>
     )
@@ -614,6 +674,8 @@ function WorkoutSessionPlayer({
         <div className="workout-header__center"><strong>{resolvedTitle}</strong><span>{runtime.programTitle} · Phiên bản {workoutRef.versionId}</span><i className="pt-workout-context"><Dumbbell size={12} /> PT COACHING</i></div>
         <div className="workout-clock"><Clock3 size={18} /><strong>{timeLabel}</strong><button type="button" aria-label={paused ? 'Tiếp tục tính giờ' : 'Tạm dừng tính giờ'} aria-pressed={paused} onClick={() => setPaused((value) => !value)}>{paused ? <Play size={17} fill="currentColor" /> : <Pause size={17} fill="currentColor" />}</button></div>
       </header>
+
+      <p className="workout-draft-status" role="status" data-testid="workout-draft-status">{draftStorageAvailable ? 'Đang lưu nháp trên thiết bị · Gửi kết quả sau khi hoàn thành buổi tập.' : 'Thiết bị không lưu được bản nháp · Giữ màn hình này để tránh mất tiến độ.'}</p>
 
       <div className="workout-overall-progress" role="progressbar" aria-label="Tiến độ buổi tập" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress}><span style={{ width: `${progress}%` }} /></div>
 

@@ -81,9 +81,10 @@ const ScheduleWarningsPanel = lazy(() => import('./WeeklyScheduleWarningsPanel')
 const ScheduleHistoryPanel = lazy(() => import('./ScheduleHistoryPanel'))
 const ScheduleResetDialog = lazy(() => import('./ScheduleResetDialog'))
 const SchedulePublishDialog = lazy(() => import('./SchedulePublishDialog'))
-const ScheduleManualConfirmation = lazy(() => import('./ScheduleManualConfirmation'))
-const StudentOffNotice = lazy(() => import('./ScheduleManualConfirmation').then(module => ({ default: module.StudentOffNotice })))
-const ScheduleCandidateCard = lazy(() => import('./ScheduleManualConfirmation').then(module => ({ default: module.ScheduleCandidateCard })))
+const loadManualConfirmation = () => import('./ScheduleManualConfirmation')
+const ScheduleManualConfirmation = lazy(loadManualConfirmation)
+const StudentOffNotice = lazy(() => loadManualConfirmation().then(module => ({ default: module.StudentOffNotice })))
+const ScheduleCandidateCard = lazy(() => loadManualConfirmation().then(module => ({ default: module.ScheduleCandidateCard })))
 const ScheduleAvailabilityEditor = lazy(() => import('./ScheduleAvailabilityEditor'))
 const ScheduleOptimizationResult = lazy(() => import('./ScheduleOptimizationResult'))
 const ScheduleStudentSummary = lazy(() => import('./ScheduleStudentSummary'))
@@ -2180,23 +2181,12 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
       // reflect the same evidence used by the server-side optimizer.
       await loadWorkspace(true, true, true)
       if (activeWorkspaceScopeRef.current !== commandScope) return
-      const unresolved = result.unassignedEntries?.length || result.unassigned?.length || 0
-      const passes = Math.max(1, Number(result.optimizationSummary?.optimizationPasses || 1))
-      const refilled = Math.max(0, Number(result.optimizationSummary?.refillAssignments || 0))
-      const repaired = Math.max(0, Number(result.optimizationSummary?.rescueAssignments ?? result.optimizationSummary?.repairAssignments ?? 0))
-      const relocated = Math.max(0, Number(result.optimizationSummary?.rescueRelocations ?? result.optimizationSummary?.repairRelocations ?? 0))
-      const searchLimitReached = result.optimizationSummary?.rescueSearchLimitReached === true || result.optimizationSummary?.repairSearchLimitReached === true
-      const improvements = [
-        refilled ? `lấp thêm ${refilled} buổi` : '',
-        repaired ? `cứu thêm ${repaired} buổi bằng ${relocated} lần đổi chỗ` : '',
-      ].filter(Boolean).join(', ')
-      const deepRun = passes > 1 ? ` Đã chạy ${passes} lượt tối ưu${improvements ? `, ${improvements}` : ''}.` : ''
-      const searchNote = searchLimitReached && hasActionableSearchLimit(result.optimizationSummary, result.unassignedEntries || result.unassigned)
-        ? ' Bộ tìm kiếm đã chạm giới hạn an toàn cho các hồ sơ còn thiếu; hãy bấm Tối ưu tiếp hoặc xử lý ở tab Cảnh báo.' : ''
+      // Detailed result copy belongs with the secondary diagnostics bundle.
+      // A failed optional chunk must not turn a committed schedule into an error.
+      const diagnostics = await import('./ScheduleOptimizationResult').catch(() => null)
+      if (activeWorkspaceScopeRef.current !== commandScope) return
       setNoticeAction(null)
-      setNotice(unresolved
-        ? `Đã tối ưu draft r${result.draftRevision}; còn ${unresolved} hồ sơ cần xử lý.${deepRun}${searchNote}`
-        : `Đã tối ưu draft r${result.draftRevision}; đã ưu tiên đủ học viên, ca đôi và PT chính/phụ.${deepRun}${searchNote}`)
+      setNotice(diagnostics ? diagnostics.optimizationNotice(result) : `Đã cập nhật bản nháp r${result.draftRevision}. Xem lịch và cảnh báo để kiểm tra kết quả.`)
     } catch (arrangeError) {
       if (activeWorkspaceScopeRef.current !== commandScope) return
       const normalized = asPtSchedulePublishError(arrangeError)

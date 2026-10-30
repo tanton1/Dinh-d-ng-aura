@@ -641,6 +641,32 @@ async function listLedgerPage(db, input, firstSnapshot) {
   }
 }
 
+async function paymentReversalEligibility(db, entries) {
+  // Only the returned page can offer an action. Do not hydrate contracts for
+  // scanned-but-hidden rows or for a financial summary covering many pages.
+  const ids = [...new Set(entries.filter(entry => entry.type === 'payment' && entry.status === 'posted')
+    .map(entry => entry.contractId).filter(id => typeof id === 'string' && id && id.length <= 200 && !id.includes('/')))]
+  const allowed = new Set()
+  if (!ids.length) return allowed
+  // Preserve summary presence: projecting only its nested status would erase
+  // malformed summaries, which the authoritative command deliberately blocks.
+  const contracts = await db.getAll(...ids.map(id => db.doc(`contracts/${id}`)), { fieldMask: ['status', 'cancellationSettlement'] })
+  const review = []
+  for (const contract of contracts) {
+    if (!contract.exists) continue
+    const value = contract.data(), summary = value.cancellationSettlement
+    if (value.status !== 'cancelled' && !summary) allowed.add(contract.id)
+    else if (!summary || summary.status === 'review_required') review.push(contract.id)
+  }
+  // Match the command's canonical settlement check, including a missing or
+  // outdated contract projection. This remains bounded by the selected page.
+  if (review.length) {
+    const cases = await db.getAll(...review.map(id => db.doc(`contractSettlements/${id}`)), { fieldMask: ['status'] })
+    for (const settlement of cases) if (!settlement.exists || settlement.data().status === 'review_required') allowed.add(settlement.id)
+  }
+  return allowed
+}
+
 async function financeActor(request, db) {
   const actor = await trustedAccessContext(request, db)
   requireCapability(actor, 'finance.operations.manage')
@@ -691,8 +717,10 @@ function createFinanceLedgerFunctions({ db, onCall }) {
       listLedgerPage(db, input, firstSnapshot),
       summaryDocuments,
     ])
+    const reversible = await paymentReversalEligibility(db, page.entries)
     return {
       ...page,
+      entries: page.entries.map(entry => ({ ...entry, canReverse: entry.type === 'payment' && entry.status === 'posted' && reversible.has(entry.contractId) })),
       summary: documents === null ? null : summarizeLedgerDocuments(documents, input),
       canonicalOnly: true,
       source: 'ledgerEntries',

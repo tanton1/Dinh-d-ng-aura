@@ -18,6 +18,7 @@ export function useOnboarding() {
   }));
 
   const [currentStep, setCurrentStep] = useState<OnboardingStepId>('welcome');
+  const [includePreferences, setIncludePreferences] = useState(false);
   const [generatedPlan, setGeneratedPlan] = useState<GeneratedPlan | null>(null);
 
   const updateProfile = useCallback((updates: Partial<OnboardingProfile>) => {
@@ -25,20 +26,20 @@ export function useOnboarding() {
   }, []);
 
   const goNext = useCallback(() => {
-    const steps = getSteps(profile);
+    const steps = getSteps(profile, includePreferences);
     const index = steps.indexOf(currentStep);
     if (index >= 0 && index < steps.length - 1) {
       setCurrentStep(steps[index + 1]);
     }
-  }, [currentStep, profile]);
+  }, [currentStep, profile, includePreferences]);
 
   const goBack = useCallback(() => {
-    const steps = getSteps(profile);
+    const steps = getSteps(profile, includePreferences);
     const index = steps.indexOf(currentStep);
     if (index > 0) {
       setCurrentStep(steps[index - 1]);
     }
-  }, [currentStep, profile]);
+  }, [currentStep, profile, includePreferences]);
   
   const jumpTo = useCallback((step: OnboardingStepId) => {
     setCurrentStep(step);
@@ -48,6 +49,11 @@ export function useOnboarding() {
     profile,
     updateProfile,
     currentStep,
+    includePreferences,
+    choosePreferences: (include: boolean) => {
+      setIncludePreferences(include);
+      setCurrentStep(include ? 'secondary-goals' : 'analyzing');
+    },
     goNext,
     goBack,
     jumpTo,

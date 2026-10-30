@@ -11,6 +11,10 @@ npm.cmd run dev
 
 Mở `http://localhost:5173`.
 
+## Phân tích kiến trúc bằng Graphify
+
+Graphify được cài riêng cho môi trường phát triển, chạy AST cục bộ và không cần API key. Xem [cách cài và truy vấn](tools/graphify/README.md) cùng [kế hoạch tối ưu dựa trên graph](docs/product/GRAPHIFY_OPTIMIZATION_PLAN_2026-10-30.md).
+
 ## Luồng có sẵn
 
 - Trang chủ học viên và điều hướng mobile-first.

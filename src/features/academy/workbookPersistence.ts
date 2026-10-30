@@ -1,4 +1,4 @@
-import type { AcademyWorkbookState } from '../../services/academyLearningService'
+import type { AcademyWorkbookState } from './types'
 
 // These markers describe the device draft, never the learning evidence itself.
 export function academyWorkbookSignature(workbook: AcademyWorkbookState) {

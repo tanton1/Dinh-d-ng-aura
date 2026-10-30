@@ -1,6 +1,15 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { clearPendingFoodScan, foodScanFingerprint, readPendingFoodScan, rememberPendingFoodScan, waitForFoodScanJob, type ScanJobSnapshot } from '../src/services/nutritionScanQueue'
+import { clearPendingFoodScan, foodScanElapsedLabel, foodScanFingerprint, readPendingFoodScan, rememberPendingFoodScan, waitForFoodScanJob, type ScanJobSnapshot } from '../src/services/nutritionScanQueue'
+
+test('elapsed queue text uses original request age across reopening and never invents ETA', () => {
+  const start = 1_000_000
+  assert.equal(foodScanElapsedLabel(start, start + 40_000), 'Đã gửi chưa đến 1 phút')
+  assert.equal(foodScanElapsedLabel(start, start + 123_000), 'Đã gửi 2 phút')
+  assert.equal(foodScanElapsedLabel(start, start + 3_660_000), 'Đã gửi 1 giờ 1 phút')
+  assert.equal(foodScanElapsedLabel(undefined, start), 'Vừa gửi')
+  assert.equal(foodScanElapsedLabel(start + 1000, start), 'Vừa gửi')
+})
 
 test('queue status is pushed once per change and completion unsubscribes without polling', async () => {
   let next!: (snapshot: ScanJobSnapshot) => void

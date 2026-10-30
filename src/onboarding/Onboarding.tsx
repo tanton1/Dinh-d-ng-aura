@@ -17,11 +17,16 @@ interface OnboardingProps {
 
 export default function Onboarding({ onComplete, onSkip, initialProfile }: OnboardingProps) {
   const contentRef = useRef<HTMLDivElement>(null);
+  const initialProfileLoaded = useRef(false);
   const store = useOnboarding();
   const { currentStep, profile, updateProfile, goNext, goBack, generatedPlan, setGeneratedPlan } = store;
   
   useEffect(() => {
-    if (initialProfile) {
+    // Seed this editing session once. The shell constructs a fresh profile
+    // object on rerenders; hydrating on every new object overwrites answers
+    // and can restart the analysis effect indefinitely.
+    if (initialProfile && !initialProfileLoaded.current) {
+      initialProfileLoaded.current = true;
       updateProfile(normalizeOnboardingProfile(initialProfile));
     }
   }, [initialProfile, updateProfile]);
@@ -70,6 +75,16 @@ export default function Onboarding({ onComplete, onSkip, initialProfile }: Onboa
       case 'nutrition-tracking': return <NutritionTrackingScreen profile={profile} updateProfile={updateProfile} onNext={goNext} />;
       case 'health': return <HealthScreen profile={profile} updateProfile={updateProfile} onNext={goNext} />;
       case 'health-details': return <HealthDetailsScreen profile={profile} updateProfile={updateProfile} onNext={goNext} />;
+      case 'preferences-choice': return (
+        <section className="step-content">
+          <h2>Thông tin cơ bản đã sẵn sàng</h2>
+          <p>Bạn có thể xem kế hoạch khởi điểm ngay. Thói quen ngủ, ăn uống và nhắc nhở có thể bổ sung khi cập nhật hồ sơ.</p>
+          <div className="bottom-cta">
+            <button type="button" className="primary-button" onClick={() => store.choosePreferences(false)}>Xem kế hoạch khởi điểm</button>
+            <button type="button" className="secondary-button" onClick={() => store.choosePreferences(true)}>Bổ sung thói quen ngay</button>
+          </div>
+        </section>
+      );
       case 'notifications': return <NotificationsScreen profile={profile} updateProfile={updateProfile} onNext={goNext} />;
       case 'analyzing': return <AnalyzingScreen profile={profile} setGeneratedPlan={setGeneratedPlan} onNext={goNext} />;
       case 'result': return <ResultScreen profile={profile} generatedPlan={generatedPlan} onComplete={handleComplete} onBack={() => store.jumpTo('welcome')} />;
@@ -80,7 +95,7 @@ export default function Onboarding({ onComplete, onSkip, initialProfile }: Onboa
   return (
     <div className="onboarding-container" data-onboarding-step={currentStep}>
       <div ref={contentRef} className={`onboarding-content onboarding-content--${currentStep} ${currentStep === 'welcome' ? 'no-padding' : ''}`}>
-        <Header currentStep={currentStep} profile={profile} onBack={goBack} onSkip={handleSkip} />
+        <Header currentStep={currentStep} profile={profile} onBack={goBack} onSkip={handleSkip} includePreferences={store.includePreferences} />
         <AnimatePresence mode="wait">
           {renderStep()}
         </AnimatePresence>

@@ -1,4 +1,4 @@
-import type { AcademyReviewState } from '../../services/academyLearningService'
+import type { AcademyReviewState } from './types'
 
 /** A cloud read must not undo a card reviewed while that read was in flight. */
 export function mergeAcademyReviewStates(current: AcademyReviewState, cloud: AcademyReviewState, beforeRead: AcademyReviewState): AcademyReviewState {

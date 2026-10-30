@@ -112,7 +112,6 @@ const LEGACY_OPERATIONS_VIEW_SOURCES = {
   // The report dashboard uses one bounded aggregate callable. It must not also
   // subscribe to thousands of PT legacy documents in the background.
   'admin-finance': ['branches'],
-  'admin-finance-details': ['branches', 'contracts', 'students'],
   // Nhân sự & Chi nhánh now renders the identity workspace. It only needs
   // branch labels for scoped assignment; PT legacy history is not loaded here.
   'admin-hr': ['branches', 'scheduleConfig'],
@@ -134,7 +133,6 @@ const LEGACY_CORE_SOURCES: Partial<Record<keyof typeof LEGACY_OPERATIONS_VIEW_SO
   'admin-pt-students': ['students', 'branches'],
   'admin-training-history': ['trainers'],
   'admin-finance': ['branches'],
-  'admin-finance-details': ['branches', 'students'],
   'admin-hr': ['branches'],
   'admin-payroll': ['trainers', 'branches'],
   'admin-packages': ['packages', 'branches'],
@@ -170,7 +168,6 @@ interface DatabaseContextType {
   scheduleConfig: ScheduleConfig
   operationsSync: OperationsSyncState
   acquireTrainingHistoryTrainerDirectory: () => () => void
-  acquireFinanceDirectory: () => () => void
   
   addStudent: (student: Student) => Promise<void>
   updateStudent: (id: string, updates: Partial<Student>) => Promise<void>
@@ -272,16 +269,6 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
   // Mounting the requests/OFF tabs must not implicitly read the PT directory.
   // A reference count also keeps concurrent drawers and StrictMode cleanup safe.
   const [trainingHistoryTrainerConsumers, setTrainingHistoryTrainerConsumers] = useState(0)
-  const [financeDirectoryConsumers, setFinanceDirectoryConsumers] = useState(0)
-  const acquireFinanceDirectory = useCallback(() => {
-    setFinanceDirectoryConsumers(count => count + 1)
-    let released = false
-    return () => {
-      if (released) return
-      released = true
-      setFinanceDirectoryConsumers(count => Math.max(0, count - 1))
-    }
-  }, [])
   const acquireTrainingHistoryTrainerDirectory = useCallback(() => {
     setTrainingHistoryTrainerConsumers((count) => count + 1)
     let released = false
@@ -306,7 +293,7 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
   const effectiveOperationsView = auraUiRolloutLoading || (operationsView === 'admin-pt-students' && studentDirectoryV2Enabled)
     || (operationsView === 'admin-training-history' && trainingHistoryTrainerConsumers === 0)
     ? null
-    : operationsView === 'admin-finance' && financeDirectoryConsumers > 0 ? 'admin-finance-details' : operationsView
+    : operationsView
 
   const refreshData = async () => {
     // Recreate the scoped listeners instead of forcing a full page reload. This
@@ -974,7 +961,6 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
       updateUserProfile,
       refreshData,
       acquireTrainingHistoryTrainerDirectory,
-      acquireFinanceDirectory,
       migrateData, isMigrating, isMigrated
     }}>
       {children}

@@ -11,7 +11,10 @@ import {
   type RenewalPipelineResponse,
   type RenewalPipelineRow,
   type RenewalScope,
+  type RenewPtContractInput,
 } from '../../../services/contractRenewalService'
+import { firebaseAuth } from '../../../lib/firebase'
+import { clearRenewalCommand, readRenewalCommand, reconcileRenewalCommand, rememberRenewalCommand, renewalOutcomeUnknown, type PendingRenewalCommand } from '../../../features/contracts/renewalRecovery'
 import type { Student, StudentContract } from '../../../types'
 import './ContractRenewals.css'
 
@@ -67,12 +70,14 @@ function LegacyRenewalRedirect({ studentName, onClose }: { studentName: string; 
 }
 
 function RenewContractWizard({ row, options, scope, onClose, onSuccess }: ModernProps) {
+  const [recoveryOwner] = useState(() => firebaseAuth?.currentUser?.uid || (import.meta.env.MODE === 'e2e' ? 'demo' : ''))
+  const [pendingCommand, setPendingCommand] = useState<PendingRenewalCommand | null>(() => readRenewalCommand(recoveryOwner, row.caseId, row.sourceContractId))
   const today = vietnamToday()
   const sourcePaused = row.contract.status === 'frozen' || Boolean(row.contract.pausePeriods?.some((period) => period.startDate <= today && period.endDate >= today))
   const sourceEnded = !sourcePaused && (row.contract.endDate < today || row.risk.sessionsLeft <= 0)
   const automaticStartDate = sourceEnded ? today : [today, nextDay(row.contract.endDate)].sort().at(-1)!
   const [activationMode, setActivationMode] = useState<'automatic' | 'fixed_date'>('automatic')
-  const [step, setStep] = useState(1)
+  const [step, setStep] = useState(pendingCommand ? 4 : 1)
   const [packageId, setPackageId] = useState(row.contract.packageId)
   const [startDate, setStartDate] = useState(automaticStartDate)
   const [carryOver, setCarryOver] = useState(row.risk.sessionsLeft > 0)
@@ -107,6 +112,10 @@ function RenewContractWizard({ row, options, scope, onClose, onSuccess }: Modern
   const requiresApproval = Boolean(selectedPackage && ((selectedPackage.price > 0 && discount / selectedPackage.price > .1) || carriedSessions > 3))
   const quoteReady = Boolean(quoteId)
   const approvalReady = !requiresApproval || approvalStatus === 'approved'
+  const waitingForActivation = sourcePaused || startDate > today
+  const confirmationBlock = !selectedPackage ? { message: 'Chưa có gói tập hợp lệ. Hãy quay lại chọn gói hoặc tải lại hồ sơ.', step: 1 }
+    : !quoteReady ? { message: 'Chưa có báo giá. Quay lại Báo giá rồi bấm Tiếp tục để tạo.', step: 2 }
+      : !approvalReady ? { message: 'Ưu đãi chưa được duyệt. Quay lại Báo giá để gửi hoặc kiểm tra phê duyệt.', step: 2 } : null
 
   useEffect(() => {
     if (packages.length && !packages.some((item) => item.id === packageId)) setPackageId(packages[0].id)
@@ -185,24 +194,41 @@ function RenewContractWizard({ row, options, scope, onClose, onSuccess }: Modern
   const submit = async (event: FormEvent) => {
     event.preventDefault()
     if (step !== 4 || submissionInFlight.current || completed) return
-    if (!validateStep(4) || !selectedPackage) return
-    if (!quoteReady) { setError('Hãy tạo báo giá trước khi xác nhận tái ký.'); setStep(2); return }
-    if (!approvalReady) { setError('Ưu đãi đang chờ quản lý phê duyệt.'); setStep(2); return }
+    if (recoveryOwner && recoveryOwner !== 'demo' && firebaseAuth?.currentUser?.uid !== recoveryOwner) {
+      setError('Tài khoản đã thay đổi. Hãy mở lại hồ sơ bằng tài khoản đã gửi giao dịch.'); return
+    }
+    if (!pendingCommand) {
+      if (!validateStep(4) || !selectedPackage) return
+      if (!quoteReady) { setError('Hãy tạo báo giá trước khi xác nhận tái ký.'); setStep(2); return }
+      if (!approvalReady) { setError('Ưu đãi đang chờ quản lý phê duyệt.'); setStep(2); return }
+    }
     submissionInFlight.current = true
     setSubmitting(true); setError('')
+    const input: RenewPtContractInput = pendingCommand?.input ?? {
+      caseId: row.caseId, sourceContractId: row.sourceContractId, packageId: selectedPackage!.id,
+      quoteId: quoteId || undefined, approvalId: approvalId || undefined, startDate, activationMode,
+      expectedSourceRevision: row.contract.revision, expectedCaseRevision: caseRevision, idempotencyKey,
+      carryOver, discount, initialPayment, paymentMethod: initialPayment ? paymentMethod : undefined,
+      cashAccountId: initialPayment ? cashAccountId : undefined, installments,
+      trainerIds: row.contract.trainerIds.length ? row.contract.trainerIds : row.contract.trainerId ? [row.contract.trainerId] : [],
+      nutritionPTIds: row.contract.nutritionPTIds, note,
+    }
+    const command = pendingCommand ?? { ownerUid: recoveryOwner, createdAt: Date.now(), input }
+    // Persist before transport so reloading during an in-flight financial
+    // command cannot create a fresh ID or change its payment details.
+    if (recoveryOwner) rememberRenewalCommand(command)
     try {
-      await renewPtContract({
-        caseId: row.caseId, sourceContractId: row.sourceContractId, packageId: selectedPackage.id,
-        quoteId: quoteId || undefined, approvalId: approvalId || undefined, startDate, activationMode,
-        expectedSourceRevision: row.contract.revision, expectedCaseRevision: caseRevision, idempotencyKey,
-        carryOver, discount, initialPayment, paymentMethod: initialPayment ? paymentMethod : undefined,
-        cashAccountId: initialPayment ? cashAccountId : undefined, installments,
-        trainerIds: row.contract.trainerIds.length ? row.contract.trainerIds : row.contract.trainerId ? [row.contract.trainerId] : [],
-        nutritionPTIds: row.contract.nutritionPTIds, note,
-      })
+      if (pendingCommand) await reconcileRenewalCommand(input, () => getContractRenewalCaseDetail(input.caseId), renewPtContract)
+      else await renewPtContract(input)
+      clearRenewalCommand(recoveryOwner, input.caseId, input.idempotencyKey)
+      setPendingCommand(null)
       setCompleted(true)
-      await onSuccess()
-    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Không thể hoàn tất tái ký.') }
+      try { await onSuccess() } catch { setError('Đã xác nhận tái ký thành công. Hãy đóng cửa sổ và làm mới danh sách để xem hợp đồng.') }
+    } catch (cause) {
+      if (pendingCommand || renewalOutcomeUnknown(cause)) setPendingCommand(command)
+      else clearRenewalCommand(recoveryOwner, input.caseId, input.idempotencyKey)
+      setError(cause instanceof Error ? cause.message : 'Không thể hoàn tất tái ký.')
+    }
     finally { submissionInFlight.current = false; setSubmitting(false) }
   }
 
@@ -248,7 +274,7 @@ function RenewContractWizard({ row, options, scope, onClose, onSuccess }: Modern
       <div className="renewal-modal__handle" />
       <header><div><span><Sparkles size={15} /> AURA RENEWAL · {scopeLabel.toLocaleUpperCase('vi')}</span><h2 id="renewal-modal-title">Tạo hợp đồng tiếp theo</h2><p>{row.student.name} · {row.contract.packageName}</p></div><button type="button" onClick={onClose} disabled={submitting} aria-label="Đóng"><X /></button></header>
       <nav className="renewal-wizard-steps" aria-label="Các bước tái ký">
-        {['Lộ trình', 'Báo giá', 'Thanh toán', 'Xác nhận'].map((label, index) => <button key={label} type="button" aria-label={label} aria-current={step === index + 1 ? 'step' : undefined} disabled={submitting} className={step === index + 1 ? 'is-active' : step > index + 1 ? 'is-complete' : ''} onClick={() => index + 1 < step && setStep(index + 1)}><i>{step > index + 1 ? <Check size={14} /> : index + 1}</i><span>{label}</span></button>)}
+        {['Lộ trình', 'Báo giá', 'Thanh toán', 'Xác nhận'].map((label, index) => <button key={label} type="button" aria-label={label} aria-current={step === index + 1 ? 'step' : undefined} disabled={submitting || Boolean(pendingCommand) || completed} className={step === index + 1 ? 'is-active' : step > index + 1 ? 'is-complete' : ''} onClick={() => index + 1 < step && setStep(index + 1)}><i>{step > index + 1 ? <Check size={14} /> : index + 1}</i><span>{label}</span></button>)}
       </nav>
       <form id="renewal-contract-form" onSubmit={submit}>
         <div className="renewal-source-card"><div><span>Hợp đồng hiện tại</span><strong>{row.contract.packageName}</strong><small>Hết hạn {formatDate(row.contract.endDate)}</small></div><div><span>Trạng thái sử dụng</span><strong>{row.risk.sessionsLeft} buổi còn lại</strong><small>{row.risk.daysLeft < 0 ? `Quá ${Math.abs(row.risk.daysLeft)} ngày` : `Còn ${row.risk.daysLeft} ngày`}</small></div></div>
@@ -278,15 +304,19 @@ function RenewContractWizard({ row, options, scope, onClose, onSuccess }: Modern
           {debt > 0 && <><label className="renewal-count">Số kỳ trả góp<select value={installmentCount} onChange={(event) => setInstallmentCount(Number(event.target.value))}>{[1, 2, 3, 4, 5, 6].map((value) => <option key={value} value={value}>{value} kỳ</option>)}</select></label><div className="renewal-installments">{installments.map((item, index) => <label key={item.id}><span>Kỳ {index + 1} · {money(item.amount)}</span><input type="date" required min={startDate} max={endDate} value={item.date} onChange={(event) => setInstallmentDates((current) => current.map((date, itemIndex) => itemIndex === index ? event.target.value : date))} /></label>)}</div></>}
         </section>}
 
-        {step === 4 && <section className="renewal-form-section renewal-step-panel"><div className="renewal-section-title"><span>04</span><div><h3>Kiểm tra & xác nhận</h3><p>Một lần xác nhận tạo hợp đồng, thu tiền và đóng hồ sơ pipeline.</p></div></div><div className="renewal-review-grid">
+        {step === 4 && pendingCommand && <section className="renewal-recovery-panel" role="status"><ShieldCheck /><div><h3>Đang đối chiếu giao dịch đã gửi</h3><p>Aura chưa có kết quả xác nhận. Thông tin giao dịch được giữ nguyên trong tab này khi bạn tải lại trang.</p><dl><div><dt>Mã giao dịch</dt><dd>{pendingCommand.input.idempotencyKey}</dd></div><div><dt>Ngày bắt đầu đã gửi</dt><dd>{formatDate(pendingCommand.input.startDate)}</dd></div><div><dt>Khoản thu đã gửi</dt><dd>{money(pendingCommand.input.initialPayment)}</dd></div><div><dt>Còn phải thu theo giao dịch</dt><dd>{money(pendingCommand.input.installments.reduce((sum, item) => sum + item.amount, 0))}</dd></div></dl><p>Bấm Kiểm tra & tiếp tục: Aura đọc kết quả trước. Nếu chưa có hợp đồng mới, hệ thống tiếp tục đúng giao dịch đã gửi, với cùng mã và khoản thu.</p></div></section>}
+
+        {step === 4 && !pendingCommand && <section className="renewal-form-section renewal-step-panel"><div className="renewal-section-title"><span>04</span><div><h3>Kiểm tra & xác nhận</h3><p>Một lần xác nhận tạo hợp đồng, thu tiền và đóng hồ sơ pipeline.</p></div></div><div className="renewal-activation-summary" role="note"><strong>{waitingForActivation ? 'Hợp đồng mới: chờ kích hoạt' : 'Hợp đồng mới: bắt đầu ngay khi xác nhận'}</strong><p>{sourcePaused ? 'Hợp đồng hiện tại đang bảo lưu. Hợp đồng mới chờ mở bảo lưu và đủ điều kiện bàn giao.' : activationMode === 'automatic' ? 'Quyền tập chuyển sang hợp đồng mới khi gói hiện tại hết buổi hoặc hết hạn, điều kiện nào đến trước. Ngày dự kiến có thể được mở sớm khi hết buổi; ngày kết thúc đã chốt được giữ nguyên.' : `Quyền tập chuyển vào ngày ${formatDate(startDate)}. Nếu hết buổi trước đó, học viên cần chờ ngày bắt đầu.`}</p><p>{carriedSessions > 0 ? `Chuyển tối đa ${carriedSessions} buổi; số thực tế được chốt lúc bàn giao. Buổi đã dùng ở gói cũ sẽ không được chuyển lần nữa.` : 'Không chuyển buổi từ hợp đồng hiện tại.'}</p><p>Khoản thu {money(initialPayment)} được ghi nhận ngay khi giao dịch thành công, kể cả khi hợp đồng còn chờ kích hoạt.</p></div><div className="renewal-review-grid">
           <article><Sparkles /><span>Lộ trình</span><strong>{selectedPackage?.name || '—'}</strong><small>{selectedPackage?.totalSessions || 0} buổi mới{carriedSessions > 0 ? ` · dự kiến chuyển tối đa ${carriedSessions} buổi` : ''}</small><small>{activationMode === 'automatic' ? 'Nối tiếp tự động' : 'Ngày cố định'} · dự kiến {formatDate(startDate)} – {formatDate(endDate)}</small></article>
           <article><CircleDollarSign /><span>Giá trị</span><strong>{money(finalPrice)}</strong><small>Thu ngay {money(initialPayment)} · còn {money(debt)}</small></article>
           <article><BadgeCheck /><span>Kiểm soát</span><strong>{requiresApproval ? approvalStatus === 'approved' ? 'Đủ điều kiện' : 'Chờ phê duyệt' : quoteId ? 'Trong chính sách' : 'Chưa có báo giá'}</strong><small>{quoteId ? `Báo giá ${quoteId.slice(0, 8)}` : 'Chưa có báo giá'}</small></article>
-        </div><label>Ghi chú giao dịch<textarea value={note} onChange={(event) => setNote(event.target.value)} maxLength={500} placeholder="Thỏa thuận, ưu đãi hoặc lưu ý khi tái ký…" /></label><div className="renewal-atomic-note"><ShieldCheck /><p><strong>Giao dịch nguyên tử</strong><span>Nếu hợp đồng, báo giá, phê duyệt, ledger hoặc sổ quỹ có một bước lỗi, toàn bộ thao tác sẽ không được lưu.</span></p></div></section>}
+        </div><label>Ghi chú giao dịch<textarea value={note} disabled={submitting || completed} onChange={(event) => setNote(event.target.value)} maxLength={500} placeholder="Thỏa thuận, ưu đãi hoặc lưu ý khi tái ký…" /></label><div className="renewal-atomic-note"><ShieldCheck /><p><strong>Ghi nhận đồng thời</strong><span>Hợp đồng, báo giá, phê duyệt và khoản thu được xác nhận cùng nhau. Nếu mất kết nối, cần kiểm tra kết quả trước khi tiếp tục.</span></p></div>{confirmationBlock && !completed && <div className="renewal-confirmation-block" id="renewal-confirmation-block" role="status"><p>{confirmationBlock.message}</p><button type="button" onClick={() => setStep(confirmationBlock.step)} disabled={submitting}>Kiểm tra điều kiện</button></div>}</section>}
+
+        {completed && <div className="renewal-success" role="status"><CheckCircle2 />Đã xác nhận hợp đồng tái ký. Khoản thu không được gửi lại.</div>}
 
         {error && <div className="renewal-modal-error" role="alert"><AlertTriangle />{error}</div>}
       </form>
-      <footer><button type="button" onClick={() => step === 1 ? onClose() : setStep((current) => current - 1)} disabled={submitting}>{step === 1 ? 'Hủy' : <><ArrowLeft size={16} /> Quay lại</>}</button>{step < 4 ? <button key="next-step" type="button" className="is-primary" onClick={(event) => { event.preventDefault(); void nextStep() }} disabled={submitting}>{submitting ? 'Đang xử lý…' : 'Tiếp tục'} <ArrowRight size={17} /></button> : <button key="confirm-renewal" type="submit" form="renewal-contract-form" className="is-primary" disabled={completed || submitting || !selectedPackage || !quoteReady || !approvalReady}>{submitting ? 'Đang tái ký…' : 'Xác nhận tái ký'}<RefreshCw size={17} className={submitting ? 'is-spinning' : ''} /></button>}</footer>
+      <footer><button type="button" onClick={() => step === 1 || pendingCommand || completed ? onClose() : setStep((current) => current - 1)} disabled={submitting}>{pendingCommand || completed ? 'Đóng' : step === 1 ? 'Hủy' : <><ArrowLeft size={16} /> Quay lại</>}</button>{step < 4 ? <button key="next-step" type="button" className="is-primary" onClick={(event) => { event.preventDefault(); void nextStep() }} disabled={submitting}>{submitting ? 'Đang xử lý…' : 'Tiếp tục'} <ArrowRight size={17} /></button> : <button key="confirm-renewal" type="submit" form="renewal-contract-form" className="is-primary" aria-describedby={confirmationBlock && !pendingCommand ? 'renewal-confirmation-block' : undefined} disabled={completed || submitting || (!pendingCommand && Boolean(confirmationBlock))}>{submitting ? pendingCommand ? 'Đang đối chiếu…' : 'Đang tái ký…' : pendingCommand ? 'Kiểm tra & tiếp tục' : 'Xác nhận tái ký'}<RefreshCw size={17} className={submitting ? 'is-spinning' : ''} /></button>}</footer>
     </section>
   </div>
 }

@@ -1,4 +1,4 @@
-import type { NutritionMealType, NutritionActivityIntensity, NutritionDataConfidence } from '../../pages/student/NutritionWorkspace'
+import type { NutritionMealType, NutritionActivityIntensity, NutritionDataConfidence } from './types'
 
 export const MEAL_TYPE_LABELS: Record<NutritionMealType, string> = {
   breakfast: 'Bữa sáng',

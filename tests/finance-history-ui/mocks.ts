@@ -3,6 +3,8 @@ const subscribers = new Set<() => void>()
 const publish = () => { state.databaseVersion++; subscribers.forEach(callback => callback()) }
 export const state = {
   owner: 'admin-a', authzVersion: 1, calls: [] as Array<{ owner: string; query: any }>, refreshes: 0,
+  reportCalls: [] as Array<{ owner: string; query: any }>, labelCalls: [] as Array<{ owner: string; studentIds: string[] }>,
+  ledgerCanReverse: true as boolean | null,
   settlementStatus: 'review_required', settlementRevision: 0, settlement: null as any,
   settlementCalls: [] as any[], settlementCommands: [] as any[], settlementFailure: '',
   settlementDefer: false, settlementPending: [] as Array<{ resolve: () => void }>,
@@ -48,7 +50,7 @@ export const state = {
   },
 }
 Object.assign(window, { financeState: state })
-const contracts = [
+const contracts: Array<Record<string, any>> = [
   { id: 'contract-a', studentId: 'student-a', branchId: 'a', packageName: 'Test package A', totalPrice: 1_200_000, discount: 0, paidAmount: 200_000, status: 'active', installments: [] },
   { id: 'contract-b', studentId: 'student-b', branchId: 'b', packageName: 'Test package B', totalPrice: 600_000, discount: 0, paidAmount: 100_000, status: 'frozen', installments: [] },
 ]
@@ -67,6 +69,55 @@ export function useDatabase() {
 export function useAuth() {
   return { user: { uid: state.owner }, profile: { uid: state.owner, role: 'admin', authzVersion: state.authzVersion }, authzReady: true, hasCapability: () => true, backendMode: 'firebase' }
 }
+// Model a bounded report response, not a live directory: later fixture writes
+// become visible only through a subsequent explicit or date-scoped report read.
+export async function listFinanceReceivables(query: any) {
+  state.reportCalls.push({ owner: state.owner, query: structuredClone(query) })
+  const scoped = contracts.filter(contract => contract.status !== 'cancelled' && (query.branchId === 'all' || contract.branchId === query.branchId))
+  const category = query.category || 'all'
+  const weekStart = new Date(`${query.today}T12:00:00Z`)
+  weekStart.setUTCDate(weekStart.getUTCDate() - ((weekStart.getUTCDay() + 6) % 7))
+  const weekEnd = new Date(weekStart); weekEnd.setUTCDate(weekEnd.getUTCDate() + 6)
+  const start = weekStart.toISOString().slice(0, 10), end = weekEnd.toISOString().slice(0, 10)
+  const entries = scoped.map(contract => {
+    const balance = contract.totalPrice - contract.discount - contract.paidAmount, debt = Math.max(0, balance)
+    const pending = contract.installments.filter((item: any) => item.status === 'pending').sort((a: any, b: any) => a.date.localeCompare(b.date))
+    const due = pending[0]?.date || contract.nextPaymentDate || ''
+    const preserved = !['cancelled', 'inactive', 'archived', 'draft'].includes(contract.status) &&
+      (contract.status === 'frozen' || (contract.pausePeriods || []).some((period: any) =>
+        period.type === 'preservation' && period.startDate <= query.today && period.endDate >= query.today))
+    const included = category === 'all' || (category === 'frozen' ? preserved && debt > 0 : !preserved &&
+      (category === 'installments' ? pending.length > 0 && balance > 0 : balance < 0 || pending.length === 0))
+    const amountIn = (matches: (date: string) => boolean) => {
+      if (preserved) return 0
+      return pending.length ? Math.min(debt, pending.filter((item: any) => matches(item.date)).reduce((sum: number, item: any) => sum + item.amount, 0))
+        : due && matches(due) ? debt : 0
+    }
+    const overdue = amountIn(date => date < query.today), thisMonth = amountIn(date => date.slice(0, 7) === query.today.slice(0, 7))
+    return { contract, included, debt, overdue, thisMonth, groups: { all: debt > 0,
+      owing: debt > 0, settled: balance === 0, overdue: overdue > 0,
+      'this-week': amountIn(date => date >= start && date <= end) > 0,
+      'this-month': thisMonth > 0, overpaid: balance < 0 } as Record<string, boolean> }
+  }).filter(entry => entry.included)
+  const totals = { debt: 0, overdue: 0, thisMonth: 0 }, counts: Record<string, number> = { all: 0, owing: 0, settled: 0, overdue: 0, 'this-week': 0, 'this-month': 0, overpaid: 0 }
+  for (const entry of entries) {
+    totals.debt += entry.debt; totals.overdue += entry.overdue; totals.thisMonth += entry.thisMonth
+    for (const key of Object.keys(counts)) if (entry.groups[key]) counts[key]++
+  }
+  const searchKey = (value: string) => value.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase()
+  const matching = entries.filter(entry => entry.groups[query.filter] && searchKey([
+    entry.contract.id, entry.contract.packageName, database.students.find(student => student.id === entry.contract.studentId)?.name || '',
+  ].join(' ')).includes(searchKey(query.search || ''))).map(entry => entry.contract)
+  const offset = Number(query.cursor || 0), rows = matching.slice(offset, offset + 20), hasMore = offset + 20 < matching.length
+  const asOf = new Date().toISOString()
+  return structuredClone({ contracts: rows, students: database.students.filter(student => rows.some(contract => contract.studentId === student.id)),
+    summary: query.includeSummary === false ? null : { complete: true, totals, counts, asOf, sourceDocuments: scoped.length },
+    nextCursor: hasMore ? String(offset + 20) : null, hasMore, asOf, scanned: scoped.length })
+}
+export async function listFinanceStudentLabels(studentIds: string[]) {
+  state.labelCalls.push({ owner: state.owner, studentIds: [...studentIds] })
+  return structuredClone(database.students.filter(student => studentIds.includes(student.id)))
+}
 export async function listBusinessPerformance(input: any) {
   state.performanceCalls.push(structuredClone(input))
   if (!state.performanceDefer) return { dailySeries: [], sourceRows: [], cashFlow: { cashIn: 0, cashOut: 0, cashNet: 0 }, managementPnl: { recognisedRevenue: 0, operatingExpense: 0, operatingResult: 0 }, balanceMovement: { receivableMovement: 0, deferredRevenueMovement: 0 }, dataQuality: { missingSourceIntegrations: [] } }
@@ -76,7 +127,8 @@ export async function listBusinessPerformance(input: any) {
 export async function listFinanceLedger(query: any) {
   const owner = state.owner, number = state.calls.push({ owner, query: { ...query } })
   const row = (suffix: string) => ({ id: owner + '-' + suffix, contractId: 'contract-a', studentId: 'student-a', referenceCode: `${owner}-${suffix}-${query.branchId}-${number}`,
-    type: 'payment', status: 'posted', cashImpact: 5_000_000, amount: 5_000_000, effectiveAt: '2026-10-25T00:00:00Z' })
+    type: 'payment', status: 'posted', cashImpact: 5_000_000, amount: 5_000_000, effectiveAt: '2026-10-25T00:00:00Z',
+    ...(typeof state.ledgerCanReverse === 'boolean' ? { canReverse: state.ledgerCanReverse } : {}) })
   const page = { entries: query.cursor ? [row('first'), row('second')] : [row('first')], summary: null, hasMore: !query.cursor, nextCursor: query.cursor ? null : 'next-' + number }
   if (state.failure) { const failure = state.failure; state.failure = ''; throw Object.assign(new Error(failure === 'legacy' ? 'ledger type invalid' : 'unavailable'), { code: failure === 'legacy' ? 'functions/invalid-argument' : 'functions/unavailable' }) }
   if (!state.defer) return page

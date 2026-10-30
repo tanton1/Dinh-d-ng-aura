@@ -108,7 +108,7 @@ export const DEFAULT_PUSH_TEMPLATES: PushTemplate[] = [
   {
     id: 'tmpl_lose_fat_lunch',
     title: '🥗 Bữa trưa kiểm soát Calo (Giảm Mỡ)',
-    message: 'Đã đến giờ ăn trưa rồi! Bạn hãy chụp ảnh bữa ăn gửi cho HLV để tính toán lượng Calo chính xác, đảm bảo thâm hụt Calo tối ưu nhé.',
+    message: 'Đã đến giờ ăn trưa rồi! Bạn có thể chụp ảnh bữa ăn để ước tính năng lượng, kiểm tra khẩu phần và trao đổi với HLV khi cần nhé.',
     type: 'REMINDER',
     category: 'nutrition',
     targetGoal: 'lose-fat',

@@ -5,7 +5,7 @@ const { readMemberDashboard, readMemberHistory } = require('./loyalty-member-rea
 const { allocateBehaviorBudget } = require('./loyalty-behavior-budget')
 const { readLoyaltyDashboardSummary } = require('./loyalty-dashboard-projection')
 const { writeMissionProgress } = require('./loyalty-mission-progress')
-const { readCreditMembership, requireManagedMember, membershipIsManaged } = require('./loyalty-membership')
+const { readCreditMembership, requireManagedMember, membershipIsManaged } = require('./loyalty-membership-core')
 const { normalizeRewardBanner } = require('./loyalty-reward-media')
 const {
   DEFAULT_POLICY,
