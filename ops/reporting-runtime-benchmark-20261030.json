@@ -6,6 +6,7 @@
   "manifest": {
     "endpointCount": 571,
     "metadataEqual": true,
+    "hashEncoding": "UTF-8 compact JSON; recursively sorted object keys; original array order; no trailing newline",
     "sha256": "a3b68deb09bfd10732cb5a7d534e517e08e5646e2c4d5d9b2e6af98685e34ba5"
   },
   "targets": [
