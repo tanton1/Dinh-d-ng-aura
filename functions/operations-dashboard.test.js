@@ -4,6 +4,8 @@ const { readFileSync } = require('node:fs')
 const { join } = require('node:path')
 const test = require('node:test')
 const { dashboardAnalytics, dashboardBranchScope, dashboardPermissions, isEffectiveContract, isExhaustedContract, isExpiringContract, isPreservedContract, ledgerReceiptImpact, ledgerRevenueImpact, receivableSchedule, renewalCaseMatches, summarizeAttendance, summarizeReceivables, todayAttendanceRows } = require('./operations-dashboard')
+const { aggregateRevenueAnalytics } = require('./operations-dashboard')
+const { contribution } = require('./operations-dashboard-aggregates')
 const { contractWithUsageView } = require('./contract-usage-view')
 const source = readFileSync(join(__dirname, 'operations-dashboard.js'), 'utf8')
 const dashboard = readFileSync(join(__dirname, '..', 'src', 'pages', 'admin', 'AdminDashboard.tsx'), 'utf8')
@@ -165,6 +167,30 @@ test('contract-sales chart excludes terminal workflow states while retaining dis
   })
   assert.deepEqual(analytics.revenue.points.map(point => point.contractSales), [900_000, 1_800_000, 2_700_000])
   assert.equal(analytics.revenue.points.reduce((sum, point) => sum + point.contractSales, 0), 5_400_000)
+})
+
+test('cancelled signed sales and later commercial adjustment have raw and aggregate chart parity', () => {
+  const contract = { status: 'cancelled', totalPrice: 12000000, salesCancellationSnapshot: { schemaVersion: 1, netAmount: 12000000, effectiveAt: '2026-08-02T09:00:00+07:00' } }
+  const ledger = [
+    { type: 'adjustment', status: 'posted', eventClass: 'contract_settlement_commercial_cancellation', effectiveAt: '2026-08-20T12:00:00+07:00', amount: 0, cashImpact: 0, revenueImpact: 0, contractSalesImpact: -7000000 },
+    { type: 'adjustment', status: 'posted', eventClass: 'contract_settlement_write_off', effectiveAt: '2026-08-20T12:00:00+07:00', amount: 1000000, cashImpact: 0, revenueImpact: 0, expenseImpact: 1000000, contractSalesImpact: 0 },
+  ]
+  const start = new Date('2026-08-01T00:00:00+07:00'), end = new Date('2026-08-31T23:59:59+07:00')
+  const raw = dashboardAnalytics({ contractValues: [contract], ledgerValues: ledger, offValues: [], start, end, referenceDate: '2026-08-31' }).revenue
+  const days = [contribution('contract', contract), ...ledger.map(row => contribution('ledger', row))]
+  assert.deepEqual(aggregateRevenueAnalytics(days, start, end), raw)
+  assert.equal(raw.points.find(point => point.key === '2026-08-02').contractSales, 12000000)
+  assert.equal(raw.points.find(point => point.key === '2026-08-20').contractSales, -7000000)
+  assert.equal(raw.points.reduce((sum, point) => sum + point.contractSales, 0), 5000000)
+  assert.equal(raw.points.reduce((sum, point) => sum + point.salesAdjustment, 0), -7000000)
+  assert.equal(raw.points.reduce((sum, point) => sum + point.netCash, 0), 0)
+})
+
+test('approved cancellation debt is visible without reviving its legacy installment schedule', () => {
+  const value = { id: 'cancelled', status: 'cancelled', studentId: 's', totalPrice: 12000000, paidAmount: 3000000, nextPaymentDate: '2026-08-01', installments: [{ status: 'pending', amount: 9000000, date: '2026-08-01' }], cancellationSettlement: { schemaVersion: 1, status: 'approved', settlementAmount: 5000000, canonicalCash: 3000000 } }
+  const actions = summarizeReceivables([value], '2026-08-26')
+  assert.equal(actions.totalCount, 1); assert.equal(actions.warningCount, 1); assert.equal(actions.actionCount, 0)
+  assert.equal(actions.amount, 0); assert.equal(receivableSchedule([value], [], '2026-08-26').rows.length, 0)
 })
 
 test('receivable actions count overdue and due-today contracts without duplicating debt', () => {

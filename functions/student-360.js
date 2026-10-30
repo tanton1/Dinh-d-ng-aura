@@ -6,6 +6,7 @@ const { HttpsError } = require('firebase-functions/v2/https')
 const { trustedAccessContext } = require('./identity-access')
 const { PT_OPERATIONS_POLICY_EFFECTIVE_FROM, PT_OPERATIONS_POLICY_VERSION } = require('./pt-policy')
 const { effectiveContractStatus } = require('./contract-status')
+const { contractSettlementBalance } = require('./contract-financial-status')
 const { ptOperationsPolicySnapshot } = require('./pt-policy')
 const { canonicalUsageSummary, isCanonicalUsageView } = require('./contract-usage-view')
 const { summarizeContractUsage } = require('./contract-usage')
@@ -21,7 +22,7 @@ const TIME_ZONE = 'Asia/Ho_Chi_Minh'
 // Bump the projection schema when account-link resolution changes. Existing
 // cached views are rebuilt lazily on the next read, so old data is never
 // overwritten by a client-side migration.
-const OVERVIEW_SCHEMA_VERSION = 4
+const OVERVIEW_SCHEMA_VERSION = 5
 const HEALTH_FORMULA_VERSION = 'student-health-v1'
 // Canonical write triggers keep active students fresh. A long fallback TTL
 // prevents an unchanged profile from re-reading every history collection each
@@ -302,6 +303,12 @@ function paymentProjection(contract, today) {
   if (!contract) return null
   const total = Math.max(0, finite(contract.totalPrice) - finite(contract.discount))
   const paid = Math.max(0, finite(contract.paidAmount))
+  if (contract.status === 'cancelled') {
+    const balance = contractSettlementBalance(contract)
+    const status = !balance.verified ? 'settlement_review' : balance.status === 'settled' ? 'settled'
+      : balance.receivable > 0 ? 'settlement_due' : balance.refundDue > 0 ? 'settlement_refund' : 'settlement_ready'
+    return { status, total, paid, outstanding: balance.receivable, nextPaymentDate: null, refundDue: balance.refundDue, settlementAmount: balance.settlementAmount, settlementStatus: balance.status }
+  }
   const outstanding = Math.max(0, total - paid)
   const nextPaymentDate = bounded(contract.nextPaymentDate, 10) || null
   const status = outstanding <= 0 ? 'paid' : nextPaymentDate && nextPaymentDate < today ? 'overdue' : 'due'
@@ -913,14 +920,14 @@ function contractInstallments(value, previous = [], outstanding = null) {
       if (normalized.status !== prior.status || normalized.amount !== Number(prior.amount || 0) || normalized.date !== bounded(prior.date, 10)) {
         throw new HttpsError('failed-precondition', 'Kỳ đã thu hoặc đã hủy là chứng từ lịch sử và không thể chỉnh sửa.')
       }
-    } else if (!prior && status !== 'pending') {
-      throw new HttpsError('invalid-argument', 'Kỳ thanh toán mới phải ở trạng thái chờ thu.')
+    } else if (status !== 'pending') {
+      throw new HttpsError('invalid-argument', 'Trạng thái thu hoặc huỷ kỳ chỉ được thay đổi qua nghiệp vụ tài chính.')
     }
     return normalized
   })
   const missingLocked = [...previousById.values()].some((item) => ['paid', 'cancelled'].includes(item.status) && !ids.has(bounded(item.id, 100)))
   if (missingLocked) throw new HttpsError('failed-precondition', 'Không thể xóa kỳ thanh toán đã thu hoặc đã hủy.')
-  if (Number.isFinite(outstanding) && result.some((item) => item.status === 'pending')) {
+  if (Number.isFinite(outstanding)) {
     const pendingTotal = result.filter((item) => item.status === 'pending').reduce((sum, item) => sum + item.amount, 0)
     if (pendingTotal !== outstanding) throw new HttpsError('failed-precondition', 'Tổng các kỳ chờ thu phải bằng công nợ còn lại của hợp đồng.')
   }
@@ -1695,8 +1702,8 @@ async function student360ProjectionData({ db, studentId, weekId, sources, operat
     progressReason: progressAgeDays === null ? 'Chưa có dữ liệu cân đo.' : `Cập nhật gần nhất ${progressAgeDays} ngày trước.`,
     engagementScore,
     engagementReason: `${confirmedAvailability ? 'Đã' : 'Chưa'} xác nhận lịch rảnh${activityAgeDays === null ? ', chưa có hoạt động gần đây' : `, hoạt động ${activityAgeDays} ngày trước`}.`,
-    paymentScore: payment ? payment.status === 'paid' ? 100 : payment.status === 'due' ? 65 : 15 : null,
-    paymentReason: payment ? payment.status === 'paid' ? 'Đã thanh toán đủ.' : payment.status === 'due' ? 'Còn khoản cần thanh toán.' : 'Khoản thanh toán đã quá hạn.' : 'Chưa có hợp đồng để đánh giá.',
+    paymentScore: payment && ['paid', 'due', 'overdue'].includes(payment.status) ? payment.status === 'paid' ? 100 : payment.status === 'due' ? 65 : 15 : null,
+    paymentReason: contract?.status === 'cancelled' ? 'Hợp đồng đã huỷ; theo dõi trong hồ sơ quyết toán.' : payment ? payment.status === 'paid' ? 'Đã thanh toán đủ.' : payment.status === 'due' ? 'Còn khoản cần thanh toán.' : 'Khoản thanh toán đã quá hạn.' : 'Chưa có hợp đồng để đánh giá.',
     renewalScore,
     renewalReason: contract ? `Còn ${usage.remainingSessions} buổi${daysRemaining !== null ? `, ${Math.max(0, daysRemaining)} ngày` : ''}.` : 'Chưa có hợp đồng để đánh giá.',
   })
@@ -2767,13 +2774,21 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
       throw new HttpsError('permission-denied', 'Không thể chuyển hợp đồng ra ngoài chi nhánh được phân quyền.')
     }
 
-    const contractId = action === 'create' ? db.collection('contracts').doc().id : documentId(request.data?.contractId, 'Mã hợp đồng')
+    const contractId = action === 'create' && !request.data?.contractId ? db.collection('contracts').doc().id : documentId(request.data?.contractId, 'Mã hợp đồng')
     const reference = db.doc(`contracts/${contractId}`)
     const auditReference = db.collection('contractAuditLogs').doc()
     const now = Date.now()
     const expectedRevision = action === 'create' ? null : nonNegativeInteger(request.data?.expectedRevision, 'Phiên bản hợp đồng', 10_000_000)
+    const commandReference = ['create', 'cancel'].includes(action) ? db.doc(`contractMutationReceipts/${createHash('sha256').update(`${actor.uid}|${contractId}|${action}|${expectedRevision}`).digest('hex')}`) : null
+    const payloadHash = createHash('sha256').update(JSON.stringify({ ...request.data, contractId }, (_, value) => value && typeof value === 'object' && !Array.isArray(value)
+      ? Object.fromEntries(Object.keys(value).sort().map(key => [key, value[key]])) : value)).digest('hex')
     const result = await db.runTransaction(async (transaction) => {
       const currentSnapshot = await transaction.get(reference)
+      const receipt = commandReference ? await transaction.get(commandReference) : null
+      if (receipt?.exists) {
+        if (receipt.data().payloadHash !== payloadHash) throw new HttpsError('already-exists', 'Mã thao tác đã dùng cho nội dung khác. Hãy tải lại hồ sơ.')
+        return receipt.data().result
+      }
       if (action === 'create' && currentSnapshot.exists) throw new HttpsError('already-exists', 'Mã hợp đồng đã tồn tại.')
       if (action !== 'create' && !currentSnapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy hợp đồng.')
       const current = currentSnapshot.exists ? currentSnapshot.data() : null
@@ -2783,10 +2798,15 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
       }
       const revision = current ? Math.max(0, Math.floor(finite(current.revision))) : 0
       if (current && revision !== expectedRevision) throw new HttpsError('aborted', 'Hợp đồng vừa được người khác cập nhật. Hãy tải lại trước khi lưu.')
+      if (current?.status === 'cancelled') throw new HttpsError('failed-precondition', 'Hợp đồng đã huỷ chỉ được xử lý qua hồ sơ quyết toán.')
+      if (action === 'edit' && ((input.status !== undefined && input.status !== current.status) || (input.paidAmount !== undefined && Number(input.paidAmount) !== Number(current.paidAmount || 0)))) {
+        throw new HttpsError('failed-precondition', 'Trạng thái hợp đồng và số tiền đã thu phải thay đổi bằng nghiệp vụ riêng.')
+      }
 
       let next = current ? { ...current } : {}
       let reason = bounded(request.data?.reason, 500)
       let eventDetails = null
+      let cancellationPlan = null
       if (action === 'create' || action === 'edit') {
         const packageId = documentId(input.packageId, 'Gói tập')
         const packageSnapshot = await transaction.get(db.doc(`packages/${packageId}`))
@@ -2841,7 +2861,7 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
         if (outstanding < 0) throw new HttpsError('failed-precondition', 'Giá trị mới thấp hơn số tiền đã thu; hãy xử lý hoàn tiền trước.')
         let installments = Array.isArray(current?.installments) ? current.installments : []
         if (canManageFinancials && Object.prototype.hasOwnProperty.call(input, 'installments')) {
-          installments = contractInstallments(input.installments, current?.installments || [], outstanding)
+          installments = contractInstallments(input.installments, current?.installments || [], action === 'create' && Array.isArray(input.installments) && input.installments.length === 0 ? null : outstanding)
         }
         if (action === 'create' && outstanding > 0 && !installments.some((item) => item.status === 'pending')) {
           installments = [{ id: `${contractId}-installment-1`, amount: outstanding, date: startDate, status: 'pending' }]
@@ -2956,18 +2976,20 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
         }].slice(-100) : current.extensions || []
         reason ||= `Mở lại sau ${frozenDays} ngày bảo lưu`
       } else if (action === 'cancel') {
-        if (current.status === 'cancelled') throw new HttpsError('failed-precondition', 'Hợp đồng đã được hủy trước đó.')
+        const { cancellationSalesSnapshot, readContractCancellationPlan } = require('./contract-cancellation')
         if (reason.length < 2) throw new HttpsError('invalid-argument', 'Vui lòng nhập lý do hủy hợp đồng.')
-        const cancelDebt = request.data?.cancelDebt === true
-        if (cancelDebt && !canManageFinancials) throw new HttpsError('permission-denied', 'Chỉ bộ phận tài chính được hủy công nợ còn lại.')
+        if (request.data?.cancelDebt === true) throw new HttpsError('failed-precondition', 'Huỷ hiệu lực không xoá công nợ; hãy lập và duyệt phương án quyết toán.')
+        const cutoffDate = contractDateKey(request.data?.cutoffDate || vietnamDateKey(new Date(now)), 'Ngày kết thúc hiệu lực')
+        if (cutoffDate > vietnamDateKey(new Date(now))) throw new HttpsError('invalid-argument', 'Ngày kết thúc hiệu lực không được ở tương lai.')
+        cancellationPlan = await readContractCancellationPlan({ transaction, db, contractId, contract: current, cutoffDate })
         next.status = 'cancelled'
         next.cancelledAt = new Date(now).toISOString()
         next.cancelledReason = reason
+        next.cancellationSettlement = { schemaVersion: 1, status: 'review_required', revision: 0, cutoffDate }
+        const salesSnapshot = cancellationSalesSnapshot(current, next.cancelledAt)
+        if (salesSnapshot) next.salesCancellationSnapshot = salesSnapshot
         next.note = bounded(`${bounded(current.note, 700)}${current.note ? '\n' : ''}Lý do hủy: ${reason}`, 1_000)
-        if (cancelDebt) {
-          next.installments = (Array.isArray(current.installments) ? current.installments : []).map((item) => item.status === 'pending' ? { ...item, status: 'cancelled' } : item)
-          next.nextPaymentDate = null
-        }
+        next.nextPaymentDate = null
       }
 
       if (['create', 'edit', 'add_sessions', 'extend', 'reopen'].includes(action)
@@ -2992,6 +3014,7 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
         ? [...new Set([...Object.keys(current), ...Object.keys(next)])].filter((key) => JSON.stringify(current[key]) !== JSON.stringify(next[key])).slice(0, 80)
         : Object.keys(next).slice(0, 80)
       const nextRevision = revision + 1
+      if (cancellationPlan) eventDetails = require('./contract-cancellation').applyContractCancellationPlan({ transaction, plan: cancellationPlan, actorUid: actor.uid, reason, contractId })
       const persisted = {
         ...next,
         revision: nextRevision,
@@ -3039,7 +3062,9 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
         'contractAuditLogs',
       )
       transaction.set(db.doc(`studentTimelineEvents/${event.id}`), event)
-      return { contractId, revision: nextRevision, action }
+      const response = { contractId, revision: nextRevision, action }
+      if (commandReference) transaction.create(commandReference, { schemaVersion: 1, actorUid: actor.uid, contractId, payloadHash, result: response, createdAt: FieldValue.serverTimestamp() })
+      return response
     })
 
     try {

@@ -13,11 +13,81 @@ const {
   updatedInstallments,
 } = require('./finance-ledger')
 const { Timestamp } = require('firebase-admin/firestore')
+const { settlementCashPlan, assertContractPaymentReversalAllowed } = require('./contract-settlement-cash')
 
 const repositoryRoot = join(__dirname, '..')
 const reportSource = readFileSync(join(repositoryRoot, 'src', 'pages', 'admin', 'AdminDashboard.tsx'), 'utf8')
 const financeSource = readFileSync(join(repositoryRoot, 'src', 'components', 'admin', 'pt', 'FinanceManagement.tsx'), 'utf8')
 const ledgerSource = readFileSync(join(__dirname, 'finance-ledger.js'), 'utf8')
+
+function settlementInput({ paidAmount = 400000, settlementAmount = 600000, writeOffAmount = 0, type = 'payment', amount = 100000 } = {}) {
+  const summary = { schemaVersion: 1, status: 'approved', revision: 3, cutoffDate: '2026-10-25', settlementAmount,
+    recognizedRevenueAfterAdjustments: settlementAmount + writeOffAmount, writeOffAmount, serviceEvidenceHash: 'evidence' }
+  return { contract: { status: 'cancelled', paidAmount, cancellationSettlement: summary }, caseData: { ...summary },
+    evidence: { canonicalCash: paidAmount, recognizedRevenue: summary.recognizedRevenueAfterAdjustments, serviceEvidenceHash: 'evidence', blockers: [] },
+    expectedSettlementRevision: 3, type, amount }
+}
+
+test('approved settlement collection uses the collectible amount after writeoff and remains awaiting explicit close', () => {
+  const plan = settlementCashPlan(settlementInput({ writeOffAmount: 200000, amount: 200000 }))
+  assert.equal(plan.recognizedReceivableTarget, 600000)
+  assert.equal(plan.summary.canonicalCash, 600000)
+  assert.equal(plan.summary.remainingReceivable, 0)
+  assert.equal(plan.summary.refundDue, 0)
+  assert.equal(plan.summary.status, 'approved')
+  assert.equal(plan.summary.revision, 4)
+  assert.equal(plan.summary.recognizedRevenueAfterAdjustments, 800000)
+  assert.equal(plan.casePatch.paidProjection, 600000)
+})
+
+test('settlement refunds stop at the retained amount and never create debt for waived future service', () => {
+  const input = settlementInput({ paidAmount: 800000, settlementAmount: 500000, type: 'refund', amount: 300000 })
+  const plan = settlementCashPlan(input)
+  assert.equal(plan.summary.canonicalCash, 500000)
+  assert.equal(plan.summary.remainingReceivable, 0)
+  assert.equal(plan.summary.refundDue, 0)
+  assert.equal(plan.summary.status, 'approved')
+  assert.throws(() => settlementCashPlan({ ...input, amount: 300001 }), error => error.details?.reason === 'contract-settlement-cash-limit')
+  assert.throws(() => settlementCashPlan({ ...input, type: 'payment' }), error => error.details?.reason === 'contract-settlement-cash-limit')
+})
+
+test('settlement cash fails closed on absent approval, stale versions, changed evidence, cash mismatch and old installments', () => {
+  for (const state of [undefined, 'review_required', 'pending_approval', 'settled']) {
+    const input = settlementInput()
+    input.contract.cancellationSettlement = state ? { ...input.contract.cancellationSettlement, status: state } : undefined
+    assert.throws(() => settlementCashPlan(input), error => error.details?.reason === 'contract-settlement-required')
+  }
+  const checks = [
+    [input => { input.expectedSettlementRevision = undefined }, 'contract-settlement-revision-changed'],
+    [input => { input.expectedSettlementRevision = 2 }, 'contract-settlement-revision-changed'],
+    [input => { input.caseData.revision = 4 }, 'contract-settlement-inconsistent'],
+    [input => { input.caseData.status = 'pending_approval' }, 'contract-settlement-inconsistent'],
+    [input => { delete input.caseData.schemaVersion }, 'contract-settlement-inconsistent'],
+    [input => { input.evidence.serviceEvidenceHash = 'changed' }, 'contract-settlement-evidence-changed'],
+    [input => { input.evidence.recognizedRevenue += 1 }, 'contract-settlement-evidence-changed'],
+    [input => { input.evidence.blockers.push({ code: 'UNCONFIRMED_SERVICE' }) }, 'contract-settlement-evidence-changed'],
+    [input => { input.evidence.canonicalCash -= 1 }, 'contract-settlement-cash-mismatch'],
+    [input => { input.installmentId = 'old-paid-installment' }, 'contract-settlement-installment'],
+    [input => { input.amount = 200001 }, 'contract-settlement-cash-limit'],
+  ]
+  for (const [change, reason] of checks) {
+    const input = settlementInput()
+    change(input)
+    assert.throws(() => settlementCashPlan(input), error => error.details?.reason === reason, reason)
+  }
+})
+
+test('cancelled receipt correction is limited to review and reads the case even when summary is missing', async () => {
+  const db = { doc: path => ({ path }) }
+  for (const state of [undefined, 'review_required', 'pending_approval', 'approved', 'settled']) {
+    let reads = 0
+    const transaction = { get: async reference => { assert.equal(reference.path, 'contractSettlements/c'); reads += 1; return { exists: state !== undefined, data: () => ({ status: state }) } } }
+    const run = () => assertContractPaymentReversalAllowed(transaction, db, 'c', { status: 'cancelled' })
+    if (!state || state === 'review_required') await run()
+    else await assert.rejects(run(), error => error.details?.reason === 'contract-settlement-reversal-blocked')
+    assert.equal(reads, 1)
+  }
+})
 
 function summaryInput(overrides = {}) {
   return {

@@ -9,6 +9,23 @@ test.beforeEach(async ({ page }) => {
   await page.waitForFunction(() => Boolean((window as any).financeIntentStore))
 })
 
+test('settlement revision survives durable storage and rejects invalid revision before saving', async ({ page }) => {
+  const record = await page.evaluate(async ({ scope, draft }) => {
+    const api = (window as any).financeIntentStore
+    const invalid = [-1, 1.5, Number.MAX_SAFE_INTEGER + 1]
+    for (const revision of invalid) {
+      let rejected = false
+      try { await api.beginFinanceIntent(scope, { ...draft, payload: { ...draft.payload, expectedSettlementRevision: revision } }, 0) } catch { rejected = true }
+      if (!rejected) throw Error('Invalid settlement revision accepted')
+    }
+    return api.beginFinanceIntent(scope, { ...draft, payload: { ...draft.payload, expectedSettlementRevision: 7 } }, 0)
+  }, { scope, draft })
+  await page.reload()
+  const recovered = await page.evaluate(async scope => (window as any).financeIntentStore.readFinanceIntent(scope), scope)
+  expect(recovered.operation).toEqual(record.record.operation)
+  expect(recovered.operation.payload.expectedSettlementRevision).toBe(7)
+})
+
 test('reload recovers the immutable original request and isolates owners and projects', async ({ page }) => {
   const original = await page.evaluate(async ({ scope, draft }) => {
     const api = (window as any).financeIntentStore

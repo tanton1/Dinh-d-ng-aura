@@ -205,6 +205,33 @@ function load(db, scope = { unrestricted: true }) {
   return loadDailyAggregates({ db, startDate: '2026-10-21', endDate: '2026-10-23', scope })
 }
 
+test('new cancellation preserves historical sales and live/rebuilt commercial adjustment contributes once', async () => {
+  const signedAt = Timestamp.fromDate(new Date('2026-10-21T08:00:00+07:00'))
+  const before = { branchId: 'branch-1', status: 'active', signedAt, totalPrice: 12000000, discount: 0 }
+  const db = fakeDatabase({ 'contracts/new-cancel': before })
+  await rebuild(db)
+  const after = { ...before, status: 'cancelled', salesCancellationSnapshot: { schemaVersion: 1, netAmount: 12000000, effectiveAt: signedAt } }
+  db.write('contracts/new-cancel', after)
+  assert.deepEqual(contributionDeltas(contribution('contract', before), contribution('contract', after)), [])
+  await sync(db, 'contracts/new-cancel', before, after, 'contract')
+  assert.equal((await load(db)).totals.contractSales, 12000000)
+  const memo = { branchId: 'branch-1', status: 'posted', type: 'adjustment', eventClass: 'contract_settlement_commercial_cancellation', amount: 0, cashImpact: 0, revenueImpact: 0, contractSalesImpact: -7000000, effectiveAt: Timestamp.fromDate(new Date('2026-10-23T08:00:00+07:00')) }
+  db.write('ledgerEntries/cancellation', memo)
+  await sync(db, 'ledgerEntries/cancellation', undefined, memo, 'ledger')
+  await sync(db, 'ledgerEntries/cancellation', undefined, memo, 'ledger')
+  const live = await load(db)
+  assert.equal(live.totals.contractSales, 5000000)
+  assert.equal(live.totals.salesAdjustment, -7000000)
+  assert.equal(live.days.find(day => day.date === '2026-10-21').metrics.contractSales, 12000000)
+  assert.equal(live.days.find(day => day.date === '2026-10-23').metrics.contractSales, -7000000)
+  db.write('contracts/legacy-cancel', { ...before, status: 'cancelled' })
+  await rebuild(db)
+  const rebuilt = await load(db)
+  assert.equal(rebuilt.totals.contractSales, live.totals.contractSales)
+  assert.equal(rebuilt.totals.salesAdjustment, live.totals.salesAdjustment)
+  assert.equal(rebuilt.totals.netCash, 0)
+})
+
 test('rebuild projections and live ledger deltas exclude expense and payroll cash from net receipts', async () => {
   const common = { status: 'posted', effectiveAt: Timestamp.fromDate(new Date('2026-10-23T10:00:00+07:00')), branchId: 'branch-1' }
   const rows = [

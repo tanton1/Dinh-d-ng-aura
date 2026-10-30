@@ -1041,6 +1041,19 @@ describe('Aura PT Firestore rules', () => {
     }
   })
 
+  test('contract terms, payment projections and settlement evidence are callable-only even for admins', async () => {
+    for (const db of [authenticatedDb('admin-1', 'admin'), authenticatedDb('coach-1', 'coach'), authenticatedDb('client-1', 'student')]) {
+      for (const [collection, id] of [['contracts', 'legacy-contract-1'], ['payments', 'legacy-payment-1']]) {
+        await assertFails(updateDoc(doc(db, collection, id), { paidAmount: 0, status: 'cancelled' }))
+        await assertFails(setDoc(doc(db, collection, 'forged'), { studentId: 'legacy-student-1', amount: 1 }))
+      }
+      for (const collection of ['contractSettlements', 'contractSettlementOperations', 'contractMutationReceipts']) {
+        await assertFails(getDoc(doc(db, collection, 'forged')))
+        await assertFails(setDoc(doc(db, collection, 'forged'), { status: 'approved', settlementAmount: 1 }))
+      }
+    }
+  })
+
   test('session lifecycle is callable-only even for an authenticated admin browser', async () => {
     const adminDb = authenticatedDb('admin-1', 'admin')
     const reference = doc(adminDb, 'sessions', 'legacy-session-1')

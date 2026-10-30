@@ -28,7 +28,7 @@ async function readDashboardQuery(query, scope, maximum, fields = []) {
 }
 
 const DASHBOARD_FIELDS = {
-  contracts: ['branchId', 'status', 'totalPrice', 'discount', 'paidAmount', 'installments', 'nextPaymentDate', 'studentId', 'studentName', 'studentPhone', 'packageId', 'packageName', 'startDate', 'endDate', 'totalSessions', 'usedSessions', 'carryOverTransferredSessions', 'pausePeriods', 'signedAt', 'createdAt', 'contractDate'],
+  contracts: ['branchId', 'status', 'totalPrice', 'discount', 'paidAmount', 'installments', 'nextPaymentDate', 'studentId', 'studentName', 'studentPhone', 'packageId', 'packageName', 'startDate', 'endDate', 'totalSessions', 'usedSessions', 'carryOverTransferredSessions', 'pausePeriods', 'signedAt', 'createdAt', 'contractDate', 'salesCancellationSnapshot', 'cancellationSettlement'],
   students: ['branchId', 'status', 'name', 'fullName', 'phone', 'joinDate', 'createdAt'],
   trainers: ['branchId', 'status', 'name', 'fullName'],
   staff: ['branchId', 'status'],

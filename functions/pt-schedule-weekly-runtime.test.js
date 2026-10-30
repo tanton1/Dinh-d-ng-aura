@@ -257,7 +257,8 @@ test('normal, unknown-target and control-API discovery expose the unchanged comp
   // one versioned finance-operation callable alongside its compatibility endpoints,
     // the Student 360 source queue worker plus recovery scheduler, and the
     // nutrition scan admission, dispatcher and task worker.
-  assert.equal(baseline.exportNames.length, 565)
+  assert.equal(baseline.exportNames.length, 567)
+  for (const name of ['getContractSettlement', 'manageContractSettlement']) assert.ok(baseline.exportNames.includes(name))
   for (const name of ['manageFinanceOperation', 'recordContractPayment', 'recordRefund', 'reverseContractPayment']) assert.ok(baseline.exportNames.includes(name))
   for (const name of ['getPtTrainerAvailabilityRegional', 'savePtTrainerAvailabilityRegional']) {
     assert.ok(baseline.exportNames.includes(name))

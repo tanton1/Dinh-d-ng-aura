@@ -108,6 +108,7 @@ export async function recordContractPayment(input: {
   note?: string
   installmentId?: string
   cashAccountId: string
+  expectedSettlementRevision?: number
 }) {
   return (await callable<typeof input, { entryId: string; unchanged: boolean; referenceCode: string; receiptVoucherId: string | null; receiptVoucherNumber: string | null }>('recordContractPayment')(input)).data
 }

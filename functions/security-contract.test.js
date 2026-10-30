@@ -228,11 +228,11 @@ test('legacy finance deletes and every direct session write entry point fail clo
   assert.doesNotMatch(sessionRequestSource, /setDoc|updateDoc|deleteDoc|transaction\.(?:set|update|delete)/)
 })
 
-test('Firestore rules deny hard-delete of legacy finance and all browser session writes', () => {
+test('Firestore rules keep legacy finance readable and deny every browser financial or session write', () => {
   for (const collectionName of ['contracts', 'payments']) {
     const block = rules.match(new RegExp(`match \/${collectionName}\\/\\{documentId\\} \\{[\\s\\S]*?\\n    \\}`))?.[0] ?? ''
-    assert.match(block, /allow read, create, update: if isAdmin\(\)/, `${collectionName} must remain admin-readable during migration`)
-    assert.match(block, /allow delete: if false/, `${collectionName} hard-delete must be denied to every browser client`)
+    assert.match(block, /allow read: if isAdmin\(\)/, `${collectionName} must remain admin-readable during migration`)
+    assert.match(block, /allow create, update, delete: if false/, `${collectionName} writes must be denied to every browser client`)
     assert.doesNotMatch(block, /allow[^;]*delete[^;]*if isAdmin\(\)/)
   }
   const sessionsBlock = rules.match(/match \/sessions\/\{documentId\} \{[\s\S]*?\n    \}/)?.[0] ?? ''

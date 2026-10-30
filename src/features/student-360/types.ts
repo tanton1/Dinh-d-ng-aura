@@ -96,11 +96,14 @@ export interface Student360Overview {
     projectionDelta: number
     reconciliationStatus: 'matched' | 'legacy_projection' | 'projection_behind' | 'over_entitlement' | 'evidence_truncated'
     payment: null | {
-      status: 'paid' | 'due' | 'overdue'
+      status: 'paid' | 'due' | 'overdue' | 'settlement_review' | 'settlement_due' | 'settlement_refund' | 'settlement_ready' | 'settled'
       nextPaymentDate: string | null
       total?: number
       paid?: number
       outstanding?: number
+      refundDue?: number
+      settlementAmount?: number | null
+      settlementStatus?: 'review_required' | 'pending_approval' | 'approved' | 'settled'
     }
     pausePeriods: Array<{ requestId?: string; type: string; startDate: string; endDate: string; durationDays?: number }>
     extensions: Array<{ id?: string; oldEndDate?: string; newEndDate?: string; reason?: string }>
@@ -363,7 +366,7 @@ export interface Student360ContractWorkspace {
 }
 
 export type Student360ContractMutation =
-  | { studentId: string; action: 'create'; contract: Record<string, unknown> }
+  | { studentId: string; contractId?: string; action: 'create'; contract: Record<string, unknown> }
   | { studentId: string; contractId: string; expectedRevision: number; action: 'edit'; contract: Record<string, unknown> }
   | { studentId: string; contractId: string; expectedRevision: number; action: 'add_sessions'; extraSessions: number; extraDurationMonths: number; extraPrice: number; paymentDueDate?: string; reason: string }
   | { studentId: string; contractId: string; expectedRevision: number; action: 'extend'; newEndDate: string; reason: string }

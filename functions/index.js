@@ -67,6 +67,7 @@ const { createPtScheduleWeeklyViewFunctions, rebuildDirtyPtScheduleWeeklyViews, 
 const { applyAdminScheduleEdit } = require('./pt-schedule-admin-edit')
 const { trustedAccessContext, requireCapability } = require('./identity-access')
 const { createFinanceLedgerFunctions } = require('./finance-ledger')
+const { createContractSettlementFunctions } = require('./contract-settlement')
 const { autoConfirmOverduePtAttendance, chargeDuePtSessions, createSessionOperationFunctions, remindUnconfirmedPtAttendance } = require('./session-operations')
 const { createPayrollFunctions, priceTeachingSlots, payrollPolicyProfiles, payrollProfile, policySupportsProfile } = require('./payroll')
 const { createStaffPayrollFunctions } = require('./staff-payroll')
@@ -1122,6 +1123,7 @@ const ptScheduleOverflowOnCall = (optionsOrHandler, maybeHandler) => {
 const ptScheduleOverflowFunctions = createPtScheduleV2Functions({ db, onCall: ptScheduleOverflowOnCall })
 exports.generatePtScheduleDraftV4 = ptScheduleOverflowFunctions.generatePtScheduleDraft
 Object.assign(exports, createFinanceLedgerFunctions({ db, onCall, logger }))
+Object.assign(exports, createContractSettlementFunctions({ db, onCall: handler => onCall({ cpu: 'gcf_gen1', maxInstances: 2, concurrency: 1, timeoutSeconds: 60 }, handler), logger }))
 const contractRenewalFunctions = createContractRenewalFunctions({ db, onCall, onSchedule, logger })
 Object.assign(exports, contractRenewalFunctions)
 exports.listContractRenewalCases = contractRenewalFunctions.listContractRenewalCases

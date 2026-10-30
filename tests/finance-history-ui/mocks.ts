@@ -3,12 +3,18 @@ const subscribers = new Set<() => void>()
 const publish = () => { state.databaseVersion++; subscribers.forEach(callback => callback()) }
 export const state = {
   owner: 'admin-a', authzVersion: 1, calls: [] as Array<{ owner: string; query: any }>, refreshes: 0,
+  settlementStatus: 'review_required', settlementRevision: 0, settlement: null as any,
+  settlementCalls: [] as any[], settlementCommands: [] as any[], settlementFailure: '',
+  settlementDefer: false, settlementPending: [] as Array<{ resolve: () => void }>,
+  settlementBlockers: [] as Array<{ code: string; message: string }>,
+  settlementPermissions: { canSubmit: true, canApprove: true, canClose: true },
   directoryAcquisitions: 0,
   performanceCalls: [] as Array<any>, performanceDefer: false, performanceSettled: 0,
   performancePending: [] as Array<{ resolve: (report: any) => void; reject: (cause: Error) => void }>,
   intentCalls: [] as Array<any>, intentFailure: '', intentDefer: false,
   intentPending: [] as Array<{ resolve: () => void }>,
   studentInstallmentStatus: 'pending', workspaceLoads: 0, projectionRefreshes: 0,
+  contractCreateFailure: '', contractCreateCalls: [] as any[], createdContracts: [] as any[],
   bookCalls: [] as Array<{ name: string; owner: string; input: any }>, bookDefer: [] as string[], bookFailures: {} as Record<string, string>,
   bookPages: {} as Record<string, any[]>,
   bookPending: [] as Array<{ name: string; resolve: () => void; reject: (code: string, reason?: string) => void }>, bookMutations: [] as Array<{ name: string; input: any }>,
@@ -46,6 +52,7 @@ const contracts = [
   { id: 'contract-a', studentId: 'student-a', branchId: 'a', packageName: 'Test package A', totalPrice: 1_200_000, discount: 0, paidAmount: 200_000, status: 'active', installments: [] },
   { id: 'contract-b', studentId: 'student-b', branchId: 'b', packageName: 'Test package B', totalPrice: 600_000, discount: 0, paidAmount: 100_000, status: 'frozen', installments: [] },
 ]
+if (new URLSearchParams(window.location.search).get('cancelled') === 'true') contracts[0].status = 'cancelled'
 const subscribe = (callback: () => void) => { subscribers.add(callback); return () => { subscribers.delete(callback) } }
 const database = {
   contracts, students: [{ id: 'student-a', name: 'Test learner A' }, { id: 'student-b', name: 'Test learner B' }],
@@ -93,13 +100,14 @@ export async function recordContractPayment(input: { contractId: string; amount:
   state.payments++
   const contract = contracts.find(item => item.id === input.contractId)!
   contract.paidAmount += input.amount
+  if (state.settlementStatus === 'approved') state.settlementRevision++
   database.contracts = [...contracts]
   publish()
   return { entryId: 'payment-test', unchanged: false }
 }
 export async function recordRefund(input?: { contractId: string; amount: number }) {
   state.refunds++
-  if (input) { contracts.find(item => item.id === input.contractId)!.paidAmount -= input.amount; database.contracts = [...contracts]; publish() }
+  if (input) { contracts.find(item => item.id === input.contractId)!.paidAmount -= input.amount; if (state.settlementStatus === 'approved') state.settlementRevision++; database.contracts = [...contracts]; publish() }
   return { entryId: 'refund-test', unchanged: false }
 }
 export async function reverseContractPayment() { state.reversals++; return { entryId: 'reversal-test', unchanged: false } }
@@ -141,13 +149,74 @@ export async function getStudent360ContractWorkspace() {
   }
   return {
     schemaVersion: 1, activeContractId: 'contract-a', student: { id: 'student-a', name: 'Test learner A', phone: '', email: '' },
-    permissions: { canManageContract: false, canCreateContract: false, canEditFinancialTerms: false, canCollectPayments: true, canViewFinancialAmounts: true },
+    permissions: { canManageContract: false, canCreateContract: new URLSearchParams(window.location.search).has('create'), canEditFinancialTerms: new URLSearchParams(window.location.search).has('create'), canCollectPayments: true, canViewFinancialAmounts: true },
     contracts: [{ ...contracts[0], trainerIds: [], nutritionPTIds: [], startDate: '2026-10-01', endDate: '2026-12-31', totalSessions: 12, usedSessions: 0, revision: 1, extensions: [], pausePeriods: [], installments: [{ id: 'installment-a', date: '2026-10-25', amount: 100_000, status: state.studentInstallmentStatus }] }],
-    trainers: [], packages: [], branches: database.branches,
+    trainers: [], packages: [{ id: 'package-a', name: 'New synthetic package', totalSessions: 12, price: 1200000, durationMonths: 3 }], branches: database.branches,
   }
 }
-export async function mutateStudent360Contract() { throw Error('Unexpected contract mutation in finance fixture') }
+export async function mutateStudent360Contract(input: any) {
+  if (input.action !== 'create') throw Error('Unexpected contract mutation in finance fixture')
+  state.contractCreateCalls.push(structuredClone(input))
+  if (!input.contractId) throw Error('Missing stable create ID')
+  const existing = state.createdContracts.find(item => item.contractId === input.contractId)
+  if (existing && JSON.stringify(existing) !== JSON.stringify(input)) throw Object.assign(Error('Mismatched create replay'), { code: 'functions/already-exists' })
+  if (!existing) state.createdContracts.push(structuredClone(input))
+  if (state.contractCreateFailure === 'commit-lost') { state.contractCreateFailure = ''; throw Object.assign(Error('Mất phản hồi tạo hợp đồng thử nghiệm'), { code: 'functions/unavailable' }) }
+  return { contractId: input.contractId, revision: 1, action: 'create' }
+}
 export async function refreshStudent360Projection() { state.projectionRefreshes++; return {} }
+
+export function contractSettlementLabel(status: string) {
+  return status === 'settled' ? 'Đã quyết toán' : status === 'approved' ? 'Đã duyệt quyết toán' : status === 'pending_approval' ? 'Chờ duyệt quyết toán' : 'Cần rà soát quyết toán'
+}
+function settlementResponse(input: any = {}) {
+  const paid = contracts[0].paidAmount
+  const target = state.settlement?.settlementAmount
+  return structuredClone({
+    contractId: input.contractId || 'contract-a', revision: state.settlementRevision, status: state.settlementStatus,
+    settlement: state.settlement ? { ...state.settlement, revision: state.settlementRevision, status: state.settlementStatus } : null,
+    preview: { originalNetValue: 1_200_000, canonicalCash: paid, paidProjection: paid, recognizedRevenue: 400_000, unservedValue: 800_000,
+      blockers: state.settlementBlockers, snapshotHash: `${state.owner}:${state.settlementRevision}:${paid}:${input.cutoffDate || state.settlement?.proposal.cutoffDate || ''}`,
+      ...(['approved', 'settled'].includes(state.settlementStatus) ? { dueAmount: Math.max(0, target - paid), refundAmount: Math.max(0, paid - target) } : {}) },
+    permissions: state.settlementPermissions,
+  })
+}
+export async function getContractSettlement(input: any) {
+  state.settlementCalls.push({ owner: state.owner, input: structuredClone(input) })
+  const response = settlementResponse(input)
+  if (state.settlementDefer) await new Promise<void>(resolve => state.settlementPending.push({ resolve }))
+  return response
+}
+const settlementReceipts = new Map<string, any>()
+export async function manageContractSettlement(input: any) {
+  state.settlementCommands.push(structuredClone(input))
+  if (state.settlementFailure === 'aborted') {
+    state.settlementFailure = ''
+    state.settlementRevision++
+    throw Object.assign(Error('Số liệu đã thay đổi. Đối soát lại.'), { code: 'functions/aborted' })
+  }
+  const stored = settlementReceipts.get(input.operationId)
+  if (stored) return stored
+  if (input.expectedRevision !== state.settlementRevision) throw Error('Hồ sơ đã thay đổi. Đối soát lại trước khi duyệt.')
+  if (input.action === 'submit') {
+    if (state.settlementBlockers.length) throw Object.assign(Error('Chưa đủ đối soát'), { code: 'functions/failed-precondition' })
+    const p = input.proposal
+    state.settlement = { proposal: p, settlementAmount: 1_200_000 - p.waivedFutureAmount + p.feeAmount - p.serviceReductionAmount - p.writeOffAmount }
+    state.settlementStatus = 'pending_approval'
+  } else if (input.action === 'approve') {
+    if (state.settlementBlockers.length) throw Error('Chưa đủ đối soát')
+    state.settlementStatus = 'approved'
+  } else if (input.action === 'withdraw') state.settlementStatus = 'review_required'
+  else if (input.action === 'close') {
+    if (contracts[0].paidAmount !== state.settlement.settlementAmount) throw Error('Chưa cân đối tiền')
+    state.settlementStatus = 'settled'
+  }
+  state.settlementRevision++
+  const response = settlementResponse(input)
+  settlementReceipts.set(input.operationId, response)
+  if (state.settlementFailure === 'commit-lost') { state.settlementFailure = ''; throw Error('Mất phản hồi quyết toán thử nghiệm') }
+  return response
+}
 
 async function bookRead(name: string, input: any, result: any) {
   state.bookCalls.push({ name, owner: state.owner, input: structuredClone(input) })

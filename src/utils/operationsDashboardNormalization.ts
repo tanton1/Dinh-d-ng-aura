@@ -111,6 +111,8 @@ export interface OperationsDashboardData {
   quality: {
     completeness: 'complete' | 'partial'
     missingContractEffectiveDate: number
+    cancelledSalesBaselineUnverified: number
+    cancelledSettlementReviewRequired: number
     truncated: boolean
     canonicalFinanceSource: string
     canonicalAttendanceSource: string
@@ -384,8 +386,10 @@ export function normalizeOperationsDashboardData(value: unknown): OperationsDash
       branches: nonNegativeNumber(operations.branches),
     },
     quality: {
-      completeness: quality.completeness === 'partial' || schemaVersion < 2 ? 'partial' : 'complete',
+      completeness: quality.completeness === 'partial' || schemaVersion < 2 || nonNegativeNumber(quality.cancelledSalesBaselineUnverified) > 0 || nonNegativeNumber(quality.cancelledSettlementReviewRequired) > 0 ? 'partial' : 'complete',
       missingContractEffectiveDate: nonNegativeNumber(quality.missingContractEffectiveDate),
+      cancelledSalesBaselineUnverified: Math.floor(nonNegativeNumber(quality.cancelledSalesBaselineUnverified)),
+      cancelledSettlementReviewRequired: Math.floor(nonNegativeNumber(quality.cancelledSettlementReviewRequired)),
       truncated: quality.truncated === true,
       canonicalFinanceSource: text(quality.canonicalFinanceSource, 'ledgerEntries'),
       canonicalAttendanceSource: text(quality.canonicalAttendanceSource, 'attendanceEvents'),
