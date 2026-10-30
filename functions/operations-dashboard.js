@@ -250,6 +250,7 @@ function dashboardAnalytics({ ledgerValues, contractValues, offValues, start, en
   // selected period had sparse activity.
   seedContinuousReportPoints(start, end, granularity, point)
   for (const value of contractValues) {
+    if (['draft', 'cancelled', 'inactive', 'archived'].includes(value.status)) continue
     const effectiveAt = contractEffectiveDate(value)
     if (!effectiveAt || !inRange(effectiveAt, start, end)) continue
     const bucket = reportBucket(effectiveAt, granularity)

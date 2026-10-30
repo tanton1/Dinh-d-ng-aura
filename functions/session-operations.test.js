@@ -49,6 +49,9 @@ function fakeDatabase(seed) {
     orderBy() {
       return query(path, filters, maximum)
     },
+    select() {
+      return query(path, filters, maximum)
+    },
     async get() {
       return snapshotFor({ kind: 'query', path, filters, maximum })
     },
@@ -92,6 +95,7 @@ function fakeDatabase(seed) {
       const writes = []
       const transaction = {
         async get(target) {
+          assert.equal(writes.length, 0, 'All transaction reads precede writes')
           return snapshotFor(target)
         },
         update(ref, patch) {
@@ -232,6 +236,147 @@ test('admin corrects a paired teaching shift atomically and invalidates the rela
   assert.equal(state.read('payrollRuns/2026-08').requiresRebuild, true)
   assert.equal(state.paths().filter((path) => path.startsWith('sessionEvents/')).length, 2)
   assert.equal(state.paths().filter((path) => path.startsWith('attendanceAuditLogs/')).length, 2)
+})
+
+function revenueCorrectionState(overrides = {}) {
+  return operationsFor({
+    'trainers/trainer-1': { status: 'active', branchId: 'branch-1', slotCapacity: 2 },
+    'trainers/trainer-2': { status: 'active', branchId: 'branch-1', slotCapacity: 2 },
+    'contracts/contract-1': { status: 'active', studentId: 'student-1', totalPrice: 200_000, totalSessions: 2, usedSessions: 2,
+      paidAmount: 100_000, startDate: '2026-08-01', endDate: '2026-09-30', accountingAdvanceAccountCode: '3387' },
+    'sessions/revenue-session': { status: 'scheduled', billingStatus: 'charged', attendanceStatus: 'pending', attendanceEventId: 'revenue-session',
+      studentId: 'student-1', trainerId: 'trainer-1', contractId: 'contract-1', branchId: 'branch-1', date: '2026-08-18', hour: 8, revision: 0, serviceOrdinal: 2 },
+    'attendanceEvents/revenue-session': { sessionId: 'revenue-session', studentId: 'student-1', contractId: 'contract-1', trainerId: 'trainer-1',
+      attendanceStatus: 'pending', billingStatus: 'charged', serviceOrdinal: 2, type: 'pending_confirmation' },
+    'sessionBillingEvents/revenue-session': { sessionId: 'revenue-session', contractId: 'contract-1', serviceOrdinal: 2, billingStatus: 'charged' },
+    'financePeriods/2026-08': { status: 'open' },
+    ...overrides,
+  }, async () => ({ uid: 'admin-1', accessRole: 'admin' }))
+}
+
+const revenueCorrection = (expectedRevision = 0, overrides = {}) => ({ data: {
+  items: [{ sessionId: 'revenue-session', expectedRevision, attendanceEventId: 'revenue-session', attendanceStatus: 'present' }],
+  date: '2026-08-18', hour: 8, trainerId: 'trainer-1', reason: 'Đối soát bằng chứng ca thực dạy', ...overrides,
+} })
+
+test('admin confirmation creates missing revenue and journal once using posted revenue for cash allocation', async () => {
+  const state = revenueCorrectionState()
+  await state.correctTeachingShift(revenueCorrection())
+  const revenue = state.read('ledgerEntries/pt_session_revenue-session')
+  assert.equal(revenue.revenueImpact, 100_000)
+  assert.equal(revenue.serviceOrdinal, 2)
+  assert.equal(revenue.deferredRevenueImpact, -100_000)
+  assert.equal(revenue.receivableImpact, 0)
+  assert.equal(state.read('journalEntries/pt_session_revenue-session').totalDebit, 100_000)
+  assert.equal(state.read('contracts/contract-1').usedSessions, 2)
+  assert.equal(state.read('sessions/revenue-session').confirmationSource, 'admin_correction')
+  const retry = await state.correctTeachingShift(revenueCorrection(1))
+  assert.equal(retry.unchanged, true)
+  assert.equal(state.paths().filter((path) => path.startsWith('ledgerEntries/')).length, 1)
+})
+
+test('manual correction resolves automatic-attendance revenue review on both evidence records', async () => {
+  const state = revenueCorrectionState({
+    'sessions/revenue-session': { status: 'completed', billingStatus: 'charged', attendanceStatus: 'present', attendanceEventId: 'revenue-session',
+      confirmationSource: 'auto_after_48h', recognitionReviewRequired: true, studentId: 'student-1', trainerId: 'trainer-1',
+      contractId: 'contract-1', branchId: 'branch-1', date: '2026-08-18', hour: 8, revision: 0, serviceOrdinal: 2 },
+    'attendanceEvents/revenue-session': { sessionId: 'revenue-session', attendanceStatus: 'present', billingStatus: 'charged', serviceOrdinal: 2,
+      confirmationSource: 'auto_after_48h', recognitionReviewRequired: true },
+    'revenueRecognitionReviews/revenue-session': { status: 'open', issueCode: 'AUTO_CONFIRMATION_REQUIRES_REVIEW' },
+  })
+  await state.correctTeachingShift(revenueCorrection())
+  assert.equal(state.read('ledgerEntries/pt_session_revenue-session').revenueImpact, 100_000)
+  for (const prefix of ['sessions', 'attendanceEvents']) {
+    assert.equal(state.read(`${prefix}/revenue-session`).recognitionReviewRequired, false)
+    assert.equal(state.read(`${prefix}/revenue-session`).confirmationSource, 'admin_correction')
+  }
+  assert.equal(state.read('revenueRecognitionReviews/revenue-session').status, 'resolved')
+})
+
+test('one correction transaction never releases the same contract advance twice', async () => {
+  const state = revenueCorrectionState({
+    'sessions/revenue-second': { status: 'scheduled', billingStatus: 'charged', attendanceStatus: 'pending', attendanceEventId: 'revenue-second',
+      studentId: 'student-1', trainerId: 'trainer-1', contractId: 'contract-1', branchId: 'branch-1', date: '2026-08-18', hour: 8, revision: 0, serviceOrdinal: 1 },
+    'attendanceEvents/revenue-second': { sessionId: 'revenue-second', studentId: 'student-1', contractId: 'contract-1', trainerId: 'trainer-1',
+      attendanceStatus: 'pending', billingStatus: 'charged', serviceOrdinal: 1, type: 'pending_confirmation' },
+  })
+  await state.correctTeachingShift(revenueCorrection(0, { items: [
+    { sessionId: 'revenue-session', expectedRevision: 0, attendanceStatus: 'present' },
+    { sessionId: 'revenue-second', expectedRevision: 0, attendanceStatus: 'present' },
+  ] }))
+  const revenues = state.paths().filter((path) => path.startsWith('ledgerEntries/')).map(state.read)
+  assert.equal(revenues.reduce((sum, value) => sum + value.revenueImpact, 0), 200_000)
+  assert.equal(revenues.reduce((sum, value) => sum + value.deferredRevenueImpact, 0), -100_000)
+  assert.equal(revenues.reduce((sum, value) => sum + value.receivableImpact, 0), 100_000)
+})
+
+test('same-month date and trainer corrections append balanced reversal/replacement and later attendance follows the replacement', async () => {
+  const state = revenueCorrectionState()
+  await state.correctTeachingShift(revenueCorrection())
+  const original = state.read('ledgerEntries/pt_session_revenue-session')
+  await state.correctTeachingShift(revenueCorrection(1, { date: '2026-08-19', trainerId: 'trainer-2' }))
+  const currentId = state.read('sessions/revenue-session').revenueRecognitionEntryId
+  assert.equal(currentId, 'pt_session_revenue-session_correction_2')
+  const current = state.read(`ledgerEntries/${currentId}`)
+  const reversal = state.read(`ledgerEntries/${currentId}_reversal`)
+  assert.equal(state.read('ledgerEntries/pt_session_revenue-session').status, 'reversed')
+  assert.equal(state.read('ledgerEntries/pt_session_revenue-session').trainerId, 'trainer-1')
+  assert.equal(current.trainerId, 'trainer-2')
+  assert.equal(current.effectiveAt.toDate().toISOString(), '2026-08-19T05:00:00.000Z')
+  assert.equal(original.revenueImpact + reversal.revenueImpact + current.revenueImpact, 100_000)
+  assert.equal(original.deferredRevenueImpact + reversal.deferredRevenueImpact + current.deferredRevenueImpact, -100_000)
+  for (const suffix of ['', '_reversal']) {
+    const journal = state.read(`journalEntries/${currentId}${suffix}`)
+    assert.equal(journal.lines.reduce((sum, line) => sum + line.debit, 0), journal.lines.reduce((sum, line) => sum + line.credit, 0))
+  }
+  const attendance = await state.recordSessionAttendance({ data: { sessionId: 'revenue-session', expectedRevision: 2, attendanceStatus: 'late', lateMinutes: 5 } })
+  assert.equal(attendance.recognitionEntryId, currentId)
+  assert.equal(state.read('attendanceEvents/revenue-session').revenueRecognitionEntryId, currentId)
+  assert.equal(state.paths().filter((path) => path.startsWith('ledgerEntries/')).length, 3)
+  await state.correctTeachingShift(revenueCorrection(3, { date: '2026-08-19', trainerId: 'trainer-1' }))
+  const values = state.paths().filter((path) => path.startsWith('ledgerEntries/')).map(state.read)
+  assert.equal(values.length, 5)
+  assert.equal(values.reduce((sum, value) => sum + value.revenueImpact, 0), 100_000)
+})
+
+test('correction does not recognise exempt make-up service or merely move automatically confirmed evidence', async () => {
+  for (const billingStatus of ['exempt', 'charged']) {
+    const state = revenueCorrectionState({
+      'sessions/revenue-session': { status: 'completed', billingStatus, attendanceStatus: 'present', attendanceEventId: 'revenue-session',
+        makeupSession: billingStatus === 'exempt', confirmationSource: 'auto_after_48h', recognitionReviewRequired: billingStatus === 'charged',
+        studentId: 'student-1', trainerId: 'trainer-1', contractId: 'contract-1', branchId: 'branch-1', date: '2026-08-18', hour: 8, revision: 0 },
+      'attendanceEvents/revenue-session': { sessionId: 'revenue-session', attendanceStatus: 'present', billingStatus,
+        confirmationSource: 'auto_after_48h', confirmedBy: 'system', recognitionReviewRequired: billingStatus === 'charged' },
+    })
+    await state.correctTeachingShift(revenueCorrection(0, { items: [{ sessionId: 'revenue-session', expectedRevision: 0 }], trainerId: 'trainer-2' }))
+    assert.equal(state.paths().filter((path) => path.startsWith('ledgerEntries/')).length, 0)
+    assert.equal(state.read('sessions/revenue-session').recognitionReviewRequired, billingStatus === 'charged')
+  }
+})
+
+test('revenue correction fails atomically in locked periods and flags missing contract evidence without inventing revenue', async () => {
+  const locked = revenueCorrectionState({ 'financePeriods/2026-08': { status: 'locked' } })
+  await assert.rejects(locked.correctTeachingShift(revenueCorrection()), (error) => error.details?.issueCode === 'FINANCE_PERIOD_LOCKED')
+  assert.equal(locked.read('sessions/revenue-session').attendanceStatus, 'pending')
+  assert.equal(locked.paths().filter((path) => path.startsWith('ledgerEntries/')).length, 0)
+  const missing = revenueCorrectionState({ 'contracts/contract-1': undefined })
+  await missing.correctTeachingShift(revenueCorrection())
+  assert.equal(missing.read('sessions/revenue-session').attendanceStatus, 'present')
+  assert.equal(missing.read('sessions/revenue-session').recognitionReviewRequired, true)
+  assert.equal(missing.read('revenueRecognitionReviews/revenue-session').issueCode, 'RECOGNITION_CONTRACT_MISSING_OR_MISMATCHED')
+  assert.equal(missing.paths().filter((path) => path.startsWith('ledgerEntries/')).length, 0)
+})
+
+test('a correction cannot move financial evidence from another period even when the session month is open', async () => {
+  const state = revenueCorrectionState({
+    'ledgerEntries/pt_session_revenue-session': { type: 'revenue_recognition', status: 'posted', sessionId: 'revenue-session', contractId: 'contract-1',
+      trainerId: 'trainer-1', branchId: 'branch-1', effectiveAt: '2026-07-18T05:00:00.000Z', amount: 100_000, revenueImpact: 100_000,
+      cashImpact: 0, receivableImpact: 0, deferredRevenueImpact: -100_000 },
+  })
+  await assert.rejects(state.correctTeachingShift(revenueCorrection()), (error) => error.details?.issueCode === 'TEACHING_SHIFT_CROSS_PERIOD_CORRECTION')
+  assert.equal(state.read('sessions/revenue-session').attendanceStatus, 'pending')
+  assert.equal(state.paths().filter((path) => path.startsWith('ledgerEntries/')).length, 1)
+  assert.equal(state.paths().filter((path) => path.startsWith('journalEntries/')).length, 0)
 })
 
 for (const status of ['active', 'frozen']) test('an audited OFF booking is charged once without removing the pause, status=' + status, async () => {
