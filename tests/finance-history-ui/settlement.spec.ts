@@ -22,6 +22,16 @@ async function approve(page: Page) {
   await panel(page).getByRole('button', { name: 'Xác nhận duyệt', exact: true }).click()
   await expect(panel(page).getByText('Đã duyệt', { exact: true })).toBeVisible()
 }
+async function openStudentPage(page: Page) {
+  await page.goto('/tests/finance-history-ui/index.html?workspace=student-page&cancelled=true&multipleContracts=true')
+  await expect(page.getByRole('heading', { name: 'Test learner A', exact: true })).toBeVisible()
+  await page.evaluate(() => (window as any).financeState.updateContract('contract-a', { paidAmount: 400000 }))
+  await page.getByRole('navigation').filter({ visible: true }).getByRole('button', { name: 'Hợp đồng', exact: true }).click()
+  const choice = page.getByRole('region', { name: 'Lịch sử hợp đồng', exact: true }).getByRole('button').filter({ hasText: 'Test package A' })
+  await choice.click()
+  await expect(panel(page).getByLabel('Ngày nghỉ')).toBeEnabled()
+  return choice
+}
 
 test('legacy cancellation needs date and reason; adjustments are optional and cash needs approval', async ({ page }) => {
   await open(page)
@@ -207,6 +217,161 @@ test('lost proposal response retains exact operation and does not auto approve',
   expect(commands).toHaveLength(2)
   expect(commands[0]).toEqual(commands[1])
 })
+
+test('slow summary sync cannot disable approval or completion after the settlement command succeeds', async ({ page }) => {
+  await open(page)
+  await page.evaluate(() => {
+    const s = (window as any).financeState
+    s.updateContract('contract-a', { paidAmount: 400000 })
+    s.settlementSyncDefer = true
+  })
+  await proposal(page)
+  await panel(page).getByRole('button', { name: 'Gửi duyệt', exact: true }).click()
+  await expect.poll(() => page.evaluate(() => (window as any).financeState.settlementSyncPending.length)).toBe(1)
+  await expect(panel(page).getByRole('button', { name: 'Xác nhận duyệt', exact: true })).toBeEnabled()
+  await panel(page).getByRole('button', { name: 'Xác nhận duyệt', exact: true }).click()
+  await expect(panel(page).getByRole('button', { name: 'Hoàn tất', exact: true })).toBeEnabled()
+  await panel(page).getByRole('button', { name: 'Hoàn tất', exact: true }).click()
+  await expect(panel(page).getByText('Đã hoàn tất', { exact: true })).toBeVisible()
+  await page.evaluate(() => {
+    const s = (window as any).financeState
+    s.settlementSyncDefer = false
+    s.settlementSyncPending[0].resolve()
+  })
+  await expect(panel(page).getByRole('button', { name: 'Kiểm tra kết quả', exact: true })).toHaveCount(0)
+  const state = await page.evaluate(() => {
+    const s = (window as any).financeState
+    return { actions: s.settlementCommands.map((item: any) => item.action), payments: s.payments, refunds: s.refunds }
+  })
+  expect(state).toEqual({ actions: ['submit', 'approve', 'close'], payments: 0, refunds: 0 })
+})
+
+test('summary sync rejection preserves committed settlement and only retries the summary read', async ({ page }) => {
+  await open(page)
+  await page.evaluate(() => (window as any).financeState.updateContract('contract-a', { paidAmount: 400000 }))
+  await proposal(page)
+  await panel(page).getByRole('button', { name: 'Gửi duyệt', exact: true }).click()
+  await expect(panel(page).getByRole('button', { name: 'Xác nhận duyệt', exact: true })).toBeEnabled()
+  await page.evaluate(() => { (window as any).financeState.settlementSyncFailure = 'functions/failed-precondition' })
+  await panel(page).getByRole('button', { name: 'Xác nhận duyệt', exact: true }).click()
+  await expect(panel(page).getByText('Quyết toán đã lưu. Chưa cập nhật được tóm tắt học viên.')).toBeVisible()
+  await expect(panel(page).getByRole('button', { name: 'Hoàn tất', exact: true })).toBeEnabled()
+  await expect(panel(page).getByRole('button', { name: 'Kiểm tra kết quả', exact: true })).toHaveCount(0)
+  await panel(page).getByRole('button', { name: 'Hoàn tất', exact: true }).click()
+  await expect(panel(page).getByText('Đã hoàn tất', { exact: true })).toBeVisible()
+  await expect(panel(page).getByRole('button', { name: 'Cập nhật tóm tắt', exact: true })).toBeEnabled()
+  await page.evaluate(() => { (window as any).financeState.settlementSyncFailure = '' })
+  await panel(page).getByRole('button', { name: 'Cập nhật tóm tắt', exact: true }).click()
+  await expect(panel(page).getByText('Quyết toán đã lưu. Chưa cập nhật được tóm tắt học viên.')).toHaveCount(0)
+  await expect(panel(page).getByText('Đã hoàn tất', { exact: true })).toBeVisible()
+  expect(await page.evaluate(() => (window as any).financeState.settlementCommands.map((item: any) => item.action))).toEqual(['submit', 'approve', 'close'])
+})
+
+test('student overview and contract refresh keep the selected cancelled contract mounted through completion', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', error => errors.push(error.message))
+  const contractChoice = await openStudentPage(page)
+  await panel(page).evaluate(node => { node.setAttribute('data-mount-probe', 'original') })
+  await proposal(page)
+  await page.evaluate(() => { const s = (window as any).financeState; s.overviewDefer = true; s.workspaceDefer = true })
+  await panel(page).getByRole('button', { name: 'Gửi duyệt', exact: true }).click()
+  await expect.poll(() => page.evaluate(() => (window as any).financeState.overviewPending.length)).toBe(1)
+  await expect(contractChoice).toHaveAttribute('aria-current', 'true')
+  await expect(panel(page)).toHaveAttribute('data-mount-probe', 'original')
+  await expect(panel(page).getByRole('button', { name: 'Xác nhận duyệt', exact: true })).toBeEnabled()
+  await page.evaluate(() => { const s = (window as any).financeState; s.overviewDefer = false; s.overviewPending[0].resolve() })
+  await expect.poll(() => page.evaluate(() => (window as any).financeState.workspacePending.length)).toBe(1)
+  await expect(panel(page)).toHaveAttribute('data-mount-probe', 'original')
+  await expect(contractChoice).toHaveAttribute('aria-current', 'true')
+  await page.evaluate(() => { const s = (window as any).financeState; s.workspaceDefer = false; s.workspacePending[0].resolve() })
+  await expect(page.getByText('Đang cập nhật hồ sơ hợp đồng…')).toHaveCount(0)
+  await expect(panel(page)).toHaveAttribute('data-mount-probe', 'original')
+  await expect(contractChoice).toHaveAttribute('aria-current', 'true')
+  await panel(page).getByRole('button', { name: 'Xác nhận duyệt', exact: true }).click()
+  await expect(panel(page).getByRole('button', { name: 'Hoàn tất', exact: true })).toBeEnabled()
+  await panel(page).getByRole('button', { name: 'Hoàn tất', exact: true }).click()
+  await expect(panel(page).getByText('Đã hoàn tất', { exact: true })).toBeVisible()
+  const commands = await page.evaluate(() => (window as any).financeState.settlementCommands)
+  expect(commands.map((item: any) => [item.contractId, item.action])).toEqual([
+    ['contract-a', 'submit'], ['contract-a', 'approve'], ['contract-a', 'close'],
+  ])
+  expect(errors).toEqual([])
+})
+
+test('refreshing student data preserves an unsaved settlement draft and the selected cancelled contract', async ({ page }) => {
+  const contractChoice = await openStudentPage(page)
+  await proposal(page)
+  await panel(page).evaluate(node => { node.setAttribute('data-mount-probe', 'draft') })
+  await page.evaluate(() => { (window as any).financeState.workspaceDefer = true })
+  await page.getByLabel('Mở menu nghiệp vụ').click()
+  await page.getByRole('button', { name: 'Đối soát dữ liệu', exact: true }).click()
+  await expect.poll(() => page.evaluate(() => (window as any).financeState.workspacePending.length)).toBe(1)
+  await expect(panel(page)).toHaveAttribute('data-mount-probe', 'draft')
+  await expect(panel(page).getByLabel('Lý do nghỉ')).toHaveValue('Khách xác nhận kết thúc dịch vụ theo biên bản.')
+  await page.evaluate(() => { const s = (window as any).financeState; s.workspaceDefer = false; s.workspacePending[0].resolve() })
+  await expect(page.getByText('Đang cập nhật hồ sơ hợp đồng…')).toHaveCount(0)
+  await expect(panel(page)).toHaveAttribute('data-mount-probe', 'draft')
+  await expect(contractChoice).toHaveAttribute('aria-current', 'true')
+  await expect(panel(page).getByLabel('Ngày nghỉ')).toHaveValue('2026-10-25')
+  await expect(panel(page).getByLabel('Lý do nghỉ')).toHaveValue('Khách xác nhận kết thúc dịch vụ theo biên bản.')
+  expect(await page.evaluate(() => (window as any).financeState.settlementCommands)).toEqual([])
+})
+
+test('a denied projection refresh still checks overview access and hides revoked financial data', async ({ page }) => {
+  await openStudentPage(page)
+  await proposal(page)
+  const before = await page.evaluate(() => {
+    const s = (window as any).financeState
+    s.projectionFailure = 'permission-denied'
+    s.overviewFailure = 'permission-denied'
+    return { overview: s.overviewLoads, projection: s.projectionRefreshes }
+  })
+  await panel(page).getByRole('button', { name: 'Gửi duyệt', exact: true }).click()
+  await expect.poll(() => page.evaluate(() => {
+    const s = (window as any).financeState
+    return { overview: s.overviewLoads, projection: s.projectionRefreshes }
+  })).toEqual({ overview: before.overview + 1, projection: before.projection + 1 })
+  await expect(page.getByRole('heading', { name: 'Chưa thể mở Học viên 360', exact: true })).toBeVisible()
+  await expect(page.getByText('Không tải được tổng quan thử nghiệm.', { exact: true })).toBeVisible()
+  await expect(panel(page)).toHaveCount(0)
+  const result = await page.evaluate(() => {
+    const s = (window as any).financeState
+    return { actions: s.settlementCommands.map((item: any) => item.action), status: s.settlementStatus, payments: s.payments, refunds: s.refunds }
+  })
+  expect(result).toEqual({ actions: ['submit'], status: 'pending_approval', payments: 0, refunds: 0 })
+})
+
+for (const source of ['overview', 'workspace'] as const) {
+  for (const code of ['unavailable', source === 'overview' ? 'unauthenticated' : 'permission-denied']) {
+    test(`${source} refresh ${code} ${code === 'unavailable' ? 'preserves' : 'hides'} the existing financial workspace`, async ({ page }) => {
+      await openStudentPage(page)
+      await proposal(page)
+      await page.evaluate(({ source, code }) => {
+        const s = (window as any).financeState
+        if (source === 'overview') s.overviewDefer = true
+        else s.workspaceFailure = code
+      }, { source, code })
+      await panel(page).getByRole('button', { name: 'Gửi duyệt', exact: true }).click()
+      if (source === 'overview') {
+        await expect.poll(() => page.evaluate(() => (window as any).financeState.overviewPending.length)).toBe(1)
+        await page.evaluate(code => {
+          const s = (window as any).financeState
+          s.overviewDefer = false
+          s.overviewPending[0].reject(Object.assign(new Error('Không tải được tổng quan thử nghiệm.'), { code: 'functions/' + code }))
+        }, code)
+      }
+      const message = source === 'overview'
+        ? (code === 'unavailable' ? 'Hồ sơ đã lưu. Chưa cập nhật được tóm tắt học viên: Không tải được tổng quan thử nghiệm.' : 'Không tải được tổng quan thử nghiệm.')
+        : 'Không tải được hồ sơ hợp đồng thử nghiệm.'
+      await expect(page.getByText(message, { exact: true })).toBeVisible()
+      if (code === 'unavailable') {
+        await expect(panel(page).getByText('Chờ duyệt', { exact: true })).toBeVisible()
+        await expect(panel(page).getByRole('button', { name: 'Xác nhận duyệt', exact: true })).toBeEnabled()
+      } else await expect(panel(page)).toHaveCount(0)
+      expect(await page.evaluate(() => (window as any).financeState.settlementCommands.map((item: any) => item.action))).toEqual(['submit'])
+    })
+  }
+}
 
 test('account change fences old settlement reads and preserves current authority permissions', async ({ page }) => {
   await open(page)

@@ -329,8 +329,8 @@ export default function Student360Page({ studentId, source, isDemo = false, onBa
     }
   }, [studentId])
 
-  const loadOverview = useCallback(async (force = false) => {
-    force ? setRefreshing(true) : setLoading(true)
+  const loadOverview = useCallback(async (force = false, preserveWorkspace = false) => {
+    force || preserveWorkspace ? setRefreshing(true) : setLoading(true)
     setError('')
     try {
       const result = isDemo ? demoOverview(studentId) : force
@@ -349,7 +349,12 @@ export default function Student360Page({ studentId, source, isDemo = false, onBa
         })
       }
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Không thể tải Học viên 360.')
+      const message = cause instanceof Error ? cause.message : 'Không thể tải Học viên 360.'
+      const code = cause && typeof cause === 'object' && 'code' in cause ? String(cause.code) : ''
+      const denied = /permission-denied|unauthenticated/.test(code)
+      if (denied) { setOverview(null); setError(message) }
+      else if (preserveWorkspace) setNotice(`Hồ sơ đã lưu. Chưa cập nhật được tóm tắt học viên: ${message}`)
+      else setError(message)
     } finally {
       setLoading(false)
       setRefreshing(false)
@@ -794,7 +799,7 @@ export default function Student360Page({ studentId, source, isDemo = false, onBa
       {activeTab === 'contract' && <section className="student360-section">
         <div className="student360-section-heading"><div><small>Hợp đồng</small><h2>Quyền lợi & thanh toán</h2><p>Chi tiết gói tập, công nợ và lịch sử thay đổi.</p></div></div>
         <Suspense fallback={<State><LoaderCircle className="is-spinning" /><h3>Đang mở trung tâm nghiệp vụ hợp đồng…</h3></State>}>
-          <Student360ContractWorkspace studentId={studentId} overview={overview} source={source} isDemo={isDemo} onNavigate={onNavigate} onChanged={() => loadOverview(false)} onNotice={setNotice} />
+          <Student360ContractWorkspace studentId={studentId} overview={overview} source={source} isDemo={isDemo} onNavigate={onNavigate} onChanged={() => loadOverview(false, true)} onNotice={setNotice} />
         </Suspense>
       </section>}
 

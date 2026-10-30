@@ -12,11 +12,15 @@ function functionError(cause: unknown, fallback: string) {
   const value = original && typeof original === 'object' ? original as { code?: unknown; message?: unknown } : {}
   const code = typeof value.code === 'string' ? value.code.replace(/^functions\//, '') : ''
   const message = typeof value.message === 'string' ? value.message.trim() : ''
-  if (code === 'permission-denied') return new Error(message || 'Học viên không thuộc phạm vi được giao.')
-  if (code === 'not-found') return new Error('Không tìm thấy hồ sơ học viên.')
-  if (code === 'unauthenticated') return new Error('Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.')
-  if (['resource-exhausted', 'deadline-exceeded', 'unavailable', 'internal'].includes(code)) return new Error('Student 360 đang bận. Aura chưa thay đổi dữ liệu; vui lòng thử lại.')
-  return new Error(message || fallback)
+  // Keep the callable code through the friendly message layer so views can
+  // discard cached financial data after authorization is revoked.
+  const error = (friendly: string) => Object.assign(new Error(friendly, { cause }),
+    typeof value.code === 'string' ? { code: value.code } : {})
+  if (code === 'permission-denied') return error(message || 'Học viên không thuộc phạm vi được giao.')
+  if (code === 'not-found') return error('Không tìm thấy hồ sơ học viên.')
+  if (code === 'unauthenticated') return error('Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.')
+  if (['resource-exhausted', 'deadline-exceeded', 'unavailable', 'internal'].includes(code)) return error('Student 360 đang bận. Aura chưa thay đổi dữ liệu; vui lòng thử lại.')
+  return error(message || fallback)
 }
 
 async function callStudent360Read<Input, Output>(

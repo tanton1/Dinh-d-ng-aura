@@ -58,15 +58,15 @@ type TransportRequest = {
   region: string; name: string; input: unknown; kind: string
   options: { maximumAttempts?: number; correlationId?: string; timeoutMs?: number }
 }
-async function serviceFixture(errors: string[] = [], regional = true) {
+async function serviceFixture(errors: unknown[] = [], regional = true) {
   const requests: TransportRequest[] = []
   const module = { exports: {} as any }
   const routing = {
     east: regional ? { region: 'asia-east1' } : null, correlations: 0,
     invoke: async (client: { region: string }, name: string, options: TransportRequest['options'], input: unknown, kind: string) => {
       requests.push({ region: client.region, name, options, input, kind })
-      const code = errors.shift()
-      if (code) throw { code: `functions/${code}`, message: code }
+      const error = errors.shift()
+      if (error) throw typeof error === 'string' ? { code: `functions/${error}`, message: error } : error
       return { ok: true }
     },
   }
@@ -127,6 +127,36 @@ test('Student360 auth and business errors do not probe Singapore for any read', 
       assert.equal(requests[0].region, 'asia-east1')
     }
   }
+})
+
+test('Student360 overview and contract reads preserve auth codes through friendly transport errors', async () => {
+  for (const name of ['getStudent360Overview', 'getStudent360ContractWorkspace']) {
+    for (const code of ['functions/permission-denied', 'permission-denied', 'functions/unauthenticated', 'unauthenticated']) {
+      for (const wrapped of [false, true]) {
+        const original = { code, message: 'Access revoked' }
+        const transportError = wrapped ? new Error('Friendly transport failure', { cause: original }) : original
+        const { service, requests } = await serviceFixture([transportError])
+        await assert.rejects(service[name]('student'), (error: any) => {
+          assert.equal(error.code, code, 'view can distinguish revocation from a recoverable read failure')
+          assert.equal(error.cause, transportError)
+          assert.equal(error.message, code.endsWith('unauthenticated')
+            ? 'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.' : 'Access revoked')
+          return true
+        })
+        assert.equal(requests.length, 1, 'auth rejection never tries a different region')
+      }
+    }
+  }
+})
+
+test('Student360 friendly outage errors retain their transient code without becoming auth failures', async () => {
+  const { service, requests } = await serviceFixture(['unavailable', 'deadline-exceeded'])
+  await assert.rejects(service.getStudent360ContractWorkspace('student'), (error: any) => {
+    assert.equal(error.code, 'functions/deadline-exceeded')
+    assert.equal(error.message, 'Student 360 đang bận. Aura chưa thay đổi dữ liệu; vui lòng thử lại.')
+    return true
+  })
+  assert.equal(requests.length, 2)
 })
 
 test('Student360 never retries East or Singapore after both regions fail', async () => {

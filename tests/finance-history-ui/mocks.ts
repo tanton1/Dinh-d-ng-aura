@@ -12,6 +12,11 @@ export const state = {
   settlementDefer: false, settlementPending: [] as Array<{ resolve: () => void }>,
   settlementBlockers: [] as Array<{ code: string; message: string }>,
   settlementPermissions: { canSubmit: true, canApprove: true, canClose: true },
+  settlementSyncFailure: '', settlementSyncDefer: false,
+  settlementSyncPending: [] as Array<{ resolve: () => void }>,
+  overviewLoads: 0, overviewDefer: false, overviewFailure: '', projectionFailure: '',
+  overviewPending: [] as Array<{ resolve: () => void; reject: (cause: Error) => void }>,
+  workspaceDefer: false, workspaceFailure: '', workspacePending: [] as Array<{ resolve: () => void }>,
   directoryAcquisitions: 0,
   performanceCalls: [] as Array<any>, performanceDefer: false, performanceSettled: 0,
   performancePending: [] as Array<{ resolve: (report: any) => void; reject: (cause: Error) => void }>,
@@ -196,15 +201,17 @@ export async function manageFinanceOperation(ownerUid: string, action: string, o
 
 export async function getStudent360ContractWorkspace() {
   state.workspaceLoads++
+  if (state.workspaceDefer) await new Promise<void>(resolve => state.workspacePending.push({ resolve }))
+  if (state.workspaceFailure) throw Object.assign(new Error('Không tải được hồ sơ hợp đồng thử nghiệm.'), { code: 'functions/' + state.workspaceFailure })
   const receipts = JSON.parse(localStorage.getItem('synthetic-finance-receipts') || '{}')
   for (const receipt of Object.values(receipts) as any[]) {
     const { operation } = JSON.parse(receipt.fingerprint)
     if (receipt.result.state === 'committed' && operation.payload.installmentId === 'installment-a') state.studentInstallmentStatus = operation.type === 'payment' ? 'paid' : 'pending'
   }
   return {
-    schemaVersion: 1, activeContractId: 'contract-a', student: { id: 'student-a', name: 'Test learner A', phone: '', email: '' },
+    schemaVersion: 1, activeContractId: new URLSearchParams(window.location.search).has('multipleContracts') ? 'contract-b' : 'contract-a', student: { id: 'student-a', name: 'Test learner A', phone: '', email: '' },
     permissions: { canManageContract: false, canCreateContract: new URLSearchParams(window.location.search).has('create'), canEditFinancialTerms: new URLSearchParams(window.location.search).has('create'), canCollectPayments: true, canViewFinancialAmounts: true },
-    contracts: [{ ...contracts[0], trainerIds: [], nutritionPTIds: [], startDate: '2026-10-01', endDate: '2026-12-31', totalSessions: 12, usedSessions: 0, revision: 1, extensions: [], pausePeriods: [], installments: [{ id: 'installment-a', date: '2026-10-25', amount: 100_000, status: state.studentInstallmentStatus }] }],
+    contracts: (new URLSearchParams(window.location.search).has('multipleContracts') ? contracts : [contracts[0]]).map(contract => ({ ...contract, studentId: 'student-a', trainerIds: [], nutritionPTIds: [], startDate: '2026-10-01', endDate: '2026-12-31', totalSessions: 12, usedSessions: 0, revision: 1, extensions: [], pausePeriods: [], installments: [{ id: 'installment-a', date: '2026-10-25', amount: 100_000, status: state.studentInstallmentStatus }] })),
     trainers: [], packages: [{ id: 'package-a', name: 'New synthetic package', totalSessions: 12, price: 1200000, durationMonths: 3 }], branches: database.branches,
   }
 }
@@ -218,7 +225,42 @@ export async function mutateStudent360Contract(input: any) {
   if (state.contractCreateFailure === 'commit-lost') { state.contractCreateFailure = ''; throw Object.assign(Error('Mất phản hồi tạo hợp đồng thử nghiệm'), { code: 'functions/unavailable' }) }
   return { contractId: input.contractId, revision: 1, action: 'create' }
 }
-export async function refreshStudent360Projection() { state.projectionRefreshes++; return {} }
+export async function refreshStudent360Projection() {
+  state.projectionRefreshes++
+  if (state.projectionFailure) throw Object.assign(new Error('Không cập nhật được tổng hợp thử nghiệm.'), { code: 'functions/' + state.projectionFailure })
+  return {}
+}
+
+export async function settlementChanged() {
+  state.refreshes++
+  if (state.settlementSyncDefer) await new Promise<void>(resolve => state.settlementSyncPending.push({ resolve }))
+  if (state.settlementSyncFailure) throw Object.assign(new Error('Không tải được tổng quan sau khi lưu.'), { code: state.settlementSyncFailure })
+}
+
+// Exercise the real Student360Page refresh lifecycle without reaching Firebase.
+export async function getStudent360Overview(studentId: string) {
+  state.overviewLoads++
+  if (state.overviewDefer) await new Promise<void>((resolve, reject) => state.overviewPending.push({ resolve, reject }))
+  if (state.overviewFailure) throw Object.assign(new Error('Không tải được tổng quan thử nghiệm.'), { code: 'functions/' + state.overviewFailure })
+  return {
+    studentId, generatedAt: new Date().toISOString(),
+    permissions: { scope: 'system', canManageContract: true, canViewFinancialAmounts: true, canRefreshProjection: true },
+    identity: { id: studentId, name: 'Test learner A', status: 'active', goals: [] },
+    assignments: { branchId: 'a', branchName: 'Branch A', trainerIds: [], trainerNames: [], nutritionCoachIds: [], nutritionCoachNames: [], salesIds: [], salesNames: [] },
+    contract: null,
+    schedule: { requiredSessions: 0, bookedSessions: 0, sessions: [], availability: { slots: [] } },
+    attendance: { rate28Days: null }, training: { program: null }, nutrition: {}, progress: null, renewal: null,
+    health: { score: 0, status: 'stable', confidence: 'low', components: [] },
+    nextActions: [], alerts: [], dataQuality: [], cache: { hit: true, stale: false },
+  }
+}
+export async function createStudentCareActivity() { throw Error('Unexpected care mutation in finance fixture') }
+export async function getStudent360NutritionActivityDetail() { throw Error('Unexpected nutrition read in finance fixture') }
+export async function getStudent360ProgressPhotos() { return { photos: [], hasMore: false, nextCursor: null } }
+export async function listStudent360Timeline() { return { events: [], hasMore: false, nextCursor: null } }
+export async function listStudentTrainingHistory() { return { rows: [], hasMore: false, nextCursor: null } }
+export async function getStudentLoyaltySummary() { return { account: null } }
+export async function trackProductEvent() {}
 
 export function contractSettlementLabel(status: string) {
   return status === 'settled' ? 'Đã quyết toán' : status === 'approved' ? 'Đã duyệt quyết toán' : status === 'pending_approval' ? 'Chờ duyệt quyết toán' : 'Cần rà soát quyết toán'
