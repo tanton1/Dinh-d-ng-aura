@@ -1,4 +1,11 @@
 'use strict'
+const { recordOperationMetrics } = require('./operation-metrics')
+
+async function observedDashboardRead(pending) {
+  const snapshot = await pending
+  recordOperationMetrics({ logicalQueries: 1, ...(Number.isInteger(snapshot?.size) ? { documentsReturned: snapshot.size } : {}) })
+  return snapshot
+}
 
 // Apply authorization scope before the limit. Filtering a capped global query
 // both bills unrelated documents and can hide the actor's own rows.
@@ -11,7 +18,7 @@ function branchReadScope(scope) {
 
 async function readDashboardQuery(query, scope, maximum, fields = []) {
   const projected = fields.length ? query.select(...fields) : query
-  if (!scope) return projected.limit(maximum).get()
+  if (!scope) return observedDashboardRead(projected.limit(maximum).get())
   const ids = [...new Set(scope.ids)].filter(Boolean)
   if (!ids.length) return { docs: [], size: 0, empty: true }
   const documents = new Map()
@@ -20,7 +27,7 @@ async function readDashboardQuery(query, scope, maximum, fields = []) {
     // Scope chunks are disjoint for scalar branchId/trainerId fields. Spend
     // only the remaining global budget, including the caller's sentinel row,
     // instead of reading `maximum` documents from every authorized chunk.
-    const snapshot = await projected.where(scope.field, group.length === 1 ? '==' : 'in', group.length === 1 ? group[0] : group).limit(maximum - documents.size).get()
+    const snapshot = await observedDashboardRead(projected.where(scope.field, group.length === 1 ? '==' : 'in', group.length === 1 ? group[0] : group).limit(maximum - documents.size).get())
     snapshot.docs.forEach((item) => documents.set(item.id, item))
   }
   const docs = [...documents.values()]
@@ -36,4 +43,4 @@ const DASHBOARD_FIELDS = {
   branches: ['name', 'branchName', 'status'],
 }
 
-module.exports = { branchReadScope, readDashboardQuery, DASHBOARD_FIELDS }
+module.exports = { branchReadScope, readDashboardQuery, observedDashboardRead, DASHBOARD_FIELDS }

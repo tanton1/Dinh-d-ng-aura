@@ -1,5 +1,6 @@
 const { FieldValue, FieldPath, Timestamp } = require('firebase-admin/firestore')
 const { createHash } = require('node:crypto')
+const { withPrivateFunctionTelemetry } = require('./observability')
 const { ptOperationsPolicySnapshot } = require('./pt-policy')
 const { HttpsError } = require('firebase-functions/v2/https')
 const { trustedAccessContext, requireCapability } = require('./identity-access')
@@ -1224,7 +1225,7 @@ function createContractRenewalFunctions({ db, onCall, onSchedule, logger, resolv
     return { approvalId, status: decision }
   })
 
-  const renewPtContract = renewalCall(async (request) => {
+  const renewPtContract = renewalCall(withPrivateFunctionTelemetry('renewPtContract', async (request) => {
     const actor = await resolveActor(request, db)
     requireRenewalSalesAction(actor)
     const caseId = documentId(request.data?.caseId || request.data?.sourceContractId, 'Hồ sơ tái ký')
@@ -1404,7 +1405,7 @@ function createContractRenewalFunctions({ db, onCall, onSchedule, logger, resolv
       transaction.create(db.collection('contractRenewalActivities').doc(), { schemaVersion: 1, caseId, sourceContractId, studentId: source.studentId || '', branchId: renewalCase.branchId || '', type: 'renewal_completed', outcome: 'connected', quoteId: quoteId || null, approvalId: approvalId || null, newContractId: newContractReference.id, sourceUsageSource: sourceUsage.source, sourceUsageFallbackReason: sourceUsage.fallbackReason, actorUid: actor.uid, createdAt: FieldValue.serverTimestamp() })
       return { contractId: newContractReference.id, paymentEntryId, receiptVoucherId, receiptVoucherNumber, unchanged: false }
     })
-  })
+  }, { logger }))
 
   const listRenewalCalendar = renewalCall(async (request) => {
     const actor = await resolveActor(request, db)

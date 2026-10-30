@@ -138,4 +138,31 @@ function withFunctionTelemetry(functionName, handler, options = {}) {
   })
 }
 
-module.exports = { withFunctionTelemetry, correlationId, domainForOperation, errorTaxonomy, retryableError, telemetrySampleRate, shouldSampleMetric }
+// Opt-in for newly instrumented business operations. Keep the existing sampling
+// and metrics context while excluding request identity and arbitrary error text.
+// A logging failure must never turn a committed mutation into a retryable error.
+function withPrivateFunctionTelemetry(functionName, handler, options = {}) {
+  const sink = options.logger || logger
+  const knownCodes = new Set(['ok', 'cancelled', 'unknown', 'invalid-argument', 'deadline-exceeded', 'not-found',
+    'already-exists', 'permission-denied', 'resource-exhausted', 'failed-precondition', 'aborted', 'out-of-range',
+    'unimplemented', 'internal', 'unavailable', 'data-loss', 'unauthenticated'])
+  const fields = ['schemaVersion', 'domain', 'operation', 'release', 'sampleRate', 'functionName', 'outcome',
+    'errorCode', 'retryable', 'durationMs', 'authenticated', 'appVerified']
+  const metricFields = ['logicalQueries', 'documentsReturned', 'cacheHits', 'cacheMisses', 'projectionAgeMs',
+    'queueWaitMs', 'processingMs', 'responseBytes']
+  const privateLogger = Object.fromEntries(['info', 'error'].map(level => [level, (message, value) => {
+    const output = Object.fromEntries(fields.filter(field => value[field] !== undefined).map(field => [field, value[field]]))
+    output.failureCode = value.failureCode === null ? null : knownCodes.has(value.failureCode) ? value.failureCode : 'internal'
+    if (value.metrics) output.metrics = Object.fromEntries(metricFields.filter(field => typeof value.metrics[field] === 'number'
+      && Number.isFinite(value.metrics[field]) && value.metrics[field] >= 0).map(field => [field, value.metrics[field]]))
+    try {
+      const pending = sink[level]?.(message, output)
+      // Do not await transport logging or allow a rejected async sink to become
+      // an unhandled rejection after a successful financial transaction.
+      if (pending && typeof pending.then === 'function') Promise.resolve(pending).catch(() => {})
+    } catch { /* Observability cannot change the business result. */ }
+  }]))
+  return withFunctionTelemetry(functionName, handler, { ...options, logger: privateLogger })
+}
+
+module.exports = { withFunctionTelemetry, withPrivateFunctionTelemetry, correlationId, domainForOperation, errorTaxonomy, retryableError, telemetrySampleRate, shouldSampleMetric }

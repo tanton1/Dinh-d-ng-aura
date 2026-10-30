@@ -8,7 +8,9 @@ const { contractSalesContribution, contractSettlementBalance, collectibleContrac
 const { overlayContractUsageViews } = require('./contract-usage-view')
 const { normalizeReviewSlaMinutes, reviewTimestampMillis } = require('./review-sla')
 const { cacheScope } = require('./process-cache')
-const { branchReadScope, readDashboardQuery, DASHBOARD_FIELDS } = require('./operations-dashboard-read-policy')
+const { branchReadScope, readDashboardQuery, observedDashboardRead, DASHBOARD_FIELDS } = require('./operations-dashboard-read-policy')
+const { withPrivateFunctionTelemetry } = require('./observability')
+const { recordOperationMetrics } = require('./operation-metrics')
 
 const MAX_RANGE_DAYS = 366
 const MAX_SCANNED_DOCUMENTS = 10000
@@ -771,7 +773,7 @@ function createOperationsDashboardFunctions({
     maxInstances: 1,
     concurrency: 8,
     ...dashboardCallOptions,
-  }, async (request) => {
+  }, withPrivateFunctionTelemetry('getOperationsDashboard', async (request) => {
     const startedAt = Date.now()
     const actor = await trustedAccessContext(request, db, { freshAssignment: true })
     requireCapability(actor, 'dashboard.view')
@@ -796,6 +798,7 @@ function createOperationsDashboardFunctions({
     const memoryCacheKey = `${cacheScope(db)}|${cacheKey}`
     const cached = getCachedDashboard(memoryCacheKey, request.data?.forceRefresh === true)
     if (cached) {
+      recordOperationMetrics({ cacheHit: true })
       logger.info('operations_dashboard_request', {
         durationMs: Date.now() - startedAt,
         cacheTier: 'memory',
@@ -809,6 +812,7 @@ function createOperationsDashboardFunctions({
     const load = async () => {
     const { cached: sharedCached, lease } = await sharedCache.acquire(cacheKey, request.data?.forceRefresh === true)
     if (sharedCached) {
+      recordOperationMetrics({ cacheHit: true })
       if (dashboardInflight.get(memoryCacheKey) === pending) setCachedDashboard(memoryCacheKey, sharedCached)
       logger.info('operations_dashboard_request', {
         durationMs: Date.now() - startedAt,
@@ -818,6 +822,7 @@ function createOperationsDashboardFunctions({
       })
       return sharedCached
     }
+    recordOperationMetrics({ cacheHit: false })
 
     try {
     // Daily aggregates are built once and maintained by Firestore triggers.
@@ -838,17 +843,17 @@ function createOperationsDashboardFunctions({
     const [ledger, sessionRange, confirmedSessionRange, noShowSessionRange, attendanceRange, todaySessions, contracts, students, trainers, staff, branches, offRequests, renewalAction, scheduleAction, nutritionAction] = await Promise.all([
       permissions.finance && !dailyAggregate ? readDashboardQuery(db.collection('ledgerEntries').where('effectiveAt', '>=', startTimestamp).where('effectiveAt', '<=', endTimestamp).orderBy('effectiveAt', 'desc'), branchScope, MAX_SCANNED_DOCUMENTS,
         ['branchId', 'status', 'type', 'source', 'eventClass', 'amount', 'cashImpact', 'revenueImpact', 'expenseImpact', 'contractSalesImpact', 'effectiveAt']) : null,
-      permissions.operations && !dailyAggregate ? (canAggregateOperations ? sessionRangeQuery.count().get() : readDashboardQuery(sessionRangeQuery, operationScope, MAX_SCANNED_DOCUMENTS, ['branchId', 'trainerId', 'status'])) : null,
-      permissions.operations && !dailyAggregate && canAggregateOperations ? confirmedSessionRangeQuery.count().get() : null,
-      permissions.operations && !dailyAggregate && canAggregateOperations ? noShowSessionRangeQuery.count().get() : null,
-      permissions.operations && !dailyAggregate ? (canAggregateOperations ? attendanceRangeQuery.count().get() : readDashboardQuery(attendanceRangeQuery, operationScope, MAX_SCANNED_DOCUMENTS, ['branchId', 'trainerId'])) : null,
+      permissions.operations && !dailyAggregate ? (canAggregateOperations ? observedDashboardRead(sessionRangeQuery.count().get()) : readDashboardQuery(sessionRangeQuery, operationScope, MAX_SCANNED_DOCUMENTS, ['branchId', 'trainerId', 'status'])) : null,
+      permissions.operations && !dailyAggregate && canAggregateOperations ? observedDashboardRead(confirmedSessionRangeQuery.count().get()) : null,
+      permissions.operations && !dailyAggregate && canAggregateOperations ? observedDashboardRead(noShowSessionRangeQuery.count().get()) : null,
+      permissions.operations && !dailyAggregate ? (canAggregateOperations ? observedDashboardRead(attendanceRangeQuery.count().get()) : readDashboardQuery(attendanceRangeQuery, operationScope, MAX_SCANNED_DOCUMENTS, ['branchId', 'trainerId'])) : null,
       permissions.operations ? readDashboardQuery(db.collection('sessions').where('date', '==', today), operationScope, 501, DASHBOARD_FIELDS.sessions) : null,
       contractNeeded ? readDashboardQuery(db.collection('contracts'), branchScope, MAX_CONTRACT_DOCUMENTS + 1, DASHBOARD_FIELDS.contracts) : null,
       permissions.clients ? readDashboardQuery(db.collection('students'), branchScope, MAX_STUDENT_DOCUMENTS + 1, DASHBOARD_FIELDS.students) : null,
       permissions.operations ? readDashboardQuery(db.collection('trainers'), branchScope, MAX_TRAINER_DOCUMENTS + 1, DASHBOARD_FIELDS.trainers) : null,
       permissions.operations ? readDashboardQuery(db.collection('staff'), branchScope, MAX_STAFF_DOCUMENTS + 1, DASHBOARD_FIELDS.staff) : null,
-      permissions.operations ? db.collection('branches').select(...DASHBOARD_FIELDS.branches).limit(MAX_BRANCH_DOCUMENTS + 1).get() : null,
-      contractNeeded ? db.collection('leaveRequests').where('startDate', '>=', startDate).where('startDate', '<=', endDate).select('contractId', 'type', 'status', 'durationDays').limit(MAX_ACTION_DOCUMENTS + 1).get() : null,
+      permissions.operations ? observedDashboardRead(db.collection('branches').select(...DASHBOARD_FIELDS.branches).limit(MAX_BRANCH_DOCUMENTS + 1).get()) : null,
+      contractNeeded ? observedDashboardRead(db.collection('leaveRequests').where('startDate', '>=', startDate).where('startDate', '<=', endDate).select('contractId', 'type', 'status', 'durationDays').limit(MAX_ACTION_DOCUMENTS + 1).get()) : null,
       loadRenewalAction(db, actor, scope, today, permissions.renewals),
       loadScheduleAction(db, actor, scope, today, permissions.schedule),
       loadNutritionAction(db, actor, today, permissions.nutritionReviews),
@@ -1075,7 +1080,7 @@ function createOperationsDashboardFunctions({
     try { return await pending } finally {
       if (dashboardInflight.get(memoryCacheKey) === pending) dashboardInflight.delete(memoryCacheKey)
     }
-  })
+  }, { logger }))
   const listStaffAttendance = onCall(attendanceCallOptions, async (request) => {
     const actor = await trustedAccessContext(request, db)
     requireCapability(actor, 'payroll.operations.manage')
