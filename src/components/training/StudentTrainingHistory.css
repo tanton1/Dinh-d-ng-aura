@@ -1,8 +1,6 @@
 .student-session-history { overflow: hidden; border: 1px solid #eedfe5; border-radius: 26px; background: #fff; box-shadow: 0 12px 34px rgba(58, 27, 43, .07); padding: 20px; color: #302633; }
 .student-session-history > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 15px; }
-.student-session-history header small { color: #f12a7b; font-size: 10px; font-weight: 900; letter-spacing: .13em; }
-.student-session-history header h2 { margin: 4px 0; color: #241a21; font-size: 21px; }
-.student-session-history header p { margin: 0; color: #7d7078; font-size: 12px; line-height: 1.5; }
+.student-session-history > header h2 { margin: 0; color: #241a21; font-size: 21px; }
 .student-session-history > header > span { flex: 0 0 auto; padding: 7px 10px; border-radius: 999px; color: #d82270; background: #fff0f6; font-size: 10px; font-weight: 900; }
 .student-session-history > div { display: grid; gap: 8px; }
 .student-session-history article { display: grid; grid-template-columns: minmax(0,1fr) minmax(120px,.6fr) auto; gap: 12px; padding: 12px 0; border-top: 1px solid #f2e8ec; font-size: 12px; }
@@ -26,6 +24,23 @@
 .student-history-notice button { flex: 0 0 auto; margin-left: auto; padding: 5px 8px; border: 1px solid #efbfd2; border-radius: 9px; color: #d4266e; background: #fff; font: inherit; font-size: 10px; font-weight: 850; cursor: pointer; }
 .student-history-more { display: block; width: 100%; min-height: 42px; margin-top: 13px; border: 1px solid #f1bfd2; border-radius: 13px; color: #d4266e; background: #fff3f8; font: inherit; font-size: 11px; font-weight: 850; cursor: pointer; }
 .student-history-more:disabled { opacity: .6; cursor: wait; }
+.student-session-history > .student-history-contracts { gap: 20px; margin-top: 20px; }
+.student-history-contract { min-width: 0; border: 1px solid #eedfe5; border-radius: 16px; overflow: hidden; }
+.student-history-contract.is-current { border-color: #efaec8; }
+.student-history-contract__header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding: 14px 16px; background: #faf7f9; }
+.student-history-contract.is-current > header { background: #fff3f8; }
+.student-history-contract__header > div { min-width: 0; }
+.student-history-contract__badge { color: #736a76; font-size: 11px; font-weight: 700; }
+.student-history-contract.is-current .student-history-contract__badge { color: #b81f60; }
+.student-history-contract__header h3 { margin: 5px 0 0; color: #302633; font-size: 15px; line-height: 1.4; overflow-wrap: anywhere; }
+.student-history-contract__header p { margin: 5px 0 0; color: #736a76; font-size: 12px; line-height: 1.5; }
+.student-history-contract__count { flex-shrink: 0; color: #736a76; font-size: 11px; line-height: 1.5; white-space: nowrap; }
+.student-history-contract__sessions { padding: 0 16px; }
+.student-history-contract__sessions > article { align-items: center; }
+.student-history-contract__sessions > article:first-child { border-top: 0; }
+.student-history-contract__sessions > article > span, .student-history-contract__sessions > article > strong { min-width: 0; overflow-wrap: anywhere; }
+.student-history-contract__sessions > article > em { max-width: 100%; white-space: normal; text-align: center; }
+.student-session-history button:focus-visible { outline: 2px solid #b81f60; outline-offset: 3px; }
 @media (max-width: 520px) {
   .student-session-history { border-radius: 22px; }
   .student-history-summary { gap: 6px; }
@@ -36,4 +51,7 @@
   .student-session-history article { grid-template-columns: 1fr auto; }
   .student-session-history article strong { grid-column: 1; }
   .student-session-history article em { grid-column: 2; grid-row: 1 / span 2; align-self: center; }
+  .student-history-contract__header { padding: 12px; }
+  .student-history-contract__sessions { padding: 0 12px; }
+  .student-history-contract__sessions > article { grid-template-columns: minmax(0, 1fr) minmax(0, .8fr); gap: 6px 10px; }
 }

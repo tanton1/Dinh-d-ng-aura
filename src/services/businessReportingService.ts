@@ -109,6 +109,14 @@ export async function listBusinessPerformance(input: BusinessPerformanceQuery): 
 export type TrainingHistorySubject = 'student' | 'trainer'
 export type TrainingHistoryStatus = 'all' | 'scheduled' | 'rescheduled' | 'completed' | 'attended' | 'no_show' | 'student_cancelled' | 'trainer_cancelled' | 'corrected'
 
+export interface TrainingHistoryContract {
+  id: string
+  packageName: string
+  status: string
+  startDate: string | null
+  endDate: string | null
+}
+
 export interface TrainingHistoryRecord {
   id: string
   date: string
@@ -118,6 +126,7 @@ export interface TrainingHistoryRecord {
   trainerId: string
   branchId: string
   contractId: string
+  contract?: TrainingHistoryContract | null
   counterpartId: string
   counterpartName: string
   billingStatus: string
@@ -205,6 +214,7 @@ export interface TrainingHistoryQuery {
   startDate?: string
   endDate?: string
   allTime?: boolean
+  includeContracts?: boolean
   status?: TrainingHistoryStatus
   pageSize?: number
   cursor?: string | null

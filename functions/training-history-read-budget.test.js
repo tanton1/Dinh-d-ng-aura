@@ -2,7 +2,7 @@ const assert = require('node:assert/strict')
 const test = require('node:test')
 const { createBusinessReportingFunctions } = require('./business-reporting')
 
-function fixture(rows, user = { role: 'admin' }) {
+function fixture(rows, user = { role: 'admin' }, contracts = {}) {
   const reads = []
   const snapshot = (id, value) => ({ id, exists: value !== undefined, data: () => value })
   const query = (collection, filters = [], orders = [], maximum = Infinity, cursor = null) => ({
@@ -37,7 +37,14 @@ function fixture(rows, user = { role: 'admin' }) {
       path,
       get: async () => snapshot(path.split('/').pop(), path === 'users/admin' ? user : ['students/student-1', 'trainers/trainer-1'].includes(path) ? { branchId: 'branch-1' } : undefined),
     }),
-    getAll: async (...references) => references.map((ref) => snapshot(ref.path.split('/').pop(), { name: ref.path })),
+    getAll: async (...references) => {
+      const contractIds = references.filter((ref) => ref.path.startsWith('contracts/')).map((ref) => ref.path.split('/').pop())
+      if (contractIds.length) reads.push({ collection: 'contracts', ids: contractIds })
+      return references.map((ref) => {
+        const id = ref.path.split('/').pop()
+        return snapshot(id, ref.path.startsWith('contracts/') ? contracts[id] : { name: ref.path })
+      })
+    },
   }
   const handlers = createBusinessReportingFunctions({ db, onCall: (_options, handler) => handler })
   const read = (data = {}, subject = 'student') => handlers[subject === 'student' ? 'listStudentTrainingHistory' : 'listTrainerTeachingHistory']({
@@ -241,4 +248,57 @@ test('status-filtered cursor pages omit only the summary while retaining access,
   assert.ok(next.records.every(item => item.status === 'no_show' && item.counterpartName === 'trainers/trainer-1'))
   assert.equal(reads.slice(before).filter(item => item.collection === 'sessions').length, 1)
   assert.ok(reads.slice(before).some(item => item.collection === 'attendanceEvents'))
+})
+
+test('contract details are bounded to the page and expose only the learner package metadata', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: new Date('2026-10-31T12:00:00+07:00') })
+  const { read, reads } = fixture([
+    row('newer', '2026-10-25', 'completed', { contractId: 'new' }),
+    row('new', '2026-10-24', 'completed', { contractId: 'new' }),
+    row('old', '2026-10-23', 'completed', { contractId: 'old' }),
+    row('older-page', '2026-10-22', 'completed', { contractId: 'older' }),
+  ], { role: 'admin' }, {
+    new: { studentId: 'student-1', packageName: 'PT 24 buổi', status: 'active', startDate: '2026-10-01', endDate: '2027-03-01', totalAmount: 12000000, internalNote: 'private' },
+    old: { studentId: 'student-1', packageName: 'PT 12 buổi', status: 'expired', startDate: '2026-06-01', endDate: '2026-12-01', renewalSupersededBy: 'new' },
+  })
+  const result = await read({ includeContracts: true, pageSize: 3 })
+  assert.deepEqual(reads.filter((item) => item.collection === 'contracts'), [{ collection: 'contracts', ids: ['new', 'old'] }])
+  assert.deepEqual(result.records[0].contract, { id: 'new', packageName: 'PT 24 buổi', status: 'active', startDate: '2026-10-01', endDate: '2027-03-01' })
+  assert.equal(result.records[2].contract.status, 'expired')
+  assert.equal(result.hasMore, true)
+})
+
+test('a pending renewal keeps the current contract active until handover', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: new Date('2026-10-31T12:00:00+07:00') })
+  const { read } = fixture([
+    row('source-session', '2026-10-25', 'completed', { contractId: 'source' }),
+    row('next-session', '2026-10-24', 'completed', { contractId: 'next' }),
+  ], { role: 'admin' }, {
+    source: { studentId: 'student-1', status: 'active', startDate: '2026-06-01', endDate: '2026-12-01', renewedByContractId: 'next' },
+    next: { studentId: 'student-1', status: 'future', startDate: '2026-10-01', endDate: '2027-03-01', sourceContractId: 'source', handoverStatus: 'pending' },
+  })
+  const result = await read({ includeContracts: true })
+  assert.equal(result.records[0].contract.status, 'active')
+  assert.equal(result.records[1].contract.status, 'future')
+})
+
+test('missing or incorrect contract links cannot expose another learner contract or infer one by date', async () => {
+  const { read, reads } = fixture([
+    row('foreign', '2026-10-25', 'completed', { contractId: 'foreign' }),
+    row('missing', '2026-10-24', 'completed', { contractId: 'missing' }),
+    row('unlinked', '2026-10-23', 'completed', { contractId: '' }),
+    row('invalid', '2026-10-22', 'completed', { contractId: 'invalid/path' }),
+  ], { role: 'admin' }, { foreign: { studentId: 'student-2', packageName: 'Private package' } })
+  const result = await read({ includeContracts: true })
+  assert.ok(result.records.every((record) => record.contract === null))
+  assert.deepEqual(reads.filter((item) => item.collection === 'contracts'), [{ collection: 'contracts', ids: ['foreign', 'missing'] }])
+})
+
+test('contract metadata adds no reads to existing history consumers or trainer history', async () => {
+  const { read, reads } = fixture([row('a', '2026-10-23')])
+  const student = await read()
+  const trainer = await read({ includeContracts: true }, 'trainer')
+  assert.equal(reads.filter((item) => item.collection === 'contracts').length, 0)
+  assert.equal(Object.hasOwn(student.records[0], 'contract'), false)
+  assert.equal(Object.hasOwn(trainer.records[0], 'contract'), false)
 })
