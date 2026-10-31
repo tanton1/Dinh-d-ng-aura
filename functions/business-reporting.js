@@ -8,6 +8,7 @@ const { canonicalSessionRows } = require('./session-schedule-normalization')
 const { decodeHistoryCursor, historyCursorScope, readCanonicalHistoryPage } = require('./training-history-pagination')
 const { ledgerReceiptImpact } = require('./finance-receipt-impact')
 const { contractSalesContribution } = require('./contract-financial-status')
+const { effectiveContractStatus } = require('./contract-status')
 
 const MAX_RANGE_DAYS = 366
 const MAX_LEDGER_DOCUMENTS = 10000
@@ -290,7 +291,7 @@ function normaliseHistoryInput(data = {}) {
   const cursor = decodeHistoryCursor(data.cursor)
   // The first page always establishes fresh totals. New clients can retain
   // those totals while appending records; legacy clients keep the old result.
-  return { startDate, endDate, status, pageSize, cursor, allTime, includeSummary: !cursor || data.includeSummary !== false }
+  return { startDate, endDate, status, pageSize, cursor, allTime, includeSummary: !cursor || data.includeSummary !== false, includeContracts: data.includeContracts === true }
 }
 
 function matchesAssignment(contract, actor) {
@@ -404,6 +405,30 @@ function sessionStatusSummary(records) {
     if (status.includes('cancelled')) summary.cancelled += 1
     return summary
   }, { total: 0, completed: 0, noShow: 0, cancelled: 0, byStatus: {} })
+}
+
+async function contractsForHistory(db, records, subjectId, access) {
+  const ids = [...new Set(records.map((item) => item.contractId)
+    .filter((id) => typeof id === 'string' && id && !id.includes('/')))]
+  if (!ids.length) return new Map()
+  const snapshots = await db.getAll(...ids.map((id) => db.doc(`contracts/${id}`)))
+  const today = vietnamDateKey(new Date())
+  return new Map(snapshots.filter((item) => {
+    if (!item.exists) return false
+    const value = item.data()
+    return value.studentId === subjectId
+      && (access.scope !== 'branch_manager' || access.actor.branchIds.includes(value.branchId))
+  }).map((item) => {
+    const value = item.data()
+    // Only the training package's identity and dates belong in this view.
+    return [item.id, {
+      id: item.id,
+      packageName: typeof value.packageName === 'string' ? value.packageName : '',
+      status: effectiveContractStatus(value, today),
+      startDate: typeof value.startDate === 'string' ? value.startDate.slice(0, 10) : null,
+      endDate: typeof value.endDate === 'string' ? value.endDate.slice(0, 10) : null,
+    }]
+  }))
 }
 
 function historySessionHour(item = {}) {
@@ -650,9 +675,10 @@ function createBusinessReportingFunctions({ db, onCall }) {
     const { snapshot, records: pageDocuments } = historyPage
     const sessionIds = pageDocuments.map((item) => item.id)
     const records = pageDocuments
-    const [{ attendanceBySession, eventsBySession }, names] = await Promise.all([
+    const [{ attendanceBySession, eventsBySession }, names, contracts] = await Promise.all([
       relatedEvents(db, sessionIds),
       namesForHistory(db, records, subjectType),
+      subjectType === 'student' && input.includeContracts ? contractsForHistory(db, records, subjectId, access) : new Map(),
     ])
     let summary = null
     if (input.includeSummary) {
@@ -699,6 +725,7 @@ function createBusinessReportingFunctions({ db, onCall }) {
           trainerId: item.trainerId || '',
           branchId: item.branchId || '',
           contractId: item.contractId || '',
+          ...(subjectType === 'student' && input.includeContracts ? { contract: contracts.get(item.contractId) || null } : {}),
           counterpartId: counterpartId || '',
           counterpartName: names.get(counterpartId) || 'Đã xóa / Không xác định',
           billingStatus: typeof item.billingStatus === 'string'
