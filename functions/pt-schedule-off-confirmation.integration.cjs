@@ -21,7 +21,7 @@ for (const fast of [false, true]) test('OFF booking, immutable confirmation date
     'branches/b': { name: 'Aura', status: 'active' },
     'students/s': { name: 'Lan', status: 'active', branchId: BRANCH, sessionsPerWeek: 3 },
     'trainers/t': { name: 'Mai', status: 'active', branchId: BRANCH, slotCapacity: 2, availableSlots: ['T3-6', 'T4-6'], availabilityMode: 'configured' },
-    'contracts/c': { studentId: 's', trainerId: 't', branchId: BRANCH, status: 'active', startDate: WEEK,
+    'contracts/c': { totalPrice: 1200000, discount: 0, paidAmount: 1200000, studentId: 's', trainerId: 't', branchId: BRANCH, status: 'active', startDate: WEEK,
       endDate: '2090-12-31', totalSessions: 12, usedSessions: 0, pausePeriods },
     ['ptAvailability/s_' + WEEK]: { studentId: 's', weekId: WEEK, status: 'submitted', slots: ['T3-6', 'T4-6'] },
     ['trainerAvailability/t_' + WEEK]: { trainerId: 't', weekId: WEEK, status: 'submitted', slots: ['T3-6', 'T4-6'] },

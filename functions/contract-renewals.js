@@ -8,6 +8,7 @@ const { cashAccountForMovement, createCashMovement, createReceiptVoucher, assert
 const { contractPaymentJournal } = require('./accounting-core')
 const { contractStatusProjection, contractPausedOn } = require('./contract-status')
 const { renewalActivationProjection, renewalDateSyncPatch, readRenewalUsage, renewalHandoverPlan, applyRenewalHandover } = require('./contract-renewal-handover')
+const { renewalRevenueAllocation, revenueSegments } = require('./pt-revenue-allocation')
 const { buildContractUsageView, overlayContractUsageViews, contractWithUsageView } = require('./contract-usage-view')
 
 const renewalStages = new Set(['uncontacted', 'contacted', 'interested', 'quote_sent', 'follow_up', 'won', 'lost'])
@@ -1350,6 +1351,8 @@ function createContractRenewalFunctions({ db, onCall, onSchedule, logger, resolv
         policyHash: operationsPolicy.policyHash, policySnapshot: operationsPolicy,
         createdAt: FieldValue.serverTimestamp(), createdBy: actor.uid, updatedAt: FieldValue.serverTimestamp(),
       }
+      newContract.revenueAllocation = renewalRevenueAllocation({ sourceId: sourceContractId, source: currentSource,
+        nextId: newContractReference.id, next: newContract, carriedOverSessions: handoverDue ? carriedOverSessions : 0 })
       transaction.create(newContractReference, newContract)
       let paymentEntryId = null
       let receiptVoucherId = null
@@ -1387,6 +1390,7 @@ function createContractRenewalFunctions({ db, onCall, onSchedule, logger, resolv
         })
       }
       transaction.update(sourceReference, {
+        ...(!source.revenueAllocation ? { revenueAllocation: { version: 1, segments: revenueSegments(sourceContractId, source) } } : {}),
         ...(handoverDue || (!contractPausedOn(source, today) && (source.endDate < today || sourceUsage.remainingSessions <= 0)) ? { status: 'expired' } : {}),
         ...(handoverDue ? {
           renewalSupersededBy: newContractReference.id,

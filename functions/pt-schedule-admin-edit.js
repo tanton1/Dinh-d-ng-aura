@@ -8,6 +8,25 @@ const { effectiveStudentAvailability } = require('./student-availability')
 const { sessionCountsTowardContract, summarizeContractUsage } = require('./contract-usage')
 const { contractSchedulableOn, contractPausedOn } = require('./contract-status')
 const { findScheduleContract, requireScheduleContract, requireCrossBranchConfirmation } = require('./schedule-entitlement-policy')
+const { teachingRecognitionPlan, assertCancellationEvidenceChange } = require('./session-operations')
+
+async function moveRevenuePlan({ transaction, db, sessionId, session, attendance, attendanceEventId, target, actorUid, reason }) {
+  if (!sessionCountsTowardContract(session)) return { writes: [], patch: {} }
+  if (storedDate(session.date) !== target.date) {
+    const sameDay = await transaction.get(db.collection('sessions').where('studentId', '==', session.studentId).where('date', '==', target.date).limit(201))
+    if (sameDay.size > 200) fail('SESSION_DUPLICATE_DAILY_CHARGE', 'Cần đối soát lịch trùng trước khi chuyển buổi đã tính.')
+    if (sameDay.docs.some(row => row.id !== sessionId && sessionCountsTowardContract(row.data()) && row.data().attendanceStatus !== 'policy_charge')) {
+      fail('SESSION_DUPLICATE_DAILY_CHARGE', 'Học viên đã có buổi được tính trong ngày đích; không thể gộp hai buổi đã tính vào cùng ngày.')
+    }
+  }
+  const plan = await teachingRecognitionPlan({ transaction, db, session: { id: sessionId, data: session, item: {} },
+    attendance, attendanceEventId, target: { ...session, ...target, attendanceStatus: attendance.attendanceStatus || session.attendanceStatus || 'pending' }, actorUid, reason })
+  assertCancellationEvidenceChange({ contract: plan.contract, sourceDate: storedDate(session.date), targetDate: target.date, changed: true })
+  return { writes: plan.writes, patch: { ...plan.recognitionPatch,
+    revenueRecognitionEntryId: plan.entryId, revenueRecognitionJournalId: plan.journalId,
+    recognitionReviewRequired: plan.reviewRequired, recognitionReviewIssueCode: plan.issueCode || null,
+    revenueRecognitionState: plan.reviewRequired ? 'review_required' : plan.entryId ? 'posted' : 'not_applicable' } }
+}
 
 const occupies = (session) => ['scheduled', 'rescheduled', 'completed', 'attended', 'no_show'].includes(session.status) || sessionCountsTowardContract(session)
 const sessionHour = (session, id) => Number.isInteger(session.hour) ? session.hour : Number(/^(?:T[2-7]|CN)-(\d{1,2})-/.exec(id)?.[1] ?? -1)
@@ -508,7 +527,11 @@ async function applyFastAdminMove({ db, actor, branchId, week, payload, reason, 
     }
     const before = { date: sourceDate, hour: sourceHour, trainerId: fromTrainerId, branchId, status: session.status || '', billingStatus: session.billingStatus || '', attendanceStatus: session.attendanceStatus || '' }
     const after = { date: targetDate, hour: targetHour, trainerId, branchId }
+    const revenue = await moveRevenuePlan({ transaction, db, sessionId, session, attendance: attendance.data() || {},
+      attendanceEventId: attendanceRef.id, target: after, actorUid: actor.uid, reason })
+    for (const write of revenue.writes) transaction[write.type](write.reference, write.data)
     transaction.update(sourceRef, {
+      ...revenue.patch,
       ...nextEntry,
       studentOffConfirmedDate: nextEntry.studentOffConfirmedDate || FieldValue.delete(),
       date: targetDate,
@@ -526,6 +549,7 @@ async function applyFastAdminMove({ db, actor, branchId, week, payload, reason, 
       updatedBy: actor.uid,
     })
     if (attendance.exists) transaction.update(attendanceRef, {
+      ...revenue.patch,
       trainerId,
       branchId,
       scheduledAt: Timestamp.fromDate(targetInstant),
@@ -930,6 +954,11 @@ async function applyAdminScheduleEdit({ db, actor, branchId, week, command, payl
     }
     const before = { date: sourceDate, hour: sourceHour, trainerId: sourceTrainerId, branchId, ...(session ? { status: session.status || '', billingStatus: session.billingStatus || '', attendanceStatus: session.attendanceStatus || '' } : {}) }
     const after = nextEntry ? { date: targetDate, hour: targetHour, trainerId, branchId } : { status: 'cancelled', billingStatus: 'exempt' }
+    const revenue = session && command === 'move_student'
+      ? await moveRevenuePlan({ transaction, db, sessionId: source.id, session, attendance: attendance?.data() || {},
+        attendanceEventId: attendanceRef.id, target: after, actorUid: actor.uid, reason })
+      : { writes: [], patch: {} }
+    for (const write of revenue.writes) transaction[write.type](write.reference, write.data)
     if (session) {
       const ref = db.doc(`sessions/${source.id}`)
       const patch = command === 'move_student' ? {
@@ -949,8 +978,9 @@ async function applyAdminScheduleEdit({ db, actor, branchId, week, command, payl
         studentHomeBranchId: nextEntry.studentHomeBranchId || FieldValue.delete(),
         trainerAssignmentWarning: nextEntry.trainerAssignmentWarning || FieldValue.delete(),
       } : { status: 'cancelled', scheduleStatus: 'cancelled', billingStatus: 'exempt', attendanceStatus: null, cancellationReason: reason, cancelledAt: FieldValue.serverTimestamp() }
-      transaction.update(ref, { ...patch, previousSchedule: FieldValue.arrayUnion({ ...before, changedAt: instant.toISOString(), reason }), revision: Number(session.revision || 0) + 1, correctedBy: actor.uid, correctedAt: FieldValue.serverTimestamp(), correctionReason: reason, updatedAt: FieldValue.serverTimestamp(), updatedBy: actor.uid })
+      transaction.update(ref, { ...patch, ...revenue.patch, previousSchedule: FieldValue.arrayUnion({ ...before, changedAt: instant.toISOString(), reason }), revision: Number(session.revision || 0) + 1, correctedBy: actor.uid, correctedAt: FieldValue.serverTimestamp(), correctionReason: reason, updatedAt: FieldValue.serverTimestamp(), updatedBy: actor.uid })
       if (attendance?.exists) transaction.update(attendanceRef, {
+        ...revenue.patch,
         ...(command === 'move_student' ? { trainerId, branchId, scheduledAt: Timestamp.fromDate(targetInstant), occurredAt: Timestamp.fromDate(targetInstant), scheduleStatus: 'rescheduled' }
           : { type: 'cancelled', scheduleStatus: 'cancelled', billingStatus: 'exempt', attendanceStatus: 'cancelled', countsTowardContract: false }),
         correctionReason: reason, correctedBy: actor.uid, correctedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),

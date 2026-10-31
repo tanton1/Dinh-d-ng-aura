@@ -50,6 +50,20 @@ test('charged no-show count excludes exempt no-shows', () => {
   assert.equal(summary.chargedNoShowSessions, 1)
 })
 
+test('a returned or exempt duplicate cannot hide a valid charged day, even with newer revision and retained attendance', () => {
+  for (const sameSchedule of [false, true]) {
+    const common = { studentId: 'student', contractId: 'contract', trainerId: 'trainer', date: '2026-10-13', hour: 8,
+      ...(sameSchedule ? { scheduleEntryId: 'same-entry' } : {}) }
+    const rows = [
+      { ...common, id: 'charged', billingStatus: 'charged', attendanceStatus: 'present', status: 'completed', revision: 1 },
+      { ...common, id: 'returned', billingStatus: 'exempt', attendanceStatus: 'present', status: 'cancelled', revision: 9, updatedAt: '2026-10-31T02:00:00Z' },
+    ]
+    const summary = summarizeContractUsage({ totalSessions: 36, usedSessions: 1 }, rows)
+    assert.equal(summary.chargedSessions, 1)
+    assert.deepEqual(summary.canonicalChargedSessionIds, ['charged'])
+  }
+})
+
 test('contract summary exposes legacy projection delta without inventing attendance', () => {
   const summary = summarizeContractUsage({ totalSessions: 36, usedSessions: 20 }, [
     ...Array.from({ length: 17 }, (_, index) => ({ id: `charged-${index}`, billingStatus: 'charged', attendanceStatus: 'present' })),

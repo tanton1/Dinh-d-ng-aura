@@ -28,7 +28,7 @@ function attendanceReconciliation(attendance, ledger) {
       for (const entry of entries) {
         // A sourceSessionId alone refers to the original booking, not this charge.
         if (entry.sourceSessionId && !row.chargeId && entry.attendanceEventId !== row.id && entry.id !== row.revenueRecognitionEntryId) continue
-        if ((row.contractId && entry.contractId && row.contractId !== entry.contractId)
+        if ((row.contractId && entry.contractId && row.contractId !== (entry.entitlementContractId || entry.contractId))
           || (row.studentId && entry.studentId && row.studentId !== entry.studentId)) { conflict = true; continue }
         candidates.set(entry.id, entry)
       }
@@ -39,10 +39,10 @@ function attendanceReconciliation(attendance, ledger) {
     const row = rows[0]
     if (row.billingStatus === 'exempt' || (row.type === 'cancelled' && row.countsTowardContract === false)) result.exempt++
     else if (row.billingStatus === 'review_required') result.billingReview++
+    else if (candidates.size === 1) result.posted++
+    else if (row.recognitionReviewRequired === true || row.revenueRecognitionState === 'review_required') result.recognitionReview++
     else if (row.attendanceStatus === 'pending' || row.type === 'pending_confirmation') result.pendingConfirmation++
     else if (row.confirmationSource === 'auto_after_48h') result.automaticReview++
-    else if (row.recognitionReviewRequired === true || row.revenueRecognitionState === 'review_required') result.recognitionReview++
-    else if (candidates.size === 1) result.posted++
     else result.unresolved++
   }
   return result

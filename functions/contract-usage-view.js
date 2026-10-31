@@ -84,7 +84,7 @@ async function readContractEvidence(db, contractId, transaction = null) {
     .where('contractId', '==', contractId)
     .limit(MAX_SESSION_EVIDENCE + 1)
   const snapshot = transaction ? await transaction.get(query) : await query.get()
-  const rawSessions = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))
+  const rawSessions = snapshot.docs.map((item) => ({ ...item.data(), id: item.id }))
   const sessions = canonicalUsageSessions(rawSessions)
   return {
     sessions: sessions.slice(0, MAX_SESSION_EVIDENCE),

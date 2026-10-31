@@ -24,7 +24,9 @@ test('conflicting duplicate evidence and contract mismatches stay explicit',()=>
   assert.equal(reconcile([{id:'a',sessionId:'s',billingStatus:'charged'},{id:'b',sessionId:'s',billingStatus:'exempt'}],[]).conflicts,1)
   assert.equal(reconcile([{id:'session',sessionId:'session',contractId:'a'}],[ledger({contractId:'b'})]).conflicts,1)
 })
-test('an automatic confirmation with a legacy posting remains in review',()=>{
+test('charged automatic and pending attendance with a posting are financially reconciled',()=>{
   const result=reconcile([{id:'session',sessionId:'session',confirmationSource:'auto_after_48h'}],[ledger()])
-  assert.equal(result.matchedInPeriod,1);assert.equal(result.automaticReview,1);assert.equal(result.posted,0)
+  assert.equal(result.matchedInPeriod,1);assert.equal(result.automaticReview,0);assert.equal(result.posted,1)
+  assert.equal(reconcile([{id:'session',sessionId:'session',attendanceStatus:'pending',type:'pending_confirmation'}],[ledger()]).posted,1)
+  assert.equal(reconcile([{id:'session',sessionId:'session',contractId:'new'}],[ledger({contractId:'original',entitlementContractId:'new'})]).posted,1)
 })

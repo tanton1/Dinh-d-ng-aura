@@ -49,6 +49,7 @@ function makeHarness({ source = 'published_existing', status = 'scheduled', bill
     const value = {
       where(field, op, operand) { return query(collectionPath, [...filters, [field, op, operand]]) },
       limit() { return value },
+      select() { return value },
       doc(id = `generated-${sequence++}`) { return reference(`${collectionPath}/${id}`) },
       get: async () => {
         const rows = [...docs.entries()]
@@ -66,7 +67,7 @@ function makeHarness({ source = 'published_existing', status = 'scheduled', bill
     runTransaction: async (callback) => {
       const writes = []
       const transaction = {
-        get: async (ref) => ref.get(),
+        get: async (ref) => { assert.equal(writes.length, 0, 'All reads precede writes'); return ref.get() },
         set: (ref, value, options = {}) => writes.push({ kind: 'set', ref, value, options }),
         create: (ref, value) => writes.push({ kind: 'create', ref, value }),
         update: (ref, value) => writes.push({ kind: 'update', ref, value }),
@@ -109,6 +110,35 @@ function baseInput(harness, command, payload, actor = { uid: 'admin-a', accessRo
     draftExpiresAt,
   }
 }
+
+for (const fast of [false, true]) test(`moving a charged session updates financial attribution atomically, fast=${fast}`, async () => {
+  const NativeDate = Date
+  global.Date = class extends NativeDate {
+    constructor(...args) { super(...(args.length ? args : ['2090-01-05T03:00:00Z'])) }
+    static now() { return NativeDate.parse('2090-01-05T03:00:00Z') }
+  }
+  try {
+    const h = makeHarness({ status: 'completed', billingStatus: 'charged' })
+    const session = h.docs.get('sessions/session-a'), contract = h.docs.get(`contracts/${CONTRACT}`)
+    Object.assign(session, { serviceOrdinal: 1, attendanceEventId: 'session-a', attendanceStatus: 'present' })
+    Object.assign(contract, { totalPrice: 2000000, discount: 0, paidAmount: 2000000, usedSessions: 1 })
+    h.docs.set('attendanceEvents/session-a', { sessionId: 'session-a', contractId: CONTRACT, studentId: STUDENT,
+      trainerId: TRAINER, billingStatus: 'charged', attendanceStatus: 'present', serviceOrdinal: 1 })
+    h.docs.set('sessionBillingEvents/session-a', { sessionId: 'session-a', contractId: CONTRACT, studentId: STUDENT, billingStatus: 'charged', serviceOrdinal: 1 })
+    const recognition = require('./finance-recognition').ptRevenueRecognitionWrite({ sessionId: 'session-a', session,
+      contractId: CONTRACT, contract, attendanceEventId: 'session-a', actorUid: 'system', serviceOrdinal: 1, recognisedRevenueBefore: 0 })
+    h.docs.set('ledgerEntries/pt_session_session-a', recognition)
+    h.docs.set('journalEntries/pt_session_session-a', require('./pt-charged-revenue').ptRevenueJournalWrite({ recognition, contract, sessionId: 'session-a', actorUid: 'system' }))
+    await applyAdminScheduleEdit(baseInput(h, 'move_student', { studentId: STUDENT, trainerId: TRAINER, slotId: 'T3-6',
+      fromTrainerId: TRAINER, fromSlotId: 'T2-6', ...(fast ? { adminOverride: true, sessionId: 'session-a' } : {}) }))
+    const ledger = [...h.docs].filter(([path]) => path.startsWith('ledgerEntries/')).map(([, row]) => row)
+    assert.equal(ledger.length, 3); assert.equal(ledger.reduce((sum, row) => sum + row.revenueImpact, 0), 100000)
+    assert.equal(ledger.reduce((sum, row) => sum + row.cashImpact, 0), 0)
+    assert.equal(h.docs.get('sessions/session-a').date, '2090-01-03')
+    assert.equal(h.docs.get(`contracts/${CONTRACT}`).usedSessions, 1)
+    assert.equal(h.docs.get('attendanceEvents/session-a').attendanceStatus, 'present')
+  } finally { global.Date = NativeDate }
+})
 
 for (const action of ['add_student', 'move_student']) for (const fast of [false, true]) {
   test(`published ${action}, fast=${fast}: explicit OFF consent creates an audited session`, async () => {

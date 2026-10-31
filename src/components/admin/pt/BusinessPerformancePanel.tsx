@@ -142,7 +142,7 @@ export default function BusinessPerformancePanel({ compact = false }: Props) {
     if (complete.recognitionReconciliation && quality.reconciliation) {
       const evidence=quality.reconciliation
       if(evidence.unresolved+evidence.conflicts) reconciliationIssues.push((evidence.unresolved+evidence.conflicts).toLocaleString('vi-VN')+' bằng chứng cần xác minh liên kết/kỳ')
-      if(evidence.automaticReview+evidence.billingReview+evidence.recognitionReview) reconciliationIssues.push((evidence.automaticReview+evidence.billingReview+evidence.recognitionReview).toLocaleString('vi-VN')+' bằng chứng cần duyệt điều kiện ghi nhận')
+      if(evidence.pendingConfirmation+evidence.automaticReview+evidence.billingReview+evidence.recognitionReview) reconciliationIssues.push((evidence.pendingConfirmation+evidence.automaticReview+evidence.billingReview+evidence.recognitionReview).toLocaleString('vi-VN')+' buổi chưa khớp doanh thu hoặc cần đối soát')
     }
     if (quality.missingSourceIntegrations.length) reconciliationIssues.push('Nguồn chờ tích hợp: ' + quality.missingSourceIntegrations.map(item => sourceLabels[item as BusinessSource] || item).join(', '))
     if (report.sales && (quality.contractSalesDatesMissing || 0) > 0) reconciliationIssues.push(quality.contractSalesDatesMissing + ' hợp đồng thiếu ngày doanh số')
@@ -159,8 +159,8 @@ export default function BusinessPerformancePanel({ compact = false }: Props) {
         {report?.dataQuality.reconciliation ? <>
           <div><dt>Bằng chứng PT trong kỳ</dt><dd>{complete.attendance ? report.dataQuality.reconciliation.evidenceCount.toLocaleString('vi-VN') : incompleteLabel}</dd></div>
           <div><dt>Khớp bút toán trong kỳ</dt><dd>{complete.recognitionReconciliation ? report.dataQuality.reconciliation.matchedInPeriod.toLocaleString('vi-VN') : incompleteLabel}</dd></div>
-          <div><dt>Chờ xác nhận điểm danh</dt><dd>{complete.attendance ? report.dataQuality.reconciliation.pendingConfirmation.toLocaleString('vi-VN') : incompleteLabel}</dd></div>
-          <div><dt>Tự xác nhận · cần duyệt</dt><dd>{complete.attendance ? report.dataQuality.reconciliation.automaticReview.toLocaleString('vi-VN') : incompleteLabel}</dd></div>
+          <div><dt>Chưa khớp · điểm danh đang chờ</dt><dd>{complete.attendance ? report.dataQuality.reconciliation.pendingConfirmation.toLocaleString('vi-VN') : incompleteLabel}</dd></div>
+          <div><dt>Chưa khớp · điểm danh tự động</dt><dd>{complete.attendance ? report.dataQuality.reconciliation.automaticReview.toLocaleString('vi-VN') : incompleteLabel}</dd></div>
           <div><dt>Cần rà soát hạn mức</dt><dd>{complete.attendance ? report.dataQuality.reconciliation.billingReview.toLocaleString('vi-VN') : incompleteLabel}</dd></div>
           <div><dt>Cần rà soát ghi nhận</dt><dd>{complete.attendance ? report.dataQuality.reconciliation.recognitionReview.toLocaleString('vi-VN') : incompleteLabel}</dd></div>
           <div><dt>Miễn tính phí</dt><dd>{complete.attendance ? report.dataQuality.reconciliation.exempt.toLocaleString('vi-VN') : incompleteLabel}</dd></div>
@@ -195,8 +195,8 @@ export default function BusinessPerformancePanel({ compact = false }: Props) {
         <RefreshCw size={17} className={loading ? 'is-spinning' : ''} />
       </button>
       <AuraHelpPopover title="Cách đọc báo cáo">
-        <p>Dòng tiền ròng là tiền thu trừ tiền chi. Doanh thu thực hiện gồm buổi đã xác nhận có tính phí và đơn đã giao.</p>
-        <p>Buổi vắng được xác nhận có tính phí vẫn ghi nhận doanh thu. Tự động xác nhận sau 48 giờ chưa đủ để ghi nhận.</p>
+        <p>Dòng tiền ròng là tiền thu trừ tiền chi. Doanh thu thực hiện gồm buổi đã trừ hợp lệ và đơn đã giao.</p>
+        <p>Buổi đã trừ ghi nhận doanh thu ngay, kể cả chờ điểm danh hoặc vắng có tính buổi. Hoàn buổi sẽ đảo doanh thu; buổi chuyển tiếp giữ đơn giá hợp đồng gốc.</p>
         <p>Phí và giảm trừ đã được duyệt trong quyết toán cũng ảnh hưởng doanh thu trong kỳ. Doanh số, doanh thu thực hiện và thu khách có thể thuộc các hợp đồng được ký ở những kỳ khác nhau.</p>
         {report?.dataQuality?.message ? <p>{report.dataQuality.message}</p> : null}
       </AuraHelpPopover>

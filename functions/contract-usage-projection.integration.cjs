@@ -37,6 +37,24 @@ function fixture() {
   return db
 }
 
+test('returning a duplicate preserves the valid charged day across projection and repeated delivery', async () => {
+  const db = fixture()
+  await db.doc('contracts/contract-one').set(contractRow({ usedSessions: 2 }))
+  await db.doc('sessions/valid').set(sessionRow({ revision: 1, scheduleEntryId: 'same-entry' }))
+  await db.doc('sessions/duplicate').set(sessionRow({ revision: 0, scheduleEntryId: 'same-entry' }))
+  // The atomic return already restored exactly one credit. Its trigger must
+  // not restore another credit just because attendance was retained for audit.
+  await db.doc('contracts/contract-one').update({ usedSessions: 1 })
+  const event = await sourceWrite(db, 'sessions/duplicate', sessionRow({ billingStatus: 'exempt', status: 'cancelled',
+    revision: 2, scheduleEntryId: 'same-entry', returnedBy: 'admin' }))
+  await syncContractUsageProjection({ db, event, logger: quiet })
+  await syncContractUsageProjection({ db, event, logger: quiet })
+  const contract = (await db.doc('contracts/contract-one').get()).data()
+  assert.equal(contract.usedSessions, 1)
+  assert.deepEqual(contract.chargedSessionIds, ['valid'])
+  assert.equal((await db.doc('contractUsageViews/contract-one').get()).data().usedSessions, 1)
+})
+
 async function sourceWrite(db, path, value) {
   const reference = db.doc(path)
   const before = await reference.get()
