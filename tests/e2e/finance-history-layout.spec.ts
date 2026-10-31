@@ -14,6 +14,9 @@ test.describe('Aura Finance Intelligence responsive workspace', () => {
     await page.setViewportSize({ width: 390, height: 844 })
     await page.goto('/#/admin-finance')
 
+    await expect(page.getByRole('tab', { name: 'Trả góp', exact: true })).toHaveAttribute('aria-selected', 'true')
+    await page.getByRole('tab', { name: 'Báo cáo kỳ', exact: true }).click()
+
     const workspace = page.locator('.business-performance')
     await expect(workspace).toBeVisible()
     await expect(workspace.locator('.business-performance__hero')).toHaveCount(0)
@@ -79,6 +82,7 @@ test.describe('Aura Finance Intelligence responsive workspace', () => {
   test('keeps desktop source reporting readable without a mobile-only layout', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 })
     await page.goto('/#/admin-finance')
+    await page.getByRole('tab', { name: 'Báo cáo kỳ', exact: true }).click()
 
     const workspace = page.locator('.business-performance')
     await expect(workspace).toBeVisible()

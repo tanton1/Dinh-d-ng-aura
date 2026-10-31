@@ -15,8 +15,8 @@ const panel = (page: Page) => page.locator('.business-performance')
 const cashMetric = (page: Page) => panel(page).locator('.finance-report-metrics article strong').first()
 async function boot(page: Page) {
   await page.clock.install({ time: new Date('2026-10-30T12:00:00+07:00') })
-  await page.goto('/tests/finance-history-ui/index.html?workspace=hub')
-  await expect.poll(() => page.evaluate(() => (window as any).financeState?.performanceCalls.length || 0)).toBeGreaterThanOrEqual(2)
+  await page.goto('/tests/finance-history-ui/index.html?workspace=hub&initialTab=overview')
+  await expect.poll(() => page.evaluate(() => (window as any).financeState?.performanceCalls.length || 0)).toBe(1)
   await expect(panel(page)).toHaveAttribute('aria-busy', 'false')
   await page.evaluate(() => { (window as any).financeState.performanceDefer = true })
 }
@@ -35,9 +35,9 @@ test('keeps the latest branch, source and date report when earlier requests fini
   await pending(page, 2)
   await page.getByLabel('Lọc nguồn kinh doanh').selectOption('nutrition_coaching')
   await pending(page, 3)
-  await page.getByRole('button', { name: '7 ngày', exact: true }).click()
+  await page.getByRole('button', { name: '30 ngày', exact: true }).click()
   await pending(page, 4)
-  expect(await page.evaluate(() => (window as any).financeState.performanceCalls.at(-1))).toEqual({ branchId: 'a', source: 'nutrition_coaching', startDate: '2026-10-24', endDate: '2026-10-30', includeReconciliationIndex: true })
+  expect(await page.evaluate(() => (window as any).financeState.performanceCalls.at(-1))).toEqual({ branchId: 'a', source: 'nutrition_coaching', startDate: '2026-10-01', endDate: '2026-10-30', includeReconciliationIndex: true })
 
   await resolve(page, 2, 333_000)
   await expect.poll(() => page.evaluate(() => (window as any).financeState.performanceSettled)).toBe(1)

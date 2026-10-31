@@ -1,13 +1,13 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Building2, CalendarDays, CircleAlert, Coins, Landmark, RefreshCw, TrendingDown, TrendingUp, WalletCards } from 'lucide-react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Building2, CalendarDays, CircleAlert, Coins, RefreshCw } from 'lucide-react'
 import { useDatabase } from '../../../contexts/DatabaseContext'
 import { listBusinessPerformance, type BusinessPerformanceReport, type BusinessSource } from '../../../services/businessReportingService'
-import FinanceOverviewAnalytics from './finance-analytics/FinanceOverviewAnalytics'
-import type { AuraMetricSlide } from './AuraMetricCarousel'
 import FinanceReconciliationPanel from './FinanceReconciliationPanel'
 import AuraHelpPopover from './AuraHelpPopover'
 import { businessReportCompleteness } from '../../../utils/businessReportCompleteness'
 import '../../../styles-business-performance.css'
+
+const FinanceOverviewAnalytics = lazy(() => import('./finance-analytics/FinanceOverviewAnalytics'))
 
 function vietnamDateKey(value = new Date()) {
   const parts = new Intl.DateTimeFormat('en-CA', {
@@ -48,14 +48,18 @@ type Props = { compact?: boolean }
 
 export default function BusinessPerformancePanel({ compact = false }: Props) {
   const { branches } = useDatabase()
-  const [startDate, setStartDate] = useState(() => daysAgoKey(29))
+  const [startDate, setStartDate] = useState(() => daysAgoKey(6))
   const [endDate, setEndDate] = useState(todayKey)
   const [branchId, setBranchId] = useState('all')
   const [source, setSource] = useState<BusinessSource>('all')
   const [report, setReport] = useState<BusinessPerformanceReport | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [activePreset, setActivePreset] = useState<7 | 30 | 90 | 'custom'>(30)
+  const [activePreset, setActivePreset] = useState<7 | 30 | 90 | 'custom'>(7)
+  const [analysisOpen, setAnalysisOpen] = useState(false)
+  const [draftStart, setDraftStart] = useState(startDate)
+  const [draftEnd, setDraftEnd] = useState(endDate)
+  const datePicker = useRef<HTMLDetailsElement>(null)
   const requestSequence = useRef(0)
   const loadedScope = useRef('')
   const [updatedAt, setUpdatedAt] = useState('')
@@ -84,8 +88,11 @@ export default function BusinessPerformancePanel({ compact = false }: Props) {
   }, [branchId, endDate, reportScope, source, startDate])
 
   useEffect(() => {
-    void load()
-    return () => { requestSequence.current += 1 }
+    let active = true
+    // A tab closed before effects settle, including StrictMode's replay,
+    // must not start a report aggregation that nobody will see.
+    queueMicrotask(() => { if (active) void load() })
+    return () => { active = false; requestSequence.current += 1 }
   }, [load])
 
   const complete = businessReportCompleteness(report)
@@ -95,39 +102,39 @@ export default function BusinessPerformancePanel({ compact = false }: Props) {
     setStartDate(daysAgoKey(days - 1))
     setEndDate(todayKey())
   }
+  const validDraft = Boolean(draftStart && draftEnd && draftStart <= draftEnd && draftEnd <= todayKey())
+  const applyDates = () => {
+    if (!validDraft) return
+    setActivePreset('custom')
+    setStartDate(draftStart)
+    setEndDate(draftEnd)
+    if (datePicker.current) datePicker.current.open = false
+  }
 
-  const metricSlides = useMemo<AuraMetricSlide[]>(() => [
+  const metricSlides = useMemo(() => [
     {
       id: 'cash-flow',
       eyebrow: 'Dòng tiền ròng',
       value: complete.ledger ? money(report?.cashFlow.cashNet || 0) : incompleteLabel,
       detail: complete.ledger ? `Thu ${money(report?.cashFlow.cashIn || 0)} · Chi ${money(report?.cashFlow.cashOut || 0)}` : 'Chọn khoảng ngày ngắn hơn để tổng hợp đầy đủ',
-      icon: <WalletCards size={20} />,
-      tone: 'pink',
     },
     {
       id: 'recognised-revenue',
       eyebrow: 'Doanh thu thực hiện',
       value: complete.ledger ? money(report?.managementPnl.recognisedRevenue || 0) : incompleteLabel,
       detail: 'Dịch vụ đủ điều kiện và điều chỉnh đã ghi nhận',
-      icon: <TrendingUp size={20} />,
-      tone: 'orange',
     },
     {
       id: 'operating-expense',
       eyebrow: 'Chi phí vận hành',
       value: complete.ledger ? money(report?.managementPnl.operatingExpense || 0) : incompleteLabel,
       detail: 'Chi phí đã hạch toán trong kỳ',
-      icon: <TrendingDown size={20} />,
-      tone: 'sunset',
     },
     {
       id: 'operating-result',
       eyebrow: 'Kết quả vận hành',
       value: complete.ledger ? money(report?.managementPnl.operatingResult || 0) : incompleteLabel,
       detail: complete.ledger ? `Biến động phải thu ${money(report?.balanceMovement.receivableMovement || 0)}` : 'Chưa xác nhận tổng trong phạm vi này',
-      icon: <Landmark size={20} />,
-      tone: 'ink',
     },
   ], [report, complete.ledger, incompleteLabel])
 
@@ -142,11 +149,14 @@ export default function BusinessPerformancePanel({ compact = false }: Props) {
       </div>
       <label className="business-performance__select"><Building2 size={16} /><select aria-label="Lọc chi nhánh" value={branchId} onChange={(event) => setBranchId(event.target.value)}><option value="all">Toàn hệ thống</option>{branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></label>
       <label className="business-performance__select"><Coins size={16} /><select aria-label="Lọc nguồn kinh doanh" value={source} onChange={(event) => setSource(event.target.value as BusinessSource)}>{Object.entries(sourceLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
-      <details className="business-performance__date-picker">
-        <summary title="Chọn khoảng ngày"><CalendarDays size={16} /><span>{activePreset === 'custom' ? 'Tùy chỉnh' : 'Ngày'}</span></summary>
+      <details ref={datePicker} className="business-performance__date-picker">
+        <summary title="Chọn khoảng ngày" onClick={() => {
+          if (!datePicker.current?.open) { setDraftStart(startDate); setDraftEnd(endDate) }
+        }}><CalendarDays size={16} /><span>{activePreset === 'custom' ? 'Tùy chỉnh' : 'Ngày'}</span></summary>
         <div className="business-performance__date-panel">
-          <label><span>Từ ngày</span><input type="date" value={startDate} max={endDate} onChange={(event) => { setActivePreset('custom'); setStartDate(event.target.value) }} /></label>
-          <label><span>Đến ngày</span><input type="date" value={endDate} min={startDate} max={todayKey()} onChange={(event) => { setActivePreset('custom'); setEndDate(event.target.value) }} /></label>
+          <label><span>Từ ngày</span><input type="date" value={draftStart} max={draftEnd} onChange={event => setDraftStart(event.target.value)} /></label>
+          <label><span>Đến ngày</span><input type="date" value={draftEnd} min={draftStart} max={todayKey()} onChange={event => setDraftEnd(event.target.value)} /></label>
+          <button type="button" className="business-performance__apply-dates" disabled={!validDraft} onClick={applyDates}>Áp dụng khoảng ngày</button>
         </div>
       </details>
       <button type="button" onClick={() => void load()} className="business-performance__refresh" disabled={loading} aria-label="Làm mới báo cáo" title="Làm mới">
@@ -169,7 +179,7 @@ export default function BusinessPerformancePanel({ compact = false }: Props) {
     {report && <FinanceReconciliationPanel report={report} onChanged={load} />}
 
     {report?.dataQuality.ledgerTruncated ? <div className="business-performance__empty">Biểu đồ và chi tiết theo nguồn sẽ hiện khi khoảng lọc có đủ dữ liệu.</div> : <>
-    {report && <details className="finance-report-analysis"><summary>Phân tích dòng tiền và kết quả</summary><FinanceOverviewAnalytics report={report} sourceLabels={sourceLabels} /></details>}
+    {report && <details className="finance-report-analysis" open={analysisOpen} onToggle={event => setAnalysisOpen(event.currentTarget.open)}><summary>Phân tích dòng tiền và kết quả</summary>{analysisOpen && <Suspense fallback={<p role="status">Đang mở phân tích…</p>}><FinanceOverviewAnalytics report={report} sourceLabels={sourceLabels} /></Suspense>}</details>}
 
     <details className="business-performance__source-details">
       <summary><span>Chi tiết theo nguồn</span><small>{report?.sourceRows.reduce((total, row) => total + row.entryCount, 0).toLocaleString('vi-VN') ?? '0'} bút toán · bấm để mở</small></summary>

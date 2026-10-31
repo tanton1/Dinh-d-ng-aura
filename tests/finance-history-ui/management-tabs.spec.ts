@@ -28,7 +28,7 @@ async function seed(page: Page, contracts = fixtures) {
 }
 async function boot(page: Page) {
   await page.clock.install({ time: new Date('2026-10-30T12:00:00+07:00') })
-  await page.goto('/tests/finance-history-ui/index.html?workspace=hub')
+  await page.goto('/tests/finance-history-ui/index.html?workspace=hub&initialTab=overview')
   await expect(page.locator('.business-performance')).toBeVisible()
   await seed(page)
 }
@@ -56,6 +56,7 @@ test('shows only preserved outstanding debt and removes the debt tab without bro
   await page.getByRole('tab', { name: 'Báo cáo kỳ', exact: true }).focus()
   await page.keyboard.press('ArrowRight')
   await expect(page.getByRole('tab', { name: 'Trả góp', exact: true })).toBeFocused()
+  await page.keyboard.press('Enter')
   await expect(rows(page)).toHaveCount(2)
   await expect.poll(() => ids(page)).toEqual(['installments', 'ordinary-off'])
   await expect(metric(page)).toHaveText('1.600.000đ')

@@ -9,7 +9,7 @@ function batch(ids: string[], nextCursor: string | null, report: any = null) {
   return { contracts: ids.map(contract), students: ids.map(id => ({ id, name: id })), summary: report, nextCursor, hasMore: Boolean(nextCursor), scanned: 200, asOf }
 }
 async function boot(page: Page, pages: any[]) {
-  await page.goto('/tests/finance-history-ui/index.html?workspace=hub')
+  await page.goto('/tests/finance-history-ui/index.html?workspace=hub&initialTab=overview')
   await expect(page.locator('.business-performance')).toBeVisible()
   await page.evaluate(pages => { (window as any).financeState.receivablesPages = pages }, pages)
 }
@@ -74,6 +74,10 @@ test('changing authority clears old data and rejects its delayed continuation', 
   await open(page)
   await expect.poll(async () => (await calls(page)).length).toBe(1)
   await page.getByRole('button', { name: 'Change authority', exact: true }).click()
+  // A new authority remounts the hub at this fixture's explicit initial tab.
+  await expect(page.getByRole('tab', { name: 'Báo cáo kỳ', exact: true })).toHaveAttribute('aria-selected', 'true')
+  await expect(rows(page)).toHaveCount(0)
+  await open(page)
   await expect.poll(async () => (await calls(page)).length).toBe(2)
   await page.evaluate(() => (window as any).financeState.receivablesPending[1].resolve())
   await expect(rows(page).first()).toContainText('new authority')
