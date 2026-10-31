@@ -3031,7 +3031,7 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
         recognitionPlan.writes.forEach((write) => transaction[write.type](write.reference, write.data))
         const recognitionPatch = { ...recognitionPlan.recognitionPatch, revenueRecognitionEntryId: recognitionPlan.entryId, revenueRecognitionJournalId: recognitionPlan.journalId,
           recognitionReviewRequired: recognitionPlan.reviewRequired, recognitionReviewIssueCode: recognitionPlan.issueCode || null,
-          revenueRecognitionState: recognitionPlan.reviewRequired ? 'review_required' : recognitionPlan.entryId ? 'posted' : 'not_applicable' }
+          revenueRecognitionState: recognitionPlan.recognitionPatch?.revenueRecognitionState || (recognitionPlan.reviewRequired ? 'review_required' : recognitionPlan.entryId ? 'posted' : 'not_applicable') }
         transaction.update(session.reference, {
           previousSchedule: FieldValue.arrayUnion({ date: before.date, hour: before.hour, trainerId: before.trainerId, branchId: before.branchId, changedAt: correctionInstant.toISOString(), reason }),
           date: targetDate,

@@ -12,7 +12,7 @@ function report(amount: number, truncated = false) {
   }
 }
 const panel = (page: Page) => page.locator('.business-performance')
-const cashMetric = (page: Page) => panel(page).locator('.aura-metric-carousel__slide strong').first()
+const cashMetric = (page: Page) => panel(page).locator('.finance-report-metrics article strong').first()
 async function boot(page: Page) {
   await page.clock.install({ time: new Date('2026-10-30T12:00:00+07:00') })
   await page.goto('/tests/finance-history-ui/index.html?workspace=hub')
@@ -37,7 +37,7 @@ test('keeps the latest branch, source and date report when earlier requests fini
   await pending(page, 3)
   await page.getByRole('button', { name: '7 ngày', exact: true }).click()
   await pending(page, 4)
-  expect(await page.evaluate(() => (window as any).financeState.performanceCalls.at(-1))).toEqual({ branchId: 'a', source: 'nutrition_coaching', startDate: '2026-10-24', endDate: '2026-10-30' })
+  expect(await page.evaluate(() => (window as any).financeState.performanceCalls.at(-1))).toEqual({ branchId: 'a', source: 'nutrition_coaching', startDate: '2026-10-24', endDate: '2026-10-30', includeReconciliationIndex: true })
 
   await resolve(page, 2, 333_000)
   await expect.poll(() => page.evaluate(() => (window as any).financeState.performanceSettled)).toBe(1)
@@ -64,7 +64,7 @@ test('labels net outflows correctly and removes the partial-data alert after a c
   await expect(cashMetric(page)).toHaveText('Chưa đủ dữ liệu')
   await expect(panel(page).locator('.business-performance__source-details')).toHaveCount(0)
   await expect(panel(page).locator('.business-performance__bars')).toHaveCount(0)
-  await expect(panel(page).locator('.aura-metric-carousel__slide').nth(1)).toContainText('Dịch vụ đủ điều kiện và điều chỉnh đã ghi nhận')
+  await expect(panel(page).locator('.finance-report-metrics article').nth(1)).toContainText('Dịch vụ đủ điều kiện và điều chỉnh đã ghi nhận')
   const help = panel(page).locator('.business-performance__toolbar .aura-help-popover')
   await help.locator('summary').click()
   await expect(help).toContainText('Buổi đã trừ ghi nhận doanh thu ngay')
@@ -72,8 +72,8 @@ test('labels net outflows correctly and removes the partial-data alert after a c
   await help.locator('summary').click()
   await page.getByRole('button', { name: 'Làm mới báo cáo', exact: true }).click()
   await pending(page, 2)
-  await expect(panel(page).getByRole('alert')).toHaveCount(0)
-  await expect(cashMetric(page)).toHaveText('Đang tải…')
+  await expect(panel(page).getByRole('alert')).toHaveCount(1)
+  await expect(cashMetric(page)).toHaveText('Chưa đủ dữ liệu')
   await resolve(page, 1, -250_000)
   await expect(cashMetric(page)).toHaveText('-250.000đ')
   await expect(panel(page).getByRole('alert')).toHaveCount(0)
@@ -127,6 +127,7 @@ async function showComparison(page: Page, result = comparisonReport()) {
   await pending(page, 1)
   await page.evaluate(result => (window as any).financeState.performancePending[0].resolve(result), result)
   await expect(panel(page)).toHaveAttribute('aria-busy', 'false')
+  await panel(page).locator('.finance-report-analysis > summary').click()
 }
 
 test('compares receipts separately from cash movement, preserves the full period and displays signed adjustments', async ({ page }, testInfo) => {
@@ -135,8 +136,8 @@ test('compares receipts separately from cash movement, preserves the full period
   await expect(panel(page).getByLabel('Chi tiết thu')).toContainText('900.000đ')
   await expect(panel(page).getByLabel('Chi tiết thu')).toContainText('300.000đ')
   await expect(panel(page).getByRole('heading', { name: 'Đối soát dữ liệu', exact: true })).toBeVisible()
-  await expect(panel(page).locator('.business-performance__review-details')).not.toHaveAttribute('open', '')
-  await expect(panel(page).locator('.business-performance__review-status')).toHaveText('Chưa thấy mục cần đối soát trong dữ liệu hiện có.')
+  await expect(panel(page).locator('.finance-review__other')).not.toHaveAttribute('open', '')
+  await expect(panel(page).getByRole('button', { name: /Cần xử lý/ })).toBeDisabled()
   await panel(page).screenshot({ path: `.tools/finance-period-primary-${testInfo.project.name}.png` })
   const comparison = panel(page).locator('.finance-overview-analytics__comparison')
   await expect(comparison).not.toHaveAttribute('open', '')
@@ -185,12 +186,10 @@ test('source completeness flags invalidate only their dependent analytics', asyn
   result.dataQuality.cashTransactionsTruncated = true
   await showComparison(page, result)
   await expect(panel(page).locator('.finance-overview-analytics__comparison svg')).toHaveCount(1)
-  const quality = panel(page).locator('.business-performance__quality')
-  await expect(quality.getByText('Chưa kiểm tra đủ dữ liệu chấm công', { exact: true })).toBeVisible()
-  await expect(quality.getByText('Chưa kiểm tra đủ liên kết sổ quỹ', { exact: true })).toBeVisible()
-  await quality.getByText('Chi tiết đối soát', { exact: true }).click()
-  await expect(quality.locator('dl div').filter({ hasText: 'Đối soát điểm danh PT' })).toContainText('Chưa đủ dữ liệu')
-  await expect(quality.locator('dl div').filter({ hasText: 'Sổ quỹ chưa liên kết' })).toContainText('Chưa đủ dữ liệu')
+  const quality = panel(page).locator('.finance-review')
+  await expect(quality.getByText(/Chưa kiểm tra đủ dữ liệu chấm công/)).toBeVisible()
+  await expect(quality.getByText(/Chưa kiểm tra đủ liên kết sổ quỹ/)).toBeVisible()
+  await expect(quality.getByRole('button', { name: /Cần xử lý/ })).toBeDisabled()
   await page.getByRole('button', { name: 'Làm mới báo cáo', exact: true }).click()
   await pending(page, 2)
   result.dataQuality.ledgerTruncated = true
@@ -223,9 +222,10 @@ test('offsetting unlinked cash entries and pending sources remain visible outsid
   result.dataQuality.unlinkedCashTransactions = 0
   result.dataQuality.missingSourceIntegrations = ['academy']
   await showComparison(page, result)
-  const quality = panel(page).locator('.business-performance__quality')
-  await expect(quality.locator('.business-performance__review-details')).not.toHaveAttribute('open', '')
-  await expect(quality.getByText('Sổ quỹ chưa liên kết: 2 giao dịch · 0đ ròng', { exact: true })).toBeVisible()
-  await expect(quality.getByText('Nguồn chờ tích hợp: Aura Academy', { exact: true })).toBeVisible()
+  const quality = panel(page).locator('.finance-review')
+  await expect(quality.locator('.finance-review__other')).not.toHaveAttribute('open', '')
+  await expect(quality.locator('.finance-review__hint').filter({ hasText: '2 giao dịch sổ quỹ chưa liên kết' })).toBeVisible()
+  await quality.locator('.finance-review__other > summary').click()
+  await expect(quality.locator('.finance-review__other')).toContainText('Aura Academy')
   await expect(quality.locator('.business-performance__review-status')).toHaveCount(0)
 })

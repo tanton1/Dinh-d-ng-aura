@@ -5,6 +5,6 @@ export default defineConfig({
   optimizeDeps: { entries: ['tests/finance-history-ui/index.html'] },
   plugins: [{ name: 'finance-history-fixture', enforce: 'pre', resolveId(source, importer) {
     if (importer?.replaceAll('\\', '/').endsWith('/features/student-360/Student360Page.tsx') && (source === 'firebase/auth' || source.endsWith('/lib/firebase'))) return resolve('tests/finance-history-ui/mocks.ts')
-    if (importer?.replaceAll('\\', '/').includes('/src/') && /\/(DatabaseContext|AuthContext|financeLedgerService|cashbookService|financeOperationService|student360Service|scopedReportingService|businessReportingService|contractSettlementService|loyaltyService|analyticsService)$/.test(source)) return resolve('tests/finance-history-ui/mocks.ts')
+    if (importer?.replaceAll('\\', '/').includes('/src/') && /\/(DatabaseContext|AuthContext|financeLedgerService|cashbookService|financeOperationService|student360Service|scopedReportingService|businessReportingService|financeReconciliationService|contractSettlementService|loyaltyService|analyticsService)$/.test(source)) return resolve('tests/finance-history-ui/mocks.ts')
   } }, react()],
 })

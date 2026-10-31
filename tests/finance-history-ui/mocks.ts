@@ -380,3 +380,7 @@ export const reverseManualReceiptVoucher = (input: any) => bookMutation('reverse
 export const saveS2eCashDetailSettings = (input: any) => bookMutation('settings', input)
 export const saveExpenseVoucherDraft = (input: any) => bookMutation('expense', input)
 export const transferCash = (input: any) => bookMutation('transfer', input)
+
+export async function listFinanceReconciliationCases() { throw new Error("Unexpected reconciliation page read") }
+export async function getFinanceReconciliationCase() { throw new Error("Unexpected reconciliation detail read") }
+export async function resolveFinanceReconciliationCase() { throw new Error("Unexpected reconciliation write") }

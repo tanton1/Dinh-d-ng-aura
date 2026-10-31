@@ -17,18 +17,18 @@ test.describe('Aura Finance Intelligence responsive workspace', () => {
     const workspace = page.locator('.business-performance')
     await expect(workspace).toBeVisible()
     await expect(workspace.locator('.business-performance__hero')).toHaveCount(0)
-    await expect(workspace.locator(':scope > .aura-metric-carousel').first()).toBeVisible()
-    await expect(workspace.locator('.aura-metric-carousel__slide')).toHaveCount(4)
+    await expect(workspace.locator(':scope > .finance-report-metrics').first()).toBeVisible()
+    await expect(workspace.locator('.finance-report-metrics article')).toHaveCount(4)
     await expect(workspace.locator('.business-performance__toolbar input, .business-performance__toolbar select')).toHaveCount(4)
 
-    const metrics = workspace.locator('.aura-metric-carousel__slide')
+    const metrics = workspace.locator('.finance-report-metrics article')
     const metricBounds = await metrics.evaluateAll((items) => items.map((item) => {
       const bounds = item.getBoundingClientRect()
       return { width: bounds.width, height: bounds.height }
     }))
     expect(metricBounds.every((item) => item.width > 0 && item.height >= 88)).toBe(true)
 
-    await workspace.locator('.business-performance__quality').scrollIntoViewIfNeeded()
+    await workspace.locator('.finance-review').scrollIntoViewIfNeeded()
     await expectNoHorizontalOverflow(page)
   })
 

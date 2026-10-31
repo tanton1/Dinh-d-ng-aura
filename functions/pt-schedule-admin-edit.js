@@ -25,7 +25,7 @@ async function moveRevenuePlan({ transaction, db, sessionId, session, attendance
   return { writes: plan.writes, patch: { ...plan.recognitionPatch,
     revenueRecognitionEntryId: plan.entryId, revenueRecognitionJournalId: plan.journalId,
     recognitionReviewRequired: plan.reviewRequired, recognitionReviewIssueCode: plan.issueCode || null,
-    revenueRecognitionState: plan.reviewRequired ? 'review_required' : plan.entryId ? 'posted' : 'not_applicable' } }
+    revenueRecognitionState: plan.recognitionPatch?.revenueRecognitionState || (plan.reviewRequired ? 'review_required' : plan.entryId ? 'posted' : 'not_applicable') } }
 }
 
 const occupies = (session) => ['scheduled', 'rescheduled', 'completed', 'attended', 'no_show'].includes(session.status) || sessionCountsTowardContract(session)

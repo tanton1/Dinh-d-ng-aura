@@ -6,7 +6,7 @@ import { callReadOnlyFunction, runReadOnlyWithFallback } from './readOnlyCallabl
 
 const pendingReads = new Map<string, Promise<unknown>>()
 
-function callBusinessReportingRead<Input, Output>(name: string, input: Input): Promise<Output> {
+export function callBusinessReportingRead<Input, Output>(name: string, input: Input): Promise<Output> {
   const uid = firebaseAuth?.currentUser?.uid
   const execute = () => invokeBusinessReportingRead<Input, Output>(name, input)
   // Coalesce only simultaneous reads from the same signed-in account. A
@@ -25,7 +25,7 @@ async function invokeBusinessReportingRead<Input, Output>(name: string, input: I
       // bounded aggregation time to finish instead of duplicating its reads
       // in the fallback region after 18 seconds. History keeps its short budget.
       maximumAttempts: 1,
-      timeoutMs: name === 'listBusinessPerformance' ? 45_000 : 18_000,
+      timeoutMs: name === 'listBusinessPerformance' ? 45_000 : ['listFinanceReconciliationCases', 'getFinanceReconciliationCase'].includes(name) ? 30_000 : 18_000,
       correlationId,
     })
   }
@@ -39,6 +39,7 @@ async function invokeBusinessReportingRead<Input, Output>(name: string, input: I
 export type BusinessSource = 'all' | 'pt_gym' | 'online_coaching' | 'nutrition_coaching' | 'academy' | 'eat_clean' | 'delivery_fee' | 'payroll' | 'other' | 'legacy_unclassified'
 
 export interface BusinessPerformanceQuery {
+  includeReconciliationIndex?: boolean
   startDate: string
   endDate: string
   branchId?: string
@@ -87,7 +88,9 @@ export interface BusinessPerformanceReport {
     payrollPaidOutsideLedger: number
     reconciliation?: { schemaVersion: 1; evidenceCount: number; matchedInPeriod: number; pendingConfirmation: number;
       automaticReview: number; billingReview: number; recognitionReview: number; exempt: number; unresolved: number;
-      conflicts: number; missingBranch: number; posted: number; verifiedMissingPosting: null }
+      conflicts: number; missingBranch: number; posted: number; verifiedMissingPosting: null;
+      zeroValueConfirmed?: number; exemptBreakdown?: { duplicate: number; returned: number; complimentary: number; other: number };
+      caseIndex?: Record<string, string[]> }
     attendanceEvents: number
     recognisedAttendanceEvents: number
     unrecognisedAttendanceEvents: number
