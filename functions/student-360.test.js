@@ -34,6 +34,17 @@ const {
   SCHEDULE_VISIBLE_SESSION_STATUSES,
 } = require('./student-360')
 const { canonicalSessionRows } = require('./session-schedule-normalization')
+const { initialContractPayment } = require('./contract-initial-payment')
+
+test('initial collection requires financial authority and valid nonnegative integer money', () => {
+  const payment = { amount: 3000000, cashAccountId: 'bank', paymentMethod: 'transfer' }
+  assert.throws(() => initialContractPayment(payment, false), { code: 'permission-denied' })
+  for (const amount of [-1, 0.5, Infinity, NaN, 10000000001]) assert.throws(() => initialContractPayment({ ...payment, amount }, true), { code: 'invalid-argument' })
+  assert.throws(() => initialContractPayment({ ...payment, cashAccountId: '' }, true), { code: 'invalid-argument' })
+  assert.throws(() => initialContractPayment({ ...payment, paymentMethod: 'invalid' }, true), { code: 'invalid-argument' })
+  assert.equal(initialContractPayment({ amount: 0 }, true), null)
+  assert.deepEqual(initialContractPayment(payment, true), payment)
+})
 
 test('Student directory search folds Vietnamese accents and keeps phone digits searchable', () => {
   assert.equal(foldSearchText('  Nguyễn Thị Hồng  '), 'nguyen thi hong')

@@ -146,10 +146,14 @@ function serializeTimestamp(value) {
 function normalizeInstallments(value, remainingAmount, startDate, endDate) {
   if (!remainingAmount) return []
   if (!Array.isArray(value) || value.length < 1 || value.length > 12) throw new HttpsError('invalid-argument', 'Cần lịch thanh toán cho phần công nợ còn lại.')
+  const ids = new Set()
   const installments = value.map((item, index) => {
     const date = dateKey(item?.date, `Ngày thanh toán kỳ ${index + 1}`)
     if (date < startDate || date > endDate) throw new HttpsError('invalid-argument', 'Ngày trả góp phải nằm trong thời hạn hợp đồng mới.')
-    return { id: boundedString(item?.id || `installment-${index + 1}`, `Mã kỳ ${index + 1}`, 100), date, amount: safeMoney(item?.amount, `Số tiền kỳ ${index + 1}`, false), status: 'pending' }
+    const id = boundedString(item?.id || `installment-${index + 1}`, `Mã kỳ ${index + 1}`, 100)
+    if (!/^[A-Za-z0-9_-]+$/.test(id) || ids.has(id)) throw new HttpsError('invalid-argument', 'Mã kỳ thanh toán không hợp lệ hoặc bị trùng.')
+    ids.add(id)
+    return { id, date, amount: safeMoney(item?.amount, `Số tiền kỳ ${index + 1}`, false), status: 'pending' }
   })
   if (installments.reduce((sum, item) => sum + item.amount, 0) !== remainingAmount) throw new HttpsError('invalid-argument', 'Tổng lịch trả góp không khớp công nợ còn lại.')
   return installments.sort((left, right) => left.date.localeCompare(right.date))

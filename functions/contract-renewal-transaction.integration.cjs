@@ -120,3 +120,19 @@ test('a cash account outside the branch cannot create a contract or collect mone
   assert.equal((await db.doc(`contracts/${sourceId}`).get()).data().renewedByContractId, undefined)
   assert.equal((await db.doc(`quotes/${input.quoteId}`).get()).data().status, 'approved')
 })
+
+test('partial upfront renewal creates the receipt immediately and schedules only the unequal remainder', async () => {
+  const { studentId, cashAccountId, input } = await fixture()
+  input.initialPayment = 3_000_000
+  input.installments = [1_000_000, 2_000_000, 3_600_000].map((amount, i) => ({ id: `period-${i}`, date: day(20 + i * 20), amount }))
+  const result = await regional.renewPtContractRegional({ data: input })
+  const contract = (await db.doc(`contracts/${result.contractId}`).get()).data()
+  assert.equal(contract.status, 'future')
+  assert.equal(contract.paidAmount, 3_000_000)
+  assert.deepEqual(contract.installments.map(item => item.amount), [1_000_000, 2_000_000, 3_600_000])
+  assert.equal(contract.installments.reduce((sum, item) => sum + item.amount, 0), contract.totalPrice - contract.discount - contract.paidAmount)
+  assert.equal((await db.doc(`accountingDocuments/${result.receiptVoucherId}`).get()).data().totalAmount, 3_000_000)
+  await legacy.renewPtContract({ data: input })
+  assert.equal((await db.collection('ledgerEntries').where('studentId', '==', studentId).get()).size, 1)
+  assert.equal((await db.doc(`cashAccounts/${cashAccountId}`).get()).data().balance, 3_000_000)
+})

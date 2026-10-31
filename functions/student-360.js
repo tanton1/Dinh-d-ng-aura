@@ -1,5 +1,6 @@
 const { renewalDateSyncPatch, assertRenewalLink } = require('./contract-renewal-handover')
 const { contractSalesIndexPatch } = require('./contract-sales-index')
+const { initialContractPayment, prepareInitialContractPayment, postInitialContractPayment } = require('./contract-initial-payment')
 const { createHash } = require('node:crypto')
 const { isDeepStrictEqual } = require('node:util')
 const { FieldPath, FieldValue, Timestamp } = require('firebase-admin/firestore')
@@ -880,6 +881,7 @@ function contractMutationTitle(action) {
   return {
     create: 'Đã tạo hợp đồng',
     edit: 'Đã cập nhật hợp đồng',
+    edit_payment_plan: 'Đã chỉnh lịch thanh toán',
     add_sessions: 'Đã mua thêm buổi',
     extend: 'Đã gia hạn ngày hợp đồng',
     freeze: 'Đã bảo lưu hợp đồng',
@@ -2771,13 +2773,15 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
     const actor = await trustedAccessContext(request, db)
     const studentId = documentId(request.data?.studentId)
     const action = bounded(request.data?.action, 30)
-    if (!['create', 'edit', 'add_sessions', 'extend', 'freeze', 'reopen', 'cancel'].includes(action)) {
+    if (!['create', 'edit', 'edit_payment_plan', 'add_sessions', 'extend', 'freeze', 'reopen', 'cancel'].includes(action)) {
       throw new HttpsError('invalid-argument', 'Nghiệp vụ hợp đồng không hợp lệ.')
     }
     const { projection, permissions } = await loadAuthorizedProjection(db, actor, studentId, mondayDateKey(), false)
     if (!permissions.canManageContract) throw new HttpsError('permission-denied', 'Bạn không có quyền thay đổi hợp đồng này.')
     const canManageFinancials = actor.capabilities.includes('finance.operations.manage')
     const input = request.data?.contract && typeof request.data.contract === 'object' ? request.data.contract : {}
+    if (action !== 'create' && request.data?.initialPayment !== undefined) throw new HttpsError('invalid-argument', 'Tiền trả trước chỉ được ghi nhận khi tạo hợp đồng. Dùng phiếu thu cho hợp đồng đã có.')
+    const initialPayment = action === 'create' ? initialContractPayment(request.data?.initialPayment, canManageFinancials) : null
     const requestedBranchId = bounded(input.branchId, 200) || projection.assignments.branchId
     if (!requestedBranchId) throw new HttpsError('failed-precondition', 'Học viên chưa được gắn chi nhánh để quản lý hợp đồng.')
     if (permissions.scope !== 'system' && !normalizedArray(actor.branchIds).includes(requestedBranchId)) {
@@ -2870,9 +2874,9 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
         if (current && allocated && (totalSessions !== Number(current.totalSessions) || totalPrice !== currentTotalPrice || discount !== currentDiscount)) {
           throw new HttpsError('failed-precondition', 'Hợp đồng đã tính hoặc chuyển buổi nên không thể thay đơn giá gốc. Hãy tạo hợp đồng nối tiếp cho quyền lợi mới.', { issueCode: 'CONTRACT_REVENUE_PRICE_IMMUTABLE' })
         }
-        const paidAmount = Math.max(0, Math.floor(finite(current?.paidAmount)))
+        const paidAmount = action === 'create' ? initialPayment?.amount || 0 : Math.max(0, Math.floor(finite(current?.paidAmount)))
         const outstanding = totalPrice - discount - paidAmount
-        if (outstanding < 0) throw new HttpsError('failed-precondition', 'Giá trị mới thấp hơn số tiền đã thu; hãy xử lý hoàn tiền trước.')
+        if (outstanding < 0) throw new HttpsError('failed-precondition', action === 'create' ? 'Số tiền trả trước vượt giá trị hợp đồng.' : 'Giá trị mới thấp hơn số tiền đã thu; hãy xử lý hoàn tiền trước.')
         let installments = Array.isArray(current?.installments) ? current.installments : []
         if (canManageFinancials && Object.prototype.hasOwnProperty.call(input, 'installments')) {
           installments = contractInstallments(input.installments, current?.installments || [], action === 'create' && Array.isArray(input.installments) && input.installments.length === 0 ? null : outstanding)
@@ -2880,6 +2884,7 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
         if (action === 'create' && outstanding > 0 && !installments.some((item) => item.status === 'pending')) {
           installments = [{ id: `${contractId}-installment-1`, amount: outstanding, date: startDate, status: 'pending' }]
         }
+        if (action === 'create' && installments.some(item => item.status === 'pending' && item.amount <= 0)) throw new HttpsError('invalid-argument', 'Số tiền mỗi kỳ chưa thu phải lớn hơn 0.')
         const nextPending = installments.filter((item) => item.status === 'pending').sort((left, right) => bounded(left.date, 10).localeCompare(bounded(right.date, 10)))[0]
         next = {
           ...next,
@@ -2916,6 +2921,13 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
           next.policyHash = operationsPolicy.policyHash
           next.policySnapshot = operationsPolicy
         }
+      } else if (action === 'edit_payment_plan') {
+        if (!canManageFinancials) throw new HttpsError('permission-denied', 'Bạn không có quyền chỉnh lịch thanh toán.')
+        const outstanding = Number(current.totalPrice || 0) - Number(current.discount || 0) - Number(current.paidAmount || 0)
+        if (outstanding < 0) throw new HttpsError('failed-precondition', 'Hợp đồng đang thu dư; hãy xử lý hoàn tiền trước.')
+        next.installments = contractInstallments(request.data?.installments, current.installments || [], outstanding)
+        if (next.installments.some(item => item.status === 'pending' && item.amount <= 0)) throw new HttpsError('invalid-argument', 'Số tiền mỗi kỳ chưa thu phải lớn hơn 0.')
+        next.nextPaymentDate = next.installments.filter(item => item.status === 'pending').sort((a, b) => a.date.localeCompare(b.date))[0]?.date || null
       } else if (action === 'add_sessions') {
         if (!canManageFinancials) throw new HttpsError('permission-denied', 'Chỉ bộ phận tài chính được ghi nhận mua thêm buổi.')
         if (Number(current.usedSessions || 0) > 0 || Number(current.carriedOverSessions || 0) > 0 || Number(current.carryOverTransferredSessions || 0) > 0) {
@@ -3035,6 +3047,8 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
         ? [...new Set([...Object.keys(current), ...Object.keys(next)])].filter((key) => JSON.stringify(current[key]) !== JSON.stringify(next[key])).slice(0, 80)
         : Object.keys(next).slice(0, 80)
       const nextRevision = revision + 1
+      const initialPaymentPlan = await prepareInitialContractPayment({ transaction, db, payment: initialPayment, contract: { ...next, id: contractId }, effectiveAt: Timestamp.fromMillis(now) })
+      if (initialPaymentPlan) next.accountingAdvanceAccountCode = '131'
       if (cancellationPlan) eventDetails = require('./contract-cancellation').applyContractCancellationPlan({ transaction, plan: cancellationPlan, actorUid: actor.uid, reason, contractId })
       const persisted = {
         ...next,
@@ -3086,7 +3100,8 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
         'contractAuditLogs',
       )
       transaction.set(db.doc(`studentTimelineEvents/${event.id}`), event)
-      const response = { contractId, revision: nextRevision, action }
+      const paymentReceipt = postInitialContractPayment({ transaction, db, plan: initialPaymentPlan, contract: { ...persisted, id: contractId }, actorUid: actor.uid })
+      const response = { contractId, revision: nextRevision, action, ...paymentReceipt }
       if (commandReference) transaction.create(commandReference, { schemaVersion: 1, actorUid: actor.uid, contractId, payloadHash, result: response, createdAt: FieldValue.serverTimestamp() })
       return response
     })

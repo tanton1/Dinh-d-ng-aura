@@ -28,6 +28,35 @@ const row: RenewalPipelineRow = {
 }
 const options: RenewalPipelineResponse['options'] = { packages: [{ id: 'package-1', name: 'PT 12 buổi', price: 3000000, totalSessions: 12, durationMonths: 3, branchId: 'branch-1' }], branches: [], cashAccounts: [], assignees: [] }
 
+test('renewal accepts custom installment amounts after upfront collection and keeps them when the upfront amount changes', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await mockRenewals(page, { row, scope: 'system', options: { ...options, cashAccounts: [{ id: 'bank-1', name: 'Quỹ chi nhánh', branchId: 'branch-1', type: 'bank' }] } })
+  await page.goto('/tests/e2e/fixtures/contract-renewal.html')
+  const dialog = page.getByRole('dialog', { name: 'Tạo hợp đồng tiếp theo' })
+  const next = dialog.getByRole('button', { name: 'Tiếp tục', exact: true })
+  await next.click(); await next.click()
+  await dialog.getByLabel('Số tiền trả trước', { exact: true }).fill('1000000')
+  await dialog.getByLabel('Số kỳ trả góp', { exact: true }).selectOption('2')
+  await dialog.getByRole('button', { name: 'Chia đều', exact: true }).click()
+  await dialog.getByLabel('Số tiền kỳ 1', { exact: true }).fill('500000')
+  await dialog.getByLabel('Số tiền kỳ 2', { exact: true }).fill('1500000')
+  await dialog.getByLabel('Số tiền trả trước', { exact: true }).fill('1200000')
+  await expect(dialog.getByLabel('Số tiền kỳ 1', { exact: true })).toHaveValue('500000')
+  await expect(dialog.getByText(/Vượt 200.000đ/)).toBeVisible()
+  await next.click()
+  await expect(dialog.getByRole('heading', { name: 'Thu tiền & công nợ', exact: true })).toBeVisible()
+  expect(await page.evaluate(() => window.renewalSubmissions)).toEqual([])
+  await dialog.getByLabel('Số tiền kỳ 2', { exact: true }).fill('1300000')
+  await page.screenshot({ path: `test-results/${testInfo.project.name}-renewal-custom-payments.png`, fullPage: true })
+  expect(await dialog.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true)
+  await next.click()
+  await dialog.getByRole('button', { name: 'Xác nhận tái ký', exact: true }).click()
+  await expect.poll(() => page.evaluate(() => window.renewalSubmissions.length)).toBe(1)
+  const command = await page.evaluate(() => window.renewalSubmissions[0])
+  expect(command.initialPayment).toBe(1200000)
+  expect((command.installments as any[]).map(item => item.amount)).toEqual([500000, 1300000])
+})
+
 async function mockRenewals(page: Page, fixture: PreparedContractRenewal = { row, options, scope: 'system' }, behavior: { quoteFailures?: number; holdQuote?: boolean; confirmationFailures?: number; committedAfterFailure?: boolean; reconciliationFails?: boolean } = {}) {
   await page.addInitScript(({ fixture, behavior }) => {
     Object.assign(window, { renewalFixture: fixture, renewalSubmissions: [], renewalQuoteRequests: [], renewalApprovalRequests: [], renewalApprovalStatus: 'pending', renewalMockBehavior: behavior })
@@ -117,7 +146,7 @@ for (const width of [390, 1440]) test(`full-price renewal creates its quote on C
   await next.click()
   await expect(dialog.getByRole('heading', { name: 'Thu tiền & công nợ' })).toBeVisible()
   expect(await page.evaluate(() => window.renewalQuoteRequests)).toEqual([{ caseId: 'source', packageId: 'package-1', expectedRevision: 1, discount: 0, carryOverSessions: 3 }])
-  await dialog.getByLabel('Thu ngay', { exact: true }).fill('9600000')
+  await dialog.getByLabel('Số tiền trả trước', { exact: true }).fill('9600000')
   await expect(dialog.getByLabel('Tài khoản quỹ')).toHaveValue('bank-1')
   await next.click()
   await dialog.getByLabel('Ghi chú giao dịch').fill('Đồng ý')
@@ -431,7 +460,7 @@ test('queue reuses dictionaries only on load-more and opens fresh full-price/ful
   await dialog.getByRole('button', { name: 'Tiếp tục', exact: true }).click()
   await expect(dialog.getByLabel('Giá niêm yết')).toHaveValue('4.300.000đ')
   await dialog.getByRole('button', { name: 'Tiếp tục', exact: true }).click()
-  await dialog.getByLabel('Thu ngay', { exact: true }).fill('100000')
+  await dialog.getByLabel('Số tiền trả trước', { exact: true }).fill('100000')
   await expect(dialog.getByRole('combobox', { name: 'Tài khoản quỹ', exact: true })).toHaveValue('cash-v1')
   await expect(dialog.getByRole('combobox', { name: 'Tài khoản quỹ', exact: true }).locator('option:checked')).toHaveText('Quỹ mới v1')
   await dialog.getByRole('button', { name: 'Đóng', exact: true }).click()
@@ -460,7 +489,7 @@ test('a late list page cannot replace the open wizard options or prepared scope'
   await expect(dialog).toContainText(/toàn hệ thống/i)
   await dialog.getByRole('button', { name: 'Tiếp tục', exact: true }).click()
   await dialog.getByRole('button', { name: 'Tiếp tục', exact: true }).click()
-  await dialog.getByLabel('Thu ngay', { exact: true }).fill('100000')
+  await dialog.getByLabel('Số tiền trả trước', { exact: true }).fill('100000')
   await expect(dialog.getByRole('combobox', { name: 'Tài khoản quỹ', exact: true })).toHaveValue('cash-v1')
 })
 

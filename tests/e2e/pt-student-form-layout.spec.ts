@@ -67,7 +67,7 @@ test('PT student roster uses a desktop table without leaking horizontal overflow
   expect(dimensions.rosterRight).toBeLessThanOrEqual(dimensions.viewport)
 })
 
-test('Student 360 contract date fields stay fixed inside the phone viewport', async ({ page }) => {
+test('Student 360 contract and installment date fields stay inside the phone viewport', async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 844 })
   await page.goto('/#/admin-pt-students')
   const studentCard = page.locator('.student-management__card').first()
@@ -83,8 +83,9 @@ test('Student 360 contract date fields stay fixed inside the phone viewport', as
   await expect(dialog).toBeVisible()
   await expect(dialog.getByRole('heading', { name: 'Tạo hợp đồng mới' })).toBeVisible()
   const dates = dialog.locator('input[type="date"]')
-  await expect(dates).toHaveCount(2)
-  await dates.first().fill('2026-08-26')
+  await expect(dates).toHaveCount(3)
+  await dialog.getByLabel('Ngày bắt đầu', { exact: true }).fill('2026-08-26')
+  await dialog.getByLabel('Ngày đến hạn kỳ 1', { exact: true }).fill('2026-09-26')
 
   const layout = await page.evaluate(() => {
     const modal = document.querySelector<HTMLElement>('.student360-dialog-layer')

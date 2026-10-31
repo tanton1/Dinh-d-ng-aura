@@ -167,7 +167,7 @@ export async function mutateStudent360Contract(input: Student360ContractMutation
   if (!functionsClient) throw new Error('Firebase Functions chưa được cấu hình.')
   try {
     const callableName = firebaseStudent360Functions ? 'mutateStudent360ContractRegional' : 'mutateStudent360Contract'
-    const callable = httpsCallable<Student360ContractMutation, { contractId: string; revision: number; action: string }>(functionsClient, callableName, { timeout: 30_000 })
+    const callable = httpsCallable<Student360ContractMutation, { contractId: string; revision: number; action: string; paymentEntryId?: string; receiptVoucherId?: string; receiptVoucherNumber?: string }>(functionsClient, callableName, { timeout: 30_000 })
     return (await callable(input)).data
   } catch (cause) {
     const code = cause && typeof cause === 'object' && 'code' in cause ? String(cause.code) : ''
