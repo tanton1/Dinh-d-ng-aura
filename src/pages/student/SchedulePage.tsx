@@ -292,6 +292,7 @@ export default function SchedulePage({ onNavigate, isDemo = false }: { onNavigat
     try {
       const response = await listStudentTrainingHistory(data.student.id, {
         allTime: true,
+        includeContracts: true,
         status: 'all',
         pageSize: 100,
         cursor,
@@ -609,8 +610,7 @@ export default function SchedulePage({ onNavigate, isDemo = false }: { onNavigat
           loading={historyLoading}
           error={historyError}
           isDemo={isDemo}
-          quotaUsed={activeContract?.usedSessions}
-          quotaTotal={activeContract?.totalSessions}
+          contracts={contracts}
           demoSessions={historySessions}
           demoSummary={demoHistorySummary}
           onRetry={() => { historyLoadedStudentRef.current = data?.student?.id || ''; void loadHistory(false) }}
